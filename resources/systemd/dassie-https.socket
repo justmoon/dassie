@@ -1,5 +1,5 @@
-# Port 443 for the node, IPv4 and IPv6: the wallet, Open Payments, and its
-# peers.
+# Port 443 for the node, IPv4 and IPv6: the wallet and Open Payments. Peers
+# reach it over QUIC, on UDP port 443 (dassie-quic.socket).
 [Unit]
 Description=Dassie node, HTTPS
 

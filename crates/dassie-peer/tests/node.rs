@@ -687,25 +687,6 @@ fn taking_quic(own: &Arc<NodeKey>, boot: &NodeKey) -> PeerNode {
     )
 }
 
-/// A link state of `key` at `url` that says the node takes QUIC.
-fn quic_link_state(key: &NodeKey, url: &str) -> Vec<u8> {
-    let info = NodeInfo {
-        node_id: key.node_id(),
-        sequence: START,
-        url,
-        alias: "",
-        public_key: *key.public_key().as_bytes(),
-        entries: vec![
-            Entry::Scheme(SchemeId::parse("stub").unwrap()),
-            Entry::Extension {
-                kind: dassie_peer::wire::EXTENSION_QUIC,
-                value: &[],
-            },
-        ],
-    };
-    sign_node_info(key, &info)
-}
-
 /// The requests the node wants sent now.
 fn sent(node: &mut PeerNode) -> Vec<dassie_peer::Request> {
     let mut requests = Vec::new();
@@ -717,11 +698,12 @@ fn sent(node: &mut PeerNode) -> Vec<dassie_peer::Request> {
     requests
 }
 
-// A node that takes QUIC says so in its link state. A request goes over QUIC
-// to a node whose link state says so, and over HTTPS to a bootstrap node
-// known only from the configuration, until its link state arrives.
+// A node that takes QUIC says so in its link state, and asks a bootstrap
+// node known only from the configuration at once, at its configured URL:
+// QUIC is the only transport, and needs no link state to dial a node whose
+// ID it knows.
 #[test]
-fn link_states_say_who_takes_quic_and_requests_follow_them() {
+fn link_states_say_who_takes_quic_and_bootstrap_nodes_are_asked_at_once() {
     let (own, boot) = (key(0), key(1));
     let mut hooks = dassie_peer::sim::StubHooks::default();
     let mut node = taking_quic(&own, &boot);
@@ -741,46 +723,7 @@ fn link_states_say_who_takes_quic_and_requests_follow_them() {
     assert!(ours);
     let to_boot: Vec<_> = before.iter().filter(|r| r.to == boot.node_id()).collect();
     assert!(!to_boot.is_empty());
-    assert!(to_boot.iter().all(|request| !request.quic));
-    for request in before {
-        node.handle_response(
-            START,
-            &mut hooks,
-            request.id,
-            Err(dassie_peer::Failure::NotDelivered),
-        );
-    }
-
-    let state = quic_link_state(&boot, &url(1));
-    let content = Content::LinkStateUpdate(SignedNodeInfo::decode_exact(&state).unwrap());
-    // Past the floor a sender we have not heard from starts at: our start.
-    let body = request_at(START + 1, &boot, 0, &content);
-    let reply = node.handle_inbound(
-        START + 1,
-        &mut hooks,
-        dassie_peer::InboundId(1),
-        &body,
-        None,
-    );
-    assert!(
-        matches!(&reply, dassie_peer::Inbound::Reply(reply) if reply.status == 200),
-        "{reply:?}"
-    );
-
-    let mut after = Vec::new();
-    for second in 1..=120 {
-        node.handle_timeout(START + second * 1_000, &mut hooks);
-        after.extend(
-            sent(&mut node)
-                .into_iter()
-                .filter(|r| r.to == boot.node_id()),
-        );
-        if !after.is_empty() {
-            break;
-        }
-    }
-    assert!(!after.is_empty());
-    assert!(after.iter().all(|request| request.quic));
+    assert!(to_boot.iter().all(|request| request.url == url(1)));
 }
 
 /// The link state `node` issues first, as it goes to its bootstrap node.

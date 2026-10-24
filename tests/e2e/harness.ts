@@ -248,7 +248,15 @@ export async function startPebble(): Promise<Process[]> {
  * named as in the unit files.
  */
 export async function startActivated(dir: string): Promise<Process> {
+  // One activator listens on datagrams only, so the QUIC socket, which the
+  // daemon does not run without, comes from an outer one on the HTTPS
+  // port's number, as under systemd; the inner passes it on first.
   const daemon = new Process("dassie", "systemd-socket-activate", [
+    "--now",
+    "--datagram",
+    "-l",
+    `127.0.0.1:${HTTPS_PORT}`,
+    "systemd-socket-activate",
     "--now",
     "-l",
     `127.0.0.1:${HTTP_PORT}`,
@@ -256,7 +264,7 @@ export async function startActivated(dir: string): Promise<Process> {
     `127.0.0.1:${HTTPS_PORT}`,
     "-l",
     `${dir}/ipc.sock`,
-    "--fdname=dassie-http.socket:dassie-https.socket:dassie-ipc.socket",
+    "--fdname=dassie-quic.socket:dassie-http.socket:dassie-https.socket:dassie-ipc.socket",
     `--setenv=DASSIE_STATE_DIRECTORY=${dir}/state`,
     `--setenv=DASSIE_ACME_CA_FILE=${PEBBLE_API_ROOT}`,
     `--setenv=DASSIE_BOOTSTRAP_NODES=${NO_BOOTSTRAP_NODES}`,

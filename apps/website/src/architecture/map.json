@@ -344,7 +344,7 @@
       "does": [
         "The database and its migrations, HTTPS and IPC listeners, TLS and ACME, the owner's login",
         "The engine: ledger, connector, BTP server and STREAM receiver",
-        "The peer protocol over QUIC, with each node's key pinned, and over HTTPS as `POST /peer` for nodes that do not take QUIC; the settlement loop",
+        "The peer protocol over QUIC, its only transport, with each node's key pinned, and a short backoff from a node it cannot reach; the settlement loop",
         "QUIC connections held apart by who opened them, as the key each proved says: core peers, downlinks and everyone else each have room of their own, so many downlinks never crowd out the links that carry the network",
         "Relayed streams: any QUIC node relays for the nodes connected to it, with TLS end to end, so a node without a public address that keeps a connection to a relay is still reached for Open Payments and by the owner's paired apps; a node without a hostname keeps one to the `dassiepay.net` front door unless `DASSIE_RELAY` names another or, empty, none",
         "Front doors: a server with a key of its own and a wildcard certificate that takes Open Payments requests for `<label>.<domain>` and passes them to the node the label names, over relayed streams it opens on the connection the node keeps to it; it returns only the node's signed JSON, under a policy that lets nothing run, and never a node's page or a cookie; at the root of a name it shows a short static page of its own, saying what the name is and whether the node is connected",
@@ -355,7 +355,7 @@
         "A core node's rate feed: the price table, signed once and sent over UDP to every subscriber that proved its address, at most once a second while it changes, with the feed's port in `GET /stats` and the node's link state, and its counters in the owner's status rather than the log",
         "Credit to each peer that grows with the fees it earned the node, read from the journal; over a settlement hub, the credit is the node's own hold toward the peer, kept in step as the hold is funded and taken from, and nothing grows",
         "Peerings over a settlement hub: the node names its hub in its link state and peers over it with members of the same hub, sends a commitment with each Prepare and a claim with each reply to a Fulfill, and books what a peering cost beyond its hold as a loss on the peer",
-        "Settlement hubs' validator role, which an owner turns on for the sponsors it lists: a validator per hub, its consensus state and ledger written before each step's messages go out, the hub's messages over a QUIC stream of their own (and `POST /hub` for members), and the hub's escrow followed on the XRP Ledger, from deposits to resets of the test network",
+        "Settlement hubs' validator role, which an owner turns on for the sponsors it lists: a validator per hub, its consensus state and ledger written before each step's messages go out, the hub's messages over a QUIC stream of their own, and the hub's escrow followed on the XRP Ledger, from deposits to resets of the test network",
         "Founding settlement hubs: as a sponsor, it asks the validators its owner picked to accept the terms, gathers a quorum's signatures of the genesis and hands them the certificate, then funds the escrow from its XRP Ledger account and sets it up; as a validator, it accepts only listed sponsors' terms, within its bound on hubs, signs one genesis per nonce and runs the hub its certificate founds",
         "A member's copies of its hub's payout bundles, fetched from each validator once the hub ended or stalled, checked against the rules and kept, so the member can pay itself out if the validators are gone",
         "Funding its hub account: the node opens it with a first deposit from its XRP Ledger account, deposits when what it can spend falls below a floor of what its hub peerings need, and withdraws what goes above a ceiling, both counted in the largest packet; one move at a time, kept in the database until the hub account's counters show it, so a restart never pays one twice; the owner moves funds too, and may turn the node's own moves off",
@@ -1359,7 +1359,7 @@
           "ids": [
             "node"
           ],
-          "text": "Those messages travel over QUIC, one connection per pair of nodes, or over HTTPS as `POST /peer` to a node that does not take QUIC."
+          "text": "Those messages travel over QUIC, one connection per pair of nodes, on UDP at each node's address."
         },
         {
           "ids": [

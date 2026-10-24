@@ -15,6 +15,7 @@ pub mod node;
 pub mod open_payments;
 pub mod owner_app;
 pub mod peer_client;
+pub mod peer_server;
 pub mod rates;
 pub mod rpc;
 pub mod slots;

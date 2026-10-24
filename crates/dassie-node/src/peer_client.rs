@@ -1,12 +1,12 @@
-//! The node's outbound HTTPS client: peer requests
-//! (spec/areas/peer-protocol.md#outbound-requests), `POST {url}/peer`, and
-//! Open Payments' requests to other servers
-//! (spec/decisions/open-payments.md), over HTTPS to public addresses only,
-//! with bounded concurrency and response sizes, and no redirects.
+//! The node's outbound client: the bounds on peer requests in flight, which
+//! go over QUIC (spec/areas/peer-protocol.md#outbound-requests), the
+//! resolver QUIC dials by, and Open Payments' and other requests to other
+//! servers (spec/decisions/open-payments.md), over HTTPS to public
+//! addresses only, with bounded concurrency and response sizes, and no
+//! redirects.
 //!
 //! The node owns one client, so its connection pool outlives restarts of
-//! the engine. Whether a failure means the request surely did not arrive
-//! matters for packets: only then is a packet rejected at once.
+//! the engine.
 
 use std::collections::BTreeMap;
 use std::fmt;
@@ -21,9 +21,8 @@ use std::time::Duration;
 
 use bytes::Bytes;
 use dassie_node_core::address::is_public;
-use dassie_peer::wire::{MESSAGE_CONTENT_TYPE, RESPONSE_CONTENT_TYPE};
-use dassie_peer::{Failure, Request, Response};
-use http::header::{ACCEPT, CONTENT_TYPE};
+use dassie_peer::{Failure, Request};
+use http::header::CONTENT_TYPE;
 use http_body_util::{BodyExt, Full, Limited};
 use hyper_rustls::{HttpsConnector, HttpsConnectorBuilder};
 use hyper_util::client::legacy::Client as HyperClient;
@@ -37,9 +36,6 @@ use crate::tls;
 
 /// Time to connect.
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
-
-/// Longest response body read: a node list of 4096 IDs fits.
-const MAX_RESPONSE_BYTES: usize = 256 * 1024;
 
 /// Most requests in flight, in total and to one host.
 const MAX_IN_FLIGHT: usize = 128;
@@ -271,20 +267,9 @@ impl PeerClient {
         })
     }
 
-    /// Sends `request` and reads its response.
-    ///
-    /// # Errors
-    ///
-    /// [`Failure::NotDelivered`] when the request surely did not reach the
-    /// node: refused here, or the connection failed. [`Failure::Unknown`]
-    /// when it may have: a timeout or a broken response.
-    pub async fn send(&self, request: Request) -> Result<Response, Failure> {
-        let _slot = self.hold(&request)?;
-        self.send_held(request).await
-    }
-
     /// Takes `request`'s place in the bounds on requests in flight, which
-    /// every transport shares; `None` for a packet, which takes none.
+    /// requests to other servers share; `None` for a packet, which takes
+    /// none.
     ///
     /// # Errors
     ///
@@ -311,62 +296,6 @@ impl PeerClient {
             self.slot(host)
         };
         slot.map(Some).ok_or(Failure::NotDelivered)
-    }
-
-    /// Sends `request` over HTTPS, its place in the bounds held
-    /// ([`hold`](Self::hold)).
-    ///
-    /// # Errors
-    ///
-    /// As for [`send`](Self::send).
-    pub async fn send_held(&self, request: Request) -> Result<Response, Failure> {
-        let url = format!("{}/peer", request.url);
-        let host = request.url.strip_prefix("https://").unwrap_or_default();
-        if !self.allow_private && literal_is_private(host) {
-            return Err(Failure::NotDelivered);
-        }
-        let Ok(http_request) = http::Request::post(&url)
-            .header(ACCEPT, MESSAGE_CONTENT_TYPE)
-            .header(CONTENT_TYPE, MESSAGE_CONTENT_TYPE)
-            .body(Full::new(Bytes::from(request.body)))
-        else {
-            return Err(Failure::NotDelivered);
-        };
-        let timeout = Duration::from_millis(request.timeout_ms.max(1));
-        match tokio::time::timeout(timeout, self.exchange(http_request)).await {
-            Ok(result) => result,
-            Err(_) => Err(Failure::Unknown),
-        }
-    }
-
-    async fn exchange(&self, request: http::Request<Full<Bytes>>) -> Result<Response, Failure> {
-        let response = self.http.request(request).await.map_err(|error| {
-            if error.is_connect() {
-                Failure::NotDelivered
-            } else {
-                Failure::Unknown
-            }
-        })?;
-        let status = response.status().as_u16();
-        let content_type_ok = response
-            .headers()
-            .get(CONTENT_TYPE)
-            .is_some_and(|value| value.as_bytes() == RESPONSE_CONTENT_TYPE.as_bytes());
-        let body = Limited::new(response.into_body(), MAX_RESPONSE_BYTES)
-            .collect()
-            .await
-            .map_err(|_| Failure::Unknown)?
-            .to_bytes()
-            .to_vec();
-        if status == 200 && !content_type_ok {
-            // Not a peer's answer: treat it as an error, which no status
-            // says arrived.
-            return Ok(Response {
-                status: 502,
-                body: Vec::new(),
-            });
-        }
-        Ok(Response { status, body })
     }
 }
 
@@ -507,7 +436,6 @@ mod tests {
             id: dassie_peer::RequestId(0),
             to: dassie_identity::NodeKey::from_bytes(&[seed; 32]).node_id(),
             url: String::new(),
-            quic: true,
             kind: dassie_peer::wire::Kind::LinkStateUpdate,
             body: Vec::new(),
             timeout_ms: 1_000,

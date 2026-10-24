@@ -10,7 +10,7 @@ The decisions (whether an origin is allowed, a session valid, a setup attempt ri
 ## Listeners
 
 - **HTTP** serves ACME challenges and redirects everything else to HTTPS, keeping path and query.
-- **HTTPS** serves everything else: the BTP server, the RPC WebSocket, setup and login, the peer protocol for nodes that do not take QUIC ([Peer protocol](peer-protocol.md#transport)), Open Payments, `/stats` and the wallet.
+- **HTTPS** serves everything else: the BTP server, the RPC WebSocket, setup and login, Open Payments, `/stats` and the wallet.
 - Connections are bounded per listener and per client, where a client is an IPv4 address or an IPv6 /56, so one host cannot take every place by rotating addresses. Loopback is counted only in the total where private peers are allowed (dev environments and tests). Handshakes, headers and bodies are bounded in size and time too (`http/mod.rs`, `dassie-node-core/src/connections.rs`).
 - At shutdown a listener stops accepting, lets requests in progress finish for a bounded time, and closes WebSockets with 1001.
 
@@ -22,7 +22,7 @@ The decisions (whether an origin is allowed, a session valid, a setup attempt ri
 
 A node reached through a relay ([Peer protocol](peer-protocol.md#relayed-streams)) serves HTTP/1.1 on a relayed stream with purpose `payments`, once its TLS is done (`serve_relayed` in `http/mod.rs`). A stream with purpose `owner` carries no HTTP, only a paired app's RPC ([RPC](rpc.md#paired-devices)).
 
-- **Open Payments only.** Every other path is 404, upgrades included: the wallet, `/api/*`, `/rpc`, `/peer`, BTP and `/stats` are served only on the node's own listeners ([core-and-periphery](../decisions/core-and-periphery.md)). A page served through a relay could keep the owner's passphrase, and nothing on a relayed stream shows that a browser's origin is the node's.
+- **Open Payments only.** Every other path is 404, upgrades included: the wallet, `/api/*`, `/rpc`, BTP and `/stats` are served only on the node's own listeners ([core-and-periphery](../decisions/core-and-periphery.md)). A page served through a relay could keep the owner's passphrase, and nothing on a relayed stream shows that a browser's origin is the node's.
 - **The same rules as over HTTPS** ([Payments](payments.md#http-routes)): the request's `Host` names the name it is answered under, and one that is not among [the node's names](payments.md#the-nodes-names) is refused with 421; the answer is [signed with the node key](payments.md#signed-responses), so a client can check it whoever passed it on; and CORS, request signatures, bounded bodies and the security headers apply, without HSTS. The rate limits per client address count the relay's address, the only one the node sees; the relay bounds streams per client.
 
 ### The wallet's files
@@ -66,7 +66,7 @@ The owner's endpoints, the `/rpc` upgrade and the `/api/*` POSTs, accept a reque
 
 **`Host` must also be a name the node answers to:** its configured hostname, `localhost`, or an IP literal. Otherwise DNS rebinding gets through: an attacker's name that resolves to the node makes the attacker's page same-origin with itself, `Origin` and `Host` agreeing. Hosts and ports are parsed to one canonical spelling each, so the comparison cannot be fooled by spelling.
 
-Open Payments, `/peer`, `/btp`, `/stats` and the wallet's files do not apply the rule: their clients are not browsers acting for the owner, and authenticate otherwise or not at all. Open Payments allows every origin ([payments.md](payments.md#http-routes)).
+Open Payments, `/btp`, `/stats` and the wallet's files do not apply the rule: their clients are not browsers acting for the owner, and authenticate otherwise or not at all. Open Payments allows every origin ([payments.md](payments.md#http-routes)).
 
 ## Response headers
 

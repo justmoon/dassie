@@ -46,6 +46,7 @@ Each file records one choice between real alternatives: the facts that forced it
 | [periphery-lists-no-neighbors](periphery-lists-no-neighbors.md) | A periphery node's link state lists no neighbors, so it may keep many uplinks | network, peer-protocol, connector |
 | [places-by-proved-key](places-by-proved-key.md) | A connection holds a place by the key it proved | peer-protocol, network, designs/periphery |
 | [promotion-to-core](promotion-to-core.md) | A node becomes core by registering and being promoted (not built) | network, peer-protocol, designs/periphery |
+| [quic-only](quic-only.md) | The peer protocol and the hubs' messages travel over QUIC only | peer-protocol, node, network, designs/periphery, release |
 | [random-seed-simulations](random-seed-simulations.md) | Simulations run continuously, from random seeds (partly built) | testing |
 | [ready-after-first-step](ready-after-first-step.md) | A node is up once its engine has committed a step | node, release |
 | [real-money](real-money.md) | Real money | xrpl, node, designs/settlement-hubs, roadmap |

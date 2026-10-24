@@ -1,7 +1,7 @@
 //! The peer protocol over QUIC, between endpoints on loopback: requests and
 //! their answers, keys pinned by node ID, bounds on bodies, one connection
-//! per pair of nodes, and places for connections by who opened them
-//! (spec/areas/peer-protocol.md#quic).
+//! per pair of nodes, places for connections by who opened them, and backing
+//! off from a node that cannot be reached (spec/areas/peer-protocol.md#quic).
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
@@ -13,14 +13,14 @@ use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
 use dassie_identity::{NodeId, NodeKey};
-use dassie_node::http::peer::{Answer, BodyError};
 use dassie_node::peer_client::PeerClient;
+use dassie_node::peer_server::{Answer, BodyError};
 use dassie_node::quic::places::{Classes, Counts, Peerings};
-use dassie_node::quic::{Body, Handler, Quic, SendError, Transport, send_peer};
+use dassie_node::quic::{Body, Handler, Quic, send_peer};
 use dassie_node_core::connections::ConnectionLimits;
 use dassie_node_core::rate_limit::ClientKey;
-use dassie_peer::wire::{Kind, MAX_MESSAGE_BYTES, RESPONSE_CONTENT_TYPE};
-use dassie_peer::{Request, RequestId};
+use dassie_peer::wire::{Kind, MAX_MESSAGE_BYTES};
+use dassie_peer::{Failure, Request, RequestId};
 use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;
 
@@ -170,15 +170,6 @@ fn side(seed: u8, shutdown: &CancellationToken) -> Side {
 
 fn side_with(seed: u8, shutdown: &CancellationToken, handler: Arc<dyn Handler>) -> Side {
     let socket = UdpSocket::bind("127.0.0.1:0").unwrap();
-    side_on(seed, shutdown, handler, socket)
-}
-
-fn side_on(
-    seed: u8,
-    shutdown: &CancellationToken,
-    handler: Arc<dyn Handler>,
-    socket: UdpSocket,
-) -> Side {
     let key = Arc::new(NodeKey::from_bytes(&[seed; 32]));
     let id = key.node_id();
     let (identity, receiver) = watch::channel(Some(key));
@@ -192,9 +183,6 @@ fn side_on(
         _identity: identity,
     }
 }
-
-/// Time to connect, in the tests.
-const CONNECT: std::time::Duration = std::time::Duration::from_secs(2);
 
 fn client() -> PeerClient {
     // Roots of its own: the build sandbox has none of the system's. QUIC
@@ -211,7 +199,6 @@ fn request(to: &Side, body: Vec<u8>) -> Request {
         id: RequestId(1),
         to: to.id,
         url: to.url.clone(),
-        quic: true,
         kind: Kind::LinkStateRequest,
         body,
         timeout_ms: 5_000,
@@ -224,7 +211,7 @@ async fn a_request_gets_its_answer() {
     let (a, b) = (side(1, &shutdown), side(2, &shutdown));
     let response = a
         .quic
-        .send(&request(&b, b"hello".to_vec()), &client(), CONNECT)
+        .send(&request(&b, b"hello".to_vec()), &client())
         .await
         .unwrap();
     assert_eq!(response.status, 200);
@@ -241,12 +228,12 @@ async fn a_server_with_another_key_is_not_reached() {
     let impostor = NodeKey::from_bytes(&[3; 32]).node_id();
     let mut wrong = request(&b, b"hello".to_vec());
     wrong.to = impostor;
-    let result = a.quic.send(&wrong, &client(), CONNECT).await;
-    assert_eq!(result, Err(SendError::Unreachable));
+    let result = a.quic.send(&wrong, &client()).await;
+    assert_eq!(result, Err(Failure::NotDelivered));
     assert_eq!(b.quic.stats().answered.load(Ordering::Relaxed), 0);
-    // Asked over HTTPS for a while, without trying again.
-    assert!(a.quic.is_unreachable(&impostor));
-    assert!(!a.quic.is_unreachable(&b.id));
+    // Not dialled again for a while.
+    assert!(a.quic.backing_off(&impostor));
+    assert!(!a.quic.backing_off(&b.id));
     shutdown.cancel();
 }
 
@@ -255,16 +242,12 @@ async fn a_body_past_the_limit_is_refused() {
     let shutdown = CancellationToken::new();
     let (a, b) = (side(1, &shutdown), side(2, &shutdown));
     let large = vec![0; MAX_MESSAGE_BYTES + 1];
-    let response = a
-        .quic
-        .send(&request(&b, large), &client(), CONNECT)
-        .await
-        .unwrap();
+    let response = a.quic.send(&request(&b, large), &client()).await.unwrap();
     assert_eq!(response.status, 413);
     let fits = vec![7; MAX_MESSAGE_BYTES];
     let response = a
         .quic
-        .send(&request(&b, fits.clone()), &client(), CONNECT)
+        .send(&request(&b, fits.clone()), &client())
         .await
         .unwrap();
     assert_eq!((response.status, response.body), (200, fits));
@@ -277,18 +260,18 @@ async fn a_pair_of_nodes_shares_one_connection() {
     let (a, b) = (side(1, &shutdown), side(2, &shutdown));
     let client = client();
     a.quic
-        .send(&request(&b, b"one".to_vec()), &client, CONNECT)
+        .send(&request(&b, b"one".to_vec()), &client)
         .await
         .unwrap();
     // The answer comes back on the connection a opened, which b keeps.
     let response = b
         .quic
-        .send(&request(&a, b"two".to_vec()), &client, CONNECT)
+        .send(&request(&a, b"two".to_vec()), &client)
         .await
         .unwrap();
     assert_eq!(response.body, b"two");
     a.quic
-        .send(&request(&b, b"three".to_vec()), &client, CONNECT)
+        .send(&request(&b, b"three".to_vec()), &client)
         .await
         .unwrap();
     assert_eq!(a.quic.open_connections(), 1);
@@ -303,10 +286,8 @@ async fn a_node_without_its_key_reaches_nobody() {
     let (_identity, receiver) = watch::channel(None);
     let socket = UdpSocket::bind("127.0.0.1:0").unwrap();
     let a = Arc::new(Quic::new(socket, receiver, true).unwrap());
-    let result = a
-        .send(&request(&b, b"hello".to_vec()), &client(), CONNECT)
-        .await;
-    assert_eq!(result, Err(SendError::Unreachable));
+    let result = a.send(&request(&b, b"hello".to_vec()), &client()).await;
+    assert_eq!(result, Err(Failure::NotDelivered));
     shutdown.cancel();
 }
 
@@ -324,7 +305,7 @@ async fn requests_to_one_node_run_side_by_side() {
     let sends = (0..AT_ONCE).map(|index| {
         let (quic, request) = (Arc::clone(&a.quic), request(&b, vec![7; index + 1]));
         let client = client.clone();
-        async move { quic.send(&request, &client, CONNECT).await }
+        async move { quic.send(&request, &client).await }
     });
     let answers = tokio::time::timeout(
         std::time::Duration::from_secs(10),
@@ -339,50 +320,87 @@ async fn requests_to_one_node_run_side_by_side() {
     shutdown.cancel();
 }
 
-/// A UDP socket and a TCP listener on the same port number. Left unserved,
-/// a node whose UDP drops everything, and whose HTTPS takes connections
-/// but answers nothing.
-async fn silent() -> (UdpSocket, tokio::net::TcpListener, u16) {
-    for _ in 0..16 {
-        let udp = UdpSocket::bind("127.0.0.1:0").unwrap();
-        let port = udp.local_addr().unwrap().port();
-        if let Ok(tcp) = tokio::net::TcpListener::bind(("127.0.0.1", port)).await {
-            return (udp, tcp, port);
-        }
-    }
-    panic!("no port free on both UDP and TCP");
+// A request goes over QUIC, the only transport; without a QUIC endpoint
+// nothing is sent.
+#[tokio::test]
+async fn a_peer_request_goes_over_quic() {
+    let shutdown = CancellationToken::new();
+    let (a, b) = (side(1, &shutdown), side(2, &shutdown));
+    let client = client();
+    let response = send_peer(
+        Some(Arc::clone(&a.quic)),
+        &client,
+        request(&b, b"hello".to_vec()),
+    )
+    .await
+    .unwrap();
+    assert_eq!(response.body, b"hello");
+    let result = send_peer(None, &client, request(&b, b"hello".to_vec())).await;
+    assert_eq!(result, Err(Failure::NotDelivered));
+    shutdown.cancel();
 }
 
-// A request as short as a probe still reaches HTTPS when QUIC cannot be
-// reached: the connection attempt takes only part of its time.
+// A node whose UDP drops everything is not delivered to, within the
+// request's time, and is not dialled again for a while: the next request
+// fails at once.
 #[tokio::test]
-async fn a_short_request_falls_back_to_https_in_time() {
+async fn a_node_out_of_reach_is_not_dialled_again_for_a_while() {
     let shutdown = CancellationToken::new();
     let a = side(1, &shutdown);
-    let (_udp, tcp, port) = silent().await;
+    let silent = UdpSocket::bind("127.0.0.1:0").unwrap();
+    let port = silent.local_addr().unwrap().port();
     let target = NodeKey::from_bytes(&[9; 32]).node_id();
     let request = Request {
         id: RequestId(7),
         to: target,
         url: format!("https://127.0.0.1:{port}"),
-        quic: true,
         kind: Kind::LinkStateRequest,
         body: b"probe".to_vec(),
         timeout_ms: 2_000,
     };
     let client = client();
     let started = tokio::time::Instant::now();
-    let (accepted, (result, transport)) = tokio::join!(
-        tcp.accept(),
-        send_peer(Some(Arc::clone(&a.quic)), &client, request)
-    );
-    assert!(accepted.is_ok(), "HTTPS was not tried");
-    assert_eq!(transport, Transport::Https);
-    assert!(result.is_err());
+    let result = a.quic.send(&request, &client).await;
+    assert_eq!(result, Err(Failure::NotDelivered));
     // Within its time, give or take a loaded machine's slack.
     assert!(started.elapsed() < std::time::Duration::from_millis(4_000));
-    // And asked over HTTPS from now on, without waiting for QUIC again.
-    assert!(a.quic.is_unreachable(&target));
+    assert!(a.quic.backing_off(&target));
+    let again = tokio::time::Instant::now();
+    assert_eq!(
+        a.quic.send(&request, &client).await,
+        Err(Failure::NotDelivered)
+    );
+    assert!(again.elapsed() < std::time::Duration::from_millis(500));
+    shutdown.cancel();
+}
+
+// A node backed off from is reached again as soon as it connects to us: a
+// peer that restarted and dials us is not left waiting out the backoff.
+#[tokio::test]
+async fn a_node_that_connects_ends_the_backoff() {
+    let shutdown = CancellationToken::new();
+    let (a, b) = (side(1, &shutdown), side(2, &shutdown));
+    let silent = UdpSocket::bind("127.0.0.1:0").unwrap();
+    let port = silent.local_addr().unwrap().port();
+    // b, at an address where it cannot be reached.
+    let mut elsewhere = request(&b, b"lost".to_vec());
+    elsewhere.url = format!("https://127.0.0.1:{port}");
+    elsewhere.timeout_ms = 1_000;
+    let client = client();
+    assert_eq!(
+        a.quic.send(&elsewhere, &client).await,
+        Err(Failure::NotDelivered)
+    );
+    assert!(a.quic.backing_off(&b.id));
+    b.quic
+        .send(&request(&a, b"back".to_vec()), &client)
+        .await
+        .unwrap();
+    until(|| !a.quic.backing_off(&b.id)).await;
+    // And asked on the connection b opened.
+    elsewhere.timeout_ms = 5_000;
+    let response = a.quic.send(&elsewhere, &client).await.unwrap();
+    assert_eq!(response.body, b"lost");
     shutdown.cancel();
 }
 
@@ -395,7 +413,7 @@ async fn a_request_in_progress_is_answered_at_shutdown() {
     let held = Arc::new(Held::default());
     let b = side_with(2, &shutdown_b, Arc::clone(&held) as Arc<dyn Handler>);
     let (quic, request) = (Arc::clone(&a.quic), request(&b, b"late".to_vec()));
-    let sending = tokio::spawn(async move { quic.send(&request, &client(), CONNECT).await });
+    let sending = tokio::spawn(async move { quic.send(&request, &client()).await });
     // Shut down while the request is in the handler, and let it answer only
     // once b takes no more connections: it is draining.
     held.arrived.notified().await;
@@ -407,53 +425,6 @@ async fn a_request_in_progress_is_answered_at_shutdown() {
     let response = sending.await.unwrap().unwrap();
     assert_eq!((response.status, response.body), (200, b"late".to_vec()));
     shutdown_a.cancel();
-}
-
-/// Answers `POST /peer` over HTTPS on `listener`, with the test's
-/// certificate for 127.0.0.1, echoing each body, as [`Echo`] does over QUIC.
-fn https_echo(listener: tokio::net::TcpListener) {
-    use http_body_util::{BodyExt, Full};
-    use hyper::service::service_fn;
-    use rustls::pki_types::pem::PemObject;
-    use rustls::pki_types::{CertificateDer, PrivateKeyDer};
-    let pebble = concat!(env!("CARGO_MANIFEST_DIR"), "/../../testdata/pebble");
-    let certs = CertificateDer::pem_file_iter(format!("{pebble}/cert.pem"))
-        .unwrap()
-        .collect::<Result<Vec<_>, _>>()
-        .unwrap();
-    let key = PrivateKeyDer::from_pem_file(format!("{pebble}/key.pem")).unwrap();
-    let config = rustls::ServerConfig::builder_with_provider(Arc::new(
-        rustls::crypto::ring::default_provider(),
-    ))
-    .with_safe_default_protocol_versions()
-    .unwrap()
-    .with_no_client_auth()
-    .with_single_cert(certs, key)
-    .unwrap();
-    let acceptor = tokio_rustls::TlsAcceptor::from(Arc::new(config));
-    tokio::spawn(async move {
-        while let Ok((stream, _)) = listener.accept().await {
-            let acceptor = acceptor.clone();
-            tokio::spawn(async move {
-                let Ok(tls) = acceptor.accept(stream).await else {
-                    return;
-                };
-                let service = service_fn(|request: hyper::Request<hyper::body::Incoming>| async {
-                    let body = request.into_body().collect().await?.to_bytes();
-                    let mut response = hyper::Response::new(Full::new(body));
-                    let content_type =
-                        hyper::header::HeaderValue::from_static(RESPONSE_CONTENT_TYPE);
-                    response
-                        .headers_mut()
-                        .insert(hyper::header::CONTENT_TYPE, content_type);
-                    Ok::<_, hyper::Error>(response)
-                });
-                let _ = hyper::server::conn::http1::Builder::new()
-                    .serve_connection(hyper_util::rt::TokioIo::new(tls), service)
-                    .await;
-            });
-        }
-    });
 }
 
 /// A server whose peerings the test sets, as `classes`.
@@ -493,7 +464,7 @@ async fn until(mut done: impl FnMut() -> bool) {
 /// Sends `from` a request to `to`, and says whether it was answered.
 async fn answered(from: &Side, to: &Side) -> bool {
     let request = request(to, b"hello".to_vec());
-    from.quic.send(&request, &client(), CONNECT).await.is_ok()
+    from.quic.send(&request, &client()).await.is_ok()
 }
 
 // Anyone else's places are full, yet a core peer and a downlink each find
@@ -563,30 +534,29 @@ async fn a_node_past_its_share_replaces_its_oldest_connection() {
 }
 
 // A stranger the server has no room for is told so as its connection
-// closes, before anything it sent was read: it asks over HTTPS, as when a
-// connection is refused outright, and for a while after.
+// closes, before anything it sent was read: nothing was delivered, as when
+// a connection is refused outright, and it backs off from the server.
 #[tokio::test]
-async fn a_stranger_without_room_is_asked_over_https() {
+async fn a_stranger_without_room_backs_off() {
     let shutdown = CancellationToken::new();
-    let (udp, tcp, _) = silent().await;
-    let (classes, receiver) = watch::channel(Arc::new(Classes::default()));
-    let server = side_on(1, &shutdown, Arc::new(Classed(receiver)), udp);
-    https_echo(tcp);
+    let (server, classes) = classed(&shutdown);
     for seed in 4..4 + ANYONE {
         let stranger = side(u8::try_from(seed).unwrap(), &shutdown);
         assert!(answered(&stranger, &server).await);
     }
     let late = side(9, &shutdown);
-    let (result, transport) = send_peer(
-        Some(Arc::clone(&late.quic)),
-        &client(),
-        request(&server, b"hello".to_vec()),
-    )
-    .await;
-    assert_eq!(transport, Transport::Https);
-    assert_eq!(result.unwrap().body, b"hello");
-    assert!(late.quic.is_unreachable(&server.id));
+    let hello = request(&server, b"hello".to_vec());
+    let result = late.quic.send(&hello, &client()).await;
+    assert_eq!(result, Err(Failure::NotDelivered));
+    assert!(late.quic.backing_off(&server.id));
     assert_eq!(server.quic.places(), Some(counts(0, 0, ANYONE)));
+    // Refused again once the first wait is over, it waits twice as long:
+    // the handshake the server let through ends no backoff.
+    until(|| !late.quic.backing_off(&server.id)).await;
+    let result = late.quic.send(&hello, &client()).await;
+    assert_eq!(result, Err(Failure::NotDelivered));
+    tokio::time::sleep(std::time::Duration::from_millis(1_500)).await;
+    assert!(late.quic.backing_off(&server.id), "the wait did not double");
     drop(classes);
     shutdown.cancel();
 }

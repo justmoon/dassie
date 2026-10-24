@@ -45,9 +45,8 @@ pub struct ActivatedSockets {
     pub https: TcpListener,
     /// For the CLI.
     pub ipc: UnixListener,
-    /// For the peer protocol over QUIC, if its unit is installed: units
-    /// from before QUIC have none.
-    pub quic: Option<UdpSocket>,
+    /// For the peer protocol over QUIC, its only transport.
+    pub quic: UdpSocket,
     /// For the rate feed, if its unit is installed: units from before the
     /// feed have none.
     pub feed: Option<UdpSocket>,
@@ -143,7 +142,7 @@ pub fn take_sockets(env: &Env) -> Result<ActivatedSockets, ActivationError> {
         http: http.ok_or(ActivationError::Missing(HTTP_SOCKET))?,
         https: https.ok_or(ActivationError::Missing(HTTPS_SOCKET))?,
         ipc: ipc.ok_or(ActivationError::Missing(IPC_SOCKET))?,
-        quic,
+        quic: quic.ok_or(ActivationError::Missing(QUIC_SOCKET))?,
         feed,
     })
 }

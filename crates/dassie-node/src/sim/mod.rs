@@ -1050,7 +1050,7 @@ impl Sim {
     /// Node `index`'s commit failed, and its core stopped without handing
     /// over anything of the step, as it does in the daemon. What it was
     /// answering gets the 503 the daemon's peer endpoint answers when the
-    /// engine stops before its reply (`http/peer.rs`).
+    /// engine stops before its reply (`peer_server.rs`).
     fn commit_failed(&mut self, index: usize, held: Holds) {
         self.count("failed commits");
         if self.anywhere.contains(&index) {

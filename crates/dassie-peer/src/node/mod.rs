@@ -525,20 +525,12 @@ impl PeerNode {
             },
         );
         self.deadlines.insert((deadline_ms, id));
-        // Only a link state says a node takes QUIC; a bootstrap node known
-        // only from the configuration is asked over HTTPS until its state
-        // arrives. A periphery node is reached only over the connection it
-        // opened, which its empty URL tells the transport.
-        let quic = self
-            .table
-            .get(&to)
-            .and_then(|entry| entry.link.as_ref())
-            .is_some_and(|link| link.quic || link.periphery);
+        // A periphery node is reached only over the connection it opened,
+        // which its empty URL tells the transport.
         self.outputs.push_back(Output::Request(Request {
             id,
             to,
             url,
-            quic,
             kind: content.kind(),
             body,
             timeout_ms,

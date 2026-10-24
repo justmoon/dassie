@@ -22,9 +22,9 @@ use std::time::Duration;
 use bytes::Bytes;
 use dassie_identity::{NodeId, NodeKey};
 use dassie_node::clock::{Clock, ManualClock};
-use dassie_node::http::peer::Answer;
 use dassie_node::node::Policies;
 use dassie_node::peer_client::PeerClient;
+use dassie_node::peer_server::Answer;
 use dassie_node::quic::relay::{
     KeepWhile, MAX_RELAYED_PER_CLIENT_TO_DESTINATION, MAX_RELAYED_PER_DESTINATION, Purpose,
     RelayError, RelayLink, RelayedStream, ServedStream,
@@ -154,15 +154,11 @@ async fn send(from: &Side, to: &Side) {
         id: RequestId(1),
         to: to.id,
         url: to.url.clone(),
-        quic: true,
         kind: Kind::LinkStateRequest,
         body: b"hello".to_vec(),
         timeout_ms: 5_000,
     };
-    let response = from
-        .quic
-        .send(&request, &client(), Duration::from_secs(5))
-        .await;
+    let response = from.quic.send(&request, &client()).await;
     assert!(response.is_ok(), "{response:?}");
 }
 
@@ -495,7 +491,7 @@ async fn a_relay_out_of_reach_reads_as_unreachable_once_its_dials_slow_down() {
 }
 
 #[tokio::test]
-async fn a_relay_out_of_reach_is_still_asked_for_peer_requests() {
+async fn a_relay_out_of_reach_is_not_backed_off_from_for_peer_requests() {
     let shutdown = CancellationToken::new();
     let from = side(1, &shutdown);
     let relay = NodeKey::from_bytes(&[2; 32]).node_id();
@@ -510,7 +506,7 @@ async fn a_relay_out_of_reach_is_still_asked_for_peer_requests() {
         )
         .await;
     assert_eq!(result.err(), Some(RelayError::Unreachable));
-    assert!(!from.quic.is_unreachable(&relay));
+    assert!(!from.quic.backing_off(&relay));
     shutdown.cancel();
 }
 
@@ -720,7 +716,6 @@ async fn a_relayed_payments_stream_serves_only_open_payments() {
         ("GET", "/rpc"),
         ("GET", "/stats"),
         ("POST", "/api/login"),
-        ("POST", "/peer"),
         ("GET", "/btp"),
     ] {
         let (status, _, _) = get(&mut sender, method, path, &host).await;
@@ -740,7 +735,6 @@ fn to_periphery(to: &Side) -> PeerRequest {
         id: RequestId(2),
         to: to.id,
         url: String::new(),
-        quic: true,
         kind: Kind::LinkStateRequest,
         body: b"hello".to_vec(),
         timeout_ms: 5_000,

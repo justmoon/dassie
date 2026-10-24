@@ -3,18 +3,18 @@
 //! One UDP socket, on the HTTPS listener's port number, both takes and makes
 //! connections. Every bidirectional stream starts with a byte that says
 //! what it carries ([`StreamKind`]). A peer request is the envelope one
-//! way, then a two-byte status and the body back, with the same bytes and
-//! statuses as over HTTPS. The other kinds carry relayed streams
-//! ([`relay`]) and settlement hubs' messages (`hub.rs`,
+//! way, then a two-byte status and the body back
+//! (spec/areas/peer-protocol.md#statuses). The other kinds carry relayed
+//! streams ([`relay`]) and settlement hubs' messages (`hub.rs`,
 //! spec/areas/peer-protocol.md#the-hubs-stream). Each side proves its node
 //! key in the TLS handshake
 //! ([`keys`]), so a dialler knows it reached the node it meant, and a
 //! connection takes a place by who opened it ([`places`]).
 //!
 //! A pair of nodes keeps one connection, which both use: the one the lower
-//! node ID opened, when both dialled. A node whose QUIC cannot be reached
-//! (UDP filtered, say) is asked over HTTPS for a while instead, until every
-//! node takes QUIC and `POST /peer` goes ([`send_peer`]).
+//! node ID opened, when both dialled. QUIC is the peer protocol's only
+//! transport (spec/decisions/quic-only.md): a node that cannot be reached
+//! is not dialled again for a while ([`send_peer`]).
 
 // Denied here, though allowed in the rest of the daemon, for quinn's
 // `read_to_end` (see clippy.toml and `read_in_order`); this module needs
@@ -51,16 +51,15 @@ use tokio_util::task::TaskTracker;
 use self::keys::{AnyNodeKey, Keys, PinnedServer, Present};
 use self::places::{Counts, Peerings, Places};
 use self::relay::{Purpose, Relaying, ServedStream};
-use crate::http::peer::{Answer, BodyError};
 use crate::log::target;
 use crate::peer_client::PeerClient;
+use crate::peer_server::{Answer, BodyError};
 use crate::tls;
 
 /// The protocol a connection speaks, by ALPN.
 pub const ALPN: &[u8] = b"dassie/1";
 
-/// Most time to set up a connection. A request gets at most half its own
-/// time for it, so that HTTPS has the rest when QUIC cannot be reached.
+/// Most time to set up a connection, within a request's own time.
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// A connection nothing was sent on for this long closes. Peers send
@@ -73,14 +72,21 @@ const IDLE_TIMEOUT: Duration = Duration::from_secs(30);
 /// 10 s, with the idle timeout of 30 s).
 const KEEP_ALIVES_PER_IDLE_TIMEOUT: u32 = 3;
 
-/// How long a node whose QUIC could not be reached is asked over HTTPS.
-const UNREACHABLE_FOR: Duration = Duration::from_secs(10 * 60);
+/// Least time a node that could not be reached, or had no room for us, is
+/// not dialled for peer requests: the first wait, which doubles with each
+/// failure after it.
+const BACKOFF_MIN: Duration = Duration::from_secs(1);
+
+/// Most time a node that could not be reached is not dialled for: short,
+/// so that a peer that restarted or changed its address is reached again
+/// within a minute, even if it never dials us first.
+const BACKOFF_MAX: Duration = Duration::from_secs(60);
 
 /// Least time an attempt to connect must have had for its failure to say
 /// the node cannot be reached: a packet near its expiry may have too little.
 const MIN_TO_JUDGE: Duration = Duration::from_millis(500);
 
-/// Longest response read: a node list of 4096 IDs fits, as over HTTPS.
+/// Longest response read: a node list of 4096 IDs fits.
 const MAX_RESPONSE_BYTES: usize = 256 * 1024;
 
 /// Most requests open at once on one connection: a client's share of the
@@ -123,33 +129,6 @@ const RESET_KEY_PATH: &str = "node/quic/stateless-reset";
 
 const _: () = assert!(MAX_MESSAGE_BYTES <= MAX_RESPONSE_BYTES);
 const _: () = assert!(CONNECTION_WINDOW as usize >= 4 * MAX_RESPONSE_BYTES);
-
-/// Why a request over QUIC was not answered.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum SendError {
-    /// No connection could be made: nothing was sent, and HTTPS may try.
-    Unreachable,
-    /// The request was sent, or lost on a connection that was up.
-    Failed(Failure),
-}
-
-/// The transport that carried a request.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Transport {
-    /// QUIC.
-    Quic,
-    /// HTTPS, `POST /peer`.
-    Https,
-}
-
-impl fmt::Display for Transport {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(match self {
-            Self::Quic => "quic",
-            Self::Https => "https",
-        })
-    }
-}
 
 /// A request's body, being read.
 pub type Body<'a> = Pin<Box<dyn Future<Output = Result<Vec<u8>, BodyError>> + Send + 'a>>;
@@ -312,51 +291,35 @@ pub trait Handler: Send + Sync + 'static {
     }
 }
 
-/// Sends a peer request as the engine does: over QUIC when the node's link
-/// state says it takes it, and its QUIC was not out of reach lately;
-/// otherwise, or when no connection could be made in time, over HTTPS in the
-/// time left. Both transports share the bounds on requests in flight.
+/// Sends a peer request as the engine does, over QUIC, the only transport
+/// (spec/areas/peer-protocol.md#quic): to a periphery node on the connection
+/// it opened to us, since it has no URL; to any other node on the
+/// connection we hold to it, or one we make to its URL. Requests share the
+/// bounds on requests in flight ([`PeerClient::hold`]).
+///
+/// # Errors
+///
+/// As [`Quic::send`]; [`Failure::NotDelivered`] too when the bounds are
+/// full, or the node has no QUIC endpoint.
 pub async fn send_peer(
     quic: Option<Arc<Quic>>,
     client: &PeerClient,
     request: Request,
-) -> (Result<Response, Failure>, Transport) {
-    let started = tokio::time::Instant::now();
-    let deadline = started + Duration::from_millis(request.timeout_ms.max(1));
-    let _slot = match client.hold(&request) {
-        Ok(slot) => slot,
-        Err(failure) => return (Err(failure), Transport::Https),
+) -> Result<Response, Failure> {
+    let _slot = client.hold(&request)?;
+    let Some(quic) = quic else {
+        return Err(Failure::NotDelivered);
     };
     // A periphery node has no URL: it is reached only over the connection
-    // it opened to us, never dialled, never over HTTPS.
+    // it opened to us, never dialled.
     if request.url.is_empty() {
-        let Some(quic) = quic else {
-            return (Err(Failure::NotDelivered), Transport::Quic);
-        };
-        return match tokio::time::timeout_at(deadline, quic.send_held(&request)).await {
-            Ok(result) => (result, Transport::Quic),
-            Err(_) => (Err(Failure::Unknown), Transport::Quic),
+        let timeout = Duration::from_millis(request.timeout_ms.max(1));
+        return match tokio::time::timeout(timeout, quic.send_held(&request)).await {
+            Ok(result) => result,
+            Err(_) => Err(Failure::Unknown),
         };
     }
-    if let Some(quic) = quic.filter(|_| request.quic) {
-        let within = CONNECT_TIMEOUT.min(Duration::from_millis(request.timeout_ms / 2));
-        match tokio::time::timeout_at(deadline, quic.send(&request, client, within)).await {
-            Ok(Err(SendError::Unreachable)) => {}
-            Ok(Ok(response)) => return (Ok(response), Transport::Quic),
-            Ok(Err(SendError::Failed(failure))) => return (Err(failure), Transport::Quic),
-            Err(_) => return (Err(Failure::Unknown), Transport::Quic),
-        }
-    }
-    let left = deadline.saturating_duration_since(tokio::time::Instant::now());
-    let left_ms = u64::try_from(left.as_millis()).unwrap_or(u64::MAX);
-    if left_ms == 0 {
-        return (Err(Failure::NotDelivered), Transport::Https);
-    }
-    let request = Request {
-        timeout_ms: left_ms,
-        ..request
-    };
-    (client.send_held(request).await, Transport::Https)
+    quic.send(&request, client).await
 }
 
 /// A connection to a node, and who opened it.
@@ -412,6 +375,18 @@ enum NoConnection {
     NoTime,
     /// A dial of its own had time enough and failed.
     DialFailed,
+    /// None is open, and the caller backs off from dialling the node.
+    NotDialled,
+}
+
+/// How long a node is not dialled for peer requests, after it could not be
+/// reached or had no room for us.
+#[derive(Clone, Copy, Debug)]
+struct Backoff {
+    /// When it may be dialled again.
+    until: Instant,
+    /// The wait that ends then, which the next failure doubles.
+    wait: Duration,
 }
 
 /// Requests over QUIC, both ways, since start.
@@ -439,7 +414,8 @@ pub struct Quic {
     endpoint: Endpoint,
     keys: Arc<Keys>,
     links: Mutex<BTreeMap<NodeId, Place>>,
-    unreachable: Mutex<BTreeMap<NodeId, Instant>>,
+    /// The nodes peer requests do not dial for now ([`Backoff`]).
+    backoff: Mutex<BTreeMap<NodeId, Backoff>>,
     serving: Mutex<Option<Serving>>,
     relaying: Relaying,
     /// The relay the node keeps a connection to while it serves.
@@ -486,7 +462,7 @@ impl Quic {
             endpoint,
             keys,
             links: Mutex::new(BTreeMap::new()),
-            unreachable: Mutex::new(BTreeMap::new()),
+            backoff: Mutex::new(BTreeMap::new()),
             serving: Mutex::new(None),
             relaying: Relaying::new(),
             chosen_relay: Mutex::new(None),
@@ -524,7 +500,7 @@ impl Quic {
     /// # Errors
     ///
     /// [`Failure::NotDelivered`] when no such connection is open, and
-    /// nothing was sent; otherwise the failure, as over HTTPS.
+    /// nothing was sent; otherwise the failure, as for [`send`](Self::send).
     pub async fn send_held(&self, request: &Request) -> Result<Response, Failure> {
         let place = self
             .links
@@ -589,84 +565,114 @@ impl Quic {
             .is_some()
     }
 
-    /// Whether `node`'s QUIC failed lately, so that it is asked over HTTPS.
+    /// Whether peer requests back off from dialling `node` for now: it
+    /// could not be reached, or had no room for us, lately.
     #[must_use]
-    pub fn is_unreachable(&self, node: &NodeId) -> bool {
-        let mut unreachable = self
-            .unreachable
+    pub fn backing_off(&self, node: &NodeId) -> bool {
+        self.backoff
             .lock()
-            .unwrap_or_else(PoisonError::into_inner);
-        match unreachable.get(node) {
-            Some(until) if *until > Instant::now() => true,
-            Some(_) => {
-                unreachable.remove(node);
-                false
-            }
-            None => false,
-        }
+            .unwrap_or_else(PoisonError::into_inner)
+            .get(node)
+            .is_some_and(|backoff| backoff.until > Instant::now())
     }
 
-    fn mark_unreachable(&self, node: NodeId) {
-        let mut unreachable = self
-            .unreachable
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner);
+    /// Backs off from dialling `node` for peer requests: for
+    /// [`BACKOFF_MIN`] after a first failure, twice the last wait after one
+    /// that follows it within [`BACKOFF_MAX`] of its end, up to
+    /// [`BACKOFF_MAX`].
+    fn back_off(&self, node: NodeId) {
+        let mut backoff = self.backoff.lock().unwrap_or_else(PoisonError::into_inner);
         let now = Instant::now();
-        if unreachable.len() >= MAX_LINKS {
-            unreachable.retain(|_, until| *until > now);
+        let fresh = |backoff: &Backoff| backoff.until + BACKOFF_MAX > now;
+        let wait = backoff
+            .get(&node)
+            .filter(|last| fresh(last))
+            .map_or(BACKOFF_MIN, |last| (last.wait * 2).min(BACKOFF_MAX));
+        if backoff.len() >= MAX_LINKS && !backoff.contains_key(&node) {
+            backoff.retain(|_, backoff| fresh(backoff));
+            if backoff.len() >= MAX_LINKS {
+                return;
+            }
         }
-        if unreachable.len() < MAX_LINKS {
-            unreachable.insert(node, now + UNREACHABLE_FOR);
-        }
+        backoff.insert(
+            node,
+            Backoff {
+                until: now + wait,
+                wait,
+            },
+        );
     }
 
-    /// Sends `request` and reads its response, making a connection within
-    /// `connect_within` if there is none. The caller bounds the time the
-    /// whole exchange takes.
+    /// Stops backing off from `node`: it kept a connection, one it made to
+    /// us or one of ours it did not close for want of room.
+    fn reached(&self, node: &NodeId) {
+        self.backoff
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .remove(node);
+    }
+
+    /// Sends `request` and reads its response within the request's time,
+    /// making a connection if there is none.
     ///
     /// # Errors
     ///
-    /// [`SendError::Unreachable`] when no connection could be made in time,
-    /// and nothing was sent. The node is then asked over HTTPS for a while,
-    /// if a dial of its own had at least half a second and failed; not
-    /// when the time ran out waiting for another request's dial, or was too
-    /// short to judge. Otherwise the failure, as over HTTPS.
+    /// [`Failure::NotDelivered`] when nothing was sent: no connection could
+    /// be made in time, the node had no room for us, or we back off from
+    /// dialling it after either. A dial of its own that had at least half a
+    /// second and failed, and a node without room, start or lengthen the
+    /// backoff; the time running out waiting for another request's dial, or
+    /// too short to judge, does not. [`Failure::Unknown`] when the time ran
+    /// out once the request may have been sent; otherwise the failure.
     pub async fn send(
         self: &Arc<Self>,
         request: &Request,
         resolver: &PeerClient,
-        connect_within: Duration,
-    ) -> Result<Response, SendError> {
+    ) -> Result<Response, Failure> {
+        let deadline =
+            tokio::time::Instant::now() + Duration::from_millis(request.timeout_ms.max(1));
         // Without its key the node cannot prove who it is. TLS 1.3 would
         // only say so after the handshake, on the first stream.
-        if self.is_unreachable(&request.to) || self.keys.current().is_none() {
-            return Err(SendError::Unreachable);
+        if self.keys.current().is_none() {
+            return Err(Failure::NotDelivered);
         }
         let Some(place) = self.place(request.to) else {
-            return Err(SendError::Unreachable);
+            return Err(Failure::NotDelivered);
         };
+        let dial = !self.backing_off(&request.to);
         // A connection kept from before may have died since: then the request
         // was not sent, and a fresh one is made once.
         for attempt in 0..2 {
+            let left = deadline.saturating_duration_since(tokio::time::Instant::now());
             let connection = self
-                .connection(&place, (request.to, &request.url), resolver, connect_within)
+                .connection(
+                    &place,
+                    (request.to, &request.url),
+                    resolver,
+                    CONNECT_TIMEOUT.min(left),
+                    dial,
+                )
                 .await;
             let connection = match connection {
                 Ok(connection) => connection,
                 Err(missed) => {
                     if missed == NoConnection::DialFailed {
-                        self.mark_unreachable(request.to);
+                        self.back_off(request.to);
                     }
-                    return Err(SendError::Unreachable);
+                    return Err(Failure::NotDelivered);
                 }
             };
-            let result = exchange(&connection, &request.body).await;
+            let Ok(result) =
+                tokio::time::timeout_at(deadline, exchange(&connection, &request.body)).await
+            else {
+                return Err(Failure::Unknown);
+            };
             // A node with no room for us closes before it reads anything:
-            // nothing was delivered, and it is asked over HTTPS for a while,
-            // as one whose QUIC refused the connection outright.
+            // nothing was delivered, and we back off from it, as from one
+            // whose QUIC refused the connection outright.
             if result.is_err() && no_room(&connection) {
-                self.mark_unreachable(request.to);
-                return Err(SendError::Unreachable);
+                self.back_off(request.to);
+                return Err(Failure::NotDelivered);
             }
             if result == Err(Failure::NotDelivered) && attempt == 0 {
                 let mut held = place.lock().await;
@@ -678,25 +684,34 @@ impl Quic {
                 }
                 continue;
             }
+            // The request reached a connection the node kept: it has room,
+            // and is reached. A dial alone says neither, since a node without
+            // room closes only after the handshake.
+            if result != Err(Failure::NotDelivered) {
+                self.reached(&request.to);
+            }
             if result.is_ok() {
                 self.stats.sent.fetch_add(1, Ordering::Relaxed);
             }
-            return result.map_err(SendError::Failed);
+            return result;
         }
-        Err(SendError::Failed(Failure::NotDelivered))
+        Err(Failure::NotDelivered)
     }
 
-    /// The open connection in `place`, or a new one, within `within`. Only
-    /// making one holds the place, so requests to a node wait for its
-    /// connection, never for each other; one that waits past its time for
-    /// another's dial goes over HTTPS, nothing sent. The caller decides
-    /// whether a dial that failed marks the node as out of reach.
+    /// The open connection in `place`, or a new one, within `within`; only
+    /// one already open unless `dial`. Only making one holds the place, so
+    /// requests to a node wait for its connection, never for each other;
+    /// one that waits past its time for another's dial fails, nothing sent.
+    /// The caller decides whether a dial that failed backs off from the
+    /// node, and whether one that succeeded ends a backoff: the node may
+    /// still close it for want of room.
     async fn connection(
         self: &Arc<Self>,
         place: &tokio::sync::Mutex<Option<Link>>,
         (to, url): (NodeId, &str),
         resolver: &PeerClient,
         within: Duration,
+        dial: bool,
     ) -> Result<Connection, NoConnection> {
         let deadline = tokio::time::Instant::now() + within;
         let mut held = tokio::time::timeout_at(deadline, place.lock())
@@ -706,6 +721,9 @@ impl Quic {
             return Ok(kept.connection.clone());
         }
         *held = None;
+        if !dial {
+            return Err(NoConnection::NotDialled);
+        }
         let left = deadline.saturating_duration_since(tokio::time::Instant::now());
         // A periphery node keeps its connections to its uplinks alive: they
         // are the only way its uplinks reach it.
@@ -819,6 +837,7 @@ impl Quic {
         let Some((own, _)) = self.keys.current() else {
             return;
         };
+        self.reached(&peer);
         let Some(place) = self.place(peer) else {
             return;
         };

@@ -1,13 +1,14 @@
 # The Dassie node (spec/areas/release.md#systemd-units,
 # spec/areas/node.md#runtimes). It takes its sockets from the socket
-# units, by name, and reports readiness itself (--runtime=systemd). It can
-# go without its QUIC and rate-feed sockets, so those are only wanted: an
-# update that adds one starts it with the node.
+# units, by name, and reports readiness itself (--runtime=systemd). It does
+# not run without its QUIC socket, the peer protocol's only transport
+# (spec/decisions/quic-only.md). It can go without its rate-feed socket, so
+# that one is only wanted: an update that adds it starts it with the node.
 [Unit]
 Description=Dassie node
 Documentation=https://dassie.land
-Requires=dassie-http.socket dassie-https.socket dassie-ipc.socket
-Wants=dassie-quic.socket dassie-feed.socket
+Requires=dassie-http.socket dassie-https.socket dassie-ipc.socket dassie-quic.socket
+Wants=dassie-feed.socket
 After=dassie-http.socket dassie-https.socket dassie-ipc.socket dassie-quic.socket dassie-feed.socket
 Wants=network-online.target
 After=network-online.target time-set.target

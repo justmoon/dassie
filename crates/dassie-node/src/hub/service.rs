@@ -74,9 +74,6 @@ pub async fn run(node: Arc<Node>, config: Arc<ValidatorConfig>, shutdown: Cancel
         tracing::error!(target: target::HUB, "no peer client: the node validates no hub");
         return shutdown.cancelled().await;
     };
-    if node.quic().is_none() {
-        tracing::warn!(target: target::HUB, "the node has no QUIC endpoint: validators reach each other over QUIC only, so its hubs cannot hear it");
-    }
     let tasks = TaskTracker::new();
     let stop = shutdown.child_token();
     let mut founded = node.founding().map(|founding| founding.founded());
@@ -570,14 +567,14 @@ impl Exchange {
     async fn run(self, peer: Peer, message: Vec<u8>) {
         let sent = self
             .client
-            .exchange_quic(peer.node, &peer.endpoint, &self.hub, &message, SEND_TIMEOUT)
+            .exchange(peer.node, &peer.endpoint, &self.hub, &message, SEND_TIMEOUT)
             .await;
         let mut backoffs = self.backoffs.lock().unwrap_or_else(PoisonError::into_inner);
         match sent {
             Ok(messages) => {
                 backoffs.remove(&peer.node);
                 drop(backoffs);
-                let from = Sender::Node(peer.key).peer();
+                let from = Sender(peer.key).peer();
                 for message in messages {
                     let inbound = Inbound {
                         from,
@@ -600,15 +597,11 @@ impl Exchange {
 
 /// How long to leave a validator alone after an exchange failed with
 /// `error`, and the wait the next failure doubles from, after `previous`:
-/// one that answered busy, or that this node's own bound on requests in
-/// flight kept it from, is tried again shortly, and its wait does not
+/// one that answered busy is tried again shortly, and its wait does not
 /// grow; one that could not be reached waits twice as long as last time,
 /// from [`BACKOFF_MIN`] up to [`BACKOFF_MAX`].
 fn after_failure(error: &HubExchangeError, previous: Option<Duration>) -> (Duration, Duration) {
-    if matches!(
-        error,
-        HubExchangeError::Refused(HubAnswer::Busy) | HubExchangeError::Busy
-    ) {
+    if matches!(error, HubExchangeError::Refused(HubAnswer::Busy)) {
         return (BUSY_RETRY, previous.unwrap_or(Duration::ZERO));
     }
     let wait = previous

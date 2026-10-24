@@ -395,9 +395,9 @@ install_units() {
     fail E_SYSTEMD_SERVICE_ENABLE_FAILED "cannot enable the units"
   as_root systemctl start dassie-http.socket dassie-https.socket dassie-ipc.socket ||
     fail E_SYSTEMD_SERVICE_START_FAILED "cannot start the sockets"
-  # The node can do without QUIC: peers then reach it over HTTPS.
+  # Peers reach the node only over QUIC: it does not run without it.
   as_root systemctl start dassie-quic.socket ||
-    note "UDP port 443 is taken: peers reach this node over HTTPS only"
+    fail E_SYSTEMD_SERVICE_START_FAILED "cannot start the QUIC socket: is UDP port 443 taken?"
   # Nor does it need its rate feed: it then publishes none.
   as_root systemctl start dassie-feed.socket ||
     note "UDP port 7768 is taken: the node publishes no rate feed"

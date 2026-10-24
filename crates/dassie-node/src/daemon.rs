@@ -128,17 +128,17 @@ pub struct Prepared {
     http: TcpListener,
     https: TcpListener,
     ipc: UnixListener,
+    /// The UDP socket for QUIC, the peer protocol's only transport.
+    quic: UdpSocket,
     extras: Extras,
     /// The IPC socket the daemon made, published once it is ready.
     ipc_socket: Option<ipc::Unpublished>,
     notifier: Option<Notifier>,
 }
 
-/// What the daemon may have beside the three sockets it needs.
+/// What the daemon may have beside the four sockets it needs.
 #[derive(Debug, Default)]
 struct Extras {
-    /// The UDP socket for QUIC, where there is one.
-    quic: Option<UdpSocket>,
     /// The UDP socket for the rate feed, where there is one.
     feed: Option<UdpSocket>,
     /// For tests: where the QUIC endpoint goes once it is made.
@@ -163,9 +163,6 @@ impl Prepared {
         let (http, https, ipc, (quic, feed), ipc_socket) = match runtime {
             Runtime::Systemd => {
                 let sockets = systemd::take_sockets(env).map_err(DaemonError::Activation)?;
-                if sockets.quic.is_none() {
-                    tracing::warn!(target: target::DAEMON, socket = systemd::QUIC_SOCKET, "systemd passed no UDP socket for QUIC: peers reach this node over HTTPS only");
-                }
                 if sockets.feed.is_none() {
                     tracing::warn!(target: target::DAEMON, socket = systemd::FEED_SOCKET, "systemd passed no UDP socket for the rate feed: the node publishes no feed");
                 }
@@ -179,8 +176,13 @@ impl Prepared {
                 };
                 let (http, https) = bind_ports(ports, options.listen)?;
                 let quic = match options.quic {
-                    Some(address) => bind_quic(address),
-                    None => https.local_addr().ok().and_then(bind_quic),
+                    Some(address) => bind_quic(address)?,
+                    None => {
+                        let address = https
+                            .local_addr()
+                            .map_err(|e| DaemonError::Bind("the HTTPS listener".into(), e))?;
+                        bind_quic(address)?
+                    }
                 };
                 let feed = match options.feed {
                     Some(address) => bind_feed(address),
@@ -201,8 +203,8 @@ impl Prepared {
             http,
             https,
             ipc,
+            quic,
             extras: Extras {
-                quic,
                 feed,
                 hand_out: None,
                 node_out: None,
@@ -217,9 +219,9 @@ impl Prepared {
     pub fn from_parts(
         settings: Settings,
         store: Store,
-        http: TcpListener,
-        https: TcpListener,
+        (http, https): (TcpListener, TcpListener),
         ipc: UnixListener,
+        quic: UdpSocket,
     ) -> Self {
         Self {
             settings,
@@ -228,6 +230,7 @@ impl Prepared {
             http,
             https,
             ipc,
+            quic,
             extras: Extras::default(),
             ipc_socket: None,
             notifier: None,
@@ -250,13 +253,6 @@ impl Prepared {
         to: tokio::sync::oneshot::Sender<std::sync::Weak<Node>>,
     ) -> Self {
         self.extras.node_out = Some(to);
-        self
-    }
-
-    /// For tests: QUIC on `socket`, as if systemd had passed it.
-    #[must_use]
-    pub fn with_quic(mut self, socket: UdpSocket) -> Self {
-        self.extras.quic = Some(socket);
         self
     }
 
@@ -304,16 +300,10 @@ fn bind_ports(
 }
 
 /// The UDP socket for QUIC on `address`: the HTTPS listener's address and
-/// port, unless the options name another. A node that cannot have one takes
-/// the peer protocol over HTTPS only.
-fn bind_quic(address: SocketAddr) -> Option<UdpSocket> {
-    match UdpSocket::bind(address) {
-        Ok(socket) => Some(socket),
-        Err(error) => {
-            tracing::warn!(target: target::DAEMON, %address, %error, "no UDP socket for QUIC: peers reach this node over HTTPS only");
-            None
-        }
-    }
+/// port, unless the options name another. A node cannot run without it:
+/// QUIC is the peer protocol's only transport.
+fn bind_quic(address: SocketAddr) -> Result<UdpSocket, DaemonError> {
+    UdpSocket::bind(address).map_err(|e| DaemonError::Bind(format!("UDP {address} for QUIC"), e))
 }
 
 /// The UDP socket for the rate feed on `address`: the HTTPS listener's
@@ -344,6 +334,7 @@ pub async fn run(
         http,
         https,
         ipc,
+        quic,
         extras,
         ipc_socket,
         notifier,
@@ -357,7 +348,7 @@ pub async fn run(
         rng,
         policies,
     };
-    let (node, listeners, tls) = match make_node(parts, (http, https, ipc), extras) {
+    let (node, listeners, tls) = match make_node(parts, (http, https, ipc, quic), extras) {
         Ok(made) => made,
         Err(error) => {
             // A daemon that did not start leaves no socket behind.
@@ -448,10 +439,10 @@ struct NodeParts {
 /// is served yet.
 fn make_node(
     parts: NodeParts,
-    sockets: (TcpListener, TcpListener, UnixListener),
+    sockets: (TcpListener, TcpListener, UnixListener, UdpSocket),
     extras: Extras,
 ) -> Result<(Arc<Node>, Listeners, Arc<rustls::ServerConfig>), DaemonError> {
-    let (http, https, ipc) = sockets;
+    let (http, https, ipc, quic) = sockets;
     let listeners = adopt(http, https, ipc).map_err(|e| DaemonError::Bind("sockets".into(), e))?;
     let http_port = listeners.0.local_addr().map_or(0, |address| address.port());
     let https_port = listeners.1.local_addr().map_or(0, |address| address.port());
@@ -485,14 +476,8 @@ fn make_node(
     }
     // Peers reach the node at its QUIC socket too, which may listen apart
     // from the HTTPS listener.
-    let quic_ip = extras
-        .quic
-        .as_ref()
-        .and_then(|socket| socket.local_addr().ok())
-        .map(|address| address.ip());
-    if let Some(socket) = extras.quic {
-        attach_quic(&node, socket, extras.hand_out, settings.relay.as_ref());
-    }
+    let quic_ip = quic.local_addr().ok().map(|address| address.ip());
+    attach_quic(&node, quic, extras.hand_out, settings.relay.as_ref())?;
     let feed_ip = extras.feed.and_then(|socket| attach_feed(&node, socket));
     if let Some(dir) = &settings.dev_wallet_dir {
         tracing::warn!(target: target::HTTP, dir = %dir.display(), "serving a development build of the wallet");
@@ -519,20 +504,23 @@ fn make_node(
 /// relay the node chose, if any, which the endpoint keeps a connection to
 /// once it serves (spec/areas/node.md#a-chosen-relay): the default relay
 /// only while the node has no hostname (spec/decisions/default-relay.md).
+///
+/// # Errors
+///
+/// The endpoint cannot be made: the node cannot run without it.
 fn attach_quic(
     node: &Node,
     socket: UdpSocket,
     hand_out: Option<tokio::sync::oneshot::Sender<Arc<crate::quic::Quic>>>,
     relay: Option<&Relay>,
-) {
-    let address = socket.local_addr().ok();
-    let quic = match crate::quic::Quic::new(socket, node.identity(), node.allows_private_peers()) {
-        Ok(quic) => Arc::new(quic),
-        Err(error) => {
-            tracing::warn!(target: target::DAEMON, ?address, %error, "no QUIC endpoint: peers reach this node over HTTPS only");
-            return;
-        }
-    };
+) -> Result<(), DaemonError> {
+    let address = socket.local_addr().map_or_else(
+        |_| "the UDP socket".to_owned(),
+        |address| address.to_string(),
+    );
+    let quic = crate::quic::Quic::new(socket, node.identity(), node.allows_private_peers())
+        .map_err(|e| DaemonError::Bind(format!("QUIC on {address}"), e))?;
+    let quic = Arc::new(quic);
     if let (Some(relay), Some(client)) = (relay, node.peer_client()) {
         let keep = if relay.is_default {
             KeepWhile::NoHostname(node.subscribe_config())
@@ -545,6 +533,7 @@ fn attach_quic(
     if let Some(to) = hand_out {
         let _ = to.send(quic);
     }
+    Ok(())
 }
 
 /// Gives the node its rate feed on `socket`; the address it is bound to,
@@ -685,7 +674,7 @@ fn start_services(
             Box::new(|node, shutdown| {
                 Box::pin(async move {
                     if let Some(quic) = node.quic().cloned() {
-                        let handler = Arc::new(http::peer::QuicHandler(node));
+                        let handler = Arc::new(crate::peer_server::QuicHandler(node));
                         quic.serve(handler, shutdown).await;
                     }
                 })
@@ -823,8 +812,8 @@ fn report_ready(node: &Node, notifier: Option<&Notifier>) {
 }
 
 /// The line that says the node serves, and on what: the TCP ports, the
-/// QUIC endpoint's address, or `none` when peers reach the node over HTTPS
-/// only, and the rate feed's, or `none` (spec/areas/node.md#logging).
+/// QUIC endpoint's address, and the rate feed's, or `none` when the node
+/// has none (spec/areas/node.md#logging).
 fn log_listening(
     runtime: Runtime,
     (http_port, https_port): (u16, u16),
@@ -978,7 +967,7 @@ mod tests {
             feed: Some(SocketAddr::from((Ipv4Addr::LOCALHOST, 0))),
         };
         let prepared = prepare(dir.path(), options);
-        let quic = prepared.extras.quic.as_ref().unwrap().local_addr().unwrap();
+        let quic = prepared.quic.local_addr().unwrap();
         assert_eq!(quic, prepared.https.local_addr().unwrap());
     }
 
@@ -1029,6 +1018,32 @@ mod tests {
         }
     }
 
+    // QUIC is the peer protocol's only transport: a node whose UDP port is
+    // taken does not start.
+    #[test]
+    fn a_node_without_its_quic_socket_does_not_start() {
+        let taken = UdpSocket::bind("127.0.0.1:0").unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let state = dir.path().join("state");
+        let socket = dir.path().join("dassie.sock");
+        let env = Env::from_pairs([
+            ("DASSIE_STATE_DIRECTORY", state.to_str().unwrap()),
+            ("DASSIE_IPC_SOCKET_PATH", socket.to_str().unwrap()),
+        ]);
+        let options = DaemonOptions {
+            runtime: Some(Runtime::Standalone),
+            ports: Some(free_ports()),
+            listen: Some(Ipv4Addr::LOCALHOST.into()),
+            quic: Some(taken.local_addr().unwrap()),
+            feed: Some(SocketAddr::from((Ipv4Addr::LOCALHOST, 0))),
+        };
+        let error = Prepared::new(&env, options).unwrap_err();
+        assert!(
+            matches!(&error, DaemonError::Bind(what, _) if what.contains("QUIC")),
+            "{error}"
+        );
+    }
+
     #[test]
     fn quic_listens_apart_when_asked() {
         let dir = tempfile::tempdir().unwrap();
@@ -1040,7 +1055,7 @@ mod tests {
             feed: Some(SocketAddr::from((Ipv4Addr::LOCALHOST, 0))),
         };
         let prepared = prepare(dir.path(), options);
-        let quic = prepared.extras.quic.as_ref().unwrap().local_addr().unwrap();
+        let quic = prepared.quic.local_addr().unwrap();
         assert_eq!(quic.ip(), IpAddr::from(Ipv4Addr::UNSPECIFIED));
         assert_ne!(quic.port(), 0);
         assert!(prepared.https.local_addr().unwrap().ip().is_loopback());

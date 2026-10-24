@@ -17,18 +17,17 @@ pub struct RequestId(pub u64);
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct InboundId(pub u64);
 
-/// A request for the driver to send: over QUIC when the node takes it,
-/// otherwise `POST {url}/peer`, with `body`.
+/// A request for the driver to send over QUIC, with `body`: on the
+/// connection to the node at `url`, or, when `url` is empty, on the one a
+/// periphery node opened to us.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Request {
     /// Its number, for the result.
     pub id: RequestId,
     /// The node it goes to.
     pub to: NodeId,
-    /// The node's URL.
+    /// The node's URL; empty for a periphery node.
     pub url: String,
-    /// Whether the node's link state says it takes QUIC.
-    pub quic: bool,
     /// What it is.
     pub kind: Kind,
     /// The envelope.

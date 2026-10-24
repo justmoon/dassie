@@ -1,8 +1,7 @@
 //! Settlement hubs in the node (spec/areas/hubs.md#the-validator-in-the-node).
 //!
 //! - [`transport`]: the hub's stream, on which validators and members
-//!   exchange the hub's messages over QUIC, or `POST /hub` for members:
-//!   its bytes, the client that sends on it ([`HubClient`]), and how the
+//!   exchange the hub's messages over QUIC: its bytes, the client that sends on it ([`HubClient`]), and how the
 //!   node hands what arrives to the hubs it validates ([`Hubs`]).
 //! - [`config`]: which hubs the owner has the node validate, and for which
 //!   sponsors.
