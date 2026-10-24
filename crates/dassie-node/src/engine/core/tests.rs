@@ -3054,11 +3054,11 @@ fn the_node_keeps_its_hub_between_floor_and_ceiling() {
     hub.no_account(&mut core);
     let fees = hub.rules.terms.fees;
     let p = Policies::DEFAULT.connector.max_packet_amount;
-    let in_flight = Policies::DEFAULT.connector.max_in_flight();
-    let floor = policy::hub_floor(p, in_flight, 0) / dassie_xrpl::UNITS_PER_DROP;
+    let credit = Policies::DEFAULT.peer_credit;
+    let floor = policy::hub_floor(p, credit, 0) / dassie_xrpl::UNITS_PER_DROP;
     let ceiling = policy::hub_ceiling(p) / dassie_xrpl::UNITS_PER_DROP;
     let middle = floor.midpoint(ceiling);
-    assert_eq!((floor, ceiling), (400_000, 10_000_000));
+    assert_eq!((floor, ceiling), (475_000, 10_000_000));
 
     wait_and_close(&mut core, &mut ledger, 1_000);
     let made = deposits(&mut ledger, escrow);

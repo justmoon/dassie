@@ -163,15 +163,18 @@ impl Core {
     /// The floor and the ceiling, in internal units, for `peerings`.
     fn hub_limits(&self, peerings: usize) -> (u64, u64) {
         let max_packet = self.settle.max_packet;
-        let in_flight = self.connector.config().max_in_flight();
         let peerings = u64::try_from(peerings).unwrap_or(u64::MAX);
         (
-            policy::hub_floor(max_packet, in_flight, peerings),
+            policy::hub_floor(max_packet, self.peer_credit, peerings),
             policy::hub_ceiling(max_packet),
         )
     }
 
     /// The hub account as last agreed, once the account read up to it.
+    /// What the node keeps there is all a failing hub could cost it: the
+    /// balance and the reserves, its holds toward peers, which are the
+    /// credit it extends them over the hub, paid in advance, and what the
+    /// holds toward it hold, not taken yet.
     fn held(account: &HubAccount) -> Option<Held> {
         let hold_reserve = account.terms().fees.hold_reserve;
         account
@@ -188,6 +191,11 @@ impl Core {
                     .holds()
                     .filter(|(_, hold)| Some(hold.payer) == number)
                     .count();
+                let ours: u64 = account
+                    .holds()
+                    .filter(|(_, hold)| Some(hold.payer) == number)
+                    .map(|(_, hold)| hold.amount)
+                    .fold(0, u64::saturating_add);
                 let hold_reserves =
                     hold_reserve.saturating_mul(u64::try_from(paying).unwrap_or(u64::MAX));
                 Held {
@@ -196,6 +204,7 @@ impl Core {
                         .balance
                         .saturating_add(view.reserve)
                         .saturating_add(hold_reserves)
+                        .saturating_add(ours)
                         .saturating_add(toward_us),
                     deposited: view.deposited,
                     withdrawn: view.withdrawn,

@@ -4,9 +4,10 @@
 //! and when one on its way is done. `hub_moves.rs` makes the moves.
 //!
 //! - **Between a floor and a ceiling.** What the hub account can spend
-//!   stays above a floor of what its peerings over the hub need, and what
-//!   the node keeps in the hub (the balance, its reserves and the holds
-//!   toward it) below a ceiling, both counted in largest packets
+//!   stays above a floor of what its peerings over the hub need to fund
+//!   their holds when asked, and what the node keeps in the hub (the
+//!   balance, its reserves, its holds toward peers and theirs toward it)
+//!   below a ceiling, both counted in largest packets
 //!   (`policy::hub_floor`, `policy::hub_ceiling`). Below the floor, the node
 //!   deposits from its XRPL account up to the midpoint, never past the
 //!   ceiling; above the ceiling, it withdraws down to the midpoint, never
