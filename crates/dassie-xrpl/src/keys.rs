@@ -20,6 +20,9 @@ use crate::{base58, hex_upper};
 /// An account's address version byte.
 const ACCOUNT_VERSION: [u8; 1] = [0x00];
 
+/// A node public key's version byte: validators' keys read `n…`.
+const NODE_PUBLIC_VERSION: [u8; 1] = [0x1C];
+
 /// An Ed25519 family seed's version bytes: seeds read `sEd…`.
 const ED25519_SEED_VERSION: [u8; 3] = [0x01, 0xE1, 0x4B];
 
@@ -120,6 +123,21 @@ impl PublicKey {
     #[must_use]
     pub fn account(&self) -> AccountId {
         AccountId::from_public_key(&self.0)
+    }
+
+    /// It as a node public key, as validators' keys are written: `nH…` for
+    /// Ed25519, `n9…` for secp256k1.
+    #[must_use]
+    pub fn to_node_public(&self) -> String {
+        base58::encode_check(&NODE_PUBLIC_VERSION, &self.0)
+    }
+
+    /// The key a node public key names, if it is one of a kind the ledger
+    /// knows.
+    #[must_use]
+    pub fn from_node_public(text: &str) -> Option<Self> {
+        let payload = base58::decode_check(text, &NODE_PUBLIC_VERSION)?;
+        Self::from_bytes(payload.try_into().ok()?)
     }
 
     /// Whether `signature` is this key's on `message`, as the ledger checks
@@ -455,6 +473,29 @@ mod tests {
         let wallet = Wallet::from_seed([7; 16]);
         assert!(!public.verify(b"pay", &wallet.sign(b"pay")));
         assert!(!wallet.public_key().verify(b"pay", &signature));
+    }
+
+    #[test]
+    fn node_public_keys_round_trip() {
+        // A mainnet validator's master key, and its signing key.
+        let master = "nHBWa56Vr7csoFcCnEPzCCKVvnDQw3L28mATgHYQMGtbEfUjuYyB";
+        let key = PublicKey::from_node_public(master).unwrap();
+        assert_eq!(key.key_type(), KeyType::Ed25519);
+        assert_eq!(
+            hex_upper(key.as_bytes()),
+            "ED13AAFCB6A87BCB5D093C2EF37F04431C291126D674293305152D9776C6ABA4D6"
+        );
+        assert_eq!(key.to_node_public(), master);
+        let signing = "n94a894ARPe5RdcaRgdMBB9gG9ukS5mqsd7q2oNmC1NKqtZqEJnb";
+        let key = PublicKey::from_node_public(signing).unwrap();
+        assert_eq!(key.key_type(), KeyType::Secp256k1);
+        assert_eq!(key.to_node_public(), signing);
+        // An address is no node public key, nor the other way round, and a
+        // changed one is neither.
+        assert!(PublicKey::from_node_public(&key.account().to_address()).is_none());
+        assert!(AccountId::parse(signing).is_none());
+        let changed = "n94a894ARPe5RdcaRgdMBB9gG9ukS5mqsd7q2oNmC1NKqtZqEJnc";
+        assert!(PublicKey::from_node_public(changed).is_none());
     }
 
     #[test]
