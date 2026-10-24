@@ -234,6 +234,8 @@ fn script(sim: &mut Sim, rng: &mut SeededRng, setup: &Setup) -> Result<(), Outco
     for (index, role) in setup.roles.iter().enumerate() {
         sim.hub.as_deref_mut().unwrap().validators[index].role = *role;
     }
+    sim.trace
+        .push(format!("{} the validators are {:?}", sim.now, setup.roles));
     if !sim.run_until_or(START + JOINED_WITHIN_MS, joined) {
         return Err(Outcome::liveness(
             "joined",
