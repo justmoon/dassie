@@ -1049,41 +1049,44 @@ impl XrplAccount {
 
     /// The bytes and metadata of transaction `hash`, whose proof came: the
     /// leaf built from them, with the proof's branch, proves them, or the
-    /// server lied. A server that proved the transaction and then does not
-    /// give it is taken as if it had not proven it. One that has not saved
-    /// it with its ledger yet is asked again a while later
-    /// ([`UNSAVED_RETRY_MS`]), at most [`MAX_UNSAVED_TRIES`] times, and
-    /// then taken as refusing it: never as a lie.
+    /// server lied. Bytes that do not read, or that the branch does not
+    /// prove, are a lie. No error is: the proof just showed that the
+    /// ledger holds the transaction, so a server that does not find it
+    /// (`txnNotFound`, or `lgrNotFound`), or answers it without its
+    /// metadata, has not saved it with its ledger yet, as an honest rippled
+    /// for a moment after it validated or acquired a ledger. It is asked
+    /// again a while later ([`UNSAVED_RETRY_MS`]), at most
+    /// [`MAX_UNSAVED_TRIES`] times, and then taken as refusing it. Any other
+    /// error is a refusal at once.
     pub(super) fn tx_blobs_read(
         &mut self,
         hash: [u8; 32],
         ledger: Option<u32>,
         outcome: Result<Value, ApiError>,
     ) {
-        if matches!(&outcome, Ok(result) if api::tx_not_yet(result)) {
+        let not_yet = match &outcome {
+            Ok(result) => api::tx_not_yet(result),
+            Err(error) => matches!(error.error.as_str(), "txnNotFound" | "lgrNotFound"),
+        };
+        if not_yet {
             return self.unsaved_yet(hash, ledger);
         }
         let Some((answer, _)) = self.branches.remove(&hash) else {
             return;
         };
-        match outcome {
-            Ok(result) => {
-                let Some(blobs) = api::tx_binary_result(&result) else {
-                    return self.doubted(Doubt::Unreadable);
-                };
-                match prove_transaction(&answer, &blobs, &hash, &self.thread_keys()) {
-                    Ok(proven) => {
-                        self.counted.transactions = self.counted.transactions.saturating_add(1);
-                        self.keep_proof(hash, proven);
-                    }
-                    Err(error) => return self.doubted(Doubt::of(error)),
-                }
+        let result = match outcome {
+            Ok(result) => result,
+            Err(_) => return self.stall(REFUSED),
+        };
+        let Some(blobs) = api::tx_binary_result(&result) else {
+            return self.doubted(Doubt::Unreadable);
+        };
+        match prove_transaction(&answer, &blobs, &hash, &self.thread_keys()) {
+            Ok(proven) => {
+                self.counted.transactions = self.counted.transactions.saturating_add(1);
+                self.keep_proof(hash, proven);
             }
-            Err(error) => {
-                if !self.not_proven(hash, ledger, &error) {
-                    return;
-                }
-            }
+            Err(error) => return self.doubted(Doubt::of(error)),
         }
         self.advance();
     }

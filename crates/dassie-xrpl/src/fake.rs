@@ -63,6 +63,16 @@ use crate::network::{MAINNET, Network, TESTNET};
 use crate::{DROPS_PER_XRP, from_hex, hex_upper};
 
 pub use chain::{MAX_KEPT_LEDGERS, MAX_STATE_LEDGERS, MAX_VALIDATED_LEDGERS};
+
+/// How a `tx` answer comes for a transaction a server has not saved with
+/// its ledger yet ([`FakeLedger::answer_unsaved`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Unsaved {
+    /// From the server's cache, without its metadata, not validated.
+    WithoutMeta,
+    /// `txnNotFound`: not in its cache, and not saved.
+    NotFound,
+}
 pub use lies::Lie;
 pub use pools::{POOL_ACCOUNT_FLAGS, PoolState, pool_account};
 pub use proofs::MAX_STATE_PROOF_KEYS;
@@ -297,8 +307,8 @@ pub struct FakeLedger {
     /// hash, newest last: what a lying server says applied.
     never_applied: Vec<([u8; 32], Vec<u8>)>,
     /// How many more `tx` answers in binary come as rippled's do between
-    /// validating a ledger and saving it: without metadata, not validated.
-    unsaved_answers: u32,
+    /// validating a ledger and saving it, and how.
+    unsaved_answers: (u32, Unsaved),
 }
 
 /// The most transactions remembered as never applied.
@@ -375,7 +385,7 @@ impl FakeLedger {
             chain: Chain::new(),
             validators: Validators::new(seed, FIRST_LIST_EXPIRATION),
             lies: lies::Lies::default(),
-            unsaved_answers: 0,
+            unsaved_answers: (0, Unsaved::WithoutMeta),
             never_applied: Vec::new(),
         };
         ledger.add_issuer(issuer);
@@ -483,10 +493,10 @@ impl FakeLedger {
     }
 
     /// Makes the next `answers` answers of `tx` in binary come as an honest
-    /// rippled's do for a moment after it validated a ledger and before it
-    /// saved it: the transaction without its metadata, not validated.
-    pub fn answer_unsaved(&mut self, answers: u32) {
-        self.unsaved_answers = answers;
+    /// rippled's do for a moment after it validated or acquired a ledger
+    /// and before it saved it, as `how` says.
+    pub fn answer_unsaved(&mut self, answers: u32, how: Unsaved) {
+        self.unsaved_answers = (answers, how);
     }
 
     /// Changes the network ID the server reports, as a server of another

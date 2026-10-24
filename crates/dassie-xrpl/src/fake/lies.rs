@@ -284,12 +284,16 @@ impl FakeLedger {
     /// `tx`, as `connection` has it.
     pub(super) fn tx(&mut self, connection: ConnectionId, request: &Value) -> Result<Value, Value> {
         let mut answer = self.honest_tx(request);
-        if self.unsaved_answers > 0
+        let (left, how) = self.unsaved_answers;
+        if left > 0
             && super::proofs::wants_binary(request)
             && let Ok(found) = &mut answer
             && let Some(object) = found.as_object_mut()
         {
-            self.unsaved_answers -= 1;
+            self.unsaved_answers.0 = left - 1;
+            if how == super::Unsaved::NotFound {
+                return Err(serde_json::json!({ "error": "txnNotFound", "searched_all": false }));
+            }
             for key in ["meta", "ledger_index", "inLedger"] {
                 object.remove(key);
             }

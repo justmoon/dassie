@@ -21,7 +21,7 @@ use dassie_xrpl::account::{
     Doubt, LIST_RETRY_MS, MAX_UNSAVED_TRIES, STALL_MS, UNSAVED_RETRY_MS, XrplAccount,
 };
 use dassie_xrpl::anchor::{Ancestry, KeptAnchor, ProvenLists, ancestry};
-use dassie_xrpl::fake::{FakeLedger, LIST_SITE, Lie, publisher_key};
+use dassie_xrpl::fake::{FakeLedger, LIST_SITE, Lie, Unsaved, publisher_key};
 use dassie_xrpl::network::{MAINNET, Network, TESTNET};
 use dassie_xrpl::skip_list::{FLAG_INTERVAL, SkipList, flag_above, flag_key, recent_key};
 use dassie_xrpl::unl::{Anchor, ledger_seconds};
@@ -558,25 +558,37 @@ fn a_lying_server_moves_no_anchor() {
 
 // A transaction in the newest validated ledger: rippled proves it by
 // `tx_proof` at once, but for a moment, until it saved the ledger, `tx`
-// gives it without its metadata, not validated. That is no lie: the
+// gives it without its metadata, not validated, or, for one not in its
+// cache, as of a ledger it acquired, `txnNotFound`. That is no lie: the
 // account asks for its bytes again a while later, and proves it then,
 // with no doubt counted and no stall.
 #[test]
 fn bytes_a_server_has_not_saved_yet_are_asked_again() {
+    for how in [Unsaved::WithoutMeta, Unsaved::NotFound] {
+        not_saved_yet(how);
+    }
+}
+
+fn not_saved_yet(how: Unsaved) {
     let mut harness = Harness::new(FakeLedger::new(), &[]);
     harness.connect();
     let address = harness.account.account();
     let proven = harness.account.proofs().transactions;
     harness.ledger.deposit(address, 1_000_000);
-    harness.ledger.answer_unsaved(1);
+    harness.ledger.answer_unsaved(3, how);
     harness.asked.clear();
     harness.close();
     let asked = |harness: &Harness| harness.asked.iter().filter(|c| *c == "tx").count();
     assert_eq!(asked(&harness), 1);
     assert_eq!(harness.account.proofs().transactions, proven);
+    for asks in 2..=3 {
+        harness.wait(UNSAVED_RETRY_MS);
+        assert_eq!(asked(&harness), asks, "{how:?}");
+        assert_eq!(harness.account.proofs().transactions, proven, "{how:?}");
+    }
     harness.wait(UNSAVED_RETRY_MS);
-    assert_eq!(asked(&harness), 2);
-    assert_eq!(harness.account.proofs().transactions, proven + 1);
+    assert_eq!(asked(&harness), 4, "{how:?}");
+    assert_eq!(harness.account.proofs().transactions, proven + 1, "{how:?}");
     for doubt in Doubt::ALL {
         assert_eq!(harness.account.doubts(doubt), 0, "{doubt:?}");
     }
@@ -587,7 +599,7 @@ fn bytes_a_server_has_not_saved_yet_are_asked_again() {
     // A server that never gives them is taken as refusing them, a bounded
     // number of asks later: a stall, never a lie.
     harness.ledger.deposit(address, 1_000_000);
-    harness.ledger.answer_unsaved(u32::MAX);
+    harness.ledger.answer_unsaved(u32::MAX, how);
     harness.asked.clear();
     harness.close();
     for _ in 0..MAX_UNSAVED_TRIES {
@@ -598,7 +610,7 @@ fn bytes_a_server_has_not_saved_yet_are_asked_again() {
     for doubt in Doubt::ALL {
         assert_eq!(harness.account.doubts(doubt), 0, "{doubt:?}");
     }
-    harness.ledger.answer_unsaved(0);
+    harness.ledger.answer_unsaved(0, how);
     harness.wait(STALL_MS);
     harness.close();
     assert_eq!(harness.account.status(), LedgerStatus::Synced);
