@@ -1,4 +1,4 @@
-From cef3dcad4c563fd5f3b250fbfc48e0d0a4138a61 Mon Sep 17 00:00:00 2001
+From 47122961853033190ce394aede927da015a5c8b8 Mon Sep 17 00:00:00 2001
 From: Stefan Thomas <justmoon@members.fsf.org>
 Date: Sat, 24 Oct 2026 09:44:09 -0400
 Subject: [PATCH 2/2] feat: Add validations, tx_proof and state_proof for light
@@ -10,15 +10,16 @@ the server:
 - `validations {ledger_hash}`: every validation the server holds for the
   ledger, trusted or not, each the hex of its serialized STValidation. The
   client decides by its own UNL which ones count.
-- `tx_proof {tx_hash, ledger_hash | ledger_index?}`: the transaction and
-  its metadata as they are in the ledger's transaction tree, the ledger's
-  binary header, and the branch from the transaction's leaf to the root.
-  Without a ledger, the server finds the one that holds the transaction.
+- `tx_proof {tx_hash, ledger_hash | ledger_index?}`: the ledger's binary
+  header and the branch of its transaction tree from the inner node above
+  the transaction's leaf up to the root. The client builds the leaf from
+  the transaction and metadata it gets from `tx` or `account_tx` in binary,
+  which are the bytes the tree hashes, so they are not sent again. Without
+  a ledger, the server finds the one that holds the transaction.
 - `state_proof {keys, ledger_hash | ledger_index?}`: for up to 32 keys, the
-  branch of a closed ledger's state tree towards each key, under one
-  binary header, with the ledger entry where there is one. A branch
-  proves the entry, or that there is none. Without a ledger, the latest
-  validated one.
+  branch of a closed ledger's state tree towards each key, under one binary
+  header. A branch proves the ledger entry, which is its leaf, or that there
+  is none. Without a ledger, the latest validated one.
 
 Every node in a branch is serialized as it is hashed, so a client hashes
 each and reads one child hash per level, up to the root the header holds.
@@ -29,18 +30,18 @@ are charged as medium-burden requests.
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 ---
  API-CHANGELOG.md                              |   3 +
- include/xrpl/protocol/jss.h                   |  10 +-
- src/test/rpc/LedgerProofs_test.cpp            | 727 ++++++++++++++++++
+ include/xrpl/protocol/jss.h                   |   8 +-
+ src/test/rpc/LedgerProofs_test.cpp            | 736 ++++++++++++++++++
  src/xrpld/rpc/MethodNames.h                   |   3 +
  src/xrpld/rpc/detail/Handler.cpp              |  21 +
  src/xrpld/rpc/detail/ProofHelpers.cpp         |  77 ++
  src/xrpld/rpc/detail/ProofHelpers.h           |  61 ++
  src/xrpld/rpc/detail/Tuning.h                 |   5 +
  src/xrpld/rpc/handlers/Handlers.h             |   6 +
- src/xrpld/rpc/handlers/ledger/StateProof.cpp  |  99 +++
+ src/xrpld/rpc/handlers/ledger/StateProof.cpp  |  97 +++
  src/xrpld/rpc/handlers/ledger/Validations.cpp |  48 ++
- .../rpc/handlers/transaction/TxProof.cpp      | 108 +++
- 12 files changed, 1165 insertions(+), 3 deletions(-)
+ .../rpc/handlers/transaction/TxProof.cpp      | 107 +++
+ 12 files changed, 1170 insertions(+), 2 deletions(-)
  create mode 100644 src/test/rpc/LedgerProofs_test.cpp
  create mode 100644 src/xrpld/rpc/detail/ProofHelpers.cpp
  create mode 100644 src/xrpld/rpc/detail/ProofHelpers.h
@@ -49,7 +50,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  create mode 100644 src/xrpld/rpc/handlers/transaction/TxProof.cpp
 
 diff --git a/API-CHANGELOG.md b/API-CHANGELOG.md
-index fa4f113dd8..fb541cf37a 100644
+index fa4f113dd8..4fda9612c2 100644
 --- a/API-CHANGELOG.md
 +++ b/API-CHANGELOG.md
 @@ -30,6 +30,9 @@ Version 3.5.0 is not yet released.
@@ -57,13 +58,13 @@ index fa4f113dd8..fb541cf37a 100644
  - `subscribe`, `unsubscribe`: Added an optional `mpt_issuances` request field, an array of MPT issuance IDs (hex strings). Subscribers receive the same `transaction` message as the `transactions` stream for each validated transaction whose metadata affects a subscribed issuance. MPT issuance subscriptions count toward the per-connection subscription limit. An empty array, a non-array value, or an invalid ID returns `invalidParams`. ([#5671](https://github.com/XRPLF/rippled/pull/5671))
  - `ledger_entry`: Add full support for checks, NFT offers, payment channels, and signer lists. ([#6319](https://github.com/XRPLF/rippled/pull/6319))
 +- `validations`: New RPC method that returns every validation the server holds for a ledger hash, trusted or not, each as the hex of its serialized `STValidation`. Validations are held for about ten minutes, so this serves recent ledgers.
-+- `tx_proof`: New RPC method that returns a transaction and its metadata as binary blobs, its ledger's binary header, and the branch of the ledger's transaction tree that leads from the transaction to the tree's root, so that a client can verify the transaction against the ledger's hash without trusting the server.
-+- `state_proof`: New RPC method that returns, for up to 32 keys, the branch of a closed ledger's state tree towards each key, with the ledger's binary header. A branch proves either the ledger entry under the key or that there is none. Every node in a branch is serialized as it is hashed.
++- `tx_proof`: New RPC method that returns a transaction's ledger's binary header and the branch of the ledger's transaction tree from the inner node above the transaction's leaf up to the tree's root. A client builds the leaf from the transaction and metadata that `tx` or `account_tx` return in binary, so it can verify them against the ledger's hash without trusting the server.
++- `state_proof`: New RPC method that returns, for up to 32 keys, the branch of a closed ledger's state tree towards each key, with the ledger's binary header. A branch proves either the ledger entry under the key, which is its first node, or that there is none. Every node in a branch is serialized as it is hashed.
  
  ### Bugfixes in 3.5.0
  
 diff --git a/include/xrpl/protocol/jss.h b/include/xrpl/protocol/jss.h
-index 3f91fbfb69..ca0106fc14 100644
+index 3f91fbfb69..46b9a9bed9 100644
 --- a/include/xrpl/protocol/jss.h
 +++ b/include/xrpl/protocol/jss.h
 @@ -240,6 +240,7 @@ JSS(engine_result);                  // out: NetworkOPs, TransactionSign, Submit
@@ -90,15 +91,6 @@ index 3f91fbfb69..ca0106fc14 100644
  JSS(ledger_hit_rate);                // out: GetCounts
  JSS(ledger_index);                   // in/out: many
  JSS(ledger_index_max);               // in, out: AccountTx*
-@@ -433,7 +436,7 @@ JSS(nftoken_ids);                 // out: insertNFTokenID
- JSS(no_ripple);                   // out: AccountLines
- JSS(no_ripple_peer);              // out: AccountLines
- JSS(node);                        // out: LedgerEntry
--JSS(node_binary);                 // out: LedgerEntry
-+JSS(node_binary);                 // out: LedgerEntry, StateProof
- JSS(node_read_bytes);             // out: GetCounts
- JSS(node_read_errors);            // out: GetCounts
- JSS(node_read_retries);           // out: GetCounts
 @@ -471,6 +474,7 @@ JSS(parent_hash);                 // out: LedgerToJson
  JSS(partition);                   // in: LogLevel
  JSS(passphrase);                  // in: WalletPropose
@@ -127,10 +119,10 @@ index 3f91fbfb69..ca0106fc14 100644
  JSS(value);                       // out: STAmount
 diff --git a/src/test/rpc/LedgerProofs_test.cpp b/src/test/rpc/LedgerProofs_test.cpp
 new file mode 100644
-index 0000000000..4f36212132
+index 0000000000..4acb688fa3
 --- /dev/null
 +++ b/src/test/rpc/LedgerProofs_test.cpp
-@@ -0,0 +1,727 @@
+@@ -0,0 +1,736 @@
 +#include <test/jtx/Account.h>
 +#include <test/jtx/Env.h>
 +#include <test/jtx/amount.h>
@@ -348,22 +340,21 @@ index 0000000000..4f36212132
 +            BEAST_EXPECT(
 +                checkPath(header->stateRoot, keys[i], entry[jss::path], &leaf) == Proven::Present);
 +
-+            // The leaf is the prefix, the entry and its key.
++            // The leaf is the prefix, the entry as ledger_entry gives it in
++            // binary, and its key.
++            json::Value entryParams;
++            entryParams[jss::index] = to_string(keys[i]);
++            entryParams[jss::binary] = true;
++            entryParams[jss::ledger_hash] = result[jss::ledger_hash];
++            auto const ledgerEntry =
++                env.rpc(apiVersion, "json", "ledger_entry", to_string(entryParams))[jss::result];
 +            Serializer expected;
 +            expected.add32(HashPrefix::LeafNode);
 +            expected.addRaw(
-+                makeSlice(strUnHex(entry[jss::node_binary].asString()).value_or(Blob{})));
++                makeSlice(strUnHex(ledgerEntry[jss::node_binary].asString()).value_or(Blob{})));
 +            expected.addBitString(keys[i]);
 +            BEAST_EXPECT(leaf == expected.peekData());
 +        }
-+
-+        // The entry is the one ledger_entry gives.
-+        json::Value entryParams;
-+        entryParams[jss::index] = to_string(keys[0]);
-+        entryParams[jss::binary] = true;
-+        entryParams[jss::ledger_index] = "validated";
-+        auto const entry = env.rpc(apiVersion, "json", "ledger_entry", to_string(entryParams));
-+        BEAST_EXPECT(entry[jss::result][jss::node_binary] == entries[0u][jss::node_binary]);
 +    }
 +
 +    void
@@ -418,7 +409,6 @@ index 0000000000..4f36212132
 +            auto const proven = checkPath(header->stateRoot, keys[i], entry[jss::path]);
 +            if (i < 3)
 +            {
-+                BEAST_EXPECT(!entry.isMember(jss::node_binary));
 +                BEAST_EXPECT(
 +                    proven == Proven::AbsentAtEmptySlot || proven == Proven::AbsentAtOtherLeaf);
 +            }
@@ -573,11 +563,13 @@ index 0000000000..4f36212132
 +    }
 +
 +    /**
-+     * Check a tx_proof answer for a transaction as a client would, and return
-+     * the length of its path, or zero if it does not prove the transaction.
++     * Check a tx_proof answer for a transaction as a client would: build the
++     * leaf from the transaction and metadata that `tx` gives in binary, and
++     * check it against the branch. Return the number of inner nodes in the
++     * branch, or zero if it does not prove the transaction.
 +     */
 +    std::size_t
-+    checkProof(json::Value const& result, uint256 const& txHash)
++    checkProof(jtx::Env& env, unsigned apiVersion, json::Value const& result, uint256 const& txHash)
 +    {
 +        if (!BEAST_EXPECT(result[jss::status] == "success"))
 +            return 0;
@@ -588,26 +580,34 @@ index 0000000000..4f36212132
 +        BEAST_EXPECT(to_string(header->hash) == result[jss::ledger_hash].asString());
 +        BEAST_EXPECT(header->seq == result[jss::ledger_index].asUInt());
 +
-+        // The transaction's hash is computed from its bytes.
-+        auto const tx = strUnHex(result[jss::tx_blob].asString());
-+        auto const meta = strUnHex(result[jss::meta_blob].asString());
++        // API v1 names the blobs `tx` and `meta`, later versions `tx_blob` and
++        // `meta_blob`.
++        json::Value txParams;
++        txParams[jss::transaction] = to_string(txHash);
++        txParams[jss::binary] = true;
++        auto const found = env.rpc(apiVersion, "json", "tx", to_string(txParams))[jss::result];
++        auto const tx = strUnHex(
++            (found.isMember(jss::tx_blob) ? found[jss::tx_blob] : found[jss::tx]).asString());
++        auto const meta = strUnHex(
++            (found.isMember(jss::meta_blob) ? found[jss::meta_blob] : found[jss::meta]).asString());
 +        BEAST_EXPECT(tx && meta);
 +        if (!tx || !meta)
 +            return 0;
 +        BEAST_EXPECT(sha512Half(HashPrefix::TransactionId, makeSlice(*tx)) == txHash);
 +
-+        // The leaf is the prefix, the transaction and its metadata, each
-+        // with its length, and the transaction's hash.
-+        Blob leaf;
-+        if (!BEAST_EXPECT(
-+                checkPath(header->txRoot, txHash, result[jss::path], &leaf) == Proven::Present))
++        // The leaf is the prefix, the transaction and its metadata, each with
++        // its length, and the transaction's hash; the branch starts above it.
++        Serializer leaf;
++        leaf.add32(HashPrefix::TxNode);
++        leaf.addVL(makeSlice(*tx));
++        leaf.addVL(makeSlice(*meta));
++        leaf.addBitString(txHash);
++        json::Value withLeaf{json::ValueType::Array};
++        withLeaf.append(strHex(leaf.slice()));
++        for (auto const& node : result[jss::path])
++            withLeaf.append(node);
++        if (!BEAST_EXPECT(checkPath(header->txRoot, txHash, withLeaf) == Proven::Present))
 +            return 0;
-+        Serializer expected;
-+        expected.add32(HashPrefix::TxNode);
-+        expected.addVL(makeSlice(*tx));
-+        expected.addVL(makeSlice(*meta));
-+        expected.addBitString(txHash);
-+        BEAST_EXPECT(leaf == expected.peekData());
 +        return result[jss::path].size();
 +    }
 +
@@ -622,13 +622,14 @@ index 0000000000..4f36212132
 +        env.fund(XRP(10000), alice, bob);
 +        env.close();
 +
-+        // A ledger with a single transaction: its leaf hangs off the root.
++        // A ledger with a single transaction: its leaf hangs off the root, which
++        // is all the branch holds.
 +        env(pay(alice, bob, XRP(1)));
 +        auto const single = env.tx()->getTransactionID();
 +        env.close();
 +        json::Value params;
 +        params[jss::tx_hash] = to_string(single);
-+        BEAST_EXPECT(checkProof(txProof(env, apiVersion, params), single) == 2);
++        BEAST_EXPECT(checkProof(env, apiVersion, txProof(env, apiVersion, params), single) == 1);
 +
 +        // A ledger with several.
 +        std::vector<uint256> hashes;
@@ -644,13 +645,13 @@ index 0000000000..4f36212132
 +            // Found by the server, or in the ledger named.
 +            params[jss::tx_hash] = to_string(hash);
 +            auto const found = txProof(env, apiVersion, params);
-+            BEAST_EXPECT(checkProof(found, hash) >= 2);
++            BEAST_EXPECT(checkProof(env, apiVersion, found, hash) >= 1);
 +            BEAST_EXPECT(found[jss::ledger_index] == seq);
 +            BEAST_EXPECT(found[jss::validated] == true);
 +
 +            auto named = params;
 +            named[jss::ledger_index] = seq;
-+            BEAST_EXPECT(checkProof(txProof(env, apiVersion, named), hash) >= 2);
++            BEAST_EXPECT(checkProof(env, apiVersion, txProof(env, apiVersion, named), hash) >= 1);
 +        }
 +    }
 +
@@ -1128,17 +1129,16 @@ index 5c2a5c8ccc..ee12e45f96 100644
  doValidatorListSites(rpc::JsonContext&);
 diff --git a/src/xrpld/rpc/handlers/ledger/StateProof.cpp b/src/xrpld/rpc/handlers/ledger/StateProof.cpp
 new file mode 100644
-index 0000000000..c2c7677ce6
+index 0000000000..ccd32c409d
 --- /dev/null
 +++ b/src/xrpld/rpc/handlers/ledger/StateProof.cpp
-@@ -0,0 +1,99 @@
+@@ -0,0 +1,97 @@
 +#include <xrpld/rpc/Context.h>
 +#include <xrpld/rpc/detail/ProofHelpers.h>
 +#include <xrpld/rpc/detail/SpecBridge.hpp>
 +#include <xrpld/rpc/detail/Tuning.h>
 +
 +#include <xrpl/basics/base_uint.h>
-+#include <xrpl/basics/strHex.h>
 +#include <xrpl/json/json_value.h>
 +#include <xrpl/ledger/Ledger.h>
 +#include <xrpl/protocol/ErrorCodes.h>
@@ -1189,7 +1189,8 @@ index 0000000000..c2c7677ce6
 +// }
 +//
 +// For each key, the branch of the ledger's state tree that proves the ledger
-+// entry under it, or proves that there is none.
++// entry under it, or proves that there is none. The entry is the leaf the
++// branch starts at.
 +json::Value
 +doStateProof(rpc::JsonContext& context)
 +{
@@ -1214,8 +1215,6 @@ index 0000000000..c2c7677ce6
 +        {
 +            json::Value entry{json::ValueType::Object};
 +            entry[jss::key] = to_string(key);
-+            if (auto const item = ledger->stateMap().peekItem(key))
-+                entry[jss::node_binary] = strHex(item->slice());
 +            entry[jss::path] = rpc::branchToJson(ledger->stateMap().getProofBranch(key));
 +            entries.append(std::move(entry));
 +        }
@@ -1287,10 +1286,10 @@ index 0000000000..5540de1a88
 +}  // namespace xrpl
 diff --git a/src/xrpld/rpc/handlers/transaction/TxProof.cpp b/src/xrpld/rpc/handlers/transaction/TxProof.cpp
 new file mode 100644
-index 0000000000..bee423e6f7
+index 0000000000..59f965d51e
 --- /dev/null
 +++ b/src/xrpld/rpc/handlers/transaction/TxProof.cpp
-@@ -0,0 +1,108 @@
+@@ -0,0 +1,107 @@
 +#include <xrpld/app/ledger/LedgerMaster.h>
 +#include <xrpld/app/ledger/TransactionMaster.h>
 +#include <xrpld/app/main/Application.h>
@@ -1300,12 +1299,11 @@ index 0000000000..bee423e6f7
 +#include <xrpld/rpc/detail/SpecBridge.hpp>
 +
 +#include <xrpl/basics/base_uint.h>
-+#include <xrpl/basics/strHex.h>
++#include <xrpl/beast/utility/instrumentation.h>
 +#include <xrpl/json/json_value.h>
 +#include <xrpl/ledger/Ledger.h>
 +#include <xrpl/protocol/ErrorCodes.h>
 +#include <xrpl/protocol/RPCErr.h>
-+#include <xrpl/protocol/Serializer.h>
 +#include <xrpl/protocol/TxMeta.h>
 +#include <xrpl/protocol/jss.h>
 +#include <xrpl/resource/Fees.h>
@@ -1323,9 +1321,9 @@ index 0000000000..bee423e6f7
 +//   ledger_index : <ledger_index>          optional
 +// }
 +//
-+// The transaction and its metadata, and the branch of its ledger's
-+// transaction tree that proves them. Without a ledger, the server looks up
-+// which ledger holds the transaction.
++// The branch of the ledger's transaction tree that proves a transaction and
++// its metadata, from the inner node above its leaf up to the root. Without a
++// ledger, the server looks up which ledger holds the transaction.
 +json::Value
 +doTxProof(rpc::JsonContext& context)
 +{
@@ -1375,19 +1373,19 @@ index 0000000000..bee423e6f7
 +
 +    try
 +    {
-+        auto const item = ledger->txMap().peekItem(txHash);
-+        if (!item)
++        if (!ledger->txMap().hasItem(txHash))
 +        {
 +            rpc::injectError(RpcTxnNotFound, jvResult);
 +            return jvResult;
 +        }
 +
-+        // The leaf holds the transaction and its metadata, each with its
-+        // length, exactly as they are hashed.
-+        SerialIter sit{item->slice()};
-+        jvResult[jss::tx_blob] = strHex(sit.getVL());
-+        jvResult[jss::meta_blob] = strHex(sit.getVL());
-+        jvResult[jss::path] = rpc::branchToJson(ledger->txMap().getProofBranch(txHash));
++        // The client has the transaction and its metadata already, from `tx`
++        // or `account_tx` in binary, and builds the leaf from them: the
++        // branch starts at the inner node above it.
++        auto branch = ledger->txMap().getProofBranch(txHash);
++        XRPL_ASSERT(branch.size() >= 2, "xrpl::doTxProof : branch holds a leaf and the root");
++        branch.erase(branch.begin());
++        jvResult[jss::path] = rpc::branchToJson(branch);
 +    }
 +    catch (SHAMapMissingNode const&)
 +    {
