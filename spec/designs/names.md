@@ -51,7 +51,7 @@ No wait is needed between committing and unsealing: the receipts are what protec
 
 ## 6. Why it holds
 
-With n configured registrars of which at most f are faulty, and n - f > n / 2 (four registrars, one faulty):
+With n configured registrars of which at most f are faulty, n ≥ 3f + 1, and a quorum of n - f (four registrars, one faulty, a quorum of three):
 
 - **An honest registration succeeds.** No registration of the name was in progress when the honest registrant unsealed, so every other commitment for it was logged after the honest one, at every registrar that logged the honest one, which is every registrar. Each honest registrar therefore grants the name to the honest registrant and lists it: n - f of them, a quorum. Every honest core node takes it once it has read those lists. Nothing a rival does after the receipts can change that.
 - **No front-running.** Until it is unsealed, a commitment hides its name from everyone, registrars included. Whoever learns the name from the unsealing, from a faulty registrar or from a list, needs a commitment of its own, which every honest registrar logged after the honest one. It wins at most at the f faulty registrars, short of a quorum.
