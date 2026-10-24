@@ -89,8 +89,9 @@ pub const MAX_AGAIN: u8 = 4;
 /// One of our own operations, until a block takes it.
 #[derive(Clone, Debug)]
 struct Own {
-    sequence: u64,
-    operation: ValidatorOperation,
+    /// As we signed it: a block that executed it holds it as it is, under
+    /// the index we had then, whatever our place is once the block ran.
+    signed: SignedValidatorOperation,
     /// How many times it was attested again.
     again: u8,
 }
@@ -358,6 +359,17 @@ impl Validator {
             .map_err(|_| CatchUpError::Refused)?;
         let tip = *self.engine.tip_digest();
         self.chain = Chain::resumed(ledger, tip, change.map(|(from, _)| from));
+        // The blocks skipped never pass through `settle_own`: what of ours
+        // they executed is at or below our last sequence in the state, and
+        // done. Signed again, it would only take our pool's room.
+        let last = self
+            .index()
+            .and_then(|index| self.chain.ledger.validator(index))
+            .map(|state| state.sequence);
+        match last {
+            Some(last) => self.own.retain(|own| own.signed.sequence > last),
+            None => self.own.clear(),
+        }
         self.history.clear();
         self.history_bytes = 0;
         self.complete_from = height.saturating_add(1);
@@ -446,6 +458,12 @@ impl Validator {
     /// Whether it was taken: an operation our own pool has no room for
     /// ([`mempool::VALIDATOR_WINDOW`]) is not passed on, and the host
     /// attests it again later.
+    ///
+    /// One that a later one of ours passed before any block took it is
+    /// signed again, after the later one (`attest_passed`): an older vote
+    /// can then execute after a newer one. A caller must not rely on the
+    /// order of its value votes (`AttestEscrow`, `Reconfigure`,
+    /// `SetEndpoint`): the last to execute is the one the ledger keeps.
     pub fn attest(&mut self, now: Millis, operation: ValidatorOperation) -> bool {
         let taken = self.pass_on(now, operation, 0);
         self.after(now);
@@ -460,25 +478,24 @@ impl Validator {
             return false;
         };
         self.sequence = self.sequence.saturating_add(1).max(now);
-        let signed = Operation::Validator(SignedValidatorOperation::sign(
+        let signed = SignedValidatorOperation::sign(
             &self.hub,
             index,
             self.sequence,
-            operation.clone(),
+            operation,
             &self.consensus_key,
-        ));
-        let message = Message::Operation(signed.clone()).to_vec();
-        let taken = self.chain.mempool.admit(&self.chain.ledger, signed);
+        );
+        let message = Message::Operation(Operation::Validator(signed.clone())).to_vec();
+        let taken = self
+            .chain
+            .mempool
+            .admit(&self.chain.ledger, Operation::Validator(signed.clone()));
         if taken {
             self.actions.push_back(Action::Validators(message));
             if self.own.len() >= MAX_OWN {
                 self.own.pop_front();
             }
-            self.own.push_back(Own {
-                sequence: self.sequence,
-                operation,
-                again,
-            });
+            self.own.push_back(Own { signed, again });
         }
         taken
     }
@@ -486,17 +503,19 @@ impl Validator {
     /// Our operations each final block took, as applied, failed or refused
     /// for what they said, are done; one refused for its sequence was not
     /// taken.
+    ///
+    /// Each is known as we signed it, not by our place now: a change of
+    /// validators the block made may have moved us.
     fn settle_own(&mut self, block: &FinalBlock) {
-        let Some(index) = self.index() else {
+        if self.index().is_none() {
             self.own.clear();
             return;
-        };
+        }
         for (operation, outcome) in block.operations.iter().zip(&block.outcomes) {
             if let Operation::Validator(signed) = operation
-                && signed.validator == index
                 && *outcome != crate::ledger::Outcome::Refused(crate::ledger::Refusal::Sequence)
             {
-                self.own.retain(|own| own.sequence != signed.sequence);
+                self.own.retain(|own| own.signed != *signed);
             }
         }
     }
@@ -516,12 +535,14 @@ impl Validator {
         else {
             return;
         };
-        let (passed, kept): (VecDeque<Own>, VecDeque<Own>) =
-            self.own.drain(..).partition(|own| own.sequence <= last);
+        let (passed, kept): (VecDeque<Own>, VecDeque<Own>) = self
+            .own
+            .drain(..)
+            .partition(|own| own.signed.sequence <= last);
         self.own = kept;
         for own in passed {
             if own.again < MAX_AGAIN {
-                self.pass_on(now, own.operation, own.again.saturating_add(1));
+                self.pass_on(now, own.signed.operation, own.again.saturating_add(1));
             }
         }
     }
@@ -923,6 +944,42 @@ mod tests {
             outcomes: outcomes.collect(),
             touched: alloc::vec![alloc::vec![AccountNumber(5), AccountNumber(6)]; count],
         }
+    }
+
+    // An operation of ours is known as we signed it: one signed under the
+    // place we had before a change of validators moved us is done once a
+    // block ran it, though our place is another by the time we read the
+    // block, and is never signed again.
+    #[test]
+    fn an_operation_signed_under_an_earlier_place_is_settled_by_its_block() {
+        let mut v = validator();
+        let (_, mut keys) = crate::rules::tests::rules(4);
+        let earlier = ValidatorIndex::new(2).unwrap();
+        assert_ne!(v.index(), Some(earlier));
+        let signed = SignedValidatorOperation::sign(
+            &v.hub,
+            earlier,
+            7,
+            ValidatorOperation::AttestEscrow { sequence: 5 },
+            &keys.remove(0),
+        );
+        v.own.push_back(Own {
+            signed: signed.clone(),
+            again: 0,
+        });
+        let block = FinalBlock {
+            height: 2,
+            timestamp: 20,
+            digest: Digest([2; 32]),
+            operations: alloc::vec![Operation::Validator(signed)],
+            outcomes: alloc::vec![Outcome::Applied {
+                fee: 0,
+                detail: Detail::None,
+            }],
+            touched: alloc::vec![Vec::new()],
+        };
+        v.settle_own(&block);
+        assert!(v.own.is_empty());
     }
 
     #[test]

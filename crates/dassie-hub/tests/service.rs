@@ -102,6 +102,8 @@ struct Network {
     caught_up: usize,
     /// Evidence each validator reported.
     evidence: Vec<(usize, dassie_hub::consensus::Evidence)>,
+    /// How many operations of its own each validator passed on.
+    operations: Vec<usize>,
     /// Whether every vote to finalize, finalization and catch-up is lost,
     /// so blocks are notarized and none becomes final.
     no_finality: bool,
@@ -160,6 +162,7 @@ impl Network {
             behind: Vec::new(),
             caught_up: 0,
             evidence: Vec::new(),
+            operations: vec![0; 4],
             no_finality: false,
             now: START,
         }
@@ -170,6 +173,9 @@ impl Network {
             let sender = PeerId(u64::try_from(from).unwrap());
             match action {
                 Action::Validators(bytes) => {
+                    if matches!(Message::decode_exact(&bytes), Ok(Message::Operation(_))) {
+                        self.operations[from] += 1;
+                    }
                     for to in (0..self.validators.len()).filter(|to| *to != from) {
                         self.queue.push_back((to, sender, bytes.clone()));
                     }
@@ -495,6 +501,68 @@ fn an_attestation_a_later_one_passed_is_attested_again() {
             "the deposit of {seed} was credited"
         );
     }
+}
+
+/// A deposit to attest, crediting the account of `seed`'s key.
+fn deposit_of(seed: u8) -> Deposit {
+    Deposit {
+        transaction: Digest([seed; 32]),
+        ledger: 10,
+        amount: 50_000_000,
+        sender: [3; 20],
+        tag: 0,
+        key: Some(NodeKey::from_bytes(&[seed; 32]).public_key()),
+    }
+}
+
+// A validator that takes a peer's state skips the blocks below it, and
+// with them what of its own they executed: done, it is not attested
+// again, where it would only take the validator's room in its own pool.
+#[test]
+fn what_a_caught_up_validator_s_skipped_blocks_executed_is_not_attested_again() {
+    let mut net = Network::new();
+    net.attest_all(&ValidatorOperation::AttestEscrow { sequence: 5 });
+    net.run(1_000);
+    for i in 0..4 {
+        let now = net.now;
+        assert!(net.validators[i].attest(now, ValidatorOperation::AttestDeposit(deposit_of(51))));
+        net.collect(i);
+    }
+    // Every attestation reaches the others but validator 3, which hears
+    // nothing more.
+    while let Some((to, from, bytes)) = net.queue.pop_front() {
+        if to != 3 {
+            let node = net.nodes[usize::try_from(from.0).unwrap()];
+            net.validators[to].handle(net.now, from, Some(&node), &bytes);
+            net.collect(to);
+        }
+    }
+    net.cut = Some(3);
+    let mut runs = 0;
+    while net.validators[0].ledger().height() < net.validators[3].ledger().height() + 200 {
+        net.run(500);
+        runs += 1;
+        assert!(runs < 100, "the three others go on alone");
+    }
+    assert!(
+        net.validators[0]
+            .ledger()
+            .account_of(&NodeKey::from_bytes(&[51; 32]).public_key())
+            .is_some(),
+        "the others executed its attestation"
+    );
+    let before = net.operations[3];
+    net.cut = None;
+    let mut runs = 0;
+    while net.validators[3].ledger().height() + 2 < net.validators[0].ledger().height() {
+        net.run(100);
+        net.serve_states();
+        runs += 1;
+        assert!(runs < 200, "it catches up");
+    }
+    assert!(net.caught_up > 0, "through a peer's state");
+    net.run(1_000);
+    assert_eq!(net.operations[3], before, "nothing of its own signed again");
 }
 
 #[test]
