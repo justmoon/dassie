@@ -213,5 +213,6 @@ const fn unseal_refusal(error: UnsealError) -> &'static str {
         UnsealError::Unknown => "no commitment of the sender's opens with that name and salt",
         UnsealError::Closed => "the commitment's window has closed",
         UnsealError::Taken => "the name was taken when the commitment was logged",
+        UnsealError::Names => "the node holds too many names",
     }
 }

@@ -70,7 +70,11 @@ pub struct RegistrarConfig {
     pub max_commitments_per_network: usize,
     /// Most commitments in the log from one node.
     pub max_commitments_per_node: usize,
-    /// Most names one node holds, with the commitments it has in the log.
+    /// Most names one node holds, with what may become one: checked for
+    /// the node that sends a commitment, with the commitments it has in the
+    /// log, and for the node named in an unsealing, with its unsealings that
+    /// contend, so that commitments other nodes log for it raise it no
+    /// higher.
     pub max_names_per_node: usize,
 }
 
@@ -233,6 +237,9 @@ pub enum UnsealError {
     /// The name was held here when the commitment was logged, so the
     /// commitment is void for it.
     Taken,
+    /// The node named in it holds as many names as it may, with its
+    /// unsealings that contend.
+    Names,
 }
 
 /// What a renewal did.
@@ -473,33 +480,40 @@ impl Registrar {
                 return Err(CommitError::Network);
             }
         }
-        let (commitments, names) = self.held_by(committer);
+        let commitments = self
+            .log
+            .values()
+            .filter(|logged| logged.committer == *committer)
+            .count();
         if commitments >= config.max_commitments_per_node {
             return Err(CommitError::Commitments);
         }
-        if commitments + names >= config.max_names_per_node {
+        if commitments + self.names_held_by(committer) >= config.max_names_per_node {
             return Err(CommitError::Names);
         }
         Ok(())
     }
 
-    /// The commitments `node` has in the log, and the names it holds.
-    fn held_by(&self, node: &NodeId) -> (usize, usize) {
-        let commitments = self
-            .log
-            .values()
-            .filter(|logged| logged.committer == *node)
-            .count();
-        let names = self
-            .names
+    /// The names `node` holds: listed, or in their grace period.
+    fn names_held_by(&self, node: &NodeId) -> usize {
+        self.names
             .values()
             .filter(|granted| granted.holder == *node && granted.freed_ms.is_none())
-            .count();
-        (commitments, names)
+            .count()
+    }
+
+    /// The unsealings in the log that contend for a name for `node`.
+    fn contending_for(&self, node: &NodeId) -> usize {
+        self.log
+            .values()
+            .filter_map(|logged| logged.unsealing)
+            .filter(|unsealing| unsealing.holder == *node && unsealing.contends)
+            .count()
     }
 
     /// Takes `holder`'s unsealing of its commitment to `name` under
-    /// `salt`. A retry is answered as the first was.
+    /// `salt`. A retry is answered as the first was, for as long as the
+    /// commitment is in the log, its window closed or not.
     ///
     /// # Errors
     ///
@@ -521,12 +535,14 @@ impl Registrar {
             .ok_or(UnsealError::Unknown)?;
         let grace = self.config.grace_ms;
         let granted = self.names.get(&name).copied();
-        let logged = self.log.get_mut(&position).ok_or(UnsealError::Unknown)?;
-        if logged.window_end_ms <= now_ms {
-            return Err(UnsealError::Closed);
-        }
+        let logged = self.log.get(&position).ok_or(UnsealError::Unknown)?;
+        // Taken already, even if the answer was lost and the window has
+        // closed since.
         if logged.unsealing.is_some() {
             return Ok(Unsealed::Again);
+        }
+        if logged.window_end_ms <= now_ms {
+            return Err(UnsealError::Closed);
         }
         // Void if the name was held here when the commitment was logged,
         // whatever other registrars list.
@@ -534,8 +550,16 @@ impl Registrar {
         if granted.is_some_and(|g| g.granted_ms <= at && at < g.held_until_ms(grace)) {
             return Err(UnsealError::Taken);
         }
+        // The cap on names is the holder's, whoever logged the commitment.
+        // It is checked whether this one contends or not, so the answer
+        // says nothing of whether the name is held.
+        let held = self.names_held_by(&holder) + self.contending_for(&holder);
+        if held >= self.config.max_names_per_node {
+            return Err(UnsealError::Names);
+        }
         // Held now, by a commitment logged earlier: this one has lost.
         let contends = !granted.is_some_and(|g| g.is_held(now_ms, grace));
+        let logged = self.log.get_mut(&position).ok_or(UnsealError::Unknown)?;
         logged.unsealing = Some(Unsealing {
             name,
             holder,
@@ -1001,6 +1025,80 @@ mod tests {
         assert_eq!(
             unseal(&mut registrar, 1, &alice(), START + 2),
             Ok(Unsealed::Again)
+        );
+    }
+
+    // An unsealing taken just before its window closed, whose answer was
+    // lost, is answered as taken when retried after, for as long as its
+    // commitment is in the log.
+    #[test]
+    fn a_retried_unsealing_is_answered_as_the_first_was() {
+        let mut registrar = registrar();
+        let receipt = commit(&mut registrar, 1, &alice(), START);
+        let end = receipt.window_end_ms;
+        assert_eq!(
+            unseal(&mut registrar, 1, &alice(), end - 1),
+            Ok(Unsealed::New { contends: true })
+        );
+        assert_eq!(
+            unseal(&mut registrar, 1, &alice(), end),
+            Ok(Unsealed::Again)
+        );
+        assert_eq!(
+            run(&mut registrar, end),
+            [Happened::Granted {
+                name: alice(),
+                holder: node(1)
+            }]
+        );
+        assert_eq!(
+            unseal(&mut registrar, 1, &alice(), end + 1),
+            Err(UnsealError::Unknown)
+        );
+    }
+
+    // The cap on names is the holder's: commitments other nodes log for it
+    // do not take it past the cap, and a name it holds counts as one.
+    #[test]
+    fn the_cap_on_names_is_the_holders_whoever_commits() {
+        let config = RegistrarConfig {
+            max_names_per_node: 2,
+            ..CONFIG
+        };
+        let mut registrar = Registrar::restore(config, LogHead::default(), vec![], vec![], START);
+        let names = ["aaa", "bbb", "ccc"].map(|text| Name::parse(text).unwrap());
+        let salt = Salt([9; 32]);
+        let mut first = None;
+        for (from, name) in (1..).zip(&names) {
+            let commitment = Commitment::seal(name, &node(9), &salt);
+            let committed = registrar.commit(commitment, node(from), None, START);
+            let Ok(Committed::New(receipt)) = committed else {
+                panic!("{committed:?}");
+            };
+            first.get_or_insert(receipt);
+        }
+        let unseal = |registrar: &mut Registrar, name: &Name, now| {
+            registrar.unseal(node(9), *name, &salt, now)
+        };
+        assert!(unseal(&mut registrar, &names[0], START + 1).is_ok());
+        assert!(unseal(&mut registrar, &names[1], START + 1).is_ok());
+        assert_eq!(
+            unseal(&mut registrar, &names[2], START + 1),
+            Err(UnsealError::Names)
+        );
+        let end = first.unwrap().window_end_ms;
+        run(&mut registrar, end + 2);
+        let held: Vec<Name> = registrar
+            .granted()
+            .filter(|granted| granted.holder == node(9))
+            .map(|granted| granted.name)
+            .collect();
+        assert_eq!(held, names[..2]);
+        // Holding the names, it still commits none past the cap.
+        let more = Commitment::seal(&names[2], &node(9), &salt);
+        assert_eq!(
+            registrar.commit(more, node(9), None, end + 2),
+            Err(CommitError::Names)
         );
     }
 
