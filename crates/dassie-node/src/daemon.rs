@@ -841,7 +841,11 @@ fn log_listening(
 mod tests {
     use super::*;
 
-    const BOTH: [&str; 2] = ["DASSIE_PEER_ALLOW_PRIVATE", "DASSIE_DEV_TIMINGS"];
+    const ALL: [&str; 3] = [
+        "DASSIE_PEER_ALLOW_PRIVATE",
+        "DASSIE_DEV_TIMINGS",
+        "DASSIE_DEV_LIVE_REALM",
+    ];
 
     /// The variables `exposed_dev_flags` names, with `flags` set to 1 and
     /// the listeners bound to `bound`.
@@ -858,15 +862,15 @@ mod tests {
 
     #[test]
     fn dev_flags_on_loopback_are_quiet() {
-        assert!(exposed(&BOTH, &["127.0.0.1", "127.0.0.1"]).is_empty());
-        assert!(exposed(&BOTH, &["::1", "::1"]).is_empty());
-        assert!(exposed(&BOTH, &["::ffff:127.0.0.1", "127.0.0.2"]).is_empty());
+        assert!(exposed(&ALL, &["127.0.0.1", "127.0.0.1"]).is_empty());
+        assert!(exposed(&ALL, &["::1", "::1"]).is_empty());
+        assert!(exposed(&ALL, &["::ffff:127.0.0.1", "127.0.0.2"]).is_empty());
     }
 
     #[test]
     fn dev_flags_beyond_loopback_are_named() {
-        assert_eq!(exposed(&BOTH, &["0.0.0.0", "0.0.0.0"]), BOTH);
-        assert_eq!(exposed(&BOTH, &["::", "::"]), BOTH);
+        assert_eq!(exposed(&ALL, &["0.0.0.0", "0.0.0.0"]), ALL);
+        assert_eq!(exposed(&ALL, &["::", "::"]), ALL);
         assert_eq!(
             exposed(&["DASSIE_DEV_TIMINGS"], &["203.0.113.7", "203.0.113.7"]),
             ["DASSIE_DEV_TIMINGS"]
