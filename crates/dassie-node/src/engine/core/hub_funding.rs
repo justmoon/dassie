@@ -168,7 +168,8 @@ pub struct Standing {
     /// `None` while its scheme does not run synced.
     pub xrpl: Option<u64>,
     /// The owner's funds on the hub's ledger, in drops: what a withdrawal
-    /// may take. What the hub account holds beyond them is owed to peers.
+    /// may take, with its fees. What the hub account holds beyond them is
+    /// owed to peers.
     pub hub_owner: u64,
     /// What became of the payment of the move on its way, as the scheme of
     /// the side it leaves says.
@@ -306,7 +307,7 @@ impl Funding {
                 .balance
                 .saturating_sub(standing.floor)
                 .saturating_sub(standing.withdrawal_fees)
-                .min(standing.hub_owner);
+                .min(standing.hub_owner.saturating_sub(standing.withdrawal_fees));
             let drops = (held.exposure - middle).min(spare);
             return (drops >= standing.least_payout)
                 .then(|| Planned::withdraw(drops, standing.ledger_fee, held.withdrawn, false));
@@ -538,7 +539,7 @@ mod tests {
         let mut high = standing(12_000_000, 14_000_000);
         high.hub_owner = 2_000_000;
         let planned = funding.due(1, &high).unwrap();
-        assert_eq!(planned.drops, 2_000_000);
+        assert_eq!(planned.drops, 2_000_000 - 110, "with its fees");
         high.hub_owner = 500_000;
         assert_eq!(funding.due(1, &high), None, "less than the hub pays out");
     }

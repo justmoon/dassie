@@ -130,6 +130,7 @@ impl Core {
         let ledger = self.activate(id, config, checkpoint, true)?;
         // Settlements left pending when it was last removed (ACC-16).
         self.reconcile_settlements(Some(id));
+        self.reconcile_owner_payments();
         self.ledger_view(ledger)
             .ok_or_else(|| EngineError::Internal("the ledger vanished".into()))
     }

@@ -3482,8 +3482,14 @@ fn a_deposit_holds_the_owners_funds_while_on_its_way() {
     assert!(owner_could_pay(&core, all * units));
     core.hub_deposit(all * units).unwrap();
     let (posted, pending) = owner_xrp(&core);
-    assert_eq!(pending, u128::from(all * units), "held while on its way");
+    let fee = dassie_xrpl::account::MAX_FEE_DROPS * units;
+    assert_eq!(
+        pending,
+        u128::from(all * units + fee),
+        "held while on its way, with the most its fee may cost"
+    );
     assert!(!owner_could_pay(&core, all * units), "a packet is refused");
+    assert!(!owner_could_pay(&core, 1), "nor even the fee's worth");
     assert!(!owner_could_pay(&core, funds - all * units + 1));
     follow_xrpl(&mut core, &mut ledger);
     close_xrpl(&mut core, &mut ledger);
@@ -3537,7 +3543,8 @@ fn a_failed_owner_payment_releases_its_hold() {
     let units = dassie_xrpl::UNITS_PER_DROP;
     let funds = core.owner_available(dassie_ledger::LedgerId::XrplTestnetXrp);
     core.hub_deposit(3_000_000 * units).unwrap();
-    assert_eq!(owner_xrp(&core).1, u128::from(3_000_000 * units));
+    let fee = dassie_xrpl::account::MAX_FEE_DROPS * units;
+    assert_eq!(owner_xrp(&core).1, u128::from(3_000_000 * units + fee));
     let epoch = core.assets[&dassie_xrpl::account::FIRST].epoch;
     for _ in 0..30 {
         follow_xrpl_losing_submits(&mut core, &mut ledger);
@@ -3568,9 +3575,10 @@ fn an_owner_payment_held_across_a_restart_is_posted_once() {
     core.flush();
     drop(core);
     let mut core = core_on(Arc::clone(&store), 10);
+    let fee = dassie_xrpl::account::MAX_FEE_DROPS * units;
     assert_eq!(
         owner_xrp(&core),
-        (posted, u128::from(3_000_000 * units)),
+        (posted, u128::from(3_000_000 * units + fee)),
         "still held"
     );
     follow_xrpl(&mut core, &mut ledger);
@@ -3633,4 +3641,38 @@ fn a_hub_withdrawal_takes_only_the_owners_funds() {
     );
     assert!(core.hub_status().unwrap().moving.is_none());
     core.hub_withdraw(1_000_000 * units).unwrap();
+}
+
+// spec/areas/settlement.md#the-scheme-interface: the XRP Ledger scheme
+// removed while the owner's payment is on its way, and added again: the
+// hold stays meanwhile, and is posted once, with the actual fee, once the
+// scheme is back and reads what became of the payment.
+#[test]
+fn an_owner_payment_outlives_its_scheme_removed_and_added_again() {
+    let store = Arc::new(Store::open_in_memory().unwrap());
+    let (mut ledger, _) = funded_ledger();
+    let (mut core, _hub) = holding_core(&store, &mut ledger);
+    let units = dassie_xrpl::UNITS_PER_DROP;
+    let (posted, _) = owner_xrp(&core);
+    core.hub_deposit(3_000_000 * units).unwrap();
+    core.remove_scheme("xrpl-testnet").unwrap();
+    follow_xrpl(&mut core, &mut ledger);
+    let fee = dassie_xrpl::account::MAX_FEE_DROPS * units;
+    assert_eq!(
+        owner_xrp(&core),
+        (posted, u128::from(3_000_000 * units + fee))
+    );
+    core.add_scheme("xrpl-testnet", SHARED_CONFIG.into())
+        .unwrap();
+    follow_xrpl(&mut core, &mut ledger);
+    close_xrpl(&mut core, &mut ledger);
+    close_xrpl(&mut core, &mut ledger);
+    assert_eq!(
+        owner_xrp(&core),
+        (
+            posted - i128::from(3_000_000 * units) - i128::from(10 * units),
+            0
+        ),
+        "posted once, with its fee"
+    );
 }

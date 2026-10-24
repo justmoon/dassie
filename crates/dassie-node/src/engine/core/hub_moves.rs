@@ -308,9 +308,16 @@ impl Core {
     /// its payment's ID, in the batch that keeps the payment.
     fn make_move(&mut self, planned: Planned, standing: &Standing) -> Result<(), SchemeError> {
         let (scheme, payment) = self.payment_for(planned, standing)?;
-        self.check_owner_payment(scheme, payment.amount)?;
+        // The most its fees may cost: the XRP Ledger's fee, or the hub's
+        // operation fee and ledger fee.
+        let fee_drops = match planned.direction {
+            Direction::Deposit => XRPL_FEE_DROPS,
+            Direction::Withdraw => standing.withdrawal_fees,
+        };
+        let fee = fee_drops.saturating_mul(UNITS_PER_DROP);
+        self.check_owner_payment(scheme, payment.amount, fee)?;
         let id = self.pay_owner(scheme, &payment)?;
-        self.hold_owner_payment(scheme, id, payment.amount);
+        self.hold_owner_payment(scheme, id, payment.amount, fee);
         self.funding.start(self.now_ms, planned, id);
         self.keep_funding();
         Ok(())
@@ -486,7 +493,7 @@ impl Core {
                 "more than the hub account can spend, with the fees".into(),
             ));
         }
-        if drops > standing.hub_owner {
+        if drops.saturating_add(standing.withdrawal_fees) > standing.hub_owner {
             return Err(EngineError::Refused(
                 "more than the owner's funds in the hub: the rest is owed to peers".into(),
             ));
