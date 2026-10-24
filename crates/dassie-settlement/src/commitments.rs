@@ -166,6 +166,17 @@ pub trait Commitments {
         HoldsWith::default()
     }
 
+    /// What `peer`'s hold toward us has room for, in internal units: what
+    /// is left in it less what we have not taken from it and what is in
+    /// flight. That, not the books' position, is what the peer can still
+    /// send us over a hub, whatever we owe it the other way: we ask it to
+    /// settle once it runs low (spec/designs/settlement-hubs.md#4-peering-over-a-hub).
+    /// None, by default: the books' position says.
+    fn room_from(&self, peer: Name) -> Option<u64> {
+        let _ = peer;
+        None
+    }
+
     /// The hub we are a member of, once we have an account in it: what
     /// our link state names, so that peers in the same hub peer with us
     /// over it. None, by default.

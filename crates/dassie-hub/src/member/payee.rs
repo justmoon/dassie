@@ -149,7 +149,7 @@ impl Payee {
     /// What the hold has room for a packet expiring at `expiry`: what is
     /// left in it once a reduction due by then took effect, less what we
     /// have not taken and what is still in flight.
-    fn room(&self, expiry: Millis) -> Amount {
+    pub(super) fn room(&self, expiry: Millis) -> Amount {
         let reduction = self
             .snapshot
             .reduction

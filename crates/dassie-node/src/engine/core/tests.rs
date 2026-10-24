@@ -2796,6 +2796,61 @@ fn the_credit_over_a_hub_is_lowered_only_as_far_as_the_books_allow() {
     assert!(followed, "{outputs:?}");
 }
 
+// spec/designs/settlement-hubs.md#4-peering-over-a-hub: a peer over a hub
+// can send us only what its hold toward us has room for, whatever we owe it
+// the other way. Our books, which net both ways, show room enough while we
+// owe it, yet its hold has no room: we ask it to settle all the same.
+#[test]
+fn over_a_hub_a_payee_asks_by_the_room_of_the_hold_toward_it() {
+    use dassie_ledger::{AccountName, LedgerId, Reference, TransferSpec};
+
+    let (mut core, peer) = hub_core_with_downlink(34);
+    let stub = dassie_ledger::name!("stub");
+    let name = dassie_ledger::Name::new(peer.as_str()).unwrap();
+    // Our books owe the peer well above our trigger.
+    let interledger = core
+        .account(LedgerId::StubUsd, AccountName::AssetsInterledger(name))
+        .unwrap();
+    let pool = core
+        .account(LedgerId::StubUsd, AccountName::EquityOwner)
+        .unwrap();
+    let owed = core.settle.trigger.saturating_mul(4);
+    core.begin_step(NOW + 2_000);
+    core.ledger
+        .create(
+            NOW + 2_000,
+            &TransferSpec {
+                debit: pool,
+                credit: interledger,
+                amount: owed,
+                pending: false,
+                reference: Reference::Deposit,
+            },
+        )
+        .unwrap();
+    let mut outputs = Vec::new();
+    core.finish_step(&mut outputs);
+    let scheme = dassie_peer::wire::SchemeId::parse("stub").unwrap();
+    assert!(
+        core.owed(peer, scheme).unwrap() > 0,
+        "the books owe the peer"
+    );
+    // The peer's hold toward us has no room.
+    assert_eq!(
+        core.with_commitments(stub, |c| c.room_from(name)),
+        Some(Some(0))
+    );
+    core.begin_step(NOW + 3_000);
+    core.settle.at_ms = 0;
+    core.settlement_timers();
+    outputs.clear();
+    core.finish_step(&mut outputs);
+    assert!(
+        core.settle.asked.contains_key(&peer),
+        "the peer was not asked"
+    );
+}
+
 // Keeping the credit over a hub in step writes to the books however full
 // the journal is: what came before goes to the batch first, so a step that
 // moves many hub peerings' holds never finds the journal full.

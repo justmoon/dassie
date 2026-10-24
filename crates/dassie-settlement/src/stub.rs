@@ -478,6 +478,18 @@ impl Commitments for StubHub {
         self.holds.get(&peer).copied().unwrap_or_default()
     }
 
+    /// What is left in the peer's hold toward us, less the packets of it we
+    /// took and those we fulfilled that no claim covers yet, as a hub's
+    /// member reads its room.
+    fn room_from(&self, peer: Name) -> Option<u64> {
+        let held = self.peers.get(&peer).map_or(0, |packets| {
+            let taken = packets.taken.values().map(|promised| promised.amount);
+            let unclaimed = packets.unclaimed.iter().map(|(_, amount)| *amount);
+            taken.chain(unclaimed).fold(0, u64::saturating_add)
+        });
+        Some(self.holds(peer).from.saturating_sub(held))
+    }
+
     fn membership(&self) -> Option<Membership> {
         Some(Membership {
             hub: STUB_HUB,
@@ -1100,6 +1112,32 @@ mod tests {
             c.on_fulfilled(0, peer(), id, [0; 32]);
         }
         assert_eq!(holds(&mut stub).from, total * 2 - 3 * 2);
+    }
+
+    // spec/designs/settlement-hubs.md#4-peering-over-a-hub: the room the
+    // peer's hold toward us has is what is left in it, less the packets we
+    // took from it and those we fulfilled that no claim covers yet.
+    #[test]
+    fn the_room_from_a_peer_is_its_hold_less_what_is_on_its_way() {
+        let mut stub = Stub::new(r#"{"commitments":2}"#, None, &[]).unwrap();
+        let c = stub.commitments().unwrap();
+        assert_eq!(c.room_from(peer()), Some(0));
+        stub.handle_settlement(peer(), 10, &[], &[], &mut Vec::new())
+            .unwrap();
+        let c = stub.commitments().unwrap();
+        assert_eq!(c.room_from(peer()), Some(10));
+        for (id, amount) in [(0, 3), (1, 4)] {
+            let promise = promised(amount, 1);
+            c.check_commitment(0, peer(), id, promise, &commitment(&promise))
+                .unwrap();
+        }
+        assert_eq!(c.room_from(peer()), Some(3));
+        c.on_fulfilled(0, peer(), 0, [0; 32]);
+        c.on_released(peer(), 1);
+        assert_eq!(c.room_from(peer()), Some(7));
+        c.on_claim(0, peer(), 0, CLAIM);
+        assert_eq!(c.room_from(peer()), Some(7));
+        assert_eq!(holds(&mut stub).from, 7);
     }
 
     // The holds outlast a restart in the stub's state, and a state the stub
