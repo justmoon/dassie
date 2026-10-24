@@ -1,6 +1,6 @@
 # Mainnet has schemes of its own, and a ledger runs only in its node's realm
 
-**Areas:** [XRPL](../areas/xrpl.md), [Settlement](../areas/settlement.md#schemes-and-ledgers), [Ledger](../areas/ledger.md), [Node](../areas/node.md), [Identity](../areas/identity.md). Not built yet ([roadmap](../roadmap.md#mainnet-schemes)).
+**Areas:** [XRPL](../areas/xrpl.md), [Settlement](../areas/settlement.md#schemes-and-ledgers), [Ledger](../areas/ledger.md), [Node](../areas/node.md), [Identity](../areas/identity.md). Built: the account by network, `xrpl` with its memo type on mainnet's account, the realm gate, `live` refused at three points, the dev switch in the node, and the fake ledger's mainnet without RLUSD. Not built yet ([roadmap](../roadmap.md#mainnet-schemes)): `xrpl-rlusd`, test RLUSD disabled, the peg guard, a live node without the test network's bootstrap nodes and relay, the live realm in dev and the end-to-end tests, and the wallet's mainnet pages.
 
 ## Facts
 

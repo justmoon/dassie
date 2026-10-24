@@ -11,6 +11,8 @@ const NAMES: Record<string, string> = {
 const DESCRIPTIONS: Record<string, string> = {
   stub:
     "Stub Settlement simulates settlement delays but does not actually connect to any external ledger.",
+  xrpl:
+    "Settles in XRP on the XRP Ledger mainnet: real money. There is no faucet: send XRP to the account to fund it; the ledger holds back a reserve.",
   "xrpl-testnet":
     "Settles in test XRP on the XRP Ledger testnet. The testnet faucet funds the account; the ledger holds back a reserve.",
   "xrpl-testnet-rlusd":

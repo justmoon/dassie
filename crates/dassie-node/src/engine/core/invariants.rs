@@ -14,8 +14,18 @@ impl Core {
         self.ledger.check_invariants();
         self.connector.check_invariants(&self.ledger);
         self.peer.check_invariants();
+        let realm = super::ledger_realm(self.realm);
+        assert!(
+            realm == dassie_ledger::Realm::Test || self.live.allowed(),
+            "a node runs in the live realm only as it may"
+        );
         for active in self.schemes.values() {
             active.scheme.check_invariants();
+            assert_eq!(
+                active.scheme.ledger().realm(),
+                realm,
+                "a scheme runs only in its node's realm"
+            );
             assert!(
                 active
                     .asset

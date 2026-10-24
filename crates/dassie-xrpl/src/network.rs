@@ -5,8 +5,8 @@
 //! Each network has its own asset kind, so an account's ID names its
 //! network ([`Network::of`]), and its own seed path, so the two networks'
 //! accounts have different keys and a Payment signed for one never applies
-//! on the other. Only the testnet's account runs: no scheme settles through
-//! the mainnet's yet, and the `live` realm it is of stays refused
+//! on the other. Mainnet's account is of the `live` realm, so it runs only
+//! in a node of that realm, which stays refused
 //! (spec/decisions/real-money.md).
 
 use dassie_ledger::{Name, Realm};
@@ -156,15 +156,56 @@ mod tests {
     // slug is the scheme's ID.
     #[test]
     fn the_xrp_ledger_is_of_the_networks_realm() {
-        for (network, ledger) in [
-            (&TESTNET, dassie_ledger::LedgerId::XrplTestnetXrp),
-            (&MAINNET, dassie_ledger::LedgerId::XrplXrp),
+        for (network, xrp) in [
+            (&TESTNET, crate::scheme::TESTNET_XRP),
+            (&MAINNET, crate::scheme::MAINNET_XRP),
         ] {
-            assert_eq!(ledger.realm(), network.realm);
-            assert_eq!(
-                ledger.as_str().split('+').next(),
-                Some(network.xrp_scheme.as_str())
-            );
+            assert_eq!(xrp.network, network);
+            assert_eq!(xrp.scheme, network.xrp_scheme);
+            assert_eq!(xrp.ledger.realm(), network.realm);
+            assert_eq!(xrp.ledger.asset().code, "XRP");
+            assert_eq!(xrp.ledger.as_str().split('+').next(), Some(xrp.scheme_id));
+        }
+    }
+
+    // spec/decisions/mainnet-schemes.md: every XRPL scheme has an ID, a
+    // memo type and a ledger of its own, so a Payment is never taken for a
+    // settlement of another, nor test money booked with real; each books
+    // on a ledger of its network's realm, and no two settle in one asset on
+    // one network.
+    #[test]
+    fn no_two_xrpl_schemes_share_a_memo_type_a_ledger_or_an_asset() {
+        use crate::scheme::{MAINNET_XRP, OWNER_MEMO_TYPE, TESTNET_XRP};
+        let xrp = |xrp: crate::scheme::Xrp| (xrp.scheme_id, xrp.memo_type, xrp.ledger, xrp.network);
+        let token = |token: crate::Token| {
+            (
+                token.scheme_id,
+                token.memo_type,
+                token.ledger,
+                token.network,
+            )
+        };
+        let schemes = [
+            (xrp(TESTNET_XRP), None),
+            (xrp(MAINNET_XRP), None),
+            (token(crate::rlusd::TOKEN), Some(crate::rlusd::LINE)),
+            (token(crate::dsusd::TOKEN), Some(crate::dsusd::TOKEN.line())),
+        ];
+        for (index, ((id, memo_type, ledger, network), line)) in schemes.iter().enumerate() {
+            assert_eq!(ledger.realm(), network.realm, "{id}");
+            assert_eq!(ledger.as_str().split('+').next(), Some(*id));
+            assert_ne!(*memo_type, OWNER_MEMO_TYPE, "{id}");
+            for ((other, other_memo, other_ledger, other_network), other_line) in
+                schemes.iter().skip(index + 1)
+            {
+                assert_ne!(id, other);
+                assert_ne!(memo_type, other_memo, "{id} and {other}");
+                assert_ne!(ledger, other_ledger, "{id} and {other}");
+                assert!(
+                    network != other_network || line != other_line,
+                    "{id} and {other} settle in one asset on one network"
+                );
+            }
         }
     }
 }
