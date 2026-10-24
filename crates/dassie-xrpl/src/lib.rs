@@ -15,7 +15,9 @@
 //!   canonical form only, for what the node proves rather than signs:
 //!   [`header`], a ledger's header and its hash; [`validation`], a
 //!   validator's signature on a ledger; [`manifest`], the keys a
-//!   validator or a list publisher signs with.
+//!   validator or a list publisher signs with; [`shamap`], a ledger's
+//!   trees of transactions and of state, and the branch that proves a
+//!   leaf in either, or a key's absence.
 //! - [`api`]: the rippled WebSocket JSON the node speaks: requests, and
 //!   what comes back, parsed and bounded.
 //! - [`amm`]: an AMM pool's price, exact, for a client that swaps through
@@ -35,7 +37,8 @@
 //!   (`xrpl-testnet-dsusd`); [`peg`] is the guard that pauses a dollar
 //!   token's scheme while its AMM pool prices it off a dollar.
 //! - `fake` (feature `fake`): a model of the ledger, with tokens, AMM
-//!   pools and signer lists, for simulations and tests.
+//!   pools and signer lists, and a builder of its hash trees and their
+//!   branches, for simulations and tests.
 //!
 //! Nothing here reads a clock or touches the network
 //! (spec/decisions/tigerstyle.md).
@@ -63,6 +66,7 @@ pub mod network;
 pub mod peg;
 pub mod rlusd;
 pub mod scheme;
+pub mod shamap;
 pub mod token;
 pub mod validation;
 
