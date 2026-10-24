@@ -1,6 +1,7 @@
-//! Golden vectors: the original's wallets, from `dassie-identity`'s chain,
-//! and Payments, token amounts and TrustSets as xrpl.js 3.1.0 writes and
-//! signs them, with Payments that name a `SendMax` (testdata/xrpl).
+//! Golden vectors: the original's wallets on both networks, from
+//! `dassie-identity`'s chain, and Payments, token amounts and TrustSets as
+//! xrpl.js 3.1.0 writes and signs them, with Payments that name a
+//! `SendMax` (testdata/xrpl).
 
 #![allow(
     clippy::unwrap_used,
@@ -14,7 +15,7 @@ use dassie_xrpl::codec::{
     Amount, Currency, Memo, Payment, SendMaxTerms, Signed, Signing, TokenAmount, TokenValue,
     Transact, Transaction, TrustSet, hash, sign_send_max,
 };
-use dassie_xrpl::{AccountId, Wallet, from_hex, hex_upper};
+use dassie_xrpl::{AccountId, Wallet, from_hex, hex_upper, network};
 use serde_json::Value;
 
 fn read(path: &str) -> Value {
@@ -54,6 +55,48 @@ fn the_original_wallets_derive_from_the_node_key() {
             AccountId::parse(text(expected, "address")),
             Some(wallet.account())
         );
+    }
+}
+
+// The mainnet wallet is the original's too, at its path
+// (spec/decisions/mainnet-schemes.md): the network table's seed path finds,
+// for every entry of the chain, the address the original derived. The
+// testnet's seed path is the one the wallets above pin.
+#[test]
+fn each_networks_seed_path_finds_the_original_wallet() {
+    let chain = read("../dassie-identity/tests/data/chain.json");
+    let entries = chain["chain"].as_array().unwrap();
+    assert_eq!(entries.len(), 64);
+    let testnet = network::TESTNET.seed;
+    assert_eq!(
+        (testnet.module, testnet.path),
+        ("xrpl-testnet", "seed-testnet")
+    );
+    for entry in entries {
+        let key: [u8; 32] = from_hex(text(entry, "nodeKey"))
+            .unwrap()
+            .try_into()
+            .unwrap();
+        let node_key = NodeKey::from_bytes(&key);
+        let mut addresses = Vec::new();
+        for (network, wallet) in [
+            (&network::TESTNET, "xrplTestnetWallet"),
+            (&network::MAINNET, "xrplMainnetWallet"),
+        ] {
+            let entropy = node_key
+                .settlement_entropy(network.seed.module, network.seed.path)
+                .unwrap();
+            let derived = Wallet::from_entropy(entropy.as_bytes());
+            let expected = &entry[wallet];
+            assert_eq!(derived.family_seed(), text(expected, "familySeed"));
+            assert_eq!(derived.account().to_address(), text(expected, "address"));
+            assert_eq!(
+                hex_upper(derived.public_key().as_bytes()),
+                text(expected, "publicKey")
+            );
+            addresses.push(derived.account());
+        }
+        assert_ne!(addresses[0], addresses[1], "keys of their own");
     }
 }
 

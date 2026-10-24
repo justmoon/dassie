@@ -165,9 +165,9 @@ fn schemes_on(asset: AssetId) -> Vec<Name> {
 
 /// Makes the external asset `id` with its config, and the state the books
 /// kept for it. The node's first XRPL testnet account derives its keys at
-/// `node/settlement-module/xrpl-testnet/seed-testnet`, which is frozen
-/// (spec/areas/identity.md#derivation-chain); further accounts are not
-/// built.
+/// `node/settlement-module/xrpl-testnet/seed-testnet`, its network's seed
+/// path, which is frozen (spec/areas/identity.md#derivation-chain); further
+/// accounts, and the mainnet's, are not built.
 ///
 /// # Errors
 ///
@@ -180,8 +180,9 @@ fn create_asset(
 ) -> Result<Box<dyn ExternalAsset>, SchemeError> {
     match (id.kind, id.index) {
         (AssetKind::XrplTestnetAccount, 0) => {
+            let seed = dassie_xrpl::network::TESTNET.seed;
             let entropy = key
-                .settlement_entropy(dassie_xrpl::scheme::SCHEME_ID, "seed-testnet")
+                .settlement_entropy(seed.module, seed.path)
                 .map_err(|_| SchemeError::InvalidConfig)?;
             Ok(Box::new(XrplAccount::new(
                 id,

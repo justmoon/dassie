@@ -1,4 +1,4 @@
-//! The node's account on the XRP Ledger testnet, as an external asset
+//! The node's account on an XRP Ledger network, as an external asset
 //! (spec/areas/xrpl.md#the-account), sans-IO.
 //!
 //! The account owns what the schemes that settle through it would
@@ -28,13 +28,14 @@
 //! own once it has looked it up. So is what it was told of its own in the
 //! input whose bookings the books refused, which stopped it.
 //!
-//! It runs only on the testnet: a server that reports another network, or
-//! none, stops it before the account is read, so mainnet XRP is never
-//! booked, written off or signed for (spec/decisions/real-money.md). It
-//! acts only on what a server says as of a validated ledger at or past the
-//! newest it has seen; a ledger below the newest that closed later is a new
-//! chain, which only a testnet reset makes, and only on a network
-//! [`resets`] allows (spec/decisions/ledger-resets.md).
+//! It runs only on its own network ([`Network`], which its kind names): a
+//! server that reports another network, or none, stops it before the
+//! account is read, so another network's XRP is never booked, written off
+//! or signed for (spec/decisions/real-money.md). Only the testnet's
+//! account runs yet. It acts only on what a server says as of a validated
+//! ledger at or past the newest it has seen; a ledger below the newest
+//! that closed later is a new chain, which only a testnet reset makes, and
+//! only on a network [`resets`] allows (spec/decisions/ledger-resets.md).
 
 use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::string::{String, ToString};
@@ -42,8 +43,8 @@ use alloc::vec::Vec;
 
 use dassie_ledger::{MAX_TOTAL, Name};
 use dassie_settlement::{
-    AssetEffect, AssetId, AssetKind, Detach, ExternalAsset, Freeze, Holding, LedgerInput,
-    LedgerStatus, SchemeError,
+    AssetEffect, AssetId, Detach, ExternalAsset, Freeze, Holding, LedgerInput, LedgerStatus,
+    SchemeError,
 };
 use serde_json::{Value, json};
 
@@ -53,6 +54,7 @@ use crate::api::{
 };
 use crate::codec::{Amount, Memo, Payment, Signing, Transact, TrustSet};
 use crate::keys::{AccountId, Wallet};
+use crate::network::{Network, TESTNET};
 use crate::{UNITS_PER_DROP, from_hex, hex_upper};
 
 /// The scale the account reports a token it holds at: fifteen decimals,
@@ -62,14 +64,11 @@ pub const TOKEN_SCALE: u8 = 15;
 /// The node's first XRPL testnet account: the one whose keys are at
 /// `node/settlement-module/xrpl-testnet/seed-testnet`
 /// (spec/areas/identity.md#derivation-chain).
-pub const FIRST: AssetId = AssetId {
-    kind: AssetKind::XrplTestnetAccount,
-    index: 0,
-};
+pub const FIRST: AssetId = TESTNET.first();
 /// The testnet's public server.
-pub const DEFAULT_SERVER: &str = "wss://s.altnet.rippletest.net:51233";
+pub const DEFAULT_SERVER: &str = TESTNET.server;
 /// The testnet's faucet.
-pub const DEFAULT_FAUCET: &str = "https://faucet.altnet.rippletest.net/accounts";
+pub const DEFAULT_FAUCET: &str = crate::network::TESTNET_FAUCET;
 
 /// Most of our transactions on their way at once, of all the schemes on
 /// the account.
@@ -124,9 +123,7 @@ const TOO_MUCH_XRP: &str = "the server reported more XRP for the account than th
 /// The network ID the testnet's servers report: mainnet's is 0, and
 /// devnet's 2. Nothing signs for a server that reports another
 /// (spec/decisions/real-money.md).
-pub const TESTNET_NETWORK_ID: u32 = 1;
-/// Why the account stops when its server reports another network, or none.
-const WRONG_NETWORK: &str = "the server is not on the XRP Ledger testnet; remove the scheme and add it with a testnet server";
+pub const TESTNET_NETWORK_ID: u32 = TESTNET.id;
 /// Why the account stops when a network that is never reset starts again
 /// below a ledger it has seen.
 const CHAIN_WENT_BACK: &str =
@@ -190,11 +187,6 @@ fn chain(newest: Option<Validated>, network_id: u32, ledger: Validated) -> Chain
     }
 }
 
-/// The scheme that settles in the account's XRP: on an account it settles
-/// from, what other schemes spend of the XRP as gas is the owner's funds on
-/// its ledger (spec/decisions/external-assets.md).
-const XRP_SCHEME: &str = crate::scheme::SCHEME_ID;
-
 /// A trust line the account follows for a scheme on it: of its token's
 /// issuer, in its currency.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -210,23 +202,35 @@ pub struct LineKey {
 pub struct Config {
     /// A WebSocket URL, `wss://` (or `ws://`, which the node allows only
     /// where it allows private addresses). A server that reports another
-    /// network than the testnet, or none, stops the account.
+    /// network than the account's, or none, stops the account.
     pub server: String,
     /// The faucet, an HTTPS URL; `None` to never ask.
     pub faucet: Option<String>,
 }
 
 impl Config {
-    /// The config in `text`: empty for the testnet's defaults, or JSON with
-    /// `server` and `faucet` (a URL or `null`), each optional.
+    /// The config of a testnet account in `text`
+    /// ([`parse_on`](Self::parse_on)).
+    ///
+    /// # Errors
+    ///
+    /// [`SchemeError::InvalidConfig`] if it is not one.
+    pub fn parse(text: &str) -> Result<Self, SchemeError> {
+        Self::parse_on(text, &TESTNET)
+    }
+
+    /// The config of an account on `network` in `text`: empty for the
+    /// network's defaults, or JSON with `server` and `faucet` (a URL or
+    /// `null`), each optional. A network without a faucet takes none but
+    /// `null` (spec/decisions/mainnet-schemes.md).
     ///
     /// # Errors
     ///
     /// [`SchemeError::InvalidConfig`] if it is not that.
-    pub fn parse(text: &str) -> Result<Self, SchemeError> {
+    pub fn parse_on(text: &str, network: &Network) -> Result<Self, SchemeError> {
         let mut config = Self {
-            server: DEFAULT_SERVER.to_string(),
-            faucet: Some(DEFAULT_FAUCET.to_string()),
+            server: network.server.to_string(),
+            faucet: network.faucet.map(ToString::to_string),
         };
         let text = text.trim();
         if text.is_empty() {
@@ -244,7 +248,9 @@ impl Config {
                 {
                     config.server.clone_from(server);
                 }
-                ("faucet", Value::String(faucet)) if faucet.starts_with("https://") => {
+                ("faucet", Value::String(faucet))
+                    if faucet.starts_with("https://") && network.faucet.is_some() =>
+                {
                     config.faucet = Some(faucet.clone());
                 }
                 ("faucet", Value::Null) => config.faucet = None,
@@ -444,8 +450,8 @@ enum Request {
 enum Phase {
     /// No connection.
     Disconnected,
-    /// Connected; waiting for the server's state, which must be the
-    /// testnet's, then the subscription, then the account's state, as of
+    /// Connected; waiting for the server's state, which must be of the
+    /// account's network, then the subscription, then the account's state, as of
     /// a ledger the stream covers.
     Starting {
         subscribed: bool,
@@ -461,9 +467,10 @@ enum Phase {
     Synced,
 }
 
-/// An XRPL testnet account.
+/// An XRPL account, on the network its kind names.
 pub struct XrplAccount {
     id: AssetId,
+    network: &'static Network,
     /// The schemes that may settle through it.
     schemes: Vec<Name>,
     config: Config,
@@ -528,14 +535,15 @@ pub struct XrplAccount {
 }
 
 impl XrplAccount {
-    /// The account `id`, through which `schemes` may settle, with the
-    /// wallet of `entropy`, connecting as `config` says, from the state the
-    /// books kept.
+    /// The account `id`, on the network its kind names, through which
+    /// `schemes` may settle, with the wallet of `entropy`, connecting as
+    /// `config` says, from the state the books kept.
     ///
     /// # Errors
     ///
-    /// If the config or the state is invalid: a state that names a scheme
-    /// not among `schemes` is one the account did not write.
+    /// If `id` is of no XRPL network, or the config or the state is
+    /// invalid: a state that names a scheme not among `schemes` is one the
+    /// account did not write.
     ///
     /// # Panics
     ///
@@ -551,10 +559,12 @@ impl XrplAccount {
             schemes.len() <= MAX_SCHEMES,
             "more schemes on an account than there may be"
         );
+        let network = Network::of(id.kind).ok_or(SchemeError::UnknownScheme)?;
         let mut account = Self {
             id,
+            network,
             schemes: schemes.to_vec(),
-            config: Config::parse(config)?,
+            config: Config::parse_on(config, network)?,
             wallet: Wallet::from_entropy(entropy),
             sequence: 0,
             in_flight: Vec::new(),
@@ -607,6 +617,12 @@ impl XrplAccount {
     #[must_use]
     pub const fn config(&self) -> &Config {
         &self.config
+    }
+
+    /// The network it is on.
+    #[must_use]
+    pub const fn network(&self) -> &'static Network {
+        self.network
     }
 
     /// What it learnt since the schemes on it were last told.
@@ -772,7 +788,7 @@ impl XrplAccount {
     /// books stopped that scheme, whose books still hold the XRP; on any
     /// other, the XRP is off the books, and only the reserve bounds it.
     fn gas_allows(&self, scheme: Name, gas: u64) -> bool {
-        let xrp = dassie_ledger::name!(XRP_SCHEME);
+        let xrp = self.network.xrp_scheme;
         if scheme == xrp {
             return true;
         }
@@ -795,7 +811,7 @@ impl XrplAccount {
     /// Whether `scheme` may sign a transaction now that pays `drops` of
     /// XRP and `fee`, and may take `reserve` more.
     fn can_sign(&self, scheme: Name, drops: u64, fee: u64, reserve: u64) -> bool {
-        let xrp = dassie_ledger::name!(XRP_SCHEME);
+        let xrp = self.network.xrp_scheme;
         let gas = if scheme == xrp {
             0
         } else {
@@ -868,8 +884,8 @@ impl XrplAccount {
             sequence: self.sequence,
             last_ledger_sequence: Some(self.validated.saturating_add(LEDGER_WINDOW)),
             flags: 0,
-            // Only the testnet is signed for, and a transaction names its
-            // network only above 1024.
+            // A transaction names its network only above 1024, and no
+            // account's is (`Network::id`).
             network_id: None,
             memos,
             signing: Signing::by(self.wallet.public_key()),
@@ -1347,17 +1363,17 @@ impl XrplAccount {
     }
 
     /// The server's state, the first answer on a connection: a server off
-    /// the testnet, or that does not say, stops the account before anything
-    /// is read from it. On the testnet, its ledger says whether it is
-    /// behind, or on a chain started again; then the account is
-    /// subscribed.
+    /// the account's network, or that does not say, stops the account
+    /// before anything is read from it. On its network, its ledger says
+    /// whether it is behind, or on a chain started again; then the account
+    /// is subscribed.
     fn server_state(&mut self, outcome: Result<Value, ApiError>) {
         let Some(state) = outcome.ok().as_ref().and_then(api::server_state_result) else {
             self.reconnect();
             return;
         };
-        let Some(network_id) = state.network_id.filter(|&id| id == TESTNET_NETWORK_ID) else {
-            self.failed = Some(WRONG_NETWORK);
+        let Some(network_id) = state.network_id.filter(|&id| id == self.network.id) else {
+            self.failed = Some(self.network.wrong_network);
             self.disconnected();
             return;
         };
@@ -2527,6 +2543,7 @@ impl ExternalAsset for XrplAccount {
         assert!(self.pending.len() <= MAX_PENDING);
         assert!(self.buffer.len() <= MAX_BUFFERED);
         assert!(self.followers.len() <= MAX_SCHEMES);
+        assert_eq!(Network::of(self.id.kind), Some(self.network), "its kind's");
         assert!(
             self.stopped.iter().all(|scheme| self.schemes.contains(scheme)
                 && !self.followers.contains_key(scheme)),

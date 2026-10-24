@@ -1,0 +1,168 @@
+//! Each network's account against the fake ledger: the network it is on
+//! decides the server it connects to, the network ID its server must
+//! report, and whether it asks a faucet (spec/decisions/mainnet-schemes.md).
+
+#![allow(clippy::unwrap_used, clippy::indexing_slicing, clippy::panic)]
+
+use dassie_settlement::{AssetEffect, ExternalAsset, LedgerInput, LedgerStatus, SchemeError};
+use dassie_xrpl::XrplScheme;
+use dassie_xrpl::account::{self, XrplAccount};
+use dassie_xrpl::fake::FakeLedger;
+use dassie_xrpl::network::{MAINNET, NETWORKS, Network, TESTNET};
+
+/// Most rounds of requests and answers a connection takes here.
+const MAX_ROUNDS: usize = 64;
+
+/// An account on `network` with the config `config`, which only the
+/// network's XRP scheme may settle through.
+fn account_on(network: &Network, config: &str) -> Result<XrplAccount, SchemeError> {
+    XrplAccount::new(
+        network.first(),
+        &[network.xrp_scheme],
+        config,
+        &[7; 32],
+        &[],
+    )
+}
+
+/// What a connection did: the commands the account sent, in order, and
+/// the faucets it asked.
+struct Connection {
+    asked: Vec<String>,
+    funds: Vec<String>,
+}
+
+/// Connects `account` to `ledger` and answers what it asks until it asks
+/// nothing more.
+fn connect(account: &mut XrplAccount, ledger: &mut FakeLedger) -> Connection {
+    let mut connection = Connection {
+        asked: Vec::new(),
+        funds: Vec::new(),
+    };
+    account.on_ledger(1_000, LedgerInput::Connected);
+    for _ in 0..MAX_ROUNDS {
+        account.told();
+        account.check_invariants();
+        let mut effects = Vec::new();
+        account.take_effects(&mut effects);
+        if effects.is_empty() {
+            return connection;
+        }
+        for effect in effects {
+            match effect {
+                AssetEffect::Send { message } => {
+                    let request: serde_json::Value = serde_json::from_slice(&message).unwrap();
+                    let command = request["command"].as_str().unwrap_or_default();
+                    connection.asked.push(command.to_string());
+                    let reply = ledger.request(1, &message);
+                    account.on_ledger(1_000, LedgerInput::Message(&reply));
+                }
+                AssetEffect::Fund { url, .. } => connection.funds.push(url),
+                other => panic!("{other:?}"),
+            }
+        }
+    }
+    panic!("the connection did not settle in {MAX_ROUNDS} rounds");
+}
+
+// The account connects to its network's server by default, and runs only
+// where the server reports its network: a server of the other network, or
+// one that names none, stops it before the account is read, with the
+// reason naming the network it is on.
+#[test]
+fn an_account_runs_only_on_its_own_network() {
+    for network in NETWORKS {
+        let reports = |id: u32| network.id == id;
+        for reported in [Some(TESTNET.id), Some(MAINNET.id), Some(2), None] {
+            let mut ledger = FakeLedger::new();
+            ledger.set_network_id(reported);
+            let mut account = account_on(network, "").unwrap();
+            assert_eq!(account.connection(), Some(network.server));
+            let connection = connect(&mut account, &mut ledger);
+            if reported.is_some_and(reports) {
+                assert_eq!(
+                    connection.asked[..3],
+                    ["server_state", "subscribe", "account_info"]
+                );
+                assert_eq!(account.status(), LedgerStatus::Unfunded, "{reported:?}");
+            } else {
+                assert_eq!(connection.asked, ["server_state"], "{reported:?}");
+                assert_eq!(
+                    account.status(),
+                    LedgerStatus::Failed(network.wrong_network),
+                    "{reported:?}"
+                );
+            }
+        }
+    }
+}
+
+// Mainnet has no faucet: an account there without funds waits for the
+// owner's deposit and never asks one, and the owner cannot ask one either.
+// The testnet's asks its faucet, as it always has.
+#[test]
+fn only_the_testnet_account_asks_a_faucet() {
+    for network in NETWORKS {
+        let mut ledger = FakeLedger::new();
+        ledger.set_network_id(Some(network.id));
+        let mut account = account_on(network, "").unwrap();
+        let connection = connect(&mut account, &mut ledger);
+        assert_eq!(account.status(), LedgerStatus::Unfunded);
+        let faucet: Vec<String> = network.faucet.iter().map(ToString::to_string).collect();
+        assert_eq!(connection.funds, faucet);
+        assert_eq!(account.has_faucet(), network.faucet.is_some());
+        if network.faucet.is_none() {
+            assert_eq!(account.ask_faucet(), Err(SchemeError::Unsupported));
+        }
+    }
+}
+
+// A network without a faucet takes none in the config but `null`; one
+// with a faucet takes another. A server may be named on either.
+#[test]
+fn a_config_names_a_faucet_only_where_there_is_one() {
+    let faucet = r#"{"faucet": "https://faucet.example/accounts"}"#;
+    assert!(account_on(&TESTNET, faucet).is_ok());
+    assert_eq!(
+        account_on(&MAINNET, faucet).err(),
+        Some(SchemeError::InvalidConfig)
+    );
+    for network in NETWORKS {
+        let config = account_on(network, r#"{"faucet": null}"#).unwrap();
+        assert_eq!(config.config().faucet, None);
+        let server = r#"{"server": "wss://xrpl.example"}"#;
+        let named = account_on(network, server).unwrap();
+        assert_eq!(named.config().server, "wss://xrpl.example");
+    }
+    let config = account::Config::parse("").unwrap();
+    assert_eq!(config, account::Config::parse_on("", &TESTNET).unwrap());
+    assert_eq!(config.server, account::DEFAULT_SERVER);
+    assert_eq!(config.faucet.as_deref(), Some(account::DEFAULT_FAUCET));
+}
+
+// A scheme settles only through an account on its own network: the
+// testnet's XRP scheme refuses the mainnet's account.
+#[test]
+fn a_scheme_refuses_an_account_of_another_network() {
+    let node = dassie_ledger::name!("node");
+    let mainnet = account_on(&MAINNET, "").unwrap();
+    assert_eq!(
+        XrplScheme::new(&mainnet, node, None, &[]).err(),
+        Some(SchemeError::InvalidConfig)
+    );
+    assert_eq!(
+        dassie_xrpl::DsusdScheme::new(&mainnet, node, None, &[]).err(),
+        Some(SchemeError::InvalidConfig)
+    );
+    let testnet = account_on(&TESTNET, "").unwrap();
+    assert!(XrplScheme::new(&testnet, node, None, &[]).is_ok());
+    // An asset of no XRPL network is no account.
+    let hub = dassie_settlement::AssetId {
+        kind: dassie_settlement::AssetKind::HubTestnetAccount,
+        index: 0,
+    };
+    assert_eq!(
+        XrplAccount::new(hub, &[], "", &[7; 32], &[]).err(),
+        Some(SchemeError::UnknownScheme)
+    );
+}
