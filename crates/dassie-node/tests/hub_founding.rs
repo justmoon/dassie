@@ -23,6 +23,7 @@ use dassie_node::clock::ManualClock;
 use dassie_node::fake_ledger::{Options, Server};
 use dassie_node::node::Policies;
 use dassie_node::rpc::proto::{self, request::Method, response};
+use dassie_xrpl::network::TESTNET;
 use support::pair::{CA, CERT, KEY};
 use support::{Bound, START_MS, TestNode, set_up};
 
@@ -643,7 +644,7 @@ async fn a_cancelled_funding_is_paid_again() {
     };
     let sequence = api::account_info_result(&result).unwrap().sequence;
     let entropy = NodeKey::from_bytes(&[70; 32])
-        .settlement_entropy("xrpl-testnet", "seed-testnet")
+        .settlement_entropy(TESTNET.seed.module, TESTNET.seed.path)
         .unwrap();
     let wallet = dassie_xrpl::Wallet::from_entropy(entropy.as_bytes());
     assert_eq!(wallet.account(), sponsor);

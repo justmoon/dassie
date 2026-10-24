@@ -37,6 +37,7 @@ use std::path::{Path, PathBuf};
 use dassie_xrpl::Wallet;
 use dassie_xrpl::amount::Currency;
 use dassie_xrpl::keys::AccountId;
+use dassie_xrpl::network::TESTNET;
 use serde_json::{Map, Value};
 
 use super::strategy::{Band, MAX_MARGIN_PPM, MAX_SLIPPAGE_PPM, NodeParams, Params, Token};
@@ -60,10 +61,6 @@ pub const MAX_UNITS: u64 = i64::MAX.unsigned_abs();
 pub const MAX_TARGETS: usize = 128;
 
 const _: () = assert!(MAX_TARGETS <= dassie_node::env::MAX_UPLINKS);
-
-/// The path the node derives its first XRPL testnet account's keys at,
-/// under its scheme (spec/areas/xrpl.md#the-wallet).
-const XRPL_SEED_PATH: &str = "seed-testnet";
 
 /// A target node, as the config names it.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -486,8 +483,9 @@ pub fn host_and_port(authority: &str, default: u16) -> Option<(&str, u16)> {
 ///
 /// The file cannot be read, or holds no passphrase.
 pub fn wallet_from_file(path: &Path) -> Result<Wallet, String> {
+    let seed = TESTNET.seed;
     let entropy = passphrase::node_key_from_file(path)?
-        .settlement_entropy(dassie_xrpl::scheme::SCHEME_ID, XRPL_SEED_PATH)
+        .settlement_entropy(seed.module, seed.path)
         .map_err(|_| "cannot derive the XRPL keys".to_owned())?;
     Ok(Wallet::from_entropy(entropy.as_bytes()))
 }
@@ -780,7 +778,7 @@ mod tests {
         // As the node derives it from its key.
         let key = Mnemonic::parse(phrase).unwrap().to_seed().node_key();
         let entropy = key
-            .settlement_entropy("xrpl-testnet", "seed-testnet")
+            .settlement_entropy(TESTNET.seed.module, TESTNET.seed.path)
             .unwrap();
         assert_eq!(
             wallet.account(),

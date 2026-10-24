@@ -86,8 +86,8 @@ use history::{Proof, Unsaved, Walk};
 /// the most a token's sixteen digits leave below a unit of it.
 pub const TOKEN_SCALE: u8 = 15;
 
-/// The node's first XRPL testnet account: the one whose keys are at
-/// `node/settlement-module/xrpl-testnet/seed-testnet`
+/// The node's first XRPL testnet account: the one whose keys are at the
+/// testnet's seed path, [`TESTNET`]`.seed`
 /// (spec/areas/identity.md#derivation-chain).
 pub const FIRST: AssetId = TESTNET.first();
 /// The testnet's proof server, which the project runs: a rippled that also

@@ -175,8 +175,9 @@ fn create_hub_account(
 /// The node's first XRPL testnet account: where its hub account pays out,
 /// and where it withdraws to.
 pub(super) fn own_xrpl_account(key: &NodeKey) -> Result<dassie_xrpl::AccountId, SchemeError> {
+    let seed = dassie_xrpl::network::TESTNET.seed;
     let entropy = key
-        .settlement_entropy(dassie_xrpl::scheme::SCHEME_ID, "seed-testnet")
+        .settlement_entropy(seed.module, seed.path)
         .map_err(|_| SchemeError::InvalidConfig)?;
     Ok(dassie_xrpl::Wallet::from_entropy(entropy.as_bytes()).account())
 }
@@ -196,11 +197,9 @@ fn schemes_on(asset: AssetId) -> Vec<Name> {
 
 /// Makes the external asset `id` with its config, and the state the books
 /// kept for it. The node's first XRPL account on a network derives its keys
-/// at its network's seed path, which is frozen
-/// (spec/areas/identity.md#derivation-chain): the testnet's at
-/// `node/settlement-module/xrpl-testnet/seed-testnet`, mainnet's at
-/// `node/settlement-module/xrpl/seed-mainnet`, the original's. Further
-/// accounts are not built.
+/// at its network's seed path, in `dassie_xrpl::network`, which is frozen
+/// (spec/areas/identity.md#derivation-chain). Further accounts are not
+/// built.
 ///
 /// # Errors
 ///
@@ -983,8 +982,6 @@ mod tests {
             let wallet = dassie_xrpl::Wallet::from_entropy(entropy.as_bytes());
             assert_eq!(account.account(), wallet.account());
         }
-        assert_eq!(MAINNET.seed.module, "xrpl");
-        assert_eq!(MAINNET.seed.path, "seed-mainnet");
         for info in SCHEMES {
             let network = asset_of(info.id).and_then(|asset| Network::of(asset.kind));
             match network {
