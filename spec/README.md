@@ -52,6 +52,7 @@ Read a [decision](decisions/README.md) when an area doc links to it and you need
 | `resources/front-door/` | [Front doors](areas/http.md#front-doors), [Node](areas/node.md#a-chosen-relay) |
 | `resources/proof-server/` | [Proof servers](areas/proof-servers.md), [Checking the validators](designs/xrpl-validation.md#3-the-proof-api) |
 | `flake.nix`, `.github/workflows/ci.yml`, `package.json`, `Cargo.toml` | [Engineering](engineering.md) |
+| `.config/nextest.toml` | [Testing](areas/testing.md#levels), [Engineering](engineering.md) |
 | `testdata/` | [Testing](areas/testing.md), and the area the vectors pin |
 | `scripts/sim-campaign.ts`, `scripts/sim-campaign/` | [Testing](areas/testing.md#the-campaign) |
 

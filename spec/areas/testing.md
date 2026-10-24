@@ -2,7 +2,7 @@
 
 How Dassie is tested: what each level of tests is for, what the deterministic simulations judge and why, how to reproduce a failure, and the campaign that runs the simulations continuously.
 
-**Paths:** `crates/*/tests/`, `crates/*/src/sim/`, `crates/dassie-sim/`, `scripts/sim-campaign.ts`, `scripts/sim-campaign/`, `crates/dassie-node-core/src/testing.rs`, `tests/e2e/`, `tests/interop/`, `testdata/`, `**/*_test.ts`
+**Paths:** `crates/*/tests/`, `crates/*/src/sim/`, `crates/dassie-sim/`, `scripts/sim-campaign.ts`, `scripts/sim-campaign/`, `crates/dassie-node-core/src/testing.rs`, `tests/e2e/`, `tests/interop/`, `testdata/`, `.config/nextest.toml`, `**/*_test.ts`
 **Read with:** [Engineering](../engineering.md), [Release](release.md), [Website](website.md), [Dev environment](dev.md)
 
 ## Levels
@@ -18,6 +18,7 @@ Rules for every test:
 - **Every decoder has a "never panics on arbitrary input" property test.**
 - **Every simulation or property-test failure prints the seed that reproduces it.**
 - **CI runs fixed seeds only, and no fuzzing** ([Engineering](../engineering.md#no-fuzzing-or-random-seeds-in-ci)).
+- **Each Rust test runs in its own process, at once with every other.** CI runs them with cargo-nextest (`.config/nextest.toml`), so that it takes as long as its slowest test rather than all of them in turn. A test relies on no other test's process, state or order, and takes its ports from the OS, or fixed ones no other test uses. Nextest retries no test: one that fails only sometimes fails CI.
 - **The end-to-end tests skip what they lack outside CI, and fail on it in CI** (`CI=true`), so a missing tool never passes CI silently.
 
 The install tests, the NixOS VM test and the static-binary check run only in the release workflow, before anything is signed ([Release](release.md#tests)).

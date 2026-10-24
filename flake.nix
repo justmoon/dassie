@@ -261,14 +261,33 @@
                 cargoClippyExtraArgs = "-- -D warnings";
               }
             );
-            # systemd-socket-activate, for dassie-cli's process tests, which
-            # skip without it. The test key, for its update tests.
-            cargo-test = craneLib.cargoTest (
+            # The workspace's tests, with cargo-nextest: each test in its own
+            # process and all at once, so that the check takes its build and
+            # its slowest test, not every test binary one after another. Its
+            # ci profile (.config/nextest.toml, which joins this check's
+            # source alone) runs every test, retries none and stops a hang.
+            # nextest runs no doc tests, so `cargo test --doc` runs them
+            # after. systemd-socket-activate, for dassie-cli's process tests,
+            # which skip without it. The test key, for its update tests.
+            # Nothing builds on the check, so it keeps no target directory.
+            cargo-test = craneLib.cargoNextest (
               common
               // {
+                src = lib.fileset.toSource {
+                  root = ./.;
+                  fileset = lib.fileset.unions [
+                    (lib.fileset.fromSource src)
+                    ./.config/nextest.toml
+                  ];
+                };
                 inherit cargoArtifacts;
                 nativeCheckInputs = [ pkgs.systemd ];
-                cargoTestExtraArgs = "--features dassie-cli/test-key";
+                NEXTEST_PROFILE = "ci";
+                cargoNextestExtraArgs = "--features dassie-cli/test-key";
+                postCheck = ''
+                  cargoWithProfile test --doc --locked --features dassie-cli/test-key
+                '';
+                doInstallCargoArtifacts = false;
               }
             );
             # The dependencies' licenses and sources, and wildcard
