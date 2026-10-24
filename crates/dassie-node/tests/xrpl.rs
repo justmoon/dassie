@@ -42,6 +42,7 @@ async fn fake_ledger() -> Server {
 /// A fake ledger with its WebSocket API and faucet on these ports, or any.
 async fn fake_ledger_on(port: u16, faucet_port: u16) -> Result<Server, String> {
     Server::start(Options {
+        network: &dassie_xrpl::network::TESTNET,
         listen: ([127, 0, 0, 1], port).into(),
         faucet: Some((
             ([127, 0, 0, 1], faucet_port).into(),
@@ -543,8 +544,18 @@ async fn two_daemons_settle_dsusd_across_restarts() {
         ("DASSIE_PEER_ALLOW_PRIVATE", "1"),
     ];
     let clock = ManualClock::new(START_MS);
-    let a = bound_a.start(clock.clone(), 1, Policies::DEV, &env).await;
-    let b = bound_b.start(clock.clone(), 2, Policies::DEV, &env).await;
+    // The daemons have no rate source and the ledger no DSUSD pool, so
+    // DSUSD's peg guard never reads a price: on production timings it
+    // pauses the scheme only after ten minutes, longer than this test's
+    // clock runs, where on dev timers it would after ten seconds. What the
+    // guard does is tested in `on_dev_timers_the_peg_guard_trips_in_seconds`
+    // and the end-to-end tests.
+    let policies = Policies {
+        peg: dassie_xrpl::peg::Timings::DEFAULT,
+        ..Policies::DEV
+    };
+    let a = bound_a.start(clock.clone(), 1, policies, &env).await;
+    let b = bound_b.start(clock.clone(), 2, policies, &env).await;
     prepare_with(&a, &key_a, "xrpl-testnet-dsusd", &config).await;
     prepare_with(&b, &key_b, "xrpl-testnet-dsusd", &config).await;
     until(&clock, async || {
@@ -644,10 +655,10 @@ async fn two_daemons_settle_dsusd_across_restarts() {
     let (dir_a, _) = a.stop().await;
     let (dir_b, _) = b.stop().await;
     let a = Bound::bind_in(dir_a)
-        .start(clock.clone(), 3, Policies::DEV, &env)
+        .start(clock.clone(), 3, policies, &env)
         .await;
     let b = Bound::bind_in(dir_b)
-        .start(clock.clone(), 4, Policies::DEV, &env)
+        .start(clock.clone(), 4, policies, &env)
         .await;
     until(&clock, async || {
         dsusd_in_step(&a, &key_a, &server).await && dsusd_in_step(&b, &key_b, &server).await

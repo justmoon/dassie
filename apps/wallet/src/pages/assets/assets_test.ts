@@ -23,17 +23,17 @@ const xrp = create(HoldingSchema, {
 });
 const rlusd = create(HoldingSchema, {
   assetCode: "RLUSD",
-  issuer: "rQhWct2fv4Vc4KRjRgMrxa8xPN9Zx9iLKV",
+  issuer: "rMxCKbEDwqr76QuheSUMdEGf4B9xJ8m5De",
   amount: 12_500_000_000_000_000n,
   assetScale: 15,
 });
 const account = create(ExternalAssetSchema, {
-  id: "xrpl-testnet-account/0",
+  id: "xrpl-account/0",
   address: "rAccount",
   holdings: [xrp, rlusd],
   connection: LedgerConnection.SYNCED,
-  settlementSchemes: ["xrpl-testnet", "xrpl-testnet-rlusd"],
-  faucet: true,
+  settlementSchemes: ["xrpl", "xrpl-rlusd"],
+  faucet: false,
 });
 
 test("an asset is named by its kind, and numbered past the first", () => {
@@ -75,7 +75,7 @@ test("a freeze is told, the deepest first, and nothing without one", () => {
 });
 
 test("a scheme's asset and its holdings are found by the node's report", () => {
-  assertEquals(assetOf("xrpl-testnet-rlusd", [account])?.id, account.id);
+  assertEquals(assetOf("xrpl-rlusd", [account])?.id, account.id);
   assertEquals(assetOf("stub", [account]), undefined);
   assertEquals(holdingOf(account, "XRP")?.reserve, 1_200_000n);
   assertEquals(holdingOf(account, "RLUSD")?.issuer, rlusd.issuer);

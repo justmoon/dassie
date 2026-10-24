@@ -1,9 +1,12 @@
 /**
  * Depositing on a ledger that settles in a token (spec/areas/wallet.md#pages),
- * such as DSUSD on the XRP Ledger testnet: the account needs both the token
- * and the ledger's own asset, which pays its fees and its reserve as gas, at
- * the same address. The reserve is shown in that asset, as the ledger holds
- * it, never in the token (spec/decisions/external-assets.md).
+ * such as DSUSD on the XRP Ledger testnet or RLUSD on mainnet: the account
+ * needs both the token and the ledger's own asset, which pays its fees and
+ * its reserve as gas, at the same address, from the faucet only where there
+ * is one. The reserve is shown in that asset, as the ledger holds it, never
+ * in the token (spec/decisions/external-assets.md). While the token's peg
+ * guard pauses the scheme, what arrives is still booked, and the page says
+ * so.
  */
 
 import type { JSX } from "@solidjs/web";
@@ -20,6 +23,7 @@ import { freezeText, holdingCurrency, holdingOf } from "../assets/assets.ts";
 import { schemeName, type TokenScheme } from "../schemes.ts";
 import { DepositAddress } from "./DepositAddress.tsx";
 import { Faucet } from "./Faucet.tsx";
+import { PegGuard } from "./PegGuard.tsx";
 
 export function TokenDeposit(props: {
   ledger: Ledger;
@@ -55,8 +59,10 @@ export function TokenDeposit(props: {
           testid={`deposit-unfunded-${id()}`}
         >
           The account does not exist on the ledger yet. Send it{" "}
-          {props.token.gas} first, from the testnet faucet or another account:
-          {" "}
+          {props.token.gas} first,{" "}
+          <Show when={props.ledger.faucet} fallback="from another account:">
+            from the testnet faucet or another account:
+          </Show>{" "}
           {props.token.token} cannot arrive before it exists.
         </Alert>
       </Show>
@@ -108,8 +114,10 @@ export function TokenDeposit(props: {
         <dd data-testid={`deposit-gas-${id()}`}>
           The account pays its fees and its trust line's reserve in{" "}
           {props.token.gas}, which is not in this ledger's balance. Send{" "}
-          {props.token.gas}{" "}
-          to the same address, or get it from the testnet faucet below.
+          {props.token.gas} to the same address
+          <Show when={props.ledger.faucet} fallback=".">
+            , or get it from the testnet faucet below.
+          </Show>
           <Show when={gas()}>
             {(held) => (
               <>
@@ -137,6 +145,7 @@ export function TokenDeposit(props: {
         <dt>Arrives</dt>
         <dd>Once the ledger validates the payment, usually within seconds.</dd>
       </dl>
+      <PegGuard ledger={props.ledger} />
       <Show when={frozen()}>
         {(text) => (
           <Alert

@@ -103,7 +103,8 @@
       "does": [
         "Setup and login",
         "Accounts and ledgers, sending and receiving, payment status and activity",
-        "Deposit pages like an exchange's: the address as a QR code, what to send, and a button for testnet XRP from the faucet; for RLUSD and DSUSD, both the token and the XRP its fees need, at the same address, and that DSUSD is bought with XRP on the testnet's pool",
+        "Deposit pages like an exchange's: the address as a QR code, what to send, and the reserve; a button for testnet XRP from the faucet, and none on mainnet, which has no faucet; for a dollar token, DSUSD on the testnet or RLUSD on mainnet, both the token and the XRP its fees need, at the same address, and that DSUSD is bought with XRP on the testnet's pool",
+        "A dollar token's ledger shows its peg guard: the token's last price on its pool, and while the node pauses it, why: off its peg, or its price unread",
         "A page of what the node holds outside its books, as the ledger reports it: its XRP and reserve, its token lines, and whether an issuer froze one",
         "Wallet addresses and payment requests for Open Payments",
         "The consent page for apps, the apps it has let in, and their grants",
@@ -205,7 +206,8 @@
         "Builds the binary, starts the nodes on `dN.localhost` and restarts them when the Rust code changes",
         "An SNI proxy on port 443, local certificates, vanity node identities, a rates server",
         "Sets nodes up through their own RPC, the same way the end-to-end tests do",
-        "The scenario library: one node, two, six, the XRP Ledger ones, DSUSD that the fake ledger's issuer mints each node, and one or two core nodes with a market maker's two periphery nodes pinned to each, beside a pool"
+        "The scenario library: one node, two, six, the XRP Ledger ones, DSUSD that the fake ledger's issuer mints each node, two nodes in the live realm on the fake ledger's mainnet settling in XRP or in RLUSD, and one or two core nodes with a market maker's two periphery nodes pinned to each, beside a pool",
+        "Runs the live realm only by the node's dev switch and only against the fake ledger's mainnet, funding each node's account by a deposit, as mainnet has no faucet; a live scenario's nodes start from scratch each run, since mainnet never resets"
       ]
     },
     "e2e": {
@@ -222,6 +224,7 @@
         "BTP payments, and the two-node and six-node scenarios settling every hop",
         "Open Payments, including a third party's full flow with consent in the wallet",
         "XRP Ledger settlement in XRP and in DSUSD, with the issuer freezing a line and clawing back, and payments across currencies",
+        "Mainnet's schemes in the live realm, by the dev switch, on the fake ledger's mainnet: two nodes settle in XRP and in RLUSD at addresses under `g.`, and RLUSD pauses while its pool prices it off its peg, still booking what arrives, and runs again once the pool is back",
         "Passive rebalancing end to end: a market maker trades through a core node short of dollars and swaps back through the fake ledger's pool, which moves the node toward balance and earns the market maker; with two such core nodes, it trades through each",
         "The wallet, the dev dashboard and dassie.land in a browser",
         "The installer and the updater on Debian, Ubuntu, Fedora and CentOS, in containers"
@@ -288,7 +291,7 @@
       "desc": "The contract between a node and its owner's clients, written in protobuf. Rust and TypeScript are both generated from it, so a change starts here.",
       "does": [
         "Config, TLS, certificates and sessions",
-        "Ledgers, BTP tokens, payments and debug data",
+        "Ledgers, with a dollar token's peg guard, BTP tokens, payments and debug data",
         "The node's account in its settlement hub, and the owner's moves into it and out of it",
         "Founding a settlement hub as its sponsor, and the payout bundles the node keeps of its hub",
         "Nodes, peers, routes, settlements and bans",
@@ -438,6 +441,7 @@
       "desc": "Where real-world ledgers plug in. A settlement scheme moves actual money through an external asset the node holds, such as an account on a ledger, and this crate decides when that is due.",
       "does": [
         "The scheme interface, and when a scheme is active",
+        "A scheme that pauses, as a dollar token's off its peg: it settles nothing, cannot be paid and converts nothing meanwhile, and says why",
         "External assets: what the node holds outside its books, as the ledger says, apart from the schemes that settle through it",
         "Gas: a holding one scheme spends and another settles in is spent only within the owner's funds",
         "The stub scheme: 100 test USD, so everything works without a real ledger, and with commitments, peerings over a settlement hub without a hub",
@@ -506,7 +510,7 @@
         "Peers and the route table",
         "Downlinks at child addresses below the node's own; a periphery node's addresses beneath its uplinks, forwarding nothing",
         "A cap on money in flight with each peer, which bounds what a crash loses, and no new packets from a peer it cannot answer",
-        "Exchange between currencies, with fees and a spread, at a rate moved from spot by what the owner holds on each ledger once the packet and those in flight have moved it, so that payments bring a skewed node back toward balance and no round trip gains",
+        "Exchange between currencies, with fees and a spread, at a rate moved from spot by what the owner holds on each ledger once the packet and those in flight have moved it, so that payments bring a skewed node back toward balance and no round trip gains, and nothing to or from a ledger whose scheme is paused",
         "A spending cap per BTP token",
         "A packet trace for the debug pages",
         "Waiting for a settlement hub's decision before rejecting a packet to a peer over the hub"
@@ -574,7 +578,7 @@
       "w": 184,
       "desc": "Every decision the node makes, with no IO at all. Each is a function of its inputs, the time and an injected random source, so tests can replay it exactly.",
       "does": [
-        "Checking the config and the setup",
+        "Checking the config and the setup, and the realm: `live` is refused unless a dev switch that only builds with debug assertions honour allows it",
         "Login, how long sessions last, and the same-origin rule",
         "Rate limits",
         "When to renew the TLS certificate",
@@ -1556,7 +1560,7 @@
   "tests": [
     {
       "t": "Deterministic simulation",
-      "p": "Whole networks run in one process with a fake clock and a seeded random generator, at the timings of a real node: a simulated day takes seconds. Faults are injected: latency, loss, replayed messages, clocks that are off, crashes, mid-payment too, commits that fail, restarts, and partitions, some longer than a day, and owners end peerings and ban peers. Every state machine checks its invariants after each step, and a failure prints the seed that reproduces it. A node run draws its whole network, its faults and its payments from the seed, and once healed must settle down. Scripted node runs settle in XRP and in RLUSD on a fake XRP Ledger whose issuer freezes lines and claws back, and each node is judged by its own books. Tests run fixed seeds, and check that between them they reach every kind of fault; `dassie-sim` runs any other seed.",
+      "p": "Whole networks run in one process with a fake clock and a seeded random generator, at the timings of a real node: a simulated day takes seconds. Faults are injected: latency, loss, replayed messages, clocks that are off, crashes, mid-payment too, commits that fail, restarts, and partitions, some longer than a day, and owners end peerings and ban peers. Every state machine checks its invariants after each step, and a failure prints the seed that reproduces it. A node run draws its whole network, its faults and its payments from the seed, and once healed must settle down. Scripted node runs settle in XRP and in DSUSD on a fake XRP Ledger's testnet, and in the live realm in XRP and in RLUSD on its mainnet, whose issuers freeze lines and claw back, and each node is judged by its own books. Tests run fixed seeds, and check that between them they reach every kind of fault; `dassie-sim` runs any other seed.",
       "ev": "src/sim in dassie-stream, dassie-connector, dassie-peer and dassie-node, run by their tests and by dassie-sim"
     },
     {
@@ -1581,7 +1585,7 @@
     },
     {
       "t": "End to end",
-      "p": "Real binaries and real sockets: a fresh install, payments and settlement across nodes, Open Payments, the wallet in a browser, and the installer and updater on four Linux distributions.",
+      "p": "Real binaries and real sockets: a fresh install, payments and settlement across nodes, mainnet's schemes in the live realm on the fake ledger, Open Payments, the wallet in a browser, and the installer and updater on four Linux distributions.",
       "ev": "tests/e2e · dassie-node/tests · dassie-cli/tests"
     }
   ],

@@ -461,6 +461,7 @@ fn make_node(
             peer: Policies::DEV.peer,
             settlement_interval_ms: Policies::DEV.settlement_interval_ms,
             settlement_request_every_ms: Policies::DEV.settlement_request_every_ms,
+            peg: Policies::DEV.peg,
             ..parts.policies
         }
     } else {
@@ -578,7 +579,7 @@ const PEER_ALLOW_PRIVATE: DevFlag = DevFlag {
 
 const DEV_TIMINGS: DevFlag = DevFlag {
     variable: "DASSIE_DEV_TIMINGS",
-    effect: "the peer protocol runs on dev timers, polling and settling every second",
+    effect: "the peer protocol and the peg guard run on dev timers, polling, settling and reading pools every second",
 };
 
 const LIVE_REALM: DevFlag = DevFlag {
