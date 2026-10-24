@@ -1,0 +1,9 @@
+# The testnet proof server's watchdog (watchdog.sh): wipes xrpld's database
+# when a testnet reset has left it on a chain the network no longer has.
+[Unit]
+Description=Wipe xrpld's database after a testnet reset
+After=xrpld.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/xrpld-watchdog

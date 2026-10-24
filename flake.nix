@@ -84,7 +84,9 @@
           # generates its messages from, the test certificates two
           # in-process daemons peer with, minisign's signatures with the
           # release test key, and the release's resources: its key, once
-          # made, the systemd units and install.sh.
+          # made, the systemd units and install.sh. Not the proof servers'
+          # files, which no crate reads, so that changing them rebuilds
+          # nothing.
           src = lib.fileset.toSource {
             root = ./.;
             fileset = lib.fileset.unions [
@@ -94,7 +96,7 @@
               ./clippy.toml
               ./crates
               ./proto
-              ./resources
+              (lib.fileset.difference ./resources ./resources/proof-server)
               ./testdata/feed
               ./testdata/pebble
               ./testdata/release

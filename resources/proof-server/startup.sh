@@ -10,9 +10,10 @@
 # and Caddy in front of it. So a new build is new metadata and a restart
 # (README.md#updating), and a changed configuration needs only a restart.
 #
-# A testnet reset leaves xrpld with a chain the network no longer has. To
-# start it on an empty database, set the metadata `wipe-db` to a value it
-# has not had before and restart the VM: the database is wiped once per value.
+# A testnet reset leaves xrpld with a chain the network no longer has. On
+# the testnet, the watchdog it installs (watchdog.sh) notices and wipes the
+# database. To wipe it by hand, set the metadata `wipe-db` to a value it has
+# not had before and restart the VM: the database is wiped once per value.
 set -eu
 export HOME=/root
 
@@ -42,7 +43,7 @@ esac
 
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -q
-apt-get install -qy --no-install-recommends ca-certificates curl caddy
+apt-get install -qy --no-install-recommends ca-certificates curl caddy jq
 
 # xrpld's user and directories, as its packages make them.
 if ! id xrpld > /dev/null 2>&1; then
@@ -76,8 +77,20 @@ if [ -n "$wipe_db" ] && [ "$(cat "$state/wiped" 2> /dev/null || true)" != "$wipe
   echo "proof-server: wiped the database ($wipe_db)" > /dev/console
 fi
 
+# Only the testnet resets, and only a reset needs the watchdog.
+if [ "$network" = testnet ]; then
+  fetch watchdog.sh /tmp/xrpld-watchdog
+  install -m 0755 /tmp/xrpld-watchdog /usr/local/sbin/xrpld-watchdog
+  rm /tmp/xrpld-watchdog
+  fetch xrpld-watchdog.service /etc/systemd/system/xrpld-watchdog.service
+  fetch xrpld-watchdog.timer /etc/systemd/system/xrpld-watchdog.timer
+fi
+
 systemctl daemon-reload
 systemctl enable xrpld.service caddy.service
 systemctl restart xrpld.service
 systemctl reload-or-restart caddy.service
+if [ "$network" = testnet ]; then
+  systemctl enable --now xrpld-watchdog.timer
+fi
 echo "proof-server: $network at $host runs $(/usr/local/bin/xrpld --version | head -1)" > /dev/console

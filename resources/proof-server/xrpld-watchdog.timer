@@ -1,0 +1,9 @@
+[Unit]
+Description=Check every few minutes whether xrpld follows the testnet
+
+[Timer]
+OnBootSec=10min
+OnUnitActiveSec=5min
+
+[Install]
+WantedBy=timers.target

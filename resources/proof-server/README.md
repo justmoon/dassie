@@ -6,7 +6,7 @@ These files build the patched xrpld and run it on GCP: [`build.sh`](build.sh) bu
 
 ## The patch
 
-The patch is [`patches/`](patches/): two commits on a release of rippled, as `git format-patch` writes them.
+The patch is [`patches/`](patches/): two commits on a release of rippled, as `git format-patch` writes them. `patches/BASE` names that release by its tag and the commit the tag points to.
 
 - **libxrpl:** `SHAMap::getProofBranch` and `Validations::getAllForLedger`, with their unit tests.
 - **xrpld:** the three handlers, with their unit tests.
@@ -15,17 +15,17 @@ It touches nothing else xrpld does, so it moves to each new release with a rebas
 
 1. Apply the patches to the new tag with `git am`.
 2. Resolve what conflicts, and run rippled's tests (its `xrpl.rpc` suites and `xrpl_tests`).
-3. Write the patches again with `git format-patch <tag>`.
+3. Write the patches again with `git format-patch <tag>`, and the new tag and its commit into `patches/BASE`.
 
 The same commits on rippled's `develop` are what is offered upstream.
 
 ## Building
 
 ```sh
-resources/proof-server/build.sh <rippled-tag> <version> <out-dir>
+resources/proof-server/build.sh <version> <out-dir>
 ```
 
-It builds xrpld from a release tag of rippled with the patches applied, with rippled's own toolchain:
+It builds xrpld from the release `patches/BASE` names, refusing a tag that no longer points to its commit, with the patches applied and with rippled's own toolchain:
 
 - the compilers of its Nix development shell, pinned by its `flake.lock`;
 - its dependencies from Conan, pinned by its `conan.lock`.
@@ -91,7 +91,7 @@ gcloud compute instances start xrpl-proofs-<network> --zone us-east1-b
 
 Stop and start, not `reset`: a reset cuts the power, and xrpld does not close its databases. A restart loses the validations xrpld holds in memory, which it hears again within seconds. A changed configuration on `main` needs only the restart. To try one on a server before it merges, set the metadata `config-ref` to its branch, and remove it once it has merged.
 
-**After a testnet reset,** xrpld holds a chain the network no longer has. Set `wipe-db` to a value it has not had and restart the VM: `startup.sh` wipes the database once per value, and xrpld syncs anew.
+**After a testnet reset,** xrpld holds a chain the network no longer has, and never takes the new one's lower ledgers: it would stay out of sync for good, and every node on it would stall. On the testnet, `watchdog.sh` checks every five minutes. Once xrpld has been in sync, half an hour without a fresh validated ledger wipes its database, and xrpld syncs the new chain in about an hour; nodes on it stall until then, and book nothing wrong. A false alarm costs the same resync, never a wrong answer. To wipe by hand, set `wipe-db` to a value it has not had and restart the VM: `startup.sh` wipes the database once per value.
 
 ```sh
 gcloud compute instances add-metadata xrpl-proofs-testnet --zone us-east1-b \
