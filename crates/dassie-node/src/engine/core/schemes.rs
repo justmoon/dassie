@@ -234,6 +234,16 @@ fn create_asset(
     }
 }
 
+/// Has `asset`, if it is an XRPL account, check validations by the fake
+/// ledger's keyed hash under `secret`, as in a simulation.
+#[cfg(feature = "testing")]
+pub(super) fn check_validations_with(asset: &mut dyn ExternalAsset, secret: [u8; 32]) {
+    let any: &mut dyn core::any::Any = asset;
+    if let Some(account) = any.downcast_mut::<XrplAccount>() {
+        account.check_validations_with(dassie_xrpl::fake::KeyedSignatures::new(secret));
+    }
+}
+
 /// Makes the scheme `id` with its config, what the books last kept for it,
 /// and the asset it settles through; a dollar token's peg guard runs on
 /// `peg`. The original's RPC dropped every key of the config (RT-21), and it
@@ -325,6 +335,9 @@ pub struct AssetView {
     pub holdings: Vec<Holding>,
     /// How it stands with its ledger.
     pub status: LedgerStatus,
+    /// What it waits for, if something keeps it from going on, such as a
+    /// validator list.
+    pub waiting: Option<&'static str>,
     /// The schemes that settle through it.
     pub schemes: Vec<String>,
     /// Whether the node can ask a faucet for test money on it.
@@ -342,6 +355,13 @@ pub enum LedgerEvent {
     Disconnected,
     /// The faucet answered, or did not.
     Funded(bool),
+    /// A fetch of `url` answered with `body`, or failed: `None`.
+    Fetched {
+        /// What was fetched.
+        url: String,
+        /// What came.
+        body: Option<Vec<u8>>,
+    },
     /// A hub's validator at `endpoint` answered.
     From {
         /// Its place in the hub's rules.
@@ -397,8 +417,13 @@ impl Core {
                 .cloned()
                 .unwrap_or_default();
             let window_ms = self.connector.config().message_window_ms;
-            let made =
+            #[allow(unused_mut)]
+            let mut made =
                 create_asset(asset, config, &state, (&self.key, window_ms)).map_err(invalid)?;
+            #[cfg(feature = "testing")]
+            if let Some(secret) = self.settle.validation_secret {
+                check_validations_with(made.as_mut(), secret);
+            }
             self.assets.insert(
                 asset,
                 ActiveAsset {
@@ -475,6 +500,10 @@ impl Core {
             LedgerEvent::Message(bytes) => LedgerInput::Message(bytes),
             LedgerEvent::Disconnected => LedgerInput::Disconnected,
             LedgerEvent::Funded(ok) => LedgerInput::Funded(*ok),
+            LedgerEvent::Fetched { url, body } => LedgerInput::Fetched {
+                url,
+                body: body.as_deref(),
+            },
             LedgerEvent::From { endpoint, message } => LedgerInput::From {
                 endpoint: *endpoint,
                 message,
@@ -589,6 +618,12 @@ impl Core {
                     epoch,
                     url,
                     body,
+                }),
+                AssetEffect::Fetch { url, max_bytes } => self.outputs_peer.push(Output::Fetch {
+                    asset: asset.to_string(),
+                    epoch,
+                    url,
+                    max_bytes,
                 }),
             }
         }
@@ -797,6 +832,7 @@ impl Core {
                 address: active.asset.address(),
                 holdings: active.asset.holdings(),
                 status: active.asset.status(),
+                waiting: active.asset.waiting(),
                 schemes: self
                     .schemes
                     .iter()

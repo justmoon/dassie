@@ -191,6 +191,11 @@ const XRPL_CONFIG: &str =
     r#"{"server":"ws://ledger.test","faucet":"https://faucet.test/accounts"}"#;
 /// The config of mainnet's scheme: mainnet has no faucet.
 const XRPL_LIVE_CONFIG: &str = r#"{"server":"ws://ledger.test"}"#;
+/// The secret the fake ledger's validators sign under, and the nodes check
+/// their validations by: a keyed hash, much cheaper than signatures, and as
+/// unforgeable to a server without it
+/// (spec/designs/xrpl-validation.md#11-the-fake-ledger-the-lying-server-and-the-simulation).
+const VALIDATION_SECRET: [u8; 32] = *b"dassie simulation validations ok";
 
 /// What the fake ledger's issuer mints each node on its token's ledger once
 /// its line exists, in millionths of a dollar: as much as the stub gives.
@@ -301,14 +306,30 @@ impl Settling {
     }
 
     /// The configuration its nodes give the scheme of `ledger`: the stub
-    /// with commitments in a run over it.
+    /// with commitments in a run over it; an XRPL scheme trusting the fake
+    /// ledger's validators.
     pub fn config(self, ledger: LedgerId) -> String {
         match self {
             Self::StubHub(limit) if ledger == USD => format!(r#"{{"commitments":{limit}}}"#),
             Self::Hub(validators) if ledger == HUB => hub::config(validators),
+            _ if self.on_xrpl() && Self::scheme(ledger).0 != "stub" => {
+                dassie_xrpl::fake::with_publishers(Self::scheme(ledger).1, self.network())
+            }
             _ => Self::scheme(ledger).1.into(),
         }
     }
+}
+
+/// The fake ledger of `network`, its clock at the simulation's start and
+/// its validations signed under [`VALIDATION_SECRET`].
+fn fake_ledger(network: &Network) -> FakeLedger {
+    let mut ledger = match network.faucet {
+        None => FakeLedger::mainnet(),
+        Some(_) => FakeLedger::new(),
+    };
+    ledger.set_close_time(dassie_xrpl::unl::ledger_seconds(START));
+    ledger.sign_validations_with(VALIDATION_SECRET);
+    ledger
 }
 
 /// A withdrawal of a peer short of room.
@@ -893,10 +914,7 @@ impl Sim {
             apart: BTreeSet::new(),
             credits,
             settling,
-            ledger: match settling.network().faucet {
-                None => FakeLedger::mainnet(),
-                Some(_) => FakeLedger::new(),
-            },
+            ledger: fake_ledger(settling.network()),
             links: BTreeMap::new(),
             fifo: BTreeMap::new(),
             next_connection: 0,
@@ -956,8 +974,9 @@ impl Sim {
             // A member of a hub funds its account there from its XRP Ledger
             // testnet account.
             if matches!(settling, Settling::Hub(_)) {
+                let config = settling.config(XRP);
                 sim.step(index, |core| {
-                    core.add_scheme("xrpl-testnet", XRPL_CONFIG.into()).unwrap();
+                    core.add_scheme("xrpl-testnet", config).unwrap();
                 });
             }
             for &ledger in settling.ledgers(index) {
@@ -1017,7 +1036,9 @@ impl Sim {
             bootstrap: self.bootstrap.clone(),
             uplinks: Vec::new(),
         };
-        node.core = Some(Core::start(parts, now).unwrap());
+        let mut core = Core::start(parts, now).unwrap();
+        core.check_validations_with(VALIDATION_SECRET);
+        node.core = Some(core);
         self.trace.push(format!("{} start {index}", self.now));
         let rates = self.needs_rates().then(|| RATES.map(|(c, r)| (c, r, now)));
         self.step(index, |core| {
@@ -1605,6 +1626,20 @@ impl Sim {
                 message,
                 ..
             } => self.hub_send(index, asset, epoch, endpoint, message),
+            Output::Fetch { epoch, url, .. } => {
+                let body = self.ledger.fetch(&url);
+                let generation = self.nodes[index].generation;
+                let delay = self.latency();
+                self.schedule(
+                    delay,
+                    Delivery::LedgerEvent {
+                        to: index,
+                        generation,
+                        epoch,
+                        event: LedgerEvent::Fetched { url, body },
+                    },
+                );
+            }
             Output::Fund { epoch, body, .. } => {
                 let request: serde_json::Value = serde_json::from_slice(&body).unwrap();
                 let to = dassie_xrpl::AccountId::parse(request["destination"].as_str().unwrap())
@@ -1817,7 +1852,8 @@ impl Sim {
         self.learn_rates();
         self.mint();
         self.submit_payout();
-        let closed = self.ledger.close();
+        let close_time = dassie_xrpl::unl::ledger_seconds(self.now);
+        let closed = self.ledger.close_at(close_time);
         self.payout_closed();
         for (connection, message) in closed {
             if self.validator_stream(connection, message.clone()) {

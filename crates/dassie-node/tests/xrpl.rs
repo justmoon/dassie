@@ -17,8 +17,9 @@ mod support;
 use std::time::Duration;
 
 use dassie_identity::NodeKey;
+use dassie_node::clock::Clock;
 use dassie_node::clock::ManualClock;
-use dassie_node::fake_ledger::{Options, Server, close_time_now};
+use dassie_node::fake_ledger::{Options, Server};
 use dassie_node::node::Policies;
 use dassie_node::rpc::proto::{self, request::Method, response};
 use dassie_node::store::StoredCertificate;
@@ -35,13 +36,19 @@ const FUNDED: i64 = 999_000_000_000;
 /// settles with B as it goes.
 const PAYMENT: u64 = 5_000_000_000;
 
-async fn fake_ledger() -> Server {
-    fake_ledger_on(0, 0).await.unwrap()
+/// A fake ledger whose ledgers close on `clock`, the daemons'.
+async fn fake_ledger(clock: &ManualClock) -> Server {
+    fake_ledger_on(0, 0, clock).await.unwrap()
 }
 
-/// A fake ledger with its WebSocket API and faucet on these ports, or any.
-async fn fake_ledger_on(port: u16, faucet_port: u16) -> Result<Server, String> {
-    Server::start(Options {
+/// A fake ledger with its WebSocket API and faucet on these ports, or any,
+/// whose ledgers close on `clock`.
+async fn fake_ledger_on(
+    port: u16,
+    faucet_port: u16,
+    clock: &ManualClock,
+) -> Result<Server, String> {
+    let server = Server::start(Options {
         network: &dassie_xrpl::network::TESTNET,
         listen: ([127, 0, 0, 1], port).into(),
         faucet: Some((
@@ -54,7 +61,24 @@ async fn fake_ledger_on(port: u16, faucet_port: u16) -> Result<Server, String> {
         )),
         close_every: Duration::from_millis(100),
     })
-    .await
+    .await?;
+    server.close_on(std::sync::Arc::new(clock.clone()));
+    Ok(server)
+}
+
+/// The config of a scheme on `server`: its server and faucet, and the
+/// publisher of its validators.
+fn config_of(server: &Server) -> String {
+    let mut config = serde_json::json!({
+        "server": server.url,
+        "faucet": server.faucet_url,
+    });
+    if let (Some(object), Some(serde_json::Value::Object(publishers))) =
+        (config.as_object_mut(), server.publishers())
+    {
+        object.extend(publishers);
+    }
+    config.to_string()
 }
 
 /// The port at the end of a URL's authority.
@@ -144,12 +168,9 @@ async fn in_step(node: &TestNode, key: &NodeKey, server: &Server) -> bool {
 // through the RPC and again after a restart (RT-21, ACC-12).
 #[tokio::test(flavor = "multi_thread")]
 async fn two_daemons_settle_on_the_xrp_ledger_across_restarts() {
-    let server = fake_ledger().await;
-    let config = serde_json::json!({
-        "server": server.url,
-        "faucet": server.faucet_url,
-    })
-    .to_string();
+    let clock = ManualClock::new(START_MS);
+    let server = fake_ledger(&clock).await;
+    let config = config_of(&server);
     let (key_a, key_b) = (key(31), key(32));
     let (bound_a, bound_b) = (Bound::new(), Bound::new());
     let nodes = bootstrap(&key_a, bound_a.https_port());
@@ -158,7 +179,6 @@ async fn two_daemons_settle_on_the_xrp_ledger_across_restarts() {
         ("DASSIE_PEER_CA_FILE", CA),
         ("DASSIE_PEER_ALLOW_PRIVATE", "1"),
     ];
-    let clock = ManualClock::new(START_MS);
     let a = bound_a.start(clock.clone(), 1, Policies::DEV, &env).await;
     let b = bound_b.start(clock.clone(), 2, Policies::DEV, &env).await;
     prepare_with(&a, &key_a, "xrpl-testnet", &config).await;
@@ -252,16 +272,13 @@ async fn two_daemons_settle_on_the_xrp_ledger_across_restarts() {
 /// off its old funds, and the faucet funds it again.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_new_fake_ledger_is_a_testnet_reset() {
-    let server = fake_ledger().await;
+    let clock = ManualClock::new(START_MS);
+    let server = fake_ledger(&clock).await;
     let (port, faucet_port) = (
         port_of(&server.url),
         port_of(server.faucet_url.as_deref().unwrap()),
     );
-    let config = serde_json::json!({
-        "server": server.url,
-        "faucet": server.faucet_url,
-    })
-    .to_string();
+    let config = config_of(&server);
     let key_a = key(33);
     let bound = Bound::new();
     let nodes = bootstrap(&key_a, bound.https_port());
@@ -270,19 +287,20 @@ async fn a_new_fake_ledger_is_a_testnet_reset() {
         ("DASSIE_PEER_CA_FILE", CA),
         ("DASSIE_PEER_ALLOW_PRIVATE", "1"),
     ];
-    let clock = ManualClock::new(START_MS);
     let a = bound.start(clock.clone(), 1, Policies::DEV, &env).await;
     prepare_with(&a, &key_a, "xrpl-testnet", &config).await;
     until(&clock, async || in_step(&a, &key_a, &server).await).await;
     assert_eq!(deposits(&a).await, [FUNDED as u64]);
 
-    // The old ledger had gone far on the wall clock, as in a dev session of
-    // hours, and the node booked a deposit there: a new ledger would take
-    // minutes to reach where the node had read to.
-    let now_s = close_time_now();
+    // The old ledger had gone far, as in a dev session of hours, and the
+    // node booked a deposit there: a new ledger would take minutes to reach
+    // where the node had read to.
+    let now_s = dassie_xrpl::unl::ledger_seconds(clock.now_ms());
     for _ in 0..2_000 {
         server.ledger().close_at(now_s);
     }
+    // Its ledgers close a second apart at least: the clock catches up.
+    clock.advance(2_000_000);
     server.ledger().deposit(account_of(&key_a), 3_000_000);
     until(&clock, async || {
         in_step(&a, &key_a, &server).await && deposits(&a).await.len() == 2
@@ -294,7 +312,7 @@ async fn a_new_fake_ledger_is_a_testnet_reset() {
     let mut server = None;
     for _ in 0..100 {
         tokio::time::sleep(Duration::from_millis(50)).await;
-        if let Ok(started) = fake_ledger_on(port, faucet_port).await {
+        if let Ok(started) = fake_ledger_on(port, faucet_port, &clock).await {
             server = Some(started);
             break;
         }
@@ -320,12 +338,9 @@ const FAUCET: i64 = 1_000_000_000_000;
 /// it sends is a deposit once the ledger shows it.
 #[tokio::test(flavor = "multi_thread")]
 async fn the_owner_asks_the_faucet_for_more() {
-    let server = fake_ledger().await;
-    let config = serde_json::json!({
-        "server": server.url,
-        "faucet": server.faucet_url,
-    })
-    .to_string();
+    let clock = ManualClock::new(START_MS);
+    let server = fake_ledger(&clock).await;
+    let config = config_of(&server);
     let key_a = key(34);
     let bound = Bound::new();
     let nodes = bootstrap(&key_a, bound.https_port());
@@ -334,7 +349,6 @@ async fn the_owner_asks_the_faucet_for_more() {
         ("DASSIE_PEER_CA_FILE", CA),
         ("DASSIE_PEER_ALLOW_PRIVATE", "1"),
     ];
-    let clock = ManualClock::new(START_MS);
     let a = bound.start(clock.clone(), 1, Policies::DEV, &env).await;
     prepare_with(&a, &key_a, "xrpl-testnet", &config).await;
     until(&clock, async || in_step(&a, &key_a, &server).await).await;
@@ -390,7 +404,8 @@ async fn the_fake_issuer_mints_and_claws_back_over_https() {
     use dassie_xrpl::codec::{Signing, TF_SET_NO_RIPPLE, TokenValue, Transact, TrustSet};
     use dassie_xrpl::fake::{FEE_BASE, Token};
 
-    let server = fake_ledger().await;
+    let clock = ManualClock::new(START_MS);
+    let server = fake_ledger(&clock).await;
     let wallet = Wallet::from_seed([3; 16]);
     let holder = wallet.account();
     server.ledger().deposit(holder, 100_000_000);
@@ -529,12 +544,9 @@ async fn two_daemons_settle_dsusd_across_restarts() {
     use dassie_xrpl::codec::TokenValue;
     use dassie_xrpl::fake::Token;
 
-    let server = fake_ledger().await;
-    let config = serde_json::json!({
-        "server": server.url,
-        "faucet": server.faucet_url,
-    })
-    .to_string();
+    let clock = ManualClock::new(START_MS);
+    let server = fake_ledger(&clock).await;
+    let config = config_of(&server);
     let (key_a, key_b) = (key(37), key(38));
     let (bound_a, bound_b) = (Bound::new(), Bound::new());
     let nodes = bootstrap(&key_a, bound_a.https_port());
@@ -543,7 +555,6 @@ async fn two_daemons_settle_dsusd_across_restarts() {
         ("DASSIE_PEER_CA_FILE", CA),
         ("DASSIE_PEER_ALLOW_PRIVATE", "1"),
     ];
-    let clock = ManualClock::new(START_MS);
     // The daemons have no rate source and the ledger no DSUSD pool, so
     // DSUSD's peg guard never reads a price: on production timings it
     // pauses the scheme only after ten minutes, longer than this test's

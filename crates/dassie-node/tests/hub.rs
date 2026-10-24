@@ -685,10 +685,19 @@ async fn a_member_node_opens_its_hub_account_by_a_deposit() {
             .all(|n| n.hubs.statuses().iter().all(|s| s.escrow_checked))
     })
     .await;
+    // Its HTTPS listener serves its validators' list; the member asks no
+    // faucet.
     let xrpl = dassie_node::fake_ledger::Server::start(dassie_node::fake_ledger::Options {
         network: &dassie_xrpl::network::TESTNET,
         listen: "127.0.0.1:0".parse().unwrap(),
-        faucet: None,
+        faucet: Some((
+            "127.0.0.1:0".parse().unwrap(),
+            dassie_node::store::StoredCertificate {
+                source: dassie_node_core::certificate::CertificateSource::Manual,
+                chain_pem: std::fs::read_to_string(support::pair::CERT).unwrap(),
+                key_pem: std::fs::read_to_string(support::pair::KEY).unwrap(),
+            },
+        )),
         close_every: Duration::from_millis(100),
     })
     .await
@@ -707,7 +716,13 @@ async fn a_member_node_opens_its_hub_account_by_a_deposit() {
         .await;
     let member_key = NodeKey::from_bytes(&[60; 32]);
     support::set_up(&member, &member_key).await;
-    let xrpl_config = serde_json::json!({ "server": xrpl.url, "faucet": null });
+    xrpl.close_on(Arc::new(member.clock.clone()));
+    let mut xrpl_config = serde_json::json!({ "server": xrpl.url, "faucet": null });
+    if let (Some(config), Some(serde_json::Value::Object(publishers))) =
+        (xrpl_config.as_object_mut(), xrpl.publishers())
+    {
+        config.extend(publishers);
+    }
     add_scheme(&member, "xrpl-testnet", &xrpl_config.to_string()).await;
     let address = ledgers(&member)
         .await

@@ -109,7 +109,7 @@ pub enum Taken {
 pub enum Unavailable {
     /// None was taken yet, or none that is in effect.
     NoList,
-    /// Its list expired.
+    /// Its list expired, and no newer one came.
     Expired,
     /// It revoked its key.
     Revoked,
@@ -354,6 +354,8 @@ impl PublisherState {
         match &self.current {
             Some(current) if !current.expired(now_s) => Ok(current),
             Some(_) => Err(Unavailable::Expired),
+            // One it had expired, and went.
+            None if self.pending.is_none() && self.highest.is_some() => Err(Unavailable::Expired),
             None => Err(Unavailable::NoList),
         }
     }

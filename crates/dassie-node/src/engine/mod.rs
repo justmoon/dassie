@@ -879,7 +879,8 @@ impl Driver<'_> {
                 | Output::LedgerClose { .. }
                 | Output::LedgerSend { .. }
                 | Output::HubSend { .. }
-                | Output::Fund { .. } => {
+                | Output::Fund { .. }
+                | Output::Fetch { .. } => {
                     self.ledger_output(output);
                     continue;
                 }
@@ -940,6 +941,21 @@ impl Driver<'_> {
             } => {
                 let client = self.node.peer_client().cloned();
                 links::fund(client, self.commands.clone(), asset, epoch, url, body);
+            }
+            Output::Fetch {
+                asset,
+                epoch,
+                url,
+                max_bytes,
+            } => {
+                let client = self.node.peer_client().cloned();
+                let fetch = links::Fetch {
+                    asset,
+                    epoch,
+                    url,
+                    max_bytes,
+                };
+                links::fetch(client, self.commands.clone(), fetch);
             }
             Output::HubSend {
                 asset,

@@ -226,6 +226,19 @@ pub enum Output {
         /// What to post.
         body: Vec<u8>,
     },
+    /// Fetch a document for an asset, such as a validator list: an HTTPS
+    /// GET that follows no redirect, whose body comes back as
+    /// [`LedgerEvent::Fetched`].
+    Fetch {
+        /// The asset's ID.
+        asset: String,
+        /// Its connection, which the answer is for.
+        epoch: u64,
+        /// What to fetch.
+        url: String,
+        /// The longest body taken.
+        max_bytes: usize,
+    },
 }
 
 /// What a step changed that live views show: they fetch again when it

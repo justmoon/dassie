@@ -355,13 +355,13 @@ pub(super) fn amm_key(token: Token) -> [u8; 32] {
 
 /// The key of the skip list of the last 256 ledgers' hashes.
 pub(super) fn skip_key() -> [u8; 32] {
-    key(b's', &[])
+    crate::skip_list::recent_key()
 }
 
 /// The key of the skip list that holds the hash of flag ledger `ledger`,
 /// one in each 65,536 ledgers' worth.
 pub(super) fn flag_skip_key(ledger: u32) -> [u8; 32] {
-    key(b's', &[&(ledger >> 16).to_be_bytes()])
+    crate::skip_list::flag_key(ledger)
 }
 
 /// The key of the fee settings.

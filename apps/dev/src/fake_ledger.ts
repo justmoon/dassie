@@ -49,16 +49,26 @@ export interface FakeLedger {
   readonly tokens: string | null;
   /** Where XRP is deposited from outside, with the faucet. */
   readonly deposit: string | null;
+  /** What a scheme's config names to trust its validators: their
+   * publisher, whose list it serves with the faucet, and the floor they
+   * meet (spec/designs/xrpl-validation.md#10-configuration-and-state). */
+  readonly publishers: Record<string, unknown> | null;
   /** The process, for the PID file. */
   readonly pid: number;
   /** Stops it. */
   stop(): Promise<void>;
 }
 
-/** What an XRPL scheme is set up with to use `ledger`: its server, and its
- * faucet, `null` on mainnet. */
-export function xrplConfig(ledger: Pick<FakeLedger, "url" | "faucet">): string {
-  return JSON.stringify({ server: ledger.url, faucet: ledger.faucet });
+/** What an XRPL scheme is set up with to use `ledger`: its server, its
+ * faucet, `null` on mainnet, and the publisher of its validators. */
+export function xrplConfig(
+  ledger: Pick<FakeLedger, "url" | "faucet" | "publishers">,
+): string {
+  return JSON.stringify({
+    server: ledger.url,
+    faucet: ledger.faucet,
+    ...ledger.publishers,
+  });
 }
 
 /** Builds the fake ledger, in the dev profile. */
@@ -131,11 +141,12 @@ export async function startFakeLedger(
     await status;
     throw new Error("the fake ledger did not start");
   }
-  const { url, faucet, tokens, deposit } = JSON.parse(first) as {
+  const { url, faucet, tokens, deposit, publishers } = JSON.parse(first) as {
     url: string;
     faucet: string | null;
     tokens: string | null;
     deposit: string | null;
+    publishers: Record<string, unknown> | null;
   };
   return {
     network,
@@ -143,6 +154,7 @@ export async function startFakeLedger(
     faucet,
     tokens,
     deposit,
+    publishers,
     pid,
     async stop() {
       // Closing stdin stops it; a kill if it does not.
