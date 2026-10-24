@@ -981,3 +981,46 @@ fn a_settlement_spends_only_what_the_books_hold() {
     );
     scheme.check_invariants();
 }
+
+// The default testnet hub built in is the one founded on the testnet: its
+// rules decode, check, and are the hub `4c5ef2ba…cd60` with boot1–4 as its
+// validators, so a release can never ship another by mistake
+// (spec/designs/settlement-hubs.md#11-choosing-a-hub).
+#[test]
+fn the_default_testnet_hub_is_the_one_founded() {
+    let hex = DEFAULT_TESTNET_HUB.expect("a default testnet hub is built in");
+    let bytes: Vec<u8> = (0..hex.len())
+        .step_by(2)
+        .map(|i| u8::from_str_radix(&hex[i..i + 2], 16).unwrap())
+        .collect();
+    let mut reader = dassie_oer::Reader::new(&bytes);
+    let rules = crate::rules::Rules::decode(&mut reader).unwrap();
+    reader.finish().unwrap();
+    assert_eq!(rules.check(), Ok(()));
+    let id: alloc::string::String = rules
+        .id()
+        .0
+        .as_bytes()
+        .iter()
+        .map(|byte| alloc::format!("{byte:02x}"))
+        .collect();
+    assert_eq!(
+        id,
+        "4c5ef2ba22cd3007174e95a080fae47c01538937e989876f322a26090c02cd60"
+    );
+    assert_eq!(rules.terms.network, 1, "the XRP Ledger testnet");
+    let endpoints: Vec<&str> = rules
+        .validators
+        .iter()
+        .map(|acceptance| acceptance.endpoint.as_str())
+        .collect();
+    assert_eq!(
+        endpoints,
+        [
+            "boot1.dassie.xyz",
+            "boot2.dassie.xyz",
+            "boot3.dassie.xyz",
+            "boot4.dassie.xyz"
+        ]
+    );
+}
