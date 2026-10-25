@@ -16,7 +16,7 @@
 //!
 //! ```text
 //! interop_peer client <destination> <shared-secret-hex> <amount> <own-address>
-//! interop_peer server <own-address> <receipt-nonce-hex> <receipt-secret-hex>
+//! interop_peer server <own-address>
 //! interop_peer payee <own-address> <amount>
 //! ```
 //!
@@ -39,7 +39,6 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use dassie_ilp::{Address, Prepare, Timestamp};
 use dassie_oer::Decode;
-use dassie_stream::receipt::ReceiptSecret;
 use dassie_stream::{
     Admission, AssetDetails, BUFFER_LENGTH, Config, Connection, ConnectionId, ErrorCode, Event,
     Policy, Role, Server, ServerConfig,
@@ -168,7 +167,6 @@ fn run_client(args: &[String]) {
             code: "USD",
             scale: 6,
         }),
-        receipt: None,
         policy: Policy::DEFAULT,
     });
     let mut rng = UnwrapErr(getrandom::SysRng);
@@ -213,8 +211,8 @@ fn run_client(args: &[String]) {
 }
 
 fn run_server(args: &[String]) {
-    let [own, nonce, receipt_secret] = args else {
-        panic!("server <own-address> <receipt-nonce> <receipt-secret>");
+    let [own] = args else {
+        panic!("server <own-address>");
     };
     let mut rng = UnwrapErr(getrandom::SysRng);
     let mut secret = [0u8; 32];
@@ -232,11 +230,7 @@ fn run_server(args: &[String]) {
         },
         max_connections: 8,
     });
-    let receipt = ReceiptSecret {
-        nonce: hex(nonce).try_into().unwrap(),
-        secret: hex(receipt_secret).try_into().unwrap(),
-    };
-    let credentials = server.generate_credentials(&mut rng, b"native", Some(receipt));
+    let credentials = server.generate_credentials(&mut rng, b"native");
     log(&format!(
         "credentials {} {}",
         credentials.destination,
@@ -302,7 +296,7 @@ fn run_payee(args: &[String]) {
         max_connections: 8,
     });
     for tag in ["a", "b"] {
-        let credentials = server.generate_credentials(&mut rng, tag.as_bytes(), None);
+        let credentials = server.generate_credentials(&mut rng, tag.as_bytes());
         log(&format!(
             "credentials {tag} {} {}",
             credentials.destination,

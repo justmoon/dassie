@@ -79,7 +79,6 @@ fn client(secret: &[u8], policy: Policy) -> Connection {
         local_address: Address::parse("test.client").ok(),
         remote_address: Address::parse("test.server.abc").ok(),
         local_asset: None,
-        receipt: None,
         policy,
     })
 }
@@ -105,7 +104,7 @@ fn a_full_server_forgets_its_least_active_connection() {
     let mut rng = SeededRng::new(9);
     let mut buffer = vec![0; BUFFER_LENGTH];
     let mut send = |server: &mut Server, rng: &mut SeededRng, tag: u8, at_ms: u64| {
-        let credentials = server.generate_credentials(rng, &[tag], None);
+        let credentials = server.generate_credentials(rng, &[tag]);
         let keys = Keys::derive(&credentials.shared_secret);
         let bytes = hostile_prepare(&keys, &credentials.destination, 0, 0, &[]);
         let prepare = Prepare::decode_exact(&bytes).unwrap();
@@ -197,14 +196,13 @@ fn money_in_flight_when_the_remote_closes_is_counted() {
     };
     let mut server = server(policy);
     let mut rng = SeededRng::new(2);
-    let credentials = server.generate_credentials(&mut rng, b"", None);
+    let credentials = server.generate_credentials(&mut rng, b"");
     let mut connection = Connection::new(&Config {
         role: Role::Client,
         shared_secret: &credentials.shared_secret,
         local_address: Address::parse("test.client").ok(),
         remote_address: Address::parse(&credentials.destination).ok(),
         local_asset: None,
-        receipt: None,
         policy,
     });
     connection.set_exchange_rate(Rate::ONE);
@@ -246,7 +244,7 @@ fn a_remote_cannot_overflow_the_event_queue() {
     // filled the event queue until an assertion fired.
     let mut server = server(Policy::DEFAULT);
     let mut rng = SeededRng::new(3);
-    let credentials = server.generate_credentials(&mut rng, b"", None);
+    let credentials = server.generate_credentials(&mut rng, b"");
     let keys = Keys::derive(&credentials.shared_secret);
     let mut buffer = vec![0; BUFFER_LENGTH];
     let mut refused = 0;
@@ -311,14 +309,13 @@ fn measuring_twice_does_not_panic() {
     // of the first were in flight, and their replies then underflowed it.
     let mut server = server(Policy::DEFAULT);
     let mut rng = SeededRng::new(9);
-    let credentials = server.generate_credentials(&mut rng, b"", None);
+    let credentials = server.generate_credentials(&mut rng, b"");
     let mut connection = Connection::new(&Config {
         role: Role::Client,
         shared_secret: &credentials.shared_secret,
         local_address: Address::parse("test.client").ok(),
         remote_address: Address::parse(&credentials.destination).ok(),
         local_asset: None,
-        receipt: None,
         policy: Policy::DEFAULT,
     });
     let mut buffer = vec![0; BUFFER_LENGTH];
@@ -356,14 +353,13 @@ fn a_measurement_retries_every_lost_probe() {
     // deliver in the first two volleys.
     let mut server = server(Policy::DEFAULT);
     let mut rng = SeededRng::new(10);
-    let credentials = server.generate_credentials(&mut rng, b"", None);
+    let credentials = server.generate_credentials(&mut rng, b"");
     let mut connection = Connection::new(&Config {
         role: Role::Client,
         shared_secret: &credentials.shared_secret,
         local_address: Address::parse("test.client").ok(),
         remote_address: Address::parse(&credentials.destination).ok(),
         local_asset: None,
-        receipt: None,
         policy: Policy::DEFAULT,
     });
     let mut buffer = vec![0; BUFFER_LENGTH];
@@ -489,7 +485,7 @@ fn idle_connections_close_and_free_their_slot() {
     // could fill a server's table for good.
     let mut server = server(Policy::DEFAULT);
     let mut rng = SeededRng::new(6);
-    let credentials = server.generate_credentials(&mut rng, b"", None);
+    let credentials = server.generate_credentials(&mut rng, b"");
     let keys = Keys::derive(&credentials.shared_secret);
     let mut buffer = vec![0; BUFFER_LENGTH];
     let bytes = hostile_prepare(&keys, &credentials.destination, 0, 0, &[]);
@@ -513,7 +509,7 @@ fn many_closed_streams_use_fixed_memory() {
     // must still work, and old streams must stay closed.
     let mut server = server(Policy::DEFAULT);
     let mut rng = SeededRng::new(7);
-    let credentials = server.generate_credentials(&mut rng, b"", None);
+    let credentials = server.generate_credentials(&mut rng, b"");
     let keys = Keys::derive(&credentials.shared_secret);
     let mut buffer = vec![0; BUFFER_LENGTH];
     for round in 0..400u64 {
@@ -570,7 +566,7 @@ fn empty_and_repeated_data_frames_are_handled() {
     };
     let mut server = server(policy);
     let mut rng = SeededRng::new(8);
-    let credentials = server.generate_credentials(&mut rng, b"", None);
+    let credentials = server.generate_credentials(&mut rng, b"");
     let keys = Keys::derive(&credentials.shared_secret);
     let mut buffer = vec![0; BUFFER_LENGTH];
     let first = vec![1u8; 8000];
@@ -700,14 +696,13 @@ fn payer_with(
     tag: &[u8],
     policy: Policy,
 ) -> (Connection, u64, Keys) {
-    let credentials = server.generate_credentials(rng, tag, None);
+    let credentials = server.generate_credentials(rng, tag);
     let mut connection = Connection::new(&Config {
         role: Role::Client,
         shared_secret: &credentials.shared_secret,
         local_address: Address::parse("test.client").ok(),
         remote_address: Address::parse(&credentials.destination).ok(),
         local_asset: None,
-        receipt: None,
         policy,
     });
     connection.set_exchange_rate(Rate::ONE);
@@ -791,14 +786,13 @@ fn a_sender_whose_room_another_connection_took_stops_at_once() {
     let mut rng = SeededRng::new(5);
     let mut payment = Payment::new(1_000, 0);
     let connect = |server: &Server, rng: &mut SeededRng, tag: &[u8]| {
-        let credentials = server.generate_credentials(rng, tag, None);
+        let credentials = server.generate_credentials(rng, tag);
         let mut connection = Connection::new(&Config {
             role: Role::Client,
             shared_secret: &credentials.shared_secret,
             local_address: Address::parse("test.client").ok(),
             remote_address: Address::parse(&credentials.destination).ok(),
             local_asset: None,
-            receipt: None,
             policy: Policy::DEFAULT,
         });
         connection.set_exchange_rate(Rate::ONE);
@@ -865,14 +859,13 @@ fn a_receiver_that_stops_short_closes_with_the_code_it_gives() {
         exhausted: ErrorCode::APPLICATION_ERROR,
         ..Payment::new(1_000, 0)
     };
-    let credentials = server.generate_credentials(&mut rng, b"payment/a", None);
+    let credentials = server.generate_credentials(&mut rng, b"payment/a");
     let mut client = Connection::new(&Config {
         role: Role::Client,
         shared_secret: &credentials.shared_secret,
         local_address: Address::parse("test.client").ok(),
         remote_address: Address::parse(&credentials.destination).ok(),
         local_asset: None,
-        receipt: None,
         policy: Policy::DEFAULT,
     });
     client.set_exchange_rate(Rate::ONE);
@@ -1491,14 +1484,13 @@ fn closed_by_remote(connection: &mut Connection) -> Option<ErrorCode> {
 /// A client that pays the connection `payment/a` of `server` at one to
 /// one, two packets at a time, of at most 5 000 each, as [`payer`] does.
 fn concurrent_payer(server: &Server, rng: &mut SeededRng) -> (Connection, u64, Keys) {
-    let credentials = server.generate_credentials(rng, b"payment/a", None);
+    let credentials = server.generate_credentials(rng, b"payment/a");
     let mut connection = Connection::new(&Config {
         role: Role::Client,
         shared_secret: &credentials.shared_secret,
         local_address: Address::parse("test.client").ok(),
         remote_address: Address::parse(&credentials.destination).ok(),
         local_asset: None,
-        receipt: None,
         policy: Policy {
             min_concurrency: 2,
             max_packet_amount: 5_000,

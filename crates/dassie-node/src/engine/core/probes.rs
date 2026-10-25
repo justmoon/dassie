@@ -147,7 +147,6 @@ impl Core {
                 code: asset.code,
                 scale: asset.scale,
             }),
-            receipt: None,
             policy: Policy::DEFAULT,
         }));
         connection.measure_exchange_rate();

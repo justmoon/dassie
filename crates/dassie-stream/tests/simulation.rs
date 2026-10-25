@@ -322,28 +322,6 @@ fn server_can_send_back_to_the_client() {
 }
 
 #[test]
-fn issues_and_verifies_receipts() {
-    let secret = dassie_stream::receipt::ReceiptSecret {
-        nonce: [7; 16],
-        secret: [9; 32],
-    };
-    let mut sim = Simulation::with_receipts(13, Path::default(), Policy::DEFAULT, Some(secret));
-    sim.client.set_exchange_rate(Rate::ONE);
-    let stream = sim.client.open_stream().unwrap();
-    sim.client.set_send_max(stream, 20_000).unwrap();
-    sim.run_until(STEPS, |sim| {
-        sim.client
-            .stream(stream)
-            .is_some_and(|s| s.total_sent() == 20_000)
-    });
-    let receipt = sim.client.stream(stream).unwrap().last_receipt().unwrap();
-    let verified = dassie_stream::receipt::verify(receipt, &secret.secret).unwrap();
-    assert_eq!(verified.nonce, secret.nonce);
-    assert_eq!(u64::from(verified.stream_id), stream);
-    assert_eq!(verified.total_received, 20_000);
-}
-
-#[test]
 fn closes_and_tells_the_remote() {
     let mut sim = pay(Path::default(), Policy::DEFAULT, 10_000);
     let now = sim.now;
@@ -568,10 +546,10 @@ fn a_kept_token_gives_the_same_credentials() {
     // An Open Payments incoming payment shows the same credentials on
     // every read: the application keeps the token, not the secret.
     let mut sim = Simulation::new(13, Path::default(), Policy::DEFAULT);
-    let token = sim.server.issue_token(&mut sim.rng, b"payment-2", None);
+    let token = sim.server.issue_token(&mut sim.rng, b"payment-2");
     let first = sim.server.credentials_for(&token);
     assert_eq!(sim.server.credentials_for(&token), first);
-    let other = sim.server.issue_token(&mut sim.rng, b"payment-2", None);
+    let other = sim.server.issue_token(&mut sim.rng, b"payment-2");
     assert_ne!(
         sim.server.credentials_for(&other).shared_secret,
         first.shared_secret

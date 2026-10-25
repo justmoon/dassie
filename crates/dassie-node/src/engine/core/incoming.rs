@@ -435,7 +435,7 @@ impl Core {
         let receiver = receivers
             .get(&ledger)
             .ok_or_else(|| EngineError::Precondition("the ledger is not active".into()))?;
-        let token = receiver.server.issue_token(rng.as_mut(), &tag, None);
+        let token = receiver.server.issue_token(rng.as_mut(), &tag);
         let mut credentials = receiver.server.credentials_for(&token);
         if let Some(child) = child
             && let Some(below) = credentials

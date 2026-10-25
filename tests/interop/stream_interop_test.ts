@@ -11,7 +11,6 @@ import {
   createConnection,
   createServer,
   type DataAndMoneyStream,
-  verifyReceipt,
 } from "ilp-protocol-stream";
 
 import { StreamConnection, StreamServer } from "@dassie/identity-wasm";
@@ -48,8 +47,14 @@ test("dassie client pays an ilp-protocol-stream server", async () => {
       stream.on("data", (chunk: Buffer) => data += chunk.toString());
     });
   });
-  const { destinationAccount, sharedSecret } = server
-    .generateAddressAndSecret();
+  // With receipts, so its replies carry StreamReceipt frames, which
+  // dassie-stream decodes and has no use for (spec/areas/stream.md#receipts).
+  const { destinationAccount, sharedSecret, receiptsEnabled } = server
+    .generateAddressAndSecret({
+      receiptNonce: Buffer.alloc(16, 1),
+      receiptSecret: Buffer.alloc(32, 2),
+    });
+  assert(receiptsEnabled);
 
   const connection = new StreamConnection(
     new Uint8Array(sharedSecret),
@@ -155,12 +160,8 @@ test("ilp-protocol-stream client pays a dassie server", async () => {
     (prepare) => Promise.resolve(driver.handlePrepare(prepare)),
   );
 
-  const receiptNonce = new Uint8Array(16).fill(1);
-  const receiptSecret = new Uint8Array(32).fill(2);
   const credentials = server.generateCredentials(
     new TextEncoder().encode("invoice-1"),
-    receiptNonce,
-    receiptSecret,
   );
 
   let closed = false;
@@ -188,11 +189,6 @@ test("ilp-protocol-stream client pays a dassie server", async () => {
   );
   assertEquals(server.totalReceived(connectionId, 1n), 1000n);
   assertEquals(server.totalReceived(connectionId, 3n), 2500n);
-
-  // The receipts dassie-stream issued verify with the reference code.
-  const receipt = verifyReceipt(second.receipt!, Buffer.from(receiptSecret));
-  assertEquals(String(receipt.streamId), "3");
-  assertEquals(receipt.totalReceived.toString(), "2500");
 
   await connection.end();
   await waitUntil(() => closed);

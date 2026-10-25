@@ -1268,7 +1268,6 @@ dependencies = [
  "rand_core",
  "serde_json",
  "sha2 0.11.0",
- "subtle",
  "wasm-bindgen",
 ]
 

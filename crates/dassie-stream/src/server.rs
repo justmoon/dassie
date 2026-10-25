@@ -13,7 +13,6 @@ use crate::base64url;
 use crate::connection::{AssetDetails, BUFFER_LENGTH, Config, Connection, Role};
 use crate::frame::ErrorCode;
 use crate::policy::Policy;
-use crate::receipt::ReceiptSecret;
 use crate::token::{MAX_TOKEN_LENGTH, ServerSecret, TokenContents};
 
 /// Whether `ids` increase strictly, all below `next`, the next to give.
@@ -147,8 +146,7 @@ impl Server {
     }
 
     /// Issues credentials for a new connection. `connection_tag` labels it
-    /// (see [`connection_tag`](Self::connection_tag)); `receipt` makes it
-    /// issue receipts.
+    /// (see [`connection_tag`](Self::connection_tag)).
     ///
     /// # Panics
     ///
@@ -157,9 +155,8 @@ impl Server {
         &self,
         rng: &mut (impl CryptoRng + ?Sized),
         connection_tag: &[u8],
-        receipt: Option<ReceiptSecret>,
     ) -> Credentials {
-        let token = self.issue_token(rng, connection_tag, receipt);
+        let token = self.issue_token(rng, connection_tag);
         self.credentials_for(&token)
     }
 
@@ -174,13 +171,9 @@ impl Server {
         &self,
         rng: &mut (impl CryptoRng + ?Sized),
         connection_tag: &[u8],
-        receipt: Option<ReceiptSecret>,
     ) -> Vec<u8> {
         let mut token = [0u8; MAX_TOKEN_LENGTH];
-        let contents = TokenContents {
-            connection_tag,
-            receipt,
-        };
+        let contents = TokenContents { connection_tag };
         let length = self.secret.issue_token(rng, &contents, &mut token);
         Vec::from(token.get(..length).unwrap_or_default())
     }
@@ -351,7 +344,6 @@ impl Server {
                 code,
                 scale: *scale,
             }),
-            receipt: contents.receipt,
             policy: self.policy,
         });
         let id = ConnectionId(self.next_id);

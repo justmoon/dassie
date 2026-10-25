@@ -170,7 +170,9 @@ pub enum Frame<'a> {
         /// The offset it wants to reach.
         max_offset: u64,
     },
-    /// A receipt for money received on a stream (RFC 39).
+    /// A receipt for money received on a stream (RFC 39, deprecated).
+    /// Decoded so receivers that still send it can be paid; Dassie writes
+    /// none.
     StreamReceipt {
         /// The stream.
         stream_id: u64,

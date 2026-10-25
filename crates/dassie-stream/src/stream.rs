@@ -2,7 +2,6 @@ use core::cmp::Ordering;
 
 use crate::buffers::{ReceiveBuffer, SendBuffer};
 use crate::frame::ErrorCode;
-use crate::receipt::RECEIPT_LENGTH;
 
 /// The default flow-control window a peer is assumed to grant a stream
 /// before it says otherwise, as in `ilp-protocol-stream`.
@@ -58,8 +57,6 @@ pub struct Stream {
     pub(crate) local_close: Option<ErrorCode>,
     pub(crate) local_close_acknowledged: bool,
     pub(crate) remote_close: Option<ErrorCode>,
-
-    pub(crate) last_receipt: Option<[u8; RECEIPT_LENGTH]>,
 }
 
 impl Stream {
@@ -91,7 +88,6 @@ impl Stream {
             local_close: None,
             local_close_acknowledged: false,
             remote_close: None,
-            last_receipt: None,
         }
     }
 
@@ -141,12 +137,6 @@ impl Stream {
     #[must_use]
     pub const fn remote_received(&self) -> u64 {
         self.remote_received
-    }
-
-    /// The latest receipt the remote issued for this stream (RFC 39).
-    #[must_use]
-    pub const fn last_receipt(&self) -> Option<&[u8; RECEIPT_LENGTH]> {
-        self.last_receipt.as_ref()
     }
 
     /// Bytes ready to read.

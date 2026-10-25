@@ -30,7 +30,7 @@ try {
   const secret = new Uint8Array(32);
   crypto.getRandomValues(secret);
   const server = new stream.StreamServer(secret, "test.server", "USD", 6, 1000000n);
-  const credentials = server.generateCredentials(new Uint8Array(), undefined, undefined);
+  const credentials = server.generateCredentials(new Uint8Array());
   const client = new stream.StreamConnection(
     credentials.sharedSecret, credentials.destination, "test.client", "USD", 6);
   client.setExchangeRate(1n, 1n);

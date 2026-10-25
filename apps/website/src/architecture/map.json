@@ -636,7 +636,7 @@
       "desc": "STREAM (Interledger RFC 29) sends money and data in many small ILP packets. Here it is a state machine: inputs go in, packets and timers come out.",
       "does": [
         "Connections and a server, packet sizing, exchange-rate probing",
-        "Encryption and receipts as the RFC specifies",
+        "Encryption as the RFC specifies; reads the deprecated receipts, never issues them",
         "A limit on admission and on money per connection, and a cap on what a stream delivers",
         "Byte-compatible with `ilp-protocol-stream`",
         "Builds to WebAssembly"

@@ -5,7 +5,7 @@ STREAM sends money and data over Interledger: it splits a payment into ILP packe
 **Paths:** `crates/dassie-stream/`, `packages/identity-wasm/stream.ts`, `packages/identity-wasm/web_stream.ts`
 **Read with:** [ILP](ilp.md), [Encoding](encoding.md), [Payments](payments.md), [Connector](connector.md), [Website](website.md)
 
-The protocol is [RFC 29](https://interledger.org/developers/rfcs/stream-protocol/); receipts are [RFC 39](https://github.com/interledger/rfcs/tree/main/deprecated/0039-stream-receipts). This doc states what Dassie chooses where they leave room, and where it differs from them and from `ilp-protocol-stream`, the reference implementation most peers run.
+The protocol is [RFC 29](https://interledger.org/developers/rfcs/stream-protocol/). Its receipts, [RFC 39](https://github.com/interledger/rfcs/tree/main/deprecated/0039-stream-receipts), are deprecated, and Dassie only decodes them ([Receipts](#receipts)). This doc states what Dassie chooses where they leave room, and where it differs from them and from `ilp-protocol-stream`, the reference implementation most peers run.
 
 ## Shape
 
@@ -16,7 +16,7 @@ The protocol is [RFC 29](https://interledger.org/developers/rfcs/stream-protocol
 
 ## Credentials and tokens
 
-A server derives each client's destination and shared secret from a 32-byte server secret and a random token, as `ilp-protocol-stream` does (`src/token.rs`). The token is encrypted under the server secret and carries the application's **connection tag** (for example the incoming payment it pays) and optional receipt keys. So the server keeps no table of issued credentials: they never pile up, and they survive restarts.
+A server derives each client's destination and shared secret from a 32-byte server secret and a random token, as `ilp-protocol-stream` does (`src/token.rs`). The token is encrypted under the server secret and carries the application's **connection tag** (for example the incoming payment it pays), and nothing else: not the receipt keys `ilp-protocol-stream` puts after it ([Receipts](#receipts)). Only the server that issued a token reads it, so its layout is the server's own. So the server keeps no table of issued credentials: they never pile up, and they survive restarts.
 
 The node derives each receiver's server secret from its node key at a fixed seed path, so the credentials it issued stay valid across restarts; that path never changes ([Identity](identity.md#derivation-chain)).
 
@@ -113,7 +113,7 @@ Each stream carries an ordered byte stream each way, with RFC 29's flow control.
 
 ## Receipts
 
-A connection whose credentials carry receipt keys issues RFC 39 receipts. Its format has one byte for the stream ID, so streams above 255 get none. The node issues none: they are not part of Open Payments ([open-payments](../decisions/open-payments.md)).
+`dassie-stream` issues no RFC 39 receipts: RFC 39 is deprecated in favour of Open Payments, which has none ([open-payments](../decisions/open-payments.md)). It still decodes the `StreamReceipt` frame, so a receiver that sends receipts, as `ilp-protocol-stream` does when its credentials carry receipt keys, can be paid, and the website's packet decoder names the frame. A connection ignores the receipts it is sent.
 
 ## Closing
 
@@ -139,7 +139,7 @@ The WASM build (`src/wasm.rs`, with `dassie-identity`, [Identity](identity.md#in
 
 ## Decisions
 
-- [open-payments](../decisions/open-payments.md): STREAM under Open Payments, and no receipts from the node; why each payment has a connection of its own is in [Payments](payments.md).
+- [open-payments](../decisions/open-payments.md): STREAM under Open Payments, and no receipts; why each payment has a connection of its own is in [Payments](payments.md).
 - [tigerstyle](../decisions/tigerstyle.md): sans-IO, deterministic, bounded and asserted.
 - [packets-in-flight](../decisions/packets-in-flight.md): why the connector caps money in flight with a peer, though a STREAM connection may have many packets in flight.
 - [random-seed-simulations](../decisions/random-seed-simulations.md): the STREAM simulation runs from any seed.

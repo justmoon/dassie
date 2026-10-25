@@ -44,14 +44,13 @@ impl Pair {
             max_connections: 2,
         });
         let mut rng = SeededRng::new(17);
-        let credentials = server.generate_credentials(&mut rng, b"payment", None);
+        let credentials = server.generate_credentials(&mut rng, b"payment");
         let mut client = Connection::new(&Config {
             role: Role::Client,
             shared_secret: &credentials.shared_secret,
             local_address: Address::parse("test.client").ok(),
             remote_address: Address::parse(&credentials.destination).ok(),
             local_asset: None,
-            receipt: None,
             policy,
         });
         client.set_exchange_rate(Rate::ONE);
@@ -309,7 +308,6 @@ fn rate_probes_are_not_counted() {
         local_address: Address::parse("test.client").ok(),
         remote_address: Address::parse("test.server.abc").ok(),
         local_asset: None,
-        receipt: None,
         policy: Policy::DEFAULT,
     });
     let mut rng = SeededRng::new(4);

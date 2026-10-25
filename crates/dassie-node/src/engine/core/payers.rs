@@ -601,7 +601,6 @@ impl Core {
                 code: asset.code,
                 scale: asset.scale,
             }),
-            receipt: None,
             policy: Policy::DEFAULT,
         }));
         // What each packet must deliver at least: the payment's own rate,

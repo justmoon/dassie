@@ -33,7 +33,6 @@ use crate::event::{Event, Stats};
 use crate::frame::ErrorCode;
 use crate::policy::Policy;
 use crate::rate::Rate;
-use crate::receipt::{RECEIPT_LENGTH, ReceiptSecret};
 use crate::stream::Stream;
 
 /// Length of the buffer that [`Connection::handle_prepare`],
@@ -91,8 +90,6 @@ pub struct Config<'a> {
     pub remote_address: Option<Address<'a>>,
     /// This side's asset, announced to the remote.
     pub local_asset: Option<AssetDetails<'a>>,
-    /// Receipt parameters, if this side issues receipts (RFC 39).
-    pub receipt: Option<ReceiptSecret>,
     /// Limits and tuning.
     pub policy: Policy,
 }
@@ -223,7 +220,6 @@ pub struct Connection {
     remote_address: Option<String>,
     local_asset: Option<(String, u8)>,
     remote_asset: Option<(String, u8)>,
-    receipt: Option<ReceiptSecret>,
     /// What the application lets the connection still receive, over all
     /// its streams; `u64::MAX` for no limit beyond the streams' own.
     money_limit: u64,
@@ -308,7 +304,6 @@ pub struct Connection {
     claims: Vec<crate::allocate::Claim>,
     claim_streams: Vec<u64>,
     allocation: Vec<u64>,
-    credited: Vec<(u64, [u8; RECEIPT_LENGTH])>,
     stream_errors: Vec<(u64, ErrorCode)>,
 }
 
@@ -343,7 +338,6 @@ impl Connection {
                 .local_asset
                 .map(|asset| (String::from(asset.code), asset.scale)),
             remote_asset: None,
-            receipt: config.receipt,
             money_limit: u64::MAX,
             money_received: 0,
             money_tolerance: 0,
@@ -389,7 +383,6 @@ impl Connection {
             claims: Vec::with_capacity(stream_capacity),
             claim_streams: Vec::with_capacity(stream_capacity),
             allocation: Vec::with_capacity(stream_capacity),
-            credited: Vec::with_capacity(stream_capacity),
             stream_errors: Vec::with_capacity(16),
         }
     }

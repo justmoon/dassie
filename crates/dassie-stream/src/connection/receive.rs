@@ -14,7 +14,6 @@ use crate::crypto::OVERHEAD;
 use crate::event::Event;
 use crate::frame::{ErrorCode, Frame};
 use crate::packet::{self, Packet, PacketType};
-use crate::receipt;
 
 /// What to answer, decided before any money or data is applied.
 #[derive(Clone, Copy, Debug)]
@@ -99,7 +98,6 @@ impl Connection {
     }
 
     fn receive(&mut self, prepare: &Prepare<'_>, packet: &Packet<'_>) -> Decision {
-        self.credited.clear();
         self.stream_errors.clear();
         let fulfillment = self.keys.fulfillment(prepare.data);
         let mut decision = Decision {
@@ -443,20 +441,12 @@ impl Connection {
             else {
                 continue;
             };
-            let receipt_secret = self.receipt;
             let Some(stream) = self.stream_mut(stream_id) else {
                 continue;
             };
             stream.received += amount;
-            let total = stream.received;
             if amount > 0 {
                 self.push_event(Event::MoneyReceived { stream_id });
-            }
-            if let (Some(secret), Ok(small_id)) = (receipt_secret, u8::try_from(stream_id)) {
-                let receipt = receipt::create(&secret, small_id, total);
-                if self.credited.len() < self.credited.capacity() {
-                    self.credited.push((stream_id, receipt));
-                }
             }
         }
         for frame in packet.frames.iter() {
@@ -512,12 +502,6 @@ impl Connection {
                 stream_id,
                 code,
                 message: "",
-            });
-        }
-        for (stream_id, receipt) in &self.credited {
-            visit(Frame::StreamReceipt {
-                stream_id: *stream_id,
-                receipt,
             });
         }
         let closing = match (decision.close, self.state) {
