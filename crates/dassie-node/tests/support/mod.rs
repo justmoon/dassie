@@ -72,7 +72,7 @@ pub struct Bound {
 /// An HTTPS listener and a UDP socket for QUIC on the same port number, as
 /// a node has them. The OS picks the TCP port, which may be taken on UDP:
 /// then another is tried.
-fn https_and_quic() -> (std::net::TcpListener, std::net::UdpSocket) {
+pub fn https_and_quic() -> (std::net::TcpListener, std::net::UdpSocket) {
     for _ in 0..16 {
         let https = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         if let Ok(quic) = std::net::UdpSocket::bind(https.local_addr().unwrap()) {

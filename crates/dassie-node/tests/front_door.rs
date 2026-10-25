@@ -3,7 +3,8 @@
 //! clients reach the node at `https://<label>.dassiepay.net` through the
 //! front door's HTTPS, with the node's signature intact, and at
 //! `https://<name>.dassiepay.net` for a name the node holds, as the front
-//! door reads the registrars' lists.
+//! door reads the registrars' lists; and over a tunnel at `/quic` on the
+//! relay's host where the node's UDP does not reach the front door.
 
 #![allow(
     clippy::unwrap_used,
@@ -33,7 +34,7 @@ use dassie_node::node::Policies;
 use dassie_node::peer_client::PeerClient;
 use dassie_node::peer_server::Answer;
 use dassie_node::quic::relay::{KeepWhile, Purpose, RelayError, ServedStream};
-use dassie_node::quic::{Body, Handler, Quic};
+use dassie_node::quic::{Body, Handler, Quic, tunnel};
 use dassie_node::rpc::proto::{self, request::Method, response};
 use dassie_node_core::connections::ConnectionLimits;
 use dassie_node_core::rate_limit::ClientKey;
@@ -46,7 +47,7 @@ use rcgen::{BasicConstraints, CertificateParams, IsCa, Issuer, KeyPair};
 use rustls::pki_types::{CertificateDer, ServerName};
 use serde_json::{Value, json};
 use support::op::{CA, Client, add_stub, signed_under};
-use support::{Bound, Reply, START_MS, TestNode, pair, set_up};
+use support::{Bound, Reply, START_MS, TestNode, https_and_quic, pair, set_up};
 use tokio::sync::watch;
 use tokio_rustls::TlsConnector;
 use tokio_util::sync::CancellationToken;
@@ -66,6 +67,42 @@ struct Door {
     /// that they do not use up a client's allowance.
     clock: ManualClock,
     _dir: tempfile::TempDir,
+    /// Where its URL leads over UDP when that drops everything.
+    _blackhole: Option<UdpSocket>,
+}
+
+/// A front door's sockets, and the URL nodes dial it at.
+struct Listening {
+    https: TcpListener,
+    quic: UdpSocket,
+    url: String,
+    blackhole: Option<UdpSocket>,
+}
+
+impl Listening {
+    /// HTTPS and QUIC on ports of their own, with the URL at QUIC's.
+    fn apart() -> Self {
+        let quic = UdpSocket::bind("127.0.0.1:0").unwrap();
+        Self {
+            https: TcpListener::bind("127.0.0.1:0").unwrap(),
+            url: format!("https://{}", quic.local_addr().unwrap()),
+            quic,
+            blackhole: None,
+        }
+    }
+
+    /// The URL at the HTTPS port, whose UDP socket drops everything, as a
+    /// network that blocks UDP does, while QUIC listens elsewhere: the
+    /// tunnels at `/quic` are the only way in.
+    fn udp_blocked() -> Self {
+        let (https, blackhole) = https_and_quic();
+        Self {
+            url: format!("https://{}", https.local_addr().unwrap()),
+            https,
+            quic: UdpSocket::bind("127.0.0.1:0").unwrap(),
+            blackhole: Some(blackhole),
+        }
+    }
 }
 
 impl Door {
@@ -84,12 +121,37 @@ impl Door {
         registrars: Registrars,
         clock: ManualClock,
     ) -> Self {
+        Self::start_on(shutdown, registrars, clock, Listening::apart()).await
+    }
+
+    /// A front door that reads no registrar's names, at a URL whose UDP
+    /// drops everything.
+    async fn start_udp_blocked(shutdown: &CancellationToken) -> Self {
+        let registrars = Registrars {
+            nodes: Vec::new(),
+            config: dassie_peer::Config::DEV,
+        };
+        let clock = ManualClock::new(START_MS);
+        Self::start_on(shutdown, registrars, clock, Listening::udp_blocked()).await
+    }
+
+    /// A front door on `listening` that reads the names `registrars` list,
+    /// on `clock`.
+    async fn start_on(
+        shutdown: &CancellationToken,
+        registrars: Registrars,
+        clock: ManualClock,
+        listening: Listening,
+    ) -> Self {
+        let Listening {
+            https,
+            quic,
+            url,
+            blackhole,
+        } = listening;
         let dir = tempfile::tempdir().unwrap();
         let (certificate, roots) = wildcard(dir.path());
-        let https = TcpListener::bind("127.0.0.1:0").unwrap();
-        let quic = UdpSocket::bind("127.0.0.1:0").unwrap();
         let address = https.local_addr().unwrap();
-        let url = format!("https://{}", quic.local_addr().unwrap());
         let door_key = NodeKey::from_bytes(&[90; 32]);
         let id = door_key.node_id();
         let entry = key::relay_entry(&door_key, &url);
@@ -97,6 +159,7 @@ impl Door {
             domain: front_door::settings::parse_domain(DOMAIN).unwrap(),
             key: door_key,
             certificate,
+            relay_url: url.clone(),
             registrars,
             allow_private: true,
         };
@@ -115,7 +178,13 @@ impl Door {
             roots: Arc::new(roots),
             clock,
             _dir: dir,
+            _blackhole: blackhole,
         }
+    }
+
+    /// The `Host` nodes dial the front door at as their relay.
+    fn relay_host(&self) -> &str {
+        self.url.strip_prefix("https://").unwrap()
     }
 
     /// Sends `request` for `name` over a fresh connection, checking the
@@ -349,6 +418,69 @@ async fn a_periphery_node_with_an_uplink_is_reached_through_its_front_door() {
     assert_eq!(status.open_payments_origins, [a.origin()]);
     a.stop().await;
     p.stop().await;
+    shutdown.cancel();
+}
+
+/// A tunnel's WebSocket handshake at `/quic` for `host`, with the tunnel's
+/// subprotocol or without.
+fn tunnel_handshake(host: &str, subprotocol: bool) -> Request<Full<Bytes>> {
+    let mut request = Request::get(tunnel::PATH)
+        .header("host", host)
+        .header("connection", "upgrade")
+        .header("upgrade", "websocket")
+        .header("sec-websocket-version", "13")
+        .header("sec-websocket-key", "dGhlIHNhbXBsZSBub25jZQ==");
+    if subprotocol {
+        request = request.header("sec-websocket-protocol", tunnel::SUBPROTOCOL);
+    }
+    request.body(Full::new(Bytes::new())).unwrap()
+}
+
+// spec/areas/http.md#front-doors: a node whose UDP does not reach its
+// front door keeps it as its relay over a tunnel at `/quic` on the relay's
+// host, and is reached through it as over UDP. Under every other name the
+// front door answers `/quic` as any path outside Open Payments.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_node_whose_udp_is_blocked_keeps_its_front_door_over_a_tunnel() {
+    let shutdown = CancellationToken::new();
+    let door = Door::start_udp_blocked(&shutdown).await;
+    let (node, key) = node_behind(&door, 70).await;
+    let name = name_of(&key.node_id());
+    door.until_reached(&name).await;
+    let reply = door.get(&name, "/.well-known/pay").await;
+    assert_eq!(reply.status, StatusCode::OK, "{}", reply.text());
+    let target = format!("https://{name}/.well-known/pay");
+    let now_s = node.clock.now_ms() / 1_000;
+    assert_eq!(signer(&target, &reply, now_s), Ok(key.node_id()));
+    // Its connection to the front door is over the tunnel, the only way in.
+    assert_eq!(node.quic.as_ref().unwrap().open_tunnels(), 1);
+    let relay = status_of(&node).await.relay.unwrap();
+    assert_eq!(relay.node, door.id.as_str());
+    assert!(relay.connected);
+    // On the relay's host, `/quic` is a tunnel's WebSocket and nothing else.
+    let relay_host = door.relay_host();
+    let reply = door.send(&name, tunnel_handshake(relay_host, false)).await;
+    assert_eq!(reply.status, StatusCode::BAD_REQUEST);
+    assert_eq!(json_of(&reply)["error"]["code"], "invalid_request");
+    let plain = Request::get(tunnel::PATH)
+        .header("host", relay_host)
+        .body(Full::new(Bytes::new()))
+        .unwrap();
+    let reply = door.send(&name, plain).await;
+    assert_eq!(reply.status, StatusCode::UPGRADE_REQUIRED);
+    // Under a node's name, or another port, it is no tunnel.
+    let ported = format!("{}:{}", relay_host.rsplit_once(':').unwrap().0, 443);
+    for host in [name.as_str(), ported.as_str()] {
+        let reply = door.send(&name, tunnel_handshake(host, true)).await;
+        assert_ne!(reply.status, StatusCode::SWITCHING_PROTOCOLS, "{host}");
+        assert!(reply.status.is_client_error(), "{host}");
+    }
+    let reply = door.send(&name, tunnel_handshake(&name, true)).await;
+    assert_eq!(reply.status, StatusCode::NOT_FOUND);
+    // Its requests still reach the node over the tunnel.
+    let again = door.get(&name, "/.well-known/pay").await;
+    assert_eq!(again.status, StatusCode::OK, "{}", again.text());
+    node.stop().await;
     shutdown.cancel();
 }
 
