@@ -28,6 +28,7 @@ use dassie_identity::{NodeId, NodeKey};
 use dassie_node::clock::{Clock, ManualClock};
 use dassie_node::env::Env;
 use dassie_node::front_door::nodes::STREAMS_PER_NODE;
+use dassie_node::front_door::relay::NODES_PER_ADDRESS;
 use dassie_node::front_door::{self, CertificateFiles, Parts, Registrars, Sockets, key};
 use dassie_node::http::open_payments::MAX_BODY_BYTES;
 use dassie_node::node::Policies;
@@ -534,25 +535,37 @@ async fn a_node_whose_udp_is_blocked_keeps_its_front_door_over_a_tunnel() {
 }
 
 // spec/areas/http.md#front-doors: as at a node's listener, an upgraded
-// tunnel leaves the front door's HTTPS places and holds one of its QUIC
-// endpoint's tunnels, so a client holds its share of tunnels whatever its
-// share of HTTPS connections, and past that share it is 503.
+// tunnel leaves the front door's HTTPS places and holds the place of the
+// QUIC connection it carries, first one among those being set up, by its
+// client address. So a client holds as many tunnels as it may set up QUIC
+// connections, whatever its share of HTTPS connections; past that it is
+// 503, until a tunnel ends and gives its place back.
 #[tokio::test(flavor = "multi_thread")]
-async fn tunnels_at_the_front_door_hold_places_of_their_own() {
+async fn tunnels_at_the_front_door_hold_the_places_of_their_connections() {
     let shutdown = CancellationToken::new();
     let door = Door::start_udp_blocked(&shutdown).await;
     // At least as many as the client's HTTPS connections, so the request
     // past them needs a place the upgraded ones gave back.
-    const _: () =
-        assert!(tunnel::MAX_TUNNELS_PER_CLIENT >= Policies::DEFAULT.http_connections_per_client);
+    const _: () = assert!(NODES_PER_ADDRESS >= Policies::DEFAULT.http_connections_per_client);
     let mut tunnels = Vec::new();
-    for _ in 0..tunnel::MAX_TUNNELS_PER_CLIENT {
+    for _ in 0..NODES_PER_ADDRESS {
         tunnels.push(door.tunnel().await.unwrap());
     }
     assert_eq!(
         door.tunnel().await.err(),
         Some(StatusCode::SERVICE_UNAVAILABLE)
     );
+    // A tunnel that ends gives its place back.
+    drop(tunnels.pop());
+    let mut again = Err(StatusCode::SERVICE_UNAVAILABLE);
+    for _ in 0..50 {
+        again = door.tunnel().await;
+        if again.is_ok() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert!(again.is_ok(), "{:?}", again.err());
     drop(tunnels);
     shutdown.cancel();
 }

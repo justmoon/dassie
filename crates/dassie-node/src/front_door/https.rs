@@ -220,10 +220,11 @@ impl Door {
     }
 
     /// Takes a tunnel for QUIC from `peer`, as a node's HTTPS listener
-    /// does: once upgraded, its connection leaves this listener's places
-    /// and holds one of the QUIC endpoint's tunnels', in all and per
-    /// `client`, and the QUIC connection inside holds a node's place as
-    /// over UDP ([`relay`](super::relay)).
+    /// does: once upgraded, its connection leaves this listener's places,
+    /// and the tunnel holds the place of the QUIC connection it carries,
+    /// by its address as over UDP: first one among those being set up,
+    /// then, once the connection proved its key, a node's
+    /// ([`relay`](super::relay)).
     fn tunnel(
         &self,
         peer: SocketAddr,
