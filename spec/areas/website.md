@@ -38,7 +38,7 @@ Between them sits a connector, simulated one event at a time in `src/toy/simulat
 
 ## Brand page
 
-`/brand/` is Kopje, Dassie's visual identity: the mark, color, type, the graphic language, voice, and how they come together on the site, the wallet and what operators hand out ([visual-identity](../decisions/visual-identity.md)). It is the reference for how anything of Dassie's looks, so a change to the identity is a change to this page. `public/brand/` holds the mark as SVG files, Sunrise and the Silhouette, for anyone who needs them.
+`/brand/` is Kopje, Dassie's visual identity: the mark, color, type, the graphic language, voice, and how they come together on the site, the wallet and what operators hand out ([visual-identity](../decisions/visual-identity.md)). It is the reference for how anything of Dassie's looks, so a change to the identity is a change to this page. The navigation leaves it out: it is for those who design for Dassie, and AGENTS.md links it. Its bare path answers once `provision.sh`'s URL map step has run with it; `check.sh` checks only the pages the header links to. `public/brand/` holds the mark as SVG files, Sunrise and the Silhouette, for anyone who needs them.
 
 - It keeps to the CSP as every page does: its fonts are files of the site's own, with their licenses beside them, and what would be inline styles are classes in `brand.css`.
 - It does not load `site.css`: the two share class names, and the page draws the shared header and footer in Kopje itself. The rest of the site keeps its look until it takes Kopje ([roadmap](../roadmap.md#kopje-across-dassie)).

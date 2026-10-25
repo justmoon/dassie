@@ -46,15 +46,20 @@ test(
 );
 
 test(
-  "every page has the header and footer, and only one current page",
+  "every page has the header and footer, and the navigation marks it current when it lists it",
   { skip: !built },
   async () => {
-    for (const { path } of PAGES) {
+    for (const { path, nav } of PAGES) {
       const html = await readFile(`${dist}${path}index.html`, "utf8");
       assert(html.includes('<header class="site-header">'), path);
       assert(html.includes('<footer class="site-footer">'), path);
       assert(!html.includes("<!-- header -->"), path);
-      assertEquals(html.match(/aria-current="page"/g)?.length, 1, path);
+      assertEquals(
+        html.match(/aria-current="page"/g)?.length ?? 0,
+        nav ? 1 : 0,
+        path,
+      );
+      assertEquals(html.includes(`href="${path}"`), nav, path);
     }
   },
 );
