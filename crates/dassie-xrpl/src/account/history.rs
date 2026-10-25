@@ -23,7 +23,11 @@
 //!   transaction that last changed it, and each proven transaction's
 //!   metadata the one before. From each anchor, the account walks these
 //!   back to what it told, or to the earliest cursor of its schemes, and
-//!   tells what it found in ledger order, no new anchor taken meanwhile. So
+//!   tells what it found in ledger order, no new anchor taken meanwhile. A
+//!   line deleted since, which the anchor proves absent or made again, is
+//!   taken up from the transaction that deleted it, which the root's chain
+//!   finds, as it changed the root's owner count too: its metadata names
+//!   what changed the line before. So
 //!   a transaction a server leaves out of its history, or of the stream, is
 //!   found by its hash; they only name hashes sooner, as hints to prove
 //!   them. The walk finds hashes and nothing else: the state is the
@@ -93,9 +97,13 @@ pub const UNSAVED_RETRY_MS: u64 = 1_000;
 /// How often the bytes of one transaction are asked again so: past it, the
 /// server is taken as refusing them.
 pub const MAX_UNSAVED_TRIES: u32 = 8;
+/// Most places one walk keeps where an object's chain is taken up again:
+/// each a transaction found that changed the object, which its chain has
+/// not reached. Beyond them, what the walk did not reach is a gap.
+const MAX_RESUMES: usize = MAX_WALKED;
 /// Most turns of one walk's progress at once: each finds a transaction or
-/// ends a chain, or tells one.
-const MAX_WALK_TURNS: usize = MAX_WALKED + MAX_SCHEMES + 2;
+/// ends a chain, or tells one; a chain taken up again ends once more.
+const MAX_WALK_TURNS: usize = MAX_WALKED + MAX_RESUMES + MAX_SCHEMES + 2;
 
 /// A pool a scheme reads, and the account its `AMM` object last named.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -169,6 +177,12 @@ pub(super) struct Walk {
     chains: BTreeMap<[u8; 32], Option<Thread>>,
     /// The transactions found, by their place.
     found: BTreeMap<(u32, u32), [u8; 32]>,
+    /// Where each object's chain is taken up again once it ends, by its
+    /// key and the place of a transaction found that changed it, which its
+    /// chain has not reached: the transaction that changed it before. A
+    /// line deleted, found by the root's chain, starts so an earlier
+    /// stretch of the line's chain; one its chain reaches goes.
+    resumes: BTreeMap<([u8; 32], (u32, u32)), Thread>,
     /// Whether it left a gap: what it did not reach.
     gap: bool,
 }
@@ -195,6 +209,33 @@ impl Walk {
                 .all(|(_, ledger)| *ledger <= self.view.anchor.index),
             "a chain names ledgers up to its anchor"
         );
+        assert!(
+            self.resumes.len() <= MAX_RESUMES,
+            "a walk takes up chains within its bound"
+        );
+        assert!(
+            (self.resumes.iter()).all(|((key, at), (_, ledger))| {
+                self.chains.contains_key(key) && *at > self.told && *ledger <= at.0
+            }),
+            "a chain is taken up before what was found, of what was not told"
+        );
+    }
+
+    /// Takes up the chain of the object of `key`, once it ended, from the
+    /// newest transaction found that changed the object and that the chain
+    /// did not reach.
+    fn take_up(&mut self, key: [u8; 32]) {
+        if !matches!(self.chains.get(&key), Some(None)) {
+            return;
+        }
+        let newest = (self.resumes)
+            .range((key, (0, 0))..=(key, (u32::MAX, u32::MAX)))
+            .next_back()
+            .map(|(at, before)| (*at, *before));
+        if let Some((at, before)) = newest {
+            self.resumes.remove(&at);
+            self.chains.insert(key, Some(before));
+        }
     }
 }
 
@@ -474,6 +515,7 @@ impl XrplAccount {
             told: told.unwrap_or((0, 0)),
             chains,
             found: BTreeMap::new(),
+            resumes: BTreeMap::new(),
             gap: false,
         });
     }
@@ -523,7 +565,10 @@ impl XrplAccount {
 
     /// One step back along the chain of the object of `key`: past what was
     /// told it ends; otherwise its next transaction, once proven, is found,
-    /// and names the one before.
+    /// and names the one before. A transaction found anew that changed
+    /// another object, whose chain has not reached it, is where that chain
+    /// is taken up again once it ends: so a line the anchor proves absent
+    /// is walked from the transaction that deleted it.
     fn step_chain(&mut self, key: [u8; 32]) -> Step {
         let Some(walk) = &self.walk else {
             return Step::Stopped;
@@ -557,24 +602,45 @@ impl XrplAccount {
         if at <= told {
             return self.chain_to(key, None);
         }
+        let others: Vec<([u8; 32], Thread)> = (proof.proven.decoded.threads.iter())
+            .filter(|(of, _)| *of != key)
+            .filter_map(|(of, earlier)| earlier.map(|earlier| (*of, earlier)))
+            .filter(|(_, earlier)| earlier.1 <= at.0)
+            .collect();
         let Some(walk) = &mut self.walk else {
             return Step::Stopped;
         };
-        if walk.found.len() >= MAX_WALKED && !walk.found.contains_key(&at) {
+        let new = !walk.found.contains_key(&at);
+        if walk.found.len() >= MAX_WALKED && new {
             self.left_a_gap();
             return self.chain_to(key, None);
         }
         walk.found.insert(at, hash);
+        walk.resumes.remove(&(key, at));
+        if new {
+            for (of, earlier) in others {
+                if !walk.chains.contains_key(&of) {
+                    continue;
+                }
+                if walk.resumes.len() >= MAX_RESUMES {
+                    self.left_a_gap();
+                    break;
+                }
+                walk.resumes.insert((of, at), earlier);
+                walk.take_up(of);
+            }
+        }
         self.chain_to(key, before)
     }
 
+    /// The chain of the object of `key` goes on at `next`; once it ends, it
+    /// is taken up again where a transaction found names it.
     fn chain_to(&mut self, key: [u8; 32], next: Option<Thread>) -> Step {
-        if let Some(chain) = self
-            .walk
-            .as_mut()
-            .and_then(|walk| walk.chains.get_mut(&key))
+        if let Some(walk) = &mut self.walk
+            && let Some(chain) = walk.chains.get_mut(&key)
         {
             *chain = next;
+            walk.take_up(key);
         }
         Step::Moved
     }
@@ -1181,10 +1247,15 @@ impl XrplAccount {
         let Some(walk) = &mut self.walk else {
             return;
         };
-        for next in walk.chains.values_mut() {
+        let mut ended = Vec::new();
+        for (key, next) in &mut walk.chains {
             if next.is_some_and(|(of, _)| of == hash) {
                 *next = None;
+                ended.push(*key);
             }
+        }
+        for key in ended {
+            walk.take_up(key);
         }
         walk.found.retain(|_, of| *of != hash);
         self.left_a_gap();
@@ -1427,6 +1498,7 @@ mod tests {
             told: (10, u32::MAX),
             chains: BTreeMap::new(),
             found: BTreeMap::new(),
+            resumes: BTreeMap::new(),
             gap,
         };
         account.walk = Some(walk(false));
@@ -1477,6 +1549,7 @@ mod tests {
             told: (10, u32::MAX),
             chains: BTreeMap::from([(line, Some((hash, 30)))]),
             found: BTreeMap::new(),
+            resumes: BTreeMap::new(),
             gap: false,
         });
         account.proofs.insert(hash, proof(us, hash, 30, 5));

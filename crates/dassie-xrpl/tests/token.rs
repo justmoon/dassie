@@ -1438,6 +1438,73 @@ fn what_moved_the_line_while_down_is_booked_by_the_line() {
     assert_eq!(books.suspense, 0);
 }
 
+// Found in review: a line deleted while the node was down, which the
+// anchor proves absent, has no chain from the anchor. A peer's settlement
+// on it, which changed the line alone, is still found: the owner's
+// TrustSet that deleted it changed the root, whose chain finds it, and
+// its metadata names what changed the line before. The issuer's clawback
+// empties the line first, as a line holding tokens is never deleted.
+// Both are booked, and nothing goes through suspense.
+#[test]
+fn a_settlement_on_a_line_deleted_while_down_is_found() {
+    let (mut world, state_a, _) = synced(2);
+    world.mint(0, "10");
+    world.close();
+    world.down(1);
+    world.settle(USD, 0, 1, usd(2_000_000), &state_a);
+    world.close();
+    let address = world.address(1);
+    world
+        .ledger
+        .claw_back(address, Token::DSUSD.amount(value("2")))
+        .unwrap();
+    world.close();
+    let wallet = Wallet::from_entropy(&entropy(world.nodes[1].seed));
+    let info = serde_json::json!({ "command": "account_info", "account": address.to_address() });
+    let reply: serde_json::Value =
+        serde_json::from_slice(&world.ledger.request(0, info.to_string().as_bytes())).unwrap();
+    let sequence = u32::try_from(
+        reply["result"]["account_data"]["Sequence"]
+            .as_u64()
+            .unwrap(),
+    )
+    .unwrap();
+    let deleting = TrustSet {
+        account: address,
+        limit: Token::DSUSD.amount(TokenValue::ZERO),
+        fee: FEE_BASE,
+        sequence,
+        last_ledger_sequence: Some(world.ledger.ledger() + 10),
+        flags: 0,
+        network_id: None,
+        memos: Vec::new(),
+        signing: Signing::by(wallet.public_key()),
+    }
+    .sign(&wallet);
+    let submit = serde_json::json!({
+        "command": "submit", "tx_blob": dassie_xrpl::hex_upper(&deleting.blob),
+    });
+    world.ledger.request(0, submit.to_string().as_bytes());
+    world.close();
+    assert!(
+        world
+            .ledger
+            .line(address, dsusd::ISSUER, dsusd::CURRENCY)
+            .is_none()
+    );
+    world.restart(1);
+    world.closes(2);
+    let books = &world.nodes[1].books[USD];
+    assert_eq!(books.credited.len(), 1);
+    assert_eq!(
+        books.peers[&world.nodes[0].name],
+        i128::from(usd(2_000_000))
+    );
+    assert_eq!(books.withdrawals, [usd(2_000_000)]);
+    assert_eq!((books.suspense, books.settlement), (0, 0));
+    assert_eq!(world.nodes[1].status(USD), LedgerStatus::Synced);
+}
+
 // spec/areas/xrpl.md#following-the-account: a testnet reset while one
 // scheme on the account is away, stopped or removed, and the other runs on
 // and is told. The one away missed the write-off: back, after a restart or
