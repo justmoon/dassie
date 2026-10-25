@@ -32,7 +32,7 @@ pub struct Sim {
 /// run that takes a millisecond costs a campaign almost nothing, so the
 /// time goes to the simulations whose runs take seconds, and most of it to
 /// the `node` simulation.
-pub static SIMS: [Sim; 16] = [
+pub static SIMS: [Sim; 17] = [
     Sim {
         name: "node",
         about: "whole nodes' engine cores, with a network, faults and payments drawn per seed, \
@@ -127,9 +127,20 @@ pub static SIMS: [Sim; 16] = [
         about: "peer networks through chaos and calm: membership, peering, routes and settlements",
         describe: dassie_peer::sim::chaos::describe,
         run: dassie_peer::sim::chaos::run,
-        // Its runs take the longest on average, some eight seconds each,
-        // though a `node` run split for days takes longer: a few of them
-        // take about an eighth of the time, more than the scripts together.
+        // Its runs and the `names` simulation's take the longest on
+        // average, some eight to ten seconds each, though a `node` run
+        // split for days takes longer: a few of them take about an eighth
+        // of the time, more than the scripts together.
+        weight: 4,
+    },
+    Sim {
+        name: "names",
+        about: "names registered with four bootstrap nodes, one of them perhaps faulty, through \
+                chaos and calm: one holder per name, no front-running, splits released",
+        describe: dassie_peer::sim::names::describe,
+        run: dassie_peer::sim::names::run,
+        // Its runs take some ten seconds each, as long as the peer
+        // simulation's, or a little longer.
         weight: 4,
     },
     Sim {

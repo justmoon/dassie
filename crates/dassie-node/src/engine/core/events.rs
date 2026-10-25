@@ -452,7 +452,7 @@ impl Event {
 }
 
 const fn peer_node_severity(event: &dassie_peer::Event) -> Severity {
-    use dassie_peer::Event;
+    use dassie_peer::{Event, NameEvent};
     match event {
         Event::Peered { .. }
         | Event::Depeering { .. }
@@ -460,7 +460,21 @@ const fn peer_node_severity(event: &dassie_peer::Event) -> Severity {
         | Event::PeeringEnded { .. }
         | Event::ChannelClosed { .. }
         | Event::Reachable { .. }
-        | Event::Advertised { short: true, .. } => Severity::Info,
+        | Event::Advertised { short: true, .. }
+        | Event::Name(
+            NameEvent::Renewed { .. }
+            | NameEvent::Released { .. }
+            | NameEvent::Registering { .. }
+            | NameEvent::Unsealing { .. }
+            | NameEvent::Abandoned { .. },
+        ) => Severity::Info,
+        // Names granted or freed are worth the owner's notice; commitments
+        // that only lost or lapsed are not.
+        Event::Name(NameEvent::RegistrarChanged { granted, freed, .. })
+            if *granted > 0 || *freed > 0 =>
+        {
+            Severity::Info
+        }
         Event::SettlementRefused { .. } => Severity::Error,
         Event::RoutesChanged
         | Event::NodeAdded(_)
@@ -474,7 +488,17 @@ const fn peer_node_severity(event: &dassie_peer::Event) -> Severity {
         | Event::SettlementDelivered { .. }
         | Event::SettlementRequestAnswered { .. }
         | Event::SettlementRequestRefused { .. }
-        | Event::SettlementRequestNotDelivered { .. } => Severity::Debug,
+        | Event::SettlementRequestNotDelivered { .. }
+        | Event::Name(
+            NameEvent::Committed { .. }
+            | NameEvent::Unsealed { .. }
+            | NameEvent::RegistrarChanged { .. }
+            | NameEvent::HoldersChanged { .. }
+            | NameEvent::Receipt { .. }
+            | NameEvent::UnsealedAt { .. }
+            | NameEvent::Refused { .. }
+            | NameEvent::RenewedAt { .. },
+        ) => Severity::Debug,
     }
 }
 

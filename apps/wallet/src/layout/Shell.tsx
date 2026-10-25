@@ -30,6 +30,9 @@ const Network = lazy(() => import("../pages/network/Network.tsx"), {
 const Register = lazy(() => import("../pages/network/Register.tsx"), {
   export: "Register",
 });
+const Names = lazy(() => import("../pages/network/Names.tsx"), {
+  export: "Names",
+});
 const Settings = lazy(() => import("../pages/settings/Settings.tsx"), {
   export: "Settings",
 });
@@ -55,6 +58,7 @@ const DebugPage = lazy(() => import("@dassie/ui/debug"), {
 
 const ROUTES = [
   { path: "/network/register", component: Register },
+  { path: "/names", component: Names },
   { path: "/network/:node", component: Network },
   { path: "/network", component: Network },
   { path: "/ledgers/create", component: CreateLedger },

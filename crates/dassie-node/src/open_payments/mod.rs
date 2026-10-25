@@ -8,9 +8,9 @@
 //!
 //! Every URL is built from one of the node's names ([`Names`]): a node
 //! with a hostname has only that; a node without one answers to its
-//! default front door name and the names its owner added, each request
-//! under the name it came through
-//! (spec/areas/payments.md#the-nodes-names).
+//! default front door name, the names its owner added, and the names it
+//! holds at the default front door, each request under the name it came
+//! through (spec/areas/payments.md#the-nodes-names).
 //!
 //! The original's Open Payments had no GNAP, served no incoming payment by
 //! its ID, fixed the asset at USD/2, linked no money it received to a
@@ -27,7 +27,7 @@ pub mod keys;
 pub mod spending;
 
 use std::net::IpAddr;
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use dassie_identity::{NodeId, NodeKey};
 use dassie_ledger::LedgerId;
@@ -35,6 +35,8 @@ use dassie_node_core::config::Hostname;
 use dassie_node_core::origin::{self, Host};
 use dassie_node_core::rate_limit::{ClientKey as RateKey, RateLimitPolicy, RateLimiter};
 use dassie_node_core::urls::{self, DEFAULT_HTTPS_PORT};
+use dassie_peer::names::Name;
+use tokio::sync::watch;
 
 use crate::engine::ledger_slug;
 use crate::node::Node;
@@ -72,12 +74,27 @@ const CREATIONS: RateLimitPolicy = RateLimitPolicy {
 /// other wallets as the node.
 const MAX_LOOKUPS: usize = 4;
 
+/// Most names the node holds that it answers to: more than a registrar
+/// grants one node (`RegistrarConfig::max_names_per_node`, asserted in
+/// the engine). A view that gives the node more answers to the first, by
+/// name.
+pub const MAX_HELD_NAMES: usize = 64;
+
+/// Most front doors whose domains the node answers to its held names at,
+/// the default one among them. A front door reaches only the nodes that
+/// keep a connection to it, and a node keeps one relay, so a few leave
+/// room for one the owner moves to.
+pub const MAX_FRONT_DOORS: usize = 4;
+
 /// What Open Payments keeps beside the database: the names the owner
-/// added, clients' key sets, the node's own key, its tokens at other
-/// wallets, and the rate limits.
+/// added and those the node holds, clients' key sets, the node's own key,
+/// its tokens at other wallets, and the rate limits.
 pub struct State {
     /// The names the owner added, in their order.
     public_names: Vec<Hostname>,
+    /// The names the node holds in its view, by name, as the engine last
+    /// said (spec/areas/network.md#holders).
+    held_names: watch::Sender<Arc<Vec<Name>>>,
     /// Clients' key sets.
     pub keys: Mutex<keys::KeyCache>,
     /// The node's own tokens at other wallets' authorization servers.
@@ -102,6 +119,7 @@ impl State {
     pub fn new(public_names: Vec<Hostname>) -> Self {
         Self {
             public_names,
+            held_names: watch::Sender::new(Arc::new(Vec::new())),
             keys: Mutex::new(keys::KeyCache::default()),
             tokens: Mutex::new(client::TokenCache::default()),
             lookups: tokio::sync::Semaphore::new(MAX_LOOKUPS),
@@ -115,6 +133,26 @@ impl State {
     #[must_use]
     pub fn public_names(&self) -> &[Hostname] {
         &self.public_names
+    }
+
+    /// The names the node holds in its view, by name: it answers to each
+    /// at the front doors it is named at.
+    #[must_use]
+    pub fn held_names(&self) -> Arc<Vec<Name>> {
+        Arc::clone(&self.held_names.borrow())
+    }
+
+    /// Says which names the node holds now, at most [`MAX_HELD_NAMES`];
+    /// those who follow hear of it only if that changed.
+    pub fn set_held_names(&self, mut names: Vec<Name>) {
+        names.truncate(MAX_HELD_NAMES);
+        self.held_names.send_if_modified(|held| {
+            let changed = **held != names;
+            if changed {
+                *held = Arc::new(names);
+            }
+            changed
+        });
     }
 
     /// The node's Open Payments key, derived on first use.
@@ -149,7 +187,9 @@ pub enum Names {
     /// says: its origin, `https://host[:port]`.
     Hostname(String),
     /// A node without one answers under each of these, the main one first:
-    /// its default front door name, then the names its owner added.
+    /// its default front door name, then the names its owner added, then
+    /// `<name>.<domain>` for each name it holds, at each front door it is
+    /// named at.
     List(Vec<Hostname>),
 }
 
@@ -159,32 +199,50 @@ impl Names {
     pub fn of(node: &Node) -> Option<Self> {
         let config = node.config();
         let id = node.node_key().map(|key| key.node_id());
+        let open_payments = node.open_payments();
         Self::new(
             config.hostname.as_ref(),
             node.ports().1,
             id.as_ref(),
-            node.open_payments().public_names(),
+            open_payments.public_names(),
+            &open_payments.held_names(),
         )
     }
 
-    /// The names of a node with `hostname`, or else with `id` and the
-    /// names its owner `added`.
+    /// The names of a node with `hostname`, or else with `id`, the names
+    /// its owner `added` and the names it holds, `held`.
+    ///
+    /// The default front door name stays the main one whatever the node
+    /// holds: other wallets know the node as a client by it, and a name
+    /// can be lost or expire (spec/areas/payments.md#the-nodes-names).
+    /// The node answers to the names it holds at the default front door's
+    /// domain, and at the domain of each name its owner added that is the
+    /// node's label there, `<label>.<domain>`: another front door, which
+    /// passes a name on to its holder under that domain.
     #[must_use]
     pub fn new(
         hostname: Option<&Hostname>,
         https_port: u16,
         id: Option<&NodeId>,
         added: &[Hostname],
+        held: &[Name],
     ) -> Option<Self> {
         if let Some(origin) = urls::node_url(hostname, https_port) {
             return Some(Self::Hostname(origin));
         }
         // Before setup, a node without a hostname is no one yet.
-        let default = default_name(id?);
+        let id = id?;
+        let default = default_name(id);
         let mut names: Vec<Hostname> = default.into_iter().collect();
-        for name in added {
-            if !names.contains(name) {
-                names.push(name.clone());
+        let doors = front_doors(id, added);
+        let held = doors.iter().flat_map(|domain| {
+            held.iter()
+                .take(MAX_HELD_NAMES)
+                .filter_map(move |name| Hostname::parse(&format!("{name}.{domain}")).ok())
+        });
+        for name in added.iter().cloned().chain(held) {
+            if !names.contains(&name) {
+                names.push(name);
             }
         }
         (!names.is_empty()).then_some(Self::List(names))
@@ -238,6 +296,32 @@ impl Names {
 fn default_name(id: &NodeId) -> Option<Hostname> {
     let label = id.label().ok()?;
     Hostname::parse(&format!("{label}.{DEFAULT_FRONT_DOOR_DOMAIN}")).ok()
+}
+
+/// The domains of the front doors the node is named at: the default one,
+/// then each of a name in `added` that is the node's label there, at most
+/// [`MAX_FRONT_DOORS`].
+fn front_doors(id: &NodeId, added: &[Hostname]) -> Vec<String> {
+    let mut doors = vec![DEFAULT_FRONT_DOOR_DOMAIN.to_string()];
+    let Ok(label) = id.label() else {
+        return doors;
+    };
+    let label = label.to_string();
+    for name in added {
+        if doors.len() == MAX_FRONT_DOORS {
+            break;
+        }
+        let domain = name
+            .as_str()
+            .strip_prefix(label.as_str())
+            .and_then(|rest| rest.strip_prefix('.'));
+        if let Some(domain) = domain
+            && !doors.iter().any(|door| door == domain)
+        {
+            doors.push(domain.to_string());
+        }
+    }
+    doors
 }
 
 /// The node's public URLs, under one of its names.
@@ -507,7 +591,10 @@ mod tests {
             hostname(&default),
             hostname("other.example"),
         ];
-        (Names::new(None, 443, Some(&id), &added).unwrap(), default)
+        (
+            Names::new(None, 443, Some(&id), &added, &[]).unwrap(),
+            default,
+        )
     }
 
     #[test]
@@ -518,12 +605,18 @@ mod tests {
             8443,
             Some(&id),
             &[hostname("pay.example.com")],
+            &[Name::parse("alice").unwrap()],
         )
         .unwrap();
         let origin = |urls: Option<Urls>| urls.map(|urls| urls.origin().to_string());
         let main = Some("https://node.example:8443".to_string());
         assert_eq!(origin(Some(names.main())), main);
-        for host in [None, Some("pay.example.com"), Some("elsewhere.example")] {
+        for host in [
+            None,
+            Some("pay.example.com"),
+            Some("alice.dassiepay.net"),
+            Some("elsewhere.example"),
+        ] {
             assert_eq!(origin(names.answering(host)), main, "{host:?}");
         }
     }
@@ -568,9 +661,129 @@ mod tests {
         assert_eq!(names.answering(None), None);
         // Without a key or a hostname, a node has no names yet.
         assert_eq!(
-            Names::new(None, 443, None, &[hostname("pay.example.com")]),
+            Names::new(None, 443, None, &[hostname("pay.example.com")], &[]),
             None
         );
+    }
+
+    // spec/areas/payments.md#the-nodes-names: a node answers to the names
+    // it holds at the default front door, after the names its owner added,
+    // and stops when it no longer holds them.
+    #[test]
+    fn a_node_answers_to_the_names_it_holds() {
+        let id = NodeId::parse("dNKbwOMCw0DTToPM4tyyVASWxM4NP3MKW").unwrap();
+        let default = "gstpaogawdidju5a6m4lolevaes3cm4dj7omffq.dassiepay.net";
+        let added = [hostname("pay.example.com"), hostname("bob.dassiepay.net")];
+        let held = [Name::parse("alice").unwrap(), Name::parse("bob").unwrap()];
+        let names = Names::new(None, 443, Some(&id), &added, &held).unwrap();
+        assert_eq!(
+            names.origins(),
+            [
+                format!("https://{default}"),
+                "https://pay.example.com".to_string(),
+                "https://bob.dassiepay.net".to_string(),
+                "https://alice.dassiepay.net".to_string(),
+            ]
+        );
+        // The default name stays the main one.
+        assert_eq!(names.main().origin(), format!("https://{default}"));
+        let origin = |names: &Names, host: &str| {
+            names
+                .answering(Some(host))
+                .map(|urls| urls.origin().to_string())
+        };
+        assert_eq!(
+            origin(&names, "Alice.dassiepay.net").as_deref(),
+            Some("https://alice.dassiepay.net")
+        );
+        for refused in [
+            "alice",
+            "alice.dassiepay.net.example",
+            "carol.dassiepay.net",
+        ] {
+            assert_eq!(origin(&names, refused), None, "{refused}");
+        }
+        let lost = Names::new(None, 443, Some(&id), &added, &held[1..]).unwrap();
+        assert_eq!(origin(&lost, "alice.dassiepay.net"), None);
+        // Only so many held names are answered to.
+        let many: Vec<Name> = (0..MAX_HELD_NAMES + 8)
+            .map(|index| Name::parse(&format!("name{index:03}")).unwrap())
+            .collect();
+        let Names::List(list) = Names::new(None, 443, Some(&id), &[], &many).unwrap() else {
+            panic!("no list")
+        };
+        assert_eq!(list.len(), 1 + MAX_HELD_NAMES);
+    }
+
+    // spec/areas/payments.md#the-nodes-names: a front door on another
+    // domain passes a name on to its holder under that domain, so a node
+    // its owner names there answers to its names there too.
+    #[test]
+    fn a_node_answers_to_its_names_at_each_front_door_it_is_named_at() {
+        let id = NodeId::parse("dNKbwOMCw0DTToPM4tyyVASWxM4NP3MKW").unwrap();
+        let label = "gstpaogawdidju5a6m4lolevaes3cm4dj7omffq";
+        let added = [
+            hostname("pay.example.com"),
+            hostname(&format!("{label}.pay.example")),
+            hostname(&format!("{label}.dassiepay.net")),
+            hostname(&format!("sub.{label}.other.example")),
+        ];
+        let held = [Name::parse("alice").unwrap()];
+        let names = Names::new(None, 443, Some(&id), &added, &held).unwrap();
+        assert_eq!(
+            names.origins(),
+            [
+                format!("https://{label}.dassiepay.net"),
+                "https://pay.example.com".to_string(),
+                format!("https://{label}.pay.example"),
+                format!("https://sub.{label}.other.example"),
+                "https://alice.dassiepay.net".to_string(),
+                "https://alice.pay.example".to_string(),
+            ]
+        );
+        let origin = |names: &Names, host: &str| {
+            names
+                .answering(Some(host))
+                .map(|urls| urls.origin().to_string())
+        };
+        assert_eq!(
+            origin(&names, "alice.pay.example").as_deref(),
+            Some("https://alice.pay.example")
+        );
+        // Not at a domain of the owner's that does not name the node by
+        // its label, and not once the node no longer holds the name.
+        for refused in ["alice.example.com", "alice.other.example"] {
+            assert_eq!(origin(&names, refused), None, "{refused}");
+        }
+        let lost = Names::new(None, 443, Some(&id), &added, &[]).unwrap();
+        assert_eq!(origin(&lost, "alice.pay.example"), None);
+        // Only so many front doors.
+        let doors: Vec<Hostname> = (0..MAX_FRONT_DOORS + 2)
+            .map(|index| hostname(&format!("{label}.door{index}.example")))
+            .collect();
+        let many = Names::new(None, 443, Some(&id), &doors, &held).unwrap();
+        let answered = (0..MAX_FRONT_DOORS + 2)
+            .filter(|index| origin(&many, &format!("alice.door{index}.example")).is_some())
+            .count();
+        assert_eq!(answered, MAX_FRONT_DOORS - 1);
+    }
+
+    #[test]
+    fn held_names_change_only_when_they_do() {
+        let state = State::default();
+        let mut follower = state.held_names.subscribe();
+        let alice = Name::parse("alice").unwrap();
+        state.set_held_names(vec![alice]);
+        assert!(follower.has_changed().unwrap());
+        follower.mark_unchanged();
+        state.set_held_names(vec![alice]);
+        assert!(!follower.has_changed().unwrap());
+        assert_eq!(*state.held_names(), [alice]);
+        let many: Vec<Name> = (0..MAX_HELD_NAMES + 1)
+            .map(|index| Name::parse(&format!("name{index:03}")).unwrap())
+            .collect();
+        state.set_held_names(many);
+        assert_eq!(state.held_names().len(), MAX_HELD_NAMES);
     }
 
     #[test]

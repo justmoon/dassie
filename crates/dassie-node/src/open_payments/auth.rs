@@ -350,26 +350,17 @@ async fn client_identity(
             let address = client.wallet_address().unwrap_or_default();
             let signature = Signature::find(&request.http(), &required(request), now_ms / 1_000)
                 .map_err(|error| invalid(format!("the signature is not accepted: {error:?}")))?;
-            let peer_client = node
-                .peer_client()
-                .ok_or_else(|| OpError::internal("no HTTPS client"))?;
-            let (jwk, key) = keys::client_key(
-                &node.open_payments().keys,
-                peer_client,
-                address,
-                signature.keyid(),
-                now_ms,
-            )
-            .await
-            .map_err(|error| match error {
-                KeyError::InvalidAddress => {
-                    invalid("the client's wallet address is invalid".into())
-                }
-                KeyError::UnknownKey => {
-                    invalid("the client's wallet address has no such key".into())
-                }
-                KeyError::Unavailable(error) => invalid(format!("the client's keys: {error}")),
-            })?;
+            let (jwk, key) = keys::client_key(node, address, signature.keyid(), now_ms)
+                .await
+                .map_err(|error| match error {
+                    KeyError::InvalidAddress => {
+                        invalid("the client's wallet address is invalid".into())
+                    }
+                    KeyError::UnknownKey => {
+                        invalid("the client's wallet address has no such key".into())
+                    }
+                    KeyError::Unavailable(error) => invalid(format!("the client's keys: {error}")),
+                })?;
             Ok((address.to_string(), jwk, key))
         }
     }

@@ -13,15 +13,19 @@
 
 mod support;
 
+use std::collections::BTreeMap;
+
 use dassie_identity::{NodeId, NodeKey, PublicKey, Signature};
 use dassie_oer::{Decode, Encode};
+use dassie_peer::names::{Commitment, MAX_NAME_BYTES, Name, Salt};
 use dassie_peer::wire::{
     Authentication, Content, EXTENSION_HUB, Entry, Envelope, EnvelopeError, HmacAuthentication,
-    HubMembership, InvalidNodeInfo, Kind, LinkStateResponse, MAX_COMMITMENT_BYTES, MAX_URL_BYTES,
-    NodeInfo, NodeListResponse, PeeringRequest, PeeringResponse, RefusalReason, ResponseEnvelope,
-    SchemeId, SignedNodeInfo, TerminationReason, decode_expiry, decode_hash, decode_octets,
-    decode_settling, encode_envelope, encode_expiry, encode_octets, encode_response,
-    encode_settling, is_valid_url, peek_kind, sign_node_info,
+    HubMembership, InvalidNodeInfo, Kind, LinkStateResponse, MAX_COMMITMENT_BYTES, MAX_NAME_LIST,
+    MAX_NAME_LIST_BYTES, MAX_URL_BYTES, NameHolding, NameListResponse, NameReceipt, NodeInfo,
+    NodeListResponse, PeeringRequest, PeeringResponse, RefusalReason, ResponseEnvelope, SchemeId,
+    SignedNodeInfo, TerminationReason, decode_expiry, decode_hash, decode_octets, decode_settling,
+    encode_envelope, encode_expiry, encode_octets, encode_response, encode_settling, is_valid_url,
+    peek_kind, sign_node_info,
 };
 use proptest::prelude::*;
 use sha2::{Digest, Sha256};
@@ -365,6 +369,8 @@ proptest! {
         let _ = PeeringResponse::decode_exact(&bytes);
         let _ = LinkStateResponse::decode_exact(&bytes);
         let _ = NodeListResponse::decode_exact(&bytes);
+        let _ = NameReceipt::decode_exact(&bytes);
+        let _ = NameListResponse::decode_exact(&bytes);
         let _ = peek_kind(&bytes);
     }
 
@@ -410,7 +416,7 @@ fn decode_content(bytes: &[u8]) -> Result<(), TestCaseError> {
 }
 
 /// How many kinds of response body there are.
-const RESPONSES: usize = 8;
+const RESPONSES: usize = 10;
 
 /// A valid response body of kind `kind`.
 fn response(kind: usize) -> Vec<u8> {
@@ -433,6 +439,12 @@ fn response(kind: usize) -> Vec<u8> {
         5 => encode_expiry(1_800_000_000_000),
         6 => encode_octets(b"peering info"),
         7 => encode_settling(433_793_000),
+        8 => NameReceipt {
+            position: 7,
+            window_end_ms: 1_700_000_000_000,
+        }
+        .to_vec(),
+        9 => name_list().to_vec(),
         _ => unreachable!(),
     }
 }
@@ -470,6 +482,15 @@ fn decode_response(kind: usize, body: &[u8]) -> Result<(), TestCaseError> {
             decode_settling(body).is_ok(),
             body.is_empty() || body.len() == 8
         ),
+        8 => prop_assert_eq!(
+            NameReceipt::decode_exact(body).is_ok(),
+            body.len() == NameReceipt::ENCODED_BYTES
+        ),
+        9 => {
+            if let Ok(list) = NameListResponse::decode_exact(body) {
+                prop_assert_eq!(list.to_vec(), body);
+            }
+        }
         _ => unreachable!(),
     }
     Ok(())
@@ -665,7 +686,6 @@ fn hub_packets_are_pinned_and_bounded() {
     assert!(!Kind::HubPacket.is_read_only());
     assert!(Kind::HubPacket.carries_packet() && Kind::InterledgerPacket.carries_packet());
     assert!(!Kind::Settlement.carries_packet());
-    assert_eq!(Kind::from_tag(13), None);
     // An empty commitment, and one past the bound, are malformed.
     assert!(Content::decode_exact(&hex("8c00000007010c00")).is_err());
     let at_bound = Content::HubPacket {
@@ -805,4 +825,180 @@ fn the_largest_own_link_state_fits_its_bound() {
     assert!(bound <= dassie_peer::wire::MAX_NODE_INFO_BYTES);
     let bytes = sign_node_info(&key, &info);
     assert_eq!(SignedNodeInfo::decode_exact(&bytes).unwrap().info, info);
+}
+
+fn name(text: &str) -> Name {
+    Name::parse(text).unwrap()
+}
+
+/// A name list of two names, node A holding `alice` and node B `bob`.
+fn name_list() -> NameListResponse {
+    NameListResponse(BTreeMap::from([
+        (
+            name("bob"),
+            NameHolding {
+                holder: node_b().node_id(),
+                expires_at_ms: 1_700_000_000_000,
+            },
+        ),
+        (
+            name("alice"),
+            NameHolding {
+                holder: node_a().node_id(),
+                expires_at_ms: 1_800_000_000_000,
+            },
+        ),
+    ]))
+}
+
+// spec/areas/peer-protocol.md#message-set: the name messages are tags 13
+// to 17. Committing, unsealing and renewing change state and need
+// authentication; the list requests only read.
+#[test]
+fn name_messages_are_pinned() {
+    let commit = Content::NameCommit(Commitment([0xab; 32]));
+    let unseal = Content::NameUnseal {
+        name: name("alice"),
+        salt: Salt([7; 32]),
+    };
+    let renew = Content::NameRenew(name("alice"));
+    let pinned = [
+        (commit, format!("8d{}", "ab".repeat(32))),
+        (unseal, format!("8e05616c696365{}", "07".repeat(32))),
+        (renew, "8f05616c696365".to_owned()),
+        (Content::NameListHashRequest, "90".to_owned()),
+        (Content::NameListRequest, "91".to_owned()),
+    ];
+    for (tag, (content, hex)) in (13..).zip(pinned) {
+        assert_eq!(to_hex(&content.to_vec()), hex);
+        assert_eq!(Content::decode_exact(&content.to_vec()).unwrap(), content);
+        assert_eq!(Kind::from_tag(tag), Some(content.kind()));
+        assert_eq!(content.kind().tag(), tag);
+    }
+    assert_eq!(Kind::from_tag(18), None);
+    for kind in [Kind::NameCommit, Kind::NameUnseal, Kind::NameRenew] {
+        assert!(kind.requires_authentication() && !kind.is_read_only());
+    }
+    for kind in [Kind::NameListHashRequest, Kind::NameListRequest] {
+        assert!(!kind.requires_authentication() && kind.is_read_only());
+    }
+    for kind in (13..=17).filter_map(Kind::from_tag) {
+        assert!(!kind.carries_packet());
+    }
+}
+
+// A commitment and a salt are exactly 32 bytes, and a name is read by its
+// syntax (spec/designs/names.md#7-names), whether or not it is reserved.
+#[test]
+fn name_messages_are_bounded() {
+    let commit = hex(&format!("8d{}", "ab".repeat(32)));
+    assert!(Content::decode_exact(&commit[..32]).is_err());
+    let mut long = commit.clone();
+    long.push(0xab);
+    assert!(Content::decode_exact(&long).is_err());
+    let unseal = hex(&format!("8e05616c696365{}", "07".repeat(32)));
+    assert!(Content::decode_exact(&unseal[..unseal.len() - 1]).is_err());
+    let mut long = unseal.clone();
+    long.push(7);
+    assert!(Content::decode_exact(&long).is_err());
+    let renew = |text: &str| {
+        let mut bytes = vec![0x8f, u8::try_from(text.len()).unwrap()];
+        bytes.extend(text.as_bytes());
+        Content::decode_exact(&bytes).map(|content| content.to_vec())
+    };
+    let longest = "a".repeat(MAX_NAME_BYTES);
+    for valid in ["www", "a-b", longest.as_str()] {
+        assert_eq!(
+            renew(valid),
+            Ok(Content::NameRenew(name(valid)).to_vec()),
+            "{valid}"
+        );
+    }
+    let too_long = "a".repeat(MAX_NAME_BYTES + 1);
+    for invalid in [
+        "ab",
+        "Alice",
+        "-alice",
+        "alice-",
+        "xn--alice",
+        "al.ce",
+        &too_long,
+    ] {
+        assert!(renew(invalid).is_err(), "{invalid}");
+    }
+}
+
+// The commitment is SHA-256 over the domain OID, the name and the holder's
+// node ID, each with its length ahead of it, and the salt: a golden value
+// computed apart from the code.
+#[test]
+fn a_commitment_is_pinned() {
+    let commitment = Commitment::seal(&name("alice"), &node_a().node_id(), &Salt([7; 32]));
+    assert_eq!(
+        to_hex(&commitment.0),
+        "b3133351028596cfe0bb902945d506c424bf832decca2c6f5b630b98e2e12afd"
+    );
+    assert_eq!(
+        to_hex(dassie_peer::names::COMMITMENT_OID.as_slice()),
+        "0d2b0601040183a878058a770104"
+    );
+}
+
+// A receipt is the commitment's position in the log and when its window
+// closes; a name list is sorted by name, each once, and bounded.
+#[test]
+fn name_answers_are_pinned_and_bounded() {
+    let receipt = NameReceipt {
+        position: 7,
+        window_end_ms: 1_700_000_000_000,
+    };
+    assert_eq!(
+        to_hex(&receipt.to_vec()),
+        "00000000000000070000018bcfe56800"
+    );
+    assert_eq!(NameReceipt::decode_exact(&receipt.to_vec()), Ok(receipt));
+    let id = |key: NodeKey| to_hex(key.node_id().as_str().as_bytes());
+    let bytes = name_list().to_vec();
+    assert_eq!(
+        to_hex(&bytes),
+        format!(
+            "0102\
+             05616c69636521{}000001a3185c5000\
+             03626f6221{}0000018bcfe56800",
+            id(node_a()),
+            id(node_b())
+        )
+    );
+    assert_eq!(NameListResponse::decode_exact(&bytes), Ok(name_list()));
+    assert_eq!(to_hex(&NameListResponse::default().to_vec()), "0100");
+
+    // Out of order, or a name twice: malformed.
+    let (count, entries) = bytes.split_at(2);
+    let (alice, bob) = entries.split_at(1 + 5 + 1 + 33 + 8);
+    let swapped = [count, bob, alice].concat();
+    assert!(NameListResponse::decode_exact(&swapped).is_err());
+    let twice = [count, alice, alice].concat();
+    assert!(NameListResponse::decode_exact(&twice).is_err());
+
+    // At most MAX_NAME_LIST names, and the largest list fits its bound.
+    let longest_id = NodeId::parse(&format!("d{}", "a".repeat(44))).unwrap();
+    let mut largest = NameListResponse(
+        (0..=MAX_NAME_LIST)
+            .map(|n| {
+                let text = format!("{n:0>width$}", width = MAX_NAME_BYTES);
+                let holding = NameHolding {
+                    holder: longest_id,
+                    expires_at_ms: u64::MAX,
+                };
+                (name(&text), holding)
+            })
+            .collect(),
+    );
+    assert!(NameListResponse::decode_exact(&largest.to_vec()).is_err());
+    largest.0.pop_last();
+    assert_eq!(largest.to_vec().len(), MAX_NAME_LIST_BYTES);
+    assert_eq!(
+        NameListResponse::decode_exact(&largest.to_vec()),
+        Ok(largest)
+    );
 }

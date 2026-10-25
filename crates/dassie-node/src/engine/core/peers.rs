@@ -10,8 +10,8 @@ use dassie_ilp::ErrorCode;
 use dassie_ledger::{AccountName, AccountPath, Ledger, LedgerId, Name};
 use dassie_peer::wire::{RefusalReason, SchemeId, TerminationReason};
 use dassie_peer::{
-    Agreed, BanError, Declined, Event, InboundId, Output as PeerOutput, PacketAnswer, PeeringHooks,
-    Reply,
+    Agreed, BanError, Declined, Event, InboundId, NameEvent, Output as PeerOutput, PacketAnswer,
+    PeeringHooks, Reply,
 };
 
 use super::events::{PeerEvent, SettlementEvent};
@@ -745,7 +745,7 @@ impl Core {
         self.take_journal();
     }
 
-    fn peer_event(&mut self, event: Event) {
+    pub(super) fn peer_event(&mut self, event: Event) {
         self.changes.network = true;
         self.report(event.clone());
         match event {
@@ -799,6 +799,11 @@ impl Core {
                         "the peer could not be reached",
                     );
                 }
+            }
+            // The names the node answers to follow its view
+            // (spec/areas/payments.md#the-nodes-names).
+            Event::Name(NameEvent::HoldersChanged { .. }) => {
+                self.held_names_changed = true;
             }
             other => self.lifecycle_event(other),
         }

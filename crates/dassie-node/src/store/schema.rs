@@ -58,6 +58,9 @@ const MIGRATIONS: &[&str] = &[
     MIGRATION_34,
     MIGRATION_35,
     MIGRATION_36,
+    MIGRATION_37,
+    MIGRATION_38,
+    MIGRATION_39,
 ];
 
 /// The schema version this code writes: the number of migrations.
@@ -1185,6 +1188,67 @@ WHERE id IN (SELECT id FROM temp.receive_alone_grants);
 DROP TABLE temp.receive_alone_grants;
 ";
 
+/// A registrar's log and names (spec/areas/network.md#names): where the log
+/// stands, which only rises, the commitments in it with their unsealings,
+/// and the names granted, held or freed a short while ago. Every row is
+/// written before the answer that it backs is sent, so a restart loses no
+/// receipted commitment and reorders nothing.
+const MIGRATION_37: &str = "
+CREATE TABLE name_log (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  next_position INTEGER NOT NULL CHECK (next_position >= 0),
+  last_logged_ms INTEGER NOT NULL CHECK (last_logged_ms >= 0)
+) STRICT;
+
+INSERT INTO name_log VALUES (1, 0, 0);
+
+CREATE TABLE name_commitments (
+  commitment BLOB PRIMARY KEY CHECK (length(commitment) = 32),
+  position INTEGER NOT NULL UNIQUE CHECK (position >= 0),
+  logged_ms INTEGER NOT NULL,
+  window_end_ms INTEGER NOT NULL CHECK (window_end_ms >= logged_ms),
+  committer TEXT NOT NULL CHECK (length(committer) BETWEEN 2 AND 45),
+  network BLOB CHECK (length(network) = 7),
+  -- Its unsealing, once unsealed.
+  name TEXT CHECK (length(name) BETWEEN 3 AND 32),
+  holder TEXT CHECK (length(holder) BETWEEN 2 AND 45),
+  contends INTEGER CHECK (contends IN (0, 1)),
+  CHECK ((name IS NULL) = (holder IS NULL) AND (holder IS NULL) = (contends IS NULL))
+) STRICT, WITHOUT ROWID;
+
+CREATE TABLE granted_names (
+  name TEXT PRIMARY KEY CHECK (length(name) BETWEEN 3 AND 32),
+  holder TEXT NOT NULL CHECK (length(holder) BETWEEN 2 AND 45),
+  granted_ms INTEGER NOT NULL,
+  expires_ms INTEGER NOT NULL CHECK (expires_ms >= granted_ms),
+  freed_ms INTEGER
+) STRICT, WITHOUT ROWID;
+";
+
+/// Who holds each name, in the node's view (spec/areas/network.md#holders):
+/// the holder a quorum of the registrars' lists name, kept while the view
+/// is frozen, across restarts too.
+const MIGRATION_38: &str = "
+CREATE TABLE name_holders (
+  name TEXT PRIMARY KEY CHECK (length(name) BETWEEN 3 AND 32),
+  holder TEXT NOT NULL CHECK (length(holder) BETWEEN 2 AND 45),
+  expires_ms INTEGER NOT NULL
+) STRICT, WITHOUT ROWID;
+";
+
+/// The node's registrations of names (spec/areas/network.md#the-registrant):
+/// each with the salt its commitment is sealed with, written before its
+/// first commitment leaves, so a restart commits to the same commitment
+/// again.
+const MIGRATION_39: &str = "
+CREATE TABLE name_registrations (
+  name TEXT PRIMARY KEY CHECK (length(name) BETWEEN 3 AND 32),
+  salt BLOB NOT NULL CHECK (length(salt) = 32),
+  started_ms INTEGER NOT NULL,
+  stage TEXT NOT NULL CHECK (stage IN ('committing', 'unsealing', 'abandoned'))
+) STRICT, WITHOUT ROWID;
+";
+
 /// Columns that hold secrets: the database inspector never reads them.
 pub const SECRET_COLUMNS: &[(&str, &str)] = &[
     ("node_key", "private_key"),
@@ -1199,6 +1263,8 @@ pub const SECRET_COLUMNS: &[(&str, &str)] = &[
     ("quotes", "shared_secret"),
     ("outgoing_payments", "shared_secret"),
     ("setup_token", "token"),
+    // With the name, it opens a commitment still sealed.
+    ("name_registrations", "salt"),
 ];
 
 /// A column as the code expects it: name, type, NOT NULL, part of the
@@ -1443,6 +1509,60 @@ pub const TABLES: &[Table] = &[
         columns: &[
             ("node", "TEXT", true, true),
             ("floor_ms", "INTEGER", true, false),
+        ],
+    },
+    Table {
+        name: "name_log",
+        without_rowid: false,
+        columns: &[
+            ("id", "INTEGER", false, true),
+            ("next_position", "INTEGER", true, false),
+            ("last_logged_ms", "INTEGER", true, false),
+        ],
+    },
+    Table {
+        name: "name_commitments",
+        without_rowid: true,
+        columns: &[
+            ("commitment", "BLOB", true, true),
+            ("position", "INTEGER", true, false),
+            ("logged_ms", "INTEGER", true, false),
+            ("window_end_ms", "INTEGER", true, false),
+            ("committer", "TEXT", true, false),
+            ("network", "BLOB", false, false),
+            ("name", "TEXT", false, false),
+            ("holder", "TEXT", false, false),
+            ("contends", "INTEGER", false, false),
+        ],
+    },
+    Table {
+        name: "granted_names",
+        without_rowid: true,
+        columns: &[
+            ("name", "TEXT", true, true),
+            ("holder", "TEXT", true, false),
+            ("granted_ms", "INTEGER", true, false),
+            ("expires_ms", "INTEGER", true, false),
+            ("freed_ms", "INTEGER", false, false),
+        ],
+    },
+    Table {
+        name: "name_holders",
+        without_rowid: true,
+        columns: &[
+            ("name", "TEXT", true, true),
+            ("holder", "TEXT", true, false),
+            ("expires_ms", "INTEGER", true, false),
+        ],
+    },
+    Table {
+        name: "name_registrations",
+        without_rowid: true,
+        columns: &[
+            ("name", "TEXT", true, true),
+            ("salt", "BLOB", true, false),
+            ("started_ms", "INTEGER", true, false),
+            ("stage", "TEXT", true, false),
         ],
     },
     Table {

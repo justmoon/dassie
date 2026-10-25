@@ -154,7 +154,7 @@ pub(crate) fn entries(texts: impl IntoIterator<Item = String>) -> String {
 
 /// Where the node is reached: at its hostname, or, on a periphery node,
 /// which needs no domain name, at its names for Open Payments, which serve
-/// nothing else.
+/// nothing else (spec/areas/payments.md#the-nodes-names).
 fn address(basic: &proto::GetBasicStateResponse, node: &proto::GetStatusResponse) -> String {
     if node.periphery {
         if node.open_payments_origins.is_empty() {
@@ -719,14 +719,21 @@ mod tests {
             "none yet: a periphery node is named once it is set up"
         );
         let node = proto::GetStatusResponse {
-            open_payments_origins: vec![NAME.into(), "https://pay.example".into()],
+            open_payments_origins: vec![
+                NAME.into(),
+                "https://pay.example".into(),
+                "https://alice.dassiepay.net".into(),
+            ],
             ..periphery()
         };
+        // A name it holds reaches it through the front door as its label
+        // does.
         assert_eq!(
             address(&basic, &node),
             format!(
                 "{NAME}/ (Open Payments only)\n               \
-                 https://pay.example/ (Open Payments only)"
+                 https://pay.example/ (Open Payments only)\n               \
+                 https://alice.dassiepay.net/ (Open Payments only)"
             )
         );
         let certificate = proto::Certificate {

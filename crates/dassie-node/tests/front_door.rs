@@ -1,7 +1,9 @@
 //! A front door on loopback (spec/areas/http.md#front-doors): a node
 //! without a public address names it as its relay, and Open Payments
 //! clients reach the node at `https://<label>.dassiepay.net` through the
-//! front door's HTTPS, with the node's signature intact.
+//! front door's HTTPS, with the node's signature intact, and at
+//! `https://<name>.dassiepay.net` for a name the node holds, as the front
+//! door reads the registrars' lists.
 
 #![allow(
     clippy::unwrap_used,
@@ -23,8 +25,9 @@ use std::time::Duration;
 use bytes::Bytes;
 use dassie_identity::{NodeId, NodeKey};
 use dassie_node::clock::{Clock, ManualClock};
+use dassie_node::env::Env;
 use dassie_node::front_door::nodes::STREAMS_PER_NODE;
-use dassie_node::front_door::{self, CertificateFiles, Parts, Sockets, key};
+use dassie_node::front_door::{self, CertificateFiles, Parts, Registrars, Sockets, key};
 use dassie_node::http::open_payments::MAX_BODY_BYTES;
 use dassie_node::node::Policies;
 use dassie_node::peer_client::PeerClient;
@@ -34,6 +37,7 @@ use dassie_node::quic::{Body, Handler, Quic};
 use dassie_node::rpc::proto::{self, request::Method, response};
 use dassie_node_core::connections::ConnectionLimits;
 use dassie_node_core::rate_limit::ClientKey;
+use dassie_node_core::testing::SeededRng;
 use dassie_payments::httpsig;
 use http_body_util::{BodyExt, Full};
 use hyper::{Request, Response, StatusCode};
@@ -65,7 +69,21 @@ struct Door {
 }
 
 impl Door {
+    /// A front door that reads no registrar's names, on a clock of its own.
     async fn start(shutdown: &CancellationToken) -> Self {
+        let registrars = Registrars {
+            nodes: Vec::new(),
+            config: dassie_peer::Config::DEV,
+        };
+        Self::start_with(shutdown, registrars, ManualClock::new(START_MS)).await
+    }
+
+    /// A front door that reads the names `registrars` list, on `clock`.
+    async fn start_with(
+        shutdown: &CancellationToken,
+        registrars: Registrars,
+        clock: ManualClock,
+    ) -> Self {
         let dir = tempfile::tempdir().unwrap();
         let (certificate, roots) = wildcard(dir.path());
         let https = TcpListener::bind("127.0.0.1:0").unwrap();
@@ -79,10 +97,15 @@ impl Door {
             domain: front_door::settings::parse_domain(DOMAIN).unwrap(),
             key: door_key,
             certificate,
+            registrars,
+            allow_private: true,
         };
         let sockets = Sockets { https, quic };
-        let clock = ManualClock::new(START_MS);
-        let serving = front_door::serve(parts, sockets, Arc::new(clock.clone()), shutdown.clone());
+        let time = (
+            Arc::new(clock.clone()) as Arc<dyn Clock>,
+            Box::new(SeededRng::new(90)) as Box<dyn dassie_node::clock::SharedRng>,
+        );
+        let serving = front_door::serve(parts, sockets, time, shutdown.clone());
         tokio::spawn(async move { serving.await.unwrap() });
         Self {
             https: address,
@@ -595,6 +618,179 @@ async fn an_incoming_payment_made_through_the_front_door_reads_back() {
     assert!(reply.header("signature").is_none());
     node.stop().await;
     shutdown.cancel();
+}
+
+/// Four bootstrap daemons, the registrars, set up as core nodes with the
+/// keys of `seeds`, on `clock`; not started yet, so that a front door can
+/// be told where they will be. Returns their listeners and keys, and
+/// `DASSIE_BOOTSTRAP_NODES` naming them.
+fn registrars(seeds: [u8; 4]) -> (Vec<Bound>, [NodeKey; 4], String) {
+    let keys = seeds.map(pair::key);
+    let bounds: Vec<Bound> = (0..4).map(|_| Bound::new()).collect();
+    let entries: Vec<String> = keys
+        .iter()
+        .zip(&bounds)
+        .map(|(key, bound)| {
+            let one = pair::bootstrap(key, bound.https_port());
+            one[1..one.len() - 1].to_string()
+        })
+        .collect();
+    (bounds, keys, format!("[{}]", entries.join(",")))
+}
+
+/// Moves `clock` on a second at a time, giving the daemons and the front
+/// door real time to talk, until `done` holds.
+async fn until(clock: &ManualClock, mut done: impl AsyncFnMut() -> bool) {
+    for _ in 0..1_500 {
+        if done().await {
+            return;
+        }
+        clock.advance(1_000);
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    panic!("not reached in time");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_name_reaches_its_holder_through_the_front_door() {
+    let shutdown = CancellationToken::new();
+    let clock = ManualClock::new(START_MS);
+    let (bounds, keys, nodes) = registrars([71, 72, 73, 74]);
+    let env = [
+        ("DASSIE_BOOTSTRAP_NODES", nodes.as_str()),
+        ("DASSIE_PEER_CA_FILE", CA),
+        ("DASSIE_PEER_ALLOW_PRIVATE", "1"),
+    ];
+    // The front door reads the registrars as every node is configured with
+    // them, on the dev timers the daemons run.
+    let configured = Env::from_pairs([("DASSIE_BOOTSTRAP_NODES", nodes.as_str())]);
+    let registrars = Registrars {
+        nodes: dassie_node::env::bootstrap_nodes(&configured).unwrap(),
+        config: dassie_peer::Config::DEV,
+    };
+    let door = Door::start_with(&shutdown, registrars, clock.clone()).await;
+    let mut started = Vec::new();
+    for ((bound, key), seed) in bounds.into_iter().zip(&keys).zip(71u64..) {
+        let node = bound.start(clock.clone(), seed, Policies::DEV, &env).await;
+        pair::prepare(&node, key).await;
+        started.push(node);
+    }
+    // A periphery node, whose relay is the front door.
+    let key_p = pair::key(75);
+    let id_p = key_p.node_id();
+    let mut periphery = env.to_vec();
+    periphery.push(("DASSIE_RELAY", door.entry.as_str()));
+    let p = Bound::new()
+        .start(clock.clone(), 75, Policies::DEV, &periphery)
+        .await;
+    set_up(&p, &key_p).await;
+    add_stub(&p).await;
+    door.until_reached(&name_of(&id_p)).await;
+    // No node holds `alice` yet: the name finds nothing, as a label that is
+    // no node's, at its root too.
+    const ALICE: &str = "alice.dassiepay.net";
+    for path in ["/.well-known/pay", "/"] {
+        let reply = door.get(ALICE, path).await;
+        assert_eq!(reply.status, StatusCode::NOT_FOUND, "{path}");
+        let description = &json_of(&reply)["error"]["description"];
+        assert_eq!(description, "no node has that name", "{path}");
+        assert!(reply.header("signature").is_none());
+    }
+    let registered = p
+        .ipc()
+        .await
+        .call(Method::RegisterName(proto::RegisterNameRequest {
+            name: "alice".into(),
+        }))
+        .await;
+    assert!(registered.is_ok(), "{registered:?}");
+    until(&clock, async || {
+        door.get(ALICE, "/.well-known/pay").await.status == StatusCode::OK
+    })
+    .await;
+    // The holder answers under the name, through the front door, and signs
+    // its answer: a client that knows the holder checks it.
+    let reply = door.get(ALICE, "/.well-known/pay").await;
+    assert_eq!(reply.status, StatusCode::OK, "{}", reply.text());
+    let target = format!("https://{ALICE}/.well-known/pay");
+    let address = json_of(&reply);
+    assert_eq!(address["id"], target);
+    assert_eq!(address["dassie"], json!({ "nodeId": id_p.as_str() }));
+    let now_s = clock.now_ms() / 1_000;
+    assert_eq!(signed_by(&target, &reply, id_p, now_s), Ok(id_p));
+    // The root of the name is the front door's page, about the holder.
+    let page = door.get(ALICE, "/").await;
+    assert_eq!(page.status, StatusCode::OK);
+    let text = page.text();
+    assert!(text.contains(&format!("<code>{ALICE}</code>")), "{text}");
+    assert!(text.contains(&format!("<code>{}</code>", id_p.as_str())));
+    assert!(text.contains("while the network's registrars list it"));
+    assert!(text.contains("Connected to this front door now."));
+    // Names nobody holds, and labels that are no name, find nothing.
+    for host in [
+        "bob.dassiepay.net",
+        "xn--alice.dassiepay.net",
+        "al.dassiepay.net",
+    ] {
+        let reply = door.get(host, "/.well-known/pay").await;
+        assert_eq!(reply.status, StatusCode::NOT_FOUND, "{host}");
+    }
+    // One registrar of four goes away: three fresh lists are still a
+    // quorum, and the name still reaches its holder.
+    let gone = started.pop().unwrap();
+    gone.stop().await;
+    clock.advance(2 * dassie_peer::Config::DEV.list_fresh_ms);
+    until(&clock, async || {
+        door.get(ALICE, "/.well-known/pay").await.status == StatusCode::OK
+    })
+    .await;
+    // The holder stops, and so renews nothing: once the name expires, the
+    // registrars left stop listing it. Only the last list of the one that
+    // went away still names the holder, and it is not fresh: no quorum
+    // lists the name, and it finds nothing.
+    p.stop().await;
+    clock.advance(dassie_peer::Config::DEV.names.ttl_ms);
+    until(&clock, async || {
+        door.get(ALICE, "/.well-known/pay").await.status == StatusCode::NOT_FOUND
+    })
+    .await;
+    for path in ["/.well-known/pay", "/"] {
+        let reply = door.get(ALICE, path).await;
+        assert_eq!(reply.status, StatusCode::NOT_FOUND, "{path}");
+        let description = &json_of(&reply)["error"]["description"];
+        assert_eq!(description, "no node has that name", "{path}");
+    }
+    for node in started {
+        node.stop().await;
+    }
+    shutdown.cancel();
+}
+
+/// Checks the node's signature on `reply` to a GET of `target` with
+/// [`NONCE`], as a client does that knows the node to expect: for a name,
+/// its holder.
+fn signed_by(
+    target: &str,
+    reply: &Reply,
+    node: NodeId,
+    now_s: u64,
+) -> Result<NodeId, httpsig::NodeResponseError> {
+    let nonce = [(httpsig::NONCE_FIELD, NONCE)];
+    let request = httpsig::Request {
+        method: "GET",
+        target_uri: target,
+        fields: &nonce,
+    };
+    let fields: Vec<(&str, &str)> = reply
+        .headers
+        .iter()
+        .map(|(name, value)| (name.as_str(), value.to_str().unwrap()))
+        .collect();
+    let answer = httpsig::Response {
+        status: reply.status.as_u16(),
+        fields: &fields,
+    };
+    httpsig::check_node_response(&request, &answer, &reply.body, Some(node), now_s)
 }
 
 /// A node that serves whatever the path asks for on a relayed stream:

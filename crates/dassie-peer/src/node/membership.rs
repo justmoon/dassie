@@ -117,8 +117,8 @@ impl PeerNode {
         }
     }
 
-    /// Polls every bootstrap node's list hash; our own list, if we are
-    /// one, is ours without asking.
+    /// Polls every bootstrap node's list hash, and its name list's; our own
+    /// lists, if we are one, are ours without asking.
     pub(super) fn poll_lists(&mut self) {
         self.rebuild_served();
         if self.lists.states.is_empty() || self.lists.poll_at_ms > self.now_ms {
@@ -152,6 +152,7 @@ impl PeerNode {
             }
         }
         self.recompute_majority();
+        self.poll_names();
     }
 
     pub(super) fn on_hash(&mut self, from: NodeId, result: Result<Vec<u8>, Problem>) {

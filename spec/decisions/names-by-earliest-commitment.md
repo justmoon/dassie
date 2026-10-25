@@ -1,6 +1,6 @@
 # A name goes to its earliest sealed commitment, held by a quorum of the bootstrap nodes' lists
 
-**Areas:** [Names](../designs/names.md), [Network](../areas/network.md#membership), [Peer protocol](../areas/peer-protocol.md). A design, not built yet ([roadmap](../roadmap.md#names)).
+**Areas:** [Names](../designs/names.md), [Network](../areas/network.md#names), [Peer protocol](../areas/peer-protocol.md#names). A design, partly built: names, commitments and their messages ([Peer protocol](../areas/peer-protocol.md#names)), the registrar's side with releasing a split ([Network](../areas/network.md#names)), the holders every node takes by a quorum of the lists ([Network](../areas/network.md#holders)), the registrant ([Network](../areas/network.md#the-registrant)), the node answering under its names, and its client checking answers under a name against the holder ([Payments](../areas/payments.md#the-nodes-names)), front doors serving a name for its holder ([HTTP](../areas/http.md#front-doors)), with a simulation that holds them to the guarantees against a faulty registrar ([Testing](../areas/testing.md#names)); the rest is on the [roadmap](../roadmap.md#names).
 
 ## Facts
 
@@ -24,6 +24,7 @@
 - **One faulty registrar can block new names,** for everyone or for one node, since a registrant unseals only with every receipt, and a commitment shows who makes it; one that is down blocks them until it is back. Unsealing with n - f receipts would guarantee only n - 2f honest registrars, short of a quorum. The remedy is taking the registrar off the bootstrap list.
 - **A faulty registrar can tip off a guesser** by who commits and when, and keep a split from being released until the name expires.
 - **A name waits a window** before it is granted, the price of letting an earlier commitment still win.
+- **Free names only where they can be reset.** Until registrations pay fees, names run on the testnet alone, whose names may be reset at any time; a node of the live realm takes no part in them. Free names on a network with real money would go for good to whoever registers first, within the throttles.
 - **A blind commitment that someone holds in reserve** wins if it is earlier, even when its holder unseals only after seeing someone else's name. It was made before the name was visible, and paid for, and lapses with its window: a prior claim, not front-running.
 
 ## Rejected

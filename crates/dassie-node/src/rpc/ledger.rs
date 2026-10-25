@@ -122,6 +122,9 @@ async fn dispatch_more(
         other if super::hub::is_hub(&other) => {
             return super::hub::dispatch(engine, other).await;
         }
+        other if super::names::is_names(&other) => {
+            return super::names::dispatch(node, engine, other, items).await;
+        }
         other if super::grants::is_grants(&other) => {
             return super::grants::dispatch(node, engine, other, items).await;
         }

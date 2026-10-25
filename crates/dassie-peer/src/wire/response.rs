@@ -1,14 +1,16 @@
 //! Responses: an authentication field, then the body for the request's kind.
 
+use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
 
 use dassie_identity::NodeId;
 use dassie_oer::{Decode, DecodeError, DecodeErrorKind, Encode, Reader, Size, Writer, size};
 
 use super::{
-    MAX_LINK_STATE_REQUEST_IDS, MAX_NODE_LIST, SignedNodeInfo, node_id_len, read_fixed,
-    read_node_id, write_node_id,
+    MAX_LINK_STATE_REQUEST_IDS, MAX_NAME_LIST, MAX_NODE_LIST, SignedNodeInfo, node_id_len,
+    read_fixed, read_node_id, write_node_id,
 };
+use crate::names::{Name, name_len, read_name, write_name};
 
 /// A response, its body not yet decoded: the MAC covers the body's bytes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -255,6 +257,106 @@ impl Decode<'_> for NodeListResponse {
             ids.push(read_node_id(reader)?);
         }
         Ok(Self(ids))
+    }
+}
+
+/// The answer to a `nameCommit`: the registrar logged the commitment, at
+/// this position of its log, and persisted it
+/// (spec/designs/names.md#3-registering). Two `UInt64`s.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct NameReceipt {
+    /// Its position in the registrar's log, which only rises, across
+    /// restarts too: the order in which the registrar takes commitments.
+    pub position: u64,
+    /// When its window closes, by the registrar's clock: it must be
+    /// unsealed before.
+    pub window_end_ms: u64,
+}
+
+impl NameReceipt {
+    /// The bytes of a receipt.
+    pub const ENCODED_BYTES: usize = 16;
+}
+
+impl Encode for NameReceipt {
+    fn encoded_len(&self) -> usize {
+        Self::ENCODED_BYTES
+    }
+
+    fn encode_to(&self, writer: &mut Writer<'_>) {
+        writer.write_u64(self.position);
+        writer.write_u64(self.window_end_ms);
+    }
+}
+
+impl Decode<'_> for NameReceipt {
+    type Error = DecodeError;
+
+    fn decode(reader: &mut Reader<'_>) -> Result<Self, DecodeError> {
+        Ok(Self {
+            position: reader.read_u64()?,
+            window_end_ms: reader.read_u64()?,
+        })
+    }
+}
+
+/// Who holds a name in a registrar's list, and until when.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct NameHolding {
+    /// The holder.
+    pub holder: NodeId,
+    /// When the name expires unless renewed, by the registrar's clock.
+    pub expires_at_ms: u64,
+}
+
+/// A registrar's name list (spec/designs/names.md#5-holding-a-name):
+/// `SEQUENCE OF SEQUENCE { name, holder NodeId, expiresAt UInt64 }`, by
+/// name in the order of its bytes, each name once. A list out of order, or
+/// with a name twice, is malformed, so a list has one encoding and one hash.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct NameListResponse(pub BTreeMap<Name, NameHolding>);
+
+impl Encode for NameListResponse {
+    fn encoded_len(&self) -> usize {
+        size::quantity(self.0.len())
+            + self
+                .0
+                .iter()
+                .map(|(name, holding)| name_len(name) + node_id_len(&holding.holder) + 8)
+                .sum::<usize>()
+    }
+
+    fn encode_to(&self, writer: &mut Writer<'_>) {
+        writer.write_quantity(self.0.len());
+        for (name, holding) in &self.0 {
+            write_name(writer, name);
+            write_node_id(writer, &holding.holder);
+            writer.write_u64(holding.expires_at_ms);
+        }
+    }
+}
+
+impl Decode<'_> for NameListResponse {
+    type Error = DecodeError;
+
+    fn decode(reader: &mut Reader<'_>) -> Result<Self, DecodeError> {
+        let count = reader.read_quantity(MAX_NAME_LIST)?;
+        let mut names = BTreeMap::new();
+        let mut last: Option<Name> = None;
+        for _ in 0..count {
+            let offset = reader.offset();
+            let name = read_name(reader)?;
+            if last.is_some_and(|last| last >= name) {
+                return Err(DecodeError::new(offset, DecodeErrorKind::UnexpectedValue));
+            }
+            last = Some(name);
+            let holding = NameHolding {
+                holder: read_node_id(reader)?,
+                expires_at_ms: reader.read_u64()?,
+            };
+            names.insert(name, holding);
+        }
+        Ok(Self(names))
     }
 }
 

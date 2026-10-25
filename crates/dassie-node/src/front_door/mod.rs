@@ -1,24 +1,30 @@
 //! A front door (spec/areas/http.md#front-doors): the server that lets
 //! ordinary Open Payments clients reach nodes without a public address, at
-//! `<label>.<domain>`.
+//! `<label>.<domain>`, and at `<name>.<domain>` for a name's holder.
 //!
-//! It is no node: it has no ledger, no peer protocol and no wallet. It
-//! runs two listeners with a key of its own:
+//! It is no node: it has no ledger and no wallet, and takes no peer
+//! requests. It runs two listeners with a key of its own, and reads names
+//! as a client of the peer protocol:
 //!
 //! - a QUIC endpoint ([`relay`]), which periphery nodes keep a connection
 //!   to by naming it as their relay (`DASSIE_RELAY`,
 //!   spec/areas/node.md#a-chosen-relay);
 //! - an HTTPS listener ([`https`]) with a wildcard certificate, which
-//!   passes Open Payments requests to the node a name's label names, over
-//!   relayed streams it opens on that node's connection ([`nodes`]), with
-//!   TLS inside pinned to the node's key, and answers the root of a name
-//!   with a static page of its own about the node ([`page`]).
+//!   passes Open Payments requests to the node a name's label names, or
+//!   to the holder of the name it is, over relayed streams it opens on that
+//!   node's connection ([`nodes`]), with TLS inside pinned to the node's
+//!   key, and answers the root of a name with a static page of its own
+//!   about the node ([`page`]);
+//! - a poller ([`names`]) that reads the registrars' name lists over the
+//!   same QUIC endpoint, and takes each name's holder from them as every
+//!   node does.
 //!
 //! `dassie front-door` runs it.
 
 pub mod certificate;
 pub mod https;
 pub mod key;
+pub mod names;
 pub mod nodes;
 pub mod page;
 pub mod relay;
@@ -33,9 +39,11 @@ use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;
 
 pub use self::certificate::CertificateFiles;
+pub use self::names::Registrars;
 pub use self::settings::Settings;
-use crate::clock::Clock;
+use crate::clock::{Clock, SharedRng};
 use crate::log::target;
+use crate::peer_client::PeerClient;
 use crate::quic::Quic;
 use crate::tls::{self, CertificateSlot};
 
@@ -60,6 +68,11 @@ pub struct Parts {
     pub key: NodeKey,
     /// Its certificate for `*.<domain>`.
     pub certificate: CertificateFiles,
+    /// The registrars whose name lists it reads.
+    pub registrars: Registrars,
+    /// Whether registrars may be at private addresses, such as `localhost`
+    /// in dev and tests (`DASSIE_PEER_ALLOW_PRIVATE=1`).
+    pub allow_private: bool,
 }
 
 /// Its sockets, bound already.
@@ -72,6 +85,7 @@ pub struct Sockets {
 }
 
 /// Serves as a front door until `shutdown`, then drains both listeners.
+/// The RNG makes its sessions with the registrars.
 ///
 /// # Errors
 ///
@@ -79,7 +93,7 @@ pub struct Sockets {
 pub async fn serve(
     parts: Parts,
     sockets: Sockets,
-    clock: Arc<dyn Clock>,
+    (clock, rng): (Arc<dyn Clock>, Box<dyn SharedRng>),
     shutdown: CancellationToken,
 ) -> Result<(), StartError> {
     let domain = parts.domain.as_str().to_string();
@@ -89,18 +103,29 @@ pub async fn serve(
         .map_err(|error| StartError(format!("the certificate cannot be served: {error}")))?;
     let slot = Arc::new(CertificateSlot::new(loaded));
     let config = tls::server_config(Arc::clone(&slot)).map_err(|e| StartError(e.to_string()))?;
-    let (_identity, keys) = watch::channel(Some(Arc::new(parts.key)));
-    let quic = Quic::new(sockets.quic, keys, false)
+    let key = Arc::new(parts.key);
+    let (_identity, keys) = watch::channel(Some(Arc::clone(&key)));
+    let quic = Quic::new(sockets.quic, keys, parts.allow_private)
         .map_err(|error| StartError(format!("the QUIC endpoint cannot start: {error}")))?;
     let quic = Arc::new(quic);
+    let resolver = PeerClient::for_quic(parts.allow_private).map_err(StartError)?;
     sockets
         .https
         .set_nonblocking(true)
         .map_err(|e| StartError(e.to_string()))?;
     let listener = tokio::net::TcpListener::from_std(sockets.https)
         .map_err(|error| StartError(format!("the HTTPS listener cannot start: {error}")))?;
+    let names = Arc::new(names::Names::new(&parts.registrars));
+    let poller = names::Poller::new(
+        Arc::clone(&names),
+        parts.registrars,
+        (Arc::clone(&quic), key),
+        resolver,
+        Arc::clone(&clock),
+        rng,
+    );
     let nodes = Arc::new(nodes::Nodes::new(Arc::clone(&quic), shutdown.clone()));
-    let door = Arc::new(https::Door::new(&domain, nodes, clock));
+    let door = Arc::new(https::Door::new(&domain, nodes, names, clock));
     tracing::info!(target: target::FRONT_DOOR, %domain, "front door serving");
     let reloading = tokio::spawn(certificate::keep_current(
         parts.certificate,
@@ -112,6 +137,7 @@ pub async fn serve(
     tokio::join!(
         Arc::clone(&quic).serve(Arc::new(relay::Relay), shutdown.clone()),
         https::serve(door, listener, config, shutdown.clone()),
+        poller.run(shutdown.clone()),
     );
     let _ = reloading.await;
     Ok(())
@@ -125,7 +151,7 @@ pub async fn serve(
 /// Something it needs is missing or cannot be used.
 pub async fn run(
     settings: &Settings,
-    clock: Arc<dyn Clock>,
+    (clock, rng): (Arc<dyn Clock>, Box<dyn SharedRng>),
     shutdown: CancellationToken,
 ) -> Result<(), StartError> {
     let missing =
@@ -147,6 +173,9 @@ pub async fn run(
     let key = key::read(key_file).map_err(StartError)?;
     let entry = key::relay_entry(&key, &settings.relay_url());
     tracing::info!(target: target::FRONT_DOOR, "nodes name this front door as their relay with DASSIE_RELAY='{entry}'");
+    for variable in settings.exposed_dev_flags() {
+        tracing::warn!(target: target::FRONT_DOOR, "{variable} is set: it is for development; unset it on a public front door");
+    }
     let https = std::net::TcpListener::bind(settings.https_listen).map_err(|error| {
         StartError(format!(
             "cannot listen on {}: {error}",
@@ -163,6 +192,8 @@ pub async fn run(
         domain: settings.domain.clone(),
         key,
         certificate,
+        registrars: settings.registrars(),
+        allow_private: settings.peer_allow_private,
     };
-    serve(parts, Sockets { https, quic }, clock, shutdown).await
+    serve(parts, Sockets { https, quic }, (clock, rng), shutdown).await
 }

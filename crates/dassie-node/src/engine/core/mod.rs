@@ -20,6 +20,7 @@ mod hubs;
 mod incoming;
 mod invariants;
 mod ledgers;
+mod names;
 mod owner_payments;
 mod packets;
 mod payers;
@@ -55,6 +56,7 @@ pub use hub_moves::{HubHold, HubStatus};
 pub use hubs::HubPeer;
 pub use incoming::{IncomingPolicy, NewIncoming};
 pub use ledgers::{LedgerView, RemovalBlocker};
+pub use names::NamesView;
 pub use packets::ledger_slug;
 pub use payers::{CreatedOutgoing, NewOutgoing};
 pub use peers::{NetworkView, PeerView};
@@ -353,6 +355,9 @@ pub struct Core {
     /// Whether a peering began or ended since the driver last asked: at
     /// start, the peerings restored.
     peerings_changed: bool,
+    /// Whether the holder of a name changed in the node's view since the
+    /// driver last asked: at start, the view restored.
+    held_names_changed: bool,
     /// The ledger's counters when last looked at: pending transfers move
     /// balances without a journal entry.
     ledger_stats: dassie_ledger::Stats,
@@ -437,12 +442,11 @@ impl Core {
     ///
     /// The database is unreadable or inconsistent.
     pub fn start(parts: CoreParts, now_ms: u64) -> Result<Self, String> {
-        check_bounds(&parts.policies);
-        check_realm(parts.realm, parts.live)?;
+        check_parts(&parts)?;
         let peer = new_peer(
             &parts.store,
             &parts.key,
-            &parts.policies,
+            peer_config(&parts.policies, parts.realm),
             (parts.own_info, parts.bootstrap, parts.uplinks),
             parts.peer_rng,
             now_ms,
@@ -498,6 +502,7 @@ impl Core {
             settle: Settlements::new(now_ms, &policies),
             changes: Changes::default(),
             peerings_changed: true,
+            held_names_changed: true,
             ledger_stats: dassie_ledger::Stats::default(),
             spending: payers::Spending::default(),
             peer_settings: PeerSettings::DEFAULT,
@@ -991,6 +996,7 @@ fn check_bounds(policies: &Policies) {
         connector.max_routes >= policies.peer.max_nodes,
         "every node the peer node knows can be routed to"
     );
+    check_name_bounds(policies);
     assert!(
         policies.ledger.max_journal >= 64,
         "a command's journal entries fit the journal"
@@ -1012,6 +1018,22 @@ fn check_bounds(policies: &Policies) {
     );
 }
 
+/// A registrar's bounds fit the node's (spec/areas/network.md#names).
+fn check_name_bounds(policies: &Policies) {
+    // `MAX_NAME_LIST` entries fit a response over QUIC
+    // (`crates/dassie-node/src/quic/mod.rs`).
+    assert!(
+        policies.peer.names.max_names <= dassie_peer::wire::MAX_NAME_LIST,
+        "a registrar's name list fits a response"
+    );
+    // Registrars of this configuration grant a node no more names than
+    // it answers to (`crates/dassie-node/src/open_payments/mod.rs`).
+    assert!(
+        policies.peer.names.max_names_per_node <= crate::open_payments::MAX_HELD_NAMES,
+        "the node answers to every name a registrar grants it"
+    );
+}
+
 /// Most local endpoints at once: a receiver and a payer for each ledger
 /// there is.
 pub const MAX_LOCAL_ENDPOINTS: usize = 8;
@@ -1021,7 +1043,7 @@ pub const MAX_LOCAL_ENDPOINTS: usize = 8;
 fn new_peer(
     store: &Store,
     key: &Arc<NodeKey>,
-    policies: &Policies,
+    config: dassie_peer::Config,
     (own_info, bootstrap, uplinks): (
         dassie_peer::OwnInfo,
         Vec<dassie_peer::Bootstrap>,
@@ -1031,7 +1053,7 @@ fn new_peer(
     now_ms: u64,
 ) -> Result<dassie_peer::PeerNode, String> {
     let mut peer = dassie_peer::PeerNode::new(
-        policies.peer,
+        config,
         Arc::clone(key),
         own_info,
         bootstrap,
@@ -1041,6 +1063,34 @@ fn new_peer(
     );
     peer.pin_uplinks(uplinks);
     Ok(peer)
+}
+
+/// The peer protocol's configuration in `realm`: the policies', with names
+/// off in the live realm.
+fn peer_config(policies: &Policies, realm: Realm) -> dassie_peer::Config {
+    dassie_peer::Config {
+        names_enabled: names_enabled(realm),
+        ..policies.peer
+    }
+}
+
+/// Whether a node of `realm` takes part in names: in the test realm only,
+/// whose names may be reset at any time, until registrations pay fees
+/// (spec/areas/network.md#names). Free names on the live realm could be
+/// hoarded for good.
+#[must_use]
+pub const fn names_enabled(realm: Realm) -> bool {
+    match realm {
+        Realm::Test => true,
+        Realm::Live => false,
+    }
+}
+
+/// Checks the policies' bounds and the realm before the core reads
+/// anything.
+fn check_parts(parts: &CoreParts) -> Result<(), String> {
+    check_bounds(&parts.policies);
+    check_realm(parts.realm, parts.live)
 }
 
 /// Refuses a `live` realm the database names as where it is set: the realm

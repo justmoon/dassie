@@ -6,6 +6,7 @@ use alloc::vec::Vec;
 
 use dassie_identity::NodeId;
 
+use crate::names::Name;
 use crate::wire::{Kind, SchemeId, TerminationReason};
 
 /// Our number for a request we send.
@@ -359,6 +360,132 @@ pub enum Event {
         /// The status.
         status: u16,
     },
+    /// As a registrar, something happened to a name or a commitment; or a
+    /// name's holder changed in our view (spec/areas/network.md#names).
+    Name(NameEvent),
+}
+
+/// What happened at a registrar, or to our view of who holds a name
+/// (spec/areas/network.md#names).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum NameEvent {
+    /// We logged a commitment.
+    Committed {
+        /// The node that sent it.
+        committer: NodeId,
+        /// Its position in the log.
+        position: u64,
+    },
+    /// We took the unsealing of a commitment.
+    Unsealed {
+        /// The name.
+        name: Name,
+        /// The node named in the commitment.
+        holder: NodeId,
+        /// Whether it contends for the name: it has not lost to a name
+        /// granted already.
+        contends: bool,
+    },
+    /// Its holder renewed a name.
+    Renewed {
+        /// The name.
+        name: Name,
+        /// Its holder.
+        holder: NodeId,
+        /// When it expires now.
+        expires_ms: u64,
+    },
+    /// Windows closed and grace periods ended at our registrar: `granted`
+    /// names granted, which we list from now, `lost` unsealed commitments
+    /// that lost their names to ones logged earlier, `lapsed` commitments
+    /// not unsealed within their windows, and `freed` names whose grace
+    /// period ended unrenewed. One event for each step of the registrar's
+    /// timer that did any of these, however many it did: a registrar back
+    /// after a long downtime may close every window and free every name at
+    /// once, and the bounded queue, which drops its oldest, must keep the
+    /// events queued before this in the same tick. What we list is
+    /// [`PeerNode::registrar`](crate::PeerNode::registrar)'s.
+    RegistrarChanged {
+        /// Names granted.
+        granted: usize,
+        /// Unsealed commitments that lost their names.
+        lost: usize,
+        /// Commitments that lapsed unsealed.
+        lapsed: usize,
+        /// Names freed.
+        freed: usize,
+    },
+    /// We released names we listed: more than f of the other registrars'
+    /// fresh lists lacked their holders for long enough. They are free.
+    /// One event for each check that released any, however many it did:
+    /// what we list is [`PeerNode::registrar`](crate::PeerNode::registrar)'s.
+    Released {
+        /// How many names it released.
+        names: usize,
+    },
+    /// In our view, names changed holders: a quorum of the registrars'
+    /// lists name a holder for `held` names that had none or another, and
+    /// none any more for `unheld` names. One event for each taking of the
+    /// view that changed a holder, however many it changed, so that names
+    /// never crowd other events out of the bounded queue: the view is
+    /// [`PeerNode::holders`](crate::PeerNode::holders).
+    HoldersChanged {
+        /// Names that have a new holder.
+        held: usize,
+        /// Names that have none any more.
+        unheld: usize,
+    },
+    /// We started registering a name for ourselves
+    /// (spec/areas/network.md#the-registrant).
+    Registering {
+        /// The name.
+        name: Name,
+    },
+    /// A registrar logged our commitment.
+    Receipt {
+        /// The name.
+        name: Name,
+        /// The registrar.
+        registrar: NodeId,
+        /// The commitment's position in its log.
+        position: u64,
+    },
+    /// Every registrar logged our commitment in time: we unseal it at each.
+    Unsealing {
+        /// The name.
+        name: Name,
+    },
+    /// A registrar took our unsealing.
+    UnsealedAt {
+        /// The name.
+        name: Name,
+        /// The registrar.
+        registrar: NodeId,
+    },
+    /// A registrar refused a commitment, an unsealing or a renewal of ours.
+    Refused {
+        /// The name.
+        name: Name,
+        /// The registrar.
+        registrar: NodeId,
+        /// Its status.
+        status: u16,
+    },
+    /// Not every registrar logged our commitment in time to unseal it: the
+    /// registration ends, and no registrar was told the name.
+    Abandoned {
+        /// The name.
+        name: Name,
+    },
+    /// A registrar answered our renewal of a name we hold.
+    RenewedAt {
+        /// The name.
+        name: Name,
+        /// The registrar.
+        registrar: NodeId,
+        /// The expiry it gives the name now, by its clock.
+        expires_ms: u64,
+    },
 }
 
 /// What the node has counted, for the logs and the simulations.
@@ -393,4 +520,22 @@ pub struct Stats {
     pub channels_closed: u64,
     /// Settlement requests sent (spec/decisions/own-fulfills.md).
     pub settlements_requested: u64,
+    /// Commitments to names logged, as a registrar.
+    pub commitments_logged: u64,
+    /// Commitments that lapsed unsealed.
+    pub commitments_lapsed: u64,
+    /// Names granted.
+    pub names_granted: u64,
+    /// Names renewed.
+    pub names_renewed: u64,
+    /// Names freed after their grace period.
+    pub names_freed: u64,
+    /// Names released for a split.
+    pub names_released: u64,
+    /// Registrations of our own started.
+    pub registrations_started: u64,
+    /// Registrations of our own abandoned, short of a receipt.
+    pub registrations_abandoned: u64,
+    /// Renewals of our names sent.
+    pub renewals_sent: u64,
 }

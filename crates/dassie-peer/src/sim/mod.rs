@@ -16,6 +16,7 @@
 )]
 
 pub mod chaos;
+pub mod names;
 
 use alloc::boxed::Box;
 use alloc::collections::{BTreeMap, BTreeSet};
@@ -27,15 +28,19 @@ use alloc::vec::Vec;
 use core::net::IpAddr;
 
 use crate::auth::{PairKeys, response_mac};
+use crate::names::Name;
 use crate::wire::{
-    Authentication, Envelope, RefusalReason, ResponseEnvelope, SchemeId, encode_response,
+    Authentication, Envelope, Kind, NameHolding, NameListResponse, RefusalReason, ResponseEnvelope,
+    SchemeId, encode_response,
 };
 use crate::{
-    Agreed, Bootstrap, Config, Declined, Event, Failure, Inbound, InboundId, Output, OwnInfo,
-    PeerBatch, PeerNode, PeeringHooks, Request, RequestId, Response, Stored,
+    Agreed, Bootstrap, Config, Declined, Event, Failure, Inbound, InboundId, NameEvent, Output,
+    OwnInfo, PeerBatch, PeerNode, PeeringHooks, Request, RequestId, Response, Stored,
 };
 use dassie_identity::{NodeId, NodeKey};
 use dassie_node_core::testing::SeededRng;
+use dassie_oer::Encode;
+use sha2::{Digest, Sha256};
 
 /// When every simulation starts, on the network's clock.
 pub const START: u64 = 1_800_000_000_000;
@@ -176,6 +181,46 @@ pub fn url(index: usize) -> String {
 /// Rewrites a response's body.
 pub type Tamper = Box<dyn FnMut(&mut Vec<u8>)>;
 
+/// Rewrites the body of a response from one node to another, as a faulty
+/// node would that tells each asker something else: given the node that
+/// answers, the node that asked and the kind of request.
+pub type Forge = Box<dyn FnMut(usize, usize, Kind, &mut Vec<u8>)>;
+
+/// A request sent while tampering or forging: the node it went to, its MAC
+/// and its kind.
+type Sent = (usize, [u8; 32], Kind);
+
+/// What a simulated registrar does, a bootstrap node faulty in one of the
+/// ways the names' design allows for (spec/designs/names.md#6-why-it-holds).
+/// Its own state follows the protocol: what it does wrong is what it tells
+/// others.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Role {
+    /// Follows the protocol.
+    Honest,
+    /// Shows nodes different name lists, each a list it could have
+    /// served: to the registrars their own, so that each sees its side of a
+    /// split confirmed; to the other nodes, by the parity of their index,
+    /// for each name the holder an honest registrar lists that sorts first,
+    /// or last.
+    Equivocate,
+    /// Logs every commitment, and never answers one: a registrant never
+    /// holds every receipt.
+    Withhold,
+    /// Passes every name unsealed at it to [`Network::adversary`], which at
+    /// once registers it itself at every registrar, and lists the adversary
+    /// for every name it passed on.
+    TipOff,
+}
+
+impl Role {
+    /// Whether it follows the protocol.
+    #[must_use]
+    pub const fn is_honest(self) -> bool {
+        matches!(self, Self::Honest)
+    }
+}
+
 /// What the network does to a message.
 #[derive(Clone, Copy, Debug)]
 pub struct Faults {
@@ -213,6 +258,7 @@ enum Delivery {
         from: usize,
         to: usize,
         request: RequestId,
+        kind: Kind,
         body: Vec<u8>,
     },
     /// A request's outcome arriving back at `to`.
@@ -235,6 +281,12 @@ pub struct SimNode {
     pub stored_channels: BTreeMap<NodeId, crate::StoredChannel>,
     stored_bans: BTreeSet<NodeId>,
     stored_floors: BTreeMap<NodeId, u64>,
+    stored_commitments: BTreeMap<crate::names::Commitment, crate::names::Logged>,
+    stored_names: BTreeMap<crate::names::Name, crate::names::Granted>,
+    stored_holders: BTreeMap<crate::names::Name, crate::names::HeldName>,
+    /// Its view of who holds each name, as last seen after a step.
+    seen_holders: BTreeMap<Name, NodeId>,
+    stored_registrations: BTreeMap<crate::names::Name, crate::names::NameRegistration>,
     /// How far its clock is off the network's.
     pub skew_ms: i64,
     generation: u64,
@@ -314,9 +366,14 @@ pub struct Network {
     /// arrives, as a node would that answers anything it likes: the MAC is
     /// made again, so the body gets past it to what reads it.
     pub tamper: Option<Tamper>,
-    /// While tampering, each request's MAC and the node it went to, by who
-    /// sent it, in which generation, with which ID.
-    macs: BTreeMap<(usize, u64, RequestId), (usize, [u8; 32])>,
+    /// Rewrites the body of every response with status 200 after
+    /// `tamper`, knowing who answers whom and what: a faulty node, say,
+    /// that shows each node a list of its own. The MAC is made again.
+    pub forge: Option<Forge>,
+    /// While tampering or forging, each request's MAC, the node it went to
+    /// and its kind, by who sent it, in which generation, with which ID;
+    /// while a registrar is faulty, each name list request's.
+    macs: BTreeMap<(usize, u64, RequestId), Sent>,
     /// Periphery nodes: without a URL, dialling out over QUIC, reached by
     /// node ID over the connections they opened. Their uplinks are the
     /// other nodes, which then take QUIC too.
@@ -327,6 +384,45 @@ pub struct Network {
     /// The uplinks each node is pinned to, kept across restarts
     /// (spec/areas/network.md#pinned-uplinks).
     pub pinned: BTreeMap<usize, Vec<NodeId>>,
+    /// What each bootstrap node does as a registrar of names: as the
+    /// protocol says, unless set here.
+    pub roles: BTreeMap<usize, Role>,
+    /// The node a registrar that tips off passes names to.
+    pub adversary: Option<usize>,
+    /// The names passed to the adversary, with the expiry the registrars
+    /// that tip off list it for each with.
+    pub tipped: BTreeMap<Name, u64>,
+    /// What happened to names, at which node, in order: a node reports
+    /// these in counts only (spec/areas/network.md#the-registrar,
+    /// spec/areas/network.md#holders), so they are read from its state
+    /// after each step.
+    pub name_changes: Vec<(usize, NameChange)>,
+}
+
+/// What happened to a name at a node, as read from its state.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum NameChange {
+    /// In the node's view, the name has this holder now, or none.
+    Holder {
+        /// The name.
+        name: Name,
+        /// Its holder now, if it has one.
+        holder: Option<NodeId>,
+    },
+    /// The node, a registrar, granted the name to `holder`.
+    Granted {
+        /// The name.
+        name: Name,
+        /// Its holder.
+        holder: NodeId,
+    },
+    /// The node, a registrar, released the name it listed for `holder`.
+    Released {
+        /// The name.
+        name: Name,
+        /// Its holder until then.
+        holder: NodeId,
+    },
 }
 
 impl Network {
@@ -388,10 +484,15 @@ impl Network {
             promise: BTreeMap::new(),
             settlements_refused: 0,
             tamper: None,
+            forge: None,
             macs: BTreeMap::new(),
             periphery: (count..count + periphery).collect(),
             quic,
             pinned: BTreeMap::new(),
+            roles: BTreeMap::new(),
+            adversary: None,
+            tipped: BTreeMap::new(),
+            name_changes: Vec::new(),
         };
         for index in 0..count + periphery {
             let skew = i64::try_from(rng.next_u64() % 20_001).unwrap() - 10_000;
@@ -405,6 +506,11 @@ impl Network {
                 stored_channels: BTreeMap::new(),
                 stored_bans: BTreeSet::new(),
                 stored_floors: BTreeMap::new(),
+                stored_commitments: BTreeMap::new(),
+                stored_names: BTreeMap::new(),
+                stored_holders: BTreeMap::new(),
+                seen_holders: BTreeMap::new(),
+                stored_registrations: BTreeMap::new(),
                 skew_ms: skew,
                 generation: 0,
                 next_inbound: 0,
@@ -438,6 +544,10 @@ impl Network {
                 floor_ms: *floor_ms,
             })
             .collect();
+        sim.stored.commitments = sim.stored_commitments.values().copied().collect();
+        sim.stored.names = sim.stored_names.values().copied().collect();
+        sim.stored.holders = sim.stored_holders.values().copied().collect();
+        sim.stored.registrations = sim.stored_registrations.values().copied().collect();
         let periphery = self.periphery.contains(&index);
         let mut node = PeerNode::new(
             self.config,
@@ -458,8 +568,11 @@ impl Network {
         if let Some(uplinks) = self.pinned.get(&index) {
             node.pin_uplinks(uplinks.clone());
         }
+        let changes = view_changes(&mut sim.seen_holders, &node);
         sim.node = Some(node);
         self.trace.push(format!("{} start {index}", self.now));
+        self.name_changes
+            .extend(changes.into_iter().map(|change| (index, change)));
     }
 
     /// Crashes node `index`: what it did not persist is lost.
@@ -510,6 +623,21 @@ impl Network {
             self.trace.push(format!("{} {index} {event:?}", self.now));
             events.push(event);
         }
+        let node_now = node.now_ms;
+        let sim = &mut self.nodes[index];
+        let mut changes = granted(sim, &events, &batch);
+        changes.extend(released(sim, &events, &batch, node_now));
+        let viewed = view_changes(&mut sim.seen_holders, sim.node.as_ref().unwrap());
+        let reported = events
+            .iter()
+            .any(|event| matches!(event, Event::Name(NameEvent::HoldersChanged { .. })));
+        assert!(
+            reported || viewed.is_empty(),
+            "node {index} changed its view of holders without reporting it"
+        );
+        changes.extend(viewed);
+        self.name_changes
+            .extend(changes.into_iter().map(|change| (index, change)));
         let sim = &mut self.nodes[index];
         for stored in batch.nodes {
             sim.stored_nodes.insert(stored.id, stored);
@@ -542,11 +670,70 @@ impl Network {
         for floor in batch.floors {
             sim.stored_floors.insert(floor.node, floor.floor_ms);
         }
+        // Removals first, as the store writes them.
+        if let Some(head) = batch.name_log {
+            sim.stored.name_log = head;
+        }
+        for removed in batch.commitments_removed {
+            sim.stored_commitments.remove(&removed);
+        }
+        for logged in batch.commitments {
+            sim.stored_commitments.insert(logged.commitment, logged);
+        }
+        for removed in batch.names_removed {
+            sim.stored_names.remove(&removed);
+        }
+        for granted in batch.names {
+            sim.stored_names.insert(granted.name, granted);
+        }
+        for removed in batch.holders_removed {
+            sim.stored_holders.remove(&removed);
+        }
+        for held in batch.holders {
+            sim.stored_holders.insert(held.name, held);
+        }
+        for removed in batch.registrations_removed {
+            sim.stored_registrations.remove(&removed);
+        }
+        for registration in batch.registrations {
+            sim.stored_registrations
+                .insert(registration.name, registration);
+        }
         for output in outputs {
             self.carry(index, output);
         }
+        let tips: Vec<Name> = if self.role(index) == Role::TipOff {
+            events.iter().filter_map(tip).collect()
+        } else {
+            Vec::new()
+        };
         for event in events {
             self.events.push((index, event));
+        }
+        for name in tips {
+            self.tip_off(name);
+        }
+    }
+
+    /// What node `index` does as a registrar.
+    pub fn role(&self, index: usize) -> Role {
+        self.roles.get(&index).copied().unwrap_or(Role::Honest)
+    }
+
+    /// Passes `name` to the adversary, which registers it at once if it is
+    /// up, and lists the adversary for it from now on.
+    fn tip_off(&mut self, name: Name) {
+        let Some(adversary) = self.adversary else {
+            return;
+        };
+        let expires_ms = self.now + self.config.names.ttl_ms;
+        self.tipped.entry(name).or_insert(expires_ms);
+        self.trace
+            .push(format!("{} tips off {adversary}: {name}", self.now));
+        if self.is_up(adversary) {
+            self.act(adversary, |node, now| {
+                let _ = node.register_name(now, name);
+            });
         }
     }
 
@@ -630,12 +817,16 @@ impl Network {
             );
             return;
         };
-        if self.tamper.is_some()
+        let listing = matches!(
+            request.kind,
+            Kind::NameListRequest | Kind::NameListHashRequest
+        );
+        if (self.tamper.is_some() || self.forge.is_some() || (listing && !self.roles.is_empty()))
             && let Ok(envelope) = Envelope::decode(&request.body)
             && let Authentication::Hmac(hmac) = envelope.authentication
         {
             self.macs
-                .insert((from, generation, request.id), (to, hmac.mac));
+                .insert((from, generation, request.id), (to, hmac.mac, request.kind));
         }
         if self.cut.contains(&(from, to))
             || self.cut.contains(&(to, from))
@@ -667,6 +858,7 @@ impl Network {
                     from,
                     to,
                     request: request.id,
+                    kind: request.kind,
                     body: request.body.clone(),
                 },
             );
@@ -679,8 +871,9 @@ impl Network {
                 from,
                 to,
                 request,
+                kind,
                 body,
-            } => self.arrive(from, to, request, &body),
+            } => self.arrive(from, to, request, kind, &body),
             Delivery::Result {
                 to,
                 generation,
@@ -701,7 +894,7 @@ impl Network {
         }
     }
 
-    /// `result`, its body rewritten and MACed again if tampering.
+    /// `result`, its body rewritten and MACed again if tampering or forging.
     fn tampered(
         &mut self,
         to: usize,
@@ -709,10 +902,11 @@ impl Network {
         request: RequestId,
         result: Result<Response, Failure>,
     ) -> Result<Response, Failure> {
-        let (Some(tamper), Ok(response)) = (self.tamper.as_mut(), &result) else {
+        let Ok(response) = &result else {
             return result;
         };
-        let Some(&(responder, request_mac)) = self.macs.get(&(to, generation, request)) else {
+        let Some(&(responder, request_mac, kind)) = self.macs.get(&(to, generation, request))
+        else {
             return result;
         };
         let Ok(envelope) = ResponseEnvelope::decode(&response.body) else {
@@ -722,7 +916,20 @@ impl Network {
             return result;
         }
         let mut body = envelope.body.to_vec();
-        tamper(&mut body);
+        if let Some(tamper) = self.tamper.as_mut() {
+            tamper(&mut body);
+        }
+        if let Some(forge) = self.forge.as_mut() {
+            forge(responder, to, kind, &mut body);
+        }
+        if let Some(list) = self.forged_list(responder, to) {
+            let list = list.to_vec();
+            match kind {
+                Kind::NameListRequest => body = list,
+                Kind::NameListHashRequest => body = Sha256::digest(&list).to_vec(),
+                _ => {}
+            }
+        }
         let keys = PairKeys::derive(&key(responder), &key(to).public_key()).unwrap();
         let mac = response_mac(&keys.incoming_response, &request_mac, &body);
         Ok(Response {
@@ -731,7 +938,7 @@ impl Network {
         })
     }
 
-    fn arrive(&mut self, from: usize, to: usize, request: RequestId, body: &[u8]) {
+    fn arrive(&mut self, from: usize, to: usize, request: RequestId, kind: Kind, body: &[u8]) {
         let generation = self.nodes[from].generation;
         let now = self.local_now(to);
         let sim = &mut self.nodes[to];
@@ -804,7 +1011,10 @@ impl Network {
             }
         };
         self.drain(to);
-        if let Some(reply) = reply {
+        // A registrar that withholds receipts logged the commitment, and
+        // never answers.
+        let withheld = kind == Kind::NameCommit && self.role(to) == Role::Withhold;
+        if let Some(reply) = reply.filter(|_| !withheld) {
             let delay = self.latency();
             let response = Response {
                 status: reply.status,
@@ -978,5 +1188,169 @@ impl Network {
         let now = self.local_now(index);
         f(self.nodes[index].node.as_mut().unwrap(), now);
         self.drain(index);
+    }
+}
+
+/// The name a registrar that tips off passes on: one unsealed at it.
+/// The names a registrar granted in a step, from what it persisted before
+/// and in it: a name it had no record of, or one granted anew since. As
+/// many as its events report.
+fn granted(sim: &SimNode, events: &[Event], batch: &PeerBatch) -> Vec<NameChange> {
+    let granted: Vec<NameChange> = batch
+        .names
+        .iter()
+        .filter(|granted| {
+            sim.stored_names
+                .get(&granted.name)
+                .is_none_or(|before| before.granted_ms != granted.granted_ms)
+        })
+        .map(|granted| NameChange::Granted {
+            name: granted.name,
+            holder: granted.holder,
+        })
+        .collect();
+    let reported: usize = events
+        .iter()
+        .map(|event| match event {
+            Event::Name(NameEvent::RegistrarChanged { granted, .. }) => *granted,
+            _ => 0,
+        })
+        .sum();
+    assert_eq!(granted.len(), reported, "every grant is read from state");
+    granted
+}
+
+/// The names a registrar released in a step, from what it persisted before
+/// and in it: a name it listed, unfreed, that the step freed before it
+/// expired, or freed and forgot while it was still listed. As many as its
+/// events report.
+fn released(sim: &SimNode, events: &[Event], batch: &PeerBatch, now_ms: u64) -> Vec<NameChange> {
+    let unfreed = |name: &Name| {
+        sim.stored_names
+            .get(name)
+            .filter(|before| before.freed_ms.is_none())
+    };
+    let freed = batch.names.iter().filter_map(|granted| {
+        let early = granted.freed_ms.is_some_and(|at| at < granted.expires_ms);
+        let before = unfreed(&granted.name)?;
+        early.then_some((granted.name, before.holder))
+    });
+    let forgotten = batch.names_removed.iter().filter_map(|name| {
+        let before = unfreed(name)?;
+        (now_ms < before.expires_ms).then_some((*name, before.holder))
+    });
+    let released: Vec<NameChange> = freed
+        .chain(forgotten)
+        .map(|(name, holder)| NameChange::Released { name, holder })
+        .collect();
+    let reported: usize = events
+        .iter()
+        .map(|event| match event {
+            Event::Name(NameEvent::Released { names }) => *names,
+            _ => 0,
+        })
+        .sum();
+    assert_eq!(released.len(), reported, "every release is read from state");
+    released
+}
+
+/// How `node`'s view of holders differs from `seen`, which it becomes.
+fn view_changes(seen: &mut BTreeMap<Name, NodeId>, node: &PeerNode) -> Vec<NameChange> {
+    let now: BTreeMap<Name, NodeId> = node
+        .holders()
+        .held()
+        .map(|held| (held.name, held.holder))
+        .collect();
+    let unheld = seen
+        .keys()
+        .filter(|name| !now.contains_key(name))
+        .map(|name| NameChange::Holder {
+            name: *name,
+            holder: None,
+        });
+    let held = now
+        .iter()
+        .filter(|(name, holder)| seen.get(name) != Some(holder))
+        .map(|(name, holder)| NameChange::Holder {
+            name: *name,
+            holder: Some(*holder),
+        });
+    let changes = unheld.chain(held).collect();
+    *seen = now;
+    changes
+}
+
+const fn tip(event: &Event) -> Option<Name> {
+    match event {
+        Event::Name(NameEvent::Unsealed { name, .. }) => Some(*name),
+        _ => None,
+    }
+}
+
+impl Network {
+    /// The names node `index` lists now, as a registrar, from what it
+    /// persisted, which is what it holds: whether it is up or down.
+    pub fn listed(&self, index: usize) -> BTreeMap<Name, NameHolding> {
+        let now = self.local_now(index);
+        self.nodes[index]
+            .stored_names
+            .values()
+            .filter(|granted| granted.is_listed(now))
+            .map(|granted| {
+                let holding = NameHolding {
+                    holder: granted.holder,
+                    expires_at_ms: granted.expires_ms,
+                };
+                (granted.name, holding)
+            })
+            .collect()
+    }
+
+    /// The name list a faulty registrar shows `requester` in place of its
+    /// own, if it shows one.
+    fn forged_list(&self, registrar: usize, requester: usize) -> Option<NameListResponse> {
+        match self.role(registrar) {
+            Role::Honest | Role::Withhold => None,
+            Role::Equivocate => Some(self.equivocated(registrar, requester)),
+            Role::TipOff => {
+                let adversary = key(self.adversary?).node_id();
+                let mut list = self.listed(registrar);
+                for (name, expires_ms) in &self.tipped {
+                    let holding = NameHolding {
+                        holder: adversary,
+                        expires_at_ms: *expires_ms,
+                    };
+                    list.insert(*name, holding);
+                }
+                Some(NameListResponse(list))
+            }
+        }
+    }
+
+    /// What a registrar that equivocates shows `requester`: a registrar its
+    /// own list; any other node, for each name an honest registrar lists,
+    /// the holder that sorts first among theirs if its index is even, and
+    /// last if it is odd.
+    fn equivocated(&self, registrar: usize, requester: usize) -> NameListResponse {
+        let registrars = self.bootstrap.len();
+        if requester < registrars {
+            return NameListResponse(self.listed(requester));
+        }
+        let mut shown: BTreeMap<Name, NameHolding> = BTreeMap::new();
+        for honest in (0..registrars).filter(|index| *index != registrar) {
+            for (name, holding) in self.listed(honest) {
+                let pick = shown.get(&name).is_none_or(|kept| {
+                    if requester.is_multiple_of(2) {
+                        holding.holder < kept.holder
+                    } else {
+                        holding.holder > kept.holder
+                    }
+                });
+                if pick {
+                    shown.insert(name, holding);
+                }
+            }
+        }
+        NameListResponse(shown)
     }
 }

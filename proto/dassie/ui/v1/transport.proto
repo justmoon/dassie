@@ -59,6 +59,7 @@ import "dassie/ui/v1/hub_founding.proto";
 import "dassie/ui/v1/hub_member.proto";
 import "dassie/ui/v1/inspect.proto";
 import "dassie/ui/v1/ledger.proto";
+import "dassie/ui/v1/names.proto";
 import "dassie/ui/v1/network.proto";
 import "dassie/ui/v1/node.proto";
 import "dassie/ui/v1/payments.proto";
@@ -198,6 +199,12 @@ message Request {
     DropHubFoundingRequest drop_hub_founding = 136;
     ListHubFoundingsRequest list_hub_foundings = 137;
     GetHubPayoutRequest get_hub_payout = 138;
+
+    // NamesService (names.proto).
+    RegisterNameRequest register_name = 140;
+    RenewNameRequest renew_name = 141;
+    // Streaming.
+    SubscribeNamesRequest subscribe_names = 142;
   }
 }
 
@@ -303,6 +310,9 @@ message Response {
     DropHubFoundingResponse drop_hub_founding = 136;
     ListHubFoundingsResponse list_hub_foundings = 137;
     GetHubPayoutResponse get_hub_payout = 138;
+
+    RegisterNameResponse register_name = 140;
+    RenewNameResponse renew_name = 141;
   }
 }
 
@@ -325,6 +335,8 @@ message StreamItem {
     ListGrantsResponse subscribe_grants = 117;
     // The payment, whole, each time it changes.
     OutgoingPayment subscribe_outgoing_payment = 122;
+    // The owner's names, whole, each time they change.
+    NamesStatus subscribe_names = 142;
   }
 }
 

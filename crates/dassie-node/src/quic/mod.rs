@@ -40,7 +40,7 @@ use dassie_identity::{NodeId, NodeKey, PublicKey, SeedPath};
 use dassie_node_core::address::is_public;
 use dassie_node_core::connections::ConnectionLimits;
 use dassie_node_core::rate_limit::ClientKey;
-use dassie_peer::wire::MAX_MESSAGE_BYTES;
+use dassie_peer::wire::{MAX_MESSAGE_BYTES, MAX_NAME_LIST_BYTES};
 use dassie_peer::{Failure, Request, Response};
 use quinn::crypto::rustls::{QuicClientConfig, QuicServerConfig};
 use quinn::{Connection, Endpoint, EndpointConfig, ReadToEndError, TransportConfig, VarInt};
@@ -86,7 +86,8 @@ const BACKOFF_MAX: Duration = Duration::from_secs(60);
 /// the node cannot be reached: a packet near its expiry may have too little.
 const MIN_TO_JUDGE: Duration = Duration::from_millis(500);
 
-/// Longest response read: a node list of 4096 IDs fits.
+/// Longest response read: a node list of 4096 IDs fits, and the largest
+/// name list.
 const MAX_RESPONSE_BYTES: usize = 256 * 1024;
 
 /// Most requests open at once on one connection: a client's share of the
@@ -102,8 +103,9 @@ const CONNECTION_WINDOW: u32 = 4 * 1024 * 1024;
 /// Most addresses of a name tried, in turn, within the time to connect.
 const MAX_ADDRESSES: usize = 4;
 
-/// Most nodes with a connection, or one being made, at once.
-const MAX_LINKS: usize = 4096;
+/// Most nodes with a connection, or one being made, at once: those that
+/// connected to us and those we dial share them.
+pub const MAX_LINKS: usize = 4096;
 
 /// Time to write an answer to a client that does not read it.
 const ANSWER_TIMEOUT: Duration = Duration::from_secs(10);
@@ -128,6 +130,7 @@ const STATUS_BYTES: usize = 2;
 const RESET_KEY_PATH: &str = "node/quic/stateless-reset";
 
 const _: () = assert!(MAX_MESSAGE_BYTES <= MAX_RESPONSE_BYTES);
+const _: () = assert!(MAX_NAME_LIST_BYTES <= MAX_RESPONSE_BYTES);
 const _: () = assert!(CONNECTION_WINDOW as usize >= 4 * MAX_RESPONSE_BYTES);
 
 /// A request's body, being read.

@@ -1,10 +1,11 @@
 # Running a front door
 
-A front door lets ordinary Open Payments clients reach Dassie nodes that have no public address, at `https://<label>.<domain>` ([spec/areas/http.md](../../spec/areas/http.md#front-doors)). It is a mode of the `dassie` binary, `dassie front-door`, and no node: it has no ledger, no peer protocol and no wallet. The installer never sets one up; these files are for an operator who runs one, such as `dassiepay.net`.
+A front door lets ordinary Open Payments clients reach Dassie nodes that have no public address, at `https://<label>.<domain>`, and at `https://<name>.<domain>` for a name a node holds ([spec/areas/http.md](../../spec/areas/http.md#front-doors)). It is a mode of the `dassie` binary, `dassie front-door`, and no node: it has no ledger and no wallet, and speaks the peer protocol only to read the bootstrap nodes' name lists. The installer never sets one up; these files are for an operator who runs one, such as `dassiepay.net`.
 
 ## What it needs
 
-- **A host with a public address,** and **UDP and TCP port 443 open** to it: nodes connect over QUIC on UDP, clients over HTTPS on TCP.
+- **A host with a public address,** and **UDP and TCP port 443 open** to it: nodes connect over QUIC on UDP, clients over HTTPS on TCP. It also reaches the network's bootstrap nodes over QUIC, on UDP 443 out, to read who holds each name.
+- **The network's bootstrap nodes,** the registrars of names, as its nodes are configured with them: `DASSIE_BOOTSTRAP_NODES`, by default the public testnet's, as for a node. Until it has read the lists of enough of them after a start, names do not resolve; labels do.
 - **A wildcard DNS record,** `*.<domain>`, `A` (and `AAAA`, if the host has IPv6) to the host. It covers every node's name, and `relay.<domain>`, where nodes connect.
 - **A certificate for `*.<domain>`.** A wildcard needs the DNS-01 challenge, for example with certbot and its plugin for the DNS provider (on Google Cloud DNS, `python3-certbot-dns-google`, with a service account that may edit that one zone, [below](#a-dns-credential-for-one-zone-alone)):
 
@@ -79,4 +80,4 @@ systemctl edit dassie
 # Environment='DASSIE_RELAY={"id":"d…","url":"https://relay.example.com","publicKey":"…"}'
 ```
 
-and list its name for the node: `DASSIE_PUBLIC_NAMES=<label>.<domain>` ([spec/areas/payments.md](../../spec/areas/payments.md#the-nodes-names)). A node keeps a relay it is told whether or not it has a hostname. `Environment=DASSIE_RELAY=` (empty) keeps no relay at all.
+and list its name for the node: `DASSIE_PUBLIC_NAMES=<label>.<domain>` ([spec/areas/payments.md](../../spec/areas/payments.md#the-nodes-names)). That name is also what makes the node answer at `<name>.<domain>` for each name it holds; a node not named there answers 421 to them. A node keeps a relay it is told whether or not it has a hostname. `Environment=DASSIE_RELAY=` (empty) keeps no relay at all.

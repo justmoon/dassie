@@ -2,7 +2,29 @@
 //! All of them are configuration, so tests and simulations can shorten them.
 
 use crate::auth::AuthConfig;
+use crate::names::RegistrarConfig;
+use crate::names::registrar::{late_renewal_ms, least_release_ms, least_window_ms};
 use crate::node::{MAX_UPLINKS, own_link_state_fits};
+use crate::wire::MAX_NAME_LIST;
+
+/// How long a registration lasts in dev.
+const DEV_REGISTRATION_TTL_MS: u64 = 120_000;
+
+/// The shortest backoff in dev.
+const DEV_MIN_BACKOFF_MS: u64 = 1_000;
+
+/// The longest backoff in dev.
+const DEV_MAX_BACKOFF_MS: u64 = 30_000;
+
+/// How often the bootstrap nodes' lists are polled in dev.
+const DEV_LIST_POLL_INTERVAL_MS: u64 = 1_000;
+
+/// How long a list stays fresh in dev.
+const DEV_LIST_FRESH_MS: u64 = 10_000;
+
+/// A commitment's window in dev: the least that lets a registrant retry.
+const DEV_NAME_WINDOW_MS: u64 =
+    least_window_ms(Config::DEFAULT.request_timeout_ms, DEV_MIN_BACKOFF_MS);
 
 /// A token bucket's shape: how many at once, and how fast they refill.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -151,6 +173,16 @@ pub struct Config {
     /// each asks the books, which scan what is pending, so a channel the
     /// books hold open is not asked at every step.
     pub channel_check_ms: u64,
+    /// Whether the node takes part in names at all: as a registrar, in
+    /// its view of who holds each name, and as a registrant. Off, it is no
+    /// registrar, refusing every name message as any other node does, reads
+    /// no name lists, holds no names and registers none. The node's driver
+    /// decides; the peer protocol knows no reason
+    /// (spec/areas/network.md#names).
+    pub names_enabled: bool,
+    /// A registrar's timers and bounds, when the node is one of its own
+    /// bootstrap nodes (spec/areas/network.md#names).
+    pub names: RegistrarConfig,
 }
 
 impl Config {
@@ -222,22 +254,24 @@ impl Config {
         settlement_retry_min_ms: 1_000,
         settlement_retry_max_ms: 3_600_000,
         channel_check_ms: 60_000,
+        names_enabled: true,
+        names: RegistrarConfig::DEFAULT,
     };
 
     /// The dev settings: the same rules, faster, for what runs on a real
     /// clock. The network simulations run [`Config::DEFAULT`].
     pub const DEV: Self = Self {
-        list_poll_interval_ms: 1_000,
-        list_fresh_ms: 10_000,
+        list_poll_interval_ms: DEV_LIST_POLL_INTERVAL_MS,
+        list_fresh_ms: DEV_LIST_FRESH_MS,
         issue_debounce_ms: 500,
         sweep_interval_ms: 1_000,
-        registration_ttl_ms: 120_000,
+        registration_ttl_ms: DEV_REGISTRATION_TTL_MS,
         registration_renew_ms: 30_000,
         removal_grace_ms: 10_000,
         bridge_check_ms: 2_000,
         unreachable_grace_ms: 4_000,
-        min_backoff_ms: 1_000,
-        max_backoff_ms: 30_000,
+        min_backoff_ms: DEV_MIN_BACKOFF_MS,
+        max_backoff_ms: DEV_MAX_BACKOFF_MS,
         peer_dead_ms: 120_000,
         advertise_hold_min_ms: 5_000,
         advertise_hold_max_ms: 60_000,
@@ -250,6 +284,25 @@ impl Config {
         owner_termination_cooldown_ms: 300_000,
         settlement_retry_max_ms: 10_000,
         channel_check_ms: 5_000,
+        // As in production, a name lasts 365 registrations, and its grace
+        // and the time to renew it 30 each; the window is the least that
+        // lets a registrant retry (`validate`), as dev registrars run side
+        // by side, and a split is released after the least wait that lets
+        // a registration, or a renewal that arrived late, reach every list.
+        names: RegistrarConfig {
+            window_ms: DEV_NAME_WINDOW_MS,
+            ttl_ms: 365 * DEV_REGISTRATION_TTL_MS,
+            grace_ms: 30 * DEV_REGISTRATION_TTL_MS,
+            renew_before_ms: 30 * DEV_REGISTRATION_TTL_MS,
+            release_after_ms: least_release_ms(
+                DEV_NAME_WINDOW_MS,
+                late_renewal_ms(Self::DEFAULT.request_timeout_ms, DEV_MAX_BACKOFF_MS),
+                DEV_LIST_FRESH_MS,
+                DEV_LIST_POLL_INTERVAL_MS,
+                Self::DEFAULT.poll_timeout_ms + Self::DEFAULT.request_timeout_ms,
+            ),
+            ..RegistrarConfig::DEFAULT
+        },
         ..Self::DEFAULT
     };
 
@@ -339,6 +392,65 @@ impl Config {
         assert!(
             own_link_state_fits(self.max_peers),
             "our own link state always decodes"
+        );
+        self.validate_names();
+    }
+
+    /// Checks a registrar's values (spec/areas/network.md#names).
+    fn validate_names(&self) {
+        let names = &self.names;
+        assert!(
+            names.window_ms >= least_window_ms(self.request_timeout_ms, self.min_backoff_ms),
+            "a commitment and its unsealing each get retries within the window"
+        );
+        assert!(
+            names.window_ms < names.ttl_ms && names.renew_before_ms < names.ttl_ms,
+            "a name outlives a window, and is renewed before it expires"
+        );
+        // A renewal is retried after the longest backoff before the name
+        // expires, and one that reached a registrar late still lands in
+        // its grace.
+        let late_ms = late_renewal_ms(self.request_timeout_ms, self.max_backoff_ms);
+        assert!(
+            names.renew_before_ms >= late_ms && names.grace_ms >= late_ms,
+            "renewals have time for their retries"
+        );
+        // A registration, and a renewal that reached a registrar late,
+        // reach every registrar's list before the others count as lacking
+        // them.
+        let fetch_ms = self.poll_timeout_ms + self.request_timeout_ms;
+        assert!(
+            names.release_after_ms
+                >= least_release_ms(
+                    names.window_ms,
+                    late_ms,
+                    self.list_fresh_ms,
+                    self.list_poll_interval_ms,
+                    fetch_ms
+                ),
+            "a split is released only after a registration or a renewal reaches every list"
+        );
+        // Only fresh lists vote for holders, and what a list shows was
+        // current up to a hash poll's and a download's time before it was
+        // fetched. An honest registrar lists a new holder for a name a
+        // window at least after it stopped listing the last, by its clock,
+        // so no two fresh lists from it name different holders while that
+        // clock never steps forward by more than the margin
+        // (spec/areas/network.md#holders).
+        assert!(
+            names.window_ms > self.list_fresh_ms + fetch_ms,
+            "a registrar's fresh lists name one holder"
+        );
+        assert!(
+            names.max_names <= MAX_NAME_LIST && names.max_commitments < names.max_names,
+            "the list served always decodes, and names have room beside the log"
+        );
+        assert!(
+            names.commit_rate.burst >= 1
+                && names.max_commitments_per_network >= 1
+                && names.max_commitments_per_node >= 1
+                && names.max_commitments_per_node <= names.max_names_per_node,
+            "a node may commit"
         );
     }
 }

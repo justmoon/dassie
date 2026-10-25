@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 use std::sync::Arc;
 
-use dassie_node::clock::SystemClock;
+use dassie_node::clock::{SystemClock, os_rng};
 use dassie_node::env::Env;
 use dassie_node::front_door::{self, Settings, key, settings};
 use dassie_node::log;
@@ -96,7 +96,7 @@ pub fn run(options: Options) -> ExitCode {
             return Err(front_door::StartError("no signal handlers".into()));
         };
         tokio::spawn(crate::stop_on_signal(signals, shutdown.clone()));
-        front_door::run(&settings, Arc::new(SystemClock), shutdown).await
+        front_door::run(&settings, (Arc::new(SystemClock), os_rng()), shutdown).await
     });
     match result {
         Ok(()) => ExitCode::SUCCESS,

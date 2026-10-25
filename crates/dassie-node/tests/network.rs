@@ -1513,6 +1513,11 @@ fn a_payment_short_by_less_than_its_tolerance_is_paid_in_full() {
     sim.loss_per_mille = 0;
     sim.run_until(START + 60_000);
     assert!(!sim.peers(0).is_empty(), "the nodes did not peer");
+    // Messages arrive in the order they were sent, so the largest packets
+    // reach the receiver before the last one, however the run's other
+    // traffic draws its delays.
+    let latency_ms = sim.latency_ms.1;
+    sim.latency_ms = (latency_ms, latency_ms);
     // Three of the largest packets and fifty thousand units, less than
     // the tolerance of a hundred thousand.
     let amount = 3 * Policies::DEFAULT.connector.max_packet_amount + 50_000;

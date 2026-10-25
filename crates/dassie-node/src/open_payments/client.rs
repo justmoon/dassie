@@ -11,10 +11,19 @@
 //! Tokens are kept per authorization server, origin and action until they
 //! expire, in a bounded cache. Requests go through the guarded HTTPS client: public
 //! addresses only, no redirects, bounded bodies.
+//!
+//! At the default front door's domain the node is a Dassie-aware client
+//! (spec/areas/payments.md#signed-responses): every answer there must be
+//! signed by the node its host names, the one whose label it is or the
+//! holder of the name in this node's view, or it is refused. A name no
+//! node holds is not asked at all.
 
 use std::collections::BTreeMap;
 use std::sync::Mutex;
 
+use base64::Engine as _;
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use dassie_identity::NodeId;
 use dassie_payments::amount::Amount;
 use dassie_payments::gnap::{
     Access, AccessTokenRequest, AccessType, Action, Client, ClientWalletAddress, GrantRequest,
@@ -25,11 +34,12 @@ use dassie_payments::resources::{
 };
 use dassie_payments::uri::Uri;
 use dassie_payments::{httpsig, pointer, time};
+use dassie_peer::names::Name;
 use serde_json::{Map, Value};
 
-use super::Urls;
+use super::{DEFAULT_FRONT_DOOR_DOMAIN, Urls};
 use crate::node::Node;
-use crate::peer_client::{PeerClient, WebError, WebRequest, WebResponse};
+use crate::peer_client::{WebError, WebRequest, WebResponse};
 
 /// How long a request to another wallet may take.
 const TIMEOUT_MS: u64 = 10_000;
@@ -53,6 +63,9 @@ pub enum ClientError {
     Invalid(String),
     /// The other server refused, with this status.
     Refused(u16),
+    /// The URL is at the default front door, under a name no node holds
+    /// in this node's view, or none that a node has there.
+    UnknownName,
     /// The node has no hostname or key to act as a client with.
     Unavailable,
 }
@@ -63,6 +76,7 @@ impl std::fmt::Display for ClientError {
             Self::Unreachable(error) => write!(f, "the other wallet cannot be reached: {error}"),
             Self::Invalid(what) => write!(f, "the other wallet answered unexpectedly: {what}"),
             Self::Refused(status) => write!(f, "the other wallet refused, with {status}"),
+            Self::UnknownName => f.write_str("no node is known to answer at that name"),
             Self::Unavailable => f.write_str("the node cannot act as a client yet"),
         }
     }
@@ -109,20 +123,204 @@ impl TokenCache {
 
 /// A GET for JSON, without a token.
 async fn get_json<T: serde::de::DeserializeOwned>(
-    client: &PeerClient,
+    node: &Node,
     url: &str,
 ) -> Result<T, ClientError> {
-    let response = client
-        .web(WebRequest {
+    let response = exchange(
+        node,
+        WebRequest {
             method: http::Method::GET,
             url: url.to_string(),
             headers: vec![(http::header::ACCEPT, "application/json".into())],
             body: None,
             timeout_ms: TIMEOUT_MS,
             max_response_bytes: MAX_RESPONSE_BYTES,
-        })
-        .await?;
+        },
+    )
+    .await?;
     parse(&response, 200)
+}
+
+/// What a URL's host is at the default front door.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FrontDoorHost {
+    /// A host elsewhere, or no URL: another wallet's, whose answers are
+    /// taken as they come.
+    Elsewhere,
+    /// `<label>.dassiepay.net`: the node of that label.
+    Label(NodeId),
+    /// `<name>.dassiepay.net`: the node that holds the name.
+    Name(Name),
+    /// Any other host there, which no node answers at.
+    Unknown,
+}
+
+impl FrontDoorHost {
+    /// Reads the host a request to `url` goes to, as the guarded client
+    /// reads it: in any case, on any port, and with or without the dot that
+    /// ends a fully qualified name. A URL the client sends nothing for is
+    /// elsewhere; one whose host it cannot read is refused here too if it
+    /// is at the default front door, so that no form of a host there goes
+    /// unchecked.
+    #[must_use]
+    pub fn of(url: &str) -> Self {
+        let Some(authority) = crate::peer_client::authority(url) else {
+            return Self::Elsewhere;
+        };
+        let Ok(parsed) = authority.parse::<http::uri::Authority>() else {
+            let at_front_door = authority
+                .to_ascii_lowercase()
+                .contains(DEFAULT_FRONT_DOOR_DOMAIN);
+            return if at_front_door {
+                Self::Unknown
+            } else {
+                Self::Elsewhere
+            };
+        };
+        let host = parsed.host().to_ascii_lowercase();
+        let host = host.trim_end_matches('.');
+        let Some(first) = host
+            .strip_suffix(DEFAULT_FRONT_DOOR_DOMAIN)
+            .and_then(|rest| rest.strip_suffix('.'))
+        else {
+            return if host == DEFAULT_FRONT_DOOR_DOMAIN {
+                Self::Unknown
+            } else {
+                Self::Elsewhere
+            };
+        };
+        // A name is shorter than a label, so no host is both.
+        if let Ok(id) = NodeId::from_label(first) {
+            Self::Label(id)
+        } else if let Ok(name) = Name::parse(first) {
+            Self::Name(name)
+        } else {
+            Self::Unknown
+        }
+    }
+}
+
+/// The node that must sign the answers at `url`: none for a host
+/// elsewhere.
+///
+/// # Errors
+///
+/// [`ClientError::UnknownName`] for a host at the default front door that
+/// names no node, or a name no node holds in this node's view.
+pub async fn signer(node: &Node, url: &str) -> Result<Option<NodeId>, ClientError> {
+    match FrontDoorHost::of(url) {
+        FrontDoorHost::Elsewhere => Ok(None),
+        FrontDoorHost::Label(id) => Ok(Some(id)),
+        FrontDoorHost::Name(name) => {
+            let engine = node.engine().ok_or(ClientError::Unavailable)?;
+            let holder = engine
+                .name_holder(name)
+                .await
+                .map_err(|_| ClientError::Unavailable)?;
+            holder.map(Some).ok_or(ClientError::UnknownName)
+        }
+        FrontDoorHost::Unknown => Err(ClientError::UnknownName),
+    }
+}
+
+/// Checks that `response`, to a `method` request of `url` with `nonce`,
+/// is signed by `signer`, as of `now_s`.
+///
+/// The URL the signature covers is the one the node answers under: its
+/// origin in lower case, without the default port, with the path and
+/// query as sent.
+///
+/// # Errors
+///
+/// [`ClientError::Invalid`] if it is not.
+pub fn check_signed(
+    signer: NodeId,
+    (method, url, nonce): (&http::Method, &str, &str),
+    response: &WebResponse,
+    now_s: u64,
+) -> Result<(), ClientError> {
+    let unsigned = || ClientError::Invalid("the answer is not the node's at that name".into());
+    let uri = Uri::parse(url).map_err(|_| unsigned())?;
+    let path = if uri.path.is_empty() { "/" } else { uri.path };
+    let query = uri
+        .query
+        .map(|query| format!("?{query}"))
+        .unwrap_or_default();
+    let target_uri = format!("{}{path}{query}", uri.origin());
+    let fields = [(httpsig::NONCE_FIELD, nonce)];
+    let request = httpsig::Request {
+        method: method.as_str(),
+        target_uri: &target_uri,
+        fields: &fields,
+    };
+    let answer_fields: Vec<(&str, &str)> = response
+        .signature_fields
+        .iter()
+        .map(|(name, value)| (name.as_str(), value.as_str()))
+        .collect();
+    let answer = httpsig::Response {
+        status: response.status,
+        fields: &answer_fields,
+    };
+    httpsig::check_node_response(&request, &answer, &response.body, Some(signer), now_s)
+        .map(|_| ())
+        .map_err(|_| unsigned())
+}
+
+/// Sends `request` through the guarded client. At the default front door,
+/// only to a node this node knows there, with a nonce, and its answer is
+/// taken only if that node signed it.
+pub(crate) async fn exchange(node: &Node, request: WebRequest) -> Result<WebResponse, ClientError> {
+    let client = node.peer_client().ok_or(ClientError::Unavailable)?;
+    exchange_with(node, request, |request| client.web(request)).await
+}
+
+/// [`exchange`], with `send` in place of the guarded client, for a test to
+/// pass the request on as a front door would, or to answer it as one that
+/// forges answers.
+///
+/// # Errors
+///
+/// As [`exchange`]'s.
+#[cfg(feature = "testing")]
+pub async fn exchange_through<F, R>(
+    node: &Node,
+    request: WebRequest,
+    send: F,
+) -> Result<WebResponse, ClientError>
+where
+    F: FnOnce(WebRequest) -> R,
+    R: Future<Output = Result<WebResponse, WebError>>,
+{
+    exchange_with(node, request, send).await
+}
+
+async fn exchange_with<F, R>(
+    node: &Node,
+    mut request: WebRequest,
+    send: F,
+) -> Result<WebResponse, ClientError>
+where
+    F: FnOnce(WebRequest) -> R,
+    R: Future<Output = Result<WebResponse, WebError>>,
+{
+    let Some(signer) = signer(node, &request.url).await? else {
+        return Ok(send(request).await?);
+    };
+    let nonce = URL_SAFE_NO_PAD.encode(super::auth::random_bytes::<16>(node));
+    request.headers.push((
+        http::HeaderName::from_static(httpsig::NONCE_FIELD),
+        nonce.clone(),
+    ));
+    let (method, url) = (request.method.clone(), request.url.clone());
+    let response = send(request).await?;
+    check_signed(
+        signer,
+        (&method, &url, &nonce),
+        &response,
+        node.now_ms() / 1_000,
+    )?;
+    Ok(response)
 }
 
 fn parse<T: serde::de::DeserializeOwned>(
@@ -140,11 +338,8 @@ fn parse<T: serde::de::DeserializeOwned>(
 /// # Errors
 ///
 /// If it cannot be read, or is not one.
-pub async fn fetch_wallet_address(
-    client: &PeerClient,
-    url: &str,
-) -> Result<WalletAddress, ClientError> {
-    get_json(client, url).await
+pub async fn fetch_wallet_address(node: &Node, url: &str) -> Result<WalletAddress, ClientError> {
+    get_json(node, url).await
 }
 
 /// The origin of a URL, lowercased: `https://host[:port]`.
@@ -160,8 +355,7 @@ fn origin_of(url: &str) -> Option<String> {
 /// If it cannot be read, is not a wallet address, or claims to be one at
 /// another origin.
 pub async fn resolve(node: &Node, url: &str) -> Result<WalletAddress, ClientError> {
-    let client = node.peer_client().ok_or(ClientError::Unavailable)?;
-    let wallet = fetch_wallet_address(client, url).await?;
+    let wallet = fetch_wallet_address(node, url).await?;
     let invalid = |what: &str| Err(ClientError::Invalid(what.into()));
     if pointer::check_wallet_address(&wallet.id).is_err() || origin_of(&wallet.id) != origin_of(url)
     {
@@ -254,7 +448,6 @@ async fn signed(
     token: Option<&str>,
     body: Option<Vec<u8>>,
 ) -> Result<WebResponse, ClientError> {
-    let client = node.peer_client().ok_or(ClientError::Unavailable)?;
     let node_key = node.node_key().ok_or(ClientError::Unavailable)?;
     let key = node
         .open_payments()
@@ -296,16 +489,18 @@ async fn signed(
             Some((http::HeaderName::from_bytes(name.as_bytes()).ok()?, value))
         })
         .collect();
-    Ok(client
-        .web(WebRequest {
+    exchange(
+        node,
+        WebRequest {
             method,
             url: url.to_string(),
             headers,
             body,
             timeout_ms: TIMEOUT_MS,
             max_response_bytes: MAX_RESPONSE_BYTES,
-        })
-        .await?)
+        },
+    )
+    .await
 }
 
 /// What the node asks other wallets for: one action on incoming payments.
@@ -408,8 +603,7 @@ async fn incoming_token(
 /// If it cannot be read, the grant is refused, or it has no ILP method.
 pub async fn read_incoming(node: &Node, url: &str) -> Result<IncomingPayment, ClientError> {
     let urls = Urls::of(node).ok_or(ClientError::Unavailable)?;
-    let client = node.peer_client().ok_or(ClientError::Unavailable)?;
-    let public: PublicIncomingPayment = get_json(client, url).await?;
+    let public: PublicIncomingPayment = get_json(node, url).await?;
     let origin =
         origin_of(url).ok_or_else(|| ClientError::Invalid("the receiver is not a URL".into()))?;
     let mut retried = false;
@@ -432,3 +626,161 @@ pub async fn read_incoming(node: &Node, url: &str) -> Result<IncomingPayment, Cl
 
 /// The client's state beside the node: tokens per authorization server.
 pub type Tokens = Mutex<TokenCache>;
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::unwrap_used, clippy::indexing_slicing)]
+
+    use dassie_identity::{NodeKey, base64url};
+    use dassie_payments::uri::MAX_URI_BYTES;
+
+    use super::*;
+
+    /// A node's signed answer to a GET of `target` with `nonce`, as the
+    /// node signs it under the name it answers to.
+    fn answer(key: &NodeKey, target: &str, nonce: &str, body: &[u8]) -> WebResponse {
+        let digest = httpsig::content_digest(body);
+        let fields = [(httpsig::NONCE_FIELD, nonce)];
+        let request = httpsig::Request {
+            method: "GET",
+            target_uri: target,
+            fields: &fields,
+        };
+        let answer = httpsig::Response {
+            status: 200,
+            fields: &[("content-digest", &digest)],
+        };
+        let mut keyid = [0u8; 43];
+        let length = base64url::encode(key.public_key().as_bytes(), &mut keyid);
+        let keyid = std::str::from_utf8(&keyid[..length]).unwrap();
+        let sign = |base: &[u8]| *key.sign(base).as_bytes();
+        let signed = httpsig::sign_response(&request, &answer, true, sign, keyid, 1_000).unwrap();
+        WebResponse {
+            status: 200,
+            media_type: Some("application/json".into()),
+            signature_fields: vec![
+                ("content-digest".into(), digest),
+                ("signature-input".into(), signed.signature_input),
+                ("signature".into(), signed.signature),
+            ],
+            body: body.to_vec(),
+        }
+    }
+
+    #[test]
+    fn reads_hosts_at_the_default_front_door() {
+        let id = NodeKey::from_bytes(&[3; 32]).node_id();
+        let label = id.label().unwrap();
+        let alice = Name::parse("alice").unwrap();
+        for (url, host) in [
+            (
+                format!("https://{label}.dassiepay.net/pay/stub"),
+                FrontDoorHost::Label(id),
+            ),
+            (
+                format!(
+                    "https://{}.DASSIEPAY.net:443",
+                    label.as_str().to_ascii_uppercase()
+                ),
+                FrontDoorHost::Label(id),
+            ),
+            (
+                "https://alice.dassiepay.net/.well-known/pay".into(),
+                FrontDoorHost::Name(alice),
+            ),
+            (
+                "https://Alice.dassiepay.net:8443/x?y".into(),
+                FrontDoorHost::Name(alice),
+            ),
+            ("https://dassiepay.net/".into(), FrontDoorHost::Unknown),
+            (
+                "https://relay.x.dassiepay.net/".into(),
+                FrontDoorHost::Unknown,
+            ),
+            ("https://a_b.dassiepay.net/".into(), FrontDoorHost::Unknown),
+            (
+                "https://alice.dassiepay.net.example/".into(),
+                FrontDoorHost::Elsewhere,
+            ),
+            (
+                "https://alicedassiepay.net/".into(),
+                FrontDoorHost::Elsewhere,
+            ),
+            (
+                "https://pay.example.com/alice".into(),
+                FrontDoorHost::Elsewhere,
+            ),
+            ("not a url".into(), FrontDoorHost::Elsewhere),
+            // Found in review: a fully qualified host, which DNS and TLS
+            // take as the same, and a URL too long to read, which the
+            // guarded client still sends, went unchecked.
+            (
+                "https://alice.dassiepay.net./.well-known/pay".into(),
+                FrontDoorHost::Name(alice),
+            ),
+            (
+                format!("https://{label}.dassiepay.net.:443/"),
+                FrontDoorHost::Label(id),
+            ),
+            ("https://dassiepay.net./".into(), FrontDoorHost::Unknown),
+            (
+                format!("https://alice.dassiepay.net/{}", "a".repeat(MAX_URI_BYTES)),
+                FrontDoorHost::Name(alice),
+            ),
+            // A host the client cannot read is never sent, but is not
+            // taken as elsewhere either.
+            (
+                "https://alice.dassiepay.net^/".into(),
+                FrontDoorHost::Unknown,
+            ),
+            ("https://pay.example^/".into(), FrontDoorHost::Elsewhere),
+            // The guarded client sends only `https`.
+            (
+                "http://alice.dassiepay.net/".into(),
+                FrontDoorHost::Elsewhere,
+            ),
+        ] {
+            assert_eq!(FrontDoorHost::of(&url), host, "{url}");
+        }
+    }
+
+    // spec/areas/payments.md#signed-responses: an answer under a name is
+    // taken only from the node that holds it, for this request.
+    #[test]
+    fn takes_only_the_signers_answer_to_this_request() {
+        const URL: &str = "https://alice.dassiepay.net/.well-known/pay";
+        let key = NodeKey::from_bytes(&[4; 32]);
+        let id = key.node_id();
+        let other = NodeKey::from_bytes(&[5; 32]).node_id();
+        let body = br#"{"id":"https://alice.dassiepay.net/.well-known/pay"}"#;
+        let signed = answer(&key, URL, "n1", body);
+        let get = http::Method::GET;
+        let check = |url: &str, nonce: &str, signer: NodeId, response: &WebResponse| {
+            check_signed(signer, (&get, url, nonce), response, 1_000)
+        };
+        // Written another way, the URL is still the one the node signed.
+        for url in [URL, "https://ALICE.dassiepay.net:443/.well-known/pay"] {
+            assert_eq!(check(url, "n1", id, &signed), Ok(()), "{url}");
+        }
+        let refused = Err(ClientError::Invalid(
+            "the answer is not the node's at that name".into(),
+        ));
+        assert_eq!(check(URL, "n1", other, &signed), refused);
+        assert_eq!(check(URL, "n2", id, &signed), refused);
+        assert_eq!(
+            check(
+                "https://bob.dassiepay.net/.well-known/pay",
+                "n1",
+                id,
+                &signed
+            ),
+            refused
+        );
+        let mut changed = signed.clone();
+        changed.body = br#"{"id":"https://mallory.example/"}"#.to_vec();
+        assert_eq!(check(URL, "n1", id, &changed), refused);
+        let mut unsigned = signed;
+        unsigned.signature_fields.clear();
+        assert_eq!(check(URL, "n1", id, &unsigned), refused);
+    }
+}

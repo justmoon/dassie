@@ -60,21 +60,25 @@ A release is built once, on the Vorstand Nix cloud, and the release workflow sig
 Registration is free, and throttled instead ([Network](areas/network.md#registration)). The design calls for a paid registration whose fee grows with the size of the list ([membership-economics](decisions/membership-economics.md)).
 
 - **What it covers:**
-  - **The fee quote and payment,** as a v1.x peer-protocol addition: a quote message, and payment by ILP with a signed quote condition (the "naive" variant of the [token payment protocol](original/05-accounting-and-settlement.md)), to the cheapest 75% of bootstrap nodes.
+  - **The fee quote and payment,** as a v1.x peer-protocol addition: a quote message, and payment by ILP with a signed quote condition (the "naive" variant of the [token payment protocol](original/05-accounting-and-settlement.md)). A registration pays the cheapest 75% of bootstrap nodes.
   - **The fee schedule,** set when the quote and payment are built.
-- **Done when:** a node registers by paying the quoted fee, and is refused without it. The same quote and payment pay for [names](#names).
+- **Done when:** a node registers by paying the quoted fee, and is refused without it. [Names](#names) use the same quote message and way of paying, but pay every registrar, per commitment and per renewal, since a registrant needs every registrar's receipt.
 
 ### Names
 
-Names that people can say, held for a node ID by a quorum of the bootstrap nodes' lists: a registrant commits to a name sealed, and paid, at every registrar, and unseals it once it holds every receipt; the earliest commitment wins. The design is [designs/names.md](designs/names.md); the reasons are [names-by-earliest-commitment](decisions/names-by-earliest-commitment.md).
+Names that people can say, held for a node ID by a quorum of the bootstrap nodes' lists: a registrant commits to a name sealed, and paid, at every registrar, and unseals it once it holds every receipt; the earliest commitment wins. The design is [designs/names.md](designs/names.md); the reasons are [names-by-earliest-commitment](decisions/names-by-earliest-commitment.md). Names, commitments and their messages are built ([Peer protocol](areas/peer-protocol.md#names)), and so are the registrar's side, its log, the rule, granting, renewal and grace, its list and releasing a split ([Network](areas/network.md#names)), every node's view of who holds a name, by a quorum of the lists ([Network](areas/network.md#holders)), and the registrant, which registers the node's names and renews them, as the owner asks in the wallet ([Network](areas/network.md#the-registrant)). The `names` simulation holds them to the design's guarantees with one faulty registrar of four, equivocating, withholding receipts or tipping off a front-runner, on a rough network with crashes while names are registered and again while they are granted and read, with an honest registrar cut off from the others; splits are released once it is calm ([Testing](areas/testing.md#names)). A node answers Open Payments under the names it holds, and its client takes an answer under a name only from the name's holder in its view ([Payments](areas/payments.md#the-nodes-names)); a front door reads the registrars' lists itself and passes a name's requests to its holder ([HTTP](areas/http.md#front-doors)). Names run on the testnet only, where they may be reset at any time: a node of the live realm has them off ([Network](areas/network.md#names)).
 
 - **Parts that can be built side by side:**
-  - the registrar: its log of commitments, persisted before each receipt, windows, granting, renewal and grace, its list served as the node list is, and releasing a split;
-  - the registrant: committing at every registrar, unsealing once it holds every receipt, renewing, and the owner's view of it in the wallet;
-  - holding: every node reading the lists and computing each name's holder by a quorum, frozen when fewer than a quorum of the lists are fresh, in a bounded table;
-  - the quote and payment, shared with [registration fees](#registration-fees);
-  - what uses a name: front doors serving it, the node answering to it, and Dassie's client checking a signed answer against its holder ([designs/names.md §8](designs/names.md#8-open-questions)).
-- **Done when:** in the `peer` simulation, with one faulty registrar of four and a rough network, a registrant that unseals with every receipt and no rival commitment before it holds the name on every node; a node that commits to a name after seeing it unsealed never holds it; registrants that collide leave at most one holder across all nodes, even with the faulty registrar showing nodes different lists, and a split is released; and the bounds hold.
+  - the fees: each registrar quoted and paid per commitment and per renewal, by the quote message and way of paying of [registration fees](#registration-fees); with them, names on the live realm, which has none while names are free;
+  - the holders in the owner's view: the names the node takes holders for, over RPC, in the wallet and `dassie status`;
+  - the address a name gives, `$<name>.<domain>` at each front door the node is named at, shown to its owner in the wallet beside the name;
+  - moving a name to another node ID, signed by its holder, for an owner who moves to a new node ([designs/names.md §8](designs/names.md#8-open-questions));
+  - commitments that do not show who makes them, sent and paid through another node, so that a faulty registrar can neither refuse one node's commitments nor tip off a guesser by who commits ([designs/names.md §8](designs/names.md#8-open-questions)).
+- **Open points:**
+  - **The name space is bounded.** A registrar lists at most `MAX_NAME_LIST` names, since every node downloads each registrar's list whole, at every change, in one response. While names are free, one actor within the throttles, with enough node IDs and networks, can take a large share of them over time. Fees make each name cost something; paged lists, read in parts, would lift the ceiling itself.
+  - **A node with a hostname** may register a name, and its registrars grant it, but it never answers under it, since names are for nodes reached through a front door ([Payments](areas/payments.md#the-nodes-names)). Whether such a registration is refused, or the node answers under its names too, is open; for now it registers and does not answer.
+  - **A name that passes to another holder,** once it expires unrenewed or is released. A front door then passes its requests to the new holder, so wallet addresses and payment requests handed out under it reach a node that did not make them, and the old holder's grants and resources keep URLs at a name it no longer answers to ([Payments](areas/payments.md#the-nodes-names)). What such a URL means then is open: whether the old holder's grants and resources stay reachable under another of its names, and how a client that kept a URL learns that the holder changed, as a Dassie-aware one can by the node ID a wallet address document carries.
+- **Done when:** a name is paid for at every registrar, the owner sees the holders its node takes and the address each name gives, a name moves to another node ID, and the open points are decided, with the `names` simulation's checks still holding once commitments are paid. Commitments that do not show who makes them are not needed for it: if they are not built by then, they move to [future work](#future-work-design-only).
 
 ### Periphery
 
@@ -183,6 +187,8 @@ The `live` realm is refused, so the XRP Ledger mainnet's scheme, `xrpl`, runs on
 - settlement hubs on mainnet: `hub-xrp`, a default mainnet hub, and validators that observe the escrow through proofs ([Settlement hubs](#settlement-hubs));
 - there has been an external review;
 - a mainnet bootstrap node list exists.
+
+Names are not among these: the live realm runs without them until registrations pay fees ([Names](#names)).
 
 The first four are on `main`, and so is each network's proof server, named in the node's defaults. Until the rest are, the testnet account stops unless its server reports the testnet's network ID, so a mainnet server never gets XRP booked or signed for with a testnet wallet; and the account proves what it reads against ledgers its UNL validated, from the project's proof servers by default ([Proof servers](#proof-servers)). The issuer's conditions for a dollar token are decided ([issued-assets](decisions/issued-assets.md)): the issuer is the owner's counterparty, its freezes and clawbacks are booked as built, and the scheme pauses while its pool prices it off its peg.
 

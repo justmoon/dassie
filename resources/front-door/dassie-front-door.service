@@ -1,7 +1,8 @@
 # A Dassie front door (spec/areas/http.md#front-doors): Open Payments at
-# <label>.<domain> for the nodes that name it as their relay. It is no
-# node, and the installer never installs it: README.md beside this file
-# says what an operator sets up first.
+# <label>.<domain> for the nodes that name it as their relay, and at
+# <name>.<domain> for a name such a node holds. It is no node, and the
+# installer never installs it: README.md beside this file says what an
+# operator sets up first.
 [Unit]
 Description=Dassie front door
 Documentation=https://dassie.land

@@ -65,9 +65,20 @@ pub struct WebResponse {
     pub status: u16,
     /// The media type, without parameters, in lower case.
     pub media_type: Option<String>,
+    /// The fields a node's signature on its answer is in, each line as it
+    /// came: `signature`, `signature-input` and `content-digest`
+    /// (spec/areas/payments.md#signed-responses).
+    pub signature_fields: Vec<(String, String)>,
     /// The body.
     pub body: Vec<u8>,
 }
+
+/// The response fields [`WebResponse::signature_fields`] keeps.
+const SIGNATURE_FIELDS: [http::HeaderName; 3] = [
+    http::HeaderName::from_static("signature"),
+    http::HeaderName::from_static("signature-input"),
+    http::HeaderName::from_static("content-digest"),
+];
 
 /// Why a request to another server failed.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -200,6 +211,28 @@ impl PeerClient {
             .dangerous()
             .with_custom_certificate_verifier(Arc::new(verifier))
             .with_no_client_auth();
+        Ok(Self::with_tls(config, allow_private))
+    }
+
+    /// A client for what reaches nodes over QUIC alone, which pins each
+    /// node's key ([`crate::quic`]) and uses the client only to resolve
+    /// names and bound requests in flight: a front door's. It trusts no
+    /// root, so it needs none from the platform, and its HTTPS requests
+    /// reach no server.
+    ///
+    /// # Errors
+    ///
+    /// The TLS provider has no safe protocol version.
+    pub fn for_quic(allow_private: bool) -> Result<Self, String> {
+        let config = rustls::ClientConfig::builder_with_provider(tls::provider())
+            .with_safe_default_protocol_versions()
+            .map_err(|e| e.to_string())?
+            .with_root_certificates(rustls::RootCertStore::empty())
+            .with_no_client_auth();
+        Ok(Self::with_tls(config, allow_private))
+    }
+
+    fn with_tls(config: rustls::ClientConfig, allow_private: bool) -> Self {
         let tls = Arc::new(config.clone());
         let mut http = HttpConnector::new_with_resolver(GuardedResolver { allow_private });
         http.set_connect_timeout(Some(CONNECT_TIMEOUT));
@@ -212,12 +245,12 @@ impl PeerClient {
         let http = HyperClient::builder(TokioExecutor::new())
             .pool_max_idle_per_host(4)
             .build(connector);
-        Ok(Self {
+        Self {
             http,
             tls,
             allow_private,
             in_flight: Arc::new(Mutex::new(InFlight::default())),
-        })
+        }
     }
 
     /// The TLS config the client trusts servers by.
@@ -341,6 +374,7 @@ impl PeerClient {
             .map_err(|error| WebError::Failed(error.to_string()))?;
         let status = response.status().as_u16();
         let media_type = media_type(response.headers());
+        let signature_fields = signature_fields(response.headers());
         let body = Limited::new(response.into_body(), max_bytes)
             .collect()
             .await
@@ -350,14 +384,32 @@ impl PeerClient {
         Ok(WebResponse {
             status,
             media_type,
+            signature_fields,
             body,
         })
     }
 }
 
+/// The lines of [`SIGNATURE_FIELDS`] that are text, at most
+/// `httpsig::MAX_FIELD_LINES` of each, which is all a signature's check
+/// reads.
+fn signature_fields(headers: &http::HeaderMap) -> Vec<(String, String)> {
+    SIGNATURE_FIELDS
+        .iter()
+        .flat_map(|name| {
+            headers
+                .get_all(name)
+                .iter()
+                .filter_map(|value| value.to_str().ok())
+                .take(dassie_payments::httpsig::MAX_FIELD_LINES)
+                .map(|value| (name.as_str().to_string(), value.to_string()))
+        })
+        .collect()
+}
+
 /// The authority of an `https` URL, as the guard reads it: none if the URL
 /// has none, or user info, which no request of the node's carries.
-fn authority(url: &str) -> Option<&str> {
+pub(crate) fn authority(url: &str) -> Option<&str> {
     url.strip_prefix("https://")
         .and_then(|rest| rest.split(['/', '?', '#']).next())
         .filter(|authority| !authority.is_empty() && !authority.contains('@'))

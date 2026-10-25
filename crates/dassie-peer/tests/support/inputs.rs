@@ -3,6 +3,7 @@
 //! that, unlike random bytes, get past its first fields.
 
 use dassie_oer::{Decode, Encode};
+use dassie_peer::names::{Commitment, Name, Salt};
 use dassie_peer::wire::{Content, PeeringRequest, SchemeId, SignedNodeInfo, TerminationReason};
 use proptest::prelude::*;
 use proptest::sample::Index;
@@ -88,8 +89,8 @@ pub fn mutate(bytes: &[u8], mutations: &[Mutation]) -> Vec<u8> {
     bytes
 }
 
-/// How many kinds of content there are: tags 0 to 12.
-pub const KINDS: usize = 13;
+/// How many kinds of content there are: tags 0 to 17.
+pub const KINDS: usize = 18;
 
 /// A valid encoding of the content with CHOICE tag `tag`, carrying the
 /// link state `info` where it has one.
@@ -136,6 +137,15 @@ pub fn content(tag: usize, info: &[u8]) -> Vec<u8> {
             packet: &[12, 0x10, 0, 0, 0, 0, 0, 0, 0, 1],
             commitment: &[0xc0; 96],
         },
+        13 => Content::NameCommit(Commitment([0xc1; 32])),
+        // The longest name, so that a mutation can shorten it.
+        14 => Content::NameUnseal {
+            name: Name::parse("a-name-of-thirty-two-characters0").unwrap(),
+            salt: Salt([0xc2; 32]),
+        },
+        15 => Content::NameRenew(Name::parse("alice").unwrap()),
+        16 => Content::NameListHashRequest,
+        17 => Content::NameListRequest,
         _ => panic!("no content has tag {tag}"),
     };
     assert_eq!(content.kind().tag(), u64::try_from(tag).unwrap());

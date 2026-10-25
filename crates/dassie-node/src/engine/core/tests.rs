@@ -650,6 +650,27 @@ fn steps_report_what_they_changed() {
     assert!(!core.take_changes().prices);
 }
 
+// spec/areas/payments.md#the-nodes-names: the names the node answers to
+// follow its view. A name it gains is handed over at the end of the step,
+// and so is a name it no longer holds, which it then answers 421 to.
+#[test]
+fn a_held_name_gained_or_lost_is_handed_over() {
+    use dassie_peer::{Event, NameEvent};
+
+    let mut core = core(14);
+    // At start, the view restored.
+    assert!(core.take_held_names_changed());
+    assert!(!core.take_held_names_changed());
+    for event in [
+        NameEvent::HoldersChanged { held: 1, unheld: 0 },
+        NameEvent::HoldersChanged { held: 0, unheld: 1 },
+    ] {
+        core.peer_event(Event::Name(event));
+        assert!(core.take_held_names_changed(), "{event:?}");
+        assert!(!core.take_held_names_changed(), "{event:?}");
+    }
+}
+
 // The owner's fee, spread and rebalancing are checked and persisted.
 #[test]
 fn peer_settings_are_checked_and_kept() {
@@ -4553,4 +4574,127 @@ fn an_owner_payment_outlives_its_scheme_removed_and_added_again() {
         ),
         "posted once, with its fee"
     );
+}
+
+// spec/areas/network.md#the-registrant: the owner's registration is on disk,
+// salt and all, by the time its first commitment leaves, so that a node
+// restarted from it commits to the same commitment; and only names an
+// owner may register are registered, at the bootstrap nodes.
+#[test]
+fn a_registration_is_on_disk_before_its_commitment_leaves() {
+    use crate::engine::EngineError;
+    use dassie_peer::wire::Kind;
+
+    let store = Arc::new(Store::open_in_memory().unwrap());
+    let registrar = NodeKey::from_bytes(&[8; 32]);
+    let parts = |bootstrap: Vec<dassie_peer::Bootstrap>| CoreParts {
+        store: Arc::clone(&store),
+        key: Arc::new(NodeKey::from_bytes(&[7; 32])),
+        realm: Realm::Test,
+        live: dassie_node_core::config::LiveRealm::Refused,
+        policies: Policies::DEFAULT,
+        rng: Box::new(SeededRng::new(14)),
+        peer_rng: Box::new(SeededRng::new(15)),
+        own_info: dassie_peer::OwnInfo {
+            url: None,
+            alias: String::new(),
+            quic: false,
+            feed_port: None,
+            hub: None,
+        },
+        bootstrap,
+        uplinks: Vec::new(),
+    };
+    let mut alone = Core::start(parts(Vec::new()), NOW).unwrap();
+    assert!(matches!(
+        alone.register_name("alice"),
+        Err(EngineError::Precondition(_))
+    ));
+    drop(alone);
+    let bootstrap = vec![dassie_peer::Bootstrap {
+        id: registrar.node_id(),
+        url: "https://registrar.example".into(),
+        key: registrar.public_key(),
+    }];
+    let mut core = Core::start(parts(bootstrap), NOW).unwrap();
+    for refused in ["www", "Alice", "a"] {
+        assert!(
+            matches!(core.register_name(refused), Err(EngineError::Invalid(_))),
+            "{refused}"
+        );
+    }
+    core.register_name("alice").unwrap();
+    let mut outputs = Vec::new();
+    core.finish_step(&mut outputs);
+    let commits = outputs
+        .iter()
+        .filter(|output| matches!(output, Output::PeerRequest(request) if request.kind == Kind::NameCommit))
+        .count();
+    assert_eq!(commits, 1);
+    let stored = store.load_peer().unwrap().registrations;
+    assert_eq!(stored.len(), 1);
+    assert_eq!(stored[0].name.as_str(), "alice");
+    assert!(matches!(
+        core.renew_name("alice"),
+        Err(EngineError::NotFound(_))
+    ));
+    let names = core.names();
+    assert_eq!(names.registrars, [registrar.node_id()]);
+    assert_eq!(names.names.len(), 1);
+}
+
+// spec/areas/network.md#names: names run in the test realm only. A node of
+// the live realm, though one of its own bootstrap nodes, is no registrar,
+// reads no name lists, and refuses the owner's registrations and renewals,
+// saying why; its names view says names are off.
+#[test]
+fn a_live_realm_node_takes_no_part_in_names() {
+    use super::names::NAMES_OFF;
+    use crate::engine::EngineError;
+
+    let own = NodeKey::from_bytes(&[7; 32]);
+    let other = NodeKey::from_bytes(&[8; 32]);
+    let bootstrap = [&own, &other]
+        .into_iter()
+        .map(|key| dassie_peer::Bootstrap {
+            id: key.node_id(),
+            url: "https://registrar.example".into(),
+            key: key.public_key(),
+        })
+        .collect();
+    let mut core = Core::start(
+        CoreParts {
+            store: Arc::new(Store::open_in_memory().unwrap()),
+            key: Arc::new(own),
+            realm: Realm::Live,
+            live: dassie_node_core::config::LiveRealm::DevSwitch,
+            policies: Policies::DEFAULT,
+            rng: Box::new(SeededRng::new(16)),
+            peer_rng: Box::new(SeededRng::new(17)),
+            own_info: dassie_peer::OwnInfo {
+                url: None,
+                alias: String::new(),
+                quic: false,
+                feed_port: None,
+                hub: None,
+            },
+            bootstrap,
+            uplinks: Vec::new(),
+        },
+        NOW,
+    )
+    .unwrap();
+    assert!(!core.peer.config().names_enabled);
+    assert!(core.peer.registrar().is_none(), "no registrar");
+    assert_eq!(core.peer.holders().registrars(), 0, "no lists read");
+    for refused in [core.register_name("alice"), core.renew_name("alice")] {
+        assert!(
+            matches!(&refused, Err(EngineError::Precondition(reason)) if reason == NAMES_OFF),
+            "{refused:?}"
+        );
+    }
+    let names = core.names();
+    assert!(names.off);
+    assert!(names.names.is_empty());
+    assert!(super::names_enabled(Realm::Test) && !super::names_enabled(Realm::Live));
 }

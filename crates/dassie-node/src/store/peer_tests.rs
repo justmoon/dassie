@@ -399,3 +399,195 @@ fn closing_a_channel_without_its_row_is_refused() {
     };
     assert!(store.commit_ledger(&batch).is_err());
 }
+
+fn logged(seed: u8, position: u64, unsealed: bool) -> dassie_peer::names::Logged {
+    use dassie_peer::names::{Commitment, Logged, Name, Unsealing};
+    let holder = NodeKey::from_bytes(&[seed; 32]).node_id();
+    Logged {
+        commitment: Commitment([seed; 32]),
+        position,
+        logged_ms: 1_000 + position,
+        window_end_ms: 2_000 + position,
+        committer: holder,
+        network: seed
+            .is_multiple_of(2)
+            .then_some(dassie_peer::Network([6, 32, 1, 13, 184, 0, 1])),
+        unsealing: unsealed.then(|| Unsealing {
+            name: Name::parse("alice").unwrap(),
+            holder,
+            contends: seed.is_multiple_of(2),
+        }),
+    }
+}
+
+fn granted(name: &str, freed_ms: Option<u64>) -> dassie_peer::names::Granted {
+    dassie_peer::names::Granted {
+        name: dassie_peer::names::Name::parse(name).unwrap(),
+        holder: NodeKey::from_bytes(&[9; 32]).node_id(),
+        granted_ms: 3_000,
+        expires_ms: 4_000,
+        freed_ms,
+    }
+}
+
+// A registrar's log and names come back as written
+// (spec/areas/network.md#names), and a batch's removals go first, so a
+// commitment that left the log and was logged again in one batch stays.
+#[test]
+fn a_registrars_log_and_names_round_trip() {
+    use dassie_peer::names::LogHead;
+    let store = Store::open_in_memory().unwrap();
+    let empty = store.load_peer().unwrap();
+    assert_eq!(empty.name_log, LogHead::default());
+    assert!(empty.commitments.is_empty() && empty.names.is_empty());
+    let head = LogHead {
+        next_position: 9,
+        last_logged_ms: 1_008,
+    };
+    let (first, second) = (logged(1, 7, false), logged(2, 8, true));
+    let (held, freed) = (granted("alice", None), granted("bob", Some(5_000)));
+    commit(
+        &store,
+        PeerBatch {
+            name_log: Some(head),
+            commitments: vec![first, second],
+            names: vec![held, freed],
+            ..PeerBatch::default()
+        },
+    );
+    let stored = store.load_peer().unwrap();
+    assert_eq!(stored.name_log, head);
+    assert_eq!(stored.commitments, [first, second]);
+    assert_eq!(stored.names, [held, freed]);
+    let again = logged(1, 9, true);
+    commit(
+        &store,
+        PeerBatch {
+            commitments_removed: vec![first.commitment, second.commitment],
+            commitments: vec![again],
+            names_removed: vec![freed.name],
+            ..PeerBatch::default()
+        },
+    );
+    let stored = store.load_peer().unwrap();
+    assert_eq!(stored.commitments, [again]);
+    assert_eq!(stored.names, [held]);
+}
+
+// Migration 37 gives a node that ran before names an empty log at its
+// first position: positions and times rise from there.
+#[test]
+fn migration_37_starts_with_an_empty_log() {
+    let temp = tempfile::tempdir().unwrap();
+    let mut connection = Connection::open(temp.path().join(DATABASE_FILE)).unwrap();
+    connection
+        .pragma_update(None, "application_id", APPLICATION_ID)
+        .unwrap();
+    schema::migrate_until(&mut connection, 36).unwrap();
+    drop(connection);
+    let stored = Store::open(temp.path()).unwrap().load_peer().unwrap();
+    assert_eq!(stored.name_log, dassie_peer::names::LogHead::default());
+    assert!(stored.commitments.is_empty() && stored.names.is_empty());
+}
+
+// The node's view of who holds each name comes back as written
+// (spec/areas/network.md#holders), a batch's removals first.
+#[test]
+fn the_holders_round_trip() {
+    use dassie_peer::names::{HeldName, Name};
+    let store = Store::open_in_memory().unwrap();
+    assert!(store.load_peer().unwrap().holders.is_empty());
+    let held = |name: &str, seed: u8| HeldName {
+        name: Name::parse(name).unwrap(),
+        holder: NodeKey::from_bytes(&[seed; 32]).node_id(),
+        expires_ms: 4_000 + u64::from(seed),
+    };
+    let (alice, bob) = (held("alice", 1), held("bob", 2));
+    commit(
+        &store,
+        PeerBatch {
+            holders: vec![alice, bob],
+            ..PeerBatch::default()
+        },
+    );
+    assert_eq!(store.load_peer().unwrap().holders, [alice, bob]);
+    let moved = held("alice", 3);
+    commit(
+        &store,
+        PeerBatch {
+            holders_removed: vec![alice.name, bob.name],
+            holders: vec![moved],
+            ..PeerBatch::default()
+        },
+    );
+    assert_eq!(store.load_peer().unwrap().holders, [moved]);
+}
+
+// Migration 38 gives a node that ran before holders an empty view, which
+// it takes from the lists once a quorum of them are fresh.
+#[test]
+fn migration_38_starts_with_no_holders() {
+    let temp = tempfile::tempdir().unwrap();
+    let mut connection = Connection::open(temp.path().join(DATABASE_FILE)).unwrap();
+    connection
+        .pragma_update(None, "application_id", APPLICATION_ID)
+        .unwrap();
+    schema::migrate_until(&mut connection, 37).unwrap();
+    drop(connection);
+    let stored = Store::open(temp.path()).unwrap().load_peer().unwrap();
+    assert!(stored.holders.is_empty());
+}
+
+// The node's registrations come back as written, salt and all
+// (spec/areas/network.md#the-registrant), a batch's removals first, so a
+// registration dropped and started again in one batch stays.
+#[test]
+fn the_registrations_round_trip() {
+    use dassie_peer::names::{Name, NameRegistration, Salt, Stage};
+    let store = Store::open_in_memory().unwrap();
+    assert!(store.load_peer().unwrap().registrations.is_empty());
+    let registration = |name: &str, seed: u8, stage| NameRegistration {
+        name: Name::parse(name).unwrap(),
+        salt: Salt([seed; 32]),
+        started_ms: 5_000 + u64::from(seed),
+        stage,
+    };
+    let alice = registration("alice", 1, Stage::Committing);
+    let bob = registration("bob", 2, Stage::Abandoned);
+    let carol = registration("carol", 3, Stage::Unsealing);
+    commit(
+        &store,
+        PeerBatch {
+            registrations: vec![alice, bob, carol],
+            ..PeerBatch::default()
+        },
+    );
+    assert_eq!(
+        store.load_peer().unwrap().registrations,
+        [alice, bob, carol]
+    );
+    let again = registration("bob", 4, Stage::Committing);
+    commit(
+        &store,
+        PeerBatch {
+            registrations_removed: vec![alice.name, bob.name],
+            registrations: vec![again],
+            ..PeerBatch::default()
+        },
+    );
+    assert_eq!(store.load_peer().unwrap().registrations, [again, carol]);
+}
+
+// Migration 39 gives a node that ran before registrants no registrations.
+#[test]
+fn migration_39_starts_with_no_registrations() {
+    let temp = tempfile::tempdir().unwrap();
+    let mut connection = Connection::open(temp.path().join(DATABASE_FILE)).unwrap();
+    connection
+        .pragma_update(None, "application_id", APPLICATION_ID)
+        .unwrap();
+    schema::migrate_until(&mut connection, 38).unwrap();
+    drop(connection);
+    let stored = Store::open(temp.path()).unwrap().load_peer().unwrap();
+    assert!(stored.registrations.is_empty());
+}

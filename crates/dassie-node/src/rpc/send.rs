@@ -122,7 +122,9 @@ fn plain(text: &str) -> String {
 fn client_error(error: &ClientError) -> RpcError {
     match error {
         ClientError::Unreachable(_) => RpcError::unavailable(error),
-        ClientError::Invalid(_) | ClientError::Refused(_) => RpcError::invalid(error),
+        ClientError::Invalid(_) | ClientError::Refused(_) | ClientError::UnknownName => {
+            RpcError::invalid(error)
+        }
         ClientError::Unavailable => RpcError::precondition(error),
     }
 }

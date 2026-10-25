@@ -7,6 +7,7 @@ mod gossip;
 mod inbound;
 mod lifecycle;
 mod membership;
+mod names;
 mod peering;
 mod settle;
 mod state;
@@ -26,6 +27,7 @@ use crate::channel::{Channel, Closed, Retry};
 use crate::config::Config;
 use crate::io::VERDICT_ACCEPTED;
 use crate::io::{Event, Failure, Output, Request, RequestId, Response, Stats};
+use crate::names::{Commitment, Holders, Name, Registrant, Registrar};
 use crate::routing::Routes;
 use crate::table::{Bucket, Entry, NetworkBuckets, Sources};
 use crate::wire::{
@@ -152,6 +154,16 @@ pub(crate) enum Purpose {
     HashPoll,
     /// A node-list download.
     ListDownload,
+    /// A name-list hash poll.
+    NameHashPoll,
+    /// A name-list download.
+    NameListDownload,
+    /// Our commitment to a name, at a registrar.
+    NameCommit(Commitment),
+    /// Our unsealing of the commitment, at a registrar.
+    NameUnseal(Commitment),
+    /// Our renewal of a name, at a registrar.
+    NameRenew(Name),
     /// Registering with a bootstrap node.
     Registration,
     /// Refreshing these nodes' link states.
@@ -229,6 +241,9 @@ pub struct PeerNode {
     pub(crate) network_probes: NetworkBuckets,
     pub(crate) outputs: VecDeque<Output>,
     events: VecDeque<Event>,
+    /// Every event ever queued, wrapping: how a step tells how many it
+    /// queued, whatever the queue dropped.
+    events_queued: u64,
     pub(crate) dirty: BTreeSet<NodeId>,
     pub(crate) removed: Vec<NodeId>,
     pub(crate) registrations: Bucket,
@@ -270,6 +285,17 @@ pub struct PeerNode {
     /// The only nodes a periphery node asks to be its uplinks, sorted;
     /// empty for any (spec/areas/network.md#pinned-uplinks).
     pub(crate) pinned: Vec<NodeId>,
+    /// The registrar's state, if this node is one of its own bootstrap
+    /// nodes (spec/areas/network.md#names).
+    pub(crate) registrar: Option<Registrar>,
+    /// Who holds each name, from the registrars' lists
+    /// (spec/areas/network.md#holders).
+    pub(crate) holders: Holders,
+    /// The registrars whose name lists we are polling or downloading.
+    pub(crate) name_polling: BTreeSet<NodeId>,
+    /// Our registrations of names, and the renewals of those we hold
+    /// (spec/areas/network.md#the-registrant).
+    pub(crate) registrant: Registrant,
 }
 
 impl PeerNode {
@@ -284,7 +310,7 @@ impl PeerNode {
         key: Arc<NodeKey>,
         own_info: OwnInfo,
         bootstrap: Vec<Bootstrap>,
-        stored: crate::persist::Stored,
+        mut stored: crate::persist::Stored,
         rng: Box<dyn CryptoRng + Send>,
         now_ms: u64,
     ) -> Self {
@@ -299,6 +325,13 @@ impl PeerNode {
             now_ms,
             table: BTreeMap::new(),
             lists: Lists::new(&bootstrap),
+            holders: names::holders(&config, &bootstrap, core::mem::take(&mut stored.holders)),
+            registrant: names::registrant(
+                &config,
+                own,
+                &bootstrap,
+                core::mem::take(&mut stored.registrations),
+            ),
             bootstrap,
             gossip: gossip::Gossip::new(now_ms, stored.own_sequence),
             peering: peering::Peering::new(now_ms),
@@ -313,6 +346,7 @@ impl PeerNode {
             network_probes: NetworkBuckets::new(config.max_probe_networks),
             outputs: VecDeque::new(),
             events: VecDeque::new(),
+            events_queued: 0,
             dirty: BTreeSet::new(),
             removed: Vec::new(),
             registrations: Bucket::full(config.registration_rate, now_ms),
@@ -332,26 +366,35 @@ impl PeerNode {
             unreached: BTreeSet::new(),
             told_not_peered: BTreeMap::new(),
             pinned: Vec::new(),
+            registrar: None,
+            name_polling: BTreeSet::new(),
             config,
         };
         node.restore(stored);
-        // Bootstrap nodes, and nodes registered with us, keep their replay
-        // state (spec/areas/peer-protocol.md#replay-protection).
-        let registered = node
+        node.pin_restored();
+        node
+    }
+
+    /// Pins what was restored: bootstrap nodes, nodes registered with us,
+    /// and those our registrar involves keep their replay state
+    /// (spec/areas/peer-protocol.md#replay-protection).
+    fn pin_restored(&mut self) {
+        let registered = self
             .table
             .iter()
             .filter(|(_, entry)| entry.registration.is_some())
             .map(|(id, _)| *id);
-        let pinned: Vec<NodeId> = node
+        let parties = self.registrar.iter().flat_map(Registrar::parties);
+        let pinned: Vec<NodeId> = self
             .bootstrap
             .iter()
             .map(|b| b.id)
             .chain(registered)
+            .chain(parties)
             .collect();
         for id in pinned {
-            node.auth.pin(id);
+            self.auth.pin(id);
         }
-        node
     }
 
     /// Our node ID.
@@ -460,6 +503,19 @@ impl PeerNode {
             self.events.pop_front();
         }
         self.events.push_back(event);
+        self.events_queued = self.events_queued.wrapping_add(1);
+    }
+
+    /// The count of events queued so far, to compare with
+    /// [`events_since`](Self::events_since).
+    pub(crate) const fn events_queued(&self) -> u64 {
+        self.events_queued
+    }
+
+    /// How many events were queued since `before`, a count of
+    /// [`events_queued`](Self::events_queued).
+    pub(crate) const fn events_since(&self, before: u64) -> u64 {
+        self.events_queued.wrapping_sub(before)
     }
 
     /// The key and URL to reach `node`: from its link state, or the
@@ -665,6 +721,11 @@ impl PeerNode {
             }
             Purpose::HashPoll => self.on_hash(to, result),
             Purpose::ListDownload => self.on_list(to, result),
+            Purpose::NameHashPoll => self.on_name_hash(to, result),
+            Purpose::NameListDownload => self.on_name_list(to, result),
+            Purpose::NameCommit(commitment) => self.on_name_commit(to, &commitment, result),
+            Purpose::NameUnseal(commitment) => self.on_name_unseal(to, &commitment, result),
+            Purpose::NameRenew(name) => self.on_name_renew(to, &name, result),
             Purpose::Registration => self.on_registered(to, result),
             Purpose::Refresh(ids) => self.on_refresh(to, &ids, result),
             Purpose::Sweep(ids) => self.on_sweep(&ids, result),
@@ -757,6 +818,8 @@ impl PeerNode {
         self.register_with_bootstrap();
         self.refresh();
         self.maintain();
+        self.tend_names();
+        self.send_names();
         self.seek_peers(hooks);
         self.update_routes();
     }
@@ -774,6 +837,8 @@ impl PeerNode {
             self.next_maintenance(),
             self.answers.iter().map(|(at, _)| *at).min(),
             self.next_settlement_retry(),
+            self.registrar.as_ref().and_then(Registrar::next_due),
+            self.registrant.next_due(&self.holders, self.now_ms),
         ];
         candidates.into_iter().flatten().min()
     }
