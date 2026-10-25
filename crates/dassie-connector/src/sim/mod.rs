@@ -311,7 +311,7 @@ impl Harness {
             .add_peer(
                 EndpointId::Peer(id),
                 &format!("test.das.{node}"),
-                account,
+                Some(account),
                 ledger,
                 first,
             )
@@ -332,7 +332,7 @@ impl Harness {
             .add_peer(
                 EndpointId::Peer(id),
                 &format!("{OWN}.{node}"),
-                account,
+                Some(account),
                 ledger,
                 first,
             )

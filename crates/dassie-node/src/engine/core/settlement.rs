@@ -428,6 +428,17 @@ impl Core {
         else {
             return 0;
         };
+        // Over a hub, what we settle funds our hold toward the peer: value
+        // moves with it, which opens a downlink's accounts. Without room
+        // for them, nothing is settled (spec/decisions/lazy-downlink-accounts.md).
+        let hub = Name::new(scheme.as_str())
+            .ok()
+            .filter(|name| self.schemes.get(name).is_some_and(|active| active.over_hub));
+        if let Some(hub) = hub
+            && !self.open_downlink_accounts(node, hub)
+        {
+            return 0;
+        }
         let Some(at) = self.position(node, scheme) else {
             return 0;
         };
@@ -535,10 +546,22 @@ impl Core {
         let interledger = self.ledger.find(&AccountPath::new(
             ledger,
             AccountName::AssetsInterledger(name),
-        ))?;
+        ));
         let trust = self
             .ledger
-            .find(&AccountPath::new(ledger, AccountName::ContraTrust(name)))?;
+            .find(&AccountPath::new(ledger, AccountName::ContraTrust(name)));
+        let (Some(interledger), Some(trust)) = (interledger, trust) else {
+            // A downlink nothing moved with yet has no accounts: it stands
+            // where one with nothing on them would, owing nothing and owed
+            // nothing, and extended no credit
+            // (spec/decisions/lazy-downlink-accounts.md).
+            return Some(Position {
+                scheme,
+                ledger,
+                position: 0,
+                credit_out: 0,
+            });
+        };
         Some(Position {
             scheme,
             ledger,
@@ -923,23 +946,29 @@ impl Core {
         }
         let ledger = active.scheme.ledger();
         let name = Name::new(from.as_str()).map_err(|_| refused("not a node"))?;
-        let interledger = self
-            .ledger
-            .find(&AccountPath::new(
-                ledger,
-                AccountName::AssetsInterledger(name),
-            ))
-            .ok_or_else(|| refused("no accounts on that scheme's ledger"))?;
-        let spec = TransferSpec {
-            debit: self.account(ledger, AccountName::AssetsSettlement)?,
-            credit: interledger,
-            amount,
-            pending: false,
-            reference: Reference::Settlement { scheme, id: scheme },
-        };
-        self.ledger
-            .validate(&spec)
-            .map_err(|error| refused(&error.to_string()))?;
+        let interledger = self.ledger.find(&AccountPath::new(
+            ledger,
+            AccountName::AssetsInterledger(name),
+        ));
+        match interledger {
+            Some(interledger) => {
+                let spec = TransferSpec {
+                    debit: self.account(ledger, AccountName::AssetsSettlement)?,
+                    credit: interledger,
+                    amount,
+                    pending: false,
+                    reference: Reference::Settlement { scheme, id: scheme },
+                };
+                self.ledger
+                    .validate(&spec)
+                    .map_err(|error| refused(&error.to_string()))?;
+            }
+            // A downlink nothing moved with yet: what its settlement books,
+            // if anything, opens its accounts, which take any amount, if
+            // there is room for them (spec/decisions/lazy-downlink-accounts.md).
+            None if self.downlink_may_open(&from) => {}
+            None => return Err(refused("no accounts on that scheme's ledger")),
+        }
         let state = self
             .peer
             .peering_of(&from)

@@ -10,7 +10,7 @@ use dassie_ledger::{
 };
 use dassie_oer::{Decode, Encode};
 
-use super::{Connector, Forwarded, Outcome, Pending};
+use super::{Connector, Forwarded, OpensAccounts, OpensNone, Outcome, Pending};
 use crate::PacketTransfers;
 use crate::cap::CapRefusal;
 use crate::charges::Charges;
@@ -71,6 +71,35 @@ impl Connector {
         packet: &[u8],
         ledger: &mut Ledger,
         prices: &PriceTable,
+        out: &mut [u8],
+    ) -> Outcome {
+        self.handle_prepare_with(
+            now_ms,
+            (source, request_id),
+            packet,
+            ledger,
+            prices,
+            &mut OpensNone,
+            out,
+        )
+    }
+
+    /// [`handle_prepare`](Self::handle_prepare), where `accounts` opens the
+    /// accounts of a peer that has none yet, for a packet to it that moves
+    /// money (spec/decisions/lazy-downlink-accounts.md).
+    ///
+    /// # Panics
+    ///
+    /// As [`handle_prepare`](Self::handle_prepare).
+    #[allow(clippy::too_many_arguments)]
+    pub fn handle_prepare_with(
+        &mut self,
+        now_ms: u64,
+        (source, request_id): (EndpointId, u32),
+        packet: &[u8],
+        ledger: &mut Ledger,
+        prices: &PriceTable,
+        accounts: &mut dyn OpensAccounts,
         out: &mut [u8],
     ) -> Outcome {
         assert!(
@@ -142,7 +171,8 @@ impl Connector {
             Ok(route) => route,
             Err(refusal) => return self.answer(now_ms, trace, &refusal, out),
         };
-        let booked = match self.book(now_ms, trace, source, &route, prepare.amount, ledger) {
+        let books = (ledger, accounts);
+        let booked = match self.book(now_ms, trace, source, &route, prepare.amount, books) {
             Ok(booked) => booked,
             Err(refusal) => return self.answer(now_ms, trace, &refusal, out),
         };
@@ -378,6 +408,11 @@ impl Connector {
     /// out of its owner's funds
     /// must pass the source account's spending cap first, and holds its
     /// amount there while in flight.
+    ///
+    /// A peer without accounts yet is one with nothing on them: it has no
+    /// credit to send money with, and a packet that moves money to it opens
+    /// them, if there is room, with the transfers or not at all
+    /// (spec/decisions/lazy-downlink-accounts.md).
     fn book(
         &mut self,
         now_ms: u64,
@@ -385,27 +420,59 @@ impl Connector {
         source: EndpointId,
         route: &Route,
         amount_in: u64,
-        ledger: &mut Ledger,
+        (ledger, accounts): (&mut Ledger, &mut dyn OpensAccounts),
     ) -> Result<Booked, Refusal> {
         let internal = refuse(ErrorCode::T00_INTERNAL_ERROR, "internal error");
         let (Some(from), Some(to)) = (self.endpoints.get(source), self.endpoints.get(route.to))
         else {
             return Err(internal);
         };
-        if amount_in == 0 || from.account == to.account {
-            return Ok(Booked {
-                transfers: [None; 3],
-                charge: None,
-            });
+        let nothing = Booked {
+            transfers: [None; 3],
+            charge: None,
+        };
+        if amount_in == 0 {
+            return Ok(nothing);
         }
-        let (from_account, to_account) = (from.account, to.account);
-        let counted = from.ledger != to.ledger || !same_group(ledger, from_account, to_account);
+        let Some(from_account) = from.account else {
+            return Err(refuse(
+                ErrorCode::T04_INSUFFICIENT_LIQUIDITY,
+                "insufficient liquidity",
+            ));
+        };
+        if to.account == Some(from_account) {
+            return Ok(nothing);
+        }
+        // A peer's accounts are in no group, opened or not.
+        let counted = from.ledger != to.ledger
+            || !to
+                .account
+                .is_some_and(|to_account| same_group(ledger, from_account, to_account));
         let charge = counted.then_some((from_account, amount_in));
         if let Some(cap) = charge.and_then(|(account, _)| self.caps.get(&account)) {
             cap.admits(now_ms, amount_in)
                 .map_err(|refusal| cap_refusal(refusal, amount_in))?;
         }
-        let transfers = self.book_transfers(now_ms, trace, source, route, amount_in, ledger)?;
+        let (on, opens) = (to.ledger, to.account.is_none());
+        if opens {
+            let account = accounts.open(now_ms, ledger, route.to, on).ok_or(refuse(
+                ErrorCode::T04_INSUFFICIENT_LIQUIDITY,
+                "no room for the peer's accounts",
+            ))?;
+            self.open_account(route.to, account);
+        }
+        let transfers = match self.book_transfers(now_ms, trace, source, route, amount_in, ledger) {
+            Ok(transfers) => transfers,
+            Err(refusal) => {
+                if opens {
+                    accounts.take_back(ledger, route.to, on);
+                    if let Some(endpoint) = self.endpoints.get_mut(route.to) {
+                        endpoint.account = None;
+                    }
+                }
+                return Err(refusal);
+            }
+        };
         if let Some(cap) = charge.and_then(|(account, _)| self.caps.get_mut(&account)) {
             cap.reserve(now_ms, amount_in);
         }
@@ -431,6 +498,9 @@ impl Connector {
         else {
             return Err(internal);
         };
+        let (Some(from_account), Some(to_account)) = (from.account, to.account) else {
+            return Err(internal);
+        };
         let reference = Reference::Packet(trace);
         let pending = |debit, credit, amount| TransferSpec {
             debit,
@@ -444,7 +514,7 @@ impl Connector {
         let (first, second) = if from.ledger == to.ledger {
             // Without a conversion, what goes on is what came, less the fee.
             assert_eq!(route.amount_out, net, "what goes on is what was booked");
-            (pending(from.account, to.account, net), None)
+            (pending(from_account, to_account, net), None)
         } else {
             let revenue = ledger.find(&AccountPath::new(from.ledger, AccountName::RevenueFx));
             let expenses = ledger.find(&AccountPath::new(to.ledger, AccountName::ExpensesFx));
@@ -452,15 +522,15 @@ impl Connector {
                 return Err(internal);
             };
             (
-                pending(from.account, revenue, net),
-                Some(pending(expenses, to.account, route.amount_out)),
+                pending(from_account, revenue, net),
+                Some(pending(expenses, to_account, route.amount_out)),
             )
         };
         let fee = if route.fee > 0 {
             let fees = ledger
                 .find(&AccountPath::new(from.ledger, AccountName::RevenueFees))
                 .ok_or(internal)?;
-            Some(pending(from.account, fees, route.fee))
+            Some(pending(from_account, fees, route.fee))
         } else {
             None
         };

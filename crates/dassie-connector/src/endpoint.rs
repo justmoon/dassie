@@ -64,8 +64,10 @@ impl fmt::Display for EndpointError {
 pub(crate) struct Endpoint {
     /// Its ILP address: what ILDCP hands out, and the route to it.
     pub address: String,
-    /// The account its packets debit and credit.
-    pub account: AccountId,
+    /// The account its packets debit and credit. Only a peer may have none
+    /// yet: a downlink, whose accounts open with the first packet that
+    /// moves money with it (spec/decisions/lazy-downlink-accounts.md).
+    pub account: Option<AccountId>,
     /// That account's ledger.
     pub ledger: LedgerId,
     /// The next outgoing request ID to try.

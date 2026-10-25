@@ -12,6 +12,7 @@
     clippy::disallowed_macros
 )]
 
+mod downlinks;
 mod events;
 mod growth;
 mod hub_funding;
@@ -333,10 +334,11 @@ pub struct Core {
     work: Vec<u8>,
     /// The peer protocol.
     peer: dassie_peer::PeerNode,
-    /// The peers' accounts opened for downlinks, by ledger and node: they
-    /// take the downlinks' share of the peers' account room, for good
-    /// (spec/decisions/account-budgets.md).
-    downlink_accounts: std::collections::BTreeSet<(dassie_ledger::LedgerId, Name)>,
+    /// The accounts opened for downlinks, which take the downlinks' share
+    /// of the peers' account room for good, and the downlinks the share
+    /// keeps room for (spec/decisions/account-budgets.md,
+    /// spec/decisions/lazy-downlink-accounts.md).
+    downlinks: downlinks::Downlinks,
     /// Peers' connector endpoints, both ways.
     peer_endpoints: BTreeMap<dassie_identity::NodeId, u64>,
     endpoint_peers: BTreeMap<u64, dassie_identity::NodeId>,
@@ -457,7 +459,7 @@ impl Core {
         )?;
         let policies = parts.policies;
         let ledger = restore_ledger(&parts.store, policies.ledger)?;
-        let downlink_accounts = restore_downlink_accounts(&parts.store, &ledger)?;
+        let opened = restore_downlink_accounts(&parts.store, &ledger)?;
         let connector = new_connector(&parts.store, &parts.key, parts.realm, &policies)?;
         let (checkpoints, asset_checkpoints) = checkpoints(&parts.store)?;
         let mut core = Self {
@@ -490,7 +492,10 @@ impl Core {
             scratch: vec![0; BUFFER_LENGTH.max(MAX_PACKET_LENGTH)],
             work: vec![0; BUFFER_LENGTH],
             peer,
-            downlink_accounts,
+            downlinks: downlinks::Downlinks {
+                opened,
+                waiting: std::collections::BTreeSet::new(),
+            },
             peer_endpoints: BTreeMap::new(),
             endpoint_peers: BTreeMap::new(),
             next_peer_endpoint: 0,
@@ -528,6 +533,7 @@ impl Core {
         self.load_incoming()?;
         self.load_outgoing()?;
         self.update_peer_schemes();
+        self.restore_waiting();
         let peers: Vec<dassie_identity::NodeId> = self.peer.peers().map(|(id, _)| *id).collect();
         let active: std::collections::BTreeSet<dassie_identity::NodeId> =
             self.peer.active_peers().map(|(id, _)| *id).collect();

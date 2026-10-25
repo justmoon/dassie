@@ -25,7 +25,7 @@ So no number of downlinks takes the room peering with core nodes needs, nor core
 - **A periphery node takes no downlinks,** so it never uses the downlinks' share, and its uplinks have half the room they had. It still has room for far more core nodes than it peers with in its life.
 - **Even shares, not shares by the bounds on channels.** Downlinks have twice the channels core peers have, and shares by those bounds would give them two thirds. Peering with core nodes is what the node cannot do without, and its core peers change far more slowly than its downlinks can, so the core peers keep half.
 - **A node that changed kind is counted by its channel's URL when it upgrades.** A node that peered as a downlink and later as a core node, or the other way round, before the upgrade has its accounts counted as the kind it was last: a few nodes at most, and once counted, they stay where they are.
-- **Filling the downlinks' share still costs nothing but keys and days,** and a core node full of downlinks' accounts takes no new downlink. Opening a downlink's accounts only when value moves with it is what makes filling the share cost money.
+- **A core node whose downlinks' share is full takes no new downlink.** Filling it takes keys, days, and value moved with each, since a downlink's accounts open only then ([lazy-downlink-accounts](lazy-downlink-accounts.md)).
 
 ## Rejected
 

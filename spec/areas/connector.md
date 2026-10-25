@@ -91,6 +91,8 @@ our fee:         Dr source          Cr Ls:revenue/fees  fee          (only if fe
 
 A limit refusal becomes T04, a full table T03. So a peer can push packets to us only while it stays within the credit we extend, and the owner's endpoints only while the owner's group has funds.
 
+**A downlink without accounts yet** is an endpoint without an account. A packet from it that carries money is refused as for want of liquidity (T04), as one with no credit is. A packet that moves money to it opens its accounts first, through the node (`OpensAccounts`), and books on them; if the books then refuse the packet, they are taken back, so it leaves nothing; with no room for them, the packet is refused with T04 ([lazy-downlink-accounts](../decisions/lazy-downlink-accounts.md)).
+
 ## Responses and expiry
 
 - **A Fulfill that matches the condition** posts the transfers, and its bytes go upstream unchanged once the batch that posted them is on disk ([Node](node.md#the-engine)).
@@ -177,3 +179,4 @@ ILP-over-HTTP (RFC 35) is not built: the connector has no HTTP endpoint ([roadma
 - [packets-in-flight](../decisions/packets-in-flight.md): the cap on money in flight with a peer.
 - [thresholds-in-packets](../decisions/thresholds-in-packets.md): the cap counted in the largest packet.
 - [unreachable-peers](../decisions/unreachable-peers.md): no Prepare taken from a peer our messages surely do not reach.
+- [lazy-downlink-accounts](../decisions/lazy-downlink-accounts.md): a downlink's accounts open with the first packet that moves money to it.

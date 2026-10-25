@@ -170,7 +170,8 @@ After a restart, settlements still pending in the journal are handed to their sc
 - **The books first.** The node checks that it can book a settlement before the scheme sees it, so the scheme's balance never moves without the books. Otherwise it answers 400 and nothing changes.
 - **The scheme decides what it is worth.** The stub books the amount stated; the XRPL scheme books nothing on the message, since its ledger says what arrived ([XRPL](xrpl.md#settlement-messages)).
 - **From a channel, not a peering.** A `settlement` is taken from any authenticated node we hold a [settlement channel](#settlement-channels) with, open or closed, so a settlement that arrives after the peering ended, or after its channel closed, is still credited.
-- A settlement the scheme sees on its ledger from a node without accounts there cannot be from a peer: it is booked as the owner's deposit.
+- **A downlink's first settlement opens its accounts,** in the room kept for them ([lazy-downlink-accounts](../decisions/lazy-downlink-accounts.md)). Until then it stands as one with nothing on them: owing and owed nothing, extended no credit, so it is asked to settle at once.
+- A settlement the scheme sees on its ledger from any other node without accounts there cannot be from a peer: it is booked as the owner's deposit.
 
 ## Settlement channels
 
@@ -214,6 +215,7 @@ A peer's settlement is believed as stated. Anyone peered over the stub can mint 
 - [peering-lifecycle](../decisions/peering-lifecycle.md): channels kept after a peering, and their limit.
 - [closing-channels](../decisions/closing-channels.md): a channel left idle closes to disk, whatever the balance.
 - [account-budgets](../decisions/account-budgets.md): core peers' and downlinks' accounts each in a share of their own.
+- [lazy-downlink-accounts](../decisions/lazy-downlink-accounts.md): a downlink's accounts open once value moves with it.
 - [ending-a-peering](../decisions/ending-a-peering.md): nothing settled for a peering's end.
 - [synced-before-peering](../decisions/synced-before-peering.md): no peering on a scheme before its first sync.
 - [own-books](../decisions/own-books.md): each node decides from its own books, and the bound that holds whatever a peer does.

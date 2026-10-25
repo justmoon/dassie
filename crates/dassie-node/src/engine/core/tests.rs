@@ -575,7 +575,7 @@ fn a_revoked_tokens_link_takes_no_prepare_before_it_closes() {
         .unwrap();
     let peer = EndpointId::Peer(999);
     core.connector
-        .add_peer(peer, "test.das.other", account, LedgerId::StubUsd, 0)
+        .add_peer(peer, "test.das.other", Some(account), LedgerId::StubUsd, 0)
         .unwrap();
     core.connector
         .set_routes([("test.das.other", &[peer][..])])
@@ -1094,7 +1094,9 @@ fn a_junior_keeps_the_lower_credit_of_a_peer_it_ended_for_room() {
 
 // spec/decisions/free-receivers-half.md: a settlement of at least one largest
 // packet booked from a node marks its channel, for good: it paid us, and is
-// no free receiver. A smaller one leaves it free.
+// no free receiver. A smaller one leaves it free. Neither downlink had
+// accounts: its settlement opens them, and is booked as its own
+// (spec/decisions/lazy-downlink-accounts.md).
 #[test]
 fn a_settlement_of_a_largest_packet_marks_its_payer() {
     use dassie_ledger::{LedgerId, Name};
@@ -1122,9 +1124,6 @@ fn a_settlement_of_a_largest_packet_marks_its_payer() {
     let mut effects = Vec::new();
     for (key, amount) in [(&paying, minimum), (&short, minimum - 1)] {
         let peer = Name::new(key.node_id().as_str()).unwrap();
-        core.ledger
-            .open_peer(NOW, LedgerId::StubUsd, peer, 0)
-            .unwrap();
         effects.push(Effect::IncomingSettlement {
             peer,
             amount,
@@ -1133,6 +1132,7 @@ fn a_settlement_of_a_largest_packet_marks_its_payer() {
     }
     core.apply_effects(Name::new("stub").unwrap(), LedgerId::StubUsd, &effects)
         .unwrap();
+    assert_eq!(core.downlinks.opened.len(), 2, "opened as downlinks'");
     let paid = |core: &Core, key: &NodeKey| core.peer.channel(&key.node_id()).unwrap().paid_us;
     assert!(paid(&core, &paying));
     assert!(!paid(&core, &short));
@@ -1146,12 +1146,9 @@ fn a_settlement_of_a_largest_packet_marks_its_payer() {
 // spec/decisions/closing-channels.md, spec/decisions/account-budgets.md:
 // peers' accounts stay when their channels close, so new ones stop where the
 // room the node keeps for its own accounts begins, each kind of peer within
-// its share of what is left; a peer whose accounts are open peers again
-// regardless.
+// its share of what is left.
 #[test]
 fn peers_accounts_leave_room_for_the_nodes_own() {
-    use std::collections::BTreeSet;
-
     use dassie_ledger::{Config, Ledger, LedgerId, Name};
 
     let most = super::ledgers::OWN_ACCOUNTS + 8;
@@ -1162,21 +1159,24 @@ fn peers_accounts_leave_room_for_the_nodes_own() {
         max_accounts,
         ..Config::DEFAULT
     });
-    let mut downlinks = BTreeSet::new();
-    for (peer, downlink) in [("a", false), ("b", true), ("c", false), ("d", true)] {
-        assert!(super::peers::room_for_peer(&ledger, &downlinks, downlink));
-        let name = Name::new(peer).unwrap();
-        ledger.open_peer(NOW, LedgerId::StubUsd, name, 1).unwrap();
+    let mut downlinks = super::downlinks::Downlinks::default();
+    for (seed, downlink) in [(1, false), (2, true), (3, false), (4, true)] {
+        let node = NodeKey::from_bytes(&[seed; 32]).node_id();
+        let name = Name::new(node.as_str()).unwrap();
         if downlink {
-            downlinks.insert((LedgerId::StubUsd, name));
+            assert!(downlinks.fit(max_accounts, &node));
+            downlinks.opened.insert((LedgerId::StubUsd, name));
+        } else {
+            assert!(super::peers::room_for_core_peer(&ledger, &downlinks.opened));
         }
+        ledger.open_peer(NOW, LedgerId::StubUsd, name, 1).unwrap();
     }
-    for downlink in [false, true] {
-        assert!(
-            !super::peers::room_for_peer(&ledger, &downlinks, downlink),
-            "the rest is the node's"
-        );
-    }
+    let next = NodeKey::from_bytes(&[5; 32]).node_id();
+    assert!(
+        !super::peers::room_for_core_peer(&ledger, &downlinks.opened)
+            && !downlinks.fit(max_accounts, &next),
+        "the rest is the node's"
+    );
     // Whatever the peers took, the node's own accounts still open, the
     // owner's pool first: each batch takes the journal, as the node's step
     // does.
@@ -1193,9 +1193,16 @@ fn peers_accounts_leave_room_for_the_nodes_own() {
     }
 }
 
-/// Accepts a peering request from the node of key `[seed, 1, ..]` on the
-/// stub, as a downlink's if `downlink`: whether its accounts opened, or why
-/// not.
+/// The node of key `[seed, 1, ..]`.
+fn seeded_node(seed: u32) -> dassie_identity::NodeId {
+    let mut bytes = [1; 32];
+    bytes[..4].copy_from_slice(&seed.to_be_bytes());
+    NodeKey::from_bytes(&bytes).node_id()
+}
+
+/// Accepts a peering request from [`seeded_node`] `seed` on the stub, as a
+/// downlink's if `downlink`: a core peer's accounts open, a downlink's only
+/// once value moves with it.
 fn accept_on_stub(
     core: &mut Core,
     seed: u32,
@@ -1203,9 +1210,7 @@ fn accept_on_stub(
 ) -> Result<(), dassie_peer::wire::RefusalReason> {
     use dassie_peer::PeeringHooks;
 
-    let mut bytes = [1; 32];
-    bytes[..4].copy_from_slice(&seed.to_be_bytes());
-    let peer = NodeKey::from_bytes(&bytes).node_id();
+    let peer = seeded_node(seed);
     let scheme = dassie_peer::wire::SchemeId::parse("stub").unwrap();
     let mut response = Vec::new();
     let accepted = core
@@ -1214,10 +1219,30 @@ fn accept_on_stub(
     accepted.map(|_| ())
 }
 
+/// Opens the accounts of [`seeded_node`] `seed` on the stub as a
+/// downlink's, as value that moved with it would: whether they fit.
+fn open_downlink_on_stub(core: &mut Core, seed: u32) -> bool {
+    let mut opening = super::downlinks::Opening {
+        downlinks: &mut core.downlinks,
+        written: &mut core.batch.downlink_accounts,
+        journal: &mut core.batch.journal,
+    };
+    let node = seeded_node(seed);
+    opening
+        .open(
+            NOW,
+            &mut core.ledger,
+            node,
+            dassie_ledger::LedgerId::StubUsd,
+            0,
+        )
+        .is_some()
+}
+
 // spec/decisions/account-budgets.md: downlinks, which anyone may make by
 // minting keys, open accounts only within their own share of the peers'
-// account room. Once they filled it, core nodes still peer, inbound and
-// outbound, and the other way round.
+// account room. Once they filled it, no downlink with a new key is taken,
+// and core nodes still peer, inbound and outbound; and the other way round.
 #[test]
 fn downlinks_never_take_the_room_core_peers_need() {
     use dassie_peer::PeeringHooks;
@@ -1228,19 +1253,20 @@ fn downlinks_never_take_the_room_core_peers_need() {
     let max_accounts = Policies::DEFAULT.ledger.max_accounts;
     let pairs = u32::try_from(super::peers::peer_budget(max_accounts, true) / 2).unwrap();
     for seed in 0..pairs {
-        accept_on_stub(&mut core, seed, true).unwrap();
+        assert!(open_downlink_on_stub(&mut core, seed));
     }
+    assert!(
+        !open_downlink_on_stub(&mut core, pairs),
+        "the share is full"
+    );
     assert_eq!(
         accept_on_stub(&mut core, pairs, true),
         Err(RefusalReason::Capacity),
-        "the downlinks' share is full"
+        "no room is left for a new downlink's accounts"
     );
     // A downlink whose accounts are open peers again regardless.
     accept_on_stub(&mut core, 0, true).unwrap();
-    assert_eq!(
-        core.downlink_accounts.len(),
-        usize::try_from(pairs).unwrap()
-    );
+    assert_eq!(core.downlinks.opened.len(), usize::try_from(pairs).unwrap());
     // Core peers have all their room, inbound and outbound.
     let core_pairs = u32::try_from(super::peers::peer_budget(max_accounts, false) / 2).unwrap();
     for seed in pairs + 1..pairs + core_pairs {
@@ -1259,32 +1285,178 @@ fn downlinks_never_take_the_room_core_peers_need() {
     // A core node that turned periphery keeps its accounts, opened as a core
     // peer's, and peers again; the downlinks' count stays as it was.
     accept_on_stub(&mut core, pairs + 1, true).unwrap();
-    assert_eq!(
-        core.downlink_accounts.len(),
-        usize::try_from(pairs).unwrap()
-    );
+    assert_eq!(core.downlinks.opened.len(), usize::try_from(pairs).unwrap());
     core.check_invariants();
 }
 
-// spec/decisions/account-budgets.md: which share a downlink's accounts take
-// is kept with them, so a restart counts them where they were.
+// spec/decisions/account-budgets.md, spec/decisions/lazy-downlink-accounts.md:
+// which share a downlink's accounts take is kept with them, and a downlink
+// still waiting for its accounts keeps its room, across a restart.
 #[test]
 fn the_downlinks_accounts_are_known_after_a_restart() {
     let dir = tempfile::tempdir().unwrap();
     let store = Arc::new(Store::open(dir.path()).unwrap());
-    let (mut core, downlink) = stub_core_with_downlink(Arc::clone(&store));
-    let name = dassie_ledger::Name::new(downlink.as_str()).unwrap();
-    let pair = (dassie_ledger::LedgerId::StubUsd, name);
-    assert!(core.downlink_accounts.contains(&pair));
+    let (mut core, opened) = stub_core_with_downlink(Arc::clone(&store));
+    let waiting = Arc::new(NodeKey::from_bytes(&[12; 32]));
+    let at = NOW + 2_000;
+    core.begin_step(at);
+    let body = downlink_request(&core, &waiting, at);
+    core.peer_inbound(dassie_peer::InboundId(2), &body, None);
+    let mut outputs = Vec::new();
+    core.finish_step(&mut outputs);
+    assert_eq!(
+        core.downlinks
+            .waiting
+            .iter()
+            .copied()
+            .collect::<Vec<_>>()
+            .len(),
+        2
+    );
+    assert!(core.open_downlink_accounts(opened, dassie_ledger::name!("stub")));
     accept_on_stub(&mut core, 1, false).unwrap();
+    core.check_invariants();
     core.flush();
     drop(core);
     let refused = dassie_node_core::config::LiveRealm::Refused;
-    let core = core_taking_downlinks(store, Realm::Test, refused, NOW + 2_000);
+    let core = core_taking_downlinks(store, Realm::Test, refused, at + 1_000);
+    let name = dassie_ledger::Name::new(opened.as_str()).unwrap();
     assert_eq!(
-        core.downlink_accounts.iter().copied().collect::<Vec<_>>(),
-        [pair]
+        core.downlinks.opened.iter().copied().collect::<Vec<_>>(),
+        [(dassie_ledger::LedgerId::StubUsd, name)]
     );
+    assert_eq!(
+        core.downlinks.waiting.iter().copied().collect::<Vec<_>>(),
+        [waiting.node_id()]
+    );
+}
+
+/// Whether `node` has accounts on any ledger of `core`.
+fn has_any_accounts(core: &Core, node: dassie_identity::NodeId) -> bool {
+    let name = dassie_ledger::Name::new(node.as_str()).unwrap();
+    dassie_ledger::LedgerId::ALL.into_iter().any(|on| {
+        core.ledger
+            .find(&dassie_ledger::AccountPath::new(
+                on,
+                dassie_ledger::AccountName::AssetsInterledger(name),
+            ))
+            .is_some()
+    })
+}
+
+// spec/decisions/lazy-downlink-accounts.md: the attack the shares bound. A
+// downlink that peers, moves no value and goes away leaves nothing behind:
+// while it is peered it has no accounts, stands as one with nothing on
+// them, and is asked to settle as such a downlink is; once its peering
+// ended and its channel closed, the room kept for its accounts is free
+// again, and neither share holds anything of it.
+#[test]
+fn a_downlink_that_moves_no_value_leaves_nothing_behind() {
+    let store = Arc::new(Store::open_in_memory().unwrap());
+    let (mut core, id) = stub_core_with_downlink(store);
+    let stub = dassie_peer::wire::SchemeId::parse("stub").unwrap();
+    assert!(!has_any_accounts(&core, id));
+    assert!(core.downlinks.waiting.contains(&id));
+    let endpoint = dassie_connector::EndpointId::Peer(core.peer_endpoints[&id]);
+    assert_eq!(core.connector.account_of(endpoint), None);
+    assert_eq!(
+        (core.owed(id, stub), core.credit_out(id, stub)),
+        (Some(0), Some(0))
+    );
+    let asked = core.peer.stats().settlements_requested;
+    let mut now = NOW + 1_000 + core.settle.interval_ms;
+    let mut outputs = Vec::new();
+    core.begin_step(now);
+    core.finish_step(&mut outputs);
+    assert!(
+        core.peer.stats().settlements_requested > asked,
+        "asked to settle, as a downlink we extend no credit is"
+    );
+    // It goes silent: its peering ends, and its channel closes.
+    let most = now + 3 * Policies::DEFAULT.peer.peer_dead_ms;
+    while core.peer.channel(&id).is_some() {
+        assert!(now < most, "the channel never closed");
+        now += 600_000;
+        core.begin_step(now);
+        outputs.clear();
+        core.finish_step(&mut outputs);
+    }
+    assert!(core.peer.peering_of(&id).is_none());
+    assert!(!has_any_accounts(&core, id));
+    assert!(core.downlinks.waiting.is_empty() && core.downlinks.opened.is_empty());
+    assert_eq!(super::peers::peer_accounts(&core.ledger), 0);
+    core.check_invariants();
+}
+
+// spec/decisions/lazy-downlink-accounts.md: the first packet that moves
+// money to a downlink opens its accounts, in the room kept for them, with
+// the packet's transfer; they are written with the step, as a downlink's.
+#[test]
+fn a_payment_to_a_downlink_opens_its_accounts() {
+    let store = Arc::new(Store::open_in_memory().unwrap());
+    let (mut core, id) = stub_core_with_downlink(Arc::clone(&store));
+    let token = core
+        .create_token("wallet".into(), "stub+usd", None)
+        .unwrap();
+    let link = core.btp_connect(&token.secret).unwrap().link;
+    let to = format!("{}.{id}.wallet", core.own_address());
+    let packet = |amount| {
+        dassie_ilp::Prepare {
+            amount,
+            expires_at: Timestamp::from_unix_ms(NOW + 30_000),
+            execution_condition: [7; 32],
+            destination: dassie_ilp::Address::parse(&to).unwrap(),
+            data: &[],
+        }
+        .to_vec()
+    };
+    core.begin_step(NOW + 2_000);
+    core.btp_packet(link, 1, &packet(0), false);
+    assert!(!has_any_accounts(&core, id), "nothing moved");
+    core.btp_packet(link, 2, &packet(1_000), false);
+    assert_eq!(core.connector.pending_count(), 2);
+    let name = dassie_ledger::Name::new(id.as_str()).unwrap();
+    let account = core
+        .account(
+            dassie_ledger::LedgerId::StubUsd,
+            dassie_ledger::AccountName::AssetsInterledger(name),
+        )
+        .unwrap();
+    let endpoint = dassie_connector::EndpointId::Peer(core.peer_endpoints[&id]);
+    assert_eq!(core.connector.account_of(endpoint), Some(account));
+    assert!(core.downlinks.waiting.is_empty());
+    core.check_invariants();
+    let mut outputs = Vec::new();
+    core.finish_step(&mut outputs);
+    assert_eq!(
+        store.downlink_accounts().unwrap(),
+        [(dassie_ledger::LedgerId::StubUsd, name)]
+    );
+}
+
+// spec/decisions/lazy-downlink-accounts.md: a downlink's first settlement
+// that the books take opens its accounts, and is booked as its settlement,
+// not the owner's deposit.
+#[test]
+fn a_downlinks_first_settlement_opens_its_accounts() {
+    use dassie_settlement::Effect;
+
+    let store = Arc::new(Store::open_in_memory().unwrap());
+    let (mut core, id) = stub_core_with_downlink(store);
+    let stub = dassie_ledger::name!("stub");
+    let name = dassie_ledger::Name::new(id.as_str()).unwrap();
+    core.begin_step(NOW + 2_000);
+    let settled = Effect::IncomingSettlement {
+        peer: name,
+        amount: 5_000,
+        id: None,
+    };
+    core.apply_effects(stub, dassie_ledger::LedgerId::StubUsd, &[settled])
+        .unwrap();
+    let scheme = dassie_peer::wire::SchemeId::parse("stub").unwrap();
+    assert_eq!(core.owed(id, scheme), Some(5_000));
+    assert!(core.downlinks.waiting.is_empty() && core.downlinks.opened.len() == 1);
+    core.check_invariants();
 }
 
 // spec/decisions/closing-channels.md: the books let a former peer's channel
@@ -1880,6 +2052,8 @@ fn pay_to_enter(
 // What it paid is held off the books until then, across a restart, and is
 // booked once as its settlement as it peers, which marks it as a downlink
 // that paid us. One that did not pay is told to.
+// It had no accounts before: what it paid opens them, as a downlink's
+// (spec/decisions/lazy-downlink-accounts.md).
 #[test]
 fn a_newcomer_that_paid_to_enter_is_taken_and_booked_once() {
     use dassie_ledger::LedgerId;
@@ -1927,6 +2101,16 @@ fn a_newcomer_that_paid_to_enter_is_taken_and_booked_once() {
         core.peer.channel(&id).unwrap().paid_us,
         "a downlink that paid us"
     );
+    // It had no accounts: its entry payment opened them, in the room kept
+    // for them, as a downlink's (spec/decisions/lazy-downlink-accounts.md).
+    let name = dassie_ledger::Name::new(id.as_str()).unwrap();
+    assert!(
+        core.downlinks
+            .opened
+            .contains(&(LedgerId::XrplTestnetXrp, name))
+    );
+    assert!(!core.downlinks.waiting.contains(&id));
+    core.check_invariants();
     let paid = |core: &Core| settled_in(core, LedgerId::XrplTestnetXrp, &id);
     assert_eq!(paid(&core), u128::from(ENTRY_DROPS * UNITS_PER_DROP));
     assert_eq!(core.owner_available(LedgerId::XrplTestnetXrp), owner_before);
@@ -1943,23 +2127,15 @@ fn a_newcomer_that_paid_to_enter_is_taken_and_booked_once() {
     assert!(core.peer.channel(&id).unwrap().paid_us);
 }
 
-/// Fills the downlinks' share of `core`'s peers' accounts with former
-/// downlinks' accounts on the stub's ledger.
+/// Fills the downlinks' share of `core`'s peers' accounts, beside the room
+/// kept for downlinks waiting for theirs, with former downlinks' accounts
+/// on the stub's ledger.
 fn fill_downlinks_share(core: &mut Core) {
-    let mut seed = 0u32;
-    while super::peers::room_for_peer(&core.ledger, &core.downlink_accounts, true) {
-        let mut bytes = [3; 32];
-        bytes[..4].copy_from_slice(&seed.to_be_bytes());
-        let node = NodeKey::from_bytes(&bytes).node_id();
-        let name = dassie_ledger::Name::new(node.as_str()).unwrap();
-        core.ledger
-            .open_peer(NOW, dassie_ledger::LedgerId::StubUsd, name, 0)
-            .unwrap();
-        core.downlink_accounts
-            .insert((dassie_ledger::LedgerId::StubUsd, name));
-        core.batch
-            .downlink_accounts
-            .push((dassie_ledger::LedgerId::StubUsd, name));
+    let max_accounts = core.ledger.config().max_accounts;
+    let anyone = NodeKey::from_bytes(&[4; 32]).node_id();
+    let mut seed = 1 << 20;
+    while core.downlinks.fit(max_accounts, &anyone) {
+        assert!(open_downlink_on_stub(core, seed));
         core.take_journal();
         seed += 1;
     }
@@ -3007,6 +3183,7 @@ fn rlusd_downlink_owing(
     use dassie_ledger::{AccountName, LedgerId, Name, Reference, TransferSpec};
 
     let id = xrpl_downlink_peers_on(core, ledger, now, "xrpl-rlusd");
+    assert!(core.open_downlink_accounts(id, dassie_ledger::name!("xrpl-rlusd")));
     let name = Name::new(id.as_str()).unwrap();
     let on = LedgerId::XrplRlusdUsd;
     let account = |core: &Core, name| core.account(on, name).unwrap();
@@ -3650,6 +3827,7 @@ fn a_peering_on_a_disabled_scheme_ends_and_the_pair_peers_on_another() {
     core.ledger
         .open_peer(at, on, name, Policies::DEFAULT.peer_credit)
         .unwrap();
+    core.refresh_waiting(id);
     core.flush();
     drop(core);
     let rlusd = dassie_xrpl::rlusd::TESTNET_SCHEME_ID;
@@ -3786,6 +3964,7 @@ fn a_stored_scheme_of_another_realm_keeps_what_is_pending_on_its_ledger() {
     let on = LedgerId::StubUsd;
     let store = Arc::new(Store::open_in_memory().unwrap());
     let (mut test, id) = stub_core_with_downlink(Arc::clone(&store));
+    assert!(test.open_downlink_accounts(id, dassie_ledger::name!("stub")));
     let token = test
         .create_token("wallet".into(), "stub+usd", None)
         .unwrap();
@@ -3916,7 +4095,7 @@ fn hub_books(core: &mut Core, peer: dassie_identity::NodeId) -> (u64, u64, u64) 
     let toward = core
         .with_commitments(stub, |c| c.holds(name).toward)
         .unwrap();
-    let (credit, _, settling) = core.hub_books(stub, peer).unwrap();
+    let (credit, _, settling) = core.hub_books(stub, peer).unwrap_or_default();
     (credit, toward, settling)
 }
 
@@ -4048,6 +4227,7 @@ fn over_a_hub_a_payee_asks_by_the_room_of_the_hold_toward_it() {
 
     let (mut core, peer) = hub_core_with_downlink(34);
     let stub = dassie_ledger::name!("stub");
+    assert!(core.open_downlink_accounts(peer, stub));
     let name = dassie_ledger::Name::new(peer.as_str()).unwrap();
     // Our books owe the peer well above our trigger.
     let interledger = core

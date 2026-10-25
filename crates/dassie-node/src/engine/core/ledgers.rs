@@ -413,6 +413,7 @@ impl Core {
         ledger: LedgerId,
         effects: &[Effect],
     ) -> Result<(), EngineError> {
+        self.open_for_settlements(scheme, effects);
         let bookings = match self.check_effects(scheme, ledger, effects) {
             Ok(bookings) => bookings,
             Err(error) => {

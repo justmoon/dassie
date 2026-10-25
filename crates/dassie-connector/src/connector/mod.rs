@@ -11,7 +11,7 @@ use alloc::string::String;
 use alloc::vec::Vec;
 
 use dassie_ilp::{Address, ErrorCode};
-use dassie_ledger::{AccountId, LedgerId, TraceId, TransferId};
+use dassie_ledger::{AccountId, Ledger, LedgerId, TraceId, TransferId};
 
 use crate::PacketTransfers;
 use crate::cap::{CapError, CapState, CapUsage, CapView, SpendingCap};
@@ -126,6 +126,39 @@ pub(crate) struct Pending {
     pub backstop_ms: Option<u64>,
     /// It expired and waits for the hub to decide it.
     pub awaiting_hub: bool,
+}
+
+/// Opens a peer's accounts for the first packet that moves money with it,
+/// for a peer added without them: the node's, which keeps the room its
+/// ledger has for peers' accounts (spec/decisions/lazy-downlink-accounts.md).
+pub trait OpensAccounts {
+    /// Opens the accounts of the peer at `endpoint` on `on` in `ledger`
+    /// for a packet to it, and returns the account its packets debit and
+    /// credit, or nothing if there is no room for them.
+    fn open(
+        &mut self,
+        now_ms: u64,
+        ledger: &mut Ledger,
+        endpoint: EndpointId,
+        on: LedgerId,
+    ) -> Option<AccountId>;
+
+    /// Takes back what [`open`](Self::open) just did for `endpoint`: the
+    /// ledger refused the packet it opened them for.
+    fn take_back(&mut self, ledger: &mut Ledger, endpoint: EndpointId, on: LedgerId);
+}
+
+/// For a connector none of whose peers lacks its accounts: opens nothing.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct OpensNone;
+
+impl OpensAccounts for OpensNone {
+    fn open(&mut self, _: u64, _: &mut Ledger, _: EndpointId, _: LedgerId) -> Option<AccountId> {
+        None
+    }
+
+    // It opens nothing, so it has nothing to take back.
+    fn take_back(&mut self, _: &mut Ledger, _: EndpointId, _: LedgerId) {}
 }
 
 /// The connector.
@@ -296,7 +329,7 @@ impl Connector {
         let own = Address::parse(&self.own_address).map_err(|_| EndpointError::InvalidAddress)?;
         let endpoint = Endpoint {
             address: String::from(address),
-            account,
+            account: Some(account),
             ledger,
             next_request_id: 0,
             pending_from: 0,
@@ -314,7 +347,9 @@ impl Connector {
     /// Adds a peer at `address`, which is only what ILDCP tells it: packets
     /// reach peers through the route table. Its first request ID is chosen
     /// by the caller at random, so that after a restart our new packets do
-    /// not reuse IDs the peer still holds from before.
+    /// not reuse IDs the peer still holds from before. A peer without
+    /// `account` has its accounts opened by the first packet that moves
+    /// money with it ([`OpensAccounts`]).
     ///
     /// # Errors
     ///
@@ -324,7 +359,7 @@ impl Connector {
         &mut self,
         id: EndpointId,
         address: &str,
-        account: AccountId,
+        account: Option<AccountId>,
         ledger: LedgerId,
         first_request_id: u32,
     ) -> Result<(), EndpointError> {
@@ -446,6 +481,33 @@ impl Connector {
         }
         self.incoming.retain(|(source, _)| *source != id);
         true
+    }
+
+    /// The account `id`'s packets debit and credit, if it has one yet.
+    #[must_use]
+    pub fn account_of(&self, id: EndpointId) -> Option<AccountId> {
+        self.endpoints.get(id).and_then(|endpoint| endpoint.account)
+    }
+
+    /// Gives a peer that had none the account its packets debit and
+    /// credit, opened by the node outside a packet, as for a settlement
+    /// (spec/decisions/lazy-downlink-accounts.md). Returns whether the
+    /// endpoint exists.
+    ///
+    /// # Panics
+    ///
+    /// If the endpoint already has another account.
+    pub fn open_account(&mut self, id: EndpointId, account: AccountId) -> bool {
+        self.endpoints
+            .get_mut(id)
+            .map(|endpoint| {
+                assert!(
+                    endpoint.account.is_none_or(|had| had == account),
+                    "an endpoint's account never changes"
+                );
+                endpoint.account = Some(account);
+            })
+            .is_some()
     }
 
     /// Marks a peer as one we peer with over a settlement hub, or not.

@@ -14,6 +14,7 @@ use dassie_peer::{
     PacketAnswer, PeeringHooks, Reply,
 };
 
+use super::downlinks::Downlinks;
 use super::events::{PeerEvent, SettlementEvent};
 use super::ledgers::ActiveScheme;
 use super::ledgers::OWN_ACCOUNTS;
@@ -37,11 +38,9 @@ pub(super) struct Hooks<'a> {
     pub assets: &'a BTreeMap<AssetId, ActiveAsset>,
     /// The database, for what stays of closed settlement channels.
     pub store: &'a Store,
-    /// The peers' accounts opened for downlinks, by ledger and node
-    /// (spec/decisions/account-budgets.md).
-    pub downlink_accounts: &'a mut BTreeSet<(LedgerId, Name)>,
-    /// Those opened in this step, for the batch.
-    pub downlink_accounts_opened: &'a mut Vec<(LedgerId, Name)>,
+    /// The accounts opened for downlinks, and the downlinks the node keeps
+    /// room for (spec/decisions/account-budgets.md).
+    pub downlinks: &'a Downlinks,
 }
 
 impl Hooks<'_> {
@@ -78,43 +77,25 @@ impl Hooks<'_> {
         super::growth::raise_trust(self.ledger, now_ms, ledger, name, amount).map_err(|_| ())
     }
 
-    /// Opens the peer's accounts and extends it `start`, once (ACC-5). New
-    /// ones only while its kind's share of the peers' account room has
-    /// some left: they stay when a channel closes, so the node's
+    /// Opens a core peer's accounts and extends it `start`, once (ACC-5).
+    /// New ones only while the core peers' share of the peers' account
+    /// room has some left: they stay when a channel closes, so the node's
     /// ever-growing number of former peers must not take the room its
-    /// tokens and ledgers need, nor former downlinks the room for peering
-    /// with core nodes, or the reverse (spec/decisions/account-budgets.md).
-    /// Accounts already open are the kind they were opened as.
-    fn open(
-        &mut self,
-        now_ms: u64,
-        peer: NodeId,
-        downlink: bool,
-        ledger: LedgerId,
-        start: u64,
-    ) -> Result<(), ()> {
+    /// tokens and ledgers need, nor the downlinks' room, or the reverse
+    /// (spec/decisions/account-budgets.md). A downlink's accounts open
+    /// only once value moves with it
+    /// (spec/decisions/lazy-downlink-accounts.md).
+    fn open(&mut self, now_ms: u64, peer: NodeId, ledger: LedgerId, start: u64) -> Result<(), ()> {
         let name = Name::new(peer.as_str()).map_err(|_| ())?;
-        let fresh = self
-            .ledger
-            .find(&AccountPath::new(
-                ledger,
-                AccountName::AssetsInterledger(name),
-            ))
-            .is_none();
-        if fresh && !room_for_peer(self.ledger, self.downlink_accounts, downlink) {
+        if !has_accounts(self.ledger, ledger, name)
+            && !room_for_core_peer(self.ledger, &self.downlinks.opened)
+        {
             return Err(());
         }
-        let (_, opened) = self
-            .ledger
+        self.ledger
             .open_peer(now_ms, ledger, name, start)
-            .map_err(|_| ())?;
-        assert_eq!(opened, fresh, "a peer's accounts open once");
-        if opened && downlink {
-            let inserted = self.downlink_accounts.insert((ledger, name));
-            assert!(inserted, "a downlink's new accounts are recorded once");
-            self.downlink_accounts_opened.push((ledger, name));
-        }
-        Ok(())
+            .map(|_| ())
+            .map_err(|_| ())
     }
 }
 
@@ -172,21 +153,15 @@ pub(super) fn has_accounts(ledger: &Ledger, on: LedgerId, node: Name) -> bool {
     .all(|name| ledger.find(&AccountPath::new(on, name)).is_some())
 }
 
-/// Whether another peer's two accounts fit in its kind's share of the
-/// peers' room, beside the accounts that kind already took: a downlink's
-/// those opened for downlinks, a core peer's every other peer's.
-pub(super) fn room_for_peer(
+/// Whether another core peer's two accounts fit in the core peers' share
+/// of the peers' room, beside every peer's accounts not opened for a
+/// downlink. A downlink's fit as [`Downlinks::fit`] says.
+pub(super) fn room_for_core_peer(
     ledger: &Ledger,
     downlink_accounts: &BTreeSet<(LedgerId, Name)>,
-    downlink: bool,
 ) -> bool {
-    let downlinks = 2 * downlink_accounts.len();
-    let taken = if downlink {
-        downlinks
-    } else {
-        peer_accounts(ledger).saturating_sub(downlinks)
-    };
-    taken + 2 <= peer_budget(ledger.config().max_accounts, downlink)
+    let taken = peer_accounts(ledger).saturating_sub(2 * downlink_accounts.len());
+    taken + 2 <= peer_budget(ledger.config().max_accounts, false)
 }
 
 impl PeeringHooks for Hooks<'_> {
@@ -239,6 +214,15 @@ impl PeeringHooks for Hooks<'_> {
         // Over a hub the hold is all the credit there is.
         let start = if hub { 0 } else { self.senior_credit };
         let credit_out = self.credit_for(peer, ledger, start);
+        // A downlink's accounts open once value moves with it, and only if
+        // they fit then: the room for them is kept from now on, while its
+        // channel is open (spec/decisions/lazy-downlink-accounts.md).
+        if downlink
+            && !has_accounts(self.ledger, ledger, peer_name)
+            && !self.downlinks.fit(self.ledger.config().max_accounts, &peer)
+        {
+            return Err(RefusalReason::Capacity);
+        }
         let active = self
             .scheme(scheme)
             .ok_or(RefusalReason::UnsupportedScheme)?;
@@ -246,8 +230,10 @@ impl PeeringHooks for Hooks<'_> {
             .scheme
             .accept_peering_request(peer_name, data, response)
             .map_err(|_| RefusalReason::SchemeRefused)?;
-        self.open(now_ms, peer, downlink, ledger, start)
-            .map_err(|()| RefusalReason::Capacity)?;
+        if !downlink {
+            self.open(now_ms, peer, ledger, start)
+                .map_err(|()| RefusalReason::Capacity)?;
+        }
         // Only now is the peering made: a request refused takes none of
         // the scheme's room.
         let active = self
@@ -282,7 +268,7 @@ impl PeeringHooks for Hooks<'_> {
             .finalize_peering_request(peer_name, info, data)
             .map_err(|_| Declined)?;
         // We ask only core nodes: a periphery node is asked by nobody.
-        self.open(now_ms, peer, false, ledger, start)
+        self.open(now_ms, peer, ledger, start)
             .map_err(|()| Declined)?;
         // A trust account from an earlier peering may hold less, from a
         // time we were the senior: a junior extends at least the default,
@@ -315,11 +301,14 @@ impl PeeringHooks for Hooks<'_> {
         else {
             return EntryPayment::NotTaken;
         };
-        // Its accounts must fit the downlinks' share, or it is refused for
-        // capacity before it is told to pay, and never let in on a payment
-        // the peering would then refuse (spec/decisions/account-budgets.md).
+        // Its accounts, which its payment opens as it peers, must fit the
+        // downlinks' share beside those opened and kept, or it is refused
+        // for capacity before it is told to pay, and never let in on a
+        // payment the peering would then refuse
+        // (spec/decisions/account-budgets.md,
+        // spec/decisions/lazy-downlink-accounts.md).
         if !has_accounts(self.ledger, active.scheme.ledger(), peer)
-            && !room_for_peer(self.ledger, self.downlink_accounts, true)
+            && !self.downlinks.fit(self.ledger.config().max_accounts, &node)
         {
             return EntryPayment::NotTaken;
         }
@@ -554,8 +543,7 @@ impl Core {
             endpoints: &self.peer_endpoints,
             assets: &self.assets,
             store: &self.store,
-            downlink_accounts: &mut self.downlink_accounts,
-            downlink_accounts_opened: &mut self.batch.downlink_accounts,
+            downlinks: &self.downlinks,
         };
         f(&mut self.peer, &mut hooks, now)
     }
@@ -864,6 +852,9 @@ impl Core {
         match event {
             Event::Peered { node, scheme, .. } => {
                 self.peerings_changed = true;
+                // A downlink's channel opened: room is kept for its
+                // accounts until value moves with it.
+                self.refresh_waiting(node);
                 if let Err(error) = self.add_peer_endpoint(node) {
                     self.report(PeerEvent::NoEndpoint { node, error });
                 }
@@ -951,6 +942,9 @@ impl Core {
             // (spec/decisions/closing-channels.md).
             Event::ChannelClosed { peer } => {
                 self.settle.backoff.remove(&peer);
+                // A downlink that never moved value leaves nothing behind
+                // (spec/decisions/lazy-downlink-accounts.md).
+                self.refresh_waiting(peer);
                 if let Some(name) = name(peer) {
                     // A stopped scheme is fed nothing: the channel closed
                     // only while every scheme it has accounts with ran.
@@ -998,13 +992,16 @@ impl Core {
             .map(|active| active.scheme.ledger())
             .ok_or("the peer's scheme is not active")?;
         let name = Name::new(node.as_str()).map_err(|e| e.to_string())?;
-        let account = self
-            .ledger
-            .find(&dassie_ledger::AccountPath::new(
-                ledger,
-                dassie_ledger::AccountName::AssetsInterledger(name),
-            ))
-            .ok_or("the peer's account is missing")?;
+        let account = self.ledger.find(&dassie_ledger::AccountPath::new(
+            ledger,
+            dassie_ledger::AccountName::AssetsInterledger(name),
+        ));
+        // A downlink's accounts open with the first packet that moves money
+        // to it, or its first settlement
+        // (spec/decisions/lazy-downlink-accounts.md).
+        if account.is_none() && !self.peer.is_downlink(&node) {
+            return Err("the peer's account is missing".into());
+        }
         let id = self.next_peer_endpoint;
         self.next_peer_endpoint += 1;
         let address = if self.peer.is_downlink(&node) {
