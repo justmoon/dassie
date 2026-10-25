@@ -74,6 +74,9 @@ http = "1"
 # The peer protocol over QUIC (spec/areas/peer-protocol.md#transport), on
 # rustls with ring like everything above: its default would add aws-lc.
 quinn = { version = "0.11.12", default-features = false, features = ["runtime-tokio", "rustls-ring"] }
+# quinn's generator of connection IDs, which quinn does not re-export, keyed
+# from the node key (spec/areas/peer-protocol.md#quic); already in the tree.
+quinn-proto = { version = "0.11.19", default-features = false }
 # The HMAC key quinn's stateless resets take; already in the tree.
 ring = "0.17.14"
 
