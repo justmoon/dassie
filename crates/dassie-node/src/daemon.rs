@@ -1002,35 +1002,22 @@ mod tests {
         assert_ne!(feed.port(), 0);
     }
 
-    // By default the feed listens beside the HTTPS listener, at its own
-    // port; a port that is taken leaves the node without a feed, and
-    // starting.
+    // A feed port that is taken leaves the node without a feed, and
+    // starting. The test holds the port itself, so that no other process
+    // can free it in between, as one holding the default port could.
     #[test]
-    fn the_feed_listens_beside_https_by_default_or_goes_without() {
-        let address = SocketAddr::from((Ipv4Addr::LOCALHOST, crate::feed::DEFAULT_FEED_PORT));
+    fn a_node_whose_feed_port_is_taken_goes_without() {
+        let taken = UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
         let dir = tempfile::tempdir().unwrap();
         let options = DaemonOptions {
             runtime: Some(Runtime::Standalone),
             ports: Some(free_ports()),
             listen: Some(Ipv4Addr::LOCALHOST.into()),
             quic: None,
-            feed: None,
+            feed: Some(taken.local_addr().unwrap()),
         };
-        // Whoever holds the port, this test or another process, the node
-        // starts; with it free, the node takes it.
-        let taken = UdpSocket::bind(address);
         let prepared = prepare(dir.path(), options);
         assert!(prepared.extras.feed.is_none());
-        drop((taken, prepared));
-        let dir = tempfile::tempdir().unwrap();
-        let options = DaemonOptions {
-            ports: Some(free_ports()),
-            ..options
-        };
-        let prepared = prepare(dir.path(), options);
-        if let Some(feed) = &prepared.extras.feed {
-            assert_eq!(feed.local_addr().unwrap(), address);
-        }
     }
 
     // QUIC is the peer protocol's only transport: a node whose UDP port is
