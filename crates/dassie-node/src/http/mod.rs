@@ -4,7 +4,9 @@
 //! place ([`route`]). Each listener bounds its connections, in all and per
 //! client, the time to complete a TLS handshake and to send headers, and on
 //! shutdown stops accepting, lets requests in progress finish, and closes
-//! WebSockets with 1001, waiting at most [`DRAIN_TIMEOUT`].
+//! WebSockets with 1001, waiting at most [`DRAIN_TIMEOUT`]. A tunnel for
+//! QUIC ([`quic::tunnel`]) leaves the listener once upgraded: it holds a
+//! place of the tunnels' instead, and ends with the QUIC endpoint.
 
 mod api;
 pub mod assets;
@@ -31,6 +33,8 @@ use rustls::ServerConfig;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::{TcpListener, TcpStream};
 use tokio_rustls::TlsAcceptor;
+use tokio_tungstenite::WebSocketStream;
+use tokio_tungstenite::tungstenite::protocol::Role;
 use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
 
@@ -42,6 +46,7 @@ pub use ws::SESSION_ENDED;
 
 use crate::log::target;
 use crate::node::Node;
+use crate::quic::{self, tunnel};
 use crate::slots::{ClientSlot, ClientSlots};
 
 /// Most connections a listener holds at once; more are closed on arrival.
@@ -310,6 +315,13 @@ async fn route_https(
             response::text(StatusCode::UPGRADE_REQUIRED, "Upgrade Required")
         };
     }
+    if path == tunnel::PATH {
+        return if ws::is_upgrade(&request) {
+            quic_tunnel(context, peer, request)
+        } else {
+            response::text(StatusCode::UPGRADE_REQUIRED, "Upgrade Required")
+        };
+    }
     // RT-16: the original left unmatched upgrade requests hanging.
     if ws::is_upgrade(&request) {
         return response::not_found();
@@ -337,4 +349,58 @@ async fn route_https(
             response
         }
     }
+}
+
+/// Answers the handshake of a tunnel for QUIC at [`tunnel::PATH`]
+/// (spec/areas/peer-protocol.md#quic-over-websocket), and hands the
+/// WebSocket to the node's QUIC endpoint once upgraded. The tunnel holds a
+/// place of the tunnels', in all and per client address, taken here: its
+/// connection leaves this listener's places at the upgrade, so tunnels and
+/// HTTPS never take each other's room.
+fn quic_tunnel(
+    context: &Context,
+    peer: SocketAddr,
+    mut request: Request<Incoming>,
+) -> Response<Body> {
+    let Some(key) = ws::handshake_key(&request).filter(|_| request.method() == Method::GET) else {
+        return ws::not_a_handshake();
+    };
+    let headers = request.headers();
+    if !response::header_has_token(
+        headers,
+        &header::SEC_WEBSOCKET_PROTOCOL,
+        tunnel::SUBPROTOCOL,
+    ) {
+        return response::text(
+            StatusCode::BAD_REQUEST,
+            "Expected the dassie-quic/1 subprotocol",
+        );
+    }
+    let node = &context.node;
+    let Some(quic) = node.quic().filter(|quic| quic.is_serving()) else {
+        return response::text(StatusCode::SERVICE_UNAVAILABLE, "QUIC is not running");
+    };
+    let slot = match quic.tunnel_slot(node.counted_client(peer.ip())) {
+        Ok(slot) => slot,
+        Err(refused) => {
+            tracing::debug!(target: target::HTTP, %peer, ?refused, "too many tunnels");
+            return response::text(StatusCode::SERVICE_UNAVAILABLE, "Too many tunnels");
+        }
+    };
+    let upgrade = hyper::upgrade::on(&mut request);
+    let quic: Arc<quic::Quic> = Arc::clone(quic);
+    context.tasks.spawn(async move {
+        match upgrade.await {
+            Ok(upgraded) => {
+                let io = TokioIo::new(upgraded);
+                let config = tunnel::websocket_config();
+                let ws = WebSocketStream::from_raw_socket(io, Role::Server, Some(config)).await;
+                quic.serve_tunnel(ws, peer, slot);
+            }
+            Err(error) => {
+                tracing::debug!(target: target::HTTP, %peer, %error, "tunnel upgrade failed")
+            }
+        }
+    });
+    ws::switching_protocols(&key, Some(tunnel::SUBPROTOCOL))
 }

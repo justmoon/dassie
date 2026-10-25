@@ -10,13 +10,14 @@ The decisions (whether an origin is allowed, a session valid, a setup attempt ri
 ## Listeners
 
 - **HTTP** serves ACME challenges and redirects everything else to HTTPS, keeping path and query.
-- **HTTPS** serves everything else: the BTP server, the RPC WebSocket, setup and login, Open Payments, `/stats` and the wallet.
+- **HTTPS** serves everything else: the BTP server, the RPC WebSocket, QUIC's tunnels at `/quic`, setup and login, Open Payments, `/stats` and the wallet.
 - Connections are bounded per listener and per client, where a client is an IPv4 address or an IPv6 /56, so one host cannot take every place by rotating addresses. Loopback is counted only in the total where private peers are allowed (dev environments and tests). Handshakes, headers and bodies are bounded in size and time too (`http/mod.rs`, `dassie-node-core/src/connections.rs`).
+- **A tunnel leaves the listener once upgraded.** A WebSocket at `/quic` carries QUIC's packets for a node whose UDP does not get through ([Peer protocol](peer-protocol.md#quic-over-websocket)). Before the upgrade it takes a place among the tunnels', in all and per client, or is refused with 503; once upgraded, its TCP connection holds that place and none of the listener's, so tunnels and HTTPS never take each other's room. It belongs to the QUIC endpoint from then on, which ends it.
 - At shutdown a listener stops accepting, lets requests in progress finish for a bounded time, and closes WebSockets with 1001.
 
 ### Route table
 
-`http/mod.rs` holds it. Routes exist only in the state they belong to: `/api/setup` only while the node has no identity, `/api/login` and `/api/logout` only once it has one; otherwise they are 404. ILP-over-HTTP (`/ilp`) is not served yet ([roadmap](../roadmap.md)).
+`http/mod.rs` holds it. Routes exist only in the state they belong to: `/api/setup` only while the node has no identity, `/api/login` and `/api/logout` only once it has one; otherwise they are 404. `/quic` takes only a WebSocket upgrade with the subprotocol `dassie-quic/1`, and only while the QUIC endpoint serves; it needs no session and checks no origin, since the QUIC handshake inside proves who is there. ILP-over-HTTP (`/ilp`) is not served yet ([roadmap](../roadmap.md)).
 
 ### Relayed streams
 
@@ -127,3 +128,4 @@ The daemon runs every ACME order ([RFC 8555](https://www.rfc-editor.org/rfc/rfc8
 - [secrets-at-rest](../decisions/secrets-at-rest.md): session tokens stored only as hashes.
 - [headless-setup](../decisions/headless-setup.md): `dassie setup` through the setup route, and why it pins the certificate the daemon names.
 - [tigerstyle](../decisions/tigerstyle.md): the node's decisions as pure functions in `dassie-node-core`; every table and timer bounded.
+- [quic-over-websocket](../decisions/quic-over-websocket.md): `/quic`, a WebSocket that carries QUIC's packets, with places of its own once upgraded.

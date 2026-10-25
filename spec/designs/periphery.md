@@ -178,7 +178,7 @@ A browser node is a short-lived periphery node, for demos: it lets someone join 
 
 ## 10. How it fits the node
 
-- **`dassie-node`** gains QUIC over a WebSocket; its QUIC endpoint, relayed streams, signed Open Payments answers and front doors are built.
+- **`dassie-node`**: its QUIC endpoint, QUIC over a WebSocket, relayed streams, signed Open Payments answers and front doors are built; front doors serving the WebSocket are not.
 - **`dassie-peer`** gains the downlink table, the `periphery` extension, records, home nodes and lookups, and the transport's link-state extension.
 - **`dassie-connector`** routes beneath a downlink's child address, and a periphery node's STREAM receiver takes its child addresses.
 - **The XRPL scheme** gains its table of peers' addresses and the two rules of §8.

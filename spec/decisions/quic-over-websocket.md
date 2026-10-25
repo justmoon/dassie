@@ -1,6 +1,6 @@
 # Where UDP is blocked, a periphery node carries its QUIC packets over a WebSocket
 
-**Areas:** [Peer protocol](../areas/peer-protocol.md#transport), [HTTP](../areas/http.md#listeners), [Network](../areas/network.md#periphery-nodes), [Periphery](../designs/periphery.md#2-transport-quic-on-every-peer-link). Not built yet ([roadmap](../roadmap.md#periphery)).
+**Areas:** [Peer protocol](../areas/peer-protocol.md#transport), [HTTP](../areas/http.md#listeners), [Network](../areas/network.md#periphery-nodes), [Periphery](../designs/periphery.md#2-transport-quic-on-every-peer-link). Built in nodes; the `dassiepay.net` front door does not serve the tunnel yet ([roadmap](../roadmap.md#periphery)).
 
 ## Facts
 
