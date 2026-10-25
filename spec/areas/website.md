@@ -7,7 +7,8 @@
 
 ## Pages
 
-- Each page is a plain HTML file and a Vite build input; a build step puts the shared header and footer into each (`src/layout.ts`). Only the toy and the architecture page run a script, each a Solid 2 island, and the brand page its theme switch.
+- Each page is a plain HTML file and a Vite build input; a build step puts the shared header and footer into each (`src/layout.ts`). Only the toy and the architecture page run a script, each a Solid 2 island; besides them, the home page runs its Copy button, which stays hidden without script, and the brand page its theme switch.
+- **Every page draws in Kopje** ([visual-identity](../decisions/visual-identity.md)). `src/kopje.css` holds what all of them share: the fonts, the palette in light and dusk, and the header and footer. `site.css` starts from it and dresses the components shared with the wallet (`@dassie/ui`) in it; the brand page's `brand.css` starts from it too. The pages follow the system's light or dark theme; the brand page starts light and has its own switch. The Copy button copies only the install command: pasted together, the next line would meet the installer's `sudo` asking for a password.
 - **The Quick Start and the NixOS guide must match what the tools do:** the installer, `dassie update` and the flake for NixOS ([Release](release.md)), and the `dassie` commands ([Node](node.md#the-dassie-command)). The NixOS guide prints the release key, which the build takes from `resources/minisign.pub`.
 - The website does not serve the installer: `sh.dassie.land` and `get.dassie.land` belong to the release mirror ([Release](release.md)).
 
@@ -41,7 +42,7 @@ Between them sits a connector, simulated one event at a time in `src/toy/simulat
 `/brand/` is Kopje, Dassie's visual identity: the mark, color, type, the graphic language, voice, and how they come together on the site, the wallet and what operators hand out ([visual-identity](../decisions/visual-identity.md)). It is the reference for how anything of Dassie's looks, so a change to the identity is a change to this page. The navigation leaves it out: it is for those who design for Dassie, and AGENTS.md links it. Its bare path answers once `provision.sh`'s URL map step has run with it; `check.sh` checks only the pages the header links to. `public/brand/` holds the mark as SVG files, Sunrise and the Silhouette, for anyone who needs them.
 
 - It keeps to the CSP as every page does: its fonts are files of the site's own, with their licenses beside them, and what would be inline styles are classes in `brand.css`.
-- It does not load `site.css`: the two share class names, and the page draws the shared header and footer in Kopje itself. The rest of the site keeps its look until it takes Kopje ([roadmap](../roadmap.md#kopje-across-dassie)).
+- It does not load `site.css`, whose class names it shares; both start from `src/kopje.css`, so the identity's fonts, palette, header and footer are written once.
 - It is written to be read, by people and by agents designing for Dassie (AGENTS.md, "Follow the visual identity"): its small drawings are inline SVG, so that its dark mode can recolor them, and the heavy ones, grass drawn blade by blade and distant kopjes, are SVG files in `brand/img/`. `theme.ts` switches between light and dark; the page starts light.
 
 ## Deployment

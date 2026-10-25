@@ -6,78 +6,168 @@
     <meta name="color-scheme" content="light dark" />
     <meta
       name="description"
-      content="A peer-to-peer network which can transfer tiny amounts of money quickly and cheaply."
+      content="Dassie is a peer-to-peer payment network you run yourself. Any currency, any ledger, anyone."
     />
-    <title>What is Dassie?</title>
-    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <title>Dassie: payments that grow sideways</title>
+    <link rel="icon" href="/brand/dassie-mark-small.svg" type="image/svg+xml" />
     <link rel="stylesheet" href="/src/site.css" />
+    <script type="module" src="/src/copy.ts"></script>
   </head>
   <body>
     <!-- header -->
-    <main class="site-main">
+    <main class="home">
       <section class="hero">
-        <div class="hero-text">
-          <h1>What is Dassie?</h1>
-          <p class="tagline">
-            A peer-to-peer network which can transfer tiny amounts of money
-            quickly and cheaply.
-          </p>
-          <div class="hero-actions">
-            <a class="button primary"
-              href="/guides/quick-start/">Get Started</a>
-            <a class="button" href="/tools/stream-toy/">Try STREAM</a>
-            <a class="button"
-              href="https://github.com/justmoon/dassie">See the code</a>
+        <div class="hero-inner">
+          <div class="hero-sun" aria-hidden="true"></div>
+          <img
+            class="hero-art"
+            src="/brand/img/network.webp"
+            alt="One dassie adds a new node to a network while another holds a bag of violet cubes"
+            width="1600"
+            height="1234"
+          />
+          <div class="hero-copy">
+            <p class="tag">Early days</p>
+            <h1>Payments that grow sideways.</h1>
+            <p class="lede">
+              Dassie is a peer-to-peer payment network you run yourself. Your
+              node peers with a few neighbors, keeps its own books and settles
+              on a shared ledger. Nobody sits on top.
+            </p>
+            <div class="install">
+              <code
+                class="lines"><span><span class="prompt">$</span>curl --proto =https --tlsv1.2 -sSf https://sh.dassie.land | sh</span>
+                <span class="comment"># Then set up the node: sudo dassie init</span></code>
+              <button
+                class="copy"
+                type="button"
+                hidden
+                data-copy="curl --proto =https --tlsv1.2 -sSf https://sh.dassie.land | sh"
+                data-testid="copy-install"
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <g fill="none" stroke="currentColor" stroke-width="2"
+                    stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="8" y="8" width="12" height="12" rx="4" />
+                    <path
+                      d="M16 5.5A2.5 2.5 0 0 0 13.5 4H8a4 4 0 0 0-4 4v5.5A2.5 2.5 0 0 0 5.5 16"
+                    />
+                  </g>
+                </svg>
+                <span>Copy</span>
+              </button>
+            </div>
+            <div class="hero-actions">
+              <a class="button primary" href="/guides/quick-start/">Quick Start</a>
+              <a class="button" href="/tools/stream-toy/">Try STREAM</a>
+            </div>
           </div>
         </div>
         <img
-          class="hero-image"
-          src="./src/assets/dassie.webp"
-          alt="A rock hyrax, or dassie, sitting on a rock"
-          width="1130"
-          height="1377"
+          class="hero-far"
+          src="/brand/img/site-far-horizon.svg"
+          alt=""
+          width="1200"
+          height="60"
         />
       </section>
 
-      <aside class="tip">
-        <strong>Dassie is not a blockchain.</strong> Payments are routed like
-        packets through the network and are not stored. The only state the
-        nodes share is the link state they route by.
-      </aside>
+      <section class="ground" aria-label="What your node does">
+        <article class="card">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <g fill="none" stroke="currentColor" stroke-width="1.8"
+              stroke-linecap="round" stroke-linejoin="round">
+              <path d="M2 20h20" />
+              <path d="M2.6 20c0-4.8 1.9-7.8 4.2-7.8s4.2 3 4.2 7.8" />
+              <path d="M13 20c0-6.2 1.9-9.8 4.2-9.8s4.2 3.6 4.2 9.8" />
+            </g>
+          </svg>
+          <h2>Find your neighbors</h2>
+          <p>
+            Your node meets the network through its bootstrap nodes, and picks
+            a few peers of its own.
+          </p>
+        </article>
+        <article class="card">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <g fill="none" stroke="currentColor" stroke-width="1.8"
+              stroke-linecap="round" stroke-linejoin="round">
+              <rect x="5" y="4" width="14" height="4.6" rx="2.3" />
+              <rect x="3" y="10.6" width="18" height="4.6" rx="2.3" />
+              <path d="M2 20h20" />
+            </g>
+          </svg>
+          <h2>Keep your own books</h2>
+          <p>
+            It records what each peer owes it, and settles with them on a
+            ledger they share.
+          </p>
+        </article>
+        <article class="card">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <g fill="none" stroke="currentColor" stroke-width="1.8"
+              stroke-linecap="round" stroke-linejoin="round">
+              <path d="M5.4 20h13.2" />
+              <circle cx="3.4" cy="20" r="1.6" />
+              <circle cx="20.6" cy="20" r="1.6" />
+              <path d="M7.5 20c0-6 2-9.5 4.5-9.5s4.5 3.5 4.5 9.5" />
+            </g>
+          </svg>
+          <h2>Earn your keep</h2>
+          <p>
+            Your node charges a small fee for each payment it carries for
+            others, and updates itself every day.
+          </p>
+        </article>
+      </section>
 
-      <section class="cards" aria-label="Features">
-        <article class="card">
-          <h2>Scalable</h2>
+      <section class="line" aria-labelledby="line">
+        <h2 id="line">Any currency. Any ledger. <em>Anyone.</em></h2>
+        <div class="pillars">
+          <div>
+            <h3>Any currency</h3>
+            <p>
+              Dassie handles currency exchange and routing for you. Hold the
+              currency you like and still pay everyone else on the network.
+            </p>
+          </div>
+          <div>
+            <h3>Any ledger</h3>
+            <p>
+              Nodes settle with each other on existing ledgers; today that is
+              the XRP Ledger. Dassie is based on
+              <a href="https://interledger.org/">Interledger</a>, so it can
+              work with any payment system that has an open API.
+            </p>
+          </div>
+          <div>
+            <h3>Anyone</h3>
+            <p>
+              Anyone can run a node. The network handles very large numbers of
+              very small payments, and its capacity grows as more nodes join.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <section class="truths" aria-label="What to know">
+        <div class="truth">
+          <h2>Dassie is not a blockchain.</h2>
           <p>
-            Dassie can handle very large numbers of very small payments, and
-            it scales horizontally: its capacity grows as more nodes join the
-            network.
+            Payments are routed like packets through the network and are not
+            stored. The only state the nodes share is the link state they
+            route by.
           </p>
-        </article>
-        <article class="card">
-          <h2>Currency-neutral</h2>
+        </div>
+        <div class="truth early">
+          <h2>It's early, and that's fine.</h2>
           <p>
-            Dassie handles currency exchange and routing for you. Hold the
-            currency you like and still pay everyone else on the network.
+            Few users and few ledgers so far, with more every day. Dassie is
+            not ready for real money yet. If you are still interested,
+            <a href="/guides/quick-start/">give it a try</a> or
+            <a href="https://github.com/justmoon/dassie">read the code</a>.
           </p>
-        </article>
-        <article class="card">
-          <h2>Ledger-neutral</h2>
-          <p>
-            Nodes settle with each other on existing ledgers; today that is
-            the XRP Ledger testnet. Dassie is based on
-            <a href="https://interledger.org/">Interledger</a>, so it can
-            work with any payment system that has an open API.
-          </p>
-        </article>
-        <article class="card">
-          <h2>Under development</h2>
-          <p>
-            Dassie is still early in its development and not ready for real
-            money. If you are still interested,
-            <a href="/guides/quick-start/">give it a try</a>.
-          </p>
-        </article>
+        </div>
       </section>
     </main>
     <!-- footer -->

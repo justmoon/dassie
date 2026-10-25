@@ -486,8 +486,8 @@ function Panel(props: {
         <p>
           Each box is a crate, an app, a package or a contract. Layers run top
           to bottom, from what people see to what everything rests on, and an
-          arrow points at what a box builds on. Colours group the parts that
-          work together.
+          arrow points at what a box builds on. Colors group the parts that work
+          together.
         </p>
         <Legend map={map} />
         <p>

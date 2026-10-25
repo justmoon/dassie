@@ -1,174 +1,498 @@
 /*
- * dassie.land: the shared stylesheet's tokens and components (buttons,
- * cards, forms, the log viewer), and the site's own layout. The pages run
- * under a CSP that allows styles from their own origin only, so every rule
- * lives here, never in a style attribute.
+ * dassie.land in Kopje, Dassie's visual identity (brand/index.html): the
+ * shared components (buttons, cards, forms, the log viewer) from
+ * @dassie/ui, dressed in Kopje's palette and type, and the site's own
+ * layout. The pages run under a CSP that allows styles from their own
+ * origin only, so every rule lives here, never in a style attribute.
+ * The theme follows the system: light, or dusk after sunset.
  */
 
 @import "@dassie/ui/ui.css";
+@import "./kopje.css";
+
+/* The shared components' tokens, in Kopje. */
+:root {
+  --bg: var(--sand);
+  --surface: var(--day);
+  --surface-2: var(--stone-3);
+  --text: var(--ink);
+  --muted: var(--ink-2);
+  --line: var(--stone-2);
+  --accent: var(--ember-text);
+  --accent-text: #FBF6EE;
+  --success: light-dark(#4F7A34, #9CC98C);
+  --success-bg: light-dark(#EEF2E2, #1F2A19);
+  --danger: light-dark(#B3261E, #F08A7E);
+  --danger-bg: light-dark(#F8E3DA, #34201B);
+  --warning-bg: light-dark(#FBEBD6, #33251A);
+  --warning-line: var(--sun);
+  --radius: 14px;
+  --font: var(--sans);
+}
+
+body {
+  font-size: 17px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1,
+h2,
+h3 {
+  font-family: var(--display);
+  font-variation-settings: "SOFT" 100, "WONK" 0;
+  font-weight: 560;
+  letter-spacing: -0.015em;
+}
+
+a {
+  text-underline-offset: 3px;
+}
+
+/* Buttons are pebbles: Ember for the one action, an ink outline for the rest. */
+button,
+a.button {
+  padding: 9px 19px;
+  font-size: 15px;
+  border: 1.5px solid var(--ink);
+  border-radius: 999px;
+}
+
+button.primary,
+a.button.primary {
+  color: #FBF6EE;
+  background: var(--ember);
+  border-color: var(--ember);
+}
+
+.card {
+  border: 0;
+  border-radius: 26px;
+}
+
+input,
+textarea,
+select {
+  background: var(--day);
+  border-color: var(--stone);
+}
+
+/* Commands are set in the terminal's ink, in both themes. */
+pre {
+  margin: 0 0 20px;
+  padding: 16px 20px;
+  overflow-x: auto;
+  color: #EFE3CF;
+  background: var(--night);
+  border-radius: 18px;
+}
+
+pre code {
+  font-size: 0.875rem;
+  line-height: 1.65;
+  overflow-wrap: normal;
+  white-space: pre;
+}
+
+:not(pre) > code {
+  padding: 1px 6px;
+  font-size: 0.85em;
+  background: var(--stone-3);
+  border-radius: 6px;
+}
 
 /* Layout */
-.site-header {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px 24px;
-  max-width: 1100px;
+.site-main {
+  max-width: var(--wrap);
   margin: 0 auto;
-  padding: 16px;
+  padding: 16px 32px 56px;
 }
 
-.brand {
+@media (max-width: 760px) {
+  .site-main {
+    padding: 8px 20px 40px;
+  }
+}
+
+/* Home: the hero on the plain, the far horizon at the dassies' feet. */
+.home.site-main {
+  max-width: none;
+  padding: 0 0 24px;
+}
+
+.hero {
+  position: relative;
+  overflow: clip;
+  background: linear-gradient(180deg, var(--sand) 0%, light-dark(#F2DDBF, #241B16) 55%,
+    light-dark(#F4D2AA, #4A2F20) calc(100% - 62px), light-dark(#F0D3B0, #2A1F19) calc(100% - 62px),
+    light-dark(#EFD9BD, #241C17) 100%);
+}
+
+.hero-inner {
+  position: relative;
+  z-index: 2;
+  max-width: var(--wrap);
+  min-height: 620px;
+  margin: 0 auto;
+  padding: 40px 32px 0;
+}
+
+.hero-copy {
+  position: relative;
+  z-index: 3;
+  max-width: 740px;
+  padding-bottom: 150px;
+}
+
+.tag {
   display: inline-flex;
   align-items: center;
-  gap: 10px;
-  color: var(--text);
-  font-size: 1.15rem;
-  font-weight: 700;
-  text-decoration: none;
-}
-
-.brand img {
-  border-radius: 6px;
-  background: #ffffff;
-}
-
-.site-header nav {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-}
-
-.site-header nav a {
-  padding: 6px 10px;
-  color: var(--text);
-  text-decoration: none;
-  border-radius: var(--radius);
-}
-
-.site-header nav a:hover,
-.site-header nav a[aria-current="page"] {
-  background: var(--surface-2);
-}
-
-.site-header nav a[aria-current="page"] {
+  gap: 6px;
+  margin: 0 0 18px;
+  padding: 5px 12px;
+  font-size: 12px;
   font-weight: 600;
+  letter-spacing: .04em;
+  color: var(--ink);
+  background: var(--stone-3);
+  border-radius: 999px;
 }
 
-.site-main {
-  max-width: 1100px;
-  margin: 0 auto;
-  padding: 16px 16px 48px;
-}
-
-.site-footer {
-  max-width: 1100px;
-  margin: 0 auto;
-  padding: 24px 16px 40px;
-  color: var(--muted);
-  border-top: 1px solid var(--line);
-}
-
-.site-footer p {
-  margin: 0;
-}
-
-/* Home */
-.hero {
-  display: grid;
-  grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
-  align-items: center;
-  gap: 32px;
-  padding: 32px 0;
+.tag::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--sun);
+  box-shadow: 0 0 0 3px rgb(244 162 89 / 0.3);
 }
 
 .hero h1 {
-  font-size: clamp(2.2rem, 6vw, 3.4rem);
+  margin: 0;
+  font-size: clamp(2.75rem, 7vw, 4.75rem);
+  font-weight: 600;
+  line-height: .98;
+  letter-spacing: -0.03em;
+  font-variation-settings: "SOFT" 100, "WONK" 1;
 }
 
-.tagline {
-  margin: 0 0 24px;
-  font-size: 1.25rem;
-  color: var(--muted);
+.hero .lede {
+  max-width: 480px;
+  margin: 20px 0 26px;
+  font-size: 1.125rem;
+  color: var(--ink-2);
+}
+
+.install {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  width: fit-content;
+  max-width: 100%;
+  padding: 16px 16px 16px 22px;
+  color: #EFE3CF;
+  background: var(--night);
+  border-radius: 22px;
+}
+
+.install .lines {
+  display: grid;
+  min-width: 0;
+  font-size: 13.5px;
+  line-height: 1.85;
+  background: none;
+  padding: 0;
+}
+
+.install .lines > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.install .prompt {
+  margin-right: 10px;
+  color: var(--sun);
+  user-select: none;
+}
+
+.install .comment {
+  color: #9E928A;
+}
+
+.install .copy {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  font-size: 13px;
+  color: #2B2420;
+  background: var(--sun);
+  border-color: var(--sun);
+}
+
+.install .copy[hidden] {
+  display: none;
+}
+
+.install .copy svg {
+  width: 14px;
+  height: 14px;
 }
 
 .hero-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 10px;
+  margin-top: 22px;
 }
 
-.hero-image {
-  width: 100%;
-  max-width: 360px;
+/* The sun, half risen, with the dassies standing in front of it. */
+.hero-sun {
+  position: absolute;
+  right: 48px;
+  bottom: 62px;
+  width: 440px;
+  height: 220px;
+  background: var(--sun);
+  border-radius: 220px 220px 0 0;
+}
+
+.hero-art {
+  position: absolute;
+  z-index: 2;
+  right: 48px;
+  bottom: 4px;
+  width: 440px;
   height: auto;
-  justify-self: center;
 }
 
-.tip {
-  margin: 0 0 32px;
-  padding: 14px 16px;
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-left: 4px solid var(--accent);
-  border-radius: var(--radius);
+.hero-far {
+  position: absolute;
+  z-index: 1;
+  left: 0;
+  bottom: 62px;
+  width: 100%;
+  height: 46px;
 }
 
-.cards {
+/* At dusk the far kopjes sink into the night; only their rims stay lit. */
+@media (prefers-color-scheme: dark) {
+  .hero-far {
+    filter: brightness(.42) saturate(.9);
+  }
+}
+
+/* Beneath the horizon: what your node does. */
+.ground {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
-  gap: 16px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 18px;
+  padding: 20px max(32px, calc((100% - var(--wrap)) / 2 + 32px)) 44px;
+  background: linear-gradient(180deg, light-dark(#EFD9BD, #241C17), var(--sand) 60%);
 }
 
-.cards .card p {
+.ground .card {
+  padding: 22px 24px;
+}
+
+.ground .card svg {
+  width: 30px;
+  height: 30px;
+}
+
+.ground .card h2 {
+  margin: 10px 0 4px;
+  font-size: 1.3rem;
+}
+
+.ground .card p {
+  margin: 0;
+  font-size: 0.9375rem;
+  line-height: 1.5;
+  color: var(--ink-2);
+}
+
+/* The line, and what it means. */
+.line,
+.truths {
+  max-width: var(--wrap);
+  margin: 0 auto;
+  padding: 56px 32px 0;
+}
+
+.line h2 {
+  margin: 0 0 28px;
+  font-size: clamp(2rem, 5vw, 3.25rem);
+  font-weight: 600;
+  line-height: 1.05;
+  letter-spacing: -0.03em;
+  font-variation-settings: "SOFT" 100, "WONK" 1;
+}
+
+.line h2 em {
+  color: var(--ember-text);
+}
+
+.pillars {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 32px;
+  padding-top: 22px;
+  /* The rim of light on the ink horizon. */
+  background: linear-gradient(var(--sun) 0 2px, var(--night) 2px 4px) top / 100% 4px no-repeat;
+}
+
+.pillars h3 {
+  margin: 0 0 6px;
+  font-size: 1.375rem;
+}
+
+.pillars p {
+  margin: 0;
+  color: var(--ink-2);
+}
+
+.truths {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+}
+
+.truth {
+  padding: 26px 28px;
+  background: var(--day);
+  border-radius: var(--pebble);
+}
+
+.truth h2 {
+  margin: 0 0 8px;
+  font-size: 1.5rem;
+}
+
+.truth p {
   margin: 0;
 }
 
-@media (max-width: 700px) {
-  .hero {
-    grid-template-columns: minmax(0, 1fr);
-    padding: 8px 0 24px;
+.truth.early {
+  background: linear-gradient(180deg, var(--sun-2), var(--sun));
+  color: #2B2420;
+}
+
+.truth.early a {
+  color: #2B2420;
+}
+
+@media (max-width: 1100px) {
+  .hero-art {
+    width: 400px;
   }
 
-  .hero-image {
-    max-width: 220px;
-    grid-row: 1;
+  .hero-sun {
+    width: 400px;
+    height: 200px;
+  }
+
+  .hero-copy {
+    max-width: 480px;
+  }
+}
+
+@media (max-width: 860px) {
+  .hero {
+    background: linear-gradient(180deg, var(--sand) 0%, light-dark(#F2DDBF, #241B16) 60%,
+      light-dark(#F4D2AA, #4A2F20) calc(100% - 42px), light-dark(#F0D3B0, #2A1F19) calc(100% - 42px),
+      light-dark(#EFD9BD, #241C17) 100%);
+  }
+
+  .hero-inner {
+    min-height: 0;
+    padding: 16px 20px 250px;
+  }
+
+  .hero-copy {
+    max-width: none;
+    padding-bottom: 32px;
+  }
+
+  .hero-sun {
+    right: 50%;
+    bottom: 42px;
+    width: 280px;
+    height: 140px;
+    margin-right: -140px;
+  }
+
+  .hero-art {
+    right: 50%;
+    width: 300px;
+    margin-right: -150px;
+  }
+
+  .hero-far {
+    bottom: 42px;
+    height: 30px;
+  }
+
+  .install {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+    width: 100%;
+  }
+
+  .install .lines {
+    font-size: 12px;
+  }
+
+  .install .lines > span {
+    white-space: normal;
+    word-break: break-all;
+  }
+
+  .ground,
+  .pillars,
+  .truths {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .ground {
+    padding: 22px 20px 32px;
+  }
+
+  .line,
+  .truths {
+    padding: 40px 20px 0;
+  }
+
+  .pillars {
+    gap: 22px;
   }
 }
 
 /* Guides */
 .doc {
-  max-width: 760px;
+  max-width: 800px;
 }
 
-.doc h1 {
-  font-size: 2.2rem;
-  margin-top: 16px;
+/* Every page but the home page opens with its title. */
+.site-main > h1 {
+  margin: 28px 0 18px;
+  font-size: clamp(2.25rem, 6vw, 3.25rem);
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: -0.03em;
+  font-variation-settings: "SOFT" 100, "WONK" 1;
 }
 
 .doc h2 {
-  margin-top: 36px;
-  font-size: 1.4rem;
+  margin: 44px 0 10px;
+  font-size: 1.6rem;
 }
 
 .doc li {
   margin-bottom: 4px;
-}
-
-pre {
-  margin: 0 0 16px;
-  padding: 12px 14px;
-  overflow-x: auto;
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-}
-
-pre code {
-  font-size: 0.875rem;
-  overflow-wrap: normal;
-  white-space: pre;
 }
 
 /* The STREAM toy */
@@ -402,16 +726,17 @@ pre code {
 }
 
 /* Architecture: the layered map with its detail panel, then how Dassie is
- * tested and its releases. Each subsystem has a colour, and a class
+ * tested and its releases. Each subsystem has a color from the veld at
+ * sunrise (violet for money, which Kopje keeps for value), and a class
  * `sub-…` sets `--c` to it, since the CSP allows no style attribute. Text
  * stays at 15px or more, the map's included at common widths. */
 :root {
-  --sub-interfaces: light-dark(#2d6cae, #6ea6e4);
-  --sub-node: light-dark(#23866a, #55c39b);
-  --sub-money: light-dark(#a86c12, #e0a54a);
-  --sub-protocols: light-dark(#7d4bb5, #b18be6);
-  --sub-tooling: light-dark(#bb3f55, #ec7f90);
-  --edge: light-dark(#71717a, #8a8a93);
+  --sub-interfaces: light-dark(#3E6A8A, #86B2D1);
+  --sub-node: light-dark(#5E7B2F, #A9C37A);
+  --sub-money: light-dark(#8A45C4, #C08AEE);
+  --sub-protocols: light-dark(#B0701A, #F4A259);
+  --sub-tooling: light-dark(#9A4A33, #E0896A);
+  --edge: light-dark(#8C7F73, #8E8277);
 }
 
 .sub-interfaces {
@@ -437,18 +762,13 @@ pre code {
 /* The map and its panel need more room than the other pages. */
 .site-main.architecture,
 body:has(> .site-main.architecture) .site-header,
-body:has(> .site-main.architecture) .site-footer {
+body:has(> .site-main.architecture) .site-footer p {
   max-width: 1380px;
 }
 
 .architecture {
   font-size: 1.0625rem;
   line-height: 1.6;
-}
-
-.architecture h1 {
-  font-size: clamp(2rem, 5vw, 2.6rem);
-  margin: 16px 0 12px;
 }
 
 .architecture p {
@@ -656,7 +976,7 @@ body:has(> .site-main.architecture) .site-footer {
 
 .architecture .nm {
   fill: var(--text);
-  font: 600 16px var(--mono);
+  font: 500 16px var(--mono);
 }
 
 .architecture .lb {
