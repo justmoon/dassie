@@ -1,7 +1,8 @@
 //! A periphery daemon and its uplink, over real QUIC
 //! (spec/areas/network.md#periphery-nodes): a node with a QUIC endpoint and
 //! no hostname peers with a core node as its downlink, without a probe, is
-//! paid beneath the uplink's address, and pays back through it.
+//! paid beneath the uplink's address, and pays back through it; over a
+//! WebSocket where its UDP does not reach the uplink.
 
 #![allow(
     clippy::unwrap_used,
@@ -176,6 +177,56 @@ async fn a_periphery_node_is_paid_beneath_its_uplink() {
     // By its books, its packets with its uplink came to what it was paid,
     // less what it paid back.
     assert_eq!(carried(&p, &key_a).await, -i128::from(PAYMENT - BACK));
+    a.stop().await;
+    p.stop().await;
+}
+
+// spec/areas/peer-protocol.md#quic-over-websocket: a periphery daemon whose
+// UDP does not reach its uplink peers over a tunnel at `/quic` on the
+// uplink's HTTPS listener; the uplink sends on the connection inside it,
+// takes it as a downlink's, and pays it through it.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_periphery_node_peers_over_a_tunnel_where_udp_is_blocked() {
+    let (key_a, key_p) = (key(50), key(51));
+    let (bound_a, bound_p) = (Bound::new().udp_blocked(), Bound::new());
+    let nodes = bootstrap(&key_a, bound_a.https_port());
+    let env = [
+        ("DASSIE_BOOTSTRAP_NODES", nodes.as_str()),
+        ("DASSIE_PEER_CA_FILE", CA),
+        ("DASSIE_PEER_ALLOW_PRIVATE", "1"),
+    ];
+    let clock = ManualClock::new(START_MS);
+    let a = bound_a.start(clock.clone(), 9, Policies::DEV, &env).await;
+    let p = bound_p.start(clock.clone(), 10, Policies::DEV, &env).await;
+    prepare(&a, &key_a).await;
+    prepare_periphery(&p, &key_p).await;
+    until(&clock, async || {
+        peered(&a, &key_p).await && peered(&p, &key_a).await
+    })
+    .await;
+    let (quic_a, quic_p) = (a.quic.as_ref().unwrap(), p.quic.as_ref().unwrap());
+    assert_eq!(quic_a.open_tunnels(), 1);
+    assert_eq!(quic_p.open_tunnels(), 1);
+    until(&clock, async || {
+        quic_a
+            .stats()
+            .sent
+            .load(std::sync::atomic::Ordering::Relaxed)
+            > 0
+    })
+    .await;
+    holds_a_downlinks_place(&a, &key_p).await;
+    let payment = incoming(&p).await;
+    let mut paying = client(&a).await;
+    pay_stream(
+        &clock,
+        &mut paying,
+        &payment.ilp_address,
+        &payment.shared_secret,
+        PAYMENT,
+    )
+    .await;
+    assert_eq!(carried(&p, &key_a).await, -i128::from(PAYMENT));
     a.stop().await;
     p.stop().await;
 }

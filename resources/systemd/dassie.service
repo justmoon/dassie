@@ -28,6 +28,11 @@ WorkingDirectory=/var/lib/dassie
 Environment=DASSIE_LOG_LEVEL=info
 Restart=always
 RestartSec=1
+# Room for every connection it bounds: HTTPS's, 1024, and a tunnel for QUIC
+# for each place of its QUIC endpoint, those being set up and the nodes',
+# about 4000 each, beside its sockets and files. systemd's default allows
+# 1024.
+LimitNOFILE=16384
 # Bounded, so that an update whose node never comes up is rolled back.
 TimeoutStartSec=5min
 

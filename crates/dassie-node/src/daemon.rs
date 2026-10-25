@@ -29,7 +29,7 @@ use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
 
 use crate::clock::{Clock, SharedRng};
-use crate::env::{Env, EnvError, Relay, Settings};
+use crate::env::{Env, EnvError, Settings};
 use crate::log::target;
 use crate::node::{Node, NodeError, NodeOptions, PeerOptions, Policies, Runtime};
 use crate::quic::relay::KeepWhile;
@@ -479,7 +479,7 @@ fn make_node(
     // Peers reach the node at its QUIC socket too, which may listen apart
     // from the HTTPS listener.
     let quic_ip = quic.local_addr().ok().map(|address| address.ip());
-    attach_quic(&node, quic, extras.hand_out, settings.relay.as_ref())?;
+    attach_quic(&node, quic, extras.hand_out, settings)?;
     let feed_ip = extras.feed.and_then(|socket| attach_feed(&node, socket));
     if let Some(dir) = &settings.dev_wallet_dir {
         tracing::warn!(target: target::HTTP, dir = %dir.display(), "serving a development build of the wallet");
@@ -505,7 +505,9 @@ fn make_node(
 /// Makes the QUIC endpoint on `socket` and gives it to the node, with the
 /// relay the node chose, if any, which the endpoint keeps a connection to
 /// once it serves (spec/areas/node.md#a-chosen-relay): the default relay
-/// only while the node has no hostname (spec/decisions/default-relay.md).
+/// only while the node has no hostname (spec/decisions/default-relay.md);
+/// and the HTTP proxy its tunnels dial through, if any
+/// (spec/areas/peer-protocol.md#quic-over-websocket).
 ///
 /// # Errors
 ///
@@ -514,16 +516,23 @@ fn attach_quic(
     node: &Node,
     socket: UdpSocket,
     hand_out: Option<tokio::sync::oneshot::Sender<Arc<crate::quic::Quic>>>,
-    relay: Option<&Relay>,
+    settings: &Settings,
 ) -> Result<(), DaemonError> {
     let address = socket.local_addr().map_or_else(
         |_| "the UDP socket".to_owned(),
         |address| address.to_string(),
     );
     let quic = crate::quic::Quic::new(socket, node.identity(), node.allows_private_peers())
-        .map_err(|e| DaemonError::Bind(format!("QUIC on {address}"), e))?;
+        .map_err(|e| DaemonError::Bind(format!("QUIC on {address}"), e))?
+        .with_tunnel_proxy(settings.tunnel_proxy.clone());
+    for problem in &settings.tunnel_proxy_problems {
+        tracing::warn!(target: target::PEER, "{problem}");
+    }
+    if let Some(proxy) = &settings.tunnel_proxy {
+        tracing::info!(target: target::PEER, %proxy, "QUIC over a WebSocket goes through an HTTP proxy");
+    }
     let quic = Arc::new(quic);
-    if let (Some(relay), Some(client)) = (relay, node.peer_client()) {
+    if let (Some(relay), Some(client)) = (&settings.relay, node.peer_client()) {
         let keep = if relay.is_default {
             KeepWhile::NoHostname(node.subscribe_config())
         } else {

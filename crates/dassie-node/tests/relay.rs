@@ -755,7 +755,7 @@ async fn an_uplink_reaches_its_downlink_and_relays_to_it() {
         side_with(seed, socket, Some(idle), &shutdown)
     };
     let (uplink, downlink, from) = (short(1), short(2), side(3, &shutdown));
-    downlink.quic.set_keep_alive(true);
+    downlink.quic.set_periphery(true);
     send(&downlink, &uplink).await;
     tokio::time::sleep(idle * 3).await;
     let response = uplink.quic.send_held(&to_periphery(&downlink)).await;

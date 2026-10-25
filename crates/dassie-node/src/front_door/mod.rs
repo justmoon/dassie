@@ -14,7 +14,9 @@
 //!   to the holder of the name it is, over relayed streams it opens on that
 //!   node's connection ([`nodes`]), with TLS inside pinned to the node's
 //!   key, and answers the root of a name with a static page of its own
-//!   about the node ([`page`]);
+//!   about the node ([`page`]); and on the relay's host, takes tunnels for
+//!   QUIC at `/quic` into the QUIC endpoint, for the nodes whose UDP does
+//!   not reach it;
 //! - a poller ([`names`]) that reads the registrars' name lists over the
 //!   same QUIC endpoint, and takes each name's holder from them as every
 //!   node does.
@@ -68,6 +70,9 @@ pub struct Parts {
     pub key: NodeKey,
     /// Its certificate for `*.<domain>`.
     pub certificate: CertificateFiles,
+    /// The URL nodes dial its QUIC endpoint at, `https://host[:port]`:
+    /// over a tunnel too, at `/quic` on that host and port over TCP.
+    pub relay_url: String,
     /// The registrars whose name lists it reads.
     pub registrars: Registrars,
     /// Whether registrars may be at private addresses, such as `localhost`
@@ -97,6 +102,12 @@ pub async fn serve(
     shutdown: CancellationToken,
 ) -> Result<(), StartError> {
     let domain = parts.domain.as_str().to_string();
+    let relay = https::relay_authority(&parts.relay_url).ok_or_else(|| {
+        StartError(format!(
+            "{:?} is not of the form https://host[:port]",
+            parts.relay_url
+        ))
+    })?;
     let (stored, loaded) = parts
         .certificate
         .load(&domain)
@@ -125,7 +136,12 @@ pub async fn serve(
         rng,
     );
     let nodes = Arc::new(nodes::Nodes::new(Arc::clone(&quic), shutdown.clone()));
-    let door = Arc::new(https::Door::new(&domain, nodes, names, clock));
+    let door = Arc::new(https::Door::new(
+        &domain,
+        (relay, Arc::clone(&quic)),
+        (nodes, names),
+        clock,
+    ));
     tracing::info!(target: target::FRONT_DOOR, %domain, "front door serving");
     let reloading = tokio::spawn(certificate::keep_current(
         parts.certificate,
@@ -171,7 +187,8 @@ pub async fn run(
             .ok_or_else(|| missing("certificate key", "DASSIE_FRONT_DOOR_CERTIFICATE_KEY"))?,
     };
     let key = key::read(key_file).map_err(StartError)?;
-    let entry = key::relay_entry(&key, &settings.relay_url());
+    let relay_url = settings.relay_url();
+    let entry = key::relay_entry(&key, &relay_url);
     tracing::info!(target: target::FRONT_DOOR, "nodes name this front door as their relay with DASSIE_RELAY='{entry}'");
     for variable in settings.exposed_dev_flags() {
         tracing::warn!(target: target::FRONT_DOOR, "{variable} is set: it is for development; unset it on a public front door");
@@ -192,6 +209,7 @@ pub async fn run(
         domain: settings.domain.clone(),
         key,
         certificate,
+        relay_url,
         registrars: settings.registrars(),
         allow_private: settings.peer_allow_private,
     };

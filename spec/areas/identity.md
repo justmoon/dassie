@@ -17,7 +17,8 @@ What pins it:
 - **The paths the rewrite added** have no vector, only their constants, which must not change:
   - `node/stream-server/<ledger slug>` (`crates/dassie-node/src/engine/core/packets.rs`) keys the STREAM receivers; changing it voids every credential the node has handed out for incoming payments ([STREAM](stream.md#credentials-and-tokens));
   - `node/open-payments-client` (`crates/dassie-node/src/open_payments/keys.rs`) is the key the node signs Open Payments requests with; changing it changes the key other wallets know the node by ([Payments](payments.md#wallet-addresses));
-  - `node/hub/<nonce>/{consensus,escrow,payout,escrow-master}` (`crates/dassie-hub/src/escrow/keys.rs`) are a validator's keys for a settlement hub and the sponsor's escrow master key; changing them changes the keys a hub's rules name, and where a sponsor makes its escrow again after a reset ([Settlement hubs](hubs.md#the-escrow)). A test pins one public key of each.
+  - `node/hub/<nonce>/{consensus,escrow,payout,escrow-master}` (`crates/dassie-hub/src/escrow/keys.rs`) are a validator's keys for a settlement hub and the sponsor's escrow master key; changing them changes the keys a hub's rules name, and where a sponsor makes its escrow again after a reset ([Settlement hubs](hubs.md#the-escrow)). A test pins one public key of each;
+  - `node/quic/stateless-reset` and `node/quic/tunnel-stateless-reset` (`crates/dassie-node/src/quic/mod.rs`) key the stateless resets of the QUIC endpoint over UDP and of the one over tunnels, each its own, so that neither can give away the other's reset tokens; changing one only makes peers wait out the idle timeout once, for connections a crash left behind ([Peer protocol](peer-protocol.md#quic-over-websocket)).
 
 A new secret takes a new path below `node`, never a new meaning for an existing one.
 
@@ -25,7 +26,7 @@ A new secret takes a new path below `node`, never a new meaning for an existing 
 
 A path is resolved from the node key only if it is `node` or starts with `node/`. Any other path hangs off the master seed, which the node never has: only the browser holds the phrase and the master seed, during setup and login ([HTTP](http.md)), or, for an owner who keeps the phrase on the node's host, `dassie setup` and the market maker, which wipe them once they have the node key ([headless-setup](../decisions/headless-setup.md)). `dev/session` is such a sibling of `node`, so only a holder of the phrase derives a development session token.
 
-Users of the tree: the login secret ([HTTP](http.md)), settlement entropy at `node/settlement-module/<scheme>/<path>` ([XRPL](xrpl.md#the-wallet)), the STREAM receivers ([Payments](payments.md#receiving)), the Open Payments key ([Payments](payments.md#wallet-addresses)), the QUIC endpoint's key for stateless resets ([Peer protocol](peer-protocol.md#quic)), and a settlement hub's keys at `node/hub/<nonce>/<name>`: a validator's consensus, escrow and payout keys, and a sponsor's escrow master key ([Settlement hubs](hubs.md#the-escrow)).
+Users of the tree: the login secret ([HTTP](http.md)), settlement entropy at `node/settlement-module/<scheme>/<path>` ([XRPL](xrpl.md#the-wallet)), the STREAM receivers ([Payments](payments.md#receiving)), the Open Payments key ([Payments](payments.md#wallet-addresses)), the QUIC endpoints' keys for stateless resets, one per endpoint ([Peer protocol](peer-protocol.md#quic)), and a settlement hub's keys at `node/hub/<nonce>/<name>`: a validator's consensus, escrow and payout keys, and a sponsor's escrow master key ([Settlement hubs](hubs.md#the-escrow)).
 
 ## Node key
 

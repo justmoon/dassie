@@ -28,6 +28,11 @@ Environment=DASSIE_FRONT_DOOR_CERTIFICATE_KEY=/etc/dassie-front-door/tls/privkey
 Environment=DASSIE_LOG_LEVEL=info
 Restart=always
 RestartSec=1
+# Room for every connection it bounds: HTTPS's, 1024, and a tunnel for QUIC
+# for each place of its QUIC endpoint, those being set up and the nodes',
+# about 4000 each, beside its sockets and files. systemd's default allows
+# 1024.
+LimitNOFILE=16384
 
 # Port 443, TCP and UDP, and nothing else it does needs more than this.
 AmbientCapabilities=CAP_NET_BIND_SERVICE

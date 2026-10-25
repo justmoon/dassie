@@ -22,6 +22,7 @@ use dassie_node_core::config::{Hostname, LiveRealm};
 use serde::Deserialize;
 
 use crate::log::{LogFilter, LogLevel};
+use crate::quic::proxy::{NoProxy, Proxy};
 
 /// The public testnet's bootstrap nodes
 /// (spec/decisions/bootstrap-network.md), in one region, us-east1, so that
@@ -191,11 +192,21 @@ pub struct Settings {
     /// spec/areas/hubs.md#the-validator-in-the-node). None when unset:
     /// validating is something an owner turns on.
     pub validator: Option<crate::hub::config::ValidatorConfig>,
+    /// The HTTP proxy the node's tunnels dial through, and the hosts they
+    /// dial directly (`https_proxy` and `no_proxy`, or `HTTPS_PROXY` and
+    /// `NO_PROXY`; spec/areas/peer-protocol.md#quic-over-websocket). None
+    /// when unset, or set to a proxy the node cannot use.
+    pub tunnel_proxy: Option<Proxy>,
+    /// What the node could not use of those variables, which are set for
+    /// every program and so never stop it: the daemon warns of each at
+    /// start. At most three.
+    pub tunnel_proxy_problems: Vec<EnvError>,
 }
 
 impl Settings {
     /// Reads and checks every variable.
     pub fn from_env(env: &Env) -> Result<Self, EnvError> {
+        let (tunnel_proxy, tunnel_proxy_problems) = tunnel_proxy(env);
         Ok(Self {
             data_dir: data_dir(env)?,
             ipc_socket_path: env.path("DASSIE_IPC_SOCKET_PATH"),
@@ -211,6 +222,8 @@ impl Settings {
             public_names: public_names(env)?,
             uplinks: uplinks(env)?,
             validator: validator(env)?,
+            tunnel_proxy,
+            tunnel_proxy_problems,
         })
     }
 }
@@ -239,6 +252,71 @@ fn validator(env: &Env) -> Result<Option<crate::hub::config::ValidatorConfig>, E
     crate::hub::config::parse(&text)
         .map(Some)
         .map_err(|problem| error(format!("names a file that is wrong: {problem}")))
+}
+
+/// The proxy for the tunnels the node dials, as other programs read it:
+/// `https_proxy`, else `HTTPS_PROXY`, bypassed for the hosts `no_proxy`,
+/// else `NO_PROXY`, lists. An empty variable is unset. `NO_PROXY` is read
+/// only with a proxy, since it means nothing without one.
+///
+/// These variables are the network's, set for every program, so what the
+/// node cannot use never stops it: a proxy it cannot use is ignored, and
+/// entries of `NO_PROXY` it cannot read are skipped, each with a problem
+/// to warn of at start, at most three. A variable that is not UTF-8 counts
+/// as unset, with a problem too.
+fn tunnel_proxy(env: &Env) -> (Option<Proxy>, Vec<EnvError>) {
+    let mut problems = Vec::with_capacity(3);
+    let Some((variable, url)) = first_set(env, ["https_proxy", "HTTPS_PROXY"], &mut problems)
+    else {
+        return (None, problems);
+    };
+    let mut bypass_problems = Vec::with_capacity(2);
+    let bypass = match first_set(env, ["no_proxy", "NO_PROXY"], &mut bypass_problems) {
+        None => NoProxy::default(),
+        Some((variable, text)) => {
+            let (bypass, problem) = NoProxy::parse(text);
+            bypass_problems.extend(problem.map(|problem| EnvError {
+                variable,
+                problem: format!("{problem}: tunnels to those hosts go through the proxy"),
+            }));
+            bypass
+        }
+    };
+    match Proxy::parse(url, bypass) {
+        Ok(proxy) => {
+            problems.extend(bypass_problems);
+            assert!(problems.len() <= 3);
+            (Some(proxy), problems)
+        }
+        // With no proxy, `NO_PROXY` means nothing.
+        Err(problem) => {
+            problems.push(EnvError {
+                variable,
+                problem: format!("{problem}: the node's tunnels go without a proxy"),
+            });
+            (None, problems)
+        }
+    }
+}
+
+/// The first of `variables` set to more than nothing, and its value; one
+/// that is not UTF-8 is skipped, with its problem added to `problems`.
+fn first_set<'a>(
+    env: &'a Env,
+    variables: [&'static str; 2],
+    problems: &mut Vec<EnvError>,
+) -> Option<(&'static str, &'a str)> {
+    for variable in variables {
+        match env.get(variable) {
+            Ok(Some(value)) if !value.is_empty() => return Some((variable, value)),
+            Ok(_) => {}
+            Err(EnvError { variable, problem }) => problems.push(EnvError {
+                variable,
+                problem: format!("{problem}: the node takes it as unset"),
+            }),
+        }
+    }
+    None
 }
 
 /// `DASSIE_STATE_DIRECTORY`, then systemd's `STATE_DIRECTORY` (its first
@@ -749,5 +827,101 @@ mod tests {
         assert_eq!(unset.node.public_key.node_id(), unset.node.id);
         let empty = settings(&[("HOME", "/h"), ("DASSIE_RELAY", "")]);
         assert_eq!(empty.map(|s| s.relay), Ok(None));
+    }
+    // spec/areas/peer-protocol.md#quic-over-websocket: the proxy for
+    // tunnels is read as other programs read it, lowercase first, and
+    // `NO_PROXY` only with a proxy.
+    #[test]
+    fn the_tunnels_proxy_is_read_as_other_programs_read_it() {
+        let proxy = |pairs: &[(&str, &str)]| {
+            let mut all = vec![("HOME", "/h")];
+            all.extend_from_slice(pairs);
+            settings(&all).map(|s| s.tunnel_proxy.map(|proxy| proxy.to_string()))
+        };
+        assert_eq!(proxy(&[]), Ok(None));
+        assert_eq!(proxy(&[("HTTPS_PROXY", "")]), Ok(None));
+        assert_eq!(
+            proxy(&[("HTTPS_PROXY", "http://upper:1")]),
+            Ok(Some("upper:1".to_owned()))
+        );
+        assert_eq!(
+            proxy(&[
+                ("HTTPS_PROXY", "http://upper:1"),
+                ("https_proxy", "http://lower:2")
+            ]),
+            Ok(Some("lower:2".to_owned()))
+        );
+        // An empty lowercase one leaves the uppercase one.
+        assert_eq!(
+            proxy(&[("HTTPS_PROXY", "http://upper:1"), ("https_proxy", "")]),
+            Ok(Some("upper:1".to_owned()))
+        );
+        let settings = settings(&[
+            ("HOME", "/h"),
+            ("HTTPS_PROXY", "http://p:1"),
+            ("NO_PROXY", "near.example"),
+        ])
+        .unwrap();
+        assert_eq!(settings.tunnel_proxy_problems, []);
+        let proxy = settings.tunnel_proxy.unwrap();
+        assert!(!proxy.applies_to("near.example"));
+        assert!(proxy.applies_to("far.example"));
+    }
+
+    // spec/areas/node.md#startup: the proxy variables are set for every
+    // program, so what the node cannot use of them never stops it: it
+    // ignores a proxy it cannot use, and skips what it cannot read of
+    // `NO_PROXY`, naming the variable for a warning.
+    #[test]
+    fn a_proxy_the_node_cannot_use_never_stops_it() {
+        let read = |pairs: &[(&str, &str)]| {
+            let mut all = vec![("HOME", "/h")];
+            all.extend_from_slice(pairs);
+            let settings = settings(&all).unwrap();
+            let problems = settings.tunnel_proxy_problems.iter();
+            let variables: Vec<_> = problems.map(|problem| problem.variable).collect();
+            (
+                settings.tunnel_proxy.map(|proxy| proxy.to_string()),
+                variables,
+            )
+        };
+        for url in [
+            "socks5://127.0.0.1:1080",
+            "https://proxy.example:443",
+            "http://proxy.example:port",
+        ] {
+            let ignored = read(&[("HTTPS_PROXY", url), ("NO_PROXY", "host:8080")]);
+            assert_eq!(ignored, (None, vec!["HTTPS_PROXY"]), "{url}");
+        }
+        // `NO_PROXY` is read only with a proxy; what it cannot read is
+        // skipped, and the rest kept.
+        assert_eq!(read(&[("NO_PROXY", "host:8080")]), (None, vec![]));
+        let skipped = read(&[
+            ("HTTPS_PROXY", "http://p:1"),
+            ("no_proxy", "localhost:3000,10.*,near.example"),
+        ]);
+        assert_eq!(skipped, (Some("p:1".to_owned()), vec!["no_proxy"]));
+        let many = vec!["a.example"; crate::quic::proxy::MAX_NO_PROXY_ENTRIES + 1].join(",");
+        let long = read(&[("HTTPS_PROXY", "http://p:1"), ("NO_PROXY", &many)]);
+        assert_eq!(long, (Some("p:1".to_owned()), vec!["NO_PROXY"]));
+    }
+
+    // A proxy variable that is not UTF-8 counts as unset, with a warning,
+    // rather than stopping the node.
+    #[cfg(unix)]
+    #[test]
+    fn a_proxy_variable_that_is_not_utf8_never_stops_the_node() {
+        use std::os::unix::ffi::OsStringExt as _;
+        let mut env = Env::from_pairs([("HOME", "/h"), ("HTTPS_PROXY", "http://p:1")]);
+        env.0
+            .insert("https_proxy".into(), OsString::from_vec(vec![0xff]));
+        let settings = Settings::from_env(&env).unwrap();
+        assert_eq!(
+            settings.tunnel_proxy.map(|p| p.to_string()),
+            Some("p:1".into())
+        );
+        let problems = settings.tunnel_proxy_problems.iter();
+        let variables: Vec<_> = problems.map(|problem| problem.variable).collect();
+        assert_eq!(variables, ["https_proxy"]);
     }
 }

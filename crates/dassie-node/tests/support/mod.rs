@@ -64,12 +64,15 @@ pub struct Bound {
     /// Whether the daemon gets the feed's socket.
     with_feed: bool,
     notify: Option<PathBuf>,
+    /// A UDP socket on the HTTPS listener's port that never reads, where
+    /// the QUIC endpoint is elsewhere.
+    blackhole: Option<std::net::UdpSocket>,
 }
 
 /// An HTTPS listener and a UDP socket for QUIC on the same port number, as
 /// a node has them. The OS picks the TCP port, which may be taken on UDP:
 /// then another is tried.
-fn https_and_quic() -> (std::net::TcpListener, std::net::UdpSocket) {
+pub fn https_and_quic() -> (std::net::TcpListener, std::net::UdpSocket) {
     for _ in 0..16 {
         let https = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         if let Ok(quic) = std::net::UdpSocket::bind(https.local_addr().unwrap()) {
@@ -102,7 +105,20 @@ impl Bound {
             ipc_path,
             ipc,
             notify: None,
+            blackhole: None,
         }
+    }
+
+    /// QUIC on another loopback address, `127.0.0.2`, at the HTTPS port
+    /// number, so that the node still says it takes QUIC; and on
+    /// `127.0.0.1`, where its URL leads, a UDP socket that drops
+    /// everything, as a network that blocks UDP does. Its tunnels at
+    /// `/quic` are the only way in.
+    pub fn udp_blocked(mut self) -> Self {
+        let port = self.https_port();
+        let quic = std::net::UdpSocket::bind(("127.0.0.2", port)).unwrap();
+        self.blackhole = Some(std::mem::replace(&mut self.quic, quic));
+        self
     }
 
     /// Where the daemon's rate feed will take datagrams.
@@ -147,6 +163,7 @@ impl Bound {
             ipc_path,
             ipc,
             notify,
+            blackhole,
         } = self;
         let feed_address = feed.local_addr().unwrap();
         let state = dir.path().join("state");
@@ -192,6 +209,7 @@ impl Bound {
             node: std::sync::Weak::new(),
             shutdown,
             handle: Some(handle),
+            _blackhole: blackhole,
         };
         node.wait_until_up().await;
         node.quic = handed.await.ok();
@@ -217,6 +235,7 @@ pub struct TestNode {
     pub node: std::sync::Weak<dassie_node::node::Node>,
     shutdown: CancellationToken,
     handle: Option<JoinHandle<Result<(), DaemonError>>>,
+    _blackhole: Option<std::net::UdpSocket>,
 }
 
 impl TestNode {

@@ -9,6 +9,12 @@
 //! and only end-to-end headers. It returns only JSON, or no body, but for
 //! one static page it writes itself at the root of a node's name
 //! ([`page`]). It never serves a node's page, the wallet or a cookie.
+//!
+//! On the host nodes dial it at as their relay, it also takes tunnels for
+//! QUIC at `/quic`, as a node's HTTPS listener does
+//! (spec/areas/peer-protocol.md#quic-over-websocket), and hands them to its
+//! QUIC endpoint: so nodes whose UDP does not reach it keep it as their
+//! relay all the same.
 
 use std::convert::Infallible;
 use std::net::SocketAddr;
@@ -18,7 +24,7 @@ use std::time::Duration;
 
 use dassie_identity::NodeId;
 use dassie_node_core::connections::ConnectionLimits;
-use dassie_node_core::origin::{Host, parse_authority};
+use dassie_node_core::origin::{Authority, Host, parse_authority};
 use dassie_node_core::rate_limit::{ClientKey, RateLimitPolicy, RateLimiter};
 use dassie_node_core::urls::DEFAULT_HTTPS_PORT;
 use dassie_peer::names::Name;
@@ -44,10 +50,12 @@ use crate::http::open_payments::{MAX_BODY_BYTES, is_open_payments_path};
 use crate::http::response::{self, Body, header_has_token, header_str};
 use crate::http::{
     DRAIN_TIMEOUT, HEADER_TIMEOUT, MAX_CONNECTIONS, MAX_HEAD_BYTES, TLS_HANDSHAKE_TIMEOUT,
+    TunnelRefused, upgrade_tunnel,
 };
 use crate::log::target;
 use crate::node::{Policies, lock};
 use crate::open_payments::REQUESTS;
+use crate::quic::{Quic, tunnel};
 use crate::slots::{ClientSlot, ClientSlots};
 
 /// Most connections from one client (an IPv4 address or an IPv6 /56), as
@@ -98,6 +106,11 @@ const HOP_BY_HOP: &[&str] = &[
 pub struct Door {
     /// The domain, lowercase, as names compare.
     domain: String,
+    /// Where nodes dial it as their relay, and the port: the host whose
+    /// `/quic` takes tunnels.
+    relay: (Host, u16),
+    /// Its QUIC endpoint, which takes the tunnels.
+    quic: Arc<Quic>,
     nodes: Arc<Nodes>,
     /// Who holds each name.
     names: Arc<Names>,
@@ -128,11 +141,20 @@ struct Addressed {
 
 impl Door {
     /// The front door for nodes under `domain`, reached through `nodes`,
-    /// and for the names whose holders `names` has.
+    /// and for the names whose holders `names` has; and for the tunnels of
+    /// the nodes that dial it at `relay` ([`relay_authority`]), which `quic`
+    /// takes.
     #[must_use]
-    pub fn new(domain: &str, nodes: Arc<Nodes>, names: Arc<Names>, clock: Arc<dyn Clock>) -> Self {
+    pub fn new(
+        domain: &str,
+        (relay, quic): ((Host, u16), Arc<Quic>),
+        (nodes, names): (Arc<Nodes>, Arc<Names>),
+        clock: Arc<dyn Clock>,
+    ) -> Self {
         Self {
             domain: domain.to_ascii_lowercase(),
+            relay,
+            quic,
             nodes,
             names,
             requests: Mutex::new(RateLimiter::new(REQUESTS)),
@@ -141,12 +163,22 @@ impl Door {
         }
     }
 
-    /// Answers one request from `peer`.
-    async fn route(&self, peer: SocketAddr, request: Request<Incoming>) -> Response<Body> {
+    /// Answers one request from `peer`; a tunnel it takes goes on a task
+    /// of `tasks` until upgraded.
+    async fn route(
+        &self,
+        peer: SocketAddr,
+        request: Request<Incoming>,
+        tasks: &TaskTracker,
+    ) -> Response<Body> {
         let client = ClientKey::from_ip(peer.ip().to_canonical());
         let now_ms = self.clock.now_ms();
         if lock(&self.requests).check(client, now_ms).is_err() {
             return too_many();
+        }
+        let host = header_str(request.headers(), &header::HOST);
+        if request.uri().path() == tunnel::PATH && self.is_relay(host) {
+            return self.tunnel(peer, request, tasks);
         }
         match self.target(&request) {
             Err(refused) => refused.response(),
@@ -175,6 +207,70 @@ impl Door {
                 self.pass(node, request).await
             }
         }
+    }
+
+    /// Whether `host` is where nodes dial the front door as their relay, on
+    /// the same port: the one host whose `/quic` takes tunnels. Every other
+    /// host answers `/quic` as any path outside Open Payments.
+    fn is_relay(&self, host: Option<&str>) -> bool {
+        host.and_then(parse_authority).is_some_and(|authority| {
+            let port = authority.port.unwrap_or(DEFAULT_HTTPS_PORT);
+            authority.host == self.relay.0 && port == self.relay.1
+        })
+    }
+
+    /// Takes a tunnel for QUIC from `peer`, as a node's HTTPS listener
+    /// does: once upgraded, its connection leaves this listener's places,
+    /// and the tunnel holds the place of the QUIC connection it carries,
+    /// by its address as over UDP: first one among those being set up,
+    /// then, once the connection proved its key, a node's
+    /// ([`relay`](super::relay)).
+    fn tunnel(
+        &self,
+        peer: SocketAddr,
+        request: Request<Incoming>,
+        tasks: &TaskTracker,
+    ) -> Response<Body> {
+        if !header_has_token(request.headers(), &header::CONNECTION, "upgrade") {
+            return error(
+                StatusCode::UPGRADE_REQUIRED,
+                "invalid_request",
+                "a tunnel is a WebSocket",
+            );
+        }
+        let refused = match upgrade_tunnel(Some(&self.quic), peer, request, tasks) {
+            Ok(switching) => return switching,
+            Err(refused) => refused,
+        };
+        tracing::debug!(target: target::FRONT_DOOR, %peer, ?refused, "tunnel refused");
+        let (status, code, description) = match refused {
+            TunnelRefused::NotAHandshake => (
+                StatusCode::BAD_REQUEST,
+                "invalid_request",
+                "expected a WebSocket handshake",
+            ),
+            TunnelRefused::FromABrowser => (
+                StatusCode::FORBIDDEN,
+                "forbidden",
+                "tunnels are not for browsers",
+            ),
+            TunnelRefused::NoSubprotocol => (
+                StatusCode::BAD_REQUEST,
+                "invalid_request",
+                "expected the dassie-quic/1 subprotocol",
+            ),
+            TunnelRefused::NotServing => (
+                StatusCode::SERVICE_UNAVAILABLE,
+                "unavailable",
+                "the relay is not running",
+            ),
+            TunnelRefused::TooMany => (
+                StatusCode::SERVICE_UNAVAILABLE,
+                "unavailable",
+                "too many tunnels",
+            ),
+        };
+        error(status, code, description)
     }
 
     /// Where `request` goes, or why it goes nowhere: a name outside the
@@ -278,6 +374,15 @@ impl Door {
             }
         }
     }
+}
+
+/// Where nodes dial a front door whose relay URL is `url`,
+/// `https://host[:port]`: its host, and its port, 443 when it names none.
+/// Their tunnels name it as their `Host`.
+#[must_use]
+pub fn relay_authority(url: &str) -> Option<(Host, u16)> {
+    let Authority { host, port } = parse_authority(url.strip_prefix("https://")?)?;
+    Some((host, port.unwrap_or(DEFAULT_HTTPS_PORT)))
 }
 
 /// The key a client's requests to `node` count under: the client's and
@@ -531,6 +636,7 @@ pub async fn serve(
         let connection = Connection {
             door: Arc::clone(&door),
             peer,
+            tasks: tasks.clone(),
             shutdown: shutdown.clone(),
             _slot: slot,
         };
@@ -549,6 +655,8 @@ pub async fn serve(
 struct Connection {
     door: Arc<Door>,
     peer: SocketAddr,
+    /// Where the tunnels it takes wait for their upgrade.
+    tasks: TaskTracker,
     shutdown: CancellationToken,
     _slot: ClientSlot,
 }
@@ -562,17 +670,18 @@ impl Connection {
                 Ok(Ok(stream)) => stream,
                 _ => return,
             };
-        let (door, peer) = (Arc::clone(&self.door), self.peer);
+        let (door, peer, tasks) = (Arc::clone(&self.door), self.peer, self.tasks.clone());
         let service = service_fn(move |request| {
-            let door = Arc::clone(&door);
-            async move { Ok::<_, Infallible>(door.route(peer, request).await) }
+            let (door, tasks) = (Arc::clone(&door), tasks.clone());
+            async move { Ok::<_, Infallible>(door.route(peer, request, &tasks).await) }
         });
         // hyper bounds a request's head to 100 headers by default.
         let connection = http1::Builder::new()
             .timer(TokioTimer::new())
             .header_read_timeout(HEADER_TIMEOUT)
             .max_buf_size(MAX_HEAD_BYTES)
-            .serve_connection(TokioIo::new(stream), service);
+            .serve_connection(TokioIo::new(stream), service)
+            .with_upgrades();
         let mut connection = pin!(connection);
         tokio::select! {
             _ = connection.as_mut() => {}
@@ -776,6 +885,24 @@ mod tests {
         let own = error(StatusCode::NOT_FOUND, "not_found", "Not Found");
         let csp = own.headers().get(header::CONTENT_SECURITY_POLICY).unwrap();
         assert_eq!(csp, CONTENT_SECURITY_POLICY);
+    }
+
+    #[test]
+    fn the_relay_is_where_its_url_leads() {
+        let name = |name: &str| Host::Name(name.to_string());
+        assert_eq!(
+            relay_authority("https://relay.dassiepay.net"),
+            Some((name("relay.dassiepay.net"), 443))
+        );
+        assert_eq!(
+            relay_authority("https://Relay.Example:8443"),
+            Some((name("relay.example"), 8443))
+        );
+        assert_eq!(
+            relay_authority("https://[::1]:8443"),
+            Some((Host::Ip(std::net::Ipv6Addr::LOCALHOST.into()), 8443))
+        );
+        assert_eq!(relay_authority("http://relay.dassiepay.net"), None);
     }
 
     #[test]

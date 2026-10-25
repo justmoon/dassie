@@ -173,12 +173,12 @@ The first rule narrows a condition for real money, "an account's creation is a d
 A browser node is a short-lived periphery node, for demos: it lets someone join the network for a while before they install anything.
 
 - It runs the node's core compiled to WebAssembly, as `identity-wasm` runs `dassie-identity`, with its state in the page's storage.
-- It connects to one uplink by QUIC over a WebSocket (§2), with quinn's protocol state machine compiled to WebAssembly, as a free receiver (§8). The browser checks the outer certificate, so its uplink needs a publicly issued one.
+- It connects to one uplink by QUIC over a WebSocket (§2), with quinn's protocol state machine compiled to WebAssembly, as a free receiver (§8). The browser checks the outer certificate, so its uplink needs a publicly issued one. A browser sends an origin with the handshake, which `/quic` refuses so that no page can have its visitors hold a node's places ([quic-over-websocket](../decisions/quic-over-websocket.md)): browser nodes need a rule of their own, such as a path that takes them only from the origins of the pages that run them, with places of their own.
 - It is reachable for as long as the page is open. A demo can pay it from another node, and it can send back through its uplink.
 
 ## 10. How it fits the node
 
-- **`dassie-node`** gains QUIC over a WebSocket; its QUIC endpoint, relayed streams, signed Open Payments answers and front doors are built.
+- **`dassie-node`**: its QUIC endpoint, QUIC over a WebSocket, relayed streams, signed Open Payments answers and front doors, which serve the WebSocket too, are built.
 - **`dassie-peer`** gains the downlink table, the `periphery` extension, records, home nodes and lookups, and the transport's link-state extension.
 - **`dassie-connector`** routes beneath a downlink's child address, and a periphery node's STREAM receiver takes its child addresses.
 - **The XRPL scheme** gains its table of peers' addresses and the two rules of §8.

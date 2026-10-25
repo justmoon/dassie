@@ -18,6 +18,7 @@ use std::time::Duration;
 use dassie_identity::NodeKey;
 use dassie_node::clock::ManualClock;
 use dassie_node::node::Policies;
+use dassie_node::quic::tunnel;
 use dassie_node::rpc::proto::{self, client_message, request::Method, response};
 use dassie_node::tls;
 use dassie_node_core::session::SessionPolicy;
@@ -29,7 +30,8 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio_rustls::TlsConnector;
 use tokio_rustls::client::TlsStream;
-use tokio_tungstenite::tungstenite::Message;
+use tokio_tungstenite::tungstenite::client::IntoClientRequest;
+use tokio_tungstenite::tungstenite::{self, Message};
 
 fn key() -> NodeKey {
     NodeKey::from_bytes(&[7; 32])
@@ -388,4 +390,130 @@ async fn loopback_is_not_counted_where_private_peers_are_allowed() {
     }
     drop(streams);
     node.stop().await;
+}
+
+/// How a request for a tunnel asks.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Asks {
+    /// As a node's client does.
+    AsANode,
+    /// Without the tunnel's subprotocol.
+    WithoutSubprotocol,
+    /// With an origin, as a browser does.
+    AsABrowser,
+}
+
+/// Opens a tunnel for QUIC at `/quic`, asking as `asks` has it; the status
+/// of a refusal. The place of the connection upgraded before may take a
+/// moment to come back.
+async fn tunnel(node: &TestNode, asks: Asks) -> Result<Socket, u16> {
+    let mut stream = None;
+    for _ in 0..50 {
+        stream = try_tls(node.https).await;
+        if stream.is_some() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    let stream = stream.expect("no place for an HTTPS connection");
+    let mut request = format!("wss://{}{}", node.host(), tunnel::PATH)
+        .into_client_request()
+        .unwrap();
+    let headers = request.headers_mut();
+    if asks != Asks::WithoutSubprotocol {
+        let value = tunnel::SUBPROTOCOL.parse().unwrap();
+        headers.insert("sec-websocket-protocol", value);
+    }
+    if asks == Asks::AsABrowser {
+        headers.insert("origin", "https://page.example".parse().unwrap());
+    }
+    let config = Some(tunnel::websocket_config());
+    match tokio_tungstenite::client_async_with_config(request, stream, config).await {
+        Ok((socket, _)) => Ok(socket),
+        Err(tungstenite::Error::Http(response)) => Err(response.status().as_u16()),
+        Err(error) => panic!("{error}"),
+    }
+}
+
+// spec/decisions/quic-over-websocket.md: a tunnel leaves the HTTPS
+// listener's places once upgraded, and holds one among the QUIC connections
+// being set up, by its client address, as a connection over UDP from there
+// would: past the client's share of those, a tunnel is refused with 503,
+// though HTTPS has room, and the client keeps its share of HTTPS beside
+// it. A request without the tunnel's subprotocol is refused; and a tunnel
+// whose connection proves no key, here none at all, ends within the time
+// to connect, giving its place back.
+#[tokio::test]
+async fn tunnels_hold_places_among_the_quic_connections_being_set_up() {
+    let node = TestNode::start_with(Policies {
+        http_connections_per_client: 1,
+        ..Policies::DEFAULT
+    })
+    .await;
+    let quic = node.quic.clone().unwrap();
+    let mut socket = tunnel(&node, Asks::AsANode).await.unwrap();
+    assert_eq!(quic.open_tunnels(), 1);
+    assert_eq!(quic.places().unwrap().setting_up, 1);
+    // Past the client's share of connections being set up, though HTTPS
+    // has room.
+    assert_eq!(tunnel(&node, Asks::AsANode).await.err(), Some(503));
+    // The client holds its share of HTTPS connections beside its tunnel,
+    // and no more.
+    let mut first = held(node.https).await;
+    let mut second = TcpStream::connect(node.https).await.unwrap();
+    let mut buffer = [0; 16];
+    let read = tokio::time::timeout(Duration::from_secs(5), second.read(&mut buffer))
+        .await
+        .expect("a second connection was held");
+    assert!(matches!(read, Ok(0) | Err(_)), "{read:?}");
+    assert!(is_held(&mut first).await);
+    drop(first);
+    assert_eq!(
+        tunnel(&node, Asks::WithoutSubprotocol).await.err(),
+        Some(400)
+    );
+    // Within the time to connect, and the time to close it.
+    let ending = async {
+        while let Some(Ok(message)) = socket.next().await {
+            if message.is_close() {
+                break;
+            }
+        }
+    };
+    tokio::time::timeout(Duration::from_secs(8), ending)
+        .await
+        .expect("a tunnel that carries no connection stayed open");
+    until_none_open(&quic).await;
+    assert_eq!(quic.places().unwrap().setting_up, 0);
+    drop(socket);
+    tunnel(&node, Asks::AsANode).await.unwrap();
+    node.stop().await;
+}
+
+// spec/decisions/quic-over-websocket.md: a browser sends an origin with
+// every WebSocket handshake, and a node never does. A request for a tunnel
+// that carries one is refused with 403, before it takes a place among the
+// QUIC connections being set up, so that no page can have its visitors
+// hold them.
+#[tokio::test]
+async fn a_browser_gets_no_tunnel() {
+    let node = TestNode::start_with(Policies::DEFAULT).await;
+    let quic = node.quic.clone().unwrap();
+    assert_eq!(tunnel(&node, Asks::AsABrowser).await.err(), Some(403));
+    assert_eq!(quic.open_tunnels(), 0);
+    assert_eq!(quic.places().unwrap().setting_up, 0);
+    let _socket = tunnel(&node, Asks::AsANode).await.unwrap();
+    assert_eq!(quic.places().unwrap().setting_up, 1);
+    node.stop().await;
+}
+
+/// Waits a little for the node's tunnels to be gone.
+async fn until_none_open(quic: &dassie_node::quic::Quic) {
+    for _ in 0..100 {
+        if quic.open_tunnels() == 0 {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    panic!("tunnels still open");
 }
