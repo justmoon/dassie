@@ -211,6 +211,28 @@ impl PeerClient {
             .dangerous()
             .with_custom_certificate_verifier(Arc::new(verifier))
             .with_no_client_auth();
+        Ok(Self::with_tls(config, allow_private))
+    }
+
+    /// A client for what reaches nodes over QUIC alone, which pins each
+    /// node's key ([`crate::quic`]) and uses the client only to resolve
+    /// names and bound requests in flight: a front door's. It trusts no
+    /// root, so it needs none from the platform, and its HTTPS requests
+    /// reach no server.
+    ///
+    /// # Errors
+    ///
+    /// The TLS provider has no safe protocol version.
+    pub fn for_quic(allow_private: bool) -> Result<Self, String> {
+        let config = rustls::ClientConfig::builder_with_provider(tls::provider())
+            .with_safe_default_protocol_versions()
+            .map_err(|e| e.to_string())?
+            .with_root_certificates(rustls::RootCertStore::empty())
+            .with_no_client_auth();
+        Ok(Self::with_tls(config, allow_private))
+    }
+
+    fn with_tls(config: rustls::ClientConfig, allow_private: bool) -> Self {
         let tls = Arc::new(config.clone());
         let mut http = HttpConnector::new_with_resolver(GuardedResolver { allow_private });
         http.set_connect_timeout(Some(CONNECT_TIMEOUT));
@@ -223,12 +245,12 @@ impl PeerClient {
         let http = HyperClient::builder(TokioExecutor::new())
             .pool_max_idle_per_host(4)
             .build(connector);
-        Ok(Self {
+        Self {
             http,
             tls,
             allow_private,
             in_flight: Arc::new(Mutex::new(InFlight::default())),
-        })
+        }
     }
 
     /// The TLS config the client trusts servers by.

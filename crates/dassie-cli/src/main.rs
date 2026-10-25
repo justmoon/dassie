@@ -99,8 +99,10 @@ Commands:
                       --no-restart                 leave systemd alone
   verify-install    Verify that Dassie and its dependencies work here.
   front-door        Run a front door: Open Payments at <label>.<domain> for
-                    nodes that name it as their relay. Each flag overrides
-                    its DASSIE_FRONT_DOOR_* variable.
+                    nodes that name it as their relay, and at
+                    <name>.<domain> for the holder of a name, as the
+                    registrars in DASSIE_BOOTSTRAP_NODES list it. Each flag
+                    overrides its DASSIE_FRONT_DOOR_* variable.
                       --domain <name>           the domain (dassiepay.net)
                       --https-listen <addr:port> HTTPS ([::]:443)
                       --quic-listen <addr:port>  QUIC, on UDP ([::]:443)

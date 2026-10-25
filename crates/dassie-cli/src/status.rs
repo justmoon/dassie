@@ -11,7 +11,6 @@
 //! owner asks for help; that is why the setup URL has a command of its own.
 
 use dassie_node::env::Env;
-use dassie_node::open_payments::client::FrontDoorHost;
 use dassie_node::rpc::proto::{self, request::Method, response};
 
 use crate::client::{CallError, Client};
@@ -155,21 +154,14 @@ pub(crate) fn entries(texts: impl IntoIterator<Item = String>) -> String {
 
 /// Where the node is reached: at its hostname, or, on a periphery node,
 /// which needs no domain name, at its names for Open Payments, which serve
-/// nothing else. A name it holds at the default front door is said not to
-/// reach it yet: front doors route only labels so far
-/// (spec/areas/payments.md#the-nodes-names).
+/// nothing else (spec/areas/payments.md#the-nodes-names).
 fn address(basic: &proto::GetBasicStateResponse, node: &proto::GetStatusResponse) -> String {
     if node.periphery {
         if node.open_payments_origins.is_empty() {
             return "none yet: a periphery node is named once it is set up".into();
         }
         let origins = node.open_payments_origins.iter();
-        return entries(origins.map(|origin| match FrontDoorHost::of(origin) {
-            FrontDoorHost::Name(_) => {
-                format!("{origin}/ (Open Payments only, once front doors route names)")
-            }
-            _ => format!("{origin}/ (Open Payments only)"),
-        }));
+        return entries(origins.map(|origin| format!("{origin}/ (Open Payments only)")));
     }
     if basic.hostname.is_empty() {
         return "none yet: `sudo dassie init` sets the node's domain name".into();
@@ -734,13 +726,14 @@ mod tests {
             ],
             ..periphery()
         };
-        // A name it holds does not reach it until front doors route names.
+        // A name it holds reaches it through the front door as its label
+        // does.
         assert_eq!(
             address(&basic, &node),
             format!(
                 "{NAME}/ (Open Payments only)\n               \
                  https://pay.example/ (Open Payments only)\n               \
-                 https://alice.dassiepay.net/ (Open Payments only, once front doors route names)"
+                 https://alice.dassiepay.net/ (Open Payments only)"
             )
         );
         let certificate = proto::Certificate {

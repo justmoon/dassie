@@ -1,7 +1,9 @@
 //! The front door's HTTPS listener (spec/areas/http.md#front-doors): it
-//! takes Open Payments requests for `<label>.<domain>`, passes them to the
-//! node the label names, and passes the node's answer back as it came, so
-//! the node's signature on it still verifies.
+//! takes Open Payments requests for `<label>.<domain>` and `<name>.<domain>`,
+//! passes them to the node the label names, or to the name's holder in the
+//! front door's view of the registrars' lists ([`names`](super::names)), and
+//! passes the node's answer back as it came, so the node's signature on it
+//! still verifies.
 //!
 //! It passes on only Open Payments' routes, with bounded heads and bodies,
 //! and only end-to-end headers. It returns only JSON, or no body, but for
@@ -19,6 +21,7 @@ use dassie_node_core::connections::ConnectionLimits;
 use dassie_node_core::origin::{Host, parse_authority};
 use dassie_node_core::rate_limit::{ClientKey, RateLimitPolicy, RateLimiter};
 use dassie_node_core::urls::DEFAULT_HTTPS_PORT;
+use dassie_peer::names::Name;
 use http_body_util::{BodyExt, Full, Limited};
 use hyper::body::Incoming;
 use hyper::header::{self, HeaderMap, HeaderName, HeaderValue};
@@ -33,8 +36,9 @@ use tokio_rustls::TlsAcceptor;
 use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
 
+use super::names::Names;
 use super::nodes::{Answer, Missed, Nodes};
-use super::page;
+use super::page::{self, Reached};
 use crate::clock::Clock;
 use crate::http::open_payments::{MAX_BODY_BYTES, is_open_payments_path};
 use crate::http::response::{self, Body, header_has_token, header_str};
@@ -95,6 +99,8 @@ pub struct Door {
     /// The domain, lowercase, as names compare.
     domain: String,
     nodes: Arc<Nodes>,
+    /// Who holds each name.
+    names: Arc<Names>,
     requests: Mutex<RateLimiter>,
     /// Per client address and node: [`REQUESTS_PER_NODE`].
     requests_per_node: Mutex<RateLimiter>,
@@ -109,16 +115,26 @@ enum Target {
     Interact,
     /// The page at the root of the node's name, which the front door
     /// writes itself ([`page`]).
-    Page(NodeId),
+    Page(Addressed),
+}
+
+/// The node a name under the domain stands for, and how.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Addressed {
+    node: NodeId,
+    /// The name, if the request came under one rather than the node's label.
+    name: Option<Name>,
 }
 
 impl Door {
-    /// The front door for nodes under `domain`, reached through `nodes`.
+    /// The front door for nodes under `domain`, reached through `nodes`,
+    /// and for the names whose holders `names` has.
     #[must_use]
-    pub fn new(domain: &str, nodes: Arc<Nodes>, clock: Arc<dyn Clock>) -> Self {
+    pub fn new(domain: &str, nodes: Arc<Nodes>, names: Arc<Names>, clock: Arc<dyn Clock>) -> Self {
         Self {
             domain: domain.to_ascii_lowercase(),
             nodes,
+            names,
             requests: Mutex::new(RateLimiter::new(REQUESTS)),
             requests_per_node: Mutex::new(RateLimiter::new(REQUESTS_PER_NODE)),
             clock,
@@ -134,13 +150,17 @@ impl Door {
         }
         match self.target(&request) {
             Err(refused) => refused.response(),
-            Ok(Target::Page(node)) => {
-                // A node ID the front door read from a label has a label.
+            Ok(Target::Page(Addressed { node, name })) => {
+                // Every node ID has a label.
                 let Ok(label) = node.label() else {
                     return Refused::NoNode.response();
                 };
+                let reached = match &name {
+                    Some(name) => Reached::Name(name),
+                    None => Reached::Label(&label),
+                };
                 let connected = self.nodes.is_connected(node).await;
-                page::response(&self.domain, &label, &node, connected)
+                page::response(&self.domain, reached, &node, connected)
             }
             Ok(Target::Interact) => error(
                 StatusCode::NOT_IMPLEMENTED,
@@ -158,17 +178,19 @@ impl Door {
     }
 
     /// Where `request` goes, or why it goes nowhere: a name outside the
-    /// domain is refused, and a name that is no node's label, a path
-    /// outside Open Payments or an upgrade find nothing.
+    /// domain is refused, and a name that is neither a node's label nor a
+    /// name with a holder, a path outside Open Payments or an upgrade find
+    /// nothing.
     fn target(&self, request: &Request<Incoming>) -> Result<Target, Refused> {
         let host = header_str(request.headers(), &header::HOST);
-        let node = self.node_of(host)?;
+        let addressed = self.node_of(host)?;
+        let node = addressed.node;
         let path = request.uri().path();
         if header_has_token(request.headers(), &header::CONNECTION, "upgrade") {
             return Err(Refused::NoRoute);
         }
         if path == page::PATH && matches!(*request.method(), Method::GET | Method::HEAD) {
-            return Ok(Target::Page(node));
+            return Ok(Target::Page(addressed));
         }
         if !is_open_payments_path(path) {
             return Err(Refused::NoRoute);
@@ -179,8 +201,10 @@ impl Door {
         Ok(Target::Node(node))
     }
 
-    /// The node `<label>.<domain>` names, on the default port.
-    fn node_of(&self, host: Option<&str>) -> Result<NodeId, Refused> {
+    /// The node `<label>.<domain>` names, on the default port, or the
+    /// holder of `<name>.<domain>`. A name is shorter than a label
+    /// (`dassie_peer::names::MAX_NAME_BYTES`), so no host is both.
+    fn node_of(&self, host: Option<&str>) -> Result<Addressed, Refused> {
         let authority = host.and_then(parse_authority).ok_or(Refused::Misdirected)?;
         let Host::Name(name) = authority.host else {
             return Err(Refused::Misdirected);
@@ -204,7 +228,16 @@ impl Door {
         if label.contains('.') {
             return Err(Refused::NoNode);
         }
-        NodeId::from_label(label).map_err(|_| Refused::NoNode)
+        if let Ok(node) = NodeId::from_label(label) {
+            return Ok(Addressed { node, name: None });
+        }
+        // A name no node holds finds nothing, as a label that is no node's.
+        let name = Name::parse(label).map_err(|_| Refused::NoNode)?;
+        let node = self.names.holder(&name).ok_or(Refused::NoNode)?;
+        Ok(Addressed {
+            node,
+            name: Some(name),
+        })
     }
 
     /// Passes `request` to `node` and its answer back.

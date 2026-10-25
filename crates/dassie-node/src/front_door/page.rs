@@ -1,15 +1,18 @@
 //! The front door's one page (spec/areas/http.md#front-doors): what a
-//! browser shows at `https://<label>.<domain>/`, the address of a node
-//! someone typed in.
+//! browser shows at `https://<label>.<domain>/` or `https://<name>.<domain>/`,
+//! the address of a node someone typed in.
 //!
 //! The front door writes it alone. Nothing of it comes from the node: the
-//! only variable parts are the name (the label, from the node ID, and the
-//! front door's domain), the node ID, and whether the node is connected to
-//! the front door now. Each is escaped, though none can hold a character
-//! that needs it. The page runs nothing and loads nothing: no script, no
-//! form, no image, no cookie, and its one style is pinned by its hash.
+//! only variable parts are the name (the label, from the node ID, or a name
+//! with the syntax of names, which the front door's view gives a holder,
+//! and the front door's domain), the node ID, and whether the node is
+//! connected to the front door now. Each is escaped, though none can hold a
+//! character that needs it. The page runs nothing and loads nothing: no
+//! script, no form, no image, no cookie, and its one style is pinned by its
+//! hash.
 
 use dassie_identity::{NodeId, NodeLabel};
+use dassie_peer::names::Name;
 use hyper::header::{self, HeaderValue};
 use hyper::{Response, StatusCode};
 
@@ -54,12 +57,29 @@ enum Part<'a> {
     Text(&'a str),
 }
 
-/// The page for the node `label` names under `domain`, the front door's
-/// own, connected to the front door now or not.
+/// The first label of the name a page is for.
+#[derive(Clone, Copy, Debug)]
+pub enum Reached<'a> {
+    /// The node's own label, which its ID decodes from.
+    Label(&'a NodeLabel),
+    /// A name the node holds, in the front door's view of the registrars'
+    /// lists.
+    Name(&'a Name),
+}
+
+/// The page for the node reached at `reached` under `domain`, the front
+/// door's own, connected to the front door now or not.
 #[must_use]
-pub fn render(domain: &str, label: &NodeLabel, node: &NodeId, connected: bool) -> String {
+pub fn render(domain: &str, reached: Reached<'_>, node: &NodeId, connected: bool) -> String {
     assert!(domain.len() <= MAX_DOMAIN_BYTES, "a domain is a hostname");
-    let label = label.as_str();
+    let (first, held) = match reached {
+        Reached::Label(label) => (label.as_str(), ""),
+        Reached::Name(name) => (
+            name.as_str(),
+            " The name is the node's while the network's registrars list it for \
+             the node.",
+        ),
+    };
     let (state_class, state) = if connected {
         ("on", "Connected to this front door now.")
     } else {
@@ -81,8 +101,10 @@ pub fn render(domain: &str, label: &NodeLabel, node: &NodeId, connected: bool) -
              the ",
         ),
         Part::Text(domain),
-        Part::Html(" front door.</p>\n<dl>\n<dt>Name</dt>\n<dd><code>"),
-        Part::Text(label),
+        Part::Html(" front door."),
+        Part::Html(held),
+        Part::Html("</p>\n<dl>\n<dt>Name</dt>\n<dd><code>"),
+        Part::Text(first),
         Part::Html("."),
         Part::Text(domain),
         Part::Html("</code></dd>\n<dt>Node ID</dt>\n<dd><code>"),
@@ -95,11 +117,11 @@ pub fn render(domain: &str, label: &NodeLabel, node: &NodeId, connected: bool) -
             "</dd>\n</dl>\n<p>This address serves Open Payments only. Wallets and apps pay \
              the node at its wallet address:</p>\n<p><a href=\"https://",
         ),
-        Part::Text(label),
+        Part::Text(first),
         Part::Html("."),
         Part::Text(domain),
         Part::Html("/.well-known/pay\">https://"),
-        Part::Text(label),
+        Part::Text(first),
         Part::Html("."),
         Part::Text(domain),
         Part::Html(
@@ -120,10 +142,16 @@ pub fn render(domain: &str, label: &NodeLabel, node: &NodeId, connected: bool) -
 }
 
 /// The page as an answer: HTML under the page's own policy, never stored,
-/// since whether the node is connected changes.
+/// since whether the node is connected changes, and so may who holds a
+/// name.
 #[must_use]
-pub fn response(domain: &str, label: &NodeLabel, node: &NodeId, connected: bool) -> Response<Body> {
-    let page = render(domain, label, node, connected);
+pub fn response(
+    domain: &str,
+    reached: Reached<'_>,
+    node: &NodeId,
+    connected: bool,
+) -> Response<Body> {
+    let page = render(domain, reached, node, connected);
     let mut response = response::with_body(StatusCode::OK, "text/html; charset=utf-8", page);
     let headers = response.headers_mut();
     response::secure(headers, true);
@@ -182,7 +210,7 @@ mod tests {
         assert!(CONTENT_SECURITY_POLICY.ends_with("; sandbox"));
         // Exactly one style element, whose text is the hashed style.
         let (id, label) = node();
-        let page = render("dassiepay.net", &label, &id, true);
+        let page = render("dassiepay.net", Reached::Label(&label), &id, true);
         assert_eq!(page.matches("<style>").count(), 1);
         assert!(page.contains(&format!("<style>{STYLE}</style>")));
     }
@@ -192,7 +220,7 @@ mod tests {
         let (id, label) = node();
         let name = format!("{}.dassiepay.net", label.as_str());
         for connected in [true, false] {
-            let page = render("dassiepay.net", &label, &id, connected);
+            let page = render("dassiepay.net", Reached::Label(&label), &id, connected);
             assert!(page.contains(&format!("<code>{name}</code>")));
             assert!(page.contains(&format!("<code>{}</code>", id.as_str())));
             let address = format!("https://{name}/.well-known/pay");
@@ -225,9 +253,27 @@ mod tests {
     }
 
     #[test]
+    fn a_page_reached_by_name_shows_the_name_and_its_holder() {
+        let (id, label) = node();
+        let alice = Name::parse("alice").unwrap();
+        let page = render("dassiepay.net", Reached::Name(&alice), &id, true);
+        assert!(page.contains("<code>alice.dassiepay.net</code>"), "{page}");
+        assert!(page.contains(&format!("<code>{}</code>", id.as_str())));
+        let address = "https://alice.dassiepay.net/.well-known/pay";
+        assert!(page.contains(&format!("<a href=\"{address}\">{address}</a>")));
+        assert!(page.contains(
+            "front door. The name is the node's while the network's registrars list it \
+             for the node.</p>"
+        ));
+        // The label's own page says nothing of names.
+        let page = render("dassiepay.net", Reached::Label(&label), &id, true);
+        assert!(!page.contains("registrars"));
+    }
+
+    #[test]
     fn text_is_escaped() {
         let (id, label) = node();
-        let page = render("<x>&\"'.example", &label, &id, true);
+        let page = render("<x>&\"'.example", Reached::Label(&label), &id, true);
         assert!(!page.contains("<x>"));
         assert!(page.contains("&lt;x&gt;&amp;&quot;&#39;.example"));
     }
@@ -236,13 +282,15 @@ mod tests {
     fn the_page_stays_within_its_bound() {
         let (id, label) = node();
         let longest = "\"".repeat(MAX_DOMAIN_BYTES);
-        assert!(render(&longest, &label, &id, false).len() <= MAX_PAGE_BYTES);
+        assert!(render(&longest, Reached::Label(&label), &id, false).len() <= MAX_PAGE_BYTES);
+        let name = Name::parse(&"a".repeat(dassie_peer::names::MAX_NAME_BYTES)).unwrap();
+        assert!(render(&longest, Reached::Name(&name), &id, false).len() <= MAX_PAGE_BYTES);
     }
 
     #[test]
     fn the_answer_is_html_under_the_pages_policy() {
         let (id, label) = node();
-        let answer = response("dassiepay.net", &label, &id, false);
+        let answer = response("dassiepay.net", Reached::Label(&label), &id, false);
         assert_eq!(answer.status(), StatusCode::OK);
         let headers = answer.headers();
         assert_eq!(
