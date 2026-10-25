@@ -163,10 +163,10 @@ A packet's next hop drawn at random among its first hops, weighted by the fees e
 
 ### Kopje across Dassie
 
-The brand page holds Dassie's visual identity, Kopje ([visual-identity](decisions/visual-identity.md)); the rest of what Dassie shows does not use it yet.
+The brand page holds Dassie's visual identity, Kopje ([visual-identity](decisions/visual-identity.md)), and dassie.land draws in it; the wallet and the desktop app do not yet.
 
-- **Parts that can be built side by side:** dassie.land's other pages, its header and its favicon; the wallet, in its light theme and dusk; the desktop app's icons and tray.
-- **Done when:** every page of dassie.land and every screen of the wallet and the desktop app draws in Kopje's palette, type and mark, light and dark, and the site has one stylesheet for its look.
+- **Parts that can be built side by side:** the wallet, in its light theme and dusk; the desktop app's icons and tray.
+- **Done when:** every screen of the wallet and the desktop app draws in Kopje's palette, type and mark, light and dark.
 
 ## Not built yet
 

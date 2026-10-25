@@ -39,8 +39,8 @@ export function header(path: string): string {
   ).join("\n        ");
   return `<header class="site-header">
       <a class="brand" href="/"${path === "/" ? ' aria-current="page"' : ""}>
-        <img src="/favicon.svg" alt="" width="28" height="28" />
-        Dassie
+        <img src="/brand/dassie-mark.svg" alt="" width="34" height="33" />
+        <span>Dassie</span>
       </a>
       <nav aria-label="Site">
         ${links}
@@ -50,9 +50,18 @@ export function header(path: string): string {
     </header>`;
 }
 
-/** The footer. */
+/** The footer: a kopje against the sun, then the night. */
 export function footer(): string {
-  return `<footer class="site-footer">
+  return `<div class="foot-scene">
+      <img
+        src="/brand/img/footer-kopje.svg"
+        alt="A kopje against the sun, standing in veld grass; one dassie climbs the big rock's face, one keeps lookout on top, a pair sits on the left rock and one sleeps on the right"
+        width="1200"
+        height="197"
+        loading="lazy"
+      />
+    </div>
+    <footer class="site-footer">
       <p>
         Dassie is open source. <a href="${GITHUB}">See the code</a> or
         <a href="${DISCORD}">talk to us on Discord</a>.

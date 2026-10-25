@@ -136,7 +136,16 @@ test("dassie.land: the pages, and a STREAM payment in the toy", {
       await page.goto(`${base}/`, { waitUntil: "load" });
       assertEquals(
         await page.evaluate(() => document.querySelector("h1")?.textContent),
-        "What is Dassie?",
+        "Payments that grow sideways.",
+      );
+      // The install command's Copy button shows once its script runs.
+      assertEquals(
+        await page.evaluate(() =>
+          document.querySelector<HTMLButtonElement>(
+            '[data-testid="copy-install"]',
+          )?.hidden
+        ),
+        false,
       );
       // Without the slash, as the original's links had it.
       await page.goto(`${base}/guides/quick-start`, { waitUntil: "load" });
@@ -147,11 +156,19 @@ test("dassie.land: the pages, and a STREAM payment in the toy", {
         /curl --proto =https --tlsv1\.2 -sSf https:\/\/sh\.dassie\.land \| sh/,
       );
       assertMatch(body, /sudo dassie init/);
-      // The stylesheet applies: it comes from the site's own origin.
+      // The stylesheet applies, and its fonts load: they come from the
+      // site's own origin. Commands are set on Kopje's ink.
       const background = await page.evaluate(() =>
-        getComputedStyle(document.querySelector("pre")!).borderStyle
+        getComputedStyle(document.querySelector("pre")!).backgroundColor
       );
-      assertEquals(background, "solid");
+      assertEquals(background, "rgb(43, 36, 32)");
+      const loaded = await page.evaluate(async () => {
+        await document.fonts.ready;
+        return [...document.fonts]
+          .filter((font) => font.status === "loaded")
+          .map((font) => font.family.replaceAll('"', ""));
+      });
+      assert(loaded.includes("Fraunces"), loaded.join());
       assertEquals(problems, []);
     });
 
