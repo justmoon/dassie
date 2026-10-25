@@ -12,7 +12,7 @@ The decisions (whether an origin is allowed, a session valid, a setup attempt ri
 - **HTTP** serves ACME challenges and redirects everything else to HTTPS, keeping path and query.
 - **HTTPS** serves everything else: the BTP server, the RPC WebSocket, QUIC's tunnels at `/quic`, setup and login, Open Payments, `/stats` and the wallet.
 - Connections are bounded per listener and per client, where a client is an IPv4 address or an IPv6 /56, so one host cannot take every place by rotating addresses. Loopback is counted only in the total where private peers are allowed (dev environments and tests). Handshakes, headers and bodies are bounded in size and time too (`http/mod.rs`, `dassie-node-core/src/connections.rs`).
-- **A tunnel leaves the listener once upgraded.** A WebSocket at `/quic` carries QUIC's packets for a node whose UDP does not get through ([Peer protocol](peer-protocol.md#quic-over-websocket)). Before the upgrade it takes a place among the tunnels', in all and per client, or is refused with 503; once upgraded, its TCP connection holds that place and none of the listener's, so tunnels and HTTPS never take each other's room. It belongs to the QUIC endpoint from then on, which ends it.
+- **A tunnel leaves the listener once upgraded.** A WebSocket at `/quic` carries QUIC's packets for a node whose UDP does not get through ([Peer protocol](peer-protocol.md#quic-over-websocket)). Before the upgrade it takes a place among the QUIC connections being set up, by the client's address, or is refused with 503; once upgraded, its TCP connection holds none of the listener's places, and the tunnel holds only the place of the QUIC connection it carries: the one being set up, and once that connection has proved its key, the connection's place in its class. It belongs to the QUIC endpoint from then on, which ends it.
 - At shutdown a listener stops accepting, lets requests in progress finish for a bounded time, and closes WebSockets with 1001.
 
 ### Route table
@@ -128,4 +128,4 @@ The daemon runs every ACME order ([RFC 8555](https://www.rfc-editor.org/rfc/rfc8
 - [secrets-at-rest](../decisions/secrets-at-rest.md): session tokens stored only as hashes.
 - [headless-setup](../decisions/headless-setup.md): `dassie setup` through the setup route, and why it pins the certificate the daemon names.
 - [tigerstyle](../decisions/tigerstyle.md): the node's decisions as pure functions in `dassie-node-core`; every table and timer bounded.
-- [quic-over-websocket](../decisions/quic-over-websocket.md): `/quic`, a WebSocket that carries QUIC's packets, with places of its own once upgraded.
+- [quic-over-websocket](../decisions/quic-over-websocket.md): `/quic`, a WebSocket that carries QUIC's packets, which holds the place of the QUIC connection it carries once upgraded.

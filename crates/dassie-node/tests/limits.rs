@@ -422,27 +422,29 @@ async fn tunnel(node: &TestNode, subprotocol: bool) -> Result<Socket, u16> {
     }
 }
 
-// spec/areas/peer-protocol.md#quic-over-websocket: a tunnel leaves the
-// HTTPS listener's places once upgraded and holds one of the tunnels', in
-// all and per client, so that neither takes the other's room; a request
-// without the tunnel's subprotocol is refused; and a tunnel that carries
-// no connection ends within the time to connect, giving its place back.
+// spec/decisions/quic-over-websocket.md: a tunnel leaves the HTTPS
+// listener's places once upgraded, and holds one among the QUIC connections
+// being set up, by its client address, as a connection over UDP from there
+// would: past the client's share of those, a tunnel is refused with 503,
+// though HTTPS has room, and the client keeps its share of HTTPS beside
+// it. A request without the tunnel's subprotocol is refused; and a tunnel
+// whose connection proves no key, here none at all, ends within the time
+// to connect, giving its place back.
 #[tokio::test]
-async fn tunnels_hold_places_of_their_own() {
+async fn tunnels_hold_places_among_the_quic_connections_being_set_up() {
     let node = TestNode::start_with(Policies {
         http_connections_per_client: 1,
         ..Policies::DEFAULT
     })
     .await;
     let quic = node.quic.clone().unwrap();
-    let mut tunnels = Vec::new();
-    for _ in 0..tunnel::MAX_TUNNELS_PER_CLIENT {
-        tunnels.push(tunnel(&node, true).await.unwrap());
-    }
-    assert_eq!(quic.open_tunnels(), tunnels.len());
-    // Past the client's share of tunnels, though HTTPS has room.
+    let mut socket = tunnel(&node, true).await.unwrap();
+    assert_eq!(quic.open_tunnels(), 1);
+    assert_eq!(quic.places().unwrap().setting_up, 1);
+    // Past the client's share of connections being set up, though HTTPS
+    // has room.
     assert_eq!(tunnel(&node, true).await.err(), Some(503));
-    // The client holds its share of HTTPS connections beside its tunnels,
+    // The client holds its share of HTTPS connections beside its tunnel,
     // and no more.
     let mut first = held(node.https).await;
     let mut second = TcpStream::connect(node.https).await.unwrap();
@@ -454,21 +456,20 @@ async fn tunnels_hold_places_of_their_own() {
     assert!(is_held(&mut first).await);
     drop(first);
     assert_eq!(tunnel(&node, false).await.err(), Some(400));
-    // Within the time to connect, and the time to close them.
+    // Within the time to connect, and the time to close it.
     let ending = async {
-        for socket in &mut tunnels {
-            while let Some(Ok(message)) = socket.next().await {
-                if message.is_close() {
-                    break;
-                }
+        while let Some(Ok(message)) = socket.next().await {
+            if message.is_close() {
+                break;
             }
         }
     };
     tokio::time::timeout(Duration::from_secs(8), ending)
         .await
-        .expect("tunnels that carry no connection stayed open");
+        .expect("a tunnel that carries no connection stayed open");
     until_none_open(&quic).await;
-    drop(tunnels);
+    assert_eq!(quic.places().unwrap().setting_up, 0);
+    drop(socket);
     tunnel(&node, true).await.unwrap();
     node.stop().await;
 }

@@ -105,7 +105,8 @@ pub struct Counts {
 
 /// The endpoint's places.
 pub(super) struct Places {
-    /// For connections being set up.
+    /// For connections being set up, and for tunnels from their upgrade,
+    /// for the connection arriving on them ([`super::tunnel`]).
     setting_up: ClientSlots,
     /// Those being set up past which a client must show it receives at its
     /// address.
@@ -119,6 +120,8 @@ pub(super) struct Places {
     /// The next connection's age, in the order they were made, by which a
     /// node's oldest gives up its place.
     next_age: AtomicU64,
+    /// All places, of every kind.
+    total: usize,
 }
 
 impl Places {
@@ -134,6 +137,10 @@ impl Places {
         let (core, downlinks) = peerings.as_ref().map_or((0, 0), |peerings| {
             (peerings.max_core_peers, peerings.max_downlinks)
         });
+        let total = core
+            .saturating_add(downlinks)
+            .saturating_mul(MAX_CONNECTIONS_PER_NODE)
+            .saturating_add(limits.max_total.saturating_mul(2));
         Self {
             setting_up: ClientSlots::new(limits),
             validate_from: limits.max_total / 2,
@@ -142,7 +149,14 @@ impl Places {
             downlinks: per_node(downlinks),
             classes: peerings.map(|peerings| peerings.classes),
             next_age: AtomicU64::new(0),
+            total,
         }
+    }
+
+    /// All places, of every kind: those for connections being set up, and
+    /// those of every class.
+    pub(super) const fn total(&self) -> usize {
+        self.total
     }
 
     /// A place for a connection from `client` while it is set up.
@@ -171,22 +185,21 @@ impl Places {
         self.setting_up.open_count() >= self.validate_from
     }
 
-    /// The place in its class for `connection`, set up from `client`, in
-    /// place of the one it held while it was set up. None, and the
-    /// connection closed with [`NO_ROOM`], when its class has no room: no
-    /// stream on it has been read, so nothing sent on it was delivered.
+    /// The place in its class for `connection`, set up from `client`; the
+    /// caller gives back the one it held while it was set up only then, so
+    /// that it holds one throughout. None, and the connection closed with
+    /// [`NO_ROOM`], when its class has no room: no stream on it has been
+    /// read, so nothing sent on it was delivered.
     pub(super) fn settle(
         &self,
         connection: &Connection,
         client: Option<ClientKey>,
-        setting_up: ClientSlot,
     ) -> Option<Held> {
         let node = keys::peer_node(connection);
         let age = self.next_age.fetch_add(1, Ordering::Relaxed);
         let mut classes = self.classes.clone();
         let class = class_of(node, classes.as_mut());
         let place = self.take(class, (node, age), client, connection);
-        drop(setting_up);
         let place = refused(place, connection, class, NO_ROOM)?;
         Some(Held {
             place,

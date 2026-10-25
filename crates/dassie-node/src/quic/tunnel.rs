@@ -15,6 +15,12 @@
 //! tunnel that ends closes its connection at once, and a connection that
 //! closes ends its tunnel once its close has gone out.
 //!
+//! A tunnel holds the place of the connection it carries
+//! (spec/decisions/places-by-proved-key.md): once upgraded, one among the
+//! connections being set up, by its client address, until its connection
+//! has proved a key, which it must within the time to connect; then only
+//! its connection's, in its class. It has no places of its own.
+//!
 //! The outer TLS is not checked: the QUIC handshake inside pins the node
 //! key, so whoever holds the outer TLS sees only QUIC's ciphertext, and a
 //! node with a self-signed certificate, or behind a proxy that intercepts
@@ -32,8 +38,6 @@ use std::time::Duration;
 
 use bytes::Bytes;
 use dassie_identity::NodeId;
-use dassie_node_core::connections::{ConnectionLimits, Refused};
-use dassie_node_core::rate_limit::ClientKey;
 use futures_util::{SinkExt, StreamExt};
 use quinn::congestion::CubicConfig;
 use quinn::udp::{RecvMeta, Transmit};
@@ -59,7 +63,7 @@ use tokio_util::task::TaskTracker;
 use super::{CONNECT_TIMEOUT, MAX_LINKS};
 use crate::log::target;
 use crate::node::lock;
-use crate::slots::{ClientSlot, ClientSlots};
+use crate::slots::ClientSlot;
 use crate::tls;
 
 /// Where a core node's HTTPS listener takes tunnels.
@@ -89,21 +93,9 @@ const QUEUE_PACKETS: usize = 16;
 /// its sender.
 const RECEIVED_PACKETS: usize = 256;
 
-/// Most tunnels a node takes at once: as many as its HTTPS listener has
-/// connections, since each is a TCP connection as theirs are, and so room
-/// for every downlink a core node takes by default. The QUIC connection
-/// inside holds a place by its key as over UDP ([`super::places`]), so the
-/// places, not this bound, decide whose connections stay.
-pub const MAX_TUNNELS: usize = crate::http::MAX_CONNECTIONS;
-
-/// Most tunnels one client (an IPv4 address or an IPv6 /56) holds at once:
-/// as many connections as the HTTPS listener takes from one client by
-/// default, so that the periphery nodes behind one NAT each reach the node.
-pub const MAX_TUNNELS_PER_CLIENT: u32 = crate::node::Policies::DEFAULT.http_connections_per_client;
-
-/// Most tunnels the socket holds: those the node takes, and those it dials,
-/// one per node it links to at most.
-const MAX_ADDRESSES: usize = MAX_TUNNELS + MAX_LINKS;
+/// Most tunnels the node dials at once: one per node it links to. Those it
+/// takes are bounded by the endpoint's places ([`Tunnels::serve`]).
+const MAX_DIALLED: usize = MAX_LINKS;
 
 /// Time a tunnel lingers once its connection closed, so that the close quinn
 /// sends goes out before the WebSocket ends, unless the other side ends it
@@ -113,8 +105,7 @@ const CLOSE_LINGER: Duration = Duration::from_millis(100);
 /// Time to send what is queued and close the WebSocket, at a tunnel's end.
 const CLOSE_TIMEOUT: Duration = Duration::from_secs(1);
 
-const _: () = assert!(MAX_TUNNELS >= dassie_peer::Config::DEFAULT.max_downlinks);
-const _: () = assert!(MAX_ADDRESSES < u16::MAX as usize);
+const _: () = assert!(MAX_DIALLED < u16::MAX as usize);
 const _: () = assert!(DATAGRAM_BYTES as usize + 8 == 16 * 1024);
 
 /// The WebSocket's settings for a tunnel, either side: no message larger
@@ -150,15 +141,13 @@ pub(super) fn endpoint_config(mut config: EndpointConfig) -> io::Result<Endpoint
     Ok(config)
 }
 
-/// The node's tunnels: the endpoint over them, the places for those it
-/// takes, and the tasks that carry them.
+/// The node's tunnels: the endpoint over them, and the tasks that carry
+/// them.
 pub(super) struct Tunnels {
     endpoint: Endpoint,
     socket: Arc<TunnelSocket>,
     /// The outer TLS's settings for the tunnels it dials.
     tls: Arc<rustls::ClientConfig>,
-    /// Places for the tunnels it takes, in all and per client address.
-    slots: ClientSlots,
     tasks: TaskTracker,
     /// Ends every tunnel, once the endpoint is closed.
     stop: CancellationToken,
@@ -184,10 +173,6 @@ impl Tunnels {
             endpoint,
             socket,
             tls: tls_config().map_err(io::Error::other)?,
-            slots: ClientSlots::new(ConnectionLimits {
-                max_total: MAX_TUNNELS,
-                max_per_client: MAX_TUNNELS_PER_CLIENT,
-            }),
             tasks: TaskTracker::new(),
             stop: CancellationToken::new(),
         })
@@ -203,52 +188,61 @@ impl Tunnels {
         lock(&self.socket.tunnels).by_address.len()
     }
 
-    /// A place for a tunnel from `client`, before its upgrade.
-    ///
-    /// # Errors
-    ///
-    /// All places are taken, or the client holds its share.
-    pub(super) fn slot(&self, client: Option<ClientKey>) -> Result<ClientSlot, Refused> {
-        self.slots.take(client)
-    }
-
-    /// The tunnel at `from` for the connection arriving on it, which then
-    /// holds what ends them together; `None` when there is no tunnel there,
-    /// or another connection took it: a tunnel carries one.
-    pub(super) fn claim(&self, from: SocketAddr) -> Option<Inside> {
+    /// The tunnel taken at `from` for the connection arriving on it, which
+    /// then holds what ends them together, and the place among the
+    /// connections being set up that the tunnel held for it; `None` when
+    /// there is no tunnel there, or another connection took it: a tunnel
+    /// carries one.
+    pub(super) fn claim(&self, from: SocketAddr) -> Option<(Inside, ClientSlot)> {
         let mut table = lock(&self.socket.tunnels);
         let tunnel = table.by_address.get_mut(&v6(from))?;
         if tunnel.claimed {
             return None;
         }
+        let setting_up = tunnel.setting_up.take()?;
         tunnel.claimed = true;
-        Some(Inside(tunnel.ends.clone()))
+        Some((Inside(tunnel.ends.clone()), setting_up))
     }
 
     /// Carries the packets of `ws`, a WebSocket from `peer` upgraded at
-    /// [`PATH`], to and from the endpoint, holding `slot` while it lasts. A
-    /// tunnel no connection took within the time to connect ends.
-    pub(super) fn serve<S>(&self, ws: WebSocketStream<S>, peer: SocketAddr, slot: ClientSlot)
-    where
+    /// [`PATH`], to and from the endpoint. The tunnel holds `setting_up`, a
+    /// place among the QUIC connections being set up, for the connection
+    /// that arrives on it, and ends unless that connection has proved a key
+    /// within the time to connect ([`Inside::settled`]).
+    ///
+    /// `places` is how many places the endpoint has, of every kind: those
+    /// for connections being set up and those of every class. It bounds
+    /// the tunnels taken, so that the socket's table is bounded, and is
+    /// derived from the places so that it never binds before they do:
+    /// every tunnel taken holds one of them, or its connection does, until
+    /// its connection is done (but for the moment a connection that lost
+    /// its place takes to close), and a new tunnel holds one already. So
+    /// when the socket holds `places` tunnels taken, one of them only
+    /// lingers for its close to go out ([`CLOSE_LINGER`]), holding no
+    /// place, and gives way to the new one.
+    pub(super) fn serve<S>(
+        &self,
+        ws: WebSocketStream<S>,
+        peer: SocketAddr,
+        setting_up: ClientSlot,
+        places: usize,
+    ) where
         S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
     {
         let address = v6(peer);
-        let Some((queue, ends)) = self.socket.open(address) else {
+        let Some((id, queue, ends)) = self.socket.open(address, setting_up, places) else {
             tracing::debug!(target: target::PEER, %peer, "no room for a tunnel; closing");
             return;
         };
         let carried = carry(
             Arc::clone(&self.socket),
             ws,
-            (address, queue),
+            (address, id, queue),
             ends,
             Some(CONNECT_TIMEOUT),
             self.stop.clone(),
         );
-        self.tasks.spawn(async move {
-            let _slot = slot;
-            carried.await;
-        });
+        self.tasks.spawn(carried);
     }
 
     /// Makes a connection to `to` with `config` over a tunnel to `host` and
@@ -331,12 +325,13 @@ impl Tunnels {
     where
         S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
     {
-        let (local, queue, ends) = self.socket.open_dialled(server).ok_or("too many tunnels")?;
+        let (local, id, queue, ends) =
+            self.socket.open_dialled(server).ok_or("too many tunnels")?;
         let inside = Inside(ends.clone());
         let carried = carry(
             Arc::clone(&self.socket),
             ws,
-            (local, queue),
+            (local, id, queue),
             ends,
             None,
             self.stop.clone(),
@@ -386,6 +381,9 @@ async fn tie(connection: Connection, inside: Inside) {
 struct Ends {
     /// The tunnel ended: its connection closes at once.
     tunnel: CancellationToken,
+    /// The connection proved a key, and holds a place in its class: a
+    /// tunnel taken lasts past the time to connect.
+    settled: CancellationToken,
     /// The connection is done: the tunnel ends once its close has gone out.
     connection: CancellationToken,
 }
@@ -398,6 +396,12 @@ impl Inside {
     /// Returns once the tunnel has ended, when its connection is to close.
     pub(super) async fn tunnel_ended(&self) {
         self.0.tunnel.cancelled().await;
+    }
+
+    /// The connection proved a key, and holds a place in its class: the
+    /// tunnel lasts as long as it does.
+    pub(super) fn settled(&self) {
+        self.0.settled.cancel();
     }
 }
 
@@ -415,14 +419,15 @@ pub(super) async fn tunnel_ended(inside: Option<&Inside>) {
     }
 }
 
-/// Carries packets between `ws` and the socket, where the tunnel is at
+/// Carries packets between `ws` and the socket, where the tunnel `id` is at
 /// `address` with `queue`, until the WebSocket ends or breaks, the
-/// connection inside is done, no connection took it `within` (when given),
-/// or `stop`. Then sends what is queued, and closes the WebSocket.
+/// connection inside is done, none proved a key on it `within` (when
+/// given), the socket drops it, or `stop`. Then sends what is queued, and
+/// closes the WebSocket.
 async fn carry<S>(
     socket: Arc<TunnelSocket>,
     ws: WebSocketStream<S>,
-    (address, mut queue): (SocketAddrV6, mpsc::Receiver<Bytes>),
+    (address, id, mut queue): (SocketAddrV6, u64, mpsc::Receiver<Bytes>),
     ends: Ends,
     within: Option<Duration>,
     stop: CancellationToken,
@@ -451,6 +456,8 @@ async fn carry<S>(
                 }
             }
         };
+        // Ends too once the socket drops the tunnel, which drops the
+        // queue's sender, after what it holds.
         let writing = async {
             while let Some(packet) = queue.recv().await {
                 if sink.send(Message::Binary(packet)).await.is_err() {
@@ -462,11 +469,11 @@ async fn carry<S>(
             ends.connection.cancelled().await;
             tokio::time::sleep(CLOSE_LINGER).await;
         };
-        let unclaimed = async {
+        let unsettled = async {
             if let Some(within) = within {
-                tokio::time::sleep(within).await;
-                if !socket.claimed(address) {
-                    return;
+                tokio::select! {
+                    () = tokio::time::sleep(within) => return,
+                    () = ends.settled.cancelled() => {}
                 }
             }
             std::future::pending::<()>().await;
@@ -475,11 +482,11 @@ async fn carry<S>(
             () = reading => {}
             () = writing => {}
             () = done => {}
-            () = unclaimed => {}
+            () = unsettled => {}
             () = stop.cancelled() => {}
         }
     }
-    socket.close(address);
+    socket.close(address, id);
     ends.tunnel.cancel();
     let closing = async {
         while let Ok(packet) = queue.try_recv() {
@@ -508,16 +515,35 @@ pub(super) struct TunnelSocket {
 /// The tunnels by address.
 struct Table {
     by_address: BTreeMap<SocketAddrV6, Tunnel>,
+    /// How many of them the node took; the others it dialled.
+    taken: usize,
     /// The port a tunnel dialled next tries first.
     next_port: u16,
+    /// The next tunnel's ID, which tells it from one at the same address
+    /// before it.
+    next_id: u64,
 }
 
 /// A tunnel the socket sends on.
 struct Tunnel {
+    id: u64,
     queue: mpsc::Sender<Bytes>,
     ends: Ends,
+    /// Whether the node took it, rather than dialled it.
+    taken: bool,
+    /// For a tunnel taken, its place among the connections being set up,
+    /// until the connection arriving on it takes it over.
+    setting_up: Option<ClientSlot>,
     /// Whether a connection took it: only one does.
     claimed: bool,
+}
+
+impl Tunnel {
+    /// Whether it only lingers, its connection done, for its close to go
+    /// out: it holds no place, and gives way to a new tunnel.
+    fn lingers(&self) -> bool {
+        self.ends.connection.is_cancelled()
+    }
 }
 
 impl TunnelSocket {
@@ -526,80 +552,132 @@ impl TunnelSocket {
         Self {
             tunnels: Mutex::new(Table {
                 by_address: BTreeMap::new(),
+                taken: 0,
                 next_port: 1,
+                next_id: 0,
             }),
             received: Mutex::new(received),
             receive,
         }
     }
 
-    /// Opens a tunnel at `address`, which a connection is still to take;
-    /// `None` when one is there, or the socket holds its most.
-    fn open(&self, address: SocketAddrV6) -> Option<(mpsc::Receiver<Bytes>, Ends)> {
+    /// Opens a tunnel taken at `address`, holding `setting_up` for the
+    /// connection still to arrive on it, with at most `places` tunnels
+    /// taken ([`Tunnels::serve`]): the oldest that lingers gives way to it,
+    /// as one lingering at its address does. `None` when one that does not
+    /// linger is at its address, or when the socket holds `places` and
+    /// none of them lingers.
+    fn open(
+        &self,
+        address: SocketAddrV6,
+        setting_up: ClientSlot,
+        places: usize,
+    ) -> Option<(u64, mpsc::Receiver<Bytes>, Ends)> {
         let mut table = lock(&self.tunnels);
-        if table.by_address.len() >= MAX_ADDRESSES || table.by_address.contains_key(&address) {
-            return None;
+        if let Some(there) = table.by_address.get(&address) {
+            if !(there.taken && there.lingers()) {
+                return None;
+            }
+            remove(&mut table, address);
         }
-        Some(insert(&mut table, address, false))
+        if table.taken >= places {
+            let oldest = table
+                .by_address
+                .iter()
+                .filter(|(_, tunnel)| tunnel.taken && tunnel.lingers())
+                .min_by_key(|(_, tunnel)| tunnel.id)
+                .map(|(address, _)| *address)?;
+            remove(&mut table, oldest);
+        }
+        let opened = insert(&mut table, address, Some(setting_up));
+        assert!(table.taken <= places);
+        Some(opened)
     }
 
     /// Opens a tunnel dialled to `server`, taken by the connection we make
     /// over it, at the server's address and a port no other tunnel there
     /// has; `None` when the socket holds its most.
-    fn open_dialled(&self, server: IpAddr) -> Option<(SocketAddrV6, mpsc::Receiver<Bytes>, Ends)> {
+    fn open_dialled(
+        &self,
+        server: IpAddr,
+    ) -> Option<(SocketAddrV6, u64, mpsc::Receiver<Bytes>, Ends)> {
         let ip = match server {
             IpAddr::V4(ip) => ip.to_ipv6_mapped(),
             IpAddr::V6(ip) => ip,
         };
         let mut table = lock(&self.tunnels);
-        if table.by_address.len() >= MAX_ADDRESSES {
+        if table.by_address.len() - table.taken >= MAX_DIALLED {
             return None;
         }
-        // Of more ports in a row than the socket holds tunnels, one is free.
-        for _ in 0..=MAX_ADDRESSES {
+        // Of more ports in a row than the socket holds tunnels, one is free,
+        // while it holds fewer than there are ports.
+        for _ in 0..=table.by_address.len() {
             let port = table.next_port;
             table.next_port = port.checked_add(1).unwrap_or(1);
             let address = SocketAddrV6::new(ip, port, 0, 0);
             if !table.by_address.contains_key(&address) {
-                let (queue, ends) = insert(&mut table, address, true);
-                return Some((address, queue, ends));
+                let (id, queue, ends) = insert(&mut table, address, None);
+                assert!(table.by_address.len() - table.taken <= MAX_DIALLED);
+                return Some((address, id, queue, ends));
             }
         }
         None
     }
 
-    /// Whether a connection took the tunnel at `address`.
-    fn claimed(&self, address: SocketAddrV6) -> bool {
-        lock(&self.tunnels)
+    /// Closes the tunnel `id` at `address`, unless it is gone already: what
+    /// is sent to it from now on is dropped.
+    fn close(&self, address: SocketAddrV6, id: u64) {
+        let mut table = lock(&self.tunnels);
+        if table
             .by_address
             .get(&address)
-            .is_some_and(|tunnel| tunnel.claimed)
-    }
-
-    /// Closes the tunnel at `address`: what is sent to it from now on is
-    /// dropped.
-    fn close(&self, address: SocketAddrV6) {
-        lock(&self.tunnels).by_address.remove(&address);
+            .is_some_and(|tunnel| tunnel.id == id)
+        {
+            remove(&mut table, address);
+        }
     }
 }
 
-/// Puts a tunnel at `address`, free, into `table`.
+/// Puts a tunnel at `address` into `table`: one taken, holding
+/// `setting_up` for the connection still to arrive on it, or, without, one
+/// dialled, which the connection we make over it takes.
 fn insert(
     table: &mut Table,
     address: SocketAddrV6,
-    claimed: bool,
-) -> (mpsc::Receiver<Bytes>, Ends) {
+    setting_up: Option<ClientSlot>,
+) -> (u64, mpsc::Receiver<Bytes>, Ends) {
     let (queue, queued) = mpsc::channel(QUEUE_PACKETS);
     let ends = Ends::default();
+    let id = table.next_id;
+    table.next_id += 1;
+    let taken = setting_up.is_some();
     let tunnel = Tunnel {
+        id,
         queue,
         ends: ends.clone(),
-        claimed,
+        taken,
+        setting_up,
+        claimed: !taken,
     };
     let replaced = table.by_address.insert(address, tunnel);
     assert!(replaced.is_none());
-    assert!(table.by_address.len() <= MAX_ADDRESSES);
-    (queued, ends)
+    if taken {
+        table.taken += 1;
+    }
+    assert!(table.taken <= table.by_address.len());
+    (id, queued, ends)
+}
+
+/// Takes the tunnel at `address` out of `table`: the place it held still,
+/// if any, goes back, and its queue's sender drops, which ends its carrier
+/// once the queue is sent ([`carry`]).
+fn remove(table: &mut Table, address: SocketAddrV6) {
+    if let Some(tunnel) = table.by_address.remove(&address)
+        && tunnel.taken
+    {
+        assert!(table.taken > 0);
+        table.taken -= 1;
+    }
 }
 
 /// `address` as quinn has it on an endpoint whose socket is IPv6, as
@@ -796,4 +874,93 @@ pub(super) async fn race(
         tracing::info!(target: target::PEER, %to, "connected over a WebSocket: QUIC over UDP did not get through");
     }
     tunnelled
+}
+
+#[cfg(test)]
+mod tests {
+    use std::net::Ipv4Addr;
+
+    use dassie_node_core::connections::ConnectionLimits;
+
+    use super::*;
+    use crate::slots::ClientSlots;
+
+    /// Places for the tunnels of these tests, as many as they take.
+    fn places() -> ClientSlots {
+        ClientSlots::new(ConnectionLimits {
+            max_total: 8,
+            max_per_client: 8,
+        })
+    }
+
+    fn at(port: u16) -> SocketAddrV6 {
+        v6(SocketAddr::from((Ipv4Addr::LOCALHOST, port)))
+    }
+
+    // A packet for a tunnel whose queue is full is dropped, as UDP drops
+    // it: the endpoint never waits for a client that does not read.
+    #[test]
+    fn a_full_tunnel_drops_rather_than_waits() {
+        let socket = TunnelSocket::new();
+        let (address, _id, mut queue, _ends) =
+            socket.open_dialled(Ipv4Addr::LOCALHOST.into()).unwrap();
+        for byte in 0..u8::try_from(QUEUE_PACKETS + 4).unwrap() {
+            let packet = [byte; 32];
+            let transmit = Transmit {
+                destination: SocketAddr::V6(address),
+                ecn: None,
+                contents: &packet,
+                segment_size: None,
+                src_ip: None,
+            };
+            socket.try_send(&transmit).unwrap();
+        }
+        let mut queued = 0;
+        while let Ok(packet) = queue.try_recv() {
+            assert_eq!(packet[0], u8::try_from(queued).unwrap());
+            queued += 1;
+        }
+        assert_eq!(queued, QUEUE_PACKETS);
+    }
+
+    // The tunnels taken are bounded by the endpoint's places: one whose
+    // connection is not done holds a place, and is never displaced; one
+    // that only lingers for its close to go out gives way, and its place
+    // goes back.
+    #[test]
+    fn only_a_lingering_tunnel_gives_way() {
+        let socket = TunnelSocket::new();
+        let slots = places();
+        let (_, mut first, ends) = socket.open(at(1), slots.take(None).unwrap(), 1).unwrap();
+        assert!(socket.open(at(2), slots.take(None).unwrap(), 1).is_none());
+        assert_eq!(slots.open_count(), 1);
+        // The connection on it is done: the tunnel lingers.
+        ends.connection.cancel();
+        let (_, _second, _) = socket.open(at(2), slots.take(None).unwrap(), 1).unwrap();
+        assert_eq!(slots.open_count(), 1);
+        let table = lock(&socket.tunnels);
+        assert_eq!(table.taken, 1);
+        assert!(table.by_address.contains_key(&at(2)));
+        drop(table);
+        // Its carrier ends.
+        assert!(first.try_recv().is_err());
+        assert!(first.is_closed());
+    }
+
+    // A tunnel that gave way, closing once its carrier ends, leaves the one
+    // at its address since alone.
+    #[test]
+    fn a_tunnel_closes_only_itself() {
+        let socket = TunnelSocket::new();
+        let slots = places();
+        let (first, _queue, ends) = socket.open(at(1), slots.take(None).unwrap(), 4).unwrap();
+        ends.connection.cancel();
+        let (second, _queue, _ends) = socket.open(at(1), slots.take(None).unwrap(), 4).unwrap();
+        assert_ne!(first, second);
+        socket.close(at(1), first);
+        assert!(lock(&socket.tunnels).by_address.contains_key(&at(1)));
+        socket.close(at(1), second);
+        assert!(lock(&socket.tunnels).by_address.is_empty());
+        assert_eq!(slots.open_count(), 0);
+    }
 }

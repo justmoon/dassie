@@ -540,30 +540,49 @@ impl Quic {
         self.periphery.store(on, Ordering::Relaxed);
     }
 
-    /// A place for a tunnel from `client`, which the HTTPS listener takes
-    /// before it upgrades the tunnel's connection, apart from its own places
-    /// (spec/areas/http.md#listeners).
+    /// A place among the QUIC connections being set up, for a tunnel from
+    /// `client`, which the HTTPS listener takes before it upgrades the
+    /// tunnel's TCP connection, and which the tunnel holds instead of the
+    /// listener's (spec/areas/http.md#listeners): counted by `client`'s
+    /// address as a connection over UDP from it is.
     ///
     /// # Errors
     ///
-    /// All places for tunnels are taken, or the client holds its share.
+    /// Too many connections are being set up, in all or from `client`, or
+    /// the endpoint does not serve.
     pub fn tunnel_slot(
         &self,
-        client: Option<ClientKey>,
+        client: IpAddr,
     ) -> Result<ClientSlot, dassie_node_core::connections::Refused> {
-        self.tunnels.slot(client)
+        let serving = self.serving.lock().unwrap_or_else(PoisonError::into_inner);
+        let serving = serving
+            .as_ref()
+            .ok_or(dassie_node_core::connections::Refused::Full)?;
+        serving
+            .places
+            .set_up(serving.handler.client(client.to_canonical()))
     }
 
     /// Carries the QUIC packets of `ws`, a WebSocket from `peer` upgraded at
-    /// [`tunnel::PATH`], into the endpoint, holding `slot` while the tunnel
-    /// lasts. The connection inside is served as one over UDP, once the
-    /// endpoint serves; a tunnel that carries none within the time to
-    /// connect ends.
-    pub fn serve_tunnel<S>(&self, ws: WebSocketStream<S>, peer: SocketAddr, slot: ClientSlot)
+    /// [`tunnel::PATH`], into the endpoint, holding `setting_up`
+    /// ([`tunnel_slot`](Self::tunnel_slot)) for the connection that
+    /// arrives on it, which is served as one over UDP. A tunnel whose
+    /// connection has not proved a key within the time to connect ends;
+    /// once one has, the tunnel holds only the place its connection holds.
+    /// A tunnel that comes once the endpoint no longer serves ends at once.
+    pub fn serve_tunnel<S>(&self, ws: WebSocketStream<S>, peer: SocketAddr, setting_up: ClientSlot)
     where
         S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
     {
-        self.tunnels.serve(ws, peer, slot);
+        let places = self
+            .serving
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .as_ref()
+            .map(|serving| serving.places.total());
+        if let Some(places) = places {
+            self.tunnels.serve(ws, peer, setting_up, places);
+        }
     }
 
     /// Tunnels open now, those the node took and those it dialled.
@@ -1046,14 +1065,19 @@ impl Quic {
             let Some(incoming) = incoming else {
                 break;
             };
-            let inside = if tunnelled {
-                // A tunnel carries one connection, and its TCP connection
-                // showed already that the client receives at its address.
-                let Some(inside) = self.tunnels.claim(incoming.remote_address()) else {
+            let client = incoming.remote_address().ip().to_canonical();
+            let key = serving.handler.client(client);
+            let (setting_up, inside) = if tunnelled {
+                // A tunnel carries one connection, which takes over the place
+                // among those being set up that the tunnel took at its
+                // upgrade, by its TCP connection's address; that connection
+                // showed already that the client receives there.
+                let Some((inside, setting_up)) = self.tunnels.claim(incoming.remote_address())
+                else {
                     incoming.refuse();
                     continue;
                 };
-                Some(inside)
+                (setting_up, Some(inside))
             } else {
                 // Once places run short, a client must show it receives at
                 // its address before it holds one: spoofed handshakes cannot.
@@ -1061,16 +1085,13 @@ impl Quic {
                     let _ = incoming.retry();
                     continue;
                 }
-                None
-            };
-            let client = incoming.remote_address().ip().to_canonical();
-            let key = serving.handler.client(client);
-            let setting_up = match serving.places.set_up(key) {
-                Ok(slot) => slot,
-                Err(refused) => {
-                    tracing::debug!(target: target::PEER, %client, ?refused, "too many QUIC connections being set up; refusing");
-                    incoming.refuse();
-                    continue;
+                match serving.places.set_up(key) {
+                    Ok(slot) => (slot, None),
+                    Err(refused) => {
+                        tracing::debug!(target: target::PEER, %client, ?refused, "too many QUIC connections being set up; refusing");
+                        incoming.refuse();
+                        continue;
+                    }
                 }
             };
             let taking = Taking {
@@ -1087,7 +1108,9 @@ impl Quic {
 
     /// Sets up a connection that arrived, and answers on it once it holds a
     /// place, until it closes or loses its place, or its tunnel ends, which
-    /// closes it.
+    /// closes it. A connection over a tunnel is done before it gives back
+    /// its place, so that every tunnel not done holds one
+    /// ([`tunnel::Tunnels::serve`]).
     async fn take(self: Arc<Self>, incoming: quinn::Incoming, taking: Taking, serving: Serving) {
         let Taking {
             client,
@@ -1095,16 +1118,32 @@ impl Quic {
             setting_up,
             inside,
         } = taking;
-        let Ok(connecting) = incoming.accept() else {
-            return;
+        let connecting = async {
+            let connecting = incoming.accept().ok()?;
+            tokio::time::timeout(CONNECT_TIMEOUT, connecting)
+                .await
+                .ok()?
+                .ok()
         };
-        let Ok(Ok(connection)) = tokio::time::timeout(CONNECT_TIMEOUT, connecting).await else {
-            return;
+        // A tunnel's time to connect runs from its upgrade: it ends unless
+        // its connection proved a key by then.
+        let connection = tokio::select! {
+            connection = connecting => connection,
+            () = tunnel::tunnel_ended(inside.as_ref()) => None,
         };
         // Who opened it is known now, and so its class.
-        let Some(held) = serving.places.settle(&connection, key, setting_up) else {
+        let settled = connection
+            .as_ref()
+            .and_then(|connection| serving.places.settle(connection, key));
+        let (Some(connection), Some(held)) = (connection, settled) else {
+            drop(inside);
+            drop(setting_up);
             return;
         };
+        drop(setting_up);
+        if let Some(inside) = &inside {
+            inside.settled();
+        }
         if let Some(peer) = keys::peer_node(&connection) {
             let (quic, connection) = (Arc::clone(&self), connection.clone());
             tokio::spawn(async move { quic.keep_inbound(peer, connection).await });
@@ -1115,9 +1154,11 @@ impl Quic {
             places,
             ..
         } = &serving;
+        // Holds its place until this returns.
+        let mut following = std::pin::pin!(places.follow(&connection, held));
         tokio::select! {
             () = self.requests(&connection, client, handler, shutdown) => {}
-            () = places.follow(&connection, held) => {}
+            () = &mut following => {}
             () = tunnel::tunnel_ended(inside.as_ref()) => {
                 connection.close(0u32.into(), b"tunnel closed");
             }
@@ -1126,7 +1167,11 @@ impl Quic {
         // endpoint closes it, so that the close goes down the tunnel, and
         // until then it carries what is sent on it, as over UDP.
         if let Some(inside) = inside {
-            self.tunnels.hold(connection, inside);
+            if connection.close_reason().is_some() {
+                drop(inside);
+            } else {
+                self.tunnels.hold(connection.clone(), inside);
+            }
         }
     }
 
@@ -1576,7 +1621,10 @@ mod tests {
         let served = WebSocketStream::from_raw_socket(theirs, Role::Server, config).await;
         let config = Some(tunnel::websocket_config());
         let ws = WebSocketStream::from_raw_socket(ours, Role::Client, config).await;
-        server.serve_tunnel(served, peer, server.tunnel_slot(None).unwrap());
+        while !server.is_serving() {
+            tokio::time::sleep(Duration::from_millis(1)).await;
+        }
+        server.serve_tunnel(served, peer, server.tunnel_slot(peer.ip()).unwrap());
         ws
     }
 
@@ -1635,6 +1683,39 @@ mod tests {
         assert_eq!(server.open_tunnels(), 1);
         let answer = exchange(&first, b"hello").await.unwrap();
         assert_eq!(answer.body, b"hello");
+        shutdown.cancel();
+    }
+
+    // A message larger than the largest packet over a tunnel, or a text
+    // message, ends the tunnel, which gives back the place it held among
+    // the connections being set up.
+    #[tokio::test]
+    async fn a_message_that_is_no_packet_ends_the_tunnel() {
+        use futures_util::{SinkExt, StreamExt};
+        use tokio_tungstenite::tungstenite::Message;
+        let shutdown = CancellationToken::new();
+        let (server, _server_id, _server_key) = endpoint_of(1);
+        tokio::spawn(Arc::clone(&server).serve(Arc::new(Echo), shutdown.clone()));
+        let too_large = vec![0; usize::from(tunnel::DATAGRAM_BYTES) + 1];
+        let messages = [Message::Binary(too_large.into()), Message::text("a packet")];
+        for message in messages {
+            let mut ws = tunnel_into(&server, TUNNEL_PEER).await;
+            assert_eq!(server.open_tunnels(), 1);
+            assert_eq!(server.places().unwrap().setting_up, 1);
+            ws.send(message).await.unwrap();
+            let ended = async { while let Some(Ok(_)) = ws.next().await {} };
+            tokio::time::timeout(Duration::from_secs(2), ended)
+                .await
+                .expect("the tunnel stayed open");
+            for _ in 0..100 {
+                if server.open_tunnels() == 0 {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+            assert_eq!(server.open_tunnels(), 0);
+            assert_eq!(server.places().unwrap().setting_up, 0);
+        }
         shutdown.cancel();
     }
 

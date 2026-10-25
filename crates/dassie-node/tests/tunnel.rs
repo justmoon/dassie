@@ -4,8 +4,12 @@
 //! sends and relays on as on any connection; it keeps UDP where UDP gets
 //! through; a dial too short for the tunnel is not judged; the uplink's
 //! `NO_ROOM` reaches it; the tunnel and its connection end together; and a
-//! node that does not serve tunnels is a failed dial. The bounds of the
-//! tunnels a node takes are in `limits.rs`.
+//! node that does not serve tunnels is a failed dial. A tunnel holds the
+//! place of the connection it carries: one among those being set up, until
+//! its connection proves a key within the time to connect, and then its
+//! connection's, in its class. So a stranger's tunnels count against
+//! anyone else's places, and downlinks behind one address are bounded as
+//! over UDP. The HTTPS listener's side of the bounds is in `limits.rs`.
 //!
 //! The uplink's URL names a port whose UDP socket drops everything, as a
 //! filter would, while its QUIC endpoint listens elsewhere, and a TLS
@@ -21,6 +25,7 @@
     clippy::result_large_err
 )]
 
+use std::collections::BTreeSet;
 use std::future::Future;
 use std::net::{IpAddr, SocketAddr, TcpListener, UdpSocket};
 use std::path::Path;
@@ -32,37 +37,62 @@ use std::time::Duration;
 use dassie_identity::{NodeId, NodeKey};
 use dassie_node::peer_client::PeerClient;
 use dassie_node::peer_server::Answer;
+use dassie_node::quic::places::{Classes, Peerings};
 use dassie_node::quic::relay::{Purpose, ServedStream};
 use dassie_node::quic::{Body, Handler, Quic, tunnel};
 use dassie_node_core::connections::ConnectionLimits;
 use dassie_node_core::rate_limit::ClientKey;
 use dassie_peer::wire::Kind;
 use dassie_peer::{Failure, Request as PeerRequest, RequestId};
+use futures_util::StreamExt;
 use rustls::pki_types::{CertificateDer, PrivatePkcs8KeyDer};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::{AsyncReadExt, AsyncWriteExt, DuplexStream};
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
 use tokio::time::Instant;
+use tokio_tungstenite::WebSocketStream;
 use tokio_tungstenite::tungstenite::handshake::server::{ErrorResponse, Request, Response};
 use tokio_tungstenite::tungstenite::http::{HeaderValue, StatusCode};
+use tokio_tungstenite::tungstenite::protocol::Role;
 use tokio_util::sync::CancellationToken;
 
 /// Answers peer requests with their body, and echoes a relayed stream for
-/// payments; room for `anyone` connections.
+/// payments; room for `anyone` connections, being set up and of anyone
+/// else.
 struct Echo {
     anyone: usize,
+    /// Each client address's share of those, counted on loopback too; or
+    /// none, counted in the total alone.
+    per_client: Option<u32>,
+    /// The peerings, which give downlinks places of their own.
+    peerings: Option<Peerings>,
+}
+
+impl Echo {
+    /// Room for `anyone` connections, in the total alone.
+    const fn anyone(anyone: usize) -> Self {
+        Self {
+            anyone,
+            per_client: None,
+            peerings: None,
+        }
+    }
 }
 
 impl Handler for Echo {
-    fn client(&self, _address: IpAddr) -> Option<ClientKey> {
-        None
+    fn client(&self, address: IpAddr) -> Option<ClientKey> {
+        self.per_client.map(|_| ClientKey::from_ip(address))
     }
 
     fn limits(&self) -> ConnectionLimits {
         ConnectionLimits {
             max_total: self.anyone,
-            max_per_client: 16,
+            max_per_client: self.per_client.unwrap_or(16),
         }
+    }
+
+    fn peerings(&self) -> Option<Peerings> {
+        self.peerings.clone()
     }
 
     fn answer<'a>(
@@ -109,13 +139,13 @@ struct Side {
     _identity: watch::Sender<Option<Arc<NodeKey>>>,
 }
 
-fn side_on(seed: u8, socket: UdpSocket, anyone: usize, shutdown: &CancellationToken) -> Side {
+fn side_on(seed: u8, socket: UdpSocket, handler: Echo, shutdown: &CancellationToken) -> Side {
     let key = Arc::new(NodeKey::from_bytes(&[seed; 32]));
     let id = key.node_id();
     let (identity, receiver) = watch::channel(Some(key));
     let quic = Arc::new(Quic::new(socket, receiver, true).unwrap());
     let address = quic.local_addr().unwrap();
-    tokio::spawn(Arc::clone(&quic).serve(Arc::new(Echo { anyone }), shutdown.clone()));
+    tokio::spawn(Arc::clone(&quic).serve(Arc::new(handler), shutdown.clone()));
     Side {
         quic,
         id,
@@ -129,7 +159,7 @@ fn periphery(seed: u8, shutdown: &CancellationToken) -> Side {
     let side = side_on(
         seed,
         UdpSocket::bind("127.0.0.1:0").unwrap(),
-        ROOMY,
+        Echo::anyone(ROOMY),
         shutdown,
     );
     side.quic.set_periphery(true);
@@ -141,7 +171,7 @@ fn core(seed: u8, shutdown: &CancellationToken) -> Side {
     side_on(
         seed,
         UdpSocket::bind("127.0.0.1:0").unwrap(),
-        ROOMY,
+        Echo::anyone(ROOMY),
         shutdown,
     )
 }
@@ -177,12 +207,17 @@ struct Uplink {
 }
 
 fn uplink(seed: u8, udp: Udp, anyone: usize, shutdown: &CancellationToken) -> Uplink {
+    uplink_with(seed, udp, Echo::anyone(anyone), shutdown)
+}
+
+/// An uplink whose endpoint answers with `handler`.
+fn uplink_with(seed: u8, udp: Udp, handler: Echo, shutdown: &CancellationToken) -> Uplink {
     let (tcp, at_port) = tcp_and_udp();
     let (socket, blackhole) = match udp {
         Udp::Open => (at_port, None),
         Udp::Blocked => (UdpSocket::bind("127.0.0.1:0").unwrap(), Some(at_port)),
     };
-    let side = side_on(seed, socket, anyone, shutdown);
+    let side = side_on(seed, socket, handler, shutdown);
     let url = format!("https://{}", tcp.local_addr().unwrap());
     let accepted = Arc::new(AtomicUsize::new(0));
     listen(tcp, Some(Arc::clone(&side.quic)), Arc::clone(&accepted));
@@ -229,8 +264,11 @@ fn listen(tcp: TcpListener, quic: Option<Arc<Quic>>, accepted: Arc<AtomicUsize>)
                     return;
                 };
                 if let Some(quic) = quic {
-                    let slot = quic.tunnel_slot(None).unwrap();
-                    quic.serve_tunnel(ws, peer, slot);
+                    // Past the places among the connections being set up,
+                    // the tunnel ends, as a node's listener answers 503.
+                    if let Ok(slot) = quic.tunnel_slot(peer.ip()) {
+                        quic.serve_tunnel(ws, peer, slot);
+                    }
                 }
             });
         }
@@ -499,5 +537,111 @@ async fn a_node_that_does_not_serve_tunnels_is_a_failed_dial() {
     assert_eq!(accepted.load(Ordering::SeqCst), 1);
     assert!(downlink.quic.backing_off(&earlier.id));
     assert_eq!(downlink.quic.open_tunnels(), 0);
+    shutdown.cancel();
+}
+
+/// A tunnel into `quic` from `peer`, upgraded already, as an HTTPS listener
+/// hands it over once it took its place among the connections being set
+/// up; the client's end of its WebSocket.
+async fn raw_tunnel(quic: &Quic, peer: SocketAddr) -> WebSocketStream<DuplexStream> {
+    let (theirs, ours) = tokio::io::duplex(64 * 1024);
+    let config = Some(tunnel::websocket_config());
+    let served = WebSocketStream::from_raw_socket(theirs, Role::Server, config).await;
+    let ws = WebSocketStream::from_raw_socket(ours, Role::Client, config).await;
+    until(Duration::from_secs(1), || quic.is_serving()).await;
+    quic.serve_tunnel(served, peer, quic.tunnel_slot(peer.ip()).unwrap());
+    ws
+}
+
+// A tunnel holds a place among the connections being set up from its
+// upgrade, and ends, giving it back, unless its connection proved a key
+// within the time to connect: here none ever arrives on it.
+#[tokio::test]
+async fn a_tunnel_without_a_connection_ends_after_the_time_to_connect() {
+    let shutdown = CancellationToken::new();
+    let uplink = core(1, &shutdown);
+    let quic = &uplink.quic;
+    let started = Instant::now();
+    let mut ws = raw_tunnel(quic, "127.0.0.1:40000".parse().unwrap()).await;
+    assert_eq!(quic.open_tunnels(), 1);
+    assert_eq!(quic.places().unwrap().setting_up, 1);
+    let ended = async { while let Some(Ok(_)) = ws.next().await {} };
+    tokio::time::timeout(Duration::from_secs(8), ended)
+        .await
+        .expect("a tunnel without a connection stayed open");
+    assert!(started.elapsed() >= Duration::from_millis(4_500));
+    until(Duration::from_secs(1), || quic.open_tunnels() == 0).await;
+    assert_eq!(quic.places().unwrap().setting_up, 0);
+    shutdown.cancel();
+}
+
+// A stranger's tunnel holds anyone else's place once its connection proved
+// a key, and that place alone: a stranger over UDP then finds no room.
+#[tokio::test]
+async fn a_strangers_tunnel_counts_against_anyone_elses_places() {
+    let shutdown = CancellationToken::new();
+    let uplink = uplink(1, Udp::Blocked, 1, &shutdown);
+    let downlink = periphery(2, &shutdown);
+    send(&downlink, uplink.side.id, &uplink.url).await.unwrap();
+    assert_eq!(downlink.quic.open_tunnels(), 1);
+    let places = uplink.side.quic.places().unwrap();
+    assert_eq!((places.setting_up, places.others), (0, 1));
+    let other = core(3, &shutdown);
+    let request = request(uplink.side.id, &uplink.side.udp_url, 5_000);
+    let response = other.quic.send(&request, &client()).await;
+    assert_eq!(response.err(), Some(Failure::NotDelivered));
+    // Refused for room, not unreached.
+    assert!(other.quic.backing_off(&uplink.side.id));
+    assert_eq!(uplink.side.quic.places().unwrap().others, 1);
+    shutdown.cancel();
+}
+
+// Downlinks behind one address, over tunnels, each hold a downlink's
+// place, as over UDP: their address's share of the connections being set
+// up and of anyone else's bounds the strangers there, not them, and no
+// count of tunnels per address bounds either.
+#[tokio::test]
+async fn downlinks_behind_one_address_are_bounded_as_over_udp() {
+    const DOWNLINKS: u8 = 4;
+    let shutdown = CancellationToken::new();
+    let downlinks: Vec<Side> = (0..DOWNLINKS)
+        .map(|index| periphery(10 + index, &shutdown))
+        .collect();
+    let classes = Classes {
+        core: BTreeSet::new(),
+        downlinks: downlinks.iter().map(|side| side.id).collect(),
+    };
+    let (_peerings, receiver) = watch::channel(Arc::new(classes));
+    let handler = Echo {
+        anyone: 1,
+        per_client: Some(1),
+        peerings: Some(Peerings {
+            classes: receiver,
+            max_core_peers: 1,
+            max_downlinks: usize::from(DOWNLINKS),
+        }),
+    };
+    let uplink = uplink_with(1, Udp::Blocked, handler, &shutdown);
+    for downlink in &downlinks {
+        send(downlink, uplink.side.id, &uplink.url).await.unwrap();
+    }
+    let places = uplink.side.quic.places().unwrap();
+    assert_eq!(places.downlinks, usize::from(DOWNLINKS));
+    assert_eq!(uplink.side.quic.open_tunnels(), usize::from(DOWNLINKS));
+    // A stranger from the same address takes its address's one place of
+    // anyone else's, and the next finds none.
+    let stranger = periphery(2, &shutdown);
+    send(&stranger, uplink.side.id, &uplink.url).await.unwrap();
+    assert_eq!(uplink.side.quic.places().unwrap().others, 1);
+    let next = periphery(3, &shutdown);
+    let request = request(uplink.side.id, &uplink.url, 5_000);
+    let response = next.quic.send(&request, &client()).await;
+    assert_eq!(response.err(), Some(Failure::NotDelivered));
+    assert!(next.quic.backing_off(&uplink.side.id));
+    // Every downlink is still reached on the connection it opened.
+    for downlink in &downlinks {
+        let response = uplink.side.quic.send_held(&to_periphery(downlink)).await;
+        assert_eq!(response.unwrap().body, b"hello");
+    }
     shutdown.cancel();
 }

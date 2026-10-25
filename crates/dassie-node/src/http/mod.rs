@@ -5,8 +5,8 @@
 //! client, the time to complete a TLS handshake and to send headers, and on
 //! shutdown stops accepting, lets requests in progress finish, and closes
 //! WebSockets with 1001, waiting at most [`DRAIN_TIMEOUT`]. A tunnel for
-//! QUIC ([`quic::tunnel`]) leaves the listener once upgraded: it holds a
-//! place of the tunnels' instead, and ends with the QUIC endpoint.
+//! QUIC ([`quic::tunnel`]) leaves the listener once upgraded: it holds the
+//! place of the QUIC connection it carries instead, and ends with it.
 
 mod api;
 pub mod assets;
@@ -353,10 +353,11 @@ async fn route_https(
 
 /// Answers the handshake of a tunnel for QUIC at [`tunnel::PATH`]
 /// (spec/areas/peer-protocol.md#quic-over-websocket), and hands the
-/// WebSocket to the node's QUIC endpoint once upgraded. The tunnel holds a
-/// place of the tunnels', in all and per client address, taken here: its
-/// connection leaves this listener's places at the upgrade, so tunnels and
-/// HTTPS never take each other's room.
+/// WebSocket to the node's QUIC endpoint once upgraded. Its connection
+/// leaves this listener's places at the upgrade, and the tunnel holds the
+/// place of the QUIC connection it carries instead: first one among those
+/// being set up, by the client's address, taken here
+/// (spec/decisions/quic-over-websocket.md).
 fn quic_tunnel(
     context: &Context,
     peer: SocketAddr,
@@ -380,10 +381,10 @@ fn quic_tunnel(
     let Some(quic) = node.quic().filter(|quic| quic.is_serving()) else {
         return response::text(StatusCode::SERVICE_UNAVAILABLE, "QUIC is not running");
     };
-    let slot = match quic.tunnel_slot(node.counted_client(peer.ip())) {
+    let slot = match quic.tunnel_slot(peer.ip()) {
         Ok(slot) => slot,
         Err(refused) => {
-            tracing::debug!(target: target::HTTP, %peer, ?refused, "too many tunnels");
+            tracing::debug!(target: target::HTTP, %peer, ?refused, "too many QUIC connections being set up");
             return response::text(StatusCode::SERVICE_UNAVAILABLE, "Too many tunnels");
         }
     };

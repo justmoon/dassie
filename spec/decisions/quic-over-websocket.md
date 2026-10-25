@@ -13,7 +13,7 @@
 
 ## Decision
 
-**A periphery node whose QUIC cannot get through over UDP carries the same QUIC packets over a WebSocket, one packet per binary message, at `/quic` on the core node's HTTPS listener.** The connection inside is an ordinary QUIC connection of the node's endpoint, with the same handshake, streams and places.
+**A periphery node whose QUIC cannot get through over UDP carries the same QUIC packets over a WebSocket, one packet per binary message, at `/quic` on the core node's HTTPS listener.** The connection inside is an ordinary QUIC connection of the node's QUIC, in an endpoint of its own, with the same handshake, streams and places.
 
 - **Every core node serves the tunnel,** at its URL's host and port over TCP. So a periphery node never has to ask which uplinks take it, and no link state says so: the URL already names where. The `dassiepay.net` front door serves it too, so that the default relay reaches nodes behind such networks ([default-relay](default-relay.md)).
 - **Only a node without a URL falls back.** A node with a URL is, or is to be, core, and a core node takes UDP ([quic-only](quic-only.md)): a fallback would only hide that its UDP is blocked.
