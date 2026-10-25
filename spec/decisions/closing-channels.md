@@ -24,7 +24,7 @@
 
 ## Accepted
 
-- **Rows on disk for good.** A closed row is never removed. The number of rows is bounded by the ledger's accounts, which are never removed either, and every channel has them. The accounts, which stay in memory, still bound the nodes a node ever peers with, to what the node's own leave of them ([roadmap](../roadmap.md#not-built-yet)).
+- **Rows on disk for good.** A closed row is never removed. The number of rows is bounded by the ledger's accounts, which are never removed either, and every channel has them. The accounts, which stay in memory, still bound the nodes a node ever peers with, to what the node's own leave of them, until they close to disk with the channel ([resident-peers](resident-peers.md), not built yet).
 - **A ledger payment that lands after the close is the owner's deposit.** The scheme no longer knows the node's address. An honest node settles only when asked, and the close waits a day after the end with every scheme of the node's accounts seeing its ledger. Only a settlement held back past all that is lost to the node's account, and it goes to the owner, not to anyone else. The node's message for it is still applied, which moves the sequence and books nothing on the XRP Ledger.
 - **A closed node needs room to peer again.** While its channel was open, it could peer past a full bound; closed, it waits for a place like a node we never held a channel with.
 - **A restart starts every wait again.** When a channel was last active is kept only in memory, so a node that restarts closes its channels a day later than it would have, never sooner.
