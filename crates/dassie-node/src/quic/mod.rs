@@ -28,6 +28,7 @@
 #![deny(clippy::disallowed_methods)]
 
 mod hub;
+pub mod ids;
 pub mod keys;
 pub mod places;
 pub mod proxy;
@@ -44,7 +45,7 @@ use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
-use dassie_identity::{DerivedSecret, NodeId, NodeKey, PublicKey, SeedPath};
+use dassie_identity::{NodeId, NodeKey, PublicKey, SeedPath};
 use dassie_node_core::address::is_public;
 use dassie_node_core::connections::ConnectionLimits;
 use dassie_node_core::rate_limit::ClientKey;
@@ -52,7 +53,6 @@ use dassie_peer::wire::{MAX_MESSAGE_BYTES, MAX_NAME_LIST_BYTES};
 use dassie_peer::{Failure, Request, Response};
 use quinn::crypto::rustls::{QuicClientConfig, QuicServerConfig};
 use quinn::{Connection, Endpoint, EndpointConfig, ReadToEndError, TransportConfig, VarInt};
-use quinn_proto::HashedConnectionIdGenerator;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::watch;
 use tokio_tungstenite::WebSocketStream;
@@ -1401,33 +1401,23 @@ struct KeyPaths {
 /// peer it is gone with the reset the peer expects. The peer connects again
 /// at once instead of waiting out the idle timeout. quinn sends a reset only
 /// for an ID its generator takes as its own, and its default generator's
-/// key is new at every start. Each endpoint derives its own keys, at
-/// `paths`. A node not set up yet has no peers, and random keys.
+/// key is new at every start; ours signs with an HMAC, which gives the key
+/// away to nobody, so the IDs stay unlinkable ([`ids`]). Each endpoint
+/// derives its own keys, at `paths`. A node not set up yet has no peers,
+/// and random keys.
 fn endpoint_config(key: Option<&NodeKey>, paths: &KeyPaths) -> EndpointConfig {
     let derive = |path| {
         SeedPath::parse(path)
             .ok()
             .and_then(|path| key?.derive(&path).ok())
     };
-    let (Some(reset), Some(ids)) = (derive(paths.reset), derive(paths.connection_ids)) else {
+    let (Some(reset), Some(id_key)) = (derive(paths.reset), derive(paths.connection_ids)) else {
         return EndpointConfig::default();
     };
     let reset = ring::hmac::Key::new(ring::hmac::HMAC_SHA256, reset.as_bytes());
     let mut config = EndpointConfig::new(Arc::new(reset));
-    let ids = connection_id_key(&ids);
-    config.cid_generator(move || Box::new(HashedConnectionIdGenerator::from_key(ids)));
+    config.cid_generator(move || Box::new(ids::SignedIds::new(id_key.as_bytes())));
     config
-}
-
-/// The key of quinn's generator of connection IDs, from `secret`: its first
-/// eight bytes. The generator's hash is no MAC, so the IDs it makes may give
-/// the key away; so it hangs at a path of its own, and gives away no other
-/// secret. Knowing it lets one only make IDs the node takes as its own, and
-/// so draw stateless resets for connections it does not have, which quinn
-/// sends at most once in a while, each smaller than the packet that drew it.
-fn connection_id_key(secret: &DerivedSecret) -> u64 {
-    let &[a, b, c, d, e, f, g, h, ..] = secret.as_bytes();
-    u64::from_le_bytes([a, b, c, d, e, f, g, h])
 }
 
 /// The transport's settings, with connections that close after `idle`
@@ -1544,9 +1534,9 @@ mod tests {
 
     /// The generator of connection IDs an endpoint of the node with `key`
     /// has, at `paths`.
-    fn generator(key: &NodeKey, paths: &KeyPaths) -> HashedConnectionIdGenerator {
+    fn generator(key: &NodeKey, paths: &KeyPaths) -> ids::SignedIds {
         let path = SeedPath::parse(paths.connection_ids).unwrap();
-        HashedConnectionIdGenerator::from_key(connection_id_key(&key.derive(&path).unwrap()))
+        ids::SignedIds::new(key.derive(&path).unwrap().as_bytes())
     }
 
     // An endpoint takes the IDs it made before a restart for its own, and so
