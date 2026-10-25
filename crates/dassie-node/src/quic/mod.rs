@@ -19,7 +19,8 @@
 //! Where UDP does not get through, a periphery node carries the same QUIC
 //! packets over a WebSocket on the core node's HTTPS listener ([`tunnel`]):
 //! a second endpoint, whose connections are served and kept as the UDP
-//! endpoint's are.
+//! endpoint's are. Those tunnels go through an HTTP proxy where one is set
+//! ([`proxy`]).
 
 // Denied here, though allowed in the rest of the daemon, for quinn's
 // `read_to_end` (see clippy.toml and `read_in_order`); this module needs
@@ -29,6 +30,7 @@
 mod hub;
 pub mod keys;
 pub mod places;
+pub mod proxy;
 pub mod relay;
 pub mod tunnel;
 
@@ -535,6 +537,14 @@ impl Quic {
         self.tunnels.endpoint().set_server_config(Some(server));
         self.idle = idle;
         Ok(self)
+    }
+
+    /// The tunnels the node dials go through `proxy`, for the hosts it does
+    /// not bypass ([`proxy`]); none when `None`.
+    #[must_use]
+    pub fn with_tunnel_proxy(mut self, proxy: Option<proxy::Proxy>) -> Self {
+        self.tunnels.set_proxy(proxy);
+        self
     }
 
     /// Whether the node is a periphery node, for the connections it dials

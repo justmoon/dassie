@@ -22,6 +22,7 @@ use dassie_node_core::config::{Hostname, LiveRealm};
 use serde::Deserialize;
 
 use crate::log::{LogFilter, LogLevel};
+use crate::quic::proxy::{NoProxy, Proxy};
 
 /// The public testnet's bootstrap nodes
 /// (spec/decisions/bootstrap-network.md), in one region, us-east1, so that
@@ -191,6 +192,11 @@ pub struct Settings {
     /// spec/areas/hubs.md#the-validator-in-the-node). None when unset:
     /// validating is something an owner turns on.
     pub validator: Option<crate::hub::config::ValidatorConfig>,
+    /// The HTTP proxy the node's tunnels dial through, and the hosts they
+    /// dial directly (`https_proxy` and `no_proxy`, or `HTTPS_PROXY` and
+    /// `NO_PROXY`; spec/areas/peer-protocol.md#quic-over-websocket). None
+    /// when unset.
+    pub tunnel_proxy: Option<Proxy>,
 }
 
 impl Settings {
@@ -211,6 +217,7 @@ impl Settings {
             public_names: public_names(env)?,
             uplinks: uplinks(env)?,
             validator: validator(env)?,
+            tunnel_proxy: tunnel_proxy(env)?,
         })
     }
 }
@@ -239,6 +246,38 @@ fn validator(env: &Env) -> Result<Option<crate::hub::config::ValidatorConfig>, E
     crate::hub::config::parse(&text)
         .map(Some)
         .map_err(|problem| error(format!("names a file that is wrong: {problem}")))
+}
+
+/// The proxy for the tunnels the node dials, as other programs read it:
+/// `https_proxy`, else `HTTPS_PROXY`, bypassed for the hosts `no_proxy`,
+/// else `NO_PROXY`, lists. An empty variable is unset. `NO_PROXY` is read
+/// only with a proxy, since it means nothing without one.
+fn tunnel_proxy(env: &Env) -> Result<Option<Proxy>, EnvError> {
+    let Some((variable, url)) = first_set(env, ["https_proxy", "HTTPS_PROXY"])? else {
+        return Ok(None);
+    };
+    let bypass = match first_set(env, ["no_proxy", "NO_PROXY"])? {
+        None => NoProxy::default(),
+        Some((variable, text)) => {
+            NoProxy::parse(text).map_err(|problem| EnvError { variable, problem })?
+        }
+    };
+    Proxy::parse(url, bypass)
+        .map(Some)
+        .map_err(|problem| EnvError { variable, problem })
+}
+
+/// The first of `variables` set to more than nothing, and its value.
+fn first_set<'a>(
+    env: &'a Env,
+    variables: [&'static str; 2],
+) -> Result<Option<(&'static str, &'a str)>, EnvError> {
+    for variable in variables {
+        if let Some(value) = env.get(variable)?.filter(|value| !value.is_empty()) {
+            return Ok(Some((variable, value)));
+        }
+    }
+    Ok(None)
 }
 
 /// `DASSIE_STATE_DIRECTORY`, then systemd's `STATE_DIRECTORY` (its first
@@ -569,6 +608,8 @@ mod tests {
                 r#"[{"id":"dx","url":"https://a","publicKey":"QBe5HLbdYFtIpjFTIu_Lz8lkoUJ3fmAvFHfCb9CVwIM"}]"#,
             ),
             ("DASSIE_VALIDATOR_CONFIG", "/no/such/file"),
+            ("HTTPS_PROXY", "https://proxy.example:443"),
+            ("https_proxy", "http://proxy.example:port"),
         ];
         for (variable, value) in bad {
             let result = settings(&[("HOME", "/h"), (variable, value)]);
@@ -749,5 +790,47 @@ mod tests {
         assert_eq!(unset.node.public_key.node_id(), unset.node.id);
         let empty = settings(&[("HOME", "/h"), ("DASSIE_RELAY", "")]);
         assert_eq!(empty.map(|s| s.relay), Ok(None));
+    }
+    // spec/areas/peer-protocol.md#quic-over-websocket: the proxy for
+    // tunnels is read as other programs read it, lowercase first, and
+    // `NO_PROXY` only with a proxy.
+    #[test]
+    fn the_tunnels_proxy_is_read_as_other_programs_read_it() {
+        let proxy = |pairs: &[(&str, &str)]| {
+            let mut all = vec![("HOME", "/h")];
+            all.extend_from_slice(pairs);
+            settings(&all).map(|s| s.tunnel_proxy.map(|proxy| proxy.to_string()))
+        };
+        assert_eq!(proxy(&[]), Ok(None));
+        assert_eq!(proxy(&[("HTTPS_PROXY", "")]), Ok(None));
+        assert_eq!(
+            proxy(&[("HTTPS_PROXY", "http://upper:1")]),
+            Ok(Some("upper:1".to_owned()))
+        );
+        assert_eq!(
+            proxy(&[
+                ("HTTPS_PROXY", "http://upper:1"),
+                ("https_proxy", "http://lower:2")
+            ]),
+            Ok(Some("lower:2".to_owned()))
+        );
+        // An empty lowercase one leaves the uppercase one.
+        assert_eq!(
+            proxy(&[("HTTPS_PROXY", "http://upper:1"), ("https_proxy", "")]),
+            Ok(Some("upper:1".to_owned()))
+        );
+        // `NO_PROXY` is checked only with a proxy, naming its variable.
+        assert_eq!(proxy(&[("NO_PROXY", "host:8080")]), Ok(None));
+        let bad = proxy(&[("HTTPS_PROXY", "http://p:1"), ("no_proxy", "host:8080")]);
+        assert_eq!(bad.err().map(|e| e.variable), Some("no_proxy"));
+        let settings = settings(&[
+            ("HOME", "/h"),
+            ("HTTPS_PROXY", "http://p:1"),
+            ("NO_PROXY", "near.example"),
+        ])
+        .unwrap();
+        let proxy = settings.tunnel_proxy.unwrap();
+        assert!(!proxy.applies_to("near.example"));
+        assert!(proxy.applies_to("far.example"));
     }
 }

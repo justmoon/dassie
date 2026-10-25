@@ -3,14 +3,15 @@
 //! UDP does not reach its uplink connects over a tunnel, which its uplink
 //! sends and relays on as on any connection; it keeps UDP where UDP gets
 //! through; a dial too short for the tunnel is not judged; the uplink's
-//! `NO_ROOM` reaches it; the tunnel and its connection end together; and a
-//! node that does not serve tunnels is a failed dial. A tunnel holds the
-//! place of the connection it carries: one among those being set up, until
-//! its connection proves a key within the time to connect, having carried
-//! a first packet sooner, and then its connection's, in its class. So a
-//! stranger's tunnels count against anyone else's places, and downlinks
-//! behind one address are bounded as over UDP. The HTTPS listener's side
-//! of the bounds is in `limits.rs`.
+//! `NO_ROOM` reaches it; the tunnel and its connection end together; a
+//! node that does not serve tunnels is a failed dial; and a tunnel goes
+//! through an HTTP proxy where one is set, unless `NO_PROXY` lists the host.
+//! A tunnel holds the place of the connection it carries: one among those
+//! being set up, until its connection proves a key within the time to
+//! connect, having carried a first packet sooner, and then its
+//! connection's, in its class. So a stranger's tunnels count against
+//! anyone else's places, and downlinks behind one address are bounded as
+//! over UDP. The HTTPS listener's side of the bounds is in `limits.rs`.
 //!
 //! The uplink's URL names a port whose UDP socket drops everything, as a
 //! filter would, while its QUIC endpoint listens elsewhere, and a TLS
@@ -41,6 +42,7 @@ use dassie_identity::{NodeId, NodeKey};
 use dassie_node::peer_client::PeerClient;
 use dassie_node::peer_server::Answer;
 use dassie_node::quic::places::{Classes, Peerings};
+use dassie_node::quic::proxy::{NoProxy, Proxy};
 use dassie_node::quic::relay::{Purpose, ServedStream};
 use dassie_node::quic::{Body, Handler, Quic, tunnel};
 use dassie_node_core::connections::ConnectionLimits;
@@ -144,10 +146,24 @@ struct Side {
 }
 
 fn side_on(seed: u8, socket: UdpSocket, handler: Echo, shutdown: &CancellationToken) -> Side {
+    side_behind(seed, socket, handler, None, shutdown)
+}
+
+/// A node whose tunnels go through `proxy`, if any.
+fn side_behind(
+    seed: u8,
+    socket: UdpSocket,
+    handler: Echo,
+    proxy: Option<Proxy>,
+    shutdown: &CancellationToken,
+) -> Side {
     let key = Arc::new(NodeKey::from_bytes(&[seed; 32]));
     let id = key.node_id();
     let (identity, receiver) = watch::channel(Some(key));
-    let quic = Arc::new(Quic::new(socket, receiver, true).unwrap());
+    let quic = Quic::new(socket, receiver, true)
+        .unwrap()
+        .with_tunnel_proxy(proxy);
+    let quic = Arc::new(quic);
     let address = quic.local_addr().unwrap();
     tokio::spawn(Arc::clone(&quic).serve(Arc::new(handler), shutdown.clone()));
     Side {
@@ -679,5 +695,114 @@ async fn downlinks_behind_one_address_are_bounded_as_over_udp() {
         let response = uplink.side.quic.send_held(&to_periphery(downlink)).await;
         assert_eq!(response.unwrap().body, b"hello");
     }
+    shutdown.cancel();
+}
+
+/// An HTTP proxy on loopback that reads a `CONNECT` and answers `status`;
+/// on a 2xx, it carries the stream to the address asked for. Its address,
+/// and the request heads it read.
+fn http_proxy(status: u16) -> (SocketAddr, Arc<Mutex<Vec<String>>>) {
+    let tcp = TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = tcp.local_addr().unwrap();
+    tcp.set_nonblocking(true).unwrap();
+    let tcp = tokio::net::TcpListener::from_std(tcp).unwrap();
+    let heads = Arc::new(Mutex::new(Vec::new()));
+    let seen = Arc::clone(&heads);
+    tokio::spawn(async move {
+        while let Ok((mut inbound, _)) = tcp.accept().await {
+            let seen = Arc::clone(&seen);
+            tokio::spawn(async move {
+                let mut head = Vec::new();
+                while !head.ends_with(b"\r\n\r\n") {
+                    assert!(head.len() < 8192);
+                    head.push(inbound.read_u8().await.unwrap());
+                }
+                let head = String::from_utf8(head).unwrap();
+                let target = head.split(' ').nth(1).unwrap().to_owned();
+                seen.lock().unwrap().push(head);
+                let answer = format!("HTTP/1.1 {status} Proxy says so\r\nVia: test\r\n\r\n");
+                inbound.write_all(answer.as_bytes()).await.unwrap();
+                if (200..300).contains(&status) {
+                    let mut outbound = tokio::net::TcpStream::connect(target).await.unwrap();
+                    let _ = tokio::io::copy_bidirectional(&mut inbound, &mut outbound).await;
+                }
+            });
+        }
+    });
+    (address, heads)
+}
+
+/// A periphery node whose tunnels go through the proxy at `address`, as
+/// `user:pass`, unless `no_proxy` lists the host.
+fn periphery_behind(
+    seed: u8,
+    address: SocketAddr,
+    no_proxy: &str,
+    shutdown: &CancellationToken,
+) -> Side {
+    let url = format!("http://user:pass@{address}");
+    let proxy = Proxy::parse(&url, NoProxy::parse(no_proxy).unwrap()).unwrap();
+    let socket = UdpSocket::bind("127.0.0.1:0").unwrap();
+    let side = side_behind(seed, socket, Echo::anyone(ROOMY), Some(proxy), shutdown);
+    side.quic.set_periphery(true);
+    side
+}
+
+// Where nothing gets out but through an HTTP proxy, a periphery node's
+// tunnel asks the proxy to `CONNECT` it to its uplink's host and port, with
+// its credentials, and the tunnel works through it as without one.
+#[tokio::test]
+async fn a_tunnel_goes_through_an_http_proxy() {
+    let shutdown = CancellationToken::new();
+    let uplink = uplink(1, Udp::Blocked, ROOMY, &shutdown);
+    let (address, heads) = http_proxy(200);
+    let downlink = periphery_behind(2, address, "", &shutdown);
+    let body = send(&downlink, uplink.side.id, &uplink.url).await.unwrap();
+    assert_eq!(body, b"hello");
+    let authority = uplink.url.strip_prefix("https://").unwrap();
+    let heads = heads.lock().unwrap().clone();
+    assert_eq!(
+        heads,
+        vec![format!(
+            "CONNECT {authority} HTTP/1.1\r\nHost: {authority}\r\n\
+             Proxy-Authorization: Basic dXNlcjpwYXNz\r\n\r\n"
+        )]
+    );
+    assert_eq!(uplink.accepted.load(Ordering::SeqCst), 1);
+    assert_eq!(downlink.quic.open_tunnels(), 1);
+    // The uplink reaches it on the connection it opened, through the proxy.
+    let response = uplink.side.quic.send_held(&to_periphery(&downlink)).await;
+    assert_eq!(response.unwrap().body, b"hello");
+    shutdown.cancel();
+}
+
+// A proxy that refuses to connect, here for want of credentials, is a
+// failed dial: the tunnel never reaches the node.
+#[tokio::test]
+async fn a_proxy_that_refuses_is_a_failed_dial() {
+    let shutdown = CancellationToken::new();
+    let uplink = uplink(1, Udp::Blocked, ROOMY, &shutdown);
+    let (address, heads) = http_proxy(407);
+    let downlink = periphery_behind(2, address, "", &shutdown);
+    let request = request(uplink.side.id, &uplink.url, 2_000);
+    let response = downlink.quic.send(&request, &client()).await;
+    assert_eq!(response.err(), Some(Failure::NotDelivered));
+    assert_eq!(heads.lock().unwrap().len(), 1);
+    assert_eq!(uplink.accepted.load(Ordering::SeqCst), 0);
+    assert!(downlink.quic.backing_off(&uplink.side.id));
+    assert_eq!(downlink.quic.open_tunnels(), 0);
+    shutdown.cancel();
+}
+
+// A host `NO_PROXY` lists is dialled directly, though a proxy is set.
+#[tokio::test]
+async fn a_host_no_proxy_lists_is_dialled_directly() {
+    let shutdown = CancellationToken::new();
+    let uplink = uplink(1, Udp::Blocked, ROOMY, &shutdown);
+    let (address, heads) = http_proxy(200);
+    let downlink = periphery_behind(2, address, "localhost,127.0.0.0/8", &shutdown);
+    send(&downlink, uplink.side.id, &uplink.url).await.unwrap();
+    assert!(heads.lock().unwrap().is_empty());
+    assert_eq!(uplink.accepted.load(Ordering::SeqCst), 1);
     shutdown.cancel();
 }

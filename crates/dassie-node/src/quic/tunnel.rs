@@ -27,7 +27,8 @@
 //! The outer TLS is not checked: the QUIC handshake inside pins the node
 //! key, so whoever holds the outer TLS sees only QUIC's ciphertext, and a
 //! node with a self-signed certificate, or behind a proxy that intercepts
-//! TLS, is reached all the same.
+//! TLS, is reached all the same. Where nothing gets out but through an
+//! HTTP proxy, the tunnels a node dials go through it ([`super::proxy`]).
 
 use std::collections::BTreeMap;
 use std::fmt;
@@ -64,6 +65,7 @@ use tokio_tungstenite::tungstenite::protocol::WebSocketConfig;
 use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
 
+use super::proxy::Proxy;
 use super::{CONNECT_TIMEOUT, MAX_LINKS};
 use crate::log::target;
 use crate::node::lock;
@@ -183,6 +185,8 @@ pub(super) struct Tunnels {
     socket: Arc<TunnelSocket>,
     /// The outer TLS's settings for the tunnels it dials.
     tls: Arc<rustls::ClientConfig>,
+    /// The HTTP proxy the tunnels it dials go through, if any.
+    proxy: Option<Proxy>,
     tasks: TaskTracker,
     /// Ends every tunnel, once the endpoint is closed.
     stop: CancellationToken,
@@ -208,9 +212,16 @@ impl Tunnels {
             endpoint,
             socket,
             tls: tls_config().map_err(io::Error::other)?,
+            proxy: None,
             tasks: TaskTracker::new(),
             stop: CancellationToken::new(),
         })
+    }
+
+    /// The tunnels it dials from now on go through `proxy`, for the hosts
+    /// it does not bypass.
+    pub(super) fn set_proxy(&mut self, proxy: Option<Proxy>) {
+        self.proxy = proxy;
     }
 
     /// The endpoint over the tunnels.
@@ -282,7 +293,7 @@ impl Tunnels {
 
     /// Makes a connection to `to` with `config` over a tunnel to `host` and
     /// `port`, at each of `addresses` in turn with a share of the time left
-    /// until `deadline`.
+    /// until `deadline`; or, through the proxy, once with all of it.
     pub(super) async fn dial(
         &self,
         to: NodeId,
@@ -291,6 +302,23 @@ impl Tunnels {
         config: &quinn::ClientConfig,
         deadline: tokio::time::Instant,
     ) -> Option<Connection> {
+        if let Some(proxy) = self.proxy.as_ref().filter(|proxy| proxy.applies_to(host)) {
+            // The proxy reaches the host by its name. The connection has the
+            // first address the node found for it, as a dial without one
+            // would have had.
+            let server = addresses.first()?.ip();
+            let dialled = self.dial_through(proxy, server, (host, port), config.clone());
+            match tokio::time::timeout_at(deadline, dialled).await {
+                Ok(Ok(connection)) => return Some(connection),
+                Ok(Err(error)) => {
+                    tracing::debug!(target: target::PEER, %to, %proxy, %error, "QUIC over a WebSocket through the proxy failed");
+                }
+                Err(_) => {
+                    tracing::debug!(target: target::PEER, %to, %proxy, "QUIC over a WebSocket through the proxy timed out");
+                }
+            }
+            return None;
+        }
         for (index, address) in addresses.iter().enumerate() {
             let left = deadline.saturating_duration_since(tokio::time::Instant::now());
             let tries_left = u32::try_from(addresses.len() - index).unwrap_or(1).max(1);
@@ -323,6 +351,32 @@ impl Tunnels {
             .await
             .map_err(|e| e.to_string())?;
         let _ = tcp.set_nodelay(true);
+        self.dial_over(tcp, address.ip(), (host, port), config)
+            .await
+    }
+
+    /// A tunnel to `host` through `proxy`, and a connection over it, at
+    /// `server`.
+    async fn dial_through(
+        &self,
+        proxy: &Proxy,
+        server: IpAddr,
+        (host, port): (&str, u16),
+        config: quinn::ClientConfig,
+    ) -> Result<Connection, String> {
+        let tcp = proxy.connect((host, port)).await?;
+        self.dial_over(tcp, server, (host, port), config).await
+    }
+
+    /// A tunnel over `tcp`, to `host` at `server`, and a connection over
+    /// it.
+    async fn dial_over(
+        &self,
+        tcp: TcpStream,
+        server: IpAddr,
+        (host, port): (&str, u16),
+        config: quinn::ClientConfig,
+    ) -> Result<Connection, String> {
         let name = ServerName::try_from(host.to_owned()).map_err(|e| e.to_string())?;
         let tls = tokio_rustls::TlsConnector::from(Arc::clone(&self.tls))
             .connect(name, tcp)
@@ -336,7 +390,7 @@ impl Tunnels {
         )
         .await
         .map_err(|e| e.to_string())?;
-        self.connect_over(ws, address.ip(), host, config).await
+        self.connect_over(ws, server, host, config).await
     }
 
     /// A connection with `config` to `host` over `ws`, a WebSocket dialled
