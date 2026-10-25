@@ -52,7 +52,7 @@ Built: who is a periphery node, its link state without a URL, its peerings with 
 
 A core node keeps its peerings with other core nodes, and its downlinks, under separate limits.
 
-- **Core relationships:** at most 32 settlement channels open with core nodes, as against 512 today. A channel outlives its peering, and closes once idle, to disk, which frees its place ([Settlement](../areas/settlement.md#settlement-channels)). Its ledger accounts stay, with what they show, since the journal refers to them.
+- **Core relationships:** at most 32 settlement channels open with core nodes, as against 512 today. A channel outlives its peering, and closes once idle, to disk, which frees its place ([Settlement](../areas/settlement.md#settlement-channels)). Its ledger accounts close to disk with it, with what they show, and come back with it ([resident-peers](../decisions/resident-peers.md)).
 - **Downlinks** live in a table of their own, not in the node table. Each row holds:
   - the downlink's node ID and public key;
   - its scheme, and the scheme's data for it (on the XRP Ledger, its account address);
@@ -61,10 +61,10 @@ A core node keeps its peerings with other core nodes, and its downlinks, under s
   - what was settled each way, and the settlement message on its way, if any.
 
   With the downlink's two ledger accounts, that is about 0.5 KB per downlink on disk. A peer today costs about 1 KB on disk and 1.5–2 KB in memory, most of it the link state, kept both as bytes and parsed, which a downlink does not need.
-- **In memory only while connected.** A downlink's replay guard, MAC keys and peering state are loaded when it connects, and dropped once it has been gone for a while. Its replay floor is on disk, as for any peer.
-- **Limits:** at most 10 000 downlinks peered at once, and at most 100 000 rows, about 50 MB. A row with no peering, idle as a closed channel is, is closed. When the rows are full, the node refuses new downlinks. What is built is one bound on downlinks, which live in the node table, and whose channels close once idle, as every channel does ([Network](../areas/network.md#downlinks)); their QUIC connections hold places of their own, with room for that many downlinks ([Peer protocol](../areas/peer-protocol.md#quic)).
+- **In memory only while connected** ([resident-peers](../decisions/resident-peers.md)). A downlink's peering, replay guard and keys, settlement channel and ledger accounts are read in when its connection proves its key, and dropped once it has no connection and nothing still needs them: no transfer of its pending, no settlement of ours on its way, no hold, no termination under way. Everything is on disk already, so dropping writes nothing. Its timers run from the disk while it is away.
+- **Limits:** at most 10 000 downlinks peered at once, and at most 100 000 rows, about 50 MB. Memory holds only the connected ones and those something still needs, bounded by the downlinks' open channels, and for each other one with an open channel a small entry: its node ID, whether it paid us and whether it is peered. A row with no peering, idle as a closed channel is, is closed. When the rows are full, the node refuses new downlinks. What is built is one bound on downlinks, which live in the node table, and whose channels close once idle, as every channel does ([Network](../areas/network.md#downlinks)); their QUIC connections hold places of their own, with room for that many downlinks ([Peer protocol](../areas/peer-protocol.md#quic)).
 - **No withdrawal for room** for a downlink that owes nothing is built ([Network](../areas/network.md#advertised-peers)).
-- **The XRPL scheme** keeps its peers' addresses in a table keyed by account, not in its state ([XRP Ledger](../areas/xrpl.md#state-and-restarts)). With many downlinks, its state would grow with every one and be written whole at every checkpoint, and a scheme that kept only the newest addresses could not recognise a settlement from a downlink it forgot.
+- **The XRPL scheme** keeps its peers' addresses in a table keyed by account, not in its state ([XRP Ledger](../areas/xrpl.md#state-and-restarts)). With many downlinks, its state would grow with every one and be written whole at every checkpoint, and a scheme that kept only the newest addresses, or only those of downlinks in memory, could not recognise a settlement from a downlink it forgot.
 
 ## 5. Reaching a periphery node
 

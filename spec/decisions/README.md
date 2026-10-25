@@ -56,6 +56,7 @@ Each file records one choice between real alternatives: the facts that forced it
 | [receive-limit-alone](receive-limit-alone.md) | A receive limit alone bounds nothing: it is refused, and grants kept with one are revoked | payments |
 | [receive-limit-caps-delivery](receive-limit-caps-delivery.md) | A receive limit caps what payments deliver, not only what they reserve | payments, stream |
 | [release-integrity](release-integrity.md) | Release integrity | release |
+| [resident-peers](resident-peers.md) | A peer is in memory only while it is needed: a downlink while it is connected, a core peer while its channel is open | ledger, settlement, network, xrpl, designs/periphery |
 | [rpc-contract](rpc-contract.md) | UI and CLI RPC contract | rpc, wallet |
 | [rust-and-typescript](rust-and-typescript.md) | What runs in Rust and what in TypeScript | overview, engineering |
 | [secrets-at-rest](secrets-at-rest.md) | Secrets at rest | node, http |
