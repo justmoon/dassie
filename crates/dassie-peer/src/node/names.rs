@@ -38,6 +38,10 @@ const NOT_REGISTRAR: &str = "not a bootstrap node";
 /// driver.
 const MAX_REGISTRAR_EVENTS: u64 = 1;
 
+/// Most events a taking of the view queues, however many names change: one
+/// for the view and one for a registrar's releases.
+const MAX_HOLDERS_EVENTS: u64 = 2;
+
 impl PeerNode {
     /// The registrar's state, if this node is one: one of its own bootstrap
     /// nodes.
@@ -291,6 +295,7 @@ impl PeerNode {
     /// releases: the queue is bounded and drops its oldest, and the peer
     /// events queued before this in the same tick must reach the driver.
     fn update_holders(&mut self) {
+        let queued = self.events_queued();
         let mut changes = Vec::new();
         self.holders.recompute(self.now_ms, &mut changes);
         if !changes.is_empty() {
@@ -302,6 +307,10 @@ impl PeerNode {
             self.event(Event::Name(NameEvent::HoldersChanged { held, unheld }));
         }
         self.release_splits();
+        assert!(
+            self.events_since(queued) <= MAX_HOLDERS_EVENTS,
+            "a taking of the view queues a bounded number of events"
+        );
     }
 
     /// Releases the names we list that more than f of the other registrars'
