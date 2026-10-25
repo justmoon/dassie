@@ -1189,6 +1189,18 @@ impl Network {
         f(self.nodes[index].node.as_mut().unwrap(), now);
         self.drain(index);
     }
+
+    /// The same, with the node's hooks, as the node's books act.
+    pub fn act_with_hooks(
+        &mut self,
+        index: usize,
+        f: impl FnOnce(&mut PeerNode, &mut StubHooks, u64),
+    ) {
+        let now = self.local_now(index);
+        let sim = &mut self.nodes[index];
+        f(sim.node.as_mut().unwrap(), &mut sim.hooks, now);
+        self.drain(index);
+    }
 }
 
 /// The name a registrar that tips off passes on: one unsealed at it.

@@ -506,6 +506,7 @@
         "Link states that say whether a node takes QUIC, where a core node's rate feed is, and which settlement hub a node is in",
         "Peering on its own, and routing",
         "Periphery nodes without a URL and with no neighbors in their link state, which peer only with core nodes as their downlinks, and only with those their owner pinned when it pinned any, as many as a market maker trades through",
+        "Downlinks that never paid the node take at most half of its places for downlinks, so keys made for nothing cannot keep out those that pay",
         "Advertising only peers that are alive and not stuck short of room, never ending one for room it could not pay",
         "Delivering settlements and requests to settle, ending peerings, at once on a scheme the node no longer runs, bans",
         "Settlement channels that close once idle, kept on disk so a late settlement still counts once",

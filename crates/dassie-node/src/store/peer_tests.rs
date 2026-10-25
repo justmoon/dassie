@@ -267,6 +267,7 @@ fn terminations_channels_and_bans_round_trip() {
                 attempts: 2,
             }),
             ended_for_room: true,
+            paid_us: true,
         },
     };
     commit(
@@ -327,6 +328,7 @@ fn a_closed_channel_stays_on_disk() {
             settled_out: 5,
             outbox: None,
             ended_for_room: true,
+            paid_us: true,
         },
     };
     commit(

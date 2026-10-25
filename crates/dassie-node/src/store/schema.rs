@@ -61,6 +61,7 @@ const MIGRATIONS: &[&str] = &[
     MIGRATION_37,
     MIGRATION_38,
     MIGRATION_39,
+    MIGRATION_40,
 ];
 
 /// The schema version this code writes: the number of migrations.
@@ -1249,6 +1250,15 @@ CREATE TABLE name_registrations (
 ) STRICT, WITHOUT ROWID;
 ";
 
+/// Whether the node ever paid us a settlement of at least one largest
+/// packet: kept with the relationship, open or closed, so that a downlink
+/// that paid us is no free receiver when it comes back
+/// (spec/decisions/free-receivers-half.md).
+const MIGRATION_40: &str = "
+ALTER TABLE settlement_channels ADD COLUMN paid_us INTEGER NOT NULL DEFAULT 0
+  CHECK (paid_us IN (0, 1));
+";
+
 /// Columns that hold secrets: the database inspector never reads them.
 pub const SECRET_COLUMNS: &[(&str, &str)] = &[
     ("node_key", "private_key"),
@@ -1496,6 +1506,7 @@ pub const TABLES: &[Table] = &[
             ("outbox_attempts", "INTEGER", false, false),
             ("ended_for_room", "INTEGER", true, false),
             ("closed", "INTEGER", true, false),
+            ("paid_us", "INTEGER", true, false),
         ],
     },
     Table {

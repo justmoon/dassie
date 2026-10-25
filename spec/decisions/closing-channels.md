@@ -5,7 +5,7 @@
 ## Facts
 
 - A node keeps a settlement channel with every node it peered with, and the channel outlives the peering, so a settlement that arrives after the end is credited once ([peering-lifecycle](peering-lifecycle.md)). Channels are bounded in number, with core nodes and with downlinks. A node that kept every channel would refuse peering with a new node once the bound was full. Vanished nodes are what fill it.
-- In memory, a channel holds the node's key and URL, the last sequence applied from it, the last one sent, our message on its way, and whether we once ended a peering with it for want of room. It also pins the node's replay state, and the XRPL scheme keeps the node's address for it. Once nothing is on its way, only three things matter for later: the two sequences and the mark of an end for room.
+- In memory, a channel holds the node's key and URL, the last sequence applied from it, the last one sent, our message on its way, whether we once ended a peering with it for want of room, and whether it once paid us ([free-receivers-half](free-receivers-half.md)). It also pins the node's replay state, and the XRPL scheme keeps the node's address for it. Once nothing is on its way, only the two sequences and the two marks matter for later.
 - The sequences are what make a settlement message arrive once. If one side forgets them, they no longer match. The other side's next message is then refused as out of order for ever, or a copy whose acknowledgement was lost is applied again.
 - A former peer's balance is almost never exactly nothing: settlements round down to whole units of the ledger, and the last request of an end collects only half the way to the trigger ([ending-a-peering](ending-a-peering.md)). The peer's accounts keep that balance, and a later peering reuses them and settles it.
 
@@ -17,9 +17,9 @@
   - channels whose node's books let them close: nothing of the node is pending in the ledger, and every scheme it has accounts with runs and sees its ledger;
   - channels no scheme still needs (`keeps_channel`): over a settlement hub, a hold with funds either way, or a packet no claim covers yet, is not settled on the hub's ledger, and keeps its channel open.
 - **Whatever the balance.** The node's accounts stay with what they show, and its trust with them. A later peering reuses them and settles what they show, as after any end.
-- **What stays of it is on disk only:** its row in `settlement_channels`, marked closed, with its two sequences and the mark of an end for room. It leaves memory, frees its place under the bound, and lets go of the node's replay state. The schemes forget what they kept for the node's settlements (`on_closed`).
+- **What stays of it is on disk only:** its row in `settlement_channels`, marked closed, with its two sequences and both marks. It leaves memory, frees its place under the bound, and lets go of the node's replay state. The schemes forget what they kept for the node's settlements (`on_closed`).
 - **A closed channel is read back when it is needed.** A peering with the node opens it again where it was, so our next settlement follows the last and the peer applies it. A settlement that comes over it closed is applied once, by the sequence that stayed, and the channel stays closed.
-- **The mark of an end for room stays for good, open or closed** ([ended-for-room](ended-for-room.md)).
+- **The marks of an end for room and of a payment stay for good, open or closed** ([ended-for-room](ended-for-room.md), [free-receivers-half](free-receivers-half.md)).
 - **Peers' accounts leave room for the node's own.** With channels freeing their places, former peers' accounts, which stay, would otherwise fill the ledger's accounts and leave none for what the owner opens: a BTP token's, or a newly activated ledger's common and payer accounts. Those are bounded (`OWN_ACCOUNTS`: every token ever made, and every ledger's), so new peers' accounts stop where that room begins, and the peering is refused for capacity. A node whose accounts are open peers again regardless.
 
 ## Accepted

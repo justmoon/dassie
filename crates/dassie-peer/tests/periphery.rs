@@ -33,7 +33,8 @@ fn stub() -> SchemeId {
     SchemeId::parse("stub").unwrap()
 }
 
-/// A request from `from` to node `to` of `network`, at `to`'s clock.
+/// A request from `from` to node `to` of `network`, at `to`'s clock: one
+/// session for each instant, so a node may ask again later.
 fn request(network: &Network, from: &Arc<NodeKey>, to: usize, content: &Content<'_>) -> Vec<u8> {
     let mut auth = Authenticator::new(Arc::clone(from), AuthConfig::DEFAULT, START - 1);
     let bytes = content.to_vec();
@@ -41,7 +42,7 @@ fn request(network: &Network, from: &Arc<NodeKey>, to: usize, content: &Content<
     let (hmac, _) = auth
         .authenticate(
             network.clock(to),
-            &mut SeededRng::new(9),
+            &mut SeededRng::new(network.clock(to)),
             &target.node_id(),
             &target.public_key(),
             &bytes,
@@ -90,6 +91,29 @@ fn answer(reply: &dassie_peer::Reply) -> PeeringResponse<'_> {
 
 fn id(index: usize) -> NodeId {
     key(index).node_id()
+}
+
+/// A key of its own for each `seed`.
+fn downlink_key(seed: u8) -> Arc<NodeKey> {
+    Arc::new(NodeKey::from_bytes(&[seed; 32]))
+}
+
+/// Asks node 0 to take `key` as its downlink, now: why it refused, if it
+/// did.
+fn ask_as_downlink(network: &mut Network, key: &Arc<NodeKey>) -> Option<RefusalReason> {
+    let state = link_state(key, network.clock(0), "", &[EXTENSION_PERIPHERY]);
+    let reply = ask(network, key, 0, &state);
+    match answer(&reply) {
+        PeeringResponse::Accepted { .. } => None,
+        PeeringResponse::Refused(reason) => Some(reason),
+    }
+}
+
+/// Node 0's books take a settlement of at least one largest packet from
+/// `key`.
+fn pays(network: &mut Network, key: &NodeKey) {
+    let node = key.node_id();
+    network.act_with_hooks(0, |peer, hooks, now| peer.paid_by(now, hooks, &node));
 }
 
 // spec/areas/peer-protocol.md#verification: an empty URL verifies only with
@@ -148,7 +172,7 @@ fn a_downlink_with_a_url_is_refused_without_a_channel() {
 #[test]
 fn a_refused_downlink_takes_no_place() {
     let config = Config {
-        max_downlinks: 1,
+        max_downlinks: 2,
         ..Config::DEV
     };
     let mut network = Network::with_periphery(18, 2, 1, 0, config);
@@ -577,7 +601,7 @@ fn downlinks_are_accepted_without_a_probe() {
 
 // spec/areas/network.md#downlinks: downlinks have a bound of their own,
 // apart from the core peering slots; past it, a new one is refused for
-// capacity.
+// capacity. Those that paid us are bounded by it alone.
 #[test]
 fn downlinks_are_bounded() {
     let config = Config {
@@ -586,18 +610,14 @@ fn downlinks_are_bounded() {
     };
     let mut network = Network::with_periphery(15, 2, 1, 0, config);
     settle(&mut network, 30_000);
-    let at = network.clock(0);
     for seed in [93, 94, 95] {
-        let key = Arc::new(NodeKey::from_bytes(&[seed; 32]));
-        let state = link_state(&key, at, "", &[EXTENSION_PERIPHERY]);
-        let reply = ask(&mut network, &key, 0, &state);
-        let accepted = matches!(answer(&reply), PeeringResponse::Accepted { .. });
-        assert_eq!(accepted, seed != 95, "seed {seed}");
+        let key = downlink_key(seed);
+        let refusal = ask_as_downlink(&mut network, &key);
         if seed == 95 {
-            assert_eq!(
-                answer(&reply),
-                PeeringResponse::Refused(RefusalReason::Capacity)
-            );
+            assert_eq!(refusal, Some(RefusalReason::Capacity));
+        } else {
+            assert_eq!(refusal, None, "seed {seed}");
+            pays(&mut network, &key);
         }
     }
     let node = network.node(0);
@@ -611,7 +631,7 @@ fn downlinks_are_bounded() {
 #[test]
 fn a_closed_channel_frees_a_downlinks_place() {
     let config = Config {
-        max_downlinks: 1,
+        max_downlinks: 2,
         ..Config::DEV
     };
     let mut network = Network::with_periphery(17, 2, 1, 0, config);
@@ -636,15 +656,126 @@ fn a_closed_channel_frees_a_downlinks_place() {
     assert_eq!(
         answer(&reply),
         PeeringResponse::Refused(RefusalReason::Capacity),
-        "the first one's channel still holds the place"
+        "the first one's channel still holds the free receivers' place"
     );
     settle(&mut network, Config::DEV.peer_dead_ms);
     assert!(network.node(0).channel(&first.node_id()).is_none());
-    // Another newcomer: `ask` signs each node's requests alike.
+    // Another newcomer.
     let third = Arc::new(NodeKey::from_bytes(&[99; 32]));
     let state = link_state(&third, network.clock(0), "", &[EXTENSION_PERIPHERY]);
     let reply = ask(&mut network, &third, 0, &state);
     assert!(matches!(answer(&reply), PeeringResponse::Accepted { .. }));
+}
+
+// spec/decisions/free-receivers-half.md: downlinks that never paid us take
+// at most half of the downlinks' places, so keys made for nothing cannot
+// fill them all. One that pays takes a paying place from then on, and
+// leaves its free one to another.
+#[test]
+fn free_receivers_take_at_most_half_of_the_downlinks() {
+    let config = Config {
+        max_downlinks: 4,
+        ..Config::DEV
+    };
+    let mut network = Network::with_periphery(19, 2, 1, 0, config);
+    settle(&mut network, 30_000);
+    let [a, b, c, d] = [80, 81, 82, 83].map(downlink_key);
+    assert_eq!(ask_as_downlink(&mut network, &a), None);
+    assert_eq!(ask_as_downlink(&mut network, &b), None);
+    assert_eq!(
+        ask_as_downlink(&mut network, &c),
+        Some(RefusalReason::Capacity),
+        "the free receivers' half is full, with room left among the downlinks"
+    );
+    assert!(!network.node(0).is_downlink(&c.node_id()));
+    pays(&mut network, &a);
+    assert!(network.node(0).channel(&a.node_id()).unwrap().paid_us);
+    settle(&mut network, 1_000);
+    assert_eq!(ask_as_downlink(&mut network, &c), None);
+    assert_eq!(
+        ask_as_downlink(&mut network, &d),
+        Some(RefusalReason::Capacity)
+    );
+    let node = network.node(0);
+    assert_eq!(node.peers().count() - node.core_peers().count(), 3);
+}
+
+// spec/decisions/free-receivers-half.md: the rule only refuses newcomers. A
+// free receiver peered when the free half fills stays, and its repeated
+// request, after an answer that got lost, is answered as before.
+#[test]
+fn a_full_free_half_ends_no_downlink() {
+    let config = Config {
+        max_downlinks: 2,
+        ..Config::DEV
+    };
+    let mut network = Network::with_periphery(20, 2, 1, 0, config);
+    settle(&mut network, 30_000);
+    let [a, b] = [84, 85].map(downlink_key);
+    assert_eq!(ask_as_downlink(&mut network, &a), None);
+    for _ in 0..3 {
+        settle(&mut network, 1_000);
+        assert_eq!(
+            ask_as_downlink(&mut network, &b),
+            Some(RefusalReason::Capacity)
+        );
+        assert_eq!(ask_as_downlink(&mut network, &a), None, "a repeat");
+    }
+    let peering = network.node(0).peering_of(&a.node_id()).unwrap();
+    assert!(peering.depeering.is_none());
+    assert!(!ended_or_ending(&network, 0, &a.node_id()));
+}
+
+// spec/decisions/free-receivers-half.md: a downlink that paid us once is no
+// free receiver for good. Its channel keeps the mark when it closes, and it
+// gets in past a full free half when it comes back; one that never paid
+// waits for a free place, as a newcomer does.
+#[test]
+fn a_downlink_that_paid_comes_back_past_a_full_free_half() {
+    let config = Config {
+        max_downlinks: 4,
+        ..Config::DEV
+    };
+    let mut network = Network::with_periphery(21, 2, 1, 0, config);
+    settle(&mut network, 30_000);
+    let [paying, free, a, b, c] = [86, 87, 88, 89, 90].map(downlink_key);
+    assert_eq!(ask_as_downlink(&mut network, &paying), None);
+    assert_eq!(ask_as_downlink(&mut network, &free), None);
+    pays(&mut network, &paying);
+    for key in [&paying, &free] {
+        let node = key.node_id();
+        network.act(0, |peer, now| {
+            assert!(peer.terminate(
+                now,
+                &node,
+                dassie_peer::wire::TerminationReason::Unresponsive
+            ));
+        });
+    }
+    settle(&mut network, 120_000);
+    settle(&mut network, Config::DEV.peer_dead_ms);
+    for key in [&paying, &free] {
+        let node = key.node_id();
+        assert!(network.node(0).channel(&node).is_none(), "closed");
+        assert_eq!(
+            network.nodes[0].hooks.closed.get(&node).map(|c| c.paid_us),
+            Some(Arc::ptr_eq(key, &paying))
+        );
+    }
+    assert_eq!(ask_as_downlink(&mut network, &a), None);
+    assert_eq!(ask_as_downlink(&mut network, &b), None);
+    assert_eq!(
+        ask_as_downlink(&mut network, &c),
+        Some(RefusalReason::Capacity)
+    );
+    assert_eq!(
+        ask_as_downlink(&mut network, &free),
+        Some(RefusalReason::Capacity),
+        "it never paid us"
+    );
+    assert_eq!(ask_as_downlink(&mut network, &paying), None);
+    let channel = network.node(0).channel(&paying.node_id()).unwrap();
+    assert!(channel.paid_us, "opened again with the mark");
 }
 
 // A periphery node takes no peers: it peers only as a downlink.

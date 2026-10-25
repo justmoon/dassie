@@ -675,6 +675,12 @@ impl Core {
             {
                 self.peer.settlement_booked(self.now_ms, &node, amount);
             }
+            // At least the least settlement, on any of its ledgers: it paid
+            // us, for good, and is no free receiver
+            // (spec/decisions/free-receivers-half.md).
+            if amount >= self.settle.minimum {
+                self.with_peer(|peer, hooks, now| peer.paid_by(now, hooks, &node));
+            }
             self.report(SettlementEvent::SettlementBooked { from: node, amount });
         }
     }

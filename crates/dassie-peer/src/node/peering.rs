@@ -618,7 +618,7 @@ impl PeerNode {
             return if downlink {
                 common_version(hooks.versions(request.scheme), &request.versions)
                     .ok_or(RefusalReason::NoCommonVersion)?;
-                self.downlink_room(sender)
+                self.downlink_room(hooks, sender)
             } else {
                 Err(RefusalReason::UnknownNode)
             };
@@ -646,7 +646,7 @@ impl PeerNode {
             self.abandon_attempt(*sender);
         }
         if downlink {
-            return self.downlink_room(sender);
+            return self.downlink_room(hooks, sender);
         }
         let inbound = self.core_peers().filter(|(_, p)| p.inbound).count();
         if inbound >= self.config.max_inbound()
@@ -659,14 +659,39 @@ impl PeerNode {
 
     /// Whether a downlink `sender` fits: its place in the table, its
     /// peering and its channel, under their own bound, apart from the core
-    /// peering slots (spec/areas/network.md#downlinks).
-    fn downlink_room(&self, sender: &NodeId) -> Result<(), RefusalReason> {
+    /// peering slots (spec/areas/network.md#downlinks); and, if it never
+    /// paid us, among the free receivers.
+    fn downlink_room(
+        &self,
+        hooks: &dyn PeeringHooks,
+        sender: &NodeId,
+    ) -> Result<(), RefusalReason> {
         let peered = self.peers().filter(|(id, _)| self.is_downlink(id)).count();
         let placed = self.is_downlink(sender) || self.downlinks() < self.config.max_downlinks;
         if peered >= self.config.max_downlinks || !placed || !self.channel_room_for(sender, true) {
             return Err(RefusalReason::Capacity);
         }
+        if !self.free_room_for(hooks, sender) {
+            return Err(RefusalReason::Capacity);
+        }
         Ok(())
+    }
+
+    /// Whether a downlink `sender` fits among the free receivers: at most
+    /// half of the downlinks' places are theirs, so keys made for nothing
+    /// never fill the places of downlinks that paid us. One that paid us
+    /// once is bounded by the downlinks' bound alone, and one whose channel
+    /// is open as a downlink's holds its place already. Nothing is ever
+    /// ended or displaced for this (spec/decisions/free-receivers-half.md).
+    fn free_room_for(&self, hooks: &dyn PeeringHooks, sender: &NodeId) -> bool {
+        if self.free_downlinks() < self.config.max_free_downlinks() {
+            return true;
+        }
+        let held = self
+            .channels
+            .get(sender)
+            .is_some_and(|channel| channel.url.is_empty());
+        held || self.paid_us(sender, hooks)
     }
 
     pub(crate) fn abandon_attempt(&mut self, node: NodeId) {
