@@ -134,7 +134,11 @@ impl Opening<'_> {
 /// The credit a downlink's new accounts start with on `scheme`: what a
 /// senior extends at first, and nothing over a hub, whose hold is all the
 /// credit there is (spec/decisions/earned-trust.md).
-fn start_credit(schemes: &BTreeMap<Name, ActiveScheme>, scheme: Name, senior_credit: u64) -> u64 {
+pub(super) fn start_credit(
+    schemes: &BTreeMap<Name, ActiveScheme>,
+    scheme: Name,
+    senior_credit: u64,
+) -> u64 {
     if schemes.get(&scheme).is_some_and(|active| active.over_hub) {
         0
     } else {

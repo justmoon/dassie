@@ -1388,6 +1388,75 @@ fn a_downlink_that_moves_no_value_leaves_nothing_behind() {
     core.check_invariants();
 }
 
+// spec/decisions/closing-channels.md, spec/decisions/lazy-downlink-accounts.md:
+// a downlink nothing moved with yet may have settled on any scheme we run,
+// so its channel closes only while every one of them sees its ledger, as a
+// peer's closes only while the schemes of its accounts do. While one is
+// stopped, it stays open, and its room kept.
+#[test]
+fn a_downlinks_channel_without_accounts_waits_for_every_scheme() {
+    let store = Arc::new(Store::open_in_memory().unwrap());
+    let (mut core, id) = stub_core_with_downlink(store);
+    let stub = dassie_ledger::name!("stub");
+    core.stop_scheme(stub, super::EngineError::Invalid("blind".into()));
+    let mut now = NOW + 1_000;
+    let most = now + 3 * Policies::DEFAULT.peer.peer_dead_ms;
+    let mut outputs = Vec::new();
+    while now < most {
+        now += 600_000;
+        core.begin_step(now);
+        outputs.clear();
+        core.finish_step(&mut outputs);
+    }
+    assert!(core.peer.peering_of(&id).is_none(), "the peering ended");
+    assert!(core.peer.channel(&id).is_some(), "the channel stays open");
+    assert!(core.downlinks.waiting.contains(&id), "and its room kept");
+    core.check_invariants();
+}
+
+// spec/areas/settlement.md#incoming-settlements: the books first, for a
+// downlink nothing moved with yet too. A settlement its accounts could not
+// take once opened is refused before the scheme sees it, as any peer's
+// is: the scheme keeps running, and nothing opens.
+#[test]
+fn a_downlinks_settlement_the_books_cannot_take_is_refused_first() {
+    let store = Arc::new(Store::open_in_memory().unwrap());
+    let (mut core, id) = stub_core_with_downlink(store);
+    let stub = dassie_ledger::name!("stub");
+    let scheme = dassie_peer::wire::SchemeId::parse("stub").unwrap();
+    core.begin_step(NOW + 2_000);
+    for amount in [0, dassie_ledger::MAX_TOTAL + 1, u64::MAX] {
+        assert!(
+            core.incoming_settlement(id, scheme, amount, &[]).is_err(),
+            "{amount} is refused"
+        );
+    }
+    assert!(core.schemes[&stub].failed.is_none(), "the stub runs on");
+    assert!(core.downlinks.waiting.contains(&id) && core.downlinks.opened.is_empty());
+    // What the books take opens its accounts.
+    core.incoming_settlement(id, scheme, 5_000, &[]).unwrap();
+    assert_eq!(core.owed(id, scheme), Some(5_000));
+    assert!(core.downlinks.waiting.is_empty());
+    core.check_invariants();
+}
+
+// spec/decisions/lazy-downlink-accounts.md: over a hub, our settlement to a
+// downlink opens its accounts only when something is settled: a request
+// that settles nothing opens nothing.
+#[test]
+fn over_a_hub_a_request_that_settles_nothing_opens_nothing() {
+    let (mut core, peer) = hub_core_with_downlink(35);
+    let scheme = dassie_peer::wire::SchemeId::parse("stub").unwrap();
+    let trigger = core.settle.trigger;
+    core.settle.trigger = u64::MAX;
+    core.begin_step(NOW + 2_000);
+    assert_eq!(core.settlement_requested(peer, scheme), 0);
+    assert!(!has_any_accounts(&core, peer));
+    core.settle.trigger = trigger;
+    assert!(core.settlement_requested(peer, scheme) > 0);
+    assert!(has_any_accounts(&core, peer));
+}
+
 // spec/decisions/lazy-downlink-accounts.md: the first packet that moves
 // money to a downlink opens its accounts, in the room kept for them, with
 // the packet's transfer; they are written with the step, as a downlink's.

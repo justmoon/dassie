@@ -369,15 +369,26 @@ impl PeeringHooks for Hooks<'_> {
         });
         // A settlement it made before the close is booked as its own only
         // by a scheme that still knows it, and sees its ledger.
-        let unseen = LedgerId::ALL.into_iter().any(|ledger| {
-            self.ledger
-                .find(&AccountPath::new(
-                    ledger,
-                    AccountName::AssetsInterledger(peer),
-                ))
-                .is_some()
-                && !self.sees(ledger)
-        });
+        let with_accounts: Vec<LedgerId> = LedgerId::ALL
+            .into_iter()
+            .filter(|ledger| {
+                self.ledger
+                    .find(&AccountPath::new(
+                        *ledger,
+                        AccountName::AssetsInterledger(peer),
+                    ))
+                    .is_some()
+            })
+            .collect();
+        // A downlink nothing moved with yet may have settled on any scheme
+        // we run, which then opens its accounts: every one of them, stopped
+        // ones too, must see its ledger
+        // (spec/decisions/lazy-downlink-accounts.md).
+        let unseen = if with_accounts.is_empty() {
+            self.schemes.values().any(|active| !self.synced(active))
+        } else {
+            with_accounts.into_iter().any(|ledger| !self.sees(ledger))
+        };
         // Nor while a scheme has something with it not settled on its
         // ledger yet, as a hold with funds over a hub.
         let kept = self
@@ -391,15 +402,19 @@ impl PeeringHooks for Hooks<'_> {
 impl Hooks<'_> {
     /// Whether a scheme on `ledger` runs and sees its ledger now.
     fn sees(&self, ledger: LedgerId) -> bool {
-        self.schemes.values().any(|active| {
-            let asset = active
-                .asset
-                .and_then(|id| self.assets.get(&id))
-                .map(|asset| asset.asset.status());
-            active.scheme.ledger() == ledger
-                && active.failed.is_none()
-                && merged_status(asset, active.scheme.status()) == LedgerStatus::Synced
-        })
+        self.schemes
+            .values()
+            .any(|active| active.scheme.ledger() == ledger && self.synced(active))
+    }
+
+    /// Whether `active` runs and sees its ledger now.
+    fn synced(&self, active: &ActiveScheme) -> bool {
+        let asset = active
+            .asset
+            .and_then(|id| self.assets.get(&id))
+            .map(|asset| asset.asset.status());
+        active.failed.is_none()
+            && merged_status(asset, active.scheme.status()) == LedgerStatus::Synced
     }
 }
 

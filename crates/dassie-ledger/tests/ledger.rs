@@ -218,6 +218,30 @@ fn peer_trust_is_extended_once() {
 // spec/decisions/lazy-downlink-accounts.md: a peer's accounts opened for a
 // packet the ledger then refused are taken back, credit and all, as if they
 // had never been opened; the next ones get the same IDs.
+// spec/decisions/lazy-downlink-accounts.md: a transfer to a peer's
+// accounts not open yet is checked as they would open, without opening
+// them, and as they are once open.
+#[test]
+fn a_transfer_to_accounts_not_open_yet_is_checked_as_they_would_open() {
+    let (mut ledger, accounts) = funded(10);
+    let reference = Reference::Deposit;
+    let check = |ledger: &Ledger, trust, amount| {
+        ledger.validate_to_peer(accounts.settlement, peer(), trust, amount, reference)
+    };
+    let count = ledger.accounts().count();
+    assert_eq!(check(&ledger, 0, 5), Ok(()));
+    assert_eq!(check(&ledger, 0, 0), Err(TransferError::ZeroAmount));
+    let max = dassie_ledger::MAX_TOTAL;
+    assert_eq!(check(&ledger, 0, max - 10), Ok(()));
+    assert_eq!(check(&ledger, 0, max - 9), Err(TransferError::Overflow));
+    assert_eq!(check(&ledger, 11, max - 10), Err(TransferError::Overflow));
+    assert_eq!(ledger.accounts().count(), count, "nothing opened");
+    // Once open, the credit posted to them counts, not the one passed.
+    ledger.open_peer(1, LedgerId::StubUsd, peer(), 20).unwrap();
+    assert_eq!(check(&ledger, 0, max - 15), Err(TransferError::Overflow));
+    assert_eq!(check(&ledger, 0, max - 20), Ok(()));
+}
+
 #[test]
 fn a_peers_accounts_opened_for_a_refused_transfer_are_taken_back() {
     let (mut ledger, accounts) = funded(10);

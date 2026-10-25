@@ -5,10 +5,11 @@ use alloc::vec::Vec;
 
 use super::{
     JournalEntry, Ledger, LedgerError, Transfer, TransferError, TransferId, TransferSpec,
-    TransferState, usize_of,
+    TransferState, account_id, usize_of,
 };
 use crate::MAX_TOTAL;
 use crate::account::{Account, AccountId, Balance};
+use crate::{AccountName, AccountPath, Name, Reference};
 
 /// A change to an account's counters.
 #[derive(Clone, Copy)]
@@ -210,6 +211,57 @@ impl Ledger {
     pub fn validate(&self, spec: &TransferSpec) -> Result<(), TransferError> {
         self.check(spec)?;
         self.check_room(spec)
+    }
+
+    /// Whether [`create`](Self::create) would take a posted transfer of
+    /// `amount` from `debit` to the interledger account of `node` on
+    /// `debit`'s ledger, as [`open_peer`](Self::open_peer) would open it
+    /// with `trust` if it is not open yet, without opening it: for a caller
+    /// that opens a peer's accounts only once a transfer to them is taken
+    /// (spec/decisions/lazy-downlink-accounts.md). Room for the accounts is
+    /// the caller's to check.
+    ///
+    /// # Errors
+    ///
+    /// Why it would be refused.
+    pub fn validate_to_peer(
+        &self,
+        debit: AccountId,
+        node: Name,
+        trust: u64,
+        amount: u64,
+        reference: Reference,
+    ) -> Result<(), TransferError> {
+        let ledger = self
+            .account(debit)
+            .ok_or(TransferError::UnknownAccount)?
+            .path
+            .ledger;
+        let path = AccountPath::new(ledger, AccountName::AssetsInterledger(node));
+        let open = self.by_path.get(&path).copied();
+        // Not open yet: as it would open, the next account, with the trust
+        // posted to it.
+        let fresh_id = account_id(self.accounts.len());
+        let mut fresh = Account::new(path, path.group_root().map(|_| fresh_id));
+        fresh.balance.credits_posted = u128::from(trust);
+        let spec = TransferSpec {
+            debit,
+            credit: open.unwrap_or(fresh_id),
+            amount,
+            pending: false,
+            reference,
+        };
+        match open {
+            Some(_) => self.check(&spec)?,
+            None => check(&spec, |id| {
+                if id == fresh_id {
+                    Some(&fresh)
+                } else {
+                    self.account(id)
+                }
+            })?,
+        }
+        self.check_room(&spec)
     }
 
     /// Whether [`create`](Self::create) would take each of `specs`, posted
