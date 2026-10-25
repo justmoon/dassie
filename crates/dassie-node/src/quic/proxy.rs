@@ -10,21 +10,25 @@
 //! The proxy reaches the host by the name in its URL, so a proxy that lets
 //! only some names out sees the name it judges. The node has resolved that
 //! name already, for UDP and for the guard on private addresses
-//! (spec/areas/peer-protocol.md#outbound-requests).
+//! (spec/areas/peer-protocol.md#outbound-requests), but the proxy resolves
+//! it again for itself: what it reaches is its network's to allow.
 
 use std::fmt;
 use std::net::{IpAddr, Ipv6Addr};
 
 use base64::Engine as _;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 
 /// Most bytes of a proxy's answer to `CONNECT`, its blank line included. An
 /// answer is a status line and a few headers.
 pub const MAX_HEAD_BYTES: usize = 8 * 1024;
 
-/// Most entries `NO_PROXY` lists.
-pub const MAX_NO_PROXY_ENTRIES: usize = 64;
+/// Most entries of `NO_PROXY` a node keeps; it skips those past them.
+pub const MAX_NO_PROXY_ENTRIES: usize = 256;
+
+/// Most characters of a skipped entry of `NO_PROXY` a warning shows.
+const MAX_SHOWN_ENTRY_CHARS: usize = 64;
 
 /// Most bytes of a proxy's URL.
 const MAX_URL_BYTES: usize = 2048;
@@ -261,28 +265,44 @@ enum Bypass {
 impl NoProxy {
     /// The hosts `text` lists, comma-separated: `*` for all, names (each
     /// with every name beneath it; a leading `.` or `*.` is the same), IP
-    /// addresses and networks in CIDR notation.
-    ///
-    /// # Errors
-    ///
-    /// An entry is none of these, or there are too many.
-    pub fn parse(text: &str) -> Result<Self, String> {
+    /// addresses and networks in CIDR notation; and, if it skipped any, a
+    /// problem to warn of. It skips an entry that is none of these, such as
+    /// a `host:port` that only some programs read, and those past the
+    /// first [`MAX_NO_PROXY_ENTRIES`]: the variable is set for other
+    /// programs too, so the node takes what it can read.
+    #[must_use]
+    pub fn parse(text: &str) -> (Self, Option<String>) {
         let mut bypass = Self::default();
-        let entries = text.split(',').map(str::trim).filter(|e| !e.is_empty());
-        for (index, entry) in entries.enumerate() {
-            if index == MAX_NO_PROXY_ENTRIES {
-                return Err(format!("lists more than {MAX_NO_PROXY_ENTRIES} hosts"));
-            }
+        let mut unread = None;
+        let mut unread_count = 0_usize;
+        let mut past_count = 0_usize;
+        for entry in text.split(',').map(str::trim).filter(|e| !e.is_empty()) {
             if entry == "*" {
                 bypass.all = true;
-                continue;
+            } else if bypass.entries.len() == MAX_NO_PROXY_ENTRIES {
+                past_count += 1;
+            } else if let Some(parsed) = parse_entry(entry) {
+                bypass.entries.push(parsed);
+            } else {
+                unread = unread.or(Some(entry));
+                unread_count += 1;
             }
-            let parsed =
-                parse_entry(entry).ok_or_else(|| format!("has an invalid host {entry:?}"))?;
-            bypass.entries.push(parsed);
         }
         assert!(bypass.entries.len() <= MAX_NO_PROXY_ENTRIES);
-        Ok(bypass)
+        let mut problems = Vec::with_capacity(2);
+        if let Some(entry) = unread {
+            let shown: String = entry.chars().take(MAX_SHOWN_ENTRY_CHARS).collect();
+            problems.push(format!(
+                "skips {unread_count} entries it cannot read, such as {shown:?}"
+            ));
+        }
+        if past_count > 0 {
+            problems.push(format!(
+                "skips {past_count} entries past the first {MAX_NO_PROXY_ENTRIES}"
+            ));
+        }
+        let problem = (!problems.is_empty()).then(|| problems.join(", and "));
+        (bypass, problem)
     }
 
     /// Whether `host`, a name or an IP address, is dialled directly.
@@ -355,7 +375,7 @@ fn within(ip: IpAddr, network: IpAddr, bits: u8) -> bool {
 /// The proxy's answer, up to and with its blank line, at most
 /// [`MAX_HEAD_BYTES`]. Nothing may follow it: the server behind speaks only
 /// once our TLS has, so bytes past the head are not a proxy's answer.
-async fn read_head(tcp: &mut TcpStream) -> Result<Vec<u8>, String> {
+async fn read_head(tcp: &mut (impl AsyncRead + Unpin)) -> Result<Vec<u8>, String> {
     let mut head = Vec::with_capacity(512);
     let mut buffer = [0; 512];
     loop {
@@ -486,11 +506,17 @@ mod tests {
         );
     }
 
+    /// The hosts `text` lists, which it reads whole.
+    fn no_proxy(text: &str) -> NoProxy {
+        let (bypass, problem) = NoProxy::parse(text);
+        assert_eq!(problem, None, "{text}");
+        bypass
+    }
+
     #[test]
     fn no_proxy_lists_names_beneath_them_addresses_and_networks() {
         let bypass =
-            NoProxy::parse(" Example.com, .corp.net,*.lan, 10.0.0.0/8, ::1, [fd00::]/8 ,192.0.2.7")
-                .unwrap();
+            no_proxy(" Example.com, .corp.net,*.lan, 10.0.0.0/8, ::1, [fd00::]/8 ,192.0.2.7");
         for host in [
             "example.com",
             "EXAMPLE.com.",
@@ -518,24 +544,132 @@ mod tests {
         ] {
             assert!(!bypass.matches(host), "{host}");
         }
-        assert!(NoProxy::parse("*").unwrap().matches("anything.example"));
+        assert!(no_proxy("*").matches("anything.example"));
         assert!(!NoProxy::default().matches("anything.example"));
         // A network of no bits holds every address of its family.
-        assert!(NoProxy::parse("0.0.0.0/0").unwrap().matches("203.0.113.1"));
-        assert!(!NoProxy::parse("0.0.0.0/0").unwrap().matches("2001:db8::1"));
+        assert!(no_proxy("0.0.0.0/0").matches("203.0.113.1"));
+        assert!(!no_proxy("0.0.0.0/0").matches("2001:db8::1"));
     }
 
+    // NO_PROXY is set for other programs too: what the node cannot read it
+    // skips, and says so, keeping the rest.
     #[test]
-    fn no_proxy_refuses_what_it_cannot_read() {
-        for text in ["host:8080", "10.0.0.0/33", "::/129", "a b", "1.2.3.4/x"] {
-            assert!(NoProxy::parse(text).is_err(), "{text}");
+    fn no_proxy_skips_what_it_cannot_read() {
+        for text in [
+            "host:8080",
+            "10.0.0.0/33",
+            "::/129",
+            "a b",
+            "1.2.3.4/x",
+            "10.*",
+        ] {
+            let (bypass, problem) = NoProxy::parse(&format!("{text},near.example"));
+            assert_eq!(bypass, no_proxy("near.example"), "{text}");
+            let problem = problem.unwrap();
+            assert!(
+                problem.contains("skips 1 entries") && problem.contains(text),
+                "{problem}"
+            );
         }
-        let many = vec!["a.example"; MAX_NO_PROXY_ENTRIES + 1].join(",");
-        assert!(NoProxy::parse(&many).is_err());
+        // A skipped entry is shown only in part.
+        let long = "x".repeat(1000) + ":1";
+        let problem = NoProxy::parse(&long).1.unwrap();
+        assert!(problem.len() < 200, "{problem}");
+        // It keeps the first entries, at most so many, and `*` past them.
         let enough = vec!["a.example"; MAX_NO_PROXY_ENTRIES].join(",");
-        assert!(NoProxy::parse(&enough).is_ok());
-        // Empty entries are skipped.
-        assert_eq!(NoProxy::parse(" , ,").unwrap(), NoProxy::default());
+        assert_eq!(NoProxy::parse(&enough).1, None);
+        let many = format!("{enough},b.example,c:1,*");
+        let (bypass, problem) = NoProxy::parse(&many);
+        assert_eq!(bypass.entries.len(), MAX_NO_PROXY_ENTRIES);
+        assert!(bypass.all);
+        assert_eq!(
+            problem,
+            Some(format!(
+                "skips 2 entries past the first {MAX_NO_PROXY_ENTRIES}"
+            ))
+        );
+        // Empty entries are not entries.
+        assert_eq!(NoProxy::parse(" , ,"), (NoProxy::default(), None));
+    }
+
+    /// What `read_head` makes of a proxy that sends `chunks`, one write
+    /// each, then closes; or that sends them and then nothing, if `open`.
+    async fn head_of(chunks: &[&[u8]], open: bool) -> Result<Vec<u8>, String> {
+        let (mut node, mut proxy) = tokio::io::duplex(MAX_HEAD_BYTES * 2);
+        for chunk in chunks {
+            proxy.write_all(chunk).await.unwrap();
+        }
+        let _kept = open.then_some(proxy);
+        read_head(&mut node).await
+    }
+
+    // spec/areas/peer-protocol.md#quic-over-websocket: the proxy's answer
+    // is bounded in size, and is all it may send before the server.
+    #[tokio::test]
+    async fn the_proxys_answer_is_bounded() {
+        let ok = b"HTTP/1.1 200 OK\r\n\r\n";
+        assert_eq!(head_of(&[ok], false).await, Ok(ok.to_vec()));
+        // An answer may come a byte at a time.
+        let bytes: Vec<&[u8]> = ok.chunks(1).collect();
+        assert_eq!(head_of(&bytes, true).await, Ok(ok.to_vec()));
+        // An answer of exactly the most bytes is taken.
+        let padding = MAX_HEAD_BYTES - ok.len() - "X: \r\n".len();
+        let largest = format!("HTTP/1.1 200 OK\r\nX: {}\r\n\r\n", "a".repeat(padding));
+        assert_eq!(largest.len(), MAX_HEAD_BYTES);
+        let read = head_of(&[largest.as_bytes()], true).await;
+        assert_eq!(read.map(|head| head.len()), Ok(MAX_HEAD_BYTES));
+        // A byte more is not, with or without its end, nor one that never
+        // ends, though the proxy keeps sending.
+        let over = format!("HTTP/1.1 200 OK\r\nX: {}a\r\n\r\n", "a".repeat(padding));
+        let endless = vec![b'a'; MAX_HEAD_BYTES * 2];
+        for answer in [over.as_bytes(), &endless] {
+            let problem = head_of(&[answer], true).await.unwrap_err();
+            assert!(problem.contains("longer than"), "{problem}");
+        }
+        // Bytes past the answer are not the proxy's to send.
+        let early = [&ok[..], b"\x16\x03\x01"].concat();
+        let problem = head_of(&[&early], true).await.unwrap_err();
+        assert!(problem.contains("more than its answer"), "{problem}");
+        // A proxy that closes before it has answered has not.
+        for chunks in [&[][..], &[&b"HTTP/1.1 200 OK\r\n"[..]]] {
+            let problem = head_of(chunks, false).await.unwrap_err();
+            assert!(problem.contains("closed"), "{problem}");
+        }
+    }
+
+    // A proxy that never answers holds the dial only as long as its caller
+    // gives it (spec/areas/peer-protocol.md#quic-over-websocket); one that
+    // answers what is not 2xx refuses.
+    #[tokio::test]
+    async fn connect_waits_for_a_2xx_and_no_more() {
+        use tokio::net::TcpListener;
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let proxy = proxy(&format!("http://{address}")).unwrap();
+        let silent = tokio::spawn(async move {
+            let (mut held, _) = listener.accept().await.unwrap();
+            let mut request = [0; 512];
+            let _ = held.read(&mut request).await;
+            let (mut refusing, _) = listener.accept().await.unwrap();
+            let _ = refusing.read(&mut request).await;
+            refusing
+                .write_all(b"HTTP/1.1 403 Forbidden\r\n\r\n")
+                .await
+                .unwrap();
+            held
+        });
+        let waited = tokio::time::timeout(
+            std::time::Duration::from_millis(200),
+            proxy.connect(("node.example", 443)),
+        )
+        .await;
+        assert!(waited.is_err(), "the proxy has not answered");
+        let refused = proxy.connect(("node.example", 443)).await;
+        assert_eq!(refused.err(), Some("the proxy answered 403".to_owned()));
+        drop(silent.await.unwrap());
+        // A host that could end a line is never sent.
+        let problem = proxy.connect(("a\r\nb", 443)).await.unwrap_err();
+        assert!(problem.contains("not a host"), "{problem}");
     }
 
     #[test]

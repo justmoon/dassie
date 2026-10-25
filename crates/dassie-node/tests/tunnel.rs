@@ -741,7 +741,9 @@ fn periphery_behind(
     shutdown: &CancellationToken,
 ) -> Side {
     let url = format!("http://user:pass@{address}");
-    let proxy = Proxy::parse(&url, NoProxy::parse(no_proxy).unwrap()).unwrap();
+    let (bypass, problem) = NoProxy::parse(no_proxy);
+    assert_eq!(problem, None);
+    let proxy = Proxy::parse(&url, bypass).unwrap();
     let socket = UdpSocket::bind("127.0.0.1:0").unwrap();
     let side = side_behind(seed, socket, Echo::anyone(ROOMY), Some(proxy), shutdown);
     side.quic.set_periphery(true);
@@ -804,5 +806,33 @@ async fn a_host_no_proxy_lists_is_dialled_directly() {
     send(&downlink, uplink.side.id, &uplink.url).await.unwrap();
     assert!(heads.lock().unwrap().is_empty());
     assert_eq!(uplink.accepted.load(Ordering::SeqCst), 1);
+    shutdown.cancel();
+}
+
+// A proxy that takes the connection and never answers holds the dial no
+// longer than the dial's time: it is a failed dial, and the tunnel never
+// reaches the node.
+#[tokio::test]
+async fn a_proxy_that_never_answers_is_a_failed_dial_in_time() {
+    let shutdown = CancellationToken::new();
+    let uplink = uplink(1, Udp::Blocked, ROOMY, &shutdown);
+    let tcp = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = tcp.local_addr().unwrap();
+    let held = Arc::new(Mutex::new(Vec::new()));
+    let holding = Arc::clone(&held);
+    tokio::spawn(async move {
+        while let Ok((inbound, _)) = tcp.accept().await {
+            holding.lock().unwrap().push(inbound);
+        }
+    });
+    let downlink = periphery_behind(2, address, "", &shutdown);
+    let request = request(uplink.side.id, &uplink.url, 3_000);
+    let started = Instant::now();
+    let response = downlink.quic.send(&request, &client()).await;
+    assert_eq!(response.err(), Some(Failure::NotDelivered));
+    assert!(started.elapsed() < Duration::from_secs(4));
+    assert_eq!(held.lock().unwrap().len(), 1);
+    assert_eq!(uplink.accepted.load(Ordering::SeqCst), 0);
+    assert_eq!(downlink.quic.open_tunnels(), 0);
     shutdown.cancel();
 }
