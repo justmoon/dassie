@@ -13,12 +13,18 @@
 //! (spec/areas/peer-protocol.md#outbound-requests), but the proxy resolves
 //! it again for itself: what it reaches is its network's to allow.
 
+use std::collections::BTreeMap;
 use std::fmt;
 use std::net::{IpAddr, Ipv6Addr};
+use std::sync::Mutex;
+use std::time::Duration;
 
 use base64::Engine as _;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
+use tokio::time::Instant;
+
+use crate::node::lock;
 
 /// Most bytes of a proxy's answer to `CONNECT`, its blank line included. An
 /// answer is a status line and a few headers.
@@ -102,23 +108,44 @@ impl Proxy {
     /// # Errors
     ///
     /// The proxy cannot be reached, refuses, or answers what is not HTTP.
-    pub(super) async fn connect(&self, (host, port): (&str, u16)) -> Result<TcpStream, String> {
+    pub(super) async fn connect(
+        &self,
+        (host, port): (&str, u16),
+    ) -> Result<TcpStream, ConnectError> {
         // The host came out of a peer's URL: nothing in it may end a line.
         let fits = |byte: u8| byte.is_ascii_alphanumeric() || b".-_:".contains(&byte);
         if host.is_empty() || !host.bytes().all(fits) {
-            return Err("not a host a proxy can be asked for".into());
+            return Err(ConnectError::passing("not a host a proxy can be asked for"));
         }
         let mut tcp = TcpStream::connect((self.host.as_str(), self.port))
             .await
-            .map_err(|e| format!("the proxy cannot be reached: {e}"))?;
+            .map_err(|e| ConnectError {
+                trouble: Some(Trouble::Unreachable),
+                message: format!("the proxy cannot be reached: {e}"),
+            })?;
         let _ = tcp.set_nodelay(true);
         tcp.write_all(self.request((host, port)).as_bytes())
             .await
-            .map_err(|e| format!("the proxy: {e}"))?;
-        let head = read_head(&mut tcp).await?;
-        match status(&head)? {
+            .map_err(|e| ConnectError::passing(format!("the proxy: {e}")))?;
+        let not_http = |message| ConnectError {
+            trouble: Some(Trouble::NotHttp),
+            message,
+        };
+        let head = read_head(&mut tcp).await.map_err(|e| match e {
+            HeadError::Io(message) => ConnectError::passing(message),
+            HeadError::NotHttp(message) => not_http(message),
+        })?;
+        match status(&head).map_err(not_http)? {
             200..=299 => Ok(tcp),
-            refused => Err(format!("the proxy answered {refused}")),
+            refused => Err(ConnectError {
+                // A 4xx is the proxy's own refusal, of our credentials or
+                // of the host; a 5xx, most often, that it could not reach
+                // the host, which is the host's trouble.
+                trouble: (400..=499)
+                    .contains(&refused)
+                    .then_some(Trouble::Refused(refused)),
+                message: format!("the proxy answered {refused}"),
+            }),
         }
     }
 
@@ -133,6 +160,76 @@ impl Proxy {
         }
         request.push_str("\r\n");
         request
+    }
+}
+
+/// What a proxy did wrong itself, which its owner may have to set right,
+/// rather than what happened to pass through it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub(super) enum Trouble {
+    /// No TCP connection to it, or no answer to `CONNECT` within a dial.
+    Unreachable,
+    /// It refused `CONNECT` with this 4xx: 407 when our credentials are
+    /// wrong or missing, 403 when it lets the host not out.
+    Refused(u16),
+    /// What it answered is not HTTP's answer to `CONNECT`: no proxy is
+    /// there, most likely.
+    NotHttp,
+}
+
+/// Why a proxy opened no stream: what to log, and the proxy's own
+/// [`Trouble`], if it is that.
+#[derive(Debug, PartialEq, Eq)]
+pub(super) struct ConnectError {
+    pub(super) trouble: Option<Trouble>,
+    pub(super) message: String,
+}
+
+impl ConnectError {
+    /// A failure that may pass: no trouble of the proxy's.
+    fn passing(message: impl Into<String>) -> Self {
+        Self {
+            trouble: None,
+            message: message.into(),
+        }
+    }
+}
+
+impl fmt::Display for ConnectError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.message)
+    }
+}
+
+/// Time between two warnings of the same [`Trouble`] with the proxy.
+pub(super) const WARN_EVERY: Duration = Duration::from_secs(10 * 60);
+
+/// Most kinds of [`Trouble`]: one per 4xx, and two more.
+const MAX_TROUBLES: usize = 100 + 2;
+
+/// When each [`Trouble`] with the proxy was last warned of, so that the
+/// owner hears of each at most once per [`WARN_EVERY`], however often a
+/// node dials. Bounded by the kinds of trouble ([`MAX_TROUBLES`]).
+#[derive(Debug, Default)]
+pub(super) struct Warnings(Mutex<BTreeMap<Trouble, Instant>>);
+
+impl Warnings {
+    /// Whether `trouble`, met at `now`, is to be warned of: if it has not
+    /// been within [`WARN_EVERY`].
+    pub(super) fn due(&self, trouble: Trouble, now: Instant) -> bool {
+        if let Trouble::Refused(status) = trouble {
+            assert!((400..=499).contains(&status));
+        }
+        let mut warned = lock(&self.0);
+        if warned
+            .get(&trouble)
+            .is_some_and(|at| now.saturating_duration_since(*at) < WARN_EVERY)
+        {
+            return false;
+        }
+        warned.insert(trouble, now);
+        assert!(warned.len() <= MAX_TROUBLES);
+        true
     }
 }
 
@@ -375,30 +472,44 @@ fn within(ip: IpAddr, network: IpAddr, bits: u8) -> bool {
 /// The proxy's answer, up to and with its blank line, at most
 /// [`MAX_HEAD_BYTES`]. Nothing may follow it: the server behind speaks only
 /// once our TLS has, so bytes past the head are not a proxy's answer.
-async fn read_head(tcp: &mut (impl AsyncRead + Unpin)) -> Result<Vec<u8>, String> {
+async fn read_head(tcp: &mut (impl AsyncRead + Unpin)) -> Result<Vec<u8>, HeadError> {
     let mut head = Vec::with_capacity(512);
     let mut buffer = [0; 512];
     loop {
         let room = MAX_HEAD_BYTES.saturating_sub(head.len()).min(buffer.len());
         let into = buffer.get_mut(..room).filter(|into| !into.is_empty());
-        let into = into
-            .ok_or_else(|| format!("the proxy's answer is longer than {MAX_HEAD_BYTES} bytes"))?;
+        let into = into.ok_or_else(|| {
+            HeadError::NotHttp(format!(
+                "the proxy's answer is longer than {MAX_HEAD_BYTES} bytes"
+            ))
+        })?;
         let read = tcp
             .read(into)
             .await
-            .map_err(|e| format!("the proxy: {e}"))?;
+            .map_err(|e| HeadError::Io(format!("the proxy: {e}")))?;
         let read = into.get(..read).unwrap_or_default();
         if read.is_empty() {
-            return Err("the proxy closed the connection before it answered".into());
+            let closed = "the proxy closed the connection before it answered";
+            return Err(HeadError::Io(closed.into()));
         }
         head.extend_from_slice(read);
         if let Some(end) = head_end(&head) {
             if end != head.len() {
-                return Err("the proxy sent more than its answer".into());
+                let more = "the proxy sent more than its answer";
+                return Err(HeadError::NotHttp(more.into()));
             }
             return Ok(head);
         }
     }
+}
+
+/// Why a proxy's answer could not be read.
+#[derive(Debug, PartialEq, Eq)]
+enum HeadError {
+    /// The connection failed or closed, which may pass.
+    Io(String),
+    /// What came is no proxy's answer.
+    NotHttp(String),
 }
 
 /// Where a response head ends in `bytes`, past its blank line, if it does.
@@ -594,7 +705,7 @@ mod tests {
 
     /// What `read_head` makes of a proxy that sends `chunks`, one write
     /// each, then closes; or that sends them and then nothing, if `open`.
-    async fn head_of(chunks: &[&[u8]], open: bool) -> Result<Vec<u8>, String> {
+    async fn head_of(chunks: &[&[u8]], open: bool) -> Result<Vec<u8>, HeadError> {
         let (mut node, mut proxy) = tokio::io::duplex(MAX_HEAD_BYTES * 2);
         for chunk in chunks {
             proxy.write_all(chunk).await.unwrap();
@@ -624,16 +735,25 @@ mod tests {
         let endless = vec![b'a'; MAX_HEAD_BYTES * 2];
         for answer in [over.as_bytes(), &endless] {
             let problem = head_of(&[answer], true).await.unwrap_err();
-            assert!(problem.contains("longer than"), "{problem}");
+            assert!(
+                matches!(&problem, HeadError::NotHttp(problem) if problem.contains("longer than")),
+                "{problem:?}"
+            );
         }
         // Bytes past the answer are not the proxy's to send.
         let early = [&ok[..], b"\x16\x03\x01"].concat();
         let problem = head_of(&[&early], true).await.unwrap_err();
-        assert!(problem.contains("more than its answer"), "{problem}");
+        assert!(
+            matches!(&problem, HeadError::NotHttp(problem) if problem.contains("more than its answer")),
+            "{problem:?}"
+        );
         // A proxy that closes before it has answered has not.
         for chunks in [&[][..], &[&b"HTTP/1.1 200 OK\r\n"[..]]] {
             let problem = head_of(chunks, false).await.unwrap_err();
-            assert!(problem.contains("closed"), "{problem}");
+            assert!(
+                matches!(&problem, HeadError::Io(problem) if problem.contains("closed")),
+                "{problem:?}"
+            );
         }
     }
 
@@ -664,12 +784,36 @@ mod tests {
         )
         .await;
         assert!(waited.is_err(), "the proxy has not answered");
-        let refused = proxy.connect(("node.example", 443)).await;
-        assert_eq!(refused.err(), Some("the proxy answered 403".to_owned()));
+        let refused = proxy.connect(("node.example", 443)).await.unwrap_err();
+        assert_eq!(refused.message, "the proxy answered 403");
+        // The proxy's own refusal, of which its owner is warned.
+        assert_eq!(refused.trouble, Some(Trouble::Refused(403)));
         drop(silent.await.unwrap());
-        // A host that could end a line is never sent.
+        // A host that could end a line is never sent, and is no trouble of
+        // the proxy's.
         let problem = proxy.connect(("a\r\nb", 443)).await.unwrap_err();
-        assert!(problem.contains("not a host"), "{problem}");
+        assert!(problem.message.contains("not a host"), "{problem}");
+        assert_eq!(problem.trouble, None);
+        // A proxy that cannot be reached is.
+        let gone = proxy.connect(("node.example", 443)).await.unwrap_err();
+        assert_eq!(gone.trouble, Some(Trouble::Unreachable), "{gone}");
+    }
+
+    // Each trouble with the proxy is warned of at most once per
+    // WARN_EVERY, each kind on its own.
+    #[test]
+    fn each_trouble_is_warned_of_once_in_a_while() {
+        let warnings = Warnings::default();
+        let start = Instant::now();
+        let later = |by: Duration| start + by;
+        assert!(warnings.due(Trouble::Refused(407), start));
+        assert!(!warnings.due(Trouble::Refused(407), later(Duration::from_secs(1))));
+        assert!(warnings.due(Trouble::Refused(403), later(Duration::from_secs(1))));
+        assert!(warnings.due(Trouble::Unreachable, later(Duration::from_secs(1))));
+        let before = WARN_EVERY - Duration::from_secs(1);
+        assert!(!warnings.due(Trouble::Refused(407), later(before)));
+        assert!(warnings.due(Trouble::Refused(407), later(WARN_EVERY)));
+        assert_eq!(lock(&warnings.0).len(), 3);
     }
 
     #[test]

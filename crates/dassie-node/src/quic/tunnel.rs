@@ -36,6 +36,7 @@ use std::future::Future;
 use std::io::{self, IoSliceMut};
 use std::net::{IpAddr, Ipv6Addr, SocketAddr, SocketAddrV6};
 use std::pin::Pin;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
 use std::time::Duration;
@@ -65,7 +66,7 @@ use tokio_tungstenite::tungstenite::protocol::WebSocketConfig;
 use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
 
-use super::proxy::Proxy;
+use super::proxy::{ConnectError, Proxy, Trouble, WARN_EVERY, Warnings};
 use super::{CONNECT_TIMEOUT, MAX_LINKS};
 use crate::log::target;
 use crate::node::lock;
@@ -187,6 +188,8 @@ pub(super) struct Tunnels {
     tls: Arc<rustls::ClientConfig>,
     /// The HTTP proxy the tunnels it dials go through, if any.
     proxy: Option<Proxy>,
+    /// When the owner was last warned of each trouble with the proxy.
+    proxy_warnings: Warnings,
     tasks: TaskTracker,
     /// Ends every tunnel, once the endpoint is closed.
     stop: CancellationToken,
@@ -213,6 +216,7 @@ impl Tunnels {
             socket,
             tls: tls_config().map_err(io::Error::other)?,
             proxy: None,
+            proxy_warnings: Warnings::default(),
             tasks: TaskTracker::new(),
             stop: CancellationToken::new(),
         })
@@ -307,14 +311,31 @@ impl Tunnels {
             // first address the node found for it, as a dial without one
             // would have had.
             let server = addresses.first()?.ip();
-            let dialled = self.dial_through(proxy, server, (host, port), config.clone());
-            match tokio::time::timeout_at(deadline, dialled).await {
+            let answered = AtomicBool::new(false);
+            let dialled = self.dial_through(proxy, server, (host, port), config.clone(), &answered);
+            let error = match tokio::time::timeout_at(deadline, dialled).await {
                 Ok(Ok(connection)) => return Some(connection),
-                Ok(Err(error)) => {
-                    tracing::debug!(target: target::PEER, %to, %proxy, %error, "QUIC over a WebSocket through the proxy failed");
+                Ok(Err(error)) => error,
+                // Past the proxy, it is the host's; before, the proxy's.
+                Err(_) if answered.load(Ordering::Relaxed) => ConnectError {
+                    trouble: None,
+                    message: "timed out".into(),
+                },
+                Err(_) => ConnectError {
+                    trouble: Some(Trouble::Unreachable),
+                    message: "the proxy did not answer in time".into(),
+                },
+            };
+            let now = tokio::time::Instant::now();
+            match error.trouble {
+                // The owner may have to set the proxy right: a password
+                // that is wrong fails every dial, and they hear of it, if
+                // only once in a while.
+                Some(trouble) if self.proxy_warnings.due(trouble, now) => {
+                    tracing::warn!(target: target::PEER, %to, %proxy, %error, "QUIC over a WebSocket through the proxy failed: check HTTPS_PROXY; the same trouble is warned of again only after {} minutes", WARN_EVERY.as_secs() / 60);
                 }
-                Err(_) => {
-                    tracing::debug!(target: target::PEER, %to, %proxy, "QUIC over a WebSocket through the proxy timed out");
+                _ => {
+                    tracing::debug!(target: target::PEER, %to, %proxy, %error, "QUIC over a WebSocket through the proxy failed");
                 }
             }
             return None;
@@ -363,9 +384,16 @@ impl Tunnels {
         server: IpAddr,
         (host, port): (&str, u16),
         config: quinn::ClientConfig,
-    ) -> Result<Connection, String> {
+        answered: &AtomicBool,
+    ) -> Result<Connection, ConnectError> {
         let tcp = proxy.connect((host, port)).await?;
-        self.dial_over(tcp, server, (host, port), config).await
+        answered.store(true, Ordering::Relaxed);
+        self.dial_over(tcp, server, (host, port), config)
+            .await
+            .map_err(|message| ConnectError {
+                trouble: None,
+                message,
+            })
     }
 
     /// A tunnel over `tcp`, to `host` at `server`, and a connection over
