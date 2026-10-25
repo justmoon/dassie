@@ -470,8 +470,8 @@ pub(super) async fn tunnel_ended(inside: Option<&Inside>) {
 /// `address` with `queue`, until the WebSocket ends or breaks, the
 /// connection inside is done, none proved a key on it `within` (when
 /// given; nor any packet came within [`FIRST_PACKET_TIMEOUT`]), the socket
-/// drops it, or `stop`. Then sends what is queued, and closes the
-/// WebSocket.
+/// drops it, or `stop`. Then sends what is queued, closes the WebSocket,
+/// and only then leaves the socket.
 async fn carry<S>(
     socket: Arc<TunnelSocket>,
     ws: WebSocketStream<S>,
@@ -541,8 +541,9 @@ async fn carry<S>(
             () = stop.cancelled() => {}
         }
     }
-    socket.close(address, id);
     ends.tunnel.cancel();
+    // What is queued goes out, and nothing after it.
+    queue.close();
     let closing = async {
         while let Ok(packet) = queue.try_recv() {
             sink.feed(Message::Binary(packet)).await?;
@@ -551,6 +552,12 @@ async fn carry<S>(
         sink.close().await
     };
     let _ = tokio::time::timeout(CLOSE_TIMEOUT, closing).await;
+    // Only now, its TCP connection about to go, does it leave the socket:
+    // while it closes, it counts among the tunnels, and one taken whose
+    // connection never arrived still holds its place among those being set
+    // up. A client that does not read cannot keep tunnels closing beyond
+    // the places, however many it ends.
+    socket.close(address, id);
 }
 
 /// A packet that came down a tunnel, and the tunnel's address.
