@@ -12,11 +12,15 @@ use dassie_node_core::connections::ConnectionLimits;
 use dassie_node_core::rate_limit::ClientKey;
 use hyper::StatusCode;
 
+use crate::env::MAX_BOOTSTRAP_NODES;
 use crate::peer_server::Answer;
-use crate::quic::{Body, Handler};
+use crate::quic::{Body, Handler, MAX_LINKS};
 
-/// Most nodes connected at once.
-pub const MAX_NODES: usize = 4096;
+/// Most nodes connected at once: the QUIC endpoint's links but for one
+/// per registrar, which the front door dials to read the name lists. So
+/// a front door full of nodes still reads them, and every node it takes
+/// gets a link, which is how it reaches the node.
+pub const MAX_NODES: usize = MAX_LINKS - MAX_BOOTSTRAP_NODES;
 
 /// Most nodes connected at once from one address (an IPv4 address or an
 /// IPv6 /56), as the node's listeners allow one client: a few nodes

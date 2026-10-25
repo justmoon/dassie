@@ -103,8 +103,9 @@ const CONNECTION_WINDOW: u32 = 4 * 1024 * 1024;
 /// Most addresses of a name tried, in turn, within the time to connect.
 const MAX_ADDRESSES: usize = 4;
 
-/// Most nodes with a connection, or one being made, at once.
-const MAX_LINKS: usize = 4096;
+/// Most nodes with a connection, or one being made, at once: those that
+/// connected to us and those we dial share them.
+pub const MAX_LINKS: usize = 4096;
 
 /// Time to write an answer to a client that does not read it.
 const ANSWER_TIMEOUT: Duration = Duration::from_secs(10);

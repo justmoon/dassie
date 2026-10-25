@@ -22,8 +22,9 @@
 //!   it keeps the holders it had, as membership does, so registrars going
 //!   down, or a node cut off from them, do not take every name away.
 //!
-//! Nothing here depends on the peer node: a front door can keep a view of
-//! its own (spec/designs/names.md#8-open-questions).
+//! Nothing here depends on the peer node: a front door keeps a view of
+//! its own with it (`dassie-node`'s `front_door/names.rs`,
+//! spec/areas/http.md#front-doors).
 
 use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::vec::Vec;
