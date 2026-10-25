@@ -11,6 +11,7 @@ use dassie_oer::Decode;
 use dassie_stream::{AssetDetails, ConnectionId, Event, Policy, Server, ServerConfig};
 
 use super::Core;
+use super::downlinks::PrepareIn;
 use super::events::{BtpEvent, PaymentEvent, PeerEvent};
 use super::hubs::HubSent;
 use super::payers::Answer;
@@ -192,15 +193,7 @@ impl Core {
     /// of one it holds.
     fn prepare_from(&mut self, source: EndpointId, request_id: u32, packet: &[u8]) -> bool {
         let now = self.now_ms();
-        let outcome = self.connector.handle_prepare(
-            now,
-            source,
-            request_id,
-            packet,
-            &mut self.ledger,
-            &self.prices.table,
-            &mut self.out,
-        );
+        let outcome = self.connect_prepare(now, (source, request_id), PrepareIn::Given(packet));
         match outcome {
             Outcome::Forward(forwarded) => self.forwarded(now, forwarded),
             Outcome::Respond(length) => {
@@ -609,15 +602,8 @@ impl Core {
             let local = receiver.next_request;
             receiver.next_request = local.wrapping_add(1);
             receiver.requests.insert(local, (id, transmit.request_id));
-            let outcome = self.connector.handle_prepare(
-                now,
-                endpoint,
-                local,
-                self.scratch.get(..transmit.length).unwrap_or_default(),
-                &mut self.ledger,
-                &self.prices.table,
-                &mut self.out,
-            );
+            let outcome =
+                self.connect_prepare(now, (endpoint, local), PrepareIn::Scratch(transmit.length));
             self.transmitted(now, ledger, outcome, local, transmit.request_id, id);
         }
         self.sends_left();

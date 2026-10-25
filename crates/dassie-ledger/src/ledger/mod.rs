@@ -316,6 +316,61 @@ impl Ledger {
         Ok((interledger, true))
     }
 
+    /// Takes back the accounts of `node` on `ledger` that
+    /// [`open_peer`](Self::open_peer) opened last, with the credit it
+    /// posted to them, as if they had never been opened: for a caller that
+    /// opened them for a transfer the ledger then refused
+    /// (spec/decisions/lazy-downlink-accounts.md). Nothing may have been
+    /// booked on them since, nor any account opened after them, and what
+    /// they wrote must still wait in the journal.
+    ///
+    /// # Panics
+    ///
+    /// If they are not the accounts opened last, as `open_peer` left them.
+    pub fn unopen_peer(&mut self, ledger: LedgerId, node: Name) {
+        let interledger = AccountPath::new(ledger, AccountName::AssetsInterledger(node));
+        let contra = AccountPath::new(ledger, AccountName::ContraTrust(node));
+        let count = self.accounts.len();
+        assert!(count >= 2, "no accounts to take back");
+        let (interledger_id, contra_id) = (account_id(count - 2), account_id(count - 1));
+        assert!(
+            self.by_path.get(&interledger) == Some(&interledger_id)
+                && self.by_path.get(&contra) == Some(&contra_id),
+            "the peer's accounts are the last opened"
+        );
+        let untouched = |account: &Account| {
+            account.balance.debits_pending == 0 && account.balance.credits_pending == 0
+        };
+        assert!(
+            self.accounts
+                .get(count - 2..)
+                .is_some_and(|accounts| accounts.iter().all(untouched)),
+            "nothing is pending on the accounts taken back"
+        );
+        // The credit open_peer posted, if any: nothing else was booked.
+        if let Some(JournalEntry::Transfer { transfer, .. }) = self.journal.back().copied() {
+            assert!(
+                transfer.debit == contra_id
+                    && transfer.credit == interledger_id
+                    && transfer.reference == Reference::Trust,
+                "only the opening credit was booked on the accounts taken back"
+            );
+            self.journal.pop_back();
+            self.stats.created -= 1;
+            self.stats.posted -= 1;
+        }
+        for id in [contra_id, interledger_id] {
+            let entry = self.journal.pop_back();
+            assert!(
+                matches!(entry, Some(JournalEntry::AccountOpened { id: opened, .. }) if opened == id),
+                "the accounts' opening still waits in the journal"
+            );
+        }
+        self.accounts.truncate(count - 2);
+        self.by_path.remove(&interledger);
+        self.by_path.remove(&contra);
+    }
+
     /// The account `id`.
     #[must_use]
     pub fn account(&self, id: AccountId) -> Option<&Account> {

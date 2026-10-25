@@ -215,6 +215,68 @@ fn peer_trust_is_extended_once() {
     ledger.check_invariants();
 }
 
+// spec/decisions/lazy-downlink-accounts.md: a peer's accounts opened for a
+// packet the ledger then refused are taken back, credit and all, as if they
+// had never been opened; the next ones get the same IDs.
+// spec/decisions/lazy-downlink-accounts.md: a transfer to a peer's
+// accounts not open yet is checked as they would open, without opening
+// them, and as they are once open.
+#[test]
+fn a_transfer_to_accounts_not_open_yet_is_checked_as_they_would_open() {
+    let (mut ledger, accounts) = funded(10);
+    let reference = Reference::Deposit;
+    let check = |ledger: &Ledger, trust, amount| {
+        ledger.validate_to_peer(accounts.settlement, peer(), trust, amount, reference)
+    };
+    let count = ledger.accounts().count();
+    assert_eq!(check(&ledger, 0, 5), Ok(()));
+    assert_eq!(check(&ledger, 0, 0), Err(TransferError::ZeroAmount));
+    let max = dassie_ledger::MAX_TOTAL;
+    assert_eq!(check(&ledger, 0, max - 10), Ok(()));
+    assert_eq!(check(&ledger, 0, max - 9), Err(TransferError::Overflow));
+    assert_eq!(check(&ledger, 11, max - 10), Err(TransferError::Overflow));
+    assert_eq!(ledger.accounts().count(), count, "nothing opened");
+    // Once open, the credit posted to them counts, not the one passed.
+    ledger.open_peer(1, LedgerId::StubUsd, peer(), 20).unwrap();
+    assert_eq!(check(&ledger, 0, max - 15), Err(TransferError::Overflow));
+    assert_eq!(check(&ledger, 0, max - 20), Ok(()));
+}
+
+#[test]
+fn a_peers_accounts_opened_for_a_refused_transfer_are_taken_back() {
+    let (mut ledger, accounts) = funded(10);
+    let mut mirror = Mirror::default();
+    mirror.drain(&mut ledger);
+    let before = (ledger.accounts().count(), ledger.stats());
+    let (peer_account, new) = ledger
+        .open_peer(1, LedgerId::StubUsd, peer(), 1_100_000_000)
+        .unwrap();
+    assert!(new);
+    let mut ids = Vec::new();
+    let refused = ledger.create_linked(
+        1,
+        &[spec(accounts.token, peer_account, 11, true, packet(0))],
+        &mut ids,
+    );
+    assert_eq!(refused, Err((0, TransferError::ExceedsDebits)));
+    ledger.unopen_peer(LedgerId::StubUsd, peer());
+    assert_eq!(ledger.accounts().count(), before.0);
+    let stats = ledger.stats();
+    assert_eq!(
+        (stats.created, stats.posted),
+        (before.1.created, before.1.posted)
+    );
+    assert_eq!(
+        ledger.find(&path(AccountName::AssetsInterledger(peer()))),
+        None
+    );
+    assert_eq!(ledger.poll_journal(), None, "nothing to persist");
+    ledger.check_invariants();
+    let (again, _) = ledger.open_peer(2, LedgerId::StubUsd, peer(), 0).unwrap();
+    assert_eq!(again, peer_account);
+    ledger.check_invariants();
+}
+
 #[test]
 fn only_what_reaches_posted_balances_is_journaled() {
     let (mut ledger, accounts) = funded(UNIT);

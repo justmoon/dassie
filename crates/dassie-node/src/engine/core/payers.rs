@@ -26,6 +26,7 @@ use dassie_payments::amount::{asset_name, payment_tolerance};
 use dassie_payments::gnap::Limits;
 use dassie_stream::{AssetDetails, Config, Connection, ErrorCode, Event, Policy, Rate, Role};
 
+use super::downlinks::PrepareIn;
 use super::events::{EngineEvent, PaymentEvent};
 use super::{Core, EngineError, MAX_SENDS_PER_POLL};
 use crate::store::{ForeignAmount, OutgoingProgress, OutgoingRow, OutgoingState, PaymentId};
@@ -698,15 +699,7 @@ impl Core {
         local: u32,
         length: usize,
     ) -> Option<Answer> {
-        let outcome = self.connector.handle_prepare(
-            now,
-            endpoint,
-            local,
-            self.scratch.get(..length).unwrap_or_default(),
-            &mut self.ledger,
-            &self.prices.table,
-            &mut self.out,
-        );
+        let outcome = self.connect_prepare(now, (endpoint, local), PrepareIn::Scratch(length));
         self.sent_out(now, outcome)
     }
 

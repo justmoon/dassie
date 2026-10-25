@@ -51,6 +51,7 @@ impl Core {
         self.check_outgoing();
         self.check_probes();
         self.check_settling();
+        self.check_downlinks();
         self.events.check_invariants();
     }
 
@@ -90,7 +91,9 @@ impl Core {
         );
     }
 
-    /// A peer's connector endpoint, both ways round.
+    /// A peer's connector endpoint, both ways round, on the peer's account
+    /// on its peering's ledger: only a downlink nothing moved with yet has
+    /// none (spec/decisions/lazy-downlink-accounts.md).
     fn check_peer_endpoints(&self) {
         assert_eq!(self.peer_endpoints.len(), self.endpoint_peers.len());
         for (node, endpoint) in &self.peer_endpoints {
@@ -100,6 +103,30 @@ impl Core {
                 "a peer's endpoint names the peer"
             );
             assert!(*endpoint < self.next_peer_endpoint);
+            let ledger = self
+                .peer
+                .peering_of(node)
+                .and_then(|peering| Name::new(peering.scheme.as_str()).ok())
+                .and_then(|scheme| self.schemes.get(&scheme))
+                .map(|active| active.scheme.ledger());
+            let account = ledger
+                .zip(Name::new(node.as_str()).ok())
+                .and_then(|(on, name)| {
+                    self.ledger.find(&dassie_ledger::AccountPath::new(
+                        on,
+                        AccountName::AssetsInterledger(name),
+                    ))
+                });
+            assert_eq!(
+                self.connector
+                    .account_of(dassie_connector::EndpointId::Peer(*endpoint)),
+                account,
+                "a peer's endpoint books on its account"
+            );
+            assert!(
+                account.is_some() || self.peer.is_downlink(node),
+                "only a downlink's accounts open later"
+            );
         }
     }
 

@@ -750,6 +750,7 @@ impl PeerNode {
         let agreed = match hooks.accept(
             now,
             sender,
+            downlink,
             request.scheme,
             version,
             request.data,

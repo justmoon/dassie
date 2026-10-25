@@ -593,3 +593,53 @@ fn migration_39_starts_with_no_registrations() {
     let stored = Store::open(temp.path()).unwrap().load_peer().unwrap();
     assert!(stored.registrations.is_empty());
 }
+
+// Migration 41 finds the accounts a node opened for its downlinks by their
+// settlement channels, whose URL is empty for a downlink, on every ledger
+// (spec/decisions/account-budgets.md); a core peer's stay the core peers'.
+#[test]
+fn migration_41_finds_the_downlinks_accounts_by_their_channels() {
+    let temp = tempfile::tempdir().unwrap();
+    let mut connection = Connection::open(temp.path().join(DATABASE_FILE)).unwrap();
+    connection
+        .pragma_update(None, "application_id", APPLICATION_ID)
+        .unwrap();
+    schema::migrate_until(&mut connection, 40).unwrap();
+    let (downlink, core) = (node(1).id, node(2).id);
+    for (id, path) in [
+        (0, format!("stub+usd:assets/interledger/{downlink}")),
+        (1, format!("stub+usd:contra/trust/{downlink}")),
+        (2, format!("xrpl-testnet+xrp:assets/interledger/{downlink}")),
+        (3, format!("xrpl-testnet+xrp:contra/trust/{downlink}")),
+        (4, format!("stub+usd:assets/interledger/{core}")),
+        (5, format!("stub+usd:contra/trust/{core}")),
+    ] {
+        connection
+            .execute(
+                "INSERT INTO ledger_accounts (id, path) VALUES (?1, ?2)",
+                rusqlite::params![id, path],
+            )
+            .unwrap();
+    }
+    for (node, url, closed) in [(downlink, "", 1), (core, "https://a.example", 0)] {
+        connection
+            .execute(
+                "INSERT INTO settlement_channels (node, public_key, url, settled_in, settled_out, \
+                 closed) VALUES (?1, ?2, ?3, 0, 0, ?4)",
+                rusqlite::params![node.as_str(), [0u8; 32].as_slice(), url, closed],
+            )
+            .unwrap();
+    }
+    drop(connection);
+    let name = dassie_ledger::Name::new(downlink.as_str()).unwrap();
+    assert_eq!(
+        Store::open(temp.path())
+            .unwrap()
+            .downlink_accounts()
+            .unwrap(),
+        [
+            (dassie_ledger::LedgerId::StubUsd, name),
+            (dassie_ledger::LedgerId::XrplTestnetXrp, name)
+        ]
+    );
+}

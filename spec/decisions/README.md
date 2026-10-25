@@ -4,6 +4,7 @@ Each file records one choice between real alternatives: the facts that forced it
 
 | Decision | Title | Areas |
 |---|---|---|
+| [account-budgets](account-budgets.md) | Core peers and downlinks each have a share of the peers' accounts, counted by the kind they were opened as | settlement, network, ledger |
 | [bootstrap-network](bootstrap-network.md) | Bootstrap network for v1 | network |
 | [build-system](build-system.md) | Build system | engineering, release |
 | [close-rather-than-lower](close-rather-than-lower.md) | A receiver never lowers a maximum it told: it closes a connection that no longer fits | stream, payments |
@@ -28,6 +29,7 @@ Each file records one choice between real alternatives: the facts that forced it
 | [headless-setup](headless-setup.md) | An owner who keeps the passphrase on the node's host sets the node up with `dassie setup`, through the node's own setup route | node, http, identity, overview |
 | [hub-founding](hub-founding.md) | The sponsor founds a hub over a stream of its own, and a quorum's signatures of the genesis found it | hubs, peer-protocol, designs/settlement-hubs |
 | [issued-assets](issued-assets.md) | An issued asset's issuer is the owner's counterparty, and a dollar token pauses off its peg (transfer fees not built) | xrpl, settlement, connector |
+| [lazy-downlink-accounts](lazy-downlink-accounts.md) | A downlink's accounts open once value first moves with it, in room kept for it while its channel is open | network, settlement, connector, ledger |
 | [ledger-resets](ledger-resets.md) | A ledger below the newest seen is a reset only on the testnet, and only once its UNL validates it (the UNL's part, the network's constant as the gate and a proven absence not built) | xrpl, designs/xrpl-validation |
 | [mainnet-schemes](mainnet-schemes.md) | Mainnet has schemes of its own, and a ledger runs only in its node's realm (a live node without the test network's defaults not built) | xrpl, settlement, ledger, node, identity |
 | [membership-economics](membership-economics.md) | Network membership economics (fee not built) | network |
