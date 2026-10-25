@@ -118,16 +118,37 @@ const CLOSE_TIMEOUT: Duration = Duration::from_secs(1);
 /// [`CONNECT_TIMEOUT`].
 pub const FIRST_PACKET_TIMEOUT: Duration = Duration::from_secs(2);
 
+/// The bytes of a packet's WebSocket frame, with the largest header a frame
+/// may have.
+const FRAME_BYTES: usize = DATAGRAM_BYTES as usize + 14;
+
+/// Room in a tunnel's write buffer for control frames beside its packets:
+/// pongs, and the close.
+const CONTROL_BYTES: usize = 1024;
+
 const _: () = assert!(MAX_DIALLED < u16::MAX as usize);
 const _: () = assert!(DATAGRAM_BYTES as usize + 8 == 16 * 1024);
 const _: () = assert!(FIRST_PACKET_TIMEOUT.as_millis() < CONNECT_TIMEOUT.as_millis());
 
 /// The WebSocket's settings for a tunnel, either side: no message larger
-/// than a packet.
+/// than a packet, and buffers for about two of them.
+///
+/// tungstenite's defaults, made for throughput, keep 128 KiB to read,
+/// allocated up front, and as much to write, which a node that takes a
+/// tunnel per downlink would hold for each. A tunnel reads at most two
+/// packets at a time. It writes one packet at a time, flushed before it
+/// takes the next from its queue ([`QUEUE_PACKETS`] bounds those), so its
+/// write buffer holds at most the packet being written, the next one, and
+/// control frames. Its bound keeps a client that sends pings but does not
+/// read from growing it: tungstenite holds back a pong that does not fit,
+/// rather than buffer it without end, as it would by default.
 #[must_use]
 pub fn websocket_config() -> WebSocketConfig {
     let largest = usize::from(DATAGRAM_BYTES);
     WebSocketConfig::default()
+        .read_buffer_size(2 * FRAME_BYTES)
+        .write_buffer_size(FRAME_BYTES)
+        .max_write_buffer_size(2 * FRAME_BYTES + CONTROL_BYTES)
         .max_message_size(Some(largest))
         .max_frame_size(Some(largest))
 }
