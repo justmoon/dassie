@@ -539,11 +539,19 @@ async fn a_node_whose_udp_is_blocked_keeps_its_front_door_over_a_tunnel() {
 // QUIC connection it carries, first one among those being set up, by its
 // client address. So a client holds as many tunnels as it may set up QUIC
 // connections, whatever its share of HTTPS connections; past that it is
-// 503, until a tunnel ends and gives its place back.
+// 503, until a tunnel ends and gives its place back. A browser's request,
+// which carries an origin, is refused with 403, and holds no place.
 #[tokio::test(flavor = "multi_thread")]
 async fn tunnels_at_the_front_door_hold_the_places_of_their_connections() {
     let shutdown = CancellationToken::new();
     let door = Door::start_udp_blocked(&shutdown).await;
+    let (mut browsers, body) = tunnel_handshake(door.relay_host(), true).into_parts();
+    let origin = "https://page.example".parse().unwrap();
+    browsers.headers.insert("origin", origin);
+    let relay = format!("relay.{DOMAIN}");
+    let reply = door.send(&relay, Request::from_parts(browsers, body)).await;
+    assert_eq!(reply.status, StatusCode::FORBIDDEN);
+    assert_eq!(json_of(&reply)["error"]["code"], "forbidden");
     // At least as many as the client's HTTPS connections, so the request
     // past them needs a place the upgraded ones gave back.
     const _: () = assert!(NODES_PER_ADDRESS >= Policies::DEFAULT.http_connections_per_client);
