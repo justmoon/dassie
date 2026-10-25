@@ -333,6 +333,15 @@ impl Config {
         }
     }
 
+    /// Most downlinks that never paid us, free receivers, holding places at
+    /// once: half of [`Config::max_downlinks`], rounded down, so that keys
+    /// made for nothing never fill the places of downlinks that paid
+    /// (spec/decisions/free-receivers-half.md).
+    #[must_use]
+    pub const fn max_free_downlinks(&self) -> usize {
+        self.max_downlinks / 2
+    }
+
     /// Checks that the values fit together (configuration, not input).
     ///
     /// # Panics
@@ -388,6 +397,10 @@ impl Config {
         assert!(
             self.max_channels >= self.max_core_peers() && self.max_bans >= 1,
             "a channel for every peer, room for a ban"
+        );
+        assert!(
+            self.max_downlinks == 0 || self.max_free_downlinks() >= 1,
+            "a node that takes downlinks has room for a free receiver"
         );
         assert!(
             own_link_state_fits(self.max_peers),

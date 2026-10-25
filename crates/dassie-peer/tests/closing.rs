@@ -127,6 +127,7 @@ fn an_idle_channel_closes() {
             settled_in: 0,
             settled_out: 1,
             ended_for_room: false,
+            paid_us: false,
         })
     );
     assert_eq!(

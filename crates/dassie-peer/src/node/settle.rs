@@ -80,6 +80,55 @@ impl PeerNode {
         )
     }
 
+    /// The open channels with downlinks that never paid us: the places
+    /// free receivers hold (spec/decisions/free-receivers-half.md). A
+    /// channel outlives its peering, so these count the free receivers
+    /// peered with, or not long ago.
+    pub(crate) fn free_downlinks(&self) -> usize {
+        self.channels
+            .values()
+            .filter(|channel| channel.url.is_empty() && !channel.paid_us)
+            .count()
+    }
+
+    /// Whether `node` ever paid us, as its channel says, open or closed.
+    pub(crate) fn paid_us(&self, node: &NodeId, hooks: &dyn PeeringHooks) -> bool {
+        self.channels.get(node).map_or_else(
+            || {
+                self.closed_channel(node, hooks)
+                    .is_some_and(|closed| closed.paid_us)
+            },
+            |channel| channel.paid_us,
+        )
+    }
+
+    /// Records that our books took a settlement of at least one largest
+    /// packet from `node`: it paid us, and is no free receiver from now on,
+    /// for good, as its channel keeps, open or closed
+    /// (spec/decisions/free-receivers-half.md). Without a channel, it was
+    /// never peered with, and its money is no settlement.
+    pub fn paid_by(&mut self, now_ms: u64, hooks: &dyn PeeringHooks, node: &NodeId) {
+        self.advance(now_ms);
+        if let Some(channel) = self.channels.get_mut(node) {
+            if !channel.paid_us {
+                channel.paid_us = true;
+                self.channels_dirty.insert(*node);
+            }
+        } else if let Some(closed) = self.closed_channel(node, hooks)
+            && !closed.paid_us
+        {
+            // Kept in memory until the batch, as a late settlement's
+            // sequence is.
+            self.closed.insert(
+                *node,
+                Closed {
+                    paid_us: true,
+                    ..closed
+                },
+            );
+        }
+    }
+
     /// Opens the channel with `node`, a new peer, or brings its contact up
     /// to date. A closed channel opens again where it was. Returns whether
     /// it exists.

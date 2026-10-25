@@ -23,6 +23,7 @@ Each file records one choice between real alternatives: the facts that forced it
 | [exchange-rates](exchange-rates.md) | Exchange rates, fees and spread | connector |
 | [external-assets](external-assets.md) | External assets apart from settlement schemes | settlement, xrpl, ledger, wallet |
 | [finality-after-any-outage](finality-after-any-outage.md) | A hub finalizes again after any outage, in bounded memory | hubs |
+| [free-receivers-half](free-receivers-half.md) | Free receivers take at most half of the downlinks' places, and a downlink is free until its first settlement | network, settlement, designs/periphery |
 | [full-or-stopped-short](full-or-stopped-short.md) | A receiver says whether it is full or stopped short | payments, stream |
 | [headless-setup](headless-setup.md) | An owner who keeps the passphrase on the node's host sets the node up with `dassie setup`, through the node's own setup route | node, http, identity, overview |
 | [hub-founding](hub-founding.md) | The sponsor founds a hub over a stream of its own, and a quorum's signatures of the genesis found it | hubs, peer-protocol, designs/settlement-hubs |

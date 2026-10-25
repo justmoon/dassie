@@ -1112,6 +1112,57 @@ fn a_junior_keeps_the_lower_credit_of_a_peer_it_ended_for_room() {
     assert_eq!(trust, core.senior_credit);
 }
 
+// spec/decisions/free-receivers-half.md: a settlement of at least one largest
+// packet booked from a node marks its channel, for good: it paid us, and is
+// no free receiver. A smaller one leaves it free.
+#[test]
+fn a_settlement_of_a_largest_packet_marks_its_payer() {
+    use dassie_ledger::{LedgerId, Name};
+    use dassie_peer::{Channel, PeerBatch, StoredChannel};
+    use dassie_settlement::Effect;
+
+    let store = Arc::new(Store::open_in_memory().unwrap());
+    let paying = NodeKey::from_bytes(&[11; 32]);
+    let short = NodeKey::from_bytes(&[12; 32]);
+    let channels = [&paying, &short].map(|key| StoredChannel {
+        node: key.node_id(),
+        channel: Channel::new(key.public_key(), String::new()),
+    });
+    let batch = crate::store::LedgerBatch {
+        peer: PeerBatch {
+            channels: channels.to_vec(),
+            ..PeerBatch::default()
+        },
+        ..crate::store::LedgerBatch::default()
+    };
+    store.commit_ledger(&batch).unwrap();
+    let mut core = core_on(Arc::clone(&store), 9);
+    core.add_scheme("stub", String::new()).unwrap();
+    let minimum = core.settle.minimum;
+    let mut effects = Vec::new();
+    for (key, amount) in [(&paying, minimum), (&short, minimum - 1)] {
+        let peer = Name::new(key.node_id().as_str()).unwrap();
+        core.ledger
+            .open_peer(NOW, LedgerId::StubUsd, peer, 0)
+            .unwrap();
+        effects.push(Effect::IncomingSettlement {
+            peer,
+            amount,
+            id: None,
+        });
+    }
+    core.apply_effects(Name::new("stub").unwrap(), LedgerId::StubUsd, &effects)
+        .unwrap();
+    let paid = |core: &Core, key: &NodeKey| core.peer.channel(&key.node_id()).unwrap().paid_us;
+    assert!(paid(&core, &paying));
+    assert!(!paid(&core, &short));
+    core.flush();
+    drop(core);
+    let core = core_on(Arc::clone(&store), 10);
+    assert!(paid(&core, &paying), "written with the batch");
+    assert!(!paid(&core, &short));
+}
+
 // spec/decisions/closing-channels.md: peers' accounts stay when their
 // channels close, so new ones stop where the room the node keeps for its own
 // accounts begins; a peer whose accounts are open peers again regardless.

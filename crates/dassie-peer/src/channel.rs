@@ -47,6 +47,11 @@ pub struct Channel {
     /// later peering with it as our senior raises no credit to the default
     /// (spec/areas/settlement.md#credit).
     pub ended_for_room: bool,
+    /// Whether the node ever paid us: our books took a settlement of at
+    /// least one largest packet from it. A downlink that never did is a
+    /// free receiver, and free receivers take at most half of the
+    /// downlinks' places (spec/decisions/free-receivers-half.md).
+    pub paid_us: bool,
 }
 
 impl Channel {
@@ -67,6 +72,7 @@ impl Channel {
             settled_out: closed.settled_out,
             outbox: None,
             ended_for_room: closed.ended_for_room,
+            paid_us: closed.paid_us,
         }
     }
 
@@ -82,6 +88,7 @@ impl Channel {
             settled_in: self.settled_in,
             settled_out: self.settled_out,
             ended_for_room: self.ended_for_room,
+            paid_us: self.paid_us,
         }
     }
 }
@@ -89,7 +96,9 @@ impl Channel {
 /// What stays of a closed channel, on disk only: its sequences, so that a
 /// settlement is applied once however late it comes and the next one we
 /// send follows the last, and whether we ended a peering with the node for
-/// want of room, which is for good (spec/decisions/ended-for-room.md).
+/// want of room, which is for good (spec/decisions/ended-for-room.md), and
+/// whether it ever paid us, also for good
+/// (spec/decisions/free-receivers-half.md).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Closed {
     /// The highest sequence applied from the node.
@@ -98,6 +107,8 @@ pub struct Closed {
     pub settled_out: u64,
     /// Whether we once ended a peering with the node for want of room.
     pub ended_for_room: bool,
+    /// Whether the node ever paid us.
+    pub paid_us: bool,
 }
 
 impl Closed {
@@ -106,6 +117,7 @@ impl Closed {
         settled_in: 0,
         settled_out: 0,
         ended_for_room: false,
+        paid_us: false,
     };
 }
 
