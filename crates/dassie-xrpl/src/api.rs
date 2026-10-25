@@ -1269,10 +1269,17 @@ pub fn tx_binary(id: u64, hash: &[u8; 32]) -> Vec<u8> {
 }
 
 /// `validations` of the ledger of `hash`: the validations the server
-/// holds for it, those it trusts first, perhaps cut.
+/// holds for it from the validators it trusts, and with `untrusted` those
+/// of other keys too, the trusted ones first, perhaps cut
+/// (spec/designs/xrpl-validation.md#3-the-proof-api).
 #[must_use]
-pub fn validations(id: u64, hash: &[u8; 32]) -> Vec<u8> {
-    request(id, "validations", json!({ "ledger_hash": hex_upper(hash) }))
+pub fn validations(id: u64, hash: &[u8; 32], untrusted: bool) -> Vec<u8> {
+    let params = if untrusted {
+        json!({ "ledger_hash": hex_upper(hash), "untrusted": true })
+    } else {
+        json!({ "ledger_hash": hex_upper(hash) })
+    };
+    request(id, "validations", params)
 }
 
 /// `manifest` of the validator whose master key is `key`: the newest of

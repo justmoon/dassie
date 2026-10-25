@@ -36,7 +36,7 @@ use crate::anchor::{
 use crate::api::{self, ApiError, Validations};
 use crate::skip_list::{SkipList, recent_key};
 use crate::unl::{Anchor, AnchorError, RIPPLE_EPOCH_UNIX_S, Relation, Unavailable, UnlError};
-use crate::validator_list::MAX_LIST_BYTES;
+use crate::validator_list::{MAX_LIST_BYTES, UnlConfig};
 
 /// How long the node may take to fetch a list.
 pub const FETCH_TIMEOUT_MS: u64 = 30_000;
@@ -175,8 +175,12 @@ pub(super) enum Round {
     /// A state proof at the server's validated ledger is asked for, of
     /// these keys.
     Proving(Vec<[u8; 32]>),
-    /// That ledger's validations are.
-    Validating(ProvenState),
+    /// That ledger's validations are: of the validators the server
+    /// trusts, or with `untrusted`, of other keys too.
+    Validating {
+        proven: ProvenState,
+        untrusted: bool,
+    },
     /// Newer manifests of the validators that did not count are, `asked`
     /// of them still unanswered.
     Manifests {
@@ -493,28 +497,47 @@ impl XrplAccount {
         if judge(kept.as_ref(), self.hint, &new) == Judged::Older {
             return self.wait_for_newer();
         }
-        self.round = Some(Round::Validating(proven.clone()));
-        self.send(Request::Validations(proven.hash));
+        self.ask_validations(proven, self.own_publishers());
+    }
+
+    /// Whether the account's publishers are the owner's, not its network's
+    /// (spec/designs/xrpl-validation.md#10-configuration-and-state): then
+    /// its UNL is not the one the server follows.
+    fn own_publishers(&self) -> bool {
+        UnlConfig::for_network(self.network.id).as_ref() != Some(&self.config.unl)
+    }
+
+    /// Asks for the validations of the proven ledger: of the validators the
+    /// server trusts, which with its network's publishers are the account's
+    /// own, or with `untrusted`, of other keys too
+    /// (spec/designs/xrpl-validation.md#3-the-proof-api).
+    fn ask_validations(&mut self, proven: ProvenState, untrusted: bool) {
+        let hash = proven.hash;
+        self.round = Some(Round::Validating { proven, untrusted });
+        self.send(Request::Validations { hash, untrusted });
     }
 
     /// The round's validations.
     pub(super) fn validated_anchor(&mut self, outcome: Result<Value, ApiError>) {
-        let Some(Round::Validating(proven)) = self.round.clone() else {
+        let Some(Round::Validating { proven, untrusted }) = self.round.clone() else {
             return;
         };
         let Some(validations) = self.answer(outcome, api::validations_result) else {
             return;
         };
-        self.tally(proven, validations, true);
+        self.tally(proven, validations, true, untrusted);
     }
 
     /// Counts the UNL's validations of the proven ledger: an anchor, or
     /// newer manifests asked for those that did not count, once a round.
-    /// Short of a quorum in an answer the server cut, the server chose
-    /// which validations to send, and trusts others than the account's
-    /// UNL: the account waits for a while, as after a refusal, and counts
-    /// no lie (spec/designs/xrpl-validation.md#3-the-proof-api).
-    fn tally(&mut self, proven: ProvenState, validations: Validations, ask: bool) {
+    /// Short of a quorum in an answer of the server's own validators, its
+    /// lists may lag the account's: the account asks for the others too,
+    /// before anything else. Short of a quorum in an answer the server cut,
+    /// the server chose which validations to send, and trusts others than
+    /// the account's UNL: the account waits for a while, as after a
+    /// refusal, and counts no lie
+    /// (spec/designs/xrpl-validation.md#3-the-proof-api).
+    fn tally(&mut self, proven: ProvenState, validations: Validations, ask: bool, untrusted: bool) {
         let kept = self.anchor.as_ref().map(|kept| kept.anchor);
         let anchored = self.unl.anchor(
             &proven.header,
@@ -543,6 +566,7 @@ impl XrplAccount {
                 self.round = None;
                 self.waiting = Some(NOT_FRESH);
             }
+            Err(AnchorError::NoQuorum(_)) if !untrusted => self.ask_validations(proven, true),
             Err(AnchorError::NoQuorum(tally))
                 if ask && tally.unknown > 0 && !tally.missing.is_empty() =>
             {
@@ -599,7 +623,9 @@ impl XrplAccount {
                 ..
             }) = self.round.take()
         {
-            self.tally(proven, validations, false);
+            // Asked only of an answer with the others: one without them
+            // is asked again with them first.
+            self.tally(proven, validations, false, true);
         }
     }
 

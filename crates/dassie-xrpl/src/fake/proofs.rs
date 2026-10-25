@@ -110,6 +110,13 @@ impl FakeLedger {
     ) -> Result<Value, Value> {
         self.serves_proofs(connection)?;
         let hash = hash_param(request, "ledger_hash").ok_or_else(|| error("invalidParams"))?;
+        // As the patch: a boolean, or nothing. The fake's validators are all
+        // trusted, so it answers the same either way, but for the bound.
+        let untrusted = match request.get("untrusted") {
+            None => false,
+            Some(Value::Bool(untrusted)) => *untrusted,
+            Some(_) => return Err(error("invalidParams")),
+        };
         let validations = match self.chain.index_of(&hash) {
             // A liar kept them, however old.
             Some(index) if self.lie(connection).is_some() => {
@@ -125,9 +132,9 @@ impl FakeLedger {
             }
             None => Vec::new(),
         };
-        // As the patch, a bounded number, and a cut answer says so: the
-        // fake's validators are all trusted, and never as many.
-        let truncated = validations.len() > MAX_VALIDATIONS_ANSWERED;
+        // As the patch, with `untrusted` a bounded number, and a cut answer
+        // says so: the fake's validators are never as many.
+        let truncated = untrusted && validations.len() > MAX_VALIDATIONS_ANSWERED;
         let validations: Vec<Value> = (validations.iter())
             .take(MAX_VALIDATIONS_ANSWERED)
             .map(|bytes| Value::from(hex_upper(bytes)))
