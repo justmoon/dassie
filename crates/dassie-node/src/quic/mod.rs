@@ -44,7 +44,7 @@ use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
-use dassie_identity::{NodeId, NodeKey, PublicKey, SeedPath};
+use dassie_identity::{DerivedSecret, NodeId, NodeKey, PublicKey, SeedPath};
 use dassie_node_core::address::is_public;
 use dassie_node_core::connections::ConnectionLimits;
 use dassie_node_core::rate_limit::ClientKey;
@@ -52,6 +52,7 @@ use dassie_peer::wire::{MAX_MESSAGE_BYTES, MAX_NAME_LIST_BYTES};
 use dassie_peer::{Failure, Request, Response};
 use quinn::crypto::rustls::{QuicClientConfig, QuicServerConfig};
 use quinn::{Connection, Endpoint, EndpointConfig, ReadToEndError, TransportConfig, VarInt};
+use quinn_proto::HashedConnectionIdGenerator;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::watch;
 use tokio_tungstenite::WebSocketStream;
@@ -149,9 +150,31 @@ const RESET_KEY_PATH: &str = "node/quic/stateless-reset";
 
 /// Where the key for stateless resets over tunnels hangs: a key of its own,
 /// so that neither endpoint can tell anyone the tokens of the other's
-/// connections (RFC 9000, section 21.11), should their connection IDs ever
-/// come from the node key too.
+/// connections (RFC 9000, section 21.11), whose connection IDs come from
+/// the node key too.
 const TUNNEL_RESET_KEY_PATH: &str = "node/quic/tunnel-stateless-reset";
+
+/// Where the key the UDP endpoint makes and knows its connection IDs with
+/// hangs (spec/areas/identity.md#seed-paths): the endpoint sends a stateless
+/// reset only for an ID it knows as its own.
+const CONNECTION_ID_KEY_PATH: &str = "node/quic/connection-ids";
+
+/// Where the tunnel endpoint's key for its connection IDs hangs: a key of
+/// its own, so that neither endpoint takes the other's IDs for its own, and
+/// sends resets for them.
+const TUNNEL_CONNECTION_ID_KEY_PATH: &str = "node/quic/tunnel-connection-ids";
+
+/// The keys of the endpoint over UDP.
+const UDP_KEYS: KeyPaths = KeyPaths {
+    reset: RESET_KEY_PATH,
+    connection_ids: CONNECTION_ID_KEY_PATH,
+};
+
+/// The keys of the endpoint over tunnels.
+const TUNNEL_KEYS: KeyPaths = KeyPaths {
+    reset: TUNNEL_RESET_KEY_PATH,
+    connection_ids: TUNNEL_CONNECTION_ID_KEY_PATH,
+};
 
 const _: () = assert!(MAX_MESSAGE_BYTES <= MAX_RESPONSE_BYTES);
 const _: () = assert!(MAX_NAME_LIST_BYTES <= MAX_RESPONSE_BYTES);
@@ -495,8 +518,8 @@ impl Quic {
         identity: watch::Receiver<Option<Arc<NodeKey>>>,
         allow_private: bool,
     ) -> io::Result<Self> {
-        let config = endpoint_config(identity.borrow().as_deref(), RESET_KEY_PATH);
-        let tunnel_config = endpoint_config(identity.borrow().as_deref(), TUNNEL_RESET_KEY_PATH);
+        let config = endpoint_config(identity.borrow().as_deref(), &UDP_KEYS);
+        let tunnel_config = endpoint_config(identity.borrow().as_deref(), &TUNNEL_KEYS);
         let keys = Arc::new(Keys::new(identity));
         let server = server_config(&keys, IDLE_TIMEOUT).map_err(io::Error::other)?;
         let runtime = quinn::default_runtime().ok_or_else(|| io::Error::other("no runtime"))?;
@@ -1363,23 +1386,48 @@ pub fn authority(url: &str) -> Option<(&str, u16)> {
     }
 }
 
-/// The endpoint's configuration. Its key for stateless resets derives from
-/// the node key, so it survives a restart: a node that crashed, and so
-/// closed nothing, can still tell its peers their connections are gone, and
-/// they connect again at once instead of waiting out the idle timeout. Each
-/// endpoint derives its own, at `path`. A node not set up yet has no peers,
-/// and a random key.
-fn endpoint_config(key: Option<&NodeKey>, path: &str) -> EndpointConfig {
-    let derived = SeedPath::parse(path)
-        .ok()
-        .and_then(|path| key?.derive(&path).ok());
-    match derived {
-        Some(secret) => {
-            let key = ring::hmac::Key::new(ring::hmac::HMAC_SHA256, secret.as_bytes());
-            EndpointConfig::new(Arc::new(key))
-        }
-        None => EndpointConfig::default(),
-    }
+/// Where an endpoint's keys hang in the node's key tree.
+struct KeyPaths {
+    /// The key for its stateless resets.
+    reset: &'static str,
+    /// The key it makes and knows its connection IDs with.
+    connection_ids: &'static str,
+}
+
+/// The endpoint's configuration. Its keys for stateless resets and for
+/// connection IDs derive from the node key, so they survive a restart: a
+/// node that crashed, and so closed nothing, still knows the IDs of the
+/// connections it had as its own when a peer sends on one, and tells the
+/// peer it is gone with the reset the peer expects. The peer connects again
+/// at once instead of waiting out the idle timeout. quinn sends a reset only
+/// for an ID its generator takes as its own, and its default generator's
+/// key is new at every start. Each endpoint derives its own keys, at
+/// `paths`. A node not set up yet has no peers, and random keys.
+fn endpoint_config(key: Option<&NodeKey>, paths: &KeyPaths) -> EndpointConfig {
+    let derive = |path| {
+        SeedPath::parse(path)
+            .ok()
+            .and_then(|path| key?.derive(&path).ok())
+    };
+    let (Some(reset), Some(ids)) = (derive(paths.reset), derive(paths.connection_ids)) else {
+        return EndpointConfig::default();
+    };
+    let reset = ring::hmac::Key::new(ring::hmac::HMAC_SHA256, reset.as_bytes());
+    let mut config = EndpointConfig::new(Arc::new(reset));
+    let ids = connection_id_key(&ids);
+    config.cid_generator(move || Box::new(HashedConnectionIdGenerator::from_key(ids)));
+    config
+}
+
+/// The key of quinn's generator of connection IDs, from `secret`: its first
+/// eight bytes. The generator's hash is no MAC, so the IDs it makes may give
+/// the key away; so it hangs at a path of its own, and gives away no other
+/// secret. Knowing it lets one only make IDs the node takes as its own, and
+/// so draw stateless resets for connections it does not have, which quinn
+/// sends at most once in a while, each smaller than the packet that drew it.
+fn connection_id_key(secret: &DerivedSecret) -> u64 {
+    let &[a, b, c, d, e, f, g, h, ..] = secret.as_bytes();
+    u64::from_le_bytes([a, b, c, d, e, f, g, h])
 }
 
 /// The transport's settings, with connections that close after `idle`
@@ -1477,11 +1525,44 @@ mod tests {
     }
 
     #[test]
-    fn the_reset_key_paths_are_under_the_node_key_and_apart() {
+    fn the_endpoints_key_paths_are_under_the_node_key_and_apart() {
         let key = NodeKey::from_bytes(&[1; 32]);
-        let derive = |path| key.derive(&SeedPath::parse(path).unwrap()).unwrap();
-        let (udp, tunnels) = (derive(RESET_KEY_PATH), derive(TUNNEL_RESET_KEY_PATH));
-        assert_ne!(udp.as_bytes(), tunnels.as_bytes());
+        let derive = |path| {
+            *key.derive(&SeedPath::parse(path).unwrap())
+                .unwrap()
+                .as_bytes()
+        };
+        let paths = [
+            RESET_KEY_PATH,
+            TUNNEL_RESET_KEY_PATH,
+            CONNECTION_ID_KEY_PATH,
+            TUNNEL_CONNECTION_ID_KEY_PATH,
+        ];
+        let keys: std::collections::BTreeSet<_> = paths.into_iter().map(derive).collect();
+        assert_eq!(keys.len(), paths.len());
+    }
+
+    /// The generator of connection IDs an endpoint of the node with `key`
+    /// has, at `paths`.
+    fn generator(key: &NodeKey, paths: &KeyPaths) -> HashedConnectionIdGenerator {
+        let path = SeedPath::parse(paths.connection_ids).unwrap();
+        HashedConnectionIdGenerator::from_key(connection_id_key(&key.derive(&path).unwrap()))
+    }
+
+    // An endpoint takes the IDs it made before a restart for its own, and so
+    // sends their stateless resets; never the other endpoint's, nor those of
+    // another node.
+    #[test]
+    fn connection_ids_are_known_after_a_restart_and_only_there() {
+        use quinn_proto::ConnectionIdGenerator;
+        let (key, other) = (NodeKey::from_bytes(&[1; 32]), NodeKey::from_bytes(&[2; 32]));
+        let mut before = generator(&key, &UDP_KEYS);
+        let ids: Vec<_> = (0..64).map(|_| before.generate_cid()).collect();
+        let after = generator(&key, &UDP_KEYS);
+        assert!(ids.iter().all(|id| after.validate(id).is_ok()));
+        for stranger in [generator(&key, &TUNNEL_KEYS), generator(&other, &UDP_KEYS)] {
+            assert!(ids.iter().all(|id| stranger.validate(id).is_err()));
+        }
     }
 
     /// Answers each request with its body.

@@ -1143,6 +1143,7 @@ dependencies = [
  "prost-build",
  "protox",
  "quinn",
+ "quinn-proto",
  "rand_core",
  "rcgen",
  "ring",

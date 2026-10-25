@@ -6,7 +6,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use std::future::Future;
-use std::net::{IpAddr, UdpSocket};
+use std::net::{IpAddr, SocketAddr, UdpSocket};
 use std::path::Path;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -558,5 +558,87 @@ async fn a_stranger_without_room_backs_off() {
     tokio::time::sleep(std::time::Duration::from_millis(1_500)).await;
     assert!(late.quic.backing_off(&server.id), "the wait did not double");
     drop(classes);
+    shutdown.cancel();
+}
+
+/// The network between a node and a peer of it that crashes and comes
+/// back: one address, behind which the peer runs, and which peer runs there
+/// now. It carries packets between the node and that peer only, so nothing
+/// a peer that crashed sends reaches the node any more.
+struct Route {
+    url: String,
+    peer: Arc<std::sync::Mutex<SocketAddr>>,
+}
+
+impl Route {
+    /// The route from `node` to `peer`, until it leads elsewhere.
+    async fn new(node: &Side, peer: &Side, shutdown: &CancellationToken) -> Self {
+        let socket = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("https://{}", socket.local_addr().unwrap());
+        let node = node.quic.local_addr().unwrap();
+        let peer = Arc::new(std::sync::Mutex::new(peer.quic.local_addr().unwrap()));
+        let to = Arc::clone(&peer);
+        let shutdown = shutdown.clone();
+        tokio::spawn(async move {
+            let mut packet = vec![0; 65_536];
+            loop {
+                let (length, from) = tokio::select! {
+                    () = shutdown.cancelled() => return,
+                    received = socket.recv_from(&mut packet) => received.unwrap(),
+                };
+                let peer = *to.lock().unwrap();
+                let destination = match from {
+                    from if from == node => peer,
+                    from if from == peer => node,
+                    _ => continue,
+                };
+                let received = packet.get(..length).unwrap();
+                // A packet that cannot be sent is lost, as on any network.
+                let _ = socket.send_to(received, destination).await;
+            }
+        });
+        Self { url, peer }
+    }
+
+    /// From now on, the route leads to `peer`.
+    fn lead_to(&self, peer: &Side) {
+        *self.peer.lock().unwrap() = peer.quic.local_addr().unwrap();
+    }
+}
+
+// A peer that crashed, and so closed nothing, ends our connection to it as
+// soon as it is back: its connection IDs and the key for its stateless
+// resets derive from its node key, so the node back knows our packets for
+// a connection it no longer has, and tells us so. We connect again at once,
+// rather than wait out the idle timeout on the dead connection.
+#[tokio::test]
+async fn a_peer_back_from_a_crash_ends_our_old_connection_at_once() {
+    let shutdown = CancellationToken::new();
+    let crashed = CancellationToken::new();
+    let (a, b) = (side(1, &shutdown), side(2, &crashed));
+    let route = Route::new(&a, &b, &shutdown).await;
+    let mut hello = request(&b, b"hello".to_vec());
+    hello.url.clone_from(&route.url);
+    let client = client();
+    let response = a.quic.send(&hello, &client).await.unwrap();
+    assert_eq!(response.body, b"hello");
+    // b crashes: what it sends never reaches a again, the close of its
+    // connections included. It comes back with its key, at its address.
+    let back = side(2, &shutdown);
+    route.lead_to(&back);
+    crashed.cancel();
+    drop(b);
+    // a asks on the connection it kept, and hears at once that it is gone,
+    // well within the request's time.
+    let started = tokio::time::Instant::now();
+    let lost = a.quic.send(&hello, &client).await;
+    assert!(
+        started.elapsed() < std::time::Duration::from_millis(2_000),
+        "the old connection was not reset: {lost:?} after {:?}",
+        started.elapsed(),
+    );
+    let response = a.quic.send(&hello, &client).await.unwrap();
+    assert_eq!(response.body, b"hello");
+    assert_eq!(back.quic.stats().answered.load(Ordering::Relaxed), 1);
     shutdown.cancel();
 }
