@@ -262,6 +262,18 @@ impl PegPause {
     }
 }
 
+/// Whether a scheme takes entry payments, and holds one from a node that
+/// asks to peer (spec/decisions/pay-to-enter.md).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum EntryPayment {
+    /// The scheme takes none: a node new to us waits for a free place.
+    NotTaken,
+    /// It takes them, and holds none bound to the node and its request.
+    Missing,
+    /// It holds one: the node paid us on the ledger before it peered.
+    Held,
+}
+
 /// Why a scheme refused.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SchemeError {
@@ -482,6 +494,24 @@ pub trait SettlementScheme: Send {
     /// attempt that fails takes none of its room.
     fn on_peered(&mut self, peer: Name, state: &[u8]) {
         let _ = (peer, state);
+    }
+
+    /// Whether the scheme holds an entry payment from `peer`, which asks
+    /// to peer with `data`: a payment of at least one largest packet that
+    /// reached our account on the ledger before any peering, and that
+    /// names `peer` and comes from where `data` says `peer` settles from
+    /// (spec/decisions/pay-to-enter.md). A downlink that holds one gets in
+    /// past a full free half (spec/decisions/free-receivers-half.md).
+    fn entry(&self, peer: Name, data: &[u8]) -> EntryPayment {
+        let _ = (peer, data);
+        EntryPayment::NotTaken
+    }
+
+    /// The peering with `peer` is made: the entry payments the scheme holds
+    /// from it, from where it peered to settle from, are booked as its
+    /// settlements, each once ([`Effect::IncomingSettlement`]).
+    fn take_entry(&mut self, peer: Name, effects: &mut Vec<Effect>) {
+        let _ = (peer, effects);
     }
 
     /// The settlement channel with `peer`, which no longer peers with us,

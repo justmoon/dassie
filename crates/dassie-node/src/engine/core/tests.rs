@@ -1662,6 +1662,201 @@ fn a_downlink_that_owes_nothing_is_never_short_of_room() {
     assert_eq!(core.peer.peering_of(&id).unwrap().short_for_ms, 0);
 }
 
+/// A core node that takes at most `max_downlinks` downlinks, on the store.
+fn core_taking_few_downlinks(store: Arc<Store>, max_downlinks: usize, now: u64) -> Core {
+    let policies = Policies {
+        peer: dassie_peer::Config {
+            max_downlinks,
+            ..Policies::DEFAULT.peer
+        },
+        ..Policies::DEFAULT
+    };
+    Core::start(
+        CoreParts {
+            store,
+            key: Arc::new(NodeKey::from_bytes(&[7; 32])),
+            realm: Realm::Test,
+            live: dassie_node_core::config::LiveRealm::Refused,
+            policies,
+            rng: Box::new(SeededRng::new(5)),
+            peer_rng: Box::new(SeededRng::new(6)),
+            own_info: dassie_peer::OwnInfo {
+                url: Some("https://core.test".into()),
+                alias: String::new(),
+                quic: true,
+                feed_port: None,
+                hub: None,
+            },
+            bootstrap: Vec::new(),
+            uplinks: Vec::new(),
+        },
+        now,
+    )
+    .unwrap()
+}
+
+/// `core` takes `downlink`'s peering request on `scheme`, with the scheme's
+/// `data`, at `at`: why it refused, if it did.
+fn asks_as_downlink(
+    core: &mut Core,
+    downlink: &Arc<NodeKey>,
+    at: u64,
+    (scheme, data): (&str, &[u8]),
+) -> Option<dassie_peer::wire::RefusalReason> {
+    use dassie_oer::Decode;
+    use dassie_peer::wire::{PeeringResponse, ResponseEnvelope};
+
+    core.begin_step(at);
+    let body = downlink_request_on(core, downlink, at, scheme, data);
+    core.peer_inbound(dassie_peer::InboundId(at), &body, None);
+    let mut outputs = Vec::new();
+    core.finish_step(&mut outputs);
+    let reply = outputs
+        .iter()
+        .find_map(|output| match output {
+            Output::PeerReply { reply, .. } => Some(reply),
+            _ => None,
+        })
+        .unwrap();
+    let envelope = ResponseEnvelope::decode(&reply.body).unwrap();
+    match PeeringResponse::decode_exact(envelope.body).unwrap() {
+        PeeringResponse::Accepted { .. } => None,
+        PeeringResponse::Refused(reason) => Some(reason),
+    }
+}
+
+/// An XRPL scheme's peering data naming `account`.
+fn address_data(account: dassie_xrpl::AccountId) -> Vec<u8> {
+    let address = account.to_address();
+    let mut data = vec![u8::try_from(address.len()).unwrap()];
+    data.extend_from_slice(address.as_bytes());
+    data
+}
+
+/// What `node`'s account on `ledger` took in, posted: its settlements.
+fn settled_in(
+    core: &Core,
+    ledger: dassie_ledger::LedgerId,
+    node: &dassie_identity::NodeId,
+) -> u128 {
+    let peer = dassie_ledger::Name::new(node.as_str()).unwrap();
+    let name = dassie_ledger::AccountName::AssetsInterledger(peer);
+    let account = core.account(ledger, name).unwrap();
+    core.ledger
+        .account(account)
+        .unwrap()
+        .balance()
+        .credits_posted
+}
+
+/// `wallet` pays `drops` to `to` on `ledger` before `node` asks to peer with
+/// it, as a settlement of `node`'s would: with the XRP scheme's memo naming
+/// `node` (spec/decisions/pay-to-enter.md).
+fn pay_to_enter(
+    ledger: &mut dassie_xrpl::fake::FakeLedger,
+    wallet: &dassie_xrpl::Wallet,
+    to: dassie_xrpl::AccountId,
+    node: &NodeKey,
+    drops: u64,
+) {
+    use dassie_xrpl::codec::{Amount, Memo, Payment, Signing, Transact};
+
+    let payment = Payment {
+        account: wallet.account(),
+        destination: to,
+        destination_tag: None,
+        amount: Amount::Xrp(drops),
+        send_max: None,
+        fee: dassie_xrpl::fake::FEE_BASE,
+        sequence: ledger.sequence(wallet.account()).unwrap(),
+        last_ledger_sequence: Some(ledger.ledger() + 10),
+        flags: 0,
+        network_id: None,
+        memos: vec![Memo {
+            memo_type: dassie_xrpl::scheme::MEMO_TYPE.to_vec(),
+            memo_data: node.node_id().as_str().as_bytes().to_vec(),
+        }],
+        signing: Signing::by(wallet.public_key()),
+    }
+    .sign(wallet);
+    let submit = serde_json::json!({
+        "command": "submit",
+        "tx_blob": dassie_xrpl::hex_upper(&payment.blob),
+    });
+    let submitted: serde_json::Value =
+        serde_json::from_slice(&ledger.request(1, &serde_json::to_vec(&submit).unwrap())).unwrap();
+    assert_eq!(submitted["result"]["engine_result"], "tesSUCCESS");
+}
+
+// spec/decisions/pay-to-enter.md: past a full free half, a newcomer that paid
+// the uplink one largest packet on the XRP Ledger before it asked, from the
+// address its request names and with the scheme's memo naming it, gets in.
+// What it paid is held off the books until then, across a restart, and is
+// booked once as its settlement as it peers, which marks it as a downlink
+// that paid us. One that did not pay is told to.
+#[test]
+fn a_newcomer_that_paid_to_enter_is_taken_and_booked_once() {
+    use dassie_ledger::LedgerId;
+    use dassie_peer::wire::RefusalReason;
+    use dassie_xrpl::{UNITS_PER_DROP, Wallet};
+
+    const SCHEME: &str = "xrpl-testnet";
+    const ENTRY_DROPS: u64 = 100_000;
+    let (mut ledger, uplink) = funded_ledger();
+    let store = Arc::new(Store::open_in_memory().unwrap());
+    let mut core = core_taking_few_downlinks(Arc::clone(&store), 2, NOW);
+    core.add_scheme("stub", String::new()).unwrap();
+    core.add_scheme(SCHEME, trusting_fake(SCHEME, SHARED_CONFIG))
+        .unwrap();
+    follow_xrpl(&mut core, &mut ledger);
+    let free = Arc::new(NodeKey::from_bytes(&[11; 32]));
+    assert_eq!(
+        asks_as_downlink(&mut core, &free, NOW + 1_000, ("stub", &[])),
+        None
+    );
+    // The newcomer's own account, which its request names.
+    let newcomer = Arc::new(NodeKey::from_bytes(&[12; 32]));
+    let wallet = Wallet::from_seed([12; 16]);
+    ledger.fund(wallet.account());
+    close_xrpl(&mut core, &mut ledger);
+    let data = address_data(wallet.account());
+    let ask = |core: &mut Core, at: u64| asks_as_downlink(core, &newcomer, at, (SCHEME, &data));
+    assert_eq!(ask(&mut core, NOW + 2_000), Some(RefusalReason::PayToEnter));
+    pay_to_enter(&mut ledger, &wallet, uplink, &newcomer, ENTRY_DROPS);
+    let owner_before = core.owner_available(LedgerId::XrplTestnetXrp);
+    close_xrpl(&mut core, &mut ledger);
+    assert_eq!(
+        core.owner_available(LedgerId::XrplTestnetXrp),
+        owner_before,
+        "held, not the owner's"
+    );
+    core.flush();
+    drop(core);
+    let mut core = core_taking_few_downlinks(Arc::clone(&store), 2, NOW + 3_000);
+    follow_xrpl(&mut core, &mut ledger);
+    assert_eq!(ask(&mut core, NOW + 4_000), None);
+    let id = newcomer.node_id();
+    assert!(core.peer.is_downlink(&id));
+    assert!(
+        core.peer.channel(&id).unwrap().paid_us,
+        "a downlink that paid us"
+    );
+    let paid = |core: &Core| settled_in(core, LedgerId::XrplTestnetXrp, &id);
+    assert_eq!(paid(&core), u128::from(ENTRY_DROPS * UNITS_PER_DROP));
+    assert_eq!(core.owner_available(LedgerId::XrplTestnetXrp), owner_before);
+    core.flush();
+    drop(core);
+    let mut core = core_taking_few_downlinks(Arc::clone(&store), 2, NOW + 5_000);
+    follow_xrpl(&mut core, &mut ledger);
+    close_xrpl(&mut core, &mut ledger);
+    assert_eq!(
+        paid(&core),
+        u128::from(ENTRY_DROPS * UNITS_PER_DROP),
+        "once"
+    );
+    assert!(core.peer.channel(&id).unwrap().paid_us);
+}
+
 /// Closes a ledger of `ledger`, and hands the XRP Ledger account what its
 /// streams say.
 fn close_xrpl(core: &mut Core, ledger: &mut dassie_xrpl::fake::FakeLedger) {

@@ -41,6 +41,8 @@
 //! - [`scheme`]: the XRP scheme, which settles in the account's XRP and
 //!   books what the account tells it: `xrpl-testnet` on the testnet, `xrpl`
 //!   on mainnet.
+//! - [`entry`]: the entry payments both kinds of scheme hold for nodes
+//!   new to us that paid before they peered.
 //! - [`token`]: the token scheme, which settles in a dollar token on the
 //!   account's trust line to its issuer, with the account's XRP as gas;
 //!   [`rlusd`] is it in RLUSD on mainnet (`xrpl-rlusd`), and keeps disabled
@@ -72,6 +74,7 @@ pub mod base64;
 pub mod binary;
 pub mod codec;
 pub mod dsusd;
+pub mod entry;
 #[cfg(feature = "fake")]
 pub mod fake;
 pub mod header;

@@ -22,6 +22,7 @@ A scheme is sans-IO: its methods return effects (`Effect` in `scheme.rs`) for th
 - **Execute only once the pending transfer is on disk,** and report `Finalize` or `Cancel`, now or later. After a restart, `reconcile` gets the settlements still pending and reports the same for each.
 - **The message can be made again** from the settlement's ID, so a restart that lost it can still announce the settlement.
 - **Peering keeps nothing until it is made.** Creating, accepting and finalizing a peering request only check the other side's data; the scheme keeps what it needs of a peer when the node tells it the peering is made (`on_peered`), after the peer's accounts are open. So attempts that fail cost the scheme no room.
+- **Entry payments** (`entry`, `take_entry`): a scheme may hold what a node new to us paid us on its ledger before it peered, off its books, bound to the node and to the request it peers with; it says whether it holds one when the node asks to peer, and books it as the node's settlement once the peering is made ([pay-to-enter](../decisions/pay-to-enter.md)). The XRPL schemes take them ([XRPL](xrpl.md#entry-payments)); the stub and a settlement hub take none.
 - **Peering waits for the first sync.** A scheme's first sync books what its account holds as the owner's deposit; only after it can the scheme tell a peer's settlement from a deposit (`has_synced`). Until then the node neither offers, asks for nor accepts a peering on the scheme: it leaves the scheme out of its link state, picks no candidate on it, and refuses requests on it as for a scheme not active here ([Network](network.md#asking-and-answering), [synced-before-peering](../decisions/synced-before-peering.md)). The first sync is kept with the scheme's state, so a restart with the ledger out of reach peers as before, and peerings already made stay. A scheme without a ledger to follow has synced from the start.
 - **Reports** (deposits, withdrawals, ledger fees, reconciliations) are recorded even past the owner's limit ([Ledger](ledger.md#what-the-ledger-refuses-and-what-it-records)). A reconciliation names its cause, which changes only how it is reported: a change of the ledger's reserve is expected and logged as information, any other difference as a warning. An incoming settlement is booked Dr `assets/settlement`, Cr `assets/interledger/<peer>`.
 - **`Unavailable`** means not now (its ledger not seen, no funds to spare, too much in flight, an issuer's freeze). It is asked again at the next check as if nothing happened.
@@ -183,7 +184,7 @@ The node keeps a settlement channel with every node it has ever peered with (`cr
 
 - **A peering opens it again where it was,** so our next message follows the last one the peer applied.
 - **A settlement over it closed** is read against the sequence that stayed: applied once, and acknowledged again as a copy. The channel stays closed.
-- **The schemes forget** what they kept of the node for its settlements (`on_closed`): a ledger payment from it after the close is the owner's deposit.
+- **The schemes forget** what they kept of the node for its settlements (`on_closed`): a ledger payment from it after the close is the owner's deposit, once held for it a while as an entry payment if it is one ([pay-to-enter](../decisions/pay-to-enter.md)).
 
 ## Settlement hubs
 

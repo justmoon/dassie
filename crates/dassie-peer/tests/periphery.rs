@@ -778,6 +778,69 @@ fn a_downlink_that_paid_comes_back_past_a_full_free_half() {
     assert!(channel.paid_us, "opened again with the mark");
 }
 
+/// Node 0's scheme holds what `key` paid it to enter, bound to the request
+/// data `ask` sends.
+fn pays_to_enter(network: &mut Network, key: &NodeKey) {
+    let node = key.node_id();
+    network.act_with_hooks(0, |_, hooks, _| {
+        hooks.entries.insert((node, Vec::new()));
+    });
+}
+
+// spec/decisions/pay-to-enter.md: past a full free half, a newcomer that paid
+// us to enter on the scheme it asks on gets in, as one that paid us before
+// does; one that did not is told to pay, on a scheme that takes entry
+// payments, and refused for capacity on one that takes none. Every other
+// bound still holds: past `max_downlinks`, or banned, it is refused however
+// it paid, and nothing is displaced.
+#[test]
+fn a_newcomer_that_paid_to_enter_gets_in_past_a_full_free_half() {
+    let config = Config {
+        max_downlinks: 4,
+        ..Config::DEV
+    };
+    let mut network = Network::with_periphery(22, 2, 1, 0, config);
+    settle(&mut network, 30_000);
+    let [a, b, c, d, e, banned] = [70, 71, 72, 73, 74, 75].map(downlink_key);
+    assert_eq!(ask_as_downlink(&mut network, &a), None);
+    assert_eq!(ask_as_downlink(&mut network, &b), None);
+    assert_eq!(
+        ask_as_downlink(&mut network, &c),
+        Some(RefusalReason::Capacity),
+        "a scheme that takes no entry payments"
+    );
+    // Each ask of one key a moment later: a session for each instant.
+    network.act_with_hooks(0, |_, hooks, _| hooks.takes_entries = true);
+    settle(&mut network, 1_000);
+    assert_eq!(
+        ask_as_downlink(&mut network, &c),
+        Some(RefusalReason::PayToEnter)
+    );
+    pays_to_enter(&mut network, &c);
+    settle(&mut network, 1_000);
+    assert_eq!(ask_as_downlink(&mut network, &c), None);
+    pays_to_enter(&mut network, &banned);
+    let node = banned.node_id();
+    network.act(0, |peer, now| peer.ban(now, node).unwrap());
+    assert_eq!(
+        ask_as_downlink(&mut network, &banned),
+        Some(RefusalReason::Banned)
+    );
+    pays_to_enter(&mut network, &d);
+    assert_eq!(ask_as_downlink(&mut network, &d), None);
+    pays_to_enter(&mut network, &e);
+    assert_eq!(
+        ask_as_downlink(&mut network, &e),
+        Some(RefusalReason::Capacity),
+        "every downlink place is taken"
+    );
+    let node = network.node(0);
+    assert_eq!(node.peers().count() - node.core_peers().count(), 4);
+    for key in [&a, &b, &c, &d] {
+        assert!(node.peering_of(&key.node_id()).unwrap().depeering.is_none());
+    }
+}
+
 // A periphery node takes no peers: it peers only as a downlink.
 #[test]
 fn a_periphery_node_takes_no_peers() {

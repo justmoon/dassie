@@ -9,8 +9,11 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use dassie_ledger::Name;
 use dassie_node_core::testing::SeededRng;
-use dassie_settlement::{ExternalAsset, LedgerInput, LedgerStatus, ReconcileCause, SchemeError};
+use dassie_settlement::{
+    EntryPayment, ExternalAsset, LedgerInput, LedgerStatus, ReconcileCause, SchemeError,
+};
 use dassie_xrpl::account::{Doubt, HISTORY_BOUND, STALL_MS};
+use dassie_xrpl::entry::ENTRY_HOLD_LEDGERS;
 use dassie_xrpl::fake::{FAUCET_DROPS, FakeLedger, Lie, RESERVE_BASE};
 use dassie_xrpl::scheme::MEMO_TYPE;
 use support::{Effect, XrplScheme};
@@ -344,7 +347,11 @@ impl World {
                 && !node.lagging
                 && let Some(balance) = self.ledger.balance(node.scheme.account())
             {
-                let bookable = (balance * UNITS_PER_DROP).saturating_sub(node.scheme.reserve());
+                // Less what it holds of entry payments, which is off the
+                // books (spec/decisions/pay-to-enter.md).
+                let bookable = (balance * UNITS_PER_DROP)
+                    .saturating_sub(node.scheme.reserve())
+                    .saturating_sub(node.scheme.entries_held());
                 assert_eq!(node.scheme.balance(), bookable, "{}", node.name);
             }
         }
@@ -525,6 +532,249 @@ fn peering_attempts_never_displace_a_peers_address() {
     let books = &world.nodes[0].books;
     assert_eq!(books.owner, i128::from(FUNDED));
     assert_eq!(books.peers.get(&peer), Some(&3_000_000_000));
+}
+
+/// The least entry payment the nodes here take: one largest packet at the
+/// node's default, 0.1 XRP, in internal units.
+const ENTRY: u64 = 100_000_000;
+
+/// The request data node `index` sends node `to` when it asks to peer: its
+/// own address.
+fn request_of(world: &mut World, index: usize, to: usize) -> Vec<u8> {
+    let mut info = Vec::new();
+    world.nodes[to].scheme.peering_info(&mut info);
+    let mut request = Vec::new();
+    let peer = world.nodes[to].name;
+    world.nodes[index]
+        .scheme
+        .create_peering_request(peer, &info, &mut request)
+        .unwrap();
+    request
+}
+
+/// Node `from` pays node `to` `amount` before they peer, as it would
+/// settle with it: from its address, with the scheme's memo naming itself.
+fn pay_to_enter(world: &mut World, from: usize, to: usize, amount: u64) {
+    let mut info = Vec::new();
+    world.nodes[to].scheme.peering_info(&mut info);
+    world.settle(from, to, amount, &info);
+}
+
+/// Node `index` books what it held from `peer`, just peered.
+fn take_entry(world: &mut World, index: usize, peer: Name) {
+    let mut effects = Vec::new();
+    world.nodes[index].scheme.take_entry(peer, &mut effects);
+    world.nodes[index].scheme.check_invariants();
+    world.apply(index, effects);
+    world.check();
+}
+
+// spec/decisions/pay-to-enter.md: a Payment with our memo from a node not
+// yet peered, of at least one largest packet, is held off the books once
+// validated, bound to the node it names and the address it came from. Once
+// the node peers from that address, it is booked as its settlement, once,
+// and is no longer held.
+#[test]
+fn a_payment_before_peering_is_held_until_its_node_peers() {
+    let mut world = World::new(2);
+    world.closes(2);
+    world.nodes[0].scheme.take_entries_from(ENTRY);
+    let newcomer = world.nodes[1].name;
+    let request = request_of(&mut world, 1, 0);
+    let entry = |world: &World, node: Name, data: &[u8]| world.nodes[0].scheme.entry(node, data);
+    assert_eq!(entry(&world, newcomer, &request), EntryPayment::Missing);
+    pay_to_enter(&mut world, 1, 0, ENTRY);
+    assert_eq!(
+        entry(&world, newcomer, &request),
+        EntryPayment::Missing,
+        "not validated yet"
+    );
+    world.close();
+    let books = &world.nodes[0].books;
+    assert_eq!(books.owner, i128::from(FUNDED), "no deposit");
+    assert!(books.credited.is_empty());
+    assert_eq!(world.nodes[0].scheme.entries_held(), ENTRY);
+    assert_eq!(entry(&world, newcomer, &request), EntryPayment::Held);
+    // Bound to the node its memo names, and to the address it came from.
+    assert_eq!(
+        entry(&world, name("node9"), &request),
+        EntryPayment::Missing
+    );
+    let elsewhere = request_of(&mut world, 0, 1);
+    assert_eq!(entry(&world, newcomer, &elsewhere), EntryPayment::Missing);
+    world.peer(1, 0);
+    take_entry(&mut world, 0, newcomer);
+    let books = &world.nodes[0].books;
+    assert_eq!(books.peers[&newcomer], i128::from(ENTRY));
+    assert_eq!(books.credited.len(), 1);
+    assert_eq!(books.owner, i128::from(FUNDED));
+    assert_eq!(world.nodes[0].scheme.entries_held(), 0);
+    // Used: it admits no one again, and books nothing more.
+    assert_eq!(entry(&world, newcomer, &request), EntryPayment::Missing);
+    take_entry(&mut world, 0, newcomer);
+    world.closes(2);
+    assert_eq!(world.nodes[0].books.credited.len(), 1);
+    assert_eq!(world.nodes[0].books.peers[&newcomer], i128::from(ENTRY));
+}
+
+// spec/decisions/pay-to-enter.md: what is less than one largest packet is
+// no entry payment but the owner's deposit at once; a payment to another
+// address is not ours to hold; and one held that its node never claims is
+// the owner's deposit once its hold is over.
+#[test]
+fn an_entry_payment_is_held_only_when_it_counts() {
+    let mut world = World::new(3);
+    world.closes(2);
+    world.nodes[0].scheme.take_entries_from(ENTRY);
+    let newcomer = world.nodes[1].name;
+    let request = request_of(&mut world, 1, 0);
+    pay_to_enter(&mut world, 1, 0, ENTRY - UNITS_PER_DROP);
+    pay_to_enter(&mut world, 1, 2, ENTRY);
+    world.close();
+    let books = &world.nodes[0].books;
+    assert_eq!(books.owner, i128::from(FUNDED + ENTRY - UNITS_PER_DROP));
+    assert_eq!(world.nodes[0].scheme.entries_held(), 0);
+    assert_eq!(
+        world.nodes[0].scheme.entry(newcomer, &request),
+        EntryPayment::Missing
+    );
+    pay_to_enter(&mut world, 1, 0, ENTRY);
+    world.close();
+    assert_eq!(
+        world.nodes[0].scheme.entry(newcomer, &request),
+        EntryPayment::Held
+    );
+    world.pass(ENTRY_HOLD_LEDGERS);
+    world.closes(2);
+    let books = &world.nodes[0].books;
+    assert_eq!(world.nodes[0].scheme.entries_held(), 0);
+    assert_eq!(books.owner, i128::from(FUNDED + 2 * ENTRY - UNITS_PER_DROP));
+    assert!(books.credited.is_empty());
+    assert_eq!(
+        world.nodes[0].scheme.entry(newcomer, &request),
+        EntryPayment::Missing
+    );
+}
+
+// spec/decisions/pay-to-enter.md: an entry payment held is kept with the
+// scheme's state, so a restart before its node peers still holds it, and
+// one after books it no second time.
+#[test]
+fn an_entry_payment_survives_a_restart_and_is_booked_once() {
+    let mut world = World::new(2);
+    world.closes(2);
+    world.nodes[0].scheme.take_entries_from(ENTRY);
+    let newcomer = world.nodes[1].name;
+    let request = request_of(&mut world, 1, 0);
+    pay_to_enter(&mut world, 1, 0, ENTRY);
+    world.close();
+    let restart = |world: &mut World| {
+        let state = world.nodes[0].scheme.state();
+        let checkpoint = world.nodes[0].scheme.balance();
+        world.disconnect(0);
+        let node = world.nodes[0].name;
+        world.nodes[0].scheme =
+            XrplScheme::new("", &entropy(1), node, Some(checkpoint), &state).unwrap();
+        world.nodes[0].scheme.take_entries_from(ENTRY);
+        world.connect(0);
+        world.closes(2);
+    };
+    restart(&mut world);
+    assert_eq!(world.nodes[0].scheme.entries_held(), ENTRY);
+    assert_eq!(
+        world.nodes[0].scheme.entry(newcomer, &request),
+        EntryPayment::Held
+    );
+    world.peer(1, 0);
+    take_entry(&mut world, 0, newcomer);
+    restart(&mut world);
+    let books = &world.nodes[0].books;
+    assert_eq!(books.credited.len(), 1);
+    assert_eq!(books.peers[&newcomer], i128::from(ENTRY));
+    assert_eq!(books.owner, i128::from(FUNDED));
+    assert_eq!(world.nodes[0].scheme.entries_held(), 0);
+}
+
+/// Two synced nodes, node 0 taking entry payments and holding one from node
+/// 1, its account then raised a reserve so high that what it holds above the
+/// reserve, `left` drops, is less than the entry held: the reserve took part
+/// of it, as fees or the owner's spending outside the node would.
+fn drained_with_entry(left: u64) -> (World, Vec<u8>) {
+    let mut world = World::new(2);
+    world.closes(2);
+    world.nodes[0].scheme.take_entries_from(ENTRY);
+    let request = request_of(&mut world, 1, 0);
+    pay_to_enter(&mut world, 1, 0, ENTRY);
+    world.close();
+    assert_eq!(world.nodes[0].scheme.entries_held(), ENTRY);
+    let balance = world.ledger.balance(world.account(0)).unwrap();
+    world.ledger.set_reserve(balance - left, 0);
+    world.close();
+    assert_eq!(world.nodes[0].scheme.balance(), 0, "the books hold nothing");
+    (world, request)
+}
+
+/// Node 0 restarts from what its books kept, and catches up.
+fn restart_first(world: &mut World) {
+    let state = world.nodes[0].scheme.state();
+    let checkpoint = world.nodes[0].scheme.balance();
+    world.disconnect(0);
+    let node = world.nodes[0].name;
+    world.nodes[0].scheme =
+        XrplScheme::new("", &entropy(1), node, Some(checkpoint), &state).unwrap();
+    world.nodes[0].scheme.take_entries_from(ENTRY);
+    world.connect(0);
+    world.closes(2);
+}
+
+// spec/decisions/pay-to-enter.md: an entry payment taken once the account no
+// longer holds all of it above the reserve credits its node what it paid, and
+// the books match what is left, the shortfall through suspense, so they still
+// match the account, before and after a restart.
+#[test]
+fn an_entry_payment_taken_short_is_matched_through_suspense() {
+    const LEFT: u64 = 40_000;
+    let (mut world, _) = drained_with_entry(LEFT);
+    let newcomer = world.nodes[1].name;
+    world.peer(1, 0);
+    take_entry(&mut world, 0, newcomer);
+    let books = &world.nodes[0].books;
+    assert_eq!(books.peers[&newcomer], i128::from(ENTRY));
+    assert_eq!(books.settlement, i128::from(LEFT * UNITS_PER_DROP));
+    assert_eq!(
+        books.reconciled.last(),
+        Some(&(
+            -i128::from(ENTRY - LEFT * UNITS_PER_DROP),
+            ReconcileCause::Unexplained
+        ))
+    );
+    restart_first(&mut world);
+    assert_eq!(
+        world.nodes[0].scheme.balance(),
+        LEFT * UNITS_PER_DROP,
+        "nothing booked again"
+    );
+    assert_eq!(world.nodes[0].books.credited.len(), 1);
+}
+
+// spec/decisions/pay-to-enter.md: an entry payment whose hold is over once
+// the account no longer holds all of it above the reserve is the owner's
+// deposit, and the books match what is left, so a restart after it reads
+// the same.
+#[test]
+fn an_entry_payment_expired_short_is_matched_through_suspense() {
+    const LEFT: u64 = 40_000;
+    let (mut world, _) = drained_with_entry(LEFT);
+    let owner = world.nodes[0].books.owner;
+    world.pass(ENTRY_HOLD_LEDGERS);
+    world.closes(2);
+    assert_eq!(world.nodes[0].scheme.entries_held(), 0);
+    let books = &world.nodes[0].books;
+    assert_eq!(books.owner, owner + i128::from(ENTRY));
+    assert_eq!(books.settlement, i128::from(LEFT * UNITS_PER_DROP));
+    restart_first(&mut world);
+    assert_eq!(world.nodes[0].scheme.balance(), LEFT * UNITS_PER_DROP);
+    assert!(world.nodes[0].books.credited.is_empty());
 }
 
 // A Payment the ledger refuses after taking its fee (here: to an account
