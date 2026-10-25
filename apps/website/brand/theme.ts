@@ -20,14 +20,12 @@ function chosen(): string | null {
   }
 }
 
+/** The switch is labelled "Dark mode" and pressed while the page is dark. */
 function apply(theme: string): void {
   const dark = theme === "dark";
   root.dataset.theme = dark ? "dark" : "light";
-  const button = document.querySelector<HTMLButtonElement>(".theme-toggle");
-  if (!button) return;
-  button.setAttribute("aria-pressed", String(dark));
-  const label = button.querySelector("span");
-  if (label) label.textContent = dark ? "Light mode" : "Dark mode";
+  document.querySelector(".theme-toggle")
+    ?.setAttribute("aria-pressed", String(dark));
 }
 
 apply(chosen() ?? "light");

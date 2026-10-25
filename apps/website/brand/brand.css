@@ -2719,6 +2719,11 @@ html[data-theme="dark"] svg text[fill="#5E524A"] {
 .theme-toggle:hover {
   background: rgba(239,227,207,.18);
 }
+/* Its label stays "Dark mode"; pressed, it shows lit. */
+.theme-toggle[aria-pressed="true"] {
+  background: var(--sun);
+  color: #2B2420;
+}
 .theme-toggle svg {
   width: 14px;
   height: 14px;

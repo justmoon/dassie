@@ -211,6 +211,12 @@ test("dassie.land: the pages, and a STREAM payment in the toy", {
       assertEquals(await theme(), "light");
       await click(page, "theme-toggle");
       assertEquals(await theme(), "dark");
+      assertEquals(
+        await page.evaluate(() =>
+          document.querySelector(".theme-toggle")?.getAttribute("aria-pressed")
+        ),
+        "true",
+      );
       assertEquals(problems, []);
     });
 
