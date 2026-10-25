@@ -17,7 +17,7 @@ The decisions (whether an origin is allowed, a session valid, a setup attempt ri
 
 ### Route table
 
-`http/mod.rs` holds it. Routes exist only in the state they belong to: `/api/setup` only while the node has no identity, `/api/login` and `/api/logout` only once it has one; otherwise they are 404. `/quic` takes only a WebSocket upgrade with the subprotocol `dassie-quic/1`, and only while the QUIC endpoint serves; it needs no session and checks no origin, since the QUIC handshake inside proves who is there. ILP-over-HTTP (`/ilp`) is not served yet ([roadmap](../roadmap.md)).
+`http/mod.rs` holds it. Routes exist only in the state they belong to: `/api/setup` only while the node has no identity, `/api/login` and `/api/logout` only once it has one; otherwise they are 404. `/quic` takes only a WebSocket upgrade with the subprotocol `dassie-quic/1`, and only while the QUIC endpoint serves. It needs no session, since the QUIC handshake inside proves who is there, but refuses with 403 any request that carries an `Origin` header: a browser sends one with every WebSocket handshake and a node never does, and a page could otherwise have each of its visitors hold a place among the QUIC connections being set up ([quic-over-websocket](../decisions/quic-over-websocket.md)). ILP-over-HTTP (`/ilp`) is not served yet ([roadmap](../roadmap.md)).
 
 ### Relayed streams
 

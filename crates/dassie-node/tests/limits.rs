@@ -392,10 +392,21 @@ async fn loopback_is_not_counted_where_private_peers_are_allowed() {
     node.stop().await;
 }
 
-/// Opens a tunnel for QUIC at `/quic`, with its subprotocol or without;
-/// the status of a refusal. The place of the connection upgraded before may
-/// take a moment to come back.
-async fn tunnel(node: &TestNode, subprotocol: bool) -> Result<Socket, u16> {
+/// How a request for a tunnel asks.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Asks {
+    /// As a node's client does.
+    AsANode,
+    /// Without the tunnel's subprotocol.
+    WithoutSubprotocol,
+    /// With an origin, as a browser does.
+    AsABrowser,
+}
+
+/// Opens a tunnel for QUIC at `/quic`, asking as `asks` has it; the status
+/// of a refusal. The place of the connection upgraded before may take a
+/// moment to come back.
+async fn tunnel(node: &TestNode, asks: Asks) -> Result<Socket, u16> {
     let mut stream = None;
     for _ in 0..50 {
         stream = try_tls(node.https).await;
@@ -408,11 +419,13 @@ async fn tunnel(node: &TestNode, subprotocol: bool) -> Result<Socket, u16> {
     let mut request = format!("wss://{}{}", node.host(), tunnel::PATH)
         .into_client_request()
         .unwrap();
-    if subprotocol {
+    let headers = request.headers_mut();
+    if asks != Asks::WithoutSubprotocol {
         let value = tunnel::SUBPROTOCOL.parse().unwrap();
-        request
-            .headers_mut()
-            .insert("sec-websocket-protocol", value);
+        headers.insert("sec-websocket-protocol", value);
+    }
+    if asks == Asks::AsABrowser {
+        headers.insert("origin", "https://page.example".parse().unwrap());
     }
     let config = Some(tunnel::websocket_config());
     match tokio_tungstenite::client_async_with_config(request, stream, config).await {
@@ -438,12 +451,12 @@ async fn tunnels_hold_places_among_the_quic_connections_being_set_up() {
     })
     .await;
     let quic = node.quic.clone().unwrap();
-    let mut socket = tunnel(&node, true).await.unwrap();
+    let mut socket = tunnel(&node, Asks::AsANode).await.unwrap();
     assert_eq!(quic.open_tunnels(), 1);
     assert_eq!(quic.places().unwrap().setting_up, 1);
     // Past the client's share of connections being set up, though HTTPS
     // has room.
-    assert_eq!(tunnel(&node, true).await.err(), Some(503));
+    assert_eq!(tunnel(&node, Asks::AsANode).await.err(), Some(503));
     // The client holds its share of HTTPS connections beside its tunnel,
     // and no more.
     let mut first = held(node.https).await;
@@ -455,7 +468,10 @@ async fn tunnels_hold_places_among_the_quic_connections_being_set_up() {
     assert!(matches!(read, Ok(0) | Err(_)), "{read:?}");
     assert!(is_held(&mut first).await);
     drop(first);
-    assert_eq!(tunnel(&node, false).await.err(), Some(400));
+    assert_eq!(
+        tunnel(&node, Asks::WithoutSubprotocol).await.err(),
+        Some(400)
+    );
     // Within the time to connect, and the time to close it.
     let ending = async {
         while let Some(Ok(message)) = socket.next().await {
@@ -470,7 +486,24 @@ async fn tunnels_hold_places_among_the_quic_connections_being_set_up() {
     until_none_open(&quic).await;
     assert_eq!(quic.places().unwrap().setting_up, 0);
     drop(socket);
-    tunnel(&node, true).await.unwrap();
+    tunnel(&node, Asks::AsANode).await.unwrap();
+    node.stop().await;
+}
+
+// spec/decisions/quic-over-websocket.md: a browser sends an origin with
+// every WebSocket handshake, and a node never does. A request for a tunnel
+// that carries one is refused with 403, before it takes a place among the
+// QUIC connections being set up, so that no page can have its visitors
+// hold them.
+#[tokio::test]
+async fn a_browser_gets_no_tunnel() {
+    let node = TestNode::start_with(Policies::DEFAULT).await;
+    let quic = node.quic.clone().unwrap();
+    assert_eq!(tunnel(&node, Asks::AsABrowser).await.err(), Some(403));
+    assert_eq!(quic.open_tunnels(), 0);
+    assert_eq!(quic.places().unwrap().setting_up, 0);
+    let _socket = tunnel(&node, Asks::AsANode).await.unwrap();
+    assert_eq!(quic.places().unwrap().setting_up, 1);
     node.stop().await;
 }
 

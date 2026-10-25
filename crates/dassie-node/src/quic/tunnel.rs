@@ -18,8 +18,11 @@
 //! A tunnel holds the place of the connection it carries
 //! (spec/decisions/places-by-proved-key.md): once upgraded, one among the
 //! connections being set up, by its client address, until its connection
-//! has proved a key, which it must within the time to connect; then only
-//! its connection's, in its class. It has no places of its own.
+//! has proved a key, which it must within the time to connect, having
+//! carried a first packet within [`FIRST_PACKET_TIMEOUT`]; then only its
+//! connection's, in its class. It has no places of its own. Only a node's
+//! client takes a tunnel: a browser's request, which carries an origin, is
+//! refused, so that no page can have its visitors hold those places.
 //!
 //! The outer TLS is not checked: the QUIC handshake inside pins the node
 //! key, so whoever holds the outer TLS sees only QUIC's ciphertext, and a
@@ -54,8 +57,9 @@ use tokio::sync::mpsc;
 use tokio_tungstenite::WebSocketStream;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
+use tokio_tungstenite::tungstenite::handshake::client::Request;
 use tokio_tungstenite::tungstenite::http::HeaderValue;
-use tokio_tungstenite::tungstenite::http::header::SEC_WEBSOCKET_PROTOCOL;
+use tokio_tungstenite::tungstenite::http::header::{ORIGIN, SEC_WEBSOCKET_PROTOCOL};
 use tokio_tungstenite::tungstenite::protocol::WebSocketConfig;
 use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
@@ -105,8 +109,18 @@ const CLOSE_LINGER: Duration = Duration::from_millis(100);
 /// Time to send what is queued and close the WebSocket, at a tunnel's end.
 const CLOSE_TIMEOUT: Duration = Duration::from_secs(1);
 
+/// Time a tunnel taken has, from its upgrade, to carry its first packet;
+/// one that carries none by then ends, rather than at the time to connect.
+/// A node's client sends the first packet of its handshake as soon as the
+/// upgrade completes, so this is a round trip on a slow link, with room to
+/// spare: only a client that sends nothing holds its place among the
+/// connections being set up for this long, rather than for
+/// [`CONNECT_TIMEOUT`].
+pub const FIRST_PACKET_TIMEOUT: Duration = Duration::from_secs(2);
+
 const _: () = assert!(MAX_DIALLED < u16::MAX as usize);
 const _: () = assert!(DATAGRAM_BYTES as usize + 8 == 16 * 1024);
+const _: () = assert!(FIRST_PACKET_TIMEOUT.as_millis() < CONNECT_TIMEOUT.as_millis());
 
 /// The WebSocket's settings for a tunnel, either side: no message larger
 /// than a packet.
@@ -293,23 +307,14 @@ impl Tunnels {
             .connect(name, tcp)
             .await
             .map_err(|e| e.to_string())?;
-        let authority = if host.contains(':') {
-            format!("[{host}]:{port}")
-        } else {
-            format!("{host}:{port}")
-        };
-        let mut request = format!("wss://{authority}{PATH}")
-            .into_client_request()
-            .map_err(|e| e.to_string())?;
-        request.headers_mut().insert(
-            SEC_WEBSOCKET_PROTOCOL,
-            HeaderValue::from_static(SUBPROTOCOL),
-        );
         // A node of an earlier release answers 404, a failed dial.
-        let (ws, _) =
-            tokio_tungstenite::client_async_with_config(request, tls, Some(websocket_config()))
-                .await
-                .map_err(|e| e.to_string())?;
+        let (ws, _) = tokio_tungstenite::client_async_with_config(
+            handshake(host, port)?,
+            tls,
+            Some(websocket_config()),
+        )
+        .await
+        .map_err(|e| e.to_string())?;
         self.connect_over(ws, address.ip(), host, config).await
     }
 
@@ -367,6 +372,27 @@ impl Tunnels {
     }
 }
 
+/// The request that opens a tunnel to `host` and `port`: with the tunnel's
+/// subprotocol, and without an origin, which only a browser sends and a
+/// node refuses ([`PATH`]).
+fn handshake(host: &str, port: u16) -> Result<Request, String> {
+    let authority = if host.contains(':') {
+        format!("[{host}]:{port}")
+    } else {
+        format!("{host}:{port}")
+    };
+    let mut request = format!("wss://{authority}{PATH}")
+        .into_client_request()
+        .map_err(|e| e.to_string())?;
+    let headers = request.headers_mut();
+    headers.insert(
+        SEC_WEBSOCKET_PROTOCOL,
+        HeaderValue::from_static(SUBPROTOCOL),
+    );
+    assert!(!headers.contains_key(ORIGIN));
+    Ok(request)
+}
+
 /// Holds `connection`, over a tunnel, with it: closes it at once when the
 /// tunnel ends, and once it closes, lets the tunnel end.
 async fn tie(connection: Connection, inside: Inside) {
@@ -422,8 +448,9 @@ pub(super) async fn tunnel_ended(inside: Option<&Inside>) {
 /// Carries packets between `ws` and the socket, where the tunnel `id` is at
 /// `address` with `queue`, until the WebSocket ends or breaks, the
 /// connection inside is done, none proved a key on it `within` (when
-/// given), the socket drops it, or `stop`. Then sends what is queued, and
-/// closes the WebSocket.
+/// given; nor any packet came within [`FIRST_PACKET_TIMEOUT`]), the socket
+/// drops it, or `stop`. Then sends what is queued, and closes the
+/// WebSocket.
 async fn carry<S>(
     socket: Arc<TunnelSocket>,
     ws: WebSocketStream<S>,
@@ -437,10 +464,12 @@ async fn carry<S>(
     let (mut sink, mut stream) = ws.split();
     {
         let received = socket.receive.clone();
+        let carried_one = CancellationToken::new();
         let reading = async {
             while let Some(Ok(message)) = stream.next().await {
                 match message {
                     Message::Binary(packet) => {
+                        carried_one.cancel();
                         let packet = Received {
                             from: address,
                             packet,
@@ -471,8 +500,13 @@ async fn carry<S>(
         };
         let unsettled = async {
             if let Some(within) = within {
+                let deadline = tokio::time::Instant::now() + within;
                 tokio::select! {
-                    () = tokio::time::sleep(within) => return,
+                    () = tokio::time::sleep(FIRST_PACKET_TIMEOUT.min(within)) => return,
+                    () = carried_one.cancelled() => {}
+                }
+                tokio::select! {
+                    () = tokio::time::sleep_until(deadline) => return,
                     () = ends.settled.cancelled() => {}
                 }
             }
@@ -895,6 +929,21 @@ mod tests {
 
     fn at(port: u16) -> SocketAddrV6 {
         v6(SocketAddr::from((Ipv4Addr::LOCALHOST, port)))
+    }
+
+    // A node's request for a tunnel asks for its subprotocol, and carries no
+    // origin, with which a node refuses it as a browser's.
+    #[test]
+    fn a_nodes_handshake_carries_no_origin() {
+        for (host, port) in [("a.example", 443), ("2001:db8::1", 8443)] {
+            let request = handshake(host, port).unwrap();
+            assert_eq!(request.uri().path(), PATH);
+            assert!(!request.headers().contains_key(ORIGIN));
+            assert_eq!(
+                request.headers().get(SEC_WEBSOCKET_PROTOCOL).unwrap(),
+                SUBPROTOCOL
+            );
+        }
     }
 
     // A packet for a tunnel whose queue is full is dropped, as UDP drops

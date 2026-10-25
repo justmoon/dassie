@@ -357,7 +357,8 @@ async fn route_https(
 /// leaves this listener's places at the upgrade, and the tunnel holds the
 /// place of the QUIC connection it carries instead: first one among those
 /// being set up, by the client's address, taken here
-/// (spec/decisions/quic-over-websocket.md).
+/// (spec/decisions/quic-over-websocket.md). A browser's request, which
+/// carries an origin, is refused with 403.
 fn quic_tunnel(
     context: &Context,
     peer: SocketAddr,
@@ -367,6 +368,12 @@ fn quic_tunnel(
         return ws::not_a_handshake();
     };
     let headers = request.headers();
+    // A browser sends an origin with every WebSocket handshake, and the
+    // node's own client never does. Any page could otherwise have each of
+    // its visitors hold a place among the QUIC connections being set up.
+    if headers.contains_key(header::ORIGIN) {
+        return response::text(StatusCode::FORBIDDEN, "Tunnels are not for browsers");
+    }
     if !response::header_has_token(
         headers,
         &header::SEC_WEBSOCKET_PROTOCOL,

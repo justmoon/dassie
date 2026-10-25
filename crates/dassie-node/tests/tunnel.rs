@@ -6,15 +6,18 @@
 //! `NO_ROOM` reaches it; the tunnel and its connection end together; and a
 //! node that does not serve tunnels is a failed dial. A tunnel holds the
 //! place of the connection it carries: one among those being set up, until
-//! its connection proves a key within the time to connect, and then its
-//! connection's, in its class. So a stranger's tunnels count against
-//! anyone else's places, and downlinks behind one address are bounded as
-//! over UDP. The HTTPS listener's side of the bounds is in `limits.rs`.
+//! its connection proves a key within the time to connect, having carried
+//! a first packet sooner, and then its connection's, in its class. So a
+//! stranger's tunnels count against anyone else's places, and downlinks
+//! behind one address are bounded as over UDP. The HTTPS listener's side
+//! of the bounds is in `limits.rs`.
 //!
 //! The uplink's URL names a port whose UDP socket drops everything, as a
 //! filter would, while its QUIC endpoint listens elsewhere, and a TLS
 //! listener with a self-signed certificate on the URL's port hands the
-//! WebSockets at `/quic` to it, as a node's HTTPS listener does.
+//! WebSockets at `/quic` to it, as a node's HTTPS listener does, refusing
+//! a request with an origin as that listener does: so every dial here shows
+//! that a node's client sends none.
 
 #![allow(
     clippy::unwrap_used,
@@ -44,13 +47,14 @@ use dassie_node_core::connections::ConnectionLimits;
 use dassie_node_core::rate_limit::ClientKey;
 use dassie_peer::wire::Kind;
 use dassie_peer::{Failure, Request as PeerRequest, RequestId};
-use futures_util::StreamExt;
+use futures_util::{SinkExt, StreamExt};
 use rustls::pki_types::{CertificateDer, PrivatePkcs8KeyDer};
 use tokio::io::{AsyncReadExt, AsyncWriteExt, DuplexStream};
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
 use tokio::time::Instant;
 use tokio_tungstenite::WebSocketStream;
+use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::tungstenite::handshake::server::{ErrorResponse, Request, Response};
 use tokio_tungstenite::tungstenite::http::{HeaderValue, StatusCode};
 use tokio_tungstenite::tungstenite::protocol::Role;
@@ -231,7 +235,8 @@ fn uplink_with(seed: u8, udp: Udp, handler: Echo, shutdown: &CancellationToken) 
 
 /// Serves TLS with a self-signed certificate on `tcp`, and hands each
 /// WebSocket at `/quic` with the tunnel's subprotocol to `quic`; with no
-/// `quic`, answers 404, as a node of an earlier release does.
+/// `quic`, answers 404, as a node of an earlier release does. A request
+/// with an origin gets 403, as from a node's listener.
 fn listen(tcp: TcpListener, quic: Option<Arc<Quic>>, accepted: Arc<AtomicUsize>) {
     tcp.set_nonblocking(true).unwrap();
     let tcp = tokio::net::TcpListener::from_std(tcp).unwrap();
@@ -249,6 +254,13 @@ fn listen(tcp: TcpListener, quic: Option<Arc<Quic>>, accepted: Arc<AtomicUsize>)
                     if !serves || request.uri().path() != tunnel::PATH {
                         let mut refused = ErrorResponse::new(None);
                         *refused.status_mut() = StatusCode::NOT_FOUND;
+                        return Err(refused);
+                    }
+                    // As a node's listener refuses a browser's: so every
+                    // dial here shows that a node's client sends none.
+                    if request.headers().contains_key("origin") {
+                        let mut refused = ErrorResponse::new(None);
+                        *refused.status_mut() = StatusCode::FORBIDDEN;
                         return Err(refused);
                     }
                     response.headers_mut().insert(
@@ -555,7 +567,8 @@ async fn raw_tunnel(quic: &Quic, peer: SocketAddr) -> WebSocketStream<DuplexStre
 
 // A tunnel holds a place among the connections being set up from its
 // upgrade, and ends, giving it back, unless its connection proved a key
-// within the time to connect: here none ever arrives on it.
+// within the time to connect: here none ever arrives on it, though it
+// carries a packet, which the endpoint drops.
 #[tokio::test]
 async fn a_tunnel_without_a_connection_ends_after_the_time_to_connect() {
     let shutdown = CancellationToken::new();
@@ -565,11 +578,34 @@ async fn a_tunnel_without_a_connection_ends_after_the_time_to_connect() {
     let mut ws = raw_tunnel(quic, "127.0.0.1:40000".parse().unwrap()).await;
     assert_eq!(quic.open_tunnels(), 1);
     assert_eq!(quic.places().unwrap().setting_up, 1);
+    ws.send(Message::binary(vec![0; 64])).await.unwrap();
     let ended = async { while let Some(Ok(_)) = ws.next().await {} };
     tokio::time::timeout(Duration::from_secs(8), ended)
         .await
         .expect("a tunnel without a connection stayed open");
     assert!(started.elapsed() >= Duration::from_millis(4_500));
+    until(Duration::from_secs(1), || quic.open_tunnels() == 0).await;
+    assert_eq!(quic.places().unwrap().setting_up, 0);
+    shutdown.cancel();
+}
+
+// A tunnel that carries no packet at all ends, giving its place back,
+// after a round trip's bound, well within the time to connect: a node's
+// client sends its first packet as soon as its upgrade completes.
+#[tokio::test]
+async fn a_tunnel_that_carries_no_packet_ends_sooner() {
+    let shutdown = CancellationToken::new();
+    let uplink = core(1, &shutdown);
+    let quic = &uplink.quic;
+    let started = Instant::now();
+    let mut ws = raw_tunnel(quic, "127.0.0.1:40000".parse().unwrap()).await;
+    assert_eq!(quic.places().unwrap().setting_up, 1);
+    let ended = async { while let Some(Ok(_)) = ws.next().await {} };
+    tokio::time::timeout(Duration::from_secs(4), ended)
+        .await
+        .expect("a tunnel without a packet stayed open");
+    let elapsed = started.elapsed();
+    assert!(elapsed >= tunnel::FIRST_PACKET_TIMEOUT - Duration::from_millis(100));
     until(Duration::from_secs(1), || quic.open_tunnels() == 0).await;
     assert_eq!(quic.places().unwrap().setting_up, 0);
     shutdown.cancel();
