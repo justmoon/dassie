@@ -122,6 +122,13 @@ The guarantees hold for an unsealing that reaches every honest registrar within 
 
 A test asserts that its fixed seeds between them draw every kind of registrar, and reach names held, names contested and released, with every registrar honest too, names the adversary tried to take, names the registrar cut off kept, views frozen while they held names, and restarts of nodes that held names.
 
+**What it does not cover,** and where that is tested instead:
+
+- **A tip-off at commitment time.** The adversary learns names only from unsealings, never guesses one from who commits ([the design](../designs/names.md#6-why-it-holds)). A guesser who wins at one honest registrar only splits the vote, as two registrants committing at once do, which the simulation draws; `crates/dassie-peer/tests/names_holders.rs` releases a split of two to two, and has a faulty registrar fail to give a name two holders after one.
+- **More than one adversary.** There is one faulty registrar, the most four tolerate, and one front-runner; several front-runners are tested nowhere, since the design's argument holds for each alone: its commitment is later than the honest one at every honest registrar.
+- **Other than four registrars.** The quorum for each n is a unit test in `crates/dassie-peer/src/names/holders.rs`; `names_holders.rs` takes holders from five registrars with one faulty, and `names_registrant.rs` registers and renews with two.
+- **Expiry and renewal.** At the production timings a name lives a year, so none expires or is renewed in a run. The registrar's unit tests and `names_registrar.rs` let names expire, renew them by their holder alone, in the grace period too, and free them; `names_registrant.rs` has a node renew its name by itself, at a registrar cut off past the name's expiry in its grace period too.
+
 ### Outcomes
 
 A run ends as `pass`, `safety` (something that must never happen did: an assertion, an invariant or a check of what the run did), `liveness` (something that must happen did not, once the network was calm), or `unsupported` (the run drew a situation no code could recover from, such as a majority of bootstrap nodes cut off, or a link that crashes drifted past what it survives; it neither passes nor fails) (`dassie_node_core::testing::Outcome`). Each of the node simulation's checks says which of the two failures it found. A run that broke both says safety: one that did not settle down is first checked for what must not happen even with money in flight, and one that did runs every check and reports a safety failure before any liveness failure.

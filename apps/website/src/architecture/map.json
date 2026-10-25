@@ -335,7 +335,7 @@
         "`dassie hub`: shows the node's account in its settlement hub, moves the owner's funds between it and the node's XRP Ledger account, turns the node's own moves on or off, and gives up a move the hub has not shown for long; `dassie hub found` founds a hub with validators the owner picks, and `dassie hub payout` shows the payout bundles kept and, once a quorum signed one set, its transactions to submit",
         "`dassie update`: fetches, verifies and switches to a newer release, and goes back if it does not start",
         "`dassie verify-install`, which also names the release key",
-        "`dassie front-door`: runs a front door, which is no node, and `--make-key` makes its key and prints the entry a node names it by",
+        "`dassie front-door`: runs a front door, which is no node, and serves names by reading the bootstrap nodes' name lists itself (`DASSIE_BOOTSTRAP_NODES`); `--make-key` makes its key and prints the entry a node names it by",
         "`dassie market-maker`: watches the signed rate feeds of one or more core nodes and, with two nodes of its own that each keep an uplink to every one of them, pays through the core node whose rates leave the widest margin against an AMM pool on the XRP Ledger, after a quote confirms it; then swaps its funds back through the pool with a `SendMax` that bounds the price"
       ]
     },

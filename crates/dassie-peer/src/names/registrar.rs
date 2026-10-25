@@ -366,12 +366,20 @@ pub struct Registrar {
     /// the other registrars' fresh lists, as last checked. Not persisted:
     /// after a restart, the wait starts again.
     splits: BTreeMap<Name, u64>,
+    /// The most commitments the log may hold: the bound, or more while what
+    /// was restored beyond it is still there ([`Self::restore`]). Only
+    /// falls, to the bound.
+    log_ceiling: usize,
+    /// The most names with commitments in the log, likewise.
+    names_ceiling: usize,
 }
 
 impl Registrar {
-    /// A registrar from what it persisted, at `now_ms`. What is beyond the
-    /// bounds is left out: the earliest commitments and the names first
-    /// are kept.
+    /// A registrar from what it persisted, at `now_ms`. Every commitment
+    /// and every name is kept, even beyond bounds lowered since they were
+    /// logged, since each commitment was receipted: the bounds then refuse
+    /// new commitments until there is room again. What is kept is bounded
+    /// still, by the bounds it was logged under.
     #[must_use]
     pub fn restore(
         config: RegistrarConfig,
@@ -398,21 +406,19 @@ impl Registrar {
             names_dirty: BTreeSet::new(),
             names_removed: Vec::new(),
             splits: BTreeMap::new(),
+            log_ceiling: config.max_commitments,
+            names_ceiling: config.max_names,
         };
-        for granted in names.into_iter().take(config.max_names) {
+        for granted in names {
             registrar.names.insert(granted.name, granted);
         }
-        let room = config
-            .max_commitments
-            .min(config.max_names.saturating_sub(registrar.names.len()));
-        let mut log = log;
-        log.sort_unstable_by_key(|logged| logged.position);
-        for logged in log.into_iter().take(room) {
+        for logged in log {
             registrar
                 .positions
                 .insert(logged.commitment, logged.position);
             registrar.log.insert(logged.position, logged);
         }
+        registrar.lower_ceilings();
         // The head stays ahead of what was logged, so neither positions
         // nor times ever go back.
         if let Some(last) = registrar.log.values().next_back() {
@@ -715,7 +721,17 @@ impl Registrar {
         self.splits
             .retain(|name, _| names.get(name).is_some_and(|g| g.freed_ms.is_none()));
         self.processed_ms = self.processed_ms.max(now_ms);
+        self.lower_ceilings();
         self.recompute_due();
+    }
+
+    /// Lowers the ceilings to what is kept, but never below the bounds: a
+    /// restored log beyond them shrinks back to them as its windows close,
+    /// and the bounds refuse every new commitment meanwhile.
+    fn lower_ceilings(&mut self) {
+        let config = &self.config;
+        self.log_ceiling = self.log.len().max(config.max_commitments);
+        self.names_ceiling = (self.log.len() + self.names.len()).max(config.max_names);
     }
 
     /// When [`on_time`](Self::on_time) next has something to do.
@@ -817,7 +833,7 @@ impl Registrar {
         };
         self.names.insert(name, granted);
         assert!(
-            self.names.len() + self.log.len() <= self.config.max_names,
+            self.names.len() + self.log.len() <= self.names_ceiling,
             "a name granted takes its commitment's place"
         );
         self.names_removed.retain(|removed| *removed != name);
@@ -914,6 +930,9 @@ impl Registrar {
     }
 
     /// Checks the registrar's invariants (spec/decisions/tigerstyle.md).
+    /// The log and the names stay within their bounds, or, after a restore
+    /// of more than lowered bounds allow, within what was restored: nothing
+    /// new is taken in until they are back within the bounds.
     ///
     /// # Panics
     ///
@@ -921,9 +940,13 @@ impl Registrar {
     pub fn check_invariants(&self) {
         let config = &self.config;
         assert!(
-            self.log.len() <= config.max_commitments
-                && self.log.len() + self.names.len() <= config.max_names,
-            "the log and the names within bounds"
+            config.max_commitments <= self.log_ceiling && config.max_names <= self.names_ceiling,
+            "the ceilings never fall below the bounds"
+        );
+        assert!(
+            self.log.len() <= self.log_ceiling
+                && self.log.len() + self.names.len() <= self.names_ceiling,
+            "the log and the names within bounds, or within what was restored"
         );
         assert_eq!(
             self.log.len(),
@@ -1469,6 +1492,71 @@ mod tests {
         let more = Commitment::seal(&names[2], &node(4), &Salt([4; 32]));
         assert_eq!(
             registrar.commit(more, node(4), None, START + 2_000),
+            Err(CommitError::NamesFull)
+        );
+    }
+
+    // spec/areas/network.md#the-registrar: a restart under bounds lowered
+    // since loses no receipted commitment and no name; the bounds refuse
+    // new commitments instead, until there is room again.
+    #[test]
+    fn a_restore_beyond_the_bounds_loses_nothing() {
+        let wide = RegistrarConfig {
+            max_commitments: 4,
+            max_names: 6,
+            ..CONFIG
+        };
+        let mut registrar = Registrar::restore(wide, LogHead::default(), vec![], vec![], START);
+        let held = commit(&mut registrar, 1, &alice(), START);
+        unseal(&mut registrar, 1, &alice(), START + 1).unwrap();
+        run(&mut registrar, held.window_end_ms);
+        let names = ["bbb", "ccc", "ddd", "eee"].map(|text| Name::parse(text).unwrap());
+        let later = START + 2_000;
+        let receipts: Vec<NameReceipt> = (2..)
+            .zip(&names)
+            .map(|(seed, name)| commit(&mut registrar, seed, name, later))
+            .collect();
+        let (head, log) = (registrar.head(), registrar.logged().copied().collect());
+        let granted = registrar.granted().copied().collect();
+
+        let narrow = RegistrarConfig {
+            max_commitments: 2,
+            max_names: 3,
+            ..CONFIG
+        };
+        let mut registrar = Registrar::restore(narrow, head, log, granted, later + 1);
+        registrar.check_invariants();
+        assert_eq!(registrar.logged().count(), 4);
+        assert_eq!(registrar.granted().count(), 1);
+        for ((seed, name), receipt) in (2..).zip(&names).zip(&receipts) {
+            let commitment = Commitment::seal(name, &node(seed), &Salt([seed; 32]));
+            assert_eq!(registrar.receipt(&commitment), Some(*receipt));
+            assert_eq!(
+                registrar.commit(commitment, node(seed), None, later + 1),
+                Ok(Committed::Again(*receipt))
+            );
+        }
+        let new = Commitment::seal(&alice(), &node(9), &Salt([9; 32]));
+        assert_eq!(
+            registrar.commit(new, node(9), None, later + 1),
+            Err(CommitError::LogFull)
+        );
+        for (seed, name) in (2..).zip(&names) {
+            assert_eq!(
+                unseal(&mut registrar, seed, name, later + 2),
+                Ok(Unsealed::New { contends: true })
+            );
+        }
+        let closed = receipts[3].window_end_ms;
+        let happened = run(&mut registrar, closed);
+        assert_eq!(happened.len(), 4);
+        for (seed, name) in (2..).zip(&names) {
+            assert_eq!(holder(&mut registrar, name, closed), Some(node(seed)));
+        }
+        assert_eq!(holder(&mut registrar, &alice(), closed), Some(node(1)));
+        // Five names held, more than the three now allowed: still no room.
+        assert_eq!(
+            registrar.commit(new, node(9), None, closed),
             Err(CommitError::NamesFull)
         );
     }

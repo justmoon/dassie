@@ -39,6 +39,8 @@ pub const RESERVED: &[&str] = &[
     "api",
     "app",
     "auth",
+    "autoconfig",
+    "autodiscover",
     "blog",
     "bootstrap",
     "dassie",
@@ -62,6 +64,7 @@ pub const RESERVED: &[&str] = &[
     "localhost",
     "login",
     "mail",
+    "mta-sts",
     "node",
     "official",
     "open-payments",
@@ -83,6 +86,7 @@ pub const RESERVED: &[&str] = &[
     "update",
     "wallet",
     "webmaster",
+    "wpad",
     "www",
 ];
 
