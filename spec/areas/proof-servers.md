@@ -23,7 +23,7 @@ A proof server is relied on to answer, never trusted ([verified-ledgers](../deci
 - **In rippled's own style,** with its own unit tests, and offered upstream on rippled's `develop`. The servers run a release tag with the patches applied. Once upstream takes it, any rippled serves proofs, and owners and hub validators can name servers of their own.
 - **Public and charged as other public methods are.** Each request costs as much as rippled's account queries, and `state_proof` names a bounded number of keys. So a client that floods a server gets `slowDown`, as from any rippled.
 - **Its answers pin the node.** Answers of each method captured from the live servers are golden fixtures of the node's ([the design](../designs/xrpl-validation.md#13-what-pins-it)), and the fake ledger answers in the same shapes: a change to the patch's shapes fails the node's tests until the node and the fake change with it.
-- **Validations are rippled's:** what its consensus code holds anyway, for about ten minutes. Serving them keeps no more of them, and keeps none of them longer. An answer holds a bounded number, the server's trusted validations first: anyone can sign validations with keys nobody trusts, and those can then crowd out only each other.
+- **Validations are rippled's:** what its consensus code holds anyway, for about ten minutes. Serving them keeps no more of them, and keeps none of them longer. An answer holds the validations of the validators the server trusts, which are a node's own with the network's publishers. Others come only when a client asks for them (`untrusted`), and then a bounded number, the server's trusted validations first: anyone can sign validations with keys nobody trusts, and those can then crowd out only each other.
 
 ## The servers
 
