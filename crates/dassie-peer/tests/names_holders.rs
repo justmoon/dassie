@@ -79,14 +79,13 @@ fn register(network: &mut Network, registrant: &mut Registrant, count: usize, na
     unseal(network, registrant, &all, name);
 }
 
-/// The registrars that released `name`.
-fn released(network: &Network, name: &Name) -> BTreeSet<usize> {
+/// The registrars that released names: in these runs, only the one name
+/// each registers.
+fn released(network: &Network) -> BTreeSet<usize> {
     network
         .events
         .iter()
-        .filter(|(_, event)| {
-            matches!(event, Event::Name(NameEvent::Released { name: n, .. }) if n == name)
-        })
+        .filter(|(_, event)| matches!(event, Event::Name(NameEvent::Released { .. })))
         .map(|(index, _)| *index)
         .collect()
 }
@@ -197,10 +196,7 @@ fn a_view_without_a_quorum_of_fresh_lists_freezes() {
     assert_eq!(holder(&network, 4, &alice_name), None);
     assert!(network.events.contains(&(
         4,
-        Event::Name(NameEvent::Unheld {
-            name: alice_name,
-            holder: alice.id()
-        })
+        Event::Name(NameEvent::HoldersChanged { held: 0, unheld: 1 })
     )));
 }
 
@@ -230,7 +226,7 @@ fn a_faulty_registrar_of_four_cannot_give_a_name_two_holders() {
     assert!(seen.iter().all(|(_, held)| *held != Some(bob.id())));
     // Bob's side of the split is released, and so is Alice's, by the
     // registrars the faulty one shows Bob.
-    assert_eq!(released(&network, &alice_name), BTreeSet::from([0, 1, 2]));
+    assert_eq!(released(&network), BTreeSet::from([0, 1, 2]));
 }
 
 // The same with five registrars, one faulty, after an honest split of two
@@ -265,10 +261,7 @@ fn a_faulty_registrar_of_five_cannot_give_a_name_two_holders() {
     let ms = 2 * CONFIG.names.release_after_ms;
     let seen = run_watched(&mut network, ms, &honest, &alice_name);
     assert!(seen.iter().all(|(_, held)| held.is_none()), "{seen:?}");
-    assert_eq!(
-        released(&network, &alice_name),
-        BTreeSet::from([0, 1, 2, 3])
-    );
+    assert_eq!(released(&network), BTreeSet::from([0, 1, 2, 3]));
 }
 
 // spec/areas/network.md#releasing-a-split: two registrants that commit at
@@ -289,12 +282,9 @@ fn a_split_of_two_to_two_is_released_at_all_four() {
     let early = CONFIG.names.release_after_ms - 2_000;
     let seen = run_watched(&mut network, early, &[0, 1, 2, 3, 4], &alice_name);
     assert!(seen.iter().all(|(_, held)| held.is_none()), "{seen:?}");
-    assert!(released(&network, &alice_name).is_empty(), "not yet");
+    assert!(released(&network).is_empty(), "not yet");
     settle(&mut network, 10_000);
-    assert_eq!(
-        released(&network, &alice_name),
-        BTreeSet::from([0, 1, 2, 3])
-    );
+    assert_eq!(released(&network), BTreeSet::from([0, 1, 2, 3]));
     let mut carol = Registrant::new(73);
     register(&mut network, &mut carol, 4, &alice_name);
     windows(&mut network);
@@ -340,7 +330,7 @@ fn a_holder_with_a_quorum_is_never_released() {
         seen.iter().all(|(_, held)| *held == Some(alice.id())),
         "{seen:?}"
     );
-    assert!(released(&network, &alice_name).is_empty());
+    assert!(released(&network).is_empty());
 }
 
 // Lists that are merely late release nothing: two registrars log Alice's
@@ -358,7 +348,7 @@ fn late_lists_release_nothing() {
     unseal(&mut network, &mut alice, &[0, 1, 2, 3], &alice_name);
     let ms = 2 * CONFIG.names.window_ms + CONFIG.names.release_after_ms;
     run_watched(&mut network, ms, &[0, 1, 2, 3, 4], &alice_name);
-    assert!(released(&network, &alice_name).is_empty());
+    assert!(released(&network).is_empty());
     for index in 0..5 {
         assert_eq!(
             holder(&network, index, &alice_name),
@@ -402,7 +392,7 @@ fn a_list_read_before_a_release_does_not_vote() {
     let honest = [0, 1, 2, 4, 5];
     let ms = CONFIG.names.release_after_ms + 2 * CONFIG.list_fresh_ms;
     run_watched(&mut network, ms, &honest, &alice_name);
-    assert_eq!(released(&network, &alice_name), BTreeSet::from([1, 2]));
+    assert_eq!(released(&network), BTreeSet::from([1, 2]));
     commit(&mut network, &mut carol, &[1, 2], &alice_name);
     unseal(&mut network, &mut carol, &[1, 2], &alice_name);
     let ms = CONFIG.names.window_ms + 10_000;

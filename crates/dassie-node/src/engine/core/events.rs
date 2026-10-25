@@ -487,8 +487,7 @@ const fn peer_node_severity(event: &dassie_peer::Event) -> Severity {
             NameEvent::Committed { .. }
             | NameEvent::Unsealed { .. }
             | NameEvent::RegistrarChanged { .. }
-            | NameEvent::Held { .. }
-            | NameEvent::Unheld { .. },
+            | NameEvent::HoldersChanged { .. },
         ) => Severity::Debug,
     }
 }

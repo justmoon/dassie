@@ -425,8 +425,10 @@ impl Config {
         // Only fresh lists vote for holders, and what a list shows was
         // current up to a hash poll's and a download's time before it was
         // fetched. An honest registrar lists a new holder for a name a
-        // window at least after it stopped listing the last, so no two
-        // fresh lists from it name different holders.
+        // window at least after it stopped listing the last, by its clock,
+        // so no two fresh lists from it name different holders while that
+        // clock never steps forward by more than the margin
+        // (spec/areas/network.md#holders).
         assert!(
             names.window_ms > self.list_fresh_ms + fetch_ms,
             "a registrar's fresh lists name one holder"

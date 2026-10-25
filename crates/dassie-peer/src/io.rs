@@ -415,28 +415,25 @@ pub enum NameEvent {
         /// Names freed.
         freed: usize,
     },
-    /// We released a name we listed: more than f of the other registrars'
-    /// fresh lists lacked its holder for long enough. It is free.
+    /// We released names we listed: more than f of the other registrars'
+    /// fresh lists lacked their holders for long enough. They are free.
+    /// One event for each check that released any, however many it did:
+    /// what we list is [`PeerNode::registrar`](crate::PeerNode::registrar)'s.
     Released {
-        /// The name.
-        name: Name,
-        /// Its holder until now.
-        holder: NodeId,
+        /// How many names it released.
+        names: usize,
     },
-    /// In our view, a name has this holder now: a quorum of the registrars'
-    /// lists name it.
-    Held {
-        /// The name.
-        name: Name,
-        /// Its holder.
-        holder: NodeId,
-    },
-    /// In our view, a name has no holder any more.
-    Unheld {
-        /// The name.
-        name: Name,
-        /// Its holder until now.
-        holder: NodeId,
+    /// In our view, names changed holders: a quorum of the registrars'
+    /// lists name a holder for `held` names that had none or another, and
+    /// none any more for `unheld` names. One event for each taking of the
+    /// view that changed a holder, however many it changed, so that names
+    /// never crowd other events out of the bounded queue: the view is
+    /// [`PeerNode::holders`](crate::PeerNode::holders).
+    HoldersChanged {
+        /// Names that have a new holder.
+        held: usize,
+        /// Names that have none any more.
+        unheld: usize,
     },
 }
 

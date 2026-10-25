@@ -286,24 +286,29 @@ impl PeerNode {
     }
 
     /// Takes the holders again, and, at a registrar, releases the names the
-    /// other registrars' lists show split.
+    /// other registrars' lists show split. However many names change, it
+    /// reports at most two events, one for the view and one for the
+    /// releases: the queue is bounded and drops its oldest, and the peer
+    /// events queued before this in the same tick must reach the driver.
     fn update_holders(&mut self) {
         let mut changes = Vec::new();
         self.holders.recompute(self.now_ms, &mut changes);
-        for change in changes {
-            let event = match change {
-                HolderChange::Held { name, holder } => NameEvent::Held { name, holder },
-                HolderChange::Unheld { name, holder } => NameEvent::Unheld { name, holder },
-            };
-            self.event(Event::Name(event));
+        if !changes.is_empty() {
+            let unheld = changes
+                .iter()
+                .filter(|change| matches!(change, HolderChange::Unheld { .. }))
+                .count();
+            let held = changes.len() - unheld;
+            self.event(Event::Name(NameEvent::HoldersChanged { held, unheld }));
         }
         self.release_splits();
     }
 
     /// Releases the names we list that more than f of the other registrars'
     /// fresh lists have lacked the holder of for long enough
-    /// (spec/areas/network.md#releasing-a-split). A holder left with no part
-    /// here lets its replay state go, unless it is kept for another reason.
+    /// (spec/areas/network.md#releasing-a-split), reported together. A
+    /// holder left with no part here lets its replay state go, unless it is
+    /// kept for another reason.
     fn release_splits(&mut self) {
         let (own, now) = (self.own, self.now_ms);
         let holders = &self.holders;
@@ -313,15 +318,19 @@ impl PeerNode {
         let mut happened = Vec::new();
         let is_split = |name: &Name, holder: &NodeId| holders.is_split(&own, name, holder, now);
         registrar.release_splits(now, is_split, &mut happened);
+        let mut released = 0;
         for happening in happened {
-            let Happened::Released { name, holder } = happening else {
+            let Happened::Released { holder, .. } = happening else {
                 continue;
             };
+            released += 1;
             if !self.keeps_replay_state(&holder) {
                 self.auth.unpin(now, &holder);
             }
-            self.stats.names_released += 1;
-            self.event(Event::Name(NameEvent::Released { name, holder }));
+        }
+        if released > 0 {
+            self.stats.names_released += u64::try_from(released).unwrap_or(u64::MAX);
+            self.event(Event::Name(NameEvent::Released { names: released }));
         }
     }
 
@@ -395,6 +404,7 @@ mod tests {
     use crate::config::Rate;
     use crate::names::{Commitment, Name, Salt};
     use crate::sim::{Network, key};
+    use crate::wire::{MAX_NAME_LIST, NameHolding, NameListResponse};
     use crate::{Config, Event, NameEvent};
 
     /// More commitments than the event queue holds.
@@ -467,5 +477,66 @@ mod tests {
             stats.commitments_lapsed,
             u64::try_from(COMMITMENTS).unwrap()
         );
+    }
+
+    /// More names than the event queue holds.
+    const NAMES: usize = MAX_EVENTS + 76;
+    const _: () = assert!(NAMES <= MAX_NAME_LIST);
+
+    /// A list that names `holder` for each of [`NAMES`] names, or none.
+    fn list(holder: Option<NodeId>) -> NameListResponse {
+        let mut list = NameListResponse::default();
+        if let Some(holder) = holder {
+            for index in 0..NAMES {
+                let name = Name::parse(&format!("n{index:04}")).unwrap();
+                let holding = NameHolding {
+                    holder,
+                    expires_at_ms: u64::MAX,
+                };
+                list.0.insert(name, holding);
+            }
+        }
+        list
+    }
+
+    // A taking of the view that changes more names than the event queue
+    // holds reports one event, so a peer's event queued before it in the
+    // same tick still reaches the driver.
+    #[test]
+    fn a_view_changing_every_name_queues_one_event() {
+        let mut network = Network::new(31, 5, 4, Config::DEV);
+        network.run_until(network.now + 30_000);
+        let registrars: Vec<NodeId> = (0..4).map(|index| key(index).node_id()).collect();
+        let (holder, peer) = (key(1).node_id(), key(2).node_id());
+        for (shown, held, unheld) in [(Some(holder), NAMES, 0), (None, 0, NAMES)] {
+            let before = network.events.len();
+            // The step's events all reach the driver, which polls them
+            // after it.
+            network.act(4, |node, now| {
+                node.event(Event::PeeringEnded { peer });
+                for (registrar, hash) in registrars.iter().zip(1u8..) {
+                    assert!(
+                        node.holders
+                            .take_list(registrar, list(shown), [hash; 32], now)
+                    );
+                }
+                node.update_holders();
+            });
+            let events: Vec<&Event> = network.events[before..]
+                .iter()
+                .map(|(index, event)| {
+                    assert_eq!(*index, 4);
+                    event
+                })
+                .collect();
+            assert_eq!(
+                events,
+                [
+                    &Event::PeeringEnded { peer },
+                    &Event::Name(NameEvent::HoldersChanged { held, unheld })
+                ]
+            );
+            assert_eq!(network.node(4).holders().held().count(), NAMES - unheld);
+        }
     }
 }

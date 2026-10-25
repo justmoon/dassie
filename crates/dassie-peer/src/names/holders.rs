@@ -15,7 +15,9 @@
 //!   a list stays fresh for less than a window (`Config::validate`), so
 //!   the lists two nodes vote with show such a registrar listing one holder
 //!   at most. A list read before a release would otherwise lend a faulty
-//!   registrar the honest one's vote for a holder it no longer lists.
+//!   registrar the honest one's vote for a holder it no longer lists. The
+//!   window is by the registrar's clock: this assumes it never steps
+//!   forward by more than the margin between a window and freshness.
 //! - **The view freezes** while fewer than a quorum of the lists are fresh:
 //!   it keeps the holders it had, as membership does, so registrars going
 //!   down, or a node cut off from them, do not take every name away.
@@ -118,7 +120,9 @@ pub struct Holders {
 impl Holders {
     /// A view of the lists of `registrars`, the configured ones, starting
     /// from `held`, the view persisted. Until a quorum of the lists are
-    /// fetched it is frozen, so a restart takes no name away.
+    /// fetched it is frozen, so a restart takes no name away. With no
+    /// registrars, no list can ever confirm what was persisted: the view is
+    /// empty, and what was persisted is removed.
     ///
     /// # Panics
     ///
@@ -135,18 +139,19 @@ impl Holders {
             .map(|id| (id, Fetched::default()))
             .collect();
         assert!(lists.len() <= MAX_REGISTRARS, "too many registrars");
-        let held = held
-            .into_iter()
-            .take(MAX_HOLDERS)
-            .map(|held| (held.name, held))
-            .collect();
+        let held = held.into_iter().take(MAX_HOLDERS);
+        let (held, removed) = if lists.is_empty() {
+            (BTreeMap::new(), held.map(|held| held.name).collect())
+        } else {
+            (held.map(|held| (held.name, held)).collect(), Vec::new())
+        };
         Self {
             config,
             frozen: !lists.is_empty(),
             lists,
             held,
             dirty: BTreeSet::new(),
-            removed: Vec::new(),
+            removed,
         }
     }
 
@@ -518,6 +523,30 @@ mod tests {
         view.recompute(START + 20_000, &mut changes);
         assert!(view.is_frozen());
         assert_eq!(holder(&view), Some(node(8)));
+    }
+
+    // With no registrars configured, nothing can confirm a view restored
+    // from disk: it is not taken, and is removed from disk.
+    #[test]
+    fn no_registrars_keep_no_restored_view() {
+        let restored = HeldName {
+            name: alice(),
+            holder: node(7),
+            expires_ms: START,
+        };
+        let mut view = Holders::new(CONFIG, [], vec![restored]);
+        view.check_invariants();
+        assert!(!view.is_frozen());
+        assert_eq!(holder(&view), None);
+        let mut changes = Vec::new();
+        view.recompute(START, &mut changes);
+        assert!(changes.is_empty() && view.held().next().is_none());
+        let (mut changed, mut removed) = (Vec::new(), Vec::new());
+        view.take_changes(&mut changed, &mut removed);
+        assert_eq!(
+            (changed.len(), removed.as_slice()),
+            (0, [alice()].as_slice())
+        );
     }
 
     // A list votes only while it is fresh: once one of the three that name

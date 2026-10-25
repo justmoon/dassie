@@ -155,14 +155,11 @@ fn peer_names(severity: Severity, event: &dassie_peer::NameEvent) {
         } => {
             emit!(severity, target: target::PEER, granted, lost, lapsed, freed, "windows closed and names freed at our registrar: names granted, unsealings that lost, commitments that lapsed, names freed");
         }
-        Event::Released { name, holder } => {
-            emit!(severity, target: target::PEER, %name, %holder, "released a name the other registrars' lists show split: it is free");
+        Event::Released { names } => {
+            emit!(severity, target: target::PEER, names, "released names the other registrars' lists show split: they are free");
         }
-        Event::Held { name, holder } => {
-            emit!(severity, target: target::PEER, %name, %holder, "a quorum of the registrars list a name's holder");
-        }
-        Event::Unheld { name, holder } => {
-            emit!(severity, target: target::PEER, %name, %holder, "a name has no holder any more");
+        Event::HoldersChanged { held, unheld } => {
+            emit!(severity, target: target::PEER, held, unheld, "names changed holders in our view of the registrars' lists");
         }
     }
 }
