@@ -2934,7 +2934,6 @@ pub fn client(credentials: &(String, String, [u8; 32]), ledger: LedgerId) -> Con
             code: asset.code,
             scale: asset.scale,
         }),
-        receipt: None,
         policy: Policy::DEFAULT,
     });
     connection.measure_exchange_rate();

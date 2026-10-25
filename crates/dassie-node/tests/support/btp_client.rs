@@ -285,7 +285,6 @@ async fn send(
             code: "USD",
             scale: 9,
         }),
-        receipt: None,
         policy: Policy::DEFAULT,
     });
     connection.measure_exchange_rate();

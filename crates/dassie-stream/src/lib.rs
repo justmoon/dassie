@@ -29,7 +29,6 @@ pub mod frame;
 pub mod packet;
 mod policy;
 mod rate;
-pub mod receipt;
 mod server;
 #[cfg(feature = "sim")]
 pub mod sim;

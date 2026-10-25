@@ -7,7 +7,6 @@ use dassie_ilp::Address;
 use dassie_oer::{Size, Writer, size};
 use dassie_stream::crypto::{Cipher, OVERHEAD};
 use dassie_stream::packet::{self, PacketType};
-use dassie_stream::receipt::RECEIPT_LENGTH;
 use dassie_stream::token::TOKEN_NONCE_LENGTH;
 use dassie_stream::{ErrorCode, Frame};
 use proptest::prelude::*;
@@ -28,6 +27,9 @@ fn stream_id() -> impl Strategy<Value = u64> {
 fn text() -> impl Strategy<Value = String> {
     prop_oneof!["[A-Z]{0,4}", any::<String>()]
 }
+
+/// The length of an RFC 39 receipt.
+const RECEIPT_LENGTH: usize = 58;
 
 /// Bytes, sometimes as long as a receipt.
 fn bytes() -> impl Strategy<Value = Vec<u8>> {
@@ -234,9 +236,9 @@ impl Payload {
     }
 }
 
-/// The plaintext of a server token: nonce, tag, receipt nonce and secret,
-/// with tags beyond the limit and receipt fields of any length, then
-/// damaged.
+/// The plaintext of a server token: nonce, tag and the two receipt fields,
+/// with tags beyond the limit and receipt fields of any length, which a
+/// server refuses unless empty, then damaged.
 pub fn token_plaintext() -> impl Strategy<Value = Vec<u8>> {
     let receipt = prop_oneof![
         Just((Vec::new(), Vec::new())),

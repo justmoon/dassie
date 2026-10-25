@@ -7,12 +7,11 @@ mod support;
 use dassie_node_core::testing::SeededRng;
 use dassie_oer::Writer;
 use dassie_stream::allocate::{Claim, ExceedsCapacity, allocate};
-use dassie_stream::crypto::{DecryptionFailure, Keys, OVERHEAD};
+use dassie_stream::crypto::{Cipher, DecryptionFailure, Keys, OVERHEAD};
 use dassie_stream::frame::Frame;
 use dassie_stream::packet::{Frames, Packet, PacketType};
-use dassie_stream::receipt::{self, ReceiptSecret};
-use dassie_stream::token::{MAX_TOKEN_LENGTH, ServerSecret, TokenContents};
-use support::hex;
+use dassie_stream::token::{MAX_TOKEN_LENGTH, ServerSecret, TOKEN_NONCE_LENGTH, TokenContents};
+use support::{arbitrary, hex};
 
 fn encode(packet: &Packet<'_>) -> Vec<u8> {
     let mut buffer = vec![0; packet.encoded_len()];
@@ -157,14 +156,9 @@ fn server_tokens_are_stateless_and_authenticated() {
     // carry their parameters encrypted under the server secret instead.
     let mut rng = SeededRng::new(1);
     let secret = ServerSecret::new([5; 32]);
-    let receipt = ReceiptSecret {
-        nonce: [1; 16],
-        secret: [2; 32],
-    };
     let mut token = [0u8; MAX_TOKEN_LENGTH];
     let contents = TokenContents {
         connection_tag: b"invoice-42",
-        receipt: Some(receipt),
     };
     let length = secret.issue_token(&mut rng, &contents, &mut token);
     let token = &token[..length];
@@ -185,19 +179,25 @@ fn server_tokens_are_stateless_and_authenticated() {
 }
 
 #[test]
-fn receipts_match_rfc_39_and_the_fixture_layout() {
-    let secret = ReceiptSecret {
-        nonce: [0; 16],
-        secret: [3; 32],
+fn tokens_keep_the_receipt_fields_empty() {
+    // Upstream's layout has two fields for RFC 39 receipt keys after the
+    // tag. Dassie issues no receipts: it writes them empty, and a token
+    // with keys in them is none it issued.
+    let mut rng = SeededRng::new(2);
+    let secret = ServerSecret::new([5; 32]);
+    let mut token = [0u8; MAX_TOKEN_LENGTH];
+    let contents = TokenContents {
+        connection_tag: b"invoice-42",
     };
-    let created = receipt::create(&secret, 1, 500);
-    // The fixture's receipt has the same layout: version, nonce, stream ID,
-    // amount 500, then the HMAC.
-    let fixture = hex(
-        "01000000000000000000000000000000000100000000000001f4c122fa0252debb672d591823f710e99516d67385cf397da87cc8f9e8c8bf5130",
-    );
-    assert_eq!(created[..26], fixture[..26]);
-    let verified = receipt::verify(&created, &secret.secret).unwrap();
-    assert_eq!((verified.stream_id, verified.total_received), (1, 500));
-    assert!(receipt::verify(&fixture, &secret.secret).is_err());
+    let length = secret.issue_token(&mut rng, &contents, &mut token);
+    let mut scratch = [0u8; MAX_TOKEN_LENGTH];
+    let cipher = Cipher::new(&[5; 32]);
+    let plaintext = cipher.decrypt(&token[..length], &mut scratch).unwrap();
+    assert_eq!(plaintext[TOKEN_NONCE_LENGTH..], *b"\x0ainvoice-42\x00\x00");
+
+    let mut with_keys = plaintext[..TOKEN_NONCE_LENGTH + 11].to_vec();
+    arbitrary::push_octets(&mut with_keys, &[1; 16]);
+    arbitrary::push_octets(&mut with_keys, &[2; 32]);
+    let sealed = arbitrary::seal(&cipher, &with_keys);
+    assert!(secret.open_token(&sealed, &mut scratch).is_err());
 }

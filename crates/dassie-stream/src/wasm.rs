@@ -22,7 +22,6 @@ use crate::frame::{ErrorCode, Frame};
 use crate::packet::Packet;
 use crate::policy::Policy;
 use crate::rate::Rate;
-use crate::receipt::ReceiptSecret;
 use crate::server::{ConnectionId, Server, ServerConfig};
 
 // The bindings are the edge where the browser supplies randomness.
@@ -300,7 +299,6 @@ impl StreamConnection {
                 code,
                 scale: asset_scale,
             }),
-            receipt: None,
             policy: Policy::DEFAULT,
         });
         Ok(Self {
@@ -365,15 +363,6 @@ impl StreamConnection {
         self.connection
             .stream(stream_id)
             .map_or(0, crate::Stream::total_received)
-    }
-
-    /// The latest receipt for a stream, if the receiver issues them.
-    #[must_use]
-    pub fn receipt(&self, stream_id: u64) -> Option<Vec<u8>> {
-        self.connection
-            .stream(stream_id)
-            .and_then(crate::Stream::last_receipt)
-            .map(|receipt| receipt.to_vec())
     }
 
     /// Sets the minimum exchange rate: `numerator` destination units per
@@ -546,33 +535,16 @@ impl StreamServer {
         })
     }
 
-    /// Issues credentials, with receipts if both the 16-byte nonce and the
-    /// 32-byte secret are given.
+    /// Issues credentials.
     #[wasm_bindgen(js_name = generateCredentials)]
     pub fn generate_credentials(
         &self,
         connection_tag: &[u8],
-        receipt_nonce: Option<Vec<u8>>,
-        receipt_secret: Option<Vec<u8>>,
     ) -> Result<StreamCredentials, JsError> {
-        let receipt = match (receipt_nonce, receipt_secret) {
-            (Some(nonce), Some(secret)) => Some(ReceiptSecret {
-                nonce: nonce
-                    .try_into()
-                    .map_err(|_| JsError::new("the nonce has 16 bytes"))?,
-                secret: secret
-                    .try_into()
-                    .map_err(|_| JsError::new("the secret has 32 bytes"))?,
-            }),
-            (None, None) => None,
-            _ => return Err(JsError::new("receipts need both nonce and secret")),
-        };
         if connection_tag.len() > crate::token::MAX_CONNECTION_TAG_LENGTH {
             return Err(JsError::new("connection tag too long"));
         }
-        let credentials = self
-            .server
-            .generate_credentials(&mut rng(), connection_tag, receipt);
+        let credentials = self.server.generate_credentials(&mut rng(), connection_tag);
         Ok(StreamCredentials {
             destination: credentials.destination,
             shared_secret: credentials.shared_secret.to_vec(),

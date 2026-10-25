@@ -103,10 +103,9 @@ impl Policy {
             self.max_remote_streams >= 1 && self.max_local_streams >= 1,
             "stream limits must allow a stream"
         );
-        // Every packet carries the limits of every open stream, and a
-        // response a receipt per stream: with at most 100 streams the
-        // largest packet stays within the 512 frames a packet may have and
-        // well within ILP's 32 KiB of data.
+        // Every packet carries the limits of every open stream: with at
+        // most 100 streams the largest packet stays within the 512 frames a
+        // packet may have and well within ILP's 32 KiB of data.
         assert!(
             self.max_remote_streams + self.max_local_streams <= MAX_STREAMS,
             "more streams than one packet can describe"

@@ -17,7 +17,6 @@ use dassie_oer::{Decode, Encode};
 use dassie_stream::base64url;
 use dassie_stream::crypto::{Cipher, Keys};
 use dassie_stream::packet::PacketType;
-use dassie_stream::receipt::ReceiptSecret;
 use dassie_stream::token::{MAX_TOKEN_LENGTH, ServerSecret};
 use dassie_stream::{
     AssetDetails, BUFFER_LENGTH, Config, Connection, Policy, Rate, Role, Server, ServerConfig,
@@ -200,10 +199,6 @@ fn server_connection() -> Connection {
             code: "USD",
             scale: 2,
         }),
-        receipt: Some(ReceiptSecret {
-            nonce: [4; 16],
-            secret: [5; 32],
-        }),
         policy: POLICY,
     })
 }
@@ -215,7 +210,6 @@ fn client_connection() -> Connection {
         local_address: Address::parse("test.client").ok(),
         remote_address: Address::parse("test.server.abc").ok(),
         local_asset: None,
-        receipt: None,
         policy: Policy {
             max_packet_amount: 400,
             ..POLICY

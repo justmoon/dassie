@@ -7,9 +7,8 @@ mod support;
 use dassie_oer::{Reader, Writer};
 use dassie_stream::allocate::{Claim, allocate};
 use dassie_stream::base64url;
-use dassie_stream::crypto::{Cipher, Keys, OVERHEAD, hmac_sha256};
+use dassie_stream::crypto::{Cipher, Keys, OVERHEAD};
 use dassie_stream::packet::{Frames, Packet, PacketType};
-use dassie_stream::receipt::{self, RECEIPT_VERSION};
 use dassie_stream::token::{MAX_CONNECTION_TAG_LENGTH, MAX_TOKEN_LENGTH, ServerSecret};
 use dassie_stream::{Frame, Rate};
 use proptest::prelude::*;
@@ -104,30 +103,6 @@ proptest! {
         let token = arbitrary::seal(&Cipher::new(&[1; 32]), &plaintext);
         if let Ok(contents) = secret.open_token(&token, &mut scratch) {
             prop_assert!(contents.connection_tag.len() <= MAX_CONNECTION_TAG_LENGTH);
-        }
-    }
-
-    #[test]
-    fn receipts_never_panic(
-        raw in prop::collection::vec(any::<u8>(), 0..80),
-        version in prop_oneof![Just(RECEIPT_VERSION), any::<u8>()],
-        fields: [u8; 25],
-        secret: [u8; 32],
-    ) {
-        prop_assert!(receipt::verify(&raw, &secret).is_err());
-        // Signed with the secret, any fields reach the decoding.
-        let mut signed = vec![version];
-        signed.extend_from_slice(&fields);
-        let mut input = signed.clone();
-        input.extend_from_slice(&hmac_sha256(&secret, &signed));
-        match receipt::verify(&input, &secret) {
-            Ok(receipt) => {
-                prop_assert_eq!(version, RECEIPT_VERSION);
-                prop_assert_eq!(&receipt.nonce[..], &fields[..16]);
-                prop_assert_eq!(receipt.stream_id, fields[16]);
-                prop_assert_eq!(&receipt.total_received.to_be_bytes()[..], &fields[17..]);
-            }
-            Err(_) => prop_assert_ne!(version, RECEIPT_VERSION),
         }
     }
 

@@ -148,16 +148,6 @@ pub const SERVER_ADDRESS: &str = "test.server";
 impl Simulation {
     /// A client with fresh credentials for the server, from `seed`.
     pub fn new(seed: u64, path: Path, policy: Policy) -> Self {
-        Self::with_receipts(seed, path, policy, None)
-    }
-
-    /// As [`new`](Self::new), with receipts by `receipt`.
-    pub fn with_receipts(
-        seed: u64,
-        path: Path,
-        policy: Policy,
-        receipt: Option<crate::receipt::ReceiptSecret>,
-    ) -> Self {
         let mut rng = SeededRng::new(seed);
         let mut secret = [0u8; 32];
         rand_core::Rng::fill_bytes(&mut rng, &mut secret);
@@ -171,7 +161,7 @@ impl Simulation {
             policy,
             max_connections: 4,
         });
-        let credentials = server.generate_credentials(&mut rng, b"payment-1", receipt);
+        let credentials = server.generate_credentials(&mut rng, b"payment-1");
         let client = Connection::new(&Config {
             role: Role::Client,
             shared_secret: &credentials.shared_secret,
@@ -181,7 +171,6 @@ impl Simulation {
                 code: "USD",
                 scale: 6,
             }),
-            receipt: None,
             policy,
         });
         Self {

@@ -7,6 +7,11 @@
 //! never accumulate. The original kept credentials in memory, never expiring
 //! and without tags (spec/original/04-interledger.md#114-server-serverts);
 //! this is the upstream scheme instead.
+//!
+//! The plaintext is a nonce, the connection tag and two octet strings that
+//! are always empty: upstream puts the keys of RFC 39 receipts there, which
+//! Dassie never issues. They keep one layout for every token a node has
+//! stored and handed out.
 
 use core::fmt;
 
@@ -14,7 +19,9 @@ use dassie_oer::{DecodeError, Reader, Size, Writer, size};
 use rand_core::CryptoRng;
 
 use crate::crypto::{Cipher, OVERHEAD, hmac_sha256};
-use crate::receipt::ReceiptSecret;
+
+/// The two receipt fields, empty.
+const EMPTY_RECEIPT_FIELDS: usize = 2 * size::prefixed(0);
 
 /// Random bytes that make each token unique.
 pub const TOKEN_NONCE_LENGTH: usize = 18;
@@ -24,8 +31,7 @@ pub const MAX_CONNECTION_TAG_LENGTH: usize = 128;
 pub const MAX_TOKEN_LENGTH: usize = OVERHEAD
     + TOKEN_NONCE_LENGTH
     + size::prefixed(MAX_CONNECTION_TAG_LENGTH)
-    + size::prefixed(16)
-    + size::prefixed(32);
+    + EMPTY_RECEIPT_FIELDS;
 
 const SHARED_SECRET_LABEL: &[u8] = b"ilp_stream_shared_secret";
 
@@ -42,8 +48,6 @@ pub struct TokenContents<'a> {
     /// An application label for the connection, for example the incoming
     /// payment it belongs to. At most [`MAX_CONNECTION_TAG_LENGTH`] octets.
     pub connection_tag: &'a [u8],
-    /// Receipt parameters, if the receiver should issue receipts.
-    pub receipt: Option<ReceiptSecret>,
 }
 
 /// The token was not issued by this server, or is malformed.
@@ -82,22 +86,17 @@ impl ServerSecret {
             contents.connection_tag.len() <= MAX_CONNECTION_TAG_LENGTH,
             "connection tag too long"
         );
-        let (nonce, secret): (&[u8], &[u8]) = match &contents.receipt {
-            Some(receipt) => (&receipt.nonce, &receipt.secret),
-            None => (&[], &[]),
-        };
         let plaintext_len = TOKEN_NONCE_LENGTH
             + size::prefixed(contents.connection_tag.len())
-            + size::prefixed(nonce.len())
-            + size::prefixed(secret.len());
+            + EMPTY_RECEIPT_FIELDS;
         let (_, body) = output.split_at_mut(OVERHEAD);
         let mut writer = Writer::new(body);
         let mut token_nonce = [0u8; TOKEN_NONCE_LENGTH];
         rng.fill_bytes(&mut token_nonce);
         writer.write_bytes(&token_nonce);
         writer.write_octets(contents.connection_tag, Size::ANY);
-        writer.write_octets(nonce, Size::ANY);
-        writer.write_octets(secret, Size::ANY);
+        writer.write_octets(&[], Size::ANY);
+        writer.write_octets(&[], Size::ANY);
         assert!(writer.position() == plaintext_len, "token length mismatch");
         self.cipher.encrypt(rng, plaintext_len, output)
     }
@@ -126,21 +125,11 @@ impl ServerSecret {
         let mut reader = Reader::new(plaintext);
         reader.read_bytes(TOKEN_NONCE_LENGTH)?;
         let connection_tag = reader.read_octets(Size::range(0, MAX_CONNECTION_TAG_LENGTH))?;
-        let nonce = reader.read_octets(Size::ANY)?;
-        let secret = reader.read_octets(Size::ANY)?;
+        // A token with receipt keys was not issued by Dassie.
+        reader.read_octets(Size::range(0, 0))?;
+        reader.read_octets(Size::range(0, 0))?;
         reader.finish()?;
-        let receipt = match (nonce.len(), secret.len()) {
-            (0, 0) => None,
-            (16, 32) => Some(ReceiptSecret {
-                nonce: nonce.try_into().map_err(|_| InvalidToken)?,
-                secret: secret.try_into().map_err(|_| InvalidToken)?,
-            }),
-            _ => return Err(InvalidToken),
-        };
-        Ok(TokenContents {
-            connection_tag,
-            receipt,
-        })
+        Ok(TokenContents { connection_tag })
     }
 }
 

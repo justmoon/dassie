@@ -13,7 +13,6 @@ import {
   createConnection,
   createServer,
   type DataAndMoneyStream,
-  verifyReceipt,
 } from "ilp-protocol-stream";
 
 import { encodeReject } from "@dassie/identity-wasm";
@@ -189,8 +188,15 @@ test(
         stream.on("money", (amount: string) => received += BigInt(amount));
       });
     });
-    const { destinationAccount, sharedSecret } = server
-      .generateAddressAndSecret();
+    // With receipts, so its replies carry StreamReceipt frames, which
+    // dassie-stream decodes and has no use for
+    // (spec/areas/stream.md#receipts).
+    const { destinationAccount, sharedSecret, receiptsEnabled } = server
+      .generateAddressAndSecret({
+        receiptNonce: Buffer.alloc(16, 5),
+        receiptSecret: Buffer.alloc(32, 6),
+      });
+    assert(receiptsEnabled);
 
     const peer = new Peer(binary, [
       "client",
@@ -219,13 +225,7 @@ test(
   async () => {
     const binary = await buildPeer();
     const network = new Network();
-    const receiptSecret = new Uint8Array(32).fill(4);
-    const peer = new Peer(binary, [
-      "server",
-      "test.native",
-      new Uint8Array(16).fill(5).toHex(),
-      receiptSecret.toHex(),
-    ]);
+    const peer = new Peer(binary, ["server", "test.native"]);
     network.register("test.native", (prepare) => peer.prepare(prepare));
     peer.onSend = (requestId, prepare) => {
       network.route(prepare).then((response) =>
@@ -245,8 +245,6 @@ test(
     const stream = connection.createStream();
     await stream.sendTotal(4321);
     await peer.waitForLine((line) => line === "received 0 1 4321");
-    const receipt = verifyReceipt(stream.receipt!, Buffer.from(receiptSecret));
-    assertEquals(receipt.totalReceived.toString(), "4321");
 
     await connection.end();
     await peer.waitForLine((line) => line.startsWith("closed 0 1 true"));

@@ -12,7 +12,6 @@ use crate::event::Event;
 use crate::frame::{ErrorCode, Frame};
 use crate::packet::{Packet, PacketType};
 use crate::rate::Rate;
-use crate::receipt::RECEIPT_LENGTH;
 
 /// How a rejection or loss affects sending.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -164,12 +163,7 @@ impl Connection {
             if let Frame::ConnectionClose { code, .. } = frame {
                 remote_close = Some(code);
             }
-            self.apply_reply_frame(
-                &frame,
-                expected == PacketType::Fulfill,
-                slot.sequence,
-                newest,
-            );
+            self.apply_reply_frame(&frame, slot.sequence, newest);
         }
         if let Some(code) = remote_close {
             self.finish_close(code, true);
@@ -177,27 +171,13 @@ impl Connection {
         Some(packet.prepare_amount)
     }
 
-    fn apply_reply_frame(
-        &mut self,
-        frame: &Frame<'_>,
-        fulfilled: bool,
-        sequence: u64,
-        newest: bool,
-    ) {
+    fn apply_reply_frame(&mut self, frame: &Frame<'_>, sequence: u64, newest: bool) {
         match *frame {
             Frame::StreamMaxMoney {
                 stream_id,
                 receive_max,
                 total_received,
             } => self.take_remote_maximum(stream_id, receive_max, total_received, sequence, newest),
-            Frame::StreamReceipt { stream_id, receipt } if fulfilled => {
-                if let (Some(stream), Ok(receipt)) = (
-                    self.stream_mut(stream_id),
-                    <[u8; RECEIPT_LENGTH]>::try_from(receipt),
-                ) {
-                    stream.last_receipt = Some(receipt);
-                }
-            }
             Frame::StreamMaxData { stream_id, .. }
                 // Replies update limits of known streams but never open one.
                 if self.stream(stream_id).is_some() =>
@@ -210,6 +190,8 @@ impl Connection {
             | Frame::ConnectionAssetDetails { .. } => {
                 let _ = self.apply_control_frame(frame);
             }
+            // StreamReceipt among them: the receipts of RFC 39, deprecated,
+            // which Dassie decodes but has no use for.
             _ => {}
         }
     }
