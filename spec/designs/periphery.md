@@ -41,7 +41,7 @@ Every peer link, core or periphery, runs over QUIC. Peer traffic is heavy: a bus
 - **Keys, not certificates.** The TLS 1.3 handshake inside QUIC uses a self-signed certificate for each side's Ed25519 node key, and each side checks that key against the node ID it expects. No certificate authority is involved, and no hostname has to match. The ALPN is `dassie/1`. A client that is not a node (an owner's app, a front door) presents a key of its own (§6, §7).
 - **One connection per pair of nodes.** When two core nodes dial each other at once, the connection the lower node ID opened stays, as crossed peering requests resolve ([Network](../areas/network.md#asking-and-answering)).
 - **Liveness.** Heartbeats ([Network](../areas/network.md#advertised-peers)) also keep the NAT's mapping open. A periphery node that loses its connection dials again, backing off from 1 s to 60 s.
-- **Where UDP is blocked,** a periphery node falls back to TLS over TCP on port 443, with each stream framed by length, or to WebSocket. A browser node (§9) uses WebTransport, which can trust a self-signed certificate by its hash (`serverCertificateHashes`), or WebSocket.
+- **Where UDP is blocked,** a periphery node carries the same QUIC packets over a WebSocket at `/quic` on the core node's HTTPS listener, one packet per binary message, so the connection inside, its streams and its places are QUIC's as over UDP ([quic-over-websocket](../decisions/quic-over-websocket.md)). Every core node serves it at its URL's host and port. A periphery node dials over UDP first, and the tunnel too once the handshake has not completed within a head start; the first connection to prove the key is kept. It does not check the outer certificate, since QUIC inside pins the node key, so a proxy that intercepts TLS does not stop it.
 - **Link-state URLs** keep their syntax, `https://host[:port]` ([Peer protocol](../areas/peer-protocol.md#link-states)). The host and port then name the QUIC endpoint, on UDP, 443 by default. A link-state extension says that a node speaks QUIC, as every node does ([quic-only](../decisions/quic-only.md)).
 
 ## 3. Periphery nodes
@@ -173,12 +173,12 @@ The first rule narrows a condition for real money, "an account's creation is a d
 A browser node is a short-lived periphery node, for demos: it lets someone join the network for a while before they install anything.
 
 - It runs the node's core compiled to WebAssembly, as `identity-wasm` runs `dassie-identity`, with its state in the page's storage.
-- It connects to one uplink over WebTransport or WebSocket (§2), as a free receiver (§8).
+- It connects to one uplink by QUIC over a WebSocket (§2), with quinn's protocol state machine compiled to WebAssembly, as a free receiver (§8). The browser checks the outer certificate, so its uplink needs a publicly issued one.
 - It is reachable for as long as the page is open. A demo can pay it from another node, and it can send back through its uplink.
 
 ## 10. How it fits the node
 
-- **`dassie-node`** gains the TCP and WebSocket fallbacks; its QUIC endpoint, relayed streams, signed Open Payments answers and front doors are built.
+- **`dassie-node`** gains QUIC over a WebSocket; its QUIC endpoint, relayed streams, signed Open Payments answers and front doors are built.
 - **`dassie-peer`** gains the downlink table, the `periphery` extension, records, home nodes and lookups, and the transport's link-state extension.
 - **`dassie-connector`** routes beneath a downlink's child address, and a periphery node's STREAM receiver takes its child addresses.
 - **The XRPL scheme** gains its table of peers' addresses and the two rules of §8.
@@ -188,7 +188,6 @@ A browser node is a short-lived periphery node, for demos: it lets someone join 
 
 ## 11. Open questions
 
-- **Core nodes over TCP.** Whether core nodes must also serve the TCP fallback to periphery nodes, or may require UDP of them. A core node takes UDP itself ([quic-only](../decisions/quic-only.md)).
 - **Choosing uplinks.** Which core nodes a periphery node picks by default, and whether the operator of a front door it uses counts.
 - **Front doors.** Whether anyone may run one, or only core nodes. Dassie-aware clients check signatures either way.
 - **A cold lookup** adds a round trip to a home node before the first stream. Caching and relays make it rare; whether that is enough is for measurement.

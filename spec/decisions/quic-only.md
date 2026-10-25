@@ -23,7 +23,7 @@
 
 ## Accepted
 
-- **A node behind a network that filters UDP cannot take part** until the TLS-over-TCP and WebSocket links of [the periphery design](../designs/periphery.md#2-transport-quic-on-every-peer-link) are built. Those keep QUIC's streams and keys; an HTTP request per message does not, and periphery nodes could not be reached over it anyway.
+- **A periphery node behind a network that filters UDP cannot take part** until it can carry its QUIC packets over a WebSocket ([quic-over-websocket](quic-over-websocket.md)). That keeps QUIC's streams and keys; an HTTP request per message does not, and periphery nodes could not be reached over it anyway.
 - **A node whose places for anyone else are full takes no newcomers** until one frees: asking to peer, or registering, waits for room rather than coming in through a second door ([places-by-proved-key](places-by-proved-key.md)).
 - **No new protocol version.** Every node already takes QUIC; the rule that a change both sides must agree on is a new version ([Overview](../overview.md#frozen-surfaces)) is about messages, and none changes. A node of an earlier release that falls back to HTTPS meets a 404, which its connector leaves to expire, until its daily update.
 - **A request in a backoff fails at once,** within a minute of a peer coming back, even if the peer could have been reached. The backoff is short so that this costs little, and it spares a node that is down a handshake per request.
@@ -33,5 +33,5 @@
 - *Keeping the HTTPS fallback:* it serves no node a core node can peer with usefully, hides a core node's blocked UDP, and keeps a periphery node unreachable for minutes after a peer restarts.
 - *Keeping HTTPS only for a node without room for us:* a second pool of places behind a second door, with bounds and charges of its own, for the one case where waiting for room is the honest answer.
 - *Keeping HTTPS for hub members only:* members are nodes, and a node runs QUIC; a member that cannot reach a validator over QUIC cannot reach its peers either.
-- *TLS over TCP for core nodes now:* the periphery design's links over TCP are for nodes their network keeps from UDP; a core node chooses its own network.
+- *A fallback over TCP for core nodes:* the tunnel of [quic-over-websocket](quic-over-websocket.md) is for periphery nodes their network keeps from UDP; a core node chooses its own network.
 - *Running without QUIC, refusing only to peer:* a node nobody can reach still costs its peers a dial per request, and its owner learns why only from its log.
