@@ -22,7 +22,7 @@ use crate::auth::Accepted;
 use crate::config::Config;
 use crate::io::{Event, NameEvent, Reply};
 use crate::names::registrant::{
-    Message, NameRequest, Progress, RegisterError, RenewError as RenewNowError,
+    MAX_REGISTRATIONS, Message, NameRequest, Progress, RegisterError, RenewError as RenewNowError,
 };
 use crate::names::registrar::{
     CommitError, Committed, Happened, RenewError, UnsealError, Unsealed,
@@ -444,8 +444,16 @@ impl PeerNode {
 
     /// Sends what our registrations and renewals have due. Our own
     /// registrar, if we are one, answers at once, which may make more due.
+    ///
+    /// Each round queues at most an event for each registration, as time
+    /// moves it on, and two for each request our own registrar answers, a
+    /// registration's or a renewal of a name we hold, its own and our
+    /// progress's: a bounded number, however many names the registrars
+    /// list.
     pub(super) fn send_names(&mut self) {
-        let own = self.own;
+        let (own, queued) = (self.own, self.events_queued());
+        let per_round = 3 * MAX_REGISTRATIONS + 2 * self.registrant.config().max_names;
+        let most = u64::try_from(SEND_ROUNDS * per_round).unwrap_or(u64::MAX);
         for _ in 0..SEND_ROUNDS {
             let (mut progress, mut requests) = (Vec::new(), Vec::new());
             self.registrant
@@ -459,6 +467,10 @@ impl PeerNode {
                 break;
             }
         }
+        assert!(
+            self.events_since(queued) <= most,
+            "sending what our registrations have due queues a bounded number of events"
+        );
     }
 
     /// Sends `request` to its registrar, or asks our own.
