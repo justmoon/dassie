@@ -138,8 +138,12 @@ async fn a_periphery_node_is_paid_beneath_its_uplink() {
     );
     // Only QUIC carried them, the uplink's requests on the connection the
     // periphery node opened.
+    // The first may still be on its way once both sides count the peering.
     let quic = a.quic.as_ref().unwrap();
-    assert!(quic.stats().sent.load(std::sync::atomic::Ordering::Relaxed) > 0);
+    until(&clock, async || {
+        quic.stats().sent.load(std::sync::atomic::Ordering::Relaxed) > 0
+    })
+    .await;
     holds_a_downlinks_place(&a, &key_p).await;
     let payment = incoming(&p).await;
     let child = format!("test.das.{}.{}.", key_a.node_id(), key_p.node_id());
