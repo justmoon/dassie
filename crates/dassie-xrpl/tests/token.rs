@@ -26,6 +26,7 @@ use dassie_settlement::{
 use dassie_xrpl::account::{self, News, XrplAccount};
 use dassie_xrpl::codec::{Amount, Payment, Signing, TokenValue, Transact, TrustSet};
 use dassie_xrpl::dsusd::{self, DsusdScheme, UNITS_PER_MICRO};
+use dassie_xrpl::entry::ENTRY_HOLD_LEDGERS;
 use dassie_xrpl::fake::{
     FAUCET_DROPS, FEE_BASE, FakeLedger, Lie, RESERVE_BASE, RESERVE_INC, Token,
 };
@@ -560,8 +561,9 @@ impl World {
                     // the books (spec/decisions/pay-to-enter.md).
                     assert_eq!(
                         i128::from(dsusd.balance()),
-                        held.max(0) * i128::from(UNITS_PER_MICRO)
-                            - i128::from(dsusd.entries_held()),
+                        (held.max(0) * i128::from(UNITS_PER_MICRO)
+                            - i128::from(dsusd.entries_held()))
+                        .max(0),
                         "{}",
                         node.name
                     );
@@ -1072,6 +1074,100 @@ fn a_token_payment_before_peering_is_held_until_its_node_peers() {
     assert_eq!(books.credited.len(), 1);
     assert_eq!(world.nodes[0].dsusd().entries_held(), 0);
     assert_eq!(entry(&mut world, &request), EntryPayment::Missing);
+}
+
+/// Two nodes on DSUSD, node 0 taking entry payments of `entry` and holding
+/// one from node 1, of which the issuer then clawed back all but `left`
+/// millionths, as a clawback can: less than the entry held. Returns node
+/// 1's request data, as it peers with node 0.
+fn line_drained_with_entry(entry: u64, left: u64) -> (World, Vec<u8>) {
+    let mut world = World::new(&[false, false]);
+    world.closes(3);
+    world.nodes[0]
+        .dsusd
+        .as_mut()
+        .unwrap()
+        .take_entries_from(entry);
+    world.mint(1, "5");
+    world.close();
+    let (mut info, mut request) = (Vec::new(), Vec::new());
+    world.nodes[0].scheme(USD).peering_info(&mut info);
+    let uplink = world.nodes[0].name;
+    world.nodes[1]
+        .scheme(USD)
+        .create_peering_request(uplink, &info, &mut request)
+        .unwrap();
+    world.settle(USD, 1, 0, entry, &info);
+    world.close();
+    assert_eq!(world.nodes[0].dsusd().entries_held(), entry);
+    let clawed = entry / UNITS_PER_MICRO - left;
+    let amount = TokenValue::from_units(clawed, 6).unwrap();
+    world
+        .ledger
+        .claw_back(world.address(0), Token::DSUSD.amount(amount))
+        .unwrap();
+    world.close();
+    assert_eq!(
+        world.nodes[0].dsusd().balance(),
+        0,
+        "the books hold nothing"
+    );
+    (world, request)
+}
+
+// spec/decisions/pay-to-enter.md: on a token line as on the XRP scheme, an
+// entry payment taken once the line no longer holds all of it credits its
+// node what it paid, and the books match what is left through suspense,
+// before and after a restart.
+#[test]
+fn a_token_entry_payment_taken_short_is_matched_through_suspense() {
+    const ENTRY: u64 = 100_000_000;
+    const LEFT: u64 = 40_000;
+    let (mut world, _) = line_drained_with_entry(ENTRY, LEFT);
+    let newcomer = world.nodes[1].name;
+    world.peer(USD, 1, 0);
+    let mut effects = Vec::new();
+    world.nodes[0]
+        .scheme(USD)
+        .take_entry(newcomer, &mut effects);
+    for effect in effects {
+        world.nodes[0].books[USD].apply(effect);
+    }
+    world.nodes[0].check_invariants();
+    world.check();
+    let books = &world.nodes[0].books[USD];
+    assert_eq!(books.peers[&newcomer], i128::from(ENTRY));
+    assert_eq!(books.settlement, i128::from(usd(LEFT)));
+    world.restart(0);
+    world.closes(2);
+    assert_eq!(world.nodes[0].dsusd().balance(), usd(LEFT));
+    assert_eq!(world.nodes[0].books[USD].credited.len(), 1);
+}
+
+// spec/decisions/pay-to-enter.md: on a token line, an entry payment whose
+// hold is over once the line no longer holds all of it is the owner's
+// deposit, and the books match what is left, before and after a restart.
+#[test]
+fn a_token_entry_payment_expired_short_is_matched_through_suspense() {
+    const ENTRY: u64 = 100_000_000;
+    const LEFT: u64 = 40_000;
+    let (mut world, _) = line_drained_with_entry(ENTRY, LEFT);
+    let owner = world.nodes[0].books[USD].owner;
+    for _ in 0..ENTRY_HOLD_LEDGERS {
+        world.now += 4_000;
+        world
+            .ledger
+            .close_at(dassie_xrpl::unl::ledger_seconds(world.now));
+    }
+    world.closes(2);
+    assert_eq!(world.nodes[0].dsusd().entries_held(), 0);
+    let books = &world.nodes[0].books[USD];
+    assert_eq!(books.owner, owner + i128::from(ENTRY));
+    assert_eq!(books.settlement, i128::from(usd(LEFT)));
+    world.restart(0);
+    world.closes(2);
+    assert_eq!(world.nodes[0].dsusd().balance(), usd(LEFT));
+    assert!(world.nodes[0].books[USD].credited.is_empty());
 }
 
 // spec/areas/xrpl.md#the-token-scheme: what is not a peer's settlement moves

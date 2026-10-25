@@ -223,7 +223,7 @@ A node new to us may pay us before it asks to peer, so that it gets in past a fu
 - **Seen as the account follows its ledger,** so only once validated and proven ([Following the account](#following-the-account)): the peering request carries nothing more than the address it always names.
 - **Bound to its payer.** It counts only for the node its memo names, with a request whose data names the address it came from.
 - **Off the books while held.** The scheme's books hold the account, or the line, less what it holds, so nothing the books drive spends it. The table is bounded, and each payment is held for a bound of validated ledgers from when the scheme read it.
-- **Booked once.** When its node peers from that address, the scheme books it as the node's settlement, under its hash, and lets it go. One whose hold is over is the owner's deposit; so is one of less than a largest packet, and one that finds the table full. A write-off takes them with the account.
+- **Booked once.** When its node peers from that address, the scheme books it as the node's settlement, under its hash, and lets it go. One whose hold is over is the owner's deposit; so is one of less than a largest packet, and one that finds the table full. Either way it is booked whole, and the books then match what the account, or the line, still holds: what fees, a higher reserve or a clawback took meanwhile comes out of it through suspense, since nothing the books drive spends it. A write-off takes them with the account.
 
 ## Deposits and withdrawals
 

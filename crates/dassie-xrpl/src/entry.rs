@@ -167,7 +167,10 @@ impl Entries {
     pub(crate) fn fingerprint(&self, add: &mut impl FnMut(u64)) {
         add(self.held.len() as u64);
         for entry in &self.held {
-            add(u64::from(entry.hash[0]) << 8 | u64::from(entry.hash[1]));
+            for word in entry.hash.as_chunks::<8>().0 {
+                add(u64::from_le_bytes(*word));
+            }
+            add(entry.amount);
             add(u64::from(entry.until));
         }
     }

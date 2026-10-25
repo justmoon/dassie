@@ -762,12 +762,19 @@ impl<T: IssuedToken> TokenScheme<T> {
     /// Books the entry payments whose hold is over as the owner's
     /// deposits.
     fn expire_entries(&mut self, effects: &mut Vec<Effect>) {
-        for entry in self.entries.expire(self.validated) {
+        let expired = self.entries.expire(self.validated);
+        if expired.is_empty() {
+            return;
+        }
+        for entry in expired {
             effects.push(Effect::Deposit {
                 amount: entry.amount,
             });
             self.booked = self.booked.saturating_add(entry.amount);
         }
+        // What fees or a reserve took meanwhile came out of what was held:
+        // the books match what is left, the shortfall through suspense.
+        self.match_line(effects);
     }
 
     /// Keeps a peer's address; past [`MAX_PEERS`], the one learnt longest
@@ -1089,6 +1096,10 @@ impl<T: IssuedToken> SettlementScheme for TokenScheme<T> {
             });
             self.booked = self.booked.saturating_add(entry.amount);
         }
+        // The peer is credited what it paid; what the account no longer
+        // holds of it, spent on fees or held back by a reserve meanwhile,
+        // is a shortfall the books match through suspense.
+        self.match_line(effects);
     }
 
     /// Unavailable unless synced, the line not frozen, the issuer read with
