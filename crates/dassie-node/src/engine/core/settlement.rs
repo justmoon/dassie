@@ -175,6 +175,17 @@ impl Core {
             .any(|transfer| matches!(transfer.reference, Reference::Packet(_)))
     }
 
+    /// Whether the books hold a settlement of ours not yet final: sent, or
+    /// applied by the ledger before the node heard of it. Until it is final,
+    /// the books and the account differ, so a simulation judges neither.
+    #[cfg(feature = "testing")]
+    #[must_use]
+    pub fn settlements_in_flight(&self) -> bool {
+        self.ledger
+            .pending_transfers()
+            .any(|transfer| matches!(transfer.reference, Reference::Settlement { .. }))
+    }
+
     /// Checks every peer, asking those near the credit we extend to settle,
     /// and announces settlements that waited for an earlier one.
     pub(super) fn settlement_timers(&mut self) {

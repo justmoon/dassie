@@ -1042,7 +1042,14 @@ fn unsettled(sim: &Sim) -> Option<String> {
         }
     }
     // A settlement the ledger applied is booked when its node hears of it:
-    // until then, the books and the account differ, as they should.
+    // until then, the books and the account differ, as they should. The
+    // node's own books say whether it has; the messages queued do not
+    // always, since it may hear of it in the answer to another request.
+    for index in 0..count {
+        if sim.core(index).settlements_in_flight() {
+            return Some(format!("node {index} has a settlement not yet final"));
+        }
+    }
     if sim.ledger.queued() > 0 {
         return Some("transactions wait for the ledger to close".into());
     }
