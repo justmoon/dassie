@@ -389,8 +389,13 @@ async fn a_core_node_names_its_feed_port() {
     );
     let feed = feed_status(&node).await.unwrap();
     assert!(feed.serving);
-    // The Subscribe sent before waited in the socket, and is answered too.
-    assert_eq!((feed.received, feed.challenged, feed.sent), (2, 2, 2));
+    // The Subscribe sent before waited in the socket, and is answered too,
+    // though not necessarily before the answer that just arrived.
+    until(&clock, async || {
+        let feed = feed_status(&node).await.unwrap();
+        (feed.received, feed.challenged, feed.sent) == (2, 2, 2)
+    })
+    .await;
     node.stop().await;
 }
 
