@@ -495,8 +495,12 @@ enum Request {
     /// The account's history from one ledger to another, a page of it: a
     /// hint, which names transactions to prove sooner.
     AccountTx(u32, u32),
-    /// The validations of the ledger of this hash.
-    Validations([u8; 32]),
+    /// The validations of the ledger of this hash: of the validators the
+    /// server trusts, or with `untrusted`, of other keys too.
+    Validations {
+        hash: [u8; 32],
+        untrusted: bool,
+    },
     /// The newest manifest of a validator, by its master key.
     Manifest(PublicKey),
     /// A skip list, by its key, at the ledger of a hash: to tell a later
@@ -1402,7 +1406,7 @@ impl XrplAccount {
                 api::state_proof(id, keys, Some(&at))
             }
             Request::AccountTx(from, to) => api::account_tx(id, account, from, to, None),
-            Request::Validations(hash) => api::validations(id, &hash),
+            Request::Validations { hash, untrusted } => api::validations(id, &hash, untrusted),
             Request::Manifest(master) => api::manifest(id, &master),
         };
         self.pending.insert(id, (request, self.now_ms));
@@ -1488,7 +1492,7 @@ impl XrplAccount {
             Request::Anchor => self.proved_anchor(outcome),
             Request::Read(at) => self.read_answered(at, outcome),
             Request::AccountTx(..) => self.history_hinted(outcome),
-            Request::Validations(_) => self.validated_anchor(outcome),
+            Request::Validations { .. } => self.validated_anchor(outcome),
             Request::Manifest(_) => self.manifest_read(outcome),
             Request::SkipList(at, key) => self.skip_list_read((at, key), outcome),
         }

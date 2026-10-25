@@ -45,6 +45,8 @@ struct Harness {
     unanswered: BTreeSet<&'static str>,
     /// The commands the account sent, in order.
     asked: Vec<String>,
+    /// Whether each `validations` request asked for `untrusted`, in order.
+    untrusted: Vec<bool>,
     /// The sites it fetched, in order.
     fetched: Vec<String>,
     reconnects: usize,
@@ -230,6 +232,7 @@ impl Harness {
             failing: BTreeSet::new(),
             unanswered: BTreeSet::new(),
             asked: Vec::new(),
+            untrusted: Vec::new(),
             fetched: Vec::new(),
             reconnects: 0,
             tampers: VecDeque::new(),
@@ -281,6 +284,9 @@ impl Harness {
                 let request: Value = serde_json::from_slice(&message).unwrap();
                 let command = request["command"].as_str().unwrap().to_owned();
                 self.asked.push(command.clone());
+                if command == "validations" {
+                    self.untrusted.push(request["untrusted"] == true);
+                }
                 if self.unanswered.contains(command.as_str()) {
                     return;
                 }
@@ -633,6 +639,18 @@ fn a_cut_answer_short_of_a_quorum_is_no_lie() {
     harness.close();
     assert_eq!(harness.anchored_at(), Some(harness.ledger.ledger()));
     assert_eq!(harness.account.status(), LedgerStatus::Synced);
+}
+
+// spec/designs/xrpl-validation.md#3-the-proof-api: with the owner's
+// publishers, the account's validators need not be the server's, so it
+// asks for the validations of other keys from the first.
+#[test]
+fn with_the_owners_publishers_validations_of_other_keys_are_asked_for() {
+    let mut harness = Harness::new(FakeLedger::new(), &[]);
+    harness.connect();
+    assert_eq!(harness.anchored_at(), Some(harness.ledger.ledger()));
+    assert_eq!(harness.untrusted.first(), Some(&true));
+    assert!(harness.untrusted.iter().all(|asked| *asked));
 }
 
 // spec/designs/xrpl-validation.md#5-the-unl-from-its-publishers: validators

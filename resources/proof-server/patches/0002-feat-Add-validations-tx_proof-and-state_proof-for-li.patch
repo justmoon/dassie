@@ -1,4 +1,4 @@
-From bac257d47e6c09ef463ec8bdd30549b026c25c81 Mon Sep 17 00:00:00 2001
+From 83eebcf28b87c5dadd5d5c05840708655db2346d Mon Sep 17 00:00:00 2001
 From: Stefan Thomas <justmoon@members.fsf.org>
 Date: Sat, 24 Oct 2026 09:44:09 -0400
 Subject: [PATCH 2/2] feat: Add validations, tx_proof and state_proof for light
@@ -7,11 +7,13 @@ Subject: [PATCH 2/2] feat: Add validations, tx_proof and state_proof for light
 Three public methods that let a client verify ledger data without trusting
 the server:
 
-- `validations {ledger_hash}`: the validations the server holds for the
-  ledger, trusted or not, each the hex of its serialized STValidation. The
-  client decides by its own UNL which ones count. The answer holds at most
-  256, the server's trusted validations first, so that validations from
-  keys nobody trusts can crowd out only others like them; a cut answer
+- `validations {ledger_hash, untrusted?}`: the validations the server
+  holds for the ledger from the validators it trusts, each the hex of its
+  serialized STValidation. The client decides by its own UNL which ones
+  count. With `untrusted`, for a client whose validators differ from the
+  server's, the answer also holds validations from keys the server does
+  not trust: at most 256, the trusted ones first, so that validations from
+  keys nobody trusts can crowd out only others like them, and a cut answer
   says so with `truncated`.
 - `tx_proof {tx_hash, ledger_hash | ledger_index?}`: the ledger's binary
   header and the branch of its transaction tree from the inner node above
@@ -33,8 +35,8 @@ are charged as medium-burden requests.
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 ---
  API-CHANGELOG.md                              |   3 +
- include/xrpl/protocol/jss.h                   |   9 +-
- src/test/rpc/LedgerProofs_test.cpp            | 785 ++++++++++++++++++
+ include/xrpl/protocol/jss.h                   |  10 +-
+ src/test/rpc/LedgerProofs_test.cpp            | 815 ++++++++++++++++++
  src/xrpld/rpc/MethodNames.h                   |   3 +
  src/xrpld/rpc/detail/Handler.cpp              |  21 +
  src/xrpld/rpc/detail/ProofHelpers.cpp         |  77 ++
@@ -42,9 +44,9 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  src/xrpld/rpc/detail/Tuning.h                 |  12 +
  src/xrpld/rpc/handlers/Handlers.h             |   6 +
  src/xrpld/rpc/handlers/ledger/StateProof.cpp  |  97 +++
- src/xrpld/rpc/handlers/ledger/Validations.cpp |  62 ++
+ src/xrpld/rpc/handlers/ledger/Validations.cpp |  79 ++
  .../rpc/handlers/transaction/TxProof.cpp      | 107 +++
- 12 files changed, 1241 insertions(+), 2 deletions(-)
+ 12 files changed, 1289 insertions(+), 2 deletions(-)
  create mode 100644 src/test/rpc/LedgerProofs_test.cpp
  create mode 100644 src/xrpld/rpc/detail/ProofHelpers.cpp
  create mode 100644 src/xrpld/rpc/detail/ProofHelpers.h
@@ -53,21 +55,21 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  create mode 100644 src/xrpld/rpc/handlers/transaction/TxProof.cpp
 
 diff --git a/API-CHANGELOG.md b/API-CHANGELOG.md
-index fa4f113dd8..2cf7539680 100644
+index fa4f113dd8..9dd25941bc 100644
 --- a/API-CHANGELOG.md
 +++ b/API-CHANGELOG.md
 @@ -30,6 +30,9 @@ Version 3.5.0 is not yet released.
  
  - `subscribe`, `unsubscribe`: Added an optional `mpt_issuances` request field, an array of MPT issuance IDs (hex strings). Subscribers receive the same `transaction` message as the `transactions` stream for each validated transaction whose metadata affects a subscribed issuance. MPT issuance subscriptions count toward the per-connection subscription limit. An empty array, a non-array value, or an invalid ID returns `invalidParams`. ([#5671](https://github.com/XRPLF/rippled/pull/5671))
  - `ledger_entry`: Add full support for checks, NFT offers, payment channels, and signer lists. ([#6319](https://github.com/XRPLF/rippled/pull/6319))
-+- `validations`: New RPC method that returns the validations the server holds for a ledger hash, trusted or not, each as the hex of its serialized `STValidation`: the ones it trusts first, and at most 256, with `truncated` set when there were more. Validations are held for about ten minutes, so this serves recent ledgers.
++- `validations`: New RPC method that returns the validations the server holds for a ledger hash from the validators it trusts, each as the hex of its serialized `STValidation`. With `untrusted: true`, it also returns those from keys it does not trust: the trusted ones first, at most 256, with `truncated` set when there were more. Validations are held for about ten minutes, so this serves recent ledgers.
 +- `tx_proof`: New RPC method that returns a transaction's ledger's binary header and the branch of the ledger's transaction tree from the inner node above the transaction's leaf up to the tree's root. A client builds the leaf from the transaction and metadata that `tx` or `account_tx` return in binary, so it can verify them against the ledger's hash without trusting the server.
 +- `state_proof`: New RPC method that returns, for up to 32 keys, the branch of a closed ledger's state tree towards each key, with the ledger's binary header. A branch proves either the ledger entry under the key, which is its first node, or that there is none. Every node in a branch is serialized as it is hashed.
  
  ### Bugfixes in 3.5.0
  
 diff --git a/include/xrpl/protocol/jss.h b/include/xrpl/protocol/jss.h
-index 3f91fbfb69..cc616e4857 100644
+index 3f91fbfb69..9137a787df 100644
 --- a/include/xrpl/protocol/jss.h
 +++ b/include/xrpl/protocol/jss.h
 @@ -240,6 +240,7 @@ JSS(engine_result);                  // out: NetworkOPs, TransactionSign, Submit
@@ -117,7 +119,15 @@ index 3f91fbfb69..cc616e4857 100644
  JSS(tx_json);                     // in/out: TransactionSign
                                    // out: TransactionEntry
  JSS(tx_signing_hash);             // out: TransactionSign
-@@ -681,7 +686,7 @@ JSS(validation_private_key);      // out: ValidationCreate
+@@ -660,6 +665,7 @@ JSS(type);                        // in: AccountObjects
+ JSS(type_hex);                    // out: STPathSet
+ JSS(unl);                         // out: UnlList
+ JSS(unlimited);                   // out: Connection.h
++JSS(untrusted);                   // in: Validations
+ JSS(uptime);                      // out: GetCounts
+ JSS(uri);                         // out: ValidatorSites
+ JSS(url);                         // in/out: Subscribe, Unsubscribe
+@@ -681,7 +687,7 @@ JSS(validation_private_key);      // out: ValidationCreate
  JSS(validation_public_key);       // out: ValidationCreate, ValidationSeed
  JSS(validation_quorum);           // out: NetworkOPs
  JSS(validation_seed);             // out: ValidationCreate, ValidationSeed
@@ -128,10 +138,10 @@ index 3f91fbfb69..cc616e4857 100644
  JSS(value);                       // out: STAmount
 diff --git a/src/test/rpc/LedgerProofs_test.cpp b/src/test/rpc/LedgerProofs_test.cpp
 new file mode 100644
-index 0000000000..33e4feda52
+index 0000000000..291491cc80
 --- /dev/null
 +++ b/src/test/rpc/LedgerProofs_test.cpp
-@@ -0,0 +1,785 @@
+@@ -0,0 +1,815 @@
 +#include <test/jtx/Account.h>
 +#include <test/jtx/Env.h>
 +#include <test/jtx/amount.h>
@@ -790,47 +800,70 @@ index 0000000000..33e4feda52
 +            return val;
 +        };
 +
-+        // Trusted or not, full or partial, the server returns each.
-+        std::set<std::string> expected;
++        // Full or partial, the server returns those of the validators it
++        // trusts, and with `untrusted` the others too.
++        std::set<std::string> trusted;
++        std::set<std::string> all;
 +        for (auto const& val : {make(true, true), make(false, true), make(true, false)})
 +        {
 +            BEAST_EXPECT(
 +                env.app().getValidations().add(
 +                    calcNodeID(val->getSignerPublic()), RCLValidation{val}) == ValStatus::Current);
-+            expected.insert(strHex(val->getSerializer().slice()));
++            auto const hex = strHex(val->getSerializer().slice());
++            all.insert(hex);
++            if (val->isTrusted())
++                trusted.insert(hex);
 +        }
++
++        auto const check = [&](json::Value const& result, std::set<std::string> const& expected) {
++            BEAST_EXPECT(result[jss::status] == "success");
++            BEAST_EXPECT(result[jss::ledger_hash] == to_string(ledger->header().hash));
++            BEAST_EXPECT(!result.isMember(jss::truncated));
++            auto const& array = result[jss::validations];
++            if (!BEAST_EXPECT(array.isArray() && array.size() == expected.size()))
++                return;
++            std::set<std::string> got;
++            for (auto const& hex : array)
++            {
++                got.insert(hex.asString());
++
++                // Each parses as a validation of the ledger, and its
++                // signature checks.
++                auto const blob = strUnHex(hex.asString());
++                BEAST_EXPECT(blob.has_value());
++                if (!blob)
++                    continue;
++                SerialIter sit{makeSlice(*blob)};
++                STValidation const val{
++                    sit,
++                    [](PublicKey const& pk) { return calcNodeID(pk); },
++                    STValidation::DeserializeOptions{
++                        .checkSignature = true,
++                        .requireCanonicalOrder = true,
++                    }};
++                BEAST_EXPECT(val.getLedgerHash() == ledger->header().hash);
++            }
++            BEAST_EXPECT(got == expected);
++        };
 +
 +        json::Value params;
 +        params[jss::ledger_hash] = to_string(ledger->header().hash);
-+        auto const result = validations(env, apiVersion, params);
-+        BEAST_EXPECT(result[jss::status] == "success");
-+        BEAST_EXPECT(result[jss::ledger_hash] == to_string(ledger->header().hash));
-+        BEAST_EXPECT(!result.isMember(jss::truncated));
-+        auto const& array = result[jss::validations];
-+        if (!BEAST_EXPECT(array.isArray() && array.size() == expected.size()))
-+            return;
-+        std::set<std::string> got;
-+        for (auto const& hex : array)
++        check(validations(env, apiVersion, params), trusted);
++        params[jss::untrusted] = false;
++        check(validations(env, apiVersion, params), trusted);
++        params[jss::untrusted] = true;
++        check(validations(env, apiVersion, params), all);
++        for (auto const& bad : {json::Value{"yes"}, json::Value{1}})
 +        {
-+            got.insert(hex.asString());
-+
-+            // Each parses as a validation of the ledger, and its signature
-+            // checks.
-+            auto const blob = strUnHex(hex.asString());
-+            BEAST_EXPECT(blob.has_value());
-+            if (!blob)
-+                continue;
-+            SerialIter sit{makeSlice(*blob)};
-+            STValidation const val{
-+                sit,
-+                [](PublicKey const& pk) { return calcNodeID(pk); },
-+                STValidation::DeserializeOptions{
-+                    .checkSignature = true,
-+                    .requireCanonicalOrder = true,
-+                }};
-+            BEAST_EXPECT(val.getLedgerHash() == ledger->header().hash);
++            params[jss::untrusted] = bad;
++            expectError(
++                *this,
++                validations(env, apiVersion, params),
++                "invalidParams",
++                RpcInvalidParams,
++                "Invalid field 'untrusted', not boolean.");
 +        }
-+        BEAST_EXPECT(got == expected);
++        params.removeMember(jss::untrusted);
 +
 +        // No validations held for a ledger
 +        params[jss::ledger_hash] = to_string(sha512Half(std::uint32_t{1}));
@@ -859,7 +892,7 @@ index 0000000000..33e4feda52
 +    void
 +    testBounded()
 +    {
-+        testcase("Validations bounded, trusted first");
++        testcase("Validations with untrusted, bounded, trusted first");
 +        using namespace jtx;
 +        Env env{*this};
 +        env.close();
@@ -893,6 +926,13 @@ index 0000000000..33e4feda52
 +
 +        json::Value params;
 +        params[jss::ledger_hash] = to_string(ledger->header().hash);
++
++        // By default, only the trusted ones, however many others there are.
++        auto const own = validations(env, 2, params);
++        BEAST_EXPECT(!own.isMember(jss::truncated));
++        BEAST_EXPECT(own[jss::validations].size() == trusted.size());
++
++        params[jss::untrusted] = true;
 +        auto const result = validations(env, 2, params);
 +        BEAST_EXPECT(result[jss::truncated] == true);
 +        auto const& array = result[jss::validations];
@@ -1304,10 +1344,10 @@ index 0000000000..ccd32c409d
 +}  // namespace xrpl
 diff --git a/src/xrpld/rpc/handlers/ledger/Validations.cpp b/src/xrpld/rpc/handlers/ledger/Validations.cpp
 new file mode 100644
-index 0000000000..b0ec5926a7
+index 0000000000..92472c5494
 --- /dev/null
 +++ b/src/xrpld/rpc/handlers/ledger/Validations.cpp
-@@ -0,0 +1,62 @@
+@@ -0,0 +1,79 @@
 +#include <xrpld/app/consensus/RCLValidations.h>
 +#include <xrpld/app/main/Application.h>
 +#include <xrpld/rpc/Context.h>
@@ -1327,13 +1367,17 @@ index 0000000000..b0ec5926a7
 +
 +// {
 +//   ledger_hash : <ledger>
++//   untrusted : <bool>                     optional, false by default
 +// }
 +//
-+// The validations the server holds for the ledger, trusted or not, full or
-+// partial, each serialized as it was signed. The client decides which
-+// validators it trusts. The answer is bounded: the server's trusted
-+// validations come first, so that validations from keys nobody trusts can
-+// only crowd out others like them, and a cut answer says so.
++// The validations the server holds for the ledger from the validators it
++// trusts, full or partial, each serialized as it was signed. The client
++// decides which validators it trusts itself. With `untrusted`, the answer
++// also holds validations from keys the server does not trust, for a client
++// whose validators differ from the server's. That answer is bounded: the
++// server's trusted validations come first, so that validations from keys
++// nobody trusts can only crowd out others like them, and a cut answer says
++// so.
 +json::Value
 +doValidations(rpc::JsonContext& context)
 +{
@@ -1351,12 +1395,25 @@ index 0000000000..b0ec5926a7
 +        return rpc::expectedFieldError(jss::ledger_hash, "hex string");
 +    }
 +
++    bool untrusted = false;
++    if (params.isMember(jss::untrusted))
++    {
++        if (!params[jss::untrusted].isBool())
++            return rpc::expectedFieldError(jss::untrusted, "boolean");
++        untrusted = params[jss::untrusted].asBool();
++    }
++
 +    json::Value jvResult;
 +    jvResult[jss::ledger_hash] = to_string(ledgerHash);
 +    json::Value& validations = (jvResult[jss::validations] = json::Value{json::ValueType::Array});
 +    auto held = context.app.getValidations().getAllForLedger(ledgerHash);
-+    std::ranges::stable_partition(held, [](auto const& v) { return v->isTrusted(); });
-+    if (held.size() > rpc::tuning::kMaxValidations)
++    auto const others =
++        std::ranges::stable_partition(held, [](auto const& v) { return v->isTrusted(); });
++    if (!untrusted)
++    {
++        held.erase(others.begin(), others.end());
++    }
++    else if (held.size() > rpc::tuning::kMaxValidations)
 +    {
 +        // So that a client whose validators the server does not trust can
 +        // tell a cut answer from too few of them signing.

@@ -445,14 +445,17 @@ fn the_proof_servers_keep_more_than_the_history_bound() {
 /// An account of `network`, of entropy [7; 32], driven by the captured
 /// answers as a node drives it, its clock a few seconds after the last
 /// validation was signed: the answers it asks for, and the publishers'
-/// lists from their sites.
-fn anchor_on_captured(network: &str) -> XrplAccount {
+/// lists from their sites. With `short`, a `validations` request without
+/// `untrusted` gets one validation alone, as from a server whose lists lag
+/// the account's. Also each `validations` request it sent.
+fn anchor_on_captured(network: &str, short: bool) -> (XrplAccount, Vec<Value>) {
     let on = self::network(network);
     let ledger = captured(network);
     let validations = validations_result(&ledger["validations"]).unwrap();
     let now = soon_after(&validations.validations);
     let mut account = XrplAccount::new(on.first(), &[on.xrp_scheme], "", &[7; 32], &[]).unwrap();
     let mut asked = Vec::new();
+    let mut validations_asked = Vec::new();
     account.on_ledger(now, LedgerInput::Connected);
     for _ in 0..64 {
         account.told();
@@ -467,9 +470,15 @@ fn anchor_on_captured(network: &str) -> XrplAccount {
                 AssetEffect::Send { message } => {
                     let request: Value = serde_json::from_slice(&message).unwrap();
                     asked.push(text(&request, "command").to_owned());
-                    let Some(result) = live_answer(network, &request) else {
+                    let Some(mut result) = live_answer(network, &request) else {
                         continue;
                     };
+                    if text(&request, "command") == "validations" {
+                        if short && request.get("untrusted").is_none() {
+                            result["validations"].as_array_mut().unwrap().truncate(1);
+                        }
+                        validations_asked.push(request.clone());
+                    }
                     let reply = json!({
                         "type": "response", "id": request["id"], "status": "success",
                         "result": result,
@@ -494,7 +503,7 @@ fn anchor_on_captured(network: &str) -> XrplAccount {
         ["server_state", "subscribe", "state_proof", "validations"],
         "{network}"
     );
-    account
+    (account, validations_asked)
 }
 
 // spec/designs/xrpl-validation.md#6-the-account-on-proofs: an account
@@ -507,13 +516,41 @@ fn an_account_anchors_on_the_live_answers() {
     for network in NETWORKS {
         let ledger = captured(network);
         let header = header(&ledger);
-        let account = anchor_on_captured(network);
+        let (account, validations_asked) = anchor_on_captured(network, false);
+        // With the network's publishers, the server's own validators are
+        // the account's: it asks for no others
+        // (spec/designs/xrpl-validation.md#3-the-proof-api).
+        assert_eq!(validations_asked.len(), 1, "{network}");
+        assert_eq!(validations_asked[0].get("untrusted"), None, "{network}");
         let anchor = account
             .anchor()
             .unwrap_or_else(|| panic!("{network}: no anchor, waiting: {:?}", account.waiting()));
         assert_eq!(anchor.hash, header.hash(), "{network}");
         assert_eq!(anchor.index, header.sequence);
         assert_eq!(account.validated(), header.sequence);
+        for doubt in Doubt::ALL {
+            assert_eq!(account.doubts(doubt), 0, "{network}: {doubt:?}");
+        }
+    }
+}
+
+// spec/designs/xrpl-validation.md#3-the-proof-api: the server's own
+// validators may lag the account's, as when its lists are older. An answer
+// of them short of a quorum is asked again with `untrusted` before it is
+// taken as a lie, and the account anchors on the whole answer.
+#[test]
+fn an_answer_of_the_servers_validators_short_of_a_quorum_is_asked_again() {
+    for network in NETWORKS {
+        let ledger = captured(network);
+        let header = header(&ledger);
+        let (account, validations_asked) = anchor_on_captured(network, true);
+        assert_eq!(validations_asked.len(), 2, "{network}");
+        assert_eq!(validations_asked[0].get("untrusted"), None, "{network}");
+        assert_eq!(validations_asked[1]["untrusted"], true, "{network}");
+        let anchor = account
+            .anchor()
+            .unwrap_or_else(|| panic!("{network}: no anchor, waiting: {:?}", account.waiting()));
+        assert_eq!(anchor.hash, header.hash(), "{network}");
         for doubt in Doubt::ALL {
             assert_eq!(account.doubts(doubt), 0, "{network}: {doubt:?}");
         }
