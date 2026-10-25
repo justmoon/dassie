@@ -393,8 +393,9 @@ pub struct Network {
     /// that tip off list it for each with.
     pub tipped: BTreeMap<Name, u64>,
     /// What happened to names, at which node, in order: a node reports
-    /// these in counts only (spec/areas/network.md#holders), so they are
-    /// read from its state after each step.
+    /// these in counts only (spec/areas/network.md#the-registrar,
+    /// spec/areas/network.md#holders), so they are read from its state
+    /// after each step.
     pub name_changes: Vec<(usize, NameChange)>,
 }
 
@@ -407,6 +408,13 @@ pub enum NameChange {
         name: Name,
         /// Its holder now, if it has one.
         holder: Option<NodeId>,
+    },
+    /// The node, a registrar, granted the name to `holder`.
+    Granted {
+        /// The name.
+        name: Name,
+        /// Its holder.
+        holder: NodeId,
     },
     /// The node, a registrar, released the name it listed for `holder`.
     Released {
@@ -617,7 +625,8 @@ impl Network {
         }
         let node_now = node.now_ms;
         let sim = &mut self.nodes[index];
-        let mut changes = released(sim, &events, &batch, node_now);
+        let mut changes = granted(sim, &events, &batch);
+        changes.extend(released(sim, &events, &batch, node_now));
         let viewed = view_changes(&mut sim.seen_holders, sim.node.as_ref().unwrap());
         let reported = events
             .iter()
@@ -1183,6 +1192,34 @@ impl Network {
 }
 
 /// The name a registrar that tips off passes on: one unsealed at it.
+/// The names a registrar granted in a step, from what it persisted before
+/// and in it: a name it had no record of, or one granted anew since. As
+/// many as its events report.
+fn granted(sim: &SimNode, events: &[Event], batch: &PeerBatch) -> Vec<NameChange> {
+    let granted: Vec<NameChange> = batch
+        .names
+        .iter()
+        .filter(|granted| {
+            sim.stored_names
+                .get(&granted.name)
+                .is_none_or(|before| before.granted_ms != granted.granted_ms)
+        })
+        .map(|granted| NameChange::Granted {
+            name: granted.name,
+            holder: granted.holder,
+        })
+        .collect();
+    let reported: usize = events
+        .iter()
+        .map(|event| match event {
+            Event::Name(NameEvent::RegistrarChanged { granted, .. }) => *granted,
+            _ => 0,
+        })
+        .sum();
+    assert_eq!(granted.len(), reported, "every grant is read from state");
+    granted
+}
+
 /// The names a registrar released in a step, from what it persisted before
 /// and in it: a name it listed, unfreed, that the step freed before it
 /// expired, or freed and forgot while it was still listed. As many as its

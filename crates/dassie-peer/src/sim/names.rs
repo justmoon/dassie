@@ -487,7 +487,7 @@ fn one_holder(network: &Network, judged: &[usize]) -> Result<(), String> {
             NameChange::Holder { name, holder: None } => {
                 views.entry(index).or_default().remove(name);
             }
-            NameChange::Released { .. } => {}
+            NameChange::Granted { .. } | NameChange::Released { .. } => {}
         }
     }
     Ok(())
@@ -532,7 +532,7 @@ fn withheld(network: &Network, setup: &Setup) -> Result<(), Outcome> {
     let through = name_events(network).find(|(_, event)| {
         matches!(
             event,
-            NameEvent::Unsealing { .. } | NameEvent::Unsealed { .. } | NameEvent::Granted { .. }
+            NameEvent::Unsealing { .. } | NameEvent::Unsealed { .. }
         )
     });
     if let Some((index, event)) = through {
@@ -547,7 +547,7 @@ fn withheld(network: &Network, setup: &Setup) -> Result<(), Outcome> {
             NameChange::Holder {
                 holder: Some(_),
                 ..
-            }
+            } | NameChange::Granted { .. }
         )
     });
     if let Some((index, change)) = held {
@@ -649,18 +649,21 @@ fn released_names(network: &Network) -> u64 {
     let names: BTreeSet<Name> = name_changes(network)
         .filter_map(|(_, change)| match change {
             NameChange::Released { name, .. } => Some(*name),
-            NameChange::Holder { .. } => None,
+            NameChange::Holder { .. } | NameChange::Granted { .. } => None,
         })
         .collect();
     count(names.len())
 }
 
-/// The names `pick` finds in the name events, each once.
-fn names(network: &Network, pick: fn(&NameEvent) -> Option<Name>) -> usize {
-    let names: BTreeSet<Name> = name_events(network)
-        .filter_map(|(_, event)| pick(event))
+/// The names any registrar granted, so far, each once.
+fn granted_names(network: &Network) -> u64 {
+    let names: BTreeSet<Name> = name_changes(network)
+        .filter_map(|(_, change)| match change {
+            NameChange::Granted { name, .. } => Some(*name),
+            NameChange::Holder { .. } | NameChange::Released { .. } => None,
+        })
         .collect();
-    names.len()
+    count(names.len())
 }
 
 /// `n`, as a count.
@@ -672,7 +675,6 @@ fn count(n: usize) -> u64 {
 /// that between them they reach every case: what its registrars do, and
 /// what came of its registrations, and what the aftermath met.
 fn counts(network: &Network, setup: &Setup, seen: &Seen) -> BTreeMap<&'static str, u64> {
-    let named = |pick: fn(&NameEvent) -> Option<Name>| -> u64 { count(names(network, pick)) };
     let (held, contested) = registrations(network, setup);
     let adversary = setup.adversary();
     let role = |wanted: Option<Role>| u64::from(setup.faulty.map(|(_, role)| role) == wanted);
@@ -685,13 +687,7 @@ fn counts(network: &Network, setup: &Setup, seen: &Seen) -> BTreeMap<&'static st
             role(Some(Role::Withhold)),
         ),
         ("registrars tipping off", role(Some(Role::TipOff))),
-        (
-            "names granted",
-            named(|event| match event {
-                NameEvent::Granted { name, .. } => Some(*name),
-                _ => None,
-            }),
-        ),
+        ("names granted", granted_names(network)),
         ("registrations that must hold", count(held.len())),
         ("names contested", count(contested.len())),
         ("names released", released),
