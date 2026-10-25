@@ -316,10 +316,22 @@ impl Tunnels {
             tokio_tungstenite::client_async_with_config(request, tls, Some(websocket_config()))
                 .await
                 .map_err(|e| e.to_string())?;
-        let (local, queue, ends) = self
-            .socket
-            .open_dialled(address.ip())
-            .ok_or("too many tunnels")?;
+        self.connect_over(ws, address.ip(), host, config).await
+    }
+
+    /// A connection with `config` to `host` over `ws`, a WebSocket dialled
+    /// to `server` and upgraded at [`PATH`].
+    pub(super) async fn connect_over<S>(
+        &self,
+        ws: WebSocketStream<S>,
+        server: IpAddr,
+        host: &str,
+        config: quinn::ClientConfig,
+    ) -> Result<Connection, String>
+    where
+        S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+    {
+        let (local, queue, ends) = self.socket.open_dialled(server).ok_or("too many tunnels")?;
         let inside = Inside(ends.clone());
         let carried = carry(
             Arc::clone(&self.socket),
@@ -336,8 +348,14 @@ impl Tunnels {
             .map_err(|e| e.to_string())?
             .await
             .map_err(|e| e.to_string())?;
-        self.tasks.spawn(tie(connection.clone(), inside));
+        self.hold(connection.clone(), inside);
         Ok(connection)
+    }
+
+    /// Holds `connection`, over the tunnel `inside` names, with it until
+    /// either ends ([`tie`]).
+    pub(super) fn hold(&self, connection: Connection, inside: Inside) {
+        self.tasks.spawn(tie(connection, inside));
     }
 
     /// Ends every tunnel, once the endpoint is closed, waiting a bounded
@@ -354,8 +372,8 @@ impl Tunnels {
     }
 }
 
-/// Holds `connection`, dialled over a tunnel, with it: closes it at once
-/// when the tunnel ends, and once it closes, lets the tunnel end.
+/// Holds `connection`, over a tunnel, with it: closes it at once when the
+/// tunnel ends, and once it closes, lets the tunnel end.
 async fn tie(connection: Connection, inside: Inside) {
     tokio::select! {
         _ = connection.closed() => {}

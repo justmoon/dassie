@@ -2,8 +2,10 @@
 //! (spec/areas/peer-protocol.md#quic-over-websocket): a periphery node whose
 //! UDP does not reach its uplink connects over a tunnel, which its uplink
 //! sends and relays on as on any connection; it keeps UDP where UDP gets
-//! through; the uplink's `NO_ROOM` reaches it; the tunnel and its connection
-//! end together; and a node that does not serve tunnels is a failed dial.
+//! through; a dial too short for the tunnel is not judged; the uplink's
+//! `NO_ROOM` reaches it; the tunnel and its connection end together; and a
+//! node that does not serve tunnels is a failed dial. The bounds of the
+//! tunnels a node takes are in `limits.rs`.
 //!
 //! The uplink's URL names a port whose UDP socket drops everything, as a
 //! filter would, while its QUIC endpoint listens elsewhere, and a TLS
@@ -365,6 +367,24 @@ async fn a_core_node_never_dials_a_tunnel() {
     let response = other.quic.send(&request, &client()).await;
     assert_eq!(response.err(), Some(Failure::NotDelivered));
     assert_eq!(uplink.accepted.load(Ordering::SeqCst), 0);
+    shutdown.cancel();
+}
+
+// A periphery node's dial whose time runs out within UDP's head start never
+// tried the tunnel, so it says nothing of the node: it does not back off,
+// and the next request with time enough gets through.
+#[tokio::test]
+async fn a_dial_too_short_for_the_tunnel_does_not_back_off() {
+    let shutdown = CancellationToken::new();
+    let uplink = uplink(1, Udp::Blocked, ROOMY, &shutdown);
+    let downlink = periphery(2, &shutdown);
+    let request = request(uplink.side.id, &uplink.url, 800);
+    let response = downlink.quic.send(&request, &client()).await;
+    assert_eq!(response.err(), Some(Failure::NotDelivered));
+    assert_eq!(uplink.accepted.load(Ordering::SeqCst), 0);
+    assert!(!downlink.quic.backing_off(&uplink.side.id));
+    send(&downlink, uplink.side.id, &uplink.url).await.unwrap();
+    assert_eq!(uplink.accepted.load(Ordering::SeqCst), 1);
     shutdown.cancel();
 }
 

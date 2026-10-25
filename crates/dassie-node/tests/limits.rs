@@ -18,6 +18,7 @@ use std::time::Duration;
 use dassie_identity::NodeKey;
 use dassie_node::clock::ManualClock;
 use dassie_node::node::Policies;
+use dassie_node::quic::tunnel;
 use dassie_node::rpc::proto::{self, client_message, request::Method, response};
 use dassie_node::tls;
 use dassie_node_core::session::SessionPolicy;
@@ -29,7 +30,8 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio_rustls::TlsConnector;
 use tokio_rustls::client::TlsStream;
-use tokio_tungstenite::tungstenite::Message;
+use tokio_tungstenite::tungstenite::client::IntoClientRequest;
+use tokio_tungstenite::tungstenite::{self, Message};
 
 fn key() -> NodeKey {
     NodeKey::from_bytes(&[7; 32])
@@ -388,4 +390,96 @@ async fn loopback_is_not_counted_where_private_peers_are_allowed() {
     }
     drop(streams);
     node.stop().await;
+}
+
+/// Opens a tunnel for QUIC at `/quic`, with its subprotocol or without;
+/// the status of a refusal. The place of the connection upgraded before may
+/// take a moment to come back.
+async fn tunnel(node: &TestNode, subprotocol: bool) -> Result<Socket, u16> {
+    let mut stream = None;
+    for _ in 0..50 {
+        stream = try_tls(node.https).await;
+        if stream.is_some() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    let stream = stream.expect("no place for an HTTPS connection");
+    let mut request = format!("wss://{}{}", node.host(), tunnel::PATH)
+        .into_client_request()
+        .unwrap();
+    if subprotocol {
+        let value = tunnel::SUBPROTOCOL.parse().unwrap();
+        request
+            .headers_mut()
+            .insert("sec-websocket-protocol", value);
+    }
+    let config = Some(tunnel::websocket_config());
+    match tokio_tungstenite::client_async_with_config(request, stream, config).await {
+        Ok((socket, _)) => Ok(socket),
+        Err(tungstenite::Error::Http(response)) => Err(response.status().as_u16()),
+        Err(error) => panic!("{error}"),
+    }
+}
+
+// spec/areas/peer-protocol.md#quic-over-websocket: a tunnel leaves the
+// HTTPS listener's places once upgraded and holds one of the tunnels', in
+// all and per client, so that neither takes the other's room; a request
+// without the tunnel's subprotocol is refused; and a tunnel that carries
+// no connection ends within the time to connect, giving its place back.
+#[tokio::test]
+async fn tunnels_hold_places_of_their_own() {
+    let node = TestNode::start_with(Policies {
+        http_connections_per_client: 1,
+        ..Policies::DEFAULT
+    })
+    .await;
+    let quic = node.quic.clone().unwrap();
+    let mut tunnels = Vec::new();
+    for _ in 0..tunnel::MAX_TUNNELS_PER_CLIENT {
+        tunnels.push(tunnel(&node, true).await.unwrap());
+    }
+    assert_eq!(quic.open_tunnels(), tunnels.len());
+    // Past the client's share of tunnels, though HTTPS has room.
+    assert_eq!(tunnel(&node, true).await.err(), Some(503));
+    // The client holds its share of HTTPS connections beside its tunnels,
+    // and no more.
+    let mut first = held(node.https).await;
+    let mut second = TcpStream::connect(node.https).await.unwrap();
+    let mut buffer = [0; 16];
+    let read = tokio::time::timeout(Duration::from_secs(5), second.read(&mut buffer))
+        .await
+        .expect("a second connection was held");
+    assert!(matches!(read, Ok(0) | Err(_)), "{read:?}");
+    assert!(is_held(&mut first).await);
+    drop(first);
+    assert_eq!(tunnel(&node, false).await.err(), Some(400));
+    // Within the time to connect, and the time to close them.
+    let ending = async {
+        for socket in &mut tunnels {
+            while let Some(Ok(message)) = socket.next().await {
+                if message.is_close() {
+                    break;
+                }
+            }
+        }
+    };
+    tokio::time::timeout(Duration::from_secs(8), ending)
+        .await
+        .expect("tunnels that carry no connection stayed open");
+    until_none_open(&quic).await;
+    drop(tunnels);
+    tunnel(&node, true).await.unwrap();
+    node.stop().await;
+}
+
+/// Waits a little for the node's tunnels to be gone.
+async fn until_none_open(quic: &dassie_node::quic::Quic) {
+    for _ in 0..100 {
+        if quic.open_tunnels() == 0 {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    panic!("tunnels still open");
 }

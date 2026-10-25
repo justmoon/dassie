@@ -698,7 +698,8 @@ impl Quic {
     /// [`Failure::NotDelivered`] when nothing was sent: no connection could
     /// be made in time, the node had no room for us, or we back off from
     /// dialling it after either. A dial of its own that had at least half a
-    /// second and failed, and a node without room, start or lengthen the
+    /// second and failed (a periphery node's, half a second past its
+    /// tunnel's head start), and a node without room, start or lengthen the
     /// backoff; the time running out waiting for another request's dial, or
     /// too short to judge, does not. [`Failure::Unknown`] when the time ran
     /// out once the request may have been sent; otherwise the failure.
@@ -805,9 +806,17 @@ impl Quic {
         let left = deadline.saturating_duration_since(tokio::time::Instant::now());
         // A periphery node keeps its connections to its uplinks alive: they
         // are the only way its uplinks reach it.
-        let keep_alive = self.periphery.load(Ordering::Relaxed);
-        let Some(connection) = self.dial((to, url), resolver, left, keep_alive).await else {
-            return Err(if left >= MIN_TO_JUDGE {
+        let periphery = self.periphery.load(Ordering::Relaxed);
+        // Its dial tries the tunnel only once UDP has had its head start, so
+        // it says the node cannot be reached only if the tunnel had time to
+        // judge by too (spec/decisions/quic-over-websocket.md).
+        let to_judge = if periphery {
+            TUNNEL_HEAD_START + MIN_TO_JUDGE
+        } else {
+            MIN_TO_JUDGE
+        };
+        let Some(connection) = self.dial((to, url), resolver, left, periphery).await else {
+            return Err(if left >= to_judge {
                 NoConnection::DialFailed
             } else {
                 NoConnection::NoTime
@@ -1112,6 +1121,12 @@ impl Quic {
             () = tunnel::tunnel_ended(inside.as_ref()) => {
                 connection.close(0u32.into(), b"tunnel closed");
             }
+        }
+        // Its tunnel lasts as long as it does: at shutdown, until the
+        // endpoint closes it, so that the close goes down the tunnel, and
+        // until then it carries what is sent on it, as over UDP.
+        if let Some(inside) = inside {
+            self.tunnels.hold(connection, inside);
         }
     }
 
@@ -1536,5 +1551,148 @@ mod tests {
         assert_eq!(status, 200_u16.to_be_bytes());
         assert_eq!(answered, body);
         shutdown.cancel();
+    }
+
+    /// An endpoint on loopback with the key of `seed`, its node's ID, and
+    /// what holds its key.
+    fn endpoint_of(seed: u8) -> (Arc<Quic>, NodeId, watch::Sender<Option<Arc<NodeKey>>>) {
+        let key = Arc::new(NodeKey::from_bytes(&[seed; 32]));
+        let id = key.node_id();
+        let (identity, receiver) = watch::channel(Some(key));
+        let socket = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+        let quic = Arc::new(Quic::new(socket, receiver, true).unwrap());
+        (quic, id, identity)
+    }
+
+    /// A tunnel into `server` from `peer`, upgraded already, as the HTTPS
+    /// listener hands it over; the client's end of its WebSocket.
+    async fn tunnel_into(
+        server: &Quic,
+        peer: SocketAddr,
+    ) -> WebSocketStream<tokio::io::DuplexStream> {
+        use tokio_tungstenite::tungstenite::protocol::Role;
+        let (theirs, ours) = tokio::io::duplex(64 * 1024);
+        let config = Some(tunnel::websocket_config());
+        let served = WebSocketStream::from_raw_socket(theirs, Role::Server, config).await;
+        let config = Some(tunnel::websocket_config());
+        let ws = WebSocketStream::from_raw_socket(ours, Role::Client, config).await;
+        server.serve_tunnel(served, peer, server.tunnel_slot(None).unwrap());
+        ws
+    }
+
+    /// The settings for `client` to dial `to` over a tunnel.
+    fn over_tunnel_to(client: &Quic, to: NodeId) -> quinn::ClientConfig {
+        let transport = tunnel::over_tunnel(client_transport(IDLE_TIMEOUT, false));
+        client_config(&client.keys, to, transport).unwrap()
+    }
+
+    /// Where the tunnels in these tests come from.
+    const TUNNEL_PEER: SocketAddr =
+        SocketAddr::new(IpAddr::V4(std::net::Ipv4Addr::LOCALHOST), 40_000);
+
+    // A tunnel carries one connection: another that arrives on it is
+    // refused before it is set up, and the first goes on.
+    #[tokio::test]
+    async fn a_tunnel_carries_one_connection() {
+        let shutdown = CancellationToken::new();
+        let (server, server_id, _server_key) = endpoint_of(1);
+        tokio::spawn(Arc::clone(&server).serve(Arc::new(Echo), shutdown.clone()));
+        let (client, _, _client_key) = endpoint_of(2);
+        let ws = tunnel_into(&server, TUNNEL_PEER).await;
+        let first = client
+            .tunnels
+            .connect_over(
+                ws,
+                TUNNEL_PEER.ip(),
+                "dassie",
+                over_tunnel_to(&client, server_id),
+            )
+            .await
+            .unwrap();
+        // The same tunnel's address, so its packets go down the same
+        // WebSocket.
+        let second = client
+            .tunnels
+            .endpoint()
+            .connect_with(
+                over_tunnel_to(&client, server_id),
+                first.remote_address(),
+                "dassie",
+            )
+            .unwrap();
+        let refused = tokio::time::timeout(CONNECT_TIMEOUT, second)
+            .await
+            .expect("the second connection was neither refused nor set up");
+        assert!(
+            matches!(
+                &refused,
+                Err(quinn::ConnectionError::ConnectionClosed(close))
+                    if close.error_code == quinn::TransportErrorCode::CONNECTION_REFUSED
+            ),
+            "{refused:?}"
+        );
+        assert_eq!(server.tunnels.endpoint().open_connections(), 1);
+        assert_eq!(server.open_tunnels(), 1);
+        let answer = exchange(&first, b"hello").await.unwrap();
+        assert_eq!(answer.body, b"hello");
+        shutdown.cancel();
+    }
+
+    // At shutdown, a tunnel lasts until the endpoint closes the connection
+    // inside, while requests elsewhere still drain: the connection carries
+    // until then, as over UDP, and its close goes down the tunnel.
+    #[tokio::test]
+    async fn at_shutdown_a_tunnel_carries_its_connections_close() {
+        let shutdown = CancellationToken::new();
+        let (server, server_id, _server_key) = endpoint_of(1);
+        let serving = tokio::spawn(Arc::clone(&server).serve(Arc::new(Echo), shutdown.clone()));
+        // A request in progress over UDP holds up the drain.
+        let (other, _, _other_key) = endpoint_of(3);
+        let config = client_config(
+            &other.keys,
+            server_id,
+            client_transport(IDLE_TIMEOUT, false),
+        )
+        .unwrap();
+        let held = other
+            .endpoint
+            .connect_with(config, server.local_addr().unwrap(), "dassie")
+            .unwrap()
+            .await
+            .unwrap();
+        let (mut send, mut recv) = held.open_bi().await.unwrap();
+        send.write_all(&[StreamKind::Peer.byte(), 7]).await.unwrap();
+        let (client, _, _client_key) = endpoint_of(2);
+        let ws = tunnel_into(&server, TUNNEL_PEER).await;
+        let tunnelled = client
+            .tunnels
+            .connect_over(
+                ws,
+                TUNNEL_PEER.ip(),
+                "dassie",
+                over_tunnel_to(&client, server_id),
+            )
+            .await
+            .unwrap();
+        exchange(&tunnelled, b"hello").await.unwrap();
+        shutdown.cancel();
+        // Well past the time a tunnel lingers once its connection is done.
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        assert!(tunnelled.close_reason().is_none());
+        assert_eq!(server.open_tunnels(), 1);
+        send.finish().unwrap();
+        let answer = read_in_order(&mut recv, 4096).await.unwrap();
+        assert_eq!(answer, [&200_u16.to_be_bytes()[..], &[7]].concat());
+        let closed = tokio::time::timeout(Duration::from_secs(5), tunnelled.closed())
+            .await
+            .expect("the tunnelled connection stayed open");
+        match closed {
+            quinn::ConnectionError::ApplicationClosed(close) => {
+                assert_eq!(&close.reason[..], b"shutting down");
+            }
+            other => panic!("{other:?}"),
+        }
+        serving.await.unwrap();
+        assert_eq!(server.open_tunnels(), 0);
     }
 }
