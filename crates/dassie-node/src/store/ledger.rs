@@ -22,6 +22,10 @@ pub struct LedgerBatch {
     pub at_ms: u64,
     /// The ledger's journal entries, in order.
     pub journal: Vec<JournalEntry>,
+    /// Peers' accounts opened for downlinks, by ledger and node, written
+    /// after the journal that opens them
+    /// (spec/decisions/account-budgets.md).
+    pub downlink_accounts: Vec<(LedgerId, Name)>,
     /// Settlement schemes activated, with their config.
     pub schemes_added: Vec<(Name, String)>,
     /// Settlement schemes deactivated. Their checkpoints stay. Written
@@ -69,6 +73,7 @@ impl LedgerBatch {
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.journal.is_empty()
+            && self.downlink_accounts.is_empty()
             && self.schemes_added.is_empty()
             && self.schemes_removed.is_empty()
             && self.checkpoints.is_empty()
@@ -229,6 +234,26 @@ impl Store {
         })
     }
 
+    /// The peers' accounts opened for downlinks, by ledger and node
+    /// (spec/decisions/account-budgets.md).
+    pub fn downlink_accounts(&self) -> Result<Vec<(LedgerId, Name)>, StoreError> {
+        let connection = self.lock();
+        let mut statement = connection
+            .prepare("SELECT ledger, node FROM downlink_accounts ORDER BY ledger, node")?;
+        statement
+            .query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })?
+            .map(|row| {
+                let (ledger, node) = row?;
+                Ok((
+                    LedgerId::parse(&ledger).ok_or(StoreError::Corrupt("downlink ledger"))?,
+                    name(&node, "downlink node")?,
+                ))
+            })
+            .collect()
+    }
+
     /// The active settlement schemes and their config, by ID.
     pub fn settlement_schemes(&self) -> Result<Vec<(Name, String)>, StoreError> {
         let connection = self.lock();
@@ -330,6 +355,12 @@ impl Store {
         let transaction = connection.transaction()?;
         for entry in &batch.journal {
             write_entry(&transaction, entry)?;
+        }
+        for (ledger, node) in &batch.downlink_accounts {
+            transaction.execute(
+                "INSERT INTO downlink_accounts (ledger, node) VALUES (?1, ?2)",
+                params![ledger.as_str(), node.as_str()],
+            )?;
         }
         write_settlement(&transaction, batch)?;
         write_tokens(&transaction, batch)?;

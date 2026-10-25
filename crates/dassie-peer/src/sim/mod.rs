@@ -123,6 +123,7 @@ impl PeeringHooks for StubHooks {
         &mut self,
         _: u64,
         _: NodeId,
+        _: bool,
         _: SchemeId,
         _: u16,
         _: &[u8],

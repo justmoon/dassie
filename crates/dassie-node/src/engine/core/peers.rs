@@ -2,7 +2,7 @@
 //! the ledger, peers as connector endpoints, routes, and packets over the
 //! peer protocol (spec/areas/network.md#peering).
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use dassie_connector::{Connector, EndpointId};
 use dassie_identity::NodeId;
@@ -37,6 +37,11 @@ pub(super) struct Hooks<'a> {
     pub assets: &'a BTreeMap<AssetId, ActiveAsset>,
     /// The database, for what stays of closed settlement channels.
     pub store: &'a Store,
+    /// The peers' accounts opened for downlinks, by ledger and node
+    /// (spec/decisions/account-budgets.md).
+    pub downlink_accounts: &'a mut BTreeSet<(LedgerId, Name)>,
+    /// Those opened in this step, for the batch.
+    pub downlink_accounts_opened: &'a mut Vec<(LedgerId, Name)>,
 }
 
 impl Hooks<'_> {
@@ -74,10 +79,20 @@ impl Hooks<'_> {
     }
 
     /// Opens the peer's accounts and extends it `start`, once (ACC-5). New
-    /// ones only while peers' accounts leave room for the node's own: they
-    /// stay when a channel closes, so the node's ever-growing number of
-    /// former peers must not take the room its tokens and ledgers need.
-    fn open(&mut self, now_ms: u64, peer: NodeId, ledger: LedgerId, start: u64) -> Result<(), ()> {
+    /// ones only while its kind's share of the peers' account room has
+    /// some left: they stay when a channel closes, so the node's
+    /// ever-growing number of former peers must not take the room its
+    /// tokens and ledgers need, nor former downlinks the room for peering
+    /// with core nodes, or the reverse (spec/decisions/account-budgets.md).
+    /// Accounts already open are the kind they were opened as.
+    fn open(
+        &mut self,
+        now_ms: u64,
+        peer: NodeId,
+        downlink: bool,
+        ledger: LedgerId,
+        start: u64,
+    ) -> Result<(), ()> {
         let name = Name::new(peer.as_str()).map_err(|_| ())?;
         let fresh = self
             .ledger
@@ -86,13 +101,20 @@ impl Hooks<'_> {
                 AccountName::AssetsInterledger(name),
             ))
             .is_none();
-        if fresh && !room_for_peer(self.ledger) {
+        if fresh && !room_for_peer(self.ledger, self.downlink_accounts, downlink) {
             return Err(());
         }
-        self.ledger
+        let (_, opened) = self
+            .ledger
             .open_peer(now_ms, ledger, name, start)
-            .map(|_| ())
-            .map_err(|_| ())
+            .map_err(|_| ())?;
+        assert_eq!(opened, fresh, "a peer's accounts open once");
+        if opened && downlink {
+            let inserted = self.downlink_accounts.insert((ledger, name));
+            assert!(inserted, "a downlink's new accounts are recorded once");
+            self.downlink_accounts_opened.push((ledger, name));
+        }
+        Ok(())
     }
 }
 
@@ -111,11 +133,25 @@ fn name(peer: NodeId) -> Option<Name> {
     Name::new(peer.as_str()).ok()
 }
 
-/// Whether another peer's two accounts fit beside the peers' accounts
-/// already open, with room left for every account the node opens for
-/// itself ([`OWN_ACCOUNTS`]).
-pub(super) fn room_for_peer(ledger: &Ledger) -> bool {
-    let peers = ledger
+/// The accounts peers of one kind may take, downlinks or core peers: an
+/// even share of what the ledger's accounts leave beside every account the
+/// node opens for itself ([`OWN_ACCOUNTS`]), so neither kind's former peers
+/// ever take the other's room (spec/decisions/account-budgets.md).
+pub(super) fn peer_budget(max_accounts: u32, downlink: bool) -> usize {
+    let room = usize::try_from(max_accounts)
+        .unwrap_or(usize::MAX)
+        .saturating_sub(OWN_ACCOUNTS);
+    let downlinks = room / 2;
+    if downlink {
+        downlinks
+    } else {
+        room - downlinks
+    }
+}
+
+/// The peers' accounts on every ledger: two for each peer and ledger.
+pub(super) fn peer_accounts(ledger: &Ledger) -> usize {
+    ledger
         .accounts()
         .filter(|(_, account)| {
             matches!(
@@ -123,9 +159,34 @@ pub(super) fn room_for_peer(ledger: &Ledger) -> bool {
                 AccountName::AssetsInterledger(_) | AccountName::ContraTrust(_)
             )
         })
-        .count();
-    let most = usize::try_from(ledger.config().max_accounts).unwrap_or(usize::MAX);
-    peers + 2 <= most.saturating_sub(OWN_ACCOUNTS)
+        .count()
+}
+
+/// Whether `node` has both its accounts on `on`.
+pub(super) fn has_accounts(ledger: &Ledger, on: LedgerId, node: Name) -> bool {
+    [
+        AccountName::AssetsInterledger(node),
+        AccountName::ContraTrust(node),
+    ]
+    .into_iter()
+    .all(|name| ledger.find(&AccountPath::new(on, name)).is_some())
+}
+
+/// Whether another peer's two accounts fit in its kind's share of the
+/// peers' room, beside the accounts that kind already took: a downlink's
+/// those opened for downlinks, a core peer's every other peer's.
+pub(super) fn room_for_peer(
+    ledger: &Ledger,
+    downlink_accounts: &BTreeSet<(LedgerId, Name)>,
+    downlink: bool,
+) -> bool {
+    let downlinks = 2 * downlink_accounts.len();
+    let taken = if downlink {
+        downlinks
+    } else {
+        peer_accounts(ledger).saturating_sub(downlinks)
+    };
+    taken + 2 <= peer_budget(ledger.config().max_accounts, downlink)
 }
 
 impl PeeringHooks for Hooks<'_> {
@@ -161,6 +222,7 @@ impl PeeringHooks for Hooks<'_> {
         &mut self,
         now_ms: u64,
         peer: NodeId,
+        downlink: bool,
         scheme: SchemeId,
         _version: u16,
         data: &[u8],
@@ -184,7 +246,7 @@ impl PeeringHooks for Hooks<'_> {
             .scheme
             .accept_peering_request(peer_name, data, response)
             .map_err(|_| RefusalReason::SchemeRefused)?;
-        self.open(now_ms, peer, ledger, start)
+        self.open(now_ms, peer, downlink, ledger, start)
             .map_err(|()| RefusalReason::Capacity)?;
         // Only now is the peering made: a request refused takes none of
         // the scheme's room.
@@ -219,7 +281,8 @@ impl PeeringHooks for Hooks<'_> {
             .scheme
             .finalize_peering_request(peer_name, info, data)
             .map_err(|_| Declined)?;
-        self.open(now_ms, peer, ledger, start)
+        // We ask only core nodes: a periphery node is asked by nobody.
+        self.open(now_ms, peer, false, ledger, start)
             .map_err(|()| Declined)?;
         // A trust account from an earlier peering may hold less, from a
         // time we were the senior: a junior extends at least the default,
@@ -252,6 +315,14 @@ impl PeeringHooks for Hooks<'_> {
         else {
             return EntryPayment::NotTaken;
         };
+        // Its accounts must fit the downlinks' share, or it is refused for
+        // capacity before it is told to pay, and never let in on a payment
+        // the peering would then refuse (spec/decisions/account-budgets.md).
+        if !has_accounts(self.ledger, active.scheme.ledger(), peer)
+            && !room_for_peer(self.ledger, self.downlink_accounts, true)
+        {
+            return EntryPayment::NotTaken;
+        }
         match active.scheme.entry(peer, data) {
             dassie_settlement::EntryPayment::NotTaken => EntryPayment::NotTaken,
             dassie_settlement::EntryPayment::Missing => EntryPayment::Missing,
@@ -483,6 +554,8 @@ impl Core {
             endpoints: &self.peer_endpoints,
             assets: &self.assets,
             store: &self.store,
+            downlink_accounts: &mut self.downlink_accounts,
+            downlink_accounts_opened: &mut self.batch.downlink_accounts,
         };
         f(&mut self.peer, &mut hooks, now)
     }

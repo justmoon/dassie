@@ -333,6 +333,10 @@ pub struct Core {
     work: Vec<u8>,
     /// The peer protocol.
     peer: dassie_peer::PeerNode,
+    /// The peers' accounts opened for downlinks, by ledger and node: they
+    /// take the downlinks' share of the peers' account room, for good
+    /// (spec/decisions/account-budgets.md).
+    downlink_accounts: std::collections::BTreeSet<(dassie_ledger::LedgerId, Name)>,
     /// Peers' connector endpoints, both ways.
     peer_endpoints: BTreeMap<dassie_identity::NodeId, u64>,
     endpoint_peers: BTreeMap<u64, dassie_identity::NodeId>,
@@ -451,21 +455,16 @@ impl Core {
             parts.peer_rng,
             now_ms,
         )?;
-        let CoreParts {
-            store,
-            key,
-            policies,
-            rng,
-            ..
-        } = parts;
-        let ledger = restore_ledger(&store, policies.ledger)?;
-        let connector = new_connector(&store, &key, parts.realm, &policies)?;
-        let (checkpoints, asset_checkpoints) = checkpoints(&store)?;
+        let policies = parts.policies;
+        let ledger = restore_ledger(&parts.store, policies.ledger)?;
+        let downlink_accounts = restore_downlink_accounts(&parts.store, &ledger)?;
+        let connector = new_connector(&parts.store, &parts.key, parts.realm, &policies)?;
+        let (checkpoints, asset_checkpoints) = checkpoints(&parts.store)?;
         let mut core = Self {
-            store,
-            rng,
+            store: parts.store,
+            rng: parts.rng,
             now_ms,
-            key,
+            key: parts.key,
             ledger,
             connector,
             prices: Prices::default(),
@@ -491,6 +490,7 @@ impl Core {
             scratch: vec![0; BUFFER_LENGTH.max(MAX_PACKET_LENGTH)],
             work: vec![0; BUFFER_LENGTH],
             peer,
+            downlink_accounts,
             peer_endpoints: BTreeMap::new(),
             endpoint_peers: BTreeMap::new(),
             next_peer_endpoint: 0,
@@ -1009,11 +1009,14 @@ fn check_bounds(policies: &Policies) {
         "the XRPL scheme keeps an address for every settlement channel"
     );
     // Peers' accounts stay when their channels close, and leave room for
-    // the node's own (spec/decisions/closing-channels.md): what is left
-    // takes at least every open channel's on one ledger.
+    // the node's own (spec/decisions/closing-channels.md): what is left is
+    // shared between core peers and downlinks, and each share takes at
+    // least every open channel's of its kind on one ledger
+    // (spec/decisions/account-budgets.md).
+    let max_accounts = policies.ledger.max_accounts;
     assert!(
-        usize::try_from(policies.ledger.max_accounts).unwrap_or(usize::MAX)
-            >= ledgers::OWN_ACCOUNTS + 2 * (policies.peer.max_channels + downlinks),
+        peers::peer_budget(max_accounts, false) >= 2 * policies.peer.max_channels
+            && peers::peer_budget(max_accounts, true) >= 2 * downlinks,
         "the accounts hold the node's own and every open channel's"
     );
 }
@@ -1161,6 +1164,24 @@ fn restore_ledger(store: &Store, config: dassie_ledger::Config) -> Result<Ledger
         stored.next_transfer,
     )
     .map_err(text)
+}
+
+/// The peers' accounts opened for downlinks, each of which the journal
+/// must have opened (spec/decisions/account-budgets.md).
+fn restore_downlink_accounts(
+    store: &Store,
+    ledger: &Ledger,
+) -> Result<std::collections::BTreeSet<(dassie_ledger::LedgerId, Name)>, String> {
+    let pairs = store.downlink_accounts().map_err(text)?;
+    if let Some((on, node)) = pairs
+        .iter()
+        .find(|(on, node)| !peers::has_accounts(ledger, *on, *node))
+    {
+        return Err(format!(
+            "the downlink {node} has no accounts on {on}, though they were opened"
+        ));
+    }
+    Ok(pairs.into_iter().collect())
 }
 
 fn text(error: impl std::fmt::Display) -> String {

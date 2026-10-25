@@ -4,6 +4,7 @@ Each file records one choice between real alternatives: the facts that forced it
 
 | Decision | Title | Areas |
 |---|---|---|
+| [account-budgets](account-budgets.md) | Core peers and downlinks each have a share of the peers' accounts, counted by the kind they were opened as | settlement, network, ledger |
 | [bootstrap-network](bootstrap-network.md) | Bootstrap network for v1 | network |
 | [build-system](build-system.md) | Build system | engineering, release |
 | [close-rather-than-lower](close-rather-than-lower.md) | A receiver never lowers a maximum it told: it closes a connection that no longer fits | stream, payments |

@@ -62,6 +62,7 @@ const MIGRATIONS: &[&str] = &[
     MIGRATION_38,
     MIGRATION_39,
     MIGRATION_40,
+    MIGRATION_41,
 ];
 
 /// The schema version this code writes: the number of migrations.
@@ -1259,6 +1260,24 @@ ALTER TABLE settlement_channels ADD COLUMN paid_us INTEGER NOT NULL DEFAULT 0
   CHECK (paid_us IN (0, 1));
 ";
 
+/// The peers' accounts opened for downlinks, by ledger and node: they take
+/// the downlinks' share of the peers' account room, for good, as the
+/// accounts stay (spec/decisions/account-budgets.md). A node that kept no
+/// record has its downlinks' accounts found by their settlement channels,
+/// whose URL is empty for a downlink.
+const MIGRATION_41: &str = "
+CREATE TABLE downlink_accounts (
+  ledger TEXT NOT NULL CHECK (length(ledger) BETWEEN 1 AND 32),
+  node TEXT NOT NULL CHECK (length(node) BETWEEN 2 AND 45),
+  PRIMARY KEY (ledger, node)
+) STRICT, WITHOUT ROWID;
+INSERT INTO downlink_accounts (ledger, node)
+  SELECT substr(a.path, 1, instr(a.path, ':') - 1), c.node
+  FROM settlement_channels c JOIN ledger_accounts a
+    ON substr(a.path, instr(a.path, ':') + 1) = 'assets/interledger/' || c.node
+  WHERE c.url = '';
+";
+
 /// Columns that hold secrets: the database inspector never reads them.
 pub const SECRET_COLUMNS: &[(&str, &str)] = &[
     ("node_key", "private_key"),
@@ -1575,6 +1594,11 @@ pub const TABLES: &[Table] = &[
             ("started_ms", "INTEGER", true, false),
             ("stage", "TEXT", true, false),
         ],
+    },
+    Table {
+        name: "downlink_accounts",
+        without_rowid: true,
+        columns: &[("ledger", "TEXT", true, true), ("node", "TEXT", true, true)],
     },
     Table {
         name: "incoming_payments",

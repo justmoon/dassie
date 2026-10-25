@@ -51,7 +51,19 @@ impl Core {
         self.check_outgoing();
         self.check_probes();
         self.check_settling();
+        self.check_downlink_accounts();
         self.events.check_invariants();
+    }
+
+    /// The accounts recorded as opened for downlinks are open
+    /// (spec/decisions/account-budgets.md).
+    fn check_downlink_accounts(&self) {
+        for (on, node) in &self.downlink_accounts {
+            assert!(
+                super::peers::has_accounts(&self.ledger, *on, *node),
+                "a downlink's recorded accounts are open"
+            );
+        }
     }
 
     /// Our settlements in progress: each is its pending transfer, and what

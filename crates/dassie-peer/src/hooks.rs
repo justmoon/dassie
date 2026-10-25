@@ -64,7 +64,9 @@ pub trait PeeringHooks {
     ) -> Result<(), Declined>;
 
     /// Accepts a request from `peer`: opens its accounts, and writes the
-    /// scheme's response into `response`. Called
+    /// scheme's response into `response`. `downlink` says it peers as our
+    /// downlink, whose accounts take the downlinks' room, never the core
+    /// peers' (spec/decisions/account-budgets.md). Called
     /// again for a peer already peered (spec/decisions/peering-lifecycle.md),
     /// which must change nothing.
     ///
@@ -76,6 +78,7 @@ pub trait PeeringHooks {
         &mut self,
         now_ms: u64,
         peer: NodeId,
+        downlink: bool,
         scheme: SchemeId,
         version: u16,
         data: &[u8],

@@ -1044,18 +1044,8 @@ fn a_junior_extends_at_least_the_default_credit() {
         .open_peer(NOW, LedgerId::StubUsd, name, core.senior_credit)
         .unwrap();
     let scheme = dassie_peer::wire::SchemeId::parse("stub").unwrap();
-    let mut hooks = super::peers::Hooks {
-        schemes: &mut core.schemes,
-        ledger: &mut core.ledger,
-        credit: core.peer_credit,
-        senior_credit: core.senior_credit,
-        connector: &core.connector,
-        endpoints: &core.peer_endpoints,
-        assets: &core.assets,
-        store: &core.store,
-    };
-    let agreed = hooks
-        .finalize(NOW, peer, scheme, 1, &[], &[], false)
+    let agreed = core
+        .with_peer(|_, hooks, _| hooks.finalize(NOW, peer, scheme, 1, &[], &[], false))
         .unwrap();
     assert_eq!(agreed.credit_out, Policies::DEFAULT.peer_credit);
     let contra = core
@@ -1086,18 +1076,8 @@ fn a_junior_keeps_the_lower_credit_of_a_peer_it_ended_for_room() {
         .open_peer(NOW, LedgerId::StubUsd, name, core.senior_credit)
         .unwrap();
     let scheme = dassie_peer::wire::SchemeId::parse("stub").unwrap();
-    let mut hooks = super::peers::Hooks {
-        schemes: &mut core.schemes,
-        ledger: &mut core.ledger,
-        credit: core.peer_credit,
-        senior_credit: core.senior_credit,
-        connector: &core.connector,
-        endpoints: &core.peer_endpoints,
-        assets: &core.assets,
-        store: &core.store,
-    };
-    let agreed = hooks
-        .finalize(NOW, peer, scheme, 1, &[], &[], true)
+    let agreed = core
+        .with_peer(|_, hooks, _| hooks.finalize(NOW, peer, scheme, 1, &[], &[], true))
         .unwrap();
     assert_eq!(agreed.credit_out, core.senior_credit);
     assert!(core.senior_credit < Policies::DEFAULT.peer_credit);
@@ -1163,28 +1143,40 @@ fn a_settlement_of_a_largest_packet_marks_its_payer() {
     assert!(!paid(&core, &short));
 }
 
-// spec/decisions/closing-channels.md: peers' accounts stay when their
-// channels close, so new ones stop where the room the node keeps for its own
-// accounts begins; a peer whose accounts are open peers again regardless.
+// spec/decisions/closing-channels.md, spec/decisions/account-budgets.md:
+// peers' accounts stay when their channels close, so new ones stop where the
+// room the node keeps for its own accounts begins, each kind of peer within
+// its share of what is left; a peer whose accounts are open peers again
+// regardless.
 #[test]
 fn peers_accounts_leave_room_for_the_nodes_own() {
+    use std::collections::BTreeSet;
+
     use dassie_ledger::{Config, Ledger, LedgerId, Name};
 
-    let most = super::ledgers::OWN_ACCOUNTS + 4;
+    let most = super::ledgers::OWN_ACCOUNTS + 8;
+    let max_accounts = u32::try_from(most).unwrap();
+    assert_eq!(super::peers::peer_budget(max_accounts, false), 4);
+    assert_eq!(super::peers::peer_budget(max_accounts, true), 4);
     let mut ledger = Ledger::new(Config {
-        max_accounts: u32::try_from(most).unwrap(),
+        max_accounts,
         ..Config::DEFAULT
     });
-    for peer in ["a", "b"] {
-        assert!(super::peers::room_for_peer(&ledger));
-        ledger
-            .open_peer(NOW, LedgerId::StubUsd, Name::new(peer).unwrap(), 1)
-            .unwrap();
+    let mut downlinks = BTreeSet::new();
+    for (peer, downlink) in [("a", false), ("b", true), ("c", false), ("d", true)] {
+        assert!(super::peers::room_for_peer(&ledger, &downlinks, downlink));
+        let name = Name::new(peer).unwrap();
+        ledger.open_peer(NOW, LedgerId::StubUsd, name, 1).unwrap();
+        if downlink {
+            downlinks.insert((LedgerId::StubUsd, name));
+        }
     }
-    assert!(
-        !super::peers::room_for_peer(&ledger),
-        "the rest is the node's"
-    );
+    for downlink in [false, true] {
+        assert!(
+            !super::peers::room_for_peer(&ledger, &downlinks, downlink),
+            "the rest is the node's"
+        );
+    }
     // Whatever the peers took, the node's own accounts still open, the
     // owner's pool first: each batch takes the journal, as the node's step
     // does.
@@ -1199,6 +1191,100 @@ fn peers_accounts_leave_room_for_the_nodes_own() {
             .open(path(dassie_ledger::AccountName::EquityOwnerSub(sub)))
             .unwrap();
     }
+}
+
+/// Accepts a peering request from the node of key `[seed, 1, ..]` on the
+/// stub, as a downlink's if `downlink`: whether its accounts opened, or why
+/// not.
+fn accept_on_stub(
+    core: &mut Core,
+    seed: u32,
+    downlink: bool,
+) -> Result<(), dassie_peer::wire::RefusalReason> {
+    use dassie_peer::PeeringHooks;
+
+    let mut bytes = [1; 32];
+    bytes[..4].copy_from_slice(&seed.to_be_bytes());
+    let peer = NodeKey::from_bytes(&bytes).node_id();
+    let scheme = dassie_peer::wire::SchemeId::parse("stub").unwrap();
+    let mut response = Vec::new();
+    let accepted = core
+        .with_peer(|_, hooks, _| hooks.accept(NOW, peer, downlink, scheme, 1, &[], &mut response));
+    core.take_journal();
+    accepted.map(|_| ())
+}
+
+// spec/decisions/account-budgets.md: downlinks, which anyone may make by
+// minting keys, open accounts only within their own share of the peers'
+// account room. Once they filled it, core nodes still peer, inbound and
+// outbound, and the other way round.
+#[test]
+fn downlinks_never_take_the_room_core_peers_need() {
+    use dassie_peer::PeeringHooks;
+    use dassie_peer::wire::RefusalReason;
+
+    let mut core = core(7);
+    core.add_scheme("stub", String::new()).unwrap();
+    let max_accounts = Policies::DEFAULT.ledger.max_accounts;
+    let pairs = u32::try_from(super::peers::peer_budget(max_accounts, true) / 2).unwrap();
+    for seed in 0..pairs {
+        accept_on_stub(&mut core, seed, true).unwrap();
+    }
+    assert_eq!(
+        accept_on_stub(&mut core, pairs, true),
+        Err(RefusalReason::Capacity),
+        "the downlinks' share is full"
+    );
+    // A downlink whose accounts are open peers again regardless.
+    accept_on_stub(&mut core, 0, true).unwrap();
+    assert_eq!(
+        core.downlink_accounts.len(),
+        usize::try_from(pairs).unwrap()
+    );
+    // Core peers have all their room, inbound and outbound.
+    let core_pairs = u32::try_from(super::peers::peer_budget(max_accounts, false) / 2).unwrap();
+    for seed in pairs + 1..pairs + core_pairs {
+        accept_on_stub(&mut core, seed, false).unwrap();
+    }
+    let scheme = dassie_peer::wire::SchemeId::parse("stub").unwrap();
+    let last = NodeKey::from_bytes(&[2; 32]).node_id();
+    core.with_peer(|_, hooks, _| hooks.finalize(NOW, last, scheme, 1, &[], &[], false))
+        .unwrap();
+    core.take_journal();
+    assert_eq!(
+        accept_on_stub(&mut core, pairs + core_pairs, false),
+        Err(RefusalReason::Capacity),
+        "the core peers' share is full"
+    );
+    // A core node that turned periphery keeps its accounts, opened as a core
+    // peer's, and peers again; the downlinks' count stays as it was.
+    accept_on_stub(&mut core, pairs + 1, true).unwrap();
+    assert_eq!(
+        core.downlink_accounts.len(),
+        usize::try_from(pairs).unwrap()
+    );
+    core.check_invariants();
+}
+
+// spec/decisions/account-budgets.md: which share a downlink's accounts take
+// is kept with them, so a restart counts them where they were.
+#[test]
+fn the_downlinks_accounts_are_known_after_a_restart() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Arc::new(Store::open(dir.path()).unwrap());
+    let (mut core, downlink) = stub_core_with_downlink(Arc::clone(&store));
+    let name = dassie_ledger::Name::new(downlink.as_str()).unwrap();
+    let pair = (dassie_ledger::LedgerId::StubUsd, name);
+    assert!(core.downlink_accounts.contains(&pair));
+    accept_on_stub(&mut core, 1, false).unwrap();
+    core.flush();
+    drop(core);
+    let refused = dassie_node_core::config::LiveRealm::Refused;
+    let core = core_taking_downlinks(store, Realm::Test, refused, NOW + 2_000);
+    assert_eq!(
+        core.downlink_accounts.iter().copied().collect::<Vec<_>>(),
+        [pair]
+    );
 }
 
 // spec/decisions/closing-channels.md: the books let a former peer's channel
@@ -1855,6 +1941,78 @@ fn a_newcomer_that_paid_to_enter_is_taken_and_booked_once() {
         "once"
     );
     assert!(core.peer.channel(&id).unwrap().paid_us);
+}
+
+/// Fills the downlinks' share of `core`'s peers' accounts with former
+/// downlinks' accounts on the stub's ledger.
+fn fill_downlinks_share(core: &mut Core) {
+    let mut seed = 0u32;
+    while super::peers::room_for_peer(&core.ledger, &core.downlink_accounts, true) {
+        let mut bytes = [3; 32];
+        bytes[..4].copy_from_slice(&seed.to_be_bytes());
+        let node = NodeKey::from_bytes(&bytes).node_id();
+        let name = dassie_ledger::Name::new(node.as_str()).unwrap();
+        core.ledger
+            .open_peer(NOW, dassie_ledger::LedgerId::StubUsd, name, 0)
+            .unwrap();
+        core.downlink_accounts
+            .insert((dassie_ledger::LedgerId::StubUsd, name));
+        core.batch
+            .downlink_accounts
+            .push((dassie_ledger::LedgerId::StubUsd, name));
+        core.take_journal();
+        seed += 1;
+    }
+}
+
+// spec/decisions/pay-to-enter.md, spec/decisions/account-budgets.md: past a
+// full free half, a newcomer whose accounts would not fit the downlinks'
+// share is refused for capacity, not told to pay: a payment it made would
+// get it no peering. One that paid anyway is refused all the same, and its
+// payment stays held, not booked.
+#[test]
+fn a_newcomer_without_room_for_its_accounts_is_not_told_to_pay() {
+    use dassie_ledger::LedgerId;
+    use dassie_peer::wire::RefusalReason;
+    use dassie_xrpl::Wallet;
+
+    const SCHEME: &str = "xrpl-testnet";
+    let (mut ledger, uplink) = funded_ledger();
+    let store = Arc::new(Store::open_in_memory().unwrap());
+    let mut core = core_taking_few_downlinks(Arc::clone(&store), 2, NOW);
+    core.add_scheme("stub", String::new()).unwrap();
+    core.add_scheme(SCHEME, trusting_fake(SCHEME, SHARED_CONFIG))
+        .unwrap();
+    follow_xrpl(&mut core, &mut ledger);
+    let free = Arc::new(NodeKey::from_bytes(&[11; 32]));
+    assert_eq!(
+        asks_as_downlink(&mut core, &free, NOW + 1_000, ("stub", &[])),
+        None
+    );
+    fill_downlinks_share(&mut core);
+    let newcomer = Arc::new(NodeKey::from_bytes(&[12; 32]));
+    let wallet = Wallet::from_seed([12; 16]);
+    ledger.fund(wallet.account());
+    close_xrpl(&mut core, &mut ledger);
+    let data = address_data(wallet.account());
+    let ask = |core: &mut Core, at: u64| asks_as_downlink(core, &newcomer, at, (SCHEME, &data));
+    assert_eq!(ask(&mut core, NOW + 2_000), Some(RefusalReason::Capacity));
+    pay_to_enter(&mut ledger, &wallet, uplink, &newcomer, 100_000);
+    let owner_before = core.owner_available(LedgerId::XrplTestnetXrp);
+    close_xrpl(&mut core, &mut ledger);
+    // A new session, as a newcomer that paid would ask in.
+    core.flush();
+    drop(core);
+    let mut core = core_taking_few_downlinks(Arc::clone(&store), 2, NOW + 3_000);
+    follow_xrpl(&mut core, &mut ledger);
+    assert_eq!(ask(&mut core, NOW + 4_000), Some(RefusalReason::Capacity));
+    assert!(core.peer.peering_of(&newcomer.node_id()).is_none());
+    assert_eq!(
+        core.owner_available(LedgerId::XrplTestnetXrp),
+        owner_before,
+        "still held"
+    );
+    core.check_invariants();
 }
 
 /// Closes a ledger of `ledger`, and hands the XRP Ledger account what its
