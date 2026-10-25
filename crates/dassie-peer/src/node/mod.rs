@@ -231,6 +231,9 @@ pub struct PeerNode {
     pub(crate) network_probes: NetworkBuckets,
     pub(crate) outputs: VecDeque<Output>,
     events: VecDeque<Event>,
+    /// Every event ever queued, wrapping: how a step tells how many it
+    /// queued, whatever the queue dropped.
+    events_queued: u64,
     pub(crate) dirty: BTreeSet<NodeId>,
     pub(crate) removed: Vec<NodeId>,
     pub(crate) registrations: Bucket,
@@ -318,6 +321,7 @@ impl PeerNode {
             network_probes: NetworkBuckets::new(config.max_probe_networks),
             outputs: VecDeque::new(),
             events: VecDeque::new(),
+            events_queued: 0,
             dirty: BTreeSet::new(),
             removed: Vec::new(),
             registrations: Bucket::full(config.registration_rate, now_ms),
@@ -469,6 +473,19 @@ impl PeerNode {
             self.events.pop_front();
         }
         self.events.push_back(event);
+        self.events_queued = self.events_queued.wrapping_add(1);
+    }
+
+    /// The count of events queued so far, to compare with
+    /// [`events_since`](Self::events_since).
+    pub(crate) const fn events_queued(&self) -> u64 {
+        self.events_queued
+    }
+
+    /// How many events were queued since `before`, a count of
+    /// [`events_queued`](Self::events_queued).
+    pub(crate) const fn events_since(&self, before: u64) -> u64 {
+        self.events_queued.wrapping_sub(before)
     }
 
     /// The key and URL to reach `node`: from its link state, or the

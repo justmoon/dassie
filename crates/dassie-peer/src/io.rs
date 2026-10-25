@@ -385,27 +385,6 @@ pub enum NameEvent {
         /// granted already.
         contends: bool,
     },
-    /// We granted a name: we list it from now.
-    Granted {
-        /// The name.
-        name: Name,
-        /// Its holder.
-        holder: NodeId,
-    },
-    /// An unsealed commitment lost its name to one we logged earlier.
-    Lost {
-        /// The name.
-        name: Name,
-        /// The node that unsealed it.
-        holder: NodeId,
-    },
-    /// A commitment was not unsealed within its window.
-    Lapsed {
-        /// The node that sent it.
-        committer: NodeId,
-        /// Its position in the log.
-        position: u64,
-    },
     /// Its holder renewed a name.
     Renewed {
         /// The name.
@@ -415,12 +394,25 @@ pub enum NameEvent {
         /// When it expires now.
         expires_ms: u64,
     },
-    /// A name's grace period ended unrenewed: it is free.
-    Freed {
-        /// The name.
-        name: Name,
-        /// Its holder until now.
-        holder: NodeId,
+    /// Windows closed and grace periods ended at our registrar: `granted`
+    /// names granted, which we list from now, `lost` unsealed commitments
+    /// that lost their names to ones logged earlier, `lapsed` commitments
+    /// not unsealed within their windows, and `freed` names whose grace
+    /// period ended unrenewed. One event for each step of the registrar's
+    /// timer that did any of these, however many it did: a registrar back
+    /// after a long downtime may close every window and free every name at
+    /// once, and the bounded queue, which drops its oldest, must keep the
+    /// events queued before this in the same tick. What we list is
+    /// [`PeerNode::registrar`](crate::PeerNode::registrar)'s.
+    RegistrarChanged {
+        /// Names granted.
+        granted: usize,
+        /// Unsealed commitments that lost their names.
+        lost: usize,
+        /// Commitments that lapsed unsealed.
+        lapsed: usize,
+        /// Names freed.
+        freed: usize,
     },
 }
 

@@ -191,14 +191,22 @@ fn the_commitment_logged_first_wins() {
         .filter(|(at, _)| *at == 0)
         .map(|(_, event)| event)
         .collect();
-    assert!(events.contains(&&Event::Name(NameEvent::Granted {
-        name: alice_name,
-        holder: alice.id()
-    })));
-    assert!(events.contains(&&Event::Name(NameEvent::Lost {
-        name: alice_name,
-        holder: bob.id()
-    })));
+    // The registrar's timer reports what it decided in counts: the list
+    // above says who holds the name.
+    let (mut granted, mut lost) = (0, 0);
+    for event in events {
+        if let Event::Name(NameEvent::RegistrarChanged {
+            granted: g,
+            lost: l,
+            ..
+        }) = event
+        {
+            granted += g;
+            lost += l;
+        }
+    }
+    assert_eq!((granted, lost), (1, 1), "alice's granted, bob's lost");
+    assert_eq!(network.node(0).stats().names_granted, 1);
     assert_eq!(network.node(0).stats().commitments_logged, 2);
 }
 

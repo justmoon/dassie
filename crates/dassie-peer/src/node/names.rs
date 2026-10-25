@@ -25,6 +25,12 @@ use crate::wire::encode_expiry;
 /// registration.
 const NOT_REGISTRAR: &str = "not a bootstrap node";
 
+/// Most events a step of the registrar's timer queues, however many names
+/// and commitments it decides: the queue is bounded and drops its oldest,
+/// and the peer events queued before it in the same tick must reach the
+/// driver.
+const MAX_REGISTRAR_EVENTS: u64 = 1;
+
 impl PeerNode {
     /// The registrar's state, if this node is one: one of its own bootstrap
     /// nodes.
@@ -128,10 +134,12 @@ impl PeerNode {
     }
 
     /// Takes in the passing of time at the registrar: grants, losses,
-    /// lapses and names freed. A node left with no part in it lets its
-    /// replay state go, unless it is kept for another reason.
+    /// lapses and names freed, reported together in one event, however many
+    /// there were (spec/areas/network.md#the-registrar). A node left with no
+    /// part in it lets its replay state go, unless it is kept for another
+    /// reason.
     pub(super) fn tend_names(&mut self) {
-        let now = self.now_ms;
+        let (now, queued) = (self.now_ms, self.events_queued());
         let Some(registrar) = self.registrar.as_mut() else {
             return;
         };
@@ -142,39 +150,43 @@ impl PeerNode {
         let mut happened = Vec::new();
         registrar.on_time(now, &mut happened);
         let after: BTreeSet<NodeId> = registrar.parties().collect();
-        for happening in happened {
-            self.name_event(happening);
-        }
+        self.report_tended(&happened);
         for node in before.difference(&after) {
             if !self.keeps_replay_state(node) {
                 self.auth.unpin(now, node);
             }
         }
+        assert!(
+            self.events_since(queued) <= MAX_REGISTRAR_EVENTS,
+            "a step of the registrar's timer queues a bounded number of events"
+        );
     }
 
-    fn name_event(&mut self, happened: Happened) {
-        let event = match happened {
-            Happened::Granted { name, holder } => {
-                self.stats.names_granted += 1;
-                NameEvent::Granted { name, holder }
+    /// Counts what a step of the registrar's timer did, and reports it in
+    /// one event if it did anything.
+    fn report_tended(&mut self, happened: &[Happened]) {
+        let (mut granted, mut lost, mut lapsed, mut freed) = (0, 0, 0, 0);
+        for happening in happened {
+            match happening {
+                Happened::Granted { .. } => granted += 1,
+                Happened::Lost { .. } => lost += 1,
+                Happened::Lapsed { .. } => lapsed += 1,
+                Happened::Freed { .. } => freed += 1,
             }
-            Happened::Lost { name, holder } => NameEvent::Lost { name, holder },
-            Happened::Lapsed {
-                committer,
-                position,
-            } => {
-                self.stats.commitments_lapsed += 1;
-                NameEvent::Lapsed {
-                    committer,
-                    position,
-                }
-            }
-            Happened::Freed { name, holder } => {
-                self.stats.names_freed += 1;
-                NameEvent::Freed { name, holder }
-            }
-        };
-        self.event(Event::Name(event));
+        }
+        if happened.is_empty() {
+            return;
+        }
+        let count = |n: usize| u64::try_from(n).unwrap_or(u64::MAX);
+        self.stats.names_granted += count(granted);
+        self.stats.commitments_lapsed += count(lapsed);
+        self.stats.names_freed += count(freed);
+        self.event(Event::Name(NameEvent::RegistrarChanged {
+            granted,
+            lost,
+            lapsed,
+            freed,
+        }));
     }
 
     /// The registrar's invariants, and that every node it involves keeps
@@ -214,5 +226,93 @@ const fn unseal_refusal(error: UnsealError) -> &'static str {
         UnsealError::Closed => "the commitment's window has closed",
         UnsealError::Taken => "the name was taken when the commitment was logged",
         UnsealError::Names => "the node holds too many names",
+    }
+}
+
+#[cfg(all(test, feature = "sim"))]
+mod tests {
+    #![allow(clippy::unwrap_used)]
+
+    use alloc::format;
+    use alloc::vec::Vec;
+
+    use dassie_identity::{NodeId, NodeKey};
+
+    use super::super::MAX_EVENTS;
+    use crate::config::Rate;
+    use crate::names::{Commitment, Name, Salt};
+    use crate::sim::{Network, key};
+    use crate::{Config, Event, NameEvent};
+
+    /// More commitments than the event queue holds.
+    const COMMITMENTS: usize = MAX_EVENTS + 76;
+
+    /// The `index`th commitment's committer: each sends as many
+    /// commitments as one node may have logged.
+    fn committer(index: usize, per_node: usize) -> NodeId {
+        let mut seed = [9; 32];
+        let [high, low] = u16::try_from(index / per_node).unwrap().to_be_bytes();
+        (seed[0], seed[1]) = (high, low);
+        NodeKey::from_bytes(&seed).node_id()
+    }
+
+    // A step of the registrar's timer that decides more commitments than
+    // the event queue holds, as one back after a long downtime does,
+    // reports one event, so a peer's event queued before it in the same
+    // tick still reaches the driver.
+    #[test]
+    fn a_registrar_step_deciding_every_commitment_queues_one_event() {
+        let mut config = Config::DEFAULT;
+        config.names.max_commitments = COMMITMENTS;
+        config.names.commit_rate = Rate {
+            burst: u32::try_from(COMMITMENTS).unwrap(),
+            refill_ms: 1,
+        };
+        let per_node = config.names.max_commitments_per_node;
+        let mut network = Network::new(33, 2, 1, config);
+        network.run_until(network.now + 30_000);
+        let peer = key(1).node_id();
+        network.act(0, |node, now| {
+            for index in 0..COMMITMENTS {
+                let committer = committer(index, per_node);
+                let name = Name::parse(&format!("n{index:04}")).unwrap();
+                let commitment = Commitment::seal(&name, &committer, &Salt([0; 32]));
+                let registrar = node.registrar.as_mut().unwrap();
+                assert!(registrar.commit(commitment, committer, None, now).is_ok());
+                node.auth.pin(committer);
+            }
+        });
+        let before = network.events.len();
+        let window_ms = config.names.window_ms;
+        network.act(0, |node, now| {
+            node.event(Event::PeeringEnded { peer });
+            // Past every window at once.
+            node.advance(now + window_ms + u64::try_from(COMMITMENTS).unwrap());
+            node.tend_names();
+        });
+        let events: Vec<&Event> = network.events[before..]
+            .iter()
+            .map(|(index, event)| {
+                assert_eq!(*index, 0);
+                event
+            })
+            .collect();
+        assert_eq!(
+            events,
+            [
+                &Event::PeeringEnded { peer },
+                &Event::Name(NameEvent::RegistrarChanged {
+                    granted: 0,
+                    lost: 0,
+                    lapsed: COMMITMENTS,
+                    freed: 0,
+                })
+            ]
+        );
+        let stats = network.node(0).stats();
+        assert_eq!(
+            stats.commitments_lapsed,
+            u64::try_from(COMMITMENTS).unwrap()
+        );
     }
 }

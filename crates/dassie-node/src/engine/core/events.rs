@@ -461,9 +461,14 @@ const fn peer_node_severity(event: &dassie_peer::Event) -> Severity {
         | Event::ChannelClosed { .. }
         | Event::Reachable { .. }
         | Event::Advertised { short: true, .. }
-        | Event::Name(
-            NameEvent::Granted { .. } | NameEvent::Renewed { .. } | NameEvent::Freed { .. },
-        ) => Severity::Info,
+        | Event::Name(NameEvent::Renewed { .. }) => Severity::Info,
+        // Names granted or freed are worth the owner's notice; commitments
+        // that only lost or lapsed are not.
+        Event::Name(NameEvent::RegistrarChanged { granted, freed, .. })
+            if *granted > 0 || *freed > 0 =>
+        {
+            Severity::Info
+        }
         Event::SettlementRefused { .. } => Severity::Error,
         Event::RoutesChanged
         | Event::NodeAdded(_)
@@ -481,8 +486,7 @@ const fn peer_node_severity(event: &dassie_peer::Event) -> Severity {
         | Event::Name(
             NameEvent::Committed { .. }
             | NameEvent::Unsealed { .. }
-            | NameEvent::Lost { .. }
-            | NameEvent::Lapsed { .. },
+            | NameEvent::RegistrarChanged { .. },
         ) => Severity::Debug,
     }
 }
