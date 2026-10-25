@@ -8,10 +8,9 @@
 //! and without tags (spec/original/04-interledger.md#114-server-serverts);
 //! this is the upstream scheme instead.
 //!
-//! The plaintext is a nonce, the connection tag and two octet strings that
-//! are always empty: upstream puts the keys of RFC 39 receipts there, which
-//! Dassie never issues. They keep one layout for every token a node has
-//! stored and handed out.
+//! The plaintext is a nonce and the connection tag. Upstream's also has the
+//! keys of RFC 39 receipts, which Dassie does not issue. Only the server
+//! that issued a token reads it, so its layout is the server's own.
 
 use core::fmt;
 
@@ -20,18 +19,13 @@ use rand_core::CryptoRng;
 
 use crate::crypto::{Cipher, OVERHEAD, hmac_sha256};
 
-/// The two receipt fields, empty.
-const EMPTY_RECEIPT_FIELDS: usize = 2 * size::prefixed(0);
-
 /// Random bytes that make each token unique.
 pub const TOKEN_NONCE_LENGTH: usize = 18;
 /// Longest connection tag. Upstream sets no limit; tags are short labels.
 pub const MAX_CONNECTION_TAG_LENGTH: usize = 128;
 /// Longest encrypted token.
-pub const MAX_TOKEN_LENGTH: usize = OVERHEAD
-    + TOKEN_NONCE_LENGTH
-    + size::prefixed(MAX_CONNECTION_TAG_LENGTH)
-    + EMPTY_RECEIPT_FIELDS;
+pub const MAX_TOKEN_LENGTH: usize =
+    OVERHEAD + TOKEN_NONCE_LENGTH + size::prefixed(MAX_CONNECTION_TAG_LENGTH);
 
 const SHARED_SECRET_LABEL: &[u8] = b"ilp_stream_shared_secret";
 
@@ -86,17 +80,13 @@ impl ServerSecret {
             contents.connection_tag.len() <= MAX_CONNECTION_TAG_LENGTH,
             "connection tag too long"
         );
-        let plaintext_len = TOKEN_NONCE_LENGTH
-            + size::prefixed(contents.connection_tag.len())
-            + EMPTY_RECEIPT_FIELDS;
+        let plaintext_len = TOKEN_NONCE_LENGTH + size::prefixed(contents.connection_tag.len());
         let (_, body) = output.split_at_mut(OVERHEAD);
         let mut writer = Writer::new(body);
         let mut token_nonce = [0u8; TOKEN_NONCE_LENGTH];
         rng.fill_bytes(&mut token_nonce);
         writer.write_bytes(&token_nonce);
         writer.write_octets(contents.connection_tag, Size::ANY);
-        writer.write_octets(&[], Size::ANY);
-        writer.write_octets(&[], Size::ANY);
         assert!(writer.position() == plaintext_len, "token length mismatch");
         self.cipher.encrypt(rng, plaintext_len, output)
     }
@@ -125,9 +115,6 @@ impl ServerSecret {
         let mut reader = Reader::new(plaintext);
         reader.read_bytes(TOKEN_NONCE_LENGTH)?;
         let connection_tag = reader.read_octets(Size::range(0, MAX_CONNECTION_TAG_LENGTH))?;
-        // A token with receipt keys was not issued by Dassie.
-        reader.read_octets(Size::range(0, 0))?;
-        reader.read_octets(Size::range(0, 0))?;
         reader.finish()?;
         Ok(TokenContents { connection_tag })
     }

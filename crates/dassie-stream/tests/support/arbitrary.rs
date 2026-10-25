@@ -236,20 +236,18 @@ impl Payload {
     }
 }
 
-/// The plaintext of a server token: nonce, tag and the two receipt fields,
-/// with tags beyond the limit and receipt fields of any length, which a
-/// server refuses unless empty, then damaged.
+/// The plaintext of a server token: nonce and tag, sometimes followed by
+/// upstream's two receipt fields of any length, which a server refuses, with
+/// tags beyond the limit, then damaged.
 pub fn token_plaintext() -> impl Strategy<Value = Vec<u8>> {
     let receipt = prop_oneof![
-        Just((Vec::new(), Vec::new())),
-        (
-            prop::collection::vec(any::<u8>(), 16),
-            prop::collection::vec(any::<u8>(), 32)
-        ),
+        Just(None),
+        Just(Some((Vec::new(), Vec::new()))),
         (
             prop::collection::vec(any::<u8>(), 0..40),
             prop::collection::vec(any::<u8>(), 0..40)
-        ),
+        )
+            .prop_map(Some),
     ];
     (
         any::<[u8; TOKEN_NONCE_LENGTH]>(),
@@ -257,11 +255,13 @@ pub fn token_plaintext() -> impl Strategy<Value = Vec<u8>> {
         receipt,
         mutations(),
     )
-        .prop_map(|(nonce, tag, (receipt_nonce, secret), mutations)| {
+        .prop_map(|(nonce, tag, receipt, mutations)| {
             let mut bytes = nonce.to_vec();
             push_octets(&mut bytes, &tag);
-            push_octets(&mut bytes, &receipt_nonce);
-            push_octets(&mut bytes, &secret);
+            if let Some((receipt_nonce, secret)) = receipt {
+                push_octets(&mut bytes, &receipt_nonce);
+                push_octets(&mut bytes, &secret);
+            }
             damage(&mut bytes, &mutations);
             bytes
         })

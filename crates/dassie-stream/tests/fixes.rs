@@ -179,10 +179,10 @@ fn server_tokens_are_stateless_and_authenticated() {
 }
 
 #[test]
-fn tokens_keep_the_receipt_fields_empty() {
+fn tokens_carry_only_the_tag() {
     // Upstream's layout has two fields for RFC 39 receipt keys after the
-    // tag. Dassie issues no receipts: it writes them empty, and a token
-    // with keys in them is none it issued.
+    // tag. Dassie issues no receipts, so its tokens end with the tag, and
+    // one with the fields, even empty, is none it issued.
     let mut rng = SeededRng::new(2);
     let secret = ServerSecret::new([5; 32]);
     let mut token = [0u8; MAX_TOKEN_LENGTH];
@@ -193,11 +193,11 @@ fn tokens_keep_the_receipt_fields_empty() {
     let mut scratch = [0u8; MAX_TOKEN_LENGTH];
     let cipher = Cipher::new(&[5; 32]);
     let plaintext = cipher.decrypt(&token[..length], &mut scratch).unwrap();
-    assert_eq!(plaintext[TOKEN_NONCE_LENGTH..], *b"\x0ainvoice-42\x00\x00");
+    assert_eq!(plaintext[TOKEN_NONCE_LENGTH..], *b"\x0ainvoice-42");
 
-    let mut with_keys = plaintext[..TOKEN_NONCE_LENGTH + 11].to_vec();
-    arbitrary::push_octets(&mut with_keys, &[1; 16]);
-    arbitrary::push_octets(&mut with_keys, &[2; 32]);
-    let sealed = arbitrary::seal(&cipher, &with_keys);
+    let mut upstream = plaintext.to_vec();
+    arbitrary::push_octets(&mut upstream, &[]);
+    arbitrary::push_octets(&mut upstream, &[]);
+    let sealed = arbitrary::seal(&cipher, &upstream);
     assert!(secret.open_token(&sealed, &mut scratch).is_err());
 }
