@@ -173,6 +173,13 @@ pub struct Config {
     /// each asks the books, which scan what is pending, so a channel the
     /// books hold open is not asked at every step.
     pub channel_check_ms: u64,
+    /// Whether the node takes part in names at all: as a registrar, in
+    /// its view of who holds each name, and as a registrant. Off, it is no
+    /// registrar, refusing every name message as any other node does, reads
+    /// no name lists, holds no names and registers none. The node's driver
+    /// decides; the peer protocol knows no reason
+    /// (spec/areas/network.md#names).
+    pub names_enabled: bool,
     /// A registrar's timers and bounds, when the node is one of its own
     /// bootstrap nodes (spec/areas/network.md#names).
     pub names: RegistrarConfig,
@@ -247,6 +254,7 @@ impl Config {
         settlement_retry_min_ms: 1_000,
         settlement_retry_max_ms: 3_600_000,
         channel_check_ms: 60_000,
+        names_enabled: true,
         names: RegistrarConfig::DEFAULT,
     };
 

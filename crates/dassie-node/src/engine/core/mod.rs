@@ -446,7 +446,7 @@ impl Core {
         let peer = new_peer(
             &parts.store,
             &parts.key,
-            &parts.policies,
+            peer_config(&parts.policies, parts.realm),
             (parts.own_info, parts.bootstrap, parts.uplinks),
             parts.peer_rng,
             now_ms,
@@ -1043,7 +1043,7 @@ pub const MAX_LOCAL_ENDPOINTS: usize = 8;
 fn new_peer(
     store: &Store,
     key: &Arc<NodeKey>,
-    policies: &Policies,
+    config: dassie_peer::Config,
     (own_info, bootstrap, uplinks): (
         dassie_peer::OwnInfo,
         Vec<dassie_peer::Bootstrap>,
@@ -1053,7 +1053,7 @@ fn new_peer(
     now_ms: u64,
 ) -> Result<dassie_peer::PeerNode, String> {
     let mut peer = dassie_peer::PeerNode::new(
-        policies.peer,
+        config,
         Arc::clone(key),
         own_info,
         bootstrap,
@@ -1063,6 +1063,27 @@ fn new_peer(
     );
     peer.pin_uplinks(uplinks);
     Ok(peer)
+}
+
+/// The peer protocol's configuration in `realm`: the policies', with names
+/// off in the live realm.
+fn peer_config(policies: &Policies, realm: Realm) -> dassie_peer::Config {
+    dassie_peer::Config {
+        names_enabled: names_enabled(realm),
+        ..policies.peer
+    }
+}
+
+/// Whether a node of `realm` takes part in names: in the test realm only,
+/// whose names may be reset at any time, until registrations pay fees
+/// (spec/areas/network.md#names). Free names on the live realm could be
+/// hoarded for good.
+#[must_use]
+pub const fn names_enabled(realm: Realm) -> bool {
+    match realm {
+        Realm::Test => true,
+        Realm::Live => false,
+    }
 }
 
 /// Checks the policies' bounds and the realm before the core reads

@@ -264,6 +264,9 @@ impl PeerNode {
     /// list, if we are one, is ours without asking. Then takes the holders
     /// again, which time alone can freeze.
     pub(super) fn poll_names(&mut self) {
+        if !self.config.names_enabled {
+            return;
+        }
         self.take_own_names();
         let own = self.own;
         let targets: Vec<NodeId> = self
@@ -649,25 +652,39 @@ impl PeerNode {
     }
 }
 
+/// The registrars: the bootstrap nodes, or none while names are off.
+fn registrars<'a>(config: &Config, bootstrap: &'a [Bootstrap]) -> &'a [Bootstrap] {
+    if config.names_enabled { bootstrap } else { &[] }
+}
+
 /// A view of the lists of the registrars, the bootstrap nodes, starting from
 /// `held`, as persisted (spec/areas/network.md#holders). Lists are fresh as
-/// long as node lists are, and vote only while they are.
+/// long as node lists are, and vote only while they are. While names are
+/// off it has no registrars, holds nothing, and removes what was persisted.
 pub(super) fn holders(config: &Config, bootstrap: &[Bootstrap], held: Vec<HeldName>) -> Holders {
     let lists = HoldersConfig {
         list_fresh_ms: config.list_fresh_ms,
     };
-    Holders::new(lists, bootstrap.iter().map(|node| node.id), held)
+    let registrars = registrars(config, bootstrap);
+    Holders::new(lists, registrars.iter().map(|node| node.id), held)
 }
 
 /// Our registrant, at the bootstrap nodes, from the registrations persisted.
 /// It foresees the registrars by our own configuration of one, which every
-/// node shares (spec/areas/network.md#the-registrant).
+/// node shares (spec/areas/network.md#the-registrant). While names are off
+/// it has no registrars and so registers nothing, and what was persisted
+/// stays on disk, unread.
 pub(super) fn registrant(
     config: &Config,
     own: NodeId,
     bootstrap: &[Bootstrap],
     registrations: Vec<NameRegistration>,
 ) -> Registrant {
+    let (bootstrap, registrations) = if config.names_enabled {
+        (bootstrap, registrations)
+    } else {
+        (&[][..], Vec::new())
+    };
     let names = &config.names;
     let registrant = RegistrantConfig {
         window_ms: names.window_ms,
@@ -827,6 +844,29 @@ mod tests {
             }
         }
         list
+    }
+
+    // A node with names off polls no registrar's name list, nor takes its
+    // own: its view has no registrars (spec/areas/network.md#names).
+    #[test]
+    fn a_node_with_names_off_reads_no_name_lists() {
+        for names_enabled in [true, false] {
+            let config = Config {
+                names_enabled,
+                ..Config::DEV
+            };
+            let mut network = Network::new(34, 3, 2, config);
+            let mut polled = false;
+            for _ in 0..300 {
+                network.run_until(network.now + 100);
+                polled |= (0..3).any(|index| !network.node(index).name_polling.is_empty());
+            }
+            assert_eq!(polled, names_enabled);
+            for index in 0..3 {
+                let registrars = network.node(index).holders().registrars();
+                assert_eq!(registrars, if names_enabled { 2 } else { 0 });
+            }
+        }
     }
 
     // A taking of the view that changes more names than the event queue

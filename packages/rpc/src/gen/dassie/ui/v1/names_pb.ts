@@ -10,7 +10,7 @@ import type { Message, UnknownEnum } from "@bufbuild/protobuf";
  * Describes the file dassie/ui/v1/names.proto.
  */
 export const file_dassie_ui_v1_names: GenFile = /*@__PURE__*/
-  fileDesc("ChhkYXNzaWUvdWkvdjEvbmFtZXMucHJvdG8SDGRhc3NpZS51aS52MSIjChNSZWdpc3Rlck5hbWVSZXF1ZXN0EgwKBG5hbWUYASABKAkiFgoUUmVnaXN0ZXJOYW1lUmVzcG9uc2UiIAoQUmVuZXdOYW1lUmVxdWVzdBIMCgRuYW1lGAEgASgJIhMKEVJlbmV3TmFtZVJlc3BvbnNlIhcKFVN1YnNjcmliZU5hbWVzUmVxdWVzdCJlCgtOYW1lc1N0YXR1cxISCgpyZWdpc3RyYXJzGAEgAygJEg4KBmZyb3plbhgCIAEoCBIkCgVuYW1lcxgDIAMoCzIVLmRhc3NpZS51aS52MS5Pd25OYW1lEgwKBG5vZGUYBCABKAkiuQEKB093bk5hbWUSDAoEbmFtZRgBIAEoCRImCgVzdGF0ZRgCIAEoDjIXLmRhc3NpZS51aS52MS5OYW1lU3RhdGUSDgoGaG9sZGVyGAMgASgJEhoKEmV4cGlyZXNfYXRfdW5peF9tcxgEIAEoAxIZChF1bnNlYWxfYnlfdW5peF9tcxgFIAEoAxIxCgpyZWdpc3RyYXJzGAYgAygLMh0uZGFzc2llLnVpLnYxLk5hbWVBdFJlZ2lzdHJhciKtAQoPTmFtZUF0UmVnaXN0cmFyEhEKCXJlZ2lzdHJhchgBIAEoCRIPCgdyZWNlaXB0GAIgASgIEhAKCHVuc2VhbGVkGAMgASgIEhYKDnJlZnVzZWRfc3RhdHVzGAQgASgNEhUKDWxpc3RlZF9ob2xkZXIYBSABKAkSIQoZbGlzdGVkX2V4cGlyZXNfYXRfdW5peF9tcxgGIAEoAxISCgpsaXN0X2ZyZXNoGAcgASgIKv8BCglOYW1lU3RhdGUSGgoWTkFNRV9TVEFURV9VTlNQRUNJRklFRBAAEhkKFU5BTUVfU1RBVEVfQ09NTUlUVElORxABEhgKFE5BTUVfU1RBVEVfVU5TRUFMSU5HEAISFgoSTkFNRV9TVEFURV9XQUlUSU5HEAMSEwoPTkFNRV9TVEFURV9IRUxEEAQSEwoPTkFNRV9TVEFURV9MT1NUEAUSFAoQTkFNRV9TVEFURV9TUExJVBAGEhcKE05BTUVfU1RBVEVfTk9UX0hFTEQQBxIYChROQU1FX1NUQVRFX0FCQU5ET05FRBAIEhYKEk5BTUVfU1RBVEVfTEFQU0lORxAJYgZwcm90bzM");
+  fileDesc("ChhkYXNzaWUvdWkvdjEvbmFtZXMucHJvdG8SDGRhc3NpZS51aS52MSIjChNSZWdpc3Rlck5hbWVSZXF1ZXN0EgwKBG5hbWUYASABKAkiFgoUUmVnaXN0ZXJOYW1lUmVzcG9uc2UiIAoQUmVuZXdOYW1lUmVxdWVzdBIMCgRuYW1lGAEgASgJIhMKEVJlbmV3TmFtZVJlc3BvbnNlIhcKFVN1YnNjcmliZU5hbWVzUmVxdWVzdCJyCgtOYW1lc1N0YXR1cxISCgpyZWdpc3RyYXJzGAEgAygJEg4KBmZyb3plbhgCIAEoCBIkCgVuYW1lcxgDIAMoCzIVLmRhc3NpZS51aS52MS5Pd25OYW1lEgwKBG5vZGUYBCABKAkSCwoDb2ZmGAUgASgIIrkBCgdPd25OYW1lEgwKBG5hbWUYASABKAkSJgoFc3RhdGUYAiABKA4yFy5kYXNzaWUudWkudjEuTmFtZVN0YXRlEg4KBmhvbGRlchgDIAEoCRIaChJleHBpcmVzX2F0X3VuaXhfbXMYBCABKAMSGQoRdW5zZWFsX2J5X3VuaXhfbXMYBSABKAMSMQoKcmVnaXN0cmFycxgGIAMoCzIdLmRhc3NpZS51aS52MS5OYW1lQXRSZWdpc3RyYXIirQEKD05hbWVBdFJlZ2lzdHJhchIRCglyZWdpc3RyYXIYASABKAkSDwoHcmVjZWlwdBgCIAEoCBIQCgh1bnNlYWxlZBgDIAEoCBIWCg5yZWZ1c2VkX3N0YXR1cxgEIAEoDRIVCg1saXN0ZWRfaG9sZGVyGAUgASgJEiEKGWxpc3RlZF9leHBpcmVzX2F0X3VuaXhfbXMYBiABKAMSEgoKbGlzdF9mcmVzaBgHIAEoCCr/AQoJTmFtZVN0YXRlEhoKFk5BTUVfU1RBVEVfVU5TUEVDSUZJRUQQABIZChVOQU1FX1NUQVRFX0NPTU1JVFRJTkcQARIYChROQU1FX1NUQVRFX1VOU0VBTElORxACEhYKEk5BTUVfU1RBVEVfV0FJVElORxADEhMKD05BTUVfU1RBVEVfSEVMRBAEEhMKD05BTUVfU1RBVEVfTE9TVBAFEhQKEE5BTUVfU1RBVEVfU1BMSVQQBhIXChNOQU1FX1NUQVRFX05PVF9IRUxEEAcSGAoUTkFNRV9TVEFURV9BQkFORE9ORUQQCBIWChJOQU1FX1NUQVRFX0xBUFNJTkcQCWIGcHJvdG8z");
 
 /**
  * Registers a name for the node at every registrar: committed sealed, and
@@ -20,9 +20,10 @@ export const file_dassie_ui_v1_names: GenFile = /*@__PURE__*/
  * INVALID_ARGUMENT if the name is not 3 to 32 lowercase letters, digits and
  * hyphens, as a DNS label, or is reserved. FAILED_PRECONDITION if the node
  * holds it, the registrars' lists show it taken, the node has no bootstrap
- * nodes, or a registration of it is under way. RESOURCE_EXHAUSTED while too
- * many registrations are under way, or while the names the node holds, with
- * those under way, reach what a registrar grants one node.
+ * nodes, a registration of it is under way, or names are off in the node's
+ * realm (NamesStatus.off). RESOURCE_EXHAUSTED while too many registrations
+ * are under way, or while the names the node holds, with those under way,
+ * reach what a registrar grants one node.
  *
  * @generated from message dassie.ui.v1.RegisterNameRequest
  */
@@ -57,7 +58,8 @@ export const RegisterNameResponseSchema: GenMessage<RegisterNameResponse> = /*@_
  * Renews a name the node holds at every registrar now. The node renews its
  * names by itself before they expire; a registrar renews a name only once
  * its expiry is near, and otherwise answers with the expiry it has.
- * NOT_FOUND if the node does not hold the name.
+ * NOT_FOUND if the node does not hold the name; FAILED_PRECONDITION if names
+ * are off in the node's realm (NamesStatus.off).
  *
  * @generated from message dassie.ui.v1.RenewNameRequest
  */
@@ -136,6 +138,17 @@ export type NamesStatus = Message<"dassie.ui.v1.NamesStatus"> & {
    * @generated from field: string node = 4;
    */
   node: string;
+
+  /**
+   * Whether names are off in this node: in the live realm, names run on
+   * the testnet only, where they may be reset, until registrations pay
+   * fees. A node with names off is no registrar, reads no name lists,
+   * holds no names, and refuses RegisterName and RenewName with
+   * FAILED_PRECONDITION.
+   *
+   * @generated from field: bool off = 5;
+   */
+  off: boolean;
 };
 
 /**

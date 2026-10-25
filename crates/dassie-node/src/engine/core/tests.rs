@@ -4642,3 +4642,59 @@ fn a_registration_is_on_disk_before_its_commitment_leaves() {
     assert_eq!(names.registrars, [registrar.node_id()]);
     assert_eq!(names.names.len(), 1);
 }
+
+// spec/areas/network.md#names: names run in the test realm only. A node of
+// the live realm, though one of its own bootstrap nodes, is no registrar,
+// reads no name lists, and refuses the owner's registrations and renewals,
+// saying why; its names view says names are off.
+#[test]
+fn a_live_realm_node_takes_no_part_in_names() {
+    use super::names::NAMES_OFF;
+    use crate::engine::EngineError;
+
+    let own = NodeKey::from_bytes(&[7; 32]);
+    let other = NodeKey::from_bytes(&[8; 32]);
+    let bootstrap = [&own, &other]
+        .into_iter()
+        .map(|key| dassie_peer::Bootstrap {
+            id: key.node_id(),
+            url: "https://registrar.example".into(),
+            key: key.public_key(),
+        })
+        .collect();
+    let mut core = Core::start(
+        CoreParts {
+            store: Arc::new(Store::open_in_memory().unwrap()),
+            key: Arc::new(own),
+            realm: Realm::Live,
+            live: dassie_node_core::config::LiveRealm::DevSwitch,
+            policies: Policies::DEFAULT,
+            rng: Box::new(SeededRng::new(16)),
+            peer_rng: Box::new(SeededRng::new(17)),
+            own_info: dassie_peer::OwnInfo {
+                url: None,
+                alias: String::new(),
+                quic: false,
+                feed_port: None,
+                hub: None,
+            },
+            bootstrap,
+            uplinks: Vec::new(),
+        },
+        NOW,
+    )
+    .unwrap();
+    assert!(!core.peer.config().names_enabled);
+    assert!(core.peer.registrar().is_none(), "no registrar");
+    assert_eq!(core.peer.holders().registrars(), 0, "no lists read");
+    for refused in [core.register_name("alice"), core.renew_name("alice")] {
+        assert!(
+            matches!(&refused, Err(EngineError::Precondition(reason)) if reason == NAMES_OFF),
+            "{refused:?}"
+        );
+    }
+    let names = core.names();
+    assert!(names.off);
+    assert!(names.names.is_empty());
+    assert!(super::names_enabled(Realm::Test) && !super::names_enabled(Realm::Live));
+}

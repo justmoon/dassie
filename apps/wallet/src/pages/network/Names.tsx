@@ -38,11 +38,28 @@ export function Names(): JSX.Element {
     <div class="page-narrow">
       <PageTitle>Names</PageTitle>
       <LiveNote status={status.status()} />
-      <RegisterName />
       <Show when={status.value()}>
-        {(names) => <NameList names={names()} />}
+        {(names) => (
+          <Show when={!names().off} fallback={<NamesOff />}>
+            <RegisterName />
+            <NameList names={names()} />
+          </Show>
+        )}
       </Show>
     </div>
+  );
+}
+
+/** What the page says while names are off: in the live realm. */
+function NamesOff(): JSX.Element {
+  return (
+    <Card title="Names" testid="names-off">
+      <p class="muted">
+        Names run on the testnet only for now, where they may be reset at any
+        time. A node in the live realm registers none and holds none until
+        registering a name has a fee.
+      </p>
+    </Card>
   );
 }
 

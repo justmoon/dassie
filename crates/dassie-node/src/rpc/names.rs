@@ -59,6 +59,7 @@ fn names(view: &NamesView) -> proto::NamesStatus {
         frozen: view.frozen,
         names: view.names.iter().map(own_name).collect(),
         node: view.own.to_string(),
+        off: view.off,
     }
 }
 

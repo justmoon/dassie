@@ -14,9 +14,10 @@ package dassie.ui.v1;
 // INVALID_ARGUMENT if the name is not 3 to 32 lowercase letters, digits and
 // hyphens, as a DNS label, or is reserved. FAILED_PRECONDITION if the node
 // holds it, the registrars' lists show it taken, the node has no bootstrap
-// nodes, or a registration of it is under way. RESOURCE_EXHAUSTED while too
-// many registrations are under way, or while the names the node holds, with
-// those under way, reach what a registrar grants one node.
+// nodes, a registration of it is under way, or names are off in the node's
+// realm (NamesStatus.off). RESOURCE_EXHAUSTED while too many registrations
+// are under way, or while the names the node holds, with those under way,
+// reach what a registrar grants one node.
 message RegisterNameRequest {
   string name = 1;
 }
@@ -26,7 +27,8 @@ message RegisterNameResponse {}
 // Renews a name the node holds at every registrar now. The node renews its
 // names by itself before they expire; a registrar renews a name only once
 // its expiry is near, and otherwise answers with the expiry it has.
-// NOT_FOUND if the node does not hold the name.
+// NOT_FOUND if the node does not hold the name; FAILED_PRECONDITION if names
+// are off in the node's realm (NamesStatus.off).
 message RenewNameRequest {
   string name = 1;
 }
@@ -47,6 +49,12 @@ message NamesStatus {
   repeated OwnName names = 3;
   // This node's ID.
   string node = 4;
+  // Whether names are off in this node: in the live realm, names run on
+  // the testnet only, where they may be reset, until registrations pay
+  // fees. A node with names off is no registrar, reads no name lists,
+  // holds no names, and refuses RegisterName and RenewName with
+  // FAILED_PRECONDITION.
+  bool off = 5;
 }
 
 // A name the node registers or holds.

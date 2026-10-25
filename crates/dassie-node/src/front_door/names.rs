@@ -14,6 +14,10 @@
 //!
 //! It keeps nothing on disk: after a start the view is empty, and frozen,
 //! until a quorum of the lists is read, so no name resolves before then.
+//!
+//! It knows no realm, and needs none: names are off in the live realm, so
+//! a live network's registrars refuse its list requests, as any node with
+//! names off does, and its view stays empty (spec/areas/network.md#names).
 
 use std::sync::{Arc, Mutex};
 use std::time::Duration;

@@ -24,6 +24,7 @@
 - **One faulty registrar can block new names,** for everyone or for one node, since a registrant unseals only with every receipt, and a commitment shows who makes it; one that is down blocks them until it is back. Unsealing with n - f receipts would guarantee only n - 2f honest registrars, short of a quorum. The remedy is taking the registrar off the bootstrap list.
 - **A faulty registrar can tip off a guesser** by who commits and when, and keep a split from being released until the name expires.
 - **A name waits a window** before it is granted, the price of letting an earlier commitment still win.
+- **Free names only where they can be reset.** Until registrations pay fees, names run on the testnet alone, whose names may be reset at any time; a node of the live realm takes no part in them. Free names on a network with real money would go for good to whoever registers first, within the throttles.
 - **A blind commitment that someone holds in reserve** wins if it is earlier, even when its holder unseals only after seeing someone else's name. It was made before the name was visible, and paid for, and lapses with its window: a prior claim, not front-running.
 
 ## Rejected

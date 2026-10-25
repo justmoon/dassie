@@ -21,6 +21,9 @@ pub struct NamesView {
     pub frozen: bool,
     /// The names the node registers or holds.
     pub names: Vec<NameStatus>,
+    /// Whether names are off: in the live realm, until registrations pay
+    /// fees (spec/areas/network.md#names).
+    pub off: bool,
 }
 
 impl Core {
@@ -39,6 +42,7 @@ impl Core {
             registrars,
             frozen: holders.registrars() > 0 && holders.is_frozen(),
             names: self.peer.name_statuses(self.now_ms),
+            off: !self.peer.config().names_enabled,
         }
     }
 
@@ -74,10 +78,11 @@ impl Core {
     ///
     /// # Errors
     ///
-    /// The name is not one an owner may register, the node holds it or
-    /// another does, it has no registrars, too many registrations are
+    /// Names are off in the node's realm, the name is not one an owner may
+    /// register, the node holds it or another does, it has no registrars, too many registrations are
     /// under way, or it holds as many names as a registrar grants it.
     pub fn register_name(&mut self, name: &str) -> Result<(), EngineError> {
+        self.check_names_on()?;
         let name =
             Name::registrable(name).map_err(|error| EngineError::Invalid(error.to_string()))?;
         let now = self.now_ms;
@@ -91,8 +96,10 @@ impl Core {
     ///
     /// # Errors
     ///
-    /// The node does not hold the name.
+    /// Names are off in the node's realm, or the node does not hold the
+    /// name.
     pub fn renew_name(&mut self, name: &str) -> Result<(), EngineError> {
+        self.check_names_on()?;
         let name = Name::parse(name).map_err(|error| EngineError::Invalid(error.to_string()))?;
         let now = self.now_ms;
         self.peer
@@ -104,7 +111,19 @@ impl Core {
         self.after_peer();
         Ok(())
     }
+
+    /// Refuses the owner's requests about names while names are off.
+    fn check_names_on(&self) -> Result<(), EngineError> {
+        if self.peer.config().names_enabled {
+            Ok(())
+        } else {
+            Err(EngineError::Precondition(NAMES_OFF.into()))
+        }
+    }
 }
+
+/// Why the owner's requests about names are refused in the live realm.
+pub(crate) const NAMES_OFF: &str = "names run on the testnet only, where they may be reset, until registrations pay fees: a node in the live realm registers none";
 
 fn register_error(error: RegisterError) -> EngineError {
     match error {

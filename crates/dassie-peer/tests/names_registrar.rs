@@ -253,3 +253,44 @@ fn commitments_are_throttled() {
         assert_eq!(status, if seed < left { 200 } else { 429 }, "{seed}");
     }
 }
+
+// spec/areas/network.md#names: a node with names off, as one in the live
+// realm is, is no registrar, though it is one of its own bootstrap nodes:
+// it refuses every name message as any other node does, the list requests
+// too. Every node with names off reads no name lists and registers
+// nothing.
+#[test]
+fn a_node_with_names_off_refuses_every_name_message() {
+    let config = Config {
+        names_enabled: false,
+        ..CONFIG
+    };
+    let mut network = Network::new(7, 2, 1, config);
+    settle(&mut network, 10_000);
+    assert!(network.node(0).registrar().is_none());
+    let mut alice = Registrant::new(71);
+    let alice_name = name("alice");
+    assert_eq!(alice.commit(&mut network, &alice_name).status, 409);
+    assert_eq!(alice.unseal(&mut network, &alice_name).status, 409);
+    assert_eq!(alice.renew(&mut network, &alice_name).status, 409);
+    let stranger = NodeKey::from_bytes(&[99; 32]).node_id();
+    for content in [Content::NameListRequest, Content::NameListHashRequest] {
+        let request = encode_envelope(&stranger, &Authentication::None, &content.to_vec());
+        assert_eq!(network.inbound(0, &request).status, 409, "{content:?}");
+    }
+    for index in 0..2 {
+        assert_eq!(network.node(index).holders().registrars(), 0);
+        network.act(index, |node, now| {
+            assert!(node.register_name(now, alice_name).is_err());
+        });
+        assert!(
+            network
+                .node(index)
+                .registrant()
+                .registrations()
+                .next()
+                .is_none()
+        );
+    }
+    assert_eq!(network.node(0).stats().commitments_logged, 0);
+}

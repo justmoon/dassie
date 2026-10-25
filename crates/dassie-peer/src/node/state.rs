@@ -157,10 +157,11 @@ impl PeerNode {
     }
 
     /// Restores the registrar's state, if this node is a registrar: one of
-    /// its own bootstrap nodes. What another node kept of being one stays
-    /// on disk, unread.
+    /// its own bootstrap nodes, with names on. What another node kept of
+    /// being one, or this node while names are off, stays on disk, unread.
     fn restore_registrar(&mut self, stored: &mut Stored) {
-        if self.bootstrap.iter().any(|node| node.id == self.own) {
+        let bootstrap = self.bootstrap.iter().any(|node| node.id == self.own);
+        if self.config.names_enabled && bootstrap {
             self.registrar = Some(Registrar::restore(
                 self.config.names,
                 stored.name_log,
