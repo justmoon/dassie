@@ -50,6 +50,9 @@ use support::op::{CA, Client, add_stub, signed_under};
 use support::{Bound, Reply, START_MS, TestNode, https_and_quic, pair, set_up};
 use tokio::sync::watch;
 use tokio_rustls::TlsConnector;
+use tokio_rustls::client::TlsStream;
+use tokio_tungstenite::WebSocketStream;
+use tokio_tungstenite::tungstenite::{self, client::IntoClientRequest};
 use tokio_util::sync::CancellationToken;
 
 const DOMAIN: &str = "dassiepay.net";
@@ -187,20 +190,58 @@ impl Door {
         self.url.strip_prefix("https://").unwrap()
     }
 
-    /// Sends `request` for `name` over a fresh connection, checking the
-    /// front door's certificate for that name.
-    async fn send(&self, name: &str, request: Request<Full<Bytes>>) -> Reply {
+    /// A fresh TLS connection, checking the front door's certificate for
+    /// `name`; none if the front door closes it, as it does a client's
+    /// past its share of connections.
+    async fn try_tls(&self, name: &str) -> Option<TlsStream<tokio::net::TcpStream>> {
         let config = rustls::ClientConfig::builder_with_provider(dassie_node::tls::provider())
             .with_safe_default_protocol_versions()
             .unwrap()
             .with_root_certificates(Arc::clone(&self.roots))
             .with_no_client_auth();
-        let stream = tokio::net::TcpStream::connect(self.https).await.unwrap();
+        let stream = tokio::net::TcpStream::connect(self.https).await.ok()?;
         let server = ServerName::try_from(name.to_string()).unwrap();
-        let stream = TlsConnector::from(Arc::new(config))
-            .connect(server, stream)
+        let connect = TlsConnector::from(Arc::new(config)).connect(server, stream);
+        tokio::time::timeout(Duration::from_secs(2), connect)
             .await
+            .ok()?
+            .ok()
+    }
+
+    /// Opens a tunnel for QUIC at `/quic` on the relay's host; the status
+    /// of a refusal. The place of the connection upgraded before may take
+    /// a moment to come back.
+    async fn tunnel(
+        &self,
+    ) -> Result<WebSocketStream<TlsStream<tokio::net::TcpStream>>, StatusCode> {
+        let mut stream = None;
+        for _ in 0..50 {
+            stream = self.try_tls(&format!("relay.{DOMAIN}")).await;
+            if stream.is_some() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        let stream = stream.expect("no place for an HTTPS connection");
+        let mut request = format!("wss://{}{}", self.relay_host(), tunnel::PATH)
+            .into_client_request()
             .unwrap();
+        let value = tunnel::SUBPROTOCOL.parse().unwrap();
+        request
+            .headers_mut()
+            .insert("sec-websocket-protocol", value);
+        let config = Some(tunnel::websocket_config());
+        match tokio_tungstenite::client_async_with_config(request, stream, config).await {
+            Ok((socket, _)) => Ok(socket),
+            Err(tungstenite::Error::Http(response)) => Err(response.status()),
+            Err(error) => panic!("{error}"),
+        }
+    }
+
+    /// Sends `request` for `name` over a fresh connection, checking the
+    /// front door's certificate for that name.
+    async fn send(&self, name: &str, request: Request<Full<Bytes>>) -> Reply {
+        let stream = self.try_tls(name).await.unwrap();
         let (mut sender, connection) = hyper::client::conn::http1::handshake(TokioIo::new(stream))
             .await
             .unwrap();
@@ -468,19 +509,51 @@ async fn a_node_whose_udp_is_blocked_keeps_its_front_door_over_a_tunnel() {
         .unwrap();
     let reply = door.send(&name, plain).await;
     assert_eq!(reply.status, StatusCode::UPGRADE_REQUIRED);
-    // Under a node's name, or another port, it is no tunnel.
+    let broken = Request::get(tunnel::PATH)
+        .header("host", relay_host)
+        .header("connection", "upgrade")
+        .body(Full::new(Bytes::new()))
+        .unwrap();
+    let reply = door.send(&name, broken).await;
+    assert_eq!(reply.status, StatusCode::BAD_REQUEST);
+    // Under a node's name it is a path outside Open Payments, and on
+    // another port a host the front door does not serve: no tunnel.
     let ported = format!("{}:{}", relay_host.rsplit_once(':').unwrap().0, 443);
-    for host in [name.as_str(), ported.as_str()] {
+    for (host, status) in [
+        (name.as_str(), StatusCode::NOT_FOUND),
+        (ported.as_str(), StatusCode::MISDIRECTED_REQUEST),
+    ] {
         let reply = door.send(&name, tunnel_handshake(host, true)).await;
-        assert_ne!(reply.status, StatusCode::SWITCHING_PROTOCOLS, "{host}");
-        assert!(reply.status.is_client_error(), "{host}");
+        assert_eq!(reply.status, status, "{host}");
     }
-    let reply = door.send(&name, tunnel_handshake(&name, true)).await;
-    assert_eq!(reply.status, StatusCode::NOT_FOUND);
     // Its requests still reach the node over the tunnel.
     let again = door.get(&name, "/.well-known/pay").await;
     assert_eq!(again.status, StatusCode::OK, "{}", again.text());
     node.stop().await;
+    shutdown.cancel();
+}
+
+// spec/areas/http.md#front-doors: as at a node's listener, an upgraded
+// tunnel leaves the front door's HTTPS places and holds one of its QUIC
+// endpoint's tunnels, so a client holds its share of tunnels whatever its
+// share of HTTPS connections, and past that share it is 503.
+#[tokio::test(flavor = "multi_thread")]
+async fn tunnels_at_the_front_door_hold_places_of_their_own() {
+    let shutdown = CancellationToken::new();
+    let door = Door::start_udp_blocked(&shutdown).await;
+    // At least as many as the client's HTTPS connections, so the request
+    // past them needs a place the upgraded ones gave back.
+    const _: () =
+        assert!(tunnel::MAX_TUNNELS_PER_CLIENT >= Policies::DEFAULT.http_connections_per_client);
+    let mut tunnels = Vec::new();
+    for _ in 0..tunnel::MAX_TUNNELS_PER_CLIENT {
+        tunnels.push(door.tunnel().await.unwrap());
+    }
+    assert_eq!(
+        door.tunnel().await.err(),
+        Some(StatusCode::SERVICE_UNAVAILABLE)
+    );
+    drop(tunnels);
     shutdown.cancel();
 }
 

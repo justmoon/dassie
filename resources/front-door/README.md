@@ -68,6 +68,10 @@ Run the VM without the default compute service account and its scopes (`gcloud c
 
 `dassie --help` lists the settings: each `DASSIE_FRONT_DOOR_*` variable has a flag.
 
+## Updating it
+
+Install the new `dassie` as in step 3, and with it the release's `dassie-front-door.service`, keeping your changes to it (such as `DASSIE_FRONT_DOOR_DOMAIN`): a new release may need more of the unit, such as the file limit (`LimitNOFILE`) its tunnels need. Then `systemctl daemon-reload && systemctl restart dassie-front-door`. Without the reload, systemd keeps running the front door under the unit it read before.
+
 ## Naming it as a node's relay
 
 A node without a hostname keeps a connection to the `dassiepay.net` front door by default, and answers at `https://<label>.dassiepay.net`, its default name ([spec/areas/node.md](../../spec/areas/node.md#a-chosen-relay)). It closes that connection once it has a hostname.
