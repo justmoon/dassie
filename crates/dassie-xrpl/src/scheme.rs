@@ -12,6 +12,11 @@
 //!   failed, its fee booked either way;
 //! - a Payment from a peer's known address, with our memo naming the peer:
 //!   a settlement from it, by the XRP it delivered;
+//! - a Payment of at least one largest packet with our memo naming a node
+//!   that is not our peer at that address: an entry payment, held off the
+//!   books until the node peers from that address, which books it as its
+//!   settlement, or for a while, after which it is the owner's deposit
+//!   ([`crate::entry`], spec/decisions/pay-to-enter.md);
 //! - a transaction another scheme on the account signed, such as an RLUSD
 //!   settlement or a `TrustSet`: its fee, booked here as a ledger fee, since
 //!   this is the ledger whose scheme settles in the account's XRP
@@ -43,7 +48,7 @@ use core::marker::PhantomData;
 
 use dassie_ledger::{LedgerId, MAX_TOTAL, Name};
 use dassie_settlement::{
-    AssetId, Effect, ExternalAsset, LedgerStatus, MAX_OWNER_MEMO_BYTES, OwnerPayment,
+    AssetId, Effect, EntryPayment, ExternalAsset, LedgerStatus, MAX_OWNER_MEMO_BYTES, OwnerPayment,
     OwnerPaymentState, PaymentFailure, PreparedSettlement, ReconcileCause, SchemeError,
     SettlementScheme,
 };
@@ -53,6 +58,7 @@ use serde_json::{Value, json};
 use crate::account::{MAX_ACCOUNT_DROPS, News, Ours, Resumed, XrplAccount};
 use crate::api::{AccountInfo, TxRecord};
 use crate::codec::Memo;
+use crate::entry::Entries;
 use crate::keys::AccountId;
 use crate::network::{self, Network};
 use crate::{UNITS_PER_DROP, from_hex, hex_upper};
@@ -230,6 +236,8 @@ pub struct XrpScheme<N: NativeXrp> {
     write_offs: u64,
     /// The owner's payment on its way: its hash, and the drops it pays.
     owner_payment: Option<([u8; 32], u64)>,
+    /// What nodes not yet peered paid us to enter, off the books.
+    entries: Entries,
     // Learnt from the account, as it told the scheme.
     /// The owner's last payment that is no longer on its way, and what
     /// became of it, kept with the books so a restart still answers for it.
@@ -285,6 +293,7 @@ impl<N: NativeXrp> XrpScheme<N> {
             write_offs: 0,
             owner_payment: None,
             owner_outcome: None,
+            entries: Entries::default(),
             balance: None,
             owner_count: 0,
             reserve: (0, 0),
@@ -314,6 +323,20 @@ impl<N: NativeXrp> XrpScheme<N> {
         self.account
     }
 
+    /// Takes entry payments of at least `minimum`, in internal units: one
+    /// largest packet (spec/decisions/pay-to-enter.md). Until it is told,
+    /// it takes none.
+    pub fn take_entries_from(&mut self, minimum: u64) {
+        self.entries.take_from(minimum);
+    }
+
+    /// What it holds of entry payments, in internal units: in the account,
+    /// and never on the books.
+    #[must_use]
+    pub fn entries_held(&self) -> u64 {
+        self.entries.total()
+    }
+
     /// The reserve the account holds back, in drops.
     fn reserve_drops(&self, owner_count: u32) -> u64 {
         let (base, increment) = self.reserve;
@@ -321,9 +344,16 @@ impl<N: NativeXrp> XrpScheme<N> {
     }
 
     /// What the books should hold for a balance: what is above the reserve,
-    /// in internal units.
+    /// in internal units, less the entry payments held.
     fn bookable(&self, balance: u64, owner_count: u32) -> u64 {
-        units(balance.saturating_sub(self.reserve_drops(owner_count)))
+        self.above(balance, self.reserve_drops(owner_count))
+    }
+
+    /// What the books should hold for a balance above a reserve of
+    /// `reserve` drops, in internal units: the entry payments held are not
+    /// theirs until their nodes peer or their hold is over.
+    fn above(&self, balance: u64, reserve: u64) -> u64 {
+        units(balance.saturating_sub(reserve)).saturating_sub(self.entries.total())
     }
 
     /// Whether the books hold anything of the account.
@@ -409,6 +439,8 @@ impl<N: NativeXrp> XrpScheme<N> {
             });
             self.booked = 0;
         }
+        // What they held went with the account.
+        self.entries.clear();
         self.cursor = None;
         self.balance = None;
         self.matched_reserve = None;
@@ -425,10 +457,10 @@ impl<N: NativeXrp> XrpScheme<N> {
             return;
         };
         let reserve = self.reserve_drops(self.owner_count);
-        let target = units(balance.saturating_sub(reserve));
+        let target = self.above(balance, reserve);
         let unchanged = self
             .matched_reserve
-            .map_or(target, |matched| units(balance.saturating_sub(matched)));
+            .map_or(target, |matched| self.above(balance, matched));
         self.reconcile_to(unchanged, ReconcileCause::Unexplained, effects);
         self.reconcile_to(target, ReconcileCause::Reserve, effects);
         self.matched_reserve = Some(reserve);
@@ -512,6 +544,8 @@ impl<N: NativeXrp> XrpScheme<N> {
                     id: Some(hash_name(&record.hash)),
                 });
                 booked += i128::from(amount);
+            } else if self.held_entry(record) {
+                // Off the books until its node peers, or its hold is over.
             } else if change.after > change.before {
                 let amount = units(change.after - change.before);
                 effects.push(Effect::Deposit { amount });
@@ -729,6 +763,13 @@ impl<N: NativeXrp> XrpScheme<N> {
     /// The peer a transaction settles from: a successful Payment of XRP to
     /// us with our memo, naming a peer whose known address sent it.
     fn settled_by(&self, record: &TxRecord) -> Option<Name> {
+        let peer = self.named_by(record)?;
+        (self.peers.get(&peer).map(|(address, _)| *address) == Some(record.account)).then_some(peer)
+    }
+
+    /// The node a successful Payment of XRP to us names in our memo, other
+    /// than ours: whoever sent it.
+    fn named_by(&self, record: &TxRecord) -> Option<Name> {
         if !(record.succeeded() && record.is_payment && record.destination == Some(self.account)) {
             return None;
         }
@@ -737,8 +778,35 @@ impl<N: NativeXrp> XrpScheme<N> {
         if memo_type.as_slice() != N::XRP.memo_type {
             return None;
         }
-        let peer = Name::new(core::str::from_utf8(memo_data).ok()?).ok()?;
-        (self.peers.get(&peer).map(|(address, _)| *address) == Some(record.account)).then_some(peer)
+        let node = Name::new(core::str::from_utf8(memo_data).ok()?).ok()?;
+        (node != self.node).then_some(node)
+    }
+
+    /// Holds `record` as an entry payment, if it is one the table takes: a
+    /// Payment with our memo naming a node not our peer at the address it
+    /// came from, of at least one largest packet
+    /// (spec/decisions/pay-to-enter.md). Returns whether it does.
+    fn held_entry(&mut self, record: &TxRecord) -> bool {
+        let Some(node) = self.named_by(record) else {
+            return false;
+        };
+        let amount = units(record.delivered.unwrap_or(0));
+        // Its hold starts when the scheme reads it, as after a restart,
+        // so its node has the whole of it to ask.
+        let read = self.validated.max(record.ledger_index);
+        self.entries
+            .hold(node, record.account, amount, record.hash, read)
+    }
+
+    /// Books the entry payments whose hold is over as the owner's
+    /// deposits.
+    fn expire_entries(&mut self, effects: &mut Vec<Effect>) {
+        for entry in self.entries.expire(self.validated) {
+            effects.push(Effect::Deposit {
+                amount: entry.amount,
+            });
+            self.booked = self.booked.saturating_add(entry.amount);
+        }
     }
 
     /// Keeps a peer's address; past [`MAX_PEERS`], the one learnt longest
@@ -788,6 +856,7 @@ impl<N: NativeXrp> XrpScheme<N> {
             add(u64::from(hash[0]) << 8 | u64::from(hash[1]));
             add(outcome_code(outcome));
         }
+        self.entries.fingerprint(&mut add);
         mix
     }
 
@@ -814,6 +883,7 @@ impl<N: NativeXrp> XrpScheme<N> {
             "owner_outcome": self
                 .owner_outcome
                 .map(|(hash, outcome)| json!([hex_upper(&hash), outcome_code(outcome)])),
+            "entries": self.entries.value(),
         })
     }
 
@@ -859,6 +929,11 @@ impl<N: NativeXrp> XrpScheme<N> {
         restore_unread(&value, &mut self.recovering)?;
         self.owner_payment = restore_owner_payment(&value)?;
         self.owner_outcome = restore_owner_outcome(&value)?;
+        self.entries.restore(&value)?;
+        // Entry payments are read past the first sync only.
+        if self.cursor.is_none() && self.entries.total() > 0 {
+            return None;
+        }
         Some(())
     }
 }
@@ -1098,6 +1173,9 @@ impl<N: NativeXrp> SettlementScheme for XrpScheme<N> {
         for item in &news {
             self.tell(account, item, effects);
         }
+        if self.cursor.is_some() {
+            self.expire_entries(effects);
+        }
         // One the account keeps no more, and told nothing of, was lost
         // with its state: what it did is in the balance. One it keeps for
         // the scheme, validated while the scheme was away, it tells again.
@@ -1159,9 +1237,31 @@ impl<N: NativeXrp> SettlementScheme for XrpScheme<N> {
 
     /// A Payment from its address is no settlement any more: it was
     /// followed past every one the peer made before the close, and is the
-    /// owner's deposit if one comes (spec/decisions/closing-channels.md).
+    /// owner's deposit if one comes (spec/decisions/closing-channels.md),
+    /// once held as an entry payment if it is one.
     fn on_closed(&mut self, peer: Name) {
         self.peers.remove(&peer);
+    }
+
+    /// The address the request names is where `peer` settles from.
+    fn entry(&self, peer: Name, data: &[u8]) -> EntryPayment {
+        self.entries.entry(peer, parse_address(data).ok())
+    }
+
+    /// Books what it held from `peer`, from the address it peered with, as
+    /// its settlements: the books hold it from now on.
+    fn take_entry(&mut self, peer: Name, effects: &mut Vec<Effect>) {
+        let Some((address, _)) = self.peers.get(&peer).copied() else {
+            return;
+        };
+        for entry in self.entries.take(peer, address) {
+            effects.push(Effect::IncomingSettlement {
+                peer,
+                amount: entry.amount,
+                id: Some(hash_name(&entry.hash)),
+            });
+            self.booked = self.booked.saturating_add(entry.amount);
+        }
     }
 
     /// Unavailable unless the account can sign it now
@@ -1332,6 +1432,11 @@ impl<N: NativeXrp> SettlementScheme for XrpScheme<N> {
 
     fn check_invariants(&self) {
         assert!(self.peers.len() <= MAX_PEERS);
+        self.entries.check_invariants();
+        assert!(
+            self.cursor.is_some() || self.entries.total() == 0,
+            "entry payments are read past the first sync"
+        );
         assert!(
             self.owner_outcome
                 .is_none_or(|(_, outcome)| outcome != OwnerPaymentState::InFlight),

@@ -259,6 +259,24 @@ impl XrplScheme {
         self.scheme.on_closed(peer);
     }
 
+    pub fn take_entries_from(&mut self, minimum: u64) {
+        self.scheme.take_entries_from(minimum);
+    }
+
+    pub fn entries_held(&self) -> u64 {
+        self.scheme.entries_held()
+    }
+
+    pub fn entry(&self, peer: Name, data: &[u8]) -> dassie_settlement::EntryPayment {
+        self.scheme.entry(peer, data)
+    }
+
+    pub fn take_entry(&mut self, peer: Name, effects: &mut Vec<Effect>) {
+        let mut booked = Vec::new();
+        self.scheme.take_entry(peer, &mut booked);
+        effects.extend(booked.into_iter().map(Effect::from));
+    }
+
     pub fn prepare_settlement(
         &mut self,
         rng: &mut SeededRng,

@@ -23,6 +23,18 @@ pub struct Agreed {
     pub credit_out: u64,
 }
 
+/// Whether a scheme takes entry payments, and holds one from a node that
+/// asks to peer (spec/decisions/pay-to-enter.md).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum EntryPayment {
+    /// The scheme takes none: a node new to us waits for a free place.
+    NotTaken,
+    /// It takes them, and holds none bound to the node and its request.
+    Missing,
+    /// It holds one: the node paid us on the ledger before it peered.
+    Held,
+}
+
 /// What peering needs from the node.
 pub trait PeeringHooks {
     /// The versions of `scheme` the node speaks, or none if it is not
@@ -89,6 +101,15 @@ pub trait PeeringHooks {
         data: &[u8],
         ended_for_room: bool,
     ) -> Result<Agreed, Declined>;
+
+    /// Whether `scheme` holds an entry payment from `node`, which asks to
+    /// peer with the scheme's `data`: a payment of at least one largest
+    /// packet that reached us on the ledger before any peering, bound to
+    /// the node and to its request (spec/decisions/pay-to-enter.md). A
+    /// downlink that holds one gets in past a full free half; one on a
+    /// scheme that takes them is told to pay, rather than refused for
+    /// capacity.
+    fn entry(&self, node: NodeId, scheme: SchemeId, data: &[u8]) -> EntryPayment;
 
     /// Whether peerings on `scheme` are over a settlement hub: each Prepare
     /// on them comes with the payer's commitment, in a `hubPacket`, and

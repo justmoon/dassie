@@ -22,6 +22,9 @@
 //! - a Payment from a peer's known address, with our memo naming the peer,
 //!   that delivered the token of our issuer: a settlement from it, by what
 //!   it delivered, in whole units;
+//! - one of at least one largest packet with our memo naming a node not our
+//!   peer at that address: an entry payment, held off the books as the XRP
+//!   scheme holds one ([`crate::entry`]);
 //! - anything else that raises the line: a deposit; that lowers it, an
 //!   issuer's clawback included: a withdrawal.
 //!
@@ -54,8 +57,8 @@ use core::marker::PhantomData;
 
 use dassie_ledger::{LedgerId, MAX_TOTAL, Name};
 use dassie_settlement::{
-    AssetId, DollarRate, Effect, ExternalAsset, LedgerStatus, PegView, PreparedSettlement,
-    ReconcileCause, SchemeError, SettlementScheme,
+    AssetId, DollarRate, Effect, EntryPayment, ExternalAsset, LedgerStatus, PegView,
+    PreparedSettlement, ReconcileCause, SchemeError, SettlementScheme,
 };
 use rand_core::CryptoRng;
 use serde_json::{Value, json};
@@ -64,6 +67,7 @@ use crate::account::{LineKey, News, Ours, Resumed, XrplAccount};
 use crate::amount::{Currency, TokenAmount, TokenValue};
 use crate::api::{AccountInfo, AccountSettings, LineView, TxRecord};
 use crate::codec::{Memo, TF_SET_NO_RIPPLE};
+use crate::entry::Entries;
 use crate::keys::AccountId;
 use crate::network::Network;
 use crate::peg::{Guard, Peg, Timings};
@@ -180,6 +184,9 @@ pub struct TokenScheme<T: IssuedToken> {
     /// How many times the account was written off, as the scheme last saw
     /// it ([`XrplAccount::write_offs`]).
     write_offs: u64,
+    /// What nodes not yet peered paid us to enter, off the books
+    /// (spec/decisions/pay-to-enter.md).
+    entries: Entries,
     // Learnt from the account, as it told the scheme.
     /// Our line, as the ledger last said: `None` until it said, then the
     /// line from our side, or `None` if there is none.
@@ -233,6 +240,7 @@ impl<T: IssuedToken> TokenScheme<T> {
             next_learnt: 0,
             recovering: Vec::new(),
             write_offs: 0,
+            entries: Entries::default(),
             line: None,
             issuer: None,
             account_synced: false,
@@ -316,8 +324,27 @@ impl<T: IssuedToken> TokenScheme<T> {
         self.account_synced && self.line_ok()
     }
 
-    /// What the books should hold for a line: its balance in whole units,
-    /// none below zero.
+    /// Takes entry payments of at least `minimum`, in internal units: one
+    /// largest packet, as the XRP scheme does. Until it is told, it takes
+    /// none.
+    pub fn take_entries_from(&mut self, minimum: u64) {
+        self.entries.take_from(minimum);
+    }
+
+    /// What it holds of entry payments, in internal units: on the line,
+    /// and never on the books.
+    #[must_use]
+    pub fn entries_held(&self) -> u64 {
+        self.entries.total()
+    }
+
+    /// What the books should hold for a line: [`Self::bookable`], less
+    /// the entry payments held.
+    fn target(&self, line: Option<&LineView>) -> u64 {
+        Self::bookable(line).saturating_sub(self.entries.total())
+    }
+
+    /// What a line holds: its balance in whole units, none below zero.
     fn bookable(line: Option<&LineView>) -> u64 {
         let micros = line
             .map_or(Some(0), |view| view.balance.floor_units(DECIMALS))
@@ -483,6 +510,8 @@ impl<T: IssuedToken> TokenScheme<T> {
             });
             self.booked = 0;
         }
+        // What they held went with the line.
+        self.entries.clear();
         self.cursor = None;
         self.line = None;
         self.issuer = None;
@@ -492,12 +521,13 @@ impl<T: IssuedToken> TokenScheme<T> {
         self.trust_wait = 1;
     }
 
-    /// Makes the books match the line in whole units.
+    /// Makes the books match the line in whole units, less the entry
+    /// payments held.
     fn match_line(&mut self, effects: &mut Vec<Effect>) {
         let Some(line) = self.line else {
             return;
         };
-        let target = Self::bookable(line.as_ref());
+        let target = self.target(line.as_ref());
         if target != self.booked {
             effects.push(Effect::Reconcile {
                 amount: target.abs_diff(self.booked),
@@ -572,6 +602,8 @@ impl<T: IssuedToken> TokenScheme<T> {
                     id: Some(hash_name(&record.hash)),
                 });
                 booked += i128::from(amount);
+            } else if self.held_entry(record) {
+                // Off the books until its node peers, or its hold is over.
             } else {
                 let moved = i128::from(Self::bookable(after.as_ref()))
                     - i128::from(Self::bookable(before.as_ref()));
@@ -685,6 +717,15 @@ impl<T: IssuedToken> TokenScheme<T> {
     /// our memo naming a peer whose known address sent it. Less than a unit
     /// is no settlement.
     fn settled_by(&self, record: &TxRecord) -> Option<(Name, u64)> {
+        let (peer, amount) = self.named_by(record)?;
+        (self.peers.get(&peer).map(|(address, _)| *address) == Some(record.account))
+            .then_some((peer, amount))
+    }
+
+    /// The node a successful Payment to us that delivered the token of our
+    /// issuer names in our memo, other than ours, and how much it delivered
+    /// in internal units: whoever sent it. Less than a unit names no one.
+    fn named_by(&self, record: &TxRecord) -> Option<(Name, u64)> {
         if !(record.succeeded() && record.is_payment && record.destination == Some(self.account)) {
             return None;
         }
@@ -696,14 +737,37 @@ impl<T: IssuedToken> TokenScheme<T> {
         if memo_type.as_slice() != T::TOKEN.memo_type {
             return None;
         }
-        let peer = Name::new(core::str::from_utf8(memo_data).ok()?).ok()?;
-        if self.peers.get(&peer).map(|(address, _)| *address) != Some(record.account) {
+        let node = Name::new(core::str::from_utf8(memo_data).ok()?).ok()?;
+        if node == self.node {
             return None;
         }
         let micros = u64::try_from(delivered.value.floor_units(DECIMALS)?).ok()?;
-        let room = MAX_MICROS.saturating_sub(self.booked / UNITS_PER_MICRO);
+        let held = self.booked.saturating_add(self.entries.total()) / UNITS_PER_MICRO;
+        let room = MAX_MICROS.saturating_sub(held);
         let amount = micros.min(room) * UNITS_PER_MICRO;
-        (amount > 0).then_some((peer, amount))
+        (amount > 0).then_some((node, amount))
+    }
+
+    /// Holds `record` as an entry payment, as the XRP scheme does
+    /// (spec/decisions/pay-to-enter.md). Returns whether it does.
+    fn held_entry(&mut self, record: &TxRecord) -> bool {
+        let Some((node, amount)) = self.named_by(record) else {
+            return false;
+        };
+        let read = self.validated.max(record.ledger_index);
+        self.entries
+            .hold(node, record.account, amount, record.hash, read)
+    }
+
+    /// Books the entry payments whose hold is over as the owner's
+    /// deposits.
+    fn expire_entries(&mut self, effects: &mut Vec<Effect>) {
+        for entry in self.entries.expire(self.validated) {
+            effects.push(Effect::Deposit {
+                amount: entry.amount,
+            });
+            self.booked = self.booked.saturating_add(entry.amount);
+        }
     }
 
     /// Keeps a peer's address; past [`MAX_PEERS`], the one learnt longest
@@ -753,6 +817,7 @@ impl<T: IssuedToken> TokenScheme<T> {
         add(self.recovering.len() as u64);
         add(self.write_offs);
         add(self.guard.as_ref().map_or(0, Guard::fingerprint));
+        self.entries.fingerprint(&mut add);
         mix
     }
 
@@ -773,6 +838,7 @@ impl<T: IssuedToken> TokenScheme<T> {
             "recovering": recovering,
             "write_offs": self.write_offs,
             "unread": unread_value(&self.recovering),
+            "entries": self.entries.value(),
         });
         if let (Some(guard), Some(object)) = (&self.guard, state.as_object_mut()) {
             object.insert("peg".into(), guard.state());
@@ -813,6 +879,11 @@ impl<T: IssuedToken> TokenScheme<T> {
                 return None;
             }
             self.recovering.push(Recovering::new(hash));
+        }
+        self.entries.restore(&value)?;
+        // Entry payments are read past the first sync only.
+        if self.cursor.is_none() && self.entries.total() > 0 {
+            return None;
         }
         restore_unread(&value, &mut self.recovering)
     }
@@ -941,6 +1012,9 @@ impl<T: IssuedToken> SettlementScheme for TokenScheme<T> {
         for item in &news {
             self.tell(now_ms, account, item, effects);
         }
+        if self.cursor.is_some() {
+            self.expire_entries(effects);
+        }
         account.follow(self.id(), self.cursor, self.holds_anything());
     }
 
@@ -989,9 +1063,32 @@ impl<T: IssuedToken> SettlementScheme for TokenScheme<T> {
     }
 
     /// As in the XRP scheme: a Payment from its address after the close is
-    /// the owner's deposit (spec/decisions/closing-channels.md).
+    /// the owner's deposit (spec/decisions/closing-channels.md), once held
+    /// as an entry payment if it is one.
     fn on_closed(&mut self, peer: Name) {
         self.peers.remove(&peer);
+    }
+
+    /// As in the XRP scheme: the address the request names is where `peer`
+    /// settles from.
+    fn entry(&self, peer: Name, data: &[u8]) -> EntryPayment {
+        self.entries.entry(peer, parse_address(data).ok())
+    }
+
+    /// As in the XRP scheme: what it held from `peer`, from the address it
+    /// peered with, is its settlements.
+    fn take_entry(&mut self, peer: Name, effects: &mut Vec<Effect>) {
+        let Some((address, _)) = self.peers.get(&peer).copied() else {
+            return;
+        };
+        for entry in self.entries.take(peer, address) {
+            effects.push(Effect::IncomingSettlement {
+                peer,
+                amount: entry.amount,
+                id: Some(hash_name(&entry.hash)),
+            });
+            self.booked = self.booked.saturating_add(entry.amount);
+        }
     }
 
     /// Unavailable unless synced, the line not frozen, the issuer read with
@@ -1110,6 +1207,11 @@ impl<T: IssuedToken> SettlementScheme for TokenScheme<T> {
 
     fn check_invariants(&self) {
         assert!(self.peers.len() <= MAX_PEERS);
+        self.entries.check_invariants();
+        assert!(
+            self.cursor.is_some() || self.entries.total() == 0,
+            "entry payments are read past the first sync"
+        );
         assert!(self.recovering.len() <= MAX_RECOVERING);
         let mut seen = BTreeSet::new();
         assert!(
@@ -1138,7 +1240,7 @@ impl<T: IssuedToken> SettlementScheme for TokenScheme<T> {
         {
             assert_eq!(
                 self.booked,
-                Self::bookable(line.as_ref()),
+                self.target(line.as_ref()),
                 "the books match the line"
             );
         }

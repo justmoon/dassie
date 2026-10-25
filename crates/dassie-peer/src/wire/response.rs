@@ -83,6 +83,11 @@ pub enum RefusalReason {
     /// The responder is ending its peering with the requester, or an owner
     /// recently ended it.
     Terminating,
+    /// The responder has room only for a downlink that paid it: one that
+    /// pays it on the scheme first, an entry payment, gets in
+    /// (spec/decisions/pay-to-enter.md). A node that does not know the code
+    /// reads it as unspecified, and backs off as from capacity.
+    PayToEnter,
 }
 
 impl RefusalReason {
@@ -100,6 +105,7 @@ impl RefusalReason {
             Self::Unreachable => 7,
             Self::Banned => 8,
             Self::Terminating => 9,
+            Self::PayToEnter => 10,
         }
     }
 
@@ -116,6 +122,7 @@ impl RefusalReason {
             7 => Self::Unreachable,
             8 => Self::Banned,
             9 => Self::Terminating,
+            10 => Self::PayToEnter,
             _ => Self::Unspecified,
         }
     }

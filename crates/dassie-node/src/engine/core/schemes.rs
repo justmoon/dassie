@@ -268,28 +268,31 @@ fn create(
     };
     let node = || Name::new(key.node_id().as_str()).map_err(|_| SchemeError::InvalidData);
     let state = checkpoint.map_or(&[][..], |c| c.state.as_slice());
+    // What a node new to us pays to enter: one largest packet, the least it
+    // settles (spec/decisions/pay-to-enter.md).
+    let entry = dassie_settlement::policy::minimum(max_packet);
     match id {
         "stub" => Ok(Box::new(Stub::new(config, balance, state)?)),
-        dassie_xrpl::scheme::SCHEME_ID => Ok(Box::new(XrplScheme::new(
-            account()?,
-            node()?,
-            balance,
-            state,
-        )?)),
-        dassie_xrpl::scheme::MAINNET_SCHEME_ID => Ok(Box::new(XrplMainnetScheme::new(
-            account()?,
-            node()?,
-            balance,
-            state,
-        )?)),
+        dassie_xrpl::scheme::SCHEME_ID => {
+            let mut scheme = XrplScheme::new(account()?, node()?, balance, state)?;
+            scheme.take_entries_from(entry);
+            Ok(Box::new(scheme))
+        }
+        dassie_xrpl::scheme::MAINNET_SCHEME_ID => {
+            let mut scheme = XrplMainnetScheme::new(account()?, node()?, balance, state)?;
+            scheme.take_entries_from(entry);
+            Ok(Box::new(scheme))
+        }
         dassie_xrpl::rlusd::SCHEME_ID => {
             let mut scheme = RlusdScheme::new(account()?, node()?, balance, state)?;
             scheme.set_peg_timings(peg);
+            scheme.take_entries_from(entry);
             Ok(Box::new(scheme))
         }
         dassie_xrpl::dsusd::SCHEME_ID => {
             let mut scheme = DsusdScheme::new(account()?, node()?, balance, state)?;
             scheme.set_peg_timings(peg);
+            scheme.take_entries_from(entry);
             Ok(Box::new(scheme))
         }
         dassie_hub::member::SCHEME_ID => {

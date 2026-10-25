@@ -12,7 +12,7 @@ use super::gossip::Retransmit;
 use super::inbound::{Probe, ProbeFor, ok};
 use super::{PeerNode, Problem, Purpose};
 use crate::auth::Accepted;
-use crate::hooks::PeeringHooks;
+use crate::hooks::{EntryPayment, PeeringHooks};
 use crate::io::{Event, Inbound, InboundId, Reply};
 use crate::table::{
     Advertise, Entry, LinkState, Network, PeerState, Peering as PeeringState, Sources, backoff,
@@ -618,7 +618,7 @@ impl PeerNode {
             return if downlink {
                 common_version(hooks.versions(request.scheme), &request.versions)
                     .ok_or(RefusalReason::NoCommonVersion)?;
-                self.downlink_room(hooks, sender)
+                self.downlink_room(hooks, sender, request)
             } else {
                 Err(RefusalReason::UnknownNode)
             };
@@ -646,7 +646,7 @@ impl PeerNode {
             self.abandon_attempt(*sender);
         }
         if downlink {
-            return self.downlink_room(hooks, sender);
+            return self.downlink_room(hooks, sender, request);
         }
         let inbound = self.core_peers().filter(|(_, p)| p.inbound).count();
         if inbound >= self.config.max_inbound()
@@ -660,21 +660,29 @@ impl PeerNode {
     /// Whether a downlink `sender` fits: its place in the table, its
     /// peering and its channel, under their own bound, apart from the core
     /// peering slots (spec/areas/network.md#downlinks); and, if it never
-    /// paid us, among the free receivers.
+    /// paid us, among the free receivers, unless its request's scheme
+    /// holds what it paid us to enter. Past a full free half, with room
+    /// left, a scheme that takes entry payments tells it to pay
+    /// (spec/decisions/pay-to-enter.md).
     fn downlink_room(
         &self,
         hooks: &dyn PeeringHooks,
         sender: &NodeId,
+        request: &PeeringRequest<'_>,
     ) -> Result<(), RefusalReason> {
         let peered = self.peers().filter(|(id, _)| self.is_downlink(id)).count();
         let placed = self.is_downlink(sender) || self.downlinks() < self.config.max_downlinks;
         if peered >= self.config.max_downlinks || !placed || !self.channel_room_for(sender, true) {
             return Err(RefusalReason::Capacity);
         }
-        if !self.free_room_for(hooks, sender) {
-            return Err(RefusalReason::Capacity);
+        if self.free_room_for(hooks, sender) {
+            return Ok(());
         }
-        Ok(())
+        match hooks.entry(*sender, request.scheme, request.data) {
+            EntryPayment::Held => Ok(()),
+            EntryPayment::Missing => Err(RefusalReason::PayToEnter),
+            EntryPayment::NotTaken => Err(RefusalReason::Capacity),
+        }
     }
 
     /// Whether a downlink `sender` fits among the free receivers: at most
