@@ -802,7 +802,7 @@ impl Core {
             }
             // The names the node answers to follow its view
             // (spec/areas/payments.md#the-nodes-names).
-            Event::Name(NameEvent::Held { .. } | NameEvent::Unheld { .. }) => {
+            Event::Name(NameEvent::HoldersChanged { .. }) => {
                 self.held_names_changed = true;
             }
             other => self.lifecycle_event(other),
