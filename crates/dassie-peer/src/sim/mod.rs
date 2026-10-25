@@ -284,6 +284,8 @@ pub struct SimNode {
     stored_commitments: BTreeMap<crate::names::Commitment, crate::names::Logged>,
     stored_names: BTreeMap<crate::names::Name, crate::names::Granted>,
     stored_holders: BTreeMap<crate::names::Name, crate::names::HeldName>,
+    /// Its view of who holds each name, as last seen after a step.
+    seen_holders: BTreeMap<Name, NodeId>,
     stored_registrations: BTreeMap<crate::names::Name, crate::names::NameRegistration>,
     /// How far its clock is off the network's.
     pub skew_ms: i64,
@@ -390,6 +392,29 @@ pub struct Network {
     /// The names passed to the adversary, with the expiry the registrars
     /// that tip off list it for each with.
     pub tipped: BTreeMap<Name, u64>,
+    /// What happened to names, at which node, in order: a node reports
+    /// these in counts only (spec/areas/network.md#holders), so they are
+    /// read from its state after each step.
+    pub name_changes: Vec<(usize, NameChange)>,
+}
+
+/// What happened to a name at a node, as read from its state.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum NameChange {
+    /// In the node's view, the name has this holder now, or none.
+    Holder {
+        /// The name.
+        name: Name,
+        /// Its holder now, if it has one.
+        holder: Option<NodeId>,
+    },
+    /// The node, a registrar, released the name it listed for `holder`.
+    Released {
+        /// The name.
+        name: Name,
+        /// Its holder until then.
+        holder: NodeId,
+    },
 }
 
 impl Network {
@@ -459,6 +484,7 @@ impl Network {
             roles: BTreeMap::new(),
             adversary: None,
             tipped: BTreeMap::new(),
+            name_changes: Vec::new(),
         };
         for index in 0..count + periphery {
             let skew = i64::try_from(rng.next_u64() % 20_001).unwrap() - 10_000;
@@ -475,6 +501,7 @@ impl Network {
                 stored_commitments: BTreeMap::new(),
                 stored_names: BTreeMap::new(),
                 stored_holders: BTreeMap::new(),
+                seen_holders: BTreeMap::new(),
                 stored_registrations: BTreeMap::new(),
                 skew_ms: skew,
                 generation: 0,
@@ -533,8 +560,11 @@ impl Network {
         if let Some(uplinks) = self.pinned.get(&index) {
             node.pin_uplinks(uplinks.clone());
         }
+        let changes = view_changes(&mut sim.seen_holders, &node);
         sim.node = Some(node);
         self.trace.push(format!("{} start {index}", self.now));
+        self.name_changes
+            .extend(changes.into_iter().map(|change| (index, change)));
     }
 
     /// Crashes node `index`: what it did not persist is lost.
@@ -585,6 +615,20 @@ impl Network {
             self.trace.push(format!("{} {index} {event:?}", self.now));
             events.push(event);
         }
+        let node_now = node.now_ms;
+        let sim = &mut self.nodes[index];
+        let mut changes = released(sim, &events, &batch, node_now);
+        let viewed = view_changes(&mut sim.seen_holders, sim.node.as_ref().unwrap());
+        let reported = events
+            .iter()
+            .any(|event| matches!(event, Event::Name(NameEvent::HoldersChanged { .. })));
+        assert!(
+            reported || viewed.is_empty(),
+            "node {index} changed its view of holders without reporting it"
+        );
+        changes.extend(viewed);
+        self.name_changes
+            .extend(changes.into_iter().map(|change| (index, change)));
         let sim = &mut self.nodes[index];
         for stored in batch.nodes {
             sim.stored_nodes.insert(stored.id, stored);
@@ -1139,6 +1183,66 @@ impl Network {
 }
 
 /// The name a registrar that tips off passes on: one unsealed at it.
+/// The names a registrar released in a step, from what it persisted before
+/// and in it: a name it listed, unfreed, that the step freed before it
+/// expired, or freed and forgot while it was still listed. As many as its
+/// events report.
+fn released(sim: &SimNode, events: &[Event], batch: &PeerBatch, now_ms: u64) -> Vec<NameChange> {
+    let unfreed = |name: &Name| {
+        sim.stored_names
+            .get(name)
+            .filter(|before| before.freed_ms.is_none())
+    };
+    let freed = batch.names.iter().filter_map(|granted| {
+        let early = granted.freed_ms.is_some_and(|at| at < granted.expires_ms);
+        let before = unfreed(&granted.name)?;
+        early.then_some((granted.name, before.holder))
+    });
+    let forgotten = batch.names_removed.iter().filter_map(|name| {
+        let before = unfreed(name)?;
+        (now_ms < before.expires_ms).then_some((*name, before.holder))
+    });
+    let released: Vec<NameChange> = freed
+        .chain(forgotten)
+        .map(|(name, holder)| NameChange::Released { name, holder })
+        .collect();
+    let reported: usize = events
+        .iter()
+        .map(|event| match event {
+            Event::Name(NameEvent::Released { names }) => *names,
+            _ => 0,
+        })
+        .sum();
+    assert_eq!(released.len(), reported, "every release is read from state");
+    released
+}
+
+/// How `node`'s view of holders differs from `seen`, which it becomes.
+fn view_changes(seen: &mut BTreeMap<Name, NodeId>, node: &PeerNode) -> Vec<NameChange> {
+    let now: BTreeMap<Name, NodeId> = node
+        .holders()
+        .held()
+        .map(|held| (held.name, held.holder))
+        .collect();
+    let unheld = seen
+        .keys()
+        .filter(|name| !now.contains_key(name))
+        .map(|name| NameChange::Holder {
+            name: *name,
+            holder: None,
+        });
+    let held = now
+        .iter()
+        .filter(|(name, holder)| seen.get(name) != Some(holder))
+        .map(|(name, holder)| NameChange::Holder {
+            name: *name,
+            holder: Some(*holder),
+        });
+    let changes = unheld.chain(held).collect();
+    *seen = now;
+    changes
+}
+
 const fn tip(event: &Event) -> Option<Name> {
     match event {
         Event::Name(NameEvent::Unsealed { name, .. }) => Some(*name),

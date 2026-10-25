@@ -27,7 +27,7 @@ use alloc::vec::Vec;
 use dassie_identity::NodeId;
 use dassie_node_core::testing::{Outcome, Run, SeededRng};
 
-use super::{Faults, Network, Role, START, key};
+use super::{Faults, NameChange, Network, Role, START, key};
 use crate::names::holders::quorum;
 use crate::names::{MAX_HOLDERS, MAX_REGISTRATIONS, Name, Stage};
 use crate::wire::MAX_NAME_LIST;
@@ -450,17 +450,29 @@ fn name_events(network: &Network) -> impl Iterator<Item = (usize, &NameEvent)> {
         })
 }
 
+/// What happened to names, as read from the nodes' state after each step,
+/// in order, with the node it happened at.
+fn name_changes(network: &Network) -> impl Iterator<Item = (usize, &NameChange)> {
+    network
+        .name_changes
+        .iter()
+        .map(|(index, change)| (*index, change))
+}
+
 /// No two judged nodes ever took different holders for a name: at every
 /// change of a view, by the views of the others at that moment, frozen or
 /// not.
 fn one_holder(network: &Network, judged: &[usize]) -> Result<(), String> {
     let mut views: BTreeMap<usize, BTreeMap<Name, NodeId>> = BTreeMap::new();
-    for (index, event) in name_events(network) {
+    for (index, change) in name_changes(network) {
         if !judged.contains(&index) {
             continue;
         }
-        match event {
-            NameEvent::Held { name, holder } => {
+        match change {
+            NameChange::Holder {
+                name,
+                holder: Some(holder),
+            } => {
                 let other = views.iter().find(|(other, view)| {
                     **other != index && view.get(name).is_some_and(|held| held != holder)
                 });
@@ -472,10 +484,10 @@ fn one_holder(network: &Network, judged: &[usize]) -> Result<(), String> {
                 }
                 views.entry(index).or_default().insert(*name, *holder);
             }
-            NameEvent::Unheld { name, .. } => {
+            NameChange::Holder { name, holder: None } => {
                 views.entry(index).or_default().remove(name);
             }
-            _ => {}
+            NameChange::Released { .. } => {}
         }
     }
     Ok(())
@@ -485,11 +497,12 @@ fn one_holder(network: &Network, judged: &[usize]) -> Result<(), String> {
 /// were unsealed, holds none in any judged node's view, ever.
 fn not_adversary(network: &Network, judged: &[usize], adversary: usize) -> Result<(), String> {
     let id = key(adversary).node_id();
-    let held = name_events(network).find(|(index, event)| {
-        judged.contains(index) && matches!(event, NameEvent::Held { holder, .. } if *holder == id)
+    let held = name_changes(network).find(|(index, change)| {
+        judged.contains(index)
+            && matches!(change, NameChange::Holder { holder: Some(holder), .. } if *holder == id)
     });
     match held {
-        Some((index, event)) => Err(format!("node {index}: {event:?}, the adversary")),
+        Some((index, change)) => Err(format!("node {index}: {change:?}, the adversary")),
         None => Ok(()),
     }
 }
@@ -501,12 +514,12 @@ fn not_adversary(network: &Network, judged: &[usize], adversary: usize) -> Resul
 /// (spec/areas/network.md#releasing-a-split).
 fn kept(network: &Network, setup: &Setup, judged: &[usize]) -> Result<(), String> {
     let (registrations, _) = registrations(network, setup);
-    let released = name_events(network).find(|(index, event)| {
+    let released = name_changes(network).find(|(index, change)| {
         judged.contains(index)
-            && matches!(event, NameEvent::Released { name, .. } if registrations.contains_key(name))
+            && matches!(change, NameChange::Released { name, .. } if registrations.contains_key(name))
     });
     match released {
-        Some((index, event)) => Err(format!("node {index}: {event:?}, which must hold")),
+        Some((index, change)) => Err(format!("node {index}: {change:?}, which must hold")),
         None => Ok(()),
     }
 }
@@ -519,16 +532,28 @@ fn withheld(network: &Network, setup: &Setup) -> Result<(), Outcome> {
     let through = name_events(network).find(|(_, event)| {
         matches!(
             event,
-            NameEvent::Unsealing { .. }
-                | NameEvent::Unsealed { .. }
-                | NameEvent::Granted { .. }
-                | NameEvent::Held { .. }
+            NameEvent::Unsealing { .. } | NameEvent::Unsealed { .. } | NameEvent::Granted { .. }
         )
     });
     if let Some((index, event)) = through {
         return Err(Outcome::safety(
             "withheld",
             format!("node {index}: {event:?}, with a registrar withholding receipts"),
+        ));
+    }
+    let held = name_changes(network).find(|(_, change)| {
+        matches!(
+            change,
+            NameChange::Holder {
+                holder: Some(_),
+                ..
+            }
+        )
+    });
+    if let Some((index, change)) = held {
+        return Err(Outcome::safety(
+            "withheld",
+            format!("node {index}: {change:?}, with a registrar withholding receipts"),
         ));
     }
     for index in setup.registrants() {
@@ -621,10 +646,13 @@ fn released(network: &Network) -> Result<(), String> {
 
 /// The names any node released, so far.
 fn released_names(network: &Network) -> u64 {
-    count(names(network, |event| match event {
-        NameEvent::Released { name, .. } => Some(*name),
-        _ => None,
-    }))
+    let names: BTreeSet<Name> = name_changes(network)
+        .filter_map(|(_, change)| match change {
+            NameChange::Released { name, .. } => Some(*name),
+            NameChange::Holder { .. } => None,
+        })
+        .collect();
+    count(names.len())
 }
 
 /// The names `pick` finds in the name events, each once.
