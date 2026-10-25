@@ -146,8 +146,8 @@ pub(super) fn over_tunnel(mut transport: TransportConfig) -> TransportConfig {
     transport
 }
 
-/// The endpoint's settings over tunnels: `config`, which holds the node's
-/// key for stateless resets, taking packets of [`DATAGRAM_BYTES`].
+/// The endpoint's settings over tunnels: `config`, which holds the key for
+/// stateless resets over tunnels, taking packets of [`DATAGRAM_BYTES`].
 pub(super) fn endpoint_config(mut config: EndpointConfig) -> io::Result<EndpointConfig> {
     config
         .max_udp_payload_size(DATAGRAM_BYTES)

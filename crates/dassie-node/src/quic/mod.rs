@@ -141,9 +141,15 @@ pub const NO_ROOM: VarInt = VarInt::from_u32(1);
 /// The status ahead of a response's body.
 const STATUS_BYTES: usize = 2;
 
-/// Where the key for stateless resets hangs in the node's key tree
+/// Where the key for stateless resets over UDP hangs in the node's key tree
 /// (spec/areas/identity.md#seed-paths).
 const RESET_KEY_PATH: &str = "node/quic/stateless-reset";
+
+/// Where the key for stateless resets over tunnels hangs: a key of its own,
+/// so that neither endpoint can tell anyone the tokens of the other's
+/// connections (RFC 9000, section 21.11), should their connection IDs ever
+/// come from the node key too.
+const TUNNEL_RESET_KEY_PATH: &str = "node/quic/tunnel-stateless-reset";
 
 const _: () = assert!(MAX_MESSAGE_BYTES <= MAX_RESPONSE_BYTES);
 const _: () = assert!(MAX_NAME_LIST_BYTES <= MAX_RESPONSE_BYTES);
@@ -487,13 +493,13 @@ impl Quic {
         identity: watch::Receiver<Option<Arc<NodeKey>>>,
         allow_private: bool,
     ) -> io::Result<Self> {
-        let config = endpoint_config(identity.borrow().as_deref());
+        let config = endpoint_config(identity.borrow().as_deref(), RESET_KEY_PATH);
+        let tunnel_config = endpoint_config(identity.borrow().as_deref(), TUNNEL_RESET_KEY_PATH);
         let keys = Arc::new(Keys::new(identity));
         let server = server_config(&keys, IDLE_TIMEOUT).map_err(io::Error::other)?;
         let runtime = quinn::default_runtime().ok_or_else(|| io::Error::other("no runtime"))?;
-        // The same key for stateless resets over both.
         let tunnels = Tunnels::new(
-            tunnel::endpoint_config(config.clone())?,
+            tunnel::endpoint_config(tunnel_config)?,
             tunnel_server_config(&keys, IDLE_TIMEOUT).map_err(io::Error::other)?,
             Arc::clone(&runtime),
         )?;
@@ -1350,10 +1356,11 @@ pub fn authority(url: &str) -> Option<(&str, u16)> {
 /// The endpoint's configuration. Its key for stateless resets derives from
 /// the node key, so it survives a restart: a node that crashed, and so
 /// closed nothing, can still tell its peers their connections are gone, and
-/// they connect again at once instead of waiting out the idle timeout. A
-/// node not set up yet has no peers, and a random key.
-fn endpoint_config(key: Option<&NodeKey>) -> EndpointConfig {
-    let derived = SeedPath::parse(RESET_KEY_PATH)
+/// they connect again at once instead of waiting out the idle timeout. Each
+/// endpoint derives its own, at `path`. A node not set up yet has no peers,
+/// and a random key.
+fn endpoint_config(key: Option<&NodeKey>, path: &str) -> EndpointConfig {
+    let derived = SeedPath::parse(path)
         .ok()
         .and_then(|path| key?.derive(&path).ok());
     match derived {
@@ -1460,10 +1467,11 @@ mod tests {
     }
 
     #[test]
-    fn the_reset_key_path_is_under_the_node_key() {
+    fn the_reset_key_paths_are_under_the_node_key_and_apart() {
         let key = NodeKey::from_bytes(&[1; 32]);
-        let path = SeedPath::parse(RESET_KEY_PATH).unwrap();
-        assert!(key.derive(&path).is_ok());
+        let derive = |path| key.derive(&SeedPath::parse(path).unwrap()).unwrap();
+        let (udp, tunnels) = (derive(RESET_KEY_PATH), derive(TUNNEL_RESET_KEY_PATH));
+        assert_ne!(udp.as_bytes(), tunnels.as_bytes());
     }
 
     /// Answers each request with its body.
