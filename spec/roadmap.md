@@ -161,6 +161,13 @@ A packet's next hop drawn at random among its first hops, weighted by the fees e
   - the weights: per peer and ledger, the fees earned on packets that kept that ledger and were fulfilled through the peer, decaying, in memory, with a fixed share of the draws even.
 - **Done when:** in the `node` simulation, a payment to a destination with two paths, one through a node that refuses its packets or converts below the sender's minimum, completes through the other, and that node earns nothing; packets an attacker sends itself through a hop and rejects leave its weight as it was, and raising a hop's weight costs the node's fee on every unit; a hop short of room answers T04 and keeps its weight for longer than a settlement takes.
 
+### Kopje across Dassie
+
+The brand page holds Dassie's visual identity, Kopje ([visual-identity](decisions/visual-identity.md)); the rest of what Dassie shows does not use it yet.
+
+- **Parts that can be built side by side:** dassie.land's other pages, its header and its favicon; the wallet, in its light theme and dusk; the desktop app's icons and tray.
+- **Done when:** every page of dassie.land and every screen of the wallet and the desktop app draws in Kopje's palette, type and mark, light and dark, and the site has one stylesheet for its look.
+
 ## Not built yet
 
 Gaps between what the spec's contract or decisions ask for and what `main` does. Each can be picked up on its own.

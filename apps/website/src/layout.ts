@@ -13,6 +13,7 @@ export const PAGES = [
   { path: "/guides/nixos/", title: "NixOS" },
   { path: "/tools/stream-toy/", title: "STREAM Toy" },
   { path: "/architecture/", title: "Architecture" },
+  { path: "/brand/", title: "Brand" },
 ] as const;
 
 export const GITHUB = "https://github.com/justmoon/dassie";
