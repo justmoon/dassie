@@ -6,21 +6,33 @@
  * @module
  */
 
+/** A page of the site. */
+export interface Page {
+  path: string;
+  title: string;
+  /** False for a page the navigation leaves out, reached by its address. */
+  nav: boolean;
+}
+
 /** The pages, in the order the navigation lists them. */
-export const PAGES = [
-  { path: "/", title: "Home" },
-  { path: "/guides/quick-start/", title: "Quick Start" },
-  { path: "/guides/nixos/", title: "NixOS" },
-  { path: "/tools/stream-toy/", title: "STREAM Toy" },
-  { path: "/architecture/", title: "Architecture" },
-] as const;
+export const PAGES: readonly Page[] = [
+  { path: "/", title: "Home", nav: true },
+  { path: "/guides/quick-start/", title: "Quick Start", nav: true },
+  { path: "/guides/nixos/", title: "NixOS", nav: true },
+  { path: "/tools/stream-toy/", title: "STREAM Toy", nav: true },
+  { path: "/architecture/", title: "Architecture", nav: true },
+  // The visual identity, for those who design for Dassie: AGENTS.md links it.
+  { path: "/brand/", title: "Brand", nav: false },
+];
 
 export const GITHUB = "https://github.com/justmoon/dassie";
 export const DISCORD = "https://discord.gg/HqdGNfs9kq";
 
 /** The header, with the page at `path` marked as the current one. */
 export function header(path: string): string {
-  const links = PAGES.filter((page) => page.path !== "/").map((page) =>
+  const links = PAGES.filter((page) => page.nav && page.path !== "/").map((
+    page,
+  ) =>
     `<a href="${page.path}"${
       page.path === path ? ' aria-current="page"' : ""
     }>${page.title}</a>`

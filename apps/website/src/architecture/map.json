@@ -142,6 +142,7 @@
       "does": [
         "The home page, the Quick Start and the NixOS guide",
         "This architecture page, drawn from one data file",
+        "The brand page: Kopje, the visual identity, with the mark, color, type and how they look in use",
         "The STREAM toy: Dassie's own STREAM code, compiled to WebAssembly, sends a payment over a simulated network",
         "Its packet log decrypts every STREAM packet"
       ]

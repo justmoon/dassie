@@ -25,6 +25,14 @@ Update `map.json` in the same PR as the change it describes:
 
 Write for someone new to Dassie, in the present tense, and leave out milestones, PR numbers and counts that go stale. `map_test.ts` fails when a crate, app, package or contract has no box, when a path or id is wrong, when boxes overlap or leave their layer, when a box's `uses` links differ from the workspace dependencies in its `Cargo.toml` (not its dev-dependencies) or `package.json`, and when the newest release is not the version in `crates/dassie-cli/Cargo.toml`. Run it with `node --test apps/website/src/architecture/map_test.ts`.
 
+## Follow the visual identity
+
+Anything of Dassie's that people see (dassie.land, the wallet, the desktop app, images, things printed for operators) follows Kopje, Dassie's visual identity: [`apps/website/brand/index.html`](apps/website/brand/index.html), with its stylesheet `brand.css` beside it, served at [dassie.land/brand/](https://dassie.land/brand/). Read it before you design or restyle anything. It holds the mark and when to use which version, the palette and each color's role, type, the graphic language, the voice, and each of them in use, light and dark. The reasons are in [`spec/decisions/visual-identity.md`](spec/decisions/visual-identity.md).
+
+- Take the mark from `apps/website/public/brand/`; never redraw it.
+- Write American English.
+- A change to the identity is a change to that page, in the same PR.
+
 ## Workflow
 
 All changes go through pull requests. Commit, push, and let CI validate. Never push to `main`.

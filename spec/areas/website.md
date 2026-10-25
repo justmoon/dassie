@@ -1,13 +1,13 @@
 # Website
 
-`apps/website` builds `dassie.land`: a few static pages, the architecture page, and the STREAM toy, which sends a STREAM payment over a simulated network in the browser with Dassie's own STREAM code compiled to WebAssembly. A bucket behind the release mirror's load balancer serves it ([website-hosting](../decisions/website-hosting.md)).
+`apps/website` builds `dassie.land`: a few static pages, the architecture page, the brand page, and the STREAM toy, which sends a STREAM payment over a simulated network in the browser with Dassie's own STREAM code compiled to WebAssembly. A bucket behind the release mirror's load balancer serves it ([website-hosting](../decisions/website-hosting.md)).
 
 **Paths:** `apps/website/`, `scripts/website/`, `.github/workflows/website.yml`
 **Read with:** [Stream](stream.md), [Wallet](wallet.md) (shared components), [Release](release.md) (what the Quick Start installs), [Testing](testing.md)
 
 ## Pages
 
-- Each page is a plain HTML file and a Vite build input; a build step puts the shared header and footer into each (`src/layout.ts`). Only the toy and the architecture page run a script, each a Solid 2 island.
+- Each page is a plain HTML file and a Vite build input; a build step puts the shared header and footer into each (`src/layout.ts`). Only the toy and the architecture page run a script, each a Solid 2 island, and the brand page its theme switch.
 - **The Quick Start and the NixOS guide must match what the tools do:** the installer, `dassie update` and the flake for NixOS ([Release](release.md)), and the `dassie` commands ([Node](node.md#the-dassie-command)). The NixOS guide prints the release key, which the build takes from `resources/minisign.pub`.
 - The website does not serve the installer: `sh.dassie.land` and `get.dassie.land` belong to the release mirror ([Release](release.md)).
 
@@ -36,6 +36,14 @@ Between them sits a connector, simulated one event at a time in `src/toy/simulat
 
 `/architecture/` shows how Dassie is built: its crates, apps, packages and contracts, how they connect, journeys through them, how each is tested, and a short changelog per release. Everything on it comes from `apps/website/src/architecture/map.json`, which `map_test.ts` checks against the repository. The rule for keeping it current is in [AGENTS.md](../../AGENTS.md) ("Keep the architecture page current"); it is not repeated here.
 
+## Brand page
+
+`/brand/` is Kopje, Dassie's visual identity: the mark, color, type, the graphic language, voice, and how they come together on the site, the wallet and what operators hand out ([visual-identity](../decisions/visual-identity.md)). It is the reference for how anything of Dassie's looks, so a change to the identity is a change to this page. The navigation leaves it out: it is for those who design for Dassie, and AGENTS.md links it. Its bare path answers once `provision.sh`'s URL map step has run with it; `check.sh` checks only the pages the header links to. `public/brand/` holds the mark as SVG files, Sunrise and the Silhouette, for anyone who needs them.
+
+- It keeps to the CSP as every page does: its fonts are files of the site's own, with their licenses beside them, and what would be inline styles are classes in `brand.css`.
+- It does not load `site.css`: the two share class names, and the page draws the shared header and footer in Kopje itself. The rest of the site keeps its look until it takes Kopje ([roadmap](../roadmap.md#kopje-across-dassie)).
+- It is written to be read, by people and by agents designing for Dassie (AGENTS.md, "Follow the visual identity"): its small drawings are inline SVG, so that its dark mode can recolor them, and the heavy ones, grass drawn blade by blade and distant kopjes, are SVG files in `brand/img/`. `theme.ts` switches between light and dark; the page starts light.
+
 ## Deployment
 
 - **Where:** the bucket `dassie-website`, behind the load balancer that serves the mirror ([Release](release.md#the-mirror)). It answers `dassie.land`, and redirects `www.dassie.land` there. `scripts/website/provision.sh` makes the bucket, its backend with `headers.json`'s headers, the host rules, the certificates, the account that publishes and the `dassie.land` zone.
@@ -48,3 +56,4 @@ Between them sits a connector, simulated one event at a time in `src/toy/simulat
 - [rust-and-typescript](../decisions/rust-and-typescript.md): the toy runs the real STREAM implementation compiled to WASM.
 - [node-and-pnpm](../decisions/node-and-pnpm.md): Node and pnpm, one `web` WASM build for the browser and Node.
 - [website-hosting](../decisions/website-hosting.md): a bucket behind the mirror's load balancer, published from `main`, with no previews.
+- [visual-identity](../decisions/visual-identity.md): Dassie's visual identity is Kopje, and the brand page holds it.

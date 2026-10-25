@@ -191,6 +191,35 @@ test("dassie.land: the pages, and a STREAM payment in the toy", {
       assertEquals(problems, []);
     });
 
+    await t.test("the brand page draws in its own fonts, and turns to dusk", async () => {
+      await page.goto(`${base}/brand/`, { waitUntil: "load" });
+      assertEquals(
+        await page.evaluate(() => document.querySelector("h1")?.textContent),
+        "Kopje",
+      );
+      // Its fonts are the site's own files, which the CSP lets load.
+      const loaded = await page.evaluate(async () => {
+        await document.fonts.ready;
+        return [...document.fonts]
+          .filter((font) => font.status === "loaded")
+          .map((font) => font.family.replaceAll('"', ""));
+      });
+      assert(loaded.includes("Fraunces"), loaded.join());
+      assert(loaded.includes("Figtree"), loaded.join());
+      const theme = () =>
+        page.evaluate(() => document.documentElement.dataset.theme);
+      assertEquals(await theme(), "light");
+      await click(page, "theme-toggle");
+      assertEquals(await theme(), "dark");
+      assertEquals(
+        await page.evaluate(() =>
+          document.querySelector(".theme-toggle")?.getAttribute("aria-pressed")
+        ),
+        "true",
+      );
+      assertEquals(problems, []);
+    });
+
     await t.test("the toy delivers the default payment", async () => {
       await page.goto(`${base}/tools/stream-toy/`, { waitUntil: "load" });
       await click(page, "toy-simulate");
