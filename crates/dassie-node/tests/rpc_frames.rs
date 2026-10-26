@@ -139,6 +139,48 @@ fn a_flood_of_refused_calls_ends_the_connection() {
     );
 }
 
+// Each call's task holds the node, and with it the database. A connection
+// that ended with a call in flight once only aborted its task, which a
+// worker then dropped whenever it came to it: the daemon could return
+// with the node still held, and a node started again on its directory
+// found the database in use. A connection that returned holds nothing.
+#[test]
+fn a_connection_that_ended_holds_no_call_of_its_own() {
+    // One thread: nothing runs between the connection's return and the
+    // count, so a task left to drop later is still there.
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let node = node();
+    let shutdown = CancellationToken::new();
+    // A live stream, which runs until the connection ends.
+    let request = proto::ClientMessage {
+        call_id: 1,
+        kind: Some(proto::client_message::Kind::Request(proto::Request {
+            method: Some(Method::SubscribeLogs(proto::SubscribeLogsRequest {})),
+        })),
+    };
+    let incoming =
+        futures_util::stream::iter([Ok::<_, Infallible>(Bytes::from(request.encode_to_vec()))])
+            .chain(futures_util::stream::pending());
+    // Its first item shows it under way; the node shuts down then.
+    let stop = shutdown.clone();
+    let outgoing = futures_util::sink::unfold((), move |(), _: Bytes| {
+        stop.cancel();
+        async { Ok::<_, Infallible>(()) }
+    });
+    let closed = runtime.block_on(connection::serve(
+        Arc::clone(&node),
+        Caller::Owner,
+        Box::pin(incoming),
+        Box::pin(outgoing),
+        shutdown,
+    ));
+    assert_eq!(closed, Closed::Shutdown);
+    assert_eq!(Arc::strong_count(&node), 1, "a call still holds the node");
+}
+
 // The owner's calls get past authentication, so their fields reach the
 // handlers' parsing. The node is set up, with a hostname and the stub
 // ledger, so that the methods behind those answer instead of refusing.

@@ -289,9 +289,16 @@ impl TestNode {
     }
 
     /// Stops the daemon and returns its directory and clock, to start again.
+    /// A daemon that returned has let go of its node and closed its
+    /// database, so the directory is free at once: a restart in the same
+    /// process, as here, relies on it (spec/areas/node.md#shutdown).
     pub async fn stop(mut self) -> (tempfile::TempDir, ManualClock) {
         self.shutdown.cancel();
         self.handle.take().unwrap().await.unwrap().unwrap();
+        assert_eq!(self.node.strong_count(), 0, "the node outlived the daemon");
+        if let Err(error) = Store::open(&self.dir.path().join("state")) {
+            panic!("the daemon returned with its database still open: {error}");
+        }
         let _ = std::fs::remove_file(&self.ipc);
         (self.dir, self.clock)
     }
