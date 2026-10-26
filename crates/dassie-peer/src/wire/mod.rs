@@ -54,15 +54,12 @@ pub const MAX_NODE_INFO_BYTES: usize = 4096;
 /// Most bytes in a link-state extension's value.
 pub const MAX_EXTENSION_BYTES: usize = 2048;
 
-/// The link-state extension that says a node takes the peer protocol over
-/// QUIC, on UDP at its URL's host and port (spec/areas/peer-protocol.md#transport).
-/// Its value is empty. Type 1 is kept for a post-quantum key.
-pub const EXTENSION_QUIC: u16 = 2;
-
 /// The link-state extension that says a node is a periphery node: it has
 /// no URL, dials out to its uplinks and is reached only over the
 /// connections it opened (spec/areas/peer-protocol.md#link-states). Its
-/// value is empty. Only with it may a link state's URL be empty.
+/// value is empty. Only with it may a link state's URL be empty. Type 1 is
+/// kept for a post-quantum key, and type 2 is reserved: no extension has
+/// it, so that no node reads it as one.
 pub const EXTENSION_PERIPHERY: u16 = 3;
 
 /// The link-state extension that names the UDP port of a core node's rate

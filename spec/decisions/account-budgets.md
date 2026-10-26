@@ -7,7 +7,7 @@
 - A peer has two accounts on each ledger it peers on, and they stay for good, since the journal refers to them ([closing-channels](closing-channels.md)). What the ledger's accounts (`max_accounts`) leave beside the room kept for the node's own (`OWN_ACCOUNTS`) bounds the nodes a node ever peers with; past it, a peering is refused for capacity.
 - Peering with core nodes is what keeps a node in the network. A core node peers only with nodes in the bootstrap nodes' lists, whose URL it probed, a few at a time.
 - A downlink proves only that it holds its key: it is in no list, has no URL to probe, pays nothing and settles nothing to be taken ([Network](../areas/network.md#downlinks)). A key costs nothing to make. The downlinks a core node keeps at once are bounded (`max_downlinks`), and their places free a day after their peerings end, as their channels close.
-- So one machine can peer a core node's whole bound of downlinks, end the peerings, wait a day, and do it again. With one share for all peers, it filled the room in a few days, and the node then refused every new peering for good: with core nodes and downlinks, ones it asked and ones that asked it. Every core node that takes QUIC takes downlinks.
+- So one machine can peer a core node's whole bound of downlinks, end the peerings, wait a day, and do it again. With one share for all peers, it filled the room in a few days, and the node then refused every new peering for good: with core nodes and downlinks, ones it asked and ones that asked it. Every core node takes downlinks.
 - A node's kind can change: a core node that loses its URL turns periphery, and a periphery node that gains one turns core ([Network](../areas/network.md#periphery-nodes)). Its accounts stay as they were.
 
 ## Decision

@@ -54,9 +54,8 @@ fn core_with(
         rng: Box::new(SeededRng::new(seed)),
         peer_rng: Box::new(SeededRng::new(seed + 1)),
         own_info: dassie_peer::OwnInfo {
-            url: None,
+            url: Some("https://core.test".into()),
             alias: String::new(),
-            quic: false,
             feed_port: None,
             hub: None,
         },
@@ -2158,7 +2157,6 @@ fn core_taking_few_downlinks(store: Arc<Store>, max_downlinks: usize, now: u64) 
             own_info: dassie_peer::OwnInfo {
                 url: Some("https://core.test".into()),
                 alias: String::new(),
-                quic: true,
                 feed_port: None,
                 hub: None,
             },
@@ -3621,7 +3619,6 @@ fn core_taking_downlinks(
             own_info: dassie_peer::OwnInfo {
                 url: Some("https://core.test".into()),
                 alias: String::new(),
-                quic: true,
                 feed_port: None,
                 hub: None,
             },
@@ -3869,7 +3866,6 @@ fn a_periphery_node_refuses_an_uplink_it_has_not() {
             own_info: dassie_peer::OwnInfo {
                 url: None,
                 alias: String::new(),
-                quic: true,
                 feed_port: None,
                 hub: None,
             },
@@ -4688,7 +4684,6 @@ fn hub_core_with_downlink(seed: u64) -> (Core, dassie_identity::NodeId) {
             own_info: dassie_peer::OwnInfo {
                 url: Some("https://core.test".into()),
                 alias: String::new(),
-                quic: true,
                 feed_port: None,
                 hub: None,
             },
@@ -5925,7 +5920,6 @@ fn asks_a_core_node_to_peer_on_xrpl(peers: bool) -> bool {
             own_info: dassie_peer::OwnInfo {
                 url: Some("https://core.test".into()),
                 alias: String::new(),
-                quic: true,
                 feed_port: None,
                 hub: None,
             },
@@ -6028,7 +6022,6 @@ fn a_registration_is_on_disk_before_its_commitment_leaves() {
         own_info: dassie_peer::OwnInfo {
             url: None,
             alias: String::new(),
-            quic: false,
             feed_port: None,
             hub: None,
         },
@@ -6104,7 +6097,6 @@ fn a_live_realm_node_takes_no_part_in_names() {
             own_info: dassie_peer::OwnInfo {
                 url: None,
                 alias: String::new(),
-                quic: false,
                 feed_port: None,
                 hub: None,
             },

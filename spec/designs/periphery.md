@@ -42,7 +42,7 @@ Every peer link, core or periphery, runs over QUIC. Peer traffic is heavy: a bus
 - **One connection per pair of nodes.** When two core nodes dial each other at once, the connection the lower node ID opened stays, as crossed peering requests resolve ([Network](../areas/network.md#asking-and-answering)).
 - **Liveness.** Heartbeats ([Network](../areas/network.md#advertised-peers)) also keep the NAT's mapping open. A periphery node that loses its connection dials again, backing off from 1 s to 60 s.
 - **Where UDP is blocked,** a periphery node carries the same QUIC packets over a WebSocket at `/quic` on the core node's HTTPS listener, one packet per binary message, so the connection inside, its streams and its places are QUIC's as over UDP ([quic-over-websocket](../decisions/quic-over-websocket.md)). Every core node serves it at its URL's host and port. A periphery node dials over UDP first, and the tunnel too once the handshake has not completed within a head start; the first connection to prove the key is kept. It does not check the outer certificate, since QUIC inside pins the node key, so a proxy that intercepts TLS does not stop it.
-- **Link-state URLs** keep their syntax, `https://host[:port]` ([Peer protocol](../areas/peer-protocol.md#link-states)). The host and port then name the QUIC endpoint, on UDP, 443 by default. A link-state extension says that a node speaks QUIC, as every node does ([quic-only](../decisions/quic-only.md)).
+- **Link-state URLs** keep their syntax, `https://host[:port]` ([Peer protocol](../areas/peer-protocol.md#link-states)). The host and port then name the QUIC endpoint, on UDP, 443 by default. Every node speaks QUIC, so no link state says so ([quic-only](../decisions/quic-only.md)).
 
 ## 3. Periphery nodes
 

@@ -347,7 +347,6 @@ fn an_own_url_too_long_is_no_url() {
         OwnInfo {
             url: Some(url),
             alias: String::new(),
-            quic: false,
             feed_port: None,
             hub: None,
         },

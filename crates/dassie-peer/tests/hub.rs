@@ -288,7 +288,6 @@ fn over_hubs(seed: u64, hubs: [Option<HubMembership>; 2]) -> (Network, NodeId, N
         let info = OwnInfo {
             url: Some(url(index)),
             alias: format!("n{index}"),
-            quic: false,
             feed_port: None,
             hub,
         };

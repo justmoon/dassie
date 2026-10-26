@@ -161,8 +161,6 @@ pub struct LinkState {
     pub neighbors: Vec<NodeId>,
     /// Its schemes, in its order.
     pub schemes: Vec<SchemeId>,
-    /// Whether it takes the peer protocol over QUIC.
-    pub quic: bool,
     /// Whether it is a periphery node's, without a URL: it never floods,
     /// and is reached only over the connection the node opened.
     pub periphery: bool,
@@ -190,7 +188,6 @@ impl LinkState {
             alias: signed.info.alias.into(),
             neighbors,
             schemes: signed.info.schemes().collect(),
-            quic: signed.info.speaks_quic(),
             periphery: signed.info.is_periphery(),
             hub: signed.info.hub(),
             copies: 1,

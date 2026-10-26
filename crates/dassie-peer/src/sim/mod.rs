@@ -392,11 +392,8 @@ pub struct Network {
     macs: BTreeMap<(usize, u64, RequestId), Sent>,
     /// Periphery nodes: without a URL, dialling out over QUIC, reached by
     /// node ID over the connections they opened. Their uplinks are the
-    /// other nodes, which then take QUIC too.
+    /// other nodes.
     pub periphery: BTreeSet<usize>,
-    /// Whether the nodes have a QUIC endpoint: core nodes then take
-    /// downlinks.
-    pub quic: bool,
     /// The uplinks each node is pinned to, kept across restarts
     /// (spec/areas/network.md#pinned-uplinks).
     pub pinned: BTreeMap<usize, Vec<NodeId>>,
@@ -448,7 +445,7 @@ impl Network {
     /// `count` nodes, the first `bootstrap_count` of them bootstrap
     /// nodes, each started with its own clock skew.
     pub fn new(seed: u64, count: usize, bootstrap_count: usize, config: Config) -> Self {
-        Self::build(seed, (count, bootstrap_count, 0), false, config)
+        Self::build(seed, (count, bootstrap_count, 0), config)
     }
 
     /// `count` core nodes, the first `bootstrap_count` of them bootstrap
@@ -462,13 +459,12 @@ impl Network {
         periphery: usize,
         config: Config,
     ) -> Self {
-        Self::build(seed, (count, bootstrap_count, periphery), true, config)
+        Self::build(seed, (count, bootstrap_count, periphery), config)
     }
 
     fn build(
         seed: u64,
         (count, bootstrap_count, periphery): (usize, usize, usize),
-        quic: bool,
         config: Config,
     ) -> Self {
         let mut rng = SeededRng::new(seed);
@@ -507,7 +503,6 @@ impl Network {
             forge: None,
             macs: BTreeMap::new(),
             periphery: (count..count + periphery).collect(),
-            quic,
             pinned: BTreeMap::new(),
             roles: BTreeMap::new(),
             adversary: None,
@@ -575,7 +570,6 @@ impl Network {
             OwnInfo {
                 url: (!periphery).then(|| url(index)),
                 alias: format!("n{index}"),
-                quic: self.quic,
                 feed_port: None,
                 hub: None,
             },

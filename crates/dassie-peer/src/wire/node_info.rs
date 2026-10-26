@@ -289,12 +289,6 @@ impl NodeInfo<'_> {
         })
     }
 
-    /// Whether it takes the peer protocol over QUIC.
-    #[must_use]
-    pub fn speaks_quic(&self) -> bool {
-        self.has_extension(super::EXTENSION_QUIC)
-    }
-
     /// Whether it is a periphery node's: one without a URL, reached only
     /// over the connections it opened to its uplinks.
     #[must_use]

@@ -11,24 +11,23 @@ use super::{MAX_OWN_HUBS, MAX_SCHEMES, PeerNode, Problem, Purpose};
 use crate::config::Config;
 use crate::table::{LinkState, Sources, backoff};
 use crate::wire::{
-    Content, EXTENSION_FEED, EXTENSION_HUB, EXTENSION_HUBS, EXTENSION_PERIPHERY, EXTENSION_QUIC,
-    Entry, HubList, HubMembership, InvalidNodeInfo, LinkStateResponse, MAX_ENTRIES,
-    MAX_NODE_INFO_BYTES, NodeInfo, SignedNodeInfo, TerminationReason, hub_list_bytes,
-    max_node_info_bytes, sign_node_info,
+    Content, EXTENSION_FEED, EXTENSION_HUB, EXTENSION_HUBS, EXTENSION_PERIPHERY, Entry, HubList,
+    HubMembership, InvalidNodeInfo, LinkStateResponse, MAX_ENTRIES, MAX_NODE_INFO_BYTES, NodeInfo,
+    SignedNodeInfo, TerminationReason, hub_list_bytes, max_node_info_bytes, sign_node_info,
 };
 
 /// The routes are recomputed at least this often, as link states go stale.
 const ROUTES_PERIOD_MS: u64 = 60_000;
 
-/// Most extensions our own link state carries: the periphery or the QUIC
-/// one, a feed port, a hub, the methods one and a hub list
+/// Most extensions our own link state carries: the periphery one or a
+/// feed port, a hub, the methods one and a hub list
 /// ([`PeerNode::own_extensions`]). The methods one is budgeted, though no
 /// node issues it yet.
-const MAX_OWN_EXTENSIONS: usize = 5;
+const MAX_OWN_EXTENSIONS: usize = 4;
 
 /// Most bytes their values take together: a feed port, a hub and a list of
-/// [`MAX_OWN_HUBS`] hubs, at the longest scheme IDs; the QUIC, periphery
-/// and methods ones are empty.
+/// [`MAX_OWN_HUBS`] hubs, at the longest scheme IDs; the periphery and
+/// methods ones are empty.
 const MAX_OWN_EXTENSION_BYTES: usize =
     2 + HubMembership::ENCODED_BYTES + hub_list_bytes(MAX_OWN_HUBS);
 
@@ -362,8 +361,6 @@ impl PeerNode {
         let mut extensions = Vec::new();
         if periphery {
             extensions.push((EXTENSION_PERIPHERY, Vec::new()));
-        } else if self.own_info.quic {
-            extensions.push((EXTENSION_QUIC, Vec::new()));
         }
         // A core node's rate feed, at its URL's host; a periphery node has
         // no URL to name one at.

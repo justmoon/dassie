@@ -1090,7 +1090,6 @@ impl Sim {
             own_info: OwnInfo {
                 url: Some(url(index)),
                 alias: format!("n{index}"),
-                quic: false,
                 feed_port: None,
                 hub: None,
             },

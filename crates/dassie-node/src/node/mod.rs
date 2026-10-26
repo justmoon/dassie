@@ -714,22 +714,23 @@ impl Node {
     }
 
     /// What our link state says about us: the public URL, once there is a
-    /// hostname, and the alias. A node with a QUIC endpoint and no
-    /// hostname runs as a periphery node
+    /// hostname and the QUIC endpoint is at its port, and the alias. A node
+    /// without a URL runs as a periphery node
     /// (spec/areas/network.md#periphery-nodes).
     #[must_use]
     pub fn own_info(&self) -> dassie_peer::OwnInfo {
         let config = self.config();
-        let url = dassie_node_core::urls::node_url(config.hostname.as_ref(), self.ports().1);
-        // Peers reach QUIC at the URL's port: a drop-in that moved the
-        // HTTPS socket elsewhere leaves QUIC where peers do not look. A
-        // periphery node only dials, from wherever its socket is.
-        let quic = self.quic().is_some_and(|quic| {
-            url.is_none()
-                || quic
-                    .local_addr()
-                    .is_ok_and(|address| address.port() == self.ports().1)
+        // Peers reach QUIC at the URL's port. Under systemd the daemon does
+        // not start otherwise; a host that embeds the node may bind QUIC
+        // apart, and such a node only dials, from wherever its socket is,
+        // with no URL peers would look for it at.
+        let https_port = self.ports().1;
+        let at_url = self.quic().is_none_or(|quic| {
+            quic.local_addr()
+                .is_ok_and(|address| address.port() == https_port)
         });
+        let url = dassie_node_core::urls::node_url(config.hostname.as_ref(), https_port)
+            .filter(|_| at_url);
         // Subscribers find the feed at the URL's host, so only a node with
         // a URL names its port (spec/areas/rate-feed.md#finding-a-feed).
         let feed_port = self
@@ -740,7 +741,6 @@ impl Node {
         dassie_peer::OwnInfo {
             url,
             alias: config.alias.as_str().to_owned(),
-            quic,
             feed_port,
             hub: None,
         }
@@ -764,8 +764,7 @@ impl Node {
         self.quic.get()
     }
 
-    /// Gives the node its QUIC endpoint, before its engine starts: the link
-    /// state it issues then says that it takes QUIC.
+    /// Gives the node its QUIC endpoint, before its engine starts.
     pub fn attach_quic(&self, quic: Arc<crate::quic::Quic>) {
         let _ = self.quic.set(quic);
     }

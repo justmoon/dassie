@@ -845,8 +845,7 @@ fn the_largest_own_link_state_fits_its_bound() {
     let hubs = hubs.to_vec();
     assert_eq!(hubs.len(), hub_list_bytes(dassie_peer::MAX_OWN_HUBS));
     let port = 4433u16.to_be_bytes();
-    let extensions: [(u16, &[u8]); 5] = [
-        (dassie_peer::wire::EXTENSION_QUIC, &[]),
+    let extensions: [(u16, &[u8]); 4] = [
         (dassie_peer::wire::EXTENSION_FEED, &port),
         (EXTENSION_HUB, &hub),
         (EXTENSION_METHODS, &[]),

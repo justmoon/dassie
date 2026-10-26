@@ -18,9 +18,9 @@ use dassie_oer::{Decode, Encode};
 use dassie_peer::auth::{AuthConfig, Authenticator};
 use dassie_peer::sim::{Network, START, key};
 use dassie_peer::wire::{
-    Authentication, Content, EXTENSION_PERIPHERY, EXTENSION_QUIC, Entry, InvalidNodeInfo,
-    LinkStateResponse, NodeInfo, PeeringRequest, PeeringResponse, RefusalReason, ResponseEnvelope,
-    SchemeId, SignedNodeInfo, encode_envelope, sign_node_info,
+    Authentication, Content, EXTENSION_PERIPHERY, Entry, InvalidNodeInfo, LinkStateResponse,
+    NodeInfo, PeeringRequest, PeeringResponse, RefusalReason, ResponseEnvelope, SchemeId,
+    SignedNodeInfo, encode_envelope, sign_node_info,
 };
 use dassie_peer::{Config, Event, Sources};
 
@@ -123,13 +123,13 @@ fn an_empty_url_verifies_only_in_a_periphery_link_state() {
     let periphery = link_state(&key, START, "", &[EXTENSION_PERIPHERY]);
     let signed = SignedNodeInfo::decode_exact(&periphery).unwrap();
     assert!(signed.verify().is_ok());
-    assert!(signed.info.is_periphery() && !signed.info.speaks_quic());
-    let bare = link_state(&key, START, "", &[EXTENSION_QUIC]);
+    assert!(signed.info.is_periphery());
+    let bare = link_state(&key, START, "", &[]);
     assert_eq!(
         SignedNodeInfo::decode_exact(&bare).unwrap().verify(),
         Err(InvalidNodeInfo::Url)
     );
-    let core = link_state(&key, START, "https://a.example", &[EXTENSION_QUIC]);
+    let core = link_state(&key, START, "https://a.example", &[]);
     let signed = SignedNodeInfo::decode_exact(&core).unwrap();
     assert!(signed.verify().is_ok() && !signed.info.is_periphery());
     // Found in review: one with a URL too would be taken for a downlink's,
@@ -156,7 +156,7 @@ fn a_downlink_with_a_url_is_refused_without_a_channel() {
         &stranger,
         network.clock(0),
         "https://stranger.test",
-        &[EXTENSION_PERIPHERY, EXTENSION_QUIC],
+        &[EXTENSION_PERIPHERY],
     );
     let reply = ask(&mut network, &stranger, 0, &state);
     assert_eq!(reply.status, 400);
@@ -232,7 +232,6 @@ fn a_core_node_that_becomes_periphery_ends_its_downlinks() {
             dassie_peer::OwnInfo {
                 url: None,
                 alias: String::new(),
-                quic: true,
                 feed_port: None,
                 hub: None,
             },
@@ -560,9 +559,9 @@ fn a_downlinks_link_state_goes_nowhere() {
     }
 }
 
-// spec/areas/network.md#asking-and-answering: a core node that takes QUIC
-// accepts a periphery node at once, without a probe; one in no list with
-// a URL is still unknown; one that does not take QUIC takes no downlinks.
+// spec/areas/network.md#asking-and-answering: a core node accepts a
+// periphery node at once, without a probe; one in no list with a URL is
+// still unknown; a core node with no room for downlinks takes none.
 #[test]
 fn downlinks_are_accepted_without_a_probe() {
     let mut network = Network::with_periphery(13, 2, 1, 0, Config::DEV);
@@ -581,14 +580,17 @@ fn downlinks_are_accepted_without_a_probe() {
     );
     // Its URL would be probed; it is in no list, so it is refused first.
     let other = Arc::new(NodeKey::from_bytes(&[92; 32]));
-    let core = link_state(&other, at, "https://other.test", &[EXTENSION_QUIC]);
+    let core = link_state(&other, at, "https://other.test", &[]);
     let reply = ask(&mut network, &other, 0, &core);
     assert_eq!(
         answer(&reply),
         PeeringResponse::Refused(RefusalReason::UnknownNode)
     );
-    // Without QUIC, a core node cannot reach a downlink, and takes none.
-    let mut plain = Network::new(14, 2, 1, Config::DEV);
+    let none = Config {
+        max_downlinks: 0,
+        ..Config::DEV
+    };
+    let mut plain = Network::new(14, 2, 1, none);
     settle(&mut plain, 30_000);
     let reply = ask(&mut plain, &stranger, 0, &periphery);
     assert_eq!(
@@ -953,7 +955,6 @@ fn downlinks_ended_by_a_node_turning_periphery_leave_a_full_table() {
             dassie_peer::OwnInfo {
                 url: None,
                 alias: String::new(),
-                quic: true,
                 feed_port: None,
                 hub: None,
             },

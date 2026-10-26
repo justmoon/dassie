@@ -309,7 +309,6 @@ fn our_sequence_survives_restarts_and_clock_rollback() {
             OwnInfo {
                 url: Some(url(0)),
                 alias: String::new(),
-                quic: false,
                 feed_port: None,
                 hub: None,
             },
@@ -700,15 +699,14 @@ fn one_network_holds_only_its_share_of_strangers() {
     network.node(0).check_invariants();
 }
 
-/// A node that takes QUIC, with `boot` as its bootstrap node.
-fn taking_quic(own: &Arc<NodeKey>, boot: &NodeKey) -> PeerNode {
+/// A core node, with `boot` as its bootstrap node.
+fn core_node(own: &Arc<NodeKey>, boot: &NodeKey) -> PeerNode {
     PeerNode::new(
         Config::DEV,
         Arc::clone(own),
         OwnInfo {
             url: Some(url(0)),
             alias: String::new(),
-            quic: true,
             feed_port: None,
             hub: None,
         },
@@ -734,29 +732,34 @@ fn sent(node: &mut PeerNode) -> Vec<dassie_peer::Request> {
     requests
 }
 
-// A node that takes QUIC says so in its link state, and asks a bootstrap
-// node known only from the configuration at once, at its configured URL:
-// QUIC is the only transport, and needs no link state to dial a node whose
-// ID it knows.
+// A core node sends its link state to a bootstrap node known only from the
+// configuration at once, at its configured URL: QUIC is the only transport,
+// and needs no link state to dial a node whose ID it knows. Every node takes
+// QUIC, so the link state says nothing of it.
 #[test]
-fn link_states_say_who_takes_quic_and_bootstrap_nodes_are_asked_at_once() {
+fn bootstrap_nodes_are_asked_at_once() {
     let (own, boot) = (key(0), key(1));
     let mut hooks = dassie_peer::sim::StubHooks::default();
-    let mut node = taking_quic(&own, &boot);
+    let mut node = core_node(&own, &boot);
     node.handle_timeout(START, &mut hooks);
     let before = sent(&mut node);
     // Our link state goes to the bootstrap node at once.
-    let ours = before
-        .iter()
-        .find_map(|request| {
-            let envelope = dassie_peer::wire::Envelope::decode(&request.body).ok()?;
-            match Content::decode_exact(envelope.content).ok()? {
-                Content::LinkStateUpdate(state) => Some(state.info.speaks_quic()),
-                _ => None,
-            }
-        })
-        .unwrap();
-    assert!(ours);
+    let ours =
+        before
+            .iter()
+            .find_map(|request| {
+                let envelope = dassie_peer::wire::Envelope::decode(&request.body).ok()?;
+                match Content::decode_exact(envelope.content).ok()? {
+                    Content::LinkStateUpdate(state) => {
+                        Some(state.info.entries.iter().any(|entry| {
+                            matches!(entry, dassie_peer::wire::Entry::Extension { .. })
+                        }))
+                    }
+                    _ => None,
+                }
+            })
+            .unwrap();
+    assert!(!ours, "no extension");
     let to_boot: Vec<_> = before.iter().filter(|r| r.to == boot.node_id()).collect();
     assert!(!to_boot.is_empty());
     assert!(to_boot.iter().all(|request| request.url == url(1)));
@@ -785,7 +788,6 @@ fn with_feed(own: &Arc<NodeKey>, boot: &NodeKey, feed_port: Option<u16>) -> Peer
         OwnInfo {
             url: Some(url(0)),
             alias: String::new(),
-            quic: true,
             feed_port,
             hub: None,
         },
@@ -800,8 +802,8 @@ fn with_feed(own: &Arc<NodeKey>, boot: &NodeKey, feed_port: Option<u16>) -> Peer
     )
 }
 
-// A core node with a rate feed names its port in its link state, beside
-// QUIC's; one without names none (spec/areas/rate-feed.md#finding-a-feed).
+// A core node with a rate feed names its port in its link state; one
+// without names none (spec/areas/rate-feed.md#finding-a-feed).
 #[test]
 fn a_core_node_names_its_feed_port_in_its_link_state() {
     let (own, boot) = (key(0), key(1));
@@ -809,7 +811,6 @@ fn a_core_node_names_its_feed_port_in_its_link_state() {
     let state = SignedNodeInfo::decode_exact(&bytes).unwrap();
     assert!(state.verify().is_ok());
     assert_eq!(state.info.feed_port(), Some(7768));
-    assert!(state.info.speaks_quic());
     let bytes = own_link_state(with_feed(&own, &boot, None));
     let state = SignedNodeInfo::decode_exact(&bytes).unwrap();
     assert_eq!(state.info.feed_port(), None);
@@ -832,7 +833,6 @@ fn a_hub_member_names_its_hub_in_its_link_state() {
         OwnInfo {
             url: Some(url(0)),
             alias: String::new(),
-            quic: true,
             feed_port: Some(7768),
             hub: Some(membership),
         },
@@ -842,7 +842,6 @@ fn a_hub_member_names_its_hub_in_its_link_state() {
     assert!(state.verify().is_ok());
     assert_eq!(state.info.hub(), Some(membership));
     assert_eq!(state.info.feed_port(), Some(7768));
-    assert!(state.info.speaks_quic());
     let bytes = own_link_state(with_feed(&own, &boot, None));
     let state = SignedNodeInfo::decode_exact(&bytes).unwrap();
     assert_eq!(state.info.hub(), None);
@@ -992,7 +991,6 @@ fn only_a_node_with_a_url_names_a_feed_port() {
         OwnInfo {
             url,
             alias: String::new(),
-            quic: true,
             feed_port,
             hub: None,
         }

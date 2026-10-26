@@ -163,13 +163,10 @@ impl PeerNode {
     }
 
     /// Whether `node`, with `link`, may be asked to peer: never a
-    /// periphery node; and by a periphery node, only a core node that
-    /// takes QUIC, on which it then reaches its downlink
-    /// (spec/areas/network.md#periphery-nodes), and one it is pinned to if
+    /// periphery node; and by a periphery node, only one it is pinned to if
     /// it is pinned to any (spec/areas/network.md#pinned-uplinks).
     fn may_ask(&self, node: &NodeId, link: &LinkState) -> bool {
         !link.periphery
-            && (link.quic || !self.is_periphery())
             && self
                 .pinned_uplinks()
                 .is_none_or(|pinned| pinned.binary_search(node).is_ok())
@@ -590,7 +587,7 @@ impl PeerNode {
             return Err(RefusalReason::Banned);
         }
         // A periphery node peers only as a downlink, and only a core node
-        // that takes QUIC takes downlinks.
+        // with room for them takes downlinks.
         let downlink = request.node_info.info.is_periphery();
         if self.is_periphery() || (downlink && !self.takes_downlinks()) {
             return Err(RefusalReason::Unspecified);

@@ -69,15 +69,12 @@ const _: () = assert!(MAX_OWN_HUBS <= crate::wire::MAX_HUBS);
 /// What this node says about itself.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct OwnInfo {
-    /// Its HTTPS origin; without one, it can't publish a link state.
+    /// Its HTTPS origin, whose host and port its QUIC endpoint takes the
+    /// peer protocol at; without one, it is a periphery node, which dials
+    /// out to its uplinks (spec/areas/network.md#periphery-nodes).
     pub url: Option<String>,
     /// Its alias.
     pub alias: String,
-    /// Whether it has a QUIC endpoint: with a URL, one that takes the peer
-    /// protocol on UDP at the URL's host and port; without one, one it
-    /// dials out from, which makes it a periphery node
-    /// (spec/areas/network.md#periphery-nodes).
-    pub quic: bool,
     /// The UDP port of its rate feed, at its URL's host, if it publishes
     /// one (spec/areas/rate-feed.md#finding-a-feed). Only a node with a URL
     /// names it.
@@ -93,12 +90,12 @@ pub struct OwnInfo {
 }
 
 impl OwnInfo {
-    /// Whether the node runs as a periphery node: it has a QUIC endpoint
-    /// but no URL, so it dials its uplinks and is reached only over the
-    /// connections it opened.
+    /// Whether the node runs as a periphery node: it has no URL, so it
+    /// dials its uplinks and is reached only over the connections it
+    /// opened.
     #[must_use]
     pub const fn is_periphery(&self) -> bool {
-        self.url.is_none() && self.quic
+        self.url.is_none()
     }
 
     /// The same, without a URL that is not a valid node URL (too long, for
@@ -117,7 +114,6 @@ impl OwnInfo {
         Self {
             url,
             alias,
-            quic: self.quic,
             feed_port,
             hub: self.hub,
         }
@@ -1157,10 +1153,9 @@ impl PeerNode {
         self.own_info.is_periphery()
     }
 
-    /// Whether this node takes downlinks: a core node that takes QUIC, on
-    /// which they reach it, with room for any.
+    /// Whether this node takes downlinks: a core node with room for any.
     pub(crate) const fn takes_downlinks(&self) -> bool {
-        self.own_info.url.is_some() && self.own_info.quic && self.config.max_downlinks > 0
+        self.own_info.url.is_some() && self.config.max_downlinks > 0
     }
 
     /// The downlinks in the table.
