@@ -226,11 +226,11 @@ impl NodeKey {
     ///
     /// Settlement modules build wallets from it, so this is what keeps the
     /// same phrase pointing at the same funds. `scheme` must be a valid
-    /// settlement scheme ID, 2 to 128 characters of `[a-z0-9-]`, and `path`
+    /// settlement scheme ID, 2 to [`MAX_SEGMENT_BYTES`] characters of `[a-z0-9-]`, and `path`
     /// a segment.
     pub fn settlement_entropy(&self, scheme: &str, path: &str) -> Result<DerivedSecret, Error> {
-        let scheme_valid =
-            (2..=128).contains(&scheme.len()) && SCHEME_ID_ALPHABET.contains_all(scheme.as_bytes());
+        let scheme_valid = (2..=MAX_SEGMENT_BYTES).contains(&scheme.len())
+            && SCHEME_ID_ALPHABET.contains_all(scheme.as_bytes());
         if !scheme_valid {
             return Err(Error::InvalidSchemeId);
         }
