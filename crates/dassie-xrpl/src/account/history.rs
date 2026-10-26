@@ -139,7 +139,8 @@ pub(super) struct View {
     /// The accounts of the lines' issuers, and of those the schemes asked
     /// for.
     issuers: BTreeMap<AccountId, Option<AccountSettings>>,
-    fees: Option<Fees>,
+    /// The fee settings, which every ledger holds.
+    fees: Fees,
     pools: BTreeMap<LineKey, PoolSeen>,
 }
 
@@ -305,7 +306,8 @@ impl XrplAccount {
 
     /// What `proven`, the state proof of a validated ledger, says of what
     /// the account follows. An object it cannot read, or that is not what
-    /// its key holds, is a lie.
+    /// its key holds, is a lie, and so is a ledger without fee settings,
+    /// which every ledger holds.
     pub(super) fn read_view(
         &self,
         anchor: Anchor,
@@ -343,8 +345,11 @@ impl XrplAccount {
             threads.insert(line_key, thread);
         }
         let fees = match proven.object(&records::fees_key()) {
-            Some(Some(bytes)) => Some(records::fee_settings(bytes).map_err(unreadable)?),
-            _ => None,
+            Some(Some(bytes)) => records::fee_settings(bytes).map_err(unreadable)?,
+            // Every ledger holds its fee settings: a proof that one holds
+            // none is a lie, never a reserve of 0.
+            Some(None) => return Err(Doubt::Unreadable),
+            None => return Err(Doubt::Keys),
         };
         Ok(View {
             anchor,
@@ -775,14 +780,12 @@ impl XrplAccount {
                 *state = Some(*line);
             }
         }
-        if let Some(fees) = view.fees {
-            let reserve = (fees.reserve_base, fees.reserve_inc);
-            let known = self.reserve_base > 0 || self.reserve_inc > 0;
-            if known && reserve != (self.reserve_base, self.reserve_inc) {
-                self.reserve_changed = true;
-            }
-            (self.reserve_base, self.reserve_inc) = reserve;
+        let reserve = (view.fees.reserve_base, view.fees.reserve_inc);
+        let known = self.reserve_base > 0 || self.reserve_inc > 0;
+        if known && reserve != (self.reserve_base, self.reserve_inc) {
+            self.reserve_changed = true;
         }
+        (self.reserve_base, self.reserve_inc) = reserve;
         let at = (view.anchor.index, u32::MAX);
         self.at = Some(self.at.map_or(at, |told| told.max(at)));
     }
@@ -1342,7 +1345,8 @@ mod tests {
     use super::*;
     use crate::account::{FIRST, News, TESTNET_NETWORK_ID};
     use crate::anchor::KeptAnchor;
-    use crate::api::BalanceChange;
+    use crate::anchor::prove_state;
+    use crate::api::{BalanceChange, ProofEntry, StateProof};
     use crate::header::LedgerHeader;
     use crate::keys::Wallet;
     use crate::records::Decoded;
@@ -1353,6 +1357,12 @@ mod tests {
         index: 50,
         close_time: 800_000_000,
         hash: [9; 32],
+    };
+
+    const FEES: Fees = Fees {
+        base_fee: 10,
+        reserve_base: 1_000_000,
+        reserve_inc: 200_000,
     };
 
     /// An account through which `scheme` settles, synced at ledger 10, its
@@ -1490,7 +1500,7 @@ mod tests {
                 lines: BTreeMap::new(),
                 threads: BTreeMap::new(),
                 issuers: BTreeMap::new(),
-                fees: None,
+                fees: FEES,
                 pools: BTreeMap::new(),
             },
             told: (10, u32::MAX),
@@ -1539,7 +1549,7 @@ mod tests {
             lines: BTreeMap::new(),
             threads: BTreeMap::new(),
             issuers: BTreeMap::new(),
-            fees: None,
+            fees: FEES,
             pools: BTreeMap::new(),
         };
         account.walk = Some(Walk {
@@ -1558,5 +1568,42 @@ mod tests {
         account.follow_line(crate::dsusd::LINE);
         assert!(account.proofs.is_empty(), "read for the objects followed");
         account.check_invariants();
+    }
+
+    // Every ledger holds its fee settings, which give the reserve: a state
+    // proof of an anchor without them is a lie, and gives no reserve.
+    #[test]
+    fn an_anchor_without_fee_settings_is_a_lie() {
+        let scheme = dassie_ledger::name!(crate::scheme::SCHEME_ID);
+        let account = synced_account(scheme);
+        let keys = account.followed_keys();
+        // An empty state proves every key absent, with empty branches.
+        let header = LedgerHeader {
+            sequence: ANCHOR.index,
+            total_drops: 1,
+            parent_hash: [0; 32],
+            transaction_hash: [0; 32],
+            account_hash: [0; 32],
+            parent_close_time: 0,
+            close_time: ANCHOR.close_time,
+            close_time_resolution: 10,
+            close_flags: 0,
+        };
+        let answer = StateProof {
+            header: header.to_bytes().to_vec(),
+            entries: (keys.iter())
+                .map(|key| ProofEntry {
+                    key: *key,
+                    path: Vec::new(),
+                })
+                .collect(),
+        };
+        let proven = prove_state(&answer, &keys, None).unwrap();
+        assert_eq!(proven.object(&records::fees_key()), Some(None));
+        let anchor = Anchor::of(&proven.header);
+        assert_eq!(
+            account.read_view(anchor, &proven, None).err(),
+            Some(Doubt::Unreadable)
+        );
     }
 }
