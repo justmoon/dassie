@@ -117,7 +117,6 @@ impl PeeringHooks for StubHooks {
         _: bool,
         _: SchemeId,
         _: &[u8],
-        _: &mut Vec<u8>,
     ) -> Result<Agreed, RefusalReason> {
         if let Some(reason) = self.refuse {
             return Err(reason);
@@ -133,7 +132,6 @@ impl PeeringHooks for StubHooks {
         _: u64,
         _: NodeId,
         _: SchemeId,
-        _: &[u8],
         _: &[u8],
         _: bool,
     ) -> Result<Agreed, Declined> {

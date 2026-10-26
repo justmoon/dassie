@@ -220,18 +220,16 @@ impl XrplScheme {
         &mut self,
         peer: Name,
         data: &[u8],
-        response: &mut Vec<u8>,
     ) -> Result<Vec<u8>, SchemeError> {
-        self.scheme.accept_peering_request(peer, data, response)
+        self.scheme.accept_peering_request(peer, data)
     }
 
     pub fn finalize_peering_request(
         &mut self,
         peer: Name,
         info: &[u8],
-        data: &[u8],
     ) -> Result<Vec<u8>, SchemeError> {
-        self.scheme.finalize_peering_request(peer, info, data)
+        self.scheme.finalize_peering_request(peer, info)
     }
 
     pub fn on_peered(&mut self, peer: Name, state: &[u8]) {

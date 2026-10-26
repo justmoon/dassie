@@ -198,7 +198,6 @@ impl PeeringHooks for Hooks<'_> {
         downlink: bool,
         scheme: SchemeId,
         data: &[u8],
-        response: &mut Vec<u8>,
     ) -> Result<Agreed, RefusalReason> {
         let peer_name = name(peer).ok_or(RefusalReason::Unspecified)?;
         let senior_credit = self.senior_credit;
@@ -227,7 +226,7 @@ impl PeeringHooks for Hooks<'_> {
             .ok_or(RefusalReason::UnsupportedScheme)?;
         let state = active
             .scheme
-            .accept_peering_request(peer_name, data, response)
+            .accept_peering_request(peer_name, data)
             .map_err(|_| RefusalReason::SchemeRefused)?;
         if !downlink {
             self.open(now_ms, peer, ledger, start)
@@ -259,7 +258,6 @@ impl PeeringHooks for Hooks<'_> {
         peer: NodeId,
         scheme: SchemeId,
         info: &[u8],
-        data: &[u8],
         ended_for_room: bool,
     ) -> Result<Agreed, Declined> {
         let peer_name = name(peer).ok_or(Declined)?;
@@ -277,7 +275,7 @@ impl PeeringHooks for Hooks<'_> {
         let active = self.scheme(scheme).ok_or(Declined)?;
         let state = active
             .scheme
-            .finalize_peering_request(peer_name, info, data)
+            .finalize_peering_request(peer_name, info)
             .map_err(|_| Declined)?;
         // We ask only core nodes: a periphery node is asked by nobody.
         self.open(now_ms, peer, ledger, start)

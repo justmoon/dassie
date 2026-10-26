@@ -7,9 +7,9 @@ Dassie nodes talk to each other with the peer protocol v1: OER messages sent ove
 
 ## Versions
 
-- v1 keeps v0's message set (less `settlementMessage`, whose tag 5 stays reserved), OER layouts and OIDs, but writes every node ID as its 24 bytes ([Identity](identity.md#node-id)), and adds senders proved by their connections and new messages. It carries them over QUIC ([quic-only](../decisions/quic-only.md)), so v1 and v0 nodes do not interoperate ([peer-protocol-v1](../decisions/peer-protocol-v1.md)).
+- v1 keeps v0's message set (less `settlementMessage`, whose tag 5 stays reserved), and adds senders proved by their connections and new messages. It keeps v0's OER layouts but where v0 sent what the recipient has already: a link state carries no node ID, since its key derives it; `interledgerPacket` is flat, as `hubPacket` is, without the length v0 wrapped its fields in; and a peering's or a method's acceptance carries nothing, since what the requester needs of the responder's scheme it has from the peering info. Every node ID it does carry is its 24 bytes ([Identity](identity.md#node-id)). It carries them over QUIC ([quic-only](../decisions/quic-only.md)), so v1 and v0 nodes do not interoperate ([peer-protocol-v1](../decisions/peer-protocol-v1.md)).
 - **The QUIC connection's ALPN is the version:** `dassie/N` names the layouts of every message on the connection, so no message carries a version ([protocol-upgrades](../decisions/protocol-upgrades.md)). A node offers and accepts the versions it speaks, newest first (`VERSIONS` in `crates/dassie-node/src/quic/mod.rs`), and the two speak the newest they share. A release that brings a version speaks the one before too, for a release cycle. Nodes that share none fail the handshake, before a message is read, so nodes whose layouts differ never take each other's bytes for their own. Version 2, `dassie/2`, is spoken alone.
-- A link state is signed under a new OID (`…1399.1.3`), so a node info signed under v0 is never a v1 link state.
+- A link state is signed under an OID of its layout's (`…1399.1.5`), so a node info signed under v0's (`…1399.1.2`), or under the layout that sent the node ID beside the key (`…1399.1.3`), is never a link state.
 - **Nothing is said of credit.** A node knows only the credit it extends, never the credit extended to it, so no message carries any ([own-fulfills](../decisions/own-fulfills.md)).
 - **`settlementRequest`** asks a peer to settle, and its answer is the amount on its way ([ending-a-peering](../decisions/ending-a-peering.md)).
 - **No scheme versions.** What a settlement scheme's messages and ledger transactions mean is versioned twice already: by the scheme's ID, which a new meaning takes anew (each XRPL scheme's memo type is a constant of its ID), and by this protocol's version. So a peering names its scheme alone, and nothing in it negotiates a version of the scheme ([mainnet-schemes](../decisions/mainnet-schemes.md)).
@@ -125,7 +125,7 @@ A node's link state ("node info") is its signed description of itself: its URL, 
 
 ### Verification
 
-A link state verifies when its URL has the node-URL syntax, or, in a periphery node's link state, is empty, its key is a valid Ed25519 point not of small order, its node ID is that key's, and its signature verifies. All nodes must agree on which states verify, or the network splits on them:
+A link state verifies when its URL has the node-URL syntax, or, in a periphery node's link state, is empty, its key is a valid Ed25519 point not of small order, and its signature verifies. Its node ID is not sent: a node takes it from the key. All nodes must agree on which states verify, or the network splits on them:
 
 - **Signatures follow ZIP-215** (`ed25519-zebra`), as the original's verifier did. Being stricter could split the network on edge-case signatures. Small-order keys are refused because under ZIP-215 one signature verifies every message under such a key.
 - **URL syntax is part of verification** for the same reason: an HTTPS origin with a lowercase hostname or IP literal and an optional port, nothing else (`crates/dassie-peer/src/wire/url.rs`). A node whose own URL does not fit publishes no link state.
@@ -171,9 +171,9 @@ The node's outbound connections are peer requests over QUIC, and, to servers tha
 
 ## Test vectors
 
-- v0 layouts that v1 keeps: `crates/dassie-oer/tests/data/vectors.json` (key `peer`), generated from the original by `testdata/original/`. v1's `PeerNodeInfo` is the v0 vector with the OID's last byte `03`.
+- The layouts of the version: `crates/dassie-peer/tests/data/vectors.json`, a link state, every message and every answer, made from fixed keys by `crates/dassie-peer/examples/peer_vectors.rs`. There is no other implementation to take them from; Ed25519 signs deterministically, so running it again gives the same file, and `crates/dassie-peer/tests/vectors.rs` fails when the code no longer makes or reads those bytes. New vectors are a new version ([protocol-upgrades](../decisions/protocol-upgrades.md)).
+- v0's layouts: `crates/dassie-oer/tests/data/vectors.json` (key `peer`), generated from the original by `testdata/original/`. `crates/dassie-peer/tests/wire.rs` holds a `PeerNodeInfo` to the v0 vector without its node ID, under the OID's last byte `05`, and an `interledgerPacket` to v0's without its length.
 - Keys and node IDs: `crates/dassie-identity/tests/data/keys.json`.
-- v1 encodings: `crates/dassie-peer/tests/wire.rs`.
 
 ## Decisions
 

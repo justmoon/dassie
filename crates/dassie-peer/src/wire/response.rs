@@ -82,31 +82,26 @@ impl RefusalReason {
 
 /// The answer to a peering request.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum PeeringResponse<'a> {
-    /// `accepted [0]`.
-    Accepted {
-        /// The scheme's own data.
-        data: &'a [u8],
-    },
+pub enum PeeringResponse {
+    /// `accepted [0]`, which carries nothing: the scheme's data travel in
+    /// the request and the peering info.
+    Accepted,
     /// `refused [1]`.
     Refused(RefusalReason),
 }
 
-impl Encode for PeeringResponse<'_> {
+impl Encode for PeeringResponse {
     fn encoded_len(&self) -> usize {
         size::tag(0)
             + match self {
-                Self::Accepted { data } => size::prefixed(data.len()),
+                Self::Accepted => 0,
                 Self::Refused(_) => 1,
             }
     }
 
     fn encode_to(&self, writer: &mut Writer<'_>) {
         match self {
-            Self::Accepted { data } => {
-                writer.write_context_tag(0);
-                writer.write_octets(data, Size::ANY);
-            }
+            Self::Accepted => writer.write_context_tag(0),
             Self::Refused(reason) => {
                 writer.write_context_tag(1);
                 writer.write_u8(reason.code());
@@ -115,15 +110,13 @@ impl Encode for PeeringResponse<'_> {
     }
 }
 
-impl<'a> Decode<'a> for PeeringResponse<'a> {
+impl<'a> Decode<'a> for PeeringResponse {
     type Error = DecodeError;
 
     fn decode(reader: &mut Reader<'a>) -> Result<Self, DecodeError> {
         let offset = reader.offset();
         match reader.read_context_tag()? {
-            0 => Ok(Self::Accepted {
-                data: reader.read_octets(Size::ANY)?,
-            }),
+            0 => Ok(Self::Accepted),
             1 => Ok(Self::Refused(RefusalReason::from_code(reader.read_u8()?))),
             _ => Err(DecodeError::new(offset, DecodeErrorKind::UnexpectedTag)),
         }
@@ -133,31 +126,26 @@ impl<'a> Decode<'a> for PeeringResponse<'a> {
 /// The answer to a `methodAdd`: shaped as the answer to a peering request
 /// ([`PeeringResponse`]).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum MethodResponse<'a> {
-    /// `accepted [0]`.
-    Accepted {
-        /// The scheme's own data.
-        data: &'a [u8],
-    },
+pub enum MethodResponse {
+    /// `accepted [0]`, which carries nothing: the scheme's data travel in
+    /// the request and the peering info.
+    Accepted,
     /// `refused [1]`.
     Refused(RefusalReason),
 }
 
-impl Encode for MethodResponse<'_> {
+impl Encode for MethodResponse {
     fn encoded_len(&self) -> usize {
         size::tag(0)
             + match self {
-                Self::Accepted { data } => size::prefixed(data.len()),
+                Self::Accepted => 0,
                 Self::Refused(_) => 1,
             }
     }
 
     fn encode_to(&self, writer: &mut Writer<'_>) {
         match self {
-            Self::Accepted { data } => {
-                writer.write_context_tag(0);
-                writer.write_octets(data, Size::ANY);
-            }
+            Self::Accepted => writer.write_context_tag(0),
             Self::Refused(reason) => {
                 writer.write_context_tag(1);
                 writer.write_u8(reason.code());
@@ -166,15 +154,13 @@ impl Encode for MethodResponse<'_> {
     }
 }
 
-impl<'a> Decode<'a> for MethodResponse<'a> {
+impl<'a> Decode<'a> for MethodResponse {
     type Error = DecodeError;
 
     fn decode(reader: &mut Reader<'a>) -> Result<Self, DecodeError> {
         let offset = reader.offset();
         match reader.read_context_tag()? {
-            0 => Ok(Self::Accepted {
-                data: reader.read_octets(Size::ANY)?,
-            }),
+            0 => Ok(Self::Accepted),
             1 => Ok(Self::Refused(RefusalReason::from_code(reader.read_u8()?))),
             _ => Err(DecodeError::new(offset, DecodeErrorKind::UnexpectedTag)),
         }

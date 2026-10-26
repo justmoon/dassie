@@ -172,7 +172,7 @@ impl PeerNode {
         from: Option<NodeId>,
         mode: Retransmit,
     ) -> Processed {
-        let id = signed.info.node_id;
+        let id = signed.node_id;
         // A periphery node's link state never floods, and a periphery node
         // forwards nothing (spec/areas/network.md#periphery-nodes).
         let mode = if mode == Retransmit::Scheduled
@@ -310,7 +310,6 @@ impl PeerNode {
             )
             .collect();
         let info = NodeInfo {
-            node_id: self.own,
             sequence,
             url: &url,
             alias: &self.own_info.alias,
@@ -699,7 +698,7 @@ impl PeerNode {
                 .0
                 .iter()
                 .flatten()
-                .find(|signed| signed.info.node_id == *asked);
+                .find(|signed| signed.node_id == *asked);
             // Anything but a newer state, whether old, dropped, invalid or
             // missing, waits before asking again.
             let accepted = found.is_some_and(|signed| {
@@ -735,7 +734,7 @@ impl PeerNode {
             return;
         };
         for signed in response.0.iter().flatten() {
-            if ids.contains(&signed.info.node_id) {
+            if ids.contains(&signed.node_id) {
                 self.process_link_state(signed, None, Retransmit::Never);
             }
         }

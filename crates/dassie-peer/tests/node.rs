@@ -33,7 +33,6 @@ fn request(from: &NodeKey, content: &Content<'_>) -> Arriving {
 
 fn link_state(key: &NodeKey, sequence: u64, url: &str) -> Vec<u8> {
     let info = NodeInfo {
-        node_id: key.node_id(),
         sequence,
         url,
         alias: "",
@@ -733,7 +732,6 @@ fn only_a_node_with_a_url_names_a_feed_port() {
 fn feed_link_state(key: &NodeKey, value: &[u8]) -> Vec<u8> {
     let url = url(0);
     let info = NodeInfo {
-        node_id: key.node_id(),
         sequence: START,
         url: &url,
         alias: "",

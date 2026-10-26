@@ -129,7 +129,7 @@ impl Stub {
         !self.unlimited || data == UNLIMITED
     }
 
-    /// Writes our peering info, request or response: [`UNLIMITED`] for a
+    /// Writes our peering info or request: [`UNLIMITED`] for a
     /// stub with unlimited trust, nothing for any other.
     fn write_ours(&self, out: &mut Vec<u8>) {
         out.clear();
@@ -601,26 +601,19 @@ impl SettlementScheme for Stub {
 
     /// A stub with unlimited trust accepts only a stub that trusts as it
     /// does.
-    fn accept_peering_request(
-        &mut self,
-        _peer: Name,
-        data: &[u8],
-        response: &mut Vec<u8>,
-    ) -> Result<Vec<u8>, SchemeError> {
+    fn accept_peering_request(&mut self, _peer: Name, data: &[u8]) -> Result<Vec<u8>, SchemeError> {
         if !self.of_our_kind(data) {
             return Err(SchemeError::InvalidData);
         }
-        self.write_ours(response);
         Ok(Vec::new())
     }
 
     fn finalize_peering_request(
         &mut self,
         _peer: Name,
-        _peering_info: &[u8],
-        data: &[u8],
+        peering_info: &[u8],
     ) -> Result<Vec<u8>, SchemeError> {
-        if !self.of_our_kind(data) {
+        if !self.of_our_kind(peering_info) {
             return Err(SchemeError::InvalidData);
         }
         Ok(Vec::new())
@@ -1335,7 +1328,7 @@ mod tests {
     }
 
     /// Whether `asker` peers with `asked`, as the peer protocol has them
-    /// do: the asked's info, the asker's request, the asked's response.
+    /// do: the asked's info, the asker's request, the asked's acceptance.
     fn peers_with(asker: &mut Stub, asked: &mut Stub) -> bool {
         let mut info = Vec::new();
         asked.peering_info(&mut info);
@@ -1346,16 +1339,10 @@ mod tests {
         {
             return false;
         }
-        let mut response = Vec::new();
-        if asked
-            .accept_peering_request(peer(), &request, &mut response)
-            .is_err()
-        {
+        if asked.accept_peering_request(peer(), &request).is_err() {
             return false;
         }
-        asker
-            .finalize_peering_request(peer(), &info, &response)
-            .is_ok()
+        asker.finalize_peering_request(peer(), &info).is_ok()
     }
 
     // A stub with unlimited trust peers only with another, either way

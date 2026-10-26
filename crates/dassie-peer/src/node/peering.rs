@@ -352,13 +352,13 @@ impl PeerNode {
             return self.fail_attempt(node, "no answer");
         };
         match PeeringResponse::decode_exact(&body) {
-            Ok(PeeringResponse::Accepted { .. })
+            Ok(PeeringResponse::Accepted)
                 if self.core_peers().count() >= self.max_core_peers()
                     || !self.channel_room(&node) =>
             {
                 self.fail_attempt(node, "no room left");
             }
-            Ok(PeeringResponse::Accepted { data }) if hooks.speaks(scheme) => {
+            Ok(PeeringResponse::Accepted) if hooks.speaks(scheme) => {
                 let info = match self.table.get(&node).map(|e| &e.peer) {
                     Some(PeerState::Requesting {
                         info: Some(info), ..
@@ -367,7 +367,7 @@ impl PeerNode {
                 };
                 let now = self.now_ms;
                 let ended_for_room = self.ended_for_room(&node, hooks);
-                match hooks.finalize(now, node, scheme, &info, data, ended_for_room) {
+                match hooks.finalize(now, node, scheme, &info, ended_for_room) {
                     Ok(agreed) => {
                         if !self.become_peered(hooks, node, scheme, agreed, false) {
                             self.fail_attempt(node, "no room left");
@@ -508,7 +508,7 @@ impl PeerNode {
             return Inbound::Reply(Reply::refuse(400, "malformed message"));
         };
         let sender = accepted.sender;
-        if request.node_info.info.node_id != sender {
+        if request.node_info.node_id != sender {
             return Inbound::Reply(Reply::refuse(400, "the link state is not the sender's"));
         }
         let Ok(key) = request.node_info.verify() else {
@@ -538,8 +538,7 @@ impl PeerNode {
             .and_then(Entry::active_peering)
             .is_some_and(|peering| peering.scheme == request.scheme)
         {
-            let answer = PeeringResponse::Accepted { data: &[] };
-            return Inbound::Reply(ok(&answer.to_vec()));
+            return Inbound::Reply(ok(&PeeringResponse::Accepted.to_vec()));
         }
         // A periphery node has no URL to probe: the connection its request
         // came on shows it is there, and is how we reach it
@@ -717,24 +716,15 @@ impl PeerNode {
         if !self.channels.contains_key(&sender) && kind != Some(downlink) {
             return refused(RefusalReason::Unspecified);
         }
-        let mut response = Vec::new();
         let now = self.now_ms;
-        let agreed = match hooks.accept(
-            now,
-            sender,
-            downlink,
-            request.scheme,
-            request.data,
-            &mut response,
-        ) {
+        let agreed = match hooks.accept(now, sender, downlink, request.scheme, request.data) {
             Ok(agreed) => agreed,
             Err(reason) => return refused(reason),
         };
         if !self.become_peered(hooks, sender, request.scheme, agreed, true) {
             return refused(RefusalReason::Capacity);
         }
-        let answer = PeeringResponse::Accepted { data: &response };
-        ok(&answer.to_vec())
+        ok(&PeeringResponse::Accepted.to_vec())
     }
 }
 

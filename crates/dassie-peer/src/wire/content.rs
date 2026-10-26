@@ -235,9 +235,7 @@ impl Content<'_> {
                     + size::prefixed(request.data.len())
             }
             Self::LinkStateUpdate(info) | Self::Registration(info) => info.bytes.len(),
-            Self::InterledgerPacket { packet, .. } => {
-                size::prefixed(4 + size::prefixed(packet.len()))
-            }
+            Self::InterledgerPacket { packet, .. } => 4 + size::prefixed(packet.len()),
             Self::LinkStateRequest(ids) => {
                 size::quantity(ids.len()) + ids.iter().map(node_id_len).sum::<usize>()
             }
@@ -286,10 +284,8 @@ impl Encode for Content<'_> {
                 writer.write_bytes(info.bytes);
             }
             Self::InterledgerPacket { request_id, packet } => {
-                writer.write_prefixed(4 + size::prefixed(packet.len()), |inner| {
-                    inner.write_u32(*request_id);
-                    inner.write_octets(packet, Size::ANY);
-                });
+                writer.write_u32(*request_id);
+                writer.write_octets(packet, Size::ANY);
             }
             Self::LinkStateRequest(ids) => {
                 writer.write_quantity(ids.len());
@@ -355,14 +351,10 @@ impl<'a> Decode<'a> for Content<'a> {
         Ok(match kind {
             Kind::PeeringRequest => Self::PeeringRequest(read_peering_request(reader)?),
             Kind::LinkStateUpdate => Self::LinkStateUpdate(SignedNodeInfo::decode(reader)?),
-            Kind::InterledgerPacket => {
-                let (request_id, packet) = reader.read_prefixed(|inner| {
-                    let request_id = inner.read_u32()?;
-                    let packet = inner.read_octets(Size::ANY)?;
-                    Ok::<_, DecodeError>((request_id, packet))
-                })?;
-                Self::InterledgerPacket { request_id, packet }
-            }
+            Kind::InterledgerPacket => Self::InterledgerPacket {
+                request_id: reader.read_u32()?,
+                packet: reader.read_octets(Size::ANY)?,
+            },
             Kind::LinkStateRequest => {
                 let count = reader.read_quantity(MAX_LINK_STATE_REQUEST_IDS)?;
                 let mut ids = Vec::with_capacity(count);

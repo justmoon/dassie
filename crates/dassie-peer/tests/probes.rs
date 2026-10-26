@@ -36,7 +36,6 @@ fn made_up(index: u32) -> Arc<NodeKey> {
 /// A registration with node `to` from `from`, whose link state names `url`.
 fn registration(network: &Network, from: &Arc<NodeKey>, url: &str, to: usize) -> Arriving {
     let info = NodeInfo {
-        node_id: from.node_id(),
         sequence: network.clock(to),
         url,
         alias: "",

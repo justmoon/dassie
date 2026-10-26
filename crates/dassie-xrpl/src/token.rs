@@ -892,20 +892,14 @@ impl<T: IssuedToken> SettlementScheme for TokenScheme<T> {
         self.f.create_peering_request(peering_info, out)
     }
 
-    fn accept_peering_request(
-        &mut self,
-        _peer: Name,
-        data: &[u8],
-        response: &mut Vec<u8>,
-    ) -> Result<Vec<u8>, SchemeError> {
-        self.f.accept_peering_request(data, response)
+    fn accept_peering_request(&mut self, _peer: Name, data: &[u8]) -> Result<Vec<u8>, SchemeError> {
+        self.f.accept_peering_request(data)
     }
 
     fn finalize_peering_request(
         &mut self,
         _peer: Name,
         peering_info: &[u8],
-        _data: &[u8],
     ) -> Result<Vec<u8>, SchemeError> {
         self.f.finalize_peering_request(peering_info)
     }

@@ -26,9 +26,10 @@ pub use response::{
 pub use scheme::{MAX_SCHEME_ID, SchemeId};
 pub use url::is_valid_url;
 
-/// The OID that starts a v1 `PeerNodeInfo`. v0 used `…1399.1.2`; a new one
-/// keeps node info signed under v0 from passing as a v1 link state.
-pub const NODE_INFO_OID: [u8; 14] = oid::encode(&[1, 3, 6, 1, 4, 1, 54392, 5, 1399, 1, 3]);
+/// The OID that starts a `PeerNodeInfo`. v0 used `…1399.1.2`, and the
+/// layout with the node ID beside the key `…1399.1.3`; a new one keeps node
+/// info signed under either from passing as a link state of this layout.
+pub const NODE_INFO_OID: [u8; 14] = oid::encode(&[1, 3, 6, 1, 4, 1, 54392, 5, 1399, 1, 5]);
 
 /// Most bytes in a request body.
 pub const MAX_MESSAGE_BYTES: usize = 64 * 1024;

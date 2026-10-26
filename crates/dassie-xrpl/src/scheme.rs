@@ -784,20 +784,14 @@ impl<N: NativeXrp> SettlementScheme for XrpScheme<N> {
         self.f.create_peering_request(peering_info, out)
     }
 
-    fn accept_peering_request(
-        &mut self,
-        _peer: Name,
-        data: &[u8],
-        response: &mut Vec<u8>,
-    ) -> Result<Vec<u8>, SchemeError> {
-        self.f.accept_peering_request(data, response)
+    fn accept_peering_request(&mut self, _peer: Name, data: &[u8]) -> Result<Vec<u8>, SchemeError> {
+        self.f.accept_peering_request(data)
     }
 
     fn finalize_peering_request(
         &mut self,
         _peer: Name,
         peering_info: &[u8],
-        _data: &[u8],
     ) -> Result<Vec<u8>, SchemeError> {
         self.f.finalize_peering_request(peering_info)
     }
@@ -1048,11 +1042,11 @@ mod tests {
             Err(SchemeError::Unsupported)
         );
         assert_eq!(
-            scheme.accept_peering_request(peer, &info, &mut out),
+            scheme.accept_peering_request(peer, &info),
             Err(SchemeError::Unsupported)
         );
         assert_eq!(
-            scheme.finalize_peering_request(peer, &info, &[]),
+            scheme.finalize_peering_request(peer, &info),
             Err(SchemeError::Unsupported)
         );
         scheme.check_invariants();

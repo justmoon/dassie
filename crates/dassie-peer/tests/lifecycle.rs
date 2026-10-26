@@ -81,7 +81,6 @@ impl Sender {
 
 fn peering_request(network: &Network, from: &Arc<NodeKey>, index: usize, to: usize) -> Arriving {
     let info = NodeInfo {
-        node_id: from.node_id(),
         sequence: network.clock(to),
         url: &url(index),
         alias: "",

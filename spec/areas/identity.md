@@ -45,7 +45,7 @@ An ID received from elsewhere is only a name until checked: it must equal the ID
 
 ## Object identifiers
 
-Dassie's OIDs sit under the private arc `1.3.6.1.4.1.54392.5.1399`: `.1` for the peer protocol, `.2` for node fingerprints, `.3` for the [rate feed](rate-feed.md#signing). Under `.1`, `.1.3` signs link states and `.1.4` is the domain of a name's commitment ([Peer protocol](peer-protocol.md#names)). They are hashed into node IDs and signed into link states and feeds, so an arc is never reassigned, including `.1.1`, which the original defined and nothing uses. A new version of a signed structure takes a new OID, so a signature over the old one cannot pass as the new ([Peer protocol](peer-protocol.md)).
+Dassie's OIDs sit under the private arc `1.3.6.1.4.1.54392.5.1399`: `.1` for the peer protocol, `.2` for node fingerprints, `.3` for the [rate feed](rate-feed.md#signing). Under `.1`, `.1.5` signs link states, `.1.3` signed them in the layout that sent the node ID beside the key, and `.1.4` is the domain of a name's commitment ([Peer protocol](peer-protocol.md#names)). They are hashed into node IDs and signed into link states and feeds, so an arc is never reassigned, including `.1.1`, which the original defined and nothing uses. A new version of a signed structure takes a new OID, so a signature over the old one cannot pass as the new ([Peer protocol](peer-protocol.md)).
 
 ## Handling of secrets
 

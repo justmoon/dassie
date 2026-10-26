@@ -232,7 +232,7 @@ impl PeerNode {
                 let sender = accepted.sender;
                 match self.process_link_state(&info, Some(sender), Retransmit::Scheduled) {
                     Processed::Invalid(_) => return Reply::refuse(400, "invalid link state"),
-                    _ if info.info.node_id == sender => {
+                    _ if info.node_id == sender => {
                         self.heard_from(&sender);
                         // A core node also sends its own link state to the
                         // bootstrap nodes it is not peered with, even one
@@ -326,7 +326,7 @@ impl PeerNode {
         {
             return refuse(409, "not a bootstrap node");
         }
-        if info.info.node_id != sender {
+        if info.node_id != sender {
             return refuse(400, "the link state is not the sender's");
         }
         let Ok(key) = info.verify() else {
@@ -500,7 +500,7 @@ impl PeerNode {
                     .first()
                     .and_then(Option::as_ref)
                     .is_some_and(|signed| {
-                        signed.info.node_id == node
+                        signed.node_id == node
                             && signed.info.sequence >= probe.sequence
                             && signed.verify().is_ok()
                     })

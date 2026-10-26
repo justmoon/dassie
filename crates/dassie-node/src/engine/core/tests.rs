@@ -1063,7 +1063,7 @@ fn a_junior_extends_at_least_the_default_credit() {
         .unwrap();
     let scheme = dassie_peer::wire::SchemeId::parse("stub").unwrap();
     let agreed = core
-        .with_peer(|_, hooks, _| hooks.finalize(NOW, peer, scheme, &[], &[], false))
+        .with_peer(|_, hooks, _| hooks.finalize(NOW, peer, scheme, &[], false))
         .unwrap();
     assert_eq!(agreed.credit_out, Policies::DEFAULT.peer_credit);
     let contra = core
@@ -1095,7 +1095,7 @@ fn a_junior_keeps_the_lower_credit_of_a_peer_it_ended_for_room() {
         .unwrap();
     let scheme = dassie_peer::wire::SchemeId::parse("stub").unwrap();
     let agreed = core
-        .with_peer(|_, hooks, _| hooks.finalize(NOW, peer, scheme, &[], &[], true))
+        .with_peer(|_, hooks, _| hooks.finalize(NOW, peer, scheme, &[], true))
         .unwrap();
     assert_eq!(agreed.credit_out, core.senior_credit);
     assert!(core.senior_credit < Policies::DEFAULT.peer_credit);
@@ -1145,9 +1145,8 @@ fn on_unlimited_trust_both_sides_extend_the_unlimited_credit() {
         .open_peer(NOW, LedgerId::StubUsd, name, core.senior_credit)
         .unwrap();
     for peer in [fresh, known] {
-        let mut response = Vec::new();
         let agreed = core
-            .with_peer(|_, hooks, _| hooks.accept(NOW, peer, false, scheme, &info, &mut response))
+            .with_peer(|_, hooks, _| hooks.accept(NOW, peer, false, scheme, &info))
             .unwrap();
         assert_eq!(agreed.credit_out, UNLIMITED_CREDIT);
         assert_eq!(trust_of(&core, peer), UNLIMITED_CREDIT);
@@ -1159,15 +1158,13 @@ fn on_unlimited_trust_both_sides_extend_the_unlimited_credit() {
         .open_peer(NOW, LedgerId::StubUsd, name, core.senior_credit)
         .unwrap();
     let agreed = core
-        .with_peer(|_, hooks, _| hooks.finalize(NOW, ended, scheme, &info, &info, true))
+        .with_peer(|_, hooks, _| hooks.finalize(NOW, ended, scheme, &info, true))
         .unwrap();
     assert_eq!(agreed.credit_out, UNLIMITED_CREDIT);
     assert_eq!(trust_of(&core, ended), UNLIMITED_CREDIT);
     // A peer that is not on the stub with unlimited trust is refused.
-    let mut response = Vec::new();
-    let refused = core.with_peer(|_, hooks, _| {
-        hooks.accept(NOW, seeded_node(4), false, scheme, &[], &mut response)
-    });
+    let refused =
+        core.with_peer(|_, hooks, _| hooks.accept(NOW, seeded_node(4), false, scheme, &[]));
     assert_eq!(
         refused.err(),
         Some(dassie_peer::wire::RefusalReason::SchemeRefused)
@@ -1352,9 +1349,7 @@ fn accept_on_stub(
 
     let peer = seeded_node(seed);
     let scheme = dassie_peer::wire::SchemeId::parse("stub").unwrap();
-    let mut response = Vec::new();
-    let accepted =
-        core.with_peer(|_, hooks, _| hooks.accept(NOW, peer, downlink, scheme, &[], &mut response));
+    let accepted = core.with_peer(|_, hooks, _| hooks.accept(NOW, peer, downlink, scheme, &[]));
     core.take_journal();
     accepted.map(|_| ())
 }
@@ -1414,7 +1409,7 @@ fn downlinks_never_take_the_room_core_peers_need() {
     }
     let scheme = dassie_peer::wire::SchemeId::parse("stub").unwrap();
     let last = NodeKey::from_bytes(&[2; 32]).node_id();
-    core.with_peer(|_, hooks, _| hooks.finalize(NOW, last, scheme, &[], &[], false))
+    core.with_peer(|_, hooks, _| hooks.finalize(NOW, last, scheme, &[], false))
         .unwrap();
     core.take_journal();
     assert_eq!(
@@ -2056,7 +2051,6 @@ fn downlink_request_on(downlink: &Arc<NodeKey>, now: u64, scheme: &str, data: &[
     };
     let stub = SchemeId::parse(scheme).unwrap();
     let info = NodeInfo {
-        node_id: downlink.node_id(),
         sequence: now,
         url: "",
         alias: "",
@@ -2173,7 +2167,7 @@ fn asks_as_downlink(
         })
         .unwrap();
     match PeeringResponse::decode_exact(&reply.body).unwrap() {
-        PeeringResponse::Accepted { .. } => None,
+        PeeringResponse::Accepted => None,
         PeeringResponse::Refused(reason) => Some(reason),
     }
 }
@@ -2661,7 +2655,6 @@ impl dassie_settlement::SettlementScheme for Witness {
         &mut self,
         _peer: dassie_ledger::Name,
         _data: &[u8],
-        _response: &mut Vec<u8>,
     ) -> Result<Vec<u8>, dassie_settlement::SchemeError> {
         Err(dassie_settlement::SchemeError::Unsupported)
     }
@@ -2670,7 +2663,6 @@ impl dassie_settlement::SettlementScheme for Witness {
         &mut self,
         _peer: dassie_ledger::Name,
         _info: &[u8],
-        _data: &[u8],
     ) -> Result<Vec<u8>, dassie_settlement::SchemeError> {
         Err(dassie_settlement::SchemeError::Unsupported)
     }
@@ -2780,7 +2772,6 @@ impl dassie_settlement::SettlementScheme for HubStandIn {
         &mut self,
         _peer: dassie_ledger::Name,
         _data: &[u8],
-        _response: &mut Vec<u8>,
     ) -> Result<Vec<u8>, dassie_settlement::SchemeError> {
         Err(dassie_settlement::SchemeError::Unsupported)
     }
@@ -2789,7 +2780,6 @@ impl dassie_settlement::SettlementScheme for HubStandIn {
         &mut self,
         _peer: dassie_ledger::Name,
         _info: &[u8],
-        _data: &[u8],
     ) -> Result<Vec<u8>, dassie_settlement::SchemeError> {
         Err(dassie_settlement::SchemeError::Unsupported)
     }
@@ -5841,7 +5831,6 @@ fn tells_link_state(
 
     let scheme = SchemeId::parse(scheme).unwrap();
     let info = NodeInfo {
-        node_id: other.node_id(),
         sequence: at,
         url,
         alias: "",

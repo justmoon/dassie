@@ -1,0 +1,125 @@
+//! The golden vectors of the peer protocol's layouts
+//! (spec/areas/peer-protocol.md#test-vectors): a link state, every message
+//! and every answer, made from fixed keys. `examples/peer_vectors.rs` writes
+//! them to `tests/data/vectors.json`, and `tests/vectors.rs` checks that the
+//! code still makes and reads exactly those bytes.
+
+use std::collections::BTreeMap;
+
+use dassie_identity::NodeKey;
+use dassie_oer::{Decode, Encode};
+use dassie_peer::names::Name;
+use dassie_peer::wire::{
+    Content, EXTENSION_FEED, Entry, LinkStateResponse, MethodResponse, NameHolding,
+    NameListResponse, NameReceipt, NodeInfo, NodeListResponse, PeeringResponse, RefusalReason,
+    SchemeId, SignedNodeInfo, encode_expiry, encode_octets, encode_settling, sign_node_info,
+};
+
+use super::inputs::{KINDS, content};
+
+/// The version the vectors are of, as its ALPN name
+/// (spec/decisions/protocol-upgrades.md).
+pub const VERSION: &str = "dassie/2";
+
+/// The key of node A: the seed of 32 bytes `01`.
+#[must_use]
+pub fn node_a() -> NodeKey {
+    NodeKey::from_bytes(&[1; 32])
+}
+
+/// The key of node B: the seed of 32 bytes `03`.
+#[must_use]
+pub fn node_b() -> NodeKey {
+    NodeKey::from_bytes(&[3; 32])
+}
+
+/// Node A's link state: a neighbor, a scheme and an extension, signed.
+#[must_use]
+pub fn link_state() -> Vec<u8> {
+    let info = NodeInfo {
+        sequence: 1_700_000_000_000,
+        url: "https://a.example",
+        alias: "Node A",
+        public_key: *node_a().public_key().as_bytes(),
+        entries: vec![
+            Entry::Neighbor(node_b().node_id()),
+            Entry::Scheme(SchemeId::parse("stub").unwrap()),
+            Entry::Extension {
+                kind: EXTENSION_FEED,
+                value: &[0x1e, 0x50],
+            },
+        ],
+    };
+    sign_node_info(&node_a(), &info)
+}
+
+/// A message kind's name as the protocol spells it: `peeringRequest`.
+fn name_of(content: &Content<'_>) -> String {
+    let debug = format!("{:?}", content.kind());
+    let mut chars = debug.chars();
+    let first = chars.next().unwrap().to_ascii_lowercase();
+    core::iter::once(first).chain(chars).collect()
+}
+
+/// Every message of the protocol, by name: one of each kind, as the
+/// never-panics properties send them, carrying [`link_state`].
+#[must_use]
+pub fn messages() -> BTreeMap<String, Vec<u8>> {
+    let state = link_state();
+    (0..KINDS)
+        .filter(|tag| *tag != 5)
+        .map(|tag| {
+            let bytes = content(tag, &state);
+            (name_of(&Content::decode_exact(&bytes).unwrap()), bytes)
+        })
+        .collect()
+}
+
+/// Every kind of answer, by name.
+#[must_use]
+pub fn answers() -> BTreeMap<String, Vec<u8>> {
+    let state = link_state();
+    let signed = SignedNodeInfo::decode_exact(&state).unwrap();
+    let holdings = BTreeMap::from([(
+        Name::parse("alice").unwrap(),
+        NameHolding {
+            holder: node_a().node_id(),
+            expires_at_ms: 1_800_000_000_000,
+        },
+    )]);
+    [
+        ("peeringAccepted", PeeringResponse::Accepted.to_vec()),
+        (
+            "peeringRefused",
+            PeeringResponse::Refused(RefusalReason::Capacity).to_vec(),
+        ),
+        ("methodAccepted", MethodResponse::Accepted.to_vec()),
+        (
+            "methodRefused",
+            MethodResponse::Refused(RefusalReason::SchemeRefused).to_vec(),
+        ),
+        (
+            "linkStates",
+            LinkStateResponse(vec![Some(signed), None]).to_vec(),
+        ),
+        (
+            "nodeList",
+            NodeListResponse(vec![node_a().node_id(), node_b().node_id()]).to_vec(),
+        ),
+        ("nameList", NameListResponse(holdings).to_vec()),
+        (
+            "nameReceipt",
+            NameReceipt {
+                position: 7,
+                window_end_ms: 1_700_000_060_000,
+            }
+            .to_vec(),
+        ),
+        ("registered", encode_expiry(1_700_086_400_000)),
+        ("peeringInfo", encode_octets(&[0xab; 20])),
+        ("settling", encode_settling(1_000)),
+    ]
+    .into_iter()
+    .map(|(name, bytes)| (name.to_owned(), bytes))
+    .collect()
+}

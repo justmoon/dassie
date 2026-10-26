@@ -58,7 +58,6 @@ impl Sender {
     /// Its own link state, as of node 0's clock.
     fn link_state(&self, network: &Network) -> Vec<u8> {
         let info = NodeInfo {
-            node_id: self.key.node_id(),
             sequence: network.clock(0),
             url: &self.url,
             alias: "",

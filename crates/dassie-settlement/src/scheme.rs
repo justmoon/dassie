@@ -481,32 +481,27 @@ pub trait SettlementScheme: Send {
         out: &mut Vec<u8>,
     ) -> Result<(), SchemeError>;
 
-    /// Accepts or refuses `peer`'s request, writing the response data.
-    /// Returns the peer's scheme state, and keeps nothing of `peer` until
-    /// [`on_peered`](Self::on_peered).
+    /// Accepts or refuses `peer`'s request. Returns the peer's scheme
+    /// state, and keeps nothing of `peer` until
+    /// [`on_peered`](Self::on_peered). The acceptance carries nothing: what
+    /// the requester needs of us, it has from our peering info.
     ///
     /// # Errors
     ///
     /// If the request is refused.
-    fn accept_peering_request(
-        &mut self,
-        peer: Name,
-        data: &[u8],
-        response: &mut Vec<u8>,
-    ) -> Result<Vec<u8>, SchemeError>;
+    fn accept_peering_request(&mut self, peer: Name, data: &[u8]) -> Result<Vec<u8>, SchemeError>;
 
-    /// Completes our request after `peer` accepted it. Returns the peer's
-    /// scheme state, and keeps nothing of `peer` until
-    /// [`on_peered`](Self::on_peered).
+    /// Completes our request after `peer` accepted it, from the peering
+    /// info it gave us. Returns the peer's scheme state, and keeps nothing
+    /// of `peer` until [`on_peered`](Self::on_peered).
     ///
     /// # Errors
     ///
-    /// If the response is invalid.
+    /// If the peering info is invalid.
     fn finalize_peering_request(
         &mut self,
         peer: Name,
         peering_info: &[u8],
-        data: &[u8],
     ) -> Result<Vec<u8>, SchemeError>;
 
     /// The peering with `peer` is made: its accounts are open, and `state`

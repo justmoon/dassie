@@ -45,7 +45,6 @@ fn request(_: &Network, from: &Arc<NodeKey>, _: usize, content: &Content<'_>) ->
 
 fn state(key: &NodeKey, sequence: u64, url: &str) -> Vec<u8> {
     let info = NodeInfo {
-        node_id: key.node_id(),
         sequence,
         url,
         alias: "",
@@ -230,7 +229,7 @@ fn a_repeated_peering_request_keeps_the_peering() {
     let reply = network.inbound(0, &body);
     assert_eq!(reply.status, 200);
     let answer = PeeringResponse::decode_exact(&reply.body).unwrap();
-    assert_eq!(answer, PeeringResponse::Accepted { data: &[] });
+    assert_eq!(answer, PeeringResponse::Accepted);
     let after = network.node(0).peering_of(&node1).unwrap();
     assert_eq!(
         (after.credit_out, after.inbound),
@@ -252,10 +251,7 @@ fn a_repeat_is_answered_on_a_scheme_no_longer_peered_on() {
     let reply = network.inbound(0, &body);
     assert_eq!(reply.status, 200);
     let answer = PeeringResponse::decode_exact(&reply.body).unwrap();
-    assert!(
-        matches!(answer, PeeringResponse::Accepted { .. }),
-        "{answer:?}"
-    );
+    assert!(matches!(answer, PeeringResponse::Accepted), "{answer:?}");
     let node1 = *network.node(1).own();
     assert!(network.node(0).peering_of(&node1).is_some());
 }

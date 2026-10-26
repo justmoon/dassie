@@ -111,7 +111,7 @@ pub fn content(tag: usize, info: &[u8]) -> Vec<u8> {
             packet: &[12, 0x10, 0, 0, 0, 0, 0, 0, 0, 1],
         },
         3 => Content::LinkStateRequest(
-            core::iter::once(info.info.node_id)
+            core::iter::once(info.node_id)
                 .chain(info.info.neighbors())
                 .collect(),
         ),

@@ -610,16 +610,11 @@ impl Follower {
         Ok(())
     }
 
-    pub(crate) fn accept_peering_request(
-        &self,
-        data: &[u8],
-        response: &mut Vec<u8>,
-    ) -> Result<Vec<u8>, SchemeError> {
+    pub(crate) fn accept_peering_request(&self, data: &[u8]) -> Result<Vec<u8>, SchemeError> {
         if !self.peering {
             return Err(SchemeError::Unsupported);
         }
         parse_address(data)?;
-        response.clear();
         Ok(data.to_vec())
     }
 

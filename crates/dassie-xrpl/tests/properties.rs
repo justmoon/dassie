@@ -1947,10 +1947,10 @@ proptest! {
                     let _ = scheme.create_peering_request(peer, &first, &mut out);
                 }
                 1 => {
-                    let _ = scheme.accept_peering_request(peer, &first, &mut out);
+                    let _ = scheme.accept_peering_request(peer, &first);
                 }
                 2 => {
-                    let _ = scheme.finalize_peering_request(peer, &first, &second);
+                    let _ = scheme.finalize_peering_request(peer, &first);
                 }
                 3 => {
                     if let Ok(prepared) = scheme.prepare_settlement(&mut rng, peer, amount, &first) {

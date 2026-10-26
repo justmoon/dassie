@@ -222,18 +222,17 @@ impl<'a> Decode<'a> for HubList {
     }
 }
 
-/// `PeerNodeInfo`: what a node says about itself.
+/// `PeerNodeInfo`: what a node says about itself. Its ID is not sent: it
+/// derives from its key ([`NodeInfo::node_id`]).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct NodeInfo<'a> {
-    /// Its ID.
-    pub node_id: NodeId,
     /// Its sequence number, a timestamp in ms that only goes up.
     pub sequence: u64,
     /// Its HTTPS origin.
     pub url: &'a str,
     /// A name for people, unverified.
     pub alias: &'a str,
-    /// Its Ed25519 public key, from which `node_id` derives.
+    /// Its Ed25519 public key, from which its ID derives.
     pub public_key: [u8; 32],
     /// Its neighbors, schemes and extensions.
     pub entries: Vec<Entry<'a>>,
@@ -251,16 +250,14 @@ pub const fn max_node_info_bytes(
     extensions: usize,
     extension_bytes: usize,
 ) -> usize {
-    let node_id = dassie_identity::NODE_ID_BYTES;
     let entries = neighbors.saturating_add(schemes).saturating_add(extensions);
     let fixed = NODE_INFO_OID.len()
-        + node_id
         + 8
         + size::prefixed(MAX_URL_BYTES)
         + size::prefixed(MAX_ALIAS_BYTES)
         + size::prefixed(32)
         + size::quantity(entries);
-    let neighbor = size::tag(0) + node_id;
+    let neighbor = size::tag(0) + dassie_identity::NODE_ID_BYTES;
     let scheme = size::tag(0) + size::prefixed(super::MAX_SCHEME_ID);
     // Each extension: its tag, its type and its value's length, at most as
     // long as the longest value's.
@@ -273,6 +270,12 @@ pub const fn max_node_info_bytes(
 }
 
 impl NodeInfo<'_> {
+    /// Its ID, the one its key derives.
+    #[must_use]
+    pub fn node_id(&self) -> NodeId {
+        NodeId::from_public_key(&self.public_key)
+    }
+
     /// The neighbors it advertises.
     pub fn neighbors(&self) -> impl Iterator<Item = NodeId> + '_ {
         self.entries.iter().filter_map(|entry| match entry {
@@ -372,7 +375,6 @@ impl NodeInfo<'_> {
 impl Encode for NodeInfo<'_> {
     fn encoded_len(&self) -> usize {
         NODE_INFO_OID.len()
-            + node_id_len(&self.node_id)
             + 8
             + size::prefixed(self.url.len())
             + size::prefixed(self.alias.len())
@@ -383,7 +385,6 @@ impl Encode for NodeInfo<'_> {
 
     fn encode_to(&self, writer: &mut Writer<'_>) {
         writer.write_bytes(&NODE_INFO_OID);
-        write_node_id(writer, &self.node_id);
         writer.write_u64(self.sequence);
         writer.write_ascii(self.url, Size::range(0, MAX_URL_BYTES), Alphabet::VISIBLE);
         writer.write_utf8(self.alias, Size::range(0, MAX_ALIAS_BYTES));
@@ -400,7 +401,6 @@ impl<'a> Decode<'a> for NodeInfo<'a> {
 
     fn decode(reader: &mut Reader<'a>) -> Result<Self, DecodeError> {
         reader.expect_bytes(&NODE_INFO_OID)?;
-        let node_id = read_node_id(reader)?;
         let sequence = reader.read_u64()?;
         let url = reader.read_ascii(Size::range(0, MAX_URL_BYTES), Alphabet::VISIBLE)?;
         let alias = reader.read_utf8(Size::range(0, MAX_ALIAS_BYTES))?;
@@ -413,7 +413,6 @@ impl<'a> Decode<'a> for NodeInfo<'a> {
             entries.push(Entry::decode(reader)?);
         }
         Ok(Self {
-            node_id,
             sequence,
             url,
             alias,
@@ -431,16 +430,16 @@ pub enum InvalidNodeInfo {
     Url,
     /// The public key is not a point, or one of small order.
     PublicKey,
-    /// The node ID is not the public key's.
-    NodeId,
     /// The signature does not verify.
     Signature,
 }
 
 /// `SignedPeerNodeInfo`: node info and its signature, with the bytes both
-/// were read from.
+/// were read from, and the ID its key derives.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SignedNodeInfo<'a> {
+    /// The node's ID, derived from the key as the state is read.
+    pub node_id: NodeId,
     /// The whole encoding, as stored and forwarded.
     pub bytes: &'a [u8],
     /// The node info's own bytes, which the signature covers.
@@ -452,8 +451,8 @@ pub struct SignedNodeInfo<'a> {
 }
 
 impl SignedNodeInfo<'_> {
-    /// Checks the URL syntax, the key, that the ID is the key's, and the
-    /// signature (ZIP-215, spec/areas/peer-protocol.md#verification).
+    /// Checks the URL syntax, the key, and the signature (ZIP-215,
+    /// spec/areas/peer-protocol.md#verification).
     /// A periphery node's link state has no URL, and every other one a
     /// valid one: a URL with the periphery extension would be taken for a
     /// downlink's and dialled, never probed.
@@ -476,9 +475,6 @@ impl SignedNodeInfo<'_> {
             PublicKey::from_bytes(&self.info.public_key).map_err(|_| InvalidNodeInfo::PublicKey)?;
         if key.is_weak() {
             return Err(InvalidNodeInfo::PublicKey);
-        }
-        if key.node_id() != self.info.node_id {
-            return Err(InvalidNodeInfo::NodeId);
         }
         key.verify(self.signed, &Signature::from_bytes(self.signature))
             .map_err(|_| InvalidNodeInfo::Signature)?;
@@ -503,6 +499,7 @@ impl<'a> Decode<'a> for SignedNodeInfo<'a> {
         expect_tag(reader, 0)?;
         let signature = read_fixed::<64>(reader)?;
         Ok(Self {
+            node_id: info.node_id(),
             bytes: reader.consumed_since(start),
             signed,
             info,

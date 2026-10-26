@@ -62,8 +62,7 @@ pub trait PeeringHooks {
         out: &mut Vec<u8>,
     ) -> Result<(), Declined>;
 
-    /// Accepts a request from `peer`: opens its accounts, and writes the
-    /// scheme's response into `response`. `downlink` says it peers as our
+    /// Accepts a request from `peer`: opens its accounts. `downlink` says it peers as our
     /// downlink, whose accounts take the downlinks' room, never the core
     /// peers' (spec/decisions/account-budgets.md). Called
     /// again for a peer already peered (spec/decisions/peering-lifecycle.md),
@@ -72,7 +71,6 @@ pub trait PeeringHooks {
     /// # Errors
     ///
     /// Why not.
-    #[allow(clippy::too_many_arguments)]
     fn accept(
         &mut self,
         now_ms: u64,
@@ -80,7 +78,6 @@ pub trait PeeringHooks {
         downlink: bool,
         scheme: SchemeId,
         data: &[u8],
-        response: &mut Vec<u8>,
     ) -> Result<Agreed, RefusalReason>;
 
     /// Completes our request to `peer`, which accepted: opens its
@@ -91,14 +88,12 @@ pub trait PeeringHooks {
     /// # Errors
     ///
     /// The scheme does not agree after all.
-    #[allow(clippy::too_many_arguments)]
     fn finalize(
         &mut self,
         now_ms: u64,
         peer: NodeId,
         scheme: SchemeId,
         info: &[u8],
-        data: &[u8],
         ended_for_room: bool,
     ) -> Result<Agreed, Declined>;
 

@@ -95,10 +95,9 @@ fn stub() -> SchemeId {
     SchemeId::parse("stub").unwrap()
 }
 
-/// Node A's info as in the v0 vector: the same fields, signed as v1.
+/// Node A's info as in the v0 vector: the same fields, but its ID.
 fn info_a() -> NodeInfo<'static> {
     NodeInfo {
-        node_id: node_a().node_id(),
         sequence: 1_700_000_000_000,
         url: "https://a.example",
         alias: "Node A",
@@ -107,18 +106,22 @@ fn info_a() -> NodeInfo<'static> {
     }
 }
 
-// v1 keeps v0's node-info layout but for the node IDs, and the OID's last
-// arc changes, so a v0-signed info cannot pass as a v1 link state.
+// The node-info layout is v0's, with each node ID as its 24 bytes, but
+// without the node's own ID, which derives from the key sent beside it,
+// under a new OID, so that an info signed under another layout cannot pass
+// as a link state of this one.
 #[test]
-fn node_info_keeps_the_v0_layout_under_a_new_oid() {
+fn node_info_is_the_v0_layout_without_the_id() {
     assert!(NodeInfo::decode_exact(&vector("nodeInfo")).is_err());
     let v0 = with_v1_ids(&vector("nodeInfo"));
     let v1 = info_a().to_vec();
-    assert_eq!(v1.len(), v0.len());
+    let id = node_a().node_id().to_bytes();
     assert_eq!(v0[13], 0x02);
-    assert_eq!(v1[13], 0x03);
+    assert_eq!(v1[13], 0x05);
     assert_eq!(v1[..13], v0[..13]);
-    assert_eq!(v1[14..], v0[14..]);
+    assert_eq!(v0[14..14 + id.len()], id[..]);
+    assert_eq!(v1[14..], v0[14 + id.len()..]);
+    assert!(NodeInfo::decode_exact(&v0).is_err());
 }
 
 // The original's signature over the v0 info checks out, now that it is
@@ -140,6 +143,8 @@ fn signed_node_info_round_trips_and_verifies() {
     assert_eq!(signed.bytes, &bytes[..]);
     assert_eq!(signed.info, info_a());
     assert_eq!(signed.verify().unwrap(), node_a().public_key());
+    assert_eq!(signed.node_id, node_a().node_id());
+    assert_eq!(signed.info.node_id(), node_a().node_id());
     assert_eq!(
         signed.info.neighbors().collect::<Vec<_>>(),
         [node_b().node_id()]
@@ -153,9 +158,6 @@ fn a_link_state_must_be_its_nodes_and_well_formed() {
         let bytes = sign_node_info(key, &info);
         SignedNodeInfo::decode_exact(&bytes).unwrap().verify()
     };
-    let mut other = info_a();
-    other.node_id = node_b().node_id();
-    assert_eq!(check(other, &node_a()), Err(InvalidNodeInfo::NodeId));
     let mut path = info_a();
     path.url = "https://a.example/peer";
     assert_eq!(check(path, &node_a()), Err(InvalidNodeInfo::Url));
@@ -169,7 +171,6 @@ fn keys_of_small_order_are_refused() {
     let mut weak = [0u8; 32];
     weak[0] = 1;
     let info = NodeInfo {
-        node_id: NodeId::from_public_key(&weak),
         public_key: weak,
         ..info_a()
     };
@@ -216,17 +217,20 @@ fn node_lists_and_their_hashes_match_the_original() {
     );
 }
 
+// An `interledgerPacket` is v0's without the length v0 wrapped its fields
+// in: flat, as a `hubPacket` is.
 #[test]
-fn interledger_packets_keep_the_v0_layout() {
+fn interledger_packets_are_flat() {
     let content = Content::InterledgerPacket {
         request_id: 42,
         packet: &[0x0c],
     };
-    assert_eq!(content.to_vec(), vector("interledgerContent"));
-    assert_eq!(
-        Content::decode_exact(&vector("interledgerContent")).unwrap(),
-        content
-    );
+    let v0 = vector("interledgerContent");
+    assert_eq!(usize::from(v0[1]), v0.len() - 2);
+    let flat: Vec<u8> = [v0[0]].into_iter().chain(v0[2..].iter().copied()).collect();
+    assert_eq!(content.to_vec(), flat);
+    assert_eq!(Content::decode_exact(&flat).unwrap(), content);
+    assert!(Content::decode_exact(&v0).is_err());
 }
 
 // A request is its content: no version byte, since the connection's ALPN
@@ -250,8 +254,7 @@ fn v1_encodings_are_pinned() {
     // version its ALPN.
     assert_eq!(to_hex(&Content::NodeListRequest.to_vec()), "87");
     assert!(Content::decode_exact(&[]).is_err(), "no content");
-    let response = PeeringResponse::Accepted { data: &[0xab] };
-    assert_eq!(to_hex(&response.to_vec()), "8001ab");
+    assert_eq!(to_hex(&PeeringResponse::Accepted.to_vec()), "80");
     assert_eq!(
         to_hex(&PeeringResponse::Refused(RefusalReason::Capacity).to_vec()),
         "8104"
@@ -397,7 +400,7 @@ const RESPONSES: usize = 11;
 fn response(kind: usize) -> Vec<u8> {
     let signed = signed_full();
     match kind {
-        0 => PeeringResponse::Accepted { data: &[0xab; 3] }.to_vec(),
+        0 => PeeringResponse::Accepted.to_vec(),
         1 => PeeringResponse::Refused(RefusalReason::Capacity).to_vec(),
         2 => LinkStateResponse(vec![
             None,
@@ -415,7 +418,7 @@ fn response(kind: usize) -> Vec<u8> {
         }
         .to_vec(),
         9 => name_list().to_vec(),
-        10 => MethodResponse::Accepted { data: &[0xab; 3] }.to_vec(),
+        10 => MethodResponse::Accepted.to_vec(),
         _ => unreachable!(),
     }
 }
@@ -574,10 +577,10 @@ proptest! {
             node_b().node_id()
         };
         let info = SignedNodeInfo {
+            node_id,
             bytes: &[],
             signed: &signed,
             info: NodeInfo {
-                node_id,
                 url: &url,
                 public_key,
                 ..info_a()
@@ -758,7 +761,6 @@ fn the_largest_own_link_state_fits_its_bound() {
         (EXTENSION_HUBS, &hubs),
     ];
     let info = NodeInfo {
-        node_id: key.node_id(),
         sequence: u64::MAX,
         url: &url,
         alias: &alias,
@@ -1032,8 +1034,8 @@ fn settlement_method_messages_are_pinned_and_bounded() {
 // The answer to a `methodAdd` is shaped as a peering answer's.
 #[test]
 fn method_answers_are_pinned() {
-    let accepted = MethodResponse::Accepted { data: &[0xab] };
-    assert_eq!(to_hex(&accepted.to_vec()), "8001ab");
+    let accepted = MethodResponse::Accepted;
+    assert_eq!(to_hex(&accepted.to_vec()), "80");
     let refused = MethodResponse::Refused(RefusalReason::Capacity);
     assert_eq!(to_hex(&refused.to_vec()), "8104");
     for response in [accepted, refused] {

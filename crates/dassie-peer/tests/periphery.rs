@@ -45,7 +45,6 @@ fn link_state(key: &NodeKey, sequence: u64, url: &str, extensions: &[u16]) -> Ve
         }))
         .collect();
     let info = NodeInfo {
-        node_id: key.node_id(),
         sequence,
         url,
         alias: "",
@@ -67,7 +66,7 @@ fn ask(network: &mut Network, from: &Arc<NodeKey>, to: usize, state: &[u8]) -> d
     network.inbound(to, &body)
 }
 
-fn answer(reply: &dassie_peer::Reply) -> PeeringResponse<'_> {
+fn answer(reply: &dassie_peer::Reply) -> PeeringResponse {
     PeeringResponse::decode_exact(&reply.body).unwrap()
 }
 
@@ -86,7 +85,7 @@ fn ask_as_downlink(network: &mut Network, key: &Arc<NodeKey>) -> Option<RefusalR
     let state = link_state(key, network.clock(0), "", &[EXTENSION_PERIPHERY]);
     let reply = ask(network, key, 0, &state);
     match answer(&reply) {
-        PeeringResponse::Accepted { .. } => None,
+        PeeringResponse::Accepted => None,
         PeeringResponse::Refused(reason) => Some(reason),
     }
 }
@@ -173,7 +172,7 @@ fn a_refused_downlink_takes_no_place() {
     let second = Arc::new(NodeKey::from_bytes(&[99; 32]));
     let state = link_state(&second, at, "", &[EXTENSION_PERIPHERY]);
     let reply = ask(&mut network, &second, 0, &state);
-    assert!(matches!(answer(&reply), PeeringResponse::Accepted { .. }));
+    assert!(matches!(answer(&reply), PeeringResponse::Accepted));
 }
 
 /// Whether node `at` is ending its peering with `node`, or has none.
@@ -552,7 +551,7 @@ fn downlinks_are_accepted_without_a_probe() {
     let periphery = link_state(&stranger, at, "", &[EXTENSION_PERIPHERY]);
     let reply = ask(&mut network, &stranger, 0, &periphery);
     assert_eq!(reply.status, 200, "answered at once, not deferred");
-    assert!(matches!(answer(&reply), PeeringResponse::Accepted { .. }));
+    assert!(matches!(answer(&reply), PeeringResponse::Accepted));
     assert!(network.node(0).is_downlink(&stranger.node_id()));
     assert_eq!(
         network.node(0).core_peers().count(),
@@ -623,7 +622,7 @@ fn a_closed_channel_frees_a_downlinks_place() {
     let at = network.clock(0);
     let state = link_state(&first, at, "", &[EXTENSION_PERIPHERY]);
     let reply = ask(&mut network, &first, 0, &state);
-    assert!(matches!(answer(&reply), PeeringResponse::Accepted { .. }));
+    assert!(matches!(answer(&reply), PeeringResponse::Accepted));
     network.act(0, |node, now| {
         assert!(node.terminate(
             now,
@@ -646,7 +645,7 @@ fn a_closed_channel_frees_a_downlinks_place() {
     let third = Arc::new(NodeKey::from_bytes(&[99; 32]));
     let state = link_state(&third, network.clock(0), "", &[EXTENSION_PERIPHERY]);
     let reply = ask(&mut network, &third, 0, &state);
-    assert!(matches!(answer(&reply), PeeringResponse::Accepted { .. }));
+    assert!(matches!(answer(&reply), PeeringResponse::Accepted));
 }
 
 // spec/decisions/free-receivers-half.md: downlinks that never paid us take
