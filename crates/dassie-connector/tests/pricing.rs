@@ -3,7 +3,8 @@
 //! `k`, a packet priced at the worst state the packets in flight can leave
 //! after its own move, so that no packet in flight improves another's price
 //! and no round trip gains, whatever is in flight, and no overflow for any
-//! rates and holdings.
+//! rates and holdings. A settlement hub's ledger is one of the ledgers, as
+//! any other with a currency.
 
 #![allow(
     clippy::unwrap_used,
@@ -23,6 +24,11 @@ use proptest::prelude::*;
 const USD: LedgerId = LedgerId::StubUsd;
 const XRP: LedgerId = LedgerId::XrplTestnetXrp;
 const RLUSD: LedgerId = LedgerId::XrplTestnetRlusdUsd;
+/// XRP in a settlement hub, a ledger of its own beside the XRP Ledger's.
+const HUB: LedgerId = LedgerId::HubXrpTestnetXrp;
+/// The ledgers the properties price: two currencies, each on two ledgers,
+/// one of them a hub's.
+const LEDGERS: [LedgerId; 4] = [USD, XRP, RLUSD, HUB];
 const NOW: u64 = 1_700_000_000_000;
 const AGE: u64 = 3_600_000;
 const MILLION: u32 = 1_000_000;
@@ -107,8 +113,8 @@ fn most(from_rate: u128, to_rate: u128, pricing: Pricing) -> BigUint {
         / (BigUint::from(from_rate) * &million * &million)
 }
 
-/// Three ledgers' holdings, posted and in flight, in the table's order.
-fn holdings_of(entries: [(u64, u64, u64); 3]) -> Holdings {
+/// The ledgers' holdings, posted and in flight, in the table's order.
+fn holdings_of(entries: [(u64, u64, u64); 4]) -> Holdings {
     let mut holdings = [Holding::NONE; MAX_PRICED_LEDGERS];
     for (slot, (posted, debits, credits)) in holdings.iter_mut().zip(entries) {
         *slot = Holding {
@@ -120,9 +126,9 @@ fn holdings_of(entries: [(u64, u64, u64); 3]) -> Holdings {
     holdings
 }
 
-/// The three ledgers' table at `xrp_rate`, from what they hold.
-fn three(xrp_rate: u128, holdings: &Holdings, pricing: Pricing) -> PriceTable {
-    let inventories = [USD, XRP, RLUSD].map(|ledger| held(ledger, 0));
+/// The ledgers' table at `xrp_rate`, from what they hold.
+fn four(xrp_rate: u128, holdings: &Holdings, pricing: Pricing) -> PriceTable {
+    let inventories = LEDGERS.map(|ledger| held(ledger, 0));
     let mut inventories = inventories;
     for (inventory, holding) in inventories.iter_mut().zip(holdings) {
         inventory.holding = *holding;
@@ -211,14 +217,15 @@ proptest! {
         usd in holding(),
         xrp in holding(),
         rlusd in holding(),
+        hub in holding(),
         amount in any::<u64>(),
         rebalance_ppm in 0..=MAX_REBALANCE_PPM,
         spread_ppm in 0..=Charges::MAX_PPM,
     ) {
         let pricing = pricing(rebalance_ppm, spread_ppm);
-        let holdings = holdings_of([usd, xrp, rlusd]);
+        let holdings = holdings_of([usd, xrp, rlusd, hub]);
         let rates = rates(xrp_rate);
-        let table = three(xrp_rate, &holdings, pricing);
+        let table = four(xrp_rate, &holdings, pricing);
         let rate_of = |ledger: LedgerId| rates.get(ledger.asset().code).unwrap();
         for price in table.prices() {
             let bound = most(rate_of(price.from), rate_of(price.to), pricing);
@@ -243,16 +250,17 @@ proptest! {
         usd in holding(),
         xrp in holding(),
         rlusd in holding(),
+        hub in holding(),
         amount in any::<u64>(),
         rebalance_ppm in 0..=MAX_REBALANCE_PPM,
         spread_ppm in 0..=Charges::MAX_PPM,
     ) {
         let pricing = pricing(rebalance_ppm, spread_ppm);
-        let holdings = holdings_of([usd, xrp, rlusd]);
-        let table = three(xrp_rate, &holdings, pricing);
+        let holdings = holdings_of([usd, xrp, rlusd, hub]);
+        let table = four(xrp_rate, &holdings, pricing);
         prop_assert_eq!(table.holdings(), holdings);
-        for from in [USD, XRP, RLUSD] {
-            for to in [USD, XRP, RLUSD] {
+        for from in LEDGERS {
+            for to in LEDGERS {
                 if from == to {
                     continue;
                 }
@@ -273,7 +281,8 @@ proptest! {
         usd in holding(),
         xrp in holding(),
         rlusd in holding(),
-        on in 0usize..3,
+        hub in holding(),
+        on in 0usize..4,
         debit in sized(),
         credit in sized(),
         amount in sized(),
@@ -281,8 +290,8 @@ proptest! {
         spread_ppm in 0..=Charges::MAX_PPM,
     ) {
         let pricing = pricing(rebalance_ppm, spread_ppm);
-        let holdings = holdings_of([usd, xrp, rlusd]);
-        let table = three(xrp_rate, &holdings, pricing);
+        let holdings = holdings_of([usd, xrp, rlusd, hub]);
+        let table = four(xrp_rate, &holdings, pricing);
         let mut held = holdings;
         held[on].debits_pending += u128::from(debit);
         held[on].credits_pending += u128::from(credit);
@@ -291,8 +300,8 @@ proptest! {
             holding.debits_pending = 0;
             holding.credits_pending = 0;
         }
-        for from in [USD, XRP, RLUSD] {
-            for to in [USD, XRP, RLUSD] {
+        for from in LEDGERS {
+            for to in LEDGERS {
                 if from == to {
                     continue;
                 }
@@ -314,8 +323,9 @@ proptest! {
         usd in holding(),
         xrp in holding(),
         rlusd in holding(),
-        later in [holding(), holding(), holding()],
-        pair in 0usize..6,
+        hub in holding(),
+        later in [holding(), holding(), holding(), holding()],
+        pair in 0usize..12,
         x in sized(),
         fee_ppm in 0..=Charges::MAX_PPM,
         rebalance_ppm in 0..=MAX_REBALANCE_PPM,
@@ -324,10 +334,11 @@ proptest! {
     ) {
         let charges = Charges { fee_ppm, spread_ppm };
         let pricing = Pricing { charges, rebalance_ppm };
-        let ledgers = [USD, XRP, RLUSD];
-        let (a, b) = [(0, 1), (1, 0), (0, 2), (2, 0), (1, 2), (2, 1)][pair];
-        let holdings = holdings_of([usd, xrp, rlusd]);
-        let table = three(xrp_rate, &holdings, pricing);
+        let ledgers = LEDGERS;
+        // Every ordered pair of two ledgers.
+        let (a, b) = (pair / 3, (pair / 3 + 1 + pair % 3) % 4);
+        let holdings = holdings_of([usd, xrp, rlusd, hub]);
+        let table = four(xrp_rate, &holdings, pricing);
         let net = x - charges.fee(x);
         let out = convert(net, rate_for_net(&table, ledgers[a], ledgers[b], x, net, &holdings));
         // A first leg refused is no round trip.
