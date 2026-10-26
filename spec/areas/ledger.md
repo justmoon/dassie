@@ -72,7 +72,7 @@ A packet is posted when it is fulfilled, and stays posted whatever the upstream 
 
 Each node keeps its own books and enforces its own limits from them. It never compares them with a peer's, and does not measure drift ([own-books](../decisions/own-books.md)).
 
-Journals written by nodes up to 0.1.3 may hold `refusal` rows: Fulfills an upstream refused, booked as a reversal or a loss in `expenses/losses`. They stay. Besides them, `expenses/losses` holds only `loss` rows: what a peering over a settlement hub cost beyond its hold ([Settlement hubs](hubs.md#packets-promises-and-claims)).
+Nothing is booked when an upstream refuses a Fulfill. `expenses/losses` holds only `loss` rows: what a peering over a settlement hub cost beyond its hold ([Settlement hubs](hubs.md#packets-promises-and-claims)).
 
 ## Invariants
 

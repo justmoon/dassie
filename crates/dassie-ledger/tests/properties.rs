@@ -492,7 +492,7 @@ fn damage() -> impl Strategy<Value = Damage> {
         2 => (any::<u8>(), -3i8..3).prop_map(|(n, offset)| Damage::PendingId { n, offset }),
         1 => (any::<u8>(), transfer_id()).prop_map(|(n, id)| Damage::PendingIdTo { n, id }),
         2 => (any::<u8>(), total()).prop_map(|(n, amount)| Damage::PendingAmount { n, amount }),
-        2 => (any::<u8>(), 0u8..8).prop_map(|(n, kind)| Damage::PendingReference { n, kind }),
+        2 => (any::<u8>(), 0u8..9).prop_map(|(n, kind)| Damage::PendingReference { n, kind }),
         2 => pair().prop_map(|(n, m)| Damage::SwapPending(n, m)),
         2 => any::<u8>().prop_map(Damage::RepeatPending),
         1 => any::<u8>().prop_map(Damage::DropPending),
@@ -522,12 +522,15 @@ fn any_reference(kind: u8) -> Reference {
         2 => Reference::Deposit,
         3 => Reference::Withdrawal,
         4 => Reference::Reconciliation,
-        5 => Reference::Refusal(trace),
-        6 => Reference::Fee {
+        5 => Reference::Fee {
             scheme: stub,
             id: stub,
         },
-        7 => Reference::Loss {
+        6 => Reference::Loss {
+            scheme: stub,
+            id: stub,
+        },
+        7 => Reference::OwnerPayment {
             scheme: stub,
             id: stub,
         },
@@ -675,7 +678,7 @@ impl Rows {
                 debit: AccountId(debit),
                 credit: AccountId(credit),
                 amount,
-                reference: any_reference(7),
+                reference: any_reference(6),
                 created_at_ms: 0,
             }),
             Damage::NextTransfer(offset) => {

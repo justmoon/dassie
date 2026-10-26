@@ -568,10 +568,6 @@ fn read_transfer(row: &Row<'_>) -> rusqlite::Result<TransferRow> {
                 epoch: amount(epoch)?,
                 sequence: amount(sequence)?,
             }),
-            ("refusal", Some(epoch), Some(sequence), None, None) => Reference::Refusal(TraceId {
-                epoch: amount(epoch)?,
-                sequence: amount(sequence)?,
-            }),
             ("fee", None, None, Some(scheme), Some(id)) => Reference::Fee {
                 scheme: name(&scheme, "settlement scheme")?,
                 id: name(&id, "fee ID")?,
@@ -682,13 +678,6 @@ fn insert_transfer(
     let (kind, epoch, sequence, scheme, settlement) = match transfer.reference {
         Reference::Packet(trace) => (
             "packet",
-            Some(sql_amount(trace.epoch)?),
-            Some(sql_amount(trace.sequence)?),
-            None,
-            None,
-        ),
-        Reference::Refusal(trace) => (
-            "refusal",
             Some(sql_amount(trace.epoch)?),
             Some(sql_amount(trace.sequence)?),
             None,
