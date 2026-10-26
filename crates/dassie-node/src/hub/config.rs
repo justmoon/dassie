@@ -239,6 +239,7 @@ pub(crate) mod tests {
     /// The same on `network`.
     fn terms_on(sponsor: &NodeKey, network: u32) -> Terms {
         Terms {
+            version: dassie_hub::rules::HUB_VERSION,
             nonce: NONCE,
             sponsor: sponsor.public_key(),
             network,

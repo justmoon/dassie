@@ -7,11 +7,14 @@
 //! ([`Terms::check`]), and their encoding, which every hub ID depends on.
 //!
 //! A hub holds one asset on the XRP Ledger: XRP, or a token of an issuer,
-//! such as DSUSD or RLUSD ([`Terms::asset`]). The encoding is versioned so
-//! that the terms of an XRP hub encode as they always have, and every hub
-//! founded before tokens keeps its ID: a token hub's terms start with a
-//! mark no XRP hub's nonce may start with ([`Terms::check`]), then the
-//! version and the asset, then what an XRP hub's terms hold.
+//! such as DSUSD or RLUSD ([`Terms::asset`]).
+//!
+//! The terms name the version of the hub's protocol the hub runs
+//! ([`Terms::version`], [`HUB_VERSION`]), first in their encoding, so the
+//! hub ID commits to it: what every validator must agree on (an encoding,
+//! a digest, what `Ledger::apply` does, a rule of consensus) is the
+//! version's, and validators of one hub run one version whatever releases
+//! they run (spec/decisions/hub-protocol-version.md).
 
 use alloc::string::String;
 use alloc::vec::Vec;
@@ -66,6 +69,15 @@ pub const LEAST_TOKEN_GAS_DROPS: Amount = LEDGER_BASE_FEE * (MAX_VALIDATORS as u
 
 /// A time in milliseconds since the Unix epoch, or a duration in them.
 pub type Millis = u64;
+
+/// The version of the hub's protocol this code runs: the hub's encodings
+/// and digests, what its ledger does with a block, and its consensus rules
+/// (spec/decisions/hub-protocol-version.md). It is not the release's
+/// version: it changes only when something every validator of a hub must
+/// agree on changes, and `testdata/hub/vectors.json` pins what it means.
+/// Terms of any other version neither decode nor check, so a validator or
+/// member never runs a hub it would execute otherwise than its peers.
+pub const HUB_VERSION: u16 = 1;
 
 /// A hub, named by the digest of its rules.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -179,6 +191,9 @@ pub struct Timers {
 /// Everything in the rules but the validators.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Terms {
+    /// The version of the hub's protocol the hub runs, for its whole life:
+    /// new rules keep it ([`Terms::keeps_tables_of`]).
+    pub version: u16,
     /// A random nonce the sponsor picked, under which validators derive
     /// their keys for this hub.
     pub nonce: [u8; 32],
@@ -250,6 +265,9 @@ impl Terms {
     /// let the ledger reach a state it cannot leave are refused here, never
     /// found in a block.
     pub fn check(&self) -> Result<(), RulesError> {
+        if self.version != HUB_VERSION {
+            return Err(RulesError::Terms("a hub version this code does not run"));
+        }
         self.check_fees()?;
         self.check_limits()?;
         self.check_timers()
@@ -284,11 +302,6 @@ impl Terms {
         let fail = |why| Err(RulesError::Terms(why));
         match self.asset {
             Asset::Xrp => {
-                // Its terms encode as they did before tokens, and that
-                // encoding must not read as a later version's.
-                if self.nonce.starts_with(&VERSION_MARK) {
-                    return fail("nonce starts as a later version's terms");
-                }
                 if fees.gas != 0 {
                     return fail("gas in an XRP hub, whose ledger fee pays its transactions");
                 }
@@ -393,7 +406,8 @@ impl Terms {
     #[must_use]
     pub fn keeps_tables_of(&self, current: &Self) -> bool {
         let (new, old) = (&self.limits, &current.limits);
-        self.asset == current.asset
+        self.version == current.version
+            && self.asset == current.asset
             && self.fees.gas == current.fees.gas
             && new.accounts >= old.accounts
             && new.holds >= old.holds
@@ -631,44 +645,42 @@ impl Acceptance {
     }
 }
 
-const FEES_LEN: usize = 8 * 6 + 4;
+const FEES_LEN: usize = 8 * 7 + 4;
 const LIMITS_LEN: usize = 4 * 5 + 2 * 6;
 const TIMERS_LEN: usize = 8 * 7;
-/// The terms of an XRP hub, as they were before tokens.
-const TERMS_LEN: usize = 32 + KEY_LEN + 4 + LEDGER_ACCOUNT_LEN + FEES_LEN + LIMITS_LEN + TIMERS_LEN;
-
-/// What starts the terms of every version after the first. The first
-/// version, an XRP hub's, starts with its nonce, which [`Terms::check`]
-/// refuses to start so.
-const VERSION_MARK: [u8; 7] = [0xff, b'D', b'a', b's', b's', b'i', b'e'];
-/// The version of a token hub's terms: after the mark, the version, the
-/// token's currency and issuer, and the gas; then an XRP hub's terms.
-const TOKEN_VERSION: u8 = 1;
-/// What a token hub's terms hold before an XRP hub's.
-const TOKEN_HEADER_LEN: usize = VERSION_MARK.len() + 1 + 20 + LEDGER_ACCOUNT_LEN + 8;
+/// The terms but their asset: the version, nonce, sponsor, network,
+/// escrow, fees, limits and timers.
+const TERMS_LEN: usize =
+    2 + 32 + KEY_LEN + 4 + LEDGER_ACCOUNT_LEN + FEES_LEN + LIMITS_LEN + TIMERS_LEN;
+/// The asset's CHOICE tag, and for a token its currency and issuer.
+const TOKEN_LEN: usize = 20 + LEDGER_ACCOUNT_LEN;
 
 impl Encode for Terms {
     fn encoded_len(&self) -> usize {
-        match self.asset {
-            Asset::Xrp => TERMS_LEN,
-            Asset::Token { .. } => TOKEN_HEADER_LEN + TERMS_LEN,
-        }
+        TERMS_LEN
+            + 1
+            + match self.asset {
+                Asset::Xrp => 0,
+                Asset::Token { .. } => TOKEN_LEN,
+            }
     }
 
     fn encode_to(&self, writer: &mut Writer<'_>) {
-        if let Asset::Token { currency, issuer } = self.asset {
-            writer.write_bytes(&VERSION_MARK);
-            writer.write_u8(TOKEN_VERSION);
-            writer.write_bytes(&currency.0);
-            writer.write_bytes(&issuer.0);
-            writer.write_u64(self.fees.gas);
-        }
+        writer.write_u16(self.version);
         writer.write_bytes(&self.nonce);
         write_key(writer, &self.sponsor);
         writer.write_u32(self.network);
         writer.write_bytes(&self.escrow);
+        match self.asset {
+            Asset::Xrp => writer.write_u8(0),
+            Asset::Token { currency, issuer } => {
+                writer.write_u8(1);
+                writer.write_bytes(&currency.0);
+                writer.write_bytes(&issuer.0);
+            }
+        }
         let fees = &self.fees;
-        for value in [fees.operation, fees.ledger] {
+        for value in [fees.operation, fees.ledger, fees.gas] {
             writer.write_u64(value);
         }
         writer.write_u32(fees.reserve_share_ppm);
@@ -718,37 +730,37 @@ fn encode_timers(writer: &mut Writer<'_>, timers: &Timers) {
 }
 
 impl Terms {
-    /// Decodes terms of either version; [`Terms::check`] is the caller's.
-    /// A token hub's terms name a token, and only a token: an XRP hub's
-    /// have one encoding.
+    /// Decodes terms of the version this code runs ([`HUB_VERSION`]):
+    /// another version's may lay out what follows its version otherwise,
+    /// and is refused before anything else is read. [`Terms::check`] is the
+    /// caller's. A token hub's terms name a token, and only a token.
     pub fn decode(reader: &mut Reader<'_>) -> Result<Self, HubDecodeError> {
-        let versioned = reader
-            .clone()
-            .read_array::<7>()
-            .is_ok_and(|mark| *mark == VERSION_MARK);
-        let (asset, gas) = if versioned {
-            reader.read_array::<7>()?;
-            let version = reader.read_u8()?;
-            if version != TOKEN_VERSION {
-                return Err(HubDecodeError::UnknownChoice(u64::from(version)));
-            }
-            let currency = Currency(*reader.read_array::<20>()?);
-            let issuer = AccountId(*reader.read_array::<LEDGER_ACCOUNT_LEN>()?);
-            if !token_valid(currency, issuer) {
-                return Err(HubDecodeError::Invalid("a token hub's asset is no token"));
-            }
-            (Asset::Token { currency, issuer }, reader.read_u64()?)
-        } else {
-            (Asset::Xrp, 0)
-        };
+        let version = reader.read_u16()?;
+        if version != HUB_VERSION {
+            return Err(HubDecodeError::Invalid(
+                "a hub version this code does not run",
+            ));
+        }
         let nonce = *reader.read_array::<32>()?;
         let sponsor = read_key(reader)?;
         let network = reader.read_u32()?;
         let escrow = *reader.read_array::<LEDGER_ACCOUNT_LEN>()?;
+        let asset = match reader.read_u8()? {
+            0 => Asset::Xrp,
+            1 => {
+                let currency = Currency(*reader.read_array::<20>()?);
+                let issuer = AccountId(*reader.read_array::<LEDGER_ACCOUNT_LEN>()?);
+                if !token_valid(currency, issuer) {
+                    return Err(HubDecodeError::Invalid("a token hub's asset is no token"));
+                }
+                Asset::Token { currency, issuer }
+            }
+            other => return Err(HubDecodeError::UnknownChoice(u64::from(other))),
+        };
         let fees = Fees {
             operation: reader.read_u64()?,
             ledger: reader.read_u64()?,
-            gas,
+            gas: reader.read_u64()?,
             reserve_share_ppm: reader.read_u32()?,
             account_reserve: reader.read_u64()?,
             hold_reserve: reader.read_u64()?,
@@ -770,6 +782,7 @@ impl Terms {
         };
         let timers = decode_timers(reader)?;
         Ok(Self {
+            version,
             nonce,
             sponsor,
             network,
@@ -875,6 +888,7 @@ pub(crate) mod tests {
     /// Terms that pass [`Terms::check`], for tests.
     pub(crate) fn terms(sponsor: &NodeKey) -> Terms {
         Terms {
+            version: HUB_VERSION,
             nonce: [7; 32],
             sponsor: sponsor.public_key(),
             network: 1,
@@ -1068,8 +1082,7 @@ pub(crate) mod tests {
         token.check().unwrap();
         let bytes = token.to_vec();
         assert_eq!(bytes.len(), token.encoded_len());
-        assert_eq!(bytes.len(), xrp.encoded_len() + TOKEN_HEADER_LEN);
-        assert!(bytes.starts_with(&VERSION_MARK));
+        assert_eq!(bytes.len(), xrp.encoded_len() + TOKEN_LEN);
         let mut reader = Reader::new(&bytes);
         assert_eq!(Terms::decode(&mut reader).unwrap(), token);
         reader.finish().unwrap();
@@ -1079,12 +1092,17 @@ pub(crate) mod tests {
             token.units_per_amount(),
             dassie_xrpl::token::UNITS_PER_MICRO
         );
-        // An unknown version, or an XRP "token", does not decode.
+        // Another version, an unknown asset, or an XRP "token", does not
+        // decode.
         let mut later = bytes.clone();
-        later[VERSION_MARK.len()] = 2;
+        later[1] = 2;
         assert!(Terms::decode(&mut Reader::new(&later)).is_err());
+        let asset_at = 2 + 32 + KEY_LEN + 4 + LEDGER_ACCOUNT_LEN;
+        let mut unknown = bytes.clone();
+        unknown[asset_at] = 2;
+        assert!(Terms::decode(&mut Reader::new(&unknown)).is_err());
         let mut xrp_token = bytes;
-        xrp_token[VERSION_MARK.len() + 1..VERSION_MARK.len() + 21].fill(0);
+        xrp_token[asset_at + 1..asset_at + 21].fill(0);
         assert!(Terms::decode(&mut Reader::new(&xrp_token)).is_err());
     }
 
@@ -1099,17 +1117,15 @@ pub(crate) mod tests {
             change(&mut terms);
             terms.check().is_err()
         };
-        // An XRP hub pays out at least the ledger's base reserve, has no
-        // gas, and no nonce that reads as a later version.
+        // An XRP hub pays out at least the ledger's base reserve, and has
+        // no gas.
         assert!(fails(
             &|t| t.fees.least_payout = LEDGER_BASE_RESERVE - 1,
             false
         ));
         assert!(fails(&|t| t.fees.gas = 1, false));
-        assert!(fails(
-            &|t| t.nonce[..7].copy_from_slice(&VERSION_MARK),
-            false
-        ));
+        // Terms of a version this code does not run do not check.
+        assert!(fails(&|t| t.version = HUB_VERSION + 1, false));
         // A token hub's least payout is any amount but none; its fees are
         // gas, enough for the largest set of validators and at most what
         // the escrow keeps; and its token is a token of
@@ -1139,6 +1155,10 @@ pub(crate) mod tests {
         let mut more_gas = token.clone();
         more_gas.fees.gas += 1;
         assert!(!more_gas.keeps_tables_of(&token));
+        // And the version: a hub runs one for its whole life.
+        let mut later = token.clone();
+        later.version += 1;
+        assert!(!later.keeps_tables_of(&token));
     }
 
     // Millionths of a token are its value exactly up to sixteen digits, and

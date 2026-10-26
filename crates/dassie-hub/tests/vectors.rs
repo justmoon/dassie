@@ -80,3 +80,75 @@ fn the_opening_deposit_names_its_key() {
         Some(bytes(&open["key"]))
     );
 }
+
+// spec/decisions/hub-protocol-version.md: what the vectors hold reads back
+// as the code reads it, within the version the hub ID commits to.
+#[test]
+fn the_vectors_read_as_they_say() {
+    use dassie_hub::Rules;
+    use dassie_hub::consensus::wire::Message;
+    use dassie_hub::operation::Operation;
+    use dassie_hub::promise::{Claim, Commitment, Signed};
+    use dassie_hub::rules::HUB_VERSION;
+    use dassie_hub::service::payload::Payload;
+    use dassie_oer::{Encode, Reader};
+
+    let vectors = committed();
+    let read = |value: &Value| bytes(value);
+    // The rules, and the ID that commits to their version.
+    let rules_bytes = read(&vectors["rules"]["rules"]);
+    let mut reader = Reader::new(&rules_bytes);
+    let rules = Rules::decode(&mut reader).unwrap();
+    reader.finish().unwrap();
+    assert_eq!(rules.check(), Ok(()));
+    assert_eq!(rules.terms.version, HUB_VERSION);
+    assert_eq!(vectors["rules"]["version"], HUB_VERSION);
+    assert_eq!(
+        rules.id().0.as_bytes().to_vec(),
+        read(&vectors["rules"]["hubId"])
+    );
+    let terms = read(&vectors["rules"]["terms"]);
+    assert_eq!(terms[..2], HUB_VERSION.to_be_bytes(), "the version first");
+    // Another version is refused before anything else is read.
+    let mut later = rules_bytes;
+    later[1] = later[1].wrapping_add(1);
+    assert!(Rules::decode(&mut Reader::new(&later)).is_err());
+    // Operations and promises.
+    for kind in ["member", "validator"] {
+        let encoded = read(&vectors["operations"][kind]["operation"]);
+        let mut reader = Reader::new(&encoded);
+        let operation = Operation::decode(&mut reader).unwrap();
+        reader.finish().unwrap();
+        assert_eq!(operation.to_vec(), encoded);
+        assert_eq!(
+            operation.hash().as_bytes().to_vec(),
+            read(&vectors["operations"][kind]["hash"])
+        );
+    }
+    let commitment = read(&vectors["promises"]["commitment"]);
+    let commitment = Signed::<Commitment>::decode(&mut Reader::new(&commitment)).unwrap();
+    assert!(commitment.verifies(&rules.id(), &vectors::member_key().public_key()));
+    let claim = read(&vectors["promises"]["claim"]);
+    let claim = Signed::<Claim>::decode(&mut Reader::new(&claim)).unwrap();
+    assert!(claim.verifies(&rules.id(), &vectors::member_key().public_key()));
+    // The block's payload names the state the ledger leaves, and the vote
+    // is for the block.
+    let payload = Payload::decode_exact(&read(&vectors["block"]["payload"])).unwrap();
+    assert_eq!(
+        payload.state.as_bytes().to_vec(),
+        read(&vectors["block"]["state"])
+    );
+    let Ok(Message::Vote(vote)) = Message::decode_message(&read(&vectors["block"]["vote"])) else {
+        panic!("a vote");
+    };
+    assert_eq!(
+        vote.block.as_bytes().to_vec(),
+        read(&vectors["block"]["blockDigest"])
+    );
+    let set = rules.validator_set().unwrap();
+    assert!(vote.verify(&rules.id().0, &set).is_ok());
+    let statements =
+        dassie_hub::client::SignedStatement::decode_list(&read(&vectors["block"]["statements"]))
+            .unwrap();
+    assert!(statements.iter().all(|s| s.verifies(&rules.id(), &set)));
+}

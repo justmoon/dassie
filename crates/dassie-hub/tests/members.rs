@@ -61,6 +61,7 @@ const MARGIN: Millis = 600;
 
 fn terms(sponsor: &NodeKey, escrow: [u8; 20]) -> Terms {
     Terms {
+        version: dassie_hub::rules::HUB_VERSION,
         nonce: NONCE,
         sponsor: sponsor.public_key(),
         network: 1,

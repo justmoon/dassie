@@ -124,6 +124,7 @@ pub fn terms(validators: usize) -> Terms {
     let margin = config.margin_ms(faults);
     let window = Policies::DEFAULT.connector.message_window_ms;
     Terms {
+        version: dassie_hub::rules::HUB_VERSION,
         nonce: NONCE,
         sponsor: sponsor.public_key(),
         network: 1,

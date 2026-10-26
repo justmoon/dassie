@@ -115,6 +115,7 @@ fn set_up(xrpl: &mut FakeLedger, rules: &Rules, master: &Wallet) -> usize {
 
 fn terms(sponsor: &NodeKey, escrow: AccountId) -> Terms {
     Terms {
+        version: dassie_hub::rules::HUB_VERSION,
         nonce: NONCE,
         sponsor: sponsor.public_key(),
         network: 1,

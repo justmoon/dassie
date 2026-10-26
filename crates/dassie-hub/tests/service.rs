@@ -36,6 +36,7 @@ const MEMBER: PeerId = PeerId(100);
 
 fn terms(sponsor: &NodeKey) -> Terms {
     Terms {
+        version: dassie_hub::rules::HUB_VERSION,
         nonce: NONCE,
         sponsor: sponsor.public_key(),
         network: 1,

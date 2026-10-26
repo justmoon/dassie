@@ -75,6 +75,7 @@ pub fn starting_terms(
     use crate::rules::{Fees, Limits, Terms, Timers};
     let signers = u64::try_from(crate::validators::MAX_VALIDATORS).unwrap_or(u64::MAX);
     Terms {
+        version: crate::rules::HUB_VERSION,
         nonce,
         sponsor,
         network,

@@ -496,7 +496,7 @@
       "w": 184,
       "desc": "A settlement hub lets two nodes peer without being able to walk away with what they owe each other: a small ledger kept by a few validators and backed by an escrow on the XRP Ledger, in XRP or in a token such as DSUSD. A payer sets funds aside in a hold, and its payee takes from it with the payer's signed promises.",
       "does": [
-        "The hub's rules, whose digest names the hub, and each validator's signed acceptance; the rules name the asset the hub holds, XRP or a token of an issuer, in an encoding that keeps the IDs of hubs founded before tokens",
+        "The hub's rules, whose digest names the hub, and each validator's signed acceptance; the rules name the version of the hub protocol the hub runs, so validators on different releases never execute it differently, and the asset it holds, XRP or a token of an issuer; golden vectors pin the protocol of each version",
         "Simplex consensus: an ordered log kept by a few validators, final in three message delays, with evidence that names whoever signed two histories",
         "The ledger: accounts, holds, deposits and withdrawals, every table bounded, every drop accounted for after each block; each account counts what deposits credited it and what withdrawals took",
         "Taking from a hold with the payer's claim, or with fulfilled commitments when the claim does not come, never twice",

@@ -43,6 +43,7 @@ A ledger kept by n = 3f + 1 validators and backed by an escrow on the XRP Ledger
   - caps on what new rules may charge, and leaving free of the withdrawal fee during a reconfiguration's notice ([the design](designs/settlement-hubs.md#8-changing-the-validators));
   - a node putting what it earned into its holds, so a peer's room grows with earnings;
   - hub balances and holds in the desktop app;
+  - moving a running hub to another version of the hub protocol: an operation of its own, signed by a quorum, that moves it to version N at height h, which validators that run N follow and others stop at ([hub-protocol-version](decisions/hub-protocol-version.md));
   - stall periods above what the engine's views hold at the longest view (`MAX_STALL_MS`), by keeping long runs of nullified views as ranges ([finality-after-any-outage](decisions/finality-after-any-outage.md)).
 - Hubs hold real money only once the conditions of [Real money](#real-money) are met.
 
@@ -60,7 +61,7 @@ A node with no account in a hub is paid into it by a peer, which opens its accou
 Hubs that hold an issued token: DSUSD on the XRP Ledger testnet, RLUSD on mainnet. The issuer's freeze is a state of the hub's ledger, a clawback ends the hub with a payout pro rata, and the escrow's fees are paid from XRP anyone may send it ([token-hubs](decisions/token-hubs.md)). Today a hub's rules name no asset, and its escrow holds XRP alone.
 
 - **Parts that can be built side by side:**
-  - the rules: the asset and its issuer in the terms, in an encoding versioned so that the testnet's hub keeps its ID;
+  - the rules: the asset and its issuer in the terms ([built](areas/hubs.md#the-rules));
   - the escrow: its trust line to the issuer, set at founding, and in the validators' check with the issuer's account charging no transfer fee; token amounts in deposits, withdrawals and payouts; and XRP sent to a token escrow credited to no one, its fees paid from the escrow's XRP;
   - the hub's ledger: frozen and clawed-back states; while frozen, only claims for commitments that expire within the freeze's window (its stamp plus M, `MAX_HOLD_MS` and the hub's precision), each before its own expiry, and the validators' attestations, with every other operation waiting for the thaw; the hub's clocks stopped while frozen, every notice (a hold reduction's, a reconfiguration's, the shutdown's) and a validator's absence pushed back by the freeze's length, so that a hold reduction pending at a freeze falls due only after the thaw, its notice extended by the freeze; after a clawback, the withdrawals already sequenced paid first and the rest pro rata, with an exact rule for the remainder; and the `hub` simulation drawing freezes, thaws, transfer fees and clawbacks;
   - the validators: attesting the issuer's freeze, thaw, transfer fee and clawback from what they proved of the escrow's line and the issuer's account; submitting nothing to a frozen escrow, and signing no payout set until the thaw;

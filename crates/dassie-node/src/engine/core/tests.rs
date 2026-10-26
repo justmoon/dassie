@@ -4036,6 +4036,7 @@ fn hub_rules(margin: u64, allowance: u64) -> dassie_hub::Rules {
     let sponsor = NodeKey::from_bytes(&[100; 32]);
     let master = escrow_master(&sponsor, TESTNET_NETWORK, &nonce).unwrap();
     let terms = Terms {
+        version: dassie_hub::rules::HUB_VERSION,
         nonce,
         sponsor: sponsor.public_key(),
         network: 1,
