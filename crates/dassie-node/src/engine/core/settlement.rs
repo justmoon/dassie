@@ -700,9 +700,6 @@ impl Core {
                 panic!("a settlement's transfer was refused after it checked out: {error}")
             }
         };
-        if let Some(state) = prepared.peer_state {
-            self.peer.set_scheme_state(&node, state);
-        }
         let amount = prepared.amount;
         self.report(SettlementEvent::Settling {
             node,

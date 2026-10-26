@@ -15,7 +15,7 @@ use std::time::Duration;
 use dassie_node::outbound::{OutboundClient, WebSocket};
 use dassie_xrpl::Wallet;
 use dassie_xrpl::account::TESTNET_NETWORK_ID;
-use dassie_xrpl::amount::{Amount, Asset};
+use dassie_xrpl::amount::{Amount, Asset, IssuedAsset};
 use dassie_xrpl::api::{self, ApiError, Message as ApiMessage, ServerState};
 use dassie_xrpl::codec::{self, SendMaxTerms};
 use dassie_xrpl::keys::AccountId;
@@ -23,7 +23,7 @@ use futures_util::{SinkExt, StreamExt};
 use serde_json::Value;
 use tokio_tungstenite::tungstenite::Message;
 
-use super::strategy::{MAX_FEE_DROPS, Pool, Rebalance, Token};
+use super::strategy::{MAX_FEE_DROPS, Pool, Rebalance};
 
 /// Most bytes in one message from the server.
 const MAX_MESSAGE_BYTES: usize = 1 << 20;
@@ -169,7 +169,7 @@ impl Xrpl {
     /// # Errors
     ///
     /// There is none, it cannot be read, or it is not so.
-    pub async fn pool(&mut self, token: Token) -> Result<Pool, String> {
+    pub async fn pool(&mut self, token: IssuedAsset) -> Result<Pool, String> {
         let asset = Asset::Token {
             currency: token.currency,
             issuer: token.issuer,
@@ -356,15 +356,15 @@ mod tests {
     use dassie_node_core::certificate::CertificateSource;
     use dassie_xrpl::amount::TokenValue;
     use dassie_xrpl::codec::{Signing, Transact};
-    use dassie_xrpl::fake::{DSUSD_CURRENCY, DSUSD_ISSUER, FEE_BASE, Token as FakeToken};
+    use dassie_xrpl::fake::{DSUSD_CURRENCY, DSUSD_ISSUER, FEE_BASE};
 
     use super::super::strategy::{Side, to_amount};
     use super::*;
 
     const PEBBLE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../testdata/pebble");
 
-    fn dsusd() -> Token {
-        Token {
+    fn dsusd() -> IssuedAsset {
+        IssuedAsset {
             currency: DSUSD_CURRENCY,
             issuer: DSUSD_ISSUER,
         }
@@ -437,7 +437,7 @@ mod tests {
         let sequence = server.ledger().ledger();
         let signed = codec::TrustSet {
             account: wallet.account(),
-            limit: FakeToken::DSUSD.amount(TokenValue::MAX),
+            limit: IssuedAsset::DSUSD.amount(TokenValue::MAX),
             fee: FEE_BASE,
             sequence: server_sequence(server, wallet.account()),
             last_ledger_sequence: Some(sequence + 20),
@@ -452,7 +452,7 @@ mod tests {
         eventually(|| {
             server
                 .ledger()
-                .token_balance(wallet.account(), FakeToken::DSUSD)
+                .token_balance(wallet.account(), IssuedAsset::DSUSD)
                 .is_some()
         })
         .await;
@@ -481,7 +481,7 @@ mod tests {
         });
         ask(client, server, "mint", &body).await;
         let minted = TokenValue::parse(value);
-        eventually(|| server.ledger().token_balance(account, FakeToken::DSUSD) == minted).await;
+        eventually(|| server.ledger().token_balance(account, IssuedAsset::DSUSD) == minted).await;
     }
 
     /// The pool, once a ledger has made it.
@@ -544,7 +544,7 @@ mod tests {
         );
         let left = server
             .ledger()
-            .token_balance(paying.account(), FakeToken::DSUSD)
+            .token_balance(paying.account(), IssuedAsset::DSUSD)
             .unwrap();
         // It spent what the pool asked, less than SendMax.
         let spent = TokenValue::parse("20").unwrap().checked_sub(left).unwrap();
@@ -568,7 +568,7 @@ mod tests {
         assert_eq!(
             server
                 .ledger()
-                .token_balance(paying.account(), FakeToken::DSUSD),
+                .token_balance(paying.account(), IssuedAsset::DSUSD),
             Some(left)
         );
         server.stop();

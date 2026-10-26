@@ -58,7 +58,7 @@ use dassie_settlement::{
 };
 use serde_json::{Value, json};
 
-use crate::amount::{Asset, Currency, TokenAmount, TokenValue};
+use crate::amount::{IssuedAsset, TokenAmount, TokenValue};
 use crate::anchor::{KeptAnchor, ProvenLists};
 use crate::api::{
     self, AccountInfo, AccountSettings, ApiError, LedgerClosed, Message, TrustLine, TxProof,
@@ -191,27 +191,6 @@ pub const fn resets(network_id: u32) -> bool {
 struct Validated {
     index: u32,
     close_time: u64,
-}
-
-/// A trust line the account follows for a scheme on it: of its token's
-/// issuer, in its currency.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub struct LineKey {
-    /// The token's issuer.
-    pub issuer: AccountId,
-    /// The token's currency.
-    pub currency: Currency,
-}
-
-impl LineKey {
-    /// The token, as an asset.
-    #[must_use]
-    pub const fn asset(&self) -> Asset {
-        Asset::Token {
-            currency: self.currency,
-            issuer: self.issuer,
-        }
-    }
 }
 
 /// Where the account connects, and where it asks for test XRP.
@@ -372,7 +351,7 @@ pub enum News {
     /// account has none.
     Line {
         /// Which line.
-        key: LineKey,
+        key: IssuedAsset,
         /// The line.
         line: Option<TrustLine>,
     },
@@ -389,7 +368,7 @@ pub enum News {
     /// anchor: `None` if there is none.
     Pool {
         /// The token, as its issuer and currency.
-        key: LineKey,
+        key: IssuedAsset,
         /// The pool.
         pool: Option<PoolReading>,
     },
@@ -629,7 +608,7 @@ pub struct XrplAccount {
     reading: Option<Vec<[u8; 32]>>,
     /// The pools the schemes asked for, each with the account its `AMM`
     /// object last named: told with the next anchor that proves it.
-    pools: BTreeMap<LineKey, history::PoolWatch>,
+    pools: BTreeMap<IssuedAsset, history::PoolWatch>,
     /// How often one of our transactions could be proven neither applied
     /// The network the connection's server is on, once checked.
     network_id: Option<u32>,
@@ -657,7 +636,7 @@ pub struct XrplAccount {
     stopped: BTreeSet<Name>,
     /// The trust lines its schemes follow, as last proven: `None` until
     /// they were, then the line, or `None` if there is none.
-    lines: BTreeMap<LineKey, Option<Option<TrustLine>>>,
+    lines: BTreeMap<IssuedAsset, Option<Option<TrustLine>>>,
     /// The account of each issuer of a line its schemes follow, as last
     /// proven: shown with the line, never kept.
     issuers: BTreeMap<AccountId, AccountSettings>,
@@ -882,7 +861,7 @@ impl XrplAccount {
     /// # Panics
     ///
     /// Past [`MAX_SCHEMES`] lines: each scheme follows one at most.
-    pub fn follow_line(&mut self, key: LineKey) {
+    pub fn follow_line(&mut self, key: IssuedAsset) {
         if self.lines.contains_key(&key) {
             return;
         }
@@ -900,7 +879,7 @@ impl XrplAccount {
     /// The trust line `key`, as last proven: `None` until it was, then
     /// the line, or `None` if there is none.
     #[must_use]
-    pub fn line(&self, key: &LineKey) -> Option<Option<&TrustLine>> {
+    pub fn line(&self, key: &IssuedAsset) -> Option<Option<&TrustLine>> {
         self.lines.get(key)?.as_ref().map(Option::as_ref)
     }
 
@@ -921,7 +900,7 @@ impl XrplAccount {
     /// issuer (spec/designs/xrpl-validation.md#4-what-is-proven-and-how). A
     /// pool read for the first time, or whose object names another account,
     /// is read again once its account is known.
-    pub fn read_pool(&mut self, key: LineKey) {
+    pub fn read_pool(&mut self, key: IssuedAsset) {
         if let Some(watch) = self.pools.get_mut(&key) {
             watch.asked = true;
         } else if self.pools.len() < MAX_SCHEMES {
@@ -1185,7 +1164,7 @@ impl XrplAccount {
     /// as last proven, after the token `scheme` has in flight: a
     /// scheme follows one line, so all it has in flight is on it.
     fn line_holds(&self, scheme: Name, amount: &TokenAmount) -> bool {
-        let key = LineKey {
+        let key = IssuedAsset {
             issuer: amount.issuer,
             currency: amount.currency,
         };
@@ -1224,7 +1203,7 @@ impl XrplAccount {
         flags: u32,
     ) -> Result<[u8; 32], SchemeError> {
         let fee = self.fee();
-        let key = LineKey {
+        let key = IssuedAsset {
             issuer: limit.issuer,
             currency: limit.currency,
         };
@@ -1640,7 +1619,7 @@ impl XrplAccount {
 
     /// Up to date as of `info`, the anchor: the schemes are told the lines
     /// and the account as proven there, then what waits is submitted.
-    fn synced(&mut self, info: AccountInfo, lines: &BTreeMap<LineKey, Option<TrustLine>>) {
+    fn synced(&mut self, info: AccountInfo, lines: &BTreeMap<IssuedAsset, Option<TrustLine>>) {
         self.balance = Some(info.balance);
         self.owner_count = info.owner_count;
         self.at = Some(self.at.map_or((info.ledger_index, u32::MAX), |at| {

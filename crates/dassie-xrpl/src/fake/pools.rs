@@ -22,10 +22,11 @@ use alloc::string::ToString;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha512};
 
-use super::tokens::{Token, new_line};
+use super::tokens::new_line;
 use super::{Account, FakeLedger, Outcome, Touched, token_json};
 use crate::amm::{self, MAX_TRADING_FEE, SwapError};
 use crate::amount::Asset;
+use crate::amount::IssuedAsset;
 use crate::api::{TrustLine, account_flags};
 use crate::codec::{Amount, Currency, Payment, TokenAmount, TokenValue};
 use crate::keys::AccountId;
@@ -67,7 +68,7 @@ pub(super) struct PoolSet {
     pub account: AccountId,
     pub sequence: u32,
     pub last_ledger_sequence: u32,
-    pub token: Token,
+    pub token: IssuedAsset,
     pub drops: u64,
     pub value: TokenValue,
     pub trading_fee: u32,
@@ -78,7 +79,7 @@ pub(super) struct PoolSet {
 /// the first twenty bytes of SHA-512Half of `AMM`, its issuer and its
 /// currency, so a pool made again after a reset has the same account.
 #[must_use]
-pub fn pool_account(token: Token) -> AccountId {
+pub fn pool_account(token: IssuedAsset) -> AccountId {
     let mut hasher = Sha512::new();
     hasher.update(b"AMM");
     hasher.update(token.issuer.0);
@@ -132,7 +133,7 @@ impl FakeLedger {
     /// beyond [`MAX_TRADING_FEE`] (`temBAD_FEE`).
     pub fn set_pool(
         &mut self,
-        token: Token,
+        token: IssuedAsset,
         drops: u64,
         value: TokenValue,
         trading_fee: u32,
@@ -164,7 +165,7 @@ impl FakeLedger {
 
     /// The pool of XRP and `token`, if there is one.
     #[must_use]
-    pub fn pool(&self, token: Token) -> Option<PoolState> {
+    pub fn pool(&self, token: IssuedAsset) -> Option<PoolState> {
         let pool = self.pools.get(&token)?;
         Some(PoolState {
             account: pool.account,
@@ -190,7 +191,7 @@ impl FakeLedger {
     pub fn quote(
         &self,
         payer: AccountId,
-        token: Token,
+        token: IssuedAsset,
         out: Amount,
     ) -> Result<Amount, &'static str> {
         let pool = self.pool(token).ok_or("tecPATH_DRY")?;
@@ -314,7 +315,7 @@ impl FakeLedger {
         if !self.accounts.contains_key(&payment.destination) {
             return Outcome::code("tecNO_DST");
         }
-        let token = Token {
+        let token = IssuedAsset {
             issuer: amount.issuer,
             currency: amount.currency,
         };
@@ -384,7 +385,7 @@ impl FakeLedger {
         if !self.accounts.contains_key(&payment.destination) && drops < self.reserve.0 {
             return Outcome::code("tecNO_DST_INSUF_XRP");
         }
-        let token = Token {
+        let token = IssuedAsset {
             issuer: max.issuer,
             currency: max.currency,
         };
@@ -434,7 +435,7 @@ impl FakeLedger {
 
     /// The pool of `token`, `before` a swap, holds no smaller product
     /// after it (a bug otherwise: [`amm::swap_in`] rounds to the pool).
-    fn check_swap(&self, token: Token, before: &PoolState) {
+    fn check_swap(&self, token: IssuedAsset, before: &PoolState) {
         let after = self.pool(token);
         let kept = after.and_then(|after| {
             amm::keeps_product(
@@ -473,10 +474,10 @@ impl FakeLedger {
             let asset = |key: &str| request.get(key).and_then(asset).ok_or_else(malformed);
             match (asset("asset")?, asset("asset2")?) {
                 (Asset::Xrp, Asset::Token { currency, issuer }) => {
-                    (Token { issuer, currency }, true)
+                    (IssuedAsset { issuer, currency }, true)
                 }
                 (Asset::Token { currency, issuer }, Asset::Xrp) => {
-                    (Token { issuer, currency }, false)
+                    (IssuedAsset { issuer, currency }, false)
                 }
                 _ => return Err(not_found()),
             }
@@ -516,7 +517,7 @@ impl FakeLedger {
 
     /// Whether the issuer froze its token in the pool: every line, or the
     /// pool's.
-    fn pool_frozen(&self, token: Token, pool: &PoolState) -> bool {
+    fn pool_frozen(&self, token: IssuedAsset, pool: &PoolState) -> bool {
         let global = self
             .accounts
             .get(&token.issuer)

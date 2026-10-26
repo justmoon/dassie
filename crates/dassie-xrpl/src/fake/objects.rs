@@ -20,9 +20,10 @@ use serde_json::{Map, Value, json};
 
 use super::Account;
 use super::pools::Pool;
-use super::tokens::{Clawback, IssuerSet, Token};
+use super::tokens::{Clawback, IssuerSet};
 use crate::amm;
 use crate::amount::Asset;
+use crate::amount::IssuedAsset;
 use crate::api::{SignerList, TrustLine};
 use crate::binary::{self, Field, FieldId, Fields, Type};
 use crate::codec::{Amount, Currency, TokenAmount, TokenValue};
@@ -313,7 +314,7 @@ pub(super) fn account_key(account: AccountId) -> [u8; 32] {
 }
 
 /// The key of the `AMM` object of the pool of XRP and `token`.
-pub(super) fn amm_key(token: Token) -> [u8; 32] {
+pub(super) fn amm_key(token: IssuedAsset) -> [u8; 32] {
     records::amm_key(token.issuer, token.currency)
 }
 
@@ -411,7 +412,7 @@ pub(super) fn signer_list(list: &SignerList, thread: Thread) -> Object {
 }
 
 /// A token's issue, as an `Issue` field holds it.
-fn issue(token: Token) -> [u8; 40] {
+fn issue(token: IssuedAsset) -> [u8; 40] {
     let mut out = [0; 40];
     let (currency, issuer) = out.split_at_mut(20);
     currency.copy_from_slice(&token.currency.0);
@@ -421,7 +422,7 @@ fn issue(token: Token) -> [u8; 40] {
 
 /// The `AMM` object of the pool of XRP and `token`: its account, its
 /// trading fee and its LP tokens.
-pub(super) fn amm(token: Token, pool: &Pool, thread: Thread) -> Object {
+pub(super) fn amm(token: IssuedAsset, pool: &Pool, thread: Thread) -> Object {
     let lp_tokens = TokenAmount {
         value: pool.lp_tokens,
         currency: amm::lp_token_currency(
@@ -725,7 +726,7 @@ mod tests {
     }
 
     /// Mainnet's XRP/RLUSD pool.
-    const MAINNET_RLUSD: Token = Token {
+    const MAINNET_RLUSD: IssuedAsset = IssuedAsset {
         issuer: AccountId([
             0xE5, 0xE9, 0x61, 0xC6, 0xA0, 0x25, 0xC9, 0x40, 0x4A, 0xA7, 0xB6, 0x62, 0xDD, 0x1D,
             0xF9, 0x75, 0xBE, 0x75, 0xD1, 0x3E,

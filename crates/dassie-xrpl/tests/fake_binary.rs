@@ -14,12 +14,13 @@
 
 use std::collections::BTreeSet;
 
+use dassie_xrpl::amount::IssuedAsset;
 use dassie_xrpl::binary::{Field, FieldId, Fields, Type};
 use dassie_xrpl::codec::{
     AccountSet, Amount, Currency, Payment, SetRegularKey, SignerEntry, SignerListSet, Signing,
     TF_SET_NO_RIPPLE, TokenAmount, TokenValue, Transact, Transaction, TrustSet,
 };
-use dassie_xrpl::fake::{FEE_BASE, FakeLedger, Token};
+use dassie_xrpl::fake::{FEE_BASE, FakeLedger};
 use dassie_xrpl::header::LedgerHeader;
 use dassie_xrpl::keys::{AccountId, sha512_half};
 use dassie_xrpl::shamap::{held_object, verify_transaction};
@@ -264,7 +265,7 @@ fn payment(ledger: &FakeLedger, wallet: &Wallet, to: AccountId, amount: Amount) 
     }
 }
 
-fn trust_set(ledger: &FakeLedger, wallet: &Wallet, token: Token) -> TrustSet {
+fn trust_set(ledger: &FakeLedger, wallet: &Wallet, token: IssuedAsset) -> TrustSet {
     TrustSet {
         account: wallet.account(),
         limit: token.amount(TokenValue::MAX),
@@ -297,18 +298,18 @@ fn every_kind() -> (FakeLedger, Vec<AccountId>) {
     }
     ledger.close();
     for wallet in [&alice, &bob] {
-        let signed = trust_set(&ledger, wallet, Token::RLUSD).sign(wallet);
+        let signed = trust_set(&ledger, wallet, IssuedAsset::RLUSD).sign(wallet);
         submit(&mut ledger, &signed.blob);
     }
     ledger.close();
     ledger
-        .issue(alice.account(), Token::RLUSD.amount(value("100")))
+        .issue(alice.account(), IssuedAsset::RLUSD.amount(value("100")))
         .unwrap();
     ledger
-        .set_pool(Token::RLUSD, 500_000_000, value("250"), 300)
+        .set_pool(IssuedAsset::RLUSD, 500_000_000, value("250"), 300)
         .unwrap();
     ledger.close();
-    let rlusd = |text| Amount::Token(Token::RLUSD.amount(value(text)));
+    let rlusd = |text| Amount::Token(IssuedAsset::RLUSD.amount(value(text)));
     let token_paid = payment(&ledger, &alice, bob.account(), rlusd("12.5")).sign(&alice);
     submit(&mut ledger, &token_paid.blob);
     let paid = payment(&ledger, &carol, alice.account(), Amount::Xrp(5_000_000));
@@ -316,28 +317,34 @@ fn every_kind() -> (FakeLedger, Vec<AccountId>) {
     ledger.close();
     let failed = payment(&ledger, &bob, AccountId([9; 20]), Amount::Xrp(1));
     submit(&mut ledger, &failed.sign(&bob).blob);
-    let carol_trusts = trust_set(&ledger, &carol, Token::RLUSD);
+    let carol_trusts = trust_set(&ledger, &carol, IssuedAsset::RLUSD);
     submit(&mut ledger, &carol_trusts.sign(&carol).blob);
     ledger.close();
     let mut swap = payment(&ledger, &carol, carol.account(), rlusd("1"));
     swap.send_max = Some(Amount::Xrp(10_000_000));
     submit(&mut ledger, &swap.sign(&carol).blob);
-    ledger.freeze(bob.account(), Token::RLUSD, true).unwrap();
-    ledger.global_freeze(Token::RLUSD.issuer, true).unwrap();
     ledger
-        .set_transfer_rate(Token::RLUSD.issuer, 1_002_000_000)
+        .freeze(bob.account(), IssuedAsset::RLUSD, true)
+        .unwrap();
+    ledger
+        .global_freeze(IssuedAsset::RLUSD.issuer, true)
+        .unwrap();
+    ledger
+        .set_transfer_rate(IssuedAsset::RLUSD.issuer, 1_002_000_000)
         .unwrap();
     ledger.close();
-    let clawed: TokenAmount = Token::RLUSD.amount(value("2"));
+    let clawed: TokenAmount = IssuedAsset::RLUSD.amount(value("2"));
     ledger.claw_back(alice.account(), clawed).unwrap();
-    ledger.global_freeze(Token::RLUSD.issuer, false).unwrap();
+    ledger
+        .global_freeze(IssuedAsset::RLUSD.issuer, false)
+        .unwrap();
     keys_and_signers(&mut ledger, [&alice, &bob, &carol]);
     let accounts = vec![
         alice.account(),
         bob.account(),
         carol.account(),
-        Token::RLUSD.issuer,
-        dassie_xrpl::fake::pool_account(Token::RLUSD),
+        IssuedAsset::RLUSD.issuer,
+        dassie_xrpl::fake::pool_account(IssuedAsset::RLUSD),
     ];
     (ledger, accounts)
 }
@@ -395,7 +402,7 @@ fn keys_and_signers(ledger: &mut FakeLedger, [alice, bob, carol]: [&Wallet; 3]) 
     };
     submit(ledger, &signers.clone().sign(carol).blob);
     ledger
-        .set_pool(Token::RLUSD, 600_000_000, value("200"), 500)
+        .set_pool(IssuedAsset::RLUSD, 600_000_000, value("200"), 500)
         .unwrap();
     ledger.close();
     // The list deleted again.
@@ -566,15 +573,15 @@ fn every_object_reads_as_its_json() {
         &json!({
             "command": "amm_info",
             "asset": { "currency": "XRP" },
-            "asset2": { "currency": Token::RLUSD.currency.to_string(), "issuer": Token::RLUSD.issuer.to_address() },
+            "asset2": { "currency": IssuedAsset::RLUSD.currency.to_string(), "issuer": IssuedAsset::RLUSD.issuer.to_address() },
         }),
     );
     let amm_key = sha512_half(
         &[
             &[0, b'A'][..],
             &[0; 40],
-            &Token::RLUSD.issuer.0,
-            &Token::RLUSD.currency.0,
+            &IssuedAsset::RLUSD.issuer.0,
+            &IssuedAsset::RLUSD.currency.0,
         ]
         .concat(),
     );

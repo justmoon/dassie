@@ -315,12 +315,6 @@ impl Engine {
         &self.epochs.running().set
     }
 
-    /// The validator set of epoch `epoch`, if it is held.
-    #[must_use]
-    pub fn set_for_epoch(&self, epoch: u64) -> Option<&ValidatorSet> {
-        self.epochs.for_epoch(epoch)
-    }
-
     /// The tip's view in the running epoch: 0 if the tip is the last block
     /// of the epoch before, on which this one builds from view 1.
     pub(super) fn tip_view(&self) -> u64 {

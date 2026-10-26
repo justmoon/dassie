@@ -183,10 +183,10 @@ mod tests {
 
     #[test]
     fn the_total_needs_every_rate_fresh() {
-        let mut rates = Rates::new(1_000);
+        let mut rates = Rates::new();
         let one = 10u128.pow(RATE_PRECISION);
-        rates.set("USD", one);
-        rates.set("XRP", 2 * one);
+        rates.set_at("USD", one, 1_000);
+        rates.set_at("XRP", 2 * one, 1_000);
         let views = [
             view(LedgerId::StubUsd, 3_000_000_000),
             view(LedgerId::XrplTestnetXrp, -1_000_000_000),

@@ -12,13 +12,14 @@
     clippy::panic
 )]
 
+use dassie_xrpl::amount::IssuedAsset;
 use dassie_xrpl::api::{self, TxRecord, account_flags, line_flags};
 use dassie_xrpl::codec::{
     Amount, Payment, Signing, TF_CLEAR_FREEZE, TF_SET_DEEP_FREEZE, TF_SET_FREEZE, TF_SET_NO_RIPPLE,
     TokenAmount, TokenValue, Transact, TrustSet,
 };
 use dassie_xrpl::fake::{
-    DSUSD_CURRENCY, DSUSD_ISSUER, ExactSum, FEE_BASE, FakeLedger, RESERVE_BASE, RESERVE_INC, Token,
+    DSUSD_CURRENCY, DSUSD_ISSUER, ExactSum, FEE_BASE, FakeLedger, RESERVE_BASE, RESERVE_INC,
 };
 use dassie_xrpl::{AccountId, Wallet, hex_upper};
 use proptest::prelude::*;
@@ -32,7 +33,7 @@ fn value(text: &str) -> TokenValue {
 }
 
 fn dsusd(text: &str) -> TokenAmount {
-    Token::DSUSD.amount(value(text))
+    IssuedAsset::DSUSD.amount(value(text))
 }
 
 fn wallet(seed: u8) -> Wallet {
@@ -165,7 +166,7 @@ fn holders(ledger: &mut FakeLedger, seeds: &[u8]) -> Vec<Wallet> {
     }
     close(ledger);
     for wallet in &wallets {
-        let limit = Token::DSUSD.amount(TokenValue::MAX);
+        let limit = IssuedAsset::DSUSD.amount(TokenValue::MAX);
         assert_eq!(
             trust(ledger, wallet, limit, TF_SET_NO_RIPPLE).0,
             "tesSUCCESS"
@@ -176,7 +177,7 @@ fn holders(ledger: &mut FakeLedger, seeds: &[u8]) -> Vec<Wallet> {
 }
 
 fn balance(ledger: &FakeLedger, holder: &Wallet) -> Option<TokenValue> {
-    ledger.token_balance(holder.account(), Token::DSUSD)
+    ledger.token_balance(holder.account(), IssuedAsset::DSUSD)
 }
 
 /// Mints `amount` of DSUSD to `to` and closes.
@@ -244,7 +245,7 @@ fn a_line_is_the_holders_and_holds_its_reserve() {
     let holder = wallet(1);
     ledger.deposit(holder.account(), 100 * RESERVE_BASE);
     close(&mut ledger);
-    let limit = Token::DSUSD.amount(TokenValue::MAX);
+    let limit = IssuedAsset::DSUSD.amount(TokenValue::MAX);
     let (code, hash) = trust(&mut ledger, &holder, limit, TF_SET_NO_RIPPLE);
     assert_eq!(code, "tesSUCCESS");
     let streamed = close(&mut ledger);
@@ -269,7 +270,7 @@ fn a_line_is_the_holders_and_holds_its_reserve() {
     // `ledger_entry` reads the same line, from either side.
     let entry = request(
         &mut ledger,
-        &serde_json::from_slice(&api::ripple_state(
+        &serde_json::from_slice(&dassie_xrpl::fake::ripple_state(
             5,
             holder.account(),
             DSUSD_ISSUER,
@@ -291,7 +292,7 @@ fn a_line_is_the_holders_and_holds_its_reserve() {
     assert!(streamed.is_empty());
     let other = request(
         &mut ledger,
-        &serde_json::from_slice(&api::ripple_state(
+        &serde_json::from_slice(&dassie_xrpl::fake::ripple_state(
             6,
             wallet(2).account(),
             DSUSD_ISSUER,
@@ -313,7 +314,7 @@ fn the_first_two_lines_need_no_reserve_and_the_third_does() {
     // The base reserve and the fees: no owner reserve to spare.
     ledger.deposit(holder.account(), RESERVE_BASE + 3 * FEE_BASE);
     close(&mut ledger);
-    let token = |issuer| Token {
+    let token = |issuer| IssuedAsset {
         issuer,
         currency: DSUSD_CURRENCY,
     };
@@ -553,7 +554,9 @@ fn a_frozen_line_pays_only_the_issuer_and_still_receives() {
         &json!({ "id": 9, "command": "subscribe", "accounts": [a.account().to_address()] }),
     )
     .unwrap();
-    ledger.freeze(a.account(), Token::DSUSD, true).unwrap();
+    ledger
+        .freeze(a.account(), IssuedAsset::DSUSD, true)
+        .unwrap();
     // The holder's stream carries the issuer's freeze of its line.
     let streamed = close(&mut ledger);
     assert_eq!(streamed.len(), 1);
@@ -571,7 +574,9 @@ fn a_frozen_line_pays_only_the_issuer_and_still_receives() {
     assert!(mint(&mut ledger, a.account(), "1").succeeded());
     assert_eq!(balance(&ledger, a), Some(value("11")));
     // Lifted, it pays anyone again.
-    ledger.freeze(a.account(), Token::DSUSD, false).unwrap();
+    ledger
+        .freeze(a.account(), IssuedAsset::DSUSD, false)
+        .unwrap();
     close(&mut ledger);
     assert!(paid(&mut ledger, a, b.account(), "1").succeeded());
     let line = ledger
@@ -587,7 +592,9 @@ fn a_deep_frozen_line_neither_pays_nor_receives_but_with_the_issuer() {
     let (a, b) = (&wallets[0], &wallets[1]);
     mint(&mut ledger, a.account(), "10");
     mint(&mut ledger, b.account(), "10");
-    ledger.deep_freeze(a.account(), Token::DSUSD, true).unwrap();
+    ledger
+        .deep_freeze(a.account(), IssuedAsset::DSUSD, true)
+        .unwrap();
     close(&mut ledger);
     let view = ledger
         .line(a.account(), DSUSD_ISSUER, DSUSD_CURRENCY)
@@ -603,7 +610,7 @@ fn a_deep_frozen_line_neither_pays_nor_receives_but_with_the_issuer() {
     // The deep freeze lifted, the freeze stays: it receives, and pays
     // only the issuer.
     ledger
-        .deep_freeze(a.account(), Token::DSUSD, false)
+        .deep_freeze(a.account(), IssuedAsset::DSUSD, false)
         .unwrap();
     close(&mut ledger);
     assert!(paid(&mut ledger, b, a.account(), "1").succeeded());
@@ -719,7 +726,7 @@ fn a_clawback_lowers_the_line_without_a_payment() {
 #[test]
 fn only_the_fakes_issuers_act_without_a_signature() {
     let mut ledger = FakeLedger::new();
-    let other = Token {
+    let other = IssuedAsset {
         issuer: wallet(9).account(),
         currency: DSUSD_CURRENCY,
     };
@@ -732,7 +739,7 @@ fn only_the_fakes_issuers_act_without_a_signature() {
     assert_eq!(ledger.issue(holder, dsusd("0")), Err("temBAD_AMOUNT"));
     assert_eq!(ledger.issue(DSUSD_ISSUER, dsusd("1")), Err("temREDUNDANT"));
     assert_eq!(
-        ledger.freeze(DSUSD_ISSUER, Token::DSUSD, true),
+        ledger.freeze(DSUSD_ISSUER, IssuedAsset::DSUSD, true),
         Err("temDST_IS_SRC")
     );
     assert_eq!(ledger.queued(), 0);
@@ -745,11 +752,11 @@ fn a_line_reads_the_same_whichever_side_is_low() {
     let (low_issuer, high_issuer) = (AccountId([0x01; 20]), AccountId([0xFE; 20]));
     ledger.add_issuer(low_issuer);
     ledger.add_issuer(high_issuer);
-    let token = Token {
+    let token = IssuedAsset {
         issuer: low_issuer,
         currency: DSUSD_CURRENCY,
     };
-    let high = Token {
+    let high = IssuedAsset {
         issuer: high_issuer,
         ..token
     };
@@ -823,7 +830,9 @@ fn a_reset_takes_every_line_and_keeps_the_issuer() {
     let mut ledger = FakeLedger::new();
     let holder = &holders(&mut ledger, &[1])[0];
     mint(&mut ledger, holder.account(), "10");
-    ledger.freeze(holder.account(), Token::DSUSD, true).unwrap();
+    ledger
+        .freeze(holder.account(), IssuedAsset::DSUSD, true)
+        .unwrap();
     close(&mut ledger);
     assert_eq!(ledger.owner_count(DSUSD_ISSUER), Some(1));
     ledger.reset();
@@ -899,7 +908,7 @@ fn ops() -> impl Strategy<Value = Vec<Op>> {
 /// Applies `op`; a payment to oneself is skipped, as the ledger refuses
 /// it before it applies.
 fn run(ledger: &mut FakeLedger, wallets: &[Wallet], op: &Op) {
-    let token = |units| Token::DSUSD.amount(micros(units));
+    let token = |units| IssuedAsset::DSUSD.amount(micros(units));
     match *op {
         Op::Mint(h, u) => ledger.issue(wallets[h].account(), token(u)).unwrap(),
         Op::Pay(a, b, u) if a != b => {
@@ -915,11 +924,11 @@ fn run(ledger: &mut FakeLedger, wallets: &[Wallet], op: &Op) {
             pay(ledger, &wallets[h], DSUSD_ISSUER, Amount::Token(token(u)));
         }
         Op::Freeze(h, on) => ledger
-            .freeze(wallets[h].account(), Token::DSUSD, on)
+            .freeze(wallets[h].account(), IssuedAsset::DSUSD, on)
             .unwrap(),
         Op::DeepFreeze(h, on) => {
             ledger
-                .deep_freeze(wallets[h].account(), Token::DSUSD, on)
+                .deep_freeze(wallets[h].account(), IssuedAsset::DSUSD, on)
                 .unwrap();
         }
         Op::GlobalFreeze(on) => ledger.global_freeze(DSUSD_ISSUER, on).unwrap(),

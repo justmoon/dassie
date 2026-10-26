@@ -10,6 +10,7 @@
 
 use alloc::boxed::Box;
 use alloc::collections::BTreeMap;
+use alloc::string::ToString;
 use alloc::vec::Vec;
 use core::cmp::Ordering;
 
@@ -17,6 +18,7 @@ use super::{
     Account, DSUSD_CURRENCY, DSUSD_ISSUER, FEE_BASE, FakeLedger, Outcome, RLUSD_CURRENCY,
     RLUSD_ISSUER, Touched, Tx, unsigned,
 };
+use crate::amount::IssuedAsset;
 use crate::api::{TRANSFER_RATE_PAR, TrustLine, account_flags, line_flags};
 use crate::codec::{
     Amount, Currency, Payment, TF_CLEAR_DEEP_FREEZE, TF_CLEAR_FREEZE, TF_CLEAR_NO_RIPPLE,
@@ -44,16 +46,27 @@ const TRUST_SET_FLAGS: u32 = TF_SET_NO_RIPPLE
     | TF_CLEAR_DEEP_FREEZE
     | 0x8000_0000;
 
-/// A token: a currency of an issuer.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Token {
-    /// Who issues it.
-    pub issuer: AccountId,
-    /// Its currency code.
-    pub currency: Currency,
+/// A `ledger_entry` request for the trust line between `account` and
+/// `issuer` in `currency`, as of the last validated ledger: how a test
+/// reads a line as a client would. The node reads a line as of the ledger
+/// it read the account at ([`ripple_state_at`](crate::api::ripple_state_at)).
+#[must_use]
+pub fn ripple_state(id: u64, account: AccountId, issuer: AccountId, currency: Currency) -> Vec<u8> {
+    serde_json::to_vec(&serde_json::json!({
+        "id": id,
+        "command": "ledger_entry",
+        "api_version": 1,
+        "ripple_state": {
+            "accounts": [account.to_address(), issuer.to_address()],
+            "currency": currency.to_string(),
+        },
+        "ledger_index": "validated",
+    }))
+    .unwrap_or_default()
 }
 
-impl Token {
+/// The tokens of the fake's own issuers.
+impl IssuedAsset {
     /// RLUSD of its mainnet issuer, which the fake ledger's mainnet issues.
     pub const RLUSD: Self = Self {
         issuer: RLUSD_ISSUER,
@@ -73,16 +86,6 @@ impl Token {
         [Self::RLUSD, Self::DSUSD]
             .into_iter()
             .find(|token| token.currency.code() == code)
-    }
-
-    /// `value` of it.
-    #[must_use]
-    pub const fn amount(self, value: TokenValue) -> TokenAmount {
-        TokenAmount {
-            value,
-            currency: self.currency,
-            issuer: self.issuer,
-        }
     }
 }
 
@@ -262,7 +265,7 @@ impl FakeLedger {
 
     /// What `holder` holds of `token`, if it has a line to its issuer.
     #[must_use]
-    pub fn token_balance(&self, holder: AccountId, token: Token) -> Option<TokenValue> {
+    pub fn token_balance(&self, holder: AccountId, token: IssuedAsset) -> Option<TokenValue> {
         self.line(holder, token.issuer, token.currency)?
             .view(holder)
             .map(|view| view.balance)
@@ -273,7 +276,7 @@ impl FakeLedger {
     /// or wiped by a reset: payments between holders make or lose nothing.
     #[must_use]
     pub fn tokens_conserved(&self) -> bool {
-        let mut held: BTreeMap<Token, ExactSum> = BTreeMap::new();
+        let mut held: BTreeMap<IssuedAsset, ExactSum> = BTreeMap::new();
         for line in self.lines.values() {
             for issuer in [line.low, line.high] {
                 if !self.issuers.contains(&issuer) {
@@ -285,7 +288,7 @@ impl FakeLedger {
                     line.low
                 };
                 if let Some(view) = line.view(holder) {
-                    let token = Token {
+                    let token = IssuedAsset {
                         issuer,
                         currency: line.currency,
                     };
@@ -293,7 +296,7 @@ impl FakeLedger {
                 }
             }
         }
-        let tokens: Vec<Token> = held.keys().chain(self.supply.keys()).copied().collect();
+        let tokens: Vec<IssuedAsset> = held.keys().chain(self.supply.keys()).copied().collect();
         tokens.into_iter().all(|token| {
             let mut difference = held.get(&token).cloned().unwrap_or_default();
             if let Some(supply) = self.supply.get(&token) {
@@ -346,7 +349,7 @@ impl FakeLedger {
     pub fn freeze(
         &mut self,
         holder: AccountId,
-        token: Token,
+        token: IssuedAsset,
         on: bool,
     ) -> Result<(), &'static str> {
         let flags = if on {
@@ -366,7 +369,7 @@ impl FakeLedger {
     pub fn deep_freeze(
         &mut self,
         holder: AccountId,
-        token: Token,
+        token: IssuedAsset,
         on: bool,
     ) -> Result<(), &'static str> {
         let flags = if on {
@@ -380,7 +383,7 @@ impl FakeLedger {
     fn issuer_trust_set(
         &mut self,
         holder: AccountId,
-        token: Token,
+        token: IssuedAsset,
         flags: u32,
     ) -> Result<(), &'static str> {
         let (sequence, last_ledger_sequence) = self.own_slot(token.issuer)?;
@@ -599,7 +602,7 @@ impl FakeLedger {
     /// What one of the fake's issuers minted (paid a holder) or took back
     /// (was paid), for [`tokens_conserved`](Self::tokens_conserved).
     fn count_supply(&mut self, from: AccountId, to: AccountId, amount: TokenAmount) {
-        let token = |issuer| Token {
+        let token = |issuer| IssuedAsset {
             issuer,
             currency: amount.currency,
         };
@@ -781,7 +784,7 @@ impl FakeLedger {
             return "tecPRECISION_LOSS";
         };
         self.store_line(touched, after);
-        let token = Token {
+        let token = IssuedAsset {
             issuer,
             currency: line.currency,
         };

@@ -1389,7 +1389,6 @@ impl<N: NativeXrp> SettlementScheme for XrpScheme<N> {
             amount: drops * UNITS_PER_DROP,
             // The original's settlement proof: the hash, 32 bytes.
             message: hash.to_vec(),
-            peer_state: None,
         })
     }
 

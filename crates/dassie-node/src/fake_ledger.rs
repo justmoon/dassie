@@ -27,8 +27,9 @@ use std::time::Duration;
 
 use bytes::Bytes;
 use dassie_xrpl::AccountId;
+use dassie_xrpl::amount::IssuedAsset;
 use dassie_xrpl::codec::{Currency, TokenValue};
-use dassie_xrpl::fake::{FakeLedger, Lie, Token};
+use dassie_xrpl::fake::{FakeLedger, Lie};
 use dassie_xrpl::keys::PublicKey;
 use dassie_xrpl::network::{MAINNET, Network};
 use futures_util::{SinkExt, StreamExt};
@@ -516,7 +517,7 @@ fn issuer_request(
 ) -> Option<Result<(), &'static str>> {
     let token = match body.get("token") {
         None => dollar(ledger),
-        Some(code) => match code.as_str().and_then(Token::by_code) {
+        Some(code) => match code.as_str().and_then(IssuedAsset::by_code) {
             Some(token) => token,
             None => return Some(Err("no such token")),
         },
@@ -547,7 +548,7 @@ fn issuer_request(
     let pool = |ledger: &mut FakeLedger| {
         let token = match (body.get("currency"), body.get("issuer")) {
             (None, None) => token,
-            (currency, _) => Token {
+            (currency, _) => IssuedAsset {
                 currency: currency
                     .and_then(serde_json::Value::as_str)
                     .and_then(Currency::parse)
@@ -586,11 +587,11 @@ fn issuer_request(
 /// The dollar token of the fake's network, which a request to its issuer
 /// is of unless it names another: DSUSD on the testnet, RLUSD on mainnet,
 /// where only RLUSD runs (spec/decisions/mainnet-schemes.md).
-fn dollar(ledger: &FakeLedger) -> Token {
+fn dollar(ledger: &FakeLedger) -> IssuedAsset {
     if *ledger.network() == dassie_xrpl::network::MAINNET {
-        Token::RLUSD
+        IssuedAsset::RLUSD
     } else {
-        Token::DSUSD
+        IssuedAsset::DSUSD
     }
 }
 
@@ -611,7 +612,7 @@ mod tests {
 
     /// A holder with a line to the issuer of `token`, as the scheme makes
     /// it.
-    fn holder(ledger: &mut FakeLedger, token: Token) -> AccountId {
+    fn holder(ledger: &mut FakeLedger, token: IssuedAsset) -> AccountId {
         let wallet = Wallet::from_seed([1; 16]);
         ledger.deposit(wallet.account(), 100_000_000);
         ledger.close();
@@ -647,12 +648,12 @@ mod tests {
     #[test]
     fn the_issuer_mints_freezes_and_claws_back_on_request() {
         let mut ledger = FakeLedger::new();
-        let holder = holder(&mut ledger, Token::DSUSD);
+        let holder = holder(&mut ledger, IssuedAsset::DSUSD);
         let address = holder.to_address();
-        let held = |ledger: &FakeLedger| ledger.token_balance(holder, Token::DSUSD);
+        let held = |ledger: &FakeLedger| ledger.token_balance(holder, IssuedAsset::DSUSD);
         let theirs = |ledger: &FakeLedger| {
             let line = ledger
-                .line(holder, DSUSD_ISSUER, Token::DSUSD.currency)
+                .line(holder, DSUSD_ISSUER, IssuedAsset::DSUSD.currency)
                 .unwrap();
             line.view(holder).unwrap().theirs
         };
@@ -693,7 +694,7 @@ mod tests {
         ledger.close();
         let signed = TrustSet {
             account: wallet.account(),
-            limit: Token::DSUSD.amount(TokenValue::MAX),
+            limit: IssuedAsset::DSUSD.amount(TokenValue::MAX),
             fee: FEE_BASE,
             sequence: ledger.ledger(),
             last_ledger_sequence: Some(ledger.ledger() + 5),
@@ -711,10 +712,13 @@ mod tests {
         let mint = json!({ "token": "DSUSD", "destination": address, "value": "7" });
         assert_eq!(ask(&mut ledger, "/tokens/mint", &mint), StatusCode::OK);
         assert_eq!(
-            ledger.token_balance(wallet.account(), Token::DSUSD),
+            ledger.token_balance(wallet.account(), IssuedAsset::DSUSD),
             Some(value("7"))
         );
-        assert_eq!(ledger.token_balance(wallet.account(), Token::RLUSD), None);
+        assert_eq!(
+            ledger.token_balance(wallet.account(), IssuedAsset::RLUSD),
+            None
+        );
         // RLUSD's issuer is mainnet's, which the testnet does not have.
         let rlusd = json!({ "token": "RLUSD", "destination": address, "value": "7" });
         assert_eq!(
@@ -724,7 +728,7 @@ mod tests {
         let on = json!({ "token": "DSUSD", "account": address, "on": true });
         assert_eq!(ask(&mut ledger, "/tokens/freeze", &on), StatusCode::OK);
         let line = ledger
-            .line(wallet.account(), DSUSD_ISSUER, Token::DSUSD.currency)
+            .line(wallet.account(), DSUSD_ISSUER, IssuedAsset::DSUSD.currency)
             .unwrap();
         assert!(line.view(wallet.account()).unwrap().theirs.freeze);
         let unknown = json!({ "token": "EUR", "destination": address, "value": "7" });
@@ -740,14 +744,17 @@ mod tests {
     #[test]
     fn on_mainnet_the_rlusd_issuer_takes_requests() {
         let mut ledger = FakeLedger::mainnet();
-        let holder = holder(&mut ledger, Token::RLUSD);
+        let holder = holder(&mut ledger, IssuedAsset::RLUSD);
         let address = holder.to_address();
         let mint = json!({ "destination": address, "value": "3" });
         assert_eq!(ask(&mut ledger, "/tokens/mint", &mint), StatusCode::OK);
-        assert_eq!(ledger.token_balance(holder, Token::RLUSD), Some(value("3")));
+        assert_eq!(
+            ledger.token_balance(holder, IssuedAsset::RLUSD),
+            Some(value("3"))
+        );
         assert!(
             ledger
-                .line(holder, RLUSD_ISSUER, Token::RLUSD.currency)
+                .line(holder, RLUSD_ISSUER, IssuedAsset::RLUSD.currency)
                 .is_some()
         );
         let dsusd = json!({ "token": "DSUSD", "destination": address, "value": "3" });
@@ -763,7 +770,7 @@ mod tests {
         let mut ledger = FakeLedger::new();
         let pool = json!({ "drops": "1000000000", "value": "500", "fee": 500 });
         assert_eq!(ask(&mut ledger, "/tokens/amm", &pool), StatusCode::OK);
-        let state = ledger.pool(Token::DSUSD).unwrap();
+        let state = ledger.pool(IssuedAsset::DSUSD).unwrap();
         assert_eq!(
             (state.drops, state.value, state.trading_fee),
             (1_000_000_000, value("500"), 500)
@@ -773,11 +780,11 @@ mod tests {
             "drops": "2000000000",
             "value": "250.5",
             "fee": 0,
-            "currency": Token::DSUSD.currency.to_string(),
+            "currency": IssuedAsset::DSUSD.currency.to_string(),
             "issuer": DSUSD_ISSUER.to_address(),
         });
         assert_eq!(ask(&mut ledger, "/tokens/amm", &again), StatusCode::OK);
-        let state = ledger.pool(Token::DSUSD).unwrap();
+        let state = ledger.pool(IssuedAsset::DSUSD).unwrap();
         assert_eq!(
             (state.drops, state.value, state.trading_fee),
             (2_000_000_000, value("250.5"), 0)
@@ -785,7 +792,7 @@ mod tests {
         // Named by its code.
         let dsusd = json!({ "token": "DSUSD", "drops": "3000000000", "value": "4", "fee": 300 });
         assert_eq!(ask(&mut ledger, "/tokens/amm", &dsusd), StatusCode::OK);
-        let state = ledger.pool(Token::DSUSD).unwrap();
+        let state = ledger.pool(IssuedAsset::DSUSD).unwrap();
         assert_eq!(
             (state.drops, state.value, state.trading_fee),
             (3_000_000_000, value("4"), 300)

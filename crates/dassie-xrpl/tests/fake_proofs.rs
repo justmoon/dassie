@@ -16,11 +16,11 @@
 
 use std::collections::BTreeMap;
 
+use dassie_xrpl::amount::IssuedAsset;
 use dassie_xrpl::binary::{FieldId, Fields, Type};
 use dassie_xrpl::codec::{Amount, Payment, Signing, TokenValue, Transact, TrustSet};
 use dassie_xrpl::fake::{
-    FEE_BASE, FIRST_LEDGER, FakeLedger, KeyedSignatures, Lie, MAX_STATE_PROOF_KEYS, Token,
-    VALIDATORS,
+    FEE_BASE, FIRST_LEDGER, FakeLedger, KeyedSignatures, Lie, MAX_STATE_PROOF_KEYS, VALIDATORS,
 };
 use dassie_xrpl::header::LedgerHeader;
 use dassie_xrpl::keys::{AccountId, sha512_half};
@@ -1092,7 +1092,7 @@ fn history_left_out_of_a_line_is_found_by_walking_the_line() {
     let wallet = Wallet::from_seed([3; 16]);
     ledger.deposit(wallet.account(), 100_000_000);
     ledger.close();
-    let token = Token::DSUSD;
+    let token = IssuedAsset::DSUSD;
     let trust = TrustSet {
         account: wallet.account(),
         limit: token.amount(TokenValue::new(false, 1_000, 0).unwrap()),

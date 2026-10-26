@@ -35,9 +35,10 @@ use dassie_hub::service::wire::PayoutPage;
 use dassie_hub::validators::{Signers, ValidatorIndex};
 use dassie_hub::{Ledger, Millis};
 use dassie_identity::NodeKey;
+use dassie_xrpl::amount::IssuedAsset;
 use dassie_xrpl::api::{self, TxRecord};
 use dassie_xrpl::codec::{Amount, Memo, Payment, Signer, Signing, TokenValue, Transact, TrustSet};
-use dassie_xrpl::fake::{FEE_BASE, FakeLedger, Token};
+use dassie_xrpl::fake::{FEE_BASE, FakeLedger};
 use dassie_xrpl::{AccountId, Wallet};
 use serde_json::Value;
 
@@ -161,8 +162,8 @@ fn terms(sponsor: &NodeKey, escrow: AccountId) -> Terms {
 fn dsusd_terms(sponsor: &NodeKey, escrow: AccountId) -> Terms {
     let mut terms = terms(sponsor, escrow);
     terms.asset = Asset::Token {
-        currency: Token::DSUSD.currency,
-        issuer: Token::DSUSD.issuer,
+        currency: IssuedAsset::DSUSD.currency,
+        issuer: IssuedAsset::DSUSD.issuer,
     };
     terms.fees.gas = GAS;
     terms.fees.ledger = 0;
@@ -1124,7 +1125,7 @@ fn members_keep_only_payout_sets_their_validators_signed() {
 
 /// `text` DSUSD, as a Payment pays it.
 fn dsusd(text: &str) -> Amount {
-    Amount::Token(Token::DSUSD.amount(TokenValue::parse(text).unwrap()))
+    Amount::Token(IssuedAsset::DSUSD.amount(TokenValue::parse(text).unwrap()))
 }
 
 impl Hub {
@@ -1136,7 +1137,7 @@ impl Hub {
         self.xrpl.close();
         let line = TrustSet {
             account: holder.account(),
-            limit: Token::DSUSD.amount(TokenValue::MAX),
+            limit: IssuedAsset::DSUSD.amount(TokenValue::MAX),
             fee: FEE_BASE,
             sequence: sequence(&mut self.xrpl, holder.account()),
             last_ledger_sequence: None,
@@ -1150,7 +1151,7 @@ impl Hub {
             "tesSUCCESS"
         );
         self.xrpl.close();
-        let hundred = Token::DSUSD.amount(TokenValue::parse("100").unwrap());
+        let hundred = IssuedAsset::DSUSD.amount(TokenValue::parse("100").unwrap());
         self.xrpl.issue(holder.account(), hundred).unwrap();
         self.xrpl.close();
         holder
@@ -1195,7 +1196,7 @@ impl Hub {
     fn dsusd_held(&self) -> u64 {
         let value = self
             .xrpl
-            .token_balance(self.escrow(), Token::DSUSD)
+            .token_balance(self.escrow(), IssuedAsset::DSUSD)
             .unwrap();
         u64::try_from(value.floor_units(6).unwrap()).unwrap()
     }
@@ -1221,7 +1222,7 @@ fn payouts(set: &dassie_hub::escrow::PayoutSet) -> Vec<&Payment> {
 fn a_dsusd_hub_takes_deposits_and_pays_withdrawals_in_dsusd() {
     let mut hub = Hub::found_with(dsusd_terms);
     let escrow = hub.escrow();
-    let token = Token::DSUSD;
+    let token = IssuedAsset::DSUSD;
     let line = hub.xrpl.line(escrow, token.issuer, token.currency).unwrap();
     let view = line.view(escrow).unwrap();
     assert!(view.ours.no_ripple && view.limit == TokenValue::MAX);
@@ -1383,14 +1384,14 @@ fn a_dsusd_hubs_payout_set_pays_dsusd() {
     let gas = hub.xrpl.balance(escrow).unwrap();
     let before = hub
         .xrpl
-        .token_balance(alice.account(), Token::DSUSD)
+        .token_balance(alice.account(), IssuedAsset::DSUSD)
         .unwrap();
     for blob in &blobs {
         assert_eq!(submit(&mut hub.xrpl, blob), "tesSUCCESS");
         hub.xrpl.close();
     }
     assert_eq!(
-        hub.xrpl.token_balance(alice.account(), Token::DSUSD),
+        hub.xrpl.token_balance(alice.account(), IssuedAsset::DSUSD),
         before.checked_add(dassie_hub::rules::token_value(alice_total))
     );
     let paid: u64 = payments
@@ -1432,7 +1433,7 @@ fn the_check_takes_a_token_escrow_with_its_one_line() {
     assert_eq!(check(&limited), Err(TrustLine));
     // A freeze of the escrow's own is not as the setup makes the line; the
     // issuer's freeze is no part of the setup, so the check leaves it be.
-    let escrow_low = hub.escrow() < Token::DSUSD.issuer;
+    let escrow_low = hub.escrow() < IssuedAsset::DSUSD.issuer;
     let (ours, theirs) = if escrow_low {
         ([LOW_FREEZE, LOW_DEEP_FREEZE], HIGH_FREEZE)
     } else {
@@ -1508,8 +1509,8 @@ fn the_sponsor_sets_up_a_token_escrows_line() {
     let mut line = other.objects.lines.first().copied();
     assert!(line.is_none(), "no line yet");
     line = Some(dassie_xrpl::api::TrustLine {
-        low: master.account().min(Token::DSUSD.issuer),
-        high: master.account().max(Token::DSUSD.issuer),
+        low: master.account().min(IssuedAsset::DSUSD.issuer),
+        high: master.account().max(IssuedAsset::DSUSD.issuer),
         currency: dassie_xrpl::codec::Currency::parse("USD").unwrap(),
         balance: TokenValue::ZERO,
         low_limit: TokenValue::MAX,

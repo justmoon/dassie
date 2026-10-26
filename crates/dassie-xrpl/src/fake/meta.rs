@@ -25,8 +25,9 @@ use super::objects::{
 };
 use super::pools::{Pool, pool_account};
 use super::signers::signer_list_index;
-use super::tokens::{LineKey, Token, line_index};
+use super::tokens::{LineKey, line_index};
 use super::{Account, FakeLedger, Outcome, Tx};
+use crate::amount::IssuedAsset;
 use crate::api::{SignerList, TrustLine};
 use crate::binary::FieldId;
 use crate::codec::{Amount, Transact, Transaction, hash};
@@ -56,7 +57,7 @@ pub(super) struct Touched {
     /// Each signer list before, and as last written, by its owner.
     signer_lists: Vec<(AccountId, Option<SignerList>, SignerList)>,
     /// Each pool before, by its token.
-    pools: Vec<(Token, Option<Pool>)>,
+    pools: Vec<(IssuedAsset, Option<Pool>)>,
 }
 
 impl Touched {
@@ -92,7 +93,7 @@ impl Touched {
 
     /// The pool of `token` is written; it was `before`, unless it was
     /// written already.
-    pub fn pool(&mut self, token: Token, before: Option<Pool>) {
+    pub fn pool(&mut self, token: IssuedAsset, before: Option<Pool>) {
         if !self.pools.iter().any(|(pool, _)| *pool == token) {
             self.pools.push((token, before));
         }

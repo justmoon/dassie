@@ -4,7 +4,6 @@
 use core::fmt;
 
 use curve25519_dalek::montgomery::MontgomeryPoint;
-use rand_core::CryptoRng;
 use subtle::ConstantTimeEq;
 use zeroize::Zeroize;
 
@@ -28,14 +27,6 @@ secret_bytes!(
 );
 
 impl X25519Secret {
-    /// A fresh secret from the caller's RNG, for ephemeral exchanges.
-    #[must_use]
-    pub fn generate<R: CryptoRng + ?Sized>(rng: &mut R) -> Self {
-        let mut secret = Self([0; 32]);
-        rng.fill_bytes(&mut secret.0);
-        secret
-    }
-
     /// The public key: the clamped scalar times the base point.
     #[must_use]
     pub fn public_key(&self) -> X25519Public {

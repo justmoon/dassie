@@ -371,14 +371,6 @@ impl Ledger {
             .filter_map(|(_, number)| self.holds.get(number).map(|hold| (*number, hold)))
     }
 
-    /// How many holds `account` pays into or takes from.
-    #[must_use]
-    pub fn hold_count(&self, account: AccountNumber) -> usize {
-        self.hold_index
-            .range((account, HoldNumber(0))..=(account, HoldNumber(u64::MAX)))
-            .count()
-    }
-
     /// The index of holds by account, as the holds make it.
     pub(crate) fn derived_hold_index(
         &self,

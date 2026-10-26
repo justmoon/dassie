@@ -36,12 +36,12 @@ use std::path::{Path, PathBuf};
 
 use dassie_node::outbound::host_and_port;
 use dassie_xrpl::Wallet;
-use dassie_xrpl::amount::Currency;
+use dassie_xrpl::amount::{Currency, IssuedAsset};
 use dassie_xrpl::keys::AccountId;
 use dassie_xrpl::network::TESTNET;
 use serde_json::{Map, Value};
 
-use super::strategy::{Band, MAX_MARGIN_PPM, MAX_SLIPPAGE_PPM, NodeParams, Params, Token};
+use super::strategy::{Band, MAX_MARGIN_PPM, MAX_SLIPPAGE_PPM, NodeParams, Params};
 use crate::passphrase::{self, ReadProblem, read_bounded};
 
 /// Most bytes in a config file.
@@ -96,7 +96,7 @@ pub struct Config {
     /// The XRPL server, `wss://` (or `ws://` with `allow_private`).
     pub xrpl_server: String,
     /// The token the pool pairs with XRP.
-    pub token: Token,
+    pub token: IssuedAsset,
     /// The node that holds XRP.
     pub xrp: NodeConfig,
     /// The node that holds the token.
@@ -394,12 +394,12 @@ fn websocket_url(
     Ok(text.to_owned())
 }
 
-fn token(fields: &Fields<'_>) -> Result<Token, ConfigError> {
+fn token(fields: &Fields<'_>) -> Result<IssuedAsset, ConfigError> {
     let currency =
         parse_currency(fields.text("currency")?).ok_or_else(|| fields.invalid("currency"))?;
     let issuer =
         AccountId::parse(fields.text("issuer")?).ok_or_else(|| fields.invalid("issuer"))?;
-    Ok(Token { currency, issuer })
+    Ok(IssuedAsset { currency, issuer })
 }
 
 /// A currency code: three characters, 40 hex digits, or a longer code of

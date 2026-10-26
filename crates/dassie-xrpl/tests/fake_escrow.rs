@@ -811,7 +811,7 @@ fn account_objects_come_a_page_at_a_time() {
     // A trust line is another object, after the list.
     let line = dassie_xrpl::codec::TrustSet {
         account: id,
-        limit: dassie_xrpl::fake::Token::DSUSD.amount(dassie_xrpl::codec::TokenValue::MAX),
+        limit: dassie_xrpl::amount::IssuedAsset::DSUSD.amount(dassie_xrpl::codec::TokenValue::MAX),
         fee: multi_signed_fee(FEE_BASE, 2),
         sequence: sequence(&mut ledger, id),
         last_ledger_sequence: None,
@@ -828,7 +828,7 @@ fn account_objects_come_a_page_at_a_time() {
     assert_eq!((all.others, all.marker), (1, None));
     // The line reads as one, so a hub's escrow can be checked to own only
     // its line to its token's issuer.
-    let token = dassie_xrpl::fake::Token::DSUSD;
+    let token = dassie_xrpl::amount::IssuedAsset::DSUSD;
     assert_eq!(all.lines.len(), 1);
     assert!(all.lines[0].is_between(id, token.issuer, token.currency));
     let view = all.lines[0].view(id).unwrap();

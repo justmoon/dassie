@@ -167,23 +167,6 @@ pub fn tx_anywhere(id: u64, hash: &[u8; 32]) -> Vec<u8> {
 }
 
 /// The trust line between `account` and `issuer` in `currency`, as of
-/// the last validated ledger; `entryNotFound` if there is none.
-#[must_use]
-pub fn ripple_state(id: u64, account: AccountId, issuer: AccountId, currency: Currency) -> Vec<u8> {
-    request(
-        id,
-        "ledger_entry",
-        json!({
-            "ripple_state": {
-                "accounts": [account.to_address(), issuer.to_address()],
-                "currency": currency.to_string(),
-            },
-            "ledger_index": "validated",
-        }),
-    )
-}
-
-/// The trust line between `account` and `issuer` in `currency`, as of
 /// validated ledger `ledger`: the one `account` was read at.
 #[must_use]
 pub fn ripple_state_at(
@@ -931,7 +914,7 @@ pub struct LineEntry {
     pub validated: bool,
 }
 
-/// Reads the result of [`ripple_state`]'s request.
+/// Reads the result of [`ripple_state_at`]'s request.
 #[must_use]
 pub fn ripple_state_result(result: &Value) -> Option<LineEntry> {
     let node = result.get("node")?;
@@ -1514,15 +1497,16 @@ mod tests {
     fn a_line_is_asked_for_by_its_accounts_and_currency() {
         let holder = AccountId([1; 20]);
         let issuer = AccountId::parse(ISSUER).unwrap();
-        let request: Value = serde_json::from_slice(&ripple_state(
+        let request: Value = serde_json::from_slice(&ripple_state_at(
             7,
             holder,
             issuer,
             Currency::parse(RLUSD).unwrap(),
+            42,
         ))
         .unwrap();
         assert_eq!(request["command"], "ledger_entry");
-        assert_eq!(request["ledger_index"], "validated");
+        assert_eq!(request["ledger_index"], 42);
         assert_eq!(request["ripple_state"]["currency"], RLUSD);
         assert_eq!(
             request["ripple_state"]["accounts"],

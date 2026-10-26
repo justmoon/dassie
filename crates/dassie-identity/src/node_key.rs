@@ -106,8 +106,9 @@ impl NodeKey {
         secret
     }
 
-    /// The PKCS#8 DER encoding (RFC 8410), as stored in the node database
-    /// inside a `PRIVATE KEY` PEM block.
+    /// The PKCS#8 DER encoding (RFC 8410): what TLS takes the key in, and
+    /// what a front door's key file holds inside a `PRIVATE KEY` PEM block.
+    /// The node database stores the raw seed.
     #[must_use]
     pub fn to_pkcs8_der(&self) -> PrivateKeyDer {
         let mut der = [0u8; PKCS8_DER_LENGTH];

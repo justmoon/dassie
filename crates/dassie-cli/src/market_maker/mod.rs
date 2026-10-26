@@ -34,6 +34,7 @@ use dassie_node::env::{self, Env};
 use dassie_node::log;
 use dassie_node::outbound::OutboundClient;
 use dassie_xrpl::Wallet;
+use dassie_xrpl::amount::IssuedAsset;
 use dassie_xrpl::keys::AccountId;
 use lexopt::prelude::*;
 use tokio::sync::watch;
@@ -42,7 +43,7 @@ use tokio_util::sync::CancellationToken;
 use self::config::{Config, MAX_TARGETS};
 use self::feed::FeedView;
 use self::nodes::{LedgerState, Node, TradeOutcome};
-use self::strategy::{Decision, Holdings, Inputs, Rates, Side, TargetQuote, Token};
+use self::strategy::{Decision, Holdings, Inputs, Rates, Side, TargetQuote};
 use self::target::TargetInfo;
 use self::xrpl::Xrpl;
 
@@ -480,7 +481,11 @@ impl MarketMaker {
 /// accounts: the XRP node's in XRP, and the token node's in the pool's
 /// token, of the issuer its ledger settles in, so what a rebalance
 /// delivers to it is booked on that ledger.
-async fn check_node(node: &mut Node, account: AccountId, token: &Token) -> Result<(), String> {
+async fn check_node(
+    node: &mut Node,
+    account: AccountId,
+    token: &IssuedAsset,
+) -> Result<(), String> {
     let state = node.ledger_state().await?;
     check_ledger(node.side, &node.ledger, &state, account, token)?;
     tracing::info!(target: TARGET, side = node.side.name(), socket = %node.socket().display(), "node ready");
@@ -494,7 +499,7 @@ fn check_ledger(
     ledger: &str,
     state: &LedgerState,
     account: AccountId,
-    token: &Token,
+    token: &IssuedAsset,
 ) -> Result<(), String> {
     if state.deposit_address != account.to_address() {
         return Err(format!(
@@ -522,7 +527,7 @@ mod tests {
     #[test]
     fn each_node_runs_its_asset_on_the_account_its_passphrase_opens() {
         let account = AccountId([1; 20]);
-        let token = Token {
+        let token = IssuedAsset {
             currency: Currency::parse("USD").unwrap(),
             issuer: AccountId([2; 20]),
         };

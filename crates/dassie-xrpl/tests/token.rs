@@ -24,12 +24,11 @@ use dassie_settlement::{
     LedgerStatus, PegPause, PreparedSettlement, ReconcileCause, SchemeError, SettlementScheme,
 };
 use dassie_xrpl::account::{self, News, XrplAccount};
+use dassie_xrpl::amount::IssuedAsset;
 use dassie_xrpl::codec::{Amount, Payment, Signing, TokenValue, Transact, TrustSet};
 use dassie_xrpl::dsusd::{self, DsusdScheme, UNITS_PER_MICRO};
 use dassie_xrpl::entry::ENTRY_HOLD_LEDGERS;
-use dassie_xrpl::fake::{
-    FAUCET_DROPS, FEE_BASE, FakeLedger, Lie, RESERVE_BASE, RESERVE_INC, Token,
-};
+use dassie_xrpl::fake::{FAUCET_DROPS, FEE_BASE, FakeLedger, Lie, RESERVE_BASE, RESERVE_INC};
 use dassie_xrpl::{AccountId, UNITS_PER_DROP, Wallet, XrplScheme, api};
 use proptest::prelude::*;
 
@@ -576,7 +575,7 @@ impl World {
                 if node.status(USD) == LedgerStatus::Synced && !self.lagging {
                     let held = self
                         .ledger
-                        .token_balance(address, Token::DSUSD)
+                        .token_balance(address, IssuedAsset::DSUSD)
                         .map_or(0, |value| value.floor_units(6).unwrap());
                     // Less what it holds of entry payments, which is off
                     // the books (spec/decisions/pay-to-enter.md).
@@ -734,7 +733,7 @@ impl World {
     fn mint(&mut self, index: usize, amount: &str) {
         let to = self.address(index);
         self.ledger
-            .issue(to, Token::DSUSD.amount(value(amount)))
+            .issue(to, IssuedAsset::DSUSD.amount(value(amount)))
             .unwrap();
     }
 
@@ -970,7 +969,7 @@ fn a_line_made_outside_the_node_is_corrected() {
     .unwrap();
     let signed = TrustSet {
         account: address,
-        limit: Token::DSUSD.amount(value("100")),
+        limit: IssuedAsset::DSUSD.amount(value("100")),
         fee: FEE_BASE,
         sequence,
         last_ledger_sequence: Some(ledger.ledger() + 10),
@@ -985,7 +984,7 @@ fn a_line_made_outside_the_node_is_corrected() {
     ledger.request(0, submit.to_string().as_bytes());
     ledger.close();
     ledger
-        .issue(address, Token::DSUSD.amount(value("12.3456789")))
+        .issue(address, IssuedAsset::DSUSD.amount(value("12.3456789")))
         .unwrap();
     ledger.close();
     let view = ledger
@@ -1060,7 +1059,9 @@ fn two_nodes_settle_dsusd() {
     assert_eq!(b.credited.len(), 1);
     assert_eq!((a.fees, b.fees), (0, 0));
     assert_eq!(
-        world.ledger.token_balance(world.address(1), Token::DSUSD),
+        world
+            .ledger
+            .token_balance(world.address(1), IssuedAsset::DSUSD),
         Some(value("12.5"))
     );
     // And back.
@@ -1190,7 +1191,7 @@ fn line_drained_with_entry(entry: u64, left: u64) -> (World, Vec<u8>) {
     let amount = TokenValue::from_units(clawed, 6).unwrap();
     world
         .ledger
-        .claw_back(world.address(0), Token::DSUSD.amount(amount))
+        .claw_back(world.address(0), IssuedAsset::DSUSD.amount(amount))
         .unwrap();
     world.close();
     assert_eq!(
@@ -1267,7 +1268,7 @@ fn the_line_books_deposits_withdrawals_and_clawbacks() {
     world.close();
     world
         .ledger
-        .claw_back(world.address(0), Token::DSUSD.amount(value("7.25")))
+        .claw_back(world.address(0), IssuedAsset::DSUSD.amount(value("7.25")))
         .unwrap();
     world.close();
     let books = &world.nodes[0].books[USD];
@@ -1324,7 +1325,10 @@ fn freezes_stop_settling_and_receiving() {
         world.prepare(USD, 0, 1, usd(1), &state_a).unwrap_err() == SchemeError::Unavailable
     };
 
-    world.ledger.freeze(address, Token::DSUSD, true).unwrap();
+    world
+        .ledger
+        .freeze(address, IssuedAsset::DSUSD, true)
+        .unwrap();
     world.close();
     assert!(unavailable(&mut world));
     assert_eq!(world.nodes[0].status(USD), LedgerStatus::Synced);
@@ -1332,14 +1336,17 @@ fn freezes_stop_settling_and_receiving() {
 
     world
         .ledger
-        .deep_freeze(address, Token::DSUSD, true)
+        .deep_freeze(address, IssuedAsset::DSUSD, true)
         .unwrap();
     world.close();
     assert!(unavailable(&mut world));
     assert!(!world.nodes[0].dsusd().can_receive());
     assert_eq!(world.nodes[0].status(USD), LedgerStatus::Synced);
 
-    world.ledger.freeze(address, Token::DSUSD, false).unwrap();
+    world
+        .ledger
+        .freeze(address, IssuedAsset::DSUSD, false)
+        .unwrap();
     world.close();
     assert!(world.nodes[0].dsusd().can_receive());
 
@@ -1556,7 +1563,10 @@ fn a_restart_books_what_a_transaction_did_to_the_line_by_its_metadata() {
     world.nodes[0].online = false;
     world.input(0, LedgerInput::Disconnected);
     let address = world.address(0);
-    world.ledger.freeze(address, Token::DSUSD, true).unwrap();
+    world
+        .ledger
+        .freeze(address, IssuedAsset::DSUSD, true)
+        .unwrap();
     world.closes(2);
     world.restart(0);
     world.closes(3);
@@ -1652,7 +1662,7 @@ fn what_moved_the_line_while_down_is_booked_by_the_line() {
     let address = world.address(0);
     world
         .ledger
-        .claw_back(address, Token::DSUSD.amount(value("2")))
+        .claw_back(address, IssuedAsset::DSUSD.amount(value("2")))
         .unwrap();
     world.close();
     world.restart(0);
@@ -1690,7 +1700,7 @@ fn a_settlement_on_a_line_deleted_while_down_is_found() {
     let address = world.address(1);
     world
         .ledger
-        .claw_back(address, Token::DSUSD.amount(value("2")))
+        .claw_back(address, IssuedAsset::DSUSD.amount(value("2")))
         .unwrap();
     world.close();
     let wallet = Wallet::from_entropy(&entropy(world.nodes[1].seed));
@@ -1705,7 +1715,7 @@ fn a_settlement_on_a_line_deleted_while_down_is_found() {
     .unwrap();
     let deleting = TrustSet {
         account: address,
-        limit: Token::DSUSD.amount(TokenValue::ZERO),
+        limit: IssuedAsset::DSUSD.amount(TokenValue::ZERO),
         fee: FEE_BASE,
         sequence,
         last_ledger_sequence: Some(world.ledger.ledger() + 10),
@@ -2171,11 +2181,11 @@ proptest! {
             match *op {
                 Op::Mint(n, t) => {
                     let to = world.address(n);
-                    world.ledger.issue(to, Token::DSUSD.amount(tenths(t))).unwrap();
+                    world.ledger.issue(to, IssuedAsset::DSUSD.amount(tenths(t))).unwrap();
                 }
                 Op::ClawBack(n, t) => {
                     let from = world.address(n);
-                    world.ledger.claw_back(from, Token::DSUSD.amount(tenths(t))).unwrap();
+                    world.ledger.claw_back(from, IssuedAsset::DSUSD.amount(tenths(t))).unwrap();
                 }
                 Op::Settle(n, t) => {
                     let state = states[n].clone();
@@ -2185,11 +2195,11 @@ proptest! {
                 }
                 Op::Freeze(n, on) => {
                     let holder = world.address(n);
-                    world.ledger.freeze(holder, Token::DSUSD, on).unwrap();
+                    world.ledger.freeze(holder, IssuedAsset::DSUSD, on).unwrap();
                 }
                 Op::DeepFreeze(n, on) => {
                     let holder = world.address(n);
-                    world.ledger.deep_freeze(holder, Token::DSUSD, on).unwrap();
+                    world.ledger.deep_freeze(holder, IssuedAsset::DSUSD, on).unwrap();
                 }
                 Op::GlobalFreeze(on) => world.ledger.global_freeze(dsusd::ISSUER, on).unwrap(),
                 Op::TransferFee(on) => {
@@ -2390,7 +2400,7 @@ fn the_owner_pays_dsusd_out_of_the_line() {
     assert_eq!(record.destination_tag, Some(42));
     assert_eq!(
         record.delivered_token,
-        Some(Token::DSUSD.amount(value("4")))
+        Some(IssuedAsset::DSUSD.amount(value("4")))
     );
     assert_eq!(
         record.memo,
@@ -2465,13 +2475,19 @@ fn a_frozen_line_pays_the_owner_nothing() {
     world.settlement_check(0);
     let to = world.address(1);
     let address = world.address(0);
-    world.ledger.freeze(address, Token::DSUSD, true).unwrap();
+    world
+        .ledger
+        .freeze(address, IssuedAsset::DSUSD, true)
+        .unwrap();
     world.close();
     assert_eq!(
         world.pay_owner(0, &owner_payment(to, usd(1_000_000))),
         Err(SchemeError::Unavailable)
     );
-    world.ledger.freeze(address, Token::DSUSD, false).unwrap();
+    world
+        .ledger
+        .freeze(address, IssuedAsset::DSUSD, false)
+        .unwrap();
     world.close();
     // An account with XRP and no DSUSD line: the ledger fails it.
     let nobody = Wallet::from_seed([77; 16]).account();

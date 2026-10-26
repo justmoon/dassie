@@ -530,8 +530,9 @@ async fn eventually(mut done: impl FnMut() -> bool) {
 /// line once a ledger closes.
 #[tokio::test(flavor = "multi_thread")]
 async fn the_fake_issuer_mints_and_claws_back_over_https() {
+    use dassie_xrpl::amount::IssuedAsset;
     use dassie_xrpl::codec::{Signing, TF_SET_NO_RIPPLE, TokenValue, Transact, TrustSet};
-    use dassie_xrpl::fake::{FEE_BASE, Token};
+    use dassie_xrpl::fake::FEE_BASE;
 
     let clock = ManualClock::new(START_MS);
     let server = fake_ledger(&clock).await;
@@ -548,7 +549,7 @@ async fn the_fake_issuer_mints_and_claws_back_over_https() {
     let ledger = server.ledger().ledger();
     let signed = TrustSet {
         account: holder,
-        limit: Token::DSUSD.amount(TokenValue::MAX),
+        limit: IssuedAsset::DSUSD.amount(TokenValue::MAX),
         fee: FEE_BASE,
         sequence,
         last_ledger_sequence: Some(ledger + 20),
@@ -564,7 +565,7 @@ async fn the_fake_issuer_mints_and_claws_back_over_https() {
     eventually(|| {
         server
             .ledger()
-            .token_balance(holder, Token::DSUSD)
+            .token_balance(holder, IssuedAsset::DSUSD)
             .is_some()
     })
     .await;
@@ -590,7 +591,7 @@ async fn the_fake_issuer_mints_and_claws_back_over_https() {
         hyper::StatusCode::OK
     );
     let held = |value: &str| {
-        server.ledger().token_balance(holder, Token::DSUSD) == TokenValue::parse(value)
+        server.ledger().token_balance(holder, IssuedAsset::DSUSD) == TokenValue::parse(value)
     };
     eventually(|| held("12.5")).await;
     let claw = post(
@@ -645,11 +646,11 @@ async fn external_asset(node: &TestNode) -> Option<proto::ExternalAsset> {
 /// What `key`'s account holds of DSUSD, in the ledger's internal units:
 /// whole millionths.
 fn dsusd_held(key: &NodeKey, server: &Server) -> Option<u64> {
-    use dassie_xrpl::fake::Token;
+    use dassie_xrpl::amount::IssuedAsset;
 
     let held = server
         .ledger()
-        .token_balance(account_of(key), Token::DSUSD)?;
+        .token_balance(account_of(key), IssuedAsset::DSUSD)?;
     Some(u64::try_from(held.floor_units(6)?).ok()? * 1_000)
 }
 
@@ -670,8 +671,8 @@ async fn dsusd_in_step(node: &TestNode, key: &NodeKey, server: &Server) -> bool 
 // hold each line, and nothing is booked twice.
 #[tokio::test(flavor = "multi_thread")]
 async fn two_daemons_settle_dsusd_across_restarts() {
+    use dassie_xrpl::amount::IssuedAsset;
     use dassie_xrpl::codec::TokenValue;
-    use dassie_xrpl::fake::Token;
 
     let clock = ManualClock::new(START_MS);
     let server = fake_ledger(&clock).await;
@@ -708,7 +709,7 @@ async fn two_daemons_settle_dsusd_across_restarts() {
         .ledger()
         .issue(
             account_of(&key_a),
-            Token::DSUSD.amount(TokenValue::parse("20").unwrap()),
+            IssuedAsset::DSUSD.amount(TokenValue::parse("20").unwrap()),
         )
         .unwrap();
     until(&clock, async || {

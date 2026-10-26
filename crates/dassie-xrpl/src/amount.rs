@@ -551,6 +551,37 @@ impl Asset {
     }
 }
 
+/// A token: a currency of an issuer. The account follows a trust line
+/// by its token.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct IssuedAsset {
+    /// Who issues it.
+    pub issuer: AccountId,
+    /// Its currency code.
+    pub currency: Currency,
+}
+
+impl IssuedAsset {
+    /// The token, as an asset.
+    #[must_use]
+    pub const fn asset(&self) -> Asset {
+        Asset::Token {
+            currency: self.currency,
+            issuer: self.issuer,
+        }
+    }
+
+    /// `value` of it.
+    #[must_use]
+    pub const fn amount(self, value: TokenValue) -> TokenAmount {
+        TokenAmount {
+            value,
+            currency: self.currency,
+            issuer: self.issuer,
+        }
+    }
+}
+
 /// An amount: XRP in drops, or a token.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Amount {

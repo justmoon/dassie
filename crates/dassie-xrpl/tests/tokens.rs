@@ -25,10 +25,9 @@ use dassie_settlement::{
     SchemeError, SettlementScheme,
 };
 use dassie_xrpl::account::XrplAccount;
+use dassie_xrpl::amount::IssuedAsset;
 use dassie_xrpl::codec::{Amount, Memo, Payment, Signing, TokenValue, Transact};
-use dassie_xrpl::fake::{
-    FAUCET_DROPS, FEE_BASE, FakeLedger, Lie, RESERVE_BASE, RESERVE_INC, Token,
-};
+use dassie_xrpl::fake::{FAUCET_DROPS, FEE_BASE, FakeLedger, Lie, RESERVE_BASE, RESERVE_INC};
 use dassie_xrpl::network::{MAINNET, Network, TESTNET};
 use dassie_xrpl::peg::{MAX_RATE_AGE_MS, MAX_READING_AGE_MS, RECOVER_HOLD_MS, TRIP_HOLD_MS};
 use dassie_xrpl::token::UNITS_PER_MICRO;
@@ -49,7 +48,7 @@ struct Net {
     /// The schemes' IDs, by index.
     ids: [&'static str; 2],
     /// Its dollar token, as the fake issues it.
-    token: Token,
+    token: IssuedAsset,
     /// Its dollar token, as the scheme settles in it.
     settles_in: dassie_xrpl::Token,
 }
@@ -58,7 +57,7 @@ struct Net {
 const TESTNET_NET: Net = Net {
     network: &TESTNET,
     ids: [scheme::SCHEME_ID, dsusd::SCHEME_ID],
-    token: Token::DSUSD,
+    token: IssuedAsset::DSUSD,
     settles_in: dsusd::TOKEN,
 };
 
@@ -66,7 +65,7 @@ const TESTNET_NET: Net = Net {
 const MAINNET_NET: Net = Net {
     network: &MAINNET,
     ids: [scheme::MAINNET_SCHEME_ID, rlusd::SCHEME_ID],
-    token: Token::RLUSD,
+    token: IssuedAsset::RLUSD,
     settles_in: rlusd::TOKEN,
 };
 
@@ -605,7 +604,7 @@ fn two_nodes_settle_each_networks_dollar() {
             for other in [rlusd::TOKEN, rlusd::TESTNET_TOKEN, dsusd::TOKEN] {
                 if other.issuer != net.settles_in.issuer {
                     let line = world.ledger.line(address, other.issuer, other.currency);
-                    assert!(line.is_none(), "{}", other.scheme_id);
+                    assert!(line.is_none(), "{}", other.scheme.as_str());
                 }
             }
         }
@@ -731,7 +730,7 @@ fn a_payment_with_another_schemes_memo_is_no_settlement() {
             account: address,
             destination: world.address(1),
             destination_tag: None,
-            amount: Amount::Token(Token::RLUSD.amount(value("1"))),
+            amount: Amount::Token(IssuedAsset::RLUSD.amount(value("1"))),
             send_max: None,
             fee: FEE_BASE,
             sequence: u32::try_from(sequence).unwrap(),
@@ -763,7 +762,9 @@ fn a_payment_with_another_schemes_memo_is_no_settlement() {
         i128::from(usd(1_000_000))
     );
     assert_eq!(
-        world.ledger.token_balance(world.address(1), Token::RLUSD),
+        world
+            .ledger
+            .token_balance(world.address(1), IssuedAsset::RLUSD),
         Some(value("5"))
     );
 }
