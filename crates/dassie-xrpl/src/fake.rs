@@ -310,10 +310,17 @@ pub struct FakeLedger {
     /// How many more `tx` answers in binary come as rippled's do between
     /// validating a ledger and saving it, and how.
     unsaved_answers: (u32, Unsaved),
+    /// How many times `account_info` asked about each account, whether or
+    /// not it exists: a test waits on it to know a client looked again.
+    reads: BTreeMap<AccountId, u64>,
 }
 
 /// The most transactions remembered as never applied.
 const MAX_NEVER_APPLIED: usize = 64;
+
+/// The most accounts whose reads are counted: a dev environment's fake runs
+/// for days, asked about any account.
+const MAX_COUNTED_READS: usize = 1_024;
 
 /// When the fake's first list of validators expires: as late as the
 /// ledger's clock counts. A test that lets a list expire publishes another.
@@ -388,6 +395,7 @@ impl FakeLedger {
             lies: lies::Lies::default(),
             unsaved_answers: (0, Unsaved::WithoutMeta),
             never_applied: Vec::new(),
+            reads: BTreeMap::new(),
         };
         ledger.add_issuer(issuer);
         ledger.seal_first();
@@ -616,6 +624,24 @@ impl FakeLedger {
             }))));
     }
 
+    /// Counts a read of the account `request` names, of the first
+    /// [`MAX_COUNTED_READS`] accounts asked about.
+    fn count_read(&mut self, request: &Value) {
+        let Ok(account) = Self::account_of(request) else {
+            return;
+        };
+        if self.reads.len() < MAX_COUNTED_READS || self.reads.contains_key(&account) {
+            let reads = self.reads.entry(account).or_default();
+            *reads = reads.saturating_add(1);
+        }
+    }
+
+    /// How many times `account_info` asked about `account`.
+    #[must_use]
+    pub fn reads_of(&self, account: AccountId) -> u64 {
+        self.reads.get(&account).copied().unwrap_or(0)
+    }
+
     /// Sets the sequence `account` uses next, as for an account that has
     /// sent all but the last few transactions it ever can.
     pub fn set_sequence(&mut self, account: AccountId, sequence: u32) {
@@ -650,7 +676,10 @@ impl FakeLedger {
         let outcome = match command {
             "server_state" => Ok(self.server_state(connection)),
             "subscribe" => self.subscribe(connection, &request),
-            "account_info" => self.account_info(&request),
+            "account_info" => {
+                self.count_read(&request);
+                self.account_info(&request)
+            }
             "account_tx" => self.account_tx(connection, &request),
             "ledger_entry" => self.ledger_entry(&request),
             "account_objects" => self.account_objects(&request),

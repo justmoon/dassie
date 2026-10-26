@@ -12,13 +12,16 @@ use std::time::Duration;
 
 use dassie_hub::escrow::PayoutBundle;
 use dassie_hub::member::{Payouts, Taken};
-use dassie_hub::service::wire::Message;
+use dassie_hub::service::wire::{Message, PayoutPage};
 use dassie_hub::{HubId, Rules};
 use dassie_oer::{Decode, Encode};
+use futures_util::StreamExt;
+use futures_util::stream::FuturesUnordered;
 use tokio_util::sync::CancellationToken;
 
-use super::HubClient;
 use super::driver::hex;
+use super::{HubClient, HubExchangeError};
+use crate::clock::clock_moved;
 use crate::log::target;
 use crate::node::Node;
 use crate::store::StoreError;
@@ -34,7 +37,8 @@ const MAX_PAGES_PER_ROUND: usize = 64;
 /// The longest one request takes.
 const EXCHANGE_TIMEOUT: Duration = Duration::from_secs(10);
 
-/// How often the keeper looks at the node's clock.
+/// How often the keeper looks at the node's clock, unless it is moved by
+/// hand.
 const TICK: Duration = Duration::from_secs(1);
 
 /// Asks the validators of the node's hub for their payout sets every
@@ -42,10 +46,12 @@ const TICK: Duration = Duration::from_secs(1);
 pub async fn run(node: Arc<Node>, shutdown: CancellationToken) {
     let mut payouts: Option<Payouts> = None;
     let mut next_ms = 0_u64;
+    let mut moves = node.clock().subscribe();
     loop {
         tokio::select! {
             () = shutdown.cancelled() => return,
             () = tokio::time::sleep(TICK) => {}
+            () = clock_moved(&mut moves) => {}
         }
         let now = node.now_ms();
         if now < next_ms {
@@ -92,41 +98,90 @@ fn restored(node: &Node, rules: Rules) -> Payouts {
 }
 
 /// Asks each validator for its payout set, a page at a time, and keeps
-/// what completes.
+/// what completes. The validators are asked at once, and each answer is
+/// taken as it comes, so that one that is gone, as validators are when a
+/// hub stalls, holds up no other for the time its connection takes to give
+/// up.
 async fn round(node: &Node, client: &HubClient, payouts: &mut Payouts, stop: &CancellationToken) {
     let rules = payouts.rules().clone();
     let hub = rules.id();
-    for (index, acceptance) in rules.validators.iter().enumerate() {
-        let node_id = acceptance.node.node_id();
-        for _ in 0..MAX_PAGES_PER_ROUND {
-            let request = Message::Request(payouts.request(index)).to_vec();
-            let exchanged = tokio::select! {
-                () = stop.cancelled() => return,
-                exchanged = client.exchange(node_id, &acceptance.endpoint, &hub, &request, EXCHANGE_TIMEOUT) => exchanged,
+    let ask = |index: usize, request: Vec<u8>| {
+        let acceptance = rules.validators.get(index);
+        async move {
+            let Some(acceptance) = acceptance else {
+                return (index, Err(HubExchangeError::Unreachable));
             };
-            let Some(page) = exchanged.ok().and_then(|messages| {
-                messages
-                    .iter()
-                    .find_map(|message| match Message::decode_exact(message) {
-                        Ok(Message::Payout(page)) => Some(page),
-                        _ => None,
-                    })
-            }) else {
-                break;
-            };
-            match payouts.take(index, page) {
-                Ok(Taken::More(_)) => {}
-                Ok(Taken::Kept(height)) => {
-                    keep(node, &hub, index, payouts);
-                    tracing::info!(target: target::HUB, hub = %hex(hub.0.as_bytes()), validator = index, height, "kept a validator's payout bundle");
-                    break;
-                }
-                Ok(Taken::Nothing) => break,
-                Err(error) => {
-                    tracing::warn!(target: target::HUB, validator = index, ?error, "a validator's payout set does not check");
-                    break;
-                }
-            }
+            let node_id = acceptance.node.node_id();
+            let exchanged = client
+                .exchange(
+                    node_id,
+                    &acceptance.endpoint,
+                    &hub,
+                    &request,
+                    EXCHANGE_TIMEOUT,
+                )
+                .await;
+            (index, exchanged)
+        }
+    };
+    let mut asks = FuturesUnordered::new();
+    for index in 0..rules.validators.len() {
+        asks.push(ask(
+            index,
+            Message::Request(payouts.request(index)).to_vec(),
+        ));
+    }
+    // Pages read of each validator's set: the first came with the ask above.
+    let mut read = vec![1_usize; rules.validators.len()];
+    loop {
+        let answered = tokio::select! {
+            () = stop.cancelled() => return,
+            answered = asks.next() => answered,
+        };
+        let Some((index, exchanged)) = answered else {
+            return;
+        };
+        let page = exchanged.ok().and_then(|messages| {
+            messages
+                .iter()
+                .find_map(|message| match Message::decode_exact(message) {
+                    Ok(Message::Payout(page)) => Some(page),
+                    _ => None,
+                })
+        });
+        let Some(page) = page else {
+            continue;
+        };
+        if !take(node, &hub, index, payouts, page) {
+            continue;
+        }
+        let Some(pages) = read.get_mut(index) else {
+            continue;
+        };
+        if *pages < MAX_PAGES_PER_ROUND {
+            *pages += 1;
+            asks.push(ask(
+                index,
+                Message::Request(payouts.request(index)).to_vec(),
+            ));
+        }
+    }
+}
+
+/// Takes a page of validator `index`'s payout set: whether there is more
+/// of it to read.
+fn take(node: &Node, hub: &HubId, index: usize, payouts: &mut Payouts, page: PayoutPage) -> bool {
+    match payouts.take(index, page) {
+        Ok(Taken::More(_)) => true,
+        Ok(Taken::Kept(height)) => {
+            keep(node, hub, index, payouts);
+            tracing::info!(target: target::HUB, hub = %hex(hub.0.as_bytes()), validator = index, height, "kept a validator's payout bundle");
+            false
+        }
+        Ok(Taken::Nothing) => false,
+        Err(error) => {
+            tracing::warn!(target: target::HUB, validator = index, ?error, "a validator's payout set does not check");
+            false
         }
     }
 }

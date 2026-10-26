@@ -21,6 +21,20 @@ pub trait Clock: Send + Sync + 'static {
     }
 }
 
+/// Resolves when a clock that can be moved by hand moves, so tests need not
+/// wait for real time to pass: `wake` is what [`Clock::subscribe`] gave.
+/// Never resolves for the system clock.
+pub async fn clock_moved(wake: &mut Option<watch::Receiver<u64>>) {
+    match wake {
+        Some(receiver) => {
+            if receiver.changed().await.is_err() {
+                *wake = None;
+            }
+        }
+        None => std::future::pending().await,
+    }
+}
+
 /// The system clock.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct SystemClock;
