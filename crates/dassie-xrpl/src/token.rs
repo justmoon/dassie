@@ -344,9 +344,12 @@ impl<T: IssuedToken> TokenScheme<T> {
         Self::bookable(line).saturating_sub(self.entries.total())
     }
 
-    /// What a line holds: its balance in whole units, none below zero.
+    /// What a line holds: its balance in whole units, none below zero. A
+    /// balance below zero books nothing before it is converted: only a
+    /// balance above zero too large for the books saturates.
     fn bookable(line: Option<&LineView>) -> u64 {
         let micros = line
+            .filter(|view| !view.balance.is_negative())
             .map_or(Some(0), |view| view.balance.floor_units(DECIMALS))
             .map_or(MAX_MICROS, |micros| {
                 u64::try_from(micros.max(0)).map_or(MAX_MICROS, |micros| micros.min(MAX_MICROS))
@@ -1315,5 +1318,27 @@ mod tests {
         );
         record.delivered_token = Some(delivered(account.account()));
         assert_eq!(scheme.settled_by(&record), None);
+    }
+
+    // A line below zero books nothing, however far below: one beyond what
+    // the books can convert is still a debt, never the most they hold.
+    #[test]
+    fn a_line_far_below_zero_books_nothing() {
+        let mut line = LineView {
+            counterparty: crate::dsusd::ISSUER,
+            balance: TokenValue::parse("-1").unwrap(),
+            limit: TokenValue::MAX,
+            counterparty_limit: TokenValue::MAX,
+            ours: crate::api::LineFlags::default(),
+            theirs: crate::api::LineFlags::default(),
+        };
+        assert_eq!(crate::DsusdScheme::bookable(Some(&line)), 0);
+        line.balance = TokenValue::parse("-1e40").unwrap();
+        assert!(line.balance.floor_units(DECIMALS).is_none());
+        assert_eq!(
+            crate::DsusdScheme::bookable(Some(&line)),
+            0,
+            "negative holdings are never a positive asset"
+        );
     }
 }
