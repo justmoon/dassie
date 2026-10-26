@@ -207,6 +207,7 @@ impl Settings {
     /// Reads and checks every variable.
     pub fn from_env(env: &Env) -> Result<Self, EnvError> {
         let (tunnel_proxy, tunnel_proxy_problems) = tunnel_proxy(env);
+        let live_realm = live_realm(env, cfg!(debug_assertions))?;
         Ok(Self {
             data_dir: data_dir(env)?,
             ipc_socket_path: env.path("DASSIE_IPC_SOCKET_PATH"),
@@ -218,10 +219,10 @@ impl Settings {
             peer_ca_file: env.path("DASSIE_PEER_CA_FILE"),
             peer_allow_private: flag(env, "DASSIE_PEER_ALLOW_PRIVATE")?,
             dev_timings: flag(env, "DASSIE_DEV_TIMINGS")?,
-            live_realm: live_realm(env, cfg!(debug_assertions))?,
+            live_realm,
             public_names: public_names(env)?,
             uplinks: uplinks(env)?,
-            validator: validator(env)?,
+            validator: validator(env, live_realm)?,
             tunnel_proxy,
             tunnel_proxy_problems,
         })
@@ -230,7 +231,10 @@ impl Settings {
 
 /// The validator role's file, read and checked now, at most
 /// [`MAX_CONFIG_BYTES`](crate::hub::config::MAX_CONFIG_BYTES).
-fn validator(env: &Env) -> Result<Option<crate::hub::config::ValidatorConfig>, EnvError> {
+fn validator(
+    env: &Env,
+    live: LiveRealm,
+) -> Result<Option<crate::hub::config::ValidatorConfig>, EnvError> {
     use std::io::Read as _;
     let Some(path) = env.path("DASSIE_VALIDATOR_CONFIG") else {
         return Ok(None);
@@ -249,7 +253,7 @@ fn validator(env: &Env) -> Result<Option<crate::hub::config::ValidatorConfig>, E
     if u64::try_from(text.len()).unwrap_or(u64::MAX) > limit {
         return Err(error(format!("names a file larger than {limit} bytes")));
     }
-    crate::hub::config::parse(&text)
+    crate::hub::config::parse(&text, live)
         .map(Some)
         .map_err(|problem| error(format!("names a file that is wrong: {problem}")))
 }

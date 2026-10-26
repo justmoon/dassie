@@ -163,7 +163,7 @@ pub fn found(node: &Node, request: FoundRequest) -> Result<FoundingStatus, Found
         rng.fill_bytes(&mut nonce);
         nonce
     });
-    let master = dassie_hub::escrow::escrow_master(&key, &nonce)
+    let master = dassie_hub::escrow::escrow_master(&key, TESTNET_NETWORK, &nonce)
         .ok_or_else(|| FoundError::Precondition("no escrow key".into()))?;
     let base = dassie_hub::founding::starting_terms(
         nonce,

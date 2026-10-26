@@ -754,7 +754,8 @@ mod tests {
         let mut founding = Founding::new();
         let terms = founding.sponsor.terms().clone();
         let stranger = NodeKey::from_bytes(&[77; 32]);
-        let keys = crate::escrow::ValidatorKeys::derive(&stranger, &terms.nonce).unwrap();
+        let keys =
+            crate::escrow::ValidatorKeys::derive(&stranger, terms.network, &terms.nonce).unwrap();
         let theirs = keys
             .accept(&stranger, &terms, "x.example:1".into())
             .unwrap();

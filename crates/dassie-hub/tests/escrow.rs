@@ -21,6 +21,7 @@ use dassie_hub::escrow::{
     setup, setup_step, sign_payout_set, signer_list_set, withdrawal_outcome, withdrawal_payment,
 };
 use dassie_hub::ledger::Failure;
+use dassie_hub::ledger::TESTNET_NETWORK;
 use dassie_hub::ledger::{Block, Detail, Outcome, Phase};
 use dassie_hub::member::{Payouts, Taken};
 use dassie_hub::operation::{
@@ -190,12 +191,12 @@ impl Hub {
     fn found_with(terms: fn(&NodeKey, AccountId) -> Terms) -> Self {
         let mut xrpl = FakeLedger::new();
         let sponsor = NodeKey::from_bytes(&[100; 32]);
-        let master = escrow_master(&sponsor, &NONCE).unwrap();
+        let master = escrow_master(&sponsor, TESTNET_NETWORK, &NONCE).unwrap();
         let terms = terms(&sponsor, master.account());
         let nodes: Vec<NodeKey> = (1..=4).map(|i| NodeKey::from_bytes(&[i; 32])).collect();
         let validators: Vec<ValidatorKeys> = nodes
             .iter()
-            .map(|node| ValidatorKeys::derive(node, &NONCE).unwrap())
+            .map(|node| ValidatorKeys::derive(node, TESTNET_NETWORK, &NONCE).unwrap())
             .collect();
         let acceptances: Vec<Acceptance> = validators
             .iter()
@@ -542,7 +543,7 @@ impl Hub {
 fn a_change_of_validators_reaches_the_escrows_signer_list() {
     let mut hub = Hub::found();
     let newcomer = NodeKey::from_bytes(&[9; 32]);
-    let keys = ValidatorKeys::derive(&newcomer, &NONCE).unwrap();
+    let keys = ValidatorKeys::derive(&newcomer, TESTNET_NETWORK, &NONCE).unwrap();
     let mut rules = hub.rules.clone();
     rules.validators[3] = keys
         .accept(&newcomer, &rules.terms, "v9.example:443".into())
@@ -991,14 +992,14 @@ fn a_node_moves_its_funds_into_the_hub_and_out() {
 fn the_sponsor_sets_up_what_is_missing() {
     let mut xrpl = FakeLedger::new();
     let sponsor = NodeKey::from_bytes(&[100; 32]);
-    let master = escrow_master(&sponsor, &NONCE).unwrap();
+    let master = escrow_master(&sponsor, TESTNET_NETWORK, &NONCE).unwrap();
     let terms = terms(&sponsor, master.account());
     let nodes: Vec<NodeKey> = (1..=4).map(|i| NodeKey::from_bytes(&[i; 32])).collect();
     let validators = nodes
         .iter()
         .enumerate()
         .map(|(i, node)| {
-            ValidatorKeys::derive(node, &NONCE)
+            ValidatorKeys::derive(node, TESTNET_NETWORK, &NONCE)
                 .unwrap()
                 .accept(node, &terms, format!("v{i}.example:443"))
                 .unwrap()
@@ -1468,14 +1469,14 @@ fn the_check_takes_a_token_escrow_with_its_one_line() {
 fn the_sponsor_sets_up_a_token_escrows_line() {
     let mut xrpl = FakeLedger::new();
     let sponsor = NodeKey::from_bytes(&[100; 32]);
-    let master = escrow_master(&sponsor, &NONCE).unwrap();
+    let master = escrow_master(&sponsor, TESTNET_NETWORK, &NONCE).unwrap();
     let terms = dsusd_terms(&sponsor, master.account());
     let nodes: Vec<NodeKey> = (1..=4).map(|i| NodeKey::from_bytes(&[i; 32])).collect();
     let validators = nodes
         .iter()
         .enumerate()
         .map(|(i, node)| {
-            ValidatorKeys::derive(node, &NONCE)
+            ValidatorKeys::derive(node, TESTNET_NETWORK, &NONCE)
                 .unwrap()
                 .accept(node, &terms, format!("v{i}.example:443"))
                 .unwrap()

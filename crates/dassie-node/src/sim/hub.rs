@@ -28,7 +28,7 @@ use dassie_hub::consensus::{Config, Evidence, Finalized, MIN_STALL_MS, PeerId, V
 use dassie_hub::escrow::{
     PayoutSet, PayoutTransaction, ValidatorKeys, escrow_master, payout_set, setup,
 };
-use dassie_hub::ledger::Ledger;
+use dassie_hub::ledger::{Ledger, TESTNET_NETWORK};
 use dassie_hub::operation::{
     MemberOperation, Operation, SignedMemberOperation, ValidatorOperation,
 };
@@ -115,7 +115,10 @@ const ABSENCE_MS: Millis = 86_400_000;
 #[must_use]
 pub fn terms(validators: usize) -> Terms {
     let sponsor = sponsor();
-    let escrow = escrow_master(&sponsor, &NONCE).unwrap().account().0;
+    let escrow = escrow_master(&sponsor, TESTNET_NETWORK, &NONCE)
+        .unwrap()
+        .account()
+        .0;
     let faults = u64::try_from(validators - 1).unwrap() / 3;
     let config = Config::DEFAULT;
     let margin = config.margin_ms(faults);
@@ -170,7 +173,7 @@ pub fn rules(validators: usize) -> Rules {
     let acceptances = (0..validators)
         .map(|index| {
             let node = validator_key(index);
-            ValidatorKeys::derive(&node, &NONCE)
+            ValidatorKeys::derive(&node, TESTNET_NETWORK, &NONCE)
                 .unwrap()
                 .accept(&node, &terms, endpoint(index))
                 .unwrap()
@@ -422,7 +425,7 @@ impl Sim {
     pub(super) fn found_hub(&mut self, roles: &[Role]) {
         let count = roles.len();
         let rules = rules(count);
-        let master = escrow_master(&sponsor(), &NONCE).unwrap();
+        let master = escrow_master(&sponsor(), TESTNET_NETWORK, &NONCE).unwrap();
         let escrow = master.account();
         self.ledger.fund(escrow);
         self.ledger.close();
@@ -832,7 +835,8 @@ impl Sim {
         block: &dassie_hub::consensus::Block,
     ) -> Vote {
         let hub = self.hub();
-        let keys = ValidatorKeys::derive(&hub.validators[index].node, &NONCE).unwrap();
+        let keys =
+            ValidatorKeys::derive(&hub.validators[index].node, TESTNET_NETWORK, &NONCE).unwrap();
         let digest = block.digest(&hub.id().0);
         Vote::sign(
             &hub.id().0,

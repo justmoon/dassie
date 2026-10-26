@@ -23,7 +23,7 @@ use std::sync::Arc;
 
 use dassie_hub::client::{MAX_STATEMENTS, Request, SignedStatement, Statement};
 use dassie_hub::escrow::{ValidatorKeys, escrow_master};
-use dassie_hub::ledger::{Block, Detail, Outcome};
+use dassie_hub::ledger::{Block, Detail, Outcome, TESTNET_NETWORK};
 use dassie_hub::member::{FIRST, HubAccount, HubScheme, SCHEME_ID, units};
 use dassie_hub::operation::{
     AccountNumber, Deposit, Destination, MemberOperation, Operation, SignedMemberOperation,
@@ -145,12 +145,12 @@ impl Validators {
     /// The sponsor's hub, with its escrow attested.
     fn found(faults: [Fault; 4]) -> Self {
         let sponsor = NodeKey::from_bytes(&[100; 32]);
-        let master = escrow_master(&sponsor, &NONCE).unwrap();
+        let master = escrow_master(&sponsor, TESTNET_NETWORK, &NONCE).unwrap();
         let terms = terms(&sponsor, master.account().0);
         let nodes: Vec<NodeKey> = (1..=4).map(|i| NodeKey::from_bytes(&[i; 32])).collect();
         let keys: Vec<ValidatorKeys> = nodes
             .iter()
-            .map(|node| ValidatorKeys::derive(node, &NONCE).unwrap())
+            .map(|node| ValidatorKeys::derive(node, TESTNET_NETWORK, &NONCE).unwrap())
             .collect();
         let validators = keys
             .iter()

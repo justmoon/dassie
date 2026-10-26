@@ -179,7 +179,7 @@ impl Driver {
         node_key: &NodeKey,
         now: Millis,
     ) -> Result<Self, DriverError> {
-        let keys = ValidatorKeys::derive(node_key, &rules.terms.nonce)
+        let keys = ValidatorKeys::derive(node_key, rules.terms.network, &rules.terms.nonce)
             .ok_or(DriverError::NotAValidator)?;
         let hub = rules.id();
         let own = node_key.node_id();
