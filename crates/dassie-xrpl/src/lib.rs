@@ -83,6 +83,7 @@ pub mod dsusd;
 pub mod entry;
 #[cfg(feature = "fake")]
 pub mod fake;
+mod follower;
 pub mod header;
 pub mod keys;
 pub mod lists;

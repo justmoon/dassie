@@ -50,36 +50,29 @@
 //! ([`converts`](SettlementScheme::converts)); what the line shows is still
 //! booked (spec/decisions/issued-assets.md).
 
-use alloc::collections::{BTreeMap, BTreeSet};
-use alloc::string::{String, ToString};
+use alloc::string::String;
 use alloc::vec::Vec;
 use core::marker::PhantomData;
 
 use dassie_ledger::{LedgerId, MAX_TOTAL, Name};
 use dassie_settlement::{
-    AssetId, DollarRate, Effect, EntryPayment, ExternalAsset, LedgerStatus, MAX_OWNER_MEMO_BYTES,
-    OwnerPayment, OwnerPaymentState, PegView, PreparedSettlement, ReconcileCause, SchemeError,
-    SettlementScheme,
+    AssetId, DollarRate, Effect, EntryPayment, ExternalAsset, LedgerStatus, OwnerPayment,
+    OwnerPaymentState, PegView, PreparedSettlement, ReconcileCause, SchemeError, SettlementScheme,
 };
 use rand_core::CryptoRng;
-use serde_json::{Value, json};
+use serde_json::Value;
 
-use crate::account::{News, Ours, Resumed, XrplAccount};
+use crate::account::{News, Ours, XrplAccount};
 use crate::amount::IssuedAsset;
 use crate::amount::{Currency, TokenAmount, TokenValue};
 use crate::api::{AccountInfo, AccountSettings, LineView, TxRecord};
 use crate::codec::{Memo, TF_SET_NO_RIPPLE};
-use crate::entry::Entries;
+use crate::follower::{Follower, check_claim, failure_of, hash_name, narrow};
+use crate::from_hex;
 use crate::keys::AccountId;
 use crate::network::Network;
 use crate::peg::{Guard, Peg, Timings};
-use crate::scheme::{
-    MAX_PEERS, MAX_RECOVER_WAIT_LEDGERS, MAX_RECOVERING, OWNER_MEMO_TYPE, Recovering, account_of,
-    address_bytes, failure_of, hash_name, missed_write_off, name_hash, narrow, outcome_code,
-    parse_address, recover, restore_owner_outcome, restore_owner_payment, restore_unread,
-    restore_write_offs, unread_value,
-};
-use crate::{from_hex, hex_upper};
+use crate::scheme::account_of;
 
 /// A dollar token the scheme settles in: what tells one token scheme from
 /// another. Each is a contract between peers that run its scheme, so none
@@ -169,36 +162,10 @@ impl From<AccountSettings> for Issuer {
 
 /// The scheme that settles in token `T`.
 pub struct TokenScheme<T: IssuedToken> {
-    /// The account it settles from.
-    account: AccountId,
-    /// Our node's ID, as our memos carry it.
-    node: Name,
-    /// What the books hold on the line, in internal units.
-    booked: u64,
-    // Kept with the books.
-    cursor: Option<(u32, u32)>,
-    /// Peers' addresses, with when each was learnt: past [`MAX_PEERS`], the
-    /// longest known goes.
-    peers: BTreeMap<Name, (AccountId, u64)>,
-    /// The peer table's revision, counted up on each address learnt and
-    /// each forgotten: the order addresses were learnt in, and part of
-    /// [`fingerprint`](Self::fingerprint), so that the node keeps every
-    /// change to the table. Not kept: a restore learns the addresses
-    /// anew, and it counts up from there.
-    peers_revision: u64,
-    recovering: Vec<Recovering>,
-    /// How many times the account was written off, as the scheme last saw
-    /// it ([`XrplAccount::write_offs`]).
-    write_offs: u64,
-    /// What nodes not yet peered paid us to enter, off the books
-    /// (spec/decisions/pay-to-enter.md).
-    entries: Entries,
-    /// The owner's payment on its way: its hash, and the millionths it
-    /// pays.
-    owner_payment: Option<([u8; 32], u64)>,
-    /// The owner's last payment that is no longer on its way, and what
-    /// became of it, kept with the books so a restart still answers for it.
-    owner_outcome: Option<([u8; 32], OwnerPaymentState)>,
+    /// What it keeps of the account, as every scheme on it does.
+    f: Follower,
+    /// Its peg guard, if its token has one; kept with the books.
+    guard: Option<Guard>,
     // Learnt from the account, as it told the scheme.
     /// Our line, as the ledger last said: `None` until it said, then the
     /// line from our side, or `None` if there is none.
@@ -208,18 +175,12 @@ pub struct TokenScheme<T: IssuedToken> {
     issuer: Option<Option<Issuer>>,
     /// Told that the account is synced, since it was last written off.
     account_synced: bool,
-    validated: u32,
     /// Our `TrustSet` on its way.
     trust_set: Option<[u8; 32]>,
     /// The validated ledger from which a `TrustSet` may be signed again,
     /// and how long the next failure makes it wait.
     trust_at: u32,
     trust_wait: u32,
-    /// Its peg guard, if its token has one; kept with the books.
-    guard: Option<Guard>,
-    /// Whether the node peers on it: an owner book does not. From its
-    /// config, never kept with the books.
-    peering: bool,
     /// The token, as a type only: the scheme holds none of it.
     token: PhantomData<fn() -> T>,
 }
@@ -246,38 +207,20 @@ impl<T: IssuedToken> TokenScheme<T> {
             return Err(SchemeError::InvalidConfig);
         }
         let mut scheme = Self {
-            account: account.account(),
-            node,
-            booked: checkpoint.unwrap_or(0),
-            cursor: None,
-            peers: BTreeMap::new(),
-            peers_revision: 0,
-            recovering: Vec::new(),
-            write_offs: 0,
-            entries: Entries::default(),
-            owner_payment: None,
-            owner_outcome: None,
+            f: Follower::new(account, node, checkpoint, MAX_MICROS),
+            guard: token.peg.map(Guard::new),
             line: None,
             issuer: None,
             account_synced: false,
-            validated: 0,
             trust_set: None,
             trust_at: 0,
             trust_wait: 1,
-            guard: token.peg.map(Guard::new),
-            peering: true,
             token: PhantomData,
         };
         if !state.is_empty() {
             scheme.restore(state).ok_or(SchemeError::InvalidData)?;
         }
-        if scheme
-            .recovering
-            .iter()
-            .any(|r| account.holds_transaction(&r.hash))
-        {
-            return Err(SchemeError::InvalidData);
-        }
+        scheme.f.fits(account)?;
         Ok(scheme)
     }
 
@@ -349,27 +292,27 @@ impl<T: IssuedToken> TokenScheme<T> {
     /// largest packet, as the XRP scheme does. Until it is told, it takes
     /// none.
     pub fn take_entries_from(&mut self, minimum: u64) {
-        self.entries.take_from(minimum);
+        self.f.entries.take_from(minimum);
     }
 
     /// Whether the node peers on the scheme, as its config says
     /// ([`crate::scheme::SchemeConfig::peers`]): one that does not is an
     /// owner book (spec/areas/xrpl.md#owner-books). It peers until told.
     pub fn set_peers(&mut self, peers: bool) {
-        self.peering = peers;
+        self.f.peering = peers;
     }
 
     /// What it holds of entry payments, in internal units: on the line,
     /// and never on the books.
     #[must_use]
     pub fn entries_held(&self) -> u64 {
-        self.entries.total()
+        self.f.entries.total()
     }
 
     /// What the books should hold for a line: [`Self::bookable`], less
     /// the entry payments held.
     fn target(&self, line: Option<&LineView>) -> u64 {
-        Self::bookable(line).saturating_sub(self.entries.total())
+        Self::bookable(line).saturating_sub(self.f.entries.total())
     }
 
     /// What a line holds: its balance in whole units, none below zero. A
@@ -385,11 +328,6 @@ impl<T: IssuedToken> TokenScheme<T> {
         micros * UNITS_PER_MICRO
     }
 
-    /// Whether the books hold anything of the line.
-    const fn holds_anything(&self) -> bool {
-        self.cursor.is_some() || self.booked > 0
-    }
-
     /// Takes one piece of news from the account, at `now_ms`.
     fn tell(
         &mut self,
@@ -401,7 +339,7 @@ impl<T: IssuedToken> TokenScheme<T> {
         let id = self.id();
         match news {
             News::Line { key, line } if *key == T::TOKEN.line() => {
-                self.line = Some(line.and_then(|line| line.view(self.account)));
+                self.line = Some(line.and_then(|line| line.view(self.f.account)));
             }
             News::Line { .. } => {}
             News::Synced(info) => {
@@ -421,8 +359,8 @@ impl<T: IssuedToken> TokenScheme<T> {
                 settles,
             } if *scheme == id => {
                 // It moved nothing, not even a fee.
-                if self.is_owner_payment(hash) {
-                    self.owner_done(OwnerPaymentState::Cancelled, effects);
+                if self.f.is_owner_payment(hash) {
+                    self.f.owner_done(OwnerPaymentState::Cancelled, effects);
                 } else if *settles {
                     effects.push(Effect::Cancel {
                         settlement: hash_name(hash),
@@ -435,13 +373,13 @@ impl<T: IssuedToken> TokenScheme<T> {
             News::WrittenOff { restarted } => self.written_off(*restarted, effects),
             News::LedgerClosed { .. } => {
                 self.correct_line(account);
-                self.ask_recover(account);
+                self.f.ask_recover(account, self.account_synced);
             }
             // What became of it is in the line the sync matched.
-            News::Unread { hash, .. } if self.is_owner_payment(hash) => {
-                self.owner_done(OwnerPaymentState::Unknown, effects);
+            News::Unread { hash, .. } if self.f.is_owner_payment(hash) => {
+                self.f.owner_done(OwnerPaymentState::Unknown, effects);
             }
-            News::Unread { hash, ours } if ours.scheme == id => self.unread(*hash),
+            News::Unread { hash, ours } if ours.scheme == id => self.f.unread(*hash),
             News::Unread { .. } => {}
             News::Found { hash, record } => self.recovered(*hash, record, effects),
             News::Issuer { issuer, settings } if *issuer == T::TOKEN.issuer => {
@@ -469,13 +407,13 @@ impl<T: IssuedToken> TokenScheme<T> {
     ) {
         self.account_synced = true;
         let at = (info.ledger_index, u32::MAX);
-        if let Some(cursor) = self.cursor {
+        if let Some(cursor) = self.f.cursor {
             self.match_line(effects);
-            self.cursor = Some(cursor.max(at));
+            self.f.cursor = Some(cursor.max(at));
         }
         account.read_issuer(T::TOKEN.issuer);
         self.check_line(account, at, effects);
-        self.ask_recover(account);
+        self.f.ask_recover(account, self.account_synced);
     }
 
     /// Once the account is synced and the line is as the scheme needs it,
@@ -487,16 +425,16 @@ impl<T: IssuedToken> TokenScheme<T> {
             self.correct_line(account);
             return;
         }
-        if self.cursor.is_some() || !self.account_synced {
+        if self.f.cursor.is_some() || !self.account_synced {
             return;
         }
         let target = Self::bookable(self.line.flatten().as_ref());
-        if self.booked == 0 && target > 0 {
+        if self.f.booked == 0 && target > 0 {
             effects.push(Effect::Deposit { amount: target });
-            self.booked = target;
+            self.f.booked = target;
         }
         self.match_line(effects);
-        self.cursor = Some(at);
+        self.f.cursor = Some(at);
     }
 
     /// Signs a `TrustSet` that sets the line as the scheme needs it, unless
@@ -509,7 +447,7 @@ impl<T: IssuedToken> TokenScheme<T> {
             || !self.account_synced
             || self.trust_set.is_some()
             || account.signs_trust_set(self.id())
-            || self.validated < self.trust_at
+            || self.f.validated < self.trust_at
             || !issuer_exists
         {
             return;
@@ -525,7 +463,7 @@ impl<T: IssuedToken> TokenScheme<T> {
     /// long as the last.
     fn trust_failed(&mut self) {
         self.trust_set = None;
-        self.trust_at = self.validated.saturating_add(self.trust_wait);
+        self.trust_at = self.f.validated.saturating_add(self.trust_wait);
         self.trust_wait = self
             .trust_wait
             .saturating_mul(2)
@@ -535,22 +473,7 @@ impl<T: IssuedToken> TokenScheme<T> {
     /// The account is gone, and the line with it: what the books held is a
     /// loss through suspense, and the scheme starts from nothing.
     fn written_off(&mut self, restarted: bool, effects: &mut Vec<Effect>) {
-        if restarted {
-            for recovering in &mut self.recovering {
-                recovering.ask_at = 0;
-            }
-        }
-        if self.booked > 0 {
-            effects.push(Effect::Reconcile {
-                amount: self.booked,
-                gain: false,
-                cause: ReconcileCause::Unexplained,
-            });
-            self.booked = 0;
-        }
-        // What they held went with the line.
-        self.entries.clear();
-        self.cursor = None;
+        self.f.written_off(restarted, effects);
         self.line = None;
         self.issuer = None;
         self.account_synced = false;
@@ -566,14 +489,8 @@ impl<T: IssuedToken> TokenScheme<T> {
             return;
         };
         let target = self.target(line.as_ref());
-        if target != self.booked {
-            effects.push(Effect::Reconcile {
-                amount: target.abs_diff(self.booked),
-                gain: target > self.booked,
-                cause: ReconcileCause::Unexplained,
-            });
-            self.booked = target;
-        }
+        self.f
+            .reconcile_to(target, ReconcileCause::Unexplained, effects);
     }
 
     /// Books one validated transaction, once, in ledger order, by what it
@@ -599,9 +516,9 @@ impl<T: IssuedToken> TokenScheme<T> {
                 self.trust_failed();
             }
         }
-        let change = record.line(self.account, T::TOKEN.issuer, T::TOKEN.currency);
-        let after = change.map(|change| change.after().and_then(|line| line.view(self.account)));
-        match self.cursor {
+        let change = record.line(self.f.account, T::TOKEN.issuer, T::TOKEN.currency);
+        let after = change.map(|change| change.after().and_then(|line| line.view(self.f.account)));
+        match self.f.cursor {
             None => {
                 if let Some(after) = after {
                     self.line = Some(after);
@@ -612,22 +529,23 @@ impl<T: IssuedToken> TokenScheme<T> {
             Some(cursor) if at <= cursor => {
                 if let Some(ours) = mine.filter(|ours| ours.settles) {
                     let booked = self.ours(record, &ours, effects);
-                    self.hold(booked, effects);
+                    self.f.hold(booked, effects);
                     self.match_line(effects);
                 }
                 return;
             }
             Some(_) => {}
         }
-        self.cursor = Some(at);
+        self.f.cursor = Some(at);
         // What the transaction did to the line is what its metadata says,
         // before and after, never what the scheme last saw: after a
         // restart it saw nothing, and the line may have moved since.
-        let before = change.map(|change| change.before().and_then(|line| line.view(self.account)));
+        let before =
+            change.map(|change| change.before().and_then(|line| line.view(self.f.account)));
         if let Some(after) = after {
             self.line = Some(after);
         }
-        let mut booked = i128::from(self.booked);
+        let mut booked = i128::from(self.f.booked);
         if let Some(ours) = mine {
             if ours.settles {
                 booked = self.ours(record, &ours, effects);
@@ -655,38 +573,25 @@ impl<T: IssuedToken> TokenScheme<T> {
                 }
             }
         }
-        self.hold(booked, effects);
+        self.f.hold(booked, effects);
         self.match_line(effects);
         // A line set otherwise since, such as rippling enabled outside the
         // node, is set again.
         self.check_line(account, at, effects);
     }
 
-    /// Makes the books hold `booked`. Below zero, they hold nothing, and
-    /// what they are short comes from suspense.
-    fn hold(&mut self, booked: i128, effects: &mut Vec<Effect>) {
-        self.booked = narrow(booked.clamp(0, i128::from(MAX_TOTAL)));
-        if booked < 0 {
-            effects.push(Effect::Reconcile {
-                amount: narrow(-booked),
-                gain: true,
-                cause: ReconcileCause::Unexplained,
-            });
-        }
-    }
-
     /// Settles one of our settlements the ledger validated, which paid
     /// `paid` in internal units: posted or voided. Its fee is gas, which
     /// this ledger does not hold. Returns what the books then hold.
     fn resolve(&mut self, record: &TxRecord, paid: u64, effects: &mut Vec<Effect>) -> i128 {
-        self.recovering.retain(|r| r.hash != record.hash);
+        self.f.resolved(&record.hash);
         let settlement = hash_name(&record.hash);
         if record.succeeded() {
             effects.push(Effect::Finalize { settlement });
-            i128::from(self.booked) - i128::from(paid)
+            i128::from(self.f.booked) - i128::from(paid)
         } else {
             effects.push(Effect::Cancel { settlement });
-            i128::from(self.booked)
+            i128::from(self.f.booked)
         }
     }
 
@@ -694,35 +599,12 @@ impl<T: IssuedToken> TokenScheme<T> {
     /// on its way, the owner's last one read again, or a settlement.
     /// Returns what the books then hold.
     fn ours(&mut self, record: &TxRecord, ours: &Ours, effects: &mut Vec<Effect>) -> i128 {
-        if self.is_owner_payment(&record.hash) {
+        if self.f.is_owner_payment(&record.hash) {
             self.owner_paid(record, effects)
-        } else if self.was_owner_payment(&record.hash) {
+        } else if self.f.was_owner_payment(&record.hash) {
             self.owner_read_again(record, ours, effects)
         } else {
             self.resolve(record, paid(ours), effects)
-        }
-    }
-
-    /// Whether `hash` is the owner's payment on its way.
-    fn is_owner_payment(&self, hash: &[u8; 32]) -> bool {
-        self.owner_payment.is_some_and(|(owner, _)| owner == *hash)
-    }
-
-    /// Whether `hash` is the owner's last payment no longer on its way.
-    fn was_owner_payment(&self, hash: &[u8; 32]) -> bool {
-        self.owner_outcome.is_some_and(|(owner, _)| owner == *hash)
-    }
-
-    /// The owner's payment on its way is no longer, as in the XRP scheme:
-    /// what became of it posts the node's hold on the owner's funds if it
-    /// applied, and voids it otherwise.
-    fn owner_done(&mut self, outcome: OwnerPaymentState, effects: &mut Vec<Effect>) {
-        if let Some((hash, _)) = self.owner_payment.take() {
-            self.owner_outcome = Some((hash, outcome));
-            effects.push(Effect::OwnerPaid {
-                id: hash_name(&hash),
-                applied: outcome == OwnerPaymentState::Applied,
-            });
         }
     }
 
@@ -731,15 +613,16 @@ impl<T: IssuedToken> TokenScheme<T> {
     /// fee is gas, which this ledger does not hold. Returns what the books
     /// then hold.
     fn owner_paid(&mut self, record: &TxRecord, effects: &mut Vec<Effect>) -> i128 {
-        let booked = i128::from(self.booked);
-        let Some((_, micros)) = self.owner_payment else {
+        let booked = i128::from(self.f.booked);
+        let Some((_, micros)) = self.f.owner_payment else {
             return booked;
         };
         if record.succeeded() {
-            self.owner_done(OwnerPaymentState::Applied, effects);
+            self.f.owner_done(OwnerPaymentState::Applied, effects);
             booked - i128::from(micros * UNITS_PER_MICRO)
         } else {
-            self.owner_done(OwnerPaymentState::Failed(failure_of(record)), effects);
+            self.f
+                .owner_done(OwnerPaymentState::Failed(failure_of(record)), effects);
             booked
         }
     }
@@ -756,27 +639,18 @@ impl<T: IssuedToken> TokenScheme<T> {
         ours: &Ours,
         effects: &mut Vec<Effect>,
     ) -> i128 {
-        let booked = i128::from(self.booked);
-        let Some((hash, OwnerPaymentState::Unknown)) = self.owner_outcome else {
+        let booked = i128::from(self.f.booked);
+        let Some((hash, OwnerPaymentState::Unknown)) = self.f.owner_outcome else {
             return booked;
         };
         if record.succeeded() {
             let amount = paid(ours);
             effects.push(Effect::Withdrawal { amount });
-            self.owner_outcome = Some((hash, OwnerPaymentState::Applied));
+            self.f.owner_outcome = Some((hash, OwnerPaymentState::Applied));
             booked - i128::from(amount)
         } else {
-            self.owner_outcome = Some((hash, OwnerPaymentState::Failed(failure_of(record))));
+            self.f.owner_outcome = Some((hash, OwnerPaymentState::Failed(failure_of(record))));
             booked
-        }
-    }
-
-    /// A settlement of ours that validated while the scheme was not on the
-    /// account, and that it did not read again: booked as one never read
-    /// once found, as the XRP scheme does.
-    fn unread(&mut self, hash: [u8; 32]) {
-        if let Some(recovering) = self.recovering.iter_mut().find(|r| r.hash == hash) {
-            recovering.unread = true;
         }
     }
 
@@ -789,14 +663,13 @@ impl<T: IssuedToken> TokenScheme<T> {
     /// server says it delivered: what the line booked through suspense at
     /// the sync comes back out.
     fn recovered(&mut self, hash: [u8; 32], record: &TxRecord, effects: &mut Vec<Effect>) {
-        let Some(position) = self.recovering.iter().position(|r| r.hash == hash) else {
+        let Some(recovering) = self.f.found(&hash) else {
             return;
         };
-        let recovering = self.recovering.remove(position);
         let settlement = hash_name(&hash);
         if let (true, Some(amount)) = (recovering.unread, recovering.amount) {
             let booked = self.resolve(record, amount, effects);
-            self.hold(booked, effects);
+            self.f.hold(booked, effects);
             self.match_line(effects);
             return;
         }
@@ -807,61 +680,26 @@ impl<T: IssuedToken> TokenScheme<T> {
         });
     }
 
-    /// Asks for the outcome of a restart's settlements, as the XRP scheme
-    /// does: each again only once its wait is over, twice as long each time,
-    /// and only once the account synced, which tells first what the scheme
-    /// did not read again.
-    fn ask_recover(&mut self, account: &mut XrplAccount) {
-        if !self.account_synced {
-            return;
-        }
-        let validated = self.validated;
-        for recovering in &mut self.recovering {
-            if !account.can_look_up() {
-                return;
-            }
-            if validated >= recovering.ask_at && !account.is_looking_up(&recovering.hash) {
-                recovering.ask_at = validated.saturating_add(recovering.wait);
-                recovering.wait = recovering
-                    .wait
-                    .saturating_mul(2)
-                    .min(MAX_RECOVER_WAIT_LEDGERS);
-                account.look_up(recovering.hash);
-            }
-        }
-    }
-
     /// The peer a transaction settles from, and how much in internal units:
     /// a successful Payment to us that delivered the token of our issuer, with
     /// our memo naming a peer whose known address sent it. Less than a unit
     /// is no settlement.
     fn settled_by(&self, record: &TxRecord) -> Option<(Name, u64)> {
         let (peer, amount) = self.named_by(record)?;
-        (self.peers.get(&peer).map(|(address, _)| *address) == Some(record.account))
-            .then_some((peer, amount))
+        self.f.sent_by_peer(record, peer).then_some((peer, amount))
     }
 
     /// The node a successful Payment to us that delivered the token of our
     /// issuer names in our memo, other than ours, and how much it delivered
     /// in internal units: whoever sent it. Less than a unit names no one.
     fn named_by(&self, record: &TxRecord) -> Option<(Name, u64)> {
-        if !(record.succeeded() && record.is_payment && record.destination == Some(self.account)) {
-            return None;
-        }
         let delivered = record.delivered_token?;
         if delivered.currency != T::TOKEN.currency || delivered.issuer != T::TOKEN.issuer {
             return None;
         }
-        let (memo_type, memo_data) = record.memo.as_ref()?;
-        if memo_type.as_slice() != T::TOKEN.memo_type {
-            return None;
-        }
-        let node = Name::new(core::str::from_utf8(memo_data).ok()?).ok()?;
-        if node == self.node {
-            return None;
-        }
+        let node = self.f.named_by(record, T::TOKEN.memo_type)?;
         let micros = u64::try_from(delivered.value.floor_units(DECIMALS)?).ok()?;
-        let held = self.booked.saturating_add(self.entries.total()) / UNITS_PER_MICRO;
+        let held = self.f.booked.saturating_add(self.f.entries.total()) / UNITS_PER_MICRO;
         let room = MAX_MICROS.saturating_sub(held);
         let amount = micros.min(room) * UNITS_PER_MICRO;
         (amount > 0).then_some((node, amount))
@@ -873,44 +711,7 @@ impl<T: IssuedToken> TokenScheme<T> {
         let Some((node, amount)) = self.named_by(record) else {
             return false;
         };
-        let read = self.validated.max(record.ledger_index);
-        self.entries
-            .hold(node, record.account, amount, record.hash, read)
-    }
-
-    /// Books the entry payments whose hold is over as the owner's
-    /// deposits.
-    fn expire_entries(&mut self, effects: &mut Vec<Effect>) {
-        let expired = self.entries.expire(self.validated);
-        if expired.is_empty() {
-            return;
-        }
-        for entry in expired {
-            effects.push(Effect::Deposit {
-                amount: entry.amount,
-            });
-            self.booked = self.booked.saturating_add(entry.amount);
-        }
-        // What fees or a reserve took meanwhile came out of what was held:
-        // the books match what is left, the shortfall through suspense.
-        self.match_line(effects);
-    }
-
-    /// Keeps a peer's address; past [`MAX_PEERS`], the one learnt longest
-    /// ago goes, as in the XRP scheme.
-    fn learn(&mut self, peer: Name, address: AccountId) {
-        if !self.peers.contains_key(&peer)
-            && self.peers.len() >= MAX_PEERS
-            && let Some(oldest) = self
-                .peers
-                .iter()
-                .min_by_key(|(_, (_, learnt))| *learnt)
-                .map(|(name, _)| *name)
-        {
-            self.peers.remove(&oldest);
-        }
-        self.peers_revision = self.peers_revision.wrapping_add(1);
-        self.peers.insert(peer, (address, self.peers_revision));
+        self.f.hold_entry(record, node, amount)
     }
 }
 
@@ -926,111 +727,17 @@ fn paid(ours: &Ours) -> u64 {
     micros * UNITS_PER_MICRO
 }
 
-/// What is kept with the books: the same as the XRP scheme keeps.
+/// What is kept with the books: what every scheme on the account keeps,
+/// and the peg guard.
 impl<T: IssuedToken> TokenScheme<T> {
-    fn fingerprint(&self) -> u64 {
-        let mut mix: u64 = 0xcbf2_9ce4_8422_2325;
-        let mut add = |value: u64| {
-            mix ^= value;
-            mix = mix.wrapping_mul(0x0100_0000_01b3);
-        };
-        let (ledger, index) = self.cursor.unwrap_or((u32::MAX, u32::MAX));
-        add(u64::from(ledger) << 32 | u64::from(index));
-        add(self.peers_revision);
-        for Recovering { hash, unread, .. } in &self.recovering {
-            add(u64::from(hash[0]) << 8 | u64::from(hash[1]) | u64::from(*unread) << 16);
-        }
-        add(self.recovering.len() as u64);
-        add(self.write_offs);
-        add(self.guard.as_ref().map_or(0, Guard::fingerprint));
-        if let Some((hash, micros)) = self.owner_payment {
-            add(u64::from(hash[0]) << 8 | u64::from(hash[1]));
-            add(micros);
-        }
-        if let Some((hash, outcome)) = self.owner_outcome {
-            add(u64::from(hash[0]) << 8 | u64::from(hash[1]));
-            add(outcome_code(outcome));
-        }
-        self.entries.fingerprint(&mut add);
-        mix
-    }
-
-    fn state_value(&self) -> Value {
-        let peers: serde_json::Map<String, Value> = self
-            .peers
-            .iter()
-            .map(|(peer, (address, _))| (peer.as_str().to_string(), address.to_address().into()))
-            .collect();
-        let recovering: Vec<Value> = self
-            .recovering
-            .iter()
-            .map(|r| hex_upper(&r.hash).into())
-            .collect();
-        let mut state = json!({
-            "cursor": self.cursor.map(|(ledger, index)| json!([ledger, index])),
-            "peers": peers,
-            "recovering": recovering,
-            "write_offs": self.write_offs,
-            "unread": unread_value(&self.recovering),
-            "entries": self.entries.value(),
-            "owner_payment": self
-                .owner_payment
-                .map(|(hash, micros)| json!([hex_upper(&hash), micros])),
-            "owner_outcome": self
-                .owner_outcome
-                .map(|(hash, outcome)| json!([hex_upper(&hash), outcome_code(outcome)])),
-        });
-        if let (Some(guard), Some(object)) = (&self.guard, state.as_object_mut()) {
-            object.insert("peg".into(), guard.state());
-        }
-        state
-    }
-
     fn restore(&mut self, state: &[u8]) -> Option<()> {
         let value: Value = serde_json::from_slice(state).ok()?;
-        let object = value.as_object()?;
-        if ["sequence", "in_flight", "newest"]
-            .iter()
-            .any(|key| object.contains_key(*key))
-        {
-            return None;
-        }
-        let number = |value: &Value| u32::try_from(value.as_u64()?).ok();
-        self.cursor = match value.get("cursor")? {
-            Value::Null => None,
-            cursor => Some((number(cursor.get(0)?)?, number(cursor.get(1)?)?)),
-        };
-        self.write_offs = restore_write_offs(&value)?;
+        self.f.restore(&value)?;
         // A state from before the guard has none: it starts anew.
         if let (Some(peg), Some(kept)) = (T::TOKEN.peg, value.get("peg")) {
             self.guard = Some(Guard::restore(peg, kept)?);
         }
-        let peers = value.get("peers")?.as_object()?;
-        let recovering = value.get("recovering")?.as_array()?;
-        if peers.len() > MAX_PEERS || recovering.len() > MAX_RECOVERING {
-            return None;
-        }
-        for (peer, address) in peers {
-            self.learn(Name::new(peer).ok()?, AccountId::parse(address.as_str()?)?);
-        }
-        for hash in recovering {
-            let hash: [u8; 32] = from_hex(hash.as_str()?)?.try_into().ok()?;
-            if self.recovering.iter().any(|r| r.hash == hash) {
-                return None;
-            }
-            self.recovering.push(Recovering::new(hash));
-        }
-        self.entries.restore(&value)?;
-        // Entry payments are read past the first sync only.
-        if self.cursor.is_none() && self.entries.total() > 0 {
-            return None;
-        }
-        self.owner_payment = restore_owner_payment(&value, MAX_MICROS)?;
-        if self.owner_payment.is_some_and(|(_, micros)| micros == 0) {
-            return None;
-        }
-        self.owner_outcome = restore_owner_outcome(&value)?;
-        restore_unread(&value, &mut self.recovering)
+        Some(())
     }
 }
 
@@ -1056,7 +763,7 @@ impl<T: IssuedToken> SettlementScheme for TokenScheme<T> {
     }
 
     fn balance(&self) -> u64 {
-        self.booked
+        self.f.booked
     }
 
     /// Synced once the account is and the line is as the scheme needs it.
@@ -1075,11 +782,11 @@ impl<T: IssuedToken> SettlementScheme for TokenScheme<T> {
     /// nothing. Until then no peer is taken, so none pays into a line that
     /// is missing (spec/decisions/synced-before-peering.md).
     fn has_synced(&self) -> bool {
-        self.cursor.is_some()
+        self.f.cursor.is_some()
     }
 
     fn peers(&self) -> bool {
-        self.peering
+        self.f.peering
     }
 
     /// Not while the issuer stops what peers pay us, nor while the peg
@@ -1129,11 +836,16 @@ impl<T: IssuedToken> SettlementScheme for TokenScheme<T> {
     }
 
     fn state(&self) -> Vec<u8> {
-        serde_json::to_vec(&self.state_value()).unwrap_or_default()
+        let mut state = self.f.state();
+        if let Some(guard) = &self.guard {
+            state.insert("peg".into(), guard.state());
+        }
+        serde_json::to_vec(&state).unwrap_or_default()
     }
 
     fn state_version(&self) -> u64 {
-        self.fingerprint()
+        self.f
+            .fingerprint(self.guard.as_ref().map_or(0, Guard::fingerprint))
     }
 
     fn on_asset(&mut self, now_ms: u64, asset: &mut dyn ExternalAsset, effects: &mut Vec<Effect>) {
@@ -1148,34 +860,29 @@ impl<T: IssuedToken> SettlementScheme for TokenScheme<T> {
         let Some(account) = account else {
             return;
         };
-        assert_eq!(account.account(), self.account, "the scheme's own account");
+        assert_eq!(
+            account.account(),
+            self.f.account,
+            "the scheme's own account"
+        );
         // The line first: a scheme new on a synced account makes it sync
         // again, and the line is read with it.
         account.follow_line(T::TOKEN.line());
-        self.validated = account.validated();
         let news = account.news().to_vec();
-        if missed_write_off(self.write_offs, account, &news) {
+        if self.f.catch_up(account, &news) {
             self.written_off(true, effects);
         }
-        self.write_offs = account.write_offs();
         for item in &news {
             self.tell(now_ms, account, item, effects);
         }
-        if self.cursor.is_some() {
-            self.expire_entries(effects);
+        if self.f.expire_entries(effects) {
+            self.match_line(effects);
         }
-        // One the account keeps no more, and told nothing of, was lost
-        // with its state: what it did is in the line.
-        if let Some((hash, _)) = self.owner_payment
-            && !account.keeps_transaction(&hash)
-        {
-            self.owner_done(OwnerPaymentState::Unknown, effects);
-        }
-        account.follow(self.id(), self.cursor, self.holds_anything());
+        self.f.caught_up(account, self.id(), effects);
     }
 
     fn peering_info(&self, out: &mut Vec<u8>) {
-        address_bytes(self.account, out);
+        self.f.peering_info(out);
     }
 
     fn create_peering_request(
@@ -1184,12 +891,7 @@ impl<T: IssuedToken> SettlementScheme for TokenScheme<T> {
         peering_info: &[u8],
         out: &mut Vec<u8>,
     ) -> Result<(), SchemeError> {
-        if !self.peering {
-            return Err(SchemeError::Unsupported);
-        }
-        parse_address(peering_info)?;
-        address_bytes(self.account, out);
-        Ok(())
+        self.f.create_peering_request(peering_info, out)
     }
 
     fn accept_peering_request(
@@ -1198,12 +900,7 @@ impl<T: IssuedToken> SettlementScheme for TokenScheme<T> {
         data: &[u8],
         response: &mut Vec<u8>,
     ) -> Result<Vec<u8>, SchemeError> {
-        if !self.peering {
-            return Err(SchemeError::Unsupported);
-        }
-        parse_address(data)?;
-        response.clear();
-        Ok(data.to_vec())
+        self.f.accept_peering_request(data, response)
     }
 
     fn finalize_peering_request(
@@ -1212,55 +909,27 @@ impl<T: IssuedToken> SettlementScheme for TokenScheme<T> {
         peering_info: &[u8],
         _data: &[u8],
     ) -> Result<Vec<u8>, SchemeError> {
-        if !self.peering {
-            return Err(SchemeError::Unsupported);
-        }
-        parse_address(peering_info)?;
-        Ok(peering_info.to_vec())
+        self.f.finalize_peering_request(peering_info)
     }
 
     fn on_peered(&mut self, peer: Name, state: &[u8]) {
-        let address = parse_address(state);
-        assert!(address.is_ok(), "a peer state the scheme did not return");
-        if let Ok(address) = address {
-            self.learn(peer, address);
-        }
+        self.f.on_peered(peer, state);
     }
 
-    /// As in the XRP scheme: a Payment from its address after the close is
-    /// the owner's deposit (spec/decisions/closing-channels.md), once held
-    /// as an entry payment if it is one.
     fn on_closed(&mut self, peer: Name) {
-        // A new revision, or the node would not keep that the address
-        // went, and a restart would bring it back.
-        if self.peers.remove(&peer).is_some() {
-            self.peers_revision = self.peers_revision.wrapping_add(1);
-        }
+        self.f.on_closed(peer);
     }
 
     /// As in the XRP scheme: the address the request names is where `peer`
     /// settles from.
     fn entry(&self, peer: Name, data: &[u8]) -> EntryPayment {
-        self.entries.entry(peer, parse_address(data).ok())
+        self.f.entry(peer, data)
     }
 
     /// As in the XRP scheme: what it held from `peer`, from the address it
     /// peered with, is its settlements.
     fn take_entry(&mut self, peer: Name, effects: &mut Vec<Effect>) {
-        let Some((address, _)) = self.peers.get(&peer).copied() else {
-            return;
-        };
-        for entry in self.entries.take(peer, address) {
-            effects.push(Effect::IncomingSettlement {
-                peer,
-                amount: entry.amount,
-                id: Some(hash_name(&entry.hash)),
-            });
-            self.booked = self.booked.saturating_add(entry.amount);
-        }
-        // The peer is credited what it paid; what the account no longer
-        // holds of it, spent on fees or held back by a reserve meanwhile,
-        // is a shortfall the books match through suspense.
+        self.f.take_entry(peer, effects);
         self.match_line(effects);
     }
 
@@ -1277,10 +946,7 @@ impl<T: IssuedToken> SettlementScheme for TokenScheme<T> {
         amount: u64,
         peer_state: &[u8],
     ) -> Result<PreparedSettlement, SchemeError> {
-        let destination = parse_address(peer_state)?;
-        if self.peers.get(&peer).map(|(address, _)| *address) != Some(destination) {
-            self.learn(peer, destination);
-        }
+        let destination = self.f.destination(peer, peer_state)?;
         let account = asset.and_then(account_of).ok_or(SchemeError::Unavailable)?;
         if !self.can_settle() {
             return Err(SchemeError::Unavailable);
@@ -1289,7 +955,7 @@ impl<T: IssuedToken> SettlementScheme for TokenScheme<T> {
         let value = TokenValue::from_units(micros, DECIMALS).ok_or(SchemeError::Unavailable)?;
         let memo = Memo {
             memo_type: T::TOKEN.memo_type.to_vec(),
-            memo_data: self.node.as_str().as_bytes().to_vec(),
+            memo_data: self.f.node.as_str().as_bytes().to_vec(),
         };
         let token = T::TOKEN.amount(value);
         let hash = account.sign_token_payment(self.id(), destination, token, alloc::vec![memo])?;
@@ -1310,23 +976,11 @@ impl<T: IssuedToken> SettlementScheme for TokenScheme<T> {
         settlement: Name,
         effects: &mut Vec<Effect>,
     ) {
-        let account = asset.and_then(account_of);
-        assert!(
-            account.is_some(),
-            "the scheme settles through an XRPL account"
-        );
-        if let (Some(account), Some(hash)) = (account, name_hash(settlement))
-            && account.execute(self.id(), hash)
-        {
-            return;
-        }
-        effects.push(Effect::Cancel { settlement });
+        Follower::execute(asset, self.id(), settlement, effects);
     }
 
     fn discard_settlement(&mut self, asset: Option<&mut dyn ExternalAsset>, settlement: Name) {
-        if let (Some(account), Some(hash)) = (asset.and_then(account_of), name_hash(settlement)) {
-            account.discard(self.id(), hash);
-        }
+        Follower::discard(asset, self.id(), settlement);
     }
 
     fn reconcile(
@@ -1335,24 +989,8 @@ impl<T: IssuedToken> SettlementScheme for TokenScheme<T> {
         pending: &[(Name, u64)],
         effects: &mut Vec<Effect>,
     ) {
-        let account = asset.and_then(account_of);
-        assert!(
-            account.is_some(),
-            "the scheme settles through an XRPL account"
-        );
-        let Some(account) = account else {
-            return;
-        };
-        for (id, amount) in pending {
-            let Some(hash) = name_hash(*id) else {
-                continue;
-            };
-            match account.resume(self.id(), hash) {
-                Resumed::InFlight => {}
-                Resumed::NeverSent => effects.push(Effect::Cancel { settlement: *id }),
-                Resumed::Unknown => recover(&mut self.recovering, hash, *amount),
-            }
-        }
+        let id = self.id();
+        self.f.reconcile(asset, id, pending, effects);
     }
 
     fn handle_settlement(
@@ -1364,11 +1002,7 @@ impl<T: IssuedToken> SettlementScheme for TokenScheme<T> {
         _effects: &mut Vec<Effect>,
     ) -> Result<(), SchemeError> {
         // The claim books nothing: the line says what arrived, once.
-        if data.len() == 32 {
-            Ok(())
-        } else {
-            Err(SchemeError::InvalidData)
-        }
+        check_claim(data)
     }
 
     fn handle_message(&mut self, _peer: Name, _message: &[u8], _effects: &mut Vec<Effect>) {}
@@ -1386,27 +1020,17 @@ impl<T: IssuedToken> SettlementScheme for TokenScheme<T> {
     /// cannot sign it now. Its fee is gas, on the books of the network's
     /// XRP scheme if that runs on the account, so nothing on this ledger
     /// is held for it.
+    ///
+    /// [`OWNER_MEMO_TYPE`]: crate::scheme::OWNER_MEMO_TYPE
     fn pay_owner(
         &mut self,
         asset: Option<&mut dyn ExternalAsset>,
         payment: &OwnerPayment,
     ) -> Result<Name, SchemeError> {
-        if self.owner_payment.is_some() {
-            return Err(SchemeError::Unavailable);
-        }
-        let destination = AccountId::parse(&payment.destination).ok_or(SchemeError::InvalidData)?;
+        let (destination, memos) = self.f.owner_request(payment)?;
         let micros = payment.amount / UNITS_PER_MICRO;
-        let memo_too_long = payment
-            .memo
-            .as_ref()
-            .is_some_and(|memo| memo.len() > MAX_OWNER_MEMO_BYTES);
         let whole = payment.amount.is_multiple_of(UNITS_PER_MICRO);
-        if destination == self.account
-            || micros == 0
-            || micros > MAX_MICROS
-            || !whole
-            || memo_too_long
-        {
+        if micros == 0 || micros > MAX_MICROS || !whole {
             return Err(SchemeError::InvalidData);
         }
         let account = asset.and_then(account_of).ok_or(SchemeError::Unavailable)?;
@@ -1414,64 +1038,19 @@ impl<T: IssuedToken> SettlementScheme for TokenScheme<T> {
             return Err(SchemeError::Unavailable);
         }
         let value = TokenValue::from_units(micros, DECIMALS).ok_or(SchemeError::InvalidData)?;
-        let memos = payment
-            .memo
-            .iter()
-            .map(|data| Memo {
-                memo_type: OWNER_MEMO_TYPE.to_vec(),
-                memo_data: data.clone(),
-            })
-            .collect();
         let token = T::TOKEN.amount(value);
         let hash =
             account.sign_token_payment_to(self.id(), (destination, payment.tag), token, memos)?;
-        let executed = account.execute(self.id(), hash);
-        assert!(executed, "a payment just signed is in flight");
-        self.owner_payment = Some((hash, micros));
-        Ok(hash_name(&hash))
+        Ok(self.f.owner_signed(account, self.id(), hash, micros))
     }
 
     fn owner_payment(&self, id: Name) -> OwnerPaymentState {
-        let Some(hash) = name_hash(id) else {
-            return OwnerPaymentState::Unknown;
-        };
-        if self.is_owner_payment(&hash) {
-            return OwnerPaymentState::InFlight;
-        }
-        match self.owner_outcome {
-            Some((done, outcome)) if done == hash => outcome,
-            _ => OwnerPaymentState::Unknown,
-        }
+        self.f.owner_state(id)
     }
 
     fn check_invariants(&self) {
-        assert!(self.peers.len() <= MAX_PEERS);
-        self.entries.check_invariants();
-        assert!(
-            self.cursor.is_some() || self.entries.total() == 0,
-            "entry payments are read past the first sync"
-        );
-        assert!(self.recovering.len() <= MAX_RECOVERING);
-        let mut seen = BTreeSet::new();
-        assert!(
-            self.recovering.iter().all(|r| seen.insert(r.hash)),
-            "each settlement looked up once"
-        );
-        for recovering in &self.recovering {
-            assert!((1..=MAX_RECOVER_WAIT_LEDGERS).contains(&recovering.wait));
-        }
-        assert!(
-            self.owner_payment
-                .is_none_or(|(_, micros)| (1..=MAX_MICROS).contains(&micros)),
-            "the owner's payment pays whole millionths the books can hold"
-        );
-        assert!(
-            self.owner_outcome
-                .is_none_or(|(_, outcome)| outcome != OwnerPaymentState::InFlight),
-            "the last owner's payment done is no longer on its way"
-        );
+        self.f.check_invariants();
         assert!((1..=MAX_TRUST_WAIT_LEDGERS).contains(&self.trust_wait));
-        assert!(self.booked <= MAX_TOTAL, "the books hold at most a total");
         assert_eq!(
             self.guard.is_some(),
             T::TOKEN.peg.is_some(),
@@ -1480,15 +1059,15 @@ impl<T: IssuedToken> SettlementScheme for TokenScheme<T> {
         if let Some(guard) = &self.guard {
             guard.check_invariants();
         }
-        assert_eq!(self.booked % UNITS_PER_MICRO, 0, "whole units");
+        assert_eq!(self.f.booked % UNITS_PER_MICRO, 0, "whole units");
         // The books hold the line in whole units, once the scheme booked
         // from it and knows it.
         if self.account_synced
-            && self.cursor.is_some()
+            && self.f.cursor.is_some()
             && let Some(line) = self.line
         {
             assert_eq!(
-                self.booked,
+                self.f.booked,
                 self.target(line.as_ref()),
                 "the books match the line"
             );
