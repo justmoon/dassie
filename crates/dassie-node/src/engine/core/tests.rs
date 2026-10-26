@@ -3424,8 +3424,9 @@ fn on_dev_timers_the_peg_guard_trips_in_seconds() {
 fn a_hub_ledger_converts_only_while_its_books_guard_runs() {
     use dassie_ledger::LedgerId;
     use dassie_settlement::{PegPause, PegView};
+    use dassie_xrpl::amount::IssuedAsset;
     use dassie_xrpl::codec::TokenValue;
-    use dassie_xrpl::fake::{FakeLedger, Token};
+    use dassie_xrpl::fake::FakeLedger;
     use dassie_xrpl::peg::Timings;
     use dassie_xrpl::{DROPS_PER_XRP, Wallet};
 
@@ -3498,7 +3499,9 @@ fn a_hub_ledger_converts_only_while_its_books_guard_runs() {
     let value = TokenValue::parse("1000").unwrap();
     let pool = |ledger: &mut FakeLedger, xrp: u64| {
         let drops = xrp * DROPS_PER_XRP;
-        ledger.set_pool(Token::DSUSD, drops, value, 205).unwrap();
+        ledger
+            .set_pool(IssuedAsset::DSUSD, drops, value, 205)
+            .unwrap();
     };
     pool(&mut ledger, 2_000);
     seconds(&mut core, &mut ledger, 2);
