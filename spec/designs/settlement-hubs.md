@@ -133,7 +133,7 @@ A node joins a hub in one of two ways.
 
 ## 6. Deposits and withdrawals
 
-**Deposits.** A member pays the escrow on the underlying ledger with its account number as the destination tag; the rules keep account numbers below 2³², so they fit one. Each validator follows the escrow's transactions on its own XRPL servers, and attests a deposit once it has proven it in a validated ledger: a transaction counts once its branch reaches the transaction tree of a ledger a quorum of the network's UNL signed, or that such a ledger's skip list proves, with the UNL the validator keeps for the network the rules name ([checking the validators](xrpl-validation.md)). A server's word attests nothing. A validator may ask a proof server of its own, a patched rippled it runs, which other nodes may name too. The deposit must be:
+**Deposits.** A member pays the escrow on the underlying ledger with its account number as the destination tag; the rules keep account numbers below 2³², so they fit one. Each validator follows the escrow's transactions on its own XRPL servers, and attests a deposit once it has proven it in a validated ledger: a transaction counts once its branch reaches the transaction tree of a ledger a quorum of the network's UNL signed, or that such a ledger's skip list proves, with the UNL the validator keeps for the network the rules name ([checking the validators](xrpl-validation.md)). A server's word attests nothing. **No deposit is missed:** a validator finds the escrow's deposits with no budget that can drop one, since anyone can send the escrow small payments, and a deposit a validator misses stays in the escrow without crediting its account. It may find their hashes from hints, such as the server's history, as long as it misses none and proves each. A validator may ask a proof server of its own, a patched rippled it runs, which other nodes may name too. The deposit must be:
 
 - the result is `tesSUCCESS`, and the transaction is a Payment to the escrow with a destination tag;
 - the amount is the ledger's `delivered_amount`, never `Amount`: a partial payment can name a large `Amount` and deliver almost nothing;
@@ -141,6 +141,8 @@ A node joins a hub in one of two ways.
 - the transaction's hash was not credited before.
 
 Once q validators attested the same deposit, the hub credits the account. A deposit to a tag that has no account, or whose account is closing (§3), is paid back to its sender, less a fee.
+
+**Judged at a fresh anchor.** What validators judge as of the latest ledger they proved, such as that nothing is submitted to a frozen escrow ([token-hubs](../decisions/token-hubs.md)), they judge only from an anchor younger than a bound. The verifier anchors on the ledger its server names as validated, so a server that stops closing ledgers would otherwise keep it on an old anchor. An old anchor only delays what validators attest; it never makes them attest what did not happen.
 
 **Withdrawals.**
 
