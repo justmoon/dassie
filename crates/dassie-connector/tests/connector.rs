@@ -113,7 +113,9 @@ fn unroutable_destinations_get_f02() {
 #[test]
 fn expiry_is_shortened_and_capped() {
     let mut h = Harness::new(Config::DEFAULT, UNIT);
-    let short = prepare(&format!("{OWN}.stream.x"), 1, NOW + 1_999, [1; 32]);
+    let window = Config::DEFAULT.message_window_ms;
+    let least = window + Config::DEFAULT.min_timeout_ms;
+    let short = prepare(&format!("{OWN}.stream.x"), 1, NOW + least - 1, [1; 32]);
     let length = answered(h.prepare(NOW, ALICE, 1, &short));
     assert_eq!(
         h.reject_written(length).0,
@@ -121,7 +123,11 @@ fn expiry_is_shortened_and_capped() {
     );
     let sent = pay(&mut h, 2, 1, [1; 32]);
     let outgoing = decode_prepare(&h.buffer[..sent.length]).expires_at.unix_ms;
-    assert_eq!(outgoing, NOW + 19_000, "the incoming expiry less 1 s");
+    assert_eq!(
+        outgoing,
+        NOW + 20_000 - window,
+        "the incoming expiry less the window"
+    );
     let long = prepare(&format!("{OWN}.stream.x"), 1, NOW + 600_000, [1; 32]);
     let sent = forwarded(h.prepare(NOW, ALICE, 3, &long));
     let outgoing = decode_prepare(&h.buffer[..sent.length]).expires_at.unix_ms;
@@ -213,10 +219,11 @@ fn a_wrong_fulfillment_is_rejected_at_once() {
 fn a_fulfillment_inside_the_expiry_is_honoured() {
     let mut h = Harness::new(Config::DEFAULT, 0);
     let sent = pay(&mut h, 1, 10, [3; 32]);
-    assert_eq!(h.connector.poll_timeout(), Some(NOW + 19_000));
-    assert!(h.timeout(NOW + 18_999).is_none());
+    let expiry = NOW + 20_000 - Config::DEFAULT.message_window_ms;
+    assert_eq!(h.connector.poll_timeout(), Some(expiry));
+    assert!(h.timeout(expiry - 1).is_none());
     let upstream = h
-        .respond(NOW + 18_999, RECEIVER, sent.request_id, &fulfill([3; 32]))
+        .respond(expiry - 1, RECEIVER, sent.request_id, &fulfill([3; 32]))
         .unwrap();
     assert_eq!(h.written(upstream.length), fulfill([3; 32]));
     assert_eq!(h.net(h.owner), 10);

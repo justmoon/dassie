@@ -3603,8 +3603,8 @@ const HUB_NONCE: [u8; 32] = [7; 32];
 #[test]
 fn a_hub_is_joined_only_if_it_fits_the_message_window() {
     let mut core = core(9);
-    let refused = core.add_scheme(dassie_hub::member::SCHEME_ID, hub_config(500, 600));
-    assert!(refused.is_err(), "500 ms + 600 ms is past the 1 s window");
+    let refused = core.add_scheme(dassie_hub::member::SCHEME_ID, hub_config(1_000, 700));
+    assert!(refused.is_err(), "1 s + 700 ms is past the 1.6 s window");
     assert!(core.ledger_views().is_empty());
     core.add_scheme(dassie_hub::member::SCHEME_ID, hub_config(500, 300))
         .unwrap();
