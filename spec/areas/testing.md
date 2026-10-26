@@ -17,7 +17,7 @@ Rules for every test:
 
 - **Every decoder has a "never panics on arbitrary input" property test.**
 - **Every simulation or property-test failure prints the seed that reproduces it.**
-- **CI runs fixed seeds only, no simulation sweeps and no fuzzing:** a simulation in CI is a scenario on one fixed seed ([Engineering](../engineering.md#no-fuzzing-or-random-seeds-in-ci)).
+- **CI runs fixed seeds only, no simulation sweeps and no fuzzing:** a simulation in CI is a scenario on one fixed seed, or the few that between them reach what it checks ([Engineering](../engineering.md#no-fuzzing-or-random-seeds-in-ci)).
 - **Each Rust test runs in its own process, at once with every other.** CI runs them with cargo-nextest (`.config/nextest.toml`), so that it takes as long as its slowest test rather than all of them in turn. A test relies on no other test's process, state or order, and takes its ports from the OS, or fixed ones no other test uses. Nextest retries no test: one that fails only sometimes fails CI.
 - **The end-to-end tests skip what they lack outside CI, and fail on it in CI** (`CI=true`), so a missing tool never passes CI silently.
 
@@ -41,11 +41,11 @@ Dassie runs against the reference implementations, which are the oracle for the 
 
 ## Deterministic simulation
 
-N nodes, or a crate's state machines, are wired in-process through the sans-IO crates, with a virtual clock and a seeded RNG (`dassie_kit::sim::SeededRng`, reproducible, not cryptographic). Every simulation is library code in its crate's `src/sim/`, so the scenario tests (on one fixed seed each) and the runner (on any seed) run the same code. What they share (the seeded RNG, a run's outcome, running seeds) is the `sim` feature of `dassie-kit`, a leaf crate that depends on no other of the workspace's: a protocol crate's simulation takes on nothing of the node's.
+N nodes, or a crate's state machines, are wired in-process through the sans-IO crates, with a virtual clock and a seeded RNG (`dassie_kit::sim::SeededRng`, reproducible, not cryptographic). Every simulation is library code in its crate's `src/sim/`, so the scenario tests (on fixed seeds) and the runner (on any seed) run the same code. What they share (the seeded RNG, a run's outcome, running seeds) is the `sim` feature of `dassie-kit`, a leaf crate that depends on no other of the workspace's: a protocol crate's simulation takes on nothing of the node's.
 
 - Between them, the simulations inject latency, loss, reordering, duplication, partitions, clock skew, crashes and restarts, failed commits, lying peers, and lying ledger servers. What the `node` simulation does not inject yet is in the [roadmap](../roadmap.md#continuous-simulation).
 - Every state machine's invariants are checked after each step.
-- A run is reproducible from its seed: two runs with the same seed produce identical event traces, and tests check it on seeds whose runs are short.
+- A run is reproducible from its seed: two runs with the same seed produce identical event traces, and tests check it, and that the run passes, on seeds whose runs are short.
 
 ### Simulation time follows production
 

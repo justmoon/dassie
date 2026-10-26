@@ -10,5 +10,7 @@ use dassie_hub::sim::chaos;
 
 #[test]
 fn a_seed_replays_the_same_run() {
-    assert_eq!(chaos::run(5).trace, chaos::run(5).trace);
+    let run = chaos::run(5);
+    assert!(!run.outcome.is_failure(), "{}", run.outcome);
+    assert_eq!(run.trace, chaos::run(5).trace);
 }

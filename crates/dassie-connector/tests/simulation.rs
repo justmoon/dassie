@@ -28,6 +28,9 @@ fn the_runs_exercise_every_outcome() {
 
 #[test]
 fn a_seed_replays_the_same_run() {
-    assert_eq!(traffic::run(7).trace, traffic::run(7).trace);
-    assert_ne!(traffic::run(7).trace, traffic::run(8).trace);
+    let (run, other) = (traffic::run(7), traffic::run(8));
+    assert!(!run.outcome.is_failure(), "{}", run.outcome);
+    assert!(!other.outcome.is_failure(), "{}", other.outcome);
+    assert_eq!(run.trace, traffic::run(7).trace);
+    assert_ne!(run.trace, other.trace);
 }

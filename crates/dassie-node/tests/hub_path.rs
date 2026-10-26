@@ -22,11 +22,11 @@ use std::collections::BTreeMap;
 
 use dassie_connector::{EndpointId, PacketRecord, PacketState};
 use dassie_ilp::ErrorCode;
+use dassie_kit::sim::assert_passes;
 use dassie_ledger::Name;
 use dassie_node::engine::HubPeer;
 use dassie_node::sim::checks::{check, check_hub_credit, check_hub_packets};
 use dassie_node::sim::{START, Settling, Sim, key, received, scripted};
-use dassie_kit::sim::assert_passes;
 use dassie_settlement::Held;
 
 #[test]

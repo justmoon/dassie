@@ -47,7 +47,7 @@ Dassie is not a consensus system ([own-books](decisions/own-books.md)). Each nod
 
 ## No fuzzing or random seeds in CI
 
-CI runs tests on fixed seeds only, property tests included ([Testing](areas/testing.md#property-tests)), and no simulation sweeps: a simulation in CI is a scenario on one fixed seed. A random seed per commit would fail pull requests on bugs they did not touch, and a sweep makes every one of them wait for what the campaign checks anyway. Random-seed campaigns and any fuzzing run outside CI, and never in it, nightly included ([random-seed-simulations](decisions/random-seed-simulations.md)).
+CI runs tests on fixed seeds only, property tests included ([Testing](areas/testing.md#property-tests)), and no simulation sweeps: a simulation in CI is a scenario on one fixed seed, or the few that between them reach what it checks. A random seed per commit would fail pull requests on bugs they did not touch, and a sweep makes every one of them wait for what the campaign checks anyway. Random-seed campaigns and any fuzzing run outside CI, and never in it, nightly included ([random-seed-simulations](decisions/random-seed-simulations.md)).
 
 ## TypeScript and packages
 

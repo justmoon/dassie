@@ -5,7 +5,7 @@
 //! behind that crate's `sim` feature (`testing` for `dassie-node`), and is
 //! a function from a seed to a [`Run`]: the same seed
 //! gives the same run, byte for byte (spec/decisions/tigerstyle.md). `cargo
-//! test` runs each on a few fixed seeds. This crate runs them on any seed:
+//! test` runs scenarios on fixed seeds. This crate runs them on any seed:
 //! one to replay a failure, a range to search for one, a commit's, or random
 //! ones for as long as a campaign lasts, as TigerBeetle's VOPR does.
 

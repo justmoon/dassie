@@ -22,6 +22,7 @@
 use std::collections::BTreeMap;
 
 use dassie_identity::NodeId;
+use dassie_kit::sim::{Outcome, assert_passes, caught, each};
 use dassie_ledger::LedgerId;
 use dassie_node::engine::{EngineError, EngineEvent, Lie, NewIncoming, NewOutgoing};
 use dassie_node::node::Policies;
@@ -33,7 +34,6 @@ use dassie_node::sim::{
     scripted, sent, xrpl_account,
 };
 use dassie_node::store::{Aim, ForeignAmount, OutgoingRow, OutgoingState, PaymentId, PeerSettings};
-use dassie_kit::sim::{Outcome, assert_passes, caught, each};
 use dassie_payments::amount::Amount;
 use dassie_payments::gnap::Limits;
 use dassie_settlement::{LedgerStatus, policy};
@@ -178,7 +178,9 @@ fn a_peering_ended_after_its_last_settlement_was_booked_ends_after_the_wait() {
 
 #[test]
 fn a_seed_replays_the_same_run() {
-    assert_eq!(scripted::run(2).trace, scripted::run(2).trace);
+    let run = scripted::run(2);
+    assert!(!run.outcome.is_failure(), "{}", run.outcome);
+    assert_eq!(run.trace, scripted::run(2).trace);
 }
 
 /// Two nodes, peered, and a client of node 0 paying node 1's receiver,

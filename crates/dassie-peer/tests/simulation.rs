@@ -10,10 +10,11 @@
 use dassie_kit::sim::each;
 use dassie_peer::sim::chaos;
 
-/// The same seed, run twice at once on two threads, makes the same run. A
-/// seed of three nodes, whose run takes a fraction of a second.
+/// A seed passes, and run twice at once on two threads makes the same run.
+/// A seed of three nodes, whose run takes a fraction of a second.
 #[test]
 fn a_seed_replays_the_same_run() {
     let runs = each(&[14, 14], chaos::run);
+    assert!(!runs[0].outcome.is_failure(), "{}", runs[0].outcome);
     assert_eq!(runs[0].trace, runs[1].trace);
 }
