@@ -810,13 +810,15 @@ fn balance_changes(meta: &Value) -> Vec<BalanceChange> {
             };
             let account = AccountId::parse(fields.get("Account")?.as_str()?)?;
             let final_balance = drops(fields.get("Balance"));
+            // A deleted root's final balance is the zero the ledger left it
+            // with: what it held before is in its previous fields.
             let (before, after) = match kind.as_str() {
                 "CreatedNode" => (0, final_balance?),
-                "DeletedNode" => (final_balance?, 0),
                 _ => {
-                    let after = final_balance?;
+                    let balance = final_balance?;
                     let before = drops(inner.get("PreviousFields").and_then(|p| p.get("Balance")))
-                        .unwrap_or(after);
+                        .unwrap_or(balance);
+                    let after = if kind == "DeletedNode" { 0 } else { balance };
                     (before, after)
                 }
             };

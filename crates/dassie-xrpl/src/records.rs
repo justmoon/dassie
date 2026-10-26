@@ -726,7 +726,9 @@ impl Meta {
 
     /// What a root's node did to its XRP, as the JSON's `AffectedNodes`
     /// say it: a root without its balance, such as one the transaction
-    /// only threaded, is left out.
+    /// only threaded, is left out. A deleted root's final balance is the
+    /// zero the ledger left it with: what it held before is in its
+    /// previous fields, as a modified root's is.
     fn root(&mut self, parts: &Node<'_>, created: bool, deleted: bool) -> Result<(), DecodeError> {
         let fields = if created { &parts.news } else { &parts.finals };
         let fields = RootFields::read(fields.clone())?;
@@ -735,11 +737,10 @@ impl Meta {
         };
         let (before, after) = if created {
             (0, balance)
-        } else if deleted {
-            (balance, 0)
         } else {
             let previous = RootFields::read(parts.previous.clone())?;
-            (previous.balance.unwrap_or(balance), balance)
+            let after = if deleted { 0 } else { balance };
+            (previous.balance.unwrap_or(balance), after)
         };
         self.changes.push(BalanceChange {
             account,
