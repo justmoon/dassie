@@ -1,7 +1,6 @@
 //! The node table (spec/areas/network.md#node-table): what a node knows
 //! about the others.
 
-use crate::wire::Endpoint;
 use alloc::collections::BTreeMap;
 use alloc::string::String;
 use alloc::vec::Vec;
@@ -9,7 +8,7 @@ use alloc::vec::Vec;
 use dassie_identity::{NodeId, PublicKey};
 
 use crate::config::Rate;
-use crate::wire::{HubMembership, SchemeId, SignedNodeInfo, TerminationReason};
+use crate::wire::{Endpoint, HubMembership, SchemeId, SignedNodeInfo, TerminationReason};
 
 /// Why a node is in the table. A node with none left is removed
 /// after a grace period.

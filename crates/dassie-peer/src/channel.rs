@@ -7,12 +7,11 @@
 //! stays of it ([`Closed`]) is on disk only, and the next peering opens it
 //! again from there (spec/decisions/closing-channels.md).
 
-use crate::wire::Endpoint;
 use alloc::vec::Vec;
 
 use dassie_identity::PublicKey;
 
-use crate::wire::SchemeId;
+use crate::wire::{Endpoint, SchemeId};
 
 /// A settlement message not yet acknowledged.
 #[derive(Clone, Debug, PartialEq, Eq)]

@@ -5,7 +5,6 @@
 //! probe of the requester's URL; name messages go to the registrar
 //! (`names.rs`).
 
-use crate::wire::Endpoint;
 use alloc::boxed::Box;
 use alloc::vec::Vec;
 
@@ -18,7 +17,7 @@ use crate::hooks::PeeringHooks;
 use crate::io::{Event, Inbound, InboundId, Output, PacketAnswer, Reply, SettlementAnswer};
 use crate::table::{Entry, Network, Registration, Sources};
 use crate::wire::{
-    Content, LinkStateResponse, MAX_CLAIM_BYTES, SchemeId, SignedNodeInfo, encode_expiry,
+    Content, Endpoint, LinkStateResponse, MAX_CLAIM_BYTES, SchemeId, SignedNodeInfo, encode_expiry,
     encode_link_states, encode_octets, encode_settling,
 };
 

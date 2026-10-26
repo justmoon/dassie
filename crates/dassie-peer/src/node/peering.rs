@@ -3,7 +3,6 @@
 //! answering. Termination, bans and the advertise flag are in
 //! [`lifecycle`](super::lifecycle).
 
-use crate::wire::Endpoint;
 use alloc::vec::Vec;
 
 use dassie_identity::NodeId;
@@ -19,7 +18,7 @@ use crate::table::{
     Advertise, Entry, LinkState, Network, PeerState, Peering as PeeringState, Sources, backoff,
 };
 use crate::wire::{
-    Content, PeeringRequest, PeeringResponse, RefusalReason, SchemeId, SignedNodeInfo,
+    Content, Endpoint, PeeringRequest, PeeringResponse, RefusalReason, SchemeId, SignedNodeInfo,
     decode_octets,
 };
 

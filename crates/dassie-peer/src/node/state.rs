@@ -2,7 +2,6 @@
 //! their changes, expiring registrations, removing nodes nobody needs, the
 //! routes, and the invariants.
 
-use crate::wire::Endpoint;
 use alloc::string::String;
 use alloc::vec::Vec;
 
@@ -18,7 +17,7 @@ use crate::routing;
 use crate::table::{
     Advertise, Depeering, Entry, LinkState, PeerState, Peering, Room, Sources, Termination,
 };
-use crate::wire::{SchemeId, SignedNodeInfo};
+use crate::wire::{Endpoint, SchemeId, SignedNodeInfo};
 
 /// How far our peering with a node has come.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

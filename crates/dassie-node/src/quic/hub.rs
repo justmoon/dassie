@@ -6,7 +6,6 @@
 //! validator's node key, as a peer request is to its node's, and the server
 //! learns the client's node from the key the connection proved.
 
-use dassie_peer::wire::Endpoint as PeerEndpoint;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -16,6 +15,7 @@ use quinn::Connection;
 use super::{ANSWER_TIMEOUT, On, Quic, StreamKind, no_room, read_in_order};
 use dassie_hub::founding::{FoundingAnswer, Refusal};
 use dassie_oer::Encode;
+use dassie_peer::wire::Endpoint as PeerEndpoint;
 
 use crate::hub::HubAccess;
 use crate::hub::founding::FoundingAccess;

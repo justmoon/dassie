@@ -10,8 +10,7 @@ use dassie_identity::{NodeId, PublicKey};
 use dassie_peer::names::{
     Commitment, Granted, HeldName, LogHead, Logged, Name, NameRegistration, Salt, Stage, Unsealing,
 };
-use dassie_peer::wire::Endpoint;
-use dassie_peer::wire::{SchemeId, TerminationReason};
+use dassie_peer::wire::{Endpoint, SchemeId, TerminationReason};
 use dassie_peer::{
     Channel, Closed, Depeering, Network, Outgoing, PeerBatch, Peering, Registration, Sources,
     Stored, StoredChannel, StoredClosed, StoredNode, Termination,

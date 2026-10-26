@@ -12,7 +12,6 @@ mod peering;
 mod settle;
 mod state;
 
-use crate::wire::Endpoint;
 use alloc::boxed::Box;
 use alloc::collections::{BTreeMap, BTreeSet, VecDeque};
 use alloc::string::String;
@@ -30,7 +29,8 @@ use crate::names::{Commitment, Holders, Name, Registrant, Registrar};
 use crate::routing::{RouteKey, Routes};
 use crate::table::{Bucket, Entry, NetworkBuckets, Sources};
 use crate::wire::{
-    Content, HubList, HubListing, HubMembership, MAX_CLAIM_BYTES, MAX_COMMITMENT_BYTES, SchemeId,
+    Content, Endpoint, HubList, HubListing, HubMembership, MAX_CLAIM_BYTES, MAX_COMMITMENT_BYTES,
+    SchemeId,
 };
 
 pub use lifecycle::BanError;
@@ -583,8 +583,8 @@ impl PeerNode {
     }
 
     /// Sends `content` to `to` at `endpoint`, or, without one, over the
-    /// connection the periphery node `to` opened. The transport pins the connection
-    /// to `to`'s key, so only `to` answers, and proves ours to it
+    /// connection the periphery node `to` opened. The transport pins the
+    /// connection to `to`'s key, so only `to` answers, and proves ours to it
     /// (spec/areas/peer-protocol.md#authentication).
     pub(crate) fn send_via(
         &mut self,

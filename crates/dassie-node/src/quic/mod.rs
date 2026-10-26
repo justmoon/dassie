@@ -36,7 +36,6 @@ pub mod proxy;
 pub mod relay;
 pub mod tunnel;
 
-use dassie_peer::wire::Endpoint as PeerEndpoint;
 use std::collections::BTreeMap;
 use std::fmt;
 use std::future::Future;
@@ -51,7 +50,7 @@ use dassie_identity::{NodeId, NodeKey, NodeSecret, PublicKey, QuicEndpoint};
 use dassie_kit::ClientKey;
 use dassie_node_core::address::is_public;
 use dassie_node_core::connections::ConnectionLimits;
-use dassie_peer::wire::{MAX_MESSAGE_BYTES, MAX_NAME_LIST_BYTES};
+use dassie_peer::wire::{Endpoint as PeerEndpoint, MAX_MESSAGE_BYTES, MAX_NAME_LIST_BYTES};
 use dassie_peer::{Failure, Request, Response};
 use quinn::crypto::rustls::{QuicClientConfig, QuicServerConfig};
 use quinn::{Connection, Endpoint, EndpointConfig, ReadToEndError, TransportConfig, VarInt};

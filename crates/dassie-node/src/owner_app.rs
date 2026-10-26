@@ -8,11 +8,11 @@
 //! [`serve`] is the node's side; [`connect`] an app's, given an endpoint
 //! whose key is the device key.
 
-use dassie_peer::wire::Endpoint;
 use std::sync::Arc;
 
 use bytes::BytesMut;
 use dassie_identity::NodeId;
+use dassie_peer::wire::Endpoint;
 use futures_util::StreamExt;
 use tokio_util::codec::{Framed, LengthDelimitedCodec};
 use tokio_util::sync::CancellationToken;

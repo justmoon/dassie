@@ -18,7 +18,6 @@
 //!   [`Outcome`] byte;
 //! - relayed stream: purpose byte, client node ID; answered the same way.
 
-use dassie_peer::wire::Endpoint as PeerEndpoint;
 use std::collections::BTreeMap;
 use std::fmt;
 use std::net::IpAddr;
@@ -30,6 +29,7 @@ use dassie_identity::{NODE_ID_BYTES, NodeId};
 use dassie_kit::ClientKey;
 use dassie_node_core::config::NodeConfig;
 use dassie_node_core::connections::ConnectionLimits;
+use dassie_peer::wire::Endpoint as PeerEndpoint;
 use quinn::{Connection, RecvStream, SendStream};
 use rustls::pki_types::ServerName;
 use tokio::io::Join;

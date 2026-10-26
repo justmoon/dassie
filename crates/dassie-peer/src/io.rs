@@ -1,13 +1,12 @@
 //! What goes in and out of the peer node: requests for the driver to send,
 //! their results, replies to inbound requests, and events.
 
-use crate::wire::Endpoint;
 use alloc::vec::Vec;
 
 use dassie_identity::NodeId;
 
 use crate::names::Name;
-use crate::wire::{Kind, SchemeId, TerminationReason};
+use crate::wire::{Endpoint, Kind, SchemeId, TerminationReason};
 
 /// Our number for a request we send.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
