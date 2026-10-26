@@ -459,14 +459,14 @@ impl std::fmt::Debug for Node {
     }
 }
 
-/// Locks a mutex, carrying on past a panic of another holder: none of the
-/// node's mutexes guard an update that a panic could leave half done.
 /// The rate limiter's key for the node of `key`: the first half of its
 /// public key, which two nodes share only by chance.
 fn key_client(key: &dassie_identity::PublicKey) -> ClientKey {
     ClientKey::from_bytes(key.as_bytes().first_chunk().copied().unwrap_or_default())
 }
 
+/// Locks a mutex, carrying on past a panic of another holder: none of the
+/// node's mutexes guard an update that a panic could leave half done.
 pub(crate) fn lock<T: ?Sized>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(PoisonError::into_inner)
 }

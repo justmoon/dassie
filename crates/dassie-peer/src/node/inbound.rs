@@ -421,10 +421,10 @@ impl PeerNode {
         None
     }
 
-    /// Asks `node` at `url` for its link state, on a connection pinned to its
-    /// key, before
-    /// answering `probe.inbound`: it proves the URL is the node's, and
-    /// that the node can be reached (spec/decisions/membership-economics.md,
+    /// Asks `node` at `url` for its link state, on a connection pinned to
+    /// its key, before answering `probe.inbound`: it proves the URL is the
+    /// node's, and that the node can be reached
+    /// (spec/decisions/membership-economics.md,
     /// spec/decisions/peering-lifecycle.md). Every probe spends a token of
     /// all the node's probes. The network the request came from also pays one
     /// of its own share while the probe is in flight, and gets it back if the

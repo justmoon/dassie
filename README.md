@@ -71,7 +71,7 @@ The node that asks to peer extends the other 1.1 units of credit; the node that 
 | Path | What |
 |---|---|
 | `crates/dassie-oer` | Canonical X.696 OER, the subset the protocols use |
-| `crates/dassie-identity` | BIP-39 phrases, seed paths, node keys, node IDs, X25519 |
+| `crates/dassie-identity` | BIP-39 phrases, seed paths, node keys, node IDs |
 | `crates/dassie-ilp` | ILPv4 packets, addresses, timestamps, ILDCP, BTP 2.0 |
 | `crates/dassie-stream` | STREAM as sans-IO connection and server state machines |
 | `crates/dassie-ledger` | The internal double-entry ledger and its transfer journal |
