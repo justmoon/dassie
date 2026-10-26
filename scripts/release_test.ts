@@ -63,6 +63,7 @@ async function builtTree(version: string, channel = "latest"): Promise<string> {
     );
   }
   await writeFile(`${tree}/${version}/SHA256SUMS`, lines.join(""));
+  await writeFile(`${tree}/install.sh`, "stand-in for install.sh");
   return tree;
 }
 
@@ -78,6 +79,10 @@ test(
     const built = await release({ tree, out, ...tools });
     assertEquals(built, { channel: "latest", version: "0.1.0" });
     assertEquals(await readFile(`${out}/meta/latest`, "utf8"), "0.1.0");
+    assertEquals(
+      await readFile(`${out}/install.sh`, "utf8"),
+      "stand-in for install.sh",
+    );
     const signature = await readFile(
       `${out}/0.1.0/SHA256SUMS.minisig`,
       "utf8",

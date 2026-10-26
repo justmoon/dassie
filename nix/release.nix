@@ -64,10 +64,9 @@ let
     installPhase = "cp -r dist $out";
   };
 
-  # The release key, once the owner has made it: the binaries trust it and
-  # the installer prints it (spec/decisions/release-integrity.md). Until then
-  # they trust none, and the release workflow signs nothing.
-  releaseKey = if builtins.pathExists ../resources/minisign.pub then ../resources/minisign.pub else null;
+  # The release key: the binaries trust it and the installer prints it
+  # (spec/decisions/release-integrity.md).
+  releaseKey = ../resources/minisign.pub;
   # The test key of testdata/release, for the install tests' releases.
   testKey = ../testdata/release/test.pub;
 
@@ -109,8 +108,8 @@ let
           cargoArtifacts = craneLib.buildDepsOnly common;
           DASSIE_WALLET_DIST = wallet;
           DASSIE_VERSION = version;
+          DASSIE_RELEASE_KEY = key;
         }
-        // lib.optionalAttrs (key != null) { DASSIE_RELEASE_KEY = key; }
       )
     ) { };
 
@@ -226,7 +225,7 @@ let
   #   <version>/flake.tar.gz, the flake for NixOS
   #   <version>/SHA256SUMS
   #   meta/<channel>, which holds the version
-  #   install.sh, once there is a release key
+  #   install.sh, with the release key in it
   # The release workflow signs SHA256SUMS (SHA256SUMS.minisig) and uploads
   # the tree.
   mirror =
@@ -243,8 +242,6 @@ let
         cp ${flakeFor version bundles}/flake.tar.gz $out/${version}/
         (cd $out/${version} && sha256sum dassie-* flake.tar.gz > SHA256SUMS)
         printf '%s' ${version} > $out/meta/${channel}
-      ''
-      + lib.optionalString (releaseKey != null) ''
         cp ${installer releaseKey} $out/install.sh
       ''
     );
