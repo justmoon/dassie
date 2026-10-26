@@ -68,12 +68,15 @@ printf 'nameserver 8.8.8.8\nnameserver 1.1.1.1\n' > "$state/resolv.conf"
 chmod 644 "$state/resolv.conf"
 
 # The secret's name and the GitHub App, from the instance metadata. Neither
-# is secret; the key itself never touches the disk.
+# is secret; the key itself never touches the disk. Each is read first, so
+# that one missing stops the boot here.
+secret=$(metadata sim-campaign-secret)
+app_id=$(metadata sim-campaign-app-id)
 umask 022
 {
   echo "SIM_CAMPAIGN_DIR=$state"
-  echo "SIM_CAMPAIGN_SECRET=$(metadata sim-campaign-secret)"
-  echo "SIM_CAMPAIGN_APP_ID=$(metadata sim-campaign-app-id)"
+  echo "SIM_CAMPAIGN_SECRET=$secret"
+  echo "SIM_CAMPAIGN_APP_ID=$app_id"
 } > /etc/dassie-sim-campaign.env
 
 if [ ! -d "$state/repo/.git" ]; then
