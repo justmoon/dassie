@@ -955,6 +955,117 @@ fn a_rollback_puts_back_what_current_named() {
     );
 }
 
+/// A stand-in for systemctl in `dir` that does what it is asked, and logs
+/// each call as [`systemctl_failing_restart`]'s does.
+fn systemctl_logging(dir: &Path) -> PathBuf {
+    let path = dir.join("systemctl");
+    fs::write(&path, "#!/bin/sh\necho \"$*\" >> \"$0.log\"\n").unwrap();
+    fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
+    output_of_written(Command::new(&path).arg("is-system-running"));
+    path
+}
+
+/// `--unit` for two nodes, `a@x` and `a@y`, as the market maker's VM names
+/// its own.
+fn two_units(install: &Install) -> Vec<String> {
+    let state = install.dir.path().join("state");
+    ["x", "y"]
+        .iter()
+        .flat_map(|node| {
+            [
+                "--unit".to_owned(),
+                format!("a@{node}.service={}", state.join(node).display()),
+            ]
+        })
+        .collect()
+}
+
+/// Named units, as the market maker's VM names its two nodes: the updater
+/// restarts them rather than dassie.service, and installs none of the
+/// release's units, which whoever names them does not run.
+#[test]
+fn restarts_the_units_it_is_named() {
+    let (mirror, install) = (MirrorServer::start(), Install::new());
+    publish(&mirror, "9.9.9", &release_adding_a_unit("9.9.9"), None);
+    let systemctl = systemctl_logging(install.dir.path());
+    let output = install
+        .updater(&install.base().join("current/bin/dassie"), &mirror)
+        .env("DASSIE_SYSTEMCTL", &systemctl)
+        .args(two_units(&install))
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{}", text(&output));
+    assert_eq!(install.current(), "9.9.9");
+    assert_eq!(install.unit("dassie.service"), None);
+    assert_eq!(install.unit("dassie-new.timer"), None);
+    assert_eq!(
+        systemctl_calls(&systemctl)[1..],
+        ["restart a@x.service a@y.service"]
+    );
+    assert!(
+        install
+            .last_update()
+            .contains("\noutcome=updated\ntarget=9.9.9\n")
+    );
+}
+
+/// If a named unit does not come up, the updater goes back as it does for
+/// dassie.service: `current` back, the units stopped, each node's database
+/// put back if it must, and started again; the record says so.
+#[test]
+fn goes_back_on_the_units_it_is_named() {
+    let (mirror, install) = (MirrorServer::start(), Install::new());
+    publish(&mirror, "9.9.9", &release("9.9.9"), None);
+    let systemctl = systemctl_failing_restart(install.dir.path());
+    let output = install
+        .updater(&install.base().join("current/bin/dassie"), &mirror)
+        .env("DASSIE_SYSTEMCTL", &systemctl)
+        .args(two_units(&install))
+        .output()
+        .unwrap();
+    assert!(!output.status.success(), "{}", text(&output));
+    assert_eq!(install.current(), install.version);
+    let record = install.last_update();
+    assert!(
+        record.contains("\noutcome=rolled-back\ntarget=9.9.9\n"),
+        "{record}"
+    );
+    assert_eq!(
+        systemctl_calls(&systemctl)[1..],
+        [
+            "restart a@x.service a@y.service",
+            "daemon-reload",
+            "stop a@x.service a@y.service",
+            "start a@x.service a@y.service",
+        ]
+    );
+}
+
+/// `--unit` names a service and an absolute data directory, each unit
+/// once, and restarts what `--no-restart` would leave alone.
+#[test]
+fn refuses_a_unit_it_cannot_take() {
+    let (mirror, install) = (MirrorServer::start(), Install::new());
+    publish(&mirror, "9.9.9", &release("9.9.9"), None);
+    for args in [
+        &["--unit", "a.service"][..],
+        &["--unit", "a.timer=/var/lib/a"],
+        &["--unit", ".service=/var/lib/a"],
+        &["--unit", "a b.service=/var/lib/a"],
+        &["--unit", "a.service=var/lib/a"],
+        &["--unit", "a.service=/x", "--unit", "a.service=/y"],
+        &["--unit", "a.service=/x", "--no-restart"],
+    ] {
+        let output = install
+            .updater(&install.base().join("current/bin/dassie"), &mirror)
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(!output.status.success(), "{args:?}: {}", text(&output));
+        assert_eq!(install.current(), install.version, "{args:?}");
+    }
+}
+
 /// An update keeps the version `current` named, for the owner to go back
 /// to, as well as the one the owner kept that ran it.
 #[test]

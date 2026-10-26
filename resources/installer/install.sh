@@ -3,7 +3,7 @@
 # spec/areas/release.md#install-layout, spec/decisions/release-integrity.md):
 #
 #   curl --proto =https --tlsv1.2 -sSf https://sh.dassie.land | sh
-#   curl ... | sh -s -- [--target-version <version>] [--mirror <url>] [uninstall]
+#   curl ... | sh -s -- [--target-version <version>] [--mirror <url>] [--no-service] [uninstall]
 #
 # The options it shares with `dassie update` have the same names.
 #
@@ -29,6 +29,7 @@ main() {
   MIRROR="${DASSIE_MIRROR_URL:-https://get.dassie.land}"
   VERSION=
   TARGETED=
+  SERVICE=1
   COMMAND=install
   BASE=/opt/dassie
   UNITS="dassie.service dassie-http.socket dassie-https.socket dassie-ipc.socket dassie-quic.socket dassie-feed.socket dassie-update.service dassie-update.timer"
@@ -50,6 +51,8 @@ Options:
   -t, --target-version <v>  this version rather than the newest release
   --mirror <url>            another mirror (default: DASSIE_MIRROR_URL, or
                             https://get.dassie.land)
+  --no-service              install no systemd units, for a host that runs
+                            the node under units of its own, or none
   -h, --help                show this help
 EOF
 }
@@ -60,6 +63,7 @@ parse_arguments() {
       -h | --help) usage; exit 0 ;;
       -t | --target-version) [ $# -ge 2 ] || fail E_SYNTAX "$1 needs a value"; VERSION=$2; TARGETED=1; shift ;;
       --mirror) [ $# -ge 2 ] || fail E_SYNTAX "$1 needs a value"; MIRROR=$2; shift ;;
+      --no-service) SERVICE= ;;
       install | uninstall) COMMAND=$1 ;;
       *) usage >&2; fail E_SYNTAX "unknown argument: $1" ;;
     esac
@@ -114,13 +118,16 @@ check_system() {
     aarch64 | arm64) ARCH=arm64 ;;
     *) fail E_UNSUPPORTED_ARCH "there are no releases for $(uname -m)" ;;
   esac
-  command -v systemctl > /dev/null 2>&1 || fail E_SYSTEMD_REQUIRED "Dassie needs systemd"
-  state=$(systemctl is-system-running 2> /dev/null || true)
-  # Still starting is fine: cloud-init runs scripts while the system boots.
-  case "$state" in
-    running | degraded | starting | initializing) ;;
-    *) fail E_SYSTEMD_NOT_RUNNING "systemd is not running (it says: ${state:-nothing})" ;;
-  esac
+  # Without the units, nothing here needs systemd.
+  if [ -n "$SERVICE" ]; then
+    command -v systemctl > /dev/null 2>&1 || fail E_SYSTEMD_REQUIRED "Dassie needs systemd"
+    state=$(systemctl is-system-running 2> /dev/null || true)
+    # Still starting is fine: cloud-init runs scripts while the system boots.
+    case "$state" in
+      running | degraded | starting | initializing) ;;
+      *) fail E_SYSTEMD_NOT_RUNNING "systemd is not running (it says: ${state:-nothing})" ;;
+    esac
+  fi
   for tool in tar sha256sum base64 awk mktemp flock; do
     command -v "$tool" > /dev/null 2>&1 || fail E_TOOL_REQUIRED "$tool is required"
   done
@@ -302,6 +309,11 @@ install() {
   step "Installing into $BASE/$VERSION"
   lock
   install_files "$unpacked"
+  if [ -z "$SERVICE" ]; then
+    step "Dassie $VERSION is installed, without systemd units"
+    note "Run $BASE/current/bin/dassie under units of your own; \`dassie update --unit\` restarts them."
+    return 0
+  fi
   install_units "$unpacked"
 
   step "Dassie $VERSION is installed"

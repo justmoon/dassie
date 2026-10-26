@@ -23,7 +23,8 @@
  * 5. it goes back from 1.0.2 to 1.0.1, and to the database from before
  *    1.0.2 migrated it, and its next run passes over 1.0.2;
  * 6. install.sh run again does not go back on the mirror's word;
- * 7. it uninstalls it.
+ * 7. it uninstalls it, and installs it once more with `--no-service`,
+ *    which leaves the units out.
  *
  * Set `DASSIE_INSTALL_MIRROR` to the built mirror to run it; it needs
  * Docker, which may run privileged containers, and mkcert.
@@ -675,4 +676,24 @@ async function steps(t: TestContext, machine: Machine, mirror: Mirror) {
       "inactive",
     );
   });
+
+  await t.test(
+    "the installer installs no units with --no-service",
+    async () => {
+      // meta/latest names 1.0.0 since the step that offered it.
+      const result = await machine.installer(mirror, "--no-service");
+      assertEquals(result.code, 0, `${result.stdout}${result.stderr}`);
+      assertEquals(await machine.must("readlink /opt/dassie/current"), "1.0.0");
+      assertEquals(
+        await machine.must("/usr/local/bin/dassie --version"),
+        "dassie 1.0.0",
+      );
+      await machine.must(
+        "test -z \"$(ls /etc/systemd/system | grep '^dassie')\"",
+      );
+      const removed = await machine.installer(mirror, "uninstall");
+      assertEquals(removed.code, 0, `${removed.stdout}${removed.stderr}`);
+      assertEquals((await machine.sh("test -e /opt/dassie")).code, 1);
+    },
+  );
 }

@@ -1,9 +1,10 @@
 # Updates Dassie on the market maker's VM (spec/areas/market-maker-vm.md)
-# when dassie-mm-update.timer says so: `dassie update --no-restart`, then a
-# restart of both nodes and the market maker on the new version, or back to
-# the old one if a node does not come up (update.sh).
+# when dassie-mm-update.timer says so: `dassie update --unit` for both
+# nodes, which restarts them and the market maker on the new version, or
+# goes back to the old one if a node does not come up (update.sh).
 #
-# It runs as root: it writes /opt/dassie and restarts the units.
+# It runs as root: it writes /opt/dassie, puts back the nodes' databases in
+# /var/lib/dassie-mm if a rollback must, and restarts the units.
 [Unit]
 Description=Dassie market maker's updater
 Wants=network-online.target
@@ -12,14 +13,15 @@ After=network-online.target
 [Service]
 Type=oneshot
 TimeoutStartSec=30min
-# The units a release brings go here, where nothing reads them.
+# Where update-before-unit.sh sends the units a release brings, where
+# nothing reads them.
 StateDirectory=dassie-mm-update
 ExecStart=/bin/sh /opt/dassie-mm/repo/apps/market-maker/vm/update.sh
 StandardOutput=journal+console
 StandardError=journal+console
 
 ProtectSystem=strict
-ReadWritePaths=/opt/dassie
+ReadWritePaths=/opt/dassie /var/lib/dassie-mm
 NoNewPrivileges=yes
 ProtectHome=yes
 PrivateTmp=yes

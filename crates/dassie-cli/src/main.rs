@@ -114,6 +114,13 @@ Commands:
                                                    DASSIE_MIRROR_URL, or
                                                    https://get.dassie.land)
                       --no-restart                 leave systemd alone
+                      --unit <name>.service=<dir>  restart this unit, whose
+                                                   node keeps its data in
+                                                   <dir>, rather than
+                                                   dassie.service, and
+                                                   install none of the
+                                                   release's units;
+                                                   repeatable
   verify-install    Verify that Dassie and its dependencies work here.
   front-door        Run a front door: Open Payments at <label>.<domain> for
                     nodes that name it as their relay, and at
@@ -264,8 +271,21 @@ fn update_args(parser: &mut lexopt::Parser) -> Result<update::Options, lexopt::E
             Short('t') | Long("target-version") => options.target = Some(parser.value()?.string()?),
             Long("mirror") => options.mirror = Some(parser.value()?.string()?),
             Long("no-restart") => options.no_restart = true,
+            Long("unit") => {
+                let unit = update::NodeUnit::parse(&parser.value()?.string()?)?;
+                if options.units.iter().any(|named| named.name == unit.name) {
+                    return Err(format!("--unit names {} twice", unit.name).into());
+                }
+                if options.units.len() == update::MAX_NODE_UNITS {
+                    return Err(format!("at most {} --unit", update::MAX_NODE_UNITS).into());
+                }
+                options.units.push(unit);
+            }
             other => return Err(other.unexpected()),
         }
+    }
+    if options.no_restart && !options.units.is_empty() {
+        return Err("--unit restarts what --no-restart leaves alone: choose one".into());
     }
     Ok(options)
 }

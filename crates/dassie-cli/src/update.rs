@@ -72,6 +72,48 @@ const BUNDLE_TIMEOUT_MS: u64 = 600_000;
 const MAX_META: usize = 128;
 /// The longest signature read.
 const MAX_SIGNATURE: usize = 1024;
+/// The most nodes one update restarts (`--unit`).
+pub const MAX_NODE_UNITS: usize = 8;
+
+/// A systemd unit that runs a node of this install, and the directory of
+/// that node's data, whose database a rollback may put back.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct NodeUnit {
+    /// The unit's name, `<name>.service`.
+    pub name: String,
+    /// The node's data directory.
+    pub data_dir: PathBuf,
+}
+
+impl NodeUnit {
+    /// Reads `--unit`'s value, `<name>.service=<data directory>`: a plain
+    /// unit name, instance names included, and an absolute path.
+    pub fn parse(text: &str) -> Result<Self, Problem> {
+        let malformed = || format!("--unit {text:?}: not <name>.service=<data directory>");
+        let (name, data_dir) = text.split_once('=').ok_or_else(malformed)?;
+        let plain = name
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b"@._-".contains(&b));
+        let stem = name.strip_suffix(".service").unwrap_or_default();
+        if !plain || stem.is_empty() || name.len() > 256 || !data_dir.starts_with('/') {
+            return Err(malformed());
+        }
+        Ok(Self {
+            name: name.to_owned(),
+            data_dir: PathBuf::from(data_dir),
+        })
+    }
+
+    /// `dassie.service`, the installer's, with its data in
+    /// `DASSIE_STATE_DIRECTORY` or `/var/lib/dassie`.
+    fn installed() -> Self {
+        Self {
+            name: SERVICE.to_owned(),
+            data_dir: std::env::var_os("DASSIE_STATE_DIRECTORY")
+                .map_or_else(|| PathBuf::from(STATE_DIRECTORY), PathBuf::from),
+        }
+    }
+}
 
 /// What `dassie update` was asked to do.
 #[derive(Debug, Default)]
@@ -84,6 +126,11 @@ pub struct Options {
     pub mirror: Option<String>,
     /// Neither talk to systemd nor restart the node.
     pub no_restart: bool,
+    /// The units that run this install's nodes, to restart in place of
+    /// `dassie.service`, and to start again on the version before if one
+    /// does not come up. The release's own units are then not installed:
+    /// whoever names these runs units of their own.
+    pub units: Vec<NodeUnit>,
 }
 
 /// What went wrong, for the owner.
@@ -193,8 +240,16 @@ async fn attempt(
     let _ = fs::remove_dir_all(&staging);
     let dir = installed?;
     let mut units = Units::default();
-    let switched = install_units(&dir.join("share/systemd"), &mut units)
-        .and_then(|()| switch(&install.base, &target));
+    let nodes = match options.units.as_slice() {
+        [] => vec![NodeUnit::installed()],
+        named => named.to_vec(),
+    };
+    let switched = if options.units.is_empty() {
+        install_units(&dir.join("share/systemd"), &mut units)
+    } else {
+        Ok(())
+    }
+    .and_then(|()| switch(&install.base, &target));
     if let Err(problem) = switched {
         // systemd has not read the new units yet: with the old ones and
         // `current` back on disk, nothing changed.
@@ -208,7 +263,7 @@ async fn attempt(
     // from before its migration included, is this update's.
     let since = SystemTime::now();
     let restarted = if !options.no_restart && systemd_running() {
-        restart(&units)
+        restart(&units, &nodes)
     } else {
         Ok(())
     };
@@ -217,7 +272,7 @@ async fn attempt(
             "dassie {target} did not start ({problem}); going back to {}.",
             before.display()
         );
-        if let Err(failed) = roll_back(&install.base, &units, &before, since) {
+        if let Err(failed) = roll_back(&install.base, &units, &before, since, &nodes) {
             return Err(format!(
                 "dassie {target} did not start ({problem}), and going back to {} failed: {failed}",
                 before.display()
@@ -237,23 +292,30 @@ async fn attempt(
 }
 
 /// Makes systemd take in the units that changed, enables the new ones, and
-/// restarts the node, which must come up.
-fn restart(units: &Units) -> Result<(), Problem> {
+/// restarts the nodes, which must come up.
+fn restart(units: &Units, nodes: &[NodeUnit]) -> Result<(), Problem> {
     if units.changed {
         systemctl(&["daemon-reload"])?;
     }
     for unit in &units.added {
         systemctl(&["enable", unit])?;
     }
-    println!("Restarting {SERVICE}...");
-    systemctl(&["restart", SERVICE])
+    let names: Vec<&str> = nodes.iter().map(|node| node.name.as_str()).collect();
+    println!("Restarting {}...", names.join(" "));
+    systemctl(&[&["restart"][..], &names].concat())
 }
 
 /// Points `current` back at `before`, what it named before the update, with
-/// that version's units, puts back the database from before the update if
-/// the new version migrated it, and starts that version again. The units
-/// the update added are disabled and go.
-fn roll_back(base: &Path, units: &Units, before: &Path, since: SystemTime) -> Result<(), Problem> {
+/// that version's units, puts back each node's database from before the
+/// update if the new version migrated it, and starts that version again.
+/// The units the update added are disabled and go.
+fn roll_back(
+    base: &Path,
+    units: &Units,
+    before: &Path,
+    since: SystemTime,
+    nodes: &[NodeUnit],
+) -> Result<(), Problem> {
     // A unit that will not be disabled must not keep the old version down:
     // its file goes all the same.
     for unit in &units.added {
@@ -263,21 +325,23 @@ fn roll_back(base: &Path, units: &Units, before: &Path, since: SystemTime) -> Re
     }
     put_back(base, units, before)?;
     systemctl(&["daemon-reload"])?;
-    // systemd may be restarting the failed node; the database must be left
-    // alone while it is put back.
-    systemctl(&["stop", SERVICE])?;
+    let names: Vec<&str> = nodes.iter().map(|node| node.name.as_str()).collect();
+    // systemd may be restarting a failed node; the databases must be left
+    // alone while they are put back.
+    systemctl(&[&["stop"][..], &names].concat())?;
     // Started on a database that could not be put back, the old version
     // would refuse it, or find none; the owner chooses which to keep.
-    restore_database(since)?;
-    systemctl(&["start", SERVICE])
+    for node in nodes {
+        restore_database(node, &names, since)?;
+    }
+    systemctl(&[&["start"][..], &names].concat())
 }
 
-/// Puts back the database from before the update, if the version that
-/// failed migrated it.
-fn restore_database(since: SystemTime) -> Result<(), Problem> {
-    let data_dir = std::env::var_os("DASSIE_STATE_DIRECTORY")
-        .map_or_else(|| PathBuf::from(STATE_DIRECTORY), PathBuf::from);
-    match store::restore_pre_migration(&data_dir, since) {
+/// Puts back `node`'s database from before the update, if the version that
+/// failed migrated it. `all` stay stopped if it cannot.
+fn restore_database(node: &NodeUnit, all: &[&str], since: SystemTime) -> Result<(), Problem> {
+    let data_dir = &node.data_dir;
+    match store::restore_pre_migration(data_dir, since) {
         Ok(Restored::Nothing) => Ok(()),
         Ok(Restored::Copy { from, to }) => {
             println!(
@@ -288,15 +352,17 @@ fn restore_database(since: SystemTime) -> Result<(), Problem> {
             Ok(())
         }
         Err(error) => Err(format!(
-            "putting back the database did not finish ({error}), so {SERVICE} stays stopped; \
-             the database from before the update may be back already. In {}, \
+            "putting back the database of {name} did not finish ({error}), so {stopped} \
+             stays stopped; the database from before the update may be back already. In {}, \
              {DATABASE_FILE} is the database, if it is there, {ROLLING_BACK_FILE} or \
              {ROLLED_BACK_FILE} the one the new version left, if it was moved aside, and \
              {PRE_MIGRATION_FILE} the copy from before the update, if it is not back yet. \
              Each database's SQLite side files (-wal, -shm, after its name) belong with it \
              and move with it. Put the one to keep in place as {DATABASE_FILE}, then run \
-             `systemctl start {SERVICE}`",
-            data_dir.display()
+             `systemctl start {stopped}`",
+            data_dir.display(),
+            name = node.name,
+            stopped = all.join(" "),
         )),
     }
 }
