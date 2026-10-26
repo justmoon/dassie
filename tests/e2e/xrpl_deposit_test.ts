@@ -3,8 +3,12 @@
  * on an XRP Ledger testnet node (spec/areas/wallet.md#pages). The
  * `xrpl-settlement` scenario runs on the node's fake ledger; a headless
  * browser signed in to `d1` finds the node's deposit address, and asks the
- * faucet for test XRP, which the node books as a deposit once the ledger
- * shows it (spec/areas/xrpl.md#deposits-and-withdrawals). Set
+ * faucet for test XRP. The faucet made the account a moment ago, and it is
+ * asked at most once a minute, so the node says so and asks nothing
+ * (spec/areas/xrpl.md#deposits-and-withdrawals): the button reaches the
+ * node, and the page tells why. Asking again after the minute, and booking
+ * what the faucet sends, is the node's tests' (`tests/xrpl.rs`), on a
+ * hand-moved clock. Set
  * `DASSIE_XRPL_TESTNET=1` to run it against the testnet instead, by hand,
  * and `DASSIE_E2E_SCREENSHOTS` to a directory for pictures of the page.
  */
@@ -69,6 +73,9 @@ test(
   "the Receive page shows the XRP deposit address and asks the faucet",
   { skip: missing !== undefined },
   async () => {
+    // The node asks the faucet for the account once it starts, so a minute
+    // from now it would ask again.
+    const started = Date.now();
     const scenario = await Scenario.temporary("xrpl-settlement", {
       dassie: DASSIE,
       fakeLedger: testnet ? undefined : FAKE_LEDGER,
@@ -83,7 +90,6 @@ test(
         return view.connection === LedgerConnection.SYNCED &&
           view.ownerBalance > 0n;
       }, 120_000);
-      const fundedAt = Date.now();
       const funded = await ledger(d1);
       assert(funded.faucet, "the testnet has a faucet");
 
@@ -112,18 +118,21 @@ test(
       await picture(page, "receive-xrp-phone");
       await page.setViewport({ width: 800, height: 600 });
 
-      // The faucet made the account: it is asked again only a minute on.
-      const wait = fundedAt + FAUCET_PACE_MS - Date.now();
-      if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));
+      // The faucet made the account a moment ago: it is asked again only a
+      // minute on, and the page says why.
+      assert(
+        Date.now() - started < FAUCET_PACE_MS,
+        "a minute passed before the page was ready: the node would ask the faucet again",
+      );
       await click(page, "faucet");
       await until(
         page,
-        "the faucet's XRP booked as a deposit",
-        async () => (await ledger(d1)).ownerBalance,
-        (balance) => balance > funded.ownerBalance,
-        60_000,
+        "the node's refusal on the page",
+        () => page.evaluate(() => document.body.innerText),
+        (body) => body.includes("the faucet was asked less than a minute ago"),
       );
       await picture(page, "receive-xrp-faucet");
+      assertEquals((await ledger(d1)).ownerBalance, funded.ownerBalance);
       assertEquals(errors, []);
     } finally {
       await browser.close();

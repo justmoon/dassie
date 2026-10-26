@@ -1,25 +1,28 @@
 /**
- * End to end (spec/areas/testing.md#end-to-end): mainnet's schemes in the
- * live realm (spec/decisions/mainnet-schemes.md), on the fake ledger's
- * mainnet, never real money. The nodes are the real binary, built with
- * debug assertions, set to the live realm through the dev switch
- * (`DASSIE_DEV_LIVE_REALM`) before they are claimed; a release binary
- * refuses that switch, which the release checks test.
+ * End to end (spec/areas/testing.md#end-to-end): mainnet's RLUSD scheme in
+ * the live realm (spec/decisions/mainnet-schemes.md), on the fake ledger's
+ * mainnet, never real money; XRP's is `mainnet_xrp_test.ts`'s. The nodes
+ * are the real binary, built with debug assertions, set to the live realm
+ * through the dev switch (`DASSIE_DEV_LIVE_REALM`) before they are claimed;
+ * a release binary refuses that switch, which the release checks test.
  *
  * Mainnet has no faucet, so each node's account is funded by a deposit, as
- * its owner would fund it. In XRP (`xrpl-live-settlement`) and in RLUSD
- * (`rlusd-live-settlement`), a client of d1 pays d2's receiver several
- * times the credit, so d1 settles on the ledger as it pays, at addresses
- * under `g.`. Then RLUSD's pool is moved off its peg: once the guard's hold
- * has passed, which dev timers make seconds, each node pauses its RLUSD
- * scheme and says why, still books what arrives on its line, and runs it
- * again once the pool is back at a dollar for the recovery hold
- * (spec/areas/xrpl.md#the-peg-guard).
+ * its owner would fund it. On `rlusd-live-settlement`, a client of d1 pays
+ * d2's receiver several times the credit, so d1 settles in RLUSD on the
+ * ledger as it pays, at addresses under `g.`. Then RLUSD's pool is drained
+ * below its floor of XRP, which is no price: once no reading has counted
+ * for the staleness bound, each node pauses its RLUSD scheme, and the first
+ * reading at a dollar runs it again. Then the pool is moved off its peg:
+ * once the guard's hold has passed, which dev timers make seconds, each
+ * node pauses the scheme and says why, and still books what arrives on its
+ * line (spec/areas/xrpl.md#the-peg-guard). Running again after the recovery
+ * hold, a minute on dev timers, is the guard's unit tests' and the
+ * engine's (`crates/dassie-node/src/engine/core/tests.rs`).
  */
 
 import { test } from "node:test";
 import { assert, assertEquals } from "@std/assert";
-import { LedgerConnection, PegPause, Realm } from "@dassie/rpc/proto";
+import { LedgerConnection, PegPause } from "@dassie/rpc/proto";
 
 import {
   DASSIE,
@@ -27,7 +30,14 @@ import {
   missingScenarioTools,
   SCENARIO_PORT_OFFSET,
 } from "./harness.ts";
-import { CREDIT, ledger, pay, peerAccounts, settled } from "./settling.ts";
+import {
+  assertLive,
+  CREDIT,
+  ledger,
+  pay,
+  peerAccounts,
+  settled,
+} from "./settling.ts";
 import {
   DEV_RATES,
   poolDrops,
@@ -35,12 +45,10 @@ import {
   type ScenarioNode,
 } from "@dassie/dev/scenario";
 
-const XRP_LEDGER = "xrpl+xrp";
 const RLUSD_LEDGER = "xrpl-rlusd+usd";
 /** RLUSD's issuer on mainnet, which the fake ledger's mainnet issues it at. */
 const ISSUER = "rMxCKbEDwqr76QuheSUMdEGf4B9xJ8m5De";
-/** 5 XRP or 5 dollars: over four times what a peer extends, so d1 must
- * settle. */
+/** 5 dollars: over four times what a peer extends, so d1 must settle. */
 const PAYMENT = 5_000_000_000n;
 /** What the scenario's issuer mints each node: 100 dollars. */
 const MINTED = 100_000_000_000n;
@@ -52,10 +60,7 @@ const UNIT = 1_000n;
  * the dev rate, 200,000 XRP, twice RLUSD's floor. */
 const POOL_VALUE = "100000";
 const POOL_FEE = 500;
-/**
- * The two tests run one after the other, on the same ports, clear of the
- * other files' (harness.ts).
- */
+/** Clear of the other files' ports (harness.ts). */
 const PORT_OFFSET = SCENARIO_PORT_OFFSET + 900;
 
 const missing = await missingScenarioTools();
@@ -68,86 +73,6 @@ function start(id: string): Promise<Scenario> {
     portOffset: PORT_OFFSET,
   });
 }
-
-/**
- * Every node runs in the live realm: its ledgers are of it, the schemes it
- * offers are mainnet's alone, and an incoming payment's address is under
- * `g.`.
- */
-async function assertLive(node: ScenarioNode, id: string): Promise<void> {
-  assertEquals((await ledger(node, id)).realm, Realm.LIVE);
-  const { schemes } = await node.rpc.call("listSettlementSchemes", {});
-  assert(schemes.length > 0, `${node.name} offers no scheme`);
-  for (const scheme of schemes) {
-    assertEquals(scheme.realm, Realm.LIVE, `${node.name} offers ${scheme.id}`);
-  }
-  assertEquals(
-    schemes.map((scheme) => scheme.id).sort(),
-    ["xrpl", "xrpl-rlusd"],
-  );
-  const { payment } = await node.rpc.call("createIncomingPayment", {});
-  assert(
-    payment?.destinationAccount.startsWith("g."),
-    payment?.destinationAccount,
-  );
-}
-
-test(
-  "xrpl-live-settlement settles in XRP on the fake mainnet, in the live realm",
-  { skip: missing !== undefined },
-  async () => {
-    const scenario = await start("xrpl-live-settlement");
-    try {
-      const funded = async () => {
-        for (const node of scenario.nodes) {
-          const view = await ledger(node, XRP_LEDGER);
-          if (view.connection !== LedgerConnection.SYNCED) return false;
-          if (view.ownerBalance <= 0n) return false;
-        }
-        return true;
-      };
-      await scenario.until("funded by a deposit", funded, 120_000);
-      await scenario.until("peered", () => scenario.converged(), 120_000);
-      const [d1, d2] = scenario.nodes;
-      for (const node of scenario.nodes) {
-        await assertLive(node, XRP_LEDGER);
-        // Mainnet has no faucet.
-        assertEquals((await ledger(node, XRP_LEDGER)).faucet, false);
-        const { externalAssets } = await node.rpc.call("listLedgers", {});
-        assertEquals(externalAssets.map((asset) => asset.id), [
-          "xrpl-account/0",
-        ]);
-      }
-      await scenario.until(
-        "paid in advance",
-        () => settled(scenario, XRP_LEDGER),
-        120_000,
-      );
-
-      const before = await ledger(d1, XRP_LEDGER);
-      const address = await pay(scenario, [d1, d2], XRP_LEDGER, PAYMENT);
-      assert(address.startsWith("g."), address);
-      await scenario.until(
-        "settled",
-        () => settled(scenario, XRP_LEDGER),
-        120_000,
-      );
-      // d1 paid in XRP on the ledger, and owes d2 no more than the credit
-      // a junior extends.
-      const after = await ledger(d1, XRP_LEDGER);
-      assert(
-        after.onLedgerBalance < before.onLedgerBalance,
-        "d1 settled on the ledger",
-      );
-      const owes = (await peerAccounts(scenario, XRP_LEDGER)).get("d1>d2")!;
-      assert(owes <= CREDIT, `d1 still owes ${owes}`);
-      assert(after.ownerBalance <= before.ownerBalance - PAYMENT);
-    } finally {
-      const failures = await scenario.stop();
-      assertEquals(failures, [], failures.join("\n"));
-    }
-  },
-);
 
 /** What a node's account holds of RLUSD, as the ledger says, in the
  * ledger's internal units: whole millionths, rounded down. */
@@ -228,8 +153,6 @@ test(
       const owes = (await peerAccounts(scenario, RLUSD_LEDGER)).get("d1>d2")!;
       assert(owes <= CREDIT, `d1 still owes ${owes}`);
 
-      // The pool prices RLUSD 5% under a dollar: once every reading has
-      // been off for the hold, each node pauses the scheme and says why.
       const par = poolDrops(POOL_VALUE, DEV_RATES.XRP);
       const setPool = (drops: bigint) =>
         scenario.askIssuer({
@@ -239,6 +162,19 @@ test(
           value: POOL_VALUE,
           fee: POOL_FEE,
         });
+
+      // Drained below RLUSD's floor of XRP, the pool is no price: once no
+      // reading has counted for the staleness bound, the guard fails
+      // closed. The first reading at a dollar again ends that.
+      await setPool(par / 4n);
+      const stale = async () =>
+        (await guards(scenario)).every((peg) => peg?.paused === PegPause.STALE);
+      await scenario.until("paused, its price unread", stale, 60_000);
+      await setPool(par);
+      await scenario.until("running again once read", atPar, 60_000);
+
+      // The pool prices RLUSD 5% under a dollar: once every reading has
+      // been off for the hold, each node pauses the scheme and says why.
       await setPool(par * 95n / 100n);
       const offPeg = async () =>
         (await guards(scenario)).every((peg) =>
@@ -264,20 +200,6 @@ test(
         60_000,
       );
       assert(await offPeg(), "still paused");
-
-      // Back at a dollar for the recovery hold, it runs again.
-      await setPool(par);
-      await scenario.until("running again at a dollar", atPar, 180_000);
-
-      // Drained below RLUSD's floor of XRP, the pool is no price: once no
-      // reading has counted for the staleness bound, the guard fails
-      // closed. The first reading at a dollar again ends that.
-      await setPool(par / 4n);
-      const stale = async () =>
-        (await guards(scenario)).every((peg) => peg?.paused === PegPause.STALE);
-      await scenario.until("paused, its price unread", stale, 60_000);
-      await setPool(par);
-      await scenario.until("running again once read", atPar, 60_000);
     } finally {
       const failures = await scenario.stop();
       assertEquals(failures, [], failures.join("\n"));

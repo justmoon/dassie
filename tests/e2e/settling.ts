@@ -1,8 +1,9 @@
 /**
  * What the end-to-end tests of mainnet's schemes in the live realm share
- * (`mainnet_test.ts`): a node's ledger, what it owes its peers by its own
- * books, when settling is over, and a payment from a BTP client of one node
- * to another's receiver.
+ * (`mainnet_test.ts`, `mainnet_xrp_test.ts`): a node's ledger, whether it
+ * runs in the live realm, what it owes its peers by its own books, when
+ * settling is over, and a payment from a BTP client of one node to
+ * another's receiver.
  */
 
 import { assert, assertEquals } from "@std/assert";
@@ -10,7 +11,7 @@ import { Buffer } from "node:buffer";
 import { readFile } from "node:fs/promises";
 import WebSocket from "#ws";
 import { createConnection } from "ilp-protocol-stream";
-import { LedgerConnection } from "@dassie/rpc/proto";
+import { LedgerConnection, Realm } from "@dassie/rpc/proto";
 
 import { BtpClient } from "./btp.ts";
 import type { Scenario, ScenarioNode } from "@dassie/dev/scenario";
@@ -29,6 +30,32 @@ export async function ledger(node: ScenarioNode, id: string) {
   const found = ledgers.find((l) => l.id === id);
   assert(found, `${node.name} has no ${id}`);
   return found;
+}
+
+/**
+ * Every node runs in the live realm: its ledgers are of it, the schemes it
+ * offers are mainnet's alone, and an incoming payment's address is under
+ * `g.`.
+ */
+export async function assertLive(
+  node: ScenarioNode,
+  id: string,
+): Promise<void> {
+  assertEquals((await ledger(node, id)).realm, Realm.LIVE);
+  const { schemes } = await node.rpc.call("listSettlementSchemes", {});
+  assert(schemes.length > 0, `${node.name} offers no scheme`);
+  for (const scheme of schemes) {
+    assertEquals(scheme.realm, Realm.LIVE, `${node.name} offers ${scheme.id}`);
+  }
+  assertEquals(
+    schemes.map((scheme) => scheme.id).sort(),
+    ["xrpl", "xrpl-rlusd"],
+  );
+  const { payment } = await node.rpc.call("createIncomingPayment", {});
+  assert(
+    payment?.destinationAccount.startsWith("g."),
+    payment?.destinationAccount,
+  );
 }
 
 /**
