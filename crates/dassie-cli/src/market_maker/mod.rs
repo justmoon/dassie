@@ -265,9 +265,9 @@ impl MarketMaker {
     async fn run(&mut self, shutdown: &CancellationToken) {
         let mut ticks = tokio::time::interval(TICK);
         ticks.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-        // Whether the last decision held for want of a current feed: then
-        // it decides again as soon as a feed arrives, rather than a tick
-        // on, as at the start.
+        // Whether the last decision held for want of a current feed: then,
+        // having done nothing, it decides again as soon as a feed arrives,
+        // rather than a tick on, as at the start.
         let mut unfed = false;
         loop {
             tokio::select! {
@@ -275,11 +275,17 @@ impl MarketMaker {
                 _ = ticks.tick() => {}
                 () = self.feed_arrives(), if unfed => {}
             }
-            tokio::select! {
-                () = shutdown.cancelled() => return,
-                () = self.tick() => {}
+            let now_ms = self.clock.now_ms();
+            let current = self.current(now_ms);
+            unfed = current.is_empty();
+            if unfed {
+                tracing::info!(target: TARGET, "hold: no current feed from any target");
+            } else {
+                tokio::select! {
+                    () = shutdown.cancelled() => return,
+                    () = self.tick(now_ms, current) => {}
+                }
             }
-            unfed = self.current(self.clock.now_ms()).is_empty();
             // A full tick after a decision, however long it took: the
             // nodes book what it did meanwhile.
             ticks.reset();
@@ -302,14 +308,9 @@ impl MarketMaker {
         std::future::pending().await
     }
 
-    /// Decides once, and does what it decided.
-    async fn tick(&mut self) {
-        let now_ms = self.clock.now_ms();
-        let current = self.current(now_ms);
-        if current.is_empty() {
-            tracing::info!(target: TARGET, "hold: no current feed from any target");
-            return;
-        }
+    /// Decides once, at `now_ms`, among the targets with a current feed,
+    /// and does what it decided.
+    async fn tick(&mut self, now_ms: u64, current: Vec<Current>) {
         let pool = match self.xrpl.pool(self.config.token).await {
             Ok(pool) => pool,
             Err(problem) => {
@@ -413,7 +414,8 @@ impl MarketMaker {
                 }
                 continue;
             }
-            let feed = following.feed.borrow();
+            // Seen, so that waiting for a feed waits for a newer one.
+            let feed = following.feed.borrow_and_update();
             let Some(feed) = feed.as_ref().filter(|feed| feed.is_current(now_ms)) else {
                 continue;
             };
