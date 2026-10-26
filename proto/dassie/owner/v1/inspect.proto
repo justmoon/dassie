@@ -1,0 +1,146 @@
+syntax = "proto3";
+
+package dassie.owner.v1;
+
+// The node's own workings, for the wallet's debug pages
+// (spec/areas/wallet.md#debug-pages): its last log lines, its database without
+// secrets, and its services.
+
+enum LogLevel {
+  LOG_LEVEL_UNSPECIFIED = 0;
+  LOG_LEVEL_DEBUG = 1;
+  LOG_LEVEL_INFO = 2;
+  LOG_LEVEL_WARN = 3;
+  LOG_LEVEL_ERROR = 4;
+}
+
+message LogField {
+  string name = 1;
+  // As text, cut at 256 bytes. Fields named like secrets read
+  // "[redacted]".
+  string value = 2;
+}
+
+// A line of the node's log.
+message LogLine {
+  // Counts from 1 since the node's process started.
+  uint64 index = 1;
+  int64 time_unix_ms = 2;
+  LogLevel level = 3;
+  // For example "dassie::peer".
+  string target = 4;
+  // Cut at 1 KiB.
+  string message = 5;
+  repeated LogField fields = 6;
+}
+
+// Streams the node's last log lines, then each new one. The node keeps
+// its last 1000 lines (at most 1 MiB): info and above, and what
+// `DASSIE_LOG` shows below that. Works before setup too.
+message SubscribeLogsRequest {}
+
+message LogEvent {
+  // Set on the first item: what the ring holds now, oldest first.
+  bool reset = 1;
+  repeated LogLine lines = 2;
+  // Lines dropped from the ring before they could be sent.
+  uint64 skipped = 3;
+}
+
+message DatabaseColumn {
+  string name = 1;
+  // "INTEGER", "TEXT" or "BLOB".
+  string type = 2;
+  bool primary_key = 3;
+  // A secret: its values are never read.
+  bool redacted = 4;
+}
+
+message DatabaseTable {
+  string name = 1;
+  repeated DatabaseColumn columns = 2;
+  uint64 rows = 3;
+  // False for the journal, which reports its highest row ID instead of
+  // counting.
+  bool rows_exact = 4;
+}
+
+message ListDatabaseTablesRequest {}
+
+message ListDatabaseTablesResponse {
+  // In the schema's order.
+  repeated DatabaseTable tables = 1;
+}
+
+message DatabaseValue {
+  oneof value {
+    bool null = 1;
+    sint64 integer = 2;
+    // Cut at 1024 characters.
+    string text = 3;
+    // Cut at 256 bytes.
+    bytes blob = 4;
+    // A secret column.
+    bool redacted = 5;
+  }
+  // The full length, when the value was cut; 0 otherwise.
+  uint64 full_length = 6;
+}
+
+message DatabaseRow {
+  // One per column, in the table's order.
+  repeated DatabaseValue values = 1;
+}
+
+// A page of a table's rows. INVALID_ARGUMENT for an unknown table.
+message ListDatabaseRowsRequest {
+  string table = 1;
+  // 0 for the first page; then the last page's `next_cursor`.
+  uint64 cursor = 2;
+  // At most 200; 0 means 50.
+  uint32 limit = 3;
+}
+
+message ListDatabaseRowsResponse {
+  repeated DatabaseRow rows = 1;
+  // Where the next page starts; 0 when there is none.
+  uint64 next_cursor = 2;
+}
+
+enum ServiceState {
+  SERVICE_STATE_UNSPECIFIED = 0;
+  SERVICE_STATE_RUNNING = 1;
+  // It stopped when it should not have, and starts again soon.
+  SERVICE_STATE_RESTARTING = 2;
+  SERVICE_STATE_STOPPED = 3;
+}
+
+// One of the node's supervised services.
+message Service {
+  string name = 1;
+  ServiceState state = 2;
+  int64 started_at_unix_ms = 3;
+  uint32 restarts = 4;
+  // Why it last stopped; empty if it never did.
+  string last_error = 5;
+  int64 last_error_at_unix_ms = 6;
+  // When it starts again, while restarting; 0 otherwise.
+  int64 restart_at_unix_ms = 7;
+}
+
+// A piece of shared state the services follow.
+message Cell {
+  string name = 1;
+  // How often it changed, where that is counted; 0 otherwise.
+  uint64 version = 2;
+  // What it holds, in a line.
+  string summary = 3;
+}
+
+message ListServicesRequest {}
+
+message ListServicesResponse {
+  // By name.
+  repeated Service services = 1;
+  repeated Cell cells = 2;
+}

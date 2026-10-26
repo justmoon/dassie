@@ -67,7 +67,8 @@ function Row(props: { grant: Grant }): JSX.Element {
           {clientName(props.grant.client, props.grant.clientName)}
         </strong>
         <span class="muted">
-          since {dateTime(props.grant.decidedAtMs ?? props.grant.createdAtMs)}
+          since{" "}
+          {dateTime(props.grant.decidedAtUnixMs ?? props.grant.createdAtUnixMs)}
         </span>
       </div>
       <ul>

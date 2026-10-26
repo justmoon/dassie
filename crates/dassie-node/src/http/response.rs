@@ -112,7 +112,7 @@ pub(super) mod tests {
         "keep-alive",
         "13",
         " 13",
-        "dassie.ui.v1",
+        "dassie.owner.v1",
         "application/json",
         "Application/JSON; charset=utf-8",
         "application/json ;",

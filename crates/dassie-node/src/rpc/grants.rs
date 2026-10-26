@@ -10,10 +10,10 @@ use dassie_payments::gnap::{Access, AccessType, Action};
 use dassie_payments::time;
 use futures_util::future::join_all;
 
-use super::RpcError;
 use super::handlers::{Items, Reply};
 use super::live::{self, Follow, Source};
 use super::proto::{self, request::Method, response, stream_item};
+use super::{RpcError, convert};
 use crate::engine::Engine;
 use crate::node::Node;
 use crate::open_payments::auth::OpError;
@@ -171,9 +171,9 @@ async fn grant(
         access: items,
         subject: String::new(),
         state: row.state.as_str().into(),
-        created_at_ms: row.created_at_ms,
-        decided_at_ms: row.decided_at_ms,
-        expires_at_ms: row.expires_at_ms,
+        created_at_unix_ms: convert::time(row.created_at_ms),
+        decided_at_unix_ms: row.decided_at_ms.map(convert::time),
+        expires_at_unix_ms: convert::time(row.expires_at_ms),
     })
 }
 
@@ -199,12 +199,12 @@ fn spent(
         interval: limits.interval.clone().unwrap_or_default(),
         debit_amount: limits.debit_amount.as_ref().map(amount),
         receive_amount: limits.receive_amount.as_ref().map(amount),
-        window_start_ms: bounded.map(|(start, _)| start),
-        window_end_ms: bounded.map(|(_, end)| end),
+        window_start_unix_ms: bounded.map(|(start, _)| convert::time(start)),
+        window_end_unix_ms: bounded.map(|(_, end)| convert::time(end)),
         spent_debit: debit,
         spent_receive: receive,
-        starts_at_ms: span.and_then(|(start, _)| start),
-        ends_at_ms: span.and_then(|(_, end)| end),
+        starts_at_unix_ms: span.and_then(|(start, _)| start).map(convert::time),
+        ends_at_unix_ms: span.and_then(|(_, end)| end).map(convert::time),
         receiver_payment: None,
     })
 }
@@ -312,7 +312,7 @@ async fn receiver_payment(node: &Node, urls: &Urls, url: &str) -> proto::GrantRe
             .incoming_amount
             .as_ref()
             .map(|incoming| incoming.value.saturating_sub(received.value)),
-        expires_at_ms,
+        expires_at_unix_ms: expires_at_ms.map(convert::time),
         closed: payment.completed || expired,
         error: String::new(),
         limit_in_other_asset: false,

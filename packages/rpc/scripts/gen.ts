@@ -1,5 +1,5 @@
 /**
- * Regenerates src/gen from proto/dassie/ui/v1 and proto/dassie/dev/v1 (with
+ * Regenerates src/gen from proto/dassie/owner/v1 and proto/dassie/dev/v1 (with
  * buf and protoc-gen-es, per proto/buf.gen.yaml), and records each
  * contract's hash so that the drift test notices a contract change that was
  * not regenerated.

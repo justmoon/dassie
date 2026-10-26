@@ -96,8 +96,8 @@ function Status(props: { payment: OutgoingPayment }): JSX.Element {
           <dt>Sent by</dt>
           <dd>{clientLabel(props.payment.client)}</dd>
           <dt>Started</dt>
-          <dd>{dateTime(props.payment.createdAtMs)}</dd>
-          <Show when={props.payment.finishedAtMs}>
+          <dd>{dateTime(props.payment.createdAtUnixMs)}</dd>
+          <Show when={props.payment.finishedAtUnixMs}>
             {(at) => (
               <>
                 <dt>Finished</dt>

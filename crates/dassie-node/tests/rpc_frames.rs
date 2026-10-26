@@ -352,6 +352,17 @@ fn number() -> BoxedStrategy<u64> {
     .boxed()
 }
 
+/// Signed numbers at the edges, small ones, and any: times, which may
+/// be before 1970.
+fn signed() -> BoxedStrategy<i64> {
+    prop_oneof![
+        proptest::sample::select(vec![0, 1, -1, i64::MIN, i64::MAX]),
+        0_i64..1_000,
+        any::<i64>(),
+    ]
+    .boxed()
+}
+
 fn small() -> BoxedStrategy<u32> {
     prop_oneof![
         proptest::sample::select(vec![0, 1, 65_535, 65_536, u32::MAX]),
@@ -671,7 +682,7 @@ fn ledgers() -> BoxedStrategy<Method> {
     .boxed()
 }
 
-/// HubMemberService: refused without a hub scheme, never a bug.
+/// The hub member's methods: refused without a hub scheme, never a bug.
 fn hub() -> BoxedStrategy<Method> {
     prop_oneof![
         Just(Method::GetHubStatus(proto::GetHubStatusRequest {})),
@@ -713,16 +724,16 @@ fn payments() -> BoxedStrategy<Method> {
         (
             field(LEDGERS),
             proptest::option::of(number()),
-            number(),
+            signed(),
             text(),
             proptest::option::of(node_id())
         )
             .prop_map(
-                |(ledger, incoming_amount, expires_at_ms, description, uplink)| {
+                |(ledger, incoming_amount, expires_at_unix_ms, description, uplink)| {
                     Method::CreateIncomingPayment(proto::CreateIncomingPaymentRequest {
                         ledger,
                         incoming_amount,
-                        expires_at_ms,
+                        expires_at_unix_ms,
                         description,
                         uplink,
                     })

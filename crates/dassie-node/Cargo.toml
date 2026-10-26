@@ -84,7 +84,7 @@ ring = "0.17.14"
 # SQLite, compiled in: the release binary carries no shared libraries.
 rusqlite = { version = "0.40.2", features = ["backup", "bundled"] }
 
-# The RPC contract's messages (proto/dassie/ui/v1).
+# The RPC contract's messages (proto/dassie/owner/v1).
 prost = "0.14.4"
 # JSON for the setup and login bodies, and the stored ACME credentials.
 serde = { version = "1", features = ["derive"] }

@@ -187,7 +187,7 @@ export function Send(): JSX.Element {
   };
   const lapsed = () => {
     const quoted = quote();
-    return quoted !== undefined && Number(quoted.expiresAtMs) <= now();
+    return quoted !== undefined && Number(quoted.expiresAtUnixMs) <= now();
   };
   const back = (to: Step) => {
     setError(undefined);
@@ -403,7 +403,7 @@ export function Send(): JSX.Element {
                 </Show>
               </dl>
               <p class="muted" data-testid="send-lapse">
-                {lapseText(quoted().expiresAtMs, now())}
+                {lapseText(quoted().expiresAtUnixMs, now())}
               </p>
               <div class="actions">
                 <Show

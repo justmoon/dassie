@@ -1,5 +1,5 @@
-//! HubFoundingService (`proto/dassie/ui/v1/hub_founding.proto`): founding
-//! settlement hubs as their sponsor (spec/areas/hubs.md#founding-a-hub),
+//! The founding methods (`proto/dassie/owner/v1/hub_founding.proto`):
+//! founding settlement hubs as their sponsor (spec/areas/hubs.md#founding-a-hub),
 //! and the payout bundles the node keeps of its hub
 //! (spec/areas/hubs.md#payout-bundles).
 
@@ -13,7 +13,7 @@ use crate::hub::driver::hex;
 use crate::hub::sponsor::{self, FoundError, FoundRequest, FoundingStatus};
 use crate::node::Node;
 
-/// Whether `method` is one of HubFoundingService's.
+/// Whether `method` is one of the founding methods.
 pub(super) const fn is_founding(method: &Method) -> bool {
     matches!(
         method,
@@ -24,7 +24,7 @@ pub(super) const fn is_founding(method: &Method) -> bool {
     )
 }
 
-/// Answers HubFoundingService's methods.
+/// Answers the founding methods.
 pub(super) async fn dispatch(node: &Node, method: Method) -> Result<Reply, RpcError> {
     let reply = match method {
         Method::FoundHub(request) => {

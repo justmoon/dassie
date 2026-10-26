@@ -1,0 +1,85 @@
+syntax = "proto3";
+
+package dassie.owner.v1;
+
+message NodeConfig {
+  Realm realm = 1;
+  // The node's public DNS name; empty until configured.
+  string hostname = 2;
+  // Used in the standalone runtime. Under systemd the socket units decide.
+  uint32 http_port = 3;
+  uint32 https_port = 4;
+  // Shown to other nodes next to the node ID; may be empty.
+  string alias = 5;
+  // The ACME server the node renews its certificate with.
+  string acme_directory_url = 6;
+}
+
+enum Realm {
+  REALM_UNSPECIFIED = 0;
+  REALM_TEST = 1;
+  // Refused until the conditions of spec/decisions/real-money.md are met.
+  REALM_LIVE = 2;
+}
+
+message GetConfigRequest {}
+
+message GetConfigResponse {
+  NodeConfig config = 1;
+  bool has_node_identity = 2;
+  // Empty without a node identity.
+  string node_id = 3;
+  // Whether a certificate from a CA is installed, rather than the
+  // self-signed fallback.
+  bool has_tls = 4;
+}
+
+message GetSetupUrlRequest {}
+
+// FAILED_PRECONDITION once the node is set up.
+message GetSetupUrlResponse {
+  string url = 1;
+}
+
+// INVALID_ARGUMENT unless the hostname is a DNS name (RFC 1123). It is
+// stored lowercased.
+message SetHostnameRequest {
+  string hostname = 1;
+}
+
+message SetHostnameResponse {
+  NodeConfig config = 1;
+}
+
+// FAILED_PRECONDITION for REALM_LIVE (spec/decisions/real-money.md), but
+// on a node the dev switch lets run it, which only a build with debug
+// assertions honours (spec/decisions/mainnet-schemes.md). It takes effect
+// when the engine starts again.
+message SetRealmRequest {
+  Realm realm = 1;
+}
+
+message SetRealmResponse {
+  NodeConfig config = 1;
+}
+
+// Both ports in 1..65535 and different from each other.
+message SetPortsRequest {
+  uint32 http_port = 1;
+  uint32 https_port = 2;
+}
+
+message SetPortsResponse {
+  NodeConfig config = 1;
+  // The listeners keep their ports until the node restarts.
+  bool restart_required = 2;
+}
+
+// At most 64 bytes of UTF-8, without control characters.
+message SetAliasRequest {
+  string alias = 1;
+}
+
+message SetAliasResponse {
+  NodeConfig config = 1;
+}

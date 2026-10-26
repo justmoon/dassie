@@ -60,7 +60,7 @@ function setUp(options: { onSessionEnded?: () => void } = {}) {
     url: "wss://node.example/rpc",
     callTimeoutMs: 1_000,
     connect: (_url, protocol) => {
-      assertEquals(protocol, "dassie.ui.v1");
+      assertEquals(protocol, "dassie.owner.v1");
       const socket = new FakeSocket();
       sockets.push(socket);
       return socket;

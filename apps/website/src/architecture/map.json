@@ -298,9 +298,9 @@
         "Logs to the serial console, so it is watched without SSH"
       ]
     },
-    "proto-ui": {
-      "name": "proto/dassie/ui/v1",
-      "path": "proto/dassie/ui/v1",
+    "proto-owner": {
+      "name": "proto/dassie/owner/v1",
+      "path": "proto/dassie/owner/v1",
       "label": "the owner's RPC contract: calls and live streams",
       "sub": "interfaces",
       "x": 20,
@@ -812,7 +812,7 @@
     },
     {
       "f": "rpc",
-      "t": "proto-ui",
+      "t": "proto-owner",
       "k": "talks",
       "h": false
     },
@@ -944,7 +944,7 @@
     },
     {
       "f": "cli",
-      "t": "proto-ui",
+      "t": "proto-owner",
       "k": "talks",
       "h": false
     },
@@ -998,7 +998,7 @@
     },
     {
       "f": "node",
-      "t": "proto-ui",
+      "t": "proto-owner",
       "k": "talks",
       "h": false
     },
@@ -1319,7 +1319,7 @@
         {
           "ids": [
             "rpc",
-            "proto-ui"
+            "proto-owner"
           ],
           "text": "The wallet opens an RPC WebSocket and subscribes to live data such as ledgers, peers and logs."
         },
@@ -1390,7 +1390,7 @@
         {
           "ids": [
             "rpc",
-            "proto-ui"
+            "proto-owner"
           ],
           "text": "The wallet asks the node over RPC for a quote, and then to pay."
         },
@@ -1607,7 +1607,7 @@
         },
         {
           "ids": [
-            "proto-ui",
+            "proto-owner",
             "payments"
           ],
           "text": "The market maker runs two periphery nodes, one in each asset, each pinned to every core node it trades through. Over their IPC sockets, one creates an incoming payment beneath this core node, and the other quotes paying it a fixed amount, and pays only if the quote still clears the margin."
@@ -1637,7 +1637,7 @@
         {
           "ids": [
             "wallet",
-            "proto-ui"
+            "proto-owner"
           ],
           "text": "On the wallet's Names page, the owner asks for a name. The node checks that it is one, and that no registrar's fresh list names anyone for it."
         },

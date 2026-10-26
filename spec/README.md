@@ -34,10 +34,10 @@ Read a [decision](decisions/README.md) when an area doc links to it and you need
 | `crates/dassie-desktop`, `nix/desktop.nix`, `nix/desktop-libs.nix` | [Desktop](areas/desktop.md), [Node](areas/node.md), [HTTP](areas/http.md) |
 | `crates/dassie-release` | [Release](areas/release.md) |
 | `crates/dassie-sim` | [Testing](areas/testing.md) |
-| `proto/dassie/ui/v1` | [RPC](areas/rpc.md) |
-| `proto/dassie/ui/v1/hub_member.proto` | [Settlement hubs](areas/hubs.md#in-the-node), [RPC](areas/rpc.md) |
-| `proto/dassie/ui/v1/hub_founding.proto` | [Settlement hubs](areas/hubs.md#founding-a-hub), [RPC](areas/rpc.md) |
-| `proto/dassie/ui/v1/names.proto` | [Network](areas/network.md#names), [RPC](areas/rpc.md) |
+| `proto/dassie/owner/v1` | [RPC](areas/rpc.md) |
+| `proto/dassie/owner/v1/hub_member.proto` | [Settlement hubs](areas/hubs.md#in-the-node), [RPC](areas/rpc.md) |
+| `proto/dassie/owner/v1/hub_founding.proto` | [Settlement hubs](areas/hubs.md#founding-a-hub), [RPC](areas/rpc.md) |
+| `proto/dassie/owner/v1/names.proto` | [Network](areas/network.md#names), [RPC](areas/rpc.md) |
 | `proto/dassie/dev/v1` | [Dev](areas/dev.md) |
 | `packages/rpc` | [RPC](areas/rpc.md) |
 | `crates/dassie-wasm`, `packages/wasm` | [Identity](areas/identity.md#in-the-browser-and-in-scripts), [STREAM](areas/stream.md) |

@@ -520,7 +520,7 @@ pub async fn websocket(
         .unwrap();
     let headers = request.headers_mut();
     headers.insert("origin", origin.parse().unwrap());
-    headers.insert("sec-websocket-protocol", "dassie.ui.v1".parse().unwrap());
+    headers.insert("sec-websocket-protocol", "dassie.owner.v1".parse().unwrap());
     if let Some(cookie) = cookie {
         headers.insert("cookie", cookie.parse().unwrap());
     }

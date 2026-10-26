@@ -7,7 +7,7 @@
 import { readdir, readFile } from "node:fs/promises";
 
 /** The contracts generated here, as their directories under `proto/`. */
-export const CONTRACTS = ["dassie/ui/v1", "dassie/dev/v1"] as const;
+export const CONTRACTS = ["dassie/owner/v1", "dassie/dev/v1"] as const;
 export type Contract = typeof CONTRACTS[number];
 
 const protoDir = new URL("../../../proto/", import.meta.url);

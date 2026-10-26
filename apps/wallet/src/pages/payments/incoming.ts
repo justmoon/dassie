@@ -11,18 +11,18 @@ export interface IncomingFields {
   id: string;
   client: string;
   metadataJson: string;
-  createdAtMs: bigint;
-  expiresAtMs: bigint;
-  completedAtMs?: bigint;
+  createdAtUnixMs: bigint;
+  expiresAtUnixMs: bigint;
+  completedAtUnixMs?: bigint;
 }
 
 /** Whether it still takes money at `nowMs`. */
 export function incomingState(
-  payment: Pick<IncomingFields, "completedAtMs" | "expiresAtMs">,
+  payment: Pick<IncomingFields, "completedAtUnixMs" | "expiresAtUnixMs">,
   nowMs: number,
 ): IncomingState {
-  if (payment.completedAtMs !== undefined) return "completed";
-  return BigInt(nowMs) < payment.expiresAtMs ? "open" : "expired";
+  if (payment.completedAtUnixMs !== undefined) return "completed";
+  return BigInt(nowMs) < payment.expiresAtUnixMs ? "open" : "expired";
 }
 
 /** Newest first; ties by ID, so the order never jumps. */
@@ -30,9 +30,9 @@ export function newestFirst<T extends IncomingFields>(
   payments: readonly T[],
 ): T[] {
   return [...payments].sort((a, b) =>
-    a.createdAtMs === b.createdAtMs
+    a.createdAtUnixMs === b.createdAtUnixMs
       ? a.id.localeCompare(b.id)
-      : a.createdAtMs > b.createdAtMs
+      : a.createdAtUnixMs > b.createdAtUnixMs
       ? -1
       : 1
   );

@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package dassie.dev.v1;
 
-import "dassie/ui/v1/inspect.proto";
+import "dassie/owner/v1/inspect.proto";
 
 // The dev environment's control channel (spec/areas/dev.md#control-channel):
 // between the dev server (apps/dev) and its dashboard, over one WebSocket at
@@ -96,7 +96,7 @@ message Logs {
 message SourcedLogLine {
   // "host" for the dev server, or a node's short name.
   string source = 1;
-  dassie.ui.v1.LogLine line = 2;
+  dassie.owner.v1.LogLine line = 2;
 }
 
 // Each node's peers, by short name, sent whole when they change.

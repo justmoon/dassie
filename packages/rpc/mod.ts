@@ -1,5 +1,5 @@
 /**
- * The browser's client for the node's RPC contract (`proto/dassie/ui/v1`,
+ * The browser's client for the node's RPC contract (`proto/dassie/owner/v1`,
  * spec/decisions/rpc-contract.md, spec/areas/rpc.md#the-typescript-client):
  * one WebSocket to `/rpc`, binary protobuf frames.
  *
@@ -44,7 +44,7 @@ import {
 export { ErrorCode } from "./proto.ts";
 
 /** The contract's WebSocket subprotocol. */
-export const SUBPROTOCOL = "dassie.ui.v1";
+export const SUBPROTOCOL = "dassie.owner.v1";
 
 /** The close code with which the node ends a socket whose session ended. */
 export const SESSION_ENDED = 4001;

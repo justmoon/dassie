@@ -235,7 +235,8 @@ async fn create_incoming(
     let request = proto::CreateIncomingPaymentRequest {
         ledger: to.ledger.clone(),
         incoming_amount: None,
-        expires_at_ms: now_ms.saturating_add(INCOMING_TTL_MS),
+        expires_at_unix_ms: i64::try_from(now_ms.saturating_add(INCOMING_TTL_MS))
+            .unwrap_or(i64::MAX),
         description: "market maker".into(),
         uplink: Some(uplink.to_string()),
     };

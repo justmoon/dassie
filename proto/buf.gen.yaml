@@ -1,4 +1,4 @@
-# Generates the TypeScript of the owner's RPC contract (dassie/ui/v1) and of
+# Generates the TypeScript of the owner's RPC contract (dassie/owner/v1) and of
 # the dev environment's control channel (dassie/dev/v1) into
 # packages/rpc/src/gen. Run `node --run gen` in packages/rpc rather than this
 # directly: it also records the contract's hash for the drift test there, and
@@ -7,7 +7,7 @@
 version: v2
 inputs:
   - directory: .
-    paths: [dassie/ui/v1, dassie/dev/v1]
+    paths: [dassie/owner/v1, dassie/dev/v1]
 plugins:
   - local: ["node", "../packages/rpc/node_modules/@bufbuild/protoc-gen-es/bin/protoc-gen-es"]
     out: ../packages/rpc/src/gen

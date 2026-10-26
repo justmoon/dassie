@@ -96,7 +96,7 @@ pub fn upgrade(
     if !header_has_token(headers, &header::SEC_WEBSOCKET_PROTOCOL, SUBPROTOCOL) {
         return response::text(
             StatusCode::BAD_REQUEST,
-            "Expected the dassie.ui.v1 subprotocol",
+            "Expected the dassie.owner.v1 subprotocol",
         );
     }
     if let Err(refusal) = check_origin(node, &request) {
@@ -188,7 +188,7 @@ where
     .await;
     let frame = match closed {
         Closed::ByClient => None,
-        Closed::ProtocolError => Some((CloseCode::Protocol, "expected dassie.ui.v1 messages")),
+        Closed::ProtocolError => Some((CloseCode::Protocol, "expected dassie.owner.v1 messages")),
         Closed::SessionEnded => Some((CloseCode::from(SESSION_ENDED), "session ended")),
         Closed::Shutdown => Some((CloseCode::Away, "node shutting down")),
         Closed::Idle => Some((CloseCode::Normal, "idle")),

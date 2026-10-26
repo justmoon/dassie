@@ -1,4 +1,4 @@
-//! NamesService (`proto/dassie/ui/v1/names.proto`): the names the owner
+//! The names methods (`proto/dassie/owner/v1/names.proto`): the names the owner
 //! registers for the node and renews, and how each stands
 //! (spec/areas/network.md#the-registrant).
 
@@ -13,7 +13,7 @@ use super::{RpcError, convert};
 use crate::engine::{Engine, NamesView};
 use crate::node::Node;
 
-/// Whether `method` is one of NamesService's.
+/// Whether `method` is one of the names methods.
 pub(super) const fn is_names(method: &Method) -> bool {
     matches!(
         method,
@@ -21,7 +21,7 @@ pub(super) const fn is_names(method: &Method) -> bool {
     )
 }
 
-/// Answers NamesService's methods.
+/// Answers the names methods.
 pub(super) async fn dispatch(
     node: &Node,
     engine: &Engine,

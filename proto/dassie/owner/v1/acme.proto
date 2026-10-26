@@ -1,0 +1,52 @@
+syntax = "proto3";
+
+package dassie.owner.v1;
+
+import "dassie/owner/v1/tls.proto";
+
+// The terms the ACME server asks its users to agree to.
+message GetAcmeTermsRequest {
+  // Empty: the configured directory.
+  string directory_url = 1;
+}
+
+message GetAcmeTermsResponse {
+  string directory_url = 1;
+  // Empty if the server names none.
+  string terms_of_service_url = 2;
+}
+
+// Obtains a certificate for the configured hostname over ACME (http-01) and
+// installs it. The node keeps the account and renews by itself.
+//
+// Streams progress, ending after STEP_INSTALLED. One order runs at a time:
+// a call that finds another running (a renewal, say) waits for it, and if
+// that one got a fitting certificate, ends at once with it. Errors:
+// - FAILED_PRECONDITION: no hostname, or the terms not agreed to;
+// - UNAVAILABLE: the ACME server failed or refused, with its reason.
+// Cancelling the call abandons the order.
+message ObtainCertificateRequest {
+  // The account's contact; may be empty.
+  string email = 1;
+  bool agree_to_terms_of_service = 2;
+  // Empty: the configured directory. Otherwise it becomes the configured
+  // one once the certificate is installed.
+  string directory_url = 3;
+}
+
+message AcmeProgress {
+  AcmeStep step = 1;
+  // Set with ACME_STEP_INSTALLED.
+  Certificate certificate = 2;
+}
+
+enum AcmeStep {
+  ACME_STEP_UNSPECIFIED = 0;
+  ACME_STEP_CREATING_ACCOUNT = 1;
+  ACME_STEP_ORDERING = 2;
+  ACME_STEP_PREPARING_CHALLENGE = 3;
+  ACME_STEP_VALIDATING = 4;
+  ACME_STEP_FINALIZING = 5;
+  ACME_STEP_DOWNLOADING = 6;
+  ACME_STEP_INSTALLED = 7;
+}

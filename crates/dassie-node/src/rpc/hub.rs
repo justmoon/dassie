@@ -1,5 +1,5 @@
-//! HubMemberService (`proto/dassie/ui/v1/hub_member.proto`): the node's
-//! account in its settlement hub, and the owner's moves between it and the
+//! The hub member's methods (`proto/dassie/owner/v1/hub_member.proto`):
+//! the node's account in its settlement hub, and the owner's moves between it and the
 //! node's XRP Ledger testnet account (spec/areas/hubs.md#in-the-node).
 
 use super::handlers::Reply;
@@ -7,7 +7,7 @@ use super::proto::{self, request::Method, response};
 use super::{RpcError, convert};
 use crate::engine::{Direction, Engine, HubHold, HubStatus};
 
-/// Whether `method` is one of HubMemberService's.
+/// Whether `method` is one of the hub member's.
 pub(super) const fn is_hub(method: &Method) -> bool {
     matches!(
         method,
@@ -19,7 +19,7 @@ pub(super) const fn is_hub(method: &Method) -> bool {
     )
 }
 
-/// Answers HubMemberService's methods.
+/// Answers the hub member's methods.
 pub(super) async fn dispatch(engine: &Engine, method: Method) -> Result<Reply, RpcError> {
     let reply = match method {
         Method::GetHubStatus(_) => {

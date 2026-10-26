@@ -5,7 +5,8 @@
 # built here with crane, as `node --run build:e2e` builds them.
 #
 # Four checks, so that a change reruns only what reads it:
-# - ts-check: fmt, lint and the type check;
+# - ts-check: fmt, lint, the type check and `buf lint` of the contracts
+#   in proto/;
 # - ts-test: the unit tests, with the wallet, the dashboard and the site
 #   built;
 # - spec: the spec's links and citations, the only test that reads the
