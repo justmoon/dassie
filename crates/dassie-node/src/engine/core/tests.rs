@@ -3856,6 +3856,76 @@ fn a_stored_scheme_of_another_realm_does_not_run() {
     assert_eq!(test.ledger_views().len(), 1);
 }
 
+// A node that stored a scheme whose config no longer makes one, as a hub
+// that is no longer built in, starts with the rest and says so; the owner
+// can remove the scheme, and its stored config goes.
+#[test]
+fn a_stored_scheme_whose_config_is_refused_does_not_run() {
+    use dassie_ledger::Name;
+
+    use super::{Event, SettlementEvent};
+    use crate::store::LedgerBatch;
+
+    let store = Arc::new(Store::open_in_memory().unwrap());
+    let stub = Name::new("stub").unwrap();
+    let hub = Name::new(dassie_hub::member::SCHEME_ID).unwrap();
+    store
+        .commit_ledger(&LedgerBatch {
+            at_ms: NOW,
+            schemes_added: vec![(stub, String::new()), (hub, "not a hub".into())],
+            ..LedgerBatch::default()
+        })
+        .unwrap();
+
+    let mut core = core_on(Arc::clone(&store), 4);
+    assert_eq!(core.ledger_views().len(), 1);
+    let mut outputs = Vec::new();
+    core.finish_step(&mut outputs);
+    assert!(outputs.iter().any(|output| matches!(
+        output,
+        Output::Event(Event::Settlement(SettlementEvent::Unusable { scheme, .. }))
+            if *scheme == hub
+    )));
+
+    core.remove_scheme(hub.as_str()).unwrap();
+    core.finish_step(&mut Vec::new());
+    let stored: Vec<Name> = store
+        .settlement_schemes()
+        .unwrap()
+        .into_iter()
+        .map(|(id, _)| id)
+        .collect();
+    assert_eq!(stored, [stub]);
+    assert!(core.remove_scheme(hub.as_str()).is_err());
+}
+
+// A scheme left out at start is added again with a config that works: its
+// stored config is replaced, and it runs after a restart.
+#[test]
+fn a_stored_scheme_left_out_is_added_again() {
+    use dassie_ledger::Name;
+
+    use crate::store::LedgerBatch;
+
+    let store = Arc::new(Store::open_in_memory().unwrap());
+    let stub = Name::new("stub").unwrap();
+    store
+        .commit_ledger(&LedgerBatch {
+            at_ms: NOW,
+            schemes_added: vec![(stub, "not a stub".into())],
+            ..LedgerBatch::default()
+        })
+        .unwrap();
+
+    let mut core = core_on(Arc::clone(&store), 4);
+    assert!(core.ledger_views().is_empty());
+    core.add_scheme("stub", String::new()).unwrap();
+    core.finish_step(&mut Vec::new());
+    assert_eq!(store.settlement_schemes().unwrap(), [(stub, String::new())]);
+    drop(core);
+    assert_eq!(core_on(store, 4).ledger_views().len(), 1);
+}
+
 // spec/decisions/issued-assets.md: a node that ran test RLUSD starts
 // without it, and says so. The scheme, what the books kept for it and its
 // books on `xrpl-testnet-rlusd+usd` stay as they were, nothing is written

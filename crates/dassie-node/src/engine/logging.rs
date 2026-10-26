@@ -329,6 +329,9 @@ fn activation(severity: Severity, event: &SettlementEvent) {
         SettlementEvent::OtherRealm { scheme } => {
             emit!(severity, target: target::SETTLEMENT, %scheme, "the scheme is of another realm than the node's: it does not run");
         }
+        SettlementEvent::Unusable { scheme, reason } => {
+            emit!(severity, target: target::SETTLEMENT, %scheme, %reason, "the scheme's stored config no longer makes a scheme: it does not run, and its books stay as they are");
+        }
         SettlementEvent::Disabled { scheme } => {
             emit!(severity, target: target::SETTLEMENT, %scheme, "the scheme is disabled: it does not run, and its books and its line stay as they are");
         }
@@ -338,10 +341,13 @@ fn activation(severity: Severity, event: &SettlementEvent) {
 }
 
 /// The schemes, and our settlements as they start.
+// One arm per event, named, so that a new event is never logged by default.
+#[allow(clippy::too_many_lines)]
 fn settlement(severity: Severity, event: &SettlementEvent) {
     match event {
         SettlementEvent::BalanceBooked { .. }
         | SettlementEvent::OtherRealm { .. }
+        | SettlementEvent::Unusable { .. }
         | SettlementEvent::Disabled { .. } => activation(severity, event),
         SettlementEvent::Reconciled {
             scheme,
@@ -494,6 +500,7 @@ fn settlement_outcome(severity: Severity, event: &SettlementEvent) {
         | SettlementEvent::MessageNotSent { .. }
         | SettlementEvent::DepositFromStranger { .. }
         | SettlementEvent::OtherRealm { .. }
+        | SettlementEvent::Unusable { .. }
         | SettlementEvent::Disabled { .. }
         | SettlementEvent::SchemeStopped { .. }
         | SettlementEvent::BooksCannotSettle { .. }

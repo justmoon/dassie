@@ -253,6 +253,16 @@ pub enum SettlementEvent {
         /// The scheme.
         scheme: Name,
     },
+    /// A stored scheme's config or state no longer makes a scheme, such as a
+    /// hub's that is no longer built in or no longer decodes: it does not
+    /// run, its books stay as they are, and the owner may add it again with
+    /// a config that works, or remove it.
+    Unusable {
+        /// The scheme.
+        scheme: Name,
+        /// Why it was refused.
+        reason: String,
+    },
     /// A stored scheme is disabled, such as test RLUSD: it does not run, and
     /// its books and its line stay as they are
     /// (spec/decisions/issued-assets.md).
@@ -550,6 +560,7 @@ const fn settlement_severity(event: &SettlementEvent) -> Severity {
         }
         | SettlementEvent::DepositFromStranger { .. }
         | SettlementEvent::OtherRealm { .. }
+        | SettlementEvent::Unusable { .. }
         | SettlementEvent::Disabled { .. }
         | SettlementEvent::PegPaused { .. }
         | SettlementEvent::BooksCannotSettle { .. }
