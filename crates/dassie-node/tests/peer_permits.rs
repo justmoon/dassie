@@ -8,12 +8,12 @@
 use std::net::IpAddr;
 use std::sync::Arc;
 
+use dassie_kit::sim::SeededRng;
 use dassie_node::clock::ManualClock;
 use dassie_node::node::{
     MAX_PEER_REQUESTS_PER_CLIENT, Node, NodeOptions, PeerOptions, Policies, Runtime,
 };
 use dassie_node::store::Store;
-use dassie_node_core::testing::SeededRng;
 
 fn node() -> Arc<Node> {
     Node::new(NodeOptions {

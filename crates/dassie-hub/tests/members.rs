@@ -35,8 +35,8 @@ use dassie_hub::service::wire::Message;
 use dassie_hub::validators::{Signers, ValidatorIndex};
 use dassie_hub::{Digest, Ledger, Millis};
 use dassie_identity::{NodeKey, PublicKey};
+use dassie_kit::sim::SeededRng;
 use dassie_ledger::Name;
-use dassie_node_core::testing::SeededRng;
 use dassie_oer::{Encode, Reader};
 use dassie_settlement::{
     AssetEffect, Decided, Effect, ExternalAsset, LedgerInput, LossCause, Promised, ReconcileCause,

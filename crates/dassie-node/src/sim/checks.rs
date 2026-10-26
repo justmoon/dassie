@@ -6,7 +6,7 @@
 //! (liveness).
 
 use dassie_connector::{CapUsage, replay};
-use dassie_node_core::testing::Outcome;
+use dassie_kit::sim::Outcome;
 use dassie_payments::amount::{paid_in_full, payment_tolerance};
 use dassie_settlement::policy;
 

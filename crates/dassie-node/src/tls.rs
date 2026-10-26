@@ -276,7 +276,7 @@ mod tests {
     #![allow(clippy::unwrap_used, clippy::indexing_slicing)]
 
     use super::*;
-    use dassie_node_core::DAY_MS;
+    use dassie_kit::DAY_MS;
 
     const NOW_MS: u64 = 1_800_000_000_000;
 

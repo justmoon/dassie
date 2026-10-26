@@ -18,10 +18,11 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use dassie_identity::NodeKey;
+use dassie_kit::ClientKey;
 use dassie_node_core::acme::{ChallengeTokens, Renewal, RenewalPolicy};
 use dassie_node_core::config::NodeConfig;
 use dassie_node_core::connections::{ConnectionLimits, Refused};
-use dassie_node_core::rate_limit::{ClientKey, RateLimitPolicy, RateLimiter};
+use dassie_node_core::rate_limit::{RateLimitPolicy, RateLimiter};
 use dassie_node_core::session::{SessionId, SessionPolicy};
 use dassie_node_core::setup::SetupToken;
 use dassie_node_core::urls;
@@ -826,7 +827,7 @@ impl Node {
     /// try again now.
     #[must_use]
     pub fn btp_auth_blocked(&self, client: std::net::IpAddr) -> bool {
-        let client = dassie_node_core::rate_limit::ClientKey::from_ip(client);
+        let client = dassie_kit::ClientKey::from_ip(client);
         lock(&self.btp_auth_limiter)
             .peek(client, self.now_ms())
             .is_err()
@@ -834,7 +835,7 @@ impl Node {
 
     /// Counts a failed BTP authentication from `client`.
     pub fn btp_auth_failed(&self, client: std::net::IpAddr) {
-        let client = dassie_node_core::rate_limit::ClientKey::from_ip(client);
+        let client = dassie_kit::ClientKey::from_ip(client);
         let _ = lock(&self.btp_auth_limiter).check(client, self.now_ms());
     }
 

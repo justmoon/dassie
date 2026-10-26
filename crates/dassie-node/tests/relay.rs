@@ -20,6 +20,7 @@ use std::time::Duration;
 
 use bytes::Bytes;
 use dassie_identity::{NodeId, NodeKey};
+use dassie_kit::ClientKey;
 use dassie_node::clock::{Clock, ManualClock};
 use dassie_node::node::Policies;
 use dassie_node::outbound::Resolver;
@@ -32,7 +33,6 @@ use dassie_node::quic::{Body, Handler, Quic};
 use dassie_node::rpc::proto::{self, request::Method};
 use dassie_node_core::config::{Hostname, NodeConfig};
 use dassie_node_core::connections::ConnectionLimits;
-use dassie_node_core::rate_limit::ClientKey;
 use dassie_payments::httpsig;
 use dassie_peer::wire::Kind;
 use dassie_peer::{Request as PeerRequest, RequestId};

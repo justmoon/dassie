@@ -7,7 +7,7 @@
 //! and its rates still hold. A change that comes within the interval is
 //! published when the interval ends, never lost.
 
-use dassie_node_core::SECOND_MS;
+use dassie_kit::SECOND_MS;
 
 /// The least time between two feeds.
 pub const FEED_MIN_INTERVAL_MS: u64 = SECOND_MS;

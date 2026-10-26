@@ -8,7 +8,7 @@ use std::net::IpAddr;
 use std::sync::Arc;
 
 use dassie_identity::NodeKey;
-use dassie_node_core::testing::SeededRng;
+use dassie_kit::sim::SeededRng;
 use dassie_oer::{Decode, Encode};
 use dassie_peer::auth::{AuthConfig, Authenticator};
 use dassie_peer::sim::{Network, START, key};

@@ -27,7 +27,7 @@ use alloc::vec;
 use alloc::vec::Vec;
 
 use dassie_identity::{NodeKey, PublicKey};
-use dassie_node_core::testing::SeededRng;
+use dassie_kit::sim::SeededRng;
 use dassie_oer::Encode;
 
 use crate::consensus::wire::{Message, Proposal};

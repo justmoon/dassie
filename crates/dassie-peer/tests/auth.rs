@@ -14,7 +14,7 @@
 use std::sync::Arc;
 
 use dassie_identity::NodeKey;
-use dassie_node_core::testing::SeededRng;
+use dassie_kit::sim::SeededRng;
 use dassie_oer::Encode;
 use dassie_peer::auth::{AuthConfig, AuthError, Authenticator, Pending};
 use dassie_peer::wire::{

@@ -20,8 +20,8 @@ use std::panic::resume_unwind;
 use std::sync::{Mutex, PoisonError};
 use std::thread;
 
+use dassie_kit::sim::{Run, caught};
 use dassie_node::sim::swarm;
-use dassie_node_core::testing::{Run, caught};
 
 /// The seeds CI runs.
 const SEEDS: Range<u64> = 0..16;

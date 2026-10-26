@@ -52,7 +52,7 @@ UDP's source address is whatever the sender writes, so a node that sent its feed
 
 ### The table
 
-- **Bounded in all and per client** (an IPv4 address, or an IPv6 /56, as the node's other per-client limits: `ClientKey` in `dassie-node-core`), so one host cannot take every place by rotating ports or IPv6 addresses. A party with many clients, such as the 256 /56s of one IPv6 /48, can still fill the table and hold it by renewing: those subscribed before keep the feed, and newcomers are refused until entries lapse.
+- **Bounded in all and per client** (an IPv4 address, or an IPv6 /56, as the node's other per-client limits: `ClientKey` in `dassie-kit`), so one host cannot take every place by rotating ports or IPv6 addresses. A party with many clients, such as the 256 /56s of one IPv6 /48, can still fill the table and hold it by renewing: those subscribed before keep the feed, and newcomers are refused until entries lapse.
 - **A full table refuses newcomers** and evicts nobody: every entry is a proven address that asked within its lifetime, and evicting one for a newcomer would let a party with many addresses push the others out. A refused subscriber is sent nothing, and tries again at its next renewal.
 - **An entry lasts a fixed time,** renewed by every Subscribe with a valid cookie, and expires otherwise. Expiry follows the time the caller passes in.
 - **In memory only.** After a restart the secret is new, every cookie is void, and subscribers are challenged and come back at their next renewal.

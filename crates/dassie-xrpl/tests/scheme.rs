@@ -7,8 +7,8 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use dassie_kit::sim::SeededRng;
 use dassie_ledger::Name;
-use dassie_node_core::testing::SeededRng;
 use dassie_settlement::{
     EntryPayment, ExternalAsset, LedgerInput, LedgerStatus, ReconcileCause, SchemeError,
 };

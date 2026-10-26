@@ -30,7 +30,7 @@ use crate::{
 use dassie_ilp::{
     Address, AmountTooLarge, ErrorCode as IlpErrorCode, Prepare, Reject, Response, Timestamp,
 };
-use dassie_node_core::testing::SeededRng;
+use dassie_kit::sim::SeededRng;
 use dassie_oer::{Decode, Encode};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]

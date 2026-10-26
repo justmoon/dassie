@@ -14,8 +14,8 @@ use std::time::Duration;
 
 use dassie_ilp::btp::{self, Body, ContentType, ProtocolData, ProtocolDataEntry};
 use dassie_ilp::{Address, Prepare, Response, Timestamp, ildcp};
+use dassie_kit::sim::SeededRng;
 use dassie_node::clock::{Clock, ManualClock};
-use dassie_node_core::testing::SeededRng;
 use dassie_oer::{Decode, Encode};
 use dassie_stream::{AssetDetails, BUFFER_LENGTH, Config, Connection, ErrorCode, Policy, Role};
 use futures_util::{SinkExt, StreamExt};

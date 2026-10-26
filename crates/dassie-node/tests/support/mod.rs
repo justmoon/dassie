@@ -20,6 +20,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use bytes::Bytes;
+use dassie_kit::sim::SeededRng;
 use dassie_node::clock::ManualClock;
 use dassie_node::daemon::{self, DaemonError, Prepared};
 use dassie_node::env::{Env, Settings};
@@ -28,7 +29,6 @@ use dassie_node::rpc::proto::{self, client_message, request, response, server_me
 use dassie_node::store::Store;
 use dassie_node::systemd::Notifier;
 use dassie_node::{ipc, tls};
-use dassie_node_core::testing::SeededRng;
 use futures_util::{SinkExt, StreamExt};
 use http_body_util::{BodyExt, Full};
 use hyper::{Request, StatusCode};

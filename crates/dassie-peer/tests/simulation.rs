@@ -15,7 +15,7 @@ use std::panic::resume_unwind;
 use std::sync::{Mutex, PoisonError};
 use std::thread;
 
-use dassie_node_core::testing::{Run, assert_seeds_pass, caught};
+use dassie_kit::sim::{Run, assert_seeds_pass, caught};
 use dassie_peer::sim::{chaos, names};
 
 #[test]

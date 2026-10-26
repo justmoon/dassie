@@ -1,0 +1,26 @@
+[package]
+name = "dassie-kit"
+version = "0.2.9"
+description = "What Dassie's crates share below every protocol: time units, client keys, and the simulation kit"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[features]
+default = []
+# The simulation kit: a seeded RNG, how a run ended, and running seeds
+# (spec/decisions/random-seed-simulations.md), for tests and the crates'
+# `sim` features. It catches a run's panic, which needs std.
+sim = ["dep:rand_core"]
+
+[dependencies]
+# The RNG trait the seeded RNG implements, shared with dassie-identity.
+rand_core = { version = "0.10", default-features = false, optional = true }
+
+[dev-dependencies]
+dassie-kit = { path = ".", features = ["sim"] }
+proptest = "1.12"

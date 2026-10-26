@@ -25,7 +25,7 @@ use alloc::string::String;
 use alloc::vec::Vec;
 
 use dassie_identity::NodeId;
-use dassie_node_core::testing::{Outcome, Run, SeededRng};
+use dassie_kit::sim::{Outcome, Run, SeededRng};
 
 use super::{Faults, NameChange, Network, Role, START, key};
 use crate::names::holders::quorum;

@@ -33,8 +33,8 @@ use std::panic::resume_unwind;
 use std::sync::{Mutex, PoisonError};
 use std::thread;
 
+use dassie_kit::sim::{Run, caught};
 use dassie_node::sim::{START, Settling, Sim, hubbed, key};
-use dassie_node_core::testing::{Run, caught};
 
 /// The seeds CI runs: between them, every validator fault and member lie
 /// the run draws, restarts, hubs of 4, 5 and 7, and collusions, of which

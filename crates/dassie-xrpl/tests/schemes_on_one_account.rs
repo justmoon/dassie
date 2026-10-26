@@ -12,8 +12,8 @@
     clippy::panic
 )]
 
+use dassie_kit::sim::SeededRng;
 use dassie_ledger::Name;
-use dassie_node_core::testing::SeededRng;
 use dassie_settlement::{
     AssetEffect, Detach, Effect, ExternalAsset, LedgerInput, LedgerStatus, SettlementScheme,
 };

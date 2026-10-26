@@ -15,8 +15,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use dassie_identity::NodeId;
+use dassie_kit::ClientKey;
 use dassie_node_core::connections::ConnectionLimits;
-use dassie_node_core::rate_limit::ClientKey;
 use tokio_util::sync::CancellationToken;
 
 use dassie_peer::wire::{Authentication, Envelope, MAX_MESSAGE_BYTES};

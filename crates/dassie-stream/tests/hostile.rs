@@ -12,7 +12,7 @@ use dassie_ilp::{
     Address, AmountTooLarge, ErrorCode as IlpErrorCode, Fulfill, Prepare, Reject, Response,
     Timestamp,
 };
-use dassie_node_core::testing::SeededRng;
+use dassie_kit::sim::SeededRng;
 use dassie_oer::{Decode, Encode};
 use dassie_stream::base64url;
 use dassie_stream::crypto::{Cipher, Keys};

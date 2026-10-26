@@ -7,7 +7,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing)]
 
-use dassie_node_core::testing::{Outcome, assert_seeds_pass};
+use dassie_kit::sim::{Outcome, assert_seeds_pass};
 use dassie_stream::sim::payment::{self, LOSSY, STEPS};
 use dassie_stream::sim::{Detour, Path, Side, Simulation};
 use dassie_stream::{ErrorCode, Event, MAX_FAILURES_WITHOUT_PROGRESS, Policy, Rate};

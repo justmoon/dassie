@@ -6,7 +6,7 @@
 //! (spec/decisions/random-seed-simulations.md).
 
 use dassie_connector::sim::traffic;
-use dassie_node_core::testing::assert_seeds_pass;
+use dassie_kit::sim::assert_seeds_pass;
 
 #[test]
 fn random_traffic_keeps_the_connector_sound() {

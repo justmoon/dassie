@@ -18,7 +18,7 @@ use dassie_ilp::{
     Address, AmountTooLarge, ErrorCode as IlpErrorCode, Fulfill, Prepare, Reject, Response,
     Timestamp,
 };
-use dassie_node_core::testing::SeededRng;
+use dassie_kit::sim::SeededRng;
 use dassie_oer::{Decode, Encode, Writer};
 use dassie_stream::crypto::{Keys, OVERHEAD};
 use dassie_stream::packet::{Frames, Packet, PacketType};

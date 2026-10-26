@@ -2,7 +2,7 @@
 
 How Dassie is tested: what each level of tests is for, what the deterministic simulations judge and why, how to reproduce a failure, and the campaign that runs the simulations continuously.
 
-**Paths:** `crates/*/tests/`, `crates/*/src/sim/`, `crates/dassie-sim/`, `scripts/sim-campaign.ts`, `scripts/sim-campaign/`, `crates/dassie-node-core/src/testing.rs`, `tests/e2e/`, `tests/interop/`, `testdata/`, `.config/nextest.toml`, `**/*_test.ts`
+**Paths:** `crates/*/tests/`, `crates/*/src/sim/`, `crates/dassie-sim/`, `scripts/sim-campaign.ts`, `scripts/sim-campaign/`, `crates/dassie-kit/src/sim.rs`, `tests/e2e/`, `tests/interop/`, `testdata/`, `.config/nextest.toml`, `**/*_test.ts`
 **Read with:** [Engineering](../engineering.md), [Release](release.md), [Website](website.md), [Dev environment](dev.md)
 
 ## Levels
@@ -41,7 +41,7 @@ Dassie runs against the reference implementations, which are the oracle for the 
 
 ## Deterministic simulation
 
-N nodes, or a crate's state machines, are wired in-process through the sans-IO crates, with a virtual clock and a seeded RNG (`dassie_node_core::testing::SeededRng`, reproducible, not cryptographic). Every simulation is library code in its crate's `src/sim/`, so `cargo test` (on fixed seeds) and the runner (on any seed) run the same code.
+N nodes, or a crate's state machines, are wired in-process through the sans-IO crates, with a virtual clock and a seeded RNG (`dassie_kit::sim::SeededRng`, reproducible, not cryptographic). Every simulation is library code in its crate's `src/sim/`, so `cargo test` (on fixed seeds) and the runner (on any seed) run the same code. What they share (the seeded RNG, a run's outcome, running a range of seeds) is the `sim` feature of `dassie-kit`, a leaf crate that depends on no other of the workspace's: a protocol crate's simulation takes on nothing of the node's.
 
 - Between them, the simulations inject latency, loss, reordering, duplication, partitions, clock skew, crashes and restarts, failed commits, lying peers, and lying ledger servers. What the `node` simulation does not inject yet is in the [roadmap](../roadmap.md#continuous-simulation).
 - Every state machine's invariants are checked after each step.
@@ -133,7 +133,7 @@ A test asserts that its fixed seeds between them draw every kind of registrar, a
 
 ### Outcomes
 
-A run ends as `pass`, `safety` (something that must never happen did: an assertion, an invariant or a check of what the run did), `liveness` (something that must happen did not, once the network was calm), or `unsupported` (the run drew a situation no code could recover from, such as a majority of bootstrap nodes cut off, or a link that crashes drifted past what it survives; it neither passes nor fails) (`dassie_node_core::testing::Outcome`). Each of the node simulation's checks says which of the two failures it found. A run that broke both says safety: one that did not settle down is first checked for what must not happen even with money in flight, and one that did runs every check and reports a safety failure before any liveness failure.
+A run ends as `pass`, `safety` (something that must never happen did: an assertion, an invariant or a check of what the run did), `liveness` (something that must happen did not, once the network was calm), or `unsupported` (the run drew a situation no code could recover from, such as a majority of bootstrap nodes cut off, or a link that crashes drifted past what it survives; it neither passes nor fails) (`dassie_kit::sim::Outcome`). Each of the node simulation's checks says which of the two failures it found. A run that broke both says safety: one that did not settle down is first checked for what must not happen even with money in flight, and one that did runs every check and reports a safety failure before any liveness failure.
 
 Every outcome but `pass` also says where the run ended (`Finding`): the name of the check that failed or ruled the run out, or the file and line of a panic. It holds nothing a seed draws, so every seed that ends at the same place shares it; a check's name is words in lower case, so it cannot carry a number. With the simulation and the outcome, it is the run's **signature**, `<sim>/<outcome>/<where>`, which tells two failures apart whatever their seeds.
 

@@ -33,7 +33,7 @@ rand_core = { version = "0.10", default-features = false }
 
 [dev-dependencies]
 dassie-identity = { path = "../dassie-identity" }
-dassie-node-core = { path = "../dassie-node-core", features = ["testing"] }
+dassie-kit = { path = "../dassie-kit", features = ["sim"] }
 dassie-xrpl = { path = ".", features = ["fake"] }
 proptest = "1.12"
 serde_json = { version = "1.0.154" }

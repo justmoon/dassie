@@ -23,8 +23,7 @@
 #![no_std]
 
 extern crate alloc;
-// The simulations' helpers catch a run's panic, which needs std.
-#[cfg(any(test, feature = "testing"))]
+#[cfg(test)]
 extern crate std;
 
 pub mod acme;
@@ -37,15 +36,4 @@ pub mod origin;
 pub mod rate_limit;
 pub mod session;
 pub mod setup;
-#[cfg(feature = "testing")]
-pub mod testing;
 pub mod urls;
-
-/// One second in milliseconds.
-pub const SECOND_MS: u64 = 1_000;
-/// One minute in milliseconds.
-pub const MINUTE_MS: u64 = 60 * SECOND_MS;
-/// One hour in milliseconds.
-pub const HOUR_MS: u64 = 60 * MINUTE_MS;
-/// One day in milliseconds.
-pub const DAY_MS: u64 = 24 * HOUR_MS;

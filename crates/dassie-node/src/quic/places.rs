@@ -24,8 +24,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use dassie_identity::NodeId;
+use dassie_kit::ClientKey;
 use dassie_node_core::connections::{ConnectionLimits, NodeLimits, NodeTable, Refused};
-use dassie_node_core::rate_limit::ClientKey;
 use quinn::{Connection, VarInt};
 use tokio::sync::watch;
 

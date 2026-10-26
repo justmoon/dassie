@@ -15,7 +15,7 @@ default = []
 # Lets a simulation make a node lie to its peers or fail a commit, and
 # serves a fake XRP Ledger for tests and dev environments: never in a
 # release. SQLite's commit hook is what fails a commit.
-testing = ["dassie-xrpl/fake", "dassie-node-core/testing", "dassie-hub/sim", "rusqlite/hooks"]
+testing = ["dassie-xrpl/fake", "dassie-kit/sim", "dassie-hub/sim", "rusqlite/hooks"]
 
 [[example]]
 name = "fake_ledger"
@@ -28,6 +28,7 @@ dassie-hub = { path = "../dassie-hub" }
 dassie-identity = { path = "../dassie-identity" }
 dassie-ilp = { path = "../dassie-ilp" }
 dassie-ledger = { path = "../dassie-ledger" }
+dassie-kit = { path = "../dassie-kit" }
 dassie-node-core = { path = "../dassie-node-core" }
 dassie-oer = { path = "../dassie-oer" }
 dassie-payments = { path = "../dassie-payments" }
@@ -115,7 +116,7 @@ sha2 = "0.11"
 [dev-dependencies]
 dassie-node = { path = ".", features = ["testing"] }
 dassie-xrpl = { path = "../dassie-xrpl", features = ["fake"] }
-dassie-node-core = { path = "../dassie-node-core", features = ["testing"] }
+dassie-kit = { path = "../dassie-kit", features = ["sim"] }
 proptest = "1.12"
 tokio-tungstenite = { version = "0.30.0", default-features = false, features = ["connect", "handshake"] }
 tokio-rustls = { version = "0.26.6", default-features = false, features = ["ring", "tls12"] }

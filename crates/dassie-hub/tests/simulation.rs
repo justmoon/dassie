@@ -6,7 +6,7 @@
 //! hub <from>..<to>` runs others (spec/decisions/random-seed-simulations.md).
 
 use dassie_hub::sim::chaos;
-use dassie_node_core::testing::assert_seeds_pass;
+use dassie_kit::sim::assert_seeds_pass;
 
 #[test]
 fn hubs_stay_safe_and_finalize_after_chaos() {

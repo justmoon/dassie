@@ -13,7 +13,7 @@
 use std::sync::Arc;
 
 use dassie_identity::{NodeId, NodeKey};
-use dassie_node_core::testing::SeededRng;
+use dassie_kit::sim::SeededRng;
 use dassie_oer::Encode;
 use dassie_peer::auth::{AuthConfig, Authenticator};
 use dassie_peer::sim::{Network, START, key, url};

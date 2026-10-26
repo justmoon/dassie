@@ -4,8 +4,8 @@ use std::sync::Arc;
 
 use dassie_identity::NodeKey;
 use dassie_ilp::{Timestamp, ildcp};
+use dassie_kit::sim::SeededRng;
 use dassie_node_core::config::Realm;
-use dassie_node_core::testing::SeededRng;
 use dassie_oer::Encode;
 use dassie_xrpl::network::{MAINNET, TESTNET};
 
@@ -871,7 +871,7 @@ fn stranger(n: u8, on: u8) -> super::Prober {
     let network = IpAddr::V4(Ipv4Addr::new(192, 0, on, 1));
     super::Prober::Stranger {
         client: format!("jwk:stranger-{n}"),
-        network: Some(dassie_node_core::rate_limit::ClientKey::network_of(network)),
+        network: Some(dassie_kit::ClientKey::network_of(network)),
     }
 }
 

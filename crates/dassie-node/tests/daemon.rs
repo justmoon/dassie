@@ -16,11 +16,11 @@ use std::time::Duration;
 
 use bytes::Bytes;
 use dassie_identity::NodeKey;
+use dassie_kit::DAY_MS;
 use dassie_node::clock::ManualClock;
 use dassie_node::daemon::DaemonError;
 use dassie_node::node::Policies;
 use dassie_node::rpc::proto::{self, request::Method, response};
-use dassie_node_core::DAY_MS;
 use futures_util::StreamExt;
 use http_body_util::Full;
 use hyper::{Request, StatusCode};

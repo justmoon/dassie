@@ -11,8 +11,8 @@ use std::net::SocketAddr;
 use std::time::Duration;
 
 use bytes::Bytes;
+use dassie_kit::ClientKey;
 use dassie_node_core::origin;
-use dassie_node_core::rate_limit::ClientKey;
 use dassie_node_core::session;
 use dassie_node_core::setup::{SetupError, SetupRequest};
 use http_body_util::{BodyExt, Limited};

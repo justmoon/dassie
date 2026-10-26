@@ -20,6 +20,7 @@ use std::time::Duration;
 
 use bytes::Bytes;
 use dassie_identity::{NodeId, NodeKey};
+use dassie_kit::ClientKey;
 use dassie_node::clock::ManualClock;
 use dassie_node::front_door::key;
 use dassie_node::node::{PAIRING_LIFETIME_MS, Policies};
@@ -31,7 +32,6 @@ use dassie_node::quic::{Body, Handler, Quic};
 use dassie_node::rpc::proto::{self, ErrorCode, request::Method, response};
 use dassie_node::store::MAX_DEVICES;
 use dassie_node_core::connections::ConnectionLimits;
-use dassie_node_core::rate_limit::ClientKey;
 use futures_util::{SinkExt, StreamExt};
 use support::op::CA;
 use support::{Bound, RpcClient, START_MS, TestNode, Transport, set_up, websocket};

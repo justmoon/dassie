@@ -10,8 +10,8 @@
 
 #![allow(dead_code, clippy::unwrap_used, clippy::panic)]
 
+use dassie_kit::sim::SeededRng;
 use dassie_ledger::Name;
-use dassie_node_core::testing::SeededRng;
 use dassie_settlement::{
     AssetEffect, ExternalAsset, LedgerInput, LedgerStatus, PreparedSettlement, ReconcileCause,
     SchemeError, SettlementScheme,

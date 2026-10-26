@@ -6,8 +6,8 @@
 
 use std::sync::{Arc, Mutex};
 
+use dassie_kit::ClientKey;
 use dassie_node_core::connections::{ConnectionLimits, ConnectionTable, Refused};
-use dassie_node_core::rate_limit::ClientKey;
 
 use crate::node::lock;
 

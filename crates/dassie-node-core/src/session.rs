@@ -23,7 +23,9 @@ use core::fmt;
 use rand_core::CryptoRng;
 use sha2::{Digest, Sha256};
 
-use crate::{DAY_MS, HOUR_MS, SECOND_MS, hex};
+use dassie_kit::{DAY_MS, HOUR_MS, SECOND_MS};
+
+use crate::hex;
 
 /// The cookie's name. `__Host-` makes browsers insist on `Secure`, `Path=/`
 /// and no `Domain`.
@@ -210,9 +212,9 @@ pub fn clean_user_agent(user_agent: &str) -> String {
 mod tests {
     use super::*;
     use crate::hex::near_hex;
-    use crate::testing::SeededRng;
     use alloc::string::ToString;
     use alloc::vec::Vec;
+    use dassie_kit::sim::SeededRng;
     use proptest::prelude::*;
 
     const POLICY: SessionPolicy = SessionPolicy::DEFAULT;

@@ -8,7 +8,7 @@
 use alloc::format;
 use alloc::string::{String, ToString};
 
-use dassie_node_core::testing::{Outcome, Run};
+use dassie_kit::sim::{Outcome, Run};
 
 use super::{Detour, Path, Simulation};
 use crate::{ErrorCode, Policy};

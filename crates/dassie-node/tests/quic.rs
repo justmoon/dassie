@@ -12,12 +12,12 @@ use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
 use dassie_identity::{NodeId, NodeKey};
+use dassie_kit::ClientKey;
 use dassie_node::outbound::Resolver;
 use dassie_node::peer_server::{Answer, BodyError};
 use dassie_node::quic::places::{Classes, Counts, Peerings};
 use dassie_node::quic::{Body, Handler, Quic, send_peer};
 use dassie_node_core::connections::ConnectionLimits;
-use dassie_node_core::rate_limit::ClientKey;
 use dassie_peer::wire::{Kind, MAX_MESSAGE_BYTES};
 use dassie_peer::{Failure, Request, RequestId};
 use tokio::sync::watch;

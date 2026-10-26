@@ -11,7 +11,7 @@
 
 use std::ops::RangeInclusive;
 
-pub use dassie_node_core::testing::{Outcome, Run, caught};
+pub use dassie_kit::sim::{Outcome, Run, caught};
 
 /// A simulation the runner knows.
 #[derive(Clone, Copy, Debug)]

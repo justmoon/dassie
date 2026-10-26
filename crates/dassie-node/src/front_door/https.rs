@@ -23,9 +23,10 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use dassie_identity::NodeId;
+use dassie_kit::ClientKey;
 use dassie_node_core::connections::ConnectionLimits;
 use dassie_node_core::origin::{Authority, Host, parse_authority};
-use dassie_node_core::rate_limit::{ClientKey, RateLimitPolicy, RateLimiter};
+use dassie_node_core::rate_limit::{RateLimitPolicy, RateLimiter};
 use dassie_node_core::urls::DEFAULT_HTTPS_PORT;
 use dassie_peer::names::Name;
 use http_body_util::{BodyExt, Full, Limited};

@@ -17,4 +17,4 @@ rand_core = { version = "0.10", default-features = false }
 
 [dev-dependencies]
 proptest = "1.12"
-dassie-node-core = { path = "../dassie-node-core", features = ["testing"] }
+dassie-kit = { path = "../dassie-kit", features = ["sim"] }

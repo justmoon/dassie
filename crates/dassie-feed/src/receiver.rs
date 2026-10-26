@@ -8,7 +8,7 @@
 //! The caller takes datagrams only from the node's address.
 
 use dassie_identity::NodeId;
-use dassie_node_core::MINUTE_MS;
+use dassie_kit::MINUTE_MS;
 
 use crate::cookie::Cookie;
 use crate::wire::{self, Feed, InvalidFeed, Message, SUBSCRIBE_BYTES, WireError};

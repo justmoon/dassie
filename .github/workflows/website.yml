@@ -31,7 +31,7 @@ on:
       - packages/ui/**
       - crates/dassie-identity/**
       - crates/dassie-ilp/**
-      - crates/dassie-node-core/**
+      - crates/dassie-kit/**
       - crates/dassie-oer/**
       - crates/dassie-stream/**
       - crates/dassie-wasm/**

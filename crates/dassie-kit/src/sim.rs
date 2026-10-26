@@ -306,7 +306,7 @@ mod tests {
         let line = line!() - 1;
         let (seven, eight) = (broke(7), broke(8));
         let found = |message: &str| Finding {
-            at: format!("crates/dassie-node-core/src/testing.rs:{line}"),
+            at: format!("crates/dassie-kit/src/sim.rs:{line}"),
             message: message.into(),
         };
         assert_eq!(seven.outcome, Outcome::Safety(found("seed 7 broke")));

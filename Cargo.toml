@@ -6,6 +6,7 @@ members = [
   "crates/dassie-feed",
   "crates/dassie-hub",
   "crates/dassie-identity",
+  "crates/dassie-kit",
   "crates/dassie-ilp",
   "crates/dassie-ledger",
   "crates/dassie-node",

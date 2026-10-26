@@ -7,7 +7,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing)]
 
 use dassie_ilp::{Address, ErrorCode as IlpErrorCode, Prepare, Reject, Response, Timestamp};
-use dassie_node_core::testing::SeededRng;
+use dassie_kit::sim::SeededRng;
 use dassie_oer::{Decode, Encode};
 use dassie_stream::{
     BUFFER_LENGTH, Config, Connection, Event, MAX_FAILURES_WITHOUT_PROGRESS, Policy, Rate, Role,
