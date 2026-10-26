@@ -861,7 +861,9 @@ impl Unl {
 
     /// Takes `list` of `publisher`, signed in `blob` under `manifest`, at
     /// `now_s`: below the highest sequence seen only when `fresh` is not
-    /// set, as at a restart.
+    /// set, as at a restart. Its manifests are taken if it is in effect,
+    /// but not at a restart, which takes those of a list it finds due once
+    /// every publisher's lists are back, as a tick does.
     fn take_blob(
         &mut self,
         publisher: usize,
@@ -927,7 +929,7 @@ impl Unl {
                 .highest
                 .map_or(sequence, |highest| highest.max(sequence)),
         );
-        if taken == Taken::Current {
+        if taken == Taken::Current && fresh {
             self.take_list_manifests(publisher);
         }
         Ok(taken)
@@ -1288,11 +1290,13 @@ impl Unl {
             .map(|publisher| publisher.master_key)
             .collect();
         unl.blocked = blocked && keys == configured;
+        let mut rotated = [false; MAX_PUBLISHERS];
         for entry in publishers {
             let key = from_hex(entry.get("key")?.as_str()?)?;
             let key = PublicKey::from_bytes(key.try_into().ok()?)?;
             if let Some(publisher) = unl.position(&key) {
-                unl.restore_publisher(publisher, entry, ledger_seconds(now_ms))?;
+                let moved = unl.restore_publisher(publisher, entry, ledger_seconds(now_ms))?;
+                *rotated.get_mut(publisher)? = moved;
             }
         }
         let mut masters = BTreeSet::new();
@@ -1304,12 +1308,21 @@ impl Unl {
             let _ = unl.keep_manifest(manifest);
         }
         unl.prune();
+        // The manifests of a list that took effect since, once every
+        // publisher's lists are back, as the tick would have taken them:
+        // a key another kept list names as a master stays refused.
+        for (publisher, rotated) in rotated.into_iter().enumerate() {
+            if rotated {
+                unl.take_list_manifests(publisher);
+            }
+        }
         unl.settle(ledger_seconds(now_ms));
         Some(unl)
     }
 
-    /// Publisher `publisher`'s part of the state, in `entry`.
-    fn restore_publisher(&mut self, publisher: usize, entry: &Value, now_s: u64) -> Option<()> {
+    /// Publisher `publisher`'s part of the state, in `entry`: whether a
+    /// pending list took effect since, and so is moved in.
+    fn restore_publisher(&mut self, publisher: usize, entry: &Value, now_s: u64) -> Option<bool> {
         let highest = match entry.get("highest")? {
             Value::Null => None,
             highest => Some(u32::try_from(highest.as_u64()?).ok()?),
@@ -1335,7 +1348,8 @@ impl Unl {
         let due = (pending.iter())
             .take_while(|kept| kept.effective_by(now_s))
             .count();
-        if due > 0 {
+        let rotated = due > 0;
+        if rotated {
             current = pending.drain(..due).next_back();
         }
         // A list in effect when it was kept, or since, that expired blocks.
@@ -1350,7 +1364,7 @@ impl Unl {
         state.manifest =
             manifest.filter(|manifest| manifest.master_key == master_key && manifest.verify());
         let Some(newest) = state.manifest.as_ref().map(|manifest| manifest.sequence) else {
-            return Some(());
+            return Some(false);
         };
         for kept in current.into_iter().chain(pending) {
             let signed = kept.manifest.master_key == master_key
@@ -1361,7 +1375,7 @@ impl Unl {
                 let _ = self.take_blob(publisher, blob, kept.manifest, kept.list, now_s, false);
             }
         }
-        Some(())
+        Some(rotated)
     }
 
     /// Asserts what holds after every change.
@@ -2070,6 +2084,37 @@ mod tests {
         unl.check_invariants();
         assert_eq!(unl.signing_key(&first.key()), Some(rotated.public_key()));
         let restored = Unl::restore(unl.config.clone(), &state, at_ms).unwrap();
+        assert_eq!(restored, unl);
+    }
+
+    // A list rotated in carries a manifest that hands a master's signing to
+    // a key a list still waiting names as a master: refused, at a tick and
+    // at a restart alike, and the master keeps its older manifest.
+    #[test]
+    fn a_restart_takes_a_rotated_list_s_manifests_as_a_tick_does() {
+        let ours = publisher(1);
+        let validators = validators(10..14);
+        let (master, waiting) = (&validators[0], &validators[3]);
+        let mut unl = unl(&[&ours]);
+        let handed = Manifest::sign(2, &master.master, Some(&waiting.master as &dyn Key), None);
+        let mut next = list(2, &validators[..3]);
+        next.effective = Some(NOW_S + 60);
+        next.validators.insert(master.key(), Some(handed));
+        let mut later = list(3, &validators);
+        later.effective = Some(NOW_S + 120);
+        let body = ours.body(&[list(1, &validators[..3]), next, later]);
+        unl.take_list(&body, NOW_MS).unwrap();
+        let state = unl.state();
+        let at_ms = NOW_MS + 60_000;
+        unl.tick(at_ms);
+        unl.check_invariants();
+        assert_eq!(unl.lists(0).0.unwrap().sequence, 2);
+        assert_eq!(
+            unl.signing_key(&master.key()),
+            Some(master.signing.public_key())
+        );
+        let restored = Unl::restore(unl.config.clone(), &state, at_ms).unwrap();
+        restored.check_invariants();
         assert_eq!(restored, unl);
     }
 
