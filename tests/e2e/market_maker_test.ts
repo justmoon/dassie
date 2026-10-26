@@ -49,10 +49,6 @@ import {
   writeConfig,
   XRP,
 } from "./market_maker.ts";
-
-/** d2's band around what it holds at the start: 3 XRP, less than the XRP a
- * trade of 2 dollars brings it. */
-const XRP_BAND = 3n * UNIT;
 import {
   DEV_RATES,
   findScenario,
@@ -60,6 +56,10 @@ import {
   Scenario,
   type ScenarioNode,
 } from "@dassie/dev/scenario";
+
+/** d2's band around what it holds at the start: 3 XRP, less than the XRP a
+ * trade of 2 dollars brings it. */
+const XRP_BAND = 3n * UNIT;
 
 /**
  * How long the market maker may take to trade and swap back: it decides

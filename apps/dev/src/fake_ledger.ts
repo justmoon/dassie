@@ -243,69 +243,6 @@ export async function depositXrp(
   );
 }
 
-/** The lies a connection to the fake ledger can tell, by the names it
- * takes them under (`Lie::name` in `dassie-xrpl`), and `"honest"` for
- * none. */
-export type LieKind =
-  | "honest"
-  | "transaction"
-  | "altered-object"
-  | "false-absence"
-  | "other-branch"
-  | "old-anchor"
-  | "older-anchor"
-  | "forged-validations"
-  | "replayed-validations"
-  | "withheld-validations"
-  | "wrong-header"
-  | "other-chain-skip-list"
-  | "history-newest-left-out"
-  | "history-middle-left-out"
-  | "old-ledger-hint"
-  | "refusal"
-  | "made-up-reset"
-  | "no-proofs";
-
-/**
- * Makes every connection to `ledger`, open or to come, tell the lie `kind`,
- * or be honest again; its certificate comes from the CA in `caFile`. It
- * holds at once.
- */
-export async function tellLies(
-  ledger: Pick<FakeLedger, "control">,
-  caFile: string,
-  kind: LieKind,
-): Promise<void> {
-  if (!ledger.control) throw new Error("the fake ledger takes no requests");
-  await post(`${ledger.control}/lie`, caFile, { kind }, `the lie ${kind}`);
-}
-
-/** What the fake ledger's validators can be asked to do, at once: rotate
- * a validator's signing key, have one sign nothing or again, revoke one's
- * key, or publish a new list expiring at `expiration`, in seconds since
- * 2000-01-01, and in effect from `effective`. */
-export type ValidatorsRequest =
-  | { action: "rotate" | "revoke"; validator: number }
-  | { action: "withhold"; validator: number; on: boolean }
-  | { action: "publish"; expiration: number; effective?: number };
-
-/** Asks `ledger`'s validators, whose certificate comes from the CA in
- * `caFile`. */
-export async function askValidators(
-  ledger: Pick<FakeLedger, "control">,
-  caFile: string,
-  request: ValidatorsRequest,
-): Promise<void> {
-  if (!ledger.control) throw new Error("the fake ledger takes no requests");
-  const { action, ...body } = request;
-  await post(
-    `${ledger.control}/validators/${action}`,
-    caFile,
-    body,
-    `the validators ${action}`,
-  );
-}
-
 /** Posts `body` as JSON to `url`, under the CA in `caFile`; `what` names it
  * when it is refused. */
 async function post(

@@ -34,6 +34,8 @@ import {
 
 const LEDGER = "xrpl-testnet+xrp";
 const PORT_OFFSET = SCENARIO_PORT_OFFSET + 800;
+/** The faucet is asked at most once a minute, the account's making included. */
+const FAUCET_PACE_MS = 60_000;
 
 async function missingTools(): Promise<string | undefined> {
   const missing = await missingScenarioTools();
@@ -71,6 +73,9 @@ test(
   "the Receive page shows the XRP deposit address and asks the faucet",
   { skip: missing !== undefined },
   async () => {
+    // The node asks the faucet for the account once it starts, so a minute
+    // from now it would ask again.
+    const started = Date.now();
     const scenario = await Scenario.temporary("xrpl-settlement", {
       dassie: DASSIE,
       fakeLedger: testnet ? undefined : FAKE_LEDGER,
@@ -115,6 +120,10 @@ test(
 
       // The faucet made the account a moment ago: it is asked again only a
       // minute on, and the page says why.
+      assert(
+        Date.now() - started < FAUCET_PACE_MS,
+        "a minute passed before the page was ready: the node would ask the faucet again",
+      );
       await click(page, "faucet");
       await until(
         page,

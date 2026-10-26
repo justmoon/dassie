@@ -39,7 +39,7 @@ const SLIPPAGE_PPM = 10_000;
  * names another: above it, after two trades, the market maker swaps its XRP
  * back into DSUSD through the pool.
  */
-export const XRP_BAND = 6n * UNIT;
+const XRP_BAND = 6n * UNIT;
 /** The DSUSD node's band, in dollars: room for every trade a run makes. */
 const DSUSD_LOW = 5n * UNIT;
 const DSUSD_HIGH = 40n * UNIT;

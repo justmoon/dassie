@@ -242,8 +242,7 @@
         "BTP payments, and the two-node and six-node scenarios settling every hop",
         "Open Payments, including a third party's full flow with consent in the wallet",
         "XRP Ledger settlement in XRP and in DSUSD, with the issuer freezing a line and clawing back, and payments across currencies",
-        "Mainnet's schemes in the live realm, by the dev switch, on the fake ledger's mainnet: two nodes settle in XRP and in RLUSD at addresses under `g.`, and RLUSD pauses while its pool prices it off its peg, still booking what arrives, and runs again once the pool is back",
-        "Nodes that prove what they book: while the fake ledger's server lies, serves no proofs, or its validators fall short of a quorum, each node waits and says why, books nothing, not even a deposit, and books it once the server is honest again",
+        "Mainnet's schemes in the live realm, by the dev switch, on the fake ledger's mainnet: two nodes settle in XRP and in RLUSD at addresses under `g.`; RLUSD pauses while its pool gives no price and runs again once it reads one, and pauses while the pool prices it off its peg, still booking what arrives",
         "Passive rebalancing end to end: a market maker trades through a core node short of dollars and swaps back through the fake ledger's pool, which moves the node toward balance and earns the market maker; with two such core nodes, it trades through each",
         "The wallet, the dev dashboard and dassie.land in a browser",
         "The installer and the updater on Debian, Ubuntu, Fedora and CentOS, in containers"
