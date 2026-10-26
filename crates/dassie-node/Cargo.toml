@@ -82,7 +82,7 @@ quinn-proto = { version = "0.11.19", default-features = false }
 ring = "0.17.14"
 
 # SQLite, compiled in: the release binary carries no shared libraries.
-rusqlite = { version = "0.40.2", features = ["bundled"] }
+rusqlite = { version = "0.40.2", features = ["backup", "bundled"] }
 
 # The RPC contract's messages (proto/dassie/ui/v1).
 prost = "0.14.4"
