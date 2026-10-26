@@ -19,7 +19,6 @@
 
 use std::future::Future;
 use std::net::{IpAddr, UdpSocket};
-use std::path::Path;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
@@ -37,7 +36,7 @@ use dassie_node::hub::driver::Driver;
 use dassie_node::hub::service::{EscrowLinks, HubTask};
 use dassie_node::hub::transport::{HubPermit, MAX_MEMBER_MESSAGE_BYTES, Route, StateReply};
 use dassie_node::hub::{HubAccess, HubAnswer, HubClient, HubExchangeError, Hubs, Sender};
-use dassie_node::peer_client::PeerClient;
+use dassie_node::outbound::Resolver;
 use dassie_node::peer_server::Answer;
 use dassie_node::quic::{Body, Handler, Quic};
 use dassie_node::store::Store;
@@ -123,12 +122,10 @@ struct Node {
     _identity: watch::Sender<Option<Arc<NodeKey>>>,
 }
 
-fn client() -> PeerClient {
-    let roots = concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../../testdata/pebble/root.pem"
-    );
-    PeerClient::new(Some(Path::new(roots)), true).unwrap()
+/// QUIC trusts no roots: each connection pins its node's key, and the
+/// resolver only resolves names, private ones included.
+fn client() -> Resolver {
+    Resolver::new(true)
 }
 
 fn node(seed: u8, shutdown: &CancellationToken) -> Node {
@@ -418,9 +415,7 @@ async fn a_member_node_hears_its_validators_through_its_engine() {
             1,
             dassie_node::node::Policies::DEFAULT,
             // The test roots, as the other nodes of these tests trust them:
-            // a test machine may have no roots of its own, and without
-            // roots a node makes no peer client, and so reaches no
-            // validator.
+            // a test machine may have no roots of its own.
             &[
                 ("DASSIE_PEER_ALLOW_PRIVATE", "1"),
                 ("DASSIE_PEER_CA_FILE", support::pair::CA),

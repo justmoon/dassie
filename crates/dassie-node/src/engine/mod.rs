@@ -947,7 +947,7 @@ impl Driver<'_> {
     fn ledger_output(&mut self, output: Output) {
         match output {
             Output::LedgerConnect { asset, epoch, url } => {
-                let client = self.node.peer_client().cloned();
+                let client = self.node.outbound().cloned();
                 self.ledgers.connect(
                     client,
                     self.commands.clone(),
@@ -969,7 +969,7 @@ impl Driver<'_> {
                 url,
                 body,
             } => {
-                let client = self.node.peer_client().cloned();
+                let client = self.node.outbound().cloned();
                 links::fund(client, self.commands.clone(), asset, epoch, url, body);
             }
             Output::Fetch {
@@ -978,7 +978,7 @@ impl Driver<'_> {
                 url,
                 max_bytes,
             } => {
-                let client = self.node.peer_client().cloned();
+                let client = self.node.outbound().cloned();
                 let fetch = links::Fetch {
                     asset,
                     epoch,
@@ -1016,16 +1016,13 @@ impl Driver<'_> {
     /// Sends a peer request over QUIC on a task of its own; its result
     /// comes back as a command. The peer node bounds the requests in flight.
     fn send_peer_request(&self, request: dassie_peer::Request) {
-        let client = self.node.peer_client().cloned();
+        let resolver = self.node.resolver();
         let quic = self.node.quic().cloned();
         let commands = self.commands.clone();
         let id = request.id;
         tokio::spawn(async move {
             let (kind, to) = (request.kind, request.to);
-            let result = match client {
-                Some(client) => crate::quic::send_peer(quic, &client, request).await,
-                None => Err(dassie_peer::Failure::NotDelivered),
-            };
+            let result = crate::quic::send_peer(quic, &resolver, request).await;
             let status = result.as_ref().map(|response| response.status);
             tracing::debug!(target: target::PEER, ?kind, %to, ?status, "peer request");
             let _ = commands.send(Command::PeerResponse { id, result }).await;

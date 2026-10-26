@@ -2,7 +2,7 @@
 
 Dassie nodes talk to each other with the peer protocol v1: OER messages sent over QUIC, authenticated by a MAC from the two nodes' static keys. This document covers what the protocol guarantees, what a node trusts from whom, and what must stay compatible. What the messages are used for (the node table, membership, peering, routing) is in [Network](network.md).
 
-**Paths:** `crates/dassie-peer/src/wire/` (layouts), `crates/dassie-peer/src/names/` (names and their commitments), `crates/dassie-peer/src/auth/` (MACs, replay), `crates/dassie-peer/src/node/inbound.rs` (handlers and statuses), `crates/dassie-node/src/quic/`, `crates/dassie-node/src/peer_server.rs`, `crates/dassie-node/src/peer_client.rs`, `crates/dassie-node-core/src/address.rs`, and for the hub's stream `crates/dassie-node/src/hub/transport.rs`, `crates/dassie-node/src/quic/hub.rs`, `crates/dassie-hub/src/founding/wire.rs`
+**Paths:** `crates/dassie-peer/src/wire/` (layouts), `crates/dassie-peer/src/names/` (names and their commitments), `crates/dassie-peer/src/auth/` (MACs, replay), `crates/dassie-peer/src/node/inbound.rs` (handlers and statuses), `crates/dassie-node/src/quic/`, `crates/dassie-node/src/peer_server.rs`, `crates/dassie-node/src/outbound.rs`, `crates/dassie-node-core/src/address.rs`, and for the hub's stream `crates/dassie-node/src/hub/transport.rs`, `crates/dassie-node/src/quic/hub.rs`, `crates/dassie-hub/src/founding/wire.rs`
 **Read with:** [Network](network.md), [Identity](identity.md), [Encoding](encoding.md), [Settlement](settlement.md), [Connector](connector.md)
 
 ## Versions
@@ -183,11 +183,12 @@ The messages that register and hold a name ([the design](../designs/names.md), [
 
 ## Outbound requests
 
-The node's outbound requests (peer requests, and over HTTPS Open Payments to other wallets and exchange-rate sources: [Payments](payments.md), [Connector](connector.md#sources)) go through one client in `crates/dassie-node/src/peer_client.rs`, with one set of rules; QUIC connections resolve their addresses through it, so the same guard applies to them. A peer or a registrant chooses the URL we connect to, so:
+The node's outbound connections are peer requests over QUIC, and, to servers that are not nodes, HTTPS requests (Open Payments to other wallets, exchange-rate sources: [Payments](payments.md), [Connector](connector.md#sources)) and WebSockets to ledgers' servers, in `crates/dassie-node/src/outbound.rs`. All of them resolve names through one `Resolver`, so one guard applies to all; QUIC needs nothing else of the outbound client, which trusts the platform's roots that QUIC, pinning each node's key, does not use. A peer or a registrant chooses the URL we connect to, so:
 
 - Requests go only to `https` URLs, and redirects are never followed. A QUIC connection goes to the host and port of such a URL.
 - Private, loopback, link-local and similar addresses are refused, both as IP literals and after DNS resolution (`crates/dassie-node-core/src/address.rs`). An IPv6 literal is read as the HTTP client reads it, and one the guard cannot read counts as private, so the guard and the client cannot disagree. `DASSIE_PEER_ALLOW_PRIVATE` lifts this for dev and tests.
-- In-flight requests are bounded, in total and per host, peer requests and the rest alike. ILP packets do not count, so their responses always get through.
+- In-flight requests are bounded in total and each way apart. Peer requests are bounded per node, by its ID (`crates/dassie-node/src/quic/bounds.rs`), so nodes behind one host, or periphery nodes without a URL, each get a share; requests to other servers are bounded per host. Neither kind takes the other's places, so a burst of Open Payments cannot stall the peer protocol. ILP packets do not count, so their responses always get through.
+- Every WebSocket URL is read by the same rules as an `https` one (`OutboundClient::websocket`): `wss://`, or `ws://` only where private addresses are allowed, with a host, no user info, and a port that is a number other than 0.
 - **Failures** are of two kinds: *not delivered* (refused before sending, or the connection failed) and *unknown* (a timeout after sending, or a broken response). Only the first, or a status that means not acted upon ([Statuses](#statuses)), says a request surely had no effect.
 
 ## Test vectors

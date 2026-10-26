@@ -14,7 +14,6 @@ mod support;
 
 use std::future::Future;
 use std::net::{IpAddr, SocketAddr, UdpSocket};
-use std::path::Path;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -23,7 +22,7 @@ use bytes::Bytes;
 use dassie_identity::{NodeId, NodeKey};
 use dassie_node::clock::{Clock, ManualClock};
 use dassie_node::node::Policies;
-use dassie_node::peer_client::PeerClient;
+use dassie_node::outbound::Resolver;
 use dassie_node::peer_server::Answer;
 use dassie_node::quic::relay::{
     KeepWhile, MAX_RELAYED_PER_CLIENT_TO_DESTINATION, MAX_RELAYED_PER_DESTINATION, Purpose,
@@ -162,13 +161,10 @@ async fn send(from: &Side, to: &Side) {
     assert!(response.is_ok(), "{response:?}");
 }
 
-fn client() -> PeerClient {
-    // QUIC trusts no roots; the client only resolves names here.
-    let roots = concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../../testdata/pebble/root.pem"
-    );
-    PeerClient::new(Some(Path::new(roots)), true).unwrap()
+/// QUIC trusts no roots: each connection pins its node's key, and the
+/// resolver only resolves names, private ones included.
+fn client() -> Resolver {
+    Resolver::new(true)
 }
 
 /// `destination` keeps a connection to `relay`, as with `DASSIE_RELAY`.

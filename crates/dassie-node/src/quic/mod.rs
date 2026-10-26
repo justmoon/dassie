@@ -27,6 +27,7 @@
 // none of the other methods it lists.
 #![deny(clippy::disallowed_methods)]
 
+mod bounds;
 mod hub;
 pub mod ids;
 pub mod keys;
@@ -64,7 +65,7 @@ use self::places::{Counts, Peerings, Places};
 use self::relay::{Purpose, Relaying, ServedStream};
 use self::tunnel::{Inside, Tunnels};
 use crate::log::target;
-use crate::peer_client::PeerClient;
+use crate::outbound::Resolver;
 use crate::peer_server::{Answer, BodyError};
 use crate::slots::ClientSlot;
 use crate::tls;
@@ -345,8 +346,9 @@ pub trait Handler: Send + Sync + 'static {
 /// Sends a peer request as the engine does, over QUIC, the only transport
 /// (spec/areas/peer-protocol.md#quic): to a periphery node on the connection
 /// it opened to us, since it has no URL; to any other node on the
-/// connection we hold to it, or one we make to its URL. Requests share the
-/// bounds on requests in flight ([`PeerClient::hold`]).
+/// connection we hold to it, or one we make to its URL, resolved by
+/// `resolver`. Requests are bounded in flight, in total and per node.
+/// ILP packets are not.
 ///
 /// # Errors
 ///
@@ -354,13 +356,13 @@ pub trait Handler: Send + Sync + 'static {
 /// full, or the node has no QUIC endpoint.
 pub async fn send_peer(
     quic: Option<Arc<Quic>>,
-    client: &PeerClient,
+    resolver: &Resolver,
     request: Request,
 ) -> Result<Response, Failure> {
-    let _slot = client.hold(&request)?;
     let Some(quic) = quic else {
         return Err(Failure::NotDelivered);
     };
+    let _slot = quic.bounds.hold(&request, quic.allow_private)?;
     // A periphery node has no URL: it is reached only over the connection
     // it opened to us, never dialled.
     if request.url.is_empty() {
@@ -370,7 +372,7 @@ pub async fn send_peer(
             Err(_) => Err(Failure::Unknown),
         };
     }
-    quic.send(&request, client).await
+    quic.send(&request, resolver).await
 }
 
 /// A connection to a node, and who opened it.
@@ -495,6 +497,8 @@ pub struct Quic {
     /// requests keep themselves alive, as the one to a chosen relay always
     /// does, and its dials race a tunnel against UDP.
     periphery: AtomicBool,
+    /// The peer requests in flight.
+    bounds: bounds::RequestBounds,
     stats: Stats,
 }
 
@@ -542,6 +546,7 @@ impl Quic {
             allow_private,
             idle: IDLE_TIMEOUT,
             periphery: AtomicBool::new(false),
+            bounds: bounds::RequestBounds::default(),
             stats: Stats::default(),
         })
     }
@@ -764,7 +769,7 @@ impl Quic {
     pub async fn send(
         self: &Arc<Self>,
         request: &Request,
-        resolver: &PeerClient,
+        resolver: &Resolver,
     ) -> Result<Response, Failure> {
         let deadline =
             tokio::time::Instant::now() + Duration::from_millis(request.timeout_ms.max(1));
@@ -846,7 +851,7 @@ impl Quic {
         self: &Arc<Self>,
         place: &tokio::sync::Mutex<Option<Link>>,
         (to, url): (NodeId, &str),
-        resolver: &PeerClient,
+        resolver: &Resolver,
         within: Duration,
         dial: bool,
     ) -> Result<Connection, NoConnection> {
@@ -922,7 +927,7 @@ impl Quic {
     async fn dial(
         &self,
         (to, url): (NodeId, &str),
-        resolver: &PeerClient,
+        resolver: &Resolver,
         within: Duration,
         keep_alive: bool,
     ) -> Option<Connection> {

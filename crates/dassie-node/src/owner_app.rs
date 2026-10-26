@@ -18,7 +18,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::log::target;
 use crate::node::Node;
-use crate::peer_client::PeerClient;
+use crate::outbound::Resolver;
 use crate::quic::Quic;
 use crate::quic::relay::{Purpose, RelayError, RelayedStream, ServedStream};
 use crate::rpc::{Caller, connection};
@@ -62,7 +62,7 @@ pub async fn connect(
     quic: &Arc<Quic>,
     node: NodeId,
     route: Route<'_>,
-    resolver: &PeerClient,
+    resolver: &Resolver,
 ) -> Result<Channel, RelayError> {
     let stream = match route {
         Route::Relay(relay, url) => {

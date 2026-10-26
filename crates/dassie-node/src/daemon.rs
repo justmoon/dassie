@@ -532,13 +532,13 @@ fn attach_quic(
         tracing::info!(target: target::PEER, %proxy, "QUIC over a WebSocket goes through an HTTP proxy");
     }
     let quic = Arc::new(quic);
-    if let (Some(relay), Some(client)) = (&settings.relay, node.peer_client()) {
+    if let Some(relay) = &settings.relay {
         let keep = if relay.is_default {
             KeepWhile::NoHostname(node.subscribe_config())
         } else {
             KeepWhile::Always
         };
-        quic.choose_relay(relay.node.id, relay.node.url.clone(), client.clone(), keep);
+        quic.choose_relay(relay.node.id, relay.node.url.clone(), node.resolver(), keep);
     }
     node.attach_quic(Arc::clone(&quic));
     if let Some(to) = hand_out {

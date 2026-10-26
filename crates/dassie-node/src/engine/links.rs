@@ -19,16 +19,13 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use futures_util::{SinkExt, StreamExt};
-use rustls::pki_types::ServerName;
-use tokio::net::TcpStream;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore, mpsc};
 use tokio_tungstenite::tungstenite::Message;
-use tokio_tungstenite::tungstenite::protocol::WebSocketConfig;
 use tokio_util::sync::CancellationToken;
 
 use super::{Command, LedgerEvent};
 use crate::log::target;
-use crate::peer_client::{PeerClient, WebRequest};
+use crate::outbound::{OutboundClient, WebRequest, WebSocket};
 
 /// Most bytes in one message from a ledger: the longest answer an XRPL
 /// account reads, a proof server's proofs and validations
@@ -79,7 +76,7 @@ impl Links {
     /// it had. It ends with the engine's generation.
     pub(super) fn connect(
         &mut self,
-        client: Option<PeerClient>,
+        client: Option<OutboundClient>,
         commands: mpsc::Sender<Command>,
         generation: &CancellationToken,
         asset: String,
@@ -132,7 +129,7 @@ impl Links {
 
 /// Asks a faucet for `asset`, and tells the core how it went.
 pub(super) fn fund(
-    client: Option<PeerClient>,
+    client: Option<OutboundClient>,
     commands: mpsc::Sender<Command>,
     asset: String,
     epoch: u64,
@@ -181,7 +178,7 @@ pub(super) struct Fetch {
 /// came: the body of a successful answer, or nothing. A redirect is no
 /// answer: the client follows none, so a site is the address that serves
 /// it.
-pub(super) fn fetch(client: Option<PeerClient>, commands: mpsc::Sender<Command>, fetch: Fetch) {
+pub(super) fn fetch(client: Option<OutboundClient>, commands: mpsc::Sender<Command>, fetch: Fetch) {
     let Fetch {
         asset,
         epoch,
@@ -251,15 +248,11 @@ const HUB_EXCHANGE_TIMEOUT: Duration =
 /// finds the account with as many exchanges in flight with that validator
 /// as it may have (`MAX_EXCHANGES_PER_VALIDATOR`), the account sends again.
 pub(super) fn hub_send(
-    client: Option<crate::hub::HubClient>,
+    client: crate::hub::HubClient,
     hubs: &crate::hub::Hubs,
     commands: mpsc::Sender<Command>,
     send: HubSend,
 ) {
-    let Some(client) = client else {
-        tracing::warn!(target: target::SETTLEMENT, asset = %send.asset, endpoint = send.endpoint, "no peer client, so no hub validator is reached");
-        return;
-    };
     let Some(permit) = hubs.exchange_slot(&send.asset, send.endpoint) else {
         tracing::debug!(target: target::SETTLEMENT, asset = %send.asset, endpoint = send.endpoint, "a hub exchange still in flight: the account asks again");
         return;
@@ -315,7 +308,7 @@ fn ledger_call(
 }
 
 struct Task {
-    client: Option<PeerClient>,
+    client: Option<OutboundClient>,
     commands: mpsc::Sender<Command>,
     asset: String,
     epoch: u64,
@@ -344,7 +337,7 @@ impl Task {
                     // queues what it asks first.
                     while queue.try_recv().is_ok() {}
                     self.event(LedgerEvent::Connected).await;
-                    self.serve_any(socket, &mut queue, &cancel).await;
+                    self.serve(socket, &mut queue, &cancel).await;
                     self.event(LedgerEvent::Disconnected).await;
                     if cancel.is_cancelled() {
                         return;
@@ -435,88 +428,9 @@ impl Task {
         }
     }
 
-    async fn connect(&self) -> Result<Socket, String> {
+    async fn connect(&self) -> Result<WebSocket, String> {
         let client = self.client.as_ref().ok_or("no client")?;
-        let (secure, rest) = if let Some(rest) = self.url.strip_prefix("wss://") {
-            (true, rest)
-        } else if let Some(rest) = self.url.strip_prefix("ws://") {
-            if !client.allows_private() {
-                return Err("ws:// is for dev and tests only".into());
-            }
-            (false, rest)
-        } else {
-            return Err("not a WebSocket URL".into());
-        };
-        let authority = rest.split(['/', '?', '#']).next().unwrap_or_default();
-        if authority.is_empty() || authority.contains('@') {
-            return Err("not a WebSocket URL".into());
-        }
-        let (host, port) = host_and_port(authority, if secure { 443 } else { 80 })?;
-        let addresses = client
-            .resolve(host, port)
-            .await
-            .map_err(|e| e.to_string())?;
-        let tcp = TcpStream::connect(addresses.as_slice())
-            .await
-            .map_err(|e| e.to_string())?;
-        let config = WebSocketConfig::default()
-            .max_message_size(Some(MAX_LEDGER_MESSAGE))
-            .max_frame_size(Some(MAX_LEDGER_MESSAGE));
-        if secure {
-            let name = ServerName::try_from(host.to_string()).map_err(|e| e.to_string())?;
-            let tls = tokio_rustls::TlsConnector::from(client.tls())
-                .connect(name, tcp)
-                .await
-                .map_err(|e| e.to_string())?;
-            let (socket, _) =
-                tokio_tungstenite::client_async_with_config(self.url.as_str(), tls, Some(config))
-                    .await
-                    .map_err(|e| e.to_string())?;
-            Ok(Socket::Tls(Box::new(socket)))
-        } else {
-            let (socket, _) =
-                tokio_tungstenite::client_async_with_config(self.url.as_str(), tcp, Some(config))
-                    .await
-                    .map_err(|e| e.to_string())?;
-            Ok(Socket::Plain(Box::new(socket)))
-        }
-    }
-}
-
-enum Socket {
-    Tls(Box<tokio_tungstenite::WebSocketStream<tokio_rustls::client::TlsStream<TcpStream>>>),
-    Plain(Box<tokio_tungstenite::WebSocketStream<TcpStream>>),
-}
-
-impl Task {
-    async fn serve_any(
-        &self,
-        socket: Socket,
-        queue: &mut mpsc::Receiver<Vec<u8>>,
-        cancel: &CancellationToken,
-    ) {
-        match socket {
-            Socket::Tls(socket) => self.serve(*socket, queue, cancel).await,
-            Socket::Plain(socket) => self.serve(*socket, queue, cancel).await,
-        }
-    }
-}
-
-/// The host and port of a URL's authority: `host`, `host:port`, `[v6]` or
-/// `[v6]:port`.
-fn host_and_port(authority: &str, default: u16) -> Result<(&str, u16), String> {
-    let port = |text: &str| text.parse::<u16>().map_err(|e| e.to_string());
-    if let Some(rest) = authority.strip_prefix('[') {
-        let (host, after) = rest.split_once(']').ok_or("an unclosed IPv6 address")?;
-        return match after.strip_prefix(':') {
-            Some(number) => Ok((host, port(number)?)),
-            None if after.is_empty() => Ok((host, default)),
-            None => Err("not a WebSocket URL".into()),
-        };
-    }
-    match authority.rsplit_once(':') {
-        Some((host, number)) => Ok((host, port(number)?)),
-        None => Ok((authority, default)),
+        client.websocket(&self.url, MAX_LEDGER_MESSAGE).await
     }
 }
 
@@ -532,7 +446,7 @@ mod tests {
     use tokio_tungstenite::tungstenite::protocol::{Role, WebSocketConfig};
     use tokio_util::sync::CancellationToken;
 
-    use super::{MAX_HELD_BYTES, MAX_LEDGER_MESSAGE, Task, host_and_port};
+    use super::{MAX_HELD_BYTES, MAX_LEDGER_MESSAGE, Task};
 
     /// Each of the flood's messages.
     const FLOOD_MESSAGE: usize = 1 << 20;
@@ -602,18 +516,5 @@ mod tests {
                 .is_ok_and(|joined| joined.is_ok())
         );
         server.abort();
-    }
-
-    #[test]
-    fn hosts_and_ports_are_read_as_written() {
-        assert_eq!(host_and_port("a.example", 443), Ok(("a.example", 443)));
-        assert_eq!(
-            host_and_port("a.example:51233", 443),
-            Ok(("a.example", 51233))
-        );
-        assert_eq!(host_and_port("[::1]", 80), Ok(("::1", 80)));
-        assert_eq!(host_and_port("[::1]:6006", 80), Ok(("::1", 6006)));
-        assert!(host_and_port("[::1", 80).is_err());
-        assert!(host_and_port("a.example:x", 80).is_err());
     }
 }

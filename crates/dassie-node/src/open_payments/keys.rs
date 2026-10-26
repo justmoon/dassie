@@ -19,7 +19,7 @@ use sha2::{Digest as _, Sha256};
 
 use super::client::{self, ClientError};
 use crate::node::Node;
-use crate::peer_client::WebRequest;
+use crate::outbound::WebRequest;
 
 /// The seed path of the node's Open Payments key.
 pub const CLIENT_KEY_PATH: &str = "node/open-payments-client";

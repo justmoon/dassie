@@ -25,7 +25,7 @@ use dassie_node::clock::{Clock, ManualClock};
 use dassie_node::node::Policies;
 use dassie_node::open_payments::client::{self, ClientError};
 use dassie_node::open_payments::keys::{self, KeyError};
-use dassie_node::peer_client::{WebError, WebRequest, WebResponse};
+use dassie_node::outbound::{WebError, WebRequest, WebResponse};
 use dassie_node::rpc::proto::{self, request::Method};
 use dassie_payments::httpsig;
 use dassie_peer::names::Name;

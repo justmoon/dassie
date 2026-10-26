@@ -14,7 +14,6 @@ mod support;
 
 use std::future::Future;
 use std::net::{IpAddr, UdpSocket};
-use std::path::Path;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
@@ -24,8 +23,8 @@ use dassie_identity::{NodeId, NodeKey};
 use dassie_node::clock::ManualClock;
 use dassie_node::front_door::key;
 use dassie_node::node::{PAIRING_LIFETIME_MS, Policies};
+use dassie_node::outbound::Resolver;
 use dassie_node::owner_app::{self, Channel, Route};
-use dassie_node::peer_client::PeerClient;
 use dassie_node::peer_server::Answer;
 use dassie_node::quic::relay::RelayError;
 use dassie_node::quic::{Body, Handler, Quic};
@@ -103,12 +102,10 @@ fn device(seed: u8, shutdown: &CancellationToken) -> (Arc<Quic>, NodeId) {
     (quic, key.node_id())
 }
 
-fn resolver() -> PeerClient {
-    let roots = concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../../testdata/pebble/root.pem"
-    );
-    PeerClient::new(Some(Path::new(roots)), true).unwrap()
+/// QUIC trusts no roots: each connection pins its node's key, and the
+/// resolver only resolves names, private ones included.
+fn resolver() -> Resolver {
+    Resolver::new(true)
 }
 
 /// A node that is set up, and its node ID.
@@ -228,7 +225,7 @@ async fn a_device_pairs_through_the_relay_the_node_keeps() {
     let shutdown = CancellationToken::new();
     let (_relay, relay_key, relay_url) = endpoint(70, Some(Arc::new(Relay)), &shutdown);
     let entry = key::relay_entry(&relay_key, &relay_url);
-    // The test CA: the node's peer client needs roots, and a build sandbox
+    // The test CA: the node's outbound client needs roots, and a build sandbox
     // has no system ones.
     let (node, id) = node(&[
         ("DASSIE_PEER_CA_FILE", CA),

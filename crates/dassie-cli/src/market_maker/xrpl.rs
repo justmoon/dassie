@@ -12,7 +12,7 @@
 
 use std::time::Duration;
 
-use dassie_node::peer_client::PeerClient;
+use dassie_node::outbound::{OutboundClient, WebSocket};
 use dassie_xrpl::Wallet;
 use dassie_xrpl::account::TESTNET_NETWORK_ID;
 use dassie_xrpl::amount::{Amount, Asset};
@@ -20,14 +20,9 @@ use dassie_xrpl::api::{self, ApiError, Message as ApiMessage, ServerState};
 use dassie_xrpl::codec::{self, SendMaxTerms};
 use dassie_xrpl::keys::AccountId;
 use futures_util::{SinkExt, StreamExt};
-use rustls::pki_types::ServerName;
 use serde_json::Value;
-use tokio::net::TcpStream;
-use tokio_tungstenite::WebSocketStream;
 use tokio_tungstenite::tungstenite::Message;
-use tokio_tungstenite::tungstenite::protocol::WebSocketConfig;
 
-use super::config::host_and_port;
 use super::strategy::{MAX_FEE_DROPS, Pool, Rebalance, Token};
 
 /// Most bytes in one message from the server.
@@ -53,33 +48,9 @@ const MAX_LEGACY_NETWORK_ID: u32 = 1024;
 /// A connection to an XRPL server, made when a request needs it.
 pub struct Xrpl {
     url: String,
-    client: PeerClient,
-    socket: Option<Socket>,
+    client: OutboundClient,
+    socket: Option<WebSocket>,
     next_id: u64,
-}
-
-enum Socket {
-    Tls(Box<WebSocketStream<tokio_rustls::client::TlsStream<TcpStream>>>),
-    Plain(Box<WebSocketStream<TcpStream>>),
-}
-
-impl Socket {
-    async fn send(&mut self, text: String) -> Result<(), String> {
-        let message = Message::text(text);
-        match self {
-            Self::Tls(socket) => socket.send(message).await,
-            Self::Plain(socket) => socket.send(message).await,
-        }
-        .map_err(|e| e.to_string())
-    }
-
-    async fn next(&mut self) -> Option<Result<Message, String>> {
-        let next = match self {
-            Self::Tls(socket) => socket.next().await,
-            Self::Plain(socket) => socket.next().await,
-        };
-        next.map(|message| message.map_err(|e| e.to_string()))
-    }
 }
 
 /// How a rebalance ended.
@@ -120,7 +91,7 @@ impl Xrpl {
     /// A client of the server at `url`, which connects at the first
     /// request.
     #[must_use]
-    pub const fn new(url: String, client: PeerClient) -> Self {
+    pub const fn new(url: String, client: OutboundClient) -> Self {
         Self {
             url,
             client,
@@ -163,49 +134,9 @@ impl Xrpl {
         }
     }
 
-    async fn connect(&self) -> Result<Socket, String> {
-        let (secure, rest) = if let Some(rest) = self.url.strip_prefix("wss://") {
-            (true, rest)
-        } else if let Some(rest) = self.url.strip_prefix("ws://") {
-            if !self.client.allows_private() {
-                return Err("ws:// is for dev and tests only".into());
-            }
-            (false, rest)
-        } else {
-            return Err("not a WebSocket URL".into());
-        };
-        let authority = rest.split(['/', '?', '#']).next().unwrap_or_default();
-        let (host, port) =
-            host_and_port(authority, if secure { 443 } else { 80 }).ok_or("not a WebSocket URL")?;
-        let addresses = self
-            .client
-            .resolve(host, port)
-            .await
-            .map_err(|e| e.to_string())?;
-        let tcp = TcpStream::connect(addresses.as_slice())
-            .await
-            .map_err(|e| e.to_string())?;
-        let config = WebSocketConfig::default()
-            .max_message_size(Some(MAX_MESSAGE_BYTES))
-            .max_frame_size(Some(MAX_MESSAGE_BYTES));
-        if secure {
-            let name = ServerName::try_from(host.to_owned()).map_err(|e| e.to_string())?;
-            let tls = tokio_rustls::TlsConnector::from(self.client.tls())
-                .connect(name, tcp)
-                .await
-                .map_err(|e| e.to_string())?;
-            let (socket, _) =
-                tokio_tungstenite::client_async_with_config(self.url.as_str(), tls, Some(config))
-                    .await
-                    .map_err(|e| e.to_string())?;
-            Ok(Socket::Tls(Box::new(socket)))
-        } else {
-            let (socket, _) =
-                tokio_tungstenite::client_async_with_config(self.url.as_str(), tcp, Some(config))
-                    .await
-                    .map_err(|e| e.to_string())?;
-            Ok(Socket::Plain(Box::new(socket)))
-        }
+    /// A WebSocket to the server, as the node connects to its ledgers.
+    async fn connect(&self) -> Result<WebSocket, String> {
+        self.client.websocket(&self.url, MAX_MESSAGE_BYTES).await
     }
 
     /// The server's state, if it is on the testnet. The keys a rebalance
@@ -390,18 +321,21 @@ impl std::fmt::Display for Failure {
 
 /// Sends `request` and reads until the answer to `id`.
 async fn exchange(
-    socket: &mut Socket,
+    socket: &mut WebSocket,
     request: String,
     id: u64,
 ) -> Result<Result<Value, ApiError>, String> {
-    socket.send(request).await?;
+    socket
+        .send(Message::text(request))
+        .await
+        .map_err(|e| e.to_string())?;
     for _ in 0..MAX_SKIPPED_MESSAGES {
         let bytes = match socket.next().await {
             Some(Ok(Message::Text(text))) => text.as_bytes().to_vec(),
             Some(Ok(Message::Binary(bytes))) => bytes.to_vec(),
             Some(Ok(Message::Ping(_) | Message::Pong(_) | Message::Frame(_))) => continue,
             Some(Ok(Message::Close(_))) | None => return Err("the server closed".into()),
-            Some(Err(problem)) => return Err(problem),
+            Some(Err(problem)) => return Err(problem.to_string()),
         };
         if let ApiMessage::Response {
             id: answered,
@@ -454,8 +388,8 @@ mod tests {
         .unwrap()
     }
 
-    fn client() -> PeerClient {
-        PeerClient::new(
+    fn client() -> OutboundClient {
+        OutboundClient::new(
             Some(std::path::Path::new(&format!("{PEBBLE}/root.pem"))),
             true,
         )
@@ -463,10 +397,10 @@ mod tests {
     }
 
     /// Posts `body` to the fake's issuer, at `path` under `/tokens/`.
-    async fn ask(client: &PeerClient, server: &Server, path: &str, body: &Value) {
+    async fn ask(client: &OutboundClient, server: &Server, path: &str, body: &Value) {
         let url = format!("{}/{path}", server.tokens_url.as_deref().unwrap());
         let response = client
-            .web(dassie_node::peer_client::WebRequest {
+            .web(dassie_node::outbound::WebRequest {
                 method: http::Method::POST,
                 url,
                 headers: vec![(http::header::CONTENT_TYPE, "application/json".into())],
@@ -539,7 +473,7 @@ mod tests {
     }
 
     /// Has the issuer mint `value` DSUSD to `account`, and waits for it.
-    async fn mint(client: &PeerClient, server: &Server, account: AccountId, value: &str) {
+    async fn mint(client: &OutboundClient, server: &Server, account: AccountId, value: &str) {
         let body = serde_json::json!({
             "token": "DSUSD",
             "destination": account.to_address(),

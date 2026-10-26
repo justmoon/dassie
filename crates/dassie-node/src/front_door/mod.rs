@@ -45,7 +45,7 @@ pub use self::names::Registrars;
 pub use self::settings::Settings;
 use crate::clock::{Clock, SharedRng};
 use crate::log::target;
-use crate::peer_client::PeerClient;
+use crate::outbound::Resolver;
 use crate::quic::Quic;
 use crate::tls::{self, CertificateSlot};
 
@@ -119,7 +119,7 @@ pub async fn serve(
     let quic = Quic::new(sockets.quic, keys, parts.allow_private)
         .map_err(|error| StartError(format!("the QUIC endpoint cannot start: {error}")))?;
     let quic = Arc::new(quic);
-    let resolver = PeerClient::for_quic(parts.allow_private).map_err(StartError)?;
+    let resolver = Resolver::new(parts.allow_private);
     sockets
         .https
         .set_nonblocking(true)

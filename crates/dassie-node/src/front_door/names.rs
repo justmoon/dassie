@@ -38,7 +38,7 @@ use crate::clock::{Clock, SharedRng};
 use crate::env::BootstrapNode;
 use crate::log::target;
 use crate::node::lock;
-use crate::peer_client::PeerClient;
+use crate::outbound::Resolver;
 use crate::quic::{Quic, send_peer};
 
 /// Where a front door reads names from, and how often.
@@ -125,7 +125,7 @@ pub struct Poller {
     names: Arc<Names>,
     registrars: Registrars,
     quic: Arc<Quic>,
-    resolver: PeerClient,
+    resolver: Resolver,
     clock: Arc<dyn Clock>,
     asking: Mutex<Asking>,
 }
@@ -147,7 +147,7 @@ impl Poller {
         names: Arc<Names>,
         registrars: Registrars,
         (quic, key): (Arc<Quic>, Arc<NodeKey>),
-        resolver: PeerClient,
+        resolver: Resolver,
         clock: Arc<dyn Clock>,
         rng: Box<dyn SharedRng>,
     ) -> Self {

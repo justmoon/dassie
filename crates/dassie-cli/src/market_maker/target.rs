@@ -13,7 +13,7 @@ use std::time::Duration;
 
 use dassie_identity::{NodeId, PublicKey, base64url};
 use dassie_node::clock::Clock;
-use dassie_node::peer_client::{PeerClient, WebRequest};
+use dassie_node::outbound::{OutboundClient, WebRequest};
 use serde_json::Value;
 use tokio::net::UdpSocket;
 use tokio::sync::watch;
@@ -48,7 +48,7 @@ pub struct TargetInfo {
 /// a socket of its own, publishing each feed it takes to `feeds`, until
 /// `cancel`.
 pub async fn follow(
-    client: PeerClient,
+    client: OutboundClient,
     target: Target,
     clock: Arc<dyn Clock>,
     found: watch::Sender<Option<TargetInfo>>,
@@ -83,7 +83,7 @@ pub async fn follow(
 
 /// Who `target` is, where its feed is, and a socket to subscribe on.
 async fn find(
-    client: &PeerClient,
+    client: &OutboundClient,
     target: &Target,
 ) -> Result<(TargetInfo, SocketAddr, UdpSocket), String> {
     let info = fetch(client, &target.url).await?;
@@ -92,6 +92,7 @@ async fn find(
         .or(target.feed_port)
         .ok_or("it names no feed port, and the config none")?;
     let address = client
+        .resolver()
         .resolve(&target.host, port)
         .await
         .map_err(|e| format!("{}: {e}", target.host))?
@@ -118,7 +119,7 @@ const fn unspecified(address: SocketAddr) -> SocketAddr {
 /// # Errors
 ///
 /// It cannot be fetched, or [`parse_stats`] refuses it.
-pub async fn fetch(client: &PeerClient, url: &str) -> Result<TargetInfo, String> {
+pub async fn fetch(client: &OutboundClient, url: &str) -> Result<TargetInfo, String> {
     let stats_url = format!("{url}/stats");
     let response = client
         .web(WebRequest {

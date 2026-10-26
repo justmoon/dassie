@@ -74,7 +74,7 @@ impl Setup {
             return;
         };
         loop {
-            let client = self.node.peer_client().cloned();
+            let client = self.node.outbound().cloned();
             match Session::connect(client.as_ref(), &self.xrpl).await {
                 Ok(mut session) => loop {
                     match self.step(&mut session, &master).await {

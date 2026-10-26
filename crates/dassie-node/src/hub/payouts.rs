@@ -61,8 +61,8 @@ pub async fn run(node: Arc<Node>, shutdown: CancellationToken) {
         {
             payouts = Some(restored(&node, rules));
         }
-        if let (Some(payouts), Some(client)) = (payouts.as_mut(), HubClient::of(&node)) {
-            round(&node, &client, payouts, &shutdown).await;
+        if let Some(payouts) = payouts.as_mut() {
+            round(&node, &HubClient::of(&node), payouts, &shutdown).await;
         }
     }
 }

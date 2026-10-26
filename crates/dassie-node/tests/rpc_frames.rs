@@ -154,7 +154,7 @@ const KEY: [u8; 32] = [1; 32];
 /// How long the calls of one case may take to answer.
 const ANSWER_TIMEOUT: Duration = Duration::from_secs(20);
 
-/// Hosts the peer client refuses before any IO: IP literals that are not
+/// Hosts the outbound client refuses before any IO: IP literals that are not
 /// public.
 const PRIVATE_HOSTS: [&str; 4] = ["127.0.0.1", "[::1]", "10.0.0.1:8443", "[fd00::1]:443"];
 
@@ -460,7 +460,7 @@ fn recipient() -> BoxedStrategy<String> {
 }
 
 /// Whether the node reads `input` as a recipient without IO: it is none,
-/// one of this node's, or at a host the peer client refuses before it
+/// one of this node's, or at a host the outbound client refuses before it
 /// connects.
 fn stays_here(input: &str) -> bool {
     let Ok(recipient) = Recipient::parse(input) else {
