@@ -13,8 +13,7 @@
  * DSUSD through the pool (spec/areas/rate-feed.md#market-maker). So d1's
  * share of its value in DSUSD rises, toward its target; the market
  * maker's value, at the pool's price, grows; and every node's books are
- * as they were after all three restart. Its config names d1 in the form
- * of the release before, `target`, which still reads.
+ * as they were after all three restart.
  */
 
 import { test } from "node:test";
@@ -139,7 +138,7 @@ test("a market maker moves a skewed core node toward balance, and gains", {
     const file = await writeConfig(
       scenario,
       dir,
-      { target: { url: d1.url } },
+      [d1.url],
       d2,
       d3,
     );

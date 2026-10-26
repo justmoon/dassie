@@ -278,15 +278,14 @@ export function dollars(scaled: bigint, at: Pool): string {
 
 /**
  * Writes the market maker's config, and its nodes' passphrases beside it,
- * into `dir`: `targets` as the config names what to trade through (`{
- * target }` or `{ targets }`), its two nodes, and the pool on the fake
- * ledger. The XRP node's band is around what it holds now. Returns the
- * config's path.
+ * into `dir`: the `targets` to trade through, its two nodes, and the pool
+ * on the fake ledger. The XRP node's band is around what it holds now.
+ * Returns the config's path.
  */
 export async function writeConfig(
   scenario: Scenario,
   dir: string,
-  targets: Record<string, unknown>,
+  targets: string[],
   xrpNode: ScenarioNode,
   dsusdNode: ScenarioNode,
 ): Promise<string> {
@@ -296,7 +295,7 @@ export async function writeConfig(
   }
   const xrpHeld = await owner(xrpNode, XRP);
   const config = {
-    ...targets,
+    targets,
     xrpl: {
       server: scenario.ledger!.url,
       token: { currency: "DSUSD", issuer: ISSUER },

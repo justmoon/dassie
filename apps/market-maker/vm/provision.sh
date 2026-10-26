@@ -24,9 +24,8 @@
 #
 # The settings are instance metadata, each with a default in startup.sh:
 # mm-targets, the core nodes to trade through, URLs separated by commas
-# (the three bootstrap nodes by default; mm-target-url, a single one, is
-# read where it is not set), whose node IDs are read from their /stats
-# (mm-uplink names it for a single target); mm-xrp-trade-size,
+# (the three bootstrap nodes by default), whose node IDs are read from
+# their /stats; mm-xrp-trade-size,
 # mm-xrp-band-low and mm-xrp-band-high, the same for mm-dsusd-*, in the
 # nodes' ledger units; and mm-margin-ppm and mm-slippage-ppm. To change
 # one: `gcloud compute instances add-metadata dassie-mm --zone=us-east1-b
