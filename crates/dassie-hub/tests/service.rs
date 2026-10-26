@@ -341,7 +341,7 @@ fn validators_agree_and_tell_the_member() {
         .unwrap();
     assert_eq!(number, AccountNumber(5));
 
-    // Alice subscribes and sets her disbursal address.
+    // Alice asks what touches her account, and sets her disbursal address.
     net.request(&Request::Since {
         account: number,
         from: 1,

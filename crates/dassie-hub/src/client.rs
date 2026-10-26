@@ -28,7 +28,7 @@ use crate::promise::HoldNumber;
 use crate::rules::{Amount, HubId, Millis};
 use crate::validators::{Signers, ValidatorIndex, ValidatorSet};
 
-/// The most statements one answer or push carries.
+/// The most statements one message of an answer carries.
 pub const MAX_STATEMENTS: usize = 64;
 
 /// The most holds one [`Statement::Holds`] lists: one page of them.
@@ -169,8 +169,8 @@ pub enum Request {
     /// from, as of one block.
     Holds(AccountNumber),
     /// What was executed that touches `account`, from the block at `from`
-    /// on, and the newest final block. Asked again and again by a member
-    /// a validator cannot reach, and kept open by one it can.
+    /// on, and the newest final block. A member asks it again and again:
+    /// a validator tells a member nothing it did not ask for.
     Since {
         /// The account.
         account: AccountNumber,
@@ -837,7 +837,7 @@ impl SignedStatement {
         })
     }
 
-    /// Encodes a list of signed statements, as an answer or a push.
+    /// Encodes a list of signed statements, as one message of an answer.
     #[must_use]
     pub fn encode_list(statements: &[Self]) -> Vec<u8> {
         let length = size::quantity(statements.len())
