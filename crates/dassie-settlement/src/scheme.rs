@@ -652,8 +652,9 @@ pub trait SettlementScheme: Send {
     /// stub with unlimited trust's do, for tests whose subject is not
     /// settlement (spec/areas/settlement.md#the-stub-scheme). The node then
     /// extends every peer on it
-    /// [`UNLIMITED_CREDIT`](crate::policy::UNLIMITED_CREDIT), asks none to
-    /// settle, and settles nothing when asked. It never changes.
+    /// [`UNLIMITED_CREDIT`](crate::policy::UNLIMITED_CREDIT), never asks
+    /// one to settle on its own account, and settles nothing when asked, as
+    /// at a peering's end. It never changes.
     fn unlimited_trust(&self) -> bool {
         false
     }

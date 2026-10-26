@@ -1163,6 +1163,59 @@ fn on_unlimited_trust_both_sides_extend_the_unlimited_credit() {
     );
 }
 
+// spec/areas/settlement.md#the-stub-scheme: on the stub with unlimited trust,
+// the node never asks a peer to settle on its own account, not even a
+// downlink nothing moved with yet, which stands where one extended no
+// credit does and which the plain stub asks at once
+// (a_downlink_that_moves_no_value_leaves_nothing_behind). Asked to settle,
+// as at a peering's end, it prepares nothing and answers that nothing is on
+// its way.
+#[test]
+fn on_unlimited_trust_none_is_asked_and_nothing_is_settled() {
+    use super::Event;
+    use dassie_peer::PeeringHooks;
+
+    let store = Arc::new(Store::open_in_memory().unwrap());
+    let (mut core, id) = stub_core_with_downlink_on(store, r#"{"trust":"unlimited"}"#);
+    let stub = dassie_peer::wire::SchemeId::parse("stub").unwrap();
+    assert!(core.peer.active_peers().any(|(peer, _)| *peer == id));
+    assert_eq!(core.owed(id, stub), Some(0));
+    let asked = core.peer.stats().settlements_requested;
+    let mut now = NOW + 1_000;
+    let mut outputs = Vec::new();
+    for _ in 0..3 {
+        now += core.settle.interval_ms;
+        core.begin_step(now);
+        core.finish_step(&mut outputs);
+    }
+    assert_eq!(
+        core.peer.stats().settlements_requested,
+        asked,
+        "asked to settle on unlimited trust"
+    );
+    // Once value moves with it, its accounts open with the unlimited
+    // credit, which a peer with limited trust would be asked to settle
+    // half of. Asked, it settles nothing, and nothing fails.
+    core.begin_step(now + 1_000);
+    assert!(core.open_downlink_accounts(id, dassie_ledger::name!("stub")));
+    assert_eq!(
+        core.credit_out(id, stub),
+        Some(dassie_settlement::policy::UNLIMITED_CREDIT)
+    );
+    core.finish_step(&mut outputs);
+    outputs.clear();
+    core.begin_step(now + 2_000);
+    assert_eq!(core.settlement_requested(id, stub), 0);
+    core.finish_step(&mut outputs);
+    let settlement = outputs
+        .iter()
+        .find(|output| matches!(output, Output::Event(Event::Settlement(_))));
+    assert!(settlement.is_none(), "a settlement event: {settlement:?}");
+    assert!(core.ledger.pending_transfers().next().is_none());
+    assert!(!core.with_peer(|_, hooks, _| hooks.settling_to(id)));
+    core.check_invariants();
+}
+
 // spec/decisions/free-receivers-half.md: a settlement of at least one largest
 // packet booked from a node marks its channel, for good: it paid us, and is
 // no free receiver. A smaller one leaves it free. Neither downlink had
@@ -3894,13 +3947,25 @@ fn a_stored_test_rlusd_scheme_does_not_run() {
 /// `[11; 32]` peered on the stub at `NOW + 1_000`, and all of it written:
 /// the node, and the downlink's ID.
 fn stub_core_with_downlink(store: Arc<Store>) -> (Core, dassie_identity::NodeId) {
+    stub_core_with_downlink_on(store, "")
+}
+
+/// As [`stub_core_with_downlink`], on the stub of `config`, the downlink
+/// asking with the peering info the stub writes.
+fn stub_core_with_downlink_on(store: Arc<Store>, config: &str) -> (Core, dassie_identity::NodeId) {
+    use dassie_peer::PeeringHooks;
+
     let refused = dassie_node_core::config::LiveRealm::Refused;
     let mut core = core_taking_downlinks(store, Realm::Test, refused, NOW);
-    core.add_scheme("stub", String::new()).unwrap();
+    core.add_scheme("stub", config.into()).unwrap();
+    let scheme = dassie_peer::wire::SchemeId::parse("stub").unwrap();
+    let mut info = Vec::new();
+    core.with_peer(|_, hooks, _| hooks.peering_info(scheme, &mut info))
+        .unwrap();
     let downlink = Arc::new(NodeKey::from_bytes(&[11; 32]));
     let at = NOW + 1_000;
     core.begin_step(at);
-    let body = downlink_request(&core, &downlink, at);
+    let body = downlink_request_on(&core, &downlink, at, "stub", &info);
     core.peer_inbound(dassie_peer::InboundId(1), &body, None);
     let mut outputs = Vec::new();
     core.finish_step(&mut outputs);

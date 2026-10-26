@@ -1581,6 +1581,33 @@ fn on_unlimited_trust_nodes_pay_without_settling() {
         .iter()
         .find(|line| line.contains("Settlement(Settling") || line.contains("SettlementRequest"));
     assert!(settled.is_none(), "a node settled or asked: {settled:?}");
+    // Node 0 ends the peering, and asks a last time: node 1 answers that
+    // nothing is on its way, and prepares nothing, so the end collects
+    // nothing.
+    let mark = sim.trace.len();
+    sim.step(0, |core| core.terminate_peering(one).unwrap());
+    let ended = |sim: &Sim| !sim.peers(0).contains(&one) && !sim.peers(1).contains(&zero);
+    assert!(
+        sim.run_until_or(sim.now + 10 * 60_000, ended),
+        "the peering did not end"
+    );
+    let answered = format!(" 0 PeerNode(SettlementRequestAnswered {{ peer: {one:?}, settling: ");
+    let answers: Vec<&String> = sim.trace[mark..]
+        .iter()
+        .filter(|line| line.contains(&answered))
+        .collect();
+    assert!(
+        !answers.is_empty(),
+        "node 1 did not answer the last request"
+    );
+    for answer in answers {
+        assert!(answer.contains(&format!("{answered}Some(0)")), "{answer}");
+    }
+    let settled = sim.trace[mark..].iter().find(|line| {
+        line.contains("Settlement(Settling") || line.contains("Settlement(PrepareFailed")
+    });
+    assert!(settled.is_none(), "the end settled: {settled:?}");
+    assert_eq!(sim.owes(1, &zero), net);
     check(&sim).unwrap();
 }
 

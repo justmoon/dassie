@@ -267,7 +267,8 @@ impl Core {
     }
 
     /// Whether peers on `scheme` trust each other without limit, so that
-    /// none is asked to settle, and none is settled with
+    /// we ask none to settle on our own account, and settle with none, not
+    /// even when asked at a peering's end
     /// (spec/areas/settlement.md#the-stub-scheme).
     fn unlimited(&self, scheme: SchemeId) -> bool {
         Name::new(scheme.as_str()).ok().is_some_and(|name| {
