@@ -94,6 +94,7 @@ Most of Dassie may change freely: the UI ↔ node RPC and the HTTP API ship with
 - **The peer protocol, and what a settlement on a ledger means** (each XRPL scheme's memo type, such as RLUSD's and DSUSD's, and its semantics), within one network version. Both sides of a peering must agree; a change is a new protocol version that older nodes refuse cleanly ([Peer protocol](areas/peer-protocol.md), [XRP Ledger](areas/xrpl.md)).
 - **The rate feed's wire format and signature, within its version.** Market makers and other subscribers run software of their own, outside the node's release, and must read every node's feed. Pinned by `testdata/feed/` ([Rate feed](areas/rate-feed.md#wire-format)). A change is a new version, which older subscribers refuse cleanly.
 - **The release mirror's layout and the install layout.** Installed nodes' updaters and the `curl | sh` installer fetch from those paths and switch between those directories. Pinned by `dassie-release`'s layout tests and the install tests ([Release](areas/release.md)).
+- **The public domains that leave the binary:** `dassiepay.net` for nodes' payment names, which other wallets store, and `dassie.land` for the memo types on the ledgers and the mirror the updaters fetch from. The bootstrap nodes', the default relay's and the proof servers' names are the release's, and may move in any release ([public-domains](decisions/public-domains.md)).
 
 Not frozen, on purpose: a node does not talk to the original implementation's nodes or read its databases; an owner of one recovers by entering their passphrase in a new node ([peer-protocol-v1](decisions/peer-protocol-v1.md), [database-continuity](decisions/database-continuity.md)).
 
@@ -111,6 +112,7 @@ Not frozen, on purpose: a node does not talk to the original implementation's no
 - [peer-protocol-v1](decisions/peer-protocol-v1.md), [database-continuity](decisions/database-continuity.md): no v0 peer protocol, no v0 databases.
 - [real-money](decisions/real-money.md): no real money yet.
 - [bootstrap-network](decisions/bootstrap-network.md): the testnet's bootstrap nodes.
+- [public-domains](decisions/public-domains.md): the domains of payment names, memo types and the mirror.
 - [own-books](decisions/own-books.md): each node keeps its own books.
 - [headless-setup](decisions/headless-setup.md): `dassie setup`, the exception to a passphrase that never leaves the browser.
 - [node-and-pnpm](decisions/node-and-pnpm.md): tooling on Node and pnpm.
