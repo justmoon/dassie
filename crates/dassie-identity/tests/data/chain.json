@@ -10,7 +10,6 @@
       "publicKey": "74bc1f80ee7c8ca95f6f9a51dd153b0f2ba56fd654ccccfcf8d4f1a489d82ec1",
       "nodeId": "5bsj2yga533htqfzsbe7kj4pvapjvgwgeulvgyq",
       "loginSecret": "ba0dd229154fafeba83016d1816001927cccf1d042d4ea8c06cdb61ca6b67b7f",
-      "devSessionToken": "d65242dae501f966882ffa3edec6aff10c7994a787a203131c7549ebe11f41e2",
       "xrplTestnetEntropy": "67ec190d13292132756dcbc03249cd982d5e6bb71336e09501355e5090753fd4",
       "xrplTestnetWallet": {
         "familySeed": "sEdTkE1FGv9iYpukeJc29qTK5noq3Uu",
@@ -33,7 +32,6 @@
       "publicKey": "e573635de62f5db7f249d5b9c1dc33e8ca5db70a55620fc6f5eda3a71eddf5d9",
       "nodeId": "4folrrtykxmfw5gxxiccr762zfagzg44wqz6egy",
       "loginSecret": "1c17ce7c6fb4bcd1009f3ef2867142e6af5d766ca9a3575223c8bc6caf55d7f2",
-      "devSessionToken": "f49d571f619b0cb46a5884d26d133c87869c0036f59b5393797091dcc5196bc1",
       "xrplTestnetEntropy": "c8670630abd144b3001938c42ec45d7d5daf2c840e6bc47019354955f137a5aa",
       "xrplTestnetWallet": {
         "familySeed": "sEdVaDXvHA4x9BQ9aXMW8bMfFyhCEm4",
@@ -56,7 +54,6 @@
       "publicKey": "069efc0a3f5997b0a24e9cfd0e5b6c06e2d7d31bec655831d102baf29c051e74",
       "nodeId": "4d76qypaso4tarozonmzc4rairk6tvine5f64ny",
       "loginSecret": "0cfbcf2cd79a89fae92700cbc4d57c23f0062627e8b14e0043da69fd5ae4c08a",
-      "devSessionToken": "b52160d4cab5c60211fa87c85678e5291b84ce1f6e02f797163743c3a5e63c9b",
       "xrplTestnetEntropy": "fe66001059fec35387870abf31d3ef991379d32817bf900884b43dfca9921559",
       "xrplTestnetWallet": {
         "familySeed": "sEdVqifuSnpcWipSt7AUDNm978gLJhf",
@@ -79,7 +76,6 @@
       "publicKey": "a11a06738ddd9e51f34e14302eac54298ddf1488affa244389f6b81f67eec8c4",
       "nodeId": "o4duajzhmc4po3rkj44ahjvbeboaohsu3gqmsmq",
       "loginSecret": "2f38399c018b6b75c6394455e64f8bfb273c01d76793cf8958c0b63c482e60ec",
-      "devSessionToken": "5605e112eb2782b0df5c0d37eb6640fa178ec413f1cb356f6e5d573ba0cbb423",
       "xrplTestnetEntropy": "0e8e1a5ac8caabe62d44020668b84aef90db3a23c5c95fb74d5638784f1d57c9",
       "xrplTestnetWallet": {
         "familySeed": "sEdSWs22MzJ47q5Rtsx9eG2eFJ16hpT",
@@ -102,7 +98,6 @@
       "publicKey": "be1ec88a6b86e08a66ab81804514782bc2c33c997d3241c341ddf85e5c990b40",
       "nodeId": "b2ygkw6j67rk3pqln4io723vxshmpvxqujpxsji",
       "loginSecret": "55b6d4ad1c6873ee6e9521c44c3bb5b0a6cf8506f0bb52cdd1ec1c2406c4a543",
-      "devSessionToken": "c07eb55184ab865f5118188117cf3854eecc550b18a2a7cba47038f9cd11cb17",
       "xrplTestnetEntropy": "fb1d42e9abaf5257b70164db9c5d37d88b7e302f7690d1f41b90ab14c51ef385",
       "xrplTestnetWallet": {
         "familySeed": "sEdVoUUq53v4REw2mQNr8uaDPN5nNeE",
@@ -125,7 +120,6 @@
       "publicKey": "d5c436190bf5fe4279c305b4615eea1c2eff863d3d1acf7ee7a1979bd0de89ef",
       "nodeId": "7cozjl3nqwszqkj6y7gf3y6fviro25rtzyppd2q",
       "loginSecret": "9b4a02ac0298d7a6cc4b1aa79dd33daea0bf824638db60b2fc97627944b69d77",
-      "devSessionToken": "2c0d3ea145c8543dc48eddcd5b160762648b8720060e8d42ac5f551e1e0cd430",
       "xrplTestnetEntropy": "8684568524007c838978e766aff34310480aba8d09a4bbb5a4aa9b68b5a42bab",
       "xrplTestnetWallet": {
         "familySeed": "sEd7wyjTm7UjtxZhWBpMEZtq71XE6VH",
@@ -148,7 +142,6 @@
       "publicKey": "e55af2c9513c322df74a14550b5167f627349dff6f868d85c17a778762963a14",
       "nodeId": "pvph6rzicau7h4ntqn34dn22u4cllcaqbaukm7a",
       "loginSecret": "8a038fd323063dc9a3fa811624fd6ab2a6de32b322eb71b404c3eacbd0b544e3",
-      "devSessionToken": "e04416cc329cfddf87cfa4a728409b6fdfcb18b93a2c559860ee4251b40923cd",
       "xrplTestnetEntropy": "fc01a9509ad4a1c7ff4d790964ca483fc48f463cd5b0386e012c1b4ac043d98c",
       "xrplTestnetWallet": {
         "familySeed": "sEdVovppsQRUVSWUpiRwNhiVC9x185R",
@@ -171,7 +164,6 @@
       "publicKey": "a2cb3b550d1ebd6a36f05431b7bbf605f5e8077981b7203235b74ec08f8ebd01",
       "nodeId": "qmijndvjtqn66k6f5gyvve7wk3z5oxldi3axigi",
       "loginSecret": "add44c9f9f1a26c64784f3d06f1fde2befbc33ea107705674528496e56b43b8c",
-      "devSessionToken": "c5b2a0fad72d5eb5c8fbbee56425949a28c964df43c8e424f4375fd3b6040a9a",
       "xrplTestnetEntropy": "4e68afd0ad83238d337fc47d40a3bdd6509bcf571a0d0f60b80802311965fb79",
       "xrplTestnetWallet": {
         "familySeed": "sEdTPewXQma3X97wrjfq9YfT2YqCvrE",
@@ -194,7 +186,6 @@
       "publicKey": "a8cba04ff6d4ffc86c1a87b2f91ab29e50e7fd264a10d5d22170f16670e1ee67",
       "nodeId": "v3ssl7oia3ywm56pnh7gscznxazo6pcbf6o2hrq",
       "loginSecret": "75f38611ea65fc43075535ba1ce6154d84ea2182c1098a58900aef54c32463d3",
-      "devSessionToken": "335bb94718b78805ea6a4f9de0d26d64b5a42b04b625fc3800a3c7a73baafad2",
       "xrplTestnetEntropy": "0eef1279ff82c0956e88460fc0cf52d089bbfa1248868f2dfbbe41a163e0998b",
       "xrplTestnetWallet": {
         "familySeed": "sEdSWMLUA7vJ9foJ2CtdRtAD5XFgyyP",
@@ -217,7 +208,6 @@
       "publicKey": "70cd3dc30f84e180d843c62312d97f337cd0fd7999293b3235404c54db3f5568",
       "nodeId": "7ygerdwnk5zv5hz4ktoy6io6aukrh2u3tw7kypi",
       "loginSecret": "c4f21d0d0550c58061ad7bddc370cf5fa6c0cfda028b04c03958c5ef90af4f8f",
-      "devSessionToken": "bccef2fbadca4053818956d6ddf08d01f0de53c741ec05e5dcd584d31e7b25b8",
       "xrplTestnetEntropy": "56e4edd7abfc23fd83aef926f04592734a53cb762e7804e09c06ef4cdc4d1c14",
       "xrplTestnetWallet": {
         "familySeed": "sEdTWVqecBAkE5xkf6PNqpDJ2BDTYSA",
@@ -240,7 +230,6 @@
       "publicKey": "4041b916f7b804a52ca38f7d256292adc5c959c9d4071c08e93ada03bbc40a20",
       "nodeId": "msxvbhd2kjzxocuzxzxjorht67tu2q66ohfo4ba",
       "loginSecret": "30a738f79ec105cc42e35c5dba116aba99732accc0a866aa011681df54665205",
-      "devSessionToken": "4672149d29227fe25093e1125e388f5dd2a3cc30668dce46c4287f7fedbe5792",
       "xrplTestnetEntropy": "195232093da90204be4d481f9edaee43b623fcd129b85a0d35388ee62bba4c5f",
       "xrplTestnetWallet": {
         "familySeed": "sEdSek9aUpcqcP1jTm4Do4CkgeHymGo",
@@ -263,7 +252,6 @@
       "publicKey": "d97526e0660b4623f00f6112b2ff1e007844d569d8587645de0477eb76a72497",
       "nodeId": "hgt7irmfgcrju4s2j7xw3wjzftymdcwmrykgyeq",
       "loginSecret": "a72cf265651cb59889057c2a9d47427d59d299c8637d4cfc78a9e40a82f051d0",
-      "devSessionToken": "76337e59e01806c62156bae1251ffa1955e292647e4a42ccc0f33997a1572a83",
       "xrplTestnetEntropy": "5673e96f9aa0ce86e3d823a87b728f99fe6e80faf74f03117466478457983b2d",
       "xrplTestnetWallet": {
         "familySeed": "sEdTW99c1n8DwdF97AsxDVhyHb6nz43",
@@ -286,7 +274,6 @@
       "publicKey": "6d4fd03fb3ae8cc694a04378bbc47c323e3628f92315f053ceae87a178f2f81a",
       "nodeId": "7mo34onq2y6ovl27m2h63tnksvdsblzhap6sr5y",
       "loginSecret": "145556ca5c94e5101b21e6d72611e7c901de80bd7c22434fcd7eddefcc416a1e",
-      "devSessionToken": "2b260b72ae0d637e2f22a2d29517bed86c7b2e18c70a2a8e85bc2bc61c54c02c",
       "xrplTestnetEntropy": "e9207730ce5715ff5c14bab83029e36a593121ae708299b3d3efc8c85cefadce",
       "xrplTestnetWallet": {
         "familySeed": "sEdVYCU2TpByqzzBaMvmxHu8ZncSXv1",
@@ -309,7 +296,6 @@
       "publicKey": "5310a8c7e3e74437f5f125245ad5f574ac2cf9fa61d89252494e664bafa58299",
       "nodeId": "gmrx2b6v6ap37gitfo6x2hbbdmtl2ffyale5spi",
       "loginSecret": "566eaba38c401e5d06369b11689ddf8649104f13b8a7f7488b49560885d580f5",
-      "devSessionToken": "1234ffb43d0715d43218df0297de66716b86ec94a244818d30b1b9e8463f8c6f",
       "xrplTestnetEntropy": "6ae39dbab7b05e432a95ab183cb3893692f42ec03f1497a271612d7f4a956680",
       "xrplTestnetWallet": {
         "familySeed": "sEdT8ev7N3nkCkJ4yTJrwVVFLcUc6UA",
@@ -332,7 +318,6 @@
       "publicKey": "fcee7a3991843980d7db8fc74f93ff4623c14dd5ff70b1c4e1eee3134ea3e806",
       "nodeId": "cemvzdhzczytvsknpacvax67wgzt7mivxlasvki",
       "loginSecret": "754da8830833ad8ecc5f984f9d90e31404f936b9f115a7ff97c1e280d7b836b3",
-      "devSessionToken": "b7c331fb32b9738662d45dd718411a81b22af1825d0afbce943fe43b8482ef14",
       "xrplTestnetEntropy": "7fbc5e6cff20a40b6abb76f99867c5ef5c4db6cf418054b012914ca001634f0a",
       "xrplTestnetWallet": {
         "familySeed": "sEd7nVvjmNaUWQEDdtxdCobQpTddvNb",
@@ -355,7 +340,6 @@
       "publicKey": "8f3ef04a2d6a976405e68e3a2230d218cd18609b536b9b094f980a044a692ffd",
       "nodeId": "i3csnoso2tlhvb6rye3zyywvfi6i5f6e5bwt2dq",
       "loginSecret": "0e3f7fd9322dbe94f4bbeddae6753374edbf8707e7202f879751584a2eda582e",
-      "devSessionToken": "d1dab1153d4d18fedab61c05befc85467b69354d34fff9b0d584136a22e9b1c7",
       "xrplTestnetEntropy": "70d32bd5c557806de0bacf337c15660474bb024c5752b1a3b96646469c9dfb2d",
       "xrplTestnetWallet": {
         "familySeed": "sEdT1TfH7qqm9LihYGoNTq7AMYCgm43",
@@ -378,7 +362,6 @@
       "publicKey": "bd6410171821adf6028d80deb981490bf4155b07c8fbcf3dcdea8e11987cec6b",
       "nodeId": "hfoddxi5wicrl2n6kjojjsxu444uwszjs36snxi",
       "loginSecret": "0a9d45d9434b271211fddfded0cc53eabcb56e4583566c179e47aa9f1a612175",
-      "devSessionToken": "0af4e24e05bbfbd4bca6f6a6477f6d96abe82893ead556a14f02edcbc5b256f9",
       "xrplTestnetEntropy": "bf978106d6fc3873c3f2277291caa5d59c87b33a7a54a55b83dc2c0898f66fb0",
       "xrplTestnetWallet": {
         "familySeed": "sEd7yacYM9sL8UFcy19ZQXdRdwtv8yX",
@@ -401,7 +384,6 @@
       "publicKey": "cf6ab76bad05f64268466e19eefe309eaa09c42260f468a34d73c2554519a4fe",
       "nodeId": "vqgwa5fjit3vip6trmftknexz4xg736bprkgiky",
       "loginSecret": "7dfca66c48916d57937b02dc0956fffb6d3eac5535f5028a33551e355fad4e6c",
-      "devSessionToken": "58bf27e28aee1bb05e76cbf71ba2766e22bda20e31dea7b463ac4f7957b179e2",
       "xrplTestnetEntropy": "aac58d888f4b557a246072d795077c69e75fdd07b90b6c854304a14a0a47f5b2",
       "xrplTestnetWallet": {
         "familySeed": "sEd7gGiVZipLi3eZGsXPqidMqx5P9F9",
@@ -424,7 +406,6 @@
       "publicKey": "45c4b98f449cf5885ec6ebea5049de90395803826407acb5cde0ebe8f314e2ef",
       "nodeId": "d2pu2y5nednin7de6aunegf6ldive3d66dloe2y",
       "loginSecret": "6aee0f905f1852966823879b037c1a63c3b60ebac6ad7d73c9176dbde2b8ad3c",
-      "devSessionToken": "9e1482f425902399b6b6e3b80a1088e241489501f67392d0b2983742106c5615",
       "xrplTestnetEntropy": "4d1defc1b27ded88d7f0c9719812cda43427030be45bfbf578785a0d971fe601",
       "xrplTestnetWallet": {
         "familySeed": "sEdT4bc2cQw2QRAMwh8MDFbbtTW6j96",
@@ -447,7 +428,6 @@
       "publicKey": "f44a261566b484d3d11cc1e0a770818ddedee12502c522afeaf5de6dcb501389",
       "nodeId": "ybe4rbsrdaftzwswdddeqbhd67ftkgq2wgntxti",
       "loginSecret": "fefff7ff60f4e588446351f12e23e95fc9ce0673e3ab64b5df3bdf0420bd8e85",
-      "devSessionToken": "11857c6bb45d801700a227f355c80a8e42fd7018bc48628d0cd3200f82d8e60e",
       "xrplTestnetEntropy": "62f9aaf7bce798c4d05b0097e48addfde711a114cce9cf2364c61660d9cd0a4f",
       "xrplTestnetWallet": {
         "familySeed": "sEdTgGp5KwsDJyyodqSAX9ddvvNYHm6",
@@ -470,7 +450,6 @@
       "publicKey": "5924dbc0aeb995bb25e6b02a3d20ed4b01a22a20732c0cd2d3f61c80aa20ff67",
       "nodeId": "2xmzvd6iu7wy755472ujvi7gzkv3zou6ftmsrxi",
       "loginSecret": "7e5cce69db0506d4334d7a7bd70bd3f2eb217f5c28a3f254528af51dc35e0557",
-      "devSessionToken": "92d648dfadde07bd89eb44cc2d320cff38b883d6af2fa129ca736abbc2d72039",
       "xrplTestnetEntropy": "7f30c998957fa58d22dddf2c6063795cdb98aeb232a96820211e1a6451a5021b",
       "xrplTestnetWallet": {
         "familySeed": "sEd7nh4eTu9Em8KHkv3kBGUqr3tzv2i",
@@ -493,7 +472,6 @@
       "publicKey": "c98bf641a7b9142e3f4870868189995d5d2cfe10eda0b427e84d3ef4e37aed38",
       "nodeId": "2hpqubc77jncm5i3557rqbhhurhmjc4iqggy5ya",
       "loginSecret": "38161133a1f97eb3f81e6b210228cbc5bffaea9ead15b59460f79f1a03fd7c38",
-      "devSessionToken": "4e73794f9a8b05940958bb0e986e36884ac6010727b6c6bc623ec256449c74b0",
       "xrplTestnetEntropy": "84debea7ca872705c1c3a57ba6fb2af32eb763cba4c7ac563a053c88e5ec3981",
       "xrplTestnetWallet": {
         "familySeed": "sEd79eYANgXv4wezvKjSYf441ZfrSjQ",
@@ -516,7 +494,6 @@
       "publicKey": "c05ca10d7aa995f1bea051ff6048c4ffbfd716937a19f2c9ced490b118aaa353",
       "nodeId": "rkpqj52c43kimf3hery4ui4wcpuyfeibhfcqhsy",
       "loginSecret": "e7d145c8b32e39285bbcf761561983caa8de0fa6eba59ae1c913dcced5718772",
-      "devSessionToken": "e86da677bd2ec8c52ead97e84309894062e500761d043ab60d689e26105422d9",
       "xrplTestnetEntropy": "1240ab9526230f29926c69e1be53753dc0a12b31c159ec55db1cf9ac288c07cb",
       "xrplTestnetWallet": {
         "familySeed": "sEdSZp1LcNpKjVTBfHhaDHuRYTdcoKw",
@@ -539,7 +516,6 @@
       "publicKey": "80aafff78aee38df290e1b9f47f4e3ccd713432cf508c2a4de1c3d092237f807",
       "nodeId": "oji5aq2dcg3565paopupows53u4t2tdngwzdquy",
       "loginSecret": "7ebdb47574f58f3c0c664bc2fc22832d4269a7334b57df5be09ccc855c925000",
-      "devSessionToken": "2b14c21a7e31462c109dc2e004e85b529ca38acd50aa712d9606d880233deb5a",
       "xrplTestnetEntropy": "67d809b73d084d0a62c4a1df4d1c85835b641f9a19801227d8afcf8f189971ff",
       "xrplTestnetWallet": {
         "familySeed": "sEdTkUUF4EbnApmwbXbrKYP7h6T5PC8",
@@ -562,7 +538,6 @@
       "publicKey": "8d1ef1e3772c2868a76d2768d969ad0564b315a4b215eca90b3450c4b8867ec2",
       "nodeId": "5iscep5eho3znjx2az6h5cvo5pqrfbkd6ngtdby",
       "loginSecret": "213ff267532277f87de84bcd8f23a84ca2aed33af180180da20855728891b7c9",
-      "devSessionToken": "0fcb1d8e1a0c9922d72915aaa9dfd481d7d3790f696d6e7e34ea6953756ed23f",
       "xrplTestnetEntropy": "71ec9a36bf84cdaa3a47868e466576c46e53ce8cb07099211c58d819f335e586",
       "xrplTestnetWallet": {
         "familySeed": "sEdTtLdZaWCrudfpeZMPTxdfpZ64qYw",
@@ -585,7 +560,6 @@
       "publicKey": "befcfdddfbd8d84ba33b9c38f2eec6c4edf56a57ba16ed8a72ae25521ce844e4",
       "nodeId": "kmivuxwxc2wwcedyv3rdnfoglahxwcdou3t33va",
       "loginSecret": "f31886fe73613c17fa64d7bf9564cdcc52da4810d5e519aefcb1963d0ef6df18",
-      "devSessionToken": "2a192516935ec5d78d4b525e80639660b8912ad09f4a90a1f1d95d0129962f3b",
       "xrplTestnetEntropy": "c1a0f17ee3b9374336f9d2445b89e67a37d071c5bc2493337529497c1e536a15",
       "xrplTestnetWallet": {
         "familySeed": "sEd7zknEBiBYDz5gH4FGZY7DKdij9x8",
@@ -608,7 +582,6 @@
       "publicKey": "5a60319a69a937fac283a1d5afde182197104dd77361115604f5d30a759d28e4",
       "nodeId": "xr5azolzyxozzs4lgjvrzpmovogqwjg5he76fqq",
       "loginSecret": "fe0d81976853695a9cf639de3c883c6d2745a32ed9f697e4583281fdec9f9891",
-      "devSessionToken": "6b485a2a5d35d1723c4dd1a357e20e394269e912278e3d8e5201b608577c1f98",
       "xrplTestnetEntropy": "d1a6a4205a52db1b34b9c3ee90413664cb8838b37b3733dba3f17f143a286d2b",
       "xrplTestnetWallet": {
         "familySeed": "sEdVDgyZ3BCgvyjtXWPYWkHf5AqRNF1",
@@ -631,7 +604,6 @@
       "publicKey": "15dd332a70e4689f21373d3456c9d310f3ff7a4295d99ed3399b4935ba61d3a0",
       "nodeId": "uwuxzbabqugydack5wghtfnm76qn4gmutngv72a",
       "loginSecret": "799e7d0e37e2b8ca4b7d05d4cf35353e3a317f300633e58cefb9130603c2e461",
-      "devSessionToken": "4368efd89151a21f06f3c319c8bb873e2e54af3a7a3391e9682b9298ca3841ee",
       "xrplTestnetEntropy": "81f2674394b93a30ff00d08225973098818a3ff752b5a7929c34052834d414f8",
       "xrplTestnetWallet": {
         "familySeed": "sEd7fHYxbf2xVpdUi1ZFVvdZz9Pi2se",
@@ -654,7 +626,6 @@
       "publicKey": "5187fe20d1b2be13f1fa1974de395b958b7d12426c8a8bd26d041930155cb136",
       "nodeId": "tf4vwntsbwpxrtq6y6gw3kiq3ckozrjgbhhzeki",
       "loginSecret": "032c402c98eeeb5a6e935e3240483b624407c9441f8dfd9e84d9e3e228453abd",
-      "devSessionToken": "f92f8936183ca3beea4eb3af9e82c0b6be20b9747246e8c9ecbf97b585046746",
       "xrplTestnetEntropy": "bbcda0950c534628a7ce2766828e07910e1edb0ea84175acd85ebf8e35567dc9",
       "xrplTestnetWallet": {
         "familySeed": "sEd7vshGxAs2YJk6QJf6JrC61TpysZp",
@@ -677,7 +648,6 @@
       "publicKey": "6c2aaa1268d0540d16bbe5fe3240f9988a13ae4c9e4baac6641ae04ba0185f96",
       "nodeId": "z7nwujrejw5urco5ydzopbfzlnnxksexsjku5ai",
       "loginSecret": "443e499fbae1c73df232faefc8673d74f4711f3aa4b76837887e7718913ea1b9",
-      "devSessionToken": "bfdc533fd693caba1a2ebaef5d2f13a1c45f790e061af531d9e93ddf58fc114f",
       "xrplTestnetEntropy": "fcccf9416a087e7adc6cd17322ef59a65553cd90aab995e3e8aa3920f46b9934",
       "xrplTestnetWallet": {
         "familySeed": "sEdVFZNFhyDSgnx7AV3moo324yaT1zn",
@@ -700,7 +670,6 @@
       "publicKey": "9c5c4fce37d19cf102fefe017d9c0801404e290644d1e514fca6da2106b9b90c",
       "nodeId": "rlwytcjb3mb2fotaz3chvt3kglfuutgncnoopkq",
       "loginSecret": "0b5c085ac3f02aec85a506c887320ff14dae4788d7d8b62b7f49ac6f83ab0194",
-      "devSessionToken": "12cac6619e0cf3c13ac9e46122cb710d912c6ab6ce8a4aabc806ae09c073d73b",
       "xrplTestnetEntropy": "985aab233b17d0fe97a4b8ffca80a2ffdc50b963f73c3048880b2790008d2671",
       "xrplTestnetWallet": {
         "familySeed": "sEd7RP6Jw1VDKgFxFqY6JxtiH2X79Ax",
@@ -723,7 +692,6 @@
       "publicKey": "181bb5b6eb94e1802353b6de215b35acfb9b196fb3b1377ed0906a00048ca890",
       "nodeId": "llecgixbsr7jui3gfgrx5b47ie6f3f5xk6unzwy",
       "loginSecret": "bab1cd8f12ef99a40b7975ea5c0582efb18117d91dc91e2416e0567c9f7a9e7c",
-      "devSessionToken": "cd6605d1b45918491fc44c32c93257ee34cf2c0fa31c897e135c6205c5af50f6",
       "xrplTestnetEntropy": "9cafaab631dac3cba9f0be5ad222d28f00833308018e651c863fb23bb30b3f3f",
       "xrplTestnetWallet": {
         "familySeed": "sEd77t5m6iXHTGbr4nvvuX5ieax4RA5",
@@ -746,7 +714,6 @@
       "publicKey": "f017e1e5ef65d17e76c9651f184acd901f1c0b556fa6f81cffc3f3a26e8df707",
       "nodeId": "ysabllpwzuuuonv3zfykm66kniynue32wgz5jbi",
       "loginSecret": "74326eeb0a4ee501dfff729307719b64b4586a163c0be174615013edb7301703",
-      "devSessionToken": "e21fbb330bd87cefaf72b42aeaec7f2797a6101c1bf4765463c00a6bdec8649b",
       "xrplTestnetEntropy": "7cb3e1e9593bc3848000ad27e0e465a44f7fc62d54b40494437bd989cb48500e",
       "xrplTestnetWallet": {
         "familySeed": "sEd7ssmuzNMaQLGYB4qdRBKFYUhXd9v",
@@ -769,7 +736,6 @@
       "publicKey": "2e4e24620ac6b48e96b4c41d8e97930215142b0663e4f9841d681f78369c6bd6",
       "nodeId": "s6z2ypd2jmovwonaqf3qbqp2ry6zbpybt2zdyli",
       "loginSecret": "83451ffb6b8c4a1e0319bea904fdcad1e254241845d4fe7433d4c583eff84b46",
-      "devSessionToken": "4e1e9782a56b3a20c494f0523138e3dfb23436c2f7a7458a7831cde427e09b59",
       "xrplTestnetEntropy": "b0507412294d981b1f91d27c0ed49f6dfbc18c7ffcd5bddac4691631333dcfff",
       "xrplTestnetWallet": {
         "familySeed": "sEd7kkcYdEnzJHxRdamCSvJbpfV36We",
@@ -792,7 +758,6 @@
       "publicKey": "070cb0c50db08dda4ce8677fd61cd109186af45893ec96208a4b014c2d8a2793",
       "nodeId": "idpfgr7md4b6ydhtv2c3bb6qntxeixw2bgjuyfa",
       "loginSecret": "b77631fc898305048ff25585e851b7dbcfb0f16d09d697dad161bec795c54951",
-      "devSessionToken": "2a3d003c5f03d843ce49d0eaa2c3313cad733f56fe8b433f0d028521c9f66c69",
       "xrplTestnetEntropy": "2b4a5672f071a73728a89219b08093f264044cab55704bc20908da6bd3a20b8e",
       "xrplTestnetWallet": {
         "familySeed": "sEdSuGHAZKfAn34rT6LXkvw3yPeb1pg",
@@ -815,7 +780,6 @@
       "publicKey": "5314defa4e368d686afb5c42d103ad440f07277307487c616ddc2b9f5707c60c",
       "nodeId": "toq3yikaj2scvz5kvaubm2lphh57c24suef24bq",
       "loginSecret": "594cdf0e93a33758e89dddca7e1d40832fbe10e4ca9c56a97111560ae3fc2b36",
-      "devSessionToken": "4a64b1627b67c4327b5109329253645e4a02bcb5807f890fe5bd792025183346",
       "xrplTestnetEntropy": "de2f57235987b63fc5361a8684d9f5918eb553a19853762fc6325888081506fb",
       "xrplTestnetWallet": {
         "familySeed": "sEdVPFPuUL4LQ3t9AJAKdfAXSFCJa2A",
@@ -838,7 +802,6 @@
       "publicKey": "fb9e19b092ca728d25c9fe040aa35b9a2776a1fe9c1ab2537772b9492bb92ccf",
       "nodeId": "vugytkgsf7efjzhmpmc6twmrleccdw3ecsl2f3q",
       "loginSecret": "b5232aa76d674b105f9d63610ff32f1e2fb81c81cf358db78cdc8aa619949872",
-      "devSessionToken": "92fde6bffffb7f355d3123205e53e511278b63ccd2469b8696197ab518b2e7b0",
       "xrplTestnetEntropy": "f710d6d974c48b98e1d7bedbcc5eee5c6fb68d79020dc0b07a525ccd00cbd28b",
       "xrplTestnetWallet": {
         "familySeed": "sEdVjvTzJw3M9qbcv2BK8nJr6Tv5V3K",
@@ -861,7 +824,6 @@
       "publicKey": "34368265b15c01b71b4b87f625a6f53fa8d4bf7e1ae59824fdd2232357377ab0",
       "nodeId": "bzzztv2whzfpm6zs4a2w3scqqatvt5eu6t4yw4y",
       "loginSecret": "11bfe219370c29982728deddae707728cc341880246cf8b88e46cc50162e6464",
-      "devSessionToken": "bddc26110421f1827f414deb4c3518a734a8b3619eb0667e11107683b1a36f76",
       "xrplTestnetEntropy": "c96da213ff229d87492cda435b1047407f317bee40e797f6781c5ea6b20a5916",
       "xrplTestnetWallet": {
         "familySeed": "sEdVfscLDqgvSAFq9jeoMcnMnAZRMkv",
@@ -884,7 +846,6 @@
       "publicKey": "8de54c275a2ec895a1cda45bdb78f92d54318245d6e4ce3070011c10b8d96224",
       "nodeId": "vd26oz2oel3retzpry3fbg7ztfoj5l2itstcnoi",
       "loginSecret": "f5149793d022ec55a37de5a2223a838a5aa8e58057706faef5a7edc76d88bca5",
-      "devSessionToken": "1197a7228d326ed5ac2d90a07a076510dc541a4ffbdd8d6bcde6fa6681964e4e",
       "xrplTestnetEntropy": "a549b9693b586fc336b15c5a4a118a99a125ed03e1c671d1bfe7147c975e4a26",
       "xrplTestnetWallet": {
         "familySeed": "sEd7bqi72aoUg5G1kWhY1G9DFNvoZjr",
@@ -907,7 +868,6 @@
       "publicKey": "4d3b0e27759c0dbe393d618560b730c52cd757c6c589cbd4bb01926032019ceb",
       "nodeId": "vbcamgskhqht7yc574mw5ypirrvs2raqdd2hyxi",
       "loginSecret": "8626e216e8a4966f49d7fee6db319cd9ae6816d133370c88c3d315db90390056",
-      "devSessionToken": "002ae39371bde81bbb756b261ea2cf178557a21e601ad3a7ed17ee040c2c0689",
       "xrplTestnetEntropy": "0b401f72ecb949489384def1ff7782051c838e160d4b48c63c0c06e723c6b977",
       "xrplTestnetWallet": {
         "familySeed": "sEdST46iF8auofGCFtoHjWjhCoc6G2Y",
@@ -930,7 +890,6 @@
       "publicKey": "fca90e273da23cdb4ffd634241ef7bb740cb9e06294c255e090885beb929bbc2",
       "nodeId": "j52xa555657ly45tbjujl5bjkjfoydmhmoukb7y",
       "loginSecret": "001dde0c547b439876fbed8680279f8ecfc9a235d12ecfa5ffe9d3d7096a066b",
-      "devSessionToken": "bfe861a31124d1f1a681988a3e3d82de3d1ce7cd966c061d54cc76f572ab7fff",
       "xrplTestnetEntropy": "a43b27271c6c4a67aae604396d099f07d858dce66cb459318042b2a38d739eca",
       "xrplTestnetWallet": {
         "familySeed": "sEd72zKXrsDHjd3dazRebR8aeJNyFAV",
@@ -953,7 +912,6 @@
       "publicKey": "fbf1c5b815056c64dcc5135009d1c9bbd8e29e07b3ef4568705db5940d2d2034",
       "nodeId": "bh7hmex2gz24vspcxdudsppmsszp7znk5ervtty",
       "loginSecret": "d1a56bccd3afbefed826bbc5f6f2e60777b371ba366178039467bb9513543d6b",
-      "devSessionToken": "eb0b0de542b9f45613e0351d66b9106ee071944cf9884a8ef3e0da01edde104f",
       "xrplTestnetEntropy": "decb3f389b7bd66b66ca1cfc365495d63582a000e6acd256c16ce23ac8efe1c2",
       "xrplTestnetWallet": {
         "familySeed": "sEdVQJALPS1WrwmPcQydidRWsJcx7Ft",
@@ -976,7 +934,6 @@
       "publicKey": "9ba5b40b74fc49668a20acddd8e38cff2d0e634567c6d67c38c6c914b3958349",
       "nodeId": "5ficb72vmcaa6ppwtykho7oatixq4lhxztcfkla",
       "loginSecret": "e1d9cb6b1b01138dd06490e86241853f30ea7b25aaafa1406dd8db522be4db55",
-      "devSessionToken": "598a9a974e25cb6360256a12cd36d088d3e33ce266936f3e03900cbf6958b114",
       "xrplTestnetEntropy": "fb68adc76309f3317bffc2af72471397ae2131fd048dc859bef3efca4aa1d996",
       "xrplTestnetWallet": {
         "familySeed": "sEdVoSrdcapHUJjSf3XzjGHFWzxTMzh",
@@ -999,7 +956,6 @@
       "publicKey": "b844343fe2e1b4487d02f85b278c18978038009a4d73659f0fc730709244ad2d",
       "nodeId": "ao7g2hhmfzazspvwwytsuy4vtcd7tcnfr6kgxdy",
       "loginSecret": "3d458dbb774055eb8704421508fa9cf2bcb7065fd6e5ecd8e2c8c3948498bfd9",
-      "devSessionToken": "db3b6f9ea05d48f339b0c6dba0d2402be1220f6d1e34e106fdf3a2e465501595",
       "xrplTestnetEntropy": "e4c3ba30c0c390ee2d490d54a2fe30a404744f8571bc12f9dda83a14baf9a930",
       "xrplTestnetWallet": {
         "familySeed": "sEdVV3kvGDuoRohND8TVBnFMLRjLESf",
@@ -1022,7 +978,6 @@
       "publicKey": "f9bd9f80b9216b191172b50261c5ffb414e670341f50e890d4bc5252334210e3",
       "nodeId": "6mhz54huu2squxmlstt4hzfkik34relyvfrmfoi",
       "loginSecret": "ba7f89ee8d7919f893bd5d3915aa1a4908a27d073fe0480f02fd7a37cfb2112f",
-      "devSessionToken": "58804690d9d2b8815ea615636a9a79a5ac565fc96acfecb286c08e96b6971e85",
       "xrplTestnetEntropy": "4c90016d7496855fee4b8558184a30b283c9aec03bf7ed3e46b293729284d99a",
       "xrplTestnetWallet": {
         "familySeed": "sEdT49dYJeFHwGaMKD5p9Li3VvrfGY2",
@@ -1045,7 +1000,6 @@
       "publicKey": "39804d8d25cb3869e0f3cd4217490d177ba28126182949dee88bfbee946e00df",
       "nodeId": "56dwisy2gojizwg77f75dffjtj37bh6m6mznply",
       "loginSecret": "15b663b4a9e7a7fa91dd73f2d1f56f192fddaa603df466e84faf107274291c50",
-      "devSessionToken": "187d6a14dbde1edf3ca64be928843fce3b0422a12d981bad77b7a75ca6ae30e6",
       "xrplTestnetEntropy": "b82385fd987b50d69ee5c56b612cc00dc19defd6997ef043ff9ff7dd3b476739",
       "xrplTestnetWallet": {
         "familySeed": "sEd71nK4veyi2MqVkZcFYh1bgx5s2iy",
@@ -1068,7 +1022,6 @@
       "publicKey": "1500d203b4af8d3bf3fc2247feebe8fe96eb6849734736a702ff291dfc15b5f2",
       "nodeId": "uzqlnerh4lxm4263yg32sqx5lbuks6t2clpkwma",
       "loginSecret": "0b713dc316b5dc19014a433ea741dc02f86d69903735f8fa7ce2dae8e78a2ac5",
-      "devSessionToken": "66afb8bae4b033512c99d49e80908f9bda32d873709c8bf741f038fd8c573af2",
       "xrplTestnetEntropy": "a68446a22b9302df3e19cd8272cf3500e014677bb6c54c2592b5dd5a4338edb0",
       "xrplTestnetWallet": {
         "familySeed": "sEd7cqSRTogcmejCwsvL45YF6EwLcgY",
@@ -1091,7 +1044,6 @@
       "publicKey": "b72e12d5fc7c0146cd9492e1e151b2edf3dd39144ab4ccbb88b1702292cf6e52",
       "nodeId": "jvzb6whvkkl4rg5ao3ucmif6hj5dax34os2bfoa",
       "loginSecret": "1d0341b2db6c32294fd92cdb908726e0a40493d839aa4d6b5aa31cc391cfdf7a",
-      "devSessionToken": "eb3daefacd26325a6cbc7e1348a7c4417865fda852ae9687727f720617ddfe4c",
       "xrplTestnetEntropy": "ac9dcbfb09f7357dbb13466837bfe0e2c3ad6574a1ebed70f714fc223ebd4364",
       "xrplTestnetWallet": {
         "familySeed": "sEd76mJqPh9mSYZiXF32dynwXQnXjB6",
@@ -1114,7 +1066,6 @@
       "publicKey": "e3d05d76bceb8ea8b1742786152f75325dd744ba75c13451cbafa44f83fbbdaa",
       "nodeId": "eoxycv2nyebemw4eba53tk2msgyrxiioaiqatji",
       "loginSecret": "cbd8083cee56e30e5761a6363f1b6506e326bacf1df28ff38d3487efedea912f",
-      "devSessionToken": "96041c7bb39cd24c6fc2b765f5ec0fbbf9e270228eae2a7a5b380b5e9ab0650f",
       "xrplTestnetEntropy": "4d73bfabceeb8091d466252b3110707c77877f2cf02afa608a99ed7bf628e35a",
       "xrplTestnetWallet": {
         "familySeed": "sEdT41Kkay8v2w3u1NgD7RaiQdTNH68",
@@ -1137,7 +1088,6 @@
       "publicKey": "b927f2639684dce79566f4c8d51bac8f469aedd6ecca28d91dddf2a1c0c44be8",
       "nodeId": "7jywzgjndol3qsqdv7la76dlexajfbiud5fv4zy",
       "loginSecret": "32d3992d69f4d02b17151130f14a586aff8abc5422672319212d8ae826b69879",
-      "devSessionToken": "0b78d607cef40b4f89cf03dfd2031a367e26267a1018b6d0b62b6eadfdeba184",
       "xrplTestnetEntropy": "da783d7b4fd48d5a4cab604b3c2e26b7a3924a58b2cb7da19f2b67e88b3ba87b",
       "xrplTestnetWallet": {
         "familySeed": "sEdVLFHrMpdkRpU7N75gVjfWieFfaUJ",
@@ -1160,7 +1110,6 @@
       "publicKey": "e14f5f8759762207154485cc6dcd9ff4319b7b071eb982a67fa094a31a1b183f",
       "nodeId": "kf7hvufospclu6h4z7adwqsrnqvqd72sksckodq",
       "loginSecret": "d20fafe23f5d38c2f681d64c710cd94d81d8e803010912e2e3a5b63ae11ea225",
-      "devSessionToken": "ca5ab48ada76f49ae4e532d7d2c3c8eb9a834650374baad4ccc0991c3287f413",
       "xrplTestnetEntropy": "6247a6c659049c979696692b374f4466190683a40d8c9a30366db272e9ee3268",
       "xrplTestnetWallet": {
         "familySeed": "sEdTC6SW8G9gDw6246uW1AAXJ1i8Wmz",
@@ -1183,7 +1132,6 @@
       "publicKey": "b75e3676f0b4182fe5d7527078c3175bb36f6531163c0c6f8bdab68bd7bc8339",
       "nodeId": "cek4sk5w4f2czmkabnmk7jlxvs2hvs56mtkh4dq",
       "loginSecret": "90f8d863d65b8fe5b7f628a51533cb6693af077f6679a3324cc6c125e10ee866",
-      "devSessionToken": "2a2b12701d414166753f875c57ea75849326e9ecb575ba7d7090691a1d119a53",
       "xrplTestnetEntropy": "d90c04a52bc1720fb2fcbbaf5dafca1aeaa9a564f330b6b21b5739cea67b4135",
       "xrplTestnetWallet": {
         "familySeed": "sEdVKCbevUvYA7g9rs1kSUdG5AoyiuA",
@@ -1206,7 +1154,6 @@
       "publicKey": "8afce0b7a3e41dc180e3ef00d0261ce45ab356dd6641ca1ab3bdfc63c0f87e2c",
       "nodeId": "eeckxbty6rduh6ppaytcznif6arwuhkq6xsvg4y",
       "loginSecret": "a45cec8a44853eb9a4646c7f3c8d5c32c48b473462491296f6b4a6d167de113d",
-      "devSessionToken": "452a6cc1cc96b77a560c9364d32827b4cfa6121acacd3531dfa216fb1d6d2c2d",
       "xrplTestnetEntropy": "212705c05340db6405b02dde843c3e49af075f4e5f06d1edf066d59907ec877f",
       "xrplTestnetWallet": {
         "familySeed": "sEdSmnw2YFjQptF5dUqZLueEfdmgjZN",
@@ -1229,7 +1176,6 @@
       "publicKey": "755714ad67bd4708826e9ba823054affaa5d35bf194061a31f6d8c0aea39da8d",
       "nodeId": "3o4hcctvln6wmiu2eiab473idao3usfrxftiakq",
       "loginSecret": "ed8f4ceef8906648eb1d6689877ae7a7ce961fd10c60793348dc90f4f3c9781e",
-      "devSessionToken": "593a8b2096ee13dd5712162534d376ef664d43d6360db3d50cc0a9c220eba378",
       "xrplTestnetEntropy": "a00db191a1cdb13bb363b02d620e52aa4c7ee8819d4ae8fdbbd9d5a48abd674e",
       "xrplTestnetWallet": {
         "familySeed": "sEd7XcX1cUW2hiBABwTM6XNyycuKoYk",
@@ -1252,7 +1198,6 @@
       "publicKey": "52656a6be13cdcf9f1a8e6c9900cbbd496470114d8b65d20fc32d74ae65cd431",
       "nodeId": "ssrsfnx7jvr622mn6xuuujeyomfieqghrlvzl5a",
       "loginSecret": "4907963a053adbb7611acbf16db91612d49ebeb889386f1c411efbb98e6bc417",
-      "devSessionToken": "0b14d8e428c88b3fd50320aa9749448e61fa8099e7093fc1ae3fac615d2be859",
       "xrplTestnetEntropy": "b8280e45a2f13cebc323491fe62839c0580897af56103f23e618fdb4d14d651f",
       "xrplTestnetWallet": {
         "familySeed": "sEd71a9WBDM6YfE1s3YzkiVZhBZ4Zqt",
@@ -1275,7 +1220,6 @@
       "publicKey": "159db148d14cae52385f166fd7bf936e99d90ac6cd3532ae32dde0dd33b88ce7",
       "nodeId": "h3djx4hceyz46iieb3xk22p655l7oqwyme62azy",
       "loginSecret": "30233af4232727c6f054eb76ec88442065d62f65f9b5a666980956585b9b2a37",
-      "devSessionToken": "6db46582f6513e1787a109e1ce2eff2ce53142a4de5b65dbdf54565dbbeafa66",
       "xrplTestnetEntropy": "193a9211ed4ae8644d885431373b14c5d5a655fe86a39481df8f0ee72025cf15",
       "xrplTestnetWallet": {
         "familySeed": "sEdSeCFNoBELyoKrb13YLbEMuCFMiJx",
@@ -1298,7 +1242,6 @@
       "publicKey": "121fddb97cf197fb90843bdbcf0a50ddc444ade85264a4e44d6169012ec2f666",
       "nodeId": "mzanjgs7b2isoqzan77yb66b2pcjkhqhqcmztjy",
       "loginSecret": "da24613a25f30b6937e753df055252945e50b07610f366a0e00f828cda9326a3",
-      "devSessionToken": "d4d2fcf850b61611d9e36c99c3ad0e297ccfc8350cdb2737bf4ec692b29714db",
       "xrplTestnetEntropy": "5cdd8c4851d8f9dc53de0cbf8283255f9c554074c1dc6423a968f9a7fa4010fd",
       "xrplTestnetWallet": {
         "familySeed": "sEdTbKg6F9Z2QR6iiVqHte81ChTWsoU",
@@ -1321,7 +1264,6 @@
       "publicKey": "14fe7b372762e465fd7aafd29d3d5481dbe18c16d7bce034bcf79de6b484b4a1",
       "nodeId": "fo2b5d6qpo3j3jniklgtsco2itdx3vva5irj3pi",
       "loginSecret": "d469506f965fb5d89b566c5089b471c72b22088cb66faf5c667dab3598103ec3",
-      "devSessionToken": "eb1924aa49cc195a54aadef40a2478a756a9d0138e72f5c8ecb26a19e726631a",
       "xrplTestnetEntropy": "2f997f074add285b9d59ca4a48856cc4aac553475b5b4ed179e5c4efd80c2f74",
       "xrplTestnetWallet": {
         "familySeed": "sEdSxkEQdePJscQxQnGDTu5bdwVyhrJ",
@@ -1344,7 +1286,6 @@
       "publicKey": "bde1f2de7c453d74c960240d27a1af1980f98ce6b22735660c3b00f51c1aedf6",
       "nodeId": "otkq3s2h566up52hvtftfixgru2hfhryaw7cccq",
       "loginSecret": "18562abc49173e5855ed5a2cafc246e6ce691addac5be4807894371ab1078c4a",
-      "devSessionToken": "ad5bd7a7c981fa7b188327f67a876b5cd66481911e643a10a7c8d74372d8d102",
       "xrplTestnetEntropy": "4d76cadf30513b71310c48165cfbb18dca97fa05d03a9f05505a95cdef0705d0",
       "xrplTestnetWallet": {
         "familySeed": "sEdT41thbqFsmzGBwEDh9zYkybi3TeN",
@@ -1367,7 +1308,6 @@
       "publicKey": "2e58956c3d90484ef961f44dd279e1ebd43e3869a983f09300abe546d86f9892",
       "nodeId": "yphefijagfohiivr22y6eo5c37shnpgt2md5juy",
       "loginSecret": "aa5b971dded0349a522aec346c2249bdad7ada92bd44ca38b10a681e88cf51b7",
-      "devSessionToken": "14bfc7a93407027ab772dc66b19c1e5e5757dcddbe96a2ca3a5fdf65cb7eac94",
       "xrplTestnetEntropy": "5cd8a53c18daed8697baa920e4ba46cb6f074c15473239a3f3a1961227a2ca50",
       "xrplTestnetWallet": {
         "familySeed": "sEdTbJ8e2yrmbs3wTTjHZ2hmRs7wo2q",
@@ -1390,7 +1330,6 @@
       "publicKey": "57a19dd46394b0ed654ae3586b798ef5f42461c2d03de5116675e6f5b256a36d",
       "nodeId": "6hknyowro4vjwj7riauxaxweu3kiazh6zdjpc4q",
       "loginSecret": "b9b5c8516443f2b764b7f10b27079d868a0b6cbb2309a73e4ff880804ae9aa56",
-      "devSessionToken": "6bce5ae514c6abf04f3d09d953cd43bcc8f4420ac7f099def97764868de50840",
       "xrplTestnetEntropy": "abc30f494ea5916aa93fab19853447ebb49e9d848b7829854c44d59ef08c9885",
       "xrplTestnetWallet": {
         "familySeed": "sEd76nGEypZbNmebvDRSxoPuNhmkXYs",
@@ -1413,7 +1352,6 @@
       "publicKey": "91b486aecf3bc30988fed572510677efaeef6f856029410a74b58fd3315c0584",
       "nodeId": "avufo7phgkersy66kuwvwnmkekxqzcq6rp5inha",
       "loginSecret": "650f6995f9b4686435ef0b2b675b732623174280ac23f16a58a9c9f12a0f57db",
-      "devSessionToken": "0f469a0a8adf4554f0cc4d7180215dcd6a45c6b4ed1eb50c6fd44f50a6acba50",
       "xrplTestnetEntropy": "3f76ea455634b0e98399bfe94a706c163e028fc70eb6eba76936ad28a7aeded8",
       "xrplTestnetWallet": {
         "familySeed": "sEdTBZ8poM2RczQK2yJywCd4mNeMHJs",
@@ -1436,7 +1374,6 @@
       "publicKey": "f3cc75015daeef66a2b7579605509f050a15dff0a8f586178407cbc4754223b7",
       "nodeId": "kf6lpv27pmbbww7gkeniisy3ijgeigdqjpwrsea",
       "loginSecret": "b8e2eb8333d4f2fe7e2f51f8cc3b8ec9486fac6571ad08c258c4eb383b72b406",
-      "devSessionToken": "a870f115daf70007c934163ded6a35f2960848eae018c592a658c2969ca9e3d9",
       "xrplTestnetEntropy": "7b0dcd1af5e2c3408864de3f3dce3e86d9cdc6057d3bf1735ee0d97585a8fdfe",
       "xrplTestnetWallet": {
         "familySeed": "sEd7r5WUtWZn2bmZ3qntxy7WJiQMFky",
@@ -1459,7 +1396,6 @@
       "publicKey": "be6aae77d2f61f8b297ab614cfbb32573ee5206e6e18365496f4515dc0c058aa",
       "nodeId": "7rkrmf7m7jwp72bl2q5txaqe5uwkvixq7zppsti",
       "loginSecret": "f5d6ebc2fdbe7860e0b7e8c0c563842ecb0335387a9963b9a846890070c73cf9",
-      "devSessionToken": "b6a44710d4233f2a969988a43cd0e83bb4a054062c0a50ca00f68fabad18c121",
       "xrplTestnetEntropy": "fe164b017b2f27a8928f6cffa1f46059441c2f2c960275130cdb7fa3c4af1d7f",
       "xrplTestnetWallet": {
         "familySeed": "sEdVqbXZeFEjhaDs58DDBnrEQzBwnRQ",

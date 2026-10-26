@@ -54,9 +54,6 @@ fn derivation_chain() {
         let login = node_key.login_secret();
         assert_eq!(to_hex(login.as_bytes()), str_field(entry, "loginSecret"));
 
-        let dev = seed.dev_session_token();
-        assert_eq!(to_hex(dev.as_bytes()), str_field(entry, "devSessionToken"));
-
         let testnet = node_key.xrpl_account_entropy(1, 0);
         assert_eq!(
             to_hex(testnet.as_bytes()),

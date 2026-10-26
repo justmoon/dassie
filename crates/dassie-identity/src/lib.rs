@@ -3,8 +3,8 @@
 //!
 //! ```text
 //! phrase ──PBKDF2──▶ master seed ──HMAC "node"──▶ node key (Ed25519 seed)
-//!                        │                          ├─ public key ─▶ node ID
-//!                        └─ dev/session             ├─ node/… (one NodeSecret each:
+//!                                                   ├─ public key ─▶ node ID
+//!                                                   ├─ node/… (one NodeSecret each:
 //!                                                   │   login, ledger accounts, hubs, …)
 //!                                                   └─ X25519 secret
 //! ```
@@ -44,5 +44,5 @@ pub use node_key::{
     NodeKey, PKCS8_DER_LENGTH, PrivateKeyDer, PublicKey, SPKI_DER_LENGTH, Signature,
 };
 pub use paths::{HubKey, MAX_SEGMENT_BYTES, NodeSecret, QuicEndpoint, Segment};
-pub use seed::{DEV_SESSION_PATH, DerivedSecret, LoginSecret, MasterSeed};
+pub use seed::{DerivedSecret, LoginSecret, MasterSeed};
 pub use x25519::{SharedSecret, X25519Public, X25519Secret};

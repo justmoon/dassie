@@ -18,10 +18,6 @@ use crate::secret::secret_bytes;
 /// The path of the node key.
 const NODE_SEGMENT: &str = "node";
 
-/// The path of the deterministic development session token. It is a sibling
-/// of `node`, so only the holder of the master seed can derive it.
-pub const DEV_SESSION_PATH: &str = "dev/session";
-
 secret_bytes!(
     /// The 64-byte BIP-39 seed: the root of every secret of a node.
     ///
@@ -53,12 +49,6 @@ impl MasterSeed {
     pub fn node_key(&self) -> NodeKey {
         let seed = hmac_sha256(&self.0, NODE_SEGMENT.as_bytes());
         NodeKey::from_bytes(seed.as_bytes())
-    }
-
-    /// The development session token at `dev/session`.
-    #[must_use]
-    pub fn dev_session_token(&self) -> DerivedSecret {
-        fold(&self.0, DEV_SESSION_PATH.split('/'))
     }
 }
 

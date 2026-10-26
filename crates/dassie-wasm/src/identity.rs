@@ -71,13 +71,6 @@ pub fn login_secret(node_key: &[u8]) -> Result<Vec<u8>, JsError> {
     Ok(node_key_from(node_key)?.login_secret().as_bytes().to_vec())
 }
 
-/// The development session token of a phrase (dev environment only).
-#[wasm_bindgen(js_name = devSessionToken)]
-pub fn dev_session_token(phrase: &str) -> Result<Vec<u8>, JsError> {
-    let seed = Mnemonic::parse(phrase).map_err(js)?.to_seed();
-    Ok(seed.dev_session_token().as_bytes().to_vec())
-}
-
 /// The Ed25519 public key of a node key.
 #[wasm_bindgen(js_name = publicKey)]
 pub fn public_key(node_key: &[u8]) -> Result<Vec<u8>, JsError> {

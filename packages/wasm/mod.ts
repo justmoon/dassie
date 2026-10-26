@@ -25,7 +25,6 @@ initStream({ module: wasm("dassie_stream") });
 
 export {
   deriveNodeKey,
-  devSessionToken,
   generateMnemonic,
   loginSecret,
   mnemonicFromEntropy,

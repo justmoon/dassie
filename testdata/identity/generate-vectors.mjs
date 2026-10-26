@@ -9,9 +9,9 @@
 // It writes, into crates/dassie-identity/tests/data/:
 //
 // - chain.json: phrases of every length, each from its entropy to its
-//   master seed, node key, public key, node ID, login secret, development
-//   session token, and the entropy and wallet of the node's first XRP
-//   Ledger account on the testnet and on mainnet;
+//   master seed, node key, public key, node ID, login secret, and the
+//   entropy and wallet of the node's first XRP Ledger account on the
+//   testnet and on mainnet;
 // - keys.json: two node keys with a signature and their X25519 keys, an
 //   X25519 shared secret, and the node ID's hash input;
 // - paths.json: every seed path below the node key, with its text and its
@@ -104,7 +104,6 @@ const chain = Array.from({ length: 64 }, (_, index) => {
     publicKey: hex(publicKey),
     nodeId: nodeId(publicKey),
     loginSecret: hex(derive(nodeKey, "node/login")),
-    devSessionToken: hex(fold(masterSeed, ["dev", "session"])),
   };
   for (const [name, path] of XRPL_ACCOUNTS) {
     const secret = derive(nodeKey, path);

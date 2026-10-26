@@ -10,7 +10,6 @@ import { assert, assertEquals, assertFalse } from "@std/assert";
 import {
   decodeIlpPacket,
   deriveNodeKey,
-  devSessionToken,
   encodeFulfill,
   encodePrepare,
   encodeReject,
@@ -48,10 +47,6 @@ test("the passphrase chain matches the vectors", async () => {
     assertEquals(publicKey(nodeKey).toHex(), entry.publicKey);
     assertEquals(nodeId(publicKey(nodeKey)), entry.nodeId);
     assertEquals(loginSecret(nodeKey).toHex(), entry.loginSecret);
-    assertEquals(
-      devSessionToken(entry.mnemonic).toHex(),
-      entry.devSessionToken,
-    );
   }
 });
 
