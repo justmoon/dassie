@@ -78,6 +78,7 @@ fn send(h: &mut Harness, from: EndpointId, to: &str, amount: u64, opener: &mut O
         &mut h.ledger,
         &prices,
         opener,
+        0,
         &mut h.buffer,
     );
     h.check();

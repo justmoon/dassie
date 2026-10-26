@@ -93,9 +93,22 @@ impl Connector {
         self.trace.check_invariants();
     }
 
+    /// Only peers earn weight in drawing next hops
+    /// (spec/decisions/weighted-next-hops.md).
+    fn check_earnings(&self) {
+        for (id, endpoint) in self.endpoints.iter() {
+            assert!(
+                id.is_peer() || endpoint.earned == 0,
+                "only peers earn weight"
+            );
+        }
+    }
+
     /// Each cap holds what its account's packets in flight charge, and
-    /// stays within itself unless it was lowered while they were.
+    /// stays within itself unless it was lowered while they were; and the
+    /// earnings hold.
     fn check_caps(&self) {
+        self.check_earnings();
         assert!(
             self.caps.len() <= self.config.max_caps,
             "caps within bounds"

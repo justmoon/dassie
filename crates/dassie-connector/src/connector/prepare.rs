@@ -56,7 +56,9 @@ struct Booked {
 impl Connector {
     /// Handles a Prepare from `source` with the request ID it used, at
     /// `prices`: what transit is charged and converts at, and the spot
-    /// rates a packet into the owner's own endpoints converts at.
+    /// rates a packet into the owner's own endpoints converts at. `draw`, a
+    /// number from the caller's RNG, draws the packet's next hop among a
+    /// route's options (spec/decisions/weighted-next-hops.md).
     ///
     /// # Panics
     ///
@@ -71,6 +73,7 @@ impl Connector {
         packet: &[u8],
         ledger: &mut Ledger,
         prices: &PriceTable,
+        draw: u64,
         out: &mut [u8],
     ) -> Outcome {
         self.handle_prepare_with(
@@ -80,6 +83,7 @@ impl Connector {
             ledger,
             prices,
             &mut OpensNone,
+            draw,
             out,
         )
     }
@@ -100,6 +104,7 @@ impl Connector {
         ledger: &mut Ledger,
         prices: &PriceTable,
         accounts: &mut dyn OpensAccounts,
+        draw: u64,
         out: &mut [u8],
     ) -> Outcome {
         assert!(
@@ -167,7 +172,7 @@ impl Connector {
         if prepare.destination.has_prefix(ildcp::ADDRESS) {
             return self.ildcp(now_ms, trace, source, &prepare, out);
         }
-        let route = match self.route(now_ms, source, &prepare, prices, ledger) {
+        let route = match self.route(now_ms, source, &prepare, prices, ledger, draw) {
             Ok(route) => route,
             Err(refusal) => return self.answer(now_ms, trace, &refusal, out),
         };
@@ -258,6 +263,7 @@ impl Connector {
         prepare: &Prepare<'_>,
         prices: &PriceTable,
         ledger: &Ledger,
+        draw: u64,
     ) -> Result<Route, Refusal> {
         let config = &self.config;
         let from = self
@@ -276,7 +282,7 @@ impl Connector {
         // Unroutable, including anything below our own address that is no
         // endpoint's and our own address itself.
         let to = self
-            .next_hop(prepare.destination, Some(source))
+            .next_hop(now_ms, prepare.destination, Some(source), draw)
             .ok_or(refuse(ErrorCode::F02_UNREACHABLE, "no route found"))?;
         let incoming_ms = prepare.expires_at.unix_ms;
         let latest_ms = incoming_ms.saturating_sub(config.message_window_ms);
@@ -566,6 +572,19 @@ impl Connector {
             .then_some(incoming_ms.min(expires_at_ms.saturating_add(self.config.message_window_ms)))
     }
 
+    /// What a packet from `source` on `route` earns its next hop toward
+    /// the draw once fulfilled: our fee, only if it keeps its ledger, since
+    /// fees on different ledgers do not compare
+    /// (spec/decisions/weighted-next-hops.md).
+    fn earns(&self, source: EndpointId, route: &Route) -> u64 {
+        let kept_ledger = self
+            .endpoints
+            .get(source)
+            .zip(self.endpoints.get(route.to))
+            .is_some_and(|(from, to)| from.ledger == to.ledger);
+        if kept_ledger { route.fee } else { 0 }
+    }
+
     /// Registers the packet as in flight and writes the outgoing Prepare.
     #[allow(clippy::too_many_arguments)]
     fn forward(
@@ -600,6 +619,7 @@ impl Connector {
                 charge,
                 backstop_ms: self.backstop(route.to, prepare.expires_at.unix_ms, expires_at_ms),
                 awaiting_hub: false,
+                earns: self.earns(source, route),
             },
         );
         self.deadlines.insert((expires_at_ms, route.to, request_id));

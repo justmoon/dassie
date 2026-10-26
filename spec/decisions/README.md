@@ -85,7 +85,7 @@ Each file records one choice between real alternatives: the facts that forced it
 | [versions-0-1-and-0-2](versions-0-1-and-0-2.md) | Nodes of 0.1 and 0.2 do not settle with each other | peer-protocol, settlement, release |
 | [visual-identity](visual-identity.md) | Dassie's visual identity is Kopje: solid rocks, nimble dassies, first light | website |
 | [website-hosting](website-hosting.md) | dassie.land is a bucket behind the mirror's load balancer | website, release |
-| [weighted-next-hops](weighted-next-hops.md) | A packet's next hop is drawn at random among its first hops, weighted by the fees each earned us (not built) | connector, network, stream |
+| [weighted-next-hops](weighted-next-hops.md) | A packet's next hop is drawn at random among its first hops, weighted by the fees each earned us (per method not built) | connector, network, stream |
 
 ## Adding or changing a decision
 

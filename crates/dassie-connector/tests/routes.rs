@@ -2,6 +2,11 @@
 //! routes name, never back where they came from; below our own address
 //! only children count; a packet that surely did not reach its peer is
 //! rejected at once.
+//!
+//! The harness draws every next hop with 0, which takes a route's first
+//! usable option while no option has earned anything: these tests are about
+//! which options are usable. How a hop is drawn among them is in
+//! `next_hops.rs` (spec/decisions/weighted-next-hops.md).
 
 #![allow(
     clippy::unwrap_used,

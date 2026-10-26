@@ -215,8 +215,12 @@ impl Core {
             endpoint_peers,
             schemes,
             senior_credit,
+            rng,
             ..
         } = self;
+        // The next hop is drawn from the node's RNG, so a simulation stays
+        // deterministic (spec/decisions/weighted-next-hops.md).
+        let draw = rng.next_u64();
         let packet = match packet {
             PrepareIn::Given(packet) => packet,
             PrepareIn::Scratch(length) => scratch.get(..length).unwrap_or_default(),
@@ -240,6 +244,7 @@ impl Core {
             ledger,
             &prices.table,
             &mut opening,
+            draw,
             out,
         )
     }

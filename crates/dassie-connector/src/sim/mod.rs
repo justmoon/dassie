@@ -56,6 +56,10 @@ pub struct Harness {
     pub owner: AccountId,
     /// What the ledger journaled, as the node persists it.
     pub journal: Vec<JournalEntry>,
+    /// The number the next Prepare's next hop is drawn with: 0, which
+    /// takes a route's first usable option, unless a test or the
+    /// simulation sets it (spec/decisions/weighted-next-hops.md).
+    pub draw: u64,
 }
 
 impl Harness {
@@ -92,6 +96,7 @@ impl Harness {
             buffer: vec![0; MAX_PACKET_LENGTH],
             owner,
             journal: Vec::new(),
+            draw: 0,
         };
         harness.add_btp(1, "alice");
         harness.add_btp(2, "bob");
@@ -139,6 +144,7 @@ impl Harness {
             packet,
             &mut self.ledger,
             &prices,
+            self.draw,
             &mut self.buffer,
         );
         self.check();

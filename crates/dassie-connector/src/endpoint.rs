@@ -97,6 +97,13 @@ pub(crate) struct Endpoint {
     /// times out is rejected upstream only once the hub has decided it
     /// (spec/designs/settlement-hubs.md#4-peering-over-a-hub).
     pub hub: bool,
+    /// If a peer, the fees we earned on packets fulfilled through it that
+    /// kept their ledger, as of `earned_since_ms`, halved for every
+    /// half-life since (spec/decisions/weighted-next-hops.md): its weight
+    /// in drawing next hops. Only in memory.
+    pub earned: u64,
+    /// When the half-life `earned` is in began.
+    pub earned_since_ms: u64,
 }
 
 /// The endpoints, by ID. A child's address, below the node's own, is its

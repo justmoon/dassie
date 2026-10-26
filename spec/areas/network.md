@@ -267,6 +267,7 @@ Routing runs a breadth-first search from this node over edges that both ends adv
 
 - An edge counts only if both ends list each other, so no node can claim a link the other end does not confirm, and a node whose state went stale drops out.
 - Each reachable node's address gets a few first hops on shortest paths. There is no route for the node's own address: destinations under it go only to its own endpoints. Prefix matching, first-hop choice and never sending a packet back where it came from are the connector's ([Connector](connector.md#routing)).
+- **The cut.** Where more first hops reach a node than a route keeps (`MAX_FIRST_HOPS`), it keeps those that rank lowest by an HMAC of their node IDs under the node's route key, a secret derived from its node key ([Identity](identity.md#seed-paths)). Each node keeps its own few, the same after a restart, and no node can grind its ID to be kept by every node, as it could to come first by ID ([weighted-next-hops](../decisions/weighted-next-hops.md)). A route lists the first hops it keeps by node ID.
 - Routes are recomputed when the graph may have changed, debounced, and periodically as states go stale.
 - A periphery node routes through its advertised uplinks, whatever they list, and recomputes its routes when one is withdrawn or comes back; no route leads to a periphery node ([Periphery nodes](#periphery-nodes)).
 

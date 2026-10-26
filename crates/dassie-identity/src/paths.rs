@@ -106,6 +106,10 @@ pub enum NodeSecret<'a> {
     /// `node/quic/connection-ids` and `node/quic/tunnel-connection-ids`:
     /// the key an endpoint makes and knows its connection IDs with.
     QuicConnectionIds(QuicEndpoint),
+    /// `node/routing`: the key that ranks first hops for routing's cut, so
+    /// that no other node can tell which it keeps
+    /// (spec/decisions/weighted-next-hops.md).
+    Routing,
     /// `node/hub/<network>/nonce/<nonce>/<key>`: a key for the hub of
     /// `nonce` on the XRP Ledger network of ID `network`. The hub's ID
     /// cannot name it, since it is the hash of rules that contain the key,
@@ -147,7 +151,8 @@ impl NodeSecret<'_> {
     /// or credentials the node handed out. The login is not: the wallet,
     /// `dassie setup` and the node that checks the proof ship together. Nor
     /// are the QUIC keys: a changed one only makes peers wait out the idle
-    /// timeout once.
+    /// timeout once. Nor is the route key: a changed one only keeps other
+    /// first hops.
     #[must_use]
     pub const fn is_frozen(&self) -> bool {
         match self {
@@ -156,7 +161,10 @@ impl NodeSecret<'_> {
             | Self::Hub { .. }
             | Self::HubMember { .. }
             | Self::XrplAccount { .. } => true,
-            Self::Login | Self::QuicStatelessReset(_) | Self::QuicConnectionIds(_) => false,
+            Self::Login
+            | Self::QuicStatelessReset(_)
+            | Self::QuicConnectionIds(_)
+            | Self::Routing => false,
         }
     }
 
@@ -174,6 +182,7 @@ impl NodeSecret<'_> {
             }
             Self::QuicConnectionIds(QuicEndpoint::Udp) => f(&["quic", "connection-ids"]),
             Self::QuicConnectionIds(QuicEndpoint::Tunnel) => f(&["quic", "tunnel-connection-ids"]),
+            Self::Routing => f(&["routing"]),
             Self::Hub {
                 network,
                 nonce,
@@ -327,6 +336,7 @@ mod tests {
             NodeSecret::QuicStatelessReset(QuicEndpoint::Tunnel),
             NodeSecret::QuicConnectionIds(QuicEndpoint::Udp),
             NodeSecret::QuicConnectionIds(QuicEndpoint::Tunnel),
+            NodeSecret::Routing,
             NodeSecret::HubMember { hub: &[2; 32] },
             NodeSecret::XrplAccount {
                 network: 1,

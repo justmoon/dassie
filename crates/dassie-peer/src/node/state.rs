@@ -559,9 +559,9 @@ impl PeerNode {
         // A periphery node's uplinks never list it, and carry everything it
         // sends.
         let routes = if self.is_periphery() {
-            routing::through(&self.own, &self.advertised(), neighbors)
+            routing::through(&self.own, &self.route_key, &self.advertised(), neighbors)
         } else {
-            routing::compute(&self.own, neighbors)
+            routing::compute(&self.own, &self.route_key, neighbors)
         };
         if routes != self.routes {
             self.routes = routes;

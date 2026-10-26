@@ -28,7 +28,7 @@ use crate::config::Config;
 use crate::io::VERDICT_ACCEPTED;
 use crate::io::{Event, Failure, Output, Request, RequestId, Response, Stats};
 use crate::names::{Commitment, Holders, Name, Registrant, Registrar};
-use crate::routing::Routes;
+use crate::routing::{RouteKey, Routes};
 use crate::table::{Bucket, Entry, NetworkBuckets, Sources};
 use crate::wire::{
     Authentication, Content, HubList, HubListing, HubMembership, MAX_CLAIM_BYTES,
@@ -245,6 +245,8 @@ pub struct PeerNode {
     pub(crate) gossip: gossip::Gossip,
     pub(crate) peering: peering::Peering,
     pub(crate) routes: Routes,
+    /// What ranks first hops for the cut (spec/areas/network.md#routing).
+    pub(crate) route_key: RouteKey,
     pub(crate) requests: BTreeMap<RequestId, Outstanding>,
     pub(crate) deadlines: BTreeSet<(u64, RequestId)>,
     next_request: u64,
@@ -354,6 +356,7 @@ impl PeerNode {
             gossip: gossip::Gossip::new(now_ms, stored.own_sequence),
             peering: peering::Peering::new(now_ms),
             routes: Routes::new(),
+            route_key: RouteKey::of(&key),
             requests: BTreeMap::new(),
             deadlines: BTreeSet::new(),
             next_request: 0,
@@ -431,6 +434,13 @@ impl PeerNode {
     #[must_use]
     pub const fn routes(&self) -> &Routes {
         &self.routes
+    }
+
+    /// What ranks first hops where a route keeps only some
+    /// (spec/areas/network.md#routing).
+    #[must_use]
+    pub const fn route_key(&self) -> &RouteKey {
+        &self.route_key
     }
 
     /// The configuration.

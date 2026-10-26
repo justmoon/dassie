@@ -264,7 +264,9 @@ fn converged(network: &Network) -> Result<(), String> {
     }
     for index in 0..count {
         let node = network.node(index);
-        let expected = routing::compute(node.own(), |id| graph.get(id).map(Vec::as_slice));
+        let expected = routing::compute(node.own(), node.route_key(), |id| {
+            graph.get(id).map(Vec::as_slice)
+        });
         if *node.routes() != expected {
             return Err(format!(
                 "node {index}'s routes are {:?}, not {expected:?}",
