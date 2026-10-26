@@ -1191,6 +1191,13 @@ section.sec {
   letter-spacing: -0.03em;
   font-variation-settings: "SOFT" 100, "WONK" 1;
 }
+.site-hero h2 span {
+  white-space: nowrap;
+}
+.site-hero h2 em {
+  color: var(--ember);
+  font-style: italic;
+}
 .site-hero p {
   font-size: 18px;
   color: var(--ink-2);
@@ -2352,7 +2359,8 @@ section.sec {
     padding: 10px 20px 0;
   }
   .site-hero h2 {
-    font-size: 44px;
+    /* Narrow phones shrink it, so "Any currency." fits on its line. */
+    font-size: clamp(36px, 11vw, 44px);
   }
   .site-hero .art {
     width: 300px;
@@ -2503,7 +2511,7 @@ html[data-theme="dark"] .phone {
   box-shadow: 0 0 0 1px #3A2F28, 0 40px 80px -30px rgba(0,0,0,.7);
 }
 /* Ember as text needs more light on night; as a fill it keeps its light text. */
-html[data-theme="dark"] :is(a, .hero .say em, .tabbar div.on, .h1-accent) {
+html[data-theme="dark"] :is(a, .hero .say em, .site-hero h2 em, .tabbar div.on, .h1-accent) {
   color: var(--ember-text);
 }
 html[data-theme="dark"] :is(.btn.primary, .balance, .icon-note .inline-icons .ember-pebble, .icon-note .inline-icons .ember-pebble svg) {
