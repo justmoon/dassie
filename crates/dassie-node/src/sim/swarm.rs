@@ -698,7 +698,7 @@ fn crash(sim: &mut Sim, rng: &mut SeededRng) {
 
 /// The kinds of lie a run's servers tell, in an order its seed shuffles,
 /// each in turn: a run with as many lying servers as there are kinds tells
-/// every kind, and the fixed seeds reach them all between them.
+/// every kind.
 struct Lies {
     order: [Lie; Lie::ALL.len()],
     next: usize,

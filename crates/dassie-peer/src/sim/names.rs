@@ -671,7 +671,7 @@ fn count(n: usize) -> u64 {
     u64::try_from(n).unwrap()
 }
 
-/// How often a run reached what it counts, for the fixed seeds to show
+/// How often a run reached what it counts, for a range of seeds to show
 /// that between them they reach every case: what its registrars do, and
 /// what came of its registrations, and what the aftermath met.
 fn counts(network: &Network, setup: &Setup, seen: &Seen) -> BTreeMap<&'static str, u64> {

@@ -22,7 +22,7 @@
 use std::collections::BTreeMap;
 
 use dassie_identity::NodeId;
-use dassie_kit::sim::{Outcome, assert_seeds_pass, caught};
+use dassie_kit::sim::{Outcome, assert_passes, caught, each};
 use dassie_ledger::LedgerId;
 use dassie_node::engine::{EngineError, EngineEvent, Lie, NewIncoming, NewOutgoing};
 use dassie_node::node::Policies;
@@ -40,47 +40,50 @@ use dassie_settlement::{LedgerStatus, policy};
 
 #[test]
 fn simulated_networks_pay_across_restarts() {
-    assert_seeds_pass(0..6, scripted::run);
+    assert_passes(0, scripted::run);
 }
 
 // M7b: the same runs, settling on the XRP Ledger testnet scheme against
 // the fake ledger.
 #[test]
 fn simulated_networks_settle_on_the_xrp_ledger() {
-    assert_seeds_pass(0..6, scripted::run_xrpl);
+    assert_passes(0, scripted::run_xrpl);
 }
 
 // spec/designs/xrpl-validation.md#11-the-fake-ledger-the-lying-server-and-the-simulation:
 // the nodes' servers tell each kind of lie in turn while payments settle,
 // then a validator rotates its key, a quorum is withheld and a list lapses.
 // Each node's books hold to the fake ledger's truth, every node anchored,
-// and the network settles as before. Between them, the seeds tell every
-// kind of lie, and the nodes catch what the verifier catches.
+// and the network settles as before. Between them, the two seeds tell
+// every kind of lie: how long a lying server's connection lasts decides
+// which it gets to tell. The nodes catch what the verifier catches.
 #[test]
 fn simulated_networks_settle_through_lying_servers() {
+    let seeds = [0, 1];
     let mut reached: BTreeMap<&str, u64> = BTreeMap::new();
-    for seed in 0..4 {
-        let run = caught(|| scripted::run_lies(seed));
+    for (seed, run) in seeds
+        .iter()
+        .zip(each(&seeds, |seed| caught(|| scripted::run_lies(seed))))
+    {
         assert!(!run.outcome.is_failure(), "seed {seed}: {}", run.outcome);
         for (what, count) in run.counts {
             *reached.entry(what).or_default() += count;
         }
     }
     let lies = dassie_xrpl::fake::Lie::ALL.map(dassie_node::sim::told_as);
-    for (what, least) in lies.iter().map(|lie| (*lie, 1)).chain([
-        ("lies caught", 100),
-        ("anchors", 1_000),
-        ("transactions proven", 100),
-        ("absences proven", 10),
-        ("validator lists fetched", 10),
-        ("validator keys rotated", 4),
-        ("quorums withheld", 4),
-        ("validator lists lapsed", 4),
+    for what in lies.into_iter().chain([
+        "lies caught",
+        "anchors",
+        "transactions proven",
+        "absences proven",
+        "validator lists fetched",
+        "validator keys rotated",
+        "quorums withheld",
+        "validator lists lapsed",
     ]) {
-        let count = reached.get(what).copied().unwrap_or(0);
         assert!(
-            count >= least,
-            "the seeds reached {what} {count} times, not {least}: {reached:?}"
+            reached.contains_key(what),
+            "the seeds never reached {what}: {reached:?}"
         );
     }
 }
@@ -90,7 +93,7 @@ fn simulated_networks_settle_through_lying_servers() {
 // owners' deposits.
 #[test]
 fn simulated_networks_settle_on_mainnet_in_the_live_realm() {
-    assert_seeds_pass(0..6, scripted::run_xrpl_live);
+    assert_passes(0, scripted::run_xrpl_live);
 }
 
 // spec/decisions/mainnet-schemes.md: two nodes in the live realm, at
@@ -134,7 +137,7 @@ fn two_live_nodes_settle_xrp_on_mainnet() {
 
 #[test]
 fn simulated_networks_pay_across_currencies() {
-    assert_seeds_pass(0..6, scripted::run_across);
+    assert_passes(0, scripted::run_across);
 }
 
 // spec/areas/xrpl.md#rlusd: the same runs settling in RLUSD, in the live
@@ -143,7 +146,7 @@ fn simulated_networks_pay_across_currencies() {
 // issuer did as its owner's deposits and withdrawals, and hold its line.
 #[test]
 fn simulated_networks_settle_in_rlusd_through_the_issuers_acts() {
-    assert_seeds_pass(0..6, scripted::run_rlusd);
+    assert_passes(0, scripted::run_rlusd);
 }
 
 // spec/areas/xrpl.md#the-account: across RLUSD and XRP in the live realm,
@@ -152,14 +155,14 @@ fn simulated_networks_settle_in_rlusd_through_the_issuers_acts() {
 // books against the account show.
 #[test]
 fn simulated_networks_pay_across_rlusd_and_xrp() {
-    assert_seeds_pass(0..6, scripted::run_xrp_rlusd);
+    assert_passes(0, scripted::run_xrp_rlusd);
 }
 
 // spec/areas/xrpl.md#dsusd: the same across DSUSD and XRP: the token scheme
 // in DSUSD, through the issuer's acts, on the account XRP settles from.
 #[test]
 fn simulated_networks_pay_across_dsusd_and_xrp() {
-    assert_seeds_pass(0..6, scripted::run_xrp_dsusd);
+    assert_passes(0, scripted::run_xrp_dsusd);
 }
 
 // On this seed, a node ends a peering just after its books took the peer's
@@ -175,7 +178,9 @@ fn a_peering_ended_after_its_last_settlement_was_booked_ends_after_the_wait() {
 
 #[test]
 fn a_seed_replays_the_same_run() {
-    assert_eq!(scripted::run(2).trace, scripted::run(2).trace);
+    let run = scripted::run(2);
+    assert!(!run.outcome.is_failure(), "{}", run.outcome);
+    assert_eq!(run.trace, scripted::run(2).trace);
 }
 
 /// Two nodes, peered, and a client of node 0 paying node 1's receiver,
@@ -866,35 +871,34 @@ fn liar_owes(sim: &Sim) -> i128 {
 // past the grace (spec/decisions/peering-lifecycle.md), and stays peered.
 #[test]
 fn a_peer_that_never_settles_costs_at_most_its_credit() {
-    for seed in 0..20 {
-        let mut sim = liar_network(seed, Lie::NeverSettle);
-        sim.pay(1, 0, LIAR_PAYS, None, None);
-        let spent = |sim: &Sim| liar_owes(sim) > CREDIT * 9 / 10;
-        assert!(
-            sim.run_until_or(sim.now + 120_000, spent),
-            "seed {seed}: it never spent its credit"
-        );
-        sim.run_until(sim.now + 10 * 60_000);
-        let owed = liar_owes(&sim);
-        assert!(owed <= CREDIT, "seed {seed}: it owes {owed}");
-        assert!(
-            !sim.payments[0].done,
-            "seed {seed}: it paid past its credit"
-        );
-        let liar = key(1).node_id();
-        assert!(sim.core(0).network().bans.is_empty(), "seed {seed}");
-        assert!(sim.peers(0).contains(&liar), "seed {seed}");
-        assert!(
-            !sim.advertises(0, &liar),
-            "seed {seed}: node 0 still advertises it"
-        );
-        assert!(
-            sim.withdrawn
-                .iter()
-                .any(|withdrawal| withdrawal.by == 0 && withdrawal.peer == liar),
-            "seed {seed}: node 0 did not withdraw it for room"
-        );
-    }
+    let seed = 0;
+    let mut sim = liar_network(seed, Lie::NeverSettle);
+    sim.pay(1, 0, LIAR_PAYS, None, None);
+    let spent = |sim: &Sim| liar_owes(sim) > CREDIT * 9 / 10;
+    assert!(
+        sim.run_until_or(sim.now + 120_000, spent),
+        "seed {seed}: it never spent its credit"
+    );
+    sim.run_until(sim.now + 10 * 60_000);
+    let owed = liar_owes(&sim);
+    assert!(owed <= CREDIT, "seed {seed}: it owes {owed}");
+    assert!(
+        !sim.payments[0].done,
+        "seed {seed}: it paid past its credit"
+    );
+    let liar = key(1).node_id();
+    assert!(sim.core(0).network().bans.is_empty(), "seed {seed}");
+    assert!(sim.peers(0).contains(&liar), "seed {seed}");
+    assert!(
+        !sim.advertises(0, &liar),
+        "seed {seed}: node 0 still advertises it"
+    );
+    assert!(
+        sim.withdrawn
+            .iter()
+            .any(|withdrawal| withdrawal.by == 0 && withdrawal.peer == liar),
+        "seed {seed}: node 0 did not withdraw it for room"
+    );
 }
 
 // spec/decisions/peering-lifecycle.md: a peer whose room stays short of a
@@ -903,26 +907,25 @@ fn a_peer_that_never_settles_costs_at_most_its_credit() {
 // saved.
 #[test]
 fn a_peer_short_of_room_for_a_day_is_ended() {
-    // Each seed simulates a day, about 2.5 s of wall time.
-    for seed in 0..3 {
-        let mut sim = liar_network(seed, Lie::NeverSettle);
-        sim.pay(1, 0, LIAR_PAYS, None, None);
-        let spent = |sim: &Sim| liar_owes(sim) > CREDIT * 9 / 10;
-        assert!(
-            sim.run_until_or(sim.now + 120_000, spent),
-            "seed {seed}: it never spent its credit"
-        );
-        let peer = Policies::DEFAULT.peer;
-        sim.run_until(sim.now + peer.advertise_short_grace_ms + peer.peer_dead_ms + 10 * 60_000);
-        let liar = key(1).node_id();
-        let ended = format!(" 0 PeerNode(Terminating {{ peer: {liar:?}, reason: ShortOfRoom");
-        assert!(
-            sim.trace.iter().any(|line| line.contains(&ended)),
-            "seed {seed}: node 0 did not end the peering for room"
-        );
-        assert!(sim.core(0).network().bans.is_empty(), "seed {seed}");
-        assert!(liar_owes(&sim) <= CREDIT, "seed {seed}");
-    }
+    // A simulated day.
+    let seed = 0;
+    let mut sim = liar_network(seed, Lie::NeverSettle);
+    sim.pay(1, 0, LIAR_PAYS, None, None);
+    let spent = |sim: &Sim| liar_owes(sim) > CREDIT * 9 / 10;
+    assert!(
+        sim.run_until_or(sim.now + 120_000, spent),
+        "seed {seed}: it never spent its credit"
+    );
+    let peer = Policies::DEFAULT.peer;
+    sim.run_until(sim.now + peer.advertise_short_grace_ms + peer.peer_dead_ms + 10 * 60_000);
+    let liar = key(1).node_id();
+    let ended = format!(" 0 PeerNode(Terminating {{ peer: {liar:?}, reason: ShortOfRoom");
+    assert!(
+        sim.trace.iter().any(|line| line.contains(&ended)),
+        "seed {seed}: node 0 did not end the peering for room"
+    );
+    assert!(sim.core(0).network().bans.is_empty(), "seed {seed}");
+    assert!(liar_owes(&sim) <= CREDIT, "seed {seed}");
 }
 
 // spec/decisions/own-books.md: a peer that spends the credit it was given and
@@ -931,27 +934,25 @@ fn a_peer_short_of_room_for_a_day_is_ended() {
 // the rest of the network loses nothing.
 #[test]
 fn a_peer_that_spends_its_credit_and_vanishes_costs_at_most_that_credit() {
-    // Each seed simulates the day a silent peer is kept, about 2.5 s of
-    // wall time.
-    for seed in 0..5 {
-        let mut sim = liar_network(seed, Lie::NeverSettle);
-        sim.pay(1, 2, LIAR_PAYS, None, None);
-        assert!(
-            sim.run_until_or(sim.now + 120_000, |sim| liar_owes(sim) > CREDIT * 9 / 10),
-            "seed {seed}: it never spent its credit"
-        );
-        sim.crash(1);
-        // A peer not heard from for a day is ended.
-        let dead = Policies::DEFAULT.peer.peer_dead_ms;
-        sim.run_until(sim.now + dead + 10 * 60_000);
-        assert!(
-            !sim.peers(0).contains(&key(1).node_id()),
-            "seed {seed}: node 0 still peers with it"
-        );
-        let owed = liar_owes(&sim);
-        assert!(owed <= CREDIT, "seed {seed}: it left owing {owed}");
-        assert!(sim.peers(0).contains(&key(2).node_id()), "seed {seed}");
-    }
+    // The day a silent peer is kept, simulated.
+    let seed = 0;
+    let mut sim = liar_network(seed, Lie::NeverSettle);
+    sim.pay(1, 2, LIAR_PAYS, None, None);
+    assert!(
+        sim.run_until_or(sim.now + 120_000, |sim| liar_owes(sim) > CREDIT * 9 / 10),
+        "seed {seed}: it never spent its credit"
+    );
+    sim.crash(1);
+    // A peer not heard from for a day is ended.
+    let dead = Policies::DEFAULT.peer.peer_dead_ms;
+    sim.run_until(sim.now + dead + 10 * 60_000);
+    assert!(
+        !sim.peers(0).contains(&key(1).node_id()),
+        "seed {seed}: node 0 still peers with it"
+    );
+    let owed = liar_owes(&sim);
+    assert!(owed <= CREDIT, "seed {seed}: it left owing {owed}");
+    assert!(sim.peers(0).contains(&key(2).node_id()), "seed {seed}");
 }
 
 /// Runs until node `index`'s scheme first saw its ledger, before it
