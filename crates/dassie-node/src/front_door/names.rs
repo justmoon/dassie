@@ -24,7 +24,7 @@ use std::time::Duration;
 use dassie_identity::NodeId;
 use dassie_oer::{Decode, Encode};
 use dassie_peer::names::{HolderChange, Holders, HoldersConfig, Name};
-use dassie_peer::wire::{Content, NameListResponse, decode_hash, encode_envelope};
+use dassie_peer::wire::{Content, NameListResponse, decode_hash};
 use dassie_peer::{Request, RequestId};
 use sha2::{Digest, Sha256};
 use tokio_util::sync::CancellationToken;
@@ -255,7 +255,7 @@ impl Poller {
             to: registrar.id,
             url: registrar.url.clone(),
             kind: content.kind(),
-            body: encode_envelope(&content.to_vec()),
+            body: content.to_vec(),
             timeout_ms,
         }
     }

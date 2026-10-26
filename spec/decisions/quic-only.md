@@ -25,7 +25,7 @@
 
 - **A periphery node behind a network that filters UDP cannot take part** until it can carry its QUIC packets over a WebSocket ([quic-over-websocket](quic-over-websocket.md)). That keeps QUIC's streams and keys; an HTTP request per message does not, and periphery nodes could not be reached over it anyway.
 - **A node whose places for anyone else are full takes no newcomers** until one frees: asking to peer, or registering, waits for room rather than coming in through a second door ([places-by-proved-key](places-by-proved-key.md)).
-- **No new protocol version.** Every node already takes QUIC; the rule that a change both sides must agree on is a new version ([Overview](../overview.md#frozen-surfaces)) is about messages, and none changes. A node of an earlier release that falls back to HTTPS meets a 404, which its connector leaves to expire, until its daily update.
+- **No new protocol version.** Every node already takes QUIC; the rule that a change both sides must agree on is a new version, a new ALPN name ([protocol-upgrades](protocol-upgrades.md)), is about messages, and none changes. A node of an earlier release that falls back to HTTPS meets a 404, which its connector leaves to expire, until its daily update.
 - **A request in a backoff fails at once,** within a minute of a peer coming back, even if the peer could have been reached. The backoff is short so that this costs little, and it spares a node that is down a handshake per request.
 
 ## Rejected

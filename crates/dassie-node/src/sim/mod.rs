@@ -497,13 +497,12 @@ fn ilp_packet(body: &[u8]) -> Option<(u32, dassie_ilp::Packet<'_>)> {
     if !dassie_peer::wire::peek_kind(body).is_some_and(dassie_peer::wire::Kind::carries_packet) {
         return None;
     }
-    let envelope = dassie_peer::wire::Envelope::decode(body).ok()?;
     // A Prepare over a settlement hub comes with its commitment, which the
     // simulation does not read.
     let (Content::InterledgerPacket { request_id, packet }
     | Content::HubPacket {
         request_id, packet, ..
-    }) = Content::decode_exact(envelope.content).ok()?
+    }) = Content::decode_exact(body).ok()?
     else {
         return None;
     };

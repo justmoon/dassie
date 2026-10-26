@@ -31,7 +31,7 @@ pub struct Request {
     pub url: String,
     /// What it is.
     pub kind: Kind,
-    /// The envelope.
+    /// The content.
     pub body: Vec<u8>,
     /// How long it may take.
     pub timeout_ms: u64,

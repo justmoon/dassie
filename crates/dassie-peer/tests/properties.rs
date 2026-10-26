@@ -10,11 +10,10 @@ mod support;
 use std::sync::Arc;
 
 use dassie_identity::{NodeId, NodeKey};
+use dassie_oer::Decode;
 use dassie_peer::Config;
 use dassie_peer::sim::{Arriving, Network, forger, key, url};
-use dassie_peer::wire::{
-    Entry, Envelope, NodeInfo, SchemeId, TerminationReason, encode_envelope, sign_node_info,
-};
+use dassie_peer::wire::{Content, Entry, NodeInfo, SchemeId, TerminationReason, sign_node_info};
 use proptest::prelude::*;
 use support::inputs::{KINDS, Mutation, content, mutate, mutations};
 
@@ -32,20 +31,15 @@ fn stub() -> SchemeId {
 enum Body {
     /// Any bytes.
     Arbitrary(Vec<u8>),
-    /// Content of the kind with this tag, broken, in a valid envelope: it
-    /// gets past authentication to what reads the content.
+    /// Content of the kind with this tag, broken.
     BrokenContent(usize, Vec<Mutation>),
-    /// A valid request of the kind with this tag, its envelope broken.
-    BrokenEnvelope(usize, Vec<Mutation>),
 }
 
 fn body() -> impl Strategy<Value = Body> {
     prop_oneof![
         1 => proptest::collection::vec(any::<u8>(), 0..512).prop_map(Body::Arbitrary),
-        3 => (0..KINDS, mutations())
+        4 => (0..KINDS, mutations())
             .prop_map(|(tag, mutations)| Body::BrokenContent(tag, mutations)),
-        2 => (0..KINDS, mutations())
-            .prop_map(|(tag, mutations)| Body::BrokenEnvelope(tag, mutations)),
     ]
 }
 
@@ -78,12 +72,7 @@ impl Sender {
         let bytes = match body {
             Body::Arbitrary(bytes) => bytes.clone(),
             Body::BrokenContent(tag, mutations) => {
-                let content = mutate(&content(*tag, &self.link_state(network)), mutations);
-                encode_envelope(&content)
-            }
-            Body::BrokenEnvelope(tag, mutations) => {
-                let content = content(*tag, &self.link_state(network));
-                mutate(&encode_envelope(&content), mutations)
+                mutate(&content(*tag, &self.link_state(network)), mutations)
             }
         };
         Arriving::of(&self.key, bytes)
@@ -133,7 +122,7 @@ proptest! {
                 "status {}",
                 reply.status
             );
-            if Envelope::decode(&request.body).is_err() {
+            if Content::decode_exact(&request.body).is_err() {
                 prop_assert_eq!(reply.status, 400);
             }
         }

@@ -18,8 +18,8 @@ use crate::hooks::PeeringHooks;
 use crate::io::{Event, Inbound, InboundId, Output, PacketAnswer, Reply, SettlementAnswer};
 use crate::table::{Entry, Network, Registration, Sources};
 use crate::wire::{
-    Content, Envelope, EnvelopeError, LinkStateResponse, MAX_CLAIM_BYTES, SchemeId, SignedNodeInfo,
-    encode_expiry, encode_link_states, encode_octets, encode_settling,
+    Content, LinkStateResponse, MAX_CLAIM_BYTES, SchemeId, SignedNodeInfo, encode_expiry,
+    encode_link_states, encode_octets, encode_settling,
 };
 
 /// The ILP packet type of a Prepare.
@@ -95,12 +95,7 @@ impl PeerNode {
         body: &'a [u8],
         source: Option<core::net::IpAddr>,
     ) -> Inbound<'a> {
-        let envelope = match Envelope::decode(body) {
-            Ok(envelope) => envelope,
-            Err(EnvelopeError::Version(_)) => return refuse(400, "unsupported version"),
-            Err(EnvelopeError::Malformed(_)) => return refuse(400, "malformed message"),
-        };
-        let Ok(content) = Content::decode_exact(envelope.content) else {
+        let Ok(content) = Content::decode_exact(body) else {
             return refuse(400, "malformed message");
         };
         if accepted.sender == self.own {
@@ -118,9 +113,7 @@ impl PeerNode {
                 commitment,
             } => self.packet_request(hooks, accepted, request_id, packet, Some(commitment)),
             Content::Registration(info) => self.registration_request(accepted, &info, id, network),
-            Content::PeeringRequest(_) => {
-                self.peering_request(hooks, accepted, envelope.content, id, network)
-            }
+            Content::PeeringRequest(_) => self.peering_request(hooks, accepted, body, id, network),
             Content::Settlement {
                 scheme,
                 amount,

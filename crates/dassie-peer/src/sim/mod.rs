@@ -190,15 +190,15 @@ pub fn url(index: usize) -> String {
 pub struct Arriving {
     /// The key the connection proved.
     pub from: PublicKey,
-    /// The body: the envelope.
+    /// The body: the content.
     pub body: Vec<u8>,
 }
 
 impl Arriving {
-    /// `content` from the node of `from`, in an envelope.
+    /// `content` from the node of `from`.
     #[must_use]
     pub fn new(from: &NodeKey, content: &crate::wire::Content<'_>) -> Self {
-        Self::of(from, crate::wire::encode_envelope(&content.to_vec()))
+        Self::of(from, content.to_vec())
     }
 
     /// `body` as it is, from the node of `from`.

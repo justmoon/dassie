@@ -5,7 +5,6 @@
 //! the types allow, so it cannot produce something the decoder refuses.
 
 mod content;
-mod envelope;
 mod node_info;
 mod response;
 mod scheme;
@@ -15,7 +14,6 @@ use dassie_identity::NodeId;
 use dassie_oer::{Decode, DecodeError, DecodeErrorKind, Encode, Reader, Writer, oid, size};
 
 pub use content::{Content, PeeringRequest, TerminationReason};
-pub use envelope::{Envelope, EnvelopeError, encode_envelope};
 pub use node_info::{
     Entry, HubList, HubListing, HubMembership, InvalidNodeInfo, NodeInfo, SignedNodeInfo,
     hub_list_bytes, max_node_info_bytes, sign_node_info,
@@ -27,9 +25,6 @@ pub use response::{
 };
 pub use scheme::{MAX_SCHEME_ID, SchemeId};
 pub use url::is_valid_url;
-
-/// The envelope version this crate speaks.
-pub const VERSION: u8 = 1;
 
 /// The OID that starts a v1 `PeerNodeInfo`. v0 used `…1399.1.2`; a new one
 /// keeps node info signed under v0 from passing as a v1 link state.
@@ -245,12 +240,11 @@ impl Kind {
     }
 }
 
-/// The kind of the message in `body`, without checking more of it than the
-/// envelope's header: enough for the HTTP layer to rate-limit by kind.
+/// The kind of the message in `body`, without checking more of it than its
+/// tag: enough for the transport to rate-limit by kind.
 #[must_use]
 pub fn peek_kind(body: &[u8]) -> Option<Kind> {
-    let envelope = Envelope::decode(body).ok()?;
-    let mut reader = Reader::new(envelope.content);
+    let mut reader = Reader::new(body);
     Kind::from_tag(reader.read_context_tag().ok()?)
 }
 

@@ -19,13 +19,13 @@ use dassie_identity::{NodeId, NodeKey, PublicKey, Signature};
 use dassie_oer::{Decode, Encode};
 use dassie_peer::names::{Commitment, MAX_NAME_BYTES, Name, Salt};
 use dassie_peer::wire::{
-    Content, EXTENSION_HUB, EXTENSION_HUBS, EXTENSION_METHODS, Entry, Envelope, EnvelopeError,
-    HubList, HubListing, HubMembership, InvalidNodeInfo, Kind, LinkStateResponse,
-    MAX_COMMITMENT_BYTES, MAX_HUBS, MAX_NAME_LIST, MAX_NAME_LIST_BYTES, MAX_URL_BYTES,
-    MethodResponse, NameHolding, NameListResponse, NameReceipt, NodeInfo, NodeListResponse,
-    PeeringRequest, PeeringResponse, RefusalReason, SchemeId, SignedNodeInfo, TerminationReason,
-    decode_expiry, decode_hash, decode_octets, decode_settling, encode_envelope, encode_expiry,
-    encode_octets, encode_settling, hub_list_bytes, is_valid_url, peek_kind, sign_node_info,
+    Content, EXTENSION_HUB, EXTENSION_HUBS, EXTENSION_METHODS, Entry, HubList, HubListing,
+    HubMembership, InvalidNodeInfo, Kind, LinkStateResponse, MAX_COMMITMENT_BYTES, MAX_HUBS,
+    MAX_NAME_LIST, MAX_NAME_LIST_BYTES, MAX_URL_BYTES, MethodResponse, NameHolding,
+    NameListResponse, NameReceipt, NodeInfo, NodeListResponse, PeeringRequest, PeeringResponse,
+    RefusalReason, SchemeId, SignedNodeInfo, TerminationReason, decode_expiry, decode_hash,
+    decode_octets, decode_settling, encode_expiry, encode_octets, encode_settling, hub_list_bytes,
+    is_valid_url, peek_kind, sign_node_info,
 };
 use proptest::prelude::*;
 use sha2::{Digest, Sha256};
@@ -229,32 +229,27 @@ fn interledger_packets_keep_the_v0_layout() {
     );
 }
 
-// A v0 envelope is told apart from a malformed one, so the node can answer
-// "unsupported version".
+// A request is its content: no version byte, since the connection's ALPN
+// names the layouts (spec/decisions/protocol-upgrades.md). A v0 envelope,
+// which starts with one, is no message.
 #[test]
-fn a_v0_envelope_is_another_version() {
+fn a_request_is_its_content() {
+    assert!(Content::decode_exact(&vector("nodeListHashRequest")).is_err());
+    let body = Content::NodeListHashRequest.to_vec();
     assert_eq!(
-        Envelope::decode(&vector("nodeListHashRequest")),
-        Err(EnvelopeError::Version(0))
-    );
-    let v1 = encode_envelope(&Content::NodeListHashRequest.to_vec());
-    let envelope = Envelope::decode(&v1).unwrap();
-    assert_eq!(
-        Content::decode_exact(envelope.content).unwrap(),
+        Content::decode_exact(&body).unwrap(),
         Content::NodeListHashRequest
     );
-    assert_eq!(peek_kind(&v1), Some(Kind::NodeListHashRequest));
+    assert_eq!(peek_kind(&body), Some(Kind::NodeListHashRequest));
 }
 
 // The v1 encodings, pinned: a change to them is a change to the protocol.
 #[test]
 fn v1_encodings_are_pinned() {
-    // The version, then the content: who sent it is the connection's.
-    let content = Content::NodeListRequest.to_vec();
-    let envelope = encode_envelope(&content);
-    assert_eq!(to_hex(&envelope), "0187");
-    assert_eq!(Envelope::decode(&envelope).unwrap().content, content);
-    assert!(Envelope::decode(&[0x01]).is_err(), "no content");
+    // The content alone: who sent it is the connection's, and which
+    // version its ALPN.
+    assert_eq!(to_hex(&Content::NodeListRequest.to_vec()), "87");
+    assert!(Content::decode_exact(&[]).is_err(), "no content");
     let response = PeeringResponse::Accepted { data: &[0xab] };
     assert_eq!(to_hex(&response.to_vec()), "8001ab");
     assert_eq!(
@@ -343,7 +338,6 @@ fn settlements_and_terminations_are_pinned() {
 proptest! {
     #[test]
     fn decoders_never_panic(bytes in proptest::collection::vec(any::<u8>(), 0..512)) {
-        let _ = Envelope::decode(&bytes);
         let _ = Content::decode_exact(&bytes);
         let _ = SignedNodeInfo::decode_exact(&bytes);
         let _ = PeeringResponse::decode_exact(&bytes);
@@ -382,6 +376,7 @@ fn decode_content(bytes: &[u8]) -> Result<(), TestCaseError> {
     let Ok(content) = Content::decode_exact(bytes) else {
         return Ok(());
     };
+    prop_assert_eq!(peek_kind(bytes), Some(content.kind()));
     if let Content::PeeringRequest(PeeringRequest {
         node_info: info, ..
     })
@@ -491,19 +486,6 @@ fn url() -> impl Strategy<Value = String> {
     ]
 }
 
-/// Decodes an envelope as the node does, and its content.
-fn decode_envelope(body: &[u8]) -> Result<(), TestCaseError> {
-    let Ok(envelope) = Envelope::decode(body) else {
-        prop_assert_eq!(peek_kind(body), None);
-        return Ok(());
-    };
-    prop_assert_eq!(encode_envelope(envelope.content), body);
-    if let Ok(content) = Content::decode_exact(envelope.content) {
-        prop_assert_eq!(peek_kind(body), Some(content.kind()));
-    }
-    decode_content(envelope.content)
-}
-
 // Random bytes rarely get past the first fields: these break valid
 // encodings instead, so that every field, and the link states and entries
 // inside them, see bad input. Each case breaks every kind the same way, so
@@ -514,16 +496,6 @@ proptest! {
         let signed = signed_full();
         for tag in 0..KINDS {
             decode_content(&mutate(&content(tag, &signed), &mutations))?;
-        }
-    }
-
-    #[test]
-    fn broken_envelopes_never_panic(mutations in mutations()) {
-        let signed = signed_full();
-        for tag in 0..KINDS {
-            let content = content(tag, &signed);
-            let body = encode_envelope(&content);
-            decode_envelope(&mutate(&body, &mutations))?;
         }
     }
 

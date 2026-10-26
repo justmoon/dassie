@@ -479,21 +479,19 @@ fn bootstrap_nodes_are_asked_at_once() {
     node.handle_timeout(START, &mut hooks);
     let before = sent(&mut node);
     // Our link state goes to the bootstrap node at once.
-    let ours =
-        before
-            .iter()
-            .find_map(|request| {
-                let envelope = dassie_peer::wire::Envelope::decode(&request.body).ok()?;
-                match Content::decode_exact(envelope.content).ok()? {
-                    Content::LinkStateUpdate(state) => {
-                        Some(state.info.entries.iter().any(|entry| {
-                            matches!(entry, dassie_peer::wire::Entry::Extension { .. })
-                        }))
-                    }
-                    _ => None,
-                }
-            })
-            .unwrap();
+    let ours = before
+        .iter()
+        .find_map(|request| match Content::decode_exact(&request.body).ok()? {
+            Content::LinkStateUpdate(state) => Some(
+                state
+                    .info
+                    .entries
+                    .iter()
+                    .any(|entry| matches!(entry, dassie_peer::wire::Entry::Extension { .. })),
+            ),
+            _ => None,
+        })
+        .unwrap();
     assert!(!ours, "no extension");
     let to_boot: Vec<_> = before.iter().filter(|r| r.to == boot.node_id()).collect();
     assert!(!to_boot.is_empty());
@@ -505,12 +503,9 @@ fn own_link_state(mut node: PeerNode) -> Vec<u8> {
     node.handle_timeout(START, &mut dassie_peer::sim::StubHooks::default());
     sent(&mut node)
         .iter()
-        .find_map(|request| {
-            let envelope = dassie_peer::wire::Envelope::decode(&request.body).ok()?;
-            match Content::decode_exact(envelope.content).ok()? {
-                Content::LinkStateUpdate(state) => Some(state.bytes.to_vec()),
-                _ => None,
-            }
+        .find_map(|request| match Content::decode_exact(&request.body).ok()? {
+            Content::LinkStateUpdate(state) => Some(state.bytes.to_vec()),
+            _ => None,
         })
         .unwrap()
 }

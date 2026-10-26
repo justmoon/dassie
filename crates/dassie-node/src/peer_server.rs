@@ -27,7 +27,7 @@ use crate::quic::places::Peerings;
 use crate::quic::relay::{Purpose, ServedStream};
 
 // The largest ILP packet of any type fits in a request, with room for the
-// envelope and the content's tags.
+// content's tags and lengths.
 const _: () = assert!(dassie_ilp::MAX_PACKET_LENGTH + 1024 <= MAX_MESSAGE_BYTES);
 
 /// Why a request's body could not be read.

@@ -58,6 +58,7 @@ Each file records one choice between real alternatives: the facts that forced it
 | [phrase-format](phrase-format.md) | A phrase says its realm and when it was made, and corrects its own errors | identity, http, node, wallet, overview |
 | [places-by-proved-key](places-by-proved-key.md) | A connection holds a place by the key it proved | peer-protocol, network, designs/periphery |
 | [promotion-to-core](promotion-to-core.md) | A node becomes core by registering and being promoted (not built) | network, peer-protocol, designs/periphery |
+| [protocol-upgrades](protocol-upgrades.md) | A peer-protocol version is an ALPN name, and a release speaks the one before too | peer-protocol, overview, release |
 | [public-domains](public-domains.md) | Payment names live under dassiepay.net, memo types and the mirror under dassie.land | payments, http, xrpl, release, overview |
 | [quic-only](quic-only.md) | The peer protocol and the hubs' messages travel over QUIC only | peer-protocol, node, network, designs/periphery, release |
 | [quic-over-websocket](quic-over-websocket.md) | Where UDP is blocked, a periphery node carries its QUIC packets over a WebSocket, to its uplinks and to a front door as its relay | peer-protocol, http, network, designs/periphery |

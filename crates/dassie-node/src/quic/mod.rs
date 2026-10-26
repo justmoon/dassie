@@ -2,7 +2,7 @@
 //!
 //! One UDP socket, on the HTTPS listener's port number, both takes and makes
 //! connections. Every bidirectional stream starts with a byte that says
-//! what it carries ([`StreamKind`]). A peer request is the envelope one
+//! what it carries ([`StreamKind`]). A peer request is its content one
 //! way, then a two-byte status and the body back
 //! (spec/areas/peer-protocol.md#statuses). The other kinds carry relayed
 //! streams ([`relay`]) and settlement hubs' messages (`hub.rs`,
@@ -70,10 +70,18 @@ use crate::peer_server::{Answer, BodyError};
 use crate::slots::ClientSlot;
 use crate::tls;
 
-/// The protocol a connection speaks, by ALPN: the peer protocol's layouts,
-/// version 2 (spec/areas/peer-protocol.md#versions). A node of another
-/// version fails the handshake, before a message is read.
-pub const ALPN: &[u8] = b"dassie/2";
+/// The versions of the peer protocol this node speaks, by ALPN, newest
+/// first (spec/decisions/protocol-upgrades.md). Each names the layouts of
+/// the messages. A server speaks the first of these its client offers, so
+/// two nodes speak the newest they share, and nodes that share none fail
+/// the handshake, before a message is read. A change to the layouts puts
+/// its version first and keeps the one before for a release cycle.
+pub const VERSIONS: [&[u8]; 1] = [b"dassie/2"];
+
+/// The ALPN list of `versions`.
+fn alpn(versions: &[&[u8]]) -> Vec<Vec<u8>> {
+    versions.iter().map(|version| version.to_vec()).collect()
+}
 
 /// Most time to set up a connection, within a request's own time.
 pub const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
@@ -1276,7 +1284,7 @@ impl On {
         }
     }
 
-    /// Answers a peer request: its envelope, then the stream's end. It is
+    /// Answers a peer request: its content, then the stream's end. It is
     /// the request of the node whose key the connection proved; a client
     /// proves one in every handshake, so a connection without one never
     /// gets this far, and its stream is reset.
@@ -1436,7 +1444,7 @@ fn server_config(keys: &Arc<Keys>, idle: Duration) -> Result<quinn::ServerConfig
         .map_err(|e| e.to_string())?
         .with_client_cert_verifier(Arc::new(AnyNodeKey::new()))
         .with_cert_resolver(Arc::new(Present(Arc::clone(keys))));
-    config.alpn_protocols = vec![ALPN.to_vec()];
+    config.alpn_protocols = alpn(&VERSIONS);
     let crypto = QuicServerConfig::try_from(config).map_err(|e| e.to_string())?;
     let mut config = quinn::ServerConfig::with_crypto(Arc::new(crypto));
     config.transport_config(Arc::new(transport_config(idle)));
@@ -1470,13 +1478,23 @@ fn client_config(
     expected: NodeId,
     transport: TransportConfig,
 ) -> Result<quinn::ClientConfig, String> {
+    client_offering(keys, expected, transport, &VERSIONS)
+}
+
+/// [`client_config`], offering `versions`.
+fn client_offering(
+    keys: &Arc<Keys>,
+    expected: NodeId,
+    transport: TransportConfig,
+    versions: &[&[u8]],
+) -> Result<quinn::ClientConfig, String> {
     let mut config = rustls::ClientConfig::builder_with_provider(tls::provider())
         .with_protocol_versions(&[&rustls::version::TLS13])
         .map_err(|e| e.to_string())?
         .dangerous()
         .with_custom_certificate_verifier(Arc::new(PinnedServer::new(expected)))
         .with_client_cert_resolver(Arc::new(Present(Arc::clone(keys))));
-    config.alpn_protocols = vec![ALPN.to_vec()];
+    config.alpn_protocols = alpn(versions);
     let crypto = QuicClientConfig::try_from(config).map_err(|e| e.to_string())?;
     let mut config = quinn::ClientConfig::new(Arc::new(crypto));
     config.transport_config(Arc::new(transport));
@@ -1666,6 +1684,51 @@ mod tests {
         let (status, answered) = answer.split_at(STATUS_BYTES);
         assert_eq!(status, 200_u16.to_be_bytes());
         assert_eq!(answered, body);
+        shutdown.cancel();
+    }
+
+    /// The version a client offering `versions` speaks with `server`, or
+    /// `None` if it fails the handshake.
+    async fn speaks(server: &Quic, server_id: NodeId, versions: &[&[u8]]) -> Option<Vec<u8>> {
+        let (_client_key, receiver) = watch::channel(Some(Arc::new(NodeKey::from_bytes(&[2; 32]))));
+        let keys = Arc::new(Keys::new(receiver));
+        let config =
+            client_offering(&keys, server_id, transport_config(IDLE_TIMEOUT), versions).unwrap();
+        let socket = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+        let runtime = quinn::default_runtime().unwrap();
+        let client = Endpoint::new(EndpointConfig::default(), None, socket, runtime).unwrap();
+        let connecting = client
+            .connect_with(config, server.local_addr().unwrap(), "dassie")
+            .unwrap();
+        let connection = tokio::time::timeout(Duration::from_secs(5), connecting)
+            .await
+            .expect("no handshake")
+            .ok()?;
+        let data = connection.handshake_data()?;
+        let data = data
+            .downcast::<quinn::crypto::rustls::HandshakeData>()
+            .ok()?;
+        data.protocol
+    }
+
+    // Two nodes speak the newest version they share, and a node that shares
+    // none, as one of a release before version 2, fails the handshake
+    // (spec/decisions/protocol-upgrades.md).
+    #[tokio::test]
+    async fn nodes_speak_the_newest_version_they_share() {
+        let shutdown = CancellationToken::new();
+        let (server, server_id, _server_key) = endpoint_of(1);
+        tokio::spawn(Arc::clone(&server).serve(Arc::new(Echo), shutdown.clone()));
+        let newest = VERSIONS[0];
+        assert_eq!(
+            speaks(&server, server_id, &[b"dassie/99", newest]).await,
+            Some(newest.to_vec())
+        );
+        assert_eq!(
+            speaks(&server, server_id, &VERSIONS).await,
+            Some(newest.to_vec())
+        );
+        assert_eq!(speaks(&server, server_id, &[b"dassie/1"]).await, None);
         shutdown.cancel();
     }
 

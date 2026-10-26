@@ -2052,7 +2052,7 @@ fn downlink_request_on(downlink: &Arc<NodeKey>, now: u64, scheme: &str, data: &[
     use dassie_oer::Decode;
     use dassie_peer::wire::{
         Content, EXTENSION_PERIPHERY, Entry, NodeInfo, PeeringRequest, SchemeId, SignedNodeInfo,
-        encode_envelope, sign_node_info,
+        sign_node_info,
     };
     let stub = SchemeId::parse(scheme).unwrap();
     let info = NodeInfo {
@@ -2075,7 +2075,7 @@ fn downlink_request_on(downlink: &Arc<NodeKey>, now: u64, scheme: &str, data: &[
         node_info: SignedNodeInfo::decode_exact(&state).unwrap(),
         data,
     });
-    encode_envelope(&content.to_vec())
+    content.to_vec()
 }
 
 // spec/areas/network.md#advertised-peers: a downlink that owes nothing is
@@ -5837,9 +5837,7 @@ fn tells_link_state(
     at: u64,
 ) -> Vec<Output> {
     use dassie_oer::Decode;
-    use dassie_peer::wire::{
-        Content, Entry, NodeInfo, SchemeId, SignedNodeInfo, encode_envelope, sign_node_info,
-    };
+    use dassie_peer::wire::{Content, Entry, NodeInfo, SchemeId, SignedNodeInfo, sign_node_info};
 
     let scheme = SchemeId::parse(scheme).unwrap();
     let info = NodeInfo {
@@ -5852,7 +5850,7 @@ fn tells_link_state(
     };
     let state = sign_node_info(other, &info);
     let content = Content::LinkStateUpdate(SignedNodeInfo::decode_exact(&state).unwrap());
-    let body = encode_envelope(&content.to_vec());
+    let body = content.to_vec();
     core.begin_step(at);
     core.peer_inbound(dassie_peer::InboundId(1), other.public_key(), &body, None);
     let mut outputs = Vec::new();

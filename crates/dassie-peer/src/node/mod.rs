@@ -30,7 +30,6 @@ use crate::routing::{RouteKey, Routes};
 use crate::table::{Bucket, Entry, NetworkBuckets, Sources};
 use crate::wire::{
     Content, HubList, HubListing, HubMembership, MAX_CLAIM_BYTES, MAX_COMMITMENT_BYTES, SchemeId,
-    encode_envelope,
 };
 
 pub use lifecycle::BanError;
@@ -600,7 +599,7 @@ impl PeerNode {
             self.stats.requests_dropped += 1;
             return None;
         }
-        let body = encode_envelope(&content.to_vec());
+        let body = content.to_vec();
         let id = RequestId(self.next_request);
         self.next_request += 1;
         let deadline_ms = self.now_ms.saturating_add(timeout_ms);
