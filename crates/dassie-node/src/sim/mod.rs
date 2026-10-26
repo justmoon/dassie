@@ -818,6 +818,9 @@ pub struct Sim {
     /// How many times the run reached each thing it counts
     /// (spec/decisions/random-seed-simulations.md).
     pub counts: BTreeMap<&'static str, u64>,
+    /// The nodes stepped, started or stopped since
+    /// [`Self::run_until_or`] last asked for their deadlines.
+    touched: BTreeSet<usize>,
     /// How many times the faucet funded each node: again after a crash cut
     /// its first request short.
     pub fundings: BTreeMap<usize, u64>,
@@ -970,6 +973,7 @@ impl Sim {
             withdrawn: Vec::new(),
             latency_ms: (1, 200),
             counts: BTreeMap::new(),
+            touched: BTreeSet::new(),
             fundings: BTreeMap::new(),
             given_up: BTreeSet::new(),
             anywhere: BTreeSet::new(),
@@ -1078,6 +1082,7 @@ impl Sim {
         let mut core = Core::start(parts, now).unwrap();
         core.check_validations_with(VALIDATION_SECRET);
         node.core = Some(core);
+        self.touched.insert(index);
         self.trace.push(format!("{} start {index}", self.now));
         let rates = self.needs_rates().then(|| RATES.map(|(c, r)| (c, r, now)));
         self.step(index, |core| {
@@ -1215,6 +1220,7 @@ impl Sim {
     /// Stops node `index`: its clients are gone, its database stays, and
     /// its commits go through again once it restarts.
     fn stop(&mut self, index: usize) {
+        self.touched.insert(index);
         self.nodes[index].core = None;
         self.let_through(index);
         // What it sent, it can no longer take a Fulfill for; what it
@@ -1323,9 +1329,22 @@ impl Sim {
 
     /// When node `index`'s core is next due, on the network's clock.
     fn deadline(&self, index: usize) -> Option<u64> {
-        let node = &self.nodes[index];
-        let local = node.core.as_ref()?.deadline()?;
-        Some(local.saturating_add_signed(-node.skew_ms))
+        let local = self.local_deadline(index)?;
+        Some(local.saturating_add_signed(-self.nodes[index].skew_ms))
+    }
+
+    /// When node `index`'s core is next due, on its own clock.
+    fn local_deadline(&self, index: usize) -> Option<u64> {
+        self.nodes[index].core.as_ref()?.deadline()
+    }
+
+    /// Asks the nodes touched since the last time for their deadlines
+    /// again, on their own clocks, and any node started since.
+    fn refresh(&mut self, deadlines: &mut Vec<Option<u64>>) {
+        deadlines.resize(self.nodes.len(), None);
+        for index in core::mem::take(&mut self.touched) {
+            deadlines[index] = self.local_deadline(index);
+        }
     }
 
     fn latency(&mut self) -> u64 {
@@ -1342,6 +1361,7 @@ impl Sim {
     /// Says whether the node took the step: not while it is down, nor when
     /// the step's commit failed and stopped it.
     pub fn step(&mut self, index: usize, f: impl FnOnce(&mut Core)) -> bool {
+        self.touched.insert(index);
         let now = self.local_now(index);
         let node = &mut self.nodes[index];
         let failing = node.failing.clone();
@@ -2388,6 +2408,14 @@ impl Sim {
     /// Runs until `until`, or until `stop` holds after an event; returns
     /// whether it stopped.
     pub fn run_until_or(&mut self, until: u64, stop: impl Fn(&Self) -> bool) -> bool {
+        // Each node's deadline, on its own clock. A core's deadline changes
+        // only in a step, and every step, start and stop marks its node, so
+        // only the nodes marked since are asked again: asking every node
+        // before every step cost much of a large network's run.
+        let mut deadlines: Vec<Option<u64>> = (0..self.nodes.len())
+            .map(|index| self.local_deadline(index))
+            .collect();
+        self.touched.clear();
         let mut steps = 0u64;
         loop {
             steps += 1;
@@ -2407,9 +2435,15 @@ impl Sim {
                 return true;
             }
             self.drive_payments();
+            self.refresh(&mut deadlines);
             let delivery = self.queue.keys().next().map(|(at, _)| *at);
-            let timer = (0..self.nodes.len())
-                .filter_map(|index| self.deadline(index))
+            let timer = deadlines
+                .iter()
+                .zip(&self.nodes)
+                // Back from the node's clock to the network's.
+                .filter_map(|(local, node)| {
+                    Some(local.as_ref()?.saturating_add_signed(-node.skew_ms))
+                })
                 .chain(self.hub_deadline())
                 .min();
             let earliest = [delivery, timer].into_iter().flatten().min();
@@ -2436,7 +2470,10 @@ impl Sim {
                 continue;
             }
             for index in 0..self.nodes.len() {
-                if self.deadline(index).is_some_and(|at| at <= self.now) {
+                self.refresh(&mut deadlines);
+                let due = deadlines[index]
+                    .map(|local| local.saturating_add_signed(-self.nodes[index].skew_ms));
+                if due.is_some_and(|at| at <= self.now) {
                     self.step(index, |_| {});
                 }
             }
