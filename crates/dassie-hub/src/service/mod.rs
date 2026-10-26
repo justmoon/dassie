@@ -283,12 +283,6 @@ impl Validator {
         if !in_set {
             return Err(ResumeError::NotAValidator);
         }
-        // A change of validators the engine took in already is not
-        // reported to it again.
-        let reported = ledger
-            .scheduled_change()
-            .map(|(from, _)| from)
-            .filter(|from| stored.epochs.iter().any(|epoch| epoch.from_height == *from));
         let hub = *ledger.hub();
         let consensus_key = Arc::new(NodeKey::from_bytes(keys.consensus.as_bytes()));
         let engine = Engine::new(Config::DEFAULT, hub.0, consensus_key.clone(), stored, now);
@@ -306,7 +300,7 @@ impl Validator {
             consensus_key,
             keys,
             engine,
-            chain: Chain::resumed(ledger, tip, reported),
+            chain: Chain::new(ledger, tip),
             sequence: sequence.max(now),
             history: VecDeque::new(),
             history_bytes: 0,
@@ -359,10 +353,10 @@ impl Validator {
         }
         let change = ledger.scheduled_change();
         self.engine
-            .jump(now, finalized, change.clone())
+            .jump(now, finalized, change)
             .map_err(|_| CatchUpError::Refused)?;
         let tip = *self.engine.tip_digest();
-        self.chain = Chain::resumed(ledger, tip, change.map(|(from, _)| from));
+        self.chain = Chain::new(ledger, tip);
         // The blocks skipped never pass through `settle_own`: what of ours
         // they executed is at or below our last sequence in the state, and
         // done. Signed again, it would only take our pool's room.

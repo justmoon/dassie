@@ -368,12 +368,15 @@ impl Engine {
             self.history.pop_front();
         }
         self.prune();
-        // Taken in before the next block is final, in the same step, so a
-        // catch-up that finalizes the block scheduling a change and the
-        // block before its boundary at once cannot miss it.
-        if let Some((from_height, set)) = app.reconfiguration() {
-            match self.epochs.reconfigure(from_height, set, height) {
-                Ok(()) => self.batch.epochs = Some(self.epochs.to_vec()),
+        // The change the final state names, taken in before the next block
+        // is final, in the same step, so a catch-up that finalizes the block
+        // scheduling a change and the block before its boundary at once
+        // cannot miss it. Every final block until the change is made names
+        // it; taking it again changes nothing.
+        if let Some((from_height, set)) = app.scheduled_change(&digest) {
+            match self.epochs.take_in(from_height, set, height) {
+                Ok(true) => self.batch.epochs = Some(self.epochs.to_vec()),
+                Ok(false) => {}
                 Err(error) => self.event(Event::ReconfigureRefused(error)),
             }
         }

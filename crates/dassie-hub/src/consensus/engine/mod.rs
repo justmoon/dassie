@@ -20,7 +20,7 @@ use dassie_identity::{NodeKey, PublicKey};
 use dassie_oer::Encode;
 
 use super::config::Config;
-use super::epochs::{Epochs, ReconfigureError};
+use super::epochs::Epochs;
 use super::hooks::Application;
 use super::io::{Event, Evidence, Output, PeerId, Recipient, Stats};
 use super::persist::{Batch, Stored};
@@ -404,21 +404,22 @@ impl Engine {
     /// running set certifies nothing from there, and the new set runs the
     /// next epoch, from its view 1, once the block before it is final.
     ///
-    /// The host passes only a change that a block this engine finalized
-    /// scheduled, read from the state after that block: a set taken from
-    /// anything the engine did not check would let whoever made it up sign
-    /// our history. [`Application::reconfiguration`] does the same as part
-    /// of finalizing, and [`Engine::jump`] for the state a host loaded.
+    /// For tests only: the engine takes every change from the chain, asking
+    /// [`Application::scheduled_change`] after each block it finalizes, and
+    /// [`Engine::jump`] takes the change of the state a host loaded. A set
+    /// taken from anything the engine did not check would let whoever made
+    /// it up sign our history.
     ///
     /// # Errors
     ///
     /// Another change is waiting, or the height is too close to the tip.
+    #[cfg(any(test, feature = "sim"))]
     pub fn reconfigure(
         &mut self,
         now_ms: u64,
         from_height: u64,
         set: ValidatorSet,
-    ) -> Result<(), ReconfigureError> {
+    ) -> Result<(), super::epochs::ReconfigureError> {
         self.advance(now_ms);
         self.epochs
             .reconfigure(from_height, set, self.tip.block.height)?;
