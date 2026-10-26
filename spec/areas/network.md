@@ -25,10 +25,11 @@ The table holds what a node knows about other nodes: per node, its key, its newe
 ### The own link state
 
 - A node without a valid URL issues no link state ([Peer protocol](peer-protocol.md#verification)), unless it is a periphery node, whose link state has none ([Periphery nodes](#periphery-nodes)).
-- It is issued at start, when its neighbors, schemes, URL or alias change (debounced), and periodically regardless.
+- It is issued at start, when its neighbors, schemes, hubs, URL or alias change (debounced), and periodically regardless.
 - **Sequence:** `max(now, last + 1)`, with the last value persisted, so it only rises across restarts. If the persisted value is further ahead of the clock than any node accepts, it was issued under a wrong clock and no node holds it; the sequence starts again from `now`.
 - A core node's neighbors are its advertised peers ([Advertised peers](#advertised-peers)); a periphery node lists none ([Periphery nodes](#periphery-nodes)). Its schemes are those the node peers on: active, synced with their ledger at least once, and able to receive a peer's settlement ([below](#asking-and-answering)).
-- **It always fits what every node decodes.** Its neighbors are bounded by the core peering slots and its schemes by `MAX_SCHEMES` (`crates/dassie-peer/src/node/mod.rs`), and the configuration is checked at start against the link state's bounds in entries and bytes ([Peer protocol](peer-protocol.md#link-states)), so a node never signs one that others refuse.
+- A member of settlement hubs names them, each with its scheme ([Peer protocol](peer-protocol.md#link-states)).
+- **It always fits what every node decodes.** Its neighbors are bounded by the core peering slots, its schemes by `MAX_SCHEMES` and its hubs by `MAX_OWN_HUBS` (`crates/dassie-peer/src/node/mod.rs`), and the configuration is checked at start against the link state's bounds in entries and bytes ([Peer protocol](peer-protocol.md#link-states)), so a node never signs one that others refuse.
 - A new own link state is flooded to peers at once, and sent directly to the bootstrap nodes we are not peered with, so they can answer refreshes for it.
 
 ### Receiving a link state

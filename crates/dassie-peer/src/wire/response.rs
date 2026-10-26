@@ -190,6 +190,62 @@ impl<'a> Decode<'a> for PeeringResponse<'a> {
     }
 }
 
+/// The answer to a `methodAdd`: shaped as the answer to a peering request
+/// ([`PeeringResponse`]), without its `credit`, which only nodes of 0.1
+/// read (spec/areas/peer-protocol.md#versions).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MethodResponse<'a> {
+    /// `accepted [0]`.
+    Accepted {
+        /// The scheme version both speak.
+        version: u16,
+        /// The scheme's own data.
+        data: &'a [u8],
+    },
+    /// `refused [1]`.
+    Refused(RefusalReason),
+}
+
+impl Encode for MethodResponse<'_> {
+    fn encoded_len(&self) -> usize {
+        size::tag(0)
+            + match self {
+                Self::Accepted { data, .. } => 2 + size::prefixed(data.len()),
+                Self::Refused(_) => 1,
+            }
+    }
+
+    fn encode_to(&self, writer: &mut Writer<'_>) {
+        match self {
+            Self::Accepted { version, data } => {
+                writer.write_context_tag(0);
+                writer.write_u16(*version);
+                writer.write_octets(data, Size::ANY);
+            }
+            Self::Refused(reason) => {
+                writer.write_context_tag(1);
+                writer.write_u8(reason.code());
+            }
+        }
+    }
+}
+
+impl<'a> Decode<'a> for MethodResponse<'a> {
+    type Error = DecodeError;
+
+    fn decode(reader: &mut Reader<'a>) -> Result<Self, DecodeError> {
+        let offset = reader.offset();
+        match reader.read_context_tag()? {
+            0 => Ok(Self::Accepted {
+                version: reader.read_u16()?,
+                data: reader.read_octets(Size::ANY)?,
+            }),
+            1 => Ok(Self::Refused(RefusalReason::from_code(reader.read_u8()?))),
+            _ => Err(DecodeError::new(offset, DecodeErrorKind::UnexpectedTag)),
+        }
+    }
+}
+
 /// The answer to a link-state request: per ID asked, its link state if
 /// known.
 #[derive(Clone, Debug, PartialEq, Eq)]

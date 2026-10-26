@@ -18,14 +18,14 @@ use dassie_oer::{Alphabet, DecodeError, DecodeErrorKind, Reader, Size, Writer, o
 pub use content::{Content, PeeringRequest, TerminationReason};
 pub use envelope::{Authentication, Envelope, EnvelopeError, HmacAuthentication, encode_envelope};
 pub use node_info::{
-    Entry, HubMembership, InvalidNodeInfo, NodeInfo, SignedNodeInfo, max_node_info_bytes,
-    sign_node_info,
+    Entry, HubList, HubListing, HubMembership, InvalidNodeInfo, NodeInfo, SignedNodeInfo,
+    hub_list_bytes, max_node_info_bytes, sign_node_info,
 };
 pub use response::{
-    LinkStateResponse, NameHolding, NameListResponse, NameReceipt, NodeListResponse,
-    PeeringResponse, RefusalReason, ResponseEnvelope, decode_expiry, decode_hash, decode_octets,
-    decode_settling, encode_expiry, encode_link_states, encode_octets, encode_response,
-    encode_settling,
+    LinkStateResponse, MethodResponse, NameHolding, NameListResponse, NameReceipt,
+    NodeListResponse, PeeringResponse, RefusalReason, ResponseEnvelope, decode_expiry, decode_hash,
+    decode_octets, decode_settling, encode_expiry, encode_link_states, encode_octets,
+    encode_response, encode_settling,
 };
 pub use scheme::{MAX_SCHEME_ID, SchemeId};
 pub use url::is_valid_url;
@@ -77,8 +77,28 @@ pub const EXTENSION_FEED: u16 = 4;
 /// [`HubMembership`] in canonical OER. A node in no hub leaves it out.
 pub const EXTENSION_HUB: u16 = 5;
 
-/// Most bytes in the commitment a `hubPacket` carries with its Prepare: a
-/// signature and what it covers, well within this.
+/// The link-state extension that says a node has settlement methods
+/// (spec/decisions/settlement-methods.md): it takes `methodPacket`,
+/// `methodAdd` and `methodDrop`, which a node without them refuses with
+/// 400, so a node sends them only to one whose link state carries this.
+/// Its value is empty.
+pub const EXTENSION_METHODS: u16 = 6;
+
+/// The link-state extension that lists the settlement hubs a node is a
+/// member of, each with the scheme it settles on, and so its asset: a
+/// [`HubList`] in canonical OER (spec/areas/peer-protocol.md#link-states).
+/// A node that lists its hubs names them all here, however many; the hub
+/// extension ([`EXTENSION_HUB`]) keeps naming the list's first, for nodes
+/// that read only that one.
+pub const EXTENSION_HUBS: u16 = 7;
+
+/// Most hubs a hub list ([`EXTENSION_HUBS`]) names: one per scheme, so it
+/// is a bound of the protocol, which every node decodes, well above the
+/// hubs a node joins.
+pub const MAX_HUBS: usize = 16;
+
+/// Most bytes in the commitment a `hubPacket` or `methodPacket` carries
+/// with its Prepare: a signature and what it covers, well within this.
 pub const MAX_COMMITMENT_BYTES: usize = 256;
 
 /// Most bytes after the verdict in the reply to a Fulfill on a peering
@@ -155,6 +175,12 @@ pub enum Kind {
     NameListHashRequest,
     /// `nameListRequest [17]`.
     NameListRequest,
+    /// `methodPacket [18]`.
+    MethodPacket,
+    /// `methodAdd [19]`.
+    MethodAdd,
+    /// `methodDrop [20]`.
+    MethodDrop,
 }
 
 impl Kind {
@@ -180,6 +206,9 @@ impl Kind {
             15 => Self::NameRenew,
             16 => Self::NameListHashRequest,
             17 => Self::NameListRequest,
+            18 => Self::MethodPacket,
+            19 => Self::MethodAdd,
+            20 => Self::MethodDrop,
             _ => return None,
         })
     }
@@ -206,6 +235,9 @@ impl Kind {
             Self::NameRenew => 15,
             Self::NameListHashRequest => 16,
             Self::NameListRequest => 17,
+            Self::MethodPacket => 18,
+            Self::MethodAdd => 19,
+            Self::MethodDrop => 20,
         }
     }
 
@@ -226,6 +258,9 @@ impl Kind {
                 | Self::NameCommit
                 | Self::NameUnseal
                 | Self::NameRenew
+                | Self::MethodPacket
+                | Self::MethodAdd
+                | Self::MethodDrop
         )
     }
 
@@ -233,7 +268,10 @@ impl Kind {
     /// the connector's, not those of the protocol's own requests.
     #[must_use]
     pub const fn carries_packet(self) -> bool {
-        matches!(self, Self::InterledgerPacket | Self::HubPacket)
+        matches!(
+            self,
+            Self::InterledgerPacket | Self::HubPacket | Self::MethodPacket
+        )
     }
 
     /// Whether a message of this kind only reads: it changes nothing at the
