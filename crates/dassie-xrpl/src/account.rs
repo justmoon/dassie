@@ -2314,6 +2314,17 @@ impl XrplAccount {
     }
 }
 
+/// What a line's balance holds, in units of `10^-`[`TOKEN_SCALE`]: none
+/// below zero, however far below, and at most `u128::MAX` above it.
+fn held(balance: TokenValue) -> u128 {
+    if balance.is_negative() {
+        return 0;
+    }
+    balance
+        .floor_units(TOKEN_SCALE)
+        .map_or(u128::MAX, |units| u128::try_from(units).unwrap_or(0))
+}
+
 impl ExternalAsset for XrplAccount {
     fn id(&self) -> AssetId {
         self.id
@@ -2341,10 +2352,7 @@ impl ExternalAsset for XrplAccount {
             Some(Holding {
                 code: key.currency.code(),
                 issuer: Some(key.issuer.to_address()),
-                amount: view
-                    .balance
-                    .floor_units(TOKEN_SCALE)
-                    .map_or(u128::MAX, |units| u128::try_from(units).unwrap_or(0)),
+                amount: held(view.balance),
                 scale: TOKEN_SCALE,
                 reserve: 0,
                 freeze: Freeze {
@@ -2618,6 +2626,19 @@ mod tests {
             close_time,
             hash: [hash; 32],
         }
+    }
+
+    // A line below zero holds nothing, however far below: one beyond what
+    // the scale can convert is still a debt, never the most it can hold.
+    // Only one above zero saturates.
+    #[test]
+    fn a_line_far_below_zero_holds_nothing() {
+        let value = |text| TokenValue::parse(text).unwrap();
+        assert_eq!(held(value("-1")), 0);
+        assert!(value("-1e40").floor_units(TOKEN_SCALE).is_none());
+        assert_eq!(held(value("-1e40")), 0);
+        assert_eq!(held(value("1")), 10_u128.pow(u32::from(TOKEN_SCALE)));
+        assert_eq!(held(value("1e40")), u128::MAX);
     }
 
     // spec/designs/xrpl-validation.md#7-resets-under-a-unl: against the
