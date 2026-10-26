@@ -325,15 +325,25 @@ impl Core {
         }
     }
 
-    /// Follows each scheme's peg guard and whether it converts: once one
-    /// paused or resumed its scheme, the owner is told, and the prices are
-    /// built again at the commit, without its ledger or with it
-    /// (spec/decisions/issued-assets.md). Returns whether any changed.
+    /// Follows each scheme's peg guard and whether its ledger converts:
+    /// once a guard paused or resumed its scheme, the owner is told, and
+    /// once a ledger stopped or started converting, a hub's with its owner
+    /// book's guard too, the prices are built again at the commit, without
+    /// its ledger or with it, and the owner's views with them
+    /// (spec/decisions/issued-assets.md). Returns whether a guard changed.
     pub(super) fn follow_pegs(&mut self) -> bool {
+        // Which ledgers a hub's owner book halts, before the schemes are
+        // walked to be changed (`Core::converts_now`).
+        let halted = LedgerId::ALL.map(|ledger| self.hub_halted(ledger));
         let mut changed = Vec::new();
         for (id, active) in &mut self.schemes {
+            let ledger = active.scheme.ledger();
+            let by_hub = LedgerId::ALL
+                .iter()
+                .zip(halted)
+                .any(|(on, halted)| *on == ledger && halted);
+            let converts = active.converts_now() && !by_hub;
             let paused = active.scheme.peg().and_then(|peg| peg.paused);
-            let converts = active.converts_now();
             if paused != active.paused {
                 changed.push((*id, paused));
                 active.paused = paused;
@@ -341,6 +351,7 @@ impl Core {
             if converts != active.converts {
                 active.converts = converts;
                 self.prices.due = true;
+                self.changes.ledger = true;
             }
         }
         let any = !changed.is_empty();
