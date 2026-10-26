@@ -3572,11 +3572,7 @@ fn a_hub_ledger_converts_only_while_its_books_guard_runs() {
 
     // With the book at a dollar, it converts: 2,000 XRP for 1,000 DSUSD at
     // two XRP to the dollar.
-    core.add_scheme(
-        "xrpl-testnet-dsusd",
-        trusting_fake("xrpl-testnet-dsusd", config),
-    )
-    .unwrap();
+    add_xrpl(&mut core, "xrpl-testnet-dsusd", config).unwrap();
     follow_xrpl(&mut core, &mut ledger);
     let value = TokenValue::parse("1000").unwrap();
     let pool = |ledger: &mut FakeLedger, xrp: u64| {
