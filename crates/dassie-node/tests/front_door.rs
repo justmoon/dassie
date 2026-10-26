@@ -991,9 +991,8 @@ async fn a_name_reaches_its_holder_through_the_front_door() {
         let description = &json_of(&reply)["error"]["description"];
         assert_eq!(description, "no node has that name", "{path}");
     }
-    for node in started {
-        node.stop().await;
-    }
+    // At once: each waits a moment for its peers to hear it closed.
+    futures_util::future::join_all(started.into_iter().map(TestNode::stop)).await;
     shutdown.cancel();
 }
 
