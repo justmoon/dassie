@@ -123,8 +123,8 @@ export function merge(entries: Table, found: readonly Entry[]): Table {
   for (const entry of found) {
     const index = indexOf(entry[1]);
     if (index === undefined) throw new Error(`not a vanity ID: ${entry[1]}`);
-    const known = merged.get(index);
     if (index > MAX_INDEX) continue;
+    const known = merged.get(index);
     if (!known || noise(entry[1]) < noise(known[1])) merged.set(index, entry);
   }
   return merged;

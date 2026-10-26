@@ -49,7 +49,7 @@ const PAYMENT = 250_000_000n;
 const PHRASE =
   "pulp junk march life divorce celery flower bar one angry claw crush";
 
-/** Pebble's test root and its leaf for localhost, which the node serves. */
+/** The tests' root and its leaf for localhost, which the node serves. */
 const ROOT = await readFile(`${TLS_DIR}/root.pem`, "utf8");
 const CERTIFICATE = await readFile(`${TLS_DIR}/cert.pem`, "utf8");
 const PRIVATE_KEY = await readFile(`${TLS_DIR}/key.pem`, "utf8");

@@ -23,7 +23,7 @@ const root = new URL("../../", import.meta.url).pathname;
 export const DASSIE = `${root}target/e2e/dassie`;
 /** The fake XRP Ledger, built with it by `node --run build:e2e`. */
 export const FAKE_LEDGER = `${root}target/e2e/examples/fake_ledger`;
-/** Pebble's configuration and its API certificate. */
+/** The tests' TLS certificate for localhost and its CA, and Pebble's configuration. */
 export const TLS_DIR = `${root}testdata/tls`;
 /** The root of Pebble's API certificate, which the daemon must trust. */
 export const PEBBLE_API_ROOT = `${TLS_DIR}/root.pem`;
