@@ -205,11 +205,8 @@ export async function release(options: {
       `${options.out}/${built.version}/${name}`,
     );
   }
-  // The installer, with the release key in it, once there is one.
-  await copyFile(`${options.tree}/install.sh`, `${options.out}/install.sh`)
-    .catch((error: NodeJS.ErrnoException) => {
-      if (error.code !== "ENOENT") throw error;
-    });
+  // The installer, with the release key in it.
+  await copyFile(`${options.tree}/install.sh`, `${options.out}/install.sh`);
   const dir = `${options.out}/${built.version}`;
   await checkSums(dir, built.version);
   await sign(dir, built.version, options.secretKey, options.password);

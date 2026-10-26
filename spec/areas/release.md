@@ -19,8 +19,8 @@ How Dassie is built, signed, published, installed and updated. A release is one 
 
 **What is trusted:** the release key in `resources/minisign.pub`, and nothing else.
 
-- `crates/dassie-cli/build.rs` compiles it into the binary; a key that does not parse fails the build, and a binary without a key refuses to update. The cargo feature `test-key` compiles in `testdata/release`'s key instead, for tests; no release has it.
-- The release build writes it into `install.sh`, which stops without one.
+- `crates/dassie-cli/build.rs` compiles it into the binary. A key that is missing or does not parse fails the build, so no binary is built that could never update. The cargo feature `test-key` compiles in `testdata/release`'s key instead, for tests; no release has it.
+- The release build writes it into `install.sh`, which every release publishes; the script as the repository holds it, without a key, stops.
 - Its secret half lives only in the repository's `Release` environment, which only `v*` tags may use. It is never on a developer's machine or in CI.
 
 **What is not trusted:** the mirror, its HTTPS certificate and `meta/<channel>`. A mirror can withhold a release or offer an old one; it cannot make a node install anything the key did not sign for that version, nor move it backwards or across channels.

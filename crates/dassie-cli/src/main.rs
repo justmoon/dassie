@@ -396,10 +396,12 @@ fn verify_install() -> ExitCode {
             return ExitCode::FAILURE;
         }
     }
-    // A build without the release key works, but cannot update itself.
     match update::release_key() {
         Ok(key) => println!("Updates are verified with release key {}.", key.id()),
-        Err(problem) => println!("Note: {problem}."),
+        Err(problem) => {
+            eprintln!("Error: {problem}");
+            return ExitCode::FAILURE;
+        }
     }
     println!("Success! Dassie appears to be installed correctly.");
     ExitCode::SUCCESS

@@ -83,8 +83,8 @@
           # feed's are in testdata/feed), the RPC contract dassie-node
           # generates its messages from, the test certificates two
           # in-process daemons peer with, minisign's signatures with the
-          # release test key, and the release's resources: its key, once
-          # made, the systemd units and install.sh. Of the proof servers'
+          # release test key, and the release's resources: its key, the
+          # systemd units and install.sh. Of the proof servers'
           # files only their xrpld configs, whose history a test holds
           # above the account's history bound, so that changing the rest
           # rebuilds nothing.

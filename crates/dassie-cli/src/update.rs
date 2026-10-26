@@ -486,11 +486,9 @@ pub fn locate() -> Result<Install, Problem> {
     })
 }
 
-/// The release key built in.
+/// The release key built in, which the build checked parses (`build.rs`).
 pub fn release_key() -> Result<PublicKey, Problem> {
-    let text =
-        RELEASE_KEY.ok_or("this binary trusts no release key, so it cannot verify an update")?;
-    PublicKey::parse(text).map_err(|e| format!("the built-in release key: {e}"))
+    PublicKey::parse(RELEASE_KEY).map_err(|e| format!("the built-in release key: {e}"))
 }
 
 /// Holds `<base>/.update.lock` for as long as it lives. `install.sh` takes

@@ -196,10 +196,6 @@ jobs:
             echo "::notice::No MINISIGN_SECRET_KEY: built, but neither signed nor published"
             exit 0
           fi
-          if [ ! -f resources/minisign.pub ]; then
-            echo "::error::resources/minisign.pub is missing: nothing would trust the signature"
-            exit 1
-          fi
           key="$RUNNER_TEMP/minisign.key"
           trap 'rm -f "$key"' EXIT
           (umask 077 && printf '%s\n' "$MINISIGN_SECRET_KEY" > "$key")
@@ -264,11 +260,9 @@ jobs:
           gcloud storage cp --cache-control="no-cache, max-age=0" \
             signed/meta/latest "gs://$BUCKET/meta/latest"
           # sh.dassie.land serves the installer.
-          if [ -f signed/install.sh ]; then
-            gcloud storage cp --cache-control="no-cache, max-age=0" \
-              --content-type="text/plain; charset=utf-8" \
-              signed/install.sh "gs://$BUCKET/install.sh"
-          fi
+          gcloud storage cp --cache-control="no-cache, max-age=0" \
+            --content-type="text/plain; charset=utf-8" \
+            signed/install.sh "gs://$BUCKET/install.sh"
           # get.dassie.land/flake/latest.tar.gz follows meta/latest, in the
           # mirror's URL map (scripts/flake-latest.ts). A run again does it
           # if this one failed, and nothing if it is done.
