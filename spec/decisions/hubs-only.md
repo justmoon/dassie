@@ -19,7 +19,7 @@
 - **Every hub two nodes share is a settlement method of their peering** ([settlement-methods](settlement-methods.md)). A node is in a hub once it has chosen it, whether or not it has an account there yet. A pair that shares no hub does not peer.
 - **One hub per asset per node.** A node is in at most one hub for each asset and underlying ledger, and may be in hubs of several assets.
 - **Members may be anywhere.** Only a hub's validators need to be close to each other. A node checks no distance before it joins a hub, and a member far from the validators books what it learns of too late, as the design has it.
-- **Joining by being paid.** A node with no account in a hub is paid into it by its peer, which opens its account with `pay` before it sends its first packet, whichever of them asked to peer, as [the design](../designs/settlement-hubs.md#5-joining) has it; a node need not deposit before it can peer. No starting credit stands in for the `pay`: outside a hold, no node extends credit.
+- **Joining by being paid.** A node with no account in a hub is paid into it by its peer, whichever of them asked to peer, as [the design](../designs/settlement-hubs.md#5-joining) has it; a node need not deposit before it can peer. Until then it takes its peer's packets on what the peer owes it, and spends only that, through the same peer. The peer opens its account with `pay` only once what it owes the node reaches the hub's minimum for a new account, and pays in no more than it owes. No node extends credit to a node without an account: outside a hold, the only credit is what the new member is owed until it is paid in.
 - **When a hub fails, its method becomes unavailable** on every peering over it. Nothing falls back to settling directly: a peering left with no method ends, as any does.
 - **Tests that are not about settlement** run on a stub with unlimited trust, which bounds room but never asks to settle and never settles. Tests of settlement run on the stub of a hub's member, or on hubs in the simulation.
 
@@ -27,7 +27,7 @@
 
 - **Liveness for safety.** A hub that stalls or shuts down cuts its members off from each other in its asset until they are in a working hub again, where direct settlement would have kept them paying, on credit.
 - **A node pays to be in a hub:** the account reserve, the hub's fees, and the underlying ledger's fees to move funds in and out. A node paid into a hub pays its reserve out of what it is paid.
-- **A node that pays a peer into a hub risks the hub's minimum for a new account,** which the peer may never earn back for it.
+- **A node paid into a hub risks what it is owed until then,** up to the hub's minimum for a new account, if its peer goes away first. The peer that pays it in risks nothing, and a node that cycles fresh keys through a peer pays each key's minimum itself, which it gets back only less the hub's fees.
 - **Every peering trusts validators.** A node trusts its hubs' validators with the balance it keeps there, and the default list of validators is the root of trust for every peering, not only for those that chose a hub.
 - **A member far from its hub's validators** loses packets it learned of too late more often, and pays for it itself.
 - **Tests that run on the unlimited stub** show nothing about settlement; settlement's guarantees rest on the hub's tests and simulations alone.
@@ -37,4 +37,5 @@
 - *Keeping direct settlement as a fallback when no hub is shared or a hub fails:* the unsecured credit the hubs remove would come back exactly when something has gone wrong, and with it the credit machinery and every test of it. A peering that pauses is preferred to one that can lose money: the owner gives up some liveness for safety.
 - *A distance check for members, a node's own round trip to the validators:* it would only keep a far node from paying the cost of its own slow legs, and with hubs only it would leave a node far from every hub with no one to settle with.
 - *Several hubs per asset at launch:* volume spreads thin, each deposit reaches fewer peers, a node splits its funds between hubs, and the limit per validator operator that it needs waits until running hubs show it is worth it.
-- *A starting credit until the `pay`, when the node without an account asked to peer:* unsecured credit, bounded only by the credit machinery this decision removes, for what one `pay` up front does.
+- *A starting credit until the `pay`, when the node without an account asked to peer:* unsecured credit, bounded only by the credit machinery this decision removes.
+- *A `pay` before the first packet, whatever is owed:* anyone could cycle fresh keys through a peer, have it pay each one the hub's minimum for a few drops' worth of packets, and `close` the accounts to take the minimum out, a drain on the peer at a near-zero cost per key.
