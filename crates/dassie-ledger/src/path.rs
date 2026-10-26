@@ -43,7 +43,7 @@ pub enum AccountName {
     /// The destination side of currency exchange.
     ExpensesFx,
     /// What a peering over a settlement hub cost beyond its hold
-    /// (spec/areas/hubs.md#the-members-side), in the owner's group.
+    /// (spec/areas/hubs.md#packets-promises-and-claims), in the owner's group.
     ExpensesLosses,
 }
 
