@@ -98,8 +98,8 @@ const _: () = assert!(
     "a stall fits between the bounds"
 );
 
-/// The consensus settings. [`Config::DEFAULT`] holds the derived values;
-/// the hub's rules may set others.
+/// The consensus settings. [`Config::DEFAULT`] holds the derived values,
+/// which every hub runs: its rules set no timing of consensus.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Config {
     /// Δ: the longest a message takes between two validators.
