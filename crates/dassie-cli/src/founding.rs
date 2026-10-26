@@ -4,10 +4,9 @@
 //! (spec/areas/hubs.md#payout-bundles), over the IPC socket.
 //!
 //! - `dassie hub found <node ID>@<host:port>... [--terms FILE]
-//!   [--escrow-funding XRP] [--xrpl URL] [--testnet-defaults]` founds a hub
-//!   with these validators, every one of which must accept. Without
-//!   `--terms` the terms are the starting ones (`--testnet-defaults` says
-//!   so); a file of JSON sets what differs.
+//!   [--escrow-funding XRP] [--xrpl URL]` founds a hub with these
+//!   validators, every one of which must accept. Without `--terms` the
+//!   terms are the starting ones; a file of JSON sets what differs.
 //! - `dassie hub foundings` shows each founding: which validators
 //!   accepted, signed and run the hub, and whether its escrow is set up
 //!   and checked; once fixed, the rules a member's scheme takes.
@@ -78,7 +77,6 @@ fn found_args(parser: &mut lexopt::Parser) -> Result<Command, lexopt::Error> {
                 funding_drops = Some(units / 1_000);
             }
             Long("xrpl") => xrpl = Some(parser.value()?.string()?),
-            Long("testnet-defaults") => {}
             Value(validator) => {
                 let validator = validator.string()?;
                 let (node, endpoint) = validator.split_once('@').ok_or_else(|| {
@@ -289,12 +287,7 @@ mod tests {
 
     #[test]
     fn the_command_line_names_validators_and_terms() {
-        let found = parse(&[
-            "found",
-            "dA@v1.example:443",
-            "dB@v2.example:443",
-            "--testnet-defaults",
-        ]);
+        let found = parse(&["found", "dA@v1.example:443", "dB@v2.example:443"]);
         assert_eq!(
             found.unwrap(),
             Command::Found {
@@ -326,6 +319,7 @@ mod tests {
         assert_eq!(funding_drops, Some(2_500_000));
         assert!(parse(&["found"]).is_err());
         assert!(parse(&["found", "nohost"]).is_err());
+        assert!(parse(&["found", "dA@v:1", "--testnet-defaults"]).is_err());
         assert_eq!(parse(&["foundings"]).unwrap(), Command::List);
         assert_eq!(parse(&["drop", "ab"]).unwrap(), Command::Drop("ab".into()));
         assert_eq!(parse(&["payout"]).unwrap(), Command::Payout);

@@ -6,7 +6,9 @@
 //!   link that completes setup, and `dassie pair` a code that pairs an owner
 //!   app, over the IPC socket too.
 //! - `dassie hub` shows the node's account in its settlement hub, and moves
-//!   the owner's funds between it and the node's XRP Ledger account.
+//!   the owner's funds between it and the node's XRP Ledger account;
+//!   `dassie hub found` founds a hub, and `dassie hub payout` shows its
+//!   payout bundles.
 //! - `dassie setup` sets the node up from its owner's passphrase, without
 //!   a browser, and adds settlement schemes.
 //! - `dassie update` installs a newer release from the mirror.
@@ -77,6 +79,22 @@ Commands:
                     or not.
   hub give-up       Give up a move the hub has not shown for long; the node
                     then moves nothing by itself until you act.
+  hub found <node ID>@<host:port>...
+                    Found a settlement hub with these validators, as its
+                    sponsor; every one of them must accept.
+                      --terms <file>            JSON of the terms that
+                                                differ from the starting
+                                                ones
+                      --escrow-funding <XRP>    what funds the escrow
+                      --xrpl <url>              the XRPL server to set the
+                                                escrow up on (default: the
+                                                XRP Ledger testnet scheme's)
+  hub foundings     Show each hub the node founds: which validators
+                    accepted, signed and run it, and its escrow.
+  hub drop <nonce>  Drop a founding.
+  hub payout        Show the payout bundles kept of the node's hub, and
+                    once a quorum signed one set, its transactions to
+                    submit.
   setup             Set the node up from its owner's passphrase, on the
                     node's own host, without a browser, and add the
                     settlement schemes it lacks. Running it again changes
