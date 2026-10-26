@@ -48,7 +48,7 @@ pub enum LedgerId {
     /// XRP in the node's settlement hub on the XRP Ledger testnet
     /// (spec/designs/settlement-hubs.md): a ledger of its own, since what
     /// the hub holds is a claim on its validators, not on the XRP Ledger.
-    HubXrpTestnetXrp,
+    HubXrplTestnetXrp,
 }
 
 impl LedgerId {
@@ -60,7 +60,7 @@ impl LedgerId {
         Self::XrplTestnetRlusdUsd,
         Self::XrplRlusdUsd,
         Self::XrplTestnetDsusdUsd,
-        Self::HubXrpTestnetXrp,
+        Self::HubXrplTestnetXrp,
     ];
 
     /// The ledger's name, for example `stub+usd`.
@@ -73,7 +73,7 @@ impl LedgerId {
             Self::XrplTestnetRlusdUsd => "xrpl-testnet-rlusd+usd",
             Self::XrplRlusdUsd => "xrpl-rlusd+usd",
             Self::XrplTestnetDsusdUsd => "xrpl-testnet-dsusd+usd",
-            Self::HubXrpTestnetXrp => "hub-xrp-testnet+xrp",
+            Self::HubXrplTestnetXrp => "hub-xrpl-testnet-xrp+xrp",
         }
     }
 
@@ -95,7 +95,7 @@ impl LedgerId {
                 code: "USD",
                 scale: 9,
             },
-            Self::XrplTestnetXrp | Self::XrplXrp | Self::HubXrpTestnetXrp => Asset {
+            Self::XrplTestnetXrp | Self::XrplXrp | Self::HubXrplTestnetXrp => Asset {
                 code: "XRP",
                 scale: 9,
             },
@@ -110,7 +110,7 @@ impl LedgerId {
             | Self::XrplTestnetXrp
             | Self::XrplTestnetRlusdUsd
             | Self::XrplTestnetDsusdUsd
-            | Self::HubXrpTestnetXrp => Realm::Test,
+            | Self::HubXrplTestnetXrp => Realm::Test,
             Self::XrplXrp | Self::XrplRlusdUsd => Realm::Live,
         }
     }

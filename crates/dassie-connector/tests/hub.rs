@@ -251,7 +251,7 @@ fn a_waiting_packet_can_still_be_failed() {
 fn transit_converts_into_and_out_of_a_hub_ledger() {
     use dassie_connector::RATE_PRECISION;
     use dassie_ledger::{AccountName, LedgerId};
-    const HUB: LedgerId = LedgerId::HubXrpTestnetXrp;
+    const HUB: LedgerId = LedgerId::HubXrplTestnetXrp;
     const DOLLAR_PEER: EndpointId = EndpointId::Peer(2);
     let dollar = 1_000_000_000;
     // A hundred dollars, and two hundred XRP in the hub, worth as much.

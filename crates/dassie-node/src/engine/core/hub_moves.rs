@@ -24,7 +24,7 @@ const HUB: Name = dassie_ledger::name!(dassie_hub::member::SCHEME_ID);
 /// on the testnet for the XRP hub.
 const fn owner_book_ledger(hub: LedgerId) -> Option<LedgerId> {
     match hub {
-        LedgerId::HubXrpTestnetXrp => Some(LedgerId::XrplTestnetXrp),
+        LedgerId::HubXrplTestnetXrp => Some(LedgerId::XrplTestnetXrp),
         _ => None,
     }
 }
@@ -305,7 +305,7 @@ impl Core {
             withdrawal_fees: fees.operation.saturating_add(fees.ledger),
             least_deposit: drops_up(self.settle.max_packet),
             xrpl: self.owner_book().and_then(|book| self.xrpl_spendable(book)),
-            hub_owner: self.owner_available(LedgerId::HubXrpTestnetXrp) / UNITS_PER_DROP,
+            hub_owner: self.owner_available(LedgerId::HubXrplTestnetXrp) / UNITS_PER_DROP,
             paying: self.paying(),
         })
     }

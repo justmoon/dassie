@@ -54,7 +54,7 @@ pub const SCHEMES: &[SchemeInfo] = &[
     SchemeInfo {
         id: dassie_hub::member::SCHEME_ID,
         name: "XRP in a settlement hub on the XRP Ledger Testnet",
-        ledger: LedgerId::HubXrpTestnetXrp,
+        ledger: LedgerId::HubXrplTestnetXrp,
     },
 ];
 

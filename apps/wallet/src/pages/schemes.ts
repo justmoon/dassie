@@ -8,7 +8,7 @@ const NAMES: Record<string, string> = {
   "xrpl-rlusd": "RLUSD on the XRP Ledger",
   "xrpl-testnet": "XRP Ledger Testnet",
   "xrpl-testnet-dsusd": "DSUSD on the XRP Ledger Testnet",
-  "hub-xrp-testnet": "XRP in a settlement hub on the XRP Ledger Testnet",
+  "hub-xrpl-testnet-xrp": "XRP in a settlement hub on the XRP Ledger Testnet",
 };
 
 const DESCRIPTIONS: Record<string, string> = {
@@ -22,7 +22,7 @@ const DESCRIPTIONS: Record<string, string> = {
     "Settles in test XRP on the XRP Ledger testnet. The testnet faucet funds the account; the ledger holds back a reserve.",
   "xrpl-testnet-dsusd":
     "Settles in test DSUSD, Dassie's testnet dollar token, on the XRP Ledger testnet, from the same account as XRP. The account pays its fees and its reserve in XRP, from the testnet faucet; DSUSD is bought with XRP on the testnet's XRP/DSUSD AMM pool, as there is no faucet for it. The node pauses it while that pool prices it off a dollar.",
-  "hub-xrp-testnet":
+  "hub-xrpl-testnet-xrp":
     "Settles in test XRP through the testnet's settlement hub, a ledger kept by a few validators and backed by an escrow on the XRP Ledger testnet, with peers in the same hub. It needs the XRP Ledger Testnet scheme: the node moves about 2.5 test XRP from that account into the hub at once (the hub account's 2 XRP reserve, and some to spend), and keeps its hub balance between a floor and a ceiling from there on.",
 };
 

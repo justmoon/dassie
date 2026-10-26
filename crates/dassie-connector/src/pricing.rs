@@ -903,7 +903,7 @@ mod tests {
     const XRP: LedgerId = LedgerId::XrplTestnetXrp;
     const RLUSD: LedgerId = LedgerId::XrplTestnetRlusdUsd;
     /// XRP in a settlement hub: a ledger of its own beside the XRP Ledger's.
-    const HUB: LedgerId = LedgerId::HubXrpTestnetXrp;
+    const HUB: LedgerId = LedgerId::HubXrplTestnetXrp;
     const DOLLAR: u64 = 1_000_000_000;
     const NOW: u64 = 1_000_000;
     const AGE: u64 = 3_600_000;

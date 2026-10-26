@@ -63,6 +63,7 @@ const MIGRATIONS: &[&str] = &[
     MIGRATION_39,
     MIGRATION_40,
     MIGRATION_41,
+    MIGRATION_42,
 ];
 
 /// The schema version this code writes: the number of migrations.
@@ -1276,6 +1277,56 @@ INSERT INTO downlink_accounts (ledger, node)
   FROM settlement_channels c JOIN ledger_accounts a
     ON substr(a.path, instr(a.path, ':') + 1) = 'assets/interledger/' || c.node
   WHERE c.url = '';
+";
+
+/// The testnet hub's scheme takes a name that says its ledger and its
+/// asset, `hub-xrpl-testnet-xrp`, and its ledger with it,
+/// `hub-xrpl-testnet-xrp+xrp` (spec/areas/hubs.md#the-members-side).
+/// Everything stored under the old names moves: the scheme, its
+/// checkpoint, the journal's references to it, the peerings and the
+/// settlements on their way over it, and the ledger's accounts, so the
+/// books keep their balances. The ledger's slug names its wallet address,
+/// so the payments and grants of the old wallet address follow it to the
+/// new one; a grant that would grow past its bound keeps the old address,
+/// and so no longer reaches the ledger. The receiver's address and secret
+/// move too, so credentials it issued before no longer pay
+/// (spec/areas/ledger.md#ledgers-and-amounts).
+const MIGRATION_42: &str = "
+UPDATE settlement_schemes SET id = 'hub-xrpl-testnet-xrp' WHERE id = 'hub-xrp-testnet';
+UPDATE settlement_checkpoints SET scheme = 'hub-xrpl-testnet-xrp' WHERE scheme = 'hub-xrp-testnet';
+UPDATE ledger_transfers SET settlement_scheme = 'hub-xrpl-testnet-xrp'
+  WHERE settlement_scheme = 'hub-xrp-testnet';
+UPDATE peers SET scheme = 'hub-xrpl-testnet-xrp' WHERE scheme = 'hub-xrp-testnet';
+UPDATE settlement_channels SET outbox_scheme = 'hub-xrpl-testnet-xrp'
+  WHERE outbox_scheme = 'hub-xrp-testnet';
+
+UPDATE ledger_accounts
+  SET path = 'hub-xrpl-testnet-xrp+xrp:' || substr(path, length('hub-xrp-testnet+xrp:') + 1)
+  WHERE substr(path, 1, length('hub-xrp-testnet+xrp:')) = 'hub-xrp-testnet+xrp:';
+UPDATE downlink_accounts SET ledger = 'hub-xrpl-testnet-xrp+xrp' WHERE ledger = 'hub-xrp-testnet+xrp';
+UPDATE btp_tokens SET ledger = 'hub-xrpl-testnet-xrp+xrp' WHERE ledger = 'hub-xrp-testnet+xrp';
+UPDATE payment_settings SET default_ledger = 'hub-xrpl-testnet-xrp+xrp'
+  WHERE default_ledger = 'hub-xrp-testnet+xrp';
+
+UPDATE incoming_payments SET ledger = 'hub-xrpl-testnet-xrp+xrp' WHERE ledger = 'hub-xrp-testnet+xrp';
+UPDATE quotes SET ledger = 'hub-xrpl-testnet-xrp+xrp' WHERE ledger = 'hub-xrp-testnet+xrp';
+UPDATE outgoing_payments SET ledger = 'hub-xrpl-testnet-xrp+xrp' WHERE ledger = 'hub-xrp-testnet+xrp';
+UPDATE incoming_payments
+  SET wallet_address = substr(wallet_address, 1, length(wallet_address) - length('hub-xrp-testnet'))
+    || 'hub-xrpl-testnet-xrp'
+  WHERE substr(wallet_address, -length('/pay/hub-xrp-testnet')) = '/pay/hub-xrp-testnet';
+UPDATE quotes
+  SET wallet_address = substr(wallet_address, 1, length(wallet_address) - length('hub-xrp-testnet'))
+    || 'hub-xrpl-testnet-xrp'
+  WHERE substr(wallet_address, -length('/pay/hub-xrp-testnet')) = '/pay/hub-xrp-testnet';
+UPDATE outgoing_payments
+  SET wallet_address = substr(wallet_address, 1, length(wallet_address) - length('hub-xrp-testnet'))
+    || 'hub-xrpl-testnet-xrp'
+  WHERE substr(wallet_address, -length('/pay/hub-xrp-testnet')) = '/pay/hub-xrp-testnet';
+UPDATE gnap_grants
+  SET access = replace(access, '/pay/hub-xrp-testnet\"', '/pay/hub-xrpl-testnet-xrp\"')
+  WHERE instr(access, '/pay/hub-xrp-testnet\"') > 0
+    AND length(replace(access, '/pay/hub-xrp-testnet\"', '/pay/hub-xrpl-testnet-xrp\"')) <= 16384;
 ";
 
 /// Columns that hold secrets: the database inspector never reads them.

@@ -804,7 +804,7 @@ mod tests {
     // the table's prices to and from it (spec/areas/rate-feed.md#what-a-feed-says).
     #[test]
     fn a_hub_ledger_is_named_as_any_other() {
-        const HUB: LedgerId = LedgerId::HubXrpTestnetXrp;
+        const HUB: LedgerId = LedgerId::HubXrplTestnetXrp;
         let mut rates = Rates::new(NOW);
         rates.set("USD", 10u128.pow(RATE_PRECISION));
         rates.set("XRP", 2 * 10u128.pow(RATE_PRECISION));

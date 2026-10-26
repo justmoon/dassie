@@ -120,7 +120,7 @@ export type HubFounding = Message<"dassie.ui.v1.HubFounding"> & {
 
   /**
    * The hub's rules in canonical OER, as hex, once fixed: what a member's
-   * `hub-xrp-testnet` scheme config and a validator's file name.
+   * `hub-xrpl-testnet-xrp` scheme config and a validator's file name.
    *
    * @generated from field: string rules = 4;
    */
