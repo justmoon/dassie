@@ -106,7 +106,7 @@ let
         pnpm.manifests
         ../tsconfig.base.json
         ../apps/website
-        ../packages/identity-wasm
+        ../packages/wasm
         ../packages/rpc
         ../packages/ui
         ../resources/minisign.pub
@@ -118,8 +118,9 @@ let
     ];
     buildPhase = ''
       export HOME=$TMPDIR
-      mkdir -p packages/identity-wasm/gen
-      cp -r ${identity-wasm}/web packages/identity-wasm/gen/
+      mkdir -p packages/wasm/gen
+      cp -r ${wasm-modules}/web packages/wasm/gen/
+      chmod -R u+w packages/wasm/gen
     ''
     + pnpm.install "apps/website"
     + ''
