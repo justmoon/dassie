@@ -167,7 +167,7 @@ The order makes a settlement reach the books exactly once, whatever crashes:
 
 1. **Check.** The node validates the pending transfer (Dr `assets/interledger/<peer>`, Cr `assets/settlement`) before it asks the scheme, so a refusal leaves nothing prepared behind.
 2. **Prepare.** The scheme prepares the settlement, for at most that amount.
-3. **Book.** The node books the durable pending transfer, keeps the peer's new scheme state, and checkpoints the scheme. Nothing is booked between the check and this step, so the books always take it: a refusal here is a broken invariant, which stops the engine. So a prepared settlement is never discarded.
+3. **Book.** The node books the durable pending transfer and checkpoints the scheme. Nothing is booked between the check and this step, so the books always take it: a refusal here is a broken invariant, which stops the engine. So a prepared settlement is never discarded.
 4. **Execute,** only once that transfer is on disk. A restart in between hands the scheme its pending settlements to reconcile.
 5. **Finalize.** Only a settlement that executed is posted and announced to the peer, in one batch, after any earlier announcement to that peer arrived.
 6. **Cancel.** A cancelled settlement is voided, and the node backs off settling with that peer, exponentially; a settlement posted to the peer ends the backoff.

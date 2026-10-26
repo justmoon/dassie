@@ -21,8 +21,7 @@
 
 use dassie_xrpl::UNITS_PER_DROP;
 use dassie_xrpl::amm::{self, SwapError};
-use dassie_xrpl::amount::{Amount, Currency, TokenAmount, TokenValue};
-use dassie_xrpl::keys::AccountId;
+use dassie_xrpl::amount::{Amount, IssuedAsset, TokenAmount, TokenValue};
 
 /// Ledger units per millionth of the token, as the token scheme books it.
 pub const UNITS_PER_MICRO: u64 = dassie_xrpl::token::UNITS_PER_MICRO;
@@ -158,15 +157,6 @@ impl Rates {
     }
 }
 
-/// The token: its currency and issuer.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Token {
-    /// Its currency.
-    pub currency: Currency,
-    /// Its issuer.
-    pub issuer: AccountId,
-}
-
 /// The pool of XRP and the token, as `amm_info` read it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Pool {
@@ -175,7 +165,7 @@ pub struct Pool {
     /// Its token.
     pub value: TokenValue,
     /// The token.
-    pub token: Token,
+    pub token: IssuedAsset,
     /// Its trading fee, in hundred-thousandths.
     pub trading_fee: u32,
 }
@@ -570,7 +560,7 @@ pub fn clears(debit: u64, back: u64, margin_ppm: u32) -> bool {
 /// `units` of `side`'s ledger as an amount on the XRP Ledger, rounded down
 /// to a drop or a millionth; `None` if the ledger cannot hold it.
 #[must_use]
-pub fn to_amount(side: Side, units: u64, token: Token) -> Option<Amount> {
+pub fn to_amount(side: Side, units: u64, token: IssuedAsset) -> Option<Amount> {
     match side {
         Side::Xrp => Some(Amount::Xrp(units / UNITS_PER_DROP)),
         Side::Token => {
@@ -617,13 +607,16 @@ fn to_units_up(amount: Amount) -> Option<u64> {
 
 #[cfg(test)]
 mod tests {
+    use dassie_xrpl::amount::Currency;
+    use dassie_xrpl::keys::AccountId;
+
     use super::*;
 
     /// A unit of the ledgers: 10^9 units.
     const ONE: u64 = 1_000_000_000;
 
-    fn token() -> Token {
-        Token {
+    fn token() -> IssuedAsset {
+        IssuedAsset {
             currency: Currency::parse("USD").unwrap(),
             issuer: AccountId([7; 20]),
         }

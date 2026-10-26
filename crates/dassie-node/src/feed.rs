@@ -746,9 +746,9 @@ mod tests {
     /// Dollars and XRP at 2 XRP a dollar, learned at `as_of_ms`, the owner
     /// holding `usd` and `xrp`, with a fee of 1000 ppm.
     fn table(usd: u64, xrp: u64, as_of_ms: u64) -> PriceTable {
-        let mut rates = Rates::new(as_of_ms);
-        rates.set("USD", 10u128.pow(RATE_PRECISION));
-        rates.set("XRP", 2 * 10u128.pow(RATE_PRECISION));
+        let mut rates = Rates::new();
+        rates.set_at("USD", 10u128.pow(RATE_PRECISION), as_of_ms);
+        rates.set_at("XRP", 2 * 10u128.pow(RATE_PRECISION), as_of_ms);
         let pricing = Pricing {
             charges: Charges {
                 fee_ppm: 1_000,
@@ -805,9 +805,9 @@ mod tests {
     #[test]
     fn a_hub_ledger_is_named_as_any_other() {
         const HUB: LedgerId = LedgerId::HubXrplTestnetXrp;
-        let mut rates = Rates::new(NOW);
-        rates.set("USD", 10u128.pow(RATE_PRECISION));
-        rates.set("XRP", 2 * 10u128.pow(RATE_PRECISION));
+        let mut rates = Rates::new();
+        rates.set_at("USD", 10u128.pow(RATE_PRECISION), NOW);
+        rates.set_at("XRP", 2 * 10u128.pow(RATE_PRECISION), NOW);
         let inventories = [
             held(HUB, 20_000_000_000),
             held(XRP, 30_000_000_000),
@@ -834,9 +834,9 @@ mod tests {
     // size, and their number its bound (spec/areas/rate-feed.md#bounds).
     #[test]
     fn a_feed_names_every_ledger_of_a_realm() {
-        let mut rates = Rates::new(NOW);
-        rates.set("USD", 10u128.pow(RATE_PRECISION));
-        rates.set("XRP", 2 * 10u128.pow(RATE_PRECISION));
+        let mut rates = Rates::new();
+        rates.set_at("USD", 10u128.pow(RATE_PRECISION), NOW);
+        rates.set_at("XRP", 2 * 10u128.pow(RATE_PRECISION), NOW);
         for realm in [Realm::Test, Realm::Live] {
             let inventories: Vec<Inventory> = LedgerId::ALL
                 .into_iter()

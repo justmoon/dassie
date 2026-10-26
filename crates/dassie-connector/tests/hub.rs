@@ -259,8 +259,10 @@ fn transit_converts_into_and_out_of_a_hub_ledger() {
     harness.fund(HUB, 200 * dollar);
     harness.open_books(LedgerId::StubUsd);
     harness.open_books(HUB);
-    harness.rates.set("USD", 10u128.pow(RATE_PRECISION));
-    harness.rates.set("XRP", 2 * 10u128.pow(RATE_PRECISION));
+    harness.rates.set_at("USD", 10u128.pow(RATE_PRECISION), NOW);
+    harness
+        .rates
+        .set_at("XRP", 2 * 10u128.pow(RATE_PRECISION), NOW);
     harness.add_peer_on(HUB, 3, "dxrp", TRUST, 0);
     let hub_peer = EndpointId::Peer(3);
     assert!(harness.connector.set_hub(hub_peer, true));

@@ -83,8 +83,3 @@ pub fn write_digest(writer: &mut Writer<'_>, digest: &Digest) {
 pub fn read_digest(reader: &mut Reader<'_>) -> Result<Digest, HubDecodeError> {
     Ok(Digest(*reader.read_array::<32>()?))
 }
-
-/// Reads a boolean that must be canonical.
-pub fn read_flag(reader: &mut Reader<'_>) -> Result<bool, HubDecodeError> {
-    Ok(reader.read_bool()?)
-}

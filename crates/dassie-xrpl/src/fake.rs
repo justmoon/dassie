@@ -54,6 +54,7 @@ use alloc::vec::Vec;
 
 use serde_json::{Value, json};
 
+use crate::amount::IssuedAsset;
 use crate::api::{SignerList, account_flags};
 use crate::codec::{
     Amount, Currency, Payment, Signing, Transact, Transaction, hash, multi_signed_fee,
@@ -76,7 +77,7 @@ pub enum Unsaved {
 pub use lies::Lie;
 pub use pools::{POOL_ACCOUNT_FLAGS, PoolState, pool_account};
 pub use proofs::MAX_STATE_PROOF_KEYS;
-pub use tokens::{ExactSum, Token};
+pub use tokens::{ExactSum, ripple_state};
 pub use validators::{
     DEFAULT_SEED, KeyedSignatures, LIST_SITE, MAINNET_SEED, VALIDATORS, publisher_key,
     with_publishers,
@@ -261,9 +262,9 @@ pub struct FakeLedger {
     issuers: BTreeSet<AccountId>,
     /// What each issuer's holders hold of each of its currencies, by
     /// what it minted less what came back to it, was clawed back or wiped.
-    supply: BTreeMap<Token, ExactSum>,
+    supply: BTreeMap<IssuedAsset, ExactSum>,
     /// The pools of XRP and a token, by the token.
-    pools: BTreeMap<Token, Pool>,
+    pools: BTreeMap<IssuedAsset, Pool>,
     /// Signer lists, by their owner.
     signer_lists: BTreeMap<AccountId, SignerList>,
     /// The last validated ledger.

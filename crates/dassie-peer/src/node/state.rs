@@ -318,17 +318,6 @@ impl PeerNode {
             .filter_map(|(id, entry)| entry.active_peering().map(|peering| (id, peering)))
     }
 
-    /// Keeps a scheme's new state for a peer (ACC-15).
-    pub fn set_scheme_state(&mut self, peer: &NodeId, state: Vec<u8>) {
-        if let Some(entry) = self.table.get_mut(peer)
-            && let PeerState::Peered(peering) | PeerState::Terminating(peering, _) = &mut entry.peer
-            && peering.state != state
-        {
-            peering.state = state;
-            self.dirty.insert(*peer);
-        }
-    }
-
     /// Notes what a settlement check found of the room our books give
     /// `peer`. A peer short, settling nothing, for longer than
     /// [`Config::advertise_short_grace_ms`](crate::Config) of checks at

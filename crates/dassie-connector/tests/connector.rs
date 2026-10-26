@@ -396,8 +396,8 @@ fn cross_ledger_packets_convert_through_the_fx_accounts() {
         ErrorCode::T00_INTERNAL_ERROR,
         "no rates"
     );
-    h.rates.set("USD", 10u128.pow(RATE_PRECISION));
-    h.rates.set("XRP", 2 * 10u128.pow(RATE_PRECISION));
+    h.rates.set_at("USD", 10u128.pow(RATE_PRECISION), NOW);
+    h.rates.set_at("XRP", 2 * 10u128.pow(RATE_PRECISION), NOW);
     let sent = forwarded(h.prepare(NOW, peer, 2, &packet));
     assert_eq!(decode_prepare(&h.buffer[..sent.length]).amount, 2_000);
     h.respond(NOW + 1, sent.to, sent.request_id, &fulfill([3; 32]))

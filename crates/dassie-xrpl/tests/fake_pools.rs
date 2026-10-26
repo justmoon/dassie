@@ -15,14 +15,14 @@
 
 use dassie_xrpl::amm::{self, TRADING_FEE_DENOMINATOR};
 use dassie_xrpl::amount::Asset;
+use dassie_xrpl::amount::IssuedAsset;
 use dassie_xrpl::api::{self, AmmInfo, TxRecord};
 use dassie_xrpl::codec::{
     Amount, Payment, SendMaxTerms, Signing, TF_SET_NO_RIPPLE, TokenAmount, TokenValue, Transact,
     TrustSet, sign_send_max,
 };
 use dassie_xrpl::fake::{
-    DSUSD_ISSUER, FEE_BASE, FakeLedger, POOL_ACCOUNT_FLAGS, PoolState, RESERVE_BASE, Token,
-    pool_account,
+    DSUSD_ISSUER, FEE_BASE, FakeLedger, POOL_ACCOUNT_FLAGS, PoolState, RESERVE_BASE, pool_account,
 };
 use dassie_xrpl::{AccountId, DROPS_PER_XRP, MAX_DROPS, Wallet, hex_upper};
 use proptest::prelude::*;
@@ -39,7 +39,7 @@ fn value(text: &str) -> TokenValue {
 }
 
 fn dsusd(text: &str) -> TokenAmount {
-    Token::DSUSD.amount(value(text))
+    IssuedAsset::DSUSD.amount(value(text))
 }
 
 fn wallet(seed: u8) -> Wallet {
@@ -105,7 +105,7 @@ fn holders(ledger: &mut FakeLedger, seeds: &[u8]) -> Vec<Wallet> {
         let sequence = sequence(ledger, wallet.account());
         let signed = TrustSet {
             account: wallet.account(),
-            limit: Token::DSUSD.amount(TokenValue::MAX),
+            limit: IssuedAsset::DSUSD.amount(TokenValue::MAX),
             fee: FEE_BASE,
             sequence,
             last_ledger_sequence: Some(ledger.ledger() + 10),
@@ -126,14 +126,14 @@ fn with_pool(seeds: &[u8]) -> (FakeLedger, Vec<Wallet>) {
     let mut ledger = FakeLedger::new();
     let wallets = holders(&mut ledger, seeds);
     ledger
-        .set_pool(Token::DSUSD, POOL_DROPS, value(POOL_DSUSD), POOL_FEE)
+        .set_pool(IssuedAsset::DSUSD, POOL_DROPS, value(POOL_DSUSD), POOL_FEE)
         .unwrap();
     close(&mut ledger);
     (ledger, wallets)
 }
 
 fn pool(ledger: &FakeLedger) -> PoolState {
-    ledger.pool(Token::DSUSD).unwrap()
+    ledger.pool(IssuedAsset::DSUSD).unwrap()
 }
 
 /// A Payment from `wallet` of `amount`, spending at most `send_max`,
@@ -180,7 +180,7 @@ fn price(ledger: &FakeLedger, out: Amount) -> Amount {
     let pool = pool(ledger);
     let (xrp, token) = (
         Amount::Xrp(pool.drops),
-        Amount::Token(Token::DSUSD.amount(pool.value)),
+        Amount::Token(IssuedAsset::DSUSD.amount(pool.value)),
     );
     let (pool_in, pool_out) = match out {
         Amount::Xrp(_) => (token, xrp),
@@ -192,7 +192,9 @@ fn price(ledger: &FakeLedger, out: Amount) -> Amount {
 /// What the fake charges `payer` for `out` now: the pool's price, and for
 /// DSUSD rounded to what both lines hold exactly.
 fn quote(ledger: &FakeLedger, payer: &Wallet, out: Amount) -> Amount {
-    let quoted = ledger.quote(payer.account(), Token::DSUSD, out).unwrap();
+    let quoted = ledger
+        .quote(payer.account(), IssuedAsset::DSUSD, out)
+        .unwrap();
     // Never below the pool's price, and the same in XRP.
     match (quoted, price(ledger, out)) {
         (Amount::Xrp(quoted), Amount::Xrp(price)) => assert_eq!(quoted, price),
@@ -220,7 +222,7 @@ fn amm_info(ledger: &mut FakeLedger, asset: Asset, asset2: Asset) -> Result<AmmI
 
 fn dsusd_asset() -> Asset {
     Asset::Token {
-        currency: Token::DSUSD.currency,
+        currency: IssuedAsset::DSUSD.currency,
         issuer: DSUSD_ISSUER,
     }
 }
@@ -233,11 +235,11 @@ fn the_issuer_sets_a_pool_that_amm_info_reads() {
         Err("actNotFound".into())
     );
     ledger
-        .set_pool(Token::DSUSD, POOL_DROPS, value(POOL_DSUSD), POOL_FEE)
+        .set_pool(IssuedAsset::DSUSD, POOL_DROPS, value(POOL_DSUSD), POOL_FEE)
         .unwrap();
     close(&mut ledger);
     let state = pool(&ledger);
-    assert_eq!(state.account, pool_account(Token::DSUSD));
+    assert_eq!(state.account, pool_account(IssuedAsset::DSUSD));
     assert_eq!(
         (state.drops, state.value, state.trading_fee),
         (POOL_DROPS, value(POOL_DSUSD), POOL_FEE)
@@ -274,7 +276,7 @@ fn the_issuer_sets_a_pool_that_amm_info_reads() {
     assert_eq!(api::amm_info_result(&by_account), Some(info));
     // Set again: more XRP, less DSUSD, another fee.
     ledger
-        .set_pool(Token::DSUSD, 2 * POOL_DROPS, value("250"), 0)
+        .set_pool(IssuedAsset::DSUSD, 2 * POOL_DROPS, value("250"), 0)
         .unwrap();
     close(&mut ledger);
     let info = amm_info(&mut ledger, Asset::Xrp, dsusd_asset()).unwrap();
@@ -286,24 +288,24 @@ fn the_issuer_sets_a_pool_that_amm_info_reads() {
 #[test]
 fn only_the_fakes_issuers_set_pools_the_ledger_could_hold() {
     let mut ledger = FakeLedger::new();
-    let stranger = Token {
+    let stranger = IssuedAsset {
         issuer: AccountId([9; 20]),
-        ..Token::DSUSD
+        ..IssuedAsset::DSUSD
     };
     assert_eq!(
         ledger.set_pool(stranger, 1, value("1"), 0),
         Err("terNO_ACCOUNT")
     );
     assert_eq!(
-        ledger.set_pool(Token::DSUSD, 0, value("1"), 0),
+        ledger.set_pool(IssuedAsset::DSUSD, 0, value("1"), 0),
         Err("temBAD_AMOUNT")
     );
     assert_eq!(
-        ledger.set_pool(Token::DSUSD, 1, value("-1"), 0),
+        ledger.set_pool(IssuedAsset::DSUSD, 1, value("-1"), 0),
         Err("temBAD_AMOUNT")
     );
     assert_eq!(
-        ledger.set_pool(Token::DSUSD, 1, value("1"), 1_001),
+        ledger.set_pool(IssuedAsset::DSUSD, 1, value("1"), 1_001),
         Err("temBAD_FEE")
     );
     assert_eq!(ledger.queued(), 0);
@@ -336,7 +338,7 @@ fn xrp_buys_the_token_across_the_pool() {
         Some(before - FEE_BASE - cost)
     );
     assert_eq!(
-        ledger.token_balance(seller.account(), Token::DSUSD),
+        ledger.token_balance(seller.account(), IssuedAsset::DSUSD),
         Some(value("10"))
     );
     let state = pool(&ledger);
@@ -351,14 +353,14 @@ fn xrp_buys_the_token_across_the_pool() {
     let pool_change = record.change_of(state.account).unwrap();
     assert_eq!(pool_change.after - pool_change.before, cost);
     let line = record
-        .line(seller.account(), DSUSD_ISSUER, Token::DSUSD.currency)
+        .line(seller.account(), DSUSD_ISSUER, IssuedAsset::DSUSD.currency)
         .unwrap();
     assert_eq!(
         line.balance_of(seller.account()),
         Some((TokenValue::ZERO, value("10")))
     );
     let pool_line = record
-        .line(state.account, DSUSD_ISSUER, Token::DSUSD.currency)
+        .line(state.account, DSUSD_ISSUER, IssuedAsset::DSUSD.currency)
         .unwrap();
     assert_eq!(
         pool_line.balance_of(state.account),
@@ -410,7 +412,7 @@ fn the_token_buys_xrp_across_the_pool() {
     assert_eq!(ledger.balance(nobody), Some(5 * DROPS_PER_XRP));
     let held = value("100").checked_sub(token_value(cost)).unwrap();
     assert_eq!(
-        ledger.token_balance(holder.account(), Token::DSUSD),
+        ledger.token_balance(holder.account(), IssuedAsset::DSUSD),
         Some(held)
     );
     let state = pool(&ledger);
@@ -438,7 +440,7 @@ fn a_send_max_that_cannot_cover_the_amount_fails_partial() {
     assert_eq!(ledger.balance(a.account()), Some(before.0 - FEE_BASE));
     assert_eq!(pool(&ledger), before.1);
     assert_eq!(
-        ledger.token_balance(b.account(), Token::DSUSD),
+        ledger.token_balance(b.account(), IssuedAsset::DSUSD),
         Some(TokenValue::ZERO)
     );
     // DSUSD for XRP: the least value short of the price.
@@ -450,7 +452,7 @@ fn a_send_max_that_cannot_cover_the_amount_fails_partial() {
         a,
         b.account(),
         out,
-        Amount::Token(Token::DSUSD.amount(less)),
+        Amount::Token(IssuedAsset::DSUSD.amount(less)),
     );
     assert_eq!(short.result, "tecPATH_PARTIAL");
     assert_eq!(pool(&ledger), before.1);
@@ -460,7 +462,7 @@ fn a_send_max_that_cannot_cover_the_amount_fails_partial() {
         a,
         b.account(),
         out,
-        Amount::Token(Token::DSUSD.amount(cost)),
+        Amount::Token(IssuedAsset::DSUSD.amount(cost)),
     );
     assert!(exact.succeeded(), "{}", exact.result);
 }
@@ -511,7 +513,9 @@ fn swaps_fail_as_the_ledger_fails_them() {
         result(swapped(&mut ledger, b, a.account(), xrp_out, max)),
         "tecPATH_DRY"
     );
-    ledger.freeze(a.account(), Token::DSUSD, true).unwrap();
+    ledger
+        .freeze(a.account(), IssuedAsset::DSUSD, true)
+        .unwrap();
     close(&mut ledger);
     assert_eq!(
         result(swapped(&mut ledger, a, b.account(), xrp_out, max)),
@@ -531,9 +535,9 @@ fn swaps_go_only_through_a_pool_and_never_into_it() {
     let xrp_out = Amount::Xrp(DROPS_PER_XRP);
     let max = Amount::Token(dsusd("10"));
     // Another token than the pool's: no path.
-    let other = Token {
+    let other = IssuedAsset {
         issuer: AccountId([0x42; 20]),
-        ..Token::DSUSD
+        ..IssuedAsset::DSUSD
     };
     ledger.add_issuer(other.issuer);
     let other_max = Amount::Token(other.amount(value("10")));
@@ -591,7 +595,7 @@ fn a_reset_takes_the_pools() {
     let (mut ledger, _) = with_pool(&[1]);
     let account = pool(&ledger).account;
     ledger.reset();
-    assert_eq!(ledger.pool(Token::DSUSD), None);
+    assert_eq!(ledger.pool(IssuedAsset::DSUSD), None);
     assert_eq!(ledger.balance(account), None);
     assert_eq!(ledger.total(), MAX_DROPS);
     assert!(ledger.tokens_conserved());
@@ -601,7 +605,7 @@ fn a_reset_takes_the_pools() {
     );
     // Made again, it has the same account.
     ledger
-        .set_pool(Token::DSUSD, POOL_DROPS, value(POOL_DSUSD), POOL_FEE)
+        .set_pool(IssuedAsset::DSUSD, POOL_DROPS, value(POOL_DSUSD), POOL_FEE)
         .unwrap();
     close(&mut ledger);
     assert_eq!(pool(&ledger).account, account);
@@ -620,7 +624,7 @@ fn kept_with_fee(
 ) -> bool {
     let denominator = u64::from(TRADING_FEE_DENOMINATOR);
     let effective = drops * denominator + paid_drops * (denominator - u64::from(fee));
-    let token = |value| Amount::Token(Token::DSUSD.amount(value));
+    let token = |value| Amount::Token(IssuedAsset::DSUSD.amount(value));
     amm::keeps_product(
         [Amount::Xrp(drops * denominator), token(before)],
         [Amount::Xrp(effective), token(after)],
@@ -661,7 +665,7 @@ proptest! {
         for op in ops {
             let before = pool(&ledger);
             let out = match op {
-                Op::Buy(micros) => Amount::Token(Token::DSUSD.amount(TokenValue::from_units(micros, 6).unwrap())),
+                Op::Buy(micros) => Amount::Token(IssuedAsset::DSUSD.amount(TokenValue::from_units(micros, 6).unwrap())),
                 Op::Sell(drops) => Amount::Xrp(drops),
             };
             let cost = quote(&ledger, a, out);
@@ -675,8 +679,8 @@ proptest! {
             }
             prop_assert_eq!(
                 amm::keeps_product(
-                    [Amount::Xrp(before.drops), Amount::Token(Token::DSUSD.amount(before.value))],
-                    [Amount::Xrp(after.drops), Amount::Token(Token::DSUSD.amount(after.value))],
+                    [Amount::Xrp(before.drops), Amount::Token(IssuedAsset::DSUSD.amount(before.value))],
+                    [Amount::Xrp(after.drops), Amount::Token(IssuedAsset::DSUSD.amount(after.value))],
                 ),
                 Some(true)
             );
@@ -688,7 +692,7 @@ proptest! {
                     // A drop less would not have bought it.
                     let less = amm::swap_out(
                         Amount::Xrp(before.drops),
-                        Amount::Token(Token::DSUSD.amount(before.value)),
+                        Amount::Token(IssuedAsset::DSUSD.amount(before.value)),
                         before.trading_fee,
                         Amount::Xrp(paid - 1),
                     ).unwrap();

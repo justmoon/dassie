@@ -909,9 +909,9 @@ mod tests {
     const AGE: u64 = 3_600_000;
 
     fn rates() -> Rates {
-        let mut rates = Rates::new(NOW);
-        rates.set("USD", 10u128.pow(RATE_PRECISION));
-        rates.set("XRP", 2 * 10u128.pow(RATE_PRECISION));
+        let mut rates = Rates::new();
+        rates.set_at("USD", 10u128.pow(RATE_PRECISION), NOW);
+        rates.set_at("XRP", 2 * 10u128.pow(RATE_PRECISION), NOW);
         rates
     }
 
@@ -1085,8 +1085,8 @@ mod tests {
         // An XRP worth 10^18 dollars: a dollar unit buys less than 10^-15
         // drops, and a drop more than 10^19 dollar units.
         let mut rates = rates();
-        rates.set("USD", 10u128.pow(18));
-        rates.set("XRP", 1);
+        rates.set_at("USD", 10u128.pow(18), NOW);
+        rates.set_at("XRP", 1, NOW);
         let inventories = [held(USD, DOLLAR), held(XRP, DOLLAR)];
         let table = PriceTable::build(&rates, &inventories, pricing(0, 0), NOW, AGE);
         let holdings = table.holdings();
@@ -1130,7 +1130,7 @@ mod tests {
         );
         // Dollars on two ledgers held alike convert one to one.
         assert_eq!(rate(&table, USD, RLUSD), RATE_ONE_E15);
-        let only = PriceTable::build(&Rates::new(0), &inventories, pricing(0, 0), NOW, AGE);
+        let only = PriceTable::build(&Rates::new(), &inventories, pricing(0, 0), NOW, AGE);
         assert!(only.price(USD, RLUSD).is_none());
     }
 
@@ -1273,8 +1273,8 @@ mod tests {
         assert!(rate(&short, XRP, HUB) < RATE_ONE_E15);
         assert_eq!(rate(&short, HUB, XRP), 1_050_000_000_000_000);
         // Without a rate for its currency, it is left out as any other.
-        let mut dollars = Rates::new(NOW);
-        dollars.set("USD", 10u128.pow(RATE_PRECISION));
+        let mut dollars = Rates::new();
+        dollars.set_at("USD", 10u128.pow(RATE_PRECISION), NOW);
         let hub = [held(USD, DOLLAR), held(HUB, DOLLAR)];
         let unrated = PriceTable::build(&dollars, &hub, k, NOW, AGE);
         assert!(unrated.ledger(HUB).is_none() && unrated.prices().count() == 0);
@@ -1419,9 +1419,9 @@ mod tests {
         ) {
             use num_bigint::BigUint;
             let ledgers = [USD, XRP, RLUSD, HUB];
-            let mut rates = Rates::new(NOW);
-            rates.set("USD", 10u128.pow(RATE_PRECISION));
-            rates.set("XRP", xrp_rate);
+            let mut rates = Rates::new();
+            rates.set_at("USD", 10u128.pow(RATE_PRECISION), NOW);
+            rates.set_at("XRP", xrp_rate, NOW);
             let inventories = ledgers
                 .iter()
                 .zip(amounts)

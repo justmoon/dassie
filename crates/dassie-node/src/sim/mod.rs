@@ -105,8 +105,9 @@ use dassie_settlement::policy;
 use dassie_stream::{AssetDetails, BUFFER_LENGTH, Config, Connection, Policy, Role};
 use dassie_xrpl::DROPS_PER_XRP;
 use dassie_xrpl::account::{Doubt, LEDGER_SILENCE_MS, Proofs, REQUEST_TIMEOUT_MS, STALL_MS};
+use dassie_xrpl::amount::IssuedAsset;
 use dassie_xrpl::codec::TokenValue;
-use dassie_xrpl::fake::{FAUCET_DROPS, FakeLedger, Lie, Token};
+use dassie_xrpl::fake::{FAUCET_DROPS, FakeLedger, Lie};
 use dassie_xrpl::network::{MAINNET, Network, TESTNET};
 
 use crate::engine::{
@@ -264,10 +265,10 @@ impl Settling {
 
     /// The ledger of the token some of its nodes settle in, and the token,
     /// which the fake ledger's issuer mints.
-    pub const fn token(self) -> Option<(LedgerId, Token)> {
+    pub const fn token(self) -> Option<(LedgerId, IssuedAsset)> {
         match self {
-            Self::Rlusd | Self::XrpRlusd => Some((RLUSD, Token::RLUSD)),
-            Self::XrpDsusd => Some((DSUSD, Token::DSUSD)),
+            Self::Rlusd | Self::XrpRlusd => Some((RLUSD, IssuedAsset::RLUSD)),
+            Self::XrpDsusd => Some((DSUSD, IssuedAsset::DSUSD)),
             Self::Stub
             | Self::StubHub(_)
             | Self::Xrpl
@@ -420,9 +421,9 @@ pub fn least_across(ledger: LedgerId, into: LedgerId, sent: u64) -> u64 {
     if ledger.asset().code == into.asset().code {
         return sent / 100 * 95;
     }
-    let mut rates = dassie_connector::Rates::new(START);
+    let mut rates = dassie_connector::Rates::new();
     for (code, rate) in RATES {
-        rates.set(code, rate);
+        rates.set_at(code, rate, START);
     }
     let held = |ledger, tenths| Inventory {
         ledger,
@@ -1806,12 +1807,12 @@ impl Sim {
 
     /// The token the run's issuer issues: its network's dollar unless the
     /// run is on another.
-    fn token(&self) -> Token {
+    fn token(&self) -> IssuedAsset {
         self.settling.token().map_or(
             if self.settling.network().faucet.is_some() {
-                Token::DSUSD
+                IssuedAsset::DSUSD
             } else {
-                Token::RLUSD
+                IssuedAsset::RLUSD
             },
             |(_, token)| token,
         )

@@ -84,7 +84,7 @@ impl Harness {
         let mut harness = Self {
             connector: Connector::new(config, OWN),
             ledger,
-            rates: Rates::new(NOW),
+            rates: Rates::new(),
             pricing: Pricing {
                 charges: Charges::NONE,
                 rebalance_ppm: DEFAULT_REBALANCE_PPM,

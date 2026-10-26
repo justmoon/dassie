@@ -160,9 +160,6 @@ pub struct PreparedSettlement {
     pub amount: u64,
     /// The proof or claim to send the peer with the settlement message.
     pub message: Vec<u8>,
-    /// The peer's new scheme state, if it changed. The node keeps it; the
-    /// original dropped it (ACC-15).
-    pub peer_state: Option<Vec<u8>>,
 }
 
 /// The most bytes of the memo an [`OwnerPayment`] carries.

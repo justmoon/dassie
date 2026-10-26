@@ -34,9 +34,9 @@ const AGE: u64 = 3_600_000;
 const MILLION: u32 = 1_000_000;
 
 fn rates(xrp_rate: u128) -> Rates {
-    let mut rates = Rates::new(NOW);
-    rates.set("USD", 10u128.pow(RATE_PRECISION));
-    rates.set("XRP", xrp_rate);
+    let mut rates = Rates::new();
+    rates.set_at("USD", 10u128.pow(RATE_PRECISION), NOW);
+    rates.set_at("XRP", xrp_rate, NOW);
     rates
 }
 

@@ -1154,7 +1154,6 @@ impl SettlementScheme for HubScheme {
             id,
             amount: drops * UNITS_PER_DROP,
             message: bytes.to_vec(),
-            peer_state: None,
         })
     }
 

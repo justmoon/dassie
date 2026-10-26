@@ -64,7 +64,8 @@ use dassie_settlement::{
 use rand_core::CryptoRng;
 use serde_json::{Value, json};
 
-use crate::account::{LineKey, News, Ours, Resumed, XrplAccount};
+use crate::account::{News, Ours, Resumed, XrplAccount};
+use crate::amount::IssuedAsset;
 use crate::amount::{Currency, TokenAmount, TokenValue};
 use crate::api::{AccountInfo, AccountSettings, LineView, TxRecord};
 use crate::codec::{Memo, TF_SET_NO_RIPPLE};
@@ -87,8 +88,6 @@ use crate::{from_hex, hex_upper};
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Token {
     /// The scheme's ID, which is also the slug of its ledger.
-    pub scheme_id: &'static str,
-    /// The scheme's ID as a name.
     pub scheme: Name,
     /// The memo that marks a settlement in it: its own, so a Payment is
     /// never read as a settlement of another XRPL scheme.
@@ -111,8 +110,8 @@ pub struct Token {
 impl Token {
     /// The line the scheme settles on.
     #[must_use]
-    pub const fn line(&self) -> LineKey {
-        LineKey {
+    pub const fn line(&self) -> IssuedAsset {
+        IssuedAsset {
             issuer: self.issuer,
             currency: self.currency,
         }
@@ -241,7 +240,6 @@ impl<T: IssuedToken> TokenScheme<T> {
         state: &[u8],
     ) -> Result<Self, SchemeError> {
         let token = T::TOKEN;
-        assert_eq!(token.scheme.as_str(), token.scheme_id, "the token's name");
         assert_eq!(token.ledger.asset().code, "USD", "a dollar token");
         assert_eq!(token.ledger.realm(), token.network.realm, "its realm");
         if account.network() != token.network {
@@ -1299,7 +1297,6 @@ impl<T: IssuedToken> SettlementScheme for TokenScheme<T> {
             id: hash_name(&hash),
             amount: micros * UNITS_PER_MICRO,
             message: hash.to_vec(),
-            peer_state: None,
         })
     }
 

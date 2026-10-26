@@ -7,8 +7,8 @@
 use dassie_ledger::LedgerId;
 
 use crate::DROPS_PER_XRP;
-use crate::account::LineKey;
 use crate::amount::Currency;
+use crate::amount::IssuedAsset;
 use crate::keys::AccountId;
 use crate::peg::Peg;
 use crate::token::{IssuedToken, Token, TokenScheme};
@@ -33,7 +33,6 @@ pub const CURRENCY: Currency = Currency([
 ]);
 /// DSUSD, as the token scheme settles in it.
 pub const TOKEN: Token = Token {
-    scheme_id: SCHEME_ID,
     scheme: dassie_ledger::name!(SCHEME_ID),
     memo_type: MEMO_TYPE,
     issuer: ISSUER,
@@ -50,7 +49,7 @@ pub const PEG: Peg = Peg {
     min_pool_drops: 100 * DROPS_PER_XRP,
 };
 /// The line the scheme settles on.
-pub const LINE: LineKey = TOKEN.line();
+pub const LINE: IssuedAsset = TOKEN.line();
 
 /// DSUSD, as a type.
 #[derive(Clone, Copy, Debug)]
@@ -95,16 +94,14 @@ mod tests {
         use crate::scheme::{MAINNET_XRP, OWNER_MEMO_TYPE, TESTNET_XRP, Xrp};
 
         struct Scheme {
-            id: &'static str,
             name: dassie_ledger::Name,
             memo_type: &'static [u8],
             ledger: LedgerId,
             network: &'static Network,
             /// The token's line, or `None` for the network's XRP.
-            line: Option<LineKey>,
+            line: Option<IssuedAsset>,
         }
         let xrp = |xrp: Xrp| Scheme {
-            id: xrp.scheme_id,
             name: xrp.scheme,
             memo_type: xrp.memo_type,
             ledger: xrp.ledger,
@@ -112,7 +109,6 @@ mod tests {
             line: None,
         };
         let token = |token: Token| Scheme {
-            id: token.scheme_id,
             name: token.scheme,
             memo_type: token.memo_type,
             ledger: token.ledger,
@@ -127,8 +123,7 @@ mod tests {
             token(TOKEN),
         ];
         for (index, scheme) in schemes.iter().enumerate() {
-            let id = scheme.id;
-            assert_eq!(scheme.name.as_str(), id);
+            let id = scheme.name.as_str();
             assert_eq!(scheme.ledger.realm(), scheme.network.realm, "{id}");
             let slug = scheme.ledger.as_str().split('+').next();
             assert_eq!(slug, Some(id), "the ledger's slug is the scheme's");
@@ -137,8 +132,8 @@ mod tests {
                 assert_eq!(scheme.ledger.asset().code, "USD", "{id}");
             }
             for other in schemes.iter().skip(index + 1) {
-                let pair = (id, other.id);
-                assert_ne!(id, other.id);
+                let pair = (id, other.name.as_str());
+                assert_ne!(scheme.name, other.name);
                 assert_ne!(scheme.memo_type, other.memo_type, "{pair:?}");
                 assert_ne!(scheme.ledger, other.ledger, "{pair:?}");
                 assert!(

@@ -49,8 +49,8 @@ fn harness_holding(two: LedgerId, charges: Charges, held: u64) -> Harness {
     h.connector
         .set_routes([("test.das.done", &[ONE][..]), ("test.das.dtwo", &[TWO][..])])
         .unwrap();
-    h.rates.set("USD", 10u128.pow(RATE_PRECISION));
-    h.rates.set("XRP", 2 * 10u128.pow(RATE_PRECISION));
+    h.rates.set_at("USD", 10u128.pow(RATE_PRECISION), NOW);
+    h.rates.set_at("XRP", 2 * 10u128.pow(RATE_PRECISION), NOW);
     h.pricing.charges = charges;
     h
 }
@@ -287,7 +287,7 @@ proptest! {
         let mut h = harness(XRP, charges);
         h.pricing.rebalance_ppm = rebalance_ppm;
         h.fund(USD, dollars);
-        h.rates.set("XRP", xrp_rate);
+        h.rates.set_at("XRP", xrp_rate, NOW);
         let table = h.prices(NOW);
         let price = table.price(USD, XRP).copied();
         let holdings = table.live_holdings(&h.ledger);

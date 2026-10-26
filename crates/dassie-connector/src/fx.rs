@@ -18,25 +18,14 @@ const MAX_RATES: usize = 64;
 /// that was learned.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Rates {
-    /// When [`set`](Self::set) says its rates were learned.
-    pub as_of_ms: u64,
     rates: Vec<(&'static str, u128, u64)>,
 }
 
 impl Rates {
-    /// An empty snapshot taken at `as_of_ms`.
+    /// An empty snapshot.
     #[must_use]
-    pub const fn new(as_of_ms: u64) -> Self {
-        Self {
-            as_of_ms,
-            rates: Vec::new(),
-        }
-    }
-
-    /// Sets the rate of `code`, as of [`as_of_ms`](Self::as_of_ms).
-    /// Returns false when the snapshot is full or the rate is zero.
-    pub fn set(&mut self, code: &'static str, rate: u128) -> bool {
-        self.set_at(code, rate, self.as_of_ms)
+    pub const fn new() -> Self {
+        Self { rates: Vec::new() }
     }
 
     /// Sets the rate of `code`, learned at `as_of_ms`. Returns false when
@@ -149,10 +138,10 @@ mod tests {
     };
 
     fn rates() -> Rates {
-        let mut rates = Rates::new(0);
+        let mut rates = Rates::new();
         // 1 USD buys 1 USD, and 2.5 XRP.
-        rates.set("USD", 10u128.pow(RATE_PRECISION));
-        rates.set("XRP", 25 * 10u128.pow(RATE_PRECISION - 1));
+        rates.set_at("USD", 10u128.pow(RATE_PRECISION), 0);
+        rates.set_at("XRP", 25 * 10u128.pow(RATE_PRECISION - 1), 0);
         rates
     }
 
@@ -177,14 +166,8 @@ mod tests {
             code: "USD",
             scale: 2,
         };
-        assert_eq!(
-            convert(&Rates::new(0), cents, USD, 123),
-            Some(1_230_000_000)
-        );
-        assert_eq!(
-            convert(&Rates::new(0), USD, cents, 1_239_999_999),
-            Some(123)
-        );
+        assert_eq!(convert(&Rates::new(), cents, USD, 123), Some(1_230_000_000));
+        assert_eq!(convert(&Rates::new(), USD, cents, 1_239_999_999), Some(123));
         let drops = Asset {
             code: "XRP",
             scale: 6,
@@ -224,6 +207,6 @@ mod tests {
             scale: 255,
         };
         assert_eq!(convert(&rates(), tiny, huge, u64::MAX), None);
-        assert!(!Rates::new(0).set("USD", 0));
+        assert!(!Rates::new().set_at("USD", 0, 0));
     }
 }

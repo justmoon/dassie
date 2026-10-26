@@ -11,8 +11,8 @@
 use dassie_ledger::LedgerId;
 
 use crate::DROPS_PER_XRP;
-use crate::account::LineKey;
 use crate::amount::Currency;
+use crate::amount::IssuedAsset;
 use crate::keys::AccountId;
 use crate::peg::Peg;
 use crate::token::{IssuedToken, Token, TokenScheme};
@@ -38,7 +38,6 @@ pub const CURRENCY: Currency = Currency([
 ]);
 /// RLUSD, as the token scheme settles in it.
 pub const TOKEN: Token = Token {
-    scheme_id: SCHEME_ID,
     scheme: dassie_ledger::name!(SCHEME_ID),
     memo_type: MEMO_TYPE,
     issuer: ISSUER,
@@ -55,7 +54,7 @@ pub const PEG: Peg = Peg {
     min_pool_drops: 100_000 * DROPS_PER_XRP,
 };
 /// The line the scheme settles on.
-pub const LINE: LineKey = TOKEN.line();
+pub const LINE: IssuedAsset = TOKEN.line();
 
 /// RLUSD on mainnet, as a type.
 #[derive(Clone, Copy, Debug)]
@@ -80,7 +79,6 @@ pub const TESTNET_ISSUER: AccountId = AccountId([
 /// Test RLUSD, as the disabled scheme settled in it: a value only, which no
 /// [`IssuedToken`] names.
 pub const TESTNET_TOKEN: Token = Token {
-    scheme_id: TESTNET_SCHEME_ID,
     scheme: dassie_ledger::name!(TESTNET_SCHEME_ID),
     memo_type: TESTNET_MEMO_TYPE,
     issuer: TESTNET_ISSUER,

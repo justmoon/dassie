@@ -254,22 +254,6 @@ impl Engine {
         }
     }
 
-    /// Takes in consecutive finalized blocks, the last with its
-    /// finalization: checked against the set of its height, and linked
-    /// to the others by their digests. Members and validators coming back
-    /// hand blocks in this way too.
-    pub fn take_certified(
-        &mut self,
-        now_ms: u64,
-        app: &mut dyn Application,
-        blocks: &[Block],
-        finalization: &Certificate,
-    ) {
-        self.advance(now_ms);
-        self.take_finalized(app, blocks, finalization);
-        self.progress(app);
-    }
-
     /// Moves the tip to `finalized`, a block above it whose state the host
     /// loaded (spec/designs/settlement-hubs.md#9-shutdown, "The state"),
     /// without the blocks between. The application learns no block below

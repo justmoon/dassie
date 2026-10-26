@@ -15,12 +15,13 @@
 
 use std::collections::BTreeMap;
 
+use dassie_xrpl::amount::IssuedAsset;
 use dassie_xrpl::api::{self, SignerList};
 use dassie_xrpl::codec::{
     Amount, Payment, SignerEntry, SignerListSet, Signing, TokenAmount, TokenValue, Transact,
     TrustSet,
 };
-use dassie_xrpl::fake::{FEE_BASE, FakeLedger, LIST_SITE, Lie, Token};
+use dassie_xrpl::fake::{FEE_BASE, FakeLedger, LIST_SITE, Lie};
 use dassie_xrpl::keys::{AccountId, Secp256k1Key};
 use dassie_xrpl::records::{
     account_key, account_root, line_key, ripple_state, signer_list, signer_list_key,
@@ -71,7 +72,7 @@ struct Scene {
     /// some.
     holder: AccountId,
     /// That dollar: DSUSD on the testnet, RLUSD on mainnet.
-    token: Token,
+    token: IssuedAsset,
     /// The holder's Payment into the escrow, and the ledger it applied in.
     payment: ([u8; 32], u32),
     /// A ledger before the escrow had its signer list.
@@ -84,9 +85,9 @@ struct Scene {
 /// for.
 fn scene(mut ledger: FakeLedger) -> Scene {
     let token = if ledger.network().resets() {
-        Token::DSUSD
+        IssuedAsset::DSUSD
     } else {
-        Token::RLUSD
+        IssuedAsset::RLUSD
     };
     let master = Wallet::from_seed([1; 16]);
     let holder = Wallet::from_seed([2; 16]);

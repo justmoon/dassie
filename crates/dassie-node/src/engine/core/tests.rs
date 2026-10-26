@@ -2972,8 +2972,9 @@ fn rlusd_beside_xrp_on_one_account() {
     use dassie_node_core::config::LiveRealm;
     use dassie_settlement::LedgerStatus;
     use dassie_xrpl::Wallet;
+    use dassie_xrpl::amount::IssuedAsset;
     use dassie_xrpl::codec::TokenValue;
-    use dassie_xrpl::fake::{FAUCET_DROPS, FEE_BASE, RESERVE_BASE, RESERVE_INC, Token};
+    use dassie_xrpl::fake::{FAUCET_DROPS, FEE_BASE, RESERVE_BASE, RESERVE_INC};
 
     let config = r#"{"server":"ws://ledger.test"}"#;
     let entropy = NodeKey::from_bytes(&[7; 32])
@@ -3036,7 +3037,7 @@ fn rlusd_beside_xrp_on_one_account() {
     ledger
         .issue(
             address,
-            Token::RLUSD.amount(TokenValue::parse("10").unwrap()),
+            IssuedAsset::RLUSD.amount(TokenValue::parse("10").unwrap()),
         )
         .unwrap();
     close_xrpl(&mut core, &mut ledger);
@@ -3053,7 +3054,9 @@ fn rlusd_beside_xrp_on_one_account() {
             .freeze
     };
     assert_eq!(freeze(&core), dassie_settlement::Freeze::default());
-    ledger.deep_freeze(address, Token::RLUSD, true).unwrap();
+    ledger
+        .deep_freeze(address, IssuedAsset::RLUSD, true)
+        .unwrap();
     close_xrpl(&mut core, &mut ledger);
     assert!(!advertised(&core), "advertised while it cannot receive");
     let frozen = freeze(&core);
@@ -3062,7 +3065,7 @@ fn rlusd_beside_xrp_on_one_account() {
         view(&core, LedgerId::XrplRlusdUsd).status,
         LedgerStatus::Synced
     );
-    ledger.freeze(address, Token::RLUSD, false).unwrap();
+    ledger.freeze(address, IssuedAsset::RLUSD, false).unwrap();
     close_xrpl(&mut core, &mut ledger);
     assert!(advertised(&core));
 
@@ -3093,8 +3096,9 @@ fn dsusd_beside_xrp_and_no_test_rlusd() {
     use dassie_ledger::{LedgerId, Reference};
     use dassie_settlement::LedgerStatus;
     use dassie_xrpl::Wallet;
+    use dassie_xrpl::amount::IssuedAsset;
     use dassie_xrpl::codec::TokenValue;
-    use dassie_xrpl::fake::{FAUCET_DROPS, FEE_BASE, RESERVE_BASE, RESERVE_INC, Token};
+    use dassie_xrpl::fake::{FAUCET_DROPS, FEE_BASE, RESERVE_BASE, RESERVE_INC};
 
     let config = r#"{"server":"ws://ledger.test","faucet":null}"#;
     let entropy = NodeKey::from_bytes(&[7; 32])
@@ -3160,7 +3164,7 @@ fn dsusd_beside_xrp_and_no_test_rlusd() {
     ledger
         .issue(
             address,
-            Token::DSUSD.amount(TokenValue::parse("10").unwrap()),
+            IssuedAsset::DSUSD.amount(TokenValue::parse("10").unwrap()),
         )
         .unwrap();
     close_xrpl(&mut core, &mut ledger);
@@ -3188,8 +3192,9 @@ fn rlusd_off_its_peg_converts_nothing() {
     use dassie_ledger::LedgerId;
     use dassie_node_core::config::LiveRealm;
     use dassie_settlement::PegPause;
+    use dassie_xrpl::amount::IssuedAsset;
     use dassie_xrpl::codec::TokenValue;
-    use dassie_xrpl::fake::{FAUCET_DROPS, FakeLedger, Token};
+    use dassie_xrpl::fake::{FAUCET_DROPS, FakeLedger};
     use dassie_xrpl::peg::{RECOVER_HOLD_MS, TRIP_HOLD_MS};
     use dassie_xrpl::{DROPS_PER_XRP, Wallet};
 
@@ -3213,14 +3218,16 @@ fn rlusd_off_its_peg_converts_nothing() {
     assert_eq!(core.rate_currencies(), ["USD", "XRP"]);
     let token = |text: &str| TokenValue::parse(text).unwrap();
     ledger
-        .issue(address, Token::RLUSD.amount(token("10")))
+        .issue(address, IssuedAsset::RLUSD.amount(token("10")))
         .unwrap();
     // A dollar buys two XRP: a pool of 200,000 XRP and 100,000 RLUSD
     // prices RLUSD at a dollar.
     let pool = |ledger: &mut FakeLedger, xrp: u64| {
         let drops = xrp * DROPS_PER_XRP;
         let value = token("100000");
-        ledger.set_pool(Token::RLUSD, drops, value, 205).unwrap();
+        ledger
+            .set_pool(IssuedAsset::RLUSD, drops, value, 205)
+            .unwrap();
     };
     pool(&mut ledger, 200_000);
     let one = 10_u128.pow(dassie_connector::RATE_PRECISION);
@@ -3295,7 +3302,7 @@ fn rlusd_off_its_peg_converts_nothing() {
     assert!(told(&events, true));
     // What arrives is still booked.
     ledger
-        .issue(address, Token::RLUSD.amount(token("1")))
+        .issue(address, IssuedAsset::RLUSD.amount(token("1")))
         .unwrap();
     minutes(&mut core, &mut ledger, 1);
     let view = core
@@ -3338,8 +3345,9 @@ fn on_dev_timers_the_peg_guard_trips_in_seconds() {
     use dassie_ledger::LedgerId;
     use dassie_node_core::config::LiveRealm;
     use dassie_settlement::PegPause;
+    use dassie_xrpl::amount::IssuedAsset;
     use dassie_xrpl::codec::TokenValue;
-    use dassie_xrpl::fake::{FAUCET_DROPS, FakeLedger, Token};
+    use dassie_xrpl::fake::{FAUCET_DROPS, FakeLedger};
     use dassie_xrpl::peg::Timings;
     use dassie_xrpl::{DROPS_PER_XRP, Wallet};
 
@@ -3361,7 +3369,9 @@ fn on_dev_timers_the_peg_guard_trips_in_seconds() {
     // 200,000 XRP for 100,000 RLUSD at two XRP to the dollar: a dollar.
     let pool = |ledger: &mut FakeLedger, xrp: u64| {
         let drops = xrp * DROPS_PER_XRP;
-        ledger.set_pool(Token::RLUSD, drops, value, 205).unwrap();
+        ledger
+            .set_pool(IssuedAsset::RLUSD, drops, value, 205)
+            .unwrap();
     };
     pool(&mut ledger, 200_000);
     let one = 10_u128.pow(dassie_connector::RATE_PRECISION);
@@ -3582,8 +3592,9 @@ fn rlusd_core_on(store: Arc<Store>, ledger: &mut dassie_xrpl::fake::FakeLedger, 
     use dassie_ledger::Name;
     use dassie_settlement::LedgerStatus;
     use dassie_xrpl::Wallet;
+    use dassie_xrpl::amount::IssuedAsset;
     use dassie_xrpl::codec::TokenValue;
-    use dassie_xrpl::fake::{FAUCET_DROPS, Token};
+    use dassie_xrpl::fake::FAUCET_DROPS;
 
     let address = Wallet::from_entropy(
         NodeKey::from_bytes(&[7; 32])
@@ -3604,7 +3615,7 @@ fn rlusd_core_on(store: Arc<Store>, ledger: &mut dassie_xrpl::fake::FakeLedger, 
     ledger
         .issue(
             address,
-            Token::RLUSD.amount(TokenValue::parse("10").unwrap()),
+            IssuedAsset::RLUSD.amount(TokenValue::parse("10").unwrap()),
         )
         .unwrap();
     close_xrpl(&mut core, ledger);

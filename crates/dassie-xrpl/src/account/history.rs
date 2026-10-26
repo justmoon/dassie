@@ -55,10 +55,10 @@ use serde_json::Value;
 
 use super::anchors::{HISTORY, NO_PROOFS, REFUSED};
 use super::{
-    Doubt, LineKey, MAX_ACCOUNT_DROPS, MAX_IN_FLIGHT, MAX_LIST_ASKS, MAX_LISTS, MAX_SCHEMES, News,
-    Phase, Request, TOO_MUCH_XRP, XrplAccount,
+    Doubt, MAX_ACCOUNT_DROPS, MAX_IN_FLIGHT, MAX_LIST_ASKS, MAX_LISTS, MAX_SCHEMES, News, Phase,
+    Request, TOO_MUCH_XRP, XrplAccount,
 };
-use crate::amount::TokenValue;
+use crate::amount::{IssuedAsset, TokenValue};
 use crate::anchor::{
     LedgerProof, ProvenState, ProvenTx, ledger_proof, prove_state, prove_transaction,
 };
@@ -132,7 +132,7 @@ pub(super) struct View {
     /// The account's root; none if it does not exist.
     root: Option<Root>,
     /// Each line its schemes follow that the round proved.
-    lines: BTreeMap<LineKey, Option<TrustLine>>,
+    lines: BTreeMap<IssuedAsset, Option<TrustLine>>,
     /// The root's key and each line's, with the transaction that last
     /// changed each.
     threads: BTreeMap<[u8; 32], Option<Thread>>,
@@ -141,7 +141,7 @@ pub(super) struct View {
     issuers: BTreeMap<AccountId, Option<AccountSettings>>,
     /// The fee settings, which every ledger holds.
     fees: Fees,
-    pools: BTreeMap<LineKey, PoolSeen>,
+    pools: BTreeMap<IssuedAsset, PoolSeen>,
 }
 
 /// A proven transaction, kept until it is told.
@@ -397,7 +397,7 @@ impl XrplAccount {
         &self,
         anchor: Anchor,
         proven: &ProvenState,
-    ) -> Result<BTreeMap<LineKey, PoolSeen>, Doubt> {
+    ) -> Result<BTreeMap<IssuedAsset, PoolSeen>, Doubt> {
         let unreadable = |_| Doubt::Unreadable;
         let mut pools = BTreeMap::new();
         for (key, watch) in &self.pools {
@@ -448,7 +448,11 @@ impl XrplAccount {
 /// What the pool's `account` holds of the token of `key` on `line`, the
 /// line its key names: one between other accounts, or in another
 /// currency, is not what the key holds, as for the account's own lines.
-fn pool_tokens(line: &TrustLine, account: AccountId, key: &LineKey) -> Result<TokenValue, Doubt> {
+fn pool_tokens(
+    line: &TrustLine,
+    account: AccountId,
+    key: &IssuedAsset,
+) -> Result<TokenValue, Doubt> {
     if !line.is_between(account, key.issuer, key.currency) {
         return Err(Doubt::Unreadable);
     }
@@ -823,7 +827,7 @@ impl XrplAccount {
 
     /// The pools the schemes asked for, as an anchor proves them in
     /// `pools`; a pool whose account it proved only by name is read again.
-    fn tell_pools(&mut self, pools: &BTreeMap<LineKey, PoolSeen>) {
+    fn tell_pools(&mut self, pools: &BTreeMap<IssuedAsset, PoolSeen>) {
         for (key, seen) in pools {
             let Some(watch) = self.pools.get_mut(key) else {
                 continue;

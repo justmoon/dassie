@@ -673,7 +673,6 @@ impl SettlementScheme for Stub {
             id,
             amount,
             message: Vec::new(),
-            peer_state: None,
         })
     }
 
