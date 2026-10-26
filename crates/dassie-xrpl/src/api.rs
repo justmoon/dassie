@@ -753,6 +753,23 @@ fn trust_line(fields: &Value, created: bool) -> Option<TrustLine> {
     })
 }
 
+/// Whether neither side of a trust line set a quality: each is absent,
+/// or the ledger's par of 0 or a billion, as a `TrustSet` clears one.
+fn at_par(line: &Value) -> bool {
+    const PAR: u64 = 1_000_000_000;
+    [
+        "LowQualityIn",
+        "LowQualityOut",
+        "HighQualityIn",
+        "HighQualityOut",
+    ]
+    .iter()
+    .all(|field| {
+        line.get(*field)
+            .is_none_or(|quality| quality.as_u64().is_some_and(|q| q == 0 || q == PAR))
+    })
+}
+
 /// The trust lines a transaction changed, from its metadata. A line whose
 /// fields cannot be read is left out, as an account's are.
 fn line_changes(meta: &Value) -> Vec<LineChange> {
@@ -1002,14 +1019,19 @@ pub struct SignerList {
 }
 
 /// What an account owns, as of a validated ledger, from `account_objects`:
-/// its signer list, and how many other objects.
+/// its signer list, how many other objects, and the trust lines among them.
 #[derive(Clone, Debug, PartialEq)]
 pub struct AccountObjects {
     /// Its signer list, if it has one.
     pub signer_list: Option<SignerList>,
-    /// How many objects of other kinds it owns on this page, such as trust
-    /// lines.
+    /// How many objects of other kinds it owns on this page, trust lines
+    /// included.
     pub others: usize,
+    /// The trust lines among them whose fields read as the ledger writes a
+    /// line, at par on both sides: one that does not read, or that values
+    /// what it pays or takes at a quality of either side's
+    /// (`LowQualityIn` and the like), is counted in `others` alone.
+    pub lines: Vec<TrustLine>,
     /// Where the next page starts, if there is one.
     pub marker: Option<Value>,
     /// The ledger this is as of.
@@ -1029,19 +1051,30 @@ pub fn account_objects_result(result: &Value) -> Option<AccountObjects> {
     }
     let mut signer_list = None;
     let mut others = 0_usize;
+    let mut lines = Vec::new();
     for object in objects {
-        if object.get("LedgerEntryType").and_then(Value::as_str) == Some("SignerList") {
-            if signer_list.is_some() {
-                return None;
+        match object.get("LedgerEntryType").and_then(Value::as_str) {
+            Some("SignerList") => {
+                if signer_list.is_some() {
+                    return None;
+                }
+                signer_list = Some(signer_list_fields(object)?);
             }
-            signer_list = Some(signer_list_fields(object)?);
-        } else {
-            others = others.saturating_add(1);
+            kind => {
+                others = others.saturating_add(1);
+                if kind == Some("RippleState")
+                    && at_par(object)
+                    && let Some(line) = trust_line(object, false)
+                {
+                    lines.push(line);
+                }
+            }
         }
     }
     Some(AccountObjects {
         signer_list,
         others,
+        lines,
         marker: result
             .get("marker")
             .filter(|marker| !marker.is_null())
@@ -1692,6 +1725,44 @@ mod tests {
             "ledger_index": 900,
             "validated": true,
         })
+    }
+
+    // A trust line among an account's objects is read as a line only at
+    // par on both sides; one with a quality counts among the others alone.
+    #[test]
+    fn an_objects_line_is_read_only_at_par() {
+        let (a, b) = (AccountId([1; 20]), AccountId([2; 20]));
+        let limit = |account: AccountId| json!({ "currency": "USD", "issuer": account.to_address(), "value": "100" });
+        let result = |quality: Option<(&str, u64)>| {
+            let mut line = json!({
+                "LedgerEntryType": "RippleState",
+                "Balance": { "currency": "USD", "issuer": "rrrrrrrrrrrrrrrrrrrrBZbvji", "value": "5" },
+                "Flags": 0x0010_0000,
+                "LowLimit": limit(a),
+                "HighLimit": limit(b),
+            });
+            if let Some((field, value)) = quality {
+                line[field] = json!(value);
+            }
+            json!({ "account_objects": [line], "ledger_index": 900, "validated": true })
+        };
+        let read = |quality| account_objects_result(&result(quality)).unwrap();
+        let par = read(None);
+        assert_eq!((par.others, par.lines.len()), (1, 1));
+        assert_eq!((par.lines[0].low, par.lines[0].high), (a, b));
+        assert!(par.lines[0].low_flags().no_ripple);
+        for value in [0, 1_000_000_000] {
+            assert_eq!(read(Some(("LowQualityIn", value))).lines.len(), 1);
+        }
+        for field in [
+            "LowQualityIn",
+            "LowQualityOut",
+            "HighQualityIn",
+            "HighQualityOut",
+        ] {
+            let skewed = read(Some((field, 990_000_000)));
+            assert_eq!((skewed.others, skewed.lines.len()), (1, 0), "{field}");
+        }
     }
 
     #[test]

@@ -143,6 +143,9 @@ fn decode_rules(hex: &str) -> Result<dassie_hub::Rules, SchemeError> {
 /// own XRPL testnet account. A hub whose legs between members do not fit
 /// in the connector's message window is not joined: it is too far apart
 /// for a peering over it (spec/designs/settlement-hubs.md#4-peering-over-a-hub).
+/// Nor is a token hub: this scheme funds its account in XRP, which a token
+/// hub's escrow takes as gas, never as a deposit
+/// (spec/areas/hubs.md#the-escrow).
 fn create_hub_account(
     id: AssetId,
     config: &str,
@@ -150,6 +153,9 @@ fn create_hub_account(
     (key, window_ms): (&NodeKey, u64),
 ) -> Result<Box<dyn ExternalAsset>, SchemeError> {
     let rules = hub_rules(config)?;
+    if rules.terms.asset != dassie_hub::rules::Asset::Xrp {
+        return Err(SchemeError::InvalidConfig);
+    }
     let timers = &rules.terms.timers;
     if timers.margin.saturating_add(timers.allowance) > window_ms {
         return Err(SchemeError::InvalidConfig);
@@ -1105,6 +1111,38 @@ mod tests {
             total: 1,
         });
         assert_eq!(event.severity(), super::super::Severity::Warn);
+    }
+
+    // spec/areas/hubs.md#the-escrow: the hub scheme funds its account in
+    // XRP, so it joins an XRP hub and never a token hub, whose escrow takes
+    // XRP as gas.
+    #[test]
+    fn the_hub_scheme_joins_no_token_hub() {
+        use dassie_hub::rules::{Asset, LEAST_TOKEN_GAS_DROPS};
+        use dassie_oer::Encode;
+
+        let key = NodeKey::from_bytes(&[7; 32]);
+        let id = dassie_hub::member::FIRST;
+        let window = u64::MAX;
+        assert!(create_hub_account(id, "", &[], (&key, window)).is_ok());
+        let mut rules = hub_rules("").unwrap();
+        rules.terms.asset = Asset::Token {
+            currency: dassie_xrpl::dsusd::CURRENCY,
+            issuer: dassie_xrpl::dsusd::ISSUER,
+        };
+        rules.terms.fees.gas = LEAST_TOKEN_GAS_DROPS;
+        rules.terms.fees.ledger = 0;
+        let hex: String = rules
+            .to_vec()
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect();
+        let config = serde_json::json!({ "rules": hex }).to_string();
+        assert_eq!(hub_rules(&config).unwrap(), rules, "the rules decode");
+        assert!(matches!(
+            create_hub_account(id, &config, &[], (&key, window)),
+            Err(SchemeError::InvalidConfig)
+        ));
     }
 
     // A node offers only its realm's schemes.

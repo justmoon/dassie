@@ -77,9 +77,11 @@ pub fn starting_terms(
         sponsor,
         network,
         escrow,
+        asset: crate::rules::Asset::Xrp,
         fees: Fees {
             operation: 10,
             ledger: 20 * (signers + 1),
+            gas: 0,
             reserve_share_ppm: 100_000,
             account_reserve: 2_000_000,
             hold_reserve: 200_000,

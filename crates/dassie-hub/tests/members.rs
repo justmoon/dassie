@@ -65,9 +65,11 @@ fn terms(sponsor: &NodeKey, escrow: [u8; 20]) -> Terms {
         sponsor: sponsor.public_key(),
         network: 1,
         escrow,
+        asset: dassie_hub::rules::Asset::Xrp,
         fees: Fees {
             operation: FEE,
             ledger: 100,
+            gas: 0,
             reserve_share_ppm: 100_000,
             account_reserve: ACCOUNT_RESERVE,
             hold_reserve: HOLD_RESERVE,
