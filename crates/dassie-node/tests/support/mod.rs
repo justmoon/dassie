@@ -569,6 +569,13 @@ pub fn setup_body(token: &str, key: &dassie_identity::NodeKey) -> String {
     )
 }
 
+/// The same, asking for `realm`.
+pub fn setup_body_in(token: &str, key: &dassie_identity::NodeKey, realm: &str) -> String {
+    let body = setup_body(token, key);
+    let open = body.strip_suffix('}').unwrap();
+    format!(r#"{open},"realm":"{realm}"}}"#)
+}
+
 pub fn login_body(key: &dassie_identity::NodeKey) -> String {
     let proof = dassie_node_core::hex::encode(key.login_secret().as_bytes());
     format!(r#"{{"loginAuthorizationSignature":"{proof}"}}"#)

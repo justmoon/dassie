@@ -4,6 +4,7 @@ use std::fmt;
 use std::sync::Arc;
 
 use dassie_kit::ClientKey;
+use dassie_node_core::config::{ConfigError, Realm};
 use dassie_node_core::session::{
     self, SessionCheck, SessionId, SessionTimes, SessionToken, clean_user_agent,
 };
@@ -31,6 +32,8 @@ pub enum AuthError {
     NotSetUp,
     /// The setup request was wrong.
     Setup(SetupError),
+    /// The setup asked for a realm the node may not run.
+    Realm(ConfigError),
     /// The login proof was wrong.
     InvalidLogin,
     /// Too many attempts; try again after this many ms.
@@ -45,6 +48,7 @@ impl fmt::Display for AuthError {
             Self::AlreadySetUp => f.write_str("Node is already set up"),
             Self::NotSetUp => f.write_str("Node is not set up yet"),
             Self::Setup(error) => error.fmt(f),
+            Self::Realm(error) => error.fmt(f),
             Self::InvalidLogin => f.write_str("Invalid login authorization signature"),
             Self::RateLimited(_) => f.write_str("Too many attempts, try again later"),
             Self::Store(error) => error.fmt(f),
@@ -70,10 +74,14 @@ pub struct SessionView {
 }
 
 impl Node {
-    /// Claims the node with the key in `request`, and logs the browser in.
+    /// Claims the node with the key in `request`, in `realm`, and logs the
+    /// browser in. The realm is fixed here, with the key, and never changes
+    /// after (spec/decisions/mainnet-schemes.md); `live` is refused but by
+    /// the dev switch.
     pub fn setup(
         &self,
         request: &SetupRequest<'_>,
+        realm: Realm,
         client: ClientKey,
         user_agent: &str,
     ) -> Result<NewSession, AuthError> {
@@ -82,8 +90,19 @@ impl Node {
             return Err(AuthError::AlreadySetUp);
         }
         let key = setup::verify_setup(&self.setup_token, request).map_err(AuthError::Setup)?;
-        if !self.store.set_node_key_once(&key, self.now_ms())? {
-            return Err(AuthError::AlreadySetUp);
+        let realm = realm
+            .check_settable(self.live_realm())
+            .map_err(AuthError::Realm)?;
+        {
+            // Under the config's writer, so that no other change writes
+            // back the realm from before.
+            let _writer = lock(&self.config_writer);
+            if !self.store.set_node_key_once(&key, realm, self.now_ms())? {
+                return Err(AuthError::AlreadySetUp);
+            }
+            let mut config = self.config();
+            config.realm = realm;
+            self.config.send_replace(config);
         }
         tracing::info!(target: target::AUTH, node_id = %key.node_id(), "node identity set up");
         self.node_key.send_replace(Some(Arc::new(key)));

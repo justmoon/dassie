@@ -376,15 +376,26 @@ impl Store {
     }
 
     /// Stores the node key unless one is stored already, and says whether it
-    /// did. Two setups racing each other cannot both win. The setup token
-    /// goes with it: setup is done.
-    pub fn set_node_key_once(&self, key: &NodeKey, now_ms: u64) -> Result<bool, StoreError> {
+    /// did, with the node's realm in the same write. Two setups racing each
+    /// other cannot both win. The setup token goes with it: setup is done.
+    pub fn set_node_key_once(
+        &self,
+        key: &NodeKey,
+        realm: Realm,
+        now_ms: u64,
+    ) -> Result<bool, StoreError> {
         let mut connection = self.lock();
         let transaction = connection.transaction()?;
         let changed = transaction.execute_cached(
             "INSERT INTO node_key (id, private_key, created_at_ms) VALUES (1, ?1, ?2) ON CONFLICT DO NOTHING",
             params![key.as_bytes().as_slice(), to_sql_time(now_ms)],
         )?;
+        // The realm is fixed with the key, and never changes after
+        // (spec/decisions/mainnet-schemes.md).
+        if changed == 1 {
+            transaction
+                .execute_cached("UPDATE node_config SET realm = ?1", params![realm.as_str()])?;
+        }
         transaction.execute_cached("DELETE FROM setup_token", [])?;
         transaction.commit()?;
         Ok(changed == 1)

@@ -8,13 +8,16 @@
 //! proof from the phrase, and posts them with the setup token to
 //! `/api/setup` (spec/areas/http.md#setup). So the node checks a setup from
 //! here exactly as one from a browser, and the phrase never reaches the
-//! node, only the key does. Then it waits for the engine, sets the config
-//! of each external asset it is given, and adds each settlement scheme it
-//! is given that is not active.
+//! node, only the key does, with the realm the node runs, the test realm
+//! unless `--realm` says otherwise: it is fixed then, for good
+//! (spec/decisions/mainnet-schemes.md). Then it waits for the engine, sets
+//! the config of each external asset it is given, and adds each settlement
+//! scheme it is given that is not active.
 //!
-//! Running it again changes nothing, and a node set up with another phrase
-//! is refused, untouched. Every call is bounded in time, every wait in
-//! attempts, and each step prints one line.
+//! Running it again changes nothing, and a node set up with another phrase,
+//! or in another realm than `--realm` names, is refused, untouched. Every
+//! call is bounded in time, every wait in attempts, and each step prints
+//! one line.
 
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -26,6 +29,7 @@ use dassie_identity::NodeKey;
 use dassie_node::env::Env;
 use dassie_node::rpc::proto::{self, request::Method, response};
 use dassie_node::tls;
+use dassie_node_core::config::Realm;
 use dassie_node_core::hex;
 use http_body_util::{BodyExt, Full, Limited};
 use hyper_util::rt::TokioIo;
@@ -76,6 +80,9 @@ pub struct Options {
     pub schemes: Vec<Scheme>,
     /// The external assets' configs, set before any scheme is added.
     pub assets: Vec<Scheme>,
+    /// The realm the node is set up in, if `--realm` names one: the test
+    /// realm otherwise.
+    pub realm: Option<Realm>,
 }
 
 /// A settlement scheme to add, or an external asset to configure, with
@@ -93,9 +100,16 @@ pub fn args(parser: &mut lexopt::Parser) -> Result<Options, lexopt::Error> {
     let mut passphrase_file = None;
     let mut schemes: Vec<Scheme> = Vec::new();
     let mut assets: Vec<Scheme> = Vec::new();
+    let mut realm = None;
     while let Some(argument) = parser.next()? {
         match argument {
             Long("passphrase-file") => passphrase_file = Some(PathBuf::from(parser.value()?)),
+            Long("realm") => {
+                let text = parser.value()?.string()?;
+                let parsed = Realm::parse(&text)
+                    .map_err(|_| format!("--realm takes test or live, not {text:?}"))?;
+                realm = Some(parsed);
+            }
             Long("scheme") => {
                 let scheme = scheme("scheme", &parser.value()?.string()?)?;
                 add_once("scheme", &mut schemes, scheme, MAX_SCHEMES)?;
@@ -112,6 +126,7 @@ pub fn args(parser: &mut lexopt::Parser) -> Result<Options, lexopt::Error> {
         passphrase_file,
         schemes,
         assets,
+        realm,
     })
 }
 
@@ -201,7 +216,8 @@ async fn setup(env: &Env, options: &Options) -> Result<(), Failure> {
         .await
         .map_err(|_| "The Dassie daemon did not answer on its socket".to_owned())??;
     let before = basic_state(&mut client).await?;
-    let claimed = is_uninitialized(&before) && claim(&mut client, &key).await?;
+    let realm = options.realm.unwrap_or_default();
+    let claimed = is_uninitialized(&before) && claim(&mut client, &key, realm).await?;
     drop(key);
     // Again after a claim, to see it took; and after one that found the
     // node set up meanwhile, to see by whom.
@@ -223,8 +239,19 @@ async fn setup(env: &Env, options: &Options) -> Result<(), Failure> {
             options.passphrase_file.display()
         )));
     }
+    if let Some(asked) = options.realm {
+        let runs = node_realm(&mut client).await?;
+        if runs != asked {
+            return Err(Failure::Failed(format!(
+                "The node runs the {} realm, not {}: a node's realm is fixed when it is set \
+                 up. Nothing was changed.",
+                runs.as_str(),
+                asked.as_str()
+            )));
+        }
+    }
     if claimed {
-        println!("Set the node up as {id}.");
+        println!("Set the node up as {id}, in the {} realm.", realm.as_str());
     } else {
         println!("The node is set up already as {id}.");
     }
@@ -270,13 +297,28 @@ async fn basic_state(client: &mut Client) -> Result<proto::GetBasicStateResponse
     }
 }
 
+/// The realm the node runs.
+async fn node_realm(client: &mut Client) -> Result<Realm, Failure> {
+    match call(client, Method::GetConfig(proto::GetConfigRequest {})).await? {
+        response::Method::GetConfig(proto::GetConfigResponse {
+            config: Some(config),
+            ..
+        }) => match proto::Realm::try_from(config.realm) {
+            Ok(proto::Realm::Test) => Ok(Realm::Test),
+            Ok(proto::Realm::Live) => Ok(Realm::Live),
+            _ => Err(unexpected()),
+        },
+        _ => Err(unexpected()),
+    }
+}
+
 fn is_uninitialized(basic: &proto::GetBasicStateResponse) -> bool {
     basic.state == i32::from(proto::NodeState::Uninitialized)
 }
 
-/// Claims the node with `key`, as the wallet does. False if it was set up
-/// meanwhile, by whoever.
-async fn claim(client: &mut Client, key: &NodeKey) -> Result<bool, Failure> {
+/// Claims the node with `key` in `realm`, as the wallet does. False if it
+/// was set up meanwhile, by whoever.
+async fn claim(client: &mut Client, key: &NodeKey, realm: Realm) -> Result<bool, Failure> {
     let url = match call(client, Method::GetSetupUrl(proto::GetSetupUrlRequest {})).await {
         Ok(response::Method::GetSetupUrl(setup)) => setup.url,
         Err(CallError {
@@ -298,9 +340,10 @@ async fn claim(client: &mut Client, key: &NodeKey) -> Result<bool, Failure> {
     // The key is what the node stores in its database once set up; the
     // phrase and the master seed, which it never gets, are gone already.
     let body = format!(
-        r#"{{"setupAuthorizationToken":"{token}","rawDassieKeyHex":"{}","loginAuthorizationSignature":"{}"}}"#,
+        r#"{{"setupAuthorizationToken":"{token}","rawDassieKeyHex":"{}","loginAuthorizationSignature":"{}","realm":"{}"}}"#,
         hex::encode(key.as_bytes()),
-        hex::encode(key.login_secret().as_bytes())
+        hex::encode(key.login_secret().as_bytes()),
+        realm.as_str()
     );
     post_setup(&listener, body).await
 }
@@ -670,6 +713,12 @@ mod tests {
         }
         let many: Vec<&str> = many.iter().map(String::as_str).collect();
         assert!(parse(&many).unwrap_err().contains("more than"));
+        // The realm: the test realm unless named.
+        assert_eq!(options.realm, None);
+        let live = parse(&["--passphrase-file", "p", "--realm", "live"]).unwrap();
+        assert_eq!(live.realm, Some(Realm::Live));
+        let main = parse(&["--passphrase-file", "p", "--realm", "main"]);
+        assert!(main.unwrap_err().contains("test or live"));
     }
 
     #[test]
