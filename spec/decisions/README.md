@@ -28,6 +28,8 @@ Each file records one choice between real alternatives: the facts that forced it
 | [full-or-stopped-short](full-or-stopped-short.md) | A receiver says whether it is full or stopped short | payments, stream |
 | [headless-setup](headless-setup.md) | An owner who keeps the passphrase on the node's host sets the node up with `dassie setup`, through the node's own setup route | node, http, identity, overview |
 | [hub-founding](hub-founding.md) | The sponsor founds a hub over a stream of its own, and a quorum's signatures of the genesis found it | hubs, peer-protocol, designs/settlement-hubs |
+| [hub-scheme-names](hub-scheme-names.md) | A hub scheme's ID names its underlying ledger and its asset (not built) | hubs, settlement, xrpl |
+| [hubs-only](hubs-only.md) | Peers settle only over settlement hubs (not built) | designs/settlement-hubs, settlement, network, xrpl, testing |
 | [issued-assets](issued-assets.md) | An issued asset's issuer is the owner's counterparty, and a dollar token pauses off its peg (transfer fees not built) | xrpl, settlement, connector |
 | [lazy-downlink-accounts](lazy-downlink-accounts.md) | A downlink's accounts open once value first moves with it, in room kept for it while its channel is open | network, settlement, connector, ledger |
 | [ledger-resets](ledger-resets.md) | A ledger below the newest seen is a reset only on the testnet, and only once its UNL validates it (the UNL's part, the network's constant as the gate and a proven absence not built) | xrpl, designs/xrpl-validation |
@@ -64,11 +66,12 @@ Each file records one choice between real alternatives: the facts that forced it
 | [rpc-contract](rpc-contract.md) | UI and CLI RPC contract | rpc, wallet |
 | [rust-and-typescript](rust-and-typescript.md) | What runs in Rust and what in TypeScript | overview, engineering |
 | [secrets-at-rest](secrets-at-rest.md) | Secrets at rest | node, http |
-| [settlement-hubs](settlement-hubs.md) | Settlement hubs (design, not built) | designs/settlement-hubs |
+| [settlement-hubs](settlement-hubs.md) | Settlement hubs (design, partly built) | designs/settlement-hubs |
 | [settlement-methods](settlement-methods.md) | A peering settles by every scheme both nodes run, and a packet keeps its ledger where it can (not built) | network, settlement, connector, peer-protocol |
 | [synced-before-peering](synced-before-peering.md) | A node peers on a scheme only once it has seen its ledger | settlement, network, xrpl |
 | [thresholds-in-packets](thresholds-in-packets.md) | A link's thresholds are counted in its largest packet | settlement, connector |
 | [tigerstyle](tigerstyle.md) | Engineering style: pragmatic TigerStyle and deterministic simulation | engineering, testing |
+| [token-hubs](token-hubs.md) | A hub may hold an issued token; its issuer's freeze pauses it, a clawback ends it, and its fees are paid in XRP anyone may send (not built) | designs/settlement-hubs, xrpl, settlement |
 | [unreachable-peers](unreachable-peers.md) | A node takes no Prepare from a peer it cannot reach | connector, peer-protocol, settlement |
 | [unusable-limits](unusable-limits.md) | A limit no payment can use is caught before approval | payments, wallet |
 | [verified-ledgers](verified-ledgers.md) | The node books only what ledgers its own UNL validated prove (design, not built) | designs/xrpl-validation, xrpl, designs/settlement-hubs |
