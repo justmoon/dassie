@@ -13,7 +13,7 @@ A new protocol version, v1, that keeps v0's message set, less `settlementMessage
 - **Sender authentication by a MAC,** keyed from a static-static X25519 between the two node keys, over the version, sender, recipient and content.
 - **Replay protection** that survives restarts.
 - **Authenticated responses,** so node lists, peering answers and registrations are authenticated end to end, not only by TLS.
-- **Peering requests carry the full signed node info,** which must name the sender; peerings can be terminated; scheme versions are exchanged when peering.
+- **Peering requests carry the full signed node info,** which must name the sender; peerings can be terminated. They name the scheme alone: what a scheme means is versioned by its ID and by this protocol's version, so a version of the scheme negotiated beside them would be a third knob, which no scheme turned and none could rely on ([mainnet-schemes](mainnet-schemes.md)).
 
 The shape of the scheme, and why:
 

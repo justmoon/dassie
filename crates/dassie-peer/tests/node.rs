@@ -147,7 +147,6 @@ fn peering_requests_carry_the_senders_own_link_state() {
         scheme: SchemeId::parse("stub").unwrap(),
         node_info: SignedNodeInfo::decode_exact(&state).unwrap(),
         data: &[],
-        versions: vec![1],
     });
     let body = request(&network, &mallory, 0, &content);
     assert_eq!(network.inbound(0, &body).status, 400);
@@ -361,7 +360,6 @@ fn unknown_nodes_cannot_peer() {
         scheme: SchemeId::parse("stub").unwrap(),
         node_info: SignedNodeInfo::decode_exact(&state).unwrap(),
         data: &[],
-        versions: vec![1],
     });
     let body = request(&network, &stranger, 0, &content);
     let reply = network.inbound(0, &body);
@@ -971,7 +969,6 @@ fn method_messages_are_refused_until_methods_are_built() {
         Content::MethodAdd {
             scheme: stub,
             data: &[],
-            versions: vec![1],
         },
         Content::MethodDrop { scheme: stub },
     ];

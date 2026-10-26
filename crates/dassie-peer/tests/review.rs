@@ -243,7 +243,6 @@ fn peering_request(network: &Network, from: &Arc<NodeKey>, to: usize, sequence: 
         scheme: stub(),
         node_info: info,
         data: &[],
-        versions: vec![1],
     });
     request(network, from, to, &content)
 }
@@ -261,13 +260,7 @@ fn a_repeated_peering_request_keeps_the_peering() {
     assert_eq!(reply.status, 200);
     let envelope = ResponseEnvelope::decode(&reply.body).unwrap();
     let answer = PeeringResponse::decode_exact(envelope.body).unwrap();
-    assert_eq!(
-        answer,
-        PeeringResponse::Accepted {
-            version: 1,
-            data: &[],
-        }
-    );
+    assert_eq!(answer, PeeringResponse::Accepted { data: &[] });
     let after = network.node(0).peering_of(&node1).unwrap();
     assert_eq!(
         (after.credit_out, after.inbound),
@@ -291,7 +284,7 @@ fn a_repeat_is_answered_on_a_scheme_no_longer_peered_on() {
     let envelope = ResponseEnvelope::decode(&reply.body).unwrap();
     let answer = PeeringResponse::decode_exact(envelope.body).unwrap();
     assert!(
-        matches!(answer, PeeringResponse::Accepted { version: 1, .. }),
+        matches!(answer, PeeringResponse::Accepted { .. }),
         "{answer:?}"
     );
     let node1 = *network.node(1).own();

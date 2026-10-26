@@ -58,7 +58,7 @@ pub fn encode_response(mac: Option<&[u8; 32]>, body: &[u8]) -> Vec<u8> {
 }
 
 /// Why a peering request was refused. Unknown values read as
-/// [`RefusalReason::Unspecified`].
+/// [`RefusalReason::Unspecified`]. Code 3 is reserved: no reason has it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum RefusalReason {
     /// No reason given.
@@ -68,8 +68,6 @@ pub enum RefusalReason {
     /// The scheme is not active here, or not yet peered on: it has not
     /// seen its ledger.
     UnsupportedScheme,
-    /// No version of the scheme is spoken by both.
-    NoCommonVersion,
     /// No room for another peer.
     Capacity,
     /// The two nodes asked each other at once, and the other request won.
@@ -98,7 +96,6 @@ impl RefusalReason {
             Self::Unspecified => 0,
             Self::UnknownNode => 1,
             Self::UnsupportedScheme => 2,
-            Self::NoCommonVersion => 3,
             Self::Capacity => 4,
             Self::Concurrent => 5,
             Self::SchemeRefused => 6,
@@ -115,7 +112,6 @@ impl RefusalReason {
         match code {
             1 => Self::UnknownNode,
             2 => Self::UnsupportedScheme,
-            3 => Self::NoCommonVersion,
             4 => Self::Capacity,
             5 => Self::Concurrent,
             6 => Self::SchemeRefused,
@@ -133,8 +129,6 @@ impl RefusalReason {
 pub enum PeeringResponse<'a> {
     /// `accepted [0]`.
     Accepted {
-        /// The scheme version both speak.
-        version: u16,
         /// The scheme's own data.
         data: &'a [u8],
     },
@@ -146,16 +140,15 @@ impl Encode for PeeringResponse<'_> {
     fn encoded_len(&self) -> usize {
         size::tag(0)
             + match self {
-                Self::Accepted { data, .. } => 2 + size::prefixed(data.len()),
+                Self::Accepted { data } => size::prefixed(data.len()),
                 Self::Refused(_) => 1,
             }
     }
 
     fn encode_to(&self, writer: &mut Writer<'_>) {
         match self {
-            Self::Accepted { version, data } => {
+            Self::Accepted { data } => {
                 writer.write_context_tag(0);
-                writer.write_u16(*version);
                 writer.write_octets(data, Size::ANY);
             }
             Self::Refused(reason) => {
@@ -173,7 +166,6 @@ impl<'a> Decode<'a> for PeeringResponse<'a> {
         let offset = reader.offset();
         match reader.read_context_tag()? {
             0 => Ok(Self::Accepted {
-                version: reader.read_u16()?,
                 data: reader.read_octets(Size::ANY)?,
             }),
             1 => Ok(Self::Refused(RefusalReason::from_code(reader.read_u8()?))),
@@ -188,8 +180,6 @@ impl<'a> Decode<'a> for PeeringResponse<'a> {
 pub enum MethodResponse<'a> {
     /// `accepted [0]`.
     Accepted {
-        /// The scheme version both speak.
-        version: u16,
         /// The scheme's own data.
         data: &'a [u8],
     },
@@ -201,16 +191,15 @@ impl Encode for MethodResponse<'_> {
     fn encoded_len(&self) -> usize {
         size::tag(0)
             + match self {
-                Self::Accepted { data, .. } => 2 + size::prefixed(data.len()),
+                Self::Accepted { data } => size::prefixed(data.len()),
                 Self::Refused(_) => 1,
             }
     }
 
     fn encode_to(&self, writer: &mut Writer<'_>) {
         match self {
-            Self::Accepted { version, data } => {
+            Self::Accepted { data } => {
                 writer.write_context_tag(0);
-                writer.write_u16(*version);
                 writer.write_octets(data, Size::ANY);
             }
             Self::Refused(reason) => {
@@ -228,7 +217,6 @@ impl<'a> Decode<'a> for MethodResponse<'a> {
         let offset = reader.offset();
         match reader.read_context_tag()? {
             0 => Ok(Self::Accepted {
-                version: reader.read_u16()?,
                 data: reader.read_octets(Size::ANY)?,
             }),
             1 => Ok(Self::Refused(RefusalReason::from_code(reader.read_u8()?))),

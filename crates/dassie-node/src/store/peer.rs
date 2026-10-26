@@ -42,7 +42,7 @@ impl Store {
             "SELECT n.id, n.link_state, n.sources, n.first_seen_ms,
                     n.registered_at_ms, n.renewed_at_ms, n.registration_expires_ms,
                     n.registered_url, n.registered_network,
-                    p.scheme, p.version, p.state, p.credit_out, p.since_ms,
+                    p.scheme, p.state, p.credit_out, p.since_ms,
                     p.inbound, p.last_seen_ms,
                     t.since_ms, t.reason, t.by_us, t.acknowledged,
                     p.short_for_ms, p.depeering_since_ms, p.depeering_reason,
@@ -361,12 +361,12 @@ fn read_node(row: &Row<'_>) -> rusqlite::Result<Result<StoredNode, StoreError>> 
         },
         None => None,
     };
-    let termination = match row.get::<_, Option<i64>>(16)? {
+    let termination = match row.get::<_, Option<i64>>(15)? {
         Some(since) if peering.is_some() => Some(Termination {
             since_ms: from_sql_time(since),
-            reason: TerminationReason::from_code(u8::try_from(row.get::<_, i64>(17)?).unwrap_or(0)),
-            by_us: row.get::<_, i64>(18)? != 0,
-            acknowledged: row.get::<_, i64>(19)? != 0,
+            reason: TerminationReason::from_code(u8::try_from(row.get::<_, i64>(16)?).unwrap_or(0)),
+            by_us: row.get::<_, i64>(17)? != 0,
+            acknowledged: row.get::<_, i64>(18)? != 0,
         }),
         _ => None,
     };
@@ -383,26 +383,24 @@ fn read_node(row: &Row<'_>) -> rusqlite::Result<Result<StoredNode, StoreError>> 
 
 fn read_peering(row: &Row<'_>, scheme: &str) -> Result<Peering, StoreError> {
     let scheme = SchemeId::parse(scheme).ok_or(StoreError::Corrupt("scheme ID"))?;
-    let version: i64 = row.get(10)?;
-    let short_for_ms = u64::try_from(row.get::<_, i64>(20)?)
+    let short_for_ms = u64::try_from(row.get::<_, i64>(19)?)
         .map_err(|_| StoreError::Corrupt("time short of room"))?;
-    let short_reached_ms = u64::try_from(row.get::<_, i64>(23)?)
+    let short_reached_ms = u64::try_from(row.get::<_, i64>(22)?)
         .ok()
         .filter(|reached| *reached <= short_for_ms)
         .ok_or(StoreError::Corrupt("time short of room while reached"))?;
     Ok(Peering {
         scheme,
-        version: u16::try_from(version).map_err(|_| StoreError::Corrupt("scheme version"))?,
-        state: row.get(11)?,
-        credit_out: from_sql_amount(row.get(12)?)?,
-        since_ms: from_sql_time(row.get(13)?),
-        inbound: row.get::<_, i64>(14)? != 0,
-        last_seen_ms: from_sql_time(row.get(15)?),
+        state: row.get(10)?,
+        credit_out: from_sql_amount(row.get(11)?)?,
+        since_ms: from_sql_time(row.get(12)?),
+        inbound: row.get::<_, i64>(13)? != 0,
+        last_seen_ms: from_sql_time(row.get(14)?),
         short_for_ms,
         short_reached_ms,
-        depeering: match row.get::<_, Option<i64>>(21)? {
+        depeering: match row.get::<_, Option<i64>>(20)? {
             Some(since) => {
-                let reason = u8::try_from(row.get::<_, i64>(22)?)
+                let reason = u8::try_from(row.get::<_, i64>(21)?)
                     .map_err(|_| StoreError::Corrupt("depeering reason"))?;
                 Some(Depeering::new(
                     from_sql_time(since),
@@ -675,18 +673,17 @@ fn write_node(transaction: &Transaction<'_>, node: &StoredNode) -> Result<(), St
         return Ok(());
     };
     transaction.execute_cached(
-        "INSERT INTO peers (node, scheme, version, state, credit_out, since_ms,
+        "INSERT INTO peers (node, scheme, state, credit_out, since_ms,
            inbound, last_seen_ms, short_for_ms, depeering_since_ms, depeering_reason,
            short_reached_ms)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
-         ON CONFLICT (node) DO UPDATE SET scheme = ?2, version = ?3, state = ?4,
-           credit_out = ?5, since_ms = ?6, inbound = ?7,
-           last_seen_ms = ?8, short_for_ms = ?9,
-           depeering_since_ms = ?10, depeering_reason = ?11, short_reached_ms = ?12",
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+         ON CONFLICT (node) DO UPDATE SET scheme = ?2, state = ?3,
+           credit_out = ?4, since_ms = ?5, inbound = ?6,
+           last_seen_ms = ?7, short_for_ms = ?8,
+           depeering_since_ms = ?9, depeering_reason = ?10, short_reached_ms = ?11",
         params![
             node.id.as_str(),
             peering.scheme.as_str(),
-            i64::from(peering.version),
             peering.state,
             to_sql_amount(peering.credit_out)?,
             to_sql_time(peering.since_ms),

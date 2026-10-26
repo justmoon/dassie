@@ -164,11 +164,10 @@ pub(super) fn room_for_core_peer(
 }
 
 impl PeeringHooks for Hooks<'_> {
-    fn versions(&self, scheme: SchemeId) -> &'static [u16] {
+    fn speaks(&self, scheme: SchemeId) -> bool {
         Name::new(scheme.as_str())
             .ok()
-            .and_then(|name| self.schemes.get(&name))
-            .map_or(&[], |active| active.scheme.supported_versions())
+            .is_some_and(|name| self.schemes.contains_key(&name))
     }
 
     fn peering_info(&mut self, scheme: SchemeId, out: &mut Vec<u8>) -> Result<(), Declined> {
@@ -198,7 +197,6 @@ impl PeeringHooks for Hooks<'_> {
         peer: NodeId,
         downlink: bool,
         scheme: SchemeId,
-        _version: u16,
         data: &[u8],
         response: &mut Vec<u8>,
     ) -> Result<Agreed, RefusalReason> {
@@ -260,7 +258,6 @@ impl PeeringHooks for Hooks<'_> {
         now_ms: u64,
         peer: NodeId,
         scheme: SchemeId,
-        _version: u16,
         info: &[u8],
         data: &[u8],
         ended_for_room: bool,

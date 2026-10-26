@@ -7,8 +7,8 @@ use dassie_identity::NodeId;
 use dassie_oer::{Decode, DecodeError, DecodeErrorKind, Encode, Reader, Size, Writer, size};
 
 use super::{
-    Kind, MAX_COMMITMENT_BYTES, MAX_LINK_STATE_REQUEST_IDS, MAX_VERSIONS, SchemeId, SignedNodeInfo,
-    node_id_len, read_fixed, read_node_id, write_node_id,
+    Kind, MAX_COMMITMENT_BYTES, MAX_LINK_STATE_REQUEST_IDS, SchemeId, SignedNodeInfo, node_id_len,
+    read_fixed, read_node_id, write_node_id,
 };
 use crate::names::{
     COMMITMENT_BYTES, Commitment, Name, SALT_BYTES, Salt, name_len, read_name, write_name,
@@ -21,10 +21,12 @@ const COMMITMENT_SIZE: Size = Size::range(1, MAX_COMMITMENT_BYTES);
 /// over a hub, and bounded as a `hubPacket`'s.
 const METHOD_COMMITMENT_SIZE: Size = Size::range(0, MAX_COMMITMENT_BYTES);
 
-/// A peering request: the requester's signed link state, the scheme it
-/// wants to settle with and the versions of that scheme it speaks.
-/// It says nothing of the credit the requester extends: a node knows only
-/// the credit it extends (spec/decisions/own-fulfills.md).
+/// A peering request: the requester's signed link state and the scheme it
+/// wants to settle with. A scheme's meaning is versioned by its ID and the
+/// protocol's version, so no scheme version is named
+/// (spec/areas/peer-protocol.md#versions). It says nothing of the credit
+/// the requester extends: a node knows only the credit it extends
+/// (spec/decisions/own-fulfills.md).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PeeringRequest<'a> {
     /// The scheme.
@@ -33,8 +35,6 @@ pub struct PeeringRequest<'a> {
     pub node_info: SignedNodeInfo<'a>,
     /// The scheme's own data.
     pub data: &'a [u8],
-    /// The scheme versions the requester speaks, at least one.
-    pub versions: Vec<u16>,
 }
 
 /// A message's content.
@@ -144,8 +144,6 @@ pub enum Content<'a> {
         scheme: SchemeId,
         /// The scheme's own data.
         data: &'a [u8],
-        /// The scheme versions the sender speaks, at least one.
-        versions: Vec<u16>,
     },
     /// `methodDrop [20]`: the sender drops a method of the peering, after
     /// collecting on it; the recipient drops it at once
@@ -235,7 +233,6 @@ impl Content<'_> {
                 request.scheme.encoded_len()
                     + size::prefixed(request.node_info.bytes.len())
                     + size::prefixed(request.data.len())
-                    + versions_len(&request.versions)
             }
             Self::LinkStateUpdate(info) | Self::Registration(info) => info.bytes.len(),
             Self::InterledgerPacket { packet, .. } => {
@@ -271,11 +268,7 @@ impl Content<'_> {
                     + size::prefixed(packet.len())
                     + size::prefixed(commitment.len())
             }
-            Self::MethodAdd {
-                scheme,
-                data,
-                versions,
-            } => scheme.encoded_len() + size::prefixed(data.len()) + versions_len(versions),
+            Self::MethodAdd { scheme, data } => scheme.encoded_len() + size::prefixed(data.len()),
         }
     }
 }
@@ -344,11 +337,10 @@ impl Encode for Content<'_> {
                 packet,
                 commitment,
             } => write_method_packet(writer, *request_id, scheme, packet, commitment),
-            Self::MethodAdd {
-                scheme,
-                data,
-                versions,
-            } => write_method_add(writer, scheme, data, versions),
+            Self::MethodAdd { scheme, data } => {
+                scheme.write(writer);
+                writer.write_octets(data, Size::ANY);
+            }
         }
     }
 }
@@ -429,13 +421,6 @@ fn write_method_packet(
     writer.write_octets(commitment, METHOD_COMMITMENT_SIZE);
 }
 
-/// Writes the body of a `methodAdd`.
-fn write_method_add(writer: &mut Writer<'_>, scheme: &SchemeId, data: &[u8], versions: &[u16]) {
-    scheme.write(writer);
-    writer.write_octets(data, Size::ANY);
-    write_versions(writer, versions);
-}
-
 /// Reads the body of a settlement method's message of kind `kind`.
 fn read_method<'a>(kind: Kind, reader: &mut Reader<'a>) -> Result<Content<'a>, DecodeError> {
     Ok(match kind {
@@ -448,7 +433,6 @@ fn read_method<'a>(kind: Kind, reader: &mut Reader<'a>) -> Result<Content<'a>, D
         Kind::MethodAdd => Content::MethodAdd {
             scheme: SchemeId::read(reader)?,
             data: reader.read_octets(Size::ANY)?,
-            versions: read_versions(reader)?,
         },
         _ => Content::MethodDrop {
             scheme: SchemeId::read(reader)?,
@@ -460,7 +444,6 @@ fn write_peering_request(writer: &mut Writer<'_>, request: &PeeringRequest<'_>) 
     request.scheme.write(writer);
     writer.write_octets(request.node_info.bytes, Size::ANY);
     writer.write_octets(request.data, Size::ANY);
-    write_versions(writer, &request.versions);
 }
 
 fn read_peering_request<'a>(reader: &mut Reader<'a>) -> Result<PeeringRequest<'a>, DecodeError> {
@@ -471,39 +454,9 @@ fn read_peering_request<'a>(reader: &mut Reader<'a>) -> Result<PeeringRequest<'a
         Ok::<_, DecodeError>(info)
     })?;
     let data = reader.read_octets(Size::ANY)?;
-    let versions = read_versions(reader)?;
     Ok(PeeringRequest {
         scheme,
         node_info,
         data,
-        versions,
     })
-}
-
-/// The encoded length of a list of scheme versions.
-fn versions_len(versions: &[u16]) -> usize {
-    size::quantity(versions.len()) + 2 * versions.len()
-}
-
-/// Writes a list of scheme versions.
-fn write_versions(writer: &mut Writer<'_>, versions: &[u16]) {
-    writer.write_quantity(versions.len());
-    for version in versions {
-        writer.write_u16(*version);
-    }
-}
-
-/// Reads a list of scheme versions: at least one, at most
-/// [`MAX_VERSIONS`].
-fn read_versions(reader: &mut Reader<'_>) -> Result<Vec<u16>, DecodeError> {
-    let offset = reader.offset();
-    let count = reader.read_quantity(MAX_VERSIONS)?;
-    if count == 0 {
-        return Err(DecodeError::new(offset, DecodeErrorKind::SizeOutOfRange));
-    }
-    let mut versions = Vec::with_capacity(count);
-    for _ in 0..count {
-        versions.push(reader.read_u16()?);
-    }
-    Ok(versions)
 }

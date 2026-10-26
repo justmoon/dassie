@@ -114,7 +114,6 @@ fn peering_request(network: &Network, from: &Arc<NodeKey>, index: usize, to: usi
         scheme: stub(),
         node_info: SignedNodeInfo::decode_exact(&signed).unwrap(),
         data: &[],
-        versions: vec![1],
     });
     Sender::new(from).request(network, to, &content)
 }

@@ -101,9 +101,6 @@ pub const MAX_COMMITMENT_BYTES: usize = 256;
 /// over a hub: the payer's claim. More is ignored.
 pub const MAX_CLAIM_BYTES: usize = 256;
 
-/// Most scheme versions in a peering request.
-pub const MAX_VERSIONS: usize = 16;
-
 /// Most node IDs in one link-state request.
 pub const MAX_LINK_STATE_REQUEST_IDS: usize = 16;
 

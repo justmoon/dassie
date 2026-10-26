@@ -271,7 +271,7 @@ impl PeerNode {
     }
 
     fn start_peering(&mut self, hooks: &mut dyn PeeringHooks, node: NodeId, scheme: SchemeId) {
-        if hooks.versions(scheme).is_empty() {
+        if !hooks.speaks(scheme) {
             return;
         }
         if let Some(entry) = self.table.get_mut(&node) {
@@ -323,7 +323,6 @@ impl PeerNode {
             scheme,
             node_info,
             data: &data,
-            versions: hooks.versions(scheme).to_vec(),
         });
         if let Some(entry) = self.table.get_mut(&node) {
             entry.peer = PeerState::Requesting {
@@ -359,9 +358,7 @@ impl PeerNode {
             {
                 self.fail_attempt(node, "no room left");
             }
-            Ok(PeeringResponse::Accepted { version, data, .. })
-                if hooks.versions(scheme).contains(&version) =>
-            {
+            Ok(PeeringResponse::Accepted { data }) if hooks.speaks(scheme) => {
                 let info = match self.table.get(&node).map(|e| &e.peer) {
                     Some(PeerState::Requesting {
                         info: Some(info), ..
@@ -370,9 +367,9 @@ impl PeerNode {
                 };
                 let now = self.now_ms;
                 let ended_for_room = self.ended_for_room(&node, hooks);
-                match hooks.finalize(now, node, scheme, version, &info, data, ended_for_room) {
+                match hooks.finalize(now, node, scheme, &info, data, ended_for_room) {
                     Ok(agreed) => {
-                        if !self.become_peered(hooks, node, scheme, version, agreed, false) {
+                        if !self.become_peered(hooks, node, scheme, agreed, false) {
                             self.fail_attempt(node, "no room left");
                         }
                     }
@@ -437,7 +434,6 @@ impl PeerNode {
         hooks: &dyn PeeringHooks,
         node: NodeId,
         scheme: SchemeId,
-        version: u16,
         agreed: crate::hooks::Agreed,
         inbound: bool,
     ) -> bool {
@@ -469,7 +465,6 @@ impl PeerNode {
         };
         entry.peer = PeerState::Peered(PeeringState {
             scheme,
-            version,
             state: agreed.state,
             credit_out: agreed.credit_out,
             since_ms,
@@ -538,16 +533,13 @@ impl PeerNode {
         }
         // A repeat, after an answer that got lost: the stored peering, as
         // it is (spec/decisions/peering-lifecycle.md).
-        if let Some(peering) = self
+        if self
             .table
             .get(&sender)
             .and_then(Entry::active_peering)
-            .filter(|peering| peering.scheme == request.scheme)
+            .is_some_and(|peering| peering.scheme == request.scheme)
         {
-            let answer = PeeringResponse::Accepted {
-                version: peering.version,
-                data: &[],
-            };
+            let answer = PeeringResponse::Accepted { data: &[] };
             return Inbound::Reply(ok(&accepted, &answer.to_vec()));
         }
         // A periphery node has no URL to probe: the connection its request
@@ -600,17 +592,12 @@ impl PeerNode {
             .get(sender)
             .and_then(Entry::peering)
             .is_some_and(|peering| peering.scheme == request.scheme);
-        if !repeat
-            && (!self.schemes.contains(&request.scheme)
-                || hooks.versions(request.scheme).is_empty())
-        {
+        if !repeat && (!self.schemes.contains(&request.scheme) || !hooks.speaks(request.scheme)) {
             return Err(RefusalReason::UnsupportedScheme);
         }
         // A downlink is in no node list: it enters the table by asking.
         let Some(entry) = self.table.get(sender) else {
             return if downlink {
-                common_version(hooks.versions(request.scheme), &request.versions)
-                    .ok_or(RefusalReason::NoCommonVersion)?;
                 self.downlink_room(hooks, sender, request)
             } else {
                 Err(RefusalReason::UnknownNode)
@@ -629,8 +616,6 @@ impl PeerNode {
                 Err(RefusalReason::Unspecified)
             };
         }
-        common_version(hooks.versions(request.scheme), &request.versions)
-            .ok_or(RefusalReason::NoCommonVersion)?;
         if matches!(entry.peer, PeerState::Requesting { .. }) {
             // Both asked at once: the lower node ID's request wins.
             if self.own < *sender {
@@ -727,10 +712,6 @@ impl PeerNode {
         if let Err(reason) = self.check_request(hooks, &sender, &request) {
             return refused(accepted, reason);
         }
-        let Some(version) = common_version(hooks.versions(request.scheme), &request.versions)
-        else {
-            return refused(accepted, RefusalReason::NoCommonVersion);
-        };
         // Its channel opens as the kind its room was checked for: the link
         // state we hold for it says, by its URL, which kind that is.
         let downlink = request.node_info.info.is_periphery();
@@ -745,27 +726,18 @@ impl PeerNode {
             sender,
             downlink,
             request.scheme,
-            version,
             request.data,
             &mut response,
         ) {
             Ok(agreed) => agreed,
             Err(reason) => return refused(accepted, reason),
         };
-        if !self.become_peered(hooks, sender, request.scheme, version, agreed, true) {
+        if !self.become_peered(hooks, sender, request.scheme, agreed, true) {
             return refused(accepted, RefusalReason::Capacity);
         }
-        let answer = PeeringResponse::Accepted {
-            version,
-            data: &response,
-        };
+        let answer = PeeringResponse::Accepted { data: &response };
         ok(accepted, &answer.to_vec())
     }
-}
-
-/// The highest version both speak.
-fn common_version(ours: &[u16], theirs: &[u16]) -> Option<u16> {
-    ours.iter().filter(|v| theirs.contains(v)).max().copied()
 }
 
 fn refused(accepted: &Accepted, reason: RefusalReason) -> Reply {

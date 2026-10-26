@@ -144,7 +144,7 @@ A node registers a name for itself when its owner asks ([RPC](rpc.md), [Wallet](
 
 ## Peering
 
-Each node looks for a few peers on its own (auto-peering). A peering is between two nodes on one settlement scheme, at one version of that scheme. A peering that settles by every scheme both run is not built yet ([roadmap](../roadmap.md#settlement-methods)).
+Each node looks for a few peers on its own (auto-peering). A peering is between two nodes on one settlement scheme. A peering that settles by every scheme both run is not built yet ([roadmap](../roadmap.md#settlement-methods)).
 
 ### Looking for peers
 
@@ -158,7 +158,7 @@ Each node looks for a few peers on its own (auto-peering). A peering is between 
 ### Asking and answering
 
 1. The asking node sends `peeringInfoRequest` for the scheme, and its scheme builds the request data from the answer.
-2. It sends `peeringRequest` with its signed link state, the scheme's data and the scheme versions it speaks.
+2. It sends `peeringRequest` with its signed link state and the scheme's data.
 3. The responder checks the request (`crates/dassie-peer/src/node/peering.rs` has the order and the refusal reasons), takes in the requester's link state, and probes its URL as for registration; a periphery requester has none, and is not probed ([Downlinks](#downlinks)). Its scheme then accepts, opening the peer's accounts; a downlink's open only once value moves with it ([Downlinks](#downlinks)). The peering is persisted before the acceptance is sent, and so before the requester uses it.
 4. On acceptance, the requester's scheme finalizes the peering and opens the peer's accounts.
 
@@ -169,7 +169,7 @@ The settlement schemes have their say through `PeeringHooks` (`crates/dassie-pee
 - **Not on an owner book.** A scheme configured not to peer keeps the owner's holdings on its ledger and peers with nobody: the node leaves it out as before a first sync, for as long as it runs so ([Settlement](settlement.md#owner-books)).
 - **Not on a stopped scheme.** A scheme whose effects the books refused stops until the node restarts, and refuses a peer's settlement meanwhile ([Settlement](settlement.md#the-scheme-interface)). So the node leaves it out as before its first sync: its link state no longer lists it, it asks for no peering on it, and refuses a request on it as unsupported. Peerings already made on it stay, and a repeat request on one is still answered with the stored peering; a restart lists it again.
 
-- **Repeats.** A request from a node already peered on the same scheme is answered at once, without a probe, with the stored peering's version. This covers an acceptance that got lost.
+- **Repeats.** A request from a node already peered on the same scheme is answered at once, without a probe, as accepted. This covers an acceptance that got lost.
 - **Crossings.** When both ask at once, the lower node ID's request wins.
 
 ### Roles
@@ -287,7 +287,7 @@ Periphery nodes peer with their uplinks on the same simulated network in `crates
 
 ## Decisions
 
-- [peer-protocol-v1](../decisions/peer-protocol-v1.md): v1 instead of v0: authenticated senders and responses, peering requests that carry the signed node info, termination, scheme versions.
+- [peer-protocol-v1](../decisions/peer-protocol-v1.md): v1 instead of v0: authenticated senders and responses, peering requests that carry the signed node info, termination.
 - [membership-economics](../decisions/membership-economics.md): removal and expiry, automatic registration, the served list, the membership freeze, authenticated lists, and the limits on free registration until fees.
 - [peering-lifecycle](../decisions/peering-lifecycle.md): the peering lifecycle, confirmed peers, the bridge rule, slot caps, repeats and crossings, the advertise flag and withdrawal for room, termination, bans as a list, the channel limit, and why child peers wait.
 - [bootstrap-network](../decisions/bootstrap-network.md): the testnet's bootstrap nodes as the default list.

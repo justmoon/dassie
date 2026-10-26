@@ -584,10 +584,7 @@ impl PeerNode {
                 let reason = peering
                     .depeering
                     .map_or(TerminationReason::Unspecified, |depeering| depeering.reason);
-                hooks
-                    .versions(peering.scheme)
-                    .is_empty()
-                    .then_some((*id, reason))
+                (!hooks.speaks(peering.scheme)).then_some((*id, reason))
             })
             .collect();
         for (peer, reason) in unrun {

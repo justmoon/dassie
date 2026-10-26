@@ -696,10 +696,6 @@ impl<N: NativeXrp> SettlementScheme for XrpScheme<N> {
         Some(N::XRP.network.first())
     }
 
-    fn supported_versions(&self) -> &'static [u16] {
-        &[1]
-    }
-
     fn balance(&self) -> u64 {
         self.f.booked
     }

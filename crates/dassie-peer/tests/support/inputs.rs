@@ -103,7 +103,6 @@ pub fn content(tag: usize, info: &[u8]) -> Vec<u8> {
             scheme: stub,
             node_info: info,
             data: &[1, 2, 3],
-            versions: (1..=8).collect(),
         }),
         1 => Content::LinkStateUpdate(info),
         // A Prepare, so that the node reads it as one.
@@ -153,7 +152,6 @@ pub fn content(tag: usize, info: &[u8]) -> Vec<u8> {
         19 => Content::MethodAdd {
             scheme: stub,
             data: &[1, 2, 3],
-            versions: (1..=8).collect(),
         },
         20 => Content::MethodDrop { scheme: stub },
         _ => panic!("no content has tag {tag}"),

@@ -567,10 +567,6 @@ impl SettlementScheme for Stub {
         LedgerId::StubUsd
     }
 
-    fn supported_versions(&self) -> &'static [u16] {
-        &[1]
-    }
-
     fn balance(&self) -> u64 {
         self.balance
     }

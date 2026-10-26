@@ -1063,7 +1063,7 @@ fn a_junior_extends_at_least_the_default_credit() {
         .unwrap();
     let scheme = dassie_peer::wire::SchemeId::parse("stub").unwrap();
     let agreed = core
-        .with_peer(|_, hooks, _| hooks.finalize(NOW, peer, scheme, 1, &[], &[], false))
+        .with_peer(|_, hooks, _| hooks.finalize(NOW, peer, scheme, &[], &[], false))
         .unwrap();
     assert_eq!(agreed.credit_out, Policies::DEFAULT.peer_credit);
     let contra = core
@@ -1095,7 +1095,7 @@ fn a_junior_keeps_the_lower_credit_of_a_peer_it_ended_for_room() {
         .unwrap();
     let scheme = dassie_peer::wire::SchemeId::parse("stub").unwrap();
     let agreed = core
-        .with_peer(|_, hooks, _| hooks.finalize(NOW, peer, scheme, 1, &[], &[], true))
+        .with_peer(|_, hooks, _| hooks.finalize(NOW, peer, scheme, &[], &[], true))
         .unwrap();
     assert_eq!(agreed.credit_out, core.senior_credit);
     assert!(core.senior_credit < Policies::DEFAULT.peer_credit);
@@ -1147,9 +1147,7 @@ fn on_unlimited_trust_both_sides_extend_the_unlimited_credit() {
     for peer in [fresh, known] {
         let mut response = Vec::new();
         let agreed = core
-            .with_peer(|_, hooks, _| {
-                hooks.accept(NOW, peer, false, scheme, 1, &info, &mut response)
-            })
+            .with_peer(|_, hooks, _| hooks.accept(NOW, peer, false, scheme, &info, &mut response))
             .unwrap();
         assert_eq!(agreed.credit_out, UNLIMITED_CREDIT);
         assert_eq!(trust_of(&core, peer), UNLIMITED_CREDIT);
@@ -1161,14 +1159,14 @@ fn on_unlimited_trust_both_sides_extend_the_unlimited_credit() {
         .open_peer(NOW, LedgerId::StubUsd, name, core.senior_credit)
         .unwrap();
     let agreed = core
-        .with_peer(|_, hooks, _| hooks.finalize(NOW, ended, scheme, 1, &info, &info, true))
+        .with_peer(|_, hooks, _| hooks.finalize(NOW, ended, scheme, &info, &info, true))
         .unwrap();
     assert_eq!(agreed.credit_out, UNLIMITED_CREDIT);
     assert_eq!(trust_of(&core, ended), UNLIMITED_CREDIT);
     // A peer that is not on the stub with unlimited trust is refused.
     let mut response = Vec::new();
     let refused = core.with_peer(|_, hooks, _| {
-        hooks.accept(NOW, seeded_node(4), false, scheme, 1, &[], &mut response)
+        hooks.accept(NOW, seeded_node(4), false, scheme, &[], &mut response)
     });
     assert_eq!(
         refused.err(),
@@ -1355,8 +1353,8 @@ fn accept_on_stub(
     let peer = seeded_node(seed);
     let scheme = dassie_peer::wire::SchemeId::parse("stub").unwrap();
     let mut response = Vec::new();
-    let accepted = core
-        .with_peer(|_, hooks, _| hooks.accept(NOW, peer, downlink, scheme, 1, &[], &mut response));
+    let accepted =
+        core.with_peer(|_, hooks, _| hooks.accept(NOW, peer, downlink, scheme, &[], &mut response));
     core.take_journal();
     accepted.map(|_| ())
 }
@@ -1416,7 +1414,7 @@ fn downlinks_never_take_the_room_core_peers_need() {
     }
     let scheme = dassie_peer::wire::SchemeId::parse("stub").unwrap();
     let last = NodeKey::from_bytes(&[2; 32]).node_id();
-    core.with_peer(|_, hooks, _| hooks.finalize(NOW, last, scheme, 1, &[], &[], false))
+    core.with_peer(|_, hooks, _| hooks.finalize(NOW, last, scheme, &[], &[], false))
         .unwrap();
     core.take_journal();
     assert_eq!(
@@ -2084,13 +2082,6 @@ fn downlink_request_on(
         scheme: stub,
         node_info: SignedNodeInfo::decode_exact(&state).unwrap(),
         data,
-        // The versions the scheme speaks here, as a node of this one's.
-        versions: dassie_ledger::Name::new(scheme)
-            .ok()
-            .and_then(|name| core.schemes.get(&name))
-            .map_or(vec![1], |active| {
-                active.scheme.supported_versions().to_vec()
-            }),
     });
     let bytes = content.to_vec();
     let mut auth = Authenticator::new(Arc::clone(downlink), AuthConfig::DEFAULT, now - 1);
@@ -2652,10 +2643,6 @@ impl dassie_settlement::SettlementScheme for Witness {
         Some(dassie_xrpl::account::FIRST)
     }
 
-    fn supported_versions(&self) -> &'static [u16] {
-        &[1]
-    }
-
     fn balance(&self) -> u64 {
         0
     }
@@ -2784,10 +2771,6 @@ impl dassie_settlement::SettlementScheme for HubStandIn {
 
     fn ledger(&self) -> dassie_ledger::LedgerId {
         self.ledger
-    }
-
-    fn supported_versions(&self) -> &'static [u16] {
-        &[1]
     }
 
     fn balance(&self) -> u64 {

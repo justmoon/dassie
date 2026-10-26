@@ -348,9 +348,6 @@ pub trait SettlementScheme: Send {
         None
     }
 
-    /// The scheme protocol versions it speaks, negotiated when peering.
-    fn supported_versions(&self) -> &'static [u16];
-
     /// The balance on the underlying ledger, in internal units: what the
     /// node checkpoints.
     fn balance(&self) -> u64;

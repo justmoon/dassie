@@ -928,10 +928,6 @@ impl SettlementScheme for HubScheme {
         Some(super::account::FIRST)
     }
 
-    fn supported_versions(&self) -> &'static [u16] {
-        &[1]
-    }
-
     fn balance(&self) -> u64 {
         self.booked
     }

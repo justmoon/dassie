@@ -69,6 +69,7 @@ const MIGRATIONS: &[&str] = &[
     MIGRATION_45,
     MIGRATION_46,
     MIGRATION_47,
+    MIGRATION_48,
 ];
 
 /// The schema version this code writes: the number of migrations.
@@ -1668,6 +1669,13 @@ ALTER TABLE node_config DROP COLUMN https_port;
 ALTER TABLE node_config DROP COLUMN http_port;
 ";
 
+/// A peering names no scheme version: a scheme's meaning is versioned by
+/// its ID and by the peer protocol's version
+/// (spec/areas/peer-protocol.md#versions).
+const MIGRATION_48: &str = "
+ALTER TABLE peers DROP COLUMN version;
+";
+
 /// Columns that hold secrets: the database inspector never reads them.
 pub const SECRET_COLUMNS: &[(&str, &str)] = &[
     ("node_key", "private_key"),
@@ -1875,7 +1883,6 @@ pub const TABLES: &[Table] = &[
         columns: &[
             ("node", "TEXT", true, true),
             ("scheme", "TEXT", true, false),
-            ("version", "INTEGER", true, false),
             ("state", "BLOB", true, false),
             ("credit_out", "INTEGER", true, false),
             ("since_ms", "INTEGER", true, false),

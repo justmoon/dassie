@@ -760,13 +760,6 @@ impl<T: IssuedToken> SettlementScheme for TokenScheme<T> {
         Some(T::TOKEN.issuer.to_address())
     }
 
-    /// Version 2: its memo type is its scheme's ID
-    /// (spec/decisions/scheme-names.md), so a node of version 1, which
-    /// wrote another, is refused as a peer on it rather than read wrong.
-    fn supported_versions(&self) -> &'static [u16] {
-        &[2]
-    }
-
     fn balance(&self) -> u64 {
         self.f.booked
     }

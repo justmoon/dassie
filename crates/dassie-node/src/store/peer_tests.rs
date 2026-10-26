@@ -25,7 +25,6 @@ fn node(seed: u8) -> StoredNode {
         }),
         peering: Some(Peering {
             scheme: SchemeId::parse("stub").unwrap(),
-            version: 1,
             state: vec![1, 2],
             credit_out: 900,
             since_ms: 14,

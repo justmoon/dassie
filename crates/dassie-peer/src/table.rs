@@ -209,8 +209,6 @@ impl LinkState {
 pub struct Peering {
     /// The scheme it settles with.
     pub scheme: SchemeId,
-    /// The scheme's version both speak.
-    pub version: u16,
     /// The scheme's state for this peer.
     pub state: Vec<u8>,
     /// The credit we extend to the peer. The credit it extends to us is

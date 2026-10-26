@@ -22,11 +22,11 @@ use dassie_peer::wire::{
     Authentication, Content, EXTENSION_HUB, EXTENSION_HUBS, EXTENSION_METHODS, Entry, Envelope,
     EnvelopeError, HmacAuthentication, HubList, HubListing, HubMembership, InvalidNodeInfo, Kind,
     LinkStateResponse, MAX_COMMITMENT_BYTES, MAX_HUBS, MAX_NAME_LIST, MAX_NAME_LIST_BYTES,
-    MAX_URL_BYTES, MAX_VERSIONS, MethodResponse, NameHolding, NameListResponse, NameReceipt,
-    NodeInfo, NodeListResponse, PeeringRequest, PeeringResponse, RefusalReason, ResponseEnvelope,
-    SchemeId, SignedNodeInfo, TerminationReason, decode_expiry, decode_hash, decode_octets,
-    decode_settling, encode_envelope, encode_expiry, encode_octets, encode_response,
-    encode_settling, hub_list_bytes, is_valid_url, peek_kind, sign_node_info,
+    MAX_URL_BYTES, MethodResponse, NameHolding, NameListResponse, NameReceipt, NodeInfo,
+    NodeListResponse, PeeringRequest, PeeringResponse, RefusalReason, ResponseEnvelope, SchemeId,
+    SignedNodeInfo, TerminationReason, decode_expiry, decode_hash, decode_octets, decode_settling,
+    encode_envelope, encode_expiry, encode_octets, encode_response, encode_settling,
+    hub_list_bytes, is_valid_url, peek_kind, sign_node_info,
 };
 use proptest::prelude::*;
 use sha2::{Digest, Sha256};
@@ -277,11 +277,8 @@ fn v1_encodings_are_pinned() {
     );
     let decoded = Envelope::decode(&envelope).unwrap();
     assert_eq!(decoded.authentication, Authentication::Hmac(hmac()));
-    let response = PeeringResponse::Accepted {
-        version: 1,
-        data: &[0xab],
-    };
-    assert_eq!(to_hex(&response.to_vec()), "80000101ab");
+    let response = PeeringResponse::Accepted { data: &[0xab] };
+    assert_eq!(to_hex(&response.to_vec()), "8001ab");
     assert_eq!(
         to_hex(&PeeringResponse::Refused(RefusalReason::Capacity).to_vec()),
         "8104"
@@ -303,20 +300,14 @@ fn peering_requests_round_trip() {
         scheme: stub(),
         node_info: SignedNodeInfo::decode_exact(&info).unwrap(),
         data: &[1, 2, 3],
-        versions: vec![1, 2],
     });
     let bytes = request.to_vec();
     assert_eq!(bytes[0], 0x80);
     assert_eq!(Content::decode_exact(&bytes).unwrap(), request);
-    // At least one version.
-    let none = Content::PeeringRequest(PeeringRequest {
-        versions: Vec::new(),
-        ..match request {
-            Content::PeeringRequest(request) => request,
-            _ => unreachable!(),
-        }
-    });
-    assert!(Content::decode_exact(&none.to_vec()).is_err());
+    // Nothing follows the scheme's data.
+    let mut trailing = bytes.clone();
+    trailing.push(0);
+    assert!(Content::decode_exact(&trailing).is_err());
 }
 
 #[test]
@@ -444,11 +435,7 @@ const RESPONSES: usize = 11;
 fn response(kind: usize) -> Vec<u8> {
     let signed = signed_full();
     match kind {
-        0 => PeeringResponse::Accepted {
-            version: 1,
-            data: &[0xab; 3],
-        }
-        .to_vec(),
+        0 => PeeringResponse::Accepted { data: &[0xab; 3] }.to_vec(),
         1 => PeeringResponse::Refused(RefusalReason::Capacity).to_vec(),
         2 => LinkStateResponse(vec![
             None,
@@ -466,11 +453,7 @@ fn response(kind: usize) -> Vec<u8> {
         }
         .to_vec(),
         9 => name_list().to_vec(),
-        10 => MethodResponse::Accepted {
-            version: 1,
-            data: &[0xab; 3],
-        }
-        .to_vec(),
+        10 => MethodResponse::Accepted { data: &[0xab; 3] }.to_vec(),
         _ => unreachable!(),
     }
 }
@@ -1084,9 +1067,8 @@ fn settlement_method_messages_are_pinned_and_bounded() {
     let add = Content::MethodAdd {
         scheme: stub(),
         data: &[0xab],
-        versions: vec![1, 2],
     };
-    assert_eq!(to_hex(&add.to_vec()), "93047374756201ab010200010002");
+    assert_eq!(to_hex(&add.to_vec()), "93047374756201ab");
     let drop = Content::MethodDrop { scheme: stub() };
     assert_eq!(to_hex(&drop.to_vec()), "940473747562");
     for (tag, content) in [(18, &packet), (19, &add), (20, &drop)] {
@@ -1116,15 +1098,6 @@ fn settlement_method_messages_are_pinned_and_bounded() {
     bytes[14] = 0x01;
     bytes.push(0xab);
     assert!(Content::decode_exact(&bytes).is_err());
-    // No versions, or more than MAX_VERSIONS, are malformed.
-    for versions in [vec![], vec![1; MAX_VERSIONS + 1]] {
-        let add = Content::MethodAdd {
-            scheme: stub(),
-            data: &[],
-            versions,
-        };
-        assert!(Content::decode_exact(&add.to_vec()).is_err());
-    }
     // Nothing may follow.
     for content in [&packet, &add, &drop] {
         let mut trailing = content.to_vec();
@@ -1136,24 +1109,24 @@ fn settlement_method_messages_are_pinned_and_bounded() {
 // The answer to a `methodAdd` is shaped as a peering answer's.
 #[test]
 fn method_answers_are_pinned() {
-    let accepted = MethodResponse::Accepted {
-        version: 1,
-        data: &[0xab],
-    };
-    assert_eq!(to_hex(&accepted.to_vec()), "80000101ab");
-    let refused = MethodResponse::Refused(RefusalReason::NoCommonVersion);
-    assert_eq!(to_hex(&refused.to_vec()), "8103");
+    let accepted = MethodResponse::Accepted { data: &[0xab] };
+    assert_eq!(to_hex(&accepted.to_vec()), "8001ab");
+    let refused = MethodResponse::Refused(RefusalReason::Capacity);
+    assert_eq!(to_hex(&refused.to_vec()), "8104");
     for response in [accepted, refused] {
         assert_eq!(
             MethodResponse::decode_exact(&response.to_vec()),
             Ok(response)
         );
     }
-    // Unknown reasons read as unspecified; unknown tags are malformed.
-    assert_eq!(
-        MethodResponse::decode_exact(&[0x81, 0x63]),
-        Ok(MethodResponse::Refused(RefusalReason::Unspecified))
-    );
+    // Unknown reasons, and the reserved 3, read as unspecified; unknown
+    // tags are malformed.
+    for code in [0x03, 0x63] {
+        assert_eq!(
+            MethodResponse::decode_exact(&[0x81, code]),
+            Ok(MethodResponse::Refused(RefusalReason::Unspecified))
+        );
+    }
     assert!(MethodResponse::decode_exact(&[0x82, 0x00]).is_err());
 }
 
@@ -1312,12 +1285,11 @@ proptest! {
         scheme in "[a-z0-9-]{2,64}",
         packet in proptest::collection::vec(any::<u8>(), 0..300),
         commitment in proptest::collection::vec(any::<u8>(), 0..=MAX_COMMITMENT_BYTES),
-        versions in proptest::collection::vec(any::<u16>(), 1..=MAX_VERSIONS),
     ) {
         let scheme = SchemeId::parse(&scheme).unwrap();
         let contents = [
             Content::MethodPacket { request_id, scheme, packet: &packet, commitment: &commitment },
-            Content::MethodAdd { scheme, data: &packet, versions },
+            Content::MethodAdd { scheme, data: &packet },
             Content::MethodDrop { scheme },
         ];
         for content in contents {
