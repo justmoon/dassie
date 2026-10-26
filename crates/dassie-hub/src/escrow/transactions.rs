@@ -186,12 +186,19 @@ fn is_hub_line(terms: &Terms, line: &TrustLine) -> bool {
 
 /// Whether `line` is a token hub's escrow's line as its setup makes it:
 /// rippling disabled on the escrow's side, so no payment ripples through
-/// it, and the largest limit there is, so no deposit is refused for it.
+/// it, the largest limit there is, so no deposit is refused for it, and no
+/// freeze of the escrow's. That it pays and takes at par on both sides,
+/// with no quality that would skew what a withdrawal delivers or a deposit
+/// adds, is the reading's: a line with one is not among the lines read
+/// ([`AccountObjects::lines`]).
 fn is_escrow_line(terms: &Terms, line: &TrustLine) -> bool {
     is_hub_line(terms, line)
-        && line
-            .view(AccountId(terms.escrow))
-            .is_some_and(|view| view.ours.no_ripple && view.limit == TokenValue::MAX)
+        && line.view(AccountId(terms.escrow)).is_some_and(|view| {
+            view.ours.no_ripple
+                && !view.ours.freeze
+                && !view.ours.deep_freeze
+                && view.limit == TokenValue::MAX
+        })
 }
 
 /// Why an escrow is not one the validators take.

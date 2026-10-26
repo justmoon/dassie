@@ -27,7 +27,9 @@ use dassie_hub::operation::{
     AccountNumber, Destination, MemberOperation, Operation, SignedMemberOperation,
     SignedValidatorOperation, ValidatorOperation,
 };
-use dassie_hub::rules::{Acceptance, Asset, Fees, Limits, Rules, Terms, Timers};
+use dassie_hub::rules::{
+    Acceptance, Asset, Fees, LEAST_TOKEN_GAS_DROPS, Limits, Rules, Terms, Timers,
+};
 use dassie_hub::service::wire::PayoutPage;
 use dassie_hub::validators::{Signers, ValidatorIndex};
 use dassie_hub::{Ledger, Millis};
@@ -41,6 +43,8 @@ use serde_json::Value;
 const CONNECTION: u64 = 1;
 const NONCE: [u8; 32] = [7; 32];
 const LEDGER_FEE: u64 = 100;
+/// A DSUSD hub's gas: the least a token hub names.
+const GAS: u64 = LEAST_TOKEN_GAS_DROPS;
 
 fn request(ledger: &mut FakeLedger, bytes: &[u8]) -> Value {
     match api::parse(&ledger.request(CONNECTION, bytes)) {
@@ -159,7 +163,7 @@ fn dsusd_terms(sponsor: &NodeKey, escrow: AccountId) -> Terms {
         currency: Token::DSUSD.currency,
         issuer: Token::DSUSD.issuer,
     };
-    terms.fees.gas = LEDGER_FEE;
+    terms.fees.gas = GAS;
     terms.fees.ledger = 0;
     terms.fees.least_payout = 1_000;
     terms
@@ -1270,7 +1274,7 @@ fn a_dsusd_hub_takes_deposits_and_pays_withdrawals_in_dsusd() {
     assert_eq!(payment.amount, dsusd("5"));
     assert_eq!(
         (payment.fee, payment.flags, payment.send_max),
-        (LEDGER_FEE, 0, None)
+        (GAS, 0, None)
     );
     let signers: Vec<Signer> = hub.validators[..3]
         .iter()
@@ -1299,7 +1303,7 @@ fn a_dsusd_hub_takes_deposits_and_pays_withdrawals_in_dsusd() {
         TokenValue::parse("54.9999995"),
         "100, less 50.0000005 in, and 5 out"
     );
-    assert_eq!(hub.xrpl.balance(escrow).unwrap(), gas - LEDGER_FEE);
+    assert_eq!(hub.xrpl.balance(escrow).unwrap(), gas - GAS);
     assert_eq!(hub.ledger.account(number).unwrap().withdrawn, 5_000_000);
     // The half millionth the hub never credited stays in the escrow.
     assert_eq!(hub.ledger.liabilities(), hub.dsusd_held());
@@ -1337,7 +1341,7 @@ fn a_dsusd_hubs_payout_set_pays_dsusd() {
     let payments = payouts(&set);
     for payment in &payments {
         assert!(matches!(payment.amount, Amount::Token(_)), "{payment:?}");
-        assert_eq!(payment.fee, LEDGER_FEE);
+        assert_eq!(payment.fee, GAS);
     }
     let alices = payments
         .iter()
@@ -1393,7 +1397,7 @@ fn a_dsusd_hubs_payout_set_pays_dsusd() {
         .map(|payment| hub.rules.terms.hub_amount(&payment.amount).unwrap())
         .sum();
     assert_eq!(hub.dsusd_held(), held - paid);
-    let fees = LEDGER_FEE * u64::try_from(blobs.len()).unwrap();
+    let fees = GAS * u64::try_from(blobs.len()).unwrap();
     assert_eq!(hub.xrpl.balance(escrow).unwrap(), gas - fees, "gas alone");
     assert!(hub.xrpl.tokens_conserved());
 }
@@ -1404,7 +1408,9 @@ fn a_dsusd_hubs_payout_set_pays_dsusd() {
 #[test]
 fn the_check_takes_a_token_escrow_with_its_one_line() {
     use EscrowFault::{Objects, TrustLine};
-    use dassie_xrpl::api::line_flags::{HIGH_NO_RIPPLE, LOW_NO_RIPPLE};
+    use dassie_xrpl::api::line_flags::{
+        HIGH_DEEP_FREEZE, HIGH_FREEZE, HIGH_NO_RIPPLE, LOW_DEEP_FREEZE, LOW_FREEZE, LOW_NO_RIPPLE,
+    };
 
     let mut hub = Hub::found_with(dsusd_terms);
     let (settings, objects) = hub.settings_and_objects();
@@ -1423,6 +1429,22 @@ fn the_check_takes_a_token_escrow_with_its_one_line() {
     limited.lines[0].low_limit = TokenValue::parse("1000").unwrap();
     limited.lines[0].high_limit = TokenValue::parse("1000").unwrap();
     assert_eq!(check(&limited), Err(TrustLine));
+    // A freeze of the escrow's own is not as the setup makes the line; the
+    // issuer's freeze is no part of the setup, so the check leaves it be.
+    let escrow_low = hub.escrow() < Token::DSUSD.issuer;
+    let (ours, theirs) = if escrow_low {
+        ([LOW_FREEZE, LOW_DEEP_FREEZE], HIGH_FREEZE)
+    } else {
+        ([HIGH_FREEZE, HIGH_DEEP_FREEZE], LOW_FREEZE)
+    };
+    for flag in ours {
+        let mut frozen = objects.clone();
+        frozen.lines[0].flags |= flag;
+        assert_eq!(check(&frozen), Err(TrustLine));
+    }
+    let mut issuers = objects.clone();
+    issuers.lines[0].flags |= theirs;
+    check(&issuers).unwrap();
     let mut more = objects.clone();
     more.others = 2;
     assert_eq!(check(&more), Err(Objects));

@@ -52,6 +52,18 @@ pub const TOKEN_DECIMALS: u8 = 6;
 /// the next transaction once it holds it.
 pub const LEAST_ESCROW_GAS_DROPS: u64 = 1_000_000;
 
+/// The XRP Ledger's base fee in drops: what a transaction pays at least,
+/// and a multi-signed one once more for each signature.
+pub const LEDGER_BASE_FEE: Amount = 10;
+
+/// The least gas a token hub names: the base fee once for each signature
+/// of the largest set of validators there may be, and once more. New rules
+/// may add validators but never change the gas ([`Terms::keeps_tables_of`]),
+/// so it is sized for any set the hub may come to have; a gas sized for
+/// fewer would name a fee the ledger refuses once the set grows, and stop
+/// the escrow's sequence for good.
+pub const LEAST_TOKEN_GAS_DROPS: Amount = LEDGER_BASE_FEE * (MAX_VALIDATORS as u64 + 1);
+
 /// A time in milliseconds since the Unix epoch, or a duration in them.
 pub type Millis = u64;
 
@@ -93,7 +105,9 @@ pub struct Fees {
     /// In a token hub, the fee in drops of XRP that each transaction the
     /// escrow sends names, multi-signed by a quorum, as `ledger` is in an
     /// XRP hub: paid from the escrow's own XRP, never charged to an
-    /// account or burnt from the token the hub holds. Zero in an XRP hub.
+    /// account or burnt from the token the hub holds. It never changes, so
+    /// it is at least the fee of the largest set of validators the hub may
+    /// come to have ([`LEAST_TOKEN_GAS_DROPS`]). Zero in an XRP hub.
     pub gas: Amount,
     /// Parts per million of each fee that go to the reserve account.
     pub reserve_share_ppm: u32,
@@ -293,8 +307,10 @@ impl Terms {
                 if fees.ledger != 0 {
                     return fail("a ledger fee in a token hub, whose escrow pays fees in XRP");
                 }
-                if fees.gas == 0 || fees.gas > LEAST_ESCROW_GAS_DROPS {
-                    return fail("gas none, or more than the least XRP the escrow keeps");
+                if fees.gas < LEAST_TOKEN_GAS_DROPS || fees.gas > LEAST_ESCROW_GAS_DROPS {
+                    return fail(
+                        "gas below the largest set's fee, or above the least XRP the escrow keeps",
+                    );
                 }
                 // A Payment of nothing is malformed: it would never use its
                 // sequence, and the escrow's would stop.
@@ -995,14 +1011,14 @@ pub(crate) mod tests {
         }
     }
 
-    /// `terms` as a DSUSD hub's: the token, no ledger fee but gas in its
-    /// place, and a least payout of a millionth.
+    /// `terms` as a DSUSD hub's: the token, no ledger fee but the least gas
+    /// in its place, and a least payout of a millionth.
     pub(crate) fn token_terms(mut terms: Terms) -> Terms {
         terms.asset = Asset::Token {
             currency: dassie_xrpl::dsusd::CURRENCY,
             issuer: dassie_xrpl::dsusd::ISSUER,
         };
-        terms.fees.gas = terms.fees.ledger;
+        terms.fees.gas = LEAST_TOKEN_GAS_DROPS;
         terms.fees.ledger = 0;
         terms.fees.least_payout = 1;
         terms
@@ -1060,7 +1076,7 @@ pub(crate) mod tests {
         assert_eq!(Terms::decode(&mut reader).unwrap(), token);
         reader.finish().unwrap();
         assert_ne!(token.digest(), xrp.digest());
-        assert_eq!(token.transaction_fee(), 12);
+        assert_eq!(token.transaction_fee(), LEAST_TOKEN_GAS_DROPS);
         assert_eq!(
             token.units_per_amount(),
             dassie_xrpl::token::UNITS_PER_MICRO
@@ -1097,12 +1113,15 @@ pub(crate) mod tests {
             false
         ));
         // A token hub's least payout is any amount but none; its fees are
-        // gas, at most what the escrow keeps; and its token is a token of
+        // gas, enough for the largest set of validators and at most what
+        // the escrow keeps; and its token is a token of
         // an issuer other than the escrow.
         assert!(!fails(&|t| t.fees.least_payout = 1, true));
         assert!(fails(&|t| t.fees.least_payout = 0, true));
         assert!(fails(&|t| t.fees.ledger = 1, true));
         assert!(fails(&|t| t.fees.gas = 0, true));
+        assert!(fails(&|t| t.fees.gas = LEAST_TOKEN_GAS_DROPS - 1, true));
+        assert_eq!(LEAST_TOKEN_GAS_DROPS, 170, "sixteen signatures and one");
         assert!(!fails(&|t| t.fees.gas = LEAST_ESCROW_GAS_DROPS, true));
         assert!(fails(&|t| t.fees.gas = LEAST_ESCROW_GAS_DROPS + 1, true));
         assert!(fails(

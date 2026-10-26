@@ -111,7 +111,9 @@ impl Setup {
     async fn step(&mut self, session: &mut Session, master: &Wallet) -> Result<bool, String> {
         let escrow = AccountId(self.rules.terms.escrow);
         let seen = read(session, escrow).await?;
-        let fee = self.rules.terms.fees.ledger;
+        // The fee an escrow transaction names: an XRP hub's ledger fee, or
+        // a token hub's gas (its ledger fee is none).
+        let fee = self.rules.terms.transaction_fee();
         match setup_step(&self.rules, master, seen.as_ref(), fee) {
             SetupStep::Fund => self.fund(escrow).await?,
             SetupStep::Wait => {}
