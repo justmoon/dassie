@@ -96,6 +96,7 @@ impl LedgerId {
             Self::XrplTestnetRlusdUsd | Self::XrplRlusdUsd => "rlusd",
             Self::XrplTestnetDsusdUsd => "dsusd",
             Self::HubXrplTestnetXrp => "hub-xrp",
+            Self::HubXrplTestnetDsusdUsd => "hub-dsusd",
         }
     }
 
