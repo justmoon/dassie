@@ -136,7 +136,7 @@ test("dassie.land: the pages, and a STREAM payment in the toy", {
       await page.goto(`${base}/`, { waitUntil: "load" });
       assertEquals(
         await page.evaluate(() => document.querySelector("h1")?.textContent),
-        "Payments that grow sideways.",
+        "Any currency. Any ledger. Anyone.",
       );
       // The install command's Copy button shows once its script runs.
       assertEquals(

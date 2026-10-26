@@ -171,6 +171,11 @@ pre code {
   font-variation-settings: "SOFT" 100, "WONK" 1;
 }
 
+/* Lines break between the sentences, never inside one. */
+.hero h1 span {
+  white-space: nowrap;
+}
+
 .hero .lede {
   max-width: 480px;
   margin: 20px 0 26px;
