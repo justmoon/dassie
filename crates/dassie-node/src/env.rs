@@ -545,8 +545,8 @@ fn relay(env: &Env) -> Result<Option<Relay>, EnvError> {
 /// ID is the one the key gives.
 fn check_bootstrap_node(node: &BootstrapNodeJson) -> Option<BootstrapNode> {
     let mut key = [0; 32];
-    // `decode` asserts the output has room, so a longer key is refused
-    // here rather than ending the node.
+    // A key must decode to exactly 32 bytes: a shorter one would leave the
+    // rest of `key` zero.
     if dassie_base64url::decoded_len(node.public_key.len()) != Some(key.len()) {
         return None;
     }
