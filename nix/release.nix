@@ -17,11 +17,11 @@
   wasm-modules,
 }:
 let
-  # A release's version is dassie-cli's. A canary's names when the commit it
-  # was built from was made, in UTC, and the commit:
+  # A release's version is the workspace's (Cargo.toml). A canary's names
+  # when the commit it was built from was made, in UTC, and the commit:
   # `canary-2026-10-15-041530-15bd7aa`. A source without a commit gives
   # "unknown", which is no version: such a tree cannot be signed.
-  releaseVersion = (lib.importTOML ../crates/dassie-cli/Cargo.toml).package.version;
+  releaseVersion = (lib.importTOML ../Cargo.toml).workspace.package.version;
   canaryVersion =
     let
       part = start: length: lib.substring start length self.lastModifiedDate;

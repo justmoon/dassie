@@ -1,6 +1,6 @@
 [package]
 name = "dassie-node-core"
-version = "0.2.9"
+version.workspace = true
 description = "The Dassie node's decisions without IO: config, setup, sessions, origins, rate limits, ACME and TLS policy"
 edition.workspace = true
 rust-version.workspace = true

@@ -168,11 +168,10 @@ test("map.json: a box uses what its manifest depends on", async () => {
 });
 
 test("map.json: the newest release is the one Cargo.toml names", async () => {
-  const manifest = await readFile(
-    `${root}crates/dassie-cli/Cargo.toml`,
-    "utf8",
-  );
-  const version = manifest.match(/^version = "([^"]+)"/m)?.[1];
+  const manifest = await readFile(`${root}Cargo.toml`, "utf8");
+  const version = manifest.match(
+    /^\[workspace\.package\][^[]*?^version = "([^"]+)"/m,
+  )?.[1];
   assertEquals(MAP.releases[0]?.version, version);
   const dates = MAP.releases.map((release) => release.date);
   assertEquals(dates, [...dates].sort().reverse());

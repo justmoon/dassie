@@ -18,7 +18,7 @@
 }:
 let
   desktopLibs = import ./desktop-libs.nix { inherit pkgs; };
-  version = (lib.importTOML ../crates/dassie-desktop/Cargo.toml).package.version;
+  version = (lib.importTOML ../Cargo.toml).workspace.package.version;
   common = {
     inherit src version;
     pname = "dassie-desktop";

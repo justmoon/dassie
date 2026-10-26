@@ -1,6 +1,6 @@
 [package]
 name = "dassie-node"
-version = "0.2.9"
+version.workspace = true
 description = "The Dassie daemon: config, database, listeners, TLS, ACME, the owner's login and the RPC contract"
 edition.workspace = true
 rust-version.workspace = true
