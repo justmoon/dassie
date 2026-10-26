@@ -36,6 +36,8 @@ use dassie_node::outbound::OutboundClient;
 use dassie_xrpl::Wallet;
 use dassie_xrpl::amount::IssuedAsset;
 use dassie_xrpl::keys::AccountId;
+use futures_util::StreamExt;
+use futures_util::stream::FuturesUnordered;
 use lexopt::prelude::*;
 use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;
@@ -263,19 +265,41 @@ impl MarketMaker {
     async fn run(&mut self, shutdown: &CancellationToken) {
         let mut ticks = tokio::time::interval(TICK);
         ticks.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        // Whether the last decision held for want of a current feed: then
+        // it decides again as soon as a feed arrives, rather than a tick
+        // on, as at the start.
+        let mut unfed = false;
         loop {
             tokio::select! {
                 () = shutdown.cancelled() => return,
                 _ = ticks.tick() => {}
+                () = self.feed_arrives(), if unfed => {}
             }
             tokio::select! {
                 () = shutdown.cancelled() => return,
                 () = self.tick() => {}
             }
+            unfed = self.current(self.clock.now_ms()).is_empty();
             // A full tick after a decision, however long it took: the
             // nodes book what it did meanwhile.
             ticks.reset();
         }
+    }
+
+    /// Resolves once a target's feed changes, marking it seen; never once
+    /// every target's task has ended.
+    async fn feed_arrives(&mut self) {
+        let mut changes: FuturesUnordered<_> = self
+            .targets
+            .iter_mut()
+            .map(|following| following.feed.changed())
+            .collect();
+        while let Some(changed) = changes.next().await {
+            if changed.is_ok() {
+                return;
+            }
+        }
+        std::future::pending().await
     }
 
     /// Decides once, and does what it decided.
