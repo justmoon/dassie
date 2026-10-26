@@ -2358,7 +2358,17 @@ fn the_owner_pays_dsusd_out_of_the_line() {
         owner_payment(to, 0),
         owner_payment(to, usd(1_000_000) + 1),
         dassie_settlement::OwnerPayment {
-            memo: Some(vec![1; dassie_settlement::MAX_OWNER_MEMO_BYTES + 1]),
+            memo: Some(dassie_settlement::OwnerMemo {
+                memo_type: b"type".to_vec(),
+                data: vec![1; dassie_settlement::MAX_OWNER_MEMO_BYTES + 1],
+            }),
+            ..owner_payment(to, usd(1_000_000))
+        },
+        dassie_settlement::OwnerPayment {
+            memo: Some(dassie_settlement::OwnerMemo {
+                memo_type: dassie_xrpl::dsusd::MEMO_TYPE.to_vec(),
+                data: b"node1".to_vec(),
+            }),
             ..owner_payment(to, usd(1_000_000))
         },
     ] {
@@ -2370,7 +2380,10 @@ fn the_owner_pays_dsusd_out_of_the_line() {
     }
     let payment = dassie_settlement::OwnerPayment {
         tag: Some(42),
-        memo: Some(vec![7; 32]),
+        memo: Some(dassie_settlement::OwnerMemo {
+            memo_type: b"https://example.com/memo".to_vec(),
+            data: vec![7; 32],
+        }),
         ..owner_payment(to, usd(4_000_000))
     };
     let id = world.pay_owner(0, &payment).unwrap();
@@ -2404,7 +2417,7 @@ fn the_owner_pays_dsusd_out_of_the_line() {
     );
     assert_eq!(
         record.memo,
-        Some((dassie_xrpl::scheme::OWNER_MEMO_TYPE.to_vec(), vec![7; 32]))
+        Some((b"https://example.com/memo".to_vec(), vec![7; 32]))
     );
     // The next may go once it is done.
     let next = world

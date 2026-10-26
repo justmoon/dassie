@@ -16,8 +16,8 @@ use alloc::vec::Vec;
 
 use dassie_ledger::{MAX_TOTAL, Name};
 use dassie_settlement::{
-    Effect, EntryPayment, ExternalAsset, MAX_OWNER_MEMO_BYTES, OwnerPayment, OwnerPaymentState,
-    PaymentFailure, ReconcileCause, SchemeError,
+    Effect, EntryPayment, ExternalAsset, OwnerPayment, OwnerPaymentState, PaymentFailure,
+    ReconcileCause, SchemeError,
 };
 
 use crate::account::{News, Resumed, XrplAccount};
@@ -27,7 +27,7 @@ use crate::entry::Entries;
 use crate::from_hex;
 use crate::kept::{In, Out};
 use crate::keys::AccountId;
-use crate::scheme::{OWNER_MEMO_TYPE, account_of};
+use crate::scheme::{account_of, owner_memos};
 
 /// Most peers whose addresses are kept: at least the node's settlement
 /// channels open, with core nodes and with downlinks, so every node it
@@ -306,7 +306,7 @@ impl Follower {
 
     /// Where `payment` goes and the memo it carries, if the scheme may sign
     /// one now: one at a time, never to the account itself, with a memo of
-    /// at most [`MAX_OWNER_MEMO_BYTES`].
+    /// the type its reader expects, never a settlement's ([`owner_memos`]).
     ///
     /// # Errors
     ///
@@ -320,21 +320,10 @@ impl Follower {
             return Err(SchemeError::Unavailable);
         }
         let destination = AccountId::parse(&payment.destination).ok_or(SchemeError::InvalidData)?;
-        let memo_too_long = payment
-            .memo
-            .as_ref()
-            .is_some_and(|memo| memo.len() > MAX_OWNER_MEMO_BYTES);
-        if destination == self.account || memo_too_long {
+        let memos = owner_memos(payment)?;
+        if destination == self.account {
             return Err(SchemeError::InvalidData);
         }
-        let memos = payment
-            .memo
-            .iter()
-            .map(|data| Memo {
-                memo_type: OWNER_MEMO_TYPE.to_vec(),
-                memo_data: data.clone(),
-            })
-            .collect();
         Ok((destination, memos))
     }
 

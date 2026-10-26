@@ -79,8 +79,9 @@
 
           # The Rust workspace, with Cargo's configuration (the property
           # tests' fixed seed, and the bundled SQLite's build flags, which
-          # the release builds with too), the golden vectors the tests read (the rate
-          # feed's are in testdata/feed), the RPC contract dassie-node
+          # the release builds with too), the golden vectors the tests read
+          # (the rate feed's are in testdata/feed, a settlement hub's in
+          # testdata/hub), the RPC contract dassie-node
           # generates its messages from, the test certificates two
           # in-process daemons peer with, minisign's signatures with the
           # release test key, and the release's resources: its key, the
@@ -101,6 +102,7 @@
               ./resources/proof-server/xrpld-mainnet.cfg
               ./resources/proof-server/xrpld-testnet.cfg
               ./testdata/feed
+              ./testdata/hub
               ./testdata/tls
               ./testdata/release
             ];

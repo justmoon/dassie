@@ -103,6 +103,7 @@ The node that asks to peer extends the other 1.1 units of credit; the node that 
 | `tests/e2e` | End-to-end tests on real binaries: a fresh install through `dassie init` and browser setup, with Pebble as the ACME CA; a BTP client paying the node's STREAM receiver; the `two-nodes` and `six-nodes` scenarios; Open Payments, including a third party's full flow with consent in the wallet; XRPL settlement and cross-currency payments; the wallet's pages in a browser; `node --run dev` and its dashboard; the installer and the updater on Debian, Ubuntu, Fedora and CentOS, in containers; dassie.land and its STREAM toy in a browser, under the site's CSP |
 | `testdata/original` | Generator for the golden vectors, run against the original |
 | `testdata/feed` | The rate feed's golden vectors, from `cargo run -p dassie-feed --example feed_vectors` |
+| `testdata/hub` | A settlement hub's golden vectors, from `cargo run -p dassie-hub --example hub_vectors` |
 | `testdata/xrpl` | Generator for the XRPL golden vectors, run against xrpl.js |
 | `testdata/tls` | The tests' TLS certificate for localhost and its CA, which Pebble (Let's Encrypt's test server) serves its API with, as do the nodes and mirrors of the tests; and Pebble's configuration |
 | `testdata/release` | The release test key and what minisign signs with it |

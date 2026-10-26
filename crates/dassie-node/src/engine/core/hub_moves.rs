@@ -6,7 +6,7 @@
 use dassie_hub::member::{HubAccount, UNITS_PER_DROP};
 use dassie_ledger::{LedgerId, Name};
 use dassie_settlement::{
-    ExternalAsset, LedgerStatus, OwnerPayment, OwnerPaymentState, SchemeError, policy,
+    ExternalAsset, LedgerStatus, OwnerMemo, OwnerPayment, OwnerPaymentState, SchemeError, policy,
 };
 
 use super::hub_funding::{Direction, Held, Move, Planned, Standing};
@@ -407,7 +407,13 @@ impl Core {
                 let escrow = dassie_xrpl::AccountId(account.terms().escrow);
                 let (tag, memo) = match (standing.held, account.number()) {
                     (Some(_), Some(number)) => (number.0, None),
-                    _ => (0, Some(account.key().as_bytes().to_vec())),
+                    _ => (
+                        0,
+                        Some(OwnerMemo {
+                            memo_type: dassie_hub::escrow::OPEN_MEMO_TYPE.to_vec(),
+                            data: account.key().as_bytes().to_vec(),
+                        }),
+                    ),
                 };
                 let payment = OwnerPayment {
                     destination: escrow.to_address(),

@@ -16,9 +16,10 @@
 )]
 
 use dassie_hub::escrow::{
-    EscrowFault, EscrowSeen, PayoutBundle, PayoutError, PayoutTransaction, SetupStep,
-    ValidatorKeys, assemble, check_escrow, deposit_of, escrow_master, outcome_of, payout_set,
-    setup, setup_step, sign_payout_set, signer_list_set, withdrawal_outcome, withdrawal_payment,
+    EscrowFault, EscrowSeen, OPEN_MEMO_TYPE, PayoutBundle, PayoutError, PayoutTransaction,
+    SetupStep, ValidatorKeys, assemble, check_escrow, deposit_of, escrow_master, outcome_of,
+    payout_set, setup, setup_step, sign_payout_set, signer_list_set, withdrawal_outcome,
+    withdrawal_payment,
 };
 use dassie_hub::ledger::Failure;
 use dassie_hub::ledger::TESTNET_NETWORK;
@@ -324,7 +325,7 @@ fn deposit(hub: &mut Hub, alice: &Wallet, alice_key: &NodeKey, drops: u64) -> Ac
         flags: 0,
         network_id: None,
         memos: vec![Memo {
-            memo_type: b"dassie/hub-account".to_vec(),
+            memo_type: OPEN_MEMO_TYPE.to_vec(),
             memo_data: alice_key.public_key().as_bytes().to_vec(),
         }],
         signing: Signing::by(alice.public_key()),
@@ -661,6 +662,19 @@ fn only_what_reaches_the_escrow_is_a_deposit() {
     // A partial payment counts for what it delivered.
     let partial = not(&|r| r.delivered = Some(7)).unwrap();
     assert_eq!(partial.amount, 7);
+    // Only a memo of the open type names the new account's key: one of any
+    // other type attests none, whatever its data, and the hub pays the
+    // deposit back.
+    let (_, key) = real.memo.clone().unwrap();
+    assert!(deposit_of(&real, &terms).unwrap().key.is_some());
+    let other = not(&|r| {
+        r.memo = Some((
+            b"https://dassie.land/owner-payment/v1".to_vec(),
+            key.clone(),
+        ))
+    });
+    assert_eq!(other.unwrap().key, None);
+    assert_eq!(not(&|r| r.memo = None).unwrap().key, None);
 }
 
 #[test]
@@ -883,7 +897,7 @@ impl Node {
         xrpl: &mut FakeLedger,
         destination: AccountId,
         tag: u32,
-        memo: Option<Vec<u8>>,
+        memo: Option<dassie_settlement::OwnerMemo>,
         drops: u64,
     ) -> [u8; 32] {
         use dassie_settlement::{OwnerPayment, OwnerPaymentState, SettlementScheme};
@@ -931,8 +945,11 @@ fn a_node_moves_its_funds_into_the_hub_and_out() {
     assert!(funded > 0);
     let member = NodeKey::from_bytes(&[62; 32]);
     let escrow = hub.escrow();
-    let key = member.public_key().as_bytes().to_vec();
-    let hash = node.pay(&mut hub.xrpl, escrow, 0, Some(key), 20_000_000);
+    let memo = dassie_settlement::OwnerMemo {
+        memo_type: OPEN_MEMO_TYPE.to_vec(),
+        data: member.public_key().as_bytes().to_vec(),
+    };
+    let hash = node.pay(&mut hub.xrpl, escrow, 0, Some(memo), 20_000_000);
     let deposit = deposit_of(&record(&mut hub.xrpl, &hash), &hub.rules.terms).unwrap();
     assert_eq!((deposit.tag, deposit.key), (0, Some(member.public_key())));
     assert_eq!(deposit.amount, 20_000_000);
@@ -1179,7 +1196,7 @@ impl Hub {
             network_id: None,
             memos: key
                 .map(|key| Memo {
-                    memo_type: b"dassie/hub-account".to_vec(),
+                    memo_type: OPEN_MEMO_TYPE.to_vec(),
                     memo_data: key.public_key().as_bytes().to_vec(),
                 })
                 .into_iter()

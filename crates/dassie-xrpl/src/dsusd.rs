@@ -93,7 +93,7 @@ mod tests {
     fn no_two_xrpl_schemes_share_a_memo_type_an_issuer_or_a_ledger() {
         use crate::network::Network;
         use crate::rlusd;
-        use crate::scheme::{MAINNET_XRP, OWNER_MEMO_TYPE, TESTNET_XRP, Xrp};
+        use crate::scheme::{MAINNET_XRP, SETTLEMENT_MEMO_TYPES, TESTNET_XRP, Xrp};
 
         struct Scheme {
             name: dassie_ledger::Name,
@@ -137,7 +137,10 @@ mod tests {
             assert_eq!(id, alloc::format!("xrpl-{network}{asset}"), "the grammar");
             let memo = alloc::format!("https://dassie.land/settlement/{id}/v1");
             assert_eq!(scheme.memo_type, memo.as_bytes(), "{id}");
-            assert_ne!(scheme.memo_type, OWNER_MEMO_TYPE, "{id}");
+            assert!(
+                SETTLEMENT_MEMO_TYPES.contains(&scheme.memo_type),
+                "{id}: an owner's payment may carry its memo type"
+            );
             if scheme.line.is_some() {
                 assert_eq!(scheme.ledger.asset().code, "USD", "{id}");
             }

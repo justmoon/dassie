@@ -144,10 +144,39 @@ impl NativeXrp for MainnetXrp {
 /// The `xrpl-xrp` scheme, on mainnet.
 pub type XrplMainnetScheme = XrpScheme<MainnetXrp>;
 
-/// The memo type of the owner's payments out of the account
-/// ([`SettlementScheme::pay_owner`]), such as a deposit into a settlement
-/// hub, whose memo names the account to open there. Never a settlement's.
-pub const OWNER_MEMO_TYPE: &[u8] = b"https://dassie.land/owner-payment/v1";
+/// The memo type of every XRPL scheme's settlements, on either network:
+/// an owner's payment never carries one, so it is never taken for a
+/// settlement ([`owner_memos`]).
+pub const SETTLEMENT_MEMO_TYPES: [&[u8]; 5] = [
+    MEMO_TYPE,
+    MAINNET_MEMO_TYPE,
+    crate::dsusd::MEMO_TYPE,
+    crate::rlusd::MEMO_TYPE,
+    crate::rlusd::TESTNET_MEMO_TYPE,
+];
+
+/// The memos of an owner's payment ([`SettlementScheme::pay_owner`]): its
+/// one memo, if any, of the type its reader expects, such as the key of
+/// the account a deposit opens in a settlement hub.
+///
+/// # Errors
+///
+/// `InvalidData` for a memo beyond
+/// [`MAX_OWNER_MEMO_BYTES`](dassie_settlement::MAX_OWNER_MEMO_BYTES), or of a
+/// settlement's memo type.
+pub(crate) fn owner_memos(payment: &OwnerPayment) -> Result<Vec<Memo>, SchemeError> {
+    let Some(memo) = &payment.memo else {
+        return Ok(Vec::new());
+    };
+    let settles = SETTLEMENT_MEMO_TYPES.contains(&memo.memo_type.as_slice());
+    if !memo.fits() || settles {
+        return Err(SchemeError::InvalidData);
+    }
+    Ok(alloc::vec![Memo {
+        memo_type: memo.memo_type.clone(),
+        memo_data: memo.data.clone(),
+    }])
+}
 
 /// What an XRPL scheme's config says: whether the node peers on the
 /// scheme (spec/areas/xrpl.md#owner-books). The account it settles
@@ -869,7 +898,7 @@ impl<N: NativeXrp> SettlementScheme for XrpScheme<N> {
     }
 
     /// A Payment of whole drops of XRP, never partial, with the tag and
-    /// one memo of [`OWNER_MEMO_TYPE`] if given, executed at once: its
+    /// the memo if given ([`owner_memos`]), executed at once: its
     /// submission goes out after the batch that keeps it with the account's
     /// and the scheme's state (spec/areas/xrpl.md#deposits-and-withdrawals).
     fn pay_owner(
@@ -961,7 +990,6 @@ mod tests {
         assert!(!settles::<TestnetXrp>(MAINNET_MEMO_TYPE));
         assert!(settles::<MainnetXrp>(MAINNET_MEMO_TYPE));
         assert!(!settles::<MainnetXrp>(MEMO_TYPE));
-        assert!(!settles::<MainnetXrp>(OWNER_MEMO_TYPE));
     }
 
     // spec/areas/xrpl.md#owner-books: a scheme's config says only whether

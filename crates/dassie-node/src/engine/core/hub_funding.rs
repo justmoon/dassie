@@ -16,6 +16,7 @@
 //!   and withdrawn.
 //! - **Joining by deposit.** While the hub has no account for the node's
 //!   key, the first deposit opens it: tag 0, the account key as the memo,
+//!   of the hub's type for it (`dassie_hub::escrow::OPEN_MEMO_TYPE`),
 //!   sized to the account reserve, the floor and the fees of its first
 //!   operations.
 //! - **One move at a time, done by the counters.** A move names the counter
