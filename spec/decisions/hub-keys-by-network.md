@@ -5,7 +5,7 @@
 ## Facts
 
 - A validator's consensus, escrow and payout keys, and the sponsor's escrow master key, derive from the node key under a path that names the hub's nonce. The sponsor picks the nonce; the hub ID cannot name the keys, since it is the hash of rules that contain them.
-- The XRP Ledger's testnet and mainnet take the same signed bytes: a transaction names no network on either ([real-money](real-money.md)). An escrow of the same address with the same signer list on both networks would let what was signed for one apply on the other.
+- The XRP Ledger's testnet and mainnet take the same signed bytes: a transaction names no network on either ([real-money](real-money.md)). An escrow of the same address with the same signer list on both networks would be kept apart only by its sequence, which starts at the index of the ledger that created it, and the two networks' indexes are far apart ([Settlement hubs](../designs/settlement-hubs.md#2-founding-a-hub)). One key on two networks is also one key to lose for both.
 - Hubs already run on the testnet, the built-in default hub among them. Their rules name their validators' keys, and their sponsors make their escrows again from the master key after a reset. A changed path would orphan them all.
 - A member's key derives from the hub ID, the hash of rules whose terms name the network.
 - Hubs hold no real money while the live realm is refused ([real-money](real-money.md)), yet mainnet hubs must be founded and tested before the launch, by the dev switch that turns on the live realm ([mainnet-schemes](mainnet-schemes.md)).

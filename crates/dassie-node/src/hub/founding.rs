@@ -93,7 +93,10 @@ impl Founding {
     }
 
     /// The hubs founded with the node, which it runs: their rules, genesis
-    /// and the XRPL server its escrow is followed on.
+    /// and the XRPL server its escrow is followed on. A hub on another
+    /// network than the file's is left out, and said so in the log: the
+    /// file's server could not follow its escrow. It keeps its record, and
+    /// its place, and runs again once the file names its network.
     ///
     /// # Errors
     ///
@@ -104,8 +107,18 @@ impl Founding {
             let Some((rules, genesis_ms)) = row.genesis.filter(|_| row.running) else {
                 continue;
             };
+            let rules = rules_of(&rules)?;
+            if rules.terms.network != self.network {
+                tracing::warn!(
+                    target: target::HUB,
+                    hub = %hex(rules.id().0.as_bytes()),
+                    network = rules.terms.network,
+                    "not validating a hub founded on another network than the validator file's"
+                );
+                continue;
+            }
             hubs.push(HubConfig {
-                rules: rules_of(&rules)?,
+                rules,
                 genesis_ms,
                 xrpl: self.xrpl.clone(),
             });
@@ -480,6 +493,12 @@ mod tests {
         assert_eq!(hubs.len(), 1);
         assert_eq!(hubs[0].rules, rules);
         assert_eq!(hubs[0].genesis_ms, NOW);
+        // A file that names another network leaves the hub out, and its
+        // record stays: the testnet's file runs it again.
+        let mut on_mainnet = config(&sponsor);
+        on_mainnet.network = &dassie_xrpl::network::MAINNET;
+        assert!(Founding::new(&on_mainnet).hubs(&store).unwrap().is_empty());
+        assert_eq!(founding.hubs(&store).unwrap().len(), 1);
         let status = decide(
             &founding,
             &store,
