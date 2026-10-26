@@ -415,8 +415,7 @@ impl XrplAccount {
                                 Some(line) => {
                                     let (line, _) =
                                         records::ripple_state(line).map_err(unreadable)?;
-                                    let view = line.view(account).ok_or(Doubt::Unreadable)?;
-                                    view.balance
+                                    pool_tokens(&line, account, key)?
                                 }
                             };
                             if root.account != account || value.is_negative() {
@@ -438,6 +437,17 @@ impl XrplAccount {
         }
         Ok(pools)
     }
+}
+
+/// What the pool's `account` holds of the token of `key` on `line`, the
+/// line its key names: one between other accounts, or in another
+/// currency, is not what the key holds, as for the account's own lines.
+fn pool_tokens(line: &TrustLine, account: AccountId, key: &LineKey) -> Result<TokenValue, Doubt> {
+    if !line.is_between(account, key.issuer, key.currency) {
+        return Err(Doubt::Unreadable);
+    }
+    let view = line.view(account).ok_or(Doubt::Unreadable)?;
+    Ok(view.balance)
 }
 
 /// The anchor's state, and the history up to it.
@@ -1423,6 +1433,49 @@ mod tests {
             },
             holds: true,
         }
+    }
+
+    // A pool's line is the one between the pool's account and the token's
+    // issuer, in the token's currency, at both ends, as each of the
+    // account's own lines is: its key binds them.
+    #[test]
+    fn a_pool_s_line_is_between_the_pool_and_the_issuer() {
+        let key = crate::dsusd::LINE;
+        let pool = Wallet::from_entropy(&[3; 32]).account();
+        let other = Wallet::from_entropy(&[4; 32]).account();
+        let value = TokenValue::from_units(12, 0).unwrap();
+        let line = |a: AccountId, b: AccountId, currency| {
+            let (low, high) = if a < b { (a, b) } else { (b, a) };
+            TrustLine {
+                low,
+                high,
+                currency,
+                balance: if low == pool { value } else { value.negate() },
+                low_limit: TokenValue::ZERO,
+                high_limit: TokenValue::ZERO,
+                flags: 0,
+            }
+        };
+        assert_eq!(
+            pool_tokens(&line(pool, key.issuer, key.currency), pool, &key),
+            Ok(value)
+        );
+        assert_eq!(
+            pool_tokens(&line(pool, other, key.currency), pool, &key),
+            Err(Doubt::Unreadable)
+        );
+        assert_eq!(
+            pool_tokens(&line(other, key.issuer, key.currency), pool, &key),
+            Err(Doubt::Unreadable)
+        );
+        assert_eq!(
+            pool_tokens(
+                &line(pool, key.issuer, crate::amount::Currency([9; 20])),
+                pool,
+                &key
+            ),
+            Err(Doubt::Unreadable)
+        );
     }
 
     // spec/designs/xrpl-validation.md#6-the-account-on-proofs: the schemes
