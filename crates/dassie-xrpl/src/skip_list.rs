@@ -112,6 +112,13 @@ impl SkipList {
         })
     }
 
+    /// Whether it is the list of the recent ledgers of the ledger of
+    /// `index`: its newest is the one before.
+    #[must_use]
+    pub fn is_recent_of(&self, index: u32) -> bool {
+        self.last.checked_add(1) == Some(index)
+    }
+
     /// The hash of ledger `ledger` it holds, if it holds that ledger, its
     /// hashes `step` ledgers apart: 1 for the recent ledgers' list,
     /// [`FLAG_INTERVAL`] for a flag ledgers'.

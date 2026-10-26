@@ -988,6 +988,12 @@ impl XrplAccount {
                 self.doubted(Doubt::Ledger);
                 Checked::Lie
             }
+            // No list is kept: the next connection proves them anew.
+            LedgerProof::Lie => {
+                self.lists.clear();
+                self.doubted(Doubt::SkipList);
+                Checked::Lie
+            }
             LedgerProof::Later => Checked::Waits,
             LedgerProof::Prove { at, key } => {
                 self.ask_list(at, key);
@@ -1315,15 +1321,10 @@ impl XrplAccount {
         let Some(answer) = self.answer(outcome, api::state_proof_result) else {
             return;
         };
-        let list = match prove_state(&answer, &[key], Some(&at)) {
-            Ok(proven) => match proven.object(&key) {
-                Some(Some(object)) => match SkipList::parse(object) {
-                    Ok(list) => Some(list),
-                    Err(_) => return self.doubted(Doubt::SkipList),
-                },
-                _ => None,
-            },
-            Err(error) => return self.doubted(Doubt::of(error)),
+        let proven = prove_state(&answer, &[key], Some(&at)).map_err(Doubt::of);
+        let list = match proven.and_then(|proven| proven.skip_list(&key)) {
+            Ok(list) => list,
+            Err(doubt) => return self.doubted(doubt),
         };
         if self.lists.len() >= MAX_LISTS {
             self.lists.clear();
