@@ -67,15 +67,45 @@ pub const SCHEMES: &[SchemeInfo] = &[
 /// account kept for it loads, as for any scheme not on the account.
 pub const DISABLED: &[&str] = &[dassie_xrpl::rlusd::TESTNET_SCHEME_ID];
 
+/// Whether this build runs the stub scheme: only one with debug
+/// assertions, as dev, the end-to-end tests, the tests and the simulations
+/// are, never a release (spec/decisions/stub-in-debug-builds.md). A peer on
+/// the stub mints what it says it settled, and the stub's dollars convert
+/// at par into the dollar tokens', so a release node that ran it could be
+/// drained of them.
+pub const STUB_RUNS: bool = cfg!(debug_assertions);
+
+/// Why this build does not run scheme `id`, if it does not: a disabled
+/// scheme, such as test RLUSD, or the stub in a release build. One stored
+/// is left as it is, as a disabled one: its books stay.
+#[must_use]
+pub fn not_run(id: &str) -> Option<&'static str> {
+    not_run_in(id, STUB_RUNS)
+}
+
+/// [`not_run`], in a build that runs the stub or not.
+fn not_run_in(id: &str, stub_runs: bool) -> Option<&'static str> {
+    if DISABLED.contains(&id) {
+        Some("the scheme is disabled (spec/decisions/issued-assets.md)")
+    } else if id == "stub" && !stub_runs {
+        Some(
+            "the stub runs only in a build with debug assertions (spec/decisions/stub-in-debug-builds.md)",
+        )
+    } else {
+        None
+    }
+}
+
 /// Whether the scheme `info` is offered to the owner of a node of `realm`
-/// to add: only one of the node's realm, which is the only realm it runs
+/// to add: only one this build runs ([`not_run`]), of the node's realm, which is the only realm it runs
 /// (spec/decisions/mainnet-schemes.md), and a settlement hub's only once
 /// the node knows a hub to join without being told one, so the wallet never
 /// offers what it cannot add with nothing to fill in. One added with a
 /// config of its own is listed as any active scheme.
 #[must_use]
 pub fn offered(info: &SchemeInfo, realm: Realm) -> bool {
-    info.ledger.realm() == realm
+    not_run(info.id).is_none()
+        && info.ledger.realm() == realm
         && (info.id != dassie_hub::member::SCHEME_ID
             || dassie_hub::member::DEFAULT_TESTNET_HUB.is_some())
 }
@@ -1291,6 +1321,22 @@ mod tests {
         let testnet = xrpl(dassie_xrpl::scheme::SCHEME_ID);
         assert!(offered(mainnet, Realm::Live) && !offered(mainnet, Realm::Test));
         assert!(offered(testnet, Realm::Test) && !offered(testnet, Realm::Live));
+    }
+
+    // spec/decisions/stub-in-debug-builds.md: a build with debug
+    // assertions, as every test is, runs the stub; a release build neither
+    // offers nor runs it, and runs every other scheme as before.
+    #[test]
+    fn only_a_build_with_debug_assertions_runs_the_stub() {
+        // Tests are built with debug assertions.
+        assert_eq!(not_run("stub"), None);
+        assert!(not_run_in("stub", false).is_some_and(|why| why.contains("debug assertions")));
+        assert_eq!(not_run_in("stub", true), None);
+        for info in SCHEMES.iter().filter(|info| info.id != "stub") {
+            assert_eq!(not_run_in(info.id, false), None, "{}", info.id);
+        }
+        let disabled = dassie_xrpl::rlusd::TESTNET_SCHEME_ID;
+        assert!(not_run_in(disabled, true).is_some_and(|why| why.contains("disabled")));
     }
 
     // spec/decisions/issued-assets.md: test RLUSD is neither offered nor

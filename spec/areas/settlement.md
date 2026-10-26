@@ -211,7 +211,7 @@ A peering over a [settlement hub](hubs.md#the-members-side) settles by funding t
 
 Test money without an underlying ledger (`crates/dassie-settlement/src/stub.rs`). Its "ledger" is a number the checkpoint keeps; its first activation books a starting balance as the owner's deposit, and the owner may deposit more. It accepts every peering, and finalizes a settlement as it executes it; one still pending after a restart was never executed, so it is cancelled.
 
-A peer's settlement is believed as stated. Anyone peered over the stub can mint credit, which is why it only ever holds test money.
+A peer's settlement is believed as stated. Anyone peered over the stub can mint credit, which is why it only ever holds test money, and why only a build with debug assertions runs it: dev, the end-to-end tests, the tests and the simulations. A release neither offers nor activates it, and one stored by a build that ran it is left as a disabled scheme is ([stub-in-debug-builds](../decisions/stub-in-debug-builds.md)).
 
 **With commitments,** for tests of peerings over a settlement hub without a hub: given `{"commitments": N}`, the stub signs and takes promises per packet as a hub's member does ([Settlement hubs](hubs.md#in-the-node)), so the node sends a commitment with each Prepare to a peer on it, checks one with each Prepare from it, and carries a claim in each reply to a Fulfill. Every stub with commitments is a member of one pretend hub, so nodes on it peer over it.
 

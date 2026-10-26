@@ -333,7 +333,7 @@ fn activation(severity: Severity, event: &SettlementEvent) {
             emit!(severity, target: target::SETTLEMENT, %scheme, %reason, "the scheme's stored config no longer makes a scheme: it does not run, and its books stay as they are");
         }
         SettlementEvent::Disabled { scheme } => {
-            emit!(severity, target: target::SETTLEMENT, %scheme, "the scheme is disabled: it does not run, and its books and its line stay as they are");
+            emit!(severity, target: target::SETTLEMENT, %scheme, "the scheme does not run in this build: its books and its line stay as they are");
         }
         // `settlement` hands only these here.
         _ => {}
