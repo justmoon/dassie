@@ -14,7 +14,7 @@ use dassie_peer::wire::{
     Authentication, Content, Entry, Envelope, Kind, NodeInfo, PeeringRequest, PeeringResponse,
     ResponseEnvelope, SchemeId, SignedNodeInfo, encode_envelope, sign_node_info,
 };
-use dassie_peer::{Config, OwnInfo, PeerBatch, PeerNode, Stored};
+use dassie_peer::{Config, OwnInfo, PeerNode, Stored};
 
 fn settle(network: &mut Network, ms: u64) {
     let until = network.now + ms;
@@ -337,7 +337,7 @@ fn a_message_from_ourselves_is_malformed() {
 }
 
 // A hostname long enough made our URL too long for a link state, and the
-// node panicked on every timer.
+// node panicked on every timer. Without a URL it runs as a periphery node.
 #[test]
 fn an_own_url_too_long_is_no_url() {
     let url = format!("https://{}.example:65535", "a".repeat(240));
@@ -356,9 +356,8 @@ fn an_own_url_too_long_is_no_url() {
         START,
     );
     node.handle_timeout(START, &mut dassie_peer::sim::StubHooks::default());
-    let mut batch = PeerBatch::default();
-    node.take_changes(&mut batch);
-    assert_eq!(batch.own_sequence, None);
+    assert_eq!(node.own_info().url, None);
+    assert!(node.is_periphery());
 }
 
 // A thousand throwaway identities filled the replay table, and peers got
