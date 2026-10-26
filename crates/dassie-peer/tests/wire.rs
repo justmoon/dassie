@@ -19,13 +19,14 @@ use dassie_identity::{NodeId, NodeKey, PublicKey, Signature};
 use dassie_oer::{Decode, Encode};
 use dassie_peer::names::{Commitment, MAX_NAME_BYTES, Name, Salt};
 use dassie_peer::wire::{
-    Authentication, Content, EXTENSION_HUB, Entry, Envelope, EnvelopeError, HmacAuthentication,
-    HubMembership, InvalidNodeInfo, Kind, LinkStateResponse, MAX_COMMITMENT_BYTES, MAX_NAME_LIST,
-    MAX_NAME_LIST_BYTES, MAX_URL_BYTES, NameHolding, NameListResponse, NameReceipt, NodeInfo,
-    NodeListResponse, PeeringRequest, PeeringResponse, RefusalReason, ResponseEnvelope, SchemeId,
-    SignedNodeInfo, TerminationReason, decode_expiry, decode_hash, decode_octets, decode_settling,
-    encode_envelope, encode_expiry, encode_octets, encode_response, encode_settling, is_valid_url,
-    peek_kind, sign_node_info,
+    Authentication, Content, EXTENSION_HUB, EXTENSION_HUBS, EXTENSION_METHODS, Entry, Envelope,
+    EnvelopeError, HmacAuthentication, HubList, HubListing, HubMembership, InvalidNodeInfo, Kind,
+    LinkStateResponse, MAX_COMMITMENT_BYTES, MAX_HUBS, MAX_NAME_LIST, MAX_NAME_LIST_BYTES,
+    MAX_URL_BYTES, MAX_VERSIONS, MethodResponse, NameHolding, NameListResponse, NameReceipt,
+    NodeInfo, NodeListResponse, PeeringRequest, PeeringResponse, RefusalReason, ResponseEnvelope,
+    SchemeId, SignedNodeInfo, TerminationReason, decode_expiry, decode_hash, decode_octets,
+    decode_settling, encode_envelope, encode_expiry, encode_octets, encode_response,
+    encode_settling, hub_list_bytes, is_valid_url, peek_kind, sign_node_info,
 };
 use proptest::prelude::*;
 use sha2::{Digest, Sha256};
@@ -416,7 +417,7 @@ fn decode_content(bytes: &[u8]) -> Result<(), TestCaseError> {
 }
 
 /// How many kinds of response body there are.
-const RESPONSES: usize = 10;
+const RESPONSES: usize = 11;
 
 /// A valid response body of kind `kind`.
 fn response(kind: usize) -> Vec<u8> {
@@ -445,6 +446,11 @@ fn response(kind: usize) -> Vec<u8> {
         }
         .to_vec(),
         9 => name_list().to_vec(),
+        10 => MethodResponse::Accepted {
+            version: 1,
+            data: &[0xab; 3],
+        }
+        .to_vec(),
         _ => unreachable!(),
     }
 }
@@ -489,6 +495,12 @@ fn decode_response(kind: usize, body: &[u8]) -> Result<(), TestCaseError> {
         9 => {
             if let Ok(list) = NameListResponse::decode_exact(body) {
                 prop_assert_eq!(list.to_vec(), body);
+            }
+        }
+        10 => {
+            if let Ok(response) = MethodResponse::decode_exact(body) {
+                let encoded = response.to_vec();
+                prop_assert_eq!(MethodResponse::decode_exact(&encoded), Ok(response));
             }
         }
         _ => unreachable!(),
@@ -763,6 +775,27 @@ fn the_hub_extension_is_pinned_and_read_strictly() {
     );
 }
 
+/// The longest hub list a node lists: [`dassie_peer::MAX_OWN_HUBS`] hubs on
+/// the first of `schemes`, at the largest accounts.
+fn largest_hub_list(schemes: &[SchemeId]) -> HubList {
+    let hubs = HubList(
+        schemes[..dassie_peer::MAX_OWN_HUBS]
+            .iter()
+            .zip(0u8..)
+            .map(|(scheme, n)| HubListing {
+                scheme: *scheme,
+                membership: HubMembership {
+                    hub_id: [n; 32],
+                    account: u32::MAX,
+                    takes_peers: true,
+                },
+            })
+            .collect(),
+    );
+    assert!(hubs.is_valid());
+    hubs
+}
+
 // spec/areas/peer-protocol.md#link-states: the bound a node checks its own
 // link state against holds for the largest it can sign, at the longest URL,
 // alias and scheme IDs, with every extension; and the default
@@ -782,17 +815,17 @@ fn the_largest_own_link_state_fits_its_bound() {
             SchemeId::parse(&text).unwrap()
         })
         .collect();
-    let hub = HubMembership {
-        hub_id: [1; 32],
-        account: u32::MAX,
-        takes_peers: true,
-    }
-    .to_vec();
+    let hubs = largest_hub_list(&schemes);
+    let hub = hubs.0[0].membership.to_vec();
+    let hubs = hubs.to_vec();
+    assert_eq!(hubs.len(), hub_list_bytes(dassie_peer::MAX_OWN_HUBS));
     let port = 4433u16.to_be_bytes();
-    let extensions: [(u16, &[u8]); 3] = [
+    let extensions: [(u16, &[u8]); 5] = [
         (dassie_peer::wire::EXTENSION_QUIC, &[]),
         (dassie_peer::wire::EXTENSION_FEED, &port),
         (EXTENSION_HUB, &hub),
+        (EXTENSION_METHODS, &[]),
+        (EXTENSION_HUBS, &hubs),
     ];
     let info = NodeInfo {
         node_id: key.node_id(),
@@ -815,7 +848,7 @@ fn the_largest_own_link_state_fits_its_bound() {
         neighbors,
         dassie_peer::MAX_SCHEMES,
         extensions.len(),
-        port.len() + hub.len(),
+        port.len() + hub.len() + hubs.len(),
     );
     assert!(
         info.encoded_len() <= bound,
@@ -875,7 +908,7 @@ fn name_messages_are_pinned() {
         assert_eq!(Kind::from_tag(tag), Some(content.kind()));
         assert_eq!(content.kind().tag(), tag);
     }
-    assert_eq!(Kind::from_tag(18), None);
+    assert_eq!(Kind::from_tag(18), Some(Kind::MethodPacket));
     for kind in [Kind::NameCommit, Kind::NameUnseal, Kind::NameRenew] {
         assert!(kind.requires_authentication() && !kind.is_read_only());
     }
@@ -1001,4 +1034,306 @@ fn name_answers_are_pinned_and_bounded() {
         NameListResponse::decode_exact(&largest.to_vec()),
         Ok(largest)
     );
+}
+
+// spec/areas/peer-protocol.md#message-set: the settlement-method messages
+// are tags 18 to 20 (spec/decisions/settlement-methods.md). Each changes
+// state, or moves money, and needs authentication; a `methodPacket`
+// carries a Prepare, with a commitment that is empty on a method not over a
+// hub, bounded as a `hubPacket`'s.
+#[test]
+fn settlement_method_messages_are_pinned_and_bounded() {
+    let packet = Content::MethodPacket {
+        request_id: 7,
+        scheme: stub(),
+        packet: &[0x0c],
+        commitment: &[0xab, 0xab],
+    };
+    assert_eq!(to_hex(&packet.to_vec()), "92000000070473747562010c02abab");
+    let direct = Content::MethodPacket {
+        request_id: 7,
+        scheme: stub(),
+        packet: &[0x0c],
+        commitment: &[],
+    };
+    assert_eq!(to_hex(&direct.to_vec()), "92000000070473747562010c00");
+    let add = Content::MethodAdd {
+        scheme: stub(),
+        data: &[0xab],
+        versions: vec![1, 2],
+    };
+    assert_eq!(to_hex(&add.to_vec()), "93047374756201ab010200010002");
+    let drop = Content::MethodDrop { scheme: stub() };
+    assert_eq!(to_hex(&drop.to_vec()), "940473747562");
+    for (tag, content) in [(18, &packet), (19, &add), (20, &drop)] {
+        assert_eq!(
+            Content::decode_exact(&content.to_vec()).as_ref(),
+            Ok(content)
+        );
+        let kind = Kind::from_tag(tag).unwrap();
+        assert_eq!((content.kind(), kind.tag()), (kind, tag));
+        assert!(kind.requires_authentication() && !kind.is_read_only());
+        assert_eq!(kind.carries_packet(), kind == Kind::MethodPacket);
+    }
+    assert_eq!(Content::decode_exact(&direct.to_vec()).unwrap(), direct);
+    assert_eq!(Kind::from_tag(21), None);
+    assert!(Content::decode_exact(&[0x95]).is_err());
+
+    // A commitment past the bound is malformed; one at it is not.
+    let at_bound = Content::MethodPacket {
+        request_id: 7,
+        scheme: stub(),
+        packet: &[0x0c],
+        commitment: &[0xab; MAX_COMMITMENT_BYTES],
+    };
+    let mut bytes = at_bound.to_vec();
+    assert_eq!(Content::decode_exact(&bytes).unwrap(), at_bound);
+    assert_eq!(bytes[12..15], [0x82, 0x01, 0x00]);
+    bytes[14] = 0x01;
+    bytes.push(0xab);
+    assert!(Content::decode_exact(&bytes).is_err());
+    // No versions, or more than MAX_VERSIONS, are malformed.
+    for versions in [vec![], vec![1; MAX_VERSIONS + 1]] {
+        let add = Content::MethodAdd {
+            scheme: stub(),
+            data: &[],
+            versions,
+        };
+        assert!(Content::decode_exact(&add.to_vec()).is_err());
+    }
+    // Nothing may follow.
+    for content in [&packet, &add, &drop] {
+        let mut trailing = content.to_vec();
+        trailing.push(0);
+        assert!(Content::decode_exact(&trailing).is_err());
+    }
+}
+
+// The answer to a `methodAdd` is shaped as a peering answer's, without the
+// credit only nodes of 0.1 read.
+#[test]
+fn method_answers_are_pinned() {
+    let accepted = MethodResponse::Accepted {
+        version: 1,
+        data: &[0xab],
+    };
+    assert_eq!(to_hex(&accepted.to_vec()), "80000101ab");
+    let refused = MethodResponse::Refused(RefusalReason::NoCommonVersion);
+    assert_eq!(to_hex(&refused.to_vec()), "8103");
+    for response in [accepted, refused] {
+        assert_eq!(
+            MethodResponse::decode_exact(&response.to_vec()),
+            Ok(response)
+        );
+    }
+    // Unknown reasons read as unspecified; unknown tags are malformed.
+    assert_eq!(
+        MethodResponse::decode_exact(&[0x81, 0x63]),
+        Ok(MethodResponse::Refused(RefusalReason::Unspecified))
+    );
+    assert!(MethodResponse::decode_exact(&[0x82, 0x00]).is_err());
+}
+
+// spec/areas/peer-protocol.md#link-states: extension type 6, with an empty
+// value, says a node has settlement methods; one with a value says nothing,
+// and the link state still verifies.
+#[test]
+fn the_methods_extension_is_read_strictly() {
+    let signed = |extensions: &[(u16, &[u8])]| {
+        let bytes = with_extensions(extensions);
+        let signed = SignedNodeInfo::decode_exact(&bytes).unwrap();
+        assert!(signed.verify().is_ok());
+        signed.info.has_methods()
+    };
+    assert!(signed(&[(EXTENSION_METHODS, &[])]));
+    assert!(!signed(&[]));
+    assert!(!signed(&[(EXTENSION_METHODS, &[0])]));
+    // The first methods extension is the one read.
+    assert!(!signed(&[
+        (EXTENSION_METHODS, &[0]),
+        (EXTENSION_METHODS, &[])
+    ]));
+    let full = signed_full();
+    assert!(
+        !SignedNodeInfo::decode_exact(&full)
+            .unwrap()
+            .info
+            .has_methods()
+    );
+}
+
+fn listing(scheme: &str, hub: u8, account: u32, takes_peers: bool) -> HubListing {
+    HubListing {
+        scheme: SchemeId::parse(scheme).unwrap(),
+        membership: HubMembership {
+            hub_id: [hub; 32],
+            account,
+            takes_peers,
+        },
+    }
+}
+
+// spec/areas/peer-protocol.md#link-states: extension type 7 lists a node's
+// hubs, each with its scheme, in canonical OER; a list that is empty, too
+// long, or names a scheme or a hub twice names none, and the link state
+// still verifies. The hub extension, type 5, is read as before, beside it.
+#[test]
+fn the_hub_list_is_pinned_and_read_strictly() {
+    let first = listing("hub-a", 0x11, 0x0102_0304, true);
+    let second = listing("hub-b", 0x22, 5, false);
+    let list = HubList(vec![first, second]);
+    let value = list.to_vec();
+    assert_eq!(
+        to_hex(&value),
+        format!(
+            "0102056875622d61{}01020304ff056875622d62{}0000000500",
+            "11".repeat(32),
+            "22".repeat(32)
+        )
+    );
+    assert_eq!(HubList::decode_exact(&value), Ok(list.clone()));
+    let hub = first.membership.to_vec();
+    let bytes = with_extensions(&[(EXTENSION_HUB, &hub), (EXTENSION_HUBS, &value)]);
+    let signed = SignedNodeInfo::decode_exact(&bytes).unwrap();
+    assert!(signed.verify().is_ok());
+    assert_eq!(signed.info.hubs(), [first, second]);
+    assert_eq!(signed.info.hub(), Some(first.membership));
+    // A node of a version before lists names its hub alone.
+    let bytes = with_extensions(&[(EXTENSION_HUB, &hub)]);
+    let signed = SignedNodeInfo::decode_exact(&bytes).unwrap();
+    assert_eq!(signed.info.hubs(), []);
+    assert_eq!(signed.info.hub(), Some(first.membership));
+
+    // Broken lists name none, and leave the hub extension as it is.
+    let same_scheme = listing("hub-a", 0x22, 5, false);
+    let same_hub = listing("hub-b", 0x11, 5, false);
+    let too_many = HubList(
+        (0..=MAX_HUBS)
+            .map(|n| listing(&format!("hub-{n}"), u8::try_from(n).unwrap(), 1, true))
+            .collect(),
+    );
+    let mut not_canonical = value.clone();
+    *not_canonical.last_mut().unwrap() = 0x01;
+    let mut trailing = value.clone();
+    trailing.push(0);
+    let broken = [
+        HubList(vec![]).to_vec(),
+        HubList(vec![first, same_scheme]).to_vec(),
+        HubList(vec![first, same_hub]).to_vec(),
+        too_many.to_vec(),
+        not_canonical,
+        trailing,
+        value[..value.len() - 1].to_vec(),
+        vec![],
+    ];
+    for broken in &broken {
+        assert!(HubList::decode_exact(broken).is_err());
+        let bytes = with_extensions(&[(EXTENSION_HUB, &hub), (EXTENSION_HUBS, broken)]);
+        let signed = SignedNodeInfo::decode_exact(&bytes).unwrap();
+        assert!(signed.verify().is_ok());
+        assert_eq!(signed.info.hubs(), []);
+        assert_eq!(signed.info.hub(), Some(first.membership));
+    }
+    // The first hub list is the one read.
+    let bytes = with_extensions(&[
+        (EXTENSION_HUB, &hub),
+        (EXTENSION_HUBS, &broken[0]),
+        (EXTENSION_HUBS, &value),
+    ]);
+    let signed = SignedNodeInfo::decode_exact(&bytes).unwrap();
+    assert_eq!(signed.info.hubs(), []);
+    // A list of MAX_HUBS is read.
+    let most = HubList(too_many.0[..MAX_HUBS].to_vec());
+    assert_eq!(HubList::decode_exact(&most.to_vec()), Ok(most));
+}
+
+// spec/areas/peer-protocol.md#link-states: a hub list whose first is not
+// exactly the hub extension's names no hubs, so that nodes that read lists
+// and nodes that do not never see a different first hub.
+#[test]
+fn a_hub_list_names_the_hub_extensions_hub_first() {
+    let first = listing("hub-a", 0x11, 0x0102_0304, true);
+    let second = listing("hub-b", 0x22, 5, false);
+    let value = HubList(vec![first, second]).to_vec();
+    // Without the hub extension, with another hub in it, with the same hub
+    // but another membership, or with the list's second in it.
+    let not_taking = HubMembership {
+        takes_peers: false,
+        ..first.membership
+    }
+    .to_vec();
+    let other_hub = HubMembership {
+        hub_id: [0x33; 32],
+        ..first.membership
+    }
+    .to_vec();
+    let second_hub = second.membership.to_vec();
+    let disagreeing: [&[(u16, &[u8])]; 4] = [
+        &[(EXTENSION_HUBS, &value)],
+        &[(EXTENSION_HUB, &other_hub), (EXTENSION_HUBS, &value)],
+        &[(EXTENSION_HUB, &not_taking), (EXTENSION_HUBS, &value)],
+        &[(EXTENSION_HUB, &second_hub), (EXTENSION_HUBS, &value)],
+    ];
+    for extensions in disagreeing {
+        let bytes = with_extensions(extensions);
+        let signed = SignedNodeInfo::decode_exact(&bytes).unwrap();
+        assert!(signed.verify().is_ok());
+        assert_eq!(signed.info.hubs(), []);
+    }
+}
+
+proptest! {
+    #[test]
+    fn method_messages_round_trip(
+        request_id in any::<u32>(),
+        scheme in "[a-z0-9-]{2,64}",
+        packet in proptest::collection::vec(any::<u8>(), 0..300),
+        commitment in proptest::collection::vec(any::<u8>(), 0..=MAX_COMMITMENT_BYTES),
+        versions in proptest::collection::vec(any::<u16>(), 1..=MAX_VERSIONS),
+    ) {
+        let scheme = SchemeId::parse(&scheme).unwrap();
+        let contents = [
+            Content::MethodPacket { request_id, scheme, packet: &packet, commitment: &commitment },
+            Content::MethodAdd { scheme, data: &packet, versions },
+            Content::MethodDrop { scheme },
+        ];
+        for content in contents {
+            let bytes = content.to_vec();
+            prop_assert_eq!(bytes.len(), content.encoded_len());
+            prop_assert_eq!(Content::decode_exact(&bytes), Ok(content));
+        }
+    }
+
+    // A list decodes when, and only when, it keeps its rules, and then
+    // encodes to the bytes it came from. Half the lists name each scheme and
+    // hub once, so that valid lists of every length up to MAX_HUBS occur;
+    // the others draw them from few enough that some repeat.
+    #[test]
+    fn hub_lists_are_read_by_their_rules(
+        listings in proptest::collection::vec(
+            (0..=MAX_HUBS, 0..=MAX_HUBS, any::<u32>(), any::<bool>()),
+            0..=MAX_HUBS + 1,
+        ),
+        distinct in any::<bool>(),
+    ) {
+        let list = HubList(
+            listings
+                .iter()
+                .enumerate()
+                .map(|(index, (scheme, hub, account, takes))| {
+                    let (scheme, hub) = if distinct { (index, index) } else { (*scheme, *hub) };
+                    listing(&format!("hub-{scheme}"), u8::try_from(hub).unwrap(), *account, *takes)
+                })
+                .collect(),
+        );
+        let bytes = list.to_vec();
+        prop_assert_eq!(bytes.len(), list.encoded_len());
+        match HubList::decode_exact(&bytes) {
+            Ok(decoded) => {
+                prop_assert!(list.is_valid());
+                prop_assert_eq!(decoded, list);
+            }
+            Err(_) => prop_assert!(!list.is_valid()),
+        }
+    }
 }

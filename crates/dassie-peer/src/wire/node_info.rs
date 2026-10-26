@@ -119,6 +119,109 @@ impl<'a> Decode<'a> for HubMembership {
     }
 }
 
+/// A settlement hub a node is a member of, with the scheme it settles on
+/// over the hub, which names its asset: an item of a hub list
+/// ([`EXTENSION_HUBS`](super::EXTENSION_HUBS)).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct HubListing {
+    /// The scheme.
+    pub scheme: SchemeId,
+    /// The hub, the node's account in it and whether it takes new peers
+    /// over it, as the hub extension names them.
+    pub membership: HubMembership,
+}
+
+impl HubListing {
+    /// The most bytes of its encoding: the longest scheme ID and the
+    /// membership.
+    pub const MAX_ENCODED_BYTES: usize =
+        size::prefixed(super::MAX_SCHEME_ID) + HubMembership::ENCODED_BYTES;
+}
+
+impl Encode for HubListing {
+    fn encoded_len(&self) -> usize {
+        self.scheme.encoded_len() + HubMembership::ENCODED_BYTES
+    }
+
+    fn encode_to(&self, writer: &mut Writer<'_>) {
+        self.scheme.write(writer);
+        self.membership.encode_to(writer);
+    }
+}
+
+impl<'a> Decode<'a> for HubListing {
+    type Error = DecodeError;
+
+    fn decode(reader: &mut Reader<'a>) -> Result<Self, DecodeError> {
+        Ok(Self {
+            scheme: SchemeId::read(reader)?,
+            membership: HubMembership::decode(reader)?,
+        })
+    }
+}
+
+/// The value of a hub list extension ([`EXTENSION_HUBS`](super::EXTENSION_HUBS)):
+/// the hubs a node is a member of, in its order, from one to
+/// [`MAX_HUBS`](super::MAX_HUBS), no scheme and no hub twice. A node in
+/// none leaves the extension out, so an empty list is not one.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct HubList(pub Vec<HubListing>);
+
+/// The most bytes a hub list of `hubs` hubs takes: what a node budgets for
+/// its own.
+#[must_use]
+pub const fn hub_list_bytes(hubs: usize) -> usize {
+    size::quantity(hubs).saturating_add(hubs.saturating_mul(HubListing::MAX_ENCODED_BYTES))
+}
+
+impl HubList {
+    /// Whether it keeps the list's rules: one to [`MAX_HUBS`](super::MAX_HUBS)
+    /// hubs, no scheme and no hub twice, since a hub settles one asset.
+    #[must_use]
+    pub fn is_valid(&self) -> bool {
+        let hubs = &self.0;
+        (1..=super::MAX_HUBS).contains(&hubs.len())
+            && hubs.iter().enumerate().all(|(index, hub)| {
+                hubs.iter().skip(index + 1).all(|other| {
+                    other.scheme != hub.scheme && other.membership.hub_id != hub.membership.hub_id
+                })
+            })
+    }
+}
+
+impl Encode for HubList {
+    fn encoded_len(&self) -> usize {
+        size::quantity(self.0.len()) + self.0.iter().map(Encode::encoded_len).sum::<usize>()
+    }
+
+    fn encode_to(&self, writer: &mut Writer<'_>) {
+        writer.write_quantity(self.0.len());
+        for hub in &self.0 {
+            hub.encode_to(writer);
+        }
+    }
+}
+
+impl<'a> Decode<'a> for HubList {
+    type Error = DecodeError;
+
+    /// Reads a list, refusing one that breaks its rules
+    /// ([`HubList::is_valid`]).
+    fn decode(reader: &mut Reader<'a>) -> Result<Self, DecodeError> {
+        let offset = reader.offset();
+        let count = reader.read_quantity(super::MAX_HUBS)?;
+        let mut hubs = Vec::with_capacity(count);
+        for _ in 0..count {
+            hubs.push(HubListing::decode(reader)?);
+        }
+        let list = Self(hubs);
+        if !list.is_valid() {
+            return Err(DecodeError::new(offset, DecodeErrorKind::SizeOutOfRange));
+        }
+        Ok(list)
+    }
+}
+
 /// `PeerNodeInfo`: what a node says about itself.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct NodeInfo<'a> {
@@ -224,6 +327,45 @@ impl NodeInfo<'_> {
             _ => None,
         })?;
         HubMembership::decode_exact(value).ok()
+    }
+
+    /// The settlement hubs it is a member of, each with its scheme: the
+    /// first hub list extension's, when that is a canonical [`HubList`]
+    /// that keeps its rules and whose first is the hub extension's
+    /// ([`NodeInfo::hub`]), so that nodes that read the list and nodes that
+    /// do not see the same first hub; empty otherwise. A node that names
+    /// its hub only in the hub extension is of a version before hub lists,
+    /// and settles over it on the hub scheme both nodes run.
+    #[must_use]
+    pub fn hubs(&self) -> Vec<HubListing> {
+        self.entries
+            .iter()
+            .find_map(|entry| match entry {
+                Entry::Extension { kind, value } if *kind == super::EXTENSION_HUBS => Some(*value),
+                _ => None,
+            })
+            .and_then(|value| HubList::decode_exact(value).ok())
+            .filter(|list| list.0.first().map(|first| first.membership) == self.hub())
+            .map(|list| list.0)
+            .unwrap_or_default()
+    }
+
+    /// Whether it has settlement methods
+    /// (spec/decisions/settlement-methods.md), and so takes `methodPacket`,
+    /// `methodAdd` and `methodDrop`: its first methods extension has an
+    /// empty value. One with a value breaks the extension's rule, and says
+    /// nothing.
+    #[must_use]
+    pub fn has_methods(&self) -> bool {
+        self.entries
+            .iter()
+            .find_map(|entry| match entry {
+                Entry::Extension { kind, value } if *kind == super::EXTENSION_METHODS => {
+                    Some(*value)
+                }
+                _ => None,
+            })
+            .is_some_and(<[u8]>::is_empty)
     }
 
     fn has_extension(&self, wanted: u16) -> bool {

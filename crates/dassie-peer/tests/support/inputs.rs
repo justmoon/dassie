@@ -89,8 +89,8 @@ pub fn mutate(bytes: &[u8], mutations: &[Mutation]) -> Vec<u8> {
     bytes
 }
 
-/// How many kinds of content there are: tags 0 to 17.
-pub const KINDS: usize = 18;
+/// How many kinds of content there are: tags 0 to 20.
+pub const KINDS: usize = 21;
 
 /// A valid encoding of the content with CHOICE tag `tag`, carrying the
 /// link state `info` where it has one.
@@ -146,6 +146,18 @@ pub fn content(tag: usize, info: &[u8]) -> Vec<u8> {
         15 => Content::NameRenew(Name::parse("alice").unwrap()),
         16 => Content::NameListHashRequest,
         17 => Content::NameListRequest,
+        18 => Content::MethodPacket {
+            request_id: 42,
+            scheme: SchemeId::parse("hub-stub").unwrap(),
+            packet: &[12, 0x10, 0, 0, 0, 0, 0, 0, 0, 1],
+            commitment: &[0xc0; 96],
+        },
+        19 => Content::MethodAdd {
+            scheme: stub,
+            data: &[1, 2, 3],
+            versions: (1..=8).collect(),
+        },
+        20 => Content::MethodDrop { scheme: stub },
         _ => panic!("no content has tag {tag}"),
     };
     assert_eq!(content.kind().tag(), u64::try_from(tag).unwrap());

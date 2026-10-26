@@ -7,24 +7,30 @@ use alloc::vec::Vec;
 use dassie_identity::NodeId;
 use dassie_oer::{Decode, Encode};
 
-use super::{MAX_SCHEMES, PeerNode, Problem, Purpose};
+use super::{MAX_OWN_HUBS, MAX_SCHEMES, PeerNode, Problem, Purpose};
 use crate::config::Config;
 use crate::table::{LinkState, Sources, backoff};
 use crate::wire::{
-    Content, EXTENSION_FEED, EXTENSION_HUB, EXTENSION_PERIPHERY, EXTENSION_QUIC, Entry,
-    HubMembership, InvalidNodeInfo, LinkStateResponse, MAX_ENTRIES, MAX_NODE_INFO_BYTES, NodeInfo,
-    SignedNodeInfo, TerminationReason, max_node_info_bytes, sign_node_info,
+    Content, EXTENSION_FEED, EXTENSION_HUB, EXTENSION_HUBS, EXTENSION_PERIPHERY, EXTENSION_QUIC,
+    Entry, HubList, HubMembership, InvalidNodeInfo, LinkStateResponse, MAX_ENTRIES,
+    MAX_NODE_INFO_BYTES, NodeInfo, SignedNodeInfo, TerminationReason, hub_list_bytes,
+    max_node_info_bytes, sign_node_info,
 };
 
 /// The routes are recomputed at least this often, as link states go stale.
 const ROUTES_PERIOD_MS: u64 = 60_000;
 
 /// Most extensions our own link state carries: the periphery or the QUIC
-/// one, a feed port and a hub ([`PeerNode::own_extensions`]).
-const MAX_OWN_EXTENSIONS: usize = 3;
+/// one, a feed port, a hub, the methods one and a hub list
+/// ([`PeerNode::own_extensions`]). The methods one is budgeted, though no
+/// node issues it yet.
+const MAX_OWN_EXTENSIONS: usize = 5;
 
-/// Most bytes their values take together: a feed port and a hub.
-const MAX_OWN_EXTENSION_BYTES: usize = 2 + HubMembership::ENCODED_BYTES;
+/// Most bytes their values take together: a feed port, a hub and a list of
+/// [`MAX_OWN_HUBS`] hubs, at the longest scheme IDs; the QUIC, periphery
+/// and methods ones are empty.
+const MAX_OWN_EXTENSION_BYTES: usize =
+    2 + HubMembership::ENCODED_BYTES + hub_list_bytes(MAX_OWN_HUBS);
 
 /// Whether our own link state, listing at most `neighbors` neighbors,
 /// always fits what every node decodes: in entries and in bytes, with
@@ -364,8 +370,13 @@ impl PeerNode {
         if let Some(port) = self.own_info.feed_port.filter(|_| !periphery) {
             extensions.push((EXTENSION_FEED, port.to_be_bytes().to_vec()));
         }
+        // The first hub alone, for nodes that read no list; then the list,
+        // when we know each hub's scheme.
         if let Some(hub) = &self.own_info.hub {
             extensions.push((EXTENSION_HUB, hub.to_vec()));
+        }
+        if !self.own_hubs.is_empty() {
+            extensions.push((EXTENSION_HUBS, HubList(self.own_hubs.clone()).to_vec()));
         }
         extensions
     }

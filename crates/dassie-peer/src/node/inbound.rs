@@ -144,6 +144,13 @@ impl PeerNode {
                 Inbound::Reply(self.name_unseal(&accepted, name, &salt))
             }
             Content::NameRenew(name) => Inbound::Reply(self.name_renew(&accepted, name)),
+            // Settlement methods are not built yet: refused, not acted
+            // upon, as by a node that does not know their tags. Our link
+            // state does not say we have them, so no node sends them
+            // (spec/areas/peer-protocol.md#versions).
+            Content::MethodPacket { .. }
+            | Content::MethodAdd { .. }
+            | Content::MethodDrop { .. } => refuse(400, "no settlement methods"),
             other => Inbound::Reply(self.answer(hooks, &accepted, other)),
         }
     }
@@ -309,7 +316,10 @@ impl PeerNode {
             | Content::PeeringTermination(_)
             | Content::NameCommit(_)
             | Content::NameUnseal { .. }
-            | Content::NameRenew(_) => Reply::refuse(400, "unexpected"),
+            | Content::NameRenew(_)
+            | Content::MethodPacket { .. }
+            | Content::MethodAdd { .. }
+            | Content::MethodDrop { .. } => Reply::refuse(400, "unexpected"),
         }
     }
 

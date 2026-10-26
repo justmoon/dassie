@@ -852,6 +852,142 @@ fn a_hub_member_names_its_hub_in_its_link_state() {
     assert_eq!(state.info.hub(), None);
 }
 
+// spec/areas/peer-protocol.md#link-states: the first hub, set through the
+// own info with another membership, is changed in the list, which stays.
+#[test]
+fn the_first_hub_changes_in_the_list_through_the_own_info() {
+    use dassie_peer::wire::{HubListing, HubMembership};
+    let (own, boot) = (key(0), key(1));
+    let listing = |scheme: &str, hub: u8| HubListing {
+        scheme: SchemeId::parse(scheme).unwrap(),
+        membership: HubMembership {
+            hub_id: [hub; 32],
+            account: u32::from(hub),
+            takes_peers: true,
+        },
+    };
+    let hubs = vec![listing("hub-xrp", 1), listing("hub-usd", 2)];
+    let mut node = with_feed(&own, &boot, None);
+    node.set_own_hubs(START, hubs.clone());
+    let closed = HubMembership {
+        takes_peers: false,
+        ..hubs[0].membership
+    };
+    let info = node.own_info().clone();
+    node.set_own_info(
+        START,
+        OwnInfo {
+            hub: Some(closed),
+            ..info
+        },
+    );
+    let mut changed = hubs;
+    changed[0].membership = closed;
+    assert_eq!(node.own_hubs(), changed);
+    let state = own_link_state(node);
+    let state = SignedNodeInfo::decode_exact(&state).unwrap();
+    assert_eq!(state.info.hubs(), changed);
+    assert_eq!(state.info.hub(), Some(closed));
+}
+
+// A member of several hubs lists each with its scheme, and names the first
+// alone too, for nodes that read no list; a hub set in its own info other than
+// the first of them replaces them, named alone, as before lists
+// (spec/areas/peer-protocol.md#link-states).
+#[test]
+fn a_member_of_several_hubs_lists_them_in_its_link_state() {
+    use dassie_peer::wire::{HubListing, HubMembership};
+    let (own, boot) = (key(0), key(1));
+    let listing = |scheme: &str, hub: u8| HubListing {
+        scheme: SchemeId::parse(scheme).unwrap(),
+        membership: HubMembership {
+            hub_id: [hub; 32],
+            account: u32::from(hub),
+            takes_peers: true,
+        },
+    };
+    let hubs = vec![listing("hub-xrp", 1), listing("hub-usd", 2)];
+    let mut node = with_feed(&own, &boot, None);
+    node.set_own_hubs(START, hubs.clone());
+    assert_eq!(node.own_hubs(), hubs);
+    assert_eq!(node.own_info().hub, Some(hubs[0].membership));
+    // Setting the first again through the own info keeps the list.
+    let info = node.own_info().clone();
+    node.set_own_info(
+        START,
+        OwnInfo {
+            alias: "a".into(),
+            ..info
+        },
+    );
+    assert_eq!(node.own_hubs(), hubs);
+    let bytes = own_link_state(node);
+    let state = SignedNodeInfo::decode_exact(&bytes).unwrap();
+    assert!(state.verify().is_ok());
+    assert_eq!(state.info.hubs(), hubs);
+    assert_eq!(state.info.hub(), Some(hubs[0].membership));
+    assert!(!state.info.has_methods());
+
+    // Another hub through the own info: named alone, without a list.
+    let mut node = with_feed(&own, &boot, None);
+    node.set_own_hubs(START, hubs.clone());
+    let other = listing("hub-xrp", 3).membership;
+    let info = node.own_info().clone();
+    node.set_own_info(
+        START,
+        OwnInfo {
+            hub: Some(other),
+            ..info
+        },
+    );
+    assert_eq!(node.own_hubs(), []);
+    let state = own_link_state(node);
+    let state = SignedNodeInfo::decode_exact(&state).unwrap();
+    assert_eq!(state.info.hubs(), []);
+    assert_eq!(state.info.hub(), Some(other));
+
+    // No hubs: neither extension.
+    let mut node = with_feed(&own, &boot, None);
+    node.set_own_hubs(START, hubs);
+    node.set_own_hubs(START, Vec::new());
+    assert_eq!(node.own_info().hub, None);
+    let state = own_link_state(node);
+    let state = SignedNodeInfo::decode_exact(&state).unwrap();
+    assert_eq!((state.info.hubs(), state.info.hub()), (Vec::new(), None));
+}
+
+// spec/areas/peer-protocol.md#versions: settlement methods are not built
+// yet, so a node refuses their messages with 400, as a node that does not
+// know their tags does: not acted upon. Unauthenticated, they get 401.
+#[test]
+fn method_messages_are_refused_until_methods_are_built() {
+    let mut network = Network::new(2, 2, 1, Config::DEV);
+    settle(&mut network, 30_000);
+    let stub = SchemeId::parse("stub").unwrap();
+    let sender = key(0);
+    let mut auth = Authenticator::new(Arc::clone(&sender), AuthConfig::DEFAULT, START - 1);
+    let contents = [
+        Content::MethodPacket {
+            request_id: 1,
+            scheme: stub,
+            packet: &[12, 0x10, 0, 0, 0, 0, 0, 0, 0, 1],
+            commitment: &[],
+        },
+        Content::MethodAdd {
+            scheme: stub,
+            data: &[],
+            versions: vec![1],
+        },
+        Content::MethodDrop { scheme: stub },
+    ];
+    for content in &contents {
+        let body = request_by(&mut auth, network.clock(1), 1, content);
+        assert_eq!(network.inbound(1, &body).status, 400, "{content:?}");
+        let bare = encode_envelope(&sender.node_id(), &Authentication::None, &content.to_vec());
+        assert_eq!(network.inbound(1, &bare).status, 401, "{content:?}");
+    }
+}
+
 // A feed is at the URL's host: a node without a URL, a periphery node,
 // names no port, and port 0 is none.
 #[test]

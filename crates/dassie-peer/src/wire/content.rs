@@ -17,6 +17,10 @@ use crate::names::{
 /// The size of a `hubPacket`'s commitment: never empty, and bounded.
 const COMMITMENT_SIZE: Size = Size::range(1, MAX_COMMITMENT_BYTES);
 
+/// The size of a `methodPacket`'s commitment: empty on a method that is not
+/// over a hub, and bounded as a `hubPacket`'s.
+const METHOD_COMMITMENT_SIZE: Size = Size::range(0, MAX_COMMITMENT_BYTES);
+
 /// A peering request: the requester's signed link state, the scheme it
 /// wants to settle with, the versions of that scheme it speaks (NET-26) and
 /// the credit it extends (ACC-24).
@@ -123,6 +127,41 @@ pub enum Content<'a> {
     /// `nameListRequest [17]`: its answer is a
     /// [`NameListResponse`](super::NameListResponse).
     NameListRequest,
+    /// `methodPacket [18]`: an ILP Prepare on one settlement method of a
+    /// peering, with the payer's commitment when the method is over a hub
+    /// (spec/decisions/settlement-methods.md). Only a Prepare travels in
+    /// it; its Fulfill or Reject goes back as an `interledgerPacket`, by
+    /// its request ID. Only to a node whose link state says it has methods
+    /// ([`EXTENSION_METHODS`](super::EXTENSION_METHODS)).
+    MethodPacket {
+        /// The request ID, scoped to the peering.
+        request_id: u32,
+        /// The method: the scheme it settles on.
+        scheme: SchemeId,
+        /// The ILP Prepare.
+        packet: &'a [u8],
+        /// The commitment, opaque to this crate, as a `hubPacket`'s: empty
+        /// on a method not over a hub, at most [`MAX_COMMITMENT_BYTES`].
+        commitment: &'a [u8],
+    },
+    /// `methodAdd [19]`: the sender asks to add a method to the peering,
+    /// as a peering request asks for its first. Its answer is a
+    /// [`MethodResponse`](super::MethodResponse).
+    MethodAdd {
+        /// The scheme.
+        scheme: SchemeId,
+        /// The scheme's own data.
+        data: &'a [u8],
+        /// The scheme versions the sender speaks, at least one.
+        versions: Vec<u16>,
+    },
+    /// `methodDrop [20]`: the sender drops a method of the peering, after
+    /// collecting on it; the recipient drops it at once
+    /// (spec/decisions/settlement-methods.md).
+    MethodDrop {
+        /// The scheme.
+        scheme: SchemeId,
+    },
 }
 
 /// Why a peering is terminated. Unknown codes read as
@@ -193,6 +232,9 @@ impl Content<'_> {
             Self::NameRenew(_) => Kind::NameRenew,
             Self::NameListHashRequest => Kind::NameListHashRequest,
             Self::NameListRequest => Kind::NameListRequest,
+            Self::MethodPacket { .. } => Kind::MethodPacket,
+            Self::MethodAdd { .. } => Kind::MethodAdd,
+            Self::MethodDrop { .. } => Kind::MethodDrop,
         }
     }
 
@@ -202,8 +244,7 @@ impl Content<'_> {
                 request.scheme.encoded_len()
                     + size::prefixed(request.node_info.bytes.len())
                     + size::prefixed(request.data.len())
-                    + size::quantity(request.versions.len())
-                    + 2 * request.versions.len()
+                    + versions_len(&request.versions)
                     + 8
             }
             Self::LinkStateUpdate(info) | Self::Registration(info) => info.bytes.len(),
@@ -223,9 +264,9 @@ impl Content<'_> {
             | Self::NodeListRequest
             | Self::NameListHashRequest
             | Self::NameListRequest => 0,
-            Self::PeeringInfoRequest { scheme } | Self::SettlementRequest { scheme } => {
-                scheme.encoded_len()
-            }
+            Self::PeeringInfoRequest { scheme }
+            | Self::SettlementRequest { scheme }
+            | Self::MethodDrop { scheme } => scheme.encoded_len(),
             Self::PeeringTermination(_) => 1,
             Self::HubPacket {
                 packet, commitment, ..
@@ -233,6 +274,21 @@ impl Content<'_> {
             Self::NameCommit(_) => COMMITMENT_BYTES,
             Self::NameUnseal { name, .. } => name_len(name) + SALT_BYTES,
             Self::NameRenew(name) => name_len(name),
+            Self::MethodPacket {
+                scheme,
+                packet,
+                commitment,
+                ..
+            } => {
+                4 + scheme.encoded_len()
+                    + size::prefixed(packet.len())
+                    + size::prefixed(commitment.len())
+            }
+            Self::MethodAdd {
+                scheme,
+                data,
+                versions,
+            } => scheme.encoded_len() + size::prefixed(data.len()) + versions_len(versions),
         }
     }
 }
@@ -245,16 +301,7 @@ impl Encode for Content<'_> {
     fn encode_to(&self, writer: &mut Writer<'_>) {
         writer.write_context_tag(self.kind().tag());
         match self {
-            Self::PeeringRequest(request) => {
-                request.scheme.write(writer);
-                writer.write_octets(request.node_info.bytes, Size::ANY);
-                writer.write_octets(request.data, Size::ANY);
-                writer.write_quantity(request.versions.len());
-                for version in &request.versions {
-                    writer.write_u16(*version);
-                }
-                writer.write_u64(request.credit);
-            }
+            Self::PeeringRequest(request) => write_peering_request(writer, request),
             Self::LinkStateUpdate(info) | Self::Registration(info) => {
                 writer.write_bytes(info.bytes);
             }
@@ -289,9 +336,9 @@ impl Encode for Content<'_> {
             | Self::NodeListRequest
             | Self::NameListHashRequest
             | Self::NameListRequest => {}
-            Self::PeeringInfoRequest { scheme } | Self::SettlementRequest { scheme } => {
-                scheme.write(writer);
-            }
+            Self::PeeringInfoRequest { scheme }
+            | Self::SettlementRequest { scheme }
+            | Self::MethodDrop { scheme } => scheme.write(writer),
             Self::PeeringTermination(reason) => writer.write_u8(reason.code()),
             Self::HubPacket {
                 request_id,
@@ -308,6 +355,17 @@ impl Encode for Content<'_> {
                 writer.write_bytes(&salt.0);
             }
             Self::NameRenew(name) => write_name(writer, name),
+            Self::MethodPacket {
+                request_id,
+                scheme,
+                packet,
+                commitment,
+            } => write_method_packet(writer, *request_id, scheme, packet, commitment),
+            Self::MethodAdd {
+                scheme,
+                data,
+                versions,
+            } => write_method_add(writer, scheme, data, versions),
         }
     }
 }
@@ -373,8 +431,58 @@ impl<'a> Decode<'a> for Content<'a> {
             Kind::NameRenew => Self::NameRenew(read_name(reader)?),
             Kind::NameListHashRequest => Self::NameListHashRequest,
             Kind::NameListRequest => Self::NameListRequest,
+            Kind::MethodPacket | Kind::MethodAdd | Kind::MethodDrop => read_method(kind, reader)?,
         })
     }
+}
+
+/// Writes the body of a `methodPacket`.
+fn write_method_packet(
+    writer: &mut Writer<'_>,
+    request_id: u32,
+    scheme: &SchemeId,
+    packet: &[u8],
+    commitment: &[u8],
+) {
+    writer.write_u32(request_id);
+    scheme.write(writer);
+    writer.write_octets(packet, Size::ANY);
+    writer.write_octets(commitment, METHOD_COMMITMENT_SIZE);
+}
+
+/// Writes the body of a `methodAdd`.
+fn write_method_add(writer: &mut Writer<'_>, scheme: &SchemeId, data: &[u8], versions: &[u16]) {
+    scheme.write(writer);
+    writer.write_octets(data, Size::ANY);
+    write_versions(writer, versions);
+}
+
+/// Reads the body of a settlement method's message of kind `kind`.
+fn read_method<'a>(kind: Kind, reader: &mut Reader<'a>) -> Result<Content<'a>, DecodeError> {
+    Ok(match kind {
+        Kind::MethodPacket => Content::MethodPacket {
+            request_id: reader.read_u32()?,
+            scheme: SchemeId::read(reader)?,
+            packet: reader.read_octets(Size::ANY)?,
+            commitment: reader.read_octets(METHOD_COMMITMENT_SIZE)?,
+        },
+        Kind::MethodAdd => Content::MethodAdd {
+            scheme: SchemeId::read(reader)?,
+            data: reader.read_octets(Size::ANY)?,
+            versions: read_versions(reader)?,
+        },
+        _ => Content::MethodDrop {
+            scheme: SchemeId::read(reader)?,
+        },
+    })
+}
+
+fn write_peering_request(writer: &mut Writer<'_>, request: &PeeringRequest<'_>) {
+    request.scheme.write(writer);
+    writer.write_octets(request.node_info.bytes, Size::ANY);
+    writer.write_octets(request.data, Size::ANY);
+    write_versions(writer, &request.versions);
+    writer.write_u64(request.credit);
 }
 
 fn read_peering_request<'a>(reader: &mut Reader<'a>) -> Result<PeeringRequest<'a>, DecodeError> {
@@ -385,6 +493,33 @@ fn read_peering_request<'a>(reader: &mut Reader<'a>) -> Result<PeeringRequest<'a
         Ok::<_, DecodeError>(info)
     })?;
     let data = reader.read_octets(Size::ANY)?;
+    let versions = read_versions(reader)?;
+    let credit = reader.read_u64()?;
+    Ok(PeeringRequest {
+        scheme,
+        node_info,
+        data,
+        versions,
+        credit,
+    })
+}
+
+/// The encoded length of a list of scheme versions.
+fn versions_len(versions: &[u16]) -> usize {
+    size::quantity(versions.len()) + 2 * versions.len()
+}
+
+/// Writes a list of scheme versions.
+fn write_versions(writer: &mut Writer<'_>, versions: &[u16]) {
+    writer.write_quantity(versions.len());
+    for version in versions {
+        writer.write_u16(*version);
+    }
+}
+
+/// Reads a list of scheme versions: at least one, at most
+/// [`MAX_VERSIONS`].
+fn read_versions(reader: &mut Reader<'_>) -> Result<Vec<u16>, DecodeError> {
     let offset = reader.offset();
     let count = reader.read_quantity(MAX_VERSIONS)?;
     if count == 0 {
@@ -394,12 +529,5 @@ fn read_peering_request<'a>(reader: &mut Reader<'a>) -> Result<PeeringRequest<'a
     for _ in 0..count {
         versions.push(reader.read_u16()?);
     }
-    let credit = reader.read_u64()?;
-    Ok(PeeringRequest {
-        scheme,
-        node_info,
-        data,
-        versions,
-        credit,
-    })
+    Ok(versions)
 }

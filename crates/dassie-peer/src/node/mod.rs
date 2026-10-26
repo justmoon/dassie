@@ -31,8 +31,8 @@ use crate::names::{Commitment, Holders, Name, Registrant, Registrar};
 use crate::routing::Routes;
 use crate::table::{Bucket, Entry, NetworkBuckets, Sources};
 use crate::wire::{
-    Authentication, Content, HubMembership, MAX_CLAIM_BYTES, MAX_COMMITMENT_BYTES,
-    ResponseEnvelope, SchemeId, encode_envelope,
+    Authentication, Content, HubList, HubListing, HubMembership, MAX_CLAIM_BYTES,
+    MAX_COMMITMENT_BYTES, ResponseEnvelope, SchemeId, encode_envelope,
 };
 
 pub use lifecycle::BanError;
@@ -59,6 +59,14 @@ pub const MAX_UPLINKS: usize = 128;
 /// ([`Config::validate`]).
 pub const MAX_SCHEMES: usize = 16;
 
+/// Most settlement hubs a node is a member of, each listed in its link
+/// state: one per asset, for the few assets hubs settle
+/// (spec/areas/peer-protocol.md#link-states). Within the protocol's
+/// [`MAX_HUBS`](crate::wire::MAX_HUBS), which every node decodes.
+pub const MAX_OWN_HUBS: usize = 4;
+
+const _: () = assert!(MAX_OWN_HUBS <= crate::wire::MAX_HUBS);
+
 /// What this node says about itself.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct OwnInfo {
@@ -76,7 +84,12 @@ pub struct OwnInfo {
     /// names it.
     pub feed_port: Option<u16>,
     /// The settlement hub it is a member of, if any, which its link state
-    /// names (spec/designs/settlement-hubs.md#11-choosing-a-hub).
+    /// names (spec/designs/settlement-hubs.md#11-choosing-a-hub): the first
+    /// of its hubs ([`PeerNode::set_own_hubs`]), which the hub extension
+    /// names for nodes that read no hub list. The first of its hubs set
+    /// here, with another account or `takes_peers`, changes it in the list;
+    /// any other hub set here replaces them, and is named alone, without a
+    /// list.
     pub hub: Option<HubMembership>,
 }
 
@@ -219,6 +232,10 @@ pub struct PeerNode {
     pub(crate) auth: Authenticator,
     pub(crate) own: NodeId,
     pub(crate) own_info: OwnInfo,
+    /// The hubs our link state lists, each with its scheme, at most
+    /// [`MAX_OWN_HUBS`]; empty for none, or for a hub named only in
+    /// `own_info`, without its scheme.
+    pub(crate) own_hubs: Vec<HubListing>,
     pub(crate) schemes: Vec<SchemeId>,
     pub(crate) rng: Box<dyn CryptoRng + Send>,
     pub(crate) now_ms: u64,
@@ -320,6 +337,7 @@ impl PeerNode {
             auth: Authenticator::new(Arc::clone(&key), config.auth, now_ms),
             own,
             own_info: own_info.checked(),
+            own_hubs: Vec::new(),
             schemes: Vec::new(),
             rng,
             now_ms,
@@ -433,9 +451,48 @@ impl PeerNode {
         self.advance(now_ms);
         let info = info.checked();
         if info != self.own_info {
+            // The first of our hubs, with its membership changed, keeps
+            // the list; any other hub is named alone.
+            if let (Some(hub), Some(first)) = (info.hub, self.own_hubs.first_mut())
+                && hub.hub_id == first.membership.hub_id
+            {
+                first.membership = hub;
+            } else {
+                self.own_hubs.clear();
+            }
             self.own_info = info;
             self.gossip.own_changed = true;
             self.end_downlinks();
+        }
+    }
+
+    /// The settlement hubs our link state lists, each with its scheme.
+    #[must_use]
+    pub fn own_hubs(&self) -> &[HubListing] {
+        &self.own_hubs
+    }
+
+    /// Changes the settlement hubs we are a member of, each with the scheme
+    /// we settle on over it, in order: our link state lists them all, and
+    /// names the first in the hub extension too, for nodes that read no
+    /// list, as [`OwnInfo::hub`]. A new link state follows.
+    ///
+    /// # Panics
+    ///
+    /// With more than [`MAX_OWN_HUBS`], or a scheme or hub twice (the
+    /// node's own, not input).
+    pub fn set_own_hubs(&mut self, now_ms: u64, hubs: Vec<HubListing>) {
+        assert!(hubs.len() <= MAX_OWN_HUBS, "too many hubs");
+        assert!(
+            hubs.is_empty() || HubList(hubs.clone()).is_valid(),
+            "no scheme or hub twice"
+        );
+        self.advance(now_ms);
+        let hub = hubs.first().map(|listing| listing.membership);
+        if hubs != self.own_hubs || hub != self.own_info.hub {
+            self.own_hubs = hubs;
+            self.own_info.hub = hub;
+            self.gossip.own_changed = true;
         }
     }
 
