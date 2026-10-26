@@ -49,6 +49,10 @@ import {
   writeConfig,
   XRP,
 } from "./market_maker.ts";
+
+/** d2's band around what it holds at the start: 3 XRP, less than the XRP a
+ * trade of 2 dollars brings it. */
+const XRP_BAND = 3n * UNIT;
 import {
   DEV_RATES,
   findScenario,
@@ -135,12 +139,15 @@ test("a market maker moves a skewed core node toward balance, and gains", {
     const d1Dsusd = await owner(d1, DSUSD);
     const before = await holdings(d2, d3);
 
+    // A band narrower than what one trade brings d2, so that it swaps back
+    // after the first.
     const file = await writeConfig(
       scenario,
       dir,
       [d1.url],
       d2,
       d3,
+      XRP_BAND,
     );
     maker = new ChildProcess("market-maker", DASSIE, {
       args: ["market-maker", "--config", file],

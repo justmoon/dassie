@@ -35,11 +35,11 @@ const MARGIN_PPM = 10_000;
 /** How far the pool's price may move against a swap: 1%. */
 const SLIPPAGE_PPM = 10_000;
 /**
- * The XRP node's band around what it holds at the start: above it, after
- * two trades, the market maker swaps its XRP back into DSUSD through the
- * pool.
+ * The XRP node's band around what it holds at the start, unless a test
+ * names another: above it, after two trades, the market maker swaps its XRP
+ * back into DSUSD through the pool.
  */
-const XRP_BAND = 6n * UNIT;
+export const XRP_BAND = 6n * UNIT;
 /** The DSUSD node's band, in dollars: room for every trade a run makes. */
 const DSUSD_LOW = 5n * UNIT;
 const DSUSD_HIGH = 40n * UNIT;
@@ -281,8 +281,8 @@ export function dollars(scaled: bigint, at: Pool): string {
 /**
  * Writes the market maker's config, and its nodes' passphrases beside it,
  * into `dir`: the `targets` to trade through, its two nodes, and the pool
- * on the fake ledger. The XRP node's band is around what it holds now.
- * Returns the config's path.
+ * on the fake ledger. The XRP node's band is `xrpBand` around what it holds
+ * now. Returns the config's path.
  */
 export async function writeConfig(
   scenario: Scenario,
@@ -290,6 +290,7 @@ export async function writeConfig(
   targets: string[],
   xrpNode: ScenarioNode,
   dsusdNode: ScenarioNode,
+  xrpBand = XRP_BAND,
 ): Promise<string> {
   for (const node of [xrpNode, dsusdNode]) {
     const file = join(dir, `${node.name}.phrase`);
@@ -308,8 +309,8 @@ export async function writeConfig(
       passphraseFile: join(dir, `${xrpNode.name}.phrase`),
       tradeSize: Number(TRADE),
       band: {
-        low: Number(xrpHeld - XRP_BAND),
-        high: Number(xrpHeld + XRP_BAND),
+        low: Number(xrpHeld - xrpBand),
+        high: Number(xrpHeld + xrpBand),
       },
     },
     token: {
