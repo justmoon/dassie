@@ -892,6 +892,9 @@ struct Seen {
     counted: bool,
     /// One of another ledger of the index, not checked yet.
     other: Option<Validation>,
+    /// More than one of another ledger of the index came, of one hash or
+    /// several: the one checked may be a forgery sent ahead of another.
+    others: bool,
     /// One of the ledger signed at a time not fresh, not checked yet.
     stale: Option<Validation>,
 }
@@ -954,6 +957,7 @@ impl Unl {
                 };
             let master = seen.entry(master).or_default();
             if validation.ledger_hash != ledger_hash {
+                master.others |= master.other.is_some();
                 master.other.get_or_insert(validation);
             } else if !master.checked {
                 // One check of a master's validation of the ledger: a
@@ -964,11 +968,23 @@ impl Unl {
             }
         }
         for master in seen.values_mut() {
-            let other = master.other.take().filter(|_| master.counted);
-            if other.is_some_and(|other| signatures.signed(&other)) {
-                master.counted = false;
-                tally.conflicting += 1;
+            // One validation of another ledger is checked, so a master
+            // costs two checks at most. If it does not check and others
+            // came, one of those may be signed: the master is withheld, as
+            // if the server had left it out, whatever the order of the
+            // answer, but not told as conflicting, which no check showed.
+            if let Some(other) = master.other.take().filter(|_| master.counted) {
+                if signatures.signed(&other) {
+                    master.counted = false;
+                    tally.conflicting += 1;
+                } else if master.others {
+                    master.counted = false;
+                }
             }
+            assert!(
+                !master.counted || master.checked,
+                "a master counts only for its checked validation"
+            );
             // A stale validation is checked only for a master whose fresh
             // one was not, so a master still costs two checks at most; and
             // counts once, so a server cannot make a few stale validations,
@@ -2070,6 +2086,59 @@ mod tests {
         let tallied = tally(&unl, &equivocal, NOW_MS);
         assert_eq!((tallied.counted, tallied.conflicting), (4, 1));
         assert_eq!(tallied.missing, vec![validators[0].key()]);
+    }
+
+    // A master that signed two ledgers of the index counts for neither,
+    // whatever the order of the answer: a forgery of another ledger sent
+    // first does not hide the real one sent after it, of another hash or
+    // the same, and a master still costs two signature checks at most.
+    #[test]
+    fn a_second_ledger_counts_against_a_master_in_any_order() {
+        let ours = publisher(1);
+        let validators = validators(10..15);
+        let mut unl = unl(&[&ours]);
+        unl.take_list(&ours.body(&[list(1, &validators)]), NOW_MS)
+            .unwrap();
+        let forged = |hash: [u8; 32]| {
+            let mut forged =
+                Validation::from_bytes(&validators[0].validation(hash, 100, NOW_S)).unwrap();
+            forged.signature = validators[1].signing.sign(b"forged");
+            forged.to_bytes()
+        };
+        let honest: Vec<Vec<u8>> = (validators[..4].iter())
+            .map(|validator| validator.validation([7; 32], 100, NOW_S))
+            .collect();
+        let second = validators[0].validation([9; 32], 100, NOW_S);
+        // The real second ledger first, the one the tally checks.
+        let shown: Vec<Vec<u8>> = [second.clone()].into_iter().chain(honest.clone()).collect();
+        let tallied = tally(&unl, &shown, NOW_MS);
+        assert_eq!((tallied.counted, tallied.conflicting), (3, 1));
+        assert!(!tallied.reached());
+        // A forgery first, of another hash or the second's own.
+        for hash in [[8; 32], [9; 32]] {
+            let hidden: Vec<Vec<u8>> = [forged(hash)]
+                .into_iter()
+                .chain(honest.clone())
+                .chain([second.clone()])
+                .collect();
+            let checks = Counting::default();
+            let tallied = unl
+                .tally(
+                    ([7; 32], 100),
+                    hidden.iter().map(Vec::as_slice),
+                    NOW_MS,
+                    &checks,
+                )
+                .unwrap();
+            assert_eq!(tallied.counted, 3, "the equivocator counts for neither");
+            assert!(!tallied.reached());
+            assert!(tallied.missing.contains(&validators[0].key()));
+            assert_eq!(checks.0.get(), 5);
+        }
+        // A forgery alone takes nothing from the master that signed.
+        let lone: Vec<Vec<u8>> = [forged([8; 32])].into_iter().chain(honest).collect();
+        let tallied = tally(&unl, &lone, NOW_MS);
+        assert_eq!((tallied.counted, tallied.conflicting), (4, 0));
     }
 
     #[test]
