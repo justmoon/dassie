@@ -161,7 +161,7 @@ async function start(): Promise<void> {
     portOffset: offset,
     walletDir: `${ROOT}apps/wallet/dist-dev`,
     proxyPort: proxy ? proxyPort : undefined,
-    debug: process.env.DEBUG ?? "das:*",
+    log: process.env.DASSIE_LOG ?? "warn",
     fakeLedger: xrpl === "fake" ? fakeLedgerBinary() : undefined,
     print,
   });

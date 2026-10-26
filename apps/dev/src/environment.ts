@@ -71,8 +71,11 @@ export interface EnvironmentOptions {
   readonly walletDir: string;
   /** The proxy's port, if it runs. */
   readonly proxyPort?: number;
-  /** `DEBUG` for the nodes. */
-  readonly debug: string;
+  /**
+   * `DASSIE_LOG` for the nodes: what they print, which the terminal shows.
+   * Their rings keep info and above whatever it says.
+   */
+  readonly log: string;
   /** The fake XRP Ledger's binary, to settle on it rather than the testnet. */
   readonly fakeLedger?: string;
   /** Prints a line to the terminal. */
@@ -251,7 +254,7 @@ export class Environment {
         index: 0n,
         timeUnixMs: BigInt(Date.now()),
         level,
-        target: "das:dev",
+        target: "dassie::dev",
         message: text,
       },
     }));
@@ -419,8 +422,7 @@ export class Environment {
         portOffset: this.options.portOffset,
         env: {
           DASSIE_DEV_WALLET_DIR: this.options.walletDir,
-          DASSIE_LOG_LEVEL: "warn",
-          DEBUG: this.options.debug,
+          DASSIE_LOG: this.options.log,
         },
         fakeLedger: this.options.fakeLedger,
         onLine: (node, stream, line) => this.nodeLine(node, stream, line),

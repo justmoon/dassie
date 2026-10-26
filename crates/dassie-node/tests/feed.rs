@@ -164,7 +164,7 @@ enum Taken {
 async fn core_node(server: &Server, rates: &RatesServer, owner: &NodeKey) -> TestNode {
     let bound = Bound::new();
     let env = [
-        ("DASSIE_PEER_CA_FILE", CA),
+        ("DASSIE_EXTRA_CA_FILE", CA),
         ("DASSIE_PEER_ALLOW_PRIVATE", "1"),
     ];
     let policies = Policies {

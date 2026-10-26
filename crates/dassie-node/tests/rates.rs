@@ -28,7 +28,7 @@ const POLICIES: Policies = Policies {
 
 async fn start(dir: tempfile::TempDir, clock: ManualClock) -> TestNode {
     let env = [
-        ("DASSIE_PEER_CA_FILE", CA),
+        ("DASSIE_EXTRA_CA_FILE", CA),
         ("DASSIE_PEER_ALLOW_PRIVATE", "1"),
     ];
     Bound::bind_in(dir).start(clock, 1, POLICIES, &env).await

@@ -125,7 +125,7 @@ fn run(prepared: Prepared, shutdown: CancellationToken) -> Result<(), String> {
             shutdown,
         ))
         .map_err(|error| {
-            tracing::error!(target: "dassie_desktop", %error, "the node stopped");
+            tracing::error!(target: dassie_node::log::target::DESKTOP, %error, "the node stopped");
             error.to_string()
         })
 }

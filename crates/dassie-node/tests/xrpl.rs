@@ -179,7 +179,7 @@ async fn two_daemons_settle_on_the_xrp_ledger_across_restarts() {
     let nodes = bootstrap(&key_a, bound_a.https_port());
     let env = [
         ("DASSIE_BOOTSTRAP_NODES", nodes.as_str()),
-        ("DASSIE_PEER_CA_FILE", CA),
+        ("DASSIE_EXTRA_CA_FILE", CA),
         ("DASSIE_PEER_ALLOW_PRIVATE", "1"),
     ];
     let a = bound_a.start(clock.clone(), 1, Policies::DEV, &env).await;
@@ -299,7 +299,7 @@ async fn a_lying_server_gets_nothing_booked_and_settling_resumes() {
     let nodes = bootstrap(&key_a, bound_a.https_port());
     let env = [
         ("DASSIE_BOOTSTRAP_NODES", nodes.as_str()),
-        ("DASSIE_PEER_CA_FILE", CA),
+        ("DASSIE_EXTRA_CA_FILE", CA),
         ("DASSIE_PEER_ALLOW_PRIVATE", "1"),
     ];
     let a = bound_a.start(clock.clone(), 1, Policies::DEV, &env).await;
@@ -413,7 +413,7 @@ async fn a_new_fake_ledger_is_a_testnet_reset() {
     let nodes = bootstrap(&key_a, bound.https_port());
     let env = [
         ("DASSIE_BOOTSTRAP_NODES", nodes.as_str()),
-        ("DASSIE_PEER_CA_FILE", CA),
+        ("DASSIE_EXTRA_CA_FILE", CA),
         ("DASSIE_PEER_ALLOW_PRIVATE", "1"),
     ];
     let a = bound.start(clock.clone(), 1, Policies::DEV, &env).await;
@@ -475,7 +475,7 @@ async fn the_owner_asks_the_faucet_for_more() {
     let nodes = bootstrap(&key_a, bound.https_port());
     let env = [
         ("DASSIE_BOOTSTRAP_NODES", nodes.as_str()),
-        ("DASSIE_PEER_CA_FILE", CA),
+        ("DASSIE_EXTRA_CA_FILE", CA),
         ("DASSIE_PEER_ALLOW_PRIVATE", "1"),
     ];
     let a = bound.start(clock.clone(), 1, Policies::DEV, &env).await;
@@ -681,7 +681,7 @@ async fn two_daemons_settle_dsusd_across_restarts() {
     let nodes = bootstrap(&key_a, bound_a.https_port());
     let env = [
         ("DASSIE_BOOTSTRAP_NODES", nodes.as_str()),
-        ("DASSIE_PEER_CA_FILE", CA),
+        ("DASSIE_EXTRA_CA_FILE", CA),
         ("DASSIE_PEER_ALLOW_PRIVATE", "1"),
     ];
     // The daemons have no rate source and the ledger no DSUSD pool, so

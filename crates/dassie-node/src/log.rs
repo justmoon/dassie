@@ -1,23 +1,22 @@
-//! Logging: `tracing` events under the original's `das:node:*` targets.
+//! Logging: `tracing` events under the node's `dassie::*` targets.
 //!
-//! Which events reach standard output follows the original
-//! (spec/areas/node.md#logging):
-//!
-//! - `DASSIE_LOG_LEVEL` (`debug`, `info`, `warn`, `error` or `none`) sets the
-//!   lowest level shown;
-//! - debug events are shown only for targets that match a `DEBUG` pattern.
-//!   Patterns are separated by commas or whitespace, `*` matches any run of
-//!   characters, a leading `-` excludes, and the first pattern that matches
-//!   decides. The original replaced only the first `*` of a pattern (RT-28);
-//!   here every `*` is a wildcard.
+//! Which events reach standard output is `DASSIE_LOG`'s
+//! (spec/areas/node.md#logging), in the form of `tracing`'s `EnvFilter`:
+//! directives separated by commas, each a level (`trace`, `debug`, `info`,
+//! `warn`, `error` or `off`) for every target, or `<target>=<level>` for a
+//! target and the targets beneath it (`dassie::peer` covers
+//! `dassie::peer::links`, not `dassie::peering`). The most specific
+//! directive that matches decides; a target none matches takes the bare
+//! level, `info` if there is none. So `debug,hyper=warn` shows debug events
+//! but hyper's warnings only, and `dassie::peer=debug` shows info and above
+//! everywhere and the peer protocol's debug events too.
 //!
 //! Lines carry no timestamp: journald adds one.
 //!
 //! The node also keeps its last lines in a [`LogRing`] for the wallet's logs
 //! page (spec/areas/node.md#logging): at most [`MAX_LINES`] of them and
-//! [`MAX_RING_BYTES`], info and above whatever `DASSIE_LOG_LEVEL` says, and
-//! debug for the targets `DEBUG` names. Fields named like secrets are
-//! redacted.
+//! [`MAX_RING_BYTES`], info and above whatever `DASSIE_LOG` says, and what
+//! it shows below that. Fields named like secrets are redacted.
 
 use std::collections::VecDeque;
 use std::fmt::Write as _;
@@ -26,6 +25,7 @@ use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 
 use tokio::sync::watch;
 use tracing::field::{Field, Visit};
+use tracing::level_filters::LevelFilter;
 use tracing::{Event, Level, Metadata, Subscriber};
 use tracing_subscriber::filter::filter_fn;
 use tracing_subscriber::layer::{Context, SubscriberExt};
@@ -44,72 +44,65 @@ const MAX_MESSAGE_BYTES: usize = 1_024;
 const MAX_FIELDS: usize = 16;
 /// Longest field value kept.
 const MAX_FIELD_BYTES: usize = 256;
+/// Most directives `DASSIE_LOG` holds.
+pub const MAX_DIRECTIVES: usize = 64;
+/// Longest target a directive names.
+const MAX_TARGET_BYTES: usize = 128;
 
 /// Targets of the node's own events.
 pub mod target {
     /// Start, stop, and whether setup is still to be done.
-    pub const DAEMON: &str = "das:node:daemon";
+    pub const DAEMON: &str = "dassie::daemon";
     /// The database.
-    pub const DATABASE: &str = "das:node:database";
+    pub const DATABASE: &str = "dassie::database";
     /// The HTTP and HTTPS listeners.
-    pub const HTTP: &str = "das:node:http";
+    pub const HTTP: &str = "dassie::http";
     /// The IPC socket.
-    pub const IPC: &str = "das:node:ipc";
+    pub const IPC: &str = "dassie::ipc";
     /// Certificates and ACME.
-    pub const ACME: &str = "das:node:acme";
+    pub const ACME: &str = "dassie::acme";
     /// Setup, login and sessions.
-    pub const AUTH: &str = "das:node:auth";
+    pub const AUTH: &str = "dassie::auth";
     /// The RPC server.
-    pub const RPC: &str = "das:node:rpc";
+    pub const RPC: &str = "dassie::rpc";
     /// Socket activation and readiness.
-    pub const SYSTEMD: &str = "das:node:systemd";
+    pub const SYSTEMD: &str = "dassie::systemd";
     /// The ledger's engine.
-    pub const ENGINE: &str = "das:node:accounting";
+    pub const ENGINE: &str = "dassie::engine";
     /// BTP clients.
-    pub const BTP: &str = "das:node:btp";
+    pub const BTP: &str = "dassie::btp";
     /// The peer protocol: link states, membership, peering.
-    pub const PEER: &str = "das:node:peer-protocol";
+    pub const PEER: &str = "dassie::peer";
     /// Routes.
-    pub const ROUTING: &str = "das:node:routing";
+    pub const ROUTING: &str = "dassie::routing";
     /// Payments to the node's STREAM receiver.
-    pub const PAYMENT: &str = "das:node:payment";
+    pub const PAYMENT: &str = "dassie::payment";
     /// Settlement schemes.
-    pub const SETTLEMENT: &str = "das:node:settlement";
+    pub const SETTLEMENT: &str = "dassie::settlement";
     /// A front door: its listeners, certificate and the nodes it reaches.
-    pub const FRONT_DOOR: &str = "das:front-door";
+    pub const FRONT_DOOR: &str = "dassie::front_door";
     /// The settlement hubs the node validates.
-    pub const HUB: &str = "das:node:hub";
+    pub const HUB: &str = "dassie::hub";
+    /// The market maker, `dassie market-maker`.
+    pub const MARKET_MAKER: &str = "dassie::market_maker";
+    /// The desktop app around its node.
+    pub const DESKTOP: &str = "dassie::desktop";
 }
 
-/// The lowest level shown.
+/// A line's level.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum LogLevel {
-    /// Everything, with debug events still filtered by `DEBUG`.
+    /// Debug and trace events.
     Debug,
-    /// The default.
+    /// What the node does.
     Info,
-    /// Problems only.
+    /// Problems.
     Warn,
-    /// Failures only.
+    /// Failures.
     Error,
-    /// Nothing.
-    None,
 }
 
 impl LogLevel {
-    /// Reads `debug`, `info`, `warn`, `error` or `none`.
-    #[must_use]
-    pub fn parse(text: &str) -> Option<Self> {
-        match text {
-            "debug" => Some(Self::Debug),
-            "info" => Some(Self::Info),
-            "warn" => Some(Self::Warn),
-            "error" => Some(Self::Error),
-            "none" => Some(Self::None),
-            _ => None,
-        }
-    }
-
     fn of(level: Level) -> Self {
         match level {
             Level::TRACE | Level::DEBUG => Self::Debug,
@@ -120,88 +113,127 @@ impl LogLevel {
     }
 }
 
-/// `DASSIE_LOG_LEVEL` and `DEBUG` together.
+/// `DASSIE_LOG`: the most verbose level shown, per target.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LogFilter {
-    level: LogLevel,
-    patterns: Vec<(bool, String)>,
+    /// The level of a target no directive names.
+    default: LevelFilter,
+    /// Each target a directive names, and its level.
+    targets: Vec<(String, LevelFilter)>,
+}
+
+impl Default for LogFilter {
+    /// `info` for every target.
+    fn default() -> Self {
+        Self {
+            default: LevelFilter::INFO,
+            targets: Vec::new(),
+        }
+    }
 }
 
 impl LogFilter {
-    /// A filter from a level and the text of `DEBUG`.
-    #[must_use]
-    pub fn new(level: LogLevel, debug: &str) -> Self {
-        let patterns = debug
-            .split(|c: char| c == ',' || c.is_whitespace())
-            .filter(|pattern| !pattern.is_empty())
-            .map(|pattern| match pattern.strip_prefix('-') {
-                Some(rest) => (false, rest.to_string()),
-                None => (true, pattern.to_string()),
-            })
-            .collect();
-        Self { level, patterns }
+    /// Reads the text of `DASSIE_LOG`; empty is the default, `info`.
+    ///
+    /// # Errors
+    ///
+    /// What is wrong with a directive, for people.
+    pub fn parse(text: &str) -> Result<Self, String> {
+        let mut filter = Self::default();
+        let mut bare = false;
+        for directive in text.split(',').map(str::trim) {
+            if directive.is_empty() {
+                continue;
+            }
+            if filter.targets.len() + usize::from(bare) >= MAX_DIRECTIVES {
+                return Err(format!("holds more than {MAX_DIRECTIVES} directives"));
+            }
+            match directive.split_once('=') {
+                None => {
+                    if bare {
+                        return Err(format!(
+                            "names a level for every target twice: {directive:?}"
+                        ));
+                    }
+                    filter.default = level(directive)?;
+                    bare = true;
+                }
+                Some((target, text)) => {
+                    let target = target.trim();
+                    let valid = !target.is_empty()
+                        && target.len() <= MAX_TARGET_BYTES
+                        && !target.starts_with(':')
+                        && !target.ends_with(':')
+                        && target
+                            .bytes()
+                            .all(|byte| byte.is_ascii_alphanumeric() || b"_-:".contains(&byte));
+                    if !valid {
+                        return Err(format!("names no target in {directive:?}"));
+                    }
+                    if filter.targets.iter().any(|(other, _)| other == target) {
+                        return Err(format!("names {target:?} twice"));
+                    }
+                    filter
+                        .targets
+                        .push((target.to_owned(), level(text.trim())?));
+                }
+            }
+        }
+        Ok(filter)
     }
 
     /// Whether an event of `level` from `target` is shown.
     #[must_use]
     pub fn enabled(&self, level: Level, target: &str) -> bool {
-        let level = LogLevel::of(level);
-        if self.level == LogLevel::None || level < self.level {
-            return false;
-        }
-        level != LogLevel::Debug || self.debug_enabled(target)
+        level <= self.level_of(target)
     }
 
-    fn debug_enabled(&self, target: &str) -> bool {
-        self.patterns
+    /// The level of the most specific directive that covers `target`.
+    fn level_of(&self, target: &str) -> LevelFilter {
+        self.targets
             .iter()
-            .find(|(_, pattern)| wildcard_match(pattern, target))
-            .is_some_and(|(include, _)| *include)
+            .filter(|(directive, _)| covers(directive, target))
+            .max_by_key(|(directive, _)| directive.len())
+            .map_or(self.default, |(_, level)| *level)
     }
-}
 
-/// Whether `text` matches `pattern` in full, where `*` matches any run of
-/// characters. Iterative, with a single backtrack point, so it runs in
-/// O(pattern × text) at worst and never recurses
-/// (spec/decisions/tigerstyle.md).
-fn wildcard_match(pattern: &str, text: &str) -> bool {
-    let pattern = pattern.as_bytes();
-    let text = text.as_bytes();
-    let (mut p, mut t) = (0, 0);
-    let mut star: Option<(usize, usize)> = None;
-    while t < text.len() {
-        match (pattern.get(p), text.get(t)) {
-            (Some(b'*'), _) => {
-                star = Some((p, t));
-                p += 1;
-            }
-            (Some(expected), Some(actual)) if expected == actual => {
-                p += 1;
-                t += 1;
-            }
-            _ => match star {
-                Some((star_p, star_t)) => {
-                    p = star_p + 1;
-                    t = star_t + 1;
-                    star = Some((star_p, star_t + 1));
-                }
-                None => return false,
-            },
-        }
-    }
-    pattern.iter().skip(p).all(|&byte| byte == b'*')
-}
-
-impl LogFilter {
-    /// The ring's filter: the same `DEBUG` patterns, and info and above
-    /// whatever the level shown.
+    /// The ring's filter: what this one shows, and info and above whatever
+    /// it says.
     #[must_use]
     pub fn for_ring(&self) -> Self {
+        let at_least_info = |level: LevelFilter| level.max(LevelFilter::INFO);
         Self {
-            level: self.level.min(LogLevel::Info),
-            patterns: self.patterns.clone(),
+            default: at_least_info(self.default),
+            targets: self
+                .targets
+                .iter()
+                .map(|(target, level)| (target.clone(), at_least_info(*level)))
+                .collect(),
         }
     }
+}
+
+/// A level by its name, as `EnvFilter` names them.
+fn level(text: &str) -> Result<LevelFilter, String> {
+    match text {
+        "trace" => Ok(LevelFilter::TRACE),
+        "debug" => Ok(LevelFilter::DEBUG),
+        "info" => Ok(LevelFilter::INFO),
+        "warn" => Ok(LevelFilter::WARN),
+        "error" => Ok(LevelFilter::ERROR),
+        "off" => Ok(LevelFilter::OFF),
+        _ => Err(format!(
+            "names the level {text:?}, not trace, debug, info, warn, error or off"
+        )),
+    }
+}
+
+/// Whether the directive's `prefix` covers `target`: the target itself, or
+/// one beneath it, as a module path is (`a::b` covers `a::b::c`).
+fn covers(prefix: &str, target: &str) -> bool {
+    target
+        .strip_prefix(prefix)
+        .is_some_and(|rest| rest.is_empty() || rest.starts_with("::"))
 }
 
 /// Sends events through `filter` to standard output, and keeps the last
@@ -494,10 +526,14 @@ mod tests {
             index: 0,
             time_unix_ms: 1,
             level: LogLevel::Info,
-            target: "das:node:test".into(),
+            target: "dassie::test".into(),
             message: message.into(),
             fields: vec![],
         }
+    }
+
+    fn filter(text: &str) -> LogFilter {
+        LogFilter::parse(text).unwrap()
     }
 
     #[test]
@@ -529,51 +565,70 @@ mod tests {
         assert_eq!(cut("äöü".into(), 3), "ä…");
     }
 
-    // The ring keeps info whatever the level shown, and debug as `DEBUG`
-    // says.
+    // The ring keeps info whatever the level shown, and below it what
+    // `DASSIE_LOG` shows.
     #[test]
     fn the_rings_filter() {
-        let ring = LogFilter::new(LogLevel::None, "das:node:*").for_ring();
+        let ring = filter("off").for_ring();
         assert!(ring.enabled(Level::INFO, "hyper"));
         assert!(!ring.enabled(Level::DEBUG, "hyper"));
-        let ring = LogFilter::new(LogLevel::Debug, "das:node:*").for_ring();
-        assert!(ring.enabled(Level::DEBUG, "das:node:http"));
+        let ring = filter("warn,dassie=debug").for_ring();
+        assert!(ring.enabled(Level::DEBUG, "dassie::http"));
+        assert!(ring.enabled(Level::INFO, "hyper"));
+        assert!(!ring.enabled(Level::DEBUG, "hyper"));
     }
 
     #[test]
-    fn wildcards() {
-        assert!(wildcard_match("das:node:*", "das:node:http"));
-        assert!(wildcard_match("*", ""));
-        assert!(wildcard_match("das:*:http", "das:node:http"));
-        assert!(!wildcard_match("das:node", "das:node:http"));
-        assert!(wildcard_match("a*b*c", "aXbYc"));
-        assert!(!wildcard_match("a*b*c", "aXbY"));
-    }
-
-    // RT-28: the original replaced only the first `*`, so this second
-    // wildcard was a literal.
-    #[test]
-    fn every_star_is_a_wildcard() {
-        assert!(wildcard_match("das:*:*", "das:node:acme"));
-        let filter = LogFilter::new(LogLevel::Debug, "das:*:*");
-        assert!(filter.enabled(Level::DEBUG, "das:node:acme"));
-    }
-
-    #[test]
-    fn levels_and_debug_patterns() {
-        let filter = LogFilter::new(LogLevel::Info, "das:node:*");
+    fn info_unless_it_says_otherwise() {
+        for text in ["", " , ", "info"] {
+            let filter = filter(text);
+            assert_eq!(filter, LogFilter::default());
+            assert!(filter.enabled(Level::INFO, "dassie::daemon"));
+            assert!(!filter.enabled(Level::DEBUG, "dassie::daemon"));
+        }
+        // A directive for a target leaves the rest at info.
+        let filter = filter("dassie::peer=debug");
+        assert!(filter.enabled(Level::DEBUG, "dassie::peer"));
         assert!(filter.enabled(Level::INFO, "hyper"));
-        assert!(
-            !filter.enabled(Level::DEBUG, "das:node:http"),
-            "below the level"
-        );
-        let filter = LogFilter::new(LogLevel::Debug, "-das:node:database, das:node:*");
-        assert!(filter.enabled(Level::DEBUG, "das:node:http"));
-        assert!(!filter.enabled(Level::DEBUG, "das:node:database"));
-        assert!(!filter.enabled(Level::DEBUG, "hyper::proto"));
-        assert!(filter.enabled(Level::WARN, "hyper::proto"));
-        let none = LogFilter::new(LogLevel::None, "*");
-        assert!(!none.enabled(Level::ERROR, "das:node:daemon"));
+        assert!(!filter.enabled(Level::DEBUG, "hyper"));
+    }
+
+    #[test]
+    fn the_most_specific_directive_decides() {
+        let filter = filter("debug, hyper=warn, dassie=info, dassie::peer=trace");
+        assert!(filter.enabled(Level::DEBUG, "quinn"));
+        assert!(!filter.enabled(Level::INFO, "hyper::proto::h1"));
+        assert!(filter.enabled(Level::WARN, "hyper::proto::h1"));
+        assert!(!filter.enabled(Level::DEBUG, "dassie::http"));
+        assert!(filter.enabled(Level::TRACE, "dassie::peer"));
+        assert!(filter.enabled(Level::TRACE, "dassie::peer::links"));
+        // A target covers those beneath it, as a module path does, and no
+        // other that only starts alike.
+        assert!(!filter.enabled(Level::DEBUG, "dassie::peering"));
+        assert!(filter.enabled(Level::DEBUG, "dassiex"));
+        let off = self::filter("off");
+        assert!(!off.enabled(Level::ERROR, "dassie::daemon"));
+    }
+
+    #[test]
+    fn a_bad_directive_is_an_error() {
+        for text in [
+            "verbose",
+            "none",
+            "dassie::peer=loud",
+            "=debug",
+            "dassie::=debug",
+            "info,warn",
+            "dassie=debug,dassie=info",
+            "a b=debug",
+        ] {
+            assert!(LogFilter::parse(text).is_err(), "{text:?}");
+        }
+        let many: Vec<String> = (0..=MAX_DIRECTIVES)
+            .map(|n| format!("t{n}=debug"))
+            .collect();
+        assert!(LogFilter::parse(&many.join(",")).is_err());
+        assert!(LogFilter::parse(&many[1..].join(",")).is_ok());
     }
 
     // A test of what is logged lost lines at random when another test's
@@ -582,7 +637,7 @@ mod tests {
     #[test]
     fn a_capture_keeps_lines_another_thread_reached_first() {
         fn log() {
-            tracing::info!(target: "das:node:test", "reached");
+            tracing::info!(target: "dassie::test", "reached");
         }
         let lines = capture(|| {
             std::thread::spawn(log).join().unwrap();

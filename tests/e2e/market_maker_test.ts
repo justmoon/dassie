@@ -144,7 +144,7 @@ test("a market maker moves a skewed core node toward balance, and gains", {
     );
     maker = new ChildProcess("market-maker", DASSIE, {
       args: ["market-maker", "--config", file],
-      env: { DASSIE_LOG_LEVEL: "info" },
+      env: { DASSIE_LOG: "info" },
     });
     let exited = false;
     maker.exited.then(() => exited = true);

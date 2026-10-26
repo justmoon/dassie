@@ -61,7 +61,7 @@ export type LogLine = Message<"dassie.ui.v1.LogLine"> & {
   level: LogLevel;
 
   /**
-   * For example "das:node:peer-protocol".
+   * For example "dassie::peer".
    *
    * @generated from field: string target = 4;
    */
@@ -89,8 +89,8 @@ export const LogLineSchema: GenMessage<LogLine> = /*@__PURE__*/
 
 /**
  * Streams the node's last log lines, then each new one. The node keeps
- * its last 1000 lines (at most 1 MiB): info and above, and debug for the
- * targets `DEBUG` names. Works before setup too.
+ * its last 1000 lines (at most 1 MiB): info and above, and what
+ * `DASSIE_LOG` shows below that. Works before setup too.
  *
  * @generated from message dassie.ui.v1.SubscribeLogsRequest
  */

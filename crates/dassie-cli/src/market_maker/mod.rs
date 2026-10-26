@@ -47,7 +47,7 @@ use self::target::TargetInfo;
 use self::xrpl::Xrpl;
 
 /// What its log lines are under.
-pub const TARGET: &str = "das:market-maker";
+pub const TARGET: &str = dassie_node::log::target::MARKET_MAKER;
 
 /// How often it decides.
 const TICK: Duration = Duration::from_secs(10);

@@ -317,7 +317,7 @@ fn name_of(id: &NodeId) -> String {
 async fn node_behind(door: &Door, seed: u8) -> (TestNode, NodeKey) {
     let key = NodeKey::from_bytes(&[seed; 32]);
     let env = [
-        ("DASSIE_PEER_CA_FILE", CA),
+        ("DASSIE_EXTRA_CA_FILE", CA),
         ("DASSIE_PEER_ALLOW_PRIVATE", "1"),
         ("DASSIE_RELAY", door.entry.as_str()),
     ];
@@ -415,7 +415,7 @@ async fn a_periphery_node_with_an_uplink_is_reached_through_its_front_door() {
     let nodes = pair::bootstrap(&key_a, bound_a.https_port());
     let core = [
         ("DASSIE_BOOTSTRAP_NODES", nodes.as_str()),
-        ("DASSIE_PEER_CA_FILE", CA),
+        ("DASSIE_EXTRA_CA_FILE", CA),
         ("DASSIE_PEER_ALLOW_PRIVATE", "1"),
     ];
     let mut periphery = core.to_vec();
@@ -884,7 +884,7 @@ async fn a_name_reaches_its_holder_through_the_front_door() {
     let (bounds, keys, nodes) = registrars([71, 72, 73, 74]);
     let env = [
         ("DASSIE_BOOTSTRAP_NODES", nodes.as_str()),
-        ("DASSIE_PEER_CA_FILE", CA),
+        ("DASSIE_EXTRA_CA_FILE", CA),
         ("DASSIE_PEER_ALLOW_PRIVATE", "1"),
     ];
     // The front door reads the registrars as every node is configured with

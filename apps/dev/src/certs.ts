@@ -2,7 +2,7 @@
  * The dev environment's certificates (spec/areas/dev.md#certificates), made by
  * mkcert from its local CA, so that a browser trusting that CA
  * (`mkcert -install`) trusts every dev page, and the nodes trust each other
- * through `DASSIE_PEER_CA_FILE`. mkcert makes the CA on first use; a `caRoot`
+ * through `DASSIE_EXTRA_CA_FILE`. mkcert makes the CA on first use; a `caRoot`
  * (mkcert's `CAROOT`) puts it elsewhere, as the tests do, so that they never
  * touch the developer's own CA.
  *

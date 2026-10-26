@@ -24,23 +24,23 @@ pub fn watch(app: &AppHandle) {
                 .enable_io()
                 .build();
             let Ok(runtime) = runtime else {
-                tracing::warn!(target: "dassie_desktop", "SIGTERM and SIGINT end the app without stopping its node");
+                tracing::warn!(target: dassie_node::log::target::DESKTOP, "SIGTERM and SIGINT end the app without stopping its node");
                 return;
             };
             runtime.block_on(async move {
                 let Some((mut terminate, mut interrupt)) = handlers() else {
-                    tracing::warn!(target: "dassie_desktop", "SIGTERM and SIGINT end the app without stopping its node");
+                    tracing::warn!(target: dassie_node::log::target::DESKTOP, "SIGTERM and SIGINT end the app without stopping its node");
                     return;
                 };
                 next(&mut terminate, &mut interrupt).await;
-                tracing::info!(target: "dassie_desktop", "quitting on a signal");
+                tracing::info!(target: dassie_node::log::target::DESKTOP, "quitting on a signal");
                 app.exit(0);
                 next(&mut terminate, &mut interrupt).await;
                 process::exit(FORCED_EXIT);
             });
         });
     if let Err(error) = spawned {
-        tracing::warn!(target: "dassie_desktop", %error, "SIGTERM and SIGINT end the app without stopping its node");
+        tracing::warn!(target: dassie_node::log::target::DESKTOP, %error, "SIGTERM and SIGINT end the app without stopping its node");
     }
 }
 

@@ -150,7 +150,7 @@ test("a market maker trades through each of two core nodes", {
     );
     maker = new ChildProcess("market-maker", DASSIE, {
       args: ["market-maker", "--config", file],
-      env: { DASSIE_LOG_LEVEL: "info" },
+      env: { DASSIE_LOG: "info" },
     });
     let exited = false;
     maker.exited.then(() => exited = true);
