@@ -75,11 +75,11 @@ Transit from one peer to another converts at a rate the owner's inventory moves 
 
 ### Comparing outputs
 
-A packet that could go out on more than one ledger, such as to a next hop it can pay on several, is compared across them by what it gets relative to spot (`PriceTable::best_output` in `pricing.rs`), so that the choice follows the curve: the output the node holds the most of above its target gives the most.
+A packet that could go out on more than one ledger, such as to a next hop it can pay on several, keeps the ledger it came in on where it can, and otherwise converts on the output where it gets the most relative to spot (`PriceTable::best_output` in `pricing.rs`), so that the choice follows the curve: the output the node holds the most of above its target gives the most.
 
 - **By value, not by number.** A rate is out per in, in the output ledger's own units, so rates on ledgers of different currencies or scales do not compare as numbers. Each candidate `b` is ranked by `rate(a, b) · spot(b) / spot(a)`, with `spot` what a unit is worth: one at spot, more when the curve pays a bonus, less when it charges. Since `a` is common to all, this is the rate per what a unit of `b` is worth, compared exactly by cross-multiplying in 256 bits, with no rounding.
 - **The packet's own rate.** Each candidate is priced as [above](#inventory-pricing), with the packet's own amount and what is in flight, so the comparison ranks what the packet would get, not what the table said; with nothing moved, it ranks the table's prices.
-- **Staying is spot.** The ledger the packet came in on is a candidate that converts nothing: exactly spot, with no rate needed. Any other candidate needs a fresh rate on both ledgers and the funds to go out on, or it is passed over.
+- **Staying is never compared.** With the ledger the packet came in on among the candidates, the packet goes out on it, converting nothing, with no rate needed, however much the node holds of another: a method on the incoming ledger is chosen by structure, not by rate ([settlement-methods](../decisions/settlement-methods.md)). The ranking is only among the outputs that convert, when none keeps the ledger. Each needs a fresh rate on both ledgers and the funds to go out on, or it is passed over.
 - **Ties** go to the ledger first in the closed list's order, whatever the order the candidates came in, so the choice is deterministic. No candidate with a rate is no choice: the caller answers as a conversion without a rate or funds would.
 
 ### The owner's total

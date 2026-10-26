@@ -237,9 +237,9 @@ impl Price {
     }
 }
 
-/// Of a packet's candidate output ledgers, the one it gets the most out on
-/// relative to spot ([`PriceTable::best_output`]), and the rate it gets
-/// there.
+/// Of a packet's candidate output ledgers, the one it goes out on
+/// ([`PriceTable::best_output`]): its own, where it can, or else the one it
+/// gets the most out on relative to spot; and the rate it gets there.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct BestOutput {
     /// The ledger.
@@ -673,21 +673,25 @@ impl PriceTable {
             .ok_or(PriceError::TooLarge)
     }
 
-    /// Of `candidates`, the ledger on which a packet from `from` gets the
-    /// most relative to spot, and its rate there: for a packet that brings
-    /// in `amount_in`, its fee included, and converts `net`, with the owner
-    /// holding `holdings` ([`Self::rate`]), at `now_ms`. `None` if no
-    /// candidate has a rate: [`Self::convert`] says why for each.
+    /// Of `candidates`, the ledger a packet from `from` goes out on, and
+    /// its rate there: for a packet that brings in `amount_in`, its fee
+    /// included, and converts `net`, with the owner holding `holdings`
+    /// ([`Self::rate`]), at `now_ms`. `None` if no candidate has a rate:
+    /// [`Self::convert`] says why for each.
+    ///
+    /// The packet keeps its ledger where it can
+    /// (spec/decisions/settlement-methods.md): with `from` among the
+    /// candidates, it is the answer, at one unit out per unit in, with no
+    /// comparison and no rate needed, however much the node holds of
+    /// another. Only otherwise does the packet convert, on the candidate
+    /// where it gets the most relative to spot.
     ///
     /// Rates are out per in, in each output ledger's own units, so they are
     /// compared by value: `rate(from, b)` per what a unit of `b` is worth at
     /// spot, which ranks the candidates as `rate(from, b) · spot(b) /
     /// spot(from)` does, with `spot` the value of a unit. The comparison is
     /// exact, through 256-bit products, and a tie goes to the ledger first
-    /// in [`LedgerId`]'s order, whatever the order of `candidates`.
-    ///
-    /// `from` itself is a candidate that converts nothing: one unit out per
-    /// unit in, which is exactly spot, and needs no rate. Any other
+    /// in [`LedgerId`]'s order, whatever the order of `candidates`. Each
     /// candidate needs a fresh rate on both ledgers, as [`Self::convert`]
     /// does. A candidate named twice counts once.
     #[allow(clippy::too_many_arguments)]
@@ -709,22 +713,23 @@ impl PriceTable {
                 .filter(|entry| fresh(entry.as_of_ms, now_ms, max_rate_age_ms))
                 .and_then(|entry| value_unit(entry.rate, entry.ledger.asset().scale))
         };
-        let unit_in = unit(from);
+        if candidates.contains(&from) {
+            return Some(BestOutput {
+                ledger: from,
+                rate_e15: RATE_ONE_E15,
+            });
+        }
+        let unit_in = unit(from)?;
         let mut best: Option<(BestOutput, u128)> = None;
         for &to in candidates {
-            let (rate_e15, unit_out) = if to == from {
-                // Without a rate on `from`, no other candidate has one, so
-                // this unit is never compared with another's.
-                (RATE_ONE_E15, unit_in.unwrap_or(1))
-            } else {
-                let (Some(_), Some(unit_out)) = (unit_in, unit(to)) else {
-                    continue;
-                };
-                let Ok(rate_e15) = self.rate(from, to, amount_in, net, holdings) else {
-                    continue;
-                };
-                (rate_e15, unit_out)
+            assert!(to != from);
+            let Some(unit_out) = unit(to) else {
+                continue;
             };
+            let Ok(rate_e15) = self.rate(from, to, amount_in, net, holdings) else {
+                continue;
+            };
+            assert!(unit_in > 0 && unit_out > 0);
             let candidate = (
                 BestOutput {
                     ledger: to,
@@ -1330,9 +1335,8 @@ mod tests {
                 rate_e15: rate(&table, USD, XRP),
             })
         );
-        // Staying on the ledger converts nothing, exactly at spot: better
-        // than paying out what the node lacks, worse than what it has too
-        // much of.
+        // A packet keeps its ledger where it can, with no comparison:
+        // exactly spot, even beside an output the node has too much of.
         assert_eq!(
             table.best_output(USD, &[HUB, USD], 0, 0, &holdings, NOW, AGE),
             Some(BestOutput {
@@ -1340,9 +1344,12 @@ mod tests {
                 rate_e15: RATE_ONE_E15,
             })
         );
-        assert_eq!(best(USD, &[USD, XRP]), Some(XRP));
-        // In on the hub, which the node lacks, anything out gets the bonus.
-        assert_eq!(best(HUB, &[HUB, XRP]), Some(XRP));
+        assert_eq!(best(USD, &[USD, XRP]), Some(USD));
+        assert_eq!(best(USD, &[XRP, USD]), Some(USD));
+        assert_eq!(best(HUB, &[HUB, XRP]), Some(HUB));
+        // In on the hub, which the node lacks, a conversion pays out the XRP
+        // it has too much of.
+        assert_eq!(best(HUB, &[RLUSD, XRP]), Some(XRP));
         // The packet's own impact counts: a large one gets less, and none
         // on a ledger it would take more out of than the owner holds.
         let large = 80 * DOLLAR;
@@ -1389,6 +1396,7 @@ mod tests {
                 .map(|best| best.ledger)
         };
         assert_eq!(best(USD, &[XRP, USD], late), Some(USD));
+        assert_eq!(best(USD, &[XRP, RLUSD], late), None);
         assert_eq!(best(USD, &[XRP, HUB], late), None);
         // A ledger the table does not price can only stay.
         let unpriced = LedgerId::XrplTestnetDsusdUsd;
@@ -1428,25 +1436,31 @@ mod tests {
                 .filter(|(index, _)| chosen & (1 << index) != 0)
                 .map(|(_, ledger)| ledger)
                 .collect();
-            // Each candidate's rate relative to spot, as a fraction.
+            // Each candidate's rate relative to spot, as a fraction, with a
+            // unit's worth at the ledger's own scale.
             let spot = |ledger: LedgerId| {
                 table.ledger(ledger).map(|entry| {
-                    BigUint::from(entry.rate) * BigUint::from(10u32).pow(9)
+                    BigUint::from(entry.rate)
+                        * BigUint::from(10u32).pow(u32::from(ledger.asset().scale))
                 })
             };
             let mut expected: Option<(LedgerId, BigUint, BigUint)> = None;
-            for &to in &candidates {
-                let (numerator, denominator) = if to == from {
-                    (BigUint::from(1u8), BigUint::from(1u8))
-                } else {
-                    let Ok(rate_e15) = table.rate(from, to, amount, amount, &holdings) else {
-                        continue;
-                    };
-                    let (Some(spot_in), Some(spot_out)) = (spot(from), spot(to)) else {
-                        continue;
-                    };
-                    (BigUint::from(rate_e15) * spot_in, BigUint::from(RATE_ONE_E15) * spot_out)
+            // The packet keeps its ledger where it can, uncompared.
+            let converting = if candidates.contains(&from) {
+                expected = Some((from, BigUint::from(1u8), BigUint::from(1u8)));
+                &[][..]
+            } else {
+                &candidates[..]
+            };
+            for &to in converting {
+                let Ok(rate_e15) = table.rate(from, to, amount, amount, &holdings) else {
+                    continue;
                 };
+                let (Some(spot_in), Some(spot_out)) = (spot(from), spot(to)) else {
+                    continue;
+                };
+                let (numerator, denominator) =
+                    (BigUint::from(rate_e15) * spot_in, BigUint::from(RATE_ONE_E15) * spot_out);
                 let wins = expected.as_ref().is_none_or(|(ledger, n, d)| {
                     let (this, that) = (&numerator * d, n * &denominator);
                     this > that || (this == that && to < *ledger)
