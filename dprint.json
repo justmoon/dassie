@@ -22,7 +22,7 @@
     "pnpm-lock.yaml",
     "apps/dev/vanity.json",
     "apps/website/public/",
-    "packages/identity-wasm/gen/",
+    "packages/wasm/gen/",
     "packages/rpc/src/gen/",
     "apps/wallet/dist/",
     "apps/*/dist-dev/",

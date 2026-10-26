@@ -5,7 +5,7 @@
   "type": "module",
   "devDependencies": {
     "@dassie/dev": "workspace:*",
-    "@dassie/identity-wasm": "workspace:*",
+    "@dassie/wasm": "workspace:*",
     "@std/assert": "jsr:^1.0.19",
     "@types/node": "^26.6.5",
     "ilp-protocol-stream": "2.7.2-alpha.2",

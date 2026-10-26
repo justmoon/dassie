@@ -2,7 +2,7 @@
 
 Everything a node is derives from one BIP-39 recovery phrase: its Ed25519 node key and node ID, its login secret, its X25519 key for peer authentication, and the entropy its settlement schemes build wallets from. The owner keeps only the phrase, so the same phrase must always recover the same node and the same funds.
 
-**Paths:** `crates/dassie-identity/`, `packages/identity-wasm/`
+**Paths:** `crates/dassie-identity/`, `packages/wasm/`
 **Read with:** [Encoding](encoding.md), [Peer protocol](peer-protocol.md), [HTTP](http.md), [XRPL](xrpl.md), [Node](node.md)
 
 ## Derivation chain
@@ -62,7 +62,7 @@ Secrets (master seed, node key, derived secrets, X25519 and shared secrets) are 
 
 ## In the browser and in scripts
 
-`dassie-identity` and `dassie-stream` (with `dassie-ilp`'s codecs) are built to WASM (`node --run build:wasm`) and published as `@dassie/identity-wasm`, so the wallet derives keys with exactly the code the node runs. One `web` build serves browsers and Node ([node-and-pnpm](../decisions/node-and-pnpm.md)): `.` for scripts and tests, `./web` for browsers. Development-only functions (`devSessionToken`, `sign`, `mnemonicFromEntropy`) are left out of `./web`, and so are node labels (`nodeLabel`, `nodeIdFromLabel`), which only scripts use so far.
+`dassie-identity` and `dassie-stream` (with `dassie-ilp`'s codecs) are built to WASM (`node --run build:wasm`) and published as `@dassie/wasm`, so the wallet derives keys with exactly the code the node runs. Their bindings are one crate of their own, `dassie-wasm`, so the core crates carry no wasm-bindgen and never touch the platform's randomness: that edge is the bindings'. Each of its features is a module of its own, `dassie_identity` and `dassie_stream`, so the wallet loads identity without STREAM. One `web` build serves browsers and Node ([node-and-pnpm](../decisions/node-and-pnpm.md)): `.` for scripts and tests, `./web` for browsers. Development-only functions (`devSessionToken`, `sign`, `mnemonicFromEntropy`) are left out of `./web`, and so are node labels (`nodeLabel`, `nodeIdFromLabel`), which only scripts use so far.
 
 ## Decisions
 

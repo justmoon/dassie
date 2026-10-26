@@ -29,15 +29,15 @@ importers:
       '@bufbuild/protobuf':
         specifier: ^2.16.0
         version: 2.16.0
-      '@dassie/identity-wasm':
-        specifier: workspace:*
-        version: link:../../packages/identity-wasm
       '@dassie/rpc':
         specifier: workspace:*
         version: link:../../packages/rpc
       '@dassie/ui':
         specifier: workspace:*
         version: link:../../packages/ui
+      '@dassie/wasm':
+        specifier: workspace:*
+        version: link:../../packages/wasm
       '@hono/node-server':
         specifier: 2.1.5
         version: 2.1.5(hono@4.13.13)
@@ -113,15 +113,15 @@ importers:
       '@bufbuild/protobuf':
         specifier: ^2.16.0
         version: 2.16.0
-      '@dassie/identity-wasm':
-        specifier: workspace:*
-        version: link:../../packages/identity-wasm
       '@dassie/rpc':
         specifier: workspace:*
         version: link:../../packages/rpc
       '@dassie/ui':
         specifier: workspace:*
         version: link:../../packages/ui
+      '@dassie/wasm':
+        specifier: workspace:*
+        version: link:../../packages/wasm
       '@solidjs/web':
         specifier: 2.0.0-rc.9
         version: 2.0.0-rc.9(solid-js@2.0.0-rc.9)
@@ -150,15 +150,15 @@ importers:
       '@bufbuild/protobuf':
         specifier: ^2.16.0
         version: 2.16.0
-      '@dassie/identity-wasm':
-        specifier: workspace:*
-        version: link:../../packages/identity-wasm
       '@dassie/rpc':
         specifier: workspace:*
         version: link:../../packages/rpc
       '@dassie/ui':
         specifier: workspace:*
         version: link:../../packages/ui
+      '@dassie/wasm':
+        specifier: workspace:*
+        version: link:../../packages/wasm
       '@solidjs/web':
         specifier: 2.0.0-rc.9
         version: 2.0.0-rc.9(solid-js@2.0.0-rc.9)
@@ -181,12 +181,6 @@ importers:
       vite:
         specifier: 8.3.5
         version: 8.3.5(@types/node@26.6.5)
-
-  packages/identity-wasm:
-    devDependencies:
-      '@types/node':
-        specifier: ^26.6.5
-        version: 26.6.5
 
   packages/rpc:
     dependencies:
@@ -215,12 +209,12 @@ importers:
       '@bufbuild/protobuf':
         specifier: ^2.16.0
         version: 2.16.0
-      '@dassie/identity-wasm':
-        specifier: workspace:*
-        version: link:../identity-wasm
       '@dassie/rpc':
         specifier: workspace:*
         version: link:../rpc
+      '@dassie/wasm':
+        specifier: workspace:*
+        version: link:../wasm
       '@solidjs/web':
         specifier: 2.0.0-rc.9
         version: 2.0.0-rc.9(solid-js@2.0.0-rc.9)
@@ -244,6 +238,12 @@ importers:
         specifier: ^26.6.5
         version: 26.6.5
 
+  packages/wasm:
+    devDependencies:
+      '@types/node':
+        specifier: ^26.6.5
+        version: 26.6.5
+
   tests/e2e:
     devDependencies:
       '@bufbuild/protobuf':
@@ -252,12 +252,12 @@ importers:
       '@dassie/dev':
         specifier: workspace:*
         version: link:../../apps/dev
-      '@dassie/identity-wasm':
-        specifier: workspace:*
-        version: link:../../packages/identity-wasm
       '@dassie/rpc':
         specifier: workspace:*
         version: link:../../packages/rpc
+      '@dassie/wasm':
+        specifier: workspace:*
+        version: link:../../packages/wasm
       '@interledger/http-signature-utils':
         specifier: 2.0.3
         version: 2.0.3
@@ -291,9 +291,9 @@ importers:
       '@dassie/dev':
         specifier: workspace:*
         version: link:../../apps/dev
-      '@dassie/identity-wasm':
+      '@dassie/wasm':
         specifier: workspace:*
-        version: link:../../packages/identity-wasm
+        version: link:../../packages/wasm
       '@std/assert':
         specifier: jsr:^1.0.19
         version: '@jsr/std__assert@1.0.19'

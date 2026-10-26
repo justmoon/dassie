@@ -1,6 +1,8 @@
-// Builds the WASM modules of the core crates and their JavaScript bindings
-// into packages/identity-wasm/gen/web: wasm-bindgen's `web` target, which
-// browsers fetch and scripts and tests instantiate from the file.
+// Builds the WASM modules of the core crates' bindings (dassie-wasm) and
+// their JavaScript into packages/wasm/gen/web: wasm-bindgen's `web` target,
+// which browsers fetch and scripts and tests instantiate from the file. Each
+// of dassie-wasm's features is a module of its own, so the wallet loads
+// identity without STREAM.
 //
 // The modules are built with cargo and bound with the wasm-bindgen CLI, as
 // Vorstand builds vault-core; the CLI's version must match the
@@ -11,8 +13,14 @@ import { readFile, rm } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
-const output = `${root}packages/identity-wasm/gen`;
-const crates = ["dassie-identity", "dassie-stream"];
+const output = `${root}packages/wasm/gen`;
+/** The bindings crate every module is built from. */
+const crate = "dassie-wasm";
+/** Each module: the feature of dassie-wasm it is built with, and its name. */
+const modules = [
+  { feature: "identity", name: "dassie_identity" },
+  { feature: "stream", name: "dassie_stream" },
+];
 
 function run(command: string, args: string[]): Promise<string> {
   const child = spawn(command, args, {
@@ -48,11 +56,11 @@ if (cli !== `wasm-bindgen ${locked}`) {
 }
 
 await rm(output, { recursive: true, force: true });
-for (const name of crates) {
+for (const { feature, name } of modules) {
   await run("cargo", [
     "rustc",
     "--package",
-    name,
+    crate,
     "--lib",
     "--crate-type",
     "cdylib",
@@ -61,17 +69,19 @@ for (const name of crates) {
     "--profile",
     "wasm",
     "--features",
-    "wasm",
+    feature,
   ]);
-  const module = `${root}target/wasm32-unknown-unknown/wasm/${
-    name.replaceAll("-", "_")
-  }.wasm`;
+  // Each build writes the same file, so it is bound before the next.
   await run("wasm-bindgen", [
     "--target",
     "web",
     "--out-dir",
     `${output}/web`,
-    module,
+    "--out-name",
+    name,
+    `${root}target/wasm32-unknown-unknown/wasm/${
+      crate.replaceAll("-", "_")
+    }.wasm`,
   ]);
 }
 console.log(`WASM bindings written to ${output}`);

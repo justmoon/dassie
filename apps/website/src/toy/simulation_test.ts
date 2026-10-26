@@ -8,7 +8,7 @@ import {
   assertNotEquals,
   assertThrows,
 } from "@std/assert";
-import * as stream from "@dassie/identity-wasm";
+import * as stream from "@dassie/wasm";
 import {
   checkSettings,
   DEFAULT_SETTINGS,

@@ -14,7 +14,7 @@
   crane,
   self,
   src,
-  identity-wasm,
+  wasm-modules,
 }:
 let
   # A release's version is dassie-cli's. A canary's names when the commit it
@@ -42,7 +42,7 @@ let
         pnpm.manifests
         ../tsconfig.base.json
         ../apps/wallet
-        ../packages/identity-wasm
+        ../packages/wasm
         ../packages/rpc
         ../packages/ui
       ];
@@ -53,8 +53,8 @@ let
     ];
     buildPhase = ''
       export HOME=$TMPDIR
-      mkdir -p packages/identity-wasm/gen
-      cp -r ${identity-wasm}/web packages/identity-wasm/gen/
+      mkdir -p packages/wasm/gen
+      cp -r ${wasm-modules}/web packages/wasm/gen/
     ''
     + pnpm.install "apps/wallet"
     + ''

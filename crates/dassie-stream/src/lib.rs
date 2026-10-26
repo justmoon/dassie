@@ -34,8 +34,6 @@ mod server;
 pub mod sim;
 mod stream;
 pub mod token;
-#[cfg(feature = "wasm")]
-mod wasm;
 
 pub use connection::{
     AssetDetails, BUFFER_LENGTH, Config, Connection, MAX_FAILURES_WITHOUT_PROGRESS, Role,

@@ -2,7 +2,7 @@
 
 STREAM sends money and data over Interledger: it splits a payment into ILP packets, encrypts what travels in them, and has the receiver report what arrived. `dassie-stream` implements it as two state machines, a connection and a server, compatible on the wire with `ilp-protocol-stream`. The node's STREAM receivers and payers, its quote probes and the website's STREAM toy all run on it.
 
-**Paths:** `crates/dassie-stream/`, `packages/identity-wasm/stream.ts`, `packages/identity-wasm/web_stream.ts`
+**Paths:** `crates/dassie-stream/`, `crates/dassie-wasm/src/stream.rs`, `packages/wasm/web_stream.ts`, `tests/interop/stream_driver.ts`
 **Read with:** [ILP](ilp.md), [Encoding](encoding.md), [Payments](payments.md), [Connector](connector.md), [Website](website.md)
 
 The protocol is [RFC 29](https://interledger.org/developers/rfcs/stream-protocol/). Its receipts, [RFC 39](https://github.com/interledger/rfcs/tree/main/deprecated/0039-stream-receipts), are deprecated, and Dassie only decodes them ([Receipts](#receipts)). This doc states what Dassie chooses where they leave room, and where it differs from them and from `ilp-protocol-stream`, the reference implementation most peers run.
@@ -129,7 +129,7 @@ Compatible on the wire with both ([Frozen surfaces](../overview.md#frozen-surfac
 
 ## In the browser and in scripts
 
-The WASM build (`src/wasm.rs`, with `dassie-identity`, [Identity](identity.md#in-the-browser-and-in-scripts)) exposes a client connection, a server and a packet decoder. The JavaScript side owns the clock and the network; `packages/identity-wasm/stream.ts` drives connections over an ILP endpoint for the website's STREAM toy and the interop tests ([Website](website.md)).
+The WASM build (`crates/dassie-wasm`'s `stream` module, [Identity](identity.md#in-the-browser-and-in-scripts)) exposes a client connection, a server and a packet decoder. The JavaScript side owns the clock and the network: the website's STREAM toy steps its connections itself ([Website](website.md)), and the interop tests drive them over an ILP endpoint with `tests/interop/stream_driver.ts`.
 
 ## What pins compatibility
 

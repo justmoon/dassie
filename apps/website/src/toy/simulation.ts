@@ -30,7 +30,7 @@ import type {
   StreamEvent,
   StreamServer,
   StreamTransmit,
-} from "@dassie/identity-wasm";
+} from "@dassie/wasm";
 import { MAX_SEED, Random } from "./random.ts";
 
 /** What the simulation needs of the STREAM module, in Node or a browser. */

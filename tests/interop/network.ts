@@ -5,11 +5,7 @@
 
 import { Buffer } from "node:buffer";
 
-import {
-  decodeIlpPacket,
-  encodeFulfill,
-  encodeReject,
-} from "@dassie/identity-wasm";
+import { decodeIlpPacket, encodeFulfill, encodeReject } from "@dassie/wasm";
 
 /** Answers a Prepare with a Fulfill or Reject. */
 export type Handler = (prepare: Uint8Array) => Promise<Uint8Array>;

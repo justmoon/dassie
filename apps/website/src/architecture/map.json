@@ -179,20 +179,35 @@
         "Cancels calls and streams, and follows a reconnect"
       ]
     },
-    "identity-wasm": {
-      "name": "packages/identity-wasm",
-      "path": "packages/identity-wasm",
+    "wasm": {
+      "name": "packages/wasm",
+      "path": "packages/wasm",
       "label": "Rust cores in WebAssembly",
       "sub": "protocols",
       "x": 350,
       "y": 144,
       "w": 246,
-      "desc": "The Rust core crates compiled to WebAssembly, with TypeScript bindings: one build for browsers and Node. The wallet derives keys with exactly the code the node runs.",
+      "desc": "The Rust core crates compiled to WebAssembly, with TypeScript bindings: one build for browsers and Node, in two modules, so the wallet loads identity without STREAM. The wallet derives keys with exactly the code the node runs.",
       "does": [
         "Identity: phrase to node key, node ID and login proof, and node labels",
-        "ILP packets and STREAM, with a STREAM driver for interop tests",
+        "ILP packets and STREAM, for the STREAM toy and the interop tests",
         "Decrypting STREAM packets, for the STREAM toy",
         "The phrase for a given entropy, for the dev network's vanity nodes"
+      ]
+    },
+    "wasm-crate": {
+      "name": "dassie-wasm",
+      "path": "crates/dassie-wasm",
+      "label": "the core crates' JavaScript bindings",
+      "sub": "protocols",
+      "x": 350,
+      "y": 240,
+      "w": 246,
+      "desc": "The wasm-bindgen bindings of the core crates, in a crate of their own, so the core crates know nothing of JavaScript. It is also where the browser's randomness comes in; the core crates only take an injected generator.",
+      "does": [
+        "Identity, as one module",
+        "STREAM with ILP's packet codecs, as another",
+        "Times, amounts and packets checked at the edge, as JavaScript hands them over"
       ]
     },
     "apps-dev": {
@@ -730,7 +745,7 @@
     },
     {
       "f": "wallet",
-      "t": "identity-wasm",
+      "t": "wasm",
       "k": "uses",
       "h": false
     },
@@ -754,7 +769,7 @@
     },
     {
       "f": "website",
-      "t": "identity-wasm",
+      "t": "wasm",
       "k": "uses",
       "h": false
     },
@@ -778,7 +793,7 @@
     },
     {
       "f": "ui",
-      "t": "identity-wasm",
+      "t": "wasm",
       "k": "uses",
       "h": true
     },
@@ -808,7 +823,7 @@
     },
     {
       "f": "apps-dev",
-      "t": "identity-wasm",
+      "t": "wasm",
       "k": "uses",
       "h": true
     },
@@ -832,7 +847,7 @@
     },
     {
       "f": "e2e",
-      "t": "identity-wasm",
+      "t": "wasm",
       "k": "uses",
       "h": true
     },
@@ -856,9 +871,39 @@
     },
     {
       "f": "interop",
-      "t": "identity-wasm",
+      "t": "wasm",
       "k": "uses",
       "h": true
+    },
+    {
+      "f": "wasm",
+      "t": "wasm-crate",
+      "k": "wasm",
+      "h": false
+    },
+    {
+      "f": "wasm-crate",
+      "t": "identity",
+      "k": "uses",
+      "h": false
+    },
+    {
+      "f": "wasm-crate",
+      "t": "ilp",
+      "k": "uses",
+      "h": true
+    },
+    {
+      "f": "wasm-crate",
+      "t": "oer",
+      "k": "uses",
+      "h": true
+    },
+    {
+      "f": "wasm-crate",
+      "t": "stream",
+      "k": "uses",
+      "h": false
     },
     {
       "f": "interop",
@@ -1155,30 +1200,6 @@
       "h": false
     },
     {
-      "f": "identity-wasm",
-      "t": "identity",
-      "k": "wasm",
-      "h": true
-    },
-    {
-      "f": "identity-wasm",
-      "t": "ilp",
-      "k": "wasm",
-      "h": true
-    },
-    {
-      "f": "identity-wasm",
-      "t": "stream",
-      "k": "wasm",
-      "h": true
-    },
-    {
-      "f": "identity-wasm",
-      "t": "oer",
-      "k": "wasm",
-      "h": true
-    },
-    {
       "f": "sim",
       "t": "peer",
       "k": "uses",
@@ -1253,7 +1274,7 @@
         },
         {
           "ids": [
-            "identity-wasm",
+            "wasm",
             "identity"
           ],
           "text": "The browser derives the node key and a login proof with the node's own Rust code, compiled to WebAssembly. The phrase never leaves the browser."

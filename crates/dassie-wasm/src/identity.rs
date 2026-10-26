@@ -5,15 +5,13 @@
 //! comes from the platform (`crypto.getRandomValues`), so the core stays
 //! deterministic (spec/decisions/tigerstyle.md).
 
-extern crate alloc;
-
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
 use rand_core::UnwrapErr;
 use wasm_bindgen::prelude::*;
 
-use crate::{Error, Mnemonic, NodeId, NodeKey, WordCount};
+use dassie_identity::{Error, Mnemonic, NodeId, NodeKey, WordCount};
 
 fn js(error: Error) -> JsError {
     JsError::new(&error.to_string())

@@ -17,7 +17,7 @@
     "target/**",
     "spec/**",
     "testdata/**",
-    "packages/identity-wasm/gen/**",
+    "packages/wasm/gen/**",
     "packages/rpc/src/gen/**",
     "apps/wallet/dist/**",
     "apps/*/dist-dev/**",

@@ -97,7 +97,7 @@ The node that asks to peer extends the other 1.1 units of credit; the node that 
 | `apps/dev-dashboard` | The dev dashboard (Solid 2): the network, every node's log, the scenarios, each node's debug pages |
 | `apps/website` | dassie.land: the home page, the Quick Start, the NixOS guide, and the STREAM toy, which runs `dassie-stream` in WASM over a simulated network; `main` publishes it to GCP |
 | `packages/ui` | The Solid components the wallet, the dev dashboard and the STREAM toy share: amounts, the log viewer, the network graph, the debug pages, the router, live data, the theme |
-| `packages/identity-wasm` | The core crates in WASM, one build for browsers and Node, with a STREAM driver |
+| `packages/wasm` | The core crates in WASM (bound by `crates/dassie-wasm`), one build for browsers and Node: identity, and STREAM with ILP's packets, as two modules |
 | `packages/rpc` | The client for the RPC contract, over WebSocket (browsers) or the IPC socket (Node) |
 | `tests/interop` | STREAM interop with `ilp-protocol-stream`, natively and in WASM; WASM vectors; the browser test |
 | `tests/e2e` | End-to-end tests on real binaries: a fresh install through `dassie init` and browser setup, with Pebble as the ACME CA; a BTP client paying the node's STREAM receiver; the `two-nodes` and `six-nodes` scenarios; Open Payments, including a third party's full flow with consent in the wallet; XRPL settlement and cross-currency payments; the wallet's pages in a browser; `node --run dev` and its dashboard; the installer and the updater on Debian, Ubuntu, Fedora and CentOS, in containers; dassie.land and its STREAM toy in a browser, under the site's CSP |
@@ -121,7 +121,7 @@ Without Nix, you need:
 ```sh
 cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
 pnpm install                  # the npm and JSR packages, as pnpm-lock.yaml pins them
-node --run build:wasm         # WASM modules and bindings into packages/identity-wasm/gen
+node --run build:wasm         # WASM modules and bindings into packages/wasm/gen
 node --run build:wallet       # the wallet into apps/wallet/dist
 node --run build:dashboard    # the dev dashboard into apps/dev-dashboard/dist
 node --run build:website      # dassie.land into apps/website/dist

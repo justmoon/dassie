@@ -5,10 +5,7 @@
  * @module
  */
 
-import type {
-  decodeAmountTooLarge,
-  decodeStreamPacket,
-} from "@dassie/identity-wasm";
+import type { decodeAmountTooLarge, decodeStreamPacket } from "@dassie/wasm";
 
 /** The ILP error codes of RFC 27, by code. */
 const ILP_ERRORS: Record<string, string> = {

@@ -26,7 +26,7 @@ on:
     # the list keeps up with them.
     paths:
       - apps/website/**
-      - packages/identity-wasm/**
+      - packages/wasm/**
       - packages/rpc/**
       - packages/ui/**
       - crates/dassie-identity/**
@@ -34,6 +34,7 @@ on:
       - crates/dassie-node-core/**
       - crates/dassie-oer/**
       - crates/dassie-stream/**
+      - crates/dassie-wasm/**
       - Cargo.toml
       - Cargo.lock
       - rust-toolchain.toml

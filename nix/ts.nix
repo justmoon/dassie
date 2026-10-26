@@ -22,7 +22,7 @@
   craneLib,
   common,
   toolchain,
-  identity-wasm,
+  wasm-modules,
   wallet,
 }:
 let
@@ -126,9 +126,9 @@ let
       dontFixup = true;
       buildPhase = ''
         export HOME=$TMPDIR
-        mkdir -p packages/identity-wasm/gen
-        cp -r ${identity-wasm}/web packages/identity-wasm/gen/
-        chmod -R u+w packages/identity-wasm/gen
+        mkdir -p packages/wasm/gen
+        cp -r ${wasm-modules}/web packages/wasm/gen/
+        chmod -R u+w packages/wasm/gen
       ''
       + pnpm.install dir
       + ''

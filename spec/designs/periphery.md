@@ -174,7 +174,7 @@ The first rule narrows a condition for real money, "an account's creation is a d
 
 A browser node is a short-lived periphery node, for demos: it lets someone join the network for a while before they install anything.
 
-- It runs the node's core compiled to WebAssembly, as `identity-wasm` runs `dassie-identity`, with its state in the page's storage.
+- It runs the node's core compiled to WebAssembly, as `@dassie/wasm` runs `dassie-identity`, with its state in the page's storage.
 - It connects to one uplink by QUIC over a WebSocket (§2), with quinn's protocol state machine compiled to WebAssembly, as a free receiver (§8). The browser checks the outer certificate, so its uplink needs a publicly issued one. A browser sends an origin with the handshake, which `/quic` refuses so that no page can have its visitors hold a node's places ([quic-over-websocket](../decisions/quic-over-websocket.md)): browser nodes need a rule of their own, such as a path that takes them only from the origins of the pages that run them, with places of their own.
 - It is reachable for as long as the page is open. A demo can pay it from another node, and it can send back through its uplink.
 

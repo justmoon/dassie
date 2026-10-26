@@ -15,7 +15,7 @@ import {
   type DataAndMoneyStream,
 } from "ilp-protocol-stream";
 
-import { encodeReject } from "@dassie/identity-wasm";
+import { encodeReject } from "@dassie/wasm";
 
 import { createPlugin, Network } from "./network.ts";
 

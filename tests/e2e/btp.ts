@@ -17,7 +17,7 @@
 
 import { Buffer } from "node:buffer";
 import BtpPlugin from "#ilp-plugin-btp";
-import { encodeReject } from "@dassie/identity-wasm";
+import { encodeReject } from "@dassie/wasm";
 
 /** BTP's Response packet type, which answers a call. */
 const TYPE_RESPONSE = 1;

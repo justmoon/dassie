@@ -1,6 +1,6 @@
 //! JavaScript bindings (wasm-bindgen) for the STREAM state machines, used
-//! by the TypeScript driver in `packages/identity-wasm`, the interop tests
-//! and the website's STREAM toy.
+//! by the website's STREAM toy and the interop tests, whose driver is
+//! `tests/interop/stream_driver.ts`.
 //!
 //! The JavaScript side owns the clock and the network: it passes the time
 //! in milliseconds and moves packets as `Uint8Array`s. Randomness comes
@@ -15,14 +15,12 @@ use dassie_oer::{Decode, Encode};
 use rand_core::UnwrapErr;
 use wasm_bindgen::prelude::*;
 
-use crate::connection::{AssetDetails, BUFFER_LENGTH, Config, Connection, Role};
-use crate::crypto::Keys;
-use crate::event::Event;
-use crate::frame::{ErrorCode, Frame};
-use crate::packet::Packet;
-use crate::policy::Policy;
-use crate::rate::Rate;
-use crate::server::{ConnectionId, Server, ServerConfig};
+use dassie_stream::crypto::Keys;
+use dassie_stream::packet::Packet;
+use dassie_stream::{
+    AssetDetails, BUFFER_LENGTH, Config, Connection, ConnectionId, ErrorCode, Event, Frame, Policy,
+    Rate, Role, Server, ServerConfig,
+};
 
 // The bindings are the edge where the browser supplies randomness.
 #[allow(clippy::disallowed_types)]
@@ -44,7 +42,7 @@ fn address(text: &str) -> Result<Address<'_>, JsError> {
     Address::parse(text).map_err(|error| JsError::new(&error.to_string()))
 }
 
-fn stream_error(error: crate::connection::StreamError) -> JsError {
+fn stream_error(error: dassie_stream::StreamError) -> JsError {
     JsError::new(&alloc::format!("{error:?}"))
 }
 
@@ -353,7 +351,7 @@ impl StreamConnection {
     pub fn total_sent(&self, stream_id: u64) -> u64 {
         self.connection
             .stream(stream_id)
-            .map_or(0, crate::Stream::total_sent)
+            .map_or(0, dassie_stream::Stream::total_sent)
     }
 
     /// What a stream has received.
@@ -362,7 +360,7 @@ impl StreamConnection {
     pub fn total_received(&self, stream_id: u64) -> u64 {
         self.connection
             .stream(stream_id)
-            .map_or(0, crate::Stream::total_received)
+            .map_or(0, dassie_stream::Stream::total_received)
     }
 
     /// Sets the minimum exchange rate: `numerator` destination units per
@@ -541,7 +539,7 @@ impl StreamServer {
         &self,
         connection_tag: &[u8],
     ) -> Result<StreamCredentials, JsError> {
-        if connection_tag.len() > crate::token::MAX_CONNECTION_TAG_LENGTH {
+        if connection_tag.len() > dassie_stream::token::MAX_CONNECTION_TAG_LENGTH {
             return Err(JsError::new("connection tag too long"));
         }
         let credentials = self.server.generate_credentials(&mut rng(), connection_tag);
@@ -604,7 +602,7 @@ impl StreamServer {
         Ok(self
             .connection(id)?
             .stream(stream_id)
-            .map_or(0, crate::Stream::total_received))
+            .map_or(0, dassie_stream::Stream::total_received))
     }
 
     /// Reads up to `max_length` bytes of in-order data from a stream.

@@ -12,22 +12,11 @@ workspace = true
 
 [features]
 default = []
-# JavaScript bindings (wasm-bindgen), including dassie-ilp's packet codecs.
-# Brings the platform RNG, used only at that edge.
-wasm = [
-  "dep:wasm-bindgen",
-  "dep:getrandom",
-  "getrandom/sys_rng",
-  "getrandom/wasm_js",
-  "dassie-ilp/wasm",
-]
 # The simulated client and server, for this crate's tests and the
 # simulation runner, dassie-sim (spec/decisions/random-seed-simulations.md).
 sim = ["dep:dassie-node-core", "dassie-oer/alloc"]
 
 [dependencies]
-getrandom = { version = "0.4.3", default-features = false, optional = true }
-wasm-bindgen = { version = "=0.2.129", optional = true }
 # Without the default `getrandom` feature: the caller injects randomness.
 aes-gcm = { version = "0.11.1", default-features = false, features = ["aes"] }
 dassie-ilp = { path = "../dassie-ilp" }

@@ -5,7 +5,7 @@
  */
 
 import type { JSX } from "@solidjs/web";
-import type { Stream } from "@dassie/identity-wasm/web/stream";
+import type { Stream } from "@dassie/wasm/web/stream";
 import { type Accessor, createMemo, createSignal, For, Show } from "solid-js";
 import {
   decodeStream,

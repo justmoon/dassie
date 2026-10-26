@@ -12,7 +12,7 @@ import { assertEquals } from "@std/assert";
 import { serve } from "@dassie/dev/serve";
 import puppeteer from "puppeteer-core";
 
-const web = new URL("../../packages/identity-wasm/gen/web/", import.meta.url);
+const web = new URL("../../packages/wasm/gen/web/", import.meta.url);
 
 const page = `<!doctype html>
 <meta charset="utf-8">

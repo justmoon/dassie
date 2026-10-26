@@ -130,35 +130,37 @@
             common
             // {
               pname = "dassie-wasm";
-              # The profile identity-wasm builds with, so that it reuses
+              # The profile wasm-modules builds with, so that it reuses
               # these dependencies rather than building them again.
               CARGO_PROFILE = "wasm";
               CARGO_BUILD_TARGET = "wasm32-unknown-unknown";
-              cargoExtraArgs = "--locked --features wasm -p dassie-identity -p dassie-ilp -p dassie-stream";
+              cargoExtraArgs = "--locked --features identity,stream -p dassie-wasm";
               doCheck = false;
             }
           );
 
           # The WASM modules and their bindings, as scripts/build-wasm.ts
           # makes them: web/, which browsers, scripts and tests all load.
-          identity-wasm = craneLib.mkCargoDerivation (
+          wasm-modules = craneLib.mkCargoDerivation (
             common
             // {
-              pname = "identity-wasm";
+              pname = "wasm-modules";
               cargoArtifacts = wasmArtifacts;
               nativeBuildInputs = [ wasm-bindgen ];
+              # Each of dassie-wasm's features is a module of its own; each
+              # build writes the same file, so it is bound before the next.
               buildPhaseCargoCommand = ''
-                for crate in dassie-identity dassie-stream; do
-                  cargo rustc --locked -p $crate --lib --crate-type cdylib \
-                    --target wasm32-unknown-unknown --profile wasm --features wasm
+                for feature in identity stream; do
+                  cargo rustc --locked -p dassie-wasm --lib --crate-type cdylib \
+                    --target wasm32-unknown-unknown --profile wasm --features $feature
+                  wasm-bindgen --target web --out-dir wasm-out/web --out-name dassie_$feature \
+                    target/wasm32-unknown-unknown/wasm/dassie_wasm.wasm
                 done
               '';
               doInstallCargoArtifacts = false;
               installPhaseCommand = ''
-                for module in dassie_identity dassie_stream; do
-                  wasm-bindgen --target web --out-dir $out/web \
-                    target/wasm32-unknown-unknown/wasm/$module.wasm
-                done
+                mkdir -p $out
+                cp -r wasm-out/web $out/web
               '';
             }
           );
@@ -186,7 +188,7 @@
                 crane
                 self
                 src
-                identity-wasm
+                wasm-modules
                 ;
             }
           );
@@ -224,7 +226,7 @@
                 craneLib
                 common
                 toolchain
-                identity-wasm
+                wasm-modules
                 ;
               inherit (release.packages) wallet;
             }
@@ -232,8 +234,8 @@
         in
         {
           packages = {
-            inherit identity-wasm wasm-bindgen release-tool;
-            default = identity-wasm;
+            inherit wasm-modules wasm-bindgen release-tool;
+            default = wasm-modules;
           }
           // (release.packages or { })
           // (ts.packages or { })
@@ -257,7 +259,7 @@
                 cargoArtifacts = wasmArtifacts;
                 CARGO_PROFILE = "wasm";
                 CARGO_BUILD_TARGET = "wasm32-unknown-unknown";
-                cargoExtraArgs = "--locked --features wasm -p dassie-identity -p dassie-ilp -p dassie-stream";
+                cargoExtraArgs = "--locked --features identity,stream -p dassie-wasm";
                 cargoClippyExtraArgs = "-- -D warnings";
               }
             );
@@ -306,7 +308,7 @@
               };
               inherit (common) pname version;
             };
-            inherit identity-wasm;
+            inherit wasm-modules;
           }
           // (release.checks or { })
           // (ts.checks or { })

@@ -4,7 +4,7 @@
  * passphrase before deriving from it and says why a login failed.
  */
 
-import { type Identity, loadIdentity } from "@dassie/identity-wasm/web";
+import { type Identity, loadIdentity } from "@dassie/wasm/web";
 import type { JSX } from "@solidjs/web";
 import { createSignal, Show } from "solid-js";
 import { checkPassphrase, submitLogin } from "../auth.ts";
