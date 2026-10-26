@@ -62,9 +62,9 @@ pub trait PeeringHooks {
         out: &mut Vec<u8>,
     ) -> Result<(), Declined>;
 
-    /// Accepts a request from `peer`: opens its accounts. `downlink` says it peers as our
-    /// downlink, whose accounts take the downlinks' room, never the core
-    /// peers' (spec/decisions/account-budgets.md). Called
+    /// Accepts a request from `peer`: opens its accounts. `downlink` says
+    /// it peers as our downlink, whose accounts take the downlinks' room,
+    /// never the core peers' (spec/decisions/account-budgets.md). Called
     /// again for a peer already peered (spec/decisions/peering-lifecycle.md),
     /// which must change nothing.
     ///
