@@ -787,7 +787,13 @@ async fn a_member_node_opens_its_hub_account_by_a_deposit() {
     {
         config.extend(publishers);
     }
-    add_scheme(&member, "xrpl-testnet", &xrpl_config.to_string()).await;
+    support::pair::set_asset_config(
+        &member,
+        support::pair::XRPL_ACCOUNT,
+        &xrpl_config.to_string(),
+    )
+    .await;
+    add_scheme(&member, "xrpl-testnet", "").await;
     let address = ledgers(&member)
         .await
         .into_iter()

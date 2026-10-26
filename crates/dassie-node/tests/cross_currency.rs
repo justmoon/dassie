@@ -98,11 +98,12 @@ async fn dollars_arrive_as_xrp() {
         .await
         .unwrap();
     let config = support::pair::xrpl_config(&server);
+    support::pair::set_asset_config(b, support::pair::XRPL_ACCOUNT, &config).await;
     owner_b
         .call(Method::AddSettlementScheme(
             proto::AddSettlementSchemeRequest {
                 id: "xrpl-testnet".into(),
-                config: config.to_string(),
+                config: String::new(),
             },
         ))
         .await

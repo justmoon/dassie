@@ -137,6 +137,8 @@ fn setup_claims_a_node_once_and_refuses_another_passphrase() {
     let status = describe(&dassie(&["status"], &ipc));
     assert!(status.contains("stub+"), "{status}");
 
+    sets_an_accounts_config(&owner, &ipc);
+
     let unchanged = dassie(
         &["setup", "--passphrase-file", &owner, "--scheme", "stub"],
         &ipc,
@@ -153,6 +155,32 @@ fn setup_claims_a_node_once_and_refuses_another_passphrase() {
     let phrase = std::fs::read_to_string(&owner).unwrap();
     let first_words: String = phrase.split(' ').take(3).collect::<Vec<_>>().join(" ");
     assert!(!log.contains(&first_words), "{log}");
+}
+
+/// `dassie setup --asset` sets an account's config apart from its schemes,
+/// checked as the account reads it, and the same again changes nothing.
+fn sets_an_accounts_config(owner: &str, ipc: &Path) {
+    let account = r#"xrpl-testnet-account/0={"server":"wss://ledger.example","faucet":null}"#;
+    for _ in 0..2 {
+        let asset = dassie(
+            &["setup", "--passphrase-file", owner, "--asset", account],
+            ipc,
+        );
+        let text = describe(&asset);
+        assert!(asset.status.success(), "{text}");
+        assert!(
+            text.contains("Set the config of xrpl-testnet-account/0."),
+            "{text}"
+        );
+    }
+    let bad = r#"xrpl-testnet-account/0={"server":"https://ledger.example"}"#;
+    let refused = dassie(&["setup", "--passphrase-file", owner, "--asset", bad], ipc);
+    let text = describe(&refused);
+    assert_eq!(refused.status.code(), Some(1), "{text}");
+    assert!(
+        text.contains("Could not set the config of xrpl-testnet-account/0"),
+        "{text}"
+    );
 }
 
 #[test]

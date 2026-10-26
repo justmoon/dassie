@@ -14,7 +14,7 @@
 
 Separate what the node holds from how it settles ([Settlement](../areas/settlement.md#external-assets)):
 
-- **An external asset** is something the node holds outside its books, of a type; the node may hold none or several of each. It derives its keys, keeps the connection to its ledger, signs, hands out sequences, and reports its holdings as the ledger says.
+- **An external asset** is something the node holds outside its books, of a type; the node may hold none or several of each. It derives its keys, keeps the connection to its ledger, signs, hands out sequences, and reports its holdings as the ledger says. Where it connects is its own config, the owner's, never one of its schemes'.
 - **A settlement scheme requires** external assets of certain types and holdings, and settles in one holding through them. Several schemes may share an external asset, which orders their transactions; each scheme keeps its own cursor into the asset's transactions.
 - **The ledger is authoritative** for what an external asset holds: the wallet shows holdings from it. The books keep `assets/settlement` only to book against, and keep it in step with the holding the ledger's scheme settles in: every change booked, the rest reconciled through suspense.
 - **A holding is booked only on the ledger whose scheme settles in it;** every change of it is booked there, whichever scheme caused it. A holding no scheme settles in is **gas, off the books**: the scheme settles nothing while the gas cannot pay its fee, and the owner sees the gas from the ledger.
@@ -22,10 +22,12 @@ Separate what the node holds from how it settles ([Settlement](../areas/settleme
 ## Accepted
 
 - **Fees paid in gas leave no entry.** On a node that runs only an RLUSD scheme, the owner's revenue and expenses show no XRP fees; a report has to read them from the ledger. This holds for real money too: what decides is the settled holding, and that stays in step with the ledger. On an account another scheme settles from, the gas is that scheme's booked holding: it is spent only within the owner's funds on that ledger, and booked there.
+- **A config change waits for the next start** while schemes settle through the asset: remaking it under them would be a second way to restart it, with its own races; the owner sees that another config waits.
 - **A migration.** The XRPL scheme's state was split between the account and the scheme, once, with nothing booked anew. The versioned states that replaced it read none of it: the database drops what an account and its schemes kept before them, and the node reads the account anew from the ledger, a cost the testnet's reset makes small ([XRPL](../areas/xrpl.md#state-and-restarts)).
 
 ## Rejected
 
+- *The asset's config inside each scheme's:* every scheme on an account would have to name its server, faucet and publishers alike, and the owner could change them only through a scheme.
 - *One account per scheme,* each derived from the scheme's name: no races, but two addresses for the owner to fund, two supplies of XRP for fees and reserves, and the same coupling of holding and scheme for every type to come.
 - *Gas booked on the XRP ledger always:* the RLUSD scheme would need `xrpl-testnet+xrp` active, and its effects would book on two ledgers.
 - *Fees converted into the scheme's currency at the current rate:* booking a fee would wait for a fresh rate, and a rate is not what the owner paid.

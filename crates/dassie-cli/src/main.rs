@@ -96,11 +96,16 @@ Commands:
                     once a quorum signed one set, its transactions to
                     submit.
   setup             Set the node up from its owner's passphrase, on the
-                    node's own host, without a browser, and add the
-                    settlement schemes it lacks. Running it again changes
-                    nothing; it exits 3, changing nothing, if the node is
-                    another passphrase's.
+                    node's own host, without a browser, set the config of
+                    the accounts it is given, and add the settlement
+                    schemes it lacks. Running it again changes nothing; it
+                    exits 3, changing nothing, if the node is another
+                    passphrase's.
                       --passphrase-file <file>  the passphrase, alone
+                      --asset <id>=<config>     an external asset's JSON
+                                                config, such as
+                                                xrpl-testnet-account/0's
+                                                server; repeatable
                       --scheme <id>[=<config>]  a settlement scheme, with
                                                 its JSON config; repeatable
   pair              Print a code that pairs an owner app with the node, for

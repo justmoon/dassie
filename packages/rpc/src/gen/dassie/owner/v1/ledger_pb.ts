@@ -12,7 +12,7 @@ import type { Message, UnknownEnum } from "@bufbuild/protobuf";
  * Describes the file dassie/owner/v1/ledger.proto.
  */
 export const file_dassie_owner_v1_ledger: GenFile = /*@__PURE__*/
-  fileDesc("ChxkYXNzaWUvb3duZXIvdjEvbGVkZ2VyLnByb3RvEg9kYXNzaWUub3duZXIudjEizwMKBkxlZGdlchIKCgJpZBgBIAEoCRIZChFzZXR0bGVtZW50X3NjaGVtZRgCIAEoCRISCgphc3NldF9jb2RlGAMgASgJEhMKC2Fzc2V0X3NjYWxlGAQgASgNEhUKDW93bmVyX2JhbGFuY2UYBSABKAMSFQoNb3duZXJfcGVuZGluZxgGIAEoBBIZChFvbl9sZWRnZXJfYmFsYW5jZRgHIAEoBBI/ChByZW1vdmFsX2Jsb2NrZXJzGAggAygLMiUuZGFzc2llLm93bmVyLnYxLkxlZGdlclJlbW92YWxCbG9ja2VyEg8KB3Jlc2VydmUYCSABKAQSFwoPZGVwb3NpdF9hZGRyZXNzGAogASgJEjUKCmNvbm5lY3Rpb24YCyABKA4yIS5kYXNzaWUub3duZXIudjEuTGVkZ2VyQ29ubmVjdGlvbhIaChJjb25uZWN0aW9uX3Byb2JsZW0YDCABKAkSDgoGZmF1Y2V0GA0gASgIEiUKBXJlYWxtGA4gASgOMhYuZGFzc2llLm93bmVyLnYxLlJlYWxtEg4KBmlzc3VlchgPIAEoCRInCgNwZWcYECABKAsyGi5kYXNzaWUub3duZXIudjEuTGVkZ2VyUGVnInIKCUxlZGdlclBlZxIpCgZwYXVzZWQYASABKA4yGS5kYXNzaWUub3duZXIudjEuUGVnUGF1c2USFgoJcHJpY2VfcHBtGAIgASgESACIAQESFAoMbGVkZ2VyX2luZGV4GAMgASgNQgwKCl9wcmljZV9wcG0i2gEKFExlZGdlclJlbW92YWxCbG9ja2VyEjgKBGtpbmQYASABKA4yKi5kYXNzaWUub3duZXIudjEuTGVkZ2VyUmVtb3ZhbEJsb2NrZXIuS2luZBINCgVjb3VudBgCIAEoDSJ5CgRLaW5kEhQKEEtJTkRfVU5TUEVDSUZJRUQQABIOCgpLSU5EX1BFRVJTEAESEwoPS0lORF9CVFBfVE9LRU5TEAISGgoWS0lORF9GSU5BTF9TRVRUTEVNRU5UUxADEhoKFktJTkRfT1VUR09JTkdfUEFZTUVOVFMQBCIZChdTdWJzY3JpYmVMZWRnZXJzUmVxdWVzdCKgAQoUU2V0dGxlbWVudFNjaGVtZUluZm8SCgoCaWQYASABKAkSDAoEbmFtZRgCIAEoCRIOCgZsZWRnZXIYAyABKAkSEgoKYXNzZXRfY29kZRgEIAEoCRITCgthc3NldF9zY2FsZRgFIAEoDRIlCgVyZWFsbRgGIAEoDjIWLmRhc3NpZS5vd25lci52MS5SZWFsbRIOCgZhY3RpdmUYByABKAgiHgocTGlzdFNldHRsZW1lbnRTY2hlbWVzUmVxdWVzdCJXCh1MaXN0U2V0dGxlbWVudFNjaGVtZXNSZXNwb25zZRI2CgdzY2hlbWVzGAEgAygLMiUuZGFzc2llLm93bmVyLnYxLlNldHRsZW1lbnRTY2hlbWVJbmZvIhQKEkxpc3RMZWRnZXJzUmVxdWVzdCLuAQoTTGlzdExlZGdlcnNSZXNwb25zZRIoCgdsZWRnZXJzGAEgAygLMhcuZGFzc2llLm93bmVyLnYxLkxlZGdlchIsCgVyYXRlcxgCIAMoCzIdLmRhc3NpZS5vd25lci52MS5FeGNoYW5nZVJhdGUSGAoQZGlzcGxheV9jdXJyZW5jeRgDIAEoCRIsCgV0b3RhbBgEIAEoCzIdLmRhc3NpZS5vd25lci52MS5EaXNwbGF5VG90YWwSNwoPZXh0ZXJuYWxfYXNzZXRzGAUgAygLMh4uZGFzc2llLm93bmVyLnYxLkV4dGVybmFsQXNzZXQiiwIKDUV4dGVybmFsQXNzZXQSCgoCaWQYASABKAkSDwoHYWRkcmVzcxgCIAEoCRIqCghob2xkaW5ncxgDIAMoCzIYLmRhc3NpZS5vd25lci52MS5Ib2xkaW5nEjUKCmNvbm5lY3Rpb24YBCABKA4yIS5kYXNzaWUub3duZXIudjEuTGVkZ2VyQ29ubmVjdGlvbhIaChJjb25uZWN0aW9uX3Byb2JsZW0YBSABKAkSGgoSc2V0dGxlbWVudF9zY2hlbWVzGAYgAygJEg4KBmZhdWNldBgHIAEoCBIUCgxoaXN0b3J5X2dhcHMYCCABKAQSHAoUdW5wcm92ZW5fc2V0dGxlbWVudHMYCSABKAQinwEKB0hvbGRpbmcSEgoKYXNzZXRfY29kZRgBIAEoCRIOCgZpc3N1ZXIYAiABKAkSDgoGYW1vdW50GAMgASgEEhMKC2Fzc2V0X3NjYWxlGAQgASgNEg8KB3Jlc2VydmUYBSABKAQSDgoGZnJvemVuGAYgASgIEhMKC2RlZXBfZnJvemVuGAcgASgIEhUKDWdsb2JhbF9mcmVlemUYCCABKAgiWQoMRXhjaGFuZ2VSYXRlEhIKCmFzc2V0X2NvZGUYASABKAkSDwoHcGVyX3VzZBgCIAEoCRIVCg1hc19vZl91bml4X21zGAMgASgDEg0KBXN0YWxlGAQgASgIIkcKDERpc3BsYXlUb3RhbBISCgphc3NldF9jb2RlGAEgASgJEhMKC2Fzc2V0X3NjYWxlGAIgASgNEg4KBmFtb3VudBgDIAEoAyInCgpSYXRlU291cmNlEgwKBGtpbmQYASABKAkSCwoDdXJsGAIgASgJIhcKFUdldFJhdGVTb3VyY2VzUmVxdWVzdCJGChZHZXRSYXRlU291cmNlc1Jlc3BvbnNlEiwKB3NvdXJjZXMYASADKAsyGy5kYXNzaWUub3duZXIudjEuUmF0ZVNvdXJjZSJFChVTZXRSYXRlU291cmNlc1JlcXVlc3QSLAoHc291cmNlcxgBIAMoCzIbLmRhc3NpZS5vd25lci52MS5SYXRlU291cmNlIkYKFlNldFJhdGVTb3VyY2VzUmVzcG9uc2USLAoHc291cmNlcxgBIAMoCzIbLmRhc3NpZS5vd25lci52MS5SYXRlU291cmNlIi0KGVNldERpc3BsYXlDdXJyZW5jeVJlcXVlc3QSEAoIY3VycmVuY3kYASABKAkiHAoaU2V0RGlzcGxheUN1cnJlbmN5UmVzcG9uc2UiOAoaQWRkU2V0dGxlbWVudFNjaGVtZVJlcXVlc3QSCgoCaWQYASABKAkSDgoGY29uZmlnGAIgASgJIkYKG0FkZFNldHRsZW1lbnRTY2hlbWVSZXNwb25zZRInCgZsZWRnZXIYASABKAsyFy5kYXNzaWUub3duZXIudjEuTGVkZ2VyIisKHVJlbW92ZVNldHRsZW1lbnRTY2hlbWVSZXF1ZXN0EgoKAmlkGAEgASgJIiAKHlJlbW92ZVNldHRsZW1lbnRTY2hlbWVSZXNwb25zZSIkChJTdHViRGVwb3NpdFJlcXVlc3QSDgoGYW1vdW50GAEgASgEIj4KE1N0dWJEZXBvc2l0UmVzcG9uc2USJwoGbGVkZ2VyGAEgASgLMhcuZGFzc2llLm93bmVyLnYxLkxlZGdlciItChBBc2tGYXVjZXRSZXF1ZXN0EhkKEXNldHRsZW1lbnRfc2NoZW1lGAEgASgJIjwKEUFza0ZhdWNldFJlc3BvbnNlEicKBmxlZGdlchgBIAEoCzIXLmRhc3NpZS5vd25lci52MS5MZWRnZXIqUQoIUGVnUGF1c2USGQoVUEVHX1BBVVNFX1VOU1BFQ0lGSUVEEAASFQoRUEVHX1BBVVNFX09GRl9QRUcQARITCg9QRUdfUEFVU0VfU1RBTEUQAirSAQoQTGVkZ2VyQ29ubmVjdGlvbhIhCh1MRURHRVJfQ09OTkVDVElPTl9VTlNQRUNJRklFRBAAEhwKGExFREdFUl9DT05ORUNUSU9OX1NZTkNFRBABEiAKHExFREdFUl9DT05ORUNUSU9OX0NPTk5FQ1RJTkcQAhIdChlMRURHRVJfQ09OTkVDVElPTl9TWU5DSU5HEAMSHgoaTEVER0VSX0NPTk5FQ1RJT05fVU5GVU5ERUQQBBIcChhMRURHRVJfQ09OTkVDVElPTl9GQUlMRUQQBWIGcHJvdG8z", [file_dassie_owner_v1_config]);
+  fileDesc("ChxkYXNzaWUvb3duZXIvdjEvbGVkZ2VyLnByb3RvEg9kYXNzaWUub3duZXIudjEizwMKBkxlZGdlchIKCgJpZBgBIAEoCRIZChFzZXR0bGVtZW50X3NjaGVtZRgCIAEoCRISCgphc3NldF9jb2RlGAMgASgJEhMKC2Fzc2V0X3NjYWxlGAQgASgNEhUKDW93bmVyX2JhbGFuY2UYBSABKAMSFQoNb3duZXJfcGVuZGluZxgGIAEoBBIZChFvbl9sZWRnZXJfYmFsYW5jZRgHIAEoBBI/ChByZW1vdmFsX2Jsb2NrZXJzGAggAygLMiUuZGFzc2llLm93bmVyLnYxLkxlZGdlclJlbW92YWxCbG9ja2VyEg8KB3Jlc2VydmUYCSABKAQSFwoPZGVwb3NpdF9hZGRyZXNzGAogASgJEjUKCmNvbm5lY3Rpb24YCyABKA4yIS5kYXNzaWUub3duZXIudjEuTGVkZ2VyQ29ubmVjdGlvbhIaChJjb25uZWN0aW9uX3Byb2JsZW0YDCABKAkSDgoGZmF1Y2V0GA0gASgIEiUKBXJlYWxtGA4gASgOMhYuZGFzc2llLm93bmVyLnYxLlJlYWxtEg4KBmlzc3VlchgPIAEoCRInCgNwZWcYECABKAsyGi5kYXNzaWUub3duZXIudjEuTGVkZ2VyUGVnInIKCUxlZGdlclBlZxIpCgZwYXVzZWQYASABKA4yGS5kYXNzaWUub3duZXIudjEuUGVnUGF1c2USFgoJcHJpY2VfcHBtGAIgASgESACIAQESFAoMbGVkZ2VyX2luZGV4GAMgASgNQgwKCl9wcmljZV9wcG0i2gEKFExlZGdlclJlbW92YWxCbG9ja2VyEjgKBGtpbmQYASABKA4yKi5kYXNzaWUub3duZXIudjEuTGVkZ2VyUmVtb3ZhbEJsb2NrZXIuS2luZBINCgVjb3VudBgCIAEoDSJ5CgRLaW5kEhQKEEtJTkRfVU5TUEVDSUZJRUQQABIOCgpLSU5EX1BFRVJTEAESEwoPS0lORF9CVFBfVE9LRU5TEAISGgoWS0lORF9GSU5BTF9TRVRUTEVNRU5UUxADEhoKFktJTkRfT1VUR09JTkdfUEFZTUVOVFMQBCIZChdTdWJzY3JpYmVMZWRnZXJzUmVxdWVzdCKgAQoUU2V0dGxlbWVudFNjaGVtZUluZm8SCgoCaWQYASABKAkSDAoEbmFtZRgCIAEoCRIOCgZsZWRnZXIYAyABKAkSEgoKYXNzZXRfY29kZRgEIAEoCRITCgthc3NldF9zY2FsZRgFIAEoDRIlCgVyZWFsbRgGIAEoDjIWLmRhc3NpZS5vd25lci52MS5SZWFsbRIOCgZhY3RpdmUYByABKAgiHgocTGlzdFNldHRsZW1lbnRTY2hlbWVzUmVxdWVzdCJXCh1MaXN0U2V0dGxlbWVudFNjaGVtZXNSZXNwb25zZRI2CgdzY2hlbWVzGAEgAygLMiUuZGFzc2llLm93bmVyLnYxLlNldHRsZW1lbnRTY2hlbWVJbmZvIhQKEkxpc3RMZWRnZXJzUmVxdWVzdCLuAQoTTGlzdExlZGdlcnNSZXNwb25zZRIoCgdsZWRnZXJzGAEgAygLMhcuZGFzc2llLm93bmVyLnYxLkxlZGdlchIsCgVyYXRlcxgCIAMoCzIdLmRhc3NpZS5vd25lci52MS5FeGNoYW5nZVJhdGUSGAoQZGlzcGxheV9jdXJyZW5jeRgDIAEoCRIsCgV0b3RhbBgEIAEoCzIdLmRhc3NpZS5vd25lci52MS5EaXNwbGF5VG90YWwSNwoPZXh0ZXJuYWxfYXNzZXRzGAUgAygLMh4uZGFzc2llLm93bmVyLnYxLkV4dGVybmFsQXNzZXQisQIKDUV4dGVybmFsQXNzZXQSCgoCaWQYASABKAkSDwoHYWRkcmVzcxgCIAEoCRIqCghob2xkaW5ncxgDIAMoCzIYLmRhc3NpZS5vd25lci52MS5Ib2xkaW5nEjUKCmNvbm5lY3Rpb24YBCABKA4yIS5kYXNzaWUub3duZXIudjEuTGVkZ2VyQ29ubmVjdGlvbhIaChJjb25uZWN0aW9uX3Byb2JsZW0YBSABKAkSGgoSc2V0dGxlbWVudF9zY2hlbWVzGAYgAygJEg4KBmZhdWNldBgHIAEoCBIUCgxoaXN0b3J5X2dhcHMYCCABKAQSHAoUdW5wcm92ZW5fc2V0dGxlbWVudHMYCSABKAQSDgoGY29uZmlnGAogASgJEhQKDGNvbmZpZ193YWl0cxgLIAEoCCKfAQoHSG9sZGluZxISCgphc3NldF9jb2RlGAEgASgJEg4KBmlzc3VlchgCIAEoCRIOCgZhbW91bnQYAyABKAQSEwoLYXNzZXRfc2NhbGUYBCABKA0SDwoHcmVzZXJ2ZRgFIAEoBBIOCgZmcm96ZW4YBiABKAgSEwoLZGVlcF9mcm96ZW4YByABKAgSFQoNZ2xvYmFsX2ZyZWV6ZRgIIAEoCCJZCgxFeGNoYW5nZVJhdGUSEgoKYXNzZXRfY29kZRgBIAEoCRIPCgdwZXJfdXNkGAIgASgJEhUKDWFzX29mX3VuaXhfbXMYAyABKAMSDQoFc3RhbGUYBCABKAgiRwoMRGlzcGxheVRvdGFsEhIKCmFzc2V0X2NvZGUYASABKAkSEwoLYXNzZXRfc2NhbGUYAiABKA0SDgoGYW1vdW50GAMgASgDIicKClJhdGVTb3VyY2USDAoEa2luZBgBIAEoCRILCgN1cmwYAiABKAkiFwoVR2V0UmF0ZVNvdXJjZXNSZXF1ZXN0IkYKFkdldFJhdGVTb3VyY2VzUmVzcG9uc2USLAoHc291cmNlcxgBIAMoCzIbLmRhc3NpZS5vd25lci52MS5SYXRlU291cmNlIkUKFVNldFJhdGVTb3VyY2VzUmVxdWVzdBIsCgdzb3VyY2VzGAEgAygLMhsuZGFzc2llLm93bmVyLnYxLlJhdGVTb3VyY2UiRgoWU2V0UmF0ZVNvdXJjZXNSZXNwb25zZRIsCgdzb3VyY2VzGAEgAygLMhsuZGFzc2llLm93bmVyLnYxLlJhdGVTb3VyY2UiLQoZU2V0RGlzcGxheUN1cnJlbmN5UmVxdWVzdBIQCghjdXJyZW5jeRgBIAEoCSIcChpTZXREaXNwbGF5Q3VycmVuY3lSZXNwb25zZSI4ChpBZGRTZXR0bGVtZW50U2NoZW1lUmVxdWVzdBIKCgJpZBgBIAEoCRIOCgZjb25maWcYAiABKAkiRgobQWRkU2V0dGxlbWVudFNjaGVtZVJlc3BvbnNlEicKBmxlZGdlchgBIAEoCzIXLmRhc3NpZS5vd25lci52MS5MZWRnZXIiKwodUmVtb3ZlU2V0dGxlbWVudFNjaGVtZVJlcXVlc3QSCgoCaWQYASABKAkiIAoeUmVtb3ZlU2V0dGxlbWVudFNjaGVtZVJlc3BvbnNlIiQKElN0dWJEZXBvc2l0UmVxdWVzdBIOCgZhbW91bnQYASABKAQiPgoTU3R1YkRlcG9zaXRSZXNwb25zZRInCgZsZWRnZXIYASABKAsyFy5kYXNzaWUub3duZXIudjEuTGVkZ2VyIjYKFVNldEFzc2V0Q29uZmlnUmVxdWVzdBINCgVhc3NldBgBIAEoCRIOCgZjb25maWcYAiABKAkiKwoWU2V0QXNzZXRDb25maWdSZXNwb25zZRIRCglpbl9lZmZlY3QYASABKAgiLQoQQXNrRmF1Y2V0UmVxdWVzdBIZChFzZXR0bGVtZW50X3NjaGVtZRgBIAEoCSI8ChFBc2tGYXVjZXRSZXNwb25zZRInCgZsZWRnZXIYASABKAsyFy5kYXNzaWUub3duZXIudjEuTGVkZ2VyKlEKCFBlZ1BhdXNlEhkKFVBFR19QQVVTRV9VTlNQRUNJRklFRBAAEhUKEVBFR19QQVVTRV9PRkZfUEVHEAESEwoPUEVHX1BBVVNFX1NUQUxFEAIq0gEKEExlZGdlckNvbm5lY3Rpb24SIQodTEVER0VSX0NPTk5FQ1RJT05fVU5TUEVDSUZJRUQQABIcChhMRURHRVJfQ09OTkVDVElPTl9TWU5DRUQQARIgChxMRURHRVJfQ09OTkVDVElPTl9DT05ORUNUSU5HEAISHQoZTEVER0VSX0NPTk5FQ1RJT05fU1lOQ0lORxADEh4KGkxFREdFUl9DT05ORUNUSU9OX1VORlVOREVEEAQSHAoYTEVER0VSX0NPTk5FQ1RJT05fRkFJTEVEEAViBnByb3RvMw", [file_dassie_owner_v1_config]);
 
 /**
  * A ledger the node keeps books for, with the settlement scheme that moves
@@ -507,6 +507,22 @@ export type ExternalAsset = Message<"dassie.owner.v1.ExternalAsset"> & {
    * @generated from field: uint64 unproven_settlements = 9;
    */
   unprovenSettlements: bigint;
+
+  /**
+   * The config it runs with (SetAssetConfig): empty for its network's
+   * defaults.
+   *
+   * @generated from field: string config = 10;
+   */
+  config: string;
+
+  /**
+   * The owner set another config since it was made, which it takes at the
+   * node's next start.
+   *
+   * @generated from field: bool config_waits = 11;
+   */
+  configWaits: boolean;
 };
 
 /**
@@ -808,7 +824,9 @@ export type AddSettlementSchemeRequest = Message<"dassie.owner.v1.AddSettlementS
   id: string;
 
   /**
-   * The scheme's config, JSON. The stub takes none: empty or "{}".
+   * The scheme's config, JSON. The stub takes none: empty or "{}". An XRP
+   * Ledger scheme takes at most {"peers": false}; its account's server,
+   * faucet and publishers are the account's config (SetAssetConfig).
    *
    * @generated from field: string config = 2;
    */
@@ -913,6 +931,62 @@ export const StubDepositResponseSchema: GenMessage<StubDepositResponse> = /*@__P
   messageDesc(file_dassie_owner_v1_ledger, 25);
 
 /**
+ * Sets the owner's config of an external asset, kept with the books
+ * (spec/areas/settlement.md#external-assets). For an XRP Ledger account,
+ * "xrpl-testnet-account/0" or "xrpl-account/0", it is JSON with any of
+ * "server" (a WebSocket URL), "faucet" (an HTTPS URL, or null for none; a
+ * network without a faucet takes only null) and "publishers" (the
+ * validator list publishers it trusts, which replace its network's);
+ * empty for its network's defaults. A settlement scheme's config never
+ * names these. An asset made after takes it at once; one that schemes
+ * settle through now, at the node's next start. INVALID_ARGUMENT for an
+ * unknown asset, one the owner does not configure, or a config it
+ * refuses; FAILED_PRECONDITION for an account of the other realm.
+ *
+ * @generated from message dassie.owner.v1.SetAssetConfigRequest
+ */
+export type SetAssetConfigRequest = Message<"dassie.owner.v1.SetAssetConfigRequest"> & {
+  /**
+   * The asset's ID, as ExternalAsset.id writes it.
+   *
+   * @generated from field: string asset = 1;
+   */
+  asset: string;
+
+  /**
+   * @generated from field: string config = 2;
+   */
+  config: string;
+};
+
+/**
+ * Describes the message dassie.owner.v1.SetAssetConfigRequest.
+ * Use `create(SetAssetConfigRequestSchema)` to create a new message.
+ */
+export const SetAssetConfigRequestSchema: GenMessage<SetAssetConfigRequest> = /*@__PURE__*/
+  messageDesc(file_dassie_owner_v1_ledger, 26);
+
+/**
+ * @generated from message dassie.owner.v1.SetAssetConfigResponse
+ */
+export type SetAssetConfigResponse = Message<"dassie.owner.v1.SetAssetConfigResponse"> & {
+  /**
+   * Whether the asset runs with it now: false while schemes settle
+   * through it with another, until the node's next start.
+   *
+   * @generated from field: bool in_effect = 1;
+   */
+  inEffect: boolean;
+};
+
+/**
+ * Describes the message dassie.owner.v1.SetAssetConfigResponse.
+ * Use `create(SetAssetConfigResponseSchema)` to create a new message.
+ */
+export const SetAssetConfigResponseSchema: GenMessage<SetAssetConfigResponse> = /*@__PURE__*/
+  messageDesc(file_dassie_owner_v1_ledger, 27);
+
+/**
  * Asks the faucet of a test ledger for money. Nothing is booked at once:
  * what the faucet sends is a deposit once the ledger shows it. NOT_FOUND if
  * the scheme is not active, FAILED_PRECONDITION if its ledger has no faucet,
@@ -935,7 +1009,7 @@ export type AskFaucetRequest = Message<"dassie.owner.v1.AskFaucetRequest"> & {
  * Use `create(AskFaucetRequestSchema)` to create a new message.
  */
 export const AskFaucetRequestSchema: GenMessage<AskFaucetRequest> = /*@__PURE__*/
-  messageDesc(file_dassie_owner_v1_ledger, 26);
+  messageDesc(file_dassie_owner_v1_ledger, 28);
 
 /**
  * @generated from message dassie.owner.v1.AskFaucetResponse
@@ -952,7 +1026,7 @@ export type AskFaucetResponse = Message<"dassie.owner.v1.AskFaucetResponse"> & {
  * Use `create(AskFaucetResponseSchema)` to create a new message.
  */
 export const AskFaucetResponseSchema: GenMessage<AskFaucetResponse> = /*@__PURE__*/
-  messageDesc(file_dassie_owner_v1_ledger, 27);
+  messageDesc(file_dassie_owner_v1_ledger, 29);
 
 /**
  * @generated from enum dassie.owner.v1.PegPause

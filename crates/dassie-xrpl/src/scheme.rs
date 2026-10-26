@@ -40,7 +40,6 @@
 //! books on a ledger of the live realm, which runs only in a node of that
 //! realm, still refused (spec/decisions/real-money.md).
 
-use alloc::string::String;
 use alloc::vec::Vec;
 use core::any::Any;
 use core::marker::PhantomData;
@@ -148,38 +147,30 @@ pub type XrplMainnetScheme = XrpScheme<MainnetXrp>;
 pub const OWNER_MEMO_TYPE: &[u8] = b"https://dassie.land/owner-payment/v1";
 
 /// What an XRPL scheme's config says: whether the node peers on the
-/// scheme, and the config of the account it settles through
-/// (spec/areas/xrpl.md#owner-books).
-#[derive(Clone, Debug, PartialEq, Eq)]
+/// scheme (spec/areas/xrpl.md#owner-books). The account it settles
+/// through has a config of its own ([`crate::account::Config`]), set apart
+/// from any scheme's (spec/areas/settlement.md#external-assets).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SchemeConfig {
     /// Whether the node peers on the scheme: `"peers": false` makes it an
     /// owner book, which peers with nobody
     /// ([`SettlementScheme::peers`]). It peers unless told.
     pub peers: bool,
-    /// The rest: the account's config ([`crate::account::Config`]), which
-    /// every scheme on the account must name alike. Empty for the
-    /// network's defaults; otherwise its JSON written one way, its keys in
-    /// order and without spaces, so that two configs that say the same
-    /// name the same account.
-    pub account: String,
 }
 
 impl SchemeConfig {
-    /// The config in `text`: empty, or a JSON object with `peers`, a
-    /// boolean, beside what the account reads.
+    /// The config in `text`: empty, or a JSON object with at most
+    /// `peers`, a boolean.
     ///
     /// # Errors
     ///
     /// [`SchemeError::InvalidConfig`] if it is no JSON object, is longer
-    /// than an account's config may be, or `peers` is no boolean. What
-    /// the account makes of the rest, it says when it reads it.
+    /// than a config may be, `peers` is no boolean, or it names anything
+    /// else, such as the account's server, which is the account's config.
     pub fn parse(text: &str) -> Result<Self, SchemeError> {
         let text = text.trim();
         if text.is_empty() {
-            return Ok(Self {
-                peers: true,
-                account: String::new(),
-            });
+            return Ok(Self { peers: true });
         }
         if text.len() > crate::account::MAX_CONFIG {
             return Err(SchemeError::InvalidConfig);
@@ -193,12 +184,22 @@ impl SchemeConfig {
             Some(Value::Bool(peers)) => peers,
             Some(_) => return Err(SchemeError::InvalidConfig),
         };
-        let account = if object.is_empty() {
-            String::new()
-        } else {
-            serde_json::to_string(&Value::Object(object)).map_err(|_| SchemeError::InvalidConfig)?
-        };
-        Ok(Self { peers, account })
+        if !object.is_empty() {
+            return Err(SchemeError::InvalidConfig);
+        }
+        Ok(Self { peers })
+    }
+
+    /// Whether `text`, a config the scheme refuses, names what is the
+    /// account's (its server, its faucet or its validator list
+    /// publishers): the owner sets that as the account's config.
+    #[must_use]
+    pub fn names_the_account(text: &str) -> bool {
+        serde_json::from_str::<Value>(text).is_ok_and(|value| {
+            ["server", "faucet", "publishers"]
+                .iter()
+                .any(|key| value.get(key).is_some())
+        })
     }
 }
 
@@ -960,34 +961,37 @@ mod tests {
         assert!(!settles::<MainnetXrp>(OWNER_MEMO_TYPE));
     }
 
-    // spec/areas/xrpl.md#owner-books: `peers` is the scheme's; the rest is
-    // the account's, written one way, so that schemes on one account that
-    // say the same of it share it, whatever their order or spacing.
+    // spec/areas/xrpl.md#owner-books: a scheme's config says only whether
+    // it peers; what is the account's, its server, faucet and publishers,
+    // is the account's own config, and refused here.
     #[test]
-    fn a_config_says_whether_the_scheme_peers_apart_from_the_account() {
+    fn a_config_says_only_whether_the_scheme_peers() {
         let parse = |text: &str| SchemeConfig::parse(text).unwrap();
-        assert_eq!(parse("").account, "");
+        assert!(parse("").peers);
         assert!(parse("  ").peers);
-        let book = parse(r#"{"peers": false}"#);
-        assert!(!book.peers);
-        assert_eq!(book.account, "");
-        let book = parse(r#"{ "server": "wss://a", "peers": false, "faucet": null }"#);
-        assert!(!book.peers);
-        let peering = parse(r#"{"faucet":null,"server":"wss://a"}"#);
-        assert!(peering.peers);
-        assert_eq!(book.account, peering.account);
+        assert!(!parse(r#"{"peers": false}"#).peers);
         assert!(parse(r#"{"peers": true}"#).peers);
-        for refused in [r#"{"peers": 0}"#, r#"{"peers": "no"}"#, "[]", "peers", "1"] {
+        assert!(parse("{}").peers);
+        for refused in [
+            r#"{"peers": 0}"#,
+            r#"{"peers": "no"}"#,
+            r#"{"server": "wss://a", "peers": false}"#,
+            r#"{"faucet": null}"#,
+            "[]",
+            "peers",
+            "1",
+        ] {
             assert_eq!(
                 SchemeConfig::parse(refused),
                 Err(SchemeError::InvalidConfig),
                 "{refused}"
             );
         }
-        let long = alloc::format!(
-            r#"{{"server":"wss://{}"}}"#,
-            "a".repeat(crate::account::MAX_CONFIG)
-        );
+        assert!(SchemeConfig::names_the_account(r#"{"server": "wss://a"}"#));
+        assert!(SchemeConfig::names_the_account(r#"{"faucet": null}"#));
+        assert!(SchemeConfig::names_the_account(r#"{"publishers": []}"#));
+        assert!(!SchemeConfig::names_the_account(r#"{"other": 1}"#));
+        let long = alloc::format!(r#"{{"peers":{}}}"#, " ".repeat(crate::account::MAX_CONFIG));
         assert_eq!(SchemeConfig::parse(&long), Err(SchemeError::InvalidConfig));
     }
 

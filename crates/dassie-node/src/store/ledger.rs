@@ -37,6 +37,9 @@ pub struct LedgerBatch {
     /// Each external asset's state, by its ID as text, written with what
     /// it explains.
     pub asset_checkpoints: Vec<(String, Vec<u8>)>,
+    /// The owner's config of external assets, by ID as text, as set: empty
+    /// for none, the asset's defaults.
+    pub asset_configs: Vec<(String, String)>,
     /// BTP tokens created.
     pub tokens_created: Vec<BtpTokenRow>,
     /// BTP tokens revoked, by ID.
@@ -78,6 +81,7 @@ impl LedgerBatch {
             && self.schemes_removed.is_empty()
             && self.checkpoints.is_empty()
             && self.asset_checkpoints.is_empty()
+            && self.asset_configs.is_empty()
             && self.tokens_created.is_empty()
             && self.tokens_revoked.is_empty()
             && self.token_caps.is_empty()
@@ -304,6 +308,18 @@ impl Store {
         let connection = self.lock();
         let mut statement = connection
             .prepare_cached("SELECT asset, state FROM asset_checkpoints ORDER BY asset")?;
+        statement
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+            .map(|row| Ok(row?))
+            .collect()
+    }
+
+    /// The owner's config of each external asset that has one: its ID as
+    /// text, and the config.
+    pub fn asset_configs(&self) -> Result<Vec<(String, String)>, StoreError> {
+        let connection = self.lock();
+        let mut statement =
+            connection.prepare_cached("SELECT asset, config FROM asset_configs ORDER BY asset")?;
         statement
             .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
             .map(|row| Ok(row?))
@@ -769,6 +785,17 @@ fn write_settlement(transaction: &Transaction<'_>, batch: &LedgerBatch) -> Resul
              ON CONFLICT (scheme) DO UPDATE SET balance = ?2, updated_at_ms = ?3, state = ?4",
             params![scheme.as_str(), sql_amount(checkpoint.balance)?, at, state],
         )?;
+    }
+    for (asset, config) in &batch.asset_configs {
+        if config.is_empty() {
+            transaction.execute_cached("DELETE FROM asset_configs WHERE asset = ?1", [asset])?;
+        } else {
+            transaction.execute_cached(
+                "INSERT INTO asset_configs (asset, config, updated_at_ms) VALUES (?1, ?2, ?3) \
+                 ON CONFLICT (asset) DO UPDATE SET config = ?2, updated_at_ms = ?3",
+                params![asset, config, at],
+            )?;
+        }
     }
     for (asset, state) in &batch.asset_checkpoints {
         transaction.execute_cached(

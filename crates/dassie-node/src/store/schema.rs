@@ -66,6 +66,7 @@ const MIGRATIONS: &[&str] = &[
     MIGRATION_42,
     MIGRATION_43,
     MIGRATION_44,
+    MIGRATION_45,
 ];
 
 /// The schema version this code writes: the number of migrations.
@@ -1452,6 +1453,39 @@ DELETE FROM asset_checkpoints WHERE asset LIKE 'xrpl-%';
 UPDATE settlement_checkpoints SET state = NULL WHERE scheme LIKE 'xrpl%';
 ";
 
+/// An external asset's config is its own, set by the owner apart from any
+/// scheme's (spec/areas/settlement.md#external-assets): for an XRPL
+/// account, its server, its faucet and its validator list publishers,
+/// which every scheme on it had to name alike. Each account takes what the
+/// first of its schemes, by ID, said of it, and the schemes keep only
+/// whether they peer.
+const MIGRATION_45: &str = "
+CREATE TABLE asset_configs (
+  asset TEXT PRIMARY KEY CHECK (length(asset) BETWEEN 1 AND 64),
+  config TEXT NOT NULL CHECK (length(CAST(config AS BLOB)) BETWEEN 1 AND 4096),
+  updated_at_ms INTEGER NOT NULL
+) STRICT, WITHOUT ROWID;
+
+INSERT INTO asset_configs (asset, config, updated_at_ms)
+  SELECT
+    CASE WHEN id IN ('xrpl', 'xrpl-rlusd') THEN 'xrpl-account/0' ELSE 'xrpl-testnet-account/0' END,
+    json_remove(config, '$.peers'),
+    activated_at_ms
+  FROM settlement_schemes
+  WHERE id IN ('xrpl-testnet', 'xrpl-testnet-dsusd', 'xrpl-testnet-rlusd', 'xrpl', 'xrpl-rlusd')
+    AND json_valid(config) AND json_type(config) = 'object'
+    AND json_remove(config, '$.peers') <> '{}'
+  ORDER BY id
+  ON CONFLICT (asset) DO NOTHING;
+
+UPDATE settlement_schemes
+  SET config = CASE
+    WHEN json_valid(config) AND json_type(config, '$.peers') = 'false' THEN '{\"peers\":false}'
+    ELSE ''
+  END
+  WHERE id IN ('xrpl-testnet', 'xrpl-testnet-dsusd', 'xrpl-testnet-rlusd', 'xrpl', 'xrpl-rlusd');
+";
+
 /// Columns that hold secrets: the database inspector never reads them.
 pub const SECRET_COLUMNS: &[(&str, &str)] = &[
     ("node_key", "private_key"),
@@ -1612,6 +1646,15 @@ pub const TABLES: &[Table] = &[
             ("asset", "TEXT", true, true),
             ("updated_at_ms", "INTEGER", true, false),
             ("state", "BLOB", true, false),
+        ],
+    },
+    Table {
+        name: "asset_configs",
+        without_rowid: true,
+        columns: &[
+            ("asset", "TEXT", true, true),
+            ("config", "TEXT", true, false),
+            ("updated_at_ms", "INTEGER", true, false),
         ],
     },
     Table {

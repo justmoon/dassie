@@ -196,9 +196,10 @@ export class ScenarioNode {
   }
 
   /**
-   * Sets the node up as its owner would, and adds the settlement schemes in
-   * `schemes` it does not have yet, each with its config in `configs`, if
-   * any; its exchange rates come from `rates`, if given. A node of the
+   * Sets the node up as its owner would, sets the config of each external
+   * asset in `assets`, and adds the settlement schemes in `schemes` it does
+   * not have yet, each with its config in `configs`, if any; its exchange
+   * rates come from `rates`, if given. A node of the
    * `live` realm is set to it before it is claimed, so its engine starts in
    * it; the node takes that only by its dev switch
    * (spec/decisions/mainnet-schemes.md). On a node set up before, it checks
@@ -209,6 +210,7 @@ export class ScenarioNode {
     configs: Readonly<Record<string, string>> = {},
     rates?: string,
     realm: "test" | "live" = "test",
+    assets: Readonly<Record<string, string>> = {},
   ): Promise<void> {
     const owner = this.rpc;
     const certificate = await nodeCertificate(
@@ -246,6 +248,10 @@ export class ScenarioNode {
       await owner.call("setRateSources", {
         sources: [{ kind: "coinbase", url: rates }],
       });
+    }
+    // Again on every start: the same config changes nothing.
+    for (const [asset, config] of Object.entries(assets)) {
+      await owner.call("setAssetConfig", { asset, config });
     }
     const active = (await owner.call("getBasicState", {}))
       .activeSettlementSchemes;

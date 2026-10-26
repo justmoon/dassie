@@ -33,7 +33,7 @@ On NixOS, each release publishes a flake instead, `https://get.dassie.land/<vers
 Once set up, the wallet asks you for a first ledger:
 
 - **Stub** settles nothing, but gives you 100 test USD to play with.
-- **XRP Ledger Testnet** settles in test XRP. The testnet faucet funds the node's account. Over RPC, it is `addSettlementScheme` with `xrpl-testnet`, and an optional JSON config naming another `server` or `faucet`.
+- **XRP Ledger Testnet** settles in test XRP. The testnet faucet funds the node's account. Over RPC, it is `addSettlementScheme` with `xrpl-testnet`; the account's `server` and `faucet` are its own config, `setAssetConfig` on `xrpl-testnet-account/0` (or `dassie setup --asset`).
 - **DSUSD on the XRP Ledger Testnet**, `xrpl-testnet-dsusd`, settles in DSUSD, Dassie's own testnet dollar, from the same account, which pays its fees in XRP; you buy DSUSD with test XRP on the testnet's XRP/DSUSD pool. It stands in on the testnet for Ripple's RLUSD, whose testnet scheme, `xrpl-testnet-rlusd`, is disabled: a node that ran it starts without it, and its test RLUSD stays on its line.
 
 From there, the wallet sends and receives payments, shows their status and your activity, and manages everything below.

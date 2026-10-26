@@ -197,7 +197,13 @@ impl Net {
         {
             config.extend(publishers);
         }
-        add_scheme(&sponsor, "xrpl-testnet", &xrpl_config.to_string()).await;
+        support::pair::set_asset_config(
+            &sponsor,
+            support::pair::XRPL_ACCOUNT,
+            &xrpl_config.to_string(),
+        )
+        .await;
+        add_scheme(&sponsor, "xrpl-testnet", "").await;
         let address = ledgers(&sponsor)
             .await
             .into_iter()
