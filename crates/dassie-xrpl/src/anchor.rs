@@ -715,6 +715,81 @@ mod tests {
         assert_eq!(ancestry(&forged, &far, &lists), Ancestry::OffChain);
     }
 
+    // Whether a ledger is the anchor's chain's, past its recent list: the
+    // anchor's flag list proves the flag ledger after it, and that flag
+    // ledger's own recent list proves the ledger. Each step asks for the
+    // list it needs, and another hash is wrong.
+    #[test]
+    fn a_ledger_s_proof_reaches_past_the_recent_list_through_its_flag_ledger() {
+        let first = 5_000_000;
+        let anchor = anchor(5_100_000);
+        let mut lists = ProvenLists::new();
+        assert_eq!(
+            ledger_proof(&anchor, anchor.index, &anchor.hash, &lists),
+            LedgerProof::Holds
+        );
+        assert_eq!(
+            ledger_proof(&anchor, anchor.index + 1, &hash(anchor.index + 1), &lists),
+            LedgerProof::Later
+        );
+        let near = anchor.index - 100;
+        assert_eq!(
+            ledger_proof(&anchor, near, &hash(near), &lists),
+            LedgerProof::Prove {
+                at: anchor.hash,
+                key: recent_key()
+            }
+        );
+        lists.insert(
+            (anchor.hash, recent_key()),
+            Some(recent(anchor.index, first)),
+        );
+        assert_eq!(
+            ledger_proof(&anchor, near, &hash(near), &lists),
+            LedgerProof::Holds
+        );
+        assert_eq!(
+            ledger_proof(&anchor, near, &[0xFF; 32], &lists),
+            LedgerProof::Wrong
+        );
+        // A flag ledger: one list.
+        let flag = 5_000_192;
+        assert!(is_flag(flag));
+        assert_eq!(
+            ledger_proof(&anchor, flag, &hash(flag), &lists),
+            LedgerProof::Prove {
+                at: anchor.hash,
+                key: flag_key(flag)
+            }
+        );
+        lists.insert(
+            (anchor.hash, flag_key(flag)),
+            Some(flags(flag, anchor.index, first)),
+        );
+        assert_eq!(
+            ledger_proof(&anchor, flag, &hash(flag), &lists),
+            LedgerProof::Holds
+        );
+        // A ledger before it: the flag ledger's own recent list.
+        let far = flag - 50;
+        assert_eq!(
+            ledger_proof(&anchor, far, &hash(far), &lists),
+            LedgerProof::Prove {
+                at: hash(flag),
+                key: recent_key()
+            }
+        );
+        lists.insert((hash(flag), recent_key()), Some(recent(flag, first)));
+        assert_eq!(
+            ledger_proof(&anchor, far, &hash(far), &lists),
+            LedgerProof::Holds
+        );
+        assert_eq!(
+            ledger_proof(&anchor, far, &[0xEE; 32], &lists),
+            LedgerProof::Wrong
+        );
+    }
+
     // A ledger's hash by its index, as a state proof at it needs: the
     // anchor's own, its recent list within 256 ledgers, and past them its
     // flag list and the flag ledger's recent list; none before the chain
