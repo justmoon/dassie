@@ -6,9 +6,6 @@ message NodeConfig {
   Realm realm = 1;
   // The node's public DNS name; empty until configured.
   string hostname = 2;
-  // Used in the standalone runtime. Under systemd the socket units decide.
-  uint32 http_port = 3;
-  uint32 https_port = 4;
   // Shown to other nodes next to the node ID; may be empty.
   string alias = 5;
   // The ACME server the node renews its certificate with.
@@ -49,18 +46,6 @@ message SetHostnameRequest {
 
 message SetHostnameResponse {
   NodeConfig config = 1;
-}
-
-// Both ports in 1..65535 and different from each other.
-message SetPortsRequest {
-  uint32 http_port = 1;
-  uint32 https_port = 2;
-}
-
-message SetPortsResponse {
-  NodeConfig config = 1;
-  // The listeners keep their ports until the node restarts.
-  bool restart_required = 2;
 }
 
 // At most 64 bytes of UTF-8, without control characters.

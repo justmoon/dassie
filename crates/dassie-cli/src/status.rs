@@ -337,7 +337,7 @@ fn relay(relay: Option<&proto::ChosenRelay>, periphery: bool) -> Option<String> 
         });
     };
     let who = who(&relay.node, &relay.url);
-    let connection = relay_connection(relay);
+    let connection = relay.connection();
     Some(if connection == proto::RelayConnection::Connected {
         format!("{who}, connected")
     } else if connection == proto::RelayConnection::Connecting {
@@ -349,19 +349,6 @@ fn relay(relay: Option<&proto::ChosenRelay>, periphery: bool) -> Option<String> 
              and key, and that the node can reach it over UDP"
         )
     })
-}
-
-/// How the node stands with its relay. A daemon that predates
-/// `connection`, or knows a state this CLI does not, still says whether it
-/// is connected; not connected then reads as unreachable, as it did before.
-fn relay_connection(relay: &proto::ChosenRelay) -> proto::RelayConnection {
-    match proto::RelayConnection::try_from(relay.connection) {
-        Ok(proto::RelayConnection::Unspecified) | Err(_) if relay.connected => {
-            proto::RelayConnection::Connected
-        }
-        Ok(proto::RelayConnection::Unspecified) | Err(_) => proto::RelayConnection::Unreachable,
-        Ok(connection) => connection,
-    }
 }
 
 /// The rate feed: whether the node serves it and where, how many it goes
@@ -919,13 +906,12 @@ mod tests {
         let mut chosen = proto::ChosenRelay {
             node: "dRelay".into(),
             url: "https://relay.dassiepay.net".into(),
-            connected: true,
-            ..Default::default()
+            connection: proto::RelayConnection::Connected.into(),
         };
         let connected = "dRelay at https://relay.dassiepay.net, connected";
         assert_eq!(relay(Some(&chosen), true).as_deref(), Some(connected));
         assert_eq!(relay(Some(&chosen), false).as_deref(), Some(connected));
-        chosen.connected = false;
+        chosen.connection = proto::RelayConnection::Unreachable.into();
         let lost = relay(Some(&chosen), true).unwrap();
         assert!(
             lost.starts_with("dRelay at https://relay.dassiepay.net, not connected, so "),
@@ -948,17 +934,14 @@ mod tests {
         );
     }
 
-    // A daemon that says how it stands with its relay (above, one that says
-    // only whether it is connected): connecting, right after a start or a
-    // brief drop, is no fault and gets no hint; a relay that stays
-    // unreachable does.
+    // Connecting, right after a start or a brief drop, is no fault and gets
+    // no hint; a relay that stays unreachable does.
     #[test]
     fn the_chosen_relay_while_connecting() {
         use proto::RelayConnection::{Connected, Connecting, Unreachable};
         let chosen = |connection: proto::RelayConnection| proto::ChosenRelay {
             node: "dRelay".into(),
             url: "https://relay.dassiepay.net".into(),
-            connected: connection == Connected,
             connection: connection.into(),
         };
         let text = |connection| relay(Some(&chosen(connection)), true).unwrap();
@@ -974,13 +957,10 @@ mod tests {
             unreachable.contains("check that DASSIE_RELAY"),
             "{unreachable}"
         );
-        // A state this CLI does not know, from a newer daemon, falls back to
-        // whether it is connected.
-        let mut newer = chosen(Connecting);
-        newer.connection = 99;
-        assert_eq!(relay(Some(&newer), true), Some(unreachable));
-        newer.connected = true;
-        assert_eq!(relay(Some(&newer), true), Some(format!("{who}, connected")));
+        // A state this CLI does not know reads as not connected.
+        let mut unknown = chosen(Connecting);
+        unknown.connection = 99;
+        assert_eq!(relay(Some(&unknown), true), Some(unreachable));
     }
 
     // A core node's feed: where it is served, to how many, and its

@@ -35,8 +35,6 @@ message NetworkNode {
   bool banned = 16;
   // The peering, while there is one.
   NetworkPeer peering = 17;
-  reserved 18;
-  reserved "ban";
 }
 
 enum PeerState {
@@ -75,10 +73,6 @@ message NetworkPeer {
   string scheme = 2;
   // The scheme's version both speak.
   uint32 version = 3;
-  // The credit the peer extends to this node is not its to know
-  // (spec/decisions/own-fulfills.md).
-  reserved 4;
-  reserved "credit_in";
   // The credit this node extends to the peer, in the scheme ledger's
   // units.
   uint64 credit_out = 5;
@@ -100,8 +94,6 @@ message NetworkPeer {
   // What this node owes the peer net, in the scheme ledger's units:
   // negative when the peer owes this node.
   int64 owed = 12;
-  reserved 13, 14;
-  reserved "refused_24h", "cost";
   // Whether the peer was heard from within the last 60 s. An offline peer
   // is not advertised, so no route goes through it; the peering stays
   // until it has been silent for a day (spec/decisions/peering-lifecycle.md).
@@ -215,15 +207,11 @@ message ListBansRequest {}
 message ListBansResponse {
   // By ID. Only the owner bans (spec/decisions/own-fulfills.md).
   repeated string nodes = 1;
-  reserved 2;
-  reserved "bans";
 }
 
 // The owner's settings for peers (spec/decisions/exchange-rates.md,
 // spec/decisions/passive-rebalancing.md).
 message PeerSettings {
-  reserved 1;
-  reserved "grace_share_ppm";
   // The fee on what passes from one peer to another, in parts per million
   // of what comes in, rounded down: 0 to 100 000 (10%).
   uint32 connector_fee_ppm = 2;
@@ -231,9 +219,8 @@ message PeerSettings {
   // what goes out: 0 to 100 000.
   uint32 fx_spread_ppm = 3;
   // k, how far the owner's inventory moves the rate such a packet converts
-  // at from spot, in parts per million: 0 (spot) to 100 000. Always set in
-  // answers; a SetPeerSettings without it keeps the node's.
-  optional uint32 rebalance_ppm = 4;
+  // at from spot, in parts per million: 0 (spot) to 100 000.
+  uint32 rebalance_ppm = 4;
 }
 
 message GetPeerSettingsRequest {}

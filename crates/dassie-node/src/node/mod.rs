@@ -47,7 +47,7 @@ use crate::tls::{CertificateSlot, TlsError};
 /// How the daemon got its sockets.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Runtime {
-    /// It bound them itself, on the configured ports.
+    /// It bound them itself, on 80 and 443 or the ports its flags give.
     Standalone,
     /// systemd passed them in.
     Systemd,

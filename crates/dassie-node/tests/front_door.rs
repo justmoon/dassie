@@ -490,7 +490,6 @@ async fn a_periphery_node_with_an_uplink_is_reached_through_its_front_door() {
     let relay = status.relay.unwrap();
     assert_eq!(relay.node, door.id.as_str());
     assert_eq!(relay.url, door.url);
-    assert!(relay.connected);
     assert_eq!(
         relay.connection,
         i32::from(proto::RelayConnection::Connected)
@@ -540,7 +539,6 @@ async fn a_node_whose_udp_is_blocked_keeps_its_front_door_over_a_tunnel() {
     assert_eq!(node.quic.as_ref().unwrap().open_tunnels(), 1);
     let relay = status_of(&node).await.relay.unwrap();
     assert_eq!(relay.node, door.id.as_str());
-    assert!(relay.connected);
     // On the relay's host, `/quic` is a tunnel's WebSocket and nothing else.
     let relay_host = door.relay_host();
     let reply = door.send(&name, tunnel_handshake(relay_host, false)).await;

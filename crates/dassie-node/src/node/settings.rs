@@ -2,9 +2,9 @@
 
 use std::fmt;
 
-use dassie_node_core::config::{Alias, ConfigError, Hostname, NodeConfig, Ports};
+use dassie_node_core::config::{Alias, ConfigError, Hostname, NodeConfig};
 
-use super::{Node, NodeError, Runtime, lock};
+use super::{Node, NodeError, lock};
 use crate::store::StoreError;
 
 /// A configuration change was refused or failed.
@@ -83,20 +83,6 @@ impl Node {
             self.wake_renewal();
         }
         Ok(config)
-    }
-
-    /// Sets the standalone runtime's ports, and says whether a restart is
-    /// needed for them to take effect.
-    pub fn set_ports(&self, http: u32, https: u32) -> Result<(NodeConfig, bool), SettingsError> {
-        let ports = Ports::new(http, https)?;
-        let (config, _) = self.change_config(|config| {
-            config.ports = ports;
-            Ok(true)
-        })?;
-        let listening = (self.http_port, self.https_port);
-        let restart_required = self.runtime == Runtime::Standalone
-            && listening != (config.ports.http(), config.ports.https());
-        Ok((config, restart_required))
     }
 
     /// Sets the alias.

@@ -140,15 +140,6 @@ pub async fn dispatch(
                 config: Some(convert::config(&config)),
             })
         }
-        Method::SetPorts(request) => {
-            let (config, restart_required) = node
-                .set_ports(request.http_port, request.https_port)
-                .map_err(settings_error)?;
-            response::Method::SetPorts(proto::SetPortsResponse {
-                config: Some(convert::config(&config)),
-                restart_required,
-            })
-        }
         Method::SetAlias(request) => {
             let config = node.set_alias(&request.alias).map_err(settings_error)?;
             response::Method::SetAlias(proto::SetAliasResponse {
@@ -437,7 +428,6 @@ async fn status(node: &Node) -> proto::GetStatusResponse {
             .map(|(relay, url, link)| proto::ChosenRelay {
                 node: relay.as_str().to_string(),
                 url,
-                connected: link == RelayLink::Connected,
                 connection: match link {
                     RelayLink::Connected => proto::RelayConnection::Connected,
                     RelayLink::Connecting => proto::RelayConnection::Connecting,

@@ -51,8 +51,8 @@ Commands:
                       --runtime standalone|systemd   how to get the sockets
                                                      (default: systemd if it
                                                      passed them, else bind)
-                      --http-port <port>             standalone: this port
-                      --https-port <port>            instead of the configured
+                      --http-port <port>             standalone: these ports
+                      --https-port <port>            (default: 80 and 443)
                       --listen <address>             standalone: only this
                                                      address (default: all)
                       --feed-listen <addr:port>      standalone: the rate
@@ -248,7 +248,7 @@ fn daemon_args(parser: &mut lexopt::Parser) -> Result<DaemonOptions, lexopt::Err
         }
     }
     options.ports = match (http, https) {
-        (None, None) => TcpPorts::Configured,
+        (None, None) => TcpPorts::Standard,
         (Some(http), Some(https)) => {
             TcpPorts::These(Ports::new(http, https).map_err(|e| e.to_string())?)
         }

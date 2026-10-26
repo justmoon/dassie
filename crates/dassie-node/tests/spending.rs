@@ -163,6 +163,30 @@ async fn approve(node: &TestNode, client: &Client, grant: &Value) -> String {
         .to_string()
 }
 
+/// The grants the owner approved, as `SubscribeGrants` first lists them.
+async fn approved_grants(node: &TestNode) -> Vec<proto::Grant> {
+    let mut owner = node.ipc().await;
+    owner
+        .send_raw(proto::ClientMessage {
+            call_id: 1,
+            kind: Some(client_message::Kind::Request(proto::Request {
+                method: Some(Method::SubscribeGrants(proto::SubscribeGrantsRequest {})),
+            })),
+        })
+        .await;
+    let message = tokio::time::timeout(Duration::from_secs(5), owner.receive())
+        .await
+        .expect("no item")
+        .expect("closed");
+    let Some(server_message::Kind::Item(item)) = message.kind else {
+        panic!("{message:?}")
+    };
+    let Some(stream_item::Method::SubscribeGrants(listed)) = item.method else {
+        panic!("{item:?}")
+    };
+    listed.grants
+}
+
 async fn post(
     node: &TestNode,
     client: &Client,
@@ -367,15 +391,10 @@ async fn the_owner_revokes_a_grant() {
     let (node, key) = start().await;
     let client = own_client(&node, &key);
     let token = approved(&node, &client, 1_000).await;
+    let listed = approved_grants(&node).await;
     let mut owner = node.ipc().await;
-    let Ok(response::Method::ListGrants(listed)) = owner
-        .call(Method::ListGrants(proto::ListGrantsRequest {}))
-        .await
-    else {
-        panic!("no grants")
-    };
-    assert_eq!(listed.grants.len(), 1);
-    let grant = &listed.grants[0];
+    assert_eq!(listed.len(), 1);
+    let grant = &listed[0];
     assert_eq!(grant.state, "approved");
     owner
         .call(Method::RevokeGrant(proto::RevokeGrantRequest {
@@ -1320,15 +1339,8 @@ async fn the_owner_sees_the_span_and_receiver_of_a_request() {
         "limits": { "receiver": local, "debitAmount": usd(1_000) },
     }]);
     approve(&node, &client, &ask_for(&node, &client, &access).await).await;
-    let Ok(response::Method::ListGrants(list)) = node
-        .ipc()
-        .await
-        .call(Method::ListGrants(proto::ListGrantsRequest {}))
-        .await
-    else {
-        panic!("no list")
-    };
-    let limits = list.grants[0].access[0].limits.as_ref().unwrap();
+    let list = approved_grants(&node).await;
+    let limits = list[0].access[0].limits.as_ref().unwrap();
     assert_eq!(limits.receiver, local);
     assert_eq!(limits.receiver_payment, None);
     node.stop().await;

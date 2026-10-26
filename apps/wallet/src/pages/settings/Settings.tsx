@@ -202,7 +202,7 @@ function PeerSettings(): JSX.Element {
     spread() ?? (settings() ? chargeText(settings()!.fxSpreadPpm) : "");
   const shownRebalance = () =>
     rebalance() ??
-      (settings() ? chargeText(settings()!.rebalancePpm ?? 0) : "");
+      (settings() ? chargeText(settings()!.rebalancePpm) : "");
   const save = async (event: SubmitEvent) => {
     event.preventDefault();
     setError(undefined);

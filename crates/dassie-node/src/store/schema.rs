@@ -68,6 +68,7 @@ const MIGRATIONS: &[&str] = &[
     MIGRATION_44,
     MIGRATION_45,
     MIGRATION_46,
+    MIGRATION_47,
 ];
 
 /// The schema version this code writes: the number of migrations.
@@ -1658,6 +1659,15 @@ const MIGRATION_46: &str = concat!(
     rename_wallet!("hub-xrpl-testnet-xrp", "hub-xrp"),
 );
 
+/// The standalone runtime binds 80 and 443 unless its flags say otherwise
+/// (spec/areas/node.md#runtimes): the owner no longer sets ports, so the
+/// stored ones go. `https_port` goes first, since its CHECK names
+/// `http_port`.
+const MIGRATION_47: &str = "
+ALTER TABLE node_config DROP COLUMN https_port;
+ALTER TABLE node_config DROP COLUMN http_port;
+";
+
 /// Columns that hold secrets: the database inspector never reads them.
 pub const SECRET_COLUMNS: &[(&str, &str)] = &[
     ("node_key", "private_key"),
@@ -1699,8 +1709,6 @@ pub const TABLES: &[Table] = &[
             ("id", "INTEGER", false, true),
             ("realm", "TEXT", true, false),
             ("hostname", "TEXT", false, false),
-            ("http_port", "INTEGER", true, false),
-            ("https_port", "INTEGER", true, false),
             ("alias", "TEXT", true, false),
             ("acme_directory_url", "TEXT", true, false),
         ],

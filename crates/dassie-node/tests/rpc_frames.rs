@@ -587,7 +587,6 @@ fn bare() -> BoxedStrategy<Method> {
         Method::SubscribeLogs(proto::SubscribeLogsRequest {}),
         Method::ListDatabaseTables(proto::ListDatabaseTablesRequest {}),
         Method::ListServices(proto::ListServicesRequest {}),
-        Method::ListGrants(proto::ListGrantsRequest {}),
         Method::SubscribeGrants(proto::SubscribeGrantsRequest {}),
         Method::SubscribeNames(proto::SubscribeNamesRequest {}),
         Method::GetPeerSettings(proto::GetPeerSettingsRequest {}),
@@ -600,12 +599,6 @@ fn bare() -> BoxedStrategy<Method> {
 fn settings() -> BoxedStrategy<Method> {
     prop_oneof![
         hostname().prop_map(|hostname| Method::SetHostname(proto::SetHostnameRequest { hostname })),
-        (small(), small()).prop_map(|(http_port, https_port)| {
-            Method::SetPorts(proto::SetPortsRequest {
-                http_port,
-                https_port,
-            })
-        }),
         field(&["Dassie", "a", ""])
             .prop_map(|alias| Method::SetAlias(proto::SetAliasRequest { alias })),
         (pem(), pem()).prop_map(|(certificate_chain_pem, private_key_pem)| {
@@ -822,19 +815,17 @@ fn sending() -> BoxedStrategy<Method> {
         node_id().prop_map(|node| Method::UnbanNode(proto::UnbanNodeRequest { node })),
         field(NAMES).prop_map(|name| Method::RegisterName(proto::RegisterNameRequest { name })),
         field(NAMES).prop_map(|name| Method::RenewName(proto::RenewNameRequest { name })),
-        proptest::option::of((small(), small(), proptest::option::of(small()))).prop_map(
-            |settings| {
-                Method::SetPeerSettings(proto::SetPeerSettingsRequest {
-                    settings: settings.map(|(connector_fee_ppm, fx_spread_ppm, rebalance_ppm)| {
-                        proto::PeerSettings {
-                            connector_fee_ppm,
-                            fx_spread_ppm,
-                            rebalance_ppm,
-                        }
-                    }),
-                })
-            }
-        ),
+        proptest::option::of((small(), small(), small())).prop_map(|settings| {
+            Method::SetPeerSettings(proto::SetPeerSettingsRequest {
+                settings: settings.map(|(connector_fee_ppm, fx_spread_ppm, rebalance_ppm)| {
+                    proto::PeerSettings {
+                        connector_fee_ppm,
+                        fx_spread_ppm,
+                        rebalance_ppm,
+                    }
+                }),
+            })
+        }),
         rate_sources.prop_map(|sources| {
             Method::SetRateSources(proto::SetRateSourcesRequest {
                 sources: sources

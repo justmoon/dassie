@@ -10,7 +10,7 @@ import type { Message, UnknownEnum } from "@bufbuild/protobuf";
  * Describes the file dassie/owner/v1/config.proto.
  */
 export const file_dassie_owner_v1_config: GenFile = /*@__PURE__*/
-  fileDesc("ChxkYXNzaWUvb3duZXIvdjEvY29uZmlnLnByb3RvEg9kYXNzaWUub3duZXIudjEilwEKCk5vZGVDb25maWcSJQoFcmVhbG0YASABKA4yFi5kYXNzaWUub3duZXIudjEuUmVhbG0SEAoIaG9zdG5hbWUYAiABKAkSEQoJaHR0cF9wb3J0GAMgASgNEhIKCmh0dHBzX3BvcnQYBCABKA0SDQoFYWxpYXMYBSABKAkSGgoSYWNtZV9kaXJlY3RvcnlfdXJsGAYgASgJIhIKEEdldENvbmZpZ1JlcXVlc3QifQoRR2V0Q29uZmlnUmVzcG9uc2USKwoGY29uZmlnGAEgASgLMhsuZGFzc2llLm93bmVyLnYxLk5vZGVDb25maWcSGQoRaGFzX25vZGVfaWRlbnRpdHkYAiABKAgSDwoHbm9kZV9pZBgDIAEoCRIPCgdoYXNfdGxzGAQgASgIIhQKEkdldFNldHVwVXJsUmVxdWVzdCIiChNHZXRTZXR1cFVybFJlc3BvbnNlEgsKA3VybBgBIAEoCSImChJTZXRIb3N0bmFtZVJlcXVlc3QSEAoIaG9zdG5hbWUYASABKAkiQgoTU2V0SG9zdG5hbWVSZXNwb25zZRIrCgZjb25maWcYASABKAsyGy5kYXNzaWUub3duZXIudjEuTm9kZUNvbmZpZyI4Cg9TZXRQb3J0c1JlcXVlc3QSEQoJaHR0cF9wb3J0GAEgASgNEhIKCmh0dHBzX3BvcnQYAiABKA0iWQoQU2V0UG9ydHNSZXNwb25zZRIrCgZjb25maWcYASABKAsyGy5kYXNzaWUub3duZXIudjEuTm9kZUNvbmZpZxIYChByZXN0YXJ0X3JlcXVpcmVkGAIgASgIIiAKD1NldEFsaWFzUmVxdWVzdBINCgVhbGlhcxgBIAEoCSI/ChBTZXRBbGlhc1Jlc3BvbnNlEisKBmNvbmZpZxgBIAEoCzIbLmRhc3NpZS5vd25lci52MS5Ob2RlQ29uZmlnKj4KBVJlYWxtEhUKEVJFQUxNX1VOU1BFQ0lGSUVEEAASDgoKUkVBTE1fVEVTVBABEg4KClJFQUxNX0xJVkUQAmIGcHJvdG8z");
+  fileDesc("ChxkYXNzaWUvb3duZXIvdjEvY29uZmlnLnByb3RvEg9kYXNzaWUub3duZXIudjEicAoKTm9kZUNvbmZpZxIlCgVyZWFsbRgBIAEoDjIWLmRhc3NpZS5vd25lci52MS5SZWFsbRIQCghob3N0bmFtZRgCIAEoCRINCgVhbGlhcxgFIAEoCRIaChJhY21lX2RpcmVjdG9yeV91cmwYBiABKAkiEgoQR2V0Q29uZmlnUmVxdWVzdCJ9ChFHZXRDb25maWdSZXNwb25zZRIrCgZjb25maWcYASABKAsyGy5kYXNzaWUub3duZXIudjEuTm9kZUNvbmZpZxIZChFoYXNfbm9kZV9pZGVudGl0eRgCIAEoCBIPCgdub2RlX2lkGAMgASgJEg8KB2hhc190bHMYBCABKAgiFAoSR2V0U2V0dXBVcmxSZXF1ZXN0IiIKE0dldFNldHVwVXJsUmVzcG9uc2USCwoDdXJsGAEgASgJIiYKElNldEhvc3RuYW1lUmVxdWVzdBIQCghob3N0bmFtZRgBIAEoCSJCChNTZXRIb3N0bmFtZVJlc3BvbnNlEisKBmNvbmZpZxgBIAEoCzIbLmRhc3NpZS5vd25lci52MS5Ob2RlQ29uZmlnIiAKD1NldEFsaWFzUmVxdWVzdBINCgVhbGlhcxgBIAEoCSI/ChBTZXRBbGlhc1Jlc3BvbnNlEisKBmNvbmZpZxgBIAEoCzIbLmRhc3NpZS5vd25lci52MS5Ob2RlQ29uZmlnKj4KBVJlYWxtEhUKEVJFQUxNX1VOU1BFQ0lGSUVEEAASDgoKUkVBTE1fVEVTVBABEg4KClJFQUxNX0xJVkUQAmIGcHJvdG8z");
 
 /**
  * @generated from message dassie.owner.v1.NodeConfig
@@ -27,18 +27,6 @@ export type NodeConfig = Message<"dassie.owner.v1.NodeConfig"> & {
    * @generated from field: string hostname = 2;
    */
   hostname: string;
-
-  /**
-   * Used in the standalone runtime. Under systemd the socket units decide.
-   *
-   * @generated from field: uint32 http_port = 3;
-   */
-  httpPort: number;
-
-  /**
-   * @generated from field: uint32 https_port = 4;
-   */
-  httpsPort: number;
 
   /**
    * Shown to other nodes next to the node ID; may be empty.
@@ -182,54 +170,6 @@ export const SetHostnameResponseSchema: GenMessage<SetHostnameResponse> = /*@__P
   messageDesc(file_dassie_owner_v1_config, 6);
 
 /**
- * Both ports in 1..65535 and different from each other.
- *
- * @generated from message dassie.owner.v1.SetPortsRequest
- */
-export type SetPortsRequest = Message<"dassie.owner.v1.SetPortsRequest"> & {
-  /**
-   * @generated from field: uint32 http_port = 1;
-   */
-  httpPort: number;
-
-  /**
-   * @generated from field: uint32 https_port = 2;
-   */
-  httpsPort: number;
-};
-
-/**
- * Describes the message dassie.owner.v1.SetPortsRequest.
- * Use `create(SetPortsRequestSchema)` to create a new message.
- */
-export const SetPortsRequestSchema: GenMessage<SetPortsRequest> = /*@__PURE__*/
-  messageDesc(file_dassie_owner_v1_config, 7);
-
-/**
- * @generated from message dassie.owner.v1.SetPortsResponse
- */
-export type SetPortsResponse = Message<"dassie.owner.v1.SetPortsResponse"> & {
-  /**
-   * @generated from field: dassie.owner.v1.NodeConfig config = 1;
-   */
-  config?: NodeConfig | undefined;
-
-  /**
-   * The listeners keep their ports until the node restarts.
-   *
-   * @generated from field: bool restart_required = 2;
-   */
-  restartRequired: boolean;
-};
-
-/**
- * Describes the message dassie.owner.v1.SetPortsResponse.
- * Use `create(SetPortsResponseSchema)` to create a new message.
- */
-export const SetPortsResponseSchema: GenMessage<SetPortsResponse> = /*@__PURE__*/
-  messageDesc(file_dassie_owner_v1_config, 8);
-
-/**
  * At most 64 bytes of UTF-8, without control characters.
  *
  * @generated from message dassie.owner.v1.SetAliasRequest
@@ -246,7 +186,7 @@ export type SetAliasRequest = Message<"dassie.owner.v1.SetAliasRequest"> & {
  * Use `create(SetAliasRequestSchema)` to create a new message.
  */
 export const SetAliasRequestSchema: GenMessage<SetAliasRequest> = /*@__PURE__*/
-  messageDesc(file_dassie_owner_v1_config, 9);
+  messageDesc(file_dassie_owner_v1_config, 7);
 
 /**
  * @generated from message dassie.owner.v1.SetAliasResponse
@@ -263,7 +203,7 @@ export type SetAliasResponse = Message<"dassie.owner.v1.SetAliasResponse"> & {
  * Use `create(SetAliasResponseSchema)` to create a new message.
  */
 export const SetAliasResponseSchema: GenMessage<SetAliasResponse> = /*@__PURE__*/
-  messageDesc(file_dassie_owner_v1_config, 10);
+  messageDesc(file_dassie_owner_v1_config, 8);
 
 /**
  * @generated from enum dassie.owner.v1.Realm
