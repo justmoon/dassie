@@ -7,7 +7,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing)]
 
-use dassie_kit::sim::{Outcome, assert_seeds_pass};
+use dassie_kit::sim::Outcome;
 use dassie_stream::sim::payment::{self, LOSSY, STEPS};
 use dassie_stream::sim::{Detour, Path, Side, Simulation};
 use dassie_stream::{ErrorCode, Event, MAX_FAILURES_WITHOUT_PROGRESS, Policy, Rate};
@@ -442,11 +442,6 @@ fn simulations_are_deterministic() {
     assert_eq!(other.outcome, Outcome::Pass);
     assert_eq!(first.trace, again.trace);
     assert_ne!(first.trace, other.trace);
-}
-
-#[test]
-fn many_seeds_keep_the_invariants() {
-    assert_seeds_pass(100..120, payment::run);
 }
 
 #[test]

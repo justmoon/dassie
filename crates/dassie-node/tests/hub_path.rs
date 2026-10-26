@@ -3,7 +3,7 @@
 //! the stub with commitments, which signs and takes promises per packet as a
 //! hub's member does, without a hub (spec/areas/settlement.md#the-stub-scheme).
 //! A failure names its seed: `dassie-sim run node-stub-hub <seed>` replays a
-//! scripted run.
+//! scripted run, and the campaign runs it from random seeds.
 //!
 //! After every step, the simulation checks that no node's stub holds a
 //! packet its connector let go, and that the credit each node extends over
@@ -22,16 +22,16 @@ use std::collections::BTreeMap;
 
 use dassie_connector::{EndpointId, PacketRecord, PacketState};
 use dassie_ilp::ErrorCode;
-use dassie_kit::sim::assert_seeds_pass;
 use dassie_ledger::Name;
 use dassie_node::engine::HubPeer;
 use dassie_node::sim::checks::{check, check_hub_credit, check_hub_packets};
 use dassie_node::sim::{START, Settling, Sim, key, received, scripted};
+use dassie_kit::sim::assert_passes;
 use dassie_settlement::Held;
 
 #[test]
 fn simulated_networks_pay_over_a_stub_with_commitments() {
-    assert_seeds_pass(0..6, scripted::run_stub_hub);
+    assert_passes(0, scripted::run_stub_hub);
 }
 
 /// `count` nodes over the stub with commitments, room for `limit` packets

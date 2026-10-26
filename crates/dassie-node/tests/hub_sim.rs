@@ -3,22 +3,12 @@
 //! its validators, each the node's own validator role without its IO, found
 //! the hub on the fake XRP Ledger, and nodes join it by deposit.
 //!
-//! The `node-hub` run (`dassie_node::sim::hubbed`) on fixed seeds: each
-//! draws its hub (4 to 7 validators, up to f of them faulty), its members,
-//! a lying member and a validator's restart, pays across hops over the hub,
-//! then has the hub stall and its escrow pay out, or f + 1 validators
-//! collude. A failure names its seed: `dassie-sim run node-hub <seed>`
-//! replays it, `dassie-sim explain node-hub <seed>` prints its trace. The
-//! seeds must reach every fault and lie the run draws, and the payout, so
-//! that a change to the generator that stops reaching one fails here rather
-//! than going quiet. They run at once, as many at a time as the machine
-//! runs threads.
-//!
-//! What they cost the `nix` check, in its `ci` profile: the fixed seeds
-//! and the replay pair take about three minutes of CPU, and about 30 s of
-//! wall time on a machine of 48 threads, the slowest seed's; the file's
-//! other tests run beside them within that. On a machine of few threads
-//! the wall time comes closer to the CPU time.
+//! The `node-hub` run (`dassie_node::sim::hubbed`) draws a hub (4 to 7
+//! validators, up to f of them faulty), its members, a lying member and a
+//! validator's restart, pays across hops over the hub, then has the hub
+//! stall and its escrow pay out, or f + 1 validators collude. The campaign
+//! runs it from random seeds, outside CI: `dassie-sim run node-hub <seed>`
+//! replays a seed, `dassie-sim explain node-hub <seed>` prints its trace.
 
 #![allow(
     clippy::unwrap_used,
@@ -28,74 +18,8 @@
 )]
 
 use std::collections::BTreeMap;
-use std::num::NonZero;
-use std::panic::resume_unwind;
-use std::sync::{Mutex, PoisonError};
-use std::thread;
 
-use dassie_kit::sim::{Run, caught};
 use dassie_node::sim::{START, Settling, Sim, hubbed, key};
-
-/// The seeds CI runs: between them, every validator fault and member lie
-/// the run draws, restarts, hubs of 4, 5 and 7, and collusions, of which
-/// one forks: whether colluders split the honest validators depends on
-/// the run's timing, which a change to what the nodes ask their ledger
-/// moves.
-const SEEDS: [u64; 11] = [8, 13, 16, 18, 30, 42, 46, 47, 56, 62, 147];
-
-/// What the seeds must reach between them, at least.
-const LEAST: [(&str, u64); 16] = [
-    ("prepares over a hub", 100),
-    ("settlements taken", 50),
-    ("losses booked over a hub", 1),
-    ("validator crashes", 10),
-    ("states fetched", 1),
-    ("equivocations", 1),
-    ("invalid proposals", 1),
-    ("claims made twice", 1),
-    ("claims held back", 1),
-    ("fulfills withheld", 1),
-    ("hubs stalled", 8),
-    ("payout sets signed", 24),
-    ("payout sets gathered", 8),
-    ("payouts checked", 8),
-    ("evidence found", 1),
-    ("forks with evidence", 1),
-];
-
-#[test]
-fn members_pay_over_a_hub_and_its_escrow_pays_them_out() {
-    let runs = each(&SEEDS, |seed| {
-        let mut run = caught(|| hubbed::run(seed));
-        run.trace = Vec::new();
-        run
-    });
-    let mut failed = Vec::new();
-    let mut reached: BTreeMap<&str, u64> = BTreeMap::new();
-    for (seed, run) in SEEDS.iter().zip(runs) {
-        if run.outcome.is_failure() {
-            failed.push(format!("seed {seed}: {}", run.outcome));
-        }
-        for (what, count) in run.counts {
-            *reached.entry(what).or_default() += count;
-        }
-    }
-    assert!(failed.is_empty(), "{}", failed.join("\n"));
-    for (what, least) in LEAST {
-        let count = reached.get(what).copied().unwrap_or(0);
-        assert!(
-            count >= least,
-            "seeds {SEEDS:?} reached {what} {count} times, not {least}: {reached:?}"
-        );
-    }
-}
-
-/// The same seed, run twice at once on two threads, makes the same run.
-#[test]
-fn a_seed_over_a_hub_replays_the_same_run() {
-    let runs = each(&[56, 56], hubbed::run);
-    assert_eq!(runs[0].trace, runs[1].trace);
-}
 
 // spec/areas/hubs.md#in-the-node: a node opens its account in the hub by a
 // deposit from its XRP Ledger testnet account, which the validators see on
@@ -155,33 +79,4 @@ fn payments_both_ways_through_a_hop_over_a_hub_complete() {
             .map(|payment| (payment.from, payment.to, dassie_node::sim::sent(payment)))
             .collect::<Vec<_>>()
     );
-}
-
-/// Each seed's run, in the order of `seeds`, made at once on as many
-/// threads as the machine runs, and never more than there are seeds
-/// (`tests/swarm.rs` says why that changes no run).
-fn each(seeds: &[u64], run: impl Fn(u64) -> Run + Sync) -> Vec<Run> {
-    let most = thread::available_parallelism().map_or(1, NonZero::get);
-    let threads = most.min(seeds.len());
-    let left = Mutex::new(seeds.iter().copied().enumerate());
-    let next = || left.lock().unwrap_or_else(PoisonError::into_inner).next();
-    let mut runs: Vec<(usize, Run)> = thread::scope(|scope| {
-        let workers: Vec<_> = (0..threads)
-            .map(|_| {
-                scope.spawn(|| {
-                    let mut runs = Vec::new();
-                    while let Some((index, seed)) = next() {
-                        runs.push((index, run(seed)));
-                    }
-                    runs
-                })
-            })
-            .collect();
-        workers
-            .into_iter()
-            .flat_map(|worker| worker.join().unwrap_or_else(|panic| resume_unwind(panic)))
-            .collect()
-    });
-    runs.sort_by_key(|(index, _)| *index);
-    runs.into_iter().map(|(_, run)| run).collect()
 }

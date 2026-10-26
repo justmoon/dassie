@@ -47,7 +47,7 @@ Dassie is not a consensus system ([own-books](decisions/own-books.md)). Each nod
 
 ## No fuzzing or random seeds in CI
 
-CI runs tests and simulations on fixed seeds only, property tests included ([Testing](areas/testing.md#property-tests)). A random seed per commit would fail pull requests on bugs they did not touch. Random-seed campaigns and any fuzzing run outside CI, and never in it, nightly included ([random-seed-simulations](decisions/random-seed-simulations.md)).
+CI runs tests on fixed seeds only, property tests included ([Testing](areas/testing.md#property-tests)), and no simulation sweeps: a simulation in CI is a scenario on one fixed seed. A random seed per commit would fail pull requests on bugs they did not touch, and a sweep makes every one of them wait for what the campaign checks anyway. Random-seed campaigns and any fuzzing run outside CI, and never in it, nightly included ([random-seed-simulations](decisions/random-seed-simulations.md)).
 
 ## TypeScript and packages
 
@@ -61,4 +61,4 @@ CI runs tests and simulations on fixed seeds only, property tests included ([Tes
 - [tigerstyle](decisions/tigerstyle.md): pragmatic TigerStyle and deterministic simulation, and why determinism comes first.
 - [own-books](decisions/own-books.md): each node keeps its own books; why not reconcile.
 - [node-and-pnpm](decisions/node-and-pnpm.md): Node and pnpm rather than Deno or Bun.
-- [random-seed-simulations](decisions/random-seed-simulations.md): simulations from random seeds, and why CI keeps fixed seeds.
+- [random-seed-simulations](decisions/random-seed-simulations.md): simulations from random seeds, and why CI runs no sweeps.

@@ -17,7 +17,7 @@ Rules for every test:
 
 - **Every decoder has a "never panics on arbitrary input" property test.**
 - **Every simulation or property-test failure prints the seed that reproduces it.**
-- **CI runs fixed seeds only, and no fuzzing** ([Engineering](../engineering.md#no-fuzzing-or-random-seeds-in-ci)).
+- **CI runs fixed seeds only, no simulation sweeps and no fuzzing:** a simulation in CI is a scenario on one fixed seed ([Engineering](../engineering.md#no-fuzzing-or-random-seeds-in-ci)).
 - **Each Rust test runs in its own process, at once with every other.** CI runs them with cargo-nextest (`.config/nextest.toml`), so that it takes as long as its slowest test rather than all of them in turn. A test relies on no other test's process, state or order, and takes its ports from the OS, or fixed ones no other test uses. Nextest retries no test: one that fails only sometimes fails CI.
 - **The end-to-end tests skip what they lack outside CI, and fail on it in CI** (`CI=true`), so a missing tool never passes CI silently.
 
@@ -41,11 +41,11 @@ Dassie runs against the reference implementations, which are the oracle for the 
 
 ## Deterministic simulation
 
-N nodes, or a crate's state machines, are wired in-process through the sans-IO crates, with a virtual clock and a seeded RNG (`dassie_kit::sim::SeededRng`, reproducible, not cryptographic). Every simulation is library code in its crate's `src/sim/`, so `cargo test` (on fixed seeds) and the runner (on any seed) run the same code. What they share (the seeded RNG, a run's outcome, running a range of seeds) is the `sim` feature of `dassie-kit`, a leaf crate that depends on no other of the workspace's: a protocol crate's simulation takes on nothing of the node's.
+N nodes, or a crate's state machines, are wired in-process through the sans-IO crates, with a virtual clock and a seeded RNG (`dassie_kit::sim::SeededRng`, reproducible, not cryptographic). Every simulation is library code in its crate's `src/sim/`, so the scenario tests (on one fixed seed each) and the runner (on any seed) run the same code. What they share (the seeded RNG, a run's outcome, running seeds) is the `sim` feature of `dassie-kit`, a leaf crate that depends on no other of the workspace's: a protocol crate's simulation takes on nothing of the node's.
 
 - Between them, the simulations inject latency, loss, reordering, duplication, partitions, clock skew, crashes and restarts, failed commits, lying peers, and lying ledger servers. What the `node` simulation does not inject yet is in the [roadmap](../roadmap.md#continuous-simulation).
 - Every state machine's invariants are checked after each step.
-- A run is reproducible from its seed: two runs with the same seed produce identical event traces, and a test checks it for each simulation.
+- A run is reproducible from its seed: two runs with the same seed produce identical event traces, and tests check it on seeds whose runs are short.
 
 ### Simulation time follows production
 
@@ -95,7 +95,7 @@ An issuer's freeze stops what the nodes it touches pay or are paid, and lasts up
 
 **Lying servers.** A node's connection to the fake XRP Ledger drops and comes back to a server that tells one kind of lie ([XRPL](xrpl.md#proofs-in-the-fake-ledger)), for a time drawn up to twice the longest of the production timings that end a connection; the next connection is honest, and so is one the node makes itself on catching the lie. The kinds come in an order each seed shuffles, so a run with as many lying servers as there are kinds meets every kind. Validators sign with a keyed hash under a secret only the fake and the nodes' check hold, behind the interface the design names, so that a simulated day stays cheap and no server can forge a validation; everything else is checked for real ([the design](../designs/xrpl-validation.md#11-the-fake-ledger-the-lying-server-and-the-simulation)).
 
-The `node` simulation counts what it reached (crashes mid-payment, cuts, settlements, withdrawals, lying servers, …), and a test asserts that its fixed seeds between them reach every kind of fault and payment, so that a generator cannot quietly stop reaching a case. On the XRP Ledger it also counts what the nodes' accounts proved (anchors, transactions, absences), the lies told and caught, the lists fetched and the keys rotated, and the nodes that anchored: so a change that quietly bypasses the verifier fails. Every kind of lie is asserted on the scripted run's fixed seeds, which tell each in turn: a lying server's connection in the drawn runs may be too short to tell some. An outcome too rare for a few fixed seeds to be sure to reach, such as a settlement booked after its peering ended, has a targeted test instead: a minimum on it would fail whenever an unrelated change moved the seeds' runs.
+The `node` simulation counts what it reached (crashes mid-payment, cuts, settlements, withdrawals, lying servers, …), and `dassie-sim run` adds the counts up over a range of seeds, so that whoever changes the generator sees whether it still reaches every kind of fault and payment. On the XRP Ledger it also counts what the nodes' accounts proved (anchors, transactions, absences), the lies told and caught, the lists fetched and the keys rotated, and the nodes that anchored. The scripted run's two fixed seeds must between them tell every kind of lie, since a lying server's connection may be too short to tell some, and catch them: so a change that quietly bypasses the verifier fails. An outcome a drawn run reaches only rarely, such as a settlement booked after its peering ended, has a targeted test.
 
 ### Over a settlement hub
 
@@ -122,7 +122,7 @@ The guarantees hold for an unsealing that reaches every honest registrar within 
 - **Throughout:** no two nodes but the faulty registrar ever take different holders for a name, frozen views and views restored at a restart too; the adversary never holds a name; no honest registrar releases a name that a registration must hold, such as one it lists while the others' lists are stale; every bound holds; and with a registrar that withholds receipts, no name is unsealed, granted or held: the censorship the design accepts, and no more.
 - **Once calm:** every registration that unsealed before any other registration of its name started is held by its registrant in every node's view, and every view is fresh; with a registrar that withholds receipts, every registration was abandoned instead; and with every registrar honest, no split is left: every name a registrar lists, a quorum of them list, for one holder.
 
-A test asserts that its fixed seeds between them draw every kind of registrar, and reach names held, names contested and released, with every registrar honest too, names the adversary tried to take, names the registrar cut off kept, views frozen while they held names, and restarts of nodes that held names.
+Each run counts the kind of registrar it drew and what it reached: names held, names contested and released, with every registrar honest too, names the adversary tried to take, names the registrar cut off kept, views frozen while they held names, and restarts of nodes that held names; `dassie-sim run names` adds them up over a range of seeds.
 
 **What it does not cover,** and where that is tested instead:
 
@@ -210,4 +210,4 @@ The install tests run the installer and the updater in containers with systemd a
 - [own-books](../decisions/own-books.md): why a simulation judges each node by its own books.
 - [crash-drift](../decisions/crash-drift.md): why a run that crashes drifted a link past what it survives is ruled out, and how the drift is measured.
 - [own-fulfills](../decisions/own-fulfills.md): the bound an adversary is held to.
-- [random-seed-simulations](../decisions/random-seed-simulations.md): one runner, simulations from random seeds, the campaign, and why CI keeps fixed seeds.
+- [random-seed-simulations](../decisions/random-seed-simulations.md): one runner, simulations from random seeds, the campaign, and why CI runs no sweeps.

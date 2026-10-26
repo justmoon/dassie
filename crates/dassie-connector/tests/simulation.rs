@@ -1,17 +1,11 @@
 //! A deterministic simulation of the connector
-//! (spec/areas/testing.md#the-simulations), on fixed seeds:
-//! `dassie_connector::sim::traffic` is the run. A failure names its
-//! seed; `dassie-sim run connector <seed>` replays it, and
-//! `dassie-sim run connector <from>..<to>` runs others
+//! (spec/areas/testing.md#the-simulations): `dassie_connector::sim::traffic`
+//! is the run. The campaign runs it from random seeds, outside CI:
+//! `dassie-sim run connector <seed>` replays a seed, and `dassie-sim run
+//! connector <from>..<to>` runs others
 //! (spec/decisions/random-seed-simulations.md).
 
 use dassie_connector::sim::traffic;
-use dassie_kit::sim::assert_seeds_pass;
-
-#[test]
-fn random_traffic_keeps_the_connector_sound() {
-    assert_seeds_pass(0..24, traffic::run);
-}
 
 #[test]
 fn the_runs_exercise_every_outcome() {
