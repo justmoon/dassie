@@ -6,7 +6,7 @@
 //! ```json
 //! {
 //!   "sponsors": ["<node ID>", ...],
-//!   "hubs": [{ "rules": "<hex>", "genesis_ms": 1800000000000, "xrpl": "wss://..." }],
+//!   "hubs": [{ "rules": "<hex>", "genesisMs": 1800000000000, "xrpl": "wss://..." }],
 //!   "xrpl": "wss://...",
 //!   "network": "testnet"
 //! }
@@ -16,7 +16,7 @@
 //! lists (spec/decisions/settlement-hubs.md): a hub whose sponsor is not
 //! listed is refused, so nobody makes the node keep a hub it never wanted.
 //! `rules` are the hub's genesis rules in canonical OER, as hex; every
-//! validator starts the hub from the same `genesis_ms`, the genesis block's
+//! validator starts the hub from the same `genesisMs`, the genesis block's
 //! timestamp, which is part of its digest; `xrpl` is the XRPL server the
 //! node follows the escrow on: the hub's own, else the file's, which hubs
 //! founded through the node use too (spec/areas/hubs.md#founding-a-hub),
@@ -76,7 +76,7 @@ pub struct HubConfig {
 }
 
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
 struct File {
     sponsors: Vec<String>,
     hubs: Vec<HubEntry>,
@@ -85,7 +85,7 @@ struct File {
 }
 
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
 struct HubEntry {
     rules: String,
     genesis_ms: u64,
@@ -192,7 +192,7 @@ fn hub(
         ));
     }
     if entry.genesis_ms == 0 {
-        return Err("its genesis_ms is 0".into());
+        return Err("its genesisMs is 0".into());
     }
     let xrpl = server(entry.xrpl.clone().unwrap_or_else(|| xrpl.into()))?;
     Ok(HubConfig {
@@ -308,7 +308,7 @@ pub(crate) mod tests {
     fn file(sponsors: &[String], rules: &Rules) -> String {
         serde_json::json!({
             "sponsors": sponsors,
-            "hubs": [{ "rules": hex_of(&rules.to_vec()), "genesis_ms": 1_800_000_000_000_u64 }],
+            "hubs": [{ "rules": hex_of(&rules.to_vec()), "genesisMs": 1_800_000_000_000_u64 }],
         })
         .to_string()
     }
@@ -317,7 +317,7 @@ pub(crate) mod tests {
     fn file_on(sponsors: &[String], rules: &Rules, network: &str) -> String {
         serde_json::json!({
             "sponsors": sponsors,
-            "hubs": [{ "rules": hex_of(&rules.to_vec()), "genesis_ms": 1_800_000_000_000_u64 }],
+            "hubs": [{ "rules": hex_of(&rules.to_vec()), "genesisMs": 1_800_000_000_000_u64 }],
             "network": network,
         })
         .to_string()
@@ -352,8 +352,12 @@ pub(crate) mod tests {
         let error = parse(&file(&listed, &broken), refused).unwrap_err();
         assert!(error.contains("do not check"), "{error}");
         assert!(parse("{\"sponsors\": [], \"hubs\": [], \"extra\": 1}", refused).is_err());
-        let bad_rules = r#"{"sponsors": [], "hubs": [{"rules": "zz", "genesis_ms": 1}]}"#;
+        let bad_rules = r#"{"sponsors": [], "hubs": [{"rules": "zz", "genesisMs": 1}]}"#;
         assert!(parse(bad_rules, refused).is_err());
+        // Its keys are camelCase, like the environment's JSON.
+        let snake = file(&listed, &rules).replace("genesisMs", "genesis_ms");
+        let error = parse(&snake, refused).unwrap_err();
+        assert!(error.contains("genesis_ms"), "{error}");
     }
 
     // The network is the testnet unless the file names another; one of
