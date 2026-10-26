@@ -99,10 +99,9 @@ impl MasterSeed {
 impl LoginSecret {
     /// Whether `candidate` equals this secret, compared in constant time.
     ///
-    /// The original compared hex strings with `!==`, which exits at the first
-    /// differing character (spec/original/02-node-runtime.md#83-post-apisetup).
-    /// A candidate of the wrong length is rejected straight away; the length
-    /// is public.
+    /// A comparison that stops at the first differing byte would tell an
+    /// attacker how much of a guess was right. A candidate of the wrong
+    /// length is rejected straight away; the length is public.
     #[must_use]
     pub fn verify_proof(&self, candidate: &[u8]) -> bool {
         self.0.as_slice().ct_eq(candidate).into()

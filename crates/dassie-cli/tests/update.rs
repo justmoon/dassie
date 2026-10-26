@@ -496,7 +496,7 @@ fn refuses_what_is_not_a_release() {
     );
 }
 
-// RT-18 and UI-11: the original installed whatever the mirror served.
+// The updater installs only a bundle whose signature verifies.
 #[test]
 fn refuses_a_tampered_bundle() {
     let (mirror, install) = (MirrorServer::start(), Install::new());

@@ -2,7 +2,7 @@
 //! addresses and keys, grants for clients known by their wallet address or
 //! only by their key, signed requests, and incoming payments that take
 //! exactly what they ask for. The original had no grants, keys or signatures,
-//! and served no incoming payment by its ID (ILP-10).
+//! and served no incoming payment by its ID.
 
 #![allow(
     clippy::unwrap_used,

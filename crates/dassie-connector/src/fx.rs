@@ -87,7 +87,7 @@ impl Rates {
 
 /// Converts `amount` of `from` into `to` at `rates`, rounding down. The
 /// same currency converts one to one at any scale difference; the original
-/// went through a JavaScript double for `10^k` (ILP-6). Returns `None` for a
+/// went through a JavaScript double for `10^k`. Returns `None` for a
 /// missing rate or a result that does not fit.
 #[must_use]
 pub fn convert(rates: &Rates, from: Asset, to: Asset, amount: u64) -> Option<u64> {
@@ -159,7 +159,7 @@ mod tests {
         assert_eq!(convert(&rates(), XRP, USD, 2), Some(0));
     }
 
-    // ILP-6: 10^k went through a double, exact only for k <= 22.
+    // 10^k is exact at every scale, not only where a double is.
     #[test]
     fn scales_are_exact_powers_of_ten() {
         let cents = Asset {

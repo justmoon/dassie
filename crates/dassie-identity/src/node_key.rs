@@ -20,9 +20,8 @@ const PKCS8_PREFIX: [u8; 16] = [
 
 /// `SubjectPublicKeyInfo` for an Ed25519 public key (RFC 8410 §4), up to the
 /// key: algorithm 1.3.101.112 and a BIT STRING of 33 bytes, the first being
-/// the count of unused bits (zero). The original's constant left that byte
-/// out (spec/original/03-peer-network.md#21-node-private-key), so its
-/// 44-byte keys started with a stray `00`.
+/// the count of unused bits (zero), which a key of 33 bytes starting with a
+/// stray `00` would leave out.
 const SPKI_PREFIX: [u8; 12] = [
     0x30, 0x2a, 0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x70, 0x03, 0x21, 0x00,
 ];
@@ -64,8 +63,7 @@ impl NodeKey {
         Self { signing, public }
     }
 
-    /// The Ed25519 seed (the original's "raw private key",
-    /// spec/original/03-peer-network.md#21-node-private-key).
+    /// The Ed25519 seed: the raw private key the node database stores.
     #[must_use]
     pub fn as_bytes(&self) -> &[u8; 32] {
         self.signing.as_bytes()

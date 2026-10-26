@@ -1,8 +1,8 @@
 // The spec's links and the citations of it hold: every link inside spec/ and
 // every `spec/….md#anchor` the repository cites names a file and heading that
-// exist, every gap of the original it cites (`NET-24`) is one spec/original
-// lists, nothing cites the chapters the spec no longer has, and every crate,
-// app, package, test suite and contract has a row in spec/README.md's index.
+// exist, nothing cites the chapters the spec no longer has (the original's
+// among them, with their gap IDs such as `NET-24`), and every crate, app,
+// package, test suite and contract has a row in spec/README.md's index.
 
 import { test } from "node:test";
 import { readdir, readFile } from "node:fs/promises";
@@ -136,12 +136,12 @@ test("spec: nothing cites the chapters the spec no longer has", () => {
     /\b[Ss]pec [0-9]+ ?§/,
     /\b0[789]-[a-z-]+\.md/,
     /\bspec\/0[1-9]-/,
+    /\bspec\/original\//,
+    /\b(?:(?:RT|NET|ILP|ACC|UI)-[0-9]+|OER-q[0-9]+)\b/,
   ];
   const problems: string[] = [];
   for (const [path, text] of texts) {
-    if (path.startsWith("spec/original/") || path === "scripts/spec_test.ts") {
-      continue;
-    }
+    if (path === "scripts/spec_test.ts") continue;
     text.split("\n").forEach((line, index) => {
       if (old.some((pattern) => pattern.test(line))) {
         problems.push(`${path}:${index + 1}: ${line.trim()}`);
@@ -155,31 +155,6 @@ test("spec: nothing cites the chapters the spec no longer has", () => {
       }
     }
   }
-  assertEquals(problems, []);
-});
-
-test("spec: every gap of the original the repository cites exists", () => {
-  // spec/original/README.md#conventions: a fixed gap is cited by its ID.
-  const gap = /\b(?:(?:RT|NET|ILP|ACC|UI)-[0-9]+|OER-q[0-9]+)\b/g;
-  const defined = new Set<string>();
-  for (const [path, text] of texts) {
-    if (!path.startsWith("spec/original/")) continue;
-    for (const [, id] of text.matchAll(/^- \*\*([A-Z]+-q?[0-9]+)\*\*/gm)) {
-      defined.add(id);
-    }
-  }
-  const problems: string[] = [];
-  for (const [path, text] of texts) {
-    if (path.startsWith("spec/original/") || path === "scripts/spec_test.ts") {
-      continue;
-    }
-    text.split("\n").forEach((line, index) => {
-      for (const [id] of line.matchAll(gap)) {
-        if (!defined.has(id)) problems.push(`${path}:${index + 1}: ${id}`);
-      }
-    });
-  }
-  assert(defined.size > 0, "no gaps found in spec/original");
   assertEquals(problems, []);
 });
 

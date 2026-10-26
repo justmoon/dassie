@@ -19,8 +19,8 @@ use serde_json::Value;
 use support::{hex, str_field, to_hex, vectors};
 
 fn uint(value: &Value, key: &str) -> u64 {
-    // Values above u64 decode to u64::MAX (RFC 29 §5.2); the original kept
-    // them exact (spec/original/04-interledger.md#112-packet-format-packetsschemats).
+    // Values above u64 decode to u64::MAX (RFC 29 §5.2), where the vectors
+    // keep them exact.
     str_field(value, key).parse().unwrap_or(u64::MAX)
 }
 

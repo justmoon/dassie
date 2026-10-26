@@ -51,7 +51,7 @@ impl Hooks<'_> {
 
     /// The credit we extend to `peer` on `ledger`: what was posted to its
     /// trust account, if it has one from an earlier peering, which is not
-    /// posted again (ACC-5); otherwise `start`, what we would extend now.
+    /// posted again; otherwise `start`, what we would extend now.
     fn credit_for(&self, peer: NodeId, ledger: LedgerId, start: u64) -> u64 {
         Name::new(peer.as_str())
             .ok()
@@ -77,7 +77,7 @@ impl Hooks<'_> {
         super::growth::raise_trust(self.ledger, now_ms, ledger, name, amount).map_err(|_| ())
     }
 
-    /// Opens a core peer's accounts and extends it `start`, once (ACC-5).
+    /// Opens a core peer's accounts and extends it `start`, once.
     /// New ones only while the core peers' share of the peers' account
     /// room has some left: they stay when a channel closes, so the node's
     /// ever-growing number of former peers must not take the room its
@@ -794,7 +794,7 @@ impl Core {
         self.after_peer();
     }
 
-    /// Changes what our link state says: a new one follows (NET-6). The
+    /// Changes what our link state says: a new one follows. The
     /// hub it names is the core's: that of our hub account, if we are a
     /// member.
     pub fn set_own_info(&mut self, mut info: dassie_peer::OwnInfo) {
@@ -829,7 +829,7 @@ impl Core {
     /// neither offers, asks for nor accepts a peering on it; peerings already
     /// made stay. The list is made from the schemes active now, each time:
     /// the original's started from those active at its start, so of two
-    /// changes the second undid the first (ACC-11).
+    /// changes the second undid the first.
     pub(super) fn update_peer_schemes(&mut self) {
         let schemes: Vec<SchemeId> = self
             .schemes
@@ -1014,8 +1014,8 @@ impl Core {
     /// address beneath ours, `<our address>.<id>`, which reaches it through
     /// us (spec/areas/connector.md#addresses-and-endpoints). The original
     /// gave a peer that was not a member an address beneath its own that
-    /// nothing routed to (NET-21), and stored the addresses its peers gave
-    /// it without reading them (NET-23).
+    /// nothing routed to, and stored the addresses its peers gave
+    /// it without reading them.
     pub(super) fn add_peer_endpoint(&mut self, node: NodeId) -> Result<(), String> {
         if self.peer_endpoints.contains_key(&node) {
             return Ok(());

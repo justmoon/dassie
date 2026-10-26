@@ -433,7 +433,7 @@ fn funded_pair() -> (World, Vec<u8>, Vec<u8>) {
 
 const FUNDED: u64 = (FAUCET_DROPS - RESERVE_BASE) * UNITS_PER_DROP;
 
-// ACC-19, ACC-20: an account the faucet creates is a deposit, the reserve
+// An account the faucet creates is a deposit, the reserve
 // left out.
 #[test]
 fn a_new_account_is_funded_and_its_reserve_never_booked() {
@@ -445,7 +445,7 @@ fn a_new_account_is_funded_and_its_reserve_never_booked() {
     }
 }
 
-// ACC-21, ACC-22: a settlement is whole drops; it is posted once it
+// A settlement is whole drops; it is posted once it
 // succeeded, its fee booked, and the peer credits what was delivered,
 // once.
 #[test]
@@ -827,7 +827,7 @@ fn a_lost_submission_expires_and_is_cancelled() {
     assert_eq!(world.nodes[0].books.finalized, [next]);
 }
 
-// ACC-16: a settlement signed and kept before a restart is submitted again
+// A settlement signed and kept before a restart is submitted again
 // after it, and posted once; what happened while away is booked once,
 // with who did it.
 #[test]

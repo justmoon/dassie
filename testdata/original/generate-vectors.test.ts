@@ -228,10 +228,9 @@ test("oer vectors", async () => {
     return { length, prefix: encoded.subarray(0, encoded.length - length) }
   })
 
-  // Peer-protocol structures from
-  // spec/original/03-peer-network.md#55-test-vectors, regenerated with the
-  // original schema so that the spec's independently computed bytes are
-  // confirmed.
+  // Peer-protocol structures from the original's peer-protocol test
+  // vectors, regenerated with the original schema so that the spec's
+  // independently computed bytes are confirmed.
   const seedA = new Uint8Array(32).fill(1)
   const seedB = new Uint8Array(32).fill(3)
   const publicA = getPublicKey(seedA)

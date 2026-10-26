@@ -548,7 +548,7 @@ impl Core {
     /// Whether nothing is on its way to `node`: no message, no settlement
     /// of ours in progress or still pending from before a restart; that we
     /// hold a channel with it; and that no cancelled settlement holds it
-    /// off (ACC-17).
+    /// off.
     fn can_settle(&self, node: &NodeId) -> bool {
         self.peer.channel(node).is_some()
             && !self.peer.settling(node)
@@ -624,7 +624,7 @@ impl Core {
     }
 
     /// Prepares a settlement and books its pending transfer; it executes
-    /// once that is on disk (ACC-16). Over a hub, it funds our hold toward
+    /// once that is on disk. Over a hub, it funds our hold toward
     /// the peer, which is part of the credit we extend to it: the credit is
     /// raised by it first, so that the books take it, and follows what the
     /// scheme prepared, or nothing, at once (spec/areas/hubs.md#in-the-node).
@@ -816,7 +816,7 @@ impl Core {
     }
 
     /// Hands each scheme its settlements still pending from before a
-    /// restart (ACC-16).
+    /// restart.
     /// Only `scheme`'s if one is named; settlements in progress in this
     /// run are not the scheme's to reconcile.
     pub(super) fn reconcile_settlements(&mut self, only: Option<Name>) {

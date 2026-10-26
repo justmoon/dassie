@@ -1,7 +1,7 @@
 //! The RPC WebSocket at `/rpc`.
 //!
 //! The handshake is done here, so that it can be refused properly: a
-//! cross-origin page gets 403 (RT-6), a client without the contract's
+//! cross-origin page gets 403, a client without the contract's
 //! subprotocol 400. The socket is anonymous unless the session cookie is
 //! valid; an anonymous socket may only ask for the node's basic state.
 //!
@@ -11,7 +11,7 @@
 //! them all and lock the owner's browser out.
 //!
 //! Only binary messages carry the contract; a text message is a protocol
-//! error, where the original threw inside its listener (RT-16).
+//! error, where the original threw inside its listener.
 
 use std::net::SocketAddr;
 use std::sync::Arc;

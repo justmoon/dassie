@@ -247,7 +247,7 @@ impl Core {
     }
 
     /// Activates a settlement scheme. Its ID must be one the node knows,
-    /// where the original's RPC took any text (RT-23).
+    /// where the original's RPC took any text.
     ///
     /// # Errors
     ///
@@ -270,7 +270,7 @@ impl Core {
         if self.unusable.remove(&id) {
             self.batch.schemes_removed.push(id);
         }
-        // Settlements left pending when it was last removed (ACC-16).
+        // Settlements left pending when it was last removed.
         self.reconcile_settlements(Some(id));
         self.reconcile_owner_payments();
         self.ledger_view(ledger)
@@ -291,8 +291,8 @@ impl Core {
     }
 
     /// Starts a scheme made with its asset: opens its ledger's accounts,
-    /// books the difference to its checkpoint (ACC-6), and makes sure the
-    /// receiver has a ledger.
+    /// books the difference to its checkpoint, and makes sure the receiver
+    /// has a ledger.
     fn start_scheme(
         &mut self,
         id: Name,
@@ -347,7 +347,7 @@ impl Core {
     }
 
     /// Opens the accounts of `scheme`'s ledger and books the difference
-    /// between its balance and its checkpoint (ACC-6): only a ledger of the
+    /// between its balance and its checkpoint: only a ledger of the
     /// node's realm, and one no other scheme serves. The realm gate: a node
     /// runs only its realm's ledgers, so test and live nodes never share a
     /// scheme, and a ledger of real money runs only where the live realm
@@ -411,7 +411,7 @@ impl Core {
     }
 
     /// Deactivates a settlement scheme, and only it: the original's removal
-    /// cut its list after the first scheme (ACC-10).
+    /// cut its list after the first scheme.
     ///
     /// # Errors
     ///
@@ -526,7 +526,7 @@ impl Core {
     }
 
     /// Books what a scheme reports, and checkpoints its balance in the
-    /// same batch (ACC-6). All or none: the books check every transfer the
+    /// same batch. All or none: the books check every transfer the
     /// effects make, in order, before they book any, and if they refuse
     /// one, none of the effects is carried out. A refusal is a bug, which
     /// stops the scheme, so its checkpoint stays with what the books hold

@@ -1,7 +1,7 @@
 //! Inbound requests (spec/areas/peer-protocol.md#message-set,
 //! spec/areas/peer-protocol.md#statuses): decoding, authentication, and
-//! what each kind gets, with HTTP statuses that mean something (NET-11,
-//! NET-27, NET-28). Registrations and peering requests wait on a probe of
+//! what each kind gets, with statuses that tell a refusal from a failure.
+//! Registrations and peering requests wait on a probe of
 //! the requester's URL; name messages go to the registrar (`names.rs`).
 
 use alloc::boxed::Box;

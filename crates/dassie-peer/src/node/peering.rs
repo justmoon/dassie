@@ -415,7 +415,7 @@ impl PeerNode {
         self.fail_with(node, reason, None);
     }
 
-    /// Ends an attempt, backing off from the node (NET-22).
+    /// Ends an attempt, backing off from the node.
     fn fail_with(&mut self, node: NodeId, reason: &'static str, wait: Option<u64>) {
         self.peering.attempt = None;
         let (now, min, max) = (
@@ -505,7 +505,7 @@ impl PeerNode {
         true
     }
 
-    /// A peering request (NET-3, NET-4): the requester's link state must
+    /// A peering request: the requester's link state must
     /// verify and be the sender's; it must be known, speak the scheme, and
     /// there must be room. Then its URL is probed before the answer.
     pub(super) fn peering_request(

@@ -4,8 +4,8 @@ use core::fmt;
 ///
 /// Every variant describes bad input, never a bug in the caller: programming
 /// errors are assertions instead. The variants carry no secret material, so
-/// they are safe to log and to show to the user (the original showed no error
-/// at all for a mistyped phrase, gap UI-5).
+/// they are safe to log and to show to the user, so a mistyped phrase is
+/// reported as one.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Error {
     /// BIP-39 entropy must be 16, 20, 24, 28 or 32 bytes.

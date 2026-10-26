@@ -13,7 +13,7 @@ use crate::scheme::{Effect, PreparedSettlement, SchemeError, SettlementScheme};
 
 /// The balance the stub starts with on its first activation: 100 USD at
 /// scale 9, as in the original. Later activations start from the
-/// checkpoint instead (ACC-6).
+/// checkpoint instead.
 pub const STUB_INITIAL_BALANCE: u64 = 100_000_000_000;
 
 /// Most settlements prepared and not executed.
@@ -57,7 +57,7 @@ const UNLIMITED: &[u8] = b"unlimited trust";
 /// checkpoint keeps across restarts.
 ///
 /// **Test realm only:** a peer's settlement claim is believed as stated
-/// (ACC-23). Anyone peered over the stub can mint credit, which is why it
+///. Anyone peered over the stub can mint credit, which is why it
 /// only ever holds test money.
 ///
 /// **With commitments,** for tests of the packet path over a settlement hub
@@ -693,7 +693,7 @@ impl SettlementScheme for Stub {
                 }
                 effects.push(Effect::Finalize { settlement });
             }
-            // The original threw and left the transfer pending (ACC-16).
+            // The original threw and left the transfer pending.
             None => effects.push(Effect::Cancel { settlement }),
         }
     }
@@ -835,7 +835,8 @@ mod tests {
         );
     }
 
-    // ACC-16: a failed execution left the pending transfer for ever.
+    // A failed execution cancels its settlement, so no transfer stays
+    // pending.
     #[test]
     fn a_settlement_beyond_the_balance_is_cancelled() {
         let mut stub = Stub::new("", Some(10), &[]).unwrap();
@@ -867,7 +868,6 @@ mod tests {
         assert_eq!(stub.balance(), 6);
     }
 
-    // ACC-16: a settlement pending across a restart stayed pending.
     #[test]
     fn settlements_pending_at_a_restart_are_cancelled() {
         let mut stub = Stub::new("", Some(10), &[]).unwrap();

@@ -2,7 +2,7 @@
 //!
 //! The listener always has a certificate. Before a real one is installed it
 //! serves a self-signed one, which the original regenerated, with a new
-//! fingerprint, every time its HTTPS actor restarted (RT-14). Here it is
+//! fingerprint, every time its HTTPS actor restarted. Here it is
 //! made once, stored, and replaced only when the names it must cover change
 //! or it nears its end.
 
@@ -187,7 +187,7 @@ mod tests {
         assert!(!cert.covers(&hostname("other.example")));
     }
 
-    // RT-14: the original made a new self-signed certificate at every start.
+    // A restart keeps the certificate, so its fingerprint stays the same.
     #[test]
     fn a_current_self_signed_certificate_is_kept() {
         let name = hostname("node.example");

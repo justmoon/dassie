@@ -6,7 +6,7 @@
 //! the version, both node IDs, the session, counter and timestamp, and the
 //! content. Responses are MACed under their own key and bound to the
 //! request. Every table here is bounded, and a key is cached only once a
-//! MAC made with it has verified (NET-9).
+//! MAC made with it has verified.
 //!
 //! Replay state is kept for good for the senders that matter, and in a
 //! bounded pool, with a bounded share per network, for everyone else; a

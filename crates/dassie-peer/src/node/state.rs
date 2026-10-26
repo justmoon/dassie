@@ -389,7 +389,7 @@ impl PeerNode {
         })
     }
 
-    /// Notes an authenticated message from a peer (NET-12): it is alive,
+    /// Notes an authenticated message from a peer: it is alive,
     /// and the newest timestamp accepted from it is persisted, even for a
     /// read, so that no replay marks it as heard from again. A banned
     /// node's messages confirm nothing.
@@ -465,7 +465,7 @@ impl PeerNode {
             .collect()
     }
 
-    /// Expires registrations and removes nodes nobody needs (NET-18).
+    /// Expires registrations and removes nodes nobody needs.
     pub(super) fn maintain(&mut self) {
         let now = self.now_ms;
         let expired: Vec<NodeId> = self

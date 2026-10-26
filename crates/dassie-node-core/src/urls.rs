@@ -1,15 +1,9 @@
 //! The URLs the node prints and redirects to.
 //!
-//! The original got these wrong in three ways
-//! (spec/original/02-node-runtime.md#43-computed-signals-appconfigcomputed,
-//! spec/original/02-node-runtime.md#65-redirect):
-//!
-//! - the HTTP→HTTPS redirect used the request URL's host, which its HTTP
-//!   adapter always set to `0.0.0.0`, and dropped the query (RT-1);
-//! - the setup URL without a certificate was `http://127.0.0.1/…`, which the
-//!   HTTP listener never served, and ignored a non-443 port (RT-2);
-//! - `url` was computed once at load, so it read `https://undefined` until a
-//!   restart after the hostname was set (RT-3).
+//! - the HTTP→HTTPS redirect goes to the hostname, never the address the
+//!   listener is bound to, and keeps the query;
+//! - the setup URL is always HTTPS, with the port when it is not 443;
+//! - no URL is stored, so none goes stale when the hostname changes.
 //!
 //! Every URL here is computed from the current values, and the port is the
 //! one the HTTPS listener actually has, which under systemd may differ from
@@ -89,7 +83,7 @@ mod tests {
 
     #[test]
     fn node_url_follows_the_current_hostname() {
-        // RT-3: the original's url stayed "https://undefined".
+        // No hostname, no URL.
         assert_eq!(node_url(None, 443), None);
         let name = hostname("node.example");
         assert_eq!(
@@ -104,8 +98,7 @@ mod tests {
 
     #[test]
     fn setup_url_is_https_and_keeps_the_port() {
-        // RT-2: the original printed http://127.0.0.1/setup/<token> without
-        // TLS, and dropped a non-443 port with it.
+        // Always HTTPS, with the port when it is not 443.
         assert_eq!(setup_url(None, 443, "ab"), "https://localhost/setup/ab");
         assert_eq!(
             setup_url(None, 8443, "ab"),
@@ -120,8 +113,8 @@ mod tests {
 
     #[test]
     fn redirect_uses_the_hostname_and_keeps_the_query() {
-        // RT-1: the original redirected to https://0.0.0.0/<path>, without the
-        // query.
+        // To the hostname, never the address the listener is bound to, with
+        // the query.
         let name = hostname("node.example");
         let location = redirect_location(Some(&name), Some("1.2.3.4"), 443, "/a?b=c");
         assert_eq!(location.as_deref(), Some("https://node.example/a?b=c"));

@@ -8,7 +8,7 @@ This directory holds what the code cannot say about Dassie: what each part is fo
 2. [Engineering](engineering.md): the rules every crate and package follows.
 3. The area docs for the paths you touch, from the index below. Each one names the other docs to read with it.
 
-Read a [decision](decisions/README.md) when an area doc links to it and you need to know why a rule is what it is. Read [the original's chapters](original/README.md) only when you need to know what the original did.
+Read a [decision](decisions/README.md) when an area doc links to it and you need to know why a rule is what it is. What the original implementation did is in its code, at the tag `original`.
 
 ## Index
 

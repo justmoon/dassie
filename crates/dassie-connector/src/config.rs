@@ -1,9 +1,8 @@
 //! The connector's bounds and timing.
 
 /// The connector's bounds and timing rules. Every table has a limit
-/// (spec/decisions/tigerstyle.md), and the timing constants are the
-/// original's
-/// (spec/original/04-interledger.md#12-constants-complete-list-for-this-area).
+/// (spec/decisions/tigerstyle.md), and the timing follows
+/// spec/decisions/connector-timing.md.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Config {
     /// The boot epoch: part of every trace ID, so that references never

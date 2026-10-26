@@ -84,8 +84,8 @@ fn wait_for(path: &Path, child: &mut Option<Child>) {
     }
 }
 
-// RT-20: the original ran `systemd-notify --ready`, after its first ACME
-// check, and never said it was stopping.
+// Under systemd the daemon reports readiness itself once it serves, and
+// says when it is stopping.
 #[test]
 fn socket_activated_daemon_reports_ready_and_stopping() {
     if !have_socket_activate() {
@@ -147,7 +147,7 @@ fn run(args: &[&str], env: &[(&str, &str)]) -> Output {
         .unwrap()
 }
 
-// RT-20: the original did not compare LISTEN_PID with its own.
+// Sockets whose LISTEN_PID names another process are not taken.
 #[test]
 fn sockets_meant_for_another_process_are_refused() {
     let dir = tempfile::tempdir().unwrap();
@@ -166,7 +166,7 @@ fn sockets_meant_for_another_process_are_refused() {
     assert!(String::from_utf8_lossy(&output.stdout).contains("not this process"));
 }
 
-// RT-24: the original ran on half-started when a variable was bad.
+// A bad variable stops the daemon before anything starts, naming it.
 #[test]
 fn a_bad_variable_stops_the_daemon_with_its_name() {
     let output = run(
@@ -177,8 +177,8 @@ fn a_bad_variable_stops_the_daemon_with_its_name() {
     assert!(String::from_utf8_lossy(&output.stderr).contains("DASSIE_LOG"));
 }
 
-// RT-7 and RT-9: the standalone runtime makes its socket 0660, and removes
-// it when it stops.
+// The standalone runtime makes its socket 0660, and removes it when it
+// stops.
 #[test]
 fn the_standalone_daemon_cleans_up_its_socket() {
     use std::os::unix::fs::PermissionsExt;
@@ -245,8 +245,8 @@ fn the_standalone_daemon_listens_where_it_is_told() {
     assert!(output.status.success(), "{}", describe(&output));
 }
 
-// RT-9: the original's client crashed with a stack trace when the daemon
-// was not running.
+// The CLI explains a daemon that is not running, rather than failing with
+// a stack trace.
 #[test]
 fn init_explains_a_missing_daemon() {
     let dir = tempfile::tempdir().unwrap();

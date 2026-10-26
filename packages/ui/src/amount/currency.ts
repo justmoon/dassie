@@ -1,5 +1,5 @@
 /**
- * Amounts in a ledger's own currency (UI-2): every amount the wallet shows
+ * Amounts in a ledger's own currency: every amount the wallet shows
  * carries its asset, and is exact, never a float.
  *
  * As in the original, an amount shows `displayPrecision` digits after the

@@ -1,5 +1,5 @@
 /**
- * Light, dark, or as the system has it (UI-6). The choice is kept in the
+ * Light, dark, or as the system has it. The choice is kept in the
  * browser, and set as `data-theme` on the root, from the bundle: the CSP
  * allows no inline script, so the first paint follows the system.
  */

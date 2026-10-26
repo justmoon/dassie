@@ -255,7 +255,7 @@ impl PeerNode {
 
     /// Sends a settlement to `node`, which we hold a channel with. It goes
     /// again until acknowledged, across restarts; one at a time per
-    /// channel (ACC-17). Returns its sequence.
+    /// channel. Returns its sequence.
     ///
     /// # Errors
     ///

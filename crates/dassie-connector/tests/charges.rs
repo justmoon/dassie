@@ -1,6 +1,6 @@
 //! What transit costs (spec/decisions/exchange-rates.md): a fee on what
 //! passes from one peer to another, a spread on what it converts, and nothing
-//! on the owner's own packets. The original charged neither (ACC-3);
+//! on the owner's own packets. The original charged neither;
 //! registration fees, the gap's other part, are not built
 //! (spec/roadmap.md#registration-fees). What transit converts at is spot,
 //! moved by the owner's inventory (spec/decisions/passive-rebalancing.md).

@@ -1,6 +1,6 @@
-//! Cases where the original was wrong or lenient
-//! (spec/original/04-interledger.md#1-ilp-packet-format-packageslib-protocol-ilpsrc,
-//! ILP-3, NET-33). Each test fails against the original's behaviour.
+//! Packets, addresses, timestamps and error codes where the rules are easy
+//! to get wrong, each as a test: parsing is strict, and malformed input is
+//! an error, never a panic (spec/areas/ilp.md#packets).
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing)]
 
@@ -23,7 +23,7 @@ fn prepare(destination: &str) -> Prepare<'_> {
 }
 
 #[test]
-fn ilp_3_reject_may_have_an_empty_triggered_by() {
+fn a_reject_may_have_an_empty_triggered_by() {
     let reject = Reject {
         code: ErrorCode::F02_UNREACHABLE,
         triggered_by: None,
@@ -39,7 +39,7 @@ fn ilp_3_reject_may_have_an_empty_triggered_by() {
 }
 
 #[test]
-fn ilp_3_malformed_packets_are_errors_not_panics() {
+fn malformed_packets_are_errors_not_panics() {
     let valid = Packet::Prepare(prepare("test.alice")).to_vec();
     for cut in 0..valid.len() {
         assert!(
@@ -135,7 +135,7 @@ fn invalid_destinations_fail_to_parse() {
 }
 
 #[test]
-fn net_33_prefixes_match_whole_segments() {
+fn prefixes_match_whole_segments() {
     let address = Address::parse("test.alice.bob").unwrap();
     assert!(address.has_prefix(Address::parse("test.alice").unwrap()));
     assert!(address.has_prefix(address));

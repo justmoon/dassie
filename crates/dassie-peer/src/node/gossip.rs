@@ -256,9 +256,9 @@ impl PeerNode {
         Processed::Accepted
     }
 
-    /// Issues our own link state when what it says changed (NET-6), every
-    /// hour regardless (NET-5), never faster than the debounce. The
-    /// sequence is persisted with it (NET-7).
+    /// Issues our own link state when what it says changed, every
+    /// hour regardless, never faster than the debounce. The
+    /// sequence is persisted with it.
     pub(super) fn issue_own(&mut self) {
         // A periphery node's has no URL, and says so with its extension.
         let periphery = self.is_periphery();
@@ -382,7 +382,7 @@ impl PeerNode {
     }
 
     /// Bootstrap nodes get our new link state directly, so they can answer
-    /// refreshes for it; others get it by flooding (NET-20).
+    /// refreshes for it; others get it by flooding.
     fn push_to_bootstrap(&mut self, bytes: &[u8]) {
         // A periphery node's goes only to its uplinks.
         if self.is_periphery() {
@@ -449,7 +449,7 @@ impl PeerNode {
     }
 
     /// Sends our link state to every peer, authenticated, which is what
-    /// keeps a peering confirmed (NET-12).
+    /// keeps a peering confirmed.
     pub(super) fn heartbeat(&mut self) {
         if self.gossip.heartbeat_at_ms > self.now_ms {
             return;
@@ -680,8 +680,7 @@ impl PeerNode {
         oracles.get(index).copied()
     }
 
-    /// The answer to a refresh: link states, each of a node asked about
-    /// (NET-36).
+    /// The answer to a refresh: link states, each of a node asked about.
     pub(super) fn on_refresh(
         &mut self,
         _oracle: NodeId,
@@ -698,7 +697,7 @@ impl PeerNode {
         };
         let mut missing: Vec<NodeId> = Vec::new();
         for asked in ids {
-            // Only states of the nodes asked about count (NET-36).
+            // Only states of the nodes asked about count.
             let found = response
                 .0
                 .iter()

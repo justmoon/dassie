@@ -1,6 +1,7 @@
-//! Cases where the original deviated from RFC 29 or was otherwise wrong
-//! (spec/original/04-interledger.md#11-stream-packageslib-protocol-streamsrc,
-//! ILP-11, ILP-13). Each test fails against the original.
+//! Where STREAM is easy to get wrong, each as a test
+//! (spec/areas/stream.md#differences-from-rfc-29-and-ilp-protocol-stream):
+//! what a packet may carry beyond what it reads, saturating values,
+//! decryption failures as values, allocation, and the server's tokens.
 
 mod support;
 
@@ -20,7 +21,7 @@ fn encode(packet: &Packet<'_>) -> Vec<u8> {
 }
 
 #[test]
-fn ilp_11_unknown_frames_are_skipped() {
+fn unknown_frames_are_skipped() {
     // One known frame, one of type 0x7f, then another known frame. Each
     // frame is type, length, content; a var-uint content is itself length
     // and value.
@@ -55,7 +56,7 @@ fn bytes_after_a_known_frames_fields_are_ignored() {
 }
 
 #[test]
-fn ilp_11_bytes_after_the_frames_are_ignored() {
+fn bytes_after_the_frames_are_ignored() {
     let mut packet = encode(&Packet {
         sequence: 1,
         packet_type: PacketType::Prepare,
@@ -99,7 +100,7 @@ fn an_empty_new_address_parses() {
 }
 
 #[test]
-fn ilp_13_decryption_failure_is_a_value() {
+fn a_decryption_failure_is_a_value() {
     let keys = Keys::derive(b"secret");
     let mut output = [0u8; 64];
     assert_eq!(

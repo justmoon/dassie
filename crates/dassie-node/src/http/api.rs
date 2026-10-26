@@ -3,9 +3,9 @@
 //! The bodies, the cookie and the routes' presence (setup only before, the
 //! others only after) are the original's (spec/areas/http.md#setup,
 //! spec/areas/http.md#login-and-logout). New: the request must come from the
-//! node's own pages (`Origin`, RT-6), carry JSON as JSON (`Content-Type`,
+//! node's own pages (`Origin`), carry JSON as JSON (`Content-Type`,
 //! spec/areas/http.md#security-model), stay under 16 KiB, and not arrive too
-//! often (RT-10).
+//! often.
 
 use std::net::SocketAddr;
 use std::time::Duration;

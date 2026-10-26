@@ -1,7 +1,7 @@
 /**
  * The network (spec/areas/wallet.md#pages): the graph, the node listing by
  * distance, and the selected node's details, with what the owner can do about
- * it (UI-4). A periphery node is shown as one: with lines to its uplinks, and
+ * it. A periphery node is shown as one: with lines to its uplinks, and
  * its uplinks and relay where a core node's registration is.
  */
 

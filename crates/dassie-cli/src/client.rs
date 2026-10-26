@@ -2,7 +2,7 @@
 //!
 //! One call at a time, which is all the CLI needs. The original's client had
 //! no error handler on its socket, so a stopped daemon or a missing
-//! permission crashed it with a stack trace (RT-9); here each case gets a
+//! permission crashed it with a stack trace; here each case gets a
 //! sentence that says what to do.
 
 use std::io;

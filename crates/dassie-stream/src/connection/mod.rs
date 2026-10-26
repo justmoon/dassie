@@ -715,8 +715,7 @@ impl Connection {
     }
 
     /// Starts measuring the exchange rate with unfulfillable probes of
-    /// growing size, as the original did
-    /// (spec/original/04-interledger.md#1110-sending-connectionsend-ts-streamsend-ts).
+    /// growing size, as `ilp-protocol-stream` does.
     /// The result is reported as an event and, if precise enough, adopted as
     /// the rate less the policy's slippage.
     /// A measurement already in progress continues; calling again does

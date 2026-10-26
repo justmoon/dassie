@@ -255,7 +255,7 @@ async fn route(context: &Context, peer: SocketAddr, request: Request<Incoming>) 
 }
 
 /// The HTTP listener serves ACME challenges and redirects everything else
-/// to HTTPS, keeping the path and query (RT-1).
+/// to HTTPS, keeping the path and query.
 fn route_http(node: &Node, request: &Request<Incoming>) -> Response<Body> {
     let path = request.uri().path();
     if ws::is_upgrade(request) {
@@ -322,7 +322,7 @@ async fn route_https(
             response::text(StatusCode::UPGRADE_REQUIRED, "Upgrade Required")
         };
     }
-    // RT-16: the original left unmatched upgrade requests hanging.
+    // An upgrade no route takes gets 404, never a connection left hanging.
     if ws::is_upgrade(&request) {
         return response::not_found();
     }

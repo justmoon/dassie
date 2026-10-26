@@ -22,8 +22,8 @@ const COMMITMENT_SIZE: Size = Size::range(1, MAX_COMMITMENT_BYTES);
 const METHOD_COMMITMENT_SIZE: Size = Size::range(0, MAX_COMMITMENT_BYTES);
 
 /// A peering request: the requester's signed link state, the scheme it
-/// wants to settle with, the versions of that scheme it speaks (NET-26) and
-/// the credit it extends (ACC-24).
+/// wants to settle with, the versions of that scheme it speaks and
+/// the credit it extends.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PeeringRequest<'a> {
     /// The scheme.

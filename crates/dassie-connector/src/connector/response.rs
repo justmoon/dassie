@@ -120,7 +120,8 @@ impl Connector {
             .filter(|_| entry.failure.is_none())
             .unwrap_or(entry.expires_at_ms);
         let resolution = if now_ms >= on_time_until {
-            // The timer just has not fired yet (ILP-1's other half).
+            // The timer just has not fired yet: a response after the
+            // expiry is too late, however close.
             Resolution::Failed(ErrorCode::R00_TRANSFER_TIMED_OUT, "packet timed out")
         } else {
             match Response::decode_exact(packet) {
@@ -128,7 +129,8 @@ impl Connector {
                     if condition_for(&fulfill.fulfillment) == entry.condition {
                         Resolution::Fulfilled(packet)
                     } else {
-                        // ILP-2: the original dropped it and timed out.
+                        // Rejected at once, so the sender need not wait
+                        // for the expiry.
                         self.stats.wrong_fulfillments += 1;
                         Resolution::Failed(ErrorCode::F05_WRONG_CONDITION, "invalid fulfillment")
                     }

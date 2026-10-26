@@ -1,5 +1,5 @@
-//! The peer-protocol structures
-//! (spec/original/03-peer-network.md#5-wire-schemas), built on the codec as
+//! The peer-protocol structures (spec/areas/peer-protocol.md#encoding),
+//! built on the codec as
 //! a message crate would build them. They exercise the features no other
 //! vector covers: OID constants, CHOICE tags, SEQUENCE OF, CONTAINING and
 //! capturing the raw bytes of a nested value for signature checks. The
@@ -226,7 +226,7 @@ fn node_lists_match_the_original() {
 #[test]
 fn peer_message_envelopes_decode() {
     // The v0 envelopes of the original's test vectors
-    // (spec/original/03-peer-network.md#55-test-vectors). The rewrite's v1
+    // (`tests/data/vectors.json`, from testdata/original). v1
     // changes the authentication (spec/decisions/peer-protocol-v1.md), but
     // the OER layout is the same, so these still test CHOICE and nested
     // CONTAINING decoding.

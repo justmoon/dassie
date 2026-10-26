@@ -17,7 +17,7 @@ pub enum OwnerSub {
 
 /// An account on a ledger (spec/areas/ledger.md#chart-of-accounts): the
 /// original's chart, with the owner's sub-accounts added. The original
-/// documented `liabilities/…` accounts it never had (ACC-1); a peer's debt
+/// documented `liabilities/…` accounts it never had; a peer's debt
 /// to us and ours to it share `assets/interledger/<peer>`, whose balance
 /// can have either sign.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]

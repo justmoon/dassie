@@ -364,9 +364,8 @@ impl Connection {
             }
         }
         if prepare.amount > 0 {
-            // Money must be attributed to streams; the original fulfilled
-            // such packets and kept the money unassigned
-            // (spec/original/04-interledger.md#117-receiving-a-packet-connectionhandle-packetts).
+            // Money must be attributed to streams: a packet whose money no
+            // stream takes is rejected, never fulfilled and kept unassigned.
             if self.claims.is_empty() {
                 return Ok(false);
             }

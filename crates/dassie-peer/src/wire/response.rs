@@ -293,7 +293,7 @@ impl<'a> Decode<'a> for LinkStateResponse<'a> {
     }
 }
 
-/// A node list: `SEQUENCE OF NodeId`, sorted by bytes (NET-32).
+/// A node list: `SEQUENCE OF NodeId`, sorted by bytes.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct NodeListResponse(pub Vec<NodeId>);
 

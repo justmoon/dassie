@@ -41,7 +41,7 @@ pub struct Channel {
     pub settled_in: u64,
     /// The last sequence we used.
     pub settled_out: u64,
-    /// Our settlement message on its way, if any: one at a time (ACC-17).
+    /// Our settlement message on its way, if any: one at a time.
     pub outbox: Option<Outgoing>,
     /// Whether we once ended a peering with the node for want of room: a
     /// later peering with it as our senior raises no credit to the default

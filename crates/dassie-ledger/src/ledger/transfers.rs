@@ -98,7 +98,7 @@ impl Ledger {
         Ok(transfer.id)
     }
 
-    /// Creates pending transfers all or none (ACC-7): if one is refused, the
+    /// Creates pending transfers all or none: if one is refused, the
     /// ones before it are voided, and the error says which.
     ///
     /// # Errors

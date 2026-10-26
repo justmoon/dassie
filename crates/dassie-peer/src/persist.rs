@@ -1,7 +1,7 @@
 //! What the peer node persists (spec/areas/network.md#persistence): the
 //! table's nodes with their link states, registrations and peerings, our
 //! own sequence, the settlement channels, the bans and the replay floors
-//! (NET-1, NET-2, NET-7, ACC-18), a registrar's log and names, the node's
+//!, a registrar's log and names, the node's
 //! view of who holds each name, and its own registrations of names
 //! (spec/areas/network.md#names).
 //! Changes come out as snapshots of what changed, written in the same

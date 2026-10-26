@@ -46,7 +46,7 @@ export function decideScreen(
  * forced choice of a first ledger without one
  * (spec/areas/wallet.md#the-gate), the wallet otherwise. It follows
  * the live ledgers, so adding the first ledger, or removing the last, takes
- * effect at once (UI-7).
+ * effect at once.
  */
 export function ownerScreen(
   ledgers: readonly unknown[] | undefined,

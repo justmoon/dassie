@@ -31,7 +31,7 @@ export interface Credentials {
 /**
  * The passphrase in canonical form, or undefined if it is not a valid
  * BIP-39 phrase. The original accepted any string and silently derived a
- * different identity from it (UI-5), so a typo looked like a wrong node.
+ * different identity from it, so a typo looked like a wrong node.
  */
 export function checkPassphrase(
   identity: Identity,

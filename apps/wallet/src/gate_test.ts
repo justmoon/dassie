@@ -39,7 +39,7 @@ test("the node's state decides the screen", () => {
   });
 });
 
-// UI-7: the first ledger shows the wallet at once, without polling.
+// The first ledger shows the wallet at once, without polling.
 test("the owner chooses a first ledger, then sees the wallet", () => {
   assertEquals(ownerScreen(undefined), "loading");
   assertEquals(ownerScreen([]), "onboarding");

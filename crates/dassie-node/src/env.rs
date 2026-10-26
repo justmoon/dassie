@@ -2,9 +2,9 @@
 //!
 //! The variable names and their precedence are the original's, minus those
 //! that no longer mean anything: `NODE_ENV`, `DEBUG_HIDE_DATE`, the cache
-//! and temporary directories, which nothing used (RT-4). The original evaluated them
+//! and temporary directories, which nothing used. The original evaluated them
 //! lazily, so a bad value killed whichever actor first touched it and left
-//! the daemon half-started (RT-24). Here every variable is checked before
+//! the daemon half-started. Here every variable is checked before
 //! anything starts, and a bad one stops the daemon with a message that names
 //! it.
 //!
@@ -28,7 +28,7 @@ use crate::quic::proxy::{NoProxy, Proxy};
 /// (spec/decisions/bootstrap-network.md), in one region, us-east1, so that
 /// they can validate the testnet's settlement hub: boot1 and boot4 in zone
 /// b, boot2 in c, boot3 in d. Each ID is checked against its key at
-/// startup, like any entry (NET-19).
+/// startup, like any entry.
 /// `DASSIE_BOOTSTRAP_NODES=[]` makes a node run alone.
 pub const DEFAULT_BOOTSTRAP_NODES: &str = r#"[
   {"id":"dDHq9ng9J1z7luQ64eN4MJ_4_w-KK4FPk","url":"https://boot1.dassie.xyz","publicKey":"w25V-7IreZNDCPvwCrpiIv9Li5uwomzPSvqHot9ffLI"},
@@ -623,8 +623,8 @@ mod tests {
         assert_eq!(nodes.map(|s| s.bootstrap_nodes.len()), Ok(1));
     }
 
-    // RT-24: in the original these broke whichever actor read them first,
-    // and the daemon ran on half-started.
+    // A bad value stops the start before anything runs, and names the
+    // variable.
     #[test]
     fn bad_values_are_errors_that_name_the_variable() {
         let bad = [
@@ -771,7 +771,7 @@ mod tests {
         assert_eq!(unset, Ok(0));
     }
 
-    // NET-19: a bootstrap entry whose ID does not match its key is refused.
+    // A bootstrap entry whose ID does not match its key is refused.
     #[test]
     fn bootstrap_ids_must_match_keys() {
         let swapped = r#"[{"id":"dyrjUANXiJ5S6JXxwo7jdKKJjdLtK129U","url":"https://test1.dassie.xyz","publicKey":"QBe5HLbdYFtIpjFTIu_Lz8lkoUJ3fmAvFHfCb9CVwIM"}]"#;

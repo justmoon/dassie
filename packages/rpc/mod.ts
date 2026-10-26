@@ -3,9 +3,7 @@
  * spec/decisions/rpc-contract.md, spec/areas/rpc.md#the-typescript-client):
  * one WebSocket to `/rpc`, binary protobuf frames.
  *
- * What the original's client got wrong, and this one does not
- * (spec/original/02-node-runtime.md#10-rpc-apprpc-server--packageslib-rpc,
- * RT-27):
+ * What it guarantees:
  *
  * - every call has a timeout, after which it fails and is cancelled on the
  *   node, instead of hanging forever when a response is lost;

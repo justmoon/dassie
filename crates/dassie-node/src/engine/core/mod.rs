@@ -547,7 +547,7 @@ impl Core {
             // which the rest of the node does without, and the peer
             // protocol's first review ends the peering
             // (spec/areas/settlement.md#schemes-and-ledgers). The original
-            // threw, and stopped what served that peer (ACC-25).
+            // threw, and stopped what served that peer.
             if let Err(error) = self.add_peer_endpoint(node) {
                 self.report(PeerEvent::NoEndpoint { node, error });
             }
@@ -663,7 +663,7 @@ impl Core {
         self.pump_outgoing(self.now_ms);
         self.flush();
         // Settlements run once their pending transfers are on disk; what
-        // they did is persisted in turn (ACC-16).
+        // they did is persisted in turn.
         if self.execute_settlements() {
             // Their announcements go out with this step's outputs.
             self.after_peer();

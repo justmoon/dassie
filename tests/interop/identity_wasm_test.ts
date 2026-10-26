@@ -77,7 +77,7 @@ test("phrases are validated and canonicalised", async () => {
   const { chain } = await vectors("dassie-identity/tests/data/chain.json");
   const phrase: string = chain[0].mnemonic;
   assertEquals(normalizeMnemonic(`  ${phrase.toUpperCase()}  `), phrase);
-  // UI-5: the original accepted any text as a passphrase.
+  // Only a valid BIP-39 phrase is a passphrase.
   const words = phrase.split(" ");
   assertFalse(validateMnemonic([...words.slice(0, 11), words[0]].join(" ")));
   assertFalse(validateMnemonic("not a passphrase"));

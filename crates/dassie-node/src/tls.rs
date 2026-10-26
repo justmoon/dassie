@@ -3,13 +3,12 @@
 //!
 //! The HTTPS listener always has a certificate. It reads the current one from
 //! a [`CertificateSlot`] at every handshake, so a renewal or an installed
-//! certificate takes effect at once, without restarting the listener (the
-//! original restarted its server, which raced on the port,
-//! spec/original/02-node-runtime.md#22-nodejs-runtime-appcommand-linecommandsdaemonnodejsindexts).
+//! certificate takes effect at once, without restarting the listener, which
+//! would race on the port.
 //!
 //! Installing a certificate checks it first: the chain parses, the key is
 //! the leaf's, and the leaf is valid now. The original stored whatever the
-//! RPC sent and then failed at the next TLS handshake (RT-12).
+//! RPC sent and then failed at the next TLS handshake.
 
 use std::fmt;
 use std::sync::{Arc, PoisonError, RwLock};
@@ -169,7 +168,7 @@ fn timestamp_ms(seconds: i64) -> u64 {
 /// The key is ECDSA P-256 from ring's RNG: key generation is crypto behind
 /// a narrow interface, which a simulation replaces whole
 /// (spec/decisions/tigerstyle.md). The serial is derived from the key,
-/// positive and 20 bytes (the original's could be negative, RT-14).
+/// positive and 20 bytes (the original's could be negative).
 pub fn self_signed(names: &[String], now_ms: u64) -> Result<StoredCertificate, TlsError> {
     let generate = |error: rcgen::Error| TlsError::Generate(error.to_string());
     let key = KeyPair::generate_for(&PKCS_ECDSA_P256_SHA256).map_err(generate)?;
@@ -297,7 +296,6 @@ mod tests {
         assert!(loaded.info.not_before_ms < NOW_MS);
     }
 
-    // RT-12: the original installed any cert/key pair it was sent.
     #[test]
     fn a_key_of_another_certificate_is_refused() {
         let first = self_signed(&names(), NOW_MS).unwrap();

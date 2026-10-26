@@ -35,7 +35,7 @@
 //!
 //! The original's updater verified nothing it downloaded, took any HTTP
 //! status as the file, did not trim `meta/latest`, and swapped `current` in
-//! two steps (RT-18).
+//! two steps.
 
 use std::fs::{self, File};
 use std::io::{self, Read as _};

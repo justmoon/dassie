@@ -127,7 +127,7 @@ pub fn response_mac(key: &MacKey, request_mac: &[u8; 32], body: &[u8]) -> [u8; 3
     hmac(&key.0, &[request_mac, body])
 }
 
-/// Compares two MACs in constant time (NET-10).
+/// Compares two MACs in constant time.
 #[must_use]
 pub fn macs_match(a: &[u8; 32], b: &[u8; 32]) -> bool {
     a.ct_eq(b).into()

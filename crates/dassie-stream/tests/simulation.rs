@@ -115,7 +115,7 @@ fn sends_money_in_packets_the_path_allows() {
 
 #[test]
 fn sends_amounts_below_the_de_minimis() {
-    // ILP-11: the original never sent payments of 1000 units or less.
+    // Small amounts are sent too: there is no least payment.
     let sim = pay(Path::default(), Policy::DEFAULT, 500);
     assert_eq!(server_received(&sim), 500);
 }
@@ -342,7 +342,7 @@ fn closes_and_tells_the_remote() {
 #[test]
 fn closed_streams_free_their_ids() {
     // More streams than the remote allows at once: closing streams must
-    // let new ones open (the original never raised the limit, ILP-11).
+    // let new ones open (the original never raised the limit).
     let mut sim = Simulation::new(17, Path::default(), Policy::DEFAULT);
     sim.client.set_exchange_rate(Rate::ONE);
     for round in 0..25u64 {

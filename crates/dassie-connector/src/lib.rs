@@ -11,22 +11,20 @@
 //! The behaviour is ILPv4's, fixing the original's gaps
 //! (spec/decisions/connector-timing.md):
 //!
-//! - packets time out at their outgoing expiry, not after a fixed 5 s
-//!   (ILP-1);
-//! - an invalid fulfillment is rejected with F05 at once (ILP-2), except
+//! - packets time out at their outgoing expiry, not after a fixed 5 s;
+//! - an invalid fulfillment is rejected with F05 at once, except
 //!   a peer's, which may be a resend of an earlier packet's;
 //! - malformed packets get F01 and unroutable ones F02; nothing panics on
-//!   the packet path (ILP-3);
-//! - F08 carries the amounts (ILP-4);
-//! - linked transfers are all or none (ILP-5, through the ledger);
+//!   the packet path;
+//! - F08 carries the amounts;
+//! - linked transfers are all or none (through the ledger);
 //! - the owner's own endpoints never convert, and only transit from one
 //!   peer to another is charged a fee and a spread
 //!   (spec/decisions/exchange-rates.md), and priced by the owner's
 //!   inventory (spec/decisions/passive-rebalancing.md);
-//! - ILDCP answers the address that is routed and the endpoint's asset
-//!   (ILP-7, NET-24, NET-25);
-//! - outgoing request IDs are unique per endpoint (ILP-8);
-//! - prefixes match whole segments (NET-33).
+//! - ILDCP answers the address that is routed and the endpoint's asset;
+//! - outgoing request IDs are unique per endpoint;
+//! - prefixes match whole segments.
 //!
 //! It never reads a clock: `now` comes in with every call, and the caller
 //! polls [`Connector::poll_timeout`] for the next deadline

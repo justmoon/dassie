@@ -4,7 +4,7 @@
 //! For peer requests, this layer checks only what needs no state: the
 //! body's size and pace, the number of requests waiting, and the rate of
 //! unauthenticated or failing requests per address. The engine's peer node
-//! decides the rest, including the status (NET-11) and what a network of
+//! decides the rest, including the status and what a network of
 //! addresses may hold, and answers once what the request changed is on
 //! disk.
 

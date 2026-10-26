@@ -2,7 +2,7 @@
 //!
 //! The original read files from disk on every request, knew five MIME types
 //! (so fonts, SVG and source maps came back as HTML), sent no caching
-//! headers, compressed nothing and answered `HEAD` with 404 (RT-15). Here:
+//! headers, compressed nothing and answered `HEAD` with 404. Here:
 //!
 //! - every file has its type, and an ETag from its content;
 //! - Vite's hashed files under `/assets/` are cached for a year, and
@@ -232,7 +232,6 @@ mod tests {
         assert!(!accepts_gzip(&headers(&[])));
     }
 
-    // RT-15: the original answered HEAD with 404 and sent no cache headers.
     #[test]
     fn index_with_head_caching_and_etag() {
         let response = serve(&Method::HEAD, "/some/route", &headers(&[]));

@@ -1,4 +1,4 @@
-//! The owner's configuration changes (RT-3, RT-4).
+//! The owner's configuration changes.
 
 use std::fmt;
 
@@ -63,7 +63,7 @@ impl Node {
 
     /// Sets the public hostname. The certificate follows: a self-signed one
     /// is made for the new name, and the renewal orders a real one if an
-    /// ACME account exists. Every URL uses the new name at once (RT-3).
+    /// ACME account exists. Every URL uses the new name at once.
     ///
     /// The node's URL must be one peers take, with whatever port it gets:
     /// with a longer one, the node would run as a periphery node

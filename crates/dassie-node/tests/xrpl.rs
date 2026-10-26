@@ -170,7 +170,7 @@ async fn in_step(node: &TestNode, key: &NodeKey, server: &Server) -> bool {
 }
 
 // The scheme's config, which names its server and faucet, reaches it
-// through the RPC and again after a restart (RT-21, ACC-12).
+// through the RPC and again after a restart.
 #[tokio::test(flavor = "multi_thread")]
 async fn two_daemons_settle_on_the_xrp_ledger_across_restarts() {
     let clock = ManualClock::new(START_MS);

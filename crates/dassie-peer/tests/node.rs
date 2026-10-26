@@ -1,7 +1,5 @@
-//! The peer node's rules, one at a time, on small simulated networks. Most
-//! tests are a gap of the original
-//! (spec/original/03-peer-network.md#19-open-questions--known-gaps) that
-//! would fail against its behaviour.
+//! The peer node's rules, one at a time, on small simulated networks
+//! (spec/areas/network.md).
 
 #![allow(
     clippy::unwrap_used,
@@ -136,8 +134,8 @@ fn a_newcomer_learns_the_only_bootstrap_nodes_link_state() {
     assert!(bootstrap.peering_of(newcomer.own()).is_some());
 }
 
-// NET-3, NET-4: a peering request whose link state is not the sender's is
-// refused; one with a forged sender does not authenticate.
+// A peering request whose link state is not the sender's is refused; one
+// with a forged sender does not authenticate.
 #[test]
 fn peering_requests_carry_the_senders_own_link_state() {
     let mut network = Network::new(2, 2, 1, Config::DEV);
@@ -239,7 +237,7 @@ fn only_a_registrar_takes_name_messages() {
 // spec/decisions/membership-economics.md: registrations lapse without renewal
 // and leave the served list, so the node loses its majority place, and leaves
 // the table of every node that is not its peer after the grace period
-// (NET-18). Peers keep it until liveness ends the peering (M4b).
+//. Peers keep it until liveness ends the peering (M4b).
 #[test]
 fn registrations_expire_and_nodes_leave() {
     let mut network = Network::new(4, 6, 1, Config::DEV);
@@ -301,7 +299,7 @@ fn membership_freezes_when_lists_go_stale() {
     }
 }
 
-// NET-7: our sequence never goes back across a restart, even when the
+// Our sequence never goes back across a restart, even when the
 // clock does; a sequence far in the future is given up for now.
 #[test]
 fn our_sequence_survives_restarts_and_clock_rollback() {
@@ -399,7 +397,7 @@ fn the_served_list_is_registrations_and_self() {
 }
 
 // The owner can register with a bootstrap node now, whatever the timers
-// say (UI-4); only with a bootstrap node, and once at a time.
+// say; only with a bootstrap node, and once at a time.
 #[test]
 fn the_owner_registers_now() {
     // Once registered, renewing is not due for another 30 s.

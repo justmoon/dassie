@@ -55,9 +55,8 @@ impl Timestamp {
 
     /// Parses the Interledger format `YYYYMMDDHHmmssSSS` (ILPv4, RFC 27).
     ///
-    /// Every character must be a digit and the date must exist; the original
-    /// turned non-digits into NaN and failed later
-    /// (spec/original/04-interledger.md#16-interledger-timestamp-datets). Years
+    /// Every character must be a digit and the date must exist, so a bad
+    /// timestamp fails here and not later. Years
     /// before 1970 are rejected: an ILP packet that old has expired anyway.
     pub fn parse(text: &[u8; TIMESTAMP_LENGTH]) -> Result<Self, InvalidTimestamp> {
         let field = |start: usize, end: usize| digits(text.get(start..end).unwrap_or_default());

@@ -1,17 +1,11 @@
 //! When to renew the certificate, how to back off, and the http-01 tokens.
 //!
-//! The original checked hourly and, after a failure, simply tried again an
-//! hour later, forever, which walks into Let's Encrypt's limits on failed
-//! validations
-//! (spec/original/02-node-runtime.md#7-acme-certificate-manager-appacme-certificate-manager,
-//! RT-13). It kept challenge tokens in a table that threw on a duplicate and
-//! never enforced their expiry.
-//!
-//! Here [`Renewal`] decides when to check and whether to renew, backing off
-//! exponentially from [`RenewalPolicy::backoff_min_ms`] to
-//! [`RenewalPolicy::backoff_max_ms`] and honouring the server's
-//! `Retry-After`. [`ChallengeTokens`] is a bounded table that replaces a
-//! duplicate and forgets expired entries.
+//! A node that tried again at a fixed interval after every failure would
+//! walk into the CA's limits on failed validations, so [`Renewal`] decides
+//! when to check and whether to renew, backing off exponentially from
+//! [`RenewalPolicy::backoff_min_ms`] to [`RenewalPolicy::backoff_max_ms`]
+//! and honouring the server's `Retry-After`. [`ChallengeTokens`] is a
+//! bounded table that replaces a duplicate and forgets expired entries.
 
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
@@ -380,7 +374,6 @@ mod tests {
         );
     }
 
-    // RT-13: the original retried hourly forever after a failure.
     #[test]
     fn failures_back_off_exponentially_and_honour_retry_after() {
         let mut renewal = Renewal::new(RenewalPolicy::DEFAULT, 0);
@@ -408,7 +401,7 @@ mod tests {
         assert_eq!(renewal.next_check_ms(), 20);
     }
 
-    // RT-13: the original threw on a duplicate token and ignored expiry.
+    // A duplicate token replaces the old one, and an expired one is gone.
     #[test]
     fn challenge_tokens() {
         let mut tokens = ChallengeTokens::default();

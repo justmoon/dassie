@@ -445,8 +445,7 @@ impl PeerNode {
         &self.own_info
     }
 
-    /// Changes what we say about ourselves: a new link state follows
-    /// (NET-6).
+    /// Changes what we say about ourselves: a new link state follows.
     pub fn set_own_info(&mut self, now_ms: u64, info: OwnInfo) {
         self.advance(now_ms);
         let info = info.checked();

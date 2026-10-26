@@ -1,5 +1,4 @@
-//! The ledger's behaviour, and the original's gaps it closes
-//! (spec/original/05-accounting-and-settlement.md#10-open-questions--known-gaps-consolidated).
+//! The ledger's behaviour (spec/areas/ledger.md), rule by rule.
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing)]
 
@@ -70,7 +69,7 @@ fn peer() -> Name {
     Name::new("dNKbwOMCw0DTToPM4tyyVASWxM4NP3MKW").unwrap()
 }
 
-// ACC-4: opening an account again reset its pending counters.
+// Opening an account again leaves its pending amounts as they are.
 #[test]
 fn opening_an_open_account_changes_nothing() {
     let (mut ledger, accounts) = funded(UNIT);
@@ -86,8 +85,8 @@ fn opening_an_open_account_changes_nothing() {
     ledger.check_invariants();
 }
 
-// ACC-8: debit and credit on the same account was an assertion, reachable
-// by a BTP client paying the node's own receiver.
+// A transfer with the same account on both sides is an error value, not an
+// assertion: a BTP client paying the node's own receiver can ask for one.
 #[test]
 fn invalid_transfers_are_values() {
     let (mut ledger, accounts) = funded(UNIT);
@@ -127,7 +126,6 @@ fn invalid_transfers_are_values() {
     ledger.check_invariants();
 }
 
-// ACC-9: the owner's equity had no limit.
 #[test]
 fn the_owner_cannot_spend_more_than_the_pool() {
     let (mut ledger, accounts) = funded(100);
@@ -175,8 +173,8 @@ fn transfers_within_the_group_need_no_funds() {
     ledger.check_invariants();
 }
 
-// ACC-7: a cross-ledger packet whose second transfer failed left the first
-// pending for ever.
+// A cross-ledger packet whose second transfer is refused leaves no first
+// transfer pending.
 #[test]
 fn linked_transfers_are_all_or_none() {
     let (mut ledger, accounts) = funded(10);
@@ -198,7 +196,7 @@ fn linked_transfers_are_all_or_none() {
     ledger.check_invariants();
 }
 
-// ACC-5: the trust line was posted again at every start.
+// A peer's credit is posted once, not again at every start.
 #[test]
 fn peer_trust_is_extended_once() {
     let mut ledger = Ledger::new(Config::DEFAULT);

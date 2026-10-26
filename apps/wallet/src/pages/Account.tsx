@@ -1,6 +1,6 @@
 /**
  * Home (spec/areas/wallet.md#pages): the payment pointer, and the owner's
- * balance on each ledger in its own currency (UI-2), as it changes, with the
+ * balance on each ledger in its own currency, as it changes, with the
  * total in the display currency (spec/decisions/owner-ledger.md) while the
  * rates allow.
  */
