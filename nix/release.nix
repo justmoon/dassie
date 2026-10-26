@@ -154,7 +154,7 @@ let
   # `<version>/flake.tar.gz`: its files, a lock of the nixpkgs this
   # repository locks, and release.json, which names the version and each
   # platform's bundle with its sum. `bundles` maps x64 and arm64 to
-  # the directory of that platform's bundles. The archive is the same bytes
+  # the directory of that platform's bundle. The archive is the same bytes
   # for the same input, as the bundles are.
   nixSystems = {
     x64 = "x86_64-linux";
