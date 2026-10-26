@@ -1,4 +1,4 @@
-//! The original's XRPL wallet, from the node's settlement entropy
+//! The node's XRPL wallets, from the entropy of its accounts
 //! (spec/areas/xrpl.md#the-wallet), account IDs, and the keys the ledger
 //! knows: Ed25519 and secp256k1, with their signatures
 //! (spec/areas/xrpl.md#keys-and-signatures).
@@ -237,8 +237,9 @@ pub struct Wallet {
 }
 
 impl Wallet {
-    /// The wallet of the node's settlement entropy for the scheme
-    /// (spec/areas/identity.md#seed-paths): its first 16 bytes are the seed.
+    /// The wallet of an account's entropy, as the node derives it for the
+    /// account (spec/areas/identity.md#seed-paths): its first 16 bytes are
+    /// the seed.
     #[must_use]
     pub fn from_entropy(entropy: &[u8; 32]) -> Self {
         let mut seed = [0; 16];

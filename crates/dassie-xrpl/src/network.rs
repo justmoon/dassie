@@ -6,9 +6,9 @@
 //! network ([`Network::of`]), and the node derives an account's keys at a
 //! path that names the network's ID and the account's number
 //! (spec/areas/identity.md#seed-paths), so the two networks' accounts have
-//! different keys and a Payment signed for one never applies on the other. Mainnet's account is of the `live` realm, so it runs only
-//! in a node of that realm, which stays refused
-//! (spec/decisions/real-money.md).
+//! different keys and a Payment signed for one never applies on the other.
+//! Mainnet's account is of the `live` realm, so it runs only in a node of
+//! that realm, which stays refused (spec/decisions/real-money.md).
 
 use dassie_ledger::{Name, Realm};
 use dassie_settlement::{AssetId, AssetKind};
@@ -59,8 +59,8 @@ pub const TESTNET: Network = Network {
     wrong_network: "the server is not on the XRP Ledger testnet; remove the scheme and add it with a testnet server",
 };
 
-/// The XRP Ledger mainnet: real money. It has no faucet. Its server is the project's proof server
-/// (spec/roadmap.md#proof-servers).
+/// The XRP Ledger mainnet: real money. It has no faucet. Its server is the
+/// project's proof server (spec/roadmap.md#proof-servers).
 pub const MAINNET: Network = Network {
     name: "mainnet",
     id: 0,

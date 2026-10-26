@@ -13,7 +13,7 @@
 
 ## Decision
 
-- **One account type, by network.** The account takes its network as a constant: its network ID, which the path of its keys names, asset kind, default proof server, faucet and realm, and, under [verified-ledgers](verified-ledgers.md), its list publishers. The testnet's values are what they are today, so a testnet node changes nothing.
+- **One account type, by network.** The account takes its network as a constant: its network ID, which the path of its keys names, asset kind, default proof server, faucet and realm, and, under [verified-ledgers](verified-ledgers.md), its list publishers.
 - **Mainnet schemes in XRP and RLUSD,** `xrpl-xrp` on `xrpl-xrp+xrp` and `xrpl-rlusd` on a dollar ledger of its own, both on one mainnet account, with the same code as the testnet's schemes and every guarantee those give. **No DSUSD on mainnet:** a dollar of the project's own would make the project the issuer of real money.
 - **Memo types of their own,** new for each mainnet scheme and versioned with the peer protocol. A Payment with a memo type of the other network is never a settlement; it is a deposit, as any Payment of our asset with another scheme's memo is. A test holds every XRPL scheme's memo type, ledger and network pairwise distinct.
 - **Each network's accounts have keys of their own,** at `node/xrpl/<network ID>/account/<index>`, as the testnet's are ([XRPL](../areas/xrpl.md#the-wallet)). The two networks' accounts have different keys, so a Payment signed for one never applies on the other.
