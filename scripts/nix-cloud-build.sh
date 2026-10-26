@@ -10,6 +10,11 @@
 # `build` started on this runner, for a workflow run that was cancelled.
 # Both read the project's token from NIX_CLOUD_TOKEN.
 #
+# The Nix cloud answers 429 while it holds as many builds as it takes:
+# `build` then asks again, waiting longer each time (or as long as it says),
+# for at most `submit_wait` seconds, so a busy cloud delays a check rather
+# than fails it.
+#
 # The log stream can break off before the build ends. Its chunks never
 # change, so `build` follows it again from the start and skips the bytes it
 # has shown, a bounded number of times. The build's status answers 200 only
@@ -19,6 +24,7 @@ set -euo pipefail
 
 api=https://nix.vorstand.app/v1/builds
 follow_attempts=20
+submit_wait=$((40 * 60))
 job_file="${RUNNER_TEMP:-/tmp}/nix-cloud-job"
 
 usage() {
@@ -38,7 +44,7 @@ build() {
   shift
   local body job
   body=$(jq -n --arg c "$commit" '{commit: $c, attrs: $ARGS.positional}' --args "$@")
-  job=$(curl -fsS -H "$auth" --json "$body" "$api" | jq -r .id)
+  job=$(submit "$body")
   if [ -z "$job" ] || [ "$job" = null ]; then
     echo "::error::The Nix cloud started no build" >&2
     exit 1
@@ -59,6 +65,34 @@ build() {
   done
 
   curl -fsS -H "$auth" "$api/$job" | jq -r '.outputs[][]'
+}
+
+# Starts a build and prints its ID, asking again while the cloud is full.
+submit() {
+  local body=$1 started=$SECONDS delay=30 response headers status wait
+  response=$(mktemp)
+  headers=$(mktemp)
+  while :; do
+    status=$(curl -sS -o "$response" -D "$headers" -w '%{http_code}' \
+      -H "$auth" --json "$body" "$api") || status=000
+    if [ "$status" != 429 ]; then
+      break
+    fi
+    wait=$(awk 'tolower($1) == "retry-after:" { print $2 + 0 }' "$headers" | tail -n 1)
+    [ -n "$wait" ] && [ "$wait" -gt 0 ] || wait=$delay
+    if [ $((SECONDS - started + wait)) -gt "$submit_wait" ]; then
+      echo "::error::The Nix cloud was full for $((submit_wait / 60)) minutes" >&2
+      exit 1
+    fi
+    echo "::notice::The Nix cloud is full; asking again in ${wait}s" >&2
+    sleep "$wait"
+    delay=$((delay * 2 > 120 ? 120 : delay * 2))
+  done
+  if [ "${status:0:1}" != 2 ]; then
+    echo "::error::The Nix cloud refused the build ($status): $(cat "$response")" >&2
+    exit 1
+  fi
+  jq -r .id "$response"
 }
 
 cancel() {
