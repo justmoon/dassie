@@ -57,14 +57,12 @@ fn derivation_chain() {
         let dev = seed.dev_session_token();
         assert_eq!(to_hex(dev.as_bytes()), str_field(entry, "devSessionToken"));
 
-        let testnet = node_key
-            .settlement_entropy("xrpl-testnet", "seed-testnet")
-            .unwrap();
+        let testnet = node_key.xrpl_account_entropy(1, 0);
         assert_eq!(
             to_hex(testnet.as_bytes()),
             str_field(entry, "xrplTestnetEntropy")
         );
-        let mainnet = node_key.settlement_entropy("xrpl", "seed-mainnet").unwrap();
+        let mainnet = node_key.xrpl_account_entropy(0, 0);
         assert_eq!(
             to_hex(mainnet.as_bytes()),
             str_field(entry, "xrplMainnetEntropy")
@@ -106,9 +104,9 @@ fn secret_of<'a>(entry: &'a Value, nonce: &'a mut [u8; 32]) -> NodeSecret<'a> {
             *nonce = hex_array(str_field(entry, "hub"));
             NodeSecret::HubMember { hub: nonce }
         }
-        "settlementEntropy" => NodeSecret::SettlementEntropy {
-            module: Segment::parse(str_field(entry, "module")).unwrap(),
-            path: Segment::parse(str_field(entry, "rest")).unwrap(),
+        "xrplAccount" => NodeSecret::XrplAccount {
+            network: u32::try_from(entry["network"].as_u64().unwrap()).unwrap(),
+            index: u16::try_from(entry["index"].as_u64().unwrap()).unwrap(),
         },
         other => panic!("no secret {other}"),
     }

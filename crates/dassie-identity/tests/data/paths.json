@@ -182,18 +182,32 @@
       "publicKey": "b20cfbddf899e18bbfe885374d251a65769dd6b7c6e6624711919069579c0b72"
     },
     {
-      "name": "settlementEntropy",
-      "module": "xrpl-testnet",
-      "rest": "seed-testnet",
-      "path": "node/settlement-module/xrpl-testnet/seed-testnet",
-      "secret": "a3b3369c4ec5ae36ea48521b9491d00b0155bc9089483dc037de6688400fcb53"
+      "name": "xrplAccount",
+      "network": 1,
+      "index": 0,
+      "path": "node/xrpl/1/account/0",
+      "secret": "5f4af4cb74d0964fbf17c604bee1bfe21af7f9761934f5626e0c43328e04409e"
     },
     {
-      "name": "settlementEntropy",
-      "module": "xrpl",
-      "rest": "seed-mainnet",
-      "path": "node/settlement-module/xrpl/seed-mainnet",
-      "secret": "9948254b8ed324333454936898dda2beaf3f2962989fcea212f2374a320065e3"
+      "name": "xrplAccount",
+      "network": 0,
+      "index": 0,
+      "path": "node/xrpl/0/account/0",
+      "secret": "326b10882682565b81aa49eba34e6994eaceeaef6581c2e1cf7fc4a16403e424"
+    },
+    {
+      "name": "xrplAccount",
+      "network": 1,
+      "index": 1,
+      "path": "node/xrpl/1/account/1",
+      "secret": "f6e9ae7b597abd3483b5f63fd98ebf010c4cdfe13f2b724fdf54a2f0e3997c4d"
+    },
+    {
+      "name": "xrplAccount",
+      "network": 21338,
+      "index": 65535,
+      "path": "node/xrpl/21338/account/65535",
+      "secret": "c9ae5e2fd2f06bf186ec21cd59e6c8439833e916c7d44159ffd81c9d8d902f51"
     }
   ]
 }

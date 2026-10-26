@@ -93,9 +93,7 @@ fn port_of(url: &str) -> u16 {
 }
 
 fn account_of(key: &NodeKey) -> AccountId {
-    let entropy = key
-        .settlement_entropy(TESTNET.seed.module, TESTNET.seed.path)
-        .unwrap();
+    let entropy = key.xrpl_account_entropy(TESTNET.id, 0);
     Wallet::from_entropy(entropy.as_bytes()).account()
 }
 

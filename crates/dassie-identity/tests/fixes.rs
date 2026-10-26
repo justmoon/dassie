@@ -126,11 +126,6 @@ fn empty_seed_path_segments_are_rejected() {
             "{text:?}"
         );
     }
-    let key = NodeKey::from_bytes(&[9; 32]);
-    assert_eq!(
-        key.settlement_entropy("xrpl", "seed//mainnet").map(|_| ()),
-        Err(Error::InvalidSeedPath)
-    );
 }
 
 /// The original used X25519 results without the RFC 7748 §6.1 check, so a

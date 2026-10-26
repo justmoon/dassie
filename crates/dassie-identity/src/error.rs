@@ -30,8 +30,6 @@ pub enum Error {
     /// [`MAX_SEGMENT_BYTES`](crate::MAX_SEGMENT_BYTES), or has a character
     /// outside printable ASCII, a space or `/`.
     InvalidSeedPath,
-    /// A settlement scheme ID is not 2 to 128 characters of `[a-z0-9-]`.
-    InvalidSchemeId,
     /// A node ID is not 2 to 45 characters of `[A-Za-z0-9_-]`.
     InvalidNodeId,
     /// Thirty-two bytes that are not the encoding of a curve point.
@@ -60,7 +58,6 @@ impl fmt::Display for Error {
             }
             Self::InvalidChecksum => "phrase checksum does not match",
             Self::InvalidSeedPath => "invalid seed path",
-            Self::InvalidSchemeId => "invalid settlement scheme ID",
             Self::InvalidNodeId => "invalid node ID",
             Self::InvalidPublicKey => "invalid public key",
             Self::InvalidSignature => "invalid signature",

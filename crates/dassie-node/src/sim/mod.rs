@@ -3002,12 +3002,10 @@ pub fn xrpl_account(index: usize) -> dassie_xrpl::AccountId {
     xrpl_account_on(index, &TESTNET)
 }
 
-/// Node `index`'s account on `network`: the original's wallet of its key,
-/// at the network's seed path.
+/// Node `index`'s first account on `network`, as the node derives it from
+/// its key.
 pub fn xrpl_account_on(index: usize, network: &Network) -> dassie_xrpl::AccountId {
-    let entropy = key(index)
-        .settlement_entropy(network.seed.module, network.seed.path)
-        .unwrap();
+    let entropy = key(index).xrpl_account_entropy(network.id, 0);
     dassie_xrpl::Wallet::from_entropy(entropy.as_bytes()).account()
 }
 

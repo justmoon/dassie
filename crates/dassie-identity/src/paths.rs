@@ -26,12 +26,6 @@ const SEGMENT_ALPHABET: Alphabet = Alphabet::EMPTY
     .with_range(0x21, 0x2e)
     .with_range(0x30, 0x7e);
 
-/// The peer wire schema of a settlement scheme ID.
-const SCHEME_ID_ALPHABET: Alphabet = Alphabet::EMPTY
-    .with_range(b'a', b'z')
-    .with_range(b'0', b'9')
-    .with_chars(b"-");
-
 /// A segment of a path that a caller names, such as a ledger ID: 1 to
 /// [`MAX_SEGMENT_BYTES`] bytes of printable ASCII, without the space and
 /// without `/`.
@@ -133,13 +127,16 @@ pub enum NodeSecret<'a> {
         /// The hub's ID.
         hub: &'a [u8; 32],
     },
-    /// `node/settlement-module/<module>/<path>`: the entropy a settlement
-    /// module builds a ledger's wallet from (spec/areas/xrpl.md#the-wallet).
-    SettlementEntropy {
-        /// The module.
-        module: Segment<'a>,
-        /// Its path below the module.
-        path: Segment<'a>,
+    /// `node/xrpl/<network>/account/<index>`: the entropy of the node's
+    /// account `index` on the XRP Ledger network of ID `network`, which
+    /// every scheme on the account settles through
+    /// (spec/areas/xrpl.md#the-wallet). Named as the account's asset ID
+    /// names it: by its network, and its number among the node's there.
+    XrplAccount {
+        /// The XRP Ledger's network ID: 0 for mainnet, 1 for the testnet.
+        network: u32,
+        /// Which of the node's accounts on it: the first is 0.
+        index: u16,
     },
 }
 
@@ -157,7 +154,7 @@ impl NodeSecret<'_> {
             | Self::StreamReceiver { .. }
             | Self::Hub { .. }
             | Self::HubMember { .. }
-            | Self::SettlementEntropy { .. } => true,
+            | Self::XrplAccount { .. } => true,
             Self::QuicStatelessReset(_) | Self::QuicConnectionIds(_) => false,
         }
     }
@@ -188,8 +185,14 @@ impl NodeSecret<'_> {
                 key.name(),
             ]),
             Self::HubMember { hub } => f(&["hub", "member", hex_text(hub, &mut hex), "account"]),
-            Self::SettlementEntropy { module, path } => {
-                f(&["settlement-module", module.as_str(), path.as_str()])
+            Self::XrplAccount { network, index } => {
+                let mut number = [0; 10];
+                f(&[
+                    "xrpl",
+                    decimal_text(network, &mut decimal),
+                    "account",
+                    decimal_text(u32::from(index), &mut number),
+                ])
             }
         }
     }
@@ -221,24 +224,12 @@ impl NodeKey {
         LoginSecret::from_bytes(*self.secret(NodeSecret::Login).as_bytes())
     }
 
-    /// The entropy a settlement module gets for `path`, at
-    /// `node/settlement-module/<scheme>/<path>`.
-    ///
-    /// Settlement modules build wallets from it, so this is what keeps the
-    /// same phrase pointing at the same funds. `scheme` must be a valid
-    /// settlement scheme ID, 2 to [`MAX_SEGMENT_BYTES`] characters of `[a-z0-9-]`, and `path`
-    /// a segment.
-    pub fn settlement_entropy(&self, scheme: &str, path: &str) -> Result<DerivedSecret, Error> {
-        let scheme_valid = (2..=MAX_SEGMENT_BYTES).contains(&scheme.len())
-            && SCHEME_ID_ALPHABET.contains_all(scheme.as_bytes());
-        if !scheme_valid {
-            return Err(Error::InvalidSchemeId);
-        }
-        let module = Segment::parse(scheme).map_err(|_| Error::InvalidSchemeId)?;
-        Ok(self.secret(NodeSecret::SettlementEntropy {
-            module,
-            path: Segment::parse(path)?,
-        }))
+    /// The entropy of the node's account `index` on the XRP Ledger network
+    /// of ID `network`, at `node/xrpl/<network>/account/<index>`: what
+    /// keeps the same phrase pointing at the same funds.
+    #[must_use]
+    pub fn xrpl_account_entropy(&self, network: u32, index: u16) -> DerivedSecret {
+        self.secret(NodeSecret::XrplAccount { network, index })
     }
 }
 
@@ -327,7 +318,6 @@ mod tests {
     #[test]
     fn every_path_is_its_own() {
         let ledger = Segment::parse("xrpl-testnet-xrp+xrp").unwrap();
-        let module = Segment::parse("xrpl").unwrap();
         let mut all = Vec::from([
             NodeSecret::Login,
             NodeSecret::OpenPaymentsClient,
@@ -337,9 +327,17 @@ mod tests {
             NodeSecret::QuicConnectionIds(QuicEndpoint::Udp),
             NodeSecret::QuicConnectionIds(QuicEndpoint::Tunnel),
             NodeSecret::HubMember { hub: &[2; 32] },
-            NodeSecret::SettlementEntropy {
-                module,
-                path: module,
+            NodeSecret::XrplAccount {
+                network: 1,
+                index: 0,
+            },
+            NodeSecret::XrplAccount {
+                network: 0,
+                index: 0,
+            },
+            NodeSecret::XrplAccount {
+                network: 1,
+                index: 1,
             },
         ]);
         for network in [0, 1, 2] {
@@ -365,24 +363,5 @@ mod tests {
         assert_eq!(paths.len(), all.len());
         assert_eq!(secrets.len(), all.len());
         assert!(paths.iter().all(|path| path.starts_with("node/")));
-    }
-
-    #[test]
-    fn settlement_scheme_ids_follow_the_wire_schema() {
-        let key = NodeKey::from_bytes(&[7; 32]);
-        for scheme in ["x", "XRPL", "xrpl_testnet", "xrpl/testnet", ""] {
-            assert_eq!(
-                key.settlement_entropy(scheme, "seed").map(|_| ()),
-                Err(Error::InvalidSchemeId),
-                "{scheme}"
-            );
-        }
-        for path in ["", "a/b", "seed//mainnet"] {
-            assert_eq!(
-                key.settlement_entropy("xrpl", path).map(|_| ()),
-                Err(Error::InvalidSeedPath)
-            );
-        }
-        assert!(key.settlement_entropy("xrpl", "seed-mainnet").is_ok());
     }
 }

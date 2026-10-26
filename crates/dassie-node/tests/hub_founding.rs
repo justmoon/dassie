@@ -660,9 +660,7 @@ async fn a_cancelled_funding_is_paid_again() {
         panic!("no account");
     };
     let sequence = api::account_info_result(&result).unwrap().sequence;
-    let entropy = NodeKey::from_bytes(&[70; 32])
-        .settlement_entropy(TESTNET.seed.module, TESTNET.seed.path)
-        .unwrap();
+    let entropy = NodeKey::from_bytes(&[70; 32]).xrpl_account_entropy(TESTNET.id, 0);
     let wallet = dassie_xrpl::Wallet::from_entropy(entropy.as_bytes());
     assert_eq!(wallet.account(), sponsor);
     let other = Payment {

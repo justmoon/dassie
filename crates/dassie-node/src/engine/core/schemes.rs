@@ -210,10 +210,7 @@ fn create_hub_account(
 /// The node's first XRPL testnet account: where its hub account pays out,
 /// and where it withdraws to.
 pub(super) fn own_xrpl_account(key: &NodeKey) -> Result<dassie_xrpl::AccountId, SchemeError> {
-    let seed = dassie_xrpl::network::TESTNET.seed;
-    let entropy = key
-        .settlement_entropy(seed.module, seed.path)
-        .map_err(|_| SchemeError::InvalidConfig)?;
+    let entropy = key.xrpl_account_entropy(dassie_xrpl::network::TESTNET.id, 0);
     Ok(dassie_xrpl::Wallet::from_entropy(entropy.as_bytes()).account())
 }
 
@@ -263,9 +260,9 @@ fn schemes_on(asset: AssetId) -> Vec<Name> {
 }
 
 /// Makes the external asset `id` with its config, and the state the books
-/// kept for it. The node's first XRPL account on a network derives its keys
-/// at its network's seed path, in `dassie_xrpl::network`, which is frozen
-/// (spec/areas/identity.md#derivation-chain). Further accounts are not
+/// kept for it. An XRPL account derives its keys at the path its ID names,
+/// its network's ID and its number, which is frozen
+/// (spec/areas/identity.md#seed-paths). Accounts beyond the first are not
 /// built.
 ///
 /// # Errors
@@ -281,10 +278,7 @@ fn create_asset(
         (AssetKind::XrplTestnetAccount | AssetKind::XrplAccount, 0) => {
             let network =
                 dassie_xrpl::network::Network::of(id.kind).ok_or(SchemeError::UnknownScheme)?;
-            let seed = network.seed;
-            let entropy = key
-                .settlement_entropy(seed.module, seed.path)
-                .map_err(|_| SchemeError::InvalidConfig)?;
+            let entropy = key.xrpl_account_entropy(network.id, id.index);
             Ok(Box::new(XrplAccount::new(
                 id,
                 &schemes_on(id),
@@ -1199,9 +1193,7 @@ mod tests {
             let any: &dyn core::any::Any = asset.as_ref();
             let account = any.downcast_ref::<XrplAccount>().unwrap();
             assert_eq!(account.network(), network);
-            let entropy = key
-                .settlement_entropy(network.seed.module, network.seed.path)
-                .unwrap();
+            let entropy = key.xrpl_account_entropy(network.id, 0);
             let wallet = dassie_xrpl::Wallet::from_entropy(entropy.as_bytes());
             assert_eq!(account.account(), wallet.account());
         }

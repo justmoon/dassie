@@ -281,11 +281,6 @@ proptest! {
     }
 
     #[test]
-    fn settlement_entropy_never_panics(scheme in any::<String>(), path in any::<String>()) {
-        let _ = NodeKey::from_bytes(&[5; 32]).settlement_entropy(&scheme, &path);
-    }
-
-    #[test]
     fn der_and_key_decoders_never_panic(bytes in prop::collection::vec(any::<u8>(), 0..64), key: [u8; 32]) {
         let _ = NodeKey::from_pkcs8_der(&bytes);
         let _ = PublicKey::from_spki_der(&bytes);
