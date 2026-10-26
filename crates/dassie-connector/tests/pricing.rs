@@ -25,7 +25,7 @@ const USD: LedgerId = LedgerId::StubUsd;
 const XRP: LedgerId = LedgerId::XrplTestnetXrp;
 const RLUSD: LedgerId = LedgerId::XrplTestnetRlusdUsd;
 /// XRP in a settlement hub, a ledger of its own beside the XRP Ledger's.
-const HUB: LedgerId = LedgerId::HubXrpTestnetXrp;
+const HUB: LedgerId = LedgerId::HubXrplTestnetXrp;
 /// The ledgers the properties price: two currencies, each on two ledgers,
 /// one of them a hub's.
 const LEDGERS: [LedgerId; 4] = [USD, XRP, RLUSD, HUB];

@@ -7,7 +7,7 @@
 //!   executed in the order of the log once a quorum vouched for every
 //!   block up to it, mirrors the holds it pays into or takes from, and
 //!   submits the member's operations one at a time.
-//! - [`HubScheme`] is the `hub-xrp-testnet` settlement scheme on it: it
+//! - [`HubScheme`] is the `hub-xrpl-testnet-xrp` settlement scheme on it: it
 //!   peers with members of the same hub, settles by funding the hold toward
 //!   a peer, and signs and checks the promises each packet carries
 //!   ([`Commitments`](dassie_settlement::Commitments)).

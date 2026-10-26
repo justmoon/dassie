@@ -4846,7 +4846,7 @@ fn a_restart_never_pays_a_deposit_twice() {
 fn hub_owner_balance(core: &Core) -> i128 {
     core.ledger_views()
         .into_iter()
-        .find(|view| view.id == dassie_ledger::LedgerId::HubXrpTestnetXrp)
+        .find(|view| view.id == dassie_ledger::LedgerId::HubXrplTestnetXrp)
         .unwrap()
         .owner_balance
 }
@@ -5182,7 +5182,7 @@ fn a_hub_withdrawal_takes_only_the_owners_funds() {
     hub.account(&mut core, balance, opening);
     wait_and_close(&mut core, &mut ledger, 4_000);
     // The node owes a hub peer most of it.
-    let hub_ledger = LedgerId::HubXrpTestnetXrp;
+    let hub_ledger = LedgerId::HubXrplTestnetXrp;
     let peer = dassie_ledger::Name::new("dpeer").unwrap();
     let (interledger, _) = core.ledger.open_peer(NOW, hub_ledger, peer, 0).unwrap();
     let owner = core.account(hub_ledger, AccountName::EquityOwner).unwrap();

@@ -1,4 +1,4 @@
-//! The `hub-xrp-testnet` settlement scheme (spec/areas/hubs.md#the-members-side),
+//! The `hub-xrpl-testnet-xrp` settlement scheme (spec/areas/hubs.md#the-members-side),
 //! sans-IO: a member's side of peering over a settlement hub, through its
 //! [`HubAccount`].
 //!
@@ -57,7 +57,7 @@ use crate::promise::{Claim, Commitment, HoldNumber, Signed};
 use crate::rules::{Amount, HubId, Terms};
 
 /// The scheme's ID.
-pub const SCHEME_ID: &str = "hub-xrp-testnet";
+pub const SCHEME_ID: &str = "hub-xrpl-testnet-xrp";
 
 /// Most peers over the hub.
 pub const MAX_PEERS: usize = 256;
@@ -102,7 +102,7 @@ pub(super) struct Settling {
     pub(super) drops: Amount,
 }
 
-/// The `hub-xrp-testnet` scheme.
+/// The `hub-xrpl-testnet-xrp` scheme.
 pub struct HubScheme {
     pub(super) hub: HubId,
     pub(super) key: Arc<NodeKey>,
@@ -921,7 +921,7 @@ impl SettlementScheme for HubScheme {
     }
 
     fn ledger(&self) -> LedgerId {
-        LedgerId::HubXrpTestnetXrp
+        LedgerId::HubXrplTestnetXrp
     }
 
     fn asset(&self) -> Option<AssetId> {

@@ -201,7 +201,7 @@ pub const RLUSD: LedgerId = LedgerId::XrplRlusdUsd;
 /// DSUSD on the XRP Ledger testnet, in dollars.
 pub const DSUSD: LedgerId = LedgerId::XrplTestnetDsusdUsd;
 /// XRP in a settlement hub on the XRP Ledger testnet.
-pub const HUB: LedgerId = LedgerId::HubXrpTestnetXrp;
+pub const HUB: LedgerId = LedgerId::HubXrplTestnetXrp;
 
 /// The ledger's config of both XRPL schemes: the same, since they settle
 /// through one account.
@@ -318,7 +318,7 @@ impl Settling {
             LedgerId::XrplXrp => ("xrpl", XRPL_LIVE_CONFIG),
             LedgerId::XrplRlusdUsd => ("xrpl-rlusd", XRPL_LIVE_CONFIG),
             LedgerId::XrplTestnetDsusdUsd => ("xrpl-testnet-dsusd", XRPL_CONFIG),
-            LedgerId::HubXrpTestnetXrp => (dassie_hub::member::SCHEME_ID, ""),
+            LedgerId::HubXrplTestnetXrp => (dassie_hub::member::SCHEME_ID, ""),
             _ => ("stub", ""),
         }
     }
