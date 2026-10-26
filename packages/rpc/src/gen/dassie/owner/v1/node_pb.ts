@@ -128,7 +128,8 @@ export type GetStatusResponse = Message<"dassie.owner.v1.GetStatusResponse"> & {
 
   /**
    * The ports the node listens on, which may differ from the configured
-   * ones under systemd.
+   * ones under systemd. The HTTP port is 0 for a node without an HTTP
+   * listener, as the desktop app's.
    *
    * @generated from field: uint32 http_port = 6;
    */

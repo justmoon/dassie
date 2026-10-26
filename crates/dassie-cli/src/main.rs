@@ -32,7 +32,7 @@ use std::process::ExitCode;
 use std::sync::Arc;
 
 use dassie_node::clock::{SystemClock, os_rng};
-use dassie_node::daemon::{self, DaemonOptions, Prepared};
+use dassie_node::daemon::{self, DaemonOptions, FeedSocket, Prepared, TcpPorts};
 use dassie_node::env::{Env, Settings};
 use dassie_node::node::{Policies, Runtime};
 use dassie_node::store::Store;
@@ -239,14 +239,16 @@ fn daemon_args(parser: &mut lexopt::Parser) -> Result<DaemonOptions, lexopt::Err
                 options.listen = Some(parser.value()?.parse::<std::net::IpAddr>()?);
             }
             Long("feed-listen") => {
-                options.feed = Some(parser.value()?.parse::<std::net::SocketAddr>()?);
+                options.feed = FeedSocket::At(parser.value()?.parse::<std::net::SocketAddr>()?);
             }
             other => return Err(other.unexpected()),
         }
     }
     options.ports = match (http, https) {
-        (None, None) => None,
-        (Some(http), Some(https)) => Some(Ports::new(http, https).map_err(|e| e.to_string())?),
+        (None, None) => TcpPorts::Configured,
+        (Some(http), Some(https)) => {
+            TcpPorts::These(Ports::new(http, https).map_err(|e| e.to_string())?)
+        }
         _ => return Err("--http-port and --https-port go together".into()),
     };
     Ok(options)

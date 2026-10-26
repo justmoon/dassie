@@ -71,9 +71,9 @@ fn main() -> ExitCode {
 fn setup(app: &AppHandle, env: &Env, hidden: bool) {
     signals::watch(app);
     let started = data_dir(app).and_then(|dir| {
-        let ports = ports::choose(&dir).map_err(|error| format!("choosing ports: {error}"))?;
+        let port = ports::choose(&dir).map_err(|error| format!("choosing a port: {error}"))?;
         let ended = app.clone();
-        let node = node::start(env, ports, move |error| {
+        let node = node::start(env, port, move |error| {
             if let Some(error) = error {
                 window::show_error(&ended, &error);
             }

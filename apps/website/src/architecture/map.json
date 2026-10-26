@@ -397,7 +397,7 @@
       "w": 184,
       "desc": "The desktop app for Linux: the owner's node runs inside it as a periphery node, with no public IP or hostname, and its wallet opens in a window. A tray icon keeps the node running after the window closes.",
       "does": [
-        "Runs the daemon in its own process, with HTTPS on loopback and QUIC on every address, so it dials its relay and uplinks",
+        "Runs the daemon in its own process, with HTTPS on loopback and QUIC on every address, so it dials its relay and uplinks, and no HTTP listener or rate feed socket, which a periphery node on loopback never uses",
         "Loads the wallet from the node's own `https://localhost` origin, and trusts exactly the certificate its node serves there",
         "Opens links to public pages in the browser, and loads nothing else",
         "Starts at login in the tray, unless its owner turns that off",
