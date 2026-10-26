@@ -10,7 +10,7 @@ use crate::node::Node;
 use crate::open_payments::auth::OpError;
 use crate::open_payments::{Urls, WalletAddresses};
 
-/// `GET /.well-known/pay`, `GET /pay/<slug>`: the wallet address, with
+/// `GET /.well-known/pay`, `GET /pay/<wallet name>`: the wallet address, with
 /// the URL it was asked for as its ID, and the node's ID for Dassie-aware
 /// clients.
 pub async fn wallet_address(node: &Node, urls: &Urls, path: &str) -> Response<Body> {

@@ -13,7 +13,7 @@
 ## Decision
 
 - **One grammar for scheme IDs:** `<ledger>-<network>-<asset>`, the network left out on mainnet, and `hub-` before it for a settlement hub's scheme. The XRP schemes become `xrpl-testnet-xrp` and `xrpl-xrp`, with their ledgers, `xrpl-testnet-xrp+xrp` and `xrpl-xrp+xrp`, so a hub scheme's ID is `hub-` before the ID of the owner's book it sits on.
-- **The memo type is the scheme's ID:** `https://dassie.land/settlement/<scheme ID>/v1`, for every scheme on the XRP Ledger. A token scheme whose memo type changed speaks version 2 of its scheme, so a peer of version 1 is refused rather than read wrong; the XRP schemes, under new IDs, start at version 1.
+- **The memo type is the scheme's ID:** `https://dassie.land/settlement/<scheme ID>/v1`, for every scheme on the XRP Ledger. A token scheme whose memo type changed speaks version 2 of its scheme, so a new peering with a peer of version 1 is refused rather than read wrong; the XRP schemes, under new IDs, start at version 1.
 - **A wallet address names its ledger for people,** by its asset: `/pay/xrp`, `/pay/dsusd`, `/pay/rlusd`, `/pay/usd` for the stub, and `/pay/hub-xrp` for a hub's, unique within a realm, which is all a node runs (`LedgerId::wallet_name`). The slug stays plumbing: the receiver's and payer's addresses, and the receiver's seed path until the identity work keys it by something stable.
 - **Renamed by a migration** (`store/schema.rs`), as [hub-scheme-names](hub-scheme-names.md)'s rename was: the schemes, their books and peerings, and every stored wallet address, with the grants and payments that name them.
 
@@ -21,7 +21,7 @@
 
 - **Credentials the receivers of the renamed ledgers issued before no longer pay,** since their address and secret follow the slug; a payment sending starts a new connection after the restart the upgrade needs anyway. The receiver secret guards no funds.
 - **A payer who saved an old wallet address no longer reaches it.**
-- **Mixed versions on the testnet:** a node not yet upgraded and one upgraded share no XRP scheme, and refuse each other on the token schemes, until both run the new names. The testnet's reset makes this short.
+- **Mixed versions on the testnet:** the scheme versions refuse only new peerings. A peering made before the upgrade stays at version 1, and its two sides would read each other's token settlements as deposits, and refuse each other's settlement requests on the renamed XRP scheme. So the new names ship only with the new version of the peer protocol, which an upgraded node and one not yet upgraded do not share, so they hold no peering at all; and with the testnet's reset, which starts every peering anew.
 - **Longer XRP scheme names,** in the books, the wallet and every link state.
 
 ## Rejected
