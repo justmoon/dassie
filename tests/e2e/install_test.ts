@@ -7,12 +7,13 @@
  * (`install/<distro>.Dockerfile`, privileged). A mirror, Caddy on a Docker
  * network of the test's own, serves `https://mirror.test` under a
  * certificate from a CA the container is made to trust. It holds the
- * releases of `nix build .#install-test-mirror`: 1.0.0, 1.0.1, 1.0.2,
- * whose node does not start, and a canary, for x64, trusting the test key
- * and signed with it, and install.sh with the test key. In each container:
+ * releases of `nix build .#install-test-mirror`: 1.0.0, 1.0.1 and 1.0.2,
+ * whose node does not start, for x64, trusting the test key and signed
+ * with it, and install.sh with the test key. In each container:
  *
  * 1. install.sh refuses a tampered bundle, sums signed for another
- *    version, and a canary that meta/latest names, and installs nothing;
+ *    version, and what meta/latest names that is no release, and installs
+ *    nothing;
  * 2. it installs 1.0.0: the node runs under systemd, socket-activated,
  *    and answers on port 443; run again while an update holds the lock,
  *    it changes nothing;
@@ -21,10 +22,9 @@
  * 4. it installs 1.0.1, restarts the node, and keeps its data;
  * 5. it goes back from 1.0.2 to 1.0.1, and to the database from before
  *    1.0.2 migrated it, and its next run passes over 1.0.2;
- * 6. install.sh run again goes neither back nor to the other channel on
- *    the mirror's word, but to the other channel when asked, and stays
- *    there;
- * 7. it uninstalls it.
+ * 6. install.sh run again does not go back on the mirror's word;
+ * 7. it uninstalls it, and installs it once more with `--no-service`,
+ *    which leaves the units out.
  *
  * Set `DASSIE_INSTALL_MIRROR` to the built mirror to run it; it needs
  * Docker, which may run privileged containers, and mkcert.
@@ -48,8 +48,8 @@ const DISTROS =
     .split(",")
     .filter((distro) => distro !== "");
 const IMAGES = new URL("./install/", import.meta.url).pathname;
-/** The test mirror's canary (nix/release.nix). */
-const CANARY = "canary-2026-10-16-120000-abcdef0";
+/** What a mirror might name in meta/latest that is no release. */
+const NOT_A_RELEASE = "canary-2026-10-16-120000-abcdef0";
 /** Caddy, which serves the mirror. */
 const CADDY =
   "caddy:2-alpine@sha256:d8542f48d34a9cf4e4c11a478865229840e87e4c96ea3f439101f31a5d35f75f";
@@ -181,10 +181,10 @@ class Mirror {
     return new Mirror(root, `${caroot}/rootCA.pem`, network, server);
   }
 
-  /** Names `version` the newest on `channel`. */
-  async offer(version: string, channel = "latest"): Promise<void> {
+  /** Names `version` the newest release. */
+  async offer(version: string): Promise<void> {
     await mkdir(`${this.root}/meta`, { recursive: true });
-    await writeFile(`${this.root}/meta/${channel}`, version);
+    await writeFile(`${this.root}/meta/latest`, version);
   }
 
   /** Runs `test` with a file of the mirror replaced, then puts it back. */
@@ -368,25 +368,13 @@ for (const distro of DISTROS) {
 
 async function steps(t: TestContext, machine: Machine, mirror: Mirror) {
   await mirror.offer("1.0.0");
-  // The installer takes xz where there is xz, else gzip; tamper with both.
-  const bundles = [
-    "dassie-1.0.0-linux-x64.tar.xz",
-    "dassie-1.0.0-linux-x64.tar.gz",
-  ];
+  const bundle = "1.0.0/dassie-1.0.0-linux-x64.tar.gz";
 
   await t.test("the installer refuses a tampered bundle", async () => {
-    const [xz, gz] = await Promise.all(
-      bundles.map((name) => mirror.file(`1.0.0/${name}`)),
-    );
     const result = await mirror.with(
-      `1.0.0/${bundles[0]}`,
-      tampered(xz),
-      () =>
-        mirror.with(
-          `1.0.0/${bundles[1]}`,
-          tampered(gz),
-          () => machine.installer(mirror),
-        ),
+      bundle,
+      tampered(await mirror.file(bundle)),
+      () => machine.installer(mirror),
     );
     assert(result.code !== 0, result.stdout);
     assertStringIncludes(result.stderr, "E_BUNDLE_VERIFY_FAILED");
@@ -436,15 +424,15 @@ async function steps(t: TestContext, machine: Machine, mirror: Mirror) {
     },
   );
 
-  await t.test("the installer refuses a canary on latest", async () => {
+  await t.test("the installer refuses what is not a release", async () => {
     const result = await mirror.with(
       "meta/latest",
-      new TextEncoder().encode(CANARY),
+      new TextEncoder().encode(NOT_A_RELEASE),
       () => machine.installer(mirror),
     );
     assert(result.code !== 0, result.stdout);
     assertStringIncludes(result.stderr, "E_VERSION_INVALID");
-    assertStringIncludes(result.stderr, `meta/latest names ${CANARY}`);
+    assertStringIncludes(result.stderr, `not a version: ${NOT_A_RELEASE}`);
     assertEquals((await machine.sh("test -e /opt/dassie")).code, 1);
   });
 
@@ -661,63 +649,6 @@ async function steps(t: TestContext, machine: Machine, mirror: Mirror) {
     },
   );
 
-  await t.test(
-    "the installer does not go to the other channel on the mirror's word",
-    async () => {
-      await mirror.offer(CANARY, "latest");
-      const result = await machine.installer(mirror);
-      assert(result.code !== 0, result.stdout);
-      assertStringIncludes(result.stderr, "E_VERSION_INVALID");
-      assertStringIncludes(result.stderr, `meta/latest names ${CANARY}`);
-      assertEquals((await node(machine)).version, "dassie 1.0.1");
-    },
-  );
-
-  await mirror.offer("1.0.1", "latest");
-  await mirror.offer(CANARY, "canary");
-
-  await t.test("the installer moves to canary when asked", async () => {
-    const result = await machine.installer(mirror, "--channel canary");
-    assertEquals(result.code, 0, `${result.stdout}${result.stderr}`);
-    assertStringIncludes(result.stdout, `Dassie ${CANARY} is installed`);
-    const now = await node(machine);
-    assertEquals([now.version, now.current, now.active], [
-      `dassie ${CANARY}`,
-      CANARY,
-      "active",
-    ]);
-    await answers(machine);
-  });
-
-  await t.test("the installer run again stays on canary", async () => {
-    // meta/latest names 1.0.1, which it does not read.
-    const result = await machine.installer(mirror);
-    assertEquals(result.code, 0, `${result.stdout}${result.stderr}`);
-    assertStringIncludes(result.stdout, "Looking up the newest canary version");
-    assertEquals((await node(machine)).version, `dassie ${CANARY}`);
-    // Nor does it take a release that meta/canary names.
-    const refused = await mirror.with(
-      "meta/canary",
-      new TextEncoder().encode("1.0.1"),
-      () => machine.installer(mirror),
-    );
-    assert(refused.code !== 0, refused.stdout);
-    assertStringIncludes(refused.stderr, "E_VERSION_INVALID");
-    assertStringIncludes(refused.stderr, "meta/canary names 1.0.1");
-    assertEquals((await node(machine)).version, `dassie ${CANARY}`);
-  });
-
-  await t.test("the installer moves back to latest when asked", async () => {
-    const result = await machine.installer(mirror, "--channel latest");
-    assertEquals(result.code, 0, `${result.stdout}${result.stderr}`);
-    const now = await node(machine);
-    assertEquals([now.version, now.current, now.active], [
-      "dassie 1.0.1",
-      "1.0.1",
-      "active",
-    ]);
-  });
-
   await t.test("the installer uninstalls it", async () => {
     const result = await machine.installer(mirror, "uninstall");
     assertEquals(result.code, 0, `${result.stdout}${result.stderr}`);
@@ -745,4 +676,24 @@ async function steps(t: TestContext, machine: Machine, mirror: Mirror) {
       "inactive",
     );
   });
+
+  await t.test(
+    "the installer installs no units with --no-service",
+    async () => {
+      // meta/latest names 1.0.0 since the step that offered it.
+      const result = await machine.installer(mirror, "--no-service");
+      assertEquals(result.code, 0, `${result.stdout}${result.stderr}`);
+      assertEquals(await machine.must("readlink /opt/dassie/current"), "1.0.0");
+      assertEquals(
+        await machine.must("/usr/local/bin/dassie --version"),
+        "dassie 1.0.0",
+      );
+      await machine.must(
+        "test -z \"$(ls /etc/systemd/system | grep '^dassie')\"",
+      );
+      const removed = await machine.installer(mirror, "uninstall");
+      assertEquals(removed.code, 0, `${removed.stdout}${removed.stderr}`);
+      assertEquals((await machine.sh("test -e /opt/dassie")).code, 1);
+    },
+  );
 }

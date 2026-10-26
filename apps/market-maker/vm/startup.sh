@@ -8,10 +8,11 @@
 #    dassie-mm, which the nodes and the market maker run as.
 # 2. Clones the repository, or brings it to the newest `main`: the units
 #    and the scripts they run come from there.
-# 3. Installs the newest release, if there is no install yet, as install.sh
-#    lays it out (spec/areas/release.md#install-layout), so that
-#    `dassie update` keeps it current. install.sh itself would also set up
-#    dassie.service on ports 80 and 443, which this VM does not run.
+# 3. Installs the newest release, if there is no install yet, with the
+#    checkout's install.sh and `--no-service`
+#    (spec/areas/release.md#installsh): the install layout `dassie update`
+#    keeps current, without dassie.service on ports 80 and 443, which this
+#    VM does not run.
 # 4. Writes the settings from the instance metadata, and the targets' node
 #    IDs, which pin both nodes to every target.
 # 5. Installs the units, and (re)starts both nodes, the market maker and
@@ -41,7 +42,7 @@ fail() {
 
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -q
-apt-get install -qy --no-install-recommends ca-certificates curl git jq minisign xz-utils
+apt-get install -qy --no-install-recommends ca-certificates curl git jq minisign
 
 id -u dassie-mm > /dev/null 2>&1 ||
   useradd --system --user-group --no-create-home --home-dir /nonexistent \
@@ -64,81 +65,18 @@ git -C "$checkout" checkout --quiet --force --detach origin/main
 
 # --- The release ----------------------------------------------------------------
 
-# Fetches a URL into a file, HTTPS only, failing on any error status.
-download() {
-  curl --proto =https --tlsv1.2 --fail --silent --show-error --location \
-    --retry 3 --retry-delay 5 --max-time 600 --output "$2" "$1"
-}
-
-# Installs the newest release into $base/<version> and points
-# $base/current at it, with install.sh's checks
-# (resources/installer/install.sh, spec/decisions/release-integrity.md):
-# nothing is unpacked before SHA256SUMS carries the release key's
-# signature for the version, and the bundle matches its sum; nothing is
-# installed that does not name that version and pass verify-install.
-install_release() {
-  case "$(uname -m)" in
-    x86_64) arch=x64 ;;
-    aarch64) arch=arm64 ;;
-    *) fail "there are no releases for $(uname -m)" ;;
-  esac
-  key=$(sed -n 2p "$checkout/resources/minisign.pub")
-  temp=$(mktemp -d -t dassie-mm-install-XXXXXXXXXX)
-  download "$mirror/meta/latest" "$temp/meta" || fail "cannot read $mirror/meta/latest"
-  version=$(head -c 128 "$temp/meta" | tr -d ' \r\n')
-  # meta/latest is not signed, so it names only a version of its channel;
-  # the signature then says whether the release is that version.
-  printf '%s\n' "$version" | grep -Eqx '(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)' ||
-    fail "the mirror's meta/latest names no version"
-  echo "Installing dassie $version"
-  bundle="dassie-$version-linux-$arch.tar.xz"
-  for file in SHA256SUMS SHA256SUMS.minisig "$bundle"; do
-    download "$mirror/$version/$file" "$temp/$file" || fail "cannot download $mirror/$version/$file"
-  done
-  comment=$(minisign -V -H -Q -P "$key" -m "$temp/SHA256SUMS" -x "$temp/SHA256SUMS.minisig" 2> /dev/null) ||
-    fail "SHA256SUMS is not signed with the release key"
-  [ "$comment" = "dassie $version" ] ||
-    fail "SHA256SUMS is signed for another version ($comment), not $version"
-  expected=$(awk -v name="$bundle" '$2 == name || $2 == "*" name { print $1 }' "$temp/SHA256SUMS")
-  actual=$(sha256sum "$temp/$bundle" | awk '{ print $1 }')
-  [ -n "$expected" ] && [ "$actual" = "$expected" ] ||
-    fail "$bundle does not match its signed sum: refusing it"
-  mkdir "$temp/unpacked"
-  tar -xJf "$temp/$bundle" -C "$temp/unpacked" || fail "cannot unpack $bundle"
-  unpacked="$temp/unpacked/dassie"
-  [ -z "$(find "$temp/unpacked" ! -type f ! -type d)" ] && [ -x "$unpacked/bin/dassie" ] ||
-    fail "$bundle does not hold what a release holds"
-  [ "$("$unpacked/bin/dassie" --version)" = "dassie $version" ] ||
-    fail "the binary in $bundle is not dassie $version"
-  "$unpacked/bin/dassie" verify-install > /dev/null || fail "dassie $version fails verify-install here"
-
-  # One at a time with `dassie update`, under its lock, as install.sh.
-  mkdir -p "$base"
-  touch "$base/.update.lock"
-  exec 9< "$base/.update.lock"
-  flock -w 600 9 || fail "an update is running"
-  rm -rf "$base/.install-$version"
-  cp -R "$unpacked" "$base/.install-$version"
-  if [ -e "$base/$version" ]; then
-    mv -T "$base/$version" "$base/.replaced-$version-$$"
-  fi
-  mv -T "$base/.install-$version" "$base/$version"
-  rm -rf "$base/.replaced-$version-$$"
-  # On disk before current names it; then one rename points current at it.
-  sync
-  ln -sfn "$version" "$base/.current-$$"
-  mv -T "$base/.current-$$" "$base/current"
-  sync
-  exec 9<&-
-  # For the owner's `dassie status` with DASSIE_IPC_SOCKET_PATH.
-  ln -sfn "$base/current/bin/dassie" /usr/local/bin/dassie
-  rm -rf "$temp"
-}
-
-# An install whose binary names no version is taken for none, as
-# install.sh takes it.
+# The newest release, verified as install.sh verifies it
+# (spec/decisions/release-integrity.md), by install.sh itself: the
+# checkout's, with the checkout's release key written in, as a release
+# writes it. It also links /usr/local/bin/dassie, for the owner's
+# `dassie status` with DASSIE_IPC_SOCKET_PATH. An install whose binary
+# names no version is taken for none, as install.sh takes it.
 if ! "$base/current/bin/dassie" --version > /dev/null 2>&1; then
-  install_release
+  key=$(sed -n 2p "$checkout/resources/minisign.pub")
+  installer=$(mktemp -t dassie-mm-install-XXXXXXXXXX)
+  sed "s|@RELEASE_KEY@|$key|" "$checkout/resources/installer/install.sh" > "$installer"
+  sh "$installer" --mirror "$mirror" --no-service || fail "the installer failed"
+  rm -f "$installer"
 fi
 
 # --- The settings ---------------------------------------------------------------

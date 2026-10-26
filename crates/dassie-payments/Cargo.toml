@@ -1,6 +1,6 @@
 [package]
 name = "dassie-payments"
-version = "0.2.9"
+version.workspace = true
 description = "Open Payments without IO: resources, GNAP grants, HTTP message signatures, payment pointers and time"
 edition.workspace = true
 rust-version.workspace = true

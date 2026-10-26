@@ -28,10 +28,10 @@ The nodes' two passphrases are secrets in Secret Manager, made once and kept: ea
 
 The VM runs signed releases only, checked as an owner's install checks them ([release-integrity](../decisions/release-integrity.md)).
 
-- **The first install is the VM's own.** `install.sh` always sets up `dassie.service` on ports 80 and 443, which this VM does not run, so `startup.sh` installs the newest release itself, with the installer's checks: the release key's signature on `SHA256SUMS` with the version in its trusted comment, the bundle's sum, the version the binary names, and `verify-install`. It keeps the [install layout](release.md#install-layout) and takes the updater's lock, so that `dassie update` keeps the install current.
-- **Updates are the updater's,** run daily without its restart (`--no-restart`), and with the units each release brings sent to a scratch directory, since the VM runs units of its own (`update.sh`). Once it installs a version, both nodes restart on it, then the market maker.
-- **A node that does not come up sends the VM back** to the version `current` named before, and the rollback is recorded in `last-update` as the updater records one, so that the next update passes over that version until the mirror offers another ([Rolling back](release.md#rolling-back)).
-- **The database is not put back.** Unlike the updater with `dassie.service`, the VM does not restore a node's database from before a migration: a node that the new version migrated stays down on the old one until someone puts the copy back by hand.
+- **The first install is `install.sh`'s,** with `--no-service`: the checkout's script, with the checkout's release key written in as a release writes it, so that it installs what any owner's install would, in the [install layout](release.md#install-layout), without `dassie.service` on ports 80 and 443, which this VM does not run.
+- **Updates are the updater's,** run daily with `--unit` for each node (`update.sh`): it installs none of the units a release brings, since the VM runs units of its own, and restarts both nodes in place of `dassie.service`, and the market maker with them.
+- **A node that does not come up sends the VM back** as the updater sends any install back ([Rolling back](release.md#rolling-back)): to the version `current` named before, with each node's database from before a migration put back, and the rollback recorded, so that the next update passes over that version until the mirror offers another. A market maker that the rollback stopped is started again.
+- **A version from before `--unit` updates as it always has,** once (`update-before-unit.sh`): without its restart, the units it brings sent to a scratch directory, and a rollback of its own that puts back no database.
 
 ## Settings
 
@@ -50,4 +50,4 @@ It needs no SSH, and takes no project-wide SSH keys. The nodes, the market maker
 ## Decisions
 
 - [passive-rebalancing](../decisions/passive-rebalancing.md): market makers, not the nodes, move a node's holdings back toward balance.
-- [release-integrity](../decisions/release-integrity.md): signed sums, the trusted comment, and the switch with one rename, which the VM's own install keeps.
+- [release-integrity](../decisions/release-integrity.md): signed sums, the trusted comment, the switch with one rename and the rollback, which the VM takes from the installer and the updater.

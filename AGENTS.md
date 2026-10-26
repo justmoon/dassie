@@ -23,7 +23,7 @@ Update `map.json` in the same PR as the change it describes:
 - **What a part does, or what it builds on, changes:** update its `desc`, `does` and `edges`, and any journey in `flows` that passes through it.
 - **A release is tagged:** add an entry at the top of `releases`, `{version, date, changes}`, with a few sentences on what people get, in plain words. Wrap commands and paths in backticks.
 
-Write for someone new to Dassie, in the present tense, and leave out milestones, PR numbers and counts that go stale. `map_test.ts` fails when a crate, app, package or contract has no box, when a path or id is wrong, when boxes overlap or leave their layer, when a box's `uses` links differ from the workspace dependencies in its `Cargo.toml` (not its dev-dependencies) or `package.json`, and when the newest release is not the version in `crates/dassie-cli/Cargo.toml`. Run it with `node --test apps/website/src/architecture/map_test.ts`.
+Write for someone new to Dassie, in the present tense, and leave out milestones, PR numbers and counts that go stale. `map_test.ts` fails when a crate, app, package or contract has no box, when a path or id is wrong, when boxes overlap or leave their layer, when a box's `uses` links differ from the workspace dependencies in its `Cargo.toml` (not its dev-dependencies) or `package.json`, and when the newest release is not the workspace version in `Cargo.toml` (`[workspace.package]`). Run it with `node --test apps/website/src/architecture/map_test.ts`.
 
 ## Follow the visual identity
 

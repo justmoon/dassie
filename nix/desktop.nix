@@ -18,7 +18,7 @@
 }:
 let
   desktopLibs = import ./desktop-libs.nix { inherit pkgs; };
-  version = (lib.importTOML ../crates/dassie-desktop/Cargo.toml).package.version;
+  version = (lib.importTOML ../Cargo.toml).workspace.package.version;
   common = {
     inherit src version;
     pname = "dassie-desktop";
@@ -38,7 +38,7 @@ craneLib.buildPackage (
   // {
     cargoArtifacts = craneLib.buildDepsOnly common;
     DASSIE_WALLET_DIST = wallet;
-    DASSIE_VERSION = version;
+    DASSIE_BUILD_VERSION = version;
     preFixup = ''
       gappsWrapperArgs+=(--prefix LD_LIBRARY_PATH : ${lib.makeLibraryPath [ pkgs.libayatana-appindicator ]})
     '';

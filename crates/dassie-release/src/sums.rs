@@ -139,7 +139,7 @@ mod tests {
         let Ok(sums) = Sums::parse(SUMS.as_bytes()) else {
             panic!("the test sums parse");
         };
-        assert_eq!(sums.names().count(), 4);
+        assert_eq!(sums.names().count(), 2);
         let Some(digest) = sums.digest("dassie-0.1.0-linux-x64.tar.gz") else {
             panic!("the x64 bundle is listed");
         };

@@ -1,6 +1,6 @@
 [package]
 name = "dassie-wasm"
-version = "0.2.9"
+version.workspace = true
 description = "JavaScript bindings (wasm-bindgen) of Dassie's core crates: identity, and STREAM with ILP's packets"
 edition.workspace = true
 rust-version.workspace = true

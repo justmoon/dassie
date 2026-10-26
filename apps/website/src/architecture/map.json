@@ -293,9 +293,9 @@
       "desc": "Runs `dassie market-maker` on a small VM of its own, so that the testnet's core nodes are brought back toward balance. Its two periphery nodes, one in XRP and one in DSUSD, run beside it, each pinned to every core node it trades through.",
       "does": [
         "`provision.sh` makes the VM, a network that nothing reaches, and an account that can read only the two nodes' passphrases",
-        "At each boot, installs the newest release as `install.sh` lays it out, checked against the release key, and the units from `main`",
+        "On its first boot, installs the newest release with `install.sh --no-service`, and at each boot the units from `main`",
         "Sets each node up from its passphrase with `dassie setup`, then runs the market maker; the passphrases sit in files in memory only while it runs",
-        "Updates every day with `dassie update`, restarts the nodes on the new version, and goes back if one does not start",
+        "Updates every day with `dassie update --unit`, which restarts the nodes on the new version and goes back if one does not start",
         "Logs to the serial console, so it is watched without SSH"
       ]
     },
@@ -566,10 +566,10 @@
       "x": 796,
       "y": 672,
       "w": 184,
-      "desc": "What a release is and how to trust one: versions and channels, the mirror's layout, `SHA256SUMS` and its minisign signature. The updater and the release workflow both trust a release through it.",
+      "desc": "What a release is and how to trust one: versions, the mirror's layout, `SHA256SUMS` and its minisign signature. The updater and the release workflow both trust a release through it.",
       "does": [
         "Versions that are safe as directory names",
-        "Moves on its own only to a later version of the same channel",
+        "Moves on its own only to a later release",
         "Checks minisign signatures strictly; the signature must name the version",
         "Reads `SHA256SUMS` only once it is verified, with every parser bounded",
         "Unpacks only plain files under `dassie/`"
@@ -1489,7 +1489,7 @@
           "ids": [
             "release-crate"
           ],
-          "text": "The signature and the version are checked before anything is unpacked, and the node moves only forward, on its own channel."
+          "text": "The signature and the version are checked before anything is unpacked, and the node moves only forward."
         },
         {
           "ids": [

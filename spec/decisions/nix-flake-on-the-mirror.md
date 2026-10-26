@@ -14,7 +14,7 @@
 
 ## Decision
 
-- **Each release publishes a flake, `<version>/flake.tar.gz`,** beside its bundles. It holds a NixOS module, a package, and `release.json`, which names the version and, for each platform, the `.tar.xz` bundle and its sum. Its one input is nixpkgs, locked as this repository locks it, for the user to `follows`.
+- **Each release publishes a flake, `<version>/flake.tar.gz`,** beside its bundles. It holds a NixOS module, a package, and `release.json`, which names the version and, for each platform, the bundle and its sum. Its one input is nixpkgs, locked as this repository locks it, for the user to `follows`.
 - **The package is the release's own bundle,** fetched from the mirror by its sum, which is the sum `SHA256SUMS` lists. Nothing is compiled, and the binary is the one every other install runs.
 - **The module installs the bundle's own units,** with `ExecStart` pointed at the package, and enables them as `install.sh` does. Options set environment variables and open the firewall, in drop-ins. The sandbox stays in one place, `resources/systemd`.
 - **There is no updater on NixOS.** The updater's units are left out of the package, and the flake's version is the node's. Updating is changing the flake input.

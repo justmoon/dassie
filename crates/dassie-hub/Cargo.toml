@@ -1,6 +1,6 @@
 [package]
 name = "dassie-hub"
-version = "0.2.9"
+version.workspace = true
 description = "Settlement hubs for Dassie as sans-IO code: the hub's rules, its ledger and operations, Simplex consensus, the escrow's payout sets, and a member's account and settlement scheme"
 edition.workspace = true
 rust-version.workspace = true

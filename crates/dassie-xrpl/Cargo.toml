@@ -1,6 +1,6 @@
 [package]
 name = "dassie-xrpl"
-version = "0.2.9"
+version.workspace = true
 description = "The XRP Ledger for Dassie: wallets and secp256k1 keys, the transaction codec for XRP and tokens, account settings and signer lists, single- and multi-signing, the ledger's binary records with ledger headers, validations and manifests, branches in its hash trees, the UNL from signed validator lists and its quorum, skip lists and anchors on ledgers the UNL validated, and the state, transactions and history the account reads proven at them, a standalone verifier that proves any account's state and any transaction the same way, the rippled API, AMM pool prices, the testnet account as an external asset and the settlement scheme on it, sans-IO; and a fake ledger for tests"
 edition.workspace = true
 rust-version.workspace = true

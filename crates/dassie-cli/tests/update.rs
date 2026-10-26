@@ -21,7 +21,7 @@ use std::process::{Command, Output};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use dassie_release::layout::{self, Arch, Compression};
+use dassie_release::layout::{self, Arch};
 use dassie_release::testing::{TEST_SECRET_KEY, sign};
 use flate2::write::GzEncoder;
 use rustls::pki_types::pem::PemObject as _;
@@ -31,7 +31,7 @@ use tempfile::TempDir;
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 
 const DASSIE: &str = env!("CARGO_BIN_EXE_dassie");
-const PEBBLE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../testdata/pebble");
+const TLS_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../testdata/tls");
 
 type Files = Arc<Mutex<HashMap<String, Vec<u8>>>>;
 
@@ -74,11 +74,11 @@ impl MirrorServer {
 }
 
 async fn serve(files: Files, port: std::sync::mpsc::Sender<u16>) {
-    let certs = CertificateDer::pem_file_iter(format!("{PEBBLE}/cert.pem"))
+    let certs = CertificateDer::pem_file_iter(format!("{TLS_DIR}/cert.pem"))
         .unwrap()
         .collect::<Result<Vec<_>, _>>()
         .unwrap();
-    let key = PrivateKeyDer::from_pem_file(format!("{PEBBLE}/key.pem")).unwrap();
+    let key = PrivateKeyDer::from_pem_file(format!("{TLS_DIR}/key.pem")).unwrap();
     let config = rustls::ServerConfig::builder_with_provider(Arc::new(
         rustls::crypto::ring::default_provider(),
     ))
@@ -172,7 +172,7 @@ impl Install {
             .arg("update")
             .args(["--mirror", &mirror.url, "--no-restart"])
             .args(args)
-            .env("DASSIE_MIRROR_CA_FILE", format!("{PEBBLE}/root.pem"))
+            .env("DASSIE_MIRROR_CA_FILE", format!("{TLS_DIR}/root.pem"))
             .env("DASSIE_SYSTEMD_UNIT_DIR", self.dir.path().join("units"))
             .env_remove("DASSIE_MIRROR_URL")
             .output()
@@ -185,7 +185,7 @@ impl Install {
         command
             .arg("update")
             .args(["--mirror", &mirror.url])
-            .env("DASSIE_MIRROR_CA_FILE", format!("{PEBBLE}/root.pem"))
+            .env("DASSIE_MIRROR_CA_FILE", format!("{TLS_DIR}/root.pem"))
             .env("DASSIE_SYSTEMD_UNIT_DIR", self.dir.path().join("units"))
             .env_remove("DASSIE_MIRROR_URL");
         command
@@ -283,7 +283,7 @@ fn tarball(entries: &[Entry<'_>]) -> Vec<u8> {
 /// with `comment` (by default the version's), and names it on `latest`.
 fn publish(mirror: &MirrorServer, version: &str, bundle: &[u8], comment: Option<&str>) {
     let parsed = dassie_release::Version::parse(version).unwrap();
-    let name = layout::bundle(&parsed, Arch::current().unwrap(), Compression::Gz);
+    let name = layout::bundle(&parsed, Arch::current().unwrap());
     let digest: String = Sha256::digest(bundle)
         .iter()
         .map(|b| format!("{b:02x}"))
@@ -483,25 +483,16 @@ fn stays_when_up_to_date_or_offered_older() {
     assert_eq!(install.current(), "0.0.1");
 }
 
-/// `meta/<channel>` is not signed, so a version it names must be of that
-/// channel: else a mirror could take a node that switches channels to any
-/// version, back included, or offer a canary as the newest release.
+/// `meta/latest` names a release, and nothing else the mirror might write
+/// there: no other shape names a directory the updater would install.
 #[test]
-fn refuses_a_version_of_another_channel() {
+fn refuses_what_is_not_a_release() {
     let (mirror, install) = (MirrorServer::start(), Install::new());
-    publish(&mirror, "0.0.1", &release("0.0.1"), None);
-    mirror.put("meta/canary", "0.0.1");
-    refused(
-        &install,
-        &install.update(&mirror, &["--channel", "canary"]),
-        "meta/canary names 0.0.1, which is not a canary version",
-    );
-    let canary = "canary-2026-10-16-120000-abcdef0";
-    publish(&mirror, canary, &release(canary), None);
+    mirror.put("meta/latest", "canary-2026-10-16-120000-abcdef0");
     refused(
         &install,
         &install.update(&mirror, &[]),
-        &format!("meta/latest names {canary}, which is not a latest version"),
+        "meta/latest: the version is not of the form 1.2.3",
     );
 }
 
@@ -513,7 +504,6 @@ fn refuses_a_tampered_bundle() {
     let name = layout::bundle(
         &dassie_release::Version::parse("9.9.9").unwrap(),
         Arch::current().unwrap(),
-        Compression::Gz,
     );
     let mut tampered = release("9.9.9");
     let last = tampered.len() - 1;
@@ -963,6 +953,121 @@ fn a_rollback_puts_back_what_current_named() {
         "{}",
         text(&output)
     );
+}
+
+/// A stand-in for systemctl in `dir` that does what it is asked, and logs
+/// each call as [`systemctl_failing_restart`]'s does.
+fn systemctl_logging(dir: &Path) -> PathBuf {
+    let path = dir.join("systemctl");
+    fs::write(&path, "#!/bin/sh\necho \"$*\" >> \"$0.log\"\n").unwrap();
+    fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
+    output_of_written(Command::new(&path).arg("is-system-running"));
+    path
+}
+
+/// `--unit` for two nodes, `a@x` and `a@y`, as the market maker's VM names
+/// its own.
+fn two_units(install: &Install) -> Vec<String> {
+    let state = install.dir.path().join("state");
+    ["x", "y"]
+        .iter()
+        .flat_map(|node| {
+            [
+                "--unit".to_owned(),
+                format!("a@{node}.service={}", state.join(node).display()),
+            ]
+        })
+        .collect()
+}
+
+/// Named units, as the market maker's VM names its two nodes: the updater
+/// restarts them rather than dassie.service, and installs none of the
+/// release's units, which whoever names them does not run.
+#[test]
+fn restarts_the_units_it_is_named() {
+    let (mirror, install) = (MirrorServer::start(), Install::new());
+    publish(&mirror, "9.9.9", &release_adding_a_unit("9.9.9"), None);
+    let systemctl = systemctl_logging(install.dir.path());
+    let output = install
+        .updater(&install.base().join("current/bin/dassie"), &mirror)
+        .env("DASSIE_SYSTEMCTL", &systemctl)
+        .args(two_units(&install))
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{}", text(&output));
+    assert_eq!(install.current(), "9.9.9");
+    assert_eq!(install.unit("dassie.service"), None);
+    assert_eq!(install.unit("dassie-new.timer"), None);
+    assert_eq!(
+        systemctl_calls(&systemctl)[1..],
+        ["restart a@x.service a@y.service"]
+    );
+    assert!(
+        install
+            .last_update()
+            .contains("\noutcome=updated\ntarget=9.9.9\n")
+    );
+}
+
+/// If a named unit does not come up, the updater goes back as it does for
+/// dassie.service: `current` back, the units stopped, each node's database
+/// put back if it must, and started again; the record says so. It puts
+/// back none of the version's own units, which it never installed.
+#[test]
+fn goes_back_on_the_units_it_is_named() {
+    let (mirror, install) = (MirrorServer::start(), Install::new());
+    publish(&mirror, "9.9.9", &release("9.9.9"), None);
+    let units = install.base().join(&install.version).join("share/systemd");
+    fs::create_dir_all(&units).unwrap();
+    fs::write(units.join("dassie.service"), UNIT).unwrap();
+    let systemctl = systemctl_failing_restart(install.dir.path());
+    let output = install
+        .updater(&install.base().join("current/bin/dassie"), &mirror)
+        .env("DASSIE_SYSTEMCTL", &systemctl)
+        .args(two_units(&install))
+        .output()
+        .unwrap();
+    assert!(!output.status.success(), "{}", text(&output));
+    assert_eq!(install.current(), install.version);
+    let record = install.last_update();
+    assert!(
+        record.contains("\noutcome=rolled-back\ntarget=9.9.9\n"),
+        "{record}"
+    );
+    assert_eq!(install.unit("dassie.service"), None);
+    assert_eq!(
+        systemctl_calls(&systemctl)[1..],
+        [
+            "restart a@x.service a@y.service",
+            "stop a@x.service a@y.service",
+            "start a@x.service a@y.service",
+        ]
+    );
+}
+
+/// `--unit` names a service and an absolute data directory, each unit
+/// once, and restarts what `--no-restart` would leave alone.
+#[test]
+fn refuses_a_unit_it_cannot_take() {
+    let (mirror, install) = (MirrorServer::start(), Install::new());
+    publish(&mirror, "9.9.9", &release("9.9.9"), None);
+    for args in [
+        &["--unit", "a.service"][..],
+        &["--unit", "a.timer=/var/lib/a"],
+        &["--unit", ".service=/var/lib/a"],
+        &["--unit", "a b.service=/var/lib/a"],
+        &["--unit", "a.service=var/lib/a"],
+        &["--unit", "a.service=/x", "--unit", "a.service=/y"],
+        &["--unit", "a.service=/x", "--no-restart"],
+    ] {
+        let output = install
+            .updater(&install.base().join("current/bin/dassie"), &mirror)
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(!output.status.success(), "{args:?}: {}", text(&output));
+        assert_eq!(install.current(), install.version, "{args:?}");
+    }
 }
 
 /// An update keeps the version `current` named, for the owner to go back

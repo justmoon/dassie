@@ -201,7 +201,7 @@ The dev environment's scenarios run headless in CI on real binaries with the wal
 
 The install tests run the installer and the updater in containers with systemd as PID 1, against a mirror of signed test releases; [Release](release.md#tests) states what they check. Two rules for changing them:
 
-- **Between them, the images must take every path the installer has:** both verifiers, both downloaders and both compressions. Each Dockerfile (`tests/e2e/install/`) says which path it takes; a change to an image must keep every path covered.
+- **Between them, the images must take every path the installer has:** both verifiers and both downloaders. Each Dockerfile (`tests/e2e/install/`) says which path it takes; a change to an image must keep every path covered.
 - **The installer runs under `umask 077`,** as on a hardened host, so what it installs must still be readable by the node's own user.
 
 ## Decisions

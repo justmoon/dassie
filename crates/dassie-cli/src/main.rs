@@ -105,16 +105,22 @@ Commands:
                                                 its JSON config; repeatable
   pair              Print a code that pairs an owner app with the node, for
                     the next five minutes.
-  update           Update Dassie to the newest version of its channel, once
-                    its signature and sums check out.
+  update           Update Dassie to the newest release, once its signature
+                    and sums check out.
                       -f, --force                  install even if not newer, or
                                                    if it was rolled back
                       -t, --target-version <v>     this version instead
-                      --channel latest|canary      this channel instead
                       --mirror <url>               another mirror (default:
                                                    DASSIE_MIRROR_URL, or
                                                    https://get.dassie.land)
                       --no-restart                 leave systemd alone
+                      --unit <name>.service=<dir>  restart this unit, whose
+                                                   node keeps its data in
+                                                   <dir>, rather than
+                                                   dassie.service, and
+                                                   install none of the
+                                                   release's units;
+                                                   repeatable
   verify-install    Verify that Dassie and its dependencies work here.
   front-door        Run a front door: Open Payments at <label>.<domain> for
                     nodes that name it as their relay, and at
@@ -263,11 +269,23 @@ fn update_args(parser: &mut lexopt::Parser) -> Result<update::Options, lexopt::E
         match argument {
             Short('f') | Long("force") => options.force = true,
             Short('t') | Long("target-version") => options.target = Some(parser.value()?.string()?),
-            Long("channel") => options.channel = Some(parser.value()?.string()?),
             Long("mirror") => options.mirror = Some(parser.value()?.string()?),
             Long("no-restart") => options.no_restart = true,
+            Long("unit") => {
+                let unit = update::NodeUnit::parse(&parser.value()?.string()?)?;
+                if options.units.iter().any(|named| named.name == unit.name) {
+                    return Err(format!("--unit names {} twice", unit.name).into());
+                }
+                if options.units.len() == update::MAX_NODE_UNITS {
+                    return Err(format!("at most {} --unit", update::MAX_NODE_UNITS).into());
+                }
+                options.units.push(unit);
+            }
             other => return Err(other.unexpected()),
         }
+    }
+    if options.no_restart && !options.units.is_empty() {
+        return Err("--unit restarts what --no-restart leaves alone: choose one".into());
     }
     Ok(options)
 }
@@ -407,7 +425,7 @@ fn verify_install() -> ExitCode {
     ExitCode::SUCCESS
 }
 
-/// The version names a release or a canary, as the updater needs.
+/// The version names a release, as the updater needs.
 fn check_version() -> Result<(), String> {
     dassie_release::Version::parse(dassie_node::VERSION)
         .map(|_| ())

@@ -1,6 +1,6 @@
 [package]
 name = "dassie-desktop"
-version = "0.2.9"
+version.workspace = true
 description = "The Dassie desktop app: the owner's node in a window, as a periphery node"
 edition.workspace = true
 rust-version.workspace = true

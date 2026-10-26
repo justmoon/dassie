@@ -6,12 +6,12 @@
 //! pointing at the one that runs. The updater finds it from its own path,
 //! which must be `<base>/<its version>/bin/dassie`. Then:
 //!
-//! 1. It asks `meta/<channel>` for the newest version, and stops unless
-//!    that supersedes this one (`Version::supersedes`): a mirror cannot take
-//!    a node back or to another channel. The owner can, with
-//!    `--target-version` or `--channel`. Nor does it try again a version
-//!    that did not start here, as `last-update` remembers, until the mirror
-//!    offers another; the owner can, with `--force` or `--target-version`.
+//! 1. It asks `meta/latest` for the newest version, and stops unless that
+//!    supersedes this one (`Version::supersedes`): a mirror cannot take a
+//!    node back. The owner can, with `--target-version`. Nor does it try
+//!    again a version that did not start here, as `last-update` remembers,
+//!    until the mirror offers another; the owner can, with `--force` or
+//!    `--target-version`.
 //! 2. It verifies `SHA256SUMS` with the release key built into the binary,
 //!    then the bundle against its sum, before it opens the bundle.
 //! 3. It unpacks only plain files and directories under `dassie/`
@@ -34,8 +34,8 @@
 //! Each records how it went in `<base>/last-update`, for `dassie status`.
 //!
 //! The original's updater verified nothing it downloaded, took any HTTP
-//! status as the file, did not trim `meta/latest`, swapped `current` in two
-//! steps, and refused every canary install (RT-18).
+//! status as the file, did not trim `meta/latest`, and swapped `current` in
+//! two steps (RT-18).
 
 use std::fs::{self, File};
 use std::io::{self, Read as _};
@@ -49,8 +49,8 @@ use dassie_node::store::{
     self, DATABASE_FILE, PRE_MIGRATION_FILE, ROLLED_BACK_FILE, ROLLING_BACK_FILE, Restored,
 };
 use dassie_release::bundle::{self, Kind, Unpacking};
-use dassie_release::layout::{self, Arch, Compression};
-use dassie_release::{Channel, PublicKey, Sums, Version, verify_sums};
+use dassie_release::layout::{self, Arch};
+use dassie_release::{PublicKey, Sums, Version, verify_sums};
 use sha2::{Digest as _, Sha256};
 
 include!(concat!(env!("OUT_DIR"), "/release_key.rs"));
@@ -64,28 +64,85 @@ const SERVICE: &str = "dassie.service";
 const STATE_DIRECTORY: &str = "/var/lib/dassie";
 /// Where each update records how it went, in the install's base.
 pub const LAST_UPDATE_FILE: &str = "last-update";
-/// How long fetching `meta/<channel>`, the sums or the signature may take.
+/// How long fetching `meta/latest`, the sums or the signature may take.
 const SMALL_TIMEOUT_MS: u64 = 30_000;
 /// How long fetching a bundle may take.
 const BUNDLE_TIMEOUT_MS: u64 = 600_000;
-/// The longest `meta/<channel>` read.
+/// The longest `meta/latest` read.
 const MAX_META: usize = 128;
 /// The longest signature read.
 const MAX_SIGNATURE: usize = 1024;
+/// The most nodes one update restarts (`--unit`).
+pub const MAX_NODE_UNITS: usize = 8;
+
+/// A systemd unit that runs a node of this install, and the directory of
+/// that node's data, whose database a rollback may put back.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct NodeUnit {
+    /// The unit's name, `<name>.service`.
+    pub name: String,
+    /// The node's data directory.
+    pub data_dir: PathBuf,
+}
+
+impl NodeUnit {
+    /// Reads `--unit`'s value, `<name>.service=<data directory>`: a plain
+    /// unit name, instance names included, and an absolute path.
+    pub fn parse(text: &str) -> Result<Self, Problem> {
+        let malformed = || format!("--unit {text:?}: not <name>.service=<data directory>");
+        let (name, data_dir) = text.split_once('=').ok_or_else(malformed)?;
+        let plain = name
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b"@._-".contains(&b));
+        let stem = name.strip_suffix(".service").unwrap_or_default();
+        if !plain || stem.is_empty() || name.len() > 256 || !data_dir.starts_with('/') {
+            return Err(malformed());
+        }
+        Ok(Self {
+            name: name.to_owned(),
+            data_dir: PathBuf::from(data_dir),
+        })
+    }
+
+    /// `dassie.service`, the installer's, with its data in
+    /// `DASSIE_STATE_DIRECTORY` or `/var/lib/dassie`.
+    fn installed() -> Self {
+        Self {
+            name: SERVICE.to_owned(),
+            data_dir: std::env::var_os("DASSIE_STATE_DIRECTORY")
+                .map_or_else(|| PathBuf::from(STATE_DIRECTORY), PathBuf::from),
+        }
+    }
+}
 
 /// What `dassie update` was asked to do.
 #[derive(Debug, Default)]
 pub struct Options {
     /// Install even what is already installed, or older.
     pub force: bool,
-    /// This version rather than the newest of the channel.
+    /// This version rather than the newest release.
     pub target: Option<String>,
-    /// This channel rather than the installed version's.
-    pub channel: Option<String>,
     /// This mirror rather than `DASSIE_MIRROR_URL` or get.dassie.land.
     pub mirror: Option<String>,
     /// Neither talk to systemd nor restart the node.
     pub no_restart: bool,
+    /// The units that run this install's nodes, to restart in place of
+    /// `dassie.service`, and to start again on the version before if one
+    /// does not come up. The release's own units are then not installed:
+    /// whoever names these runs units of their own.
+    pub units: Vec<NodeUnit>,
+}
+
+impl Options {
+    /// The units that run this install's nodes: those named, or else
+    /// `dassie.service`.
+    fn nodes(&self) -> Vec<NodeUnit> {
+        if self.units.is_empty() {
+            vec![NodeUnit::installed()]
+        } else {
+            self.units.clone()
+        }
+    }
 }
 
 /// What went wrong, for the owner.
@@ -194,9 +251,17 @@ async fn attempt(
     // The staging directory goes either way; what it held is in place.
     let _ = fs::remove_dir_all(&staging);
     let dir = installed?;
-    let mut units = Units::default();
-    let switched = install_units(&dir.join("share/systemd"), &mut units)
-        .and_then(|()| switch(&install.base, &target));
+    let mut units = Units {
+        own: !options.units.is_empty(),
+        ..Units::default()
+    };
+    let nodes = options.nodes();
+    let switched = if units.own {
+        Ok(())
+    } else {
+        install_units(&dir.join("share/systemd"), &mut units)
+    }
+    .and_then(|()| switch(&install.base, &target));
     if let Err(problem) = switched {
         // systemd has not read the new units yet: with the old ones and
         // `current` back on disk, nothing changed.
@@ -210,7 +275,7 @@ async fn attempt(
     // from before its migration included, is this update's.
     let since = SystemTime::now();
     let restarted = if !options.no_restart && systemd_running() {
-        restart(&units)
+        restart(&units, &nodes)
     } else {
         Ok(())
     };
@@ -219,7 +284,7 @@ async fn attempt(
             "dassie {target} did not start ({problem}); going back to {}.",
             before.display()
         );
-        if let Err(failed) = roll_back(&install.base, &units, &before, since) {
+        if let Err(failed) = roll_back(&install.base, &units, &before, since, &nodes) {
             return Err(format!(
                 "dassie {target} did not start ({problem}), and going back to {} failed: {failed}",
                 before.display()
@@ -239,23 +304,30 @@ async fn attempt(
 }
 
 /// Makes systemd take in the units that changed, enables the new ones, and
-/// restarts the node, which must come up.
-fn restart(units: &Units) -> Result<(), Problem> {
+/// restarts the nodes, which must come up.
+fn restart(units: &Units, nodes: &[NodeUnit]) -> Result<(), Problem> {
     if units.changed {
         systemctl(&["daemon-reload"])?;
     }
     for unit in &units.added {
         systemctl(&["enable", unit])?;
     }
-    println!("Restarting {SERVICE}...");
-    systemctl(&["restart", SERVICE])
+    let names: Vec<&str> = nodes.iter().map(|node| node.name.as_str()).collect();
+    println!("Restarting {}...", names.join(" "));
+    systemctl(&[&["restart"][..], &names].concat())
 }
 
 /// Points `current` back at `before`, what it named before the update, with
-/// that version's units, puts back the database from before the update if
-/// the new version migrated it, and starts that version again. The units
-/// the update added are disabled and go.
-fn roll_back(base: &Path, units: &Units, before: &Path, since: SystemTime) -> Result<(), Problem> {
+/// that version's units, puts back each node's database from before the
+/// update if the new version migrated it, and starts that version again.
+/// The units the update added are disabled and go.
+fn roll_back(
+    base: &Path,
+    units: &Units,
+    before: &Path,
+    since: SystemTime,
+    nodes: &[NodeUnit],
+) -> Result<(), Problem> {
     // A unit that will not be disabled must not keep the old version down:
     // its file goes all the same.
     for unit in &units.added {
@@ -264,22 +336,26 @@ fn roll_back(base: &Path, units: &Units, before: &Path, since: SystemTime) -> Re
         }
     }
     put_back(base, units, before)?;
-    systemctl(&["daemon-reload"])?;
-    // systemd may be restarting the failed node; the database must be left
-    // alone while it is put back.
-    systemctl(&["stop", SERVICE])?;
+    if !units.own {
+        systemctl(&["daemon-reload"])?;
+    }
+    let names: Vec<&str> = nodes.iter().map(|node| node.name.as_str()).collect();
+    // systemd may be restarting a failed node; the databases must be left
+    // alone while they are put back.
+    systemctl(&[&["stop"][..], &names].concat())?;
     // Started on a database that could not be put back, the old version
     // would refuse it, or find none; the owner chooses which to keep.
-    restore_database(since)?;
-    systemctl(&["start", SERVICE])
+    for node in nodes {
+        restore_database(node, &names, since)?;
+    }
+    systemctl(&[&["start"][..], &names].concat())
 }
 
-/// Puts back the database from before the update, if the version that
-/// failed migrated it.
-fn restore_database(since: SystemTime) -> Result<(), Problem> {
-    let data_dir = std::env::var_os("DASSIE_STATE_DIRECTORY")
-        .map_or_else(|| PathBuf::from(STATE_DIRECTORY), PathBuf::from);
-    match store::restore_pre_migration(&data_dir, since) {
+/// Puts back `node`'s database from before the update, if the version that
+/// failed migrated it. `all` stay stopped if it cannot.
+fn restore_database(node: &NodeUnit, all: &[&str], since: SystemTime) -> Result<(), Problem> {
+    let data_dir = &node.data_dir;
+    match store::restore_pre_migration(data_dir, since) {
         Ok(Restored::Nothing) => Ok(()),
         Ok(Restored::Copy { from, to }) => {
             println!(
@@ -290,15 +366,17 @@ fn restore_database(since: SystemTime) -> Result<(), Problem> {
             Ok(())
         }
         Err(error) => Err(format!(
-            "putting back the database did not finish ({error}), so {SERVICE} stays stopped; \
-             the database from before the update may be back already. In {}, \
+            "putting back the database of {name} did not finish ({error}), so {stopped} \
+             stays stopped; the database from before the update may be back already. In {}, \
              {DATABASE_FILE} is the database, if it is there, {ROLLING_BACK_FILE} or \
              {ROLLED_BACK_FILE} the one the new version left, if it was moved aside, and \
              {PRE_MIGRATION_FILE} the copy from before the update, if it is not back yet. \
              Each database's SQLite side files (-wal, -shm, after its name) belong with it \
              and move with it. Put the one to keep in place as {DATABASE_FILE}, then run \
-             `systemctl start {SERVICE}`",
-            data_dir.display()
+             `systemctl start {stopped}`",
+            data_dir.display(),
+            name = node.name,
+            stopped = all.join(" "),
         )),
     }
 }
@@ -521,8 +599,8 @@ fn permission(path: &Path, error: &io::Error) -> Problem {
     }
 }
 
-/// Which version to install, if any: the one asked for, or the channel's
-/// newest if it supersedes the one running.
+/// Which version to install, if any: the one asked for, or the newest
+/// release if it supersedes the one running.
 async fn choose(
     options: &Options,
     install: &Install,
@@ -536,23 +614,12 @@ async fn choose(
         }
         return Ok(Some(target));
     }
-    let channel = match &options.channel {
-        Some(name) => {
-            Channel::parse(name).ok_or_else(|| format!("--channel: no channel {name:?}"))?
-        }
-        None => install.version.channel(),
-    };
-    println!(
-        "Checking {} for the newest {} version...",
-        mirror.url,
-        channel.name()
-    );
-    let offered = mirror.newest(channel).await?;
-    let switching = channel != install.version.channel();
+    println!("Checking {} for the newest version...", mirror.url);
+    let offered = mirror.newest().await?;
     if offered == install.version && !options.force {
         println!("Already up to date ({offered}).");
         Ok(None)
-    } else if switching || options.force || offered.supersedes(&install.version) {
+    } else if options.force || offered.supersedes(&install.version) {
         Ok(Some(offered))
     } else {
         println!(
@@ -607,23 +674,10 @@ impl Mirror {
         }
     }
 
-    async fn newest(&self, channel: Channel) -> Result<Version, Problem> {
-        let body = self
-            .get(&layout::meta(channel), MAX_META, SMALL_TIMEOUT_MS)
-            .await?;
+    async fn newest(&self) -> Result<Version, Problem> {
+        let body = self.get(layout::META, MAX_META, SMALL_TIMEOUT_MS).await?;
         let text = String::from_utf8_lossy(&body);
-        let version =
-            Version::parse(text.trim()).map_err(|e| format!("meta/{}: {e}", channel.name()))?;
-        // The file is not signed: a version of the other channel would let
-        // the mirror move a node switching channels anywhere, back included.
-        if version.channel() == channel {
-            Ok(version)
-        } else {
-            Err(format!(
-                "the mirror's meta/{name} names {version}, which is not a {name} version",
-                name = channel.name()
-            ))
-        }
+        Version::parse(text.trim()).map_err(|e| format!("{}: {e}", layout::META))
     }
 
     /// The bundle of `version` for this platform, once its sum, signed by
@@ -647,7 +701,7 @@ impl Mirror {
             .map_err(|_| "SHA256SUMS.minisig is not text".to_string())?;
         let sums: Sums = verify_sums(key, &sums, &signature, version).map_err(|e| e.to_string())?;
         let arch = Arch::current().ok_or("there are no releases for this platform")?;
-        let name = layout::bundle(version, arch, Compression::Gz);
+        let name = layout::bundle(version, arch);
         let expected = *sums
             .digest(&name)
             .ok_or_else(|| format!("SHA256SUMS lists no {name}"))?;
@@ -845,6 +899,9 @@ fn place(base: &Path, root: &Path, version: &Version) -> Result<PathBuf, Problem
 /// What installing a version's units changed.
 #[derive(Debug, Default)]
 struct Units {
+    /// Whether the owner runs units of their own (`--unit`): then the
+    /// update installs none of a release's units, nor puts any back.
+    own: bool,
     /// Whether any unit file changed.
     changed: bool,
     /// The units that were not there before, to enable.
@@ -894,22 +951,25 @@ fn install_units(units: &Path, installed: &mut Units) -> Result<(), Problem> {
 
 /// Puts back, on disk, `current` naming `before`, as it did, with that
 /// version's units: the units the update added go, and that version's come
-/// back where they changed.
+/// back where they changed. Where the owner runs units of their own, the
+/// update touched none, and puts none back.
 fn put_back(base: &Path, units: &Units, before: &Path) -> Result<(), Problem> {
-    let dir = unit_dir();
-    for name in &units.added {
-        let path = dir.join(name);
-        match fs::remove_file(&path) {
-            Ok(()) => {}
-            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-            Err(error) => return Err(permission(&path, &error)),
+    if !units.own {
+        let dir = unit_dir();
+        for name in &units.added {
+            let path = dir.join(name);
+            match fs::remove_file(&path) {
+                Ok(()) => {}
+                Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+                Err(error) => return Err(permission(&path, &error)),
+            }
         }
+        sync_dir(&dir)?;
+        install_units(
+            &base.join(before).join("share/systemd"),
+            &mut Units::default(),
+        )?;
     }
-    sync_dir(&dir)?;
-    install_units(
-        &base.join(before).join("share/systemd"),
-        &mut Units::default(),
-    )?;
     point_current(base, before)
 }
 

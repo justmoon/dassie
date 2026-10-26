@@ -13,15 +13,9 @@ use dassie_node::rpc::proto::{self, request::Method, response};
 
 use super::{Bound, START_MS, TestNode, set_up};
 
-pub const CA: &str = concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/../../testdata/pebble/root.pem"
-);
-pub const CERT: &str = concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/../../testdata/pebble/cert.pem"
-);
-pub const KEY: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../testdata/pebble/key.pem");
+pub const CA: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../testdata/tls/root.pem");
+pub const CERT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../testdata/tls/cert.pem");
+pub const KEY: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../testdata/tls/key.pem");
 
 /// The config of an XRPL scheme on the fake ledger `server`: its server
 /// and faucet, and the publisher of its validators, whose list it serves.

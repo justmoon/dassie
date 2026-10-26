@@ -104,7 +104,7 @@ The node that asks to peer extends the other 1.1 units of credit; the node that 
 | `testdata/original` | Generator for the golden vectors, run against the original |
 | `testdata/feed` | The rate feed's golden vectors, from `cargo run -p dassie-feed --example feed_vectors` |
 | `testdata/xrpl` | Generator for the XRPL golden vectors, run against xrpl.js |
-| `testdata/pebble` | Configuration and API certificate for Pebble, Let's Encrypt's test server, also served by the nodes in the BTP and peer tests |
+| `testdata/tls` | The tests' TLS certificate for localhost and its CA, which Pebble (Let's Encrypt's test server) serves its API with, as do the nodes and mirrors of the tests; and Pebble's configuration |
 | `testdata/release` | The release test key and what minisign signs with it |
 
 ## Building and testing
@@ -161,8 +161,8 @@ To make a few such nodes find each other locally, set `DASSIE_PEER_ALLOW_PRIVATE
 
 Releases are built by Nix on x86_64 Linux ([the build](spec/areas/release.md#the-build)):
 
-- `nix build .#dassie-x64` or `.#dassie-arm64` makes a static binary with the wallet built in;
-- `nix build .#release` (or `.#canary`) makes the tree a release uploads to the mirror, with its flake for NixOS, without its signature.
+- `nix build .#dassie-x64` (or just `nix build`) or `.#dassie-arm64` makes a static binary with the wallet built in;
+- `nix build .#release` makes the tree a release uploads to the mirror, with its flake for NixOS, without its signature.
 
 The wallet's build fetches its packages one by one with the hashes in `pnpm-lock.yaml`, so a change to the lockfile needs no hash updated by hand. For every tag `v<version>`, the release workflow runs the install tests on each distribution, boots the NixOS module in a VM (`nix build .#nixos-test`) and checks the static binaries (`nix build .#static-binaries`), then signs and publishes the release. CI on pull requests and `main` runs neither.
 

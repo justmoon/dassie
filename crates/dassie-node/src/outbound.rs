@@ -654,10 +654,7 @@ mod tests {
     #[tokio::test]
     async fn a_url_past_an_ipv6_literal_is_refused() {
         // Roots of its own: the build sandbox has none of the system's.
-        let roots = concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../testdata/pebble/root.pem"
-        );
+        let roots = concat!(env!("CARGO_MANIFEST_DIR"), "/../../testdata/tls/root.pem");
         let client = OutboundClient::new(Some(Path::new(roots)), false).unwrap();
         let result = client
             .web(WebRequest {

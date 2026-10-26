@@ -3,7 +3,9 @@
 # spec/areas/release.md#install-layout, spec/decisions/release-integrity.md):
 #
 #   curl --proto =https --tlsv1.2 -sSf https://sh.dassie.land | sh
-#   curl ... | sh -s -- [--channel canary] [--target <version>] [uninstall]
+#   curl ... | sh -s -- [--target-version <version>] [--mirror <url>] [--no-service] [uninstall]
+#
+# The options it shares with `dassie update` have the same names.
 #
 # It installs a release into /opt/dassie/<version>, points
 # /opt/dassie/current at it, links /usr/local/bin/dassie, and sets up the
@@ -25,10 +27,9 @@ main() {
   # umask of whoever runs it.
   umask 022
   MIRROR="${DASSIE_MIRROR_URL:-https://get.dassie.land}"
-  CHANNEL="${DASSIE_CHANNEL:-latest}"
-  CHANNEL_GIVEN="${DASSIE_CHANNEL:+1}"
-  VERSION="${DASSIE_VERSION:-}"
-  TARGETED="${DASSIE_VERSION:+1}"
+  VERSION=
+  TARGETED=
+  SERVICE=1
   COMMAND=install
   BASE=/opt/dassie
   UNITS="dassie.service dassie-http.socket dassie-https.socket dassie-ipc.socket dassie-quic.socket dassie-feed.socket dassie-update.service dassie-update.timer"
@@ -47,13 +48,12 @@ usage() {
 Usage: install.sh [options] [install|uninstall]
 
 Options:
-  -c, --channel <latest|canary>  the channel to install from (default: the
-                                 installed version's channel, or latest)
-  -t, --target <version>         this version rather than the channel's newest
-  -m, --mirror <url>             the mirror (default: https://get.dassie.land)
-  -h, --help                     show this help
-
-Environment: DASSIE_MIRROR_URL, DASSIE_CHANNEL, DASSIE_VERSION.
+  -t, --target-version <v>  this version rather than the newest release
+  --mirror <url>            another mirror (default: DASSIE_MIRROR_URL, or
+                            https://get.dassie.land)
+  --no-service              install no systemd units, for a host that runs
+                            the node under units of its own, or none
+  -h, --help                show this help
 EOF
 }
 
@@ -61,18 +61,14 @@ parse_arguments() {
   while [ $# -gt 0 ]; do
     case "$1" in
       -h | --help) usage; exit 0 ;;
-      -c | --channel) [ $# -ge 2 ] || fail E_SYNTAX "$1 needs a value"; CHANNEL=$2; CHANNEL_GIVEN=1; shift ;;
-      -t | --target) [ $# -ge 2 ] || fail E_SYNTAX "$1 needs a value"; VERSION=$2; TARGETED=1; shift ;;
-      -m | --mirror) [ $# -ge 2 ] || fail E_SYNTAX "$1 needs a value"; MIRROR=$2; shift ;;
+      -t | --target-version) [ $# -ge 2 ] || fail E_SYNTAX "$1 needs a value"; VERSION=$2; TARGETED=1; shift ;;
+      --mirror) [ $# -ge 2 ] || fail E_SYNTAX "$1 needs a value"; MIRROR=$2; shift ;;
+      --no-service) SERVICE= ;;
       install | uninstall) COMMAND=$1 ;;
       *) usage >&2; fail E_SYNTAX "unknown argument: $1" ;;
     esac
     shift
   done
-  case "$CHANNEL" in
-    latest | canary) ;;
-    *) fail E_SYNTAX "unknown channel: $CHANNEL" ;;
-  esac
   case "$MIRROR" in
     https://*) MIRROR=${MIRROR%/} ;;
     *) fail E_SYNTAX "the mirror must be an https:// URL" ;;
@@ -122,13 +118,16 @@ check_system() {
     aarch64 | arm64) ARCH=arm64 ;;
     *) fail E_UNSUPPORTED_ARCH "there are no releases for $(uname -m)" ;;
   esac
-  command -v systemctl > /dev/null 2>&1 || fail E_SYSTEMD_REQUIRED "Dassie needs systemd"
-  state=$(systemctl is-system-running 2> /dev/null || true)
-  # Still starting is fine: cloud-init runs scripts while the system boots.
-  case "$state" in
-    running | degraded | starting | initializing) ;;
-    *) fail E_SYSTEMD_NOT_RUNNING "systemd is not running (it says: ${state:-nothing})" ;;
-  esac
+  # Without the units, nothing here needs systemd.
+  if [ -n "$SERVICE" ]; then
+    command -v systemctl > /dev/null 2>&1 || fail E_SYSTEMD_REQUIRED "Dassie needs systemd"
+    state=$(systemctl is-system-running 2> /dev/null || true)
+    # Still starting is fine: cloud-init runs scripts while the system boots.
+    case "$state" in
+      running | degraded | starting | initializing) ;;
+      *) fail E_SYSTEMD_NOT_RUNNING "systemd is not running (it says: ${state:-nothing})" ;;
+    esac
+  fi
   for tool in tar sha256sum base64 awk mktemp flock; do
     command -v "$tool" > /dev/null 2>&1 || fail E_TOOL_REQUIRED "$tool is required"
   done
@@ -146,8 +145,6 @@ check_system() {
   else
     fail E_VERIFIER_REQUIRED "minisign, or OpenSSL 1.1.1 or later, is required to verify the release"
   fi
-  # xz is smaller; gzip is everywhere.
-  if command -v xz > /dev/null 2>&1; then COMPRESSION=xz; else COMPRESSION=gz; fi
 }
 
 # Fetches a URL into a file, HTTPS only, failing on any error status.
@@ -161,16 +158,9 @@ download() {
 
 valid_version() {
   case "$1" in
-    "" | *[!0-9a-z.-]*) return 1 ;;
+    "" | *[!0-9.]*) return 1 ;;
   esac
-  printf '%s\n' "$1" | grep -Eq '^((0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)|canary-[0-9]{4}-[0-9]{2}-[0-9]{2}-[0-9]{6}-[0-9a-f]{7,40})$'
-}
-
-channel_of() {
-  case "$1" in
-    canary-*) echo canary ;;
-    *) echo latest ;;
-  esac
+  printf '%s\n' "$1" | grep -Eq '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$'
 }
 
 # --- Verification -------------------------------------------------------------
@@ -246,43 +236,16 @@ read_installed() {
   fi
 }
 
-# Without --channel, a re-run keeps to the installed version's channel, as
-# `dassie update` does.
-choose_channel() {
-  if [ -z "$CHANNEL_GIVEN" ] && [ -n "$INSTALLED" ]; then
-    CHANNEL=$(channel_of "$INSTALLED")
-  fi
-}
-
-# The mirror's meta/<channel> is not signed, so it does not choose the
-# channel: what it names must be of the channel it was read from.
-check_channel() {
-  [ "$(channel_of "$VERSION")" = "$CHANNEL" ] ||
-    fail E_VERSION_INVALID "the mirror's meta/$CHANNEL names $VERSION, which is not a $CHANNEL version"
-}
-
-# Nor does it choose the direction: a version of the other channel goes in
-# only when asked for with --channel, and one older than the one installed,
-# of the same channel, only with --target.
+# The mirror's meta/latest is not signed, so it does not choose the
+# direction: a version older than the one installed goes in only with
+# --target-version. An installed version that is no release is no order to
+# keep.
 check_not_older() {
-  if [ -n "$TARGETED" ] || [ -z "$INSTALLED" ]; then return 0; fi
-  if [ "$(channel_of "$VERSION")" != "$(channel_of "$INSTALLED")" ]; then
-    [ -n "$CHANNEL_GIVEN" ] ||
-      fail E_VERSION_OTHER_CHANNEL "the mirror offers $VERSION, of another channel than the installed $INSTALLED; use --channel $(channel_of "$VERSION") to move to it"
-    return 0
-  fi
-  case "$VERSION" in
-    canary-*)
-      # The date and time of the commit order canaries.
-      offered=$(printf '%s' "$VERSION" | cut -c1-24)
-      now=$(printf '%s' "$INSTALLED" | cut -c1-24)
-      ;;
-    *) offered=$VERSION now=$INSTALLED ;;
-  esac
-  [ "$offered" != "$now" ] || return 0
-  lowest=$(printf '%s\n%s\n' "$offered" "$now" | sort -V | head -n 1)
-  [ "$lowest" != "$offered" ] ||
-    fail E_VERSION_OLDER "the mirror offers $VERSION, older than the installed $INSTALLED; use --target to install it anyway"
+  if [ -n "$TARGETED" ] || ! valid_version "$INSTALLED"; then return 0; fi
+  [ "$VERSION" != "$INSTALLED" ] || return 0
+  lowest=$(printf '%s\n%s\n' "$VERSION" "$INSTALLED" | sort -V | head -n 1)
+  [ "$lowest" != "$VERSION" ] ||
+    fail E_VERSION_OLDER "the mirror offers $VERSION, older than the installed $INSTALLED; use --target-version to install it anyway"
 }
 
 # --- Lock -----------------------------------------------------------------------
@@ -315,19 +278,17 @@ install() {
 
   if [ -d "$BASE" ]; then lock; fi
   read_installed
-  choose_channel
   if [ -z "$VERSION" ]; then
-    step "Looking up the newest $CHANNEL version"
-    download "$MIRROR/meta/$CHANNEL" "$TEMP/meta" || fail E_VERSION_FETCH_FAILED "cannot read $MIRROR/meta/$CHANNEL"
+    step "Looking up the newest version"
+    download "$MIRROR/meta/latest" "$TEMP/meta" || fail E_VERSION_FETCH_FAILED "cannot read $MIRROR/meta/latest"
     VERSION=$(tr -d ' \r\n' < "$TEMP/meta")
   fi
   valid_version "$VERSION" || fail E_VERSION_INVALID "not a version: $VERSION"
-  [ -n "$TARGETED" ] || check_channel
   note "dassie $VERSION"
   check_not_older
 
   step "Downloading and verifying dassie $VERSION for $ARCH"
-  BUNDLE="dassie-$VERSION-linux-$ARCH.tar.$COMPRESSION"
+  BUNDLE="dassie-$VERSION-linux-$ARCH.tar.gz"
   for file in SHA256SUMS SHA256SUMS.minisig "$BUNDLE"; do
     download "$MIRROR/$VERSION/$file" "$TEMP/$file" || fail E_BUNDLE_DOWNLOAD_FAILED "cannot download $MIRROR/$VERSION/$file"
   done
@@ -337,10 +298,7 @@ install() {
 
   step "Unpacking"
   mkdir "$TEMP/unpacked"
-  case "$COMPRESSION" in
-    xz) tar -xJf "$TEMP/$BUNDLE" -C "$TEMP/unpacked" ;;
-    gz) tar -xzf "$TEMP/$BUNDLE" -C "$TEMP/unpacked" ;;
-  esac || fail E_BUNDLE_EXTRACTION_FAILED "cannot unpack $BUNDLE"
+  tar -xzf "$TEMP/$BUNDLE" -C "$TEMP/unpacked" || fail E_BUNDLE_EXTRACTION_FAILED "cannot unpack $BUNDLE"
   unpacked="$TEMP/unpacked/dassie"
   [ -z "$(find "$TEMP/unpacked" ! -type f ! -type d)" ] && [ -x "$unpacked/bin/dassie" ] ||
     fail E_BUNDLE_EXTRACTION_FAILED "$BUNDLE does not hold what a release holds"
@@ -351,6 +309,11 @@ install() {
   step "Installing into $BASE/$VERSION"
   lock
   install_files "$unpacked"
+  if [ -z "$SERVICE" ]; then
+    step "Dassie $VERSION is installed, without systemd units"
+    note "Run $BASE/current/bin/dassie under units of your own; \`dassie update --unit\` restarts them."
+    return 0
+  fi
   install_units "$unpacked"
 
   step "Dassie $VERSION is installed"
