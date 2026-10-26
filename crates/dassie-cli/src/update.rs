@@ -133,6 +133,18 @@ pub struct Options {
     pub units: Vec<NodeUnit>,
 }
 
+impl Options {
+    /// The units that run this install's nodes: those named, or else
+    /// `dassie.service`.
+    fn nodes(&self) -> Vec<NodeUnit> {
+        if self.units.is_empty() {
+            vec![NodeUnit::installed()]
+        } else {
+            self.units.clone()
+        }
+    }
+}
+
 /// What went wrong, for the owner.
 type Problem = String;
 
@@ -239,15 +251,15 @@ async fn attempt(
     // The staging directory goes either way; what it held is in place.
     let _ = fs::remove_dir_all(&staging);
     let dir = installed?;
-    let mut units = Units::default();
-    let nodes = match options.units.as_slice() {
-        [] => vec![NodeUnit::installed()],
-        named => named.to_vec(),
+    let mut units = Units {
+        own: !options.units.is_empty(),
+        ..Units::default()
     };
-    let switched = if options.units.is_empty() {
-        install_units(&dir.join("share/systemd"), &mut units)
-    } else {
+    let nodes = options.nodes();
+    let switched = if units.own {
         Ok(())
+    } else {
+        install_units(&dir.join("share/systemd"), &mut units)
     }
     .and_then(|()| switch(&install.base, &target));
     if let Err(problem) = switched {
@@ -324,7 +336,9 @@ fn roll_back(
         }
     }
     put_back(base, units, before)?;
-    systemctl(&["daemon-reload"])?;
+    if !units.own {
+        systemctl(&["daemon-reload"])?;
+    }
     let names: Vec<&str> = nodes.iter().map(|node| node.name.as_str()).collect();
     // systemd may be restarting a failed node; the databases must be left
     // alone while they are put back.
@@ -885,6 +899,9 @@ fn place(base: &Path, root: &Path, version: &Version) -> Result<PathBuf, Problem
 /// What installing a version's units changed.
 #[derive(Debug, Default)]
 struct Units {
+    /// Whether the owner runs units of their own (`--unit`): then the
+    /// update installs none of a release's units, nor puts any back.
+    own: bool,
     /// Whether any unit file changed.
     changed: bool,
     /// The units that were not there before, to enable.
@@ -934,22 +951,25 @@ fn install_units(units: &Path, installed: &mut Units) -> Result<(), Problem> {
 
 /// Puts back, on disk, `current` naming `before`, as it did, with that
 /// version's units: the units the update added go, and that version's come
-/// back where they changed.
+/// back where they changed. Where the owner runs units of their own, the
+/// update touched none, and puts none back.
 fn put_back(base: &Path, units: &Units, before: &Path) -> Result<(), Problem> {
-    let dir = unit_dir();
-    for name in &units.added {
-        let path = dir.join(name);
-        match fs::remove_file(&path) {
-            Ok(()) => {}
-            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-            Err(error) => return Err(permission(&path, &error)),
+    if !units.own {
+        let dir = unit_dir();
+        for name in &units.added {
+            let path = dir.join(name);
+            match fs::remove_file(&path) {
+                Ok(()) => {}
+                Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+                Err(error) => return Err(permission(&path, &error)),
+            }
         }
+        sync_dir(&dir)?;
+        install_units(
+            &base.join(before).join("share/systemd"),
+            &mut Units::default(),
+        )?;
     }
-    sync_dir(&dir)?;
-    install_units(
-        &base.join(before).join("share/systemd"),
-        &mut Units::default(),
-    )?;
     point_current(base, before)
 }
 

@@ -1011,11 +1011,15 @@ fn restarts_the_units_it_is_named() {
 
 /// If a named unit does not come up, the updater goes back as it does for
 /// dassie.service: `current` back, the units stopped, each node's database
-/// put back if it must, and started again; the record says so.
+/// put back if it must, and started again; the record says so. It puts
+/// back none of the version's own units, which it never installed.
 #[test]
 fn goes_back_on_the_units_it_is_named() {
     let (mirror, install) = (MirrorServer::start(), Install::new());
     publish(&mirror, "9.9.9", &release("9.9.9"), None);
+    let units = install.base().join(&install.version).join("share/systemd");
+    fs::create_dir_all(&units).unwrap();
+    fs::write(units.join("dassie.service"), UNIT).unwrap();
     let systemctl = systemctl_failing_restart(install.dir.path());
     let output = install
         .updater(&install.base().join("current/bin/dassie"), &mirror)
@@ -1030,11 +1034,11 @@ fn goes_back_on_the_units_it_is_named() {
         record.contains("\noutcome=rolled-back\ntarget=9.9.9\n"),
         "{record}"
     );
+    assert_eq!(install.unit("dassie.service"), None);
     assert_eq!(
         systemctl_calls(&systemctl)[1..],
         [
             "restart a@x.service a@y.service",
-            "daemon-reload",
             "stop a@x.service a@y.service",
             "start a@x.service a@y.service",
         ]
