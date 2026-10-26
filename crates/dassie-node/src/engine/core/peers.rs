@@ -515,6 +515,12 @@ impl Core {
             .map(|(node, _)| (*node, self.peer.is_downlink(node)))
     }
 
+    /// What the connector and the peer protocol counted since the engine
+    /// started, in one step, so the two agree.
+    pub fn counters(&self) -> (dassie_connector::Stats, dassie_peer::Stats) {
+        (self.connector.stats(), *self.peer.stats())
+    }
+
     /// The network as the owner sees it.
     pub fn network(&self) -> NetworkView {
         NetworkView {

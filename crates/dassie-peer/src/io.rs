@@ -488,7 +488,8 @@ pub enum NameEvent {
     },
 }
 
-/// What the node has counted, for the logs and the simulations.
+/// What the node has counted, for the owner's status
+/// (spec/areas/node.md#the-dassie-command) and the simulations.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Stats {
     /// Requests sent.

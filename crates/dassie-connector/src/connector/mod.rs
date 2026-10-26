@@ -75,7 +75,8 @@ pub struct Upstream {
     pub length: usize,
 }
 
-/// Counters for instrumentation and simulation checks.
+/// Counters, for the owner's status (spec/areas/node.md#the-dassie-command)
+/// and simulation checks.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Stats {
     /// Prepares received.

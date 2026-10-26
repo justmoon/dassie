@@ -79,6 +79,7 @@ pub async fn status(env: &Env) -> Result<(), String> {
         for founding in &node.founding {
             line("Founding", &founding_brief(founding));
         }
+        counters(&node);
     } else {
         line(
             "Setup",
@@ -405,6 +406,111 @@ fn feed(node: &proto::GetStatusResponse) -> Option<String> {
             feed.refused_full, feed.refused_client
         ),
     ]))
+}
+
+/// The engine's counters, one line each: packets, the peer protocol, and
+/// names where the node handled any.
+fn counters(node: &proto::GetStatusResponse) {
+    if let Some(packets) = &node.packets {
+        line("Packets", &packets_line(packets));
+    }
+    if let Some(peer) = &node.peer_protocol {
+        line("Protocol", &peer_line(peer));
+        if let Some(names) = names_line(peer) {
+            line("Names", &names);
+        }
+    }
+}
+
+/// What the connector counted since the engine started: what came of the
+/// Prepares it took, and what it should never see.
+fn packets_line(packets: &proto::PacketCounters) -> String {
+    entries([
+        format!(
+            "took {}: {} forwarded, {} answered at once",
+            plural(packets.prepares, "Prepare"),
+            packets.forwarded,
+            packets.answered
+        ),
+        format!(
+            "{} fulfilled, {} rejected, {} expired",
+            packets.fulfilled, packets.rejected, packets.expired
+        ),
+        format!(
+            "{} wrong fulfillments, {} unexpected responses, {} duplicate request IDs",
+            packets.wrong_fulfillments, packets.unexpected_responses, packets.duplicates
+        ),
+    ])
+}
+
+/// What the peer protocol counted since the engine started.
+fn peer_line(peer: &proto::PeerCounters) -> String {
+    entries([
+        format!(
+            "sent {}, {} failed, {} dropped; refused {} inbound",
+            plural(peer.requests_sent, "request"),
+            peer.requests_failed,
+            peer.requests_dropped,
+            peer.inbound_refused
+        ),
+        format!(
+            "link states {} accepted, {} dropped",
+            peer.link_states_accepted, peer.link_states_dropped
+        ),
+        format!(
+            "{} begun, {} ended; {} answers dropped",
+            plural(peer.peerings, "peering"),
+            peer.terminations,
+            peer.answers_dropped
+        ),
+        format!(
+            "settlements {} delivered, {} applied, {} again, {} requested; {} channels closed",
+            peer.settlements_delivered,
+            peer.settlements_applied,
+            peer.settlements_duplicate,
+            peer.settlements_requested,
+            peer.channels_closed
+        ),
+    ])
+}
+
+/// What the node counted of names, as a registrar and for its own; `None`
+/// for a node that has done neither since its engine started.
+fn names_line(peer: &proto::PeerCounters) -> Option<String> {
+    let registrar = [
+        peer.commitments_logged,
+        peer.commitments_lapsed,
+        peer.names_granted,
+        peer.names_renewed,
+        peer.names_freed,
+        peer.names_released,
+    ];
+    let own = [
+        peer.registrations_started,
+        peer.registrations_abandoned,
+        peer.renewals_sent,
+    ];
+    let mut parts = Vec::new();
+    if registrar.iter().any(|count| *count > 0) {
+        parts.push(format!(
+            "as a registrar {} logged, {} lapsed, {} granted, {} renewed, {} freed, {} released",
+            plural(peer.commitments_logged, "commitment"),
+            peer.commitments_lapsed,
+            plural(peer.names_granted, "name"),
+            peer.names_renewed,
+            peer.names_freed,
+            peer.names_released
+        ));
+    }
+    if own.iter().any(|count| *count > 0) {
+        parts.push(format!(
+            "its own: {} started, {} abandoned, {} sent",
+            plural(peer.registrations_started, "registration"),
+            peer.registrations_abandoned,
+            plural(peer.renewals_sent, "renewal")
+        ));
+    }
+    (!parts.is_empty()).then(|| entries(parts))
 }
 
 /// How long a hub may go without a final block before status says so: a
@@ -970,6 +1076,30 @@ mod tests {
         let text = validating(&stalled, now);
         assert!(text.contains("stalled"), "{text}");
         assert!(!text.contains("no block final"), "{text}");
+    }
+
+    #[test]
+    fn counters_name_names_only_where_the_node_handled_any() {
+        let packets = proto::PacketCounters {
+            prepares: 1,
+            forwarded: 1,
+            fulfilled: 1,
+            ..Default::default()
+        };
+        assert_eq!(
+            packets_line(&packets).lines().next(),
+            Some("took 1 Prepare: 1 forwarded, 0 answered at once")
+        );
+        let mut peer = proto::PeerCounters {
+            requests_sent: 3,
+            ..Default::default()
+        };
+        assert!(peer_line(&peer).starts_with("sent 3 requests, 0 failed"));
+        assert_eq!(names_line(&peer), None);
+        peer.renewals_sent = 1;
+        let names = names_line(&peer).unwrap();
+        assert!(names.contains("1 renewal sent"), "{names}");
+        assert!(!names.contains("registrar"), "{names}");
     }
 
     #[test]
