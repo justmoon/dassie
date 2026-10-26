@@ -383,7 +383,10 @@ impl Authenticator {
             Authentication::Reserved(_) => return Err(AuthError::Unsupported),
             Authentication::Hmac(hmac) => hmac,
         };
-        let key = PublicKey::from_bytes(&hmac.sender_key).map_err(|_| AuthError::BadKey)?;
+        let key = match self.cached_key(&envelope.sender, &hmac.sender_key) {
+            Some(key) => key,
+            None => PublicKey::from_bytes(&hmac.sender_key).map_err(|_| AuthError::BadKey)?,
+        };
         if key.is_weak() {
             return Err(AuthError::BadKey);
         }
@@ -518,6 +521,16 @@ impl Authenticator {
         if self.pinned.contains(&sender) && !reads {
             self.floors_dirty.insert(sender);
         }
+    }
+
+    /// The key of `sender` whose bytes are `bytes`, if the keys shared with
+    /// it are cached: decompressing a key costs more than the rest of
+    /// checking a request, and the same bytes always give the same key.
+    fn cached_key(&self, sender: &NodeId, bytes: &[u8; 32]) -> Option<PublicKey> {
+        self.keys
+            .get(sender)
+            .map(|cached| cached.keys.peer)
+            .filter(|key| key.as_bytes() == bytes)
     }
 
     /// The keys shared with `peer`, from the cache or derived.
