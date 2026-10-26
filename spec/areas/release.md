@@ -77,7 +77,7 @@ The original's layout, kept for operators' habits and docs. Each version is unpa
 `resources/installer/install.sh`, POSIX sh, run as `curl … https://sh.dassie.land | sh`.
 
 - **The whole script is one function called on its last line,** so a download cut short runs nothing.
-- **It takes `dassie update`'s options, by the same names:** `--target-version` installs any version, `--mirror` or `DASSIE_MIRROR_URL` names another mirror. It reads no version from the environment: a pin is a flag (`sh -s -- --target-version <v>`), so nothing exported for one tool reaches another. The build stamps its version from `DASSIE_BUILD_VERSION` for the same reason.
+- **The options it shares with `dassie update` have the same names:** `--target-version` installs any version, `--mirror` or `DASSIE_MIRROR_URL` names another mirror. It reads no version from the environment: a pin is a flag (`sh -s -- --target-version <v>`), so nothing exported for one tool reaches another. The build stamps its version from `DASSIE_BUILD_VERSION` for the same reason.
 - **The mirror does not choose the direction,** as for the updater ([Versions](#versions)). The installed version is what the installed binary names, which it named before it was installed, so the mirror cannot fake it.
 - **It verifies with minisign where there is minisign, and else with OpenSSL,** reading minisign's format by hand, so there is no tool to install first ([release-integrity](../decisions/release-integrity.md)).
 - **It sets `umask 022`,** so that on a hardened host what it installs stays readable by the node's own user.

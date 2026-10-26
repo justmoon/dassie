@@ -5,7 +5,7 @@
 #   curl --proto =https --tlsv1.2 -sSf https://sh.dassie.land | sh
 #   curl ... | sh -s -- [--target-version <version>] [--mirror <url>] [uninstall]
 #
-# Its options are `dassie update`'s, by the same names.
+# The options it shares with `dassie update` have the same names.
 #
 # It installs a release into /opt/dassie/<version>, points
 # /opt/dassie/current at it, links /usr/local/bin/dassie, and sets up the
