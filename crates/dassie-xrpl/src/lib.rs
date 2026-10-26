@@ -45,7 +45,7 @@
 //!   anchors on ledgers its UNL validated, signs, keeps the sequence and
 //!   what is in flight, and tells the schemes on it what the ledger says.
 //! - [`scheme`]: the XRP scheme, which settles in the account's XRP and
-//!   books what the account tells it: `xrpl-testnet` on the testnet, `xrpl`
+//!   books what the account tells it: `xrpl-testnet-xrp` on the testnet, `xrpl-xrp`
 //!   on mainnet.
 //! - [`entry`]: the entry payments both kinds of scheme hold for nodes
 //!   new to us that paid before they peered.

@@ -16,9 +16,9 @@ function relay(url: string, connection: RelayConnection): Relay {
 
 test("pointers at the default front door are told apart", () => {
   assertEquals(atFrontDoor(`$${label}.dassiepay.net`), true);
-  assertEquals(atFrontDoor(`$${label}.DassiePay.net/pay/xrpl`), true);
+  assertEquals(atFrontDoor(`$${label}.DassiePay.net/pay/xrp`), true);
   assertEquals(atFrontDoor("$node.example"), false);
-  assertEquals(atFrontDoor("$node.example/pay/stub"), false);
+  assertEquals(atFrontDoor("$node.example/pay/usd"), false);
   assertEquals(atFrontDoor("$dassiepay.net.example"), false);
 });
 

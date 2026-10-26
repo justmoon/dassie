@@ -793,18 +793,18 @@ async fn a_member_node_opens_its_hub_account_by_a_deposit() {
         &xrpl_config.to_string(),
     )
     .await;
-    add_scheme(&member, "xrpl-testnet", "").await;
+    add_scheme(&member, "xrpl-testnet-xrp", "").await;
     let address = ledgers(&member)
         .await
         .into_iter()
-        .find(|l| l.id == "xrpl-testnet+xrp")
+        .find(|l| l.id == "xrpl-testnet-xrp+xrp")
         .unwrap()
         .deposit_address;
     xrpl.ledger()
         .fund(dassie_xrpl::AccountId::parse(&address).unwrap());
     support::pair::until(&member.clock, async || {
         ledgers(&member).await.iter().any(|l| {
-            l.id == "xrpl-testnet+xrp" && l.connection() == proto::LedgerConnection::Synced
+            l.id == "xrpl-testnet-xrp+xrp" && l.connection() == proto::LedgerConnection::Synced
         })
     })
     .await;

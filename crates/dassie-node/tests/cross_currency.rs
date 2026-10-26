@@ -23,7 +23,7 @@ use support::TestNode;
 use support::pair::{CERT, KEY, Pair, until};
 use support::rates::{RatesServer, coinbase};
 
-const XRP_LEDGER: &str = "xrpl-testnet+xrp";
+const XRP_LEDGER: &str = "xrpl-testnet-xrp+xrp";
 /// 2 XRP.
 const RECEIVE: u64 = 2_000_000_000;
 
@@ -102,7 +102,7 @@ async fn dollars_arrive_as_xrp() {
     owner_b
         .call(Method::AddSettlementScheme(
             proto::AddSettlementSchemeRequest {
-                id: "xrpl-testnet".into(),
+                id: "xrpl-testnet-xrp".into(),
                 config: String::new(),
             },
         ))
@@ -117,7 +117,7 @@ async fn dollars_arrive_as_xrp() {
 
     // A quotes 2 XRP to B's XRP wallet address: paid from A's dollars,
     // the only ledger the route starts on.
-    let wallet = format!("{}/pay/xrpl-testnet", b.origin());
+    let wallet = format!("{}/pay/xrp", b.origin());
     let quoted = match a
         .ipc()
         .await
@@ -233,7 +233,7 @@ async fn dollars_arrive_as_xrp() {
     })
     .await;
     let seen = packets(b).await.last().and_then(|packet| packet.trace);
-    let wallet = format!("{}/pay/xrpl-testnet", b.origin());
+    let wallet = format!("{}/pay/xrp", b.origin());
     let quoting = {
         let mut owner_a = a.ipc().await;
         tokio::spawn(async move {

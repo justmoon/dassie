@@ -1,5 +1,5 @@
-//! The XRP scheme (spec/areas/xrpl.md), sans-IO: `xrpl-testnet` on the
-//! testnet ([`XrplScheme`]), `xrpl` on mainnet ([`XrplMainnetScheme`]).
+//! The XRP scheme (spec/areas/xrpl.md), sans-IO: `xrpl-testnet-xrp` on the
+//! testnet ([`XrplScheme`]), `xrpl-xrp` on mainnet ([`XrplMainnetScheme`]).
 //!
 //! It settles in the XRP of the node's first XRPL account on its network
 //! ([`XrplAccount`]), which connects, signs and follows the ledger for it.
@@ -61,11 +61,13 @@ use crate::keys::AccountId;
 use crate::network::{self, Network};
 use crate::{UNITS_PER_DROP, from_hex};
 
-/// The testnet scheme's ID.
-pub const SCHEME_ID: &str = "xrpl-testnet";
-/// The memo that marks a settlement on the testnet, as the original wrote
-/// it (spec/areas/xrpl.md#the-payment-it-signs).
-pub const MEMO_TYPE: &[u8] = b"https://dassie.land/settlement/xrp-testnet/v1";
+/// The testnet scheme's ID: the ledger, its network and its asset
+/// (spec/decisions/scheme-names.md).
+pub const SCHEME_ID: &str = "xrpl-testnet-xrp";
+/// The memo that marks a settlement on the testnet: the scheme's ID, in
+/// the URL every XRPL scheme's memo type is
+/// (spec/areas/xrpl.md#the-payment-it-signs).
+pub const MEMO_TYPE: &[u8] = b"https://dassie.land/settlement/xrpl-testnet-xrp/v1";
 
 /// A network's XRP, as the scheme settles in it: what tells one XRP scheme
 /// from another. Each is a contract between peers that run its scheme, so
@@ -87,7 +89,7 @@ pub struct Xrp {
     pub network: &'static Network,
 }
 
-/// XRP on the testnet, as `xrpl-testnet` settles in it.
+/// XRP on the testnet, as `xrpl-testnet-xrp` settles in it.
 pub const TESTNET_XRP: Xrp = Xrp {
     scheme_id: SCHEME_ID,
     scheme: dassie_ledger::name!(SCHEME_ID),
@@ -111,17 +113,18 @@ impl NativeXrp for TestnetXrp {
     const XRP: Xrp = TESTNET_XRP;
 }
 
-/// The `xrpl-testnet` scheme.
+/// The `xrpl-testnet-xrp` scheme.
 pub type XrplScheme = XrpScheme<TestnetXrp>;
 
-/// The mainnet scheme's ID.
-pub const MAINNET_SCHEME_ID: &str = "xrpl";
+/// The mainnet scheme's ID: the ledger and its asset, mainnet being the
+/// network a name leaves out (spec/decisions/scheme-names.md).
+pub const MAINNET_SCHEME_ID: &str = "xrpl-xrp";
 /// The memo that marks a settlement on mainnet: its own, never the
 /// testnet's, which the original wrote on both. A contract between
 /// peers, as the testnet's is (spec/areas/xrpl.md#the-payment-it-signs).
-pub const MAINNET_MEMO_TYPE: &[u8] = b"https://dassie.land/settlement/xrp/v1";
+pub const MAINNET_MEMO_TYPE: &[u8] = b"https://dassie.land/settlement/xrpl-xrp/v1";
 
-/// XRP on mainnet, as `xrpl` settles in it: real money.
+/// XRP on mainnet, as `xrpl-xrp` settles in it: real money.
 pub const MAINNET_XRP: Xrp = Xrp {
     scheme_id: MAINNET_SCHEME_ID,
     scheme: dassie_ledger::name!(MAINNET_SCHEME_ID),
@@ -138,7 +141,7 @@ impl NativeXrp for MainnetXrp {
     const XRP: Xrp = MAINNET_XRP;
 }
 
-/// The `xrpl` scheme, on mainnet.
+/// The `xrpl-xrp` scheme, on mainnet.
 pub type XrplMainnetScheme = XrpScheme<MainnetXrp>;
 
 /// The memo type of the owner's payments out of the account

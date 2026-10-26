@@ -371,7 +371,7 @@ fn small() -> BoxedStrategy<u32> {
     .boxed()
 }
 
-const LEDGERS: &[&str] = &["stub+usd", "xrpl-testnet+xrp", "xrpl+xrp", "stub"];
+const LEDGERS: &[&str] = &["stub+usd", "xrpl-testnet-xrp+xrp", "xrpl-xrp+xrp", "stub"];
 
 /// The IDs of payments, quotes and grants, UUIDs.
 fn payment_id() -> BoxedStrategy<String> {
@@ -494,7 +494,7 @@ fn recipient() -> BoxedStrategy<String> {
     let paths = [
         "",
         "/",
-        "/pay/stub",
+        "/pay/usd",
         "/.well-known/pay",
         "/incoming-payments/",
         "/pay/",
@@ -511,7 +511,7 @@ fn recipient() -> BoxedStrategy<String> {
             if stays_here(&input) {
                 input
             } else {
-                format!("${}/pay/stub", PRIVATE_HOSTS[0])
+                format!("${}/pay/usd", PRIVATE_HOSTS[0])
             }
         })
         .boxed()

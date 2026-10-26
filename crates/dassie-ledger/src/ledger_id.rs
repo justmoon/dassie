@@ -73,13 +73,29 @@ impl LedgerId {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::StubUsd => "stub+usd",
-            Self::XrplTestnetXrp => "xrpl-testnet+xrp",
-            Self::XrplXrp => "xrpl+xrp",
+            Self::XrplTestnetXrp => "xrpl-testnet-xrp+xrp",
+            Self::XrplXrp => "xrpl-xrp+xrp",
             Self::XrplTestnetRlusdUsd => "xrpl-testnet-rlusd+usd",
             Self::XrplRlusdUsd => "xrpl-rlusd+usd",
             Self::XrplTestnetDsusdUsd => "xrpl-testnet-dsusd+usd",
             Self::HubXrplTestnetXrp => "hub-xrpl-testnet-xrp+xrp",
             Self::HubXrplTestnetDsusdUsd => "hub-xrpl-testnet-dsusd+usd",
+        }
+    }
+
+    /// The ledger's name for people, in its wallet address
+    /// (`/pay/<name>`): its asset, short, `hub-` before it for a settlement
+    /// hub's. Unique among the ledgers of a realm, which are all a node
+    /// runs. Its ID's slug, which names its scheme, its STREAM receiver and
+    /// its payer, is plumbing (spec/decisions/scheme-names.md).
+    #[must_use]
+    pub const fn wallet_name(self) -> &'static str {
+        match self {
+            Self::StubUsd => "usd",
+            Self::XrplTestnetXrp | Self::XrplXrp => "xrp",
+            Self::XrplTestnetRlusdUsd | Self::XrplRlusdUsd => "rlusd",
+            Self::XrplTestnetDsusdUsd => "dsusd",
+            Self::HubXrplTestnetXrp => "hub-xrp",
         }
     }
 
@@ -140,5 +156,31 @@ mod tests {
             assert_eq!(LedgerId::parse(ledger.as_str()), Some(ledger));
         }
         assert_eq!(LedgerId::parse("stub+eur"), None);
+    }
+
+    // spec/decisions/scheme-names.md: a ledger's name for people is unique
+    // among its realm's, and names its asset, a hub's with `hub-` before
+    // it; its slug names its scheme.
+    #[test]
+    fn wallet_names_are_unique_within_a_realm() {
+        for ledger in LedgerId::ALL {
+            let name = ledger.wallet_name();
+            let code = ledger.asset().code.to_ascii_lowercase();
+            let asset = name.strip_prefix("hub-").unwrap_or(name);
+            assert!(
+                asset == code || ledger.asset().code == "USD",
+                "{ledger}: {name}"
+            );
+            assert_eq!(
+                name.starts_with("hub-"),
+                ledger.as_str().starts_with("hub-"),
+                "{ledger}"
+            );
+            for other in LedgerId::ALL {
+                if other != ledger && other.realm() == ledger.realm() {
+                    assert_ne!(name, other.wallet_name(), "{ledger}, {other}");
+                }
+            }
+        }
     }
 }

@@ -1,6 +1,6 @@
 //! The token scheme's rules in depth (spec/areas/xrpl.md#the-token-scheme),
 //! in DSUSD: `xrpl-testnet-dsusd` against the fake ledger's testnet, wired
-//! to its account as the node wires it, alone or next to `xrpl-testnet` on
+//! to its account as the node wires it, alone or next to `xrpl-testnet-xrp` on
 //! the same account: the line set before it syncs, settling, booking by the
 //! line, the issuer's freezes and clawbacks, gas, testnet resets and
 //! restarts, with the books checked against the ledger after every ledger.
@@ -1971,7 +1971,7 @@ fn a_settlement_whose_metadata_was_changed_books_nothing() {
 }
 
 // spec/areas/xrpl.md#the-account: while the books stopped
-// `xrpl-testnet`, the account's XRP is still on its books: the DSUSD scheme
+// `xrpl-testnet-xrp`, the account's XRP is still on its books: the DSUSD scheme
 // spends none of it as gas, and settles nothing, until the XRP scheme is
 // back after a restart. Removed by the owner, it leaves the XRP off the
 // books, and only the reserve bounds the gas.

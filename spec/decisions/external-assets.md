@@ -29,6 +29,6 @@ Separate what the node holds from how it settles ([Settlement](../areas/settleme
 
 - *The asset's config inside each scheme's:* every scheme on an account would have to name its server, faucet and publishers alike, and the owner could change them only through a scheme.
 - *One account per scheme,* each derived from the scheme's name: no races, but two addresses for the owner to fund, two supplies of XRP for fees and reserves, and the same coupling of holding and scheme for every type to come.
-- *Gas booked on the XRP ledger always:* the RLUSD scheme would need `xrpl-testnet+xrp` active, and its effects would book on two ledgers.
+- *Gas booked on the XRP ledger always:* the RLUSD scheme would need `xrpl-testnet-xrp+xrp` active, and its effects would book on two ledgers.
 - *Fees converted into the scheme's currency at the current rate:* booking a fee would wait for a fresh rate, and a rate is not what the owner paid.
 - *The books as the record of external holdings,* shown to the owner as they add up: the ledger already says what is there, and the books can only lag it.

@@ -164,7 +164,7 @@ message ExternalAsset {
   // keeps it from going on, such as a validator list it has none of.
   string connection_problem = 5;
   // The settlement schemes that settle through it, for example
-  // "xrpl-testnet" and "xrpl-testnet-dsusd".
+  // "xrpl-testnet-xrp" and "xrpl-testnet-dsusd".
   repeated string settlement_schemes = 6;
   // Whether the node can ask a faucet for test money on it: AskFaucet
   // with any of its schemes.
@@ -331,7 +331,7 @@ message SetAssetConfigResponse {
 // RESOURCE_EXHAUSTED if the faucet was asked less than a minute ago or the
 // ledger cannot be reached.
 message AskFaucetRequest {
-  // The settlement scheme's ID, for example "xrpl-testnet".
+  // The settlement scheme's ID, for example "xrpl-testnet-xrp".
   string settlement_scheme = 1;
 }
 

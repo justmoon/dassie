@@ -61,7 +61,7 @@ pub const TESTNET: Network = Network {
     name: "testnet",
     id: 1,
     asset_kind: AssetKind::XrplTestnetAccount,
-    xrp_scheme: dassie_ledger::name!("xrpl-testnet"),
+    xrp_scheme: dassie_ledger::name!(crate::scheme::SCHEME_ID),
     seed: Seed {
         module: "xrpl-testnet",
         path: "seed-testnet",
@@ -79,7 +79,7 @@ pub const MAINNET: Network = Network {
     name: "mainnet",
     id: 0,
     asset_kind: AssetKind::XrplAccount,
-    xrp_scheme: dassie_ledger::name!("xrpl"),
+    xrp_scheme: dassie_ledger::name!(crate::scheme::MAINNET_SCHEME_ID),
     seed: Seed {
         module: "xrpl",
         path: "seed-mainnet",

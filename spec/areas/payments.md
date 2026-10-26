@@ -11,8 +11,8 @@ Not supported: SPSP ([open-payments](../decisions/open-payments.md)), card autho
 
 ## Wallet addresses
 
-- **One wallet address per ledger,** since a wallet address has one asset: `https://<name>/pay/<slug>`, where the slug is the ledger ID up to its `+` and the name is one of [the node's names](#the-nodes-names).
-- **`$name` names the default ledger:** the one the owner chose, or else the lowest active one. Grants and resources record every wallet address as its `/pay/<slug>` form, so changing the default never moves a grant or a payment to another ledger.
+- **One wallet address per ledger,** since a wallet address has one asset: `https://<name>/pay/<ledger name>`, where the ledger's name is its name for people, its asset (`usd`, `xrp`, `dsusd`, `rlusd`, or `hub-xrp` for a hub's; `LedgerId::wallet_name`), never its slug, and the name before it is one of [the node's names](#the-nodes-names) ([scheme-names](../decisions/scheme-names.md)).
+- **`$name` names the default ledger:** the one the owner chose, or else the lowest active one. Grants and resources record every wallet address as its `/pay/<ledger name>` form, so changing the default never moves a grant or a payment to another ledger.
 - **The key in `jwks.json`** signs the node's own requests to other wallets. It derives from the node key at `node/open-payments-client` ([identity.md](identity.md)), so restoring from the passphrase restores the key other wallets know the node by.
 - Open Payments is served only once the node is set up, under its names.
 

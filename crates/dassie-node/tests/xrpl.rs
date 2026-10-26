@@ -34,7 +34,7 @@ use support::pair::{
 };
 use support::{Bound, START_MS, TestNode};
 
-const LEDGER: &str = "xrpl-testnet+xrp";
+const LEDGER: &str = "xrpl-testnet-xrp+xrp";
 /// What the faucet gives, less the reserve, in internal units.
 const FUNDED: i64 = 999_000_000_000;
 /// 5 XRP: over four times the credit, so it only gets through if A
@@ -186,8 +186,8 @@ async fn two_daemons_settle_on_the_xrp_ledger_across_restarts() {
     ];
     let a = bound_a.start(clock.clone(), 1, Policies::DEV, &env).await;
     let b = bound_b.start(clock.clone(), 2, Policies::DEV, &env).await;
-    prepare_on_xrpl(&a, &key_a, "xrpl-testnet", &config).await;
-    prepare_on_xrpl(&b, &key_b, "xrpl-testnet", &config).await;
+    prepare_on_xrpl(&a, &key_a, "xrpl-testnet-xrp", &config).await;
+    prepare_on_xrpl(&b, &key_b, "xrpl-testnet-xrp", &config).await;
     // The faucet funds both: a deposit of all but the reserve.
     until(&clock, async || {
         in_step(&a, &key_a, &server).await && in_step(&b, &key_b, &server).await
@@ -306,8 +306,8 @@ async fn a_lying_server_gets_nothing_booked_and_settling_resumes() {
     ];
     let a = bound_a.start(clock.clone(), 1, Policies::DEV, &env).await;
     let b = bound_b.start(clock.clone(), 2, Policies::DEV, &env).await;
-    prepare_on_xrpl(&a, &key_a, "xrpl-testnet", &config).await;
-    prepare_on_xrpl(&b, &key_b, "xrpl-testnet", &config).await;
+    prepare_on_xrpl(&a, &key_a, "xrpl-testnet-xrp", &config).await;
+    prepare_on_xrpl(&b, &key_b, "xrpl-testnet-xrp", &config).await;
     let both_in_step =
         async || in_step(&a, &key_a, &server).await && in_step(&b, &key_b, &server).await;
     until(&clock, both_in_step).await;
@@ -421,7 +421,7 @@ async fn a_new_fake_ledger_is_a_testnet_reset() {
         ("DASSIE_PEER_ALLOW_PRIVATE", "1"),
     ];
     let a = bound.start(clock.clone(), 1, Policies::DEV, &env).await;
-    prepare_on_xrpl(&a, &key_a, "xrpl-testnet", &config).await;
+    prepare_on_xrpl(&a, &key_a, "xrpl-testnet-xrp", &config).await;
     until(&clock, async || in_step(&a, &key_a, &server).await).await;
     assert_eq!(deposits(&a).await, [FUNDED as u64]);
 
@@ -483,7 +483,7 @@ async fn the_owner_asks_the_faucet_for_more() {
         ("DASSIE_PEER_ALLOW_PRIVATE", "1"),
     ];
     let a = bound.start(clock.clone(), 1, Policies::DEV, &env).await;
-    prepare_on_xrpl(&a, &key_a, "xrpl-testnet", &config).await;
+    prepare_on_xrpl(&a, &key_a, "xrpl-testnet-xrp", &config).await;
     until(&clock, async || in_step(&a, &key_a, &server).await).await;
     let ledger = ledger_of(&a).await.unwrap();
     assert!(ledger.faucet);
@@ -497,13 +497,13 @@ async fn the_owner_asks_the_faucet_for_more() {
             .await
     };
     // The faucet made the account less than a minute ago.
-    let early = ask("xrpl-testnet").await.unwrap_err();
+    let early = ask("xrpl-testnet-xrp").await.unwrap_err();
     assert_eq!(early.code(), proto::ErrorCode::ResourceExhausted);
     let missing = ask("stub").await.unwrap_err();
     assert_eq!(missing.code(), proto::ErrorCode::NotFound);
     let mut asked = false;
     until(&clock, async || {
-        asked = asked || ask("xrpl-testnet").await.is_ok();
+        asked = asked || ask("xrpl-testnet-xrp").await.is_ok();
         asked
     })
     .await;

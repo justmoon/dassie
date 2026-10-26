@@ -1,4 +1,4 @@
-//! The node's first XRPL testnet account and the `xrpl-testnet` scheme on
+//! The node's first XRPL testnet account and the `xrpl-testnet-xrp` scheme on
 //! it, wired together as the node wires them: after each input to the
 //! account, the scheme is told what it learnt, and what both ask is handed
 //! back in order. It speaks the interface the scheme had when it owned its

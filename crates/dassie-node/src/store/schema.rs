@@ -67,6 +67,7 @@ const MIGRATIONS: &[&str] = &[
     MIGRATION_43,
     MIGRATION_44,
     MIGRATION_45,
+    MIGRATION_46,
 ];
 
 /// The schema version this code writes: the number of migrations.
@@ -1486,6 +1487,176 @@ UPDATE settlement_schemes
   END
   WHERE id IN ('xrpl-testnet', 'xrpl-testnet-dsusd', 'xrpl-testnet-rlusd', 'xrpl', 'xrpl-rlusd');
 ";
+
+/// Renames settlement scheme `$old` to `$new`, and its ledger `$old_ledger`
+/// to `$new_ledger`, everywhere the books keep them, as migration 42 renamed
+/// the hub's: the scheme, its checkpoint, the journal's references to it,
+/// the peerings and the settlements on their way over it, the ledger's
+/// accounts, so the books keep their balances, its downlinks, BTP tokens,
+/// the default ledger, and the payments and quotes on it, which take new
+/// revisions above every other, so live views see them.
+macro_rules! rename_scheme {
+    ($old:literal, $new:literal, $old_ledger:literal, $new_ledger:literal) => {
+        concat!(
+            "UPDATE settlement_schemes SET id = '",
+            $new,
+            "' WHERE id = '",
+            $old,
+            "';
+UPDATE settlement_checkpoints SET scheme = '",
+            $new,
+            "' WHERE scheme = '",
+            $old,
+            "';
+UPDATE ledger_transfers SET settlement_scheme = '",
+            $new,
+            "' WHERE settlement_scheme = '",
+            $old,
+            "';
+UPDATE peers SET scheme = '",
+            $new,
+            "' WHERE scheme = '",
+            $old,
+            "';
+UPDATE settlement_channels SET outbox_scheme = '",
+            $new,
+            "' WHERE outbox_scheme = '",
+            $old,
+            "';
+UPDATE ledger_accounts
+  SET path = '",
+            $new_ledger,
+            ":' || substr(path, length('",
+            $old_ledger,
+            ":') + 1)
+  WHERE substr(path, 1, length('",
+            $old_ledger,
+            ":')) = '",
+            $old_ledger,
+            ":';
+UPDATE downlink_accounts SET ledger = '",
+            $new_ledger,
+            "' WHERE ledger = '",
+            $old_ledger,
+            "';
+UPDATE btp_tokens SET ledger = '",
+            $new_ledger,
+            "' WHERE ledger = '",
+            $old_ledger,
+            "';
+UPDATE payment_settings SET default_ledger = '",
+            $new_ledger,
+            "'
+  WHERE default_ledger = '",
+            $old_ledger,
+            "';
+UPDATE incoming_payments
+  SET ledger = '",
+            $new_ledger,
+            "',
+    revision = (SELECT coalesce(max(revision), 0) FROM incoming_payments) + revision
+  WHERE ledger = '",
+            $old_ledger,
+            "';
+UPDATE outgoing_payments
+  SET ledger = '",
+            $new_ledger,
+            "',
+    revision = (SELECT coalesce(max(revision), 0) FROM outgoing_payments) + revision
+  WHERE ledger = '",
+            $old_ledger,
+            "';
+UPDATE quotes SET ledger = '",
+            $new_ledger,
+            "' WHERE ledger = '",
+            $old_ledger,
+            "';
+"
+        )
+    };
+}
+
+/// Moves wallet address `/pay/$old` to `/pay/$new` wherever the books keep
+/// it, as migration 42 moved the hub's: in incoming and outgoing payments
+/// and quotes, and in grants, as an access item's identifier and as the
+/// subject an interaction asked about (`sub_ids` holds exactly one). A
+/// grant whose access or interaction would grow past its column's bound
+/// keeps the old address there. What changes takes new revisions above
+/// every other, so live views see it.
+macro_rules! rename_wallet {
+    ($old:literal, $new:literal) => {
+        concat!(
+            "UPDATE incoming_payments
+  SET wallet_address = substr(wallet_address, 1, length(wallet_address) - length('", $old, "'))
+      || '", $new, "',
+    revision = (SELECT coalesce(max(revision), 0) FROM incoming_payments) + revision
+  WHERE substr(wallet_address, -length('/pay/", $old, "')) = '/pay/", $old, "';
+UPDATE outgoing_payments
+  SET wallet_address = substr(wallet_address, 1, length(wallet_address) - length('", $old, "'))
+      || '", $new, "',
+    revision = (SELECT coalesce(max(revision), 0) FROM outgoing_payments) + revision
+  WHERE substr(wallet_address, -length('/pay/", $old, "')) = '/pay/", $old, "';
+UPDATE quotes
+  SET wallet_address = substr(wallet_address, 1, length(wallet_address) - length('", $old, "'))
+    || '", $new, "'
+  WHERE substr(wallet_address, -length('/pay/", $old, "')) = '/pay/", $old, "';
+CREATE TEMP TABLE renamed_grants AS
+  SELECT id, access, interaction, in_access, in_subject
+  FROM (
+    SELECT id, new_access AS access, new_interaction AS interaction,
+      instr(access, '/pay/", $old, "\"') > 0 AND length(new_access) <= 16384 AS in_access,
+      coalesce(substr(subject, -length('/pay/", $old, "')) = '/pay/", $old, "'
+        AND length(new_interaction) <= 4096, 0) AS in_subject
+    FROM (
+      SELECT id, access, subject,
+        replace(access, '/pay/", $old, "\"', '/pay/", $new, "\"') AS new_access,
+        json_set(interaction, '$.subject.sub_ids[0].id',
+          substr(subject, 1, length(subject) - length('", $old, "')) || '", $new, "')
+          AS new_interaction
+      FROM (
+        SELECT id, access, interaction,
+          json_extract(interaction, '$.subject.sub_ids[0].id') AS subject
+        FROM gnap_grants)))
+  WHERE in_access OR in_subject;
+UPDATE gnap_grants
+  SET access = (SELECT r.access FROM temp.renamed_grants r WHERE r.id = gnap_grants.id)
+  WHERE id IN (SELECT id FROM temp.renamed_grants WHERE in_access);
+UPDATE gnap_grants
+  SET interaction = (SELECT r.interaction FROM temp.renamed_grants r WHERE r.id = gnap_grants.id)
+  WHERE id IN (SELECT id FROM temp.renamed_grants WHERE in_subject);
+UPDATE gnap_grants
+  SET revision = (SELECT coalesce(max(revision), 0) FROM gnap_grants) + revision
+  WHERE id IN (SELECT id FROM temp.renamed_grants);
+DROP TABLE temp.renamed_grants;
+"
+        )
+    };
+}
+
+/// Every scheme's ID names its ledger, its network but mainnet, and its
+/// asset, so the XRP schemes take theirs, `xrpl-testnet-xrp` and
+/// `xrpl-xrp`, with their ledgers (spec/decisions/scheme-names.md). A
+/// ledger's wallet address names it for people, by its asset, apart from
+/// its slug: `/pay/usd`, `/pay/xrp`, `/pay/dsusd`, `/pay/rlusd`,
+/// `/pay/hub-xrp`. The receiver's and the payer's addresses follow the
+/// renamed ledgers' slugs, so credentials their receivers issued before
+/// no longer pay, as after migration 42.
+const MIGRATION_46: &str = concat!(
+    rename_scheme!(
+        "xrpl-testnet",
+        "xrpl-testnet-xrp",
+        "xrpl-testnet+xrp",
+        "xrpl-testnet-xrp+xrp"
+    ),
+    rename_scheme!("xrpl", "xrpl-xrp", "xrpl+xrp", "xrpl-xrp+xrp"),
+    rename_wallet!("stub", "usd"),
+    rename_wallet!("xrpl-testnet", "xrp"),
+    rename_wallet!("xrpl", "xrp"),
+    rename_wallet!("xrpl-testnet-rlusd", "rlusd"),
+    rename_wallet!("xrpl-rlusd", "rlusd"),
+    rename_wallet!("xrpl-testnet-dsusd", "dsusd"),
+    rename_wallet!("hub-xrpl-testnet-xrp", "hub-xrp"),
+);
 
 /// Columns that hold secrets: the database inspector never reads them.
 pub const SECRET_COLUMNS: &[(&str, &str)] = &[

@@ -85,7 +85,7 @@ pub fn offered(info: &SchemeInfo, realm: Realm) -> bool {
 /// their config names, which are the account's. Those of a network settle
 /// through the node's first XRPL account on it, so one address holds the
 /// XRP of one and the gas of the others (spec/areas/xrpl.md#the-account):
-/// the testnet's, or mainnet's for `xrpl` and `xrpl-rlusd`. Disabled test
+/// the testnet's, or mainnet's for `xrpl-xrp` and `xrpl-rlusd`. Disabled test
 /// RLUSD's is the testnet's.
 fn asset_of(id: &str) -> Option<AssetId> {
     #[cfg(test)]
@@ -1159,7 +1159,7 @@ mod tests {
 
     // spec/decisions/mainnet-schemes.md: each XRPL scheme settles through
     // the first account on its own network, whose keys are at that
-    // network's seed path, mainnet's the original's; only `xrpl` and
+    // network's seed path, mainnet's the original's; only `xrpl-xrp` and
     // `xrpl-rlusd`, the live realm's, settle through mainnet's.
     #[test]
     fn each_xrpl_scheme_settles_through_its_networks_account() {
@@ -1205,7 +1205,7 @@ mod tests {
     #[test]
     fn what_an_asset_could_not_prove_is_warned_of_once_as_it_grows() {
         let asset = dassie_xrpl::account::FIRST;
-        let schemes = [Name::new("xrpl-testnet").unwrap()];
+        let schemes = [Name::new("xrpl-testnet-xrp").unwrap()];
         let counts = |history_gaps, settlements| Unproven {
             history_gaps,
             settlements,

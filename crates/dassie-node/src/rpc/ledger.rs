@@ -696,7 +696,7 @@ mod tests {
             holdings: Vec::new(),
             status: dassie_settlement::LedgerStatus::Synced,
             waiting: None,
-            schemes: vec!["xrpl-testnet".into()],
+            schemes: vec!["xrpl-testnet-xrp".into()],
             faucet: false,
             unproven: dassie_settlement::Unproven {
                 history_gaps: 2,

@@ -25,7 +25,7 @@ pub const SCHEME_ID: &str = "xrpl-rlusd";
 /// RLUSD's, so a Payment is never read as a settlement of another XRPL
 /// scheme. A contract between peers, as every XRPL scheme's is
 /// (spec/areas/xrpl.md#the-payment-it-signs).
-pub const MEMO_TYPE: &[u8] = b"https://dassie.land/settlement/rlusd/v1";
+pub const MEMO_TYPE: &[u8] = b"https://dassie.land/settlement/xrpl-rlusd/v1";
 /// RLUSD's issuer on the XRPL mainnet, `rMxCKbEDwqr76QuheSUMdEGf4B9xJ8m5De`,
 /// as Ripple publishes it.
 pub const ISSUER: AccountId = AccountId([
@@ -69,8 +69,9 @@ pub type RlusdScheme = TokenScheme<Rlusd>;
 
 /// The ID of test RLUSD's scheme, which is disabled.
 pub const TESTNET_SCHEME_ID: &str = "xrpl-testnet-rlusd";
-/// The memo that marked a settlement in test RLUSD. Never another scheme's.
-pub const TESTNET_MEMO_TYPE: &[u8] = b"https://dassie.land/settlement/rlusd-testnet/v1";
+/// The memo that would mark a settlement in test RLUSD. Never another
+/// scheme's.
+pub const TESTNET_MEMO_TYPE: &[u8] = b"https://dassie.land/settlement/xrpl-testnet-rlusd/v1";
 /// RLUSD's issuer on the XRPL testnet, `rQhWct2fv4Vc4KRjRgMrxa8xPN9Zx9iLKV`.
 pub const TESTNET_ISSUER: AccountId = AccountId([
     0xFC, 0xF4, 0xDD, 0x8C, 0x64, 0x63, 0x6B, 0xC5, 0x03, 0xF4, 0xA5, 0x8D, 0xC6, 0xC6, 0x84, 0xD2,

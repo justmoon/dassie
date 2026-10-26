@@ -758,7 +758,7 @@ fn a_withdrawals_outcome_is_its_own_payment() {
     );
 }
 
-/// A node's own XRPL testnet account and the `xrpl-testnet` scheme on it,
+/// A node's own XRPL testnet account and the `xrpl-testnet-xrp` scheme on it,
 /// on the hub's XRP Ledger, as the node runs them: what the account asks
 /// goes to the ledger and the answer comes back, and what the scheme books
 /// is added up.
@@ -920,7 +920,7 @@ impl Node {
 // and out again. Its first deposit pays the escrow with tag 0 and its hub
 // key as the memo, which the validators read as a deposit that opens its
 // account; later ones name the account by its tag. A withdrawal pays the
-// node's own XRPL account, which the `xrpl-testnet` scheme books as the
+// node's own XRPL account, which the `xrpl-testnet-xrp` scheme books as the
 // owner's deposit, as any payment from an address no peer gave; each
 // payment into the hub is the owner's withdrawal there.
 #[test]

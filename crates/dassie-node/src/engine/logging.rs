@@ -572,7 +572,7 @@ mod tests {
     fn what_an_asset_could_not_prove_is_logged_as_a_warning() {
         let asset = dassie_xrpl::account::FIRST;
         let schemes = vec![
-            dassie_ledger::Name::new("xrpl-testnet").unwrap(),
+            dassie_ledger::Name::new("xrpl-testnet-xrp").unwrap(),
             dassie_ledger::Name::new("xrpl-testnet-dsusd").unwrap(),
         ];
         let lines = capture(|| {
@@ -601,7 +601,7 @@ mod tests {
                     ("asset".to_string(), asset.to_string()),
                     (
                         "schemes".to_string(),
-                        "xrpl-testnet,xrpl-testnet-dsusd".to_string()
+                        "xrpl-testnet-xrp,xrpl-testnet-dsusd".to_string()
                     ),
                     ("total".to_string(), total.to_string()),
                 ]

@@ -240,7 +240,7 @@ mod tests {
     use super::*;
 
     const NOW_MS: u64 = 1_790_000_000_000;
-    const XRP: &str = "xrpl-testnet+xrp";
+    const XRP: &str = "xrpl-testnet-xrp+xrp";
     const DSUSD: &str = "xrpl-testnet-dsusd+usd";
 
     fn key() -> NodeKey {
@@ -254,13 +254,14 @@ mod tests {
             sequence_ms,
             valid_until_ms: sequence_ms + 60_000,
             fee_ppm: 1_000,
+            // In the order of their IDs, as a feed lists them.
             ledgers: vec![
                 Ledger {
-                    id: XRP,
+                    id: DSUSD,
                     max_packet_amount: 1_000_000_000,
                 },
                 Ledger {
-                    id: DSUSD,
+                    id: XRP,
                     max_packet_amount: 1_000_000_000,
                 },
             ],
@@ -268,12 +269,12 @@ mod tests {
                 Rate {
                     from: 0,
                     to: 1,
-                    rate_e15: rate,
+                    rate_e15: 2_000_000_000_000_000,
                 },
                 Rate {
                     from: 1,
                     to: 0,
-                    rate_e15: 2_000_000_000_000_000,
+                    rate_e15: rate,
                 },
             ],
         }

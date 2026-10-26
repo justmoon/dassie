@@ -172,12 +172,13 @@ fn migration_45_gives_each_account_its_own_config() {
         .into_iter()
         .map(|(id, config)| (id.as_str().to_string(), config))
         .collect();
+    // Named as migration 46 names the XRP schemes.
     let expected = [
         ("stub", r#"{"trust":"unlimited"}"#),
-        ("xrpl", ""),
         ("xrpl-rlusd", ""),
-        ("xrpl-testnet", r#"{"peers":false}"#),
         ("xrpl-testnet-dsusd", ""),
+        ("xrpl-testnet-xrp", r#"{"peers":false}"#),
+        ("xrpl-xrp", ""),
     ];
     assert_eq!(
         configs,

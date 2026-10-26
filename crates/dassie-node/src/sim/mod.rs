@@ -37,7 +37,7 @@
 //! against a fake ledger in the same process (M7b): its connections lag,
 //! lose requests and drop, and the books must still match every node's
 //! account, less its reserve, with no XRP made or lost. A run in the live
-//! realm settles over mainnet's schemes, `xrpl` and `xrpl-rlusd`, against
+//! realm settles over mainnet's schemes, `xrpl-xrp` and `xrpl-rlusd`, against
 //! the fake ledger's mainnet, which has no faucet: each node's owner
 //! deposits (spec/decisions/mainnet-schemes.md).
 //!
@@ -168,7 +168,7 @@ pub enum Settling {
     StubHub(usize),
     /// The XRP Ledger testnet scheme, against the fake ledger.
     Xrpl,
-    /// The XRP Ledger mainnet scheme, `xrpl`, in the live realm, against
+    /// The XRP Ledger mainnet scheme, `xrpl-xrp`, in the live realm, against
     /// the fake ledger's mainnet.
     XrplLive,
     /// Node 0 on the stub, 2 on the XRP Ledger, 1 and 3 on both (M7c).
@@ -315,8 +315,8 @@ impl Settling {
     /// The scheme of `ledger`, and its configuration.
     pub const fn scheme(ledger: LedgerId) -> (&'static str, &'static str) {
         match ledger {
-            LedgerId::XrplTestnetXrp => ("xrpl-testnet", ""),
-            LedgerId::XrplXrp => ("xrpl", ""),
+            LedgerId::XrplTestnetXrp => ("xrpl-testnet-xrp", ""),
+            LedgerId::XrplXrp => ("xrpl-xrp", ""),
             LedgerId::XrplRlusdUsd => ("xrpl-rlusd", ""),
             LedgerId::XrplTestnetDsusdUsd => ("xrpl-testnet-dsusd", ""),
             LedgerId::HubXrplTestnetXrp => (dassie_hub::member::SCHEME_ID, ""),
@@ -1037,7 +1037,7 @@ impl Sim {
             if matches!(settling, Settling::Hub(_)) {
                 let config = settling.config(XRP);
                 sim.step(index, |core| {
-                    core.add_scheme("xrpl-testnet", config).unwrap();
+                    core.add_scheme("xrpl-testnet-xrp", config).unwrap();
                 });
             }
             for &ledger in settling.ledgers(index) {

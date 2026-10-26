@@ -474,7 +474,7 @@ export type ExternalAsset = Message<"dassie.owner.v1.ExternalAsset"> & {
 
   /**
    * The settlement schemes that settle through it, for example
-   * "xrpl-testnet" and "xrpl-testnet-dsusd".
+   * "xrpl-testnet-xrp" and "xrpl-testnet-dsusd".
    *
    * @generated from field: repeated string settlement_schemes = 6;
    */
@@ -997,7 +997,7 @@ export const SetAssetConfigResponseSchema: GenMessage<SetAssetConfigResponse> = 
  */
 export type AskFaucetRequest = Message<"dassie.owner.v1.AskFaucetRequest"> & {
   /**
-   * The settlement scheme's ID, for example "xrpl-testnet".
+   * The settlement scheme's ID, for example "xrpl-testnet-xrp".
    *
    * @generated from field: string settlement_scheme = 1;
    */

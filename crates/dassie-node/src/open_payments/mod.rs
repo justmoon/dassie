@@ -2,7 +2,9 @@
 //! URLs of the node's wallet addresses and resources, and which ledger a
 //! wallet address names.
 //!
-//! Each active ledger has a wallet address at `https://host/pay/<slug>`.
+//! Each active ledger has a wallet address at `https://host/pay/<name>`,
+//! its name for people (`LedgerId::wallet_name`), never its slug, which
+//! names plumbing (spec/decisions/scheme-names.md).
 //! `$host`, that is `https://host/.well-known/pay`, names the default
 //! ledger: the one the owner chose, or else the lowest active one.
 //!
@@ -39,7 +41,6 @@ use dassie_node_core::urls::{self, DEFAULT_HTTPS_PORT};
 use dassie_peer::names::Name;
 use tokio::sync::watch;
 
-use crate::engine::ledger_slug;
 use crate::node::Node;
 use crate::store::{PaymentId, StoreError};
 
@@ -362,7 +363,7 @@ impl Urls {
         if is_default {
             WELL_KNOWN_PATH.to_string()
         } else {
-            format!("{PAY_PREFIX}{}", ledger_slug(ledger))
+            format!("{PAY_PREFIX}{}", ledger.wallet_name())
         }
     }
 
@@ -383,7 +384,7 @@ impl Urls {
         if is_default {
             format!("${authority}")
         } else {
-            format!("${authority}{PAY_PREFIX}{}", ledger_slug(ledger))
+            format!("${authority}{PAY_PREFIX}{}", ledger.wallet_name())
         }
     }
 
@@ -477,11 +478,11 @@ impl WalletAddresses {
         if path == WELL_KNOWN_PATH {
             return self.default;
         }
-        let slug = path.strip_prefix(PAY_PREFIX)?;
+        let name = path.strip_prefix(PAY_PREFIX)?;
         self.ledgers
             .iter()
             .copied()
-            .find(|&ledger| ledger_slug(ledger) == slug)
+            .find(|&ledger| ledger.wallet_name() == name)
     }
 
     /// The ledger a wallet address URL of this node names, under any of
@@ -526,15 +527,17 @@ mod tests {
             Some(LedgerId::StubUsd)
         );
         assert_eq!(
-            addresses.ledger_of_path("/pay/stub"),
+            addresses.ledger_of_path("/pay/usd"),
             Some(LedgerId::StubUsd)
         );
         assert_eq!(
-            addresses.ledger_of_path("/pay/xrpl-testnet"),
+            addresses.ledger_of_path("/pay/xrp"),
             Some(LedgerId::XrplTestnetXrp)
         );
-        assert_eq!(addresses.ledger_of_path("/pay/xrpl"), None);
-        assert_eq!(addresses.ledger_of_path("/pay/stub/"), None);
+        // A ledger's slug is no wallet address, nor is a ledger not run.
+        assert_eq!(addresses.ledger_of_path("/pay/xrpl-testnet-xrp"), None);
+        assert_eq!(addresses.ledger_of_path("/pay/dsusd"), None);
+        assert_eq!(addresses.ledger_of_path("/pay/usd/"), None);
         let chosen = WalletAddresses::new(
             vec![LedgerId::StubUsd, LedgerId::XrplTestnetXrp],
             Some(LedgerId::XrplTestnetXrp),
@@ -556,7 +559,7 @@ mod tests {
         );
         assert_eq!(
             urls.wallet_address(LedgerId::StubUsd, false),
-            "https://d1.localhost:5001/pay/stub"
+            "https://d1.localhost:5001/pay/usd"
         );
         assert_eq!(
             urls.payment_pointer(LedgerId::StubUsd, true),
@@ -564,16 +567,16 @@ mod tests {
         );
         assert_eq!(
             urls.payment_pointer(LedgerId::XrplTestnetXrp, false),
-            "$d1.localhost:5001/pay/xrpl-testnet"
+            "$d1.localhost:5001/pay/xrp"
         );
         assert_eq!(urls.auth_server(), "https://d1.localhost:5001/gnap");
         let addresses = WalletAddresses::new(vec![LedgerId::StubUsd], None);
         assert_eq!(
-            addresses.ledger_of_url(&urls, "https://d1.localhost:5001/pay/stub"),
+            addresses.ledger_of_url(&urls, "https://d1.localhost:5001/pay/usd"),
             Some(LedgerId::StubUsd)
         );
         assert_eq!(
-            addresses.ledger_of_url(&urls, "https://d2.localhost:5002/pay/stub"),
+            addresses.ledger_of_url(&urls, "https://d2.localhost:5002/pay/usd"),
             None
         );
     }
@@ -793,8 +796,8 @@ mod tests {
         let urls = names.answering(Some("pay.example.com")).unwrap();
         let addresses = WalletAddresses::new(vec![LedgerId::StubUsd], None);
         for url in [
-            "https://pay.example.com/pay/stub",
-            "https://other.example/pay/stub",
+            "https://pay.example.com/pay/usd",
+            "https://other.example/pay/usd",
             &format!("https://{default}/.well-known/pay"),
         ] {
             assert_eq!(
@@ -804,7 +807,7 @@ mod tests {
             );
         }
         assert_eq!(
-            addresses.ledger_of_url(&urls, "https://elsewhere.example/pay/stub"),
+            addresses.ledger_of_url(&urls, "https://elsewhere.example/pay/usd"),
             None
         );
         assert_eq!(
@@ -818,8 +821,8 @@ mod tests {
         );
         // What the node wrote under one name, it writes under this one.
         assert_eq!(
-            urls.rebase(&format!("https://{default}/pay/stub")),
-            "https://pay.example.com/pay/stub"
+            urls.rebase(&format!("https://{default}/pay/usd")),
+            "https://pay.example.com/pay/usd"
         );
         assert_eq!(urls.rebase("not a url"), "not a url");
     }
@@ -837,14 +840,14 @@ mod tests {
 
         const PATHS: &[&str] = &[
             WELL_KNOWN_PATH,
-            "/pay/stub",
-            "/pay/xrpl-testnet",
-            "/pay/xrpl",
+            "/pay/usd",
+            "/pay/xrp",
+            "/pay/xrpl-testnet-xrp",
             "/pay/",
-            "/pay/stub/",
-            "/PAY/STUB",
-            "/pay/stub?x#y",
-            "/pay/%73tub",
+            "/pay/usd/",
+            "/PAY/USD",
+            "/pay/usd?x#y",
+            "/pay/%75sd",
             "/incoming-payments/x",
             "",
         ];

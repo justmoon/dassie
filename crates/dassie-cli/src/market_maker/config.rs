@@ -10,7 +10,7 @@
 //!   },
 //!   "xrp": {
 //!     "socket": "/run/mm-xrp/dassie.sock",
-//!     "ledger": "xrpl-testnet+xrp",
+//!     "ledger": "xrpl-testnet-xrp+xrp",
 //!     "passphraseFile": "/etc/dassie-mm/xrp.phrase",
 //!     "tradeSize": 10000000000,
 //!     "band": { "low": 20000000000, "high": 200000000000 }
@@ -81,7 +81,7 @@ pub struct Target {
 pub struct NodeConfig {
     /// Its IPC socket.
     pub socket: PathBuf,
-    /// The ledger it runs, such as `xrpl-testnet+xrp`.
+    /// The ledger it runs, such as `xrpl-testnet-xrp+xrp`.
     pub ledger: String,
     /// The file that holds its passphrase, for its XRPL account's keys.
     pub passphrase_file: PathBuf,
@@ -478,7 +478,7 @@ mod tests {
             },
             "xrp": {
                 "socket": "/run/a.sock",
-                "ledger": "xrpl-testnet+xrp",
+                "ledger": "xrpl-testnet-xrp+xrp",
                 "passphraseFile": "/etc/a",
                 "tradeSize": 1_000_000_000,
                 "band": { "low": 10_000_000_000_u64, "high": 100_000_000_000_u64 },
@@ -513,7 +513,7 @@ mod tests {
         assert_eq!(target.feed_port, None);
         assert_eq!(config.token.currency, dassie_xrpl::dsusd::CURRENCY);
         assert_eq!(config.token.issuer, dassie_xrpl::dsusd::ISSUER);
-        assert_eq!(config.xrp.ledger, "xrpl-testnet+xrp");
+        assert_eq!(config.xrp.ledger, "xrpl-testnet-xrp+xrp");
         assert_eq!(config.params.margin_ppm, 5_000);
         assert_eq!(config.params.token.trade_size, 500_000_000);
         assert_eq!(config.params.xrp.band.high, 100_000_000_000);
@@ -680,7 +680,7 @@ mod tests {
     #[test]
     fn the_two_nodes_are_two() {
         assert_eq!(
-            with(|v| v["token"]["ledger"] = json!("xrpl-testnet+xrp")),
+            with(|v| v["token"]["ledger"] = json!("xrpl-testnet-xrp+xrp")),
             Err(ConfigError::SameNode("ledger"))
         );
         assert_eq!(

@@ -15,7 +15,7 @@ import { Agent, fetch } from "undici";
 import { LedgerConnection } from "@dassie/rpc/proto";
 import type { Scenario, ScenarioNode } from "@dassie/dev/scenario";
 
-export const XRP = "xrpl-testnet+xrp";
+export const XRP = "xrpl-testnet-xrp+xrp";
 export const DSUSD = "xrpl-testnet-dsusd+usd";
 /** DSUSD's issuer on the testnet, which the fake ledger issues it at. */
 export const ISSUER = "rURgPoYNN7tGqBzGXFeCLmKYgpSjYgJP6M";

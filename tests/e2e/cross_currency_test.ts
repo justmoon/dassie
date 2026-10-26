@@ -25,7 +25,7 @@ import {
 import { Scenario, type ScenarioNode } from "@dassie/dev/scenario";
 
 const USD = "stub+usd";
-const XRP = "xrpl-testnet+xrp";
+const XRP = "xrpl-testnet-xrp+xrp";
 /** 4 XRP: more than a peer's credit, so every node must settle. */
 const RECEIVE = 4_000_000_000n;
 /**

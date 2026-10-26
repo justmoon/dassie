@@ -85,9 +85,9 @@ export const TOKEN_SCHEMES: Readonly<Record<IssuedToken, string>> = {
 /** The settlement schemes on the XRP Ledger: their nodes' account is on
  * the testnet, or on the fake ledger, its testnet or its mainnet. */
 export const XRPL_SCHEMES: readonly string[] = [
-  "xrpl-testnet",
+  "xrpl-testnet-xrp",
   "xrpl-testnet-dsusd",
-  "xrpl",
+  "xrpl-xrp",
   "xrpl-rlusd",
 ];
 
@@ -121,8 +121,8 @@ export const SCENARIOS: readonly ScenarioDef[] = [
     id: "xrpl-settlement",
     name: "XRPL Testnet Settlement",
     description: "Network with two nodes using XRPL testnet settlement",
-    schemes: [["xrpl-testnet"], ["xrpl-testnet"]],
-    addedSchemes: ["xrpl-testnet"],
+    schemes: [["xrpl-testnet-xrp"], ["xrpl-testnet-xrp"]],
+    addedSchemes: ["xrpl-testnet-xrp"],
     bootstrap: [0, 1],
   },
   {
@@ -141,8 +141,8 @@ export const SCENARIOS: readonly ScenarioDef[] = [
     name: "XRPL Mainnet Settlement, Fake",
     description:
       "Network with two nodes in the live realm settling in XRP on the fake ledger's mainnet, by the dev switch; each node's account is funded by a deposit, as mainnet has no faucet",
-    schemes: [["xrpl"], ["xrpl"]],
-    addedSchemes: ["xrpl"],
+    schemes: [["xrpl-xrp"], ["xrpl-xrp"]],
+    addedSchemes: ["xrpl-xrp"],
     bootstrap: [0, 1],
     realm: "live",
   },
@@ -165,7 +165,7 @@ export const SCENARIOS: readonly ScenarioDef[] = [
     name: "Cross-currency Settlement",
     description:
       "Two nodes using different settlement methods (stub and XRPL testnet) and a third node supporting both",
-    schemes: [["stub"], ["stub", "xrpl-testnet"], ["xrpl-testnet"]],
+    schemes: [["stub"], ["stub", "xrpl-testnet-xrp"], ["xrpl-testnet-xrp"]],
     addedSchemes: ["stub"],
     bootstrap: [0, 1],
   },
@@ -175,11 +175,11 @@ export const SCENARIOS: readonly ScenarioDef[] = [
     description:
       "A core node with XRP and DSUSD, most of its value in XRP, and a market maker's two periphery nodes pinned to it, one with XRP and one with DSUSD, beside the fake ledger's XRP/DSUSD pool at the dev rate",
     schemes: [
-      ["xrpl-testnet", "xrpl-testnet-dsusd"],
-      ["xrpl-testnet"],
+      ["xrpl-testnet-xrp", "xrpl-testnet-dsusd"],
+      ["xrpl-testnet-xrp"],
       ["xrpl-testnet-dsusd"],
     ],
-    addedSchemes: ["xrpl-testnet", "xrpl-testnet-dsusd"],
+    addedSchemes: ["xrpl-testnet-xrp", "xrpl-testnet-dsusd"],
     bootstrap: [0],
     periphery: [{ node: 1, uplinks: [0] }, { node: 2, uplinks: [0] }],
     // The faucet's 1000 XRP are worth 500 dollars at the dev rates, so the
@@ -194,12 +194,12 @@ export const SCENARIOS: readonly ScenarioDef[] = [
     description:
       "Two core nodes with XRP and DSUSD, most of their value in XRP, and a market maker's two periphery nodes each pinned to both, one with XRP and one with DSUSD, beside the fake ledger's XRP/DSUSD pool at the dev rate",
     schemes: [
-      ["xrpl-testnet", "xrpl-testnet-dsusd"],
-      ["xrpl-testnet", "xrpl-testnet-dsusd"],
-      ["xrpl-testnet"],
+      ["xrpl-testnet-xrp", "xrpl-testnet-dsusd"],
+      ["xrpl-testnet-xrp", "xrpl-testnet-dsusd"],
+      ["xrpl-testnet-xrp"],
       ["xrpl-testnet-dsusd"],
     ],
-    addedSchemes: ["xrpl-testnet", "xrpl-testnet-dsusd"],
+    addedSchemes: ["xrpl-testnet-xrp", "xrpl-testnet-dsusd"],
     bootstrap: [0, 1],
     periphery: [{ node: 2, uplinks: [0, 1] }, { node: 3, uplinks: [0, 1] }],
     // As in "market-maker": each core node holds about a twentieth of its

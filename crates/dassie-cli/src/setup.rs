@@ -611,7 +611,7 @@ mod tests {
             "--scheme",
             "stub",
             "--scheme",
-            r#"xrpl-testnet={"a":"b=c"}"#,
+            r#"xrpl-testnet-xrp={"a":"b=c"}"#,
             "--asset",
             r#"xrpl-testnet-account/0={"server":"wss://a"}"#,
         ])
@@ -625,7 +625,7 @@ mod tests {
                     config: String::new()
                 },
                 Scheme {
-                    id: "xrpl-testnet".into(),
+                    id: "xrpl-testnet-xrp".into(),
                     config: r#"{"a":"b=c"}"#.into()
                 },
             ]

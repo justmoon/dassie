@@ -405,7 +405,7 @@ mod tests {
         for path in [
             "/.well-known/pay",
             "/.well-known/pay/jwks.json",
-            "/pay/stub",
+            "/pay/usd",
             "/gnap",
             "/gnap/continue/x",
             "/incoming-payments",

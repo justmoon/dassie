@@ -856,33 +856,33 @@ fn migration_42_renames_the_hub_scheme_and_keeps_its_books() {
     assert_eq!(outbox.scheme.as_str(), scheme.as_str());
     assert_eq!(outbox.amount, 300);
 
-    // Payments and grants follow the ledger's wallet address.
+    // Payments and grants follow the ledger's wallet address, which
+    // migration 46 then names for people, `/pay/hub-xrp`, as it names the
+    // XRP ledger's `/pay/xrp`.
     let payment = store.incoming_payment(PaymentId([0; 16])).unwrap().unwrap();
     assert_eq!(payment.ledger, hub);
-    assert_eq!(
-        payment.wallet_address,
-        "https://a.example/pay/hub-xrpl-testnet-xrp"
-    );
+    assert_eq!(payment.wallet_address, "https://a.example/pay/hub-xrp");
     let other = store.incoming_payment(PaymentId([1; 16])).unwrap().unwrap();
     assert_eq!(
         (other.ledger, other.wallet_address.as_str()),
         (
             dassie_ledger::LedgerId::XrplTestnetXrp,
-            "https://a.example/pay/xrpl-testnet"
+            "https://a.example/pay/xrp"
         )
     );
     let quote = store.quote(PaymentId([0; 16])).unwrap().unwrap();
     assert_eq!(
         (quote.ledger, quote.wallet_address.as_str()),
-        (hub, "https://a.example/pay/hub-xrpl-testnet-xrp")
+        (hub, "https://a.example/pay/hub-xrp")
     );
     let outgoing = store.outgoing_payment(PaymentId([0; 16])).unwrap().unwrap();
     assert_eq!(
         (outgoing.ledger, outgoing.wallet_address.as_str()),
-        (hub, "https://a.example/pay/hub-xrpl-testnet-xrp")
+        (hub, "https://a.example/pay/hub-xrp")
     );
 
-    // A grant's identifiers of the hub's wallet address move, and no other.
+    // A grant's identifiers of the hub's wallet address move, and, by
+    // migration 46, the XRP ledger's.
     let grant = store.grant(PaymentId([0; 16])).unwrap().unwrap();
     let access: serde_json::Value = serde_json::from_str(&grant.access).unwrap();
     let identifiers: Vec<_> = access
@@ -893,10 +893,7 @@ fn migration_42_renames_the_hub_scheme_and_keeps_its_books() {
         .collect();
     assert_eq!(
         identifiers,
-        [
-            "https://a.example/pay/hub-xrpl-testnet-xrp",
-            "https://a.example/pay/xrpl-testnet"
-        ]
+        ["https://a.example/pay/hub-xrp", "https://a.example/pay/xrp"]
     );
     // So does the subject a pending grant asked about, and nothing else
     // in its interaction.
@@ -911,7 +908,7 @@ fn migration_42_renames_the_hub_scheme_and_keeps_its_books() {
             "finish": null,
             "interact_ref": null,
             "subject": {"sub_ids": [{
-                "id": "https://a.example/pay/hub-xrpl-testnet-xrp",
+                "id": "https://a.example/pay/hub-xrp",
                 "format": "uri",
             }]},
             "public_name": null,
@@ -921,8 +918,9 @@ fn migration_42_renames_the_hub_scheme_and_keeps_its_books() {
     );
     drop(store);
 
-    // The rows that changed take revisions above every other, in their
-    // order, so live views see them change.
+    // The rows that changed take revisions above every other, so live
+    // views see them change: migration 42's in their order, then migration
+    // 45's above them.
     let connection = Connection::open(temp.path().join(DATABASE_FILE)).unwrap();
     let revisions = |table: &str| -> Vec<(Vec<u8>, i64)> {
         let mut statement = connection
@@ -936,11 +934,189 @@ fn migration_42_renames_the_hub_scheme_and_keeps_its_books() {
     };
     assert_eq!(
         revisions("incoming_payments"),
-        [(vec![0; 16], 6), (vec![1; 16], 5)]
+        [(vec![0; 16], 28), (vec![1; 16], 22)]
     );
-    assert_eq!(revisions("outgoing_payments"), [(vec![0; 16], 4)]);
+    assert_eq!(revisions("outgoing_payments"), [(vec![0; 16], 8)]);
     assert_eq!(
         revisions("gnap_grants"),
-        [(vec![0; 16], 3), (vec![2; 16], 4)]
+        [(vec![0; 16], 14), (vec![2; 16], 11)]
     );
+}
+
+// Migration 46 names the XRP schemes by their ledger, network and asset
+// (spec/decisions/scheme-names.md): a node that settled on `xrpl-testnet`
+// loads the same scheme, peering, balances and settlement under
+// `xrpl-testnet-xrp`; and every ledger's wallet address takes its name for
+// people, in payments, quotes and grants, the others' with them.
+#[test]
+#[allow(clippy::too_many_lines)]
+fn migration_46_names_the_xrp_schemes_and_the_wallet_addresses() {
+    let temp = tempfile::tempdir().unwrap();
+    let mut connection = Connection::open(temp.path().join(DATABASE_FILE)).unwrap();
+    connection
+        .pragma_update(None, "application_id", APPLICATION_ID)
+        .unwrap();
+    schema::migrate_until(&mut connection, 45).unwrap();
+    let peer = node(1);
+    let id = peer.id;
+    connection
+        .execute(
+            "INSERT INTO peer_nodes (id, link_state, sources, first_seen_ms) VALUES (?1, ?2, ?3, 10)",
+            rusqlite::params![id.as_str(), peer.link_state, peer.sources.bits()],
+        )
+        .unwrap();
+    connection
+        .execute(
+            "INSERT INTO peers (node, scheme, version, state, credit_out, since_ms, inbound, \
+             last_seen_ms, short_for_ms, short_reached_ms) \
+             VALUES (?1, 'xrpl-testnet', 1, X'0102', 900, 14, 1, 15, 0, 0)",
+            [id.as_str()],
+        )
+        .unwrap();
+    let accounts = [
+        (0, "stub+usd:equity/owner".to_string(), 0, 0),
+        (
+            1,
+            "xrpl-testnet+xrp:assets/settlement".to_string(),
+            5_300,
+            0,
+        ),
+        (2, "xrpl-testnet+xrp:equity/owner".to_string(), 0, 5_300),
+    ];
+    for (account, path, debits, credits) in &accounts {
+        connection
+            .execute(
+                "INSERT INTO ledger_accounts (id, path, debits_posted, credits_posted) \
+                 VALUES (?1, ?2, ?3, ?4)",
+                rusqlite::params![account, path, debits, credits],
+            )
+            .unwrap();
+    }
+    connection
+        .execute_batch(
+            "INSERT INTO ledger_transfers (id, debit, credit, amount, state, created_at_ms, \
+               resolved_at_ms, reference, settlement_scheme, settlement_id, sequence) VALUES
+             (0, 1, 2, 5300, 'posted', 1, 1, 'deposit', NULL, NULL, 1),
+             (1, 2, 1, 100, 'pending', 2, NULL, 'settlement', 'xrpl-testnet', 's1', 2);
+             INSERT INTO settlement_schemes (id, config, activated_at_ms)
+               VALUES ('xrpl-testnet', '', 1), ('stub', '', 1);
+             INSERT INTO settlement_checkpoints (scheme, balance, updated_at_ms, state)
+               VALUES ('xrpl-testnet', 5300, 2, NULL);
+             UPDATE payment_settings SET default_ledger = 'xrpl-testnet+xrp';
+             INSERT INTO incoming_payments (id, ledger, wallet_address, received_amount,
+               ilp_address, shared_secret, created_at_ms, expires_at_ms, revision)
+               VALUES (zeroblob(16), 'xrpl-testnet+xrp', 'https://a.example/pay/xrpl-testnet',
+                 0, 'test.a.stream-xrpl-testnet.x', zeroblob(32), 1, 2, 1),
+               (X'01010101010101010101010101010101', 'stub+usd', 'https://a.example/pay/stub',
+                 0, 'test.a.stream-stub.x', zeroblob(32), 1, 2, 2),
+               (X'02020202020202020202020202020202', 'xrpl-testnet-dsusd+usd',
+                 'https://a.example/.well-known/pay', 0, 'test.a.stream-xrpl-testnet-dsusd.x',
+                 zeroblob(32), 1, 2, 3);
+             INSERT INTO gnap_grants (id, state, client, client_key, access, needs_owner,
+               continue_token_hash, created_at_ms, decided_at_ms, expires_at_ms, revision)
+               VALUES (zeroblob(16), 'approved', 'https://c.example', '{}',
+                 '[{\"type\":\"incoming-payment\",\"actions\":[\"read\"],\
+                 \"identifier\":\"https://a.example/pay/xrpl-testnet-dsusd\"},\
+                 {\"type\":\"incoming-payment\",\"actions\":[\"read\"],\
+                 \"identifier\":\"https://a.example/pay/stub\"}]',
+                 1, zeroblob(32), 1, 1, 2, 1);",
+        )
+        .unwrap();
+    drop(connection);
+
+    let store = Store::open(temp.path()).unwrap();
+    let xrp = dassie_ledger::LedgerId::XrplTestnetXrp;
+    let scheme = dassie_ledger::name!("xrpl-testnet-xrp");
+    assert_eq!(xrp.as_str(), "xrpl-testnet-xrp+xrp");
+    let ledger = store.load_ledger().unwrap();
+    let paths: Vec<_> = ledger
+        .accounts
+        .iter()
+        .map(|a| (a.path.to_string(), a.debits_posted, a.credits_posted))
+        .collect();
+    assert_eq!(
+        paths,
+        [
+            ("stub+usd:equity/owner".to_string(), 0, 0),
+            (
+                "xrpl-testnet-xrp+xrp:assets/settlement".to_string(),
+                5_300,
+                0
+            ),
+            ("xrpl-testnet-xrp+xrp:equity/owner".to_string(), 0, 5_300),
+        ]
+    );
+    assert_eq!(
+        ledger.pending[0].reference,
+        dassie_ledger::Reference::Settlement {
+            scheme,
+            id: dassie_ledger::name!("s1"),
+        }
+    );
+    assert_eq!(
+        store.settlement_schemes().unwrap(),
+        [
+            (dassie_ledger::name!("stub"), String::new()),
+            (scheme, String::new())
+        ]
+    );
+    assert_eq!(store.checkpoints().unwrap()[0].0, scheme);
+    assert_eq!(store.default_ledger().unwrap(), Some(xrp));
+    let stored = store.load_peer().unwrap();
+    let peering = stored.nodes[0].peering.as_ref().unwrap();
+    assert_eq!(peering.scheme.as_str(), scheme.as_str());
+
+    // Each wallet address its name for people; the default's stays.
+    let wallet = |id: u8| {
+        let payment = store
+            .incoming_payment(PaymentId([id; 16]))
+            .unwrap()
+            .unwrap();
+        (payment.ledger, payment.wallet_address)
+    };
+    assert_eq!(wallet(0), (xrp, "https://a.example/pay/xrp".to_string()));
+    assert_eq!(
+        wallet(1),
+        (
+            dassie_ledger::LedgerId::StubUsd,
+            "https://a.example/pay/usd".to_string()
+        )
+    );
+    assert_eq!(
+        wallet(2),
+        (
+            dassie_ledger::LedgerId::XrplTestnetDsusdUsd,
+            "https://a.example/.well-known/pay".to_string()
+        )
+    );
+    let grant = store.grant(PaymentId([0; 16])).unwrap().unwrap();
+    let access: serde_json::Value = serde_json::from_str(&grant.access).unwrap();
+    let identifiers: Vec<_> = access
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|item| item["identifier"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        identifiers,
+        ["https://a.example/pay/dsusd", "https://a.example/pay/usd"]
+    );
+    drop(store);
+
+    // What changed takes revisions above what did not.
+    let connection = Connection::open(temp.path().join(DATABASE_FILE)).unwrap();
+    let revision = |table: &str, id: u8| -> i64 {
+        connection
+            .query_row(
+                &format!("SELECT revision FROM {table} WHERE id = ?1"),
+                [vec![id; 16]],
+                |row| row.get(0),
+            )
+            .unwrap()
+    };
+    let unchanged = revision("incoming_payments", 2);
+    assert_eq!(unchanged, 3);
+    assert!(revision("incoming_payments", 0) > unchanged);
+    assert!(revision("incoming_payments", 1) > unchanged);
+    assert!(revision("gnap_grants", 0) > 1);
 }

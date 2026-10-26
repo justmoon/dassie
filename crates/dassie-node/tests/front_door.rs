@@ -395,9 +395,9 @@ async fn a_node_is_reached_at_its_name_through_the_front_door() {
         assert_eq!(again.status, StatusCode::OK, "{}", again.text());
     }
     // An error is the node's too, and signed.
-    let missing = door.get(&name, "/pay/xrpl").await;
+    let missing = door.get(&name, "/pay/xrp").await;
     assert_eq!(missing.status, StatusCode::NOT_FOUND);
-    let target = format!("https://{name}/pay/xrpl");
+    let target = format!("https://{name}/pay/xrp");
     assert_eq!(signer(&target, &missing, now_s), Ok(key.node_id()));
     node.stop().await;
     shutdown.cancel();

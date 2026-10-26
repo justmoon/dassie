@@ -8,7 +8,7 @@
 //! `xrpl-testnet-dsusd` ([`crate::dsusd`]) on the testnet are this scheme
 //! with their own. It pays its fees and its line's reserve in the account's
 //! XRP, as gas: on the books of the network's XRP scheme, such as
-//! `xrpl-testnet+xrp`, when that scheme settles from the same account, and
+//! `xrpl-testnet-xrp+xrp`, when that scheme settles from the same account, and
 //! off the books otherwise (spec/decisions/external-assets.md).
 //!
 //! Before it counts as synced, the account has a line to the issuer with
@@ -760,8 +760,11 @@ impl<T: IssuedToken> SettlementScheme for TokenScheme<T> {
         Some(T::TOKEN.issuer.to_address())
     }
 
+    /// Version 2: its memo type is its scheme's ID
+    /// (spec/decisions/scheme-names.md), so a node of version 1, which
+    /// wrote another, is refused as a peer on it rather than read wrong.
     fn supported_versions(&self) -> &'static [u16] {
-        &[1]
+        &[2]
     }
 
     fn balance(&self) -> u64 {

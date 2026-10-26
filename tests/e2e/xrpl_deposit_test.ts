@@ -32,7 +32,7 @@ import {
   startBrowser,
 } from "./harness.ts";
 
-const LEDGER = "xrpl-testnet+xrp";
+const LEDGER = "xrpl-testnet-xrp+xrp";
 const PORT_OFFSET = SCENARIO_PORT_OFFSET + 800;
 /** The faucet is asked at most once a minute, the account's making included. */
 const FAUCET_PACE_MS = 60_000;
@@ -97,7 +97,7 @@ test(
       const errors: string[] = [];
       page.on("pageerror", (error) => errors.push(String(error)));
       await signIn(page, d1);
-      await page.goto(`${d1.url}/receive?tab=xrpl-testnet`, {
+      await page.goto(`${d1.url}/receive?tab=xrpl-testnet-xrp`, {
         waitUntil: "load",
       });
       assertEquals(

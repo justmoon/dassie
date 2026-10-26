@@ -129,8 +129,8 @@ mod tests {
             Ok("https://d2.localhost/.well-known/pay")
         );
         assert_eq!(
-            wallet_address_url("$d2.localhost:5002/pay/stub").as_deref(),
-            Ok("https://d2.localhost:5002/pay/stub")
+            wallet_address_url("$d2.localhost:5002/pay/usd").as_deref(),
+            Ok("https://d2.localhost:5002/pay/usd")
         );
         assert_eq!(
             wallet_address_url(" https://ilp.example/alice ").as_deref(),
@@ -145,7 +145,7 @@ mod tests {
                 "https://d2.localhost:5002/.well-known/pay",
                 "$d2.localhost:5002",
             ),
-            ("https://d2.localhost/pay/stub", "$d2.localhost/pay/stub"),
+            ("https://d2.localhost/pay/usd", "$d2.localhost/pay/usd"),
         ] {
             assert_eq!(payment_pointer(url).as_deref(), Some(pointer), "{url}");
             // Both ways, the same.
