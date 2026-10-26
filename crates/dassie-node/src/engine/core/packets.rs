@@ -59,8 +59,8 @@ impl Receiver {
         endpoint: EndpointId,
     ) -> Result<Self, EngineError> {
         // The server secret derives from the node key, so credentials stay
-        // valid across restarts (ILP-11), and from the ledger's ID, so no
-        // two receivers share one.
+        // valid across restarts, and from the ledger's ID, so no two
+        // receivers share one.
         let ledger_id = Segment::parse(ledger.as_str())
             .map_err(|_| EngineError::Internal("receiver seed path".into()))?;
         let secret = key.secret(NodeSecret::StreamReceiver { ledger: ledger_id });
