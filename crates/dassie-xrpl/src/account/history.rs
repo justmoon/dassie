@@ -448,7 +448,11 @@ impl XrplAccount {
 /// What the pool's `account` holds of the token of `key` on `line`, the
 /// line its key names: one between other accounts, or in another
 /// currency, is not what the key holds, as for the account's own lines.
-fn pool_tokens(line: &TrustLine, account: AccountId, key: &LineKey) -> Result<TokenValue, Doubt> {
+fn pool_tokens(
+    line: &TrustLine,
+    account: AccountId,
+    key: &IssuedAsset,
+) -> Result<TokenValue, Doubt> {
     if !line.is_between(account, key.issuer, key.currency) {
         return Err(Doubt::Unreadable);
     }
