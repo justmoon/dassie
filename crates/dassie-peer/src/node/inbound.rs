@@ -1,8 +1,9 @@
 //! Inbound requests (spec/areas/peer-protocol.md#message-set,
-//! spec/areas/peer-protocol.md#statuses): decoding, authentication, and
-//! what each kind gets, with statuses that tell a refusal from a failure.
-//! Registrations and peering requests wait on a probe of
-//! the requester's URL; name messages go to the registrar (`names.rs`).
+//! spec/areas/peer-protocol.md#statuses): decoding, and what each kind
+//! gets from the node its connection proved, with statuses that tell a
+//! refusal from a failure. Registrations and peering requests wait on a
+//! probe of the requester's URL; name messages go to the registrar
+//! (`names.rs`).
 
 use alloc::boxed::Box;
 use alloc::string::String;
@@ -13,13 +14,12 @@ use dassie_oer::Decode;
 
 use super::gossip::{Processed, Retransmit};
 use super::{PeerNode, Problem, Purpose};
-use crate::auth::{Accepted, AuthError};
 use crate::hooks::PeeringHooks;
 use crate::io::{Event, Inbound, InboundId, Output, PacketAnswer, Reply, SettlementAnswer};
 use crate::table::{Entry, Network, Registration, Sources};
 use crate::wire::{
     Content, Envelope, EnvelopeError, LinkStateResponse, MAX_CLAIM_BYTES, SchemeId, SignedNodeInfo,
-    encode_expiry, encode_link_states, encode_octets, encode_response, encode_settling,
+    encode_expiry, encode_link_states, encode_octets, encode_settling,
 };
 
 /// The ILP packet type of a Prepare.
@@ -27,6 +27,16 @@ pub(super) const PREPARE_TYPE: u8 = 12;
 
 /// The ILP packet type of a Fulfill.
 pub(super) const FULFILL_TYPE: u8 = 13;
+
+/// A request taken in: from whom, by the key its QUIC connection proved
+/// (spec/areas/peer-protocol.md#authentication).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct Accepted {
+    /// The sender: the node of the key.
+    pub sender: NodeId,
+    /// The key it proved.
+    pub key: PublicKey,
+}
 
 /// What an inbound request waits on a probe for.
 #[derive(Clone, Debug)]
@@ -51,17 +61,24 @@ pub(crate) struct Probe {
 }
 
 impl PeerNode {
-    /// Handles an inbound request, `body` being the HTTP body.
+    /// Handles an inbound request, `body` being the stream's body, from the
+    /// node whose key `from` its connection proved, at the address
+    /// `source` where one counts (spec/areas/peer-protocol.md#authentication).
     pub fn handle_inbound<'a>(
         &mut self,
         now_ms: u64,
         hooks: &mut dyn PeeringHooks,
         id: InboundId,
+        from: PublicKey,
         body: &'a [u8],
         source: Option<core::net::IpAddr>,
     ) -> Inbound<'a> {
         self.advance(now_ms);
-        let inbound = self.decode_inbound(hooks, id, body, source);
+        let accepted = Accepted {
+            sender: from.node_id(),
+            key: from,
+        };
+        let inbound = self.decode_inbound(hooks, id, accepted, body, source);
         if let Inbound::Reply(reply) = &inbound
             && !reply.is_ok()
         {
@@ -74,6 +91,7 @@ impl PeerNode {
         &mut self,
         hooks: &mut dyn PeeringHooks,
         id: InboundId,
+        accepted: Accepted,
         body: &'a [u8],
         source: Option<core::net::IpAddr>,
     ) -> Inbound<'a> {
@@ -85,21 +103,11 @@ impl PeerNode {
         let Ok(content) = Content::decode_exact(envelope.content) else {
             return refuse(400, "malformed message");
         };
-        if envelope.sender == self.own {
+        if accepted.sender == self.own {
             return refuse(400, "the sender is the recipient");
         }
         let network = source.map(Network::of);
-        let accepted = match self
-            .auth
-            .accept(self.now_ms, &envelope, content.kind(), network)
-        {
-            Ok(accepted) => accepted,
-            Err(AuthError::Busy) => return refuse(503, "busy"),
-            Err(error) => return refuse(401, auth_reason(error)),
-        };
-        if accepted.is_authenticated() {
-            self.saw(&accepted.sender);
-        }
+        self.saw(&accepted.sender);
         match content {
             Content::InterledgerPacket { request_id, packet } => {
                 self.packet_request(hooks, accepted, request_id, packet, None)
@@ -158,12 +166,12 @@ impl PeerNode {
         // Nor for one we are ending, which the peer does not know yet: it
         // is answered as a request that settles nothing.
         if peering.is_some_and(|peering| peering.depeering.is_some()) {
-            return Inbound::Reply(ok(&accepted, &encode_settling(0)));
+            return Inbound::Reply(ok(&encode_settling(0)));
         }
         Inbound::SettlementRequest {
             from: accepted.sender,
             scheme,
-            answer: SettlementAnswer(Box::new(accepted)),
+            answer: SettlementAnswer(accepted.sender),
         }
     }
 
@@ -212,7 +220,7 @@ impl PeerNode {
             packet,
             commitment,
             answer: PacketAnswer {
-                accepted: Box::new(accepted),
+                peer: accepted.sender,
                 fulfill: packet.first() == Some(&FULFILL_TYPE),
                 hub,
             },
@@ -231,7 +239,7 @@ impl PeerNode {
                 let sender = accepted.sender;
                 match self.process_link_state(&info, Some(sender), Retransmit::Scheduled) {
                     Processed::Invalid(_) => return Reply::refuse(400, "invalid link state"),
-                    _ if accepted.is_authenticated() && info.info.node_id == sender => {
+                    _ if info.info.node_id == sender => {
                         self.heard_from(&sender);
                         // A core node also sends its own link state to the
                         // bootstrap nodes it is not peered with, even one
@@ -248,10 +256,9 @@ impl PeerNode {
                         }
                     }
                     // Another node's link state is forwarded only to peers.
-                    _ if accepted.is_authenticated() => self.notice_one_sided(sender),
-                    _ => {}
+                    _ => self.notice_one_sided(sender),
                 }
-                ok(accepted, &[])
+                ok(&[])
             }
             Content::LinkStateRequest(ids) => {
                 // In the order asked, each ID once: the answer lines up
@@ -271,26 +278,26 @@ impl PeerNode {
                     })
                     .collect();
                 let body = encode_link_states(&found);
-                ok(accepted, &body)
+                ok(&body)
             }
             Content::NodeListHashRequest => {
                 self.rebuild_served();
                 let (_, hash) = self.lists.served();
-                ok(accepted, &hash)
+                ok(&hash)
             }
             Content::NodeListRequest => {
                 self.rebuild_served();
                 let (served, _) = self.lists.served();
-                ok(accepted, served)
+                ok(served)
             }
-            Content::NameListHashRequest => self.name_list(accepted, true),
-            Content::NameListRequest => self.name_list(accepted, false),
+            Content::NameListHashRequest => self.name_list(true),
+            Content::NameListRequest => self.name_list(false),
             Content::PeeringInfoRequest { scheme } => {
                 let mut info = Vec::new();
                 if hooks.peering_info(scheme, &mut info).is_err() {
                     return Reply::refuse(409, "the scheme is not active");
                 }
-                ok(accepted, &encode_octets(&info))
+                ok(&encode_octets(&info))
             }
             Content::InterledgerPacket { .. }
             | Content::HubPacket { .. }
@@ -361,7 +368,7 @@ impl PeerNode {
             network,
             purpose: ProbeFor::Registration(info.bytes.to_vec()),
         };
-        self.start_probe(sender, key, info.info.url, Box::new(probe))
+        self.start_probe(sender, info.info.url, Box::new(probe))
     }
 
     /// Why a new registration is refused, if it is.
@@ -414,7 +421,8 @@ impl PeerNode {
         None
     }
 
-    /// Asks `node` at `url` for its link state, authenticated, before
+    /// Asks `node` at `url` for its link state, on a connection pinned to its
+    /// key, before
     /// answering `probe.inbound`: it proves the URL is the node's, and
     /// that the node can be reached (spec/decisions/membership-economics.md,
     /// spec/decisions/peering-lifecycle.md). Every probe spends a token of
@@ -425,7 +433,6 @@ impl PeerNode {
     pub(crate) fn start_probe(
         &mut self,
         node: NodeId,
-        key: PublicKey,
         url: &str,
         probe: Box<Probe>,
     ) -> Inbound<'static> {
@@ -459,7 +466,6 @@ impl PeerNode {
         let timeout = self.config.poll_timeout_ms;
         let sent = self.send_to(
             node,
-            key,
             String::from(url),
             &content,
             Purpose::Probe(probe),
@@ -565,26 +571,22 @@ impl PeerNode {
                 network,
             });
         }
-        // Its renewals must get through however many strangers write to us
-        // (spec/areas/peer-protocol.md#replay-protection).
-        self.auth.pin(sender);
         self.dirty.insert(sender);
         self.lists.served_changed = true;
         self.event(Event::Registered(sender));
-        ok(accepted, &encode_expiry(expires_ms))
+        ok(&encode_expiry(expires_ms))
     }
 
     /// Sends to a node not (yet) reachable through the table.
     pub(crate) fn send_to(
         &mut self,
         to: NodeId,
-        key: PublicKey,
         url: String,
         content: &Content<'_>,
         purpose: Purpose,
         timeout_ms: u64,
     ) -> Option<crate::io::RequestId> {
-        self.send_via(to, key, url, content, purpose, timeout_ms)
+        self.send_via(to, url, content, purpose, timeout_ms)
     }
 }
 
@@ -593,7 +595,7 @@ impl SettlementAnswer {
     /// ledger's units.
     #[must_use]
     pub fn reply(self, settling: u64) -> Reply {
-        ok(&self.0, &encode_settling(settling))
+        ok(&encode_settling(settling))
     }
 }
 
@@ -613,7 +615,7 @@ impl PacketAnswer {
             "a claim only on a Fulfill over a hub"
         );
         assert!(claim.len() <= MAX_CLAIM_BYTES, "a claim too long");
-        ok(&self.accepted, claim)
+        ok(claim)
     }
 }
 
@@ -627,11 +629,11 @@ const fn commitment_refusal(hub: bool) -> &'static str {
     }
 }
 
-/// A 200 with `body`, MACed if the request was authenticated.
-pub(crate) fn ok(accepted: &Accepted, body: &[u8]) -> Reply {
+/// A 200 with `body`.
+pub(crate) fn ok(body: &[u8]) -> Reply {
     Reply {
         status: 200,
-        body: encode_response(accepted.response_mac(body).as_ref(), body),
+        body: body.to_vec(),
     }
 }
 
@@ -645,16 +647,4 @@ fn refuse(status: u16, reason: &str) -> Inbound<'static> {
 fn url_host(url: &str) -> &str {
     let authority = url.strip_prefix("https://").unwrap_or(url);
     authority.strip_suffix(":443").unwrap_or(authority)
-}
-
-const fn auth_reason(error: AuthError) -> &'static str {
-    match error {
-        AuthError::Missing => "authentication required",
-        AuthError::Unsupported => "unsupported authentication",
-        AuthError::BadKey | AuthError::WrongSender => "the key is not the sender's",
-        AuthError::Stale => "the timestamp is too far from now",
-        AuthError::Replayed => "replayed",
-        AuthError::BadMac => "authentication failed",
-        AuthError::Busy => "busy",
-    }
 }

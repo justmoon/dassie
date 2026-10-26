@@ -3,7 +3,7 @@
 //!
 //! For peer requests, this layer checks only what needs no state: the
 //! body's size and pace, the number of requests waiting, and the rate of
-//! unauthenticated or failing requests per address. The engine's peer node
+//! failing requests per key the connection proved. The engine's peer node
 //! decides the rest, including the status and what a network of
 //! addresses may hold, and answers once what the request changed is on
 //! disk.
@@ -14,12 +14,12 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
 
-use dassie_identity::NodeId;
+use dassie_identity::{NodeId, PublicKey};
 use dassie_kit::ClientKey;
 use dassie_node_core::connections::ConnectionLimits;
 use tokio_util::sync::CancellationToken;
 
-use dassie_peer::wire::{Authentication, Envelope, MAX_MESSAGE_BYTES};
+use dassie_peer::wire::MAX_MESSAGE_BYTES;
 use hyper::StatusCode;
 
 use crate::node::Node;
@@ -27,7 +27,7 @@ use crate::quic::places::Peerings;
 use crate::quic::relay::{Purpose, ServedStream};
 
 // The largest ILP packet of any type fits in a request, with room for the
-// envelope's sender, authentication and tags.
+// envelope and the content's tags.
 const _: () = assert!(dassie_ilp::MAX_PACKET_LENGTH + 1024 <= MAX_MESSAGE_BYTES);
 
 /// Why a request's body could not be read.
@@ -58,14 +58,14 @@ impl Answer {
     }
 }
 
-/// Answers a peer request from `client` whose body `body` reads. The body
-/// is read only once the request may be handled, and within the node's time
-/// for a body.
-pub async fn answer<F>(node: &Node, client: IpAddr, body: F) -> Answer
+/// Answers a peer request from `client`, by the node whose key `from` its
+/// connection proved, whose body `body` reads. The body is read only once
+/// the request may be handled, and within the node's time for a body.
+pub async fn answer<F>(node: &Node, client: IpAddr, from: PublicKey, body: F) -> Answer
 where
     F: Future<Output = Result<Vec<u8>, BodyError>>,
 {
-    if node.peer_limited(client) {
+    if node.peer_limited(&from) {
         return Answer::text(StatusCode::TOO_MANY_REQUESTS, "Too Many Requests");
     }
     let (Some(engine), Some(_permit)) = (node.engine(), node.peer_permit(client)) else {
@@ -75,12 +75,12 @@ where
     // A body that is too large, broken or slow held a place for nothing:
     // charged, so that a client cannot hold places over and over.
     let (status, text) = match tokio::time::timeout(timeout, body).await {
-        Ok(Ok(body)) => return answer_body(node, &engine, client, body).await,
+        Ok(Ok(body)) => return answer_body(node, &engine, client, from, body).await,
         Ok(Err(BodyError::TooLarge)) => (StatusCode::PAYLOAD_TOO_LARGE, "Payload Too Large"),
         Ok(Err(BodyError::Broken)) => (StatusCode::BAD_REQUEST, "Bad Request"),
         Err(_) => (StatusCode::REQUEST_TIMEOUT, "Request Timeout"),
     };
-    node.peer_charge(client);
+    node.peer_charge(&from);
     Answer::text(status, text)
 }
 
@@ -89,21 +89,20 @@ async fn answer_body(
     node: &Node,
     engine: &crate::engine::Engine,
     client: IpAddr,
+    from: PublicKey,
     body: Vec<u8>,
 ) -> Answer {
-    let anonymous = Envelope::decode(&body)
-        .is_ok_and(|envelope| envelope.authentication == Authentication::None);
     // Loopback is no network of its own where private peers are allowed, as
     // for the limits per client: dev and the tests run many nodes there.
     let source = node.counted_client(client).map(|_| client.to_canonical());
-    let Ok(reply) = engine.peer_inbound(body, source).await else {
+    let Ok(reply) = engine.peer_inbound(from, body, source).await else {
         return Answer::text(StatusCode::SERVICE_UNAVAILABLE, "Service Unavailable");
     };
-    // Unauthenticated requests are for tools; refused ones may be someone
-    // making the node verify signatures, exchange keys or probe URLs for
-    // nothing. All are rationed.
-    if anonymous || matches!(reply.status, 400 | 401 | 409 | 429) {
-        node.peer_charge(client);
+    // Refused requests may be someone making the node verify signatures or
+    // probe URLs for nothing: they are rationed, by the key that sent them,
+    // so one key's failures never cost another behind the same address.
+    if matches!(reply.status, 400 | 409 | 429) {
+        node.peer_charge(&from);
     }
     Answer {
         status: reply.status,
@@ -143,9 +142,10 @@ impl crate::quic::Handler for QuicHandler {
     fn answer<'a>(
         &'a self,
         client: IpAddr,
+        from: PublicKey,
         body: crate::quic::Body<'a>,
     ) -> Pin<Box<dyn Future<Output = Answer> + Send + 'a>> {
-        Box::pin(answer(&self.0, client, body))
+        Box::pin(answer(&self.0, client, from, body))
     }
 
     /// The hubs the node validates, for validators and members alike: the

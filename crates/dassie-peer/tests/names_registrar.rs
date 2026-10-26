@@ -18,11 +18,8 @@ use std::net::IpAddr;
 use dassie_identity::{NodeId, NodeKey};
 use dassie_oer::{Decode, Encode};
 use dassie_peer::names::Name;
-use dassie_peer::sim::Network;
-use dassie_peer::wire::{
-    Authentication, Content, NameListResponse, NameReceipt, decode_expiry, decode_hash,
-    encode_envelope,
-};
+use dassie_peer::sim::{Arriving, Network};
+use dassie_peer::wire::{Content, NameListResponse, NameReceipt, decode_expiry, decode_hash};
 use dassie_peer::{Config, Event, NameEvent};
 use registrant::{Registrant, body, name, receipt};
 
@@ -33,17 +30,12 @@ fn settle(network: &mut Network, ms: u64) {
     network.run_until(until);
 }
 
-/// Node 0's name list, as anyone reads it: without authentication.
+/// Node 0's name list, as anyone reads it: a node it holds nothing with.
 fn list(network: &mut Network) -> NameListResponse {
-    let bytes = Content::NameListRequest.to_vec();
-    let stranger = NodeKey::from_bytes(&[99; 32]).node_id();
-    let request = encode_envelope(&stranger, &Authentication::None, &bytes);
+    let stranger = NodeKey::from_bytes(&[99; 32]);
+    let request = Arriving::new(&stranger, &Content::NameListRequest);
     let list = NameListResponse::decode_exact(&body(&network.inbound(0, &request))).unwrap();
-    let request = encode_envelope(
-        &stranger,
-        &Authentication::None,
-        &Content::NameListHashRequest.to_vec(),
-    );
+    let request = Arriving::new(&stranger, &Content::NameListHashRequest);
     let hash = decode_hash(&body(&network.inbound(0, &request))).unwrap();
     let digest: [u8; 32] = <sha2::Sha256 as sha2::Digest>::digest(list.to_vec()).into();
     assert_eq!(hash, digest, "the hash is the list's");
@@ -54,8 +46,7 @@ fn holder(network: &mut Network, name: &Name) -> Option<NodeId> {
     list(network).0.get(name).map(|holding| holding.holder)
 }
 
-/// Crashes node 0 and starts it again, and lets time pass: a node that
-/// just started refuses messages dated before its start.
+/// Crashes node 0 and starts it again, and lets time pass.
 fn restart(network: &mut Network) {
     network.crash(0);
     network.start(0);
@@ -273,9 +264,9 @@ fn a_node_with_names_off_refuses_every_name_message() {
     assert_eq!(alice.commit(&mut network, &alice_name).status, 409);
     assert_eq!(alice.unseal(&mut network, &alice_name).status, 409);
     assert_eq!(alice.renew(&mut network, &alice_name).status, 409);
-    let stranger = NodeKey::from_bytes(&[99; 32]).node_id();
+    let stranger = NodeKey::from_bytes(&[99; 32]);
     for content in [Content::NameListRequest, Content::NameListHashRequest] {
-        let request = encode_envelope(&stranger, &Authentication::None, &content.to_vec());
+        let request = Arriving::new(&stranger, &content);
         assert_eq!(network.inbound(0, &request).status, 409, "{content:?}");
     }
     for index in 0..2 {

@@ -185,8 +185,8 @@ impl PeerNode {
         }
     }
 
-    /// A downloaded list. Its authenticity comes from the response MAC
-    /// under the configured key; its hash is that of what was received.
+    /// A downloaded list. Its authenticity comes from the connection, pinned
+    /// to the configured node's key; its hash is that of what was received.
     pub(super) fn on_list(&mut self, from: NodeId, result: Result<Vec<u8>, Problem>) {
         let now = self.now_ms;
         let Some(state) = self.lists.states.get_mut(&from) else {

@@ -10,13 +10,10 @@ mod support;
 use std::sync::Arc;
 
 use dassie_identity::{NodeId, NodeKey};
-use dassie_kit::sim::SeededRng;
 use dassie_peer::Config;
-use dassie_peer::auth::{AuthConfig, Authenticator};
-use dassie_peer::sim::{Network, START, key, url};
+use dassie_peer::sim::{Arriving, Network, forger, key, url};
 use dassie_peer::wire::{
-    Authentication, Entry, Envelope, NodeInfo, SchemeId, TerminationReason, encode_envelope,
-    sign_node_info,
+    Entry, Envelope, NodeInfo, SchemeId, TerminationReason, encode_envelope, sign_node_info,
 };
 use proptest::prelude::*;
 use support::inputs::{KINDS, Mutation, content, mutate, mutations};
@@ -52,26 +49,16 @@ fn body() -> impl Strategy<Value = Body> {
     ]
 }
 
-/// A node sending requests to node 0, with its own session, so that its
-/// requests are not replays of each other.
+/// A node sending requests to node 0, over a connection that proves its
+/// key.
 struct Sender {
     key: Arc<NodeKey>,
     url: String,
-    /// `None` for a sender that does not authenticate.
-    auth: Option<Authenticator>,
-    rng: SeededRng,
 }
 
 impl Sender {
-    fn new(key: Arc<NodeKey>, url: String, authenticates: bool) -> Self {
-        let auth = authenticates
-            .then(|| Authenticator::new(Arc::clone(&key), AuthConfig::DEFAULT, START - 1));
-        Self {
-            key,
-            url,
-            auth,
-            rng: SeededRng::new(7),
-        }
+    const fn new(key: Arc<NodeKey>, url: String) -> Self {
+        Self { key, url }
     }
 
     /// Its own link state, as of node 0's clock.
@@ -87,39 +74,19 @@ impl Sender {
         sign_node_info(&self.key, &info)
     }
 
-    /// `content` in an envelope to node 0.
-    fn envelope(&mut self, network: &Network, content: &[u8]) -> Vec<u8> {
-        let authentication = match &mut self.auth {
-            Some(auth) => {
-                let target = key(0);
-                let (hmac, _) = auth
-                    .authenticate(
-                        network.clock(0),
-                        &mut self.rng,
-                        &target.node_id(),
-                        &target.public_key(),
-                        content,
-                    )
-                    .unwrap();
-                Authentication::Hmac(hmac)
-            }
-            None => Authentication::None,
-        };
-        encode_envelope(&self.key.node_id(), &authentication, content)
-    }
-
-    fn body(&mut self, network: &Network, body: &Body) -> Vec<u8> {
-        match body {
+    fn body(&self, network: &Network, body: &Body) -> Arriving {
+        let bytes = match body {
             Body::Arbitrary(bytes) => bytes.clone(),
             Body::BrokenContent(tag, mutations) => {
                 let content = mutate(&content(*tag, &self.link_state(network)), mutations);
-                self.envelope(network, &content)
+                encode_envelope(&content)
             }
             Body::BrokenEnvelope(tag, mutations) => {
                 let content = content(*tag, &self.link_state(network));
-                mutate(&self.envelope(network, &content), mutations)
+                mutate(&encode_envelope(&content), mutations)
             }
-        }
+        };
+        Arriving::of(&self.key, bytes)
     }
 }
 
@@ -141,8 +108,8 @@ fn answer() -> impl Strategy<Value = Answer> {
 
 proptest! {
     // Node 0, a bootstrap node peered with node 1, gets requests from its
-    // peer, from a node outside the network, and from its peer without
-    // authentication.
+    // peer, from a node outside the network, and from the forger, which
+    // sends what it saw as its own.
     #[test]
     fn inbound_requests_never_panic(
         requests in proptest::collection::vec((0..3usize, body()), 1..=8),
@@ -151,22 +118,22 @@ proptest! {
         settle(&mut network, 30_000);
         prop_assert!(network.node(0).peering_of(&key(1).node_id()).is_some());
         let stranger = Arc::new(NodeKey::from_bytes(&[90; 32]));
-        let mut senders = [
-            Sender::new(key(1), url(1), true),
-            Sender::new(stranger, "https://stranger.test".to_owned(), true),
-            Sender::new(key(1), url(1), false),
+        let senders = [
+            Sender::new(key(1), url(1)),
+            Sender::new(stranger, "https://stranger.test".to_owned()),
+            Sender::new(forger(), url(1)),
         ];
         for (from, body) in &requests {
-            let bytes = senders[*from].body(&network, body);
+            let request = senders[*from].body(&network, body);
             // Checks node 0's invariants after.
-            let reply = network.inbound(0, &bytes);
+            let reply = network.inbound(0, &request);
             // 0: deferred, waiting on a probe.
             prop_assert!(
-                matches!(reply.status, 0 | 200 | 400 | 401 | 409 | 429 | 503),
+                matches!(reply.status, 0 | 200 | 400 | 409 | 429 | 503),
                 "status {}",
                 reply.status
             );
-            if Envelope::decode(&bytes).is_err() {
+            if Envelope::decode(&request.body).is_err() {
                 prop_assert_eq!(reply.status, 400);
             }
         }
@@ -182,7 +149,8 @@ proptest! {
     #![proptest_config(ProptestConfig::with_cases(64))]
 
     // Every response with status 200, or every second or third, carries a
-    // body of the responder's choosing, MACed properly. From the start,
+    // body of the responder's choosing, which the connection takes as the
+    // responder's. From the start,
     // registrations, list polls, peering and probes get them; after the
     // network formed, gossip, packets, settlements and the end
     // of a peering.

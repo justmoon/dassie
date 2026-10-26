@@ -8,14 +8,9 @@ use std::net::IpAddr;
 use std::sync::Arc;
 
 use dassie_identity::NodeKey;
-use dassie_kit::sim::SeededRng;
-use dassie_oer::{Decode, Encode};
-use dassie_peer::auth::{AuthConfig, Authenticator};
-use dassie_peer::sim::{Network, START, key};
-use dassie_peer::wire::{
-    Authentication, Content, Entry, NodeInfo, SchemeId, SignedNodeInfo, encode_envelope,
-    sign_node_info,
-};
+use dassie_oer::Decode;
+use dassie_peer::sim::{Arriving, Network, key};
+use dassie_peer::wire::{Content, Entry, NodeInfo, SchemeId, SignedNodeInfo, sign_node_info};
 use dassie_peer::{Config, Event};
 
 fn settle(network: &mut Network, ms: u64) {
@@ -39,7 +34,7 @@ fn made_up(index: u32) -> Arc<NodeKey> {
 }
 
 /// A registration with node `to` from `from`, whose link state names `url`.
-fn registration(network: &Network, from: &Arc<NodeKey>, url: &str, to: usize) -> Vec<u8> {
+fn registration(network: &Network, from: &Arc<NodeKey>, url: &str, to: usize) -> Arriving {
     let info = NodeInfo {
         node_id: from.node_id(),
         sequence: network.clock(to),
@@ -49,19 +44,8 @@ fn registration(network: &Network, from: &Arc<NodeKey>, url: &str, to: usize) ->
         entries: vec![Entry::Scheme(SchemeId::parse("stub").unwrap())],
     };
     let signed = sign_node_info(from, &info);
-    let content = Content::Registration(SignedNodeInfo::decode_exact(&signed).unwrap()).to_vec();
-    let mut auth = Authenticator::new(Arc::clone(from), AuthConfig::DEFAULT, START - 1);
-    let target = key(to);
-    let (hmac, _) = auth
-        .authenticate(
-            network.clock(to),
-            &mut SeededRng::new(network.clock(to)),
-            &target.node_id(),
-            &target.public_key(),
-            &content,
-        )
-        .unwrap();
-    encode_envelope(auth.own(), &Authentication::Hmac(hmac), &content)
+    let content = Content::Registration(SignedNodeInfo::decode_exact(&signed).unwrap());
+    Arriving::new(from, &content)
 }
 
 /// Registrations from one address, each from a new identity at a URL
@@ -155,16 +139,7 @@ fn mapped_ipv4_requesters_are_told_apart_by_their_network() {
 // refused, and a registration from another network still gets its probe.
 #[test]
 fn failing_registrations_from_one_network_spend_only_its_share() {
-    // The network's share of the replay pool for strangers would turn the
-    // later registrations away first (503), before their probes: room for
-    // every one here, so this sees only the probes' share.
-    let config = Config {
-        auth: AuthConfig {
-            max_senders_per_network: AuthConfig::DEFAULT.max_senders,
-            ..AuthConfig::DEFAULT
-        },
-        ..Config::DEV
-    };
+    let config = Config::DEV;
     let share = config.probe_rate_per_network;
     let mut network = Network::new(5, 2, 1, config);
     settle(&mut network, 30_000);

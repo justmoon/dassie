@@ -12,7 +12,7 @@ use super::PeerNode;
 use crate::channel::Retry;
 use crate::io::Event;
 use crate::names::Registrar;
-use crate::persist::{PeerBatch, Stored, StoredChannel, StoredClosed, StoredFloor, StoredNode};
+use crate::persist::{PeerBatch, Stored, StoredChannel, StoredClosed, StoredNode};
 use crate::routing;
 use crate::table::{
     Advertise, Depeering, Entry, LinkState, PeerState, Peering, Room, Sources, Termination,
@@ -86,7 +86,6 @@ impl PeerNode {
         for node in stored.nodes {
             let mut entry = stored_entry(&node, self.config.link_state_rate);
             if let Some(peering) = node.peering {
-                self.auth.pin(node.id);
                 peered = true;
                 self.restore_peering(&mut entry, node.id, peering, node.termination);
             } else {
@@ -119,7 +118,7 @@ impl PeerNode {
         }
         self.ensure(self.own, Sources::SELF);
         if let Some(entry) = self.table.get_mut(&self.own) {
-            entry.key = Some(self.auth.node_key().public_key());
+            entry.key = Some(self.key.public_key());
         }
         let bootstrap: Vec<(NodeId, PublicKey)> = self
             .bootstrap
@@ -144,7 +143,6 @@ impl PeerNode {
         for id in unchanneled {
             self.open_channel_from(id, None);
         }
-        self.restore_floors(&stored.floors);
         // A node that lost its URL while down ends its downlinks.
         self.end_downlinks();
         self.gossip.routes_dirty = true;
@@ -172,20 +170,6 @@ impl PeerNode {
         }
     }
 
-    /// Restores every replay floor persisted, so that no message accepted
-    /// before the restart is accepted again, whatever its sender's role now
-    /// (spec/areas/peer-protocol.md#replay-protection). A sender whose
-    /// floor was persisted while it mattered, and that no longer does, is
-    /// kept until the floor is stale, and then forgotten with it.
-    fn restore_floors(&mut self, floors: &[StoredFloor]) {
-        for floor in floors.iter().filter(|floor| floor.node != self.own) {
-            self.auth.restore_floor(floor.node, floor.floor_ms);
-            if !self.keeps_replay_state(&floor.node) {
-                self.auth.unpin(self.now_ms, &floor.node);
-            }
-        }
-    }
-
     /// Restores the settlement channels, with their messages on their way,
     /// and the bans.
     fn restore_channels(&mut self, channels: Vec<StoredChannel>, bans: Vec<NodeId>) {
@@ -203,7 +187,6 @@ impl PeerNode {
                     },
                 );
             }
-            self.auth.pin(channel.node);
             self.downlink_channels += usize::from(channel.channel.url.is_empty());
             self.channels.insert(channel.node, channel.channel);
         }
@@ -269,14 +252,6 @@ impl PeerNode {
                 peering,
             });
         }
-        let mut floors = Vec::new();
-        self.auth
-            .take_floors(&mut floors, &mut batch.floors_removed);
-        batch.floors.extend(
-            floors
-                .into_iter()
-                .map(|(node, floor_ms)| StoredFloor { node, floor_ms }),
-        );
         batch.removed.append(&mut self.removed);
         for node in core::mem::take(&mut self.channels_dirty) {
             if let Some(channel) = self.channels.get(&node) {
@@ -389,10 +364,8 @@ impl PeerNode {
         })
     }
 
-    /// Notes an authenticated message from a peer: it is alive,
-    /// and the newest timestamp accepted from it is persisted, even for a
-    /// read, so that no replay marks it as heard from again. A banned
-    /// node's messages confirm nothing.
+    /// Notes a message from a peer: it is alive. A banned node's messages
+    /// confirm nothing.
     pub(crate) fn saw(&mut self, node: &NodeId) {
         let now = self.now_ms;
         if self.bans.contains(node) {
@@ -403,7 +376,6 @@ impl PeerNode {
         {
             peering.last_seen_ms = now;
             self.dirty.insert(*node);
-            self.auth.keep_floor(node);
         }
     }
 
@@ -483,9 +455,6 @@ impl PeerNode {
             if let Some(entry) = self.table.get_mut(&id) {
                 entry.registration = None;
             }
-            if !self.keeps_replay_state(&id) {
-                self.auth.unpin(now, &id);
-            }
             self.drop_source(&id, Sources::REGISTERED);
             self.lists.served_changed = true;
         }
@@ -504,23 +473,6 @@ impl PeerNode {
         for id in gone {
             self.remove(&id);
         }
-    }
-
-    /// Whether `node`'s replay state is kept for good: it is a bootstrap
-    /// node, a peer, a node we hold a settlement channel with, one
-    /// registered with us, or one our registrar involves
-    /// (spec/areas/peer-protocol.md#replay-protection).
-    pub(super) fn keeps_replay_state(&self, node: &NodeId) -> bool {
-        self.bootstrap.iter().any(|bootstrap| bootstrap.id == *node)
-            || self.channels.contains_key(node)
-            || self
-                .table
-                .get(node)
-                .is_some_and(|entry| entry.peering().is_some() || entry.registration.is_some())
-            || self
-                .registrar
-                .as_ref()
-                .is_some_and(|registrar| registrar.involves(node))
     }
 
     /// When [`maintain`](Self::maintain) next has something to do.
@@ -589,7 +541,6 @@ impl PeerNode {
     ///
     /// If one does not hold.
     pub fn check_invariants(&self) {
-        self.auth.check_invariants();
         let downlinks = self.downlinks();
         assert!(
             self.table.len() - downlinks <= self.config.max_nodes
@@ -642,7 +593,6 @@ impl PeerNode {
         );
         self.check_periphery();
         self.check_channels();
-        self.check_pins();
         self.check_names();
         self.check_entries();
         assert!(
@@ -683,17 +633,6 @@ impl PeerNode {
             assert!(
                 *id == self.own || entry.peering().is_none() || entry.key.is_some(),
                 "a peer's key is known"
-            );
-        }
-    }
-
-    /// Every node registered with us keeps its replay state
-    /// (spec/areas/peer-protocol.md#replay-protection).
-    fn check_pins(&self) {
-        for (id, entry) in &self.table {
-            assert!(
-                entry.registration.is_none() || self.auth.is_pinned(id),
-                "a registered node keeps its replay state"
             );
         }
     }

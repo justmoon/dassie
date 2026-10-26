@@ -1,7 +1,6 @@
 //! The peer node's bounds and timers.
 //! All of them are configuration, so tests and simulations can shorten them.
 
-use crate::auth::AuthConfig;
 use crate::names::RegistrarConfig;
 use crate::names::registrar::{late_renewal_ms, least_release_ms, least_window_ms};
 use crate::node::{MAX_UPLINKS, own_link_state_fits};
@@ -38,8 +37,6 @@ pub struct Rate {
 /// The peer node's configuration.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Config {
-    /// Authentication's windows and bounds.
-    pub auth: AuthConfig,
     /// Most nodes in the table, ourselves included.
     pub max_nodes: usize,
     /// Most requests of ours in flight.
@@ -188,7 +185,6 @@ pub struct Config {
 impl Config {
     /// The production values.
     pub const DEFAULT: Self = Self {
-        auth: AuthConfig::DEFAULT,
         max_nodes: 1024,
         max_requests: 8192,
         max_deferred: 32,

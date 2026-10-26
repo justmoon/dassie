@@ -7,12 +7,11 @@ use std::sync::Arc;
 
 use dassie_identity::NodeKey;
 use dassie_kit::sim::SeededRng;
-use dassie_oer::{Decode, Encode};
-use dassie_peer::auth::{AuthConfig, AuthError, Authenticator};
-use dassie_peer::sim::{Network, START, key, url};
+use dassie_oer::Decode;
+use dassie_peer::sim::{Arriving, Network, START, key, url};
 use dassie_peer::wire::{
-    Authentication, Content, Entry, Envelope, Kind, NodeInfo, PeeringRequest, PeeringResponse,
-    ResponseEnvelope, SchemeId, SignedNodeInfo, encode_envelope, sign_node_info,
+    Content, Entry, NodeInfo, PeeringRequest, PeeringResponse, SchemeId, SignedNodeInfo,
+    sign_node_info,
 };
 use dassie_peer::{Config, OwnInfo, PeerNode, Stored};
 
@@ -25,50 +24,23 @@ fn stub() -> SchemeId {
     SchemeId::parse("stub").unwrap()
 }
 
-/// A sender outside the network, with its session.
-struct Sender(Authenticator);
+/// A sender outside the network, over a connection that proves its key.
+struct Sender(Arc<NodeKey>);
 
 impl Sender {
     fn new(key: &Arc<NodeKey>) -> Self {
-        Self(Authenticator::new(
-            Arc::clone(key),
-            AuthConfig::DEFAULT,
-            START - 1,
-        ))
+        Self(Arc::clone(key))
     }
 
-    /// Its request to node `to`, authenticated.
-    fn request(&mut self, network: &Network, to: usize, content: &Content<'_>) -> Vec<u8> {
-        request_with(&mut self.0, network, to, content)
+    /// Its request to node `to`.
+    fn request(&mut self, _: &Network, _: usize, content: &Content<'_>) -> Arriving {
+        Arriving::new(&self.0, content)
     }
 }
 
-/// `from`'s request to node `to`, authenticated, in a session of its own.
-fn request(network: &Network, from: &Arc<NodeKey>, to: usize, content: &Content<'_>) -> Vec<u8> {
-    let mut auth = Authenticator::new(Arc::clone(from), AuthConfig::DEFAULT, START - 1);
-    request_with(&mut auth, network, to, content)
-}
-
-fn request_with(
-    auth: &mut Authenticator,
-    network: &Network,
-    to: usize,
-    content: &Content<'_>,
-) -> Vec<u8> {
-    let from = auth.own().to_owned();
-    let bytes = content.to_vec();
-    let target = key(to);
-    let mut rng = SeededRng::new(network.clock(to));
-    let (hmac, _) = auth
-        .authenticate(
-            network.clock(to),
-            &mut rng,
-            &target.node_id(),
-            &target.public_key(),
-            &bytes,
-        )
-        .unwrap();
-    encode_envelope(&from, &Authentication::Hmac(hmac), &bytes)
+/// `from`'s request to node `to`.
+fn request(_: &Network, from: &Arc<NodeKey>, _: usize, content: &Content<'_>) -> Arriving {
+    Arriving::new(from, content)
 }
 
 fn state(key: &NodeKey, sequence: u64, url: &str) -> Vec<u8> {
@@ -132,11 +104,10 @@ fn responses_to_peers_are_retried_until_they_arrive() {
     assert_eq!(network.packets, [(1, own, 7)]);
 }
 
-// A node that just started refuses messages dated before its start
-// (spec/areas/peer-protocol.md#replay-protection). A Fulfill from a peer whose
-// clock is behind was refused with 401 and given up, though the peer had
-// booked it, so each restart drifted the two books apart (#234). Now a 401
-// keeps it, and the copy sent again is dated anew.
+// A Fulfill from a peer whose clock is behind, sent as a node starts again,
+// arrives: nothing is dated, so nothing is refused for its age
+// (spec/areas/peer-protocol.md#authentication). A Fulfill given up though
+// the peer had booked it would drift the two books apart.
 #[test]
 fn a_response_a_node_that_just_started_refused_is_sent_again() {
     let mut network = Network::new(12, 2, 1, Config::DEV);
@@ -236,7 +207,7 @@ fn one_probe_per_sender_at_a_time() {
     assert_eq!(network.inbound(0, &second).status, 429);
 }
 
-fn peering_request(network: &Network, from: &Arc<NodeKey>, to: usize, sequence: u64) -> Vec<u8> {
+fn peering_request(network: &Network, from: &Arc<NodeKey>, to: usize, sequence: u64) -> Arriving {
     let own = state(from, sequence, &url(1));
     let info = SignedNodeInfo::decode_exact(&own).unwrap();
     let content = Content::PeeringRequest(PeeringRequest {
@@ -258,8 +229,7 @@ fn a_repeated_peering_request_keeps_the_peering() {
     let body = peering_request(&network, &key(1), 0, network.clock(0));
     let reply = network.inbound(0, &body);
     assert_eq!(reply.status, 200);
-    let envelope = ResponseEnvelope::decode(&reply.body).unwrap();
-    let answer = PeeringResponse::decode_exact(envelope.body).unwrap();
+    let answer = PeeringResponse::decode_exact(&reply.body).unwrap();
     assert_eq!(answer, PeeringResponse::Accepted { data: &[] });
     let after = network.node(0).peering_of(&node1).unwrap();
     assert_eq!(
@@ -281,8 +251,7 @@ fn a_repeat_is_answered_on_a_scheme_no_longer_peered_on() {
     let body = peering_request(&network, &key(1), 0, network.clock(0));
     let reply = network.inbound(0, &body);
     assert_eq!(reply.status, 200);
-    let envelope = ResponseEnvelope::decode(&reply.body).unwrap();
-    let answer = PeeringResponse::decode_exact(envelope.body).unwrap();
+    let answer = PeeringResponse::decode_exact(&reply.body).unwrap();
     assert!(
         matches!(answer, PeeringResponse::Accepted { .. }),
         "{answer:?}"
@@ -323,10 +292,8 @@ fn the_majority_survives_a_restart() {
 fn a_message_from_ourselves_is_malformed() {
     let mut network = Network::new(19, 2, 1, Config::DEV);
     settle(&mut network, 10_000);
-    let content = Content::NodeListRequest.to_vec();
-    let bare = encode_envelope(&key(0).node_id(), &Authentication::None, &content);
-    assert!(Envelope::decode(&bare).is_ok());
-    assert_eq!(network.inbound(0, &bare).status, 400);
+    let own = Arriving::new(&key(0), &Content::NodeListRequest);
+    assert_eq!(network.inbound(0, &own).status, 400);
 }
 
 // A hostname long enough made our URL too long for a link state, and the
@@ -351,52 +318,4 @@ fn an_own_url_too_long_is_no_url() {
     node.handle_timeout(START, &mut dassie_peer::sim::StubHooks::default());
     assert_eq!(node.own_info().url, None);
     assert!(node.is_periphery());
-}
-
-// A thousand throwaway identities filled the replay table, and peers got
-// 503. Peers and bootstrap nodes keep their place now.
-#[test]
-fn strangers_cannot_crowd_out_peers() {
-    let b = Arc::new(NodeKey::from_bytes(&[3; 32]));
-    let config = AuthConfig {
-        max_senders: 1,
-        ..AuthConfig::DEFAULT
-    };
-    let mut at_b = Authenticator::new(Arc::clone(&b), config, START - 1);
-    let (peer, stranger) = (
-        Arc::new(NodeKey::from_bytes(&[1; 32])),
-        Arc::new(NodeKey::from_bytes(&[7; 32])),
-    );
-    at_b.pin(peer.node_id());
-    let send = |from: &Arc<NodeKey>, at: u64| {
-        let mut auth = Authenticator::new(Arc::clone(from), AuthConfig::DEFAULT, START - 1);
-        let content = Content::SettlementRequest { scheme: stub() }.to_vec();
-        let (hmac, _) = auth
-            .authenticate(
-                at,
-                &mut SeededRng::new(at),
-                &b.node_id(),
-                &b.public_key(),
-                &content,
-            )
-            .unwrap();
-        encode_envelope(&from.node_id(), &Authentication::Hmac(hmac), &content)
-    };
-    let accept = |at_b: &mut Authenticator, body: &[u8]| {
-        at_b.accept(
-            START,
-            &Envelope::decode(body).unwrap(),
-            Kind::SettlementRequest,
-            None,
-        )
-        .map(|_| ())
-    };
-    assert_eq!(accept(&mut at_b, &send(&stranger, START)), Ok(()));
-    let other = Arc::new(NodeKey::from_bytes(&[8; 32]));
-    assert_eq!(
-        accept(&mut at_b, &send(&other, START)),
-        Err(AuthError::Busy)
-    );
-    assert_eq!(accept(&mut at_b, &send(&peer, START)), Ok(()));
-    at_b.check_invariants();
 }

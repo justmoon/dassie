@@ -218,7 +218,7 @@ pub struct Peering {
     pub since_ms: u64,
     /// Whether the peer asked.
     pub inbound: bool,
-    /// The last authenticated message from it.
+    /// The last message from it.
     pub last_seen_ms: u64,
     /// How long the room our books give the peer has been short of a
     /// packet, settling nothing (spec/decisions/peering-lifecycle.md):
@@ -403,8 +403,8 @@ pub struct Registration {
     pub network: Option<Network>,
 }
 
-/// A /24 of IPv4 or a /48 of IPv6, from which registrations and the replay
-/// state of strangers are capped.
+/// A /24 of IPv4 or a /48 of IPv6, from which registrations, probes and
+/// commitments to names are capped.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Network(pub [u8; 7]);
 

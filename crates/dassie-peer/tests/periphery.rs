@@ -13,14 +13,11 @@
 use std::sync::Arc;
 
 use dassie_identity::{NodeId, NodeKey};
-use dassie_kit::sim::SeededRng;
-use dassie_oer::{Decode, Encode};
-use dassie_peer::auth::{AuthConfig, Authenticator};
-use dassie_peer::sim::{Network, START, key};
+use dassie_oer::Decode;
+use dassie_peer::sim::{Arriving, Network, START, key};
 use dassie_peer::wire::{
-    Authentication, Content, EXTENSION_PERIPHERY, Entry, InvalidNodeInfo, LinkStateResponse,
-    NodeInfo, PeeringRequest, PeeringResponse, RefusalReason, ResponseEnvelope, SchemeId,
-    SignedNodeInfo, encode_envelope, sign_node_info,
+    Content, EXTENSION_PERIPHERY, Entry, InvalidNodeInfo, LinkStateResponse, NodeInfo,
+    PeeringRequest, PeeringResponse, RefusalReason, SchemeId, SignedNodeInfo, sign_node_info,
 };
 use dassie_peer::{Config, Event, Sources};
 
@@ -33,22 +30,10 @@ fn stub() -> SchemeId {
     SchemeId::parse("stub").unwrap()
 }
 
-/// A request from `from` to node `to` of `network`, at `to`'s clock: one
-/// session for each instant, so a node may ask again later.
-fn request(network: &Network, from: &Arc<NodeKey>, to: usize, content: &Content<'_>) -> Vec<u8> {
-    let mut auth = Authenticator::new(Arc::clone(from), AuthConfig::DEFAULT, START - 1);
-    let bytes = content.to_vec();
-    let target = key(to);
-    let (hmac, _) = auth
-        .authenticate(
-            network.clock(to),
-            &mut SeededRng::new(network.clock(to)),
-            &target.node_id(),
-            &target.public_key(),
-            &bytes,
-        )
-        .unwrap();
-    encode_envelope(&from.node_id(), &Authentication::Hmac(hmac), &bytes)
+/// A request from `from` to node `to` of `network`, over a connection that
+/// proves `from`'s key.
+fn request(_: &Network, from: &Arc<NodeKey>, _: usize, content: &Content<'_>) -> Arriving {
+    Arriving::new(from, content)
 }
 
 /// A link state of `key` at `url`, with `extensions`.
@@ -83,8 +68,7 @@ fn ask(network: &mut Network, from: &Arc<NodeKey>, to: usize, state: &[u8]) -> d
 }
 
 fn answer(reply: &dassie_peer::Reply) -> PeeringResponse<'_> {
-    let envelope = ResponseEnvelope::decode(&reply.body).unwrap();
-    PeeringResponse::decode_exact(envelope.body).unwrap()
+    PeeringResponse::decode_exact(&reply.body).unwrap()
 }
 
 fn id(index: usize) -> NodeId {
@@ -439,8 +423,7 @@ fn a_periphery_node_reaches_more_uplinks_than_a_link_state_lists() {
     let content = Content::LinkStateRequest(vec![id(core)]);
     let body = request(&network, &asker, core, &content);
     let reply = network.inbound(core, &body);
-    let envelope = ResponseEnvelope::decode(&reply.body).unwrap();
-    let states = LinkStateResponse::decode_exact(envelope.body).unwrap();
+    let states = LinkStateResponse::decode_exact(&reply.body).unwrap();
     let signed = states.0[0].clone().expect("its own link state");
     let node = network.node(core);
     assert!(
@@ -547,8 +530,7 @@ fn a_downlinks_link_state_goes_nowhere() {
     let content = Content::LinkStateRequest(vec![downlink]);
     let body = request(&network, &asker, uplink, &content);
     let reply = network.inbound(uplink, &body);
-    let envelope = ResponseEnvelope::decode(&reply.body).unwrap();
-    let states = LinkStateResponse::decode_exact(envelope.body).unwrap();
+    let states = LinkStateResponse::decode_exact(&reply.body).unwrap();
     assert!(states.0.iter().all(Option::is_none), "not served");
     // No core node but its uplinks ever held it.
     for index in 0..core {

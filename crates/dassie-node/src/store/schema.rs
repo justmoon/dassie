@@ -70,6 +70,7 @@ const MIGRATIONS: &[&str] = &[
     MIGRATION_46,
     MIGRATION_47,
     MIGRATION_48,
+    MIGRATION_49,
 ];
 
 /// The schema version this code writes: the number of migrations.
@@ -836,9 +837,8 @@ UPDATE peers SET short_reached_ms = short_for_ms;
 /// Replay floors move out of the peerings: every sender whose replay state
 /// is kept for good has one, since a request from a node registered with
 /// us, or from one we hold a channel with, has effects too, and a restart
-/// must not take it again (spec/areas/peer-protocol.md#replay-protection).
-/// Not tied to `peer_nodes`: a node we hold a channel with may leave the
-/// table.
+/// must not take it again. Not tied to `peer_nodes`: a node we hold a
+/// channel with may leave the table. Migration 49 drops them.
 const MIGRATION_25: &str = "
 CREATE TABLE replay_floors (
   node TEXT PRIMARY KEY CHECK (length(node) BETWEEN 2 AND 45),
@@ -1676,6 +1676,13 @@ const MIGRATION_48: &str = "
 ALTER TABLE peers DROP COLUMN version;
 ";
 
+/// A request is the request of the node whose key its QUIC connection
+/// proved, so nothing is kept against replays
+/// (spec/areas/peer-protocol.md#authentication).
+const MIGRATION_49: &str = "
+DROP TABLE replay_floors;
+";
+
 /// Columns that hold secrets: the database inspector never reads them.
 pub const SECRET_COLUMNS: &[(&str, &str)] = &[
     ("node_key", "private_key"),
@@ -1936,14 +1943,6 @@ pub const TABLES: &[Table] = &[
         name: "peer_bans",
         without_rowid: true,
         columns: &[("node", "TEXT", true, true)],
-    },
-    Table {
-        name: "replay_floors",
-        without_rowid: true,
-        columns: &[
-            ("node", "TEXT", true, true),
-            ("floor_ms", "INTEGER", true, false),
-        ],
     },
     Table {
         name: "name_log",

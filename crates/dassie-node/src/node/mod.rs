@@ -461,6 +461,12 @@ impl std::fmt::Debug for Node {
 
 /// Locks a mutex, carrying on past a panic of another holder: none of the
 /// node's mutexes guard an update that a panic could leave half done.
+/// The rate limiter's key for the node of `key`: the first half of its
+/// public key, which two nodes share only by chance.
+fn key_client(key: &dassie_identity::PublicKey) -> ClientKey {
+    ClientKey::from_bytes(key.as_bytes().first_chunk().copied().unwrap_or_default())
+}
+
 pub(crate) fn lock<T: ?Sized>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(PoisonError::into_inner)
 }
@@ -672,20 +678,22 @@ impl Node {
         })
     }
 
-    /// Whether `client` may send another unauthenticated or failing peer
-    /// request now.
+    /// Whether the node of `key` may send another failing peer request
+    /// now.
     #[must_use]
-    pub fn peer_limited(&self, client: IpAddr) -> bool {
+    pub fn peer_limited(&self, key: &dassie_identity::PublicKey) -> bool {
         let now = self.now_ms();
-        lock(&self.peer.limiter)
-            .peek(ClientKey::from_ip(client), now)
-            .is_err()
+        lock(&self.peer.limiter).peek(key_client(key), now).is_err()
     }
 
-    /// Charges `client` for an unauthenticated or failed peer request.
-    pub fn peer_charge(&self, client: IpAddr) {
+    /// Charges the node of `key` for a failed peer request: by the key its
+    /// connection proved, not its address, so one node's failures never
+    /// cost another behind the same address. A node that makes new keys
+    /// to escape it needs a connection for each, which takes a place by its
+    /// address (spec/areas/peer-protocol.md#transport).
+    pub fn peer_charge(&self, key: &dassie_identity::PublicKey) {
         let now = self.now_ms();
-        let _ = lock(&self.peer.limiter).check(ClientKey::from_ip(client), now);
+        let _ = lock(&self.peer.limiter).check(key_client(key), now);
     }
 
     /// The nodes peered with us, by kind, as they change

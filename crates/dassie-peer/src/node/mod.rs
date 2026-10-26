@@ -22,7 +22,6 @@ use dassie_identity::{NodeId, NodeKey, PublicKey};
 use dassie_oer::Encode;
 use rand_core::CryptoRng;
 
-use crate::auth::{Authenticator, Pending};
 use crate::channel::{Channel, Closed, Retry};
 use crate::config::Config;
 use crate::io::{Event, Failure, Output, Request, RequestId, Response, Stats};
@@ -30,8 +29,8 @@ use crate::names::{Commitment, Holders, Name, Registrant, Registrar};
 use crate::routing::{RouteKey, Routes};
 use crate::table::{Bucket, Entry, NetworkBuckets, Sources};
 use crate::wire::{
-    Authentication, Content, HubList, HubListing, HubMembership, MAX_CLAIM_BYTES,
-    MAX_COMMITMENT_BYTES, ResponseEnvelope, SchemeId, encode_envelope,
+    Content, HubList, HubListing, HubMembership, MAX_CLAIM_BYTES, MAX_COMMITMENT_BYTES, SchemeId,
+    encode_envelope,
 };
 
 pub use lifecycle::BanError;
@@ -138,7 +137,7 @@ pub(crate) enum Problem {
     Status(u16),
     /// No response.
     Failed(Failure),
-    /// A response that is malformed or not authentic.
+    /// A response that is malformed.
     Invalid,
 }
 
@@ -146,7 +145,7 @@ impl Problem {
     /// Whether the request surely had no effect at the other end.
     pub(crate) const fn is_definite(self) -> bool {
         match self {
-            Self::Status(status) => matches!(status, 400 | 401 | 409 | 503),
+            Self::Status(status) => matches!(status, 400 | 409 | 503),
             Self::Failed(failure) => matches!(failure, Failure::NotDelivered),
             Self::Invalid => false,
         }
@@ -217,14 +216,14 @@ const ANSWER_RETRY_MS: u64 = 1_000;
 pub(crate) struct Outstanding {
     pub to: NodeId,
     pub purpose: Purpose,
-    pub pending: Pending,
     pub deadline_ms: u64,
 }
 
 /// The peer protocol's state machine.
 pub struct PeerNode {
     pub(crate) config: Config,
-    pub(crate) auth: Authenticator,
+    /// Our node key, which signs our link state.
+    pub(crate) key: Arc<NodeKey>,
     pub(crate) own: NodeId,
     pub(crate) own_info: OwnInfo,
     /// The hubs our link state lists, each with its scheme, at most
@@ -331,7 +330,7 @@ impl PeerNode {
         config.validate();
         let own = key.node_id();
         let mut node = Self {
-            auth: Authenticator::new(Arc::clone(&key), config.auth, now_ms),
+            key,
             own,
             own_info: own_info.checked(),
             own_hubs: Vec::new(),
@@ -387,30 +386,7 @@ impl PeerNode {
             config,
         };
         node.restore(stored);
-        node.pin_restored();
         node
-    }
-
-    /// Pins what was restored: bootstrap nodes, nodes registered with us,
-    /// and those our registrar involves keep their replay state
-    /// (spec/areas/peer-protocol.md#replay-protection).
-    fn pin_restored(&mut self) {
-        let registered = self
-            .table
-            .iter()
-            .filter(|(_, entry)| entry.registration.is_some())
-            .map(|(id, _)| *id);
-        let parties = self.registrar.iter().flat_map(Registrar::parties);
-        let pinned: Vec<NodeId> = self
-            .bootstrap
-            .iter()
-            .map(|b| b.id)
-            .chain(registered)
-            .chain(parties)
-            .collect();
-        for id in pinned {
-            self.auth.pin(id);
-        }
     }
 
     /// Our node ID.
@@ -593,8 +569,8 @@ impl PeerNode {
             .map(|bootstrap| (bootstrap.key, bootstrap.url.clone()))
     }
 
-    /// Sends `content` to `to`, authenticated. Returns `None` when it
-    /// cannot: no contact, ourselves, or too much in flight.
+    /// Sends `content` to `to`. Returns `None` when it cannot: no contact,
+    /// ourselves, or too much in flight.
     pub(crate) fn send(
         &mut self,
         to: NodeId,
@@ -602,15 +578,16 @@ impl PeerNode {
         purpose: Purpose,
         timeout_ms: u64,
     ) -> Option<RequestId> {
-        let (key, url) = self.contact(&to)?;
-        self.send_via(to, key, url, content, purpose, timeout_ms)
+        let (_, url) = self.contact(&to)?;
+        self.send_via(to, url, content, purpose, timeout_ms)
     }
 
-    /// Sends `content` to `to` at `url`, authenticated for `key`.
+    /// Sends `content` to `to` at `url`. The transport pins the connection
+    /// to `to`'s key, so only `to` answers, and proves ours to it
+    /// (spec/areas/peer-protocol.md#authentication).
     pub(crate) fn send_via(
         &mut self,
         to: NodeId,
-        key: PublicKey,
         url: String,
         content: &Content<'_>,
         purpose: Purpose,
@@ -623,12 +600,7 @@ impl PeerNode {
             self.stats.requests_dropped += 1;
             return None;
         }
-        let bytes = content.to_vec();
-        let (hmac, pending) = self
-            .auth
-            .authenticate(self.now_ms, self.rng.as_mut(), &to, &key, &bytes)
-            .ok()?;
-        let body = encode_envelope(&self.own, &Authentication::Hmac(hmac), &bytes);
+        let body = encode_envelope(&content.to_vec());
         let id = RequestId(self.next_request);
         self.next_request += 1;
         let deadline_ms = self.now_ms.saturating_add(timeout_ms);
@@ -637,7 +609,6 @@ impl PeerNode {
             Outstanding {
                 to,
                 purpose,
-                pending,
                 deadline_ms,
             },
         );
@@ -669,19 +640,12 @@ impl PeerNode {
             return;
         };
         self.deadlines.remove(&(outstanding.deadline_ms, id));
-        let body = match result {
+        // The connection proved who answered: the node it went to.
+        let checked = match result {
             Ok(response) if response.status == 200 => Ok(response.body),
             Ok(response) => Err(Problem::Status(response.status)),
             Err(failure) => Err(Problem::Failed(failure)),
         };
-        let checked = body.and_then(|body| {
-            let envelope = ResponseEnvelope::decode(&body).map_err(|_| Problem::Invalid)?;
-            outstanding
-                .pending
-                .check(&envelope)
-                .map_err(|_| Problem::Invalid)?;
-            Ok(envelope.body.to_vec())
-        });
         self.note_reach(outstanding.to, &outstanding.purpose, &checked);
         if checked.is_err() {
             self.stats.requests_failed += 1;
@@ -695,8 +659,8 @@ impl PeerNode {
     }
 
     /// Whether our messages reach `node`, from what became of one of our
-    /// requests to it (spec/decisions/unreachable-peers.md). An authenticated
-    /// answer says they do. Only an ILP packet that surely did not arrive
+    /// requests to it (spec/decisions/unreachable-peers.md). An answer says
+    /// they do. Only an ILP packet that surely did not arrive
     /// says they do not: the protocol's other requests may be refused here,
     /// by the bounds on requests in flight, which says nothing of the peer,
     /// while packets take no place in those bounds. A request that may have
@@ -773,8 +737,8 @@ impl PeerNode {
                     // failed delivery does not use up the grace before a peer
                     // short of room is withdrawn
                     // (spec/areas/network.md#advertised-peers). A refusal or an
-                    // overloaded peer (400, 401, 503) is asked again only after
-                    // the interval.
+                    // overloaded peer (400, 503) is asked again only after the
+                    // interval.
                     Err(Problem::Failed(Failure::NotDelivered)) => {
                         self.event(Event::SettlementRequestNotDelivered { peer: to });
                     }
@@ -817,12 +781,8 @@ impl PeerNode {
             Err(problem) => {
                 // A refusal after reading it will not change; anything
                 // else is tried again, and a copy that arrives twice is
-                // dropped by the peer's connector. A 401 is tried again
-                // too: a node that just started refuses messages dated
-                // before its start, and the copy sent again is dated anew.
-                // Each refusal is charged at the peer's rate limit, which
-                // costs a short spell of 429s at worst, not a Fulfill lost
-                // though booked (spec/areas/peer-protocol.md#message-set).
+                // dropped by the peer's connector
+                // (spec/areas/peer-protocol.md#message-set).
                 if matches!(problem, Problem::Status(400 | 409)) {
                     self.stats.answers_dropped += 1;
                 } else {
@@ -1110,8 +1070,7 @@ impl PeerNode {
     /// one, refused, ended or dropped, comes here. A downlink took no core
     /// place, so the entry stays only if it gets one now: within the
     /// bound, or, kept for another reason, in place of a weaker entry.
-    /// Otherwise it goes at once, its replay state kept while a channel
-    /// needs it (spec/areas/network.md#downlinks).
+    /// Otherwise it goes at once (spec/areas/network.md#downlinks).
     pub(crate) fn drop_downlink(&mut self, node: &NodeId) {
         if !self.is_downlink(node) {
             return;
@@ -1171,11 +1130,6 @@ impl PeerNode {
         // still has a majority.
         self.lists.majority.remove(node);
         if self.table.remove(node).is_some() {
-            // A registered node evicted for a stronger reason keeps no
-            // replay state for good.
-            if !self.keeps_replay_state(node) {
-                self.auth.unpin(self.now_ms, node);
-            }
             self.dirty.remove(node);
             self.removed.push(*node);
             self.gossip.routes_dirty = true;

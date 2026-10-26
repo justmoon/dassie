@@ -14,11 +14,10 @@ use std::sync::Arc;
 use dassie_identity::NodeKey;
 use dassie_kit::sim::SeededRng;
 use dassie_oer::{Decode, Encode};
-use dassie_peer::auth::{AuthConfig, Authenticator};
-use dassie_peer::sim::{Network, START, key, url};
+use dassie_peer::sim::{Arriving, Network, START, forger, key, url};
 use dassie_peer::wire::{
-    Authentication, Content, Entry, NodeInfo, PeeringRequest, PeeringResponse, RefusalReason,
-    ResponseEnvelope, SchemeId, SignedNodeInfo, TerminationReason, encode_envelope, sign_node_info,
+    Content, Entry, NodeInfo, PeeringRequest, PeeringResponse, RefusalReason, SchemeId,
+    SignedNodeInfo, TerminationReason, sign_node_info,
 };
 use dassie_peer::{Config, Event, OwnInfo, PeerNode, PeerStatus, RegisterError, Sources, Stored};
 
@@ -27,38 +26,9 @@ fn settle(network: &mut Network, ms: u64) {
     network.run_until(until);
 }
 
-/// A request from `from` (by key) to node `to` of `network`.
-fn request(network: &Network, from: &Arc<NodeKey>, to: usize, content: &Content<'_>) -> Vec<u8> {
-    request_at(network.clock(to), from, to, content)
-}
-
-/// The same, stamped `timestamp_ms` by the sender's clock.
-fn request_at(timestamp_ms: u64, from: &Arc<NodeKey>, to: usize, content: &Content<'_>) -> Vec<u8> {
-    let mut auth = Authenticator::new(Arc::clone(from), AuthConfig::DEFAULT, START - 1);
-    request_by(&mut auth, timestamp_ms, to, content)
-}
-
-/// The same, in the session of `auth`, so that a sender's requests follow
-/// one another as a real sender's do.
-fn request_by(
-    auth: &mut Authenticator,
-    timestamp_ms: u64,
-    to: usize,
-    content: &Content<'_>,
-) -> Vec<u8> {
-    let from = auth.node_key().node_id();
-    let bytes = content.to_vec();
-    let target = key(to);
-    let (hmac, _) = auth
-        .authenticate(
-            timestamp_ms,
-            &mut SeededRng::new(9),
-            &target.node_id(),
-            &target.public_key(),
-            &bytes,
-        )
-        .unwrap();
-    encode_envelope(&from, &Authentication::Hmac(hmac), &bytes)
+/// A request from the node of `from`, whose key its connection proved.
+fn request(from: &NodeKey, content: &Content<'_>) -> Arriving {
+    Arriving::new(from, content)
 }
 
 fn link_state(key: &NodeKey, sequence: u64, url: &str) -> Vec<u8> {
@@ -134,8 +104,9 @@ fn a_newcomer_learns_the_only_bootstrap_nodes_link_state() {
     assert!(bootstrap.peering_of(newcomer.own()).is_some());
 }
 
-// A peering request whose link state is not the sender's is refused; one
-// with a forged sender does not authenticate.
+// A peering request whose link state is not the sender's is refused.
+// Mallory's connection proves Mallory's key, so the request is Mallory's,
+// whose link state it carries.
 #[test]
 fn peering_requests_carry_the_senders_own_link_state() {
     let mut network = Network::new(2, 2, 1, Config::DEV);
@@ -148,23 +119,11 @@ fn peering_requests_carry_the_senders_own_link_state() {
         node_info: SignedNodeInfo::decode_exact(&state).unwrap(),
         data: &[],
     });
-    let body = request(&network, &mallory, 0, &content);
+    let body = request(&mallory, &content);
     assert_eq!(network.inbound(0, &body).status, 400);
-    // Mallory cannot send it as the victim either: the MAC needs its key.
-    let envelope = dassie_peer::wire::Envelope::decode(&body).unwrap();
-    let Authentication::Hmac(mut hmac) = envelope.authentication else {
-        unreachable!()
-    };
-    hmac.sender_key = *victim.public_key().as_bytes();
-    let forged = encode_envelope(
-        &victim.node_id(),
-        &Authentication::Hmac(hmac),
-        envelope.content,
-    );
-    assert_eq!(network.inbound(0, &forged).status, 401);
 }
 
-// A packet goes only between peers, authenticated.
+// A packet goes only between peers.
 #[test]
 fn packets_need_a_peering() {
     let mut network = Network::new(3, 2, 1, Config::DEV);
@@ -174,10 +133,8 @@ fn packets_need_a_peering() {
         request_id: 1,
         packet: &[1, 2, 3],
     };
-    let body = request(&network, &stranger, 0, &packet);
+    let body = request(&stranger, &packet);
     assert_eq!(network.inbound(0, &body).status, 409);
-    let bare = encode_envelope(&stranger.node_id(), &Authentication::None, &packet.to_vec());
-    assert_eq!(network.inbound(0, &bare).status, 401);
     let peer = *network.node(1).own();
     let now = network.clock(0);
     network
@@ -194,8 +151,7 @@ fn packets_need_a_peering() {
 
 // Only a registrar, a node that is one of its own bootstrap nodes, takes
 // name messages (spec/areas/network.md#names): any other refuses each with
-// 409, which says it was not acted upon, as it refuses registrations; one
-// that must be authenticated and is not gets 401 first.
+// 409, which says it was not acted upon, as it refuses registrations.
 #[test]
 fn only_a_registrar_takes_name_messages() {
     use dassie_peer::names::{Commitment, Name, Salt};
@@ -214,21 +170,9 @@ fn only_a_registrar_takes_name_messages() {
         Content::NameListHashRequest,
         Content::NameListRequest,
     ];
-    let mut auth = Authenticator::new(Arc::clone(&stranger), AuthConfig::DEFAULT, START - 1);
     for content in &contents {
-        let body = request_by(&mut auth, network.clock(1), 1, content);
+        let body = request(&stranger, content);
         assert_eq!(network.inbound(1, &body).status, 409, "{content:?}");
-        let bare = encode_envelope(
-            &stranger.node_id(),
-            &Authentication::None,
-            &content.to_vec(),
-        );
-        let status = if content.kind().requires_authentication() {
-            401
-        } else {
-            409
-        };
-        assert_eq!(network.inbound(1, &bare).status, status, "{content:?}");
     }
 }
 
@@ -337,7 +281,7 @@ fn link_states_from_the_future_are_refused() {
     let subject = key(1);
     let future = link_state(&subject, network.clock(0) + 3_600_000, &url(1));
     let content = Content::LinkStateUpdate(SignedNodeInfo::decode_exact(&future).unwrap());
-    let body = request(&network, &subject, 0, &content);
+    let body = request(&subject, &content);
     assert_eq!(network.inbound(0, &body).status, 200);
     let held = network
         .node(0)
@@ -348,8 +292,7 @@ fn link_states_from_the_future_are_refused() {
     assert!(held.sequence.unwrap() < network.clock(0) + 600_000);
 }
 
-// A peering request from a node not in the table is refused as unknown,
-// and the answer is authenticated.
+// A peering request from a node not in the table is refused as unknown.
 #[test]
 fn unknown_nodes_cannot_peer() {
     let mut network = Network::new(7, 2, 1, Config::DEV);
@@ -361,13 +304,11 @@ fn unknown_nodes_cannot_peer() {
         node_info: SignedNodeInfo::decode_exact(&state).unwrap(),
         data: &[],
     });
-    let body = request(&network, &stranger, 0, &content);
+    let body = request(&stranger, &content);
     let reply = network.inbound(0, &body);
     assert_eq!(reply.status, 200);
-    let envelope = ResponseEnvelope::decode(&reply.body).unwrap();
-    assert!(envelope.mac.is_some());
     assert_eq!(
-        PeeringResponse::decode_exact(envelope.body).unwrap(),
+        PeeringResponse::decode_exact(&reply.body).unwrap(),
         PeeringResponse::Refused(RefusalReason::UnknownNode)
     );
 }
@@ -436,264 +377,60 @@ fn the_owner_registers_now() {
     );
 }
 
-/// An identity of a sender's own making.
-fn made_up(index: usize) -> Arc<NodeKey> {
-    let mut seed = [0xa5_u8; 32];
-    seed[..8].copy_from_slice(&(index as u64).to_be_bytes());
-    Arc::new(NodeKey::from_bytes(&seed))
-}
-
 /// A registration of `from` at `url` with bootstrap node 0.
-fn registration(network: &Network, from: &Arc<NodeKey>, url: &str) -> Vec<u8> {
+fn registration(network: &Network, from: &NodeKey, url: &str) -> Arriving {
     let state = link_state(from, network.clock(0), url);
     let info = SignedNodeInfo::decode_exact(&state).unwrap();
-    request(network, from, 0, &Content::Registration(info))
+    request(from, &Content::Registration(info))
 }
 
-/// A request that changes state, from a node that is not a peer: refused
-/// with 409, after its replay state is recorded.
-fn settlement_request(network: &Network, from: &Arc<NodeKey>) -> Vec<u8> {
-    settlement_request_at(network.clock(0), from)
-}
-
-/// The same, stamped `timestamp_ms` by the sender's clock.
-fn settlement_request_at(timestamp_ms: u64, from: &Arc<NodeKey>) -> Vec<u8> {
-    let content = Content::SettlementRequest {
-        scheme: SchemeId::parse("stub").unwrap(),
-    };
-    request_at(timestamp_ms, from, 0, &content)
-}
-
-// Anyone may make identities, and requests that only read are answered 200,
-// which the HTTP layer never charges. Each such request held a place in the
-// replay pool for strangers for two minutes, so one address could fill it
-// at a few requests a second, and every newcomer then got 503. A request
-// that only reads now leaves no replay state.
+// spec/areas/peer-protocol.md#authentication: a request is the request of
+// the node whose key its connection proved, and of no other. A node's own
+// key is refused; another node's link state in a registration is refused;
+// and a copy of a peer's requests, sent by someone who saw them, is the
+// copier's, which holds nothing with the node: its packets, settlements and
+// requests to settle are refused as a stranger's, and its registration as
+// not its own.
 #[test]
-fn new_identities_reading_leave_room_for_newcomers() {
-    let mut network = Network::new(4, 2, 1, Config::DEV);
+fn a_request_is_the_proved_senders_alone() {
+    let mut network = Network::new(9, 2, 1, Config::DEV);
     settle(&mut network, 30_000);
-    let pool = AuthConfig::DEFAULT.max_senders;
-    for index in 0..pool + 8 {
-        let body = request(
-            &network,
-            &made_up(index),
-            0,
-            &Content::LinkStateRequest(vec![]),
-        );
-        assert_eq!(network.inbound(0, &body).status, 200, "request {index}");
-    }
-    let newcomer = Arc::new(NodeKey::from_bytes(&[201; 32]));
-    let body = registration(&network, &newcomer, "https://newcomer.example");
-    assert_eq!(
-        network.inbound(0, &body).status,
-        0,
-        "the registration waits on a probe of its URL"
-    );
-}
-
-// A registered node renews every few hours, so between renewals its replay
-// state went idle, and strangers could take its place: its renewal got 503.
-// A node registered with us keeps its replay state for good now.
-#[test]
-fn a_registered_node_renews_while_strangers_fill_the_pool() {
-    let config = Config {
-        auth: AuthConfig {
-            max_senders: 8,
-            ..AuthConfig::DEFAULT
+    let (own, peer) = (key(0), key(1));
+    assert!(network.node(0).peering_of(&peer.node_id()).is_some());
+    let read = request(&own, &Content::NodeListHashRequest);
+    assert_eq!(network.inbound(0, &read).status, 400, "our own key");
+    let renewal = registration(&network, &peer, &url(1));
+    let copier = forger();
+    let stub = SchemeId::parse("stub").unwrap();
+    let copies = [
+        Content::InterledgerPacket {
+            request_id: 3,
+            packet: &[12, 1, 0],
         },
-        ..Config::DEFAULT
-    };
-    let count = 6;
-    let mut network = Network::new(5, count, 1, config);
-    settle(&mut network, 600_000);
-    // A node registered with the bootstrap node, and neither its peer nor
-    // a node it holds a channel with, which keep their state anyway.
-    let registered = registered_stranger(&network, count);
-    let mut busy = false;
-    for index in 0..2 * config.auth.max_senders {
-        match network
-            .inbound(0, &settlement_request(&network, &made_up(index)))
-            .status
-        {
-            409 => {}
-            503 => {
-                busy = true;
-                break;
-            }
-            other => panic!("unexpected status {other}"),
-        }
+        Content::InterledgerPacket {
+            request_id: 3,
+            packet: &[13, 1, 0],
+        },
+        Content::Settlement {
+            scheme: stub,
+            amount: 10,
+            data: &[],
+            sequence: 1,
+        },
+        Content::SettlementRequest { scheme: stub },
+        Content::PeeringTermination(TerminationReason::Owner),
+    ];
+    for content in &copies {
+        let copy = request(&copier, content);
+        assert_eq!(network.inbound(0, &copy).status, 409, "{content:?}");
     }
-    assert!(busy, "strangers hold every place");
-    let body = registration(&network, &key(registered), &url(registered));
-    assert_eq!(network.inbound(0, &body).status, 200, "renewed");
-    network.node(0).check_invariants();
-}
-
-/// A node registered with bootstrap node 0 that is neither its peer nor a
-/// node it holds a channel with, whose replay state was kept apart from
-/// theirs.
-fn registered_stranger(network: &Network, count: usize) -> usize {
-    let views = network.node(0).nodes();
-    (1..count)
-        .find(|index| {
-            let id = key(*index).node_id();
-            views
-                .iter()
-                .any(|view| view.id == id && view.registered_until_ms.is_some())
-                && network.node(0).peering_of(&id).is_none()
-                && !network.holds_channel(&key(0).node_id(), *index)
-        })
-        .expect("a registered node that is not a peer")
-}
-
-// Only a peer's replay floor was persisted. After a restart, every other
-// sender's floor was the start time, so a registration renewed just before
-// it, by a node whose clock runs ahead, was taken again when replayed: the
-// timestamp was within the window and above the start. The floor of every
-// sender whose replay state is kept for good is persisted now.
-#[test]
-fn a_restart_does_not_reopen_a_registered_nodes_replays() {
-    let count = 6;
-    let mut network = Network::new(5, count, 1, Config::DEFAULT);
-    settle(&mut network, 600_000);
-    let registered = registered_stranger(&network, count);
-    // Its clock runs ahead of node 0's by less than the window.
-    let ahead = network.clock(0) + AuthConfig::DEFAULT.skew_ms / 2;
-    let state = link_state(&key(registered), network.clock(0), &url(registered));
-    let info = SignedNodeInfo::decode_exact(&state).unwrap();
-    let renewal = request_at(ahead, &key(registered), 0, &Content::Registration(info));
-    assert_eq!(network.inbound(0, &renewal).status, 200, "renewed");
-    network.crash(0);
-    network.start(0);
-    let replayed = network.inbound(0, &renewal);
-    assert_eq!(replayed.status, 401, "refused as a replay");
-    network.node(0).check_invariants();
-}
-
-// A peering that ended kept no replay floor, so after a restart a request
-// its former peer sent shortly before, stamped ahead of our clock, was
-// taken again: the timestamp was within the window and above the start. A
-// node we hold a settlement channel with keeps its floor, peered or not.
-#[test]
-fn a_restart_does_not_reopen_a_former_peers_replays() {
-    let count = 6;
-    let mut network = Network::new(7, count, 1, Config::DEV);
-    settle(&mut network, 60_000);
-    // Two peers neither of which is the other's bootstrap node, nor
-    // registered with it, so that only the peering and then its channel
-    // keep the sender's replay state.
-    let (at, from) = (1..count)
-        .flat_map(|at| (1..count).map(move |from| (at, from)))
-        .find(|(at, from)| {
-            at != from
-                && network
-                    .node(*at)
-                    .peering_of(&key(*from).node_id())
-                    .is_some()
-        })
-        .expect("two peers apart from the bootstrap node");
-    let former = key(from).node_id();
-    let mut sender = Authenticator::new(key(from), AuthConfig::DEFAULT, START - 1);
-    let content = Content::SettlementRequest {
-        scheme: SchemeId::parse("stub").unwrap(),
+    let copy = Arriving {
+        from: copier.public_key(),
+        body: renewal.body.clone(),
     };
-    // Its clock runs ahead of ours by less than the window.
-    let ahead = AuthConfig::DEFAULT.skew_ms / 2;
-    let while_peered = request_by(&mut sender, network.clock(at) + ahead, at, &content);
-    assert_ne!(network.inbound(at, &while_peered).status, 401, "taken");
-    network.act(at, |node, now| {
-        assert!(node.terminate(now, &former, TerminationReason::Owner));
-    });
-    settle(&mut network, 10_000);
-    assert!(network.node(at).peering_of(&former).is_none(), "ended");
-    let own = *network.node(at).own();
-    assert!(network.holds_channel(&own, from), "the channel is kept");
-    let after_the_end = request_by(&mut sender, network.clock(at) + ahead, at, &content);
-    assert_ne!(network.inbound(at, &after_the_end).status, 401, "taken");
-    network.crash(at);
-    network.start(at);
-    for (body, sent) in [
-        (&while_peered, "while peered"),
-        (&after_the_end, "after the end"),
-    ] {
-        let replayed = network.inbound(at, body);
-        assert_eq!(replayed.status, 401, "sent {sent}, refused as a replay");
-    }
-    let fresh = request_by(&mut sender, network.clock(at) + ahead + 1, at, &content);
-    assert_ne!(
-        network.inbound(at, &fresh).status,
-        401,
-        "a fresh one is taken"
-    );
-    network.node(at).check_invariants();
-}
-
-// Raising every sender's floor after a restart by the timestamp window
-// would refuse honest requests for that long. Only what was taken before
-// the restart is refused: a registered node's next renewal, and a
-// stranger's first request, are taken right after it.
-#[test]
-fn honest_requests_are_taken_right_after_a_restart() {
-    let count = 6;
-    let mut network = Network::new(5, count, 1, Config::DEFAULT);
-    settle(&mut network, 600_000);
-    let registered = registered_stranger(&network, count);
-    let mut sender = Authenticator::new(key(registered), AuthConfig::DEFAULT, START - 1);
-    let renewal = |network: &Network, sender: &mut Authenticator, ahead: u64| {
-        let state = link_state(&key(registered), network.clock(0), &url(registered));
-        let info = SignedNodeInfo::decode_exact(&state).unwrap();
-        request_by(
-            sender,
-            network.clock(0) + ahead,
-            0,
-            &Content::Registration(info),
-        )
-    };
-    let first = renewal(&network, &mut sender, 1_000);
-    assert_eq!(network.inbound(0, &first).status, 200, "renewed");
-    network.crash(0);
-    network.start(0);
-    assert_eq!(
-        network.inbound(0, &first).status,
-        401,
-        "refused as a replay"
-    );
-    let next = renewal(&network, &mut sender, 2_000);
-    assert_eq!(network.inbound(0, &next).status, 200, "renewed again");
-    let stranger = settlement_request_at(network.clock(0) + 1, &made_up(0));
-    assert_eq!(
-        network.inbound(0, &stranger).status,
-        409,
-        "taken, and refused"
-    );
-    network.node(0).check_invariants();
-}
-
-// One network (a /24 or /48) holds only its share of the replay pool for
-// strangers, so one address, or its neighbours, cannot take every place.
-#[test]
-fn one_network_holds_only_its_share_of_strangers() {
-    let mut network = Network::new(6, 2, 1, Config::DEV);
-    settle(&mut network, 30_000);
-    let share = AuthConfig::DEFAULT.max_senders_per_network;
-    let address = |octets: [u8; 4]| Some(std::net::IpAddr::from(octets));
-    for index in 0..share {
-        let body = settlement_request(&network, &made_up(index));
-        let last = u8::try_from(index).unwrap();
-        let reply = network.inbound_from(0, &body, address([198, 51, 100, last]));
-        assert_eq!(reply.status, 409, "sender {index}");
-    }
-    let body = settlement_request(&network, &made_up(share));
-    let reply = network.inbound_from(0, &body, address([198, 51, 100, 250]));
-    assert_eq!(reply.status, 503, "the network has its share");
-    let body = settlement_request(&network, &made_up(share + 1));
-    let reply = network.inbound_from(0, &body, address([203, 0, 113, 1]));
-    assert_eq!(reply.status, 409, "another network has room");
-    let newcomer = Arc::new(NodeKey::from_bytes(&[202; 32]));
-    let body = registration(&network, &newcomer, "https://newcomer.example");
-    let reply = network.inbound_from(0, &body, address([192, 0, 2, 1]));
-    assert_eq!(reply.status, 0, "the registration waits on a probe");
+    assert_eq!(network.inbound(0, &copy).status, 400, "not its own state");
+    assert_eq!(network.inbound(0, &renewal).status, 200, "the peer's own");
+    assert!(network.node(0).peering_of(&peer.node_id()).is_some());
     network.node(0).check_invariants();
 }
 
@@ -951,14 +688,13 @@ fn a_member_of_several_hubs_lists_them_in_its_link_state() {
 
 // spec/areas/peer-protocol.md#versions: settlement methods are not built
 // yet, so a node refuses their messages with 400, as a node that does not
-// know their tags does: not acted upon. Unauthenticated, they get 401.
+// know their tags does: not acted upon.
 #[test]
 fn method_messages_are_refused_until_methods_are_built() {
     let mut network = Network::new(2, 2, 1, Config::DEV);
     settle(&mut network, 30_000);
     let stub = SchemeId::parse("stub").unwrap();
     let sender = key(0);
-    let mut auth = Authenticator::new(Arc::clone(&sender), AuthConfig::DEFAULT, START - 1);
     let contents = [
         Content::MethodPacket {
             request_id: 1,
@@ -973,10 +709,8 @@ fn method_messages_are_refused_until_methods_are_built() {
         Content::MethodDrop { scheme: stub },
     ];
     for content in &contents {
-        let body = request_by(&mut auth, network.clock(1), 1, content);
+        let body = request(&sender, content);
         assert_eq!(network.inbound(1, &body).status, 400, "{content:?}");
-        let bare = encode_envelope(&sender.node_id(), &Authentication::None, &content.to_vec());
-        assert_eq!(network.inbound(1, &bare).status, 401, "{content:?}");
     }
 }
 

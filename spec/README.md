@@ -70,7 +70,7 @@ Read a [decision](decisions/README.md) when an area doc links to it and you need
 | [STREAM](areas/stream.md) | STREAM connections, streams, frames and crypto |
 | [Ledger](areas/ledger.md) | The double-entry books: accounts, groups, the owner's funds, the journal |
 | [Connector](areas/connector.md) | The packet path: endpoints, outcomes, timing, fees and spread, spending caps, money in flight, exchange rates, BTP |
-| [Peer protocol](areas/peer-protocol.md) | The wire protocol between nodes: transport, envelope, messages, authentication, replay, link states |
+| [Peer protocol](areas/peer-protocol.md) | The wire protocol between nodes: transport, envelope, messages, authentication by the QUIC connection, link states |
 | [Network](areas/network.md) | The node table, flooding, membership and registration, bootstrap nodes, peering and its lifecycle, routing |
 | [Settlement](areas/settlement.md) | Settlement schemes, external assets, credit and its growth, thresholds, settling on request, settlement channels |
 | [Settlement hubs](areas/hubs.md) | A hub's rules and its ledger: accounts, holds, what validators attest, and who gets the fees |
@@ -105,4 +105,4 @@ Not built yet: the [roadmap](roadmap.md), and the designs in `designs/`: what is
 - **A choice between real alternatives gets a decision** ([how](decisions/README.md#adding-or-changing-a-decision)). The decision keeps the reasons.
 - **New work that is not built yet** is an open area of the [roadmap](roadmap.md), never a numbered milestone. A large design gets a file in `designs/`.
 - **A new crate, app, package, test suite or contract** gets a row in the index above, and an area doc, or a section in an existing one.
-- **Cite the spec by path and heading,** as `spec/areas/peer-protocol.md#replay-protection` in code and as relative links inside the spec. Cite a decision the same way, by its file (`spec/decisions/own-fulfills.md`), never by a number. `node --test scripts/spec_test.ts` checks every link and citation, and the index.
+- **Cite the spec by path and heading,** as `spec/areas/peer-protocol.md#authentication` in code and as relative links inside the spec. Cite a decision the same way, by its file (`spec/decisions/own-fulfills.md`), never by a number. `node --test scripts/spec_test.ts` checks every link and citation, and the index.

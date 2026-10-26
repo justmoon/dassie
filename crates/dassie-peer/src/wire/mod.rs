@@ -15,16 +15,15 @@ use dassie_identity::NodeId;
 use dassie_oer::{Decode, DecodeError, DecodeErrorKind, Encode, Reader, Writer, oid, size};
 
 pub use content::{Content, PeeringRequest, TerminationReason};
-pub use envelope::{Authentication, Envelope, EnvelopeError, HmacAuthentication, encode_envelope};
+pub use envelope::{Envelope, EnvelopeError, encode_envelope};
 pub use node_info::{
     Entry, HubList, HubListing, HubMembership, InvalidNodeInfo, NodeInfo, SignedNodeInfo,
     hub_list_bytes, max_node_info_bytes, sign_node_info,
 };
 pub use response::{
     LinkStateResponse, MethodResponse, NameHolding, NameListResponse, NameReceipt,
-    NodeListResponse, PeeringResponse, RefusalReason, ResponseEnvelope, decode_expiry, decode_hash,
-    decode_octets, decode_settling, encode_expiry, encode_link_states, encode_octets,
-    encode_response, encode_settling,
+    NodeListResponse, PeeringResponse, RefusalReason, decode_expiry, decode_hash, decode_octets,
+    decode_settling, encode_expiry, encode_link_states, encode_octets, encode_settling,
 };
 pub use scheme::{MAX_SCHEME_ID, SchemeId};
 pub use url::is_valid_url;
@@ -219,28 +218,6 @@ impl Kind {
         }
     }
 
-    /// Whether a message of this kind must be authenticated
-    /// (spec/areas/peer-protocol.md#which-messages-need-authentication).
-    #[must_use]
-    pub const fn requires_authentication(self) -> bool {
-        matches!(
-            self,
-            Self::PeeringRequest
-                | Self::InterledgerPacket
-                | Self::Settlement
-                | Self::Registration
-                | Self::PeeringTermination
-                | Self::SettlementRequest
-                | Self::HubPacket
-                | Self::NameCommit
-                | Self::NameUnseal
-                | Self::NameRenew
-                | Self::MethodPacket
-                | Self::MethodAdd
-                | Self::MethodDrop
-        )
-    }
-
     /// Whether a message of this kind carries an ILP packet: its bounds are
     /// the connector's, not those of the protocol's own requests.
     #[must_use]
@@ -253,9 +230,7 @@ impl Kind {
 
     /// Whether a message of this kind only reads: it changes nothing at the
     /// recipient, and its answer is public, signed data or the recipient's
-    /// own. A replay of one gets nothing that asking does not, so a sender
-    /// the recipient keeps no replay state for gets none from it
-    /// (spec/areas/peer-protocol.md#replay-protection).
+    /// own, which anyone may ask for.
     #[must_use]
     pub const fn is_read_only(self) -> bool {
         matches!(

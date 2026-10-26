@@ -22,18 +22,15 @@
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use dassie_identity::{NodeId, NodeKey};
+use dassie_identity::NodeId;
 use dassie_oer::{Decode, Encode};
-use dassie_peer::auth::{AuthConfig, Authenticator, Pending};
 use dassie_peer::names::{HolderChange, Holders, HoldersConfig, Name};
-use dassie_peer::wire::{
-    Authentication, Content, NameListResponse, ResponseEnvelope, decode_hash, encode_envelope,
-};
+use dassie_peer::wire::{Content, NameListResponse, decode_hash, encode_envelope};
 use dassie_peer::{Request, RequestId};
 use sha2::{Digest, Sha256};
 use tokio_util::sync::CancellationToken;
 
-use crate::clock::{Clock, SharedRng, clock_moved};
+use crate::clock::{Clock, clock_moved};
 use crate::env::BootstrapNode;
 use crate::log::target;
 use crate::node::lock;
@@ -126,42 +123,29 @@ pub struct Poller {
     quic: Arc<Quic>,
     resolver: Resolver,
     clock: Arc<dyn Clock>,
-    asking: Mutex<Asking>,
-}
-
-/// What authenticating the front door's requests needs: its key's state
-/// toward each registrar, and randomness for its sessions.
-struct Asking {
-    auth: Authenticator,
-    rng: Box<dyn SharedRng>,
-    next_id: u64,
+    /// The number of the next request.
+    next_id: Mutex<u64>,
 }
 
 impl Poller {
     /// A poller that reads `registrars`' lists into `names`, asking over
-    /// `quic` with `key`, the front door's own, resolving their names with
+    /// `quic`, which proves the front door's key, resolving their names with
     /// `resolver`.
     #[must_use]
     pub fn new(
         names: Arc<Names>,
         registrars: Registrars,
-        (quic, key): (Arc<Quic>, Arc<NodeKey>),
+        quic: Arc<Quic>,
         resolver: Resolver,
         clock: Arc<dyn Clock>,
-        rng: Box<dyn SharedRng>,
     ) -> Self {
-        let auth = Authenticator::new(key, AuthConfig::DEFAULT, clock.now_ms());
         Self {
             names,
             registrars,
             quic,
             resolver,
             clock,
-            asking: Mutex::new(Asking {
-                auth,
-                rng,
-                next_id: 0,
-            }),
+            next_id: Mutex::new(0),
         }
     }
 
@@ -237,61 +221,44 @@ impl Poller {
         lock(&self.names.view).take_list(&registrar.id, list, hash, now_ms);
     }
 
-    /// Sends `content` to `registrar`, authenticated with the front door's
-    /// key, and returns the answer's body if it is a 200 the registrar's
-    /// configured key authenticated.
+    /// Sends `content` to `registrar`, on a connection pinned to its
+    /// configured key, which proves the front door's, and returns the
+    /// answer's body if it is a 200.
     async fn ask(
         &self,
         registrar: &BootstrapNode,
         content: &Content<'_>,
         timeout_ms: u64,
     ) -> Option<Vec<u8>> {
-        let (request, pending) = self.request(registrar, content, timeout_ms)?;
+        let request = self.request(registrar, content, timeout_ms);
         let quic = Some(Arc::clone(&self.quic));
         let response = send_peer(quic, &self.resolver, request).await.ok()?;
         if response.status != 200 {
             tracing::debug!(target: target::FRONT_DOOR, registrar = %registrar.id, status = response.status, "a registrar refused a name list request");
             return None;
         }
-        let envelope = ResponseEnvelope::decode(&response.body).ok()?;
-        pending.check(&envelope).ok()?;
-        Some(envelope.body.to_vec())
+        Some(response.body)
     }
 
-    /// The request for `content` to `registrar`, and what checks its
-    /// answer.
+    /// The request for `content` to `registrar`.
     fn request(
         &self,
         registrar: &BootstrapNode,
         content: &Content<'_>,
         timeout_ms: u64,
-    ) -> Option<(Request, Pending)> {
-        let bytes = content.to_vec();
-        let now_ms = self.clock.now_ms();
-        let mut asking = lock(&self.asking);
-        let Asking { auth, rng, next_id } = &mut *asking;
-        let (hmac, pending) = auth
-            .authenticate(
-                now_ms,
-                rng.as_mut(),
-                &registrar.id,
-                &registrar.public_key,
-                &bytes,
-            )
-            .ok()?;
-        let own = *auth.own();
+    ) -> Request {
+        let mut next_id = lock(&self.next_id);
         let id = RequestId(*next_id);
         *next_id = next_id.wrapping_add(1);
-        drop(asking);
-        let request = Request {
+        drop(next_id);
+        Request {
             id,
             to: registrar.id,
             url: registrar.url.clone(),
             kind: content.kind(),
-            body: encode_envelope(&own, &Authentication::Hmac(hmac), &bytes),
+            body: encode_envelope(&content.to_vec()),
             timeout_ms,
-        };
-        Some((request, pending))
+        }
     }
 }
 
@@ -301,6 +268,7 @@ mod tests {
 
     use std::collections::BTreeMap;
 
+    use dassie_identity::NodeKey;
     use dassie_peer::wire::NameHolding;
 
     use super::*;

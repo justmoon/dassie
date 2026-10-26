@@ -11,7 +11,7 @@ Keep the spec current in the same PR as the change, and keep it from becoming a 
 - **Work not built yet:** an open area in [`spec/roadmap.md`](spec/roadmap.md), never a numbered milestone.
 - **A new crate, app, package or contract:** a row in the index.
 
-Cite the spec by path and heading, as `spec/areas/peer-protocol.md#replay-protection`, or a decision by its file, as `spec/decisions/own-fulfills.md`. `node --test scripts/spec_test.ts` checks every link and citation, and the index.
+Cite the spec by path and heading, as `spec/areas/peer-protocol.md#authentication`, or a decision by its file, as `spec/decisions/own-fulfills.md`. `node --test scripts/spec_test.ts` checks every link and citation, and the index.
 
 ## Keep the architecture page current
 

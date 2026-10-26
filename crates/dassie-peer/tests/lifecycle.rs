@@ -13,13 +13,11 @@
 use std::sync::Arc;
 
 use dassie_identity::{NodeId, NodeKey};
-use dassie_kit::sim::SeededRng;
-use dassie_oer::{Decode, Encode};
-use dassie_peer::auth::{AuthConfig, Authenticator};
-use dassie_peer::sim::{Network, START, key, url};
+use dassie_oer::Decode;
+use dassie_peer::sim::{Arriving, Network, key, url};
 use dassie_peer::wire::{
-    Authentication, Content, Entry, NodeInfo, PeeringRequest, PeeringResponse, RefusalReason,
-    ResponseEnvelope, SchemeId, SignedNodeInfo, TerminationReason, encode_envelope, sign_node_info,
+    Content, Entry, NodeInfo, PeeringRequest, PeeringResponse, RefusalReason, SchemeId,
+    SignedNodeInfo, TerminationReason, sign_node_info,
 };
 use dassie_peer::{Config, Event, PeerStatus, Room, SendError};
 
@@ -68,39 +66,20 @@ fn ended(network: &Network, index: usize, peer: &NodeId) -> usize {
 }
 
 /// Messages from a node, in one session of its own.
-struct Sender(Authenticator);
+/// Messages from a node, over a connection that proves its key.
+struct Sender(Arc<NodeKey>);
 
 impl Sender {
     fn new(key: &Arc<NodeKey>) -> Self {
-        Self(Authenticator::new(
-            Arc::clone(key),
-            AuthConfig::DEFAULT,
-            START - 1,
-        ))
+        Self(Arc::clone(key))
     }
 
-    fn request(&mut self, network: &Network, to: usize, content: &Content<'_>) -> Vec<u8> {
-        let bytes = content.to_vec();
-        let target = key(to);
-        let (hmac, _) = self
-            .0
-            .authenticate(
-                network.clock(to),
-                &mut SeededRng::new(network.clock(to)),
-                &target.node_id(),
-                &target.public_key(),
-                &bytes,
-            )
-            .unwrap();
-        encode_envelope(
-            &self.0.own().to_owned(),
-            &Authentication::Hmac(hmac),
-            &bytes,
-        )
+    fn request(&mut self, _: &Network, _: usize, content: &Content<'_>) -> Arriving {
+        Arriving::new(&self.0, content)
     }
 }
 
-fn peering_request(network: &Network, from: &Arc<NodeKey>, index: usize, to: usize) -> Vec<u8> {
+fn peering_request(network: &Network, from: &Arc<NodeKey>, index: usize, to: usize) -> Arriving {
     let info = NodeInfo {
         node_id: from.node_id(),
         sequence: network.clock(to),
@@ -120,8 +99,7 @@ fn peering_request(network: &Network, from: &Arc<NodeKey>, index: usize, to: usi
 
 fn refusal(reply: &dassie_peer::Reply) -> RefusalReason {
     assert_eq!(reply.status, 200);
-    let envelope = ResponseEnvelope::decode(&reply.body).unwrap();
-    match PeeringResponse::decode_exact(envelope.body).unwrap() {
+    match PeeringResponse::decode_exact(&reply.body).unwrap() {
         PeeringResponse::Refused(reason) => reason,
         accepted => panic!("accepted: {accepted:?}"),
     }
@@ -991,7 +969,7 @@ fn a_fulfill_is_taken_only_while_peered() {
     let body = sender.request(&network, 0, &fulfill);
     let reply = network.inbound(0, &body);
     assert_eq!(reply.status, 200);
-    assert_eq!(ResponseEnvelope::decode(&reply.body).unwrap().body, []);
+    assert!(reply.body.is_empty());
     network.act(0, |node, now| {
         assert!(node.terminate(now, &b, TerminationReason::Owner));
     });

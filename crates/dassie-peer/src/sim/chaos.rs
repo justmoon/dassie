@@ -1,9 +1,9 @@
 //! The peer network's random run (spec/areas/testing.md#the-simulations,
 //! spec/decisions/random-seed-simulations.md): random sizes and bootstrap
-//! lists, a rough network, crashes, restarts and partitions, owners ending
-//! peerings and banning nodes, settlements, then a calm in which the network
-//! must converge, every termination finish and every settlement arrive
-//! exactly once.
+//! lists, a rough network, a forger sending copies of requests as its own,
+//! crashes, restarts and partitions, owners ending peerings and banning
+//! nodes, settlements, then a calm in which the network must converge,
+//! every termination finish and every settlement arrive exactly once.
 
 use alloc::format;
 use alloc::string::String;
@@ -58,11 +58,15 @@ pub fn describe(seed: u64) -> String {
     format!("{count} nodes, {bootstraps} bootstrap")
 }
 
-/// Runs the seed and checks the calm network it leaves.
+/// Runs the seed and checks the calm network it leaves, counting the
+/// forger's copies, so that a generator that stops sending them shows.
 #[must_use]
 pub fn run(seed: u64) -> Run {
     let network = network(seed);
-    Run::new(check(&network), network.trace)
+    let forgeries = u64::try_from(network.forgeries).unwrap_or(u64::MAX);
+    let mut run = Run::new(check(&network), network.trace);
+    run.counts.insert("forgeries", forgeries);
+    run
 }
 
 /// Runs the seed: its size, its chaos, its calm.
@@ -171,15 +175,25 @@ fn lifecycle(network: &mut Network, rng: &mut SeededRng, index: usize) {
 }
 
 /// How the run ended: a settlement applied twice, for another amount or
-/// never sent is a safety failure; a network that did not converge in the
-/// calm, a liveness failure.
+/// never sent, and anything taken from the forger that only a node holding
+/// something with the recipient may send, is a safety failure; a network
+/// that did not converge in the calm, a liveness failure.
 fn check(network: &Network) -> Outcome {
-    let result = settlements(network)
+    let result = forgeries(network)
+        .and_then(|()| settlements(network))
         .and_then(|()| {
             converged(network).map_err(|problem| Outcome::liveness("converged", problem))
         })
         .and_then(|()| finished(network).map_err(|problem| Outcome::liveness("finished", problem)));
     result.err().unwrap_or(Outcome::Pass)
+}
+
+/// Nothing was taken from the forger but what anyone may send.
+fn forgeries(network: &Network) -> Result<(), Outcome> {
+    match network.forgeries_taken.first() {
+        Some(taken) => Err(Outcome::safety("forgeries", taken.clone())),
+        None => Ok(()),
+    }
 }
 
 /// Every settlement sent arrived exactly once, and none arrived that was

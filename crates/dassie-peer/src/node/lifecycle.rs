@@ -8,8 +8,8 @@ use alloc::vec::Vec;
 
 use dassie_identity::NodeId;
 
+use super::inbound::Accepted;
 use super::{PeerNode, Problem, Purpose};
-use crate::auth::Accepted;
 use crate::hooks::PeeringHooks;
 use crate::io::{Event, Reply};
 use crate::table::{Advertise, Depeering, Entry, PeerState, Termination, backoff};
@@ -287,7 +287,7 @@ impl PeerNode {
             }
             Some(PeerState::None) | None => return Reply::refuse(409, "not peered"),
         }
-        super::inbound::ok(accepted, &[])
+        super::inbound::ok(&[])
     }
 
     /// Bans `node`: it is never asked, is refused, and a peering with it is
@@ -691,7 +691,7 @@ impl PeerNode {
         self.event(Event::PeeringEnded { peer });
     }
 
-    /// An authenticated request from `sender` that presumes a peering,
+    /// A request from `sender` that presumes a peering,
     /// though we hold none with it and are not asking: its side is left
     /// over, as when our termination never reached it. It is told so, at
     /// most once per termination timeout, and its request still gets its
@@ -709,12 +709,12 @@ impl PeerNode {
         {
             return;
         }
-        let contact = self.contact(&sender).or_else(|| {
+        let contact = self.contact(&sender).map(|(_, url)| url).or_else(|| {
             self.channels
                 .get(&sender)
-                .map(|channel| (channel.key, channel.url.clone()))
+                .map(|channel| channel.url.clone())
         });
-        let Some((key, url)) = contact else {
+        let Some(url) = contact else {
             return;
         };
         self.told_not_peered
@@ -727,7 +727,7 @@ impl PeerNode {
         self.told_not_peered.insert(sender, now);
         let content = Content::PeeringTermination(TerminationReason::NotPeered);
         let timeout = self.config.request_timeout_ms;
-        self.send_via(sender, key, url, &content, Purpose::Gossip, timeout);
+        self.send_via(sender, url, &content, Purpose::Gossip, timeout);
     }
 }
 

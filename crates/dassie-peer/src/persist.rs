@@ -1,9 +1,8 @@
 //! What the peer node persists (spec/areas/network.md#persistence): the
 //! table's nodes with their link states, registrations and peerings, our
-//! own sequence, the settlement channels, the bans and the replay floors,
-//! a registrar's log and names, the node's
-//! view of who holds each name, and its own registrations of names
-//! (spec/areas/network.md#names).
+//! own sequence, the settlement channels and the bans, a registrar's log
+//! and names, the node's view of who holds each name, and its own
+//! registrations of names (spec/areas/network.md#names).
 //! Changes come out as snapshots of what changed, written in the same
 //! transaction as the ledger.
 
@@ -33,18 +32,6 @@ pub struct StoredNode {
     pub peering: Option<Peering>,
     /// The peering's termination, if it is being ended.
     pub termination: Option<Termination>,
-}
-
-/// A sender's replay floor, as stored: the newest timestamp accepted from
-/// it, so that after a restart nothing at or below it is accepted again
-/// (spec/areas/peer-protocol.md#replay-protection). Kept apart from the
-/// node table, since a node we hold a channel with may leave it.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct StoredFloor {
-    /// The sender.
-    pub node: NodeId,
-    /// Its floor.
-    pub floor_ms: u64,
 }
 
 /// A settlement channel, as stored.
@@ -77,9 +64,6 @@ pub struct Stored {
     pub channels: Vec<StoredChannel>,
     /// The banned nodes.
     pub bans: Vec<NodeId>,
-    /// The replay floors of the senders whose replay state is kept for
-    /// good, and of those let go whose floors are not stale yet.
-    pub floors: Vec<StoredFloor>,
     /// Where a registrar's log stands, which only rises.
     pub name_log: LogHead,
     /// The commitments in a registrar's log.
@@ -112,10 +96,6 @@ pub struct PeerBatch {
     pub banned: Vec<NodeId>,
     /// Nodes no longer banned.
     pub unbanned: Vec<NodeId>,
-    /// Replay floors that moved, as they are now.
-    pub floors: Vec<StoredFloor>,
-    /// Senders whose floors are stale, and protect nothing any more.
-    pub floors_removed: Vec<NodeId>,
     /// Where a registrar's log stands, if it moved.
     pub name_log: Option<LogHead>,
     /// Commitments logged or unsealed, as they are now.
@@ -148,8 +128,6 @@ impl PeerBatch {
             && self.closed.is_empty()
             && self.banned.is_empty()
             && self.unbanned.is_empty()
-            && self.floors.is_empty()
-            && self.floors_removed.is_empty()
             && self.name_log.is_none()
             && self.commitments.is_empty()
             && self.commitments_removed.is_empty()

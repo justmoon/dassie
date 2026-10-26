@@ -1,4 +1,5 @@
-//! Responses: an authentication field, then the body for the request's kind.
+//! Responses: the body for the request's kind. Who answered is the node
+//! whose key the QUIC connection proved.
 
 use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
@@ -11,51 +12,6 @@ use super::{
     read_fixed, read_node_id, write_node_id,
 };
 use crate::names::{Name, name_len, read_name, write_name};
-
-/// A response, its body not yet decoded: the MAC covers the body's bytes.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct ResponseEnvelope<'a> {
-    /// The response MAC, present if and only if the request was
-    /// authenticated.
-    pub mac: Option<[u8; 32]>,
-    /// The body.
-    pub body: &'a [u8],
-}
-
-impl<'a> ResponseEnvelope<'a> {
-    /// Reads a response.
-    ///
-    /// # Errors
-    ///
-    /// The bytes are not a response.
-    pub fn decode(bytes: &'a [u8]) -> Result<Self, DecodeError> {
-        let mut reader = Reader::new(bytes);
-        let offset = reader.offset();
-        let mac = match reader.read_context_tag()? {
-            0 => None,
-            1 => Some(read_fixed::<32>(&mut reader)?),
-            _ => return Err(DecodeError::new(offset, DecodeErrorKind::UnexpectedTag)),
-        };
-        let body = reader.read_bytes(reader.remaining())?;
-        Ok(Self { mac, body })
-    }
-}
-
-/// Encodes a response.
-#[must_use]
-pub fn encode_response(mac: Option<&[u8; 32]>, body: &[u8]) -> Vec<u8> {
-    let mut bytes = alloc::vec![0u8; size::tag(0) + mac.map_or(0, |_| 32) + body.len()];
-    let mut writer = Writer::new(&mut bytes);
-    match mac {
-        Some(mac) => {
-            writer.write_context_tag(1);
-            writer.write_bytes(mac);
-        }
-        None => writer.write_context_tag(0),
-    }
-    writer.write_bytes(body);
-    bytes
-}
 
 /// Why a peering request was refused. Unknown values read as
 /// [`RefusalReason::Unspecified`]. Code 3 is reserved: no reason has it.

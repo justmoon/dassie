@@ -1440,8 +1440,8 @@ fn the_downlinks_accounts_are_known_after_a_restart() {
     let waiting = Arc::new(NodeKey::from_bytes(&[12; 32]));
     let at = NOW + 2_000;
     core.begin_step(at);
-    let body = downlink_request(&core, &waiting, at);
-    core.peer_inbound(dassie_peer::InboundId(2), &body, None);
+    let body = downlink_request(&waiting, at);
+    core.peer_inbound(dassie_peer::InboundId(2), waiting.public_key(), &body, None);
     let mut outputs = Vec::new();
     core.finish_step(&mut outputs);
     assert_eq!(
@@ -2042,25 +2042,17 @@ fn a_replaced_connection_is_forgotten_across_a_restart() {
     );
 }
 
-/// A periphery node's peering request to a core node at `https://core.test`,
-/// from `downlink`, at `now`.
-fn downlink_request(core: &Core, downlink: &Arc<NodeKey>, now: u64) -> Vec<u8> {
-    downlink_request_on(core, downlink, now, "stub", &[])
+/// A periphery node's peering request, from `downlink`, at `now`.
+fn downlink_request(downlink: &Arc<NodeKey>, now: u64) -> Vec<u8> {
+    downlink_request_on(downlink, now, "stub", &[])
 }
 
 /// A peering request from `downlink` on `scheme`, with the scheme's `data`.
-fn downlink_request_on(
-    core: &Core,
-    downlink: &Arc<NodeKey>,
-    now: u64,
-    scheme: &str,
-    data: &[u8],
-) -> Vec<u8> {
+fn downlink_request_on(downlink: &Arc<NodeKey>, now: u64, scheme: &str, data: &[u8]) -> Vec<u8> {
     use dassie_oer::Decode;
-    use dassie_peer::auth::{AuthConfig, Authenticator};
     use dassie_peer::wire::{
-        Authentication, Content, EXTENSION_PERIPHERY, Entry, NodeInfo, PeeringRequest, SchemeId,
-        SignedNodeInfo, encode_envelope, sign_node_info,
+        Content, EXTENSION_PERIPHERY, Entry, NodeInfo, PeeringRequest, SchemeId, SignedNodeInfo,
+        encode_envelope, sign_node_info,
     };
     let stub = SchemeId::parse(scheme).unwrap();
     let info = NodeInfo {
@@ -2083,19 +2075,7 @@ fn downlink_request_on(
         node_info: SignedNodeInfo::decode_exact(&state).unwrap(),
         data,
     });
-    let bytes = content.to_vec();
-    let mut auth = Authenticator::new(Arc::clone(downlink), AuthConfig::DEFAULT, now - 1);
-    let own = NodeKey::from_bytes(&[7; 32]);
-    let (hmac, _) = auth
-        .authenticate(
-            now,
-            &mut SeededRng::new(3),
-            core.peer.own(),
-            &own.public_key(),
-            &bytes,
-        )
-        .unwrap();
-    encode_envelope(&downlink.node_id(), &Authentication::Hmac(hmac), &bytes)
+    encode_envelope(&content.to_vec())
 }
 
 // spec/areas/network.md#advertised-peers: a downlink that owes nothing is
@@ -2113,8 +2093,13 @@ fn a_downlink_that_owes_nothing_is_never_short_of_room() {
     let downlink = Arc::new(NodeKey::from_bytes(&[11; 32]));
     let at = NOW + 1_000;
     core.begin_step(at);
-    let body = downlink_request(&core, &downlink, at);
-    core.peer_inbound(dassie_peer::InboundId(1), &body, None);
+    let body = downlink_request(&downlink, at);
+    core.peer_inbound(
+        dassie_peer::InboundId(1),
+        downlink.public_key(),
+        &body,
+        None,
+    );
     core.finish_step(&mut outputs);
     let id = downlink.node_id();
     assert!(core.peer.is_downlink(&id) && core.peer.peering_of(&id).is_some());
@@ -2168,11 +2153,16 @@ fn asks_as_downlink(
     (scheme, data): (&str, &[u8]),
 ) -> Option<dassie_peer::wire::RefusalReason> {
     use dassie_oer::Decode;
-    use dassie_peer::wire::{PeeringResponse, ResponseEnvelope};
+    use dassie_peer::wire::PeeringResponse;
 
     core.begin_step(at);
-    let body = downlink_request_on(core, downlink, at, scheme, data);
-    core.peer_inbound(dassie_peer::InboundId(at), &body, None);
+    let body = downlink_request_on(downlink, at, scheme, data);
+    core.peer_inbound(
+        dassie_peer::InboundId(at),
+        downlink.public_key(),
+        &body,
+        None,
+    );
     let mut outputs = Vec::new();
     core.finish_step(&mut outputs);
     let reply = outputs
@@ -2182,8 +2172,7 @@ fn asks_as_downlink(
             _ => None,
         })
         .unwrap();
-    let envelope = ResponseEnvelope::decode(&reply.body).unwrap();
-    match PeeringResponse::decode_exact(envelope.body).unwrap() {
+    match PeeringResponse::decode_exact(&reply.body).unwrap() {
         PeeringResponse::Accepted { .. } => None,
         PeeringResponse::Refused(reason) => Some(reason),
     }
@@ -3665,8 +3654,13 @@ fn xrpl_downlink_peers_on(
     let id = downlink.node_id();
     let data = Wallet::from_entropy(&[11; 32]).account().0;
     core.begin_step(now);
-    let body = downlink_request_on(core, &downlink, now, scheme, &data);
-    core.peer_inbound(dassie_peer::InboundId(1), &body, None);
+    let body = downlink_request_on(&downlink, now, scheme, &data);
+    core.peer_inbound(
+        dassie_peer::InboundId(1),
+        downlink.public_key(),
+        &body,
+        None,
+    );
     follow_xrpl(core, ledger);
     let peering = core.peer.peering_of(&id).expect("peered");
     assert_eq!(peering.scheme.as_str(), scheme);
@@ -4362,8 +4356,13 @@ fn stub_core_with_downlink_on(store: Arc<Store>, config: &str) -> (Core, dassie_
     let downlink = Arc::new(NodeKey::from_bytes(&[11; 32]));
     let at = NOW + 1_000;
     core.begin_step(at);
-    let body = downlink_request_on(&core, &downlink, at, "stub", &info);
-    core.peer_inbound(dassie_peer::InboundId(1), &body, None);
+    let body = downlink_request_on(&downlink, at, "stub", &info);
+    core.peer_inbound(
+        dassie_peer::InboundId(1),
+        downlink.public_key(),
+        &body,
+        None,
+    );
     let mut outputs = Vec::new();
     core.finish_step(&mut outputs);
     let id = downlink.node_id();
@@ -4678,8 +4677,13 @@ fn hub_core_with_downlink(seed: u64) -> (Core, dassie_identity::NodeId) {
     let downlink = Arc::new(NodeKey::from_bytes(&[11; 32]));
     let at = NOW + 1_000;
     core.begin_step(at);
-    let body = downlink_request(&core, &downlink, at);
-    core.peer_inbound(dassie_peer::InboundId(1), &body, None);
+    let body = downlink_request(&downlink, at);
+    core.peer_inbound(
+        dassie_peer::InboundId(1),
+        downlink.public_key(),
+        &body,
+        None,
+    );
     core.finish_step(&mut outputs);
     let id = downlink.node_id();
     assert!(core.peer.peering_of(&id).is_some());
@@ -5833,10 +5837,8 @@ fn tells_link_state(
     at: u64,
 ) -> Vec<Output> {
     use dassie_oer::Decode;
-    use dassie_peer::auth::{AuthConfig, Authenticator};
     use dassie_peer::wire::{
-        Authentication, Content, Entry, NodeInfo, SchemeId, SignedNodeInfo, encode_envelope,
-        sign_node_info,
+        Content, Entry, NodeInfo, SchemeId, SignedNodeInfo, encode_envelope, sign_node_info,
     };
 
     let scheme = SchemeId::parse(scheme).unwrap();
@@ -5850,21 +5852,9 @@ fn tells_link_state(
     };
     let state = sign_node_info(other, &info);
     let content = Content::LinkStateUpdate(SignedNodeInfo::decode_exact(&state).unwrap());
-    let bytes = content.to_vec();
-    let mut auth = Authenticator::new(Arc::clone(other), AuthConfig::DEFAULT, at - 1);
-    let own = NodeKey::from_bytes(&[7; 32]);
-    let (hmac, _) = auth
-        .authenticate(
-            at,
-            &mut SeededRng::new(3),
-            core.peer.own(),
-            &own.public_key(),
-            &bytes,
-        )
-        .unwrap();
-    let body = encode_envelope(&other.node_id(), &Authentication::Hmac(hmac), &bytes);
+    let body = encode_envelope(&content.to_vec());
     core.begin_step(at);
-    core.peer_inbound(dassie_peer::InboundId(1), &body, None);
+    core.peer_inbound(dassie_peer::InboundId(1), other.public_key(), &body, None);
     let mut outputs = Vec::new();
     core.finish_step(&mut outputs);
     let held = core

@@ -947,11 +947,27 @@ mod tests {
             sim.run_until_or(START + 600_000, joined),
             "the members did not join the hub"
         );
+        // The owner puts enough in for the least payout, whatever the
+        // node's own moves keep there.
+        let least = sim.hub.as_deref().unwrap().rules.terms.fees.least_payout;
         sim.run_until(sim.now + 30_000);
+        sim.step(0, |core| {
+            core.hub_deposit(2 * least * dassie_xrpl::UNITS_PER_DROP)
+                .unwrap();
+        });
+        let can_pay = |sim: &Sim| {
+            let core = sim.nodes[0].core.as_ref().unwrap();
+            core.hub_status().is_some_and(|status| {
+                status.moving.is_none() && status.balance > 2 * least * dassie_xrpl::UNITS_PER_DROP
+            })
+        };
+        assert!(
+            sim.run_until_or(sim.now + 120_000, can_pay),
+            "the deposit did not land"
+        );
         check_escrow(&sim).unwrap();
         let hub = sim.hub.as_deref().unwrap();
         let before = sim.ledger.balance(hub.escrow()).unwrap_or(0);
-        let least = hub.rules.terms.fees.least_payout;
         sim.step(0, |core| {
             core.hub_withdraw(least * dassie_xrpl::UNITS_PER_DROP)
                 .unwrap();

@@ -58,25 +58,17 @@ pub struct Response {
 }
 
 /// The answer to a peer's settlement request, still to be given the amount
-/// on its way.
-#[derive(Debug)]
-pub struct SettlementAnswer(pub(crate) alloc::boxed::Box<crate::auth::Accepted>);
-
-// Two answers are the same if they answer the same request.
-impl PartialEq for SettlementAnswer {
-    fn eq(&self, other: &Self) -> bool {
-        self.0.sender == other.0.sender && self.0.response_mac(&[]) == other.0.response_mac(&[])
-    }
-}
-
-impl Eq for SettlementAnswer {}
+/// on its way: to the peer named.
+#[derive(Debug, PartialEq, Eq)]
+pub struct SettlementAnswer(pub(crate) NodeId);
 
 /// The acknowledgement of an ILP packet from a peer, still to be given what
 /// it carries on a Fulfill: on a peering over a hub, the payer's claim
 /// (spec/designs/settlement-hubs.md#4-peering-over-a-hub).
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct PacketAnswer {
-    pub(crate) accepted: alloc::boxed::Box<crate::auth::Accepted>,
+    /// The peer it answers.
+    pub(crate) peer: NodeId,
     /// Whether the packet is a Fulfill.
     pub(crate) fulfill: bool,
     /// Whether the packet came on a peering whose scheme uses commitments.
@@ -91,18 +83,6 @@ impl PacketAnswer {
         self.fulfill && self.hub
     }
 }
-
-// Two answers are the same if they answer the same request alike.
-impl PartialEq for PacketAnswer {
-    fn eq(&self, other: &Self) -> bool {
-        self.accepted.sender == other.accepted.sender
-            && self.accepted.response_mac(&[]) == other.accepted.response_mac(&[])
-            && self.fulfill == other.fulfill
-            && self.hub == other.hub
-    }
-}
-
-impl Eq for PacketAnswer {}
 
 /// A reply to an inbound request.
 #[derive(Clone, Debug, PartialEq, Eq)]

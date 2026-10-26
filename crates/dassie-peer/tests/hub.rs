@@ -13,13 +13,8 @@
 use std::sync::Arc;
 
 use dassie_identity::{NodeId, NodeKey};
-use dassie_kit::sim::SeededRng;
-use dassie_oer::Encode;
-use dassie_peer::auth::{AuthConfig, Authenticator};
-use dassie_peer::sim::{Network, START, key, url};
-use dassie_peer::wire::{
-    Authentication, Content, HubMembership, ResponseEnvelope, encode_envelope,
-};
+use dassie_peer::sim::{Arriving, Network, key, url};
+use dassie_peer::wire::{Content, HubMembership};
 use dassie_peer::{Config, Event, Inbound, InboundId, OwnInfo, Reply};
 
 /// A Prepare, as far as the peer protocol reads one.
@@ -58,36 +53,16 @@ fn peered(seed: u64, hub: bool) -> (Network, NodeId, NodeId) {
     (network, a, b)
 }
 
-/// Messages from a node, in one session of its own.
-struct Sender(Authenticator);
+/// Messages from a node, over a connection that proves its key.
+struct Sender(Arc<NodeKey>);
 
 impl Sender {
     fn new(key: &Arc<NodeKey>) -> Self {
-        Self(Authenticator::new(
-            Arc::clone(key),
-            AuthConfig::DEFAULT,
-            START - 1,
-        ))
+        Self(Arc::clone(key))
     }
 
-    fn request(&mut self, network: &Network, to: usize, content: &Content<'_>) -> Vec<u8> {
-        let bytes = content.to_vec();
-        let target = key(to);
-        let (hmac, _) = self
-            .0
-            .authenticate(
-                network.clock(to),
-                &mut SeededRng::new(network.clock(to)),
-                &target.node_id(),
-                &target.public_key(),
-                &bytes,
-            )
-            .unwrap();
-        encode_envelope(
-            &self.0.own().to_owned(),
-            &Authentication::Hmac(hmac),
-            &bytes,
-        )
+    fn request(&mut self, _: &Network, _: usize, content: &Content<'_>) -> Arriving {
+        Arriving::new(&self.0, content)
     }
 }
 
@@ -111,13 +86,21 @@ fn plain_packet(packet: &[u8]) -> Content<'_> {
 fn handle(
     network: &mut Network,
     index: usize,
-    body: &[u8],
+    request: &Arriving,
     check: impl FnOnce(Inbound<'_>) -> Reply,
 ) -> Reply {
     let now = network.clock(index);
     let sim = &mut network.nodes[index];
     let node = sim.node.as_mut().unwrap();
-    check(node.handle_inbound(now, &mut sim.hooks, InboundId(900), body, None))
+    let inbound = InboundId(900);
+    check(node.handle_inbound(
+        now,
+        &mut sim.hooks,
+        inbound,
+        request.from,
+        &request.body,
+        None,
+    ))
 }
 
 /// The body of a 200 reply.
@@ -128,7 +111,7 @@ fn body(reply: &Reply) -> Vec<u8> {
         "{}",
         String::from_utf8_lossy(&reply.body)
     );
-    ResponseEnvelope::decode(&reply.body).unwrap().body.to_vec()
+    reply.body.clone()
 }
 
 // A Prepare with its commitment reaches the node on a peering over a hub,

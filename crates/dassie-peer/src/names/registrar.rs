@@ -887,9 +887,8 @@ impl Registrar {
         (&self.served, self.served_hash)
     }
 
-    /// Whether `node` has a part here that its later messages must get
-    /// through for: a commitment in the log, an unsealing, or a name held
-    /// (spec/areas/peer-protocol.md#replay-protection).
+    /// Whether `node` has a part here: a commitment in the log, an
+    /// unsealing, or a name held.
     #[must_use]
     pub fn involves(&self, node: &NodeId) -> bool {
         self.parties().any(|party| party == *node)

@@ -4,9 +4,8 @@
 //! ```text
 //! phrase ──PBKDF2──▶ master seed ──HMAC "node"──▶ node key (Ed25519 seed)
 //!                                                   ├─ public key ─▶ node ID
-//!                                                   ├─ node/… (one NodeSecret each:
-//!                                                   │   login, ledger accounts, hubs, …)
-//!                                                   └─ X25519 secret
+//!                                                   └─ node/… (one NodeSecret each:
+//!                                                       login, ledger accounts, hubs, …)
 //! ```
 //!
 //! The byte-level derivations are frozen
@@ -14,8 +13,8 @@
 //! same node ID and the same ledger accounts. The API around them fixes the
 //! original's flaws: phrases are validated, every path below the node key is
 //! a variant of [`NodeSecret`], so no caller writes a path of its own, the
-//! login proof is compared in constant time, the public-key DER has its
-//! unused-bits byte, and non-contributory X25519 results are rejected.
+//! login proof is compared in constant time, and the public-key DER has its
+//! unused-bits byte.
 //!
 //! The crate is deterministic (spec/decisions/tigerstyle.md): it never reads
 //! a clock or the OS RNG, and randomness comes from an RNG the caller passes
@@ -35,7 +34,6 @@ mod paths;
 mod secret;
 mod seed;
 mod wordlist;
-mod x25519;
 
 pub use error::Error;
 pub use mnemonic::{MAX_PHRASE_INPUT_BYTES, MAX_PHRASE_LENGTH, Mnemonic, Phrase, WordCount, Words};
@@ -45,4 +43,3 @@ pub use node_key::{
 };
 pub use paths::{HubKey, MAX_SEGMENT_BYTES, NodeSecret, QuicEndpoint, Segment};
 pub use seed::{DerivedSecret, LoginSecret, MasterSeed};
-pub use x25519::{SharedSecret, X25519Public, X25519Secret};

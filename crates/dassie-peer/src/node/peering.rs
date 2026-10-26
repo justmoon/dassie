@@ -9,9 +9,9 @@ use dassie_identity::NodeId;
 use dassie_oer::{Decode, Encode};
 
 use super::gossip::Retransmit;
+use super::inbound::Accepted;
 use super::inbound::{Probe, ProbeFor, ok};
 use super::{PeerNode, Problem, Purpose};
-use crate::auth::Accepted;
 use crate::hooks::{EntryPayment, PeeringHooks};
 use crate::io::{Event, Inbound, InboundId, Reply};
 use crate::table::{
@@ -481,7 +481,6 @@ impl PeerNode {
             // earlier peering left of our reach to it is gone
             // (spec/decisions/unreachable-peers.md).
             self.unreached.remove(&node);
-            self.auth.pin(node);
             self.stats.peerings += 1;
             self.gossip.heartbeat_soon(now);
             self.advertised_changed();
@@ -520,12 +519,12 @@ impl PeerNode {
         }
         let downlink = request.node_info.info.is_periphery();
         if let Err(reason) = self.check_request(hooks, &sender, &request) {
-            return Inbound::Reply(refused(&accepted, reason));
+            return Inbound::Reply(refused(reason));
         }
         // A repeat keeps the peering as it was made, core or downlink.
         let repeat = self.peering_of(&sender).is_some();
         if downlink && !repeat && !self.ensure(sender, Sources::DOWNLINK) {
-            return Inbound::Reply(refused(&accepted, RefusalReason::Capacity));
+            return Inbound::Reply(refused(RefusalReason::Capacity));
         }
         self.process_link_state(&request.node_info, None, Retransmit::Never);
         if let Some(entry) = self.table.get_mut(&sender) {
@@ -540,7 +539,7 @@ impl PeerNode {
             .is_some_and(|peering| peering.scheme == request.scheme)
         {
             let answer = PeeringResponse::Accepted { data: &[] };
-            return Inbound::Reply(ok(&accepted, &answer.to_vec()));
+            return Inbound::Reply(ok(&answer.to_vec()));
         }
         // A periphery node has no URL to probe: the connection its request
         // came on shows it is there, and is how we reach it
@@ -562,7 +561,6 @@ impl PeerNode {
         };
         self.start_probe(
             sender,
-            key,
             request.node_info.info.url,
             alloc::boxed::Box::new(probe),
         )
@@ -706,18 +704,18 @@ impl PeerNode {
             return Reply::refuse(400, "malformed message");
         };
         if !reachable {
-            return refused(accepted, RefusalReason::Unreachable);
+            return refused(RefusalReason::Unreachable);
         }
         let sender = accepted.sender;
         if let Err(reason) = self.check_request(hooks, &sender, &request) {
-            return refused(accepted, reason);
+            return refused(reason);
         }
         // Its channel opens as the kind its room was checked for: the link
         // state we hold for it says, by its URL, which kind that is.
         let downlink = request.node_info.info.is_periphery();
         let kind = self.contact(&sender).map(|(_, url)| url.is_empty());
         if !self.channels.contains_key(&sender) && kind != Some(downlink) {
-            return refused(accepted, RefusalReason::Unspecified);
+            return refused(RefusalReason::Unspecified);
         }
         let mut response = Vec::new();
         let now = self.now_ms;
@@ -730,16 +728,16 @@ impl PeerNode {
             &mut response,
         ) {
             Ok(agreed) => agreed,
-            Err(reason) => return refused(accepted, reason),
+            Err(reason) => return refused(reason),
         };
         if !self.become_peered(hooks, sender, request.scheme, agreed, true) {
-            return refused(accepted, RefusalReason::Capacity);
+            return refused(RefusalReason::Capacity);
         }
         let answer = PeeringResponse::Accepted { data: &response };
-        ok(accepted, &answer.to_vec())
+        ok(&answer.to_vec())
     }
 }
 
-fn refused(accepted: &Accepted, reason: RefusalReason) -> Reply {
-    ok(accepted, &PeeringResponse::Refused(reason).to_vec())
+fn refused(reason: RefusalReason) -> Reply {
+    ok(&PeeringResponse::Refused(reason).to_vec())
 }

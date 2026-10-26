@@ -3,7 +3,8 @@
 //! the simulation runner, dassie-sim
 //! (spec/decisions/random-seed-simulations.md): each node's core with its own
 //! in-memory database, wired through a virtual network with latency, loss and
-//! replayed requests, each on a clock of its own, crashed and restarted from
+//! a forger sending copies of requests as its own, each on a clock of its
+//! own, crashed and restarted from
 //! its database, paying over STREAM through BTP clients. Everything comes
 //! from one seed.
 //!
@@ -152,10 +153,25 @@ pub const LEDGER_CLOSE_MS: u64 = 3_500;
 /// (`dassie_hub::consensus::Config`).
 pub const REGIONAL_LATENCY_MS: (u64, u64) =
     (1, dassie_hub::consensus::Config::DEFAULT.max_delay_ms);
-/// The longest a replayed request arrives after the original: past the
-/// peer protocol's replay window of 60 s, so that some copies are refused
-/// for their age rather than as copies.
-pub const REPLAY_WITHIN_MS: u64 = 90_000;
+/// The longest a forged copy of a request arrives after the original.
+pub const FORGERY_WITHIN_MS: u64 = 90_000;
+
+/// The key of the forger, who saw requests between nodes and sends them
+/// again under the only key it can prove, its own: no node of the network
+/// (spec/areas/peer-protocol.md#authentication).
+pub fn forger() -> Arc<NodeKey> {
+    Arc::new(NodeKey::from_bytes(&[0xf0; 32]))
+}
+
+/// Whether a request of `kind` may be taken from anyone, the forger
+/// included: one that only reads, a link state, signed by its node and
+/// relayed by anyone, or a commitment to a name, whose holder is sealed in
+/// it. Any other is taken only from a node the recipient holds something
+/// with, as that node's own.
+const fn anyone_may_send(kind: dassie_peer::wire::Kind) -> bool {
+    use dassie_peer::wire::Kind;
+    kind.is_read_only() || matches!(kind, Kind::LinkStateUpdate | Kind::NameCommit)
+}
 
 /// What a run settles over.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -513,15 +529,13 @@ enum Delivery {
         id: RequestId,
         result: Result<Response, Failure>,
     },
-    /// A copy of a request, as an attacker who saw it would send it again:
-    /// its answer goes to no one.
-    Replay {
+    /// A copy of a request, as the forger who saw it sends it again, under
+    /// its own key: its answer goes to no one.
+    Forged {
         from: usize,
         to: usize,
         /// When its original arrived.
         arrived: u64,
-        /// Its original, in [`Sim::originals`].
-        original: usize,
         body: Vec<u8>,
     },
     /// A request on a node's connection to the ledger.
@@ -596,16 +610,6 @@ enum Delivery {
     /// A node's connection to a lying server ends, if it is still open:
     /// the next is honest.
     Honest { to: usize, connection: u64 },
-}
-
-/// What became of a replayed request's original.
-#[derive(Clone, Copy, Debug)]
-enum Original {
-    /// Not answered yet, by the node in its `generation`: if the node
-    /// crashed since, it was lost.
-    Pending(u64),
-    /// Answered with this status.
-    Answered(u16),
 }
 
 /// A payment by a BTP client of one node to the receiver of another.
@@ -725,12 +729,9 @@ pub struct SimNode {
     next_inbound: u64,
     /// Inbound peer requests waiting for the core's reply.
     inbound: BTreeMap<InboundId, (usize, u64, RequestId)>,
-    /// Inbound requests that are copied later: the original's place in
-    /// [`Sim::originals`].
-    copied: BTreeMap<InboundId, usize>,
-    /// Copies waiting for the core's reply, which goes nowhere: their
-    /// original's place in [`Sim::originals`], and whether it only reads.
-    replays: BTreeMap<InboundId, (usize, bool)>,
+    /// The forger's copies waiting for the core's reply, which goes
+    /// nowhere: their kinds.
+    forged: BTreeMap<InboundId, Option<dassie_peer::wire::Kind>>,
     /// The commit it is to fail, while it has one.
     failing: Option<FailedCommit>,
     /// Inbound Fulfills of Prepares it sent, waiting for the core's reply.
@@ -750,11 +751,9 @@ pub struct Sim {
     rng: SeededRng,
     /// How many of a thousand messages are lost.
     pub loss_per_mille: u64,
-    /// How many of a thousand requests that arrive are replayed, up to
-    /// [`REPLAY_WITHIN_MS`] later.
-    pub replay_per_mille: u64,
-    /// What became of each replayed request's original.
-    originals: Vec<Original>,
+    /// How many of a thousand requests that arrive the forger sends again,
+    /// up to [`FORGERY_WITHIN_MS`] later, under its own key ([`forger`]).
+    pub forgery_per_mille: u64,
     /// The nodes the issuer is to mint the run's token once their line
     /// exists.
     to_mint: BTreeSet<usize>,
@@ -844,8 +843,6 @@ pub struct Sim {
     /// The nodes that are to fail a commit for [`Sim::fail_commit_anywhere`]:
     /// once one of them has, the others let their commits through.
     anywhere: BTreeSet<usize>,
-    /// The node and the copy of a request it takes in the step under way.
-    replaying: Option<(usize, InboundId)>,
     /// The Prepares on their way, until their sender took the Fulfill, or
     /// was refused, or could no longer take it.
     sent: BTreeMap<PacketKey, Sent>,
@@ -947,8 +944,7 @@ impl Sim {
             sequence: 0,
             rng: SeededRng::new(seed),
             loss_per_mille: 10,
-            replay_per_mille: 0,
-            originals: Vec::new(),
+            forgery_per_mille: 0,
             to_mint: (0..skews_ms.len())
                 .filter(|index| {
                     settling
@@ -990,7 +986,6 @@ impl Sim {
             fundings: BTreeMap::new(),
             given_up: BTreeSet::new(),
             anywhere: BTreeSet::new(),
-            replaying: None,
             sent: BTreeMap::new(),
             finals: BTreeSet::new(),
             fulfills_sent: BTreeMap::new(),
@@ -1015,8 +1010,7 @@ impl Sim {
                 generation: 0,
                 next_inbound: 0,
                 inbound: BTreeMap::new(),
-                copied: BTreeMap::new(),
-                replays: BTreeMap::new(),
+                forged: BTreeMap::new(),
                 failing: None,
                 fulfills: BTreeMap::new(),
             });
@@ -1067,8 +1061,7 @@ impl Sim {
         let node = &mut self.nodes[index];
         node.generation += 1;
         node.inbound.clear();
-        node.copied.clear();
-        node.replays.clear();
+        node.forged.clear();
         node.fulfills.clear();
         let (realm, live) = self.settling.realm();
         let parts = CoreParts {
@@ -1212,10 +1205,7 @@ impl Sim {
         self.trace
             .push(format!("{} {index} failed a commit and stopped", self.now));
         let inbound = std::mem::take(&mut self.nodes[index].inbound);
-        for (inbound, (to, generation, id)) in inbound {
-            if let Some(original) = self.nodes[index].copied.remove(&inbound) {
-                self.originals[original] = Original::Answered(503);
-            }
+        for (_, (to, generation, id)) in inbound {
             let delay = self.latency();
             let result = Ok(Response {
                 status: 503,
@@ -1251,20 +1241,9 @@ impl Sim {
                 Lost::record(&mut sent.lost, Lost::PeerCrash);
             }
         }
-        // A copy it was still working on passed the replay check. The copy
-        // whose own step failed a commit may not have: what it did was
-        // lost with its answer.
-        let replays = std::mem::take(&mut self.nodes[index].replays);
-        for (inbound, (original, reads)) in replays {
-            if self.replaying == Some((index, inbound)) {
-                self.trace.push(format!(
-                    "{} {index} lost a replay with its commit",
-                    self.now
-                ));
-                continue;
-            }
-            self.replay_answered(index, original, reads, None);
-        }
+        // A copy it was still working on is lost with the crash: whatever
+        // it did, it did as the forger's.
+        self.nodes[index].forged.clear();
         if let Some(link) = self.links.remove(&index) {
             self.ledger.disconnect(link.connection);
         }
@@ -1299,44 +1278,31 @@ impl Sim {
         self.queue.insert((at, self.sequence), delivery);
     }
 
-    /// Node `index` answered a copy of a request with `status`, or crashed
-    /// still working on it (`None`). Refused as a replay or for its age
-    /// (401), it is refused. Anything else passed the replay check: taken,
-    /// it must be a copy of a request that had no effect, one refused, or
-    /// lost when the node crashed before answering it. A copy of one
-    /// answered 200, or of one still under way, is taken twice, and fails
-    /// the run for safety, unless it only reads (`reads`): from a sender
-    /// whose replay state is not kept for good, such a request is not
-    /// recorded, and taking it twice changes nothing
-    /// (spec/areas/peer-protocol.md#replay-protection). A 503 for want of
-    /// a place for the sender's replay state also comes before the check,
-    /// but every sender here is one of a few nodes, which always have one.
-    fn replay_answered(&mut self, index: usize, original: usize, reads: bool, status: Option<u16>) {
-        self.trace.push(format!(
-            "{} {index} answers the replay {status:?}",
+    /// Node `index` answered the forger's copy of a request of `kind`
+    /// with `status`. The copy is the forger's own request, and the forger
+    /// holds nothing with any node: only what anyone may send may be taken
+    /// from it ([`anyone_may_send`]); anything else taken fails the run for
+    /// safety.
+    fn forgery_answered(
+        &mut self,
+        index: usize,
+        kind: Option<dassie_peer::wire::Kind>,
+        status: u16,
+    ) {
+        self.trace
+            .push(format!("{} {index} answers the forgery {status}", self.now));
+        if status != 200 {
+            self.count("forgeries refused");
+            return;
+        }
+        if kind.is_some_and(anyone_may_send) {
+            self.count("forgeries anyone may send");
+            return;
+        }
+        self.errors.push(format!(
+            "{} node {index} took the forger's {kind:?}",
             self.now
         ));
-        if status == Some(401) {
-            self.count("replays refused");
-            return;
-        }
-        if reads {
-            self.count("replays of requests that only read");
-            return;
-        }
-        let twice = match self.originals[original] {
-            Original::Answered(answered) => answered == 200,
-            Original::Pending(generation) => generation == self.nodes[index].generation,
-        };
-        if twice {
-            self.errors.push(format!(
-                "{} node {index} took a replayed request twice: answered {status:?}, \
-                 its original {:?}",
-                self.now, self.originals[original]
-            ));
-        } else {
-            self.count("replays of requests that had no effect");
-        }
     }
 
     /// The time on node `index`'s clock.
@@ -1711,12 +1677,9 @@ impl Sim {
                 );
             }
             Output::PeerReply { inbound, reply } => {
-                if let Some((original, reads)) = self.nodes[index].replays.remove(&inbound) {
-                    self.replay_answered(index, original, reads, Some(reply.status));
+                if let Some(kind) = self.nodes[index].forged.remove(&inbound) {
+                    self.forgery_answered(index, kind, reply.status);
                     return;
-                }
-                if let Some(original) = self.nodes[index].copied.remove(&inbound) {
-                    self.originals[original] = Original::Answered(reply.status);
                 }
                 if let Some(key) = self.nodes[index].fulfills.remove(&inbound)
                     && reply.status == 200
@@ -2124,23 +2087,20 @@ impl Sim {
                     );
                     return;
                 }
-                // Someone who saw it arrive sends it again, later: a request
-                // that never arrived was never sent, so no one has it. A run
-                // without replays draws nothing for them.
-                if self.replay_per_mille > 0 && self.rng.next_u64() % 1000 < self.replay_per_mille {
-                    let original = self.originals.len();
-                    let node = &mut self.nodes[to];
-                    self.originals.push(Original::Pending(node.generation));
-                    node.copied.insert(InboundId(node.next_inbound), original);
-                    let later = 1 + self.rng.next_u64() % REPLAY_WITHIN_MS;
-                    let replay = Delivery::Replay {
+                // Someone who saw it arrive sends it again, later, as its
+                // own: a request that never arrived was never sent, so no
+                // one has it. A run without forgeries draws nothing for
+                // them.
+                if self.forgery_per_mille > 0 && self.rng.next_u64() % 1000 < self.forgery_per_mille
+                {
+                    let later = 1 + self.rng.next_u64() % FORGERY_WITHIN_MS;
+                    let forged = Delivery::Forged {
                         from,
                         to,
                         arrived: self.now,
-                        original,
                         body: body.clone(),
                     };
-                    self.schedule(later, replay);
+                    self.schedule(later, forged);
                 }
                 let fulfill = match ilp_packet(&body) {
                     Some((request_id, dassie_ilp::Packet::Fulfill(fulfill))) => {
@@ -2157,32 +2117,30 @@ impl Sim {
                 if let Some(key) = fulfill {
                     node.fulfills.insert(inbound, key);
                 }
-                self.step(to, |core| core.peer_inbound(inbound, &body, None));
+                let sender = key(from).public_key();
+                self.step(to, |core| core.peer_inbound(inbound, sender, &body, None));
             }
-            Delivery::Replay {
+            Delivery::Forged {
                 from,
                 to,
                 arrived,
-                original,
                 body,
             } => {
                 if self.nodes[to].core.is_none() {
                     return;
                 }
-                self.count("replays");
+                self.count("forgeries");
                 self.trace.push(format!(
-                    "{} replay to {to} of {from}'s request that arrived at {arrived}",
+                    "{} forgery to {to} of {from}'s request that arrived at {arrived}",
                     self.now
                 ));
-                let reads = dassie_peer::wire::peek_kind(&body)
-                    .is_some_and(dassie_peer::wire::Kind::is_read_only);
+                let kind = dassie_peer::wire::peek_kind(&body);
                 let node = &mut self.nodes[to];
                 let inbound = InboundId(node.next_inbound);
                 node.next_inbound += 1;
-                node.replays.insert(inbound, (original, reads));
-                self.replaying = Some((to, inbound));
-                self.step(to, |core| core.peer_inbound(inbound, &body, None));
-                self.replaying = None;
+                node.forged.insert(inbound, kind);
+                let sender = forger().public_key();
+                self.step(to, |core| core.peer_inbound(inbound, sender, &body, None));
             }
             Delivery::LedgerRequest {
                 from,

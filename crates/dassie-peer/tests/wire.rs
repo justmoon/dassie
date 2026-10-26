@@ -19,14 +19,13 @@ use dassie_identity::{NodeId, NodeKey, PublicKey, Signature};
 use dassie_oer::{Decode, Encode};
 use dassie_peer::names::{Commitment, MAX_NAME_BYTES, Name, Salt};
 use dassie_peer::wire::{
-    Authentication, Content, EXTENSION_HUB, EXTENSION_HUBS, EXTENSION_METHODS, Entry, Envelope,
-    EnvelopeError, HmacAuthentication, HubList, HubListing, HubMembership, InvalidNodeInfo, Kind,
-    LinkStateResponse, MAX_COMMITMENT_BYTES, MAX_HUBS, MAX_NAME_LIST, MAX_NAME_LIST_BYTES,
-    MAX_URL_BYTES, MethodResponse, NameHolding, NameListResponse, NameReceipt, NodeInfo,
-    NodeListResponse, PeeringRequest, PeeringResponse, RefusalReason, ResponseEnvelope, SchemeId,
-    SignedNodeInfo, TerminationReason, decode_expiry, decode_hash, decode_octets, decode_settling,
-    encode_envelope, encode_expiry, encode_octets, encode_response, encode_settling,
-    hub_list_bytes, is_valid_url, peek_kind, sign_node_info,
+    Content, EXTENSION_HUB, EXTENSION_HUBS, EXTENSION_METHODS, Entry, Envelope, EnvelopeError,
+    HubList, HubListing, HubMembership, InvalidNodeInfo, Kind, LinkStateResponse,
+    MAX_COMMITMENT_BYTES, MAX_HUBS, MAX_NAME_LIST, MAX_NAME_LIST_BYTES, MAX_URL_BYTES,
+    MethodResponse, NameHolding, NameListResponse, NameReceipt, NodeInfo, NodeListResponse,
+    PeeringRequest, PeeringResponse, RefusalReason, SchemeId, SignedNodeInfo, TerminationReason,
+    decode_expiry, decode_hash, decode_octets, decode_settling, encode_envelope, encode_expiry,
+    encode_octets, encode_settling, hub_list_bytes, is_valid_url, peek_kind, sign_node_info,
 };
 use proptest::prelude::*;
 use sha2::{Digest, Sha256};
@@ -238,11 +237,8 @@ fn a_v0_envelope_is_another_version() {
         Envelope::decode(&vector("nodeListHashRequest")),
         Err(EnvelopeError::Version(0))
     );
-    let mut v1 = with_v1_ids(&vector("nodeListHashRequest"));
-    v1[0] = 1;
+    let v1 = encode_envelope(&Content::NodeListHashRequest.to_vec());
     let envelope = Envelope::decode(&v1).unwrap();
-    assert_eq!(envelope.sender, node_a().node_id());
-    assert_eq!(envelope.authentication, Authentication::None);
     assert_eq!(
         Content::decode_exact(envelope.content).unwrap(),
         Content::NodeListHashRequest
@@ -250,46 +246,20 @@ fn a_v0_envelope_is_another_version() {
     assert_eq!(peek_kind(&v1), Some(Kind::NodeListHashRequest));
 }
 
-fn hmac() -> HmacAuthentication {
-    HmacAuthentication {
-        sender_key: *node_a().public_key().as_bytes(),
-        session_id: [5; 16],
-        counter: 7,
-        timestamp_ms: 1_700_000_000_123,
-        mac: [9; 32],
-    }
-}
-
 // The v1 encodings, pinned: a change to them is a change to the protocol.
 #[test]
 fn v1_encodings_are_pinned() {
+    // The version, then the content: who sent it is the connection's.
     let content = Content::NodeListRequest.to_vec();
-    let envelope = encode_envelope(&node_a().node_id(), &Authentication::Hmac(hmac()), &content);
-    assert_eq!(
-        to_hex(&envelope),
-        "016a0bccb9a25f7f61f90eb9c9c3c96598af9667cdd6ad2cd8\
-         818a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c\
-         05050505050505050505050505050505\
-         0000000000000007\
-         0000018bcfe5687b\
-         0909090909090909090909090909090909090909090909090909090909090909\
-         87"
-    );
-    let decoded = Envelope::decode(&envelope).unwrap();
-    assert_eq!(decoded.authentication, Authentication::Hmac(hmac()));
+    let envelope = encode_envelope(&content);
+    assert_eq!(to_hex(&envelope), "0187");
+    assert_eq!(Envelope::decode(&envelope).unwrap().content, content);
+    assert!(Envelope::decode(&[0x01]).is_err(), "no content");
     let response = PeeringResponse::Accepted { data: &[0xab] };
     assert_eq!(to_hex(&response.to_vec()), "8001ab");
     assert_eq!(
         to_hex(&PeeringResponse::Refused(RefusalReason::Capacity).to_vec()),
         "8104"
-    );
-    let wrapped = encode_response(Some(&[2; 32]), &[0x80]);
-    assert_eq!(
-        ResponseEnvelope::decode(&wrapped).unwrap(),
-        ResponseEnvelope {
-            mac: Some([2; 32]),
-            body: &[0x80],
-        }
     );
 }
 
@@ -355,7 +325,6 @@ fn settlements_and_terminations_are_pinned() {
         Content::PeeringTermination(TerminationReason::Unspecified)
     );
     assert_eq!(Kind::from_tag(10), Some(Kind::PeeringTermination));
-    assert!(Kind::PeeringTermination.requires_authentication());
     // spec/decisions/own-fulfills.md: a settlement request names its scheme
     // alone.
     let request = Content::SettlementRequest {
@@ -363,7 +332,6 @@ fn settlements_and_terminations_are_pinned() {
     };
     assert_eq!(to_hex(&request.to_vec()), "8b0473747562");
     assert_eq!(Kind::from_tag(11), Some(Kind::SettlementRequest));
-    assert!(Kind::SettlementRequest.requires_authentication());
     assert!(Content::decode_exact(&[0x8b]).is_err());
     assert!(Content::decode_exact(&[0x8c]).is_err());
     assert_eq!(
@@ -378,7 +346,6 @@ proptest! {
         let _ = Envelope::decode(&bytes);
         let _ = Content::decode_exact(&bytes);
         let _ = SignedNodeInfo::decode_exact(&bytes);
-        let _ = ResponseEnvelope::decode(&bytes);
         let _ = PeeringResponse::decode_exact(&bytes);
         let _ = LinkStateResponse::decode_exact(&bytes);
         let _ = NodeListResponse::decode_exact(&bytes);
@@ -530,10 +497,7 @@ fn decode_envelope(body: &[u8]) -> Result<(), TestCaseError> {
         prop_assert_eq!(peek_kind(body), None);
         return Ok(());
     };
-    prop_assert_eq!(
-        encode_envelope(&envelope.sender, &envelope.authentication, envelope.content),
-        body
-    );
+    prop_assert_eq!(encode_envelope(envelope.content), body);
     if let Ok(content) = Content::decode_exact(envelope.content) {
         prop_assert_eq!(peek_kind(body), Some(content.kind()));
     }
@@ -554,16 +518,11 @@ proptest! {
     }
 
     #[test]
-    fn broken_envelopes_never_panic(authentication in 0..3usize, mutations in mutations()) {
-        let authentication = [
-            Authentication::Hmac(hmac()),
-            Authentication::Reserved(&[2; 64]),
-            Authentication::None,
-        ][authentication];
+    fn broken_envelopes_never_panic(mutations in mutations()) {
         let signed = signed_full();
         for tag in 0..KINDS {
             let content = content(tag, &signed);
-            let body = encode_envelope(&node_a().node_id(), &authentication, &content);
+            let body = encode_envelope(&content);
             decode_envelope(&mutate(&body, &mutations))?;
         }
     }
@@ -597,16 +556,9 @@ proptest! {
     }
 
     #[test]
-    fn broken_responses_never_panic(wrapped in any::<bool>(), mutations in mutations()) {
+    fn broken_responses_never_panic(mutations in mutations()) {
         for kind in 0..RESPONSES {
-            if wrapped {
-                let bytes = encode_response(Some(&[2; 32]), &response(kind));
-                if let Ok(envelope) = ResponseEnvelope::decode(&mutate(&bytes, &mutations)) {
-                    decode_response(kind, envelope.body)?;
-                }
-            } else {
-                decode_response(kind, &mutate(&response(kind), &mutations))?;
-            }
+            decode_response(kind, &mutate(&response(kind), &mutations))?;
         }
     }
 
@@ -702,7 +654,6 @@ fn hub_packets_are_pinned_and_bounded() {
     assert_eq!(Content::decode_exact(&content.to_vec()).unwrap(), content);
     assert_eq!(Kind::from_tag(12), Some(Kind::HubPacket));
     assert_eq!(content.kind(), Kind::HubPacket);
-    assert!(Kind::HubPacket.requires_authentication());
     assert!(!Kind::HubPacket.is_read_only());
     assert!(Kind::HubPacket.carries_packet() && Kind::InterledgerPacket.carries_packet());
     assert!(!Kind::Settlement.carries_packet());
@@ -917,10 +868,10 @@ fn name_messages_are_pinned() {
     }
     assert_eq!(Kind::from_tag(18), Some(Kind::MethodPacket));
     for kind in [Kind::NameCommit, Kind::NameUnseal, Kind::NameRenew] {
-        assert!(kind.requires_authentication() && !kind.is_read_only());
+        assert!(!kind.is_read_only());
     }
     for kind in [Kind::NameListHashRequest, Kind::NameListRequest] {
-        assert!(!kind.requires_authentication() && kind.is_read_only());
+        assert!(kind.is_read_only());
     }
     for kind in (13..=17).filter_map(Kind::from_tag) {
         assert!(!kind.carries_packet());
@@ -1078,7 +1029,7 @@ fn settlement_method_messages_are_pinned_and_bounded() {
         );
         let kind = Kind::from_tag(tag).unwrap();
         assert_eq!((content.kind(), kind.tag()), (kind, tag));
-        assert!(kind.requires_authentication() && !kind.is_read_only());
+        assert!(!kind.is_read_only());
         assert_eq!(kind.carries_packet(), kind == Kind::MethodPacket);
     }
     assert_eq!(Content::decode_exact(&direct.to_vec()).unwrap(), direct);

@@ -105,6 +105,7 @@ impl Handler for Echo {
     fn answer<'a>(
         &'a self,
         _client: IpAddr,
+        _from: dassie_identity::PublicKey,
         body: Body<'a>,
     ) -> Pin<Box<dyn Future<Output = Answer> + Send + 'a>> {
         Box::pin(async move {

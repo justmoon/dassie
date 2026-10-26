@@ -214,10 +214,13 @@ pub trait Handler: Send + Sync + 'static {
         None
     }
 
-    /// Answers a request from `client` whose body `body` reads.
+    /// Answers a request from `client`, by the node whose key `from` its
+    /// connection proved, whose body `body` reads: the request is that
+    /// node's, and no other's (spec/areas/peer-protocol.md#authentication).
     fn answer<'a>(
         &'a self,
         client: IpAddr,
+        from: PublicKey,
         body: Body<'a>,
     ) -> Pin<Box<dyn Future<Output = Answer> + Send + 'a>>;
 
@@ -1265,8 +1268,16 @@ impl On {
         }
     }
 
-    /// Answers a peer request: its envelope, then the stream's end.
+    /// Answers a peer request: its envelope, then the stream's end. It is
+    /// the request of the node whose key the connection proved; a client
+    /// proves one in every handshake, so a connection without one never
+    /// gets this far, and its stream is reset.
     async fn answer(self, mut send: quinn::SendStream, mut recv: quinn::RecvStream) {
+        let Some(from) = keys::peer_key(&self.connection) else {
+            let _ = send.reset(0u32.into());
+            let _ = recv.stop(0u32.into());
+            return;
+        };
         let body: Body<'_> = Box::pin(async move {
             read_in_order(&mut recv, MAX_MESSAGE_BYTES)
                 .await
@@ -1275,7 +1286,7 @@ impl On {
                     ReadToEndError::Read(_) => BodyError::Broken,
                 })
         });
-        let answer = self.handler.answer(self.client, body).await;
+        let answer = self.handler.answer(self.client, from, body).await;
         let mut bytes = Vec::with_capacity(STATUS_BYTES + answer.body.len());
         bytes.extend_from_slice(&answer.status.to_be_bytes());
         bytes.extend_from_slice(&answer.body);
@@ -1535,6 +1546,7 @@ mod tests {
         fn answer<'a>(
             &'a self,
             _client: IpAddr,
+            _from: dassie_identity::PublicKey,
             body: Body<'a>,
         ) -> Pin<Box<dyn Future<Output = Answer> + Send + 'a>> {
             Box::pin(async move {

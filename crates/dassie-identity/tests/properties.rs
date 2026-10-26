@@ -7,8 +7,7 @@ use curve25519_dalek::Scalar;
 use curve25519_dalek::constants::EIGHT_TORSION;
 use dassie_identity::{
     Error, LoginSecret, Mnemonic, NODE_ID_BYTES, NODE_ID_LENGTH, NodeId, NodeKey, NodeSecret,
-    PKCS8_DER_LENGTH, PublicKey, SPKI_DER_LENGTH, Segment, Signature, WordCount, X25519Public,
-    X25519Secret,
+    PKCS8_DER_LENGTH, PublicKey, SPKI_DER_LENGTH, Segment, Signature, WordCount,
 };
 use proptest::prelude::*;
 
@@ -71,26 +70,6 @@ fn signature_scalar() -> impl Strategy<Value = [u8; 32]> {
             scalar
         }),
     ]
-}
-
-/// The `u` of X25519 keys that give the all-zero result whatever the secret
-/// (RFC 7748 §6.1): the images of the eight points of small order, `p - 1`,
-/// and the non-canonical `p` and `p + 1`, each also with the top bit set,
-/// which X25519 ignores.
-fn low_order_u() -> impl Strategy<Value = [u8; 32]> {
-    let mut points: Vec<[u8; 32]> = EIGHT_TORSION
-        .iter()
-        .map(|point| point.to_montgomery().to_bytes())
-        .collect();
-    let mut minus_one = p_plus(0);
-    minus_one[0] = 0xec;
-    points.extend([minus_one, p_plus(0), p_plus(1)]);
-    (prop::sample::select(points), any::<bool>()).prop_map(|(mut u, top)| {
-        if top {
-            u[31] |= 0x80;
-        }
-        u
-    })
 }
 
 /// A login secret and a candidate proof: the secret itself, with one bit
@@ -325,33 +304,6 @@ proptest! {
         } else {
             prop_assert!(matches!(result, Ok(()) | Err(Error::InvalidSignature)));
         }
-    }
-
-    #[test]
-    fn x25519_never_panics(secret: [u8; 32], peer in prop_oneof![any::<[u8; 32]>(), low_order_u()]) {
-        let peer = X25519Public::from_bytes(peer);
-        match X25519Secret::from_bytes(secret).diffie_hellman(&peer) {
-            Ok(shared) => prop_assert_ne!(shared.as_bytes(), &[0; 32]),
-            Err(error) => prop_assert_eq!(error, Error::NonContributory),
-        }
-    }
-
-    #[test]
-    fn x25519_refuses_low_order_peers(secret: [u8; 32], peer in low_order_u()) {
-        let peer = X25519Public::from_bytes(peer);
-        let result = X25519Secret::from_bytes(secret).diffie_hellman(&peer);
-        prop_assert_eq!(result.map(|_| ()), Err(Error::NonContributory));
-    }
-
-    /// The path peers take: an Ed25519 key, mapped to X25519. The exchange
-    /// fails exactly for the weak keys, which peers refuse before it.
-    #[test]
-    fn x25519_with_node_keys_fails_only_for_weak_keys(secret: [u8; 32], key in edwards_encoding()) {
-        let Ok(public_key) = PublicKey::from_bytes(&key) else {
-            return Ok(());
-        };
-        let result = X25519Secret::from_bytes(secret).diffie_hellman(&public_key.to_x25519());
-        prop_assert_eq!(result.is_err(), public_key.is_weak());
     }
 
     #[test]

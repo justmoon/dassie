@@ -2,23 +2,22 @@
 //! of its own bootstrap nodes: it logs commitments, takes their unsealings
 //! and renewals, grants names as windows close, serves its name list, and
 //! releases the names the other registrars' lists show split. The rule is
-//! [`Registrar`]'s; here is who may ask what, what each answer is, the
-//! replay state of the nodes a registrar involves, and the events. At every
+//! [`Registrar`]'s; here is who may ask what, what each answer is, and the
+//! events. At every
 //! node: polling the registrars' name lists, and taking from them who holds
 //! each name, which is [`Holders`]'; and registering names for the node and
 //! renewing them, which is [`Registrant`]'s: here they are sent, to our own
 //! registrar too, if we are one.
 
-use alloc::collections::BTreeSet;
 use alloc::vec::Vec;
 
 use dassie_identity::NodeId;
 use dassie_oer::{Decode, Encode};
 use sha2::{Digest, Sha256};
 
+use super::inbound::Accepted;
 use super::inbound::ok;
 use super::{Bootstrap, PeerNode, Problem, Purpose};
-use crate::auth::Accepted;
 use crate::config::Config;
 use crate::io::{Event, NameEvent, Reply};
 use crate::names::registrant::{
@@ -73,7 +72,7 @@ impl PeerNode {
         network: Option<Network>,
     ) -> Reply {
         match self.commit_here(accepted.sender, commitment, network) {
-            Ok(receipt) => ok(accepted, &receipt.to_vec()),
+            Ok(receipt) => ok(&receipt.to_vec()),
             Err(refusal) => refusal,
         }
     }
@@ -86,19 +85,13 @@ impl PeerNode {
         commitment: Commitment,
         network: Option<Network>,
     ) -> Result<NameReceipt, Reply> {
-        let (own, now) = (self.own, self.now_ms);
+        let now = self.now_ms;
         let Some(registrar) = self.registrar.as_mut() else {
             return Err(Reply::refuse(409, NOT_REGISTRAR));
         };
         match registrar.commit(commitment, sender, network, now) {
             Ok(Committed::Again(receipt)) => Ok(receipt),
             Ok(Committed::New(receipt)) => {
-                // Its unsealing must get through however many strangers
-                // write to us, and its floor is persisted with the
-                // commitment (spec/areas/peer-protocol.md#replay-protection).
-                if sender != own {
-                    self.auth.pin(sender);
-                }
                 self.stats.commitments_logged += 1;
                 self.event(Event::Name(NameEvent::Committed {
                     committer: sender,
@@ -115,7 +108,7 @@ impl PeerNode {
     /// answer tells nothing of commitments still sealed.
     pub(super) fn name_unseal(&mut self, accepted: &Accepted, name: Name, salt: &Salt) -> Reply {
         match self.unseal_here(accepted.sender, name, salt) {
-            Ok(()) => ok(accepted, &[]),
+            Ok(()) => ok(&[]),
             Err(refusal) => refusal,
         }
     }
@@ -123,18 +116,13 @@ impl PeerNode {
     /// Takes `sender`'s unsealing at our registrar, or the answer that
     /// refuses it.
     fn unseal_here(&mut self, sender: NodeId, name: Name, salt: &Salt) -> Result<(), Reply> {
-        let (own, now) = (self.own, self.now_ms);
+        let now = self.now_ms;
         let Some(registrar) = self.registrar.as_mut() else {
             return Err(Reply::refuse(409, NOT_REGISTRAR));
         };
         match registrar.unseal(sender, name, salt, now) {
             Ok(Unsealed::Again) => {}
             Ok(Unsealed::New { contends }) => {
-                // A copied commitment may have been logged by another node:
-                // the holder has a part of its own now.
-                if sender != own {
-                    self.auth.pin(sender);
-                }
                 self.event(Event::Name(NameEvent::Unsealed {
                     name,
                     holder: sender,
@@ -149,7 +137,7 @@ impl PeerNode {
     /// A `nameRenew`, from the name's holder: answered with its expiry.
     pub(super) fn name_renew(&mut self, accepted: &Accepted, name: Name) -> Reply {
         match self.renew_here(accepted.sender, name) {
-            Ok(expires_ms) => ok(accepted, &encode_expiry(expires_ms)),
+            Ok(expires_ms) => ok(&encode_expiry(expires_ms)),
             Err(refusal) => refusal,
         }
     }
@@ -183,24 +171,18 @@ impl PeerNode {
 
     /// The name list we serve, or its hash: a registrar's names listed now.
     /// A node that is no registrar serves none.
-    pub(super) fn name_list(&mut self, accepted: &Accepted, hash_only: bool) -> Reply {
+    pub(super) fn name_list(&mut self, hash_only: bool) -> Reply {
         let now = self.now_ms;
         let Some(registrar) = self.registrar.as_mut() else {
             return Reply::refuse(409, NOT_REGISTRAR);
         };
         let (served, hash) = registrar.served(now);
-        if hash_only {
-            ok(accepted, &hash)
-        } else {
-            ok(accepted, served)
-        }
+        if hash_only { ok(&hash) } else { ok(served) }
     }
 
     /// Takes in the passing of time at the registrar: grants, losses,
     /// lapses and names freed, reported together in one event, however many
-    /// there were (spec/areas/network.md#the-registrar). A node left with no
-    /// part in it lets its replay state go, unless it is kept for another
-    /// reason.
+    /// there were (spec/areas/network.md#the-registrar).
     pub(super) fn tend_names(&mut self) {
         let (now, queued) = (self.now_ms, self.events_queued());
         let Some(registrar) = self.registrar.as_mut() else {
@@ -209,16 +191,9 @@ impl PeerNode {
         if registrar.next_due().is_none_or(|due| due > now) {
             return;
         }
-        let before: BTreeSet<NodeId> = registrar.parties().collect();
         let mut happened = Vec::new();
         registrar.on_time(now, &mut happened);
-        let after: BTreeSet<NodeId> = registrar.parties().collect();
         self.report_tended(&happened);
-        for node in before.difference(&after) {
-            if !self.keeps_replay_state(node) {
-                self.auth.unpin(now, node);
-            }
-        }
         assert!(
             self.events_since(queued) <= MAX_REGISTRAR_EVENTS,
             "a step of the registrar's timer queues a bounded number of events"
@@ -327,9 +302,9 @@ impl PeerNode {
         }
     }
 
-    /// A downloaded name list. Its authenticity comes from the response MAC
-    /// under the registrar's configured key, as a node list's; its hash is
-    /// that of what was received.
+    /// A downloaded name list. Its authenticity comes from the connection,
+    /// pinned to the registrar's configured key, as a node list's; its hash
+    /// is that of what was received.
     pub(super) fn on_name_list(&mut self, from: NodeId, result: Result<Vec<u8>, Problem>) {
         self.name_polling.remove(&from);
         let Ok(body) = result else {
@@ -370,9 +345,7 @@ impl PeerNode {
 
     /// Releases the names we list that more than f of the other registrars'
     /// fresh lists have lacked the holder of for long enough
-    /// (spec/areas/network.md#releasing-a-split), reported together. A
-    /// holder left with no part here lets its replay state go, unless it is
-    /// kept for another reason.
+    /// (spec/areas/network.md#releasing-a-split), reported together.
     fn release_splits(&mut self) {
         let (own, now) = (self.own, self.now_ms);
         let holders = &self.holders;
@@ -382,16 +355,10 @@ impl PeerNode {
         let mut happened = Vec::new();
         let is_split = |name: &Name, holder: &NodeId| holders.is_split(&own, name, holder, now);
         registrar.release_splits(now, is_split, &mut happened);
-        let mut released = 0;
-        for happening in happened {
-            let Happened::Released { holder, .. } = happening else {
-                continue;
-            };
-            released += 1;
-            if !self.keeps_replay_state(&holder) {
-                self.auth.unpin(now, &holder);
-            }
-        }
+        let released = happened
+            .iter()
+            .filter(|happening| matches!(happening, Happened::Released { .. }))
+            .count();
         if released > 0 {
             self.stats.names_released += u64::try_from(released).unwrap_or(u64::MAX);
             self.event(Event::Name(NameEvent::Released { names: released }));
@@ -628,8 +595,7 @@ impl PeerNode {
         }
     }
 
-    /// The view's invariants, the registrar's, and that every node it
-    /// involves keeps its replay state.
+    /// The view's invariants and the registrar's.
     pub(super) fn check_names(&self) {
         self.holders.check_invariants();
         self.registrant.check_invariants();
@@ -643,12 +609,6 @@ impl PeerNode {
             return;
         };
         registrar.check_invariants();
-        for party in registrar.parties() {
-            assert!(
-                party == self.own || self.auth.is_pinned(&party),
-                "a node a registrar involves keeps its replay state"
-            );
-        }
     }
 }
 
@@ -789,7 +749,6 @@ mod tests {
                 let commitment = Commitment::seal(&name, &committer, &Salt([0; 32]));
                 let registrar = node.registrar.as_mut().unwrap();
                 assert!(registrar.commit(commitment, committer, None, now).is_ok());
-                node.auth.pin(committer);
             }
         });
         let before = network.events.len();

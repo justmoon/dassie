@@ -13,7 +13,7 @@ use dassie_peer::names::{
 use dassie_peer::wire::{SchemeId, TerminationReason};
 use dassie_peer::{
     Channel, Closed, Depeering, Network, Outgoing, PeerBatch, Peering, Registration, Sources,
-    Stored, StoredChannel, StoredClosed, StoredFloor, StoredNode, Termination,
+    Stored, StoredChannel, StoredClosed, StoredNode, Termination,
 };
 use rusqlite::{Connection, Row, Transaction, params};
 
@@ -61,7 +61,6 @@ impl Store {
             own_sequence: from_sql_time(own_sequence),
             channels: load_channels(&connection)?,
             bans: load_bans(&connection)?,
-            floors: load_floors(&connection)?,
             name_log: load_name_log(&connection)?,
             commitments: load_commitments(&connection)?,
             names: load_names(&connection)?,
@@ -148,23 +147,6 @@ fn load_bans(connection: &Connection) -> Result<Vec<NodeId>, StoreError> {
         bans.push(NodeId::parse(&row?).map_err(|_| StoreError::Corrupt("node ID"))?);
     }
     Ok(bans)
-}
-
-fn load_floors(connection: &Connection) -> Result<Vec<StoredFloor>, StoreError> {
-    let mut statement =
-        connection.prepare_cached("SELECT node, floor_ms FROM replay_floors ORDER BY node")?;
-    let rows = statement.query_map([], |row| {
-        Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
-    })?;
-    let mut floors = Vec::new();
-    for row in rows {
-        let (node, floor_ms) = row?;
-        floors.push(StoredFloor {
-            node: NodeId::parse(&node).map_err(|_| StoreError::Corrupt("node ID"))?,
-            floor_ms: from_sql_time(floor_ms),
-        });
-    }
-    Ok(floors)
 }
 
 /// Where a registrar's log stands (spec/areas/network.md#names).
@@ -445,21 +427,6 @@ pub(super) fn write_peer(
     }
     for unbanned in &batch.unbanned {
         transaction.execute_cached("DELETE FROM peer_bans WHERE node = ?1", [unbanned.as_str()])?;
-    }
-    // Removals first, as for nodes: a sender forgotten and kept again in
-    // one batch keeps its floor.
-    for removed in &batch.floors_removed {
-        transaction.execute_cached(
-            "DELETE FROM replay_floors WHERE node = ?1",
-            [removed.as_str()],
-        )?;
-    }
-    for floor in &batch.floors {
-        transaction.execute_cached(
-            "INSERT INTO replay_floors (node, floor_ms) VALUES (?1, ?2)
-             ON CONFLICT (node) DO UPDATE SET floor_ms = ?2",
-            params![floor.node.as_str(), to_sql_time(floor.floor_ms)],
-        )?;
     }
     write_registrar(transaction, batch)?;
     write_holders(transaction, batch)?;

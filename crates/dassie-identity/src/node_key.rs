@@ -3,13 +3,10 @@
 use core::fmt;
 
 use ed25519_dalek::{Signer, SigningKey, VerifyingKey};
-use sha2::{Digest, Sha512};
-use zeroize::Zeroize;
 
 use crate::error::Error;
 use crate::node_id::NodeId;
 use crate::secret::{Hex, secret_bytes};
-use crate::x25519::{X25519Public, X25519Secret};
 
 /// PKCS#8 `PrivateKeyInfo` for an Ed25519 seed (RFC 8410 §7), up to the
 /// seed: version 0, algorithm 1.3.101.112, and an OCTET STRING holding an
@@ -85,23 +82,6 @@ impl NodeKey {
     #[must_use]
     pub fn sign(&self, message: &[u8]) -> Signature {
         Signature(self.signing.sign(message).to_bytes())
-    }
-
-    /// The static X25519 secret used for peer message authentication:
-    /// `clamp(SHA-512(seed)[0..32])`, as libsodium's
-    /// `crypto_sign_ed25519_sk_to_curve25519` computes it
-    /// (spec/areas/identity.md#x25519-key).
-    #[must_use]
-    pub fn x25519_secret(&self) -> X25519Secret {
-        let mut hash: [u8; 64] = Sha512::digest(self.as_bytes()).into();
-        let mut scalar = [0u8; 32];
-        if let Some(low) = hash.get(..32) {
-            scalar.copy_from_slice(low);
-        }
-        hash.zeroize();
-        let secret = X25519Secret::from_bytes(curve25519_dalek::scalar::clamp_integer(scalar));
-        scalar.zeroize();
-        secret
     }
 
     /// The PKCS#8 DER encoding (RFC 8410): what TLS takes the key in, and
@@ -203,14 +183,6 @@ impl PublicKey {
         self.zip215
             .verify(&signature, message)
             .map_err(|_| Error::InvalidSignature)
-    }
-
-    /// The X25519 public key: the Montgomery form `u = (1 + y) / (1 - y)` of
-    /// this point, as libsodium's `crypto_sign_ed25519_pk_to_curve25519`
-    /// computes it (spec/areas/identity.md#x25519-key).
-    #[must_use]
-    pub fn to_x25519(&self) -> X25519Public {
-        X25519Public::from_bytes(self.key.to_montgomery().to_bytes())
     }
 
     /// The `SubjectPublicKeyInfo` DER encoding (RFC 8410).

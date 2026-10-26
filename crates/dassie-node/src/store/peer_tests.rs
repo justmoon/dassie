@@ -4,7 +4,7 @@ use dassie_identity::NodeKey;
 use dassie_peer::wire::{SchemeId, TerminationReason};
 use dassie_peer::{
     Channel, Closed, Outgoing, PeerBatch, Peering, Registration, Sources, StoredChannel,
-    StoredClosed, StoredFloor, StoredNode, Termination,
+    StoredClosed, StoredNode, Termination,
 };
 
 use super::*;
@@ -139,52 +139,6 @@ fn peerings_end_with_their_nodes() {
         .query_row("SELECT count(*) FROM peers", [], |row| row.get(0))
         .unwrap();
     assert_eq!(peers, 0);
-}
-
-// Replay floors are kept apart from the node table: a node we hold a
-// channel with may leave it, and keeps its floor until it is forgotten.
-#[test]
-fn replay_floors_outlive_their_nodes_until_forgotten() {
-    let store = Store::open_in_memory().unwrap();
-    let (one, two) = (node(1).id, node(2).id);
-    commit(
-        &store,
-        PeerBatch {
-            nodes: vec![node(1)],
-            floors: vec![
-                StoredFloor {
-                    node: one,
-                    floor_ms: 16,
-                },
-                StoredFloor {
-                    node: two,
-                    floor_ms: 20,
-                },
-            ],
-            ..PeerBatch::default()
-        },
-    );
-    commit(
-        &store,
-        PeerBatch {
-            removed: vec![one],
-            floors: vec![StoredFloor {
-                node: one,
-                floor_ms: 17,
-            }],
-            floors_removed: vec![two],
-            ..PeerBatch::default()
-        },
-    );
-    let stored = store.load_peer().unwrap();
-    assert!(stored.nodes.is_empty());
-    assert_eq!(
-        stored.floors,
-        vec![StoredFloor {
-            node: one,
-            floor_ms: 17,
-        }]
-    );
 }
 
 // The peer rows commit with the ledger's, or not at all: a peering and

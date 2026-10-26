@@ -582,16 +582,18 @@ impl Core {
         f(&mut self.peer, &mut hooks, now)
     }
 
-    /// An inbound peer request: its reply goes out once the batch is on
-    /// disk, as a peer accepting a peering must have recorded it first.
+    /// An inbound peer request, from the node whose key `from` its
+    /// connection proved: its reply goes out once the batch is on disk, as
+    /// a peer accepting a peering must have recorded it first.
     pub fn peer_inbound(
         &mut self,
         inbound: InboundId,
+        from: dassie_identity::PublicKey,
         body: &[u8],
         source: Option<std::net::IpAddr>,
     ) {
         let outcome = self.with_peer(|peer, hooks, now| {
-            match peer.handle_inbound(now, hooks, inbound, body, source) {
+            match peer.handle_inbound(now, hooks, inbound, from, body, source) {
                 dassie_peer::Inbound::Reply(reply) => Inbound::Reply(reply),
                 dassie_peer::Inbound::Deferred => Inbound::Deferred,
                 dassie_peer::Inbound::Packet {

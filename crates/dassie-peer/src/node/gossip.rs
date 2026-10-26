@@ -314,10 +314,10 @@ impl PeerNode {
             sequence,
             url: &url,
             alias: &self.own_info.alias,
-            public_key: *self.auth.node_key().public_key().as_bytes(),
+            public_key: *self.key.public_key().as_bytes(),
             entries,
         };
-        let bytes = sign_node_info(self.auth.node_key(), &info);
+        let bytes = sign_node_info(&self.key, &info);
         // It fits by construction (`own_link_state_fits`, checked by
         // `Config::validate`): one that did not would be kept by nobody.
         let signed = SignedNodeInfo::decode_exact(&bytes);
@@ -445,8 +445,8 @@ impl PeerNode {
         }
     }
 
-    /// Sends our link state to every peer, authenticated, which is what
-    /// keeps a peering confirmed.
+    /// Sends our link state to every peer, which is what keeps a peering
+    /// confirmed.
     pub(super) fn heartbeat(&mut self) {
         if self.gossip.heartbeat_at_ms > self.now_ms {
             return;
@@ -741,8 +741,7 @@ impl PeerNode {
         }
     }
 
-    /// An authenticated link state from its own subject, a peer: a
-    /// heartbeat.
+    /// A link state from its own subject, a peer: a heartbeat.
     pub(crate) fn heard_from(&mut self, node: &NodeId) {
         if self
             .table
