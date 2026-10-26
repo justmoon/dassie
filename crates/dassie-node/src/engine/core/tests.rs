@@ -2601,6 +2601,39 @@ fn an_accounts_config_is_its_own() {
     );
 }
 
+// spec/areas/settlement.md#external-assets: a config the database holds in
+// another form, as migration 45 moved it from a scheme's config as the
+// owner wrote it, is read in the one form `SetAssetConfig` writes: the
+// same config set again is in effect, and nothing waits.
+#[test]
+fn a_stored_asset_config_reads_in_the_one_form() {
+    let store = Arc::new(Store::open_in_memory().unwrap());
+    let scheme = dassie_xrpl::scheme::SCHEME_ID;
+    let config = trusting_fake(scheme, r#"{"server":"ws://ledger.test","faucet":null}"#);
+    let value: serde_json::Value = serde_json::from_str(&config).unwrap();
+    let written = value.to_string();
+    let fields: Vec<String> = value
+        .as_object()
+        .unwrap()
+        .iter()
+        .rev()
+        .map(|(key, value)| format!("{}: {value}", serde_json::Value::from(key.as_str())))
+        .collect();
+    let reordered = format!("{{ {} }}", fields.join(", "));
+    assert_ne!(reordered, written);
+    store
+        .commit_ledger(&crate::store::LedgerBatch {
+            asset_configs: vec![(XRPL_ACCOUNT.to_string(), reordered)],
+            ..crate::store::LedgerBatch::default()
+        })
+        .unwrap();
+    let mut core = core_on(Arc::clone(&store), 4);
+    core.add_scheme(scheme, String::new()).unwrap();
+    assert_eq!(core.asset_views().remove(0).config, written);
+    assert_eq!(core.set_asset_config(XRPL_ACCOUNT, &written), Ok(true));
+    assert!(!core.asset_views().remove(0).config_waits);
+}
+
 /// A second scheme on the node's first XRPL testnet account, for the tests,
 /// as RLUSD is one: it serves the stub's ledger, follows the account from
 /// nowhere, and books and signs nothing.
