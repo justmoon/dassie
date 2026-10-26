@@ -1458,7 +1458,8 @@ UPDATE settlement_checkpoints SET state = NULL WHERE scheme LIKE 'xrpl%';
 /// account, its server, its faucet and its validator list publishers,
 /// which every scheme on it had to name alike. Each account takes what the
 /// first of its schemes, by ID, said of it, and the schemes keep only
-/// whether they peer.
+/// whether they peer. A disabled scheme (test RLUSD) gives nothing: the node
+/// never read its config, so its server must not become the account's.
 const MIGRATION_45: &str = "
 CREATE TABLE asset_configs (
   asset TEXT PRIMARY KEY CHECK (length(asset) BETWEEN 1 AND 64),
@@ -1472,7 +1473,7 @@ INSERT INTO asset_configs (asset, config, updated_at_ms)
     json_remove(config, '$.peers'),
     activated_at_ms
   FROM settlement_schemes
-  WHERE id IN ('xrpl-testnet', 'xrpl-testnet-dsusd', 'xrpl-testnet-rlusd', 'xrpl', 'xrpl-rlusd')
+  WHERE id IN ('xrpl-testnet', 'xrpl-testnet-dsusd', 'xrpl', 'xrpl-rlusd')
     AND json_valid(config) AND json_type(config) = 'object'
     AND json_remove(config, '$.peers') <> '{}'
   ORDER BY id

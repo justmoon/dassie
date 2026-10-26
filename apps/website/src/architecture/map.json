@@ -346,7 +346,7 @@
         "`dassie daemon`: standalone, or socket-activated by systemd",
         "`dassie init`: the domain name and the certificate, then a URL to finish setup in the browser",
         "`dassie status`, which also says whether a core node's rate feed reaches anyone, `dassie setup-url` to print that URL again, and `dassie pair` for a code that pairs an owner app",
-        "`dassie setup`: sets a node up without a browser, from its owner's passphrase in a file on the node's host, and adds the settlement schemes it lacks; run again, it changes nothing, and it refuses a node that is another passphrase's",
+        "`dassie setup`: sets a node up without a browser, from its owner's passphrase in a file on the node's host, sets each XRP Ledger account's own config (`--asset`, its server and faucet), and adds the settlement schemes it lacks; run again, it changes nothing, and it refuses a node that is another passphrase's",
         "`dassie hub`: shows the node's account in its settlement hub, moves the owner's funds between it and the node's XRP Ledger account, turns the node's own moves on or off, and gives up a move the hub has not shown for long; `dassie hub found` founds a hub with validators the owner picks, and `dassie hub payout` shows the payout bundles kept and, once a quorum signed one set, its transactions to submit",
         "`dassie update`: fetches, verifies and switches to a newer release, and goes back if it does not start",
         "`dassie verify-install`, which also names the release key",
@@ -1807,7 +1807,7 @@
       "version": "0.2.5",
       "date": "2026-10-23",
       "changes": [
-        "`dassie setup --passphrase-file <file>` sets a node up from its recovery phrase without a browser, for a headless node or a market maker's own nodes. It sends the node key only to the node's own certificate, which the node names over its owner socket, and it can set an account's server with `--asset` and add settlement schemes with `--scheme`. Running it again changes nothing.",
+        "`dassie setup --passphrase-file <file>` sets a node up from its recovery phrase without a browser, for a headless node or a market maker's own nodes. It sends the node key only to the node's own certificate, which the node names over its owner socket, and it can add settlement schemes with `--scheme`. Running it again changes nothing.",
         "A constant-time helper the cryptography libraries use is updated, for advisory RUSTSEC-2026-0385."
       ]
     },
