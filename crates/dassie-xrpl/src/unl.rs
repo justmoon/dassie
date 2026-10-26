@@ -8,13 +8,20 @@
 //!   configured master key, its blob under the publisher's current signing
 //!   key, its sequence is not below the highest seen of that publisher, and
 //!   it has not expired. One that takes effect later waits as pending until
-//!   then; a publisher keeps one current list and one pending. A publisher
-//!   that revoked its key is unavailable for good.
+//!   then; a publisher keeps one current list and up to [`MAX_PENDING`]
+//!   pending, each above the one before in sequence and taking effect
+//!   later. As in rippled's `ValidatorList::updateTrusted`, the latest of
+//!   them that took effect is the list in effect, and the ones it passed
+//!   over go. A publisher that revoked its key is unavailable for good.
 //! - **Manifests** of validators come from the lists and from the server's
-//!   `manifest` method alike, and count only for a master a list names and
-//!   only when that master signed them: the highest sequence wins, and a
-//!   revocation leaves the master no key to sign with. A signing key serves
-//!   one master only, and never is a listed master's own key.
+//!   `manifest` method alike, and count only for a master a list in effect
+//!   names and only when that master signed them, as rippled takes them: a
+//!   list's own are taken as it takes effect, so a pending list's wait with
+//!   it. The highest sequence wins, and a revocation leaves the master no
+//!   key to sign with. One taken stays while any kept list names its
+//!   master, so a list that takes effect later with an older one never
+//!   hands its signing back. A signing key serves one master only, and
+//!   never is a kept list's master's own key.
 //! - **The UNL** is the validators that at least [`list_threshold`] of the
 //!   lists in effect name, less any whose master revoked its key, as
 //!   rippled's `ValidatorList::updateTrusted` has it: with one or two
@@ -49,14 +56,17 @@ use crate::keys::{PublicKey, Signature};
 use crate::manifest::Manifest;
 use crate::validation::{FULL, FULLY_CANONICAL, Validation};
 use crate::validator_list::{
-    List, ListError, MAX_LIST_BYTES, MAX_LIST_VALIDATORS, MAX_PUBLISHERS, Message, SignedBlob,
-    UnlConfig,
+    List, ListError, MAX_BLOBS, MAX_LIST_BYTES, MAX_LIST_VALIDATORS, MAX_PUBLISHERS, Message,
+    SignedBlob, UnlConfig,
 };
 use crate::{from_hex, hex_upper};
 
+/// The most lists of one publisher kept pending: as many as one answer of
+/// its site carries.
+pub const MAX_PENDING: usize = MAX_BLOBS;
 /// The most validator manifests kept: one for each master any kept list
-/// names, a current and a pending one of each publisher.
-pub const MAX_MANIFESTS: usize = 2 * MAX_PUBLISHERS * MAX_LIST_VALIDATORS;
+/// names, the current one and the pending ones of each publisher.
+pub const MAX_MANIFESTS: usize = (1 + MAX_PENDING) * MAX_PUBLISHERS * MAX_LIST_VALIDATORS;
 /// The most validations read for one ledger: mainnet's servers hear about
 /// a hundred, of every validator they hear.
 pub const MAX_VALIDATIONS: usize = 1_024;
@@ -217,12 +227,12 @@ pub enum UnlError {
 pub enum ManifestError {
     /// It is not a manifest.
     Malformed,
-    /// No kept list names its master.
+    /// No list in effect names its master.
     NotListed,
     /// Its keys did not sign it.
     BadSignature,
-    /// Its signing key is a listed master's, or another master's signing
-    /// key.
+    /// Its signing key is a kept list's master's, or another master's
+    /// signing key.
     KeyInUse,
 }
 
@@ -392,8 +402,31 @@ impl Kept {
         }))
     }
 
+    /// The pending lists the account wrote, unverified: at most
+    /// [`MAX_PENDING`], or one or none as written before it kept more.
+    /// `None` if it is not that.
+    fn restore_pending(value: &Value) -> Option<Vec<Self>> {
+        let Some(entries) = value.as_array() else {
+            return Some(Self::restore(value)?.into_iter().collect());
+        };
+        if entries.len() > MAX_PENDING {
+            return None;
+        }
+        let mut pending = Vec::with_capacity(entries.len());
+        for entry in entries {
+            pending.push(Self::restore(entry)??);
+        }
+        Some(pending)
+    }
+
     fn expired(&self, now_s: u64) -> bool {
         u64::from(self.list.expiration) <= now_s
+    }
+
+    /// Whether it names a time it takes effect, and that time has come by
+    /// `now_s`.
+    fn effective_by(&self, now_s: u64) -> bool {
+        (self.list.effective).is_some_and(|effective| u64::from(effective) <= now_s)
     }
 }
 
@@ -405,9 +438,10 @@ struct PublisherState {
     /// The highest list sequence seen of it.
     highest: Option<u32>,
     current: Option<Kept>,
-    /// A list that takes effect later, of a higher sequence than the
-    /// current.
-    pending: Option<Kept>,
+    /// The lists that take effect later, at most [`MAX_PENDING`], each of a
+    /// higher sequence than the current and the one before it, and taking
+    /// effect later than the one before it: rippled's remaining lists.
+    pending: Vec<Kept>,
 }
 
 impl PublisherState {
@@ -419,15 +453,30 @@ impl PublisherState {
         self.current.iter().chain(self.pending.iter())
     }
 
+    /// How many of its pending lists have taken effect by `now_s`: the
+    /// first ones, as each takes effect later than the one before.
+    fn due(&self, now_s: u64) -> usize {
+        (self.pending.iter())
+            .take_while(|kept| kept.effective_by(now_s))
+            .count()
+    }
+
+    /// The list that is in effect at `now_s`, or that becomes so once it
+    /// moves on to `now_s`, expired or not: the latest pending list that
+    /// took effect, as rippled's `updateTrusted` rotates it in, else the
+    /// current one.
+    fn latest(&self, now_s: u64) -> Option<&Kept> {
+        let due = self.due(now_s);
+        (due.checked_sub(1))
+            .and_then(|last| self.pending.get(last))
+            .or(self.current.as_ref())
+    }
+
     /// Whether the list that is in effect, or that becomes so by `now_s`,
     /// has expired by then: as rippled's `updateTrusted` sees an available
     /// publisher's list expire, once it has moved a due pending list in.
     fn lapsed(&self, now_s: u64) -> bool {
-        let due = (self.pending.as_ref()).filter(|pending| {
-            (pending.list.effective).is_some_and(|effective| u64::from(effective) <= now_s)
-        });
-        due.or(self.current.as_ref())
-            .is_some_and(|kept| kept.expired(now_s))
+        self.latest(now_s).is_some_and(|kept| kept.expired(now_s))
     }
 
     /// Its list in effect at `now_s`.
@@ -435,21 +484,42 @@ impl PublisherState {
         if self.revoked() {
             return Err(Unavailable::Revoked);
         }
-        let due = |kept: &&Kept| {
-            (kept.list.effective).is_some_and(|effective| u64::from(effective) <= now_s)
-                && !kept.expired(now_s)
-        };
-        if let Some(pending) = self.pending.as_ref().filter(due) {
-            return Ok(pending);
-        }
-        match &self.current {
-            Some(current) if !current.expired(now_s) => Ok(current),
+        match self.latest(now_s) {
+            Some(kept) if !kept.expired(now_s) => Ok(kept),
             Some(_) => Err(Unavailable::Expired),
             // One it had expired, and went.
-            None if self.pending.is_none() && self.highest.is_some() => Err(Unavailable::Expired),
+            None if self.pending.is_empty() && self.highest.is_some() => Err(Unavailable::Expired),
             None => Err(Unavailable::NoList),
         }
     }
+
+    /// Moves on to `now_s`, as rippled's `updateTrusted` rotates a
+    /// publisher's lists: the latest pending list that took effect becomes
+    /// the current one, and those before it go. Whether one did.
+    fn rotate(&mut self, now_s: u64) -> bool {
+        let due = self.due(now_s);
+        if due == 0 {
+            return false;
+        }
+        self.current = self.pending.drain(..due).next_back();
+        assert!(self.current.is_some(), "a due list became current");
+        true
+    }
+}
+
+/// Whether a publisher's `current` list and `pending` ones are as the
+/// account keeps them: at most [`MAX_PENDING`] pending, each naming when it
+/// takes effect, above the one before it in sequence, the current one
+/// first if there is one, and taking effect later than the pending one
+/// before it. Restore and the invariants check the same.
+fn in_order(current: Option<&Kept>, pending: &[Kept]) -> bool {
+    let sequences = (current.into_iter().chain(pending)).map(|kept| kept.list.sequence);
+    let ascending =
+        (sequences.clone().zip(sequences.skip(1))).all(|(before, after)| before < after);
+    let effective = pending.iter().map(|kept| kept.list.effective);
+    let later = (effective.clone().zip(effective.skip(1))).all(|(before, after)| before < after);
+    let waits = pending.iter().all(|kept| kept.list.effective.is_some());
+    pending.len() <= MAX_PENDING && ascending && later && waits
 }
 
 /// The UNL of one account, and what makes it: its publishers' lists and
@@ -459,7 +529,7 @@ pub struct Unl {
     config: UnlConfig,
     /// One for each publisher of the config, in its order.
     publishers: Vec<PublisherState>,
-    /// Each listed master's newest manifest.
+    /// The newest manifest of each master a kept list names.
     manifests: BTreeMap<PublicKey, Manifest>,
     /// Each signing key of a manifest kept, and its master.
     signers: BTreeMap<PublicKey, PublicKey>,
@@ -512,15 +582,16 @@ impl Unl {
         &self.config
     }
 
-    /// Publisher `publisher`'s current list and pending one.
+    /// Publisher `publisher`'s current list, and its pending ones in the
+    /// order they take effect.
     #[must_use]
-    pub fn lists(&self, publisher: usize) -> (Option<&List>, Option<&List>) {
+    pub fn lists(&self, publisher: usize) -> (Option<&List>, Vec<&List>) {
         let Some(state) = self.publishers.get(publisher) else {
-            return (None, None);
+            return (None, Vec::new());
         };
         (
             state.current.as_ref().map(|kept| &kept.list),
-            state.pending.as_ref().map(|kept| &kept.list),
+            state.pending.iter().map(|kept| &kept.list).collect(),
         )
     }
 
@@ -603,27 +674,33 @@ impl Unl {
     }
 
     /// Moves on to `now_ms`, as rippled's `updateTrusted` does at a ledger:
-    /// a pending list that took effect becomes its publisher's current
-    /// one, and an expired list goes and UNL-blocks it; then the block is
-    /// settled.
+    /// the latest pending list that took effect becomes its publisher's
+    /// current one, and those it passed over go; an expired list goes and
+    /// UNL-blocks it; then the block is settled.
     pub fn tick(&mut self, now_ms: u64) {
         let now_s = ledger_seconds(now_ms);
         let mut lapsed = false;
-        for state in &mut self.publishers {
-            let due = (state.pending.as_ref()).is_some_and(|pending| {
-                (pending.list.effective).is_some_and(|effective| u64::from(effective) <= now_s)
-            });
-            if due {
-                state.current = state.pending.take();
+        let mut rotated = [false; MAX_PUBLISHERS];
+        for (state, rotated) in self.publishers.iter_mut().zip(&mut rotated) {
+            *rotated = state.rotate(now_s);
+            if state
+                .current
+                .as_ref()
+                .is_some_and(|kept| kept.expired(now_s))
+            {
+                lapsed = true;
+                state.current = None;
             }
-            lapsed |= (state.current.as_ref()).is_some_and(|kept| kept.expired(now_s));
-            for slot in [&mut state.current, &mut state.pending] {
-                if slot.as_ref().is_some_and(|kept| kept.expired(now_s)) {
-                    *slot = None;
-                }
-            }
+            // None that waits has expired, as each expires after it takes
+            // effect; one would go all the same.
+            state.pending.retain(|kept| !kept.expired(now_s));
         }
         self.prune();
+        for (publisher, rotated) in rotated.into_iter().enumerate() {
+            if rotated {
+                self.take_list_manifests(publisher);
+            }
+        }
         if lapsed {
             self.blocked = true;
         }
@@ -689,7 +766,7 @@ impl Unl {
     pub fn signing_key(&self, master: &PublicKey) -> Option<PublicKey> {
         match self.manifests.get(master) {
             Some(manifest) => manifest.signing.map(|(key, _)| key),
-            None => self.listed(master).then_some(*master),
+            None => self.named(master).then_some(*master),
         }
     }
 
@@ -697,7 +774,7 @@ impl Unl {
     #[must_use]
     pub fn master_of(&self, signing_key: &PublicKey) -> Option<PublicKey> {
         self.signers.get(signing_key).copied().or_else(|| {
-            (!self.manifests.contains_key(signing_key) && self.listed(signing_key))
+            (!self.manifests.contains_key(signing_key) && self.named(signing_key))
                 .then_some(*signing_key)
         })
     }
@@ -707,10 +784,19 @@ impl Unl {
         (self.config.publishers.iter()).position(|publisher| publisher.master_key == *key)
     }
 
-    /// Whether a kept list names `master`.
-    fn listed(&self, master: &PublicKey) -> bool {
+    /// Whether a kept list names `master`, pending or not.
+    fn named(&self, master: &PublicKey) -> bool {
         (self.publishers.iter())
             .flat_map(PublisherState::kept)
+            .any(|kept| kept.list.validators.contains_key(master))
+    }
+
+    /// Whether a list in effect names `master`: a current one, as a tick
+    /// moves a pending list in once it takes effect, as rippled's
+    /// `keyListings_` has it.
+    fn listed(&self, master: &PublicKey) -> bool {
+        (self.publishers.iter())
+            .filter_map(|state| state.current.as_ref())
             .any(|kept| kept.list.validators.contains_key(master))
     }
 }
@@ -767,7 +853,7 @@ impl Unl {
         state.manifest = Some(manifest);
         if revoked {
             state.current = None;
-            state.pending = None;
+            state.pending.clear();
             self.prune();
         }
         Ok(revoked)
@@ -775,7 +861,9 @@ impl Unl {
 
     /// Takes `list` of `publisher`, signed in `blob` under `manifest`, at
     /// `now_s`: below the highest sequence seen only when `fresh` is not
-    /// set, as at a restart.
+    /// set, as at a restart. Its manifests are taken if it is in effect,
+    /// but not at a restart, which takes those of a list it finds due once
+    /// every publisher's lists are back, as a tick does.
     fn take_blob(
         &mut self,
         publisher: usize,
@@ -802,24 +890,38 @@ impl Unl {
             return Err(ListError::BadSignature);
         }
         let sequence = list.sequence;
-        let later = list
-            .effective
-            .is_some_and(|effective| u64::from(effective) > now_s);
-        let manifests: Vec<Manifest> = list.validators.values().flatten().cloned().collect();
-        let kept = Some(Kept {
+        // Stale below the highest sequence seen, the same at a kept one, as
+        // a restart takes them in their order.
+        assert!(
+            state.kept().all(|kept| kept.list.sequence < sequence),
+            "a list taken is above every list kept"
+        );
+        let later = (list.effective).filter(|effective| u64::from(*effective) > now_s);
+        // The pending lists that take effect no earlier than this one never
+        // would be the latest due: they go, as rippled's `applyLists` drops
+        // them.
+        let before = later.map(|later| {
+            (state.pending.iter())
+                .take_while(|kept| kept.list.effective.is_some_and(|at| at < later))
+                .count()
+        });
+        if before.is_some_and(|before| before >= MAX_PENDING) {
+            return Err(ListError::TooManyPending);
+        }
+        let kept = Kept {
             list,
             blob,
             signature,
             manifest,
-        });
-        let taken = if later {
-            state.pending = kept;
+        };
+        let taken = if let Some(before) = before {
+            state.pending.truncate(before);
+            state.pending.push(kept);
             Taken::Pending
         } else {
-            state.current = kept;
-            if (state.pending.as_ref()).is_some_and(|pending| pending.list.sequence <= sequence) {
-                state.pending = None;
-            }
+            state.current = Some(kept);
+            // Every pending list is below it.
+            state.pending.clear();
             Taken::Current
         };
         state.highest = Some(
@@ -827,19 +929,44 @@ impl Unl {
                 .highest
                 .map_or(sequence, |highest| highest.max(sequence)),
         );
+        if taken == Taken::Current && fresh {
+            self.take_list_manifests(publisher);
+        }
+        Ok(taken)
+    }
+
+    /// Takes the validators' manifests publisher `publisher`'s current list
+    /// carries, as it takes effect, as rippled's `updatePublisherList`
+    /// does: a pending list's wait with it.
+    fn take_list_manifests(&mut self, publisher: usize) {
+        let manifests: Vec<Manifest> = (self.publishers.get(publisher))
+            .and_then(|state| state.current.as_ref())
+            .map(|kept| kept.list.validators.values().flatten().cloned().collect())
+            .unwrap_or_default();
         for manifest in manifests {
             // One the list carries that does not verify is left out, as
             // rippled leaves it: the list counts all the same.
             let _ = self.take_validator_manifest(manifest);
         }
-        Ok(taken)
     }
 
-    /// Takes a validator's `manifest`, the cheapest checks first: whether it
-    /// is newer than the one kept.
+    /// Takes a validator's `manifest`, of a master a list in effect names,
+    /// as rippled takes one: whether it is newer than the one kept.
     fn take_validator_manifest(&mut self, manifest: Manifest) -> Result<bool, ManifestError> {
+        if !self.listed(&manifest.master_key) {
+            return Err(ManifestError::NotListed);
+        }
+        self.keep_manifest(manifest)
+    }
+
+    /// Keeps a validator's `manifest`, of a master a kept list names, the
+    /// cheapest checks first: whether it is newer than the one kept. Kept
+    /// while a pending list names the master too, as rippled's manifest
+    /// cache keeps it, so a list that takes effect later with an older one
+    /// never hands its signing back.
+    fn keep_manifest(&mut self, manifest: Manifest) -> Result<bool, ManifestError> {
         let master = manifest.master_key;
-        if !self.listed(&master) {
+        if !self.named(&master) {
             return Err(ManifestError::NotListed);
         }
         if (self.manifests.get(&master)).is_some_and(|kept| kept.sequence >= manifest.sequence) {
@@ -847,7 +974,7 @@ impl Unl {
         }
         if let Some((key, _)) = manifest.signing {
             let other = self.signers.get(&key).is_some_and(|owner| *owner != master);
-            if other || self.listed(&key) {
+            if other || self.named(&key) {
                 return Err(ManifestError::KeyInUse);
             }
         }
@@ -1112,7 +1239,7 @@ impl Unl {
                     "manifest": state.manifest.as_ref().map(|manifest| hex_upper(&manifest.to_bytes())),
                     "highest": state.highest,
                     "current": state.current.as_ref().map(Kept::state),
-                    "pending": state.pending.as_ref().map(Kept::state),
+                    "pending": state.pending.iter().map(Kept::state).collect::<Vec<_>>(),
                 })
             })
             .collect();
@@ -1123,16 +1250,20 @@ impl Unl {
     }
 
     /// What [`Self::state`] wrote, under `config` at `now_ms`, every list
-    /// and manifest verified again. One that no longer verifies, because
-    /// the publishers changed, or that expired, is dropped, to be fetched
-    /// again; one that was in effect and expired blocks. The block holds
-    /// under the same publishers only, and a state without it, as written
-    /// before the node kept one, is not blocked but for what the lists
-    /// show. `None` for a state the account never writes: a publisher
-    /// twice, more manifests than [`MAX_MANIFESTS`] or two of one master,
-    /// a list above its publisher's highest sequence, a pending list not
-    /// above the current one or not taking effect later, or lists of a
-    /// publisher that revoked its key.
+    /// and manifest verified again, and moved on to `now_ms` as a tick
+    /// would. One that no longer verifies, because the publishers changed,
+    /// or that expired, is dropped, to be fetched again; one that was in
+    /// effect and expired blocks. The block holds under the same publishers
+    /// only, and a state without it, as written before the node kept one,
+    /// is not blocked but for what the lists show. A publisher's pending
+    /// lists are read as written, and so is the one pending list or none
+    /// written before the account kept more. `None` for a state the account
+    /// never writes: a publisher twice, more manifests than
+    /// [`MAX_MANIFESTS`] or two of one master, a list above its publisher's
+    /// highest sequence, more than [`MAX_PENDING`] pending lists, a pending
+    /// list not above the current one and the one before it, not taking
+    /// effect later than the one before it, or naming no time it takes
+    /// effect, or lists of a publisher that revoked its key.
     #[must_use]
     pub fn restore(config: UnlConfig, state: &Value, now_ms: u64) -> Option<Self> {
         let mut unl = Self::new(config);
@@ -1159,11 +1290,13 @@ impl Unl {
             .map(|publisher| publisher.master_key)
             .collect();
         unl.blocked = blocked && keys == configured;
+        let mut rotated = [false; MAX_PUBLISHERS];
         for entry in publishers {
             let key = from_hex(entry.get("key")?.as_str()?)?;
             let key = PublicKey::from_bytes(key.try_into().ok()?)?;
             if let Some(publisher) = unl.position(&key) {
-                unl.restore_publisher(publisher, entry, ledger_seconds(now_ms))?;
+                let moved = unl.restore_publisher(publisher, entry, ledger_seconds(now_ms))?;
+                *rotated.get_mut(publisher)? = moved;
             }
         }
         let mut masters = BTreeSet::new();
@@ -1172,15 +1305,24 @@ impl Unl {
             if !masters.insert(manifest.master_key) {
                 return None;
             }
-            let _ = unl.take_validator_manifest(manifest);
+            let _ = unl.keep_manifest(manifest);
         }
         unl.prune();
+        // The manifests of a list that took effect since, once every
+        // publisher's lists are back, as the tick would have taken them:
+        // a key another kept list names as a master stays refused.
+        for (publisher, rotated) in rotated.into_iter().enumerate() {
+            if rotated {
+                unl.take_list_manifests(publisher);
+            }
+        }
         unl.settle(ledger_seconds(now_ms));
         Some(unl)
     }
 
-    /// Publisher `publisher`'s part of the state, in `entry`.
-    fn restore_publisher(&mut self, publisher: usize, entry: &Value, now_s: u64) -> Option<()> {
+    /// Publisher `publisher`'s part of the state, in `entry`: whether a
+    /// pending list took effect since, and so is moved in.
+    fn restore_publisher(&mut self, publisher: usize, entry: &Value, now_s: u64) -> Option<bool> {
         let highest = match entry.get("highest")? {
             Value::Null => None,
             highest => Some(u32::try_from(highest.as_u64()?).ok()?),
@@ -1189,34 +1331,31 @@ impl Unl {
             Value::Null => None,
             manifest => Some(Manifest::from_bytes(&from_hex(manifest.as_str()?)?).ok()?),
         };
-        let current = Kept::restore(entry.get("current")?)?;
-        let pending = Kept::restore(entry.get("pending")?)?;
+        let mut current = Kept::restore(entry.get("current")?)?;
+        let mut pending = Kept::restore_pending(entry.get("pending")?)?;
         let above = |kept: &Kept| highest.is_none_or(|highest| kept.list.sequence > highest);
-        let disordered = match (&current, &pending) {
-            (Some(current), Some(pending)) => pending.list.sequence <= current.list.sequence,
-            _ => false,
-        };
         let revoked = manifest.as_ref().is_some_and(Manifest::is_revocation);
-        let lists = current.iter().chain(pending.iter());
+        let mut lists = current.iter().chain(pending.iter());
         if lists.clone().any(above)
-            || disordered
-            || pending
-                .as_ref()
-                .is_some_and(|pending| pending.list.effective.is_none())
-            || (revoked && lists.count() > 0)
+            || !in_order(current.as_ref(), &pending)
+            || (revoked && lists.next().is_some())
         {
             return None;
         }
-        // A list in effect when it was kept that expired since blocks, as
-        // the tick at `now_s` would have had the node been running.
-        let due = (pending.as_ref()).filter(|pending| {
-            (pending.list.effective).is_some_and(|effective| u64::from(effective) <= now_s)
-        });
-        if due
-            .or(current.as_ref())
-            .is_some_and(|kept| kept.expired(now_s))
-        {
+        // Moved on to `now_s`, as the tick at `now_s` would have had the
+        // node been running: the latest pending list that took effect is
+        // the current one, and those before it go.
+        let due = (pending.iter())
+            .take_while(|kept| kept.effective_by(now_s))
+            .count();
+        let rotated = due > 0;
+        if rotated {
+            current = pending.drain(..due).next_back();
+        }
+        // A list in effect when it was kept, or since, that expired blocks.
+        if current.as_ref().is_some_and(|kept| kept.expired(now_s)) {
             self.blocked = true;
+            current = None;
         }
         let master_key = self.config.publishers.get(publisher)?.master_key;
         let state = self.publishers.get_mut(publisher)?;
@@ -1225,7 +1364,7 @@ impl Unl {
         state.manifest =
             manifest.filter(|manifest| manifest.master_key == master_key && manifest.verify());
         let Some(newest) = state.manifest.as_ref().map(|manifest| manifest.sequence) else {
-            return Some(());
+            return Some(false);
         };
         for kept in current.into_iter().chain(pending) {
             let signed = kept.manifest.master_key == master_key
@@ -1236,7 +1375,7 @@ impl Unl {
                 let _ = self.take_blob(publisher, blob, kept.manifest, kept.list, now_s, false);
             }
         }
-        Some(())
+        Some(rotated)
     }
 
     /// Asserts what holds after every change.
@@ -1269,17 +1408,12 @@ impl Unl {
                 );
                 assert!(kept.list.validators.len() <= MAX_LIST_VALIDATORS);
             }
-            if let Some(pending) = &state.pending {
-                assert!(
-                    pending.list.effective.is_some(),
-                    "a pending list takes effect later"
-                );
-                assert!(
-                    (state.current.as_ref())
-                        .is_none_or(|current| current.list.sequence < pending.list.sequence),
-                    "a pending list is above the current one"
-                );
-            }
+            assert!(
+                in_order(state.current.as_ref(), &state.pending),
+                "at most MAX_PENDING pending lists, each naming when it takes effect, \
+                 above the current one and the one before it, and taking effect later \
+                 than the one before it"
+            );
         }
         self.check_manifests();
     }
@@ -1291,14 +1425,20 @@ impl Unl {
                 *master, manifest.master_key,
                 "a manifest kept under its master"
             );
-            assert!(self.listed(master), "a manifest of a listed master");
+            assert!(
+                self.named(master),
+                "a manifest of a master a kept list names"
+            );
             if let Some((key, _)) = manifest.signing {
                 assert_eq!(
                     self.signers.get(&key),
                     Some(master),
                     "its signing key is its"
                 );
-                assert!(!self.listed(&key), "no signing key is a listed master's");
+                assert!(
+                    !self.named(&key),
+                    "no signing key is a kept list's master's"
+                );
             }
         }
         let signing = self
@@ -1588,7 +1728,7 @@ mod tests {
         );
         unl.tick(expiry_ms);
         unl.check_invariants();
-        assert_eq!(unl.lists(0), (None, None));
+        assert_eq!(unl.lists(0), (None, vec![]));
         assert!(unl.manifests.is_empty());
     }
 
@@ -1618,7 +1758,7 @@ mod tests {
             Err(ListError::BadManifest)
         );
         unl.check_invariants();
-        assert_eq!(unl.lists(0), (None, None));
+        assert_eq!(unl.lists(0), (None, vec![]));
     }
 
     // A publisher rotates its signing key with a newer manifest, which
@@ -1656,7 +1796,7 @@ mod tests {
             Ok(Taken::Revoked)
         );
         unl.check_invariants();
-        assert_eq!(unl.lists(0), (None, None));
+        assert_eq!(unl.lists(0), (None, vec![]));
         assert_eq!(
             unl.unl(NOW_MS),
             Err(UnlError::Unavailable {
@@ -1684,15 +1824,15 @@ mod tests {
         let body = ours.body(&[later.clone(), current.clone()]);
         assert_eq!(unl.take_list(&body, NOW_MS), Ok(Taken::Current));
         unl.check_invariants();
-        assert_eq!(unl.lists(0), (Some(&current), Some(&later)));
+        assert_eq!(unl.lists(0), (Some(&current), vec![&later]));
         assert!(!unl.unl(NOW_MS).unwrap().contains(&validators[5].key()));
         let due = NOW_MS + 60_000;
         assert!(unl.unl(due).unwrap().contains(&validators[5].key()));
         unl.tick(due - 1_000);
-        assert_eq!(unl.lists(0).1, Some(&later));
+        assert_eq!(unl.lists(0).1, vec![&later]);
         unl.tick(due);
         unl.check_invariants();
-        assert_eq!(unl.lists(0), (Some(&later), None));
+        assert_eq!(unl.lists(0), (Some(&later), vec![]));
         // The first validator is listed no more: its manifest goes.
         assert_eq!(unl.signing_key(&validators[0].key()), None);
         assert_eq!(unl.master_of(&validators[0].signing.public_key()), None);
@@ -1707,7 +1847,7 @@ mod tests {
             unl.take_list(&ours.body(&[list(4, &validators)]), due),
             Ok(Taken::Current)
         );
-        assert_eq!(unl.lists(0).1, None);
+        assert!(unl.lists(0).1.is_empty());
         unl.check_invariants();
         // A blob taken before another fails stays taken, and what it no
         // longer lists goes.
@@ -1718,6 +1858,264 @@ mod tests {
         unl.check_invariants();
         assert_eq!(unl.lists(0).0.unwrap().sequence, 5);
         assert_eq!(unl.signing_key(&validators[0].key()), None);
+    }
+
+    // Two lists that take effect later, in one answer: each is in effect
+    // from its time, as rippled's `updateTrusted` rotates in the latest one
+    // due, and passes over one that came due with a later one.
+    #[test]
+    fn the_next_future_list_is_the_one_in_effect() {
+        let ours = publisher(1);
+        let validators = validators(10..15);
+        let mut unl = unl(&[&ours]);
+        let mut next = list(2, &validators[..3]);
+        next.effective = Some(NOW_S + 60);
+        let mut later = list(3, &validators);
+        later.effective = Some(NOW_S + 120);
+        let body = ours.body(&[list(1, &validators), next.clone(), later.clone()]);
+        assert_eq!(unl.take_list(&body, NOW_MS), Ok(Taken::Current));
+        unl.check_invariants();
+        assert_eq!(unl.lists(0).1, vec![&next, &later]);
+        assert_eq!(unl.unl(NOW_MS).unwrap().len(), 5);
+        let at_next = NOW_MS + 60_000;
+        assert_eq!(
+            unl.unl(at_next).unwrap().len(),
+            3,
+            "sequence 2 is in effect; sequence 3 is not yet"
+        );
+        let mut ticked = unl.clone();
+        ticked.tick(at_next);
+        ticked.check_invariants();
+        assert_eq!(ticked.lists(0), (Some(&next), vec![&later]));
+        assert_eq!(ticked.unl(at_next).unwrap().len(), 3);
+        // The same answer again changes nothing.
+        assert_eq!(ticked.take_list(&body, at_next), Ok(Taken::Same));
+        assert_eq!(ticked.lists(0), (Some(&next), vec![&later]));
+        let at_later = NOW_MS + 120_000;
+        assert_eq!(ticked.unl(at_later).unwrap().len(), 5);
+        ticked.tick(at_later);
+        ticked.check_invariants();
+        assert_eq!(ticked.lists(0), (Some(&later), vec![]));
+        // Not ticked between, the later one is in effect, and the one it
+        // passed over goes.
+        assert_eq!(unl.unl(at_later).unwrap().len(), 5);
+        unl.tick(at_later);
+        unl.check_invariants();
+        assert_eq!(unl, ticked);
+    }
+
+    // A list that takes effect no later than a pending one below it would
+    // never be the latest due: the one below goes, as rippled's
+    // `applyLists` drops it.
+    #[test]
+    fn a_later_list_that_takes_effect_sooner_replaces_those_below_it() {
+        let ours = publisher(1);
+        let validators = validators(10..15);
+        let mut unl = unl(&[&ours]);
+        let mut first = list(2, &validators[..3]);
+        first.effective = Some(NOW_S + 60);
+        let mut second = list(3, &validators[..4]);
+        second.effective = Some(NOW_S + 600);
+        let body = ours.body(&[list(1, &validators), first.clone(), second]);
+        assert_eq!(unl.take_list(&body, NOW_MS), Ok(Taken::Current));
+        let mut sooner = list(4, &validators[1..]);
+        sooner.effective = Some(NOW_S + 300);
+        assert_eq!(
+            unl.take_list(&ours.body(&[sooner.clone()]), NOW_MS),
+            Ok(Taken::Pending)
+        );
+        unl.check_invariants();
+        assert_eq!(unl.lists(0).1, vec![&first, &sooner]);
+        // At the same time, too.
+        let mut same = list(5, &validators[2..]);
+        same.effective = Some(NOW_S + 300);
+        assert_eq!(
+            unl.take_list(&ours.body(&[same.clone()]), NOW_MS),
+            Ok(Taken::Pending)
+        );
+        unl.check_invariants();
+        assert_eq!(unl.lists(0).1, vec![&first, &same]);
+    }
+
+    // A publisher keeps at most `MAX_PENDING` lists waiting: one more that
+    // waits is not taken, nor counted as seen, until one of them is in
+    // effect.
+    #[test]
+    fn the_pending_lists_are_bounded() {
+        let ours = publisher(1);
+        let validators = validators(10..15);
+        let mut unl = unl(&[&ours]);
+        let waiting = |sequence: u32| {
+            let mut later = list(sequence, &validators);
+            later.effective = Some(NOW_S + 60 * sequence);
+            later
+        };
+        assert_eq!(
+            unl.take_list(&ours.body(&[list(1, &validators)]), NOW_MS),
+            Ok(Taken::Current)
+        );
+        let lists: Vec<List> = (2..).map(waiting).take(MAX_PENDING).collect();
+        assert_eq!(
+            unl.take_list(&ours.body(&lists), NOW_MS),
+            Ok(Taken::Pending)
+        );
+        unl.check_invariants();
+        assert_eq!(unl.lists(0).1.len(), MAX_PENDING);
+        let sequence = u32::try_from(MAX_PENDING).unwrap() + 2;
+        let one_more = ours.body(&[waiting(sequence)]);
+        assert_eq!(
+            unl.take_list(&one_more, NOW_MS),
+            Err(ListError::TooManyPending)
+        );
+        unl.check_invariants();
+        assert_eq!(unl.lists(0).1.len(), MAX_PENDING);
+        assert_eq!(unl.publishers[0].highest, Some(sequence - 1));
+        let first_due = NOW_MS + 120_000;
+        unl.tick(first_due);
+        assert_eq!(unl.take_list(&one_more, first_due), Ok(Taken::Pending));
+        unl.check_invariants();
+        assert_eq!(unl.lists(0).0.unwrap().sequence, 2);
+        assert_eq!(unl.lists(0).1.len(), MAX_PENDING);
+    }
+
+    // A manifest carried by a list that is not yet in effect waits with it,
+    // as rippled's `updatePublisherList` takes it only then.
+    #[test]
+    fn a_pending_manifest_waits_until_the_list_is_in_effect() {
+        let ours = publisher(1);
+        let mut validators = validators(10..12);
+        let mut unl = unl(&[&ours]);
+        unl.take_list(&ours.body(&[list(1, &validators)]), NOW_MS)
+            .unwrap();
+        let old = validators[0].signing.public_key();
+        assert_eq!(unl.signing_key(&validators[0].key()), Some(old));
+        let signing = Secp256k1Key::from_secret(&[9; 32]).unwrap();
+        validators[0].manifest =
+            Manifest::sign(2, &validators[0].master, Some(&signing as &dyn Key), None);
+        validators[0].signing = signing;
+        let mut pending = list(2, &validators);
+        pending.effective = Some(NOW_S + 60);
+        assert_eq!(
+            unl.take_list(&ours.body(&[pending]), NOW_MS),
+            Ok(Taken::Pending)
+        );
+        unl.check_invariants();
+        assert_eq!(unl.signing_key(&validators[0].key()), Some(old));
+        assert_eq!(unl.master_of(&old), Some(validators[0].key()));
+        unl.tick(NOW_MS + 60_000);
+        unl.check_invariants();
+        assert_eq!(
+            unl.signing_key(&validators[0].key()),
+            Some(validators[0].signing.public_key())
+        );
+        assert_eq!(unl.master_of(&old), None);
+    }
+
+    // A validator only a pending list names has no manifest taken, from
+    // the list or the server, until the list is in effect; the latest list
+    // rotated in brings its own, and one a restart finds due does too.
+    #[test]
+    fn manifests_come_with_the_list_rotated_in() {
+        let ours = publisher(1);
+        let validators = validators(10..14);
+        let mut unl = unl(&[&ours]);
+        let newcomer = &validators[3];
+        let mut next = list(2, &validators[..3]);
+        next.effective = Some(NOW_S + 60);
+        let mut later = list(3, &validators);
+        later.effective = Some(NOW_S + 120);
+        let body = ours.body(&[list(1, &validators[..3]), next, later]);
+        unl.take_list(&body, NOW_MS).unwrap();
+        unl.check_invariants();
+        assert!(!unl.manifests.contains_key(&newcomer.key()));
+        assert_eq!(
+            unl.take_manifest(&newcomer.manifest.to_bytes()),
+            Err(ManifestError::NotListed)
+        );
+        let state = unl.state();
+        let at_ms = NOW_MS + 120_000;
+        let mut ticked = unl.clone();
+        ticked.tick(at_ms);
+        ticked.check_invariants();
+        assert_eq!(ticked.lists(0).0.unwrap().sequence, 3);
+        assert_eq!(
+            ticked.signing_key(&newcomer.key()),
+            Some(newcomer.signing.public_key())
+        );
+        let restored = Unl::restore(unl.config.clone(), &state, at_ms).unwrap();
+        restored.check_invariants();
+        assert_eq!(restored, ticked);
+        // Once it is in effect, the server's newer manifest counts too.
+        let rotated = Secp256k1Key::from_secret(&[61; 32]).unwrap();
+        let newer = Manifest::sign(2, &newcomer.master, Some(&rotated as &dyn Key), None);
+        assert_eq!(ticked.take_manifest(&newer.to_bytes()), Ok(true));
+        assert_eq!(
+            ticked.signing_key(&newcomer.key()),
+            Some(rotated.public_key())
+        );
+    }
+
+    // A master's newer manifest stays while only a pending list names it,
+    // so the list, once in effect, does not hand its signing back to the
+    // older key it carries.
+    #[test]
+    fn a_pending_list_never_takes_a_master_back_to_an_older_key() {
+        let ours = publisher(1);
+        let validators = validators(10..14);
+        let mut unl = unl(&[&ours]);
+        let first = &validators[0];
+        unl.take_list(&ours.body(&[list(1, &validators)]), NOW_MS)
+            .unwrap();
+        let rotated = Secp256k1Key::from_secret(&[60; 32]).unwrap();
+        let newer = Manifest::sign(2, &first.master, Some(&rotated as &dyn Key), None);
+        assert_eq!(unl.take_manifest(&newer.to_bytes()), Ok(true));
+        // A list in effect at once without it, and one later with it again.
+        let mut back = list(3, &validators);
+        back.effective = Some(NOW_S + 60);
+        let body = ours.body(&[list(2, &validators[1..]), back]);
+        unl.take_list(&body, NOW_MS).unwrap();
+        unl.check_invariants();
+        let state = unl.state();
+        let waiting = Unl::restore(unl.config.clone(), &state, NOW_MS).unwrap();
+        waiting.check_invariants();
+        assert_eq!(waiting, unl);
+        let at_ms = NOW_MS + 60_000;
+        unl.tick(at_ms);
+        unl.check_invariants();
+        assert_eq!(unl.signing_key(&first.key()), Some(rotated.public_key()));
+        let restored = Unl::restore(unl.config.clone(), &state, at_ms).unwrap();
+        assert_eq!(restored, unl);
+    }
+
+    // A list rotated in carries a manifest that hands a master's signing to
+    // a key a list still waiting names as a master: refused, at a tick and
+    // at a restart alike, and the master keeps its older manifest.
+    #[test]
+    fn a_restart_takes_a_rotated_list_s_manifests_as_a_tick_does() {
+        let ours = publisher(1);
+        let validators = validators(10..14);
+        let (master, waiting) = (&validators[0], &validators[3]);
+        let mut unl = unl(&[&ours]);
+        let handed = Manifest::sign(2, &master.master, Some(&waiting.master as &dyn Key), None);
+        let mut next = list(2, &validators[..3]);
+        next.effective = Some(NOW_S + 60);
+        next.validators.insert(master.key(), Some(handed));
+        let mut later = list(3, &validators);
+        later.effective = Some(NOW_S + 120);
+        let body = ours.body(&[list(1, &validators[..3]), next, later]);
+        unl.take_list(&body, NOW_MS).unwrap();
+        let state = unl.state();
+        let at_ms = NOW_MS + 60_000;
+        unl.tick(at_ms);
+        unl.check_invariants();
+        assert_eq!(unl.lists(0).0.unwrap().sequence, 2);
+        assert_eq!(
+            unl.signing_key(&master.key()),
+            Some(master.signing.public_key())
+        );
+        let restored = Unl::restore(unl.config.clone(), &state, at_ms).unwrap();
+        restored.check_invariants();
+        assert_eq!(restored, unl);
     }
 
     fn keys(validators: &[&TestValidator]) -> Vec<PublicKey> {
@@ -2347,7 +2745,7 @@ mod tests {
         expired.check_invariants();
         assert_eq!(
             (expired.lists(0), expired.lists(1)),
-            ((None, None), (None, None))
+            ((None, vec![]), (None, vec![]))
         );
         assert_eq!(expired.publishers[1].highest, Some(3));
         assert!(expired.manifests.is_empty());
@@ -2358,6 +2756,126 @@ mod tests {
         other.check_invariants();
         assert_eq!(other.lists(0).0.unwrap().sequence, 3);
         assert_eq!(other.unl(NOW_MS).unwrap().len(), validators.len());
+    }
+
+    // Each pending list round-trips, and moves on at a restart as a tick
+    // would have: the latest due is the current one.
+    #[test]
+    fn the_pending_lists_round_trip() {
+        let ours = publisher(1);
+        let validators = validators(10..15);
+        let mut unl = unl(&[&ours]);
+        let mut next = list(2, &validators[..3]);
+        next.effective = Some(NOW_S + 60);
+        let mut later = list(3, &validators[..4]);
+        later.effective = Some(NOW_S + 120);
+        let body = ours.body(&[list(1, &validators), next.clone(), later.clone()]);
+        unl.take_list(&body, NOW_MS).unwrap();
+        let state = unl.state();
+        assert_eq!(
+            state["publishers"][0]["pending"].as_array().unwrap().len(),
+            2
+        );
+        let restored = Unl::restore(unl.config.clone(), &state, NOW_MS).unwrap();
+        restored.check_invariants();
+        assert_eq!(restored, unl);
+        assert_eq!(restored.state(), state);
+        for (at_ms, current, pending) in [
+            (NOW_MS + 60_000, &next, vec![&later]),
+            (NOW_MS + 120_000, &later, vec![]),
+        ] {
+            let restored = Unl::restore(unl.config.clone(), &state, at_ms).unwrap();
+            restored.check_invariants();
+            assert_eq!(restored.lists(0), (Some(current), pending));
+            let mut ticked = unl.clone();
+            ticked.tick(at_ms);
+            assert_eq!(restored, ticked);
+        }
+        // A due list that expired since blocks, and takes the current one
+        // with it, as a tick would.
+        let mut short = list(4, &validators[..2]);
+        short.effective = Some(NOW_S + 60);
+        short.expiration = NOW_S + 90;
+        let mut unl = self::unl(&[&ours]);
+        unl.take_list(&ours.body(&[list(1, &validators), short]), NOW_MS)
+            .unwrap();
+        let state = unl.state();
+        let at_ms = NOW_MS + 100_000;
+        let restored = Unl::restore(unl.config.clone(), &state, at_ms).unwrap();
+        restored.check_invariants();
+        unl.tick(at_ms);
+        assert_eq!(restored, unl);
+        assert_eq!(restored.lists(0), (None, vec![]));
+        assert!(restored.blocked(at_ms));
+    }
+
+    // A state written when a publisher kept one pending list, or none,
+    // still loads.
+    #[test]
+    fn a_state_with_one_pending_list_loads() {
+        let (unl, _, _) = kept_state();
+        let mut state = unl.state();
+        let pending = state["publishers"][0]["pending"][0].clone();
+        assert!(pending.is_object());
+        state["publishers"][0]["pending"] = pending;
+        state["publishers"][1]["pending"] = Value::Null;
+        let restored = Unl::restore(unl.config.clone(), &state, NOW_MS).unwrap();
+        restored.check_invariants();
+        assert_eq!(restored, unl);
+        assert_eq!(restored.lists(0).1.len(), 1);
+    }
+
+    // Lists that wait with no current list: an account's first answer
+    // dated ahead, or a current list that expired while one waits. They
+    // hold the invariants and round-trip, also in the form written when a
+    // publisher kept one pending list.
+    #[test]
+    fn pending_lists_wait_without_a_current_one() {
+        let ours = publisher(1);
+        let validators = validators(10..15);
+        let waiting = |sequence: u32, after_s: u32| {
+            let mut later = list(sequence, &validators);
+            later.effective = Some(NOW_S + after_s);
+            later
+        };
+        let round_trip = |unl: &Unl, now_ms: u64| {
+            unl.check_invariants();
+            let state = unl.state();
+            let restored = Unl::restore(unl.config.clone(), &state, now_ms).unwrap();
+            restored.check_invariants();
+            assert_eq!(&restored, unl);
+            state
+        };
+        // A fresh account's first answer, all of it dated ahead.
+        let mut fresh = unl(&[&ours]);
+        let body = ours.body(&[waiting(1, 60), waiting(2, 120)]);
+        assert_eq!(fresh.take_list(&body, NOW_MS), Ok(Taken::Pending));
+        assert_eq!(fresh.lists(0).0, None);
+        assert_eq!(fresh.lists(0).1.len(), 2);
+        round_trip(&fresh, NOW_MS);
+        // The current list expires while one waits.
+        let mut unl = unl(&[&ours]);
+        let mut short = list(1, &validators);
+        short.expiration = NOW_S + 60;
+        let body = ours.body(&[short, waiting(2, 120)]);
+        assert_eq!(unl.take_list(&body, NOW_MS), Ok(Taken::Current));
+        let expired_ms = NOW_MS + 60_000;
+        unl.tick(expired_ms);
+        assert_eq!(unl.lists(0).0, None);
+        assert_eq!(unl.lists(0).1.len(), 1);
+        let mut state = round_trip(&unl, expired_ms);
+        // As written when a publisher kept one pending list.
+        let pending = state["publishers"][0]["pending"][0].clone();
+        state["publishers"][0]["pending"] = pending;
+        assert_eq!(state["publishers"][0]["current"], Value::Null);
+        let restored = Unl::restore(unl.config.clone(), &state, expired_ms).unwrap();
+        restored.check_invariants();
+        assert_eq!(restored, unl);
+        // Then the one that waits takes effect.
+        let due_ms = NOW_MS + 120_000;
+        unl.tick(due_ms);
+        assert_eq!(unl.lists(0).0.unwrap().sequence, 2);
+        round_trip(&unl, due_ms);
     }
 
     // A master's newer manifest one list carries outlives that list at a
@@ -2384,7 +2902,7 @@ mod tests {
         let later = NOW_MS + 120_000;
         unl.tick(later);
         unl.check_invariants();
-        assert_eq!(unl.lists(0), (None, None));
+        assert_eq!(unl.lists(0), (None, vec![]));
         let restored = Unl::restore(unl.config.clone(), &state, later).unwrap();
         restored.check_invariants();
         assert_eq!(restored, unl);
@@ -2463,7 +2981,7 @@ mod tests {
         })
         .unwrap();
         dropped.check_invariants();
-        assert_eq!(dropped.lists(1), (None, None));
+        assert_eq!(dropped.lists(1), (None, vec![]));
         // So is a publisher's manifest its master did not sign, with the
         // lists verified under it.
         let unsigned = refused(&|state| {
@@ -2472,7 +2990,43 @@ mod tests {
         })
         .unwrap();
         unsigned.check_invariants();
-        assert_eq!(unsigned.lists(1), (None, None));
+        assert_eq!(unsigned.lists(1), (None, vec![]));
         assert_eq!(unsigned.publishers[1].manifest, None);
+    }
+
+    // Pending lists the account never writes: out of order, twice, more
+    // than are kept, not taking effect later than the one before, or one
+    // that does not read.
+    #[test]
+    fn impossible_pending_lists_are_refused() {
+        let ours = publisher(1);
+        let validators = validators(10..15);
+        let mut unl = unl(&[&ours]);
+        let waiting = |sequence: u32, after_s: u32| {
+            let mut later = list(sequence, &validators);
+            later.effective = Some(NOW_S + after_s);
+            later
+        };
+        let body = ours.body(&[list(1, &validators), waiting(2, 60), waiting(3, 120)]);
+        unl.take_list(&body, NOW_MS).unwrap();
+        let state = unl.state();
+        let refused = |change: &dyn Fn(&mut Vec<Value>)| {
+            let mut changed = state.clone();
+            change(changed["publishers"][0]["pending"].as_array_mut().unwrap());
+            Unl::restore(unl.config.clone(), &changed, NOW_MS)
+        };
+        assert!(refused(&|_| {}).is_some());
+        assert_eq!(refused(&|pending| pending.swap(0, 1)), None);
+        assert_eq!(refused(&|pending| pending[1] = pending[0].clone()), None);
+        assert_eq!(
+            refused(&|pending| pending.resize(MAX_PENDING + 1, pending[1].clone())),
+            None
+        );
+        let sooner = |pending: &mut Vec<Value>| {
+            let blob = hex_upper(&waiting(3, 60).to_blob());
+            pending[1]["blob"] = blob.into();
+        };
+        assert_eq!(refused(&sooner), None);
+        assert_eq!(refused(&|pending| pending[1] = Value::Null), None);
     }
 }

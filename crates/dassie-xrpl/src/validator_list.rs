@@ -90,6 +90,9 @@ pub enum ListError {
     Stale,
     /// Expired.
     Expired,
+    /// Taking effect later, while its publisher already has as many lists
+    /// waiting as the account keeps: taken once one of them is in effect.
+    TooManyPending,
 }
 
 /// A publisher the account trusts: its master key, and the sites that

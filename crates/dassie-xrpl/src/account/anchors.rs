@@ -326,7 +326,14 @@ impl XrplAccount {
         if matches!(taken, Some(Ok(taken)) if taken != crate::unl::Taken::Same) {
             self.unl_changes = self.unl_changes.wrapping_add(1);
         }
-        let by = (body.filter(|_| matches!(taken, Some(Ok(_)))))
+        // A list of a publisher with as many waiting as the account keeps
+        // came from its site all the same: the site served, and nothing
+        // new was taken.
+        let served = matches!(
+            taken,
+            Some(Ok(_) | Err(crate::validator_list::ListError::TooManyPending))
+        );
+        let by = (body.filter(|_| served))
             .and_then(|body| crate::validator_list::Message::parse(body).ok())
             .map(|message| message.publisher);
         for publisher in asked {
@@ -414,11 +421,12 @@ impl XrplAccount {
     }
 
     /// Each publisher's current and pending lists' sequences.
-    fn list_sequences(&self) -> Vec<(Option<u32>, Option<u32>)> {
+    fn list_sequences(&self) -> Vec<(Option<u32>, Vec<u32>)> {
         (0..self.fetches.len())
             .map(|publisher| {
                 let (current, pending) = self.unl.lists(publisher);
-                (current.map(|l| l.sequence), pending.map(|l| l.sequence))
+                let pending = pending.iter().map(|l| l.sequence).collect();
+                (current.map(|l| l.sequence), pending)
             })
             .collect()
     }
@@ -538,6 +546,10 @@ impl XrplAccount {
     /// refusal, and counts no lie
     /// (spec/designs/xrpl-validation.md#3-the-proof-api).
     fn tally(&mut self, proven: ProvenState, validations: Validations, ask: bool, untrusted: bool) {
+        // A list that took effect since is moved in first, with the
+        // manifests it carries, as rippled's `updateTrusted` moves it in
+        // before a ledger's validations count.
+        self.tick_lists();
         let kept = self.anchor.as_ref().map(|kept| kept.anchor);
         let anchored = self.unl.anchor(
             &proven.header,
