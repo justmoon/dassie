@@ -17,8 +17,8 @@ use dassie_hub::client::{Agreement, Request, Statement};
 use dassie_hub::consensus::{PeerId, Stored};
 use dassie_hub::digest::Digest;
 use dassie_hub::escrow::{ValidatorKeys, escrow_master};
-use dassie_hub::ledger::Ledger;
 use dassie_hub::ledger::Outcome;
+use dassie_hub::ledger::{Ledger, TESTNET_NETWORK};
 use dassie_hub::operation::{
     AccountNumber, Deposit, Destination, MemberOperation, Operation, SignedMemberOperation,
     ValidatorOperation,
@@ -39,7 +39,10 @@ fn terms(sponsor: &NodeKey) -> Terms {
         nonce: NONCE,
         sponsor: sponsor.public_key(),
         network: 1,
-        escrow: escrow_master(sponsor, &NONCE).unwrap().account().0,
+        escrow: escrow_master(sponsor, TESTNET_NETWORK, &NONCE)
+            .unwrap()
+            .account()
+            .0,
         asset: dassie_hub::rules::Asset::Xrp,
         fees: Fees {
             operation: 10,
@@ -123,7 +126,7 @@ impl Network {
             .iter()
             .enumerate()
             .map(|(i, node)| {
-                ValidatorKeys::derive(node, &NONCE)
+                ValidatorKeys::derive(node, TESTNET_NETWORK, &NONCE)
                     .unwrap()
                     .accept(node, &terms, format!("v{i}.example:443"))
                     .unwrap()
@@ -136,7 +139,7 @@ impl Network {
         let validators: Vec<Validator> = nodes
             .iter()
             .map(|node| {
-                let keys = ValidatorKeys::derive(node, &NONCE).unwrap();
+                let keys = ValidatorKeys::derive(node, TESTNET_NETWORK, &NONCE).unwrap();
                 Validator::genesis(rules.clone(), keys, START, START).unwrap()
             })
             .collect();
@@ -232,7 +235,7 @@ impl Network {
             &stored, &self.stored[index].0,
             "the stored state round-trips"
         );
-        let keys = ValidatorKeys::derive(&self.node_keys[index], &NONCE).unwrap();
+        let keys = ValidatorKeys::derive(&self.node_keys[index], TESTNET_NETWORK, &NONCE).unwrap();
         let ledger = if stored.tip.block.height == 0 {
             Ledger::genesis(self.rules.clone(), START).unwrap()
         } else {
@@ -451,7 +454,7 @@ fn a_validator_reports_the_evidence_its_engine_finds() {
 
     let mut net = Network::new();
     let hub = net.rules.id().0;
-    let liar = ValidatorKeys::derive(&net.node_keys[2], &NONCE)
+    let liar = ValidatorKeys::derive(&net.node_keys[2], TESTNET_NETWORK, &NONCE)
         .unwrap()
         .consensus;
     let signer = ValidatorIndex::new(2).unwrap();
@@ -1028,7 +1031,7 @@ fn what_a_host_did_not_write_together_does_not_resume() {
         .unwrap()
         .state;
     let ledger = Ledger::restore(&snapshot, &root).unwrap();
-    let keys = || ValidatorKeys::derive(&net.node_keys[1], &NONCE).unwrap();
+    let keys = || ValidatorKeys::derive(&net.node_keys[1], TESTNET_NETWORK, &NONCE).unwrap();
     // A snapshot of another height than the tip's.
     let mut ahead = stored.clone();
     ahead.tip.block.height += 1;
@@ -1044,7 +1047,8 @@ fn what_a_host_did_not_write_together_does_not_resume() {
         Some(ResumeError::State)
     );
     // Keys that are no validator's of the hub.
-    let stranger = ValidatorKeys::derive(&NodeKey::from_bytes(&[99; 32]), &NONCE).unwrap();
+    let stranger =
+        ValidatorKeys::derive(&NodeKey::from_bytes(&[99; 32]), TESTNET_NETWORK, &NONCE).unwrap();
     assert_eq!(
         Validator::resume(stranger, stored, ledger, net.now).err(),
         Some(ResumeError::NotAValidator)

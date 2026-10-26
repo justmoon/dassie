@@ -32,9 +32,9 @@ pub struct Policy<'a> {
     pub max_hubs: usize,
     /// Where it is reached, `host:port`, if it has a public endpoint.
     pub endpoint: Option<&'a str>,
-    /// The underlying ledger's network it validates hubs on: the XRP
-    /// Ledger testnet's, while hubs hold no real money
-    /// (spec/decisions/real-money.md).
+    /// The underlying ledger's network it validates hubs on, as its owner
+    /// set it: the node takes one of real money only where the live realm
+    /// runs (spec/decisions/real-money.md).
     pub network: u32,
 }
 
@@ -130,7 +130,7 @@ pub fn accept(
         .endpoint
         .filter(|endpoint| Acceptance::valid_endpoint(endpoint))
         .ok_or(Refusal::NoEndpoint)?;
-    let keys = ValidatorKeys::derive(node, &terms.nonce).ok_or(Refusal::Busy)?;
+    let keys = ValidatorKeys::derive(node, terms.network, &terms.nonce).ok_or(Refusal::Busy)?;
     let acceptance = keys
         .accept(node, terms, endpoint.into())
         .filter(|acceptance| acceptance.keys_usable(&terms.escrow))
@@ -152,7 +152,8 @@ pub fn accept(
 /// Whether `rules` carry an acceptance of this validator's, with the keys
 /// it makes under their nonce.
 fn ours(node: &NodeKey, rules: &Rules) -> Result<ValidatorKeys, Refusal> {
-    let keys = ValidatorKeys::derive(node, &rules.terms.nonce).ok_or(Refusal::Busy)?;
+    let keys = ValidatorKeys::derive(node, rules.terms.network, &rules.terms.nonce)
+        .ok_or(Refusal::Busy)?;
     let own = node.public_key();
     let consensus = keys.consensus.public_key();
     let escrow = *keys.escrow.public_key().as_bytes();
@@ -425,6 +426,23 @@ mod tests {
         bad.fees.operation = 0;
         let refused = accept(node, &v.policy(), (&[], 0), &from, &bad, NOW);
         assert_eq!(refused.unwrap_err(), Refusal::Terms);
+        // Terms on another network than the owner's are refused; on the
+        // owner's, they are accepted with keys of that network.
+        let mut mainnet = terms.clone();
+        mainnet.network = 0;
+        let refused = accept(node, &v.policy(), (&[], 0), &from, &mainnet, NOW);
+        assert_eq!(refused.unwrap_err(), Refusal::Terms);
+        let on_mainnet = Policy {
+            network: 0,
+            ..v.policy()
+        };
+        let refused = accept(node, &on_mainnet, (&[], 0), &from, &terms, NOW);
+        assert_eq!(refused.unwrap_err(), Refusal::Terms);
+        let (acceptance, _) = accept(node, &on_mainnet, (&[], 0), &from, &mainnet, NOW).unwrap();
+        let theirs = ValidatorKeys::derive(node, 0, &mainnet.nonce).unwrap();
+        assert_eq!(acceptance.consensus, theirs.consensus.public_key());
+        let testnet = ValidatorKeys::derive(node, 1, &mainnet.nonce).unwrap();
+        assert_ne!(acceptance.consensus, testnet.consensus.public_key());
     }
 
     // Hubs it runs and foundings still open hold its places; a lapsed
@@ -484,9 +502,12 @@ mod tests {
         let signatures = [1, 2, 3]
             .iter()
             .map(|&i| {
-                let keys =
-                    ValidatorKeys::derive(if i == 3 { &fifth } else { &v.nodes[i] }, &terms.nonce)
-                        .unwrap();
+                let keys = ValidatorKeys::derive(
+                    if i == 3 { &fifth } else { &v.nodes[i] },
+                    terms.network,
+                    &terms.nonce,
+                )
+                .unwrap();
                 (
                     ValidatorIndex::new(i).unwrap(),
                     keys.consensus.sign(digest.as_bytes()),
@@ -534,7 +555,7 @@ mod tests {
         }
         // A certificate with too few signatures founds nothing.
         let digest = crate::founding::genesis_digest(&rules, NOW);
-        let keys = ValidatorKeys::derive(&v.nodes[1], &terms.nonce).unwrap();
+        let keys = ValidatorKeys::derive(&v.nodes[1], terms.network, &terms.nonce).unwrap();
         let certificate = GenesisCertificate {
             rules,
             genesis_ms: NOW,

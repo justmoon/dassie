@@ -27,9 +27,11 @@ use crate::store::{FoundingRecordRow, Store, StoreError};
 /// only a listed sponsor's take more than a lookup.
 pub const MAX_FOUNDING_REQUESTS: usize = 4;
 
-/// The network of the XRP Ledger testnet, the only one hubs run on while
-/// they hold no real money (spec/decisions/real-money.md).
-pub const TESTNET_NETWORK: u32 = 1;
+/// The network of the XRP Ledger testnet, the only one a node founds hubs
+/// on as a sponsor: it funds the escrow from its testnet XRP
+/// (spec/areas/hubs.md#founding-a-hub). A validator takes its network from
+/// its owner's file ([`ValidatorConfig::network`]).
+pub const TESTNET_NETWORK: u32 = dassie_hub::ledger::TESTNET_NETWORK;
 
 /// Whether a founding request from a node may be read, decided by the key
 /// its connection proved before anything of the request is read.
@@ -56,6 +58,9 @@ pub struct FoundingPlace {
 pub struct Founding {
     sponsors: Vec<NodeId>,
     xrpl: String,
+    /// The network of the hubs it validates, from its owner's file: it
+    /// accepts terms on no other.
+    network: u32,
     /// The hubs of the owner's file, which hold places of their own.
     configured: Vec<HubId>,
     /// One decision at a time: each reads the records and writes one.
@@ -73,6 +78,7 @@ impl Founding {
         Self {
             sponsors: config.sponsors.clone(),
             xrpl: config.xrpl.clone(),
+            network: config.network.id,
             configured: config.hubs.iter().map(|hub| hub.rules.id()).collect(),
             deciding: tokio::sync::Mutex::new(()),
             places: Arc::new(Semaphore::new(MAX_FOUNDING_REQUESTS)),
@@ -179,6 +185,7 @@ impl Founding {
     fn decision(&self, key: Arc<NodeKey>, endpoint: Option<String>, now: u64) -> Decision {
         Decision {
             sponsors: self.sponsors.clone(),
+            network: self.network,
             configured: self.configured.clone(),
             key,
             endpoint,
@@ -233,6 +240,7 @@ type Changed = Option<(Option<Record>, Record)>;
 /// One decision, with what it needs, owned: it runs off the async runtime.
 struct Decision {
     sponsors: Vec<NodeId>,
+    network: u32,
     configured: Vec<HubId>,
     key: Arc<NodeKey>,
     endpoint: Option<String>,
@@ -271,7 +279,7 @@ impl Decision {
             sponsors: &self.sponsors,
             max_hubs: MAX_VALIDATED_HUBS,
             endpoint: self.endpoint.as_deref(),
-            network: TESTNET_NETWORK,
+            network: self.network,
         };
         let held = (records.as_slice(), running_elsewhere);
         let (answer, record) = match request {
@@ -391,6 +399,7 @@ mod tests {
             sponsors: vec![sponsor.node_id()],
             hubs: Vec::new(),
             xrpl: "ws://127.0.0.1:1".into(),
+            network: &dassie_xrpl::network::TESTNET,
         }
     }
 
@@ -429,7 +438,7 @@ mod tests {
         };
         let validators: Vec<_> = std::iter::once(accepted)
             .chain(nodes[1..].iter().map(|node| {
-                ValidatorKeys::derive(node, &terms.nonce)
+                ValidatorKeys::derive(node, terms.network, &terms.nonce)
                     .unwrap()
                     .accept(node, &terms, "w.example:443".into())
                     .unwrap()
@@ -450,7 +459,7 @@ mod tests {
         let digest = genesis_digest(&rules, NOW);
         let signatures = std::iter::once((ValidatorIndex::new(0).unwrap(), signature))
             .chain((1..3).map(|i| {
-                let keys = ValidatorKeys::derive(&nodes[i], &terms.nonce).unwrap();
+                let keys = ValidatorKeys::derive(&nodes[i], terms.network, &terms.nonce).unwrap();
                 (
                     ValidatorIndex::new(i).unwrap(),
                     keys.consensus.sign(digest.as_bytes()),
@@ -486,6 +495,21 @@ mod tests {
         let stranger = NodeKey::from_bytes(&[55; 32]).public_key();
         let refused = decide(&founding, &store, (&nodes[0], &stranger), &propose).await;
         assert_eq!(refused, FoundingAnswer::Refused(Refusal::NotAllowed));
+    }
+
+    // The validator accepts terms only on its file's network.
+    #[tokio::test]
+    async fn terms_on_another_network_are_refused() {
+        let sponsor = NodeKey::from_bytes(&[100; 32]);
+        let store = Arc::new(Store::open_in_memory().unwrap());
+        let mut on_mainnet = terms(&sponsor);
+        on_mainnet.network = dassie_xrpl::network::MAINNET.id;
+        let from = sponsor.public_key();
+        let ours = (&NodeKey::from_bytes(&[1; 32]), &from);
+        let propose = FoundingRequest::Propose(on_mainnet);
+        let founding = Founding::new(&config(&sponsor));
+        let refused = decide(&founding, &store, ours, &propose).await;
+        assert_eq!(refused, FoundingAnswer::Refused(Refusal::Terms));
     }
 
     // A decision reads and writes the database off the async runtime: while

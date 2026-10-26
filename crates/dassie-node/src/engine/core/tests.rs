@@ -3536,12 +3536,13 @@ fn hub_config(margin: u64, allowance: u64) -> String {
 /// escrow the sponsor of key 100 made.
 fn hub_rules(margin: u64, allowance: u64) -> dassie_hub::Rules {
     use dassie_hub::escrow::{ValidatorKeys, escrow_master};
+    use dassie_hub::ledger::TESTNET_NETWORK;
     use dassie_hub::rules::{Fees, Limits, Rules, Terms, Timers};
     use dassie_identity::NodeKey;
 
     let nonce = HUB_NONCE;
     let sponsor = NodeKey::from_bytes(&[100; 32]);
-    let master = escrow_master(&sponsor, &nonce).unwrap();
+    let master = escrow_master(&sponsor, TESTNET_NETWORK, &nonce).unwrap();
     let terms = Terms {
         nonce,
         sponsor: sponsor.public_key(),
@@ -3586,7 +3587,7 @@ fn hub_rules(margin: u64, allowance: u64) -> dassie_hub::Rules {
     let validators = (1..=4u8)
         .map(|i| {
             let node = NodeKey::from_bytes(&[i; 32]);
-            ValidatorKeys::derive(&node, &nonce)
+            ValidatorKeys::derive(&node, TESTNET_NETWORK, &nonce)
                 .unwrap()
                 .accept(&node, &terms, format!("v{i}.example:443"))
                 .unwrap()
@@ -4415,7 +4416,7 @@ impl Validators {
         let keys = (1..=4u8)
             .map(|i| {
                 let node = NodeKey::from_bytes(&[i; 32]);
-                dassie_hub::escrow::ValidatorKeys::derive(&node, &HUB_NONCE)
+                dassie_hub::escrow::ValidatorKeys::derive(&node, rules.terms.network, &HUB_NONCE)
                     .unwrap()
                     .consensus
             })

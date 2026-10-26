@@ -7,7 +7,8 @@
 //! {
 //!   "sponsors": ["<node ID>", ...],
 //!   "hubs": [{ "rules": "<hex>", "genesis_ms": 1800000000000, "xrpl": "wss://..." }],
-//!   "xrpl": "wss://..."
+//!   "xrpl": "wss://...",
+//!   "network": "testnet"
 //! }
 //! ```
 //!
@@ -19,12 +20,19 @@
 //! timestamp, which is part of its digest; `xrpl` is the XRPL server the
 //! node follows the escrow on: the hub's own, else the file's, which hubs
 //! founded through the node use too (spec/areas/hubs.md#founding-a-hub),
-//! else the testnet's public one. `hubs` may be empty: a sponsor the file
+//! else the network's default one. `hubs` may be empty: a sponsor the file
 //! lists founds hubs with the node over the hub's founding stream.
+//! `network` is the XRP Ledger network of every hub the node validates, by
+//! name, the testnet unless it says otherwise; a network of real money is
+//! refused while the live realm is (spec/decisions/real-money.md).
 
 use dassie_hub::Rules;
 use dassie_identity::NodeId;
+use dassie_ledger::Realm;
+use dassie_node_core::config::LiveRealm;
 use dassie_oer::Reader;
+use dassie_xrpl::Network;
+use dassie_xrpl::network::{NETWORKS, TESTNET};
 use serde::Deserialize;
 
 /// The most hubs a node validates: its own limit
@@ -50,6 +58,9 @@ pub struct ValidatorConfig {
     /// The XRPL server it follows the escrows of hubs founded through it
     /// on, and of hubs that name none.
     pub xrpl: String,
+    /// The XRP Ledger network every hub it validates is on: it accepts
+    /// terms on no other.
+    pub network: &'static Network,
 }
 
 /// One hub the node validates.
@@ -70,6 +81,7 @@ struct File {
     sponsors: Vec<String>,
     hubs: Vec<HubEntry>,
     xrpl: Option<String>,
+    network: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -80,13 +92,15 @@ struct HubEntry {
     xrpl: Option<String>,
 }
 
-/// Reads a configuration from the file's text.
+/// Reads a configuration from the file's text, for a node that runs the
+/// live realm as `live` says.
 ///
 /// # Errors
 ///
 /// What is wrong with it, for people.
-pub fn parse(text: &str) -> Result<ValidatorConfig, String> {
+pub fn parse(text: &str, live: LiveRealm) -> Result<ValidatorConfig, String> {
     let file: File = serde_json::from_str(text).map_err(|error| error.to_string())?;
+    let network = network(file.network.as_deref(), live)?;
     if file.sponsors.len() > MAX_SPONSORS {
         return Err(format!("lists more than {MAX_SPONSORS} sponsors"));
     }
@@ -98,15 +112,11 @@ pub fn parse(text: &str) -> Result<ValidatorConfig, String> {
     if file.hubs.len() > MAX_VALIDATED_HUBS {
         return Err(format!("lists more than {MAX_VALIDATED_HUBS} hubs"));
     }
-    let xrpl = server(
-        file.xrpl
-            .clone()
-            .unwrap_or_else(|| dassie_xrpl::account::DEFAULT_SERVER.into()),
-    )?;
+    let xrpl = server(file.xrpl.clone().unwrap_or_else(|| network.server.into()))?;
     let mut hubs: Vec<HubConfig> = Vec::with_capacity(file.hubs.len());
     for (index, entry) in file.hubs.iter().enumerate() {
-        let hub =
-            hub(entry, &sponsors, &xrpl).map_err(|problem| format!("hub {index}: {problem}"))?;
+        let hub = hub(entry, &sponsors, &xrpl, network)
+            .map_err(|problem| format!("hub {index}: {problem}"))?;
         if hubs.iter().any(|other| other.rules.id() == hub.rules.id()) {
             return Err(format!("hub {index}: listed twice"));
         }
@@ -116,7 +126,33 @@ pub fn parse(text: &str) -> Result<ValidatorConfig, String> {
         sponsors,
         hubs,
         xrpl,
+        network,
     })
+}
+
+/// The network `name` names, the testnet if none: only one of the live
+/// realm where it runs (spec/decisions/mainnet-schemes.md), so no file
+/// turns a node to validating hubs of real money.
+fn network(name: Option<&str>, live: LiveRealm) -> Result<&'static Network, String> {
+    let Some(name) = name else {
+        return Ok(&TESTNET);
+    };
+    let network = NETWORKS
+        .into_iter()
+        .find(|network| network.name == name)
+        .ok_or_else(|| {
+            let known: Vec<&str> = NETWORKS.iter().map(|network| network.name).collect();
+            format!(
+                "names the network {name:?}, which is none of {}",
+                known.join(", ")
+            )
+        })?;
+    if network.realm == Realm::Live && !live.allowed() {
+        return Err(format!(
+            "names the network {name:?}, which holds real money: the live realm is not supported yet"
+        ));
+    }
+    Ok(network)
 }
 
 /// `url`, if it is a WebSocket URL the node connects to.
@@ -128,7 +164,12 @@ fn server(url: String) -> Result<String, String> {
     Ok(url)
 }
 
-fn hub(entry: &HubEntry, sponsors: &[NodeId], xrpl: &str) -> Result<HubConfig, String> {
+fn hub(
+    entry: &HubEntry,
+    sponsors: &[NodeId],
+    xrpl: &str,
+    network: &Network,
+) -> Result<HubConfig, String> {
     let bytes = hex(&entry.rules).ok_or("its rules are not hex")?;
     let mut reader = Reader::new(&bytes);
     let rules = Rules::decode(&mut reader).map_err(|error| format!("its rules: {error:?}"))?;
@@ -142,6 +183,12 @@ fn hub(entry: &HubEntry, sponsors: &[NodeId], xrpl: &str) -> Result<HubConfig, S
     if !sponsors.contains(&sponsor) {
         return Err(format!(
             "its sponsor {sponsor} is not one the node validates for (add it to \"sponsors\")"
+        ));
+    }
+    if rules.terms.network != network.id {
+        return Err(format!(
+            "its rules are on network {}, not the file's {:?}",
+            rules.terms.network, network.name
         ));
     }
     if entry.genesis_ms == 0 {
@@ -174,6 +221,7 @@ fn hex(text: &str) -> Option<Vec<u8>> {
 #[cfg(test)]
 pub(crate) mod tests {
     use dassie_hub::escrow::{ValidatorKeys, escrow_master};
+    use dassie_hub::ledger::TESTNET_NETWORK;
     use dassie_hub::rules::{Acceptance, Fees, Limits, Terms, Timers};
     use dassie_identity::NodeKey;
     use dassie_oer::Encode;
@@ -185,11 +233,16 @@ pub(crate) mod tests {
 
     /// Terms that check, sponsored by `sponsor`, on the testnet.
     pub(crate) fn terms(sponsor: &NodeKey) -> Terms {
+        terms_on(sponsor, TESTNET_NETWORK)
+    }
+
+    /// The same on `network`.
+    fn terms_on(sponsor: &NodeKey, network: u32) -> Terms {
         Terms {
             nonce: NONCE,
             sponsor: sponsor.public_key(),
-            network: 1,
-            escrow: escrow_master(sponsor, &NONCE).unwrap().account().0,
+            network,
+            escrow: escrow_master(sponsor, network, &NONCE).unwrap().account().0,
             asset: dassie_hub::rules::Asset::Xrp,
             fees: Fees {
                 operation: 10,
@@ -230,11 +283,16 @@ pub(crate) mod tests {
 
     /// The rules of a hub of `nodes`, each at its endpoint.
     pub(crate) fn rules(sponsor: &NodeKey, nodes: &[(NodeKey, String)]) -> Rules {
-        let terms = terms(sponsor);
+        rules_on(sponsor, nodes, TESTNET_NETWORK)
+    }
+
+    /// The same on `network`.
+    fn rules_on(sponsor: &NodeKey, nodes: &[(NodeKey, String)], network: u32) -> Rules {
+        let terms = terms_on(sponsor, network);
         let validators: Vec<Acceptance> = nodes
             .iter()
             .map(|(node, endpoint)| {
-                ValidatorKeys::derive(node, &NONCE)
+                ValidatorKeys::derive(node, network, &NONCE)
                     .unwrap()
                     .accept(node, &terms, endpoint.clone())
                     .unwrap()
@@ -255,31 +313,81 @@ pub(crate) mod tests {
         .to_string()
     }
 
+    /// The same, naming `network`.
+    fn file_on(sponsors: &[String], rules: &Rules, network: &str) -> String {
+        serde_json::json!({
+            "sponsors": sponsors,
+            "hubs": [{ "rules": hex_of(&rules.to_vec()), "genesis_ms": 1_800_000_000_000_u64 }],
+            "network": network,
+        })
+        .to_string()
+    }
+
+    fn nodes() -> Vec<(NodeKey, String)> {
+        (1..=4)
+            .map(|i| (NodeKey::from_bytes(&[i; 32]), format!("v{i}.example:443")))
+            .collect()
+    }
+
     #[test]
     fn a_hub_of_a_listed_sponsor_is_taken() {
+        let refused = LiveRealm::Refused;
         let sponsor = NodeKey::from_bytes(&[100; 32]);
-        let nodes: Vec<(NodeKey, String)> = (1..=4)
-            .map(|i| (NodeKey::from_bytes(&[i; 32]), format!("v{i}.example:443")))
-            .collect();
-        let rules = rules(&sponsor, &nodes);
+        let rules = rules(&sponsor, &nodes());
         let listed = vec![sponsor.node_id().as_str().to_string()];
-        let config = parse(&file(&listed, &rules)).unwrap();
+        let config = parse(&file(&listed, &rules), refused).unwrap();
         assert_eq!(config.hubs.len(), 1);
         assert_eq!(config.hubs[0].rules, rules);
         assert_eq!(config.hubs[0].xrpl, dassie_xrpl::account::DEFAULT_SERVER);
+        assert_eq!(config.network, &TESTNET);
 
         // Validating is opt-in, per sponsor.
-        let error = parse(&file(&[], &rules)).unwrap_err();
+        let error = parse(&file(&[], &rules), refused).unwrap_err();
         assert!(
             error.contains("is not one the node validates for"),
             "{error}"
         );
         let mut broken = rules.clone();
         broken.validators[1].endpoint = "evil.example:443".into();
-        let error = parse(&file(&listed, &broken)).unwrap_err();
+        let error = parse(&file(&listed, &broken), refused).unwrap_err();
         assert!(error.contains("do not check"), "{error}");
-        assert!(parse("{\"sponsors\": [], \"hubs\": [], \"extra\": 1}").is_err());
-        assert!(parse(r#"{"sponsors": [], "hubs": [{"rules": "zz", "genesis_ms": 1}]}"#).is_err());
+        assert!(parse("{\"sponsors\": [], \"hubs\": [], \"extra\": 1}", refused).is_err());
+        let bad_rules = r#"{"sponsors": [], "hubs": [{"rules": "zz", "genesis_ms": 1}]}"#;
+        assert!(parse(bad_rules, refused).is_err());
+    }
+
+    // The network is the testnet unless the file names another; one of
+    // real money only where the live realm runs, and then only its hubs.
+    #[test]
+    fn the_network_is_the_files() {
+        use dassie_xrpl::network::MAINNET;
+
+        let sponsor = NodeKey::from_bytes(&[100; 32]);
+        let listed = vec![sponsor.node_id().as_str().to_string()];
+        let testnet = rules(&sponsor, &nodes());
+        let mainnet = rules_on(&sponsor, &nodes(), MAINNET.id);
+        let config = parse(&file_on(&listed, &testnet, "testnet"), LiveRealm::Refused).unwrap();
+        assert_eq!(config.network, &TESTNET);
+
+        // Mainnet stays refused while the live realm is.
+        let error = parse(&file_on(&listed, &mainnet, "mainnet"), LiveRealm::Refused).unwrap_err();
+        assert!(error.contains("real money"), "{error}");
+        let error = parse(&file_on(&listed, &mainnet, "devnet"), LiveRealm::Refused).unwrap_err();
+        assert!(error.contains("none of testnet, mainnet"), "{error}");
+
+        // A hub on another network than the file's is refused.
+        let error = parse(&file(&listed, &mainnet), LiveRealm::Refused).unwrap_err();
+        assert!(error.contains("not the file's \"testnet\""), "{error}");
+
+        if LiveRealm::DevSwitch.allowed() {
+            let live = LiveRealm::DevSwitch;
+            let config = parse(&file_on(&listed, &mainnet, "mainnet"), live).unwrap();
+            assert_eq!(config.network, &MAINNET);
+            assert_eq!(config.xrpl, MAINNET.server);
+            assert_eq!(config.hubs[0].xrpl, MAINNET.server);
+            let error = parse(&file_on(&listed, &testnet, "mainnet"), live).unwrap_err();
+            assert!(error.contains("not the file's \"mainnet\""), "{error}");
+        }
     }
 
     #[test]

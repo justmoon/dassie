@@ -26,6 +26,7 @@ use std::time::Duration;
 
 use dassie_hub::client::{Agreement, Request, Statement};
 use dassie_hub::escrow::{ValidatorKeys, escrow_master};
+use dassie_hub::ledger::TESTNET_NETWORK;
 use dassie_hub::operation::ValidatorOperation;
 use dassie_hub::rules::{Acceptance, Fees, Limits, Rules, Terms, Timers};
 use dassie_hub::service::wire::Message;
@@ -155,7 +156,10 @@ fn terms(sponsor: &NodeKey) -> Terms {
         nonce: NONCE,
         sponsor: sponsor.public_key(),
         network: 1,
-        escrow: escrow_master(sponsor, &NONCE).unwrap().account().0,
+        escrow: escrow_master(sponsor, TESTNET_NETWORK, &NONCE)
+            .unwrap()
+            .account()
+            .0,
         asset: dassie_hub::rules::Asset::Xrp,
         fees: Fees {
             operation: 10,
@@ -200,7 +204,7 @@ fn rules(nodes: &[Node]) -> Rules {
     let validators: Vec<Acceptance> = nodes
         .iter()
         .map(|node| {
-            ValidatorKeys::derive(&node.key, &NONCE)
+            ValidatorKeys::derive(&node.key, TESTNET_NETWORK, &NONCE)
                 .unwrap()
                 .accept(&node.key, &terms, node.endpoint.clone())
                 .unwrap()
