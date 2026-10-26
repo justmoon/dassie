@@ -1036,20 +1036,6 @@ impl Core {
         self.apply_effects(scheme, ledger, &effects)
     }
 
-    /// A scheme's message from a peer, for the scheme.
-    pub(super) fn scheme_message(&mut self, from: NodeId, scheme: SchemeId, message: &[u8]) {
-        let (Ok(scheme), Ok(name)) = (Name::new(scheme.as_str()), Name::new(from.as_str())) else {
-            return;
-        };
-        let Some(active) = self.schemes.get_mut(&scheme).filter(|a| a.failed.is_none()) else {
-            return;
-        };
-        let mut effects = Vec::new();
-        active.scheme.handle_message(name, message, &mut effects);
-        let ledger = active.scheme.ledger();
-        self.scheme_effects(scheme, ledger, &effects);
-    }
-
     /// A reference for an incoming settlement: unique, as the next
     /// transfer's ID is.
     pub(super) fn incoming_reference(&self, scheme: Name) -> Reference {

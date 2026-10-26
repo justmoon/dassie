@@ -697,6 +697,15 @@ fn a_settlement_requests_answer_is_the_amount_on_its_way() {
     assert!(decode_settling(&[1, 2, 3]).is_err());
 }
 
+// Tag 5 is reserved: no message has it, so a node refuses it as malformed,
+// whatever follows it.
+#[test]
+fn tag_5_is_no_message() {
+    assert_eq!(Kind::from_tag(5), None);
+    assert!(Content::decode_exact(&[0x85]).is_err());
+    assert!(Content::decode_exact(&[0x85, 4, b's', b't', b'u', b'b', 1, 0]).is_err());
+}
+
 // spec/areas/peer-protocol.md#message-set: `hubPacket [12]` carries a
 // Prepare with its commitment, which is never empty and bounded.
 #[test]

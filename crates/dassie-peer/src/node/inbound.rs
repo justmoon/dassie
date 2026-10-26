@@ -119,18 +119,6 @@ impl PeerNode {
                 data,
                 sequence,
             } => self.settlement_request(hooks, &accepted, scheme, amount, data, sequence),
-            Content::SettlementMessage { scheme, message } => {
-                if self.peering_of(&accepted.sender).is_none() {
-                    self.notice_one_sided(accepted.sender);
-                    return refuse(409, "not peered");
-                }
-                Inbound::SchemeMessage {
-                    from: accepted.sender,
-                    scheme,
-                    message,
-                    reply: ok(&accepted, &[]),
-                }
-            }
             Content::PeeringTermination(reason) => {
                 Inbound::Reply(self.termination_request(&accepted, reason))
             }
@@ -309,7 +297,6 @@ impl PeerNode {
             | Content::Registration(_)
             | Content::PeeringRequest(_)
             | Content::Settlement { .. }
-            | Content::SettlementMessage { .. }
             | Content::SettlementRequest { .. }
             | Content::PeeringTermination(_)
             | Content::NameCommit(_)

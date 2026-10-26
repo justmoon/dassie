@@ -65,13 +65,6 @@ pub enum Content<'a> {
         /// never reset, so a copy is applied once.
         sequence: u64,
     },
-    /// `settlementMessage [5]`.
-    SettlementMessage {
-        /// The scheme.
-        scheme: SchemeId,
-        /// The scheme's message.
-        message: &'a [u8],
-    },
     /// `nodeListHashRequest [6]`.
     NodeListHashRequest,
     /// `nodeListRequest [7]`.
@@ -218,7 +211,6 @@ impl Content<'_> {
             Self::InterledgerPacket { .. } => Kind::InterledgerPacket,
             Self::LinkStateRequest(_) => Kind::LinkStateRequest,
             Self::Settlement { .. } => Kind::Settlement,
-            Self::SettlementMessage { .. } => Kind::SettlementMessage,
             Self::NodeListHashRequest => Kind::NodeListHashRequest,
             Self::NodeListRequest => Kind::NodeListRequest,
             Self::Registration(_) => Kind::Registration,
@@ -254,9 +246,6 @@ impl Content<'_> {
             }
             Self::Settlement { scheme, data, .. } => {
                 scheme.encoded_len() + 8 + size::prefixed(data.len()) + 8
-            }
-            Self::SettlementMessage { scheme, message } => {
-                scheme.encoded_len() + size::prefixed(message.len())
             }
             Self::NodeListHashRequest
             | Self::NodeListRequest
@@ -325,10 +314,6 @@ impl Encode for Content<'_> {
                 writer.write_u64(*amount);
                 writer.write_octets(data, Size::ANY);
                 writer.write_u64(*sequence);
-            }
-            Self::SettlementMessage { scheme, message } => {
-                scheme.write(writer);
-                writer.write_octets(message, Size::ANY);
             }
             Self::NodeListHashRequest
             | Self::NodeListRequest
@@ -399,10 +384,6 @@ impl<'a> Decode<'a> for Content<'a> {
                 amount: reader.read_u64()?,
                 data: reader.read_octets(Size::ANY)?,
                 sequence: reader.read_u64()?,
-            },
-            Kind::SettlementMessage => Self::SettlementMessage {
-                scheme: SchemeId::read(reader)?,
-                message: reader.read_octets(Size::ANY)?,
             },
             Kind::NodeListHashRequest => Self::NodeListHashRequest,
             Kind::NodeListRequest => Self::NodeListRequest,

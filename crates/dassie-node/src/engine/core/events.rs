@@ -233,13 +233,6 @@ pub enum SettlementEvent {
         /// Why.
         cause: dassie_settlement::LossCause,
     },
-    /// A scheme's message to a peer could not be sent.
-    MessageNotSent {
-        /// The peer.
-        peer: NodeId,
-        /// Why.
-        error: SendError,
-    },
     /// A node without accounts here settled with us: booked as a deposit.
     DepositFromStranger {
         /// The node.
@@ -541,8 +534,7 @@ const fn settlement_severity(event: &SettlementEvent) -> Severity {
             }
         }
         // At every check, for every peer that earned us something.
-        SettlementEvent::MessageNotSent { .. }
-        | SettlementEvent::CreditRaised { .. }
+        SettlementEvent::CreditRaised { .. }
         | SettlementEvent::SettlementBooked { .. } => Severity::Debug,
         SettlementEvent::BalanceBooked { .. }
         | SettlementEvent::Settling { .. }

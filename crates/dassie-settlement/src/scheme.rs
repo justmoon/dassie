@@ -58,13 +58,6 @@ pub enum Effect {
         /// Whether it applied.
         applied: bool,
     },
-    /// Send a scheme message to a peer.
-    SendMessage {
-        /// The peer.
-        peer: Name,
-        /// The scheme's payload.
-        message: Vec<u8>,
-    },
     /// The underlying ledger charged a fee for one of our transactions:
     /// Dr `expenses/fees`, Cr `assets/settlement`, recorded whatever the
     /// owner's funds, since the money is gone.
@@ -624,9 +617,6 @@ pub trait SettlementScheme: Send {
         peer_state: &[u8],
         effects: &mut Vec<Effect>,
     ) -> Result<(), SchemeError>;
-
-    /// Handles a scheme message from a peer.
-    fn handle_message(&mut self, peer: Name, message: &[u8], effects: &mut Vec<Effect>);
 
     /// Adds money on the owner's behalf, where the scheme can.
     ///

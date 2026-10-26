@@ -185,17 +185,6 @@ pub enum Inbound<'a> {
         /// The answer, once the node knows the amount.
         answer: SettlementAnswer,
     },
-    /// A scheme's message from a peer, for the scheme.
-    SchemeMessage {
-        /// The peer.
-        from: NodeId,
-        /// The scheme.
-        scheme: SchemeId,
-        /// The message.
-        message: &'a [u8],
-        /// The acknowledgement.
-        reply: Reply,
-    },
 }
 
 /// What the node hands its driver.

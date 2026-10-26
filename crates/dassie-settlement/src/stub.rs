@@ -743,8 +743,6 @@ impl SettlementScheme for Stub {
         Ok(())
     }
 
-    fn handle_message(&mut self, _peer: Name, _message: &[u8], _effects: &mut Vec<Effect>) {}
-
     fn deposit(&mut self, amount: u64, effects: &mut Vec<Effect>) -> Result<(), SchemeError> {
         if amount == 0 {
             return Err(SchemeError::InvalidData);

@@ -1233,8 +1233,6 @@ impl SettlementScheme for HubScheme {
         }
     }
 
-    fn handle_message(&mut self, _peer: Name, _message: &[u8], _effects: &mut Vec<Effect>) {}
-
     fn deposit(&mut self, _amount: u64, _effects: &mut Vec<Effect>) -> Result<(), SchemeError> {
         Err(SchemeError::Unsupported)
     }

@@ -134,10 +134,9 @@ pub enum Kind {
     InterledgerPacket,
     /// `linkStateRequest [3]`.
     LinkStateRequest,
-    /// `settlement [4]`.
+    /// `settlement [4]`. Tag 5 follows it unused: it is reserved, and never
+    /// given to a message, so that no node reads it as one.
     Settlement,
-    /// `settlementMessage [5]`.
-    SettlementMessage,
     /// `nodeListHashRequest [6]`.
     NodeListHashRequest,
     /// `nodeListRequest [7]`.
@@ -180,7 +179,6 @@ impl Kind {
             2 => Self::InterledgerPacket,
             3 => Self::LinkStateRequest,
             4 => Self::Settlement,
-            5 => Self::SettlementMessage,
             6 => Self::NodeListHashRequest,
             7 => Self::NodeListRequest,
             8 => Self::Registration,
@@ -209,7 +207,6 @@ impl Kind {
             Self::InterledgerPacket => 2,
             Self::LinkStateRequest => 3,
             Self::Settlement => 4,
-            Self::SettlementMessage => 5,
             Self::NodeListHashRequest => 6,
             Self::NodeListRequest => 7,
             Self::Registration => 8,
@@ -237,7 +234,6 @@ impl Kind {
             Self::PeeringRequest
                 | Self::InterledgerPacket
                 | Self::Settlement
-                | Self::SettlementMessage
                 | Self::Registration
                 | Self::PeeringTermination
                 | Self::SettlementRequest

@@ -44,10 +44,6 @@ pub enum Effect {
         id: Name,
         applied: bool,
     },
-    SendMessage {
-        peer: Name,
-        message: Vec<u8>,
-    },
     Fee {
         amount: u64,
         id: Name,
@@ -82,7 +78,6 @@ impl From<dassie_settlement::Effect> for Effect {
             E::Deposit { amount } => Self::Deposit { amount },
             E::Withdrawal { amount } => Self::Withdrawal { amount },
             E::OwnerPaid { id, applied } => Self::OwnerPaid { id, applied },
-            E::SendMessage { peer, message } => Self::SendMessage { peer, message },
             E::Fee { amount, id } => Self::Fee { amount, id },
             E::Reconcile {
                 amount,
@@ -325,12 +320,6 @@ impl XrplScheme {
             .handle_settlement(peer, amount, data, peer_state, &mut booked);
         effects.extend(booked.into_iter().map(Effect::from));
         handled
-    }
-
-    pub fn handle_message(&mut self, peer: Name, message: &[u8], effects: &mut Vec<Effect>) {
-        let mut booked = Vec::new();
-        self.scheme.handle_message(peer, message, &mut booked);
-        effects.extend(booked.into_iter().map(Effect::from));
     }
 
     /// The joined state.

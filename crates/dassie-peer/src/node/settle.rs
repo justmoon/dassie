@@ -574,28 +574,4 @@ impl PeerNode {
         self.stats.settlements_requested += 1;
         Ok(())
     }
-
-    /// Sends a scheme's message to a peer, once: schemes do not depend on
-    /// them arriving.
-    ///
-    /// # Errors
-    ///
-    /// The node is not a peer, or too much is in flight.
-    pub fn send_scheme_message(
-        &mut self,
-        now_ms: u64,
-        peer: &NodeId,
-        scheme: SchemeId,
-        message: &[u8],
-    ) -> Result<(), SendError> {
-        self.advance(now_ms);
-        if self.peering_of(peer).is_none() {
-            return Err(SendError::NotPeered);
-        }
-        let content = Content::SettlementMessage { scheme, message };
-        let timeout = self.config.request_timeout_ms;
-        self.send(*peer, &content, Purpose::Gossip, timeout)
-            .map(|_| ())
-            .ok_or(SendError::Busy)
-    }
 }

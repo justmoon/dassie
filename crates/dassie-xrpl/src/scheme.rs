@@ -891,8 +891,6 @@ impl<N: NativeXrp> SettlementScheme for XrpScheme<N> {
         check_claim(data)
     }
 
-    fn handle_message(&mut self, _peer: Name, _message: &[u8], _effects: &mut Vec<Effect>) {}
-
     fn deposit(&mut self, _amount: u64, _effects: &mut Vec<Effect>) -> Result<(), SchemeError> {
         Err(SchemeError::Unsupported)
     }

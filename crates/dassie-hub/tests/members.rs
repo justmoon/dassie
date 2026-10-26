@@ -513,7 +513,6 @@ impl Books {
                 }
                 self.losses.push((peer, amount, cause));
             }
-            Effect::SendMessage { .. } => {}
         }
     }
 

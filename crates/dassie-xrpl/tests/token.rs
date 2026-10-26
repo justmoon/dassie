@@ -123,7 +123,6 @@ impl Books {
                 self.pending.remove(&settlement).unwrap();
                 self.cancelled.push(settlement);
             }
-            Effect::SendMessage { .. } => {}
             Effect::PeerLoss { .. } => panic!("an XRPL scheme books no peer losses"),
         }
     }

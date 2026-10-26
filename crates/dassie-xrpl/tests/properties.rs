@@ -1931,7 +1931,7 @@ proptest! {
     #[test]
     fn peers_cannot_make_the_scheme_panic(
         calls in prop::collection::vec(
-            (0u8..6, prop::sample::select(&["peer", "other", "third"][..]), peer_bytes(), peer_bytes(),
+            (0u8..5, prop::sample::select(&["peer", "other", "third"][..]), peer_bytes(), peer_bytes(),
              prop_oneof![1u64..1_000_000_000_000, any::<u64>()]),
             1..20,
         ),
@@ -1957,10 +1957,9 @@ proptest! {
                         scheme.execute_settlement(prepared.id, &mut effects);
                     }
                 }
-                4 => {
+                _ => {
                     let _ = scheme.handle_settlement(peer, amount, &first, &second, &mut effects);
                 }
-                _ => scheme.handle_message(peer, &first, &mut effects),
             }
             scheme.check_invariants();
         }

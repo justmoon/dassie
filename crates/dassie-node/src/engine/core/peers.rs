@@ -105,7 +105,6 @@ enum Inbound {
     Deferred,
     Packet(NodeId, u32, Vec<u8>, Option<Vec<u8>>, PacketAnswer),
     Settlement(NodeId, SchemeId, u64, Vec<u8>, u64, Reply),
-    SchemeMessage(NodeId, SchemeId, Vec<u8>, Reply),
     SettlementRequest(NodeId, SchemeId, dassie_peer::SettlementAnswer),
 }
 
@@ -619,12 +618,6 @@ impl Core {
                     sequence,
                     reply,
                 } => Inbound::Settlement(from, scheme, amount, data.to_vec(), sequence, reply),
-                dassie_peer::Inbound::SchemeMessage {
-                    from,
-                    scheme,
-                    message,
-                    reply,
-                } => Inbound::SchemeMessage(from, scheme, message.to_vec(), reply),
                 dassie_peer::Inbound::SettlementRequest {
                     from,
                     scheme,
@@ -640,10 +633,6 @@ impl Core {
             }
             Inbound::Settlement(from, scheme, amount, data, sequence, reply) => {
                 Some(self.settlement_from(from, scheme, amount, &data, sequence, reply))
-            }
-            Inbound::SchemeMessage(from, scheme, message, reply) => {
-                self.scheme_message(from, scheme, &message);
-                Some(reply)
             }
             Inbound::SettlementRequest(from, scheme, answer) => {
                 let settling = self.settlement_requested(from, scheme);

@@ -246,7 +246,6 @@ impl World {
                     books.pending.remove(&settlement).unwrap();
                     books.cancelled.push(settlement);
                 }
-                Effect::SendMessage { .. } => {}
                 Effect::LedgerSend { message } => self.request(index, &message),
                 Effect::Reconnect => {
                     node.reconnects += 1;

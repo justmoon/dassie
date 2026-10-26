@@ -1014,7 +1014,6 @@ impl Network {
                 });
                 Some(reply)
             }
-            Inbound::SchemeMessage { reply, .. } => Some(reply),
             Inbound::SettlementRequest { .. }
                 if self.refuse_settlement_requests.contains_key(&to) =>
             {
@@ -1196,7 +1195,7 @@ impl Network {
         sim.next_inbound += 1;
         let node = sim.node.as_mut().unwrap();
         let reply = match node.handle_inbound(now, &mut sim.hooks, inbound, body, source) {
-            Inbound::Reply(reply) | Inbound::SchemeMessage { reply, .. } => reply,
+            Inbound::Reply(reply) => reply,
             Inbound::Packet { answer, .. } => sim.hooks.reply(answer),
             Inbound::SettlementRequest { answer, .. } => {
                 answer.reply(self.promise.get(&index).copied().unwrap_or(0))

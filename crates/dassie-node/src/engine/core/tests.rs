@@ -2742,14 +2742,6 @@ impl dassie_settlement::SettlementScheme for Witness {
         Err(dassie_settlement::SchemeError::InvalidData)
     }
 
-    fn handle_message(
-        &mut self,
-        _peer: dassie_ledger::Name,
-        _message: &[u8],
-        _effects: &mut Vec<dassie_settlement::Effect>,
-    ) {
-    }
-
     fn deposit(
         &mut self,
         _amount: u64,
@@ -2871,14 +2863,6 @@ impl dassie_settlement::SettlementScheme for HubStandIn {
         _effects: &mut Vec<dassie_settlement::Effect>,
     ) -> Result<(), dassie_settlement::SchemeError> {
         Err(dassie_settlement::SchemeError::InvalidData)
-    }
-
-    fn handle_message(
-        &mut self,
-        _peer: dassie_ledger::Name,
-        _message: &[u8],
-        _effects: &mut Vec<dassie_settlement::Effect>,
-    ) {
     }
 
     fn deposit(

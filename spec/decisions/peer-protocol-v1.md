@@ -8,7 +8,7 @@ The original's peer protocol (v0) does not authenticate senders: any peered node
 
 ## Decision
 
-A new protocol version, v1, that keeps v0's message set and fixes its security:
+A new protocol version, v1, that keeps v0's message set, less `settlementMessage`, and fixes its security:
 
 - **Sender authentication by a MAC,** keyed from a static-static X25519 between the two node keys, over the version, sender, recipient and content.
 - **Replay protection** that survives restarts.
@@ -21,6 +21,8 @@ The shape of the scheme, and why:
 - **Direction is bound into the key,** so a message cannot be reflected back to its sender.
 - **The sender's key travels in the envelope** and must hash to the claimed node ID, so a node can check a sender it does not know yet, such as a registrant.
 - **A post-quantum path is reserved:** a tag for a scheme built on the X-Wing hybrid KEM, and room for its key in link states. Signatures and node IDs stay Ed25519, since the passphrase-to-node-ID chain is fixed. Confidentiality against "harvest now, decrypt later" belongs to TLS.
+
+`settlementMessage`, v0's channel for a scheme's own messages to its counterpart, is not kept: no scheme sends one, since a scheme's peers meet on its ledger, and a message the node only passes on is attack surface for nothing. Its tag stays reserved, so no other message ever takes it. A scheme that needs a message of its own gets one in the protocol, with its rules.
 
 ## Accepted
 
