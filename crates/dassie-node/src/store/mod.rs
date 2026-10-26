@@ -42,6 +42,7 @@ use std::fs::{self, DirBuilder, OpenOptions, Permissions};
 use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
 use std::path::Path;
 use std::sync::{Mutex, MutexGuard, PoisonError};
+use std::time::Duration;
 
 use dassie_identity::NodeKey;
 use dassie_node_core::certificate::CertificateSource;
@@ -246,7 +247,7 @@ impl Store {
 
     /// A database in memory, for `verify-install` and tests.
     pub fn open_in_memory() -> Result<Self, StoreError> {
-        Self::prepare(Connection::open_in_memory()?, None)
+        Self::prepare(migrated_in_memory()?, None)
     }
 
     fn prepare(mut connection: Connection, lock: Option<fs::File>) -> Result<Self, StoreError> {
@@ -568,6 +569,31 @@ fn secure_directory(path: &Path) -> Result<(), StoreError> {
         DirBuilder::new().recursive(true).mode(0o700).create(path)?;
     }
     tighten(path, 0o700)
+}
+
+/// A database in memory at the current schema: a copy of one the process
+/// migrated once. Replaying every migration took most of the time a
+/// simulation or a test spent opening each of its stores; a copy starts
+/// from the same bytes, which [`Store::prepare`] still checks.
+fn migrated_in_memory() -> Result<Connection, StoreError> {
+    static MIGRATED: Mutex<Option<Connection>> = Mutex::new(None);
+    let mut migrated = MIGRATED.lock().unwrap_or_else(PoisonError::into_inner);
+    let source = match migrated.take() {
+        Some(source) => source,
+        None => {
+            let mut source = Connection::open_in_memory()?;
+            schema::prepare(&mut source)?;
+            source
+        }
+    };
+    let mut copy = Connection::open_in_memory()?;
+    rusqlite::backup::Backup::new(&source, &mut copy)?.run_to_completion(
+        i32::MAX,
+        Duration::ZERO,
+        None,
+    )?;
+    *migrated = Some(source);
+    Ok(copy)
 }
 
 /// Takes the exclusive lock on the data directory's [`LOCK_FILE`], which
