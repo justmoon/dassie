@@ -414,11 +414,12 @@ impl XrplAccount {
     }
 
     /// Each publisher's current and pending lists' sequences.
-    fn list_sequences(&self) -> Vec<(Option<u32>, Option<u32>)> {
+    fn list_sequences(&self) -> Vec<(Option<u32>, Vec<u32>)> {
         (0..self.fetches.len())
             .map(|publisher| {
                 let (current, pending) = self.unl.lists(publisher);
-                (current.map(|l| l.sequence), pending.map(|l| l.sequence))
+                let pending = pending.iter().map(|l| l.sequence).collect();
+                (current.map(|l| l.sequence), pending)
             })
             .collect()
     }

@@ -158,7 +158,7 @@ fn the_publishers_lists_verify_under_the_built_in_keys() {
         unl.check_invariants();
         let index = usize::from(publisher == XRPLF);
         let (current, pending) = unl.lists(index);
-        assert_eq!((current.unwrap().sequence, pending), (sequence, None));
+        assert_eq!((current.unwrap().sequence, pending), (sequence, vec![]));
         assert_eq!(current.unwrap().validators.len(), 35);
     }
     let (ripple, xrplf) = (unl.lists(0).0.unwrap(), unl.lists(1).0.unwrap());
@@ -359,7 +359,10 @@ fn lies_from_real_data_count_for_nothing() {
         Err(ListError::BadManifest)
     );
     unl.check_invariants();
-    assert_eq!((unl.lists(0), unl.lists(1)), ((None, None), (None, None)));
+    assert_eq!(
+        (unl.lists(0), unl.lists(1)),
+        ((None, vec![]), (None, vec![]))
+    );
 
     let mut unl = with_lists(UnlConfig::mainnet(), "mainnet", now_ms);
     for manifest in live_manifests("mainnet") {
