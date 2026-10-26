@@ -39,7 +39,7 @@ Read a [decision](decisions/README.md) when an area doc links to it and you need
 | `proto/dassie/ui/v1/names.proto` | [Network](areas/network.md#names), [RPC](areas/rpc.md) |
 | `proto/dassie/dev/v1` | [Dev](areas/dev.md) |
 | `packages/rpc` | [RPC](areas/rpc.md) |
-| `packages/identity-wasm` | [Identity](areas/identity.md), [STREAM](areas/stream.md) |
+| `crates/dassie-wasm`, `packages/wasm` | [Identity](areas/identity.md#in-the-browser-and-in-scripts), [STREAM](areas/stream.md) |
 | `packages/ui` | [Wallet](areas/wallet.md) |
 | `apps/wallet` | [Wallet](areas/wallet.md), [RPC](areas/rpc.md) |
 | `apps/dev` | [Dev](areas/dev.md) |

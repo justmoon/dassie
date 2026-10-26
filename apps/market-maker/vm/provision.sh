@@ -37,7 +37,7 @@
 # The two secrets exist before this runs, each a BIP-39 passphrase of a
 # node of the market maker's own, which nobody else uses: whoever reads it
 # holds that node's funds. To make them, generate a phrase as the wallet's
-# setup does (`generateMnemonic` of @dassie/identity-wasm) and
+# setup does (`generateMnemonic` of @dassie/wasm) and
 #
 #   … | gcloud secrets create mm-xrp-phrase --project=dassie-390023 \
 #     --replication-policy=automatic --data-file=-

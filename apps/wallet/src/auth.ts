@@ -6,7 +6,7 @@
  * callers reload the page afterwards and let the gate pick the next screen.
  */
 
-import { type Identity, loadIdentity } from "@dassie/identity-wasm/web";
+import { type Identity, loadIdentity } from "@dassie/wasm/web";
 import { hex } from "./hex.ts";
 
 /** How a call to the node went. */

@@ -13,8 +13,8 @@ import {
   type DataAndMoneyStream,
 } from "ilp-protocol-stream";
 
-import { StreamConnection, StreamServer } from "@dassie/identity-wasm";
-import { ClientDriver, ServerDriver } from "@dassie/identity-wasm/stream";
+import { StreamConnection, StreamServer } from "@dassie/wasm";
+import { ClientDriver, ServerDriver } from "./stream_driver.ts";
 
 import { createPlugin, Network } from "./network.ts";
 

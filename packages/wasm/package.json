@@ -1,11 +1,10 @@
 {
-  "name": "@dassie/identity-wasm",
+  "name": "@dassie/wasm",
   "version": "0.0.0",
   "private": true,
   "type": "module",
   "exports": {
     ".": "./mod.ts",
-    "./stream": "./stream.ts",
     "./web": "./web.ts",
     "./web/stream": "./web_stream.ts"
   },

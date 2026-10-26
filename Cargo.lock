@@ -1078,7 +1078,6 @@ dependencies = [
  "dassie-oer",
  "ed25519-dalek",
  "ed25519-zebra",
- "getrandom 0.4.3",
  "hmac",
  "pbkdf2",
  "proptest",
@@ -1086,7 +1085,6 @@ dependencies = [
  "serde_json",
  "sha2 0.11.1",
  "subtle",
- "wasm-bindgen",
  "zeroize",
 ]
 
@@ -1098,7 +1096,6 @@ dependencies = [
  "proptest",
  "serde_json",
  "sha2 0.11.1",
- "wasm-bindgen",
 ]
 
 [[package]]
@@ -1269,6 +1266,18 @@ dependencies = [
  "rand_core",
  "serde_json",
  "sha2 0.11.1",
+]
+
+[[package]]
+name = "dassie-wasm"
+version = "0.2.9"
+dependencies = [
+ "dassie-identity",
+ "dassie-ilp",
+ "dassie-oer",
+ "dassie-stream",
+ "getrandom 0.4.3",
+ "rand_core",
  "wasm-bindgen",
 ]
 

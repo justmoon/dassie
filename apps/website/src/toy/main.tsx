@@ -1,5 +1,5 @@
 import { render } from "@solidjs/web";
-import { loadStream } from "@dassie/identity-wasm/web/stream";
+import { loadStream } from "@dassie/wasm/web/stream";
 import { Toy } from "./Toy.tsx";
 
 const root = document.getElementById("toy");

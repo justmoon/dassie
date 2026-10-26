@@ -17,7 +17,7 @@ import {
   mnemonicFromEntropy,
   nodeId,
   publicKey,
-} from "@dassie/identity-wasm";
+} from "@dassie/wasm";
 import table from "../vanity.json" with { type: "json" };
 
 /** Entries kept: d1 to d1000, and the record beyond. */

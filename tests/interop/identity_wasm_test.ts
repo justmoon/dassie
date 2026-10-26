@@ -22,7 +22,7 @@ import {
   publicKey,
   sign,
   validateMnemonic,
-} from "@dassie/identity-wasm";
+} from "@dassie/wasm";
 
 const crates = new URL("../../crates/", import.meta.url);
 

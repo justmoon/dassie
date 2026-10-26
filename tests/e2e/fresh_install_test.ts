@@ -19,7 +19,7 @@ import {
   generateMnemonic,
   nodeId,
   publicKey,
-} from "@dassie/identity-wasm";
+} from "@dassie/wasm";
 import type { Page } from "puppeteer-core";
 import { click, text, type } from "./browser.ts";
 import {

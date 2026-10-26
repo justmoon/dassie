@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import { assert, assertEquals } from "@std/assert";
-import * as stream from "@dassie/identity-wasm";
+import * as stream from "@dassie/wasm";
 import {
   decodeStream,
   decodeTooLarge,

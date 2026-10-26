@@ -16,8 +16,8 @@
   "devDependencies": {
     "@bufbuild/protobuf": "^2.16.0",
     "@dassie/dev": "workspace:*",
-    "@dassie/identity-wasm": "workspace:*",
     "@dassie/rpc": "workspace:*",
+    "@dassie/wasm": "workspace:*",
     "@interledger/http-signature-utils": "2.0.3",
     "@interledger/open-payments": "7.4.0",
     "@std/assert": "jsr:^1.0.19",

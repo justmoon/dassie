@@ -2,15 +2,13 @@
 //! driver, test harnesses and the website. Packets cross the boundary as
 //! `Uint8Array`s; a decoded packet is a read-only view object.
 
-extern crate alloc;
-
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
 use dassie_oer::{Decode, Encode};
 use wasm_bindgen::prelude::*;
 
-use crate::{Address, AmountTooLarge, ErrorCode, Fulfill, Packet, Prepare, Reject, Timestamp};
+use dassie_ilp::{Address, AmountTooLarge, ErrorCode, Fulfill, Packet, Prepare, Reject, Timestamp};
 
 fn address(text: &str) -> Result<Address<'_>, JsError> {
     Address::parse(text).map_err(|error| JsError::new(&error.to_string()))
@@ -110,7 +108,7 @@ pub fn decode_ilp_packet(bytes: &[u8]) -> Result<IlpPacket, JsError> {
     };
     match packet {
         Packet::Prepare(prepare) => {
-            view.packet_type = crate::TYPE_PREPARE;
+            view.packet_type = dassie_ilp::TYPE_PREPARE;
             view.amount = prepare.amount;
             // Interledger timestamps end in year 9999, well within the
             // integers an f64 represents exactly.
@@ -123,12 +121,12 @@ pub fn decode_ilp_packet(bytes: &[u8]) -> Result<IlpPacket, JsError> {
             view.data = prepare.data.to_vec();
         }
         Packet::Fulfill(fulfill) => {
-            view.packet_type = crate::TYPE_FULFILL;
+            view.packet_type = dassie_ilp::TYPE_FULFILL;
             view.condition_or_fulfillment = fulfill.fulfillment.to_vec();
             view.data = fulfill.data.to_vec();
         }
         Packet::Reject(reject) => {
-            view.packet_type = crate::TYPE_REJECT;
+            view.packet_type = dassie_ilp::TYPE_REJECT;
             view.address = String::from(reject.triggered_by.map_or("", |a| a.as_str()));
             view.code = String::from(reject.code.as_str());
             view.message = String::from(reject.message);

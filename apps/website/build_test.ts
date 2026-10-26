@@ -97,16 +97,21 @@ async function watched(): Promise<string[]> {
   );
 }
 
-/** The workspace crates the WASM modules are built from. */
+/**
+ * The workspace crates the WASM modules are built from: the bindings crate
+ * and what it depends on, with every feature, since each module is built
+ * with one of them.
+ */
 async function wasmCrates(): Promise<Set<string>> {
   const buildWasm = await readFile(`${root}scripts/build-wasm.ts`, "utf8");
-  const roots = JSON.parse(
-    buildWasm.match(/const crates = (\[[^\]]*\]);/)![1],
-  ) as string[];
+  const bindings = buildWasm.match(/const crate = "([^"]+)";/)?.[1];
+  assert(bindings, "build-wasm.ts names no crate");
+  const roots = [bindings];
   const metadata = JSON.parse(
     await output("cargo", [
       "metadata",
       "--format-version=1",
+      "--all-features",
       "--filter-platform=wasm32-unknown-unknown",
     ]),
   ) as {

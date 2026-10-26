@@ -1,0 +1,32 @@
+[package]
+name = "dassie-wasm"
+version = "0.2.9"
+description = "JavaScript bindings (wasm-bindgen) of Dassie's core crates: identity, and STREAM with ILP's packets"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+# Each feature is one WASM module of @dassie/wasm, built on its own
+# (scripts/build-wasm.ts), so the wallet loads identity without STREAM.
+[features]
+default = []
+# Identity derivation, for the wallet, the dev tools and the tests.
+identity = ["dep:dassie-identity"]
+# STREAM and ILP's packet codecs, for the website's STREAM toy and the
+# interop tests.
+stream = ["dep:dassie-stream", "dep:dassie-ilp", "dep:dassie-oer"]
+
+[dependencies]
+dassie-identity = { path = "../dassie-identity", optional = true }
+dassie-ilp = { path = "../dassie-ilp", optional = true }
+dassie-oer = { path = "../dassie-oer", optional = true }
+dassie-stream = { path = "../dassie-stream", optional = true }
+# The platform RNG: the bindings are the edge where the browser supplies
+# randomness, so the core crates never touch it.
+getrandom = { version = "0.4.3", default-features = false, features = ["sys_rng", "wasm_js"] }
+rand_core = { version = "0.10", default-features = false }
+wasm-bindgen = "=0.2.129"

@@ -6,7 +6,7 @@
  */
 
 import { assertEquals } from "@std/assert";
-import { loginSecret } from "@dassie/identity-wasm";
+import { loginSecret } from "@dassie/wasm";
 import type { ScenarioNode } from "@dassie/dev/scenario";
 import type { ElementHandle, Page } from "puppeteer-core";
 

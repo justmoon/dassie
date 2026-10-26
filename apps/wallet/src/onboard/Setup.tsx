@@ -6,7 +6,7 @@
  * never stored.
  */
 
-import { type Identity, loadIdentity } from "@dassie/identity-wasm/web";
+import { type Identity, loadIdentity } from "@dassie/wasm/web";
 import type { JSX } from "@solidjs/web";
 import { createSignal, Match, Show, Switch } from "solid-js";
 import { checkPassphrase, submitSetup } from "../auth.ts";

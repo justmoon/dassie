@@ -1,13 +1,14 @@
 /**
  * An asynchronous driver for the sans-IO STREAM state machines: it sends
  * the packets a connection produces through an {@link IlpEndpoint}, feeds
- * the responses back, and runs the connection's timers. The website's
- * STREAM toy and the interop tests use it.
+ * the responses back, and runs the connection's timers. The interop tests
+ * drive the WASM build's connections with it against
+ * `ilp-protocol-stream`; the website's toy steps its connections itself.
  *
  * @module
  */
 
-import type { StreamConnection, StreamEvent, StreamServer } from "./mod.ts";
+import type { StreamConnection, StreamEvent, StreamServer } from "@dassie/wasm";
 
 /** Something that carries ILP packets: a plugin, a socket, a simulator. */
 export interface IlpEndpoint {

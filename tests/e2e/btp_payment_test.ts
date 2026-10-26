@@ -28,7 +28,7 @@ import {
   type Transfer,
   TransferState,
 } from "@dassie/rpc/proto";
-import { deriveNodeKey, loginSecret } from "@dassie/identity-wasm";
+import { deriveNodeKey, loginSecret } from "@dassie/wasm";
 
 import {
   DASSIE,

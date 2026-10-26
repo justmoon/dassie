@@ -8,7 +8,7 @@ import type { JSX } from "@solidjs/web";
 import { create } from "@bufbuild/protobuf";
 import { LogLevel, type LogLine, LogLineSchema } from "@dassie/rpc/proto";
 import { LogViewer } from "@dassie/ui/logs";
-import type { Stream } from "@dassie/identity-wasm/web/stream";
+import type { Stream } from "@dassie/wasm/web/stream";
 import { createMemo, createSignal, onCleanup, Show } from "solid-js";
 import {
   DEFAULT_FORM,
