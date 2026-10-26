@@ -20,13 +20,15 @@ if [ $# -ne 2 ]; then
   echo "usage: $0 <dist> <bucket>" >&2
   exit 2
 fi
-dist=$1
 remote=gs://$2
 
-if [ ! -f "$dist/index.html" ] || [ ! -d "$dist/assets" ]; then
-  echo "$dist is not a built site: no index.html or assets/" >&2
+if [ ! -f "$1/index.html" ] || [ ! -d "$1/assets" ]; then
+  echo "$1 is not a built site: no index.html or assets/" >&2
   exit 1
 fi
+# The real directory: gcloud skips a source that is a symlink, as the
+# out-link of `nix build .#website` is.
+dist=$(cd "$1" && pwd -P)
 
 # The assets' names hold a hash of their content: cached for good.
 gcloud storage rsync --recursive --checksums-only \
