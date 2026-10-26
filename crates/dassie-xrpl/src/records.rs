@@ -4,13 +4,13 @@
 //! binary transaction with its metadata as the record the schemes read.
 //!
 //! - **Keys** are rippled's: an account's root, a trust line by its two
-//!   accounts and currency, the `AMM` object of the pool of XRP and a
-//!   token, and the fee settings.
+//!   accounts and currency, an account's signer list, the `AMM` object of
+//!   the pool of XRP and a token, and the fee settings.
 //! - **Objects** are read on the walker of canonical serializations
 //!   ([`crate::binary`]), each by the fields its reader needs: an account's
-//!   root, a trust line, the fee settings in either of rippled's forms, and
-//!   an `AMM` object's account and assets. Each names the transaction that
-//!   last changed it, where rippled threads it.
+//!   root, a trust line, a signer list, the fee settings in either of
+//!   rippled's forms, and an `AMM` object's account and assets. Each names
+//!   the transaction that last changed it, where rippled threads it.
 //! - **A transaction and its metadata** decode into [`TxRecord`], as the
 //!   JSON the stream and `tx` give does: who sent it, what it paid, its
 //!   result, what it did to accounts' XRP and to trust lines, and its
@@ -28,9 +28,9 @@ use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
 use crate::amount::{Amount, Asset, Currency, TokenAmount, TokenValue};
-use crate::api::{BalanceChange, LineChange, TrustLine, TxRecord};
+use crate::api::{BalanceChange, LineChange, SignerList, TrustLine, TxRecord};
 use crate::binary::{Field, FieldId, Fields, Type};
-use crate::codec::{DecodeError, TF_PARTIAL_PAYMENT};
+use crate::codec::{DecodeError, MAX_SIGNERS, SignerEntry, TF_PARTIAL_PAYMENT};
 use crate::keys::{AccountId, sha512_half};
 
 /// The transaction that last changed an object, and its ledger, as the
@@ -39,6 +39,7 @@ pub type Thread = ([u8; 32], u32);
 
 // The kinds of ledger objects read (rippled's `ledger_entries.macro`).
 const ACCOUNT_ROOT: u16 = 0x0061;
+const SIGNER_LIST: u16 = 0x0053;
 const RIPPLE_STATE: u16 = 0x0072;
 const FEE_SETTINGS: u16 = 0x0073;
 const AMM: u16 = 0x0079;
@@ -51,6 +52,7 @@ const TICKET_CREATE: u16 = 10;
 const TRANSACTION_RESULT: FieldId = FieldId::new(Type::UInt8, 3);
 const LEDGER_ENTRY_TYPE: FieldId = FieldId::new(Type::UInt16, 1);
 const TRANSACTION_TYPE: FieldId = FieldId::new(Type::UInt16, 2);
+const SIGNER_WEIGHT: FieldId = FieldId::new(Type::UInt16, 3);
 const FLAGS: FieldId = FieldId::new(Type::UInt32, 2);
 const SEQUENCE: FieldId = FieldId::new(Type::UInt32, 4);
 const PREVIOUS_TXN_LGR_SEQ: FieldId = FieldId::new(Type::UInt32, 5);
@@ -60,6 +62,8 @@ const DESTINATION_TAG: FieldId = FieldId::new(Type::UInt32, 14);
 const TRANSACTION_INDEX: FieldId = FieldId::new(Type::UInt32, 28);
 const RESERVE_BASE: FieldId = FieldId::new(Type::UInt32, 31);
 const RESERVE_INCREMENT: FieldId = FieldId::new(Type::UInt32, 32);
+const SIGNER_QUORUM: FieldId = FieldId::new(Type::UInt32, 35);
+const SIGNER_LIST_ID: FieldId = FieldId::new(Type::UInt32, 38);
 const TICKET_COUNT: FieldId = FieldId::new(Type::UInt32, 40);
 const BASE_FEE: FieldId = FieldId::new(Type::UInt64, 5);
 const PREVIOUS_TXN_ID: FieldId = FieldId::new(Type::Hash256, 5);
@@ -87,6 +91,8 @@ const PREVIOUS_FIELDS: FieldId = FieldId::new(Type::Object, 6);
 const FINAL_FIELDS: FieldId = FieldId::new(Type::Object, 7);
 const NEW_FIELDS: FieldId = FieldId::new(Type::Object, 8);
 const MEMO: FieldId = FieldId::new(Type::Object, 10);
+const SIGNER_ENTRY: FieldId = FieldId::new(Type::Object, 11);
+const SIGNER_ENTRIES: FieldId = FieldId::new(Type::Array, 4);
 const AFFECTED_NODES: FieldId = FieldId::new(Type::Array, 8);
 const MEMOS: FieldId = FieldId::new(Type::Array, 9);
 
@@ -207,6 +213,13 @@ pub fn account_key(account: AccountId) -> [u8; 32] {
 pub fn line_key(a: AccountId, b: AccountId, currency: Currency) -> [u8; 32] {
     let (low, high) = if a < b { (a, b) } else { (b, a) };
     key(b'r', &[&low.0, &high.0, &currency.0])
+}
+
+/// The key of `account`'s signer list: its ID is always 0, as rippled
+/// keeps one list an account.
+#[must_use]
+pub fn signer_list_key(account: AccountId) -> [u8; 32] {
+    key(b'S', &[&account.0, &0_u32.to_be_bytes()])
 }
 
 /// The key of the `AMM` object of the pool of XRP and the token `currency`
@@ -401,6 +414,75 @@ pub fn ripple_state(object: &[u8]) -> Result<(TrustLine, Option<Thread>), Decode
     of_kind(fields.kind, RIPPLE_STATE)?;
     let line = fields.line(false).ok_or(DecodeError::Value)?;
     Ok((line, thread(fields.txn, fields.ledger)))
+}
+
+/// The signer list in `object`, and the transaction that last changed it:
+/// its quorum, and its entries, at least one and at most [`MAX_SIGNERS`],
+/// sorted by account and each once, as the ledger keeps them.
+///
+/// # Errors
+///
+/// It is no signer list, or not one the ledger holds.
+pub fn signer_list(object: &[u8]) -> Result<(SignerList, Option<Thread>), DecodeError> {
+    let (mut kind, mut quorum, mut list_id, mut entries) = (None, None, None, None);
+    let (mut txn, mut ledger) = (None, None);
+    for field in Fields::new(object) {
+        let field = field?;
+        match field.id {
+            LEDGER_ENTRY_TYPE => kind = Some(field.uint16()?),
+            PREVIOUS_TXN_LGR_SEQ => ledger = Some(field.uint32()?),
+            SIGNER_QUORUM => quorum = Some(field.uint32()?),
+            SIGNER_LIST_ID => list_id = Some(field.uint32()?),
+            PREVIOUS_TXN_ID => txn = Some(field.hash256()?),
+            SIGNER_ENTRIES => entries = Some(signer_entries(&field)?),
+            _ => {}
+        }
+    }
+    of_kind(kind, SIGNER_LIST)?;
+    if list_id != Some(0) {
+        return Err(DecodeError::Value);
+    }
+    let list = SignerList {
+        quorum: quorum.ok_or(DecodeError::Field)?,
+        entries: entries.ok_or(DecodeError::Field)?,
+    };
+    Ok((list, thread(txn, ledger)))
+}
+
+/// A signer list's entries: at least one and at most [`MAX_SIGNERS`], each
+/// an account and its weight, sorted by account and each once.
+fn signer_entries(field: &Field<'_>) -> Result<Vec<SignerEntry>, DecodeError> {
+    let mut entries: Vec<SignerEntry> = Vec::new();
+    for element in field.elements()? {
+        let element = element?;
+        if element.id != SIGNER_ENTRY || entries.len() >= MAX_SIGNERS {
+            return Err(DecodeError::Value);
+        }
+        let (mut account, mut weight) = (None, None);
+        for field in element.fields()? {
+            let field = field?;
+            match field.id {
+                ACCOUNT => account = field.account()?,
+                SIGNER_WEIGHT => weight = Some(field.uint16()?),
+                _ => {}
+            }
+        }
+        let entry = SignerEntry {
+            account: account.ok_or(DecodeError::Field)?,
+            weight: weight.ok_or(DecodeError::Field)?,
+        };
+        if entries
+            .last()
+            .is_some_and(|last| last.account >= entry.account)
+        {
+            return Err(DecodeError::Value);
+        }
+        entries.push(entry);
+    }
+    if entries.is_empty() {
+        return Err(DecodeError::Field);
+    }
+    Ok(entries)
 }
 
 /// The fee settings: the base fee, and the reserve, in drops.

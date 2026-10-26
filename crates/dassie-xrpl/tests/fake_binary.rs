@@ -589,3 +589,66 @@ fn every_object_reads_as_its_json() {
         true,
     );
 }
+
+// A signer list, as a hub's validators read their escrow's from a proof:
+// it reads as its JSON, and decodes as `account_objects` reads it, under
+// the key of its owner.
+#[test]
+fn a_signer_list_reads_as_its_json() {
+    let mut ledger = FakeLedger::new();
+    let (owner, alice, bob) = (
+        Wallet::from_seed([1; 16]),
+        Wallet::from_seed([2; 16]),
+        Wallet::from_seed([3; 16]),
+    );
+    ledger.fund(owner.account());
+    ledger.close();
+    let mut entries = vec![
+        SignerEntry {
+            account: alice.account(),
+            weight: 1,
+        },
+        SignerEntry {
+            account: bob.account(),
+            weight: 2,
+        },
+    ];
+    entries.sort_by_key(|entry| entry.account);
+    let list = SignerListSet {
+        account: owner.account(),
+        signer_quorum: 2,
+        signer_entries: entries,
+        fee: FEE_BASE,
+        sequence: sequence(&ledger, &owner),
+        last_ledger_sequence: Some(ledger.ledger() + 10),
+        flags: 0,
+        network_id: None,
+        memos: Vec::new(),
+        signing: Signing::by(owner.public_key()),
+    }
+    .sign(&owner);
+    submit(&mut ledger, &list.blob);
+    ledger.close();
+    let objects = ask(
+        &mut ledger,
+        &json!({ "command": "account_objects", "account": owner.account().to_address() }),
+    );
+    let object = &objects["account_objects"][0];
+    assert_eq!(object["LedgerEntryType"], "SignerList");
+    let key = dassie_xrpl::records::signer_list_key(owner.account());
+    assert_eq!(object["index"], hex_upper(&key));
+    let bytes = state(&mut ledger, &key);
+    let mut fields = object.clone();
+    fields.as_object_mut().unwrap().remove("index");
+    reads_as(&fields, &bytes, true);
+    let (decoded, thread) = dassie_xrpl::records::signer_list(&bytes).unwrap();
+    let read = dassie_xrpl::api::account_objects_result(&objects).unwrap();
+    assert_eq!(Some(decoded), read.signer_list);
+    assert_eq!(thread.map(|(hash, _)| hash), Some(list.hash));
+    // Another kind of object is none.
+    let root = state(
+        &mut ledger,
+        &dassie_xrpl::records::account_key(owner.account()),
+    );
+    assert!(dassie_xrpl::records::signer_list(&root).is_err());
+}

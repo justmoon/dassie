@@ -73,10 +73,10 @@ use crate::unl::{Secp256k1Signatures, Unl, ValidationSignatures};
 use crate::validator_list::{MAX_PUBLISHERS, UnlConfig};
 use crate::{UNITS_PER_DROP, from_hex, hex_upper};
 
+use anchors::Round;
 pub use anchors::{
     Doubt, FETCH_TIMEOUT_MS, LIST_REFRESH_MS, LIST_RETRY_MS, MAX_MANIFEST_ASKS, STALL_MS,
 };
-use anchors::{Fetching, Round};
 pub use history::{
     HISTORY_BOUND, MAX_PROOFS, MAX_PROVING, MAX_UNSAVED_TRIES, MAX_WALKED, UNSAVED_RETRY_MS,
 };
@@ -583,7 +583,7 @@ pub struct XrplAccount {
     // Learnt from the ledger.
     phase: Phase,
     /// Each publisher's list, as it is fetched, in the config's order.
-    fetches: Vec<Fetching>,
+    fetches: crate::lists::ListFetches,
     /// The anchoring round in flight.
     round: Option<Round>,
     /// Until when the account waits after a server refused a proof, before
@@ -709,7 +709,7 @@ impl XrplAccount {
             unl: Unl::new(config.unl.clone()),
             unl_changes: 0,
             signatures: Box::new(Secp256k1Signatures),
-            fetches: alloc::vec![Fetching::default(); config.unl.publishers.len()],
+            fetches: crate::lists::ListFetches::new(config.unl.publishers.len()),
             config,
             round: None,
             stalled_until_ms: 0,
@@ -1437,9 +1437,7 @@ impl XrplAccount {
         // next connection.
         self.proofs.retain(|_, proof| proof.holds);
         self.branches.clear();
-        for fetching in &mut self.fetches {
-            fetching.forget();
-        }
+        self.fetches.forget();
         for transaction in &mut self.in_flight {
             transaction.needs_submit = transaction.executed;
             transaction.looked_up = false;
@@ -2279,10 +2277,7 @@ impl XrplAccount {
                     "what is proven for the schemes is a connection's"
                 );
                 assert_eq!(self.stalled_until_ms, 0, "a stall is a connection's");
-                assert!(
-                    self.fetches.iter().all(|fetching| !fetching.is_asked()),
-                    "a fetch is a connection's"
-                );
+                assert!(!self.fetches.any_asked(), "a fetch is a connection's");
             }
             Phase::Starting { subscribed, .. } => {
                 assert!(
@@ -2581,14 +2576,7 @@ impl ExternalAsset for XrplAccount {
         assert!(self.news.len() <= MAX_NEWS);
         assert!(self.effects.len() <= MAX_EFFECTS);
         assert!(self.next_id >= 1, "request IDs start at 1");
-        assert_eq!(
-            self.fetches.len(),
-            self.config.unl.publishers.len(),
-            "one fetch for each publisher"
-        );
-        for (fetching, publisher) in self.fetches.iter().zip(&self.config.unl.publishers) {
-            fetching.check_invariants(publisher.sites.len());
-        }
+        self.fetches.check_invariants(&self.config.unl);
         assert_eq!(self.unl.config(), &self.config.unl, "the config's UNL");
         assert!(
             self.anchor.is_none() || self.hint.is_none(),
@@ -2612,8 +2600,9 @@ impl ExternalAsset for XrplAccount {
 mod tests {
     use super::*;
 
+    use crate::anchor::Judged;
     use crate::unl::Anchor;
-    use anchors::{Judged, judge};
+    use anchors::judge;
 
     const NEWEST: Validated = Validated {
         index: 5_000_000,

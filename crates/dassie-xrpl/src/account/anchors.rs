@@ -30,28 +30,20 @@ use dassie_settlement::AssetEffect;
 use serde_json::Value;
 
 use super::{CHAIN_FORKED, CHAIN_WENT_BACK, Phase, Request, Validated, XrplAccount};
+pub use crate::anchor::Doubt;
 use crate::anchor::{
-    Ancestry, KeptAnchor, ProofError, ProvenLists, ProvenState, ancestry, prove_state,
+    Ancestry, Judged, KeptAnchor, ProvenLists, ProvenState, ancestry, prove_state,
 };
 use crate::api::{self, ApiError, Validations};
 use crate::skip_list::{SkipList, recent_key};
-use crate::unl::{Anchor, AnchorError, RIPPLE_EPOCH_UNIX_S, Relation, Unavailable, UnlError};
+use crate::unl::{Anchor, AnchorError, Unavailable, UnlError};
 use crate::validator_list::{MAX_LIST_BYTES, UnlConfig};
 
-/// How long the node may take to fetch a list.
-pub const FETCH_TIMEOUT_MS: u64 = 30_000;
-/// How long after a publisher's sites all failed they are asked again.
-pub const LIST_RETRY_MS: u64 = 60_000;
-/// How often a list is fetched again, at most: sooner near its expiry.
-pub const LIST_REFRESH_MS: u64 = 3_600_000;
-/// How long the account waits after a server refused a proof, told a lie
-/// or kept too short a history, before it connects anew, perhaps to another
-/// server behind the same address: so that a server that keeps failing
-/// costs a connection every so often, not one at once after another.
-pub const STALL_MS: u64 = 30_000;
-/// The most validators of the UNL a round asks the server's `manifest`
-/// method about: the next round asks the next ones.
-pub const MAX_MANIFEST_ASKS: usize = 16;
+pub use crate::lists::{FETCH_TIMEOUT_MS, LIST_REFRESH_MS, LIST_RETRY_MS};
+// How long the account waits after a server refused a proof, told a lie
+// or kept too short a history, and how many validators a round asks for
+// newer manifests: as the standalone verifier.
+pub use crate::verifier::{MAX_MANIFEST_ASKS, STALL_MS};
 
 // Why the account waits, as the owner reads it.
 pub(super) const NO_LIST: &str = "waiting for validator lists from enough of the publishers";
@@ -71,103 +63,6 @@ pub(super) const OLDER: &str =
 pub(super) const NOT_FRESH: &str = "the server's validated ledger is not fresh by the node's clock: the server is behind, or the clock is wrong";
 pub(super) const NOT_PROVEN: &str = "the server's answers did not prove";
 pub(super) const HISTORY: &str = "the server's history is too short to prove what the account follows; name a proof server that keeps more";
-
-/// A lie caught, by kind (spec/designs/xrpl-validation.md#6-the-account-on-proofs).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub enum Doubt {
-    /// An answer that does not read.
-    Unreadable,
-    /// A header that is not one, or of another ledger than asked for.
-    Header,
-    /// Not one entry for each key asked.
-    Keys,
-    /// A branch that does not reach its root.
-    Branch,
-    /// Validations short of a quorum, after newer manifests were asked.
-    NoQuorum,
-    /// More validations than are read.
-    TooMany,
-    /// A validated ledger older than the anchor kept, or one whose
-    /// validations are no longer fresh.
-    Older,
-    /// A validated ledger of an older chain: a higher index that closed
-    /// earlier, or another of the index that closed no later.
-    OlderChain,
-    /// A proven object that is no skip list, or not what its key holds.
-    SkipList,
-    /// A transaction of another hash than asked for, or whose bytes or
-    /// metadata do not read.
-    Transaction,
-    /// A transaction in a ledger the anchor's chain does not hold.
-    Ledger,
-    /// A history the proven state proves wrong: a transaction an object
-    /// names that did not change it, or that the server says its proven
-    /// ledger does not hold.
-    History,
-}
-
-impl Doubt {
-    /// Every kind.
-    pub const ALL: [Self; 12] = [
-        Self::Unreadable,
-        Self::Header,
-        Self::Keys,
-        Self::Branch,
-        Self::NoQuorum,
-        Self::TooMany,
-        Self::Older,
-        Self::OlderChain,
-        Self::SkipList,
-        Self::Transaction,
-        Self::Ledger,
-        Self::History,
-    ];
-
-    pub(super) const fn of(error: ProofError) -> Self {
-        match error {
-            ProofError::Header | ProofError::Ledger => Self::Header,
-            ProofError::Keys => Self::Keys,
-            ProofError::Branch(_) => Self::Branch,
-            ProofError::Transaction => Self::Transaction,
-        }
-    }
-}
-
-/// One publisher's list, being fetched or waiting to be.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(super) struct Fetching {
-    /// The site asked next, by its place in the publisher's.
-    site: usize,
-    /// When the fetch in flight was asked for.
-    asked_ms: Option<u64>,
-    /// When it is fetched next.
-    next_ms: u64,
-    /// Whether every site failed when it was last fetched, so that it waits
-    /// [`LIST_RETRY_MS`] before the next.
-    failed: bool,
-}
-
-impl Fetching {
-    /// Whether a fetch is in flight.
-    pub(super) const fn is_asked(&self) -> bool {
-        self.asked_ms.is_some()
-    }
-
-    /// The fetch in flight is forgotten: its answer comes on a connection
-    /// gone.
-    pub(super) const fn forget(&mut self) {
-        self.asked_ms = None;
-    }
-
-    /// Asserts what holds of it, for a publisher of `sites` sites.
-    pub(super) fn check_invariants(&self, sites: usize) {
-        assert!(self.site < sites, "the site asked next is the publisher's");
-        assert!(
-            !(self.failed && self.is_asked()),
-            "a fetch is asked only once its sites may be asked again"
-        );
-    }
-}
 
 /// An anchoring round in flight.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -197,36 +92,11 @@ pub(super) enum Round {
     },
 }
 
-/// What a new anchor is, against the one kept.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum Judged {
-    /// Current: the first, the same, or past a hint without a hash.
-    Take,
-    /// Older than the kept: never current.
-    Older,
-    /// Of an older chain: ignored where the network resets, a fork
-    /// elsewhere.
-    Ignore,
-    /// Later: current if on the kept one's chain.
-    Later,
-    /// On another chain the kept one is not on: a reset, where the network
-    /// resets.
-    Reset,
-}
-
 /// Where `new` stands against the anchor kept, or an older state's newest
 /// ledger without a hash. Along one chain index and close time both grow.
 pub(super) fn judge(kept: Option<&Anchor>, hint: Option<Validated>, new: &Anchor) -> Judged {
     if let Some(kept) = kept {
-        return match new.relation(kept) {
-            Relation::Same => Judged::Take,
-            Relation::Older => Judged::Older,
-            Relation::Newer => Judged::Later,
-            Relation::Diverged if new.index <= kept.index && new.close_time > kept.close_time => {
-                Judged::Reset
-            }
-            Relation::Diverged => Judged::Ignore,
-        };
+        return crate::anchor::judge(kept, new);
     }
     match hint {
         Some(hint) if new.index < hint.index => {
@@ -262,28 +132,14 @@ const fn unl_reason(error: UnlError) -> &'static str {
     }
 }
 
-/// The lists.
+/// The lists ([`crate::lists`]).
 impl XrplAccount {
     /// Fetches each publisher's list that is due, on a connection.
     pub(super) fn fetch_lists(&mut self) {
         if self.phase == Phase::Disconnected {
             return;
         }
-        let now = self.now_ms;
-        let mut asks = Vec::new();
-        for (fetching, publisher) in self.fetches.iter_mut().zip(&self.config.unl.publishers) {
-            if fetching.asked_ms.is_some() || fetching.next_ms > now {
-                continue;
-            }
-            fetching.failed = false;
-            let Some(url) = publisher.sites.get(fetching.site) else {
-                fetching.site = 0;
-                continue;
-            };
-            fetching.asked_ms = Some(now);
-            asks.push(url.clone());
-        }
-        for url in asks {
+        for url in self.fetches.due(&self.config.unl, self.now_ms) {
             self.effect(AssetEffect::Fetch {
                 url,
                 max_bytes: MAX_LIST_BYTES,
@@ -295,12 +151,7 @@ impl XrplAccount {
     /// and its sites did not all fail within [`LIST_RETRY_MS`]: quorum was
     /// lost, or there is no UNL.
     pub(super) fn fetch_lists_now(&mut self) {
-        let now = self.now_ms;
-        for fetching in &mut self.fetches {
-            if fetching.asked_ms.is_none() && !fetching.failed {
-                fetching.next_ms = fetching.next_ms.min(now);
-            }
-        }
+        self.fetches.hasten(self.now_ms);
         self.fetch_lists();
     }
 
@@ -309,101 +160,23 @@ impl XrplAccount {
     /// fetches the node may make as one. The list in it is a publisher's
     /// own by its key, and the others' fetch failed.
     pub(super) fn fetched(&mut self, url: &str, body: Option<&[u8]>) {
-        let now = self.now_ms;
-        let publishers = &self.config.unl.publishers;
-        let asked: Vec<usize> = (self.fetches.iter().zip(publishers).enumerate())
-            .filter(|(_, (f, p))| {
-                f.asked_ms.is_some() && p.sites.get(f.site).is_some_and(|site| site == url)
-            })
-            .map(|(publisher, _)| publisher)
-            .collect();
-        if asked.is_empty() {
+        let Some(answered) =
+            (self.fetches).answered(&mut self.unl, &self.config.unl, (url, body), self.now_ms)
+        else {
             return;
-        }
-        // An expired list is no list, nor the same one again.
-        self.tick_lists();
-        let taken = body.map(|body| self.unl.take_list(body, now));
-        if matches!(taken, Some(Ok(taken)) if taken != crate::unl::Taken::Same) {
-            self.unl_changes = self.unl_changes.wrapping_add(1);
-        }
-        // A list of a publisher with as many waiting as the account keeps
-        // came from its site all the same: the site served, and nothing
-        // new was taken.
-        let served = matches!(
-            taken,
-            Some(Ok(_) | Err(crate::validator_list::ListError::TooManyPending))
-        );
-        let by = (body.filter(|_| served))
-            .and_then(|body| crate::validator_list::Message::parse(body).ok())
-            .map(|message| message.publisher);
-        for publisher in asked {
-            self.fetched_for(publisher, by);
-        }
+        };
+        self.unl_changes = self.unl_changes.wrapping_add(answered.changes);
         self.fetch_lists();
-        let ready = self.unl.unl(now).is_ok();
+        let ready = self.unl.unl(self.now_ms).is_ok();
         if ready && self.round.is_none() && self.waiting.is_some() {
             self.anchor_now();
         }
     }
 
-    /// Publisher `publisher`'s fetch answered, with a list taken of the
-    /// publisher `by`, if any: fetched again later if it is its own, else
-    /// from its next site.
-    fn fetched_for(&mut self, publisher: usize, by: Option<crate::keys::PublicKey>) {
-        let now = self.now_ms;
-        let publishers = &self.config.unl.publishers;
-        let own = publishers
-            .get(publisher)
-            .is_some_and(|p| by == Some(p.master_key));
-        let next = own.then(|| now.saturating_add(self.refresh_after(publisher)));
-        let sites = publishers.get(publisher).map_or(1, |p| p.sites.len());
-        if let Some(fetching) = self.fetches.get_mut(publisher) {
-            fetching.asked_ms = None;
-            if let Some(next) = next {
-                fetching.next_ms = next;
-                fetching.failed = false;
-            } else {
-                // The next site at once; after the last, a while later.
-                fetching.site = fetching.site.saturating_add(1) % sites.max(1);
-                fetching.failed = fetching.site == 0;
-                fetching.next_ms = if fetching.failed {
-                    now.saturating_add(LIST_RETRY_MS)
-                } else {
-                    now
-                };
-            }
-        }
-    }
-
-    /// How long until publisher `publisher`'s list is fetched again: at
-    /// most [`LIST_REFRESH_MS`], and half the time to its expiry, so that
-    /// it is fetched more often near it.
-    fn refresh_after(&self, publisher: usize) -> u64 {
-        let (current, _) = self.unl.lists(publisher);
-        let expires_ms = current.map_or(0, |list| {
-            (u64::from(list.expiration) + RIPPLE_EPOCH_UNIX_S).saturating_mul(1_000)
-        });
-        let half = expires_ms.saturating_sub(self.now_ms) / 2;
-        half.clamp(LIST_RETRY_MS, LIST_REFRESH_MS)
-    }
-
     /// Fetches that took too long fail, and lists expire or take effect.
     pub(super) fn lists_on_timer(&mut self) {
-        let now = self.now_ms;
-        let late: Vec<usize> = (self.fetches.iter().enumerate())
-            .filter(|(_, f)| {
-                f.asked_ms
-                    .is_some_and(|at| at.saturating_add(FETCH_TIMEOUT_MS) <= now)
-            })
-            .map(|(publisher, _)| publisher)
-            .collect();
-        for publisher in late {
-            let site = (self.fetches.get(publisher)).map(|f| f.site);
-            let url = site.and_then(|site| {
-                let sites = &self.config.unl.publishers.get(publisher)?.sites;
-                sites.get(site).cloned()
-            });
-            if let Some(url) = url {
+        for publisher in self.fetches.late(self.now_ms) {
+            if let Some(url) = self.fetches.site(&self.config.unl, publisher) {
                 self.fetched(&url, None);
             }
         }
@@ -413,22 +186,9 @@ impl XrplAccount {
 
     /// Lists that expired go, and those that took effect are current.
     fn tick_lists(&mut self) {
-        let before = self.list_sequences();
-        self.unl.tick(self.now_ms);
-        if self.list_sequences() != before {
+        if crate::lists::tick(&mut self.unl, self.now_ms) {
             self.unl_changes = self.unl_changes.wrapping_add(1);
         }
-    }
-
-    /// Each publisher's current and pending lists' sequences.
-    fn list_sequences(&self) -> Vec<(Option<u32>, Vec<u32>)> {
-        (0..self.fetches.len())
-            .map(|publisher| {
-                let (current, pending) = self.unl.lists(publisher);
-                let pending = pending.iter().map(|l| l.sequence).collect();
-                (current.map(|l| l.sequence), pending)
-            })
-            .collect()
     }
 
     /// When a fetch is due next, or one in flight is late.
@@ -436,12 +196,7 @@ impl XrplAccount {
         if self.phase == Phase::Disconnected {
             return None;
         }
-        (self.fetches.iter())
-            .map(|f| match f.asked_ms {
-                Some(at) => at.saturating_add(FETCH_TIMEOUT_MS),
-                None => f.next_ms,
-            })
-            .min()
+        self.fetches.deadline()
     }
 }
 

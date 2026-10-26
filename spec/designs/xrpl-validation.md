@@ -125,7 +125,7 @@ New sans-IO modules in `dassie-xrpl`, under the crate's rules ([tigerstyle](../d
 ## 12. Who else uses it
 
 - **The peg guard** reads its pool through the account, as one state proof (§4), on whatever network its token is on ([issued-assets](../decisions/issued-assets.md)).
-- **Hub validators** ([settlement hubs](settlement-hubs.md#6-deposits-and-withdrawals)) each run the same verifier, with the UNL of the escrow's network, and attest only what it proved: deposits and the outcomes of the escrow's transactions by `tx_proof`, and the escrow's setup by one state proof of its account root and signer list at an anchor. A validator can run the patched rippled itself, which gives it a proof server of its own, and any node another to name.
+- **Hub validators** ([settlement hubs](settlement-hubs.md#6-deposits-and-withdrawals)) each run the same checks, in the standalone verifier that keeps a UNL and an anchor of its own, apart from any account ([XRPL](../areas/xrpl.md#the-verifier)), with the UNL of the escrow's network, and attest only what it proved: deposits and the outcomes of the escrow's transactions by `tx_proof`, and the escrow's setup by one state proof of its account root and signer list at an anchor. A validator can run the patched rippled itself, which gives it a proof server of its own, and any node another to name.
 - **The market maker** keeps trusting its server: it trades its own money, by its operator's choice.
 
 ## 13. What pins it
