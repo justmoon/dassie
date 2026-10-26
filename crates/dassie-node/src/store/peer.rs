@@ -17,7 +17,7 @@ use dassie_peer::{
 };
 use rusqlite::{Connection, Row, Transaction, params};
 
-use super::{Store, StoreError, from_sql_time, to_sql_time};
+use super::{Cached, Store, StoreError, from_sql_time, to_sql_time};
 
 /// An amount for SQLite, which holds `i64`. Larger values are refused when
 /// a peering is made, so one here is a bug.
@@ -33,12 +33,12 @@ impl Store {
     /// The peer protocol's state, as persisted.
     pub fn load_peer(&self) -> Result<Stored, StoreError> {
         let connection = self.lock();
-        let own_sequence: i64 = connection.query_row(
+        let own_sequence: i64 = connection.query_row_cached(
             "SELECT sequence FROM own_link_state WHERE id = 1",
             [],
             |row| row.get(0),
         )?;
-        let mut statement = connection.prepare(
+        let mut statement = connection.prepare_cached(
             "SELECT n.id, n.link_state, n.sources, n.first_seen_ms,
                     n.registered_at_ms, n.renewed_at_ms, n.registration_expires_ms,
                     n.registered_url, n.registered_network,
@@ -94,7 +94,7 @@ impl Store {
 /// The channels open: a closed one stays on disk, and is read only when
 /// it is needed.
 fn load_channels(connection: &Connection) -> Result<Vec<StoredChannel>, StoreError> {
-    let mut statement = connection.prepare(
+    let mut statement = connection.prepare_cached(
         "SELECT node, public_key, url, settled_in, settled_out, outbox_sequence,
                 outbox_scheme, outbox_amount, outbox_data, outbox_attempts, ended_for_room,
                 paid_us
@@ -141,7 +141,7 @@ fn read_channel(row: &Row<'_>) -> Result<StoredChannel, StoreError> {
 }
 
 fn load_bans(connection: &Connection) -> Result<Vec<NodeId>, StoreError> {
-    let mut statement = connection.prepare("SELECT node FROM peer_bans ORDER BY node")?;
+    let mut statement = connection.prepare_cached("SELECT node FROM peer_bans ORDER BY node")?;
     let rows = statement.query_map([], |row| row.get::<_, String>(0))?;
     let mut bans = Vec::new();
     for row in rows {
@@ -152,7 +152,7 @@ fn load_bans(connection: &Connection) -> Result<Vec<NodeId>, StoreError> {
 
 fn load_floors(connection: &Connection) -> Result<Vec<StoredFloor>, StoreError> {
     let mut statement =
-        connection.prepare("SELECT node, floor_ms FROM replay_floors ORDER BY node")?;
+        connection.prepare_cached("SELECT node, floor_ms FROM replay_floors ORDER BY node")?;
     let rows = statement.query_map([], |row| {
         Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
     })?;
@@ -169,7 +169,7 @@ fn load_floors(connection: &Connection) -> Result<Vec<StoredFloor>, StoreError> 
 
 /// Where a registrar's log stands (spec/areas/network.md#names).
 fn load_name_log(connection: &Connection) -> Result<LogHead, StoreError> {
-    let (next_position, last_logged_ms): (i64, i64) = connection.query_row(
+    let (next_position, last_logged_ms): (i64, i64) = connection.query_row_cached(
         "SELECT next_position, last_logged_ms FROM name_log WHERE id = 1",
         [],
         |row| Ok((row.get(0)?, row.get(1)?)),
@@ -198,7 +198,7 @@ fn parse_name(text: &str) -> Result<Name, StoreError> {
 
 /// The commitments in a registrar's log, by position.
 fn load_commitments(connection: &Connection) -> Result<Vec<Logged>, StoreError> {
-    let mut statement = connection.prepare(
+    let mut statement = connection.prepare_cached(
         "SELECT commitment, position, logged_ms, window_end_ms, committer, network, name,
                 holder, contends
          FROM name_commitments ORDER BY position",
@@ -244,7 +244,7 @@ fn read_logged(row: &Row<'_>) -> Result<Logged, StoreError> {
 
 /// The names a registrar granted, by name.
 fn load_names(connection: &Connection) -> Result<Vec<Granted>, StoreError> {
-    let mut statement = connection.prepare(
+    let mut statement = connection.prepare_cached(
         "SELECT name, holder, granted_ms, expires_ms, freed_ms FROM granted_names ORDER BY name",
     )?;
     let rows = statement.query_map([], |row| {
@@ -273,8 +273,8 @@ fn load_names(connection: &Connection) -> Result<Vec<Granted>, StoreError> {
 /// Who holds each name, in the node's view, by name
 /// (spec/areas/network.md#holders).
 fn load_holders(connection: &Connection) -> Result<Vec<HeldName>, StoreError> {
-    let mut statement =
-        connection.prepare("SELECT name, holder, expires_ms FROM name_holders ORDER BY name")?;
+    let mut statement = connection
+        .prepare_cached("SELECT name, holder, expires_ms FROM name_holders ORDER BY name")?;
     let rows = statement.query_map([], |row| {
         Ok((
             row.get::<_, String>(0)?,
@@ -297,8 +297,9 @@ fn load_holders(connection: &Connection) -> Result<Vec<HeldName>, StoreError> {
 /// The node's registrations of names, by name
 /// (spec/areas/network.md#the-registrant).
 fn load_registrations(connection: &Connection) -> Result<Vec<NameRegistration>, StoreError> {
-    let mut statement = connection
-        .prepare("SELECT name, salt, started_ms, stage FROM name_registrations ORDER BY name")?;
+    let mut statement = connection.prepare_cached(
+        "SELECT name, salt, started_ms, stage FROM name_registrations ORDER BY name",
+    )?;
     let rows = statement.query_map([], |row| {
         Ok((
             row.get::<_, String>(0)?,
@@ -421,13 +422,13 @@ pub(super) fn write_peer(
     // Removals first: a node removed and added again in one batch stays.
     for removed in &batch.removed {
         // The peering goes with it (ON DELETE CASCADE).
-        transaction.execute("DELETE FROM peer_nodes WHERE id = ?1", [removed.as_str()])?;
+        transaction.execute_cached("DELETE FROM peer_nodes WHERE id = ?1", [removed.as_str()])?;
     }
     for node in &batch.nodes {
         write_node(transaction, node)?;
     }
     if let Some(sequence) = batch.own_sequence {
-        transaction.execute(
+        transaction.execute_cached(
             "UPDATE own_link_state SET sequence = ?1 WHERE id = 1",
             [to_sql_time(sequence)],
         )?;
@@ -439,24 +440,24 @@ pub(super) fn write_peer(
         write_closed(transaction, closed)?;
     }
     for banned in &batch.banned {
-        transaction.execute(
+        transaction.execute_cached(
             "INSERT INTO peer_bans (node) VALUES (?1) ON CONFLICT DO NOTHING",
             [banned.as_str()],
         )?;
     }
     for unbanned in &batch.unbanned {
-        transaction.execute("DELETE FROM peer_bans WHERE node = ?1", [unbanned.as_str()])?;
+        transaction.execute_cached("DELETE FROM peer_bans WHERE node = ?1", [unbanned.as_str()])?;
     }
     // Removals first, as for nodes: a sender forgotten and kept again in
     // one batch keeps its floor.
     for removed in &batch.floors_removed {
-        transaction.execute(
+        transaction.execute_cached(
             "DELETE FROM replay_floors WHERE node = ?1",
             [removed.as_str()],
         )?;
     }
     for floor in &batch.floors {
-        transaction.execute(
+        transaction.execute_cached(
             "INSERT INTO replay_floors (node, floor_ms) VALUES (?1, ?2)
              ON CONFLICT (node) DO UPDATE SET floor_ms = ?2",
             params![floor.node.as_str(), to_sql_time(floor.floor_ms)],
@@ -473,7 +474,7 @@ fn write_registrations(transaction: &Transaction<'_>, batch: &PeerBatch) -> Resu
     // Removals first, as for nodes: a registration dropped and started
     // again in one batch stays.
     for removed in &batch.registrations_removed {
-        transaction.execute(
+        transaction.execute_cached(
             "DELETE FROM name_registrations WHERE name = ?1",
             [removed.as_str()],
         )?;
@@ -484,7 +485,7 @@ fn write_registrations(transaction: &Transaction<'_>, batch: &PeerBatch) -> Resu
             Stage::Unsealing => "unsealing",
             Stage::Abandoned => "abandoned",
         };
-        transaction.execute(
+        transaction.execute_cached(
             "INSERT INTO name_registrations (name, salt, started_ms, stage)
              VALUES (?1, ?2, ?3, ?4)
              ON CONFLICT (name) DO UPDATE SET salt = ?2, started_ms = ?3, stage = ?4",
@@ -504,13 +505,13 @@ fn write_registrations(transaction: &Transaction<'_>, batch: &PeerBatch) -> Resu
 fn write_holders(transaction: &Transaction<'_>, batch: &PeerBatch) -> Result<(), StoreError> {
     // Removals first, as for nodes.
     for removed in &batch.holders_removed {
-        transaction.execute(
+        transaction.execute_cached(
             "DELETE FROM name_holders WHERE name = ?1",
             [removed.as_str()],
         )?;
     }
     for held in &batch.holders {
-        transaction.execute(
+        transaction.execute_cached(
             "INSERT INTO name_holders (name, holder, expires_ms) VALUES (?1, ?2, ?3)
              ON CONFLICT (name) DO UPDATE SET holder = ?2, expires_ms = ?3",
             params![
@@ -527,7 +528,7 @@ fn write_holders(transaction: &Transaction<'_>, batch: &PeerBatch) -> Result<(),
 /// log and the names granted (spec/areas/network.md#names).
 fn write_registrar(transaction: &Transaction<'_>, batch: &PeerBatch) -> Result<(), StoreError> {
     if let Some(head) = batch.name_log {
-        transaction.execute(
+        transaction.execute_cached(
             "UPDATE name_log SET next_position = ?1, last_logged_ms = ?2 WHERE id = 1",
             params![
                 to_sql_position(head.next_position)?,
@@ -537,7 +538,7 @@ fn write_registrar(transaction: &Transaction<'_>, batch: &PeerBatch) -> Result<(
     }
     // Removals first, as for nodes.
     for removed in &batch.commitments_removed {
-        transaction.execute(
+        transaction.execute_cached(
             "DELETE FROM name_commitments WHERE commitment = ?1",
             [removed.0.as_slice()],
         )?;
@@ -546,13 +547,13 @@ fn write_registrar(transaction: &Transaction<'_>, batch: &PeerBatch) -> Result<(
         write_logged(transaction, logged)?;
     }
     for removed in &batch.names_removed {
-        transaction.execute(
+        transaction.execute_cached(
             "DELETE FROM granted_names WHERE name = ?1",
             [removed.as_str()],
         )?;
     }
     for granted in &batch.names {
-        transaction.execute(
+        transaction.execute_cached(
             "INSERT INTO granted_names (name, holder, granted_ms, expires_ms, freed_ms)
              VALUES (?1, ?2, ?3, ?4, ?5)
              ON CONFLICT (name) DO UPDATE SET holder = ?2, granted_ms = ?3, expires_ms = ?4,
@@ -571,7 +572,7 @@ fn write_registrar(transaction: &Transaction<'_>, batch: &PeerBatch) -> Result<(
 
 fn write_logged(transaction: &Transaction<'_>, logged: &Logged) -> Result<(), StoreError> {
     let unsealing = logged.unsealing.as_ref();
-    transaction.execute(
+    transaction.execute_cached(
         "INSERT INTO name_commitments (commitment, position, logged_ms, window_end_ms,
            committer, network, name, holder, contends)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
@@ -596,7 +597,7 @@ fn write_logged(transaction: &Transaction<'_>, logged: &Logged) -> Result<(), St
 fn write_channel(transaction: &Transaction<'_>, stored: &StoredChannel) -> Result<(), StoreError> {
     let channel = &stored.channel;
     let outbox = channel.outbox.as_ref();
-    transaction.execute(
+    transaction.execute_cached(
         "INSERT INTO settlement_channels (node, public_key, url, settled_in, settled_out,
            outbox_sequence, outbox_scheme, outbox_amount, outbox_data, outbox_attempts,
            ended_for_room, paid_us)
@@ -627,7 +628,7 @@ fn write_channel(transaction: &Transaction<'_>, stored: &StoredChannel) -> Resul
 /// when it opened, and stays.
 fn write_closed(transaction: &Transaction<'_>, stored: &StoredClosed) -> Result<(), StoreError> {
     let closed = &stored.closed;
-    let changed = transaction.execute(
+    let changed = transaction.execute_cached(
         "UPDATE settlement_channels SET closed = 1, settled_in = ?2, settled_out = ?3,
            ended_for_room = ?4, paid_us = ?5, outbox_sequence = NULL, outbox_scheme = NULL,
            outbox_amount = NULL, outbox_data = NULL, outbox_attempts = NULL
@@ -649,7 +650,7 @@ fn write_closed(transaction: &Transaction<'_>, stored: &StoredClosed) -> Result<
 
 fn write_node(transaction: &Transaction<'_>, node: &StoredNode) -> Result<(), StoreError> {
     let registration = node.registration.as_ref();
-    transaction.execute(
+    transaction.execute_cached(
         "INSERT INTO peer_nodes (id, link_state, sources, first_seen_ms,
            registered_at_ms, renewed_at_ms, registration_expires_ms, registered_url,
            registered_network)
@@ -670,10 +671,10 @@ fn write_node(transaction: &Transaction<'_>, node: &StoredNode) -> Result<(), St
         ],
     )?;
     let Some(peering) = &node.peering else {
-        transaction.execute("DELETE FROM peers WHERE node = ?1", [node.id.as_str()])?;
+        transaction.execute_cached("DELETE FROM peers WHERE node = ?1", [node.id.as_str()])?;
         return Ok(());
     };
-    transaction.execute(
+    transaction.execute_cached(
         "INSERT INTO peers (node, scheme, version, state, credit_out, since_ms,
            inbound, last_seen_ms, short_for_ms, depeering_since_ms, depeering_reason,
            short_reached_ms)
@@ -704,13 +705,13 @@ fn write_node(transaction: &Transaction<'_>, node: &StoredNode) -> Result<(), St
 
 fn write_termination(transaction: &Transaction<'_>, node: &StoredNode) -> Result<(), StoreError> {
     let Some(termination) = &node.termination else {
-        transaction.execute(
+        transaction.execute_cached(
             "DELETE FROM peer_terminations WHERE node = ?1",
             [node.id.as_str()],
         )?;
         return Ok(());
     };
-    transaction.execute(
+    transaction.execute_cached(
         "INSERT INTO peer_terminations (node, since_ms, reason, by_us, acknowledged)
          VALUES (?1, ?2, ?3, ?4, ?5)
          ON CONFLICT (node) DO UPDATE SET since_ms = ?2, reason = ?3, by_us = ?4,

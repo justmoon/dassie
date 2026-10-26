@@ -12,7 +12,7 @@ use dassie_ledger::LedgerId;
 use rusqlite::{OptionalExtension, Row, Transaction, params};
 
 use super::payments::{IncomingQuery, Page, page};
-use super::{PaymentId, Store, StoreError, from_sql_time, to_sql_time};
+use super::{Cached, PaymentId, Store, StoreError, from_sql_time, to_sql_time};
 
 /// Most clients' quotes not yet expired.
 pub const MAX_LIVE_QUOTES: u32 = 4_096;
@@ -216,13 +216,13 @@ impl Store {
     pub fn insert_quote(&self, quote: &QuoteRow, now_ms: u64) -> Result<bool, StoreError> {
         let mut connection = self.lock();
         let transaction = connection.transaction()?;
-        transaction.execute(
+        transaction.execute_cached(
             "DELETE FROM quotes WHERE expires_at_ms <= ?1 \
              AND id NOT IN (SELECT quote_id FROM outgoing_payments WHERE quote_id IS NOT NULL)",
             [to_sql_time(now_ms)],
         )?;
         let owner = quote.client.is_none();
-        let live: i64 = transaction.query_row(
+        let live: i64 = transaction.query_row_cached(
             "SELECT count(*) FROM quotes WHERE expires_at_ms > ?1 AND (client IS NULL) = ?2",
             params![to_sql_time(now_ms), owner],
             |row| row.get(0),
@@ -235,7 +235,7 @@ impl Store {
         if live >= i64::from(most) {
             return Ok(false);
         }
-        transaction.execute(
+        transaction.execute_cached(
             &format!(
                 "INSERT INTO quotes ({QUOTE_COLUMNS}) \
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)"
@@ -265,7 +265,7 @@ impl Store {
     /// One quote.
     pub fn quote(&self, id: PaymentId) -> Result<Option<QuoteRow>, StoreError> {
         self.lock()
-            .query_row(
+            .query_row_cached(
                 &format!("SELECT {QUOTE_COLUMNS} FROM quotes WHERE id = ?1"),
                 [id.0.as_slice()],
                 read_quote,
@@ -278,7 +278,7 @@ impl Store {
     pub fn quote_used(&self, id: PaymentId) -> Result<bool, StoreError> {
         let used: Option<i64> = self
             .lock()
-            .query_row(
+            .query_row_cached(
                 "SELECT 1 FROM outgoing_payments WHERE quote_id = ?1",
                 [id.0.as_slice()],
                 |row| row.get(0),
@@ -291,7 +291,7 @@ impl Store {
     pub fn destination_used(&self, destination: &str) -> Result<bool, StoreError> {
         let used: Option<i64> = self
             .lock()
-            .query_row(
+            .query_row_cached(
                 "SELECT 1 FROM outgoing_payments WHERE destination = ?1 LIMIT 1",
                 [destination],
                 |row| row.get(0),
@@ -303,7 +303,7 @@ impl Store {
     /// One outgoing payment.
     pub fn outgoing_payment(&self, id: PaymentId) -> Result<Option<OutgoingRow>, StoreError> {
         self.lock()
-            .query_row(
+            .query_row_cached(
                 &format!("SELECT {OUTGOING_COLUMNS} FROM outgoing_payments WHERE id = ?1"),
                 [id.0.as_slice()],
                 read_outgoing,
@@ -315,7 +315,7 @@ impl Store {
     /// The outgoing payments still sending, oldest first.
     pub fn sending_payments(&self) -> Result<Vec<OutgoingRow>, StoreError> {
         let connection = self.lock();
-        let mut statement = connection.prepare(&format!(
+        let mut statement = connection.prepare_cached(&format!(
             "SELECT {OUTGOING_COLUMNS} FROM outgoing_payments WHERE state = 'sending' \
              ORDER BY created_at_ms, id LIMIT ?1"
         ))?;
@@ -346,11 +346,12 @@ impl Store {
     /// revision: where a live view starts.
     pub fn outgoing_latest(&self, limit: u32) -> Result<(u64, Vec<OutgoingRow>), StoreError> {
         let connection = self.lock();
-        let revision: Option<i64> =
-            connection.query_row("SELECT max(revision) FROM outgoing_payments", [], |row| {
-                row.get(0)
-            })?;
-        let mut statement = connection.prepare(&format!(
+        let revision: Option<i64> = connection.query_row_cached(
+            "SELECT max(revision) FROM outgoing_payments",
+            [],
+            |row| row.get(0),
+        )?;
+        let mut statement = connection.prepare_cached(&format!(
             "SELECT {OUTGOING_COLUMNS} FROM outgoing_payments \
              ORDER BY created_at_ms DESC, id DESC LIMIT ?1"
         ))?;
@@ -370,7 +371,7 @@ impl Store {
     ) -> Result<(u64, u64), StoreError> {
         let spent: Option<(i64, i64)> = self
             .lock()
-            .query_row(
+            .query_row_cached(
                 "SELECT debit_amount, receive_amount FROM grant_spend \
                  WHERE grant_id = ?1 AND window_start_ms = ?2",
                 params![grant.0.as_slice(), to_sql_time(window_start_ms)],
@@ -390,7 +391,7 @@ pub(super) fn write_outgoing(
         insert_outgoing(transaction, row)?;
     }
     for (id, progress) in &batch.progress {
-        let updated = transaction.execute(
+        let updated = transaction.execute_cached(
             &format!(
                 "UPDATE outgoing_payments SET sent_amount = ?2, state = ?3, failure = ?4, \
                  finished_at_ms = ?5, revision = {NEXT_REVISION} WHERE id = ?1"
@@ -409,7 +410,7 @@ pub(super) fn write_outgoing(
     }
     for ((grant, window), (debit, receive)) in &batch.spend {
         let (debit, receive) = (signed(*debit)?, signed(*receive)?);
-        transaction.execute(
+        transaction.execute_cached(
             "INSERT INTO grant_spend (grant_id, window_start_ms, debit_amount, receive_amount) \
              VALUES (?1, ?2, max(?3, 0), max(?4, 0)) ON CONFLICT (grant_id, window_start_ms) \
              DO UPDATE SET debit_amount = max(debit_amount + ?3, 0), \
@@ -422,7 +423,7 @@ pub(super) fn write_outgoing(
 
 fn insert_outgoing(transaction: &Transaction<'_>, row: &OutgoingRow) -> Result<(), StoreError> {
     let (grant, window) = row.grant.unzip();
-    transaction.execute(
+    transaction.execute_cached(
         &format!(
             "INSERT INTO outgoing_payments ({OUTGOING_COLUMNS}, revision) VALUES \
              (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, \

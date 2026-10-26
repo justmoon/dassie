@@ -8,7 +8,7 @@
 
 use rusqlite::{OptionalExtension, params};
 
-use super::{Store, StoreError, from_sql_time, to_sql_time};
+use super::{Cached, Store, StoreError, from_sql_time, to_sql_time};
 
 /// The most foundings a validator keeps: those that hold one of its places
 /// (at most its bound on hubs) and those lapsed since it last looked.
@@ -103,7 +103,7 @@ impl Store {
     /// The database failed, or holds what it may not.
     pub fn hub_founding_records(&self) -> Result<Vec<FoundingRecordRow>, StoreError> {
         let connection = self.lock();
-        let mut statement = connection.prepare(
+        let mut statement = connection.prepare_cached(
             "SELECT nonce, sponsor, terms, accepted_at_ms, rules, genesis_ms, running \
              FROM hub_founding_records ORDER BY nonce LIMIT ?1",
         )?;
@@ -145,7 +145,7 @@ impl Store {
         let mut connection = self.lock();
         let transaction = connection.transaction()?;
         for nonce in lapsed {
-            transaction.execute(
+            transaction.execute_cached(
                 "DELETE FROM hub_founding_records WHERE nonce = ?1 AND running = 0",
                 [&nonce[..]],
             )?;
@@ -153,7 +153,7 @@ impl Store {
         let (rules, genesis_ms) = record.genesis.as_ref().map_or((None, None), |(rules, at)| {
             (Some(rules.as_slice()), Some(to_sql_time(*at)))
         });
-        transaction.execute(
+        transaction.execute_cached(
             "INSERT INTO hub_founding_records \
              (nonce, sponsor, terms, accepted_at_ms, rules, genesis_ms, running) \
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7) ON CONFLICT (nonce) DO UPDATE SET \
@@ -169,10 +169,11 @@ impl Store {
                 record.running,
             ],
         )?;
-        let count: u32 =
-            transaction.query_row("SELECT count(*) FROM hub_founding_records", [], |row| {
-                row.get(0)
-            })?;
+        let count: u32 = transaction.query_row_cached(
+            "SELECT count(*) FROM hub_founding_records",
+            [],
+            |row| row.get(0),
+        )?;
         if count > MAX_FOUNDING_RECORDS {
             return Err(StoreError::Corrupt("too many hub foundings kept"));
         }
@@ -188,7 +189,7 @@ impl Store {
     /// The database failed, or holds what it may not.
     pub fn hub_foundings(&self) -> Result<Vec<FoundingRow>, StoreError> {
         let connection = self.lock();
-        let mut statement = connection.prepare(
+        let mut statement = connection.prepare_cached(
             "SELECT nonce, state, xrpl, funding_drops, escrow_payment, problem, \
              created_at_ms, updated_at_ms, escrow_stop FROM hub_foundings \
              ORDER BY created_at_ms, nonce LIMIT ?1",
@@ -241,7 +242,7 @@ impl Store {
         let mut connection = self.lock();
         let transaction = connection.transaction()?;
         let known = transaction
-            .query_row(
+            .query_row_cached(
                 "SELECT 1 FROM hub_foundings WHERE nonce = ?1",
                 [&founding.nonce[..]],
                 |_| Ok(()),
@@ -249,11 +250,12 @@ impl Store {
             .optional()?
             .is_some();
         let count: u32 =
-            transaction.query_row("SELECT count(*) FROM hub_foundings", [], |row| row.get(0))?;
+            transaction
+                .query_row_cached("SELECT count(*) FROM hub_foundings", [], |row| row.get(0))?;
         if !known && count >= MAX_FOUNDINGS {
             return Ok(false);
         }
-        transaction.execute(
+        transaction.execute_cached(
             "INSERT INTO hub_foundings (nonce, state, xrpl, funding_drops, escrow_payment, \
              problem, created_at_ms, updated_at_ms, escrow_stop) \
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9) \
@@ -285,7 +287,7 @@ impl Store {
         if founding.state.is_empty() || founding.state.len() > MAX_STATE_BYTES {
             return Err(StoreError::Corrupt("a hub founding over its bound"));
         }
-        let updated = self.lock().execute(
+        let updated = self.lock().execute_cached(
             "UPDATE hub_foundings SET state = ?2, escrow_payment = ?3, problem = ?4, \
              updated_at_ms = ?5, escrow_stop = ?6 WHERE nonce = ?1",
             params![
@@ -308,7 +310,7 @@ impl Store {
     pub fn remove_hub_founding(&self, nonce: &[u8; 32]) -> Result<bool, StoreError> {
         let removed = self
             .lock()
-            .execute("DELETE FROM hub_foundings WHERE nonce = ?1", [&nonce[..]])?;
+            .execute_cached("DELETE FROM hub_foundings WHERE nonce = ?1", [&nonce[..]])?;
         Ok(removed > 0)
     }
 
@@ -320,7 +322,7 @@ impl Store {
     /// The database failed.
     pub fn hub_payouts(&self, hub: &[u8; 32]) -> Result<Vec<(u8, u64, Vec<u8>)>, StoreError> {
         let connection = self.lock();
-        let mut statement = connection.prepare(
+        let mut statement = connection.prepare_cached(
             "SELECT validator, height, bundle FROM hub_payouts WHERE hub = ?1 \
              ORDER BY validator LIMIT ?2",
         )?;
@@ -353,7 +355,7 @@ impl Store {
         if bundle.is_empty() || bundle.len() > super::MAX_HUB_BUNDLE_BYTES {
             return Err(StoreError::Corrupt("payout bundle over its bound"));
         }
-        self.lock().execute(
+        self.lock().execute_cached(
             "INSERT INTO hub_payouts (hub, validator, height, received_at_ms, bundle) \
              VALUES (?1, ?2, ?3, ?4, ?5) ON CONFLICT (hub, validator) DO UPDATE SET \
              height = ?3, received_at_ms = ?4, bundle = ?5",

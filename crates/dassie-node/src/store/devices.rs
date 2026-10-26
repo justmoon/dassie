@@ -5,7 +5,7 @@
 use dassie_identity::NodeId;
 use rusqlite::{OptionalExtension, Row, params};
 
-use super::{Store, StoreError, from_sql_time, to_sql_time};
+use super::{Cached, Store, StoreError, from_sql_time, to_sql_time};
 
 /// Most devices a node keeps.
 pub const MAX_DEVICES: u32 = 32;
@@ -52,7 +52,7 @@ impl Store {
         assert!(device.name.len() <= MAX_DEVICE_NAME_BYTES);
         let mut connection = self.lock();
         let transaction = connection.transaction()?;
-        let others: u32 = transaction.query_row(
+        let others: u32 = transaction.query_row_cached(
             "SELECT count(*) FROM devices WHERE id != ?1",
             [device.id.as_str()],
             |row| row.get(0),
@@ -60,7 +60,7 @@ impl Store {
         if others >= MAX_DEVICES {
             return Err(AddDevice::Full);
         }
-        transaction.execute(
+        transaction.execute_cached(
             "INSERT OR REPLACE INTO devices (id, name, paired_at_ms, last_seen_at_ms) \
              VALUES (?1, ?2, ?3, ?4)",
             params![
@@ -77,7 +77,7 @@ impl Store {
     /// The device `id`, if it is paired.
     pub fn device(&self, id: &NodeId) -> Result<Option<DeviceRow>, StoreError> {
         self.lock()
-            .query_row(
+            .query_row_cached(
                 "SELECT id, name, paired_at_ms, last_seen_at_ms FROM devices WHERE id = ?1",
                 [id.as_str()],
                 |row| Ok(device_row(row)),
@@ -89,7 +89,7 @@ impl Store {
     /// Every paired device, most recently paired first.
     pub fn devices(&self) -> Result<Vec<DeviceRow>, StoreError> {
         let connection = self.lock();
-        let mut statement = connection.prepare(
+        let mut statement = connection.prepare_cached(
             "SELECT id, name, paired_at_ms, last_seen_at_ms FROM devices \
              ORDER BY paired_at_ms DESC, id LIMIT ?1",
         )?;
@@ -103,7 +103,7 @@ impl Store {
 
     /// Records that the device was seen at `now_ms`.
     pub fn touch_device(&self, id: &NodeId, now_ms: u64) -> Result<(), StoreError> {
-        self.lock().execute(
+        self.lock().execute_cached(
             "UPDATE devices SET last_seen_at_ms = max(last_seen_at_ms, ?2) WHERE id = ?1",
             params![id.as_str(), to_sql_time(now_ms)],
         )?;
@@ -114,7 +114,7 @@ impl Store {
     pub fn delete_device(&self, id: &NodeId) -> Result<bool, StoreError> {
         Ok(self
             .lock()
-            .execute("DELETE FROM devices WHERE id = ?1", [id.as_str()])?
+            .execute_cached("DELETE FROM devices WHERE id = ?1", [id.as_str()])?
             == 1)
     }
 }

@@ -5,7 +5,7 @@
 
 use rusqlite::Transaction;
 
-use super::{Store, StoreError};
+use super::{Cached, Store, StoreError};
 
 /// The peer settings the owner chooses.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -56,7 +56,7 @@ impl Store {
     ///
     /// The database failed, or holds what it may not.
     pub fn peer_settings(&self) -> Result<PeerSettings, StoreError> {
-        let (fee, spread, rebalance): (i64, i64, i64) = self.lock().query_row(
+        let (fee, spread, rebalance): (i64, i64, i64) = self.lock().query_row_cached(
             "SELECT connector_fee_ppm, fx_spread_ppm, rebalance_ppm FROM peer_settings WHERE id = 1",
             [],
             |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
@@ -81,7 +81,7 @@ pub(super) fn write_peer_settings(
     settings: Option<PeerSettings>,
 ) -> Result<(), StoreError> {
     if let Some(settings) = settings {
-        transaction.execute(
+        transaction.execute_cached(
             "UPDATE peer_settings SET connector_fee_ppm = ?1, fx_spread_ppm = ?2, rebalance_ppm = ?3 WHERE id = 1",
             [
                 settings.connector_fee_ppm,

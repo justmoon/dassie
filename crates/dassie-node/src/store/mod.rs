@@ -47,7 +47,7 @@ use dassie_identity::NodeKey;
 use dassie_node_core::certificate::CertificateSource;
 use dassie_node_core::config::{Alias, DirectoryUrl, Hostname, NodeConfig, Ports, Realm};
 use dassie_node_core::session::{SessionId, SessionPolicy, SessionTimes};
-use rusqlite::{Connection, OptionalExtension, params};
+use rusqlite::{Connection, OptionalExtension, Params, Row, params};
 
 pub use devices::{
     AddDevice, DEVICE_SEEN_GRANULARITY_MS, DeviceRow, MAX_DEVICE_NAME_BYTES, MAX_DEVICES,
@@ -91,6 +91,11 @@ pub const DATABASE_FILE: &str = "dassie.sqlite3";
 /// The file a store holds an exclusive lock on while it is open, so that
 /// only one node runs on a data directory.
 pub const LOCK_FILE: &str = "dassie.lock";
+
+/// How many prepared statements the connection keeps: every statement the
+/// store runs, with room to spare. Past that, the one used longest ago is
+/// prepared again when it is next needed.
+const STATEMENT_CACHE: usize = 256;
 
 /// Something went wrong with the database.
 #[derive(Debug)]
@@ -208,6 +213,35 @@ pub struct SessionRecord {
     pub user_agent: String,
 }
 
+/// Statements run through the connection's cache of prepared statements,
+/// as [`Connection::execute`] and [`Connection::query_row`] run one: a
+/// statement run again is not parsed and planned again, which took most of
+/// the time a busy node spent in the store.
+trait Cached {
+    /// [`Connection::execute`], cached.
+    fn execute_cached<P: Params>(&self, sql: &str, params: P) -> rusqlite::Result<usize>;
+
+    /// [`Connection::query_row`], cached.
+    fn query_row_cached<T, P, F>(&self, sql: &str, params: P, f: F) -> rusqlite::Result<T>
+    where
+        P: Params,
+        F: FnOnce(&Row<'_>) -> rusqlite::Result<T>;
+}
+
+impl Cached for Connection {
+    fn execute_cached<P: Params>(&self, sql: &str, params: P) -> rusqlite::Result<usize> {
+        self.prepare_cached(sql)?.execute(params)
+    }
+
+    fn query_row_cached<T, P, F>(&self, sql: &str, params: P, f: F) -> rusqlite::Result<T>
+    where
+        P: Params,
+        F: FnOnce(&Row<'_>) -> rusqlite::Result<T>,
+    {
+        self.prepare_cached(sql)?.query_row(params, f)
+    }
+}
+
 /// The database.
 #[derive(Debug)]
 pub struct Store {
@@ -251,6 +285,7 @@ impl Store {
 
     fn prepare(mut connection: Connection, lock: Option<fs::File>) -> Result<Self, StoreError> {
         connection.busy_timeout(std::time::Duration::from_secs(5))?;
+        connection.set_prepared_statement_cache_capacity(STATEMENT_CACHE);
         connection.pragma_update(None, "foreign_keys", "ON")?;
         schema::prepare(&mut connection)?;
         schema::check(&mut connection)?;
@@ -274,12 +309,12 @@ impl Store {
     pub fn self_test(&self) -> Result<i64, StoreError> {
         Ok(self
             .lock()
-            .query_row("SELECT 1 + 1", [], |row| row.get(0))?)
+            .query_row_cached("SELECT 1 + 1", [], |row| row.get(0))?)
     }
 
     /// The configuration.
     pub fn config(&self) -> Result<NodeConfig, StoreError> {
-        let row = self.lock().query_row(
+        let row = self.lock().query_row_cached(
             "SELECT realm, hostname, http_port, https_port, alias, acme_directory_url FROM node_config",
             [],
             |row| {
@@ -308,7 +343,7 @@ impl Store {
 
     /// Stores the configuration.
     pub fn set_config(&self, config: &NodeConfig) -> Result<(), StoreError> {
-        self.lock().execute(
+        self.lock().execute_cached(
             "UPDATE node_config SET realm = ?1, hostname = ?2, http_port = ?3, https_port = ?4, \
              alias = ?5, acme_directory_url = ?6",
             params![
@@ -327,7 +362,7 @@ impl Store {
     pub fn node_key(&self) -> Result<Option<NodeKey>, StoreError> {
         let bytes: Option<Vec<u8>> = self
             .lock()
-            .query_row("SELECT private_key FROM node_key", [], |row| row.get(0))
+            .query_row_cached("SELECT private_key FROM node_key", [], |row| row.get(0))
             .optional()?;
         bytes
             .map(|bytes| {
@@ -345,11 +380,11 @@ impl Store {
     pub fn set_node_key_once(&self, key: &NodeKey, now_ms: u64) -> Result<bool, StoreError> {
         let mut connection = self.lock();
         let transaction = connection.transaction()?;
-        let changed = transaction.execute(
+        let changed = transaction.execute_cached(
             "INSERT INTO node_key (id, private_key, created_at_ms) VALUES (1, ?1, ?2) ON CONFLICT DO NOTHING",
             params![key.as_bytes().as_slice(), to_sql_time(now_ms)],
         )?;
-        transaction.execute("DELETE FROM setup_token", [])?;
+        transaction.execute_cached("DELETE FROM setup_token", [])?;
         transaction.commit()?;
         Ok(changed == 1)
     }
@@ -358,7 +393,7 @@ impl Store {
     pub fn setup_token(&self) -> Result<Option<[u8; 32]>, StoreError> {
         let bytes: Option<Vec<u8>> = self
             .lock()
-            .query_row("SELECT token FROM setup_token", [], |row| row.get(0))
+            .query_row_cached("SELECT token FROM setup_token", [], |row| row.get(0))
             .optional()?;
         bytes
             .map(|bytes| {
@@ -371,7 +406,7 @@ impl Store {
 
     /// Stores the setup token, replacing any other.
     pub fn set_setup_token(&self, token: &[u8; 32]) -> Result<(), StoreError> {
-        self.lock().execute(
+        self.lock().execute_cached(
             "INSERT OR REPLACE INTO setup_token (id, token) VALUES (1, ?1)",
             [token.as_slice()],
         )?;
@@ -382,7 +417,7 @@ impl Store {
     pub fn certificate(&self) -> Result<Option<StoredCertificate>, StoreError> {
         let row: Option<(String, String, String)> = self
             .lock()
-            .query_row(
+            .query_row_cached(
                 "SELECT source, chain_pem, key_pem FROM tls_certificate",
                 [],
                 |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
@@ -406,7 +441,7 @@ impl Store {
         certificate: &StoredCertificate,
         now_ms: u64,
     ) -> Result<(), StoreError> {
-        self.lock().execute(
+        self.lock().execute_cached(
             "INSERT OR REPLACE INTO tls_certificate (id, source, chain_pem, key_pem, installed_at_ms) \
              VALUES (1, ?1, ?2, ?3, ?4)",
             params![certificate.source.as_str(), certificate.chain_pem, certificate.key_pem, to_sql_time(now_ms)],
@@ -418,7 +453,7 @@ impl Store {
     pub fn acme_account(&self, directory: &str) -> Result<Option<String>, StoreError> {
         Ok(self
             .lock()
-            .query_row(
+            .query_row_cached(
                 "SELECT credentials FROM acme_account WHERE directory_url = ?1",
                 [directory],
                 |row| row.get(0),
@@ -434,7 +469,7 @@ impl Store {
         contact: &str,
         now_ms: u64,
     ) -> Result<(), StoreError> {
-        self.lock().execute(
+        self.lock().execute_cached(
             "INSERT OR REPLACE INTO acme_account (directory_url, credentials, contact, created_at_ms) \
              VALUES (?1, ?2, ?3, ?4)",
             params![directory, credentials, contact, to_sql_time(now_ms)],
@@ -451,7 +486,7 @@ impl Store {
     ) -> Result<u32, StoreError> {
         let mut connection = self.lock();
         let transaction = connection.transaction()?;
-        transaction.execute(
+        transaction.execute_cached(
             "INSERT INTO sessions (id, created_at_ms, last_used_at_ms, user_agent) VALUES (?1, ?2, ?3, ?4)",
             params![
                 record.id.0.as_slice(),
@@ -463,7 +498,7 @@ impl Store {
         // The new session always stays; of the others, the most recently
         // used fill the remaining places. Ties on time go by creation, then
         // by ID, so the order is total and the outcome deterministic.
-        let evicted = transaction.execute(
+        let evicted = transaction.execute_cached(
             "DELETE FROM sessions WHERE id != ?1 AND id NOT IN \
              (SELECT id FROM sessions WHERE id != ?1 \
               ORDER BY last_used_at_ms DESC, created_at_ms DESC, id LIMIT ?2)",
@@ -480,7 +515,7 @@ impl Store {
     pub fn session(&self, id: &SessionId) -> Result<Option<SessionRecord>, StoreError> {
         Ok(self
             .lock()
-            .query_row(
+            .query_row_cached(
                 "SELECT id, created_at_ms, last_used_at_ms, user_agent FROM sessions WHERE id = ?1",
                 [id.0.as_slice()],
                 session_row,
@@ -491,7 +526,7 @@ impl Store {
     /// Every session, most recently used first.
     pub fn sessions(&self) -> Result<Vec<SessionRecord>, StoreError> {
         let connection = self.lock();
-        let mut statement = connection.prepare(
+        let mut statement = connection.prepare_cached(
             "SELECT id, created_at_ms, last_used_at_ms, user_agent FROM sessions \
              ORDER BY last_used_at_ms DESC, id",
         )?;
@@ -502,7 +537,7 @@ impl Store {
 
     /// Records a use of the session.
     pub fn touch_session(&self, id: &SessionId, now_ms: u64) -> Result<(), StoreError> {
-        self.lock().execute(
+        self.lock().execute_cached(
             "UPDATE sessions SET last_used_at_ms = max(last_used_at_ms, ?2) WHERE id = ?1",
             params![id.0.as_slice(), to_sql_time(now_ms)],
         )?;
@@ -513,7 +548,7 @@ impl Store {
     pub fn delete_session(&self, id: &SessionId) -> Result<bool, StoreError> {
         Ok(self
             .lock()
-            .execute("DELETE FROM sessions WHERE id = ?1", [id.0.as_slice()])?
+            .execute_cached("DELETE FROM sessions WHERE id = ?1", [id.0.as_slice()])?
             == 1)
     }
 
@@ -522,13 +557,13 @@ impl Store {
         let keep = keep.map(|id| id.0.to_vec()).unwrap_or_default();
         let deleted = self
             .lock()
-            .execute("DELETE FROM sessions WHERE id != ?1", [keep])?;
+            .execute_cached("DELETE FROM sessions WHERE id != ?1", [keep])?;
         Ok(u32::try_from(deleted).unwrap_or(u32::MAX))
     }
 
     /// Deletes the sessions that have expired at `now_ms`.
     pub fn prune_sessions(&self, policy: &SessionPolicy, now_ms: u64) -> Result<u32, StoreError> {
-        let deleted = self.lock().execute(
+        let deleted = self.lock().execute_cached(
             "DELETE FROM sessions WHERE last_used_at_ms + ?1 <= ?3 OR created_at_ms + ?2 <= ?3",
             params![
                 to_sql_time(policy.idle_timeout_ms),

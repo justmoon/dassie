@@ -3,7 +3,7 @@
 
 use rusqlite::params;
 
-use super::{Store, StoreError, from_sql_time, to_sql_time};
+use super::{Cached, Store, StoreError, from_sql_time, to_sql_time};
 use crate::rates::{MAX_SOURCES, RateSource, SourceKind, currency};
 
 /// A rate as kept: the currency, units of it per dollar times 10^15, and
@@ -19,7 +19,7 @@ impl Store {
     pub fn rate_sources(&self) -> Result<Vec<RateSource>, StoreError> {
         let connection = self.lock();
         let mut statement =
-            connection.prepare("SELECT kind, url FROM rate_sources ORDER BY position")?;
+            connection.prepare_cached("SELECT kind, url FROM rate_sources ORDER BY position")?;
         let rows = statement
             .query_map([], |row| {
                 Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?))
@@ -49,9 +49,9 @@ impl Store {
         }
         let mut connection = self.lock();
         let transaction = connection.transaction()?;
-        transaction.execute("DELETE FROM rate_sources", [])?;
+        transaction.execute_cached("DELETE FROM rate_sources", [])?;
         for (position, source) in sources.iter().enumerate() {
-            transaction.execute(
+            transaction.execute_cached(
                 "INSERT INTO rate_sources (position, kind, url) VALUES (?1, ?2, ?3)",
                 params![
                     i64::try_from(position).unwrap_or(i64::MAX),
@@ -73,7 +73,7 @@ impl Store {
     pub fn exchange_rates(&self) -> Result<Vec<StoredRate>, StoreError> {
         let connection = self.lock();
         let mut statement = connection
-            .prepare("SELECT asset, rate, as_of_ms FROM exchange_rates ORDER BY asset")?;
+            .prepare_cached("SELECT asset, rate, as_of_ms FROM exchange_rates ORDER BY asset")?;
         let rows = statement
             .query_map([], |row| {
                 Ok((
@@ -107,7 +107,7 @@ impl Store {
         let mut connection = self.lock();
         let transaction = connection.transaction()?;
         for (code, rate, as_of_ms) in rates {
-            transaction.execute(
+            transaction.execute_cached(
                 "INSERT INTO exchange_rates (asset, rate, as_of_ms) VALUES (?1, ?2, ?3) \
                  ON CONFLICT (asset) DO UPDATE SET rate = excluded.rate, \
                  as_of_ms = excluded.as_of_ms",
@@ -124,7 +124,7 @@ impl Store {
     ///
     /// The database failed.
     pub fn display_currency(&self) -> Result<Option<&'static str>, StoreError> {
-        let stored: Option<String> = self.lock().query_row(
+        let stored: Option<String> = self.lock().query_row_cached(
             "SELECT display_currency FROM payment_settings WHERE id = 1",
             [],
             |row| row.get(0),
@@ -138,7 +138,7 @@ impl Store {
     ///
     /// The database failed.
     pub fn set_display_currency(&self, code: Option<&'static str>) -> Result<(), StoreError> {
-        self.lock().execute(
+        self.lock().execute_cached(
             "UPDATE payment_settings SET display_currency = ?1 WHERE id = 1",
             [code],
         )?;

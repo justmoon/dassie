@@ -7,7 +7,7 @@ use dassie_ledger::LedgerId;
 use dassie_payments::amount::paid_in_full;
 use rusqlite::{OptionalExtension, Row, ToSql, Transaction, params, params_from_iter};
 
-use super::{Store, StoreError, from_sql_time, to_sql_time};
+use super::{Cached, Store, StoreError, from_sql_time, to_sql_time};
 
 /// Most open incoming payments read back at a start.
 pub const MAX_OPEN_LOADED: u32 = 65_536;
@@ -250,7 +250,7 @@ impl Store {
     /// The incoming payments still open at `now_ms`, oldest first.
     pub fn open_incoming_payments(&self, now_ms: u64) -> Result<Vec<IncomingRow>, StoreError> {
         let connection = self.lock();
-        let mut statement = connection.prepare(&format!(
+        let mut statement = connection.prepare_cached(&format!(
             "SELECT {COLUMNS} FROM incoming_payments \
              WHERE completed_at_ms IS NULL AND expires_at_ms > ?1 \
              ORDER BY created_at_ms, id LIMIT ?2"
@@ -269,7 +269,7 @@ impl Store {
         limit: u32,
     ) -> Result<Vec<(PaymentId, ConnectionKey, u64)>, StoreError> {
         let connection = self.lock();
-        let mut statement = connection.prepare(
+        let mut statement = connection.prepare_cached(
             "SELECT c.incoming_payment, c.connection, c.received \
              FROM incoming_connections AS c JOIN incoming_payments AS p \
              ON p.id = c.incoming_payment \
@@ -302,11 +302,11 @@ impl Store {
         limit: u32,
     ) -> Result<Vec<FinishedIncoming>, StoreError> {
         let connection = self.lock();
-        let mut payments = connection.prepare(
+        let mut payments = connection.prepare_cached(
             "SELECT id, ledger, incoming_amount, received_amount FROM incoming_payments \
              WHERE completed_at_ms >= ?1 ORDER BY completed_at_ms DESC, id LIMIT ?2",
         )?;
-        let mut connections = connection.prepare(
+        let mut connections = connection.prepare_cached(
             "SELECT connection, received FROM incoming_connections \
              WHERE incoming_payment = ?1 ORDER BY connection",
         )?;
@@ -355,7 +355,7 @@ impl Store {
     pub fn incoming_payment(&self, id: PaymentId) -> Result<Option<IncomingRow>, StoreError> {
         let connection = self.lock();
         let row = connection
-            .query_row(
+            .query_row_cached(
                 &format!("SELECT {COLUMNS} FROM incoming_payments WHERE id = ?1"),
                 [id.0.as_slice()],
                 read_incoming,
@@ -388,7 +388,7 @@ impl Store {
         let connection = self.lock();
         // What an expired payment's connections received is not read
         // again; a completed one's only for a while (`finished_incoming`).
-        connection.execute(
+        connection.execute_cached(
             "DELETE FROM incoming_connections WHERE (incoming_payment, connection) IN \
              (SELECT c.incoming_payment, c.connection FROM incoming_connections AS c \
              JOIN incoming_payments AS p ON p.id = c.incoming_payment \
@@ -396,7 +396,7 @@ impl Store {
              OR (p.completed_at_ms IS NULL AND p.expires_at_ms <= ?1) LIMIT ?2)",
             params![to_sql_time(now_ms), PRUNE_BATCH, finished],
         )?;
-        let removed = connection.execute(
+        let removed = connection.execute_cached(
             "DELETE FROM incoming_payments WHERE id IN (SELECT id FROM incoming_payments \
              WHERE received_amount = 0 AND coalesce(completed_at_ms, expires_at_ms) <= ?1 \
              LIMIT ?2)",
@@ -409,11 +409,12 @@ impl Store {
     /// revision: where a live view starts.
     pub fn incoming_latest(&self, limit: u32) -> Result<(u64, Vec<IncomingRow>), StoreError> {
         let connection = self.lock();
-        let revision: Option<i64> =
-            connection.query_row("SELECT max(revision) FROM incoming_payments", [], |row| {
-                row.get(0)
-            })?;
-        let mut statement = connection.prepare(&format!(
+        let revision: Option<i64> = connection.query_row_cached(
+            "SELECT max(revision) FROM incoming_payments",
+            [],
+            |row| row.get(0),
+        )?;
+        let mut statement = connection.prepare_cached(&format!(
             "SELECT {COLUMNS} FROM incoming_payments ORDER BY created_at_ms DESC, id DESC LIMIT ?1"
         ))?;
         let rows = statement
@@ -425,7 +426,7 @@ impl Store {
 
     /// The ledger `$host` names, if one was chosen.
     pub fn default_ledger(&self) -> Result<Option<LedgerId>, StoreError> {
-        let stored: Option<String> = self.lock().query_row(
+        let stored: Option<String> = self.lock().query_row_cached(
             "SELECT default_ledger FROM payment_settings WHERE id = 1",
             [],
             |row| row.get(0),
@@ -437,7 +438,7 @@ impl Store {
 
     /// Chooses the ledger `$host` names, or goes back to the lowest active.
     pub fn set_default_ledger(&self, ledger: Option<LedgerId>) -> Result<(), StoreError> {
-        self.lock().execute(
+        self.lock().execute_cached(
             "UPDATE payment_settings SET default_ledger = ?1 WHERE id = 1",
             [ledger.map(|ledger| ledger.as_str())],
         )?;
@@ -466,7 +467,7 @@ pub(super) fn page<T>(
             let mut bound: Vec<&dyn ToSql> = vec![&cursor.0, &ledger];
             bound.extend(values.iter().map(|value| value as &dyn ToSql));
             connection
-                .query_row(
+                .query_row_cached(
                     &format!(
                         "SELECT created_at_ms, id FROM {table} \
                          WHERE id = ?1 AND ledger = ?2 AND {resources} AND {reached}"
@@ -492,7 +493,7 @@ pub(super) fn page<T>(
         "ledger = ?1 AND {resources} AND {reached} \
          AND (?2 IS NULL OR (created_at_ms, id) {comparison} (?2, ?3))"
     );
-    let mut statement = connection.prepare(&format!(
+    let mut statement = connection.prepare_cached(&format!(
         "SELECT {columns} FROM {table} WHERE {filter} \
          ORDER BY created_at_ms {order}, id {order} LIMIT ?4"
     ))?;
@@ -574,7 +575,7 @@ pub(super) fn write_incoming(
     gone: &std::collections::BTreeSet<(PaymentId, ConnectionKey)>,
 ) -> Result<(), StoreError> {
     for row in created {
-        transaction.execute(
+        transaction.execute_cached(
             &format!(
                 "INSERT INTO incoming_payments ({COLUMNS}, revision) \
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, {NEXT_REVISION})"
@@ -596,7 +597,7 @@ pub(super) fn write_incoming(
         )?;
     }
     for (id, change) in progress {
-        let updated = transaction.execute(
+        let updated = transaction.execute_cached(
             &format!(
                 "UPDATE incoming_payments SET received_amount = ?2, completed_at_ms = ?3, \
                  revision = {NEXT_REVISION} WHERE id = ?1"
@@ -612,13 +613,13 @@ pub(super) fn write_incoming(
         }
     }
     for (id, connection) in gone {
-        transaction.execute(
+        transaction.execute_cached(
             "DELETE FROM incoming_connections WHERE incoming_payment = ?1 AND connection = ?2",
             params![id.0.as_slice(), connection.0.as_slice()],
         )?;
     }
     for ((id, connection), received) in connections {
-        transaction.execute(
+        transaction.execute_cached(
             "INSERT INTO incoming_connections (incoming_payment, connection, received) \
              VALUES (?1, ?2, ?3) ON CONFLICT (incoming_payment, connection) \
              DO UPDATE SET received = ?3",
