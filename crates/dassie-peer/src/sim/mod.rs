@@ -38,7 +38,7 @@ use crate::{
     OwnInfo, PeerBatch, PeerNode, PeeringHooks, Request, RequestId, Response, Stored,
 };
 use dassie_identity::{NodeId, NodeKey};
-use dassie_node_core::testing::SeededRng;
+use dassie_kit::sim::SeededRng;
 use dassie_oer::Encode;
 use sha2::{Digest, Sha256};
 

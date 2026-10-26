@@ -8,8 +8,8 @@ use std::future::Future;
 use std::net::IpAddr;
 use std::pin::Pin;
 
+use dassie_kit::ClientKey;
 use dassie_node_core::connections::ConnectionLimits;
-use dassie_node_core::rate_limit::ClientKey;
 use hyper::StatusCode;
 
 use crate::env::MAX_BOOTSTRAP_NODES;

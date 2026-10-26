@@ -14,13 +14,13 @@ workspace = true
 default = []
 # The simulated client and server, for this crate's tests and the
 # simulation runner, dassie-sim (spec/decisions/random-seed-simulations.md).
-sim = ["dep:dassie-node-core", "dassie-oer/alloc"]
+sim = ["dep:dassie-kit", "dassie-oer/alloc"]
 
 [dependencies]
 # Without the default `getrandom` feature: the caller injects randomness.
 aes-gcm = { version = "0.11.1", default-features = false, features = ["aes"] }
 dassie-ilp = { path = "../dassie-ilp" }
-dassie-node-core = { path = "../dassie-node-core", features = ["testing"], optional = true }
+dassie-kit = { path = "../dassie-kit", features = ["sim"], optional = true }
 dassie-oer = { path = "../dassie-oer", default-features = false }
 hmac = { version = "0.13", default-features = false }
 # The RNG trait shared with dassie-identity and ed25519-dalek 3. Only the
@@ -31,7 +31,7 @@ sha2 = { version = "0.11", default-features = false }
 [dev-dependencies]
 # The OS RNG, for the interop example only.
 getrandom = { version = "0.4.3", features = ["sys_rng"] }
-dassie-node-core = { path = "../dassie-node-core", features = ["testing"] }
+dassie-kit = { path = "../dassie-kit", features = ["sim"] }
 dassie-oer = { path = "../dassie-oer" }
 dassie-stream = { path = ".", features = ["sim"] }
 proptest = "1.12"

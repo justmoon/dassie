@@ -10,15 +10,10 @@ publish.workspace = true
 [lints]
 workspace = true
 
-[features]
-default = []
-# A seeded RNG for tests of this crate and the crates above it, and what
-# their simulations share: how a run ended, and running seeds
-# (spec/decisions/random-seed-simulations.md).
-testing = []
-
 [dependencies]
 dassie-identity = { path = "../dassie-identity" }
+# Time units and client keys.
+dassie-kit = { path = "../dassie-kit" }
 # The RNG trait shared with dassie-identity. Only the trait: the caller
 # injects the generator.
 rand_core = { version = "0.10", default-features = false }
@@ -26,5 +21,5 @@ sha2 = { version = "0.11", default-features = false }
 subtle = { version = "2.6", default-features = false }
 
 [dev-dependencies]
-dassie-node-core = { path = ".", features = ["testing"] }
+dassie-kit = { path = "../dassie-kit", features = ["sim"] }
 proptest = "1.12"

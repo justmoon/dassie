@@ -22,7 +22,7 @@ use dassie_feed::{
     assemble_feed, decode, encode_challenge, encode_subscribe, sign_feed,
 };
 use dassie_identity::Signature;
-use dassie_node_core::rate_limit::ClientKey;
+use dassie_kit::ClientKey;
 use proptest::prelude::*;
 use support::{feed_of, key, two_ledger_feed};
 

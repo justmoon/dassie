@@ -18,8 +18,8 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use dassie_kit::sim::SeededRng;
 use dassie_ledger::{LedgerId, Name};
-use dassie_node_core::testing::SeededRng;
 use dassie_settlement::{
     AssetEffect, DollarRate, Effect, ExternalAsset, LedgerInput, LedgerStatus, PegPause,
     SchemeError, SettlementScheme,

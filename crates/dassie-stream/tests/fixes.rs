@@ -4,7 +4,7 @@
 
 mod support;
 
-use dassie_node_core::testing::SeededRng;
+use dassie_kit::sim::SeededRng;
 use dassie_oer::Writer;
 use dassie_stream::allocate::{Claim, ExceedsCapacity, allocate};
 use dassie_stream::crypto::{Cipher, DecryptionFailure, Keys, OVERHEAD};

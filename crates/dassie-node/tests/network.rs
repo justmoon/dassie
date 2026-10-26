@@ -22,6 +22,7 @@
 use std::collections::BTreeMap;
 
 use dassie_identity::NodeId;
+use dassie_kit::sim::{Outcome, assert_seeds_pass, caught};
 use dassie_ledger::LedgerId;
 use dassie_node::engine::{EngineError, EngineEvent, Lie, NewIncoming, NewOutgoing};
 use dassie_node::node::Policies;
@@ -33,7 +34,6 @@ use dassie_node::sim::{
     scripted, sent, xrpl_account,
 };
 use dassie_node::store::{Aim, ForeignAmount, OutgoingRow, OutgoingState, PaymentId, PeerSettings};
-use dassie_node_core::testing::{Outcome, assert_seeds_pass, caught};
 use dassie_payments::amount::Amount;
 use dassie_payments::gnap::Limits;
 use dassie_settlement::{LedgerStatus, policy};

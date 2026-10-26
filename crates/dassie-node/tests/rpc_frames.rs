@@ -16,6 +16,7 @@ use std::time::Duration;
 
 use bytes::Bytes;
 use dassie_identity::NodeKey;
+use dassie_kit::sim::SeededRng;
 use dassie_node::clock::ManualClock;
 use dassie_node::node::{Node, NodeOptions, PeerOptions, Policies, Runtime};
 use dassie_node::open_payments::Urls;
@@ -25,7 +26,6 @@ use dassie_node::rpc::{Caller, is_live, proto};
 use dassie_node::store::Store;
 use dassie_node::tls;
 use dassie_node_core::config::{DirectoryUrl, Hostname};
-use dassie_node_core::testing::SeededRng;
 use dassie_payments::pointer::Recipient;
 use futures_util::StreamExt;
 use proptest::prelude::*;

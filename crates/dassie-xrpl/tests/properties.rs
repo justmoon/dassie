@@ -10,8 +10,8 @@
     clippy::too_many_lines
 )]
 
+use dassie_kit::sim::SeededRng;
 use dassie_ledger::{MAX_TOTAL, Name};
-use dassie_node_core::testing::SeededRng;
 use dassie_settlement::{LedgerInput, LedgerStatus};
 use dassie_xrpl::Config;
 use dassie_xrpl::amount::{MAX_DECIMALS, MAX_EXPONENT, MAX_MANTISSA, MIN_EXPONENT, MIN_MANTISSA};

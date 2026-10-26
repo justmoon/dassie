@@ -11,8 +11,8 @@
 //! slots without a share of their own (spec/decisions/owners-share.md).
 
 use dassie_ilp::{Address, Timestamp};
+use dassie_kit::ClientKey;
 use dassie_ledger::LedgerId;
-use dassie_node_core::rate_limit::ClientKey;
 use dassie_stream::{AssetDetails, Config, Connection, Event, Policy, Rate, Role};
 
 use super::payers::Sender;

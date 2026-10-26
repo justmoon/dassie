@@ -14,7 +14,7 @@ use dassie_feed::{
     COOKIE_EPOCH_MS, Cookie, CookieCheck, CookieSecret, Decision, Ignored, Limits, Refused,
     SubscriberTable, encode_challenge, encode_subscribe,
 };
-use dassie_node_core::rate_limit::ClientKey;
+use dassie_kit::ClientKey;
 
 const NOW: u64 = 1_790_000_000_000;
 const TTL: u64 = 300_000;

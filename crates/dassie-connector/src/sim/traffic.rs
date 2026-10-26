@@ -11,8 +11,8 @@ use alloc::vec;
 use alloc::vec::Vec;
 
 use dassie_ilp::{ErrorCode, Timestamp, ildcp};
+use dassie_kit::sim::{Outcome, Run, SeededRng};
 use dassie_ledger::{JournalEntry, LedgerId, Name, Reference, TransferState};
-use dassie_node_core::testing::{Outcome, Run, SeededRng};
 use dassie_oer::Encode;
 
 use super::*;

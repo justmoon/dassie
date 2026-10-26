@@ -3,7 +3,7 @@
 //! the engine. Tokens and continuation tokens are stored as SHA-256
 //! hashes only (spec/decisions/secrets-at-rest.md).
 
-use dassie_node_core::rate_limit::ClientKey;
+use dassie_kit::ClientKey;
 use rusqlite::{OptionalExtension, Row, params};
 
 use super::{PaymentId, Store, StoreError, from_sql_time, to_sql_time};

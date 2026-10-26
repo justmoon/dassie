@@ -3,8 +3,8 @@
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 
+use dassie_kit::DAY_MS;
 use dassie_ledger::LedgerId;
-use dassie_node_core::DAY_MS;
 use dassie_node_core::config::Hostname;
 
 use super::*;

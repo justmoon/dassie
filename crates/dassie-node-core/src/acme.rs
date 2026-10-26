@@ -18,7 +18,7 @@ use alloc::vec::Vec;
 
 use crate::certificate::{CertificateInfo, CertificateSource};
 use crate::config::Hostname;
-use crate::{DAY_MS, HOUR_MS, MINUTE_MS};
+use dassie_kit::{DAY_MS, HOUR_MS, MINUTE_MS};
 
 /// When to renew, and how to back off.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

@@ -18,7 +18,7 @@ use std::collections::BTreeMap;
 use dassie_hub::consensus::MAX_VIEW_TIMEOUT_MS;
 use dassie_hub::escrow::PayoutTransaction;
 use dassie_hub::sim::Role;
-use dassie_node_core::testing::{Outcome, Run, SeededRng};
+use dassie_kit::sim::{Outcome, Run, SeededRng};
 use dassie_xrpl::api;
 use dassie_xrpl::codec::Amount;
 use dassie_xrpl::fake::FAUCET_DROPS;

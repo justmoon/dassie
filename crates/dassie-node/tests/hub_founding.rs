@@ -402,10 +402,7 @@ async fn a_sponsor_founds_a_hub_with_four_validator_daemons() {
 struct Dialer;
 
 impl dassie_node::quic::Handler for Dialer {
-    fn client(
-        &self,
-        _address: std::net::IpAddr,
-    ) -> Option<dassie_node_core::rate_limit::ClientKey> {
+    fn client(&self, _address: std::net::IpAddr) -> Option<dassie_kit::ClientKey> {
         None
     }
 

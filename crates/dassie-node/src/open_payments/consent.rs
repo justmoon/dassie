@@ -16,7 +16,7 @@
 
 use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-use dassie_node_core::rate_limit::ClientKey;
+use dassie_kit::ClientKey;
 use dassie_payments::gnap::{
     self, Access, AccessToken, Continue, ContinueRequest, ContinueToken, ErrorCode, Finish,
     GrantRequest, GrantResponse, InteractResponse, Subject, SubjectId,

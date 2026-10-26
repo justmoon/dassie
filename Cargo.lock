@@ -1008,8 +1008,8 @@ version = "0.2.9"
 dependencies = [
  "dassie-connector",
  "dassie-ilp",
+ "dassie-kit",
  "dassie-ledger",
- "dassie-node-core",
  "dassie-oer",
  "num-bigint",
  "proptest",
@@ -1040,7 +1040,7 @@ name = "dassie-feed"
 version = "0.2.9"
 dependencies = [
  "dassie-identity",
- "dassie-node-core",
+ "dassie-kit",
  "dassie-oer",
  "hmac",
  "proptest",
@@ -1056,8 +1056,8 @@ version = "0.2.9"
 dependencies = [
  "dassie-hub",
  "dassie-identity",
+ "dassie-kit",
  "dassie-ledger",
- "dassie-node-core",
  "dassie-oer",
  "dassie-settlement",
  "dassie-xrpl",
@@ -1099,6 +1099,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "dassie-kit"
+version = "0.2.9"
+dependencies = [
+ "dassie-kit",
+ "proptest",
+ "rand_core",
+]
+
+[[package]]
 name = "dassie-ledger"
 version = "0.2.9"
 dependencies = [
@@ -1116,6 +1125,7 @@ dependencies = [
  "dassie-hub",
  "dassie-identity",
  "dassie-ilp",
+ "dassie-kit",
  "dassie-ledger",
  "dassie-node",
  "dassie-node-core",
@@ -1168,7 +1178,7 @@ name = "dassie-node-core"
 version = "0.2.9"
 dependencies = [
  "dassie-identity",
- "dassie-node-core",
+ "dassie-kit",
  "proptest",
  "rand_core",
  "sha2 0.11.1",
@@ -1202,7 +1212,7 @@ name = "dassie-peer"
 version = "0.2.9"
 dependencies = [
  "dassie-identity",
- "dassie-node-core",
+ "dassie-kit",
  "dassie-oer",
  "dassie-peer",
  "hmac",
@@ -1229,8 +1239,8 @@ dependencies = [
 name = "dassie-settlement"
 version = "0.2.9"
 dependencies = [
+ "dassie-kit",
  "dassie-ledger",
- "dassie-node-core",
  "proptest",
  "rand_core",
 ]
@@ -1241,8 +1251,8 @@ version = "0.2.9"
 dependencies = [
  "dassie-connector",
  "dassie-hub",
+ "dassie-kit",
  "dassie-node",
- "dassie-node-core",
  "dassie-peer",
  "dassie-stream",
  "getrandom 0.4.3",
@@ -1257,7 +1267,7 @@ version = "0.2.9"
 dependencies = [
  "aes-gcm",
  "dassie-ilp",
- "dassie-node-core",
+ "dassie-kit",
  "dassie-oer",
  "dassie-stream",
  "getrandom 0.4.3",
@@ -1286,8 +1296,8 @@ name = "dassie-xrpl"
 version = "0.2.9"
 dependencies = [
  "dassie-identity",
+ "dassie-kit",
  "dassie-ledger",
- "dassie-node-core",
  "dassie-settlement",
  "dassie-xrpl",
  "ecdsa",

@@ -10,8 +10,8 @@ use alloc::string::{String, ToString};
 use alloc::vec;
 use alloc::vec::Vec;
 
-use crate::DAY_MS;
 use crate::config::Hostname;
+use dassie_kit::DAY_MS;
 
 /// How long a self-signed certificate is made for.
 pub const SELF_SIGNED_VALIDITY_MS: u64 = 10 * 365 * DAY_MS;

@@ -623,8 +623,7 @@
         "Checking the config and the setup, and the realm: `live` is refused unless a dev switch that only builds with debug assertions honour allows it",
         "Login, how long sessions last, and the same-origin rule",
         "Rate limits",
-        "When to renew the TLS certificate",
-        "A seeded random generator, and how a simulated run ended, which the other crates' simulations share"
+        "When to renew the TLS certificate"
       ]
     },
     "sim": {
@@ -721,12 +720,27 @@
       "sub": "protocols",
       "x": 20,
       "y": 930,
-      "w": 960,
+      "w": 766,
       "desc": "The binary encoding all of Dassie's protocols use. It accepts only the canonical form, so each value has exactly one encoding.",
       "does": [
         "Encoders, and decoders that do not copy",
         "Rejects any non-canonical input",
         "Property tests: round trips, and no panic on any bytes"
+      ]
+    },
+    "kit": {
+      "name": "dassie-kit",
+      "path": "crates/dassie-kit",
+      "label": "time units, client keys, the simulation kit",
+      "sub": "tooling",
+      "x": 796,
+      "y": 930,
+      "w": 184,
+      "desc": "What the crates share below every protocol: units of time, the key that bounds requests per client, and the kit every simulation runs on. It depends on nothing of the workspace, so a protocol crate takes on nothing of the node's.",
+      "does": [
+        "Seconds, minutes, hours and days in milliseconds",
+        "Who a request comes from: an IPv4 address or an IPv6 /56",
+        "A seeded random generator, how a simulated run ended, and running a range of seeds (`sim` feature)"
       ]
     }
   },
@@ -1074,6 +1088,12 @@
       "h": true
     },
     {
+      "f": "node",
+      "t": "kit",
+      "k": "uses",
+      "h": true
+    },
+    {
       "f": "xrpl",
       "t": "settlement",
       "k": "uses",
@@ -1105,12 +1125,6 @@
     },
     {
       "f": "peer",
-      "t": "node-core",
-      "k": "uses",
-      "h": false
-    },
-    {
-      "f": "peer",
       "t": "identity",
       "k": "uses",
       "h": true
@@ -1118,6 +1132,12 @@
     {
       "f": "peer",
       "t": "oer",
+      "k": "uses",
+      "h": true
+    },
+    {
+      "f": "peer",
+      "t": "kit",
       "k": "uses",
       "h": true
     },
@@ -1135,13 +1155,13 @@
     },
     {
       "f": "connector",
-      "t": "node-core",
+      "t": "oer",
       "k": "uses",
       "h": true
     },
     {
       "f": "connector",
-      "t": "oer",
+      "t": "kit",
       "k": "uses",
       "h": true
     },
@@ -1159,13 +1179,19 @@
     },
     {
       "f": "stream",
-      "t": "node-core",
+      "t": "kit",
       "k": "uses",
       "h": true
     },
     {
       "f": "node-core",
       "t": "identity",
+      "k": "uses",
+      "h": false
+    },
+    {
+      "f": "node-core",
+      "t": "kit",
       "k": "uses",
       "h": false
     },
@@ -1189,9 +1215,9 @@
     },
     {
       "f": "feed",
-      "t": "node-core",
+      "t": "kit",
       "k": "uses",
-      "h": true
+      "h": false
     },
     {
       "f": "identity",
@@ -1214,12 +1240,6 @@
     {
       "f": "sim",
       "t": "stream",
-      "k": "uses",
-      "h": true
-    },
-    {
-      "f": "sim",
-      "t": "node-core",
       "k": "uses",
       "h": true
     },
@@ -1249,13 +1269,19 @@
     },
     {
       "f": "hub",
-      "t": "node-core",
+      "t": "kit",
       "k": "uses",
-      "h": false
+      "h": true
     },
     {
       "f": "sim",
       "t": "hub",
+      "k": "uses",
+      "h": true
+    },
+    {
+      "f": "sim",
+      "t": "kit",
       "k": "uses",
       "h": true
     }

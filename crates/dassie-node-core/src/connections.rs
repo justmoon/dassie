@@ -20,7 +20,7 @@
 
 use alloc::vec::Vec;
 
-use crate::rate_limit::ClientKey;
+use dassie_kit::ClientKey;
 
 /// How many connections may be open.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

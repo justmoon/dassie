@@ -15,17 +15,17 @@ default = []
 # The test harness and the simulated traffic, for this crate's tests and
 # the simulation runner, dassie-sim
 # (spec/decisions/random-seed-simulations.md).
-sim = ["dep:dassie-node-core", "dassie-oer/alloc"]
+sim = ["dep:dassie-kit", "dassie-oer/alloc"]
 
 [dependencies]
 dassie-ilp = { path = "../dassie-ilp" }
 dassie-ledger = { path = "../dassie-ledger" }
-dassie-node-core = { path = "../dassie-node-core", features = ["testing"], optional = true }
+dassie-kit = { path = "../dassie-kit", features = ["sim"], optional = true }
 dassie-oer = { path = "../dassie-oer", default-features = false }
 
 [dev-dependencies]
 dassie-connector = { path = ".", features = ["sim"] }
-dassie-node-core = { path = "../dassie-node-core", features = ["testing"] }
+dassie-kit = { path = "../dassie-kit", features = ["sim"] }
 dassie-oer = { path = "../dassie-oer" }
 num-bigint = "0.4"
 proptest = "1.12"

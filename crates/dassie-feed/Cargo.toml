@@ -14,7 +14,7 @@ workspace = true
 dassie-identity = { path = "../dassie-identity" }
 # Its `ClientKey`: subscribers are bounded per IPv4 address or IPv6 /56, as
 # the node's other per-client limits are.
-dassie-node-core = { path = "../dassie-node-core" }
+dassie-kit = { path = "../dassie-kit" }
 dassie-oer = { path = "../dassie-oer", default-features = false, features = ["alloc"] }
 # The address cookie: HMAC-SHA256 under a secret the caller injects.
 hmac = { version = "0.13", default-features = false, features = ["zeroize"] }

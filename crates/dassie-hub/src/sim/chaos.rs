@@ -16,7 +16,7 @@ use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
 
-use dassie_node_core::testing::{Outcome, Run, SeededRng};
+use dassie_kit::sim::{Outcome, Run, SeededRng};
 
 use super::{Faults, Network, Role, START, Schedule, key, roles, set};
 use crate::consensus::wire::MAX_DELIVERED_BLOCKS;

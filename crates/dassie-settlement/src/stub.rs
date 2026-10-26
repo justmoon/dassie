@@ -789,7 +789,7 @@ fn random_id(rng: &mut dyn CryptoRng) -> Name {
 mod tests {
     use alloc::vec;
 
-    use dassie_node_core::testing::SeededRng;
+    use dassie_kit::sim::SeededRng;
 
     use super::*;
 

@@ -25,6 +25,8 @@ use std::time::Duration;
 
 use bytes::Bytes;
 use dassie_identity::{NodeId, NodeKey};
+use dassie_kit::ClientKey;
+use dassie_kit::sim::SeededRng;
 use dassie_node::clock::{Clock, ManualClock};
 use dassie_node::env::Env;
 use dassie_node::front_door::nodes::STREAMS_PER_NODE;
@@ -38,8 +40,6 @@ use dassie_node::quic::relay::{KeepWhile, Purpose, RelayError, ServedStream};
 use dassie_node::quic::{Body, Handler, Quic, tunnel};
 use dassie_node::rpc::proto::{self, request::Method, response};
 use dassie_node_core::connections::ConnectionLimits;
-use dassie_node_core::rate_limit::ClientKey;
-use dassie_node_core::testing::SeededRng;
 use dassie_payments::httpsig;
 use http_body_util::{BodyExt, Full};
 use hyper::{Request, Response, StatusCode};

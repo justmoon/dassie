@@ -132,7 +132,7 @@ pub fn verify_login(key: &NodeKey, proof_hex: &str) -> bool {
 mod tests {
     use super::*;
     use crate::hex::near_hex;
-    use crate::testing::SeededRng;
+    use dassie_kit::sim::SeededRng;
     use proptest::prelude::*;
 
     fn request<'a>(token: &'a str, key: &'a str, proof: &'a str) -> SetupRequest<'a> {

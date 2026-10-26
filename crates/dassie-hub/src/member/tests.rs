@@ -963,7 +963,7 @@ fn a_settlement_spends_only_what_the_books_hold() {
         key: NodeKey::from_bytes(&[9; 32]).public_key(),
     }
     .write(&mut state);
-    let mut rng = dassie_node_core::testing::SeededRng::new(1);
+    let mut rng = dassie_kit::sim::SeededRng::new(1);
     let prepared = scheme
         .prepare_settlement(
             &mut rng,

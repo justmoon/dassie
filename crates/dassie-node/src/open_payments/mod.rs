@@ -30,10 +30,11 @@ use std::net::IpAddr;
 use std::sync::{Arc, Mutex, OnceLock};
 
 use dassie_identity::{NodeId, NodeKey};
+use dassie_kit::ClientKey as RateKey;
 use dassie_ledger::LedgerId;
 use dassie_node_core::config::Hostname;
 use dassie_node_core::origin::{self, Host};
-use dassie_node_core::rate_limit::{ClientKey as RateKey, RateLimitPolicy, RateLimiter};
+use dassie_node_core::rate_limit::{RateLimitPolicy, RateLimiter};
 use dassie_node_core::urls::{self, DEFAULT_HTTPS_PORT};
 use dassie_peer::names::Name;
 use tokio::sync::watch;

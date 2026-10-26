@@ -23,7 +23,7 @@ use std::fmt;
 
 use dassie_connector::SpendingCap;
 use dassie_identity::NodeId;
-use dassie_node_core::testing::{Outcome, Run, SeededRng};
+use dassie_kit::sim::{Outcome, Run, SeededRng};
 use dassie_settlement::LedgerStatus;
 
 use super::checks::{

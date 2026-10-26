@@ -16,7 +16,7 @@
 use core::fmt;
 use core::net::{IpAddr, SocketAddr};
 
-use dassie_node_core::MINUTE_MS;
+use dassie_kit::MINUTE_MS;
 use hmac::{Hmac, KeyInit, Mac};
 use sha2::Sha256;
 use subtle::ConstantTimeEq;

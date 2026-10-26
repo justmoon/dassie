@@ -16,8 +16,8 @@
 use alloc::vec::Vec;
 use core::net::{IpAddr, SocketAddr, SocketAddrV6};
 
-use dassie_node_core::MINUTE_MS;
-use dassie_node_core::rate_limit::ClientKey;
+use dassie_kit::ClientKey;
+use dassie_kit::MINUTE_MS;
 
 use crate::cookie::{Cookie, CookieCheck, CookieSecret};
 use crate::wire::{self, Message, WireError};

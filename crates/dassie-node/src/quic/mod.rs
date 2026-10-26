@@ -47,9 +47,9 @@ use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
 use dassie_identity::{NodeId, NodeKey, PublicKey, SeedPath};
+use dassie_kit::ClientKey;
 use dassie_node_core::address::is_public;
 use dassie_node_core::connections::ConnectionLimits;
-use dassie_node_core::rate_limit::ClientKey;
 use dassie_peer::wire::{MAX_MESSAGE_BYTES, MAX_NAME_LIST_BYTES};
 use dassie_peer::{Failure, Request, Response};
 use quinn::crypto::rustls::{QuicClientConfig, QuicServerConfig};

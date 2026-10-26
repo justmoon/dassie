@@ -9,7 +9,7 @@
 use std::collections::BTreeMap;
 
 use dassie_connector::SpendingCap;
-use dassie_node_core::testing::{Outcome, Run, SeededRng};
+use dassie_kit::sim::{Outcome, Run, SeededRng};
 use dassie_xrpl::account::{LIST_REFRESH_MS, LIST_RETRY_MS, STALL_MS};
 use dassie_xrpl::fake::Lie;
 

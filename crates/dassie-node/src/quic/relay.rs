@@ -26,9 +26,9 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use dassie_identity::{MAX_NODE_ID_LENGTH, NodeId};
+use dassie_kit::ClientKey;
 use dassie_node_core::config::NodeConfig;
 use dassie_node_core::connections::ConnectionLimits;
-use dassie_node_core::rate_limit::ClientKey;
 use quinn::{Connection, RecvStream, SendStream};
 use rustls::pki_types::ServerName;
 use tokio::io::Join;
