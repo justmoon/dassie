@@ -493,7 +493,7 @@ fn names_line(peer: &proto::PeerCounters) -> Option<String> {
     let mut parts = Vec::new();
     if registrar.iter().any(|count| *count > 0) {
         parts.push(format!(
-            "as a registrar {} logged, {} lapsed, {} granted, {} renewed, {} freed, {} released",
+            "as a registrar: {} logged, {} lapsed, {} granted, {} renewed, {} freed, {} released",
             plural(peer.commitments_logged, "commitment"),
             peer.commitments_lapsed,
             plural(peer.names_granted, "name"),
