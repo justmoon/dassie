@@ -148,6 +148,61 @@ pub type XrplMainnetScheme = XrpScheme<MainnetXrp>;
 /// hub, whose memo names the account to open there. Never a settlement's.
 pub const OWNER_MEMO_TYPE: &[u8] = b"https://dassie.land/owner-payment/v1";
 
+/// What an XRPL scheme's config says: whether the node peers on the
+/// scheme, and the config of the account it settles through
+/// (spec/areas/xrpl.md#owner-books).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SchemeConfig {
+    /// Whether the node peers on the scheme: `"peers": false` makes it an
+    /// owner book, which peers with nobody
+    /// ([`SettlementScheme::peers`]). It peers unless told.
+    pub peers: bool,
+    /// The rest: the account's config ([`crate::account::Config`]), which
+    /// every scheme on the account must name alike. Empty for the
+    /// network's defaults; otherwise its JSON written one way, its keys in
+    /// order and without spaces, so that two configs that say the same
+    /// name the same account.
+    pub account: String,
+}
+
+impl SchemeConfig {
+    /// The config in `text`: empty, or a JSON object with `peers`, a
+    /// boolean, beside what the account reads.
+    ///
+    /// # Errors
+    ///
+    /// [`SchemeError::InvalidConfig`] if it is no JSON object, is longer
+    /// than an account's config may be, or `peers` is no boolean. What
+    /// the account makes of the rest, it says when it reads it.
+    pub fn parse(text: &str) -> Result<Self, SchemeError> {
+        let text = text.trim();
+        if text.is_empty() {
+            return Ok(Self {
+                peers: true,
+                account: String::new(),
+            });
+        }
+        if text.len() > crate::account::MAX_CONFIG {
+            return Err(SchemeError::InvalidConfig);
+        }
+        let value: Value = serde_json::from_str(text).map_err(|_| SchemeError::InvalidConfig)?;
+        let Value::Object(mut object) = value else {
+            return Err(SchemeError::InvalidConfig);
+        };
+        let peers = match object.remove("peers") {
+            None => true,
+            Some(Value::Bool(peers)) => peers,
+            Some(_) => return Err(SchemeError::InvalidConfig),
+        };
+        let account = if object.is_empty() {
+            String::new()
+        } else {
+            serde_json::to_string(&Value::Object(object)).map_err(|_| SchemeError::InvalidConfig)?
+        };
+        Ok(Self { peers, account })
+    }
+}
+
 /// Most peers whose addresses are kept: at least the node's settlement
 /// channels open, with core nodes and with downlinks, so every node it
 /// holds a channel with keeps its own; an address goes when its channel
@@ -260,6 +315,9 @@ pub struct XrpScheme<N: NativeXrp> {
     validated: u32,
     /// Told that the account is synced, since it was last written off.
     synced: bool,
+    /// Whether the node peers on it: an owner book does not. From its
+    /// config, never kept with the books.
+    peering: bool,
     /// The network's XRP, as a type only.
     xrp: PhantomData<fn() -> N>,
 }
@@ -305,6 +363,7 @@ impl<N: NativeXrp> XrpScheme<N> {
             matched_reserve: None,
             validated: 0,
             synced: false,
+            peering: true,
             xrp: PhantomData,
         };
         if !state.is_empty() {
@@ -333,6 +392,13 @@ impl<N: NativeXrp> XrpScheme<N> {
     /// it takes none.
     pub fn take_entries_from(&mut self, minimum: u64) {
         self.entries.take_from(minimum);
+    }
+
+    /// Whether the node peers on the scheme, as its config says
+    /// ([`SchemeConfig::peers`]): one that does not is an owner book
+    /// (spec/areas/xrpl.md#owner-books). It peers until told.
+    pub fn set_peers(&mut self, peers: bool) {
+        self.peering = peers;
     }
 
     /// What it holds of entry payments, in internal units: in the account,
@@ -939,7 +1005,7 @@ impl<N: NativeXrp> XrpScheme<N> {
             self.recovering.push(Recovering::new(hash));
         }
         restore_unread(&value, &mut self.recovering)?;
-        self.owner_payment = restore_owner_payment(&value)?;
+        self.owner_payment = restore_owner_payment(&value, MAX_ACCOUNT_DROPS)?;
         self.owner_outcome = restore_owner_outcome(&value)?;
         self.entries.restore(&value)?;
         // Entry payments are read past the first sync only.
@@ -955,7 +1021,7 @@ impl<N: NativeXrp> XrpScheme<N> {
 const TOO_LITTLE_RESULT: &str = "tecNO_DST_INSUF_XRP";
 
 /// Why the owner's payment `record`, which failed, failed.
-fn failure_of(record: &TxRecord) -> PaymentFailure {
+pub(crate) fn failure_of(record: &TxRecord) -> PaymentFailure {
     if record.result == TOO_LITTLE_RESULT {
         PaymentFailure::TooLittle
     } else {
@@ -965,7 +1031,7 @@ fn failure_of(record: &TxRecord) -> PaymentFailure {
 
 /// How a state writes what became of an owner's payment. A failure written
 /// before failures were told apart reads as one of another kind.
-const fn outcome_code(outcome: OwnerPaymentState) -> u64 {
+pub(crate) const fn outcome_code(outcome: OwnerPaymentState) -> u64 {
     match outcome {
         OwnerPaymentState::Unknown | OwnerPaymentState::InFlight => 0,
         OwnerPaymentState::Applied => 1,
@@ -976,7 +1042,9 @@ const fn outcome_code(outcome: OwnerPaymentState) -> u64 {
 }
 
 /// The owner's last payment no longer on its way, and what became of it.
-fn restore_owner_outcome(state: &Value) -> Option<Option<([u8; 32], OwnerPaymentState)>> {
+pub(crate) fn restore_owner_outcome(
+    state: &Value,
+) -> Option<Option<([u8; 32], OwnerPaymentState)>> {
     match state.get("owner_outcome") {
         None | Some(Value::Null) => Some(None),
         Some(outcome) => {
@@ -994,18 +1062,16 @@ fn restore_owner_outcome(state: &Value) -> Option<Option<([u8; 32], OwnerPayment
     }
 }
 
-/// The owner's payment on its way, as a scheme's state keeps it: written
-/// only since the owner pays out of the account.
-fn restore_owner_payment(state: &Value) -> Option<Option<([u8; 32], u64)>> {
+/// The owner's payment on its way, as a scheme's state keeps it, of at
+/// most `max` of the ledger's units: written only since the owner pays out
+/// of the account.
+pub(crate) fn restore_owner_payment(state: &Value, max: u64) -> Option<Option<([u8; 32], u64)>> {
     match state.get("owner_payment") {
         None | Some(Value::Null) => Some(None),
         Some(payment) => {
             let hash = from_hex(payment.get(0)?.as_str()?)?.try_into().ok()?;
-            let drops = payment
-                .get(1)?
-                .as_u64()
-                .filter(|drops| *drops <= MAX_ACCOUNT_DROPS)?;
-            Some(Some((hash, drops)))
+            let amount = payment.get(1)?.as_u64().filter(|amount| *amount <= max)?;
+            Some(Some((hash, amount)))
         }
     }
 }
@@ -1143,6 +1209,10 @@ impl<N: NativeXrp> SettlementScheme for XrpScheme<N> {
         self.cursor.is_some()
     }
 
+    fn peers(&self) -> bool {
+        self.peering
+    }
+
     fn unit(&self) -> u64 {
         UNITS_PER_DROP
     }
@@ -1209,6 +1279,9 @@ impl<N: NativeXrp> SettlementScheme for XrpScheme<N> {
         peering_info: &[u8],
         out: &mut Vec<u8>,
     ) -> Result<(), SchemeError> {
+        if !self.peering {
+            return Err(SchemeError::Unsupported);
+        }
         // The responder's address, checked now and learnt once the peering
         // is made (`on_peered`); the original ignored it.
         parse_address(peering_info)?;
@@ -1222,6 +1295,9 @@ impl<N: NativeXrp> SettlementScheme for XrpScheme<N> {
         data: &[u8],
         response: &mut Vec<u8>,
     ) -> Result<Vec<u8>, SchemeError> {
+        if !self.peering {
+            return Err(SchemeError::Unsupported);
+        }
         parse_address(data)?;
         response.clear();
         Ok(data.to_vec())
@@ -1233,6 +1309,9 @@ impl<N: NativeXrp> SettlementScheme for XrpScheme<N> {
         peering_info: &[u8],
         _data: &[u8],
     ) -> Result<Vec<u8>, SchemeError> {
+        if !self.peering {
+            return Err(SchemeError::Unsupported);
+        }
         parse_address(peering_info)?;
         Ok(peering_info.to_vec())
     }
@@ -1546,5 +1625,66 @@ mod tests {
         assert!(settles::<MainnetXrp>(MAINNET_MEMO_TYPE));
         assert!(!settles::<MainnetXrp>(MEMO_TYPE));
         assert!(!settles::<MainnetXrp>(OWNER_MEMO_TYPE));
+    }
+
+    // spec/areas/xrpl.md#owner-books: `peers` is the scheme's; the rest is
+    // the account's, written one way, so that schemes on one account that
+    // say the same of it share it, whatever their order or spacing.
+    #[test]
+    fn a_config_says_whether_the_scheme_peers_apart_from_the_account() {
+        let parse = |text: &str| SchemeConfig::parse(text).unwrap();
+        assert_eq!(parse("").account, "");
+        assert!(parse("  ").peers);
+        let book = parse(r#"{"peers": false}"#);
+        assert!(!book.peers);
+        assert_eq!(book.account, "");
+        let book = parse(r#"{ "server": "wss://a", "peers": false, "faucet": null }"#);
+        assert!(!book.peers);
+        let peering = parse(r#"{"faucet":null,"server":"wss://a"}"#);
+        assert!(peering.peers);
+        assert_eq!(book.account, peering.account);
+        assert!(parse(r#"{"peers": true}"#).peers);
+        for refused in [r#"{"peers": 0}"#, r#"{"peers": "no"}"#, "[]", "peers", "1"] {
+            assert_eq!(
+                SchemeConfig::parse(refused),
+                Err(SchemeError::InvalidConfig),
+                "{refused}"
+            );
+        }
+        let long = alloc::format!(
+            r#"{{"server":"wss://{}"}}"#,
+            "a".repeat(crate::account::MAX_CONFIG)
+        );
+        assert_eq!(SchemeConfig::parse(&long), Err(SchemeError::InvalidConfig));
+    }
+
+    // spec/areas/settlement.md#owner-books: an owner book peers with nobody:
+    // it says so, and refuses every step of a peering as unsupported.
+    #[test]
+    fn an_owner_book_refuses_to_peer() {
+        let network = TestnetXrp::XRP.network;
+        let account =
+            XrplAccount::new(network.first(), &[network.xrp_scheme], "", &[7; 32], &[]).unwrap();
+        let mut scheme = XrplScheme::new(&account, Name::new("node0").unwrap(), None, &[]).unwrap();
+        assert!(scheme.peers());
+        scheme.set_peers(false);
+        assert!(!scheme.peers());
+        let peer = Name::new("node1").unwrap();
+        let mut info = Vec::new();
+        address_bytes(AccountId([1; 20]), &mut info);
+        let mut out = Vec::new();
+        assert_eq!(
+            scheme.create_peering_request(peer, &info, &mut out),
+            Err(SchemeError::Unsupported)
+        );
+        assert_eq!(
+            scheme.accept_peering_request(peer, &info, &mut out),
+            Err(SchemeError::Unsupported)
+        );
+        assert_eq!(
+            scheme.finalize_peering_request(peer, &info, &[]),
+            Err(SchemeError::Unsupported)
+        );
+        scheme.check_invariants();
     }
 }

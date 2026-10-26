@@ -59,6 +59,9 @@ struct Books {
     cancelled: Vec<Name>,
     /// Every fee booked, by transaction: each once.
     fee_ids: BTreeSet<Name>,
+    /// The owner's payments held against the owner's funds while they are
+    /// on their way, as the node holds them, by ID.
+    owner_holds: BTreeMap<Name, u64>,
 }
 
 impl Books {
@@ -69,7 +72,16 @@ impl Books {
                 self.owner += i128::from(amount);
                 self.deposits.push(amount);
             }
-            Effect::OwnerPaid { .. } => panic!("a token scheme pays the owner nothing"),
+            Effect::OwnerPaid { id, applied } => {
+                let amount = self
+                    .owner_holds
+                    .remove(&id)
+                    .expect("an owner's payment held");
+                if applied {
+                    self.settlement -= i128::from(amount);
+                    self.owner -= i128::from(amount);
+                }
+            }
             Effect::Withdrawal { amount } => {
                 self.settlement -= i128::from(amount);
                 self.owner -= i128::from(amount);
@@ -119,7 +131,16 @@ impl Books {
 
     /// What the owner may spend, as the node tells the account.
     fn funds(&self) -> u64 {
-        let pending: i128 = self.pending.values().map(|(_, a)| i128::from(*a)).sum();
+        let pending: i128 = self
+            .pending
+            .values()
+            .map(|(_, a)| i128::from(*a))
+            .sum::<i128>()
+            + self
+                .owner_holds
+                .values()
+                .map(|a| i128::from(*a))
+                .sum::<i128>();
         u64::try_from((self.owner + self.suspense - self.fees - pending).max(0)).unwrap()
     }
 }
@@ -682,6 +703,31 @@ impl World {
             node.books[ledger].apply(effect);
         }
         self.carry_out(from);
+    }
+
+    /// The owner of node `index` pays `payment` out of its DSUSD line, held
+    /// against the owner's funds on the books as the node holds it.
+    fn pay_owner(
+        &mut self,
+        index: usize,
+        payment: &dassie_settlement::OwnerPayment,
+    ) -> Result<Name, SchemeError> {
+        let funds = self.nodes[index].books[XRP].funds();
+        let node = &mut self.nodes[index];
+        if node.runs(XRP) {
+            let funds = node.xrp_funds.unwrap_or(funds);
+            node.account
+                .owner_funds(name(dassie_xrpl::scheme::SCHEME_ID), funds);
+        }
+        let id = node
+            .dsusd
+            .as_mut()
+            .unwrap()
+            .pay_owner(Some(&mut node.account), payment)?;
+        node.books[USD].owner_holds.insert(id, payment.amount);
+        node.check_invariants();
+        self.carry_out(index);
+        Ok(id)
     }
 
     /// The issuer mints `amount` of test DSUSD to node `index`.
@@ -2198,4 +2244,192 @@ fn a_line_a_server_alters_books_nothing() {
         );
         assert_eq!(world.nodes[0].status(USD), LedgerStatus::Synced, "{lie:?}");
     }
+}
+
+/// What the ledger holds under `hash`, validated.
+fn validated(world: &mut World, hash: Name) -> api::TxRecord {
+    let hash: [u8; 32] = dassie_xrpl::from_hex(hash.as_str())
+        .unwrap()
+        .try_into()
+        .unwrap();
+    let reply = world.ledger.request(999, &api::tx_anywhere(1, &hash));
+    let outcome = match api::parse(&reply) {
+        api::Message::Response { outcome, .. } => Some(outcome),
+        _ => None,
+    };
+    api::tx_result(&outcome.unwrap().unwrap()).unwrap()
+}
+
+/// An owner's payment of `amount` to `destination`, with no tag or memo.
+fn owner_payment(destination: AccountId, amount: u64) -> dassie_settlement::OwnerPayment {
+    dassie_settlement::OwnerPayment {
+        destination: destination.to_address(),
+        tag: None,
+        memo: None,
+        amount,
+    }
+}
+
+// spec/areas/xrpl.md#deposits-and-withdrawals: the owner pays DSUSD out of
+// the line, to a destination with a tag and one memo, as a token hub is
+// funded. Once the ledger validated it, it is the owner's withdrawal; its fee
+// is gas, never on the DSUSD books; the account it reached books it as a
+// deposit, never as a settlement. One at a time; whole millionths, never to
+// the account itself, and a memo of at most its bound.
+#[test]
+fn the_owner_pays_dsusd_out_of_the_line() {
+    use dassie_settlement::OwnerPaymentState;
+
+    let (mut world, _, _) = synced(2);
+    world.mint(0, "10");
+    world.close();
+    world.settlement_check(0);
+    let to = world.address(1);
+    let own = world.address(0);
+    for refused in [
+        owner_payment(own, usd(1_000_000)),
+        owner_payment(to, 0),
+        owner_payment(to, usd(1_000_000) + 1),
+        dassie_settlement::OwnerPayment {
+            memo: Some(vec![1; dassie_settlement::MAX_OWNER_MEMO_BYTES + 1]),
+            ..owner_payment(to, usd(1_000_000))
+        },
+    ] {
+        assert_eq!(
+            world.pay_owner(0, &refused),
+            Err(SchemeError::InvalidData),
+            "{refused:?}"
+        );
+    }
+    let payment = dassie_settlement::OwnerPayment {
+        tag: Some(42),
+        memo: Some(vec![7; 32]),
+        ..owner_payment(to, usd(4_000_000))
+    };
+    let id = world.pay_owner(0, &payment).unwrap();
+    assert_eq!(
+        world.nodes[0].dsusd().owner_payment(id),
+        OwnerPaymentState::InFlight
+    );
+    assert_eq!(
+        world.pay_owner(0, &payment),
+        Err(SchemeError::Unavailable),
+        "one at a time"
+    );
+    world.close();
+    assert_eq!(
+        world.nodes[0].dsusd().owner_payment(id),
+        OwnerPaymentState::Applied
+    );
+    let (a, b) = (&world.nodes[0].books[USD], &world.nodes[1].books[USD]);
+    assert_eq!(a.owner, i128::from(usd(6_000_000)));
+    assert!(a.owner_holds.is_empty());
+    assert_eq!(a.fees, 0, "its fee is gas");
+    assert_eq!(b.owner, i128::from(usd(4_000_000)));
+    assert!(b.credited.is_empty(), "no settlement");
+    assert_eq!(a.suspense + b.suspense, 0);
+    let record = validated(&mut world, id);
+    assert_eq!(record.destination, Some(to));
+    assert_eq!(record.destination_tag, Some(42));
+    assert_eq!(
+        record.delivered_token,
+        Some(Token::DSUSD.amount(value("4")))
+    );
+    assert_eq!(
+        record.memo,
+        Some((dassie_xrpl::scheme::OWNER_MEMO_TYPE.to_vec(), vec![7; 32]))
+    );
+    // The next may go once it is done.
+    let next = world
+        .pay_owner(0, &owner_payment(to, usd(1_000_000)))
+        .unwrap();
+    world.close();
+    assert_eq!(
+        world.nodes[0].dsusd().owner_payment(next),
+        OwnerPaymentState::Applied
+    );
+    assert_eq!(
+        world.nodes[0].dsusd().owner_payment(id),
+        OwnerPaymentState::Unknown,
+        "only the last is the scheme's to tell"
+    );
+    assert_eq!(world.nodes[0].books[USD].owner, i128::from(usd(5_000_000)));
+}
+
+// spec/areas/xrpl.md#deposits-and-withdrawals: the owner's DSUSD payment on
+// its way is kept across a restart and booked once after; what became of it
+// outlives the next restart.
+#[test]
+fn the_owners_dsusd_payment_outlives_a_restart() {
+    use dassie_settlement::OwnerPaymentState;
+
+    let (mut world, _, _) = synced(2);
+    world.mint(0, "10");
+    world.close();
+    world.settlement_check(0);
+    let to = world.address(1);
+    let id = world
+        .pay_owner(0, &owner_payment(to, usd(3_000_000)))
+        .unwrap();
+    world.restart(0);
+    assert_eq!(
+        world.nodes[0].dsusd().owner_payment(id),
+        OwnerPaymentState::InFlight
+    );
+    world.closes(2);
+    assert_eq!(
+        world.nodes[0].dsusd().owner_payment(id),
+        OwnerPaymentState::Applied
+    );
+    world.restart(0);
+    world.closes(1);
+    assert_eq!(
+        world.nodes[0].dsusd().owner_payment(id),
+        OwnerPaymentState::Applied
+    );
+    let books = &world.nodes[0].books[USD];
+    assert_eq!(books.owner, i128::from(usd(7_000_000)));
+    assert_eq!(books.suspense, 0);
+    assert!(books.owner_holds.is_empty());
+    assert_eq!(world.nodes[1].books[USD].owner, i128::from(usd(3_000_000)));
+}
+
+// spec/areas/xrpl.md#deposits-and-withdrawals: a frozen line pays nothing out
+// for the owner, as it settles nothing; one the ledger refuses, to an account
+// without a line for the token, costs only its fee, in gas, and moves nothing
+// on the DSUSD books.
+#[test]
+fn a_frozen_line_pays_the_owner_nothing() {
+    use dassie_settlement::{OwnerPaymentState, PaymentFailure};
+
+    let (mut world, _, _) = synced(2);
+    world.mint(0, "10");
+    world.close();
+    world.settlement_check(0);
+    let to = world.address(1);
+    let address = world.address(0);
+    world.ledger.freeze(address, Token::DSUSD, true).unwrap();
+    world.close();
+    assert_eq!(
+        world.pay_owner(0, &owner_payment(to, usd(1_000_000))),
+        Err(SchemeError::Unavailable)
+    );
+    world.ledger.freeze(address, Token::DSUSD, false).unwrap();
+    world.close();
+    // An account with XRP and no DSUSD line: the ledger fails it.
+    let nobody = Wallet::from_seed([77; 16]).account();
+    world.ledger.fund(nobody);
+    world.close();
+    let id = world
+        .pay_owner(0, &owner_payment(nobody, usd(1_000_000)))
+        .unwrap();
+    world.close();
+    assert_eq!(
+        world.nodes[0].dsusd().owner_payment(id),
+        OwnerPaymentState::Failed(PaymentFailure::Other)
+    );
+    let books = &world.nodes[0].books[USD];
+    assert_eq!(books.owner, i128::from(usd(10_000_000)));
+    assert!(books.owner_holds.is_empty());
+    assert_eq!(books.suspense, 0);
 }

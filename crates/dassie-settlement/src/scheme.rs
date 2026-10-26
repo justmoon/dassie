@@ -361,6 +361,18 @@ pub trait SettlementScheme: Send {
         true
     }
 
+    /// Whether the node peers on the scheme. One that does not is an owner
+    /// book: it keeps what the node holds on its ledger, takes the owner's
+    /// deposits and withdrawals and pays the owner's payments, such as a
+    /// settlement hub's funding, and peers with nobody. The node leaves it
+    /// out of its link state, picks no candidate on it, and refuses
+    /// requests on it as for a scheme it does not run
+    /// (spec/areas/settlement.md#owner-books). It never changes while the
+    /// scheme runs.
+    fn peers(&self) -> bool {
+        true
+    }
+
     /// Whether a peer's settlement can reach us on the underlying ledger
     /// now. While it cannot, as while an issuer has frozen our line deep,
     /// frozen its token globally or charges a transfer fee no peer pays, the

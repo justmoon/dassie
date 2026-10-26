@@ -5204,6 +5204,228 @@ fn a_hub_withdrawal_takes_only_the_owners_funds() {
     core.hub_withdraw(1_000_000 * units).unwrap();
 }
 
+/// A core node that takes downlinks, with the XRP Ledger testnet scheme
+/// as an owner book, configured not to peer, synced on `ledger`, and the hub
+/// of [`hub_rules`].
+fn owner_book_core(ledger: &mut dassie_xrpl::fake::FakeLedger) -> Core {
+    let store = Arc::new(Store::open_in_memory().unwrap());
+    let refused = dassie_node_core::config::LiveRealm::Refused;
+    let mut core = core_taking_downlinks(store, Realm::Test, refused, NOW);
+    let book = r#"{"server":"ws://ledger.test","faucet":null,"peers":false}"#;
+    core.add_scheme("xrpl-testnet", trusting_fake("xrpl-testnet", book))
+        .unwrap();
+    follow_xrpl(&mut core, ledger);
+    core.add_scheme(dassie_hub::member::SCHEME_ID, hub_config(500, 300))
+        .unwrap();
+    follow_xrpl(&mut core, ledger);
+    close_xrpl(&mut core, ledger);
+    core
+}
+
+// spec/areas/settlement.md#owner-books, spec/areas/hubs.md#in-the-node: the
+// XRP Ledger testnet scheme configured not to peer is the owner book of XRP
+// on the testnet. The node never lists it in its link state, and refuses a
+// peering on it as on a scheme it does not run; yet the hub is funded from
+// it, and withdrawn to its account, as from one that peers.
+#[test]
+fn an_owner_book_funds_the_hub_and_never_peers() {
+    use dassie_ledger::{LedgerId, Name};
+    use dassie_peer::wire::RefusalReason;
+
+    let (mut ledger, own) = funded_ledger();
+    let mut core = owner_book_core(&mut ledger);
+    let xrpl = Name::new("xrpl-testnet").unwrap();
+    assert!(core.schemes[&xrpl].scheme.has_synced());
+    assert!(!core.schemes[&xrpl].scheme.peers());
+    let listed = |core: &Core| {
+        core.peer
+            .schemes()
+            .iter()
+            .any(|scheme| scheme.as_str() == "xrpl-testnet")
+    };
+    assert!(!listed(&core), "an owner book is never in the link state");
+
+    // A downlink that asks to peer on it is refused, as on a scheme the
+    // node does not run.
+    let downlink = Arc::new(NodeKey::from_bytes(&[11; 32]));
+    let theirs = dassie_xrpl::Wallet::from_entropy(&[11; 32]).account();
+    let asked = asks_as_downlink(
+        &mut core,
+        &downlink,
+        NOW + 1_000,
+        ("xrpl-testnet", &address_data(theirs)),
+    );
+    assert_eq!(asked, Some(RefusalReason::UnsupportedScheme));
+    assert!(!core.is_peer(&downlink.node_id()));
+
+    // The hub is funded from it: the opening deposit leaves its account,
+    // held against the owner's funds on its ledger, then booked there.
+    let mut hub = Validators::new();
+    let escrow = hub.escrow();
+    hub.no_account(&mut core);
+    let before = core.owner_available(LedgerId::XrplTestnetXrp);
+    wait_and_close(&mut core, &mut ledger, 1_000);
+    let made = deposits(&mut ledger, escrow);
+    assert_eq!(made.len(), 1, "{made:?}");
+    assert_eq!((made[0].tag, made[0].sender), (0, own.0));
+    let opening = made[0].amount;
+    let units = dassie_xrpl::UNITS_PER_DROP;
+    let spent = before - core.owner_available(LedgerId::XrplTestnetXrp);
+    assert!(
+        spent >= opening * units,
+        "the deposit left the owner book: {spent}"
+    );
+    assert_eq!(owner_xrp(&core).1, 0, "and is no longer held");
+
+    // Credited, then taken past the ceiling: withdrawn to the owner book's
+    // account.
+    let fees = hub.rules.terms.fees;
+    let p = Policies::DEFAULT.connector.max_packet_amount;
+    let credit = Policies::DEFAULT.peer_credit;
+    let floor = dassie_settlement::policy::hub_floor(p, credit, 0) / units;
+    let ceiling = dassie_settlement::policy::hub_ceiling(p) / units;
+    hub.account(&mut core, floor + 1_000, opening);
+    let balance = 12_000_000;
+    hub.account(&mut core, balance, opening);
+    let outputs = wait_and_close(&mut core, &mut ledger, 4_000);
+    let to = dassie_hub::operation::Destination {
+        account: own.0,
+        tag: None,
+    };
+    let exposure = balance + fees.account_reserve;
+    assert_eq!(
+        withdrawals(&outputs),
+        [(exposure - floor.midpoint(ceiling), to)]
+    );
+    let moving = core.hub_status().unwrap().moving.unwrap();
+    assert_eq!(moving.direction, super::Direction::Withdraw);
+    assert!(!listed(&core), "still not in the link state");
+}
+
+/// The core node `other`, at `url`, tells `core` (of key `[7; 32]`) its
+/// link state, which lists `scheme` alone, at `at`: the outputs of the
+/// step.
+fn tells_link_state(
+    core: &mut Core,
+    other: &Arc<NodeKey>,
+    (url, scheme): (&str, &str),
+    at: u64,
+) -> Vec<Output> {
+    use dassie_oer::Decode;
+    use dassie_peer::auth::{AuthConfig, Authenticator};
+    use dassie_peer::wire::{
+        Authentication, Content, Entry, NodeInfo, SchemeId, SignedNodeInfo, encode_envelope,
+        sign_node_info,
+    };
+
+    let scheme = SchemeId::parse(scheme).unwrap();
+    let info = NodeInfo {
+        node_id: other.node_id(),
+        sequence: at,
+        url,
+        alias: "",
+        public_key: *other.public_key().as_bytes(),
+        entries: vec![Entry::Scheme(scheme)],
+    };
+    let state = sign_node_info(other, &info);
+    let content = Content::LinkStateUpdate(SignedNodeInfo::decode_exact(&state).unwrap());
+    let bytes = content.to_vec();
+    let mut auth = Authenticator::new(Arc::clone(other), AuthConfig::DEFAULT, at - 1);
+    let own = NodeKey::from_bytes(&[7; 32]);
+    let (hmac, _) = auth
+        .authenticate(
+            at,
+            &mut SeededRng::new(3),
+            core.peer.own(),
+            &own.public_key(),
+            &bytes,
+        )
+        .unwrap();
+    let body = encode_envelope(&other.node_id(), &Authentication::Hmac(hmac), &bytes);
+    core.begin_step(at);
+    core.peer_inbound(dassie_peer::InboundId(1), &body, None);
+    let mut outputs = Vec::new();
+    core.finish_step(&mut outputs);
+    let held = core
+        .peer
+        .nodes()
+        .into_iter()
+        .find(|v| v.id == other.node_id());
+    assert_eq!(held.unwrap().schemes, [scheme], "the link state is taken");
+    outputs
+}
+
+/// Whether a core node with the XRP Ledger testnet scheme synced on a fake
+/// ledger, peering on it if `peers` and an owner book otherwise, asks a
+/// core node it bootstraps from, whose link state lists the scheme alone,
+/// to peer, within a minute of learning that link state.
+fn asks_a_core_node_to_peer_on_xrpl(peers: bool) -> bool {
+    use dassie_peer::wire::Kind;
+
+    let (mut ledger, _) = funded_ledger();
+    let other = Arc::new(NodeKey::from_bytes(&[21; 32]));
+    let url = "https://other.test";
+    let mut core = Core::start(
+        CoreParts {
+            store: Arc::new(Store::open_in_memory().unwrap()),
+            key: Arc::new(NodeKey::from_bytes(&[7; 32])),
+            realm: Realm::Test,
+            live: dassie_node_core::config::LiveRealm::Refused,
+            policies: Policies::DEFAULT,
+            rng: Box::new(SeededRng::new(5)),
+            peer_rng: Box::new(SeededRng::new(6)),
+            own_info: dassie_peer::OwnInfo {
+                url: Some("https://core.test".into()),
+                alias: String::new(),
+                quic: true,
+                feed_port: None,
+                hub: None,
+            },
+            bootstrap: vec![dassie_peer::Bootstrap {
+                id: other.node_id(),
+                url: url.into(),
+                key: other.public_key(),
+            }],
+            uplinks: Vec::new(),
+        },
+        NOW,
+    )
+    .unwrap();
+    let config = if peers {
+        r#"{"server":"ws://ledger.test","faucet":null}"#
+    } else {
+        r#"{"server":"ws://ledger.test","faucet":null,"peers":false}"#
+    };
+    core.add_scheme("xrpl-testnet", trusting_fake("xrpl-testnet", config))
+        .unwrap();
+    follow_xrpl(&mut core, &mut ledger);
+    close_xrpl(&mut core, &mut ledger);
+    let xrpl = dassie_ledger::Name::new("xrpl-testnet").unwrap();
+    assert!(core.schemes[&xrpl].scheme.has_synced());
+
+    // The other node tells its link state, a core node's on the scheme.
+    let at = core.now_ms() + 1_000;
+    let mut outputs = tells_link_state(&mut core, &other, (url, "xrpl-testnet"), at);
+    for second in 1..=60 {
+        core.begin_step(at + second * 1_000);
+        core.finish_step(&mut outputs);
+    }
+    outputs.iter().any(|output| {
+        matches!(output, Output::PeerRequest(request)
+            if request.to == other.node_id()
+                && matches!(request.kind, Kind::PeeringInfoRequest | Kind::PeeringRequest))
+    })
+}
+
+// spec/areas/settlement.md#owner-books: the node never asks to peer on an
+// owner book, though a core node it knows lists it; on the same scheme
+// configured to peer, it asks.
+#[test]
+fn an_owner_book_is_never_asked_for() {
+    assert!(asks_a_core_node_to_peer_on_xrpl(true));
+    assert!(!asks_a_core_node_to_peer_on_xrpl(false));
+}
+
 // spec/areas/settlement.md#the-scheme-interface: the XRP Ledger scheme
 // removed while the owner's payment is on its way, and added again: the
 // hold stays meanwhile, and is posted once, with the actual fee, once the
