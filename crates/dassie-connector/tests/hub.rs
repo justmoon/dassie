@@ -28,7 +28,13 @@ fn send(harness: &mut Harness, request_id: u32, fulfillment: [u8; 32]) -> u32 {
 }
 
 fn harness() -> Harness {
-    let mut harness = Harness::new(Config::DEFAULT, 10_000_000_000);
+    // A window of one second, whatever the default, so that the times
+    // below read plainly.
+    let config = Config {
+        message_window_ms: 1_000,
+        ..Config::DEFAULT
+    };
+    let mut harness = Harness::new(config, 10_000_000_000);
     harness.add_peer(1, "dhub", TRUST, 0);
     assert!(harness.connector.set_hub(HUB_PEER, true));
     harness

@@ -26,7 +26,9 @@ pub struct Config {
     /// Trace events waiting to be polled.
     pub max_events: usize,
     /// How much earlier than the incoming packet the outgoing one expires,
-    /// so that the response has time to travel back (`ILP_MESSAGE_WINDOW`).
+    /// so that the response has time to travel back (`ILP_MESSAGE_WINDOW`),
+    /// and a peer over a settlement hub has time for the hub's legs
+    /// (spec/decisions/connector-timing.md).
     pub message_window_ms: u64,
     /// The least time the next hop must get, or R02.
     pub min_timeout_ms: u64,
@@ -66,7 +68,7 @@ impl Config {
         max_routes: 1024,
         trace_capacity: 4096,
         max_events: 1024,
-        message_window_ms: 1_000,
+        message_window_ms: 1_600,
         min_timeout_ms: 1_000,
         max_hold_ms: 30_000,
         max_packet_amount: 100_000_000,
