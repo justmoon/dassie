@@ -2078,7 +2078,7 @@ fn readings_at_an_old_anchor_do_not_keep_the_guard_fresh() {
     // A thousand XRP against 500 DSUSD, at two XRP to the dollar: par.
     world
         .ledger
-        .set_pool(Token::DSUSD, 1_000_000_000, value("500"), 0)
+        .set_pool(IssuedAsset::DSUSD, 1_000_000_000, value("500"), 0)
         .unwrap();
     world.close();
     assert_eq!(world.nodes[0].status(USD), LedgerStatus::Synced);
