@@ -186,8 +186,7 @@ impl PeerNode {
     }
 
     /// A downloaded list. Its authenticity comes from the response MAC
-    /// under the configured key; its hash is that of what was received
-    /// (NET-15).
+    /// under the configured key; its hash is that of what was received.
     pub(super) fn on_list(&mut self, from: NodeId, result: Result<Vec<u8>, Problem>) {
         let now = self.now_ms;
         let Some(state) = self.lists.states.get_mut(&from) else {
@@ -209,8 +208,8 @@ impl PeerNode {
         self.recompute_majority();
     }
 
-    /// The majority: nodes on more than half of the configured lists
-    /// (NET-16). Lists not fetched for a day no longer vote; nodes leave
+    /// The majority: nodes on more than half of the configured lists.
+    /// Lists not fetched for a day no longer vote; nodes leave
     /// the majority only while more than half of the lists are fresh, so
     /// bootstrap nodes going down do not empty every table
     /// (spec/decisions/membership-economics.md).

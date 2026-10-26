@@ -121,7 +121,7 @@ pub enum JournalEntry {
 }
 
 /// Why a transfer was not created. Values, never panics: the input may
-/// come from a peer (ACC-8).
+/// come from a peer.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TransferError {
     /// An account does not exist.
@@ -227,7 +227,7 @@ impl Ledger {
     }
 
     /// The account at `path`, opening it, and its group root first, if
-    /// needed. Opening an account that exists returns it unchanged (ACC-4).
+    /// needed. Opening an account that exists returns it unchanged.
     ///
     /// # Errors
     ///
@@ -265,7 +265,7 @@ impl Ledger {
 
     /// The accounts a peer needs: what it owes us, and the credit we extend
     /// to it. When they are new, `trust` is posted as that credit; when they
-    /// exist, nothing is posted again (ACC-5). Returns the interledger
+    /// exist, nothing is posted again. Returns the interledger
     /// account and whether the accounts were new.
     ///
     /// # Errors

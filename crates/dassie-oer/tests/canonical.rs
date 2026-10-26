@@ -1,6 +1,5 @@
-//! Cases where the original lib-oer was wrong
-//! (spec/areas/encoding.md#canonical-only, OER-q1 to OER-q3,
-//! ILP-12). Each test fails against the original's behaviour.
+//! The canonical rules (spec/areas/encoding.md#canonical-only), each as a
+//! test, with the cases that are easy to get wrong.
 
 mod support;
 
@@ -12,7 +11,7 @@ fn kind<T>(result: Result<T, dassie_oer::DecodeError>) -> Option<DecodeErrorKind
 }
 
 #[test]
-fn oer_q1_fixed_octet_string_checks_bounds() {
+fn a_fixed_octet_string_checks_its_bounds() {
     // The original returned a short slice and claimed the full length.
     let input = [1, 2, 3];
     let mut reader = Reader::new(&input);
@@ -23,7 +22,7 @@ fn oer_q1_fixed_octet_string_checks_bounds() {
 }
 
 #[test]
-fn oer_q2_containing_is_bounded_by_its_content() {
+fn containing_is_bounded_by_its_content() {
     // Content of length 2 followed by more bytes: the inner decoder must not
     // see past its two octets...
     let input = hex("020102ff");
@@ -38,7 +37,7 @@ fn oer_q2_containing_is_bounded_by_its_content() {
 }
 
 #[test]
-fn oer_q3_object_identifier_written_at_an_offset() {
+fn an_object_identifier_is_written_at_an_offset() {
     // The original wrote the content at an absolute offset, which only
     // worked at the start of the buffer.
     let arcs = [1, 3, 6, 1, 4, 1, 54392, 5, 1399];
@@ -98,7 +97,7 @@ fn variable_integers_must_be_minimal() {
 
 #[test]
 fn visible_string_allows_tilde() {
-    // NET-30: the original's VisibleString alphabet left out `~`.
+    // VisibleString includes `~`.
     let bytes = hex("017e");
     assert_eq!(
         Reader::new(&bytes).read_ascii(Size::ANY, Alphabet::VISIBLE),

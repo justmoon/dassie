@@ -6,7 +6,7 @@ use crate::address::InvalidAddress;
 
 /// Why an ILP, ILDCP or BTP packet failed to parse, and where.
 ///
-/// Parsing never panics and never throws past the caller (ILP-3): a
+/// Parsing never panics and never throws past the caller: a
 /// connector turns any of these into an F01 reject.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ParseError {

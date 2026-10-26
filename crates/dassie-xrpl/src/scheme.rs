@@ -27,16 +27,16 @@
 //! reserve; any difference (a reserve change, a balance below the reserve)
 //! is reconciled through `equity/suspense`, the part a change of the
 //! reserve explains as the reserve's. The reserve itself is never booked,
-//! so it is never spent (ACC-19). Settlements are whole drops
-//! (ACC-21), failures are checked (ACC-22), and an account created by a
-//! payment is a deposit like any other (ACC-20).
+//! so it is never spent. Settlements are whole drops,
+//! failures are checked, and an account created by a
+//! payment is a deposit like any other.
 //!
 //! It settles only on its account's network, which the account checks
 //! before it reads anything (spec/decisions/real-money.md). Each network's
 //! scheme has a memo type of its own, so a Payment of one is never read as
 //! a settlement of the other (spec/decisions/mainnet-schemes.md): the
 //! original's mainnet module, never registered, wrote the testnet's, and
-//! would have taken every settlement for a deposit (ACC-13). Mainnet's
+//! would have taken every settlement for a deposit. Mainnet's
 //! books on a ledger of the live realm, which runs only in a node of that
 //! realm, still refused (spec/decisions/real-money.md).
 
@@ -119,7 +119,7 @@ pub type XrplScheme = XrpScheme<TestnetXrp>;
 /// The mainnet scheme's ID.
 pub const MAINNET_SCHEME_ID: &str = "xrpl";
 /// The memo that marks a settlement on mainnet: its own, never the
-/// testnet's, which the original wrote on both (ACC-13). A contract between
+/// testnet's, which the original wrote on both. A contract between
 /// peers, as the testnet's is (spec/areas/xrpl.md#the-payment-it-signs).
 pub const MAINNET_MEMO_TYPE: &[u8] = b"https://dassie.land/settlement/xrp/v1";
 
@@ -1616,7 +1616,7 @@ mod tests {
     // spec/decisions/mainnet-schemes.md: each network's XRP scheme reads
     // only its own memo type, so a Payment with the other network's, from
     // a peer's address and naming the peer, is never its settlement but the
-    // owner's deposit; the original wrote the testnet's on both (ACC-13).
+    // owner's deposit; the original wrote the testnet's on both.
     #[test]
     fn a_settlement_of_the_other_network_is_a_deposit() {
         assert!(settles::<TestnetXrp>(MEMO_TYPE));

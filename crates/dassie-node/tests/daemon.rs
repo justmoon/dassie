@@ -94,7 +94,6 @@ async fn setup_then_login_then_logout() {
     node.stop().await;
 }
 
-// RT-11: the original's cookie lasted ten years and its sessions forever.
 #[tokio::test]
 async fn cookies_carry_the_session_lifetime() {
     let node = TestNode::start().await;
@@ -114,7 +113,7 @@ async fn cookies_carry_the_session_lifetime() {
     node.stop().await;
 }
 
-// RT-6: in the original, logging out left open sockets authenticated.
+// Logging out ends the session on its open sockets too.
 #[tokio::test]
 async fn logout_closes_the_sessions_sockets() {
     let node = TestNode::start().await;
@@ -149,7 +148,6 @@ async fn logout_closes_the_sessions_sockets() {
     node.stop().await;
 }
 
-// RT-11: sessions end after 30 days unused.
 #[tokio::test]
 async fn idle_sessions_expire() {
     let node = TestNode::start().await;
@@ -187,8 +185,8 @@ async fn idle_sessions_expire() {
     node.stop().await;
 }
 
-// RT-5: the original answered an unauthorized call with a *success* that
-// carried a serialized failure.
+// A call the caller may not make fails with a code, never a success that
+// carries a failure.
 #[tokio::test]
 async fn protected_calls_fail_with_a_code() {
     let node = TestNode::start().await;
@@ -227,7 +225,6 @@ async fn protected_calls_fail_with_a_code() {
     node.stop().await;
 }
 
-// RT-6: the original accepted requests from any origin.
 #[tokio::test]
 async fn foreign_origins_and_bad_bodies_are_refused() {
     let node = TestNode::start().await;
@@ -283,7 +280,6 @@ async fn foreign_origins_and_bad_bodies_are_refused() {
     node.stop().await;
 }
 
-// RT-10: the original allowed unlimited attempts.
 #[tokio::test]
 async fn login_attempts_are_limited() {
     let node = TestNode::start().await;
@@ -313,7 +309,7 @@ async fn login_attempts_are_limited() {
     node.stop().await;
 }
 
-// RT-1: the original redirected to https://0.0.0.0/<path>, without the query.
+// HTTP redirects to the hostname with the path and query.
 #[tokio::test]
 async fn http_redirects_and_serves_challenges() {
     let node = TestNode::start().await;
@@ -335,7 +331,7 @@ async fn http_redirects_and_serves_challenges() {
     node.stop().await;
 }
 
-// RT-15 and RT-16: HEAD, headers, and unmatched upgrades.
+// HEAD, headers, and upgrades no route takes.
 #[tokio::test]
 async fn https_surface() {
     let node = TestNode::start().await;
@@ -386,7 +382,7 @@ fn names(certificate: &rustls::pki_types::CertificateDer<'_>) -> Vec<String> {
         .collect()
 }
 
-// RT-3 and spec/areas/http.md#certificates: the certificate follows the
+// spec/areas/http.md#certificates: the certificate follows the
 // hostname at once, without restarting the listener.
 #[tokio::test]
 async fn the_certificate_follows_the_hostname() {
@@ -453,7 +449,7 @@ async fn a_hostname_too_long_for_the_url_is_refused() {
     node.stop().await;
 }
 
-// RT-12: the original installed whatever it was sent.
+// A certificate is installed only with its own key, for the node's name.
 #[tokio::test]
 async fn installed_certificates_are_checked() {
     let node = TestNode::start().await;
@@ -494,7 +490,7 @@ async fn installed_certificates_are_checked() {
     node.stop().await;
 }
 
-// RT-14 and spec/areas/node.md#persistence: a restart keeps the
+// spec/areas/node.md#persistence: a restart keeps the
 // certificate, the identity and the sessions.
 #[tokio::test]
 async fn a_restart_keeps_everything() {
@@ -597,7 +593,6 @@ async fn sessions_can_be_listed_and_revoked() {
     node.stop().await;
 }
 
-// RT-7: the original had no shutdown handling; sockets got no close frame.
 #[tokio::test]
 async fn shutdown_closes_sockets_with_going_away() {
     let node = TestNode::start().await;

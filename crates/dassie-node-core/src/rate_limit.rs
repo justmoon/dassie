@@ -1,9 +1,8 @@
 //! A bounded token-bucket table for login and setup attempts.
 //!
-//! The original had no rate limiting at all
-//! (spec/original/02-node-runtime.md#84-post-apilogin, RT-10). The login
-//! secret is 256 bits, so guessing is hopeless anyway; the limit is there so
-//! that one client cannot make the node do work as fast as it can send.
+//! The login secret is 256 bits, so guessing is hopeless anyway; the limit is
+//! there so that one client cannot make the node do work as fast as it can
+//! send.
 //!
 //! Each client (an IPv4 address, or an IPv6 /56) has a bucket of its own.
 //! There is deliberately no bucket shared by all clients: a handful of
@@ -228,7 +227,6 @@ mod tests {
         ClientKey::from_ip(IpAddr::V4(Ipv4Addr::new(10, 0, 0, last)))
     }
 
-    // RT-10: the original allowed unlimited attempts.
     #[test]
     fn a_client_gets_its_burst_then_waits() {
         let mut limiter = RateLimiter::new(RateLimitPolicy::DEFAULT);

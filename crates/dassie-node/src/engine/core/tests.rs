@@ -133,7 +133,7 @@ fn time_only_moves_forward() {
     assert_eq!(core.now_ms(), NOW + 100);
 }
 
-// ACC-16: a settlement whose pending transfer reached the disk, but which
+// A settlement whose pending transfer reached the disk, but which
 // a crash stopped before it executed, is handed to its scheme at the next
 // start. The stub never executed it, so its money never moved: it is
 // voided, and what we owe the peer is as before.

@@ -1,8 +1,6 @@
 //! The owner's browser sessions.
 //!
-//! The original kept a session as its plaintext token, forever, with a cookie
-//! that lasted ten years and nothing to list or end sessions
-//! (spec/original/02-node-runtime.md#87-sessions-store, RT-11). Here:
+//! Sessions (spec/areas/http.md#sessions):
 //!
 //! - the browser holds a random token, and the node stores only its SHA-256,
 //!   the [`SessionId`] (spec/decisions/secrets-at-rest.md), so a copy of the
@@ -226,7 +224,6 @@ mod tests {
         }
     }
 
-    // RT-11: the original's sessions never ended.
     #[test]
     fn sessions_end_when_idle() {
         let start = 1_000 * DAY_MS;

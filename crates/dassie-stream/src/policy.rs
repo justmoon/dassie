@@ -15,7 +15,7 @@ pub struct Policy {
     pub max_concurrency: u32,
     /// Smallest money packet worth sending while more is still to come.
     /// The last packet of a payment may be smaller (the original never sent
-    /// it, ILP-11).
+    /// it).
     pub de_minimis_amount: u64,
     /// Most streams the remote may have open at once. Advertised as
     /// `ConnectionMaxStreamId`.

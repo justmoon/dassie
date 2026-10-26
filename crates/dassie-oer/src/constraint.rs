@@ -47,8 +47,7 @@ impl Alphabet {
     /// IA5String: all of 7-bit ASCII.
     pub const IA5: Self = Self(u128::MAX);
 
-    /// VisibleString: printable ASCII, `0x20` to `0x7E`. The original left out
-    /// `~` (spec/original/04-interledger.md#25-strings-stringts, NET-30).
+    /// VisibleString: printable ASCII, `0x20` to `0x7E`, `~` included.
     pub const VISIBLE: Self = Self::EMPTY.with_range(0x20, 0x7e);
 
     /// The empty alphabet, to build others from.

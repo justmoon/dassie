@@ -1,6 +1,5 @@
-//! The connector's behaviour, each spec/decisions/connector-timing.md fix
-//! with a test that fails against the original
-//! (spec/original/README.md#conventions).
+//! The connector's behaviour, each rule of spec/decisions/connector-timing.md
+//! with a test.
 
 #![allow(clippy::panic)]
 
@@ -41,8 +40,8 @@ fn pay(h: &mut Harness, request_id: u32, amount: u64, fulfillment: [u8; 32]) -> 
     forwarded(h.prepare(NOW, ALICE, request_id, &packet))
 }
 
-// ILP-7, NET-24 and NET-25: ILDCP answered XRP/9 to everyone, and an address
-// that was not the one routed.
+// ILDCP answers the address that is routed to the client, and its
+// ledger's asset.
 #[test]
 fn ildcp_answers_the_routed_address_and_the_ledgers_asset() {
     let mut h = Harness::new(Config::DEFAULT, 0);
@@ -72,7 +71,7 @@ fn ildcp_carries_no_money() {
     assert_eq!(h.reject_written(length).0, ErrorCode::F01_INVALID_PACKET);
 }
 
-// ILP-3: malformed packets threw instead of getting F01.
+// A malformed packet gets F01, never a panic.
 #[test]
 fn malformed_packets_get_f01() {
     let mut h = Harness::new(Config::DEFAULT, 0);
@@ -82,8 +81,8 @@ fn malformed_packets_get_f01() {
     }
 }
 
-// ILP-3 and NET-33: our own address resolved to an empty route and threw;
-// prefixes matched across segment boundaries.
+// A destination with no route gets F02, our own address included, and
+// prefixes match only whole segments.
 #[test]
 fn unroutable_destinations_get_f02() {
     let mut h = Harness::new(Config::DEFAULT, 0);
@@ -134,7 +133,7 @@ fn expiry_is_shortened_and_capped() {
     assert_eq!(outgoing, NOW + 30_000, "at most 30 s from now");
 }
 
-// ILP-4: F08 rejects carried no amounts.
+// F08 says how much arrived and how much is allowed.
 #[test]
 fn f08_says_how_much_is_allowed() {
     let mut h = Harness::new(Config::DEFAULT, 100 * UNIT);
@@ -193,7 +192,8 @@ fn a_fulfilled_packet_posts_its_transfer_with_its_trace() {
     assert_eq!(posted, [2_500]);
 }
 
-// ILP-2: a wrong fulfillment was dropped, and the sender waited for R00.
+// A wrong fulfillment is rejected with F05 at once, so the sender does not
+// wait for R00.
 #[test]
 fn a_wrong_fulfillment_is_rejected_at_once() {
     let mut h = Harness::new(Config::DEFAULT, 0);
@@ -214,7 +214,8 @@ fn a_wrong_fulfillment_is_rejected_at_once() {
     );
 }
 
-// ILP-1: the original gave up after 5 s although the packet allowed 30.
+// A packet is waited for until its own expiry, not a shorter timeout of
+// the connector's.
 #[test]
 fn a_fulfillment_inside_the_expiry_is_honoured() {
     let mut h = Harness::new(Config::DEFAULT, 0);
@@ -290,7 +291,8 @@ fn the_largest_reject_passes_through_unchanged() {
     assert_eq!(h.net(h.owner), 0);
 }
 
-// ILP-8: random 32-bit request IDs could collide and overwrite each other.
+// Outgoing request IDs are unique per endpoint, so two packets in flight
+// never overwrite each other.
 #[test]
 fn request_ids_are_unique_per_endpoint() {
     let mut h = Harness::new(Config::DEFAULT, 0);
@@ -372,7 +374,8 @@ fn removing_an_endpoint_fails_its_packets_and_forgets_its_answers() {
     assert_eq!(h.prepare(NOW, BOB, 10, &from_bob), Outcome::UnknownSource);
 }
 
-// ILP-6: missing rates threw inside the pipeline; there was no staleness.
+// A missing or stale rate is a reject, never an exception in the
+// pipeline.
 #[test]
 fn cross_ledger_packets_convert_through_the_fx_accounts() {
     let mut h = Harness::new(Config::DEFAULT, UNIT);

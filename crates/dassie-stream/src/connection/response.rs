@@ -135,8 +135,7 @@ impl Connection {
         let plaintext = self.keys.cipher.decrypt(data, buffer).ok()?;
         let packet = Packet::parse(plaintext).ok()?;
         // A reply for another request, or claiming another ILP type, is not
-        // trustworthy; the original did not check
-        // (spec/original/04-interledger.md#1110-sending-connectionsend-ts-streamsend-ts).
+        // trustworthy.
         if packet.sequence != slot.sequence || packet.packet_type != expected {
             return None;
         }
@@ -448,7 +447,7 @@ impl Connection {
                     / u128::from(data.received_amount);
                 u64::try_from(scaled).unwrap_or(u64::MAX)
             }
-            // Without data (ILP-4) the best guess is half.
+            // Without data the best guess is half.
             _ => source_amount / 2,
         };
         self.max_packet_amount = self

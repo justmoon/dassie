@@ -213,7 +213,7 @@ CREATE TABLE btp_tokens (
 
 /// The peer protocol (spec/areas/node.md#persistence): the node table, with
 /// each node's verified link state, its registration with us and our peering
-/// with it; and our own link state's sequence, which only goes up (NET-7).
+/// with it; and our own link state's sequence, which only goes up.
 const MIGRATION_3: &str = "
 CREATE TABLE peer_nodes (
   id TEXT PRIMARY KEY CHECK (length(id) BETWEEN 2 AND 45),

@@ -1,6 +1,7 @@
-//! One test per flaw of the original that the rewrite fixes. Each would
-//! have failed against the original's behaviour
-//! (spec/original/README.md#conventions).
+//! What the identity crate refuses, each as a test: a phrase that is not
+//! BIP-39, DER that is not exactly the encoding it writes, seed paths with
+//! empty segments and non-contributory X25519; and the login proof, which
+//! it compares in constant time.
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing)]
 
@@ -12,10 +13,10 @@ use dassie_identity::{
 const ZERO_PHRASE: &str =
     "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
 
-/// UI-5: the original fed any text to PBKDF2, so a phrase with a swapped
-/// or mistyped word silently produced a different node.
+/// A phrase with a swapped or mistyped word fails its checksum, rather
+/// than silently deriving a different node.
 #[test]
-fn ui_5_phrase_with_a_bad_checksum_is_rejected() {
+fn a_phrase_with_a_bad_checksum_is_rejected() {
     assert!(Mnemonic::parse(ZERO_PHRASE).is_ok());
     let wrong_last_word = ZERO_PHRASE.replace("about", "abandon");
     assert_eq!(
@@ -29,10 +30,10 @@ fn ui_5_phrase_with_a_bad_checksum_is_rejected() {
     );
 }
 
-/// UI-5: unknown words are reported with their position so the UI can
-/// point at them.
+/// Unknown words are reported with their position so the UI can point at
+/// them.
 #[test]
-fn ui_5_unknown_word_is_rejected() {
+fn an_unknown_word_is_rejected() {
     let typo = ZERO_PHRASE.replacen("abandon", "abandn", 1);
     assert_eq!(
         Mnemonic::parse(&typo).map(|_| ()),
@@ -52,9 +53,8 @@ fn ui_5_unknown_word_is_rejected() {
     );
 }
 
-/// lib-x509's SPKI constant omitted the BIT STRING's unused-bits byte, so
-/// the 44-byte DER it parsed gave a 33-byte "key" starting with `00`
-/// (spec/original/03-peer-network.md#21-node-private-key).
+/// The SPKI encoding has the BIT STRING's unused-bits byte, so a 44-byte
+/// DER gives a 32-byte key, not a 33-byte one starting with `00`.
 #[test]
 fn spki_der_has_the_unused_bits_byte() {
     let key = NodeKey::from_bytes(&[1; 32]).public_key();
@@ -76,9 +76,8 @@ fn spki_der_has_the_unused_bits_byte() {
     assert_eq!(PublicKey::from_spki_der(&buggy), Err(Error::InvalidDer));
 }
 
-/// PKCS#8 decoding is strict, and the setup route can no longer store a key
-/// of the wrong length (spec/original/02-node-runtime.md#83-post-apisetup,
-/// step 3): a node key is 32 bytes by type.
+/// PKCS#8 decoding is strict, and setup cannot store a key of the wrong
+/// length: a node key is 32 bytes by type.
 #[test]
 fn pkcs8_der_is_exact() {
     let key = NodeKey::from_bytes(&[1; 32]);
@@ -97,11 +96,8 @@ fn pkcs8_der_is_exact() {
     assert!(NodeKey::from_pkcs8_der(&version_one).is_err());
 }
 
-/// The original compared the login proof as hex strings with `!==`, which
-/// returns at the first differing character
-/// (spec/original/02-node-runtime.md#83-post-apisetup,
-/// spec/original/02-node-runtime.md#84-post-apilogin). The proof is now
-/// checked as bytes with `subtle`'s constant-time equality.
+/// The login proof is checked as bytes with `subtle`'s constant-time
+/// equality, so how long a refusal takes says nothing about the guess.
 #[test]
 fn login_proof_is_checked_in_constant_time() {
     let key = NodeKey::from_bytes(&[9; 32]);

@@ -4,7 +4,7 @@
 //! with exactly one terminal message (a response, the end of a stream, or
 //! an error), even when its handler panics. After a `Cancel`, nothing more
 //! is sent for that call. A browser's connection ends when its session
-//! does, so logging out takes effect on open sockets too (RT-6); calls
+//! does, so logging out takes effect on open sockets too; calls
 //! already answered get their answers first.
 //!
 //! The loop never waits on its own outgoing queue, which only it drains:

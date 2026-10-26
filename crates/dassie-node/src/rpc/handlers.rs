@@ -69,7 +69,7 @@ impl Items {
 
 /// The session behind `caller`, if the call is authenticated: always over
 /// IPC, over a WebSocket while its session is valid, and from a device
-/// while it is paired (each checked on every call, RT-6).
+/// while it is paired (each checked on every call).
 fn authenticate(node: &Node, caller: Caller) -> Result<Option<SessionId>, RpcError> {
     match caller {
         Caller::Owner => Ok(None),

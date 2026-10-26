@@ -4,7 +4,7 @@
 //! [`connection::serve`] runs one connection, over the WebSocket or the IPC
 //! socket alike; [`handlers`] answers each method. The original's RPC
 //! reported failures as `"RpcFailure"`, as `"Internal server error"`, or as
-//! a *successful* response carrying a serialized failure (RT-5). Here every
+//! a *successful* response carrying a serialized failure. Here every
 //! failure is an `Error` with a code the client can act on and a message
 //! that says what happened; only bugs are `INTERNAL`.
 

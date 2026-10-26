@@ -9,7 +9,7 @@ pub enum Activation {
     /// Dr `assets/settlement`, Cr `equity/owner`.
     FirstDeposit(u64),
     /// The balance grew while the node was not watching. Without knowing
-    /// whose money it is, it goes to `equity/suspense` (ACC-2): Dr
+    /// whose money it is, it goes to `equity/suspense`: Dr
     /// `assets/settlement`, Cr `equity/suspense`.
     Gain(u64),
     /// The balance shrank while the node was not watching: Dr
@@ -19,7 +19,7 @@ pub enum Activation {
 
 /// What to book for a scheme whose balance is `balance`, given the
 /// checkpoint the books last recorded for it, if any. The original booked
-/// the whole balance as a new deposit at every start (ACC-6).
+/// the whole balance as a new deposit at every start.
 #[must_use]
 pub const fn activation(checkpoint: Option<u64>, balance: u64) -> Activation {
     match checkpoint {
@@ -35,7 +35,7 @@ pub const fn activation(checkpoint: Option<u64>, balance: u64) -> Activation {
 mod tests {
     use super::*;
 
-    // ACC-6: every start re-deposited the full balance.
+    // A start books only what changed, never the whole balance again.
     #[test]
     fn restarts_book_only_differences() {
         assert_eq!(activation(None, 100), Activation::FirstDeposit(100));

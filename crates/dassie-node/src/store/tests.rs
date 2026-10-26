@@ -24,7 +24,7 @@ fn session(byte: u8, created: u64, used: u64) -> SessionRecord {
     }
 }
 
-// RT-25: the original created the database with the default umask.
+// The database is private to its owner whatever the umask.
 #[test]
 fn creates_a_private_directory_and_file() {
     let temp = tempfile::tempdir().unwrap();

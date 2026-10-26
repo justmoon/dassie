@@ -157,7 +157,7 @@ fn view(view: &NetworkView, method: Method) -> response::Method {
 }
 
 /// A node ID from the owner, which must keep to the wire schema's
-/// alphabet: the original's RPC did not check it (RT-23).
+/// alphabet: the original's RPC did not check it.
 fn node_id(text: &str) -> Result<NodeId, RpcError> {
     NodeId::parse(text).map_err(|_| RpcError::invalid("not a node ID"))
 }

@@ -241,7 +241,7 @@ impl Driver {
     }
 }
 
-/// Answers a packet that is not a valid Prepare with F01 (ILP-3).
+/// Answers a packet that is not a valid Prepare with F01.
 fn invalid_packet(triggered_by: Option<Address<'_>>) -> Vec<u8> {
     Reject {
         code: IlpErrorCode::F01_INVALID_PACKET,

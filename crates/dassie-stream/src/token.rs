@@ -4,9 +4,7 @@
 //! secret. The token is the connection's parameters encrypted under the
 //! server secret, and the shared secret is an HMAC of the token, so the
 //! server needs no table of issued credentials: they survive restarts and
-//! never accumulate. The original kept credentials in memory, never expiring
-//! and without tags (spec/original/04-interledger.md#114-server-serverts);
-//! this is the upstream scheme instead.
+//! never accumulate. This is the upstream scheme.
 //!
 //! The plaintext is a nonce and the connection tag. Upstream's also has the
 //! keys of RFC 39 receipts, which Dassie does not issue. Only the server

@@ -4,7 +4,7 @@
  * CSP that allows styles from their own origin only (`style-src 'self'`),
  * so every rule lives in a file the bundle links, never in a style
  * attribute. The theme follows the system, or the owner's choice as
- * `data-theme` on the root (UI-6); every color is written once, for both,
+ * `data-theme` on the root; every color is written once, for both,
  * with `light-dark()`.
  */
 
@@ -27,8 +27,7 @@
   --radius: 8px;
   --font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --mono: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
-  /* Adobe Spectrum's categorical palette, as the original's
-     (spec/original/06-user-interfaces-and-tooling.md#12-styling-approach). */
+  /* Adobe Spectrum's categorical palette. */
   --palette-0: #0fb5ae;
   --palette-1: #4046ca;
   --palette-2: #f68511;

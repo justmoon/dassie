@@ -14,7 +14,7 @@
 //!
 //! The original's Open Payments had no GNAP, served no incoming payment by
 //! its ID, fixed the asset at USD/2, linked no money it received to a
-//! payment, quoted 1:1, and counted outgoing payments twice (ILP-10). Here
+//! payment, quoted 1:1, and counted outgoing payments twice. Here
 //! it is served as its specs define it. SPSP stays out on purpose
 //! (spec/decisions/open-payments.md), and each read still hands out fresh
 //! credentials, now for a STREAM connection per payment

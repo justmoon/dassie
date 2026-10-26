@@ -204,7 +204,7 @@ impl Connector {
     }
 
     /// Answers an ILDCP request with the source's routed address and its
-    /// ledger's asset (ILP-7, NET-24, NET-25). It must carry no money and the
+    /// ledger's asset. It must carry no money and the
     /// ILDCP condition, or it is not one.
     fn ildcp(
         &mut self,
@@ -274,7 +274,7 @@ impl Connector {
             ));
         }
         // Unroutable, including anything below our own address that is no
-        // endpoint's and our own address itself (ILP-3, NET-34).
+        // endpoint's and our own address itself.
         let to = self
             .next_hop(prepare.destination, Some(source))
             .ok_or(refuse(ErrorCode::F02_UNREACHABLE, "no route found"))?;
@@ -483,7 +483,7 @@ impl Connector {
     /// first debits the source's account; the second, across ledgers,
     /// credits the destination's from the FX accounts; the third is our
     /// fee, which debits the source's account too. The original booked no
-    /// fee, and its fee accounts stayed empty (ACC-3).
+    /// fee, and its fee accounts stayed empty.
     fn book_transfers(
         &mut self,
         now_ms: u64,

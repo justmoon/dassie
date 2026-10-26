@@ -5,7 +5,7 @@
 //! Everything here is byte-for-byte compatible with the standards and with
 //! the original Dassie (spec/overview.md#frozen-surfaces).
 //! Parsing returns a [`ParseError`] for any malformed input instead of
-//! throwing (ILP-3), decodes without allocating by borrowing from the input,
+//! throwing, decodes without allocating by borrowing from the input,
 //! and validates addresses and timestamps strictly.
 
 #![no_std]

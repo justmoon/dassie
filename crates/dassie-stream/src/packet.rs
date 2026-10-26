@@ -166,7 +166,7 @@ impl<'a> Packet<'a> {
     /// Parses a decrypted packet.
     ///
     /// Bytes after the frames are ignored, as RFC 29 §5.1 asks so that
-    /// senders can pad packets; the original rejected them (ILP-11). Unknown
+    /// senders can pad packets; the original rejected them. Unknown
     /// frames are validated as frames but otherwise skipped.
     pub fn parse(plaintext: &'a [u8]) -> Result<Self, DecodeError> {
         let mut reader = Reader::new(plaintext);

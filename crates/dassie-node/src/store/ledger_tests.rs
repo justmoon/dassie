@@ -307,7 +307,7 @@ fn schemes_checkpoints_and_tokens_round_trip() {
     store.commit_ledger(&batch).unwrap();
     assert!(store.settlement_schemes().unwrap().is_empty());
     // The checkpoint outlives the scheme, so adding it again books nothing
-    // twice (ACC-6).
+    // twice.
     assert_eq!(
         store.checkpoints().unwrap(),
         [(

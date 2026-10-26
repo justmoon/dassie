@@ -1,4 +1,4 @@
-/** Switches between the system's theme, dark and light (UI-6). */
+/** Switches between the system's theme, dark and light. */
 
 import type { JSX } from "@solidjs/web";
 import { createSignal } from "solid-js";

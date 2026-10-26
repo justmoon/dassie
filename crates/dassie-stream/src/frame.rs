@@ -69,8 +69,7 @@ const ADDRESS_SIZE: Size = Size::range(0, MAX_ADDRESS_LENGTH);
 ///
 /// Integer fields are `u64`. RFC 29 encodes them as unbounded integers and
 /// asks receivers to treat anything larger as the maximum, so decoding
-/// saturates (the original kept the exact big integer,
-/// spec/original/04-interledger.md#112-packet-format-packetsschemats).
+/// saturates.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Frame<'a> {
     /// The sender closes the connection.
@@ -358,7 +357,7 @@ impl Frame<'_> {
 
     /// Reads one frame. Returns `None` for a frame type this implementation
     /// does not know, after skipping it: RFC 29 §5.3 asks receivers to ignore
-    /// unknown frames, which the original rejected (ILP-11).
+    /// unknown frames, which the original rejected.
     pub fn decode<'a>(reader: &mut Reader<'a>) -> Result<Option<Frame<'a>>, DecodeError> {
         let frame_type = reader.read_u8()?;
         // Bytes after a known frame's fields are ignored, as upstream does,

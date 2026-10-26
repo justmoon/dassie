@@ -131,7 +131,7 @@ fn refusal(reply: &dassie_peer::Reply) -> RefusalReason {
 
 // A settlement that arrives again, as a retry after a lost answer would,
 // is acknowledged and not applied twice: the stub credits from the message
-// itself (ACC-23).
+// itself.
 #[test]
 fn a_settlement_is_applied_once() {
     let (mut network, a, _) = peered(31);
@@ -153,7 +153,6 @@ fn a_settlement_is_applied_once() {
     let _ = a;
 }
 
-// ACC-17: one settlement on its way per channel.
 #[test]
 fn one_settlement_at_a_time() {
     let (mut network, _, b) = peered(32);
@@ -256,9 +255,8 @@ fn refused_settlement(status: Option<u16>, tries: usize) {
     assert_eq!((network.applied[0].from, network.applied[0].amount), (a, 5));
 }
 
-// NET-13: the original could not end a peering. Here an owner's
-// termination ends it on both sides, and the pair does not peer again
-// during the cooldown. It begins privately
+// An owner's termination ends a peering on both sides, and the pair does not
+// peer again during the cooldown. It begins privately
 // (spec/decisions/ending-a-peering.md): the peer is still advertised, until
 // the node collected and tells it.
 #[test]
@@ -493,8 +491,7 @@ fn downtime_is_not_silence() {
     assert!(network.node(1).is_advertised(&a));
 }
 
-// NET-13: the original had no bans. A ban ends the peering, and the node
-// is refused from then on.
+// A ban ends the peering, and the node is refused from then on.
 #[test]
 fn a_banned_node_is_refused() {
     let (mut network, a, b) = peered(40);

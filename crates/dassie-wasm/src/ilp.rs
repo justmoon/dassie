@@ -210,7 +210,7 @@ pub fn encode_amount_too_large(received_amount: u64, maximum_amount: u64) -> Vec
 }
 
 /// Reads the data of an F08 reject as `[receivedAmount, maximumAmount]`, or
-/// nothing if it is malformed: the original sent F08 without data (ILP-4).
+/// nothing if it is malformed: the original sent F08 without data.
 #[wasm_bindgen(js_name = decodeAmountTooLarge)]
 #[must_use]
 pub fn decode_amount_too_large(data: &[u8]) -> Option<Vec<u64>> {

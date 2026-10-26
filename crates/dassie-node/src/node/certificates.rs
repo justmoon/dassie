@@ -141,7 +141,7 @@ impl Node {
         Ok(info)
     }
 
-    /// Installs a certificate from elsewhere, after checking it (RT-12).
+    /// Installs a certificate from elsewhere, after checking it.
     pub fn set_certificate(
         &self,
         chain_pem: &str,

@@ -219,7 +219,7 @@ impl Connection {
         // Dust waits while other money is in flight: those packets may fail
         // and free a larger amount. Alone, even a small amount goes, so a
         // payment below the threshold completes (the original never sent
-        // it, ILP-11).
+        // it).
         let money_in_flight = self
             .slots
             .iter()

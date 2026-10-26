@@ -1,6 +1,5 @@
-//! The v1 wire format (spec/areas/peer-protocol.md#encoding): OER, as v0's
-//! (spec/original/03-peer-network.md#5-wire-schemas) except where the
-//! former says otherwise.
+//! The v1 wire format (spec/areas/peer-protocol.md#encoding): OER, in v0's
+//! layouts except where that section says otherwise.
 //!
 //! Decoding borrows from the input and never panics; encoding writes what
 //! the types allow, so it cannot produce something the decoder refuses.

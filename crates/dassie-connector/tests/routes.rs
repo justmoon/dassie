@@ -59,7 +59,7 @@ fn packets_follow_the_longest_route() {
     assert_eq!(forwarded_to(harness.prepare(NOW, BTP, 1, &to_far)), ONE);
     let to_child = prepare("test.das.dfar.child.y", 10, NOW + 20_000, [2; 32]);
     assert_eq!(forwarded_to(harness.prepare(NOW, BTP, 2, &to_child)), TWO);
-    // Whole segments only (NET-33).
+    // Whole segments only.
     let lookalike = prepare("test.das.dfarther", 10, NOW + 20_000, [3; 32]);
     let outcome = harness.prepare(NOW, BTP, 3, &lookalike);
     assert_eq!(rejected(&harness, outcome), ErrorCode::F02_UNREACHABLE);
@@ -79,7 +79,7 @@ fn packets_do_not_bounce_back() {
 }
 
 // Below our own address only children are routes; our own address itself
-// has none (NET-34), and no route may claim our subtree.
+// has none, and no route may claim our subtree.
 #[test]
 fn our_own_address_is_ours() {
     let mut harness = harness();

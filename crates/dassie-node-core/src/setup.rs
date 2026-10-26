@@ -7,13 +7,12 @@
 //! - **Login** proves knowledge of the phrase by sending the login proof
 //!   again (spec/areas/http.md#login-and-logout).
 //!
-//! Kept from the original on purpose: the one-time token, the request
-//! bodies and the derivations. Fixed (RT-10): the key must be
-//! exactly 32 bytes of hex, where the original stored whatever it got and
-//! then failed to parse it at every start; and every comparison runs in
-//! constant time. Changed: the original kept the token in memory, so every
-//! restart voided the URL the owner had been given; the node now stores it
-//! until setup is done.
+//! Kept from the original on purpose: the one-time token, the request bodies
+//! and the derivations. Fixed: the key must be exactly 32 bytes of hex, where
+//! the original stored whatever it got and then failed to parse it at every
+//! start; and every comparison runs in constant time. Changed: the original
+//! kept the token in memory, so every restart voided the URL the owner had been
+//! given; the node now stores it until setup is done.
 
 use alloc::string::String;
 use core::fmt;
@@ -170,7 +169,7 @@ mod tests {
         assert_eq!(wrong_proof.err(), Some(SetupError::InvalidProof));
     }
 
-    // RT-10: the original stored a key of any length, which then broke every
+    // A key of the wrong length is refused at setup, so it never breaks a
     // start of the node.
     #[test]
     fn refuses_a_malformed_key() {

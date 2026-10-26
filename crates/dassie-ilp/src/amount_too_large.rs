@@ -27,8 +27,8 @@ impl AmountTooLarge {
     }
 
     /// Reads the F08 data from `reject`, if it is an F08 reject with
-    /// well-formed data. The original connector sent F08 rejects without data
-    /// (ILP-4), so callers must cope with `None`.
+    /// well-formed data. The original connector sent F08 rejects without data,
+    /// so callers must cope with `None`.
     #[must_use]
     pub fn from_reject(reject: &Reject<'_>) -> Option<Self> {
         if reject.code != ErrorCode::F08_AMOUNT_TOO_LARGE {

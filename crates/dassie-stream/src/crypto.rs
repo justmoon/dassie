@@ -42,7 +42,7 @@ pub fn sha256(data: &[u8]) -> [u8; 32] {
 }
 
 /// The ciphertext was tampered with, truncated, or encrypted under another
-/// key. A value rather than an exception (ILP-13).
+/// key. A value rather than an exception.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct DecryptionFailure;
 

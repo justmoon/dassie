@@ -138,7 +138,7 @@ A release is built once, on the Vorstand Nix cloud, and the release workflow sig
 Registration is free, and throttled instead ([Network](areas/network.md#registration)). The design calls for a paid registration whose fee grows with the size of the list ([membership-economics](decisions/membership-economics.md)).
 
 - **What it covers:**
-  - **The fee quote and payment,** as a v1.x peer-protocol addition: a quote message, and payment by ILP with a signed quote condition (the "naive" variant of the [token payment protocol](original/05-accounting-and-settlement.md)). A registration pays the cheapest 75% of bootstrap nodes.
+  - **The fee quote and payment,** as a v1.x peer-protocol addition: a quote message, and payment by ILP with a signed quote condition (the "naive" variant of the token payment protocol, below). A registration pays the cheapest 75% of bootstrap nodes.
   - **The fee schedule,** set when the quote and payment are built.
 - **Done when:** a node registers by paying the quoted fee, and is refused without it. [Names](#names) use the same quote message and way of paying, but pay every registrar, per commitment and per renewal, since a registrant needs every registrar's receipt.
 
@@ -270,9 +270,9 @@ The first four are on `main`, and so is each network's proof server, named in th
 
 Designs that stay future work. The architecture must not preclude them.
 
-- **The token payment protocol** ([original 5 §9](original/05-accounting-and-settlement.md)).
-- **A private UDP peer transport** ([original 3 §18](original/03-peer-network.md)).
-- **Signed or independent frontends,** so that the wallet need not trust the node it is served by ([original 2 §8.8](original/02-node-runtime.md), [secrets-at-rest](decisions/secrets-at-rest.md)).
+- **The token payment protocol** (the original's `docs/implementation-notes/token-payment-protocol.md`, at the tag `original`).
+- **A private UDP peer transport** (the original's `docs/implementation-notes/peer-to-peer-communication.md`).
+- **Signed or independent frontends,** so that the wallet need not trust the node it is served by (the original's `docs/implementation-notes/frontend-security.md`, [secrets-at-rest](decisions/secrets-at-rest.md)).
 
 ## Decisions
 

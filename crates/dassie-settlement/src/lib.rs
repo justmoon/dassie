@@ -8,8 +8,7 @@
 //!   failed one is cancelled, peer state returned by the module is kept,
 //!   versions are declared for negotiation, and config is passed through.
 //! - [`activation`] decides what to book when a scheme starts, from its
-//!   balance and the last checkpoint, so that restarts book nothing twice
-//!   (ACC-6).
+//!   balance and the last checkpoint, so that restarts book nothing twice.
 //! - [`policy`] decides when to settle with a peer, and how much.
 //! - [`Stub`] is the test-realm scheme without an underlying ledger.
 //!

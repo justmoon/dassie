@@ -1,7 +1,7 @@
 /**
  * Choosing a ledger (spec/areas/wallet.md#the-gate): the schemes
  * the node can run, and the owner's first choice, which the wallet insists on
- * (UI-3: the list comes from the node, not a fixed stub).
+ * (the list comes from the node, not a fixed stub).
  */
 
 import type { JSX } from "@solidjs/web";

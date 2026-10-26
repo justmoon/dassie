@@ -105,7 +105,7 @@ impl WordCount {
 /// A BIP-39 phrase, held as its entropy and checksum.
 ///
 /// Every `Mnemonic` is valid: [`parse`](Self::parse) checks each word and the
-/// checksum, which the original never did (gap UI-5), so a mistyped word is
+/// checksum, which the original never did, so a mistyped word is
 /// reported instead of silently producing a different node.
 pub struct Mnemonic {
     /// Entropy, then the checksum byte (`SHA-256(entropy)[0]`, of which the

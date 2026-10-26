@@ -15,10 +15,8 @@ const SCHEMES: [&str; 10] = [
 /// segment   = 1*( ALPHA / DIGIT / "_" / "~" / "-" )
 /// ```
 ///
-/// The original accepted any 7-bit string here
-/// (spec/original/04-interledger.md#14-reject-type-14); the governing
-/// standard is stricter, and following it keeps malformed destinations out
-/// of the routing table.
+/// The governing standard is stricter than any 7-bit string, and following
+/// it keeps malformed destinations out of the routing table.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Address<'a>(&'a str);
 
@@ -81,7 +79,7 @@ impl<'a> Address<'a> {
 
     /// Whether `prefix` is this address or one of its ancestors, comparing
     /// whole segments: `test.alice` is a prefix of `test.alice.bob` but not of
-    /// `test.alicebob` (NET-33).
+    /// `test.alicebob`.
     #[must_use]
     pub fn has_prefix(&self, prefix: Address<'_>) -> bool {
         match self.0.strip_prefix(prefix.0) {

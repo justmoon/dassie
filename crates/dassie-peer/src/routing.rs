@@ -4,7 +4,7 @@
 //!
 //! An edge counts only if both ends list each other, so no node can claim
 //! a link the other end does not confirm; the caller passes only fresh
-//! link states, so a node that went silent drops out (NET-18).
+//! link states, so a node that went silent drops out.
 
 use alloc::collections::{BTreeMap, VecDeque};
 use alloc::vec::Vec;
@@ -23,8 +23,7 @@ pub struct Route {
     pub first_hops: Vec<NodeId>,
 }
 
-/// The routes: one for each reachable node. There is none for ourselves
-/// (NET-34).
+/// The routes: one for each reachable node. There is none for ourselves.
 pub type Routes = BTreeMap<NodeId, Route>;
 
 /// Computes the routes from `own`. `neighbors` gives a node's advertised
@@ -170,10 +169,7 @@ mod tests {
             .map(|name| routes[&id(name)].distance_hops)
             .collect();
         assert_eq!(distances, vec![1, 1, 2, 3]);
-        assert!(
-            !routes.contains_key(&id("da")),
-            "no route to ourselves (NET-34)"
-        );
+        assert!(!routes.contains_key(&id("da")), "no route to ourselves");
     }
 
     // A node claiming a link the other end does not list gets no route

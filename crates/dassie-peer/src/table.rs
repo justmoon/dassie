@@ -10,8 +10,8 @@ use dassie_identity::{NodeId, PublicKey};
 use crate::config::Rate;
 use crate::wire::{HubMembership, SchemeId, SignedNodeInfo, TerminationReason};
 
-/// Why a node is in the table (NET-29). A node with none left is removed
-/// after a grace period (NET-18).
+/// Why a node is in the table. A node with none left is removed
+/// after a grace period.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Sources(u8);
 
@@ -149,7 +149,7 @@ impl Bucket {
 /// A node's link state, as held: the signed bytes, and what they say.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LinkState {
-    /// The `SignedPeerNodeInfo` bytes, verified (NET-4).
+    /// The `SignedPeerNodeInfo` bytes, verified.
     pub bytes: Vec<u8>,
     /// Its sequence, a timestamp in ms.
     pub sequence: u64,
@@ -172,7 +172,7 @@ pub struct LinkState {
     pub copies: u8,
     /// When to forward it, if it is to be.
     pub retransmit_at_ms: Option<u64>,
-    /// The peer it came from, which it is not forwarded back to (NET-35).
+    /// The peer it came from, which it is not forwarded back to.
     pub from: Option<NodeId>,
 }
 
@@ -214,7 +214,7 @@ pub struct Peering {
     pub scheme: SchemeId,
     /// The scheme's version both speak.
     pub version: u16,
-    /// The scheme's state for this peer (ACC-15).
+    /// The scheme's state for this peer.
     pub state: Vec<u8>,
     /// The credit we extend to the peer. The credit it extends to us is
     /// not ours to know (spec/decisions/own-fulfills.md).
@@ -223,7 +223,7 @@ pub struct Peering {
     pub since_ms: u64,
     /// Whether the peer asked.
     pub inbound: bool,
-    /// The last authenticated message from it (NET-12).
+    /// The last authenticated message from it.
     pub last_seen_ms: u64,
     /// How long the room our books give the peer has been short of a
     /// packet, settling nothing (spec/decisions/peering-lifecycle.md):

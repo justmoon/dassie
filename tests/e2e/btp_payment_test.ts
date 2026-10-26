@@ -256,7 +256,7 @@ test("a BTP client pays the node's STREAM receiver, and the journal matches", {
     );
     const books = await journal(owner);
 
-    // A restart keeps the books and deposits nothing again (ACC-6).
+    // A restart keeps the books and deposits nothing again.
     owner.close();
     await daemon.stop();
     daemon = startDaemon(dir);

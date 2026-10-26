@@ -21,21 +21,21 @@ pub enum Reference {
     /// once posted.
     Packet(TraceId),
     /// A settlement with a peer. Journaled while pending too, because the
-    /// money may already be on its way when the node restarts (ACC-16).
+    /// money may already be on its way when the node restarts.
     Settlement {
         /// The settlement scheme.
         scheme: Name,
         /// The scheme's ID for it, unique within the scheme.
         id: Name,
     },
-    /// The credit extended to a peer when its accounts are opened (ACC-5).
+    /// The credit extended to a peer when its accounts are opened.
     Trust,
     /// Money the owner put on the underlying ledger.
     Deposit,
     /// Money the owner took off the underlying ledger.
     Withdrawal,
     /// A difference between a settlement module's balance and its last
-    /// checkpoint, found at activation (ACC-6).
+    /// checkpoint, found at activation.
     Reconciliation,
     /// A fee the underlying ledger charged for one of our transactions.
     Fee {

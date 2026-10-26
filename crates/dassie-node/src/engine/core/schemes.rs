@@ -9,7 +9,7 @@
 //! is dropped. After the asset hears anything, every scheme on it is told
 //! what it learnt. So the node starts without waiting for a ledger, and a
 //! scheme that fails fails alone, where the original's start waited for
-//! every ledger and a module's failure reached them all (ACC-26).
+//! every ledger and a module's failure reached them all.
 
 use dassie_identity::NodeKey;
 use dassie_ledger::{AccountName, LedgerId, Name, Realm};
@@ -270,8 +270,8 @@ pub(super) fn check_validations_with(asset: &mut dyn ExternalAsset, secret: [u8;
 
 /// Makes the scheme `id` with its config, what the books last kept for it,
 /// and the asset it settles through; a dollar token's peg guard runs on
-/// `peg`. The original's RPC dropped every key of the config (RT-21), and it
-/// never passed on what it stored (ACC-12).
+/// `peg`. The original's RPC dropped every key of the config, and it
+/// never passed on what it stored.
 ///
 /// # Errors
 ///

@@ -26,7 +26,7 @@ const PREPARE_TYPE: u8 = 12;
 pub(super) const RECEIVER_SEGMENT: &str = "stream-";
 
 /// The prefix of a receiver's seed path: its server secret derives from the
-/// node key, so credentials stay valid across restarts (ILP-11).
+/// node key, so credentials stay valid across restarts.
 const RECEIVER_SECRET_PATH: &str = "node/stream-server/";
 
 /// Most STREAM connections a receiver keeps.

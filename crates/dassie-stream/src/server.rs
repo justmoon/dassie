@@ -302,9 +302,7 @@ impl Server {
     }
 
     /// Extracts and decodes the token: the first segment after the server's
-    /// address. Further segments are ignored, as upstream does; the original
-    /// took everything after the address
-    /// (spec/original/04-interledger.md#114-server-serverts).
+    /// address. Further segments are ignored, as upstream does.
     fn token_of(
         &self,
         destination: Address<'_>,

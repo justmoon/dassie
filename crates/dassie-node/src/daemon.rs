@@ -7,11 +7,11 @@
 //! committed its first step, or at once on a node not set up yet, without
 //! waiting on the network; the original waited for its first ACME check,
 //! and in its standalone runtime ran that check before anything listened on
-//! port 80 (RT-8). An engine that fails [`supervisor::START_ATTEMPTS`] times
+//! port 80. An engine that fails [`supervisor::START_ATTEMPTS`] times
 //! before that ends the daemon with an error, so a release that cannot run
 //! its engine fails its start (spec/areas/node.md#readiness). On SIGTERM it
 //! stops accepting, lets requests finish, closes the database and removes
-//! the socket it made (RT-7).
+//! the socket it made.
 //!
 //! The steps that adopt sockets run before the tokio runtime exists
 //! ([`Prepared::new`]); the rest runs inside it ([`run`]).

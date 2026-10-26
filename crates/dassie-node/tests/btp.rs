@@ -126,8 +126,8 @@ async fn packets(owner: &mut Owner) -> Vec<proto::Packet> {
     list.packets
 }
 
-// ILP-7, NET-24 and NET-25: a BTP client was told an address nothing routed
-// to, and XRP/9 whatever its ledger.
+// A BTP client is told the address that routes to it, and its ledger's
+// asset.
 #[tokio::test]
 async fn ildcp_hands_out_the_routed_address() {
     let node = TestNode::start().await;
@@ -260,7 +260,7 @@ async fn a_stream_client_pays_the_receiver_and_the_journal_matches() {
         tokens.tokens[0].net_received,
         -i64::try_from(PAYMENT).unwrap()
     );
-    // A restart keeps the books, and the stub deposits nothing again (ACC-6).
+    // A restart keeps the books, and the stub deposits nothing again.
     drop(client);
     let (dir, clock) = node.stop().await;
     let node = TestNode::start_in(dir, clock, 2).await;

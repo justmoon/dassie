@@ -743,7 +743,7 @@ impl Connector {
     }
 
     /// The next hop for `destination`: below our own address only
-    /// children (or F02, NET-34); beyond it, the longest whole-segment
+    /// children (or F02); beyond it, the longest whole-segment
     /// prefix in the route table, its first hop that is an endpoint and not
     /// the packet's source, so packets do not bounce between peers.
     pub(crate) fn next_hop(

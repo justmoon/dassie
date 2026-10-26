@@ -17,7 +17,7 @@ pub struct Declined;
 /// A peering the scheme agreed to.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Agreed {
-    /// The scheme's state for the peer (ACC-15).
+    /// The scheme's state for the peer.
     pub state: Vec<u8>,
     /// The credit we extend to the peer.
     pub credit_out: u64,

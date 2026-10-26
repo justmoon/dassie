@@ -1,5 +1,5 @@
 //! The v1 wire format: v0's layouts where v1 keeps them (checked against
-//! the original's vectors, spec/original/03-peer-network.md#55-test-vectors),
+//! the original's vectors, from testdata/original),
 //! the v1 changes (spec/areas/peer-protocol.md#versions), and decoders that
 //! never panic.
 

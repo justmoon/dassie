@@ -4,7 +4,7 @@
 //! (spec/areas/node.md#runtimes): three it needs, and the UDP sockets for
 //! QUIC and the rate feed, which it can go without. The original did not check
 //! that `LISTEN_PID` names this process, and reported readiness by running
-//! `systemd-notify` (RT-20). Here both are done in the process: the PID is
+//! `systemd-notify`. Here both are done in the process: the PID is
 //! checked, and `READY=1` and `STOPPING=1` go straight to `NOTIFY_SOCKET`.
 //!
 //! Taking the sockets must happen before any other thread exists, since it
@@ -215,7 +215,6 @@ mod tests {
 
     use super::*;
 
-    // RT-20: the original never compared LISTEN_PID with its own PID.
     #[test]
     fn sockets_for_another_process_are_refused() {
         let env = Env::from_pairs([

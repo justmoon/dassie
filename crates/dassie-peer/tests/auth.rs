@@ -1,6 +1,6 @@
 //! v1 message authentication (spec/decisions/peer-protocol-v1.md,
 //! spec/areas/peer-protocol.md#keys-and-macs). Each test is a way the
-//! original's scheme could be fooled (NET-8) or a property the amended scheme
+//! original's scheme could be fooled or a property the amended scheme
 //! promises.
 
 #![allow(
@@ -104,9 +104,9 @@ fn requests_and_responses_verify_end_to_end() {
     );
 }
 
-// NET-8: in v0 anyone could send as any peered node, since the MAC proved
-// only knowledge of the recipient's public key. Now the key that must be
-// named is the claimed sender's own, and the MAC needs its secret.
+// No one can send as another node: the key a message names is the claimed
+// sender's own, and the MAC needs its secret, not only the recipient's
+// public key.
 #[test]
 fn nobody_can_send_as_another_node() {
     let (a, b, mallory) = (node(1), node(3), node(5));

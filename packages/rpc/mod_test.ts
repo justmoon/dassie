@@ -115,7 +115,7 @@ test("errors carry the node's code", async () => {
   client.close();
 });
 
-// RT-27: the original's calls hung forever when a response was lost.
+// A call never hangs when its response is lost.
 test("a call that gets no answer times out and is cancelled", async () => {
   using time = new FakeTime();
   const { client, sockets } = setUp();

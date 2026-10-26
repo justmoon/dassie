@@ -31,7 +31,7 @@ pub enum Effect {
     },
     /// Our outgoing settlement failed for good: void its pending transfer.
     /// The original never issued this, so failures held their amount until
-    /// a restart (ACC-16).
+    /// a restart.
     Cancel {
         /// The settlement.
         settlement: Name,
@@ -333,8 +333,7 @@ pub trait SettlementScheme: Send {
         None
     }
 
-    /// The scheme protocol versions it speaks, negotiated when peering
-    /// (ACC-14).
+    /// The scheme protocol versions it speaks, negotiated when peering.
     fn supported_versions(&self) -> &'static [u16];
 
     /// The balance on the underlying ledger, in internal units: what the
@@ -581,7 +580,7 @@ pub trait SettlementScheme: Send {
     );
 
     /// Settles the outcome of settlements whose pending transfers survived
-    /// a restart, given by ID and amount, at activation (ACC-16): each gets
+    /// a restart, given by ID and amount, at activation: each gets
     /// [`Effect::Finalize`] or [`Effect::Cancel`], now or later.
     fn reconcile(
         &mut self,

@@ -13,7 +13,7 @@
 //! `ilp-protocol-stream`; the behaviour keeps the original Dassie's
 //! deliberate extensions
 //! (spec/areas/stream.md#differences-from-rfc-29-and-ilp-protocol-stream) and
-//! closes the RFC gaps it left (ILP-11).
+//! closes the RFC gaps it left.
 
 #![no_std]
 

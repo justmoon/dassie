@@ -13,7 +13,7 @@
 //! original implementation (spec/areas/identity.md#derivation-chain): the
 //! same phrase must give the same node ID and the same ledger accounts. The
 //! API around them is new and fixes the original's flaws: phrases are
-//! validated (UI-5), seed paths are bounded and reject empty segments, the
+//! validated, seed paths are bounded and reject empty segments, the
 //! login proof is compared in constant time, the public-key DER has its
 //! unused-bits byte, and non-contributory X25519 results are rejected.
 //!
