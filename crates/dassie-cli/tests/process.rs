@@ -103,13 +103,14 @@ fn socket_activated_daemon_reports_ready_and_stopping() {
     let notify = UnixDatagram::bind(&notify_path).unwrap();
     let ipc = dir.path().join("ipc.sock");
     // One activator listens on datagrams only, so the QUIC socket comes from
-    // an outer one, which the inner passes on first.
+    // an outer one, on the HTTPS port's number as under systemd, which the
+    // inner passes on first.
     let child = Command::new("systemd-socket-activate")
         .args([
             "--now",
             "--datagram",
             "-l",
-            "127.0.0.1:18296",
+            "127.0.0.1:18295",
             "systemd-socket-activate",
             "--now",
             "-l",
@@ -142,7 +143,7 @@ fn socket_activated_daemon_reports_ready_and_stopping() {
     let log = String::from_utf8_lossy(&output.stdout);
     assert!(log.contains("dassie-feed.socket"), "{log}");
     assert!(log.contains("feed=none"), "{log}");
-    assert!(log.contains("quic=127.0.0.1:18296"), "{log}");
+    assert!(log.contains("quic=127.0.0.1:18295"), "{log}");
 }
 
 fn run(args: &[&str], env: &[(&str, &str)]) -> Output {
