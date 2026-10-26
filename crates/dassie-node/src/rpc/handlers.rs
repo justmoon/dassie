@@ -408,11 +408,21 @@ fn basic_state(node: &Node, caller: Caller) -> proto::GetBasicStateResponse {
     }
 }
 
+/// How long status waits for the engine's counters. A stuck engine is when
+/// an owner asks for status most, so it answers without them past this.
+const COUNTERS_READ_MS: u64 = 1_000;
+
 async fn status(node: &Node) -> proto::GetStatusResponse {
     let (has_account, next_check_ms, last_error) = node.renewal_status();
     let (http_port, https_port) = node.ports();
     let counters = match node.engine() {
-        Some(engine) => engine.counters().await.ok(),
+        Some(engine) => tokio::time::timeout(
+            std::time::Duration::from_millis(COUNTERS_READ_MS),
+            engine.counters(),
+        )
+        .await
+        .ok()
+        .and_then(Result::ok),
         None => None,
     };
     proto::GetStatusResponse {
