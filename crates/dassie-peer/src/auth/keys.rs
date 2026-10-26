@@ -133,7 +133,7 @@ pub fn macs_match(a: &[u8; 32], b: &[u8; 32]) -> bool {
     a.ct_eq(b).into()
 }
 
-/// The OER length determinant of a node ID, which is at most 45 bytes and
+/// The OER length determinant of a node ID's text, which is 39 bytes and
 /// so one byte.
 fn length(id: &[u8]) -> [u8; 1] {
     [u8::try_from(id.len()).unwrap_or(u8::MAX)]

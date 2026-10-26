@@ -747,7 +747,7 @@ mod tests {
         assert_eq!(duration(3 * DAY_MS), "3 days");
     }
 
-    const UPLINK: &str = "dDHq9ng9J1z7luQ64eN4MJ_4_w-KK4FPk";
+    const UPLINK: &str = "br5l3hqpjhlt5znzb24hrxqme77d7q7crlqfhza";
     const NAME: &str = "https://gstpaogawdidju5a6m4lolevaes3cm4dj7omffq.dassiepay.net";
 
     fn periphery() -> proto::GetStatusResponse {

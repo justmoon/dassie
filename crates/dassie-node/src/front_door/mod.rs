@@ -1,6 +1,6 @@
 //! A front door (spec/areas/http.md#front-doors): the server that lets
 //! ordinary Open Payments clients reach nodes without a public address, at
-//! `<label>.<domain>`, and at `<name>.<domain>` for a name's holder.
+//! `<node ID>.<domain>`, and at `<name>.<domain>` for a name's holder.
 //!
 //! It is no node: it has no ledger and no wallet, and takes no peer
 //! requests. It runs two listeners with a key of its own, and reads names

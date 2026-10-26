@@ -9,7 +9,7 @@ import {
   PacketState,
   PeerState,
 } from "@dassie/rpc/proto";
-import { LogRing, PeerSet, shortName, TrafficFilter } from "./collect.ts";
+import { LogRing, PeerSet, TrafficFilter } from "./collect.ts";
 
 test("the log ring keeps the last lines", () => {
   const ring = new LogRing(3);
@@ -80,9 +80,4 @@ test("each packet to a peer counts once", () => {
     filter.hop(packet(3n, "peer:d3_y", PacketState.REJECTED)),
     "d3_y",
   );
-});
-
-test("vanity IDs have short names", () => {
-  assertEquals(shortName("d12_abcdefghijklmnopqrstuvwxyz"), "d12");
-  assertEquals(shortName("someone_else"), "someone_else");
 });

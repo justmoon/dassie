@@ -14,7 +14,7 @@
 //!
 //! At the default front door's domain the node is a Dassie-aware client
 //! (spec/areas/payments.md#signed-responses): every answer there must be
-//! signed by the node its host names, the one whose label it is or the
+//! signed by the node its host names, the one whose ID it is or the
 //! holder of the name in this node's view, or it is refused. A name no
 //! node holds is not asked at all.
 
@@ -147,8 +147,8 @@ pub enum FrontDoorHost {
     /// A host elsewhere, or no URL: another wallet's, whose answers are
     /// taken as they come.
     Elsewhere,
-    /// `<label>.dassiepay.net`: the node of that label.
-    Label(NodeId),
+    /// `<node ID>.dassiepay.net`: the node of that ID.
+    Id(NodeId),
     /// `<name>.dassiepay.net`: the node that holds the name.
     Name(Name),
     /// Any other host there, which no node answers at.
@@ -189,9 +189,9 @@ impl FrontDoorHost {
                 Self::Elsewhere
             };
         };
-        // A name is shorter than a label, so no host is both.
-        if let Ok(id) = NodeId::from_label(first) {
-            Self::Label(id)
+        // A name is shorter than a node ID, so no host is both.
+        if let Ok(id) = NodeId::parse(first) {
+            Self::Id(id)
         } else if let Ok(name) = Name::parse(first) {
             Self::Name(name)
         } else {
@@ -210,7 +210,7 @@ impl FrontDoorHost {
 pub async fn signer(node: &Node, url: &str) -> Result<Option<NodeId>, ClientError> {
     match FrontDoorHost::of(url) {
         FrontDoorHost::Elsewhere => Ok(None),
-        FrontDoorHost::Label(id) => Ok(Some(id)),
+        FrontDoorHost::Id(id) => Ok(Some(id)),
         FrontDoorHost::Name(name) => {
             let engine = node.engine().ok_or(ClientError::Unavailable)?;
             let holder = engine
@@ -670,19 +670,19 @@ mod tests {
     #[test]
     fn reads_hosts_at_the_default_front_door() {
         let id = NodeKey::from_bytes(&[3; 32]).node_id();
-        let label = id.label().unwrap();
+        let label = id;
         let alice = Name::parse("alice").unwrap();
         for (url, host) in [
             (
                 format!("https://{label}.dassiepay.net/pay/usd"),
-                FrontDoorHost::Label(id),
+                FrontDoorHost::Id(id),
             ),
             (
                 format!(
                     "https://{}.DASSIEPAY.net:443",
                     label.as_str().to_ascii_uppercase()
                 ),
-                FrontDoorHost::Label(id),
+                FrontDoorHost::Id(id),
             ),
             (
                 "https://alice.dassiepay.net/.well-known/pay".into(),
@@ -720,7 +720,7 @@ mod tests {
             ),
             (
                 format!("https://{label}.dassiepay.net.:443/"),
-                FrontDoorHost::Label(id),
+                FrontDoorHost::Id(id),
             ),
             ("https://dassiepay.net./".into(), FrontDoorHost::Unknown),
             (

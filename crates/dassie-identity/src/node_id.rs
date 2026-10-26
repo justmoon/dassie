@@ -1,11 +1,14 @@
 //! Node IDs: the short, self-certifying name of a node
 //! (spec/areas/identity.md#node-id).
+//!
+//! An ID is the first 24 bytes of a SHA-256 of the node's public key. Its
+//! text is those bytes in lowercase base32 (RFC 4648, no padding): 39
+//! characters that are at once an ILP address segment, a DNS label and what
+//! the owner reads, in either case. On the wire it is the 24 bytes.
 
-use core::cmp::Ordering;
 use core::fmt;
-use core::hash::{Hash, Hasher};
 
-use dassie_oer::{Alphabet, Size, Writer, oid};
+use dassie_oer::{Decode, DecodeError, DecodeErrorKind, Encode, Reader, Size, Writer, oid};
 use sha2::{Digest, Sha256};
 
 use crate::error::Error;
@@ -18,67 +21,33 @@ const FINGERPRINT_V1_OID: [u8; 14] = oid::encode(&[1, 3, 6, 1, 4, 1, 54392, 5, 1
 /// length determinant and the key.
 pub const HASH_INPUT_LENGTH: usize = FINGERPRINT_V1_OID.len() + 1 + 32;
 
-/// Base64url characters of the digest kept in an ID, before stripping.
-const DIGEST_CHARACTERS: usize = 32;
+/// Digest bytes a node ID keeps: what it is on the wire.
+pub const NODE_ID_BYTES: usize = 24;
 
-/// Digest bytes that encode to exactly [`DIGEST_CHARACTERS`] characters.
-const DIGEST_BYTES: usize = DIGEST_CHARACTERS / 4 * 3;
+/// Characters of a node ID's text: [`NODE_ID_BYTES`] in base32.
+pub const NODE_ID_LENGTH: usize = 39;
 
-/// The peer wire schema of a node ID.
-const NODE_ID_SIZE: Size = Size::range(2, MAX_NODE_ID_LENGTH);
-const NODE_ID_ALPHABET: Alphabet = Alphabet::EMPTY
-    .with_range(b'a', b'z')
-    .with_range(b'A', b'Z')
-    .with_range(b'0', b'9')
-    .with_chars(b"-_");
+const _: () = assert!(NODE_ID_LENGTH == (NODE_ID_BYTES * 8).div_ceil(5));
 
-/// Longest node ID the wire schema allows. IDs computed from keys are at
-/// most 33 characters; the schema leaves room for longer ones.
-pub const MAX_NODE_ID_LENGTH: usize = 45;
+/// RFC 4648 §6, lowercase.
+const ALPHABET: &[u8; 32] = b"abcdefghijklmnopqrstuvwxyz234567";
 
-/// A node ID, held inline as up to [`MAX_NODE_ID_LENGTH`] ASCII characters
-/// so that it can be copied and compared without allocating.
-#[derive(Clone, Copy)]
+/// A node ID, held as its text, so that it can be copied, compared and
+/// shown without allocating.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct NodeId {
-    bytes: [u8; MAX_NODE_ID_LENGTH],
-    length: u8,
+    text: [u8; NODE_ID_LENGTH],
 }
 
 impl NodeId {
-    /// The node ID of an Ed25519 public key:
-    /// `"d" + base64url(SHA-256(input))[0..32]` with trailing `A`s removed,
-    /// where `input` is [`hash_input`](Self::hash_input).
-    ///
-    /// Stripping the `A`s is a quirk of the original, kept because node IDs
-    /// must not change (spec/areas/identity.md#node-id).
+    /// The node ID of an Ed25519 public key: the first [`NODE_ID_BYTES`]
+    /// of `SHA-256(input)`, where `input` is [`hash_input`](Self::hash_input).
     #[must_use]
     pub fn from_public_key(public_key: &[u8; 32]) -> Self {
         let digest = Sha256::digest(Self::hash_input(public_key));
-        let mut encoded = [0u8; DIGEST_CHARACTERS];
-        let written =
-            dassie_base64url::encode(digest.get(..DIGEST_BYTES).unwrap_or_default(), &mut encoded);
-        assert!(
-            written == DIGEST_CHARACTERS,
-            "digest prefix encodes to 32 characters"
-        );
-
-        let kept = encoded
-            .iter()
-            .rposition(|&character| character != b'A')
-            .map_or(0, |last| last + 1);
-        let mut id = Self {
-            bytes: [0; MAX_NODE_ID_LENGTH],
-            length: 0,
-        };
-        id.push(b'd');
-        for &character in encoded.iter().take(kept) {
-            id.push(character);
-        }
-        assert!(
-            id.len() <= 1 + DIGEST_CHARACTERS,
-            "computed IDs are at most 33 characters"
-        );
-        id
+        let mut bytes = [0u8; NODE_ID_BYTES];
+        bytes.copy_from_slice(digest.get(..NODE_ID_BYTES).unwrap_or(&[0; NODE_ID_BYTES]));
+        Self::from_bytes(&bytes)
     }
 
     /// The fingerprint input: the canonical OER of
@@ -98,91 +67,141 @@ impl NodeId {
         input
     }
 
-    /// Parses a node ID received from elsewhere, applying the wire schema:
-    /// 2 to 45 characters of `[A-Za-z0-9_-]`.
+    /// The ID of the digest bytes `bytes`.
+    #[must_use]
+    pub fn from_bytes(bytes: &[u8; NODE_ID_BYTES]) -> Self {
+        let mut id = Self {
+            text: [0; NODE_ID_LENGTH],
+        };
+        let mut slots = id.text.iter_mut();
+        let mut buffer: u16 = 0;
+        let mut bits: u32 = 0;
+        for &byte in bytes {
+            buffer = (buffer << 8) | u16::from(byte);
+            bits += 8;
+            while bits >= 5 {
+                bits -= 5;
+                if let Some(slot) = slots.next() {
+                    *slot = symbol(buffer >> bits);
+                }
+            }
+            buffer &= (1 << bits) - 1;
+        }
+        if bits > 0
+            && let Some(slot) = slots.next()
+        {
+            *slot = symbol(buffer << (5 - bits));
+        }
+        assert!(slots.next().is_none(), "an ID has 39 characters");
+        id
+    }
+
+    /// The digest bytes the ID is.
+    #[must_use]
+    pub fn to_bytes(&self) -> [u8; NODE_ID_BYTES] {
+        let mut bytes = [0u8; NODE_ID_BYTES];
+        let mut slots = bytes.iter_mut();
+        let mut buffer: u16 = 0;
+        let mut bits: u32 = 0;
+        for &character in &self.text {
+            buffer = (buffer << 5) | u16::from(value(character));
+            bits += 5;
+            if bits >= 8 {
+                bits -= 8;
+                // The low byte after the shift: the next eight bits.
+                let [byte, _] = (buffer >> bits).to_le_bytes();
+                if let Some(slot) = slots.next() {
+                    *slot = byte;
+                }
+                buffer &= (1 << bits) - 1;
+            }
+        }
+        assert!(slots.next().is_none(), "an ID holds 24 bytes");
+        bytes
+    }
+
+    /// Parses a node ID's text, in either case, since DNS ignores case.
     ///
     /// Whether the ID belongs to a key is a separate question, answered by
     /// comparing it with [`from_public_key`](Self::from_public_key).
+    ///
+    /// # Errors
+    ///
+    /// [`Error::InvalidNodeId`] unless it is 39 base32 characters whose
+    /// unused last bits are zero, so that each ID has one text.
     pub fn parse(text: &str) -> Result<Self, Error> {
-        let valid =
-            NODE_ID_SIZE.contains(text.len()) && NODE_ID_ALPHABET.contains_all(text.as_bytes());
-        if !valid {
-            return Err(Error::InvalidNodeId);
-        }
+        let characters: &[u8; NODE_ID_LENGTH] = text
+            .as_bytes()
+            .try_into()
+            .map_err(|_| Error::InvalidNodeId)?;
         let mut id = Self {
-            bytes: [0; MAX_NODE_ID_LENGTH],
-            length: 0,
+            text: [0; NODE_ID_LENGTH],
         };
-        for &character in text.as_bytes() {
-            id.push(character);
+        for (slot, &character) in id.text.iter_mut().zip(characters) {
+            let lower = character.to_ascii_lowercase();
+            if !ALPHABET.contains(&lower) {
+                return Err(Error::InvalidNodeId);
+            }
+            *slot = lower;
+        }
+        // 39 characters carry 195 bits, 3 more than the digest's 192.
+        let last = id.text.last().copied().map_or(0, value);
+        if last & 0b111 != 0 {
+            return Err(Error::InvalidNodeId);
         }
         Ok(id)
     }
 
-    /// The ID as text.
+    /// The ID as text: 39 characters of `[a-z2-7]`.
     #[must_use]
-    // Panics only on a broken invariant: only ASCII is ever stored.
+    // Panics only on a broken invariant: only the alphabet is ever stored.
     #[allow(clippy::panic)]
     pub fn as_str(&self) -> &str {
-        let bytes = self.bytes.get(..self.len()).unwrap_or_default();
-        let Ok(text) = core::str::from_utf8(bytes) else {
+        let Ok(text) = core::str::from_utf8(&self.text) else {
             panic!("node IDs hold only ASCII");
         };
         text
     }
+}
 
-    /// Length in characters.
-    #[must_use]
-    pub fn len(&self) -> usize {
-        usize::from(self.length)
-    }
+/// The character of the low five bits of `quintet`.
+fn symbol(quintet: u16) -> u8 {
+    let index = usize::from(quintet & 0b1_1111);
+    ALPHABET.get(index).copied().unwrap_or(b'a')
+}
 
-    /// Always false: a node ID has at least two characters. Present because
-    /// a `len` without it reads as an oversight.
-    #[must_use]
-    pub const fn is_empty(&self) -> bool {
-        false
-    }
-
-    // Panics only on a broken invariant: callers check the length first.
-    #[allow(clippy::panic)]
-    fn push(&mut self, character: u8) {
-        assert!(
-            NODE_ID_ALPHABET.contains(character),
-            "node ID character outside the alphabet"
-        );
-        let length = self.len();
-        let Some(slot) = self.bytes.get_mut(length) else {
-            panic!("node ID longer than {MAX_NODE_ID_LENGTH} characters");
-        };
-        *slot = character;
-        self.length += 1;
+/// The five bits of a character of the alphabet; zero for any other,
+/// which [`NodeId::parse`] never stores.
+fn value(character: u8) -> u8 {
+    match character {
+        b'a'..=b'z' => character - b'a',
+        b'2'..=b'7' => character - b'2' + 26,
+        _ => 0,
     }
 }
 
-impl PartialEq for NodeId {
-    fn eq(&self, other: &Self) -> bool {
-        self.as_str() == other.as_str()
+/// On the wire, an ID is its digest bytes, `OCTET STRING (SIZE (24))`,
+/// which OER writes without a length: every 24 bytes are an ID, and each ID
+/// has one encoding.
+impl Encode for NodeId {
+    fn encoded_len(&self) -> usize {
+        NODE_ID_BYTES
+    }
+
+    fn encode_to(&self, writer: &mut Writer<'_>) {
+        writer.write_bytes(&self.to_bytes());
     }
 }
 
-impl Eq for NodeId {}
+impl Decode<'_> for NodeId {
+    type Error = DecodeError;
 
-impl PartialOrd for NodeId {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for NodeId {
-    fn cmp(&self, other: &Self) -> Ordering {
-        self.as_str().cmp(other.as_str())
-    }
-}
-
-impl Hash for NodeId {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.as_str().hash(state);
+    fn decode(reader: &mut Reader<'_>) -> Result<Self, DecodeError> {
+        let offset = reader.offset();
+        let bytes = reader
+            .read_array::<NODE_ID_BYTES>()
+            .map_err(|_| DecodeError::new(offset, DecodeErrorKind::UnexpectedEnd))?;
+        Ok(Self::from_bytes(bytes))
     }
 }
 
@@ -206,6 +225,8 @@ impl fmt::Debug for NodeId {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used)]
+
     use super::*;
 
     #[test]
@@ -217,17 +238,75 @@ mod tests {
         assert_eq!(HASH_INPUT_LENGTH, 47);
     }
 
+    /// Bytes and their text, computed apart with Python's base64 module:
+    /// a digest that ends in zeros, and the edges of the alphabet.
+    const VECTORS: &[(&str, &str)] = &[
+        (
+            "34a6f038c0b0d034d3a0f338b72c950125b133834fdcc296",
+            "gstpaogawdidju5a6m4lolevaes3cm4dj7omffq",
+        ),
+        (
+            "c9b39caec750aec469ab758fa5023a918709a4ab74ff3600",
+            "zgzzzlwhkcxmi2nlowh2kar2sgdqtjflot7tmaa",
+        ),
+        (
+            "000000000000000000000000000000000000000000000000",
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        ),
+        (
+            "ffffffffffffffffffffffffffffffffffffffffffffffff",
+            "77777777777777777777777777777777777777y",
+        ),
+    ];
+
+    fn bytes(hex: &str) -> [u8; NODE_ID_BYTES] {
+        let mut bytes = [0; NODE_ID_BYTES];
+        for (index, byte) in bytes.iter_mut().enumerate() {
+            *byte = u8::from_str_radix(&hex[index * 2..index * 2 + 2], 16).unwrap();
+        }
+        bytes
+    }
+
     #[test]
-    fn parse_applies_the_wire_schema() {
-        assert_eq!(NodeId::parse("d").map(|_| ()), Err(Error::InvalidNodeId));
-        assert_eq!(NodeId::parse("d.").map(|_| ()), Err(Error::InvalidNodeId));
-        assert_eq!(NodeId::parse("dé").map(|_| ()), Err(Error::InvalidNodeId));
-        let longest = "d01234567890123456789012345678901234567890123";
-        assert_eq!(NodeId::parse(longest).map(|id| id.len()), Ok(45));
-        let too_long = "d012345678901234567890123456789012345678901234";
-        assert_eq!(
-            NodeId::parse(too_long).map(|_| ()),
-            Err(Error::InvalidNodeId)
-        );
+    fn vectors_both_ways() {
+        for &(hex, text) in VECTORS {
+            let id = NodeId::from_bytes(&bytes(hex));
+            assert_eq!(id.as_str(), text);
+            assert_eq!(id.to_bytes(), bytes(hex));
+            assert_eq!(NodeId::parse(text), Ok(id));
+            assert_eq!(NodeId::parse(&text.to_ascii_uppercase()), Ok(id));
+        }
+    }
+
+    #[test]
+    fn malformed_ids_are_refused() {
+        for text in [
+            "",
+            "aaaa",
+            // One character short and one too many.
+            "gstpaogawdidju5a6m4lolevaes3cm4dj7omff",
+            "gstpaogawdidju5a6m4lolevaes3cm4dj7omffqa",
+            // Outside the alphabet.
+            "gstpaogawdidju5a6m4lolevaes3cm4dj7omff1",
+            "gstpaogawdidju5a6m4lolevaes3cm4dj7omff=",
+            // Unused bits set: a second spelling of the first vector.
+            "gstpaogawdidju5a6m4lolevaes3cm4dj7omffr",
+            // The old form, base64url after a `d`.
+            "dNKbwOMCw0DTToPM4tyyVASWxM4NP3MKW",
+        ] {
+            assert_eq!(NodeId::parse(text), Err(Error::InvalidNodeId), "{text:?}");
+        }
+    }
+
+    #[test]
+    fn the_wire_carries_the_bytes() {
+        let id = NodeId::from_bytes(&bytes(VECTORS[0].0));
+        let mut buffer = [0; NODE_ID_BYTES + 1];
+        assert_eq!(id.encode(&mut buffer), NODE_ID_BYTES);
+        assert_eq!(buffer.get(..NODE_ID_BYTES), Some(&bytes(VECTORS[0].0)[..]));
+        let mut reader = Reader::new(&buffer);
+        assert_eq!(NodeId::decode(&mut reader), Ok(id));
+        let short = [0; NODE_ID_BYTES - 1];
+        assert!(NodeId::decode(&mut Reader::new(&short)).is_err());
     }
 }

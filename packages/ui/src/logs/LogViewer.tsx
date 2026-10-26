@@ -38,6 +38,8 @@ export interface LogSources {
   of: (line: LogLine) => string;
   /** The page of a source, or of a node named in a message. */
   href: (source: string) => string;
+  /** The name of the node of an ID, if it is one of the dev nodes. */
+  nameOf: (id: string) => string | undefined;
 }
 
 export function LogViewer(props: {
@@ -178,7 +180,7 @@ function Text(props: { text: string; sources?: LogSources }): JSX.Element {
     <>
       {props.sources
         ? (
-          <For each={splitIds(props.text)}>
+          <For each={splitIds(props.text, props.sources!.nameOf)}>
             {(piece) =>
               typeof piece === "string"
                 ? piece

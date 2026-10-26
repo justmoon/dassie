@@ -2,9 +2,9 @@
 // computed with libraries of their own rather than with Dassie's code, so
 // that the node, the wallet's WASM build and these libraries must agree:
 // @scure/bip39 for the phrase and the master seed, @noble/hashes for the
-// HMAC tree of seed paths and the node ID's digest, @noble/curves for
-// Ed25519 and X25519, @scure/bip32 for a hub's payout key, and xrpl.js for
-// the XRP Ledger wallets.
+// HMAC tree of seed paths and the node ID's digest, @scure/base for its
+// base32, @noble/curves for Ed25519 and X25519, @scure/bip32 for a hub's
+// payout key, and xrpl.js for the XRP Ledger wallets.
 //
 // It writes, into crates/dassie-identity/tests/data/:
 //
@@ -32,6 +32,7 @@ const require = createRequire(`${process.env.NODE_PATH}/`);
 const { entropyToMnemonic, mnemonicToSeedSync } = require("@scure/bip39");
 const { wordlist } = require("@scure/bip39/wordlists/english.js");
 const { HDKey } = require("@scure/bip32");
+const { base32nopad } = require("@scure/base");
 const { sha256 } = require("@noble/hashes/sha2.js");
 const { hmac } = require("@noble/hashes/hmac.js");
 const { ed25519, x25519 } = require("@noble/curves/ed25519.js");
@@ -60,15 +61,15 @@ const derive = (nodeKey, path) => {
 };
 
 // The node ID: the OER of the fingerprint OID 1.3.6.1.4.1.54392.5.1399.2.1
-// and the key, hashed; the first 24 bytes of the digest in base64url, with
-// trailing `A`s dropped, after a `d`.
+// and the key, hashed; the first 24 bytes of the digest in lowercase
+// base32, without padding.
 const FINGERPRINT_OID = Uint8Array.from([
   0x0d, 0x2b, 0x06, 0x01, 0x04, 0x01, 0x83, 0xa8, 0x78, 0x05, 0x8a, 0x77, 0x02, 0x01,
 ]);
 const hashInput = (publicKey) => Uint8Array.from([...FINGERPRINT_OID, 0x20, ...publicKey]);
 const nodeId = (publicKey) => {
   const digest = sha256(hashInput(publicKey)).subarray(0, 24);
-  return `d${Buffer.from(digest).toString("base64url").replace(/A+$/, "")}`;
+  return base32nopad.encode(digest).toLowerCase();
 };
 
 // An XRP Ledger wallet of 32 bytes of entropy: an Ed25519 family seed of

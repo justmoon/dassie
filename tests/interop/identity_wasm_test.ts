@@ -5,7 +5,7 @@
 import { test } from "node:test";
 import { readFile } from "node:fs/promises";
 
-import { assert, assertEquals, assertFalse, assertThrows } from "@std/assert";
+import { assert, assertEquals, assertFalse } from "@std/assert";
 
 import {
   decodeIlpPacket,
@@ -16,8 +16,6 @@ import {
   encodeReject,
   loginSecret,
   nodeId,
-  nodeIdFromLabel,
-  nodeLabel,
   normalizeMnemonic,
   publicKey,
   sign,
@@ -55,29 +53,6 @@ test("the passphrase chain matches the vectors", async () => {
       entry.devSessionToken,
     );
   }
-});
-
-test("node labels match the native ones", () => {
-  // As crates/dassie-identity/src/label.rs pins them, one of them for an
-  // ID whose digest ended in an `A`.
-  const vectors = [
-    [
-      "dNKbwOMCw0DTToPM4tyyVASWxM4NP3MKW",
-      "gstpaogawdidju5a6m4lolevaes3cm4dj7omffq",
-    ],
-    [
-      "dybOcrsdQrsRpq3WPpQI6kYcJpKt0_zY",
-      "zgzzzlwhkcxmi2nlowh2kar2sgdqtjflot7tmaa",
-    ],
-  ];
-  for (const [id, label] of vectors) {
-    assertEquals(nodeLabel(id), label);
-    assertEquals(nodeIdFromLabel(label.toUpperCase()), id);
-  }
-  assertThrows(() => nodeLabel("dabcA"));
-  assertThrows(() =>
-    nodeIdFromLabel("gstpaogawdidju5a6m4lolevaes3cm4dj7omffr")
-  );
 });
 
 test("phrases are validated and canonicalised", async () => {

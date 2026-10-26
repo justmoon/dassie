@@ -108,8 +108,7 @@ mod tests {
         ];
         expected.push(5);
         expected.extend(b"alice");
-        expected.push(u8::try_from(holder().as_str().len()).unwrap());
-        expected.extend(holder().as_str().as_bytes());
+        expected.extend(holder().to_bytes());
         expected.extend([7; SALT_BYTES]);
         assert_eq!(bytes, expected);
         assert_eq!(COMMITMENT_OID[..13], crate::wire::NODE_INFO_OID[..13]);

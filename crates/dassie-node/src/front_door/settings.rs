@@ -21,7 +21,7 @@ const KEY_FILE_NAME: &str = "front-door.key";
 /// What a front door runs with.
 #[derive(Clone, Debug)]
 pub struct Settings {
-    /// The domain it serves nodes under, as `<label>.<domain>`
+    /// The domain it serves nodes under, as `<node ID>.<domain>`
     /// (`DASSIE_FRONT_DOOR_DOMAIN`).
     pub domain: Hostname,
     /// The HTTPS listener (`DASSIE_FRONT_DOOR_HTTPS_LISTEN`).

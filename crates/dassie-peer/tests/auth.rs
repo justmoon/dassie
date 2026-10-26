@@ -500,6 +500,6 @@ fn the_mac_is_pinned() {
     // here.
     assert_eq!(
         hex,
-        "7253c8ea5323692f8b6b7a15cefe82e79a7b6cb77cc49ef480bef76b44920e55"
+        "607dfb1278586a22747aa55ff234c6de0b0b7ff6fa78de40ffb730636d3ca5f3"
     );
 }

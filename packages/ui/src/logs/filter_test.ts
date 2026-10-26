@@ -37,13 +37,18 @@ test("a line's source counts in the filter", () => {
   assertEquals(matches(line, parseFilter("-host"), "host"), false);
 });
 
-test("vanity IDs are picked out of text", () => {
-  const id = "d12_abcdefghijklmnopqrstuvwxyz";
-  assertEquals(splitIds(`peered with ${id}.`), [
+test("the node IDs of known nodes are picked out of text", () => {
+  const id = "272r4ccpkqycyl2uoslxjd3i2e5hhyvz4j2wxui";
+  const other = "3pyq6ky3f4hdexe3ior3fu5pdwym4e6mmlxndwy";
+  const nameOf = (text: string) => text === id ? "d12" : undefined;
+  assertEquals(splitIds(`peered with ${id}.`, nameOf), [
     "peered with ",
     { id, name: "d12" },
     ".",
   ]);
-  assertEquals(splitIds("no ids here"), ["no ids here"]);
-  assertEquals(splitIds("d1_short"), ["d1_short"]);
+  assertEquals(splitIds(`peered with ${other}.`, nameOf), [
+    `peered with ${other}.`,
+  ]);
+  assertEquals(splitIds("no ids here", nameOf), ["no ids here"]);
+  assertEquals(splitIds(`${id}x`, nameOf), [`${id}x`]);
 });

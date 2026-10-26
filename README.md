@@ -40,7 +40,7 @@ From there, the wallet sends and receives payments, shows their status and your 
 
 **Open Payments.** Each ledger has a wallet address at `https://<your host>/pay/<ledger>`, for example `/pay/xrp`, and `$<your host>` names the default one. Other wallets and apps pay into it, and with a grant you approve in the wallet, they may also pay out of it, up to the limits you agreed to. The wallet's Send takes a payment pointer or a payment request, and its grants page lists who may do what.
 
-A node without a hostname answers Open Payments at `https://<label>.dassiepay.net` instead, through the front door there, which reaches it over a connection the node keeps to it while it has no hostname. `DASSIE_RELAY` names another relay, as the entry its front door logs, or, set empty, none ([default-relay](spec/decisions/default-relay.md)).
+A node without a hostname answers Open Payments at `https://<node ID>.dassiepay.net` instead, through the front door there, which reaches it over a connection the node keeps to it while it has no hostname. `DASSIE_RELAY` names another relay, as the entry its front door logs, or, set empty, none ([default-relay](spec/decisions/default-relay.md)).
 
 **BTP.** A BTP token, made in the wallet's settings, lets an ILP client such as `ilp-plugin-btp` spend through the node, at most its spending cap per window if you give it one. Over RPC, `createBtpToken` answers with the `btp+wss://` URL to connect with.
 
@@ -53,7 +53,7 @@ A node without a hostname answers Open Payments at `https://<label>.dassiepay.ne
 ```ini
 # /etc/systemd/system/dassie.service.d/bootstrap.conf
 [Service]
-Environment='DASSIE_BOOTSTRAP_NODES=[{"id":"dDHq9ng9J1z7luQ64eN4MJ_4_w-KK4FPk","url":"https://boot1.dassie.xyz","publicKey":"w25V-7IreZNDCPvwCrpiIv9Li5uwomzPSvqHot9ffLI"},{"id":"dE0GE90-9QCQI78S2_h5QaG81oo_cVKz1","url":"https://boot2.dassie.xyz","publicKey":"s9xgWff_UZ26HQwHT_aPd0q0SwyKPGXS74fd2xQjh14"},{"id":"dtTay2e6AV4J940nFJ6_WPkVL-TyrVKGW","url":"https://boot3.dassie.xyz","publicKey":"--P-gYMJ_ZZrFHa4GiNfVQ0x2jSu9_dr7z0mI_bcngY"},{"id":"dxZ8EFGaoQLvgSQacinFm64zjWeA0BzV-","url":"https://boot4.dassie.xyz","publicKey":"qNW0ZwnIvaca6f54gIG-YFLQSefzC6JA4h3Oh1QJU6I"}]'
+Environment='DASSIE_BOOTSTRAP_NODES=[{"id":"br5l3hqpjhlt5znzb24hrxqme77d7q7crlqfhza","url":"https://boot1.dassie.xyz","publicKey":"w25V-7IreZNDCPvwCrpiIv9Li5uwomzPSvqHot9ffLI"},{"id":"cnayj52pxvacichpys3p4hsqnbxtliup3rkkz5i","url":"https://boot2.dassie.xyz","publicKey":"s9xgWff_UZ26HQwHT_aPd0q0SwyKPGXS74fd2xQjh14"},{"id":"wu3lfwpoqblye7pdjhcspl6whzcux6j4vnkkdfq","url":"https://boot3.dassie.xyz","publicKey":"--P-gYMJ_ZZrFHa4GiNfVQ0x2jSu9_dr7z0mI_bcngY"},{"id":"ywpqifdgvbalxycja2oiu4lg5ogogwpagqdtk7q","url":"https://boot4.dassie.xyz","publicKey":"qNW0ZwnIvaca6f54gIG-YFLQSefzC6JA4h3Oh1QJU6I"}]'
 ```
 
 A node without a hostname still peers, as a periphery node: it asks core nodes to be its uplinks and is reached through them. `DASSIE_UPLINKS` pins them, as node IDs separated by commas (`d…,d…`): the node then asks only those, and looks for as many uplinks as it names, which is what a market maker's nodes need to trade through one core node. A node with a hostname ignores it, and says so when it starts.

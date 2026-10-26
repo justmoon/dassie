@@ -111,7 +111,7 @@ message ListPeersResponse {
 // on shortest paths.
 message NetworkRoute {
   string node = 1;
-  // For example "test.das.dNKbw…".
+  // For example "test.das.gstpa…".
   string prefix = 2;
   repeated string first_hops = 3;
   // How many hops away the node is.

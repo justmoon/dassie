@@ -28,7 +28,6 @@
 extern crate std;
 
 mod error;
-mod label;
 mod mnemonic;
 mod node_id;
 mod node_key;
@@ -39,9 +38,8 @@ mod wordlist;
 mod x25519;
 
 pub use error::Error;
-pub use label::{NODE_LABEL_LENGTH, NodeLabel};
 pub use mnemonic::{MAX_PHRASE_INPUT_BYTES, MAX_PHRASE_LENGTH, Mnemonic, Phrase, WordCount, Words};
-pub use node_id::{HASH_INPUT_LENGTH, MAX_NODE_ID_LENGTH, NodeId};
+pub use node_id::{HASH_INPUT_LENGTH, NODE_ID_BYTES, NODE_ID_LENGTH, NodeId};
 pub use node_key::{
     NodeKey, PKCS8_DER_LENGTH, PrivateKeyDer, PublicKey, SPKI_DER_LENGTH, Signature,
 };

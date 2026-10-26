@@ -53,7 +53,7 @@ pub const GRANT_PATH: &str = "/gnap";
 /// The prefix of incoming payments' paths.
 pub const INCOMING_PREFIX: &str = "/incoming-payments";
 /// The default front door's domain: a node without a hostname answers to
-/// `<label>.dassiepay.net` first.
+/// `<node ID>.dassiepay.net` first.
 pub const DEFAULT_FRONT_DOOR_DOMAIN: &str = "dassiepay.net";
 
 /// Every Open Payments request, per client address. A front door charges
@@ -219,7 +219,7 @@ impl Names {
     /// can be lost or expire (spec/areas/payments.md#the-nodes-names).
     /// The node answers to the names it holds at the default front door's
     /// domain, and at the domain of each name its owner added that is the
-    /// node's label there, `<label>.<domain>`: another front door, which
+    /// node's ID there, `<node ID>.<domain>`: another front door, which
     /// passes a name on to its holder under that domain.
     #[must_use]
     pub fn new(
@@ -294,28 +294,24 @@ impl Names {
     }
 }
 
-/// `<label>.dassiepay.net`, for a node ID a key gives.
+/// `<node ID>.dassiepay.net`.
 fn default_name(id: &NodeId) -> Option<Hostname> {
-    let label = id.label().ok()?;
-    Hostname::parse(&format!("{label}.{DEFAULT_FRONT_DOOR_DOMAIN}")).ok()
+    Hostname::parse(&format!("{id}.{DEFAULT_FRONT_DOOR_DOMAIN}")).ok()
 }
 
 /// The domains of the front doors the node is named at: the default one,
-/// then each of a name in `added` that is the node's label there, at most
+/// then each of a name in `added` that is the node's ID there, at most
 /// [`MAX_FRONT_DOORS`].
 fn front_doors(id: &NodeId, added: &[Hostname]) -> Vec<String> {
     let mut doors = vec![DEFAULT_FRONT_DOOR_DOMAIN.to_string()];
-    let Ok(label) = id.label() else {
-        return doors;
-    };
-    let label = label.to_string();
+    let label = id.as_str();
     for name in added {
         if doors.len() == MAX_FRONT_DOORS {
             break;
         }
         let domain = name
             .as_str()
-            .strip_prefix(label.as_str())
+            .strip_prefix(label)
             .and_then(|rest| rest.strip_prefix('.'));
         if let Some(domain) = domain
             && !doors.iter().any(|door| door == domain)
@@ -585,10 +581,10 @@ mod tests {
         Hostname::parse(text).unwrap()
     }
 
-    /// The node of the label vector in `dassie-identity`, with two names
+    /// The node of the first ID vector in `dassie-identity`, with two names
     /// its owner added, one of them twice.
     fn listed() -> (Names, String) {
-        let id = NodeId::parse("dNKbwOMCw0DTToPM4tyyVASWxM4NP3MKW").unwrap();
+        let id = NodeId::parse("gstpaogawdidju5a6m4lolevaes3cm4dj7omffq").unwrap();
         let default = "gstpaogawdidju5a6m4lolevaes3cm4dj7omffq.dassiepay.net".to_string();
         let added = [
             hostname("pay.example.com"),
@@ -603,7 +599,7 @@ mod tests {
 
     #[test]
     fn a_node_with_a_hostname_answers_under_it_alone() {
-        let id = NodeId::parse("dNKbwOMCw0DTToPM4tyyVASWxM4NP3MKW").unwrap();
+        let id = NodeId::parse("gstpaogawdidju5a6m4lolevaes3cm4dj7omffq").unwrap();
         let names = Names::new(
             Some(&hostname("node.example")),
             8443,
@@ -675,7 +671,7 @@ mod tests {
     // and stops when it no longer holds them.
     #[test]
     fn a_node_answers_to_the_names_it_holds() {
-        let id = NodeId::parse("dNKbwOMCw0DTToPM4tyyVASWxM4NP3MKW").unwrap();
+        let id = NodeId::parse("gstpaogawdidju5a6m4lolevaes3cm4dj7omffq").unwrap();
         let default = "gstpaogawdidju5a6m4lolevaes3cm4dj7omffq.dassiepay.net";
         let added = [hostname("pay.example.com"), hostname("bob.dassiepay.net")];
         let held = [Name::parse("alice").unwrap(), Name::parse("bob").unwrap()];
@@ -724,7 +720,7 @@ mod tests {
     // its owner names there answers to its names there too.
     #[test]
     fn a_node_answers_to_its_names_at_each_front_door_it_is_named_at() {
-        let id = NodeId::parse("dNKbwOMCw0DTToPM4tyyVASWxM4NP3MKW").unwrap();
+        let id = NodeId::parse("gstpaogawdidju5a6m4lolevaes3cm4dj7omffq").unwrap();
         let label = "gstpaogawdidju5a6m4lolevaes3cm4dj7omffq";
         let added = [
             hostname("pay.example.com"),

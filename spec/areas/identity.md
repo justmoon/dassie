@@ -34,15 +34,14 @@ Node keys, signatures and node IDs stay Ed25519 for good, since the chain to the
 
 ## Node ID
 
-The node ID is the short, self-certifying name of a node: a truncated SHA-256 of the public key under a versioned OID, base64url, prefixed with `d` (`src/node_id.rs`). It strips trailing `A` characters, a quirk of the original kept because node IDs must not change.
+The node ID is the short, self-certifying name of a node (`src/node_id.rs`): the first 24 bytes of a SHA-256 of the public key under a versioned OID.
+
+- **Its text** is those bytes in lowercase base32 (RFC 4648, no padding): 39 characters of `[a-z2-7]`, one form wherever a person or a protocol reads it. It is the node's segment in ILP addresses, its DNS label at a front door, `<node ID>.<domain>` ([Payments](payments.md#the-nodes-names)), what logs and the wallet show, and what configuration names. Text is read in either case, since DNS ignores case, and its three unused last bits must be zero, so that each ID has one text. Base32 rather than base64url so that one form serves DNS too; 24 bytes so that it fits a DNS label, 63 characters, with room to spare.
+- **On the wire** it is its 24 bytes, through the one encoding `NodeId` gives (`Encode` and `Decode`), which every wire format uses: fixed in length, so no format carries an ID's length or bounds it, and every 24 bytes are an ID.
+
+The ID is frozen with the [derivation chain](#derivation-chain): DNS names, clients' records and the bootstrap node lists are built from it, and a client checks the key a node signs with against the ID its host names ([Payments](payments.md#signed-responses)).
 
 An ID received from elsewhere is only a name until checked: it must equal the ID computed from the key it comes with, and a link state, peering request or authenticated message whose ID and key disagree is refused ([Peer protocol](peer-protocol.md)).
-
-## Node label
-
-A node ID cannot be a hostname as it is: DNS ignores case, and base64url depends on it. So a node is named in DNS by its label (`src/label.rs`): the lowercase base32 (RFC 4648, no padding) of the 24 digest bytes the ID names, which are its characters after `d`, padded back to 32 with the `A`s the ID stripped, then decoded. That is 39 characters, within DNS's 63. Front doors serve a node without a hostname as `<label>.<domain>` ([Payments](payments.md#the-nodes-names)), and a client checks the key a node signs with against the ID the label names ([Payments](payments.md#signed-responses)).
-
-The mapping is one to one. A label is read in either case, but its unused last bits must be zero; an ID that ends in `A`, which no key gives, has no label, since it would share one with another ID. The label is a compatibility surface like the ID: names in DNS and in clients' records are built from it.
 
 ## Object identifiers
 
@@ -58,7 +57,7 @@ Secrets (master seed, node key, derived secrets, X25519 and shared secrets) are 
 
 ## In the browser and in scripts
 
-`dassie-identity` and `dassie-stream` (with `dassie-ilp`'s codecs) are built to WASM (`node --run build:wasm`) and published as `@dassie/wasm`, so the wallet derives keys with exactly the code the node runs. Their bindings are one crate of their own, `dassie-wasm`, so the core crates carry no wasm-bindgen and never touch the platform's randomness: that edge is the bindings'. Each of its features is a module of its own, `dassie_identity` and `dassie_stream`, so the wallet loads identity without STREAM. One `web` build serves browsers and Node ([node-and-pnpm](../decisions/node-and-pnpm.md)): `.` for scripts and tests, `./web` for browsers. Development-only functions (`devSessionToken`, `sign`, `mnemonicFromEntropy`) are left out of `./web`, and so are node labels (`nodeLabel`, `nodeIdFromLabel`), which only scripts use so far.
+`dassie-identity` and `dassie-stream` (with `dassie-ilp`'s codecs) are built to WASM (`node --run build:wasm`) and published as `@dassie/wasm`, so the wallet derives keys with exactly the code the node runs. Their bindings are one crate of their own, `dassie-wasm`, so the core crates carry no wasm-bindgen and never touch the platform's randomness: that edge is the bindings'. Each of its features is a module of its own, `dassie_identity` and `dassie_stream`, so the wallet loads identity without STREAM. One `web` build serves browsers and Node ([node-and-pnpm](../decisions/node-and-pnpm.md)): `.` for scripts and tests, `./web` for browsers. Development-only functions (`devSessionToken`, `sign`, `mnemonicFromEntropy`) are left out of `./web`.
 
 ## Decisions
 

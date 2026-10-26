@@ -505,7 +505,7 @@ impl ResponseSignature {
 /// Why a node's response was not accepted.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum NodeResponseError {
-    /// The request's host has no node label, and no node ID was given.
+    /// The request's host names no node ID, and no node ID was given.
     UnknownNode,
     /// The signature's `keyid` is not an Ed25519 public key.
     Key,
@@ -520,10 +520,10 @@ pub enum NodeResponseError {
 /// key hashes to that node's ID, and that the signature verifies.
 ///
 /// The node is `node_id` when the caller knows it, as from an owner's
-/// domain's TXT record; otherwise the one whose label is the first label
-/// of the host in the request's `target_uri`, as a front door's name
-/// carries it. The host is never passed apart from the URL, so that one
-/// name's label cannot vouch for another URL. Returns the node's ID.
+/// domain's TXT record; otherwise the one whose ID is the first label of
+/// the host in the request's `target_uri`, as a front door's name carries
+/// it. The host is never passed apart from the URL, so that one name's ID
+/// cannot vouch for another URL. Returns the node's ID.
 ///
 /// # Errors
 ///
@@ -540,7 +540,7 @@ pub fn check_node_response(
         None => {
             let uri = Uri::parse(request.target_uri).map_err(|_| NodeResponseError::UnknownNode)?;
             let label = uri.authority.split(['.', ':']).next().unwrap_or_default();
-            NodeId::from_label(label).map_err(|_| NodeResponseError::UnknownNode)?
+            NodeId::parse(label).map_err(|_| NodeResponseError::UnknownNode)?
         }
     };
     let signature = ResponseSignature::find(request, response, body, now_s)
@@ -859,15 +859,15 @@ mod tests {
         );
     }
 
-    /// A node's key, its `keyid`, and its label.
+    /// A node's key, its `keyid`, and its ID.
     fn node() -> (SigningKey, String, String) {
         let key = SigningKey::from_bytes(&[9; 32]);
         let public = key.verifying_key().to_bytes();
         let mut keyid = [0u8; 43];
         let length = dassie_base64url::encode(&public, &mut keyid);
         let keyid = String::from(core::str::from_utf8(&keyid[..length]).unwrap());
-        let label = NodeId::from_public_key(&public).label().unwrap();
-        (key, keyid, label.as_str().to_string())
+        let id = NodeId::from_public_key(&public);
+        (key, keyid, id.as_str().to_string())
     }
 
     const BODY: &[u8] = br#"{"id":"https://x/pay"}"#;
@@ -984,7 +984,7 @@ mod tests {
         };
         let fields = signed_response(&request, 200, BODY);
         let id = check(&request, 200, &fields, BODY).unwrap();
-        assert_eq!(id.label().map(|l| l.as_str() == label), Ok(true));
+        assert_eq!(id.as_str(), label);
         // In either case, and with a port.
         let upper = format!("https://{}:443/pay", name.to_ascii_uppercase());
         let request = Request {
@@ -996,7 +996,7 @@ mod tests {
         // Without a body, there is no digest to cover.
         let empty = signed_response(&request, 204, b"");
         assert_eq!(check(&request, 204, &empty, b""), Ok(id));
-        // A node ID the caller knows, for a name without a label.
+        // A node ID the caller knows, for a name without one.
         let request = Request {
             target_uri: "https://pay.example.com/pay",
             ..request
@@ -1093,8 +1093,8 @@ mod tests {
     #[test]
     fn a_client_refuses_another_nodes_key() {
         let (_, keyid, label) = node();
-        // Another node's label: the key does not hash to it.
-        let other = NodeId::from_public_key(&[1; 32]).label().unwrap();
+        // Another node's ID: the key does not hash to it.
+        let other = NodeId::from_public_key(&[1; 32]);
         let name = format!("{}.dassiepay.net", other.as_str());
         let target = format!("https://{name}/pay");
         let request = Request {

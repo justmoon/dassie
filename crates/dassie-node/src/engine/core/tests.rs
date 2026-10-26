@@ -142,7 +142,7 @@ fn a_settlement_cut_short_by_a_crash_is_reconciled() {
     use dassie_ledger::{AccountName, AccountPath, LedgerId, Name, Reference, TransferSpec};
 
     let store = Arc::new(Store::open_in_memory().unwrap());
-    let peer = Name::new("dpeer").unwrap();
+    let peer = Name::new("peeraaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa").unwrap();
     let path = AccountPath::new(LedgerId::StubUsd, AccountName::AssetsInterledger(peer));
     {
         let mut core = core_on(Arc::clone(&store), 5);
@@ -3930,7 +3930,7 @@ fn a_peer_loss_is_booked_from_where_the_money_left() {
     let mut core = core_on(Arc::clone(&store), 9);
     core.add_scheme("stub", String::new()).unwrap();
     let stub = Name::new("stub").unwrap();
-    let peer = Name::new("dpeer").unwrap();
+    let peer = Name::new("peeraaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa").unwrap();
     let (interledger, _) = core
         .ledger
         .open_peer(NOW, LedgerId::StubUsd, peer, 0)
@@ -5749,7 +5749,7 @@ fn a_hub_withdrawal_takes_only_the_owners_funds() {
     wait_and_close(&mut core, &mut ledger, 4_000);
     // The node owes a hub peer most of it.
     let hub_ledger = LedgerId::HubXrplTestnetXrp;
-    let peer = dassie_ledger::Name::new("dpeer").unwrap();
+    let peer = dassie_ledger::Name::new("peeraaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa").unwrap();
     let (interledger, _) = core.ledger.open_peer(NOW, hub_ledger, peer, 0).unwrap();
     let owner = core.account(hub_ledger, AccountName::EquityOwner).unwrap();
     let owed = core.owner_available(hub_ledger) - 1_500_000 * units;

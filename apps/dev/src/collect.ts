@@ -189,9 +189,3 @@ export class Collector {
     });
   }
 }
-
-/** A vanity ID's short name (`d3_…` is `d3`), or the ID itself. */
-export function shortName(id: string): string {
-  const match = /^(d[1-9]\d{0,8})_/.exec(id);
-  return match ? match[1] : id;
-}

@@ -93,22 +93,6 @@ pub fn node_id(public_key: &[u8]) -> Result<String, JsError> {
     Ok(String::from(NodeId::from_public_key(key).as_str()))
 }
 
-/// The label of a node ID, as front doors serve it: 39 characters of
-/// lowercase base32.
-#[wasm_bindgen(js_name = nodeLabel)]
-pub fn node_label(node_id: &str) -> Result<String, JsError> {
-    let id = NodeId::parse(node_id).map_err(js)?;
-    Ok(String::from(id.label().map_err(js)?.as_str()))
-}
-
-/// The node ID a label names, in either case.
-#[wasm_bindgen(js_name = nodeIdFromLabel)]
-pub fn node_id_from_label(label: &str) -> Result<String, JsError> {
-    Ok(String::from(
-        NodeId::from_label(label).map_err(js)?.as_str(),
-    ))
-}
-
 /// Signs `message` with a node key.
 #[wasm_bindgen]
 pub fn sign(node_key: &[u8], message: &[u8]) -> Result<Vec<u8>, JsError> {

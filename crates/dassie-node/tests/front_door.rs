@@ -1,6 +1,6 @@
 //! A front door on loopback (spec/areas/http.md#front-doors): a node
 //! without a public address names it as its relay, and Open Payments
-//! clients reach the node at `https://<label>.dassiepay.net` through the
+//! clients reach the node at `https://<node ID>.dassiepay.net` through the
 //! front door's HTTPS, with the node's signature intact, and at
 //! `https://<name>.dassiepay.net` for a name the node holds, as the front
 //! door reads the registrars' lists; and over a tunnel at `/quic` on the
@@ -349,9 +349,9 @@ fn wildcard(dir: &Path) -> (CertificateFiles, rustls::RootCertStore) {
     (files, roots)
 }
 
-/// `<label>.dassiepay.net`.
+/// `<node ID>.dassiepay.net`.
 fn name_of(id: &NodeId) -> String {
-    format!("{}.{DOMAIN}", id.label().unwrap())
+    format!("{}.{DOMAIN}", id)
 }
 
 /// A node without a hostname that names `door` as its relay, with the
@@ -694,7 +694,7 @@ async fn the_front_door_serves_only_its_names_and_open_payments() {
         assert_eq!(json_of(&reply)["error"]["code"], "not_found");
     }
     // Names outside it, or on another port, are refused.
-    let elsewhere = format!("{}.example.net", key.node_id().label().unwrap());
+    let elsewhere = format!("{}.example.net", key.node_id());
     let ported = format!("{name}:8443");
     for (host, path) in hosts_and_paths(&[elsewhere.as_str(), ported.as_str(), "127.0.0.1"]) {
         let request = Request::get(path)

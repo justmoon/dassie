@@ -1014,10 +1014,10 @@ fn the_default_testnet_hub_is_the_one_founded() {
     assert_eq!(
         nodes,
         [
-            "dDHq9ng9J1z7luQ64eN4MJ_4_w-KK4FPk",
-            "dE0GE90-9QCQI78S2_h5QaG81oo_cVKz1",
-            "dtTay2e6AV4J940nFJ6_WPkVL-TyrVKGW",
-            "dxZ8EFGaoQLvgSQacinFm64zjWeA0BzV-"
+            "br5l3hqpjhlt5znzb24hrxqme77d7q7crlqfhza",
+            "cnayj52pxvacichpys3p4hsqnbxtliup3rkkz5i",
+            "wu3lfwpoqblye7pdjhcspl6whzcux6j4vnkkdfq",
+            "ywpqifdgvbalxycja2oiu4lg5ogogwpagqdtk7q"
         ]
     );
     let endpoints: Vec<&str> = rules

@@ -13,7 +13,7 @@ The nodes' IPC sockets live outside the state directory, under `$XDG_RUNTIME_DIR
 
 ## Everything stays on loopback
 
-The dev nodes' keys are public: they are derived from the [vanity table](#vanity-identities) in the repository. So every listener of the dev environment binds loopback only, and nodes run with `--listen 127.0.0.1`. A node's QUIC endpoint has its HTTPS port's number on UDP, so nodes reach each other over QUIC directly; the SNI proxy is for browsers. Each node's [rate feed](rate-feed.md#the-socket) has a UDP port of its own on loopback, `6000+N` (`--feed-listen`), since the default port takes one node per host. Nodes reach each other on loopback through `DASSIE_PEER_ALLOW_PRIVATE` ([Peer protocol](peer-protocol.md#outbound-requests)); browsers and the node's resolver map `*.localhost` to loopback, so `dN.localhost` needs no name resolution.
+The dev nodes' keys are public: they are derived from the [table of dev identities](#dev-identities) in the repository. So every listener of the dev environment binds loopback only, and nodes run with `--listen 127.0.0.1`. A node's QUIC endpoint has its HTTPS port's number on UDP, so nodes reach each other over QUIC directly; the SNI proxy is for browsers. Each node's [rate feed](rate-feed.md#the-socket) has a UDP port of its own on loopback, `6000+N` (`--feed-listen`), since the default port takes one node per host. Nodes reach each other on loopback through `DASSIE_PEER_ALLOW_PRIVATE` ([Peer protocol](peer-protocol.md#outbound-requests)); browsers and the node's resolver map `*.localhost` to loopback, so `dN.localhost` needs no name resolution.
 
 ### SNI proxy
 
@@ -46,9 +46,9 @@ A restart (a new node build, or asked for) keeps the nodes' data, and each node 
 - **Periphery nodes.** A scenario may set nodes up without a hostname, so they have no URL and are periphery nodes, each pinned to core nodes of the scenario through `DASSIE_UPLINKS` ([Network](network.md#pinned-uplinks)). A node list is served only by core nodes, so none is a bootstrap node; the scenario checks this before it starts. Without a hostname a node answers its owner only at `localhost` ([HTTP](http.md#same-origin-rule)), so the dashboard opens its wallet there, at the node's own port, rather than through the SNI proxy.
 - Each scenario serves its own exchange rates, which the setup makes every node's only rate source, so no run depends on an outside rate service and tests can move the rates or make the source fail ([Exchange rates](connector.md#exchange-rates)).
 
-## Vanity identities
+## Dev identities
 
-`apps/dev/vanity.json` holds BIP-39 entropy whose node ID was brute-forced to start with the node's short name (`d1_…`). Everything else, the phrase, node key, public key, node ID and login proof, is derived from the entropy with `dassie-identity`, as the node derives it ([Identity](identity.md)), and checked against the table's ID. `apps/dev/scripts/vanity.ts` adds and checks entries.
+`apps/dev/vanity.json` holds each dev node's BIP-39 entropy and the node ID it gives, one entry for each node a dev environment may run (`d1` onward). Everything else, the phrase, node key, public key and login proof, is derived from the entropy with `dassie-identity`, as the node derives it ([Identity](identity.md)), and checked against the table's ID. A node ID cannot carry its node's short name, since base32 has no `0`, `1`, `8` or `9` ([Identity](identity.md#node-id)), so the dev server and the dashboard name a node by the table: they show each dev node's ID as its short name, in peerings, traffic and logs. `apps/dev/scripts/vanity.ts` checks the table, and writes its IDs again from the entropy when the form of a node ID changes, which keeps every dev node's key.
 
 ## Wallet links
 

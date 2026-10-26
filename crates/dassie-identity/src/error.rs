@@ -30,7 +30,8 @@ pub enum Error {
     /// [`MAX_SEGMENT_BYTES`](crate::MAX_SEGMENT_BYTES), or has a character
     /// outside printable ASCII, a space or `/`.
     InvalidSeedPath,
-    /// A node ID is not 2 to 45 characters of `[A-Za-z0-9_-]`.
+    /// A node ID is not 39 characters of base32 whose unused last bits are
+    /// zero.
     InvalidNodeId,
     /// Thirty-two bytes that are not the encoding of a curve point.
     InvalidPublicKey,
@@ -41,8 +42,6 @@ pub enum Error {
     /// A Diffie-Hellman result was all zeros: the peer's key has small order
     /// and would let it force a known shared secret.
     NonContributory,
-    /// A node label is not 39 base32 characters naming a node ID.
-    InvalidLabel,
 }
 
 impl fmt::Display for Error {
@@ -63,7 +62,6 @@ impl fmt::Display for Error {
             Self::InvalidSignature => "invalid signature",
             Self::InvalidDer => "invalid DER key encoding",
             Self::NonContributory => "non-contributory Diffie-Hellman result",
-            Self::InvalidLabel => "invalid node label",
         };
         f.write_str(text)
     }

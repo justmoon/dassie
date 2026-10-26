@@ -1,6 +1,6 @@
 //! The front door's HTTPS listener (spec/areas/http.md#front-doors): it
-//! takes Open Payments requests for `<label>.<domain>` and `<name>.<domain>`,
-//! passes them to the node the label names, or to the name's holder in the
+//! takes Open Payments requests for `<node ID>.<domain>` and `<name>.<domain>`,
+//! passes them to the node the ID names, or to the name's holder in the
 //! front door's view of the registrars' lists ([`names`](super::names)), and
 //! passes the node's answer back as it came, so the node's signature on it
 //! still verifies.
@@ -136,7 +136,7 @@ enum Target {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct Addressed {
     node: NodeId,
-    /// The name, if the request came under one rather than the node's label.
+    /// The name, if the request came under one rather than the node's ID.
     name: Option<Name>,
 }
 
@@ -184,13 +184,9 @@ impl Door {
         match self.target(&request) {
             Err(refused) => refused.response(),
             Ok(Target::Page(Addressed { node, name })) => {
-                // Every node ID has a label.
-                let Ok(label) = node.label() else {
-                    return Refused::NoNode.response();
-                };
                 let reached = match &name {
                     Some(name) => Reached::Name(name),
-                    None => Reached::Label(&label),
+                    None => Reached::Id(&node),
                 };
                 let connected = self.nodes.is_connected(node).await;
                 page::response(&self.domain, reached, &node, connected)
@@ -275,7 +271,7 @@ impl Door {
     }
 
     /// Where `request` goes, or why it goes nowhere: a name outside the
-    /// domain is refused, and a name that is neither a node's label nor a
+    /// domain is refused, and a name that is neither a node's ID nor a
     /// name with a holder, a path outside Open Payments or an upgrade find
     /// nothing.
     fn target(&self, request: &Request<Incoming>) -> Result<Target, Refused> {
@@ -298,8 +294,8 @@ impl Door {
         Ok(Target::Node(node))
     }
 
-    /// The node `<label>.<domain>` names, on the default port, or the
-    /// holder of `<name>.<domain>`. A name is shorter than a label
+    /// The node `<node ID>.<domain>` names, on the default port, or the
+    /// holder of `<name>.<domain>`. A name is shorter than a node ID
     /// (`dassie_peer::names::MAX_NAME_BYTES`), so no host is both.
     fn node_of(&self, host: Option<&str>) -> Result<Addressed, Refused> {
         let authority = host.and_then(parse_authority).ok_or(Refused::Misdirected)?;
@@ -325,10 +321,10 @@ impl Door {
         if label.contains('.') {
             return Err(Refused::NoNode);
         }
-        if let Ok(node) = NodeId::from_label(label) {
+        if let Ok(node) = NodeId::parse(label) {
             return Ok(Addressed { node, name: None });
         }
-        // A name no node holds finds nothing, as a label that is no node's.
+        // A name no node holds finds nothing, as an ID that is no node's.
         let name = Name::parse(label).map_err(|_| Refused::NoNode)?;
         let node = self.names.holder(&name).ok_or(Refused::NoNode)?;
         Ok(Addressed {

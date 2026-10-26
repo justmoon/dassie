@@ -129,7 +129,7 @@ async fn ildcp_hands_out_the_routed_address() {
     let now = node.clock.now_ms();
     let (alice_address, code, scale) = alice.ildcp(now).await;
     assert_eq!((code.as_str(), scale), ("USD", 9));
-    assert!(alice_address.starts_with("test.das.d"), "{alice_address}");
+    assert!(alice_address.starts_with("test.das."), "{alice_address}");
     let (bob_address, ..) = bob.ildcp(now).await;
     assert_ne!(alice_address, bob_address);
     // Bob pays Alice's address: the packet reaches Alice.

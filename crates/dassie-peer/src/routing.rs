@@ -129,8 +129,10 @@ mod tests {
 
     use super::*;
 
+    /// The node ID that starts with `name`, the rest `a`s: IDs in the
+    /// order of their names.
     fn id(name: &str) -> NodeId {
-        NodeId::parse(name).unwrap()
+        NodeId::parse(&alloc::format!("{name:a<39}")).unwrap()
     }
 
     fn graph(edges: &[(&str, &str)]) -> BTreeMap<NodeId, Vec<NodeId>> {
