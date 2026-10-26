@@ -350,6 +350,12 @@ impl XrplScheme {
         join(&self.account.state(), &self.scheme.state())
     }
 
+    /// The scheme's state version: the node writes its state when it
+    /// changes, or the balance does.
+    pub fn state_version(&self) -> u64 {
+        self.scheme.state_version()
+    }
+
     pub fn check_invariants(&self) {
         self.account.check_invariants();
         self.scheme.check_invariants();

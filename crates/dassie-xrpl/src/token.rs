@@ -179,7 +179,12 @@ pub struct TokenScheme<T: IssuedToken> {
     /// Peers' addresses, with when each was learnt: past [`MAX_PEERS`], the
     /// longest known goes.
     peers: BTreeMap<Name, (AccountId, u64)>,
-    next_learnt: u64,
+    /// The peer table's revision, counted up on each address learnt and
+    /// each forgotten: the order addresses were learnt in, and part of
+    /// [`fingerprint`](Self::fingerprint), so that the node keeps every
+    /// change to the table. Not kept: a restore learns the addresses
+    /// anew, and it counts up from there.
+    peers_revision: u64,
     recovering: Vec<Recovering>,
     /// How many times the account was written off, as the scheme last saw
     /// it ([`XrplAccount::write_offs`]).
@@ -237,7 +242,7 @@ impl<T: IssuedToken> TokenScheme<T> {
             booked: checkpoint.unwrap_or(0),
             cursor: None,
             peers: BTreeMap::new(),
-            next_learnt: 0,
+            peers_revision: 0,
             recovering: Vec::new(),
             write_offs: 0,
             entries: Entries::default(),
@@ -793,8 +798,8 @@ impl<T: IssuedToken> TokenScheme<T> {
         {
             self.peers.remove(&oldest);
         }
-        self.next_learnt = self.next_learnt.wrapping_add(1);
-        self.peers.insert(peer, (address, self.next_learnt));
+        self.peers_revision = self.peers_revision.wrapping_add(1);
+        self.peers.insert(peer, (address, self.peers_revision));
     }
 }
 
@@ -820,7 +825,7 @@ impl<T: IssuedToken> TokenScheme<T> {
         };
         let (ledger, index) = self.cursor.unwrap_or((u32::MAX, u32::MAX));
         add(u64::from(ledger) << 32 | u64::from(index));
-        add(self.next_learnt);
+        add(self.peers_revision);
         for Recovering { hash, unread, .. } in &self.recovering {
             add(u64::from(hash[0]) << 8 | u64::from(hash[1]) | u64::from(*unread) << 16);
         }
@@ -1076,7 +1081,11 @@ impl<T: IssuedToken> SettlementScheme for TokenScheme<T> {
     /// the owner's deposit (spec/decisions/closing-channels.md), once held
     /// as an entry payment if it is one.
     fn on_closed(&mut self, peer: Name) {
-        self.peers.remove(&peer);
+        // A new revision, or the node would not keep that the address
+        // went, and a restart would bring it back.
+        if self.peers.remove(&peer).is_some() {
+            self.peers_revision = self.peers_revision.wrapping_add(1);
+        }
     }
 
     /// As in the XRP scheme: the address the request names is where `peer`
