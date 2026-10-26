@@ -58,6 +58,8 @@ The daemon reports readiness (`READY=1` under systemd) once the node works, not 
 
 On SIGTERM or SIGINT the daemon stops accepting, gives requests in progress a bounded time to finish, closes the database and removes the socket it made. The engine stops at once, between two steps: what it committed is on disk, and packets in flight are lost, as in a crash ([Persistence](#persistence)). Draining them is [not built](../roadmap.md#not-built-yet).
 
+- **When the daemon returns, the database is closed** and the data directory's lock released: every task it started that holds the node has ended, calls cut off at shutdown included, so a node started again on the directory finds it free, in the same process too. Only services that outlast the bounded wait keep it open, until they end.
+
 ## Runtimes
 
 `--runtime standalone|systemd` chooses how the daemon gets its sockets; without it, `systemd` when `LISTEN_PID` is the daemon's own PID.

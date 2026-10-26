@@ -150,7 +150,7 @@ where
             () = connection.shutdown.cancelled() => break Closed::Shutdown,
         }
     };
-    connection.stop();
+    connection.stop().await;
     closed
 }
 
@@ -205,12 +205,19 @@ impl Connection {
         }
     }
 
-    /// Cancels the calls still in flight.
-    fn stop(&mut self) {
+    /// Cancels the calls still in flight, and waits until their tasks are
+    /// gone. Each holds the node, and with it the database: a connection
+    /// that returned must hold neither, or the daemon could end with its
+    /// store still open (spec/areas/node.md#shutdown). An aborted task
+    /// ends at its next poll, or as soon as the one under way returns, but
+    /// on a worker of the runtime's choosing, so dropping the set alone
+    /// leaves that to happen after the connection returned.
+    async fn stop(&mut self) {
         for (_, call) in self.calls.values() {
             call.cancel();
         }
         self.tasks.abort_all();
+        while self.tasks.join_next().await.is_some() {}
     }
 
     fn receive(&mut self, bytes: &[u8]) -> Result<(), Closed> {

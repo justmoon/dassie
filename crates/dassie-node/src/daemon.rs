@@ -400,13 +400,23 @@ async fn stop(
         let _ = notifier.notify("STOPPING=1");
     }
     services.close();
-    if tokio::time::timeout(STOP_TIMEOUT, services.wait())
+    let stopped = tokio::time::timeout(STOP_TIMEOUT, services.wait())
         .await
-        .is_err()
-    {
+        .is_ok();
+    if !stopped {
         tracing::warn!(target: target::DAEMON, "services did not stop in time");
     }
-    drop(node);
+    // The database closes, and the data directory's lock goes, with the
+    // last hold on the node. Once the services stopped, that is this one,
+    // so the directory is free when the daemon returns: for a node started
+    // again in this process, or a rollback.
+    match Arc::into_inner(node) {
+        Some(node) => drop(node),
+        None if stopped => {
+            tracing::warn!(target: target::DAEMON, "the node is still held after its services stopped: its database closes only when that hold goes");
+        }
+        None => {}
+    }
     if let Some(path) = ipc_path {
         let _ = std::fs::remove_file(path);
     }
