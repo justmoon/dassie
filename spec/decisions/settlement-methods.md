@@ -1,4 +1,4 @@
-# A peering settles by every scheme both nodes run, and a packet keeps its ledger where it can
+# A peering settles over every hub both nodes are in, and a packet keeps its ledger where it can
 
 **Areas:** [Network](../areas/network.md#peering), [Settlement](../areas/settlement.md), [Connector](../areas/connector.md#routing), [Peer protocol](../areas/peer-protocol.md). Not built yet ([roadmap](../roadmap.md#settlement-methods)).
 
