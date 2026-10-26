@@ -34,8 +34,15 @@
 //! settings, with the rate of a vanishingly small packet per pair; a packet
 //! then reads what the owner holds on each ledger, in constant time each, and
 //! is priced without allocating.
+//!
+//! A ledger is priced by its currency alone, whatever settles it, so a
+//! settlement hub's ledger is priced as any other. Rates on different
+//! ledgers are in different units; [`PriceTable::best_output`] compares them
+//! relative to spot (spec/areas/connector.md#comparing-outputs).
 
-use dassie_ledger::{AccountId, Balance, Ledger, LedgerId};
+use core::cmp::Ordering;
+
+use dassie_ledger::{AccountId, Balance, Ledger, LedgerId, Realm};
 
 use crate::charges::Charges;
 use crate::fx::{RATE_PRECISION, Rates};
@@ -51,14 +58,33 @@ pub const DEFAULT_REBALANCE_PPM: u32 = 50_000;
 /// mistaken for parts per million cannot set the curve wild.
 pub const MAX_REBALANCE_PPM: u32 = Charges::MAX_PPM;
 
-/// Most ledgers a table prices: every ledger there is.
-pub const MAX_PRICED_LEDGERS: usize = LedgerId::ALL.len();
+/// Most ledgers a table prices: every ledger of one realm, since a node
+/// runs the ledgers of its own realm alone, and a table prices only
+/// ledgers of one ([`PriceTable::build`]). Every ledger of the realm counts,
+/// a settlement hub's as much as one a node settles on directly, so a new
+/// ledger raises it, and a constant assertion says when a feed could no
+/// longer name them all.
+pub const MAX_PRICED_LEDGERS: usize = most_ledgers_of_one_realm();
 
 /// Most prices in a table: one per ordered pair of ledgers.
 pub const MAX_PRICES: usize = MAX_PRICED_LEDGERS * (MAX_PRICED_LEDGERS - 1);
 
 /// Parts per million.
 const MILLION: u128 = 1_000_000;
+
+/// How many ledgers the realm with the most has.
+const fn most_ledgers_of_one_realm() -> usize {
+    let (mut test, mut live) = (0, 0);
+    let mut rest: &[LedgerId] = &LedgerId::ALL;
+    while let [ledger, tail @ ..] = rest {
+        match ledger.realm() {
+            Realm::Test => test += 1,
+            Realm::Live => live += 1,
+        }
+        rest = tail;
+    }
+    if test > live { test } else { live }
+}
 
 /// A whole share: each ledger's share of the owner's funds is known to
 /// twelve decimal places, rounded down, which keeps every product of the
@@ -211,6 +237,19 @@ impl Price {
     }
 }
 
+/// Of a packet's candidate output ledgers, the one it gets the most out on
+/// relative to spot ([`PriceTable::best_output`]), and the rate it gets
+/// there.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct BestOutput {
+    /// The ledger.
+    pub ledger: LedgerId,
+    /// Out per in, times [`RATE_ONE_E15`], as [`PriceTable::rate`] says:
+    /// exactly one on the ledger the packet came in on, which converts
+    /// nothing. Never zero.
+    pub rate_e15: u64,
+}
+
 /// Why a packet could not be converted.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PriceError {
@@ -279,10 +318,15 @@ impl PriceTable {
     /// inventories' holdings). A pair without one, out of a ledger the
     /// owner holds nothing on or whose rate rounds to nothing or does not
     /// fit, is absent. A ledger named twice counts once, at its first.
+    /// Every ledger with a currency is priced alike, whatever settles it: a
+    /// settlement hub's ledger as one a node settles on directly.
     ///
     /// # Panics
     ///
     /// If `pricing` is not valid: settings are checked before they are used.
+    /// If `inventories` are of two realms: a node runs the ledgers of its
+    /// own realm alone, so that a table never prices more than
+    /// [`MAX_PRICED_LEDGERS`].
     #[must_use]
     pub fn build(
         rates: &Rates,
@@ -292,6 +336,15 @@ impl PriceTable {
         max_rate_age_ms: u64,
     ) -> Self {
         assert!(pricing.is_valid(), "pricing is checked before it is used");
+        let realm = inventories
+            .first()
+            .map(|inventory| inventory.ledger.realm());
+        assert!(
+            inventories
+                .iter()
+                .all(|inventory| Some(inventory.ledger.realm()) == realm),
+            "a table prices the ledgers of one realm"
+        );
         let mut table = Self::without_rates(pricing);
         table.built_at_ms = now_ms;
         let mut count = 0;
@@ -619,6 +672,91 @@ impl PriceTable {
         crate::fx::convert_at(from_rate, to_rate, from_asset, to_asset, amount)
             .ok_or(PriceError::TooLarge)
     }
+
+    /// Of `candidates`, the ledger on which a packet from `from` gets the
+    /// most relative to spot, and its rate there: for a packet that brings
+    /// in `amount_in`, its fee included, and converts `net`, with the owner
+    /// holding `holdings` ([`Self::rate`]), at `now_ms`. `None` if no
+    /// candidate has a rate: [`Self::convert`] says why for each.
+    ///
+    /// Rates are out per in, in each output ledger's own units, so they are
+    /// compared by value: `rate(from, b)` per what a unit of `b` is worth at
+    /// spot, which ranks the candidates as `rate(from, b) · spot(b) /
+    /// spot(from)` does, with `spot` the value of a unit. The comparison is
+    /// exact, through 256-bit products, and a tie goes to the ledger first
+    /// in [`LedgerId`]'s order, whatever the order of `candidates`.
+    ///
+    /// `from` itself is a candidate that converts nothing: one unit out per
+    /// unit in, which is exactly spot, and needs no rate. Any other
+    /// candidate needs a fresh rate on both ledgers, as [`Self::convert`]
+    /// does. A candidate named twice counts once.
+    #[allow(clippy::too_many_arguments)]
+    #[must_use]
+    pub fn best_output(
+        &self,
+        from: LedgerId,
+        candidates: &[LedgerId],
+        amount_in: u64,
+        net: u64,
+        holdings: &Holdings,
+        now_ms: u64,
+        max_rate_age_ms: u64,
+    ) -> Option<BestOutput> {
+        // What a unit of a ledger is worth at spot, as `value_of` divides
+        // by: a ledger's spot rate at its scale, if fresh.
+        let unit = |ledger| {
+            self.ledger(ledger)
+                .filter(|entry| fresh(entry.as_of_ms, now_ms, max_rate_age_ms))
+                .and_then(|entry| value_unit(entry.rate, entry.ledger.asset().scale))
+        };
+        let unit_in = unit(from);
+        let mut best: Option<(BestOutput, u128)> = None;
+        for &to in candidates {
+            let (rate_e15, unit_out) = if to == from {
+                // Without a rate on `from`, no other candidate has one, so
+                // this unit is never compared with another's.
+                (RATE_ONE_E15, unit_in.unwrap_or(1))
+            } else {
+                let (Some(_), Some(unit_out)) = (unit_in, unit(to)) else {
+                    continue;
+                };
+                let Ok(rate_e15) = self.rate(from, to, amount_in, net, holdings) else {
+                    continue;
+                };
+                (rate_e15, unit_out)
+            };
+            let candidate = (
+                BestOutput {
+                    ledger: to,
+                    rate_e15,
+                },
+                unit_out,
+            );
+            best = Some(match best {
+                Some(current) if !better(candidate, current) => current,
+                _ => candidate,
+            });
+        }
+        let (best, _) = best?;
+        assert!(best.rate_e15 > 0, "a rate is never zero");
+        assert!(candidates.contains(&best.ledger));
+        Some(best)
+    }
+}
+
+/// Whether `a`, a rate out per in and what a unit out is worth, gives more
+/// relative to spot than `b` for the same packet in: `rate_a / unit_a >
+/// rate_b / unit_b`, compared exactly as `rate_a · unit_b > rate_b ·
+/// unit_a` in 256 bits. On a tie, the ledger first in order.
+fn better(a: (BestOutput, u128), b: (BestOutput, u128)) -> bool {
+    let ((output_a, unit_a), (output_b, unit_b)) = (a, b);
+    let left = wide_mul(u128::from(output_a.rate_e15), unit_b);
+    let right = wide_mul(u128::from(output_b.rate_e15), unit_a);
+    match left.cmp(&right) {
+        Ordering::Greater => true,
+        Ordering::Less => false,
+        Ordering::Equal => output_a.ledger < output_b.ledger,
+    }
 }
 
 /// `floor(net × rate_e15 / 10^15)`, if it fits.
@@ -754,10 +892,13 @@ const fn wide_mul(a: u128, b: u128) -> (u128, u128) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use alloc::vec::Vec;
 
     const USD: LedgerId = LedgerId::StubUsd;
     const XRP: LedgerId = LedgerId::XrplTestnetXrp;
     const RLUSD: LedgerId = LedgerId::XrplTestnetRlusdUsd;
+    /// XRP in a settlement hub: a ledger of its own beside the XRP Ledger's.
+    const HUB: LedgerId = LedgerId::HubXrpTestnetXrp;
     const DOLLAR: u64 = 1_000_000_000;
     const NOW: u64 = 1_000_000;
     const AGE: u64 = 3_600_000;
@@ -1092,5 +1233,237 @@ mod tests {
             Some((1_050_000, 1_000_000))
         );
         assert_eq!(exact_factor(&[1, 0], 0, 1, 50_000), None);
+    }
+
+    // A settlement hub's ledger is priced as any other with a currency:
+    // against dollars as the XRP Ledger's XRP is, and beside that, at par
+    // with it at target, each valued on its own.
+    #[test]
+    fn a_hub_ledger_is_priced_as_any_other() {
+        let k = pricing(50_000, 0);
+        let hub = build(&[held(USD, 100 * DOLLAR), held(HUB, 200 * DOLLAR)], k);
+        let direct = build(&[held(USD, 100 * DOLLAR), held(XRP, 200 * DOLLAR)], k);
+        assert_eq!(rate(&hub, USD, HUB), rate(&direct, USD, XRP));
+        assert_eq!(rate(&hub, HUB, USD), rate(&direct, XRP, USD));
+        // The curve moves it as it moves any other: 25/75, as above.
+        let skewed = build(&[held(USD, 25 * DOLLAR), held(HUB, 150 * DOLLAR)], k);
+        assert_eq!(rate(&skewed, HUB, USD), 468_253_968_253_968);
+        // Beside the XRP Ledger's XRP, one to one at target.
+        let both = [
+            held(USD, 100 * DOLLAR),
+            held(XRP, 200 * DOLLAR),
+            held(HUB, 200 * DOLLAR),
+        ];
+        let both = build(&both, k);
+        assert_eq!(rate(&both, XRP, HUB), RATE_ONE_E15);
+        assert_eq!(both.prices().count(), 6);
+        // A hub the owner holds too little in: XRP paid out in it costs
+        // more, and XRP brought into it gets the bonus.
+        let short = [
+            held(USD, 100 * DOLLAR),
+            held(XRP, 300 * DOLLAR),
+            held(HUB, 100 * DOLLAR),
+        ];
+        let short = build(&short, k);
+        assert!(rate(&short, XRP, HUB) < RATE_ONE_E15);
+        assert_eq!(rate(&short, HUB, XRP), 1_050_000_000_000_000);
+        // Without a rate for its currency, it is left out as any other.
+        let mut dollars = Rates::new(NOW);
+        dollars.set("USD", 10u128.pow(RATE_PRECISION));
+        let hub = [held(USD, DOLLAR), held(HUB, DOLLAR)];
+        let unrated = PriceTable::build(&dollars, &hub, k, NOW, AGE);
+        assert!(unrated.ledger(HUB).is_none() && unrated.prices().count() == 0);
+    }
+
+    #[test]
+    #[should_panic(expected = "a table prices the ledgers of one realm")]
+    fn a_table_prices_one_realm() {
+        let realms = [held(USD, DOLLAR), held(LedgerId::XrplXrp, DOLLAR)];
+        let _ = build(&realms, pricing(0, 0));
+    }
+
+    #[test]
+    fn a_table_prices_every_ledger_of_a_realm() {
+        let test = LedgerId::ALL.map(|ledger| held(ledger, DOLLAR));
+        let test: Vec<Inventory> = test
+            .into_iter()
+            .filter(|inventory| inventory.ledger.realm() == Realm::Test)
+            .collect();
+        assert!(test.len() <= MAX_PRICED_LEDGERS);
+        let table = build(&test, pricing(50_000, 0));
+        assert_eq!(table.ledgers().count(), test.len());
+        assert!(table.ledger(HUB).is_some());
+    }
+
+    // Four ledgers, the node at target on dollars and RLUSD, with too much
+    // of the XRP Ledger's XRP and too little in the hub.
+    fn skewed_four(k: Pricing) -> PriceTable {
+        let inventories = [
+            held(USD, 100 * DOLLAR),
+            held(XRP, 300 * DOLLAR),
+            held(RLUSD, 100 * DOLLAR),
+            held(HUB, 100 * DOLLAR),
+        ];
+        build(&inventories, k)
+    }
+
+    // spec/areas/connector.md#comparing-outputs
+    #[test]
+    fn the_best_output_is_the_best_rate_relative_to_spot() {
+        let table = skewed_four(pricing(50_000, 0));
+        let holdings = table.holdings();
+        let best = |from, candidates: &[LedgerId]| {
+            table
+                .best_output(from, candidates, 0, 0, &holdings, NOW, AGE)
+                .map(|best| best.ledger)
+        };
+        // Out of dollars, the XRP the node has too much of gives the most,
+        // dollars at par next, and the hub's XRP, which it lacks, the least,
+        // though its rate, in units of XRP, is the larger number.
+        assert_eq!(best(USD, &[HUB, RLUSD, XRP]), Some(XRP));
+        assert_eq!(best(USD, &[HUB, RLUSD]), Some(RLUSD));
+        assert!(rate(&table, USD, HUB) > rate(&table, USD, RLUSD));
+        assert_eq!(
+            table.best_output(USD, &[XRP], 0, 0, &holdings, NOW, AGE),
+            Some(BestOutput {
+                ledger: XRP,
+                rate_e15: rate(&table, USD, XRP),
+            })
+        );
+        // Staying on the ledger converts nothing, exactly at spot: better
+        // than paying out what the node lacks, worse than what it has too
+        // much of.
+        assert_eq!(
+            table.best_output(USD, &[HUB, USD], 0, 0, &holdings, NOW, AGE),
+            Some(BestOutput {
+                ledger: USD,
+                rate_e15: RATE_ONE_E15,
+            })
+        );
+        assert_eq!(best(USD, &[USD, XRP]), Some(XRP));
+        // In on the hub, which the node lacks, anything out gets the bonus.
+        assert_eq!(best(HUB, &[HUB, XRP]), Some(XRP));
+        // The packet's own impact counts: a large one gets less, and none
+        // on a ledger it would take more out of than the owner holds.
+        let large = 80 * DOLLAR;
+        let out = table.best_output(USD, &[HUB, XRP], large, large, &holdings, NOW, AGE);
+        assert_eq!(out.map(|best| best.ledger), Some(XRP));
+        assert!(out.is_some_and(|best| best.rate_e15 < rate(&table, USD, XRP)));
+        let hub = table.best_output(USD, &[HUB], large, large, &holdings, NOW, AGE);
+        assert_eq!(hub, None);
+        // Nothing among no candidates.
+        assert_eq!(best(USD, &[]), None);
+    }
+
+    // Ties go to the ledger first in order, whatever the candidates' order.
+    #[test]
+    fn a_tie_goes_to_the_ledger_first_in_order() {
+        let inventories = [
+            held(USD, 100 * DOLLAR),
+            held(XRP, 200 * DOLLAR),
+            held(RLUSD, 100 * DOLLAR),
+            held(HUB, 200 * DOLLAR),
+        ];
+        let table = build(&inventories, pricing(50_000, 5_000));
+        let holdings = table.holdings();
+        let best = |candidates: &[LedgerId]| {
+            table
+                .best_output(USD, candidates, 0, 0, &holdings, NOW, AGE)
+                .map(|best| best.ledger)
+        };
+        for candidates in [[HUB, RLUSD, XRP], [XRP, RLUSD, HUB], [RLUSD, HUB, XRP]] {
+            assert_eq!(best(&candidates), Some(XRP));
+        }
+        assert_eq!(best(&[HUB, RLUSD, HUB]), Some(RLUSD));
+        assert_eq!(best(&[HUB, HUB]), Some(HUB));
+    }
+
+    #[test]
+    fn a_stale_output_is_no_candidate() {
+        let table = skewed_four(pricing(50_000, 0));
+        let holdings = table.holdings();
+        let late = NOW + AGE + 1;
+        let best = |from, candidates: &[LedgerId], now| {
+            table
+                .best_output(from, candidates, 0, 0, &holdings, now, AGE)
+                .map(|best| best.ledger)
+        };
+        assert_eq!(best(USD, &[XRP, USD], late), Some(USD));
+        assert_eq!(best(USD, &[XRP, HUB], late), None);
+        // A ledger the table does not price can only stay.
+        let unpriced = LedgerId::XrplTestnetDsusdUsd;
+        assert_eq!(best(unpriced, &[XRP, unpriced], NOW), Some(unpriced));
+        assert_eq!(best(USD, &[unpriced], NOW), None);
+    }
+
+    proptest::proptest! {
+        // Against `rate(from, b) · spot(b) / spot(from)` in arbitrary
+        // precision, with `spot` the value of a unit: the best, the first
+        // in ledger order on a tie, whatever the candidates' order.
+        #[test]
+        fn the_best_output_matches_arbitrary_precision(
+            amounts in proptest::array::uniform4(0u64..1_000),
+            xrp_rate in 1u128..1_000_000_000_000_000_000,
+            from in 0usize..4,
+            chosen in 1u8..16,
+            k in 0u32..=MAX_REBALANCE_PPM,
+            amount in 0u64..100_000_000_000,
+        ) {
+            use num_bigint::BigUint;
+            let ledgers = [USD, XRP, RLUSD, HUB];
+            let mut rates = Rates::new(NOW);
+            rates.set("USD", 10u128.pow(RATE_PRECISION));
+            rates.set("XRP", xrp_rate);
+            let inventories = ledgers
+                .iter()
+                .zip(amounts)
+                .map(|(&ledger, units)| held(ledger, units * DOLLAR))
+                .collect::<Vec<_>>();
+            let table = PriceTable::build(&rates, &inventories, pricing(k, 0), NOW, AGE);
+            let holdings = table.holdings();
+            let from = ledgers[from];
+            let candidates: Vec<LedgerId> = ledgers
+                .into_iter()
+                .enumerate()
+                .filter(|(index, _)| chosen & (1 << index) != 0)
+                .map(|(_, ledger)| ledger)
+                .collect();
+            // Each candidate's rate relative to spot, as a fraction.
+            let spot = |ledger: LedgerId| {
+                table.ledger(ledger).map(|entry| {
+                    BigUint::from(entry.rate) * BigUint::from(10u32).pow(9)
+                })
+            };
+            let mut expected: Option<(LedgerId, BigUint, BigUint)> = None;
+            for &to in &candidates {
+                let (numerator, denominator) = if to == from {
+                    (BigUint::from(1u8), BigUint::from(1u8))
+                } else {
+                    let Ok(rate_e15) = table.rate(from, to, amount, amount, &holdings) else {
+                        continue;
+                    };
+                    let (Some(spot_in), Some(spot_out)) = (spot(from), spot(to)) else {
+                        continue;
+                    };
+                    (BigUint::from(rate_e15) * spot_in, BigUint::from(RATE_ONE_E15) * spot_out)
+                };
+                let wins = expected.as_ref().is_none_or(|(ledger, n, d)| {
+                    let (this, that) = (&numerator * d, n * &denominator);
+                    this > that || (this == that && to < *ledger)
+                });
+                if wins {
+                    expected = Some((to, numerator, denominator));
+                }
+            }
+            let expected = expected.map(|(ledger, _, _)| ledger);
+            let best = |candidates: &[LedgerId]| {
+                table
+                    .best_output(from, candidates, amount, amount, &holdings, NOW, AGE)
+                    .map(|best| best.ledger)
+            };
+            proptest::prop_assert_eq!(best(&candidates), expected);
+            let reversed: Vec<LedgerId> = candidates.iter().rev().copied().collect();
+            proptest::prop_assert_eq!(best(&reversed), expected);
+        }
     }
 }

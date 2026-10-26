@@ -47,7 +47,9 @@ const PUBLISH_TIME: Duration = Duration::from_millis(FEED_MIN_INTERVAL_MS / 2);
 const FETCH_TIMEOUT: Duration = Duration::from_secs(5);
 
 // Every ledger the connector prices fits in a feed, so a feed never leaves
-// one out for want of room.
+// one out for want of room: every ledger of the node's realm, settlement
+// hubs' included. A realm with more needs a new feed version, since the
+// bound is part of the wire format.
 const _: () = assert!(MAX_PRICED_LEDGERS <= MAX_LEDGERS);
 
 /// What the feed has done since the node started, counted rather than
@@ -716,7 +718,7 @@ mod tests {
     use dassie_feed::{
         FEED_HEARTBEAT_MS, FEED_VALIDITY_MS, Message, SUBSCRIPTION_TTL_MS, encode_subscribe,
     };
-    use dassie_ledger::AccountId;
+    use dassie_ledger::{AccountId, Realm};
 
     use super::*;
 
@@ -795,6 +797,58 @@ mod tests {
         for (from, to) in [(USD, XRP), (XRP, USD)] {
             let price = table.price(from, to).unwrap().rate_e15;
             assert_eq!(feed.rate(from.as_str(), to.as_str()), Some(price));
+        }
+    }
+
+    // A settlement hub's ledger is named as any other, by its ID, with
+    // the table's prices to and from it (spec/areas/rate-feed.md#what-a-feed-says).
+    #[test]
+    fn a_hub_ledger_is_named_as_any_other() {
+        const HUB: LedgerId = LedgerId::HubXrpTestnetXrp;
+        let mut rates = Rates::new(NOW);
+        rates.set("USD", 10u128.pow(RATE_PRECISION));
+        rates.set("XRP", 2 * 10u128.pow(RATE_PRECISION));
+        let inventories = [
+            held(HUB, 20_000_000_000),
+            held(XRP, 30_000_000_000),
+            held(USD, 10_000_000_000),
+        ];
+        let table = PriceTable::build(&rates, &inventories, Pricing::NONE, NOW, AGE);
+        let feed = Content::of(&table, MAX_PACKET, NOW).feed(&key(), NOW, NOW + 1);
+        feed.check().unwrap();
+        let mut expected = [HUB, XRP, USD].map(LedgerId::as_str);
+        expected.sort_unstable();
+        let ids: Vec<&str> = feed.ledgers.iter().map(|ledger| ledger.id).collect();
+        assert_eq!(ids, expected);
+        assert_eq!(feed.rates.len(), 6);
+        for price in table.prices() {
+            let said = feed.rate(price.from.as_str(), price.to.as_str());
+            assert_eq!(said, Some(price.rate_e15));
+        }
+        assert!(feed.rate(HUB.as_str(), USD.as_str()).is_some());
+        assert!(feed.rate(XRP.as_str(), HUB.as_str()).is_some());
+    }
+
+    // A node runs the ledgers of its realm, hubs' included, and a feed
+    // names all of them at once: every ID fits the feed's alphabet and
+    // size, and their number its bound (spec/areas/rate-feed.md#bounds).
+    #[test]
+    fn a_feed_names_every_ledger_of_a_realm() {
+        let mut rates = Rates::new(NOW);
+        rates.set("USD", 10u128.pow(RATE_PRECISION));
+        rates.set("XRP", 2 * 10u128.pow(RATE_PRECISION));
+        for realm in [Realm::Test, Realm::Live] {
+            let inventories: Vec<Inventory> = LedgerId::ALL
+                .into_iter()
+                .filter(|ledger| ledger.realm() == realm)
+                .map(|ledger| held(ledger, 10_000_000_000))
+                .collect();
+            let table = PriceTable::build(&rates, &inventories, Pricing::NONE, NOW, AGE);
+            let feed = Content::of(&table, MAX_PACKET, NOW).feed(&key(), NOW, NOW + 1);
+            feed.check().unwrap();
+            assert_eq!(feed.ledgers.len(), inventories.len());
+            let pairs = inventories.len() * (inventories.len() - 1);
+            assert_eq!(feed.rates.len(), pairs);
         }
     }
 

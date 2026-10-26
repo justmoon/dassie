@@ -534,6 +534,7 @@
         "Downlinks at child addresses below the node's own; a periphery node's addresses beneath its uplinks, forwarding nothing",
         "A cap on money in flight with each peer, which bounds what a crash loses, and no new packets from a peer it cannot answer",
         "Exchange between currencies, with fees and a spread, at a rate moved from spot by what the owner holds on each ledger once the packet and those in flight have moved it, so that payments bring a skewed node back toward balance and no round trip gains, and nothing to or from a ledger whose scheme is paused",
+        "The same pricing on every ledger with a currency, a settlement hub's as much as one settled directly, and a ranking of the ledgers a packet could go out on by what it gets there relative to spot",
         "A spending cap per BTP token",
         "A packet trace for the debug pages",
         "Waiting for a settlement hub's decision before rejecting a packet to a peer over the hub"

@@ -242,3 +242,75 @@ fn a_waiting_packet_can_still_be_failed() {
         ErrorCode::T01_PEER_UNREACHABLE
     );
 }
+
+// spec/areas/connector.md#inventory-pricing: a ledger of a settlement hub
+// converts as any other with a currency. Transit from a peer on dollars to
+// a peer over the hub, in the hub's XRP, gets the curve's price, books its
+// conversion on the hub ledger's FX accounts, and comes back the same way.
+#[test]
+fn transit_converts_into_and_out_of_a_hub_ledger() {
+    use dassie_connector::RATE_PRECISION;
+    use dassie_ledger::{AccountName, LedgerId};
+    const HUB: LedgerId = LedgerId::HubXrpTestnetXrp;
+    const DOLLAR_PEER: EndpointId = EndpointId::Peer(2);
+    let dollar = 1_000_000_000;
+    // A hundred dollars, and two hundred XRP in the hub, worth as much.
+    let mut harness = Harness::new(Config::DEFAULT, 100 * dollar);
+    harness.fund(HUB, 200 * dollar);
+    harness.open_books(LedgerId::StubUsd);
+    harness.open_books(HUB);
+    harness.rates.set("USD", 10u128.pow(RATE_PRECISION));
+    harness.rates.set("XRP", 2 * 10u128.pow(RATE_PRECISION));
+    harness.add_peer_on(HUB, 3, "dxrp", TRUST, 0);
+    let hub_peer = EndpointId::Peer(3);
+    assert!(harness.connector.set_hub(hub_peer, true));
+    harness.add_peer(2, "dusd", TRUST, 0);
+    harness
+        .connector
+        .set_routes([
+            ("test.das.dxrp", &[hub_peer][..]),
+            ("test.das.dusd", &[DOLLAR_PEER][..]),
+        ])
+        .unwrap();
+    let prices = harness.prices(NOW);
+    assert!(prices.ledger(HUB).is_some());
+    let holdings = prices.live_holdings(&harness.ledger);
+    let max_age = Config::DEFAULT.max_rate_age_ms;
+    // Half the largest packet.
+    let amount = dollar / 20;
+    let expected = prices
+        .convert(
+            LedgerId::StubUsd,
+            HUB,
+            amount,
+            amount,
+            &holdings,
+            NOW,
+            max_age,
+        )
+        .unwrap();
+    // Near target, about twice the dollars in XRP.
+    assert!(expected <= 2 * amount && expected > 2 * amount / 100 * 99);
+    let packet = prepare("test.das.dxrp.x", amount, NOW + 20_000, [3; 32]);
+    let Outcome::Forward(sent) = harness.prepare(NOW, DOLLAR_PEER, 1, &packet) else {
+        panic!("not forwarded");
+    };
+    assert_eq!(sent.to, hub_peer);
+    assert_eq!(
+        decode_prepare(&harness.buffer[..sent.length]).amount,
+        expected
+    );
+    harness
+        .respond(NOW + 1, hub_peer, sent.request_id, &fulfill([3; 32]))
+        .unwrap();
+    let expected_fx = -i128::from(expected);
+    assert_eq!(harness.net_at(HUB, AccountName::ExpensesFx), expected_fx);
+    // And back out of the hub, into dollars.
+    let packet = prepare("test.das.dusd.x", expected, NOW + 20_000, [4; 32]);
+    let Outcome::Forward(back) = harness.prepare(NOW + 2, hub_peer, 2, &packet) else {
+        panic!("not forwarded");
+    };
+    assert_eq!(back.to, DOLLAR_PEER);
+    let returned = decode_prepare(&harness.buffer[..back.length]).amount;
+    assert!(returned < amount, "a round trip never gains: {returned}");
+}
