@@ -453,6 +453,8 @@ impl Core {
     /// # Errors
     ///
     /// The database is unreadable or inconsistent.
+    // One line per field of the core, which it builds whole.
+    #[allow(clippy::too_many_lines)]
     pub fn start(parts: CoreParts, now_ms: u64) -> Result<Self, String> {
         check_parts(&parts)?;
         let peer = new_peer(
