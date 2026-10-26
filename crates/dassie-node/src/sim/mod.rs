@@ -34,14 +34,14 @@
 //! its receiver gets what it sent.
 //!
 //! Each run settles over the stub, or over the XRP Ledger testnet scheme
-//! against a fake ledger in the same process (M7b): its connections lag,
+//! against a fake ledger in the same process: its connections lag,
 //! lose requests and drop, and the books must still match every node's
 //! account, less its reserve, with no XRP made or lost. A run in the live
 //! realm settles over mainnet's schemes, `xrpl-xrp` and `xrpl-rlusd`, against
 //! the fake ledger's mainnet, which has no faucet: each node's owner
 //! deposits (spec/decisions/mainnet-schemes.md).
 //!
-//! Runs across currencies (M7c) give some nodes dollars, some XRP and
+//! Runs across currencies give some nodes dollars, some XRP and
 //! some both, at a fixed snapshot of rates, one charging a fee and a
 //! spread: BTP clients pay receivers in the other currency, through the
 //! nodes that convert, which price what they convert by their inventory
@@ -171,7 +171,7 @@ pub enum Settling {
     /// The XRP Ledger mainnet scheme, `xrpl-xrp`, in the live realm, against
     /// the fake ledger's mainnet.
     XrplLive,
-    /// Node 0 on the stub, 2 on the XRP Ledger, 1 and 3 on both (M7c).
+    /// Node 0 on the stub, 2 on the XRP Ledger, 1 and 3 on both.
     Cross,
     /// The RLUSD scheme alone, `xrpl-rlusd`, in the live realm, against the
     /// fake ledger's mainnet and its issuer: the account's XRP is gas, off

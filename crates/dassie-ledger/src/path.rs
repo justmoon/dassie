@@ -87,7 +87,7 @@ impl AccountPath {
     /// The root of the account's group, if it is in one. The owner's pool
     /// is the root of its own group, which holds what the node owns on the
     /// ledger beyond what it owes peers: the owner's sub-accounts, and what
-    /// reconciliations, fees, conversions and losses moved (M7). So
+    /// reconciliations, fees, conversions and losses moved. So
     /// whatever the node gains or loses is the owner's to spend, or not.
     /// The owner's own endpoints never convert
     /// (spec/areas/ledger.md#the-owners-accounts), so money moves through

@@ -1,6 +1,6 @@
 //! BTP clients against an in-process node: authentication, ILDCP, routing,
 //! and a STREAM payment to the node's receiver that the journal records
-//! packet by packet (the M3 done criterion, in Rust).
+//! packet by packet.
 
 #![allow(
     clippy::unwrap_used,

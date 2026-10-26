@@ -1,5 +1,5 @@
 /**
- * The dev environment's exchange rates (M7c): `rates.json` in Coinbase's
+ * The dev environment's exchange rates: `rates.json` in Coinbase's
  * format, served over HTTPS under the scenario's CA, which every node uses
  * as its only rate source. Fixed rates make dev payments across currencies
  * easy to follow, and tests change them.

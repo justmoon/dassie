@@ -473,8 +473,8 @@ export const OpenPaymentsAmountSchema: GenMessage<OpenPaymentsAmount> = /*@__PUR
   messageDesc(file_dassie_owner_v1_payments, 14);
 
 /**
- * An outgoing payment: a client's, with the owner's consent (M6b), or the
- * owner's own (M6c).
+ * An outgoing payment: a client's, with the owner's consent, or the
+ * owner's own.
  *
  * @generated from message dassie.owner.v1.OutgoingPayment
  */
@@ -593,7 +593,7 @@ export type OutgoingPayment = Message<"dassie.owner.v1.OutgoingPayment"> & {
   finishedAtUnixMs?: bigint | undefined;
 
   /**
-   * The wallet address it pays, when the owner named one (M6c): as a URL,
+   * The wallet address it pays, when the owner named one: as a URL,
    * and as a payment pointer. Empty when only the incoming payment is
    * known.
    *

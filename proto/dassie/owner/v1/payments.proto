@@ -135,8 +135,8 @@ message OpenPaymentsAmount {
   uint32 asset_scale = 3;
 }
 
-// An outgoing payment: a client's, with the owner's consent (M6b), or the
-// owner's own (M6c).
+// An outgoing payment: a client's, with the owner's consent, or the
+// owner's own.
 message OutgoingPayment {
   // A UUID.
   string id = 1;
@@ -170,7 +170,7 @@ message OutgoingPayment {
   int64 created_at_unix_ms = 16;
   // When it completed or failed.
   optional int64 finished_at_unix_ms = 17;
-  // The wallet address it pays, when the owner named one (M6c): as a URL,
+  // The wallet address it pays, when the owner named one: as a URL,
   // and as a payment pointer. Empty when only the incoming payment is
   // known.
   string recipient_url = 18;

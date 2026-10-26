@@ -3,7 +3,7 @@
 //!
 //! A quote reads its receiver, here or on another node, measures the rate
 //! of the path to it with a probe, and fixes what an outgoing payment
-//! debits and delivers (M7c). It pays from the ledger the route to the
+//! debits and delivers. It pays from the ledger the route to the
 //! receiver starts on, since the node's own endpoints never convert. An
 //! outgoing payment pays a quote of the same client, or an incoming
 //! payment with the amount to debit, at the rate measured then.
