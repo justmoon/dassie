@@ -29,7 +29,9 @@ use dassie_xrpl::fake::Lie;
 use dassie_xrpl::network::TESTNET;
 use dassie_xrpl::{AccountId, Wallet};
 use support::btp_client::{BtpClient, pay_stream_waiting};
-use support::pair::{CA, CERT, KEY, bootstrap, key, peered_on, prepare_with, settle, until};
+use support::pair::{
+    CA, CERT, KEY, bootstrap, key, peered_on, prepare_with, settle, until, until_by,
+};
 use support::{Bound, START_MS, TestNode};
 
 const LEDGER: &str = "xrpl-testnet+xrp";
@@ -353,7 +355,9 @@ async fn a_lying_server_gets_nothing_booked_and_settling_resumes() {
         for validator in [1, 2] {
             server.ledger().withhold_validator(validator, false);
         }
-        until(&clock, both_in_step).await;
+        // The verifier connects anew once its stall is over, half a minute
+        // on its clock.
+        until_by(&clock, 1_000, both_in_step).await;
         assert_eq!(problem(&a).await, "");
     }
     assert_eq!(

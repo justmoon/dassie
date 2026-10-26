@@ -113,12 +113,18 @@ pub async fn accounts(node: &TestNode) -> Vec<String> {
 
 /// Moves the shared clock on in small steps, giving the daemons real time
 /// to talk, until `done` holds.
-pub async fn until(clock: &ManualClock, mut done: impl AsyncFnMut() -> bool) {
+pub async fn until(clock: &ManualClock, done: impl AsyncFnMut() -> bool) {
+    until_by(clock, 250, done).await;
+}
+
+/// [`until`], with the clock moving `step_ms` at a time: for a wait of
+/// many seconds on the daemons' clock, such as a backoff.
+pub async fn until_by(clock: &ManualClock, step_ms: u64, mut done: impl AsyncFnMut() -> bool) {
     for _ in 0..600 {
         if done().await {
             return;
         }
-        clock.advance(250);
+        clock.advance(step_ms);
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
     panic!("not reached in time");
