@@ -42,10 +42,8 @@ pub enum AccountName {
     ExpensesFees,
     /// The destination side of currency exchange.
     ExpensesFx,
-    /// Money paid on for packets an upstream peer then refused, as nodes
-    /// booked it before each kept its own Fulfills
-    /// (spec/decisions/own-fulfills.md): kept for the journals that have it,
-    /// and in the owner's group.
+    /// What a peering over a settlement hub cost beyond its hold
+    /// (spec/areas/hubs.md#packets-promises-and-claims), in the owner's group.
     ExpensesLosses,
 }
 

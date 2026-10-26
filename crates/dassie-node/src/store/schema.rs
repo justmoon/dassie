@@ -64,6 +64,7 @@ const MIGRATIONS: &[&str] = &[
     MIGRATION_40,
     MIGRATION_41,
     MIGRATION_42,
+    MIGRATION_43,
 ];
 
 /// The schema version this code writes: the number of migrations.
@@ -1383,6 +1384,54 @@ UPDATE gnap_grants
   SET interaction = (SELECT r.interaction FROM temp.renamed_grants r WHERE r.id = gnap_grants.id)
   WHERE id IN (SELECT id FROM temp.renamed_grants WHERE in_subject);
 DROP TABLE temp.renamed_grants;
+";
+
+/// No node books a `refusal` any more: each keeps its own Fulfills
+/// (spec/decisions/own-fulfills.md). Rows of that kind a journal still holds
+/// become `reconciliation` rows, which name no packet, with their accounts
+/// and amounts as they were, so the books stay what they were. The journal
+/// is rebuilt, since its CHECKs change, and the index on refusals goes.
+const MIGRATION_43: &str = "
+CREATE TABLE ledger_transfers_new (
+  id INTEGER PRIMARY KEY CHECK (id >= 0),
+  debit INTEGER NOT NULL REFERENCES ledger_accounts (id),
+  credit INTEGER NOT NULL REFERENCES ledger_accounts (id) CHECK (credit != debit),
+  amount INTEGER NOT NULL CHECK (amount > 0),
+  state TEXT NOT NULL CHECK (state IN ('pending', 'posted', 'voided')),
+  created_at_ms INTEGER NOT NULL,
+  resolved_at_ms INTEGER CHECK ((state = 'pending') = (resolved_at_ms IS NULL)),
+  reference TEXT NOT NULL CHECK (reference IN
+    ('packet', 'settlement', 'trust', 'deposit', 'withdrawal', 'reconciliation', 'fee', 'loss',
+     'owner_payment')),
+  packet_epoch INTEGER CHECK ((reference = 'packet') = (packet_epoch IS NOT NULL)),
+  packet_sequence INTEGER CHECK ((reference = 'packet') = (packet_sequence IS NOT NULL)),
+  settlement_scheme TEXT
+    CHECK ((reference IN ('settlement', 'fee', 'loss', 'owner_payment'))
+      = (settlement_scheme IS NOT NULL)),
+  settlement_id TEXT
+    CHECK ((reference IN ('settlement', 'fee', 'loss', 'owner_payment'))
+      = (settlement_id IS NOT NULL)),
+  sequence INTEGER NOT NULL UNIQUE CHECK (sequence > 0)
+) STRICT;
+
+INSERT INTO ledger_transfers_new
+  SELECT id, debit, credit, amount, state, created_at_ms, resolved_at_ms,
+    CASE reference WHEN 'refusal' THEN 'reconciliation' ELSE reference END,
+    CASE reference WHEN 'refusal' THEN NULL ELSE packet_epoch END,
+    CASE reference WHEN 'refusal' THEN NULL ELSE packet_sequence END,
+    settlement_scheme, settlement_id, sequence
+  FROM ledger_transfers;
+DROP TABLE ledger_transfers;
+ALTER TABLE ledger_transfers_new RENAME TO ledger_transfers;
+
+CREATE INDEX ledger_transfers_by_debit ON ledger_transfers (debit, state);
+CREATE INDEX ledger_transfers_by_credit ON ledger_transfers (credit, state);
+CREATE INDEX ledger_transfers_pending ON ledger_transfers (state) WHERE state = 'pending';
+CREATE INDEX ledger_transfers_by_debit_sequence ON ledger_transfers (debit, sequence);
+CREATE INDEX ledger_transfers_by_credit_sequence ON ledger_transfers (credit, sequence);
+CREATE INDEX ledger_transfers_by_packet ON ledger_transfers (packet_epoch, packet_sequence)
+  WHERE packet_epoch IS NOT NULL;
+CREATE INDEX ledger_transfers_trust ON ledger_transfers (sequence) WHERE reference = 'trust';
 ";
 
 /// Columns that hold secrets: the database inspector never reads them.

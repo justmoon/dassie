@@ -37,12 +37,6 @@ pub enum Reference {
     /// A difference between a settlement module's balance and its last
     /// checkpoint, found at activation (ACC-6).
     Reconciliation,
-    /// The compensation for a packet whose Fulfill the upstream peer
-    /// refused after it was posted here: it reversed the packet, or booked
-    /// the loss. Nodes booked these before each kept its own Fulfills
-    /// (spec/decisions/own-fulfills.md); it stays for the journals that have
-    /// it.
-    Refusal(TraceId),
     /// A fee the underlying ledger charged for one of our transactions.
     Fee {
         /// The settlement scheme.
@@ -83,7 +77,6 @@ impl Reference {
             Self::Deposit
                 | Self::Withdrawal
                 | Self::Reconciliation
-                | Self::Refusal(_)
                 | Self::Fee { .. }
                 | Self::Loss { .. }
         )
