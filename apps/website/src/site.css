@@ -176,6 +176,10 @@ pre code {
   white-space: nowrap;
 }
 
+.hero h1 em {
+  color: var(--ember-text);
+}
+
 .hero .lede {
   max-width: 480px;
   margin: 20px 0 26px;
@@ -329,10 +333,6 @@ pre code {
   line-height: 1.05;
   letter-spacing: -0.03em;
   font-variation-settings: "SOFT" 100, "WONK" 1;
-}
-
-.line h2 em {
-  color: var(--ember-text);
 }
 
 .pillars {
