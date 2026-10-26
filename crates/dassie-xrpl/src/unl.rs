@@ -1558,6 +1558,7 @@ mod tests {
                 gas_limit: None,
                 bytecode_size_limit: None,
                 gas_price: None,
+                other_fields: Vec::new(),
             }
             .signed(&self.signing)
             .to_bytes()
