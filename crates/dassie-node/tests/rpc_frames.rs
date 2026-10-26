@@ -11,7 +11,7 @@
 )]
 
 use std::convert::Infallible;
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 
 use bytes::Bytes;
@@ -75,18 +75,23 @@ fn serve(node: &Arc<Node>, runtime: &tokio::runtime::Runtime, frames: Vec<Vec<u8
     ))
 }
 
+/// The node every case of `arbitrary_frames` connects to: a connection
+/// leaves nothing behind once it ends, and setting a node up for each
+/// case took most of the test's time.
+static NODE: LazyLock<Arc<Node>> = LazyLock::new(node);
+
 proptest! {
     #![proptest_config(ProptestConfig { cases: 512, ..ProptestConfig::default() })]
 
     #[test]
     fn arbitrary_frames(frames in proptest::collection::vec(proptest::collection::vec(any::<u8>(), 0..64), 0..8)) {
         let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
-        let node = node();
+        let node = &*NODE;
         let malformed = frames.iter().any(|frame| match proto::ClientMessage::decode(frame.as_slice()) {
             Ok(message) => message.kind.is_none(),
             Err(_) => true,
         });
-        let closed = serve(&node, &runtime, frames);
+        let closed = serve(node, &runtime, frames);
         if malformed {
             prop_assert_eq!(closed, Closed::ProtocolError);
         } else {
