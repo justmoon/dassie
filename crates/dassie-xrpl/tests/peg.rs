@@ -5,8 +5,9 @@
 //! hold, and lets it run again after a trip only once every reading was
 //! inside the narrower band for the recovery hold, with no gap longer than
 //! the staleness bound; without a reading that counted for that bound, it
-//! pauses; and it never lets its scheme run again but on a reading inside
-//! the band. What it keeps comes back as it was, at every step.
+//! pauses; it never lets its scheme run again but on a reading inside the
+//! band; and a reading at an anchor too old never counts. What it keeps
+//! comes back as it was, at every step.
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing)]
 
@@ -14,8 +15,8 @@ use dassie_settlement::{DollarRate, PegPause};
 use dassie_xrpl::AccountId;
 use dassie_xrpl::codec::TokenValue;
 use dassie_xrpl::peg::{
-    Guard, INNER_BAND_PPM, MAX_RATE_AGE_MS, MAX_READING_AGE_MS, OUTER_BAND_PPM, PAR_PPM, Peg,
-    PoolReading, RECOVER_HOLD_MS, Reading, TRIP_HOLD_MS,
+    Guard, INNER_BAND_PPM, MAX_ANCHOR_AGE_MS, MAX_RATE_AGE_MS, MAX_READING_AGE_MS, OUTER_BAND_PPM,
+    PAR_PPM, Peg, PoolReading, RECOVER_HOLD_MS, Reading, TRIP_HOLD_MS,
 };
 use proptest::prelude::*;
 
@@ -39,13 +40,15 @@ const fn rate(as_of_ms: u64) -> DollarRate {
 }
 
 /// The pool priced at `ppm` millionths of a dollar at [`rate`]: as many
-/// drops as `ppm · 200_000`, for [`POOL_TOKENS`].
-fn pool(ppm: u64) -> PoolReading {
+/// drops as `ppm · 200_000`, for [`POOL_TOKENS`], at an anchor that closed
+/// at `closed_ms`.
+fn pool(ppm: u64, closed_ms: u64) -> PoolReading {
     PoolReading {
         account: AccountId([7; 20]),
         drops: ppm * 200_000,
         value: TokenValue::from_units(POOL_TOKENS, 0).unwrap(),
         ledger_index: 10,
+        closed_ms,
     }
 }
 
@@ -60,6 +63,8 @@ enum Op {
     NoPool,
     /// A reading at a dollar, with a stale rate.
     StaleRate,
+    /// A reading at this price, at an anchor too old.
+    OldAnchor(u64),
 }
 
 /// Prices around the bands' edges, where the holds decide, and far off.
@@ -88,6 +93,7 @@ fn steps() -> impl Strategy<Value = Vec<(u64, Op)>> {
         8 => price().prop_map(Op::Read),
         1 => Just(Op::NoPool),
         1 => Just(Op::StaleRate),
+        1 => price().prop_map(Op::OldAnchor),
     ];
     let run = (wait, op, 1..=80_usize).prop_map(|(wait, op, count)| vec![(wait, op); count]);
     proptest::collection::vec(run, 1..=12).prop_map(|runs| runs.concat())
@@ -173,7 +179,7 @@ proptest! {
                 Op::Tick => None,
                 Op::Read(ppm) => {
                     guard.rate(Some(rate(now)));
-                    prop_assert_eq!(guard.reading(now, Some(&pool(ppm))), Reading::Counted(ppm));
+                    prop_assert_eq!(guard.reading(now, Some(&pool(ppm, now))), Reading::Counted(ppm));
                     readings.push((now, ppm));
                     Some(ppm)
                 }
@@ -183,7 +189,13 @@ proptest! {
                 }
                 Op::StaleRate => {
                     guard.rate(Some(rate(now - MAX_RATE_AGE_MS - 1)));
-                    prop_assert_eq!(guard.reading(now, Some(&pool(PAR_PPM))), Reading::NoRate);
+                    prop_assert_eq!(guard.reading(now, Some(&pool(PAR_PPM, now))), Reading::NoRate);
+                    None
+                }
+                Op::OldAnchor(ppm) => {
+                    guard.rate(Some(rate(now)));
+                    let old = pool(ppm, now - MAX_ANCHOR_AGE_MS - 1);
+                    prop_assert_eq!(guard.reading(now, Some(&old)), Reading::OldAnchor);
                     None
                 }
             };

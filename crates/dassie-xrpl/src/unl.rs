@@ -85,6 +85,13 @@ pub const fn ledger_seconds(now_ms: u64) -> u64 {
     (now_ms / 1_000).saturating_sub(RIPPLE_EPOCH_UNIX_S)
 }
 
+/// The node's time, in milliseconds since 1970, at the ledger's time
+/// `seconds`, in seconds since 2000-01-01.
+#[must_use]
+pub fn unix_ms(seconds: u32) -> u64 {
+    (u64::from(seconds) + RIPPLE_EPOCH_UNIX_S) * 1_000
+}
+
 /// How many of a UNL of `validators`, `effective` of them not on a
 /// negative UNL, make a quorum, as rippled's
 /// `ValidatorList::calculateQuorum` has it: four fifths of the effective

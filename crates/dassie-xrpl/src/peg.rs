@@ -5,8 +5,9 @@
 //! A reading is the pool's two balances, proven at one anchor, which the
 //! account reads for the scheme ([`crate::XrplAccount::read_pool`]), and
 //! the node's own XRP/USD rate. The token's price is their ratio times the
-//! rate, exact, in millionths of a dollar. A reading counts only if the pool
-//! holds at least its token's floor of XRP and the rate is fresh.
+//! rate, exact, in millionths of a dollar. A reading counts only if its
+//! anchor closed within [`MAX_ANCHOR_AGE_MS`], the pool holds at least its
+//! token's floor of XRP, and the rate is fresh.
 //!
 //! - **Pegged,** the scheme runs. Once every reading that counted has been
 //!   outside [`OUTER_BAND_PPM`] for [`TRIP_HOLD_MS`], it is off its peg.
@@ -67,13 +68,28 @@ pub const MAX_READING_AGE_MS: u64 = TRIP_HOLD_MS;
 /// for an hour, but in an hour XRP moved the mainnet pool's price by up to
 /// 1.65%, half the band.
 pub const MAX_RATE_AGE_MS: u64 = 10 * 60_000;
+/// The oldest the anchor a reading was proven at may be for it to count, by
+/// the close time its validators agreed on against the node's clock: as
+/// long as a validation stays fresh ([`crate::unl::FRESH_FOR_MS`]), three
+/// minutes. The account takes no anchor whose validations are older, and a
+/// ledger's validations are signed once it closed, so a reading counts only
+/// from a ledger the account could still anchor on now. A server that stops
+/// sending new ledgers, and keeps proving the one the account has, holds the
+/// account on an anchor that ages; past this, the guard sees no reading, and
+/// fails closed as without one, so such a server hides a de-peg for at most
+/// this past [`MAX_READING_AGE_MS`]. Its clock is the one anchoring is judged
+/// by (spec/designs/xrpl-validation.md#7-resets-under-a-unl). Shorter than
+/// [`MAX_RATE_AGE_MS`], which bounds how often rates are fetched: the account
+/// anchors on each ledger the stream names, seconds apart, so a healthy
+/// account's readings are seconds old.
+pub const MAX_ANCHOR_AGE_MS: u64 = crate::unl::FRESH_FOR_MS;
 /// How often the guard reads the pool: once a minute, as the node fetches
 /// rates, so a hold sees ten readings or more before it ends.
 pub const READ_EVERY_MS: u64 = 60_000;
 /// How long the guard's holds and bounds are: the pool read every so often,
 /// and each hold and the staleness bound as many readings long as in
-/// production; the rate's bound is the rate fetcher's, which dev timers do
-/// not change.
+/// production; the rate's bound is the rate fetcher's, and the anchor's the
+/// ledger's, neither of which dev timers change.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Timings {
     /// How often the pool is read.
@@ -87,17 +103,21 @@ pub struct Timings {
     pub max_reading_age_ms: u64,
     /// The oldest the XRP rate may be for a reading to count.
     pub max_rate_age_ms: u64,
+    /// The oldest the anchor of a reading may be for it to count.
+    pub max_anchor_age_ms: u64,
 }
 
 impl Timings {
     /// The production values: [`READ_EVERY_MS`], [`TRIP_HOLD_MS`],
-    /// [`RECOVER_HOLD_MS`], [`MAX_READING_AGE_MS`] and [`MAX_RATE_AGE_MS`].
+    /// [`RECOVER_HOLD_MS`], [`MAX_READING_AGE_MS`], [`MAX_RATE_AGE_MS`] and
+    /// [`MAX_ANCHOR_AGE_MS`].
     pub const DEFAULT: Self = Self::reading_every(READ_EVERY_MS);
 
     /// The production rule on dev timers, for dev environments and the
     /// end-to-end tests: a reading a second, so the trip hold is ten
     /// seconds and recovery a minute. The node fetches rates as often as in
-    /// production, so the rate's bound stays.
+    /// production, and validations stay fresh as long, so the rate's bound
+    /// and the anchor's stay.
     pub const DEV: Self = Self::reading_every(1_000);
 
     /// Whether the rule holds on these timings: the pool read at all, a
@@ -119,6 +139,7 @@ impl Timings {
             recover_hold_ms: read_every_ms * (RECOVER_HOLD_MS / READ_EVERY_MS),
             max_reading_age_ms: read_every_ms * (MAX_READING_AGE_MS / READ_EVERY_MS),
             max_rate_age_ms: MAX_RATE_AGE_MS,
+            max_anchor_age_ms: MAX_ANCHOR_AGE_MS,
         }
     }
 }
@@ -165,8 +186,11 @@ pub struct PoolReading {
     pub drops: u64,
     /// Its token.
     pub value: TokenValue,
-    /// The validated ledger both are as of.
+    /// The validated ledger both are as of: the account's anchor.
     pub ledger_index: u32,
+    /// When that ledger closed, by the close time its validators agreed
+    /// on, in milliseconds since 1970.
+    pub closed_ms: u64,
 }
 
 /// What became of a reading.
@@ -176,6 +200,9 @@ pub enum Reading {
     Counted(u64),
     /// There is no pool, or it holds none of the token.
     NoPool,
+    /// It was proven at an anchor that closed longer ago than
+    /// [`MAX_ANCHOR_AGE_MS`].
+    OldAnchor,
     /// The pool holds less XRP than its floor.
     TooThin,
     /// The node has no XRP rate, or one older than [`MAX_RATE_AGE_MS`], or
@@ -302,13 +329,17 @@ impl Guard {
     }
 
     /// Takes a reading of the pool at `now_ms`, `None` if there is none,
-    /// with the rate as last told.
+    /// with the rate as last told. One whose anchor closed after `now_ms`,
+    /// as a clock behind makes it, is as young as one just closed.
     pub fn reading(&mut self, now_ms: u64, pool: Option<&PoolReading>) -> Reading {
         self.tick(now_ms);
         let Some(pool) = pool.filter(|pool| !pool.value.is_zero() && !pool.value.is_negative())
         else {
             return Reading::NoPool;
         };
+        if now_ms.saturating_sub(pool.closed_ms) > self.timings.max_anchor_age_ms {
+            return Reading::OldAnchor;
+        }
         if pool.drops < self.peg.min_pool_drops {
             return Reading::TooThin;
         }
@@ -517,21 +548,23 @@ mod tests {
     }
 
     /// A pool of 1,000 XRP priced at `ppm` millionths of a dollar a token,
-    /// at 2 XRP to the dollar: 500 · 10^6 / ppm tokens.
-    fn pool(ppm: u64) -> PoolReading {
+    /// at 2 XRP to the dollar: 500 · 10^6 / ppm tokens, at an anchor that
+    /// closed at `closed_ms`.
+    fn pool(ppm: u64, closed_ms: u64) -> PoolReading {
         let micro_tokens = 500_000_000_000_000 / ppm;
         PoolReading {
             account: AccountId([7; 20]),
             drops: 1_000_000_000,
             value: TokenValue::from_units(micro_tokens, 6).unwrap(),
             ledger_index: 10,
+            closed_ms,
         }
     }
 
     /// A guard told the rate at `now_ms`, given a reading at `ppm`.
     fn read(guard: &mut Guard, now_ms: u64, ppm: u64) -> Reading {
         guard.rate(Some(two_per_dollar(now_ms)));
-        let reading = guard.reading(now_ms, Some(&pool(ppm)));
+        let reading = guard.reading(now_ms, Some(&pool(ppm, now_ms)));
         guard.check_invariants();
         reading
     }
@@ -663,17 +696,26 @@ mod tests {
         assert_eq!(guard.reading(now, None), Reading::NoPool);
         let thin = PoolReading {
             drops: PEG.min_pool_drops - 1,
-            ..pool(PAR_PPM)
+            ..pool(PAR_PPM, now)
         };
         guard.rate(Some(two_per_dollar(now)));
         assert_eq!(guard.reading(now, Some(&thin)), Reading::TooThin);
         guard.rate(None);
-        assert_eq!(guard.reading(now, Some(&pool(PAR_PPM))), Reading::NoRate);
+        assert_eq!(
+            guard.reading(now, Some(&pool(PAR_PPM, now))),
+            Reading::NoRate
+        );
         guard.rate(Some(two_per_dollar(now - MAX_RATE_AGE_MS - 1)));
-        assert_eq!(guard.reading(now, Some(&pool(PAR_PPM))), Reading::NoRate);
+        assert_eq!(
+            guard.reading(now, Some(&pool(PAR_PPM, now))),
+            Reading::NoRate
+        );
         // A rate from the future, as a clock gone back makes it: none.
         guard.rate(Some(two_per_dollar(now + 1)));
-        assert_eq!(guard.reading(now, Some(&pool(PAR_PPM))), Reading::NoRate);
+        assert_eq!(
+            guard.reading(now, Some(&pool(PAR_PPM, now))),
+            Reading::NoRate
+        );
         assert_eq!(guard.paused(), Some(PegPause::Stale));
         // The next reading that counts ends it, if in the band.
         read(&mut guard, now, 990_000);
@@ -747,6 +789,61 @@ mod tests {
         );
         assert_eq!(guard.paused(), Some(PegPause::OffPeg));
         read(&mut guard, back + RECOVER_HOLD_MS, PAR_PPM);
+        assert_eq!(guard.paused(), None);
+    }
+
+    // A reading counts only from an anchor that closed within the bound: one
+    // proven at an older anchor is no reading, whatever it shows, and
+    // readings at one anchor that ages pause the guard as no reading does.
+    #[test]
+    fn a_reading_counts_only_from_a_fresh_anchor() {
+        let mut guard = Guard::new(PEG);
+        let start = 10 * MAX_READING_AGE_MS;
+        guard.rate(Some(two_per_dollar(start)));
+        let at = |closed_ms| pool(PAR_PPM, closed_ms);
+        assert_eq!(
+            guard.reading(start, Some(&at(start - MAX_ANCHOR_AGE_MS))),
+            Reading::Counted(PAR_PPM)
+        );
+        // A close time past the node's clock, as one behind makes it.
+        assert_eq!(
+            guard.reading(start, Some(&at(start + 1_000))),
+            Reading::Counted(PAR_PPM)
+        );
+        let old = at(start - MAX_ANCHOR_AGE_MS - 1);
+        assert_eq!(guard.reading(start, Some(&old)), Reading::OldAnchor);
+        // Off its peg at an old anchor: nothing toward tripping.
+        let mut off = guard.clone();
+        let far = pool(900_000, start - MAX_ANCHOR_AGE_MS - 1);
+        let mut now = start;
+        while now <= start + MAX_READING_AGE_MS + READ_EVERY_MS {
+            off.rate(Some(two_per_dollar(now)));
+            assert_eq!(off.reading(now, Some(&far)), Reading::OldAnchor);
+            off.check_invariants();
+            now += READ_EVERY_MS;
+        }
+        assert_eq!(off.view().last, Some((PAR_PPM, 10)));
+        assert_eq!(off.paused(), Some(PegPause::Stale));
+        // One anchor, read every minute while it ages: the readings count
+        // until it is too old, and once none has for the staleness bound,
+        // the guard pauses.
+        let closed_ms = start;
+        let mut now = start;
+        while now <= closed_ms + MAX_ANCHOR_AGE_MS + MAX_READING_AGE_MS {
+            guard.rate(Some(two_per_dollar(now)));
+            guard.reading(now, Some(&at(closed_ms)));
+            guard.check_invariants();
+            assert_eq!(guard.paused(), None, "{now}");
+            now += READ_EVERY_MS;
+        }
+        guard.rate(Some(two_per_dollar(now)));
+        assert_eq!(guard.reading(now, Some(&at(closed_ms))), Reading::OldAnchor);
+        assert_eq!(guard.paused(), Some(PegPause::Stale));
+        // A reading at a fresh anchor ends it.
+        assert_eq!(
+            guard.reading(now, Some(&at(now))),
+            Reading::Counted(PAR_PPM)
+        );
         assert_eq!(guard.paused(), None);
     }
 
@@ -831,6 +928,7 @@ mod tests {
             (10_000, 60_000, 10_000)
         );
         assert_eq!(dev.max_rate_age_ms, MAX_RATE_AGE_MS);
+        assert_eq!(dev.max_anchor_age_ms, MAX_ANCHOR_AGE_MS);
         // Timings the rule does not hold on are refused.
         for broken in [
             Timings {

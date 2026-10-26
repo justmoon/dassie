@@ -146,6 +146,7 @@ fn each_guarded_dollars_pool_prices_it_at_a_dollar() {
             drops,
             value: held.value,
             ledger_index: info.ledger_index,
+            closed_ms: NOW,
         };
         assert_eq!(
             guard.reading(NOW, Some(&pool)),
