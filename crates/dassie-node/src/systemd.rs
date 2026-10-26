@@ -4,9 +4,9 @@
 //! (spec/areas/node.md#runtimes): four it needs, QUIC's UDP socket among
 //! them since QUIC is the peer protocol's only transport, and the rate
 //! feed's UDP socket, which it can go without: its unit is only wanted, and
-//! its port may be taken, so the node runs without a feed. The original did not check
-//! that `LISTEN_PID` names this process, and reported readiness by running
-//! `systemd-notify`. Here both are done in the process: the PID is
+//! its port may be taken, so the node runs without a feed. The original did
+//! not check that `LISTEN_PID` names this process, and reported readiness by
+//! running `systemd-notify`. Here both are done in the process: the PID is
 //! checked, and `READY=1` and `STOPPING=1` go straight to `NOTIFY_SOCKET`.
 //!
 //! Taking the sockets must happen before any other thread exists, since it
