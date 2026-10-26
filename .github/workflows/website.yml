@@ -46,6 +46,7 @@ on:
       - pnpm-workspace.yaml
       - pnpm-lock.yaml
       - .npmrc
+      - tsconfig.base.json
       - nix/ts.nix
       - nix/pnpm.nix
       - nix/registry-mirror.mjs
