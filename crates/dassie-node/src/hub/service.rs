@@ -70,10 +70,7 @@ pub async fn run(node: Arc<Node>, config: Arc<ValidatorConfig>, shutdown: Cancel
     let Some(key) = identity(&node, &shutdown).await else {
         return;
     };
-    let Some(client) = HubClient::of(&node) else {
-        tracing::error!(target: target::HUB, "no peer client: the node validates no hub");
-        return shutdown.cancelled().await;
-    };
+    let client = HubClient::of(&node);
     let tasks = TaskTracker::new();
     let stop = shutdown.child_token();
     let mut founded = node.founding().map(|founding| founding.founded());
@@ -185,7 +182,7 @@ fn start(
         store: node.store_handle(),
         hub: id,
         url: hub.xrpl.clone(),
-        client: node.peer_client().cloned(),
+        client: node.outbound().cloned(),
         clock: node.clock(),
         links,
         retry: std::collections::VecDeque::new(),

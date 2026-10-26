@@ -7,13 +7,12 @@
 
 use std::future::Future;
 use std::net::{IpAddr, SocketAddr, UdpSocket};
-use std::path::Path;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
 use dassie_identity::{NodeId, NodeKey};
-use dassie_node::peer_client::PeerClient;
+use dassie_node::outbound::Resolver;
 use dassie_node::peer_server::{Answer, BodyError};
 use dassie_node::quic::places::{Classes, Counts, Peerings};
 use dassie_node::quic::{Body, Handler, Quic, send_peer};
@@ -184,14 +183,10 @@ fn side_with(seed: u8, shutdown: &CancellationToken, handler: Arc<dyn Handler>) 
     }
 }
 
-fn client() -> PeerClient {
-    // Roots of its own: the build sandbox has none of the system's. QUIC
-    // trusts no roots at all; the client only resolves names here.
-    let roots = concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../../testdata/pebble/root.pem"
-    );
-    PeerClient::new(Some(Path::new(roots)), true).unwrap()
+/// QUIC trusts no roots: each connection pins its node's key, and the
+/// resolver only resolves names, private ones included.
+fn client() -> Resolver {
+    Resolver::new(true)
 }
 
 fn request(to: &Side, body: Vec<u8>) -> Request {
@@ -304,7 +299,6 @@ async fn requests_to_one_node_run_side_by_side() {
     let client = client();
     let sends = (0..AT_ONCE).map(|index| {
         let (quic, request) = (Arc::clone(&a.quic), request(&b, vec![7; index + 1]));
-        let client = client.clone();
         async move { quic.send(&request, &client).await }
     });
     let answers = tokio::time::timeout(

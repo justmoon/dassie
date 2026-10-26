@@ -9,7 +9,7 @@ use tokio_util::sync::CancellationToken;
 
 use super::Node;
 use crate::log::target;
-use crate::peer_client::WebRequest;
+use crate::outbound::WebRequest;
 use crate::rates::{self, Answer, BASE, MAX_RESPONSE_BYTES, RateSource};
 use crate::store::StoredRate;
 
@@ -90,7 +90,7 @@ impl Node {
 
     /// What one source says, if it answers well.
     async fn ask(&self, source: &RateSource) -> Answer {
-        let said = match self.peer_client() {
+        let said = match self.outbound() {
             Some(client) => {
                 let request = WebRequest {
                     method: http::Method::GET,

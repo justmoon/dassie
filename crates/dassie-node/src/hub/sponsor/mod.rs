@@ -324,9 +324,10 @@ async fn foundings(node: Arc<Node>, shutdown: CancellationToken) {
         () = shutdown.cancelled() => return,
         key = identity.wait_for(Option::is_some) => key.ok().and_then(|key| key.clone()),
     };
-    let (Some(key), Some(client)) = (key, HubClient::of(&node)) else {
+    let Some(key) = key else {
         return shutdown.cancelled().await;
     };
+    let client = HubClient::of(&node);
     let tasks = TaskTracker::new();
     let mut driving: BTreeMap<[u8; 32], CancellationToken> = BTreeMap::new();
     let mut changed = node.sponsoring().changed.subscribe();

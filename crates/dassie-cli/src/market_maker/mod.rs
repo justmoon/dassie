@@ -32,7 +32,7 @@ use dassie_identity::NodeId;
 use dassie_node::clock::{Clock, SystemClock};
 use dassie_node::env::{self, Env};
 use dassie_node::log;
-use dassie_node::peer_client::PeerClient;
+use dassie_node::outbound::OutboundClient;
 use dassie_xrpl::Wallet;
 use dassie_xrpl::keys::AccountId;
 use lexopt::prelude::*;
@@ -215,7 +215,7 @@ impl MarketMaker {
         );
         check_node(&mut xrp, wallets.xrp.account(), &config.token).await?;
         check_node(&mut token, wallets.token.account(), &config.token).await?;
-        let client = PeerClient::new(config.ca_file.as_deref(), config.allow_private)?;
+        let client = OutboundClient::new(config.ca_file.as_deref(), config.allow_private)?;
         let mut xrpl = Xrpl::new(config.xrpl_server.clone(), client.clone());
         xrpl.testnet_state().await?;
         // A task per target, as many as the config may name.

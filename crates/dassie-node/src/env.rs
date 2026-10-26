@@ -165,8 +165,8 @@ pub struct Settings {
     pub relay: Option<Relay>,
     /// An extra root the ACME client trusts, for test CAs such as Pebble.
     pub acme_ca_file: Option<PathBuf>,
-    /// Extra roots the peer client trusts, beside the platform's: a dev or
-    /// test CA (`DASSIE_PEER_CA_FILE`).
+    /// Extra roots the outbound client trusts, beside the platform's: a dev
+    /// or test CA (`DASSIE_PEER_CA_FILE`).
     pub peer_ca_file: Option<PathBuf>,
     /// Whether peers may be at private addresses, such as `localhost` in
     /// dev and tests (`DASSIE_PEER_ALLOW_PRIVATE=1`).

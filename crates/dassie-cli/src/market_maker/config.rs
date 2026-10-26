@@ -34,6 +34,7 @@
 use std::fmt;
 use std::path::{Path, PathBuf};
 
+use dassie_node::outbound::host_and_port;
 use dassie_xrpl::Wallet;
 use dassie_xrpl::amount::Currency;
 use dassie_xrpl::keys::AccountId;
@@ -452,26 +453,6 @@ fn node(root: &Fields<'_>, key: &str) -> Result<(NodeConfig, NodeParams), Config
         passphrase_file: PathBuf::from(fields.text("passphraseFile")?),
     };
     Ok((config, NodeParams { trade_size, band }))
-}
-
-/// The host and port of a URL's authority: `host`, `host:port`, `[v6]` or
-/// `[v6]:port`, as the node reads a ledger's URL.
-#[must_use]
-pub fn host_and_port(authority: &str, default: u16) -> Option<(&str, u16)> {
-    let (host, port) = if let Some(rest) = authority.strip_prefix('[') {
-        let (host, after) = rest.split_once(']')?;
-        match after.strip_prefix(':') {
-            Some(number) => (host, number.parse().ok()?),
-            None if after.is_empty() => (host, default),
-            None => return None,
-        }
-    } else {
-        match authority.rsplit_once(':') {
-            Some((host, number)) => (host, number.parse().ok()?),
-            None => (authority, default),
-        }
-    };
-    (!host.is_empty() && port != 0).then_some((host, port))
 }
 
 /// The wallet of the node whose passphrase is in `path`: the node's first

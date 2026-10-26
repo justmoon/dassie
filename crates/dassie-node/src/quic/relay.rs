@@ -41,7 +41,7 @@ use super::keys::{self, AnyNodeKey, Keys, PinnedServer, Present};
 use super::{CONNECT_TIMEOUT, Handler, Link, MAX_STREAMS, On, Quic, StreamKind, no_room, stand_by};
 use crate::log::target;
 use crate::node::lock;
-use crate::peer_client::PeerClient;
+use crate::outbound::Resolver;
 use crate::slots::{ClientSlot, ClientSlots};
 use crate::tls;
 
@@ -226,7 +226,7 @@ impl KeepWhile {
 pub(super) struct Chosen {
     relay: NodeId,
     url: String,
-    resolver: PeerClient,
+    resolver: Resolver,
     keep: KeepWhile,
 }
 
@@ -471,7 +471,7 @@ impl Quic {
         relay: (NodeId, &str),
         destination: NodeId,
         purpose: Purpose,
-        resolver: &PeerClient,
+        resolver: &Resolver,
     ) -> Result<RelayedStream, RelayError> {
         if self.keys.current().is_none() {
             return Err(RelayError::Unreachable);
@@ -538,7 +538,7 @@ impl Quic {
         self: &Arc<Self>,
         (destination, url): (NodeId, &str),
         purpose: Purpose,
-        resolver: &PeerClient,
+        resolver: &Resolver,
     ) -> Result<RelayedStream, RelayError> {
         let Some((own, _)) = self.keys.current() else {
             return Err(RelayError::Unreachable);
@@ -576,7 +576,7 @@ impl Quic {
     /// keeps a connection to while it runs and `keep` holds
     /// ([`keep_relay`](Self::keep_relay)), resolving its name with
     /// `resolver`.
-    pub fn choose_relay(&self, relay: NodeId, url: String, resolver: PeerClient, keep: KeepWhile) {
+    pub fn choose_relay(&self, relay: NodeId, url: String, resolver: Resolver, keep: KeepWhile) {
         *lock(&self.chosen_relay) = Some(Chosen {
             relay,
             url,
@@ -643,7 +643,7 @@ impl Quic {
         self: Arc<Self>,
         relay: NodeId,
         url: String,
-        resolver: PeerClient,
+        resolver: Resolver,
         mut keep: KeepWhile,
         shutdown: CancellationToken,
     ) {

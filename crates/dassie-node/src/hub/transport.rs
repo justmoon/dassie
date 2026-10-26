@@ -55,7 +55,7 @@ use sha2::{Digest as _, Sha256};
 use tokio::sync::{mpsc, oneshot};
 
 use crate::node::Node;
-use crate::peer_client::PeerClient;
+use crate::outbound::Resolver;
 use crate::quic::Quic;
 use crate::store::Store;
 
@@ -747,7 +747,7 @@ impl std::error::Error for HubExchangeError {}
 #[derive(Clone)]
 pub struct HubClient {
     quic: Option<Arc<Quic>>,
-    client: PeerClient,
+    resolver: Resolver,
 }
 
 impl fmt::Debug for HubClient {
@@ -759,17 +759,17 @@ impl fmt::Debug for HubClient {
 }
 
 impl HubClient {
-    /// The node's client: its QUIC endpoint, if it has one, and its peer
-    /// client, which resolves names as for every request of the node's.
+    /// The node's client: its QUIC endpoint, if it has one, and its
+    /// resolver, as for every connection of the node's.
     #[must_use]
-    pub fn of(node: &Node) -> Option<Self> {
-        Some(Self::new(node.quic().cloned(), node.peer_client()?.clone()))
+    pub fn of(node: &Node) -> Self {
+        Self::new(node.quic().cloned(), node.resolver())
     }
 
-    /// A client of `quic`, resolving names with `client`.
+    /// A client of `quic`, resolving names with `resolver`.
     #[must_use]
-    pub const fn new(quic: Option<Arc<Quic>>, client: PeerClient) -> Self {
-        Self { quic, client }
+    pub const fn new(quic: Option<Arc<Quic>>, resolver: Resolver) -> Self {
+        Self { quic, resolver }
     }
 
     /// Sends `message` (a [`Message`] encoded) for `hub` to the validator
@@ -794,7 +794,7 @@ impl HubClient {
             return Err(HubExchangeError::Unreachable);
         };
         let request = encode_request(hub, message);
-        let sent = quic.hub_exchange(node, endpoint, &request, &self.client, timeout / 2);
+        let sent = quic.hub_exchange(node, endpoint, &request, &self.resolver, timeout / 2);
         tokio::time::timeout(timeout, sent)
             .await
             .unwrap_or_else(|_| Err(HubExchangeError::Failed("timed out".into())))
@@ -820,7 +820,7 @@ impl HubClient {
             return Err(HubExchangeError::Unreachable);
         };
         let request = encode_state_request(hub, height);
-        let sent = quic.hub_state_exchange(node, endpoint, &request, &self.client, timeout / 2);
+        let sent = quic.hub_state_exchange(node, endpoint, &request, &self.resolver, timeout / 2);
         let reply = tokio::time::timeout(timeout, sent)
             .await
             .unwrap_or_else(|_| Err(HubExchangeError::Failed("timed out".into())))?;
@@ -851,7 +851,7 @@ impl HubClient {
         let Some(quic) = &self.quic else {
             return Err(HubExchangeError::Unreachable);
         };
-        let sent = quic.hub_founding_exchange(node, endpoint, request, &self.client, timeout / 2);
+        let sent = quic.hub_founding_exchange(node, endpoint, request, &self.resolver, timeout / 2);
         tokio::time::timeout(timeout, sent)
             .await
             .unwrap_or_else(|_| Err(HubExchangeError::Failed("timed out".into())))

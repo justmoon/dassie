@@ -44,7 +44,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode, Output, Stdio};
 use std::time::{Duration, Instant, SystemTime};
 
-use dassie_node::peer_client::{PeerClient, WebRequest};
+use dassie_node::outbound::{OutboundClient, WebRequest};
 use dassie_node::store::{
     self, DATABASE_FILE, PRE_MIGRATION_FILE, ROLLED_BACK_FILE, ROLLING_BACK_FILE, Restored,
 };
@@ -568,7 +568,7 @@ async fn choose(
 /// The mirror and a client for it.
 struct Mirror {
     url: String,
-    client: PeerClient,
+    client: OutboundClient,
 }
 
 impl Mirror {
@@ -585,7 +585,7 @@ impl Mirror {
         }
         let roots = std::env::var_os("DASSIE_MIRROR_CA_FILE").map(PathBuf::from);
         // The owner names the mirror, so it may be on a private network.
-        let client = PeerClient::new(roots.as_deref(), true)?;
+        let client = OutboundClient::new(roots.as_deref(), true)?;
         Ok(Self { url, client })
     }
 

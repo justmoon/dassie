@@ -1,9 +1,10 @@
-//! The node's outbound client: the bounds on peer requests in flight, which
-//! go over QUIC (spec/areas/peer-protocol.md#outbound-requests), the
-//! resolver QUIC dials by, and Open Payments' and other requests to other
-//! servers (spec/decisions/open-payments.md), over HTTPS to public
-//! addresses only, with bounded concurrency and response sizes, and no
-//! redirects.
+//! The node's outbound connections to servers that are not nodes
+//! (spec/areas/peer-protocol.md#outbound-requests): Open Payments' and
+//! other HTTPS requests (spec/decisions/open-payments.md), and WebSockets to
+//! ledgers, to public addresses only, with bounded concurrency and response
+//! sizes, and no redirects. [`Resolver`] is the guard on addresses that
+//! these and the QUIC endpoint share; QUIC bounds its own requests in
+//! flight, by node ([`crate::quic`]).
 //!
 //! The node owns one client, so its connection pool outlives restarts of
 //! the engine.
@@ -11,6 +12,7 @@
 use std::collections::BTreeMap;
 use std::fmt;
 use std::future::Future;
+use std::io;
 use std::net::{Ipv4Addr, SocketAddr};
 use std::path::Path;
 use std::pin::Pin;
@@ -21,7 +23,6 @@ use std::time::Duration;
 
 use bytes::Bytes;
 use dassie_node_core::address::is_public;
-use dassie_peer::{Failure, Request};
 use http::header::CONTENT_TYPE;
 use http_body_util::{BodyExt, Full, Limited};
 use hyper_rustls::{HttpsConnector, HttpsConnectorBuilder};
@@ -29,8 +30,12 @@ use hyper_util::client::legacy::Client as HyperClient;
 use hyper_util::client::legacy::connect::HttpConnector;
 use hyper_util::client::legacy::connect::dns::Name;
 use hyper_util::rt::TokioExecutor;
-use rustls::pki_types::CertificateDer;
 use rustls::pki_types::pem::PemObject;
+use rustls::pki_types::{CertificateDer, ServerName};
+use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
+use tokio::net::TcpStream;
+use tokio_tungstenite::WebSocketStream;
+use tokio_tungstenite::tungstenite::protocol::WebSocketConfig;
 
 use crate::tls;
 
@@ -104,18 +109,56 @@ impl fmt::Display for WebError {
     }
 }
 
-/// Resolves names, keeping only addresses the node may send to.
-#[derive(Clone, Debug)]
-struct GuardedResolver {
+/// Resolves names, keeping only addresses the node may send to: public
+/// ones, unless private ones are allowed (dev and tests). Every outbound
+/// connection of the node's resolves through one, QUIC's included, so the
+/// same guard applies to all of them.
+#[derive(Clone, Copy, Debug)]
+pub struct Resolver {
     allow_private: bool,
 }
 
 type Addresses = std::vec::IntoIter<SocketAddr>;
 
-impl tower_service::Service<Name> for GuardedResolver {
+impl Resolver {
+    /// A resolver that allows private addresses only if `allow_private`.
+    #[must_use]
+    pub const fn new(allow_private: bool) -> Self {
+        Self { allow_private }
+    }
+
+    /// Whether it allows private addresses (dev and tests).
+    #[must_use]
+    pub const fn allows_private(&self) -> bool {
+        self.allow_private
+    }
+
+    /// The addresses of `host` the node may connect to, at `port`.
+    ///
+    /// # Errors
+    ///
+    /// The name does not resolve, or only to addresses refused.
+    pub async fn resolve(&self, host: &str, port: u16) -> io::Result<Vec<SocketAddr>> {
+        let name = Name::from_str(host).map_err(io::Error::other)?;
+        let found = tower_service::Service::call(&mut self.clone(), name).await?;
+        Ok(found
+            .map(|address| SocketAddr::new(address.ip(), port))
+            .collect())
+    }
+
+    /// Whether a URL's authority names an IP literal it refuses: one that
+    /// is not public, unless private addresses are allowed. Names are
+    /// checked when resolved; literals never are.
+    #[must_use]
+    pub fn refuses_literal(&self, authority: &str) -> bool {
+        !self.allow_private && literal_is_private(authority)
+    }
+}
+
+impl tower_service::Service<Name> for Resolver {
     type Response = Addresses;
-    type Error = std::io::Error;
-    type Future = Pin<Box<dyn Future<Output = Result<Addresses, std::io::Error>> + Send>>;
+    type Error = io::Error;
+    type Future = Pin<Box<dyn Future<Output = Result<Addresses, io::Error>> + Send>>;
 
     fn poll_ready(&mut self, _: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         Poll::Ready(Ok(()))
@@ -132,23 +175,24 @@ impl tower_service::Service<Name> for GuardedResolver {
                 .filter(|address| allow_private || is_public(address.ip()))
                 .collect();
             if allowed.is_empty() {
-                return Err(std::io::Error::other("no public address"));
+                return Err(io::Error::other("no public address"));
             }
             Ok(allowed.into_iter())
         })
     }
 }
 
-type Https = HyperClient<HttpsConnector<HttpConnector<GuardedResolver>>, Full<Bytes>>;
+type Https = HyperClient<HttpsConnector<HttpConnector<Resolver>>, Full<Bytes>>;
 
-/// The node's peer client.
+/// The node's client for servers that are not nodes: HTTPS requests and
+/// WebSockets.
 #[derive(Clone)]
-pub struct PeerClient {
+pub struct OutboundClient {
     http: Https,
     /// The TLS client config, for connections that are not HTTP requests:
-    /// the settlement schemes' WebSockets.
+    /// the ledgers' WebSockets.
     tls: Arc<rustls::ClientConfig>,
-    allow_private: bool,
+    resolver: Resolver,
     in_flight: Arc<Mutex<InFlight>>,
 }
 
@@ -158,14 +202,14 @@ struct InFlight {
     by_host: BTreeMap<String, usize>,
 }
 
-impl fmt::Debug for PeerClient {
+impl fmt::Debug for OutboundClient {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("PeerClient")
+        f.write_str("OutboundClient")
     }
 }
 
 /// A request's place in the bounds, given back when it ends.
-pub struct Slot {
+struct Slot {
     in_flight: Arc<Mutex<InFlight>>,
     host: String,
 }
@@ -186,7 +230,7 @@ impl Drop for Slot {
     }
 }
 
-impl PeerClient {
+impl OutboundClient {
     /// A client trusting the platform's roots and, for dev and tests, the
     /// roots in `extra_roots`; refusing private addresses unless
     /// `allow_private`.
@@ -211,30 +255,9 @@ impl PeerClient {
             .dangerous()
             .with_custom_certificate_verifier(Arc::new(verifier))
             .with_no_client_auth();
-        Ok(Self::with_tls(config, allow_private))
-    }
-
-    /// A client for what reaches nodes over QUIC alone, which pins each
-    /// node's key ([`crate::quic`]) and uses the client only to resolve
-    /// names and bound requests in flight: a front door's. It trusts no
-    /// root, so it needs none from the platform, and its HTTPS requests
-    /// reach no server.
-    ///
-    /// # Errors
-    ///
-    /// The TLS provider has no safe protocol version.
-    pub fn for_quic(allow_private: bool) -> Result<Self, String> {
-        let config = rustls::ClientConfig::builder_with_provider(tls::provider())
-            .with_safe_default_protocol_versions()
-            .map_err(|e| e.to_string())?
-            .with_root_certificates(rustls::RootCertStore::empty())
-            .with_no_client_auth();
-        Ok(Self::with_tls(config, allow_private))
-    }
-
-    fn with_tls(config: rustls::ClientConfig, allow_private: bool) -> Self {
+        let resolver = Resolver::new(allow_private);
         let tls = Arc::new(config.clone());
-        let mut http = HttpConnector::new_with_resolver(GuardedResolver { allow_private });
+        let mut http = HttpConnector::new_with_resolver(resolver);
         http.set_connect_timeout(Some(CONNECT_TIMEOUT));
         http.enforce_http(false);
         let connector = HttpsConnectorBuilder::new()
@@ -245,12 +268,12 @@ impl PeerClient {
         let http = HyperClient::builder(TokioExecutor::new())
             .pool_max_idle_per_host(4)
             .build(connector);
-        Self {
+        Ok(Self {
             http,
             tls,
-            allow_private,
+            resolver,
             in_flight: Arc::new(Mutex::new(InFlight::default())),
-        }
+        })
     }
 
     /// The TLS config the client trusts servers by.
@@ -259,27 +282,10 @@ impl PeerClient {
         Arc::clone(&self.tls)
     }
 
-    /// Whether the client may reach private addresses (dev and tests).
+    /// The resolver it connects by.
     #[must_use]
-    pub const fn allows_private(&self) -> bool {
-        self.allow_private
-    }
-
-    /// The addresses of `host` the node may connect to, as for its
-    /// requests: public ones only, unless private ones are allowed.
-    ///
-    /// # Errors
-    ///
-    /// The name does not resolve, or only to addresses refused.
-    pub async fn resolve(&self, host: &str, port: u16) -> std::io::Result<Vec<SocketAddr>> {
-        let mut resolver = GuardedResolver {
-            allow_private: self.allow_private,
-        };
-        let name = Name::from_str(host).map_err(std::io::Error::other)?;
-        let found = tower_service::Service::call(&mut resolver, name).await?;
-        Ok(found
-            .map(|address| SocketAddr::new(address.ip(), port))
-            .collect())
+    pub const fn resolver(&self) -> Resolver {
+        self.resolver
     }
 
     /// Takes a place for a request to `host`, if the bounds allow.
@@ -300,39 +306,6 @@ impl PeerClient {
         })
     }
 
-    /// Takes `request`'s place in the bounds on requests in flight, which
-    /// requests to other servers share; `None` for a packet, which takes
-    /// none.
-    ///
-    /// # Errors
-    ///
-    /// [`Failure::NotDelivered`] when the URL names a private address, or
-    /// the bounds are full.
-    pub fn hold(&self, request: &Request) -> Result<Option<Slot>, Failure> {
-        let host = request.url.strip_prefix("https://").unwrap_or_default();
-        // A periphery node has no URL, and so no address to check: it is
-        // reached only over the connection it opened to us.
-        if !request.url.is_empty() && !self.allow_private && literal_is_private(host) {
-            return Err(Failure::NotDelivered);
-        }
-        // ILP packets are bounded by the connector's tables, and their
-        // responses must get through: only the protocol's own requests
-        // count against the limits here.
-        if request.kind.carries_packet() {
-            return Ok(None);
-        }
-        // A periphery node has no URL: each counts by its ID, not all
-        // together under the empty host.
-        let slot = if request.url.is_empty() {
-            self.slot(&format!("node:{}", request.to))
-        } else {
-            self.slot(host)
-        };
-        slot.map(Some).ok_or(Failure::NotDelivered)
-    }
-}
-
-impl PeerClient {
     /// Sends a request to another server and reads its response, bounded
     /// in time and size.
     ///
@@ -341,7 +314,7 @@ impl PeerClient {
     /// See [`WebError`].
     pub async fn web(&self, request: WebRequest) -> Result<WebResponse, WebError> {
         let authority = authority(&request.url).ok_or(WebError::Refused)?;
-        if !self.allow_private && literal_is_private(authority) {
+        if self.resolver.refuses_literal(authority) {
             return Err(WebError::Refused);
         }
         let _slot = self.slot(authority).ok_or(WebError::Busy)?;
@@ -388,6 +361,112 @@ impl PeerClient {
             body,
         })
     }
+
+    /// A WebSocket to `url`, as the node connects to a ledger's server:
+    /// `wss://`, or `ws://` where private addresses are allowed (dev and
+    /// tests), by the guarded resolver, with messages and frames of at most
+    /// `max_message_bytes`. The caller bounds the time it takes.
+    ///
+    /// # Errors
+    ///
+    /// The URL is not one the node may connect to, or the connection, TLS
+    /// or the upgrade fails.
+    pub async fn websocket(
+        &self,
+        url: &str,
+        max_message_bytes: usize,
+    ) -> Result<WebSocket, String> {
+        let (secure, rest) = if let Some(rest) = url.strip_prefix("wss://") {
+            (true, rest)
+        } else if let Some(rest) = url.strip_prefix("ws://") {
+            if !self.resolver.allows_private() {
+                return Err("ws:// is for dev and tests only".into());
+            }
+            (false, rest)
+        } else {
+            return Err("not a WebSocket URL".into());
+        };
+        let (host, port) = authority_after(rest)
+            .and_then(|authority| host_and_port(authority, if secure { 443 } else { 80 }))
+            .ok_or("not a WebSocket URL")?;
+        let addresses = self
+            .resolver
+            .resolve(host, port)
+            .await
+            .map_err(|e| e.to_string())?;
+        let tcp = TcpStream::connect(addresses.as_slice())
+            .await
+            .map_err(|e| e.to_string())?;
+        let stream = if secure {
+            let name = ServerName::try_from(host.to_owned()).map_err(|e| e.to_string())?;
+            let tls = tokio_rustls::TlsConnector::from(self.tls())
+                .connect(name, tcp)
+                .await
+                .map_err(|e| e.to_string())?;
+            Stream::Tls(Box::new(tls))
+        } else {
+            Stream::Plain(tcp)
+        };
+        let config = WebSocketConfig::default()
+            .max_message_size(Some(max_message_bytes))
+            .max_frame_size(Some(max_message_bytes));
+        let (socket, _) = tokio_tungstenite::client_async_with_config(url, stream, Some(config))
+            .await
+            .map_err(|e| e.to_string())?;
+        Ok(socket)
+    }
+}
+
+/// A WebSocket to a ledger's server ([`OutboundClient::websocket`]).
+pub type WebSocket = WebSocketStream<Stream>;
+
+/// What a [`WebSocket`] runs over: TCP, or TLS over it.
+#[derive(Debug)]
+pub enum Stream {
+    /// `ws://`, in dev and tests.
+    Plain(TcpStream),
+    /// `wss://`.
+    Tls(Box<tokio_rustls::client::TlsStream<TcpStream>>),
+}
+
+impl AsyncRead for Stream {
+    fn poll_read(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<io::Result<()>> {
+        match self.get_mut() {
+            Self::Plain(stream) => Pin::new(stream).poll_read(cx, buf),
+            Self::Tls(stream) => Pin::new(stream.as_mut()).poll_read(cx, buf),
+        }
+    }
+}
+
+impl AsyncWrite for Stream {
+    fn poll_write(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<io::Result<usize>> {
+        match self.get_mut() {
+            Self::Plain(stream) => Pin::new(stream).poll_write(cx, buf),
+            Self::Tls(stream) => Pin::new(stream.as_mut()).poll_write(cx, buf),
+        }
+    }
+
+    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        match self.get_mut() {
+            Self::Plain(stream) => Pin::new(stream).poll_flush(cx),
+            Self::Tls(stream) => Pin::new(stream.as_mut()).poll_flush(cx),
+        }
+    }
+
+    fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        match self.get_mut() {
+            Self::Plain(stream) => Pin::new(stream).poll_shutdown(cx),
+            Self::Tls(stream) => Pin::new(stream.as_mut()).poll_shutdown(cx),
+        }
+    }
 }
 
 /// The lines of [`SIGNATURE_FIELDS`] that are text, at most
@@ -408,11 +487,40 @@ fn signature_fields(headers: &http::HeaderMap) -> Vec<(String, String)> {
 }
 
 /// The authority of an `https` URL, as the guard reads it: none if the URL
-/// has none, or user info, which no request of the node's carries.
-pub(crate) fn authority(url: &str) -> Option<&str> {
-    url.strip_prefix("https://")
-        .and_then(|rest| rest.split(['/', '?', '#']).next())
+/// has none, or user info, which no URL the node connects to carries.
+#[must_use]
+pub fn authority(url: &str) -> Option<&str> {
+    authority_after(url.strip_prefix("https://")?)
+}
+
+/// The authority of what follows a URL's scheme and `://`, as
+/// [`authority`] reads it.
+fn authority_after(rest: &str) -> Option<&str> {
+    rest.split(['/', '?', '#'])
+        .next()
         .filter(|authority| !authority.is_empty() && !authority.contains('@'))
+}
+
+/// The host and port of an authority, `host`, `host:port`, `[v6]` or
+/// `[v6]:port`, with `default` for a port it names none of. An IPv6 literal
+/// comes without its brackets. `None` for an empty host, a port that is
+/// not a number, or port 0. Every URL the node connects to is read by it.
+#[must_use]
+pub fn host_and_port(authority: &str, default: u16) -> Option<(&str, u16)> {
+    let (host, port) = if let Some(rest) = authority.strip_prefix('[') {
+        let (host, after) = rest.split_once(']')?;
+        match after.strip_prefix(':') {
+            Some(number) => (host, number.parse().ok()?),
+            None if after.is_empty() => (host, default),
+            None => return None,
+        }
+    } else {
+        match authority.rsplit_once(':') {
+            Some((host, number)) => (host, number.parse().ok()?),
+            None => (authority, default),
+        }
+    };
+    (!host.is_empty() && port != 0).then_some((host, port))
 }
 
 /// A response's media type, without its parameters, lowercased.
@@ -442,7 +550,7 @@ fn is_localhost(name: &str) -> bool {
 /// the HTTP client reads it, which ends an IPv6 literal at its bracket,
 /// whatever follows: `[::1]a` is `::1`. One the client cannot read counts
 /// as private, so the guard never passes what it reads differently.
-fn literal_is_private(authority: &str) -> bool {
+pub(crate) fn literal_is_private(authority: &str) -> bool {
     let Ok(authority) = authority.parse::<http::uri::Authority>() else {
         return true;
     };
@@ -472,36 +580,6 @@ mod tests {
         assert!(!literal_is_private("localhost"));
     }
 
-    // Found in review: periphery nodes have no URL, so every downlink's
-    // requests shared the bound of one host, the empty one. Each counts by
-    // its ID. And the empty host read as a private literal, so a node that
-    // allows no private addresses refused them all.
-    #[tokio::test]
-    async fn each_node_without_a_url_has_its_own_bound() {
-        // Roots of its own: the build sandbox has none of the system's.
-        let roots = concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../testdata/pebble/root.pem"
-        );
-        let client = PeerClient::new(Some(Path::new(roots)), false).unwrap();
-        let request = |seed: u8| dassie_peer::Request {
-            id: dassie_peer::RequestId(0),
-            to: dassie_identity::NodeKey::from_bytes(&[seed; 32]).node_id(),
-            url: String::new(),
-            kind: dassie_peer::wire::Kind::LinkStateUpdate,
-            body: Vec::new(),
-            timeout_ms: 1_000,
-        };
-        let mut held = Vec::new();
-        for seed in 1..=u8::try_from(MAX_PER_HOST).unwrap() + 1 {
-            held.push(client.hold(&request(seed)).unwrap());
-        }
-        for _ in 1..MAX_PER_HOST {
-            held.push(client.hold(&request(1)).unwrap());
-        }
-        assert_eq!(client.hold(&request(1)).err(), Some(Failure::NotDelivered));
-    }
-
     #[test]
     fn localhost_names_are_this_machine() {
         assert!(is_localhost("localhost"));
@@ -513,17 +591,42 @@ mod tests {
         assert!(!is_localhost(""));
     }
 
+    #[test]
+    fn hosts_and_ports_are_read_as_written() {
+        assert_eq!(host_and_port("a.example", 443), Some(("a.example", 443)));
+        assert_eq!(
+            host_and_port("a.example:51233", 443),
+            Some(("a.example", 51233))
+        );
+        assert_eq!(host_and_port("[::1]", 80), Some(("::1", 80)));
+        assert_eq!(host_and_port("[::1]:6006", 80), Some(("::1", 6006)));
+        for refused in ["[::1", "[::1]x", "a.example:x", "a.example:0", "", ":443"] {
+            assert_eq!(host_and_port(refused, 80), None, "{refused}");
+        }
+    }
+
+    #[test]
+    fn a_url_has_an_authority_only_without_user_info() {
+        assert_eq!(
+            authority("https://a.example:8443/x?y"),
+            Some("a.example:8443")
+        );
+        assert_eq!(authority("https://user@a.example/"), None);
+        assert_eq!(authority("https:///x"), None);
+        assert_eq!(authority("http://a.example/"), None);
+    }
+
     #[tokio::test]
     async fn localhost_resolves_to_loopback_only_when_private_is_allowed() {
         use tower_service::Service as _;
         let name: Name = "d7.localhost".parse().unwrap();
-        let mut allowed = GuardedResolver {
+        let mut allowed = Resolver {
             allow_private: true,
         };
         let found: Vec<SocketAddr> = allowed.call(name.clone()).await.unwrap().collect();
         assert_eq!(found, [SocketAddr::from((Ipv4Addr::LOCALHOST, 0))]);
         // Without it, loopback is refused like any private address.
-        let mut guarded = GuardedResolver {
+        let mut guarded = Resolver {
             allow_private: false,
         };
         assert!(guarded.call(name).await.is_err());
@@ -555,7 +658,7 @@ mod tests {
             env!("CARGO_MANIFEST_DIR"),
             "/../../testdata/pebble/root.pem"
         );
-        let client = PeerClient::new(Some(Path::new(roots)), false).unwrap();
+        let client = OutboundClient::new(Some(Path::new(roots)), false).unwrap();
         let result = client
             .web(WebRequest {
                 method: http::Method::GET,

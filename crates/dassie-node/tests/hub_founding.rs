@@ -446,8 +446,7 @@ async fn found_as(
     )));
     let quic = std::sync::Arc::new(dassie_node::quic::Quic::new(socket, receiver, true).unwrap());
     tokio::spawn(std::sync::Arc::clone(&quic).serve(std::sync::Arc::new(Dialer), shutdown.clone()));
-    let client =
-        dassie_node::peer_client::PeerClient::new(Some(std::path::Path::new(CA)), true).unwrap();
+    let client = dassie_node::outbound::Resolver::new(true);
     let terms = dassie_hub::founding::starting_terms([3; 32], key.public_key(), 1, [4; 20]);
     let request = dassie_hub::founding::FoundingRequest::Propose(terms).to_vec();
     let (node, endpoint) = (to.0.node_id(), to.1.host());

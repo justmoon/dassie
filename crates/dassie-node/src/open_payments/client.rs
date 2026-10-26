@@ -39,7 +39,7 @@ use serde_json::{Map, Value};
 
 use super::{DEFAULT_FRONT_DOOR_DOMAIN, Urls};
 use crate::node::Node;
-use crate::peer_client::{WebError, WebRequest, WebResponse};
+use crate::outbound::{WebError, WebRequest, WebResponse};
 
 /// How long a request to another wallet may take.
 const TIMEOUT_MS: u64 = 10_000;
@@ -164,7 +164,7 @@ impl FrontDoorHost {
     /// unchecked.
     #[must_use]
     pub fn of(url: &str) -> Self {
-        let Some(authority) = crate::peer_client::authority(url) else {
+        let Some(authority) = crate::outbound::authority(url) else {
             return Self::Elsewhere;
         };
         let Ok(parsed) = authority.parse::<http::uri::Authority>() else {
@@ -271,7 +271,7 @@ pub fn check_signed(
 /// only to a node this node knows there, with a nonce, and its answer is
 /// taken only if that node signed it.
 pub(crate) async fn exchange(node: &Node, request: WebRequest) -> Result<WebResponse, ClientError> {
-    let client = node.peer_client().ok_or(ClientError::Unavailable)?;
+    let client = node.outbound().ok_or(ClientError::Unavailable)?;
     exchange_with(node, request, |request| client.web(request)).await
 }
 

@@ -13,12 +13,9 @@ use dassie_hub::HubId;
 use dassie_hub::operation::ValidatorOperation;
 use dassie_xrpl::AccountId;
 use futures_util::{SinkExt, StreamExt};
-use rustls::pki_types::ServerName;
 use tokio::io::{AsyncRead, AsyncWrite};
-use tokio::net::TcpStream;
 use tokio_tungstenite::WebSocketStream;
 use tokio_tungstenite::tungstenite::Message;
-use tokio_tungstenite::tungstenite::protocol::WebSocketConfig;
 use tokio_util::sync::CancellationToken;
 
 use super::driver::hex;
@@ -26,7 +23,7 @@ use super::escrow::{Out, Watcher};
 use super::service::EscrowLinks;
 use crate::clock::Clock;
 use crate::log::target;
-use crate::peer_client::PeerClient;
+use crate::outbound::{OutboundClient, WebSocket};
 use crate::store::Store;
 
 /// Most bytes in one message from the server.
@@ -50,7 +47,7 @@ pub struct Follow {
     /// The XRPL server.
     pub url: String,
     /// Resolves the server's name and trusts its certificate.
-    pub client: Option<PeerClient>,
+    pub client: Option<OutboundClient>,
     /// The node's clock.
     pub clock: Arc<dyn Clock>,
     /// What it shares with the hub's validator.
@@ -85,10 +82,7 @@ impl Follow {
                     backoff = BACKOFF_MIN;
                     tracing::info!(target: target::HUB, hub = %hex(self.hub.0.as_bytes()), url = %self.url, "following the hub's escrow");
                     watcher.connected();
-                    match socket {
-                        Socket::Tls(socket) => self.serve(*socket, &mut watcher, &shutdown).await,
-                        Socket::Plain(socket) => self.serve(*socket, &mut watcher, &shutdown).await,
-                    }
+                    self.serve(socket, &mut watcher, &shutdown).await;
                     watcher.disconnected();
                     self.links.connected.send_replace(false);
                 }
@@ -231,73 +225,10 @@ impl Follow {
     }
 }
 
-enum Socket {
-    Tls(Box<WebSocketStream<tokio_rustls::client::TlsStream<TcpStream>>>),
-    Plain(Box<WebSocketStream<TcpStream>>),
-}
-
 /// A WebSocket to `url`, as the node connects to its ledgers.
-async fn connect(client: Option<&PeerClient>, url: &str) -> Result<Socket, String> {
-    let client = client.ok_or("no peer client")?;
-    let (secure, rest) = if let Some(rest) = url.strip_prefix("wss://") {
-        (true, rest)
-    } else if let Some(rest) = url.strip_prefix("ws://") {
-        if !client.allows_private() {
-            return Err("ws:// is for dev and tests only".into());
-        }
-        (false, rest)
-    } else {
-        return Err("not a WebSocket URL".into());
-    };
-    let authority = rest.split(['/', '?', '#']).next().unwrap_or_default();
-    if authority.is_empty() || authority.contains('@') {
-        return Err("not a WebSocket URL".into());
-    }
-    let (host, port) = host_and_port(authority, if secure { 443 } else { 80 })?;
-    let addresses = client
-        .resolve(host, port)
-        .await
-        .map_err(|e| e.to_string())?;
-    let tcp = TcpStream::connect(addresses.as_slice())
-        .await
-        .map_err(|e| e.to_string())?;
-    let config = WebSocketConfig::default()
-        .max_message_size(Some(MAX_MESSAGE))
-        .max_frame_size(Some(MAX_MESSAGE));
-    if secure {
-        let name = ServerName::try_from(host.to_string()).map_err(|e| e.to_string())?;
-        let tls = tokio_rustls::TlsConnector::from(client.tls())
-            .connect(name, tcp)
-            .await
-            .map_err(|e| e.to_string())?;
-        let (socket, _) = tokio_tungstenite::client_async_with_config(url, tls, Some(config))
-            .await
-            .map_err(|e| e.to_string())?;
-        Ok(Socket::Tls(Box::new(socket)))
-    } else {
-        let (socket, _) = tokio_tungstenite::client_async_with_config(url, tcp, Some(config))
-            .await
-            .map_err(|e| e.to_string())?;
-        Ok(Socket::Plain(Box::new(socket)))
-    }
-}
-
-/// The host and port of a URL's authority: `host`, `host:port`, `[v6]` or
-/// `[v6]:port`.
-fn host_and_port(authority: &str, default: u16) -> Result<(&str, u16), String> {
-    let port = |text: &str| text.parse::<u16>().map_err(|e| e.to_string());
-    if let Some(rest) = authority.strip_prefix('[') {
-        let (host, after) = rest.split_once(']').ok_or("an unclosed IPv6 address")?;
-        return match after.strip_prefix(':') {
-            Some(number) => Ok((host, port(number)?)),
-            None if after.is_empty() => Ok((host, default)),
-            None => Err("not a WebSocket URL".into()),
-        };
-    }
-    match authority.rsplit_once(':') {
-        Some((host, number)) => Ok((host, port(number)?)),
-        None => Ok((authority, default)),
-    }
+async fn connect(client: Option<&OutboundClient>, url: &str) -> Result<WebSocket, String> {
+    let client = client.ok_or("no client for other servers")?;
+    client.websocket(url, MAX_MESSAGE).await
 }
 
 /// How long a request to the XRPL server waits for its answer.
@@ -314,13 +245,16 @@ pub(super) type Answer = Result<serde_json::Value, dassie_xrpl::api::ApiError>;
 /// A WebSocket to an XRPL server that only asks and reads the answers: how
 /// a sponsor sets up its hub's escrow (spec/areas/hubs.md#founding-a-hub).
 pub(super) struct Session {
-    socket: Socket,
+    socket: WebSocket,
     next_id: u64,
 }
 
 impl Session {
     /// Connects to `url`, as the node connects to its ledgers.
-    pub(super) async fn connect(client: Option<&PeerClient>, url: &str) -> Result<Self, String> {
+    pub(super) async fn connect(
+        client: Option<&OutboundClient>,
+        url: &str,
+    ) -> Result<Self, String> {
         let socket = tokio::time::timeout(CONNECT_TIMEOUT, connect(client, url))
             .await
             .map_err(|_| "timed out".to_string())??;
@@ -336,12 +270,7 @@ impl Session {
         let id = self.next_id;
         self.next_id = self.next_id.wrapping_add(1);
         let text = String::from_utf8_lossy(&build(id)).into_owned();
-        let exchange = async {
-            match &mut self.socket {
-                Socket::Tls(socket) => answer_of(socket.as_mut(), id, text).await,
-                Socket::Plain(socket) => answer_of(socket.as_mut(), id, text).await,
-            }
-        };
+        let exchange = answer_of(&mut self.socket, id, text);
         tokio::time::timeout(CALL_TIMEOUT, exchange)
             .await
             .map_err(|_| "the XRPL server did not answer".to_string())?

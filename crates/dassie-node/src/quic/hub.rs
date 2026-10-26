@@ -22,7 +22,7 @@ use crate::hub::transport::{
     HUB_ID_BYTES, HubAnswer, HubExchangeError, MAX_FOUNDING_BYTES, MAX_MEMBER_MESSAGE_BYTES,
     MAX_MESSAGE_BYTES, MAX_REPLY_BYTES, MAX_STATE_REPLY_BYTES, STATE_REQUEST_BYTES,
 };
-use crate::peer_client::PeerClient;
+use crate::outbound::Resolver;
 
 /// Time for a client to send its request.
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
@@ -60,7 +60,7 @@ impl Quic {
         to: NodeId,
         endpoint: &str,
         request: &[u8],
-        resolver: &PeerClient,
+        resolver: &Resolver,
         connect_within: Duration,
     ) -> Result<Vec<Vec<u8>>, HubExchangeError> {
         let route = (to, endpoint);
@@ -93,7 +93,7 @@ impl Quic {
         to: NodeId,
         endpoint: &str,
         request: &[u8],
-        resolver: &PeerClient,
+        resolver: &Resolver,
         connect_within: Duration,
     ) -> Result<Vec<u8>, HubExchangeError> {
         let route = (to, endpoint);
@@ -120,7 +120,7 @@ impl Quic {
         to: NodeId,
         endpoint: &str,
         request: &[u8],
-        resolver: &PeerClient,
+        resolver: &Resolver,
         connect_within: Duration,
     ) -> Result<Vec<u8>, HubExchangeError> {
         let route = (to, endpoint);
@@ -141,7 +141,7 @@ impl Quic {
         (to, endpoint): (NodeId, &str),
         request: &[u8],
         limit: usize,
-        (resolver, connect_within): (&PeerClient, Duration),
+        (resolver, connect_within): (&Resolver, Duration),
     ) -> Result<Vec<u8>, HubExchangeError> {
         if self.keys.current().is_none() {
             return Err(HubExchangeError::Unreachable);

@@ -32,7 +32,7 @@ use dassie_node::front_door::relay::NODES_PER_ADDRESS;
 use dassie_node::front_door::{self, CertificateFiles, Parts, Registrars, Sockets, key};
 use dassie_node::http::open_payments::MAX_BODY_BYTES;
 use dassie_node::node::Policies;
-use dassie_node::peer_client::PeerClient;
+use dassie_node::outbound::Resolver;
 use dassie_node::peer_server::Answer;
 use dassie_node::quic::relay::{KeepWhile, Purpose, RelayError, ServedStream};
 use dassie_node::quic::{Body, Handler, Quic, tunnel};
@@ -1130,15 +1130,11 @@ async fn the_front_door_passes_back_only_json_without_cookies() {
     let (_identity, keys) = watch::channel(Some(key));
     let quic = Arc::new(Quic::new(UdpSocket::bind("127.0.0.1:0").unwrap(), keys, true).unwrap());
     tokio::spawn(Arc::clone(&quic).serve(Arc::new(Misbehaving), shutdown.clone()));
-    let roots = concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../../testdata/pebble/root.pem"
-    );
-    let resolver = PeerClient::new(Some(Path::new(roots)), true).unwrap();
+    let resolver = Resolver::new(true);
     tokio::spawn(Arc::clone(&quic).keep_relay(
         door.id,
         door.url.clone(),
-        resolver.clone(),
+        resolver,
         KeepWhile::Always,
         shutdown.clone(),
     ));

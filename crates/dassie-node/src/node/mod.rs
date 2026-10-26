@@ -37,7 +37,7 @@ pub use settings::SettingsError;
 use crate::acme::AcmeClient;
 use crate::clock::{Clock, SharedRng};
 use crate::engine::Engine;
-use crate::peer_client::PeerClient;
+use crate::outbound::{OutboundClient, Resolver};
 use crate::quic::places::Classes;
 use crate::slots::{ClientSlot, ClientSlots};
 use crate::store::{Store, StoreError};
@@ -77,9 +77,9 @@ pub struct Policies {
     /// without a message either way.
     pub socket_idle_ms: u64,
     /// Most connections one client (an IPv4 address or an IPv6 /56) holds
-    /// on each listener at once. Our peer client keeps at most 16 requests
-    /// in flight to one node and reuses its idle connections (4 at most),
-    /// so four nodes behind one address fit; a browser opens about 6.
+    /// on each listener at once. Our outbound client keeps at most 16
+    /// requests in flight to one host and reuses its idle connections (4 at
+    /// most), so four nodes behind one address fit; a browser opens about 6.
     pub http_connections_per_client: u32,
     /// Time to send a request body to the HTTP API.
     pub body_timeout_ms: u64,
@@ -290,7 +290,7 @@ struct PeerSide {
     uplinks: Vec<dassie_identity::NodeId>,
     /// Made on first use, as the ACME client is: a machine without the
     /// system's roots still serves, and says why its peer requests fail.
-    client: std::sync::OnceLock<Result<PeerClient, String>>,
+    client: std::sync::OnceLock<Result<OutboundClient, String>>,
     allow_private: bool,
     permits: Arc<Semaphore>,
     /// Places held by each client, for its share.
@@ -307,7 +307,7 @@ impl PeerSide {
         if options.ca_file.is_some() {
             // A dev or test CA's root that cannot be read is a mistake in
             // the environment: refuse to start, rather than fail later.
-            let made = PeerClient::new(options.ca_file.as_deref(), options.allow_private)
+            let made = OutboundClient::new(options.ca_file.as_deref(), options.allow_private)
                 .map_err(NodeError::Peer)?;
             let _ = client.set(Ok(made));
         }
@@ -333,7 +333,7 @@ pub enum NodeError {
     Tls(TlsError),
     /// The ACME client could not be set up (a bad `DASSIE_ACME_CA_FILE`).
     Acme(String),
-    /// The peer client could not be set up (a bad `DASSIE_PEER_CA_FILE`).
+    /// The outbound client could not be set up (a bad `DASSIE_PEER_CA_FILE`).
     Peer(String),
 }
 
@@ -343,7 +343,7 @@ impl std::fmt::Display for NodeError {
             Self::Store(error) => error.fmt(f),
             Self::Tls(error) => error.fmt(f),
             Self::Acme(error) => write!(f, "ACME client: {error}"),
-            Self::Peer(error) => write!(f, "peer client: {error}"),
+            Self::Peer(error) => write!(f, "outbound client: {error}"),
         }
     }
 }
@@ -607,19 +607,28 @@ impl Node {
         self.peer.uplinks.clone()
     }
 
-    /// The client for peer requests, made on first use; `None` when it
-    /// cannot be, for want of roots to trust.
+    /// The client for servers that are not nodes (Open Payments, rate
+    /// sources, ledgers), made on first use; `None` when it cannot be, for
+    /// want of roots to trust. Peer requests need none of it: they go over
+    /// QUIC, which pins each node's key, by [`Self::resolver`].
     #[must_use]
-    pub fn peer_client(&self) -> Option<&PeerClient> {
+    pub fn outbound(&self) -> Option<&OutboundClient> {
         let allow_private = self.peer.allow_private;
         let made = self.peer.client.get_or_init(|| {
-            let made = PeerClient::new(None, allow_private);
+            let made = OutboundClient::new(None, allow_private);
             if let Err(error) = &made {
-                tracing::error!(target: crate::log::target::PEER, %error, "no peer requests can be sent");
+                tracing::error!(target: crate::log::target::PEER, %error, "no requests to other servers can be sent");
             }
             made
         });
         made.as_ref().ok()
+    }
+
+    /// The resolver every outbound connection of the node's goes by: public
+    /// addresses only, unless private ones are allowed.
+    #[must_use]
+    pub const fn resolver(&self) -> Resolver {
+        Resolver::new(self.peer.allow_private)
     }
 
     /// A place for one more inbound peer request from `client`, if any is
