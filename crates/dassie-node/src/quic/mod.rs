@@ -46,7 +46,7 @@ use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
-use dassie_identity::{NodeId, NodeKey, PublicKey, SeedPath};
+use dassie_identity::{NodeId, NodeKey, NodeSecret, PublicKey, QuicEndpoint};
 use dassie_kit::ClientKey;
 use dassie_node_core::address::is_public;
 use dassie_node_core::connections::ConnectionLimits;
@@ -144,38 +144,6 @@ pub const NO_ROOM: VarInt = VarInt::from_u32(1);
 
 /// The status ahead of a response's body.
 const STATUS_BYTES: usize = 2;
-
-/// Where the key for stateless resets over UDP hangs in the node's key tree
-/// (spec/areas/identity.md#seed-paths).
-const RESET_KEY_PATH: &str = "node/quic/stateless-reset";
-
-/// Where the key for stateless resets over tunnels hangs: a key of its own,
-/// so that neither endpoint can tell anyone the tokens of the other's
-/// connections (RFC 9000, section 21.11), whose connection IDs come from
-/// the node key too.
-const TUNNEL_RESET_KEY_PATH: &str = "node/quic/tunnel-stateless-reset";
-
-/// Where the key the UDP endpoint makes and knows its connection IDs with
-/// hangs (spec/areas/identity.md#seed-paths): the endpoint sends a stateless
-/// reset only for an ID it knows as its own.
-const CONNECTION_ID_KEY_PATH: &str = "node/quic/connection-ids";
-
-/// Where the tunnel endpoint's key for its connection IDs hangs: a key of
-/// its own, so that neither endpoint takes the other's IDs for its own, and
-/// sends resets for them.
-const TUNNEL_CONNECTION_ID_KEY_PATH: &str = "node/quic/tunnel-connection-ids";
-
-/// The keys of the endpoint over UDP.
-const UDP_KEYS: KeyPaths = KeyPaths {
-    reset: RESET_KEY_PATH,
-    connection_ids: CONNECTION_ID_KEY_PATH,
-};
-
-/// The keys of the endpoint over tunnels.
-const TUNNEL_KEYS: KeyPaths = KeyPaths {
-    reset: TUNNEL_RESET_KEY_PATH,
-    connection_ids: TUNNEL_CONNECTION_ID_KEY_PATH,
-};
 
 const _: () = assert!(MAX_MESSAGE_BYTES <= MAX_RESPONSE_BYTES);
 const _: () = assert!(MAX_NAME_LIST_BYTES <= MAX_RESPONSE_BYTES);
@@ -522,8 +490,8 @@ impl Quic {
         identity: watch::Receiver<Option<Arc<NodeKey>>>,
         allow_private: bool,
     ) -> io::Result<Self> {
-        let config = endpoint_config(identity.borrow().as_deref(), &UDP_KEYS);
-        let tunnel_config = endpoint_config(identity.borrow().as_deref(), &TUNNEL_KEYS);
+        let config = endpoint_config(identity.borrow().as_deref(), QuicEndpoint::Udp);
+        let tunnel_config = endpoint_config(identity.borrow().as_deref(), QuicEndpoint::Tunnel);
         let keys = Arc::new(Keys::new(identity));
         let server = server_config(&keys, IDLE_TIMEOUT).map_err(io::Error::other)?;
         let runtime = quinn::default_runtime().ok_or_else(|| io::Error::other("no runtime"))?;
@@ -1400,14 +1368,6 @@ pub fn authority(url: &str) -> Option<(&str, u16)> {
     }
 }
 
-/// Where an endpoint's keys hang in the node's key tree.
-struct KeyPaths {
-    /// The key for its stateless resets.
-    reset: &'static str,
-    /// The key it makes and knows its connection IDs with.
-    connection_ids: &'static str,
-}
-
 /// The endpoint's configuration. Its keys for stateless resets and for
 /// connection IDs derive from the node key, so they survive a restart: a
 /// node that crashed, and so closed nothing, still knows the IDs of the
@@ -1417,17 +1377,16 @@ struct KeyPaths {
 /// for an ID its generator takes as its own, and its default generator's
 /// key is new at every start; ours signs with an HMAC, which gives the key
 /// away to nobody, so the IDs stay unlinkable ([`ids`]). Each endpoint
-/// derives its own keys, at `paths`. A node not set up yet has no peers,
-/// and random keys.
-fn endpoint_config(key: Option<&NodeKey>, paths: &KeyPaths) -> EndpointConfig {
-    let derive = |path| {
-        SeedPath::parse(path)
-            .ok()
-            .and_then(|path| key?.derive(&path).ok())
-    };
-    let (Some(reset), Some(id_key)) = (derive(paths.reset), derive(paths.connection_ids)) else {
+/// derives keys of its own (spec/areas/identity.md#seed-paths), so neither
+/// takes the other's IDs for its own, nor can give away the reset tokens of
+/// the other's connections (RFC 9000, section 21.11). A node not set up yet
+/// has no peers, and random keys.
+fn endpoint_config(key: Option<&NodeKey>, endpoint: QuicEndpoint) -> EndpointConfig {
+    let Some(key) = key else {
         return EndpointConfig::default();
     };
+    let reset = key.secret(NodeSecret::QuicStatelessReset(endpoint));
+    let id_key = key.secret(NodeSecret::QuicConnectionIds(endpoint));
     let reset = ring::hmac::Key::new(ring::hmac::HMAC_SHA256, reset.as_bytes());
     let mut config = EndpointConfig::new(Arc::new(reset));
     config.cid_generator(move || Box::new(ids::SignedIds::new(id_key.as_bytes())));
@@ -1528,29 +1487,13 @@ mod tests {
         assert_eq!(authority("https://[2001:db8::1]x"), None);
     }
 
-    #[test]
-    fn the_endpoints_key_paths_are_under_the_node_key_and_apart() {
-        let key = NodeKey::from_bytes(&[1; 32]);
-        let derive = |path| {
-            *key.derive(&SeedPath::parse(path).unwrap())
-                .unwrap()
-                .as_bytes()
-        };
-        let paths = [
-            RESET_KEY_PATH,
-            TUNNEL_RESET_KEY_PATH,
-            CONNECTION_ID_KEY_PATH,
-            TUNNEL_CONNECTION_ID_KEY_PATH,
-        ];
-        let keys: std::collections::BTreeSet<_> = paths.into_iter().map(derive).collect();
-        assert_eq!(keys.len(), paths.len());
-    }
-
-    /// The generator of connection IDs an endpoint of the node with `key`
-    /// has, at `paths`.
-    fn generator(key: &NodeKey, paths: &KeyPaths) -> ids::SignedIds {
-        let path = SeedPath::parse(paths.connection_ids).unwrap();
-        ids::SignedIds::new(key.derive(&path).unwrap().as_bytes())
+    /// The generator of connection IDs `endpoint` of the node with `key`
+    /// has.
+    fn generator(key: &NodeKey, endpoint: QuicEndpoint) -> ids::SignedIds {
+        ids::SignedIds::new(
+            key.secret(NodeSecret::QuicConnectionIds(endpoint))
+                .as_bytes(),
+        )
     }
 
     // An endpoint takes the IDs it made before a restart for its own, and so
@@ -1560,11 +1503,14 @@ mod tests {
     fn connection_ids_are_known_after_a_restart_and_only_there() {
         use quinn_proto::ConnectionIdGenerator;
         let (key, other) = (NodeKey::from_bytes(&[1; 32]), NodeKey::from_bytes(&[2; 32]));
-        let mut before = generator(&key, &UDP_KEYS);
+        let mut before = generator(&key, QuicEndpoint::Udp);
         let ids: Vec<_> = (0..64).map(|_| before.generate_cid()).collect();
-        let after = generator(&key, &UDP_KEYS);
+        let after = generator(&key, QuicEndpoint::Udp);
         assert!(ids.iter().all(|id| after.validate(id).is_ok()));
-        for stranger in [generator(&key, &TUNNEL_KEYS), generator(&other, &UDP_KEYS)] {
+        for stranger in [
+            generator(&key, QuicEndpoint::Tunnel),
+            generator(&other, QuicEndpoint::Udp),
+        ] {
             assert!(ids.iter().all(|id| stranger.validate(id).is_err()));
         }
     }

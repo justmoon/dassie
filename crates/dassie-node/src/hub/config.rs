@@ -243,7 +243,7 @@ pub(crate) mod tests {
             nonce: NONCE,
             sponsor: sponsor.public_key(),
             network,
-            escrow: escrow_master(sponsor, network, &NONCE).unwrap().account().0,
+            escrow: escrow_master(sponsor, network, &NONCE).account().0,
             asset: dassie_hub::rules::Asset::Xrp,
             fees: Fees {
                 operation: 10,

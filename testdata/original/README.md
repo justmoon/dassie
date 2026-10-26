@@ -4,13 +4,11 @@
 
 | File | Contents |
 |---|---|
-| `crates/dassie-identity/tests/data/chain.json` | A spread of the dev vanity table (entropy → mnemonic → seed → node ID), extended with node key, public key, login secret, dev session token, settlement entropy and the XRPL wallets |
-| `crates/dassie-identity/tests/data/keys.json` | Bootstrap node IDs, the seed `01`×32 and `03`×32 keys with signatures and X25519 conversions, and the session shared secret of the original's peer-protocol test vectors |
 | `crates/dassie-oer/tests/data/vectors.json` | lib-oer's sample tables (variable unsigned integers, object identifiers, UTF-8 strings, length determinants) and the peer-protocol structures of the original's peer-protocol test vectors |
 | `crates/dassie-ilp/tests/data/vectors.json` | ILP and ILDCP fixtures, F08 data, Interledger timestamps and BTP messages |
 | `crates/dassie-stream/tests/data/vectors.json` | All STREAM packet fixtures and the STREAM crypto vectors |
 
-Every file records `"source": "e962ab78"`. The vectors describe the original's behaviour. Where the rewrite deliberately differs, the Rust tests carry their own hand-written vector, named after what they check.
+Every file records `"source": "e962ab78"`. The identity vectors are not the original's: [`testdata/identity/`](../identity/generate-vectors.mjs) computes them with libraries of its own. The vectors describe the original's behaviour. Where the rewrite deliberately differs, the Rust tests carry their own hand-written vector, named after what they check.
 
 ## Regenerating
 

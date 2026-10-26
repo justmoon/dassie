@@ -6,8 +6,9 @@
 use curve25519_dalek::Scalar;
 use curve25519_dalek::constants::EIGHT_TORSION;
 use dassie_identity::{
-    Error, LoginSecret, Mnemonic, NODE_LABEL_LENGTH, NodeId, NodeKey, NodeLabel, PKCS8_DER_LENGTH,
-    PublicKey, SPKI_DER_LENGTH, SeedPath, Signature, WordCount, X25519Public, X25519Secret,
+    Error, LoginSecret, Mnemonic, NODE_LABEL_LENGTH, NodeId, NodeKey, NodeLabel, NodeSecret,
+    PKCS8_DER_LENGTH, PublicKey, SPKI_DER_LENGTH, Segment, Signature, WordCount, X25519Public,
+    X25519Secret,
 };
 use proptest::prelude::*;
 
@@ -271,11 +272,11 @@ proptest! {
     }
 
     #[test]
-    fn seed_path_parse_never_panics(text in any::<String>()) {
-        if let Ok(path) = SeedPath::parse(&text) {
-            prop_assert!(path.segments().all(|segment| !segment.is_empty()));
+    fn segment_parse_never_panics(text in any::<String>()) {
+        if let Ok(ledger) = Segment::parse(&text) {
+            prop_assert!(!ledger.as_str().is_empty() && !ledger.as_str().contains('/'));
             let key = NodeKey::from_bytes(&[5; 32]);
-            let _ = key.derive(&path);
+            let _ = key.secret(NodeSecret::StreamReceiver { ledger });
         }
     }
 

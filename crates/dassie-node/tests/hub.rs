@@ -157,10 +157,7 @@ fn terms(sponsor: &NodeKey) -> Terms {
         nonce: NONCE,
         sponsor: sponsor.public_key(),
         network: 1,
-        escrow: escrow_master(sponsor, TESTNET_NETWORK, &NONCE)
-            .unwrap()
-            .account()
-            .0,
+        escrow: escrow_master(sponsor, TESTNET_NETWORK, &NONCE).account().0,
         asset: dassie_hub::rules::Asset::Xrp,
         fees: Fees {
             operation: 10,
@@ -823,9 +820,7 @@ async fn a_member_node_opens_its_hub_account_by_a_deposit() {
     })
     .await;
     let made = deposits(&xrpl, escrow);
-    let hub_key = dassie_hub::escrow::member_key(&member_key, &rules.id())
-        .unwrap()
-        .public_key();
+    let hub_key = dassie_hub::member::member_key(&member_key, &rules.id()).public_key();
     assert_eq!(made.len(), 1);
     assert_eq!((made[0].tag, made[0].key), (0, Some(hub_key)));
     for validator in &running {

@@ -190,8 +190,7 @@ fn create_hub_account(
     if timers.margin.saturating_add(timers.allowance) > window_ms {
         return Err(SchemeError::InvalidConfig);
     }
-    let member =
-        dassie_hub::escrow::member_key(key, &rules.id()).ok_or(SchemeError::InvalidConfig)?;
+    let member = dassie_hub::member::member_key(key, &rules.id());
     let disbursal = dassie_hub::operation::Destination {
         account: own_xrpl_account(key)?.0,
         tag: None,

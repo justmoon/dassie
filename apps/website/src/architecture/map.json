@@ -522,7 +522,7 @@
         "A validator's service, without IO: consensus and the ledger together, a bounded pool of operations with room kept for deadlines, the escrow's signatures gathered from the validators' keys only, and snapshots of the state checked against a certified root",
         "What members and validators say to each other: requests, and statements a validator signs alone, which a member trusts once f + 1 validators signed them alike",
         "A member's side: its account in the hub, which trusts what enough validators sign alike and reads the log in order, and the hub-xrpl-testnet-xrp scheme on it, which funds holds, signs and checks the promises each packet carries, claims on the hub what its peer's claims leave out, withdraws for the owner, and books the owner's deposits and withdrawals from the account's counts",
-        "The testnet's default hub, built in once founded under the current rules: boot1–4 its validators, founded by boot1, its escrow on the XRP Ledger testnet; a node joins it when its owner adds the `hub-xrpl-testnet-xrp` scheme without naming another"
+        "The testnet's default hub, built in once founded again under the current rules, with its keys at paths that name its network: boot1–4 its validators, founded by boot1, its escrow on the XRP Ledger testnet; a node joins it when its owner adds the `hub-xrpl-testnet-xrp` scheme without naming another"
       ]
     },
     "peer": {
@@ -702,7 +702,7 @@
       "w": 184,
       "desc": "Turns the owner's 24-word phrase into everything that identifies a node. The same phrase always gives the same node.",
       "does": [
-        "BIP-39 phrases and seed paths",
+        "BIP-39 phrases, and every secret below the node key as one typed path: the login, ledger accounts, a hub's keys, STREAM receivers, QUIC keys",
         "The Ed25519 node key, node ID and login secret, and X25519 keys",
         "The node label: a node ID as a DNS name, as front doors serve it",
         "Signature checks under the ZIP-215 rules",
@@ -1774,8 +1774,8 @@
     },
     {
       "t": "Golden vectors",
-      "p": "Byte-exact fixtures from other implementations: Dassie's first, TypeScript one, and `xrpl.js`. They pin the wire formats and key derivations.",
-      "ev": "testdata/original · testdata/xrpl · tests/vectors.rs"
+      "p": "Byte-exact fixtures from other implementations: Dassie's first, TypeScript one, `xrpl.js`, and for every key a node derives from its phrase, libraries independent of Dassie's code. They pin the wire formats and key derivations.",
+      "ev": "testdata/original · testdata/identity · testdata/xrpl · tests/vectors.rs"
     },
     {
       "t": "Property tests",

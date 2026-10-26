@@ -115,10 +115,7 @@ const ABSENCE_MS: Millis = 86_400_000;
 #[must_use]
 pub fn terms(validators: usize) -> Terms {
     let sponsor = sponsor();
-    let escrow = escrow_master(&sponsor, TESTNET_NETWORK, &NONCE)
-        .unwrap()
-        .account()
-        .0;
+    let escrow = escrow_master(&sponsor, TESTNET_NETWORK, &NONCE).account().0;
     let faults = u64::try_from(validators - 1).unwrap() / 3;
     let config = Config::DEFAULT;
     let margin = config.margin_ms(faults);
@@ -424,7 +421,7 @@ impl Sim {
     pub(super) fn found_hub(&mut self, roles: &[Role]) {
         let count = roles.len();
         let rules = rules(count);
-        let master = escrow_master(&sponsor(), TESTNET_NETWORK, &NONCE).unwrap();
+        let master = escrow_master(&sponsor(), TESTNET_NETWORK, &NONCE);
         let escrow = master.account();
         self.ledger.fund(escrow);
         self.ledger.close();
@@ -1723,7 +1720,7 @@ impl Sim {
             return;
         };
         let id = hub.id();
-        let key = dassie_hub::escrow::member_key(&super::key(member), &id).unwrap();
+        let key = dassie_hub::member::member_key(&super::key(member), &id);
         let Some(number) = ledger.account_of(&key.public_key()) else {
             return;
         };

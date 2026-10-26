@@ -3,52 +3,24 @@
 //! Every secret a node has is a node of this tree
 //! (spec/areas/identity.md#seed-paths): the key of a path `a/b/c` is
 //! `HMAC(HMAC(HMAC(seed, "a"), "b"), "c")`, with the previous key as the
-//! HMAC key and the segment as the message. The derivation is the
-//! compatibility contract with the original
-//! (spec/areas/identity.md#derivation-chain): the same phrase must recover
-//! the same node and the same ledger accounts, so it must not change.
+//! HMAC key and the segment as the message. The node key is the path
+//! `node`, and every secret below it is one of [`crate::NodeSecret`]. The
+//! derivation is frozen (spec/areas/identity.md#derivation-chain): the same
+//! phrase must recover the same node and the same ledger accounts.
 
-use dassie_oer::{Alphabet, Size};
 use hmac::{Hmac, KeyInit, Mac};
 use sha2::Sha256;
 use subtle::ConstantTimeEq;
 
-use crate::error::Error;
 use crate::node_key::NodeKey;
 use crate::secret::secret_bytes;
 
-/// Longest seed path accepted, in bytes. Real paths are a few dozen bytes;
-/// the bound keeps derivation cost bounded for paths that arrive from
-/// settlement modules.
-pub const MAX_SEED_PATH_BYTES: usize = 256;
-
-/// Most segments a seed path may have.
-pub const MAX_SEED_PATH_SEGMENTS: usize = 16;
-
 /// The path of the node key.
-pub const NODE_PATH: &str = "node";
-
-/// The path of the login proof secret, under the node key.
-pub const LOGIN_PATH: &str = "node/login";
+const NODE_SEGMENT: &str = "node";
 
 /// The path of the deterministic development session token. It is a sibling
 /// of `node`, so only the holder of the master seed can derive it.
 pub const DEV_SESSION_PATH: &str = "dev/session";
-
-/// The first segment under `node/` of every settlement-module path.
-const SETTLEMENT_MODULE_SEGMENT: &str = "settlement-module";
-
-/// Characters of a path segment: printable ASCII without the space, which
-/// would only ever be a typo in a path. The separator `/` is in the range but
-/// never reaches a segment, since segments are split on it.
-const SEGMENT_ALPHABET: Alphabet = Alphabet::EMPTY.with_range(0x21, 0x7e);
-
-/// The peer wire schema of a settlement scheme ID.
-const SCHEME_ID_SIZE: Size = Size::range(2, 128);
-const SCHEME_ID_ALPHABET: Alphabet = Alphabet::EMPTY
-    .with_range(b'a', b'z')
-    .with_range(b'0', b'9')
-    .with_chars(b"-");
 
 secret_bytes!(
     /// The 64-byte BIP-39 seed: the root of every secret of a node.
@@ -79,14 +51,8 @@ impl MasterSeed {
     /// The node key at `node`.
     #[must_use]
     pub fn node_key(&self) -> NodeKey {
-        let seed = hmac_sha256(&self.0, NODE_PATH.as_bytes());
+        let seed = hmac_sha256(&self.0, NODE_SEGMENT.as_bytes());
         NodeKey::from_bytes(seed.as_bytes())
-    }
-
-    /// The secret at `path`, folding every segment from the master seed.
-    #[must_use]
-    pub fn derive(&self, path: &SeedPath<'_>) -> DerivedSecret {
-        fold(&self.0, path.segments())
     }
 
     /// The development session token at `dev/session`.
@@ -108,91 +74,6 @@ impl LoginSecret {
     }
 }
 
-/// A validated seed path: one to [`MAX_SEED_PATH_SEGMENTS`] non-empty
-/// segments of printable ASCII separated by `/`.
-///
-/// The original accepted any string, so `node//login` or a trailing slash
-/// silently derived an HMAC over an empty segment.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct SeedPath<'a> {
-    text: &'a str,
-}
-
-impl<'a> SeedPath<'a> {
-    /// Validates `text` as a seed path.
-    pub fn parse(text: &'a str) -> Result<Self, Error> {
-        if text.is_empty() || text.len() > MAX_SEED_PATH_BYTES {
-            return Err(Error::InvalidSeedPath);
-        }
-        let mut segments = 0;
-        for segment in text.split('/') {
-            segments += 1;
-            let valid = !segment.is_empty() && SEGMENT_ALPHABET.contains_all(segment.as_bytes());
-            if !valid || segments > MAX_SEED_PATH_SEGMENTS {
-                return Err(Error::InvalidSeedPath);
-            }
-        }
-        Ok(Self { text })
-    }
-
-    /// The path as text.
-    #[must_use]
-    pub const fn as_str(&self) -> &'a str {
-        self.text
-    }
-
-    /// The segments in derivation order.
-    pub fn segments(&self) -> impl Iterator<Item = &'a str> + use<'a> {
-        self.text.split('/')
-    }
-}
-
-impl NodeKey {
-    /// The secret at `path`, derived from the node key the way the node
-    /// derives it (spec/areas/identity.md#seed-paths).
-    ///
-    /// The node key sits at `node`, so `node` returns the key itself and
-    /// `node/a/b` folds `a` and `b` from it. Every other path hangs off the
-    /// master seed, which the node does not have, and is an error.
-    pub fn derive(&self, path: &SeedPath<'_>) -> Result<DerivedSecret, Error> {
-        let mut segments = path.segments();
-        if segments.next() != Some(NODE_PATH) {
-            return Err(Error::NotUnderNode);
-        }
-        let mut rest = segments.peekable();
-        if rest.peek().is_none() {
-            return Ok(DerivedSecret(*self.as_bytes()));
-        }
-        Ok(fold(self.as_bytes(), rest))
-    }
-
-    /// The login proof secret at `node/login`.
-    #[must_use]
-    pub fn login_secret(&self) -> LoginSecret {
-        let secret = fold(self.as_bytes(), LOGIN_PATH.split('/').skip(1));
-        LoginSecret(secret.0)
-    }
-
-    /// The entropy a settlement module gets for `path`, at
-    /// `node/settlement-module/<scheme>/<path>`.
-    ///
-    /// Settlement modules build wallets from it, so this is what keeps the
-    /// same phrase pointing at the same funds. `scheme` must be a valid
-    /// settlement scheme ID and `path` a non-empty seed path.
-    pub fn settlement_entropy(&self, scheme: &str, path: &str) -> Result<DerivedSecret, Error> {
-        let scheme_valid = SCHEME_ID_SIZE.contains(scheme.len())
-            && SCHEME_ID_ALPHABET.contains_all(scheme.as_bytes());
-        if !scheme_valid {
-            return Err(Error::InvalidSchemeId);
-        }
-        let path = SeedPath::parse(path)?;
-        let segments = [SETTLEMENT_MODULE_SEGMENT, scheme]
-            .into_iter()
-            .chain(path.segments());
-        Ok(fold(self.as_bytes(), segments))
-    }
-}
-
 /// HMAC-SHA256 of `message` under `key`.
 // HMAC takes keys of any length, so this cannot panic.
 #[allow(clippy::panic)]
@@ -208,11 +89,10 @@ fn hmac_sha256(key: &[u8], message: &[u8]) -> DerivedSecret {
 ///
 /// # Panics
 ///
-/// If there are no segments; every caller passes a validated path, which has
-/// at least one.
-// Panics only on a broken invariant: validated paths have a segment.
+/// If there are no segments; every path has at least one.
+// Panics only on a broken invariant: every path has a segment.
 #[allow(clippy::panic)]
-fn fold<'s>(key: &[u8], segments: impl Iterator<Item = &'s str>) -> DerivedSecret {
+pub(crate) fn fold<'s>(key: &[u8], segments: impl Iterator<Item = &'s str>) -> DerivedSecret {
     let mut segments = segments;
     let Some(first) = segments.next() else {
         panic!("a seed path has at least one segment");
@@ -229,74 +109,14 @@ fn fold<'s>(key: &[u8], segments: impl Iterator<Item = &'s str>) -> DerivedSecre
 mod tests {
     use super::*;
 
+    // The browser derives below `node` from the master seed, and the node
+    // from its key: the same secret.
     #[test]
-    fn seed_paths_are_bounded() {
-        let mut long = [b'a'; MAX_SEED_PATH_BYTES + 1];
-        let Ok(text) = core::str::from_utf8(&long) else {
-            panic!()
-        };
-        assert_eq!(SeedPath::parse(text), Err(Error::InvalidSeedPath));
-        if let Some(byte) = long.get_mut(MAX_SEED_PATH_BYTES) {
-            *byte = b'/';
-        }
-        let Ok(text) = core::str::from_utf8(&long) else {
-            panic!()
-        };
-        assert_eq!(SeedPath::parse(text), Err(Error::InvalidSeedPath));
-
-        let most = "a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a";
-        assert!(SeedPath::parse(most).is_ok());
-        assert_eq!(
-            SeedPath::parse("a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a"),
-            Err(Error::InvalidSeedPath)
-        );
-    }
-
-    #[test]
-    fn seed_paths_reject_spaces_and_control_characters() {
-        for text in ["node/a b", "node/\tx", "node/\u{7f}", "node/é"] {
-            assert_eq!(
-                SeedPath::parse(text),
-                Err(Error::InvalidSeedPath),
-                "{text:?}"
-            );
-        }
-    }
-
-    #[test]
-    fn node_key_paths_must_start_at_node() {
-        let key = NodeKey::from_bytes(&[7; 32]);
-        for text in ["dev/session", "nodes/login", "login"] {
-            let Ok(path) = SeedPath::parse(text) else {
-                panic!()
-            };
-            assert_eq!(
-                key.derive(&path).map(|_| ()),
-                Err(Error::NotUnderNode),
-                "{text}"
-            );
-        }
-        let Ok(node) = SeedPath::parse("node") else {
-            panic!()
-        };
-        assert!(matches!(key.derive(&node), Ok(secret) if secret.as_bytes() == &[7; 32]));
-    }
-
-    #[test]
-    fn settlement_scheme_ids_follow_the_wire_schema() {
-        let key = NodeKey::from_bytes(&[7; 32]);
-        for scheme in ["x", "XRPL", "xrpl_testnet", "xrpl/testnet", ""] {
-            assert_eq!(
-                key.settlement_entropy(scheme, "seed").map(|_| ()),
-                Err(Error::InvalidSchemeId),
-                "{scheme}"
-            );
-        }
-        assert_eq!(
-            key.settlement_entropy("xrpl", "").map(|_| ()),
-            Err(Error::InvalidSeedPath)
-        );
-        assert!(key.settlement_entropy("xrpl", "a/b").is_ok());
+    fn the_node_key_continues_the_master_seeds_tree() {
+        let seed = MasterSeed::from_bytes([0x5a; 64]);
+        let from_seed = fold(seed.as_bytes(), ["node", "login"].into_iter());
+        let login = seed.node_key().login_secret();
+        assert_eq!(from_seed.as_bytes(), login.as_bytes());
     }
 
     #[test]

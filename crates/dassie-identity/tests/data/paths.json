@@ -1,0 +1,199 @@
+{
+  "generator": "testdata/identity/generate-vectors.mjs",
+  "nodeKey": "0101010101010101010101010101010101010101010101010101010101010101",
+  "paths": [
+    {
+      "name": "login",
+      "path": "node/login",
+      "secret": "72a62a6ba7b9303ffac704438017dd2ebe6ba997e7773c4064c0c1c80bbad754"
+    },
+    {
+      "name": "openPaymentsClient",
+      "path": "node/open-payments-client",
+      "secret": "7184fa991dbbd78ee82fdedba49682a8e2dceb4b9408e4530f7d40928c2d14e4"
+    },
+    {
+      "name": "streamReceiver",
+      "ledger": "stub+usd",
+      "path": "node/stream-server/stub+usd",
+      "secret": "eca0da01f5ded5b8a16e2b30c3f41475223d9856ddec4f766dba8ba97bf5c506"
+    },
+    {
+      "name": "streamReceiver",
+      "ledger": "xrpl-testnet-xrp+xrp",
+      "path": "node/stream-server/xrpl-testnet-xrp+xrp",
+      "secret": "655aeed9e31dd7982c9df16a6481499dcb9dbe3b29aceddbea51f01f8b6f0a9b"
+    },
+    {
+      "name": "streamReceiver",
+      "ledger": "xrpl-xrp+xrp",
+      "path": "node/stream-server/xrpl-xrp+xrp",
+      "secret": "55fb56d0a98a785bb6592d425fd95df0b4e1a48770026e56a7013d6e641ec26a"
+    },
+    {
+      "name": "streamReceiver",
+      "ledger": "xrpl-testnet-rlusd+usd",
+      "path": "node/stream-server/xrpl-testnet-rlusd+usd",
+      "secret": "f6aad9768734762d2b9d0c62715ac0910513afaa55eeb0adca9beb7e4ee5b27c"
+    },
+    {
+      "name": "streamReceiver",
+      "ledger": "xrpl-rlusd+usd",
+      "path": "node/stream-server/xrpl-rlusd+usd",
+      "secret": "64f553928d88d02b3715990faf597c9c509e8d844fe5be106f49e95ae9fedfdb"
+    },
+    {
+      "name": "streamReceiver",
+      "ledger": "xrpl-testnet-dsusd+usd",
+      "path": "node/stream-server/xrpl-testnet-dsusd+usd",
+      "secret": "7c77e4be1dfbdf18d55ae7fb1eee36a2ba1a86c21d7c705d1782f0b397c9c304"
+    },
+    {
+      "name": "streamReceiver",
+      "ledger": "hub-xrpl-testnet-xrp+xrp",
+      "path": "node/stream-server/hub-xrpl-testnet-xrp+xrp",
+      "secret": "e87f12b19e98587addb9a5aac7b9746c12545a2ca4eb0390de83dc544c88927c"
+    },
+    {
+      "name": "streamReceiver",
+      "ledger": "hub-xrpl-testnet-dsusd+usd",
+      "path": "node/stream-server/hub-xrpl-testnet-dsusd+usd",
+      "secret": "faa47457fff08776a603441dc77324bbf4b412a62ae5a36e1ec230fd8c6879e1"
+    },
+    {
+      "name": "quicStatelessReset",
+      "endpoint": "udp",
+      "path": "node/quic/stateless-reset",
+      "secret": "90b3ba665a11645a182575ea9844739e332411466f0db70ae1b89e05be108b2a"
+    },
+    {
+      "name": "quicConnectionIds",
+      "endpoint": "udp",
+      "path": "node/quic/connection-ids",
+      "secret": "0019af49dcf73de797e3961a58078e87b9cf53c4bb64645d3132d8e872e4f1f7"
+    },
+    {
+      "name": "quicStatelessReset",
+      "endpoint": "tunnel",
+      "path": "node/quic/tunnel-stateless-reset",
+      "secret": "d63102c3200641f21c9129d86726e2991e5ac194bba6e62f81ab7e71396aee7c"
+    },
+    {
+      "name": "quicConnectionIds",
+      "endpoint": "tunnel",
+      "path": "node/quic/tunnel-connection-ids",
+      "secret": "2ed202fd380b9eac0ec93a8524c28735c100eeeb386517c14d8bf19281ec8ded"
+    },
+    {
+      "name": "hub",
+      "network": 1,
+      "nonce": "0202020202020202020202020202020202020202020202020202020202020202",
+      "key": "consensus",
+      "path": "node/hub/1/nonce/0202020202020202020202020202020202020202020202020202020202020202/consensus",
+      "secret": "59c1c4665c8ce1d5b09073c949437b9f8ef1d711312db3d479243247f54bbe03",
+      "publicKey": "fda05269f73e976ada2c0c037d83f59503f3825bd99862f631112d4f34482259"
+    },
+    {
+      "name": "hub",
+      "network": 1,
+      "nonce": "0202020202020202020202020202020202020202020202020202020202020202",
+      "key": "escrow",
+      "path": "node/hub/1/nonce/0202020202020202020202020202020202020202020202020202020202020202/escrow",
+      "secret": "df48cd0e319a73b4f67495cc29ed467209415b99d87d7893ba61f2282459983f",
+      "wallet": {
+        "familySeed": "sEdVQ6v7AinQtmcSdEw5ReaBYB3JrsV",
+        "address": "rQD4eaExzE8bForj4WTTm2rsaGgQeWcazS",
+        "publicKey": "ED6A2C655E71D5833C1DE87BE58BC036BD9B950B2F1E104FEAA942B9A726194843"
+      }
+    },
+    {
+      "name": "hub",
+      "network": 1,
+      "nonce": "0202020202020202020202020202020202020202020202020202020202020202",
+      "key": "payout",
+      "path": "node/hub/1/nonce/0202020202020202020202020202020202020202020202020202020202020202/payout",
+      "secret": "758366ccf6becb4109bd8f8c403700c244a0ee613a4fd33e85e2a725276237ac",
+      "payoutPublicKey": "038a0591f88a4742bd8a3f0e21d55d9f0b14e0e2ec9d0524a5774b6149880b6089",
+      "payoutChainCode": "30e44f542c96ba4c361f8cdf88a9cc7d8014da19f4b1c16642e189b1abbba10f"
+    },
+    {
+      "name": "hub",
+      "network": 1,
+      "nonce": "0202020202020202020202020202020202020202020202020202020202020202",
+      "key": "escrow-master",
+      "path": "node/hub/1/nonce/0202020202020202020202020202020202020202020202020202020202020202/escrow-master",
+      "secret": "5a51796d0ef1688150e608d7aac0bd5d264434db150e4ce103135fb40097c1d5",
+      "wallet": {
+        "familySeed": "sEdTZGJu5YarDFpM6qanzSYpvt7WAQs",
+        "address": "rBAHfcMU7pik34z3Fk1SDSuzTHpQPMUYuJ",
+        "publicKey": "ED1737B383BF804CD54AA08DEB73981B41002E82893485690F090ECF37950C2DB8"
+      }
+    },
+    {
+      "name": "hub",
+      "network": 0,
+      "nonce": "0202020202020202020202020202020202020202020202020202020202020202",
+      "key": "consensus",
+      "path": "node/hub/0/nonce/0202020202020202020202020202020202020202020202020202020202020202/consensus",
+      "secret": "fb75ba85e99504673bb0fdcbae174b33e4e040ffce2afa59f60d7ad42852b469",
+      "publicKey": "72073440690d8e3a147be0b4912e58bfbd4ea97dc7e43e7d7bb268b1e46da27c"
+    },
+    {
+      "name": "hub",
+      "network": 0,
+      "nonce": "0202020202020202020202020202020202020202020202020202020202020202",
+      "key": "escrow",
+      "path": "node/hub/0/nonce/0202020202020202020202020202020202020202020202020202020202020202/escrow",
+      "secret": "ef95150911893d5273840510a98e566c612a2452ea237745e043ee96dcc33edb",
+      "wallet": {
+        "familySeed": "sEdVd1kEjpse1UpWaYSmR52XFEJudci",
+        "address": "razZQmEewVztHBepitYrfpLcP63C7ByauQ",
+        "publicKey": "EDACAA46A43512095098A4F6A4EAD81D4B6DA173E3DCD723B1C1355CB1673C1D05"
+      }
+    },
+    {
+      "name": "hub",
+      "network": 0,
+      "nonce": "0202020202020202020202020202020202020202020202020202020202020202",
+      "key": "payout",
+      "path": "node/hub/0/nonce/0202020202020202020202020202020202020202020202020202020202020202/payout",
+      "secret": "f1f13c0b7b0d639ddc846ea7ea7ebadcc5a5f8214dc784570889567fc7f23b77",
+      "payoutPublicKey": "0384df170c683ed992c2264ca69c8007af1699ddabcb9540237ff1e2b6f65c5768",
+      "payoutChainCode": "fdcd7ed6fa81de8227986454832750d2acb9410266006c60a1292e4d39425ffb"
+    },
+    {
+      "name": "hub",
+      "network": 0,
+      "nonce": "0202020202020202020202020202020202020202020202020202020202020202",
+      "key": "escrow-master",
+      "path": "node/hub/0/nonce/0202020202020202020202020202020202020202020202020202020202020202/escrow-master",
+      "secret": "bfa40aca2eda63b252093ad8779e31aadcbe229d58f295331e32fd1a99f1b546",
+      "wallet": {
+        "familySeed": "sEd7y3uCyDwgAB8vuweXrQCSMLtq7Fc",
+        "address": "rNErg4YtGZSnFoUPnJ9nNM3uUAN6tB3LEa",
+        "publicKey": "ED7F0E003310B86105CE80183F4936CA88832295520F9D2D74196F5E6CCEC93D87"
+      }
+    },
+    {
+      "name": "hubMember",
+      "hub": "0202020202020202020202020202020202020202020202020202020202020202",
+      "path": "node/hub/member/0202020202020202020202020202020202020202020202020202020202020202/account",
+      "secret": "c7137c50723bfa619c71fb53aeb428816c2cd340eaa957ccededf5fd6aa8998e",
+      "publicKey": "b20cfbddf899e18bbfe885374d251a65769dd6b7c6e6624711919069579c0b72"
+    },
+    {
+      "name": "settlementEntropy",
+      "module": "xrpl-testnet",
+      "rest": "seed-testnet",
+      "path": "node/settlement-module/xrpl-testnet/seed-testnet",
+      "secret": "a3b3369c4ec5ae36ea48521b9491d00b0155bc9089483dc037de6688400fcb53"
+    },
+    {
+      "name": "settlementEntropy",
+      "module": "xrpl",
+      "rest": "seed-mainnet",
+      "path": "node/settlement-module/xrpl/seed-mainnet",
+      "secret": "9948254b8ed324333454936898dda2beaf3f2962989fcea212f2374a320065e3"
+    }
+  ]
+}

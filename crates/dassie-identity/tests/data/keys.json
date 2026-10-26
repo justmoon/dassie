@@ -1,17 +1,5 @@
 {
-  "source": "e962ab78",
-  "bootstrap": [
-    {
-      "host": "test1.dassie.xyz",
-      "publicKey": "4017b91cb6dd605b48a6315322efcbcfc964a142777e602f1477c26fd095c083",
-      "nodeId": "dNKbwOMCw0DTToPM4tyyVASWxM4NP3MKW"
-    },
-    {
-      "host": "test2.dassie.xyz",
-      "publicKey": "b664b53c1e360c48d88be51ae11360ba1c1e21df588d3f4a9a5deeab78994ae4",
-      "nodeId": "dyrjUANXiJ5S6JXxwo7jdKKJjdLtK129U"
-    }
-  ],
+  "generator": "testdata/identity/generate-vectors.mjs",
   "keys": [
     {
       "seed": "0101010101010101010101010101010101010101010101010101010101010101",

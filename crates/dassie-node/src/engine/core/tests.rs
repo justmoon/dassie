@@ -4034,7 +4034,7 @@ fn hub_rules(margin: u64, allowance: u64) -> dassie_hub::Rules {
 
     let nonce = HUB_NONCE;
     let sponsor = NodeKey::from_bytes(&[100; 32]);
-    let master = escrow_master(&sponsor, TESTNET_NETWORK, &nonce).unwrap();
+    let master = escrow_master(&sponsor, TESTNET_NETWORK, &nonce);
     let terms = Terms {
         version: dassie_hub::rules::HUB_VERSION,
         nonce,
@@ -4995,8 +4995,7 @@ impl Validators {
                     .consensus
             })
             .collect();
-        let member = dassie_hub::escrow::member_key(&NodeKey::from_bytes(&[7; 32]), &rules.id())
-            .unwrap()
+        let member = dassie_hub::member::member_key(&NodeKey::from_bytes(&[7; 32]), &rules.id())
             .public_key();
         Self {
             rules,
@@ -5099,8 +5098,7 @@ impl Validators {
         use dassie_hub::promise::HoldNumber;
 
         self.height += 1;
-        let key = dassie_hub::escrow::member_key(&NodeKey::from_bytes(&[7; 32]), &self.rules.id())
-            .unwrap();
+        let key = dassie_hub::member::member_key(&NodeKey::from_bytes(&[7; 32]), &self.rules.id());
         let fees = self.rules.terms.fees;
         let operation = SignedMemberOperation::sign(
             &self.rules.id(),

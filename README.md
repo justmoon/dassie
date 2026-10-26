@@ -101,7 +101,8 @@ The node that asks to peer extends the other 1.1 units of credit; the node that 
 | `packages/rpc` | The client for the RPC contract, over WebSocket (browsers) or the IPC socket (Node) |
 | `tests/interop` | STREAM interop with `ilp-protocol-stream`, natively and in WASM; WASM vectors; the browser test |
 | `tests/e2e` | End-to-end tests on real binaries: a fresh install through `dassie init` and browser setup, with Pebble as the ACME CA; a BTP client paying the node's STREAM receiver; the `two-nodes` and `six-nodes` scenarios; Open Payments, including a third party's full flow with consent in the wallet; XRPL settlement and cross-currency payments; the wallet's pages in a browser; `node --run dev` and its dashboard; the installer and the updater on Debian, Ubuntu, Fedora and CentOS, in containers; dassie.land and its STREAM toy in a browser, under the site's CSP |
-| `testdata/original` | Generator for the golden vectors, run against the original |
+| `testdata/original` | Generator for the OER, ILP and STREAM golden vectors, run against the original |
+| `testdata/identity` | Generator for the identity golden vectors, every key a phrase derives, with libraries independent of Dassie's code |
 | `testdata/feed` | The rate feed's golden vectors, from `cargo run -p dassie-feed --example feed_vectors` |
 | `testdata/hub` | A settlement hub's golden vectors, from `cargo run -p dassie-hub --example hub_vectors` |
 | `testdata/xrpl` | Generator for the XRPL golden vectors, run against xrpl.js |

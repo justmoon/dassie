@@ -40,10 +40,7 @@ fn terms(sponsor: &NodeKey) -> Terms {
         nonce: NONCE,
         sponsor: sponsor.public_key(),
         network: 1,
-        escrow: escrow_master(sponsor, TESTNET_NETWORK, &NONCE)
-            .unwrap()
-            .account()
-            .0,
+        escrow: escrow_master(sponsor, TESTNET_NETWORK, &NONCE).account().0,
         asset: dassie_hub::rules::Asset::Xrp,
         fees: Fees {
             operation: 10,
