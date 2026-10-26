@@ -208,8 +208,8 @@ impl Core {
     fn new_secret(&mut self) -> String {
         let mut random = [0u8; TOKEN_BYTES];
         self.rng.fill_bytes(&mut random);
-        let mut encoded = [0u8; dassie_stream::base64url::encoded_len(TOKEN_BYTES)];
-        let length = dassie_stream::base64url::encode(&random, &mut encoded);
+        let mut encoded = [0u8; dassie_base64url::encoded_len(TOKEN_BYTES)];
+        let length = dassie_base64url::encode(&random, &mut encoded);
         String::from_utf8_lossy(encoded.get(..length).unwrap_or_default()).into_owned()
     }
 

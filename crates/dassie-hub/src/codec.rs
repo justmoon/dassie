@@ -70,8 +70,12 @@ pub fn write_signature(writer: &mut Writer<'_>, signature: &Signature) {
 }
 
 /// Reads a signature; whether it verifies is checked where it is used.
-pub fn read_signature(reader: &mut Reader<'_>) -> Result<Signature, HubDecodeError> {
-    Ok(Signature::from_bytes(*reader.read_array::<64>()?))
+/// Its error is the OER one, so that the consensus messages, which have no
+/// [`HubDecodeError`], read signatures with it too.
+pub fn read_signature(reader: &mut Reader<'_>) -> Result<Signature, DecodeError> {
+    Ok(Signature::from_bytes(
+        *reader.read_array::<SIGNATURE_LEN>()?,
+    ))
 }
 
 /// Writes a digest.
@@ -79,7 +83,7 @@ pub fn write_digest(writer: &mut Writer<'_>, digest: &Digest) {
     writer.write_bytes(digest.as_bytes());
 }
 
-/// Reads a digest.
-pub fn read_digest(reader: &mut Reader<'_>) -> Result<Digest, HubDecodeError> {
-    Ok(Digest(*reader.read_array::<32>()?))
+/// Reads a digest, with the OER error as [`read_signature`] does.
+pub fn read_digest(reader: &mut Reader<'_>) -> Result<Digest, DecodeError> {
+    Ok(Digest(*reader.read_array::<DIGEST_LEN>()?))
 }

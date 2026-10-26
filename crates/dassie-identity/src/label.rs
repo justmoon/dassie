@@ -10,7 +10,6 @@
 
 use core::fmt;
 
-use crate::base64url;
 use crate::error::Error;
 use crate::node_id::NodeId;
 
@@ -27,7 +26,7 @@ const DIGEST_CHARACTERS: usize = 32;
 const ALPHABET: &[u8; 32] = b"abcdefghijklmnopqrstuvwxyz234567";
 
 const _: () = assert!(NODE_LABEL_LENGTH == (DIGEST_BYTES * 8).div_ceil(5));
-const _: () = assert!(base64url::encoded_len(DIGEST_BYTES) == DIGEST_CHARACTERS);
+const _: () = assert!(dassie_base64url::encoded_len(DIGEST_BYTES) == DIGEST_CHARACTERS);
 
 /// A node ID as a DNS label: 39 characters of `[a-z2-7]`.
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
@@ -55,7 +54,8 @@ impl NodeLabel {
             *slot = character;
         }
         let mut digest = [0u8; DIGEST_BYTES];
-        let written = base64url::decode(&padded, &mut digest).map_err(|_| Error::InvalidNodeId)?;
+        let written =
+            dassie_base64url::decode(&padded, &mut digest).map_err(|_| Error::InvalidNodeId)?;
         assert!(written == DIGEST_BYTES, "32 characters decode to 24 bytes");
         Ok(Self::encode(&digest))
     }
@@ -100,7 +100,7 @@ impl NodeLabel {
         let mut text = [0u8; 1 + DIGEST_CHARACTERS];
         let (prefix, rest) = text.split_at_mut(1);
         prefix.copy_from_slice(b"d");
-        let written = base64url::encode(&digest, rest);
+        let written = dassie_base64url::encode(&digest, rest);
         assert!(written == DIGEST_CHARACTERS, "24 bytes encode to 32");
         let kept = rest
             .iter()

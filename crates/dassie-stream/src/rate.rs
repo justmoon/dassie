@@ -88,6 +88,35 @@ impl Rate {
         saturate(product)
     }
 
+    /// `floor(source * rate)`, or `None` if it does not fit a `u64`: what a
+    /// fixed-send quote delivers, which never delivers more than its debit
+    /// buys.
+    #[must_use]
+    pub fn checked_destination_amount(self, source: u64) -> Option<u64> {
+        let product =
+            u128::from(source) * u128::from(self.numerator) / u128::from(self.denominator);
+        u64::try_from(product).ok()
+    }
+
+    /// The fewest source units that convert to at least `destination`
+    /// units: `ceil(destination / rate)`. `None` for a zero rate, or if it
+    /// does not fit a `u64`. What a fixed-receive quote debits, which always
+    /// covers its delivery.
+    #[must_use]
+    pub fn min_source_amount(self, destination: u64) -> Option<u64> {
+        if self.numerator == 0 {
+            return None;
+        }
+        let numerator = u128::from(destination) * u128::from(self.denominator);
+        let source = u64::try_from(numerator.div_ceil(u128::from(self.numerator))).ok()?;
+        assert!(
+            self.checked_destination_amount(source)
+                .is_none_or(|delivered| delivered >= destination),
+            "rounding up covers the destination amount"
+        );
+        Some(source)
+    }
+
     /// The most source units that convert to at most `destination` units:
     /// `floor(destination / rate)`. Unlimited for a zero rate.
     #[must_use]
@@ -158,5 +187,29 @@ const fn saturate(value: u128) -> u64 {
 impl fmt::Debug for Rate {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "Rate({}/{})", self.numerator, self.denominator)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn one_for_one_is_exact() {
+        assert_eq!(Rate::ONE.checked_destination_amount(1_234), Some(1_234));
+        assert_eq!(Rate::ONE.min_source_amount(1_234), Some(1_234));
+    }
+
+    #[test]
+    fn quotes_round_in_the_receivers_favor() {
+        let rate = Rate::new(2, 3).unwrap();
+        assert_eq!(rate.checked_destination_amount(10), Some(6));
+        assert_eq!(rate.min_source_amount(7), Some(11));
+        assert_eq!(rate.checked_destination_amount(11), Some(7));
+        assert_eq!(Rate::ZERO.min_source_amount(1), None);
+        assert_eq!(Rate::ZERO.checked_destination_amount(5), Some(0));
+        let steep = Rate::new(u64::MAX, 1).unwrap();
+        assert_eq!(steep.checked_destination_amount(2), None);
+        assert_eq!(steep.destination_amount(2), u64::MAX);
     }
 }

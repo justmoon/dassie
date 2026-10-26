@@ -353,7 +353,7 @@ async fn the_discovery_document_names_the_node_once_set_up() {
     let document: serde_json::Value = serde_json::from_str(&reply.text()).unwrap();
     let public_key = key().public_key();
     let mut encoded = [0u8; 43];
-    let length = dassie_identity::base64url::encode(public_key.as_bytes(), &mut encoded);
+    let length = dassie_base64url::encode(public_key.as_bytes(), &mut encoded);
     assert_eq!(
         document,
         serde_json::json!({

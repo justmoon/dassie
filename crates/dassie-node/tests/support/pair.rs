@@ -39,7 +39,7 @@ pub fn key(seed: u8) -> NodeKey {
 /// `DASSIE_BOOTSTRAP_NODES` naming `node` at `port`.
 pub fn bootstrap(node: &NodeKey, port: u16) -> String {
     let mut encoded = [0u8; 43];
-    let length = dassie_identity::base64url::encode(node.public_key().as_bytes(), &mut encoded);
+    let length = dassie_base64url::encode(node.public_key().as_bytes(), &mut encoded);
     let public = std::str::from_utf8(&encoded[..length]).unwrap();
     format!(
         r#"[{{"id":"{}","url":"https://localhost:{port}","publicKey":"{public}"}}]"#,

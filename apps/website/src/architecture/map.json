@@ -712,6 +712,21 @@
         "Builds to WebAssembly"
       ]
     },
+    "base64url": {
+      "name": "dassie-base64url",
+      "path": "crates/dassie-base64url",
+      "label": "strict base64url for IDs and tokens",
+      "sub": "protocols",
+      "x": 796,
+      "y": 844,
+      "w": 184,
+      "desc": "The text encoding of node IDs, the node's tokens and STREAM's connection tokens. It accepts only the canonical form, so an ID or a token cannot be written two ways.",
+      "does": [
+        "Unpadded base64url (RFC 4648 §5), without allocating",
+        "Rejects padding, other alphabets and stray bits",
+        "Never panics on what it decodes"
+      ]
+    },
     "oer": {
       "name": "dassie-oer",
       "path": "crates/dassie-oer",
@@ -985,6 +1000,12 @@
       "h": true
     },
     {
+      "f": "cli",
+      "t": "base64url",
+      "k": "uses",
+      "h": true
+    },
+    {
       "f": "desktop",
       "t": "node",
       "k": "uses",
@@ -1045,6 +1066,12 @@
       "h": true
     },
     {
+      "f": "payments",
+      "t": "base64url",
+      "k": "uses",
+      "h": true
+    },
+    {
       "f": "node",
       "t": "node-core",
       "k": "uses",
@@ -1089,6 +1116,12 @@
     {
       "f": "node",
       "t": "kit",
+      "k": "uses",
+      "h": true
+    },
+    {
+      "f": "node",
+      "t": "base64url",
       "k": "uses",
       "h": true
     },
@@ -1183,6 +1216,12 @@
       "h": true
     },
     {
+      "f": "stream",
+      "t": "base64url",
+      "k": "uses",
+      "h": false
+    },
+    {
       "f": "node-core",
       "t": "identity",
       "k": "uses",
@@ -1221,6 +1260,12 @@
     {
       "f": "identity",
       "t": "oer",
+      "k": "uses",
+      "h": false
+    },
+    {
+      "f": "identity",
+      "t": "base64url",
       "k": "uses",
       "h": false
     },

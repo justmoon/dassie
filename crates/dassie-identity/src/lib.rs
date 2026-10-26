@@ -27,7 +27,6 @@
 #[cfg(test)]
 extern crate std;
 
-pub mod base64url;
 mod error;
 mod label;
 mod mnemonic;

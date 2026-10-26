@@ -20,6 +20,7 @@ sim = ["dep:dassie-kit", "dassie-oer/alloc"]
 # Without the default `getrandom` feature: the caller injects randomness.
 aes-gcm = { version = "0.11.1", default-features = false, features = ["aes"] }
 dassie-ilp = { path = "../dassie-ilp" }
+dassie-base64url = { path = "../dassie-base64url" }
 dassie-kit = { path = "../dassie-kit", features = ["sim"], optional = true }
 dassie-oer = { path = "../dassie-oer", default-features = false }
 hmac = { version = "0.13", default-features = false }

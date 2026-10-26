@@ -8,7 +8,6 @@ use core::hash::{Hash, Hasher};
 use dassie_oer::{Alphabet, Size, Writer, oid};
 use sha2::{Digest, Sha256};
 
-use crate::base64url;
 use crate::error::Error;
 
 /// The `dassieNodeFingerprintV1Id` object identifier, which versions the
@@ -57,7 +56,7 @@ impl NodeId {
         let digest = Sha256::digest(Self::hash_input(public_key));
         let mut encoded = [0u8; DIGEST_CHARACTERS];
         let written =
-            base64url::encode(digest.get(..DIGEST_BYTES).unwrap_or_default(), &mut encoded);
+            dassie_base64url::encode(digest.get(..DIGEST_BYTES).unwrap_or_default(), &mut encoded);
         assert!(
             written == DIGEST_CHARACTERS,
             "digest prefix encodes to 32 characters"

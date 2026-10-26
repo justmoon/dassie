@@ -8,7 +8,6 @@ use dassie_payments::gnap::{self, ContinueRequest, GrantRequest, GrantResponse};
 use dassie_payments::httpsig::{self, Request, Signature, SignatureError};
 use dassie_payments::interval::{Duration, Interval};
 use dassie_payments::jwk::{Jwk, Jwks};
-use dassie_payments::quote::Rate;
 use dassie_payments::resources::{
     self, CreateIncomingPayment, CreateOutgoingPayment, CreateQuote, IncomingPayment, ListQuery,
     PublicIncomingPayment, WalletAddress,
@@ -111,24 +110,6 @@ proptest! {
             if let Some((next_from, _)) = interval.window(now + later) {
                 prop_assert!(next_from >= from);
             }
-        }
-    }
-
-    // A fixed-receive quote covers its delivery; a fixed-send one never
-    // delivers more than the debit buys.
-    #[test]
-    fn quotes_cover_what_they_deliver(
-        destination in 1u64..1_000_000,
-        source in 1u64..1_000_000,
-        amount in 0u64..u64::MAX / 2,
-    ) {
-        let rate = Rate { destination, source };
-        if let Some(delivered) = rate.cost(amount).and_then(|debit| rate.delivered(debit)) {
-            prop_assert!(delivered >= amount);
-        }
-        if let Some(delivered) = rate.delivered(amount) {
-            prop_assert!(u128::from(delivered) * u128::from(source)
-                <= u128::from(amount) * u128::from(destination));
         }
     }
 

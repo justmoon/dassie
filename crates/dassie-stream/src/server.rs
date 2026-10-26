@@ -9,7 +9,6 @@ use dassie_ilp::{Address, ErrorCode as IlpErrorCode, Prepare, Reject, Timestamp}
 use dassie_oer::Encode;
 use rand_core::CryptoRng;
 
-use crate::base64url;
 use crate::connection::{AssetDetails, BUFFER_LENGTH, Config, Connection, Role};
 use crate::frame::ErrorCode;
 use crate::policy::Policy;
@@ -186,8 +185,8 @@ impl Server {
     #[must_use]
     pub fn credentials_for(&self, token: &[u8]) -> Credentials {
         assert!(token.len() <= MAX_TOKEN_LENGTH, "token too long");
-        let mut encoded = [0u8; base64url::encoded_len(MAX_TOKEN_LENGTH)];
-        let encoded_length = base64url::encode(token, &mut encoded);
+        let mut encoded = [0u8; dassie_base64url::encoded_len(MAX_TOKEN_LENGTH)];
+        let encoded_length = dassie_base64url::encode(token, &mut encoded);
         let mut destination = String::with_capacity(self.address.len() + 1 + encoded_length);
         destination.push_str(&self.address);
         destination.push('.');
@@ -313,10 +312,10 @@ impl Server {
         let own = Address::parse(&self.address).ok()?;
         let local = destination.strip_prefix(own)?;
         let segment = local.split('.').next()?;
-        if segment.len() > base64url::encoded_len(MAX_TOKEN_LENGTH) {
+        if segment.len() > dassie_base64url::encoded_len(MAX_TOKEN_LENGTH) {
             return None;
         }
-        base64url::decode(segment.as_bytes(), output).ok()
+        dassie_base64url::decode(segment.as_bytes(), output).ok()
     }
 
     fn open(&mut self, token: &[u8]) -> Result<usize, IlpErrorCode> {

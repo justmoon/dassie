@@ -2,7 +2,7 @@
 
 Every Dassie wire protocol (ILPv4, ILDCP, BTP, STREAM and the peer protocol) is encoded in the Octet Encoding Rules, [ITU-T X.696](https://www.itu.int/rec/T-REC-X.696). `dassie-oer` implements the subset these protocols use, and each protocol crate writes its message codecs by hand on its `Reader` and `Writer`.
 
-**Paths:** `crates/dassie-oer/`
+**Paths:** `crates/dassie-oer/`, and `crates/dassie-base64url/` ([below](#base64url))
 **Read with:** [ILP](ilp.md), [STREAM](stream.md), [Peer protocol](peer-protocol.md), [Identity](identity.md)
 
 ## Scope
@@ -30,6 +30,10 @@ Decoding never allocates and never panics, whatever the input ([tigerstyle](../d
 - a failure is a `DecodeError` whose offset is the position in the outermost input, even inside nested open types, so a protocol error points at the right byte.
 
 **Saturating integers.** RFC 29 asks STREAM receivers to read amounts and limits larger than they can hold as their maximum. `read_var_uint_saturating` does so, after the same canonical checks; every other integer above 64 bits is an error.
+
+## Base64url
+
+Node IDs, the tokens the node hands out and the connection tokens STREAM puts in ILP addresses are unpadded base64url (RFC 4648 §5), in `dassie-base64url`. It is not OER and stays out of `dassie-oer`; it is a crate of its own so that STREAM and identity share one implementation without STREAM depending on the node's identity. Like OER here it is canonical only: no padding, no whitespace, and the unused low bits of the last character must be zero, so each byte string has one accepted encoding and a token or ID cannot be written two ways. Decoding takes untrusted input, so an output too short is an error value, never a panic.
 
 ## What pins the encoding
 

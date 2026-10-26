@@ -12,10 +12,10 @@ use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use dassie_ledger::LedgerId;
 use dassie_payments::amount::Amount;
-use dassie_payments::quote::Rate;
 use dassie_payments::resources::{self, IncomingPayment};
 use dassie_payments::time;
 use dassie_stream::Credentials;
+use dassie_stream::Rate;
 
 use super::auth::OpError;
 use super::client::{self, ClientError};
@@ -365,10 +365,6 @@ pub async fn measure(
             "the path to the receiver delivers nothing",
         ));
     }
-    let rate = Rate {
-        destination: rate.numerator(),
-        source: rate.denominator(),
-    };
     Ok((rate, measured.asset))
 }
 
@@ -395,17 +391,18 @@ pub fn amounts(
                 "name the amount to debit or to deliver, not both",
             ));
         }
-        (Some(debit), None) if debit.same_asset(asset.code, asset.scale) => {
-            (Some(debit.value), rate.delivered(debit.value))
-        }
+        (Some(debit), None) if debit.same_asset(asset.code, asset.scale) => (
+            Some(debit.value),
+            rate.checked_destination_amount(debit.value),
+        ),
         (None, Some(receive)) if receive.same_asset(&receiver.asset_code, receiver.asset_scale) => {
-            (rate.cost(receive.value), Some(receive.value))
+            (rate.min_source_amount(receive.value), Some(receive.value))
         }
         (None, None) => {
             let remaining = receiver
                 .remaining
                 .ok_or_else(|| OpError::invalid("name an amount: the receiver takes any"))?;
-            (rate.cost(remaining), Some(remaining))
+            (rate.min_source_amount(remaining), Some(remaining))
         }
         _ => return Err(OpError::invalid("the amount is in another asset")),
     };

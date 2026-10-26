@@ -12,6 +12,7 @@ workspace = true
 
 [dependencies]
 # Node IDs and labels, which a node's signed responses are checked against.
+dassie-base64url = { path = "../dassie-base64url" }
 dassie-identity = { path = "../dassie-identity" }
 # Standard and URL-safe base64 for signatures, digests, keys and secrets.
 base64 = { version = "0.22.1", default-features = false, features = ["alloc"] }

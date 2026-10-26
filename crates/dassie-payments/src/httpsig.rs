@@ -21,7 +21,7 @@
 
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
-use dassie_identity::{NodeId, base64url};
+use dassie_identity::NodeId;
 use ed25519_dalek::{Signer as _, SigningKey, VerifyingKey};
 use sha2::{Digest as _, Sha256, Sha512};
 use subtle::ConstantTimeEq as _;
@@ -546,10 +546,10 @@ pub fn check_node_response(
     let signature = ResponseSignature::find(request, response, body, now_s)
         .map_err(NodeResponseError::Signature)?;
     let mut key = [0u8; 32];
-    if base64url::decoded_len(signature.keyid().len()) != Some(key.len()) {
+    if dassie_base64url::decoded_len(signature.keyid().len()) != Some(key.len()) {
         return Err(NodeResponseError::Key);
     }
-    base64url::decode(signature.keyid().as_bytes(), &mut key)
+    dassie_base64url::decode(signature.keyid().as_bytes(), &mut key)
         .map_err(|_| NodeResponseError::Key)?;
     if NodeId::from_public_key(&key) != expected {
         return Err(NodeResponseError::OtherNode);
@@ -864,7 +864,7 @@ mod tests {
         let key = SigningKey::from_bytes(&[9; 32]);
         let public = key.verifying_key().to_bytes();
         let mut keyid = [0u8; 43];
-        let length = base64url::encode(&public, &mut keyid);
+        let length = dassie_base64url::encode(&public, &mut keyid);
         let keyid = String::from(core::str::from_utf8(&keyid[..length]).unwrap());
         let label = NodeId::from_public_key(&public).label().unwrap();
         (key, keyid, label.as_str().to_string())

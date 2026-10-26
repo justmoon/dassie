@@ -1,12 +1,34 @@
-//! Unpadded base64url (RFC 4648 §5), the encoding of node IDs and of the
-//! tokens the node hands out.
+//! Unpadded base64url (RFC 4648 §5): the encoding of node IDs, of the
+//! tokens the node hands out, and of the connection tokens STREAM puts in
+//! ILP addresses. One crate of its own, so that STREAM and identity share it
+//! without one depending on the other.
 //!
-//! It is small enough that a dependency would cost more than it saves.
-//! Decoding is strict: no padding, no whitespace, and the unused low bits of
-//! the last character must be zero, so every byte string has exactly one
-//! accepted encoding.
+//! It is small enough that a dependency would cost more than it saves
+//! (spec/decisions/tigerstyle.md). Decoding is strict: no padding, no
+//! whitespace, and the unused low bits of the last character must be zero,
+//! so every byte string has exactly one accepted encoding. Decoding takes
+//! untrusted input, so it never panics: an output too short is an error
+//! too. It does not allocate.
 
-use crate::error::Error;
+#![no_std]
+
+#[cfg(test)]
+extern crate std;
+
+use core::fmt;
+
+/// The input is not canonical unpadded base64url, or its bytes do not fit
+/// the output.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct InvalidBase64;
+
+impl fmt::Display for InvalidBase64 {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("invalid base64url")
+    }
+}
+
+impl core::error::Error for InvalidBase64 {}
 
 /// Length of the encoding of `input_length` bytes.
 #[must_use]
@@ -62,20 +84,18 @@ pub fn encode(input: &[u8], output: &mut [u8]) -> usize {
 }
 
 /// Decodes `input` into the start of `output` and returns the length
-/// written.
-///
-/// # Panics
-///
-/// If `output` is shorter than [`decoded_len`] of the input, which is a
-/// programming error.
-pub fn decode(input: &[u8], output: &mut [u8]) -> Result<usize, Error> {
-    let length = decoded_len(input.len()).ok_or(Error::InvalidBase64)?;
-    assert!(output.len() >= length, "base64url output buffer too small");
+/// written. An `output` shorter than [`decoded_len`] of the input is an
+/// error, and nothing is written then.
+pub fn decode(input: &[u8], output: &mut [u8]) -> Result<usize, InvalidBase64> {
+    let length = decoded_len(input.len()).ok_or(InvalidBase64)?;
+    if output.len() < length {
+        return Err(InvalidBase64);
+    }
     let mut bytes = output.iter_mut();
     for chunk in input.chunks(4) {
         let mut sextets = [0u8; 4];
         for (sextet, &character) in sextets.iter_mut().zip(chunk) {
-            *sextet = value(character).ok_or(Error::InvalidBase64)?;
+            *sextet = value(character).ok_or(InvalidBase64)?;
         }
         let [first, second, third, fourth] = sextets;
         let decoded = [
@@ -91,7 +111,7 @@ pub fn decode(input: &[u8], output: &mut [u8]) -> Result<usize, Error> {
             _ => 0,
         };
         if leftover != 0 {
-            return Err(Error::InvalidBase64);
+            return Err(InvalidBase64);
         }
         for &byte in decoded.iter().take(chunk.len() - 1) {
             if let Some(slot) = bytes.next() {
@@ -157,9 +177,16 @@ mod tests {
         for text in ["Zg==", "Z", "Zh", "Zm9", "Zm+v", "Zm/v", "Zm9 "] {
             assert_eq!(
                 decode(text.as_bytes(), &mut output),
-                Err(Error::InvalidBase64),
+                Err(InvalidBase64),
                 "{text}"
             );
         }
+    }
+
+    #[test]
+    fn an_output_too_short_is_an_error() {
+        let mut output = [0xa5u8; 5];
+        assert_eq!(decode(b"Zm9vYmFy", &mut output), Err(InvalidBase64));
+        assert_eq!(output, [0xa5; 5]);
     }
 }

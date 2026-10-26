@@ -31,6 +31,7 @@ on:
       - packages/wasm/**
       - packages/rpc/**
       - packages/ui/**
+      - crates/dassie-base64url/**
       - crates/dassie-identity/**
       - crates/dassie-ilp/**
       - crates/dassie-kit/**
