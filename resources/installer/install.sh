@@ -3,7 +3,9 @@
 # spec/areas/release.md#install-layout, spec/decisions/release-integrity.md):
 #
 #   curl --proto =https --tlsv1.2 -sSf https://sh.dassie.land | sh
-#   curl ... | sh -s -- [--target <version>] [uninstall]
+#   curl ... | sh -s -- [--target-version <version>] [--mirror <url>] [uninstall]
+#
+# Its options are `dassie update`'s, by the same names.
 #
 # It installs a release into /opt/dassie/<version>, points
 # /opt/dassie/current at it, links /usr/local/bin/dassie, and sets up the
@@ -25,8 +27,8 @@ main() {
   # umask of whoever runs it.
   umask 022
   MIRROR="${DASSIE_MIRROR_URL:-https://get.dassie.land}"
-  VERSION="${DASSIE_VERSION:-}"
-  TARGETED="${DASSIE_VERSION:+1}"
+  VERSION=
+  TARGETED=
   COMMAND=install
   BASE=/opt/dassie
   UNITS="dassie.service dassie-http.socket dassie-https.socket dassie-ipc.socket dassie-quic.socket dassie-feed.socket dassie-update.service dassie-update.timer"
@@ -45,11 +47,10 @@ usage() {
 Usage: install.sh [options] [install|uninstall]
 
 Options:
-  -t, --target <version>         this version rather than the newest release
-  -m, --mirror <url>             the mirror (default: https://get.dassie.land)
-  -h, --help                     show this help
-
-Environment: DASSIE_MIRROR_URL, DASSIE_VERSION.
+  -t, --target-version <v>  this version rather than the newest release
+  --mirror <url>            another mirror (default: DASSIE_MIRROR_URL, or
+                            https://get.dassie.land)
+  -h, --help                show this help
 EOF
 }
 
@@ -57,8 +58,8 @@ parse_arguments() {
   while [ $# -gt 0 ]; do
     case "$1" in
       -h | --help) usage; exit 0 ;;
-      -t | --target) [ $# -ge 2 ] || fail E_SYNTAX "$1 needs a value"; VERSION=$2; TARGETED=1; shift ;;
-      -m | --mirror) [ $# -ge 2 ] || fail E_SYNTAX "$1 needs a value"; MIRROR=$2; shift ;;
+      -t | --target-version) [ $# -ge 2 ] || fail E_SYNTAX "$1 needs a value"; VERSION=$2; TARGETED=1; shift ;;
+      --mirror) [ $# -ge 2 ] || fail E_SYNTAX "$1 needs a value"; MIRROR=$2; shift ;;
       install | uninstall) COMMAND=$1 ;;
       *) usage >&2; fail E_SYNTAX "unknown argument: $1" ;;
     esac
@@ -230,13 +231,14 @@ read_installed() {
 
 # The mirror's meta/latest is not signed, so it does not choose the
 # direction: a version older than the one installed goes in only with
-# --target. An installed version that is no release is no order to keep.
+# --target-version. An installed version that is no release is no order to
+# keep.
 check_not_older() {
   if [ -n "$TARGETED" ] || ! valid_version "$INSTALLED"; then return 0; fi
   [ "$VERSION" != "$INSTALLED" ] || return 0
   lowest=$(printf '%s\n%s\n' "$VERSION" "$INSTALLED" | sort -V | head -n 1)
   [ "$lowest" != "$VERSION" ] ||
-    fail E_VERSION_OLDER "the mirror offers $VERSION, older than the installed $INSTALLED; use --target to install it anyway"
+    fail E_VERSION_OLDER "the mirror offers $VERSION, older than the installed $INSTALLED; use --target-version to install it anyway"
 }
 
 # --- Lock -----------------------------------------------------------------------

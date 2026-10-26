@@ -23,8 +23,9 @@ pub mod store;
 pub mod tls;
 
 /// The version of this build: the release it was built as
-/// (`DASSIE_VERSION`, set by the release build), or the crate's.
-pub const VERSION: &str = match option_env!("DASSIE_VERSION") {
+/// (`DASSIE_BUILD_VERSION`, set by the release build), or the crate's. Not
+/// `DASSIE_VERSION`, which an operator may have exported for something else.
+pub const VERSION: &str = match option_env!("DASSIE_BUILD_VERSION") {
     Some(version) => version,
     None => env!("CARGO_PKG_VERSION"),
 };

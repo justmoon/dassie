@@ -57,6 +57,15 @@
         the next time you log in, so if you want to use that, close your SSH
         session and log in again.
       </p>
+      <p>
+        To install a particular version rather than the newest, in a
+        Dockerfile or a cloud-init script for example, name it:
+      </p>
+      <pre><code>curl --proto =https --tlsv1.2 -sSf https://sh.dassie.land | sh -s -- --target-version &lt;version&gt;</code></pre>
+      <p>
+        The installer takes the same options as <code>dassie update</code>,
+        by the same names.
+      </p>
       <p>To check the installation, run:</p>
       <pre><code>dassie verify-install</code></pre>
 

@@ -77,7 +77,8 @@ The original's layout, kept for operators' habits and docs. Each version is unpa
 `resources/installer/install.sh`, POSIX sh, run as `curl … https://sh.dassie.land | sh`.
 
 - **The whole script is one function called on its last line,** so a download cut short runs nothing.
-- **The mirror does not choose the direction,** as for the updater ([Versions](#versions)). The installed version is what the installed binary names, which it named before it was installed, so the mirror cannot fake it. `--target` installs any version.
+- **It takes `dassie update`'s options, by the same names:** `--target-version` installs any version, `--mirror` or `DASSIE_MIRROR_URL` names another mirror. It reads no version from the environment: a pin is a flag (`sh -s -- --target-version <v>`), so nothing exported for one tool reaches another. The build stamps its version from `DASSIE_BUILD_VERSION` for the same reason.
+- **The mirror does not choose the direction,** as for the updater ([Versions](#versions)). The installed version is what the installed binary names, which it named before it was installed, so the mirror cannot fake it.
 - **It verifies with minisign where there is minisign, and else with OpenSSL,** reading minisign's format by hand, so there is no tool to install first ([release-integrity](../decisions/release-integrity.md)).
 - **It sets `umask 022`,** so that on a hardened host what it installs stays readable by the node's own user.
 - **It never runs beside `dassie update`:** it takes the updater's lock with `flock` before it reads an existing install, or before it makes the first one, and holds it to the end, uninstalling included. An update prunes every version it does not keep and what an install left half done, so beside an install it could delete the version `current` is about to name. Where an update holds the lock, it stops and changes nothing.

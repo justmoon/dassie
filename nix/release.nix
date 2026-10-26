@@ -97,7 +97,7 @@ let
         // {
           cargoArtifacts = craneLib.buildDepsOnly common;
           DASSIE_WALLET_DIST = wallet;
-          DASSIE_VERSION = version;
+          DASSIE_BUILD_VERSION = version;
           DASSIE_RELEASE_KEY = key;
         }
       )
