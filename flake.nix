@@ -186,7 +186,6 @@
                 nixpkgs
                 rust-overlay
                 crane
-                self
                 src
                 wasm-modules
                 ;

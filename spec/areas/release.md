@@ -5,13 +5,14 @@ How Dassie is built, signed, published, installed and updated. A release is one 
 **Paths:** `crates/dassie-release/`, `crates/dassie-cli/src/update.rs`, `crates/dassie-cli/build.rs`, `resources/` (`minisign.pub`, `systemd/`, `installer/install.sh`), `nix/release.nix`, `nix/pnpm.nix`, `nix/flake/`, `scripts/release.ts`, `scripts/flake-latest.ts`, `scripts/flake-latest/`, `.github/workflows/release.yml`
 **Read with:** [Node](node.md), [Testing](testing.md)
 
-## Versions and channels
+## Versions
 
 `crates/dassie-release/src/version.rs`, sans IO.
 
-- **A release** is the workspace's `major.minor.patch` (`[workspace.package]` in `Cargo.toml`, which every crate takes), on the channel `latest`. **A canary** is named by the commit time and hash it is built from, on the channel `canary`.
-- **Only these two shapes parse,** strictly and bounded, because a version names a directory on the mirror and in `/opt/dassie`.
-- **The updater and the installer move on their own only to a later version of the same channel** (`Version::supersedes` in the updater, the same rule with `sort -V` in the installer): a higher release, or a canary of a later commit time. `meta/<channel>` is not signed, so it never decides the direction: a mirror cannot take a node back, or to the other channel. Only the owner can, by naming a version or a channel.
+- **A release** is the workspace's `major.minor.patch` (`[workspace.package]` in `Cargo.toml`, which every crate takes). There is one channel: `meta/latest` names the newest release.
+- **Only that shape parses,** strictly and bounded, because a version names a directory on the mirror and in `/opt/dassie`.
+- **The updater and the installer move on their own only to a later release** (`Version::supersedes` in the updater, the same rule with `sort -V` in the installer). `meta/latest` is not signed, so it never decides the direction: a mirror cannot take a node back. Only the owner can, by naming a version.
+- **No pre-releases.** Every published version is signed by the release workflow on a tag, so a build of every change to `main` could not be signed; pre-releases, if wanted, are [not built](../roadmap.md#smaller-open-points).
 
 ## Trust
 
@@ -23,7 +24,7 @@ How Dassie is built, signed, published, installed and updated. A release is one 
 - The release build writes it into `install.sh`, which every release publishes; the script as the repository holds it, without a key, stops.
 - Its secret half lives only in the repository's `Release` environment, which only `v*` tags may use. It is never on a developer's machine or in CI.
 
-**What is not trusted:** the mirror, its HTTPS certificate and `meta/<channel>`. A mirror can withhold a release or offer an old one; it cannot make a node install anything the key did not sign for that version, nor move it backwards or across channels.
+**What is not trusted:** the mirror, its HTTPS certificate and `meta/latest`. A mirror can withhold a release or offer an old one; it cannot make a node install anything the key did not sign for that version, nor move it backwards.
 
 **Nothing is parsed or unpacked before it is verified.**
 
@@ -33,7 +34,7 @@ How Dassie is built, signed, published, installed and updated. A release is one 
 
 ## The build
 
-`nix/release.nix`, on x86_64-linux ([build-system](../decisions/build-system.md)): `nix build .#release` (or `.#canary`) makes the unsigned mirror tree.
+`nix/release.nix`, on x86_64-linux ([build-system](../decisions/build-system.md)): `nix build .#release` makes the unsigned mirror tree.
 
 - **The wallet** is built in the Nix sandbox, offline, from npm packages fetched one by one with the integrity `pnpm-lock.yaml` records (`nix/pnpm.nix`, [node-and-pnpm](../decisions/node-and-pnpm.md)), so a change to the lockfile needs no hash updated by hand.
 - **The binaries** are statically linked against musl, for x86_64 and, cross-compiled, aarch64.
@@ -43,11 +44,11 @@ How Dassie is built, signed, published, installed and updated. A release is one 
 
 ## The mirror
 
-`get.dassie.land` keeps the original's paths (`meta/<channel>`, `<version>/dassie-<version>-linux-<arch>.tar.{gz,xz}`), so its installer and updater URLs keep working, and adds `<version>/flake.tar.gz` ([NixOS](#nixos)), `<version>/SHA256SUMS`, which lists the bundles and the flake, and its `.minisig`. `get.dassie.land/flake/latest.tar.gz` is the newest release's flake ([NixOS](#nixos)), and `sh.dassie.land` serves `install.sh`. The mirror's load balancer also serves dassie.land, from a bucket of its own ([Website](website.md#deployment), [website-hosting](../decisions/website-hosting.md)).
+`get.dassie.land` keeps the original's paths (`meta/latest`, `<version>/dassie-<version>-linux-<arch>.tar.{gz,xz}`), so its installer and updater URLs keep working, and adds `<version>/flake.tar.gz` ([NixOS](#nixos)), `<version>/SHA256SUMS`, which lists the bundles and the flake, and its `.minisig`. `get.dassie.land/flake/latest.tar.gz` is the newest release's flake ([NixOS](#nixos)), and `sh.dassie.land` serves `install.sh`. The mirror's load balancer also serves dassie.land, from a bucket of its own ([Website](website.md#deployment), [website-hosting](../decisions/website-hosting.md)).
 
 ## Publishing
 
-`.github/workflows/release.yml`, for every tag `v<version>`, whose version must be the tag's. Canaries are built and signed by hand.
+`.github/workflows/release.yml`, for every tag `v<version>`, whose version must be the tag's. Nothing else is published.
 
 - **Nothing is signed until the install tests pass** on every distribution ([Tests](#tests)); signing is the last job, the only one in the `Release` environment.
 - **What is signed is verified before it is uploaded,** with `dassie-release verify`, the code the updater trusts, against `resources/minisign.pub`. So a release signed with another key, or in a way the updater refuses, never reaches the mirror.
@@ -73,7 +74,7 @@ The original's layout, kept for operators' habits and docs. Each version is unpa
 `resources/installer/install.sh`, POSIX sh, run as `curl … https://sh.dassie.land | sh`.
 
 - **The whole script is one function called on its last line,** so a download cut short runs nothing.
-- **The mirror chooses neither the channel nor the direction,** as for the updater ([Versions and channels](#versions-and-channels)). The installed version is what the installed binary names, which it named before it was installed, so the mirror cannot fake it. A run without `--channel` keeps the installed channel; `--target` installs any version.
+- **The mirror does not choose the direction,** as for the updater ([Versions](#versions)). The installed version is what the installed binary names, which it named before it was installed, so the mirror cannot fake it. `--target` installs any version.
 - **It verifies with minisign where there is minisign, and else with OpenSSL,** reading minisign's format by hand, so there is no tool to install first ([release-integrity](../decisions/release-integrity.md)).
 - **It sets `umask 022`,** so that on a hardened host what it installs stays readable by the node's own user.
 - **It never runs beside `dassie update`:** it takes the updater's lock with `flock` before it reads an existing install, or before it makes the first one, and holds it to the end, uninstalling included. An update prunes every version it does not keep and what an install left half done, so beside an install it could delete the version `current` is about to name. Where an update holds the lock, it stops and changes nothing.
@@ -84,7 +85,7 @@ The original's layout, kept for operators' habits and docs. Each version is unpa
 `crates/dassie-cli/src/update.rs`, run by the timer or the owner.
 
 1. **One at a time,** under a lock in `/opt/dassie` (`flock(2)` on `.update.lock`), which `install.sh` takes too.
-2. **Choose the version** from `meta/<channel>` by the rule in [Versions and channels](#versions-and-channels), passing over the version the last rollback was for ([Rolling back](#rolling-back)). The owner may name a version (`--target-version`, older too) or a channel, or another mirror, which may be on a private network since the owner names it.
+2. **Choose the version** from `meta/latest` by the rule in [Versions](#versions), passing over the version the last rollback was for ([Rolling back](#rolling-back)). The owner may name a version (`--target-version`, older too), or another mirror, which may be on a private network since the owner names it.
 3. **Verify, unpack into staging and check the new binary** ([Trust](#trust)). Modes are set explicitly, whatever the umask, since the node runs as a user of its own, and every file and directory is synced, so `current` never names a version a power cut left half written.
 4. **Switch:** install the version's units where they changed, move `current`, restart `dassie.service` and wait for its readiness. If the units or `current` cannot be put in place, `current` goes back to the version it named, which need not be the one running the update, with that version's units, and the units the new version added go, before systemd has read any of them.
 5. **Record** how it went in `/opt/dassie/last-update`, which `dassie status` reads, and **prune** every version but the new one, the one `current` named before it, for the owner to go back to, and the one running the update, which the owner may have kept.
@@ -120,7 +121,7 @@ If the node does not come up after the switch, the update disables and removes t
 
 ## Decisions
 
-- [release-integrity](../decisions/release-integrity.md): signed sums with minisign rather than Sigstore, the trusted comment, unsigned channel files, verify before extract, atomic switch and rollback; a release built once, until a second build can check it.
+- [release-integrity](../decisions/release-integrity.md): signed sums with minisign rather than Sigstore, the trusted comment, an unsigned `meta/latest`, no canaries, verify before extract, atomic switch and rollback; a release built once, until a second build can check it.
 - [build-system](../decisions/build-system.md): the Nix flake for release builds, cross-compiled with musl.
 - [nix-flake-on-the-mirror](../decisions/nix-flake-on-the-mirror.md): NixOS takes the signed binary from a flake each release publishes, with its own units and no updater.
 - [node-and-pnpm](../decisions/node-and-pnpm.md): the wallet's packages fetched from the lockfile's hashes.

@@ -23,7 +23,7 @@ members = [
 resolver = "3"
 
 # Every crate is released together under this one version, which names the
-# release (spec/areas/release.md#versions-and-channels).
+# release (spec/areas/release.md#versions).
 [workspace.package]
 version = "0.2.9"
 edition = "2024"

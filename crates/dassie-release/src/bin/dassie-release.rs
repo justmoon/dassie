@@ -2,19 +2,19 @@
 //! updater trusts a release with.
 //!
 //! - `dassie-release verify <tree> <minisign.pub>` checks a signed tree for
-//!   the mirror: one `meta/<channel>` naming a version of that channel, its
-//!   `SHA256SUMS` signed for that version by this key, every bundle and the
-//!   flake listed, and each matching its sum.
+//!   the mirror: `meta/latest` naming a version, its `SHA256SUMS` signed for
+//!   that version by this key, every bundle and the flake listed, and each
+//!   matching its sum.
 //! - `dassie-release supersedes <new> <old>` exits 0 if the updater would
 //!   move from `old` to `new` on its own, 1 if not: the workflow never moves
-//!   `meta/<channel>` back.
+//!   `meta/latest` back.
 
 use std::path::Path;
 use std::process::ExitCode;
 use std::{env, fs};
 
 use dassie_release::layout::{self, Arch, Compression};
-use dassie_release::{Channel, PublicKey, Version, verify_sums};
+use dassie_release::{PublicKey, Version, verify_sums};
 use sha2::{Digest as _, Sha256};
 
 const USAGE: &str = "\
@@ -58,7 +58,7 @@ fn verify(tree: &Path, key: &Path) -> Result<String, String> {
     let read = |path: &Path| fs::read(path).map_err(|e| format!("{}: {e}", path.display()));
     let key = String::from_utf8(read(key)?).map_err(|_| "the key is not text".to_string())?;
     let key = PublicKey::parse(&key).map_err(|e| format!("the key was refused: {e}"))?;
-    let (channel, version) = release_of(tree)?;
+    let version = release_of(tree)?;
     let dir = tree.join(version.to_string());
     let signature = String::from_utf8(read(&dir.join(layout::SIGNATURE))?)
         .map_err(|_| "the signature is not text".to_string())?;
@@ -84,29 +84,21 @@ fn verify(tree: &Path, key: &Path) -> Result<String, String> {
             return Err(format!("{name} does not match SHA256SUMS"));
         }
     }
-    Ok(format!(
-        "verified dassie {version} on {} with key {}",
-        channel.name(),
-        key.id()
-    ))
+    Ok(format!("verified dassie {version} with key {}", key.id()))
 }
 
-/// The one `meta/<channel>` of a tree, and the version it names, which must
-/// be of that channel.
-fn release_of(tree: &Path) -> Result<(Channel, Version), String> {
+/// The version a tree's `meta/latest` names, which must be all `meta/`
+/// holds.
+fn release_of(tree: &Path) -> Result<Version, String> {
     let meta = tree.join("meta");
     let entries: Vec<String> = fs::read_dir(&meta)
         .map_err(|e| format!("{}: {e}", meta.display()))?
         .filter_map(|entry| entry.ok()?.file_name().into_string().ok())
         .collect();
-    let [name] = entries.as_slice() else {
-        return Err(format!("meta/ holds {entries:?}, not one channel"));
-    };
-    let channel = Channel::parse(name).ok_or_else(|| format!("unknown channel {name:?}"))?;
-    let text = fs::read_to_string(meta.join(name)).map_err(|e| format!("meta/{name}: {e}"))?;
-    let version = Version::parse(&text).map_err(|e| format!("meta/{name}: {e}"))?;
-    if version.channel() != channel {
-        return Err(format!("meta/{name} names {version}, of another channel"));
+    if entries != ["latest"] {
+        return Err(format!("meta/ holds {entries:?}, not latest alone"));
     }
-    Ok((channel, version))
+    let path = tree.join(layout::META);
+    let text = fs::read_to_string(&path).map_err(|e| format!("{}: {e}", layout::META))?;
+    Version::parse(&text).map_err(|e| format!("{}: {e}", layout::META))
 }

@@ -10,7 +10,8 @@ The original's bundles are unsigned, the updater trusts whatever the mirror serv
 
 - **Releases are signed with minisign,** over their sums, with the version in the signed comment so the sums of one release cannot pass for another's. The public key is built into the binary and the install script.
 - **The secret key is usable only by the release workflow on a version tag,** which verifies what it signed with the committed public key before it uploads.
-- **The mirror's channel files are not signed, so they never decide direction:** the updater and the installer move on their own only to a later version of the same channel.
+- **The mirror's `meta/latest` is not signed, so it never decides direction:** the updater and the installer move on their own only to a later release.
+- **Only releases are published,** each signed by the release workflow on its tag. There is no channel but `latest`.
 - **Nothing is unpacked before it is verified.**
 - **Updates roll back.** The switch is one rename, and a version that does not come up is replaced by the one before. Since a version refuses a database newer than it knows, the daemon copies the database just before it migrates, and a rollback restores the copy; without it, a version that migrated and then failed would leave the node down.
 - **The installer needs no extra tool:** it verifies with minisign where there is one, and else with OpenSSL.
@@ -23,3 +24,4 @@ The original's bundles are unsigned, the updater trusts whatever the mirror serv
 ## Rejected
 
 - *Sigstore:* its verification needs the network or a bundled trust root, and is heavier to embed.
+- *A canary channel built from every change to `main`:* its builds would need signing outside the tag workflow, where the secret key never is, and no workflow built them. Pre-releases, if wanted, are `vX.Y.Z-rc.N` tags the release workflow signs as it signs releases ([roadmap](../roadmap.md#smaller-open-points)).

@@ -346,10 +346,7 @@ mod tests {
 
     #[test]
     fn signs_for_the_version() {
-        assert_eq!(
-            trusted_comment(&version("canary-2026-10-15-041530-15bd7aa")),
-            "dassie canary-2026-10-15-041530-15bd7aa"
-        );
+        assert_eq!(trusted_comment(&version("12.0.345")), "dassie 12.0.345");
         assert_eq!(
             VerifyError::Version { signed: "x".into() }.to_string(),
             "SHA256SUMS is signed for another version (\"x\")"
@@ -534,8 +531,7 @@ mod tests {
 
     /// The version a signature is checked for.
     fn any_version() -> impl Strategy<Value = Version> {
-        prop::sample::select(&["0.1.0", "0.2.0", "canary-2026-10-15-041530-15bd7aa"][..])
-            .prop_map(version)
+        prop::sample::select(&["0.1.0", "0.2.0", "10.0.1"][..]).prop_map(version)
     }
 
     proptest! {

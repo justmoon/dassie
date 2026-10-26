@@ -5,10 +5,10 @@
 //     --secret-key <file> --public-key resources/minisign.pub \
 //     --verifier <dassie-release binary> [--version <expected version>]
 //
-// The built tree is `nix build .#release` or `.#canary`: meta/<channel>
-// and <version>/ with the bundles, the flake for NixOS and SHA256SUMS. The
-// script copies it to <out dir>, checks every file against SHA256SUMS, and signs SHA256SUMS
-// with minisign (SHA256SUMS.minisig, trusted comment "dassie <version>").
+// The built tree is `nix build .#release`: meta/latest, install.sh and
+// <version>/ with the bundles, the flake for NixOS and SHA256SUMS. The
+// script copies it to <out dir>, checks every file against SHA256SUMS, and
+// signs SHA256SUMS with minisign (SHA256SUMS.minisig, trusted comment "dassie <version>").
 // Then `dassie-release verify` checks the signed tree with the public key
 // the binaries trust, and with the code the updater trusts a release with:
 // a release signed with any other key, or in a way the updater refuses,
@@ -29,32 +29,23 @@ const ARCHES = ["x64", "arm64"];
 const COMPRESSIONS = ["gz", "xz"];
 
 export interface Release {
-  channel: "latest" | "canary";
   version: string;
 }
 
-/** Which release a built tree holds: its one meta/<channel> file. */
+/** Which release a built tree holds: the version its meta/latest names,
+ * which must be all meta/ holds. */
 export async function readRelease(tree: string): Promise<Release> {
-  const channels = await readdir(`${tree}/meta`);
-  if (channels.length !== 1) {
+  const names = await readdir(`${tree}/meta`);
+  if (names.length !== 1 || names[0] !== "latest") {
+    throw new Error(`${tree}/meta holds ${names.join(", ")}, not latest alone`);
+  }
+  const version = await readFile(`${tree}/meta/latest`, "utf8");
+  if (!/^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/.test(version)) {
     throw new Error(
-      `${tree}/meta holds ${channels.join(", ")}, not one channel`,
+      `meta/latest names ${JSON.stringify(version)}, not a version`,
     );
   }
-  const [channel] = channels;
-  if (channel !== "latest" && channel !== "canary") {
-    throw new Error(`unknown channel ${channel}`);
-  }
-  const version = await readFile(`${tree}/meta/${channel}`, "utf8");
-  const shape = channel === "latest"
-    ? /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/
-    : /^canary-[0-9]{4}-[0-9]{2}-[0-9]{2}-[0-9]{6}-[0-9a-f]{7,40}$/;
-  if (!shape.test(version)) {
-    throw new Error(
-      `${channel} names ${JSON.stringify(version)}, not a ${channel} version`,
-    );
-  }
-  return { channel, version };
+  return { version };
 }
 
 /** The bundle file names a release has. */
@@ -195,10 +186,7 @@ export async function release(options: {
   }
   await mkdir(`${options.out}/meta`, { recursive: true });
   await mkdir(`${options.out}/${built.version}`);
-  await copyFile(
-    `${options.tree}/meta/${built.channel}`,
-    `${options.out}/meta/${built.channel}`,
-  );
+  await copyFile(`${options.tree}/meta/latest`, `${options.out}/meta/latest`);
   for (const name of [...files(built.version), "SHA256SUMS"]) {
     await copyFile(
       `${options.tree}/${built.version}/${name}`,
@@ -250,5 +238,5 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     password: process.env.MINISIGN_PASSWORD || undefined,
     expect: values.version,
   });
-  console.log(`signed dassie ${built.version} for ${built.channel} in ${out}`);
+  console.log(`signed dassie ${built.version} in ${out}`);
 }

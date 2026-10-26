@@ -46,11 +46,11 @@ if ((!hasMinisign || !verifier) && process.env.CI) {
 }
 
 /** A built tree as `nix build .#release` makes it, with stand-in files. */
-async function builtTree(version: string, channel = "latest"): Promise<string> {
+async function builtTree(version: string, meta = "latest"): Promise<string> {
   const tree = await mkdtemp(join(tmpdir(), "dassie-release-"));
   await mkdir(`${tree}/meta`);
   await mkdir(`${tree}/${version}`);
-  await writeFile(`${tree}/meta/${channel}`, version);
+  await writeFile(`${tree}/meta/${meta}`, version);
   const lines = [];
   for (const name of files(version)) {
     const bytes = new TextEncoder().encode(`stand-in for ${name}`);
@@ -77,7 +77,7 @@ test(
     const tree = await builtTree("0.1.0");
     const out = `${tree}-out`;
     const built = await release({ tree, out, ...tools });
-    assertEquals(built, { channel: "latest", version: "0.1.0" });
+    assertEquals(built, { version: "0.1.0" });
     assertEquals(await readFile(`${out}/meta/latest`, "utf8"), "0.1.0");
     assertEquals(
       await readFile(`${out}/install.sh`, "utf8"),
@@ -94,19 +94,6 @@ test(
     );
   },
 );
-
-test("signs a canary", options, async () => {
-  const tree = await builtTree("canary-2026-10-15-041530-15bd7aa", "canary");
-  const built = await release({
-    tree,
-    out: `${tree}-out`,
-    ...tools,
-  });
-  assertEquals(built, {
-    channel: "canary",
-    version: "canary-2026-10-15-041530-15bd7aa",
-  });
-});
 
 test("refuses a bundle that does not match its sum", options, async () => {
   const tree = await builtTree("0.1.0");
@@ -165,11 +152,20 @@ test("refuses a tree of another version than the tag's", options, async () => {
   );
 });
 
-test("refuses a channel file that names no version", options, async () => {
-  const tree = await builtTree("canary-2026-10-15-15bd7aa", "canary");
+test("refuses a meta/latest that names no version", options, async () => {
+  const tree = await builtTree("canary-2026-10-15-041530-15bd7aa");
   await assertRejects(
     () => release({ tree, out: `${tree}-out`, ...tools }),
     Error,
-    "not a canary version",
+    "not a version",
+  );
+});
+
+test("refuses a tree of another channel", options, async () => {
+  const tree = await builtTree("0.1.0", "canary");
+  await assertRejects(
+    () => release({ tree, out: `${tree}-out`, ...tools }),
+    Error,
+    "not latest alone",
   );
 });

@@ -105,12 +105,11 @@ Commands:
                                                 its JSON config; repeatable
   pair              Print a code that pairs an owner app with the node, for
                     the next five minutes.
-  update           Update Dassie to the newest version of its channel, once
-                    its signature and sums check out.
+  update           Update Dassie to the newest release, once its signature
+                    and sums check out.
                       -f, --force                  install even if not newer, or
                                                    if it was rolled back
                       -t, --target-version <v>     this version instead
-                      --channel latest|canary      this channel instead
                       --mirror <url>               another mirror (default:
                                                    DASSIE_MIRROR_URL, or
                                                    https://get.dassie.land)
@@ -263,7 +262,6 @@ fn update_args(parser: &mut lexopt::Parser) -> Result<update::Options, lexopt::E
         match argument {
             Short('f') | Long("force") => options.force = true,
             Short('t') | Long("target-version") => options.target = Some(parser.value()?.string()?),
-            Long("channel") => options.channel = Some(parser.value()?.string()?),
             Long("mirror") => options.mirror = Some(parser.value()?.string()?),
             Long("no-restart") => options.no_restart = true,
             other => return Err(other.unexpected()),
@@ -407,7 +405,7 @@ fn verify_install() -> ExitCode {
     ExitCode::SUCCESS
 }
 
-/// The version names a release or a canary, as the updater needs.
+/// The version names a release, as the updater needs.
 fn check_version() -> Result<(), String> {
     dassie_release::Version::parse(dassie_node::VERSION)
         .map(|_| ())

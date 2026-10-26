@@ -566,10 +566,10 @@
       "x": 796,
       "y": 672,
       "w": 184,
-      "desc": "What a release is and how to trust one: versions and channels, the mirror's layout, `SHA256SUMS` and its minisign signature. The updater and the release workflow both trust a release through it.",
+      "desc": "What a release is and how to trust one: versions, the mirror's layout, `SHA256SUMS` and its minisign signature. The updater and the release workflow both trust a release through it.",
       "does": [
         "Versions that are safe as directory names",
-        "Moves on its own only to a later version of the same channel",
+        "Moves on its own only to a later release",
         "Checks minisign signatures strictly; the signature must name the version",
         "Reads `SHA256SUMS` only once it is verified, with every parser bounded",
         "Unpacks only plain files under `dassie/`"
@@ -1463,7 +1463,7 @@
           "ids": [
             "release-crate"
           ],
-          "text": "The signature and the version are checked before anything is unpacked, and the node moves only forward, on its own channel."
+          "text": "The signature and the version are checked before anything is unpacked, and the node moves only forward."
         },
         {
           "ids": [

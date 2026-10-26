@@ -2,9 +2,8 @@
 //! one ([release-integrity](../../../spec/decisions/release-integrity.md)),
 //! sans-IO.
 //!
-//! - [`Version`]: a release (`0.1.0`) or a canary
-//!   (`canary-2026-10-15-041530-15bd7aa`), and the [`Channel`] it is published on.
-//! - [`layout`]: where the mirror keeps what: `meta/<channel>`, and
+//! - [`Version`]: a release, `0.1.0`.
+//! - [`layout`]: where the mirror keeps what: `meta/latest`, and
 //!   `<version>/` with the bundles, the flake for NixOS, `SHA256SUMS` and
 //!   `SHA256SUMS.minisig`.
 //! - [`bundle`]: what the updater lets out of a bundle when it unpacks it.
@@ -13,8 +12,7 @@
 //!   `SHA256SUMS`, whose trusted comment names the version, so that the sums
 //!   of one release cannot pass for another's.
 //!
-//! The original signed nothing and published no sums, and its canary
-//! builds updated no `meta/<channel>` file (UI-11).
+//! The original signed nothing and published no sums.
 //!
 //! Everything read here comes from the network, so every parser is bounded
 //! and refuses what it does not expect.
@@ -35,4 +33,4 @@ mod version;
 
 pub use signature::{PublicKey, SignatureError, VerifyError, trusted_comment, verify_sums};
 pub use sums::{MAX_SIZE as MAX_SUMS, Sums, SumsError};
-pub use version::{Channel, Version, VersionError};
+pub use version::{Version, VersionError};

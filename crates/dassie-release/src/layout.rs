@@ -4,7 +4,6 @@
 //!
 //! ```text
 //! meta/latest                               the newest release's version
-//! meta/canary                               the newest canary's
 //! <version>/dassie-<version>-linux-<arch>.tar.gz
 //! <version>/dassie-<version>-linux-<arch>.tar.xz
 //! <version>/flake.tar.gz                     the flake for NixOS
@@ -15,7 +14,7 @@
 use alloc::format;
 use alloc::string::String;
 
-use crate::{Channel, Version};
+use crate::Version;
 
 /// The mirror the installer and the updater use unless told otherwise.
 pub const DEFAULT_MIRROR: &str = "https://get.dassie.land";
@@ -82,10 +81,9 @@ impl Compression {
     }
 }
 
-/// `meta/<channel>`: the newest version on a channel.
-pub fn meta(channel: Channel) -> String {
-    format!("meta/{}", channel.name())
-}
+/// The newest release's version. Not signed, so it never decides the
+/// direction (`Version::supersedes`).
+pub const META: &str = "meta/latest";
 
 /// A bundle's file name: `dassie-<version>-linux-<arch>.tar.<gz|xz>`.
 pub fn bundle(version: &Version, arch: Arch, compression: Compression) -> String {
@@ -110,8 +108,7 @@ mod tests {
         let Ok(version) = Version::parse("0.1.0") else {
             panic!("0.1.0 is a version");
         };
-        assert_eq!(meta(Channel::Latest), "meta/latest");
-        assert_eq!(meta(Channel::Canary), "meta/canary");
+        assert_eq!(META, "meta/latest");
         assert_eq!(
             in_release(&version, &bundle(&version, Arch::X64, Compression::Xz)),
             "0.1.0/dassie-0.1.0-linux-x64.tar.xz"

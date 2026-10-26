@@ -6,12 +6,12 @@
 //! pointing at the one that runs. The updater finds it from its own path,
 //! which must be `<base>/<its version>/bin/dassie`. Then:
 //!
-//! 1. It asks `meta/<channel>` for the newest version, and stops unless
-//!    that supersedes this one (`Version::supersedes`): a mirror cannot take
-//!    a node back or to another channel. The owner can, with
-//!    `--target-version` or `--channel`. Nor does it try again a version
-//!    that did not start here, as `last-update` remembers, until the mirror
-//!    offers another; the owner can, with `--force` or `--target-version`.
+//! 1. It asks `meta/latest` for the newest version, and stops unless that
+//!    supersedes this one (`Version::supersedes`): a mirror cannot take a
+//!    node back. The owner can, with `--target-version`. Nor does it try
+//!    again a version that did not start here, as `last-update` remembers,
+//!    until the mirror offers another; the owner can, with `--force` or
+//!    `--target-version`.
 //! 2. It verifies `SHA256SUMS` with the release key built into the binary,
 //!    then the bundle against its sum, before it opens the bundle.
 //! 3. It unpacks only plain files and directories under `dassie/`
@@ -34,8 +34,8 @@
 //! Each records how it went in `<base>/last-update`, for `dassie status`.
 //!
 //! The original's updater verified nothing it downloaded, took any HTTP
-//! status as the file, did not trim `meta/latest`, swapped `current` in two
-//! steps, and refused every canary install (RT-18).
+//! status as the file, did not trim `meta/latest`, and swapped `current` in
+//! two steps (RT-18).
 
 use std::fs::{self, File};
 use std::io::{self, Read as _};
@@ -50,7 +50,7 @@ use dassie_node::store::{
 };
 use dassie_release::bundle::{self, Kind, Unpacking};
 use dassie_release::layout::{self, Arch, Compression};
-use dassie_release::{Channel, PublicKey, Sums, Version, verify_sums};
+use dassie_release::{PublicKey, Sums, Version, verify_sums};
 use sha2::{Digest as _, Sha256};
 
 include!(concat!(env!("OUT_DIR"), "/release_key.rs"));
@@ -64,11 +64,11 @@ const SERVICE: &str = "dassie.service";
 const STATE_DIRECTORY: &str = "/var/lib/dassie";
 /// Where each update records how it went, in the install's base.
 pub const LAST_UPDATE_FILE: &str = "last-update";
-/// How long fetching `meta/<channel>`, the sums or the signature may take.
+/// How long fetching `meta/latest`, the sums or the signature may take.
 const SMALL_TIMEOUT_MS: u64 = 30_000;
 /// How long fetching a bundle may take.
 const BUNDLE_TIMEOUT_MS: u64 = 600_000;
-/// The longest `meta/<channel>` read.
+/// The longest `meta/latest` read.
 const MAX_META: usize = 128;
 /// The longest signature read.
 const MAX_SIGNATURE: usize = 1024;
@@ -78,10 +78,8 @@ const MAX_SIGNATURE: usize = 1024;
 pub struct Options {
     /// Install even what is already installed, or older.
     pub force: bool,
-    /// This version rather than the newest of the channel.
+    /// This version rather than the newest release.
     pub target: Option<String>,
-    /// This channel rather than the installed version's.
-    pub channel: Option<String>,
     /// This mirror rather than `DASSIE_MIRROR_URL` or get.dassie.land.
     pub mirror: Option<String>,
     /// Neither talk to systemd nor restart the node.
@@ -521,8 +519,8 @@ fn permission(path: &Path, error: &io::Error) -> Problem {
     }
 }
 
-/// Which version to install, if any: the one asked for, or the channel's
-/// newest if it supersedes the one running.
+/// Which version to install, if any: the one asked for, or the newest
+/// release if it supersedes the one running.
 async fn choose(
     options: &Options,
     install: &Install,
@@ -536,23 +534,12 @@ async fn choose(
         }
         return Ok(Some(target));
     }
-    let channel = match &options.channel {
-        Some(name) => {
-            Channel::parse(name).ok_or_else(|| format!("--channel: no channel {name:?}"))?
-        }
-        None => install.version.channel(),
-    };
-    println!(
-        "Checking {} for the newest {} version...",
-        mirror.url,
-        channel.name()
-    );
-    let offered = mirror.newest(channel).await?;
-    let switching = channel != install.version.channel();
+    println!("Checking {} for the newest version...", mirror.url);
+    let offered = mirror.newest().await?;
     if offered == install.version && !options.force {
         println!("Already up to date ({offered}).");
         Ok(None)
-    } else if switching || options.force || offered.supersedes(&install.version) {
+    } else if options.force || offered.supersedes(&install.version) {
         Ok(Some(offered))
     } else {
         println!(
@@ -607,23 +594,10 @@ impl Mirror {
         }
     }
 
-    async fn newest(&self, channel: Channel) -> Result<Version, Problem> {
-        let body = self
-            .get(&layout::meta(channel), MAX_META, SMALL_TIMEOUT_MS)
-            .await?;
+    async fn newest(&self) -> Result<Version, Problem> {
+        let body = self.get(layout::META, MAX_META, SMALL_TIMEOUT_MS).await?;
         let text = String::from_utf8_lossy(&body);
-        let version =
-            Version::parse(text.trim()).map_err(|e| format!("meta/{}: {e}", channel.name()))?;
-        // The file is not signed: a version of the other channel would let
-        // the mirror move a node switching channels anywhere, back included.
-        if version.channel() == channel {
-            Ok(version)
-        } else {
-            Err(format!(
-                "the mirror's meta/{name} names {version}, which is not a {name} version",
-                name = channel.name()
-            ))
-        }
+        Version::parse(text.trim()).map_err(|e| format!("{}: {e}", layout::META))
     }
 
     /// The bundle of `version` for this platform, once its sum, signed by

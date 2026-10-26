@@ -12,22 +12,12 @@
   nixpkgs,
   rust-overlay,
   crane,
-  self,
   src,
   wasm-modules,
 }:
 let
-  # A release's version is the workspace's (Cargo.toml). A canary's names
-  # when the commit it was built from was made, in UTC, and the commit:
-  # `canary-2026-10-15-041530-15bd7aa`. A source without a commit gives
-  # "unknown", which is no version: such a tree cannot be signed.
+  # A release's version is the workspace's (Cargo.toml).
   releaseVersion = (lib.importTOML ../Cargo.toml).workspace.package.version;
-  canaryVersion =
-    let
-      part = start: length: lib.substring start length self.lastModifiedDate;
-      commit = self.shortRev or self.dirtyShortRev or "unknown";
-    in
-    "canary-${part 0 4}-${part 4 2}-${part 6 2}-${part 8 6}-${commit}";
 
   # The wallet, as `node --run build:wallet` builds it, offline: the npm
   # and JSR packages of the wallet and the members it uses, each fetched
@@ -224,12 +214,12 @@ let
   #   <version>/dassie-<version>-linux-{x64,arm64}.tar.{gz,xz}
   #   <version>/flake.tar.gz, the flake for NixOS
   #   <version>/SHA256SUMS
-  #   meta/<channel>, which holds the version
+  #   meta/latest, which holds the version
   #   install.sh, with the release key in it
   # The release workflow signs SHA256SUMS (SHA256SUMS.minisig) and uploads
   # the tree.
   mirror =
-    version: channel:
+    version:
     let
       bundles = lib.mapAttrs (bundle version) (binaries version);
     in
@@ -241,16 +231,16 @@ let
         done
         cp ${flakeFor version bundles}/flake.tar.gz $out/${version}/
         (cd $out/${version} && sha256sum dassie-* flake.tar.gz > SHA256SUMS)
-        printf '%s' ${version} > $out/meta/${channel}
+        printf '%s' ${version} > $out/meta/latest
         cp ${installer releaseKey} $out/install.sh
       ''
     );
 
   # The releases the install tests serve (tests/e2e/install_test.ts): three
-  # releases and a canary for x64, trusting the test key and signed with
-  # it, beside install.sh with the test key. The node of 1.0.2 does not
-  # start, so that the updater rolls it back. The tests write
-  # meta/<channel>, and make their own tampered copies.
+  # releases for x64, trusting the test key and signed with it, beside
+  # install.sh with the test key. The node of 1.0.2 does not start, so that
+  # the updater rolls it back. The tests write meta/latest, and make their
+  # own tampered copies.
   brokenUnits = pkgs.runCommand "dassie-units-broken" { } ''
     cp -r ${../resources/systemd} $out
     chmod -R u+w $out
@@ -279,13 +269,11 @@ let
       minisign -S -s ${../testdata/release/test.key} -m $out/SHA256SUMS \
         -x $out/SHA256SUMS.minisig -t "dassie ${version}"
     '';
-  testCanary = "canary-2026-10-16-120000-abcdef0";
   install-test-mirror = pkgs.runCommand "dassie-install-test-mirror" { } ''
     mkdir $out
     cp -r ${testRelease "1.0.0" ../resources/systemd} $out/1.0.0
     cp -r ${testRelease "1.0.1" ../resources/systemd} $out/1.0.1
     cp -r ${testRelease "1.0.2" brokenUnits} $out/1.0.2
-    cp -r ${testRelease testCanary ../resources/systemd} $out/${testCanary}
     cp ${installer testKey} $out/install.sh
   '';
   released = binaries releaseVersion;
@@ -434,8 +422,7 @@ in
     inherit wallet;
     dassie-x64 = released.x64;
     dassie-arm64 = released.arm64;
-    release = mirror releaseVersion "latest";
-    canary = mirror canaryVersion "canary";
+    release = mirror releaseVersion;
     # Built by the release workflow, not `nix flake check`: what only a
     # release needs stays out of every PR's CI.
     inherit install-test-mirror static-binaries nixos-test;

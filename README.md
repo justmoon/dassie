@@ -162,7 +162,7 @@ To make a few such nodes find each other locally, set `DASSIE_PEER_ALLOW_PRIVATE
 Releases are built by Nix on x86_64 Linux ([the build](spec/areas/release.md#the-build)):
 
 - `nix build .#dassie-x64` or `.#dassie-arm64` makes a static binary with the wallet built in;
-- `nix build .#release` (or `.#canary`) makes the tree a release uploads to the mirror, with its flake for NixOS, without its signature.
+- `nix build .#release` makes the tree a release uploads to the mirror, with its flake for NixOS, without its signature.
 
 The wallet's build fetches its packages one by one with the hashes in `pnpm-lock.yaml`, so a change to the lockfile needs no hash updated by hand. For every tag `v<version>`, the release workflow runs the install tests on each distribution, boots the NixOS module in a VM (`nix build .#nixos-test`) and checks the static binaries (`nix build .#static-binaries`), then signs and publishes the release. CI on pull requests and `main` runs neither.
 

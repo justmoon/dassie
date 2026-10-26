@@ -483,25 +483,16 @@ fn stays_when_up_to_date_or_offered_older() {
     assert_eq!(install.current(), "0.0.1");
 }
 
-/// `meta/<channel>` is not signed, so a version it names must be of that
-/// channel: else a mirror could take a node that switches channels to any
-/// version, back included, or offer a canary as the newest release.
+/// `meta/latest` names a release, and nothing else the mirror might write
+/// there: no other shape names a directory the updater would install.
 #[test]
-fn refuses_a_version_of_another_channel() {
+fn refuses_what_is_not_a_release() {
     let (mirror, install) = (MirrorServer::start(), Install::new());
-    publish(&mirror, "0.0.1", &release("0.0.1"), None);
-    mirror.put("meta/canary", "0.0.1");
-    refused(
-        &install,
-        &install.update(&mirror, &["--channel", "canary"]),
-        "meta/canary names 0.0.1, which is not a canary version",
-    );
-    let canary = "canary-2026-10-16-120000-abcdef0";
-    publish(&mirror, canary, &release(canary), None);
+    mirror.put("meta/latest", "canary-2026-10-16-120000-abcdef0");
     refused(
         &install,
         &install.update(&mirror, &[]),
-        &format!("meta/latest names {canary}, which is not a latest version"),
+        "meta/latest: the version is not of the form 1.2.3",
     );
 }
 
