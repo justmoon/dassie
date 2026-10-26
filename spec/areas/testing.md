@@ -21,6 +21,8 @@ Rules for every test:
 - **Each Rust test runs in its own process, at once with every other.** CI runs them with cargo-nextest (`.config/nextest.toml`), so that it takes as long as its slowest test rather than all of them in turn. A test relies on no other test's process, state or order, and takes its ports from the OS, or fixed ones no other test uses. Nextest retries no test: one that fails only sometimes fails CI.
 - **The end-to-end tests skip what they lack outside CI, and fail on it in CI** (`CI=true`), so a missing tool never passes CI silently.
 
+**Which stub a test settles on.** A new test whose subject is not settlement (the peer protocol, routing, payments, the wallet, the RPC) runs its nodes on the stub with unlimited trust, so that no credit runs out, and no request to settle or settlement shapes what it checks ([Settlement](settlement.md#the-stub-scheme)). Most such tests and the simulations still run on the plain stub, and settle as its peers do. A test of settlement over a hub runs on the stub with commitments or a simulated hub ([below](#over-a-settlement-hub)), and a test of direct settlement on the plain stub or the fake XRP Ledger.
+
 The install tests, the NixOS VM test and the static-binary check run only in the release workflow, before anything is signed ([Release](release.md#tests)).
 
 ## Golden vectors

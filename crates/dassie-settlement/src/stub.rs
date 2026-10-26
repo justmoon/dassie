@@ -47,6 +47,12 @@ const STUB_HUB: [u8; 32] = *b"the stub with commitments' hub..";
 /// The version of a stub with commitments' state.
 const STATE_VERSION: u8 = 1;
 
+/// What a stub with unlimited trust writes as its peering info, request and
+/// response, and takes only from a peer that writes it too: so it never
+/// peers with a stub that would ask it to settle, nor with one that would
+/// wait for its settlements.
+const UNLIMITED: &[u8] = b"unlimited trust";
+
 /// The stub scheme. Its "underlying ledger" is a number, which the node's
 /// checkpoint keeps across restarts.
 ///
@@ -61,60 +67,100 @@ const STATE_VERSION: u8 = 1;
 /// with the connector's packets. It emulates the holds between it and its
 /// peers too, which its state keeps across restarts
 /// (spec/areas/settlement.md#the-stub-scheme).
+///
+/// **With unlimited trust,** for tests whose subject is not settlement:
+/// peers on it extend each other
+/// [`UNLIMITED_CREDIT`](crate::policy::UNLIMITED_CREDIT), never ask each
+/// other to settle and never settle
+/// ([`SettlementScheme::unlimited_trust`]). It peers only with a stub that
+/// trusts as it does.
 #[derive(Debug)]
 pub struct Stub {
     balance: u64,
     prepared: BTreeMap<Name, (Name, u64)>,
     hub: Option<StubHub>,
+    unlimited: bool,
+}
+
+/// What a stub's config asks for.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Mode {
+    /// The plain stub, which settles when asked.
+    Plain,
+    /// The stub with commitments, at most this many packets in flight per
+    /// peer each way.
+    Commitments(usize),
+    /// The stub with unlimited trust, which never settles.
+    Unlimited,
 }
 
 impl Stub {
     /// The stub, with the balance last checkpointed, or the initial balance
     /// on first activation, and the state last checkpointed. Its config is
-    /// empty or `{}`, or `{"commitments": N}` for a stub with commitments
-    /// that holds at most `N` packets in flight per peer each way, `N` from
-    /// 1 to [`MAX_STUB_COMMITMENTS`]. Only a stub with commitments has a
-    /// state: its holds.
+    /// empty or `{}`; `{"commitments": N}` for a stub with commitments that
+    /// holds at most `N` packets in flight per peer each way, `N` from 1 to
+    /// [`MAX_STUB_COMMITMENTS`]; or `{"trust": "unlimited"}` for a stub with
+    /// unlimited trust. Only a stub with commitments has a state: its
+    /// holds.
     ///
     /// # Errors
     ///
     /// If `config` is anything else, or the state is not one the stub
     /// wrote with that config.
     pub fn new(config: &str, checkpoint: Option<u64>, state: &[u8]) -> Result<Self, SchemeError> {
-        let limit = commitments_config(config).ok_or(SchemeError::InvalidConfig)?;
-        let hub = match limit {
-            Some(limit) => Some(StubHub::new(limit, state)?),
-            None if state.is_empty() => None,
-            None => return Err(SchemeError::InvalidConfig),
+        let mode = mode(config).ok_or(SchemeError::InvalidConfig)?;
+        let hub = match mode {
+            Mode::Commitments(limit) => Some(StubHub::new(limit, state)?),
+            Mode::Plain | Mode::Unlimited if state.is_empty() => None,
+            Mode::Plain | Mode::Unlimited => return Err(SchemeError::InvalidConfig),
         };
         Ok(Self {
             balance: checkpoint.unwrap_or(STUB_INITIAL_BALANCE),
             prepared: BTreeMap::new(),
             hub,
+            unlimited: mode == Mode::Unlimited,
         })
+    }
+
+    /// Whether `data`, a peer's peering info, request or response, is what
+    /// a stub of our kind writes: [`UNLIMITED`] between stubs with
+    /// unlimited trust; anything to any other stub, which reads none of it.
+    fn of_our_kind(&self, data: &[u8]) -> bool {
+        !self.unlimited || data == UNLIMITED
+    }
+
+    /// Writes our peering info, request or response: [`UNLIMITED`] for a
+    /// stub with unlimited trust, nothing for any other.
+    fn write_ours(&self, out: &mut Vec<u8>) {
+        out.clear();
+        if self.unlimited {
+            out.extend_from_slice(UNLIMITED);
+        }
     }
 }
 
-/// The limit of a stub with commitments that `config` asks for: `Some(None)`
-/// for a stub without; `None` for a config the stub does not take.
-fn commitments_config(config: &str) -> Option<Option<usize>> {
+/// What `config` asks of the stub; `None` for a config it does not take.
+fn mode(config: &str) -> Option<Mode> {
     let config = config.trim();
     if config.is_empty() {
-        return Some(None);
+        return Some(Mode::Plain);
     }
     let inner = config.strip_prefix('{')?.strip_suffix('}')?.trim();
     if inner.is_empty() {
-        return Some(None);
+        return Some(Mode::Plain);
     }
     let (key, value) = inner.split_once(':')?;
     let value = value.trim();
-    if key.trim() != "\"commitments\"" || !value.bytes().all(|b| b.is_ascii_digit()) {
-        return None;
+    match key.trim() {
+        "\"trust\"" => (value == "\"unlimited\"").then_some(Mode::Unlimited),
+        "\"commitments\"" if value.bytes().all(|b| b.is_ascii_digit()) => {
+            let limit: usize = value.parse().ok()?;
+            (1..=MAX_STUB_COMMITMENTS)
+                .contains(&limit)
+                .then_some(Mode::Commitments(limit))
+        }
+        _ => None,
     }
-    let limit: usize = value.parse().ok()?;
-    (1..=MAX_STUB_COMMITMENTS)
-        .contains(&limit)
-        .then_some(Some(limit))
 }
 
 /// What a stub with commitments keeps of one peer's packets.
@@ -540,26 +586,35 @@ impl SettlementScheme for Stub {
     }
 
     fn peering_info(&self, out: &mut Vec<u8>) {
-        out.clear();
+        self.write_ours(out);
     }
 
+    /// A stub with unlimited trust asks only a stub that trusts as it does.
     fn create_peering_request(
         &mut self,
         _peer: Name,
-        _peering_info: &[u8],
+        peering_info: &[u8],
         out: &mut Vec<u8>,
     ) -> Result<(), SchemeError> {
-        out.clear();
+        if !self.of_our_kind(peering_info) {
+            return Err(SchemeError::InvalidData);
+        }
+        self.write_ours(out);
         Ok(())
     }
 
+    /// A stub with unlimited trust accepts only a stub that trusts as it
+    /// does.
     fn accept_peering_request(
         &mut self,
         _peer: Name,
-        _data: &[u8],
+        data: &[u8],
         response: &mut Vec<u8>,
     ) -> Result<Vec<u8>, SchemeError> {
-        response.clear();
+        if !self.of_our_kind(data) {
+            return Err(SchemeError::InvalidData);
+        }
+        self.write_ours(response);
         Ok(Vec::new())
     }
 
@@ -567,14 +622,22 @@ impl SettlementScheme for Stub {
         &mut self,
         _peer: Name,
         _peering_info: &[u8],
-        _data: &[u8],
+        data: &[u8],
     ) -> Result<Vec<u8>, SchemeError> {
+        if !self.of_our_kind(data) {
+            return Err(SchemeError::InvalidData);
+        }
         Ok(Vec::new())
+    }
+
+    fn unlimited_trust(&self) -> bool {
+        self.unlimited
     }
 
     /// With commitments, a settlement funds our hold toward the peer, so it
     /// is at most what the stub holds, as a hub's member funds a hold with
-    /// at most what its account can spend.
+    /// at most what its account can spend. With unlimited trust, it never
+    /// settles.
     fn prepare_settlement(
         &mut self,
         rng: &mut dyn CryptoRng,
@@ -583,6 +646,9 @@ impl SettlementScheme for Stub {
         amount: u64,
         _peer_state: &[u8],
     ) -> Result<PreparedSettlement, SchemeError> {
+        if self.unlimited {
+            return Err(SchemeError::Unsupported);
+        }
         if self.prepared.len() >= MAX_PREPARED {
             return Err(SchemeError::TooManyPrepared);
         }
@@ -659,6 +725,10 @@ impl SettlementScheme for Stub {
         _peer_state: &[u8],
         effects: &mut Vec<Effect>,
     ) -> Result<(), SchemeError> {
+        // With unlimited trust, it peers only with stubs that never settle.
+        if self.unlimited {
+            return Err(SchemeError::InvalidData);
+        }
         self.balance = self
             .balance
             .checked_add(amount)
@@ -698,6 +768,10 @@ impl SettlementScheme for Stub {
 
     fn check_invariants(&self) {
         assert!(self.prepared.len() <= MAX_PREPARED);
+        assert!(
+            !self.unlimited || (self.prepared.is_empty() && self.hub.is_none()),
+            "a stub with unlimited trust prepared a settlement, or holds commitments"
+        );
         if let Some(hub) = &self.hub {
             hub.check_invariants();
         }
@@ -867,6 +941,10 @@ mod tests {
             r#"{"commitments":1,"x":2}"#,
             r#"{"commitments":99999999999999999999999}"#,
             "commitments",
+            r#"{"trust":"limited"}"#,
+            r#"{"trust":unlimited}"#,
+            r#"{"trust":"unlimited","commitments":1}"#,
+            r#"{"commitments":1,"trust":"unlimited"}"#,
         ] {
             assert_eq!(
                 Stub::new(refused, None, &[]).err(),
@@ -1215,5 +1293,98 @@ mod tests {
         let mut stub = Stub::new(r#"{"commitments":1}"#, None, &[]).unwrap();
         let membership = stub.commitments().unwrap().membership().unwrap();
         assert_eq!(membership.hub, STUB_HUB);
+    }
+
+    const TRUSTING: &str = r#" { "trust" : "unlimited" } "#;
+
+    // spec/areas/settlement.md#the-stub-scheme: only the stub with
+    // unlimited trust says so; it has no commitments and no state, and
+    // refuses one.
+    #[test]
+    fn only_the_stub_with_unlimited_trust_trusts_without_limit() {
+        let mut trusting = Stub::new(TRUSTING, Some(7), &[]).unwrap();
+        assert!(trusting.unlimited_trust());
+        assert!(trusting.commitments().is_none());
+        assert!(trusting.state().is_empty());
+        assert_eq!(trusting.balance(), 7);
+        trusting.check_invariants();
+        for other in ["", "{}", r#"{"commitments":2}"#] {
+            assert!(!Stub::new(other, None, &[]).unwrap().unlimited_trust());
+        }
+        let mut holds = Stub::new(r#"{"commitments":1}"#, None, &[]).unwrap();
+        settle(&mut holds, 3);
+        assert_eq!(
+            Stub::new(TRUSTING, None, &holds.state()).err(),
+            Some(SchemeError::InvalidConfig)
+        );
+    }
+
+    // It never settles: it prepares nothing, and takes no peer's
+    // settlement. The owner still deposits.
+    #[test]
+    fn the_stub_with_unlimited_trust_never_settles() {
+        let mut stub = Stub::new(TRUSTING, Some(10), &[]).unwrap();
+        let mut rng = SeededRng::new(6);
+        assert_eq!(
+            stub.prepare_settlement(&mut rng, None, peer(), 4, &[]),
+            Err(SchemeError::Unsupported)
+        );
+        let mut effects = Vec::new();
+        assert_eq!(
+            stub.handle_settlement(peer(), 3, &[], &[], &mut effects),
+            Err(SchemeError::InvalidData)
+        );
+        assert!(effects.is_empty());
+        stub.deposit(5, &mut effects).unwrap();
+        assert_eq!(effects, [Effect::Deposit { amount: 5 }]);
+        assert_eq!(stub.balance(), 15);
+        stub.check_invariants();
+    }
+
+    /// Whether `asker` peers with `asked`, as the peer protocol has them
+    /// do: the asked's info, the asker's request, the asked's response.
+    fn peers_with(asker: &mut Stub, asked: &mut Stub) -> bool {
+        let mut info = Vec::new();
+        asked.peering_info(&mut info);
+        let mut request = Vec::new();
+        if asker
+            .create_peering_request(peer(), &info, &mut request)
+            .is_err()
+        {
+            return false;
+        }
+        let mut response = Vec::new();
+        if asked
+            .accept_peering_request(peer(), &request, &mut response)
+            .is_err()
+        {
+            return false;
+        }
+        asker
+            .finalize_peering_request(peer(), &info, &response)
+            .is_ok()
+    }
+
+    // A stub with unlimited trust peers only with another, either way
+    // round: never with a stub that would ask it to settle, or wait for its
+    // settlements. Other stubs peer as before.
+    #[test]
+    fn unlimited_trust_peers_only_with_its_kind() {
+        let trusting = || Stub::new(TRUSTING, None, &[]).unwrap();
+        let plain = || Stub::new("", None, &[]).unwrap();
+        let holding = || Stub::new(r#"{"commitments":1}"#, None, &[]).unwrap();
+        assert!(peers_with(&mut trusting(), &mut trusting()));
+        assert!(peers_with(&mut plain(), &mut holding()));
+        assert!(peers_with(&mut plain(), &mut plain()));
+        for mut other in [plain(), holding()] {
+            assert!(!peers_with(&mut trusting(), &mut other));
+            assert!(!peers_with(&mut other, &mut trusting()));
+        }
+        // What it writes is fixed: a plain stub writes nothing.
+        let mut info = Vec::new();
+        trusting().peering_info(&mut info);
+        assert_eq!(info, UNLIMITED);
+        plain().peering_info(&mut info);
+        assert!(info.is_empty());
     }
 }

@@ -36,7 +36,7 @@ use dassie_node::store::{Aim, ForeignAmount, OutgoingRow, OutgoingState, Payment
 use dassie_node_core::testing::{Outcome, assert_seeds_pass, caught};
 use dassie_payments::amount::Amount;
 use dassie_payments::gnap::Limits;
-use dassie_settlement::LedgerStatus;
+use dassie_settlement::{LedgerStatus, policy};
 
 #[test]
 fn simulated_networks_pay_across_restarts() {
@@ -1527,6 +1527,87 @@ fn a_payment_short_by_less_than_its_tolerance_is_paid_in_full() {
     let paid = received(&sim, &sim.payments[0]);
     assert!(paid < amount, "received {paid} of {amount}: no remainder");
     assert!(sim.payments[0].done, "{}", sim.trace.join("\n"));
+    check(&sim).unwrap();
+}
+
+// spec/areas/settlement.md#the-stub-scheme: two nodes on the stub with
+// unlimited trust each extend the other the unlimited credit, whichever is
+// the junior. They pay each other dozens of times the default credit, both
+// ways, and neither asks the other to settle, nor settles.
+#[test]
+fn on_unlimited_trust_nodes_pay_without_settling() {
+    let mut sim = Sim::with(7, 2, 1, BTreeMap::new(), Settling::Stub);
+    sim.loss_per_mille = 0;
+    for index in 0..2 {
+        sim.step(index, |core| {
+            core.remove_scheme("stub").unwrap();
+            core.add_scheme("stub", r#"{"trust":"unlimited"}"#.into())
+                .unwrap();
+        });
+    }
+    let (zero, one) = (key(0).node_id(), key(1).node_id());
+    let peered = |sim: &Sim| sim.peers(0).contains(&one) && sim.peers(1).contains(&zero);
+    assert!(
+        sim.run_until_or(START + 5 * 60_000, peered),
+        "the nodes did not peer"
+    );
+    for index in 0..2 {
+        for peer in sim.core(index).network().peers {
+            assert_eq!(peer.peering.credit_out, policy::UNLIMITED_CREDIT);
+        }
+    }
+    let credit = Policies::DEFAULT.peer_credit;
+    let (there, back) = (30 * credit, 50 * credit);
+    assert!(sim.pay(0, 1, there, None, Some(there)));
+    assert!(sim.pay(1, 0, back, None, Some(back)));
+    let done = |sim: &Sim| sim.payments.iter().all(|payment| payment.done);
+    assert!(
+        sim.run_until_or(sim.now + 30 * 60_000, done),
+        "the payments did not finish"
+    );
+    assert_eq!(received(&sim, &sim.payments[0]), there);
+    assert_eq!(received(&sim, &sim.payments[1]), back);
+    // By its own books, node 1 owes node 0 what it paid through node 0
+    // beyond what node 0 paid through it, far past the default credit, and
+    // settles none of it.
+    let net = i128::from(back - there);
+    assert!(net > 10 * i128::from(credit));
+    assert_eq!(sim.owes(1, &zero), net);
+    assert_eq!(sim.owes(0, &one), -net);
+    sim.run_until(sim.now + 10 * 60_000);
+    assert_eq!(sim.owes(1, &zero), net);
+    let settled = sim
+        .trace
+        .iter()
+        .find(|line| line.contains("Settlement(Settling") || line.contains("SettlementRequest"));
+    assert!(settled.is_none(), "a node settled or asked: {settled:?}");
+    // Node 0 ends the peering, and asks a last time: node 1 answers that
+    // nothing is on its way, and prepares nothing, so the end collects
+    // nothing.
+    let mark = sim.trace.len();
+    sim.step(0, |core| core.terminate_peering(one).unwrap());
+    let ended = |sim: &Sim| !sim.peers(0).contains(&one) && !sim.peers(1).contains(&zero);
+    assert!(
+        sim.run_until_or(sim.now + 10 * 60_000, ended),
+        "the peering did not end"
+    );
+    let answered = format!(" 0 PeerNode(SettlementRequestAnswered {{ peer: {one:?}, settling: ");
+    let answers: Vec<&String> = sim.trace[mark..]
+        .iter()
+        .filter(|line| line.contains(&answered))
+        .collect();
+    assert!(
+        !answers.is_empty(),
+        "node 1 did not answer the last request"
+    );
+    for answer in answers {
+        assert!(answer.contains(&format!("{answered}Some(0)")), "{answer}");
+    }
+    let settled = sim.trace[mark..].iter().find(|line| {
+        line.contains("Settlement(Settling") || line.contains("Settlement(PrepareFailed")
+    });
+    assert!(settled.is_none(), "the end settled: {settled:?}");
+    assert_eq!(sim.owes(1, &zero), net);
     check(&sim).unwrap();
 }
 

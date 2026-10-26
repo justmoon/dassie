@@ -266,6 +266,18 @@ impl Core {
         })
     }
 
+    /// Whether peers on `scheme` trust each other without limit, so that
+    /// we ask none to settle on our own account, and settle with none, not
+    /// even when asked at a peering's end
+    /// (spec/areas/settlement.md#the-stub-scheme).
+    fn unlimited(&self, scheme: SchemeId) -> bool {
+        Name::new(scheme.as_str()).ok().is_some_and(|name| {
+            self.schemes
+                .get(&name)
+                .is_some_and(|active| active.unlimited)
+        })
+    }
+
     /// Whether a peer's settlement on `scheme` can reach us now: not while
     /// our line cannot receive (spec/areas/settlement.md#when-peers-cannot-pay-us).
     fn can_receive(&self, scheme: SchemeId) -> bool {
@@ -368,8 +380,8 @@ impl Core {
             .retain(|node, _| peers.iter().any(|(peer, _)| peer == node));
         for (node, scheme) in peers {
             // Nor while its settlement cannot reach us: it would only fail,
-            // and cost the peer a fee.
-            if !self.sees_ledger(scheme) || !self.can_receive(scheme) {
+            // and cost the peer a fee. Nor ever with unlimited trust.
+            if !self.sees_ledger(scheme) || !self.can_receive(scheme) || self.unlimited(scheme) {
                 continue;
             }
             let due = self
@@ -413,7 +425,8 @@ impl Core {
     /// it (spec/decisions/ending-a-peering.md): a settlement already under
     /// way, which is the whole answer, or the one made now.
     pub(super) fn settlement_requested(&mut self, node: NodeId, scheme: SchemeId) -> u64 {
-        if self.settle.never_settles {
+        // With unlimited trust, nothing is ever settled, nor on its way.
+        if self.settle.never_settles || self.unlimited(scheme) {
             return 0;
         }
         let under_way = self.settling_to(&node, scheme);
