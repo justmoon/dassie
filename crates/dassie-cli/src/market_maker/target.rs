@@ -46,8 +46,9 @@ pub struct TargetInfo {
     pub feed_port: Option<u16>,
 }
 
-/// Finds `target` from its discovery document, again every [`FIND_RETRY_MS`] until
-/// it is found, then publishes who it is to `found` and keeps its feed on
+/// Finds `target` from its discovery document, again every
+/// [`FIND_RETRY_MS`] until it is found, then publishes who it is to
+/// `found` and keeps its feed on
 /// a socket of its own, publishing each feed it takes to `feeds`, until
 /// `cancel`.
 pub async fn follow(

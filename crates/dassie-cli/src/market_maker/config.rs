@@ -25,8 +25,9 @@
 //! most [`MAX_TARGETS`], each once: a URL, or `{ url, feedPort }` for a
 //! target whose discovery document names no feed port. Amounts are in the
 //! nodes' ledger units (scale 9). `caFile` adds roots to trust the targets
-//! by, and `allowPrivate` lets the targets and the XRPL server be on private
-//! addresses, and the server on `ws://`: both for dev and tests. Every problem is a [`ConfigError`]; nothing here panics
+//! by, and `allowPrivate` lets the targets and the XRPL server be on
+//! private addresses, and the server on `ws://`: both for dev and tests.
+//! Every problem is a [`ConfigError`]; nothing here panics
 //! on what the file says.
 
 use std::fmt;

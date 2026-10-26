@@ -92,10 +92,12 @@ impl FeedReceiver {
             Message::Subscribe(_) => return Err(Rejected::NotForUs),
             Message::Feed(signed) => signed,
         };
-        let key = signed.verify().map_err(Rejected::Invalid)?;
-        if key.node_id() != self.node_id {
+        // The key's node ID first, which costs a hash, so another node's
+        // feed costs no signature check.
+        if NodeId::from_public_key(&signed.feed.public_key) != self.node_id {
             return Err(Rejected::OtherNode);
         }
+        signed.verify().map_err(Rejected::Invalid)?;
         let feed = signed.feed;
         if self
             .last_sequence_ms

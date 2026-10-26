@@ -37,9 +37,9 @@
 //! exactly one encoding, and the signature is checked over the bytes as
 //! received (spec/areas/encoding.md#canonical-only). The feed names the
 //! node by its key alone: a subscriber checks that the key's node ID is
-//! the node it subscribed to. Decoding borrows from
-//! the datagram and never panics; signing checks the feed first, so it never
-//! writes what the decoder would refuse.
+//! the node it subscribed to. Decoding borrows from the datagram and never
+//! panics; signing checks the feed first, so it never writes what the
+//! decoder would refuse.
 
 use alloc::vec::Vec;
 
