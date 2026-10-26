@@ -414,6 +414,9 @@ pub struct Network {
     /// spec/areas/network.md#holders), so they are read from its state
     /// after each step.
     pub name_changes: Vec<(usize, NameChange)>,
+    /// The nodes drained since [`Self::run_until`] last asked for their
+    /// timers: every step that changes a node drains it.
+    touched: BTreeSet<usize>,
 }
 
 /// What happened to a name at a node, as read from its state.
@@ -491,6 +494,7 @@ impl Network {
             cut_one_way: BTreeSet::new(),
             sources: BTreeMap::new(),
             trace: Vec::new(),
+            touched: BTreeSet::new(),
             events: Vec::new(),
             packets: Vec::new(),
             applied: Vec::new(),
@@ -628,6 +632,7 @@ impl Network {
         let Some(node) = self.nodes[index].node.as_mut() else {
             return;
         };
+        self.touched.insert(index);
         node.check_invariants();
         let mut batch = PeerBatch::default();
         node.take_changes(&mut batch);
@@ -1051,17 +1056,25 @@ impl Network {
 
     /// Runs until `until`.
     pub fn run_until(&mut self, until: u64) {
+        // Each node's next timer, on its own clock. A node's timer changes
+        // only when the node does, and every step that changes one drains
+        // it, so only the nodes a step drained are asked again: asking
+        // every node after every step cost most of a large network's run.
+        let mut timers: Vec<Option<u64>> = (0..self.nodes.len())
+            .map(|index| self.timer(index))
+            .collect();
+        self.touched.clear();
         let mut steps = 0u64;
         loop {
             steps += 1;
             assert!(steps < 10_000_000, "the simulation made no progress");
             let next_delivery = self.queue.keys().next().map(|(at, _)| *at);
-            let next_timer = (0..self.nodes.len())
-                .filter_map(|index| {
-                    let node = self.nodes[index].node.as_ref()?;
-                    let local = node.poll_timeout()?;
-                    // Back from the node's clock to the network's.
-                    Some(local.saturating_add_signed(-self.nodes[index].skew_ms))
+            let next_timer = timers
+                .iter()
+                .zip(&self.nodes)
+                // Back from the node's clock to the network's.
+                .filter_map(|(local, sim)| {
+                    Some(local.as_ref()?.saturating_add_signed(-sim.skew_ms))
                 })
                 .min();
             let next = [next_delivery, next_timer].into_iter().flatten().min();
@@ -1074,24 +1087,38 @@ impl Network {
                 let key = *self.queue.keys().next().unwrap();
                 let delivery = self.queue.remove(&key).unwrap();
                 self.deliver(delivery);
+                self.refresh(&mut timers);
                 continue;
             }
             for index in 0..self.nodes.len() {
                 let now = self.local_now(index);
+                if !timers[index].is_some_and(|at| at <= now) {
+                    continue;
+                }
                 let sim = &mut self.nodes[index];
                 let Some(node) = sim.node.as_mut() else {
                     continue;
                 };
-                if node.poll_timeout().is_some_and(|at| at <= now) {
-                    node.handle_timeout(now, &mut sim.hooks);
-                    self.drain(index);
-                    let node = self.nodes[index].node.as_ref().unwrap();
-                    assert!(
-                        node.poll_timeout().is_none_or(|at| at > now),
-                        "node {index} is due again at once"
-                    );
-                }
+                node.handle_timeout(now, &mut sim.hooks);
+                self.drain(index);
+                self.refresh(&mut timers);
+                assert!(
+                    timers[index].is_none_or(|at| at > now),
+                    "node {index} is due again at once"
+                );
             }
+        }
+    }
+
+    /// When node `index` is next due, on its own clock: never while down.
+    fn timer(&self, index: usize) -> Option<u64> {
+        self.nodes[index].node.as_ref()?.poll_timeout()
+    }
+
+    /// Asks the nodes drained since the last time for their timers again.
+    fn refresh(&mut self, timers: &mut [Option<u64>]) {
+        for index in core::mem::take(&mut self.touched) {
+            timers[index] = self.timer(index);
         }
     }
 
