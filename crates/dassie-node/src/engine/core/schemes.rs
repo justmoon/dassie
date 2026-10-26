@@ -169,7 +169,7 @@ fn decode_rules(hex: &str) -> Result<dassie_hub::Rules, SchemeError> {
 }
 
 /// The node's hub account in the hub of `config`: its key derived at
-/// `node/hub/<hub ID>/account`, paying out at the hub's end to the node's
+/// `node/hub/member/<hub ID>/account`, paying out at the hub's end to the node's
 /// own XRPL testnet account. A hub whose legs between members do not fit
 /// in the connector's message window is not joined: it is too far apart
 /// for a peering over it (spec/designs/settlement-hubs.md#4-peering-over-a-hub).

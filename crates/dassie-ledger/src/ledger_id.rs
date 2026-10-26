@@ -35,7 +35,7 @@ pub enum LedgerId {
     /// RLUSD on the XRP Ledger testnet, a dollar token booked as `USD` at
     /// par (spec/decisions/issued-assets.md). Its slug, `xrpl-testnet-rlusd`,
     /// differs from the XRP ledger's, since a ledger's slug names its
-    /// receiver and its seed path; its wallet address is its wallet name. Its scheme is
+    /// receiver; its wallet address is its wallet name. Its scheme is
     /// disabled (spec/decisions/mainnet-schemes.md); the ledger stays, so
     /// the books of a node that ran it keep their name.
     XrplTestnetRlusdUsd,

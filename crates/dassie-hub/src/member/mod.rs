@@ -51,6 +51,12 @@ pub use scheme::{HubScheme, SCHEME_ID};
 /// `Some(include_str!("default-testnet-hub.hex"))`.
 pub const DEFAULT_TESTNET_HUB: Option<&str> = None;
 
+use dassie_identity::{NodeKey, NodeSecret};
+use dassie_ledger::{MAX_TOTAL, Name};
+
+use crate::digest::Digest;
+use crate::rules::Amount;
+
 /// A member's account key in the hub `hub`, at
 /// `node/hub/member/<hub ID>/account`: one key per hub, so accounts in two
 /// hubs are not linked by their key. The path needs no network: the hub ID
@@ -63,12 +69,6 @@ pub fn member_key(node: &NodeKey, hub: &crate::rules::HubId) -> NodeKey {
     });
     NodeKey::from_bytes(secret.as_bytes())
 }
-
-use dassie_identity::{NodeKey, NodeSecret};
-use dassie_ledger::{MAX_TOTAL, Name};
-
-use crate::digest::Digest;
-use crate::rules::Amount;
 
 /// Internal units per drop: the books count XRP at scale 9, the hub in
 /// drops, at scale 6.

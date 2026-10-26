@@ -354,7 +354,7 @@ pub struct HubAccount {
 
 impl HubAccount {
     /// The account `id` in the hub of `rules`, whose key is `key` (the node
-    /// derives it at `node/hub/<hub ID>/account`), through which `scheme`
+    /// derives it at `node/hub/member/<hub ID>/account`), through which `scheme`
     /// settles, paying out to `disbursal` at shutdown, from the state the
     /// books kept.
     ///
