@@ -49,7 +49,7 @@ export async function assertLive(
   }
   assertEquals(
     schemes.map((scheme) => scheme.id).sort(),
-    ["xrpl-xrp", "xrpl-rlusd"],
+    ["xrpl-rlusd", "xrpl-xrp"],
   );
   const { payment } = await node.rpc.call("createIncomingPayment", {});
   assert(
