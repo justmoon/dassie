@@ -2044,8 +2044,8 @@ fn a_replaced_connection_is_forgotten_across_a_restart() {
     );
 }
 
-/// A periphery node's peering request to a core node at `https://core.test`
-/// that takes QUIC, from `downlink`, at `now`.
+/// A periphery node's peering request to a core node at `https://core.test`,
+/// from `downlink`, at `now`.
 fn downlink_request(core: &Core, downlink: &Arc<NodeKey>, now: u64) -> Vec<u8> {
     downlink_request_on(core, downlink, now, "stub", &[])
 }
@@ -3599,8 +3599,8 @@ fn a_hub_ledger_converts_only_while_its_books_guard_runs() {
     assert!(priced(&core, xrp_hub));
 }
 
-/// A core node at `https://core.test` that takes QUIC, and so downlinks,
-/// on `store`, of `realm` as `live` allows, started at `now`.
+/// A core node at `https://core.test`, which takes downlinks, on `store`,
+/// of `realm` as `live` allows, started at `now`.
 fn core_taking_downlinks(
     store: Arc<Store>,
     realm: Realm,
@@ -4668,8 +4668,8 @@ fn a_stored_scheme_of_another_realm_keeps_what_is_pending_on_its_ledger() {
     assert_eq!(posted(&accounts), posted(&before.0));
 }
 
-/// A core node at `https://core.test` that takes QUIC, over the stub with
-/// commitments, with a downlink peered on it: the downlink's ID.
+/// A core node at `https://core.test`, over the stub with commitments,
+/// with a downlink peered on it: the downlink's ID.
 fn hub_core_with_downlink(seed: u64) -> (Core, dassie_identity::NodeId) {
     let store = Arc::new(Store::open_in_memory().unwrap());
     let mut core = Core::start(
