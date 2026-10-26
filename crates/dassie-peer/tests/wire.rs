@@ -1235,12 +1235,51 @@ fn the_hub_list_is_pinned_and_read_strictly() {
         assert_eq!(signed.info.hub(), Some(first.membership));
     }
     // The first hub list is the one read.
-    let bytes = with_extensions(&[(EXTENSION_HUBS, &broken[0]), (EXTENSION_HUBS, &value)]);
+    let bytes = with_extensions(&[
+        (EXTENSION_HUB, &hub),
+        (EXTENSION_HUBS, &broken[0]),
+        (EXTENSION_HUBS, &value),
+    ]);
     let signed = SignedNodeInfo::decode_exact(&bytes).unwrap();
     assert_eq!(signed.info.hubs(), []);
     // A list of MAX_HUBS is read.
     let most = HubList(too_many.0[..MAX_HUBS].to_vec());
     assert_eq!(HubList::decode_exact(&most.to_vec()), Ok(most));
+}
+
+// spec/areas/peer-protocol.md#link-states: a hub list whose first is not
+// exactly the hub extension's names no hubs, so that nodes that read lists
+// and nodes that do not never see a different first hub.
+#[test]
+fn a_hub_list_names_the_hub_extensions_hub_first() {
+    let first = listing("hub-a", 0x11, 0x0102_0304, true);
+    let second = listing("hub-b", 0x22, 5, false);
+    let value = HubList(vec![first, second]).to_vec();
+    // Without the hub extension, with another hub in it, with the same hub
+    // but another membership, or with the list's second in it.
+    let not_taking = HubMembership {
+        takes_peers: false,
+        ..first.membership
+    }
+    .to_vec();
+    let other_hub = HubMembership {
+        hub_id: [0x33; 32],
+        ..first.membership
+    }
+    .to_vec();
+    let second_hub = second.membership.to_vec();
+    let disagreeing: [&[(u16, &[u8])]; 4] = [
+        &[(EXTENSION_HUBS, &value)],
+        &[(EXTENSION_HUB, &other_hub), (EXTENSION_HUBS, &value)],
+        &[(EXTENSION_HUB, &not_taking), (EXTENSION_HUBS, &value)],
+        &[(EXTENSION_HUB, &second_hub), (EXTENSION_HUBS, &value)],
+    ];
+    for extensions in disagreeing {
+        let bytes = with_extensions(extensions);
+        let signed = SignedNodeInfo::decode_exact(&bytes).unwrap();
+        assert!(signed.verify().is_ok());
+        assert_eq!(signed.info.hubs(), []);
+    }
 }
 
 proptest! {
@@ -1266,18 +1305,25 @@ proptest! {
     }
 
     // A list decodes when, and only when, it keeps its rules, and then
-    // encodes to the bytes it came from.
+    // encodes to the bytes it came from. Half the lists name each scheme and
+    // hub once, so that valid lists of every length up to MAX_HUBS occur;
+    // the others draw them from few enough that some repeat.
     #[test]
     fn hub_lists_are_read_by_their_rules(
         listings in proptest::collection::vec(
-            ("[a-c]{2}", 0..4u8, any::<u32>(), any::<bool>()),
+            (0..=MAX_HUBS, 0..=MAX_HUBS, any::<u32>(), any::<bool>()),
             0..=MAX_HUBS + 1,
         ),
+        distinct in any::<bool>(),
     ) {
         let list = HubList(
             listings
                 .iter()
-                .map(|(scheme, hub, account, takes)| listing(scheme, *hub, *account, *takes))
+                .enumerate()
+                .map(|(index, (scheme, hub, account, takes))| {
+                    let (scheme, hub) = if distinct { (index, index) } else { (*scheme, *hub) };
+                    listing(&format!("hub-{scheme}"), u8::try_from(hub).unwrap(), *account, *takes)
+                })
                 .collect(),
         );
         let bytes = list.to_vec();

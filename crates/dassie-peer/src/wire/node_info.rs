@@ -331,9 +331,11 @@ impl NodeInfo<'_> {
 
     /// The settlement hubs it is a member of, each with its scheme: the
     /// first hub list extension's, when that is a canonical [`HubList`]
-    /// that keeps its rules; empty otherwise. A node that names its hub
-    /// only in the hub extension ([`NodeInfo::hub`]) is of a version before
-    /// hub lists, and settles over it on the hub scheme both nodes run.
+    /// that keeps its rules and whose first is the hub extension's
+    /// ([`NodeInfo::hub`]), so that nodes that read the list and nodes that
+    /// do not see the same first hub; empty otherwise. A node that names
+    /// its hub only in the hub extension is of a version before hub lists,
+    /// and settles over it on the hub scheme both nodes run.
     #[must_use]
     pub fn hubs(&self) -> Vec<HubListing> {
         self.entries
@@ -343,6 +345,7 @@ impl NodeInfo<'_> {
                 _ => None,
             })
             .and_then(|value| HubList::decode_exact(value).ok())
+            .filter(|list| list.0.first().map(|first| first.membership) == self.hub())
             .map(|list| list.0)
             .unwrap_or_default()
     }

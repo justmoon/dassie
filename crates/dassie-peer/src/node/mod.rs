@@ -86,8 +86,10 @@ pub struct OwnInfo {
     /// The settlement hub it is a member of, if any, which its link state
     /// names (spec/designs/settlement-hubs.md#11-choosing-a-hub): the first
     /// of its hubs ([`PeerNode::set_own_hubs`]), which the hub extension
-    /// names for nodes that read no hub list. One set here that is not the
-    /// first of its hubs replaces them, and is named alone, without a list.
+    /// names for nodes that read no hub list. The first of its hubs set
+    /// here, with another account or `takes_peers`, changes it in the list;
+    /// any other hub set here replaces them, and is named alone, without a
+    /// list.
     pub hub: Option<HubMembership>,
 }
 
@@ -449,8 +451,13 @@ impl PeerNode {
         self.advance(now_ms);
         let info = info.checked();
         if info != self.own_info {
-            // A hub that is not the first of our hubs is named alone.
-            if info.hub != self.own_hubs.first().map(|listing| listing.membership) {
+            // The first of our hubs, with its membership changed, keeps
+            // the list; any other hub is named alone.
+            if let (Some(hub), Some(first)) = (info.hub, self.own_hubs.first_mut())
+                && hub.hub_id == first.membership.hub_id
+            {
+                first.membership = hub;
+            } else {
                 self.own_hubs.clear();
             }
             self.own_info = info;

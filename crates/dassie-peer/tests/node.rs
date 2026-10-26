@@ -852,9 +852,47 @@ fn a_hub_member_names_its_hub_in_its_link_state() {
     assert_eq!(state.info.hub(), None);
 }
 
+// spec/areas/peer-protocol.md#link-states: the first hub, set through the
+// own info with another membership, is changed in the list, which stays.
+#[test]
+fn the_first_hub_changes_in_the_list_through_the_own_info() {
+    use dassie_peer::wire::{HubListing, HubMembership};
+    let (own, boot) = (key(0), key(1));
+    let listing = |scheme: &str, hub: u8| HubListing {
+        scheme: SchemeId::parse(scheme).unwrap(),
+        membership: HubMembership {
+            hub_id: [hub; 32],
+            account: u32::from(hub),
+            takes_peers: true,
+        },
+    };
+    let hubs = vec![listing("hub-xrp", 1), listing("hub-usd", 2)];
+    let mut node = with_feed(&own, &boot, None);
+    node.set_own_hubs(START, hubs.clone());
+    let closed = HubMembership {
+        takes_peers: false,
+        ..hubs[0].membership
+    };
+    let info = node.own_info().clone();
+    node.set_own_info(
+        START,
+        OwnInfo {
+            hub: Some(closed),
+            ..info
+        },
+    );
+    let mut changed = hubs;
+    changed[0].membership = closed;
+    assert_eq!(node.own_hubs(), changed);
+    let state = own_link_state(node);
+    let state = SignedNodeInfo::decode_exact(&state).unwrap();
+    assert_eq!(state.info.hubs(), changed);
+    assert_eq!(state.info.hub(), Some(closed));
+}
+
 // A member of several hubs lists each with its scheme, and names the first
-// alone too, for nodes that read no list; a hub set in its own info that is
-// not the first of them replaces them, named alone, as before lists
+// alone too, for nodes that read no list; a hub set in its own info other than
+// the first of them replaces them, named alone, as before lists
 // (spec/areas/peer-protocol.md#link-states).
 #[test]
 fn a_member_of_several_hubs_lists_them_in_its_link_state() {
