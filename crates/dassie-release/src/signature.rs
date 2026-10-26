@@ -235,7 +235,7 @@ mod tests {
     #[test]
     fn verifies_what_minisign_signs() {
         let sums = verify_sums(&key(), SUMS.as_bytes(), SIGNATURE, &version("0.1.0"));
-        assert_eq!(sums.map(|sums| sums.names().count()), Ok(4));
+        assert_eq!(sums.map(|sums| sums.names().count()), Ok(2));
         assert_eq!(key().id(), "91CCFD418EEBE0EA");
     }
 

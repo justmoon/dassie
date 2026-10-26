@@ -24,9 +24,8 @@ import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 
-/** The bundles of a release: two platforms, two compressions. */
+/** The bundles of a release: one per platform. */
 const ARCHES = ["x64", "arm64"];
-const COMPRESSIONS = ["gz", "xz"];
 
 export interface Release {
   version: string;
@@ -50,9 +49,7 @@ export async function readRelease(tree: string): Promise<Release> {
 
 /** The bundle file names a release has. */
 function bundles(version: string): string[] {
-  return ARCHES.flatMap((arch) =>
-    COMPRESSIONS.map((ext) => `dassie-${version}-linux-${arch}.tar.${ext}`)
-  );
+  return ARCHES.map((arch) => `dassie-${version}-linux-${arch}.tar.gz`);
 }
 
 /** The files SHA256SUMS lists: the bundles, and the flake for NixOS. */

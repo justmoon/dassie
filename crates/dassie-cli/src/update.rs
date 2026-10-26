@@ -49,7 +49,7 @@ use dassie_node::store::{
     self, DATABASE_FILE, PRE_MIGRATION_FILE, ROLLED_BACK_FILE, ROLLING_BACK_FILE, Restored,
 };
 use dassie_release::bundle::{self, Kind, Unpacking};
-use dassie_release::layout::{self, Arch, Compression};
+use dassie_release::layout::{self, Arch};
 use dassie_release::{PublicKey, Sums, Version, verify_sums};
 use sha2::{Digest as _, Sha256};
 
@@ -621,7 +621,7 @@ impl Mirror {
             .map_err(|_| "SHA256SUMS.minisig is not text".to_string())?;
         let sums: Sums = verify_sums(key, &sums, &signature, version).map_err(|e| e.to_string())?;
         let arch = Arch::current().ok_or("there are no releases for this platform")?;
-        let name = layout::bundle(version, arch, Compression::Gz);
+        let name = layout::bundle(version, arch);
         let expected = *sums
             .digest(&name)
             .ok_or_else(|| format!("SHA256SUMS lists no {name}"))?;

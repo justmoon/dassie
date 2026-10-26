@@ -41,7 +41,7 @@ fail() {
 
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -q
-apt-get install -qy --no-install-recommends ca-certificates curl git jq minisign xz-utils
+apt-get install -qy --no-install-recommends ca-certificates curl git jq minisign
 
 id -u dassie-mm > /dev/null 2>&1 ||
   useradd --system --user-group --no-create-home --home-dir /nonexistent \
@@ -91,7 +91,7 @@ install_release() {
   printf '%s\n' "$version" | grep -Eqx '(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)' ||
     fail "the mirror's meta/latest names no version"
   echo "Installing dassie $version"
-  bundle="dassie-$version-linux-$arch.tar.xz"
+  bundle="dassie-$version-linux-$arch.tar.gz"
   for file in SHA256SUMS SHA256SUMS.minisig "$bundle"; do
     download "$mirror/$version/$file" "$temp/$file" || fail "cannot download $mirror/$version/$file"
   done
@@ -104,7 +104,7 @@ install_release() {
   [ -n "$expected" ] && [ "$actual" = "$expected" ] ||
     fail "$bundle does not match its signed sum: refusing it"
   mkdir "$temp/unpacked"
-  tar -xJf "$temp/$bundle" -C "$temp/unpacked" || fail "cannot unpack $bundle"
+  tar -xzf "$temp/$bundle" -C "$temp/unpacked" || fail "cannot unpack $bundle"
   unpacked="$temp/unpacked/dassie"
   [ -z "$(find "$temp/unpacked" ! -type f ! -type d)" ] && [ -x "$unpacked/bin/dassie" ] ||
     fail "$bundle does not hold what a release holds"

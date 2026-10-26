@@ -13,7 +13,7 @@ use std::path::Path;
 use std::process::ExitCode;
 use std::{env, fs};
 
-use dassie_release::layout::{self, Arch, Compression};
+use dassie_release::layout::{self, Arch};
 use dassie_release::{PublicKey, Version, verify_sums};
 use sha2::{Digest as _, Sha256};
 
@@ -66,10 +66,7 @@ fn verify(tree: &Path, key: &Path) -> Result<String, String> {
         .map_err(|e| e.to_string())?;
     let expected: Vec<String> = Arch::ALL
         .iter()
-        .flat_map(|arch| {
-            [Compression::Gz, Compression::Xz]
-                .map(|compression| layout::bundle(&version, *arch, compression))
-        })
+        .map(|arch| layout::bundle(&version, *arch))
         .chain([layout::FLAKE.to_string()])
         .collect();
     let listed: Vec<&str> = sums.names().collect();

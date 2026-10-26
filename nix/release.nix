@@ -116,7 +116,7 @@ let
 
   binaries = version: lib.mapAttrs (_: platform: dassieFor (platform // { inherit version; })) platforms;
 
-  # One platform's bundle, `dassie-<version>-linux-<arch>.tar.{gz,xz}`,
+  # One platform's bundle, `dassie-<version>-linux-<arch>.tar.gz`,
   # whose `dassie/` becomes /opt/dassie/<version>: the binary and the
   # systemd units. The archives are the same bytes for the same input:
   # sorted, with fixed times and owners.
@@ -128,7 +128,6 @@ let
         nativeBuildInputs = [
           pkgs.gnutar
           pkgs.gzip
-          pkgs.xz
         ];
       }
       ''
@@ -137,10 +136,8 @@ let
         install -m 644 ${units}/* dassie/share/systemd/
         tar --sort=name --mtime=@0 --owner=0 --group=0 --numeric-owner \
           --format=gnu -cf bundle.tar dassie
-        name=dassie-${version}-linux-${arch}
         mkdir $out
-        gzip -9 --no-name < bundle.tar > $out/$name.tar.gz
-        xz -6 --threads=1 < bundle.tar > $out/$name.tar.xz
+        gzip -9 --no-name < bundle.tar > $out/dassie-${version}-linux-${arch}.tar.gz
       '';
 
   # install.sh with a key built in.
@@ -156,7 +153,7 @@ let
   # spec/decisions/nix-flake-on-the-mirror.md), as
   # `<version>/flake.tar.gz`: its files, a lock of the nixpkgs this
   # repository locks, and release.json, which names the version and each
-  # platform's .tar.xz bundle with its sum. `bundles` maps x64 and arm64 to
+  # platform's bundle with its sum. `bundles` maps x64 and arm64 to
   # the directory of that platform's bundles. The archive is the same bytes
   # for the same input, as the bundles are.
   nixSystems = {
@@ -195,7 +192,7 @@ let
         ''
         + lib.concatStrings (
           lib.mapAttrsToList (arch: dir: ''
-            file=dassie-${version}-linux-${arch}.tar.xz
+            file=dassie-${version}-linux-${arch}.tar.gz
             sum=$(sha256sum ${dir}/$file | cut -d " " -f 1)
             jq --arg system ${nixSystems.${arch}} --arg file $file --arg sha256 $sum \
               '.bundles[$system] = {file: $file, sha256: $sha256}' release.json > next.json
@@ -211,7 +208,7 @@ let
       );
 
   # What a release uploads to the mirror, but for the signature:
-  #   <version>/dassie-<version>-linux-{x64,arm64}.tar.{gz,xz}
+  #   <version>/dassie-<version>-linux-{x64,arm64}.tar.gz
   #   <version>/flake.tar.gz, the flake for NixOS
   #   <version>/SHA256SUMS
   #   meta/latest, which holds the version
@@ -284,7 +281,7 @@ let
     inherit version;
     mirror = "https://get.dassie.land";
     bundles.x86_64-linux = {
-      file = "dassie-${version}-linux-x64.tar.xz";
+      file = "dassie-${version}-linux-x64.tar.gz";
       sha256 = lib.fakeSha256;
     };
   };
@@ -292,7 +289,7 @@ let
     version: dassie:
     pkgs.callPackage ./flake/package.nix {
       release = flakeRelease version;
-      localBundle = "${bundle version "x64" dassie}/dassie-${version}-linux-x64.tar.xz";
+      localBundle = "${bundle version "x64" dassie}/dassie-${version}-linux-x64.tar.gz";
     };
 
   # The flake's module on NixOS, in a VM, with 1.0.0 of the install tests

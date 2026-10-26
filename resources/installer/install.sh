@@ -137,8 +137,6 @@ check_system() {
   else
     fail E_VERIFIER_REQUIRED "minisign, or OpenSSL 1.1.1 or later, is required to verify the release"
   fi
-  # xz is smaller; gzip is everywhere.
-  if command -v xz > /dev/null 2>&1; then COMPRESSION=xz; else COMPRESSION=gz; fi
 }
 
 # Fetches a URL into a file, HTTPS only, failing on any error status.
@@ -281,7 +279,7 @@ install() {
   check_not_older
 
   step "Downloading and verifying dassie $VERSION for $ARCH"
-  BUNDLE="dassie-$VERSION-linux-$ARCH.tar.$COMPRESSION"
+  BUNDLE="dassie-$VERSION-linux-$ARCH.tar.gz"
   for file in SHA256SUMS SHA256SUMS.minisig "$BUNDLE"; do
     download "$MIRROR/$VERSION/$file" "$TEMP/$file" || fail E_BUNDLE_DOWNLOAD_FAILED "cannot download $MIRROR/$VERSION/$file"
   done
@@ -291,10 +289,7 @@ install() {
 
   step "Unpacking"
   mkdir "$TEMP/unpacked"
-  case "$COMPRESSION" in
-    xz) tar -xJf "$TEMP/$BUNDLE" -C "$TEMP/unpacked" ;;
-    gz) tar -xzf "$TEMP/$BUNDLE" -C "$TEMP/unpacked" ;;
-  esac || fail E_BUNDLE_EXTRACTION_FAILED "cannot unpack $BUNDLE"
+  tar -xzf "$TEMP/$BUNDLE" -C "$TEMP/unpacked" || fail E_BUNDLE_EXTRACTION_FAILED "cannot unpack $BUNDLE"
   unpacked="$TEMP/unpacked/dassie"
   [ -z "$(find "$TEMP/unpacked" ! -type f ! -type d)" ] && [ -x "$unpacked/bin/dassie" ] ||
     fail E_BUNDLE_EXTRACTION_FAILED "$BUNDLE does not hold what a release holds"

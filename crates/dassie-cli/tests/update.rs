@@ -21,7 +21,7 @@ use std::process::{Command, Output};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use dassie_release::layout::{self, Arch, Compression};
+use dassie_release::layout::{self, Arch};
 use dassie_release::testing::{TEST_SECRET_KEY, sign};
 use flate2::write::GzEncoder;
 use rustls::pki_types::pem::PemObject as _;
@@ -283,7 +283,7 @@ fn tarball(entries: &[Entry<'_>]) -> Vec<u8> {
 /// with `comment` (by default the version's), and names it on `latest`.
 fn publish(mirror: &MirrorServer, version: &str, bundle: &[u8], comment: Option<&str>) {
     let parsed = dassie_release::Version::parse(version).unwrap();
-    let name = layout::bundle(&parsed, Arch::current().unwrap(), Compression::Gz);
+    let name = layout::bundle(&parsed, Arch::current().unwrap());
     let digest: String = Sha256::digest(bundle)
         .iter()
         .map(|b| format!("{b:02x}"))
@@ -504,7 +504,6 @@ fn refuses_a_tampered_bundle() {
     let name = layout::bundle(
         &dassie_release::Version::parse("9.9.9").unwrap(),
         Arch::current().unwrap(),
-        Compression::Gz,
     );
     let mut tampered = release("9.9.9");
     let last = tampered.len() - 1;

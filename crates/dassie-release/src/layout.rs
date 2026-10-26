@@ -1,15 +1,18 @@
-//! Where the mirror keeps what: the original's paths
-//! ([a frozen surface](../../../spec/overview.md#frozen-surfaces)),
-//! plus the signed sums.
+//! Where the mirror keeps what
+//! ([a frozen surface](../../../spec/overview.md#frozen-surfaces)):
 //!
 //! ```text
 //! meta/latest                               the newest release's version
-//! <version>/dassie-<version>-linux-<arch>.tar.gz
-//! <version>/dassie-<version>-linux-<arch>.tar.xz
-//! <version>/flake.tar.gz                     the flake for NixOS
-//! <version>/SHA256SUMS                      the SHA-256 of both
+//! <version>/dassie-<version>-linux-<arch>.tar.gz   each platform's bundle
+//! <version>/flake.tar.gz                    the flake for NixOS
+//! <version>/SHA256SUMS                      the SHA-256 of each
 //! <version>/SHA256SUMS.minisig              its signature
 //! ```
+//!
+//! Every installed updater fetches `meta/latest` and its platform's bundle
+//! by these names, so they stay: a release that renamed them would be one
+//! the nodes before it could not update to. A bundle is gzip alone, which
+//! the updater, the installer and Nix all read.
 
 use alloc::format;
 use alloc::string::String;
@@ -62,36 +65,13 @@ impl Arch {
     }
 }
 
-/// How a bundle is compressed: each release has both.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum Compression {
-    /// gzip, which the updater reads.
-    Gz,
-    /// xz, which the installer reads: smaller, and `tar` reads it.
-    Xz,
-}
-
-impl Compression {
-    /// The file name's extension, after `.tar.`.
-    pub fn extension(self) -> &'static str {
-        match self {
-            Self::Gz => "gz",
-            Self::Xz => "xz",
-        }
-    }
-}
-
 /// The newest release's version. Not signed, so it never decides the
 /// direction (`Version::supersedes`).
 pub const META: &str = "meta/latest";
 
-/// A bundle's file name: `dassie-<version>-linux-<arch>.tar.<gz|xz>`.
-pub fn bundle(version: &Version, arch: Arch, compression: Compression) -> String {
-    format!(
-        "dassie-{version}-linux-{}.tar.{}",
-        arch.name(),
-        compression.extension()
-    )
+/// A bundle's file name: `dassie-<version>-linux-<arch>.tar.gz`.
+pub fn bundle(version: &Version, arch: Arch) -> String {
+    format!("dassie-{version}-linux-{}.tar.gz", arch.name())
 }
 
 /// The path of a release's file, under `<version>/`.
@@ -104,17 +84,17 @@ mod tests {
     use super::*;
 
     #[test]
-    fn paths_are_the_originals() {
+    fn paths_stay_as_installed_updaters_know_them() {
         let Ok(version) = Version::parse("0.1.0") else {
             panic!("0.1.0 is a version");
         };
         assert_eq!(META, "meta/latest");
         assert_eq!(
-            in_release(&version, &bundle(&version, Arch::X64, Compression::Xz)),
-            "0.1.0/dassie-0.1.0-linux-x64.tar.xz"
+            in_release(&version, &bundle(&version, Arch::X64)),
+            "0.1.0/dassie-0.1.0-linux-x64.tar.gz"
         );
         assert_eq!(
-            bundle(&version, Arch::Arm64, Compression::Gz),
+            bundle(&version, Arch::Arm64),
             "dassie-0.1.0-linux-arm64.tar.gz"
         );
         assert_eq!(in_release(&version, SIGNATURE), "0.1.0/SHA256SUMS.minisig");

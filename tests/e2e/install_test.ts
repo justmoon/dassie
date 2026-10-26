@@ -367,25 +367,13 @@ for (const distro of DISTROS) {
 
 async function steps(t: TestContext, machine: Machine, mirror: Mirror) {
   await mirror.offer("1.0.0");
-  // The installer takes xz where there is xz, else gzip; tamper with both.
-  const bundles = [
-    "dassie-1.0.0-linux-x64.tar.xz",
-    "dassie-1.0.0-linux-x64.tar.gz",
-  ];
+  const bundle = "1.0.0/dassie-1.0.0-linux-x64.tar.gz";
 
   await t.test("the installer refuses a tampered bundle", async () => {
-    const [xz, gz] = await Promise.all(
-      bundles.map((name) => mirror.file(`1.0.0/${name}`)),
-    );
     const result = await mirror.with(
-      `1.0.0/${bundles[0]}`,
-      tampered(xz),
-      () =>
-        mirror.with(
-          `1.0.0/${bundles[1]}`,
-          tampered(gz),
-          () => machine.installer(mirror),
-        ),
+      bundle,
+      tampered(await mirror.file(bundle)),
+      () => machine.installer(mirror),
     );
     assert(result.code !== 0, result.stdout);
     assertStringIncludes(result.stderr, "E_BUNDLE_VERIFY_FAILED");

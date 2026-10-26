@@ -98,13 +98,13 @@ test(
 test("refuses a bundle that does not match its sum", options, async () => {
   const tree = await builtTree("0.1.0");
   await writeFile(
-    `${tree}/0.1.0/dassie-0.1.0-linux-arm64.tar.xz`,
+    `${tree}/0.1.0/dassie-0.1.0-linux-arm64.tar.gz`,
     "tampered",
   );
   await assertRejects(
     () => release({ tree, out: `${tree}-out`, ...tools }),
     Error,
-    "dassie-0.1.0-linux-arm64.tar.xz does not match SHA256SUMS",
+    "dassie-0.1.0-linux-arm64.tar.gz does not match SHA256SUMS",
   );
 });
 

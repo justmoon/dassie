@@ -44,7 +44,10 @@ How Dassie is built, signed, published, installed and updated. A release is one 
 
 ## The mirror
 
-`get.dassie.land` keeps the original's paths (`meta/latest`, `<version>/dassie-<version>-linux-<arch>.tar.{gz,xz}`), so its installer and updater URLs keep working, and adds `<version>/flake.tar.gz` ([NixOS](#nixos)), `<version>/SHA256SUMS`, which lists the bundles and the flake, and its `.minisig`. `get.dassie.land/flake/latest.tar.gz` is the newest release's flake ([NixOS](#nixos)), and `sh.dassie.land` serves `install.sh`. The mirror's load balancer also serves dassie.land, from a bucket of its own ([Website](website.md#deployment), [website-hosting](../decisions/website-hosting.md)).
+`get.dassie.land` holds `meta/latest`, and under `<version>/` one bundle per platform, `dassie-<version>-linux-<arch>.tar.gz`, the flake `flake.tar.gz` ([NixOS](#nixos)), `SHA256SUMS`, which lists the bundles and the flake, and its `.minisig` (`dassie_release::layout`). `get.dassie.land/flake/latest.tar.gz` is the newest release's flake ([NixOS](#nixos)), and `sh.dassie.land` serves `install.sh`. The mirror's load balancer also serves dassie.land, from a bucket of its own ([Website](website.md#deployment), [website-hosting](../decisions/website-hosting.md)).
+
+- **The names stay as installed updaters know them.** Every installed `dassie update` fetches `meta/latest` and its own platform's bundle by these names, so a release that renamed them, or the platforms in them (`x64`, `arm64`), would be one that every node before it fails to update to. A rename needs a release that carries both names and every node to pass through it, so the names stay.
+- **One compression, gzip,** which the updater, the installer and Nix all read with nothing to install.
 
 ## Publishing
 
