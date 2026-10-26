@@ -39,7 +39,7 @@
 ## Rejected
 
 - *A stream multiplexer over TLS* (each stream framed by length, as the periphery design first had, or yamux): a second transport under everything QUIC carries, with its own streams, half-closes, resets, close codes and flow control, and each stream kind tested over both. yamux has no close codes, which `NO_ROOM` needs.
-- *TLS over TCP with ALPN `dassie/1` on port 443, without HTTP:* a round trip less per dial and a few bytes less per packet, but a proxy that intercepts TLS, or only speaks HTTP, stops it on exactly the networks the fallback is for.
+- *TLS over TCP with the peer protocol's ALPN on port 443, without HTTP:* a round trip less per dial and a few bytes less per packet, but a proxy that intercepts TLS, or only speaks HTTP, stops it on exactly the networks the fallback is for.
 - *HTTPS requests per message, as `POST /peer` was:* a periphery node could not be reached over it ([quic-only](quic-only.md)).
 - *Remembering that UDP is blocked,* and dialling the tunnel first: it keeps a node on TCP after it moves to a network that passes UDP, to save a head start on rare dials.
 - *Tunnels for core nodes:* a core node chooses its network, and its peers, its downlinks and the hubs' validators reach it over UDP ([quic-only](quic-only.md)).

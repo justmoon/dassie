@@ -279,10 +279,9 @@ fn v1_encodings_are_pinned() {
     assert_eq!(decoded.authentication, Authentication::Hmac(hmac()));
     let response = PeeringResponse::Accepted {
         version: 1,
-        credit: 1_100_000_000,
         data: &[0xab],
     };
-    assert_eq!(to_hex(&response.to_vec()), "800001000000004190ab0001ab");
+    assert_eq!(to_hex(&response.to_vec()), "80000101ab");
     assert_eq!(
         to_hex(&PeeringResponse::Refused(RefusalReason::Capacity).to_vec()),
         "8104"
@@ -305,7 +304,6 @@ fn peering_requests_round_trip() {
         node_info: SignedNodeInfo::decode_exact(&info).unwrap(),
         data: &[1, 2, 3],
         versions: vec![1, 2],
-        credit: 1_100_000_000,
     });
     let bytes = request.to_vec();
     assert_eq!(bytes[0], 0x80);
@@ -448,7 +446,6 @@ fn response(kind: usize) -> Vec<u8> {
     match kind {
         0 => PeeringResponse::Accepted {
             version: 1,
-            credit: 1_100_000_000,
             data: &[0xab; 3],
         }
         .to_vec(),
@@ -507,10 +504,7 @@ fn decode_response(kind: usize, body: &[u8]) -> Result<(), TestCaseError> {
                 prop_assert_eq!(encode_octets(data), body);
             }
         }
-        7 => prop_assert_eq!(
-            decode_settling(body).is_ok(),
-            body.is_empty() || body.len() == 8
-        ),
+        7 => prop_assert_eq!(decode_settling(body).is_ok(), body.len() == 8),
         8 => prop_assert_eq!(
             NameReceipt::decode_exact(body).is_ok(),
             body.len() == NameReceipt::ENCODED_BYTES
@@ -688,8 +682,7 @@ proptest! {
 }
 
 // The answer to a settlement request is the amount on its way, eight bytes
-// big-endian; an empty answer, from a node before
-// spec/decisions/ending-a-peering.md, says nothing.
+// big-endian, and nothing else.
 #[test]
 fn a_settlement_requests_answer_is_the_amount_on_its_way() {
     assert_eq!(
@@ -698,9 +691,9 @@ fn a_settlement_requests_answer_is_the_amount_on_its_way() {
     );
     assert_eq!(
         decode_settling(&[1, 2, 3, 4, 5, 6, 7, 8]),
-        Ok(Some(0x0102_0304_0506_0708))
+        Ok(0x0102_0304_0506_0708)
     );
-    assert_eq!(decode_settling(&[]), Ok(None));
+    assert!(decode_settling(&[]).is_err());
     assert!(decode_settling(&[1, 2, 3]).is_err());
 }
 
@@ -1132,8 +1125,7 @@ fn settlement_method_messages_are_pinned_and_bounded() {
     }
 }
 
-// The answer to a `methodAdd` is shaped as a peering answer's, without the
-// credit only nodes of 0.1 read.
+// The answer to a `methodAdd` is shaped as a peering answer's.
 #[test]
 fn method_answers_are_pinned() {
     let accepted = MethodResponse::Accepted {

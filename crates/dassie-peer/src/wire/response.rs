@@ -135,8 +135,6 @@ pub enum PeeringResponse<'a> {
     Accepted {
         /// The scheme version both speak.
         version: u16,
-        /// The credit the responder extends.
-        credit: u64,
         /// The scheme's own data.
         data: &'a [u8],
     },
@@ -148,21 +146,16 @@ impl Encode for PeeringResponse<'_> {
     fn encoded_len(&self) -> usize {
         size::tag(0)
             + match self {
-                Self::Accepted { data, .. } => 2 + 8 + size::prefixed(data.len()),
+                Self::Accepted { data, .. } => 2 + size::prefixed(data.len()),
                 Self::Refused(_) => 1,
             }
     }
 
     fn encode_to(&self, writer: &mut Writer<'_>) {
         match self {
-            Self::Accepted {
-                version,
-                credit,
-                data,
-            } => {
+            Self::Accepted { version, data } => {
                 writer.write_context_tag(0);
                 writer.write_u16(*version);
-                writer.write_u64(*credit);
                 writer.write_octets(data, Size::ANY);
             }
             Self::Refused(reason) => {
@@ -181,7 +174,6 @@ impl<'a> Decode<'a> for PeeringResponse<'a> {
         match reader.read_context_tag()? {
             0 => Ok(Self::Accepted {
                 version: reader.read_u16()?,
-                credit: reader.read_u64()?,
                 data: reader.read_octets(Size::ANY)?,
             }),
             1 => Ok(Self::Refused(RefusalReason::from_code(reader.read_u8()?))),
@@ -191,8 +183,7 @@ impl<'a> Decode<'a> for PeeringResponse<'a> {
 }
 
 /// The answer to a `methodAdd`: shaped as the answer to a peering request
-/// ([`PeeringResponse`]), without its `credit`, which only nodes of 0.1
-/// read (spec/areas/peer-protocol.md#versions).
+/// ([`PeeringResponse`]).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MethodResponse<'a> {
     /// `accepted [0]`.
@@ -492,20 +483,16 @@ pub fn encode_settling(amount: u64) -> Vec<u8> {
     amount.to_be_bytes().to_vec()
 }
 
-/// Reads the answer to a settlement request: `None` for an empty one, as a
-/// node from before spec/decisions/ending-a-peering.md answers.
+/// Reads the answer to a settlement request.
 ///
 /// # Errors
 ///
-/// It is neither empty nor eight bytes.
-pub fn decode_settling(body: &[u8]) -> Result<Option<u64>, DecodeError> {
-    if body.is_empty() {
-        return Ok(None);
-    }
+/// It is not eight bytes.
+pub fn decode_settling(body: &[u8]) -> Result<u64, DecodeError> {
     let mut reader = Reader::new(body);
     let amount = reader.read_u64()?;
     reader.finish()?;
-    Ok(Some(amount))
+    Ok(amount)
 }
 
 /// Reads a node-list hash.

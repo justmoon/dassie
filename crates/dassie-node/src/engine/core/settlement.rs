@@ -36,7 +36,7 @@ pub enum Lie {
     /// It never settles what it owes.
     NeverSettle,
     /// As a payer over a settlement hub, it sends its payee no claims: its
-    /// replies to the payee's Fulfills carry the verdict alone, so the
+    /// replies to the payee's Fulfills are empty, so the
     /// payee must claim on the hub (spec/designs/settlement-hubs.md#4-peering-over-a-hub).
     NoClaims,
 }

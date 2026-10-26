@@ -327,9 +327,6 @@ impl PeerNode {
             node_info,
             data: &data,
             versions: hooks.versions(scheme).to_vec(),
-            // A node knows only the credit it extends, and says nothing of
-            // it (spec/decisions/own-fulfills.md); nodes of 0.1 read 0.
-            credit: 0,
         });
         if let Some(entry) = self.table.get_mut(&node) {
             entry.peer = PeerState::Requesting {
@@ -552,7 +549,6 @@ impl PeerNode {
         {
             let answer = PeeringResponse::Accepted {
                 version: peering.version,
-                credit: 0,
                 data: &[],
             };
             return Inbound::Reply(ok(&accepted, &answer.to_vec()));
@@ -764,7 +760,6 @@ impl PeerNode {
         }
         let answer = PeeringResponse::Accepted {
             version,
-            credit: 0,
             data: &response,
         };
         ok(accepted, &answer.to_vec())

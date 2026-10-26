@@ -25,7 +25,6 @@ use rand_core::CryptoRng;
 use crate::auth::{Authenticator, Pending};
 use crate::channel::{Channel, Closed, Retry};
 use crate::config::Config;
-use crate::io::VERDICT_ACCEPTED;
 use crate::io::{Event, Failure, Output, Request, RequestId, Response, Stats};
 use crate::names::{Commitment, Holders, Name, Registrant, Registrar};
 use crate::routing::{RouteKey, Routes};
@@ -762,10 +761,11 @@ impl PeerNode {
                     entry.advertise.settle_unreached = unreached;
                 }
                 match result {
+                    // An answer it cannot read says nothing of the amount.
                     Ok(body) => {
-                        // An answer it cannot read says nothing of the amount.
-                        let settling = crate::wire::decode_settling(&body).ok().flatten();
-                        self.event(Event::SettlementRequestAnswered { peer: to, settling });
+                        if let Ok(settling) = crate::wire::decode_settling(&body) {
+                            self.event(Event::SettlementRequestAnswered { peer: to, settling });
+                        }
                     }
                     // Refused for not being peered: asked before the peer took
                     // in our acceptance. It may be asked again at once.
@@ -836,25 +836,22 @@ impl PeerNode {
         }
     }
 
-    /// The reply to a Fulfill we sent: the verdict, then, on a peering over
-    /// a hub, the payer's claim, which goes to the scheme
-    /// (spec/designs/settlement-hubs.md#4-peering-over-a-hub). A node that
-    /// sends the verdict alone, as every node not over a hub does, gives
-    /// nothing more; a claim too long is ignored.
+    /// The reply to a Fulfill we sent: on a peering over a hub, the payer's
+    /// claim, which goes to the scheme
+    /// (spec/designs/settlement-hubs.md#4-peering-over-a-hub). An empty
+    /// reply, as every peering not over a hub gives, says nothing more; a
+    /// claim too long is ignored.
     fn on_fulfill_reply(&mut self, answer: &Answer, body: &[u8]) {
-        if answer.packet.first() != Some(&inbound::FULFILL_TYPE) {
-            return;
-        }
-        let Some((&VERDICT_ACCEPTED, extra)) = body.split_first() else {
-            return;
-        };
-        if extra.is_empty() || extra.len() > MAX_CLAIM_BYTES {
+        if answer.packet.first() != Some(&inbound::FULFILL_TYPE)
+            || body.is_empty()
+            || body.len() > MAX_CLAIM_BYTES
+        {
             return;
         }
         self.event(Event::FulfillReply {
             peer: answer.peer,
             request_id: answer.request_id,
-            extra: extra.to_vec(),
+            claim: body.to_vec(),
         });
     }
 

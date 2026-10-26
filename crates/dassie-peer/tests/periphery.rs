@@ -78,7 +78,6 @@ fn ask(network: &mut Network, from: &Arc<NodeKey>, to: usize, state: &[u8]) -> d
         node_info: SignedNodeInfo::decode_exact(state).unwrap(),
         data: &[],
         versions: vec![1],
-        credit: 0,
     });
     let body = request(network, from, to, &content);
     network.inbound(to, &body)

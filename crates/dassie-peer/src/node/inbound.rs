@@ -15,9 +15,7 @@ use super::gossip::{Processed, Retransmit};
 use super::{PeerNode, Problem, Purpose};
 use crate::auth::{Accepted, AuthError};
 use crate::hooks::PeeringHooks;
-use crate::io::{
-    Event, Inbound, InboundId, Output, PacketAnswer, Reply, SettlementAnswer, VERDICT_ACCEPTED,
-};
+use crate::io::{Event, Inbound, InboundId, Output, PacketAnswer, Reply, SettlementAnswer};
 use crate::table::{Entry, Network, Registration, Sources};
 use crate::wire::{
     Content, Envelope, EnvelopeError, LinkStateResponse, MAX_CLAIM_BYTES, SchemeId, SignedNodeInfo,
@@ -183,10 +181,10 @@ impl PeerNode {
 
     /// An ILP packet. A Prepare needs a peering that is not ending, and
     /// comes with a commitment exactly when the peering's scheme uses them
-    /// (spec/designs/settlement-hubs.md#4-peering-over-a-hub). A response
-    /// also comes from a node we hold a settlement channel with, peered or
-    /// not: a node of 0.1 asks for verdicts after the peering ended, and is
-    /// told it was accepted (spec/decisions/own-fulfills.md).
+    /// (spec/designs/settlement-hubs.md#4-peering-over-a-hub). A Fulfill or
+    /// Reject needs a peering, ending or not: one ends only once nothing is
+    /// in flight with the peer, so a response from a node not peered
+    /// answers nothing we wait for.
     fn packet_request<'a>(
         &mut self,
         hooks: &dyn PeeringHooks,
@@ -217,7 +215,7 @@ impl PeerNode {
             if entry.is_some_and(|entry| entry.termination().is_some()) {
                 return refuse(409, "the peering is ending");
             }
-        } else if peering.is_none() && !self.channels.contains_key(&accepted.sender) {
+        } else if peering.is_none() {
             return refuse(409, "not peered");
         }
         Inbound::Packet {
@@ -613,29 +611,22 @@ impl SettlementAnswer {
 }
 
 impl PacketAnswer {
-    /// The acknowledgement: for a Fulfill, the verdict that accepts it,
-    /// then `extra`; for a Prepare or Reject, an empty body.
+    /// The acknowledgement: empty, but for a Fulfill on a peering over a
+    /// hub, whose carries `claim`, the payer's.
     ///
     /// # Panics
     ///
-    /// If `extra` is not empty where it cannot go, on a packet other than a
-    /// Fulfill on a peering over a hub
-    /// ([`takes_extra`](Self::takes_extra)), or is longer than
-    /// [`MAX_CLAIM_BYTES`]: what follows the verdict is the node's own.
+    /// If `claim` is not empty where it cannot go, on a packet other than a
+    /// Fulfill on a peering over a hub ([`takes_claim`](Self::takes_claim)),
+    /// or is longer than [`MAX_CLAIM_BYTES`]: the claim is the node's own.
     #[must_use]
-    pub fn reply(self, extra: &[u8]) -> Reply {
+    pub fn reply(self, claim: &[u8]) -> Reply {
         assert!(
-            extra.is_empty() || self.takes_extra(),
-            "bytes after the verdict only on a Fulfill over a hub"
+            claim.is_empty() || self.takes_claim(),
+            "a claim only on a Fulfill over a hub"
         );
-        assert!(extra.len() <= MAX_CLAIM_BYTES, "a claim too long");
-        if !self.fulfill {
-            return ok(&self.accepted, &[]);
-        }
-        let mut body = Vec::with_capacity(1 + extra.len());
-        body.push(VERDICT_ACCEPTED);
-        body.extend_from_slice(extra);
-        ok(&self.accepted, &body)
+        assert!(claim.len() <= MAX_CLAIM_BYTES, "a claim too long");
+        ok(&self.accepted, claim)
     }
 }
 

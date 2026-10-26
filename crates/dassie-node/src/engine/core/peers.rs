@@ -658,7 +658,7 @@ impl Core {
 
     /// An ILP packet from a peer, and the reply to it. Over a hub, a
     /// Prepare goes on only if its commitment covers it, and the reply to a
-    /// Fulfill carries our claim after the verdict
+    /// Fulfill carries our claim
     /// (spec/designs/settlement-hubs.md#4-peering-over-a-hub).
     fn packet_inbound(
         &mut self,
@@ -674,7 +674,7 @@ impl Core {
             return answer.reply(&[]);
         }
         let taken = self.peer_packet(from, request_id, packet);
-        if answer.takes_extra() {
+        if answer.takes_claim() {
             let claim = self.hub_claim(now, &from, request_id, taken);
             return answer.reply(&claim);
         }
@@ -907,8 +907,8 @@ impl Core {
             Event::FulfillReply {
                 peer,
                 request_id,
-                extra,
-            } => self.hub_claim_received(self.now_ms, &peer, request_id, &extra),
+                claim,
+            } => self.hub_claim_received(self.now_ms, &peer, request_id, &claim),
             // Asked again at the next check, not a minute later: a junior
             // that had not yet taken in our acceptance pays in advance at
             // once (spec/decisions/own-fulfills.md), and a request that never

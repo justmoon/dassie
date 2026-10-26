@@ -61,8 +61,8 @@ pub struct StubHooks {
     /// Whether the stub scheme's peerings are over a hub: Prepares on them
     /// come with commitments.
     pub commitments: bool,
-    /// What the node puts after the verdict in its reply to a Fulfill on a
-    /// peering over a hub, as a payer's claim.
+    /// What the node replies to a Fulfill on a peering over a hub with, as
+    /// a payer's claim.
     pub claim: Vec<u8>,
     /// What stays of the closed channels, as the node last wrote it.
     pub closed: BTreeMap<NodeId, crate::Closed>,
@@ -80,10 +80,9 @@ pub struct StubHooks {
 }
 
 impl StubHooks {
-    /// The reply to a packet: its claim after the verdict, where one
-    /// goes.
+    /// The reply to a packet: its claim, where one goes.
     fn reply(&self, answer: crate::PacketAnswer) -> crate::Reply {
-        let claim: &[u8] = if answer.takes_extra() {
+        let claim: &[u8] = if answer.takes_claim() {
             &self.claim
         } else {
             &[]

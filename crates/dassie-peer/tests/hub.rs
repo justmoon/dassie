@@ -20,7 +20,7 @@ use dassie_peer::sim::{Network, START, key, url};
 use dassie_peer::wire::{
     Authentication, Content, HubMembership, ResponseEnvelope, encode_envelope,
 };
-use dassie_peer::{Config, Event, Inbound, InboundId, OwnInfo, Reply, VERDICT_ACCEPTED};
+use dassie_peer::{Config, Event, Inbound, InboundId, OwnInfo, Reply};
 
 /// A Prepare, as far as the peer protocol reads one.
 const PREPARE: &[u8] = &[12, 1, 0];
@@ -148,7 +148,7 @@ fn a_prepare_over_a_hub_comes_with_its_commitment() {
         } => {
             assert_eq!((from, request_id, packet), (key(1).node_id(), 6, PREPARE));
             assert_eq!(commitment, Some(COMMITMENT));
-            assert!(!answer.takes_extra());
+            assert!(!answer.takes_claim());
             answer.reply(&[])
         }
         other => panic!("not a packet: {other:?}"),
@@ -184,9 +184,8 @@ fn a_commitment_comes_exactly_with_prepares_over_a_hub() {
     assert_eq!(network.inbound(0, &request).status, 409);
 }
 
-// The reply to a Fulfill over a hub carries the payer's claim after the
-// verdict; on any other peering, the verdict alone, and nothing may follow
-// it.
+// The reply to a Fulfill over a hub carries the payer's claim; on any other
+// peering it is empty, and no claim may go in it.
 #[test]
 fn the_reply_to_a_fulfill_over_a_hub_carries_the_claim() {
     let (mut network, _, _) = peered(63, true);
@@ -197,30 +196,28 @@ fn the_reply_to_a_fulfill_over_a_hub_carries_the_claim() {
             commitment, answer, ..
         } => {
             assert_eq!(commitment, None);
-            assert!(answer.takes_extra());
+            assert!(answer.takes_claim());
             answer.reply(CLAIM)
         }
         other => panic!("not a packet: {other:?}"),
     });
-    let mut expected = vec![VERDICT_ACCEPTED];
-    expected.extend_from_slice(CLAIM);
-    assert_eq!(body(&reply), expected);
+    assert_eq!(body(&reply), CLAIM);
 
     let (mut network, _, _) = peered(64, false);
     let request = sender.request(&network, 0, &plain_packet(FULFILL));
     let reply = handle(&mut network, 0, &request, |inbound| match inbound {
         Inbound::Packet { answer, .. } => {
-            assert!(!answer.takes_extra());
+            assert!(!answer.takes_claim());
             answer.reply(&[])
         }
         other => panic!("not a packet: {other:?}"),
     });
-    assert_eq!(body(&reply), [VERDICT_ACCEPTED]);
+    assert!(body(&reply).is_empty());
 }
 
 #[test]
-#[should_panic(expected = "bytes after the verdict only on a Fulfill over a hub")]
-fn nothing_follows_the_verdict_off_a_hub() {
+#[should_panic(expected = "a claim only on a Fulfill over a hub")]
+fn no_claim_off_a_hub() {
     let (mut network, _, _) = peered(65, false);
     let mut sender = Sender::new(&key(1));
     let request = sender.request(&network, 0, &plain_packet(FULFILL));
@@ -240,8 +237,8 @@ fn claims(network: &Network, index: usize) -> Vec<(NodeId, u32, Vec<u8>)> {
             Event::FulfillReply {
                 peer,
                 request_id,
-                extra,
-            } => Some((*peer, *request_id, extra.clone())),
+                claim,
+            } => Some((*peer, *request_id, claim.clone())),
             _ => None,
         })
         .collect()
@@ -265,10 +262,10 @@ fn a_payee_over_a_hub_is_given_the_claim() {
     assert_eq!(network.node(1).stats().answers_dropped, 0);
 }
 
-// A node not over a hub, or one from before hubs, replies with the verdict
-// alone: the Fulfill arrived, and there is no claim.
+// A node not over a hub replies with nothing: the Fulfill arrived, and there
+// is no claim.
 #[test]
-fn a_reply_of_the_verdict_alone_gives_no_claim() {
+fn an_empty_reply_gives_no_claim() {
     let (mut network, a, b) = peered(67, false);
     network.act(0, |node, now| {
         node.send_packet(now, &b, 9, PREPARE, 10_000).unwrap();

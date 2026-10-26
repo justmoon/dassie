@@ -2092,7 +2092,6 @@ fn downlink_request_on(
             .map_or(vec![1], |active| {
                 active.scheme.supported_versions().to_vec()
             }),
-        credit: 0,
     });
     let bytes = content.to_vec();
     let mut auth = Authenticator::new(Arc::clone(downlink), AuthConfig::DEFAULT, now - 1);

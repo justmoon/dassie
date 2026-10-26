@@ -103,7 +103,6 @@ pub fn content(tag: usize, info: &[u8]) -> Vec<u8> {
             node_info: info,
             data: &[1, 2, 3],
             versions: (1..=8).collect(),
-            credit: 1_100_000_000,
         }),
         1 => Content::LinkStateUpdate(info),
         // A Prepare, so that the node reads it as one.

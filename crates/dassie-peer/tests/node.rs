@@ -148,7 +148,6 @@ fn peering_requests_carry_the_senders_own_link_state() {
         node_info: SignedNodeInfo::decode_exact(&state).unwrap(),
         data: &[],
         versions: vec![1],
-        credit: 0,
     });
     let body = request(&network, &mallory, 0, &content);
     assert_eq!(network.inbound(0, &body).status, 400);
@@ -364,7 +363,6 @@ fn unknown_nodes_cannot_peer() {
         node_info: SignedNodeInfo::decode_exact(&state).unwrap(),
         data: &[],
         versions: vec![1],
-        credit: 0,
     });
     let body = request(&network, &stranger, 0, &content);
     let reply = network.inbound(0, &body);

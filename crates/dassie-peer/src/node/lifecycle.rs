@@ -126,19 +126,19 @@ impl PeerNode {
 
     /// The answer to our last request: what the peer has on its way. A
     /// 409, from a peer that holds no peering, means nothing is; an answer
-    /// that does not say, or none, is waited out.
+    /// it cannot read, or none, is waited out.
     pub(super) fn on_final_request(&mut self, peer: NodeId, result: &Result<Vec<u8>, Problem>) {
-        let promised = match result {
-            Ok(body) => crate::wire::decode_settling(body).ok().flatten(),
-            Err(Problem::Status(409)) => Some(0),
+        let answered = match result {
+            Ok(body) => crate::wire::decode_settling(body).ok(),
             Err(_) => None,
         };
-        if result.is_ok() {
-            self.event(Event::SettlementRequestAnswered {
-                peer,
-                settling: promised,
-            });
+        if let Some(settling) = answered {
+            self.event(Event::SettlementRequestAnswered { peer, settling });
         }
+        let promised = match result {
+            Err(Problem::Status(409)) => Some(0),
+            _ => answered,
+        };
         if let Some(depeering) = self.depeering_mut(&peer) {
             depeering.promised = promised;
         }

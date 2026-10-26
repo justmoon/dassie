@@ -244,7 +244,6 @@ fn peering_request(network: &Network, from: &Arc<NodeKey>, to: usize, sequence: 
         node_info: info,
         data: &[],
         versions: vec![1],
-        credit: 1,
     });
     request(network, from, to, &content)
 }
@@ -266,7 +265,6 @@ fn a_repeated_peering_request_keeps_the_peering() {
         answer,
         PeeringResponse::Accepted {
             version: 1,
-            credit: 0,
             data: &[],
         }
     );

@@ -122,8 +122,8 @@ pub trait Commitments {
     /// its commitment is forgotten.
     fn on_released(&mut self, peer: Name, request_id: u32);
 
-    /// As the payer: the claim to send after the verdict that accepts
-    /// `peer`'s Fulfill of our Prepare `request_id`, written to `out`.
+    /// As the payer: the claim to send in the reply to `peer`'s Fulfill of
+    /// our Prepare `request_id`, written to `out`.
     /// `taken` says whether the books took the Fulfill: a Fulfill we did
     /// not take adds nothing to the total we claim to owe. It answers the
     /// packet: an [`on_answered`](Self::on_answered) after it changes

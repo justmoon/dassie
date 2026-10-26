@@ -21,7 +21,7 @@ use dassie_peer::wire::{
     Authentication, Content, Entry, NodeInfo, PeeringRequest, PeeringResponse, RefusalReason,
     ResponseEnvelope, SchemeId, SignedNodeInfo, TerminationReason, encode_envelope, sign_node_info,
 };
-use dassie_peer::{Config, Event, PeerStatus, Room, SendError, VERDICT_ACCEPTED};
+use dassie_peer::{Config, Event, PeerStatus, Room, SendError};
 
 fn settle(network: &mut Network, ms: u64) {
     let until = network.now + ms;
@@ -115,7 +115,6 @@ fn peering_request(network: &Network, from: &Arc<NodeKey>, index: usize, to: usi
         node_info: SignedNodeInfo::decode_exact(&signed).unwrap(),
         data: &[],
         versions: vec![1],
-        credit: 1,
     });
     Sender::new(from).request(network, to, &content)
 }
@@ -978,12 +977,12 @@ fn a_restart_keeps_the_neighbors() {
     assert!(network.node(0).is_advertised(&b));
 }
 
-// A Fulfill's reply says it was accepted, which nodes of 0.1 read as the
-// verdict that keeps their books as they are
-// (spec/decisions/own-fulfills.md). A node we hold a channel with still gets
-// it after the peering ended; a Prepare does not.
+// A Fulfill is taken while the peering lasts, with an empty reply that says
+// nothing of what the node does with it (spec/decisions/own-fulfills.md).
+// Once the peering ended, nothing of the peer is in flight any more: a
+// Fulfill or a Prepare from it is refused, though we still hold its channel.
 #[test]
-fn a_fulfill_is_accepted_before_and_after_the_end() {
+fn a_fulfill_is_taken_only_while_peered() {
     let (mut network, a, b) = peered(48);
     let fulfill = Content::InterledgerPacket {
         request_id: 6,
@@ -993,16 +992,14 @@ fn a_fulfill_is_accepted_before_and_after_the_end() {
     let body = sender.request(&network, 0, &fulfill);
     let reply = network.inbound(0, &body);
     assert_eq!(reply.status, 200);
-    assert_eq!(reply.body.last(), Some(&VERDICT_ACCEPTED));
+    assert_eq!(ResponseEnvelope::decode(&reply.body).unwrap().body, []);
     network.act(0, |node, now| {
         assert!(node.terminate(now, &b, TerminationReason::Owner));
     });
     settle(&mut network, 10_000);
     assert!(network.node(1).peering_of(&a).is_none());
     let body = sender.request(&network, 0, &fulfill);
-    let reply = network.inbound(0, &body);
-    assert_eq!(reply.status, 200);
-    assert_eq!(reply.body.last(), Some(&VERDICT_ACCEPTED));
+    assert_eq!(network.inbound(0, &body).status, 409);
     let prepare = Content::InterledgerPacket {
         request_id: 7,
         packet: &[12, 1, 0],
@@ -1027,7 +1024,7 @@ fn a_settlement_request_reaches_the_peer_only() {
     // (spec/decisions/ending-a-peering.md).
     let answered = Event::SettlementRequestAnswered {
         peer: a,
-        settling: Some(0),
+        settling: 0,
     };
     assert!(network.events.contains(&(1, answered)));
     let mut sender = Sender::new(&key(1));
@@ -1388,7 +1385,7 @@ fn a_node_ending_a_peering_settles_nothing_the_peer_asks() {
     settle(&mut network, 1_000);
     let nothing = Event::SettlementRequestAnswered {
         peer: a,
-        settling: Some(0),
+        settling: 0,
     };
     assert!(network.events.contains(&(1, nothing)));
     assert!(!network.settlement_requests.contains(&(0, b)));

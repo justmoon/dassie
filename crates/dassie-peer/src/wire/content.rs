@@ -22,8 +22,9 @@ const COMMITMENT_SIZE: Size = Size::range(1, MAX_COMMITMENT_BYTES);
 const METHOD_COMMITMENT_SIZE: Size = Size::range(0, MAX_COMMITMENT_BYTES);
 
 /// A peering request: the requester's signed link state, the scheme it
-/// wants to settle with, the versions of that scheme it speaks and
-/// the credit it extends.
+/// wants to settle with and the versions of that scheme it speaks.
+/// It says nothing of the credit the requester extends: a node knows only
+/// the credit it extends (spec/decisions/own-fulfills.md).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PeeringRequest<'a> {
     /// The scheme.
@@ -34,8 +35,6 @@ pub struct PeeringRequest<'a> {
     pub data: &'a [u8],
     /// The scheme versions the requester speaks, at least one.
     pub versions: Vec<u16>,
-    /// The credit the requester extends, in the scheme ledger's units.
-    pub credit: u64,
 }
 
 /// A message's content.
@@ -245,7 +244,6 @@ impl Content<'_> {
                     + size::prefixed(request.node_info.bytes.len())
                     + size::prefixed(request.data.len())
                     + versions_len(&request.versions)
-                    + 8
             }
             Self::LinkStateUpdate(info) | Self::Registration(info) => info.bytes.len(),
             Self::InterledgerPacket { packet, .. } => {
@@ -482,7 +480,6 @@ fn write_peering_request(writer: &mut Writer<'_>, request: &PeeringRequest<'_>) 
     writer.write_octets(request.node_info.bytes, Size::ANY);
     writer.write_octets(request.data, Size::ANY);
     write_versions(writer, &request.versions);
-    writer.write_u64(request.credit);
 }
 
 fn read_peering_request<'a>(reader: &mut Reader<'a>) -> Result<PeeringRequest<'a>, DecodeError> {
@@ -494,13 +491,11 @@ fn read_peering_request<'a>(reader: &mut Reader<'a>) -> Result<PeeringRequest<'a
     })?;
     let data = reader.read_octets(Size::ANY)?;
     let versions = read_versions(reader)?;
-    let credit = reader.read_u64()?;
     Ok(PeeringRequest {
         scheme,
         node_info,
         data,
         versions,
-        credit,
     })
 }
 

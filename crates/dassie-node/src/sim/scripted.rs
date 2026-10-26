@@ -545,7 +545,7 @@ pub(super) fn collected_before_telling(
     let peer = format!("{:?}", key(with).node_id());
     let trace = &sim.trace;
     let answered =
-        format!(" {index} PeerNode(SettlementRequestAnswered {{ peer: {peer}, settling: Some(");
+        format!(" {index} PeerNode(SettlementRequestAnswered {{ peer: {peer}, settling: ");
     let telling = format!(" {index} PeerNode(Terminating {{ peer: {peer}");
     let Some(told) = trace[mark..until_peered(&trace[..until], mark, index, with)]
         .iter()
@@ -577,7 +577,7 @@ pub(super) fn collected_before_telling(
         .rev()
         .find_map(|(at, line)| {
             let rest = &line[line.find(&answered)? + answered.len()..];
-            Some((mark + at, rest[..rest.find(')')?].parse::<u64>().ok()?))
+            Some((mark + at, rest[..rest.find(' ')?].parse::<u64>().ok()?))
         })
     else {
         return Ok(());

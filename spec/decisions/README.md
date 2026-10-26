@@ -82,7 +82,6 @@ Each file records one choice between real alternatives: the facts that forced it
 | [unreachable-peers](unreachable-peers.md) | A node takes no Prepare from a peer it cannot reach | connector, peer-protocol, settlement |
 | [unusable-limits](unusable-limits.md) | A limit no payment can use is caught before approval | payments, wallet |
 | [verified-ledgers](verified-ledgers.md) | The node books only what ledgers its own UNL validated prove (design, not built) | designs/xrpl-validation, xrpl, designs/settlement-hubs |
-| [versions-0-1-and-0-2](versions-0-1-and-0-2.md) | Nodes of 0.1 and 0.2 do not settle with each other | peer-protocol, settlement, release |
 | [visual-identity](visual-identity.md) | Dassie's visual identity is Kopje: solid rocks, nimble dassies, first light | website |
 | [website-hosting](website-hosting.md) | dassie.land is a bucket behind the mirror's load balancer | website, release |
 | [weighted-next-hops](weighted-next-hops.md) | A packet's next hop is drawn at random among its first hops, weighted by the fees each earned us (per method not built) | connector, network, stream |
@@ -135,7 +134,6 @@ Decisions were once numbered, and commits, pull requests and issues still cite t
 | D34 | [owners-share](owners-share.md) |
 | D35 | [website-hosting](website-hosting.md) |
 | D36 | [promotion-to-core](promotion-to-core.md) |
-| D37 | [versions-0-1-and-0-2](versions-0-1-and-0-2.md) |
 | D38 | [full-or-stopped-short](full-or-stopped-short.md) |
 | D39 | [places-by-proved-key](places-by-proved-key.md) |
 | D40 | [default-relay](default-relay.md) |

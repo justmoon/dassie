@@ -1205,7 +1205,7 @@ fn count_ends(sim: &mut Sim, ends: &[End]) {
     {
         let lines = &sim.trace[mark..];
         let answered = format!(
-            " {by} PeerNode(SettlementRequestAnswered {{ peer: {:?}, settling: Some(",
+            " {by} PeerNode(SettlementRequestAnswered {{ peer: {:?}, settling: ",
             key(peer).node_id()
         );
         let ending = &lines[..until_peered(lines, 0, by, peer)];
@@ -1213,7 +1213,7 @@ fn count_ends(sim: &mut Sim, ends: &[End]) {
             && ending.iter().any(|line| {
                 line.find(&answered)
                     .map(|at| &line[at + answered.len()..])
-                    .and_then(|rest| rest[..rest.find(')')?].parse::<u64>().ok())
+                    .and_then(|rest| rest[..rest.find(' ')?].parse::<u64>().ok())
                     .is_some_and(|amount| amount > 0)
             });
         if on_its_way {

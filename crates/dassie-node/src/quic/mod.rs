@@ -70,8 +70,10 @@ use crate::peer_server::{Answer, BodyError};
 use crate::slots::ClientSlot;
 use crate::tls;
 
-/// The protocol a connection speaks, by ALPN.
-pub const ALPN: &[u8] = b"dassie/1";
+/// The protocol a connection speaks, by ALPN: the peer protocol's layouts,
+/// version 2 (spec/areas/peer-protocol.md#versions). A node of another
+/// version fails the handshake, before a message is read.
+pub const ALPN: &[u8] = b"dassie/2";
 
 /// Most time to set up a connection, within a request's own time.
 pub const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);

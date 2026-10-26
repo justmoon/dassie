@@ -1279,9 +1279,7 @@ fn a_peer_asked_to_settle_tells_what_it_has_on_its_way() {
                 made.insert((index, node.to_string(), amount));
             }
             if line.contains("SettlementRequestAnswered") {
-                let Some(amount) =
-                    field("settling: Some(").map(|a| a.trim_end_matches(')').to_string())
-                else {
+                let Some(amount) = field("settling: ") else {
                     panic!("seed {seed}: an answer without an amount: {line}");
                 };
                 if amount == "0" {
@@ -1387,9 +1385,8 @@ fn a_settlement_that_lands_after_the_end_is_credited_once() {
     );
     let mark = sim.trace.len();
     sim.step(junior, |core| core.terminate_peering(senior_id).unwrap());
-    let answered = format!(
-        " {junior} PeerNode(SettlementRequestAnswered {{ peer: {senior_id:?}, settling: Some("
-    );
+    let answered =
+        format!(" {junior} PeerNode(SettlementRequestAnswered {{ peer: {senior_id:?}, settling: ");
     let found = |sim: &Sim, from: usize, text: &str| {
         sim.trace[from..]
             .iter()
@@ -1602,7 +1599,7 @@ fn on_unlimited_trust_nodes_pay_without_settling() {
         "node 1 did not answer the last request"
     );
     for answer in answers {
-        assert!(answer.contains(&format!("{answered}Some(0)")), "{answer}");
+        assert!(answer.contains(&format!("{answered}0 }}")), "{answer}");
     }
     let settled = sim.trace[mark..].iter().find(|line| {
         line.contains("Settlement(Settling") || line.contains("Settlement(PrepareFailed")

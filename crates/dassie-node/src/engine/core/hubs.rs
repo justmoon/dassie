@@ -409,9 +409,9 @@ impl Core {
         self.peer.send_response(now, node, request_id, &packet);
     }
 
-    /// As the payer: the claim that goes after the verdict in our reply to
-    /// a peer's Fulfill of our Prepare `request_id`; `taken` says whether
-    /// our books took the Fulfill.
+    /// As the payer: the claim that goes in our reply to a peer's Fulfill
+    /// of our Prepare `request_id`; `taken` says whether our books took the
+    /// Fulfill.
     pub(super) fn hub_claim(
         &mut self,
         now: u64,
@@ -440,8 +440,7 @@ impl Core {
         }
     }
 
-    /// As the payee: the claim a peer sent after the verdict in its reply
-    /// to our Fulfill.
+    /// As the payee: the claim a peer sent in its reply to our Fulfill.
     pub(super) fn hub_claim_received(
         &mut self,
         now: u64,

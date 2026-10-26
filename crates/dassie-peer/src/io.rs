@@ -72,22 +72,22 @@ impl PartialEq for SettlementAnswer {
 impl Eq for SettlementAnswer {}
 
 /// The acknowledgement of an ILP packet from a peer, still to be given what
-/// follows the verdict on a Fulfill: on a peering over a hub, the payer's
-/// claim (spec/designs/settlement-hubs.md#4-peering-over-a-hub).
+/// it carries on a Fulfill: on a peering over a hub, the payer's claim
+/// (spec/designs/settlement-hubs.md#4-peering-over-a-hub).
 #[derive(Debug)]
 pub struct PacketAnswer {
     pub(crate) accepted: alloc::boxed::Box<crate::auth::Accepted>,
-    /// Whether the packet is a Fulfill, which the reply accepts.
+    /// Whether the packet is a Fulfill.
     pub(crate) fulfill: bool,
     /// Whether the packet came on a peering whose scheme uses commitments.
     pub(crate) hub: bool,
 }
 
 impl PacketAnswer {
-    /// Whether the reply may carry bytes after the verdict: the packet is a
-    /// Fulfill on a peering over a hub.
+    /// Whether the reply may carry a claim: the packet is a Fulfill on a
+    /// peering over a hub.
     #[must_use]
-    pub const fn takes_extra(&self) -> bool {
+    pub const fn takes_claim(&self) -> bool {
         self.fulfill && self.hub
     }
 }
@@ -150,11 +150,10 @@ pub enum Inbound<'a> {
         /// hub, for its scheme; `None` on any other peering, and with a
         /// Fulfill or Reject.
         commitment: Option<&'a [u8]>,
-        /// The acknowledgement, once the node knows what follows the
-        /// verdict. A Fulfill's says it was accepted, whatever the node does
-        /// with it: each side books its own Fulfills
-        /// (spec/decisions/own-fulfills.md), and nodes of 0.1 still read the
-        /// reply as a verdict.
+        /// The acknowledgement, once the node knows the claim it carries on
+        /// a Fulfill over a hub. It says nothing of what the node does with
+        /// the packet: each side books its own Fulfills
+        /// (spec/decisions/own-fulfills.md).
         answer: PacketAnswer,
     },
     /// A settlement not applied before. The node books it, then calls
@@ -198,11 +197,6 @@ pub enum Inbound<'a> {
         reply: Reply,
     },
 }
-
-/// The body of the reply to a Fulfill. Nodes of 0.1 read it as a verdict,
-/// which "accepted" tells them to keep their own books by
-/// (spec/decisions/own-fulfills.md).
-pub const VERDICT_ACCEPTED: u8 = 1;
 
 /// What the node hands its driver.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -250,19 +244,18 @@ pub enum Event {
         /// Whether it surely did not arrive.
         definite: bool,
     },
-    /// A peer answered a Fulfill of ours with bytes after the verdict: on
-    /// a peering over a hub, the payer's claim, for the hub's scheme to
-    /// read (spec/designs/settlement-hubs.md#4-peering-over-a-hub). A reply
-    /// of the verdict alone, or with more than
-    /// [`MAX_CLAIM_BYTES`](crate::wire::MAX_CLAIM_BYTES) after it, gives
-    /// none.
+    /// A peer answered a Fulfill of ours with a claim: on a peering over a
+    /// hub, the payer's, for the hub's scheme to read
+    /// (spec/designs/settlement-hubs.md#4-peering-over-a-hub). An empty
+    /// reply, or one longer than
+    /// [`MAX_CLAIM_BYTES`](crate::wire::MAX_CLAIM_BYTES), gives none.
     FulfillReply {
         /// The peer.
         peer: NodeId,
         /// The ILP request ID of the Prepare the Fulfill answered.
         request_id: u32,
-        /// The bytes after the verdict.
-        extra: Vec<u8>,
+        /// The claim.
+        claim: Vec<u8>,
     },
     /// A peering attempt failed.
     PeeringFailed {
@@ -329,14 +322,13 @@ pub enum Event {
         /// Its sequence.
         sequence: u64,
     },
-    /// A peer answered our request to settle: with how much it has on its
-    /// way to us, or `None` if its answer does not say, as a node from
-    /// before spec/decisions/ending-a-peering.md answers.
+    /// A peer answered our request to settle with how much it has on its
+    /// way to us (spec/decisions/ending-a-peering.md).
     SettlementRequestAnswered {
         /// The node.
         peer: NodeId,
         /// What it has on its way, in the scheme ledger's units.
-        settling: Option<u64>,
+        settling: u64,
     },
     /// A request to settle was refused because the peer holds no peering
     /// with us on that scheme, as when it has not yet taken in our
