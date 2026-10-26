@@ -383,6 +383,7 @@ fn unsigned(hash: [u8; 32], index: u32, close_time: u32, key: PublicKey) -> Opti
         gas_limit: None,
         bytecode_size_limit: None,
         gas_price: None,
+        other_fields: Vec::new(),
     })
 }
 

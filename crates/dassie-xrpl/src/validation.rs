@@ -11,9 +11,12 @@
 //! validation signs no network ID: the validators' keys alone tell the
 //! networks apart.
 //!
-//! It is read in the canonical form only (`binary`), with the fields of
-//! rippled's validation format and no others, so it writes back to the
-//! bytes it came in, which are the bytes its validator signed.
+//! It is read in the canonical form only (`binary`), so it writes back to
+//! the bytes it came in, which are the bytes its validator signed. The
+//! fields of rippled's validation format it knows are read with their
+//! types and values; a field it does not name, which an amendment may add,
+//! is kept as written, if its type is one the walker knows, so that a new
+//! field stalls no anchor.
 
 use alloc::vec::Vec;
 
@@ -25,6 +28,11 @@ use crate::keys::{KeyType, PublicKey, Secp256k1Key, Signature};
 /// amendments its validator votes for, 32 bytes each; this holds over two
 /// hundred, more than rippled knows.
 pub const MAX_VALIDATION_BYTES: usize = 8_192;
+
+/// The most fields a validation carries that it does not name. Each is at
+/// least two bytes and the whole at most [`MAX_VALIDATION_BYTES`]; this
+/// holds the fields of several amendments.
+pub const MAX_OTHER_FIELDS: usize = 16;
 
 /// The flag of a full validation: of a ledger its validator built and
 /// would have the network accept. A partial one does not count.
@@ -100,13 +108,29 @@ pub struct Validation {
     pub bytecode_size_limit: Option<u32>,
     /// Smart escrows' gas price its validator votes for.
     pub gas_price: Option<u32>,
+    /// The fields it carries that none of the above names, strictly
+    /// ascending, at most [`MAX_OTHER_FIELDS`]: kept as written, as its
+    /// validator signed them, and read no further. One of a field above,
+    /// or out of order, is a bug.
+    pub other_fields: Vec<OtherField>,
+}
+
+/// A field of a validation that [`Validation`] does not name, as written.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct OtherField {
+    /// Which field.
+    pub id: FieldId,
+    /// Its value, as the walker reads it ([`binary::Field::value`]): one
+    /// of its type, or writing it is a bug.
+    pub value: Vec<u8>,
 }
 
 impl Validation {
     /// The validation in `bytes`, if it is one: at most
     /// [`MAX_VALIDATION_BYTES`], in canonical form, with every field
-    /// rippled requires and none it does not know, each of its type, a
-    /// cookie only if it is not zero, and a secp256k1 signing key. Its
+    /// rippled requires, each it names of its type, a cookie only if it is
+    /// not zero, fees in XRP, a secp256k1 signing key, and at most
+    /// [`MAX_OTHER_FIELDS`] others, of types the walker knows. Its
     /// signature is not checked: see [`Self::verify`].
     ///
     /// # Errors
@@ -161,25 +185,34 @@ impl Validation {
         self
     }
 
-    /// Writes its fields in canonical order, the signature only if asked.
+    /// Writes its fields in canonical order, the signature only if asked:
+    /// each it does not name before the first named one above it.
     fn write(&self, out: &mut Vec<u8>, with_signature: bool) {
         let start = out.len();
-        let uint32 = |out: &mut Vec<u8>, id, value: Option<u32>| {
-            if let Some(value) = value {
-                binary::write_field(out, id, &value.to_be_bytes());
+        let mut others = self.other_fields.iter().peekable();
+        let mut put = |out: &mut Vec<u8>, id: FieldId, value: &[u8]| {
+            while let Some(other) = others.next_if(|other| other.id < id) {
+                binary::write_field(out, other.id, &other.value);
             }
+            binary::write_field(out, id, value);
         };
-        uint32(out, FLAGS, Some(self.flags));
-        uint32(out, LEDGER_SEQUENCE, Some(self.ledger_sequence));
-        uint32(out, CLOSE_TIME, self.close_time);
-        uint32(out, SIGNING_TIME, Some(self.signing_time));
-        uint32(out, LOAD_FEE, self.load_fee);
-        uint32(out, GAS_LIMIT, self.gas_limit);
-        uint32(out, BYTECODE_SIZE_LIMIT, self.bytecode_size_limit);
-        uint32(out, GAS_PRICE, self.gas_price);
+        for (id, value) in [
+            (FLAGS, Some(self.flags)),
+            (LEDGER_SEQUENCE, Some(self.ledger_sequence)),
+            (CLOSE_TIME, self.close_time),
+            (SIGNING_TIME, Some(self.signing_time)),
+            (LOAD_FEE, self.load_fee),
+            (GAS_LIMIT, self.gas_limit),
+            (BYTECODE_SIZE_LIMIT, self.bytecode_size_limit),
+            (GAS_PRICE, self.gas_price),
+        ] {
+            if let Some(value) = value {
+                put(out, id, &value.to_be_bytes());
+            }
+        }
         for (id, value) in [(COOKIE, self.cookie), (SERVER_VERSION, self.server_version)] {
             if let Some(value) = value {
-                binary::write_field(out, id, &value.to_be_bytes());
+                put(out, id, &value.to_be_bytes());
             }
         }
         for (id, hash) in [
@@ -188,7 +221,7 @@ impl Validation {
             (VALIDATED_HASH, self.validated_hash),
         ] {
             if let Some(hash) = hash {
-                binary::write_field(out, id, &hash);
+                put(out, id, &hash);
             }
         }
         for (id, drops) in [
@@ -197,16 +230,23 @@ impl Validation {
             (RESERVE_INCREMENT_DROPS, self.reserve_increment_drops),
         ] {
             if let Some(drops) = drops {
-                binary::write_field(out, id, &binary::xrp(drops));
+                put(out, id, &binary::xrp(drops));
             }
         }
-        binary::write_field(out, SIGNING_PUB_KEY, self.signing_key.as_bytes());
+        put(out, SIGNING_PUB_KEY, self.signing_key.as_bytes());
         if with_signature {
-            binary::write_field(out, SIGNATURE, self.signature.as_bytes());
+            put(out, SIGNATURE, self.signature.as_bytes());
         }
         if let Some(amendments) = &self.amendments {
-            binary::write_field(out, AMENDMENTS, amendments.as_flattened());
+            put(out, AMENDMENTS, amendments.as_flattened());
         }
+        for other in others {
+            binary::write_field(out, other.id, &other.value);
+        }
+        assert!(
+            self.other_fields.len() <= MAX_OTHER_FIELDS,
+            "a validation carries a bounded number of fields it does not name"
+        );
         assert!(
             binary::check(out.get(start..).unwrap_or_default()).is_ok(),
             "a validation is written in canonical form"
@@ -242,11 +282,12 @@ struct Optional {
     gas_limit: Option<u32>,
     bytecode_size_limit: Option<u32>,
     gas_price: Option<u32>,
+    other_fields: Vec<OtherField>,
 }
 
 impl Read {
     /// Takes `field`, one of a validation's. Each comes at most once, as
-    /// the walker reads them only ascending.
+    /// the walker reads them only ascending, and only of a type it knows.
     fn field(&mut self, field: &binary::Field<'_>) -> Result<(), DecodeError> {
         let rest = &mut self.rest;
         match field.id {
@@ -286,7 +327,16 @@ impl Read {
                     Some(Signature::from_slice(field.blob()?).ok_or(DecodeError::Value)?);
             }
             AMENDMENTS => rest.amendments = Some(field.vector256()?.to_vec()),
-            _ => return Err(DecodeError::Field),
+            // A field an amendment added: kept as signed, read no further.
+            id => {
+                if rest.other_fields.len() >= MAX_OTHER_FIELDS {
+                    return Err(DecodeError::Field);
+                }
+                rest.other_fields.push(OtherField {
+                    id,
+                    value: field.value.to_vec(),
+                });
+            }
         }
         Ok(())
     }
@@ -315,6 +365,7 @@ impl Read {
             gas_limit: rest.gas_limit,
             bytecode_size_limit: rest.bytecode_size_limit,
             gas_price: rest.gas_price,
+            other_fields: rest.other_fields,
         })
     }
 }
@@ -435,7 +486,7 @@ mod tests {
     }
 
     #[test]
-    fn only_rippled_s_validation_format_reads() {
+    fn a_validation_reads_only_with_the_fields_rippled_requires() {
         let bytes = from_hex(DATA).unwrap();
         let without = |id: FieldId| {
             let mut out = Vec::new();
@@ -461,10 +512,6 @@ mod tests {
             );
         }
         assert!(Validation::from_bytes(&without(COOKIE)).is_ok());
-        // A field rippled's format has not.
-        let mut more = bytes.clone();
-        binary::write_field(&mut more, FieldId::new(Type::Blob, 7), b"x");
-        assert_eq!(Validation::from_bytes(&more), Err(DecodeError::Field));
         // A cookie of zero, written all the same.
         let mut zero = Vec::new();
         for field in Fields::new(&bytes) {
@@ -481,6 +528,154 @@ mod tests {
             Validation::from_bytes(&vec![0x22; MAX_VALIDATION_BYTES + 1]),
             Err(DecodeError::Value)
         );
+    }
+
+    /// Fields the reader does not name, each in a gap between named ones
+    /// or after the last: a `UInt32` before the gas limit, a `Hash256`
+    /// between the consensus and validated hashes, a `Blob` after the
+    /// signature, an object, and a `UInt512` after the amendments.
+    fn other_fields() -> Vec<OtherField> {
+        let mut object = Vec::new();
+        binary::write_field(&mut object, FieldId::new(Type::UInt32, 2), &[0, 0, 0, 1]);
+        vec![
+            OtherField {
+                id: FieldId::new(Type::UInt32, 50),
+                value: vec![0, 0, 1, 0],
+            },
+            OtherField {
+                id: FieldId::new(Type::Hash256, 24),
+                value: vec![0xAB; 32],
+            },
+            OtherField {
+                id: FieldId::new(Type::Blob, 40),
+                value: b"new".to_vec(),
+            },
+            OtherField {
+                id: FieldId::new(Type::Object, 40),
+                value: object,
+            },
+            OtherField {
+                id: FieldId::new(Type::UInt512, 40),
+                value: vec![7; 64],
+            },
+        ]
+    }
+
+    #[test]
+    fn a_validation_with_fields_it_does_not_name_counts() {
+        // The live validation's fields, with its consensus and validated
+        // hashes, under another key, with amendments and the fields above,
+        // put together field by field, sorted, apart from the writer: what
+        // its validator signs is them without the signature.
+        let key = Secp256k1Key::from_secret(&[0x33; 32]).unwrap();
+        let mut fields: Vec<(FieldId, Vec<u8>)> = Vec::new();
+        for field in Fields::new(&from_hex(DATA).unwrap()) {
+            let field = field.unwrap();
+            if field.id != SIGNATURE && field.id != SIGNING_PUB_KEY {
+                fields.push((field.id, field.value.to_vec()));
+            }
+        }
+        fields.push((SIGNING_PUB_KEY, key.public_key().as_bytes().to_vec()));
+        fields.push((AMENDMENTS, [[0x03; 32], [0x04; 32]].concat()));
+        fields.extend(
+            other_fields()
+                .into_iter()
+                .map(|other| (other.id, other.value)),
+        );
+        fields.sort_by_key(|(id, _)| *id);
+        let write = |fields: &[(FieldId, Vec<u8>)]| {
+            let mut out = Vec::new();
+            for (id, value) in fields {
+                binary::write_field(&mut out, *id, value);
+            }
+            out
+        };
+        let mut message = VALIDATION_PREFIX.to_vec();
+        message.extend(write(&fields));
+        fields.push((SIGNATURE, key.sign(&message).as_bytes().to_vec()));
+        fields.sort_by_key(|(id, _)| *id);
+        let bytes = write(&fields);
+
+        let validation = Validation::from_bytes(&bytes).unwrap();
+        assert_eq!(validation.other_fields, other_fields());
+        assert_eq!(validation.signing_bytes(), message);
+        assert_eq!(validation.to_bytes(), bytes);
+        assert!(validation.verify());
+        // Signed by the writer, the same bytes.
+        let resigned = Validation {
+            other_fields: other_fields(),
+            ..validation.clone()
+        }
+        .signed(&key);
+        assert_eq!(resigned.signing_bytes(), message);
+        // Changed, it no longer verifies.
+        let mut changed = validation.clone();
+        changed.other_fields[1].value[0] ^= 1;
+        assert!(Validation::from_bytes(&changed.to_bytes()).is_ok());
+        assert!(!changed.verify());
+        // Without one, neither.
+        let mut fewer = validation;
+        fewer.other_fields.remove(0);
+        assert!(!fewer.verify());
+    }
+
+    #[test]
+    fn a_field_of_a_type_the_walker_does_not_know_is_refused() {
+        // Type 25, after every type the validation names: the header of
+        // field 1 of it, and a byte.
+        let mut bytes = from_hex(DATA).unwrap();
+        bytes.extend_from_slice(&[0x01, 0x19, 0x00]);
+        assert_eq!(Validation::from_bytes(&bytes), Err(DecodeError::Field));
+    }
+
+    #[test]
+    fn a_named_field_keeps_its_rules() {
+        // A fee in a token, where the reader names a fee in XRP.
+        let mut token = Vec::new();
+        let mut fee = (0xD4C3_8D7E_A4C6_8000_u64).to_be_bytes().to_vec();
+        fee.extend_from_slice(&[0x55; 20]);
+        fee.extend_from_slice(&[0x66; 20]);
+        for field in Fields::new(&from_hex(DATA).unwrap()) {
+            let field = field.unwrap();
+            if field.id == SIGNING_PUB_KEY {
+                binary::write_field(&mut token, BASE_FEE_DROPS, &fee);
+            }
+            binary::write_field(&mut token, field.id, field.value);
+        }
+        assert!(binary::check(&token).is_ok());
+        assert_eq!(Validation::from_bytes(&token), Err(DecodeError::Value));
+    }
+
+    #[test]
+    fn the_fields_it_does_not_name_are_bounded() {
+        let others = |count: u8| {
+            (1..=count)
+                .map(|code| OtherField {
+                    id: FieldId::new(Type::Hash128, code),
+                    value: vec![code; 16],
+                })
+                .collect::<Vec<_>>()
+        };
+        let most = u8::try_from(MAX_OTHER_FIELDS).unwrap();
+        let bytes = Validation {
+            other_fields: others(most),
+            ..live()
+        }
+        .to_bytes();
+        assert_eq!(
+            Validation::from_bytes(&bytes).unwrap().other_fields,
+            others(most)
+        );
+        // One more, written by hand: the writer refuses it.
+        let mut more = Vec::new();
+        for field in Fields::new(&bytes) {
+            let field = field.unwrap();
+            if field.id == LEDGER_HASH {
+                binary::write_field(&mut more, FieldId::new(Type::Hash128, most + 1), &[0; 16]);
+            }
+            binary::write_field(&mut more, field.id, field.value);
+        }
+        assert_eq!(Validation::from_bytes(&more), Err(DecodeError::Field));
     }
 
     #[test]
