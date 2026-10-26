@@ -349,6 +349,10 @@ fn create(
         }
         #[cfg(test)]
         super::tests::WITNESS => Ok(Box::new(super::tests::Witness)),
+        #[cfg(test)]
+        super::tests::DSUSD_HUB => Ok(Box::new(super::tests::HubStandIn::DSUSD)),
+        #[cfg(test)]
+        super::tests::XRP_HUB => Ok(Box::new(super::tests::HubStandIn::XRP)),
         _ => Err(SchemeError::UnknownScheme),
     }
 }

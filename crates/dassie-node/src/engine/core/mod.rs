@@ -782,13 +782,13 @@ impl Core {
         };
         let mut inventories = [none; MAX_PRICED_LEDGERS];
         let mut count = 0;
-        // A ledger whose scheme converts nothing now, such as a dollar
-        // token off its peg, is left out, as one whose rate is stale: its
-        // pairs convert nothing (spec/decisions/issued-assets.md).
+        // A ledger that converts nothing now, such as a dollar token's off
+        // its peg, or its hub's, is left out, as one whose rate is stale:
+        // its pairs convert nothing (spec/decisions/issued-assets.md).
         let ledgers = self
             .schemes
             .values()
-            .filter(|active| active.converts_now())
+            .filter(|active| self.converts_now(active))
             .map(|active| active.scheme.ledger());
         for ledger in ledgers {
             let Ok(owner) = self.account(ledger, AccountName::EquityOwner) else {
@@ -818,7 +818,7 @@ impl Core {
         for active in self
             .schemes
             .values()
-            .filter(|active| !active.converts_now())
+            .filter(|active| !self.converts_now(active))
         {
             table.halt(active.scheme.ledger());
         }

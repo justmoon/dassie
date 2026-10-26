@@ -21,10 +21,12 @@ const HUB: Name = dassie_ledger::name!(dassie_hub::member::SCHEME_ID);
 /// The ledger of the owner book of what a hub on `hub` holds: the book of
 /// that asset on the hub's underlying ledger, which the hub's deposits
 /// leave and its withdrawals reach (spec/areas/hubs.md#in-the-node). XRP
-/// on the testnet for the XRP hub.
-const fn owner_book_ledger(hub: LedgerId) -> Option<LedgerId> {
+/// on the testnet for the XRP hub, DSUSD for the DSUSD hub. `None` for a
+/// ledger that is no hub's.
+pub(super) const fn owner_book_ledger(hub: LedgerId) -> Option<LedgerId> {
     match hub {
         LedgerId::HubXrplTestnetXrp => Some(LedgerId::XrplTestnetXrp),
+        LedgerId::HubXrplTestnetDsusdUsd => Some(LedgerId::XrplTestnetDsusdUsd),
         _ => None,
     }
 }
