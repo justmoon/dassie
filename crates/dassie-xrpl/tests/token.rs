@@ -20,8 +20,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use dassie_ledger::Name;
 use dassie_node_core::testing::SeededRng;
 use dassie_settlement::{
-    AssetEffect, Detach, Effect, EntryPayment, ExternalAsset, LedgerInput, LedgerStatus,
-    PreparedSettlement, ReconcileCause, SchemeError, SettlementScheme,
+    AssetEffect, Detach, DollarRate, Effect, EntryPayment, ExternalAsset, LedgerInput,
+    LedgerStatus, PegPause, PreparedSettlement, ReconcileCause, SchemeError, SettlementScheme,
 };
 use dassie_xrpl::account::{self, News, XrplAccount};
 use dassie_xrpl::codec::{Amount, Payment, Signing, TokenValue, Transact, TrustSet};
@@ -2053,6 +2053,63 @@ fn a_stream_that_names_another_issuer_is_a_hint() {
     assert!(books.deposits.is_empty());
     assert_eq!(books.owner, 0);
     assert_eq!(world.nodes[0].books[USD].finalized, [id]);
+}
+
+// spec/areas/xrpl.md#the-peg-guard: a server that sends no ledger to anchor
+// on, keeps proving the pool at the one anchor the account has, and keeps
+// the connection alive with its replies, holds the account synced there,
+// and the guard reads the pool there again and again. A reading counts only
+// from an anchor that closed within the bound, so the guard pauses as one
+// with no reading.
+#[test]
+fn readings_at_an_old_anchor_do_not_keep_the_guard_fresh() {
+    let mut world = World::new(&[true]);
+    world.closes(2);
+    // A thousand XRP against 500 DSUSD, at two XRP to the dollar: par.
+    world
+        .ledger
+        .set_pool(Token::DSUSD, 1_000_000_000, value("500"), 0)
+        .unwrap();
+    world.close();
+    assert_eq!(world.nodes[0].status(USD), LedgerStatus::Synced);
+    let kept = world.nodes[0].account.anchor().unwrap();
+    // Twenty minutes, every ten seconds: a fresh rate, a reply that names
+    // no ledger, a settlement check every minute, and the account's timer.
+    for step in 0..=120 {
+        let now = world.now;
+        world.nodes[0].dsusd.as_mut().unwrap().on_rate(
+            "XRP",
+            Some(DollarRate {
+                per_dollar: 2_000_000_000_000_000,
+                precision: 15,
+                as_of_ms: now,
+            }),
+        );
+        world.input(
+            0,
+            LedgerInput::Message(br#"{"id":0,"status":"success","result":{}}"#),
+        );
+        if step % 6 == 0 {
+            world.settlement_check(0);
+        }
+        world.nodes[0].account.on_timer(now);
+        world.tell(0);
+        assert_eq!(world.nodes[0].account.anchor(), Some(kept));
+        if step == 0 {
+            // Read at an anchor just taken: it counts, at par.
+            let peg = world.nodes[0].dsusd().peg().unwrap();
+            assert_eq!(peg.last, Some((1_000_000, kept.index)));
+            assert_eq!(peg.paused, None);
+        }
+        world.now += 10_000;
+    }
+    assert_eq!(world.nodes[0].status(USD), LedgerStatus::Synced);
+    assert_eq!(
+        world.nodes[0].dsusd().peg().unwrap().paused,
+        Some(PegPause::Stale),
+        "twenty minutes of readings at one anchor are no reading"
+    );
+    assert!(!world.nodes[0].dsusd().converts());
 }
 
 /// What the issuer, the owners and the nodes do, in a property test.

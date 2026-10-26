@@ -427,6 +427,7 @@ impl XrplAccount {
                                 drops: root.balance,
                                 value,
                                 ledger_index: anchor.index,
+                                closed_ms: crate::unl::unix_ms(anchor.close_time),
                             })
                         }
                         (true, Some(None), _) => PoolSeen::Gone,
