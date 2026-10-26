@@ -96,7 +96,7 @@ New sans-IO modules in `dassie-xrpl`, under the crate's rules ([tigerstyle](../d
 - **One branch check for both trees,** `verify(root, key, leaf, branch)`, iterative: each level must name the one below at the key's nibble, up to the root. A transaction leaf, a state leaf and an absence differ only in the leaf.
 - **Skip lists** decode from their proven objects; a hash taken from one is a proven ledger's.
 - **Manifests, lists and the UNL** (§5).
-- **Validations and quorum.** A validation counts only if its key is a listed master's current signing key, it is full and fully canonical, its signing time is fresh, and its signature checks. A master that signs two hashes for one index counts for neither. The cheapest checks come first, so a flood costs at most two signature checks per master and anchor: its validation of the ledger, and, for a master that counted, one of another ledger of the index.
+- **Validations and quorum.** A validation counts only if its key is a listed master's current signing key, it is full and fully canonical, its signing time is fresh, and its signature checks. A master that signs two hashes for one index counts for neither. The cheapest checks come first, so a flood costs at most two signature checks per master and anchor: its validation of the ledger, and, for a master that counted, one of another ledger of the index. The rule holds whatever the order of the validations: when the one of another ledger does not check and others came, the master is withheld, as a server could withhold it by leaving its validation out, though no conflict is told.
 
 ## 9. IO
 
