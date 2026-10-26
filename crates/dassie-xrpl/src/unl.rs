@@ -14,10 +14,14 @@
 //!   them that took effect is the list in effect, and the ones it passed
 //!   over go. A publisher that revoked its key is unavailable for good.
 //! - **Manifests** of validators come from the lists and from the server's
-//!   `manifest` method alike, and count only for a master a list names and
-//!   only when that master signed them: the highest sequence wins, and a
-//!   revocation leaves the master no key to sign with. A signing key serves
-//!   one master only, and never is a listed master's own key.
+//!   `manifest` method alike, and count only for a master a list in effect
+//!   names and only when that master signed them, as rippled takes them: a
+//!   list's own are taken as it takes effect, so a pending list's wait with
+//!   it. The highest sequence wins, and a revocation leaves the master no
+//!   key to sign with. One taken stays while any kept list names its
+//!   master, so a list that takes effect later with an older one never
+//!   hands its signing back. A signing key serves one master only, and
+//!   never is a kept list's master's own key.
 //! - **The UNL** is the validators that at least [`list_threshold`] of the
 //!   lists in effect name, less any whose master revoked its key, as
 //!   rippled's `ValidatorList::updateTrusted` has it: with one or two
@@ -223,12 +227,12 @@ pub enum UnlError {
 pub enum ManifestError {
     /// It is not a manifest.
     Malformed,
-    /// No kept list names its master.
+    /// No list in effect names its master.
     NotListed,
     /// Its keys did not sign it.
     BadSignature,
-    /// Its signing key is a listed master's, or another master's signing
-    /// key.
+    /// Its signing key is a kept list's master's, or another master's
+    /// signing key.
     KeyInUse,
 }
 
@@ -525,7 +529,7 @@ pub struct Unl {
     config: UnlConfig,
     /// One for each publisher of the config, in its order.
     publishers: Vec<PublisherState>,
-    /// Each listed master's newest manifest.
+    /// The newest manifest of each master a kept list names.
     manifests: BTreeMap<PublicKey, Manifest>,
     /// Each signing key of a manifest kept, and its master.
     signers: BTreeMap<PublicKey, PublicKey>,
@@ -676,8 +680,9 @@ impl Unl {
     pub fn tick(&mut self, now_ms: u64) {
         let now_s = ledger_seconds(now_ms);
         let mut lapsed = false;
-        for state in &mut self.publishers {
-            state.rotate(now_s);
+        let mut rotated = [false; MAX_PUBLISHERS];
+        for (state, rotated) in self.publishers.iter_mut().zip(&mut rotated) {
+            *rotated = state.rotate(now_s);
             if state
                 .current
                 .as_ref()
@@ -691,6 +696,11 @@ impl Unl {
             state.pending.retain(|kept| !kept.expired(now_s));
         }
         self.prune();
+        for (publisher, rotated) in rotated.into_iter().enumerate() {
+            if rotated {
+                self.take_list_manifests(publisher);
+            }
+        }
         if lapsed {
             self.blocked = true;
         }
@@ -756,7 +766,7 @@ impl Unl {
     pub fn signing_key(&self, master: &PublicKey) -> Option<PublicKey> {
         match self.manifests.get(master) {
             Some(manifest) => manifest.signing.map(|(key, _)| key),
-            None => self.listed(master).then_some(*master),
+            None => self.named(master).then_some(*master),
         }
     }
 
@@ -764,7 +774,7 @@ impl Unl {
     #[must_use]
     pub fn master_of(&self, signing_key: &PublicKey) -> Option<PublicKey> {
         self.signers.get(signing_key).copied().or_else(|| {
-            (!self.manifests.contains_key(signing_key) && self.listed(signing_key))
+            (!self.manifests.contains_key(signing_key) && self.named(signing_key))
                 .then_some(*signing_key)
         })
     }
@@ -774,10 +784,19 @@ impl Unl {
         (self.config.publishers.iter()).position(|publisher| publisher.master_key == *key)
     }
 
-    /// Whether a kept list names `master`.
-    fn listed(&self, master: &PublicKey) -> bool {
+    /// Whether a kept list names `master`, pending or not.
+    fn named(&self, master: &PublicKey) -> bool {
         (self.publishers.iter())
             .flat_map(PublisherState::kept)
+            .any(|kept| kept.list.validators.contains_key(master))
+    }
+
+    /// Whether a list in effect names `master`: a current one, as a tick
+    /// moves a pending list in once it takes effect, as rippled's
+    /// `keyListings_` has it.
+    fn listed(&self, master: &PublicKey) -> bool {
+        (self.publishers.iter())
+            .filter_map(|state| state.current.as_ref())
             .any(|kept| kept.list.validators.contains_key(master))
     }
 }
@@ -887,7 +906,6 @@ impl Unl {
         if before.is_some_and(|before| before >= MAX_PENDING) {
             return Err(ListError::TooManyPending);
         }
-        let manifests: Vec<Manifest> = list.validators.values().flatten().cloned().collect();
         let kept = Kept {
             list,
             blob,
@@ -909,19 +927,44 @@ impl Unl {
                 .highest
                 .map_or(sequence, |highest| highest.max(sequence)),
         );
+        if taken == Taken::Current {
+            self.take_list_manifests(publisher);
+        }
+        Ok(taken)
+    }
+
+    /// Takes the validators' manifests publisher `publisher`'s current list
+    /// carries, as it takes effect, as rippled's `updatePublisherList`
+    /// does: a pending list's wait with it.
+    fn take_list_manifests(&mut self, publisher: usize) {
+        let manifests: Vec<Manifest> = (self.publishers.get(publisher))
+            .and_then(|state| state.current.as_ref())
+            .map(|kept| kept.list.validators.values().flatten().cloned().collect())
+            .unwrap_or_default();
         for manifest in manifests {
             // One the list carries that does not verify is left out, as
             // rippled leaves it: the list counts all the same.
             let _ = self.take_validator_manifest(manifest);
         }
-        Ok(taken)
     }
 
-    /// Takes a validator's `manifest`, the cheapest checks first: whether it
-    /// is newer than the one kept.
+    /// Takes a validator's `manifest`, of a master a list in effect names,
+    /// as rippled takes one: whether it is newer than the one kept.
     fn take_validator_manifest(&mut self, manifest: Manifest) -> Result<bool, ManifestError> {
+        if !self.listed(&manifest.master_key) {
+            return Err(ManifestError::NotListed);
+        }
+        self.keep_manifest(manifest)
+    }
+
+    /// Keeps a validator's `manifest`, of a master a kept list names, the
+    /// cheapest checks first: whether it is newer than the one kept. Kept
+    /// while a pending list names the master too, as rippled's manifest
+    /// cache keeps it, so a list that takes effect later with an older one
+    /// never hands its signing back.
+    fn keep_manifest(&mut self, manifest: Manifest) -> Result<bool, ManifestError> {
         let master = manifest.master_key;
-        if !self.listed(&master) {
+        if !self.named(&master) {
             return Err(ManifestError::NotListed);
         }
         if (self.manifests.get(&master)).is_some_and(|kept| kept.sequence >= manifest.sequence) {
@@ -929,7 +972,7 @@ impl Unl {
         }
         if let Some((key, _)) = manifest.signing {
             let other = self.signers.get(&key).is_some_and(|owner| *owner != master);
-            if other || self.listed(&key) {
+            if other || self.named(&key) {
                 return Err(ManifestError::KeyInUse);
             }
         }
@@ -1258,7 +1301,7 @@ impl Unl {
             if !masters.insert(manifest.master_key) {
                 return None;
             }
-            let _ = unl.take_validator_manifest(manifest);
+            let _ = unl.keep_manifest(manifest);
         }
         unl.prune();
         unl.settle(ledger_seconds(now_ms));
@@ -1368,14 +1411,20 @@ impl Unl {
                 *master, manifest.master_key,
                 "a manifest kept under its master"
             );
-            assert!(self.listed(master), "a manifest of a listed master");
+            assert!(
+                self.named(master),
+                "a manifest of a master a kept list names"
+            );
             if let Some((key, _)) = manifest.signing {
                 assert_eq!(
                     self.signers.get(&key),
                     Some(master),
                     "its signing key is its"
                 );
-                assert!(!self.listed(&key), "no signing key is a listed master's");
+                assert!(
+                    !self.named(&key),
+                    "no signing key is a kept list's master's"
+                );
             }
         }
         let signing = self
@@ -1913,6 +1962,115 @@ mod tests {
         unl.check_invariants();
         assert_eq!(unl.lists(0).0.unwrap().sequence, 2);
         assert_eq!(unl.lists(0).1.len(), MAX_PENDING);
+    }
+
+    // A manifest carried by a list that is not yet in effect waits with it,
+    // as rippled's `updatePublisherList` takes it only then.
+    #[test]
+    fn a_pending_manifest_waits_until_the_list_is_in_effect() {
+        let ours = publisher(1);
+        let mut validators = validators(10..12);
+        let mut unl = unl(&[&ours]);
+        unl.take_list(&ours.body(&[list(1, &validators)]), NOW_MS)
+            .unwrap();
+        let old = validators[0].signing.public_key();
+        assert_eq!(unl.signing_key(&validators[0].key()), Some(old));
+        let signing = Secp256k1Key::from_secret(&[9; 32]).unwrap();
+        validators[0].manifest =
+            Manifest::sign(2, &validators[0].master, Some(&signing as &dyn Key), None);
+        validators[0].signing = signing;
+        let mut pending = list(2, &validators);
+        pending.effective = Some(NOW_S + 60);
+        assert_eq!(
+            unl.take_list(&ours.body(&[pending]), NOW_MS),
+            Ok(Taken::Pending)
+        );
+        unl.check_invariants();
+        assert_eq!(unl.signing_key(&validators[0].key()), Some(old));
+        assert_eq!(unl.master_of(&old), Some(validators[0].key()));
+        unl.tick(NOW_MS + 60_000);
+        unl.check_invariants();
+        assert_eq!(
+            unl.signing_key(&validators[0].key()),
+            Some(validators[0].signing.public_key())
+        );
+        assert_eq!(unl.master_of(&old), None);
+    }
+
+    // A validator only a pending list names has no manifest taken, from
+    // the list or the server, until the list is in effect; the latest list
+    // rotated in brings its own, and one a restart finds due does too.
+    #[test]
+    fn manifests_come_with_the_list_rotated_in() {
+        let ours = publisher(1);
+        let validators = validators(10..14);
+        let mut unl = unl(&[&ours]);
+        let newcomer = &validators[3];
+        let mut next = list(2, &validators[..3]);
+        next.effective = Some(NOW_S + 60);
+        let mut later = list(3, &validators);
+        later.effective = Some(NOW_S + 120);
+        let body = ours.body(&[list(1, &validators[..3]), next, later]);
+        unl.take_list(&body, NOW_MS).unwrap();
+        unl.check_invariants();
+        assert!(!unl.manifests.contains_key(&newcomer.key()));
+        assert_eq!(
+            unl.take_manifest(&newcomer.manifest.to_bytes()),
+            Err(ManifestError::NotListed)
+        );
+        let state = unl.state();
+        let at_ms = NOW_MS + 120_000;
+        let mut ticked = unl.clone();
+        ticked.tick(at_ms);
+        ticked.check_invariants();
+        assert_eq!(ticked.lists(0).0.unwrap().sequence, 3);
+        assert_eq!(
+            ticked.signing_key(&newcomer.key()),
+            Some(newcomer.signing.public_key())
+        );
+        let restored = Unl::restore(unl.config.clone(), &state, at_ms).unwrap();
+        restored.check_invariants();
+        assert_eq!(restored, ticked);
+        // Once it is in effect, the server's newer manifest counts too.
+        let rotated = Secp256k1Key::from_secret(&[61; 32]).unwrap();
+        let newer = Manifest::sign(2, &newcomer.master, Some(&rotated as &dyn Key), None);
+        assert_eq!(ticked.take_manifest(&newer.to_bytes()), Ok(true));
+        assert_eq!(
+            ticked.signing_key(&newcomer.key()),
+            Some(rotated.public_key())
+        );
+    }
+
+    // A master's newer manifest stays while only a pending list names it,
+    // so the list, once in effect, does not hand its signing back to the
+    // older key it carries.
+    #[test]
+    fn a_pending_list_never_takes_a_master_back_to_an_older_key() {
+        let ours = publisher(1);
+        let validators = validators(10..14);
+        let mut unl = unl(&[&ours]);
+        let first = &validators[0];
+        unl.take_list(&ours.body(&[list(1, &validators)]), NOW_MS)
+            .unwrap();
+        let rotated = Secp256k1Key::from_secret(&[60; 32]).unwrap();
+        let newer = Manifest::sign(2, &first.master, Some(&rotated as &dyn Key), None);
+        assert_eq!(unl.take_manifest(&newer.to_bytes()), Ok(true));
+        // A list in effect at once without it, and one later with it again.
+        let mut back = list(3, &validators);
+        back.effective = Some(NOW_S + 60);
+        let body = ours.body(&[list(2, &validators[1..]), back]);
+        unl.take_list(&body, NOW_MS).unwrap();
+        unl.check_invariants();
+        let state = unl.state();
+        let waiting = Unl::restore(unl.config.clone(), &state, NOW_MS).unwrap();
+        waiting.check_invariants();
+        assert_eq!(waiting, unl);
+        let at_ms = NOW_MS + 60_000;
+        unl.tick(at_ms);
+        unl.check_invariants();
+        assert_eq!(unl.signing_key(&first.key()), Some(rotated.public_key()));
+        let restored = Unl::restore(unl.config.clone(), &state, at_ms).unwrap();
+        assert_eq!(restored, unl);
     }
 
     fn keys(validators: &[&TestValidator]) -> Vec<PublicKey> {

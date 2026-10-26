@@ -546,6 +546,10 @@ impl XrplAccount {
     /// refusal, and counts no lie
     /// (spec/designs/xrpl-validation.md#3-the-proof-api).
     fn tally(&mut self, proven: ProvenState, validations: Validations, ask: bool, untrusted: bool) {
+        // A list that took effect since is moved in first, with the
+        // manifests it carries, as rippled's `updateTrusted` moves it in
+        // before a ledger's validations count.
+        self.tick_lists();
         let kept = self.anchor.as_ref().map(|kept| kept.anchor);
         let anchored = self.unl.anchor(
             &proven.header,
