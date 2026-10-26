@@ -18,13 +18,14 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 use dassie_settlement::{AssetEffect, ExternalAsset, LedgerInput, LedgerStatus};
 use dassie_xrpl::account::{
-    Doubt, LIST_RETRY_MS, MAX_UNSAVED_TRIES, STALL_MS, UNSAVED_RETRY_MS, XrplAccount,
+    Doubt, LIST_REFRESH_MS, LIST_RETRY_MS, MAX_UNSAVED_TRIES, STALL_MS, UNSAVED_RETRY_MS,
+    XrplAccount,
 };
 use dassie_xrpl::anchor::{Ancestry, KeptAnchor, ProvenLists, ancestry};
 use dassie_xrpl::fake::{FakeLedger, LIST_SITE, Lie, Unsaved, publisher_key};
 use dassie_xrpl::network::{MAINNET, Network, TESTNET};
 use dassie_xrpl::skip_list::{FLAG_INTERVAL, SkipList, flag_above, flag_key, recent_key};
-use dassie_xrpl::unl::{Anchor, ledger_seconds};
+use dassie_xrpl::unl::{Anchor, MAX_PENDING, ledger_seconds};
 use proptest::prelude::*;
 use serde_json::{Value, json};
 
@@ -471,6 +472,34 @@ fn an_expired_list_stalls_the_account_until_a_new_one() {
     harness.closes(2);
     assert_eq!(harness.account.waiting(), None);
     assert_eq!(harness.anchored_at(), Some(harness.ledger.ledger()));
+}
+
+// spec/designs/xrpl-validation.md#5-the-unl-from-its-publishers: a list
+// past the most the account keeps waiting is not taken, but its site
+// served: it is fetched again when due, not from the next site at once.
+#[test]
+fn more_lists_waiting_than_are_kept_is_no_failed_fetch() {
+    let mut harness = Harness::new(FakeLedger::new(), &[]);
+    harness.connect();
+    assert_eq!(harness.fetched, [LIST_SITE]);
+    let now_s = u32::try_from(ledger_seconds(harness.now)).unwrap();
+    let mut days = 30;
+    for _ in 0..=MAX_PENDING {
+        days += 1;
+        let effective = now_s + days * 86_400;
+        harness
+            .ledger
+            .publish_validator_list(effective + 86_400, Some(effective));
+        harness.wait(LIST_REFRESH_MS);
+        harness.close();
+    }
+    assert_eq!(harness.fetched.len(), MAX_PENDING + 2);
+    assert!(harness.fetched.iter().all(|url| url == LIST_SITE));
+    assert_eq!(harness.account.waiting(), None);
+    // Fetched again when due, not after a failure's retry.
+    harness.wait(LIST_RETRY_MS);
+    harness.close();
+    assert_eq!(harness.fetched.len(), MAX_PENDING + 2);
 }
 
 // spec/designs/xrpl-validation.md#3-the-proof-api: a stock server serves no

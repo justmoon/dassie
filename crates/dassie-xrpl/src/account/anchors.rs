@@ -326,7 +326,14 @@ impl XrplAccount {
         if matches!(taken, Some(Ok(taken)) if taken != crate::unl::Taken::Same) {
             self.unl_changes = self.unl_changes.wrapping_add(1);
         }
-        let by = (body.filter(|_| matches!(taken, Some(Ok(_)))))
+        // A list of a publisher with as many waiting as the account keeps
+        // came from its site all the same: the site served, and nothing
+        // new was taken.
+        let served = matches!(
+            taken,
+            Some(Ok(_) | Err(crate::validator_list::ListError::TooManyPending))
+        );
+        let by = (body.filter(|_| served))
             .and_then(|body| crate::validator_list::Message::parse(body).ok())
             .map(|message| message.publisher);
         for publisher in asked {

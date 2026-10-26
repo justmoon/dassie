@@ -503,6 +503,21 @@ impl PublisherState {
     }
 }
 
+/// Whether a publisher's `current` list and `pending` ones are as the
+/// account keeps them: at most [`MAX_PENDING`] pending, each naming when it
+/// takes effect, above the one before it in sequence, the current one
+/// first if there is one, and taking effect later than the pending one
+/// before it. Restore and the invariants check the same.
+fn in_order(current: Option<&Kept>, pending: &[Kept]) -> bool {
+    let sequences = (current.into_iter().chain(pending)).map(|kept| kept.list.sequence);
+    let ascending =
+        (sequences.clone().zip(sequences.skip(1))).all(|(before, after)| before < after);
+    let effective = pending.iter().map(|kept| kept.list.effective);
+    let later = (effective.clone().zip(effective.skip(1))).all(|(before, after)| before < after);
+    let waits = pending.iter().all(|kept| kept.list.effective.is_some());
+    pending.len() <= MAX_PENDING && ascending && later && waits
+}
+
 /// The UNL of one account, and what makes it: its publishers' lists and
 /// its validators' manifests.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -1263,17 +1278,12 @@ impl Unl {
         let mut current = Kept::restore(entry.get("current")?)?;
         let mut pending = Kept::restore_pending(entry.get("pending")?)?;
         let above = |kept: &Kept| highest.is_none_or(|highest| kept.list.sequence > highest);
-        // Each pending list above the one before, the current one first,
-        // and taking effect later than the pending one before.
-        let ordered = (current.iter().chain(pending.iter()))
-            .zip(pending.iter())
-            .all(|(before, after)| before.list.sequence < after.list.sequence)
-            && (pending.iter().zip(pending.iter().skip(1)))
-                .all(|(before, after)| before.list.effective < after.list.effective);
-        let waits = pending.iter().all(|kept| kept.list.effective.is_some());
         let revoked = manifest.as_ref().is_some_and(Manifest::is_revocation);
         let mut lists = current.iter().chain(pending.iter());
-        if lists.clone().any(above) || !ordered || !waits || (revoked && lists.next().is_some()) {
+        if lists.clone().any(above)
+            || !in_order(current.as_ref(), &pending)
+            || (revoked && lists.next().is_some())
+        {
             return None;
         }
         // Moved on to `now_s`, as the tick at `now_s` would have had the
@@ -1341,26 +1351,12 @@ impl Unl {
                 );
                 assert!(kept.list.validators.len() <= MAX_LIST_VALIDATORS);
             }
-            assert!(state.pending.len() <= MAX_PENDING, "pending lists bounded");
-            for pending in &state.pending {
-                assert!(
-                    pending.list.effective.is_some(),
-                    "a pending list takes effect later"
-                );
-            }
-            let lists = state.current.iter().chain(state.pending.iter());
-            for (before, after) in lists.zip(state.pending.iter()) {
-                assert!(
-                    before.list.sequence < after.list.sequence,
-                    "a pending list is above the current one and the one before"
-                );
-            }
-            for (before, after) in state.pending.iter().zip(state.pending.iter().skip(1)) {
-                assert!(
-                    before.list.effective < after.list.effective,
-                    "a pending list takes effect later than the one before"
-                );
-            }
+            assert!(
+                in_order(state.current.as_ref(), &state.pending),
+                "at most MAX_PENDING pending lists, each naming when it takes effect, \
+                 above the current one and the one before it, and taking effect later \
+                 than the one before it"
+            );
         }
         self.check_manifests();
     }
@@ -2624,6 +2620,59 @@ mod tests {
         restored.check_invariants();
         assert_eq!(restored, unl);
         assert_eq!(restored.lists(0).1.len(), 1);
+    }
+
+    // Lists that wait with no current list: an account's first answer
+    // dated ahead, or a current list that expired while one waits. They
+    // hold the invariants and round-trip, also in the form written when a
+    // publisher kept one pending list.
+    #[test]
+    fn pending_lists_wait_without_a_current_one() {
+        let ours = publisher(1);
+        let validators = validators(10..15);
+        let waiting = |sequence: u32, after_s: u32| {
+            let mut later = list(sequence, &validators);
+            later.effective = Some(NOW_S + after_s);
+            later
+        };
+        let round_trip = |unl: &Unl, now_ms: u64| {
+            unl.check_invariants();
+            let state = unl.state();
+            let restored = Unl::restore(unl.config.clone(), &state, now_ms).unwrap();
+            restored.check_invariants();
+            assert_eq!(&restored, unl);
+            state
+        };
+        // A fresh account's first answer, all of it dated ahead.
+        let mut fresh = unl(&[&ours]);
+        let body = ours.body(&[waiting(1, 60), waiting(2, 120)]);
+        assert_eq!(fresh.take_list(&body, NOW_MS), Ok(Taken::Pending));
+        assert_eq!(fresh.lists(0).0, None);
+        assert_eq!(fresh.lists(0).1.len(), 2);
+        round_trip(&fresh, NOW_MS);
+        // The current list expires while one waits.
+        let mut unl = unl(&[&ours]);
+        let mut short = list(1, &validators);
+        short.expiration = NOW_S + 60;
+        let body = ours.body(&[short, waiting(2, 120)]);
+        assert_eq!(unl.take_list(&body, NOW_MS), Ok(Taken::Current));
+        let expired_ms = NOW_MS + 60_000;
+        unl.tick(expired_ms);
+        assert_eq!(unl.lists(0).0, None);
+        assert_eq!(unl.lists(0).1.len(), 1);
+        let mut state = round_trip(&unl, expired_ms);
+        // As written when a publisher kept one pending list.
+        let pending = state["publishers"][0]["pending"][0].clone();
+        state["publishers"][0]["pending"] = pending;
+        assert_eq!(state["publishers"][0]["current"], Value::Null);
+        let restored = Unl::restore(unl.config.clone(), &state, expired_ms).unwrap();
+        restored.check_invariants();
+        assert_eq!(restored, unl);
+        // Then the one that waits takes effect.
+        let due_ms = NOW_MS + 120_000;
+        unl.tick(due_ms);
+        assert_eq!(unl.lists(0).0.unwrap().sequence, 2);
+        round_trip(&unl, due_ms);
     }
 
     // A master's newer manifest one list carries outlives that list at a
