@@ -376,7 +376,6 @@ impl Validators {
             }
             Request::Payout { .. } => return None,
             Request::Account(key) => vec![Statement::account(&self.ledger, key)],
-            Request::Hold(number) => vec![Statement::hold(&self.ledger, number)],
             Request::Since { account, from } => self.since(account, from),
             Request::Holds(account) => {
                 let key = self.ledger.account(account)?.key;

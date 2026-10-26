@@ -611,7 +611,6 @@ impl Validator {
                 return;
             }
             Request::Account(key) => vec_of(Statement::account(&self.chain.ledger, key)),
-            Request::Hold(number) => vec_of(Statement::hold(&self.chain.ledger, number)),
             // The account and its holds as of one block, for a member that
             // reads its state anew (spec/areas/hubs.md#the-members-side).
             Request::Holds(account) => {
