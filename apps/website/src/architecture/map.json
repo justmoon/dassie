@@ -462,7 +462,7 @@
         "A scheme that pauses, as a dollar token's off its peg: it settles nothing, cannot be paid and converts nothing meanwhile, and says why",
         "External assets: what the node holds outside its books, as the ledger says, apart from the schemes that settle through it, the documents they fetch through the node, such as validator lists, and what they wait for",
         "Gas: a holding one scheme spends and another settles in is spent only within the owner's funds",
-        "The stub scheme: 100 test USD, so everything works without a real ledger, and with commitments, peerings over a settlement hub without a hub",
+        "The stub scheme: 100 test USD, so everything works without a real ledger; with commitments, peerings over a settlement hub without a hub; with unlimited trust, peers that never settle, for tests not about settlement",
         "The settlement policy: when a creditor asks a peer to settle, and how much the debtor pays, counted in the largest packet; and the floor and the ceiling a node keeps its settlement hub account between",
         "The owner's payments: a scheme pays the owner's funds out of its account, as the node moves them between two of its ledgers",
         "Promises per packet, for schemes whose peerings carry them, as a settlement hub's do, and assets that talk to several endpoints, such as a hub's validators",

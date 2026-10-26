@@ -1092,6 +1092,77 @@ fn a_junior_keeps_the_lower_credit_of_a_peer_it_ended_for_room() {
     assert_eq!(trust, core.senior_credit);
 }
 
+// spec/areas/settlement.md#the-stub-scheme: on the stub with unlimited trust,
+// the senior and the junior alike extend the unlimited credit, and a trust
+// account from an earlier peering that holds less, even one ended for room,
+// is raised to it.
+#[test]
+fn on_unlimited_trust_both_sides_extend_the_unlimited_credit() {
+    use dassie_ledger::{AccountName, AccountPath, LedgerId, Name};
+    use dassie_peer::PeeringHooks;
+    use dassie_settlement::policy::{UNLIMITED_CREDIT, trust};
+
+    let mut core = core(7);
+    core.add_scheme("stub", r#"{"trust":"unlimited"}"#.into())
+        .unwrap();
+    let scheme = dassie_peer::wire::SchemeId::parse("stub").unwrap();
+    let mut info = Vec::new();
+    core.with_peer(|_, hooks, _| hooks.peering_info(scheme, &mut info))
+        .unwrap();
+    let trust_of = |core: &Core, peer: dassie_identity::NodeId| {
+        let name = Name::new(peer.as_str()).unwrap();
+        let path = AccountPath::new(LedgerId::StubUsd, AccountName::ContraTrust(name));
+        trust(
+            core.ledger
+                .account(core.ledger.find(&path).unwrap())
+                .unwrap()
+                .balance(),
+        )
+    };
+    // As the senior, to a new peer, and to one we once extended less.
+    let fresh = seeded_node(1);
+    let known = seeded_node(2);
+    let name = Name::new(known.as_str()).unwrap();
+    core.ledger
+        .open_peer(NOW, LedgerId::StubUsd, name, core.senior_credit)
+        .unwrap();
+    for peer in [fresh, known] {
+        let mut response = Vec::new();
+        let agreed = core
+            .with_peer(|_, hooks, _| {
+                hooks.accept(NOW, peer, false, scheme, 1, &info, &mut response)
+            })
+            .unwrap();
+        assert_eq!(agreed.credit_out, UNLIMITED_CREDIT);
+        assert_eq!(trust_of(&core, peer), UNLIMITED_CREDIT);
+    }
+    // As the junior, to a peer we once ended for room.
+    let ended = seeded_node(3);
+    let name = Name::new(ended.as_str()).unwrap();
+    core.ledger
+        .open_peer(NOW, LedgerId::StubUsd, name, core.senior_credit)
+        .unwrap();
+    let agreed = core
+        .with_peer(|_, hooks, _| hooks.finalize(NOW, ended, scheme, 1, &info, &info, true))
+        .unwrap();
+    assert_eq!(agreed.credit_out, UNLIMITED_CREDIT);
+    assert_eq!(trust_of(&core, ended), UNLIMITED_CREDIT);
+    // A peer that is not on the stub with unlimited trust is refused.
+    let mut response = Vec::new();
+    let refused = core.with_peer(|_, hooks, _| {
+        hooks.accept(NOW, seeded_node(4), false, scheme, 1, &[], &mut response)
+    });
+    assert_eq!(
+        refused.err(),
+        Some(dassie_peer::wire::RefusalReason::SchemeRefused)
+    );
+    // A downlink's accounts open with it too, once value moves with it.
+    assert_eq!(
+        super::downlinks::start_credit(&core.schemes, Name::new("stub").unwrap(), 0),
+        UNLIMITED_CREDIT
+    );
+}
+
 // spec/decisions/free-receivers-half.md: a settlement of at least one largest
 // packet booked from a node marks its channel, for good: it paid us, and is
 // no free receiver. A smaller one leaves it free. Neither downlink had

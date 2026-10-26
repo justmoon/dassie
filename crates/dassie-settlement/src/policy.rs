@@ -136,6 +136,19 @@ pub fn raised(credit: u64, growth: u128, cap: u64) -> u64 {
     u64::try_from(raised).unwrap_or(cap)
 }
 
+/// The credit a node extends to every peer on a scheme with unlimited trust
+/// ([`SettlementScheme::unlimited_trust`](crate::SettlementScheme::unlimited_trust)),
+/// whose tests are not about settlement: a billion dollars in the stub's
+/// units, so no test runs out of room. At most an eighth of what an
+/// account's counters hold, so that a peer's account, whose posted credits
+/// are the trust and all the peer ever paid us, takes seven times as much
+/// again. It never grows.
+pub const UNLIMITED_CREDIT: u64 = 1_000_000_000_000_000_000;
+const _: () = assert!(
+    UNLIMITED_CREDIT <= MAX_TOTAL / 8,
+    "unlimited credit past its share"
+);
+
 /// Whether to ask a peer to settle: our room for it, our `position`, has
 /// fallen to our `trigger`.
 #[must_use]
@@ -181,6 +194,13 @@ mod tests {
         assert_eq!(raised(C, 5, cap), C + 5);
         assert_eq!(raised(cap - 1, 5, cap), cap);
         assert_eq!(raised(cap + 7, 5, cap), cap + 7);
+    }
+
+    // Unlimited trust is a hundred million of the most credit a peer can
+    // earn at the default largest packet: no test runs out of room.
+    #[test]
+    fn unlimited_credit_dwarfs_any_earned_credit() {
+        assert_eq!(UNLIMITED_CREDIT / credit_cap(P), 100_000_000);
     }
 
     #[test]

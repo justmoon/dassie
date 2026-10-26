@@ -204,15 +204,17 @@ impl PeeringHooks for Hooks<'_> {
         response: &mut Vec<u8>,
     ) -> Result<Agreed, RefusalReason> {
         let peer_name = name(peer).ok_or(RefusalReason::Unspecified)?;
+        let senior_credit = self.senior_credit;
         let active = self
             .scheme(scheme)
             .ok_or(RefusalReason::UnsupportedScheme)?;
         let ledger = active.scheme.ledger();
-        let hub = active.over_hub;
+        let unlimited = active.unlimited;
         // We accept, so we are the senior: the requester gets our credit
         // only once the peering earned it (spec/decisions/earned-trust.md).
-        // Over a hub the hold is all the credit there is.
-        let start = if hub { 0 } else { self.senior_credit };
+        // Over a hub the hold is all the credit there is; with unlimited
+        // trust, it starts at the unlimited credit.
+        let start = active.start_credit(senior_credit);
         let credit_out = self.credit_for(peer, ledger, start);
         // A downlink's accounts open once value moves with it, and only if
         // they fit then: the room for them is kept from now on, while its
@@ -234,6 +236,17 @@ impl PeeringHooks for Hooks<'_> {
             self.open(now_ms, peer, ledger, start)
                 .map_err(|()| RefusalReason::Capacity)?;
         }
+        // With unlimited trust, a trust account from an earlier peering on
+        // another kind of stub is raised to it: a peer on it is never asked
+        // to settle, so its room must never run out.
+        let credit_out =
+            if unlimited && credit_out < start && has_accounts(self.ledger, ledger, peer_name) {
+                self.raise(now_ms, peer, ledger, start - credit_out)
+                    .map_err(|()| RefusalReason::Capacity)?;
+                start
+            } else {
+                credit_out
+            };
         // Only now is the peering made: a request refused takes none of
         // the scheme's room.
         let active = self
@@ -254,13 +267,16 @@ impl PeeringHooks for Hooks<'_> {
         ended_for_room: bool,
     ) -> Result<Agreed, Declined> {
         let peer_name = name(peer).ok_or(Declined)?;
+        let default = self.credit;
         let active = self.scheme(scheme).ok_or(Declined)?;
         let ledger = active.scheme.ledger();
         // Our request was accepted, so we are the junior, and extend the
         // default credit line (spec/decisions/earned-trust.md). Over a hub
-        // the hold is all the credit there is.
+        // the hold is all the credit there is; with unlimited trust, it is
+        // the unlimited credit.
         let hub = active.over_hub;
-        let start = if hub { 0 } else { self.credit };
+        let unlimited = active.unlimited;
+        let start = active.start_credit(default);
         let credit_out = self.credit_for(peer, ledger, start);
         let active = self.scheme(scheme).ok_or(Declined)?;
         let state = active
@@ -273,10 +289,11 @@ impl PeeringHooks for Hooks<'_> {
         // A trust account from an earlier peering may hold less, from a
         // time we were the senior: a junior extends at least the default,
         // unless we ended a peering with it for room, which keeps what it
-        // had (spec/decisions/ended-for-room.md).
+        // had (spec/decisions/ended-for-room.md). Unlimited trust is raised
+        // even then: a peer on it is never asked to settle.
         let credit_out = if hub {
             0
-        } else if credit_out < start && !ended_for_room {
+        } else if credit_out < start && (!ended_for_room || unlimited) {
             self.raise(now_ms, peer, ledger, start - credit_out)
                 .map_err(|()| Declined)?;
             start

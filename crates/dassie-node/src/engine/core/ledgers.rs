@@ -27,6 +27,9 @@ pub(super) struct ActiveScheme {
     /// Whether its peerings are over a settlement hub: it signs and takes
     /// promises per packet ([`SettlementScheme::commitments`]).
     pub over_hub: bool,
+    /// Whether its peers trust each other without limit
+    /// ([`SettlementScheme::unlimited_trust`]).
+    pub unlimited: bool,
     /// Why its peg guard paused it, as the owner was last told.
     pub paused: Option<PegPause>,
     /// Whether it converted when the prices were last built
@@ -41,6 +44,20 @@ impl ActiveScheme {
     /// longer tell a token off its peg (spec/decisions/issued-assets.md).
     pub fn converts_now(&self) -> bool {
         self.scheme.converts() && (self.failed.is_none() || self.scheme.peg().is_none())
+    }
+
+    /// The credit the node extends at first to a peer on it, given the
+    /// `default` for the peer's role: nothing over a hub, whose hold is all
+    /// the credit there is; [`UNLIMITED_CREDIT`](dassie_settlement::policy::UNLIMITED_CREDIT)
+    /// with unlimited trust (spec/areas/settlement.md#the-stub-scheme).
+    pub fn start_credit(&self, default: u64) -> u64 {
+        if self.over_hub {
+            0
+        } else if self.unlimited {
+            dassie_settlement::policy::UNLIMITED_CREDIT
+        } else {
+            default
+        }
     }
 }
 
@@ -191,6 +208,11 @@ impl Core {
     ) -> Result<LedgerId, EngineError> {
         let (mut scheme, asset) = self.make_scheme(id, &config, checkpoint.as_ref())?;
         let over_hub = scheme.commitments().is_some();
+        let unlimited = scheme.unlimited_trust();
+        assert!(
+            !(over_hub && unlimited),
+            "a scheme over a hub trusts no further than its holds"
+        );
         let converts = scheme.converts();
         let ledger = scheme.ledger();
         if let Err(error) = self.open_ledger(id, scheme.as_ref(), checkpoint.as_ref()) {
@@ -210,6 +232,7 @@ impl Core {
                 version: 0,
                 failed: None,
                 over_hub,
+                unlimited,
                 // A guard paused before a restart is told again.
                 paused: None,
                 converts,

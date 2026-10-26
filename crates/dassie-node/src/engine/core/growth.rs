@@ -74,10 +74,11 @@ impl Core {
         };
         // Over a hub the hold is the credit, and it grows only by the
         // payer's funding (spec/designs/settlement-hubs.md#4-peering-over-a-hub).
+        // Unlimited trust never grows.
         let ledgers: BTreeSet<LedgerId> = self
             .schemes
             .values()
-            .filter(|active| !active.over_hub)
+            .filter(|active| !active.over_hub && !active.unlimited)
             .map(|active| active.scheme.ledger())
             .collect();
         let mut earned: BTreeMap<AccountId, u128> = BTreeMap::new();
