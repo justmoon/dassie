@@ -157,17 +157,23 @@ impl Core {
                 self.report(SettlementEvent::Disabled { scheme: id });
                 continue;
             }
-            let ledger = super::SCHEMES
+            // A scheme this version does not know stops the start: the
+            // database is not one this version can run, and a release that
+            // cannot start is rolled back (spec/areas/release.md).
+            let Some(ledger) = super::SCHEMES
                 .iter()
                 .find(|info| info.id == id.as_str())
-                .map(|info| info.ledger);
-            if ledger.is_some_and(|ledger| ledger.realm() != super::ledger_realm(self.realm)) {
+                .map(|info| info.ledger)
+            else {
+                return Err(format!("settlement scheme {id}: unknown to this version"));
+            };
+            if ledger.realm() != super::ledger_realm(self.realm) {
                 self.report(SettlementEvent::OtherRealm { scheme: id });
                 continue;
             }
             let checkpoint = self.checkpoints.get(&id).cloned();
-            // Made before anything of it is opened: one whose config or state
-            // no longer makes a scheme leaves nothing behind.
+            // Made before anything of it is opened: a known scheme whose
+            // config or state no longer makes one leaves nothing behind.
             let made = match self.make_scheme(id, &config, checkpoint.as_ref()) {
                 Ok(made) => made,
                 Err(EngineError::Invalid(reason)) => {
