@@ -2359,7 +2359,8 @@ section.sec {
     padding: 10px 20px 0;
   }
   .site-hero h2 {
-    font-size: 44px;
+    /* Narrow phones shrink it, so "Any currency." fits on its line. */
+    font-size: clamp(36px, 11vw, 44px);
   }
   .site-hero .art {
     width: 300px;
