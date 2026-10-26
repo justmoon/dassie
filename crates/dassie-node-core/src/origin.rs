@@ -1,9 +1,9 @@
 //! The same-origin rule for the owner's endpoints.
 //!
-//! `SameSite=Strict` cookies alone are not enough (spec/areas/http.md#same-origin-rule):
-//! a request to those endpoints must carry an `Origin` that is exactly
-//! `https://` plus its `Host`, so only pages served by the node itself can
-//! use them.
+//! `SameSite=Strict` cookies alone are not enough
+//! (spec/areas/http.md#same-origin-rule): a request to those endpoints must
+//! carry an `Origin` that is exactly `https://` plus its `Host`, so only pages
+//! served by the node itself can use them.
 //!
 //! That alone would let a DNS-rebinding page through: an attacker's name
 //! that resolves to the node gives a matching `Origin` and `Host`. So the

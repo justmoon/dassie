@@ -208,8 +208,8 @@ impl PeerNode {
         self.recompute_majority();
     }
 
-    /// The majority: nodes on more than half of the configured lists
-    ///. Lists not fetched for a day no longer vote; nodes leave
+    /// The majority: nodes on more than half of the configured lists.
+    /// Lists not fetched for a day no longer vote; nodes leave
     /// the majority only while more than half of the lists are fresh, so
     /// bootstrap nodes going down do not empty every table
     /// (spec/decisions/membership-economics.md).

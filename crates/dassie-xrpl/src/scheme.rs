@@ -27,8 +27,8 @@
 //! reserve; any difference (a reserve change, a balance below the reserve)
 //! is reconciled through `equity/suspense`, the part a change of the
 //! reserve explains as the reserve's. The reserve itself is never booked,
-//! so it is never spent. Settlements are whole drops
-//!, failures are checked, and an account created by a
+//! so it is never spent. Settlements are whole drops,
+//! failures are checked, and an account created by a
 //! payment is a deposit like any other.
 //!
 //! It settles only on its account's network, which the account checks

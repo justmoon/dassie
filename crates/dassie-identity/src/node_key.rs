@@ -20,8 +20,8 @@ const PKCS8_PREFIX: [u8; 16] = [
 
 /// `SubjectPublicKeyInfo` for an Ed25519 public key (RFC 8410 §4), up to the
 /// key: algorithm 1.3.101.112 and a BIT STRING of 33 bytes, the first being
-/// the count of unused bits (zero), which a key of 33 bytes starting with a
-/// stray `00` would leave out.
+/// the count of unused bits (zero). A prefix without that byte would read
+/// the key as 33 bytes starting with a stray `00`.
 const SPKI_PREFIX: [u8; 12] = [
     0x30, 0x2a, 0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x70, 0x03, 0x21, 0x00,
 ];

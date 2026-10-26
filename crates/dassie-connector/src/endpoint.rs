@@ -153,8 +153,8 @@ impl Endpoints {
         self.by_id.remove(&id)
     }
 
-    /// The child whose address is a whole-segment prefix of `destination`
-    ///. Children's addresses never nest, so at most one fits. A
+    /// The child whose address is a whole-segment prefix of `destination`.
+    /// Children's addresses never nest, so at most one fits. A
     /// downlink whose peering is ending takes no new Prepare.
     pub fn route_child(&self, destination: Address<'_>) -> Option<EndpointId> {
         self.by_id

@@ -1,7 +1,8 @@
 //! A bounded token-bucket table for login and setup attempts.
 //!
-//! The login secret is 256 bits, so guessing is hopeless anyway; the limit is there so
-//! that one client cannot make the node do work as fast as it can send.
+//! The login secret is 256 bits, so guessing is hopeless anyway; the limit is
+//! there so that one client cannot make the node do work as fast as it can
+//! send.
 //!
 //! Each client (an IPv4 address, or an IPv6 /56) has a bucket of its own.
 //! There is deliberately no bucket shared by all clients: a handful of

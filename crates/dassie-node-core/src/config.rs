@@ -1,8 +1,8 @@
 //! The node's configuration, as validated values.
 //!
-//! Each value is checked when it is made, so no unvalidated hostname or
-//! port is ever stored, and nothing derived is stored, so no URL goes stale
-//! when the hostname changes: URLs are computed from the current values every time
+//! Each value is checked when it is made, so no unvalidated hostname or port is
+//! ever stored, and nothing derived is stored, so no URL goes stale when the
+//! hostname changes: URLs are computed from the current values every time
 //! ([`crate::urls`]).
 
 use alloc::string::{String, ToString};

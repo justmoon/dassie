@@ -236,8 +236,8 @@ fn only_a_registrar_takes_name_messages() {
 
 // spec/decisions/membership-economics.md: registrations lapse without renewal
 // and leave the served list, so the node loses its majority place, and leaves
-// the table of every node that is not its peer after the grace period
-//. Peers keep it until liveness ends the peering (M4b).
+// the table of every node that is not its peer after the grace period.
+// Peers keep it until liveness ends the peering.
 #[test]
 fn registrations_expire_and_nodes_leave() {
     let mut network = Network::new(4, 6, 1, Config::DEV);

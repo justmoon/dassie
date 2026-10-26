@@ -56,8 +56,8 @@ const UNLIMITED: &[u8] = b"unlimited trust";
 /// The stub scheme. Its "underlying ledger" is a number, which the node's
 /// checkpoint keeps across restarts.
 ///
-/// **Test realm only:** a peer's settlement claim is believed as stated
-///. Anyone peered over the stub can mint credit, which is why it
+/// **Test realm only:** a peer's settlement claim is believed as stated.
+/// Anyone peered over the stub can mint credit, which is why it
 /// only ever holds test money.
 ///
 /// **With commitments,** for tests of the packet path over a settlement hub

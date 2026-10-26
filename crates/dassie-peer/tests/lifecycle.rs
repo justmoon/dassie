@@ -255,8 +255,8 @@ fn refused_settlement(status: Option<u16>, tries: usize) {
     assert_eq!((network.applied[0].from, network.applied[0].amount), (a, 5));
 }
 
-// An owner's termination ends a peering on both sides, and the pair does not peer again
-// during the cooldown. It begins privately
+// An owner's termination ends a peering on both sides, and the pair does not
+// peer again during the cooldown. It begins privately
 // (spec/decisions/ending-a-peering.md): the peer is still advertised, until
 // the node collected and tells it.
 #[test]
