@@ -29,13 +29,8 @@ setup xrp xrpl-testnet
 setup dsusd xrpl-testnet-dsusd
 
 umask 077
-# The targets: one in the form every release reads, so that a boot that
-# brings these scripts before the release that reads `targets` still runs;
-# several as `targets`. This script comes from `main` at every boot, but
-# startup.sh comes from the instance metadata, so an older startup.sh may
-# have written only MM_TARGET_URL: that is then the one target.
 jq -n \
-  --arg targets "${MM_TARGETS:-${MM_TARGET_URL:?}}" \
+  --arg targets "${MM_TARGETS:?}" \
   --arg server "$xrpl_server" \
   --arg issuer "$dsusd_issuer" \
   --arg dir "$dir" \
@@ -47,9 +42,8 @@ jq -n \
   --argjson dsusdHigh "${MM_DSUSD_BAND_HIGH:?}" \
   --argjson marginPpm "${MM_MARGIN_PPM:?}" \
   --argjson slippagePpm "${MM_SLIPPAGE_PPM:?}" \
-  '($targets | split(",")) as $urls
-  | (if ($urls | length) == 1 then { target: { url: $urls[0] } } else { targets: $urls } end)
-  + {
+  '{
+    targets: ($targets | split(",")),
     xrpl: { server: $server, token: { currency: "DSUSD", issuer: $issuer } },
     xrp: {
       socket: "/run/dassie-mm-xrp/dassie.sock",

@@ -144,7 +144,7 @@ test("a market maker trades through each of two core nodes", {
     const file = await writeConfig(
       scenario,
       dir,
-      { targets: [d1.url, d2.url] },
+      [d1.url, d2.url],
       d3,
       d4,
     );

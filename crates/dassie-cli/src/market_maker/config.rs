@@ -23,9 +23,7 @@
 //!
 //! `targets` lists the core nodes to trade through, at least one and at
 //! most [`MAX_TARGETS`], each once: a URL, or `{ url, feedPort }` for a
-//! target whose `GET /stats` names no feed port. The form of the release
-//! before, `"target": { url, feedPort }`, still reads, as a list of one.
-//! Amounts are in the nodes' ledger units (scale 9). `caFile` adds roots
+//! target whose `GET /stats` names no feed port. Amounts are in the nodes' ledger units (scale 9). `caFile` adds roots
 //! to trust the targets by, and `allowPrivate` lets the targets and the
 //! XRPL server be on private addresses, and the server on `ws://`: both for
 //! dev and tests. Every problem is a [`ConfigError`]; nothing here panics
@@ -170,7 +168,6 @@ pub fn parse(text: &str) -> Result<Config, ConfigError> {
         "",
         &[
             "targets",
-            "target",
             "xrpl",
             "xrp",
             "token",
@@ -300,35 +297,27 @@ impl<'a> Fields<'a> {
     }
 }
 
-/// The targets: the list `targets`, or the one `target` of the release
-/// before as a list of one, but not both.
+/// The targets: the list `targets`.
 fn targets(root: &Fields<'_>) -> Result<Vec<Target>, ConfigError> {
-    let list = match (root.get("targets"), root.get("target")) {
-        (Some(_), Some(_)) => return Err(root.invalid("targets")),
-        (None, None) => return Err(ConfigError::Missing("targets".into())),
-        (None, Some(_)) => vec![target(&root.object("target", &["url", "feedPort"])?)?],
-        (Some(value), None) => {
-            let entries = value
-                .as_array()
-                .filter(|entries| !entries.is_empty() && entries.len() <= MAX_TARGETS)
-                .ok_or_else(|| root.invalid("targets"))?;
-            let mut list = Vec::with_capacity(entries.len());
-            for (index, entry) in entries.iter().enumerate() {
-                let path = format!("targets[{index}]");
-                // A bare URL is a target that names nothing else.
-                let wrapped = entry
-                    .is_string()
-                    .then(|| serde_json::json!({ "url": entry }));
-                let fields = Fields::of(
-                    wrapped.as_ref().unwrap_or(entry),
-                    &path,
-                    &["url", "feedPort"],
-                )?;
-                list.push(target(&fields)?);
-            }
-            list
-        }
-    };
+    let entries = root
+        .need("targets")?
+        .as_array()
+        .filter(|entries| !entries.is_empty() && entries.len() <= MAX_TARGETS)
+        .ok_or_else(|| root.invalid("targets"))?;
+    let mut list = Vec::with_capacity(entries.len());
+    for (index, entry) in entries.iter().enumerate() {
+        let path = format!("targets[{index}]");
+        // A bare URL is a target that names nothing else.
+        let wrapped = entry
+            .is_string()
+            .then(|| serde_json::json!({ "url": entry }));
+        let fields = Fields::of(
+            wrapped.as_ref().unwrap_or(entry),
+            &path,
+            &["url", "feedPort"],
+        )?;
+        list.push(target(&fields)?);
+    }
     // Each once: one host and port twice would subscribe to one feed twice,
     // and pin one uplink twice.
     for (index, target) in list.iter().enumerate() {
@@ -562,34 +551,6 @@ mod tests {
     }
 
     #[test]
-    fn the_one_target_of_the_release_before_still_reads() {
-        let one = |v: &mut Value| {
-            v.as_object_mut().unwrap().remove("targets");
-            v["target"] = json!({ "url": "https://node.example/", "feedPort": 7768 });
-        };
-        let config = with(one).unwrap();
-        let [target] = config.targets.as_slice() else {
-            panic!("one target");
-        };
-        assert_eq!(
-            (target.url.as_str(), target.feed_port),
-            ("https://node.example", Some(7768))
-        );
-        assert_eq!(
-            with(|v| {
-                one(v);
-                v["target"]["url"] = json!("http://node.example");
-            }),
-            Err(ConfigError::Invalid("target.url".into()))
-        );
-        // Not both forms.
-        assert_eq!(
-            with(|v| v["target"] = json!({ "url": "https://b.example" })),
-            Err(ConfigError::Invalid("targets".into()))
-        );
-    }
-
-    #[test]
     fn the_targets_are_checked() {
         let invalid = |field: &str| Err(ConfigError::Invalid(field.into()));
         let targets = |list: Value| with(|v| v["targets"] = list);
@@ -598,6 +559,14 @@ mod tests {
                 v.as_object_mut().unwrap().remove("targets");
             }),
             Err(ConfigError::Missing("targets".into()))
+        );
+        // `targets` is the only form, however many there are.
+        assert_eq!(
+            with(|v| {
+                v.as_object_mut().unwrap().remove("targets");
+                v["target"] = json!({ "url": "https://node.example" });
+            }),
+            Err(ConfigError::Unknown("target".into()))
         );
         assert_eq!(targets(json!([])), invalid("targets"));
         assert_eq!(targets(json!("https://a.example")), invalid("targets"));
