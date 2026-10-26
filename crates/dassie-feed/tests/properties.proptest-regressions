@@ -1,8 +1,0 @@
-# Seeds for failure cases proptest has generated in the past. It is
-# automatically read and these particular cases re-run before any
-# novel cases are generated.
-#
-# It is recommended to check this file in to source control so that
-# everyone who runs the test benefits from these saved cases.
-cc b2d6a87ec06934ff5857e678d073000de42ffadfa3f464f8e92bbcc7bc8d22ee # shrinks to edits = [(Index(0), 0, 0)]
-cc b2d6a87ec06934ff5857e678d073000de42ffadfa3f464f8e92bbcc7bc8d22ee # shrinks to feed = Feed { node_id: NodeId("dC9qJm6fSaBQxDG8iXBS8PGNudX861aw1"), public_key: [3, 161, 7, 191, 243, 206, 16, 190, 29, 112, 221, 24, 231, 75, 192, 153, 103, 228, 214, 48, 155, 165, 13, 95, 29, 220, 134, 100, 18, 85, 49, 184], sequence_ms: 7316025747447675411, valid_until_ms: 8134340077594918092, fee_ppm: 839525, ledgers: [Ledger { id: "xrpl-testnet-xrp+xrp", max_packet_amount: 15103253918571767823 }, Ledger { id: "xrpl-testnet-rlusd+usd", max_packet_amount: 11759763763433984030 }], rates: [] }
