@@ -55,6 +55,7 @@ Each file records one choice between real alternatives: the facts that forced it
 | [periphery-lists-no-neighbors](periphery-lists-no-neighbors.md) | A periphery node's link state lists no neighbors, so it may keep many uplinks | network, peer-protocol, connector |
 | [places-by-proved-key](places-by-proved-key.md) | A connection holds a place by the key it proved | peer-protocol, network, designs/periphery |
 | [promotion-to-core](promotion-to-core.md) | A node becomes core by registering and being promoted (not built) | network, peer-protocol, designs/periphery |
+| [public-domains](public-domains.md) | Payment names live under dassiepay.net, memo types and the mirror under dassie.land | payments, http, xrpl, release, overview |
 | [quic-only](quic-only.md) | The peer protocol and the hubs' messages travel over QUIC only | peer-protocol, node, network, designs/periphery, release |
 | [quic-over-websocket](quic-over-websocket.md) | Where UDP is blocked, a periphery node carries its QUIC packets over a WebSocket, to its uplinks and to a front door as its relay | peer-protocol, http, network, designs/periphery |
 | [random-seed-simulations](random-seed-simulations.md) | Simulations run continuously, from random seeds (partly built) | testing |
