@@ -36,7 +36,7 @@ A debits-≤-credits limit counts the account's posted and pending debits agains
 
 Each ledger has one pool of owner funds, `equity/owner`. Every endpoint that spends for the owner gets a sub-account under it: one per BTP token, and one for the payer ([Payments](payments.md)). The node's STREAM receivers credit `equity/owner` itself.
 
-**The owner's own endpoints never convert.** A packet from a BTP token, the payer or a receiver goes out only on its own ledger, and one whose first hop is on another ledger is refused ([Connector](connector.md#routing)). The owner pays from the ledger the route starts on, and the first hop that charges for a conversion converts; that keeps the FX accounts inside the owner's group coherent ([owner-ledger](../decisions/owner-ledger.md)).
+**The owner's own endpoints never convert.** A packet from a BTP token, the payer or a receiver goes out only on its own ledger: its next hop is drawn among the route's options on that ledger, and one whose route has none there is refused ([Connector](connector.md#routing)). The owner pays from the ledger the route starts on, and the first hop that charges for a conversion converts; that keeps the FX accounts inside the owner's group coherent ([owner-ledger](../decisions/owner-ledger.md)).
 
 - A BTP client paying the node's own receiver moves money within the group: the total is unchanged, and the journal still has a transfer per packet.
 - A packet from a peer on another ledger into the node's receiver converts at the node's rates: the receiver's account shows what arrived, `expenses/fx` takes it back out on that ledger, and `revenue/fx` keeps it on the ledger it came from.

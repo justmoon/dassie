@@ -56,9 +56,12 @@ pub struct Harness {
     pub owner: AccountId,
     /// What the ledger journaled, as the node persists it.
     pub journal: Vec<JournalEntry>,
-    /// The number the next Prepare's next hop is drawn with: 0, which
-    /// takes a route's first usable option, unless a test or the
-    /// simulation sets it (spec/decisions/weighted-next-hops.md).
+    /// The number the next Prepare's next hop is drawn with, unless a test
+    /// or the simulation sets it (spec/decisions/weighted-next-hops.md).
+    /// 0 takes a route's first usable option on the packet's incoming
+    /// ledger, or its first usable one when none is on that ledger; with an
+    /// exploring share above 0, as by default, a draw of 0 explores, so
+    /// earnings never change what it takes.
     pub draw: u64,
 }
 

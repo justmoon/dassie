@@ -4,9 +4,11 @@
 //! rejected at once.
 //!
 //! The harness draws every next hop with 0, which takes a route's first
-//! usable option while no option has earned anything: these tests are about
-//! which options are usable. How a hop is drawn among them is in
-//! `next_hops.rs` (spec/decisions/weighted-next-hops.md).
+//! usable option on the packet's incoming ledger (or its first usable one
+//! when none is on that ledger) and, with the default exploring share,
+//! ignores earnings: these tests are about which options are usable. How a
+//! hop is drawn among them is in `next_hops.rs`
+//! (spec/decisions/weighted-next-hops.md).
 
 #![allow(
     clippy::unwrap_used,
