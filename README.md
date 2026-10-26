@@ -48,7 +48,7 @@ A node without a hostname answers Open Payments at `https://<node ID>.dassiepay.
 
 **Peers.** Nodes find each other through bootstrap nodes: by default the testnet's, `boot1`–`boot4.dassie.xyz`. A node needs a hostname to take part; it then registers with them by itself, and peers with nodes that share one of its settlement schemes. The bootstrap nodes run `xrpl-testnet-xrp` and `xrpl-testnet-dsusd`.
 
-`DASSIE_BOOTSTRAP_NODES` replaces the list, as JSON: `[{"id": "d…", "url": "https://host:port", "publicKey": "<base64url>"}]`, or `[]` to run alone. Under systemd, set it in a drop-in, then `sudo systemctl daemon-reload && sudo systemctl restart dassie`; `dassie update` leaves drop-ins alone. Version 0.1.1 and earlier have no default list, so they join the testnet with this one:
+`DASSIE_BOOTSTRAP_NODES` replaces the list, as JSON: `[{"id": "<node ID>", "url": "https://host:port", "publicKey": "<base64url>"}]`, or `[]` to run alone. Under systemd, set it in a drop-in, then `sudo systemctl daemon-reload && sudo systemctl restart dassie`; `dassie update` leaves drop-ins alone. Version 0.1.1 and earlier have no default list, so they join the testnet with this one:
 
 ```ini
 # /etc/systemd/system/dassie.service.d/bootstrap.conf
@@ -56,7 +56,7 @@ A node without a hostname answers Open Payments at `https://<node ID>.dassiepay.
 Environment='DASSIE_BOOTSTRAP_NODES=[{"id":"br5l3hqpjhlt5znzb24hrxqme77d7q7crlqfhza","url":"https://boot1.dassie.xyz","publicKey":"w25V-7IreZNDCPvwCrpiIv9Li5uwomzPSvqHot9ffLI"},{"id":"cnayj52pxvacichpys3p4hsqnbxtliup3rkkz5i","url":"https://boot2.dassie.xyz","publicKey":"s9xgWff_UZ26HQwHT_aPd0q0SwyKPGXS74fd2xQjh14"},{"id":"wu3lfwpoqblye7pdjhcspl6whzcux6j4vnkkdfq","url":"https://boot3.dassie.xyz","publicKey":"--P-gYMJ_ZZrFHa4GiNfVQ0x2jSu9_dr7z0mI_bcngY"},{"id":"ywpqifdgvbalxycja2oiu4lg5ogogwpagqdtk7q","url":"https://boot4.dassie.xyz","publicKey":"qNW0ZwnIvaca6f54gIG-YFLQSefzC6JA4h3Oh1QJU6I"}]'
 ```
 
-A node without a hostname still peers, as a periphery node: it asks core nodes to be its uplinks and is reached through them. `DASSIE_UPLINKS` pins them, as node IDs separated by commas (`d…,d…`): the node then asks only those, and looks for as many uplinks as it names, which is what a market maker's nodes need to trade through one core node. A node with a hostname ignores it, and says so when it starts.
+A node without a hostname still peers, as a periphery node: it asks core nodes to be its uplinks and is reached through them. `DASSIE_UPLINKS` pins them, as node IDs separated by commas (`<node ID>,<node ID>`): the node then asks only those, and looks for as many uplinks as it names, which is what a market maker's nodes need to trade through one core node. A node with a hostname ignores it, and says so when it starts.
 
 `listNodes`, `listPeers`, `listRoutes` and `getRegistrationStatus` show what your node knows, and the wallet's network page shows the same.
 

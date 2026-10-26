@@ -81,7 +81,7 @@ To keep another front door instead, name it as the node's relay with the entry t
 ```sh
 systemctl edit dassie
 # [Service]
-# Environment='DASSIE_RELAY={"id":"d…","url":"https://relay.example.com","publicKey":"…"}'
+# Environment='DASSIE_RELAY={"id":"<node ID>","url":"https://relay.example.com","publicKey":"…"}'
 ```
 
 and list its name for the node: `DASSIE_PUBLIC_NAMES=<node ID>.<domain>` ([spec/areas/payments.md](../../spec/areas/payments.md#the-nodes-names)). That name is also what makes the node answer at `<name>.<domain>` for each name it holds; a node not named there answers 421 to them. A node keeps a relay it is told whether or not it has a hostname. `Environment=DASSIE_RELAY=` (empty) keeps no relay at all.

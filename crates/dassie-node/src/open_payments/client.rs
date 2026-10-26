@@ -670,17 +670,16 @@ mod tests {
     #[test]
     fn reads_hosts_at_the_default_front_door() {
         let id = NodeKey::from_bytes(&[3; 32]).node_id();
-        let label = id;
         let alice = Name::parse("alice").unwrap();
         for (url, host) in [
             (
-                format!("https://{label}.dassiepay.net/pay/usd"),
+                format!("https://{id}.dassiepay.net/pay/usd"),
                 FrontDoorHost::Id(id),
             ),
             (
                 format!(
                     "https://{}.DASSIEPAY.net:443",
-                    label.as_str().to_ascii_uppercase()
+                    id.as_str().to_ascii_uppercase()
                 ),
                 FrontDoorHost::Id(id),
             ),
@@ -719,7 +718,7 @@ mod tests {
                 FrontDoorHost::Name(alice),
             ),
             (
-                format!("https://{label}.dassiepay.net.:443/"),
+                format!("https://{id}.dassiepay.net.:443/"),
                 FrontDoorHost::Id(id),
             ),
             ("https://dassiepay.net./".into(), FrontDoorHost::Unknown),

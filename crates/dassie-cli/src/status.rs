@@ -819,7 +819,7 @@ mod tests {
             ],
             ..periphery()
         };
-        // A name it holds reaches it through the front door as its label
+        // A name it holds reaches it through the front door as its ID
         // does.
         assert_eq!(
             address(&basic, &node),
