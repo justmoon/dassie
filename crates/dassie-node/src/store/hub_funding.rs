@@ -5,7 +5,7 @@
 
 use rusqlite::{OptionalExtension, Transaction, params};
 
-use super::{Store, StoreError};
+use super::{Cached, Store, StoreError};
 
 /// The move on its way, as the database keeps it. Amounts are in drops.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -62,7 +62,7 @@ impl Store {
     pub fn hub_funding(&self) -> Result<(bool, HubFundingRow), StoreError> {
         let columns: Option<Columns> = self
             .lock()
-            .query_row(
+            .query_row_cached(
                 "SELECT automatic, paused_until_ms, move_kind, move_drops, move_target, \
                  move_payment, move_by_owner, move_sent_ms, move_applied_ms, \
                  given_up_kind, given_up_drops FROM hub_funding WHERE id = 1",
@@ -126,7 +126,7 @@ pub(super) fn write_hub_funding(
     funding: Option<&HubFundingRow>,
 ) -> Result<(), StoreError> {
     if let Some(automatic) = automatic {
-        transaction.execute(
+        transaction.execute_cached(
             "UPDATE hub_funding SET automatic = ?1 WHERE id = 1",
             [i64::from(automatic)],
         )?;
@@ -136,7 +136,7 @@ pub(super) fn write_hub_funding(
     };
     let signed = |value: u64| i64::try_from(value).unwrap_or(i64::MAX);
     let moving = funding.moving.as_ref();
-    transaction.execute(
+    transaction.execute_cached(
         "UPDATE hub_funding SET paused_until_ms = ?1, move_kind = ?2, move_drops = ?3, \
          move_target = ?4, move_payment = ?5, move_by_owner = ?6, move_sent_ms = ?7, \
          move_applied_ms = ?8, given_up_kind = ?9, given_up_drops = ?10 WHERE id = 1",

@@ -6,7 +6,7 @@
 use dassie_kit::ClientKey;
 use rusqlite::{OptionalExtension, Row, params};
 
-use super::{PaymentId, Store, StoreError, from_sql_time, to_sql_time};
+use super::{Cached, PaymentId, Store, StoreError, from_sql_time, to_sql_time};
 
 /// Most grants kept at once: past it, grant requests are refused until
 /// old ones are pruned.
@@ -131,7 +131,7 @@ impl Store {
     /// Whether the owner approved a grant of `client` that is still kept:
     /// a client on the owner's side (spec/decisions/owners-share.md).
     pub fn client_approved(&self, client: &str) -> Result<bool, StoreError> {
-        let approved: bool = self.lock().query_row(
+        let approved: bool = self.lock().query_row_cached(
             "SELECT EXISTS (SELECT 1 FROM gnap_grants \
              WHERE client = ?1 AND state = 'approved' AND needs_owner = 1)",
             [client],
@@ -164,7 +164,7 @@ impl Store {
         if let Err(refusal) = fits(&grant_counts(&transaction, &grant.client, network)?) {
             return Ok(Err(refusal));
         }
-        transaction.execute(
+        transaction.execute_cached(
             &format!(
                 "INSERT INTO gnap_grants ({GRANT_COLUMNS}, network, revision) \
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, {NEXT_REVISION})"
@@ -204,7 +204,7 @@ impl Store {
             .collect::<Vec<_>>()
             .join(", ");
         connection
-            .query_row(
+            .query_row_cached(
                 &format!(
                     "SELECT t.token_hash, t.grant_id, t.manage_id, t.created_at_ms, \
                      t.expires_at_ms, {columns} FROM gnap_tokens t \
@@ -227,7 +227,7 @@ impl Store {
     ) -> Result<Option<GrantRow>, StoreError> {
         let connection = self.lock();
         connection
-            .query_row(
+            .query_row_cached(
                 &format!(
                     "SELECT {GRANT_COLUMNS} FROM gnap_grants \
                      WHERE id = ?1 AND continue_token_hash = ?2"
@@ -253,7 +253,7 @@ impl Store {
             .collect::<Vec<_>>()
             .join(", ");
         connection
-            .query_row(
+            .query_row_cached(
                 &format!(
                     "SELECT t.token_hash, t.grant_id, t.manage_id, t.created_at_ms, \
                      t.expires_at_ms, {columns} FROM gnap_tokens t \
@@ -273,7 +273,7 @@ impl Store {
     pub fn rotate_token(&self, old_hash: &[u8; 32], new: &TokenRow) -> Result<bool, StoreError> {
         let mut connection = self.lock();
         let transaction = connection.transaction()?;
-        let removed = transaction.execute(
+        let removed = transaction.execute_cached(
             "DELETE FROM gnap_tokens WHERE token_hash = ?1",
             [old_hash.as_slice()],
         )?;
@@ -287,7 +287,7 @@ impl Store {
 
     /// Revokes a token; false if it was gone.
     pub fn revoke_token(&self, hash: &[u8; 32]) -> Result<bool, StoreError> {
-        let removed = self.lock().execute(
+        let removed = self.lock().execute_cached(
             "DELETE FROM gnap_tokens WHERE token_hash = ?1",
             [hash.as_slice()],
         )?;
@@ -298,11 +298,11 @@ impl Store {
     pub fn revoke_grant(&self, id: PaymentId, now_ms: u64) -> Result<(), StoreError> {
         let mut connection = self.lock();
         let transaction = connection.transaction()?;
-        transaction.execute(
+        transaction.execute_cached(
             "DELETE FROM gnap_tokens WHERE grant_id = ?1",
             [id.0.as_slice()],
         )?;
-        transaction.execute(
+        transaction.execute_cached(
             &format!(
                 "UPDATE gnap_grants SET state = 'revoked', \
                  decided_at_ms = coalesce(decided_at_ms, ?2), revision = {NEXT_REVISION} \
@@ -318,7 +318,7 @@ impl Store {
     pub fn grant(&self, id: PaymentId) -> Result<Option<GrantRow>, StoreError> {
         let connection = self.lock();
         connection
-            .query_row(
+            .query_row_cached(
                 &format!("SELECT {GRANT_COLUMNS} FROM gnap_grants WHERE id = ?1"),
                 [id.0.as_slice()],
                 read_grant,
@@ -336,7 +336,7 @@ impl Store {
         interaction: &str,
         at_ms: u64,
     ) -> Result<bool, StoreError> {
-        let changed = self.lock().execute(
+        let changed = self.lock().execute_cached(
             &format!(
                 "UPDATE gnap_grants SET state = ?2, interaction = ?3, decided_at_ms = ?4, \
                  revision = {NEXT_REVISION} WHERE id = ?1 AND state = 'pending'"
@@ -363,7 +363,7 @@ impl Store {
     ) -> Result<bool, StoreError> {
         let mut connection = self.lock();
         let transaction = connection.transaction()?;
-        let changed = transaction.execute(
+        let changed = transaction.execute_cached(
             &format!(
                 "UPDATE gnap_grants SET interaction = ?2, revision = {NEXT_REVISION} \
                  WHERE id = ?1 AND interaction IS ?3 AND state = ?4"
@@ -389,7 +389,7 @@ impl Store {
     /// most `limit`.
     pub fn consented_grants(&self, limit: u32) -> Result<Vec<GrantRow>, StoreError> {
         let connection = self.lock();
-        let mut statement = connection.prepare(&format!(
+        let mut statement = connection.prepare_cached(&format!(
             "SELECT {GRANT_COLUMNS} FROM gnap_grants \
              WHERE state = 'approved' AND needs_owner = 1 \
              ORDER BY decided_at_ms DESC, id LIMIT ?1"
@@ -412,14 +412,14 @@ impl Store {
         let rotatable = to_sql_time(now_ms.saturating_sub(ROTATABLE_MS));
         let mut connection = self.lock();
         let transaction = connection.transaction()?;
-        transaction.execute(
+        transaction.execute_cached(
             "DELETE FROM gnap_tokens WHERE expires_at_ms <= ?1 AND (expires_at_ms <= ?2 \
              OR NOT EXISTS (SELECT 1 FROM gnap_grants g \
                WHERE g.id = gnap_tokens.grant_id AND g.needs_owner = 1))",
             params![now, rotatable],
         )?;
         // A denied grant stays until its time, so its client learns why.
-        let removed = transaction.execute(
+        let removed = transaction.execute_cached(
             "DELETE FROM gnap_grants WHERE (state IN ('pending', 'denied') AND expires_at_ms <= ?1) \
              OR state = 'revoked' \
              OR (state = 'approved' AND coalesce(decided_at_ms, created_at_ms) <= ?2 \
@@ -427,7 +427,7 @@ impl Store {
             params![now, hour_ago],
         )?;
         // What grants that are gone spent, they no longer need.
-        transaction.execute(
+        transaction.execute_cached(
             "DELETE FROM grant_spend WHERE grant_id NOT IN (SELECT id FROM gnap_grants)",
             [],
         )?;
@@ -444,7 +444,7 @@ fn grant_counts(
     network: Option<ClientKey>,
 ) -> Result<GrantCounts, StoreError> {
     let network = network.map(|network| network.to_bytes().to_vec());
-    let counts = connection.query_row(
+    let counts = connection.query_row_cached(
         "SELECT count(*), \
            coalesce(sum(state = 'pending'), 0), \
            coalesce(sum(client = ?1), 0), \
@@ -492,7 +492,7 @@ fn insert_token(
     transaction: &rusqlite::Transaction<'_>,
     token: &TokenRow,
 ) -> Result<(), StoreError> {
-    transaction.execute(
+    transaction.execute_cached(
         "INSERT INTO gnap_tokens (token_hash, grant_id, manage_id, created_at_ms, expires_at_ms) \
          VALUES (?1, ?2, ?3, ?4, ?5)",
         params![

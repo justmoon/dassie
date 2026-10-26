@@ -12,7 +12,7 @@
 
 use rusqlite::{OptionalExtension, params};
 
-use super::{Store, StoreError, from_sql_time, to_sql_time};
+use super::{Cached, Store, StoreError, from_sql_time, to_sql_time};
 
 /// The largest consensus state stored: what the engine can hold above its
 /// last final block, its blocks' payloads included.
@@ -80,7 +80,7 @@ impl Store {
     pub fn hub(&self, hub: &[u8; 32]) -> Result<Option<StoredHub>, StoreError> {
         let row = self
             .lock()
-            .query_row(
+            .query_row_cached(
                 "SELECT c.state, s.height, s.state FROM hub_consensus c \
                  JOIN hub_states s ON s.hub = c.hub WHERE c.hub = ?1 \
                  ORDER BY s.height DESC LIMIT 1",
@@ -105,7 +105,7 @@ impl Store {
     pub fn hub_state(&self, hub: &[u8; 32], height: u64) -> Result<Option<Vec<u8>>, StoreError> {
         Ok(self
             .lock()
-            .query_row(
+            .query_row_cached(
                 "SELECT state FROM hub_states WHERE hub = ?1 AND height = ?2",
                 params![&hub[..], to_sql_time(height)],
                 |row| row.get(0),
@@ -137,26 +137,26 @@ impl Store {
         let mut connection = self.lock();
         let transaction = connection.transaction()?;
         if let Some(state) = step.consensus {
-            transaction.execute(
+            transaction.execute_cached(
                 "INSERT INTO hub_consensus (hub, updated_at_ms, state) VALUES (?1, ?2, ?3) \
                  ON CONFLICT (hub) DO UPDATE SET updated_at_ms = ?2, state = ?3",
                 params![&hub[..], to_sql_time(now_ms), state],
             )?;
         }
         if let Some((height, state)) = step.ledger {
-            transaction.execute(
+            transaction.execute_cached(
                 "INSERT INTO hub_states (hub, height, boundary, state) VALUES (?1, ?2, 0, ?3) \
                  ON CONFLICT (hub, height) DO UPDATE SET state = ?3",
                 params![&hub[..], to_sql_time(height), state],
             )?;
         }
         for height in step.boundaries {
-            transaction.execute(
+            transaction.execute_cached(
                 "UPDATE hub_states SET boundary = 1 WHERE hub = ?1 AND height = ?2",
                 params![&hub[..], to_sql_time(*height)],
             )?;
         }
-        transaction.execute(
+        transaction.execute_cached(
             "DELETE FROM hub_states WHERE hub = ?1 \
              AND height < (SELECT max(height) FROM hub_states WHERE hub = ?1) \
              AND height NOT IN (SELECT height FROM hub_states WHERE hub = ?1 \
@@ -173,7 +173,7 @@ impl Store {
     pub fn hub_escrow(&self, hub: &[u8; 32]) -> Result<Option<EscrowCursor>, StoreError> {
         let row = self
             .lock()
-            .query_row(
+            .query_row_cached(
                 "SELECT newest_ledger, newest_close_time, scanned_to FROM hub_escrow WHERE hub = ?1",
                 [&hub[..]],
                 |row| Ok((row.get::<_, u32>(0)?, row.get::<_, i64>(1)?, row.get(2)?)),
@@ -190,7 +190,7 @@ impl Store {
 
     /// Records how far the validator of `hub` followed its escrow.
     pub fn set_hub_escrow(&self, hub: &[u8; 32], cursor: &EscrowCursor) -> Result<(), StoreError> {
-        self.lock().execute(
+        self.lock().execute_cached(
             "INSERT INTO hub_escrow (hub, newest_ledger, newest_close_time, scanned_to) \
              VALUES (?1, ?2, ?3, ?4) ON CONFLICT (hub) DO UPDATE SET \
              newest_ledger = ?2, newest_close_time = ?3, scanned_to = ?4",
@@ -218,12 +218,12 @@ impl Store {
         }
         let mut connection = self.lock();
         let transaction = connection.transaction()?;
-        transaction.execute(
+        transaction.execute_cached(
             "INSERT INTO hub_bundles (hub, height, signed_at_ms, bundle) VALUES (?1, ?2, ?3, ?4) \
              ON CONFLICT (hub, height) DO UPDATE SET signed_at_ms = ?3, bundle = ?4",
             params![&hub[..], to_sql_time(height), to_sql_time(now_ms), bundle],
         )?;
-        transaction.execute(
+        transaction.execute_cached(
             "DELETE FROM hub_bundles WHERE hub = ?1 AND height NOT IN \
              (SELECT height FROM hub_bundles WHERE hub = ?1 ORDER BY height DESC LIMIT ?2)",
             params![&hub[..], KEPT_BUNDLES],
@@ -236,7 +236,7 @@ impl Store {
     /// the height each pays out from, and the bundle.
     pub fn hub_bundles(&self, hub: &[u8; 32]) -> Result<Vec<(u64, Vec<u8>)>, StoreError> {
         let connection = self.lock();
-        let mut statement = connection.prepare(
+        let mut statement = connection.prepare_cached(
             "SELECT height, bundle FROM hub_bundles WHERE hub = ?1 ORDER BY height DESC",
         )?;
         let rows = statement

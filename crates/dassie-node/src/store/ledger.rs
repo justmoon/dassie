@@ -12,7 +12,7 @@ use dassie_ledger::{
 };
 use rusqlite::{Connection, OptionalExtension, Row, Transaction, params};
 
-use super::{Store, StoreError, from_sql_time, to_sql_time};
+use super::{Cached, Store, StoreError, from_sql_time, to_sql_time};
 
 /// Everything one batch of the engine's work changed, persisted in one
 /// transaction.
@@ -176,7 +176,7 @@ impl Store {
     /// Counts this start and returns its number, the boot epoch that keeps
     /// packet references unique across restarts.
     pub fn next_boot_epoch(&self) -> Result<u64, StoreError> {
-        let epoch: i64 = self.lock().query_row(
+        let epoch: i64 = self.lock().query_row_cached(
             "UPDATE boot SET epoch = epoch + 1 RETURNING epoch",
             [],
             |row| row.get(0),
@@ -189,7 +189,7 @@ impl Store {
     pub fn load_ledger(&self) -> Result<StoredLedger, StoreError> {
         let connection = self.lock();
         check_totals(&connection)?;
-        let mut statement = connection.prepare(
+        let mut statement = connection.prepare_cached(
             "SELECT id, path, debits_posted, credits_posted FROM ledger_accounts ORDER BY id",
         )?;
         let accounts = statement
@@ -214,7 +214,7 @@ impl Store {
                 })
             })
             .collect::<Result<Vec<_>, StoreError>>()?;
-        let mut statement = connection.prepare(&format!(
+        let mut statement = connection.prepare_cached(&format!(
             "SELECT {TRANSFER_COLUMNS} FROM ledger_transfers t WHERE t.state = 'pending' ORDER BY t.id"
         ))?;
         let pending = statement
@@ -222,7 +222,8 @@ impl Store {
             .map(|row| row?.map(|(transfer, _, _)| transfer))
             .collect::<Result<Vec<_>, StoreError>>()?;
         let last: Option<i64> =
-            connection.query_row("SELECT max(id) FROM ledger_transfers", [], |row| row.get(0))?;
+            connection
+                .query_row_cached("SELECT max(id) FROM ledger_transfers", [], |row| row.get(0))?;
         let next_transfer = match last {
             Some(last) => amount(last)? + 1,
             None => 0,
@@ -239,7 +240,7 @@ impl Store {
     pub fn downlink_accounts(&self) -> Result<Vec<(LedgerId, Name)>, StoreError> {
         let connection = self.lock();
         let mut statement = connection
-            .prepare("SELECT ledger, node FROM downlink_accounts ORDER BY ledger, node")?;
+            .prepare_cached("SELECT ledger, node FROM downlink_accounts ORDER BY ledger, node")?;
         statement
             .query_map([], |row| {
                 Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
@@ -258,7 +259,7 @@ impl Store {
     pub fn settlement_schemes(&self) -> Result<Vec<(Name, String)>, StoreError> {
         let connection = self.lock();
         let mut statement =
-            connection.prepare("SELECT id, config FROM settlement_schemes ORDER BY id")?;
+            connection.prepare_cached("SELECT id, config FROM settlement_schemes ORDER BY id")?;
         statement
             .query_map([], |row| {
                 Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
@@ -273,8 +274,9 @@ impl Store {
     /// What the books last kept for each scheme.
     pub fn checkpoints(&self) -> Result<Vec<(Name, Checkpoint)>, StoreError> {
         let connection = self.lock();
-        let mut statement = connection
-            .prepare("SELECT scheme, balance, state FROM settlement_checkpoints ORDER BY scheme")?;
+        let mut statement = connection.prepare_cached(
+            "SELECT scheme, balance, state FROM settlement_checkpoints ORDER BY scheme",
+        )?;
         statement
             .query_map([], |row| {
                 Ok((
@@ -300,8 +302,8 @@ impl Store {
     /// and its state.
     pub fn asset_checkpoints(&self) -> Result<Vec<(String, Vec<u8>)>, StoreError> {
         let connection = self.lock();
-        let mut statement =
-            connection.prepare("SELECT asset, state FROM asset_checkpoints ORDER BY asset")?;
+        let mut statement = connection
+            .prepare_cached("SELECT asset, state FROM asset_checkpoints ORDER BY asset")?;
         statement
             .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
             .map(|row| Ok(row?))
@@ -311,7 +313,7 @@ impl Store {
     /// Every BTP token, revoked ones too, by ID.
     pub fn btp_tokens(&self) -> Result<Vec<BtpTokenRow>, StoreError> {
         let connection = self.lock();
-        let mut statement = connection.prepare(
+        let mut statement = connection.prepare_cached(
             "SELECT id, token_hash, label, ledger, created_at_ms, revoked_at_ms, cap_amount, \
              cap_window_ms, cap_used_amount, cap_used_remainder, cap_as_of_ms \
              FROM btp_tokens ORDER BY id",
@@ -357,7 +359,7 @@ impl Store {
             write_entry(&transaction, entry)?;
         }
         for (ledger, node) in &batch.downlink_accounts {
-            transaction.execute(
+            transaction.execute_cached(
                 "INSERT INTO downlink_accounts (ledger, node) VALUES (?1, ?2)",
                 params![ledger.as_str(), node.as_str()],
             )?;
@@ -423,16 +425,20 @@ impl Store {
     ) -> Result<Vec<FeeRow>, StoreError> {
         let after = i64::try_from(after).unwrap_or(i64::MAX);
         let connection = self.lock();
-        let mut statement = connection.prepare(
+        // The limit is written into the statement rather than bound: SQLite
+        // plans a statement again on its next step after a LIMIT is bound,
+        // even to the same value, and a node reads its fees at every
+        // settlement check.
+        let mut statement = connection.prepare_cached(&format!(
             "SELECT f.sequence, f.debit, o.credit, f.amount FROM ledger_transfers f \
              LEFT JOIN ledger_transfers o ON o.packet_epoch = f.packet_epoch \
                AND o.packet_sequence = f.packet_sequence AND o.debit = f.debit AND o.id != f.id \
              WHERE f.credit = ?1 AND f.sequence > ?2 AND f.reference = 'packet' \
                AND f.state = 'posted' \
-             ORDER BY f.sequence LIMIT ?3",
-        )?;
+             ORDER BY f.sequence LIMIT {limit}",
+        ))?;
         statement
-            .query_map(params![fees.0, after, limit], |row| {
+            .query_map(params![fees.0, after], |row| {
                 Ok((
                     row.get::<_, i64>(0)?,
                     row.get::<_, i64>(1)?,
@@ -460,7 +466,7 @@ impl Store {
     /// The sequence of the last trust transfer: credit extended, or raised.
     pub fn last_trust_sequence(&self) -> Result<Option<u64>, StoreError> {
         let connection = self.lock();
-        let last: Option<i64> = connection.query_row(
+        let last: Option<i64> = connection.query_row_cached(
             "SELECT max(sequence) FROM ledger_transfers WHERE reference = 'trust'",
             [],
             |row| row.get(0),
@@ -498,7 +504,7 @@ impl Store {
         account: Option<AccountId>,
     ) -> Result<Vec<JournalRow>, StoreError> {
         let connection = self.lock();
-        let mut statement = connection.prepare(&format!(
+        let mut statement = connection.prepare_cached(&format!(
             "SELECT {TRANSFER_COLUMNS}, d.path, c.path FROM ledger_transfers t \
              JOIN ledger_accounts d ON d.id = t.debit JOIN ledger_accounts c ON c.id = t.credit \
              WHERE {filter} ORDER BY t.sequence {order} LIMIT ?2"
@@ -616,7 +622,7 @@ fn read_transfer(row: &Row<'_>) -> rusqlite::Result<TransferRow> {
 fn write_entry(transaction: &Transaction<'_>, entry: &JournalEntry) -> Result<(), StoreError> {
     match *entry {
         JournalEntry::AccountOpened { id, path } => {
-            transaction.execute(
+            transaction.execute_cached(
                 "INSERT INTO ledger_accounts (id, path) VALUES (?1, ?2)",
                 params![id.0, path.to_string()],
             )?;
@@ -631,7 +637,7 @@ fn write_entry(transaction: &Transaction<'_>, entry: &JournalEntry) -> Result<()
             state: TransferState::Posted,
             at_ms,
         } => {
-            let updated = transaction.execute(
+            let updated = transaction.execute_cached(
                 "UPDATE ledger_transfers SET state = 'posted', resolved_at_ms = ?2, \
                  sequence = (SELECT max(sequence) + 1 FROM ledger_transfers) \
                  WHERE id = ?1 AND state = 'pending'",
@@ -641,11 +647,11 @@ fn write_entry(transaction: &Transaction<'_>, entry: &JournalEntry) -> Result<()
                 insert_transfer(transaction, &transfer, "posted", Some(at_ms))?;
             }
             let value = sql_amount(transfer.amount)?;
-            transaction.execute(
+            transaction.execute_cached(
                 "UPDATE ledger_accounts SET debits_posted = debits_posted + ?2 WHERE id = ?1",
                 params![transfer.debit.0, value],
             )?;
-            transaction.execute(
+            transaction.execute_cached(
                 "UPDATE ledger_accounts SET credits_posted = credits_posted + ?2 WHERE id = ?1",
                 params![transfer.credit.0, value],
             )?;
@@ -655,7 +661,7 @@ fn write_entry(transaction: &Transaction<'_>, entry: &JournalEntry) -> Result<()
             state: TransferState::Voided,
             at_ms,
         } => {
-            let updated = transaction.execute(
+            let updated = transaction.execute_cached(
                 "UPDATE ledger_transfers SET state = 'voided', resolved_at_ms = ?2, \
                  sequence = (SELECT max(sequence) + 1 FROM ledger_transfers) \
                  WHERE id = ?1 AND state = 'pending'",
@@ -716,7 +722,7 @@ fn insert_transfer(
         Reference::Withdrawal => ("withdrawal", None, None, None, None),
         Reference::Reconciliation => ("reconciliation", None, None, None, None),
     };
-    transaction.execute(
+    transaction.execute_cached(
         "INSERT INTO ledger_transfers (id, debit, credit, amount, state, created_at_ms, \
          resolved_at_ms, reference, packet_epoch, packet_sequence, settlement_scheme, settlement_id, \
          sequence) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, \
@@ -744,20 +750,20 @@ fn write_settlement(transaction: &Transaction<'_>, batch: &LedgerBatch) -> Resul
     // Removals first: a scheme removed and added again in one batch ends up
     // added. (One added and then removed is not in `schemes_added`.)
     for id in &batch.schemes_removed {
-        transaction.execute(
+        transaction.execute_cached(
             "DELETE FROM settlement_schemes WHERE id = ?1",
             [id.as_str()],
         )?;
     }
     for (id, config) in &batch.schemes_added {
-        transaction.execute(
+        transaction.execute_cached(
             "INSERT INTO settlement_schemes (id, config, activated_at_ms) VALUES (?1, ?2, ?3)",
             params![id.as_str(), config, at],
         )?;
     }
     for (scheme, checkpoint) in &batch.checkpoints {
         let state = (!checkpoint.state.is_empty()).then_some(checkpoint.state.as_slice());
-        transaction.execute(
+        transaction.execute_cached(
             "INSERT INTO settlement_checkpoints (scheme, balance, updated_at_ms, state) \
              VALUES (?1, ?2, ?3, ?4) \
              ON CONFLICT (scheme) DO UPDATE SET balance = ?2, updated_at_ms = ?3, state = ?4",
@@ -765,7 +771,7 @@ fn write_settlement(transaction: &Transaction<'_>, batch: &LedgerBatch) -> Resul
         )?;
     }
     for (asset, state) in &batch.asset_checkpoints {
-        transaction.execute(
+        transaction.execute_cached(
             "INSERT INTO asset_checkpoints (asset, updated_at_ms, state) VALUES (?1, ?2, ?3) \
              ON CONFLICT (asset) DO UPDATE SET updated_at_ms = ?2, state = ?3",
             params![asset, at, state],
@@ -776,7 +782,7 @@ fn write_settlement(transaction: &Transaction<'_>, batch: &LedgerBatch) -> Resul
 
 fn write_tokens(transaction: &Transaction<'_>, batch: &LedgerBatch) -> Result<(), StoreError> {
     for token in &batch.tokens_created {
-        transaction.execute(
+        transaction.execute_cached(
             "INSERT INTO btp_tokens (id, token_hash, label, ledger, created_at_ms) \
              VALUES (?1, ?2, ?3, ?4, ?5)",
             params![
@@ -800,7 +806,7 @@ fn write_tokens(transaction: &Transaction<'_>, batch: &LedgerBatch) -> Result<()
         write_cap(transaction, cap)?;
     }
     for id in &batch.tokens_revoked {
-        transaction.execute(
+        transaction.execute_cached(
             "UPDATE btp_tokens SET revoked_at_ms = ?2 WHERE id = ?1 AND revoked_at_ms IS NULL",
             params![sql_amount(*id)?, to_sql_time(batch.at_ms)],
         )?;
@@ -825,7 +831,7 @@ fn write_cap(transaction: &Transaction<'_>, cap: &TokenCap) -> Result<(), StoreE
         }
         None => (None, None, 0, 0),
     };
-    transaction.execute(
+    transaction.execute_cached(
         "UPDATE btp_tokens SET cap_amount = ?2, cap_window_ms = ?3, cap_used_amount = ?4, \
          cap_used_remainder = ?5, cap_as_of_ms = ?6 WHERE id = ?1",
         params![
@@ -879,7 +885,7 @@ fn read_cap(row: &Row<'_>, at: usize) -> rusqlite::Result<CapColumns> {
 /// sum a range scan.
 fn check_totals(connection: &Connection) -> Result<(), StoreError> {
     let wrong: Option<String> = connection
-        .query_row(
+        .query_row_cached(
             "SELECT a.path FROM ledger_accounts a WHERE \
              a.debits_posted != (SELECT coalesce(sum(amount), 0) FROM ledger_transfers \
                                  WHERE debit = a.id AND state = 'posted') \
