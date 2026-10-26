@@ -27,7 +27,9 @@
 //!   word: an answer that does not prove is a lie, counted by kind
 //!   ([`Doubt`]), after which, as after a refusal, the verifier waits
 //!   [`STALL_MS`] and asks for a new connection ([`Out::Reconnect`]), and
-//!   asks every open query again on it.
+//!   asks every open query again on it. An ask left unanswered for
+//!   [`REQUEST_TIMEOUT_MS`] asks for one at once: the connection may be
+//!   half open.
 //!
 //! Time is an input, every table has a bound, and nothing recurses
 //! (spec/decisions/tigerstyle.md).
@@ -56,6 +58,9 @@ use crate::validator_list::{MAX_PUBLISHERS, UnlConfig};
 /// failing costs a connection every so often, not one at once after
 /// another. The account waits as long.
 pub const STALL_MS: u64 = 30_000;
+/// How long an ask of the server may go unanswered before the verifier
+/// asks for a new connection: as long as the account waits.
+pub const REQUEST_TIMEOUT_MS: u64 = crate::account::REQUEST_TIMEOUT_MS;
 /// The most validators of the UNL a round asks the server's `manifest`
 /// method about: the next round asks the next ones.
 pub const MAX_MANIFEST_ASKS: usize = 16;
@@ -79,9 +84,10 @@ const MAX_LISTS: usize = 16;
 const MAX_LIST_ASKS: usize = 4;
 /// Most skip lists the server said it does not keep, on this connection.
 const MAX_MISSING: usize = MAX_LISTS;
-/// Most asks waiting for an answer: one for each query, the skip lists
-/// for queries and an anchoring round's, and the round's proof or its
-/// manifests.
+/// Most asks waiting for an answer: one for each open query (a closed
+/// query's goes with it, unless another open one shares it), the skip
+/// lists for queries and an anchoring round's, and the round's proof or
+/// its manifests.
 const MAX_PENDING: usize = MAX_QUERIES + MAX_LIST_ASKS + 1 + MAX_MANIFEST_ASKS;
 /// Most outputs of one input, which its holder takes before the next: the
 /// asks of what is pending, twice, as a reset asks everything anew; a
@@ -216,8 +222,11 @@ pub enum Out {
     /// A reset of a network that resets: the UNL validated a chain the kept
     /// anchor is not on, and its ledger is the anchor now.
     Reset(Anchor),
-    /// Connect anew: the server lied, refused or failed, and the verifier
-    /// waited [`STALL_MS`].
+    /// Connect anew, and say so with [`Verifier::connected`]: the server
+    /// lied, refused or failed, and the verifier waited [`STALL_MS`]; or it
+    /// left an ask unanswered for [`REQUEST_TIMEOUT_MS`]; or the network
+    /// reset, after which an answer still on its way may be of the chain
+    /// gone. The verifier is disconnected meanwhile.
     Reconnect,
 }
 
@@ -242,6 +251,8 @@ pub enum Waiting {
     NotProven,
     /// The server's history is too short to tell an anchor's ancestry.
     History,
+    /// The server left an ask unanswered.
+    NotAnswered,
 }
 
 /// What the verifier proved, by kind; never kept.
@@ -339,12 +350,12 @@ pub struct Verifier {
     next_query: QueryId,
     /// Whether a query waits for an anchor, or a later one.
     needs_anchor: bool,
-    pending: BTreeSet<Ask>,
+    /// What is asked of the server, with when.
+    pending: BTreeMap<Ask, u64>,
     connected: bool,
     /// Until when it waits before it asks for a new connection; 0 while it
     /// does not.
     stalled_until_ms: u64,
-    reconnect_asked: bool,
     waiting: Option<Waiting>,
     /// It stopped: the UNL validated two chains of a network that never
     /// resets.
@@ -396,10 +407,9 @@ impl Verifier {
             queries: BTreeMap::new(),
             next_query: 1,
             needs_anchor: false,
-            pending: BTreeSet::new(),
+            pending: BTreeMap::new(),
             connected: false,
             stalled_until_ms: 0,
-            reconnect_asked: false,
             waiting: None,
             failed: false,
             doubts: BTreeMap::new(),
@@ -499,21 +509,28 @@ impl Verifier {
         self.out.drain(..).collect()
     }
 
-    /// When it next has something to do on its own: a fetch due or late, a
-    /// transaction's bytes to ask again, a new connection to ask for, or a
-    /// round while a query waits for one.
+    /// When it next has something to do on its own: a fetch due or late, an
+    /// ask unanswered too long, a transaction's bytes to ask again, a new
+    /// connection to ask for, or a round while a query waits for one;
+    /// `None` once it stopped, or while it is disconnected.
     #[must_use]
     pub fn deadline(&self) -> Option<u64> {
+        if self.failed {
+            return None;
+        }
         let fetch = self.connected.then(|| self.fetches.deadline()).flatten();
-        let stall =
-            (self.stalled_until_ms > 0 && !self.reconnect_asked).then_some(self.stalled_until_ms);
+        let request =
+            (self.pending.values().min()).map(|sent| sent.saturating_add(REQUEST_TIMEOUT_MS));
+        let stall = (self.stalled_until_ms > 0).then_some(self.stalled_until_ms);
         let blobs = (self.queries.values()).filter_map(|open| match open.step {
             Step::Blobs { due_ms, .. } => due_ms,
             _ => None,
         });
-        let round = (self.needs_anchor && self.round.is_none())
+        // A round starts only while it asks: stalled or disconnected, a
+        // query that waits for one waits for the connection.
+        let round = (self.active() && self.needs_anchor && self.round.is_none())
             .then(|| (self.round_ms).map_or(self.now_ms, |at| at.saturating_add(ANCHOR_EVERY_MS)));
-        [fetch, stall, round]
+        [fetch, request, stall, round]
             .into_iter()
             .flatten()
             .chain(blobs)
@@ -523,7 +540,8 @@ impl Verifier {
 
 /// Inputs.
 impl Verifier {
-    /// A connection to its server is made.
+    /// A connection to its server is made: anything asked on an earlier
+    /// one is forgotten, and its answers are not to be handed back.
     pub fn connected(&mut self, now_ms: u64) {
         self.now(now_ms);
         self.disconnected();
@@ -542,29 +560,32 @@ impl Verifier {
         self.lists.clear();
         self.missing.clear();
         self.stalled_until_ms = 0;
-        self.reconnect_asked = false;
         self.restart_queries();
     }
 
-    /// Time passed: fetches that took too long fail, lists expire or take
-    /// effect, a transaction's bytes are asked again, a new connection is
-    /// asked for after a stall, and a round starts while a query waits for
-    /// one.
+    /// Time passed: an ask unanswered too long, or a stall past, asks for a
+    /// new connection; fetches that took too long fail, lists expire or
+    /// take effect, a transaction's bytes are asked again, and a round
+    /// starts while a query waits for one.
     pub fn tick(&mut self, now_ms: u64) {
         self.now(now_ms);
+        let late = (self.pending.values())
+            .any(|sent| sent.saturating_add(REQUEST_TIMEOUT_MS) <= self.now_ms);
+        // A connection that leaves an ask unanswered may be half open, or
+        // its server drops what it is asked: made anew.
+        if late {
+            self.waiting = Some(Waiting::NotAnswered);
+            return self.reconnect();
+        }
+        if self.stalled_until_ms > 0 && self.stalled_until_ms <= self.now_ms {
+            return self.reconnect();
+        }
         for publisher in self.fetches.late(self.now_ms) {
             if let Some(url) = self.fetches.site(&self.config, publisher) {
                 self.list_answered(&url, None);
             }
         }
         self.tick_lists();
-        if self.stalled_until_ms > 0
-            && self.stalled_until_ms <= self.now_ms
-            && !self.reconnect_asked
-        {
-            self.reconnect_asked = true;
-            self.push(Out::Reconnect);
-        }
         self.dispatch();
     }
 
@@ -606,16 +627,25 @@ impl Verifier {
         Ok(id)
     }
 
-    /// Closes query `id` without a verdict.
+    /// Closes query `id` without a verdict. What it asked goes with it,
+    /// unless another open query asked the same; its answer, when it comes,
+    /// is dropped.
     pub fn cancel(&mut self, id: QueryId) {
-        self.queries.remove(&id);
+        let Some(open) = self.queries.remove(&id) else {
+            return;
+        };
+        if let Some(ask) = own_ask(&open)
+            && !(self.queries.values()).any(|other| own_ask(other).as_ref() == Some(&ask))
+        {
+            self.pending.remove(&ask);
+        }
     }
 
     /// The server answered `ask` with `outcome`. An answer to what is not
     /// asked on this connection is dropped.
     pub fn answered(&mut self, ask: &Ask, outcome: Result<Value, ApiError>, now_ms: u64) {
         self.now(now_ms);
-        if !self.pending.remove(ask) {
+        if self.pending.remove(ask).is_none() {
             return;
         }
         match ask {
@@ -653,10 +683,10 @@ impl Verifier {
     }
 
     fn ask(&mut self, ask: Ask) {
-        if !self.connected || self.pending.contains(&ask) {
+        if !self.connected || self.pending.contains_key(&ask) {
             return;
         }
-        self.pending.insert(ask.clone());
+        self.pending.insert(ask.clone(), self.now_ms);
         assert!(
             self.pending.len() <= MAX_PENDING,
             "what is asked is bounded"
@@ -667,6 +697,12 @@ impl Verifier {
     /// Whether it asks anything now.
     const fn active(&self) -> bool {
         self.connected && !self.failed && self.stalled_until_ms == 0
+    }
+
+    /// Asks its holder for a new connection, and forgets this one.
+    fn reconnect(&mut self) {
+        self.disconnected();
+        self.push(Out::Reconnect);
     }
 
     /// Asks what is due: each query's next step, a round, and the lists,
@@ -918,14 +954,12 @@ impl Verifier {
             return;
         }
         self.keep_anchor(anchor, recent.as_ref());
-        self.lists.clear();
-        self.missing.clear();
-        self.keep_list((anchor.hash, recent_key()), recent);
-        // Everything is asked anew, on the new chain: an answer still on
-        // its way may be of the chain gone.
-        self.pending.clear();
-        self.restart_queries();
         self.push(Out::Reset(anchor));
+        // Everything is asked anew, on the new chain and a new connection:
+        // an answer still on its way on this one may be of the chain gone,
+        // and asked the same as on the new one.
+        self.reconnect();
+        self.keep_list((anchor.hash, recent_key()), recent);
     }
 
     /// `anchor` is current.
@@ -998,7 +1032,6 @@ impl Verifier {
         self.restart_queries();
         self.waiting = Some(why);
         self.stalled_until_ms = self.now_ms.saturating_add(STALL_MS).max(1);
-        self.reconnect_asked = false;
     }
 
     fn count(&mut self, doubt: Doubt) {
@@ -1124,11 +1157,11 @@ impl Verifier {
         if self.missing.contains(&(at, key)) {
             return self.verdict(id, Verdict::NoHistory);
         }
-        let asking = (self.pending.iter())
+        let asking = (self.pending.keys())
             .filter(|ask| matches!(ask, Ask::SkipList { .. }))
             .count();
         let ask = Ask::SkipList { at, key };
-        if asking < MAX_LIST_ASKS || self.pending.contains(&ask) {
+        if asking < MAX_LIST_ASKS || self.pending.contains_key(&ask) {
             self.ask(ask);
         }
     }
@@ -1142,7 +1175,14 @@ impl Verifier {
 
     /// A skip list, for a round's ancestry or a query's ledger.
     fn skip_list_read(&mut self, at: [u8; 32], key: [u8; 32], outcome: Result<Value, ApiError>) {
-        let for_round = matches!(&self.round, Some(Round::Ancestry { lists, .. }) if !lists.contains_key(&(at, key)));
+        // The round's only if its ancestry asks for this very list now: a
+        // list only a query asked for is that query's history.
+        let for_round = match (&self.anchor, &self.round) {
+            (Some(kept), Some(Round::Ancestry { anchor, lists, .. })) => {
+                ancestry(kept, anchor, lists) == Ancestry::Prove { at, key }
+            }
+            _ => false,
+        };
         if let Err(error) = &outcome
             && error.error == "lgrNotFound"
         {
@@ -1338,6 +1378,15 @@ impl Verifier {
             assert!(self.round.is_none(), "no round while stalled or failed");
             assert!(self.pending.is_empty(), "nothing asked while stalled");
         }
+        for (ask, sent) in &self.pending {
+            assert!(*sent <= self.now_ms, "asked in the past");
+            if matches!(ask, Ask::State { .. } | Ask::TxProof(_) | Ask::TxBlobs(_)) {
+                assert!(
+                    (self.queries.values()).any(|open| own_ask(open).as_ref() == Some(ask)),
+                    "a query's ask is an open query's"
+                );
+            }
+        }
         if matches!(self.round, Some(Round::Ancestry { .. })) {
             assert!(self.anchor.is_some(), "ancestry is of a kept anchor");
         }
@@ -1359,5 +1408,21 @@ impl Verifier {
                 assert!(tries <= MAX_UNSAVED_TRIES);
             }
         }
+    }
+}
+
+/// What an open query waits for an answer to, if anything but a skip list,
+/// of which it asks at most [`MAX_LIST_ASKS`] with the others.
+fn own_ask(open: &Open) -> Option<Ask> {
+    match (&open.query, &open.step) {
+        (Query::State { keys, .. }, Step::State { at }) => Some(Ask::State {
+            at: *at,
+            keys: keys.clone(),
+        }),
+        (Query::Transaction { hash, .. }, Step::Branch) => Some(Ask::TxProof(*hash)),
+        (Query::Transaction { hash, .. }, Step::Blobs { due_ms: None, .. }) => {
+            Some(Ask::TxBlobs(*hash))
+        }
+        _ => None,
     }
 }

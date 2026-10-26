@@ -28,7 +28,8 @@ use dassie_xrpl::records::{
 use dassie_xrpl::unl::{Anchor, Secp256k1Signatures};
 use dassie_xrpl::validator_list::UnlConfig;
 use dassie_xrpl::verifier::{
-    Ask, MAX_QUERIES, Out, Query, QueryError, QueryId, STALL_MS, Verdict, Verifier, Waiting,
+    Ask, MAX_QUERIES, Out, Query, QueryError, QueryId, REQUEST_TIMEOUT_MS, STALL_MS, Verdict,
+    Verifier, Waiting,
 };
 use dassie_xrpl::{Wallet, hex_upper};
 use serde_json::{Value, json};
@@ -187,6 +188,11 @@ struct Run {
     reconnects: u32,
     /// The lie the next connection tells, if any.
     lie: Option<Lie>,
+    /// Whether what is asked of the server is held back, unanswered, as a
+    /// slow or silent server holds it.
+    holding: bool,
+    /// What is held back, in the order asked.
+    held: Vec<Ask>,
 }
 
 impl Run {
@@ -209,6 +215,8 @@ impl Run {
             resets: Vec::new(),
             reconnects: 0,
             lie: None,
+            holding: false,
+            held: Vec::new(),
         };
         run.verifier.connected(now_ms);
         run.pump();
@@ -237,19 +245,8 @@ impl Run {
                 let body = self.ledger.fetch(&url);
                 self.verifier.fetched(&url, body.as_deref(), now);
             }
-            Out::Ask(asked) => {
-                let id = self.next_id;
-                self.next_id += 1;
-                let request = asked.request(id).unwrap();
-                let reply = self.ledger.request(self.connection, &request);
-                match api::parse(&reply) {
-                    api::Message::Response { id: of, outcome } => {
-                        assert_eq!(of, id);
-                        self.verifier.answered(&asked, outcome, now);
-                    }
-                    other => panic!("not a response: {other:?}"),
-                }
-            }
+            Out::Ask(asked) if self.holding => self.held.push(asked),
+            Out::Ask(asked) => self.answer(&asked),
             Out::Verdict(id, verdict) => {
                 assert!(self.verdicts.insert(id, verdict).is_none());
             }
@@ -260,6 +257,30 @@ impl Run {
                 self.reconnect();
             }
         }
+    }
+
+    /// The server answers `asked`, on the connection now.
+    fn answer(&mut self, asked: &Ask) {
+        let id = self.next_id;
+        self.next_id += 1;
+        let request = asked.request(id).unwrap();
+        let reply = self.ledger.request(self.connection, &request);
+        match api::parse(&reply) {
+            api::Message::Response { id: of, outcome } => {
+                assert_eq!(of, id);
+                self.verifier.answered(asked, outcome, self.now_ms);
+            }
+            other => panic!("not a response: {other:?}"),
+        }
+    }
+
+    /// The server answers what it held back, and what that asks next.
+    fn release(&mut self) {
+        self.holding = false;
+        for asked in std::mem::take(&mut self.held) {
+            self.answer(&asked);
+        }
+        self.pump();
     }
 
     /// A new connection, which tells the lie set for it.
@@ -603,6 +624,9 @@ fn a_testnet_reset_is_told_and_proven_on() {
     run.ledger.reset();
     run.close(3);
     assert_eq!(run.resets.len(), 1);
+    // On a new connection: an answer still on its way on the old one may
+    // be of the chain gone.
+    assert_eq!(run.reconnects, 1);
     let after = run.verifier.anchor().unwrap();
     assert!(after.index < before.index && after.close_time > before.close_time);
     let id = run.query(Query::State {
@@ -732,10 +756,109 @@ fn a_later_anchor_off_the_kept_chain_is_a_reset_or_a_fork() {
             assert!(matches!(run.verdicts[&id], Verdict::State(_)));
         } else {
             assert!(run.verifier.failed());
+            assert_eq!(run.verifier.deadline(), None, "nothing more to do");
             assert!(run.resets.is_empty());
             assert_eq!(run.verifier.anchor(), Some(kept));
             assert!(!run.verdicts.contains_key(&id));
         }
         assert_eq!(run.doubts(), 0);
     }
+}
+
+// Queries cancelled while their asks are unanswered take their asks with
+// them, so that as many again can be asked; an ask another open query
+// shares stays, and is answered for it; the answers to the others, late,
+// are dropped.
+#[test]
+fn cancelled_queries_take_their_asks_with_them() {
+    let scene = scene(FakeLedger::new());
+    let mut run = Run::new(scene.ledger.clone());
+    let unknown = |n: usize, round: u8| {
+        let mut hash = [round; 32];
+        hash[..8].copy_from_slice(&u64::try_from(n).unwrap().to_be_bytes());
+        Query::Transaction { hash, from: 0 }
+    };
+    run.holding = true;
+    for round in 1..=3_u8 {
+        let ids: Vec<QueryId> = (0..MAX_QUERIES)
+            .map(|n| run.verifier.query(unknown(n, round), run.now_ms).unwrap())
+            .collect();
+        run.pump();
+        assert_eq!(run.held.len(), MAX_QUERIES * usize::from(round));
+        for id in ids {
+            run.verifier.cancel(id);
+        }
+        run.verifier.check_invariants();
+    }
+    let (hash, ledger) = scene.payment;
+    let payment = Query::Transaction { hash, from: ledger };
+    let kept = run.verifier.query(payment.clone(), run.now_ms).unwrap();
+    let gone = run.verifier.query(payment, run.now_ms).unwrap();
+    run.pump();
+    run.verifier.cancel(gone);
+    run.release();
+    assert!(matches!(run.verdicts[&kept], Verdict::Applied(_)));
+    assert_eq!(run.verdicts.len(), 1, "a cancelled query has no verdict");
+    assert_eq!(run.doubts(), 0);
+    assert_eq!(run.verifier.open_queries(), 0);
+}
+
+// A query that waits for a later anchor sets no deadline that has passed,
+// while the verifier waits after a stall, while it is disconnected, or once
+// it stopped (`a_later_anchor_off_the_kept_chain_is_a_reset_or_a_fork`): a
+// holder that sleeps until the deadline never spins.
+#[test]
+fn its_deadline_never_passed() {
+    let scene = scene(FakeLedger::new());
+    let mut run = Run::new(scene.ledger.clone());
+    let anchor = run.verifier.anchor().unwrap();
+    run.ledger.set_lie(run.connection, Some(Lie::Refusal));
+    run.lie = Some(Lie::Refusal);
+    let id = run.query(Query::State {
+        keys: vec![account_key(scene.escrow)],
+        at: Some(anchor.index + 100),
+    });
+    run.close(1);
+    assert_eq!(run.verifier.waiting(), Some(Waiting::Refused));
+    let start_ms = run.now_ms;
+    for _ in 0..20 {
+        let deadline = run.verifier.deadline().unwrap();
+        assert!(deadline > run.now_ms, "{deadline} passed at {}", run.now_ms);
+        run.wait(deadline - run.now_ms);
+    }
+    assert!(run.reconnects >= 2 && run.now_ms >= start_ms + 2 * STALL_MS);
+    assert!(!run.verdicts.contains_key(&id));
+    run.verifier.disconnected();
+    assert_eq!(run.verifier.deadline(), None);
+}
+
+// An ask the server leaves unanswered, as a half-open connection leaves it,
+// and a round stuck on it, ask for a new connection once the ask is late;
+// the query is asked again on it.
+#[test]
+fn an_unanswered_ask_asks_for_a_new_connection() {
+    let scene = scene(FakeLedger::new());
+    let mut run = Run::new(scene.ledger.clone());
+    run.holding = true;
+    let asked_ms = run.now_ms;
+    let id = run.query(Query::State {
+        keys: escrow_keys(&scene),
+        at: None,
+    });
+    run.close(1);
+    assert_eq!(run.held.len(), 2, "the query's state and the round's proof");
+    let deadline = run.verifier.deadline().unwrap();
+    assert!(deadline > run.now_ms && deadline <= asked_ms + REQUEST_TIMEOUT_MS);
+    // What the silent connection was asked is never answered.
+    run.held.clear();
+    run.wait(asked_ms + REQUEST_TIMEOUT_MS - 1 - run.now_ms);
+    assert_eq!(run.reconnects, 0);
+    run.wait(1);
+    assert_eq!(run.reconnects, 1);
+    assert_eq!(run.verifier.waiting(), Some(Waiting::NotAnswered));
+    assert!(!run.held.is_empty(), "asked again on the new connection");
+    run.release();
+    assert_eq!(read(&scene, &run.verdicts[&id]), truth(&scene));
+    assert_eq!(run.verifier.waiting(), None);
+    assert_eq!(run.doubts(), 0);
 }
