@@ -136,6 +136,9 @@ pub struct SignedMemberOperation {
 }
 
 /// What a validator saw on the underlying ledger, or asks of the hub.
+// As a member's: operations live in a block's list once, and new rules,
+// with a token hub's asset in them, are rare.
+#[allow(clippy::large_enum_variant)]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ValidatorOperation {
     /// A payment to the escrow in a validated ledger.

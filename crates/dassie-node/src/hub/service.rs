@@ -232,6 +232,8 @@ const MAX_RETRIED: usize = 64;
 type Fetched = (Box<Finalized>, Vec<u8>);
 
 /// What a hub's task takes, one at a time.
+// One input at a time: boxing new rules, which are rare, would buy nothing.
+#[allow(clippy::large_enum_variant)]
 enum Input {
     Tick,
     Fetched(Box<Finalized>, Vec<u8>),

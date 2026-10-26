@@ -1002,14 +1002,17 @@ pub struct SignerList {
 }
 
 /// What an account owns, as of a validated ledger, from `account_objects`:
-/// its signer list, and how many other objects.
+/// its signer list, how many other objects, and the trust lines among them.
 #[derive(Clone, Debug, PartialEq)]
 pub struct AccountObjects {
     /// Its signer list, if it has one.
     pub signer_list: Option<SignerList>,
-    /// How many objects of other kinds it owns on this page, such as trust
-    /// lines.
+    /// How many objects of other kinds it owns on this page, trust lines
+    /// included.
     pub others: usize,
+    /// The trust lines among them whose fields read as the ledger writes a
+    /// line: one that does not is counted in `others` alone.
+    pub lines: Vec<TrustLine>,
     /// Where the next page starts, if there is one.
     pub marker: Option<Value>,
     /// The ledger this is as of.
@@ -1029,19 +1032,29 @@ pub fn account_objects_result(result: &Value) -> Option<AccountObjects> {
     }
     let mut signer_list = None;
     let mut others = 0_usize;
+    let mut lines = Vec::new();
     for object in objects {
-        if object.get("LedgerEntryType").and_then(Value::as_str) == Some("SignerList") {
-            if signer_list.is_some() {
-                return None;
+        match object.get("LedgerEntryType").and_then(Value::as_str) {
+            Some("SignerList") => {
+                if signer_list.is_some() {
+                    return None;
+                }
+                signer_list = Some(signer_list_fields(object)?);
             }
-            signer_list = Some(signer_list_fields(object)?);
-        } else {
-            others = others.saturating_add(1);
+            kind => {
+                others = others.saturating_add(1);
+                if kind == Some("RippleState")
+                    && let Some(line) = trust_line(object, false)
+                {
+                    lines.push(line);
+                }
+            }
         }
     }
     Some(AccountObjects {
         signer_list,
         others,
+        lines,
         marker: result
             .get("marker")
             .filter(|marker| !marker.is_null())

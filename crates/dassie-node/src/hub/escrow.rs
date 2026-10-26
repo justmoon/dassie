@@ -568,7 +568,7 @@ impl Watcher {
         if !record.validated || known {
             return;
         }
-        if let Some(deposit) = deposit_of(record, self.escrow) {
+        if let Some(deposit) = deposit_of(record, &view.rules.terms) {
             self.attest(record, ValidatorOperation::AttestDeposit(deposit));
             return;
         }
@@ -577,7 +577,7 @@ impl Watcher {
         };
         let withdrawal = view.withdrawals.iter().find(|(s, _)| *s == sequence);
         if let Some((_, withdrawal)) = withdrawal {
-            match withdrawal_outcome(record, self.escrow, sequence, withdrawal) {
+            match withdrawal_outcome(record, &view.rules.terms, sequence, withdrawal) {
                 Some(delivered) => self.attest(
                     record,
                     ValidatorOperation::AttestWithdrawal {

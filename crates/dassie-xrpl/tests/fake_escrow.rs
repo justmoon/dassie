@@ -826,6 +826,13 @@ fn account_objects_come_a_page_at_a_time() {
     let all = objects(&mut ledger, id);
     assert!(all.signer_list.is_some());
     assert_eq!((all.others, all.marker), (1, None));
+    // The line reads as one, so a hub's escrow can be checked to own only
+    // its line to its token's issuer.
+    let token = dassie_xrpl::fake::Token::DSUSD;
+    assert_eq!(all.lines.len(), 1);
+    assert!(all.lines[0].is_between(id, token.issuer, token.currency));
+    let view = all.lines[0].view(id).unwrap();
+    assert_eq!(view.limit, dassie_xrpl::codec::TokenValue::MAX);
     let page = |ledger: &mut FakeLedger, marker: Option<&Value>| {
         let mut params: Value =
             serde_json::from_slice(&api::account_objects(9, id, marker)).unwrap();

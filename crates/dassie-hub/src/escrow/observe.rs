@@ -5,17 +5,32 @@
 
 use dassie_xrpl::AccountId;
 use dassie_xrpl::api::TxRecord;
+use dassie_xrpl::codec::Amount;
 
 use crate::digest::Digest;
 use crate::operation::Deposit;
+use crate::rules::Terms;
 
-/// A deposit to the escrow, if `record` is one: a successful Payment of
-/// XRP to it, in a validated ledger, with a destination tag. Its amount is
-/// what it delivered, never what it named: a partial payment can name much
-/// and deliver little. For tag 0, the new account's key is the memo, as 32
-/// bytes; anything else attests no key, and the hub pays the deposit back.
+/// What `record` delivered, of whatever asset.
+fn delivered(record: &TxRecord) -> Option<Amount> {
+    record
+        .delivered
+        .map(Amount::Xrp)
+        .or(record.delivered_token.map(Amount::Token))
+}
+
+/// A deposit to the escrow of `terms`, if `record` is one: a successful
+/// Payment of the hub's asset to it, in a validated ledger, with a
+/// destination tag. Its amount is what it delivered, never what it named:
+/// a partial payment can name much and deliver little. In a token hub,
+/// that is the hub's token, of its issuer, in whole millionths, rounded
+/// down; XRP sent to a token hub's escrow is gas for its transactions,
+/// never a deposit, and nothing is attested of it. For tag 0, the new
+/// account's key is the memo, as 32 bytes; anything else attests no key,
+/// and the hub pays the deposit back.
 #[must_use]
-pub fn deposit_of(record: &TxRecord, escrow: AccountId) -> Option<Deposit> {
+pub fn deposit_of(record: &TxRecord, terms: &Terms) -> Option<Deposit> {
+    let escrow = AccountId(terms.escrow);
     let to_escrow = record.validated
         && record.succeeded()
         && record.is_payment
@@ -25,7 +40,9 @@ pub fn deposit_of(record: &TxRecord, escrow: AccountId) -> Option<Deposit> {
         return None;
     }
     let tag = record.destination_tag?;
-    let amount = record.delivered?;
+    let amount = terms
+        .hub_amount(&delivered(record)?)
+        .filter(|amount| *amount > 0)?;
     let key = record
         .memo
         .as_ref()
@@ -45,24 +62,26 @@ pub fn deposit_of(record: &TxRecord, escrow: AccountId) -> Option<Deposit> {
 
 /// Whether withdrawal `sequence` delivered, if `record` is its outcome:
 /// the escrow's Payment at that sequence, to the withdrawal's destination
-/// and tag, delivering its amount when it succeeded. Anything else at that
-/// sequence is not the withdrawal's, and burns nothing.
+/// and tag, delivering its amount of the hub's asset, as its Payment names
+/// it, when it succeeded. Anything else at that sequence is not the
+/// withdrawal's, and burns nothing.
 #[must_use]
 pub fn withdrawal_outcome(
     record: &TxRecord,
-    escrow: AccountId,
+    terms: &Terms,
     sequence: u32,
     withdrawal: &crate::ledger::Withdrawal,
 ) -> Option<bool> {
-    let (seen, delivered) = outcome_of(record, escrow)?;
+    let (seen, succeeded) = outcome_of(record, AccountId(terms.escrow))?;
     let same = seen == sequence
         && record.is_payment
         && record.destination == Some(AccountId(withdrawal.to.account))
         && record.destination_tag == withdrawal.to.tag;
-    if !same || (delivered && record.delivered != Some(withdrawal.amount)) {
+    let expected = terms.ledger_amount(withdrawal.amount);
+    if !same || (succeeded && delivered(record) != Some(expected)) {
         return None;
     }
-    Some(delivered)
+    Some(succeeded)
 }
 
 /// What became of one of the escrow's own transactions, if `record` is

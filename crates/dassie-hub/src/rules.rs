@@ -5,6 +5,13 @@
 //! Values in the terms are starting points for the simulation to set; what
 //! the code fixes here is which values exist, how they bound each other
 //! ([`Terms::check`]), and their encoding, which every hub ID depends on.
+//!
+//! A hub holds one asset on the XRP Ledger: XRP, or a token of an issuer,
+//! such as DSUSD or RLUSD ([`Terms::asset`]). The encoding is versioned so
+//! that the terms of an XRP hub encode as they always have, and every hub
+//! founded before tokens keeps its ID: a token hub's terms start with a
+//! mark no XRP hub's nonce may start with ([`Terms::check`]), then the
+//! version and the asset, then what an XRP hub's terms hold.
 
 use alloc::string::String;
 use alloc::vec::Vec;
@@ -19,8 +26,31 @@ use crate::consensus::{MAX_STALL_MS, MIN_STALL_MS};
 use crate::digest::{Digest, Domain};
 use crate::validators::{MAX_VALIDATORS, MIN_VALIDATORS, ValidatorSet};
 
-/// An amount of the hub's asset, in its smallest unit (drops of XRP).
+pub use dassie_xrpl::amount::Asset;
+use dassie_xrpl::amount::{Currency, MAX_MANTISSA, TokenAmount, TokenValue};
+use dassie_xrpl::keys::AccountId;
+
+/// An amount of the hub's asset, in its smallest unit: drops of XRP, or
+/// millionths of a token ([`TOKEN_DECIMALS`]).
 pub type Amount = u64;
+
+/// The decimals of a token hub's unit: a millionth of the token, the unit
+/// the node's books count a dollar token in
+/// ([`UNITS_PER_MICRO`](dassie_xrpl::token::UNITS_PER_MICRO)), as a drop
+/// is an XRP hub's.
+pub const TOKEN_DECIMALS: u8 = 6;
+
+/// The least XRP, in drops, a token hub's escrow holds before a member
+/// asks for a withdrawal: the gas its transactions burn. The escrow's own
+/// XRP pays every fee of a token hub, never the token, and anyone may send
+/// it XRP, which is never a deposit; a member that finds the escrow's XRP
+/// balance below this is to top it up first (not built yet: this is what
+/// it will check against). The XRP Ledger lets an account
+/// burn its reserve for fees, so the whole balance counts, never what is
+/// above the reserve, and no arithmetic of reserves is needed. A token
+/// hub's gas ([`Fees::gas`]) is at most this, so the escrow can always pay
+/// the next transaction once it holds it.
+pub const LEAST_ESCROW_GAS_DROPS: u64 = 1_000_000;
 
 /// A time in milliseconds since the Unix epoch, or a duration in them.
 pub type Millis = u64;
@@ -48,16 +78,23 @@ const ENDPOINT_ALPHABET: Alphabet = Alphabet::EMPTY
     .with_range(b'0', b'9')
     .with_chars(b".-:[]");
 
-/// The fees of a hub, all in drops (spec/designs/settlement-hubs.md#7-fees).
+/// The fees of a hub, in the hub's asset but for the gas, which is XRP
+/// (spec/designs/settlement-hubs.md#7-fees).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Fees {
     /// What each operation pays.
     pub operation: Amount,
-    /// The underlying ledger's fee for one transaction the escrow sends,
-    /// multi-signed by a quorum: at least the ledger's base fee once per
-    /// signer and once more. A withdrawal pays it on top of the operation
-    /// fee, and so does each payment of a payout set.
+    /// In an XRP hub, the underlying ledger's fee for one transaction the
+    /// escrow sends, multi-signed by a quorum: at least the ledger's base
+    /// fee once per signer and once more. A withdrawal pays it on top of
+    /// the operation fee, and so does each payment of a payout set. Zero in
+    /// a token hub, whose escrow pays its fees in XRP ([`Fees::gas`]).
     pub ledger: Amount,
+    /// In a token hub, the fee in drops of XRP that each transaction the
+    /// escrow sends names, multi-signed by a quorum, as `ledger` is in an
+    /// XRP hub: paid from the escrow's own XRP, never charged to an
+    /// account or burnt from the token the hub holds. Zero in an XRP hub.
+    pub gas: Amount,
     /// Parts per million of each fee that go to the reserve account.
     pub reserve_share_ppm: u32,
     /// What each account locks while it exists.
@@ -138,6 +175,9 @@ pub struct Terms {
     /// The escrow's account on the underlying ledger, known in advance:
     /// its master key is derived from the sponsor's seed and the nonce.
     pub escrow: [u8; LEDGER_ACCOUNT_LEN],
+    /// What the hub holds: XRP, or a token of an issuer, on the escrow's
+    /// trust line to it.
+    pub asset: Asset,
     /// The hub's fees.
     pub fees: Fees,
     /// The bounds of its tables.
@@ -212,11 +252,7 @@ impl Terms {
         if fees.operation == 0 || fees.hold_reserve == 0 {
             return fail("an operation or a hold costs nothing");
         }
-        // A payout to a new account on the XRP Ledger must create it
-        // (spec/designs/settlement-hubs.md#6-deposits-and-withdrawals).
-        if fees.least_payout < LEDGER_BASE_RESERVE {
-            return fail("least payout below the underlying ledger's base reserve");
-        }
+        self.check_asset()?;
         // Every account the hub keeps can be paid out at shutdown
         // (spec/designs/settlement-hubs.md#7-fees).
         if fees.account_reserve < fees.least_payout.saturating_add(fees.ledger) {
@@ -224,6 +260,48 @@ impl Terms {
         }
         if fees.starting_balance < fees.operation.saturating_mul(4) {
             return fail("starting balance too small for a new account's first operations");
+        }
+        Ok(())
+    }
+
+    /// The asset, and the fees that depend on it.
+    fn check_asset(&self) -> Result<(), RulesError> {
+        let fees = &self.fees;
+        let fail = |why| Err(RulesError::Terms(why));
+        match self.asset {
+            Asset::Xrp => {
+                // Its terms encode as they did before tokens, and that
+                // encoding must not read as a later version's.
+                if self.nonce.starts_with(&VERSION_MARK) {
+                    return fail("nonce starts as a later version's terms");
+                }
+                if fees.gas != 0 {
+                    return fail("gas in an XRP hub, whose ledger fee pays its transactions");
+                }
+                // A payout to a new account on the XRP Ledger must create
+                // it (spec/designs/settlement-hubs.md#6-deposits-and-withdrawals).
+                if fees.least_payout < LEDGER_BASE_RESERVE {
+                    return fail("least payout below the underlying ledger's base reserve");
+                }
+            }
+            Asset::Token { currency, issuer } => {
+                if !token_valid(currency, issuer) || issuer.0 == self.escrow {
+                    return fail("a token hub's asset is not a token another account issues");
+                }
+                // The escrow's XRP pays every fee of a token hub: the hub
+                // charges none in the token, and never burns it.
+                if fees.ledger != 0 {
+                    return fail("a ledger fee in a token hub, whose escrow pays fees in XRP");
+                }
+                if fees.gas == 0 || fees.gas > LEAST_ESCROW_GAS_DROPS {
+                    return fail("gas none, or more than the least XRP the escrow keeps");
+                }
+                // A Payment of nothing is malformed: it would never use its
+                // sequence, and the escrow's would stop.
+                if fees.least_payout == 0 {
+                    return fail("least payout zero");
+                }
+            }
         }
         Ok(())
     }
@@ -290,18 +368,80 @@ impl Terms {
     }
 
     /// Whether these terms keep every table at least as large as
-    /// `current`'s. New rules may not shrink a table: what it holds could
-    /// no longer fit.
+    /// `current`'s, and keep its asset and gas. New rules may not shrink a
+    /// table: what it holds could no longer fit. Nor may they change the
+    /// asset, which every amount in the tables counts, or the gas, which a
+    /// withdrawal already given a sequence names: validators that signed it
+    /// before the change and after would sign two transactions, and its
+    /// sequence could wait for ever.
     #[must_use]
-    pub const fn keeps_tables_of(&self, current: &Self) -> bool {
+    pub fn keeps_tables_of(&self, current: &Self) -> bool {
         let (new, old) = (&self.limits, &current.limits);
-        new.accounts >= old.accounts
+        self.asset == current.asset
+            && self.fees.gas == current.fees.gas
+            && new.accounts >= old.accounts
             && new.holds >= old.holds
             && new.holds_per_account >= old.holds_per_account
             && new.withdrawals >= old.withdrawals
             && new.pending_deposits >= old.pending_deposits
             && new.recent_deposits >= old.recent_deposits
             && new.claimed_per_hold >= old.claimed_per_hold
+    }
+
+    /// The fee in drops each transaction the escrow sends names: the
+    /// ledger fee in an XRP hub, the gas in a token hub.
+    #[must_use]
+    pub const fn transaction_fee(&self) -> Amount {
+        match self.asset {
+            Asset::Xrp => self.fees.ledger,
+            Asset::Token { .. } => self.fees.gas,
+        }
+    }
+
+    /// The node's internal units in one of the hub's: a drop, or a
+    /// millionth of a token.
+    #[must_use]
+    pub const fn units_per_amount(&self) -> u64 {
+        match self.asset {
+            Asset::Xrp => dassie_xrpl::UNITS_PER_DROP,
+            Asset::Token { .. } => dassie_xrpl::token::UNITS_PER_MICRO,
+        }
+    }
+
+    /// `amount` of the hub's asset as a Payment on the XRP Ledger pays it:
+    /// drops, or the token. An amount of a token beyond the ledger's
+    /// sixteen digits, ten billion tokens and more, is rounded down to
+    /// them: the escrow keeps what is left, and still holds at least what
+    /// the hub owes ([`token_value`]).
+    #[must_use]
+    pub fn ledger_amount(&self, amount: Amount) -> dassie_xrpl::codec::Amount {
+        match self.asset {
+            Asset::Xrp => dassie_xrpl::codec::Amount::Xrp(amount),
+            Asset::Token { currency, issuer } => dassie_xrpl::codec::Amount::Token(TokenAmount {
+                value: token_value(amount),
+                currency,
+                issuer,
+            }),
+        }
+    }
+
+    /// What `delivered` adds to the hub, in its unit, if it is of the
+    /// hub's asset: drops, or the whole millionths of the token, rounded
+    /// down. What is below a millionth stays in the escrow, beyond what
+    /// the hub owes. `None` for another asset, or more than an amount
+    /// holds.
+    #[must_use]
+    pub fn hub_amount(&self, delivered: &dassie_xrpl::codec::Amount) -> Option<Amount> {
+        match (self.asset, delivered) {
+            (Asset::Xrp, dassie_xrpl::codec::Amount::Xrp(drops)) => Some(*drops),
+            (Asset::Token { currency, issuer }, dassie_xrpl::codec::Amount::Token(token))
+                if token.currency == currency && token.issuer == issuer =>
+            {
+                let units = token.value.floor_units(TOKEN_DECIMALS)?;
+                Amount::try_from(units).ok()
+            }
+            _ => None,
+        }
     }
 
     /// What a new account is paid at least: its reserve and its starting
@@ -321,6 +461,36 @@ pub const MAX_HOLD_MS: Millis = 30_000;
 /// The XRP Ledger's base reserve, in drops: the least a payment that
 /// creates an account delivers.
 pub const LEDGER_BASE_RESERVE: Amount = 1_000_000;
+
+/// Whether a token can be of `currency` and `issuer`, as the XRP Ledger
+/// takes one.
+fn token_valid(currency: Currency, issuer: AccountId) -> bool {
+    TokenAmount {
+        value: TokenValue::ZERO,
+        currency,
+        issuer,
+    }
+    .is_valid()
+}
+
+/// `amount` millionths of a token as the XRP Ledger's value: exactly, up
+/// to sixteen digits, the most a value holds; beyond them, ten billion
+/// tokens and more, rounded down to sixteen digits.
+#[must_use]
+pub fn token_value(amount: Amount) -> TokenValue {
+    let (mut mantissa, mut exponent) = (amount, -i32::from(TOKEN_DECIMALS));
+    // An amount has at most twenty digits: four steps at most.
+    for _ in 0..4 {
+        if mantissa <= MAX_MANTISSA {
+            break;
+        }
+        mantissa /= 10;
+        exponent = exponent.saturating_add(1);
+    }
+    let value = TokenValue::new(false, mantissa, exponent);
+    assert!(value.is_some(), "sixteen digits of millionths are a value");
+    value.unwrap_or(TokenValue::ZERO)
+}
 
 impl Acceptance {
     /// The digest the validator's node key signs: the nonce, the hash of
@@ -428,14 +598,35 @@ impl Acceptance {
 const FEES_LEN: usize = 8 * 6 + 4;
 const LIMITS_LEN: usize = 4 * 5 + 2 * 6;
 const TIMERS_LEN: usize = 8 * 9;
+/// The terms of an XRP hub, as they were before tokens.
 const TERMS_LEN: usize = 32 + KEY_LEN + 4 + LEDGER_ACCOUNT_LEN + FEES_LEN + LIMITS_LEN + TIMERS_LEN;
+
+/// What starts the terms of every version after the first. The first
+/// version, an XRP hub's, starts with its nonce, which [`Terms::check`]
+/// refuses to start so.
+const VERSION_MARK: [u8; 7] = [0xff, b'D', b'a', b's', b's', b'i', b'e'];
+/// The version of a token hub's terms: after the mark, the version, the
+/// token's currency and issuer, and the gas; then an XRP hub's terms.
+const TOKEN_VERSION: u8 = 1;
+/// What a token hub's terms hold before an XRP hub's.
+const TOKEN_HEADER_LEN: usize = VERSION_MARK.len() + 1 + 20 + LEDGER_ACCOUNT_LEN + 8;
 
 impl Encode for Terms {
     fn encoded_len(&self) -> usize {
-        TERMS_LEN
+        match self.asset {
+            Asset::Xrp => TERMS_LEN,
+            Asset::Token { .. } => TOKEN_HEADER_LEN + TERMS_LEN,
+        }
     }
 
     fn encode_to(&self, writer: &mut Writer<'_>) {
+        if let Asset::Token { currency, issuer } = self.asset {
+            writer.write_bytes(&VERSION_MARK);
+            writer.write_u8(TOKEN_VERSION);
+            writer.write_bytes(&currency.0);
+            writer.write_bytes(&issuer.0);
+            writer.write_u64(self.fees.gas);
+        }
         writer.write_bytes(&self.nonce);
         write_key(writer, &self.sponsor);
         writer.write_u32(self.network);
@@ -493,8 +684,29 @@ fn encode_timers(writer: &mut Writer<'_>, timers: &Timers) {
 }
 
 impl Terms {
-    /// Decodes terms; [`Terms::check`] is the caller's.
+    /// Decodes terms of either version; [`Terms::check`] is the caller's.
+    /// A token hub's terms name a token, and only a token: an XRP hub's
+    /// have one encoding.
     pub fn decode(reader: &mut Reader<'_>) -> Result<Self, HubDecodeError> {
+        let versioned = reader
+            .clone()
+            .read_array::<7>()
+            .is_ok_and(|mark| *mark == VERSION_MARK);
+        let (asset, gas) = if versioned {
+            reader.read_array::<7>()?;
+            let version = reader.read_u8()?;
+            if version != TOKEN_VERSION {
+                return Err(HubDecodeError::UnknownChoice(u64::from(version)));
+            }
+            let currency = Currency(*reader.read_array::<20>()?);
+            let issuer = AccountId(*reader.read_array::<LEDGER_ACCOUNT_LEN>()?);
+            if !token_valid(currency, issuer) {
+                return Err(HubDecodeError::Invalid("a token hub's asset is no token"));
+            }
+            (Asset::Token { currency, issuer }, reader.read_u64()?)
+        } else {
+            (Asset::Xrp, 0)
+        };
         let nonce = *reader.read_array::<32>()?;
         let sponsor = read_key(reader)?;
         let network = reader.read_u32()?;
@@ -502,6 +714,7 @@ impl Terms {
         let fees = Fees {
             operation: reader.read_u64()?,
             ledger: reader.read_u64()?,
+            gas,
             reserve_share_ppm: reader.read_u32()?,
             account_reserve: reader.read_u64()?,
             hold_reserve: reader.read_u64()?,
@@ -527,6 +740,7 @@ impl Terms {
             sponsor,
             network,
             escrow,
+            asset,
             fees,
             limits,
             timers,
@@ -588,7 +802,7 @@ impl Acceptance {
 
 impl Encode for Rules {
     fn encoded_len(&self) -> usize {
-        TERMS_LEN
+        self.terms.encoded_len()
             + size::quantity(self.validators.len())
             + self
                 .validators
@@ -633,9 +847,11 @@ pub(crate) mod tests {
             sponsor: sponsor.public_key(),
             network: 1,
             escrow: [9; LEDGER_ACCOUNT_LEN],
+            asset: Asset::Xrp,
             fees: Fees {
                 operation: 10,
                 ledger: 12,
+                gas: 0,
                 reserve_share_ppm: 100_000,
                 account_reserve: 2_000_000,
                 hold_reserve: 200_000,
@@ -777,5 +993,167 @@ pub(crate) mod tests {
             good.timers.stall = stall;
             assert_eq!(good.check(), Ok(()), "{stall}");
         }
+    }
+
+    /// `terms` as a DSUSD hub's: the token, no ledger fee but gas in its
+    /// place, and a least payout of a millionth.
+    pub(crate) fn token_terms(mut terms: Terms) -> Terms {
+        terms.asset = Asset::Token {
+            currency: dassie_xrpl::dsusd::CURRENCY,
+            issuer: dassie_xrpl::dsusd::ISSUER,
+        };
+        terms.fees.gas = terms.fees.ledger;
+        terms.fees.ledger = 0;
+        terms.fees.least_payout = 1;
+        terms
+    }
+
+    fn bytes_of_hex(hex: &str) -> Vec<u8> {
+        (0..hex.len())
+            .step_by(2)
+            .map(|i| u8::from_str_radix(&hex[i..i + 2], 16).unwrap())
+            .collect()
+    }
+
+    // The encoding is versioned so that the built-in testnet hub, founded
+    // before hubs had an asset, decodes as an XRP hub and encodes again
+    // byte for byte: its ID, `4c5ef2ba…cd60`, is unchanged.
+    #[test]
+    fn the_default_testnet_hub_keeps_its_bytes_and_its_id() {
+        let hex = crate::member::DEFAULT_TESTNET_HUB.unwrap();
+        let bytes = bytes_of_hex(hex.trim());
+        let mut reader = Reader::new(&bytes);
+        let rules = Rules::decode(&mut reader).unwrap();
+        reader.finish().unwrap();
+        assert_eq!(rules.terms.asset, Asset::Xrp);
+        assert_eq!(rules.terms.fees.gas, 0);
+        assert_eq!(rules.terms.transaction_fee(), rules.terms.fees.ledger);
+        assert_eq!(rules.check(), Ok(()));
+        assert_eq!(rules.to_vec(), bytes, "encodes as it was founded");
+        assert_eq!(rules.encoded_len(), bytes.len());
+        let id: String = rules
+            .id()
+            .0
+            .as_bytes()
+            .iter()
+            .map(|byte| alloc::format!("{byte:02x}"))
+            .collect();
+        assert_eq!(
+            id,
+            "4c5ef2ba22cd3007174e95a080fae47c01538937e989876f322a26090c02cd60"
+        );
+    }
+
+    // A token hub's terms carry the token and the gas, round-trip, and name
+    // a hub other than the same terms in XRP would.
+    #[test]
+    fn token_terms_round_trip_and_name_another_hub() {
+        let sponsor = NodeKey::from_bytes(&[3; 32]);
+        let xrp = terms(&sponsor);
+        let token = token_terms(xrp.clone());
+        token.check().unwrap();
+        let bytes = token.to_vec();
+        assert_eq!(bytes.len(), token.encoded_len());
+        assert_eq!(bytes.len(), xrp.encoded_len() + TOKEN_HEADER_LEN);
+        assert!(bytes.starts_with(&VERSION_MARK));
+        let mut reader = Reader::new(&bytes);
+        assert_eq!(Terms::decode(&mut reader).unwrap(), token);
+        reader.finish().unwrap();
+        assert_ne!(token.digest(), xrp.digest());
+        assert_eq!(token.transaction_fee(), 12);
+        assert_eq!(
+            token.units_per_amount(),
+            dassie_xrpl::token::UNITS_PER_MICRO
+        );
+        // An unknown version, or an XRP "token", does not decode.
+        let mut later = bytes.clone();
+        later[VERSION_MARK.len()] = 2;
+        assert!(Terms::decode(&mut Reader::new(&later)).is_err());
+        let mut xrp_token = bytes;
+        xrp_token[VERSION_MARK.len() + 1..VERSION_MARK.len() + 21].fill(0);
+        assert!(Terms::decode(&mut Reader::new(&xrp_token)).is_err());
+    }
+
+    #[test]
+    fn fee_checks_follow_the_asset() {
+        let sponsor = NodeKey::from_bytes(&[3; 32]);
+        let fails = |change: &dyn Fn(&mut Terms), token: bool| {
+            let mut terms = terms(&sponsor);
+            if token {
+                terms = token_terms(terms);
+            }
+            change(&mut terms);
+            terms.check().is_err()
+        };
+        // An XRP hub pays out at least the ledger's base reserve, has no
+        // gas, and no nonce that reads as a later version.
+        assert!(fails(
+            &|t| t.fees.least_payout = LEDGER_BASE_RESERVE - 1,
+            false
+        ));
+        assert!(fails(&|t| t.fees.gas = 1, false));
+        assert!(fails(
+            &|t| t.nonce[..7].copy_from_slice(&VERSION_MARK),
+            false
+        ));
+        // A token hub's least payout is any amount but none; its fees are
+        // gas, at most what the escrow keeps; and its token is a token of
+        // an issuer other than the escrow.
+        assert!(!fails(&|t| t.fees.least_payout = 1, true));
+        assert!(fails(&|t| t.fees.least_payout = 0, true));
+        assert!(fails(&|t| t.fees.ledger = 1, true));
+        assert!(fails(&|t| t.fees.gas = 0, true));
+        assert!(!fails(&|t| t.fees.gas = LEAST_ESCROW_GAS_DROPS, true));
+        assert!(fails(&|t| t.fees.gas = LEAST_ESCROW_GAS_DROPS + 1, true));
+        assert!(fails(
+            &|t| {
+                t.asset = Asset::Token {
+                    currency: dassie_xrpl::dsusd::CURRENCY,
+                    issuer: AccountId(t.escrow),
+                };
+            },
+            true
+        ));
+        // New rules keep the asset and the gas.
+        let xrp = terms(&sponsor);
+        let token = token_terms(xrp.clone());
+        assert!(token.keeps_tables_of(&token));
+        assert!(!token.keeps_tables_of(&xrp) && !xrp.keeps_tables_of(&token));
+        let mut more_gas = token.clone();
+        more_gas.fees.gas += 1;
+        assert!(!more_gas.keeps_tables_of(&token));
+    }
+
+    // Millionths of a token are its value exactly up to sixteen digits, and
+    // rounded down beyond; what the escrow is paid counts in whole
+    // millionths, rounded down, and only in the hub's token.
+    #[test]
+    fn token_amounts_and_the_hubs_unit() {
+        let xrp = terms(&NodeKey::from_bytes(&[3; 32]));
+        let token = token_terms(xrp.clone());
+        let value = |text: &str| TokenValue::parse(text).unwrap();
+        assert_eq!(token_value(1_500_000), value("1.5"));
+        assert_eq!(token_value(1), value("0.000001"));
+        assert_eq!(token_value(0), TokenValue::ZERO);
+        assert_eq!(
+            token_value(12_345_678_901_234_567),
+            value("12345678901.23456")
+        );
+        assert_eq!(token_value(u64::MAX), value("18446744073709.55"));
+        let dsusd = |text: &str| {
+            dassie_xrpl::codec::Amount::Token(dassie_xrpl::dsusd::TOKEN.amount(value(text)))
+        };
+        assert_eq!(token.ledger_amount(2_000_000), dsusd("2"));
+        assert_eq!(token.hub_amount(&dsusd("2.0000019")), Some(2_000_001));
+        assert_eq!(token.hub_amount(&dassie_xrpl::codec::Amount::Xrp(5)), None);
+        let mut other = dassie_xrpl::dsusd::TOKEN.amount(value("2"));
+        other.issuer = AccountId([1; 20]);
+        assert_eq!(
+            token.hub_amount(&dassie_xrpl::codec::Amount::Token(other)),
+            None
+        );
+        assert_eq!(xrp.hub_amount(&dassie_xrpl::codec::Amount::Xrp(5)), Some(5));
+        assert_eq!(xrp.hub_amount(&dsusd("2")), None);
+        assert_eq!(xrp.ledger_amount(7), dassie_xrpl::codec::Amount::Xrp(7));
     }
 }

@@ -17,8 +17,8 @@
 
 use dassie_hub::escrow::{
     EscrowFault, EscrowSeen, PayoutBundle, PayoutError, PayoutTransaction, SetupStep,
-    ValidatorKeys, check_escrow, deposit_of, escrow_master, outcome_of, payout_set, setup,
-    setup_step, sign_payout_set, signer_list_set, withdrawal_outcome, withdrawal_payment,
+    ValidatorKeys, assemble, check_escrow, deposit_of, escrow_master, outcome_of, payout_set,
+    setup, setup_step, sign_payout_set, signer_list_set, withdrawal_outcome, withdrawal_payment,
 };
 use dassie_hub::ledger::Failure;
 use dassie_hub::ledger::{Block, Detail, Outcome, Phase};
@@ -27,14 +27,14 @@ use dassie_hub::operation::{
     AccountNumber, Destination, MemberOperation, Operation, SignedMemberOperation,
     SignedValidatorOperation, ValidatorOperation,
 };
-use dassie_hub::rules::{Acceptance, Fees, Limits, Rules, Terms, Timers};
+use dassie_hub::rules::{Acceptance, Asset, Fees, Limits, Rules, Terms, Timers};
 use dassie_hub::service::wire::PayoutPage;
 use dassie_hub::validators::{Signers, ValidatorIndex};
 use dassie_hub::{Ledger, Millis};
 use dassie_identity::NodeKey;
 use dassie_xrpl::api::{self, TxRecord};
-use dassie_xrpl::codec::{Amount, Memo, Payment, Signer, Signing, Transact};
-use dassie_xrpl::fake::{FEE_BASE, FakeLedger};
+use dassie_xrpl::codec::{Amount, Memo, Payment, Signer, Signing, TokenValue, Transact, TrustSet};
+use dassie_xrpl::fake::{FEE_BASE, FakeLedger, Token};
 use dassie_xrpl::{AccountId, Wallet};
 use serde_json::Value;
 
@@ -112,9 +112,11 @@ fn terms(sponsor: &NodeKey, escrow: AccountId) -> Terms {
         sponsor: sponsor.public_key(),
         network: 1,
         escrow: escrow.0,
+        asset: Asset::Xrp,
         fees: Fees {
             operation: 10,
             ledger: LEDGER_FEE,
+            gas: 0,
             reserve_share_ppm: 100_000,
             account_reserve: 2_000_000,
             hold_reserve: 200_000,
@@ -148,6 +150,21 @@ fn terms(sponsor: &NodeKey, escrow: AccountId) -> Terms {
     }
 }
 
+/// The terms of a DSUSD hub: the same, in millionths of DSUSD, its
+/// escrow's fees gas in XRP and no ledger fee in DSUSD
+/// (spec/areas/hubs.md#the-escrow).
+fn dsusd_terms(sponsor: &NodeKey, escrow: AccountId) -> Terms {
+    let mut terms = terms(sponsor, escrow);
+    terms.asset = Asset::Token {
+        currency: Token::DSUSD.currency,
+        issuer: Token::DSUSD.issuer,
+    };
+    terms.fees.gas = LEDGER_FEE;
+    terms.fees.ledger = 0;
+    terms.fees.least_payout = 1_000;
+    terms
+}
+
 /// A founded hub: its validators' keys, its ledger and the XRP Ledger.
 struct Hub {
     xrpl: FakeLedger,
@@ -161,6 +178,12 @@ impl Hub {
     /// The sponsor founds the hub and sets up its escrow; the validators
     /// check it and attest its next sequence.
     fn found() -> Self {
+        Self::found_with(terms)
+    }
+
+    /// The same, for the terms `terms` makes of the sponsor and the
+    /// escrow: an XRP hub's, or a token hub's.
+    fn found_with(terms: fn(&NodeKey, AccountId) -> Terms) -> Self {
         let mut xrpl = FakeLedger::new();
         let sponsor = NodeKey::from_bytes(&[100; 32]);
         let master = escrow_master(&sponsor, &NONCE).unwrap();
@@ -304,7 +327,7 @@ fn deposit(hub: &mut Hub, alice: &Wallet, alice_key: &NodeKey, drops: u64) -> Ac
     assert_eq!(submit(&mut hub.xrpl, &signed.blob), "tesSUCCESS");
     hub.xrpl.close();
     let seen = record(&mut hub.xrpl, &signed.hash);
-    let deposit = deposit_of(&seen, hub.escrow()).unwrap();
+    let deposit = deposit_of(&seen, &hub.rules.terms).unwrap();
     hub.attest(|_| ValidatorOperation::AttestDeposit(deposit));
     hub.ledger.account_of(&alice_key.public_key()).unwrap()
 }
@@ -448,7 +471,7 @@ fn a_deposit_without_a_key_attests_no_key_and_is_paid_back() {
     let deposit = records
         .transactions
         .iter()
-        .find_map(|record| deposit_of(record, hub.escrow()))
+        .find_map(|record| deposit_of(record, &hub.rules.terms))
         .unwrap();
     assert_eq!(deposit.key, None);
     hub.attest(|_| ValidatorOperation::AttestDeposit(deposit));
@@ -599,6 +622,7 @@ fn only_what_reaches_the_escrow_is_a_deposit() {
     let alice_key = NodeKey::from_bytes(&[32; 32]);
     deposit(&mut hub, &alice, &alice_key, 50_000_000);
     let escrow = hub.escrow();
+    let terms = hub.rules.terms.clone();
     let result = request(
         &mut hub.xrpl,
         &api::account_tx(5, escrow, 0, u32::MAX, None),
@@ -607,12 +631,12 @@ fn only_what_reaches_the_escrow_is_a_deposit() {
     let real = records
         .transactions
         .into_iter()
-        .find(|record| deposit_of(record, escrow).is_some())
+        .find(|record| deposit_of(record, &terms).is_some())
         .unwrap();
     let not = |change: &dyn Fn(&mut TxRecord)| {
         let mut record = real.clone();
         change(&mut record);
-        deposit_of(&record, escrow)
+        deposit_of(&record, &terms)
     };
     assert_eq!(not(&|r| r.validated = false), None);
     assert_eq!(not(&|r| r.result = "tecPATH_PARTIAL".into()), None);
@@ -711,19 +735,19 @@ fn a_withdrawals_outcome_is_its_own_payment() {
     hub.xrpl.close();
     let seen = record(&mut hub.xrpl, &hash);
     assert_eq!(
-        withdrawal_outcome(&seen, hub.escrow(), sequence, &withdrawal),
+        withdrawal_outcome(&seen, &hub.rules.terms, sequence, &withdrawal),
         Some(true)
     );
     let mut elsewhere = seen.clone();
     elsewhere.destination_tag = Some(6);
     assert_eq!(
-        withdrawal_outcome(&elsewhere, hub.escrow(), sequence, &withdrawal),
+        withdrawal_outcome(&elsewhere, &hub.rules.terms, sequence, &withdrawal),
         None
     );
     let mut short = seen;
     short.delivered = Some(1);
     assert_eq!(
-        withdrawal_outcome(&short, hub.escrow(), sequence, &withdrawal),
+        withdrawal_outcome(&short, &hub.rules.terms, sequence, &withdrawal),
         None
     );
 }
@@ -903,13 +927,13 @@ fn a_node_moves_its_funds_into_the_hub_and_out() {
     let escrow = hub.escrow();
     let key = member.public_key().as_bytes().to_vec();
     let hash = node.pay(&mut hub.xrpl, escrow, 0, Some(key), 20_000_000);
-    let deposit = deposit_of(&record(&mut hub.xrpl, &hash), escrow).unwrap();
+    let deposit = deposit_of(&record(&mut hub.xrpl, &hash), &hub.rules.terms).unwrap();
     assert_eq!((deposit.tag, deposit.key), (0, Some(member.public_key())));
     assert_eq!(deposit.amount, 20_000_000);
     hub.attest(|_| ValidatorOperation::AttestDeposit(deposit));
     let number = hub.ledger.account_of(&member.public_key()).unwrap();
     let hash = node.pay(&mut hub.xrpl, escrow, number.0, None, 5_000_000);
-    let deposit = deposit_of(&record(&mut hub.xrpl, &hash), escrow).unwrap();
+    let deposit = deposit_of(&record(&mut hub.xrpl, &hash), &hub.rules.terms).unwrap();
     assert_eq!((deposit.tag, deposit.key), (number.0, None));
     hub.attest(|_| ValidatorOperation::AttestDeposit(deposit));
     let account = hub.ledger.account(number).unwrap();
@@ -985,7 +1009,8 @@ fn the_sponsor_sets_up_what_is_missing() {
     xrpl.close();
     // Only the signer list made it before the sponsor stopped.
     let first = sequence(&mut xrpl, master.account());
-    let [list, _, _] = setup(&rules, &master, first, FEE_BASE);
+    let setup = setup(&rules, &master, first, FEE_BASE);
+    let list = &setup[0];
     assert_eq!(submit(&mut xrpl, list.blob()), "tesSUCCESS");
     xrpl.close();
     let Some(now) = seen(&mut xrpl, master.account()) else {
@@ -1090,4 +1115,393 @@ fn members_keep_only_payout_sets_their_validators_signed() {
     let forged = PayoutPage::of(changed.height, &changed.entries, 0);
     assert!(payouts.take(2, forged).is_err());
     assert_eq!(payouts.kept().count(), 0);
+}
+
+/// `text` DSUSD, as a Payment pays it.
+fn dsusd(text: &str) -> Amount {
+    Amount::Token(Token::DSUSD.amount(TokenValue::parse(text).unwrap()))
+}
+
+impl Hub {
+    /// A holder of 100 DSUSD on the fake testnet: funded, with a line to
+    /// DSUSD's issuer, and paid by it.
+    fn dsusd_holder(&mut self, seed: u8) -> Wallet {
+        let holder = Wallet::from_seed([seed; 16]);
+        self.xrpl.fund(holder.account());
+        self.xrpl.close();
+        let line = TrustSet {
+            account: holder.account(),
+            limit: Token::DSUSD.amount(TokenValue::MAX),
+            fee: FEE_BASE,
+            sequence: sequence(&mut self.xrpl, holder.account()),
+            last_ledger_sequence: None,
+            flags: 0,
+            network_id: None,
+            memos: Vec::new(),
+            signing: Signing::by(holder.public_key()),
+        };
+        assert_eq!(
+            submit(&mut self.xrpl, &line.sign(&holder).blob),
+            "tesSUCCESS"
+        );
+        self.xrpl.close();
+        let hundred = Token::DSUSD.amount(TokenValue::parse("100").unwrap());
+        self.xrpl.issue(holder.account(), hundred).unwrap();
+        self.xrpl.close();
+        holder
+    }
+
+    /// `from` pays `amount` to the escrow with `tag`, and its key as the
+    /// memo, if any.
+    fn pay_escrow(
+        &mut self,
+        from: &Wallet,
+        key: Option<&NodeKey>,
+        tag: u32,
+        amount: Amount,
+    ) -> [u8; 32] {
+        let payment = Payment {
+            account: from.account(),
+            destination: self.escrow(),
+            destination_tag: Some(tag),
+            amount,
+            send_max: None,
+            fee: FEE_BASE,
+            sequence: sequence(&mut self.xrpl, from.account()),
+            last_ledger_sequence: None,
+            flags: 0,
+            network_id: None,
+            memos: key
+                .map(|key| Memo {
+                    memo_type: b"dassie/hub-account".to_vec(),
+                    memo_data: key.public_key().as_bytes().to_vec(),
+                })
+                .into_iter()
+                .collect(),
+            signing: Signing::by(from.public_key()),
+        };
+        let signed = payment.sign(from);
+        assert_eq!(submit(&mut self.xrpl, &signed.blob), "tesSUCCESS");
+        self.xrpl.close();
+        signed.hash
+    }
+
+    /// What the escrow holds of DSUSD, in millionths.
+    fn dsusd_held(&self) -> u64 {
+        let value = self
+            .xrpl
+            .token_balance(self.escrow(), Token::DSUSD)
+            .unwrap();
+        u64::try_from(value.floor_units(6).unwrap()).unwrap()
+    }
+}
+
+/// The payments of a payout set.
+fn payouts(set: &dassie_hub::escrow::PayoutSet) -> Vec<&Payment> {
+    set.transactions
+        .iter()
+        .filter_map(|transaction| match transaction {
+            PayoutTransaction::Payout(payment) => Some(payment),
+            _ => None,
+        })
+        .collect()
+}
+
+// spec/areas/hubs.md#the-escrow: a DSUSD hub's escrow is set up with its
+// line to DSUSD's issuer, takes deposits of DSUSD and never of XRP, which
+// is gas, and pays withdrawals in DSUSD, every fee from its own XRP. What
+// the hub owes is what the escrow holds of DSUSD, to the millionth, but
+// for what was never a whole millionth.
+#[test]
+fn a_dsusd_hub_takes_deposits_and_pays_withdrawals_in_dsusd() {
+    let mut hub = Hub::found_with(dsusd_terms);
+    let escrow = hub.escrow();
+    let token = Token::DSUSD;
+    let line = hub.xrpl.line(escrow, token.issuer, token.currency).unwrap();
+    let view = line.view(escrow).unwrap();
+    assert!(view.ours.no_ripple && view.limit == TokenValue::MAX);
+
+    // A deposit of DSUSD, with tag 0 and the key: a new account.
+    let alice = hub.dsusd_holder(31);
+    let alice_key = NodeKey::from_bytes(&[32; 32]);
+    let hash = hub.pay_escrow(&alice, Some(&alice_key), 0, dsusd("50.0000005"));
+    let deposit = deposit_of(&record(&mut hub.xrpl, &hash), &hub.rules.terms).unwrap();
+    assert_eq!(deposit.amount, 50_000_000, "whole millionths, rounded down");
+    assert_eq!(deposit.key, Some(alice_key.public_key()));
+    hub.attest(|_| ValidatorOperation::AttestDeposit(deposit));
+    let number = hub.ledger.account_of(&alice_key.public_key()).unwrap();
+    assert_eq!(hub.ledger.account(number).unwrap().deposited, 50_000_000);
+    assert_eq!(hub.ledger.liabilities(), hub.dsusd_held());
+
+    // XRP to the escrow is gas, never a deposit, whatever its tag.
+    let gas = hub.xrpl.balance(escrow).unwrap();
+    let hash = hub.pay_escrow(&alice, None, number.0, Amount::Xrp(3_000_000));
+    assert_eq!(
+        deposit_of(&record(&mut hub.xrpl, &hash), &hub.rules.terms),
+        None
+    );
+    let gas = gas + 3_000_000;
+    assert_eq!(hub.xrpl.balance(escrow).unwrap(), gas);
+
+    // A withdrawal pays DSUSD, never partial; its fee is gas.
+    let to = Destination {
+        account: alice.account().0,
+        tag: None,
+    };
+    hub.member(number, &alice_key, MemberOperation::SetDisbursal(to));
+    let outcome = hub.member(
+        number,
+        &alice_key,
+        MemberOperation::Withdraw {
+            amount: 5_000_000,
+            to,
+        },
+    );
+    let Outcome::Applied {
+        detail: Detail::Withdrawal(sequence),
+        ..
+    } = outcome
+    else {
+        panic!("{outcome:?}");
+    };
+    let (_, withdrawal) = hub.ledger.withdrawals().next().unwrap();
+    let withdrawal = withdrawal.clone();
+    let payment = withdrawal_payment(&hub.rules, sequence, &withdrawal);
+    assert_eq!(payment.amount, dsusd("5"));
+    assert_eq!(
+        (payment.fee, payment.flags, payment.send_max),
+        (LEDGER_FEE, 0, None)
+    );
+    let signers: Vec<Signer> = hub.validators[..3]
+        .iter()
+        .map(|keys| payment.multi_sign(keys.escrow.account(), &keys.escrow))
+        .collect();
+    let hash = hub.submit_signed(payment, signers);
+    hub.xrpl.close();
+    let seen = record(&mut hub.xrpl, &hash);
+    assert_eq!(
+        withdrawal_outcome(&seen, &hub.rules.terms, sequence, &withdrawal),
+        Some(true)
+    );
+    let mut short = seen.clone();
+    short.delivered_token = Some(*dsusd("4.999999").token().unwrap());
+    assert_eq!(
+        withdrawal_outcome(&short, &hub.rules.terms, sequence, &withdrawal),
+        None
+    );
+    hub.attest(|_| ValidatorOperation::AttestWithdrawal {
+        escrow_sequence: sequence,
+        delivered: true,
+    });
+    assert_eq!(hub.ledger.withdrawals().count(), 0);
+    assert_eq!(
+        hub.xrpl.token_balance(alice.account(), token),
+        TokenValue::parse("54.9999995"),
+        "100, less 50.0000005 in, and 5 out"
+    );
+    assert_eq!(hub.xrpl.balance(escrow).unwrap(), gas - LEDGER_FEE);
+    assert_eq!(hub.ledger.account(number).unwrap().withdrawn, 5_000_000);
+    // The half millionth the hub never credited stays in the escrow.
+    assert_eq!(hub.ledger.liabilities(), hub.dsusd_held());
+    assert!(hub.xrpl.tokens_conserved());
+}
+
+// spec/areas/hubs.md#the-escrow: a DSUSD hub's payout set pays DSUSD, all
+// of each account's total, with gas as each payment's fee; a quorum's
+// bundles of it pay everyone out, and the escrow pays only gas in XRP.
+#[test]
+fn a_dsusd_hubs_payout_set_pays_dsusd() {
+    let mut hub = Hub::found_with(dsusd_terms);
+    let escrow = hub.escrow();
+    let alice = hub.dsusd_holder(31);
+    let alice_key = NodeKey::from_bytes(&[32; 32]);
+    let hash = hub.pay_escrow(&alice, Some(&alice_key), 0, dsusd("40"));
+    let deposit = deposit_of(&record(&mut hub.xrpl, &hash), &hub.rules.terms).unwrap();
+    hub.attest(|_| ValidatorOperation::AttestDeposit(deposit));
+    let number = hub.ledger.account_of(&alice_key.public_key()).unwrap();
+    let to = Destination {
+        account: alice.account().0,
+        tag: None,
+    };
+    hub.member(number, &alice_key, MemberOperation::SetDisbursal(to));
+    hub.attest(|_| ValidatorOperation::Shutdown);
+    let Phase::ShuttingDown { ends } = hub.ledger.phase() else {
+        panic!("not shutting down");
+    };
+    hub.block_at(ends, vec![]);
+    assert_eq!(hub.ledger.phase(), Phase::Ended);
+
+    let set = payout_set(&hub.ledger).unwrap();
+    let owed = hub.ledger.account(number).unwrap();
+    let alice_total = owed.balance + owed.reserve;
+    let payments = payouts(&set);
+    for payment in &payments {
+        assert!(matches!(payment.amount, Amount::Token(_)), "{payment:?}");
+        assert_eq!(payment.fee, LEDGER_FEE);
+    }
+    let alices = payments
+        .iter()
+        .find(|payment| payment.destination == alice.account())
+        .unwrap();
+    assert_eq!(
+        alices.amount,
+        hub.rules.terms.ledger_amount(alice_total),
+        "all of it: no ledger fee in DSUSD"
+    );
+    let signed: Vec<(usize, PayoutBundle)> = (1..4)
+        .map(|index| {
+            let signatures = sign_payout_set(&set, &hub.validators[index]).unwrap();
+            let bundle = PayoutBundle::of(&set, &signatures);
+            bundle.verify(&hub.rules, index).unwrap();
+            (index, bundle)
+        })
+        .collect();
+    // A bundle that pays XRP instead is not one of a DSUSD hub's sets.
+    let mut in_xrp = signed[0].1.clone();
+    let last = in_xrp.entries.len() - 1;
+    let PayoutTransaction::Payout(mut payment) = set.transactions[last].clone() else {
+        panic!("a payout last");
+    };
+    payment.amount = Amount::Xrp(1_000_000);
+    in_xrp.entries[last].transaction = payment.blob();
+    assert_eq!(
+        in_xrp.verify(&hub.rules, signed[0].0),
+        Err(PayoutError::Transaction(last))
+    );
+
+    let bundles: Vec<(usize, &PayoutBundle)> = signed
+        .iter()
+        .map(|(index, bundle)| (*index, bundle))
+        .collect();
+    let (_, blobs) = assemble(&hub.rules, &bundles).unwrap();
+    let held = hub.dsusd_held();
+    let gas = hub.xrpl.balance(escrow).unwrap();
+    let before = hub
+        .xrpl
+        .token_balance(alice.account(), Token::DSUSD)
+        .unwrap();
+    for blob in &blobs {
+        assert_eq!(submit(&mut hub.xrpl, blob), "tesSUCCESS");
+        hub.xrpl.close();
+    }
+    assert_eq!(
+        hub.xrpl.token_balance(alice.account(), Token::DSUSD),
+        before.checked_add(dassie_hub::rules::token_value(alice_total))
+    );
+    let paid: u64 = payments
+        .iter()
+        .map(|payment| hub.rules.terms.hub_amount(&payment.amount).unwrap())
+        .sum();
+    assert_eq!(hub.dsusd_held(), held - paid);
+    let fees = LEDGER_FEE * u64::try_from(blobs.len()).unwrap();
+    assert_eq!(hub.xrpl.balance(escrow).unwrap(), gas - fees, "gas alone");
+    assert!(hub.xrpl.tokens_conserved());
+}
+
+// spec/areas/hubs.md#the-escrow: the validators take a token hub's escrow
+// only with exactly one line beside its signer list, its line to the
+// issuer as the setup makes it; an XRP hub's takes none.
+#[test]
+fn the_check_takes_a_token_escrow_with_its_one_line() {
+    use EscrowFault::{Objects, TrustLine};
+    use dassie_xrpl::api::line_flags::{HIGH_NO_RIPPLE, LOW_NO_RIPPLE};
+
+    let mut hub = Hub::found_with(dsusd_terms);
+    let (settings, objects) = hub.settings_and_objects();
+    assert_eq!((objects.others, objects.lines.len()), (1, 1));
+    let rules = hub.rules.clone();
+    let check = |objects: &api::AccountObjects| check_escrow(&rules, &settings, objects);
+    check(&objects).unwrap();
+    let mut none = objects.clone();
+    none.lines.clear();
+    none.others = 0;
+    assert_eq!(check(&none), Err(TrustLine));
+    let mut rippling = objects.clone();
+    rippling.lines[0].flags &= !(LOW_NO_RIPPLE | HIGH_NO_RIPPLE);
+    assert_eq!(check(&rippling), Err(TrustLine));
+    let mut limited = objects.clone();
+    limited.lines[0].low_limit = TokenValue::parse("1000").unwrap();
+    limited.lines[0].high_limit = TokenValue::parse("1000").unwrap();
+    assert_eq!(check(&limited), Err(TrustLine));
+    let mut more = objects.clone();
+    more.others = 2;
+    assert_eq!(check(&more), Err(Objects));
+    let mut twice = objects.clone();
+    twice.lines.push(twice.lines[0]);
+    twice.others = 2;
+    assert_eq!(check(&twice), Err(Objects));
+    let mut unread = objects.clone();
+    unread.lines.clear();
+    assert_eq!(check(&unread), Err(Objects), "a line that did not read");
+    // The same escrow is not an XRP hub's: it owns a line.
+    let mut xrp = hub.rules.clone();
+    xrp.terms = terms(&NodeKey::from_bytes(&[100; 32]), hub.escrow());
+    assert_eq!(check_escrow(&xrp, &settings, &objects), Err(Objects));
+}
+
+// spec/designs/settlement-hubs.md#2-founding-a-hub: a token hub's setup goes
+// on where it stopped, its line before the master key; a line the master
+// key made to anything else breaks it.
+#[test]
+fn the_sponsor_sets_up_a_token_escrows_line() {
+    let mut xrpl = FakeLedger::new();
+    let sponsor = NodeKey::from_bytes(&[100; 32]);
+    let master = escrow_master(&sponsor, &NONCE).unwrap();
+    let terms = dsusd_terms(&sponsor, master.account());
+    let nodes: Vec<NodeKey> = (1..=4).map(|i| NodeKey::from_bytes(&[i; 32])).collect();
+    let validators = nodes
+        .iter()
+        .enumerate()
+        .map(|(i, node)| {
+            ValidatorKeys::derive(node, &NONCE)
+                .unwrap()
+                .accept(node, &terms, format!("v{i}.example:443"))
+                .unwrap()
+        })
+        .collect();
+    let rules = Rules { terms, validators };
+    rules.check().unwrap();
+    xrpl.fund(master.account());
+    xrpl.close();
+    let first = sequence(&mut xrpl, master.account());
+    let all = setup(&rules, &master, first, FEE_BASE);
+    assert_eq!(
+        all.len(),
+        4,
+        "the list, RequireDest, the line, the master key"
+    );
+    for transaction in &all[..2] {
+        assert_eq!(submit(&mut xrpl, transaction.blob()), "tesSUCCESS");
+    }
+    xrpl.close();
+    let now = seen(&mut xrpl, master.account()).unwrap();
+    let SetupStep::Submit(rest) = setup_step(&rules, &master, Some(&now), FEE_BASE) else {
+        panic!("more to do");
+    };
+    assert_eq!(rest.len(), 2, "the line, then the master key");
+    // A line to another currency, made while the master key still signs,
+    // is a way in the sponsor kept.
+    let mut other = now.clone();
+    let mut line = other.objects.lines.first().copied();
+    assert!(line.is_none(), "no line yet");
+    line = Some(dassie_xrpl::api::TrustLine {
+        low: master.account().min(Token::DSUSD.issuer),
+        high: master.account().max(Token::DSUSD.issuer),
+        currency: dassie_xrpl::codec::Currency::parse("USD").unwrap(),
+        balance: TokenValue::ZERO,
+        low_limit: TokenValue::MAX,
+        high_limit: TokenValue::MAX,
+        flags: 0,
+    });
+    other.objects.lines.extend(line);
+    other.objects.others += 1;
+    assert!(matches!(
+        setup_step(&rules, &master, Some(&other), FEE_BASE),
+        SetupStep::Broken(EscrowFault::Objects)
+    ));
+    // Otherwise it goes on, and the escrow checks.
+    assert_eq!(set_up(&mut xrpl, &rules, &master), 1);
+    let done = seen(&mut xrpl, master.account()).unwrap();
+    check_escrow(&rules, &done.settings, &done.objects).unwrap();
+    assert_eq!(done.objects.lines.len(), 1);
 }

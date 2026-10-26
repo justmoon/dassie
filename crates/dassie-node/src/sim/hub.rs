@@ -125,9 +125,11 @@ pub fn terms(validators: usize) -> Terms {
         sponsor: sponsor.public_key(),
         network: 1,
         escrow,
+        asset: dassie_hub::rules::Asset::Xrp,
         fees: Fees {
             operation: 10,
             ledger: 100,
+            gas: 0,
             reserve_share_ppm: 100_000,
             account_reserve: 2_000_000,
             hold_reserve: 200_000,
@@ -381,6 +383,8 @@ impl HubNet {
 }
 
 /// What a validator takes in a step.
+// One input at a time: boxing new rules, which are rare, would buy nothing.
+#[allow(clippy::large_enum_variant)]
 enum Input {
     Tick,
     Message {

@@ -156,9 +156,11 @@ fn terms(sponsor: &NodeKey) -> Terms {
         sponsor: sponsor.public_key(),
         network: 1,
         escrow: escrow_master(sponsor, &NONCE).unwrap().account().0,
+        asset: dassie_hub::rules::Asset::Xrp,
         fees: Fees {
             operation: 10,
             ledger: 100,
+            gas: 0,
             reserve_share_ppm: 100_000,
             account_reserve: 2_000_000,
             hold_reserve: 200_000,
@@ -612,6 +614,13 @@ async fn hub_status(node: &support::TestNode) -> Option<dassie_node::rpc::proto:
     }
 }
 
+/// Terms of an XRP hub whose escrow is `escrow`: all a validator reads a
+/// deposit to it by.
+fn xrp_hub_terms(escrow: dassie_xrpl::AccountId) -> dassie_hub::rules::Terms {
+    let sponsor = NodeKey::from_bytes(&[100; 32]).public_key();
+    dassie_hub::founding::starting_terms([0; 32], sponsor, 1, escrow.0)
+}
+
 /// The deposits to `escrow` the fake ledger holds, as validators read them.
 fn deposits(
     xrpl: &dassie_node::fake_ledger::Server,
@@ -633,7 +642,7 @@ fn deposits(
         records
             .transactions
             .iter()
-            .filter_map(|record| dassie_hub::escrow::deposit_of(record, escrow))
+            .filter_map(|record| dassie_hub::escrow::deposit_of(record, &xrp_hub_terms(escrow)))
             .collect()
     })
 }

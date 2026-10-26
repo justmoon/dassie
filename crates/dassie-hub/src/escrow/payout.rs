@@ -10,12 +10,15 @@
 //! selector the XRP Ledger applies decides which set pays out: every other
 //! set's payments are then signed by keys not on the list, and are refused
 //! without using a sequence, so two sets never mix.
+//!
+//! A token hub pays out its token, each payment's fee the gas its escrow's
+//! own XRP pays ([`Terms::transaction_fee`](crate::rules::Terms::transaction_fee)).
 
 use alloc::vec::Vec;
 
 use dassie_xrpl::AccountId;
 use dassie_xrpl::codec::{
-    Amount, Payment, Signer, SignerEntry, SignerListSet, Signing, Transact, Transaction,
+    Payment, Signer, SignerEntry, SignerListSet, Signing, Transact, Transaction,
 };
 use dassie_xrpl::keys::{PublicKey, Secp256k1Key};
 
@@ -147,9 +150,9 @@ pub fn payout_set(ledger: &Ledger) -> Option<PayoutSet> {
             account: escrow_account(rules),
             destination: AccountId(destination.account),
             destination_tag: destination.tag,
-            amount: Amount::Xrp(amount),
+            amount: rules.terms.ledger_amount(amount),
             send_max: None,
-            fee: fees.ledger,
+            fee: rules.terms.transaction_fee(),
             sequence,
             last_ledger_sequence: None,
             flags: 0,
@@ -283,7 +286,8 @@ impl PayoutBundle {
 
     /// Checks that it is a payout set of `rules`' escrow signed by the
     /// validator at `index` of them: every transaction the escrow's, in
-    /// sequence order, with the rules' fee and network; one selector,
+    /// sequence order, with the rules' fee and network, every payment of
+    /// the hub's asset; one selector,
     /// whose list is the set's own keys for its height; before it,
     /// signatures by the validator's escrow key, after it by its key for
     /// this set; and every signature verifies. What it cannot check is
@@ -364,7 +368,7 @@ fn read_transaction(rules: &Rules, blob: &[u8], sequence: &mut Option<u32>) -> O
             payment.fee,
             payment.network_id,
             payment.last_ledger_sequence,
-            payment.send_max.is_none() && matches!(payment.amount, Amount::Xrp(_)),
+            payment.send_max.is_none() && payment.amount.asset() == rules.terms.asset,
         ),
         Transaction::SignerListSet(list) => (
             list.account,
@@ -380,7 +384,7 @@ fn read_transaction(rules: &Rules, blob: &[u8], sequence: &mut Option<u32>) -> O
     let fits = plain
         && unsigned
         && account == escrow_account(rules)
-        && fee == rules.terms.fees.ledger
+        && fee == rules.terms.transaction_fee()
         && network == network_id(rules.terms.network)
         && last.is_none()
         && transaction.sequence() == next;
