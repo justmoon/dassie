@@ -36,7 +36,7 @@ A ledger kept by n = 3f + 1 validators and backed by an escrow on the XRP Ledger
   - validators that attest only what they proved through the verifier: see [Mainnet hubs](#mainnet-hubs).
 - **Done when:** in the simulation, with up to f faulty validators, members peered over a hub pay each other across hops without trusting each other: a payer that sends no claims, and a payee that claims twice or late, cost the other no more than its hold. f + 1 colluding validators leave evidence. A hub that loses a validator shuts down, and the escrow pays out exactly the final balances, with signatures collected over time. On the testnet, nodes peered over the default hub pay each other, and it carries on while a validator restarts.
   - **Met in the simulation** (`node-hub`, [Testing](areas/testing.md#over-a-settlement-hub)), but for this: the hub that loses validators stalls there, and its escrow pays out the final balances with signatures gathered over time; a shutdown after a validator's absence, days in the design's terms, is not simulated.
-  - **Met on the testnet:** two nodes peered over the default hub, `4c5ef2ba…`, pay each other, and it carries on while one of its validators restarts.
+  - **Met on the testnet:** two nodes peered over the default hub pay each other, and it carries on while one of its validators restarts. A hub is founded again whenever what its ID commits to changes, and none is built in until it is ([In the node](areas/hubs.md#in-the-node)).
 - **Later, once hubs run:**
   - fees that follow how full blocks are, so that holding back someone's claim grows dear, and an idle fee that frees the places of abandoned accounts;
   - a setup fee the sponsor pays each validator, in place of the owner's list of sponsors;

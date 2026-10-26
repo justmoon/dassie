@@ -4013,7 +4013,7 @@ fn a_peer_loss_is_booked_from_where_the_money_left() {
 /// A hub's rules, as the scheme's config takes them: four validators,
 /// commitments expiring `margin` early, and legs between members of
 /// `allowance`.
-fn hub_config(margin: u64, allowance: u64) -> String {
+pub(super) fn hub_config(margin: u64, allowance: u64) -> String {
     use dassie_oer::Encode;
 
     let hex: String = hub_rules(margin, allowance)
@@ -4070,10 +4070,8 @@ fn hub_rules(margin: u64, allowance: u64) -> dassie_hub::Rules {
             reconfigure_notice: 120_000,
             absence: 86_400_000,
             stall: 3_600_000,
-            precision: 100,
             margin,
             allowance,
-            view_timeout: 200,
         },
     };
     let validators = (1..=4u8)
@@ -4100,8 +4098,15 @@ fn a_hub_is_joined_only_if_it_fits_the_message_window() {
     let mut core = core(9);
     let refused = core.add_scheme(dassie_hub::member::SCHEME_ID, hub_config(1_000, 700));
     assert!(refused.is_err(), "1 s + 700 ms is past the 1.6 s window");
+    // A margin below what finality takes with one of four validators
+    // faulty voids the guarantee of a commitment: no member joins.
+    let short = core.add_scheme(dassie_hub::member::SCHEME_ID, hub_config(500, 300));
+    assert!(
+        short.is_err(),
+        "500 ms is below the 600 ms four validators need"
+    );
     assert!(core.ledger_views().is_empty());
-    core.add_scheme(dassie_hub::member::SCHEME_ID, hub_config(500, 300))
+    core.add_scheme(dassie_hub::member::SCHEME_ID, hub_config(600, 300))
         .unwrap();
     assert_eq!(core.ledger_views().len(), 1);
     let mut outputs = Vec::new();
@@ -4980,7 +4985,7 @@ struct Validators {
 
 impl Validators {
     fn new() -> Self {
-        let rules = hub_rules(500, 300);
+        let rules = hub_rules(600, 300);
         let keys = (1..=4u8)
             .map(|i| {
                 let node = NodeKey::from_bytes(&[i; 32]);
@@ -5153,7 +5158,7 @@ fn funding_core(ledger: &mut dassie_xrpl::fake::FakeLedger) -> Core {
     let mut core = core(9);
     add_xrpl(&mut core, "xrpl-testnet-xrp", SHARED_CONFIG).unwrap();
     follow_xrpl(&mut core, ledger);
-    core.add_scheme(dassie_hub::member::SCHEME_ID, hub_config(500, 300))
+    core.add_scheme(dassie_hub::member::SCHEME_ID, hub_config(600, 300))
         .unwrap();
     follow_xrpl(&mut core, ledger);
     core
@@ -5314,7 +5319,7 @@ fn the_owners_moves_pause_the_automatic_ones() {
     let mut core = core_on(Arc::clone(&store), 9);
     add_xrpl(&mut core, "xrpl-testnet-xrp", SHARED_CONFIG).unwrap();
     follow_xrpl(&mut core, &mut ledger);
-    core.add_scheme(dassie_hub::member::SCHEME_ID, hub_config(500, 300))
+    core.add_scheme(dassie_hub::member::SCHEME_ID, hub_config(600, 300))
         .unwrap();
     follow_xrpl(&mut core, &mut ledger);
     let mut hub = Validators::new();
@@ -5364,7 +5369,7 @@ fn a_restart_never_pays_a_deposit_twice() {
     let mut core = core_on(Arc::clone(&store), 9);
     add_xrpl(&mut core, "xrpl-testnet-xrp", SHARED_CONFIG).unwrap();
     follow_xrpl(&mut core, &mut ledger);
-    core.add_scheme(dassie_hub::member::SCHEME_ID, hub_config(500, 300))
+    core.add_scheme(dassie_hub::member::SCHEME_ID, hub_config(600, 300))
         .unwrap();
     follow_xrpl(&mut core, &mut ledger);
     let mut hub = Validators::new();
@@ -5549,7 +5554,7 @@ fn holding_core(
     let mut core = core_on(Arc::clone(store), 9);
     add_xrpl(&mut core, "xrpl-testnet-xrp", SHARED_CONFIG).unwrap();
     follow_xrpl(&mut core, ledger);
-    core.add_scheme(dassie_hub::member::SCHEME_ID, hub_config(500, 300))
+    core.add_scheme(dassie_hub::member::SCHEME_ID, hub_config(600, 300))
         .unwrap();
     follow_xrpl(&mut core, ledger);
     let mut hub = Validators::new();
@@ -5779,7 +5784,7 @@ fn owner_book_core(ledger: &mut dassie_xrpl::fake::FakeLedger) -> Core {
     let book = r#"{"server":"ws://ledger.test","faucet":null,"peers":false}"#;
     add_xrpl(&mut core, "xrpl-testnet-xrp", book).unwrap();
     follow_xrpl(&mut core, ledger);
-    core.add_scheme(dassie_hub::member::SCHEME_ID, hub_config(500, 300))
+    core.add_scheme(dassie_hub::member::SCHEME_ID, hub_config(600, 300))
         .unwrap();
     follow_xrpl(&mut core, ledger);
     close_xrpl(&mut core, ledger);

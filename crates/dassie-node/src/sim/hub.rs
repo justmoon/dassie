@@ -158,10 +158,8 @@ pub fn terms(validators: usize) -> Terms {
             reconfigure_notice: 120_000,
             absence: ABSENCE_MS,
             stall: MIN_STALL_MS,
-            precision: config.precision_ms,
             margin,
             allowance: window - margin,
-            view_timeout: config.leader_timeout_ms,
         },
     }
 }

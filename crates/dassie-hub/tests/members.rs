@@ -57,7 +57,7 @@ const P: u64 = 100_000_000;
 const FEE: u64 = 10;
 const HOLD_RESERVE: u64 = 200_000;
 const ACCOUNT_RESERVE: u64 = 2_000_000;
-const MARGIN: Millis = 500;
+const MARGIN: Millis = 600;
 
 fn terms(sponsor: &NodeKey, escrow: [u8; 20]) -> Terms {
     Terms {
@@ -95,10 +95,8 @@ fn terms(sponsor: &NodeKey, escrow: [u8; 20]) -> Terms {
             reconfigure_notice: 120_000,
             absence: 86_400_000,
             stall: 3_600_000,
-            precision: 100,
             margin: MARGIN,
             allowance: 300,
-            view_timeout: 200,
         },
     }
 }

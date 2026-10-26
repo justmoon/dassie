@@ -36,11 +36,18 @@ pub use scheme::{HubScheme, SCHEME_ID};
 
 /// The default hub of the XRP Ledger testnet, as the hex of its rules'
 /// encoding, kept like the default bootstrap node list
-/// (spec/designs/settlement-hubs.md#11-choosing-a-hub): the hub
-/// `4c5ef2ba…cd60`, founded by boot1 with boot1–4 as its validators, its
-/// escrow `r9UPG9XmsrrdYr4kBbiUrd9zR7pepbwiG4`. A node names another hub in
-/// its scheme's config.
-pub const DEFAULT_TESTNET_HUB: Option<&str> = Some(include_str!("default-testnet-hub.hex"));
+/// (spec/designs/settlement-hubs.md#11-choosing-a-hub): founded by boot1
+/// with boot1–4 as its validators. A node names another hub in its
+/// scheme's config.
+///
+/// None is built in until the testnet's hub is founded again under the
+/// current rules: the one founded before their margin and their encoding
+/// changed no longer decodes or checks. Meanwhile the wallet does not offer
+/// the scheme, and a scheme added without rules of its own does not start
+/// (spec/areas/hubs.md#in-the-node). Founding it again puts its rules'
+/// hex in `default-testnet-hub.hex` and this back to
+/// `Some(include_str!("default-testnet-hub.hex"))`.
+pub const DEFAULT_TESTNET_HUB: Option<&str> = None;
 
 use dassie_ledger::{MAX_TOTAL, Name};
 

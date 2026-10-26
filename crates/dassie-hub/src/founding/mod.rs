@@ -62,7 +62,9 @@ pub fn genesis_digest(rules: &Rules, genesis_ms: Millis) -> Digest {
 /// values of the design, which the simulation is to set
 /// (spec/designs/settlement-hubs.md), with its escrow at `escrow` on
 /// `network`. The ledger fee covers every validator of the largest set
-/// signing, at twice the XRP Ledger's base fee.
+/// signing, at twice the XRP Ledger's base fee. The margin is the least the
+/// smallest set may have; a sponsor of more validators raises it to theirs
+/// (`rules::least_margin_ms`), as `Rules::check` asks.
 #[must_use]
 pub fn starting_terms(
     nonce: [u8; 32],
@@ -107,10 +109,8 @@ pub fn starting_terms(
             reconfigure_notice: 86_400_000,
             absence: 3 * 86_400_000,
             stall: 3_600_000,
-            precision: 100,
-            margin: 500,
+            margin: crate::rules::least_margin_ms(crate::validators::MIN_VALIDATORS),
             allowance: 300,
-            view_timeout: 200,
         },
     }
 }
@@ -122,5 +122,8 @@ mod tests {
         let sponsor = dassie_identity::NodeKey::from_bytes(&[1; 32]).public_key();
         let terms = super::starting_terms([2; 32], sponsor, 1, [3; 20]);
         assert_eq!(terms.check(), Ok(()));
+        // spec/areas/hubs.md#consensus: f + 1 views at most before an
+        // honest leader's block, of four validators.
+        assert_eq!(terms.timers.margin, 600);
     }
 }

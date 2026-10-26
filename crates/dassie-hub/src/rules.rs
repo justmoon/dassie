@@ -166,14 +166,14 @@ pub struct Timers {
     /// How long a validator sees no block become final before it declares
     /// the hub stalled.
     pub stall: Millis,
-    /// How far a block's timestamp may be from a validator's clock.
-    pub precision: Millis,
-    /// M: how much earlier than its Prepare a commitment expires.
+    /// M: how much earlier than its Prepare a commitment expires. At least
+    /// what finality takes with f validators faulty, as consensus's timings
+    /// give it ([`least_margin_ms`]); the precision and the views' timeouts
+    /// are consensus's, derived from the region, never the rules'
+    /// (`consensus/config.rs`).
     pub margin: Millis,
     /// The legs between members a peering over the hub allows for.
     pub allowance: Millis,
-    /// How long a validator waits for a view's block before it skips it.
-    pub view_timeout: Millis,
 }
 
 /// Everything in the rules but the validators.
@@ -363,7 +363,7 @@ impl Terms {
         let timers = &self.timers;
         let fail = |why| Err(RulesError::Terms(why));
         // A hold cannot shrink before any packet on it expires.
-        if timers.hold_notice <= MAX_HOLD_MS || timers.margin == 0 || timers.precision == 0 {
+        if timers.hold_notice <= MAX_HOLD_MS || timers.margin == 0 {
             return fail("hold notice not longer than a packet may be held");
         }
         // A member that does not accept new rules can take its holds back
@@ -371,8 +371,8 @@ impl Terms {
         if timers.reconfigure_notice <= timers.hold_notice {
             return fail("reconfiguration notice not longer than a hold's");
         }
-        if timers.stall <= timers.view_timeout || timers.absence <= timers.stall {
-            return fail("stall or absence not longer than a view");
+        if timers.absence <= timers.stall {
+            return fail("absence not longer than a stall");
         }
         // A hub recovering from the longest outage must not stall first,
         // and an outage as long as the stall must fit in the views an
@@ -470,6 +470,16 @@ impl Terms {
     }
 }
 
+/// The least margin M of a hub with `validators` validators: the precision,
+/// and what it takes to finalize a block when the next f leaders are faulty
+/// (`Config::margin_ms`), at consensus's timings, which every validator
+/// runs.
+#[must_use]
+pub fn least_margin_ms(validators: usize) -> Millis {
+    let faults = u64::try_from(validators.saturating_sub(1) / 3).unwrap_or(u64::MAX);
+    crate::consensus::Config::DEFAULT.margin_ms(faults)
+}
+
 /// The longest a connector holds a packet (spec/decisions/connector-timing.md),
 /// which a hold's notice must exceed.
 pub const MAX_HOLD_MS: Millis = 30_000;
@@ -558,11 +568,21 @@ impl Rules {
         ValidatorSet::new(self.validators.iter().map(|a| a.consensus).collect())
     }
 
-    /// Checks the terms, the set and every acceptance.
+    /// Checks the terms, the set and every acceptance, and that the margin
+    /// covers what finality takes with as many validators faulty as the set
+    /// tolerates: with less, a block that settles a packet need not be
+    /// final before the packet expires, and the payer's guarantee is void
+    /// (spec/designs/settlement-hubs.md#4-peering-over-a-hub). Members
+    /// check it too: a hub whose rules do not check is joined by no one.
     pub fn check(&self) -> Result<(), RulesError> {
         self.terms.check()?;
         if self.validator_set().is_none() {
             return Err(RulesError::Validators);
+        }
+        if self.terms.timers.margin < least_margin_ms(self.validators.len()) {
+            return Err(RulesError::Terms(
+                "margin below what finality takes with f validators faulty",
+            ));
         }
         let nodes_distinct = self.validators.iter().enumerate().all(|(i, a)| {
             self.validators
@@ -613,7 +633,7 @@ impl Acceptance {
 
 const FEES_LEN: usize = 8 * 6 + 4;
 const LIMITS_LEN: usize = 4 * 5 + 2 * 6;
-const TIMERS_LEN: usize = 8 * 9;
+const TIMERS_LEN: usize = 8 * 7;
 /// The terms of an XRP hub, as they were before tokens.
 const TERMS_LEN: usize = 32 + KEY_LEN + 4 + LEDGER_ACCOUNT_LEN + FEES_LEN + LIMITS_LEN + TIMERS_LEN;
 
@@ -690,10 +710,8 @@ fn encode_timers(writer: &mut Writer<'_>, timers: &Timers) {
         timers.reconfigure_notice,
         timers.absence,
         timers.stall,
-        timers.precision,
         timers.margin,
         timers.allowance,
-        timers.view_timeout,
     ] {
         writer.write_u64(value);
     }
@@ -771,10 +789,8 @@ fn decode_timers(reader: &mut Reader<'_>) -> Result<Timers, HubDecodeError> {
         reconfigure_notice: reader.read_u64()?,
         absence: reader.read_u64()?,
         stall: reader.read_u64()?,
-        precision: reader.read_u64()?,
         margin: reader.read_u64()?,
         allowance: reader.read_u64()?,
-        view_timeout: reader.read_u64()?,
     })
 }
 
@@ -893,10 +909,8 @@ pub(crate) mod tests {
                 reconfigure_notice: 86_400_000,
                 absence: 3 * 86_400_000,
                 stall: 3_600_000,
-                precision: 100,
-                margin: 500,
+                margin: 600,
                 allowance: 300,
-                view_timeout: 200,
             },
         }
     }
@@ -920,7 +934,8 @@ pub(crate) mod tests {
     /// 1..=n, for tests.
     pub(crate) fn rules(n: u8) -> (Rules, Vec<NodeKey>) {
         let sponsor = NodeKey::from_bytes(&[100; 32]);
-        let terms = terms(&sponsor);
+        let mut terms = terms(&sponsor);
+        terms.timers.margin = least_margin_ms(usize::from(n));
         let consensus: Vec<NodeKey> = (1..=n)
             .map(|i| NodeKey::from_bytes(&[i + 50; 32]))
             .collect();
@@ -940,6 +955,25 @@ pub(crate) mod tests {
             })
             .collect();
         (Rules { terms, validators }, consensus)
+    }
+
+    // spec/areas/hubs.md#consensus: the margin covers what finality takes
+    // with f validators faulty, the precision and an honest leader's block
+    // after f skipped views, or the rules do not check, for validators and
+    // members alike.
+    #[test]
+    fn the_margin_covers_finality_with_f_faulty() {
+        assert_eq!(least_margin_ms(4), 600);
+        assert_eq!(least_margin_ms(7), 850);
+        let (mut rules, _) = rules(4);
+        rules.check().unwrap();
+        rules.terms.timers.margin = 599;
+        assert_eq!(
+            rules.check(),
+            Err(RulesError::Terms(
+                "margin below what finality takes with f validators faulty"
+            ))
+        );
     }
 
     #[test]
@@ -1022,42 +1056,6 @@ pub(crate) mod tests {
         terms.fees.ledger = 0;
         terms.fees.least_payout = 1;
         terms
-    }
-
-    fn bytes_of_hex(hex: &str) -> Vec<u8> {
-        (0..hex.len())
-            .step_by(2)
-            .map(|i| u8::from_str_radix(&hex[i..i + 2], 16).unwrap())
-            .collect()
-    }
-
-    // The encoding is versioned so that the built-in testnet hub, founded
-    // before hubs had an asset, decodes as an XRP hub and encodes again
-    // byte for byte: its ID, `4c5ef2ba…cd60`, is unchanged.
-    #[test]
-    fn the_default_testnet_hub_keeps_its_bytes_and_its_id() {
-        let hex = crate::member::DEFAULT_TESTNET_HUB.unwrap();
-        let bytes = bytes_of_hex(hex.trim());
-        let mut reader = Reader::new(&bytes);
-        let rules = Rules::decode(&mut reader).unwrap();
-        reader.finish().unwrap();
-        assert_eq!(rules.terms.asset, Asset::Xrp);
-        assert_eq!(rules.terms.fees.gas, 0);
-        assert_eq!(rules.terms.transaction_fee(), rules.terms.fees.ledger);
-        assert_eq!(rules.check(), Ok(()));
-        assert_eq!(rules.to_vec(), bytes, "encodes as it was founded");
-        assert_eq!(rules.encoded_len(), bytes.len());
-        let id: String = rules
-            .id()
-            .0
-            .as_bytes()
-            .iter()
-            .map(|byte| alloc::format!("{byte:02x}"))
-            .collect();
-        assert_eq!(
-            id,
-            "4c5ef2ba22cd3007174e95a080fae47c01538937e989876f322a26090c02cd60"
-        );
     }
 
     // A token hub's terms carry the token and the gas, round-trip, and name
