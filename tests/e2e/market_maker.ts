@@ -81,7 +81,9 @@ export async function peersOf(node: ScenarioNode): Promise<string[]> {
   return peers.map((peer) => peer.node).sort();
 }
 
-/** The port `node`'s `GET /stats` names for its feed, if it names one. */
+/**
+ * The port `node`'s discovery document names for its feed, if it names one.
+ */
 export async function feedPort(
   scenario: Scenario,
   node: ScenarioNode,
@@ -90,11 +92,11 @@ export async function feedPort(
     connect: { ca: await readFile(scenario.caFile, "utf8") },
   });
   try {
-    const response = await fetch(`${node.localUrl}/stats`, {
+    const response = await fetch(`${node.localUrl}/.well-known/dassie/node`, {
       dispatcher: agent,
     });
-    const stats = await response.json() as { node?: { feedPort?: number } };
-    return stats.node?.feedPort;
+    const document = await response.json() as { feedPort?: number };
+    return document.feedPort;
   } finally {
     await agent.close();
   }

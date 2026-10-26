@@ -18,8 +18,7 @@
 //!
 //! Feed ::= SEQUENCE {
 //!   type             OBJECT IDENTIFIER (FEED_OID),
-//!   nodeId           IA5String (SIZE (2..45)),     -- base64url
-//!   publicKey        OCTET STRING (SIZE (32)),
+//!   publicKey        OCTET STRING (SIZE (32)),     -- the node's ID derives from it
 //!   sequence         UInt64,                       -- ms, only grows
 //!   validUntil       UInt64,                       -- ms, after sequence
 //!   feePpm           UInt32 (0..1000000),
@@ -36,13 +35,15 @@
 //!
 //! Every field has one encoding and every list one order, so a feed has
 //! exactly one encoding, and the signature is checked over the bytes as
-//! received (spec/areas/encoding.md#canonical-only). Decoding borrows from
-//! the datagram and never panics; signing checks the feed first, so it never
-//! writes what the decoder would refuse.
+//! received (spec/areas/encoding.md#canonical-only). The feed names the
+//! node by its key alone: a subscriber checks that the key's node ID is
+//! the node it subscribed to. Decoding borrows from the datagram and never
+//! panics; signing checks the feed first, so it never writes what the
+//! decoder would refuse.
 
 use alloc::vec::Vec;
 
-use dassie_identity::{MAX_NODE_ID_LENGTH, NodeId, NodeKey, PublicKey, Signature};
+use dassie_identity::{NodeKey, PublicKey, Signature};
 use dassie_oer::{Alphabet, DecodeError, DecodeErrorKind, Reader, Size, Writer, oid, size};
 
 use crate::cookie::Cookie;
@@ -99,12 +100,6 @@ const TAG_FEED: u64 = 2;
 const COOKIE_ABSENT: u64 = 0;
 const COOKIE_PRESENT: u64 = 1;
 
-const NODE_ID_SIZE: Size = Size::range(2, MAX_NODE_ID_LENGTH);
-const NODE_ID_ALPHABET: Alphabet = Alphabet::EMPTY
-    .with_range(b'a', b'z')
-    .with_range(b'A', b'Z')
-    .with_range(b'0', b'9')
-    .with_chars(b"-_");
 const LEDGER_ID_SIZE: Size = Size::range(1, MAX_LEDGER_ID_BYTES);
 /// The characters of a ledger ID, such as `xrpl-testnet+xrp`.
 const LEDGER_ID_ALPHABET: Alphabet = Alphabet::EMPTY
@@ -114,7 +109,6 @@ const LEDGER_ID_ALPHABET: Alphabet = Alphabet::EMPTY
 
 /// Most bytes of a feed's signed part, every field at its bound.
 const MAX_SIGNED_BYTES: usize = FEED_OID.len()
-    + size::prefixed(MAX_NODE_ID_LENGTH)
     + PUBLIC_KEY_BYTES
     + 8
     + 8
@@ -196,8 +190,6 @@ pub enum InvalidFeed {
     /// The public key is not a point, or one of small order, or not the
     /// signer's.
     PublicKey,
-    /// The node ID is not the public key's.
-    NodeId,
     /// The signature does not verify.
     Signature,
 }
@@ -230,9 +222,7 @@ pub struct Rate {
 /// A feed: what one node converts at, and until when.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Feed<'a> {
-    /// The node.
-    pub node_id: NodeId,
-    /// Its Ed25519 public key, from which `node_id` derives.
+    /// The node's Ed25519 public key, from which its ID derives.
     pub public_key: [u8; 32],
     /// When it was made, in ms; each feed of a node has a larger one.
     pub sequence_ms: u64,
@@ -342,7 +332,6 @@ impl Feed<'_> {
     /// The length of the signed part. Only for a checked feed.
     fn signed_len(&self) -> usize {
         FEED_OID.len()
-            + size::prefixed(self.node_id.len())
             + PUBLIC_KEY_BYTES
             + 8
             + 8
@@ -361,7 +350,6 @@ impl Feed<'_> {
     /// what [`check`](Self::check) checks.
     fn write_signed(&self, writer: &mut Writer<'_>) {
         writer.write_bytes(&FEED_OID);
-        writer.write_ascii(self.node_id.as_str(), NODE_ID_SIZE, NODE_ID_ALPHABET);
         writer.write_bytes(&self.public_key);
         writer.write_u64(self.sequence_ms);
         writer.write_u64(self.valid_until_ms);
@@ -392,9 +380,9 @@ pub struct SignedFeed<'a> {
 }
 
 impl SignedFeed<'_> {
-    /// Checks the key, that the node ID is the key's, and the signature over
-    /// the bytes received, by the ZIP-215 rules
-    /// (spec/areas/identity.md#node-key). Returns the key.
+    /// Checks the key and the signature over the bytes received, by the
+    /// ZIP-215 rules (spec/areas/identity.md#node-key). Returns the key,
+    /// whose node ID the caller checks against the node it expects.
     ///
     /// # Errors
     ///
@@ -404,9 +392,6 @@ impl SignedFeed<'_> {
             PublicKey::from_bytes(&self.feed.public_key).map_err(|_| InvalidFeed::PublicKey)?;
         if key.is_weak() {
             return Err(InvalidFeed::PublicKey);
-        }
-        if key.node_id() != self.feed.node_id {
-            return Err(InvalidFeed::NodeId);
         }
         key.verify(self.signed, &Signature::from_bytes(self.signature))
             .map_err(|_| InvalidFeed::Signature)?;
@@ -448,14 +433,10 @@ pub fn encode_challenge(cookie: &Cookie) -> [u8; CHALLENGE_BYTES] {
 ///
 /// # Errors
 ///
-/// The feed breaks a rule, or its key or node ID is not `key`'s.
+/// The feed breaks a rule, or its key is not `key`'s.
 pub fn sign_feed(key: &NodeKey, feed: &Feed<'_>) -> Result<Vec<u8>, InvalidFeed> {
-    let public_key = key.public_key();
-    if feed.public_key != *public_key.as_bytes() {
+    if feed.public_key != *key.public_key().as_bytes() {
         return Err(InvalidFeed::PublicKey);
-    }
-    if feed.node_id != public_key.node_id() {
-        return Err(InvalidFeed::NodeId);
     }
     let signed = feed.signed_bytes()?;
     Ok(assemble_feed(&signed, &key.sign(&signed)))
@@ -556,10 +537,6 @@ fn read_signed_feed<'a>(reader: &mut Reader<'a>) -> Result<SignedFeed<'a>, WireE
 /// Reads a feed's fields, every list within its bound.
 fn read_feed<'a>(reader: &mut Reader<'a>) -> Result<Feed<'a>, DecodeError> {
     reader.expect_bytes(&FEED_OID)?;
-    let offset = reader.offset();
-    let text = reader.read_ascii(NODE_ID_SIZE, NODE_ID_ALPHABET)?;
-    let node_id = NodeId::parse(text)
-        .map_err(|_| DecodeError::new(offset, DecodeErrorKind::InvalidCharacter))?;
     let public_key = *reader.read_array::<PUBLIC_KEY_BYTES>()?;
     let sequence_ms = reader.read_u64()?;
     let valid_until_ms = reader.read_u64()?;
@@ -582,7 +559,6 @@ fn read_feed<'a>(reader: &mut Reader<'a>) -> Result<Feed<'a>, DecodeError> {
         });
     }
     Ok(Feed {
-        node_id,
         public_key,
         sequence_ms,
         valid_until_ms,

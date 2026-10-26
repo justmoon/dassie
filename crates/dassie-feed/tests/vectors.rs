@@ -16,7 +16,6 @@ use dassie_feed::{
     Cookie, Feed, InvalidFeed, Ledger, MAX_FEED_BYTES, Message, Rate, WireError, decode,
     encode_challenge, encode_subscribe, sign_feed,
 };
-use dassie_identity::MAX_NODE_ID_LENGTH;
 use serde_json::Value;
 use support::{hex, key, unhex};
 
@@ -71,7 +70,6 @@ fn feeds() {
         };
         assert_eq!(signed.verify().unwrap(), key.public_key(), "{name}");
         let expected = Feed {
-            node_id: key.node_id(),
             public_key: *key.public_key().as_bytes(),
             sequence_ms: vector["sequenceMs"].as_u64().unwrap(),
             valid_until_ms: vector["validUntilMs"].as_u64().unwrap(),
@@ -104,11 +102,7 @@ fn feeds() {
         .find(|vector| vector["name"] == "largest")
         .unwrap();
     let length = largest["datagram"].as_str().unwrap().len() / 2;
-    // As large as a feed gets, but for the node ID: the bound leaves room
-    // for the longest the wire allows, and an ID computed from a key is
-    // shorter.
-    let shorter = MAX_NODE_ID_LENGTH - key.node_id().len();
-    assert_eq!(length + shorter, MAX_FEED_BYTES);
+    assert_eq!(length, MAX_FEED_BYTES, "as large as a feed gets");
 }
 
 #[test]
@@ -122,7 +116,6 @@ fn refused() {
         let error = match decode(&datagram) {
             Ok(Message::Feed(signed)) => match signed.verify() {
                 Err(InvalidFeed::Signature) => "Signature",
-                Err(InvalidFeed::NodeId) => "NodeId",
                 Err(InvalidFeed::PublicKey) => "PublicKey",
                 other => panic!("{name}: {other:?}"),
             },

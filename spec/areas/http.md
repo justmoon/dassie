@@ -10,7 +10,7 @@ The decisions (whether an origin is allowed, a session valid, a setup attempt ri
 ## Listeners
 
 - **HTTP** serves ACME challenges and redirects everything else to HTTPS, keeping path and query.
-- **HTTPS** serves everything else: the BTP server, the RPC WebSocket, QUIC's tunnels at `/quic`, setup and login, Open Payments, `/stats` and the wallet.
+- **HTTPS** serves everything else: the BTP server, the RPC WebSocket, QUIC's tunnels at `/quic`, setup and login, Open Payments, the [discovery document](#the-nodes-discovery-document) and the wallet.
 - Connections are bounded per listener and per client, where a client is an IPv4 address or an IPv6 /56, so one host cannot take every place by rotating addresses. Loopback is counted only in the total where private peers are allowed (dev environments and tests). Handshakes, headers and bodies are bounded in size and time too (`http/mod.rs`, `dassie-node-core/src/connections.rs`).
 - **A tunnel leaves the listener once upgraded.** A WebSocket at `/quic` carries QUIC's packets for a node whose UDP does not get through ([Peer protocol](peer-protocol.md#quic-over-websocket)). Before the upgrade it takes a place among the QUIC connections being set up, by the client's address, or is refused with 503; once upgraded, its TCP connection holds none of the listener's places, and the tunnel holds only the place of the QUIC connection it carries: the one being set up, and once that connection has proved its key, the connection's place in its class. It belongs to the QUIC endpoint from then on, which ends it.
 - At shutdown a listener stops accepting, lets requests in progress finish for a bounded time, and closes WebSockets with 1001.
@@ -23,7 +23,7 @@ The decisions (whether an origin is allowed, a session valid, a setup attempt ri
 
 A node reached through a relay ([Peer protocol](peer-protocol.md#relayed-streams)) serves HTTP/1.1 on a relayed stream with purpose `payments`, once its TLS is done (`serve_relayed` in `http/mod.rs`). A stream with purpose `owner` carries no HTTP, only a paired app's RPC ([RPC](rpc.md#paired-devices)).
 
-- **Open Payments only.** Every other path is 404, upgrades included: the wallet, `/api/*`, `/rpc`, BTP and `/stats` are served only on the node's own listeners ([core-and-periphery](../decisions/core-and-periphery.md)). A page served through a relay could keep the owner's passphrase, and nothing on a relayed stream shows that a browser's origin is the node's.
+- **Open Payments only.** Every other path is 404, upgrades included: the wallet, `/api/*`, `/rpc`, BTP and the discovery document are served only on the node's own listeners ([core-and-periphery](../decisions/core-and-periphery.md)). A page served through a relay could keep the owner's passphrase, and nothing on a relayed stream shows that a browser's origin is the node's.
 - **The same rules as over HTTPS** ([Payments](payments.md#http-routes)): the request's `Host` names the name it is answered under, and one that is not among [the node's names](payments.md#the-nodes-names) is refused with 421; the answer is [signed with the node key](payments.md#signed-responses), so a client can check it whoever passed it on; and CORS, request signatures, bounded bodies and the security headers apply, without HSTS. The rate limits per client address count the relay's address, the only one the node sees; the relay bounds streams per client.
 
 ### The wallet's files
@@ -70,7 +70,7 @@ The owner's endpoints, the `/rpc` upgrade and the `/api/*` POSTs, accept a reque
 
 **`Host` must also be a name the node answers to:** its configured hostname, `localhost`, or an IP literal. Otherwise DNS rebinding gets through: an attacker's name that resolves to the node makes the attacker's page same-origin with itself, `Origin` and `Host` agreeing. Hosts and ports are parsed to one canonical spelling each, so the comparison cannot be fooled by spelling.
 
-Open Payments, `/btp`, `/stats` and the wallet's files do not apply the rule: their clients are not browsers acting for the owner, and authenticate otherwise or not at all. Open Payments allows every origin ([payments.md](payments.md#http-routes)).
+Open Payments, `/btp`, the discovery document and the wallet's files do not apply the rule: their clients are not browsers acting for the owner, and authenticate otherwise or not at all. Open Payments allows every origin ([payments.md](payments.md#http-routes)).
 
 ## Response headers
 
@@ -78,9 +78,13 @@ Every HTTPS response but a WebSocket upgrade carries a strict Content Security P
 
 **HSTS is sent only while a certificate from ACME or from the owner is installed,** never with the self-signed one: once a browser saw the header, the owner would have no way past its warning.
 
-## `GET /stats`
+## The node's discovery document
 
-Who the node is, for anyone, without authentication: its version, ID, URL and key, the port of its [rate feed](rate-feed.md#finding-a-feed) on a core node that has one, and its peers. It lists only the peers the node advertises, which its signed link state publishes anyway ([network.md](network.md)). The answer is cached briefly and made by one request at a time, so unauthenticated requests queue at most one call to the engine.
+`GET /.well-known/dassie/node` says who the node is, for anyone, without authentication, once it is set up: its ID, its key, and the port of its [rate feed](rate-feed.md#finding-a-feed) on a core node that has one (`http/discovery.rs`). It is what a tool needs to reach a node it knows only by its URL, as the market maker and its VM do, and nothing else: no version, which would tell an attacker which nodes run a release with a known flaw, and no peers, which a node's link state already publishes ([Network](network.md)).
+
+- **It is not signed.** The client fetched it over HTTPS from the name it trusts, so the certificate already vouches for it, and a signature by the key the document itself names would add nothing. A reader checks that the ID is the key's, so whatever key it then holds the node to is the one the ID names.
+- **It costs what a static file does.** Everything in it is known without the engine, so unauthenticated requests never wait on it, and nothing is cached.
+- **A path under `/.well-known/`** ([RFC 8615](https://www.rfc-editor.org/rfc/rfc8615)), named for its purpose, so it never collides with a path the wallet or Open Payments takes.
 
 ## Setup
 

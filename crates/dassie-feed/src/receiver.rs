@@ -34,7 +34,8 @@ pub enum Rejected {
     NotForUs,
     /// Its key or signature does not verify.
     Invalid(InvalidFeed),
-    /// It is another node's feed.
+    /// It is another node's feed: its key's node ID is not the one
+    /// subscribed to.
     OtherNode,
     /// Its sequence is not after the last feed taken.
     Old,
@@ -91,7 +92,9 @@ impl FeedReceiver {
             Message::Subscribe(_) => return Err(Rejected::NotForUs),
             Message::Feed(signed) => signed,
         };
-        if signed.feed.node_id != self.node_id {
+        // The key's node ID first, which costs a hash, so another node's
+        // feed costs no signature check.
+        if NodeId::from_public_key(&signed.feed.public_key) != self.node_id {
             return Err(Rejected::OtherNode);
         }
         signed.verify().map_err(Rejected::Invalid)?;

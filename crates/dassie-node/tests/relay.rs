@@ -710,7 +710,7 @@ async fn a_relayed_payments_stream_serves_only_open_payments() {
         ("GET", "/"),
         ("GET", "/index.html"),
         ("GET", "/rpc"),
-        ("GET", "/stats"),
+        ("GET", "/.well-known/dassie/node"),
         ("POST", "/api/login"),
         ("GET", "/btp"),
     ] {

@@ -233,8 +233,9 @@ EOF
 mv -f "$config/settings.env.new" "$config/settings.env"
 
 # The targets' node IDs, which both nodes pin as their uplinks: what each
-# target's /stats names, which is where the market maker reads its ID and
-# key too. A target that does not answer keeps the ID read for it before
+# target's discovery document, /.well-known/dassie/node, names, which is
+# where the market maker reads its ID and key too. A target that does not
+# answer keeps the ID read for it before
 # ($config/target-ids, a URL and its ID per line); one never read is left
 # out until a boot reads it, since the nodes would not start without
 # their IDs. Two URLs of one node pin it once.
@@ -244,11 +245,11 @@ IFS=,
 set -f
 for target in $targets; do
   IFS=$old_ifs
-  uplink=$(curl --proto =https -fsS --max-time 20 "$target/stats" | jq -er .node.id) || uplink=""
+  uplink=$(curl --proto =https -fsS --max-time 20 "$target/.well-known/dassie/node" | jq -er .id) || uplink=""
   if [ -z "$uplink" ] && [ -f "$config/target-ids" ]; then
     uplink=$(awk -v url="$target" '$1 == url { print $2; exit }' "$config/target-ids")
     if [ -n "$uplink" ]; then
-      echo "Note: $target/stats does not answer; its node ID stays as it was read before"
+      echo "Note: $target/.well-known/dassie/node does not answer; its node ID stays as it was read before"
     fi
   fi
   if [ -z "$uplink" ]; then

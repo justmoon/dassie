@@ -11,10 +11,10 @@
 mod api;
 pub mod assets;
 mod btp;
+pub mod discovery;
 pub mod mime;
 pub mod open_payments;
 pub mod response;
-pub mod stats;
 mod ws;
 
 use std::convert::Infallible;
@@ -336,7 +336,7 @@ async fn route_https(
             open_payments::handle(node, peer, request).await
         }
         (_, path) if path.starts_with("/api/") => response::not_found(),
-        (&Method::GET | &Method::HEAD, "/stats") => stats::serve(node).await,
+        (&Method::GET | &Method::HEAD, discovery::PATH) => discovery::serve(node),
         (&Method::GET | &Method::HEAD, path) => match node.dev_wallet_dir() {
             Some(root) => assets::serve_dir(root, &method, path, request.headers()).await,
             None => assets::serve(&method, path, request.headers()),

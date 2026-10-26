@@ -328,8 +328,8 @@ async fn a_connection_holds_at_most_twelve_streams() {
     }
 }
 
-async fn get_stats(node: &TestNode) -> Reply {
-    let request = hyper::Request::get("/stats")
+async fn get_discovery(node: &TestNode) -> Reply {
+    let request = hyper::Request::get("/.well-known/dassie/node")
         .header("host", node.host())
         .body(http_body_util::Full::new(bytes::Bytes::new()))
         .unwrap();
@@ -337,18 +337,30 @@ async fn get_stats(node: &TestNode) -> Reply {
 }
 
 // Who the node is, for anyone, once it is set up
-// (spec/areas/http.md#get-stats).
+// (spec/areas/http.md#the-nodes-discovery-document): its ID and key, and
+// nothing else on a node without a feed.
 #[tokio::test]
-async fn stats_name_the_node_once_set_up() {
+async fn the_discovery_document_names_the_node_once_set_up() {
     let node = TestNode::start().await;
-    assert_eq!(get_stats(&node).await.status, hyper::StatusCode::NOT_FOUND);
+    assert_eq!(
+        get_discovery(&node).await.status,
+        hyper::StatusCode::NOT_FOUND
+    );
     let _owner = ready(&node).await;
-    let reply = get_stats(&node).await;
+    let reply = get_discovery(&node).await;
     assert_eq!(reply.status, hyper::StatusCode::OK);
     assert_eq!(reply.header("content-type"), Some("application/json"));
-    let stats: serde_json::Value = serde_json::from_str(&reply.text()).unwrap();
-    assert_eq!(stats["node"]["id"], key().node_id().as_str());
-    assert_eq!(stats["peers"], serde_json::json!([]));
+    let document: serde_json::Value = serde_json::from_str(&reply.text()).unwrap();
+    let public_key = key().public_key();
+    let mut encoded = [0u8; 43];
+    let length = dassie_identity::base64url::encode(public_key.as_bytes(), &mut encoded);
+    assert_eq!(
+        document,
+        serde_json::json!({
+            "id": public_key.node_id().as_str(),
+            "publicKey": std::str::from_utf8(&encoded[..length]).unwrap(),
+        })
+    );
 }
 
 /// Waits for the first item, or an error, of each of `calls`; returns the

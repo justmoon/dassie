@@ -425,7 +425,6 @@ pub struct Node {
     logs: Arc<crate::log::LogRing>,
     live_streams: Arc<Semaphore>,
     dev_wallet_dir: Option<PathBuf>,
-    stats_cache: crate::http::stats::StatsCache,
     open_payments: crate::open_payments::State,
     /// Wakes the rate fetcher.
     rates_wake: Notify,
@@ -546,7 +545,6 @@ impl Node {
             logs: crate::log::ring(),
             live_streams: Arc::new(Semaphore::new(MAX_LIVE_STREAMS)),
             dev_wallet_dir,
-            stats_cache: crate::http::stats::StatsCache::default(),
             open_payments: crate::open_payments::State::new(public_names),
             rates_wake: Notify::new(),
             quic: std::sync::OnceLock::new(),
@@ -908,10 +906,6 @@ impl Node {
     #[must_use]
     pub fn dev_wallet_dir(&self) -> Option<&std::path::Path> {
         self.dev_wallet_dir.as_deref()
-    }
-
-    pub(crate) const fn stats_cache(&self) -> &crate::http::stats::StatsCache {
-        &self.stats_cache
     }
 
     /// The node's last log lines.

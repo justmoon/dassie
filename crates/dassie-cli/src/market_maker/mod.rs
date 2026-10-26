@@ -5,7 +5,7 @@
 //! the ledger.
 //!
 //! - [`config`]: the config file, checked whole before anything connects;
-//! - [`target`]: who each target is, from its `/stats`;
+//! - [`target`]: who each target is, from its discovery document;
 //! - [`feed`]: each target's feed over UDP, verified;
 //! - [`xrpl`]: the pool, and the rebalancing Payment;
 //! - [`nodes`]: the two nodes, over their IPC sockets;
@@ -140,7 +140,7 @@ struct MarketMaker {
 struct Following {
     /// Its URL, for log lines.
     url: String,
-    /// Who it is, once its `/stats` answered.
+    /// Who it is, once its discovery document answered.
     found: watch::Receiver<Option<TargetInfo>>,
     /// Its newest feed.
     feed: watch::Receiver<Option<FeedView>>,

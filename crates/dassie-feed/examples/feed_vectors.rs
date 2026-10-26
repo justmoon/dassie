@@ -78,12 +78,9 @@ fn refused(key: &NodeKey) -> Value {
     tampered[0] ^= 1;
     let tampered = assemble_feed(&signed, &Signature::from_bytes(tampered));
 
-    // The key's own node ID beside another key, signed by that key.
+    // Signed by another key than the one it names.
     let other = other_key();
-    let mut foreign = feed.clone();
-    foreign.public_key = *other.public_key().as_bytes();
-    let foreign_signed = foreign.signed_bytes().unwrap();
-    let foreign = assemble_feed(&foreign_signed, &other.sign(&foreign_signed));
+    let foreign = assemble_feed(&signed, &other.sign(&signed));
 
     // The identity point, a key of small order, with a signature that
     // verifies under ZIP-215 for every message: R the identity, s zero.
@@ -91,7 +88,6 @@ fn refused(key: &NodeKey) -> Value {
     weak[0] = 1;
     let mut small = feed.clone();
     small.public_key = weak;
-    small.node_id = dassie_identity::NodeId::from_public_key(&weak);
     let small_signed = small.signed_bytes().unwrap();
     let mut signature = [0u8; 64];
     signature[0] = 1;
@@ -102,7 +98,7 @@ fn refused(key: &NodeKey) -> Value {
 
     json!([
         { "name": "tampered signature", "datagram": hex(&tampered), "error": "Signature" },
-        { "name": "node ID of another key", "datagram": hex(&foreign), "error": "NodeId" },
+        { "name": "signed by another key", "datagram": hex(&foreign), "error": "Signature" },
         { "name": "small-order key", "datagram": hex(&small), "error": "PublicKey" },
         { "name": "version 2", "datagram": hex(&version), "error": "Version" },
     ])

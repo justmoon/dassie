@@ -249,10 +249,8 @@ mod tests {
 
     /// A feed of `key`'s made at `sequence_ms`, valid for a minute.
     fn feed(key: &NodeKey, sequence_ms: u64, rate: u64) -> Feed<'static> {
-        let public_key = key.public_key();
         Feed {
-            node_id: public_key.node_id(),
-            public_key: *public_key.as_bytes(),
+            public_key: *key.public_key().as_bytes(),
             sequence_ms,
             valid_until_ms: sequence_ms + 60_000,
             fee_ppm: 1_000,
