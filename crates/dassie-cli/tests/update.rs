@@ -31,7 +31,7 @@ use tempfile::TempDir;
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 
 const DASSIE: &str = env!("CARGO_BIN_EXE_dassie");
-const PEBBLE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../testdata/pebble");
+const TLS_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../testdata/tls");
 
 type Files = Arc<Mutex<HashMap<String, Vec<u8>>>>;
 
@@ -74,11 +74,11 @@ impl MirrorServer {
 }
 
 async fn serve(files: Files, port: std::sync::mpsc::Sender<u16>) {
-    let certs = CertificateDer::pem_file_iter(format!("{PEBBLE}/cert.pem"))
+    let certs = CertificateDer::pem_file_iter(format!("{TLS_DIR}/cert.pem"))
         .unwrap()
         .collect::<Result<Vec<_>, _>>()
         .unwrap();
-    let key = PrivateKeyDer::from_pem_file(format!("{PEBBLE}/key.pem")).unwrap();
+    let key = PrivateKeyDer::from_pem_file(format!("{TLS_DIR}/key.pem")).unwrap();
     let config = rustls::ServerConfig::builder_with_provider(Arc::new(
         rustls::crypto::ring::default_provider(),
     ))
@@ -172,7 +172,7 @@ impl Install {
             .arg("update")
             .args(["--mirror", &mirror.url, "--no-restart"])
             .args(args)
-            .env("DASSIE_MIRROR_CA_FILE", format!("{PEBBLE}/root.pem"))
+            .env("DASSIE_MIRROR_CA_FILE", format!("{TLS_DIR}/root.pem"))
             .env("DASSIE_SYSTEMD_UNIT_DIR", self.dir.path().join("units"))
             .env_remove("DASSIE_MIRROR_URL")
             .output()
@@ -185,7 +185,7 @@ impl Install {
         command
             .arg("update")
             .args(["--mirror", &mirror.url])
-            .env("DASSIE_MIRROR_CA_FILE", format!("{PEBBLE}/root.pem"))
+            .env("DASSIE_MIRROR_CA_FILE", format!("{TLS_DIR}/root.pem"))
             .env("DASSIE_SYSTEMD_UNIT_DIR", self.dir.path().join("units"))
             .env_remove("DASSIE_MIRROR_URL");
         command

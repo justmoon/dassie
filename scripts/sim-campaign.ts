@@ -23,9 +23,9 @@
 //
 // It reads its configuration from the environment, which the VM's startup
 // script writes (scripts/sim-campaign/startup.sh): SIM_CAMPAIGN_SECRET,
-// the Secret Manager version holding the GitHub App's private key (or a
-// token, without SIM_CAMPAIGN_APP_ID), SIM_CAMPAIGN_APP_ID, and
-// SIM_CAMPAIGN_DIR, where it keeps its work. `--dry-run` writes nothing to
+// the Secret Manager version holding the GitHub App's private key,
+// SIM_CAMPAIGN_APP_ID, the App's ID, and SIM_CAMPAIGN_DIR, where it keeps
+// its work. `--dry-run` writes nothing to
 // GitHub and needs no credentials; `--unsandboxed` runs the steps directly,
 // on a machine without the sandbox users, and only in a dry run.
 
@@ -1327,15 +1327,8 @@ interface Config {
 async function connect(config: Config): Promise<GitHub> {
   if (config.dryRun) return new RestGitHub("dry-run", undefined, true);
   const secret = await readSecret(config.secret);
-  if (config.appId) {
-    const { token, login } = await appToken(config.appId, secret);
-    return new RestGitHub(login, token, false);
-  }
-  // A dedicated account's fine-grained token, scoped to this repository.
-  const user = await (await request(secret, "GET", "/user")).json() as {
-    login: string;
-  };
-  return new RestGitHub(user.login, secret, false);
+  const { token, login } = await appToken(config.appId, secret);
+  return new RestGitHub(login, token, false);
 }
 
 /** What can run this loop: `main`, and the pull requests labelled for
@@ -1596,6 +1589,11 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     console.error("SIM_CAMPAIGN_SECRET names no secret");
     process.exit(2);
   }
+  const appId = process.env.SIM_CAMPAIGN_APP_ID ?? "";
+  if (!/^[1-9][0-9]*$/.test(appId) && !values["dry-run"]) {
+    console.error("SIM_CAMPAIGN_APP_ID names no GitHub App");
+    process.exit(2);
+  }
   const worked = await loop({
     dir: process.env.SIM_CAMPAIGN_DIR ?? "/var/lib/dassie-sim-campaign",
     repo: fileURLToPath(new URL("../", import.meta.url)),
@@ -1603,7 +1601,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     dryRun: values["dry-run"],
     unsandboxed: values.unsandboxed,
     secret,
-    appId: process.env.SIM_CAMPAIGN_APP_ID ?? "",
+    appId,
   });
   // A loop in trouble fails its unit, so that `systemctl status` shows it;
   // systemd starts the next one all the same (Restart=always).

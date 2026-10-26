@@ -1,7 +1,8 @@
 #!/bin/sh
-# Makes the TLS certificate Pebble serves its ACME API with: a test CA
-# (root.pem), and a leaf for localhost signed by it (cert.pem, key.pem).
-# The CA's key is thrown away, so nothing else can be signed with it.
+# Makes the tests' TLS certificate: a test CA (root.pem), and a leaf for
+# localhost signed by it (cert.pem, key.pem). Pebble serves its ACME API
+# with it, and so do the nodes, front doors and mirrors of the tests. The
+# CA's key is thrown away, so nothing else can be signed with it.
 #
 # The daemon trusts root.pem through DASSIE_ACME_CA_FILE in the end-to-end
 # test. The files are committed; run this only to replace them.

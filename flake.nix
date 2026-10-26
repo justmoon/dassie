@@ -101,7 +101,7 @@
               ./resources/proof-server/xrpld-mainnet.cfg
               ./resources/proof-server/xrpld-testnet.cfg
               ./testdata/feed
-              ./testdata/pebble
+              ./testdata/tls
               ./testdata/release
             ];
           };
@@ -234,8 +234,10 @@
         {
           packages = {
             inherit wasm-modules wasm-bindgen release-tool;
-            default = wasm-modules;
           }
+          # `nix build` alone makes the static `dassie` with the wallet
+          # built in, where the release builds are made.
+          // lib.optionalAttrs (release ? packages) { default = release.packages.dassie-x64; }
           // (release.packages or { })
           // (ts.packages or { })
           // desktop-app;

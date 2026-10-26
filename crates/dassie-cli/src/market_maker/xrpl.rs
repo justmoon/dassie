@@ -361,7 +361,7 @@ mod tests {
     use super::super::strategy::{Side, to_amount};
     use super::*;
 
-    const PEBBLE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../testdata/pebble");
+    const PEBBLE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../testdata/tls");
 
     fn dsusd() -> Token {
         Token {

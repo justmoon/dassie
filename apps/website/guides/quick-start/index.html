@@ -39,6 +39,11 @@
         <li>a public IP address</li>
         <li>a domain name that points to that address</li>
         <li>TCP ports 80 and 443 and UDP port 443 open to the world: nodes talk to each other over QUIC, on UDP</li>
+        <li>
+          UDP port 7768 open too, for the node's rate feed: a node with a
+          domain name publishes there the rates it converts at, for market
+          makers to read. Without it the node runs, and publishes no feed.
+        </li>
       </ul>
 
       <h2 id="installation">Installation</h2>

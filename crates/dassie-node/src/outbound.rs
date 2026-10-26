@@ -656,7 +656,7 @@ mod tests {
         // Roots of its own: the build sandbox has none of the system's.
         let roots = concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/../../testdata/pebble/root.pem"
+            "/../../testdata/tls/root.pem"
         );
         let client = OutboundClient::new(Some(Path::new(roots)), false).unwrap();
         let result = client

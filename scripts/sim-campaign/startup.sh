@@ -73,7 +73,7 @@ umask 022
 {
   echo "SIM_CAMPAIGN_DIR=$state"
   echo "SIM_CAMPAIGN_SECRET=$(metadata sim-campaign-secret)"
-  echo "SIM_CAMPAIGN_APP_ID=$(metadata sim-campaign-app-id || true)"
+  echo "SIM_CAMPAIGN_APP_ID=$(metadata sim-campaign-app-id)"
 } > /etc/dassie-sim-campaign.env
 
 if [ ! -d "$state/repo/.git" ]; then

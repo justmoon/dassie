@@ -19,9 +19,10 @@ import {
   publicKey,
 } from "@dassie/wasm";
 import table from "../vanity.json" with { type: "json" };
+import { MAX_NODES } from "./scenario/scenarios.ts";
 
-/** Entries kept: d1 to d1000, and the record beyond. */
-export const MAX_INDEX = 999;
+/** Entries kept: one for each node a dev environment may run, d1 to d100. */
+export const MAX_INDEX = MAX_NODES - 1;
 
 /** An entry: the entropy as hex, and the node ID it derives. */
 export type Entry = readonly [entropy: string, id: string];
@@ -115,7 +116,7 @@ function noise(id: string): number {
  * Adds `found` (entropy and ID, already checked to derive each other) to
  * `entries`, by the original's rules: an entry is kept if its index is
  * new, or its ID has fewer `-` and `_` than the one there. Indexes above
- * {@linkcode MAX_INDEX} are dropped, but the largest ever (the record).
+ * {@linkcode MAX_INDEX} are dropped: no environment runs their nodes.
  */
 export function merge(entries: Table, found: readonly Entry[]): Table {
   const merged = new Map(entries);
@@ -123,11 +124,8 @@ export function merge(entries: Table, found: readonly Entry[]): Table {
     const index = indexOf(entry[1]);
     if (index === undefined) throw new Error(`not a vanity ID: ${entry[1]}`);
     const known = merged.get(index);
+    if (index > MAX_INDEX) continue;
     if (!known || noise(entry[1]) < noise(known[1])) merged.set(index, entry);
-  }
-  const record = Math.max(...merged.keys());
-  for (const index of [...merged.keys()]) {
-    if (index > MAX_INDEX && index !== record) merged.delete(index);
   }
   return merged;
 }

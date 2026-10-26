@@ -24,9 +24,9 @@ export const DASSIE = `${root}target/e2e/dassie`;
 /** The fake XRP Ledger, built with it by `node --run build:e2e`. */
 export const FAKE_LEDGER = `${root}target/e2e/examples/fake_ledger`;
 /** Pebble's configuration and its API certificate. */
-export const PEBBLE_DIR = `${root}testdata/pebble`;
+export const TLS_DIR = `${root}testdata/tls`;
 /** The root of Pebble's API certificate, which the daemon must trust. */
-export const PEBBLE_API_ROOT = `${PEBBLE_DIR}/root.pem`;
+export const PEBBLE_API_ROOT = `${TLS_DIR}/root.pem`;
 /** Pebble's ACME directory. */
 export const PEBBLE_DIRECTORY = "https://localhost:14000/dir";
 /**
@@ -238,7 +238,7 @@ export async function startPebble(): Promise<Process[]> {
     "pebble-config.json",
     "-dnsserver",
     "127.0.0.1:18753",
-  ], { cwd: PEBBLE_DIR, env: { PEBBLE_VA_NOSLEEP: "1" } });
+  ], { cwd: TLS_DIR, env: { PEBBLE_VA_NOSLEEP: "1" } });
   await waitForPort(14000);
   return [dns, pebble];
 }

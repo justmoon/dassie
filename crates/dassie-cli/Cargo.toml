@@ -70,7 +70,7 @@ tempfile = "3"
 dassie-node = { path = "../dassie-node", features = ["testing"] }
 tokio = { version = "1.53.2", features = ["io-util"] }
 dassie-release = { path = "../dassie-release", features = ["testing"] }
-# The mirror the update tests serve, over TLS with testdata/pebble's
+# The mirror the update tests serve, over TLS with testdata/tls's
 # certificate.
 tokio-rustls = { version = "0.26.6", default-features = false, features = ["ring", "tls12"] }
 rustls = { version = "0.23.46", default-features = false, features = ["ring", "std", "tls12"] }

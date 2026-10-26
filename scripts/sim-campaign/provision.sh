@@ -24,9 +24,7 @@
 #
 # The GitHub App needs read and write access to issues, and read access
 # to pull requests (it comments on them as issues), on justmoon/dassie,
-# and nothing else; its ID goes in
-# app_id below. Without an App, a dedicated account's fine-grained token
-# with the same access can be the secret instead, with app_id empty.
+# and nothing else; its ID goes in app_id below.
 set -eu
 
 project=dassie-390023

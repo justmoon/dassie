@@ -23,7 +23,6 @@ ExecStart=/opt/dassie/current/bin/dassie daemon --runtime=systemd
 DynamicUser=yes
 StateDirectory=dassie
 StateDirectoryMode=0700
-CacheDirectory=dassie
 WorkingDirectory=/var/lib/dassie
 Environment=DASSIE_LOG_LEVEL=info
 Restart=always

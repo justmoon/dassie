@@ -7,6 +7,7 @@ import {
   identity,
   indexOf,
   loadTable,
+  MAX_INDEX,
   merge,
   parseFound,
   parseTable,
@@ -20,7 +21,7 @@ const ENTRY_D1: Entry = [
 test("the table's first nodes derive their IDs", () => {
   const table = loadTable();
   // Every entry is checked by `node --run vanity -- --check`; a sample here.
-  for (const index of [0, 1, 2, 5, 99, 999]) {
+  for (const index of [0, 1, 2, 5, 99]) {
     const node = identity(table, index);
     assertEquals(node.name, `d${index + 1}`);
     assertEquals(indexOf(node.id), index);
@@ -51,13 +52,19 @@ test("merge keeps new indexes and less noisy IDs", () => {
   assertEquals(merged.get(1), ["c".repeat(32), "d2_x"]);
 });
 
-test("merge drops indexes beyond 999 but the record", () => {
+test("merge drops indexes beyond the nodes an environment runs", () => {
   const merged = merge(new Map(), [
     ["a".repeat(32), "d5000_a"],
-    ["b".repeat(32), "d7000_b"],
-    ["c".repeat(32), "d1000_c"],
+    ["b".repeat(32), "d101_b"],
+    ["c".repeat(32), "d100_c"],
   ]);
-  assertEquals([...merged.keys()].sort((a, b) => a - b), [999, 6999]);
+  assertEquals([...merged.keys()], [99]);
+});
+
+test("the table holds an entry for every node, and no more", () => {
+  const table = loadTable();
+  assertEquals(table.size, MAX_INDEX + 1);
+  assertEquals(Math.max(...table.keys()), MAX_INDEX);
 });
 
 test("brute-forcer lines and the table's form", () => {
