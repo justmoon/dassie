@@ -892,12 +892,9 @@ impl Verifier {
     /// The proven ledger is validated: taken as the anchor, after its
     /// ancestry is proven if it is later than the one kept.
     fn anchored(&mut self, proven: &ProvenState, anchor: Anchor) {
-        let recent = match proven.object(&recent_key()) {
-            Some(Some(object)) => match SkipList::parse(object) {
-                Ok(list) => Some(list),
-                Err(_) => return self.doubted(Doubt::SkipList),
-            },
-            _ => None,
+        let recent = match proven.skip_list(&recent_key()) {
+            Ok(recent) => recent,
+            Err(doubt) => return self.doubted(doubt),
         };
         match self.anchor.map(|kept| judge(&kept.anchor, &anchor)) {
             None | Some(Judged::Take) => self.take_anchor(anchor, recent),
@@ -939,6 +936,7 @@ impl Verifier {
         match ancestry(&kept, &anchor, &lists) {
             Ancestry::OnChain => self.take_anchor(anchor, recent),
             Ancestry::OffChain => self.off_chain(anchor, recent),
+            Ancestry::Lie => self.doubted(Doubt::SkipList),
             Ancestry::Prove { at, key } => self.ask(Ask::SkipList { at, key }),
         }
     }
@@ -1123,6 +1121,7 @@ impl Verifier {
             }
             LedgerHash::None => self.verdict(id, Verdict::NoLedger),
             LedgerHash::Later => self.needs_anchor = true,
+            LedgerHash::Lie => self.lied_lists(),
             LedgerHash::Prove { at, key } => self.ask_list(id, at, key),
         }
     }
@@ -1147,6 +1146,7 @@ impl Verifier {
             // another the anchor's chain does not hold is a lie.
             LedgerProof::Wrong => self.doubted(Doubt::Ledger),
             LedgerProof::Later => self.needs_anchor = true,
+            LedgerProof::Lie => self.lied_lists(),
             LedgerProof::Prove { at, key } => self.ask_list(id, at, key),
         }
     }
@@ -1164,6 +1164,13 @@ impl Verifier {
         if asking < MAX_LIST_ASKS || self.pending.contains_key(&ask) {
             self.ask(ask);
         }
+    }
+
+    /// The lists hold a ledger at another index than its header's: a lie.
+    /// No list is kept, so the next connection proves them anew.
+    fn lied_lists(&mut self) {
+        self.lists.clear();
+        self.doubted(Doubt::SkipList);
     }
 
     fn keep_list(&mut self, at_key: ([u8; 32], [u8; 32]), list: Option<SkipList>) {
@@ -1198,15 +1205,10 @@ impl Verifier {
         let Some(answer) = self.answer(outcome, api::state_proof_result) else {
             return;
         };
-        let list = match prove_state(&answer, &[key], Some(&at)) {
-            Ok(proven) => match proven.object(&key) {
-                Some(Some(object)) => match SkipList::parse(object) {
-                    Ok(list) => Some(list),
-                    Err(_) => return self.doubted(Doubt::SkipList),
-                },
-                _ => None,
-            },
-            Err(error) => return self.doubted(Doubt::of(error)),
+        let proven = prove_state(&answer, &[key], Some(&at)).map_err(Doubt::of);
+        let list = match proven.and_then(|proven| proven.skip_list(&key)) {
+            Ok(list) => list,
+            Err(doubt) => return self.doubted(doubt),
         };
         self.keep_list((at, key), list.clone());
         if let Some(Round::Ancestry { lists, .. }) = &mut self.round {
@@ -1241,6 +1243,18 @@ impl Verifier {
             Ok(proven) => proven,
             Err(error) => return self.doubted(Doubt::of(error)),
         };
+        // The ledger's index is its header's: one the lists gave another
+        // index is a lie.
+        let elsewhere = ids.iter().any(|id| {
+            matches!(
+                self.queries.get(id),
+                Some(Open { query: Query::State { at: Some(index), .. }, .. })
+                    if *index != proven.header.sequence
+            )
+        });
+        if elsewhere {
+            return self.doubted(Doubt::Header);
+        }
         self.counted.states = self.counted.states.saturating_add(1);
         let absences = u64::try_from(proven.absences()).unwrap_or(u64::MAX);
         self.counted.absences = self.counted.absences.saturating_add(absences);

@@ -8,6 +8,11 @@
 //!   ledger** is a proven one's when it is the anchor, or a skip list
 //!   proven from the anchor holds its hash: any ledger kept is at most two
 //!   lists from the anchor.
+//! - **A ledger's index is its header's.** A list of recent ledgers is its
+//!   own ledger's, its newest the one before the header's, and a ledger a
+//!   list holds is the one of the index its place gives only if that
+//!   ledger's own list says so: one the lists hold at another index than
+//!   its header's is a lie, whatever its hash.
 //! - **A state proof** proves a ledger's header and, for each key asked,
 //!   the object its state holds under it or that it holds none, by the
 //!   key's branch to the header's state root: the object is the leaf the
@@ -80,7 +85,9 @@ pub enum Doubt {
     /// A validated ledger of an older chain: a higher index that closed
     /// earlier, or another of the index that closed no later.
     OlderChain,
-    /// A proven object that is no skip list, or not what its key holds.
+    /// A proven object that is no skip list, or not what its key holds: a
+    /// list of recent ledgers of another ledger than its header's, or a
+    /// ledger the lists hold at another index than its own.
     SkipList,
     /// A transaction of another hash than asked for, or whose bytes or
     /// metadata do not read.
@@ -139,6 +146,25 @@ impl ProvenState {
     #[must_use]
     pub fn object(&self, key: &[u8; 32]) -> Option<Option<&[u8]>> {
         self.objects.get(key).map(Option::as_deref)
+    }
+
+    /// The skip list it proves under `key`: `None` if it proves none there,
+    /// or the key was not proven. A list of recent ledgers is its own
+    /// ledger's: its newest is the one before the header's.
+    ///
+    /// # Errors
+    ///
+    /// [`Doubt::SkipList`]: the object is no skip list, or a list of recent
+    /// ledgers of another ledger.
+    pub fn skip_list(&self, key: &[u8; 32]) -> Result<Option<SkipList>, Doubt> {
+        let Some(Some(object)) = self.object(key) else {
+            return Ok(None);
+        };
+        let list = SkipList::parse(object).map_err(|_| Doubt::SkipList)?;
+        if *key == recent_key() && !list.is_recent_of(self.header.sequence) {
+            return Err(Doubt::SkipList);
+        }
+        Ok(Some(list))
     }
 
     /// How many of the keys proven it proves absent.
@@ -250,6 +276,8 @@ pub enum LedgerProof {
     Wrong,
     /// After the anchor: only a later anchor can tell.
     Later,
+    /// The lists hold a ledger at another index than its header's: a lie.
+    Lie,
     /// To tell, prove the object of `key` at the ledger of `at`.
     Prove {
         /// The ledger, by its hash: the anchor, or a flag ledger its list
@@ -270,6 +298,8 @@ pub enum LedgerHash {
     None,
     /// After the anchor: only a later anchor can tell.
     Later,
+    /// The lists hold a ledger at another index than its header's: a lie.
+    Lie,
     /// To tell, prove the object of `key` at the ledger of `at`.
     Prove {
         /// The ledger, by its hash: the anchor, or a flag ledger its list
@@ -285,7 +315,8 @@ pub enum LedgerHash {
 /// ledgers within 256 ledgers, and past them its list of flag ledgers,
 /// which holds the flag ledger at or after the ledger, and that flag
 /// ledger's own list of recent ledgers. At most two beyond the anchor's
-/// own.
+/// own. Each list of recent ledgers is the one of the ledger of the index
+/// the anchor or a list gives, or the lists lie.
 #[must_use]
 pub fn ledger_hash(anchor: &Anchor, index: u32, lists: &ProvenLists) -> LedgerHash {
     let found = |found: Option<[u8; 32]>| found.map_or(LedgerHash::None, LedgerHash::Proven);
@@ -294,6 +325,11 @@ pub fn ledger_hash(anchor: &Anchor, index: u32, lists: &ProvenLists) -> LedgerHa
         Some(None) => Err(LedgerHash::None),
         Some(Some(list)) => Ok(list),
     };
+    let recent = |at: [u8; 32], of: u32| match list(at, recent_key()) {
+        Ok(recent) if recent.is_recent_of(of) => Ok(recent),
+        Ok(_) => Err(LedgerHash::Lie),
+        Err(next) => Err(next),
+    };
     if index == anchor.index {
         return LedgerHash::Proven(anchor.hash);
     }
@@ -301,7 +337,7 @@ pub fn ledger_hash(anchor: &Anchor, index: u32, lists: &ProvenLists) -> LedgerHa
         return LedgerHash::Later;
     }
     if u64::from(anchor.index - index) <= SKIP_HASHES as u64 {
-        return match list(anchor.hash, recent_key()) {
+        return match recent(anchor.hash, anchor.index) {
             Ok(recent) => found(recent.hash_of(index, 1)),
             Err(next) => next,
         };
@@ -326,7 +362,7 @@ pub fn ledger_hash(anchor: &Anchor, index: u32, lists: &ProvenLists) -> LedgerHa
     if flag == index {
         return LedgerHash::Proven(flag_hash);
     }
-    match list(flag_hash, recent_key()) {
+    match recent(flag_hash, flag) {
         Ok(recent) => found(recent.hash_of(index, 1)),
         Err(next) => next,
     }
@@ -346,6 +382,7 @@ pub fn ledger_proof(
         LedgerHash::Proven(proven) if proven == *hash => LedgerProof::Holds,
         LedgerHash::Proven(_) | LedgerHash::None => LedgerProof::Wrong,
         LedgerHash::Later => LedgerProof::Later,
+        LedgerHash::Lie => LedgerProof::Lie,
         LedgerHash::Prove { at, key } => LedgerProof::Prove { at, key },
     }
 }
@@ -471,6 +508,8 @@ pub enum Ancestry {
     OnChain,
     /// It is not: a list proven absent, or holding another hash.
     OffChain,
+    /// The lists hold a ledger at another index than its header's: a lie.
+    Lie,
     /// To tell, prove the object of `key` at the ledger of `at`.
     Prove {
         /// The ledger, by its hash: the new anchor, or a flag ledger its
@@ -487,7 +526,9 @@ pub type ProvenLists = BTreeMap<([u8; 32], [u8; 32]), Option<SkipList>>;
 
 /// Whether `new`, a higher ledger that closed later than `kept`, is on
 /// its chain, from the skip lists in `lists`, or which to prove next. At
-/// most two beyond the new anchor's own list of recent ledgers.
+/// most two beyond the new anchor's own list of recent ledgers, each list
+/// of recent ledgers the one of the ledger of the index the new anchor or
+/// a list gives, or the lists lie.
 #[must_use]
 pub fn ancestry(kept: &KeptAnchor, new: &Anchor, lists: &ProvenLists) -> Ancestry {
     assert!(
@@ -499,6 +540,11 @@ pub fn ancestry(kept: &KeptAnchor, new: &Anchor, lists: &ProvenLists) -> Ancestr
         Some(None) => Err(Ancestry::OffChain),
         Some(Some(list)) => Ok(list),
     };
+    let recent = |at: [u8; 32], of: u32| match list(at, recent_key()) {
+        Ok(recent) if recent.is_recent_of(of) => Ok(recent),
+        Ok(_) => Err(Ancestry::Lie),
+        Err(next) => Err(next),
+    };
     let holds = |list: &SkipList, index: u32, step: u32, hash: [u8; 32]| {
         if list.hash_of(index, step) == Some(hash) {
             Ancestry::OnChain
@@ -509,7 +555,7 @@ pub fn ancestry(kept: &KeptAnchor, new: &Anchor, lists: &ProvenLists) -> Ancestr
     let kept_ledger = kept.anchor;
     let behind = u64::from(new.index - kept_ledger.index);
     if behind <= SKIP_HASHES as u64 {
-        return match list(new.hash, recent_key()) {
+        return match recent(new.hash, new.index) {
             Ok(recent) => holds(recent, kept_ledger.index, 1, kept_ledger.hash),
             Err(next) => next,
         };
@@ -535,7 +581,7 @@ pub fn ancestry(kept: &KeptAnchor, new: &Anchor, lists: &ProvenLists) -> Ancestr
         Some(_) => Ancestry::OffChain,
         // The flag ledger after the kept anchor holds it among the 256
         // before it.
-        None => match list(flag_hash, recent_key()) {
+        None => match recent(flag_hash, flag) {
             Ok(recent) => holds(recent, kept_ledger.index, 1, kept_ledger.hash),
             Err(next) => next,
         },
@@ -734,5 +780,86 @@ mod tests {
         );
         // Before the chain began.
         assert_eq!(ledger_hash(&anchor, first - 1, &lists), LedgerHash::None);
+    }
+
+    // A ledger's index is its header's: a list of recent ledgers proven at
+    // a ledger is that ledger's own, so a ledger the lists hold at another
+    // index than its header's is a lie, though its hash is one the lists
+    // hold.
+    #[test]
+    fn a_ledger_the_lists_hold_at_another_index_is_a_lie() {
+        let first = 5_000_000;
+        let newest = anchor(5_100_000);
+        let (flag, other) = (5_000_192, 5_000_448);
+        let mut lists = ProvenLists::new();
+        lists.insert(
+            (newest.hash, recent_key()),
+            Some(recent(newest.index, first)),
+        );
+        // The flag list holds, at the flag ledger's place, the hash of
+        // another flag ledger, whose own list says which it is.
+        let mut misplaced = flags(flag, newest.index, first);
+        let at = misplaced
+            .hashes
+            .iter()
+            .position(|h| *h == hash(flag))
+            .unwrap();
+        misplaced.hashes[at] = hash(other);
+        lists.insert((newest.hash, flag_key(flag)), Some(misplaced));
+        lists.insert((hash(other), recent_key()), Some(recent(other, first)));
+        assert_eq!(ledger_hash(&newest, flag - 50, &lists), LedgerHash::Lie);
+        assert_eq!(
+            ledger_proof(&newest, flag - 50, &hash(flag - 50), &lists),
+            LedgerProof::Lie
+        );
+        // The anchor's own list of recent ledgers is of the ledger before.
+        lists.insert(
+            (newest.hash, recent_key()),
+            Some(recent(newest.index - 1, first)),
+        );
+        assert_eq!(
+            ledger_hash(&newest, newest.index - 10, &lists),
+            LedgerHash::Lie
+        );
+        // So for ancestry, of the new anchor's list and the flag ledger's.
+        let kept = KeptAnchor::of(anchor(5_000_100), Some(&recent(5_000_100, first)));
+        assert_eq!(kept.flag, None);
+        let near = anchor(5_000_300);
+        lists.insert(
+            (near.hash, recent_key()),
+            Some(recent(near.index + 1, first)),
+        );
+        assert_eq!(ancestry(&kept, &near, &lists), Ancestry::Lie);
+        lists.insert(
+            (newest.hash, recent_key()),
+            Some(recent(newest.index, first)),
+        );
+        assert_eq!(ancestry(&kept, &newest, &lists), Ancestry::Lie);
+    }
+
+    // A list of recent ledgers a state proof proves is its header's
+    // ledger's own: its newest is the one before.
+    #[test]
+    fn a_proven_list_of_recent_ledgers_is_its_ledger_s_own() {
+        let data: Value =
+            serde_json::from_str(include_str!("../tests/data/ledger-objects.json")).unwrap();
+        let header =
+            LedgerHeader::from_bytes(&from_hex(data["ledger_data"].as_str().unwrap()).unwrap())
+                .unwrap();
+        let recent = (data["objects"].as_array().unwrap().iter())
+            .find(|object| object["label"] == "LedgerHashes (recent)")
+            .unwrap();
+        let object = from_hex(recent["node_binary"].as_str().unwrap()).unwrap();
+        let proven = |header: LedgerHeader| ProvenState {
+            hash: header.hash(),
+            header,
+            objects: BTreeMap::from([(recent_key(), Some(object.clone()))]),
+        };
+        let list = proven(header).skip_list(&recent_key()).unwrap().unwrap();
+        assert_eq!(list.last, header.sequence - 1);
+        let mut later = header;
+        later.sequence += 1;
+        assert_eq!(proven(later).skip_list(&recent_key()), Err(Doubt::SkipList));
+        assert_eq!(proven(header).skip_list(&[0; 32]), Ok(None), "not proven");
     }
 }

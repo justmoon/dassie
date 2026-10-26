@@ -112,11 +112,8 @@ pub(super) fn judge(kept: Option<&Anchor>, hint: Option<Validated>, new: &Anchor
 
 /// The list of recent ledgers a state proof proved: none for the first
 /// ledger of a chain.
-fn recent_list(proven: &ProvenState) -> Result<Option<SkipList>, ()> {
-    match proven.object(&recent_key()) {
-        Some(Some(object)) => SkipList::parse(object).map(Some).map_err(|_| ()),
-        _ => Ok(None),
-    }
+fn recent_list(proven: &ProvenState) -> Result<Option<SkipList>, Doubt> {
+    proven.skip_list(&recent_key())
 }
 
 /// Why there is no UNL, for the owner.
@@ -399,8 +396,9 @@ impl XrplAccount {
     /// The proven ledger is validated: taken as the anchor, after its
     /// ancestry is proven if it is later than the one kept.
     fn anchored(&mut self, proven: &ProvenState, anchor: Anchor) {
-        let Ok(recent) = recent_list(proven) else {
-            return self.doubted(Doubt::SkipList);
+        let recent = match recent_list(proven) {
+            Ok(recent) => recent,
+            Err(doubt) => return self.doubted(doubt),
         };
         let kept = self.anchor.as_ref().map(|kept| kept.anchor);
         match judge(kept.as_ref(), self.hint, &anchor) {
@@ -447,6 +445,7 @@ impl XrplAccount {
         match ancestry(&kept, &anchor, &lists) {
             Ancestry::OnChain => self.take_anchor(anchor, &proven),
             Ancestry::OffChain => self.off_chain(anchor, &proven, CHAIN_FORKED),
+            Ancestry::Lie => self.doubted(Doubt::SkipList),
             Ancestry::Prove { at, key } => self.send(Request::SkipList(at, key)),
         }
     }
@@ -471,15 +470,10 @@ impl XrplAccount {
         let Some(answer) = self.answer(outcome, api::state_proof_result) else {
             return;
         };
-        let list = match prove_state(&answer, &[key], Some(&at)) {
-            Ok(proven) => match proven.object(&key) {
-                Some(Some(object)) => match SkipList::parse(object) {
-                    Ok(list) => Some(list),
-                    Err(_) => return self.doubted(Doubt::SkipList),
-                },
-                _ => None,
-            },
-            Err(error) => return self.doubted(Doubt::of(error)),
+        let proven = prove_state(&answer, &[key], Some(&at)).map_err(Doubt::of);
+        let list = match proven.and_then(|proven| proven.skip_list(&key)) {
+            Ok(list) => list,
+            Err(doubt) => return self.doubted(doubt),
         };
         if let Some(Round::Ancestry { lists, .. }) = &mut self.round {
             lists.insert((at, key), list);
@@ -518,8 +512,9 @@ impl XrplAccount {
     /// ([`super::history`]). State it cannot read is no anchor.
     fn take_anchor(&mut self, anchor: Anchor, proven: &ProvenState) {
         self.round = None;
-        let Ok(recent) = recent_list(proven) else {
-            return self.doubted(Doubt::SkipList);
+        let recent = match recent_list(proven) {
+            Ok(recent) => recent,
+            Err(doubt) => return self.doubted(doubt),
         };
         let view = match self.read_view(anchor, proven, recent.clone()) {
             Ok(view) => view,

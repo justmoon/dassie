@@ -985,6 +985,7 @@ proptest! {
             match ancestry(&kept, &new, &lists) {
                 Ancestry::OnChain => break true,
                 Ancestry::OffChain => break false,
+                Ancestry::Lie => return Err(TestCaseError::fail("an honest chain's lists lie")),
                 Ancestry::Prove { at, key } => {
                     prop_assert!(!lists.contains_key(&(at, key)), "asked twice");
                     proofs += 1;
