@@ -141,7 +141,9 @@ pub(super) const OWN_ACCOUNTS: usize =
 
 impl Core {
     /// Activates the stored schemes, booking what changed while the node was
-    /// down. One of another realm than the node's, which the node's realm
+    /// down. One whose config or state no longer makes a scheme, such as a
+    /// hub's that is no longer built in, is left out and reported, so that
+    /// the owner can add it again or remove it. One of another realm than the node's, which the node's realm
     /// was changed past, is left as it is, and does not run: the owner is
     /// told, and the node starts with the rest
     /// (spec/decisions/mainnet-schemes.md). So is a disabled one, such as
@@ -155,16 +157,33 @@ impl Core {
                 self.report(SettlementEvent::Disabled { scheme: id });
                 continue;
             }
-            let ledger = super::SCHEMES
+            // A scheme this version does not know stops the start: the
+            // database is not one this version can run, and a release that
+            // cannot start is rolled back (spec/areas/release.md).
+            let Some(ledger) = super::SCHEMES
                 .iter()
                 .find(|info| info.id == id.as_str())
-                .map(|info| info.ledger);
-            if ledger.is_some_and(|ledger| ledger.realm() != super::ledger_realm(self.realm)) {
+                .map(|info| info.ledger)
+            else {
+                return Err(format!("settlement scheme {id}: unknown to this version"));
+            };
+            if ledger.realm() != super::ledger_realm(self.realm) {
                 self.report(SettlementEvent::OtherRealm { scheme: id });
                 continue;
             }
             let checkpoint = self.checkpoints.get(&id).cloned();
-            self.activate(id, config, checkpoint, false)
+            // Made before anything of it is opened: a known scheme whose
+            // config or state no longer makes one leaves nothing behind.
+            let made = match self.make_scheme(id, &config, checkpoint.as_ref()) {
+                Ok(made) => made,
+                Err(EngineError::Invalid(reason)) => {
+                    self.unusable.insert(id);
+                    self.report(SettlementEvent::Unusable { scheme: id, reason });
+                    continue;
+                }
+                Err(e) => return Err(format!("settlement scheme {id}: {e}")),
+            };
+            self.start_scheme(id, config, made, checkpoint, false)
                 .map_err(|e| format!("settlement scheme {id}: {e}"))?;
         }
         Ok(())
@@ -189,6 +208,11 @@ impl Core {
         }
         let checkpoint = self.checkpoints.get(&id).cloned();
         let ledger = self.activate(id, config, checkpoint, true)?;
+        // One left out at start is still stored: its old config goes, as
+        // removals are written before additions.
+        if self.unusable.remove(&id) {
+            self.batch.schemes_removed.push(id);
+        }
         // Settlements left pending when it was last removed (ACC-16).
         self.reconcile_settlements(Some(id));
         self.reconcile_owner_payments();
@@ -197,8 +221,7 @@ impl Core {
     }
 
     /// Starts a scheme: makes it and the external asset it settles through,
-    /// opens its ledger's accounts, books the difference to its checkpoint
-    /// (ACC-6), and makes sure the receiver has a ledger.
+    /// then [starts](Self::start_scheme) it.
     fn activate(
         &mut self,
         id: Name,
@@ -206,7 +229,21 @@ impl Core {
         checkpoint: Option<Checkpoint>,
         new: bool,
     ) -> Result<LedgerId, EngineError> {
-        let (mut scheme, asset) = self.make_scheme(id, &config, checkpoint.as_ref())?;
+        let made = self.make_scheme(id, &config, checkpoint.as_ref())?;
+        self.start_scheme(id, config, made, checkpoint, new)
+    }
+
+    /// Starts a scheme made with its asset: opens its ledger's accounts,
+    /// books the difference to its checkpoint (ACC-6), and makes sure the
+    /// receiver has a ledger.
+    fn start_scheme(
+        &mut self,
+        id: Name,
+        config: String,
+        (mut scheme, asset): super::schemes::MadeScheme,
+        checkpoint: Option<Checkpoint>,
+        new: bool,
+    ) -> Result<LedgerId, EngineError> {
         let over_hub = scheme.commitments().is_some();
         let unlimited = scheme.unlimited_trust();
         assert!(
@@ -321,12 +358,19 @@ impl Core {
     ///
     /// # Errors
     ///
-    /// The scheme is not active, or tokens use its ledger.
+    /// The scheme is neither active nor stored and left out at start, or
+    /// tokens use its ledger.
     pub fn remove_scheme(&mut self, id: &str) -> Result<(), EngineError> {
         let id =
             Name::new(id).map_err(|_| EngineError::NotFound("the scheme is not active".into()))?;
         let ledger = match self.schemes.get(&id) {
             Some(active) => active.scheme.ledger(),
+            // Stored but left out at start: it opened nothing, so only its
+            // stored config goes.
+            None if self.unusable.remove(&id) => {
+                self.batch.schemes_removed.push(id);
+                return Ok(());
+            }
             None => return Err(EngineError::NotFound("the scheme is not active".into())),
         };
         if let Some(blocker) = self.removal_blockers(id, ledger).first() {

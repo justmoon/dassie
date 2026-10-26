@@ -34,7 +34,7 @@ mod tokens;
 #[cfg(test)]
 mod tests;
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use dassie_connector::pricing::MAX_PRICED_LEDGERS;
@@ -298,6 +298,9 @@ pub struct Core {
     schemes: BTreeMap<Name, ActiveScheme>,
     /// What the books last kept for each scheme.
     checkpoints: BTreeMap<Name, Checkpoint>,
+    /// The stored schemes whose config no longer makes a scheme, left out
+    /// at start: the owner may add each again or remove it.
+    unusable: BTreeSet<Name>,
     /// The external assets the active schemes settle through.
     assets: BTreeMap<dassie_settlement::AssetId, schemes::ActiveAsset>,
     /// What the books last kept for each external asset: its state.
@@ -472,6 +475,7 @@ impl Core {
             prices: Prices::default(),
             schemes: BTreeMap::new(),
             checkpoints,
+            unusable: BTreeSet::new(),
             assets: BTreeMap::new(),
             asset_checkpoints,
             next_epoch: 0,
