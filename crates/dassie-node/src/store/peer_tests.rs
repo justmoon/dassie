@@ -723,13 +723,39 @@ fn migration_42_renames_the_hub_scheme_and_keeps_its_books() {
              INSERT INTO incoming_payments (id, ledger, wallet_address, received_amount,
                ilp_address, shared_secret, created_at_ms, expires_at_ms, revision)
                VALUES (zeroblob(16), 'hub-xrp-testnet+xrp', 'https://a.example/pay/hub-xrp-testnet',
-                 0, 'test.a.stream-hub-xrp-testnet.x', zeroblob(32), 1, 2, 1);
+                 0, 'test.a.stream-hub-xrp-testnet.x', zeroblob(32), 1, 2, 1),
+               (X'01010101010101010101010101010101', 'xrpl-testnet+xrp',
+                 'https://a.example/pay/xrpl-testnet', 0, 'test.a.stream-xrpl-testnet.x',
+                 zeroblob(32), 1, 2, 5);
+             INSERT INTO quotes (id, ledger, wallet_address, receiver, destination, shared_secret,
+               debit_amount, receive_amount, receive_asset_code, receive_asset_scale,
+               created_at_ms, expires_at_ms)
+               VALUES (zeroblob(16), 'hub-xrp-testnet+xrp', 'https://a.example/pay/hub-xrp-testnet',
+                 'https://b.example/incoming-payments/1', 'test.b.x', zeroblob(32), 10, 10, 'XRP', 9,
+                 1, 2);
+             INSERT INTO outgoing_payments (id, ledger, wallet_address, receiver, destination,
+               shared_secret, debit_amount, receive_amount, receive_asset_code,
+               receive_asset_scale, sent_amount, state, created_at_ms, deadline_ms, revision)
+               VALUES (zeroblob(16), 'hub-xrp-testnet+xrp', 'https://a.example/pay/hub-xrp-testnet',
+                 'https://b.example/incoming-payments/1', 'test.b.x', zeroblob(32), 10, 10, 'XRP', 9,
+                 0, 'sending', 1, 2, 3);
              INSERT INTO gnap_grants (id, state, client, client_key, access, needs_owner,
                continue_token_hash, created_at_ms, decided_at_ms, expires_at_ms, revision)
                VALUES (zeroblob(16), 'approved', 'https://c.example', '{}',
                  '[{\"type\":\"incoming-payment\",\"actions\":[\"read\"],\
-                 \"identifier\":\"https://a.example/pay/hub-xrp-testnet\"}]',
-                 1, zeroblob(32), 1, 1, 2, 1);",
+                 \"identifier\":\"https://a.example/pay/hub-xrp-testnet\"},\
+                 {\"type\":\"incoming-payment\",\"actions\":[\"read\"],\
+                 \"identifier\":\"https://a.example/pay/xrpl-testnet\"}]',
+                 1, zeroblob(32), 1, 1, 2, 1);
+             INSERT INTO gnap_grants (id, state, client, client_key, access, needs_owner,
+               continue_token_hash, interaction, created_at_ms, expires_at_ms, revision)
+               VALUES (X'02020202020202020202020202020202', 'pending', 'https://c.example', '{}',
+                 '[]', 1, X'0202020202020202020202020202020202020202020202020202020202020202',
+                 '{\"key\":\"k\",\"server_nonce\":\"n\",\"finish\":null,\
+                 \"interact_ref\":null,\"subject\":{\"sub_ids\":[{\"id\":\
+                 \"https://a.example/pay/hub-xrp-testnet\",\"format\":\"uri\"}]},\
+                 \"public_name\":null,\"continued_at_ms\":1,\"finalized\":false}',
+                 1, 2, 2);",
         )
         .unwrap();
     connection
@@ -837,11 +863,84 @@ fn migration_42_renames_the_hub_scheme_and_keeps_its_books() {
         payment.wallet_address,
         "https://a.example/pay/hub-xrpl-testnet-xrp"
     );
-    let grant = store.grant(PaymentId([0; 16])).unwrap().unwrap();
-    assert!(
-        grant
-            .access
-            .contains("\"identifier\":\"https://a.example/pay/hub-xrpl-testnet-xrp\"")
+    let other = store.incoming_payment(PaymentId([1; 16])).unwrap().unwrap();
+    assert_eq!(
+        (other.ledger, other.wallet_address.as_str()),
+        (
+            dassie_ledger::LedgerId::XrplTestnetXrp,
+            "https://a.example/pay/xrpl-testnet"
+        )
     );
-    assert!(!grant.access.contains("hub-xrp-testnet"));
+    let quote = store.quote(PaymentId([0; 16])).unwrap().unwrap();
+    assert_eq!(
+        (quote.ledger, quote.wallet_address.as_str()),
+        (hub, "https://a.example/pay/hub-xrpl-testnet-xrp")
+    );
+    let outgoing = store.outgoing_payment(PaymentId([0; 16])).unwrap().unwrap();
+    assert_eq!(
+        (outgoing.ledger, outgoing.wallet_address.as_str()),
+        (hub, "https://a.example/pay/hub-xrpl-testnet-xrp")
+    );
+
+    // A grant's identifiers of the hub's wallet address move, and no other.
+    let grant = store.grant(PaymentId([0; 16])).unwrap().unwrap();
+    let access: serde_json::Value = serde_json::from_str(&grant.access).unwrap();
+    let identifiers: Vec<_> = access
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|item| item["identifier"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        identifiers,
+        [
+            "https://a.example/pay/hub-xrpl-testnet-xrp",
+            "https://a.example/pay/xrpl-testnet"
+        ]
+    );
+    // So does the subject a pending grant asked about, and nothing else
+    // in its interaction.
+    let pending = store.grant(PaymentId([2; 16])).unwrap().unwrap();
+    let interaction: serde_json::Value =
+        serde_json::from_str(pending.interaction.as_deref().unwrap()).unwrap();
+    assert_eq!(
+        interaction,
+        serde_json::json!({
+            "key": "k",
+            "server_nonce": "n",
+            "finish": null,
+            "interact_ref": null,
+            "subject": {"sub_ids": [{
+                "id": "https://a.example/pay/hub-xrpl-testnet-xrp",
+                "format": "uri",
+            }]},
+            "public_name": null,
+            "continued_at_ms": 1,
+            "finalized": false,
+        })
+    );
+    drop(store);
+
+    // The rows that changed take revisions above every other, in their
+    // order, so live views see them change.
+    let connection = Connection::open(temp.path().join(DATABASE_FILE)).unwrap();
+    let revisions = |table: &str| -> Vec<(Vec<u8>, i64)> {
+        let mut statement = connection
+            .prepare(&format!("SELECT id, revision FROM {table} ORDER BY id"))
+            .unwrap();
+        statement
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap()
+    };
+    assert_eq!(
+        revisions("incoming_payments"),
+        [(vec![0; 16], 6), (vec![1; 16], 5)]
+    );
+    assert_eq!(revisions("outgoing_payments"), [(vec![0; 16], 4)]);
+    assert_eq!(
+        revisions("gnap_grants"),
+        [(vec![0; 16], 3), (vec![2; 16], 4)]
+    );
 }
