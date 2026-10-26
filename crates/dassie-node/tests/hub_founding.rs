@@ -359,7 +359,9 @@ async fn a_sponsor_founds_a_hub_with_four_validator_daemons() {
     let left: Vec<TestNode> = validators.collect();
     first.stop().await;
     second.stop().await;
-    until(&clock, 1_000, async || {
+    // The stall is the rules' shortest, minutes on the hub's clock, which
+    // moves in steps of seconds: the views it holds time out within it.
+    until(&clock, 5_000, async || {
         let reply = sponsor
             .ipc()
             .await
@@ -579,11 +581,9 @@ async fn a_funding_too_little_for_the_escrow_is_paid_once() {
         .unwrap()
         .deposit_address;
     let sponsor = dassie_xrpl::AccountId::parse(&address).unwrap();
-    // A while longer, through several of the setup's polls.
-    for _ in 0..40 {
-        net.clock.advance(250);
-        tokio::time::sleep(Duration::from_millis(250)).await;
-    }
+    // Until the setup, connecting again after it stopped, looked at the
+    // escrow once more.
+    looked_again(&net, escrow).await;
     assert_eq!(
         payments(&net.xrpl, sponsor, escrow),
         vec!["tecNO_DST_INSUF_XRP".to_string()],
@@ -595,16 +595,28 @@ async fn a_funding_too_little_for_the_escrow_is_paid_once() {
     // the founding kept why it stopped, and asks the ledger nothing.
     net.xrpl.ledger().forget_history();
     let net = net.restart_sponsor().await;
-    for _ in 0..40 {
-        net.clock.advance(250);
-        tokio::time::sleep(Duration::from_millis(250)).await;
-    }
+    looked_again(&net, escrow).await;
     assert!(
         payments(&net.xrpl, sponsor, escrow).is_empty(),
         "paid again after a restart"
     );
     assert!(founding(&net.sponsor).await.problem.contains("too little"));
     net.stop().await;
+}
+
+/// Runs the clock until the sponsor's escrow setup has read `escrow` from
+/// the ledger again, then a while longer: whatever it does after reading,
+/// such as paying, has reached the ledger by then.
+async fn looked_again(net: &Net, escrow: dassie_xrpl::AccountId) {
+    let reads = net.xrpl.ledger().reads_of(escrow);
+    until(&net.clock, 250, async || {
+        net.xrpl.ledger().reads_of(escrow) > reads
+    })
+    .await;
+    for _ in 0..8 {
+        net.clock.advance(250);
+        tokio::time::sleep(Duration::from_millis(125)).await;
+    }
 }
 
 // spec/areas/hubs.md#founding-a-hub: a funding payment the XRP scheme

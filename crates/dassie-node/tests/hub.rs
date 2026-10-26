@@ -495,7 +495,9 @@ async fn a_validator_far_behind_catches_up_from_a_peers_state() {
     away.stop.cancel();
     away.task.await.unwrap();
     let at = height(&nodes[3]);
-    let past = at + 2 * u64::try_from(dassie_hub::consensus::RETAINED_BLOCKS).unwrap();
+    // Each keeps its last RETAINED_BLOCKS final blocks: past this, the
+    // block after `at` is gone from every one of them.
+    let past = at + u64::try_from(dassie_hub::consensus::RETAINED_BLOCKS).unwrap();
     until("the others finalize past what they keep", || {
         (0..3).all(|i| height(&nodes[i]) > past)
     })

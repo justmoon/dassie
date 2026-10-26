@@ -41,6 +41,7 @@ pub use self::core::{
     Severity, TokenView, ledger_realm, ledger_slug, offered,
 };
 
+use crate::clock::clock_moved;
 use crate::log::target;
 use crate::node::Node;
 
@@ -1027,19 +1028,6 @@ impl Driver<'_> {
             tracing::debug!(target: target::PEER, ?kind, %to, ?status, "peer request");
             let _ = commands.send(Command::PeerResponse { id, result }).await;
         });
-    }
-}
-
-/// Resolves when a clock that can be moved by hand moves, so tests need not
-/// wait for real time to pass. Never resolves for the system clock.
-async fn clock_moved(wake: &mut Option<watch::Receiver<u64>>) {
-    match wake {
-        Some(receiver) => {
-            if receiver.changed().await.is_err() {
-                *wake = None;
-            }
-        }
-        None => std::future::pending().await,
     }
 }
 

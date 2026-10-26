@@ -28,7 +28,7 @@ use super::driver::{Driver, DriverError, Effects, Peer, Step, hex};
 use super::escrow::EscrowView;
 use super::transport::{Hubs, INBOX, Inbound, Route, Sender, bounded};
 use super::{HubAnswer, HubClient, HubExchangeError, xrpl};
-use crate::clock::Clock;
+use crate::clock::{Clock, clock_moved};
 use crate::log::target;
 use crate::node::Node;
 use crate::store::StoreError;
@@ -351,6 +351,7 @@ impl HubTask {
     }
 
     async fn steps(&mut self, shutdown: &CancellationToken) -> Result<(), StoreError> {
+        let mut moves = self.clock.subscribe();
         loop {
             let now = self.clock.now_ms();
             let wake = self
@@ -366,6 +367,7 @@ impl HubTask {
                 biased;
                 () = shutdown.cancelled() => return Ok(()),
                 () = tokio::time::sleep(sleep) => Input::Tick,
+                () = clock_moved(&mut moves) => Input::Tick,
                 Some((finalized, state)) = self.fetched.recv() => Input::Fetched(finalized, state),
                 Some(inbound) = self.from_validators.recv() => Input::Message(inbound),
                 Some(operation) = self.attestations.recv() => Input::Attest(operation),

@@ -31,10 +31,9 @@ use dassie_peer::wire::{
 };
 use dassie_peer::{Request, RequestId};
 use sha2::{Digest, Sha256};
-use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;
 
-use crate::clock::{Clock, SharedRng};
+use crate::clock::{Clock, SharedRng, clock_moved};
 use crate::env::BootstrapNode;
 use crate::log::target;
 use crate::node::lock;
@@ -293,18 +292,6 @@ impl Poller {
             timeout_ms,
         };
         Some((request, pending))
-    }
-}
-
-/// Waits for a hand-moved clock to move, or forever for one that is not.
-async fn clock_moved(wake: &mut Option<watch::Receiver<u64>>) {
-    match wake {
-        Some(receiver) => {
-            if receiver.changed().await.is_err() {
-                *wake = None;
-            }
-        }
-        None => std::future::pending().await,
     }
 }
 

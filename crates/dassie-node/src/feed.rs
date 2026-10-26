@@ -31,6 +31,7 @@ use tokio::net::UdpSocket;
 use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;
 
+use crate::clock::clock_moved;
 use crate::engine::{Engine, Versions};
 use crate::node::{Node, lock};
 
@@ -692,19 +693,6 @@ async fn versions_changed(versions: &mut Option<watch::Receiver<Versions>>) {
     };
     if receiver.changed().await.is_err() {
         *versions = None;
-    }
-}
-
-/// Resolves when a clock that can be moved by hand moves, so tests need not
-/// wait for real time to pass. Never resolves for the system clock.
-async fn clock_moved(wake: &mut Option<watch::Receiver<u64>>) {
-    match wake {
-        Some(receiver) => {
-            if receiver.changed().await.is_err() {
-                *wake = None;
-            }
-        }
-        None => std::future::pending().await,
     }
 }
 
