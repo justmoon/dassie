@@ -27,7 +27,7 @@ message LogLine {
   uint64 index = 1;
   int64 time_unix_ms = 2;
   LogLevel level = 3;
-  // For example "das:node:peer-protocol".
+  // For example "dassie::peer".
   string target = 4;
   // Cut at 1 KiB.
   string message = 5;
@@ -35,8 +35,8 @@ message LogLine {
 }
 
 // Streams the node's last log lines, then each new one. The node keeps
-// its last 1000 lines (at most 1 MiB): info and above, and debug for the
-// targets `DEBUG` names. Works before setup too.
+// its last 1000 lines (at most 1 MiB): info and above, and what
+// `DASSIE_LOG` shows below that. Works before setup too.
 message SubscribeLogsRequest {}
 
 message LogEvent {

@@ -40,7 +40,7 @@ Environment=DASSIE_IPC_SOCKET_PATH=/run/dassie-mm-%i/dassie.sock
 # No front door: nobody pays these nodes at a name.
 Environment=DASSIE_RELAY=
 WorkingDirectory=/var/lib/dassie-mm/%i
-Environment=DASSIE_LOG_LEVEL=info
+Environment=DASSIE_LOG=info
 Restart=always
 RestartSec=5
 # Bounded, so that an update whose node never comes up is rolled back.

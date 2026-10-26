@@ -31,7 +31,7 @@ pub fn show(app: &AppHandle, node: &Arc<RunningNode>) {
         return;
     }
     if let Err(error) = open(app, node) {
-        tracing::error!(target: "dassie_desktop", %error, "could not open the window");
+        tracing::error!(target: dassie_node::log::target::DESKTOP, %error, "could not open the window");
     }
 }
 
@@ -44,7 +44,7 @@ pub fn show_error(app: &AppHandle, error: &str) {
         None => match builder(app, 0).build() {
             Ok(window) => window,
             Err(error) => {
-                tracing::error!(target: "dassie_desktop", %error, "could not open the window");
+                tracing::error!(target: dassie_node::log::target::DESKTOP, %error, "could not open the window");
                 return;
             }
         },
@@ -76,7 +76,7 @@ fn builder(app: &AppHandle, https_port: u16) -> WebviewWindowBuilder<'_, tauri::
             Navigation::Allow => true,
             Navigation::External => {
                 if let Err(error) = tauri_plugin_opener::open_url(url.as_str(), None::<&str>) {
-                    tracing::warn!(target: "dassie_desktop", %error, "could not open a link");
+                    tracing::warn!(target: dassie_node::log::target::DESKTOP, %error, "could not open a link");
                 }
                 false
             }
@@ -111,7 +111,7 @@ fn trust_node_certificate(
                 .and_then(|pem| TlsCertificate::from_pem(&pem).ok());
             let same = served.is_some_and(|served| presented.is_same(&served));
             if !(on_origin && same) {
-                tracing::warn!(target: "dassie_desktop", uri, "refused a certificate that is not the node's");
+                tracing::warn!(target: dassie_node::log::target::DESKTOP, uri, "refused a certificate that is not the node's");
                 return false;
             }
             if let Some(context) = view.context() {

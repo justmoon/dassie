@@ -64,7 +64,7 @@ The node that asks to peer extends the other 1.1 units of credit; the node that 
 
 `terminatePeering` ends a peering. Your node first collects, without telling the peer: it takes nothing new from it, asks it to settle once more, and waits for that settlement; then it tells the peer, and the peering drains and ends on both sides. Nothing else is settled for its end ([ending-a-peering](spec/decisions/ending-a-peering.md)): what either side still owes stays on its books, for a later peering to settle. `banNode`, `unbanNode` and `listBans` keep nodes away. `GET /stats` tells anyone the node's version and the peers it advertises.
 
-**Logs.** `DASSIE_LOG_LEVEL` sets how much the node logs (`debug`, `info`, `warn`, `error` or `none`; `info` by default). The wallet's debug pages show the recent log as well.
+**Logs.** `DASSIE_LOG` sets what the node logs: a level (`trace`, `debug`, `info`, `warn`, `error` or `off`; `info` by default), or directives per target in the form of `tracing`'s `EnvFilter`, such as `info,dassie::peer=debug`. The node's targets are `dassie::*`. The wallet's debug pages show the recent log as well.
 
 ## Layout
 
@@ -155,7 +155,7 @@ DASSIE_IPC_SOCKET_PATH=/tmp/dassie.sock target/e2e/dassie init --hostname localh
 
 Then open the setup URL it prints. The certificate stays self-signed until `dassie init` obtains a real one, which needs a public hostname with port 80 reachable.
 
-To make a few such nodes find each other locally, set `DASSIE_PEER_ALLOW_PRIVATE=1` so they may reach each other on `localhost`, `DASSIE_PEER_CA_FILE` to the CA their certificates come from, and `DASSIE_DEV_TIMINGS=1` so the protocol polls and settles every second. Keep such nodes on loopback with `--listen 127.0.0.1`; the daemon warns about either flag when it listens anywhere else. `node --run dev`, below, does all of this for you.
+To make a few such nodes find each other locally, set `DASSIE_PEER_ALLOW_PRIVATE=1` so they may reach each other on `localhost`, `DASSIE_EXTRA_CA_FILE` to the CA their certificates come from, and `DASSIE_DEV_TIMINGS=1` so the protocol polls and settles every second. Keep such nodes on loopback with `--listen 127.0.0.1`; the daemon warns about either flag when it listens anywhere else. `node --run dev`, below, does all of this for you.
 
 ## Releases
 

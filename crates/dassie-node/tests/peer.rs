@@ -156,21 +156,18 @@ async fn quiet(a: &TestNode, b: &TestNode, key_a: &NodeKey, key_b: &NodeKey) -> 
 }
 
 #[tokio::test(flavor = "multi_thread")]
-// `DEBUG` only turns on the log, to follow a failing run.
+// `DASSIE_LOG` only turns on the log, to follow a failing run.
 #[allow(clippy::disallowed_methods)]
 async fn two_daemons_peer_and_keep_their_peering() {
-    if let Ok(debug) = std::env::var("DEBUG") {
-        dassie_node::log::init(dassie_node::log::LogFilter::new(
-            dassie_node::log::LogLevel::Debug,
-            &debug,
-        ));
+    if let Ok(text) = std::env::var("DASSIE_LOG") {
+        dassie_node::log::init(dassie_node::log::LogFilter::parse(&text).unwrap());
     }
     let (key_a, key_b) = (key(21), key(22));
     let (bound_a, bound_b) = (Bound::new(), Bound::new());
     let nodes = bootstrap(&key_a, bound_a.https_port());
     let env = [
         ("DASSIE_BOOTSTRAP_NODES", nodes.as_str()),
-        ("DASSIE_PEER_CA_FILE", CA),
+        ("DASSIE_EXTRA_CA_FILE", CA),
         ("DASSIE_PEER_ALLOW_PRIVATE", "1"),
     ];
     let clock = ManualClock::new(START_MS);

@@ -65,7 +65,7 @@ pub async fn start_with(policies: Policies) -> (TestNode, NodeKey) {
 pub async fn start_keyed(policies: Policies, seed: u8) -> (TestNode, NodeKey) {
     let key = NodeKey::from_bytes(&[seed; 32]);
     let env = [
-        ("DASSIE_PEER_CA_FILE", CA),
+        ("DASSIE_EXTRA_CA_FILE", CA),
         ("DASSIE_PEER_ALLOW_PRIVATE", "1"),
     ];
     let node = Bound::new()
@@ -94,7 +94,7 @@ pub async fn start_keyed(policies: Policies, seed: u8) -> (TestNode, NodeKey) {
 pub async fn start_unnamed(seed: u8, names: &str) -> (TestNode, NodeKey) {
     let key = NodeKey::from_bytes(&[seed; 32]);
     let env = [
-        ("DASSIE_PEER_CA_FILE", CA),
+        ("DASSIE_EXTRA_CA_FILE", CA),
         ("DASSIE_PEER_ALLOW_PRIVATE", "1"),
         ("DASSIE_PUBLIC_NAMES", names),
     ];

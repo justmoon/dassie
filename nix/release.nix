@@ -362,7 +362,7 @@ let
             services.dassie = {
               enable = true;
               package = flakePackageFor releaseVersion stub;
-              logLevel = "debug";
+              log = "debug";
               environment.DASSIE_RELAY = "";
             };
             boot.isContainer = true;
@@ -378,7 +378,7 @@ let
       cd ${units}
       [ "$(readlink -f dassie.service)" = ${package}/lib/systemd/system/dassie.service ]
       grep -qx 'ExecStart=${package}/bin/dassie daemon --runtime=systemd' dassie.service
-      grep -q 'DASSIE_LOG_LEVEL=debug' dassie.service.d/overrides.conf
+      grep -q 'DASSIE_LOG=debug' dassie.service.d/overrides.conf
       grep -q 'DASSIE_RELAY=' dassie.service.d/overrides.conf
       [ -e multi-user.target.wants/dassie.service ]
       for socket in http https ipc quic feed; do

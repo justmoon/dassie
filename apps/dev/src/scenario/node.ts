@@ -159,7 +159,7 @@ export class ScenarioNode {
         ...this.env,
         DASSIE_STATE_DIRECTORY: `${this.dir}/state`,
         DASSIE_IPC_SOCKET_PATH: this.socket,
-        DASSIE_PEER_CA_FILE: this.environment.caFile,
+        DASSIE_EXTRA_CA_FILE: this.environment.caFile,
         DASSIE_PEER_ALLOW_PRIVATE: "1",
         DASSIE_DEV_TIMINGS: "1",
       },

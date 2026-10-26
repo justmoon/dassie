@@ -83,7 +83,7 @@ fn setup(app: &AppHandle, env: &Env, hidden: bool) {
     let (dir, node) = match started {
         Ok(started) => started,
         Err(error) => {
-            tracing::error!(target: "dassie_desktop", %error, "the node could not start");
+            tracing::error!(target: dassie_node::log::target::DESKTOP, %error, "the node could not start");
             window::show_error(app, &error);
             return;
         }
@@ -92,10 +92,10 @@ fn setup(app: &AppHandle, env: &Env, hidden: bool) {
         node: Arc::clone(&node),
     });
     if let Err(error) = autostart::refresh(&dir) {
-        tracing::warn!(target: "dassie_desktop", %error, "could not update starting at login");
+        tracing::warn!(target: dassie_node::log::target::DESKTOP, %error, "could not update starting at login");
     }
     if let Err(error) = tray::build(app, &node, dir) {
-        tracing::warn!(target: "dassie_desktop", %error, "no tray icon");
+        tracing::warn!(target: dassie_node::log::target::DESKTOP, %error, "no tray icon");
     }
     if !hidden {
         window::show(app, &node);

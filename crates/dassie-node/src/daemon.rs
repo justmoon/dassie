@@ -627,7 +627,7 @@ fn peer_options(settings: &Settings) -> PeerOptions {
                 key: node.public_key,
             })
             .collect(),
-        ca_file: settings.peer_ca_file.clone(),
+        ca_file: settings.extra_ca_file.clone(),
         allow_private: settings.peer_allow_private,
         uplinks: settings.uplinks.clone(),
     }

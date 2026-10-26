@@ -152,7 +152,7 @@ async fn start(seeds: [u8; 4], periphery: u8) -> (Vec<TestNode>, TestNode, Manua
     );
     let env = [
         ("DASSIE_BOOTSTRAP_NODES", nodes.as_str()),
-        ("DASSIE_PEER_CA_FILE", CA),
+        ("DASSIE_EXTRA_CA_FILE", CA),
         ("DASSIE_PEER_ALLOW_PRIVATE", "1"),
     ];
     let clock = ManualClock::new(START_MS);

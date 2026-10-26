@@ -5,7 +5,7 @@ import { LogLineSchema } from "@dassie/rpc/proto";
 import { matches, parseFilter, splitIds, visibleRange } from "./filter.ts";
 
 const line = create(LogLineSchema, {
-  target: "das:node:peer-protocol",
+  target: "dassie::peer",
   message: "Peered",
   fields: [{ name: "node", value: "d2_abc" }],
 });
@@ -14,7 +14,7 @@ test("keywords must all match; negated ones must not", () => {
   assertEquals(matches(line, parseFilter("")), true);
   assertEquals(matches(line, parseFilter("peer")), true);
   assertEquals(matches(line, parseFilter("PEERED d2_")), true);
-  assertEquals(matches(line, parseFilter("peer -protocol")), false);
+  assertEquals(matches(line, parseFilter("peered -dassie::")), false);
   assertEquals(matches(line, parseFilter("-accounting")), true);
   assertEquals(matches(line, parseFilter("node=d2")), true);
   assertEquals(parseFilter("  a  -b - "), { include: ["a"], exclude: ["b"] });
@@ -29,7 +29,7 @@ test("only the rows in view, and a few around them, are rendered", () => {
 
 test("a line's source counts in the filter", () => {
   const line = create(LogLineSchema, {
-    target: "das:node:http",
+    target: "dassie::http",
     message: "hi",
   });
   assertEquals(matches(line, parseFilter("d2"), "d2"), true);

@@ -25,7 +25,7 @@ WorkingDirectory=/var/lib/dassie-front-door
 Environment=DASSIE_FRONT_DOOR_DOMAIN=dassiepay.net
 Environment=DASSIE_FRONT_DOOR_CERTIFICATE=/etc/dassie-front-door/tls/fullchain.pem
 Environment=DASSIE_FRONT_DOOR_CERTIFICATE_KEY=/etc/dassie-front-door/tls/privkey.pem
-Environment=DASSIE_LOG_LEVEL=info
+Environment=DASSIE_LOG=info
 Restart=always
 RestartSec=1
 # Room for every connection it bounds: HTTPS's, 1024, and a tunnel for QUIC

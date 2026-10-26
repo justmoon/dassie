@@ -21,7 +21,7 @@ use dassie_identity::{NodeId, PublicKey, base64url};
 use dassie_node_core::config::{Hostname, LiveRealm};
 use serde::Deserialize;
 
-use crate::log::{LogFilter, LogLevel};
+use crate::log::LogFilter;
 use crate::quic::proxy::{NoProxy, Proxy};
 
 /// The public testnet's bootstrap nodes
@@ -165,9 +165,10 @@ pub struct Settings {
     pub relay: Option<Relay>,
     /// An extra root the ACME client trusts, for test CAs such as Pebble.
     pub acme_ca_file: Option<PathBuf>,
-    /// Extra roots the outbound client trusts, beside the platform's: a dev
-    /// or test CA (`DASSIE_PEER_CA_FILE`).
-    pub peer_ca_file: Option<PathBuf>,
+    /// Extra roots the node's outgoing client trusts, beside the
+    /// platform's, for peers, relays, front doors and every other server
+    /// it reaches: a dev or test CA (`DASSIE_EXTRA_CA_FILE`).
+    pub extra_ca_file: Option<PathBuf>,
     /// Whether peers may be at private addresses, such as `localhost` in
     /// dev and tests (`DASSIE_PEER_ALLOW_PRIVATE=1`).
     pub peer_allow_private: bool,
@@ -216,7 +217,7 @@ impl Settings {
             bootstrap_nodes: bootstrap_nodes(env)?,
             relay: relay(env)?,
             acme_ca_file: env.path("DASSIE_ACME_CA_FILE"),
-            peer_ca_file: env.path("DASSIE_PEER_CA_FILE"),
+            extra_ca_file: env.path("DASSIE_EXTRA_CA_FILE"),
             peer_allow_private: flag(env, "DASSIE_PEER_ALLOW_PRIVATE")?,
             dev_timings: flag(env, "DASSIE_DEV_TIMINGS")?,
             live_realm,
@@ -346,21 +347,16 @@ fn data_dir(env: &Env) -> Result<PathBuf, EnvError> {
     }
 }
 
-/// What reaches standard output: `DASSIE_LOG_LEVEL`, and `DEBUG` for the
-/// debug events shown.
+/// What reaches standard output: `DASSIE_LOG`, `info` if unset.
 ///
 /// # Errors
 ///
-/// `DASSIE_LOG_LEVEL` names no level.
+/// `DASSIE_LOG` holds a directive that is not one.
 pub fn log_filter(env: &Env) -> Result<LogFilter, EnvError> {
-    let level = match env.get("DASSIE_LOG_LEVEL")? {
-        None => LogLevel::Info,
-        Some(text) => LogLevel::parse(text).ok_or(EnvError {
-            variable: "DASSIE_LOG_LEVEL",
-            problem: format!("must be debug, info, warn, error or none, not {text:?}"),
-        })?,
-    };
-    Ok(LogFilter::new(level, env.get("DEBUG")?.unwrap_or_default()))
+    LogFilter::parse(env.get("DASSIE_LOG")?.unwrap_or_default()).map_err(|problem| EnvError {
+        variable: "DASSIE_LOG",
+        problem,
+    })
 }
 
 /// A variable that is `1` or `0`, or absent for `0`.
@@ -632,7 +628,8 @@ mod tests {
     #[test]
     fn bad_values_are_errors_that_name_the_variable() {
         let bad = [
-            ("DASSIE_LOG_LEVEL", "verbose"),
+            ("DASSIE_LOG", "verbose"),
+            ("DASSIE_LOG", "dassie::peer=loud"),
             ("DASSIE_DEV_WALLET_DIR", "relative/dist"),
             ("DASSIE_DEV_WALLET_DIR", "/no/such/directory"),
             ("DASSIE_PEER_ALLOW_PRIVATE", "yes"),

@@ -27,7 +27,7 @@ pub fn directory(dir: &Path) -> io::Result<()> {
     DirBuilder::new().recursive(true).mode(0o700).create(dir)?;
     let mode = fs::metadata(dir)?.permissions().mode() & 0o777;
     if mode & 0o077 != 0 {
-        tracing::warn!(target: "dassie_desktop", dir = %dir.display(), from = format_args!("{mode:o}"), "tightening permissions");
+        tracing::warn!(target: dassie_node::log::target::DESKTOP, dir = %dir.display(), from = format_args!("{mode:o}"), "tightening permissions");
         fs::set_permissions(dir, Permissions::from_mode(0o700))?;
     }
     Ok(())

@@ -25,7 +25,7 @@ StateDirectory=dassie
 StateDirectoryMode=0700
 CacheDirectory=dassie
 WorkingDirectory=/var/lib/dassie
-Environment=DASSIE_LOG_LEVEL=info
+Environment=DASSIE_LOG=info
 Restart=always
 RestartSec=1
 # Room for every connection it bounds: HTTPS's, 1024, and a tunnel for QUIC

@@ -165,7 +165,7 @@ impl Pair {
         let nodes = bootstrap(&key_a, bound_a.https_port());
         let env = [
             ("DASSIE_BOOTSTRAP_NODES", nodes.as_str()),
-            ("DASSIE_PEER_CA_FILE", CA),
+            ("DASSIE_EXTRA_CA_FILE", CA),
             ("DASSIE_PEER_ALLOW_PRIVATE", "1"),
         ];
         let clock = ManualClock::new(START_MS);

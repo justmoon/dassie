@@ -233,7 +233,8 @@ pub struct NodeOptions {
 pub struct PeerOptions {
     /// The bootstrap nodes.
     pub bootstrap: Vec<dassie_peer::Bootstrap>,
-    /// Extra roots for peers' certificates (dev and tests).
+    /// Extra roots for the certificates of the servers the node reaches
+    /// (dev and tests).
     pub ca_file: Option<PathBuf>,
     /// Whether peers may be at private addresses (dev and tests).
     pub allow_private: bool,
@@ -333,7 +334,7 @@ pub enum NodeError {
     Tls(TlsError),
     /// The ACME client could not be set up (a bad `DASSIE_ACME_CA_FILE`).
     Acme(String),
-    /// The outbound client could not be set up (a bad `DASSIE_PEER_CA_FILE`).
+    /// The outbound client could not be set up (a bad `DASSIE_EXTRA_CA_FILE`).
     Peer(String),
 }
 

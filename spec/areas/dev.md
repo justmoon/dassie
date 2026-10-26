@@ -21,7 +21,7 @@ One port, 443, serves the dashboard and every node under its own name (`https://
 
 ### Certificates
 
-mkcert's local CA makes every certificate, so a browser that trusts the CA (`mkcert -install`) trusts every dev page, and the nodes trust each other through `DASSIE_PEER_CA_FILE`. When the CA changes, every certificate is made anew. Tests pass a `CAROOT` of their own, so they never touch the developer's CA.
+mkcert's local CA makes every certificate, so a browser that trusts the CA (`mkcert -install`) trusts every dev page, and the nodes trust each other through `DASSIE_EXTRA_CA_FILE`. When the CA changes, every certificate is made anew. Tests pass a `CAROOT` of their own, so they never touch the developer's CA.
 
 ## Nodes
 

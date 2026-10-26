@@ -15,7 +15,7 @@ mod support;
 use std::time::Duration;
 
 use dassie_identity::NodeKey;
-use dassie_node::log::{LogFilter, LogLevel};
+use dassie_node::log::LogFilter;
 use dassie_node::rpc::proto::{
     self, client_message, request::Method, response, server_message, stream_item,
 };
@@ -175,7 +175,7 @@ async fn streams_start_with_what_is_and_follow_changes() {
 
 #[tokio::test]
 async fn the_log_stream_shows_the_nodes_lines() {
-    dassie_node::log::init(LogFilter::new(LogLevel::Info, ""));
+    dassie_node::log::init(LogFilter::default());
     let node = TestNode::start().await;
     let mut streams = node.ipc().await;
     subscribe(
@@ -188,7 +188,7 @@ async fn the_log_stream_shows_the_nodes_lines() {
         panic!("not logs");
     };
     assert!(first.reset);
-    tracing::info!(target: "das:node:test", token = "hunter2", "a marker line");
+    tracing::info!(target: "dassie::test", token = "hunter2", "a marker line");
     loop {
         let stream_item::Method::SubscribeLogs(event) = item(&mut streams, 1).await else {
             panic!("not logs");

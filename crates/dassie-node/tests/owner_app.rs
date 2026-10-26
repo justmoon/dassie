@@ -228,7 +228,7 @@ async fn a_device_pairs_through_the_relay_the_node_keeps() {
     // The test CA: the node's outbound client needs roots, and a build sandbox
     // has no system ones.
     let (node, id) = node(&[
-        ("DASSIE_PEER_CA_FILE", CA),
+        ("DASSIE_EXTRA_CA_FILE", CA),
         ("DASSIE_PEER_ALLOW_PRIVATE", "1"),
         ("DASSIE_RELAY", entry.as_str()),
     ])

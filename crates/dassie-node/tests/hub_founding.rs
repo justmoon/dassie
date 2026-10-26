@@ -169,11 +169,11 @@ impl Net {
         let file = validator_file(files.path(), &sponsor_key, &xrpl.url);
         let env = [
             ("DASSIE_PEER_ALLOW_PRIVATE", "1"),
-            ("DASSIE_PEER_CA_FILE", CA),
+            ("DASSIE_EXTRA_CA_FILE", CA),
         ];
         let validator_env = [
             ("DASSIE_PEER_ALLOW_PRIVATE", "1"),
-            ("DASSIE_PEER_CA_FILE", CA),
+            ("DASSIE_EXTRA_CA_FILE", CA),
             ("DASSIE_VALIDATOR_CONFIG", file.as_str()),
         ];
         let mut validators = Vec::new();
@@ -240,7 +240,7 @@ impl Net {
         let (dir, clock) = self.sponsor.stop().await;
         let env = [
             ("DASSIE_PEER_ALLOW_PRIVATE", "1"),
-            ("DASSIE_PEER_CA_FILE", CA),
+            ("DASSIE_EXTRA_CA_FILE", CA),
         ];
         let sponsor = Bound::bind_in(dir)
             .start(clock, 70, Policies::DEV, &env)
@@ -474,11 +474,11 @@ async fn a_strangers_founding_stream_is_reset_unread() {
     let file = validator_file(files.path(), &sponsor, "ws://127.0.0.1:1");
     let env = [
         ("DASSIE_PEER_ALLOW_PRIVATE", "1"),
-        ("DASSIE_PEER_CA_FILE", CA),
+        ("DASSIE_EXTRA_CA_FILE", CA),
     ];
     let validator_env = [
         ("DASSIE_PEER_ALLOW_PRIVATE", "1"),
-        ("DASSIE_PEER_CA_FILE", CA),
+        ("DASSIE_EXTRA_CA_FILE", CA),
         ("DASSIE_VALIDATOR_CONFIG", file.as_str()),
     ];
     let (validator_key, plain_key) = (

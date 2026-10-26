@@ -101,7 +101,7 @@ fn log_line(line: &LogLine) -> proto::LogLine {
         LogLevel::Debug => proto::LogLevel::Debug,
         LogLevel::Info => proto::LogLevel::Info,
         LogLevel::Warn => proto::LogLevel::Warn,
-        LogLevel::Error | LogLevel::None => proto::LogLevel::Error,
+        LogLevel::Error => proto::LogLevel::Error,
     };
     proto::LogLine {
         index: line.index,

@@ -171,10 +171,10 @@ fn sockets_meant_for_another_process_are_refused() {
 fn a_bad_variable_stops_the_daemon_with_its_name() {
     let output = run(
         &["daemon"],
-        &[("HOME", "/nonexistent"), ("DASSIE_LOG_LEVEL", "verbose")],
+        &[("HOME", "/nonexistent"), ("DASSIE_LOG", "verbose")],
     );
     assert_eq!(output.status.code(), Some(1));
-    assert!(String::from_utf8_lossy(&output.stderr).contains("DASSIE_LOG_LEVEL"));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("DASSIE_LOG"));
 }
 
 // RT-7 and RT-9: the standalone runtime makes its socket 0660, and removes

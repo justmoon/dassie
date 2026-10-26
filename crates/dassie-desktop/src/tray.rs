@@ -54,7 +54,7 @@ pub fn build(app: &AppHandle, node: &Arc<RunningNode>, data_dir: PathBuf) -> tau
         "at-login" => {
             let on = at_login.is_checked().unwrap_or(false);
             if let Err(error) = autostart::choose(&data_dir, on) {
-                tracing::warn!(target: "dassie_desktop", %error, "could not change starting at login");
+                tracing::warn!(target: dassie_node::log::target::DESKTOP, %error, "could not change starting at login");
             }
         }
         "quit" => quit_app(app, &for_menu),
@@ -80,7 +80,7 @@ fn keep_current(status: MenuItem<tauri::Wry>, node: Arc<RunningNode>) {
             }
         });
     if let Err(error) = spawned {
-        tracing::warn!(target: "dassie_desktop", %error, "the tray's status stays as it is");
+        tracing::warn!(target: dassie_node::log::target::DESKTOP, %error, "the tray's status stays as it is");
     }
 }
 

@@ -27,16 +27,11 @@ in
       description = "The Dassie package: the flake's release, by default.";
     };
 
-    logLevel = lib.mkOption {
-      type = lib.types.enum [
-        "debug"
-        "info"
-        "warn"
-        "error"
-        "none"
-      ];
+    log = lib.mkOption {
+      type = lib.types.str;
       default = "info";
-      description = "How much the node logs (`DASSIE_LOG_LEVEL`).";
+      example = "info,dassie::peer=debug";
+      description = "What the node logs (`DASSIE_LOG`): a level (`trace`, `debug`, `info`, `warn`, `error` or `off`), or directives per target, separated by commas.";
     };
 
     environment = lib.mkOption {
@@ -60,7 +55,7 @@ in
     systemd.services.dassie = {
       wantedBy = [ "multi-user.target" ];
       environment = {
-        DASSIE_LOG_LEVEL = cfg.logLevel;
+        DASSIE_LOG = cfg.log;
       }
       // cfg.environment;
     };

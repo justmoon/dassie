@@ -418,7 +418,7 @@ async fn a_member_node_hears_its_validators_through_its_engine() {
             // a test machine may have no roots of its own.
             &[
                 ("DASSIE_PEER_ALLOW_PRIVATE", "1"),
-                ("DASSIE_PEER_CA_FILE", support::pair::CA),
+                ("DASSIE_EXTRA_CA_FILE", support::pair::CA),
             ],
         )
         .await;
@@ -718,7 +718,7 @@ async fn a_member_node_opens_its_hub_account_by_a_deposit() {
             dassie_node::node::Policies::DEFAULT,
             &[
                 ("DASSIE_PEER_ALLOW_PRIVATE", "1"),
-                ("DASSIE_PEER_CA_FILE", support::pair::CA),
+                ("DASSIE_EXTRA_CA_FILE", support::pair::CA),
             ],
         )
         .await;
