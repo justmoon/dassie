@@ -6,14 +6,14 @@
 
 - dassie.land is static: Vite writes its pages and assets into a directory, and nothing runs on a server. What a host must add is a few headers on every response (the CSP above all), long caching for assets whose names hold their hash, a redirect from a page's path without its trailing slash, and one from `www`.
 - The release mirror already runs on GCP in the project that holds the testnet: a global load balancer with Google-managed certificates in front of the `get.dassie.land` bucket, published to by a workflow through workload identity federation ([Release](../areas/release.md#the-mirror)). The project's other zones, `dassie.xyz` and `dassiepay.net`, are in Cloud DNS with DNSSEC.
-- The site needs the flake's Node and pnpm and a Rust toolchain for its WebAssembly. CI has them in the flake's shell. A host that builds on its own image has to install each again, pinned by version and hash, and a test has to keep those pins equal to the flake's.
-- CI builds the site on every pull request and serves it with its headers in a browser test, so a page that breaks the CSP fails there.
+- The site needs the flake's Node and pnpm and a Rust toolchain for its WebAssembly. The flake builds it as a package, `website`, in the Nix sandbox, offline, on the Vorstand Nix cloud ([build-system](build-system.md)). A host that builds on its own image has to install each again, pinned by version and hash, and a test has to keep those pins equal to the flake's.
+- CI builds that package on every pull request and serves it with its headers in a browser test, so a page that breaks the CSP fails there.
 
 ## Decision
 
 - **Hosting:** a bucket of its own, `dassie-website`, served by the mirror's load balancer: one host rule sends `dassie.land` to it, another redirects `www.dassie.land` to `dassie.land`. Cloud CDN caches by the objects' own `Cache-Control`.
 - **Headers:** `apps/website/headers.json` lists the headers every response gets, and is the only list of them. `scripts/website/provision.sh` puts them on the backend bucket; the browser test serves the site with them; and the deploy checks that the live site sends them.
-- **Publishing:** `.github/workflows/website.yml` builds the site from `main` in the flake's shell, as CI does, and `scripts/website/deploy.sh` copies it into the bucket: assets first, cached for good, then the pages, which are revalidated on every load, then it deletes what the build no longer has.
+- **Publishing:** `.github/workflows/website.yml` builds the flake's `website` package from `main` on the Nix cloud, the package CI tested, fetches it from the cloud's cache, and `scripts/website/deploy.sh` copies it into the bucket: assets first, cached for good, then the pages, which are revalidated on every load, then it deletes what the build no longer has.
 - **DNS:** the `dassie.land` zone is in Cloud DNS, with DNSSEC, next to the project's other zones.
 
 ## Accepted

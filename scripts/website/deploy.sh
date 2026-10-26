@@ -4,7 +4,8 @@
 #
 #   scripts/website/deploy.sh <dist> <bucket>
 #
-# <dist> is apps/website/dist after `node --run build:website`; gcloud must
+# <dist> is the flake's `website` package, or apps/website/dist after
+# `node --run build:website`; gcloud must
 # be signed in as an account that may write the bucket's objects. The
 # headers every response gets are on the backend bucket (provision.sh); the
 # cache headers are on each object, set here.

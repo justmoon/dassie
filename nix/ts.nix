@@ -93,14 +93,50 @@ let
     }
   );
 
+  # dassie.land (spec/areas/website.md), as `node --run build:website`
+  # builds it, offline: the packages of the site and the members it uses,
+  # each fetched as pnpm-lock.yaml pins it (nix/pnpm.nix), the WASM
+  # bindings, and the release key the NixOS guide prints. What the website
+  # workflow publishes, and what the checks below test.
+  website = pkgs.stdenvNoCC.mkDerivation {
+    name = "dassie-website";
+    src = lib.fileset.toSource {
+      root = ../.;
+      fileset = lib.fileset.unions [
+        pnpm.manifests
+        ../tsconfig.base.json
+        ../apps/website
+        ../packages/identity-wasm
+        ../packages/rpc
+        ../packages/ui
+        ../resources/minisign.pub
+      ];
+    };
+    nativeBuildInputs = [
+      pkgs.nodejs_26
+      pkgs.pnpm_11
+    ];
+    buildPhase = ''
+      export HOME=$TMPDIR
+      mkdir -p packages/identity-wasm/gen
+      cp -r ${identity-wasm}/web packages/identity-wasm/gen/
+    ''
+    + pnpm.install "apps/website"
+    + ''
+      cd apps/website
+      node --run build
+    '';
+    installPhase = "cp -r dist $out";
+  };
+
   # Cargo's sources, for `cargo metadata`, which the site's and the
   # architecture page's tests read the workspace with.
   cargoVendor = craneLib.vendorCargoDeps { inherit (common) src; };
 
   # A check: the workspace installed (`dir`'s packages only, if named) and
-  # the WASM bindings in place, the wallet and the binaries too with
-  # `binaries`, then `script`, with CI set, as GitHub's runners set it, so
-  # that a test without its tools fails rather than skips.
+  # the WASM bindings in place, the wallet, the site and the binaries too
+  # with `binaries`, then `script`, with CI set, as GitHub's runners set it,
+  # so that a test without its tools fails rather than skips.
   check =
     name:
     {
@@ -135,10 +171,11 @@ let
         autoPatchelf node_modules/.pnpm/@dprint+linux-x64-glibc@*
       ''
       + lib.optionalString binaries ''
-        mkdir -p apps/wallet/dist target/e2e
+        mkdir -p apps/wallet/dist apps/website/dist target/e2e
         cp -r ${wallet}/. apps/wallet/dist/
+        cp -r ${website}/. apps/website/dist/
         cp -r ${e2e}/. target/e2e/
-        chmod -R u+w apps/wallet/dist target/e2e
+        chmod -R u+w apps/wallet/dist apps/website/dist target/e2e
       ''
       + ''
         export CI=true
@@ -150,6 +187,7 @@ in
 {
   packages = {
     e2e-binaries = e2e;
+    inherit website;
   };
 
   checks = {
@@ -177,7 +215,6 @@ in
         cp ${cargoVendor}/config.toml $CARGO_HOME/config.toml
         rm scripts/spec_test.ts
         node --run build:dashboard
-        node --run build:website
         node --run test
       '';
     };
@@ -203,7 +240,6 @@ in
         export CHROME_BIN=${lib.getExe pkgs.chromium}
         export FONTCONFIG_FILE=${pkgs.makeFontsConf { fontDirectories = [ pkgs.dejavu_fonts ]; }}
         export DASSIE_INTEROP_PEER=$PWD/target/e2e/examples/interop_peer
-        node --run build:website
         node --run test:e2e
       '';
     };

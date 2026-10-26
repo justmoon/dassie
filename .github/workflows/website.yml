@@ -1,12 +1,14 @@
 name: Website
 
-# Builds dassie.land from `main` and publishes it to its bucket, which the
+# Builds dassie.land from `main` on the Vorstand Nix cloud, as the flake's
+# `website` package (nix/ts.nix), and publishes it to its bucket, which the
 # mirror's load balancer serves (spec/decisions/website-hosting.md,
-# spec/areas/website.md). Pull requests get no preview: CI builds the site and
-# serves it with its headers in the browser test.
+# spec/areas/website.md). Pull requests get no preview: CI builds the same
+# package and serves it with its headers in the browser test.
 #
-# The publish job runs in the `Website` environment, which admits only
-# `main`. What it needs there:
+# Both jobs read the Nix cloud with secrets.NIX_CLOUD_TOKEN, as CI's do. The
+# publish job runs in the `Website` environment, which admits only `main`.
+# What it needs there:
 # - vars.GCP_WORKLOAD_IDENTITY_PROVIDER and vars.GCP_SERVICE_ACCOUNT: the
 #   service account scripts/website/provision.sh makes, which may write
 #   the bucket's objects and nothing else, through workload identity
@@ -44,7 +46,9 @@ on:
       - pnpm-workspace.yaml
       - pnpm-lock.yaml
       - .npmrc
-      - scripts/build-wasm.ts
+      - nix/ts.nix
+      - nix/pnpm.nix
+      - nix/registry-mirror.mjs
       - scripts/website/**
       - resources/minisign.pub
       - .github/workflows/website.yml
@@ -60,9 +64,10 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  # The build runs third-party code (pnpm's packages, the crates' build
-  # scripts), so it holds no credential: the publish job takes what it
-  # built.
+  # The build, and the third-party code it runs (pnpm's packages, the
+  # crates' build scripts), runs in the Nix cloud's sandbox, not here: the
+  # runner sends the commit and follows the log. Where CI built the same
+  # package for the commit, it is in the cache already.
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -70,32 +75,16 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
-      - uses: cachix/install-nix-action@448cde739abec1eaf0646249e3d25bb8d9bc7702 # v31
-      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
-        with:
-          path: |
-            ~/.cargo/registry/index
-            ~/.cargo/registry/cache
-            ~/.cargo/git/db
-            target
-          key: website-cargo-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml', 'flake.lock') }}
-          restore-keys: website-cargo-${{ runner.os }}-
-      - name: pnpm store
-        id: pnpm
-        run: echo "store=$(nix develop --command pnpm store path)" >> "$GITHUB_OUTPUT"
-      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
-        with:
-          path: ${{ steps.pnpm.outputs.store }}
-          key: pnpm-store-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
-          restore-keys: pnpm-store-${{ runner.os }}-
-      # The flake's Node, pnpm and Rust, as in CI.
-      - name: Build
-        run: nix develop --command sh -c 'pnpm install --frozen-lockfile && node --run build:wasm && node --run build:website'
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
-        with:
-          name: site
-          path: apps/website/dist/
-          retention-days: 7
+      - name: Build on the Nix cloud
+        env:
+          NIX_CLOUD_TOKEN: ${{ secrets.NIX_CLOUD_TOKEN }}
+          COMMIT: ${{ github.sha }}
+        run: scripts/nix-cloud-build.sh build "$COMMIT" packages.x86_64-linux.website
+      - name: Cancel the build on the Nix cloud
+        if: cancelled()
+        env:
+          NIX_CLOUD_TOKEN: ${{ secrets.NIX_CLOUD_TOKEN }}
+        run: scripts/nix-cloud-build.sh cancel
 
   publish:
     needs: build
@@ -107,14 +96,26 @@ jobs:
       # Workload identity: GitHub's OIDC token is what GCP trusts.
       id-token: write
     steps:
-      # The repository's own scripts and headers.json; nothing is installed.
+      # The repository's own scripts and headers.json.
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+      # The Nix cloud's cache, which only its signing key may fill, and
+      # which a project's token reads.
+      - uses: cachix/install-nix-action@448cde739abec1eaf0646249e3d25bb8d9bc7702 # v31
         with:
-          name: site
-          path: site
+          extra_nix_config: |
+            extra-substituters = https://nix.vorstand.app/cache/dassie
+            extra-trusted-public-keys = nix-cloud-1:9HgKchsAo5NaX4Zbk7kxJ1r/U/4Zg4pqIif1c021AKE=
+            netrc-file = /etc/nix/netrc
+      - name: Nix cloud token
+        env:
+          NIX_CLOUD_TOKEN: ${{ secrets.NIX_CLOUD_TOKEN }}
+        run: printf 'machine nix.vorstand.app login nix password %s\n' "$NIX_CLOUD_TOKEN" | sudo tee /etc/nix/netrc > /dev/null
+      # What the build job made, from the cache: with --max-jobs 0, a miss
+      # fails rather than building on the runner.
+      - name: Fetch the site
+        run: nix build .#website --out-link site --max-jobs 0
       - id: gcp
         if: vars.GCP_WORKLOAD_IDENTITY_PROVIDER != ''
         uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
