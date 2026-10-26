@@ -41,10 +41,8 @@ pub fn feed_of<'a>(key: &NodeKey, ids: Vec<&'a str>, rates: Vec<Rate>) -> Feed<'
             max_packet_amount: MAX_PACKET,
         })
         .collect();
-    let public_key = key.public_key();
     Feed {
-        node_id: public_key.node_id(),
-        public_key: *public_key.as_bytes(),
+        public_key: *key.public_key().as_bytes(),
         sequence_ms: 1_790_000_000_000,
         valid_until_ms: 1_790_000_090_000,
         fee_ppm: 1_000,

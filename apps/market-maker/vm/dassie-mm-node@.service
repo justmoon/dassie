@@ -21,7 +21,7 @@ Type=notify
 NotifyAccess=main
 EnvironmentFile=/etc/dassie-mm/%i.env
 # DASSIE_UPLINKS: the targets' node IDs, which startup.sh reads from each
-# target's /stats.
+# target's /.well-known/dassie/node.
 EnvironmentFile=/etc/dassie-mm/uplink.env
 ExecStart=/opt/dassie/current/bin/dassie daemon --runtime standalone \
   --http-port ${DASSIE_MM_HTTP_PORT} --https-port ${DASSIE_MM_HTTPS_PORT} \

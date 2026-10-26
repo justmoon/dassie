@@ -3,8 +3,8 @@
 //! proves its address and gets feeds signed with the node key that say the
 //! node's price table; it renews, and lapses when it stops; a renewal from
 //! another address with its cookie is challenged; a full table refuses
-//! newcomers until an entry lapses. The node names the feed's port in
-//! `GET /stats` and in its link state.
+//! newcomers until an entry lapses. The node names the feed's port in its
+//! discovery document and in its link state.
 
 #![allow(
     clippy::unwrap_used,
@@ -336,9 +336,9 @@ async fn feed_status(node: &TestNode) -> Option<proto::RateFeed> {
     }
 }
 
-/// `GET /stats`'s answer.
-async fn stats_of(node: &TestNode) -> serde_json::Value {
-    let request = hyper::Request::get("/stats")
+/// The node's discovery document.
+async fn discovery_of(node: &TestNode) -> serde_json::Value {
+    let request = hyper::Request::get("/.well-known/dassie/node")
         .header("host", node.host())
         .body(http_body_util::Full::new(bytes::Bytes::new()))
         .unwrap();
@@ -347,7 +347,8 @@ async fn stats_of(node: &TestNode) -> serde_json::Value {
     serde_json::from_str(&reply.text()).unwrap()
 }
 
-// A core node names its feed's port in `GET /stats` and in its link state;
+// A core node names its feed's port in its discovery document and in its
+// link state;
 // before it has a URL, it names none, and answers no subscriber
 // (spec/areas/rate-feed.md#finding-a-feed).
 #[tokio::test(flavor = "multi_thread")]
@@ -359,7 +360,7 @@ async fn a_core_node_names_its_feed_port() {
     let node = bound.start(clock.clone(), 62, Policies::DEV, &[]).await;
     support::set_up(&node, &owner).await;
     until(&clock, async || node_of(&node).engine().is_some()).await;
-    assert_eq!(stats_of(&node).await["node"].get("feedPort"), None);
+    assert_eq!(discovery_of(&node).await.get("feedPort"), None);
     assert_eq!(node_of(&node).own_info().feed_port, None);
     let mut subscriber = Subscriber::new(node.feed, owner.node_id()).await;
     subscriber.subscribe().await;
@@ -379,9 +380,7 @@ async fn a_core_node_names_its_feed_port() {
     .await
     .unwrap();
     assert_eq!(node_of(&node).own_info().feed_port, Some(port));
-    // `/stats` keeps its answer a few seconds of the node's time.
-    clock.advance(10_000);
-    assert_eq!(stats_of(&node).await["node"]["feedPort"], u64::from(port));
+    assert_eq!(discovery_of(&node).await["feedPort"], u64::from(port));
     subscriber.subscribe().await;
     assert_eq!(
         subscriber.next(ARRIVES, clock.now_ms()).await,

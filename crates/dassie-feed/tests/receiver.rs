@@ -72,7 +72,6 @@ fn only_newer_verified_unexpired_feeds_of_its_node_are_taken() {
     let other = other_key();
     let mut theirs = two_ledger_feed();
     theirs.public_key = *other.public_key().as_bytes();
-    theirs.node_id = other.node_id();
     theirs.sequence_ms += 10;
     let theirs = sign_feed(&other, &theirs).unwrap();
     assert_eq!(receiver.receive(&theirs, now), Err(Rejected::OtherNode));

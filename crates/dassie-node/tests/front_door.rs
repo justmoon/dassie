@@ -595,7 +595,12 @@ async fn the_front_door_serves_only_its_names_and_open_payments() {
     door.until_reached(&name).await;
     // Paths outside Open Payments, and upgrades, reach no node. The root
     // is the front door's own page, but only for GET and HEAD.
-    for path in ["/index.html", "/stats", "/api/login", "/rpc"] {
+    for path in [
+        "/index.html",
+        "/.well-known/dassie/node",
+        "/api/login",
+        "/rpc",
+    ] {
         let reply = door.get(&name, path).await;
         assert_eq!(reply.status, StatusCode::NOT_FOUND, "{path}");
         assert_eq!(json_of(&reply)["error"]["code"], "not_found", "{path}");

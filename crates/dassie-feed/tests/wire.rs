@@ -160,17 +160,13 @@ fn signing_refuses_a_feed_that_breaks_a_rule() {
 fn signing_refuses_another_nodes_feed() {
     let feed = two_ledger_feed();
     assert_eq!(sign_feed(&other_key(), &feed), Err(InvalidFeed::PublicKey));
-    let mut feed = two_ledger_feed();
-    feed.node_id = other_key().node_id();
-    assert_eq!(sign_feed(&key(), &feed), Err(InvalidFeed::NodeId));
 }
 
 #[test]
 fn decoding_refuses_a_feed_that_breaks_a_rule() {
-    // The fee sits right after the OID (14), the node ID (1 + its length),
-    // the key (32) and two u64s.
+    // The fee sits right after the OID (14), the key (32) and two u64s.
     let feed = empty_feed();
-    let fee_at = 14 + 1 + feed.node_id.len() + 32 + 16;
+    let fee_at = 14 + 32 + 16;
     let datagram = signed_with(&feed, |signed| {
         signed[fee_at..fee_at + 4].copy_from_slice(&(MAX_PPM + 1).to_be_bytes());
     });
@@ -204,7 +200,7 @@ fn decoding_refuses_a_feed_that_breaks_a_rule() {
 fn decoding_refuses_lists_past_their_bounds() {
     // A count of ledgers past the bound is refused before any is read.
     let feed = empty_feed();
-    let count_at = 14 + 1 + feed.node_id.len() + 32 + 8 + 8 + 4;
+    let count_at = 14 + 32 + 8 + 8 + 4;
     let datagram = signed_with(&feed, |signed| {
         signed[count_at + 1] = (MAX_LEDGERS + 1) as u8;
     });
@@ -218,7 +214,7 @@ fn verifying_checks_exactly_the_bytes_received() {
     // Any change to the signed part that still decodes fails the signature:
     // here the first ledger's largest packet, which no rule constrains.
     let first_id = "xrpl-testnet+xrp".len();
-    let at = 2 + 2 + 14 + 1 + key.node_id().len() + 32 + 8 + 8 + 4 + 2 + 1 + first_id + 7;
+    let at = 2 + 2 + 14 + 32 + 8 + 8 + 4 + 2 + 1 + first_id + 7;
     let mut changed = datagram.clone();
     changed[at] ^= 1;
     let Ok(Message::Feed(signed)) = decode(&changed) else {

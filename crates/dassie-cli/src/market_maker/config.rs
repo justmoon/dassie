@@ -23,9 +23,9 @@
 //!
 //! `targets` lists the core nodes to trade through, at least one and at
 //! most [`MAX_TARGETS`], each once: a URL, or `{ url, feedPort }` for a
-//! target whose `GET /stats` names no feed port. Amounts are in the nodes'
-//! ledger units (scale 9). `caFile` adds roots to trust the targets by, and
-//! `allowPrivate` lets the targets and the XRPL server be on private
+//! target whose discovery document names no feed port. Amounts are in the
+//! nodes' ledger units (scale 9). `caFile` adds roots to trust the targets
+//! by, and `allowPrivate` lets the targets and the XRPL server be on private
 //! addresses, and the server on `ws://`: both for dev and tests. Every problem is a [`ConfigError`]; nothing here panics
 //! on what the file says.
 
@@ -70,7 +70,8 @@ pub struct Target {
     pub host: String,
     /// Its port for HTTPS.
     pub port: u16,
-    /// Its feed's UDP port, for a target whose `/stats` names none.
+    /// Its feed's UDP port, for a target whose discovery document names
+    /// none.
     pub feed_port: Option<u16>,
 }
 

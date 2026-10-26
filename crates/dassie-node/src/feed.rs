@@ -218,7 +218,6 @@ impl Content {
     /// or until the table's rates age out, whichever is first. Rates that
     /// age out by `sequence_ms` are not said.
     fn feed(&self, key: &NodeKey, sequence_ms: u64, valid_until_ms: u64) -> Feed<'static> {
-        let public_key = key.public_key();
         let fresh = self.valid_until_ms > sequence_ms;
         let (says, valid_until_ms) = if fresh {
             (&self.says, valid_until_ms.min(self.valid_until_ms))
@@ -226,8 +225,7 @@ impl Content {
             (&Says::default(), valid_until_ms)
         };
         Feed {
-            node_id: public_key.node_id(),
-            public_key: *public_key.as_bytes(),
+            public_key: *key.public_key().as_bytes(),
             sequence_ms,
             valid_until_ms,
             fee_ppm: self.says.fee_ppm,
