@@ -1191,6 +1191,8 @@ dependencies = [
  "dassie-kit",
  "proptest",
  "rand_core",
+ "serde",
+ "serde_json",
  "sha2 0.11.1",
  "subtle",
 ]

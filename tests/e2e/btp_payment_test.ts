@@ -20,6 +20,7 @@ import WebSocket from "#ws";
 import { createConnection } from "ilp-protocol-stream";
 import { Agent, fetch } from "undici";
 import { RpcClient } from "@dassie/rpc";
+import { setupRequest } from "@dassie/rpc/auth";
 import { ipcConnector } from "@dassie/rpc/ipc";
 import {
   type Packet,
@@ -27,7 +28,7 @@ import {
   type Transfer,
   TransferState,
 } from "@dassie/rpc/proto";
-import { deriveNodeKey, loginSecret } from "@dassie/wasm";
+import { deriveNodeKey } from "@dassie/wasm";
 
 import {
   DASSIE,
@@ -107,11 +108,7 @@ async function setUp(owner: RpcClient) {
     method: "POST",
     dispatcher,
     headers: { "content-type": "application/json", origin },
-    body: JSON.stringify({
-      setupAuthorizationToken: token,
-      rawDassieKeyHex: key.toHex(),
-      loginAuthorizationSignature: loginSecret(key).toHex(),
-    }),
+    body: JSON.stringify(setupRequest(token, key.toHex())),
   });
   assertEquals(response.status, 200, await response.text());
   await dispatcher.close();

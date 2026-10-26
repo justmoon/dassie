@@ -7,6 +7,7 @@
  */
 
 import { type Identity, loadIdentity } from "@dassie/wasm/web";
+import { loginRequest, setupRequest } from "@dassie/rpc/auth";
 import { hex } from "./hex.ts";
 
 /** How a call to the node went. */
@@ -60,28 +61,19 @@ export async function submitSetup(
   token: string,
   phrase: string,
 ): Promise<Outcome> {
-  const { nodeKey, loginProof } = deriveCredentials(
-    await loadIdentity(),
-    phrase,
-  );
-  return await post("/api/setup", {
-    setupAuthorizationToken: token,
-    rawDassieKeyHex: hex(nodeKey),
-    loginAuthorizationSignature: hex(loginProof),
-  });
+  const { nodeKey } = deriveCredentials(await loadIdentity(), phrase);
+  return await post("/api/setup", setupRequest(token, hex(nodeKey)));
 }
 
 /** `POST /api/login`: signs the owner in with a passphrase's proof. */
 export async function submitLogin(phrase: string): Promise<Outcome> {
   const { loginProof } = deriveCredentials(await loadIdentity(), phrase);
-  return await post("/api/login", {
-    loginAuthorizationSignature: hex(loginProof),
-  });
+  return await post("/api/login", loginRequest(hex(loginProof)));
 }
 
 /** `POST /api/login` with a proof as hex, for the dev environment's links. */
 export function submitLoginProof(proofHex: string): Promise<Outcome> {
-  return post("/api/login", { loginAuthorizationSignature: proofHex });
+  return post("/api/login", loginRequest(proofHex));
 }
 
 /** `POST /api/logout`: ends this browser's session. */

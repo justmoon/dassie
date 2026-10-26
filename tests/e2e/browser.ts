@@ -7,6 +7,7 @@
 
 import { assertEquals } from "@std/assert";
 import { loginSecret } from "@dassie/wasm";
+import { loginRequest } from "@dassie/rpc/auth";
 import type { ScenarioNode } from "@dassie/dev/scenario";
 import type { ElementHandle, Page } from "puppeteer-core";
 
@@ -18,17 +19,17 @@ export async function signIn(
   origin = node.url,
 ): Promise<void> {
   await page.goto(origin, { waitUntil: "load" });
-  const proof = loginSecret(node.key).toHex();
+  const body = JSON.stringify(loginRequest(loginSecret(node.key).toHex()));
   const status = await page.evaluate(
-    async (proof: string) => {
+    async (body: string) => {
       const response = await fetch("/api/login", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ loginAuthorizationSignature: proof }),
+        body,
       });
       return response.status;
     },
-    proof,
+    body,
   );
   assertEquals(status, 200);
 }

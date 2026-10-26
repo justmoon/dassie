@@ -57,7 +57,7 @@ What protects the owner's side of the node:
 - **The owner in a browser** holds a [session](#sessions) cookie, which the RPC WebSocket checks at the upgrade and again on every call ([rpc.md](rpc.md#authentication)).
 - **The owner on the machine** uses the IPC socket, whose file mode is the only access control ([node.md](node.md)).
 - **The owner's paired apps** prove a device key on a relayed stream, checked on every call; only the owner on the node's machine can pair one ([rpc.md](rpc.md#paired-devices)). The node tells that from the address a browser's connection came from: it terminates TLS itself and reads no forwarded header, so a connection that reaches it from loopback must come from a client on its machine. A proxy on the node's machine that accepts connections from elsewhere and passes them on from loopback, such as a reverse or TLS-passthrough proxy listening on a public address, breaks that: every browser would look local. One that listens only on loopback, as the dev environment's [SNI proxy](dev.md#sni-proxy) does, carries only clients on the machine, and keeps it.
-- **The passphrase never leaves the browser:** setup sends the node key seed and the login proof derived from it, login only the proof ([identity.md](identity.md)). An owner who keeps the phrase on the node's host sets the node up with `dassie setup` there instead, which sends the same, so the phrase still never reaches the node ([Setup](#setup)).
+- **The passphrase never leaves the browser:** setup sends the node key seed, login only the login proof derived from it ([identity.md](identity.md)). An owner who keeps the phrase on the node's host sets the node up with `dassie setup` there instead, which sends the same, so the phrase still never reaches the node ([Setup](#setup)).
 - **Cross-site requests** meet the [same-origin rule](#same-origin-rule) on `/rpc` and `/api/*`. `POST /api/setup` and `POST /api/login` also require `Content-Type: application/json`, which no cross-site form can send and no cross-origin script can send without a CORS preflight, which the node never grants.
 - **Setup and login attempts are rate-limited per client,** with no bucket shared by all clients, so a handful of addresses cannot lock the owner out. The login proof is 256 bits, so the limit is not against guessing but against making the node work as fast as a client can send.
 - **Secrets at rest:** sessions are stored as hashes, and so are BTP tokens ([secrets-at-rest](../decisions/secrets-at-rest.md)).
@@ -90,6 +90,8 @@ Every HTTPS response but a WebSocket upgrade carries a strict Content Security P
 
 Setup happens once: whoever opens the setup URL claims the node with their passphrase. Until then the setup token is all that stands between a fresh node on the internet and anyone who reaches it.
 
+- **The body** is the setup token, the node key and, if the owner names one, the realm (`SetupRequest` in `dassie-node-core/src/setup.rs`, which the node reads and `dassie setup` writes). It carries no login proof: the node would derive it from the key in the same body, so it would prove nothing.
+
 - **The token** is 32 random bytes, compared in constant time. It is stored until setup completes and deleted in the same write that stores the node key, so a restart (the nightly update, say) keeps the URL the owner was given, and of two setups at once only one wins.
 - **The URL is never logged,** since the journal is readable by groups that do not administer the node. `dassie setup-url` prints it, over the IPC socket. It names `localhost` until a hostname is configured, which reaches the node from its own machine or through an SSH tunnel; the HTTPS listener always has a certificate, so it always works.
 - **The realm is fixed with the key.** The request may name the realm, the test realm if it names none, and the node stores it in the same write as the key; nothing changes it after ([mainnet-schemes](../decisions/mainnet-schemes.md)). `live` is refused, setting nothing up, but by the dev switch.
@@ -98,7 +100,7 @@ Setup happens once: whoever opens the setup URL claims the node with their passp
 
 ## Login and logout
 
-- **Login** sends the login proof, compared in constant time with the node key's, and opens a session.
+- **Login** sends the login proof (`LoginRequest`), compared in constant time with the node key's, and opens a session.
 - **Logout** ends the session the cookie names, closing its sockets, and always answers with a cookie that clears it, whether or not the session existed.
 
 ## Sessions

@@ -30,7 +30,7 @@ The same policy applies in development, so there is no HMR: a change shows after
 
 - Keys are derived in the browser with `dassie-identity` compiled to WASM, the same code the node runs ([Identity](identity.md), [rust-and-typescript](../decisions/rust-and-typescript.md)), so the browser and the node cannot disagree on what a passphrase means.
 - A passphrase is checked (known words and checksum) and normalized before anything is derived from it.
-- Setup sends the node key and the login proof derived from it; login sends only the proof. The passphrase never leaves the browser and is never stored, in the URL or anywhere else.
+- Setup sends the node key; login sends only the login proof derived from it. The passphrase never leaves the browser and is never stored, in the URL or anywhere else.
 
 ## The gate
 

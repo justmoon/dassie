@@ -7,6 +7,7 @@
     ".": "./mod.ts",
     "./ipc": "./ipc.ts",
     "./proto": "./proto.ts",
+    "./auth": "./auth.ts",
     "./dev": "./dev.ts"
   },
   "scripts": {

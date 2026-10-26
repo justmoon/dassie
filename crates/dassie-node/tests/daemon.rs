@@ -67,10 +67,7 @@ async fn setup_then_login_then_logout() {
     .await;
     assert_eq!(
         (wrong.status, wrong.text().as_str()),
-        (
-            StatusCode::UNAUTHORIZED,
-            "Invalid login authorization signature"
-        )
+        (StatusCode::UNAUTHORIZED, "Invalid login proof")
     );
     let login = send(
         node.https,

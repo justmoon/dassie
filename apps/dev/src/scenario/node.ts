@@ -18,6 +18,7 @@
 import { assertEquals } from "@std/assert";
 import { mkdir, readFile, rm } from "node:fs/promises";
 import { RpcClient } from "@dassie/rpc";
+import { setupRequest } from "@dassie/rpc/auth";
 import { ipcConnector } from "@dassie/rpc/ipc";
 import { NodeState } from "@dassie/rpc/proto";
 import { Agent, fetch } from "undici";
@@ -278,12 +279,7 @@ export class ScenarioNode {
           "content-type": "application/json",
           origin: this.localUrl,
         },
-        body: JSON.stringify({
-          setupAuthorizationToken: token,
-          rawDassieKeyHex: this.key.toHex(),
-          loginAuthorizationSignature: this.identity.loginProofHex,
-          realm,
-        }),
+        body: JSON.stringify(setupRequest(token, this.key.toHex(), realm)),
       });
       const text = await response.text();
       if (response.status !== 200) {

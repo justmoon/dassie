@@ -144,18 +144,19 @@ impl NodeSecret<'_> {
     /// Whether the path may never change, because something outside the
     /// release depends on its secret (spec/overview.md#frozen-surfaces):
     /// funds on a ledger or in a hub, a key other wallets know the node by,
-    /// the login, or credentials the node handed out. The QUIC keys are
-    /// not: a changed one only makes peers wait out the idle timeout once.
+    /// or credentials the node handed out. The login is not: the wallet,
+    /// `dassie setup` and the node that checks the proof ship together. Nor
+    /// are the QUIC keys: a changed one only makes peers wait out the idle
+    /// timeout once.
     #[must_use]
     pub const fn is_frozen(&self) -> bool {
         match self {
-            Self::Login
-            | Self::OpenPaymentsClient
+            Self::OpenPaymentsClient
             | Self::StreamReceiver { .. }
             | Self::Hub { .. }
             | Self::HubMember { .. }
             | Self::XrplAccount { .. } => true,
-            Self::QuicStatelessReset(_) | Self::QuicConnectionIds(_) => false,
+            Self::Login | Self::QuicStatelessReset(_) | Self::QuicConnectionIds(_) => false,
         }
     }
 
