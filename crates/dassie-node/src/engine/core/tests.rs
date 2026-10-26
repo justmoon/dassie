@@ -4235,6 +4235,23 @@ fn a_stored_scheme_of_another_realm_does_not_run() {
 // can remove the scheme, and its stored config goes.
 #[test]
 fn a_stored_scheme_whose_config_is_refused_does_not_run() {
+    a_stored_hub_scheme_does_not_run("not a hub");
+}
+
+// The case this release makes: a node joined the default hub, whose config
+// is empty, and no default hub is built in now, so the empty config names no
+// hub. Once a default hub is built in again, the empty config names it.
+#[test]
+fn a_stored_hub_scheme_with_no_default_hub_does_not_run() {
+    if dassie_hub::member::DEFAULT_TESTNET_HUB.is_some() {
+        return;
+    }
+    a_stored_hub_scheme_does_not_run("");
+}
+
+/// Restores a node that stored the hub scheme with `config`, which this
+/// version refuses, beside the stub, then removes the hub scheme.
+fn a_stored_hub_scheme_does_not_run(config: &str) {
     use dassie_ledger::Name;
 
     use super::{Event, SettlementEvent};
@@ -4246,7 +4263,7 @@ fn a_stored_scheme_whose_config_is_refused_does_not_run() {
     store
         .commit_ledger(&LedgerBatch {
             at_ms: NOW,
-            schemes_added: vec![(stub, String::new()), (hub, "not a hub".into())],
+            schemes_added: vec![(stub, String::new()), (hub, config.into())],
             ..LedgerBatch::default()
         })
         .unwrap();
