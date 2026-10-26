@@ -2189,12 +2189,9 @@ fn asks_as_downlink(
     }
 }
 
-/// An XRPL scheme's peering data naming `account`.
+/// An XRPL scheme's peering data naming `account`: its account ID.
 fn address_data(account: dassie_xrpl::AccountId) -> Vec<u8> {
-    let address = account.to_address();
-    let mut data = vec![u8::try_from(address.len()).unwrap()];
-    data.extend_from_slice(address.as_bytes());
-    data
+    account.0.to_vec()
 }
 
 /// What `node`'s account on `ledger` took in, posted: its settlements.
@@ -3666,9 +3663,7 @@ fn xrpl_downlink_peers_on(
 
     let downlink = Arc::new(NodeKey::from_bytes(&[11; 32]));
     let id = downlink.node_id();
-    let theirs = Wallet::from_entropy(&[11; 32]).account().to_address();
-    let mut data = vec![u8::try_from(theirs.len()).unwrap()];
-    data.extend_from_slice(theirs.as_bytes());
+    let data = Wallet::from_entropy(&[11; 32]).account().0;
     core.begin_step(now);
     let body = downlink_request_on(core, &downlink, now, scheme, &data);
     core.peer_inbound(dassie_peer::InboundId(1), &body, None);

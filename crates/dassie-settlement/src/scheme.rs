@@ -151,7 +151,9 @@ pub struct PreparedSettlement {
     /// How much it settles: at most what was asked, less what the
     /// underlying ledger cannot represent. The node books this.
     pub amount: u64,
-    /// The proof or claim to send the peer with the settlement message.
+    /// The proof or claim to send the peer with the settlement message:
+    /// empty for a scheme whose messages are bare notices
+    /// ([`SettlementScheme::books_messages`]).
     pub message: Vec<u8>,
 }
 
@@ -600,6 +602,15 @@ pub trait SettlementScheme: Send {
         pending: &[(Name, u64)],
         effects: &mut Vec<Effect>,
     );
+
+    /// Whether a `settlement` message on this scheme books what it states.
+    /// The stub's does. A scheme whose ledger says what arrived sends a
+    /// bare notice instead, with no amount and no data, which only moves
+    /// the settlement channel on: the node then states 0 in its own, and
+    /// neither checks nor books what a peer's states.
+    fn books_messages(&self) -> bool {
+        true
+    }
 
     /// Handles a peer's settlement message.
     ///

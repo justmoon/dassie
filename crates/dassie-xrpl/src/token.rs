@@ -66,8 +66,7 @@ use crate::amount::IssuedAsset;
 use crate::amount::{Currency, TokenAmount, TokenValue};
 use crate::api::{AccountInfo, AccountSettings, LineView, TxRecord};
 use crate::codec::{Memo, TF_SET_NO_RIPPLE};
-use crate::follower::{Follower, check_claim, failure_of, hash_name, narrow};
-use crate::from_hex;
+use crate::follower::{Follower, failure_of, hash_name, narrow};
 use crate::kept::{In, Out};
 use crate::keys::AccountId;
 use crate::network::Network;
@@ -961,12 +960,19 @@ impl<T: IssuedToken> SettlementScheme for TokenScheme<T> {
         Ok(PreparedSettlement {
             id: hash_name(&hash),
             amount: micros * UNITS_PER_MICRO,
-            message: hash.to_vec(),
+            // A bare notice, as the XRP scheme's: the line says what
+            // arrived.
+            message: Vec::new(),
         })
     }
 
-    fn settlement_message(&self, settlement: Name) -> Vec<u8> {
-        from_hex(settlement.as_str()).unwrap_or_default()
+    fn settlement_message(&self, _settlement: Name) -> Vec<u8> {
+        Vec::new()
+    }
+
+    /// As in the XRP scheme: a `settlement` message is a bare notice.
+    fn books_messages(&self) -> bool {
+        false
     }
 
     fn execute_settlement(
@@ -996,12 +1002,12 @@ impl<T: IssuedToken> SettlementScheme for TokenScheme<T> {
         &mut self,
         _peer: Name,
         _amount: u64,
-        data: &[u8],
+        _data: &[u8],
         _peer_state: &[u8],
         _effects: &mut Vec<Effect>,
     ) -> Result<(), SchemeError> {
-        // The claim books nothing: the line says what arrived, once.
-        check_claim(data)
+        // A bare notice books nothing: the line says what arrived, once.
+        Ok(())
     }
 
     fn deposit(&mut self, _amount: u64, _effects: &mut Vec<Effect>) -> Result<(), SchemeError> {
@@ -1074,8 +1080,6 @@ impl<T: IssuedToken> SettlementScheme for TokenScheme<T> {
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod tests {
-    use alloc::vec;
-
     use super::*;
     use crate::account::FIRST;
     use crate::keys::Wallet;
@@ -1095,10 +1099,7 @@ mod tests {
         let mut scheme = crate::DsusdScheme::new(&account, node, None, &[]).unwrap();
         let peer = dassie_ledger::name!("peer");
         let theirs = Wallet::from_entropy(&[2; 32]).account();
-        let address = theirs.to_address();
-        let mut state = vec![u8::try_from(address.len()).unwrap()];
-        state.extend_from_slice(address.as_bytes());
-        scheme.on_peered(peer, &state);
+        scheme.on_peered(peer, &theirs.0);
         let delivered = |issuer| TokenAmount {
             value: TokenValue::parse("4").unwrap(),
             currency: crate::dsusd::CURRENCY,

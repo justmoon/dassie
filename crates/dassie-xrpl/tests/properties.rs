@@ -53,12 +53,9 @@ fn scheme() -> XrplScheme {
     XrplScheme::new("", &ENTROPY, node(), Some(1_000), &[]).unwrap()
 }
 
-/// Peering info as a scheme writes it: a length byte, then the address.
+/// Peering info as a scheme writes it: the 20-byte account ID.
 fn address_bytes(account: AccountId) -> Vec<u8> {
-    let address = account.to_address();
-    let mut out = vec![u8::try_from(address.len()).unwrap()];
-    out.extend_from_slice(address.as_bytes());
-    out
+    account.0.to_vec()
 }
 
 /// A change to valid bytes.
@@ -1590,7 +1587,10 @@ impl Run {
                 );
                 let mut effects = Vec::new();
                 if let Ok(prepared) = prepared {
-                    self.hashes.push(prepared.message.try_into().unwrap());
+                    // The ID is the hash; the message is a bare notice.
+                    assert!(prepared.message.is_empty());
+                    let hash = from_hex(prepared.id.as_str()).unwrap();
+                    self.hashes.push(hash.try_into().unwrap());
                     if *execute {
                         self.scheme.execute_settlement(prepared.id, &mut effects);
                     } else {

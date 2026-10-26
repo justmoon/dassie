@@ -856,31 +856,17 @@ pub(crate) fn name_hash(settlement: Name) -> Option<[u8; 32]> {
     from_hex(settlement.as_str())?.try_into().ok()
 }
 
-/// Peering info: the address, as the original's OER wrote it (IA5String,
-/// 25 to 35 characters, after a length byte).
+/// Peering info, a peering request's data and a peer's state: the
+/// address's 20-byte account ID, as the ledger writes it
+/// (spec/areas/xrpl.md#the-payment-it-signs).
 pub(crate) fn address_bytes(account: AccountId, out: &mut Vec<u8>) {
-    let address = account.to_address();
     out.clear();
-    out.push(u8::try_from(address.len()).unwrap_or(0));
-    out.extend_from_slice(address.as_bytes());
+    out.extend_from_slice(&account.0);
 }
 
+/// The account ID of [`address_bytes`]: exactly 20 bytes.
 pub(crate) fn parse_address(bytes: &[u8]) -> Result<AccountId, SchemeError> {
-    let (&length, rest) = bytes.split_first().ok_or(SchemeError::InvalidData)?;
-    if usize::from(length) != rest.len() {
-        return Err(SchemeError::InvalidData);
-    }
-    let text = core::str::from_utf8(rest).map_err(|_| SchemeError::InvalidData)?;
-    AccountId::parse(text).ok_or(SchemeError::InvalidData)
-}
-
-/// The claim books nothing: the ledger says what arrived, once
-/// (spec/areas/xrpl.md#settlement-messages). It must at least be a
-/// transaction hash.
-pub(crate) fn check_claim(data: &[u8]) -> Result<(), SchemeError> {
-    if data.len() == 32 {
-        Ok(())
-    } else {
-        Err(SchemeError::InvalidData)
-    }
+    <[u8; 20]>::try_from(bytes)
+        .map(AccountId)
+        .map_err(|_| SchemeError::InvalidData)
 }

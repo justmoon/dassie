@@ -52,14 +52,14 @@ use dassie_settlement::{
 use rand_core::CryptoRng;
 use serde_json::Value;
 
+use crate::UNITS_PER_DROP;
 use crate::account::{MAX_ACCOUNT_DROPS, News, Ours, XrplAccount};
 use crate::api::{AccountInfo, TxRecord};
 use crate::codec::Memo;
-use crate::follower::{Follower, check_claim, failure_of, hash_name, narrow};
+use crate::follower::{Follower, failure_of, hash_name, narrow};
 use crate::kept::{In, Out};
 use crate::keys::AccountId;
 use crate::network::{self, Network};
-use crate::{UNITS_PER_DROP, from_hex};
 
 /// The testnet scheme's ID: the ledger, its network and its asset
 /// (spec/decisions/scheme-names.md).
@@ -843,14 +843,19 @@ impl<N: NativeXrp> SettlementScheme for XrpScheme<N> {
         Ok(PreparedSettlement {
             id: hash_name(&hash),
             amount: drops * UNITS_PER_DROP,
-            // The original's settlement proof: the hash, 32 bytes.
-            message: hash.to_vec(),
+            // A bare notice: the ledger says what arrived.
+            message: Vec::new(),
         })
     }
 
-    fn settlement_message(&self, settlement: Name) -> Vec<u8> {
-        // The ID is the hash, which is the message.
-        from_hex(settlement.as_str()).unwrap_or_default()
+    fn settlement_message(&self, _settlement: Name) -> Vec<u8> {
+        Vec::new()
+    }
+
+    /// The ledger says what arrived: a `settlement` message is a bare
+    /// notice (spec/areas/xrpl.md#settlement-messages).
+    fn books_messages(&self) -> bool {
+        false
     }
 
     fn execute_settlement(
@@ -880,11 +885,14 @@ impl<N: NativeXrp> SettlementScheme for XrpScheme<N> {
         &mut self,
         _peer: Name,
         _amount: u64,
-        data: &[u8],
+        _data: &[u8],
         _peer_state: &[u8],
         _effects: &mut Vec<Effect>,
     ) -> Result<(), SchemeError> {
-        check_claim(data)
+        // A bare notice books nothing, and says nothing to check: the
+        // ledger says what arrived, once
+        // (spec/areas/xrpl.md#settlement-messages).
+        Ok(())
     }
 
     fn deposit(&mut self, _amount: u64, _effects: &mut Vec<Effect>) -> Result<(), SchemeError> {

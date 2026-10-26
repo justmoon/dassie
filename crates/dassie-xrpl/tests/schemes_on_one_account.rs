@@ -229,9 +229,7 @@ impl Shared {
 
     /// Settles [`AMOUNT`] with `to`, prepared and executed. Returns its ID.
     fn settle(&mut self, to: AccountId) -> Name {
-        let address = to.to_address();
-        let mut peer_state = vec![u8::try_from(address.len()).unwrap()];
-        peer_state.extend_from_slice(address.as_bytes());
+        let peer_state = to.0;
         let peer = Name::new("peer").unwrap();
         let mut rng = SeededRng::new(1);
         let scheme = self.scheme.as_mut().unwrap();

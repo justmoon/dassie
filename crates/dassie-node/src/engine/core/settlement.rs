@@ -915,13 +915,17 @@ impl Core {
             return;
         };
         let peer = settling.peer;
-        if let Err(error) = self.peer.send_settlement(
-            self.now_ms,
-            &peer,
-            scheme_id,
-            settling.amount,
-            settling.message,
-        ) {
+        // A bare notice states no amount: the peer's ledger says what
+        // arrived.
+        let books = self
+            .schemes
+            .get(&scheme)
+            .is_none_or(|active| active.scheme.books_messages());
+        let stated = if books { settling.amount } else { 0 };
+        if let Err(error) =
+            self.peer
+                .send_settlement(self.now_ms, &peer, scheme_id, stated, settling.message)
+        {
             self.report(SettlementEvent::AnnounceFailed { peer, error });
         }
     }
@@ -987,38 +991,43 @@ impl Core {
             return Err(refused("the scheme has stopped"));
         }
         let ledger = active.scheme.ledger();
+        // A bare notice books nothing, so there is nothing to check its
+        // amount against.
+        let books = active.scheme.books_messages();
         let name = Name::new(from.as_str()).map_err(|_| refused("not a node"))?;
         let interledger = self.ledger.find(&AccountPath::new(
             ledger,
             AccountName::AssetsInterledger(name),
         ));
-        match interledger {
-            Some(interledger) => {
-                let spec = TransferSpec {
-                    debit: self.account(ledger, AccountName::AssetsSettlement)?,
-                    credit: interledger,
-                    amount,
-                    pending: false,
-                    reference: Reference::Settlement { scheme, id: scheme },
-                };
-                self.ledger
-                    .validate(&spec)
-                    .map_err(|error| refused(&error.to_string()))?;
+        if books {
+            match interledger {
+                Some(interledger) => {
+                    let spec = TransferSpec {
+                        debit: self.account(ledger, AccountName::AssetsSettlement)?,
+                        credit: interledger,
+                        amount,
+                        pending: false,
+                        reference: Reference::Settlement { scheme, id: scheme },
+                    };
+                    self.ledger
+                        .validate(&spec)
+                        .map_err(|error| refused(&error.to_string()))?;
+                }
+                // A downlink nothing moved with yet: its settlement opens its
+                // accounts, if there is room for them, and the books take it as
+                // they would on accounts just opened
+                // (spec/decisions/lazy-downlink-accounts.md).
+                None if self.downlink_may_open(&from) => {
+                    let debit = self.account(ledger, AccountName::AssetsSettlement)?;
+                    let trust =
+                        super::downlinks::start_credit(&self.schemes, scheme, self.senior_credit);
+                    let reference = Reference::Settlement { scheme, id: scheme };
+                    self.ledger
+                        .validate_to_peer(debit, name, trust, amount, reference)
+                        .map_err(|error| refused(&error.to_string()))?;
+                }
+                None => return Err(refused("no accounts on that scheme's ledger")),
             }
-            // A downlink nothing moved with yet: its settlement opens its
-            // accounts, if there is room for them, and the books take it as
-            // they would on accounts just opened
-            // (spec/decisions/lazy-downlink-accounts.md).
-            None if self.downlink_may_open(&from) => {
-                let debit = self.account(ledger, AccountName::AssetsSettlement)?;
-                let trust =
-                    super::downlinks::start_credit(&self.schemes, scheme, self.senior_credit);
-                let reference = Reference::Settlement { scheme, id: scheme };
-                self.ledger
-                    .validate_to_peer(debit, name, trust, amount, reference)
-                    .map_err(|error| refused(&error.to_string()))?;
-            }
-            None => return Err(refused("no accounts on that scheme's ledger")),
         }
         let state = self
             .peer
