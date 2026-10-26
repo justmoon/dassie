@@ -7,10 +7,12 @@
  * sends it. Next to its faucet, the issuer of its network's dollar, DSUSD
  * on the testnet and RLUSD on mainnet, mints, freezes and claws back on
  * request (spec/areas/xrpl.md#tokens-in-the-fake-ledger): the only source
- * of dollar tokens a scenario has. Its validators sign every ledger, and
- * on request rotate a key, sign nothing or publish a new list; and every
- * connection to it can be made to lie, as a dishonest proof server would
- * (spec/designs/xrpl-validation.md#11-the-fake-ledger-the-lying-server-and-the-simulation).
+ * of dollar tokens a scenario has. Its validators sign every ledger. The
+ * binary also takes requests to rotate a validator's key, have one sign
+ * nothing, publish a new list, or make every connection lie, as a
+ * dishonest proof server would
+ * (spec/designs/xrpl-validation.md#11-the-fake-ledger-the-lying-server-and-the-simulation),
+ * at `control`; nothing here sends them, and they are for use by hand.
  *
  * @module
  */
@@ -53,7 +55,7 @@ export interface FakeLedger {
   /** Where XRP is deposited from outside, with the faucet. */
   readonly deposit: string | null;
   /** Where its validators and its servers take requests, with the faucet:
-   * `/validators/…` and `/lie` under it. */
+   * `/validators/…` and `/lie` under it, for use by hand. */
   readonly control: string | null;
   /** What a scheme's config names to trust its validators: their
    * publisher, whose list it serves with the faucet
