@@ -489,16 +489,31 @@ fn a_settlement_from_the_wrong_address_is_a_deposit() {
 
 // A peer's address goes when its settlement channel closes
 // (spec/decisions/closing-channels.md): a Payment from it after that is
-// the owner's deposit, as from any address no peer gave.
+// the owner's deposit, as from any address no peer gave. The state version
+// changes with it, though the balance does not, so the node writes the
+// state without the address and a restart does not bring it back.
 #[test]
 fn a_closed_peers_address_is_forgotten() {
     let (mut world, _, state_b) = funded_pair();
     let peer = world.nodes[1].name;
+    let address = world.nodes[1].scheme.account().to_address();
     world.settle(1, 0, 1_000_000_000, &state_b);
     world.close();
     assert_eq!(world.nodes[0].books.peers.get(&peer), Some(&1_000_000_000));
+    let (version, balance) = (
+        world.nodes[0].scheme.state_version(),
+        world.nodes[0].scheme.balance(),
+    );
     world.nodes[0].scheme.on_closed(peer);
     world.nodes[0].scheme.check_invariants();
+    assert_eq!(world.nodes[0].scheme.balance(), balance);
+    assert_ne!(world.nodes[0].scheme.state_version(), version);
+    let state = String::from_utf8(world.nodes[0].scheme.state()).unwrap();
+    assert!(!state.contains(&address), "{state}");
+    // A channel closed again changes nothing more.
+    let version = world.nodes[0].scheme.state_version();
+    world.nodes[0].scheme.on_closed(peer);
+    assert_eq!(world.nodes[0].scheme.state_version(), version);
     world.settle(1, 0, 2_000_000_000, &state_b);
     world.close();
     let books = &world.nodes[0].books;

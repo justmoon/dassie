@@ -185,7 +185,7 @@ The node keeps a settlement channel with every node it has ever peered with (`cr
 
 - **A peering opens it again where it was,** so our next message follows the last one the peer applied.
 - **A settlement over it closed** is read against the sequence that stayed: applied once, and acknowledged again as a copy. The channel stays closed.
-- **The schemes forget** what they kept of the node for its settlements (`on_closed`): a ledger payment from it after the close is the owner's deposit, once held for it a while as an entry payment if it is one ([pay-to-enter](../decisions/pay-to-enter.md)).
+- **The schemes forget** what they kept of the node for its settlements (`on_closed`), and their state version changes with it, so the node writes the state without it and a restart does not bring it back: a ledger payment from it after the close is the owner's deposit, once held for it a while as an entry payment if it is one ([pay-to-enter](../decisions/pay-to-enter.md)).
 
 ## Settlement hubs
 

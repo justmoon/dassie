@@ -1027,6 +1027,46 @@ fn two_nodes_settle_dsusd() {
     );
 }
 
+// As in the XRP scheme, a peer's address goes when its settlement channel
+// closes (spec/decisions/closing-channels.md): a Payment from it after that
+// is the owner's deposit. The state version changes with it, though the
+// balance does not, so the node writes the state without the address and a
+// restart does not bring it back.
+#[test]
+fn a_closed_peers_address_is_forgotten() {
+    let (mut world, _, state_b) = synced(2);
+    let peer = world.nodes[1].name;
+    let address = world.address(1).to_address();
+    world.mint(1, "50");
+    world.close();
+    world.settle(USD, 1, 0, usd(1_000_000), &state_b);
+    world.close();
+    let settled = i128::from(usd(1_000_000));
+    assert_eq!(world.nodes[0].books[USD].peers.get(&peer), Some(&settled));
+    let (version, balance) = (
+        world.nodes[0].dsusd().state_version(),
+        world.nodes[0].dsusd().balance(),
+    );
+    world.nodes[0].scheme(USD).on_closed(peer);
+    world.nodes[0].check_invariants();
+    assert_eq!(world.nodes[0].dsusd().balance(), balance);
+    assert_ne!(world.nodes[0].dsusd().state_version(), version);
+    let state = String::from_utf8(world.nodes[0].dsusd().state()).unwrap();
+    assert!(!state.contains(&address), "{state}");
+    // A channel closed again changes nothing more.
+    let version = world.nodes[0].dsusd().state_version();
+    world.nodes[0].scheme(USD).on_closed(peer);
+    assert_eq!(world.nodes[0].dsusd().state_version(), version);
+    // The node restarts from the state it wrote then.
+    world.restart(0);
+    world.closes(2);
+    world.settle(USD, 1, 0, usd(2_000_000), &state_b);
+    world.close();
+    let books = &world.nodes[0].books[USD];
+    assert_eq!(books.peers.get(&peer), Some(&settled));
+    assert_eq!(books.owner, i128::from(usd(2_000_000)));
+}
+
 // spec/decisions/pay-to-enter.md: the token scheme holds an entry payment as
 // the XRP scheme does: a Payment of the token with its memo from a node not
 // yet peered, of at least one largest packet, held off the books, bound to
