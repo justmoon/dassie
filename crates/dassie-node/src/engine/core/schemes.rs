@@ -182,6 +182,25 @@ pub(super) fn own_xrpl_account(key: &NodeKey) -> Result<dassie_xrpl::AccountId, 
     Ok(dassie_xrpl::Wallet::from_entropy(entropy.as_bytes()).account())
 }
 
+/// The config `asset` is made with, from that of a scheme on it: for an
+/// XRPL account, what the scheme's config says of the account, without
+/// whether the node peers on the scheme, which is the scheme's alone, and
+/// written one way, so that schemes on the account that say the same of it
+/// share it (spec/areas/xrpl.md#owner-books); for any other asset, all of
+/// it.
+///
+/// # Errors
+///
+/// If an XRPL scheme's config is no JSON object.
+fn asset_config(asset: AssetId, config: &str) -> Result<String, SchemeError> {
+    match asset.kind {
+        AssetKind::XrplTestnetAccount | AssetKind::XrplAccount => {
+            Ok(dassie_xrpl::scheme::SchemeConfig::parse(config)?.account)
+        }
+        _ => Ok(config.to_string()),
+    }
+}
+
 /// The schemes that may settle through `asset`, disabled ones included.
 fn schemes_on(asset: AssetId) -> Vec<Name> {
     let ids = SCHEMES
@@ -269,30 +288,48 @@ fn create(
     let node = || Name::new(key.node_id().as_str()).map_err(|_| SchemeError::InvalidData);
     let state = checkpoint.map_or(&[][..], |c| c.state.as_slice());
     // What a node new to us pays to enter: one largest packet, the least it
-    // settles (spec/decisions/pay-to-enter.md).
+    // settles (spec/decisions/pay-to-enter.md). An owner book, which peers
+    // with nobody, takes none: a payment naming a node is a deposit there.
     let entry = dassie_settlement::policy::minimum(max_packet);
+    let peers = || dassie_xrpl::scheme::SchemeConfig::parse(config).map(|config| config.peers);
     match id {
         "stub" => Ok(Box::new(Stub::new(config, balance, state)?)),
         dassie_xrpl::scheme::SCHEME_ID => {
             let mut scheme = XrplScheme::new(account()?, node()?, balance, state)?;
-            scheme.take_entries_from(entry);
+            let peers = peers()?;
+            scheme.set_peers(peers);
+            if peers {
+                scheme.take_entries_from(entry);
+            }
             Ok(Box::new(scheme))
         }
         dassie_xrpl::scheme::MAINNET_SCHEME_ID => {
             let mut scheme = XrplMainnetScheme::new(account()?, node()?, balance, state)?;
-            scheme.take_entries_from(entry);
+            let peers = peers()?;
+            scheme.set_peers(peers);
+            if peers {
+                scheme.take_entries_from(entry);
+            }
             Ok(Box::new(scheme))
         }
         dassie_xrpl::rlusd::SCHEME_ID => {
             let mut scheme = RlusdScheme::new(account()?, node()?, balance, state)?;
             scheme.set_peg_timings(peg);
-            scheme.take_entries_from(entry);
+            let peers = peers()?;
+            scheme.set_peers(peers);
+            if peers {
+                scheme.take_entries_from(entry);
+            }
             Ok(Box::new(scheme))
         }
         dassie_xrpl::dsusd::SCHEME_ID => {
             let mut scheme = DsusdScheme::new(account()?, node()?, balance, state)?;
             scheme.set_peg_timings(peg);
-            scheme.take_entries_from(entry);
+            let peers = peers()?;
+            scheme.set_peers(peers);
+            if peers {
+                scheme.take_entries_from(entry);
+            }
             Ok(Box::new(scheme))
         }
         dassie_hub::member::SCHEME_ID => {
@@ -347,7 +384,8 @@ pub(super) type MadeScheme = (Box<dyn SettlementScheme>, Option<AssetId>);
 /// An active external asset.
 pub(super) struct ActiveAsset {
     pub asset: Box<dyn ExternalAsset>,
-    /// The config it was made with: every scheme on it names the same.
+    /// The config it was made with ([`asset_config`]): every scheme on it
+    /// names the same.
     pub config: String,
     /// Its connection to its ledger, if it follows one; 0 before the
     /// first, and once closed.
@@ -446,6 +484,7 @@ impl Core {
             .map_err(invalid)?;
             return Ok((scheme, None));
         };
+        let asset_config = asset_config(asset, config).map_err(invalid)?;
         let new = !self.assets.contains_key(&asset);
         if new {
             let state = self
@@ -455,8 +494,8 @@ impl Core {
                 .unwrap_or_default();
             let window_ms = self.connector.config().message_window_ms;
             #[allow(unused_mut)]
-            let mut made =
-                create_asset(asset, config, &state, (&self.key, window_ms)).map_err(invalid)?;
+            let mut made = create_asset(asset, &asset_config, &state, (&self.key, window_ms))
+                .map_err(invalid)?;
             #[cfg(feature = "testing")]
             if let Some(secret) = self.settle.validation_secret {
                 check_validations_with(made.as_mut(), secret);
@@ -465,7 +504,7 @@ impl Core {
                 asset,
                 ActiveAsset {
                     asset: made,
-                    config: config.to_string(),
+                    config: asset_config.clone(),
                     epoch: 0,
                     version: 0,
                     unproven: Unproven::default(),
@@ -473,7 +512,7 @@ impl Core {
             );
         }
         let made = match self.assets.get(&asset) {
-            Some(active) if active.config == config => create(
+            Some(active) if active.config == asset_config => create(
                 id.as_str(),
                 config,
                 checkpoint,

@@ -19,6 +19,7 @@ use std::time::Duration;
 use dassie_hub::HubId;
 use dassie_hub::founding::{FoundingAnswer, FoundingRequest, Refusal, Sponsor, Stage};
 use dassie_identity::{NodeId, NodeKey};
+use dassie_ledger::LedgerId;
 use dassie_oer::{Decode, Encode};
 use dassie_xrpl::AccountId;
 use tokio::sync::{mpsc, watch};
@@ -219,15 +220,24 @@ pub fn found(node: &Node, request: FoundRequest) -> Result<FoundingStatus, Found
     status_of(&row).map_err(|error| FoundError::Precondition(error.to_string()))
 }
 
-/// The XRPL server of the node's XRP scheme, or the testnet's.
+/// The XRPL server of the node's owner book of XRP on the testnet, which
+/// funds the escrow, whether the node peers on it or not; or the
+/// testnet's. Its config says whether it peers beside what it says of the
+/// account (spec/areas/xrpl.md#owner-books).
 fn xrpl_server(node: &Node) -> String {
+    let books_testnet_xrp = |id: &dassie_ledger::Name| {
+        crate::engine::SCHEMES
+            .iter()
+            .any(|info| info.id == id.as_str() && info.ledger == LedgerId::XrplTestnetXrp)
+    };
     node.store_handle()
         .settlement_schemes()
         .ok()
         .into_iter()
         .flatten()
-        .find(|(id, _)| id.as_str() == dassie_xrpl::scheme::SCHEME_ID)
-        .and_then(|(_, config)| dassie_xrpl::account::Config::parse(&config).ok())
+        .find(|(id, _)| books_testnet_xrp(id))
+        .and_then(|(_, config)| dassie_xrpl::scheme::SchemeConfig::parse(&config).ok())
+        .and_then(|config| dassie_xrpl::account::Config::parse(&config.account).ok())
         .map_or_else(
             || dassie_xrpl::account::DEFAULT_SERVER.into(),
             |config| config.server,

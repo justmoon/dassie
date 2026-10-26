@@ -147,7 +147,7 @@ const MAX_NEWS: usize =
 const MAX_EFFECTS: usize = MAX_PENDING + MAX_IN_FLIGHT + 4 + MAX_PUBLISHERS;
 /// Most bytes of config: a server, a faucet and the most publishers, each
 /// with its key and its sites.
-const MAX_CONFIG: usize = 4096;
+pub(crate) const MAX_CONFIG: usize = 4096;
 /// How long the connection may say nothing, no ledger closing, before it
 /// is made anew: a ledger closes every few seconds.
 pub const LEDGER_SILENCE_MS: u64 = 30_000;
@@ -1127,6 +1127,25 @@ impl XrplAccount {
         amount: TokenAmount,
         memos: Vec<Memo>,
     ) -> Result<[u8; 32], SchemeError> {
+        self.sign_token_payment_to(scheme, (destination, None), amount, memos)
+    }
+
+    /// Signs a Payment of a token `amount` to `destination` with its
+    /// destination tag, if any, as
+    /// [`sign_token_payment`](Self::sign_token_payment) does: how the owner
+    /// pays a token out of the line to an account that tells its payers
+    /// apart by tags, such as a settlement hub's escrow.
+    ///
+    /// # Errors
+    ///
+    /// As [`sign_token_payment`](Self::sign_token_payment).
+    pub fn sign_token_payment_to(
+        &mut self,
+        scheme: Name,
+        (destination, tag): (AccountId, Option<u32>),
+        amount: TokenAmount,
+        memos: Vec<Memo>,
+    ) -> Result<[u8; 32], SchemeError> {
         let fee = self.fee();
         let positive = !amount.value.is_zero() && !amount.value.is_negative();
         if !positive
@@ -1139,7 +1158,7 @@ impl XrplAccount {
         let payment = Payment {
             account: self.account(),
             destination,
-            destination_tag: None,
+            destination_tag: tag,
             amount: Amount::Token(amount),
             send_max: None,
             fee,

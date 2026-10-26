@@ -1,7 +1,7 @@
-//! Making the moves between the node's XRPL testnet account and its hub
-//! account that `hub_funding.rs` decides on, keeping the one on its way in
-//! the database, and the owner's view and moves
-//! (spec/areas/hubs.md#in-the-node).
+//! Making the moves between the owner book of the hub's asset (the node's
+//! XRPL testnet account, for the XRP hub) and its hub account that
+//! `hub_funding.rs` decides on, keeping the one on its way in the database,
+//! and the owner's view and moves (spec/areas/hubs.md#in-the-node).
 
 use dassie_hub::member::{HubAccount, UNITS_PER_DROP};
 use dassie_ledger::{LedgerId, Name};
@@ -17,7 +17,22 @@ use crate::store::{HubFundingRow, HubMoveRow};
 const XRPL_FEE_DROPS: u64 = dassie_xrpl::account::MAX_FEE_DROPS;
 
 const HUB: Name = dassie_ledger::name!(dassie_hub::member::SCHEME_ID);
-const XRPL: Name = dassie_ledger::name!(dassie_xrpl::scheme::SCHEME_ID);
+
+/// The ledger of the owner book of what a hub on `hub` holds: the book of
+/// that asset on the hub's underlying ledger, which the hub's deposits
+/// leave and its withdrawals reach (spec/areas/hubs.md#in-the-node). XRP
+/// on the testnet for the XRP hub.
+const fn owner_book_ledger(hub: LedgerId) -> Option<LedgerId> {
+    match hub {
+        LedgerId::HubXrpTestnetXrp => Some(LedgerId::XrplTestnetXrp),
+        _ => None,
+    }
+}
+
+/// The ledger of the owner book that funds the escrow of a hub the node
+/// founds: hubs are founded on the XRP Ledger testnet, in XRP
+/// (spec/areas/hubs.md#founding-a-hub).
+const FOUNDING_LEDGER: LedgerId = LedgerId::XrplTestnetXrp;
 
 /// A hold of ours or toward us in the hub, as the owner sees it.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -136,6 +151,31 @@ impl Core {
     /// Keeps the moves' state with this batch.
     fn keep_funding(&mut self) {
         self.batch.hub_funding = Some(row(&self.funding));
+    }
+
+    /// The scheme that books `ledger`, if one is active: a ledger has at
+    /// most one (spec/areas/settlement.md#schemes-and-ledgers).
+    fn book_on(&self, ledger: LedgerId) -> Option<Name> {
+        self.schemes
+            .iter()
+            .find(|(_, active)| active.scheme.ledger() == ledger)
+            .map(|(name, _)| *name)
+    }
+
+    /// The owner book of the hub's asset, and its ledger: the active
+    /// scheme on that asset's ledger, whether the node peers on it or not
+    /// (spec/areas/settlement.md#owner-books). `None` while the hub scheme
+    /// or the book is not active.
+    fn owner_book(&self) -> Option<(Name, LedgerId)> {
+        let hub = self.schemes.get(&HUB)?.scheme.ledger();
+        let ledger = owner_book_ledger(hub)?;
+        Some((self.book_on(ledger)?, ledger))
+    }
+
+    /// The owner book that funds the escrow of a hub the node founds, and
+    /// its ledger: `None` while none is active.
+    fn founding_book(&self) -> Option<(Name, LedgerId)> {
+        Some((self.book_on(FOUNDING_LEDGER)?, FOUNDING_LEDGER))
     }
 
     /// The hub account, while its scheme runs.
@@ -264,17 +304,18 @@ impl Core {
             ledger_fee: fees.ledger,
             withdrawal_fees: fees.operation.saturating_add(fees.ledger),
             least_deposit: drops_up(self.settle.max_packet),
-            xrpl: self.xrpl_spendable(),
+            xrpl: self.owner_book().and_then(|book| self.xrpl_spendable(book)),
             hub_owner: self.owner_available(LedgerId::HubXrpTestnetXrp) / UNITS_PER_DROP,
             paying: self.paying(),
         })
     }
 
-    /// What the owner may move out of the XRPL account, in drops, after a
-    /// fee; `None` while its scheme does not run, or its account is not up
-    /// to date with its ledger and could sign nothing.
-    fn xrpl_spendable(&self) -> Option<u64> {
-        let active = self.schemes.get(&XRPL)?;
+    /// What the owner may move out of the XRPL account through the owner
+    /// book `(scheme, ledger)`, in drops, after a fee; `None` while the book
+    /// does not run, or its account is not up to date with its ledger and
+    /// could sign nothing.
+    fn xrpl_spendable(&self, (scheme, ledger): (Name, LedgerId)) -> Option<u64> {
+        let active = self.schemes.get(&scheme)?;
         let synced = self
             .assets
             .get(&active.asset?)
@@ -282,7 +323,7 @@ impl Core {
         if active.failed.is_some() || !active.scheme.has_synced() || !synced {
             return None;
         }
-        let funds = self.owner_available(LedgerId::XrplTestnetXrp) / UNITS_PER_DROP;
+        let funds = self.owner_available(ledger) / UNITS_PER_DROP;
         Some(funds.saturating_sub(XRPL_FEE_DROPS))
     }
 
@@ -293,7 +334,10 @@ impl Core {
             return OwnerPaymentState::Unknown;
         };
         let scheme = match moving.direction {
-            Direction::Deposit => XRPL,
+            Direction::Deposit => match self.owner_book() {
+                Some((book, _)) => book,
+                None => return OwnerPaymentState::Unknown,
+            },
             Direction::Withdraw => HUB,
         };
         self.schemes
@@ -369,7 +413,8 @@ impl Core {
                     memo,
                     amount,
                 };
-                (XRPL, payment)
+                let (book, _) = self.owner_book().ok_or(SchemeError::Unavailable)?;
+                (book, payment)
             }
             Direction::Withdraw => {
                 let own = super::schemes::own_xrpl_account(&self.key)?;
@@ -406,9 +451,11 @@ impl Core {
 /// (spec/areas/hubs.md#founding-a-hub).
 impl Core {
     /// Pays `drops` from the owner's funds on the XRPL testnet account to
-    /// `destination`, with no tag: the payment that creates the escrow of a
-    /// hub the node founds. Held against the owner's funds while it is on
-    /// its way, as any owner's payment. Its ID, to follow it by.
+    /// `destination`, with no tag, through the owner book of XRP on the
+    /// testnet, whether the node peers on it or not: the payment that
+    /// creates the escrow of a hub the node founds. Held against the
+    /// owner's funds while it is on its way, as any owner's payment. Its ID,
+    /// to follow it by.
     ///
     /// # Errors
     ///
@@ -416,9 +463,12 @@ impl Core {
     /// cover it with its fee, or the scheme has an owner's payment on its
     /// way already.
     pub fn pay_from_xrpl(&mut self, destination: &str, drops: u64) -> Result<Name, EngineError> {
-        let spendable = self.xrpl_spendable().ok_or_else(|| {
+        let not_running = || {
             EngineError::Precondition("the XRP Ledger testnet scheme is not running synced".into())
-        })?;
+        };
+        let book = self.founding_book().ok_or_else(not_running)?;
+        let spendable = self.xrpl_spendable(book).ok_or_else(not_running)?;
+        let (book, _) = book;
         if drops == 0 || drops > spendable {
             return Err(EngineError::Refused(
                 "more than the owner's funds on the XRP Ledger, with its fee".into(),
@@ -435,10 +485,10 @@ impl Core {
         let refused = |error: SchemeError| {
             EngineError::Exhausted(format!("the XRP scheme cannot pay now: {error:?}"))
         };
-        self.check_owner_payment(XRPL, amount, fee)
+        self.check_owner_payment(book, amount, fee)
             .map_err(refused)?;
-        let id = self.pay_owner(XRPL, &payment).map_err(refused)?;
-        self.hold_owner_payment(XRPL, id, amount, fee);
+        let id = self.pay_owner(book, &payment).map_err(refused)?;
+        self.hold_owner_payment(book, id, amount, fee);
         Ok(id)
     }
 
@@ -450,11 +500,12 @@ impl Core {
     }
 
     /// What became of the owner's payment `id` out of the XRPL testnet
-    /// account, as the XRP scheme says; unknown while it does not run.
+    /// account, as the owner book of XRP on the testnet says; unknown while
+    /// it does not run.
     #[must_use]
     pub fn xrpl_owner_payment(&self, id: Name) -> OwnerPaymentState {
-        self.schemes
-            .get(&XRPL)
+        self.founding_book()
+            .and_then(|(book, _)| self.schemes.get(&book))
             .filter(|active| active.failed.is_none())
             .map_or(OwnerPaymentState::Unknown, |active| {
                 active.scheme.owner_payment(id)

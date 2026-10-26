@@ -800,7 +800,8 @@ impl Core {
     }
 
     /// Tells the peer node which schemes it may peer on, in a fixed order:
-    /// the active ones that have seen their ledger
+    /// the active ones that peer at all, which an owner book does not
+    /// (spec/areas/settlement.md#owner-books), that have seen their ledger
     /// (spec/decisions/synced-before-peering.md), have not stopped, and can
     /// receive a peer's settlement. Before a scheme first synced, a peer's
     /// settlement would be booked as the owner's deposit; once it stopped,
@@ -817,7 +818,10 @@ impl Core {
             .schemes
             .iter()
             .filter(|(_, active)| {
-                active.failed.is_none() && active.scheme.has_synced() && active.scheme.can_receive()
+                active.failed.is_none()
+                    && active.scheme.peers()
+                    && active.scheme.has_synced()
+                    && active.scheme.can_receive()
             })
             .filter_map(|(name, _)| SchemeId::parse(name.as_str()))
             .collect();
