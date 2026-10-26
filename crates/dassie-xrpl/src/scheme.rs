@@ -57,6 +57,7 @@ use crate::account::{MAX_ACCOUNT_DROPS, News, Ours, XrplAccount};
 use crate::api::{AccountInfo, TxRecord};
 use crate::codec::Memo;
 use crate::follower::{Follower, check_claim, failure_of, hash_name, narrow};
+use crate::kept::{In, Out};
 use crate::keys::AccountId;
 use crate::network::{self, Network};
 use crate::{UNITS_PER_DROP, from_hex};
@@ -263,9 +264,9 @@ impl<N: NativeXrp> XrpScheme<N> {
             xrp: PhantomData,
         };
         if !state.is_empty() {
-            let value: Value =
-                serde_json::from_slice(state).map_err(|_| SchemeError::InvalidData)?;
-            scheme.f.restore(&value).ok_or(SchemeError::InvalidData)?;
+            let mut input = In::state(state).ok_or(SchemeError::InvalidData)?;
+            scheme.f.read(&mut input).ok_or(SchemeError::InvalidData)?;
+            input.finish().ok_or(SchemeError::InvalidData)?;
         }
         scheme.f.fits(account)?;
         Ok(scheme)
@@ -699,7 +700,9 @@ impl<N: NativeXrp> SettlementScheme for XrpScheme<N> {
     }
 
     fn state(&self) -> Vec<u8> {
-        serde_json::to_vec(&self.f.state()).unwrap_or_default()
+        let mut out = Out::state();
+        self.f.write(&mut out);
+        out.0
     }
 
     fn state_version(&self) -> u64 {

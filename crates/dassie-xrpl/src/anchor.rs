@@ -34,10 +34,9 @@
 use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
 
-use serde_json::{Value, json};
-
 use crate::api::{MAX_PROOF_KEYS, StateProof, TxBlobs, TxProof};
 use crate::header::LedgerHeader;
+use crate::kept::{In, Out};
 use crate::records::{self, Decoded};
 use crate::shamap::{BranchError, Leaf, Tree, held_object, verify, verify_transaction};
 use crate::skip_list::{
@@ -45,7 +44,6 @@ use crate::skip_list::{
     recent_key,
 };
 use crate::unl::{Anchor, Relation};
-use crate::{from_hex, hex_upper};
 
 /// Why a state proof proves nothing.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -451,34 +449,28 @@ impl KeptAnchor {
         }
     }
 
-    /// It as the account's state keeps it.
-    #[must_use]
-    pub fn state(&self) -> Value {
+    /// Writes it as the account's state keeps it: the anchor's index, the
+    /// time it closed and its hash, and its flag ledger if it has one.
+    pub(crate) fn write(&self, out: &mut Out) {
         let anchor = &self.anchor;
-        json!({
-            "index": anchor.index,
-            "close_time": anchor.close_time,
-            "hash": hex_upper(&anchor.hash),
-            "flag": self.flag.map(|(index, hash)| json!([index, hex_upper(&hash)])),
-        })
+        out.u32(anchor.index);
+        out.u32(anchor.close_time);
+        out.bytes(&anchor.hash);
+        out.option(self.flag, |out, (index, hash)| {
+            out.u32(index);
+            out.bytes(&hash);
+        });
     }
 
-    /// What [`Self::state`] wrote; `None` if it is not that, or names a
+    /// What [`Self::write`] wrote; `None` if it is not that, or names a
     /// flag ledger that is none, or above the anchor.
-    #[must_use]
-    pub fn restore(value: &Value) -> Option<Self> {
-        let number = |value: &Value| u32::try_from(value.as_u64()?).ok();
-        let hash =
-            |value: &Value| -> Option<[u8; 32]> { from_hex(value.as_str()?)?.try_into().ok() };
+    pub(crate) fn read(input: &mut In<'_>) -> Option<Self> {
         let anchor = Anchor {
-            index: number(value.get("index")?)?,
-            close_time: number(value.get("close_time")?)?,
-            hash: hash(value.get("hash")?)?,
+            index: input.u32()?,
+            close_time: input.u32()?,
+            hash: input.array()?,
         };
-        let flag = match value.get("flag")? {
-            Value::Null => None,
-            flag => Some((number(flag.get(0)?)?, hash(flag.get(1)?)?)),
-        };
+        let flag = input.option(|input| Some((input.u32()?, input.array::<32>()?)))?;
         let kept = Self { anchor, flag };
         kept.is_consistent().then_some(kept)
     }
@@ -592,7 +584,10 @@ pub fn ancestry(kept: &KeptAnchor, new: &Anchor, lists: &ProvenLists) -> Ancestr
 #[allow(clippy::unwrap_used, clippy::indexing_slicing)]
 mod tests {
 
+    use serde_json::Value;
+
     use super::*;
+    use crate::from_hex;
 
     fn hash(n: u32) -> [u8; 32] {
         let mut out = [0; 32];
@@ -642,12 +637,22 @@ mod tests {
         let young = KeptAnchor::of(anchor(5_000_100), Some(&recent(5_000_100, 5_000_000)));
         assert_eq!(young.flag, None);
         assert_eq!(KeptAnchor::of(anchor(5_000_000), None).flag, None);
+        let read_back = |kept: &KeptAnchor| {
+            let mut out = Out(Vec::new());
+            kept.write(&mut out);
+            let mut input = In(dassie_oer::Reader::new(&out.0));
+            let read = KeptAnchor::read(&mut input);
+            input.finish()?;
+            read
+        };
         for kept in [kept, own, young] {
-            assert_eq!(KeptAnchor::restore(&kept.state()), Some(kept));
+            assert_eq!(read_back(&kept), Some(kept));
         }
-        let mut wrong = kept.state();
-        wrong["flag"][0] = 4_999_680.into();
-        assert_eq!(KeptAnchor::restore(&wrong), None);
+        let wrong = KeptAnchor {
+            flag: Some((4_999_680, hash(4_999_680))),
+            ..kept
+        };
+        assert_eq!(read_back(&wrong), None);
     }
 
     // spec/designs/xrpl-validation.md#7-resets-under-a-unl: within 256

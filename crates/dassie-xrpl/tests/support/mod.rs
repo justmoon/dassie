@@ -4,9 +4,9 @@
 //! back in order. It speaks the interface the scheme had when it owned its
 //! account, so the tests of what the scheme books read as they always did.
 //!
-//! Its state is the one the scheme wrote then: a single JSON object, which
-//! it splits into the account's and the scheme's as the node's migration
-//! does (spec/areas/xrpl.md#state-and-restarts), and joins again.
+//! Its state is the one the scheme wrote then: a single JSON object of the
+//! account's and the scheme's fields, which it encodes into what each
+//! writes (spec/areas/xrpl.md#state-and-restarts), and decodes again.
 
 #![allow(dead_code, clippy::unwrap_used, clippy::panic)]
 
@@ -109,18 +109,6 @@ impl From<AssetEffect> for Effect {
         }
     }
 }
-
-/// Keys of the joined state that are the account's.
-const ACCOUNT_KEYS: [&str; 8] = [
-    "sequence",
-    "in_flight",
-    "never_sent",
-    "parked",
-    "newest",
-    "anchor",
-    "unl",
-    "unl_at_ms",
-];
 
 /// The account and its scheme.
 pub struct XrplScheme {
@@ -362,59 +350,385 @@ impl XrplScheme {
     }
 }
 
-/// The joined state, split as the migration splits it: the account takes
-/// the sequence, what is in flight (each the scheme's) and the newest
-/// ledger seen, and the scheme the rest. What neither could have written,
-/// they refuse themselves.
+/// The joined state, split into what the account and the scheme write
+/// (version 1, spec/areas/xrpl.md#state-and-restarts). A JSON object of
+/// their fields, as the tests write and change it, is encoded as each
+/// writes its own, with what a test leaves out as a fresh account or
+/// scheme has it; anything else is taken as the two states joined
+/// ([`join_bytes`]), so that any bytes reach the account's and the
+/// scheme's own readers. What neither could have written, they refuse
+/// themselves.
 fn split(state: &[u8]) -> Option<(Vec<u8>, Vec<u8>)> {
     if state.is_empty() {
         return Some((Vec::new(), Vec::new()));
     }
-    let Value::Object(mut scheme) = serde_json::from_slice::<Value>(state).ok()? else {
-        return None;
+    let Ok(Value::Object(joined)) = serde_json::from_slice::<Value>(state) else {
+        let (length, rest) = state.split_first_chunk::<4>()?;
+        let length = usize::try_from(u32::from_be_bytes(*length)).ok()?;
+        let (account, scheme) = rest.split_at_checked(length)?;
+        return Some((account.to_vec(), scheme.to_vec()));
     };
-    let mut account = Map::new();
-    for key in ACCOUNT_KEYS {
-        if let Some(value) = scheme.remove(key) {
-            account.insert(key.into(), value);
-        }
-    }
-    // Both count the account's write-offs, the scheme as it last saw them:
-    // one count, once the scheme has been told.
-    if let Some(count) = scheme.get("write_offs") {
-        account.insert("write_offs".into(), count.clone());
-    }
-    account
-        .entry("never_sent")
-        .or_insert_with(|| Value::Array(Vec::new()));
-    if let Some(Value::Array(in_flight)) = account.get_mut("in_flight") {
-        for entry in in_flight.iter_mut() {
-            if let Value::Object(entry) = entry {
-                entry.insert("scheme".into(), "xrpl-testnet".into());
-            }
-        }
-    }
-    Some((
-        serde_json::to_vec(&account).ok()?,
-        serde_json::to_vec(&scheme).ok()?,
-    ))
+    Some((encode_account(&joined)?, encode_scheme(&joined)?))
 }
 
-/// The account's and the scheme's states, as one.
+/// The two states as raw bytes, joined: the account's length, the
+/// account's and the scheme's.
+pub fn join_bytes(account: &[u8], scheme: &[u8]) -> Vec<u8> {
+    let mut joined = u32::try_from(account.len()).unwrap().to_be_bytes().to_vec();
+    joined.extend_from_slice(account);
+    joined.extend_from_slice(scheme);
+    joined
+}
+
+/// The account's and the scheme's states, as one JSON object of their
+/// fields; what the account keeps after what it signed (its anchor and
+/// UNL) as `tail`, in hex.
 fn join(account: &[u8], scheme: &[u8]) -> Vec<u8> {
-    let Value::Object(mut joined) = serde_json::from_slice::<Value>(scheme).unwrap() else {
-        panic!("a scheme's state is an object");
-    };
-    let Value::Object(mut account) = serde_json::from_slice::<Value>(account).unwrap() else {
-        panic!("an account's state is an object");
-    };
-    if let Some(Value::Array(in_flight)) = account.get_mut("in_flight") {
-        for entry in in_flight.iter_mut() {
-            if let Value::Object(entry) = entry {
-                entry.remove("scheme");
+    let mut joined = decode_scheme(scheme);
+    joined.append(&mut decode_account(account));
+    serde_json::to_vec(&joined).unwrap()
+}
+
+/// Bytes being written, as the crate writes its states.
+struct Out(Vec<u8>);
+
+impl Out {
+    fn new() -> Self {
+        Self(vec![1])
+    }
+
+    fn u8(&mut self, value: u8) {
+        self.0.push(value);
+    }
+
+    fn bool(&mut self, value: bool) {
+        self.u8(if value { 0xff } else { 0 });
+    }
+
+    fn u32(&mut self, value: u32) {
+        self.0.extend_from_slice(&value.to_be_bytes());
+    }
+
+    fn u64(&mut self, value: u64) {
+        self.0.extend_from_slice(&value.to_be_bytes());
+    }
+
+    fn bytes(&mut self, bytes: &[u8]) {
+        self.0.extend_from_slice(bytes);
+    }
+
+    fn octets(&mut self, bytes: &[u8]) {
+        self.u32(u32::try_from(bytes.len()).unwrap());
+        self.bytes(bytes);
+    }
+
+    fn name(&mut self, name: &str) {
+        self.u8(u8::try_from(name.len()).ok().unwrap_or(u8::MAX));
+        self.bytes(name.as_bytes());
+    }
+}
+
+/// Bytes being read: each `None` is the end of the input.
+struct In<'a>(&'a [u8]);
+
+impl<'a> In<'a> {
+    fn take(&mut self, count: usize) -> Option<&'a [u8]> {
+        let (taken, rest) = self.0.split_at_checked(count)?;
+        self.0 = rest;
+        Some(taken)
+    }
+
+    fn u8(&mut self) -> Option<u8> {
+        Some(self.take(1)?[0])
+    }
+
+    fn bool(&mut self) -> Option<bool> {
+        Some(self.u8()? != 0)
+    }
+
+    fn u32(&mut self) -> Option<u32> {
+        Some(u32::from_be_bytes(self.take(4)?.try_into().ok()?))
+    }
+
+    fn u64(&mut self) -> Option<u64> {
+        Some(u64::from_be_bytes(self.take(8)?.try_into().ok()?))
+    }
+
+    fn octets(&mut self) -> Option<&'a [u8]> {
+        let length = usize::try_from(self.u32()?).ok()?;
+        self.take(length)
+    }
+
+    fn name(&mut self) -> Option<String> {
+        let length = usize::from(self.u8()?);
+        Some(String::from_utf8_lossy(self.take(length)?).into_owned())
+    }
+
+    fn hex(&mut self, count: usize) -> Option<Value> {
+        Some(dassie_xrpl::hex_upper(self.take(count)?).into())
+    }
+}
+
+fn number(value: Option<&Value>) -> Option<u64> {
+    value?.as_u64()
+}
+
+fn small(value: Option<&Value>) -> Option<u32> {
+    u32::try_from(number(value)?).ok()
+}
+
+fn hash(value: Option<&Value>) -> Option<[u8; 32]> {
+    dassie_xrpl::from_hex(value?.as_str()?)?.try_into().ok()
+}
+
+fn list<'a>(state: &'a Map<String, Value>, key: &str) -> Option<&'a [Value]> {
+    match state.get(key) {
+        None => Some(&[]),
+        Some(value) => Some(value.as_array()?.as_slice()),
+    }
+}
+
+/// What a transaction is, as the account writes it.
+fn kind(entry: &Value, out: &mut Out) -> Option<bool> {
+    let trust_set = entry
+        .get("trust_set")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    match (entry.get("token"), trust_set) {
+        (_, true) => out.u8(2),
+        (Some(token), false) => {
+            out.u8(1);
+            out.u64(dassie_xrpl::amount::TokenValue::parse(token.as_str()?)?.to_bits());
+        }
+        (None, false) => out.u8(0),
+    }
+    Some(trust_set)
+}
+
+fn encode_account(state: &Map<String, Value>) -> Option<Vec<u8>> {
+    let mut out = Out::new();
+    out.u32(small(state.get("sequence"))?);
+    out.u64(number(state.get("write_offs")).unwrap_or(0));
+    let in_flight = state.get("in_flight")?.as_array()?;
+    out.u32(u32::try_from(in_flight.len()).ok()?);
+    for entry in in_flight {
+        let scheme = entry.get("scheme").and_then(Value::as_str);
+        out.name(scheme.unwrap_or(dassie_xrpl::scheme::SCHEME_ID));
+        if kind(entry, &mut out)? {
+            out.u64(number(entry.get("reserve")).unwrap_or(0));
+        }
+        out.octets(&dassie_xrpl::from_hex(entry.get("blob")?.as_str()?)?);
+        out.u64(number(entry.get("drops"))?);
+        out.u64(number(entry.get("fee"))?);
+        out.u32(small(entry.get("sequence"))?);
+        out.u32(small(entry.get("last_ledger"))?);
+        out.u32(small(entry.get("submitted_at"))?);
+        let executed = entry.get("executed").map_or(Some(true), Value::as_bool)?;
+        out.bool(executed);
+    }
+    let never_sent = list(state, "never_sent")?;
+    out.u32(u32::try_from(never_sent.len()).ok()?);
+    for entry in never_sent {
+        out.name(entry.get("scheme")?.as_str()?);
+        out.bytes(&hash(entry.get("hash"))?);
+    }
+    let parked = list(state, "parked")?;
+    out.u32(u32::try_from(parked.len()).ok()?);
+    for entry in parked {
+        out.name(entry.get("scheme")?.as_str()?);
+        kind(entry, &mut out)?;
+        out.bytes(&hash(entry.get("hash"))?);
+        out.u64(number(entry.get("drops"))?);
+    }
+    if let Some(tail) = state.get("tail") {
+        out.bytes(&dassie_xrpl::from_hex(tail.as_str()?)?);
+        return Some(out.0);
+    }
+    // No anchor, written at 0, and a UNL with nothing of its publishers.
+    out.bool(false);
+    out.u64(0);
+    out.u32(0);
+    out.u32(0);
+    out.bool(false);
+    Some(out.0)
+}
+
+fn decode_account(state: &[u8]) -> Map<String, Value> {
+    let mut input = In(state);
+    let mut joined = Map::new();
+    assert_eq!(input.u8(), Some(1), "version 1");
+    let mut read = || -> Option<()> {
+        joined.insert("sequence".into(), input.u32()?.into());
+        joined.insert("write_offs".into(), input.u64()?.into());
+        let mut in_flight = Vec::new();
+        for _ in 0..input.u32()? {
+            let mut entry = Map::new();
+            entry.insert("scheme".into(), input.name()?.into());
+            match input.u8()? {
+                1 => {
+                    let bits = input.u64()?;
+                    let token = dassie_xrpl::amount::TokenValue::from_bits(bits)?;
+                    entry.insert("token".into(), token.to_string().into());
+                }
+                2 => {
+                    entry.insert("trust_set".into(), true.into());
+                    entry.insert("reserve".into(), input.u64()?.into());
+                }
+                _ => {}
             }
+            entry.insert(
+                "blob".into(),
+                dassie_xrpl::hex_upper(input.octets()?).into(),
+            );
+            entry.insert("drops".into(), input.u64()?.into());
+            entry.insert("fee".into(), input.u64()?.into());
+            entry.insert("sequence".into(), input.u32()?.into());
+            entry.insert("last_ledger".into(), input.u32()?.into());
+            entry.insert("submitted_at".into(), input.u32()?.into());
+            entry.insert("executed".into(), input.bool()?.into());
+            in_flight.push(Value::Object(entry));
+        }
+        joined.insert("in_flight".into(), in_flight.into());
+        let mut never_sent = Vec::new();
+        for _ in 0..input.u32()? {
+            let scheme = input.name()?;
+            never_sent.push(serde_json::json!({ "scheme": scheme, "hash": input.hex(32)? }));
+        }
+        joined.insert("never_sent".into(), never_sent.into());
+        let mut parked = Vec::new();
+        for _ in 0..input.u32()? {
+            let mut entry = Map::new();
+            entry.insert("scheme".into(), input.name()?.into());
+            match input.u8()? {
+                1 => {
+                    let token = dassie_xrpl::amount::TokenValue::from_bits(input.u64()?)?;
+                    entry.insert("token".into(), token.to_string().into());
+                }
+                2 => {
+                    entry.insert("trust_set".into(), true.into());
+                }
+                _ => {}
+            }
+            entry.insert("hash".into(), input.hex(32)?);
+            entry.insert("drops".into(), input.u64()?.into());
+            parked.push(Value::Object(entry));
+        }
+        joined.insert("parked".into(), parked.into());
+        joined.insert("tail".into(), dassie_xrpl::hex_upper(input.0).into());
+        Some(())
+    };
+    assert!(read().is_some(), "a state the account wrote");
+    joined
+}
+
+fn encode_scheme(state: &Map<String, Value>) -> Option<Vec<u8>> {
+    let mut out = Out::new();
+    match state.get("cursor") {
+        None | Some(Value::Null) => out.bool(false),
+        Some(cursor) => {
+            out.bool(true);
+            out.u32(small(cursor.get(0))?);
+            out.u32(small(cursor.get(1))?);
         }
     }
-    joined.append(&mut account);
-    serde_json::to_vec(&joined).unwrap()
+    out.u64(number(state.get("write_offs")).unwrap_or(0));
+    let peers = match state.get("peers") {
+        None => &Map::new(),
+        Some(peers) => peers.as_object()?,
+    };
+    out.u32(u32::try_from(peers.len()).ok()?);
+    for (peer, address) in peers {
+        out.name(peer);
+        out.bytes(&AccountId::parse(address.as_str()?)?.0);
+    }
+    let recovering = list(state, "recovering")?;
+    let unread = list(state, "unread")?;
+    out.u32(u32::try_from(recovering.len()).ok()?);
+    for entry in recovering {
+        out.bytes(&hash(Some(entry))?);
+        out.bool(unread.contains(entry));
+    }
+    let entries = list(state, "entries")?;
+    out.u32(u32::try_from(entries.len()).ok()?);
+    for entry in entries {
+        out.name(entry.get(0)?.as_str()?);
+        out.bytes(&AccountId::parse(entry.get(1)?.as_str()?)?.0);
+        out.u64(number(entry.get(2))?);
+        out.bytes(&hash(entry.get(3))?);
+        out.u32(small(entry.get(4))?);
+    }
+    match state.get("owner_payment") {
+        None | Some(Value::Null) => out.bool(false),
+        Some(payment) => {
+            out.bool(true);
+            out.bytes(&hash(payment.get(0))?);
+            out.u64(number(payment.get(1))?);
+        }
+    }
+    match state.get("owner_outcome") {
+        None | Some(Value::Null) => out.bool(false),
+        Some(outcome) => {
+            out.bool(true);
+            out.bytes(&hash(outcome.get(0))?);
+            out.u8(u8::try_from(number(outcome.get(1))?).ok()?);
+        }
+    }
+    Some(out.0)
+}
+
+fn decode_scheme(state: &[u8]) -> Map<String, Value> {
+    let mut input = In(state);
+    let mut joined = Map::new();
+    assert_eq!(input.u8(), Some(1), "version 1");
+    let mut read = || -> Option<()> {
+        let cursor = if input.bool()? {
+            serde_json::json!([input.u32()?, input.u32()?])
+        } else {
+            Value::Null
+        };
+        joined.insert("cursor".into(), cursor);
+        joined.insert("write_offs".into(), input.u64()?.into());
+        let mut peers = Map::new();
+        for _ in 0..input.u32()? {
+            let peer = input.name()?;
+            let address = AccountId(input.take(20)?.try_into().ok()?);
+            peers.insert(peer, address.to_address().into());
+        }
+        joined.insert("peers".into(), peers.into());
+        let (mut recovering, mut unread) = (Vec::new(), Vec::new());
+        for _ in 0..input.u32()? {
+            let hash = input.hex(32)?;
+            if input.bool()? {
+                unread.push(hash.clone());
+            }
+            recovering.push(hash);
+        }
+        joined.insert("recovering".into(), recovering.into());
+        joined.insert("unread".into(), unread.into());
+        let mut entries = Vec::new();
+        for _ in 0..input.u32()? {
+            let node = input.name()?;
+            let from = AccountId(input.take(20)?.try_into().ok()?).to_address();
+            let amount = input.u64()?;
+            let hash = input.hex(32)?;
+            let until = input.u32()?;
+            entries.push(serde_json::json!([node, from, amount, hash, until]));
+        }
+        joined.insert("entries".into(), entries.into());
+        let payment = if input.bool()? {
+            serde_json::json!([input.hex(32)?, input.u64()?])
+        } else {
+            Value::Null
+        };
+        joined.insert("owner_payment".into(), payment);
+        let outcome = if input.bool()? {
+            serde_json::json!([input.hex(32)?, input.u8()?])
+        } else {
+            Value::Null
+        };
+        joined.insert("owner_outcome".into(), outcome);
+        input.0.is_empty().then_some(())
+    };
+    assert!(read().is_some(), "a state the scheme wrote");
+    joined
 }

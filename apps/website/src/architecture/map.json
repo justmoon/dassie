@@ -456,7 +456,7 @@
         "Pays a token scheme's fees in XRP: booked on the XRP ledger when the XRP scheme shares the account, off the books otherwise",
         "Stops settling while the issuer freezes the line, and stops asking peers to pay while the line cannot receive",
         "Pauses a dollar token's scheme, and the node's conversions to and from its ledger, while the token's AMM pool, priced at the node's XRP rate, says it is off its dollar peg or cannot be read",
-        "Never books the reserve, and catches up after a restart",
+        "Never books the reserve, and catches up after a restart from what the account and each scheme keep, each in one versioned encoding that a reader of another version refuses",
         "Asks the testnet faucet when the account is new, or when the owner wants more test XRP; mainnet has none, so its account waits for the owner's deposit",
         "Reports what the account holds, as its anchor proves it, for the wallet: XRP and its reserve, and each line with its freezes",
         "Fakes the ledger for tests: XRP, trust lines, token payments through the issuer and their failures, issuers of DSUSD and RLUSD that mint, freeze and claw back, AMM pools that Payments with a `SendMax` swap through, and signer lists, regular keys and destination tags, with who may sign checked again as a transaction applies",
@@ -1134,6 +1134,12 @@
     {
       "f": "xrpl",
       "t": "ledger",
+      "k": "uses",
+      "h": true
+    },
+    {
+      "f": "xrpl",
+      "t": "oer",
       "k": "uses",
       "h": true
     },

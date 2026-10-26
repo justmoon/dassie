@@ -58,6 +58,7 @@ use dassie_settlement::{
 };
 use serde_json::{Value, json};
 
+use crate::UNITS_PER_DROP;
 use crate::amount::{IssuedAsset, TokenAmount, TokenValue};
 use crate::anchor::{KeptAnchor, ProvenLists};
 use crate::api::{
@@ -65,13 +66,13 @@ use crate::api::{
     TxRecord,
 };
 use crate::codec::{Amount, Memo, Payment, Signing, Transact, TrustSet};
+use crate::kept::{In, Out};
 use crate::keys::{AccountId, PublicKey, Wallet};
 use crate::network::{Network, TESTNET};
 use crate::peg::PoolReading;
 use crate::records::Decoded;
 use crate::unl::{Secp256k1Signatures, Unl, ValidationSignatures};
 use crate::validator_list::{MAX_PUBLISHERS, UnlConfig};
-use crate::{UNITS_PER_DROP, from_hex, hex_upper};
 
 use anchors::Round;
 pub use anchors::{
@@ -182,15 +183,6 @@ pub(crate) const ACCOUNT_GONE: &str =
 #[must_use]
 pub const fn resets(network_id: u32) -> bool {
     network_id == TESTNET_NETWORK_ID
-}
-
-/// The newest validated ledger a state written before anchors kept: its
-/// index, and when it closed, in seconds since the XRP Ledger's epoch. A
-/// hint, without a hash, which the first anchor replaces.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct Validated {
-    index: u32,
-    close_time: u64,
 }
 
 /// Where the account connects, and where it asks for test XRP.
@@ -547,9 +539,6 @@ pub struct XrplAccount {
     /// with the books whenever the rest is: any anchor of the chain tells
     /// a server behind from a chain started again.
     anchor: Option<KeptAnchor>,
-    /// The newest ledger a state written before anchors kept: a hint the
-    /// first anchor replaces.
-    hint: Option<Validated>,
     /// The UNL, from its publishers' lists, with the validators'
     /// manifests: kept with the books.
     unl: Unl,
@@ -684,7 +673,6 @@ impl XrplAccount {
             parked: Vec::new(),
             write_offs: 0,
             anchor: None,
-            hint: None,
             unl: Unl::new(config.unl.clone()),
             unl_changes: 0,
             signatures: Box::new(Secp256k1Signatures),
@@ -734,7 +722,8 @@ impl XrplAccount {
             effects: Vec::new(),
         };
         if !state.is_empty() {
-            account.restore(state).ok_or(SchemeError::InvalidData)?;
+            let mut input = In::state(state).ok_or(SchemeError::InvalidData)?;
+            account.read(&mut input).ok_or(SchemeError::InvalidData)?;
         }
         Ok(account)
     }
@@ -1989,143 +1978,95 @@ impl XrplAccount {
         mix
     }
 
-    fn state_value(&self) -> Value {
-        let in_flight: Vec<Value> = self
-            .in_flight
-            .iter()
-            .map(|t| {
-                let mut entry = json!({
-                    "scheme": t.scheme.as_str(),
-                    "blob": hex_upper(&t.blob),
-                    "drops": t.drops,
-                    "fee": t.fee,
-                    "sequence": t.sequence,
-                    "last_ledger": t.last_ledger,
-                    "submitted_at": t.submitted_at,
-                    "executed": t.executed,
-                });
-                // A Payment of XRP is written as it always was.
-                if let Some(object) = entry.as_object_mut() {
-                    if let Some(token) = t.token {
-                        object.insert("token".into(), token.to_string().into());
-                    }
-                    if t.trust_set {
-                        object.insert("trust_set".into(), true.into());
-                        object.insert("reserve".into(), t.reserve.into());
-                    }
-                }
-                entry
-            })
-            .collect();
-        let never_sent: Vec<Value> = self
-            .never_sent
-            .iter()
-            .map(|n| json!({ "scheme": n.scheme.as_str(), "hash": hex_upper(&n.hash) }))
-            .collect();
-        let parked: Vec<Value> = self
-            .parked
-            .iter()
-            .map(|p| {
-                let mut entry = json!({
-                    "scheme": p.scheme.as_str(),
-                    "hash": hex_upper(&p.hash),
-                    "drops": p.drops,
-                });
-                if let Some(object) = entry.as_object_mut() {
-                    if let Some(token) = p.token {
-                        object.insert("token".into(), token.to_string().into());
-                    }
-                    if p.trust_set {
-                        object.insert("trust_set".into(), true.into());
-                    }
-                }
-                entry
-            })
-            .collect();
-        json!({
-            "sequence": self.sequence,
-            "in_flight": in_flight,
-            "never_sent": never_sent,
-            "parked": parked,
-            "write_offs": self.write_offs,
-            "anchor": self.anchor.as_ref().map(KeptAnchor::state),
-            "newest": self.hint.map(|hint| json!([hint.index, hint.close_time])),
-            "unl": self.unl.state(),
-            "unl_at_ms": self.now_ms,
-        })
+    /// Writes what it keeps, after the version, in this order: the next
+    /// sequence, the count of write-offs, the transactions in flight, never
+    /// sent and kept for a scheme not on it, the anchor, the time it was
+    /// written at, and the UNL as of then
+    /// (spec/areas/xrpl.md#state-and-restarts).
+    fn write(&self, out: &mut Out) {
+        out.u32(self.sequence);
+        out.u64(self.write_offs);
+        out.count(self.in_flight.len());
+        for transaction in &self.in_flight {
+            assert!(
+                transaction.blob.len() <= MAX_BLOB_BYTES,
+                "a transaction the account signs fits its state"
+            );
+            out.name(transaction.scheme);
+            write_kind(out, transaction.token, transaction.trust_set);
+            if transaction.trust_set {
+                out.u64(transaction.reserve);
+            }
+            out.octets(&transaction.blob);
+            out.u64(transaction.drops);
+            out.u64(transaction.fee);
+            out.u32(transaction.sequence);
+            out.u32(transaction.last_ledger);
+            out.u32(transaction.submitted_at);
+            out.bool(transaction.executed);
+        }
+        out.count(self.never_sent.len());
+        for never_sent in &self.never_sent {
+            out.name(never_sent.scheme);
+            out.bytes(&never_sent.hash);
+        }
+        out.count(self.parked.len());
+        for parked in &self.parked {
+            out.name(parked.scheme);
+            write_kind(out, parked.token, parked.trust_set);
+            out.bytes(&parked.hash);
+            out.u64(parked.drops);
+        }
+        out.option(self.anchor.as_ref(), |out, anchor| anchor.write(out));
+        out.u64(self.now_ms);
+        self.unl.write(out);
     }
 
-    fn restore(&mut self, state: &[u8]) -> Option<()> {
-        let value: Value = serde_json::from_slice(state).ok()?;
-        let number = |value: &Value| u32::try_from(value.as_u64()?).ok();
-        self.sequence = number(value.get("sequence")?)?;
-        // Written only since schemes keep the count too: before, none
-        // missed a write-off.
-        self.write_offs = match value.get("write_offs") {
-            None => 0,
-            Some(count) => count.as_u64()?,
-        };
-        self.anchor = match value.get("anchor") {
-            None | Some(Value::Null) => None,
-            Some(anchor) => Some(KeptAnchor::restore(anchor)?),
-        };
-        self.validated = self.anchor.map_or(0, |kept| kept.anchor.index);
-        // A state written before anchors kept the newest ledger seen
-        // without a hash: a hint, which the first anchor replaces.
-        self.hint = match value.get("newest") {
-            None | Some(Value::Null) => None,
-            Some(_) if self.anchor.is_some() => return None,
-            Some(newest) => Some(Validated {
-                index: number(newest.get(0)?)?,
-                close_time: newest.get(1)?.as_u64()?,
-            }),
-        };
-        // Lists and manifests verify again, as of when they were written:
-        // what no longer does, as for publishers the owner changed, is
-        // dropped and fetched again; what expired since goes as time moves
-        // on.
-        if let Some(unl) = value.get("unl") {
-            let at_ms = value.get("unl_at_ms").and_then(Value::as_u64).unwrap_or(0);
-            self.unl = Unl::restore(self.config.unl.clone(), unl, at_ms)?;
-        }
+    /// Reads back what [`Self::write`] wrote, after the version, and every
+    /// byte of it. `None` for a state the account never writes.
+    fn read(&mut self, input: &mut In<'_>) -> Option<()> {
+        self.sequence = input.u32()?;
+        self.write_offs = input.u64()?;
         // More than the account keeps is a state it did not write: refused,
-        // rather than orphaning a settlement by dropping it.
-        let in_flight = value.get("in_flight")?.as_array()?;
-        let never_sent = value.get("never_sent")?.as_array()?;
-        // Written only since the account kept transactions for schemes not
-        // on it.
-        let parked = match value.get("parked") {
-            None => &[][..],
-            Some(parked) => parked.as_array()?.as_slice(),
-        };
-        if in_flight.len() > MAX_IN_FLIGHT
-            || never_sent.len() > MAX_NEVER_SENT
-            || parked.len() > MAX_PARKED
-        {
-            return None;
+        // rather than orphaning a settlement by dropping it. A transaction
+        // in flight is at least 36 bytes, one never sent 34, one kept 43.
+        let count = input.count(36, MAX_IN_FLIGHT)?;
+        for _ in 0..count {
+            self.in_flight.push(read_in_flight(input)?);
         }
-        for entry in in_flight {
-            self.in_flight.push(restore_in_flight(entry)?);
-        }
-        for entry in never_sent {
+        let count = input.count(34, MAX_NEVER_SENT)?;
+        for _ in 0..count {
             self.never_sent.push(NeverSent {
-                scheme: Name::new(entry.get("scheme")?.as_str()?).ok()?,
-                hash: from_hex(entry.get("hash")?.as_str()?)?.try_into().ok()?,
+                scheme: input.name()?,
+                hash: input.array()?,
             });
         }
-        for entry in parked {
-            let (token, trust_set) = token_and_trust_set(entry)?;
+        let count = input.count(43, MAX_PARKED)?;
+        for _ in 0..count {
+            let scheme = input.name()?;
+            let (token, trust_set) = read_kind(input)?;
+            let hash = input.array()?;
+            let drops = input.u64().filter(|&drops| drops <= MAX_ACCOUNT_DROPS)?;
+            if trust_set && drops > 0 {
+                return None;
+            }
             self.parked.push(Parked {
-                scheme: Name::new(entry.get("scheme")?.as_str()?).ok()?,
-                hash: from_hex(entry.get("hash")?.as_str()?)?.try_into().ok()?,
-                drops: entry
-                    .get("drops")?
-                    .as_u64()
-                    .filter(|&drops| drops <= MAX_ACCOUNT_DROPS)?,
+                scheme,
+                hash,
+                drops,
                 token,
                 trust_set,
             });
         }
+        self.anchor = input.option(KeptAnchor::read)?;
+        self.validated = self.anchor.map_or(0, |kept| kept.anchor.index);
+        // Lists and manifests verify again, as of when they were written:
+        // what no longer does, as for publishers the owner changed, is
+        // dropped and fetched again; what expired since goes as time moves
+        // on.
+        let at_ms = input.u64()?;
+        self.unl = Unl::read(self.config.unl.clone(), input, at_ms)?;
+        input.finish()?;
         // Each transaction once, in flight, never sent or kept, of a scheme
         // that may settle through the account, no more of a scheme's in
         // flight and kept than it can have in flight, and every one in
@@ -2162,56 +2103,74 @@ impl XrplAccount {
     }
 }
 
-/// What a transaction the account wrote pays of a token, and whether it is
-/// a `TrustSet`: neither is written for a Payment of XRP, as before tokens.
-fn token_and_trust_set(entry: &Value) -> Option<(Option<TokenValue>, bool)> {
-    let token = match entry.get("token") {
-        None => None,
-        Some(token) => Some(TokenValue::parse(token.as_str()?)?),
-    };
-    let trust_set = match entry.get("trust_set") {
-        None => false,
-        Some(trust_set) => trust_set.as_bool()?,
-    };
-    // A TrustSet pays no token.
-    (!(trust_set && token.is_some())).then_some((token, trust_set))
+/// The longest transaction the account keeps in flight, in bytes: a
+/// Payment or a `TrustSet` it signed, with at most one short memo, is far
+/// shorter.
+const MAX_BLOB_BYTES: usize = 4096;
+
+/// What a transaction the account keeps is, as its state writes it.
+const KIND_XRP_PAYMENT: u8 = 0;
+const KIND_TOKEN_PAYMENT: u8 = 1;
+const KIND_TRUST_SET: u8 = 2;
+
+/// Writes what a transaction is: a Payment of XRP, a Payment of `token`,
+/// or a `TrustSet`, and for a Payment of a token what it pays.
+fn write_kind(out: &mut Out, token: Option<TokenValue>, trust_set: bool) {
+    match (token, trust_set) {
+        (_, true) => out.u8(KIND_TRUST_SET),
+        (Some(token), false) => {
+            out.u8(KIND_TOKEN_PAYMENT);
+            out.token(token);
+        }
+        (None, false) => out.u8(KIND_XRP_PAYMENT),
+    }
 }
 
-/// One transaction in flight, as the account wrote it.
-fn restore_in_flight(entry: &Value) -> Option<InFlight> {
-    let number = |value: &Value| u32::try_from(value.as_u64()?).ok();
-    let blob = from_hex(entry.get("blob")?.as_str()?)?;
-    let executed = entry
-        .get("executed")
-        .and_then(Value::as_bool)
-        .unwrap_or(true);
-    let (token, trust_set) = token_and_trust_set(entry)?;
-    let reserve = match entry.get("reserve") {
-        None => 0,
-        Some(reserve) => reserve.as_u64().filter(|&r| r <= MAX_ACCOUNT_DROPS)?,
+/// What [`write_kind`] wrote: the token a Payment of a token pays, and
+/// whether it is a `TrustSet`.
+fn read_kind(input: &mut In<'_>) -> Option<(Option<TokenValue>, bool)> {
+    match input.u8()? {
+        KIND_XRP_PAYMENT => Some((None, false)),
+        KIND_TOKEN_PAYMENT => Some((Some(input.token()?), false)),
+        KIND_TRUST_SET => Some((None, true)),
+        _ => None,
+    }
+}
+
+/// One transaction in flight, as the account wrote it. Only a `TrustSet`
+/// takes a reserve, and it pays nothing.
+fn read_in_flight(input: &mut In<'_>) -> Option<InFlight> {
+    let scheme = input.name()?;
+    let (token, trust_set) = read_kind(input)?;
+    let reserve = if trust_set {
+        input
+            .u64()
+            .filter(|&reserve| reserve <= MAX_ACCOUNT_DROPS)?
+    } else {
+        0
     };
-    // A TrustSet pays no token, and only a TrustSet takes a reserve.
-    if (trust_set && token.is_some()) || (!trust_set && reserve > 0) {
+    let blob = input.octets(MAX_BLOB_BYTES)?.to_vec();
+    let drops = input.u64().filter(|&drops| drops <= MAX_ACCOUNT_DROPS)?;
+    let fee = input.u64().filter(|&fee| fee <= MAX_ACCOUNT_DROPS)?;
+    if trust_set && drops > 0 {
         return None;
     }
+    let sequence = input.u32()?;
+    let last_ledger = input.u32()?;
+    let submitted_at = input.u32()?;
+    let executed = input.bool()?;
     Some(InFlight {
-        scheme: Name::new(entry.get("scheme")?.as_str()?).ok()?,
+        scheme,
         hash: crate::codec::hash(&blob),
         blob,
-        drops: entry
-            .get("drops")?
-            .as_u64()
-            .filter(|&drops| drops <= MAX_ACCOUNT_DROPS)?,
-        fee: entry
-            .get("fee")?
-            .as_u64()
-            .filter(|&fee| fee <= MAX_ACCOUNT_DROPS)?,
+        drops,
+        fee,
         token,
         trust_set,
         reserve,
-        sequence: number(entry.get("sequence")?)?,
-        last_ledger: number(entry.get("last_ledger")?)?,
-        submitted_at: number(entry.get("submitted_at")?)?,
+        sequence,
+        last_ledger,
+        submitted_at,
         executed,
         needs_submit: executed,
         looked_up: false,
@@ -2524,7 +2483,9 @@ impl ExternalAsset for XrplAccount {
     }
 
     fn state(&self) -> Vec<u8> {
-        serde_json::to_vec(&self.state_value()).unwrap_or_default()
+        let mut out = Out::state();
+        self.write(&mut out);
+        out.0
     }
 
     fn state_version(&self) -> u64 {
@@ -2576,10 +2537,6 @@ impl ExternalAsset for XrplAccount {
         assert!(self.next_id >= 1, "request IDs start at 1");
         self.fetches.check_invariants(&self.config.unl);
         assert_eq!(self.unl.config(), &self.config.unl, "the config's UNL");
-        assert!(
-            self.anchor.is_none() || self.hint.is_none(),
-            "a hint only until the first anchor"
-        );
         if let Some(kept) = &self.anchor {
             kept.check_invariants();
             assert!(
@@ -2602,10 +2559,8 @@ mod tests {
     use crate::unl::Anchor;
     use anchors::judge;
 
-    const NEWEST: Validated = Validated {
-        index: 5_000_000,
-        close_time: 800_000_000,
-    };
+    /// A validated ledger's index, as a test's newest.
+    const NEWEST: u32 = 5_000_000;
 
     fn ledger(index: u32, close_time: u32, hash: u8) -> Anchor {
         Anchor {
@@ -2634,12 +2589,12 @@ mod tests {
     // another chain, a reset only where the network resets (`resets`); a
     // higher one that closed earlier is of an older chain, ignored where
     // the network resets and a fork elsewhere; a higher one that closed
-    // later is current once its skip lists hold the kept anchor. A state written before anchors kept the newest ledger
-    // without its hash, which the chain rule judges alone.
+    // later is current once its skip lists hold the kept anchor. With
+    // none kept, any is taken.
     #[test]
     fn an_anchor_is_judged_against_the_one_kept() {
         let kept = ledger(5_000_000, 800_000_000, 1);
-        let judged = |new: Anchor| judge(Some(&kept), None, &new);
+        let judged = |new: Anchor| judge(Some(&kept), &new);
         assert_eq!(judged(kept), Judged::Take);
         assert_eq!(judged(ledger(4_999_990, 799_999_960, 2)), Judged::Older);
         assert_eq!(judged(ledger(2_000, 800_000_004, 3)), Judged::Reset);
@@ -2647,11 +2602,7 @@ mod tests {
         assert_eq!(judged(ledger(5_000_000, 800_000_000, 4)), Judged::Ignore);
         assert_eq!(judged(ledger(5_000_001, 799_999_996, 5)), Judged::Ignore);
         assert_eq!(judged(ledger(5_000_001, 800_000_004, 6)), Judged::Later);
-        let hinted = |new: Anchor| judge(None, Some(NEWEST), &new);
-        assert_eq!(hinted(ledger(2_000, 800_000_004, 3)), Judged::Reset);
-        assert_eq!(hinted(ledger(4_999_990, 799_999_960, 2)), Judged::Older);
-        assert_eq!(hinted(ledger(5_000_001, 800_000_004, 6)), Judged::Take);
-        assert_eq!(judge(None, None, &ledger(2_000, 1, 3)), Judged::Take);
+        assert_eq!(judge(None, &ledger(2_000, 1, 3)), Judged::Take);
         // Only the testnet resets, whatever lets the account run elsewhere.
         assert!(resets(TESTNET_NETWORK_ID));
         for network in [0, 2, 21_338, u32::MAX] {
@@ -2713,8 +2664,8 @@ mod tests {
             .unwrap();
             let mut scheme = crate::XrplScheme::new(&account, node, Some(5_000), &[]).unwrap();
             account.phase = Phase::Synced;
-            account.at = Some((NEWEST.index, u32::MAX));
-            account.follow(scheme.id(), Some((NEWEST.index, u32::MAX)), true);
+            account.at = Some((NEWEST, u32::MAX));
+            account.follow(scheme.id(), Some((NEWEST, u32::MAX)), true);
             account.network_id = Some(network);
             account.absent();
             let mut effects = Vec::new();
@@ -2764,10 +2715,15 @@ mod tests {
         account.validated = 11 + LEDGER_WINDOW;
         account.expire();
         let never_sent = account.state();
-        let mut parked: Value = serde_json::from_slice(&never_sent).unwrap();
-        parked["never_sent"] = json!([]);
-        parked["parked"] = json!([{ "scheme": "b", "hash": hex_upper(&[3; 32]), "drops": 1 }]);
-        let parked = serde_json::to_vec(&parked).unwrap();
+        account.never_sent.clear();
+        account.parked.push(Parked {
+            scheme: b,
+            hash: [3; 32],
+            drops: 1,
+            token: None,
+            trust_set: false,
+        });
+        let parked = account.state();
         for state in [in_flight, never_sent, parked] {
             assert!(XrplAccount::new(FIRST, &[a, b], "", &[1; 32], &state).is_ok());
             assert!(XrplAccount::new(FIRST, &[a], "", &[1; 32], &state).is_err());
@@ -2787,15 +2743,15 @@ mod tests {
         for restarted in [true, false] {
             let mut account = synced_account(&[dsusd]);
             account.network_id = Some(TESTNET_NETWORK_ID);
-            let kept = ledger(NEWEST.index, 800_000_000, 1);
+            let kept = ledger(NEWEST, 800_000_000, 1);
             account.anchor = Some(KeptAnchor::of(kept, None));
-            account.validated = NEWEST.index;
+            account.validated = NEWEST;
             account.follow_line(crate::dsusd::LINE);
             let frozen = AccountSettings {
                 flags: api::account_flags::GLOBAL_FREEZE,
                 transfer_rate: 0,
                 regular_key: None,
-                ledger_index: NEWEST.index,
+                ledger_index: NEWEST,
                 validated: true,
             };
             account.issuers.insert(issuer, frozen);
@@ -2822,7 +2778,7 @@ mod tests {
     }
 
     // A scheme's state keeps which settlements it looks up it never read,
-    // each one it looks up, once: any other is a state it never wrote.
+    // each one it looks up once: any other is a state it never wrote.
     #[test]
     fn a_scheme_state_keeps_what_it_never_read() {
         use dassie_settlement::SettlementScheme;
@@ -2830,19 +2786,71 @@ mod tests {
         let id = dassie_ledger::name!(crate::scheme::SCHEME_ID);
         let account = synced_account(&[id]);
         let node = dassie_ledger::name!("node");
-        let (asked, other) = (hex_upper(&[1; 32]), hex_upper(&[2; 32]));
-        let state = |unread: Value| {
-            let state = json!({
-                "cursor": [10, u32::MAX], "peers": {}, "recovering": [asked], "unread": unread,
+        let state = |recovering: &[([u8; 32], bool)]| {
+            let mut out = Out::state();
+            out.option(Some((10, u32::MAX)), |out, (ledger, index)| {
+                out.u32(ledger);
+                out.u32(index);
             });
-            serde_json::to_vec(&state).unwrap()
+            out.u64(0);
+            out.count(0);
+            out.count(recovering.len());
+            for (hash, unread) in recovering {
+                out.bytes(hash);
+                out.bool(*unread);
+            }
+            out.count(0);
+            out.option(None::<()>, |_, ()| {});
+            out.option(None::<()>, |_, ()| {});
+            out.0
         };
-        let scheme = crate::XrplScheme::new(&account, node, Some(0), &state(json!([asked])));
-        let kept: Value = serde_json::from_slice(&scheme.unwrap().state()).unwrap();
-        assert_eq!(kept["unread"], json!([asked]));
-        for unread in [json!([other]), json!([asked, asked]), json!(asked)] {
-            let scheme = crate::XrplScheme::new(&account, node, Some(0), &state(unread));
-            assert!(scheme.is_err());
+        let kept = state(&[([1; 32], true), ([2; 32], false)]);
+        let scheme = crate::XrplScheme::new(&account, node, Some(0), &kept).unwrap();
+        assert_eq!(scheme.state(), kept);
+        let twice = state(&[([1; 32], true), ([1; 32], false)]);
+        assert!(crate::XrplScheme::new(&account, node, Some(0), &twice).is_err());
+        let mut longer = kept;
+        longer.push(0);
+        assert!(crate::XrplScheme::new(&account, node, Some(0), &longer).is_err());
+    }
+
+    // spec/areas/xrpl.md#state-and-restarts: a state is read whole, of its
+    // version alone: one cut short anywhere, with a byte more, or of
+    // another version is refused, the account's and a scheme's alike.
+    #[test]
+    fn a_state_is_read_whole_and_of_its_version() {
+        use dassie_settlement::SettlementScheme;
+
+        let id = dassie_ledger::name!(crate::scheme::SCHEME_ID);
+        let mut account = synced_account(&[id]);
+        let to = Wallet::from_entropy(&[2; 32]).account();
+        let hash = account.sign_payment(id, to, 1_000, Vec::new()).unwrap();
+        assert!(account.execute(id, hash));
+        let mut scheme =
+            crate::XrplScheme::new(&account, dassie_ledger::name!("node"), None, &[]).unwrap();
+        let mut info = Vec::new();
+        crate::follower::address_bytes(to, &mut info);
+        scheme.on_peered(dassie_ledger::name!("peer"), &info);
+        let (kept, scheme_kept) = (account.state(), scheme.state());
+        let restored = XrplAccount::new(FIRST, &[id], "", &[1; 32], &kept).unwrap();
+        assert_eq!(restored.state(), kept);
+        let node = dassie_ledger::name!("node");
+        let again = crate::XrplScheme::new(&restored, node, None, &scheme_kept).unwrap();
+        assert_eq!(again.state(), scheme_kept);
+        let refused = |state: &[u8]| {
+            XrplAccount::new(FIRST, &[id], "", &[1; 32], state).is_err()
+                && crate::XrplScheme::new(&restored, node, None, state).is_err()
+        };
+        for state in [&kept, &scheme_kept] {
+            for cut in 1..state.len() {
+                assert!(refused(&state[..cut]), "cut at {cut}");
+            }
+            let mut longer = state.clone();
+            longer.push(0);
+            assert!(refused(&longer));
+            let mut other = state.clone();
+            other[0] = 2;
+            assert!(refused(&other));
         }
     }
 }

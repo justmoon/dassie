@@ -65,6 +65,7 @@ const MIGRATIONS: &[&str] = &[
     MIGRATION_41,
     MIGRATION_42,
     MIGRATION_43,
+    MIGRATION_44,
 ];
 
 /// The schema version this code writes: the number of migrations.
@@ -1432,6 +1433,23 @@ CREATE INDEX ledger_transfers_by_credit_sequence ON ledger_transfers (credit, se
 CREATE INDEX ledger_transfers_by_packet ON ledger_transfers (packet_epoch, packet_sequence)
   WHERE packet_epoch IS NOT NULL;
 CREATE INDEX ledger_transfers_trust ON ledger_transfers (sequence) WHERE reference = 'trust';
+";
+
+/// The XRP Ledger accounts and their schemes keep their state in a strict,
+/// versioned encoding (spec/areas/xrpl.md#state-and-restarts), which reads
+/// none of the JSON written before. What they kept is dropped, and the
+/// node reads each account anew from the ledger at the next start, as a
+/// first start does, the schemes' balances kept: what the ledger holds
+/// beyond the books, or short of them, is reconciled through suspense, a
+/// settlement the books hold pending is looked up by its hash, and the
+/// lists are fetched again. So a transaction signed and not yet sent is
+/// looked up as any unknown one, and stays pending until found; a peer's
+/// address is learnt again when the node next settles with it, and a
+/// settlement from it before then is booked as a deposit; and the entry
+/// payments held are in the balance, reconciled through suspense.
+const MIGRATION_44: &str = "
+DELETE FROM asset_checkpoints WHERE asset LIKE 'xrpl-%';
+UPDATE settlement_checkpoints SET state = NULL WHERE scheme LIKE 'xrpl%';
 ";
 
 /// Columns that hold secrets: the database inspector never reads them.

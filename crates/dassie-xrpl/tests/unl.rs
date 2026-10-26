@@ -210,7 +210,7 @@ fn the_real_lists_are_kept_and_verify_again() {
     assert_eq!(restored, unl);
     assert_eq!(restored.state(), state);
     // Every validator's newest manifest is kept, also one the lists carry.
-    assert_eq!(state["manifests"].as_array().unwrap().len(), 35);
+    assert_eq!(restored.manifest_count(), 35);
     // Kept under Ripple's list alone, which lags behind for five of them,
     // the newer manifests come back all the same.
     let ripple_only = ripple_only();

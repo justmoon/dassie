@@ -60,7 +60,6 @@ use dassie_settlement::{
     OwnerPaymentState, PegView, PreparedSettlement, ReconcileCause, SchemeError, SettlementScheme,
 };
 use rand_core::CryptoRng;
-use serde_json::Value;
 
 use crate::account::{News, Ours, XrplAccount};
 use crate::amount::IssuedAsset;
@@ -69,6 +68,7 @@ use crate::api::{AccountInfo, AccountSettings, LineView, TxRecord};
 use crate::codec::{Memo, TF_SET_NO_RIPPLE};
 use crate::follower::{Follower, check_claim, failure_of, hash_name, narrow};
 use crate::from_hex;
+use crate::kept::{In, Out};
 use crate::keys::AccountId;
 use crate::network::Network;
 use crate::peg::{Guard, Peg, Timings};
@@ -730,14 +730,16 @@ fn paid(ours: &Ours) -> u64 {
 /// What is kept with the books: what every scheme on the account keeps,
 /// and the peg guard.
 impl<T: IssuedToken> TokenScheme<T> {
+    /// Reads back what [`SettlementScheme::state`] wrote: what every
+    /// scheme on the account keeps, then the peg guard, for a token that
+    /// has one, and every byte of it.
     fn restore(&mut self, state: &[u8]) -> Option<()> {
-        let value: Value = serde_json::from_slice(state).ok()?;
-        self.f.restore(&value)?;
-        // A state from before the guard has none: it starts anew.
-        if let (Some(peg), Some(kept)) = (T::TOKEN.peg, value.get("peg")) {
-            self.guard = Some(Guard::restore(peg, kept)?);
+        let mut input = In::state(state)?;
+        self.f.read(&mut input)?;
+        if let Some(peg) = T::TOKEN.peg {
+            self.guard = Some(Guard::read(peg, &mut input)?);
         }
-        Some(())
+        input.finish()
     }
 }
 
@@ -836,11 +838,12 @@ impl<T: IssuedToken> SettlementScheme for TokenScheme<T> {
     }
 
     fn state(&self) -> Vec<u8> {
-        let mut state = self.f.state();
+        let mut out = Out::state();
+        self.f.write(&mut out);
         if let Some(guard) = &self.guard {
-            state.insert("peg".into(), guard.state());
+            guard.write(&mut out);
         }
-        serde_json::to_vec(&state).unwrap_or_default()
+        out.0
     }
 
     fn state_version(&self) -> u64 {

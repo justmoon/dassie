@@ -12,7 +12,6 @@
 //! so the two schemes cannot drift apart.
 
 use alloc::collections::{BTreeMap, BTreeSet};
-use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
 use dassie_ledger::{MAX_TOTAL, Name};
@@ -20,15 +19,15 @@ use dassie_settlement::{
     Effect, EntryPayment, ExternalAsset, MAX_OWNER_MEMO_BYTES, OwnerPayment, OwnerPaymentState,
     PaymentFailure, ReconcileCause, SchemeError,
 };
-use serde_json::{Value, json};
 
 use crate::account::{News, Resumed, XrplAccount};
 use crate::api::TxRecord;
 use crate::codec::Memo;
 use crate::entry::Entries;
+use crate::from_hex;
+use crate::kept::{In, Out};
 use crate::keys::AccountId;
 use crate::scheme::{OWNER_MEMO_TYPE, account_of};
-use crate::{from_hex, hex_upper};
 
 /// Most peers whose addresses are kept: at least the node's settlement
 /// channels open, with core nodes and with downlinks, so every node it
@@ -671,7 +670,7 @@ impl Follower {
 
 /// What is kept with the books.
 impl Follower {
-    /// A number that changes whenever what [`Self::state`] keeps does,
+    /// A number that changes whenever what [`Self::write`] keeps does,
     /// cheaply, mixed with `extra`, a number of what the scheme keeps
     /// beside it: the node writes the state only then.
     pub(crate) fn fingerprint(&self, extra: u64) -> u64 {
@@ -695,134 +694,86 @@ impl Follower {
         }
         if let Some((hash, outcome)) = self.owner_outcome {
             add(u64::from(hash[0]) << 8 | u64::from(hash[1]));
-            add(outcome_code(outcome));
+            add(u64::from(outcome_code(outcome)));
         }
         self.entries.fingerprint(&mut add);
         mix
     }
 
-    /// What it keeps, as a JSON object the scheme may add to.
-    pub(crate) fn state(&self) -> serde_json::Map<String, Value> {
-        let peers: serde_json::Map<String, Value> = self
-            .peers
-            .iter()
-            .map(|(peer, (address, _))| (peer.as_str().to_string(), address.to_address().into()))
-            .collect();
-        let recovering: Vec<Value> = self
-            .recovering
-            .iter()
-            .map(|r| hex_upper(&r.hash).into())
-            .collect();
-        let unread: Vec<Value> = self
-            .recovering
-            .iter()
-            .filter(|r| r.unread)
-            .map(|r| Value::from(hex_upper(&r.hash)))
-            .collect();
-        let state = json!({
-            "cursor": self.cursor.map(|(ledger, index)| json!([ledger, index])),
-            "peers": peers,
-            "recovering": recovering,
-            "write_offs": self.write_offs,
-            "unread": unread,
-            "entries": self.entries.value(),
-            "owner_payment": self
-                .owner_payment
-                .map(|(hash, units)| json!([hex_upper(&hash), units])),
-            "owner_outcome": self
-                .owner_outcome
-                .map(|(hash, outcome)| json!([hex_upper(&hash), outcome_code(outcome)])),
+    /// Writes what it keeps, in this order: the cursor, the count of
+    /// write-offs, the peers' addresses in the order they were learnt, the
+    /// settlements looked up with whether each is unread, the entry
+    /// payments held, the owner's payment on its way and what became of
+    /// the last (spec/areas/xrpl.md#state-and-restarts). The scheme writes
+    /// the version before it, and what it keeps of its own after it.
+    pub(crate) fn write(&self, out: &mut Out) {
+        out.option(self.cursor, |out, (ledger, index)| {
+            out.u32(ledger);
+            out.u32(index);
         });
-        match state {
-            Value::Object(object) => object,
-            _ => serde_json::Map::new(),
+        out.u64(self.write_offs);
+        let mut peers: Vec<_> = self.peers.iter().collect();
+        peers.sort_by_key(|(_, (_, learnt))| *learnt);
+        out.count(peers.len());
+        for (peer, (address, _)) in peers {
+            out.name(*peer);
+            out.account(*address);
         }
+        out.count(self.recovering.len());
+        for recovering in &self.recovering {
+            out.bytes(&recovering.hash);
+            out.bool(recovering.unread);
+        }
+        self.entries.write(out);
+        out.option(self.owner_payment, |out, (hash, units)| {
+            out.bytes(&hash);
+            out.u64(units);
+        });
+        out.option(self.owner_outcome, |out, (hash, outcome)| {
+            out.bytes(&hash);
+            out.u8(outcome_code(outcome));
+        });
     }
 
-    /// Reads back what [`Self::state`] wrote. `None` for a state no
-    /// follower writes: more than it keeps, a settlement looked up twice,
+    /// Reads back what [`Self::write`] wrote. `None` for a state no
+    /// follower writes: more than it keeps, a peer or a settlement twice,
     /// entry payments before the first sync, an owner's payment of nothing
-    /// or of more than the books hold, or what the account keeps rather
-    /// than the scheme (a state never split from the account's is refused
-    /// rather than losing what was in flight).
-    pub(crate) fn restore(&mut self, value: &Value) -> Option<()> {
-        let object = value.as_object()?;
-        if ["sequence", "in_flight", "newest"]
-            .iter()
-            .any(|key| object.contains_key(*key))
-        {
-            return None;
+    /// or of more than the books hold, or an outcome it never writes.
+    pub(crate) fn read(&mut self, input: &mut In<'_>) -> Option<()> {
+        self.cursor = input.option(|input| Some((input.u32()?, input.u32()?)))?;
+        self.write_offs = input.u64()?;
+        // A name is at least two bytes, and an address twenty.
+        let peers = input.count(22, MAX_PEERS)?;
+        for _ in 0..peers {
+            let (peer, address) = (input.name()?, input.account()?);
+            if self.peers.contains_key(&peer) {
+                return None;
+            }
+            self.learn(peer, address);
         }
-        let number = |value: &Value| u32::try_from(value.as_u64()?).ok();
-        self.cursor = match value.get("cursor")? {
-            Value::Null => None,
-            cursor => Some((number(cursor.get(0)?)?, number(cursor.get(1)?)?)),
-        };
-        // Written only since the account counts them, before which none
-        // was missed.
-        self.write_offs = match value.get("write_offs") {
-            None => 0,
-            Some(count) => count.as_u64()?,
-        };
-        let peers = value.get("peers")?.as_object()?;
-        let recovering = value
-            .get("recovering")
-            .and_then(Value::as_array)
-            .map_or(&[][..], Vec::as_slice);
-        if peers.len() > MAX_PEERS || recovering.len() > MAX_RECOVERING {
-            return None;
-        }
-        for (peer, address) in peers {
-            self.learn(Name::new(peer).ok()?, AccountId::parse(address.as_str()?)?);
-        }
-        for hash in recovering {
-            let hash: [u8; 32] = from_hex(hash.as_str()?)?.try_into().ok()?;
+        let recovering = input.count(33, MAX_RECOVERING)?;
+        for _ in 0..recovering {
+            let hash = input.array::<32>()?;
             if self.recovering.iter().any(|r| r.hash == hash) {
                 return None;
             }
-            self.recovering.push(Recovering::new(hash));
+            let mut kept = Recovering::new(hash);
+            kept.unread = input.bool()?;
+            self.recovering.push(kept);
         }
-        self.restore_unread(value)?;
-        self.entries.restore(value)?;
+        self.entries.read(input)?;
         if self.cursor.is_none() && self.entries.total() > 0 {
             return None;
         }
-        self.owner_payment = match value.get("owner_payment") {
-            None | Some(Value::Null) => None,
-            Some(payment) => {
-                let hash = from_hex(payment.get(0)?.as_str()?)?.try_into().ok()?;
-                let units = payment.get(1)?.as_u64()?;
-                if !(1..=self.max_owner_units).contains(&units) {
-                    return None;
-                }
-                Some((hash, units))
-            }
-        };
-        self.owner_outcome = match value.get("owner_outcome") {
-            None | Some(Value::Null) => None,
-            Some(outcome) => {
-                let hash = from_hex(outcome.get(0)?.as_str()?)?.try_into().ok()?;
-                Some((hash, outcome_of(outcome.get(1)?.as_u64()?)?))
-            }
-        };
-        Some(())
-    }
-
-    /// Marks the settlements a state keeps as unread: each one looked up,
-    /// and once. A state written before the scheme kept them has none.
-    fn restore_unread(&mut self, state: &Value) -> Option<()> {
-        let unread = match state.get("unread") {
-            None => return Some(()),
-            Some(unread) => unread.as_array()?,
-        };
-        for hash in unread {
-            let hash: [u8; 32] = from_hex(hash.as_str()?)?.try_into().ok()?;
-            let recovering = self.recovering.iter_mut().find(|r| r.hash == hash)?;
-            if recovering.unread {
-                return None;
-            }
-            recovering.unread = true;
-        }
+        self.owner_payment = input.option(|input| {
+            let hash = input.array::<32>()?;
+            let units = input.u64()?;
+            (1..=self.max_owner_units)
+                .contains(&units)
+                .then_some((hash, units))
+        })?;
+        self.owner_outcome =
+            input.option(|input| Some((input.array::<32>()?, outcome_of(input.u8()?)?)))?;
         Some(())
     }
 
@@ -876,7 +827,7 @@ pub(crate) fn failure_of(record: &TxRecord) -> PaymentFailure {
 }
 
 /// How a state writes what became of an owner's payment.
-const fn outcome_code(outcome: OwnerPaymentState) -> u64 {
+const fn outcome_code(outcome: OwnerPaymentState) -> u8 {
     match outcome {
         OwnerPaymentState::Unknown | OwnerPaymentState::InFlight => 0,
         OwnerPaymentState::Applied => 1,
@@ -887,7 +838,7 @@ const fn outcome_code(outcome: OwnerPaymentState) -> u64 {
 }
 
 /// What became of an owner's payment, as a state writes it.
-const fn outcome_of(code: u64) -> Option<OwnerPaymentState> {
+const fn outcome_of(code: u8) -> Option<OwnerPaymentState> {
     Some(match code {
         0 => OwnerPaymentState::Unknown,
         1 => OwnerPaymentState::Applied,

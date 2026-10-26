@@ -29,7 +29,7 @@ use alloc::vec::Vec;
 use dassie_settlement::AssetEffect;
 use serde_json::Value;
 
-use super::{CHAIN_FORKED, CHAIN_WENT_BACK, Phase, Request, Validated, XrplAccount};
+use super::{CHAIN_FORKED, CHAIN_WENT_BACK, Phase, Request, XrplAccount};
 pub use crate::anchor::Doubt;
 use crate::anchor::{
     Ancestry, Judged, KeptAnchor, ProvenLists, ProvenState, ancestry, prove_state,
@@ -92,22 +92,9 @@ pub(super) enum Round {
     },
 }
 
-/// Where `new` stands against the anchor kept, or an older state's newest
-/// ledger without a hash. Along one chain index and close time both grow.
-pub(super) fn judge(kept: Option<&Anchor>, hint: Option<Validated>, new: &Anchor) -> Judged {
-    if let Some(kept) = kept {
-        return crate::anchor::judge(kept, new);
-    }
-    match hint {
-        Some(hint) if new.index < hint.index => {
-            if u64::from(new.close_time) > hint.close_time {
-                Judged::Reset
-            } else {
-                Judged::Older
-            }
-        }
-        _ => Judged::Take,
-    }
+/// Where `new` stands against the anchor kept: with none, it is taken.
+pub(super) fn judge(kept: Option<&Anchor>, new: &Anchor) -> Judged {
+    kept.map_or(Judged::Take, |kept| crate::anchor::judge(kept, new))
 }
 
 /// The list of recent ledgers a state proof proved: none for the first
@@ -254,7 +241,7 @@ impl XrplAccount {
         // Refused before any signature is checked.
         let new = Anchor::of(&proven.header);
         let kept = self.anchor.as_ref().map(|kept| kept.anchor);
-        if judge(kept.as_ref(), self.hint, &new) == Judged::Older {
+        if judge(kept.as_ref(), &new) == Judged::Older {
             return self.wait_for_newer();
         }
         self.ask_validations(proven, self.own_publishers());
@@ -401,7 +388,7 @@ impl XrplAccount {
             Err(doubt) => return self.doubted(doubt),
         };
         let kept = self.anchor.as_ref().map(|kept| kept.anchor);
-        match judge(kept.as_ref(), self.hint, &anchor) {
+        match judge(kept.as_ref(), &anchor) {
             Judged::Take => self.take_anchor(anchor, proven),
             Judged::Older => self.wait_for_newer(),
             // On a network that never resets the UNL validated no older
@@ -490,8 +477,7 @@ impl XrplAccount {
         // Whether a network resets is a constant of the account, never what a
         // server reports (spec/decisions/ledger-resets.md).
         if !self.network.resets() {
-            // An older state's newest ledger, without a hash, is a hint:
-            // only it can have been wrong.
+            // With no anchor kept, nothing can be off its chain.
             if self.anchor.is_none() {
                 return self.take_anchor(anchor, proven);
             }
@@ -530,7 +516,6 @@ impl XrplAccount {
 
     fn keep_anchor(&mut self, anchor: Anchor, recent: Option<&SkipList>) {
         self.anchor = Some(KeptAnchor::of(anchor, recent));
-        self.hint = None;
         self.waiting = None;
         self.stalled_until_ms = 0;
     }

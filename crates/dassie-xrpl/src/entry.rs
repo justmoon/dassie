@@ -26,12 +26,10 @@
 use alloc::collections::BTreeSet;
 use alloc::vec::Vec;
 
+use crate::kept::{In, Out};
+use crate::keys::AccountId;
 use dassie_ledger::{MAX_TOTAL, Name};
 use dassie_settlement::EntryPayment;
-use serde_json::{Value, json};
-
-use crate::keys::AccountId;
-use crate::{from_hex, hex_upper};
 
 /// Most entry payments held at once. Filling the table takes one largest
 /// packet each, which the owner keeps once it expires.
@@ -57,6 +55,16 @@ pub struct HeldEntry {
     pub hash: [u8; 32],
     /// The validated ledger at which it goes to the owner.
     pub until: u32,
+}
+
+impl HeldEntry {
+    fn write_to(&self, out: &mut Out) {
+        out.name(self.node);
+        out.account(self.from);
+        out.u64(self.amount);
+        out.bytes(&self.hash);
+        out.u32(self.until);
+    }
 }
 
 /// The entry payments a scheme holds, off its books.
@@ -175,39 +183,27 @@ impl Entries {
         }
     }
 
-    /// As a scheme's state keeps them.
-    pub(crate) fn value(&self) -> Value {
-        self.held
-            .iter()
-            .map(|entry| {
-                json!([
-                    entry.node.as_str(),
-                    entry.from.to_address(),
-                    entry.amount,
-                    hex_upper(&entry.hash),
-                    entry.until,
-                ])
-            })
-            .collect()
+    /// Writes them as a scheme's state keeps them, in the order they
+    /// arrived.
+    pub(crate) fn write(&self, out: &mut Out) {
+        out.count(self.held.len());
+        for entry in &self.held {
+            entry.write_to(out);
+        }
     }
 
-    /// Reads them back from a scheme's state: none in a state written
-    /// before the scheme held any. More than the table holds, or a payment
-    /// twice, is a state no scheme wrote.
-    pub(crate) fn restore(&mut self, state: &Value) -> Option<()> {
-        let held = match state.get("entries") {
-            None => return Some(()),
-            Some(held) => held.as_array()?,
-        };
-        if held.len() > MAX_ENTRIES {
-            return None;
-        }
-        for entry in held {
-            let node = Name::new(entry.get(0)?.as_str()?).ok()?;
-            let from = AccountId::parse(entry.get(1)?.as_str()?)?;
-            let amount = entry.get(2)?.as_u64().filter(|amount| *amount > 0)?;
-            let hash: [u8; 32] = from_hex(entry.get(3)?.as_str()?)?.try_into().ok()?;
-            let until = u32::try_from(entry.get(4)?.as_u64()?).ok()?;
+    /// Reads back what [`Self::write`] wrote. More than the table holds, a
+    /// payment of nothing or twice, or more than the books could take, is
+    /// a state no scheme wrote.
+    pub(crate) fn read(&mut self, input: &mut In<'_>) -> Option<()> {
+        // A name is at least two bytes, the rest 64.
+        let held = input.count(66, MAX_ENTRIES)?;
+        for _ in 0..held {
+            let node = input.name()?;
+            let from = input.account()?;
+            let amount = input.u64().filter(|amount| *amount > 0)?;
+            let hash = input.array::<32>()?;
+            let until = input.u32()?;
             if self.held.iter().any(|held| held.hash == hash)
                 || self.total().checked_add(amount)? > MAX_TOTAL
             {
@@ -268,13 +264,20 @@ mod tests {
         assert_eq!(entries.entry(node(1), Some(other)), EntryPayment::Missing);
         assert_eq!(entries.entry(node(2), Some(from)), EntryPayment::Missing);
         assert_eq!(entries.entry(node(1), None), EntryPayment::Missing);
+        let mut out = Out(Vec::new());
+        entries.write(&mut out);
         let mut kept = Entries::default();
-        kept.restore(&json!({ "entries": entries.value() }))
-            .unwrap();
+        let mut input = In(dassie_oer::Reader::new(&out.0));
+        kept.read(&mut input).unwrap();
+        input.finish().unwrap();
         assert_eq!(kept.held, entries.held);
-        let value = entries.value();
-        let twice = json!({ "entries": [value[0], value[0]] });
-        assert!(Entries::default().restore(&twice).is_none());
+        let mut twice = Out(Vec::new());
+        twice.count(2);
+        for _ in 0..2 {
+            entries.held[0].write_to(&mut twice);
+        }
+        let mut input = In(dassie_oer::Reader::new(&twice.0));
+        assert!(Entries::default().read(&mut input).is_none());
         for n in 1..MAX_ENTRIES {
             let mut hash = [0; 32];
             hash[..8].copy_from_slice(&(n as u64).to_be_bytes());

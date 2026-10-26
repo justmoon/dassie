@@ -85,6 +85,7 @@ pub mod entry;
 pub mod fake;
 mod follower;
 pub mod header;
+mod kept;
 pub mod keys;
 pub mod lists;
 pub mod manifest;

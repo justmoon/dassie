@@ -29,10 +29,12 @@
 //! the same rule on [`Timings::DEV`], a reading a second, so dev and the
 //! end-to-end tests see a token pause and resume in seconds.
 
+use alloc::vec::Vec;
+
 use dassie_settlement::{DollarRate, PegPause, PegView};
-use serde_json::{Value, json};
 
 use crate::amount::TokenValue;
+use crate::kept::{In, Out};
 use crate::keys::AccountId;
 
 /// A dollar, in millionths: the peg.
@@ -222,18 +224,22 @@ enum Standing {
 }
 
 impl Standing {
-    const fn as_str(self) -> &'static str {
+    /// How a state writes it.
+    const fn code(self) -> u8 {
         match self {
-            Self::Pegged => "pegged",
-            Self::Unread => "unread",
-            Self::Off => "off",
+            Self::Pegged => 0,
+            Self::Unread => 1,
+            Self::Off => 2,
         }
     }
 
-    fn parse(text: &str) -> Option<Self> {
-        [Self::Pegged, Self::Unread, Self::Off]
-            .into_iter()
-            .find(|standing| standing.as_str() == text)
+    const fn of(code: u8) -> Option<Self> {
+        match code {
+            0 => Some(Self::Pegged),
+            1 => Some(Self::Unread),
+            2 => Some(Self::Off),
+            _ => None,
+        }
     }
 }
 
@@ -426,36 +432,46 @@ impl Guard {
         })
     }
 
-    /// What it keeps, with the scheme's state.
+    /// What it keeps, as the scheme's state keeps it after its own
+    /// ([`Self::restore`] reads it back).
     #[must_use]
-    pub fn state(&self) -> Value {
-        json!({
-            "standing": self.standing.as_str(),
-            "crossing_ms": self.crossing_ms,
-            "read_ms": self.read_ms,
-            "last": self.last.map(|(price, ledger)| json!([price, ledger])),
-        })
+    pub fn state(&self) -> Vec<u8> {
+        let mut out = Out(Vec::new());
+        self.write(&mut out);
+        out.0
     }
 
-    /// Takes back what it kept, `None` for a state it never wrote.
+    /// Takes back what [`Self::state`] kept, `None` for a state it never
+    /// wrote.
     #[must_use]
-    pub fn restore(peg: Peg, state: &Value) -> Option<Self> {
-        let time = |key: &str| match state.get(key)? {
-            Value::Null => Some(None),
-            value => value.as_u64().map(Some),
-        };
-        let last = match state.get("last")? {
-            Value::Null => None,
-            last => Some((
-                last.get(0)?.as_u64()?,
-                u32::try_from(last.get(1)?.as_u64()?).ok()?,
-            )),
-        };
+    pub fn restore(peg: Peg, state: &[u8]) -> Option<Self> {
+        let mut input = In(dassie_oer::Reader::new(state));
+        let guard = Self::read(peg, &mut input)?;
+        input.finish()?;
+        Some(guard)
+    }
+
+    /// Writes what it keeps: where it stands, since when it is crossing,
+    /// when a reading last counted, and the last price that did with its
+    /// ledger.
+    pub(crate) fn write(&self, out: &mut Out) {
+        out.u8(self.standing.code());
+        out.option(self.crossing_ms, Out::u64);
+        out.option(self.read_ms, Out::u64);
+        out.option(self.last, |out, (price, ledger)| {
+            out.u64(price);
+            out.u32(ledger);
+        });
+    }
+
+    /// Reads back what [`Self::write`] wrote, `None` for what it never
+    /// writes.
+    pub(crate) fn read(peg: Peg, input: &mut In<'_>) -> Option<Self> {
         let guard = Self {
-            standing: Standing::parse(state.get("standing")?.as_str()?)?,
-            crossing_ms: time("crossing_ms")?,
-            read_ms: time("read_ms")?,
-            last,
+            standing: Standing::of(input.u8()?)?,
+            crossing_ms: input.option(In::u64)?,
+            read_ms: input.option(In::u64)?,
+            last: input.option(|input| Some((input.u64()?, input.u32()?)))?,
             ..Self::new(peg)
         };
         guard.holds().then_some(guard)
@@ -876,27 +892,32 @@ mod tests {
         );
         assert_eq!(restored.paused(), None);
         // A state it never wrote is refused.
-        let mut state = guard.state();
-        state["read_ms"] = Value::Null;
-        assert!(Guard::restore(PEG, &state).is_none());
-        let mut state = guard.state();
-        state["last"] = json!([MAX_PRICE_PPM + 1, 3]);
-        assert!(Guard::restore(PEG, &state).is_none());
+        let kept = |standing: u8, crossing: Option<u64>, read: Option<u64>, last| {
+            let mut out = Out(Vec::new());
+            out.u8(standing);
+            out.option(crossing, Out::u64);
+            out.option(read, Out::u64);
+            out.option(last, |out, (price, ledger): (u64, u32)| {
+                out.u64(price);
+                out.u32(ledger);
+            });
+            out.0
+        };
+        let (crossing, read_ms, last) = (guard.crossing_ms, guard.read_ms, guard.last);
+        assert_eq!(kept(2, crossing, read_ms, last), guard.state());
+        assert!(Guard::restore(PEG, &kept(2, crossing, None, last)).is_none());
+        let too_high = Some((MAX_PRICE_PPM + 1, 3));
+        assert!(Guard::restore(PEG, &kept(2, crossing, read_ms, too_high)).is_none());
+        assert!(Guard::restore(PEG, &kept(3, crossing, read_ms, last)).is_none());
         // Off its peg with no reading, or unread before it knew the time.
-        let mut state = guard.state();
-        state["last"] = Value::Null;
-        assert!(Guard::restore(PEG, &state).is_none());
-        let unread = json!({
-            "standing": "unread",
-            "crossing_ms": null,
-            "read_ms": null,
-            "last": null,
-        });
-        assert!(Guard::restore(PEG, &unread).is_none());
-        let mut unread = unread;
-        unread["read_ms"] = json!(5);
-        assert!(Guard::restore(PEG, &unread).is_some());
-        assert!(Guard::restore(PEG, &json!({})).is_none());
+        assert!(Guard::restore(PEG, &kept(2, crossing, read_ms, None)).is_none());
+        assert!(Guard::restore(PEG, &kept(1, None, None, None)).is_none());
+        assert!(Guard::restore(PEG, &kept(1, None, Some(5), None)).is_some());
+        // Nothing, or more than it wrote.
+        assert!(Guard::restore(PEG, &[]).is_none());
+        let mut longer = guard.state();
+        longer.push(0);
+        assert!(Guard::restore(PEG, &longer).is_none());
     }
 
     #[test]

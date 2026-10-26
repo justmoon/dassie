@@ -525,10 +525,7 @@ fn a_settlement_never_read_stays_pending_across_a_restart() {
     restarted.drop_lookups = true;
     restarted.connect();
     assert_eq!(restarted.account.unproven().history_gaps, 1);
-    let unread = |shared: &Shared| {
-        let state: serde_json::Value = serde_json::from_slice(&shared.scheme().state()).unwrap();
-        state["unread"].as_array().map_or(0, Vec::len)
-    };
+    let unread = |shared: &Shared| unread_in(&shared.scheme().state());
     assert_eq!(unread(&restarted), 1);
     let synced_books = restarted.books();
     let (state, checkpoint) = (restarted.scheme().state(), restarted.scheme().balance());
@@ -722,4 +719,26 @@ fn an_owner_payment_validated_while_its_scheme_stopped_is_posted_once() {
     assert_eq!(suspense(&restarted.booked), 0, "{:?}", restarted.booked);
     assert_eq!(restarted.scheme().balance(), restarted.bookable());
     assert_eq!(restarted.books(), i128::from(restarted.bookable()));
+}
+
+/// How many of the settlements a scheme's state looks up it never read:
+/// past the version, the cursor, the count of write-offs and the peers'
+/// addresses, each looked up is its hash and whether it is unread
+/// (spec/areas/xrpl.md#state-and-restarts).
+fn unread_in(state: &[u8]) -> usize {
+    let count = |at: usize| {
+        usize::try_from(u32::from_be_bytes(state[at..at + 4].try_into().unwrap())).unwrap()
+    };
+    assert_eq!(state[0], 1, "version 1");
+    let mut at = 1 + if state[1] == 0 { 1 } else { 9 } + 8;
+    let peers = count(at);
+    at += 4;
+    for _ in 0..peers {
+        at += 1 + usize::from(state[at]) + 20;
+    }
+    let recovering = count(at);
+    at += 4;
+    (0..recovering)
+        .filter(|n| state[at + n * 33 + 32] == 0xff)
+        .count()
 }

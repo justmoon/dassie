@@ -1083,7 +1083,7 @@ fn two_nodes_settle_dsusd() {
 fn a_closed_peers_address_is_forgotten() {
     let (mut world, _, state_b) = synced(2);
     let peer = world.nodes[1].name;
-    let address = world.address(1).to_address();
+    let address = world.address(1);
     world.mint(1, "50");
     world.close();
     world.settle(USD, 1, 0, usd(1_000_000), &state_b);
@@ -1098,8 +1098,8 @@ fn a_closed_peers_address_is_forgotten() {
     world.nodes[0].check_invariants();
     assert_eq!(world.nodes[0].dsusd().balance(), balance);
     assert_ne!(world.nodes[0].dsusd().state_version(), version);
-    let state = String::from_utf8(world.nodes[0].dsusd().state()).unwrap();
-    assert!(!state.contains(&address), "{state}");
+    let state = world.nodes[0].dsusd().state();
+    assert!(!state.windows(20).any(|bytes| bytes == address.0));
     // A channel closed again changes nothing more.
     let version = world.nodes[0].dsusd().state_version();
     world.nodes[0].scheme(USD).on_closed(peer);
