@@ -90,13 +90,10 @@ pub const MAX_PROOFS: usize = 256;
 /// Most transactions one walk of the history finds, by hash and place:
 /// beyond them, what the walk did not reach is a gap.
 pub const MAX_WALKED: usize = 4096;
-/// How long after a server answered that it had not saved a transaction
-/// with its ledger yet its bytes are asked again: rippled saves a ledger
-/// within moments of validating it.
-pub const UNSAVED_RETRY_MS: u64 = 1_000;
-/// How often the bytes of one transaction are asked again so: past it, the
-/// server is taken as refusing them.
-pub const MAX_UNSAVED_TRIES: u32 = 8;
+// How long after a server answered that it had not saved a transaction
+// with its ledger yet its bytes are asked again, and how often: as the
+// standalone verifier.
+pub use crate::verifier::{MAX_UNSAVED_TRIES, UNSAVED_RETRY_MS};
 /// Most places one walk keeps where an object's chain is taken up again:
 /// each a transaction found that changed the object, which its chain has
 /// not reached. Beyond them, what the walk did not reach is a gap.

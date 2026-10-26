@@ -39,7 +39,7 @@ use crate::skip_list::{
     FLAG_INTERVAL, SKIP_HASHES, SkipList, flag_above, flag_at_or_below, flag_key, is_flag,
     recent_key,
 };
-use crate::unl::Anchor;
+use crate::unl::{Anchor, Relation};
 use crate::{from_hex, hex_upper};
 
 /// Why a state proof proves nothing.
@@ -57,6 +57,69 @@ pub enum ProofError {
     /// A transaction of another hash than asked for, or with bytes or
     /// metadata that do not read.
     Transaction,
+}
+
+/// A lie caught, by kind (spec/designs/xrpl-validation.md#6-the-account-on-proofs).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Doubt {
+    /// An answer that does not read.
+    Unreadable,
+    /// A header that is not one, or of another ledger than asked for.
+    Header,
+    /// Not one entry for each key asked.
+    Keys,
+    /// A branch that does not reach its root.
+    Branch,
+    /// Validations short of a quorum, after newer manifests were asked.
+    NoQuorum,
+    /// More validations than are read.
+    TooMany,
+    /// A validated ledger older than the anchor kept, or one whose
+    /// validations are no longer fresh.
+    Older,
+    /// A validated ledger of an older chain: a higher index that closed
+    /// earlier, or another of the index that closed no later.
+    OlderChain,
+    /// A proven object that is no skip list, or not what its key holds.
+    SkipList,
+    /// A transaction of another hash than asked for, or whose bytes or
+    /// metadata do not read.
+    Transaction,
+    /// A transaction in a ledger the anchor's chain does not hold.
+    Ledger,
+    /// A history the proven state proves wrong: a transaction an object
+    /// names that did not change it, or that the server says its proven
+    /// ledger does not hold.
+    History,
+}
+
+impl Doubt {
+    /// Every kind.
+    pub const ALL: [Self; 12] = [
+        Self::Unreadable,
+        Self::Header,
+        Self::Keys,
+        Self::Branch,
+        Self::NoQuorum,
+        Self::TooMany,
+        Self::Older,
+        Self::OlderChain,
+        Self::SkipList,
+        Self::Transaction,
+        Self::Ledger,
+        Self::History,
+    ];
+
+    /// The kind of lie a proof that does not hold is.
+    #[must_use]
+    pub const fn of(error: ProofError) -> Self {
+        match error {
+            ProofError::Header | ProofError::Ledger => Self::Header,
+            ProofError::Keys => Self::Keys,
+            ProofError::Branch(_) => Self::Branch,
+            ProofError::Transaction => Self::Transaction,
+        }
+    }
 }
 
 /// What a state proof proved: a ledger's header and hash, and each key's
@@ -197,40 +260,49 @@ pub enum LedgerProof {
     },
 }
 
-/// Whether the ledger of `index` is the one of `hash` on the chain of
-/// `anchor`, from the skip lists in `lists`, or which to prove next: its
-/// list of recent ledgers within 256 ledgers, and past them its list of
-/// flag ledgers, which holds the flag ledger at or after the ledger, and
-/// that flag ledger's own list of recent ledgers. At most two beyond the
-/// anchor's own.
+/// The hash of a ledger of an anchor's chain, by its index.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LedgerHash {
+    /// The anchor's, or the one its skip lists hold: a proven ledger's.
+    Proven([u8; 32]),
+    /// The chain holds none of that index: a list proven absent, or one
+    /// that holds no hash for it, as for a ledger before the chain began.
+    None,
+    /// After the anchor: only a later anchor can tell.
+    Later,
+    /// To tell, prove the object of `key` at the ledger of `at`.
+    Prove {
+        /// The ledger, by its hash: the anchor, or a flag ledger its list
+        /// proved.
+        at: [u8; 32],
+        /// The skip list's key.
+        key: [u8; 32],
+    },
+}
+
+/// The hash of the ledger of `index` on the chain of `anchor`, from the
+/// skip lists in `lists`, or which to prove next: its list of recent
+/// ledgers within 256 ledgers, and past them its list of flag ledgers,
+/// which holds the flag ledger at or after the ledger, and that flag
+/// ledger's own list of recent ledgers. At most two beyond the anchor's
+/// own.
 #[must_use]
-pub fn ledger_proof(
-    anchor: &Anchor,
-    index: u32,
-    hash: &[u8; 32],
-    lists: &ProvenLists,
-) -> LedgerProof {
-    let holds = |found: Option<[u8; 32]>| {
-        if found == Some(*hash) {
-            LedgerProof::Holds
-        } else {
-            LedgerProof::Wrong
-        }
-    };
+pub fn ledger_hash(anchor: &Anchor, index: u32, lists: &ProvenLists) -> LedgerHash {
+    let found = |found: Option<[u8; 32]>| found.map_or(LedgerHash::None, LedgerHash::Proven);
     let list = |at: [u8; 32], key: [u8; 32]| match lists.get(&(at, key)) {
-        None => Err(LedgerProof::Prove { at, key }),
-        Some(None) => Err(LedgerProof::Wrong),
+        None => Err(LedgerHash::Prove { at, key }),
+        Some(None) => Err(LedgerHash::None),
         Some(Some(list)) => Ok(list),
     };
     if index == anchor.index {
-        return holds(Some(anchor.hash));
+        return LedgerHash::Proven(anchor.hash);
     }
     if index > anchor.index {
-        return LedgerProof::Later;
+        return LedgerHash::Later;
     }
     if u64::from(anchor.index - index) <= SKIP_HASHES as u64 {
         return match list(anchor.hash, recent_key()) {
-            Ok(recent) => holds(recent.hash_of(index, 1)),
+            Ok(recent) => found(recent.hash_of(index, 1)),
             Err(next) => next,
         };
     }
@@ -241,22 +313,75 @@ pub fn ledger_proof(
     } else {
         match flag_above(index) {
             Some(flag) => flag,
-            None => return LedgerProof::Wrong,
+            None => return LedgerHash::None,
         }
     };
     let flag_hash = match list(anchor.hash, flag_key(flag)) {
         Ok(flags) => match flags.hash_of(flag, FLAG_INTERVAL) {
             Some(flag_hash) => flag_hash,
-            None => return LedgerProof::Wrong,
+            None => return LedgerHash::None,
         },
         Err(next) => return next,
     };
     if flag == index {
-        return holds(Some(flag_hash));
+        return LedgerHash::Proven(flag_hash);
     }
     match list(flag_hash, recent_key()) {
-        Ok(recent) => holds(recent.hash_of(index, 1)),
+        Ok(recent) => found(recent.hash_of(index, 1)),
         Err(next) => next,
+    }
+}
+
+/// Whether the ledger of `index` is the one of `hash` on the chain of
+/// `anchor`, from the skip lists in `lists`, or which to prove next
+/// ([`ledger_hash`]).
+#[must_use]
+pub fn ledger_proof(
+    anchor: &Anchor,
+    index: u32,
+    hash: &[u8; 32],
+    lists: &ProvenLists,
+) -> LedgerProof {
+    match ledger_hash(anchor, index, lists) {
+        LedgerHash::Proven(proven) if proven == *hash => LedgerProof::Holds,
+        LedgerHash::Proven(_) | LedgerHash::None => LedgerProof::Wrong,
+        LedgerHash::Later => LedgerProof::Later,
+        LedgerHash::Prove { at, key } => LedgerProof::Prove { at, key },
+    }
+}
+
+/// What a new anchor is, against the one kept.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Judged {
+    /// Current: the first, the same, or past a hint without a hash.
+    Take,
+    /// Older than the kept: never current.
+    Older,
+    /// Of an older chain: ignored where the network resets, a fork
+    /// elsewhere.
+    Ignore,
+    /// Later: current if on the kept one's chain.
+    Later,
+    /// On another chain the kept one is not on: a reset, where the network
+    /// resets.
+    Reset,
+}
+
+/// Where `new` stands against `kept`
+/// (spec/designs/xrpl-validation.md#7-resets-under-a-unl). Along one chain
+/// index and close time both grow: a lower ledger that closed later is of
+/// a chain begun since, and a higher one that closed no later, or another
+/// of the index that closed no later, is of an older chain.
+#[must_use]
+pub fn judge(kept: &Anchor, new: &Anchor) -> Judged {
+    match new.relation(kept) {
+        Relation::Same => Judged::Take,
+        Relation::Older => Judged::Older,
+        Relation::Newer => Judged::Later,
+        Relation::Diverged if new.index <= kept.index && new.close_time > kept.close_time => {
+            Judged::Reset
+        }
+        Relation::Diverged => Judged::Ignore,
     }
 }
 
@@ -542,5 +667,72 @@ mod tests {
         let mut forged = older;
         forged.flag = Some((flag, [9; 32]));
         assert_eq!(ancestry(&forged, &far, &lists), Ancestry::OffChain);
+    }
+
+    // A ledger's hash by its index, as a state proof at it needs: the
+    // anchor's own, its recent list within 256 ledgers, and past them its
+    // flag list and the flag ledger's recent list; none before the chain
+    // began, and only a later anchor tells a later ledger.
+    #[test]
+    fn a_ledger_s_hash_is_at_most_two_lists_from_the_anchor() {
+        let first = 5_000_000;
+        let anchor = anchor(5_100_000);
+        let mut lists = ProvenLists::new();
+        assert_eq!(
+            ledger_hash(&anchor, anchor.index, &lists),
+            LedgerHash::Proven(anchor.hash)
+        );
+        assert_eq!(
+            ledger_hash(&anchor, anchor.index + 1, &lists),
+            LedgerHash::Later
+        );
+        let near = anchor.index - 10;
+        assert_eq!(
+            ledger_hash(&anchor, near, &lists),
+            LedgerHash::Prove {
+                at: anchor.hash,
+                key: recent_key()
+            }
+        );
+        lists.insert(
+            (anchor.hash, recent_key()),
+            Some(recent(anchor.index, first)),
+        );
+        assert_eq!(
+            ledger_hash(&anchor, near, &lists),
+            LedgerHash::Proven(hash(near))
+        );
+        assert_eq!(
+            ledger_proof(&anchor, near, &hash(near), &lists),
+            LedgerProof::Holds
+        );
+        assert_eq!(
+            ledger_proof(&anchor, near, &[9; 32], &lists),
+            LedgerProof::Wrong
+        );
+        let far = 5_000_100;
+        let flag = 5_000_192;
+        assert_eq!(
+            ledger_hash(&anchor, far, &lists),
+            LedgerHash::Prove {
+                at: anchor.hash,
+                key: flag_key(flag)
+            }
+        );
+        lists.insert(
+            (anchor.hash, flag_key(flag)),
+            Some(flags(flag, anchor.index, first)),
+        );
+        assert_eq!(
+            ledger_hash(&anchor, flag, &lists),
+            LedgerHash::Proven(hash(flag))
+        );
+        lists.insert((hash(flag), recent_key()), Some(recent(flag, first)));
+        assert_eq!(
+            ledger_hash(&anchor, far, &lists),
+            LedgerHash::Proven(hash(far))
+        );
+        // Before the chain began.
+        assert_eq!(ledger_hash(&anchor, first - 1, &lists), LedgerHash::None);
     }
 }

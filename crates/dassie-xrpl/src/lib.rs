@@ -19,15 +19,21 @@
 //!   trees of transactions and of state, and the branch that proves a
 //!   leaf in either, or a key's absence; [`skip_list`], the lists of
 //!   earlier ledgers' hashes that prove older ledgers from a newer one;
-//!   [`records`], the keys of the ledger objects the account follows, those
-//!   objects, and a transaction with its metadata as the schemes read it.
+//!   [`records`], the keys of the ledger objects the account follows and of
+//!   a signer list, those objects, and a transaction with its metadata as
+//!   the schemes read it.
 //! - [`validator_list`]: the publishers' signed validator lists, and the
 //!   publishers each network trusts; [`unl`], the validators enough of
 //!   the lists name, as rippled's defaults combine them, with their current
 //!   keys, and the quorum of them that validates a ledger and makes it an
 //!   anchor; [`base64`], as the lists
-//!   carry their blobs; [`anchor`], what a state proof proves, and whether
-//!   a later anchor is on the chain of the one kept.
+//!   carry their blobs; [`lists`], when each publisher's list is fetched;
+//!   [`anchor`], what a state proof proves, and whether a later anchor is
+//!   on the chain of the one kept.
+//! - [`verifier`]: the same checks apart from any account of the node's,
+//!   for a settlement hub's validators: a UNL and an anchor of its own, and
+//!   what any account's state holds and whether a transaction applied,
+//!   proven at ledgers that UNL validated.
 //! - [`api`]: the rippled WebSocket JSON the node speaks: requests, and
 //!   what comes back, parsed and bounded.
 //! - [`amm`]: an AMM pool's price, exact, for a client that swaps through
@@ -79,6 +85,7 @@ pub mod entry;
 pub mod fake;
 pub mod header;
 pub mod keys;
+pub mod lists;
 pub mod manifest;
 pub mod network;
 pub mod peg;
@@ -91,6 +98,7 @@ pub mod token;
 pub mod unl;
 pub mod validation;
 pub mod validator_list;
+pub mod verifier;
 
 pub use account::{Config, XrplAccount};
 pub use dsusd::DsusdScheme;
