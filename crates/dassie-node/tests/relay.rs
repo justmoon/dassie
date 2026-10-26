@@ -34,7 +34,7 @@ use dassie_node::rpc::proto::{self, request::Method};
 use dassie_node_core::config::{Hostname, NodeConfig};
 use dassie_node_core::connections::ConnectionLimits;
 use dassie_payments::httpsig;
-use dassie_peer::wire::Kind;
+use dassie_peer::wire::{Endpoint, Kind};
 use dassie_peer::{Request as PeerRequest, RequestId};
 use http_body_util::{BodyExt, Full};
 use hyper::{Request, StatusCode};
@@ -99,12 +99,13 @@ struct Side {
     quic: Arc<Quic>,
     id: NodeId,
     url: String,
+    endpoint: Endpoint,
     identity: watch::Sender<Option<Arc<NodeKey>>>,
 }
 
 impl Side {
-    fn relay(&self) -> (NodeId, &str) {
-        (self.id, &self.url)
+    fn relay(&self) -> (NodeId, &Endpoint) {
+        (self.id, &self.endpoint)
     }
 }
 
@@ -144,6 +145,7 @@ fn side_with(
         quic,
         id,
         url: format!("https://{address}"),
+        endpoint: Endpoint::parse(&address.to_string()).unwrap(),
         identity,
     }
 }
@@ -153,7 +155,7 @@ async fn send(from: &Side, to: &Side) {
     let request = PeerRequest {
         id: RequestId(1),
         to: to.id,
-        url: to.url.clone(),
+        endpoint: Some(to.endpoint.clone()),
         kind: Kind::LinkStateRequest,
         body: b"hello".to_vec(),
         timeout_ms: 5_000,
@@ -177,7 +179,7 @@ fn keep(destination: &Side, relay: &Side, shutdown: &CancellationToken) {
 fn keep_while(destination: &Side, relay: &Side, keep: KeepWhile, shutdown: &CancellationToken) {
     tokio::spawn(Arc::clone(&destination.quic).keep_relay(
         relay.id,
-        relay.url.clone(),
+        relay.endpoint.clone(),
         client(),
         keep,
         shutdown.clone(),
@@ -278,7 +280,7 @@ async fn the_default_relay_is_kept_only_while_the_node_has_no_hostname() {
     // test keeps the relay itself.
     destination.quic.choose_relay(
         relay.id,
-        relay.url.clone(),
+        relay.endpoint.clone(),
         client(),
         KeepWhile::NoHostname(watched.clone()),
     );
@@ -498,10 +500,11 @@ async fn a_relay_out_of_reach_reads_as_unreachable_once_its_dials_slow_down() {
     let shutdown = CancellationToken::new();
     let node = side(1, &shutdown);
     let relay = NodeKey::from_bytes(&[2; 32]).node_id();
-    // A URL with no port to dial: each dial fails at once.
+    // An IPv6 address, which an endpoint on IPv4 cannot reach: each dial
+    // fails at once.
     tokio::spawn(Arc::clone(&node.quic).keep_relay(
         relay,
-        "https://127.0.0.1:none".into(),
+        Endpoint::parse("[::1]:9").unwrap(),
         client(),
         KeepWhile::Always,
         shutdown.clone(),
@@ -520,11 +523,12 @@ async fn a_relay_out_of_reach_is_not_backed_off_from_for_peer_requests() {
     let shutdown = CancellationToken::new();
     let from = side(1, &shutdown);
     let relay = NodeKey::from_bytes(&[2; 32]).node_id();
-    // A URL with no port to dial: the dial fails at once.
+    // An IPv6 address, which an endpoint on IPv4 cannot reach: the dial
+    // fails at once.
     let result = from
         .quic
         .open_relayed(
-            (relay, "https://127.0.0.1:none"),
+            (relay, &Endpoint::parse("[::1]:9").unwrap()),
             NodeKey::from_bytes(&[3; 32]).node_id(),
             Purpose::Payments,
             &client(),
@@ -742,7 +746,7 @@ fn to_periphery(to: &Side) -> PeerRequest {
     PeerRequest {
         id: RequestId(2),
         to: to.id,
-        url: String::new(),
+        endpoint: None,
         kind: Kind::LinkStateRequest,
         body: b"hello".to_vec(),
         timeout_ms: 5_000,

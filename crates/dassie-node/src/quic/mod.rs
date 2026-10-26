@@ -36,6 +36,7 @@ pub mod proxy;
 pub mod relay;
 pub mod tunnel;
 
+use dassie_peer::wire::Endpoint as PeerEndpoint;
 use std::collections::BTreeMap;
 use std::fmt;
 use std::future::Future;
@@ -344,9 +345,9 @@ pub async fn send_peer(
         return Err(Failure::NotDelivered);
     };
     let _slot = quic.bounds.hold(&request, quic.allow_private)?;
-    // A periphery node has no URL: it is reached only over the connection
-    // it opened to us, never dialled.
-    if request.url.is_empty() {
+    // A periphery node has no endpoint: it is reached only over the
+    // connection it opened to us, never dialled.
+    if request.endpoint.is_none() {
         let timeout = Duration::from_millis(request.timeout_ms.max(1));
         return match tokio::time::timeout(timeout, quic.send_held(&request)).await {
             Ok(result) => result,
@@ -768,7 +769,8 @@ impl Quic {
         if self.keys.current().is_none() {
             return Err(Failure::NotDelivered);
         }
-        let Some(place) = self.place(request.to) else {
+        let (Some(place), Some(endpoint)) = (self.place(request.to), request.endpoint.as_ref())
+        else {
             return Err(Failure::NotDelivered);
         };
         let dial = !self.backing_off(&request.to);
@@ -779,7 +781,7 @@ impl Quic {
             let connection = self
                 .connection(
                     &place,
-                    (request.to, &request.url),
+                    (request.to, endpoint),
                     resolver,
                     CONNECT_TIMEOUT.min(left),
                     dial,
@@ -840,7 +842,7 @@ impl Quic {
     async fn connection(
         self: &Arc<Self>,
         place: &tokio::sync::Mutex<Option<Link>>,
-        (to, url): (NodeId, &str),
+        (to, endpoint): (NodeId, &PeerEndpoint),
         resolver: &Resolver,
         within: Duration,
         dial: bool,
@@ -868,7 +870,7 @@ impl Quic {
         } else {
             MIN_TO_JUDGE
         };
-        let Some(connection) = self.dial((to, url), resolver, left, periphery).await else {
+        let Some(connection) = self.dial((to, endpoint), resolver, left, periphery).await else {
             return Err(if left >= to_judge {
                 NoConnection::DialFailed
             } else {
@@ -906,7 +908,7 @@ impl Quic {
         Some(place)
     }
 
-    /// Makes a connection to the node `to` at its URL's host and port,
+    /// Makes a connection to the node `to` at `endpoint`,
     /// within `within`, checking that the server holds that node's key. The
     /// name's addresses are tried in turn, each with a share of the time, so
     /// one that drops UDP does not take it all. With `keep_alive`, our side
@@ -916,13 +918,13 @@ impl Quic {
     /// (spec/decisions/quic-over-websocket.md).
     async fn dial(
         &self,
-        (to, url): (NodeId, &str),
+        (to, endpoint): (NodeId, &PeerEndpoint),
         resolver: &Resolver,
         within: Duration,
         keep_alive: bool,
     ) -> Option<Connection> {
         let deadline = tokio::time::Instant::now() + within;
-        let (host, port) = authority(url)?;
+        let (host, port) = (endpoint.host(), endpoint.port());
         if let Ok(ip) = host.parse::<IpAddr>()
             && !self.allow_private
             && !is_public(ip)
@@ -1379,24 +1381,6 @@ async fn exchange(connection: &Connection, body: &[u8]) -> Result<Response, Fail
     })
 }
 
-/// The host and port of a node URL, `https://host[:port]`; 443 when it
-/// names none. An IPv6 literal comes without its brackets.
-#[must_use]
-pub fn authority(url: &str) -> Option<(&str, u16)> {
-    let authority = url.strip_prefix("https://")?;
-    if let Some(rest) = authority.strip_prefix('[') {
-        let (host, after) = rest.split_once(']')?;
-        return match after {
-            "" => Some((host, 443)),
-            port => Some((host, port.strip_prefix(':')?.parse().ok()?)),
-        };
-    }
-    match authority.rsplit_once(':') {
-        Some((host, port)) => Some((host, port.parse().ok()?)),
-        None => Some((authority, 443)),
-    }
-}
-
 /// The endpoint's configuration. Its keys for stateless resets and for
 /// connection IDs derive from the node key, so they survive a restart: a
 /// node that crashed, and so closed nothing, still knows the IDs of the
@@ -1504,27 +1488,6 @@ fn client_offering(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn authorities_parse_as_node_urls_name_them() {
-        assert_eq!(authority("https://a.example"), Some(("a.example", 443)));
-        assert_eq!(
-            authority("https://a.example:8443"),
-            Some(("a.example", 8443))
-        );
-        assert_eq!(authority("https://192.0.2.1:7"), Some(("192.0.2.1", 7)));
-        assert_eq!(
-            authority("https://[2001:db8::1]"),
-            Some(("2001:db8::1", 443))
-        );
-        assert_eq!(
-            authority("https://[2001:db8::1]:8443"),
-            Some(("2001:db8::1", 8443))
-        );
-        assert_eq!(authority("http://a.example"), None);
-        assert_eq!(authority("https://a.example:x"), None);
-        assert_eq!(authority("https://[2001:db8::1]x"), None);
-    }
 
     /// The generator of connection IDs `endpoint` of the node with `key`
     /// has.

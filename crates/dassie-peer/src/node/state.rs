@@ -2,6 +2,7 @@
 //! their changes, expiring registrations, removing nodes nobody needs, the
 //! routes, and the invariants.
 
+use crate::wire::Endpoint;
 use alloc::string::String;
 use alloc::vec::Vec;
 
@@ -187,7 +188,7 @@ impl PeerNode {
                     },
                 );
             }
-            self.downlink_channels += usize::from(channel.channel.url.is_empty());
+            self.downlink_channels += usize::from(channel.channel.endpoint.is_none());
             self.channels.insert(channel.node, channel.channel);
         }
         self.bans = bans
@@ -386,7 +387,12 @@ impl PeerNode {
             .iter()
             .map(|(id, entry)| NodeView {
                 id: *id,
-                url: entry.link.as_ref().map(|link| link.url.clone()),
+                url: entry.link.as_ref().map(|link| {
+                    link.endpoint
+                        .as_ref()
+                        .map(Endpoint::url)
+                        .unwrap_or_default()
+                }),
                 alias: entry.link.as_ref().map(|link| link.alias.clone()),
                 public_key: entry.key,
                 neighbors: entry
@@ -652,7 +658,7 @@ impl PeerNode {
         }
         if let Some(own) = self.table.get(&self.own).and_then(|e| e.link.as_ref()) {
             assert!(
-                own.periphery || !own.url.is_empty(),
+                own.periphery || own.endpoint.is_some(),
                 "a link state without a URL is a periphery node's"
             );
         }
@@ -666,7 +672,10 @@ impl PeerNode {
         );
         assert_eq!(
             self.downlink_channels,
-            self.channels.values().filter(|c| c.url.is_empty()).count(),
+            self.channels
+                .values()
+                .filter(|c| c.endpoint.is_none())
+                .count(),
             "channels with downlinks counted"
         );
         assert!(

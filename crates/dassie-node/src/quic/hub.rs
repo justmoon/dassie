@@ -6,6 +6,7 @@
 //! validator's node key, as a peer request is to its node's, and the server
 //! learns the client's node from the key the connection proved.
 
+use dassie_peer::wire::Endpoint as PeerEndpoint;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -147,12 +148,13 @@ impl Quic {
             return Err(HubExchangeError::Unreachable);
         }
         let place = self.place(to).ok_or(HubExchangeError::Unreachable)?;
-        let url = format!("https://{endpoint}");
+        // A hub's acceptances name an endpoint as `host:port`.
+        let endpoint = PeerEndpoint::parse(endpoint).ok_or(HubExchangeError::Unreachable)?;
         // A connection kept from before may have died since: then nothing
         // was sent, and a fresh one is made once.
         for _ in 0..2 {
             let Ok(connection) = self
-                .connection(&place, (to, &url), resolver, connect_within, true)
+                .connection(&place, (to, &endpoint), resolver, connect_within, true)
                 .await
             else {
                 return Err(HubExchangeError::Unreachable);

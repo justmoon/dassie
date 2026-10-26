@@ -1,7 +1,7 @@
 //! What goes in and out of the peer node: requests for the driver to send,
 //! their results, replies to inbound requests, and events.
 
-use alloc::string::String;
+use crate::wire::Endpoint;
 use alloc::vec::Vec;
 
 use dassie_identity::NodeId;
@@ -19,7 +19,7 @@ pub struct RequestId(pub u64);
 pub struct InboundId(pub u64);
 
 /// A request for the driver to send over QUIC, with `body`: on the
-/// connection to the node at `url`, or, when `url` is empty, on the one a
+/// connection to the node at `endpoint`, or, without one, on the one a
 /// periphery node opened to us.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Request {
@@ -27,8 +27,9 @@ pub struct Request {
     pub id: RequestId,
     /// The node it goes to.
     pub to: NodeId,
-    /// The node's URL; empty for a periphery node.
-    pub url: String,
+    /// Where the node takes QUIC; `None` for a periphery node, which is
+    /// reached only over the connection it opened.
+    pub endpoint: Option<Endpoint>,
     /// What it is.
     pub kind: Kind,
     /// The content.

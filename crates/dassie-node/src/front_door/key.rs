@@ -142,6 +142,6 @@ mod tests {
         ]);
         let relay = Settings::from_env(&env).unwrap().relay.unwrap().node;
         assert_eq!(relay.id, key.node_id());
-        assert_eq!(relay.url, "https://relay.dassiepay.net");
+        assert_eq!(relay.endpoint.url(), "https://relay.dassiepay.net");
     }
 }

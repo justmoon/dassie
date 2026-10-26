@@ -10,6 +10,7 @@ use dassie_identity::{NodeId, PublicKey};
 use dassie_peer::names::{
     Commitment, Granted, HeldName, LogHead, Logged, Name, NameRegistration, Salt, Stage, Unsealing,
 };
+use dassie_peer::wire::Endpoint;
 use dassie_peer::wire::{SchemeId, TerminationReason};
 use dassie_peer::{
     Channel, Closed, Depeering, Network, Outgoing, PeerBatch, Peering, Registration, Sources,
@@ -125,11 +126,18 @@ fn read_channel(row: &Row<'_>) -> Result<StoredChannel, StoreError> {
         }),
         None => None,
     };
+    // A downlink's channel has no endpoint, and its row an empty URL.
+    let url: String = row.get(2)?;
+    let endpoint = if url.is_empty() {
+        None
+    } else {
+        Some(Endpoint::of_url(&url).ok_or(StoreError::Corrupt("channel URL"))?)
+    };
     Ok(StoredChannel {
         node,
         channel: Channel {
             key,
-            url: row.get(2)?,
+            endpoint,
             settled_in: from_sql_amount(row.get(3)?)?,
             settled_out: from_sql_amount(row.get(4)?)?,
             outbox,
@@ -328,7 +336,10 @@ fn read_node(row: &Row<'_>) -> rusqlite::Result<Result<StoredNode, StoreError>> 
             registered_ms: from_sql_time(registered),
             renewed_ms: from_sql_time(renewed),
             expires_ms: from_sql_time(expires),
-            url,
+            endpoint: match Endpoint::of_url(&url) {
+                Some(endpoint) => endpoint,
+                None => return Ok(Err(StoreError::Corrupt("registered URL"))),
+            },
             network: row
                 .get::<_, Option<Vec<u8>>>(8)?
                 .and_then(|bytes| <[u8; 7]>::try_from(bytes).ok())
@@ -574,7 +585,11 @@ fn write_channel(transaction: &Transaction<'_>, stored: &StoredChannel) -> Resul
         params![
             stored.node.as_str(),
             channel.key.as_bytes().to_vec(),
-            channel.url,
+            channel
+                .endpoint
+                .as_ref()
+                .map(Endpoint::url)
+                .unwrap_or_default(),
             to_sql_amount(channel.settled_in)?,
             to_sql_amount(channel.settled_out)?,
             outbox.map(|o| to_sql_amount(o.sequence)).transpose()?,
@@ -615,6 +630,7 @@ fn write_closed(transaction: &Transaction<'_>, stored: &StoredClosed) -> Result<
 
 fn write_node(transaction: &Transaction<'_>, node: &StoredNode) -> Result<(), StoreError> {
     let registration = node.registration.as_ref();
+    let registered_url = registration.map(|r| r.endpoint.url());
     transaction.execute_cached(
         "INSERT INTO peer_nodes (id, link_state, sources, first_seen_ms,
            registered_at_ms, renewed_at_ms, registration_expires_ms, registered_url,
@@ -631,7 +647,7 @@ fn write_node(transaction: &Transaction<'_>, node: &StoredNode) -> Result<(), St
             registration.map(|r| to_sql_time(r.registered_ms)),
             registration.map(|r| to_sql_time(r.renewed_ms)),
             registration.map(|r| to_sql_time(r.expires_ms)),
-            registration.map(|r| r.url.as_str()),
+            registered_url.as_deref(),
             registration.and_then(|r| r.network).map(|n| n.0.to_vec()),
         ],
     )?;

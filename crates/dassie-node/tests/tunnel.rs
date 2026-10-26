@@ -48,7 +48,7 @@ use dassie_node::quic::{
     Body, CONNECT_TIMEOUT, Handler, IDLE_TIMEOUT, Quic, TUNNEL_HEAD_START, tunnel,
 };
 use dassie_node_core::connections::ConnectionLimits;
-use dassie_peer::wire::Kind;
+use dassie_peer::wire::{Endpoint, Kind};
 use dassie_peer::{Failure, Request as PeerRequest, RequestId};
 use futures_util::{SinkExt, StreamExt};
 use rustls::pki_types::{CertificateDer, PrivatePkcs8KeyDer};
@@ -333,7 +333,8 @@ fn request(to: NodeId, url: &str, timeout_ms: u64) -> PeerRequest {
     PeerRequest {
         id: RequestId(1),
         to,
-        url: url.to_owned(),
+        // Without a URL, as to a periphery node.
+        endpoint: Endpoint::of_url(url),
         kind: Kind::LinkStateRequest,
         body: b"hello".to_vec(),
         timeout_ms,
@@ -390,7 +391,8 @@ async fn a_periphery_node_reaches_its_uplink_over_a_tunnel_where_udp_is_blocked(
     // A third node reaches it through the uplink, which relays over the
     // tunnel.
     let from = core(3, &shutdown);
-    let relay = (uplink.side.id, uplink.side.udp_url.as_str());
+    let udp = Endpoint::of_url(&uplink.side.udp_url).unwrap();
+    let relay = (uplink.side.id, &udp);
     let mut stream = from
         .quic
         .open_relayed(relay, downlink.id, Purpose::Payments, &client())

@@ -10,7 +10,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 use dassie_identity::NodeId;
 use dassie_peer::{Failure, Request};
 
-use crate::outbound::{authority, literal_is_private};
+use crate::outbound::literal_is_private;
 
 /// Most peer requests in flight, in total and to one node.
 const MAX_IN_FLIGHT: usize = 128;
@@ -57,18 +57,18 @@ impl RequestBounds {
     ///
     /// # Errors
     ///
-    /// [`Failure::NotDelivered`] when the URL names an IP literal that is
-    /// not public and `allow_private` is not set, or the bounds are full.
+    /// [`Failure::NotDelivered`] when the endpoint names an IP literal that
+    /// is not public and `allow_private` is not set, or the bounds are full.
     pub(super) fn hold(
         &self,
         request: &Request,
         allow_private: bool,
     ) -> Result<Option<Slot>, Failure> {
-        // A periphery node has no URL, and so no address to check: it is
-        // reached only over the connection it opened to us.
-        if !request.url.is_empty()
+        // A periphery node has no endpoint, and so no address to check: it
+        // is reached only over the connection it opened to us.
+        if let Some(endpoint) = &request.endpoint
             && !allow_private
-            && literal_is_private(authority(&request.url).unwrap_or_default())
+            && literal_is_private(&endpoint.to_string())
         {
             return Err(Failure::NotDelivered);
         }
@@ -102,7 +102,7 @@ mod tests {
         Request {
             id: dassie_peer::RequestId(0),
             to: dassie_identity::NodeKey::from_bytes(&[seed; 32]).node_id(),
-            url: url.into(),
+            endpoint: dassie_peer::wire::Endpoint::of_url(url),
             kind: dassie_peer::wire::Kind::LinkStateUpdate,
             body: Vec::new(),
             timeout_ms: 1_000,
@@ -110,8 +110,8 @@ mod tests {
     }
 
     // Each node has a bound of its own, by its ID: periphery nodes, which
-    // have no URL, as much as nodes that share one host. And a node without
-    // a URL is not refused as a private address.
+    // have no endpoint, as much as nodes that share one host. And a node
+    // without an endpoint is not refused as a private address.
     #[test]
     fn each_node_has_its_own_bound() {
         let bounds = RequestBounds::default();

@@ -253,7 +253,7 @@ impl Poller {
         Request {
             id,
             to: registrar.id,
-            url: registrar.url.clone(),
+            endpoint: Some(registrar.endpoint.clone()),
             kind: content.kind(),
             body: content.to_vec(),
             timeout_ms,
@@ -276,7 +276,7 @@ mod tests {
         let key = NodeKey::from_bytes(&[seed; 32]);
         BootstrapNode {
             id: key.node_id(),
-            url: format!("https://r{seed}.example"),
+            endpoint: dassie_peer::wire::Endpoint::parse(&format!("r{seed}.example")).unwrap(),
             public_key: key.public_key(),
         }
     }

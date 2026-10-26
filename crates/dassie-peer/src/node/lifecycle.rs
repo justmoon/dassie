@@ -709,12 +709,15 @@ impl PeerNode {
         {
             return;
         }
-        let contact = self.contact(&sender).map(|(_, url)| url).or_else(|| {
-            self.channels
-                .get(&sender)
-                .map(|channel| channel.url.clone())
-        });
-        let Some(url) = contact else {
+        let contact = self
+            .contact(&sender)
+            .map(|(_, endpoint)| endpoint)
+            .or_else(|| {
+                self.channels
+                    .get(&sender)
+                    .map(|channel| channel.endpoint.clone())
+            });
+        let Some(endpoint) = contact else {
             return;
         };
         self.told_not_peered
@@ -727,7 +730,7 @@ impl PeerNode {
         self.told_not_peered.insert(sender, now);
         let content = Content::PeeringTermination(TerminationReason::NotPeered);
         let timeout = self.config.request_timeout_ms;
-        self.send_via(sender, url, &content, Purpose::Gossip, timeout);
+        self.send_via(sender, endpoint, &content, Purpose::Gossip, timeout);
     }
 }
 

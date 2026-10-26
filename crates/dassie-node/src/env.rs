@@ -19,6 +19,7 @@ use std::path::PathBuf;
 
 use dassie_identity::{NodeId, PublicKey};
 use dassie_node_core::config::{Hostname, LiveRealm};
+use dassie_peer::wire::Endpoint;
 use serde::Deserialize;
 
 use crate::log::LogFilter;
@@ -127,8 +128,8 @@ impl std::error::Error for EnvError {}
 pub struct BootstrapNode {
     /// Its node ID, which matches its key.
     pub id: NodeId,
-    /// Its HTTPS URL.
-    pub url: String,
+    /// Where it takes QUIC, read from its entry's URL.
+    pub endpoint: Endpoint,
     /// Its Ed25519 key.
     pub public_key: PublicKey,
 }
@@ -514,7 +515,7 @@ pub fn bootstrap_nodes(env: &Env) -> Result<Vec<BootstrapNode>, EnvError> {
         let repeated = nodes
             .iter()
             .skip(index + 1)
-            .any(|other| other.id == node.id || other.url == node.url);
+            .any(|other| other.id == node.id || other.endpoint == node.endpoint);
         if repeated {
             return Err(error(format!("lists {} more than once", node.id)));
         }
@@ -551,14 +552,12 @@ fn check_bootstrap_node(node: &BootstrapNodeJson) -> Option<BootstrapNode> {
         return None;
     }
     dassie_base64url::decode(node.public_key.as_bytes(), &mut key).ok()?;
-    if !dassie_peer::wire::is_valid_url(&node.url) {
-        return None;
-    }
+    let endpoint = Endpoint::of_url(&node.url)?;
     let public_key = PublicKey::from_bytes(&key).ok()?;
     let id = NodeId::parse(&node.id).ok()?;
-    (public_key.node_id() == id).then(|| BootstrapNode {
+    (public_key.node_id() == id).then_some(BootstrapNode {
         id,
-        url: node.url.clone(),
+        endpoint,
         public_key,
     })
 }
@@ -595,7 +594,7 @@ mod tests {
         let urls = settings(&[("HOME", "/h")]).map(|s| {
             s.bootstrap_nodes
                 .iter()
-                .map(|node| node.url.clone())
+                .map(|node| node.endpoint.url())
                 .collect::<Vec<_>>()
         });
         assert_eq!(
@@ -800,7 +799,7 @@ mod tests {
         let relay = |value: &str| settings(&[("HOME", "/h"), ("DASSIE_RELAY", value)]);
         let boot1 = r#"{"id":"br5l3hqpjhlt5znzb24hrxqme77d7q7crlqfhza","url":"https://boot1.dassie.xyz","publicKey":"w25V-7IreZNDCPvwCrpiIv9Li5uwomzPSvqHot9ffLI"}"#;
         let chosen = relay(boot1).unwrap().relay.unwrap();
-        assert_eq!(chosen.node.url, "https://boot1.dassie.xyz");
+        assert_eq!(chosen.node.endpoint.url(), "https://boot1.dassie.xyz");
         assert_eq!(chosen.node.public_key.node_id(), chosen.node.id);
         // One the owner named is kept, hostname or not.
         assert!(!chosen.is_default);
@@ -819,7 +818,7 @@ mod tests {
         let unset = settings(&[("HOME", "/h")]).unwrap().relay.unwrap();
         assert!(unset.is_default);
         assert_eq!(
-            unset.node.url,
+            unset.node.endpoint.url(),
             format!(
                 "https://relay.{}",
                 crate::open_payments::DEFAULT_FRONT_DOOR_DOMAIN

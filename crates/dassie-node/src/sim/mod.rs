@@ -514,6 +514,12 @@ pub fn url(index: usize) -> String {
     format!("https://n{index}.test")
 }
 
+/// Where node `index` takes QUIC: its URL's host and port.
+#[must_use]
+pub fn endpoint(index: usize) -> dassie_peer::wire::Endpoint {
+    dassie_peer::wire::Endpoint::of_url(&url(index)).expect("a node URL")
+}
+
 enum Delivery {
     Request {
         from: usize,
@@ -931,7 +937,7 @@ impl Sim {
         let bootstrap = (0..bootstraps)
             .map(|index| Bootstrap {
                 id: key(index).node_id(),
-                url: url(index),
+                endpoint: endpoint(index),
                 key: key(index).public_key(),
             })
             .collect();
@@ -1108,7 +1114,7 @@ impl Sim {
         self.bootstrap = (0..count)
             .map(|index| Bootstrap {
                 id: key(index).node_id(),
-                url: url(index),
+                endpoint: endpoint(index),
                 key: key(index).public_key(),
             })
             .collect();
@@ -1629,7 +1635,9 @@ impl Sim {
         match output {
             Output::PeerRequest(request) => {
                 let to = self.nodes.len();
-                let to = (0..to).find(|i| url(*i) == request.url).unwrap();
+                let to = (0..to)
+                    .find(|i| request.endpoint == Some(endpoint(*i)))
+                    .unwrap();
                 let generation = self.nodes[index].generation;
                 self.watch_sent(index, to, request.id, &request.body);
                 // When a node asks a peer to settle, so that the checks can

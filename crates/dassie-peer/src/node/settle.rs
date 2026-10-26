@@ -87,7 +87,7 @@ impl PeerNode {
     pub(crate) fn free_downlinks(&self) -> usize {
         self.channels
             .values()
-            .filter(|channel| channel.url.is_empty() && !channel.paid_us)
+            .filter(|channel| channel.endpoint.is_none() && !channel.paid_us)
             .count()
     }
 
@@ -140,33 +140,33 @@ impl PeerNode {
     /// Opens the channel with `node` from `closed`, what stays of it if it
     /// was closed, or brings its contact up to date.
     pub(crate) fn open_channel_from(&mut self, node: NodeId, closed: Option<Closed>) -> bool {
-        let Some((key, url)) = self.contact(&node) else {
+        let Some((key, endpoint)) = self.contact(&node) else {
             return self.channels.contains_key(&node);
         };
         if let Some(channel) = self.channels.get_mut(&node) {
-            if channel.key != key || channel.url != url {
+            if channel.key != key || channel.endpoint != endpoint {
                 // A node that went from core to periphery, or back, counts
                 // with its new kind.
-                match (channel.url.is_empty(), url.is_empty()) {
+                match (channel.endpoint.is_none(), endpoint.is_none()) {
                     (false, true) => self.downlink_channels += 1,
                     (true, false) => self.downlink_channels -= 1,
                     _ => {}
                 }
                 channel.key = key;
-                channel.url = url;
+                channel.endpoint = endpoint;
                 self.channels_dirty.insert(node);
             }
             return true;
         }
-        if !self.channel_room_for(&node, url.is_empty()) {
+        if !self.channel_room_for(&node, endpoint.is_none()) {
             return false;
         }
-        if url.is_empty() {
+        if endpoint.is_none() {
             self.downlink_channels += 1;
         }
         // Written open, the channel replaces what stayed of it.
         self.closed.remove(&node);
-        let channel = Channel::reopen(key, url, closed.unwrap_or(Closed::NEW));
+        let channel = Channel::reopen(key, endpoint, closed.unwrap_or(Closed::NEW));
         self.channels.insert(node, channel);
         self.channels_dirty.insert(node);
         self.channel_active.insert(node, self.now_ms);
@@ -237,7 +237,7 @@ impl PeerNode {
         let Some(channel) = self.channels.remove(&node) else {
             return;
         };
-        if channel.url.is_empty() {
+        if channel.endpoint.is_none() {
             self.downlink_channels -= 1;
         }
         self.closed.insert(node, channel.closed());
@@ -313,9 +313,9 @@ impl PeerNode {
             self.retries.remove(&node);
             return;
         };
-        let url = self
+        let endpoint = self
             .contact(&node)
-            .map_or_else(|| channel.url.clone(), |(_, url)| url);
+            .map_or_else(|| channel.endpoint.clone(), |(_, endpoint)| endpoint);
         let content = Content::Settlement {
             scheme: outbox.scheme,
             amount: outbox.amount,
@@ -325,7 +325,7 @@ impl PeerNode {
         let purpose = Purpose::Settlement(outbox.sequence);
         let timeout = self.config.request_timeout_ms;
         if self
-            .send_via(node, url, &content, purpose, timeout)
+            .send_via(node, endpoint, &content, purpose, timeout)
             .is_some()
         {
             if let Some(retry) = self.retries.get_mut(&node) {

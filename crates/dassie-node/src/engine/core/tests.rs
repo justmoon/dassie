@@ -1245,7 +1245,7 @@ fn a_settlement_of_a_largest_packet_marks_its_payer() {
     let short = NodeKey::from_bytes(&[12; 32]);
     let channels = [&paying, &short].map(|key| StoredChannel {
         node: key.node_id(),
-        channel: Channel::new(key.public_key(), String::new()),
+        channel: Channel::new(key.public_key(), None),
     });
     let batch = crate::store::LedgerBatch {
         peer: PeerBatch {
@@ -5880,7 +5880,7 @@ fn asks_a_core_node_to_peer_on_xrpl(peers: bool) -> bool {
             },
             bootstrap: vec![dassie_peer::Bootstrap {
                 id: other.node_id(),
-                url: url.into(),
+                endpoint: dassie_peer::wire::Endpoint::of_url(url).unwrap(),
                 key: other.public_key(),
             }],
             uplinks: Vec::new(),
@@ -5991,7 +5991,7 @@ fn a_registration_is_on_disk_before_its_commitment_leaves() {
     drop(alone);
     let bootstrap = vec![dassie_peer::Bootstrap {
         id: registrar.node_id(),
-        url: "https://registrar.example".into(),
+        endpoint: dassie_peer::wire::Endpoint::parse("registrar.example").unwrap(),
         key: registrar.public_key(),
     }];
     let mut core = Core::start(parts(bootstrap), NOW).unwrap();
@@ -6036,7 +6036,7 @@ fn a_live_realm_node_takes_no_part_in_names() {
         .into_iter()
         .map(|key| dassie_peer::Bootstrap {
             id: key.node_id(),
-            url: "https://registrar.example".into(),
+            endpoint: dassie_peer::wire::Endpoint::parse("registrar.example").unwrap(),
             key: key.public_key(),
         })
         .collect();

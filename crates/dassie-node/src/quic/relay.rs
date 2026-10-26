@@ -18,6 +18,7 @@
 //!   [`Outcome`] byte;
 //! - relayed stream: purpose byte, client node ID; answered the same way.
 
+use dassie_peer::wire::Endpoint as PeerEndpoint;
 use std::collections::BTreeMap;
 use std::fmt;
 use std::net::IpAddr;
@@ -218,12 +219,12 @@ impl KeepWhile {
     }
 }
 
-/// The relay a node chose: its ID and URL, how to resolve its name, and
-/// while to keep it.
+/// The relay a node chose: its ID and endpoint, how to resolve its name,
+/// and while to keep it.
 #[derive(Clone)]
 pub(super) struct Chosen {
     relay: NodeId,
-    url: String,
+    endpoint: PeerEndpoint,
     resolver: Resolver,
     keep: KeepWhile,
 }
@@ -466,7 +467,7 @@ impl Quic {
     /// See [`RelayError`].
     pub async fn open_relayed(
         self: &Arc<Self>,
-        relay: (NodeId, &str),
+        relay: (NodeId, &PeerEndpoint),
         destination: NodeId,
         purpose: Purpose,
         resolver: &Resolver,
@@ -534,7 +535,7 @@ impl Quic {
     /// otherwise as [`open_relayed`](Self::open_relayed).
     pub async fn open_direct(
         self: &Arc<Self>,
-        (destination, url): (NodeId, &str),
+        (destination, endpoint): (NodeId, &PeerEndpoint),
         purpose: Purpose,
         resolver: &Resolver,
     ) -> Result<RelayedStream, RelayError> {
@@ -543,7 +544,13 @@ impl Quic {
         };
         let place = self.place(destination).ok_or(RelayError::Unreachable)?;
         let connection = self
-            .connection(&place, (destination, url), resolver, CONNECT_TIMEOUT, true)
+            .connection(
+                &place,
+                (destination, endpoint),
+                resolver,
+                CONNECT_TIMEOUT,
+                true,
+            )
             .await
             .map_err(|_| RelayError::Unreachable)?;
         let stream = open_relayed_on(&connection, own, purpose).await?;
@@ -570,14 +577,20 @@ impl Quic {
         }
     }
 
-    /// Chooses the relay `relay` at `url`, which [`serve`](Self::serve)
+    /// Chooses the relay `relay` at `endpoint`, which [`serve`](Self::serve)
     /// keeps a connection to while it runs and `keep` holds
     /// ([`keep_relay`](Self::keep_relay)), resolving its name with
     /// `resolver`.
-    pub fn choose_relay(&self, relay: NodeId, url: String, resolver: Resolver, keep: KeepWhile) {
+    pub fn choose_relay(
+        &self,
+        relay: NodeId,
+        endpoint: PeerEndpoint,
+        resolver: Resolver,
+        keep: KeepWhile,
+    ) {
         *lock(&self.chosen_relay) = Some(Chosen {
             relay,
-            url,
+            endpoint,
             resolver,
             keep,
         });
@@ -592,7 +605,7 @@ impl Quic {
         lock(&self.chosen_relay)
             .as_ref()
             .filter(|chosen| chosen.keep.holds())
-            .map(|chosen| (chosen.relay, chosen.url.clone(), link))
+            .map(|chosen| (chosen.relay, chosen.endpoint.url(), link))
     }
 
     /// How the node stands with the relay it keeps a connection to
@@ -617,7 +630,7 @@ impl Quic {
         if let Some(chosen) = lock(&self.chosen_relay).clone() {
             tasks.spawn(Arc::clone(self).keep_relay(
                 chosen.relay,
-                chosen.url,
+                chosen.endpoint,
                 chosen.resolver,
                 chosen.keep,
                 stop.clone(),
@@ -640,7 +653,7 @@ impl Quic {
     pub async fn keep_relay(
         self: Arc<Self>,
         relay: NodeId,
-        url: String,
+        endpoint: PeerEndpoint,
         resolver: Resolver,
         mut keep: KeepWhile,
         shutdown: CancellationToken,
@@ -667,7 +680,7 @@ impl Quic {
                 }
                 Some(_) if self.is_serving() => {
                     let dialled = self
-                        .dial((relay, &url), &resolver, CONNECT_TIMEOUT, true)
+                        .dial((relay, &endpoint), &resolver, CONNECT_TIMEOUT, true)
                         .await;
                     if let Some(connection) = dialled {
                         let since = tokio::time::Instant::now();

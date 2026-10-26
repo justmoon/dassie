@@ -14,7 +14,7 @@ use std::sync::Arc;
 use dassie_identity::NodeKey;
 use dassie_kit::sim::SeededRng;
 use dassie_oer::{Decode, Encode};
-use dassie_peer::sim::{Arriving, Network, START, forger, key, url};
+use dassie_peer::sim::{Arriving, Network, START, endpoint, forger, key, url};
 use dassie_peer::wire::{
     Content, Entry, NodeInfo, PeeringRequest, PeeringResponse, RefusalReason, SchemeId,
     SignedNodeInfo, TerminationReason, sign_node_info,
@@ -446,7 +446,7 @@ fn core_node(own: &Arc<NodeKey>, boot: &NodeKey) -> PeerNode {
         },
         vec![dassie_peer::Bootstrap {
             id: boot.node_id(),
-            url: url(1),
+            endpoint: endpoint(1),
             key: boot.public_key(),
         }],
         Stored::default(),
@@ -494,7 +494,11 @@ fn bootstrap_nodes_are_asked_at_once() {
     assert!(!ours, "no extension");
     let to_boot: Vec<_> = before.iter().filter(|r| r.to == boot.node_id()).collect();
     assert!(!to_boot.is_empty());
-    assert!(to_boot.iter().all(|request| request.url == url(1)));
+    assert!(
+        to_boot
+            .iter()
+            .all(|request| request.endpoint == Some(endpoint(1)))
+    );
 }
 
 /// The link state `node` issues first, as it goes to its bootstrap node.
@@ -522,7 +526,7 @@ fn with_feed(own: &Arc<NodeKey>, boot: &NodeKey, feed_port: Option<u16>) -> Peer
         },
         vec![dassie_peer::Bootstrap {
             id: boot.node_id(),
-            url: url(1),
+            endpoint: endpoint(1),
             key: boot.public_key(),
         }],
         Stored::default(),

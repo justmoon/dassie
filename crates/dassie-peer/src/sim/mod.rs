@@ -182,6 +182,11 @@ pub fn url(index: usize) -> String {
     format!("https://n{index}.test")
 }
 
+/// Where node `index` takes QUIC: its URL's host and port.
+pub fn endpoint(index: usize) -> crate::wire::Endpoint {
+    crate::wire::Endpoint::of_url(&url(index)).unwrap()
+}
+
 /// A request as it arrives at a node: its body, from the node whose key the
 /// connection it came on proved (spec/areas/peer-protocol.md#authentication).
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -384,7 +389,7 @@ pub struct Network {
     pub faults: Faults,
     /// The bootstrap nodes: the first of the nodes.
     pub bootstrap: Vec<Bootstrap>,
-    by_url: BTreeMap<String, usize>,
+    by_endpoint: BTreeMap<crate::wire::Endpoint, usize>,
     queue: BTreeMap<(u64, u64), Delivery>,
     sequence: u64,
     rng: SeededRng,
@@ -521,7 +526,7 @@ impl Network {
         let bootstrap: Vec<Bootstrap> = (0..bootstrap_count)
             .map(|index| Bootstrap {
                 id: key(index).node_id(),
-                url: url(index),
+                endpoint: endpoint(index),
                 key: key(index).public_key(),
             })
             .collect();
@@ -531,7 +536,7 @@ impl Network {
             config,
             faults: Faults::NONE,
             bootstrap,
-            by_url: BTreeMap::new(),
+            by_endpoint: BTreeMap::new(),
             queue: BTreeMap::new(),
             sequence: 0,
             rng: SeededRng::new(rng.next_u64()),
@@ -564,7 +569,7 @@ impl Network {
         for index in 0..count + periphery {
             let skew = i64::try_from(rng.next_u64() % 20_001).unwrap() - 10_000;
             if index < count {
-                network.by_url.insert(url(index), index);
+                network.by_endpoint.insert(endpoint(index), index);
             }
             network.nodes.push(SimNode {
                 node: None,
@@ -848,14 +853,14 @@ impl Network {
         ));
         let generation = self.nodes[from].generation;
         // A periphery node is reached by its ID, over the connection it
-        // opened; nothing else has an empty URL.
-        let to = if request.url.is_empty() {
-            self.periphery
+        // opened; nothing else is without an endpoint.
+        let to = match &request.endpoint {
+            None => self
+                .periphery
                 .iter()
                 .copied()
-                .find(|index| key(*index).node_id() == request.to)
-        } else {
-            self.by_url.get(&request.url).copied()
+                .find(|index| key(*index).node_id() == request.to),
+            Some(endpoint) => self.by_endpoint.get(endpoint).copied(),
         };
         let Some(to) = to else {
             self.schedule(

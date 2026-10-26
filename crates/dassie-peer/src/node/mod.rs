@@ -12,6 +12,7 @@ mod peering;
 mod settle;
 mod state;
 
+use crate::wire::Endpoint;
 use alloc::boxed::Box;
 use alloc::collections::{BTreeMap, BTreeSet, VecDeque};
 use alloc::string::String;
@@ -123,8 +124,8 @@ impl OwnInfo {
 pub struct Bootstrap {
     /// Its ID, checked against its key.
     pub id: NodeId,
-    /// Its URL.
-    pub url: String,
+    /// Where it takes QUIC, from its configured URL.
+    pub endpoint: Endpoint,
     /// Its key.
     pub key: PublicKey,
 }
@@ -247,7 +248,7 @@ pub struct PeerNode {
     /// Responses waiting to be sent again.
     pub(crate) answers: Vec<(u64, Answer)>,
     /// Probes in flight: the node and the host probed.
-    pub(crate) probing: Vec<(NodeId, String)>,
+    pub(crate) probing: Vec<(NodeId, Endpoint)>,
     pub(crate) probes: Bucket,
     /// Each network's share of the probes, spent by those that fail.
     pub(crate) network_probes: NetworkBuckets,
@@ -554,18 +555,18 @@ impl PeerNode {
         self.events_queued.wrapping_sub(before)
     }
 
-    /// The key and URL to reach `node`: from its link state, or the
-    /// bootstrap list.
-    pub(crate) fn contact(&self, node: &NodeId) -> Option<(PublicKey, String)> {
+    /// The key and endpoint to reach `node`: from its link state, or the
+    /// bootstrap list. A periphery node has no endpoint.
+    pub(crate) fn contact(&self, node: &NodeId) -> Option<(PublicKey, Option<Endpoint>)> {
         if let Some(entry) = self.table.get(node)
             && let (Some(key), Some(link)) = (entry.key, entry.link.as_ref())
         {
-            return Some((key, link.url.clone()));
+            return Some((key, link.endpoint.clone()));
         }
         self.bootstrap
             .iter()
             .find(|bootstrap| bootstrap.id == *node)
-            .map(|bootstrap| (bootstrap.key, bootstrap.url.clone()))
+            .map(|bootstrap| (bootstrap.key, Some(bootstrap.endpoint.clone())))
     }
 
     /// Sends `content` to `to`. Returns `None` when it cannot: no contact,
@@ -577,17 +578,18 @@ impl PeerNode {
         purpose: Purpose,
         timeout_ms: u64,
     ) -> Option<RequestId> {
-        let (_, url) = self.contact(&to)?;
-        self.send_via(to, url, content, purpose, timeout_ms)
+        let (_, endpoint) = self.contact(&to)?;
+        self.send_via(to, endpoint, content, purpose, timeout_ms)
     }
 
-    /// Sends `content` to `to` at `url`. The transport pins the connection
+    /// Sends `content` to `to` at `endpoint`, or, without one, over the
+    /// connection the periphery node `to` opened. The transport pins the connection
     /// to `to`'s key, so only `to` answers, and proves ours to it
     /// (spec/areas/peer-protocol.md#authentication).
     pub(crate) fn send_via(
         &mut self,
         to: NodeId,
-        url: String,
+        endpoint: Option<Endpoint>,
         content: &Content<'_>,
         purpose: Purpose,
         timeout_ms: u64,
@@ -613,11 +615,11 @@ impl PeerNode {
         );
         self.deadlines.insert((deadline_ms, id));
         // A periphery node is reached only over the connection it opened,
-        // which its empty URL tells the transport.
+        // which its missing endpoint tells the transport.
         self.outputs.push_back(Output::Request(Request {
             id,
             to,
-            url,
+            endpoint,
             kind: content.kind(),
             body,
             timeout_ms,

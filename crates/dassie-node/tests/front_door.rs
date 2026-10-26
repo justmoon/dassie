@@ -41,6 +41,7 @@ use dassie_node::quic::{Body, Handler, Quic};
 use dassie_node::rpc::proto::{self, request::Method, response};
 use dassie_node_core::connections::ConnectionLimits;
 use dassie_payments::httpsig;
+use dassie_peer::wire::Endpoint;
 use http_body_util::{BodyExt, Full};
 use hyper::{Request, Response, StatusCode};
 use hyper_util::rt::TokioIo;
@@ -1248,7 +1249,7 @@ async fn the_front_door_passes_back_only_json_without_cookies() {
     let resolver = Resolver::new(true);
     tokio::spawn(Arc::clone(&quic).keep_relay(
         door.id,
-        door.url.clone(),
+        Endpoint::of_url(&door.url).unwrap(),
         resolver,
         KeepWhile::Always,
         shutdown.clone(),
@@ -1332,7 +1333,12 @@ async fn the_front_door_passes_back_only_json_without_cookies() {
         Arc::new(Quic::new(UdpSocket::bind("127.0.0.1:0").unwrap(), other_keys, true).unwrap());
     tokio::spawn(Arc::clone(&client).serve(Arc::new(Misbehaving::default()), shutdown.clone()));
     let relayed = client
-        .open_relayed((door.id, &door.url), id, Purpose::Payments, &resolver)
+        .open_relayed(
+            (door.id, &Endpoint::of_url(&door.url).unwrap()),
+            id,
+            Purpose::Payments,
+            &resolver,
+        )
         .await;
     assert_eq!(relayed.err(), Some(RelayError::Refused));
     shutdown.cancel();

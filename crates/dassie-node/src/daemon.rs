@@ -632,7 +632,12 @@ fn attach_quic(
         } else {
             KeepWhile::Always
         };
-        quic.choose_relay(relay.node.id, relay.node.url.clone(), node.resolver(), keep);
+        quic.choose_relay(
+            relay.node.id,
+            relay.node.endpoint.clone(),
+            node.resolver(),
+            keep,
+        );
     }
     node.attach_quic(Arc::clone(&quic));
     if let Some(to) = hand_out {
@@ -717,7 +722,7 @@ fn peer_options(settings: &Settings) -> PeerOptions {
             .iter()
             .map(|node| dassie_peer::Bootstrap {
                 id: node.id,
-                url: node.url.clone(),
+                endpoint: node.endpoint.clone(),
                 key: node.public_key,
             })
             .collect(),

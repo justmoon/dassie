@@ -1,6 +1,7 @@
 //! The node table (spec/areas/network.md#node-table): what a node knows
 //! about the others.
 
+use crate::wire::Endpoint;
 use alloc::collections::BTreeMap;
 use alloc::string::String;
 use alloc::vec::Vec;
@@ -153,8 +154,9 @@ pub struct LinkState {
     pub bytes: Vec<u8>,
     /// Its sequence, a timestamp in ms.
     pub sequence: u64,
-    /// The node's URL.
-    pub url: String,
+    /// Where the node takes QUIC, read once from its URL; `None` for a
+    /// periphery node's, which has none.
+    pub endpoint: Option<Endpoint>,
     /// The node's alias.
     pub alias: String,
     /// The neighbors it advertises, sorted.
@@ -184,7 +186,7 @@ impl LinkState {
         Self {
             bytes: signed.bytes.to_vec(),
             sequence: signed.info.sequence,
-            url: signed.info.url.into(),
+            endpoint: Endpoint::of_url(signed.info.url),
             alias: signed.info.alias.into(),
             neighbors,
             schemes: signed.info.schemes().collect(),
@@ -395,9 +397,9 @@ pub struct Registration {
     pub renewed_ms: u64,
     /// When it lapses without renewal.
     pub expires_ms: u64,
-    /// The URL that was probed: a renewal from another URL is probed
+    /// The endpoint that was probed: a renewal from another is probed
     /// again.
-    pub url: String,
+    pub endpoint: Endpoint,
     /// The network the registration came from, for the cap per network
     /// (spec/decisions/membership-economics.md): a /24 or /48.
     pub network: Option<Network>,

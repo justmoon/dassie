@@ -3,6 +3,7 @@
 //! answering. Termination, bans and the advertise flag are in
 //! [`lifecycle`](super::lifecycle).
 
+use crate::wire::Endpoint;
 use alloc::vec::Vec;
 
 use dassie_identity::NodeId;
@@ -558,11 +559,10 @@ impl PeerNode {
             network,
             purpose: ProbeFor::Peering(content.to_vec()),
         };
-        self.start_probe(
-            sender,
-            request.node_info.info.url,
-            alloc::boxed::Box::new(probe),
-        )
+        let Some(endpoint) = Endpoint::of_url(request.node_info.info.url) else {
+            return Inbound::Reply(refused(RefusalReason::Unreachable));
+        };
+        self.start_probe(sender, endpoint, alloc::boxed::Box::new(probe))
     }
 
     /// Why a request is refused before probing, if it is.
@@ -673,7 +673,7 @@ impl PeerNode {
         let held = self
             .channels
             .get(sender)
-            .is_some_and(|channel| channel.url.is_empty());
+            .is_some_and(|channel| channel.endpoint.is_none());
         held || self.paid_us(sender, hooks)
     }
 
@@ -712,7 +712,9 @@ impl PeerNode {
         // Its channel opens as the kind its room was checked for: the link
         // state we hold for it says, by its URL, which kind that is.
         let downlink = request.node_info.info.is_periphery();
-        let kind = self.contact(&sender).map(|(_, url)| url.is_empty());
+        let kind = self
+            .contact(&sender)
+            .map(|(_, endpoint)| endpoint.is_none());
         if !self.channels.contains_key(&sender) && kind != Some(downlink) {
             return refused(RefusalReason::Unspecified);
         }

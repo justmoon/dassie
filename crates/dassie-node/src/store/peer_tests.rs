@@ -20,7 +20,7 @@ fn node(seed: u8) -> StoredNode {
             registered_ms: 11,
             renewed_ms: 12,
             expires_ms: 13,
-            url: "https://a.example".into(),
+            endpoint: dassie_peer::wire::Endpoint::of_url("https://a.example").unwrap(),
             network: Some(dassie_peer::Network([4, 10, 0, 0, 0, 0, 0])),
         }),
         peering: Some(Peering {
@@ -209,7 +209,7 @@ fn terminations_channels_and_bans_round_trip() {
         node: key.node_id(),
         channel: Channel {
             key: key.public_key(),
-            url: "https://c.example".into(),
+            endpoint: dassie_peer::wire::Endpoint::of_url("https://c.example"),
             settled_in: 4,
             settled_out: 7,
             outbox: Some(Outgoing {
@@ -276,7 +276,7 @@ fn a_closed_channel_stays_on_disk() {
         node: key.node_id(),
         channel: Channel {
             key: key.public_key(),
-            url: "https://d.example".into(),
+            endpoint: dassie_peer::wire::Endpoint::of_url("https://d.example"),
             settled_in: 2,
             settled_out: 5,
             outbox: None,
@@ -324,7 +324,11 @@ fn a_closed_channel_stays_on_disk() {
     assert_eq!(store.closed_channel(&key.node_id()).unwrap(), Some(late));
     let reopened = StoredChannel {
         node: key.node_id(),
-        channel: Channel::reopen(key.public_key(), "https://d.example".into(), late),
+        channel: Channel::reopen(
+            key.public_key(),
+            dassie_peer::wire::Endpoint::of_url("https://d.example"),
+            late,
+        ),
     };
     commit(
         &store,

@@ -24,7 +24,7 @@ pub use response::{
     decode_settling, encode_expiry, encode_link_states, encode_octets, encode_settling,
 };
 pub use scheme::{MAX_SCHEME_ID, SchemeId};
-pub use url::is_valid_url;
+pub use url::{Endpoint, is_valid_url};
 
 /// The OID that starts a `PeerNodeInfo`. v0 used `…1399.1.2`, and the
 /// layout with the node ID beside the key `…1399.1.3`; a new one keeps node
