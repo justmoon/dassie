@@ -97,7 +97,7 @@ Most of Dassie may change freely: the UI ↔ node RPC and the HTTP API ship with
 - **The release mirror's layout and the install layout** ([Release](areas/release.md#the-mirror), [install layout](areas/release.md#install-layout)).
 - **The public domains:** `dassiepay.net` and `test.dassiepay.net`, `dassie.land`'s memo types, `get.dassie.land` and `sh.dassie.land` ([public-domains](decisions/public-domains.md)).
 
-Not frozen, on purpose: a node does not talk to the original implementation's nodes or read its databases; an owner of one keeps their keys through the original's release and sets up a new node with a new phrase ([peer-protocol-v1](decisions/peer-protocol-v1.md), [database-continuity](decisions/database-continuity.md), [phrase-format](decisions/phrase-format.md)).
+Not frozen, on purpose: a node does not talk to the original implementation's nodes or read its databases; the original was a development prototype that nobody ran ([peer-protocol-v1](decisions/peer-protocol-v1.md), [database-continuity](decisions/database-continuity.md)).
 
 ## Principles
 

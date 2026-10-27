@@ -158,7 +158,7 @@ The CLI talks to the daemon over the IPC socket with the same RPC contract as th
 
 ## Decisions
 
-- [database-continuity](../decisions/database-continuity.md): a new schema, v0 databases refused, and what a v0 owner loses by setting up again.
+- [database-continuity](../decisions/database-continuity.md): a new schema, and v0 databases refused, since nobody ran the original.
 - [rpc-contract](../decisions/rpc-contract.md): the CLI talks to the daemon over the same contract as the wallet.
 - [real-money](../decisions/real-money.md): why the `live` realm is refused.
 - [hub-keys-by-network](../decisions/hub-keys-by-network.md): the validator file's network, and why one of real money is refused with the `live` realm.
