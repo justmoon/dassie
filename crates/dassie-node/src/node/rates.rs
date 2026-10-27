@@ -30,10 +30,10 @@ impl Node {
             if let Some(engine) = self.engine() {
                 self.fetch_rates(&engine).await;
             }
-            let next_ms = self.now_ms().saturating_add(self.policies.rates_every_ms);
+            let every_ms = self.policies.rates_every_ms;
             tokio::select! {
                 () = shutdown.cancelled() => return,
-                () = interval_passed(&*self.clock, &mut moves, next_ms) => {}
+                () = interval_passed(&*self.clock, &mut moves, every_ms) => {}
                 () = self.rates_wake.notified() => {}
                 changed = engines.changed() => {
                     if changed.is_err() {

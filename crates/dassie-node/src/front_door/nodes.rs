@@ -241,10 +241,9 @@ impl Nodes {
     /// is left, waiting at most [`WAIT_FOR_STREAM_MS`] for one to come free.
     async fn lease(self: &Arc<Self>, node: NodeId) -> Result<Lease, Missed> {
         let mut moves = self.clock.subscribe();
-        let deadline_ms = self.clock.now_ms().saturating_add(WAIT_FOR_STREAM_MS);
         // One wait across the loop's turns, so that on the system clock it
         // ends the interval's real time after the request came.
-        let expired = interval_passed(&*self.clock, &mut moves, deadline_ms);
+        let expired = interval_passed(&*self.clock, &mut moves, WAIT_FOR_STREAM_MS);
         let mut expired = std::pin::pin!(expired);
         loop {
             // Registered before the table is looked at, so that a lease

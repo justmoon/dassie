@@ -873,10 +873,9 @@ async fn prune_sessions(node: Arc<Node>, shutdown: CancellationToken) {
                 tracing::warn!(target: target::AUTH, %error, "could not delete expired sessions")
             }
         }
-        let next_ms = clock.now_ms().saturating_add(PRUNE_INTERVAL_MS);
         tokio::select! {
             () = shutdown.cancelled() => return,
-            () = interval_passed(&*clock, &mut moves, next_ms) => {}
+            () = interval_passed(&*clock, &mut moves, PRUNE_INTERVAL_MS) => {}
         }
     }
 }
