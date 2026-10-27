@@ -687,6 +687,31 @@ fn a_connection_gone_takes_what_was_to_go_on_it() {
     )));
 }
 
+// A submit whose answer the connection never brought goes again on the
+// next, as one made while disconnected does: a validator's quorum-signed
+// withdrawal is not lost to a reconnect.
+#[test]
+fn a_submit_a_connection_lost_goes_again_on_the_next() {
+    let mut setup = Setup::new();
+    setup.connect();
+    setup.closes(2);
+    assert!(setup.watcher.following());
+    let blob = vec![0xab; 4];
+    setup.watcher.submit(blob.clone());
+    let mut sent = 0;
+    while let Some(out) = setup.watcher.poll() {
+        sent += usize::from(matches!(out, Out::Send(_)));
+    }
+    assert_eq!(sent, 1, "it went, and no answer came");
+    setup.reconnect();
+    assert_eq!(setup.watcher.queued, [blob], "it waits for the next");
+    setup.closes(2);
+    assert!(setup.watcher.following());
+    assert!(setup.watcher.queued.is_empty(), "it went again");
+    assert!(setup.watcher.submitting.is_empty(), "and was answered");
+    setup.watcher.check_invariants();
+}
+
 /// A token hub's escrow through every act of its issuer: a deposit, XRP
 /// sent as gas, a freeze, a deep freeze and a global freeze of it, each
 /// lifted, a transfer fee set and removed, and a clawback; each act a few
