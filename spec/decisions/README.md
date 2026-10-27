@@ -43,7 +43,7 @@ Each file records one choice between real alternatives: the facts that forced it
 | [nix-flake-on-the-mirror](nix-flake-on-the-mirror.md) | NixOS takes a release from a flake on the mirror | release |
 | [node-and-pnpm](node-and-pnpm.md) | Tooling on Node and pnpm, not Deno | engineering |
 | [open-payments](open-payments.md) | Open Payments, fully, and no SPSP | payments, http |
-| [open-rate-sources](open-rate-sources.md) | A node takes its rates only from sources whose terms allow its use: XRP's from the XRP Ledger's pools, the fiat currencies' from central banks (not built) | connector, xrpl, dsusd-keeper, wallet |
+| [open-rate-sources](open-rate-sources.md) | A node takes its rates only from sources whose terms allow its use: XRP's from mainnet's XRP/RLUSD pool, the fiat currencies' from central banks, with no peg guard until a dollar token has a price of its own (not built) | connector, xrpl, dsusd-keeper, wallet |
 | [own-books](own-books.md) | Each node keeps its own books | engineering, settlement, testing |
 | [own-fulfills](own-fulfills.md) | Each node books its own Fulfills | settlement, connector, peer-protocol |
 | [owner-ledger](owner-ledger.md) | Owner ledger and multi-currency accounts | ledger, connector |

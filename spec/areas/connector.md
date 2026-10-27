@@ -188,7 +188,7 @@ ILP-over-HTTP (RFC 35) is not built: the connector has no HTTP endpoint ([roadma
 
 - [owner-ledger](../decisions/owner-ledger.md): each endpoint has a ledger, and ILDCP answers its asset; the owner's own endpoints never convert; the display currency.
 - [exchange-rates](../decisions/exchange-rates.md): refreshed rates, staleness, exact math, the median of three sources per currency from three upstreams; fees and spread, and why the fee rounds down.
-- [open-rate-sources](../decisions/open-rate-sources.md): sources whose terms allow a node's use, XRP's from mainnet's pools and the fiat currencies' from central banks (not built).
+- [open-rate-sources](../decisions/open-rate-sources.md): sources whose terms allow a node's use, XRP's from mainnet's XRP/RLUSD pool and the fiat currencies' from central banks (not built).
 - [passive-rebalancing](../decisions/passive-rebalancing.md): transit priced by the owner's inventory, anchored at spot, rather than the node trading.
 - [secrets-at-rest](../decisions/secrets-at-rest.md): BTP tokens are kept hashed.
 - [connector-timing](../decisions/connector-timing.md): timing at the packet's expiry, F05 at once, F08 data, F01 and F02, segment-aware prefixes, unique request IDs.
