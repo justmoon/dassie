@@ -24,6 +24,9 @@
 //! nonce, with validators of keys and endpoints of its own. The functions
 //! that act on a validator name it by [`validator_id`], which for the first
 //! hub is its index in the rules, so that a run of one hub reads as before.
+//! A run in the live realm founds its hub on the fake ledger's mainnet,
+//! which has no faucet: the sponsor deposits into the escrow, and the
+//! validators follow it under the lists of the fake mainnet's publisher.
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::sync::Arc;
@@ -119,11 +122,24 @@ impl HubSpec {
             nonce: SECOND_NONCE,
         }
     }
+
+    /// The run's first hub, of `asset`, on mainnet: in the live realm, its
+    /// escrow on the fake ledger's mainnet.
+    #[must_use]
+    pub const fn mainnet(asset: Asset) -> Self {
+        Self {
+            place: 0,
+            asset,
+            network: dassie_xrpl::network::MAINNET.id,
+            nonce: NONCE,
+        }
+    }
 }
 
 /// The hubs a run over hubs founds, by their places: XRP in the first, as
 /// [`Settling::Hub`] has it, and DSUSD in the second for a run in both, or
-/// in the first for a run of DSUSD alone.
+/// in the first for a run of DSUSD alone. A run in the live realm founds
+/// one hub on mainnet, of XRP or of RLUSD.
 #[must_use]
 pub fn specs(settling: Settling) -> Vec<HubSpec> {
     let xrp = HubSpec::first(Asset::Xrp);
@@ -133,6 +149,8 @@ pub fn specs(settling: Settling) -> Vec<HubSpec> {
         Settling::Hubs(_) | Settling::HubAcross(_) => {
             vec![xrp, HubSpec::second(super::hub_token::ASSET)]
         }
+        Settling::HubLive(_) => vec![HubSpec::mainnet(Asset::Xrp)],
+        Settling::HubRlusd(_) => vec![HubSpec::mainnet(super::hub_live::RLUSD_ASSET)],
         _ => Vec::new(),
     }
 }
@@ -141,8 +159,9 @@ pub fn specs(settling: Settling) -> Vec<HubSpec> {
 #[must_use]
 pub fn spec_of(settling: Settling, ledger: LedgerId) -> Option<HubSpec> {
     let asset = match ledger {
-        super::HUB => Asset::Xrp,
+        super::HUB | super::HUB_LIVE => Asset::Xrp,
         super::HUB_DSUSD => super::hub_token::ASSET,
+        super::HUB_RLUSD => super::hub_live::RLUSD_ASSET,
         _ => return None,
     };
     specs(settling).into_iter().find(|spec| spec.asset == asset)
@@ -602,13 +621,18 @@ impl Sim {
     /// Founds the hub `spec`: the sponsor funds the escrow and sets it up
     /// as the rules say, its master key disabled last; then each validator
     /// starts from genesis, with its role and a clock off by at most half
-    /// the precision.
+    /// the precision. On mainnet, which has no faucet, the sponsor deposits
+    /// as much as the testnet's faucet gives.
     fn found_hub_in(&mut self, spec: HubSpec, roles: &[Role]) {
         let count = roles.len();
         let rules = rules_in(&spec, count);
         let master = escrow_master(&sponsor(), spec.network, &spec.nonce);
         let escrow = master.account();
-        self.ledger.fund(escrow);
+        if spec.network == TESTNET_NETWORK {
+            self.ledger.fund(escrow);
+        } else {
+            self.ledger.deposit(escrow, dassie_xrpl::fake::FAUCET_DROPS);
+        }
         self.ledger.close();
         self.next_connection += 1;
         let submitter = self.next_connection;
@@ -1895,6 +1919,12 @@ pub const PREPARES_OVER_XRP: &str = "prepares over the XRP hub";
 /// What a run counts of the Prepares over the DSUSD hub's method.
 pub const PREPARES_OVER_DSUSD: &str = "prepares over the DSUSD hub";
 
+/// What a run counts of the Prepares over the mainnet XRP hub's method.
+pub const PREPARES_OVER_LIVE_XRP: &str = "prepares over the mainnet XRP hub";
+
+/// What a run counts of the Prepares over the RLUSD hub's method.
+pub const PREPARES_OVER_RLUSD: &str = "prepares over the RLUSD hub";
+
 /// How often a member that claims twice claims.
 const CLAIM_EVERY_MS: u64 = 2_000;
 
@@ -2005,6 +2035,8 @@ impl Sim {
         match scheme.as_str() {
             dassie_hub::member::SCHEME_ID => self.count(PREPARES_OVER_XRP),
             dassie_hub::member::DSUSD_SCHEME_ID => self.count(PREPARES_OVER_DSUSD),
+            dassie_hub::member::MAINNET_SCHEME_ID => self.count(PREPARES_OVER_LIVE_XRP),
+            dassie_hub::member::RLUSD_SCHEME_ID => self.count(PREPARES_OVER_RLUSD),
             _ => {}
         }
     }

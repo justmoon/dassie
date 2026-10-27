@@ -117,6 +117,27 @@ pub static SIMS: &[Sim] = &[
         weight: 5,
     },
     Sim {
+        name: "node-hub-live",
+        about: "whole nodes' engine cores in the live realm peered over a settlement hub of XRP \
+                on the fake XRP Ledger's mainnet, funding it from their XRP owner books, which \
+                their owners' deposits fund, while their servers and the hub's validators' \
+                servers lie",
+        describe: dassie_node::sim::hub_live::describe_live,
+        run: dassie_node::sim::hub_live::run_live,
+        // A script over a hub, shorter than node-hub's.
+        weight: 5,
+    },
+    Sim {
+        name: "node-hub-rlusd",
+        about: "the same over a hub of RLUSD, funded from the members' RLUSD owner books and its \
+                escrow's gas from their XRP books, paying each other over it while the token is \
+                off its peg",
+        describe: dassie_node::sim::hub_live::describe_rlusd,
+        run: dassie_node::sim::hub_live::run_rlusd,
+        // A script over a hub, shorter than node-hub's.
+        weight: 5,
+    },
+    Sim {
         name: "node-owner-books",
         about: "whole nodes' engine cores paying over the stub with unlimited trust, as \
                 scripted, each keeping its owner's books of XRP and DSUSD on a fake XRP \
