@@ -99,7 +99,7 @@
       "x": 20,
       "y": 48,
       "w": 180,
-      "desc": "The web app the node's owner runs it from, built into the dassie binary. The owner's 24-word phrase is checked and turned into keys right in the browser, and never sent to the node.",
+      "desc": "The web app the node's owner runs it from, built into the dassie binary. The owner's 20-word phrase is checked and turned into keys right in the browser, and never sent to the node.",
       "does": [
         "Setup and login",
         "Accounts and ledgers, sending and receiving, payment status and activity",
@@ -700,9 +700,9 @@
       "x": 408,
       "y": 844,
       "w": 184,
-      "desc": "Turns the owner's 24-word phrase into everything that identifies a node. The same phrase always gives the same node.",
+      "desc": "Turns the owner's 20-word phrase into everything that identifies a node. The phrase names its realm and corrects a few wrong or unreadable words, never without the owner's say. The same phrase always gives the same node.",
       "does": [
-        "BIP-39 phrases, and every secret below the node key as one typed path: the login, ledger accounts, a hub's keys, STREAM receivers, QUIC keys",
+        "Phrases of 20 words with a realm, a creation time and Reed–Solomon check words, and every secret below the node key as one typed path: the login, ledger accounts, a hub's keys, STREAM receivers, QUIC keys",
         "The Ed25519 node key, node ID and login secret",
         "The node ID: 39 characters of base32, the same in ILP addresses, DNS names and the wallet, and 24 bytes on the wire",
         "Signature checks under the ZIP-215 rules",
@@ -1372,7 +1372,7 @@
           "ids": [
             "wallet"
           ],
-          "text": "The owner opens the wallet, which the node serves from inside the dassie binary, and types the 24-word phrase."
+          "text": "The owner opens the wallet, which the node serves from inside the dassie binary, and types the 20-word phrase."
         },
         {
           "ids": [
@@ -1768,7 +1768,7 @@
     },
     {
       "t": "Golden vectors",
-      "p": "Byte-exact fixtures from other implementations: Dassie's first, TypeScript one, `xrpl.js`, and for every key a node derives from its phrase, libraries independent of Dassie's code. They pin the wire formats and key derivations.",
+      "p": "Byte-exact fixtures from other implementations: Dassie's first, TypeScript one, `xrpl.js`, and for every key a node derives from its phrase, a generator apart from Dassie's code. They pin the wire formats and key derivations.",
       "ev": "testdata/original · testdata/identity · testdata/xrpl · tests/vectors.rs"
     },
     {

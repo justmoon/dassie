@@ -22,7 +22,7 @@ Dassie works with test money only: the `live` realm is refused until the conditi
 |---|---|
 | **Node** | One running Dassie daemon, identified by an Ed25519 key ([Identity](areas/identity.md)). |
 | **Node ID** | A hash of the node's public key; the node's network identity. |
-| **Passphrase** | A BIP-39 mnemonic. Everything secret derives from it: the node key, the login secret, and the keys of the node's accounts on each ledger. The browser derives the node key, or `dassie setup` on the node's host; only the node key reaches the node. The same passphrase recovers the same node ID and the same on-ledger accounts. |
+| **Passphrase** | The recovery phrase: 20 words that name their realm and correct their own errors ([phrase-format](decisions/phrase-format.md)). Everything secret derives from it: the node key, the login secret, and the keys of the node's accounts on each ledger. The browser derives the node key, or `dassie setup` on the node's host; only the node key reaches the node. The same passphrase recovers the same node ID and the same on-ledger accounts. |
 | **Owner** | The person who set the node up with their passphrase and logs in to its wallet. |
 | **Realm** | `test` or `live`. It picks the ILP allocation scheme (`test` or `g`) and which settlement schemes may run. |
 | **ILP address** | Every node is `<scheme>.das.<nodeId>`. The node's own endpoints and clients live beneath it. |

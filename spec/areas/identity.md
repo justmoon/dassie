@@ -1,17 +1,21 @@
 # Identity
 
-Everything a node is derives from one BIP-39 recovery phrase: its Ed25519 node key and node ID, its login secret, and the entropy its settlement schemes build wallets from. The owner keeps only the phrase, so the same phrase must always recover the same node and the same funds.
+Everything a node is derives from one recovery phrase: its Ed25519 node key and node ID, its login secret, and the entropy its settlement schemes build wallets from. The owner keeps only the phrase, so the same phrase must always recover the same node and the same funds.
 
 **Paths:** `crates/dassie-identity/`, `packages/wasm/`
 **Read with:** [Encoding](encoding.md), [Peer protocol](peer-protocol.md), [HTTP](http.md), [XRPL](xrpl.md), [Node](node.md)
 
 ## Derivation chain
 
-The phrase gives a master seed, and every secret is a node of an HMAC-SHA256 tree of seed paths hanging off it (`src/seed.rs`; the chain is drawn in `src/lib.rs`). The node key is the path `node`; everything the node derives hangs below it, so a node holding only its node key derives the same `node/…` secrets the browser derives from the phrase.
+**The phrase** is 20 words of the BIP-39 English list that hold a kind, which names its layout and realm, the hour it was made, a 128-bit secret and six Reed–Solomon check words ([phrase-format](../decisions/phrase-format.md); `src/phrase.rs`, `src/reed_solomon.rs`). Reading it is the only way in: words by their first four letters, a word not on the list or marked unreadable as an erasure, 20 words only, a BIP-39 phrase refused as one. The code restores up to two wrong words, and up to five when `2 × wrong + unreadable`, so one check word is always left to catch a mistake; past that the phrase is refused as too damaged. The kind and the realm the reader expects are checked before a correction is returned, and a correction gives up its phrase only once the caller confirms it: a reader with no one to confirm (`dassie setup`, the market maker) refuses it, naming the positions of the words, never the words. A creation time after the reader's clock never refuses a phrase; it is for the reader to show.
 
-The chain to the node key, its public key and node ID, and every frozen path below it, are a compatibility surface. No step, no algorithm parameter and no frozen path may change, or the same phrase would give a different node: a different node ID to its peers, a different XRPL account with the owner's funds in the old one, hub keys its rules no longer name. There is no versioning to migrate through; a change is a new node.
+**The master seed** is HKDF-SHA256 of the secret, with `dassie phrase` as salt and the realm, `test` or `live`, as info. The derivation takes the realm its caller expects and refuses a phrase of the other, so one secret is a different node in each realm and no caller derives across realms by mistake. The kind does not enter, so a later layout, under a kind of its own, can carry the same secret to the same node; the creation time does not enter either.
 
-What pins it: **golden vectors** (`tests/data/chain.json`, `keys.json` and `paths.json`) from a generator of our own (`testdata/identity/`), which computes them with libraries independent of Dassie's code. They pin phrases of every length, the master seed, node key, public key, node ID, login secret, the XRP Ledger accounts' entropy and wallets, and every path below the node key with its secret, with what a hub's rules and escrow name of a hub's keys. They run natively (`tests/vectors.rs`, and a hub's keys in `crates/dassie-hub/tests/keys.rs`) and through the WASM build (`tests/interop/identity_wasm_test.ts`), so the browser derives exactly what the node derives.
+From the master seed, every secret is a node of an HMAC-SHA256 tree of seed paths hanging off it (`src/seed.rs`; the chain is drawn in `src/lib.rs`). The node key is the path `node`; everything the node derives hangs below it, so a node holding only its node key derives the same `node/…` secrets the browser derives from the phrase.
+
+The phrase's layout, the chain to the node key, its public key and node ID, and every frozen path below it, are a compatibility surface. No step, no algorithm parameter and no frozen path may change, or the same phrase would give a different node: a different node ID to its peers, a different XRPL account with the owner's funds in the old one, hub keys its rules no longer name. Only the phrase's kind leaves room for change: a new layout is a new kind, whose secret derives as before.
+
+What pins it: **golden vectors** (`tests/data/chain.json`, `keys.json` and `paths.json`) from a generator of our own (`testdata/identity/`), which computes them apart from Dassie's code: the phrase's Reed–Solomon code, which no library implements, written out on its own, and the rest with libraries independent of Dassie's. They pin phrases of both realms, each secret in each, phrases as typed and damaged with what reading them gives, the master seed, node key, public key, node ID, login secret, the XRP Ledger accounts' entropy and wallets, and every path below the node key with its secret, with what a hub's rules and escrow name of a hub's keys. They run natively (`tests/vectors.rs`, and a hub's keys in `crates/dassie-hub/tests/keys.rs`) and through the WASM build (`tests/interop/identity_wasm_test.ts`), so the browser derives exactly what the node derives.
 
 ## Seed paths
 
@@ -49,7 +53,7 @@ Dassie's OIDs sit under the private arc `1.3.6.1.4.1.54392.5.1399`: `.1` for the
 
 ## Handling of secrets
 
-Secrets (master seed, node key, derived secrets) are wiped on drop, are not `Copy`, print redacted and compare in constant time. Errors never carry a secret, so they may be logged and shown. A mistyped phrase is an error, never silently a different node. The node stores its key as the raw seed ([Node](node.md), [secrets-at-rest](../decisions/secrets-at-rest.md)).
+Secrets (master seed, node key, derived secrets) are wiped on drop, are not `Copy`, print redacted and compare in constant time. Errors never carry a secret, so they may be logged and shown. A mistyped phrase is corrected only with the owner's confirmation or refused, never silently a different node. The node stores its key as the raw seed ([Node](node.md), [secrets-at-rest](../decisions/secrets-at-rest.md)).
 
 ## In the browser and in scripts
 
