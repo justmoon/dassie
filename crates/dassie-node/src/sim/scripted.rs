@@ -1,10 +1,13 @@
 //! The node simulation's scripted runs: the network forms, a node crashes
 //! and comes back, payments cross it while another node crashes, an owner
-//! ends a peering, and the books are checked. Over the stub, over the XRP
-//! Ledger, over RLUSD, and across currencies: dollars and XRP, or a dollar
-//! token and XRP on one account, RLUSD on mainnet in the live realm or DSUSD
-//! on the testnet. On a token the issuer claws back and freezes while
-//! payments are under way.
+//! ends a peering, and the books are checked. Over the stub with unlimited
+//! trust, where nothing settles, since what `node-stub` runs is crashes,
+//! restarts and payments; over the stub with commitments, as a hub's
+//! members settle; and, until direct settlement goes
+//! (spec/roadmap.md#hubs-only), over the XRP Ledger, over RLUSD, and across
+//! currencies: dollars and XRP, or a dollar token and XRP on one account,
+//! RLUSD on mainnet in the live realm or DSUSD on the testnet. On a token
+//! the issuer claws back and freezes while payments are under way.
 
 use std::collections::BTreeMap;
 
@@ -29,8 +32,8 @@ pub(super) const READY_WITHIN_MS: u64 = 10 * 60_000;
 pub(super) const PAID_WITHIN_MS: u64 = 10 * 60_000;
 
 /// Whether the network is ready for payments: every node has a peer and a
-/// route to every other node, and none waits for a peer to settle, so a
-/// junior has paid its senior in advance.
+/// route to every other node, and none waits for a peer to settle: where
+/// peers settle directly, a junior has paid its senior in advance.
 pub(super) fn ready(sim: &Sim) -> bool {
     let count = sim.nodes.len();
     let routed = (0..count).all(|index| {
@@ -104,10 +107,12 @@ pub fn describe_xrp_dsusd(seed: u64) -> String {
     format!("{count} nodes, 2 bootstrap, DSUSD and XRP")
 }
 
-/// A run over the stub.
+/// A run over the stub with unlimited trust: its subject is crashes,
+/// restarts and payments, so no request to settle or settlement shapes it
+/// (spec/areas/testing.md#levels).
 #[must_use]
 pub fn run(seed: u64) -> Run {
-    run_on(seed, Settling::Stub)
+    run_on(seed, Settling::Trusting)
 }
 
 /// The room a run over the stub with commitments draws: 1, 2, 4 or 8
@@ -436,8 +441,8 @@ fn pay(sim: &mut Sim, rng: &mut SeededRng) {
     for round in 0..3 {
         let from = usize::try_from(rng.next_u64() % count as u64).unwrap();
         let to = (from + 1 + usize::try_from(rng.next_u64() % (count as u64 - 1)).unwrap()) % count;
-        // Up to three times the credit a peer extends: only settling lets
-        // it through.
+        // Up to three times the default credit: where peers settle, only
+        // settling lets it through.
         let amount = 100_000_000 + rng.next_u64() % 3_300_000_000;
         // One incoming payment asks for half of what its sender has: it
         // takes that, and no more.

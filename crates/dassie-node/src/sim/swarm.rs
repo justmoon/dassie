@@ -4,12 +4,15 @@
 //! in kind and not only in detail. Some seeds switch a fault off entirely, so
 //! that rare combinations get their turn.
 //!
+//! A run settles on the stub with unlimited trust, where nothing settles,
+//! or on the stub with commitments, as a hub's members settle
+//! (spec/areas/testing.md#levels).
+//!
 //! A run has two phases. In the chaos, payments start while nodes crash
 //! or fail a commit and restart, links are cut and healed, messages are
-//! lost, a forger sends copies of requests as its own, ledger connections drop or come back to a
-//! server that lies, validators rotate their keys, and owners end peerings
-//! and ban peers; each node's clock is off the network's by up to 10 s,
-//! throughout. The network may also split in two, for minutes
+//! lost, a forger sends copies of requests as its own, and owners end
+//! peerings and ban peers; each node's clock is off the network's by up to
+//! 10 s, throughout. The network may also split in two, for minutes
 //! or for days: a partition that outlasts the chaos keeps the network as
 //! the chaos left it, its cuts too, until it ends. Then the network heals:
 //! every node runs, no link is cut, nothing is lost or forged, and within
@@ -226,11 +229,7 @@ impl Options {
         let mut rng = SeededRng::new(seed ^ 0x5a4a_4d00);
         let nodes = 2 + usize::try_from(rng.below(11)).unwrap();
         let bootstraps = 1 + usize::try_from(rng.below(3)).unwrap().min(nodes - 1);
-        let settling = if rng.below(2) == 0 {
-            stub_or_hub(seed)
-        } else {
-            Settling::Xrpl
-        };
+        let settling = settling(seed);
         let shortest = 1 + rng.below(50);
         let latency_ms = (shortest, shortest + rng.below(400));
         let loss_per_mille = switched(&mut rng, 31);
@@ -243,7 +242,7 @@ impl Options {
             restart: switched(&mut rng, 11),
             cut: switched(&mut rng, 11),
             heal: switched(&mut rng, 11),
-            ledger_drop: if settling == Settling::Xrpl {
+            ledger_drop: if over_hub(settling) {
                 switched(&mut rng, 11)
             } else {
                 0
@@ -289,24 +288,40 @@ impl Options {
     }
 }
 
-/// What a run over the stub settles over: in one seed in four, the stub
-/// with commitments, so that packets take the path over a settlement hub,
-/// with room for 1, 2, 4 or 8 packets in flight per peer each way. Its own
-/// generator, so that it draws nothing else's.
-fn stub_or_hub(seed: u64) -> Settling {
+/// What a run settles over (spec/areas/testing.md#levels): in half the
+/// seeds the stub with unlimited trust, where nothing settles, so that the
+/// chaos and the payments are the subject; in the other half the stub with
+/// commitments, so that packets take the path over a settlement hub and
+/// settlements fund holds as a hub's members' do, with room for 1, 2, 4 or
+/// 8 packets in flight per peer each way. Its own generator, so that it
+/// draws nothing else's.
+fn settling(seed: u64) -> Settling {
     let mut rng = SeededRng::new(seed ^ 0x6875_6240);
-    if rng.below(4) == 0 {
-        Settling::StubHub(1 << rng.below(4))
+    if rng.below(2) == 0 {
+        Settling::Trusting
     } else {
-        Settling::Stub
+        Settling::StubHub(1 << rng.below(4))
     }
 }
 
-/// How often a run on the XRP Ledger draws a lying server and a validator's
-/// new key, each off in a third of the seeds; never on the stub. Their own
-/// generator, so that they draw nothing else's.
+/// Whether the run is over a hub run in the simulation, whose members
+/// fund their accounts in it from their owners' books on the fake XRP
+/// Ledger: only such a run has connections to that ledger for the chaos to
+/// drop, or to send to a server that lies. The draw makes none yet
+/// (spec/roadmap.md#continuous-simulation), so the acts on the ledger stay
+/// off.
+const fn over_hub(settling: Settling) -> bool {
+    matches!(settling, Settling::Hub(_))
+}
+
+/// How often a run over a hub draws a lying server for a member's owner's
+/// book and a new key for a validator of the fake XRP Ledger, each off in a
+/// third of the seeds; never on the stub. A hub's own validators keep their
+/// honest servers: what they attest of the escrow is not yet proven
+/// (spec/roadmap.md#mainnet-hubs). Their own generator, so that they draw
+/// nothing else's.
 fn proof_faults(seed: u64, settling: Settling) -> (u64, u64) {
-    if settling != Settling::Xrpl {
+    if !over_hub(settling) {
         return (0, 0);
     }
     let mut rng = SeededRng::new(seed ^ 0x11e5_0000);

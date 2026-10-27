@@ -830,13 +830,21 @@ fn check_fake_ledger(sim: &Sim) -> Result<(), String> {
 
 /// Each node books in settlement what its scheme holds, on the XRP Ledger
 /// exactly its account's balance less the reserve, on a token exactly its
-/// line, and the underlying ledger neither made nor lost money.
+/// line, and the underlying ledger neither made nor lost money. On the stub
+/// with unlimited trust nothing settles, so each node's stub holds what it
+/// started with.
 pub fn check_ledgers(sim: &Sim) -> Result<(), String> {
     let count = sim.nodes.len();
     let ledger = sim.settling.ledger();
     let mut stubs = 0i128;
     for index in 0..count {
-        stubs += check_held(sim, index, ledger)?;
+        let held = check_held(sim, index, ledger)?;
+        if sim.settling == Settling::Trusting && held != Settling::deposit(USD) {
+            return Err(format!(
+                "node {index}'s stub holds {held} on unlimited trust, which never settles"
+            ));
+        }
+        stubs += held;
     }
     if sim.settling.on_stub() {
         let total = Settling::deposit(USD) * i128::try_from(count).unwrap();

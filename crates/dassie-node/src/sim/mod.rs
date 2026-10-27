@@ -10,7 +10,7 @@
 //!
 //! It checks what only the whole node can show: peerings and balances
 //! survive restarts, payments of several times the credit cross hops, so
-//! every hop settles, an owner's termination ends a peering with nothing
+//! that every hop of a run that settles settles, an owner's termination ends a peering with nothing
 //! settled for its end (spec/decisions/ending-a-peering.md), and
 //! the stubs' "underlying ledger" neither makes nor loses money. One
 //! payment's token has a spending cap, which the journal must show it
@@ -35,12 +35,19 @@
 //! its receiver gets what it sent.
 //!
 //! `Settling::Trusting` runs the stub with unlimited trust: its peers never
-//! run out of room and never settle, for targeted tests whose subject is
-//! not settlement.
+//! run out of room and never settle, for runs whose subject is not
+//! settlement: the targeted tests', the scripted `node-stub` runs' and a
+//! share of the random runs'. Runs about settlement settle over the stub
+//! with commitments, `Settling::StubHub`, or a hub run in the simulation,
+//! `Settling::Hub` (spec/areas/testing.md#levels).
 //!
-//! Each run settles over the stub, or over the XRP Ledger testnet scheme
-//! against a fake ledger in the same process: its connections lag,
-//! lose requests and drop, and the books must still match every node's
+//! The plain stub, `Settling::Stub`, settles directly, as do the XRP
+//! Ledger's schemes here: only the tests of direct settlement, and the
+//! scripted runs on those schemes, still run on them, and go with it
+//! (spec/roadmap.md#hubs-only). Such a run settles over the plain stub, or
+//! over the XRP Ledger testnet scheme against a fake ledger in the same
+//! process: its connections lag, lose requests and drop, and the books
+//! must still match every node's
 //! account, less its reserve, with no XRP made or lost. A run in the live
 //! realm settles over mainnet's schemes, `xrpl-xrp` and `xrpl-rlusd`, against
 //! the fake ledger's mainnet, which has no faucet: each node's owner
@@ -180,7 +187,9 @@ const fn anyone_may_send(kind: dassie_peer::wire::Kind) -> bool {
 /// What a run settles over.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Settling {
-    /// The stub scheme, in dollars.
+    /// The plain stub scheme, in dollars, which settles directly: for the
+    /// tests of direct settlement, which go with it
+    /// (spec/roadmap.md#hubs-only).
     Stub,
     /// The stub scheme with unlimited trust, in dollars: peers extend each
     /// other the unlimited credit and never settle, for runs whose subject
@@ -351,12 +360,15 @@ impl Settling {
 
     /// The configuration its nodes give the scheme of `ledger`: the stub
     /// with unlimited trust or with commitments in a run over it, or a
-    /// hub's rules.
+    /// hub's rules. In a run over a hub, a member's XRP Ledger testnet
+    /// scheme is its owner's book, which funds its account in the hub and
+    /// peers with no one (spec/areas/xrpl.md#owner-books).
     pub fn config(self, ledger: LedgerId) -> String {
         match self {
             Self::Trusting if ledger == USD => r#"{"trust":"unlimited"}"#.into(),
             Self::StubHub(limit) if ledger == USD => format!(r#"{{"commitments":{limit}}}"#),
             Self::Hub(validators) if ledger == HUB => hub::config(validators),
+            Self::Hub(_) if ledger == XRP => r#"{"peers":false}"#.into(),
             _ => Self::scheme(ledger).1.into(),
         }
     }
@@ -906,10 +918,11 @@ impl Drop for Sim {
 }
 
 impl Sim {
-    /// `count` nodes over the stub, the first `bootstraps` of them
-    /// bootstrap nodes.
+    /// `count` nodes over the stub with unlimited trust, the first
+    /// `bootstraps` of them bootstrap nodes: for a run whose subject is not
+    /// settlement (spec/areas/testing.md#levels).
     pub fn new(seed: u64, count: usize, bootstraps: usize) -> Self {
-        Self::with(seed, count, bootstraps, BTreeMap::new(), Settling::Stub)
+        Self::with(seed, count, bootstraps, BTreeMap::new(), Settling::Trusting)
     }
 
     /// `count` nodes settling over `settling`, extending `credits` where
@@ -1052,7 +1065,7 @@ impl Sim {
                 });
             }
             // A member of a hub funds its account there from its XRP Ledger
-            // testnet account.
+            // testnet account, its owner's book, which peers with no one.
             if matches!(settling, Settling::Hub(_)) {
                 let config = settling.config(XRP);
                 sim.step(index, |core| {
