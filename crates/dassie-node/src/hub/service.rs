@@ -49,10 +49,12 @@ const IDLE_TICK_MS: u64 = 1_000;
 /// validator and its XRPL connection, each way.
 const ESCROW_QUEUE: usize = 64;
 
-/// The first wait before sending to a validator that could not be reached,
-/// and the longest.
+/// The first wait before sending to a validator that could not be reached.
 const BACKOFF_MIN: Duration = Duration::from_millis(250);
-const BACKOFF_MAX: Duration = Duration::from_secs(30);
+
+/// The longest wait before sending to a validator that could not be
+/// reached: one that comes back is sent to again within it.
+pub const BACKOFF_MAX: Duration = Duration::from_secs(30);
 
 /// How long a validator that answered busy is left alone: it is up, and
 /// its places for validators' requests were taken for a moment, as in a
