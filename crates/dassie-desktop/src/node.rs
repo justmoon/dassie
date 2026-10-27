@@ -80,6 +80,7 @@ pub fn start(
     let (to, from) = tokio::sync::oneshot::channel();
     let prepared = Prepared::new(env, options)
         .map_err(|error| error.to_string())?
+        .with_wallet(dassie_wallet_assets::WALLET)
         .handing_out_node(to);
     let shutdown = CancellationToken::new();
     let token = shutdown.clone();

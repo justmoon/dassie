@@ -1,5 +1,6 @@
-//! Media types of the wallet's files: one table for the build script, which
-//! embeds them, and for the dev server, which reads them from disk.
+//! Media types of the wallet's files: one table for the build script of
+//! `dassie-wallet-assets`, which embeds them, and for the dev server, which
+//! reads them from disk.
 
 /// The media type of an extension, and whether it compresses.
 #[must_use]

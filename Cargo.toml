@@ -19,6 +19,7 @@ members = [
   "crates/dassie-settlement",
   "crates/dassie-sim",
   "crates/dassie-stream",
+  "crates/dassie-wallet-assets",
   "crates/dassie-wasm",
   "crates/dassie-xrpl",
 ]

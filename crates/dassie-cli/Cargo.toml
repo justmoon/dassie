@@ -23,6 +23,7 @@ test-key = []
 [dependencies]
 dassie-node = { path = "../dassie-node" }
 dassie-node-core = { path = "../dassie-node-core" }
+dassie-wallet-assets = { path = "../dassie-wallet-assets" }
 dassie-release = { path = "../dassie-release" }
 # `dassie market-maker`: the target's feed, the market maker's XRPL keys
 # from its nodes' passphrases, and the AMM pool it swaps through.

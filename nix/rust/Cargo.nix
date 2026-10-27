@@ -233,6 +233,16 @@ rec {
       # File a bug if you depend on any for non-debug work!
       debug = internal.debugCrate { inherit packageId; };
     };
+    "dassie-wallet-assets" = rec {
+      packageId = "dassie-wallet-assets";
+      build = internal.buildRustCrateWithFeatures {
+        packageId = "dassie-wallet-assets";
+      };
+
+      # Debug support which might change between releases.
+      # File a bug if you depend on any for non-debug work!
+      debug = internal.debugCrate { inherit packageId; };
+    };
     "dassie-wasm" = rec {
       packageId = "dassie-wasm";
       build = internal.buildRustCrateWithFeatures {
@@ -3206,6 +3216,10 @@ rec {
             packageId = "dassie-release";
           }
           {
+            name = "dassie-wallet-assets";
+            packageId = "dassie-wallet-assets";
+          }
+          {
             name = "dassie-xrpl";
             packageId = "dassie-xrpl";
           }
@@ -3432,6 +3446,10 @@ rec {
           {
             name = "dassie-node-core";
             packageId = "dassie-node-core";
+          }
+          {
+            name = "dassie-wallet-assets";
+            packageId = "dassie-wallet-assets";
           }
           {
             name = "rustix";
@@ -4020,20 +4038,12 @@ rec {
         ];
         buildDependencies = [
           {
-            name = "flate2";
-            packageId = "flate2";
-          }
-          {
             name = "prost-build";
             packageId = "prost-build";
           }
           {
             name = "protox";
             packageId = "protox";
-          }
-          {
-            name = "sha2";
-            packageId = "sha2 0.11.1";
           }
         ];
         devDependencies = [
@@ -4516,6 +4526,30 @@ rec {
           "sim" = [ "dep:dassie-kit" "dassie-oer/alloc" ];
         };
         resolvedDefaultFeatures = [ "default" "sim" ];
+      };
+      "dassie-wallet-assets" = rec {
+        crateName = "dassie-wallet-assets";
+        version = "0.2.9";
+        edition = "2024";
+        src = lib.cleanSourceWith { filter = sourceFilter;  src = ../../crates/dassie-wallet-assets; };
+        libName = "dassie_wallet_assets";
+        dependencies = [
+          {
+            name = "dassie-node";
+            packageId = "dassie-node";
+          }
+        ];
+        buildDependencies = [
+          {
+            name = "flate2";
+            packageId = "flate2";
+          }
+          {
+            name = "sha2";
+            packageId = "sha2 0.11.1";
+          }
+        ];
+
       };
       "dassie-wasm" = rec {
         crateName = "dassie-wasm";
