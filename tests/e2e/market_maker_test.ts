@@ -18,6 +18,11 @@
  * d1's share of its value in DSUSD rises, toward its target; the market
  * maker's value, at the pool's price, grows; and every member's books are
  * as they were after all three restart.
+ *
+ * Until a core node prices each asset whole, its feed offers more than
+ * spot for XRP, which d1 holds most of (`PRICED_APART`): the test then
+ * checks only that a trade crosses d1 over both hubs, whichever way, and
+ * the restart.
  */
 
 import { test } from "node:test";
@@ -74,12 +79,15 @@ const RUN_MS = 300_000;
 const PORT_OFFSET = SCENARIO_PORT_OFFSET + 100;
 
 const missing = await missingScenarioTools();
+/** Whether d1 prices each asset whole, so its feed asks for what it
+ * lacks, and the test checks the whole loop. */
+const whole = PRICED_APART === undefined;
 
 test(
-  "a market maker moves a skewed core node toward balance over hubs, and gains",
-  {
-    skip: PRICED_APART ?? missing !== undefined,
-  },
+  whole
+    ? "a market maker moves a skewed core node toward balance over hubs, and gains"
+    : "a market maker trades through a core node over hubs",
+  { skip: missing },
   async () => {
     const scenario = await Scenario.temporary("market-maker", {
       dassie: DASSIE,
@@ -128,14 +136,20 @@ test(
       maker.exited.then(() => exited = true);
       try {
         // A trade's DSUSD reached d1, and the XRP node's went back through
-        // the pool: the only swaps on it are the market maker's.
+        // the pool: the only swaps on it are the market maker's. Priced
+        // apart, a trade through d1 in either direction: only a trade
+        // moves d1's DSUSD, its hub and its book together, since its own
+        // moves between them pay their gas in XRP.
         await scenario.until(
-          "the market maker trades through d1 and swaps back through the pool",
+          whole
+            ? "the market maker trades through d1 and swaps back through the pool"
+            : "the market maker trades through d1",
           async () => {
             if (exited) throw new Error("the market maker exited");
+            const dsusd = await held(d1, DSUSD);
+            if (!whole) return dsusd !== d1Dsusd;
             const now = await pool(scenario);
-            return now.xrp > seeded.xrp &&
-              (await held(d1, DSUSD)) >= d1Dsusd + TRADE;
+            return now.xrp > seeded.xrp && dsusd >= d1Dsusd + TRADE;
           },
           RUN_MS,
         );
@@ -156,29 +170,38 @@ test(
         HUB_WITHIN_MS,
       );
 
-      // d1 holds a larger share of its value in DSUSD, the asset it lacked,
-      // its hub and its owner book taken together: DSUSD over XRP rose,
-      // which at one rate is its share.
       const d1XrpAfter = await held(d1, XRP);
       const d1DsusdAfter = await held(d1, DSUSD);
-      assert(
-        d1DsusdAfter * d1Xrp > d1Dsusd * d1XrpAfter,
-        `d1 went from ${d1Dsusd} DSUSD and ${d1Xrp} XRP ` +
-          `to ${d1DsusdAfter} DSUSD and ${d1XrpAfter} XRP`,
-      );
-      assert(d1DsusdAfter > d1Dsusd, "d1 took DSUSD in");
-      assert(d1XrpAfter < d1Xrp, "d1 paid XRP out");
+      const went = `d1 went from ${d1Dsusd} DSUSD and ${d1Xrp} XRP ` +
+        `to ${d1DsusdAfter} DSUSD and ${d1XrpAfter} XRP`;
+      if (whole) {
+        // d1 holds a larger share of its value in DSUSD, the asset it
+        // lacked, its hub and its owner book taken together: DSUSD over
+        // XRP rose, which at one rate is its share.
+        assert(d1DsusdAfter * d1Xrp > d1Dsusd * d1XrpAfter, went);
+        assert(d1DsusdAfter > d1Dsusd, "d1 took DSUSD in");
+        assert(d1XrpAfter < d1Xrp, "d1 paid XRP out");
 
-      // The market maker holds more than it did, at the pool's price now.
-      const after = await holdings(xrpNode, dsusdNode);
-      const now = await pool(scenario);
-      assert(now.xrp > seeded.xrp && now.dsusd < seeded.dsusd, "it swapped");
-      const [was, is] = [value(before, now), value(after, now)];
-      assert(
-        is > was,
-        `the market maker's value went from ${dollars(was, now)} dollars ` +
-          `to ${dollars(is, now)}`,
-      );
+        // The market maker holds more than it did, at the pool's price
+        // now.
+        const after = await holdings(xrpNode, dsusdNode);
+        const now = await pool(scenario);
+        assert(now.xrp > seeded.xrp && now.dsusd < seeded.dsusd, "it swapped");
+        const [was, is] = [value(before, now), value(after, now)];
+        assert(
+          is > was,
+          `the market maker's value went from ${dollars(was, now)} dollars ` +
+            `to ${dollars(is, now)}`,
+        );
+      } else {
+        // d1 converted: one asset came in over its hub and the other went
+        // out over the other.
+        assert(
+          d1DsusdAfter !== d1Dsusd &&
+            (d1DsusdAfter > d1Dsusd) === (d1XrpAfter < d1Xrp),
+          went,
+        );
+      }
 
       // Restarted, all three catch up and book nothing twice.
       const members = [d1, xrpNode, dsusdNode];

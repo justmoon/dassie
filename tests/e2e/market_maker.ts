@@ -64,14 +64,17 @@ const DSUSD_HIGH = 40n * UNIT;
 const AMM_INFO_TIMEOUT_MS = 10_000;
 
 /**
- * Why the market maker's tests are skipped, while they are: a core node
- * prices the ledger of each of its hubs apart from the owner book that
- * funds it (spec/areas/connector.md#inventory-pricing), so its curve
- * follows what its two hub accounts hold, rather than what it holds of
- * each asset. Its feed then offers more than spot for XRP, the asset it
- * holds most of, and the market maker trades it further from balance
- * (spec/areas/rate-feed.md#market-maker). They run once inventory pricing
- * counts each asset whole (spec/roadmap.md#hubs-only).
+ * Why the market maker's tests do not check that it moves its targets
+ * toward balance, while they do not: a core node prices the ledger of each
+ * of its hubs apart from the owner book that funds it
+ * (spec/areas/connector.md#inventory-pricing), so its curve follows what
+ * its two hub accounts hold, rather than what it holds of each asset. Its
+ * feed then offers more than spot for XRP, the asset it holds most of, and
+ * the market maker trades it further from balance
+ * (spec/areas/rate-feed.md#market-maker). Meanwhile the test with one
+ * target checks only that a trade crosses the core node over both hubs,
+ * whichever way, and the test with two is skipped. Both run whole once
+ * inventory pricing counts each asset whole (spec/roadmap.md#hubs-only).
  */
 export const PRICED_APART: string | undefined =
   "a core node prices its hubs' ledgers apart from their owner books (spec/roadmap.md#hubs-only)";
