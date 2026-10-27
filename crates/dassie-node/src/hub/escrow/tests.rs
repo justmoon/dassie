@@ -58,6 +58,11 @@ struct Setup {
     /// Whether the hub takes the escrow's check and the issuer's hold as
     /// soon as they are attested, as a quorum would.
     quorum: bool,
+    /// Whether the hub records each deposit's attestation the validator
+    /// takes, as it does unless a full share refuses it.
+    recording: bool,
+    /// The escrow transactions the watcher submitted to its server.
+    submitted: Vec<Vec<u8>>,
     /// How often the watcher asked for a new connection.
     reconnects: u32,
     /// The account that holds DSUSD and deposits it, in a token hub.
@@ -122,6 +127,8 @@ impl Setup {
             signer_list: None,
             written_off_at: None,
             issuer: Issuer::default(),
+            deposit_room: 4,
+            deposits_recorded: Vec::new(),
         };
         let watcher = watcher(master.account(), None);
         let mut setup = Self {
@@ -136,6 +143,8 @@ impl Setup {
             taking: true,
             untaken: Vec::new(),
             quorum: false,
+            recording: true,
+            submitted: Vec::new(),
             reconnects: 0,
             holder,
             rate: 0,
@@ -212,6 +221,9 @@ impl Setup {
             };
             match out {
                 Out::Send(bytes) => {
+                    if String::from_utf8_lossy(&bytes).contains("\"submit\"") {
+                        self.submitted.push(bytes.clone());
+                    }
                     let answer = self.xrpl.request(self.connection, &bytes);
                     self.watcher.message(self.now, &answer, &self.view);
                 }
@@ -225,9 +237,13 @@ impl Setup {
                 }
                 Out::Attest(operation, transaction) => {
                     self.take(&operation);
+                    let deposit = matches!(operation, ValidatorOperation::AttestDeposit(_));
                     self.attested.push(operation);
                     if self.taking {
                         self.watcher.taken(transaction);
+                        if deposit {
+                            self.record(transaction);
+                        }
                     } else {
                         self.untaken.push(transaction);
                     }
@@ -237,6 +253,17 @@ impl Setup {
             }
         }
         panic!("the watcher does not settle");
+    }
+
+    /// The hub records the attestation of a deposit the validator took,
+    /// unless it is not `recording`.
+    fn record(&mut self, transaction: Option<[u8; 32]>) {
+        if let Some(hash) = transaction
+            && self.recording
+            && !self.view.deposits_recorded.contains(&hash)
+        {
+            self.view.deposits_recorded.push(hash);
+        }
     }
 
     /// What the hub makes of an attestation, as if a quorum attested it.
@@ -369,7 +396,9 @@ fn the_escrow_is_checked_and_its_deposits_attested() {
     assert!(setup.attested.is_empty(), "{:?}", setup.attested);
 
     // A watcher that starts again, from its cursor, attests again what may
-    // not have reached a block before the crash.
+    // not have reached a block before the crash: its driver, started again
+    // too, names no deposit recorded.
+    setup.view.deposits_recorded.clear();
     setup.watcher = watcher(escrow, setup.cursor);
     setup.connect();
     setup.closes(2);
@@ -532,11 +561,12 @@ fn an_attestation_counts_once_the_validator_took_it() {
     setup.connect();
     setup.closes(2);
     assert_eq!(setup.attested.len(), 1);
-    // Once taken, the cursor moves on.
+    // Once taken, and the hub recorded it, the cursor moves on.
     for transaction in core::mem::take(&mut setup.untaken) {
         setup.watcher.taken(transaction);
+        setup.record(transaction);
     }
-    setup.run();
+    setup.tick(1);
     assert!(setup.cursor.unwrap().scanned_to >= deposit_ledger);
 }
 
@@ -801,4 +831,215 @@ fn a_lying_server_makes_it_attest_nothing_false() {
             "{lie:?} was told"
         );
     }
+}
+
+/// A withdrawal's Payment from the escrow at `sequence`, signed by a key
+/// of no signer list: the server refuses it, which the watcher reads as
+/// nothing.
+fn withdrawal_blob(setup: &Setup, sequence: u32) -> Vec<u8> {
+    let key = Wallet::from_seed([3; 16]);
+    Payment {
+        account: setup.escrow(),
+        destination: key.account(),
+        destination_tag: None,
+        amount: Amount::Xrp(1_000_000),
+        send_max: None,
+        fee: FEE_BASE,
+        sequence,
+        last_ledger_sequence: None,
+        flags: 0,
+        network_id: None,
+        memos: Vec::new(),
+        signing: Signing::by(key.public_key()),
+    }
+    .sign(&key)
+    .blob
+}
+
+/// The deposits it attested, by transaction, in order.
+fn deposits(setup: &Setup) -> Vec<[u8; 32]> {
+    setup
+        .attested
+        .iter()
+        .filter_map(|op| match op {
+            ValidatorOperation::AttestDeposit(deposit) => Some(deposit.transaction.0),
+            _ => None,
+        })
+        .collect()
+}
+
+/// The issuer's hold as of `ledger`: a freeze, or none.
+const fn hold(ledger: u32, frozen: bool) -> Issuer {
+    Issuer {
+        ledger,
+        frozen,
+        fee: false,
+    }
+}
+
+// spec/decisions/token-hubs.md: an escrow transaction handed over before a
+// quorum attested a freeze, while the connection was down, goes to no
+// server during the freeze, on a new connection or later; it goes once the
+// hub thaws.
+#[test]
+fn a_withdrawal_queued_before_a_freeze_waits_for_the_thaw() {
+    let mut setup = Setup::new();
+    setup.view.checked = true;
+    let sequence = setup.view.next_sequence;
+    setup.watcher.submit(withdrawal_blob(&setup, sequence));
+    setup.view.issuer = hold(1, true);
+    setup.connect();
+    setup.closes(3);
+    assert!(setup.watcher.following());
+    assert!(setup.submitted.is_empty(), "nothing goes while frozen");
+    setup.reconnect();
+    setup.run();
+    setup.closes(3);
+    assert!(setup.watcher.following());
+    assert!(setup.submitted.is_empty(), "nor on a new connection");
+
+    setup.view.issuer = hold(2, false);
+    setup.tick(1);
+    assert_eq!(setup.submitted.len(), 1, "it goes on the thaw");
+}
+
+// A withdrawal that stays open is sent again every RESUBMIT_MS without a
+// reconnect, at once on a new connection, and no more once it settled.
+#[test]
+fn an_open_withdrawal_is_sent_again_until_it_settles() {
+    let mut setup = Setup::new();
+    setup.view.checked = true;
+    setup.connect();
+    setup.closes(2);
+    let sequence = setup.view.next_sequence;
+    setup.watcher.submit(withdrawal_blob(&setup, sequence));
+    setup.run();
+    assert_eq!(setup.submitted.len(), 1);
+    setup.tick(RESUBMIT_MS - 1);
+    assert_eq!(setup.submitted.len(), 1, "not before its time");
+    setup.tick(1);
+    assert_eq!(setup.submitted.len(), 2, "sent again");
+    setup.watcher.disconnected();
+    setup.connect();
+    assert_eq!(setup.submitted.len(), 3, "and on a new connection");
+
+    // The hub settled it: its sequence was given out, and it is not open.
+    setup.view.next_sequence = sequence + 1;
+    for _ in 0..3 {
+        setup.tick(RESUBMIT_MS);
+    }
+    assert_eq!(setup.submitted.len(), 3, "no more once settled");
+}
+
+// A deposit's attestation holds the cursor until the hub recorded it, so a
+// restart reads it again; once recorded, the cursor moves on.
+#[test]
+fn a_deposit_holds_the_cursor_until_the_hub_records_it() {
+    let mut setup = Setup::new();
+    setup.view.checked = true;
+    setup.view.deposit_room = 0;
+    setup.recording = false;
+    setup.connect();
+    setup.closes(2);
+    let escrow = setup.escrow();
+    setup.xrpl.deposit_tagged(escrow, 5_000_000, Some(7));
+    setup.close();
+    let deposit_ledger = setup.xrpl.ledger();
+    setup.closes(3);
+    assert_eq!(deposits(&setup).len(), 1);
+    assert!(
+        setup.cursor.unwrap().scanned_to < deposit_ledger,
+        "it waits"
+    );
+
+    // A restart reads it again.
+    setup.attested.clear();
+    setup.watcher = watcher(escrow, setup.cursor);
+    setup.connect();
+    setup.closes(2);
+    let attested = deposits(&setup);
+    assert_eq!(attested.len(), 1, "read again after a restart");
+    assert!(setup.cursor.unwrap().scanned_to < deposit_ledger);
+
+    setup.view.deposits_recorded.push(attested[0]);
+    setup.tick(1);
+    assert!(
+        setup.cursor.unwrap().scanned_to >= deposit_ledger,
+        "recorded"
+    );
+}
+
+// A deposit a full share refused during a freeze is attested again once
+// the hub thaws and the share has room, by the watcher itself, whatever
+// the hub's service kept; then it is recorded, and attested no more.
+#[test]
+fn a_deposit_refused_during_a_freeze_is_attested_again_after_the_thaw() {
+    let mut setup = Setup::new();
+    setup.view.checked = true;
+    setup.view.issuer = hold(1, true);
+    setup.view.deposit_room = 0;
+    setup.recording = false;
+    setup.connect();
+    setup.closes(2);
+    let escrow = setup.escrow();
+    setup.xrpl.deposit_tagged(escrow, 5_000_000, Some(7));
+    setup.close();
+    let deposit_ledger = setup.xrpl.ledger();
+    setup.closes(3);
+    for _ in 0..10 {
+        setup.tick(10_000);
+    }
+    assert_eq!(deposits(&setup).len(), 1, "not again while frozen");
+
+    let margin = setup.view.rules.terms.timers.margin;
+    setup.view.issuer = hold(2, false);
+    setup.view.deposit_room = 4;
+    setup.tick(1);
+    assert_eq!(deposits(&setup).len(), 1, "not before the margin");
+    setup.tick(margin);
+    let attested = deposits(&setup);
+    assert_eq!(attested.len(), 2, "again after the thaw");
+    assert_eq!(attested[0], attested[1]);
+
+    setup.view.deposits_recorded.push(attested[0]);
+    setup.tick(1);
+    for _ in 0..10 {
+        setup.tick(margin);
+    }
+    assert_eq!(deposits(&setup).len(), 2, "no more once recorded");
+    assert!(setup.cursor.unwrap().scanned_to >= deposit_ledger);
+}
+
+// spec/areas/hubs.md#payout-bundles: once a hub stopped while the issuer
+// held it, no block shows a thaw. The watcher still proves the escrow's
+// line, and tells the validator of each change: the thaw, and a freeze
+// again after it.
+#[test]
+fn a_stopped_hubs_validator_hears_of_each_change_it_proved() {
+    let mut setup = Setup::of(Some(DSUSD));
+    setup.view.checked = true;
+    setup.view.issuer = hold(1, true);
+    let escrow = setup.escrow();
+    setup.xrpl.freeze(escrow, DSUSD, true).unwrap();
+    setup.close();
+    setup.connect();
+    let pause = |setup: &mut Setup| {
+        for _ in 0..ISSUER_CHECK_EVERY_MS / 4_000 + 3 {
+            setup.closes(1);
+        }
+        setup.tick(STALL_MS);
+    };
+    pause(&mut setup);
+    assert!(setup.issuer_states().is_empty(), "as the hub holds it");
+    assert!(setup.watcher.proven_issuer().unwrap().frozen);
+
+    setup.xrpl.freeze(escrow, DSUSD, false).unwrap();
+    pause(&mut setup);
+    assert_eq!(setup.issuer_states(), [(false, false)]);
+    assert!(!setup.watcher.proven_issuer().unwrap().holds());
+
+    setup.xrpl.freeze(escrow, DSUSD, true).unwrap();
+    pause(&mut setup);
+    assert_eq!(setup.issuer_states(), [(false, false), (true, false)]);
+    assert!(setup.watcher.proven_issuer().unwrap().frozen);
 }

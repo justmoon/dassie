@@ -12,6 +12,7 @@
 //! (spec/areas/hubs.md#consensus). A write that fails ends the step with
 //! nothing carried out.
 
+use std::collections::{BTreeMap, VecDeque};
 use std::sync::Arc;
 
 use dassie_hub::consensus::{Evidence, Finalized, PeerId, Stored};
@@ -21,7 +22,7 @@ use dassie_hub::operation::ValidatorOperation;
 use dassie_hub::rules::Rules;
 use dassie_hub::service::payload::Payload;
 use dassie_hub::service::wire::Message;
-use dassie_hub::service::{Action, CatchUpError, Validator, genesis_block};
+use dassie_hub::service::{Action, CatchUpError, MAX_WAITING_DEPOSITS, Validator, genesis_block};
 use dassie_hub::{HubId, Millis};
 use dassie_identity::{NodeId, NodeKey, PublicKey};
 use dassie_oer::{Decode, Encode};
@@ -142,6 +143,10 @@ impl From<StoreError> for DriverError {
     }
 }
 
+/// The most deposits recorded that the escrow's view names: one that
+/// leaves it before the watcher saw it is attested again, and named again.
+pub const MAX_RECORDED_SHOWN: usize = 256;
+
 /// One hub's validator and what it persisted.
 pub struct Driver {
     hub: HubId,
@@ -153,6 +158,16 @@ pub struct Driver {
     /// How often it took a peer's state.
     caught_up: u64,
     store: Arc<Store>,
+    /// Deposits attested, by transaction, with their validated ledger, until
+    /// the ledger recorded the attestation: at most
+    /// [`MAX_WAITING_DEPOSITS`].
+    awaited: BTreeMap<[u8; 32], u32>,
+    /// The newest deposits whose attestation the ledger recorded, for the
+    /// escrow's watcher: at most [`MAX_RECORDED_SHOWN`].
+    recorded: VecDeque<[u8; 32]>,
+    /// The ledger's height when `awaited` was last looked at, unless it
+    /// changed since.
+    awaited_at: Option<u64>,
 }
 
 impl std::fmt::Debug for Driver {
@@ -203,6 +218,9 @@ impl Driver {
                 written_height: saved.height,
                 caught_up: 0,
                 store,
+                awaited: BTreeMap::new(),
+                recorded: VecDeque::new(),
+                awaited_at: None,
             });
         }
         let validator = Validator::genesis(rules.clone(), keys, genesis_ms, now)
@@ -223,6 +241,9 @@ impl Driver {
             written_height: 0,
             caught_up: 0,
             store,
+            awaited: BTreeMap::new(),
+            recorded: VecDeque::new(),
+            awaited_at: None,
         })
     }
 
@@ -301,7 +322,12 @@ impl Driver {
     }
 
     /// Attests what the node saw of the escrow, and whether the validator
-    /// took it: one its pool had no room for is attested again later.
+    /// took it: one its pool had no room for is attested again later. A
+    /// deposit is followed until the ledger recorded its attestation
+    /// ([`EscrowView::deposits_recorded`]); the issuer's hold, proven by the
+    /// node's own watcher, also counts for signing the payout set of a hub
+    /// that stopped while the issuer held it, which makes no block that
+    /// could show the thaw (spec/areas/hubs.md#payout-bundles).
     ///
     /// # Errors
     ///
@@ -311,13 +337,56 @@ impl Driver {
         now: Millis,
         operation: ValidatorOperation,
     ) -> Result<(Step, bool), StoreError> {
+        match &operation {
+            ValidatorOperation::AttestDeposit(deposit) => {
+                if self.awaited.len() < MAX_WAITING_DEPOSITS {
+                    self.awaited.insert(deposit.transaction.0, deposit.ledger);
+                    self.awaited_at = None;
+                }
+            }
+            ValidatorOperation::AttestIssuer(issuer) => self.validator.prove_issuer(now, *issuer),
+            _ => {}
+        }
         let taken = self.validator.attest(now, operation);
         Ok((self.finish(now, None)?, taken))
+    }
+
+    /// Moves the deposits whose attestation the ledger recorded, or takes
+    /// no more, to those the escrow's view names: each once the ledger's
+    /// height changed, or one was attested, since they were last looked
+    /// at. Once the hub ended, or while the node validates in no set in
+    /// force, none can be recorded, and none is waited for.
+    fn settle_deposits(&mut self) {
+        let ledger = self.validator.ledger();
+        let height = ledger.height();
+        if self.awaited.is_empty() || self.awaited_at == Some(height) {
+            return;
+        }
+        self.awaited_at = Some(height);
+        let index = self.validator.index_in_force();
+        let ended = ledger.phase() == dassie_hub::ledger::Phase::Ended;
+        let done: Vec<[u8; 32]> = (self.awaited.iter())
+            .filter(|(hash, at)| {
+                ended
+                    || index.is_none_or(|index| {
+                        ledger.deposit_recorded(index, &dassie_hub::Digest(**hash), **at)
+                    })
+            })
+            .map(|(hash, _)| *hash)
+            .collect();
+        for hash in done {
+            self.awaited.remove(&hash);
+            if self.recorded.len() >= MAX_RECORDED_SHOWN {
+                self.recorded.pop_front();
+            }
+            self.recorded.push_back(hash);
+        }
     }
 
     /// What the step writes, and its actions.
     fn finish(&mut self, now: Millis, from: Option<PeerId>) -> Result<Step, StoreError> {
         let mut write = self.persist(now)?;
+        self.settle_deposits();
         let mut effects = Effects::default();
         while let Some(action) = self.validator.poll() {
             match action {
@@ -486,6 +555,13 @@ impl Driver {
             signer_list: escrow.signer_list,
             written_off_at: ledger.written_off_at(),
             issuer: *ledger.issuer(),
+            deposit_room: match self.validator.index_in_force() {
+                Some(index) if ledger.phase() != dassie_hub::ledger::Phase::Ended => {
+                    ledger.deposit_room(index)
+                }
+                _ => 0,
+            },
+            deposits_recorded: self.recorded.iter().copied().collect(),
         }
     }
 
@@ -565,6 +641,10 @@ mod tests {
         /// Whether escrow signatures between validators wait in `held`.
         hold_shares: bool,
         held: Vec<(usize, usize, Vec<u8>)>,
+        /// Payout sets each step signed: the validator, and the height.
+        bundles: Vec<(usize, u64)>,
+        /// Whether the validators are cut off from each other.
+        cut: bool,
     }
 
     impl Net {
@@ -607,6 +687,8 @@ mod tests {
                 submits: Vec::new(),
                 hold_shares: false,
                 held: Vec::new(),
+                bundles: Vec::new(),
+                cut: false,
             };
             net.open();
             net
@@ -634,6 +716,12 @@ mod tests {
             step.write.apply(self.drivers[from].store()).unwrap();
             for blob in step.effects.submits {
                 self.submits.push((from, blob));
+            }
+            for height in step.effects.bundles {
+                self.bundles.push((from, height));
+            }
+            if self.cut {
+                return;
             }
             for (peer, message) in step.effects.sends {
                 let to = self.index_of(&peer.node);
@@ -842,5 +930,206 @@ mod tests {
         for (_, blob) in &net.submits {
             assert!(Payment::decode(blob).unwrap().signatures_valid());
         }
+    }
+
+    /// The issuer's hold as of `ledger`: a freeze, or none.
+    fn issuer(ledger: u32, frozen: bool) -> ValidatorOperation {
+        ValidatorOperation::AttestIssuer(dassie_hub::operation::Issuer {
+            ledger,
+            frozen,
+            fee: false,
+        })
+    }
+
+    /// A validator's XRPL connection: its watcher of the escrow, on a fake
+    /// XRP Ledger where the escrow is an account, and the transactions it
+    /// submitted there.
+    struct Connection {
+        xrpl: dassie_xrpl::fake::FakeLedger,
+        watcher: crate::hub::escrow::Watcher,
+        link: u64,
+        submitted: usize,
+    }
+
+    impl Connection {
+        fn new(rules: &Rules) -> Self {
+            use dassie_xrpl::fake::{FakeLedger, KeyedSignatures, LIST_SITE};
+            const SECRET: [u8; 32] = *b"the driver's tests' validations.";
+            let mut xrpl = FakeLedger::new();
+            xrpl.sign_validations_with(SECRET);
+            let escrow = dassie_xrpl::AccountId(rules.terms.escrow);
+            xrpl.fund(escrow);
+            xrpl.close();
+            let unl = dassie_xrpl::validator_list::UnlConfig::for_network(rules.terms.network)
+                .and_then(|own| own.with_override(&xrpl.publishers(LIST_SITE)))
+                .unwrap();
+            let watcher = crate::hub::escrow::Watcher::new(
+                escrow,
+                rules.terms.network,
+                None,
+                unl,
+                Box::new(KeyedSignatures::new(SECRET)),
+            );
+            Self {
+                xrpl,
+                watcher,
+                link: 0,
+                submitted: 0,
+            }
+        }
+
+        /// Carries out what the watcher asks, as the node's connection
+        /// does, until it asks nothing more.
+        fn run(&mut self, now: Millis, view: &EscrowView) {
+            use crate::hub::escrow::Out;
+            while let Some(out) = self.watcher.poll() {
+                match out {
+                    Out::Send(bytes) => {
+                        if String::from_utf8_lossy(&bytes).contains("\"submit\"") {
+                            self.submitted += 1;
+                        }
+                        let answer = self.xrpl.request(self.link, &bytes);
+                        self.watcher.message(now, &answer, view);
+                    }
+                    Out::Fetch(url) => {
+                        let body = self.xrpl.fetch(&url);
+                        self.watcher.fetched(now, &url, body.as_deref());
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        fn connect(&mut self, now: Millis, view: &EscrowView) {
+            self.link += 1;
+            self.watcher.connected(now);
+            self.run(now, view);
+            self.watcher.tick(now, view);
+            self.run(now, view);
+        }
+    }
+
+    // An escrow transaction a quorum signed before the freeze, which the
+    // XRPL connection queued while it was down, goes to the XRP Ledger
+    // neither when the connection comes back during the freeze, nor later
+    // while it lasts: the connection judges the hold when it sends, as of
+    // the validator's last final block. It goes once the hub thaws.
+    #[test]
+    fn a_withdrawal_queued_before_a_freeze_waits_for_the_thaw() {
+        let mut net = token_hub_withdrawing();
+        net.hold_shares = false;
+        let held = std::mem::take(&mut net.held);
+        net.queue.extend(held);
+        net.run(1_000);
+        assert_eq!(net.submits.len(), 4, "signed before the freeze");
+        let mut connection = Connection::new(&net.rules);
+        let blob = net.submits.iter().find(|(from, _)| *from == 0).unwrap();
+        connection.watcher.submit(blob.1.clone());
+
+        attest_all(&mut net, &issuer(20, true));
+        net.run(1_000);
+        let view = net.drivers[0].escrow_view();
+        assert!(view.issuer.holds());
+        connection.connect(net.now, &view);
+        assert!(connection.watcher.following());
+        net.run(10_000);
+        connection.watcher.tick(net.now, &view);
+        connection.run(net.now, &view);
+        assert_eq!(connection.submitted, 0, "nothing goes while frozen");
+
+        attest_all(&mut net, &issuer(21, false));
+        net.run(1_000);
+        let view = net.drivers[0].escrow_view();
+        assert!(!view.issuer.holds());
+        connection.watcher.tick(net.now, &view);
+        connection.run(net.now, &view);
+        assert_eq!(connection.submitted, 1, "it goes on the thaw");
+    }
+
+    // The escrow's view names a deposit once the ledger recorded this
+    // validator's attestation of it: one a full share refused during a
+    // freeze is named only after the thaw, when the service attested it
+    // again and the ledger recorded it.
+    #[test]
+    fn a_deposit_is_named_recorded_once_the_ledger_records_it() {
+        use dassie_hub::digest::Digest;
+        use dassie_hub::operation::Deposit;
+
+        let mut net = Net::with_terms(|terms| {
+            terms.asset = dassie_hub::rules::Asset::Token {
+                currency: dassie_xrpl::dsusd::CURRENCY,
+                issuer: dassie_xrpl::dsusd::ISSUER,
+            };
+            terms.fees.gas = dassie_hub::rules::LEAST_TOKEN_GAS_DROPS;
+            terms.fees.ledger = 0;
+            terms.limits.pending_deposits = 16;
+        });
+        attest_all(&mut net, &ValidatorOperation::AttestEscrow { sequence: 5 });
+        net.run(1_000);
+        attest_all(&mut net, &issuer(20, true));
+        net.run(1_000);
+        let share = net.drivers[0].escrow_view().deposit_room;
+        assert_eq!(share, 4, "a quarter of the pending table");
+        let deposit = |n: u8| Deposit {
+            transaction: Digest([n; 32]),
+            ledger: 30,
+            amount: 50_000_000,
+            sender: [3; 20],
+            tag: 0,
+            key: Some(NodeKey::from_bytes(&[n; 32]).public_key()),
+        };
+        for n in 1..=5 {
+            attest_all(&mut net, &ValidatorOperation::AttestDeposit(deposit(n)));
+            net.run(1_000);
+        }
+        let view = net.drivers[0].escrow_view();
+        assert_eq!(view.deposit_room, 0, "the share is full while frozen");
+        let named = |view: &EscrowView, n: u8| view.deposits_recorded.contains(&[n; 32]);
+        assert!((1..=4).all(|n| named(&view, n)), "pending, with ours");
+        assert!(!named(&view, 5), "refused for room");
+
+        attest_all(&mut net, &issuer(21, false));
+        net.run(2_000);
+        let view = net.drivers[0].escrow_view();
+        assert!(named(&view, 5), "attested again after the thaw");
+        assert_eq!(net.drivers[0].validator().ledger().members(), 5);
+    }
+
+    // spec/areas/hubs.md#payout-bundles: a hub that stalled while the
+    // issuer held it makes no block that could show the thaw. Each
+    // validator signs its payout set once its own watcher proved the thaw,
+    // and not while what it proved still holds the escrow.
+    #[test]
+    fn a_hub_stopped_while_held_pays_out_once_the_thaw_is_proven() {
+        let mut net = token_hub_withdrawing();
+        attest_all(&mut net, &issuer(20, true));
+        net.run(1_000);
+
+        // The validators are cut off from each other for longer than a
+        // stall: each declares it, and signs no set while held.
+        net.cut = true;
+        net.now += net.rules.terms.timers.stall + 1_000;
+        for i in 0..net.drivers.len() {
+            let step = net.drivers[i].tick(net.now).unwrap();
+            net.deliver(i, step);
+        }
+        assert!(
+            net.drivers
+                .iter()
+                .all(|d| d.validator().engine().is_stalled())
+        );
+        assert!(net.bundles.is_empty(), "no set while held");
+
+        // A freeze proven later still holds it; the thaw lets it go.
+        for (ledger, frozen) in [(30, true), (31, false)] {
+            for i in 0..net.drivers.len() {
+                let (step, _) = net.drivers[i]
+                    .attest(net.now, issuer(ledger, frozen))
+                    .unwrap();
+                net.deliver(i, step);
+            }
+            assert_eq!(net.bundles.is_empty(), frozen, "{ledger}");
+        }
+        assert_eq!(net.bundles.len(), 4, "each validator signs its set");
     }
 }

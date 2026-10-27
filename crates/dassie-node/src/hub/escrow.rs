@@ -40,7 +40,21 @@
 //!   follow the stream. A server that lies, refuses or stops answering is
 //!   left for a new connection ([`Out::Reconnect`]), and what it hinted is
 //!   forgotten: the next connection reads the history again.
-//! - **What it submits:** the escrow's transactions a quorum signed.
+//! - **What it submits:** the escrow's transactions a quorum signed, once
+//!   it follows the escrow, and only while the issuer holds a token hub's
+//!   escrow neither as of the hub's last final block nor as of a later
+//!   state it proved, judged when it sends, not when it queues: one queued
+//!   before a freeze waits for the thaw. A withdrawal's transaction is kept
+//!   while the withdrawal stays open, and sent again every
+//!   [`RESUBMIT_MS`], so one lost on the way, or never asked for while its
+//!   requests were full, still goes.
+//! - **Deposits until the hub recorded them.** A deposit's attestation
+//!   holds the cursor until the hub's ledger recorded it
+//!   ([`EscrowView::deposits_recorded`]), and is attested again while it
+//!   has not, once the issuer lets go and the validator's share of the
+//!   pending table has room: so one a full share refused during a freeze is
+//!   lost neither to a restart, which reads it again, nor past the bound on
+//!   what the hub's service keeps to attest again.
 //!
 //! The verifier's state is not kept across restarts: a restarted validator
 //! fetches its lists and anchors anew, and its cursor's newest ledger still
@@ -54,11 +68,13 @@ use dassie_hub::escrow::{
     withdrawal_outcome,
 };
 use dassie_hub::ledger::Withdrawal;
-use dassie_hub::operation::{Issuer, ValidatorOperation};
+use dassie_hub::operation::{Deposit, Issuer, ValidatorOperation};
+use dassie_hub::service::MAX_WAITING_DEPOSITS;
 use dassie_xrpl::AccountId;
 use dassie_xrpl::account::resets;
 use dassie_xrpl::anchor::ProvenState;
 use dassie_xrpl::api::{self, ApiError, Message, PAGE, TxRecord};
+use dassie_xrpl::codec::{Payment, Transact};
 use dassie_xrpl::unl::{Anchor, ValidationSignatures};
 use dassie_xrpl::validator_list::UnlConfig;
 use dassie_xrpl::verifier::{
@@ -98,8 +114,18 @@ pub const RETRY_MS: u64 = 10_000;
 /// from it, and nothing is judged until a newer anchor is proven.
 pub const ANCHOR_FRESH_MS: u64 = REQUEST_TIMEOUT_MS + STALL_MS + 2 * ANCHOR_EVERY_MS;
 
-/// The most signed transactions waiting for a connection.
+/// The most signed escrow transactions kept: waiting for a connection, for
+/// the issuer to let go of the escrow, or for their withdrawal to settle.
 pub const MAX_QUEUED_SUBMITS: usize = 64;
+
+/// How long after it sent an escrow transaction the watcher sends it again
+/// while its withdrawal stays open. A transaction the server took is in a
+/// validated ledger within two closes, the open ledger's and the next, so
+/// one whose withdrawal is still open then may have been lost on the way:
+/// dropped by the server or the network, or never asked for while the
+/// requests were full. One that applied meanwhile is refused for its
+/// sequence, at no cost.
+pub const RESUBMIT_MS: u64 = 2 * ANCHOR_EVERY_MS;
 
 /// The most transactions hinted at and not yet proven: two pages of the
 /// escrow's history. A page is asked for only while there is room for a
@@ -126,6 +152,10 @@ const MAX_HELD: usize = 64;
 /// The most requests of its own waiting for an answer.
 const MAX_PENDING: usize = 16;
 
+/// The most of them that submit an escrow transaction: the rest are kept
+/// for following the escrow.
+const MAX_PENDING_SUBMITS: usize = MAX_PENDING / 2;
+
 /// The most proof requests the verifier has waiting on a connection: the
 /// verifier's own bound, with room for those of a round it gave up on.
 const MAX_PROOF_ASKS: usize = 4 * verifier::MAX_QUERIES;
@@ -147,6 +177,16 @@ pub struct EscrowView {
     pub written_off_at: Option<u64>,
     /// What a quorum last attested of a token hub's issuer's hold.
     pub issuer: Issuer,
+    /// How many more deposits this validator can attest now: its share of
+    /// the pending table's room, none once the hub ended or while it is in
+    /// no set in force.
+    pub deposit_room: usize,
+    /// The newest deposits, by transaction, whose attestation by this
+    /// validator the hub's ledger recorded, or takes no more: credited,
+    /// pending with it, or below the hub's floor. A bounded list: one that
+    /// left it before the watcher saw it is attested again, and is in it
+    /// again.
+    pub deposits_recorded: Vec<[u8; 32]>,
 }
 
 /// Where a server's validated ledger stands against the newest seen.
@@ -240,6 +280,26 @@ struct Hint {
     retry_at_ms: u64,
 }
 
+/// An escrow transaction a quorum signed.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct Submit {
+    /// The escrow's sequence it uses, if it reads as a Payment: a
+    /// withdrawal's, kept and sent again while the withdrawal is open. One
+    /// that does not read is sent once.
+    sequence: Option<u32>,
+    blob: Vec<u8>,
+    /// When it was last sent on this connection.
+    sent_ms: Option<u64>,
+}
+
+/// A deposit attested whose attestation the hub has not recorded yet.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Waiting {
+    deposit: Deposit,
+    /// When it was last handed to the validator to attest.
+    attested_ms: u64,
+}
+
 /// Where the connection is.
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum Phase {
@@ -289,7 +349,15 @@ pub struct Watcher {
     remembered: BTreeSet<[u8; 32]>,
     remembered_order: VecDeque<[u8; 32]>,
     held: VecDeque<TxRecord>,
-    queued: VecDeque<Vec<u8>>,
+    /// The escrow transactions a quorum signed, in the order they came.
+    submits: VecDeque<Submit>,
+    /// Deposits attested whose attestation the hub has not recorded yet,
+    /// by transaction: each holds the cursor below its ledger.
+    deposits: BTreeMap<[u8; 32], Waiting>,
+    /// The newest state of the issuer's hold it proved.
+    proven_issuer: Option<Issuer>,
+    /// When the hub was last seen to let go of the escrow.
+    thawed_ms: Option<u64>,
     /// The newest anchor, and when it was proven.
     anchored: Option<(Anchor, u64)>,
     /// When the verifier was last asked to anchor on the watcher's own.
@@ -344,7 +412,10 @@ impl Watcher {
             remembered: BTreeSet::new(),
             remembered_order: VecDeque::new(),
             held: VecDeque::new(),
-            queued: VecDeque::new(),
+            submits: VecDeque::new(),
+            deposits: BTreeMap::new(),
+            proven_issuer: None,
+            thawed_ms: None,
             anchored: None,
             anchor_asked_ms: None,
             escrow_checked_ms: None,
@@ -421,7 +492,12 @@ impl Watcher {
         );
         assert!(self.remembered.len() <= MAX_REMEMBERED);
         assert_eq!(self.remembered.len(), self.remembered_order.len());
-        assert!(self.queued.len() <= MAX_QUEUED_SUBMITS);
+        assert!(self.submits.len() <= MAX_QUEUED_SUBMITS);
+        assert!(self.pending_submits() <= MAX_PENDING_SUBMITS);
+        assert!(
+            self.deposits.len() <= MAX_WAITING_DEPOSITS,
+            "deposits waiting for the hub are bounded"
+        );
         let hint_queries = self
             .hints
             .values()
@@ -454,24 +530,35 @@ impl Watcher {
 impl Watcher {
     /// The validator took the attestation of `transaction`: it is
     /// remembered, and the cursor moves on once none is waiting before it.
+    /// A deposit's waits on until the hub recorded it.
     pub fn taken(&mut self, transaction: Option<[u8; 32]>) {
         let Some(hash) = transaction else {
             return;
         };
         self.untaken.remove(&hash);
-        self.remember(hash);
+        match self.deposits.get_mut(&hash) {
+            Some(waiting) => waiting.attested_ms = self.now_ms,
+            None => self.remember(hash),
+        }
         self.advance_cursor();
     }
 
     /// The host dropped the attestation of `transaction` before the
-    /// validator took it: it waits no more, and no cursor this watcher
-    /// persists passes its ledger, so a restart reads it again.
+    /// validator took it: it waits no more. A deposit's is attested again
+    /// later, and holds the cursor until the hub recorded it; of any other,
+    /// no cursor this watcher persists passes its ledger, so a restart
+    /// reads it again.
     pub fn dropped(&mut self, transaction: Option<[u8; 32]>) {
-        let Some(ledger) = transaction.and_then(|hash| self.untaken.remove(&hash)) else {
+        let Some(hash) = transaction else {
             return;
         };
-        let below = ledger.saturating_sub(1);
-        self.ceiling = Some(self.ceiling.map_or(below, |ceiling| ceiling.min(below)));
+        let Some(ledger) = self.untaken.remove(&hash) else {
+            return;
+        };
+        if !self.deposits.contains_key(&hash) {
+            let below = ledger.saturating_sub(1);
+            self.ceiling = Some(self.ceiling.map_or(below, |ceiling| ceiling.min(below)));
+        }
         self.advance_cursor();
     }
 
@@ -520,20 +607,38 @@ impl Watcher {
         self.hints.clear();
         self.overflow_from = None;
         self.streamed_to = 0;
+        // What was sent on it goes again on the next, once following.
+        for submit in &mut self.submits {
+            submit.sent_ms = None;
+        }
         self.read_to = self.cursor.map_or(0, |cursor| cursor.scanned_to);
     }
 
-    /// Submits a signed escrow transaction, now or once following.
+    /// Submits a signed escrow transaction once it follows the escrow and
+    /// the issuer does not hold it, and again while its withdrawal stays
+    /// open.
     pub fn submit(&mut self, blob: Vec<u8>) {
-        if self.following() {
-            self.ask(Asked::Submit, |id| api::submit(id, &blob));
-        } else if self.queued.len() < MAX_QUEUED_SUBMITS {
-            self.queued.push_back(blob);
-        } else {
+        let sequence = Payment::decode(&blob)
+            .ok()
+            .map(|payment| payment.sequence());
+        if sequence.is_some() {
+            // Signed anew, it takes the place of what was kept of its
+            // sequence.
+            self.submits.retain(|kept| kept.sequence != sequence);
+        }
+        self.prune_submits();
+        if self.submits.len() >= MAX_QUEUED_SUBMITS {
             self.out.push_back(Out::Problem(
                 "too many escrow transactions wait for the XRPL server: one was dropped",
             ));
+            return;
         }
+        self.submits.push_back(Submit {
+            sequence,
+            blob,
+            sent_ms: None,
+        });
+        self.send_submits();
     }
 
     /// Does what is due at `now`: ask a server that was behind again, have
@@ -542,7 +647,7 @@ impl Watcher {
     /// did not find, and look again at outcomes held.
     pub fn tick(&mut self, now_ms: u64, view: &EscrowView) {
         self.now(now_ms);
-        self.view = Some(view.clone());
+        self.see(view);
         self.verifier.tick(self.now_ms);
         if let Phase::Waiting { since_ms } = self.phase
             && self.now_ms.saturating_sub(since_ms) >= RETRY_MS
@@ -564,6 +669,7 @@ impl Watcher {
         for record in held {
             self.record(&record);
         }
+        self.retry_deposits();
         self.drain_verifier();
         self.work();
     }
@@ -571,7 +677,7 @@ impl Watcher {
     /// Takes a message from the server.
     pub fn message(&mut self, now_ms: u64, bytes: &[u8], view: &EscrowView) {
         self.now(now_ms);
-        self.view = Some(view.clone());
+        self.see(view);
         match api::parse(bytes) {
             Message::Response { id, outcome } => {
                 if let Some(ask) = self.proof_asks.remove(&id) {
@@ -616,13 +722,22 @@ impl Watcher {
         matches!(self.phase, Phase::Following | Phase::CatchingUp { .. })
     }
 
-    fn ask(&mut self, asked: Asked, request: impl FnOnce(u64) -> Vec<u8>) {
+    /// Asks the server, unless its requests are full: whether it did.
+    fn ask(&mut self, asked: Asked, request: impl FnOnce(u64) -> Vec<u8>) -> bool {
         if self.pending.len() >= MAX_PENDING {
-            return;
+            return false;
         }
         let id = self.fresh_id();
         self.pending.insert(id, asked);
         self.out.push_back(Out::Send(request(id)));
+        true
+    }
+
+    /// How many of its requests submit an escrow transaction.
+    fn pending_submits(&self) -> usize {
+        (self.pending.values())
+            .filter(|asked| **asked == Asked::Submit)
+            .count()
     }
 
     fn fresh_id(&mut self) -> u64 {
@@ -758,9 +873,7 @@ impl Watcher {
         self.read_to = self.read_to.max(to).max(self.streamed_to);
         self.phase = Phase::Following;
         self.escrow_checked_ms = None;
-        while let Some(blob) = self.queued.pop_front() {
-            self.ask(Asked::Submit, |id| api::submit(id, &blob));
-        }
+        self.send_submits();
     }
 
     /// The server hints at `record`, in its stream or the escrow's
@@ -770,6 +883,7 @@ impl Watcher {
         let hash = record.hash;
         let known = self.remembered.contains(&hash)
             || self.untaken.contains_key(&hash)
+            || self.deposits.contains_key(&hash)
             || self.hints.contains_key(&hash)
             || self.held.iter().any(|held| held.hash == hash);
         if known {
@@ -902,6 +1016,10 @@ impl Watcher {
         self.attested_escrow = None;
         self.issuer_checked_ms = None;
         self.attested_issuer = None;
+        self.proven_issuer = None;
+        // The old chain's deposits wait no more: their ledgers would hold
+        // the new chain's cursor.
+        self.deposits.clear();
         self.persist(cursor);
         // What the server said of the old chain goes with it: the escrow's
         // history is read again on the new one.
@@ -975,10 +1093,13 @@ impl Watcher {
         }
     }
 
-    /// The issuer's hold on a token hub's escrow, proven at an anchor:
-    /// attested if it is as of the newest anchor, that anchor fresh, and it
-    /// differs from the hub's, as of a later ledger, and was not attested
-    /// already.
+    /// The issuer's hold on a token hub's escrow, proven at an anchor: kept
+    /// as the newest proven, and attested if it is as of the newest anchor,
+    /// that anchor fresh, and it differs from the hub's, or from what it
+    /// attested since the hub's, as of a later ledger, and was not attested
+    /// already. So the validator hears of each change it proved, a freeze
+    /// again after a thaw among them, after the hub stopped too, when no
+    /// block can show it (spec/areas/hubs.md#payout-bundles).
     fn issuer_state(&mut self, state: &ProvenState) {
         let (proven, hub) = match self.view.as_ref() {
             Some(view) if self.current(state) => (issuer_of(&view.rules.terms, state), view.issuer),
@@ -987,11 +1108,21 @@ impl Watcher {
         let Some(proven) = proven else {
             return;
         };
-        let differs = (proven.frozen, proven.fee) != (hub.frozen, hub.fee);
+        if self
+            .proven_issuer
+            .is_none_or(|newest| newest.ledger <= proven.ledger)
+        {
+            self.proven_issuer = Some(proven);
+        }
+        let hold = |issuer: Issuer| (issuer.frozen, issuer.fee);
+        let differs = hold(proven) != hold(hub);
+        let reverts = self
+            .attested_issuer
+            .is_some_and(|voted| voted.ledger > hub.ledger && hold(voted) != hold(proven));
         let forward = self
             .attested_issuer
             .is_none_or(|voted| voted != proven && voted.ledger <= proven.ledger);
-        if differs && proven.ledger > hub.ledger && forward {
+        if (differs || reverts) && proven.ledger > hub.ledger && forward {
             self.attested_issuer = Some(proven);
             self.out
                 .push_back(Out::Attest(ValidatorOperation::AttestIssuer(proven), None));
@@ -1011,6 +1142,7 @@ impl Watcher {
         self.read_history();
         self.reread_overflow();
         self.prove_hints();
+        self.send_submits();
         if !self.following() || !self.fresh() {
             return self.advance_cursor();
         }
@@ -1104,7 +1236,8 @@ impl Watcher {
         // Outcomes held wait for the hub: read again only once one has
         // room, or the same would be held back again.
         let room = self.hints.len().saturating_add(PAGE as usize) <= MAX_HINTS
-            && self.held.len() < MAX_HELD;
+            && self.held.len() < MAX_HELD
+            && self.deposits.len() < MAX_WAITING_DEPOSITS;
         if !self.following() || !room {
             return;
         }
@@ -1123,13 +1256,29 @@ impl Watcher {
         let Some(view) = self.view.clone() else {
             return;
         };
-        let known =
-            self.remembered.contains(&record.hash) || self.untaken.contains_key(&record.hash);
+        let known = self.remembered.contains(&record.hash)
+            || self.untaken.contains_key(&record.hash)
+            || self.deposits.contains_key(&record.hash);
         if !record.validated || known {
             return;
         }
         let terms = &view.rules.terms;
         if let Some(deposit) = deposit_of(record, terms) {
+            if view.deposits_recorded.contains(&record.hash) {
+                return self.remember(record.hash);
+            }
+            if self.deposits.len() >= MAX_WAITING_DEPOSITS {
+                // Read again from the history once the hub recorded one.
+                let ledger = record.ledger_index;
+                self.overflow_from =
+                    Some(self.overflow_from.map_or(ledger, |from| from.min(ledger)));
+                return;
+            }
+            let waiting = Waiting {
+                deposit,
+                attested_ms: self.now_ms,
+            };
+            self.deposits.insert(record.hash, waiting);
             return self.attest(record, ValidatorOperation::AttestDeposit(deposit));
         }
         if let Some(clawback) = clawback_of(record, terms) {
@@ -1182,6 +1331,141 @@ impl Watcher {
             .push_back(Out::Attest(operation, Some(record.hash)));
     }
 
+    /// What the validator's ledger says now: when it let go of the escrow,
+    /// and which deposits' attestations it recorded, which wait no more.
+    fn see(&mut self, view: &EscrowView) {
+        let was_held = self.view.as_ref().is_some_and(|seen| seen.issuer.holds());
+        if was_held && !view.issuer.holds() {
+            self.thawed_ms = Some(self.now_ms);
+        }
+        let mut recorded = false;
+        for hash in &view.deposits_recorded {
+            if self.deposits.remove(hash).is_some() {
+                self.remember(*hash);
+                recorded = true;
+            }
+        }
+        self.view = Some(view.clone());
+        if recorded {
+            self.advance_cursor();
+        }
+    }
+
+    /// Whether the issuer holds a token hub's escrow, as of the hub's last
+    /// final block, or as of a later state proven here: nothing is sent to
+    /// it then (spec/decisions/token-hubs.md). Not knowing the hub's, it
+    /// does.
+    fn held(&self) -> bool {
+        let Some(view) = self.view.as_ref() else {
+            return true;
+        };
+        let proven = self
+            .proven_issuer
+            .is_some_and(|proven| proven.ledger > view.issuer.ledger && proven.holds());
+        view.issuer.holds() || proven
+    }
+
+    /// The newest state of the issuer's hold it proved, if any.
+    #[must_use]
+    pub const fn proven_issuer(&self) -> Option<Issuer> {
+        self.proven_issuer
+    }
+
+    /// Lets go of what was sent and needs no more: a withdrawal the hub
+    /// settled, a sequence below the next it gives out and no longer open,
+    /// and what does not read as a withdrawal once sent.
+    fn prune_submits(&mut self) {
+        let view = self.view.as_ref();
+        self.submits.retain(|submit| match submit.sequence {
+            Some(sequence) => view.is_none_or(|view| {
+                sequence >= view.next_sequence
+                    || view.withdrawals.iter().any(|(open, _)| *open == sequence)
+            }),
+            None => submit.sent_ms.is_none(),
+        });
+    }
+
+    /// Sends, in sequence order, each escrow transaction not yet sent on
+    /// this connection or sent [`RESUBMIT_MS`] ago, while it follows the
+    /// escrow and the issuer does not hold it, and while its requests have
+    /// room: one that finds none goes on a later turn.
+    fn send_submits(&mut self) {
+        if !self.following() || self.held() {
+            return;
+        }
+        self.prune_submits();
+        let now = self.now_ms;
+        let mut due: Vec<(Option<u32>, usize)> = (self.submits.iter().enumerate())
+            .filter(|(_, submit)| {
+                submit
+                    .sent_ms
+                    .is_none_or(|at| now.saturating_sub(at) >= RESUBMIT_MS)
+            })
+            .map(|(index, submit)| (submit.sequence, index))
+            .collect();
+        due.sort_unstable();
+        for (_, index) in due {
+            if self.pending_submits() >= MAX_PENDING_SUBMITS {
+                break;
+            }
+            let Some(blob) = self.submits.get(index).map(|submit| submit.blob.clone()) else {
+                continue;
+            };
+            if !self.ask(Asked::Submit, |id| api::submit(id, &blob)) {
+                break;
+            }
+            if let Some(submit) = self.submits.get_mut(index) {
+                submit.sent_ms = Some(now);
+            }
+        }
+        self.prune_submits();
+    }
+
+    /// Attests again, oldest ledger first, each deposit the hub has not
+    /// recorded the hub's margin after it was last attested or after the
+    /// hub let go of the escrow, whichever is later, which is longer than
+    /// an attestation takes to be final ([`dassie_hub::rules::Timers::margin`]):
+    /// one a full share refused during a freeze, past what the service
+    /// keeps, or one the host dropped. As many as the validator's share of
+    /// the pending table has room for beside those on their way, and none
+    /// while the issuer holds the escrow, when the share would only fill
+    /// again.
+    fn retry_deposits(&mut self) {
+        let Some(view) = self.view.as_ref() else {
+            return;
+        };
+        if self.deposits.is_empty() || self.held() {
+            return;
+        }
+        let wait = view.rules.terms.timers.margin;
+        let since = self.thawed_ms.unwrap_or(0);
+        let now = self.now_ms;
+        let on_the_way = (self.deposits.keys())
+            .filter(|hash| self.untaken.contains_key(*hash))
+            .count();
+        let room = view.deposit_room.saturating_sub(on_the_way);
+        let mut due: Vec<(u32, [u8; 32])> = (self.deposits.iter())
+            .filter(|(hash, waiting)| {
+                !self.untaken.contains_key(*hash)
+                    && now.saturating_sub(waiting.attested_ms.max(since)) >= wait
+            })
+            .map(|(hash, waiting)| (waiting.deposit.ledger, *hash))
+            .collect();
+        due.sort_unstable();
+        for (ledger, hash) in due.into_iter().take(room) {
+            let Some(waiting) = self.deposits.get_mut(&hash) else {
+                continue;
+            };
+            waiting.attested_ms = now;
+            let deposit = waiting.deposit;
+            self.untaken.insert(hash, ledger);
+            self.out.push_back(Out::Attest(
+                ValidatorOperation::AttestDeposit(deposit),
+                Some(hash),
+            ));
+        }
+    }
+
     fn remember(&mut self, hash: [u8; 32]) {
         if !self.remembered.insert(hash) {
             return;
@@ -1197,7 +1481,8 @@ impl Watcher {
     /// Moves the cursor as far as it may: up to what the history and the
     /// stream covered, no further than the newest ledger proven, and below
     /// every hint not yet proven, every attestation not yet taken, every
-    /// outcome held and every ledger a page must be read again from.
+    /// deposit the hub has not recorded, every outcome held and every
+    /// ledger a page must be read again from.
     fn advance_cursor(&mut self) {
         let Some(cursor) = self.cursor else {
             return;
@@ -1205,6 +1490,7 @@ impl Watcher {
         let mut to = self.read_to.min(cursor.newest_ledger);
         let blocking = (self.hints.values().map(|hint| hint.ledger))
             .chain(self.untaken.values().copied())
+            .chain(self.deposits.values().map(|waiting| waiting.deposit.ledger))
             .chain(self.held.iter().map(|record| record.ledger_index))
             .chain(self.overflow_from);
         for ledger in blocking {
