@@ -1622,17 +1622,14 @@ impl Sim {
     /// Whether the request is withheld: a member that claims late keeps its
     /// Fulfills to itself.
     pub(super) fn hub_intercept(&mut self, from: usize, to: usize, body: &[u8]) -> bool {
-        use dassie_peer::wire::{Content, Envelope};
+        use dassie_peer::wire::Content;
         let Some(liar) = self.hub.as_deref_mut().and_then(|hub| hub.liar.as_mut()) else {
             return false;
         };
         if from != liar.node && to != liar.node {
             return false;
         }
-        let Ok(envelope) = Envelope::decode(body) else {
-            return false;
-        };
-        let Ok(content) = Content::decode_exact(envelope.content) else {
+        let Ok(content) = Content::decode_exact(body) else {
             return false;
         };
         let withheld = match content {

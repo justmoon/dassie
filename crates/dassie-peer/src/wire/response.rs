@@ -1,4 +1,5 @@
-//! Responses: an authentication field, then the body for the request's kind.
+//! Responses: the body for the request's kind. Who answered is the node
+//! whose key the QUIC connection proved.
 
 use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
@@ -12,53 +13,8 @@ use super::{
 };
 use crate::names::{Name, name_len, read_name, write_name};
 
-/// A response, its body not yet decoded: the MAC covers the body's bytes.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct ResponseEnvelope<'a> {
-    /// The response MAC, present if and only if the request was
-    /// authenticated.
-    pub mac: Option<[u8; 32]>,
-    /// The body.
-    pub body: &'a [u8],
-}
-
-impl<'a> ResponseEnvelope<'a> {
-    /// Reads a response.
-    ///
-    /// # Errors
-    ///
-    /// The bytes are not a response.
-    pub fn decode(bytes: &'a [u8]) -> Result<Self, DecodeError> {
-        let mut reader = Reader::new(bytes);
-        let offset = reader.offset();
-        let mac = match reader.read_context_tag()? {
-            0 => None,
-            1 => Some(read_fixed::<32>(&mut reader)?),
-            _ => return Err(DecodeError::new(offset, DecodeErrorKind::UnexpectedTag)),
-        };
-        let body = reader.read_bytes(reader.remaining())?;
-        Ok(Self { mac, body })
-    }
-}
-
-/// Encodes a response.
-#[must_use]
-pub fn encode_response(mac: Option<&[u8; 32]>, body: &[u8]) -> Vec<u8> {
-    let mut bytes = alloc::vec![0u8; size::tag(0) + mac.map_or(0, |_| 32) + body.len()];
-    let mut writer = Writer::new(&mut bytes);
-    match mac {
-        Some(mac) => {
-            writer.write_context_tag(1);
-            writer.write_bytes(mac);
-        }
-        None => writer.write_context_tag(0),
-    }
-    writer.write_bytes(body);
-    bytes
-}
-
 /// Why a peering request was refused. Unknown values read as
-/// [`RefusalReason::Unspecified`].
+/// [`RefusalReason::Unspecified`]. Code 3 is reserved: no reason has it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum RefusalReason {
     /// No reason given.
@@ -68,8 +24,6 @@ pub enum RefusalReason {
     /// The scheme is not active here, or not yet peered on: it has not
     /// seen its ledger.
     UnsupportedScheme,
-    /// No version of the scheme is spoken by both.
-    NoCommonVersion,
     /// No room for another peer.
     Capacity,
     /// The two nodes asked each other at once, and the other request won.
@@ -98,7 +52,6 @@ impl RefusalReason {
             Self::Unspecified => 0,
             Self::UnknownNode => 1,
             Self::UnsupportedScheme => 2,
-            Self::NoCommonVersion => 3,
             Self::Capacity => 4,
             Self::Concurrent => 5,
             Self::SchemeRefused => 6,
@@ -115,7 +68,6 @@ impl RefusalReason {
         match code {
             1 => Self::UnknownNode,
             2 => Self::UnsupportedScheme,
-            3 => Self::NoCommonVersion,
             4 => Self::Capacity,
             5 => Self::Concurrent,
             6 => Self::SchemeRefused,
@@ -130,41 +82,26 @@ impl RefusalReason {
 
 /// The answer to a peering request.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum PeeringResponse<'a> {
-    /// `accepted [0]`.
-    Accepted {
-        /// The scheme version both speak.
-        version: u16,
-        /// The credit the responder extends.
-        credit: u64,
-        /// The scheme's own data.
-        data: &'a [u8],
-    },
+pub enum PeeringResponse {
+    /// `accepted [0]`, which carries nothing: the scheme's data travel in
+    /// the request and the peering info.
+    Accepted,
     /// `refused [1]`.
     Refused(RefusalReason),
 }
 
-impl Encode for PeeringResponse<'_> {
+impl Encode for PeeringResponse {
     fn encoded_len(&self) -> usize {
         size::tag(0)
             + match self {
-                Self::Accepted { data, .. } => 2 + 8 + size::prefixed(data.len()),
+                Self::Accepted => 0,
                 Self::Refused(_) => 1,
             }
     }
 
     fn encode_to(&self, writer: &mut Writer<'_>) {
         match self {
-            Self::Accepted {
-                version,
-                credit,
-                data,
-            } => {
-                writer.write_context_tag(0);
-                writer.write_u16(*version);
-                writer.write_u64(*credit);
-                writer.write_octets(data, Size::ANY);
-            }
+            Self::Accepted => writer.write_context_tag(0),
             Self::Refused(reason) => {
                 writer.write_context_tag(1);
                 writer.write_u8(reason.code());
@@ -173,17 +110,13 @@ impl Encode for PeeringResponse<'_> {
     }
 }
 
-impl<'a> Decode<'a> for PeeringResponse<'a> {
+impl<'a> Decode<'a> for PeeringResponse {
     type Error = DecodeError;
 
     fn decode(reader: &mut Reader<'a>) -> Result<Self, DecodeError> {
         let offset = reader.offset();
         match reader.read_context_tag()? {
-            0 => Ok(Self::Accepted {
-                version: reader.read_u16()?,
-                credit: reader.read_u64()?,
-                data: reader.read_octets(Size::ANY)?,
-            }),
+            0 => Ok(Self::Accepted),
             1 => Ok(Self::Refused(RefusalReason::from_code(reader.read_u8()?))),
             _ => Err(DecodeError::new(offset, DecodeErrorKind::UnexpectedTag)),
         }
@@ -191,37 +124,28 @@ impl<'a> Decode<'a> for PeeringResponse<'a> {
 }
 
 /// The answer to a `methodAdd`: shaped as the answer to a peering request
-/// ([`PeeringResponse`]), without its `credit`, which only nodes of 0.1
-/// read (spec/areas/peer-protocol.md#versions).
+/// ([`PeeringResponse`]).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum MethodResponse<'a> {
-    /// `accepted [0]`.
-    Accepted {
-        /// The scheme version both speak.
-        version: u16,
-        /// The scheme's own data.
-        data: &'a [u8],
-    },
+pub enum MethodResponse {
+    /// `accepted [0]`, which carries nothing: the scheme's data travel in
+    /// the request and the peering info.
+    Accepted,
     /// `refused [1]`.
     Refused(RefusalReason),
 }
 
-impl Encode for MethodResponse<'_> {
+impl Encode for MethodResponse {
     fn encoded_len(&self) -> usize {
         size::tag(0)
             + match self {
-                Self::Accepted { data, .. } => 2 + size::prefixed(data.len()),
+                Self::Accepted => 0,
                 Self::Refused(_) => 1,
             }
     }
 
     fn encode_to(&self, writer: &mut Writer<'_>) {
         match self {
-            Self::Accepted { version, data } => {
-                writer.write_context_tag(0);
-                writer.write_u16(*version);
-                writer.write_octets(data, Size::ANY);
-            }
+            Self::Accepted => writer.write_context_tag(0),
             Self::Refused(reason) => {
                 writer.write_context_tag(1);
                 writer.write_u8(reason.code());
@@ -230,16 +154,13 @@ impl Encode for MethodResponse<'_> {
     }
 }
 
-impl<'a> Decode<'a> for MethodResponse<'a> {
+impl<'a> Decode<'a> for MethodResponse {
     type Error = DecodeError;
 
     fn decode(reader: &mut Reader<'a>) -> Result<Self, DecodeError> {
         let offset = reader.offset();
         match reader.read_context_tag()? {
-            0 => Ok(Self::Accepted {
-                version: reader.read_u16()?,
-                data: reader.read_octets(Size::ANY)?,
-            }),
+            0 => Ok(Self::Accepted),
             1 => Ok(Self::Refused(RefusalReason::from_code(reader.read_u8()?))),
             _ => Err(DecodeError::new(offset, DecodeErrorKind::UnexpectedTag)),
         }
@@ -492,20 +413,16 @@ pub fn encode_settling(amount: u64) -> Vec<u8> {
     amount.to_be_bytes().to_vec()
 }
 
-/// Reads the answer to a settlement request: `None` for an empty one, as a
-/// node from before spec/decisions/ending-a-peering.md answers.
+/// Reads the answer to a settlement request.
 ///
 /// # Errors
 ///
-/// It is neither empty nor eight bytes.
-pub fn decode_settling(body: &[u8]) -> Result<Option<u64>, DecodeError> {
-    if body.is_empty() {
-        return Ok(None);
-    }
+/// It is not eight bytes.
+pub fn decode_settling(body: &[u8]) -> Result<u64, DecodeError> {
     let mut reader = Reader::new(body);
     let amount = reader.read_u64()?;
     reader.finish()?;
-    Ok(Some(amount))
+    Ok(amount)
 }
 
 /// Reads a node-list hash.

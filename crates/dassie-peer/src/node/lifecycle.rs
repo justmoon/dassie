@@ -8,8 +8,8 @@ use alloc::vec::Vec;
 
 use dassie_identity::NodeId;
 
+use super::inbound::Accepted;
 use super::{PeerNode, Problem, Purpose};
-use crate::auth::Accepted;
 use crate::hooks::PeeringHooks;
 use crate::io::{Event, Reply};
 use crate::table::{Advertise, Depeering, Entry, PeerState, Termination, backoff};
@@ -126,19 +126,19 @@ impl PeerNode {
 
     /// The answer to our last request: what the peer has on its way. A
     /// 409, from a peer that holds no peering, means nothing is; an answer
-    /// that does not say, or none, is waited out.
+    /// it cannot read, or none, is waited out.
     pub(super) fn on_final_request(&mut self, peer: NodeId, result: &Result<Vec<u8>, Problem>) {
-        let promised = match result {
-            Ok(body) => crate::wire::decode_settling(body).ok().flatten(),
-            Err(Problem::Status(409)) => Some(0),
+        let answered = match result {
+            Ok(body) => crate::wire::decode_settling(body).ok(),
             Err(_) => None,
         };
-        if result.is_ok() {
-            self.event(Event::SettlementRequestAnswered {
-                peer,
-                settling: promised,
-            });
+        if let Some(settling) = answered {
+            self.event(Event::SettlementRequestAnswered { peer, settling });
         }
+        let promised = match result {
+            Err(Problem::Status(409)) => Some(0),
+            _ => answered,
+        };
         if let Some(depeering) = self.depeering_mut(&peer) {
             depeering.promised = promised;
         }
@@ -287,7 +287,7 @@ impl PeerNode {
             }
             Some(PeerState::None) | None => return Reply::refuse(409, "not peered"),
         }
-        super::inbound::ok(accepted, &[])
+        super::inbound::ok(&[])
     }
 
     /// Bans `node`: it is never asked, is refused, and a peering with it is
@@ -584,10 +584,7 @@ impl PeerNode {
                 let reason = peering
                     .depeering
                     .map_or(TerminationReason::Unspecified, |depeering| depeering.reason);
-                hooks
-                    .versions(peering.scheme)
-                    .is_empty()
-                    .then_some((*id, reason))
+                (!hooks.speaks(peering.scheme)).then_some((*id, reason))
             })
             .collect();
         for (peer, reason) in unrun {
@@ -694,7 +691,7 @@ impl PeerNode {
         self.event(Event::PeeringEnded { peer });
     }
 
-    /// An authenticated request from `sender` that presumes a peering,
+    /// A request from `sender` that presumes a peering,
     /// though we hold none with it and are not asking: its side is left
     /// over, as when our termination never reached it. It is told so, at
     /// most once per termination timeout, and its request still gets its
@@ -712,12 +709,15 @@ impl PeerNode {
         {
             return;
         }
-        let contact = self.contact(&sender).or_else(|| {
-            self.channels
-                .get(&sender)
-                .map(|channel| (channel.key, channel.url.clone()))
-        });
-        let Some((key, url)) = contact else {
+        let contact = self
+            .contact(&sender)
+            .map(|(_, endpoint)| endpoint)
+            .or_else(|| {
+                self.channels
+                    .get(&sender)
+                    .map(|channel| channel.endpoint.clone())
+            });
+        let Some(endpoint) = contact else {
             return;
         };
         self.told_not_peered
@@ -730,7 +730,7 @@ impl PeerNode {
         self.told_not_peered.insert(sender, now);
         let content = Content::PeeringTermination(TerminationReason::NotPeered);
         let timeout = self.config.request_timeout_ms;
-        self.send_via(sender, key, url, &content, Purpose::Gossip, timeout);
+        self.send_via(sender, endpoint, &content, Purpose::Gossip, timeout);
     }
 }
 

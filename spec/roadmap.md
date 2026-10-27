@@ -261,8 +261,7 @@ The first four are on `main`, and so is each network's proof server, named in th
 
 ## Smaller open points
 
-- **A later peer-protocol version** drops the `credit` field of `peeringRequest` and of its response (sent as 0 and ignored), and the one-byte body of the reply to a Fulfill (always `accepted`, kept for older nodes) ([own-fulfills](decisions/own-fulfills.md)).
-- **A post-quantum peer-protocol scheme.** The authentication choice reserves a tag for a scheme on the X-Wing hybrid KEM, and a link-state extension type for its key; neither is built ([Peer protocol](areas/peer-protocol.md#versions), [peer-protocol-v1](decisions/peer-protocol-v1.md)). Signatures and node IDs stay Ed25519.
+- **A post-quantum node key.** A peer is the key its QUIC connection proved, so a post-quantum identity is a post-quantum key in TLS; a link-state extension type is kept for such a key. Nothing is built ([Peer protocol](areas/peer-protocol.md#versions), [peer-protocol-v1](decisions/peer-protocol-v1.md)). Signatures and node IDs stay Ed25519.
 - **The phrase format** ([phrase-format](decisions/phrase-format.md)): 20 words with a kind that names the layout and realm, a creation time and six Reed–Solomon check words, read with correction the owner confirms, and a master seed by HKDF keyed by the realm, so one secret is a different node in each realm. It replaces BIP-39 in `dassie-identity`, its WASM build, the wallet's setup and login, `dassie setup`, the market maker's own derivation, the dev environment's phrases and the end-to-end tests, and the golden vectors, from a generator of our own; the node's message for a v0 database says to set up a new node. Every phrase made before is then refused, which the testnet's reset absorbs: the bootstrap nodes get new phrases and so new node IDs, which change the bootstrap list, the default testnet hub's built-in genesis, their DNS and the market maker's targets.
 - **The testnet's names under `test.dassiepay.net`.** The live realm takes `dassiepay.net` and the testnet moves to `<node ID>.test.dassiepay.net` ([public-domains](decisions/public-domains.md)): it needs the subdomain's DNS, a wildcard certificate and a testnet front door serving it, and then the testnet's default domain in the code.
 - **Pre-releases,** if wanted, are `vX.Y.Z-rc.N` tags that the release workflow builds and signs as it does a release, on a channel of their own that a node joins only when its owner asks; the version parser, the installer and the updater accept none yet ([release-integrity](decisions/release-integrity.md)).
@@ -279,7 +278,7 @@ Designs that stay future work. The architecture must not preclude them.
 
 ## Decisions
 
-- [peer-protocol-v1](decisions/peer-protocol-v1.md): the post-quantum path: X-Wing for the peer protocol, hybrid TLS for confidentiality.
+- [peer-protocol-v1](decisions/peer-protocol-v1.md): the post-quantum path: hybrid TLS for confidentiality, and a key kept for in link states.
 - [database-continuity](decisions/database-continuity.md): no import of v0 data for now.
 - [membership-economics](decisions/membership-economics.md): registration fees and why registration is free and throttled meanwhile.
 - [names-by-earliest-commitment](decisions/names-by-earliest-commitment.md): names, sealed and held by a quorum of the bootstrap nodes' lists.
@@ -291,7 +290,6 @@ Designs that stay future work. The architecture must not preclude them.
 - [release-integrity](decisions/release-integrity.md): a release is built once until a second build can check it.
 - [peering-lifecycle](decisions/peering-lifecycle.md): the channel limit.
 - [core-and-periphery](decisions/core-and-periphery.md): the periphery.
-- [own-fulfills](decisions/own-fulfills.md): the fields a later protocol version drops.
 - [settlement-hubs](decisions/settlement-hubs.md): settlement hubs, on mainnet too.
 - [hubs-only](decisions/hubs-only.md): peers settle only over hubs, and direct settlement leaves the code.
 - [token-hubs](decisions/token-hubs.md): hubs for DSUSD and RLUSD, the issuer's freeze and clawback, and the escrow's gas.

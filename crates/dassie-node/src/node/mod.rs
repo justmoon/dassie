@@ -284,8 +284,8 @@ impl Drop for PeerPermit {
     }
 }
 
-/// Requests without authentication, per client address: they are for tools
-/// and debugging, since nodes authenticate every request.
+/// Failed peer requests, per key a connection proved
+/// ([`Node::peer_charge`]).
 const PEER_ANONYMOUS: RateLimitPolicy = RateLimitPolicy {
     client_burst: 20,
     client_refill_ms: 1_000,
@@ -457,6 +457,12 @@ impl std::fmt::Debug for Node {
             .field("runtime", &self.runtime)
             .finish_non_exhaustive()
     }
+}
+
+/// The rate limiter's key for the node of `key`: the first half of its
+/// public key, which two nodes share only by chance.
+fn key_client(key: &dassie_identity::PublicKey) -> ClientKey {
+    ClientKey::from_bytes(key.as_bytes().first_chunk().copied().unwrap_or_default())
 }
 
 /// Locks a mutex, carrying on past a panic of another holder: none of the
@@ -672,20 +678,22 @@ impl Node {
         })
     }
 
-    /// Whether `client` may send another unauthenticated or failing peer
-    /// request now.
+    /// Whether the node of `key` may send another failing peer request
+    /// now.
     #[must_use]
-    pub fn peer_limited(&self, client: IpAddr) -> bool {
+    pub fn peer_limited(&self, key: &dassie_identity::PublicKey) -> bool {
         let now = self.now_ms();
-        lock(&self.peer.limiter)
-            .peek(ClientKey::from_ip(client), now)
-            .is_err()
+        lock(&self.peer.limiter).peek(key_client(key), now).is_err()
     }
 
-    /// Charges `client` for an unauthenticated or failed peer request.
-    pub fn peer_charge(&self, client: IpAddr) {
+    /// Charges the node of `key` for a failed peer request: by the key its
+    /// connection proved, not its address, so one node's failures never
+    /// cost another behind the same address. A node that makes new keys
+    /// to escape it needs a connection for each, which takes a place by its
+    /// address (spec/areas/peer-protocol.md#transport).
+    pub fn peer_charge(&self, key: &dassie_identity::PublicKey) {
         let now = self.now_ms();
-        let _ = lock(&self.peer.limiter).check(ClientKey::from_ip(client), now);
+        let _ = lock(&self.peer.limiter).check(key_client(key), now);
     }
 
     /// The nodes peered with us, by kind, as they change
@@ -714,22 +722,23 @@ impl Node {
     }
 
     /// What our link state says about us: the public URL, once there is a
-    /// hostname, and the alias. A node with a QUIC endpoint and no
-    /// hostname runs as a periphery node
+    /// hostname and the QUIC endpoint is at its port, and the alias. A node
+    /// without a URL runs as a periphery node
     /// (spec/areas/network.md#periphery-nodes).
     #[must_use]
     pub fn own_info(&self) -> dassie_peer::OwnInfo {
         let config = self.config();
-        let url = dassie_node_core::urls::node_url(config.hostname.as_ref(), self.ports().1);
-        // Peers reach QUIC at the URL's port: a drop-in that moved the
-        // HTTPS socket elsewhere leaves QUIC where peers do not look. A
-        // periphery node only dials, from wherever its socket is.
-        let quic = self.quic().is_some_and(|quic| {
-            url.is_none()
-                || quic
-                    .local_addr()
-                    .is_ok_and(|address| address.port() == self.ports().1)
+        // Peers reach QUIC at the URL's port. Under systemd the daemon does
+        // not start otherwise; a host that embeds the node may bind QUIC
+        // apart, and such a node only dials, from wherever its socket is,
+        // with no URL peers would look for it at.
+        let https_port = self.ports().1;
+        let at_url = self.quic().is_none_or(|quic| {
+            quic.local_addr()
+                .is_ok_and(|address| address.port() == https_port)
         });
+        let url = dassie_node_core::urls::node_url(config.hostname.as_ref(), https_port)
+            .filter(|_| at_url);
         // Subscribers find the feed at the URL's host, so only a node with
         // a URL names its port (spec/areas/rate-feed.md#finding-a-feed).
         let feed_port = self
@@ -740,7 +749,6 @@ impl Node {
         dassie_peer::OwnInfo {
             url,
             alias: config.alias.as_str().to_owned(),
-            quic,
             feed_port,
             hub: None,
         }
@@ -764,8 +772,7 @@ impl Node {
         self.quic.get()
     }
 
-    /// Gives the node its QUIC endpoint, before its engine starts: the link
-    /// state it issues then says that it takes QUIC.
+    /// Gives the node its QUIC endpoint, before its engine starts.
     pub fn attach_quic(&self, quic: Arc<crate::quic::Quic>) {
         let _ = self.quic.set(quic);
     }

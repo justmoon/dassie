@@ -91,7 +91,7 @@ Most of Dassie may change freely: the UI ↔ node RPC and the HTTP API ship with
 - **The XRP Ledger wallet derivation** ([XRP Ledger](areas/xrpl.md#the-wallet)).
 - **Ed25519 verification by ZIP-215** ([Identity](areas/identity.md#node-key)).
 - **The Interledger wire formats:** ILPv4, ILDCP, BTP 2.0, STREAM and Open Payments ([Testing](areas/testing.md#interop)).
-- **The peer protocol and what a settlement on a ledger means,** within a protocol version ([Peer protocol](areas/peer-protocol.md), [XRP Ledger](areas/xrpl.md)).
+- **The peer protocol and what a settlement on a ledger means,** within a protocol version, which a release speaks beside the one before for a release cycle ([Peer protocol](areas/peer-protocol.md#versions), [protocol-upgrades](decisions/protocol-upgrades.md), [XRP Ledger](areas/xrpl.md)).
 - **A settlement hub's protocol,** within its version, and the deposit that opens an account ([hub-protocol-version](decisions/hub-protocol-version.md), [Settlement hubs](areas/hubs.md#golden-vectors)).
 - **The rate feed's wire format,** within its version ([Rate feed](areas/rate-feed.md#wire-format)).
 - **The release mirror's layout and the install layout** ([Release](areas/release.md#the-mirror), [install layout](areas/release.md#install-layout)).
@@ -111,6 +111,7 @@ Not frozen, on purpose: a node does not talk to the original implementation's no
 
 - [rust-and-typescript](decisions/rust-and-typescript.md): the node is Rust, the browser Solid, the tooling TypeScript.
 - [peer-protocol-v1](decisions/peer-protocol-v1.md), [database-continuity](decisions/database-continuity.md): no v0 peer protocol, no v0 databases.
+- [protocol-upgrades](decisions/protocol-upgrades.md): a peer-protocol version is an ALPN name, and a release speaks the one before too.
 - [real-money](decisions/real-money.md): no real money yet.
 - [bootstrap-network](decisions/bootstrap-network.md): the testnet's bootstrap nodes.
 - [public-domains](decisions/public-domains.md): the domains of payment names, memo types and the mirror.

@@ -20,7 +20,7 @@ use dassie_node::quic::{
     BACKOFF_MIN, Body, CONNECT_TIMEOUT, Handler, IDLE_TIMEOUT, Quic, send_peer,
 };
 use dassie_node_core::connections::ConnectionLimits;
-use dassie_peer::wire::{Kind, MAX_MESSAGE_BYTES};
+use dassie_peer::wire::{Endpoint, Kind, MAX_MESSAGE_BYTES};
 use dassie_peer::{Failure, Request, RequestId};
 use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;
@@ -44,6 +44,7 @@ impl Handler for Echo {
     fn answer<'a>(
         &'a self,
         _client: IpAddr,
+        _from: dassie_identity::PublicKey,
         body: Body<'a>,
     ) -> Pin<Box<dyn Future<Output = Answer> + Send + 'a>> {
         Box::pin(echo(body))
@@ -86,6 +87,7 @@ impl Handler for Classed {
     fn answer<'a>(
         &'a self,
         _client: IpAddr,
+        _from: dassie_identity::PublicKey,
         body: Body<'a>,
     ) -> Pin<Box<dyn Future<Output = Answer> + Send + 'a>> {
         Box::pin(echo(body))
@@ -116,6 +118,7 @@ impl Handler for Together {
     fn answer<'a>(
         &'a self,
         _client: IpAddr,
+        _from: dassie_identity::PublicKey,
         body: Body<'a>,
     ) -> Pin<Box<dyn Future<Output = Answer> + Send + 'a>> {
         Box::pin(async move {
@@ -146,6 +149,7 @@ impl Handler for Held {
     fn answer<'a>(
         &'a self,
         _client: IpAddr,
+        _from: dassie_identity::PublicKey,
         body: Body<'a>,
     ) -> Pin<Box<dyn Future<Output = Answer> + Send + 'a>> {
         Box::pin(async move {
@@ -160,7 +164,7 @@ impl Handler for Held {
 struct Side {
     quic: Arc<Quic>,
     id: NodeId,
-    url: String,
+    endpoint: Endpoint,
     // Kept alive: the endpoint presents the key it holds.
     _identity: watch::Sender<Option<Arc<NodeKey>>>,
 }
@@ -180,7 +184,7 @@ fn side_with(seed: u8, shutdown: &CancellationToken, handler: Arc<dyn Handler>) 
     Side {
         quic,
         id,
-        url: format!("https://127.0.0.1:{port}"),
+        endpoint: Endpoint::parse(&format!("127.0.0.1:{port}")).unwrap(),
         _identity: identity,
     }
 }
@@ -195,7 +199,7 @@ fn request(to: &Side, body: Vec<u8>) -> Request {
     Request {
         id: RequestId(1),
         to: to.id,
-        url: to.url.clone(),
+        endpoint: Some(to.endpoint.clone()),
         kind: Kind::LinkStateRequest,
         body,
         timeout_ms: 5_000,
@@ -349,7 +353,7 @@ async fn a_node_out_of_reach_is_not_dialled_again_for_a_while() {
     let request = Request {
         id: RequestId(7),
         to: target,
-        url: format!("https://127.0.0.1:{port}"),
+        endpoint: Endpoint::parse(&format!("127.0.0.1:{port}")),
         kind: Kind::LinkStateRequest,
         body: b"probe".to_vec(),
         timeout_ms: 2_000,
@@ -382,7 +386,7 @@ async fn a_node_that_connects_ends_the_backoff() {
     let port = silent.local_addr().unwrap().port();
     // b, at an address where it cannot be reached.
     let mut elsewhere = request(&b, b"lost".to_vec());
-    elsewhere.url = format!("https://127.0.0.1:{port}");
+    elsewhere.endpoint = Endpoint::parse(&format!("127.0.0.1:{port}"));
     elsewhere.timeout_ms = 1_000;
     let client = client();
     assert_eq!(
@@ -569,7 +573,7 @@ async fn a_stranger_without_room_backs_off() {
 /// now. It carries packets between the node and that peer only, so nothing
 /// a peer that crashed sends reaches the node any more.
 struct Route {
-    url: String,
+    endpoint: Endpoint,
     peer: Arc<std::sync::Mutex<SocketAddr>>,
 }
 
@@ -577,7 +581,7 @@ impl Route {
     /// The route from `node` to `peer`, until it leads elsewhere.
     async fn new(node: &Side, peer: &Side, shutdown: &CancellationToken) -> Self {
         let socket = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
-        let url = format!("https://{}", socket.local_addr().unwrap());
+        let endpoint = Endpoint::parse(&socket.local_addr().unwrap().to_string()).unwrap();
         let node = node.quic.local_addr().unwrap();
         let peer = Arc::new(std::sync::Mutex::new(peer.quic.local_addr().unwrap()));
         let to = Arc::clone(&peer);
@@ -600,7 +604,7 @@ impl Route {
                 let _ = socket.send_to(received, destination).await;
             }
         });
-        Self { url, peer }
+        Self { endpoint, peer }
     }
 
     /// From now on, the route leads to `peer`.
@@ -621,7 +625,7 @@ async fn a_peer_back_from_a_crash_ends_our_old_connection_at_once() {
     let (a, b) = (side(1, &shutdown), side(2, &crashed));
     let route = Route::new(&a, &b, &shutdown).await;
     let mut hello = request(&b, b"hello".to_vec());
-    hello.url.clone_from(&route.url);
+    hello.endpoint = Some(route.endpoint.clone());
     let client = client();
     let response = a.quic.send(&hello, &client).await.unwrap();
     assert_eq!(response.body, b"hello");

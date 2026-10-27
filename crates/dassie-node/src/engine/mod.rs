@@ -80,8 +80,10 @@ enum Command {
         outbound: mpsc::Sender<Outbound>,
         reply: oneshot::Sender<Result<BtpSession, EngineError>>,
     },
-    /// A peer's request; the reply comes once the batch is persisted.
+    /// A peer's request, from the node whose key its connection proved;
+    /// the reply comes once the batch is persisted.
     PeerInbound {
+        from: Box<dassie_identity::PublicKey>,
         body: Vec<u8>,
         source: Option<std::net::IpAddr>,
         reply: oneshot::Sender<dassie_peer::Reply>,
@@ -601,16 +603,19 @@ impl Engine {
         let _ = self.commands.send(Command::BtpClosed { connection }).await;
     }
 
-    /// Hands in a peer's request, and waits for the reply, which comes once
-    /// what the request changed is on disk.
+    /// Hands in a peer's request, from the node whose key `from` its
+    /// connection proved, and waits for the reply, which comes once what the
+    /// request changed is on disk.
     pub async fn peer_inbound(
         &self,
+        from: dassie_identity::PublicKey,
         body: Vec<u8>,
         source: Option<std::net::IpAddr>,
     ) -> Result<dassie_peer::Reply, EngineError> {
         let (reply, result) = oneshot::channel();
         self.commands
             .send(Command::PeerInbound {
+                from: Box::new(from),
                 body,
                 source,
                 reply,
@@ -812,6 +817,7 @@ impl Driver<'_> {
                 }));
             }
             Command::PeerInbound {
+                from,
                 body,
                 source,
                 reply,
@@ -819,7 +825,7 @@ impl Driver<'_> {
                 let inbound = dassie_peer::InboundId(self.next_inbound);
                 self.next_inbound += 1;
                 self.peer_replies.insert(inbound, reply);
-                self.core.peer_inbound(inbound, &body, source);
+                self.core.peer_inbound(inbound, *from, &body, source);
             }
             Command::PeerResponse { id, result } => self.core.peer_response(id, result),
             Command::Probe {

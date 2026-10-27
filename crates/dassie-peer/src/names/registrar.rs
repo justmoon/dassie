@@ -887,28 +887,6 @@ impl Registrar {
         (&self.served, self.served_hash)
     }
 
-    /// Whether `node` has a part here that its later messages must get
-    /// through for: a commitment in the log, an unsealing, or a name held
-    /// (spec/areas/peer-protocol.md#replay-protection).
-    #[must_use]
-    pub fn involves(&self, node: &NodeId) -> bool {
-        self.parties().any(|party| party == *node)
-    }
-
-    /// Every node with a part here, as [`involves`](Self::involves) says,
-    /// some more than once.
-    pub fn parties(&self) -> impl Iterator<Item = NodeId> + '_ {
-        let logged = self.log.values().flat_map(|logged| {
-            core::iter::once(logged.committer).chain(logged.unsealing.map(|u| u.holder))
-        });
-        let held = self
-            .names
-            .values()
-            .filter(|granted| granted.freed_ms.is_none())
-            .map(|granted| granted.holder);
-        logged.chain(held)
-    }
-
     /// What changed since the last call, for the same transaction as the
     /// ledger's.
     pub fn take_changes(&mut self, batch: &mut PeerBatch) {
@@ -1448,7 +1426,6 @@ mod tests {
         );
         let released = again + after + 1;
         assert_eq!(holder(&mut registrar, &alice(), released), None);
-        assert!(!registrar.involves(&node(1)));
         assert_eq!(
             registrar.renew(&node(1), &alice(), released),
             Err(RenewError::NotHeld)

@@ -89,11 +89,12 @@ pub fn mutate(bytes: &[u8], mutations: &[Mutation]) -> Vec<u8> {
     bytes
 }
 
-/// How many kinds of content there are: tags 0 to 20.
+/// How many tags of content there are: 0 to 20, of which 5 is reserved.
 pub const KINDS: usize = 21;
 
 /// A valid encoding of the content with CHOICE tag `tag`, carrying the
-/// link state `info` where it has one.
+/// link state `info` where it has one; for the reserved tag 5, bytes that
+/// would be one if it were not.
 pub fn content(tag: usize, info: &[u8]) -> Vec<u8> {
     let stub = SchemeId::parse("stub").unwrap();
     let info = SignedNodeInfo::decode_exact(info).unwrap();
@@ -102,8 +103,6 @@ pub fn content(tag: usize, info: &[u8]) -> Vec<u8> {
             scheme: stub,
             node_info: info,
             data: &[1, 2, 3],
-            versions: (1..=8).collect(),
-            credit: 1_100_000_000,
         }),
         1 => Content::LinkStateUpdate(info),
         // A Prepare, so that the node reads it as one.
@@ -112,7 +111,7 @@ pub fn content(tag: usize, info: &[u8]) -> Vec<u8> {
             packet: &[12, 0x10, 0, 0, 0, 0, 0, 0, 0, 1],
         },
         3 => Content::LinkStateRequest(
-            core::iter::once(info.info.node_id)
+            core::iter::once(info.node_id)
                 .chain(info.info.neighbors())
                 .collect(),
         ),
@@ -122,10 +121,8 @@ pub fn content(tag: usize, info: &[u8]) -> Vec<u8> {
             data: &[0xab],
             sequence: 1,
         },
-        5 => Content::SettlementMessage {
-            scheme: stub,
-            message: &[1, 2, 3],
-        },
+        // Tag 5 is reserved: no message has it, and every node refuses it.
+        5 => return vec![0x85, 4, b's', b't', b'u', b'b', 3, 1, 2, 3],
         6 => Content::NodeListHashRequest,
         7 => Content::NodeListRequest,
         8 => Content::Registration(info),
@@ -155,7 +152,6 @@ pub fn content(tag: usize, info: &[u8]) -> Vec<u8> {
         19 => Content::MethodAdd {
             scheme: stub,
             data: &[1, 2, 3],
-            versions: (1..=8).collect(),
         },
         20 => Content::MethodDrop { scheme: stub },
         _ => panic!("no content has tag {tag}"),

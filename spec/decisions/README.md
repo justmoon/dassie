@@ -58,6 +58,7 @@ Each file records one choice between real alternatives: the facts that forced it
 | [phrase-format](phrase-format.md) | A phrase says its realm and when it was made, and corrects its own errors | identity, http, node, wallet, overview |
 | [places-by-proved-key](places-by-proved-key.md) | A connection holds a place by the key it proved | peer-protocol, network, designs/periphery |
 | [promotion-to-core](promotion-to-core.md) | A node becomes core by registering and being promoted (not built) | network, peer-protocol, designs/periphery |
+| [protocol-upgrades](protocol-upgrades.md) | A peer-protocol version is an ALPN name, and a release speaks the one before too | peer-protocol, overview, release |
 | [public-domains](public-domains.md) | Payment names live under dassiepay.net, memo types and the mirror under dassie.land | payments, http, xrpl, release, overview |
 | [quic-only](quic-only.md) | The peer protocol and the hubs' messages travel over QUIC only | peer-protocol, node, network, designs/periphery, release |
 | [quic-over-websocket](quic-over-websocket.md) | Where UDP is blocked, a periphery node carries its QUIC packets over a WebSocket, to its uplinks and to a front door as its relay | peer-protocol, http, network, designs/periphery |
@@ -82,7 +83,6 @@ Each file records one choice between real alternatives: the facts that forced it
 | [unreachable-peers](unreachable-peers.md) | A node takes no Prepare from a peer it cannot reach | connector, peer-protocol, settlement |
 | [unusable-limits](unusable-limits.md) | A limit no payment can use is caught before approval | payments, wallet |
 | [verified-ledgers](verified-ledgers.md) | The node books only what ledgers its own UNL validated prove (design, not built) | designs/xrpl-validation, xrpl, designs/settlement-hubs |
-| [versions-0-1-and-0-2](versions-0-1-and-0-2.md) | Nodes of 0.1 and 0.2 do not settle with each other | peer-protocol, settlement, release |
 | [visual-identity](visual-identity.md) | Dassie's visual identity is Kopje: solid rocks, nimble dassies, first light | website |
 | [website-hosting](website-hosting.md) | dassie.land is a bucket behind the mirror's load balancer | website, release |
 | [weighted-next-hops](weighted-next-hops.md) | A packet's next hop is drawn at random among its first hops, weighted by the fees each earned us (per method not built) | connector, network, stream |
@@ -135,7 +135,6 @@ Decisions were once numbered, and commits, pull requests and issues still cite t
 | D34 | [owners-share](owners-share.md) |
 | D35 | [website-hosting](website-hosting.md) |
 | D36 | [promotion-to-core](promotion-to-core.md) |
-| D37 | [versions-0-1-and-0-2](versions-0-1-and-0-2.md) |
 | D38 | [full-or-stopped-short](full-or-stopped-short.md) |
 | D39 | [places-by-proved-key](places-by-proved-key.md) |
 | D40 | [default-relay](default-relay.md) |

@@ -34,6 +34,7 @@ use dassie_node::rpc::proto::{
 };
 use dassie_node::store::MAX_DEVICES;
 use dassie_node_core::connections::ConnectionLimits;
+use dassie_peer::wire::Endpoint;
 use futures_util::{SinkExt, StreamExt};
 use support::op::CA;
 use support::{
@@ -70,6 +71,7 @@ impl Handler for Relay {
     fn answer<'a>(
         &'a self,
         _client: IpAddr,
+        _from: dassie_identity::PublicKey,
         _body: Body<'a>,
     ) -> Pin<Box<dyn Future<Output = Answer> + Send + 'a>> {
         Box::pin(async {
@@ -131,8 +133,8 @@ fn direct(node: &TestNode) -> String {
 }
 
 async fn connect_direct(quic: &Arc<Quic>, node: &TestNode, id: NodeId) -> RpcClient<Channel> {
-    let url = direct(node);
-    let channel = owner_app::connect(quic, id, Route::Direct(&url), &resolver())
+    let endpoint = Endpoint::of_url(&direct(node)).unwrap();
+    let channel = owner_app::connect(quic, id, Route::Direct(&endpoint), &resolver())
         .await
         .unwrap();
     RpcClient::new(channel)
@@ -238,7 +240,8 @@ async fn a_device_pairs_through_the_relay_the_node_keeps() {
     ])
     .await;
     let (quic, _) = device(61, &shutdown);
-    let route = Route::Relay(relay_key.node_id(), &relay_url);
+    let relay_endpoint = Endpoint::of_url(&relay_url).unwrap();
+    let route = Route::Relay(relay_key.node_id(), &relay_endpoint);
     // The node connects to its relay as the IO layer does, in real time (a
     // QUIC handshake, and the backoff between tries), so this waits for it
     // until a hang.

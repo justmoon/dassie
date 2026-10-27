@@ -27,17 +27,13 @@ use alloc::vec;
 use alloc::vec::Vec;
 use core::net::IpAddr;
 
-use crate::auth::{PairKeys, response_mac};
 use crate::names::Name;
-use crate::wire::{
-    Authentication, Envelope, Kind, NameHolding, NameListResponse, RefusalReason, ResponseEnvelope,
-    SchemeId, encode_response,
-};
+use crate::wire::{Kind, NameHolding, NameListResponse, RefusalReason, SchemeId};
 use crate::{
     Agreed, Bootstrap, Config, Declined, Event, Failure, Inbound, InboundId, NameEvent, Output,
     OwnInfo, PeerBatch, PeerNode, PeeringHooks, Request, RequestId, Response, Stored,
 };
-use dassie_identity::{NodeId, NodeKey};
+use dassie_identity::{NodeId, NodeKey, PublicKey};
 use dassie_kit::sim::SeededRng;
 use dassie_oer::Encode;
 use sha2::{Digest, Sha256};
@@ -61,15 +57,15 @@ pub struct StubHooks {
     /// Whether the stub scheme's peerings are over a hub: Prepares on them
     /// come with commitments.
     pub commitments: bool,
-    /// What the node puts after the verdict in its reply to a Fulfill on a
-    /// peering over a hub, as a payer's claim.
+    /// What the node replies to a Fulfill on a peering over a hub with, as
+    /// a payer's claim.
     pub claim: Vec<u8>,
     /// What stays of the closed channels, as the node last wrote it.
     pub closed: BTreeMap<NodeId, crate::Closed>,
     /// Nodes whose channels the books hold open.
     pub holding: BTreeSet<NodeId>,
     /// Whether the node no longer runs the stub scheme, as one disabled or
-    /// of the other realm: it speaks no version of it.
+    /// of the other realm.
     pub unrun: bool,
     /// Whether the stub scheme takes entry payments
     /// (spec/decisions/pay-to-enter.md).
@@ -80,10 +76,9 @@ pub struct StubHooks {
 }
 
 impl StubHooks {
-    /// The reply to a packet: its claim after the verdict, where one
-    /// goes.
+    /// The reply to a packet: its claim, where one goes.
     fn reply(&self, answer: crate::PacketAnswer) -> crate::Reply {
-        let claim: &[u8] = if answer.takes_extra() {
+        let claim: &[u8] = if answer.takes_claim() {
             &self.claim
         } else {
             &[]
@@ -93,12 +88,8 @@ impl StubHooks {
 }
 
 impl PeeringHooks for StubHooks {
-    fn versions(&self, scheme: SchemeId) -> &'static [u16] {
-        if scheme.as_str() == "stub" && !self.unrun {
-            &[1]
-        } else {
-            &[]
-        }
+    fn speaks(&self, scheme: SchemeId) -> bool {
+        scheme.as_str() == "stub" && !self.unrun
     }
 
     fn peering_info(&mut self, scheme: SchemeId, _: &mut Vec<u8>) -> Result<(), Declined> {
@@ -125,9 +116,7 @@ impl PeeringHooks for StubHooks {
         _: NodeId,
         _: bool,
         _: SchemeId,
-        _: u16,
         _: &[u8],
-        _: &mut Vec<u8>,
     ) -> Result<Agreed, RefusalReason> {
         if let Some(reason) = self.refuse {
             return Err(reason);
@@ -143,8 +132,6 @@ impl PeeringHooks for StubHooks {
         _: u64,
         _: NodeId,
         _: SchemeId,
-        _: u16,
-        _: &[u8],
         _: &[u8],
         _: bool,
     ) -> Result<Agreed, Declined> {
@@ -195,6 +182,55 @@ pub fn url(index: usize) -> String {
     format!("https://n{index}.test")
 }
 
+/// Where node `index` takes QUIC: its URL's host and port.
+pub fn endpoint(index: usize) -> crate::wire::Endpoint {
+    crate::wire::Endpoint::of_url(&url(index)).unwrap()
+}
+
+/// A request as it arrives at a node: its body, from the node whose key the
+/// connection it came on proved (spec/areas/peer-protocol.md#authentication).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Arriving {
+    /// The key the connection proved.
+    pub from: PublicKey,
+    /// The body: the content.
+    pub body: Vec<u8>,
+}
+
+impl Arriving {
+    /// `content` from the node of `from`.
+    #[must_use]
+    pub fn new(from: &NodeKey, content: &crate::wire::Content<'_>) -> Self {
+        Self::of(from, content.to_vec())
+    }
+
+    /// `body` as it is, from the node of `from`.
+    #[must_use]
+    pub fn of(from: &NodeKey, body: Vec<u8>) -> Self {
+        Self {
+            from: from.public_key(),
+            body,
+        }
+    }
+}
+
+/// The key of someone who sees requests between nodes and sends them again
+/// as its own: no node of the network, and the only key it can prove
+/// (spec/areas/peer-protocol.md#authentication).
+pub fn forger() -> Arc<NodeKey> {
+    Arc::new(NodeKey::from_bytes(&[0xf0; 32]))
+}
+
+/// Whether a request of `kind` may be taken from anyone, a node it holds
+/// nothing with included: one that only reads, a link state, signed by its
+/// node and relayed by anyone, or a commitment to a name, whose holder is
+/// sealed in it. Any other is taken only from a node it holds something
+/// with, as its own.
+#[must_use]
+pub const fn anyone_may_send(kind: Kind) -> bool {
+    kind.is_read_only() || matches!(kind, Kind::LinkStateUpdate | Kind::NameCommit)
+}
+
 /// Rewrites a response's body.
 pub type Tamper = Box<dyn FnMut(&mut Vec<u8>)>;
 
@@ -203,9 +239,9 @@ pub type Tamper = Box<dyn FnMut(&mut Vec<u8>)>;
 /// answers, the node that asked and the kind of request.
 pub type Forge = Box<dyn FnMut(usize, usize, Kind, &mut Vec<u8>)>;
 
-/// A request sent while tampering or forging: the node it went to, its MAC
-/// and its kind.
-type Sent = (usize, [u8; 32], Kind);
+/// A request sent while tampering or forging: the node it went to and its
+/// kind.
+type Sent = (usize, Kind);
 
 /// What a simulated registrar does, a bootstrap node faulty in one of the
 /// ways the names' design allows for (spec/designs/names.md#6-why-it-holds).
@@ -249,6 +285,11 @@ pub struct Faults {
     pub loss: u64,
     /// Per mille.
     pub duplication: u64,
+    /// Per mille of the requests that arrive that a forger sends again, a
+    /// while later, under its own key ([`forger`]): the transport proves
+    /// the sender's key, so a copy is the forger's own request, and
+    /// nothing it holds nothing with may be taken from it.
+    pub forgery: u64,
 }
 
 impl Faults {
@@ -258,6 +299,7 @@ impl Faults {
         max_latency_ms: 50,
         loss: 0,
         duplication: 0,
+        forgery: 0,
     };
     /// A rough network: long delays, losses and duplicates.
     pub const ROUGH: Self = Self {
@@ -265,6 +307,7 @@ impl Faults {
         max_latency_ms: 400,
         loss: 30,
         duplication: 20,
+        forgery: 20,
     };
 }
 
@@ -275,6 +318,12 @@ enum Delivery {
         from: usize,
         to: usize,
         request: RequestId,
+        kind: Kind,
+        body: Vec<u8>,
+    },
+    /// A copy of a request arriving at `to` from the forger.
+    Forged {
+        to: usize,
         kind: Kind,
         body: Vec<u8>,
     },
@@ -297,7 +346,6 @@ pub struct SimNode {
     /// The channels it persisted.
     pub stored_channels: BTreeMap<NodeId, crate::StoredChannel>,
     stored_bans: BTreeSet<NodeId>,
-    stored_floors: BTreeMap<NodeId, u64>,
     stored_commitments: BTreeMap<crate::names::Commitment, crate::names::Logged>,
     stored_names: BTreeMap<crate::names::Name, crate::names::Granted>,
     stored_holders: BTreeMap<crate::names::Name, crate::names::HeldName>,
@@ -341,7 +389,7 @@ pub struct Network {
     pub faults: Faults,
     /// The bootstrap nodes: the first of the nodes.
     pub bootstrap: Vec<Bootstrap>,
-    by_url: BTreeMap<String, usize>,
+    by_endpoint: BTreeMap<crate::wire::Endpoint, usize>,
     queue: BTreeMap<(u64, u64), Delivery>,
     sequence: u64,
     rng: SeededRng,
@@ -380,24 +428,27 @@ pub struct Network {
     /// that is overloaded (503) or finds the request malformed (400).
     pub refuse_settlement_requests: BTreeMap<usize, u16>,
     /// Rewrites the body of every response with status 200 before it
-    /// arrives, as a node would that answers anything it likes: the MAC is
-    /// made again, so the body gets past it to what reads it.
+    /// arrives, as a node would that answers anything it likes: the
+    /// connection proves only who answered, so the body gets to what reads
+    /// it.
     pub tamper: Option<Tamper>,
     /// Rewrites the body of every response with status 200 after
     /// `tamper`, knowing who answers whom and what: a faulty node, say,
-    /// that shows each node a list of its own. The MAC is made again.
+    /// that shows each node a list of its own.
     pub forge: Option<Forge>,
-    /// While tampering or forging, each request's MAC, the node it went to
-    /// and its kind, by who sent it, in which generation, with which ID;
-    /// while a registrar is faulty, each name list request's.
-    macs: BTreeMap<(usize, u64, RequestId), Sent>,
+    /// While tampering or forging, each request's node and kind, by who
+    /// sent it, in which generation, with which ID; while a registrar is
+    /// faulty, each name list request's.
+    sent: BTreeMap<(usize, u64, RequestId), Sent>,
+    /// Copies of requests the forger sent ([`Faults::forgery`]).
+    pub forgeries: usize,
+    /// What was taken from the forger that only a node holding something
+    /// with the recipient may send: a safety failure.
+    pub forgeries_taken: Vec<String>,
     /// Periphery nodes: without a URL, dialling out over QUIC, reached by
     /// node ID over the connections they opened. Their uplinks are the
-    /// other nodes, which then take QUIC too.
+    /// other nodes.
     pub periphery: BTreeSet<usize>,
-    /// Whether the nodes have a QUIC endpoint: core nodes then take
-    /// downlinks.
-    pub quic: bool,
     /// The uplinks each node is pinned to, kept across restarts
     /// (spec/areas/network.md#pinned-uplinks).
     pub pinned: BTreeMap<usize, Vec<NodeId>>,
@@ -449,7 +500,7 @@ impl Network {
     /// `count` nodes, the first `bootstrap_count` of them bootstrap
     /// nodes, each started with its own clock skew.
     pub fn new(seed: u64, count: usize, bootstrap_count: usize, config: Config) -> Self {
-        Self::build(seed, (count, bootstrap_count, 0), false, config)
+        Self::build(seed, (count, bootstrap_count, 0), config)
     }
 
     /// `count` core nodes, the first `bootstrap_count` of them bootstrap
@@ -463,20 +514,19 @@ impl Network {
         periphery: usize,
         config: Config,
     ) -> Self {
-        Self::build(seed, (count, bootstrap_count, periphery), true, config)
+        Self::build(seed, (count, bootstrap_count, periphery), config)
     }
 
     fn build(
         seed: u64,
         (count, bootstrap_count, periphery): (usize, usize, usize),
-        quic: bool,
         config: Config,
     ) -> Self {
         let mut rng = SeededRng::new(seed);
         let bootstrap: Vec<Bootstrap> = (0..bootstrap_count)
             .map(|index| Bootstrap {
                 id: key(index).node_id(),
-                url: url(index),
+                endpoint: endpoint(index),
                 key: key(index).public_key(),
             })
             .collect();
@@ -486,7 +536,7 @@ impl Network {
             config,
             faults: Faults::NONE,
             bootstrap,
-            by_url: BTreeMap::new(),
+            by_endpoint: BTreeMap::new(),
             queue: BTreeMap::new(),
             sequence: 0,
             rng: SeededRng::new(rng.next_u64()),
@@ -506,9 +556,10 @@ impl Network {
             settlements_refused: 0,
             tamper: None,
             forge: None,
-            macs: BTreeMap::new(),
+            sent: BTreeMap::new(),
+            forgeries: 0,
+            forgeries_taken: Vec::new(),
             periphery: (count..count + periphery).collect(),
-            quic,
             pinned: BTreeMap::new(),
             roles: BTreeMap::new(),
             adversary: None,
@@ -518,7 +569,7 @@ impl Network {
         for index in 0..count + periphery {
             let skew = i64::try_from(rng.next_u64() % 20_001).unwrap() - 10_000;
             if index < count {
-                network.by_url.insert(url(index), index);
+                network.by_endpoint.insert(endpoint(index), index);
             }
             network.nodes.push(SimNode {
                 node: None,
@@ -526,7 +577,6 @@ impl Network {
                 stored_nodes: BTreeMap::new(),
                 stored_channels: BTreeMap::new(),
                 stored_bans: BTreeSet::new(),
-                stored_floors: BTreeMap::new(),
                 stored_commitments: BTreeMap::new(),
                 stored_names: BTreeMap::new(),
                 stored_holders: BTreeMap::new(),
@@ -557,14 +607,6 @@ impl Network {
         sim.stored.nodes = sim.stored_nodes.values().cloned().collect();
         sim.stored.channels = sim.stored_channels.values().cloned().collect();
         sim.stored.bans = sim.stored_bans.iter().copied().collect();
-        sim.stored.floors = sim
-            .stored_floors
-            .iter()
-            .map(|(node, floor_ms)| crate::StoredFloor {
-                node: *node,
-                floor_ms: *floor_ms,
-            })
-            .collect();
         sim.stored.commitments = sim.stored_commitments.values().copied().collect();
         sim.stored.names = sim.stored_names.values().copied().collect();
         sim.stored.holders = sim.stored_holders.values().copied().collect();
@@ -576,7 +618,6 @@ impl Network {
             OwnInfo {
                 url: (!periphery).then(|| url(index)),
                 alias: format!("n{index}"),
-                quic: self.quic,
                 feed_port: None,
                 hub: None,
             },
@@ -685,12 +726,6 @@ impl Network {
         }
         for unbanned in batch.unbanned {
             sim.stored_bans.remove(&unbanned);
-        }
-        for removed in batch.floors_removed {
-            sim.stored_floors.remove(&removed);
-        }
-        for floor in batch.floors {
-            sim.stored_floors.insert(floor.node, floor.floor_ms);
         }
         // Removals first, as the store writes them.
         if let Some(head) = batch.name_log {
@@ -818,14 +853,14 @@ impl Network {
         ));
         let generation = self.nodes[from].generation;
         // A periphery node is reached by its ID, over the connection it
-        // opened; nothing else has an empty URL.
-        let to = if request.url.is_empty() {
-            self.periphery
+        // opened; nothing else is without an endpoint.
+        let to = match &request.endpoint {
+            None => self
+                .periphery
                 .iter()
                 .copied()
-                .find(|index| key(*index).node_id() == request.to)
-        } else {
-            self.by_url.get(&request.url).copied()
+                .find(|index| key(*index).node_id() == request.to),
+            Some(endpoint) => self.by_endpoint.get(endpoint).copied(),
         };
         let Some(to) = to else {
             self.schedule(
@@ -843,12 +878,9 @@ impl Network {
             request.kind,
             Kind::NameListRequest | Kind::NameListHashRequest
         );
-        if (self.tamper.is_some() || self.forge.is_some() || (listing && !self.roles.is_empty()))
-            && let Ok(envelope) = Envelope::decode(&request.body)
-            && let Authentication::Hmac(hmac) = envelope.authentication
-        {
-            self.macs
-                .insert((from, generation, request.id), (to, hmac.mac, request.kind));
+        if self.tamper.is_some() || self.forge.is_some() || (listing && !self.roles.is_empty()) {
+            self.sent
+                .insert((from, generation, request.id), (to, request.kind));
         }
         if self.cut.contains(&(from, to))
             || self.cut.contains(&(to, from))
@@ -885,6 +917,17 @@ impl Network {
                 },
             );
         }
+        if self.chance(self.faults.forgery) {
+            let delay = self.latency() + self.latency();
+            self.schedule(
+                delay,
+                Delivery::Forged {
+                    to,
+                    kind: request.kind,
+                    body: request.body,
+                },
+            );
+        }
     }
 
     fn deliver(&mut self, delivery: Delivery) {
@@ -896,6 +939,7 @@ impl Network {
                 kind,
                 body,
             } => self.arrive(from, to, request, kind, &body),
+            Delivery::Forged { to, kind, body } => self.forged(to, kind, &body),
             Delivery::Result {
                 to,
                 generation,
@@ -916,7 +960,39 @@ impl Network {
         }
     }
 
-    /// `result`, its body rewritten and MACed again if tampering or forging.
+    /// A copy of a request arriving from the forger, under its own key: it
+    /// holds nothing with any node, so only what anyone may send is taken
+    /// from it ([`anyone_may_send`]), and nothing it sends is taken as
+    /// another node's.
+    fn forged(&mut self, to: usize, kind: Kind, body: &[u8]) {
+        let now = self.local_now(to);
+        let sim = &mut self.nodes[to];
+        let Some(node) = sim.node.as_mut() else {
+            return;
+        };
+        self.forgeries += 1;
+        let inbound = InboundId(sim.next_inbound);
+        sim.next_inbound += 1;
+        let from = forger().public_key();
+        let taken = match node.handle_inbound(now, &mut sim.hooks, inbound, from, body, None) {
+            Inbound::Reply(reply) => reply.is_ok() && !anyone_may_send(kind),
+            Inbound::Deferred
+            | Inbound::Packet { .. }
+            | Inbound::Settlement { .. }
+            | Inbound::SettlementRequest { .. } => true,
+        };
+        if taken {
+            self.forgeries_taken
+                .push(format!("{} node {to} took the forger's {kind:?}", self.now));
+        }
+        self.trace.push(format!(
+            "{} forger -> {to} {kind:?} taken {taken}",
+            self.now
+        ));
+        self.drain(to);
+    }
+
+    /// `result`, its body rewritten if tampering or forging.
     fn tampered(
         &mut self,
         to: usize,
@@ -927,17 +1003,13 @@ impl Network {
         let Ok(response) = &result else {
             return result;
         };
-        let Some(&(responder, request_mac, kind)) = self.macs.get(&(to, generation, request))
-        else {
+        let Some(&(responder, kind)) = self.sent.get(&(to, generation, request)) else {
             return result;
         };
-        let Ok(envelope) = ResponseEnvelope::decode(&response.body) else {
-            return result;
-        };
-        if response.status != 200 || envelope.mac.is_none() {
+        if response.status != 200 {
             return result;
         }
-        let mut body = envelope.body.to_vec();
+        let mut body = response.body.clone();
         if let Some(tamper) = self.tamper.as_mut() {
             tamper(&mut body);
         }
@@ -952,12 +1024,7 @@ impl Network {
                 _ => {}
             }
         }
-        let keys = PairKeys::derive(&key(responder), &key(to).public_key()).unwrap();
-        let mac = response_mac(&keys.incoming_response, &request_mac, &body);
-        Ok(Response {
-            status: 200,
-            body: encode_response(Some(&mac), &body),
-        })
+        Ok(Response { status: 200, body })
     }
 
     fn arrive(&mut self, from: usize, to: usize, request: RequestId, kind: Kind, body: &[u8]) {
@@ -980,7 +1047,8 @@ impl Network {
         let inbound = InboundId(sim.next_inbound);
         sim.next_inbound += 1;
         let source = self.sources.get(&from).copied();
-        let reply = match node.handle_inbound(now, &mut sim.hooks, inbound, body, source) {
+        let sender = key(from).public_key();
+        let reply = match node.handle_inbound(now, &mut sim.hooks, inbound, sender, body, source) {
             Inbound::Reply(reply) => Some(reply),
             Inbound::Deferred => {
                 sim.deferred.insert(inbound, (from, generation, request));
@@ -1015,7 +1083,6 @@ impl Network {
                 });
                 Some(reply)
             }
-            Inbound::SchemeMessage { reply, .. } => Some(reply),
             Inbound::SettlementRequest { .. }
                 if self.refuse_settlement_requests.contains_key(&to) =>
             {
@@ -1179,25 +1246,26 @@ impl Network {
         self.nodes[index].node.as_mut().unwrap()
     }
 
-    /// Hands `body` to node `index` as an inbound request, at its clock.
-    pub fn inbound(&mut self, index: usize, body: &[u8]) -> crate::Reply {
-        self.inbound_from(index, body, None)
+    /// Hands `request` to node `index`, at its clock.
+    pub fn inbound(&mut self, index: usize, request: &Arriving) -> crate::Reply {
+        self.inbound_from(index, request, None)
     }
 
     /// The same, as a request from `source`.
     pub fn inbound_from(
         &mut self,
         index: usize,
-        body: &[u8],
+        request: &Arriving,
         source: Option<IpAddr>,
     ) -> crate::Reply {
+        let (from, body) = (request.from, request.body.as_slice());
         let now = self.local_now(index);
         let sim = &mut self.nodes[index];
         let inbound = InboundId(sim.next_inbound);
         sim.next_inbound += 1;
         let node = sim.node.as_mut().unwrap();
-        let reply = match node.handle_inbound(now, &mut sim.hooks, inbound, body, source) {
-            Inbound::Reply(reply) | Inbound::SchemeMessage { reply, .. } => reply,
+        let reply = match node.handle_inbound(now, &mut sim.hooks, inbound, from, body, source) {
+            Inbound::Reply(reply) => reply,
             Inbound::Packet { answer, .. } => sim.hooks.reply(answer),
             Inbound::SettlementRequest { answer, .. } => {
                 answer.reply(self.promise.get(&index).copied().unwrap_or(0))

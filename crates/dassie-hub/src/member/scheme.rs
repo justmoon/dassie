@@ -928,10 +928,6 @@ impl SettlementScheme for HubScheme {
         Some(super::account::FIRST)
     }
 
-    fn supported_versions(&self) -> &'static [u16] {
-        &[1]
-    }
-
     fn balance(&self) -> u64 {
         self.booked
     }
@@ -1022,18 +1018,12 @@ impl SettlementScheme for HubScheme {
         Ok(())
     }
 
-    fn accept_peering_request(
-        &mut self,
-        peer: Name,
-        data: &[u8],
-        response: &mut Vec<u8>,
-    ) -> Result<Vec<u8>, SchemeError> {
+    fn accept_peering_request(&mut self, peer: Name, data: &[u8]) -> Result<Vec<u8>, SchemeError> {
         let membership = Membership::read(data, &self.hub)?;
         if !self.peers.contains_key(&peer) && self.peers.len() >= MAX_PEERS {
             return Err(SchemeError::Unavailable);
         }
         self.may_peer(peer, &membership)?;
-        response.clear();
         Ok(data.to_vec())
     }
 
@@ -1041,7 +1031,6 @@ impl SettlementScheme for HubScheme {
         &mut self,
         peer: Name,
         peering_info: &[u8],
-        _data: &[u8],
     ) -> Result<Vec<u8>, SchemeError> {
         let membership = Membership::read(peering_info, &self.hub)?;
         self.may_peer(peer, &membership)?;
@@ -1232,8 +1221,6 @@ impl SettlementScheme for HubScheme {
             Err(SchemeError::InvalidData)
         }
     }
-
-    fn handle_message(&mut self, _peer: Name, _message: &[u8], _effects: &mut Vec<Effect>) {}
 
     fn deposit(&mut self, _amount: u64, _effects: &mut Vec<Effect>) -> Result<(), SchemeError> {
         Err(SchemeError::Unsupported)

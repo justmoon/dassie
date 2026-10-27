@@ -42,7 +42,7 @@ impl Downlinks {
     /// channel with it as a downlink, and it has none on any ledger.
     pub fn waits(peer: &dassie_peer::PeerNode, ledger: &Ledger, node: &NodeId) -> bool {
         peer.channel(node)
-            .is_some_and(|channel| channel.url.is_empty())
+            .is_some_and(|channel| channel.endpoint.is_none())
             && Name::new(node.as_str()).is_ok_and(|name| {
                 LedgerId::ALL.into_iter().all(|on| {
                     ledger
@@ -274,7 +274,7 @@ impl Core {
         if !self
             .peer
             .channel(&node)
-            .is_some_and(|channel| channel.url.is_empty())
+            .is_some_and(|channel| channel.endpoint.is_none())
         {
             return false;
         }
@@ -320,7 +320,7 @@ impl Core {
     pub(super) fn downlink_may_open(&self, node: &NodeId) -> bool {
         self.peer
             .channel(node)
-            .is_some_and(|channel| channel.url.is_empty())
+            .is_some_and(|channel| channel.endpoint.is_none())
             && self.downlinks.fit(self.ledger.config().max_accounts, node)
     }
 

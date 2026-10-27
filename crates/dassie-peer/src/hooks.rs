@@ -37,11 +37,10 @@ pub enum EntryPayment {
 
 /// What peering needs from the node.
 pub trait PeeringHooks {
-    /// The versions of `scheme` the node speaks, or none if it is not
-    /// active. A scheme that speaks none is one the node does not run: its
-    /// peerings are ended (spec/areas/settlement.md#schemes-and-ledgers), so
-    /// an active scheme speaks at least one.
-    fn versions(&self, scheme: SchemeId) -> &'static [u16];
+    /// Whether the node runs `scheme`: it is active. The peerings on a
+    /// scheme it does not run are ended
+    /// (spec/areas/settlement.md#schemes-and-ledgers).
+    fn speaks(&self, scheme: SchemeId) -> bool;
 
     /// The scheme's peering info, for a node about to ask.
     ///
@@ -63,45 +62,38 @@ pub trait PeeringHooks {
         out: &mut Vec<u8>,
     ) -> Result<(), Declined>;
 
-    /// Accepts a request from `peer`: opens its accounts, and writes the
-    /// scheme's response into `response`. `downlink` says it peers as our
-    /// downlink, whose accounts take the downlinks' room, never the core
-    /// peers' (spec/decisions/account-budgets.md). Called
+    /// Accepts a request from `peer`: opens its accounts. `downlink` says
+    /// it peers as our downlink, whose accounts take the downlinks' room,
+    /// never the core peers' (spec/decisions/account-budgets.md). Called
     /// again for a peer already peered (spec/decisions/peering-lifecycle.md),
     /// which must change nothing.
     ///
     /// # Errors
     ///
     /// Why not.
-    #[allow(clippy::too_many_arguments)]
     fn accept(
         &mut self,
         now_ms: u64,
         peer: NodeId,
         downlink: bool,
         scheme: SchemeId,
-        version: u16,
         data: &[u8],
-        response: &mut Vec<u8>,
     ) -> Result<Agreed, RefusalReason>;
 
-    /// Completes our request to `peer`, which accepted with `version`:
-    /// opens its accounts. `ended_for_room` says we once ended a peering
+    /// Completes our request to `peer`, which accepted: opens its
+    /// accounts. `ended_for_room` says we once ended a peering
     /// with it for want of room, so it earns no more credit for asking
     /// (spec/areas/settlement.md#credit).
     ///
     /// # Errors
     ///
     /// The scheme does not agree after all.
-    #[allow(clippy::too_many_arguments)]
     fn finalize(
         &mut self,
         now_ms: u64,
         peer: NodeId,
         scheme: SchemeId,
-        version: u16,
         info: &[u8],
-        data: &[u8],
         ended_for_room: bool,
     ) -> Result<Agreed, Declined>;
 

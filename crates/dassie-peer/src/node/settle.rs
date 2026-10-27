@@ -8,8 +8,8 @@ use alloc::vec::Vec;
 
 use dassie_identity::NodeId;
 
+use super::inbound::Accepted;
 use super::{PeerNode, Problem, Purpose, SendError};
-use crate::auth::Accepted;
 use crate::channel::{Channel, Closed, Outgoing, Retry};
 use crate::hooks::PeeringHooks;
 use crate::io::{Event, Inbound, Reply};
@@ -87,7 +87,7 @@ impl PeerNode {
     pub(crate) fn free_downlinks(&self) -> usize {
         self.channels
             .values()
-            .filter(|channel| channel.url.is_empty() && !channel.paid_us)
+            .filter(|channel| channel.endpoint.is_none() && !channel.paid_us)
             .count()
     }
 
@@ -140,37 +140,36 @@ impl PeerNode {
     /// Opens the channel with `node` from `closed`, what stays of it if it
     /// was closed, or brings its contact up to date.
     pub(crate) fn open_channel_from(&mut self, node: NodeId, closed: Option<Closed>) -> bool {
-        let Some((key, url)) = self.contact(&node) else {
+        let Some((key, endpoint)) = self.contact(&node) else {
             return self.channels.contains_key(&node);
         };
         if let Some(channel) = self.channels.get_mut(&node) {
-            if channel.key != key || channel.url != url {
+            if channel.key != key || channel.endpoint != endpoint {
                 // A node that went from core to periphery, or back, counts
                 // with its new kind.
-                match (channel.url.is_empty(), url.is_empty()) {
+                match (channel.endpoint.is_none(), endpoint.is_none()) {
                     (false, true) => self.downlink_channels += 1,
                     (true, false) => self.downlink_channels -= 1,
                     _ => {}
                 }
                 channel.key = key;
-                channel.url = url;
+                channel.endpoint = endpoint;
                 self.channels_dirty.insert(node);
             }
             return true;
         }
-        if !self.channel_room_for(&node, url.is_empty()) {
+        if !self.channel_room_for(&node, endpoint.is_none()) {
             return false;
         }
-        if url.is_empty() {
+        if endpoint.is_none() {
             self.downlink_channels += 1;
         }
         // Written open, the channel replaces what stayed of it.
         self.closed.remove(&node);
-        let channel = Channel::reopen(key, url, closed.unwrap_or(Closed::NEW));
+        let channel = Channel::reopen(key, endpoint, closed.unwrap_or(Closed::NEW));
         self.channels.insert(node, channel);
         self.channels_dirty.insert(node);
         self.channel_active.insert(node, self.now_ms);
-        self.auth.pin(node);
         true
     }
 
@@ -238,17 +237,12 @@ impl PeerNode {
         let Some(channel) = self.channels.remove(&node) else {
             return;
         };
-        if channel.url.is_empty() {
+        if channel.endpoint.is_none() {
             self.downlink_channels -= 1;
         }
         self.closed.insert(node, channel.closed());
         self.channels_dirty.remove(&node);
         self.channel_active.remove(&node);
-        // Its replay state goes once nothing else keeps it: a late
-        // settlement is told from a copy by its sequence, which stays.
-        if !self.keeps_replay_state(&node) {
-            self.auth.unpin(self.now_ms, &node);
-        }
         self.stats.channels_closed += 1;
         self.event(Event::ChannelClosed { peer: node });
     }
@@ -319,9 +313,9 @@ impl PeerNode {
             self.retries.remove(&node);
             return;
         };
-        let (key, url) = self
+        let endpoint = self
             .contact(&node)
-            .unwrap_or_else(|| (channel.key, channel.url.clone()));
+            .map_or_else(|| channel.endpoint.clone(), |(_, endpoint)| endpoint);
         let content = Content::Settlement {
             scheme: outbox.scheme,
             amount: outbox.amount,
@@ -331,7 +325,7 @@ impl PeerNode {
         let purpose = Purpose::Settlement(outbox.sequence);
         let timeout = self.config.request_timeout_ms;
         if self
-            .send_via(node, key, url, &content, purpose, timeout)
+            .send_via(node, endpoint, &content, purpose, timeout)
             .is_some()
         {
             if let Some(retry) = self.retries.get_mut(&node) {
@@ -439,12 +433,10 @@ impl PeerNode {
     /// [`settlement_reachable`](Self::settlement_reachable)) only after a
     /// try in its backoff that got no answer, and not after one that went
     /// early itself, so that a node that never answers it gets it at most
-    /// twice as often as the backoff alone would send it. A 401 leaves that
-    /// as it was: a node that just started refuses messages dated before
-    /// its start, and the copy that goes early is dated anew. Any other
-    /// answer refuses it for good reason (it is malformed, has no channel,
-    /// or the node is busy), and the node answering something else changes
-    /// none of that.
+    /// twice as often as the backoff alone would send it. An answer refuses
+    /// it for good reason (it is malformed, has no channel, or the node is
+    /// busy), and the node answering something else changes none of
+    /// that.
     fn settlement_failed(&mut self, node: NodeId, problem: Option<Problem>) {
         let (min, max) = (
             self.config.settlement_retry_min_ms,
@@ -464,7 +456,6 @@ impl PeerNode {
         let last = self.retries.get(&node).copied().unwrap_or_default();
         let early = match problem {
             None | Some(Problem::Failed(_)) => !last.went_early,
-            Some(Problem::Status(401)) => last.early,
             Some(Problem::Status(_) | Problem::Invalid) => false,
         };
         self.retries.insert(
@@ -501,7 +492,7 @@ impl PeerNode {
         };
         if sequence <= settled_in {
             self.stats.settlements_duplicate += 1;
-            return Inbound::Reply(super::inbound::ok(accepted, &[]));
+            return Inbound::Reply(super::inbound::ok(&[]));
         }
         // The sender sends one at a time, in order: anything but the next
         // is a bug, or an attempt to push the sequence out of range.
@@ -519,7 +510,7 @@ impl PeerNode {
             amount,
             data,
             sequence,
-            reply: super::inbound::ok(accepted, &[]),
+            reply: super::inbound::ok(&[]),
         }
     }
 
@@ -573,29 +564,5 @@ impl PeerNode {
             .ok_or(SendError::Busy)?;
         self.stats.settlements_requested += 1;
         Ok(())
-    }
-
-    /// Sends a scheme's message to a peer, once: schemes do not depend on
-    /// them arriving.
-    ///
-    /// # Errors
-    ///
-    /// The node is not a peer, or too much is in flight.
-    pub fn send_scheme_message(
-        &mut self,
-        now_ms: u64,
-        peer: &NodeId,
-        scheme: SchemeId,
-        message: &[u8],
-    ) -> Result<(), SendError> {
-        self.advance(now_ms);
-        if self.peering_of(peer).is_none() {
-            return Err(SendError::NotPeered);
-        }
-        let content = Content::SettlementMessage { scheme, message };
-        let timeout = self.config.request_timeout_ms;
-        self.send(*peer, &content, Purpose::Gossip, timeout)
-            .map(|_| ())
-            .ok_or(SendError::Busy)
     }
 }

@@ -2,7 +2,7 @@
 //!
 //! One UDP socket, on the HTTPS listener's port number, both takes and makes
 //! connections. Every bidirectional stream starts with a byte that says
-//! what it carries ([`StreamKind`]). A peer request is the envelope one
+//! what it carries ([`StreamKind`]). A peer request is its content one
 //! way, then a two-byte status and the body back
 //! (spec/areas/peer-protocol.md#statuses). The other kinds carry relayed
 //! streams ([`relay`]) and settlement hubs' messages (`hub.rs`,
@@ -50,7 +50,7 @@ use dassie_identity::{NodeId, NodeKey, NodeSecret, PublicKey, QuicEndpoint};
 use dassie_kit::ClientKey;
 use dassie_node_core::address::is_public;
 use dassie_node_core::connections::ConnectionLimits;
-use dassie_peer::wire::{MAX_MESSAGE_BYTES, MAX_NAME_LIST_BYTES};
+use dassie_peer::wire::{Endpoint as PeerEndpoint, MAX_MESSAGE_BYTES, MAX_NAME_LIST_BYTES};
 use dassie_peer::{Failure, Request, Response};
 use quinn::crypto::rustls::{QuicClientConfig, QuicServerConfig};
 use quinn::{Connection, Endpoint, EndpointConfig, ReadToEndError, TransportConfig, VarInt};
@@ -70,8 +70,18 @@ use crate::peer_server::{Answer, BodyError};
 use crate::slots::ClientSlot;
 use crate::tls;
 
-/// The protocol a connection speaks, by ALPN.
-pub const ALPN: &[u8] = b"dassie/1";
+/// The versions of the peer protocol this node speaks, by ALPN, newest
+/// first (spec/decisions/protocol-upgrades.md). Each names the layouts of
+/// the messages. A server speaks the first of these its client offers, so
+/// two nodes speak the newest they share, and nodes that share none fail
+/// the handshake, before a message is read. A change to the layouts puts
+/// its version first and keeps the one before for a release cycle.
+pub const VERSIONS: [&[u8]; 1] = [b"dassie/2"];
+
+/// The ALPN list of `versions`.
+fn alpn(versions: &[&[u8]]) -> Vec<Vec<u8>> {
+    versions.iter().map(|version| version.to_vec()).collect()
+}
 
 /// Most time to set up a connection, within a request's own time.
 pub const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
@@ -212,10 +222,13 @@ pub trait Handler: Send + Sync + 'static {
         None
     }
 
-    /// Answers a request from `client` whose body `body` reads.
+    /// Answers a request from `client`, by the node whose key `from` its
+    /// connection proved, whose body `body` reads: the request is that
+    /// node's, and no other's (spec/areas/peer-protocol.md#authentication).
     fn answer<'a>(
         &'a self,
         client: IpAddr,
+        from: PublicKey,
         body: Body<'a>,
     ) -> Pin<Box<dyn Future<Output = Answer> + Send + 'a>>;
 
@@ -331,9 +344,9 @@ pub async fn send_peer(
         return Err(Failure::NotDelivered);
     };
     let _slot = quic.bounds.hold(&request, quic.allow_private)?;
-    // A periphery node has no URL: it is reached only over the connection
-    // it opened to us, never dialled.
-    if request.url.is_empty() {
+    // A periphery node has no endpoint: it is reached only over the
+    // connection it opened to us, never dialled.
+    if request.endpoint.is_none() {
         let timeout = Duration::from_millis(request.timeout_ms.max(1));
         return match tokio::time::timeout(timeout, quic.send_held(&request)).await {
             Ok(result) => result,
@@ -755,7 +768,8 @@ impl Quic {
         if self.keys.current().is_none() {
             return Err(Failure::NotDelivered);
         }
-        let Some(place) = self.place(request.to) else {
+        let (Some(place), Some(endpoint)) = (self.place(request.to), request.endpoint.as_ref())
+        else {
             return Err(Failure::NotDelivered);
         };
         let dial = !self.backing_off(&request.to);
@@ -766,7 +780,7 @@ impl Quic {
             let connection = self
                 .connection(
                     &place,
-                    (request.to, &request.url),
+                    (request.to, endpoint),
                     resolver,
                     CONNECT_TIMEOUT.min(left),
                     dial,
@@ -827,7 +841,7 @@ impl Quic {
     async fn connection(
         self: &Arc<Self>,
         place: &tokio::sync::Mutex<Option<Link>>,
-        (to, url): (NodeId, &str),
+        (to, endpoint): (NodeId, &PeerEndpoint),
         resolver: &Resolver,
         within: Duration,
         dial: bool,
@@ -855,7 +869,7 @@ impl Quic {
         } else {
             MIN_TO_JUDGE
         };
-        let Some(connection) = self.dial((to, url), resolver, left, periphery).await else {
+        let Some(connection) = self.dial((to, endpoint), resolver, left, periphery).await else {
             return Err(if left >= to_judge {
                 NoConnection::DialFailed
             } else {
@@ -893,7 +907,7 @@ impl Quic {
         Some(place)
     }
 
-    /// Makes a connection to the node `to` at its URL's host and port,
+    /// Makes a connection to the node `to` at `endpoint`,
     /// within `within`, checking that the server holds that node's key. The
     /// name's addresses are tried in turn, each with a share of the time, so
     /// one that drops UDP does not take it all. With `keep_alive`, our side
@@ -903,13 +917,13 @@ impl Quic {
     /// (spec/decisions/quic-over-websocket.md).
     async fn dial(
         &self,
-        (to, url): (NodeId, &str),
+        (to, endpoint): (NodeId, &PeerEndpoint),
         resolver: &Resolver,
         within: Duration,
         keep_alive: bool,
     ) -> Option<Connection> {
         let deadline = tokio::time::Instant::now() + within;
-        let (host, port) = authority(url)?;
+        let (host, port) = (endpoint.host(), endpoint.port());
         if let Ok(ip) = host.parse::<IpAddr>()
             && !self.allow_private
             && !is_public(ip)
@@ -1207,6 +1221,10 @@ impl Quic {
         shutdown: &CancellationToken,
     ) {
         let streams = TaskTracker::new();
+        // The key the handshake proved, read once: it is the connection's
+        // for its whole life, and reading it takes parsing the certificate
+        // and decompressing the key.
+        let proved = keys::peer_key(connection);
         loop {
             let stream = tokio::select! {
                 stream = connection.accept_bi() => stream,
@@ -1218,6 +1236,7 @@ impl Quic {
             let on = On {
                 quic: Arc::clone(self),
                 connection: connection.clone(),
+                proved,
                 client,
                 handler: Arc::clone(handler),
                 shutdown: shutdown.clone(),
@@ -1233,6 +1252,9 @@ impl Quic {
 struct On {
     quic: Arc<Quic>,
     connection: Connection,
+    /// The node key the connection's handshake proved: every client proves
+    /// one, so `None` only for a connection that never gets this far.
+    proved: Option<PublicKey>,
     client: IpAddr,
     handler: Arc<dyn Handler>,
     shutdown: CancellationToken,
@@ -1263,8 +1285,16 @@ impl On {
         }
     }
 
-    /// Answers a peer request: its envelope, then the stream's end.
+    /// Answers a peer request: its content, then the stream's end. It is
+    /// the request of the node whose key the connection proved; a client
+    /// proves one in every handshake, so a connection without one never
+    /// gets this far, and its stream is reset.
     async fn answer(self, mut send: quinn::SendStream, mut recv: quinn::RecvStream) {
+        let Some(from) = self.proved else {
+            let _ = send.reset(0u32.into());
+            let _ = recv.stop(0u32.into());
+            return;
+        };
         let body: Body<'_> = Box::pin(async move {
             read_in_order(&mut recv, MAX_MESSAGE_BYTES)
                 .await
@@ -1273,7 +1303,7 @@ impl On {
                     ReadToEndError::Read(_) => BodyError::Broken,
                 })
         });
-        let answer = self.handler.answer(self.client, body).await;
+        let answer = self.handler.answer(self.client, from, body).await;
         let mut bytes = Vec::with_capacity(STATUS_BYTES + answer.body.len());
         bytes.extend_from_slice(&answer.status.to_be_bytes());
         bytes.extend_from_slice(&answer.body);
@@ -1350,24 +1380,6 @@ async fn exchange(connection: &Connection, body: &[u8]) -> Result<Response, Fail
     })
 }
 
-/// The host and port of a node URL, `https://host[:port]`; 443 when it
-/// names none. An IPv6 literal comes without its brackets.
-#[must_use]
-pub fn authority(url: &str) -> Option<(&str, u16)> {
-    let authority = url.strip_prefix("https://")?;
-    if let Some(rest) = authority.strip_prefix('[') {
-        let (host, after) = rest.split_once(']')?;
-        return match after {
-            "" => Some((host, 443)),
-            port => Some((host, port.strip_prefix(':')?.parse().ok()?)),
-        };
-    }
-    match authority.rsplit_once(':') {
-        Some((host, port)) => Some((host, port.parse().ok()?)),
-        None => Some((authority, 443)),
-    }
-}
-
 /// The endpoint's configuration. Its keys for stateless resets and for
 /// connection IDs derive from the node key, so they survive a restart: a
 /// node that crashed, and so closed nothing, still knows the IDs of the
@@ -1415,7 +1427,7 @@ fn server_config(keys: &Arc<Keys>, idle: Duration) -> Result<quinn::ServerConfig
         .map_err(|e| e.to_string())?
         .with_client_cert_verifier(Arc::new(AnyNodeKey::new()))
         .with_cert_resolver(Arc::new(Present(Arc::clone(keys))));
-    config.alpn_protocols = vec![ALPN.to_vec()];
+    config.alpn_protocols = alpn(&VERSIONS);
     let crypto = QuicServerConfig::try_from(config).map_err(|e| e.to_string())?;
     let mut config = quinn::ServerConfig::with_crypto(Arc::new(crypto));
     config.transport_config(Arc::new(transport_config(idle)));
@@ -1449,13 +1461,23 @@ fn client_config(
     expected: NodeId,
     transport: TransportConfig,
 ) -> Result<quinn::ClientConfig, String> {
+    client_offering(keys, expected, transport, &VERSIONS)
+}
+
+/// [`client_config`], offering `versions`.
+fn client_offering(
+    keys: &Arc<Keys>,
+    expected: NodeId,
+    transport: TransportConfig,
+    versions: &[&[u8]],
+) -> Result<quinn::ClientConfig, String> {
     let mut config = rustls::ClientConfig::builder_with_provider(tls::provider())
         .with_protocol_versions(&[&rustls::version::TLS13])
         .map_err(|e| e.to_string())?
         .dangerous()
         .with_custom_certificate_verifier(Arc::new(PinnedServer::new(expected)))
         .with_client_cert_resolver(Arc::new(Present(Arc::clone(keys))));
-    config.alpn_protocols = vec![ALPN.to_vec()];
+    config.alpn_protocols = alpn(versions);
     let crypto = QuicClientConfig::try_from(config).map_err(|e| e.to_string())?;
     let mut config = quinn::ClientConfig::new(Arc::new(crypto));
     config.transport_config(Arc::new(transport));
@@ -1465,27 +1487,6 @@ fn client_config(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn authorities_parse_as_node_urls_name_them() {
-        assert_eq!(authority("https://a.example"), Some(("a.example", 443)));
-        assert_eq!(
-            authority("https://a.example:8443"),
-            Some(("a.example", 8443))
-        );
-        assert_eq!(authority("https://192.0.2.1:7"), Some(("192.0.2.1", 7)));
-        assert_eq!(
-            authority("https://[2001:db8::1]"),
-            Some(("2001:db8::1", 443))
-        );
-        assert_eq!(
-            authority("https://[2001:db8::1]:8443"),
-            Some(("2001:db8::1", 8443))
-        );
-        assert_eq!(authority("http://a.example"), None);
-        assert_eq!(authority("https://a.example:x"), None);
-        assert_eq!(authority("https://[2001:db8::1]x"), None);
-    }
 
     /// The generator of connection IDs `endpoint` of the node with `key`
     /// has.
@@ -1533,6 +1534,7 @@ mod tests {
         fn answer<'a>(
             &'a self,
             _client: IpAddr,
+            _from: dassie_identity::PublicKey,
             body: Body<'a>,
         ) -> Pin<Box<dyn Future<Output = Answer> + Send + 'a>> {
             Box::pin(async move {
@@ -1644,6 +1646,51 @@ mod tests {
         let (status, answered) = answer.split_at(STATUS_BYTES);
         assert_eq!(status, 200_u16.to_be_bytes());
         assert_eq!(answered, body);
+        shutdown.cancel();
+    }
+
+    /// The version a client offering `versions` speaks with `server`, or
+    /// `None` if it fails the handshake.
+    async fn speaks(server: &Quic, server_id: NodeId, versions: &[&[u8]]) -> Option<Vec<u8>> {
+        let (_client_key, receiver) = watch::channel(Some(Arc::new(NodeKey::from_bytes(&[2; 32]))));
+        let keys = Arc::new(Keys::new(receiver));
+        let config =
+            client_offering(&keys, server_id, transport_config(IDLE_TIMEOUT), versions).unwrap();
+        let socket = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+        let runtime = quinn::default_runtime().unwrap();
+        let client = Endpoint::new(EndpointConfig::default(), None, socket, runtime).unwrap();
+        let connecting = client
+            .connect_with(config, server.local_addr().unwrap(), "dassie")
+            .unwrap();
+        let connection = tokio::time::timeout(Duration::from_secs(5), connecting)
+            .await
+            .expect("no handshake")
+            .ok()?;
+        let data = connection.handshake_data()?;
+        let data = data
+            .downcast::<quinn::crypto::rustls::HandshakeData>()
+            .ok()?;
+        data.protocol
+    }
+
+    // Two nodes speak the newest version they share, and a node that shares
+    // none, as one of a release before version 2, fails the handshake
+    // (spec/decisions/protocol-upgrades.md).
+    #[tokio::test]
+    async fn nodes_speak_the_newest_version_they_share() {
+        let shutdown = CancellationToken::new();
+        let (server, server_id, _server_key) = endpoint_of(1);
+        tokio::spawn(Arc::clone(&server).serve(Arc::new(Echo), shutdown.clone()));
+        let newest = VERSIONS[0];
+        assert_eq!(
+            speaks(&server, server_id, &[b"dassie/99", newest]).await,
+            Some(newest.to_vec())
+        );
+        assert_eq!(
+            speaks(&server, server_id, &VERSIONS).await,
+            Some(newest.to_vec())
+        );
+        assert_eq!(speaks(&server, server_id, &[b"dassie/1"]).await, None);
         shutdown.cancel();
     }
 

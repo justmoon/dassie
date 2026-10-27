@@ -73,6 +73,7 @@ impl Handler for HubHandler {
     fn answer<'a>(
         &'a self,
         _client: IpAddr,
+        _from: dassie_identity::PublicKey,
         _body: Body<'a>,
     ) -> Pin<Box<dyn Future<Output = Answer> + Send + 'a>> {
         Box::pin(async {

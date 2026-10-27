@@ -833,11 +833,12 @@ fn a_final_settlement_due_is_dropped_over_the_upgrade() {
     );
 }
 
-// Migration 25: a peer's replay floor moves out of its peering into the
-// table of floors, which every sender kept for good has
-// (spec/areas/peer-protocol.md#replay-protection).
+// Migrations 25 and 49: a peer's replay floor moved out of its peering into
+// a table of floors, which goes once a request is its connection's proved
+// sender's (spec/areas/peer-protocol.md#authentication). The peering
+// stays.
 #[test]
-fn a_peers_replay_floor_survives_the_upgrade() {
+fn replay_floors_go_with_the_upgrade() {
     let temp = tempfile::tempdir().unwrap();
     database_at(temp.path(), 24);
     let key = dassie_identity::NodeKey::from_bytes(&[3; 32]);
@@ -858,13 +859,18 @@ fn a_peers_replay_floor_survives_the_upgrade() {
         .unwrap();
     drop(connection);
     let store = Store::open(temp.path()).unwrap();
-    assert_eq!(
-        store.load_peer().unwrap().floors,
-        vec![dassie_peer::StoredFloor {
-            node: key.node_id(),
-            floor_ms: 1_800_000_000_123,
-        }]
-    );
+    let stored = store.load_peer().unwrap();
+    assert!(stored.nodes[0].peering.is_some());
+    drop(store);
+    let connection = Connection::open(temp.path().join(DATABASE_FILE)).unwrap();
+    let floors: i64 = connection
+        .query_row(
+            "SELECT count(*) FROM sqlite_schema WHERE name = 'replay_floors'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(floors, 0);
 }
 
 // spec/areas/rpc.md#paired-devices: a database from before devices gains

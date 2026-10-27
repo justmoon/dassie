@@ -11,6 +11,7 @@ use dassie_kit::sim::SeededRng;
 use dassie_ledger::Name;
 use dassie_settlement::{
     EntryPayment, ExternalAsset, LedgerInput, LedgerStatus, ReconcileCause, SchemeError,
+    SettlementScheme,
 };
 use dassie_xrpl::account::{Doubt, HISTORY_BOUND, STALL_MS};
 use dassie_xrpl::entry::ENTRY_HOLD_LEDGERS;
@@ -246,7 +247,6 @@ impl World {
                     books.pending.remove(&settlement).unwrap();
                     books.cancelled.push(settlement);
                 }
-                Effect::SendMessage { .. } => {}
                 Effect::LedgerSend { message } => self.request(index, &message),
                 Effect::Reconnect => {
                     node.reconnects += 1;
@@ -368,14 +368,13 @@ impl World {
             .scheme
             .create_peering_request(name_b, &info, &mut request)
             .unwrap();
-        let mut response = Vec::new();
         let state_at_b = self.nodes[b]
             .scheme
-            .accept_peering_request(name_a, &request, &mut response)
+            .accept_peering_request(name_a, &request)
             .unwrap();
         let state_at_a = self.nodes[a]
             .scheme
-            .finalize_peering_request(name_b, &info, &response)
+            .finalize_peering_request(name_b, &info)
             .unwrap();
         self.nodes[b].scheme.on_peered(name_a, &state_at_b);
         self.nodes[a].scheme.on_peered(name_b, &state_at_a);
@@ -532,14 +531,12 @@ fn peering_attempts_never_displace_a_peers_address() {
     world.nodes[1].scheme.peering_info(&mut info);
     for i in 0..dassie_xrpl::scheme::MAX_PEERS {
         let stranger = name(&format!("stranger{i}"));
-        let (mut request, mut response) = (Vec::new(), Vec::new());
+        let mut request = Vec::new();
         let scheme = &mut world.nodes[0].scheme;
         scheme
             .create_peering_request(stranger, &info, &mut request)
             .unwrap();
-        scheme
-            .accept_peering_request(stranger, &info, &mut response)
-            .unwrap();
+        scheme.accept_peering_request(stranger, &info).unwrap();
         scheme.check_invariants();
     }
     world.settle(1, 0, 3_000_000_000, &state_b);
@@ -799,11 +796,7 @@ fn an_entry_payment_expired_short_is_matched_through_suspense() {
 fn a_failed_settlement_is_cancelled_and_costs_its_fee() {
     let (mut world, _, _) = funded_pair();
     let nobody = dassie_xrpl::Wallet::from_seed([77; 16]).account();
-    let mut state = Vec::new();
-    let address = nobody.to_address();
-    state.push(u8::try_from(address.len()).unwrap());
-    state.extend_from_slice(address.as_bytes());
-    let id = world.settle(0, 1, 1_000, &state);
+    let id = world.settle(0, 1, 1_000, &nobody.0);
     world.close();
     let books = &world.nodes[0].books;
     assert_eq!(books.cancelled, [id]);
@@ -1192,25 +1185,53 @@ fn a_server_behind_is_never_booked_from() {
     }
 }
 
-// The settlement message carries the transaction's hash, and books
-// nothing: the ledger does.
+// spec/areas/xrpl.md#settlement-messages: the settlement message is a bare
+// notice, with no amount and no data, and books nothing: the ledger does.
+// Whatever one says, it is taken and books nothing.
 #[test]
-fn the_settlement_claim_books_nothing() {
-    let (mut world, _, _) = funded_pair();
+fn the_settlement_message_is_a_bare_notice() {
+    let (mut world, state_a, _) = funded_pair();
     let mut effects = Vec::new();
     let peer = world.nodes[1].name;
-    world.nodes[0]
-        .scheme
-        .handle_settlement(peer, 10, &[1; 32], &[], &mut effects)
-        .unwrap();
+    let scheme = &mut world.nodes[0].scheme;
+    assert!(!scheme.scheme.books_messages());
+    for (amount, data) in [(0, &[][..]), (10, &[1; 32][..]), (u64::MAX, &[1; 31][..])] {
+        scheme
+            .handle_settlement(peer, amount, data, &[], &mut effects)
+            .unwrap();
+    }
     assert!(effects.is_empty());
-    assert!(
-        world.nodes[0]
-            .scheme
-            .handle_settlement(peer, 10, &[1; 31], &[], &mut effects)
-            .is_err()
-    );
+    let mut rng = SeededRng::new(1);
+    let prepared = scheme
+        .prepare_settlement(&mut rng, peer, 1_000_000_000, &state_a)
+        .unwrap();
+    assert!(prepared.message.is_empty());
+    assert!(scheme.scheme.settlement_message(prepared.id).is_empty());
     let _ = MEMO_TYPE;
+}
+
+// spec/areas/xrpl.md#the-payment-it-signs: a peer's address travels as its
+// 20-byte account ID, and nothing else is one.
+#[test]
+fn a_peers_address_is_its_account_id() {
+    let (mut world, state_a, _) = funded_pair();
+    let ours = world.nodes[1].scheme.deposit_address().unwrap();
+    assert_eq!(state_a.len(), 20);
+    assert_eq!(
+        dassie_xrpl::AccountId(state_a.clone().try_into().unwrap()).to_address(),
+        ours
+    );
+    let peer = world.nodes[1].name;
+    let mut out = Vec::new();
+    let text = ours.as_bytes();
+    for info in [text, &state_a[..19], &[0; 21][..]] {
+        assert!(
+            world.nodes[0]
+                .scheme
+                .create_peering_request(peer, info, &mut out)
+                .is_err()
+        );
+    }
 }
 
 // Settlements wait while the scheme cannot settle: before it syncs, under

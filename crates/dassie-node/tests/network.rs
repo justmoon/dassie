@@ -59,7 +59,7 @@ fn simulated_networks_settle_on_the_xrp_ledger() {
 // which it gets to tell. The nodes catch what the verifier catches.
 #[test]
 fn simulated_networks_settle_through_lying_servers() {
-    let seeds = [0, 1];
+    let seeds = [0, 3];
     let mut reached: BTreeMap<&str, u64> = BTreeMap::new();
     for (seed, run) in seeds
         .iter()
@@ -262,8 +262,17 @@ fn a_late_fulfill_counts_downstream_only() {
     check(&sim).unwrap();
 }
 
+/// How long ending a peering may take (spec/decisions/ending-a-peering.md):
+/// waiting for our own settlements, then for what the peer has on its way,
+/// each at most the wait, then telling it, then the packets in flight.
+const ENDED_WITHIN_MS: u64 = 2 * Policies::DEFAULT.peer.depeer_wait_ms
+    + Policies::DEFAULT.peer.termination_timeout_ms
+    + Policies::DEFAULT.connector.max_hold_ms;
+
 // spec/decisions/own-fulfills.md: a peering being ended waits only for the
-// packets in flight, not for Fulfills that cannot get through.
+// packets in flight and its bounded waits for settlements, not for Fulfills
+// that cannot get through. A settlement the peer says is on its way cannot
+// get through either, and is waited for no longer than its bound.
 #[test]
 fn a_peering_ends_while_its_fulfills_cannot_arrive() {
     let mut sim = paying(73, |sim| {
@@ -271,7 +280,7 @@ fn a_peering_ends_while_its_fulfills_cannot_arrive() {
     });
     let peer = key(1).node_id();
     sim.step(0, |core| core.terminate_peering(peer).unwrap());
-    sim.run_until(sim.now + 60_000);
+    sim.run_until(sim.now + ENDED_WITHIN_MS);
     assert!(sim.peers(1).is_empty() && sim.peers(0).is_empty());
     sim.cut.clear();
     sim.run_until(sim.now + 60_000);
@@ -320,13 +329,11 @@ fn a_peer_that_cannot_hear_us_drifts_by_at_most_what_was_in_flight() {
     check(&sim).unwrap();
 }
 
-// spec/areas/peer-protocol.md#replay-protection: a node that just started
-// refuses messages dated before its start. Node 0's clock is ahead of node
-// 1's. Its outgoing payment cannot reach node 1, and it restarts: its payer
-// goes on as it starts, and node 1's Fulfills are dated before that. Refused
-// with 401, they were given up although node 1 had booked them, and the
-// books drifted by a packet each restart, until the link no longer settled
-// (#234). Now they are sent again, dated anew, and the books do not drift.
+// spec/areas/peer-protocol.md#authentication: nothing is dated, so a node
+// that just started refuses no message for its age. Node 0's clock is ahead
+// of node 1's. Its outgoing payment cannot reach node 1, and it restarts: its
+// payer goes on as it starts, and node 1's Fulfills, sent as it starts,
+// arrive, so the books do not drift.
 #[test]
 fn fulfills_to_a_node_that_just_started_still_arrive() {
     let mut sim = Sim::with_skews(
@@ -1279,9 +1286,7 @@ fn a_peer_asked_to_settle_tells_what_it_has_on_its_way() {
                 made.insert((index, node.to_string(), amount));
             }
             if line.contains("SettlementRequestAnswered") {
-                let Some(amount) =
-                    field("settling: Some(").map(|a| a.trim_end_matches(')').to_string())
-                else {
+                let Some(amount) = field("settling: ") else {
                     panic!("seed {seed}: an answer without an amount: {line}");
                 };
                 if amount == "0" {
@@ -1387,9 +1392,8 @@ fn a_settlement_that_lands_after_the_end_is_credited_once() {
     );
     let mark = sim.trace.len();
     sim.step(junior, |core| core.terminate_peering(senior_id).unwrap());
-    let answered = format!(
-        " {junior} PeerNode(SettlementRequestAnswered {{ peer: {senior_id:?}, settling: Some("
-    );
+    let answered =
+        format!(" {junior} PeerNode(SettlementRequestAnswered {{ peer: {senior_id:?}, settling: ");
     let found = |sim: &Sim, from: usize, text: &str| {
         sim.trace[from..]
             .iter()
@@ -1602,7 +1606,7 @@ fn on_unlimited_trust_nodes_pay_without_settling() {
         "node 1 did not answer the last request"
     );
     for answer in answers {
-        assert!(answer.contains(&format!("{answered}Some(0)")), "{answer}");
+        assert!(answer.contains(&format!("{answered}0 }}")), "{answer}");
     }
     let settled = sim.trace[mark..].iter().find(|line| {
         line.contains("Settlement(Settling") || line.contains("Settlement(PrepareFailed")

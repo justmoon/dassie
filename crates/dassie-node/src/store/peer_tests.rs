@@ -4,7 +4,7 @@ use dassie_identity::NodeKey;
 use dassie_peer::wire::{SchemeId, TerminationReason};
 use dassie_peer::{
     Channel, Closed, Outgoing, PeerBatch, Peering, Registration, Sources, StoredChannel,
-    StoredClosed, StoredFloor, StoredNode, Termination,
+    StoredClosed, StoredNode, Termination,
 };
 
 use super::*;
@@ -20,12 +20,11 @@ fn node(seed: u8) -> StoredNode {
             registered_ms: 11,
             renewed_ms: 12,
             expires_ms: 13,
-            url: "https://a.example".into(),
+            endpoint: dassie_peer::wire::Endpoint::of_url("https://a.example").unwrap(),
             network: Some(dassie_peer::Network([4, 10, 0, 0, 0, 0, 0])),
         }),
         peering: Some(Peering {
             scheme: SchemeId::parse("stub").unwrap(),
-            version: 1,
             state: vec![1, 2],
             credit_out: 900,
             since_ms: 14,
@@ -142,52 +141,6 @@ fn peerings_end_with_their_nodes() {
     assert_eq!(peers, 0);
 }
 
-// Replay floors are kept apart from the node table: a node we hold a
-// channel with may leave it, and keeps its floor until it is forgotten.
-#[test]
-fn replay_floors_outlive_their_nodes_until_forgotten() {
-    let store = Store::open_in_memory().unwrap();
-    let (one, two) = (node(1).id, node(2).id);
-    commit(
-        &store,
-        PeerBatch {
-            nodes: vec![node(1)],
-            floors: vec![
-                StoredFloor {
-                    node: one,
-                    floor_ms: 16,
-                },
-                StoredFloor {
-                    node: two,
-                    floor_ms: 20,
-                },
-            ],
-            ..PeerBatch::default()
-        },
-    );
-    commit(
-        &store,
-        PeerBatch {
-            removed: vec![one],
-            floors: vec![StoredFloor {
-                node: one,
-                floor_ms: 17,
-            }],
-            floors_removed: vec![two],
-            ..PeerBatch::default()
-        },
-    );
-    let stored = store.load_peer().unwrap();
-    assert!(stored.nodes.is_empty());
-    assert_eq!(
-        stored.floors,
-        vec![StoredFloor {
-            node: one,
-            floor_ms: 17,
-        }]
-    );
-}
-
 // The peer rows commit with the ledger's, or not at all: a peering and
 // the accounts it opened land together.
 #[test]
@@ -256,7 +209,7 @@ fn terminations_channels_and_bans_round_trip() {
         node: key.node_id(),
         channel: Channel {
             key: key.public_key(),
-            url: "https://c.example".into(),
+            endpoint: dassie_peer::wire::Endpoint::of_url("https://c.example"),
             settled_in: 4,
             settled_out: 7,
             outbox: Some(Outgoing {
@@ -323,7 +276,7 @@ fn a_closed_channel_stays_on_disk() {
         node: key.node_id(),
         channel: Channel {
             key: key.public_key(),
-            url: "https://d.example".into(),
+            endpoint: dassie_peer::wire::Endpoint::of_url("https://d.example"),
             settled_in: 2,
             settled_out: 5,
             outbox: None,
@@ -371,7 +324,11 @@ fn a_closed_channel_stays_on_disk() {
     assert_eq!(store.closed_channel(&key.node_id()).unwrap(), Some(late));
     let reopened = StoredChannel {
         node: key.node_id(),
-        channel: Channel::reopen(key.public_key(), "https://d.example".into(), late),
+        channel: Channel::reopen(
+            key.public_key(),
+            dassie_peer::wire::Endpoint::of_url("https://d.example"),
+            late,
+        ),
     };
     commit(
         &store,

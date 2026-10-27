@@ -123,7 +123,6 @@ impl Books {
                 self.pending.remove(&settlement).unwrap();
                 self.cancelled.push(settlement);
             }
-            Effect::SendMessage { .. } => {}
             Effect::PeerLoss { .. } => panic!("an XRPL scheme books no peer losses"),
         }
     }
@@ -618,14 +617,13 @@ impl World {
             .scheme(ledger)
             .create_peering_request(name_b, &info, &mut request)
             .unwrap();
-        let mut response = Vec::new();
         let state_at_b = self.nodes[b]
             .scheme(ledger)
-            .accept_peering_request(name_a, &request, &mut response)
+            .accept_peering_request(name_a, &request)
             .unwrap();
         let state_at_a = self.nodes[a]
             .scheme(ledger)
-            .finalize_peering_request(name_b, &info, &response)
+            .finalize_peering_request(name_b, &info)
             .unwrap();
         self.nodes[b].scheme(ledger).on_peered(name_a, &state_at_b);
         self.nodes[a].scheme(ledger).on_peered(name_b, &state_at_a);

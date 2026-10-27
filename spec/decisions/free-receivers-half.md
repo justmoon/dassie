@@ -4,7 +4,7 @@
 
 ## Facts
 
-- A core node that takes QUIC takes downlinks, up to `max_downlinks`. A downlink proves only that it holds its key: it is not registered, not probed, and pays nothing to peer; the uplink extends it no credit ([earned-trust](earned-trust.md)). A key costs nothing, and keeping a peering costs a heartbeat now and then. So anyone could make keys and hold every downlink place for as long as they kept heartbeating, and the node would refuse real periphery nodes for capacity.
+- A core node takes downlinks, up to `max_downlinks`. A downlink proves only that it holds its key: it is not registered, not probed, and pays nothing to peer; the uplink extends it no credit ([earned-trust](earned-trust.md)). A key costs nothing, and keeping a peering costs a heartbeat now and then. So anyone could make keys and hold every downlink place for as long as they kept heartbeating, and the node would refuse real periphery nodes for capacity.
 - A downlink's settlement channel holds one of those places until it closes, a silent peer's wait after its peering ended ([closing-channels](closing-channels.md)). Keys that peer and leave hold places too.
 - The design gives free receivers, downlinks that have not yet paid anything, at most half of an uplink's downlinks ([Periphery](../designs/periphery.md#8-free-receivers)).
 - A channel's `settled_in` moves with every settlement message the node applies. On the XRP Ledger and over a settlement hub the message books nothing: the ledger says what arrived ([Settlement](../areas/settlement.md#incoming-settlements)). Any message with well-formed data moves it, so it shows nothing about money. What the node's books took from a node as its incoming settlement does.

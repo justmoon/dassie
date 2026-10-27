@@ -5,7 +5,6 @@
 //! the types allow, so it cannot produce something the decoder refuses.
 
 mod content;
-mod envelope;
 mod node_info;
 mod response;
 mod scheme;
@@ -15,26 +14,22 @@ use dassie_identity::NodeId;
 use dassie_oer::{Decode, DecodeError, DecodeErrorKind, Encode, Reader, Writer, oid, size};
 
 pub use content::{Content, PeeringRequest, TerminationReason};
-pub use envelope::{Authentication, Envelope, EnvelopeError, HmacAuthentication, encode_envelope};
 pub use node_info::{
     Entry, HubList, HubListing, HubMembership, InvalidNodeInfo, NodeInfo, SignedNodeInfo,
     hub_list_bytes, max_node_info_bytes, sign_node_info,
 };
 pub use response::{
     LinkStateResponse, MethodResponse, NameHolding, NameListResponse, NameReceipt,
-    NodeListResponse, PeeringResponse, RefusalReason, ResponseEnvelope, decode_expiry, decode_hash,
-    decode_octets, decode_settling, encode_expiry, encode_link_states, encode_octets,
-    encode_response, encode_settling,
+    NodeListResponse, PeeringResponse, RefusalReason, decode_expiry, decode_hash, decode_octets,
+    decode_settling, encode_expiry, encode_link_states, encode_octets, encode_settling,
 };
 pub use scheme::{MAX_SCHEME_ID, SchemeId};
-pub use url::is_valid_url;
+pub use url::{Endpoint, is_valid_url};
 
-/// The envelope version this crate speaks.
-pub const VERSION: u8 = 1;
-
-/// The OID that starts a v1 `PeerNodeInfo`. v0 used `…1399.1.2`; a new one
-/// keeps node info signed under v0 from passing as a v1 link state.
-pub const NODE_INFO_OID: [u8; 14] = oid::encode(&[1, 3, 6, 1, 4, 1, 54392, 5, 1399, 1, 3]);
+/// The OID that starts a `PeerNodeInfo`. v0 used `…1399.1.2`, and the
+/// layout with the node ID beside the key `…1399.1.3`; a new one keeps node
+/// info signed under either from passing as a link state of this layout.
+pub const NODE_INFO_OID: [u8; 14] = oid::encode(&[1, 3, 6, 1, 4, 1, 54392, 5, 1399, 1, 5]);
 
 /// Most bytes in a request body.
 pub const MAX_MESSAGE_BYTES: usize = 64 * 1024;
@@ -54,15 +49,12 @@ pub const MAX_NODE_INFO_BYTES: usize = 4096;
 /// Most bytes in a link-state extension's value.
 pub const MAX_EXTENSION_BYTES: usize = 2048;
 
-/// The link-state extension that says a node takes the peer protocol over
-/// QUIC, on UDP at its URL's host and port (spec/areas/peer-protocol.md#transport).
-/// Its value is empty. Type 1 is kept for a post-quantum key.
-pub const EXTENSION_QUIC: u16 = 2;
-
 /// The link-state extension that says a node is a periphery node: it has
 /// no URL, dials out to its uplinks and is reached only over the
 /// connections it opened (spec/areas/peer-protocol.md#link-states). Its
-/// value is empty. Only with it may a link state's URL be empty.
+/// value is empty. Only with it may a link state's URL be empty. Type 1 is
+/// kept for a post-quantum key, and type 2 is reserved: no extension has
+/// it, so that no node reads it as one.
 pub const EXTENSION_PERIPHERY: u16 = 3;
 
 /// The link-state extension that names the UDP port of a core node's rate
@@ -104,9 +96,6 @@ pub const MAX_COMMITMENT_BYTES: usize = 256;
 /// over a hub: the payer's claim. More is ignored.
 pub const MAX_CLAIM_BYTES: usize = 256;
 
-/// Most scheme versions in a peering request.
-pub const MAX_VERSIONS: usize = 16;
-
 /// Most node IDs in one link-state request.
 pub const MAX_LINK_STATE_REQUEST_IDS: usize = 16;
 
@@ -134,10 +123,9 @@ pub enum Kind {
     InterledgerPacket,
     /// `linkStateRequest [3]`.
     LinkStateRequest,
-    /// `settlement [4]`.
+    /// `settlement [4]`. Tag 5 follows it unused: it is reserved, and never
+    /// given to a message, so that no node reads it as one.
     Settlement,
-    /// `settlementMessage [5]`.
-    SettlementMessage,
     /// `nodeListHashRequest [6]`.
     NodeListHashRequest,
     /// `nodeListRequest [7]`.
@@ -180,7 +168,6 @@ impl Kind {
             2 => Self::InterledgerPacket,
             3 => Self::LinkStateRequest,
             4 => Self::Settlement,
-            5 => Self::SettlementMessage,
             6 => Self::NodeListHashRequest,
             7 => Self::NodeListRequest,
             8 => Self::Registration,
@@ -209,7 +196,6 @@ impl Kind {
             Self::InterledgerPacket => 2,
             Self::LinkStateRequest => 3,
             Self::Settlement => 4,
-            Self::SettlementMessage => 5,
             Self::NodeListHashRequest => 6,
             Self::NodeListRequest => 7,
             Self::Registration => 8,
@@ -228,29 +214,6 @@ impl Kind {
         }
     }
 
-    /// Whether a message of this kind must be authenticated
-    /// (spec/areas/peer-protocol.md#which-messages-need-authentication).
-    #[must_use]
-    pub const fn requires_authentication(self) -> bool {
-        matches!(
-            self,
-            Self::PeeringRequest
-                | Self::InterledgerPacket
-                | Self::Settlement
-                | Self::SettlementMessage
-                | Self::Registration
-                | Self::PeeringTermination
-                | Self::SettlementRequest
-                | Self::HubPacket
-                | Self::NameCommit
-                | Self::NameUnseal
-                | Self::NameRenew
-                | Self::MethodPacket
-                | Self::MethodAdd
-                | Self::MethodDrop
-        )
-    }
-
     /// Whether a message of this kind carries an ILP packet: its bounds are
     /// the connector's, not those of the protocol's own requests.
     #[must_use]
@@ -263,9 +226,7 @@ impl Kind {
 
     /// Whether a message of this kind only reads: it changes nothing at the
     /// recipient, and its answer is public, signed data or the recipient's
-    /// own. A replay of one gets nothing that asking does not, so a sender
-    /// the recipient keeps no replay state for gets none from it
-    /// (spec/areas/peer-protocol.md#replay-protection).
+    /// own, which anyone may ask for.
     #[must_use]
     pub const fn is_read_only(self) -> bool {
         matches!(
@@ -280,12 +241,11 @@ impl Kind {
     }
 }
 
-/// The kind of the message in `body`, without checking more of it than the
-/// envelope's header: enough for the HTTP layer to rate-limit by kind.
+/// The kind of the message in `body`, without checking more of it than its
+/// tag: enough for the transport to rate-limit by kind.
 #[must_use]
 pub fn peek_kind(body: &[u8]) -> Option<Kind> {
-    let envelope = Envelope::decode(body).ok()?;
-    let mut reader = Reader::new(envelope.content);
+    let mut reader = Reader::new(body);
     Kind::from_tag(reader.read_context_tag().ok()?)
 }
 

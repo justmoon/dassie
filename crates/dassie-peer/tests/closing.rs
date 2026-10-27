@@ -10,14 +10,9 @@
     clippy::panic
 )]
 
-use std::sync::Arc;
-
 use dassie_identity::{NodeId, NodeKey};
-use dassie_kit::sim::SeededRng;
-use dassie_oer::Encode;
-use dassie_peer::auth::{AuthConfig, Authenticator};
-use dassie_peer::sim::{Network, START, key};
-use dassie_peer::wire::{Authentication, Content, SchemeId, TerminationReason, encode_envelope};
+use dassie_peer::sim::{Arriving, Network, key};
+use dassie_peer::wire::{Content, SchemeId, TerminationReason};
 use dassie_peer::{Closed, Config, Event};
 
 const CONFIG: Config = Config::DEV;
@@ -71,32 +66,15 @@ fn closed(network: &Network, index: usize, peer: &NodeId) -> usize {
         .count()
 }
 
-/// A settlement message from `auth`'s node to node `to`, sent by hand.
-fn settlement(
-    auth: &mut Authenticator,
-    network: &Network,
-    to: usize,
-    amount: u64,
-    sequence: u64,
-) -> Vec<u8> {
+/// A settlement message from `from`'s node, sent by hand.
+fn settlement(from: &NodeKey, amount: u64, sequence: u64) -> Arriving {
     let content = Content::Settlement {
         scheme: stub(),
         amount,
         data: &[],
         sequence,
     };
-    let bytes = content.to_vec();
-    let target: Arc<NodeKey> = key(to);
-    let (hmac, _) = auth
-        .authenticate(
-            network.clock(to),
-            &mut SeededRng::new(network.clock(to) + sequence),
-            &target.node_id(),
-            &target.public_key(),
-            &bytes,
-        )
-        .unwrap();
-    encode_envelope(&auth.own().to_owned(), &Authentication::Hmac(hmac), &bytes)
+    Arriving::new(from, &content)
 }
 
 // A channel stays open for as long as a silent peer is kept after the
@@ -171,10 +149,9 @@ fn a_late_settlement_over_a_closed_channel_is_applied_once() {
     settle(&mut network, CONFIG.peer_dead_ms + 30_000);
     assert!(network.node(0).channel(&b).is_none());
     let applied = network.node(0).stats().settlements_applied;
-    let mut auth = Authenticator::new(key(1), AuthConfig::DEFAULT, START - 1);
-    let body = settlement(&mut auth, &network, 0, 6, 1);
+    let body = settlement(&key(1), 6, 1);
     assert_eq!(network.inbound(0, &body).status, 200);
-    let copy = settlement(&mut auth, &network, 0, 6, 1);
+    let copy = settlement(&key(1), 6, 1);
     assert_eq!(network.inbound(0, &copy).status, 200);
     let node = network.node(0);
     assert_eq!(node.stats().settlements_applied, applied + 1);
@@ -185,7 +162,7 @@ fn a_late_settlement_over_a_closed_channel_is_applied_once() {
         Some(1)
     );
     // One out of order is refused, as over an open channel.
-    let gap = settlement(&mut auth, &network, 0, 6, 3);
+    let gap = settlement(&key(1), 6, 3);
     assert_eq!(network.inbound(0, &gap).status, 400);
 }
 

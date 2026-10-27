@@ -6,13 +6,13 @@
 //!
 //! A run has two phases. In the chaos, payments start while nodes crash
 //! or fail a commit and restart, links are cut and healed, messages are
-//! lost, requests are replayed, ledger connections drop or come back to a
+//! lost, a forger sends copies of requests as its own, ledger connections drop or come back to a
 //! server that lies, validators rotate their keys, and owners end peerings
 //! and ban peers; each node's clock is off the network's by up to 10 s,
 //! throughout. The network may also split in two, for minutes
 //! or for days: a partition that outlasts the chaos keeps the network as
 //! the chaos left it, its cuts too, until it ends. Then the network heals:
-//! every node runs, no link is cut, nothing is lost or replayed, and within
+//! every node runs, no link is cut, nothing is lost or forged, and within
 //! [`HEAL_MS`] the network must settle down, unless crashes drifted a
 //! link's books past what it survives, which rules the run out
 //! (spec/decisions/crash-drift.md). Then each node is checked by its own
@@ -76,8 +76,8 @@ const PEER: dassie_peer::Config = Policies::DEFAULT.peer;
 const LEAST_PAYMENT: u64 = 100_000_000;
 
 /// The most a node's clock is off the network's, either way: as the peer
-/// simulation's, and well inside the peer protocol's replay window of
-/// 60 s, which a node with a clock further off fails anyway.
+/// simulation's, and well inside how far ahead of a node's clock a link
+/// state may be (`max_future_ms` in `dassie_peer::Config`).
 const MOST_SKEW_MS: u64 = 10_000;
 
 /// How often each kind of chaos happens, relative to the others. A weight
@@ -136,9 +136,9 @@ pub struct Options {
     pub payments: (u64, u64),
     /// The most a payment sends.
     pub largest_payment: u64,
-    /// How many of a thousand requests that get through are replayed in
-    /// the chaos.
-    pub replay_per_mille: u64,
+    /// How many of a thousand requests that get through the forger sends
+    /// again as its own in the chaos.
+    pub forgery_per_mille: u64,
     /// The most a node's clock is off the network's, either way.
     pub skew_ms: u64,
     /// How the network splits in two for a while, if it does.
@@ -257,7 +257,7 @@ impl Options {
         };
         let payments = (1 + rng.below(8), rng.below(3));
         let largest_payment = LEAST_PAYMENT + rng.below(3_300_000_001);
-        let replay_per_mille = switched(&mut rng, 51);
+        let forgery_per_mille = switched(&mut rng, 51);
         let skew_ms = switched(&mut rng, MOST_SKEW_MS + 1);
         let partition = Partition::draw(seed, nodes, chaos_ms);
         Self {
@@ -271,7 +271,7 @@ impl Options {
             weights,
             payments,
             largest_payment,
-            replay_per_mille,
+            forgery_per_mille,
             skew_ms,
             partition,
         }
@@ -327,7 +327,7 @@ impl fmt::Display for Options {
         let w = &self.weights;
         write!(
             f,
-            "{} nodes, {} bootstrap, {:?}; latency {}–{} ms, loss {}‰, replays {}‰, \
+            "{} nodes, {} bootstrap, {:?}; latency {}–{} ms, loss {}‰, forgeries {}‰, \
              clocks off by up to {} ms; chaos {} s, \
              every ~{} ms: pay {} crash {} restart {} cut {} heal {} ledger drop {} \
              lie {} rotate {} fail commit {} end {} ban {} idle {}; \
@@ -338,7 +338,7 @@ impl fmt::Display for Options {
             self.latency_ms.0,
             self.latency_ms.1,
             self.loss_per_mille,
-            self.replay_per_mille,
+            self.forgery_per_mille,
             self.skew_ms,
             self.chaos_ms / 1_000,
             self.step_ms,
@@ -408,7 +408,7 @@ pub fn run(seed: u64) -> Run {
     }
     sim.trace.push(format!("{} ready", sim.now));
     sim.loss_per_mille = options.loss_per_mille;
-    sim.replay_per_mille = options.replay_per_mille;
+    sim.forgery_per_mille = options.forgery_per_mille;
     let mut left = options.payments;
     let mut ends = Vec::new();
     let mut lies = Lies::new(seed);
@@ -918,7 +918,7 @@ fn heal(
     sim.end_lies();
     assert!(sim.apart.is_empty(), "the partition ends in the chaos");
     sim.loss_per_mille = 0;
-    sim.replay_per_mille = 0;
+    sim.forgery_per_mille = 0;
     sim.trace.push(format!("{} heal", sim.now));
     // A payer gives up after its reconnects (a few minutes), and the chaos
     // may have cut it off that long, or the network not yet formed: what
@@ -1205,7 +1205,7 @@ fn count_ends(sim: &mut Sim, ends: &[End]) {
     {
         let lines = &sim.trace[mark..];
         let answered = format!(
-            " {by} PeerNode(SettlementRequestAnswered {{ peer: {:?}, settling: Some(",
+            " {by} PeerNode(SettlementRequestAnswered {{ peer: {:?}, settling: ",
             key(peer).node_id()
         );
         let ending = &lines[..until_peered(lines, 0, by, peer)];
@@ -1213,7 +1213,7 @@ fn count_ends(sim: &mut Sim, ends: &[End]) {
             && ending.iter().any(|line| {
                 line.find(&answered)
                     .map(|at| &line[at + answered.len()..])
-                    .and_then(|rest| rest[..rest.find(')')?].parse::<u64>().ok())
+                    .and_then(|rest| rest[..rest.find(' ')?].parse::<u64>().ok())
                     .is_some_and(|amount| amount > 0)
             });
         if on_its_way {

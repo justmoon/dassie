@@ -55,6 +55,15 @@ pub enum DaemonError {
     Activation(ActivationError),
     /// A socket could not be bound.
     Bind(String, io::Error),
+    /// systemd passed QUIC's socket on another port than the HTTPS
+    /// listener's: peers dial QUIC at the URL's port, so they would not
+    /// find it (spec/areas/peer-protocol.md#quic).
+    QuicApart {
+        /// QUIC's UDP port.
+        quic: u16,
+        /// The HTTPS listener's TCP port.
+        https: u16,
+    },
     /// The node could not start.
     Node(NodeError),
     /// SIGTERM and SIGINT could not be handled.
@@ -77,6 +86,10 @@ impl fmt::Display for DaemonError {
             Self::Store(error) => error.fmt(f),
             Self::Activation(error) => error.fmt(f),
             Self::Bind(what, error) => write!(f, "binding {what}: {error}"),
+            Self::QuicApart { quic, https } => write!(
+                f,
+                "QUIC is on UDP port {quic} and HTTPS on TCP port {https}: peers reach QUIC at the HTTPS port, so the two sockets must have the same port"
+            ),
             Self::Node(error) => error.fmt(f),
             Self::Signals => f.write_str("could not listen for SIGTERM and SIGINT"),
             Self::Tls(error) => write!(f, "TLS: {error}"),
@@ -198,6 +211,7 @@ impl Prepared {
                 if sockets.feed.is_none() {
                     tracing::warn!(target: target::DAEMON, socket = systemd::FEED_SOCKET, "systemd passed no UDP socket for the rate feed: the node publishes no feed");
                 }
+                quic_at_https_port(&sockets.quic, &sockets.https)?;
                 let udp = (sockets.quic, sockets.feed);
                 (Some(sockets.http), sockets.https, sockets.ipc, udp, None)
             }
@@ -342,6 +356,23 @@ fn bind_tcp(port: u16, listen: Option<IpAddr>) -> Result<TcpListener, DaemonErro
             .or_else(|_| TcpListener::bind(SocketAddr::from((Ipv4Addr::UNSPECIFIED, port)))),
     }
     .map_err(|error| DaemonError::Bind(format!("port {port}"), error))
+}
+
+/// Fails unless the UDP socket for QUIC has the HTTPS listener's port: a
+/// node's link state names one URL, and peers dial QUIC at its host and
+/// port (spec/areas/peer-protocol.md#quic).
+fn quic_at_https_port(quic: &UdpSocket, https: &TcpListener) -> Result<(), DaemonError> {
+    let (Ok(quic), Ok(https)) = (quic.local_addr(), https.local_addr()) else {
+        return Ok(());
+    };
+    if quic.port() == https.port() {
+        Ok(())
+    } else {
+        Err(DaemonError::QuicApart {
+            quic: quic.port(),
+            https: https.port(),
+        })
+    }
 }
 
 /// The UDP socket for QUIC on `address`: the HTTPS listener's address and
@@ -601,7 +632,12 @@ fn attach_quic(
         } else {
             KeepWhile::Always
         };
-        quic.choose_relay(relay.node.id, relay.node.url.clone(), node.resolver(), keep);
+        quic.choose_relay(
+            relay.node.id,
+            relay.node.endpoint.clone(),
+            node.resolver(),
+            keep,
+        );
     }
     node.attach_quic(Arc::clone(&quic));
     if let Some(to) = hand_out {
@@ -686,7 +722,7 @@ fn peer_options(settings: &Settings) -> PeerOptions {
             .iter()
             .map(|node| dassie_peer::Bootstrap {
                 id: node.id,
-                url: node.url.clone(),
+                endpoint: node.endpoint.clone(),
                 key: node.public_key,
             })
             .collect(),
@@ -1155,6 +1191,23 @@ mod tests {
         let error = Prepared::new(&env, options).unwrap_err();
         assert!(
             matches!(&error, DaemonError::Bind(what, _) if what.contains("QUIC")),
+            "{error}"
+        );
+    }
+
+    // spec/areas/peer-protocol.md#quic: peers dial QUIC at the URL's port,
+    // so a node whose systemd sockets put QUIC on another port than HTTPS
+    // does not start.
+    #[test]
+    fn quic_must_have_the_https_port() {
+        let https = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = https.local_addr().unwrap().port();
+        let same = UdpSocket::bind(("127.0.0.1", port)).unwrap();
+        assert!(quic_at_https_port(&same, &https).is_ok());
+        let apart = UdpSocket::bind("127.0.0.1:0").unwrap();
+        let error = quic_at_https_port(&apart, &https).unwrap_err();
+        assert!(
+            matches!(error, DaemonError::QuicApart { https, .. } if https == port),
             "{error}"
         );
     }

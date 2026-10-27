@@ -105,7 +105,6 @@ enum Inbound {
     Deferred,
     Packet(NodeId, u32, Vec<u8>, Option<Vec<u8>>, PacketAnswer),
     Settlement(NodeId, SchemeId, u64, Vec<u8>, u64, Reply),
-    SchemeMessage(NodeId, SchemeId, Vec<u8>, Reply),
     SettlementRequest(NodeId, SchemeId, dassie_peer::SettlementAnswer),
 }
 
@@ -165,11 +164,10 @@ pub(super) fn room_for_core_peer(
 }
 
 impl PeeringHooks for Hooks<'_> {
-    fn versions(&self, scheme: SchemeId) -> &'static [u16] {
+    fn speaks(&self, scheme: SchemeId) -> bool {
         Name::new(scheme.as_str())
             .ok()
-            .and_then(|name| self.schemes.get(&name))
-            .map_or(&[], |active| active.scheme.supported_versions())
+            .is_some_and(|name| self.schemes.contains_key(&name))
     }
 
     fn peering_info(&mut self, scheme: SchemeId, out: &mut Vec<u8>) -> Result<(), Declined> {
@@ -199,9 +197,7 @@ impl PeeringHooks for Hooks<'_> {
         peer: NodeId,
         downlink: bool,
         scheme: SchemeId,
-        _version: u16,
         data: &[u8],
-        response: &mut Vec<u8>,
     ) -> Result<Agreed, RefusalReason> {
         let peer_name = name(peer).ok_or(RefusalReason::Unspecified)?;
         let senior_credit = self.senior_credit;
@@ -230,7 +226,7 @@ impl PeeringHooks for Hooks<'_> {
             .ok_or(RefusalReason::UnsupportedScheme)?;
         let state = active
             .scheme
-            .accept_peering_request(peer_name, data, response)
+            .accept_peering_request(peer_name, data)
             .map_err(|_| RefusalReason::SchemeRefused)?;
         if !downlink {
             self.open(now_ms, peer, ledger, start)
@@ -261,9 +257,7 @@ impl PeeringHooks for Hooks<'_> {
         now_ms: u64,
         peer: NodeId,
         scheme: SchemeId,
-        _version: u16,
         info: &[u8],
-        data: &[u8],
         ended_for_room: bool,
     ) -> Result<Agreed, Declined> {
         let peer_name = name(peer).ok_or(Declined)?;
@@ -281,7 +275,7 @@ impl PeeringHooks for Hooks<'_> {
         let active = self.scheme(scheme).ok_or(Declined)?;
         let state = active
             .scheme
-            .finalize_peering_request(peer_name, info, data)
+            .finalize_peering_request(peer_name, info)
             .map_err(|_| Declined)?;
         // We ask only core nodes: a periphery node is asked by nobody.
         self.open(now_ms, peer, ledger, start)
@@ -586,16 +580,18 @@ impl Core {
         f(&mut self.peer, &mut hooks, now)
     }
 
-    /// An inbound peer request: its reply goes out once the batch is on
-    /// disk, as a peer accepting a peering must have recorded it first.
+    /// An inbound peer request, from the node whose key `from` its
+    /// connection proved: its reply goes out once the batch is on disk, as
+    /// a peer accepting a peering must have recorded it first.
     pub fn peer_inbound(
         &mut self,
         inbound: InboundId,
+        from: dassie_identity::PublicKey,
         body: &[u8],
         source: Option<std::net::IpAddr>,
     ) {
         let outcome = self.with_peer(|peer, hooks, now| {
-            match peer.handle_inbound(now, hooks, inbound, body, source) {
+            match peer.handle_inbound(now, hooks, inbound, from, body, source) {
                 dassie_peer::Inbound::Reply(reply) => Inbound::Reply(reply),
                 dassie_peer::Inbound::Deferred => Inbound::Deferred,
                 dassie_peer::Inbound::Packet {
@@ -619,12 +615,6 @@ impl Core {
                     sequence,
                     reply,
                 } => Inbound::Settlement(from, scheme, amount, data.to_vec(), sequence, reply),
-                dassie_peer::Inbound::SchemeMessage {
-                    from,
-                    scheme,
-                    message,
-                    reply,
-                } => Inbound::SchemeMessage(from, scheme, message.to_vec(), reply),
                 dassie_peer::Inbound::SettlementRequest {
                     from,
                     scheme,
@@ -641,10 +631,6 @@ impl Core {
             Inbound::Settlement(from, scheme, amount, data, sequence, reply) => {
                 Some(self.settlement_from(from, scheme, amount, &data, sequence, reply))
             }
-            Inbound::SchemeMessage(from, scheme, message, reply) => {
-                self.scheme_message(from, scheme, &message);
-                Some(reply)
-            }
             Inbound::SettlementRequest(from, scheme, answer) => {
                 let settling = self.settlement_requested(from, scheme);
                 Some(answer.reply(settling))
@@ -658,7 +644,7 @@ impl Core {
 
     /// An ILP packet from a peer, and the reply to it. Over a hub, a
     /// Prepare goes on only if its commitment covers it, and the reply to a
-    /// Fulfill carries our claim after the verdict
+    /// Fulfill carries our claim
     /// (spec/designs/settlement-hubs.md#4-peering-over-a-hub).
     fn packet_inbound(
         &mut self,
@@ -674,7 +660,7 @@ impl Core {
             return answer.reply(&[]);
         }
         let taken = self.peer_packet(from, request_id, packet);
-        if answer.takes_extra() {
+        if answer.takes_claim() {
             let claim = self.hub_claim(now, &from, request_id, taken);
             return answer.reply(&claim);
         }
@@ -907,8 +893,8 @@ impl Core {
             Event::FulfillReply {
                 peer,
                 request_id,
-                extra,
-            } => self.hub_claim_received(self.now_ms, &peer, request_id, &extra),
+                claim,
+            } => self.hub_claim_received(self.now_ms, &peer, request_id, &claim),
             // Asked again at the next check, not a minute later: a junior
             // that had not yet taken in our acceptance pays in advance at
             // once (spec/decisions/own-fulfills.md), and a request that never

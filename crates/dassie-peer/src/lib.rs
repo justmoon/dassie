@@ -1,8 +1,8 @@
 //! Dassie's peer protocol v1 (spec/areas/peer-protocol.md), as sans-IO code.
 //!
 //! The protocol is the original's, versioned: the v0 message set and
-//! layouts, with sender authentication, replay protection, authenticated
-//! responses and the membership and peering fixes of
+//! layouts, carried over QUIC, whose connection proves the sender's node
+//! key, with the membership and peering fixes of
 //! spec/decisions/peer-protocol-v1.md,
 //! spec/decisions/membership-economics.md and
 //! spec/decisions/peering-lifecycle.md. This crate holds its wire format; the
@@ -17,7 +17,6 @@ extern crate alloc;
 #[cfg(test)]
 extern crate std;
 
-pub mod auth;
 mod channel;
 mod config;
 mod hooks;
@@ -36,11 +35,11 @@ pub use config::{Config, Rate};
 pub use hooks::{Agreed, Declined, EntryPayment, PeeringHooks};
 pub use io::{
     Event, Failure, Inbound, InboundId, NameEvent, Output, PacketAnswer, Reply, Request, RequestId,
-    Response, SettlementAnswer, Stats, VERDICT_ACCEPTED,
+    Response, SettlementAnswer, Stats,
 };
 pub use node::{
     BanError, Bootstrap, MAX_OWN_HUBS, MAX_SCHEMES, MAX_UPLINKS, NodeView, OwnInfo, PeerNode,
     PeerStatus, RegisterError, RegistrationStatus, SendError,
 };
-pub use persist::{PeerBatch, Stored, StoredChannel, StoredClosed, StoredFloor, StoredNode};
+pub use persist::{PeerBatch, Stored, StoredChannel, StoredClosed, StoredNode};
 pub use table::{Advertise, Depeering, Network, Peering, Registration, Room, Sources, Termination};

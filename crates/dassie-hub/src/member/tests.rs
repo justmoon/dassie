@@ -732,10 +732,7 @@ fn a_new_key_is_confirmed_anew() {
     scheme.on_peered(peer, &state(&NodeKey::from_bytes(&[9; 32])));
     scheme.peers.get_mut(&peer).unwrap().payee.key_confirmed = true;
     let other = state(&NodeKey::from_bytes(&[10; 32]));
-    let mut out = Vec::new();
-    scheme
-        .accept_peering_request(peer, &other, &mut out)
-        .unwrap();
+    scheme.accept_peering_request(peer, &other).unwrap();
     scheme.on_peered(peer, &other);
     let known = &scheme.peers[&peer];
     assert_eq!(known.key, NodeKey::from_bytes(&[10; 32]).public_key());

@@ -14,7 +14,6 @@ mod support;
 
 use dassie_identity::{
     HubKey, Mnemonic, NodeId, NodeKey, NodeSecret, PublicKey, QuicEndpoint, Segment, Signature,
-    X25519Secret,
 };
 use serde_json::Value;
 use support::{hex, hex_array, str_field, to_hex, vectors};
@@ -175,14 +174,6 @@ fn keys() {
             id
         );
 
-        let x25519 = key.x25519_secret();
-        assert_eq!(to_hex(x25519.as_bytes()), str_field(entry, "x25519Secret"));
-        assert_eq!(
-            to_hex(x25519.public_key().as_bytes()),
-            str_field(entry, "x25519Public")
-        );
-        assert_eq!(public_key.to_x25519(), x25519.public_key());
-
         let message = hex(str_field(entry, "message"));
         let signature = key.sign(&message);
         assert_eq!(to_hex(signature.as_bytes()), str_field(entry, "signature"));
@@ -190,23 +181,6 @@ fn keys() {
         assert_eq!(public_key.verify(&message, &expected), Ok(()));
         assert!(public_key.verify(b"another message", &expected).is_err());
     }
-}
-
-#[test]
-fn session_shared_secret() {
-    let vectors = vectors("keys.json");
-    let session = &vectors["session"];
-    let secret = X25519Secret::from_bytes(hex_array(str_field(session, "privateKey")));
-    assert_eq!(
-        to_hex(secret.public_key().as_bytes()),
-        str_field(session, "publicKey")
-    );
-    let peer = PublicKey::from_bytes(&hex_array(str_field(session, "peerPublicKey"))).unwrap();
-    let shared = secret.diffie_hellman(&peer.to_x25519()).unwrap();
-    assert_eq!(
-        to_hex(shared.as_bytes()),
-        str_field(session, "sharedSecret")
-    );
 }
 
 #[test]

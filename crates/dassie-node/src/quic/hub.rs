@@ -12,9 +12,10 @@ use std::time::Duration;
 use dassie_identity::NodeId;
 use quinn::Connection;
 
-use super::{ANSWER_TIMEOUT, On, Quic, StreamKind, keys, no_room, read_in_order};
+use super::{ANSWER_TIMEOUT, On, Quic, StreamKind, no_room, read_in_order};
 use dassie_hub::founding::{FoundingAnswer, Refusal};
 use dassie_oer::Encode;
+use dassie_peer::wire::Endpoint as PeerEndpoint;
 
 use crate::hub::HubAccess;
 use crate::hub::founding::FoundingAccess;
@@ -147,12 +148,13 @@ impl Quic {
             return Err(HubExchangeError::Unreachable);
         }
         let place = self.place(to).ok_or(HubExchangeError::Unreachable)?;
-        let url = format!("https://{endpoint}");
+        // A hub's acceptances name an endpoint as `host:port`.
+        let endpoint = PeerEndpoint::parse(endpoint).ok_or(HubExchangeError::Unreachable)?;
         // A connection kept from before may have died since: then nothing
         // was sent, and a fresh one is made once.
         for _ in 0..2 {
             let Ok(connection) = self
-                .connection(&place, (to, &url), resolver, connect_within, true)
+                .connection(&place, (to, &endpoint), resolver, connect_within, true)
                 .await
             else {
                 return Err(HubExchangeError::Unreachable);
@@ -213,7 +215,7 @@ impl On {
             let _ = send.reset(0u32.into());
             let _ = recv.stop(0u32.into());
         };
-        let Some(from) = keys::peer_key(&self.connection) else {
+        let Some(from) = self.proved else {
             reset(&mut send, &mut recv);
             return;
         };
@@ -256,7 +258,7 @@ impl On {
             let _ = send.reset(0u32.into());
             let _ = recv.stop(0u32.into());
         };
-        let Some(from) = keys::peer_key(&self.connection) else {
+        let Some(from) = self.proved else {
             reset(&mut send, &mut recv);
             return;
         };
@@ -294,7 +296,7 @@ impl On {
             let _ = send.reset(0u32.into());
             let _ = recv.stop(0u32.into());
         };
-        let Some(from) = keys::peer_key(&self.connection) else {
+        let Some(from) = self.proved else {
             reset(&mut send, &mut recv);
             return;
         };

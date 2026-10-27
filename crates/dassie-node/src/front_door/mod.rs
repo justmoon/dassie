@@ -43,7 +43,7 @@ use tokio_util::sync::CancellationToken;
 pub use self::certificate::CertificateFiles;
 pub use self::names::Registrars;
 pub use self::settings::Settings;
-use crate::clock::{Clock, SharedRng};
+use crate::clock::Clock;
 use crate::log::target;
 use crate::outbound::Resolver;
 use crate::quic::Quic;
@@ -102,7 +102,7 @@ pub struct Sockets {
 pub async fn serve(
     parts: Parts,
     sockets: Sockets,
-    (clock, rng): (Arc<dyn Clock>, Box<dyn SharedRng>),
+    clock: Arc<dyn Clock>,
     shutdown: CancellationToken,
 ) -> Result<(), StartError> {
     let domain = parts.domain.as_str().to_string();
@@ -135,10 +135,9 @@ pub async fn serve(
     let poller = names::Poller::new(
         Arc::clone(&names),
         parts.registrars,
-        (Arc::clone(&quic), key),
+        Arc::clone(&quic),
         resolver,
         Arc::clone(&clock),
-        rng,
     );
     let nodes = Arc::new(nodes::Nodes::new(
         Arc::clone(&quic),
@@ -176,7 +175,7 @@ pub async fn serve(
 /// Something it needs is missing or cannot be used.
 pub async fn run(
     settings: &Settings,
-    (clock, rng): (Arc<dyn Clock>, Box<dyn SharedRng>),
+    clock: Arc<dyn Clock>,
     shutdown: CancellationToken,
 ) -> Result<(), StartError> {
     let missing =
@@ -223,5 +222,5 @@ pub async fn run(
         allow_private: settings.peer_allow_private,
         tunnel_bounds: TunnelBounds::DEFAULT,
     };
-    serve(parts, Sockets { https, quic }, (clock, rng), shutdown).await
+    serve(parts, Sockets { https, quic }, clock, shutdown).await
 }

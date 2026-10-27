@@ -420,6 +420,7 @@ impl dassie_node::quic::Handler for Dialer {
     fn answer<'a>(
         &'a self,
         _client: std::net::IpAddr,
+        _from: dassie_identity::PublicKey,
         _body: dassie_node::quic::Body<'a>,
     ) -> std::pin::Pin<
         Box<dyn std::future::Future<Output = dassie_node::peer_server::Answer> + Send + 'a>,

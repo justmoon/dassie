@@ -1,13 +1,11 @@
 //! What the identity crate refuses, each as a test: a phrase that is not
 //! BIP-39, DER that is not exactly the encoding it writes, seed paths with
-//! empty segments and non-contributory X25519; and the login proof, which
-//! it compares in constant time.
+//! empty segments; and the login proof, which it compares in constant time.
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing)]
 
 use dassie_identity::{
-    Error, Mnemonic, NodeKey, PKCS8_DER_LENGTH, PublicKey, SPKI_DER_LENGTH, Segment, X25519Public,
-    X25519Secret,
+    Error, Mnemonic, NodeKey, PKCS8_DER_LENGTH, PublicKey, SPKI_DER_LENGTH, Segment,
 };
 
 const ZERO_PHRASE: &str =
@@ -126,54 +124,4 @@ fn empty_seed_path_segments_are_rejected() {
             "{text:?}"
         );
     }
-}
-
-/// The original used X25519 results without the RFC 7748 §6.1 check, so a
-/// peer with a small-order key could force an all-zero shared secret.
-#[test]
-fn non_contributory_x25519_is_rejected() {
-    let secret = NodeKey::from_bytes(&[3; 32]).x25519_secret();
-    let small_order: [[u8; 32]; 4] = [
-        [0; 32],
-        {
-            let mut one = [0; 32];
-            one[0] = 1;
-            one
-        },
-        // A point of order 8.
-        hex32("e0eb7a7c3b41b8ae1656e3faf19fc46ada098deb9c32b1fd866205165f49b800"),
-        // p - 1, of order 2.
-        hex32("ecffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f"),
-    ];
-    for point in small_order {
-        assert_eq!(
-            secret
-                .diffie_hellman(&X25519Public::from_bytes(point))
-                .map(|_| ()),
-            Err(Error::NonContributory)
-        );
-    }
-
-    // An Ed25519 key of small order maps to one of them.
-    let mut identity = [0; 32];
-    identity[0] = 1;
-    let peer = PublicKey::from_bytes(&identity).unwrap();
-    assert_eq!(
-        secret.diffie_hellman(&peer.to_x25519()).map(|_| ()),
-        Err(Error::NonContributory)
-    );
-
-    // A proper key still works.
-    let other = X25519Secret::from_bytes([4; 32]);
-    let ours = secret.diffie_hellman(&other.public_key()).unwrap();
-    let theirs = other.diffie_hellman(&secret.public_key()).unwrap();
-    assert_eq!(ours.as_bytes(), theirs.as_bytes());
-}
-
-fn hex32(text: &str) -> [u8; 32] {
-    let mut bytes = [0; 32];
-    for (index, byte) in bytes.iter_mut().enumerate() {
-        *byte = u8::from_str_radix(&text[index * 2..index * 2 + 2], 16).unwrap();
-    }
-    bytes
 }

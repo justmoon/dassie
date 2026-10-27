@@ -58,13 +58,6 @@ pub enum Effect {
         /// Whether it applied.
         applied: bool,
     },
-    /// Send a scheme message to a peer.
-    SendMessage {
-        /// The peer.
-        peer: Name,
-        /// The scheme's payload.
-        message: Vec<u8>,
-    },
     /// The underlying ledger charged a fee for one of our transactions:
     /// Dr `expenses/fees`, Cr `assets/settlement`, recorded whatever the
     /// owner's funds, since the money is gone.
@@ -158,7 +151,9 @@ pub struct PreparedSettlement {
     /// How much it settles: at most what was asked, less what the
     /// underlying ledger cannot represent. The node books this.
     pub amount: u64,
-    /// The proof or claim to send the peer with the settlement message.
+    /// The proof or claim to send the peer with the settlement message:
+    /// empty for a scheme whose messages are bare notices
+    /// ([`SettlementScheme::books_messages`]).
     pub message: Vec<u8>,
 }
 
@@ -355,9 +350,6 @@ pub trait SettlementScheme: Send {
         None
     }
 
-    /// The scheme protocol versions it speaks, negotiated when peering.
-    fn supported_versions(&self) -> &'static [u16];
-
     /// The balance on the underlying ledger, in internal units: what the
     /// node checkpoints.
     fn balance(&self) -> u64;
@@ -489,32 +481,27 @@ pub trait SettlementScheme: Send {
         out: &mut Vec<u8>,
     ) -> Result<(), SchemeError>;
 
-    /// Accepts or refuses `peer`'s request, writing the response data.
-    /// Returns the peer's scheme state, and keeps nothing of `peer` until
-    /// [`on_peered`](Self::on_peered).
+    /// Accepts or refuses `peer`'s request. Returns the peer's scheme
+    /// state, and keeps nothing of `peer` until
+    /// [`on_peered`](Self::on_peered). The acceptance carries nothing: what
+    /// the requester needs of us, it has from our peering info.
     ///
     /// # Errors
     ///
     /// If the request is refused.
-    fn accept_peering_request(
-        &mut self,
-        peer: Name,
-        data: &[u8],
-        response: &mut Vec<u8>,
-    ) -> Result<Vec<u8>, SchemeError>;
+    fn accept_peering_request(&mut self, peer: Name, data: &[u8]) -> Result<Vec<u8>, SchemeError>;
 
-    /// Completes our request after `peer` accepted it. Returns the peer's
-    /// scheme state, and keeps nothing of `peer` until
-    /// [`on_peered`](Self::on_peered).
+    /// Completes our request after `peer` accepted it, from the peering
+    /// info it gave us. Returns the peer's scheme state, and keeps nothing
+    /// of `peer` until [`on_peered`](Self::on_peered).
     ///
     /// # Errors
     ///
-    /// If the response is invalid.
+    /// If the peering info is invalid.
     fn finalize_peering_request(
         &mut self,
         peer: Name,
         peering_info: &[u8],
-        data: &[u8],
     ) -> Result<Vec<u8>, SchemeError>;
 
     /// The peering with `peer` is made: its accounts are open, and `state`
@@ -611,6 +598,15 @@ pub trait SettlementScheme: Send {
         effects: &mut Vec<Effect>,
     );
 
+    /// Whether a `settlement` message on this scheme books what it states.
+    /// The stub's does. A scheme whose ledger says what arrived sends a
+    /// bare notice instead, with no amount and no data, which only moves
+    /// the settlement channel on: the node then states 0 in its own, and
+    /// neither checks nor books what a peer's states.
+    fn books_messages(&self) -> bool {
+        true
+    }
+
     /// Handles a peer's settlement message.
     ///
     /// # Errors
@@ -624,9 +620,6 @@ pub trait SettlementScheme: Send {
         peer_state: &[u8],
         effects: &mut Vec<Effect>,
     ) -> Result<(), SchemeError>;
-
-    /// Handles a scheme message from a peer.
-    fn handle_message(&mut self, peer: Name, message: &[u8], effects: &mut Vec<Effect>);
 
     /// Adds money on the owner's behalf, where the scheme can.
     ///

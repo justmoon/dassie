@@ -22,17 +22,15 @@ use dassie_identity::{NodeId, NodeKey, PublicKey};
 use dassie_oer::Encode;
 use rand_core::CryptoRng;
 
-use crate::auth::{Authenticator, Pending};
 use crate::channel::{Channel, Closed, Retry};
 use crate::config::Config;
-use crate::io::VERDICT_ACCEPTED;
 use crate::io::{Event, Failure, Output, Request, RequestId, Response, Stats};
 use crate::names::{Commitment, Holders, Name, Registrant, Registrar};
 use crate::routing::{RouteKey, Routes};
 use crate::table::{Bucket, Entry, NetworkBuckets, Sources};
 use crate::wire::{
-    Authentication, Content, HubList, HubListing, HubMembership, MAX_CLAIM_BYTES,
-    MAX_COMMITMENT_BYTES, ResponseEnvelope, SchemeId, encode_envelope,
+    Content, Endpoint, HubList, HubListing, HubMembership, MAX_CLAIM_BYTES, MAX_COMMITMENT_BYTES,
+    SchemeId,
 };
 
 pub use lifecycle::BanError;
@@ -70,15 +68,12 @@ const _: () = assert!(MAX_OWN_HUBS <= crate::wire::MAX_HUBS);
 /// What this node says about itself.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct OwnInfo {
-    /// Its HTTPS origin; without one, it can't publish a link state.
+    /// Its HTTPS origin, whose host and port its QUIC endpoint takes the
+    /// peer protocol at; without one, it is a periphery node, which dials
+    /// out to its uplinks (spec/areas/network.md#periphery-nodes).
     pub url: Option<String>,
     /// Its alias.
     pub alias: String,
-    /// Whether it has a QUIC endpoint: with a URL, one that takes the peer
-    /// protocol on UDP at the URL's host and port; without one, one it
-    /// dials out from, which makes it a periphery node
-    /// (spec/areas/network.md#periphery-nodes).
-    pub quic: bool,
     /// The UDP port of its rate feed, at its URL's host, if it publishes
     /// one (spec/areas/rate-feed.md#finding-a-feed). Only a node with a URL
     /// names it.
@@ -94,12 +89,12 @@ pub struct OwnInfo {
 }
 
 impl OwnInfo {
-    /// Whether the node runs as a periphery node: it has a QUIC endpoint
-    /// but no URL, so it dials its uplinks and is reached only over the
-    /// connections it opened.
+    /// Whether the node runs as a periphery node: it has no URL, so it
+    /// dials its uplinks and is reached only over the connections it
+    /// opened.
     #[must_use]
     pub const fn is_periphery(&self) -> bool {
-        self.url.is_none() && self.quic
+        self.url.is_none()
     }
 
     /// The same, without a URL that is not a valid node URL (too long, for
@@ -118,7 +113,6 @@ impl OwnInfo {
         Self {
             url,
             alias,
-            quic: self.quic,
             feed_port,
             hub: self.hub,
         }
@@ -130,8 +124,8 @@ impl OwnInfo {
 pub struct Bootstrap {
     /// Its ID, checked against its key.
     pub id: NodeId,
-    /// Its URL.
-    pub url: String,
+    /// Where it takes QUIC, from its configured URL.
+    pub endpoint: Endpoint,
     /// Its key.
     pub key: PublicKey,
 }
@@ -143,7 +137,7 @@ pub(crate) enum Problem {
     Status(u16),
     /// No response.
     Failed(Failure),
-    /// A response that is malformed or not authentic.
+    /// A response that is malformed.
     Invalid,
 }
 
@@ -151,7 +145,7 @@ impl Problem {
     /// Whether the request surely had no effect at the other end.
     pub(crate) const fn is_definite(self) -> bool {
         match self {
-            Self::Status(status) => matches!(status, 400 | 401 | 409 | 503),
+            Self::Status(status) => matches!(status, 400 | 409 | 503),
             Self::Failed(failure) => matches!(failure, Failure::NotDelivered),
             Self::Invalid => false,
         }
@@ -222,14 +216,14 @@ const ANSWER_RETRY_MS: u64 = 1_000;
 pub(crate) struct Outstanding {
     pub to: NodeId,
     pub purpose: Purpose,
-    pub pending: Pending,
     pub deadline_ms: u64,
 }
 
 /// The peer protocol's state machine.
 pub struct PeerNode {
     pub(crate) config: Config,
-    pub(crate) auth: Authenticator,
+    /// Our node key, which signs our link state.
+    pub(crate) key: Arc<NodeKey>,
     pub(crate) own: NodeId,
     pub(crate) own_info: OwnInfo,
     /// The hubs our link state lists, each with its scheme, at most
@@ -254,7 +248,7 @@ pub struct PeerNode {
     /// Responses waiting to be sent again.
     pub(crate) answers: Vec<(u64, Answer)>,
     /// Probes in flight: the node and the host probed.
-    pub(crate) probing: Vec<(NodeId, String)>,
+    pub(crate) probing: Vec<(NodeId, Endpoint)>,
     pub(crate) probes: Bucket,
     /// Each network's share of the probes, spent by those that fail.
     pub(crate) network_probes: NetworkBuckets,
@@ -336,7 +330,7 @@ impl PeerNode {
         config.validate();
         let own = key.node_id();
         let mut node = Self {
-            auth: Authenticator::new(Arc::clone(&key), config.auth, now_ms),
+            key: Arc::clone(&key),
             own,
             own_info: own_info.checked(),
             own_hubs: Vec::new(),
@@ -392,30 +386,7 @@ impl PeerNode {
             config,
         };
         node.restore(stored);
-        node.pin_restored();
         node
-    }
-
-    /// Pins what was restored: bootstrap nodes, nodes registered with us,
-    /// and those our registrar involves keep their replay state
-    /// (spec/areas/peer-protocol.md#replay-protection).
-    fn pin_restored(&mut self) {
-        let registered = self
-            .table
-            .iter()
-            .filter(|(_, entry)| entry.registration.is_some())
-            .map(|(id, _)| *id);
-        let parties = self.registrar.iter().flat_map(Registrar::parties);
-        let pinned: Vec<NodeId> = self
-            .bootstrap
-            .iter()
-            .map(|b| b.id)
-            .chain(registered)
-            .chain(parties)
-            .collect();
-        for id in pinned {
-            self.auth.pin(id);
-        }
     }
 
     /// Our node ID.
@@ -584,22 +555,22 @@ impl PeerNode {
         self.events_queued.wrapping_sub(before)
     }
 
-    /// The key and URL to reach `node`: from its link state, or the
-    /// bootstrap list.
-    pub(crate) fn contact(&self, node: &NodeId) -> Option<(PublicKey, String)> {
+    /// The key and endpoint to reach `node`: from its link state, or the
+    /// bootstrap list. A periphery node has no endpoint.
+    pub(crate) fn contact(&self, node: &NodeId) -> Option<(PublicKey, Option<Endpoint>)> {
         if let Some(entry) = self.table.get(node)
             && let (Some(key), Some(link)) = (entry.key, entry.link.as_ref())
         {
-            return Some((key, link.url.clone()));
+            return Some((key, link.endpoint.clone()));
         }
         self.bootstrap
             .iter()
             .find(|bootstrap| bootstrap.id == *node)
-            .map(|bootstrap| (bootstrap.key, bootstrap.url.clone()))
+            .map(|bootstrap| (bootstrap.key, Some(bootstrap.endpoint.clone())))
     }
 
-    /// Sends `content` to `to`, authenticated. Returns `None` when it
-    /// cannot: no contact, ourselves, or too much in flight.
+    /// Sends `content` to `to`. Returns `None` when it cannot: no contact,
+    /// ourselves, or too much in flight.
     pub(crate) fn send(
         &mut self,
         to: NodeId,
@@ -607,16 +578,18 @@ impl PeerNode {
         purpose: Purpose,
         timeout_ms: u64,
     ) -> Option<RequestId> {
-        let (key, url) = self.contact(&to)?;
-        self.send_via(to, key, url, content, purpose, timeout_ms)
+        let (_, endpoint) = self.contact(&to)?;
+        self.send_via(to, endpoint, content, purpose, timeout_ms)
     }
 
-    /// Sends `content` to `to` at `url`, authenticated for `key`.
+    /// Sends `content` to `to` at `endpoint`, or, without one, over the
+    /// connection the periphery node `to` opened. The transport pins the
+    /// connection to `to`'s key, so only `to` answers, and proves ours to it
+    /// (spec/areas/peer-protocol.md#authentication).
     pub(crate) fn send_via(
         &mut self,
         to: NodeId,
-        key: PublicKey,
-        url: String,
+        endpoint: Option<Endpoint>,
         content: &Content<'_>,
         purpose: Purpose,
         timeout_ms: u64,
@@ -628,12 +601,7 @@ impl PeerNode {
             self.stats.requests_dropped += 1;
             return None;
         }
-        let bytes = content.to_vec();
-        let (hmac, pending) = self
-            .auth
-            .authenticate(self.now_ms, self.rng.as_mut(), &to, &key, &bytes)
-            .ok()?;
-        let body = encode_envelope(&self.own, &Authentication::Hmac(hmac), &bytes);
+        let body = content.to_vec();
         let id = RequestId(self.next_request);
         self.next_request += 1;
         let deadline_ms = self.now_ms.saturating_add(timeout_ms);
@@ -642,17 +610,16 @@ impl PeerNode {
             Outstanding {
                 to,
                 purpose,
-                pending,
                 deadline_ms,
             },
         );
         self.deadlines.insert((deadline_ms, id));
         // A periphery node is reached only over the connection it opened,
-        // which its empty URL tells the transport.
+        // which its missing endpoint tells the transport.
         self.outputs.push_back(Output::Request(Request {
             id,
             to,
-            url,
+            endpoint,
             kind: content.kind(),
             body,
             timeout_ms,
@@ -674,19 +641,12 @@ impl PeerNode {
             return;
         };
         self.deadlines.remove(&(outstanding.deadline_ms, id));
-        let body = match result {
+        // The connection proved who answered: the node it went to.
+        let checked = match result {
             Ok(response) if response.status == 200 => Ok(response.body),
             Ok(response) => Err(Problem::Status(response.status)),
             Err(failure) => Err(Problem::Failed(failure)),
         };
-        let checked = body.and_then(|body| {
-            let envelope = ResponseEnvelope::decode(&body).map_err(|_| Problem::Invalid)?;
-            outstanding
-                .pending
-                .check(&envelope)
-                .map_err(|_| Problem::Invalid)?;
-            Ok(envelope.body.to_vec())
-        });
         self.note_reach(outstanding.to, &outstanding.purpose, &checked);
         if checked.is_err() {
             self.stats.requests_failed += 1;
@@ -700,8 +660,8 @@ impl PeerNode {
     }
 
     /// Whether our messages reach `node`, from what became of one of our
-    /// requests to it (spec/decisions/unreachable-peers.md). An authenticated
-    /// answer says they do. Only an ILP packet that surely did not arrive
+    /// requests to it (spec/decisions/unreachable-peers.md). An answer says
+    /// they do. Only an ILP packet that surely did not arrive
     /// says they do not: the protocol's other requests may be refused here,
     /// by the bounds on requests in flight, which says nothing of the peer,
     /// while packets take no place in those bounds. A request that may have
@@ -762,10 +722,11 @@ impl PeerNode {
                     entry.advertise.settle_unreached = unreached;
                 }
                 match result {
+                    // An answer it cannot read says nothing of the amount.
                     Ok(body) => {
-                        // An answer it cannot read says nothing of the amount.
-                        let settling = crate::wire::decode_settling(&body).ok().flatten();
-                        self.event(Event::SettlementRequestAnswered { peer: to, settling });
+                        if let Ok(settling) = crate::wire::decode_settling(&body) {
+                            self.event(Event::SettlementRequestAnswered { peer: to, settling });
+                        }
                     }
                     // Refused for not being peered: asked before the peer took
                     // in our acceptance. It may be asked again at once.
@@ -777,8 +738,8 @@ impl PeerNode {
                     // failed delivery does not use up the grace before a peer
                     // short of room is withdrawn
                     // (spec/areas/network.md#advertised-peers). A refusal or an
-                    // overloaded peer (400, 401, 503) is asked again only after
-                    // the interval.
+                    // overloaded peer (400, 503) is asked again only after the
+                    // interval.
                     Err(Problem::Failed(Failure::NotDelivered)) => {
                         self.event(Event::SettlementRequestNotDelivered { peer: to });
                     }
@@ -821,12 +782,8 @@ impl PeerNode {
             Err(problem) => {
                 // A refusal after reading it will not change; anything
                 // else is tried again, and a copy that arrives twice is
-                // dropped by the peer's connector. A 401 is tried again
-                // too: a node that just started refuses messages dated
-                // before its start, and the copy sent again is dated anew.
-                // Each refusal is charged at the peer's rate limit, which
-                // costs a short spell of 429s at worst, not a Fulfill lost
-                // though booked (spec/areas/peer-protocol.md#message-set).
+                // dropped by the peer's connector
+                // (spec/areas/peer-protocol.md#message-set).
                 if matches!(problem, Problem::Status(400 | 409)) {
                     self.stats.answers_dropped += 1;
                 } else {
@@ -836,25 +793,22 @@ impl PeerNode {
         }
     }
 
-    /// The reply to a Fulfill we sent: the verdict, then, on a peering over
-    /// a hub, the payer's claim, which goes to the scheme
-    /// (spec/designs/settlement-hubs.md#4-peering-over-a-hub). A node that
-    /// sends the verdict alone, as every node not over a hub does, gives
-    /// nothing more; a claim too long is ignored.
+    /// The reply to a Fulfill we sent: on a peering over a hub, the payer's
+    /// claim, which goes to the scheme
+    /// (spec/designs/settlement-hubs.md#4-peering-over-a-hub). An empty
+    /// reply, as every peering not over a hub gives, says nothing more; a
+    /// claim too long is ignored.
     fn on_fulfill_reply(&mut self, answer: &Answer, body: &[u8]) {
-        if answer.packet.first() != Some(&inbound::FULFILL_TYPE) {
-            return;
-        }
-        let Some((&VERDICT_ACCEPTED, extra)) = body.split_first() else {
-            return;
-        };
-        if extra.is_empty() || extra.len() > MAX_CLAIM_BYTES {
+        if answer.packet.first() != Some(&inbound::FULFILL_TYPE)
+            || body.is_empty()
+            || body.len() > MAX_CLAIM_BYTES
+        {
             return;
         }
         self.event(Event::FulfillReply {
             peer: answer.peer,
             request_id: answer.request_id,
-            extra: extra.to_vec(),
+            claim: body.to_vec(),
         });
     }
 
@@ -1117,8 +1071,7 @@ impl PeerNode {
     /// one, refused, ended or dropped, comes here. A downlink took no core
     /// place, so the entry stays only if it gets one now: within the
     /// bound, or, kept for another reason, in place of a weaker entry.
-    /// Otherwise it goes at once, its replay state kept while a channel
-    /// needs it (spec/areas/network.md#downlinks).
+    /// Otherwise it goes at once (spec/areas/network.md#downlinks).
     pub(crate) fn drop_downlink(&mut self, node: &NodeId) {
         if !self.is_downlink(node) {
             return;
@@ -1160,10 +1113,9 @@ impl PeerNode {
         self.own_info.is_periphery()
     }
 
-    /// Whether this node takes downlinks: a core node that takes QUIC, on
-    /// which they reach it, with room for any.
+    /// Whether this node takes downlinks: a core node with room for any.
     pub(crate) const fn takes_downlinks(&self) -> bool {
-        self.own_info.url.is_some() && self.own_info.quic && self.config.max_downlinks > 0
+        self.own_info.url.is_some() && self.config.max_downlinks > 0
     }
 
     /// The downlinks in the table.
@@ -1179,11 +1131,6 @@ impl PeerNode {
         // still has a majority.
         self.lists.majority.remove(node);
         if self.table.remove(node).is_some() {
-            // A registered node evicted for a stronger reason keeps no
-            // replay state for good.
-            if !self.keeps_replay_state(node) {
-                self.auth.unpin(self.now_ms, node);
-            }
             self.dirty.remove(node);
             self.removed.push(*node);
             self.gossip.routes_dirty = true;

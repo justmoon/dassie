@@ -7,12 +7,11 @@
 //! stays of it ([`Closed`]) is on disk only, and the next peering opens it
 //! again from there (spec/decisions/closing-channels.md).
 
-use alloc::string::String;
 use alloc::vec::Vec;
 
 use dassie_identity::PublicKey;
 
-use crate::wire::SchemeId;
+use crate::wire::{Endpoint, SchemeId};
 
 /// A settlement message not yet acknowledged.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -34,9 +33,10 @@ pub struct Outgoing {
 pub struct Channel {
     /// The node's key, so the channel works after the node left the table.
     pub key: PublicKey,
-    /// The node's URL, likewise; its link state's, when there is one, is
-    /// preferred.
-    pub url: String,
+    /// Where the node takes QUIC, likewise, or `None` for a downlink, a
+    /// periphery node reached over the connection it opened; its link
+    /// state's, when there is one, is preferred.
+    pub endpoint: Option<Endpoint>,
     /// The highest sequence applied from the node.
     pub settled_in: u64,
     /// The last sequence we used.
@@ -55,19 +55,19 @@ pub struct Channel {
 }
 
 impl Channel {
-    /// A new channel with `key` at `url`.
+    /// A new channel with `key` at `endpoint`.
     #[must_use]
-    pub const fn new(key: PublicKey, url: String) -> Self {
-        Self::reopen(key, url, Closed::NEW)
+    pub const fn new(key: PublicKey, endpoint: Option<Endpoint>) -> Self {
+        Self::reopen(key, endpoint, Closed::NEW)
     }
 
-    /// The channel with `key` at `url`, opened again from what stayed of
-    /// it when it was closed.
+    /// The channel with `key` at `endpoint`, opened again from what stayed
+    /// of it when it was closed.
     #[must_use]
-    pub const fn reopen(key: PublicKey, url: String, closed: Closed) -> Self {
+    pub const fn reopen(key: PublicKey, endpoint: Option<Endpoint>, closed: Closed) -> Self {
         Self {
             key,
-            url,
+            endpoint,
             settled_in: closed.settled_in,
             settled_out: closed.settled_out,
             outbox: None,

@@ -47,6 +47,13 @@ impl ClientKey {
         }
     }
 
+    /// A key of `bytes` that names something other than an address, such
+    /// as a node by its key: a table keyed so never holds addresses.
+    #[must_use]
+    pub const fn from_bytes(bytes: [u8; 16]) -> Self {
+        Self(bytes)
+    }
+
     /// The key as bytes, as a database keeps it.
     #[must_use]
     pub const fn to_bytes(self) -> [u8; 16] {

@@ -589,17 +589,6 @@ impl Core {
                 Effect::Finalize { settlement: id } => self.settlement_done(scheme, *id),
                 Effect::OwnerPaid { id, applied } => self.owner_paid(scheme, *id, *applied),
                 Effect::Cancel { settlement: id } => self.settlement_cancelled(scheme, *id),
-                Effect::SendMessage { peer, message } => {
-                    let peer = dassie_identity::NodeId::parse(peer.as_str());
-                    let id = dassie_peer::wire::SchemeId::parse(scheme.as_str());
-                    if let (Ok(peer), Some(id)) = (peer, id)
-                        && let Err(error) =
-                            self.peer
-                                .send_scheme_message(self.now_ms, &peer, id, message)
-                    {
-                        self.report(SettlementEvent::MessageNotSent { peer, error });
-                    }
-                }
             }
         }
         self.take_journal();
@@ -707,10 +696,7 @@ impl Core {
                 cause,
                 id,
             } => self.loss_transfer(scheme, ledger, settlement, *peer, *cause, *amount, *id)?,
-            Effect::Finalize { .. }
-            | Effect::Cancel { .. }
-            | Effect::OwnerPaid { .. }
-            | Effect::SendMessage { .. } => {
+            Effect::Finalize { .. } | Effect::Cancel { .. } | Effect::OwnerPaid { .. } => {
                 return Ok(None);
             }
         };

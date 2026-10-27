@@ -513,7 +513,6 @@ impl Books {
                 }
                 self.losses.push((peer, amount, cause));
             }
-            Effect::SendMessage { .. } => {}
         }
     }
 
@@ -722,14 +721,13 @@ impl World {
             .scheme
             .create_peering_request(name_b, &info, &mut request)
             .unwrap();
-        let mut response = Vec::new();
         let state_at_b = self.members[b]
             .scheme
-            .accept_peering_request(name_a, &request, &mut response)
+            .accept_peering_request(name_a, &request)
             .unwrap();
         let state_at_a = self.members[a]
             .scheme
-            .finalize_peering_request(name_b, &info, &response)
+            .finalize_peering_request(name_b, &info)
             .unwrap();
         self.members[a].scheme.on_peered(name_b, &state_at_a);
         self.members[a].peer_states.insert(name_b, state_at_a);
@@ -1508,9 +1506,7 @@ fn a_peer_in_another_hub_is_refused() {
         Err(SchemeError::InvalidData)
     );
     assert_eq!(
-        world.members[a]
-            .scheme
-            .accept_peering_request(name, &info, &mut out),
+        world.members[a].scheme.accept_peering_request(name, &info),
         Err(SchemeError::InvalidData)
     );
 }
@@ -1568,18 +1564,17 @@ fn peering_again_as_another_waits_for_the_old_to_settle() {
     let name_a = world.members[a].name;
     let other_key = NodeKey::from_bytes(&[77; 32]).public_key();
     let own_key = world.members[a].key.public_key();
-    let mut out = Vec::new();
     for bytes in [
         membership(world.number(a), other_key),
         membership(AccountNumber(99), own_key),
     ] {
         let scheme = &mut world.members[b].scheme;
         assert_eq!(
-            scheme.accept_peering_request(name_a, &bytes, &mut out),
+            scheme.accept_peering_request(name_a, &bytes),
             Err(SchemeError::Unavailable)
         );
         assert_eq!(
-            scheme.finalize_peering_request(name_a, &bytes, &[]),
+            scheme.finalize_peering_request(name_a, &bytes),
             Err(SchemeError::Unavailable)
         );
     }
@@ -1588,7 +1583,7 @@ fn peering_again_as_another_waits_for_the_old_to_settle() {
     assert!(
         world.members[b]
             .scheme
-            .accept_peering_request(name_a, &same, &mut out)
+            .accept_peering_request(name_a, &same)
             .is_ok()
     );
 }

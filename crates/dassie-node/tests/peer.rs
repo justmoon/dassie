@@ -68,7 +68,7 @@ async fn check_network(node: &TestNode, own: &NodeKey, other: &NodeKey) {
     assert_eq!(peers.peers.len(), 1);
     let peer = &peers.peers[0];
     assert_eq!(peer.node, other.node_id().to_string());
-    assert_eq!((peer.scheme.as_str(), peer.version), ("stub", 1));
+    assert_eq!(peer.scheme, "stub");
     // The node that asked is the junior, and extends the credit
     // (spec/decisions/earned-trust.md).
     assert_eq!(peer.credit_out, if peer.inbound { 0 } else { CREDIT });

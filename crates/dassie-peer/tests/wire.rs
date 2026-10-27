@@ -19,14 +19,13 @@ use dassie_identity::{NodeId, NodeKey, PublicKey, Signature};
 use dassie_oer::{Decode, Encode};
 use dassie_peer::names::{Commitment, MAX_NAME_BYTES, Name, Salt};
 use dassie_peer::wire::{
-    Authentication, Content, EXTENSION_HUB, EXTENSION_HUBS, EXTENSION_METHODS, Entry, Envelope,
-    EnvelopeError, HmacAuthentication, HubList, HubListing, HubMembership, InvalidNodeInfo, Kind,
-    LinkStateResponse, MAX_COMMITMENT_BYTES, MAX_HUBS, MAX_NAME_LIST, MAX_NAME_LIST_BYTES,
-    MAX_URL_BYTES, MAX_VERSIONS, MethodResponse, NameHolding, NameListResponse, NameReceipt,
-    NodeInfo, NodeListResponse, PeeringRequest, PeeringResponse, RefusalReason, ResponseEnvelope,
-    SchemeId, SignedNodeInfo, TerminationReason, decode_expiry, decode_hash, decode_octets,
-    decode_settling, encode_envelope, encode_expiry, encode_octets, encode_response,
-    encode_settling, hub_list_bytes, is_valid_url, peek_kind, sign_node_info,
+    Content, EXTENSION_HUB, EXTENSION_HUBS, EXTENSION_METHODS, Entry, HubList, HubListing,
+    HubMembership, InvalidNodeInfo, Kind, LinkStateResponse, MAX_COMMITMENT_BYTES, MAX_HUBS,
+    MAX_NAME_LIST, MAX_NAME_LIST_BYTES, MAX_URL_BYTES, MethodResponse, NameHolding,
+    NameListResponse, NameReceipt, NodeInfo, NodeListResponse, PeeringRequest, PeeringResponse,
+    RefusalReason, SchemeId, SignedNodeInfo, TerminationReason, decode_expiry, decode_hash,
+    decode_octets, decode_settling, encode_expiry, encode_octets, encode_settling, hub_list_bytes,
+    is_valid_url, peek_kind, sign_node_info,
 };
 use proptest::prelude::*;
 use sha2::{Digest, Sha256};
@@ -96,10 +95,9 @@ fn stub() -> SchemeId {
     SchemeId::parse("stub").unwrap()
 }
 
-/// Node A's info as in the v0 vector: the same fields, signed as v1.
+/// Node A's info as in the v0 vector: the same fields, but its ID.
 fn info_a() -> NodeInfo<'static> {
     NodeInfo {
-        node_id: node_a().node_id(),
         sequence: 1_700_000_000_000,
         url: "https://a.example",
         alias: "Node A",
@@ -108,18 +106,22 @@ fn info_a() -> NodeInfo<'static> {
     }
 }
 
-// v1 keeps v0's node-info layout but for the node IDs, and the OID's last
-// arc changes, so a v0-signed info cannot pass as a v1 link state.
+// The node-info layout is v0's, with each node ID as its 24 bytes, but
+// without the node's own ID, which derives from the key sent beside it,
+// under a new OID, so that an info signed under another layout cannot pass
+// as a link state of this one.
 #[test]
-fn node_info_keeps_the_v0_layout_under_a_new_oid() {
+fn node_info_is_the_v0_layout_without_the_id() {
     assert!(NodeInfo::decode_exact(&vector("nodeInfo")).is_err());
     let v0 = with_v1_ids(&vector("nodeInfo"));
     let v1 = info_a().to_vec();
-    assert_eq!(v1.len(), v0.len());
+    let id = node_a().node_id().to_bytes();
     assert_eq!(v0[13], 0x02);
-    assert_eq!(v1[13], 0x03);
+    assert_eq!(v1[13], 0x05);
     assert_eq!(v1[..13], v0[..13]);
-    assert_eq!(v1[14..], v0[14..]);
+    assert_eq!(v0[14..14 + id.len()], id[..]);
+    assert_eq!(v1[14..], v0[14 + id.len()..]);
+    assert!(NodeInfo::decode_exact(&v0).is_err());
 }
 
 // The original's signature over the v0 info checks out, now that it is
@@ -141,6 +143,8 @@ fn signed_node_info_round_trips_and_verifies() {
     assert_eq!(signed.bytes, &bytes[..]);
     assert_eq!(signed.info, info_a());
     assert_eq!(signed.verify().unwrap(), node_a().public_key());
+    assert_eq!(signed.node_id, node_a().node_id());
+    assert_eq!(signed.info.node_id(), node_a().node_id());
     assert_eq!(
         signed.info.neighbors().collect::<Vec<_>>(),
         [node_b().node_id()]
@@ -154,9 +158,6 @@ fn a_link_state_must_be_its_nodes_and_well_formed() {
         let bytes = sign_node_info(key, &info);
         SignedNodeInfo::decode_exact(&bytes).unwrap().verify()
     };
-    let mut other = info_a();
-    other.node_id = node_b().node_id();
-    assert_eq!(check(other, &node_a()), Err(InvalidNodeInfo::NodeId));
     let mut path = info_a();
     path.url = "https://a.example/peer";
     assert_eq!(check(path, &node_a()), Err(InvalidNodeInfo::Url));
@@ -170,7 +171,6 @@ fn keys_of_small_order_are_refused() {
     let mut weak = [0u8; 32];
     weak[0] = 1;
     let info = NodeInfo {
-        node_id: NodeId::from_public_key(&weak),
         public_key: weak,
         ..info_a()
     };
@@ -217,83 +217,47 @@ fn node_lists_and_their_hashes_match_the_original() {
     );
 }
 
+// An `interledgerPacket` is v0's without the length v0 wrapped its fields
+// in: flat, as a `hubPacket` is.
 #[test]
-fn interledger_packets_keep_the_v0_layout() {
+fn interledger_packets_are_flat() {
     let content = Content::InterledgerPacket {
         request_id: 42,
         packet: &[0x0c],
     };
-    assert_eq!(content.to_vec(), vector("interledgerContent"));
-    assert_eq!(
-        Content::decode_exact(&vector("interledgerContent")).unwrap(),
-        content
-    );
+    let v0 = vector("interledgerContent");
+    assert_eq!(usize::from(v0[1]), v0.len() - 2);
+    let flat: Vec<u8> = [v0[0]].into_iter().chain(v0[2..].iter().copied()).collect();
+    assert_eq!(content.to_vec(), flat);
+    assert_eq!(Content::decode_exact(&flat).unwrap(), content);
+    assert!(Content::decode_exact(&v0).is_err());
 }
 
-// A v0 envelope is told apart from a malformed one, so the node can answer
-// "unsupported version".
+// A request is its content: no version byte, since the connection's ALPN
+// names the layouts (spec/decisions/protocol-upgrades.md). A v0 envelope,
+// which starts with one, is no message.
 #[test]
-fn a_v0_envelope_is_another_version() {
+fn a_request_is_its_content() {
+    assert!(Content::decode_exact(&vector("nodeListHashRequest")).is_err());
+    let body = Content::NodeListHashRequest.to_vec();
     assert_eq!(
-        Envelope::decode(&vector("nodeListHashRequest")),
-        Err(EnvelopeError::Version(0))
-    );
-    let mut v1 = with_v1_ids(&vector("nodeListHashRequest"));
-    v1[0] = 1;
-    let envelope = Envelope::decode(&v1).unwrap();
-    assert_eq!(envelope.sender, node_a().node_id());
-    assert_eq!(envelope.authentication, Authentication::None);
-    assert_eq!(
-        Content::decode_exact(envelope.content).unwrap(),
+        Content::decode_exact(&body).unwrap(),
         Content::NodeListHashRequest
     );
-    assert_eq!(peek_kind(&v1), Some(Kind::NodeListHashRequest));
-}
-
-fn hmac() -> HmacAuthentication {
-    HmacAuthentication {
-        sender_key: *node_a().public_key().as_bytes(),
-        session_id: [5; 16],
-        counter: 7,
-        timestamp_ms: 1_700_000_000_123,
-        mac: [9; 32],
-    }
+    assert_eq!(peek_kind(&body), Some(Kind::NodeListHashRequest));
 }
 
 // The v1 encodings, pinned: a change to them is a change to the protocol.
 #[test]
 fn v1_encodings_are_pinned() {
-    let content = Content::NodeListRequest.to_vec();
-    let envelope = encode_envelope(&node_a().node_id(), &Authentication::Hmac(hmac()), &content);
-    assert_eq!(
-        to_hex(&envelope),
-        "016a0bccb9a25f7f61f90eb9c9c3c96598af9667cdd6ad2cd8\
-         818a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c\
-         05050505050505050505050505050505\
-         0000000000000007\
-         0000018bcfe5687b\
-         0909090909090909090909090909090909090909090909090909090909090909\
-         87"
-    );
-    let decoded = Envelope::decode(&envelope).unwrap();
-    assert_eq!(decoded.authentication, Authentication::Hmac(hmac()));
-    let response = PeeringResponse::Accepted {
-        version: 1,
-        credit: 1_100_000_000,
-        data: &[0xab],
-    };
-    assert_eq!(to_hex(&response.to_vec()), "800001000000004190ab0001ab");
+    // The content alone: who sent it is the connection's, and which
+    // version its ALPN.
+    assert_eq!(to_hex(&Content::NodeListRequest.to_vec()), "87");
+    assert!(Content::decode_exact(&[]).is_err(), "no content");
+    assert_eq!(to_hex(&PeeringResponse::Accepted.to_vec()), "80");
     assert_eq!(
         to_hex(&PeeringResponse::Refused(RefusalReason::Capacity).to_vec()),
         "8104"
-    );
-    let wrapped = encode_response(Some(&[2; 32]), &[0x80]);
-    assert_eq!(
-        ResponseEnvelope::decode(&wrapped).unwrap(),
-        ResponseEnvelope {
-            mac: Some([2; 32]),
-            body: &[0x80],
-        }
     );
 }
 
@@ -304,21 +268,14 @@ fn peering_requests_round_trip() {
         scheme: stub(),
         node_info: SignedNodeInfo::decode_exact(&info).unwrap(),
         data: &[1, 2, 3],
-        versions: vec![1, 2],
-        credit: 1_100_000_000,
     });
     let bytes = request.to_vec();
     assert_eq!(bytes[0], 0x80);
     assert_eq!(Content::decode_exact(&bytes).unwrap(), request);
-    // At least one version.
-    let none = Content::PeeringRequest(PeeringRequest {
-        versions: Vec::new(),
-        ..match request {
-            Content::PeeringRequest(request) => request,
-            _ => unreachable!(),
-        }
-    });
-    assert!(Content::decode_exact(&none.to_vec()).is_err());
+    // Nothing follows the scheme's data.
+    let mut trailing = bytes.clone();
+    trailing.push(0);
+    assert!(Content::decode_exact(&trailing).is_err());
 }
 
 #[test]
@@ -366,7 +323,6 @@ fn settlements_and_terminations_are_pinned() {
         Content::PeeringTermination(TerminationReason::Unspecified)
     );
     assert_eq!(Kind::from_tag(10), Some(Kind::PeeringTermination));
-    assert!(Kind::PeeringTermination.requires_authentication());
     // spec/decisions/own-fulfills.md: a settlement request names its scheme
     // alone.
     let request = Content::SettlementRequest {
@@ -374,7 +330,6 @@ fn settlements_and_terminations_are_pinned() {
     };
     assert_eq!(to_hex(&request.to_vec()), "8b0473747562");
     assert_eq!(Kind::from_tag(11), Some(Kind::SettlementRequest));
-    assert!(Kind::SettlementRequest.requires_authentication());
     assert!(Content::decode_exact(&[0x8b]).is_err());
     assert!(Content::decode_exact(&[0x8c]).is_err());
     assert_eq!(
@@ -386,10 +341,8 @@ fn settlements_and_terminations_are_pinned() {
 proptest! {
     #[test]
     fn decoders_never_panic(bytes in proptest::collection::vec(any::<u8>(), 0..512)) {
-        let _ = Envelope::decode(&bytes);
         let _ = Content::decode_exact(&bytes);
         let _ = SignedNodeInfo::decode_exact(&bytes);
-        let _ = ResponseEnvelope::decode(&bytes);
         let _ = PeeringResponse::decode_exact(&bytes);
         let _ = LinkStateResponse::decode_exact(&bytes);
         let _ = NodeListResponse::decode_exact(&bytes);
@@ -426,6 +379,7 @@ fn decode_content(bytes: &[u8]) -> Result<(), TestCaseError> {
     let Ok(content) = Content::decode_exact(bytes) else {
         return Ok(());
     };
+    prop_assert_eq!(peek_kind(bytes), Some(content.kind()));
     if let Content::PeeringRequest(PeeringRequest {
         node_info: info, ..
     })
@@ -446,12 +400,7 @@ const RESPONSES: usize = 11;
 fn response(kind: usize) -> Vec<u8> {
     let signed = signed_full();
     match kind {
-        0 => PeeringResponse::Accepted {
-            version: 1,
-            credit: 1_100_000_000,
-            data: &[0xab; 3],
-        }
-        .to_vec(),
+        0 => PeeringResponse::Accepted.to_vec(),
         1 => PeeringResponse::Refused(RefusalReason::Capacity).to_vec(),
         2 => LinkStateResponse(vec![
             None,
@@ -469,11 +418,7 @@ fn response(kind: usize) -> Vec<u8> {
         }
         .to_vec(),
         9 => name_list().to_vec(),
-        10 => MethodResponse::Accepted {
-            version: 1,
-            data: &[0xab; 3],
-        }
-        .to_vec(),
+        10 => MethodResponse::Accepted.to_vec(),
         _ => unreachable!(),
     }
 }
@@ -507,10 +452,7 @@ fn decode_response(kind: usize, body: &[u8]) -> Result<(), TestCaseError> {
                 prop_assert_eq!(encode_octets(data), body);
             }
         }
-        7 => prop_assert_eq!(
-            decode_settling(body).is_ok(),
-            body.is_empty() || body.len() == 8
-        ),
+        7 => prop_assert_eq!(decode_settling(body).is_ok(), body.len() == 8),
         8 => prop_assert_eq!(
             NameReceipt::decode_exact(body).is_ok(),
             body.len() == NameReceipt::ENCODED_BYTES
@@ -547,22 +489,6 @@ fn url() -> impl Strategy<Value = String> {
     ]
 }
 
-/// Decodes an envelope as the node does, and its content.
-fn decode_envelope(body: &[u8]) -> Result<(), TestCaseError> {
-    let Ok(envelope) = Envelope::decode(body) else {
-        prop_assert_eq!(peek_kind(body), None);
-        return Ok(());
-    };
-    prop_assert_eq!(
-        encode_envelope(&envelope.sender, &envelope.authentication, envelope.content),
-        body
-    );
-    if let Ok(content) = Content::decode_exact(envelope.content) {
-        prop_assert_eq!(peek_kind(body), Some(content.kind()));
-    }
-    decode_content(envelope.content)
-}
-
 // Random bytes rarely get past the first fields: these break valid
 // encodings instead, so that every field, and the link states and entries
 // inside them, see bad input. Each case breaks every kind the same way, so
@@ -573,21 +499,6 @@ proptest! {
         let signed = signed_full();
         for tag in 0..KINDS {
             decode_content(&mutate(&content(tag, &signed), &mutations))?;
-        }
-    }
-
-    #[test]
-    fn broken_envelopes_never_panic(authentication in 0..3usize, mutations in mutations()) {
-        let authentication = [
-            Authentication::Hmac(hmac()),
-            Authentication::Reserved(&[2; 64]),
-            Authentication::None,
-        ][authentication];
-        let signed = signed_full();
-        for tag in 0..KINDS {
-            let content = content(tag, &signed);
-            let body = encode_envelope(&node_a().node_id(), &authentication, &content);
-            decode_envelope(&mutate(&body, &mutations))?;
         }
     }
 
@@ -620,16 +531,9 @@ proptest! {
     }
 
     #[test]
-    fn broken_responses_never_panic(wrapped in any::<bool>(), mutations in mutations()) {
+    fn broken_responses_never_panic(mutations in mutations()) {
         for kind in 0..RESPONSES {
-            if wrapped {
-                let bytes = encode_response(Some(&[2; 32]), &response(kind));
-                if let Ok(envelope) = ResponseEnvelope::decode(&mutate(&bytes, &mutations)) {
-                    decode_response(kind, envelope.body)?;
-                }
-            } else {
-                decode_response(kind, &mutate(&response(kind), &mutations))?;
-            }
+            decode_response(kind, &mutate(&response(kind), &mutations))?;
         }
     }
 
@@ -673,10 +577,10 @@ proptest! {
             node_b().node_id()
         };
         let info = SignedNodeInfo {
+            node_id,
             bytes: &[],
             signed: &signed,
             info: NodeInfo {
-                node_id,
                 url: &url,
                 public_key,
                 ..info_a()
@@ -688,8 +592,7 @@ proptest! {
 }
 
 // The answer to a settlement request is the amount on its way, eight bytes
-// big-endian; an empty answer, from a node before
-// spec/decisions/ending-a-peering.md, says nothing.
+// big-endian, and nothing else.
 #[test]
 fn a_settlement_requests_answer_is_the_amount_on_its_way() {
     assert_eq!(
@@ -698,10 +601,19 @@ fn a_settlement_requests_answer_is_the_amount_on_its_way() {
     );
     assert_eq!(
         decode_settling(&[1, 2, 3, 4, 5, 6, 7, 8]),
-        Ok(Some(0x0102_0304_0506_0708))
+        Ok(0x0102_0304_0506_0708)
     );
-    assert_eq!(decode_settling(&[]), Ok(None));
+    assert!(decode_settling(&[]).is_err());
     assert!(decode_settling(&[1, 2, 3]).is_err());
+}
+
+// Tag 5 is reserved: no message has it, so a node refuses it as malformed,
+// whatever follows it.
+#[test]
+fn tag_5_is_no_message() {
+    assert_eq!(Kind::from_tag(5), None);
+    assert!(Content::decode_exact(&[0x85]).is_err());
+    assert!(Content::decode_exact(&[0x85, 4, b's', b't', b'u', b'b', 1, 0]).is_err());
 }
 
 // spec/areas/peer-protocol.md#message-set: `hubPacket [12]` carries a
@@ -717,7 +629,6 @@ fn hub_packets_are_pinned_and_bounded() {
     assert_eq!(Content::decode_exact(&content.to_vec()).unwrap(), content);
     assert_eq!(Kind::from_tag(12), Some(Kind::HubPacket));
     assert_eq!(content.kind(), Kind::HubPacket);
-    assert!(Kind::HubPacket.requires_authentication());
     assert!(!Kind::HubPacket.is_read_only());
     assert!(Kind::HubPacket.carries_packet() && Kind::InterledgerPacket.carries_packet());
     assert!(!Kind::Settlement.carries_packet());
@@ -843,15 +754,13 @@ fn the_largest_own_link_state_fits_its_bound() {
     let hubs = hubs.to_vec();
     assert_eq!(hubs.len(), hub_list_bytes(dassie_peer::MAX_OWN_HUBS));
     let port = 4433u16.to_be_bytes();
-    let extensions: [(u16, &[u8]); 5] = [
-        (dassie_peer::wire::EXTENSION_QUIC, &[]),
+    let extensions: [(u16, &[u8]); 4] = [
         (dassie_peer::wire::EXTENSION_FEED, &port),
         (EXTENSION_HUB, &hub),
         (EXTENSION_METHODS, &[]),
         (EXTENSION_HUBS, &hubs),
     ];
     let info = NodeInfo {
-        node_id: key.node_id(),
         sequence: u64::MAX,
         url: &url,
         alias: &alias,
@@ -933,10 +842,10 @@ fn name_messages_are_pinned() {
     }
     assert_eq!(Kind::from_tag(18), Some(Kind::MethodPacket));
     for kind in [Kind::NameCommit, Kind::NameUnseal, Kind::NameRenew] {
-        assert!(kind.requires_authentication() && !kind.is_read_only());
+        assert!(!kind.is_read_only());
     }
     for kind in [Kind::NameListHashRequest, Kind::NameListRequest] {
-        assert!(!kind.requires_authentication() && kind.is_read_only());
+        assert!(kind.is_read_only());
     }
     for kind in (13..=17).filter_map(Kind::from_tag) {
         assert!(!kind.carries_packet());
@@ -1083,9 +992,8 @@ fn settlement_method_messages_are_pinned_and_bounded() {
     let add = Content::MethodAdd {
         scheme: stub(),
         data: &[0xab],
-        versions: vec![1, 2],
     };
-    assert_eq!(to_hex(&add.to_vec()), "93047374756201ab010200010002");
+    assert_eq!(to_hex(&add.to_vec()), "93047374756201ab");
     let drop = Content::MethodDrop { scheme: stub() };
     assert_eq!(to_hex(&drop.to_vec()), "940473747562");
     for (tag, content) in [(18, &packet), (19, &add), (20, &drop)] {
@@ -1095,7 +1003,7 @@ fn settlement_method_messages_are_pinned_and_bounded() {
         );
         let kind = Kind::from_tag(tag).unwrap();
         assert_eq!((content.kind(), kind.tag()), (kind, tag));
-        assert!(kind.requires_authentication() && !kind.is_read_only());
+        assert!(!kind.is_read_only());
         assert_eq!(kind.carries_packet(), kind == Kind::MethodPacket);
     }
     assert_eq!(Content::decode_exact(&direct.to_vec()).unwrap(), direct);
@@ -1115,15 +1023,6 @@ fn settlement_method_messages_are_pinned_and_bounded() {
     bytes[14] = 0x01;
     bytes.push(0xab);
     assert!(Content::decode_exact(&bytes).is_err());
-    // No versions, or more than MAX_VERSIONS, are malformed.
-    for versions in [vec![], vec![1; MAX_VERSIONS + 1]] {
-        let add = Content::MethodAdd {
-            scheme: stub(),
-            data: &[],
-            versions,
-        };
-        assert!(Content::decode_exact(&add.to_vec()).is_err());
-    }
     // Nothing may follow.
     for content in [&packet, &add, &drop] {
         let mut trailing = content.to_vec();
@@ -1132,28 +1031,27 @@ fn settlement_method_messages_are_pinned_and_bounded() {
     }
 }
 
-// The answer to a `methodAdd` is shaped as a peering answer's, without the
-// credit only nodes of 0.1 read.
+// The answer to a `methodAdd` is shaped as a peering answer's.
 #[test]
 fn method_answers_are_pinned() {
-    let accepted = MethodResponse::Accepted {
-        version: 1,
-        data: &[0xab],
-    };
-    assert_eq!(to_hex(&accepted.to_vec()), "80000101ab");
-    let refused = MethodResponse::Refused(RefusalReason::NoCommonVersion);
-    assert_eq!(to_hex(&refused.to_vec()), "8103");
+    let accepted = MethodResponse::Accepted;
+    assert_eq!(to_hex(&accepted.to_vec()), "80");
+    let refused = MethodResponse::Refused(RefusalReason::Capacity);
+    assert_eq!(to_hex(&refused.to_vec()), "8104");
     for response in [accepted, refused] {
         assert_eq!(
             MethodResponse::decode_exact(&response.to_vec()),
             Ok(response)
         );
     }
-    // Unknown reasons read as unspecified; unknown tags are malformed.
-    assert_eq!(
-        MethodResponse::decode_exact(&[0x81, 0x63]),
-        Ok(MethodResponse::Refused(RefusalReason::Unspecified))
-    );
+    // Unknown reasons, and the reserved 3, read as unspecified; unknown
+    // tags are malformed.
+    for code in [0x03, 0x63] {
+        assert_eq!(
+            MethodResponse::decode_exact(&[0x81, code]),
+            Ok(MethodResponse::Refused(RefusalReason::Unspecified))
+        );
+    }
     assert!(MethodResponse::decode_exact(&[0x82, 0x00]).is_err());
 }
 
@@ -1312,12 +1210,11 @@ proptest! {
         scheme in "[a-z0-9-]{2,64}",
         packet in proptest::collection::vec(any::<u8>(), 0..300),
         commitment in proptest::collection::vec(any::<u8>(), 0..=MAX_COMMITMENT_BYTES),
-        versions in proptest::collection::vec(any::<u16>(), 1..=MAX_VERSIONS),
     ) {
         let scheme = SchemeId::parse(&scheme).unwrap();
         let contents = [
             Content::MethodPacket { request_id, scheme, packet: &packet, commitment: &commitment },
-            Content::MethodAdd { scheme, data: &packet, versions },
+            Content::MethodAdd { scheme, data: &packet },
             Content::MethodDrop { scheme },
         ];
         for content in contents {

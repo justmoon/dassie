@@ -79,9 +79,9 @@ fn peer_node(severity: Severity, event: &dassie_peer::Event) {
         Event::FulfillReply {
             peer,
             request_id,
-            extra,
+            claim,
         } => {
-            let bytes = extra.len();
+            let bytes = claim.len();
             emit!(severity, target: target::PEER, %peer, request_id, bytes, "the peer's reply to our Fulfill carries a claim");
         }
         Event::PeeringFailed { node, reason } => {
@@ -221,7 +221,7 @@ fn peer_settlement(severity: Severity, event: &dassie_peer::Event) {
             emit!(severity, target: target::SETTLEMENT, %peer, sequence, "the peer has our settlement");
         }
         Event::SettlementRequestAnswered { peer, settling } => {
-            emit!(severity, target: target::SETTLEMENT, %peer, ?settling, "the peer answered our request to settle");
+            emit!(severity, target: target::SETTLEMENT, %peer, settling, "the peer answered our request to settle");
         }
         Event::SettlementRequestRefused { peer } => {
             emit!(severity, target: target::SETTLEMENT, %peer, "the peer is not peered with us yet; it is asked to settle again at the next check");
@@ -373,9 +373,6 @@ fn settlement(severity: Severity, event: &SettlementEvent) {
         } => {
             emit!(severity, target: target::SETTLEMENT, %scheme, %peer, amount, ?cause, "a peering over a hub cost more than its hold: booked as a loss");
         }
-        SettlementEvent::MessageNotSent { peer, error } => {
-            emit!(severity, target: target::SETTLEMENT, %peer, ?error, "a scheme message was not sent");
-        }
         SettlementEvent::DepositFromStranger { peer, amount } => {
             emit!(severity, target: target::SETTLEMENT, %peer, amount, "a settlement from a node without accounts: booked as a deposit");
         }
@@ -497,7 +494,6 @@ fn settlement_outcome(severity: Severity, event: &SettlementEvent) {
         SettlementEvent::BalanceBooked { .. }
         | SettlementEvent::Reconciled { .. }
         | SettlementEvent::PeerLoss { .. }
-        | SettlementEvent::MessageNotSent { .. }
         | SettlementEvent::DepositFromStranger { .. }
         | SettlementEvent::OtherRealm { .. }
         | SettlementEvent::Unusable { .. }

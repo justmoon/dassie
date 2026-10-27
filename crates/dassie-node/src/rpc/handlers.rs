@@ -299,12 +299,12 @@ fn claim_pairing(
     )))
 }
 
-/// Where a device reaches the node: at its own URL if its QUIC endpoint
-/// answers there; otherwise through the peers it is connected to, which
-/// relay to it, if its engine runs.
+/// Where a device reaches the node: at its own URL, where its QUIC
+/// endpoint answers; without one, through the peers it is connected to,
+/// which relay to it, if its engine runs.
 async fn reach(node: &Node) -> Reach {
     let own = node.own_info();
-    if let (Some(url), true) = (own.url, own.quic) {
+    if let Some(url) = own.url {
         return Reach {
             direct: Some(url),
             relays: Vec::new(),

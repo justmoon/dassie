@@ -12,6 +12,7 @@ use std::sync::Arc;
 
 use bytes::BytesMut;
 use dassie_identity::NodeId;
+use dassie_peer::wire::Endpoint;
 use futures_util::StreamExt;
 use tokio_util::codec::{Framed, LengthDelimitedCodec};
 use tokio_util::sync::CancellationToken;
@@ -41,11 +42,11 @@ pub async fn serve(
 /// Where an app reaches a node.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Route<'a> {
-    /// Through the relay `(node ID, URL)`, which the node keeps a
+    /// Through the relay `(node ID, endpoint)`, which the node keeps a
     /// connection to.
-    Relay(NodeId, &'a str),
-    /// Directly, at the node's QUIC endpoint at this URL.
-    Direct(&'a str),
+    Relay(NodeId, &'a Endpoint),
+    /// Directly, at the node's QUIC endpoint.
+    Direct(&'a Endpoint),
 }
 
 /// The RPC's transport to a node, framed as on the IPC socket.
@@ -65,12 +66,12 @@ pub async fn connect(
     resolver: &Resolver,
 ) -> Result<Channel, RelayError> {
     let stream = match route {
-        Route::Relay(relay, url) => {
-            quic.open_relayed((relay, url), node, Purpose::Owner, resolver)
+        Route::Relay(relay, endpoint) => {
+            quic.open_relayed((relay, endpoint), node, Purpose::Owner, resolver)
                 .await?
         }
-        Route::Direct(url) => {
-            quic.open_direct((node, url), Purpose::Owner, resolver)
+        Route::Direct(endpoint) => {
+            quic.open_direct((node, endpoint), Purpose::Owner, resolver)
                 .await?
         }
     };
