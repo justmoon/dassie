@@ -1,22 +1,25 @@
 // Golden vectors for `dassie-identity` (spec/areas/identity.md#derivation-chain),
-// computed apart from Dassie's code, so that the node, the wallet's WASM
-// build and this generator must agree. No library implements the phrase's
-// Reed–Solomon code (spec/decisions/phrase-format.md), so it is written out
-// below, unlike the Rust code: its field arithmetic by shift and add rather
-// than by tables, its bits by BigInt, its division as long division. The
-// rest comes from libraries of their own: the BIP-39 English wordlist from
-// @scure/bip39, @noble/hashes for the master seed's HKDF, the HMAC tree of
-// seed paths and the node ID's digest, @scure/base for its base32,
-// @noble/curves for Ed25519 and X25519, @scure/bip32 for a hub's payout key,
-// and xrpl.js for the XRP Ledger wallets.
+// computed with libraries of their own rather than with Dassie's code, so
+// that the node, the wallet's WASM build and these libraries must agree:
+// phrase.mjs beside this file for the phrase format, written from its
+// decision alone, with node:crypto's HKDF-SHA256 for the master seed;
+// @scure/bip39 for the English wordlist and for BIP-39 phrases a reader
+// refuses; @noble/hashes for the HMAC tree of seed paths and the node ID's
+// digest, @scure/base for its base32, @noble/curves for Ed25519 and
+// X25519, @scure/bip32 for a hub's payout key, and xrpl.js for the XRP
+// Ledger wallets.
 //
 // It writes, into crates/dassie-identity/tests/data/:
 //
-// - chain.json: phrases of both realms, each secret in each, from the
-//   secret to the phrase, master seed, node key, public key, node ID, login
-//   secret, and the entropy and wallet of the node's first XRP Ledger
-//   account on the testnet and on mainnet; and readings: phrases as typed,
-//   damaged, or not phrases at all, with what reading them gives;
+// - phrase.json: the phrase format on its own: phrases of both realms
+//   made from a kind, a creation hour and a secret, with their data and
+//   check words and master seed; the hours of clock readings; and phrases
+//   as a reader reads them, with wrong, unreadable and unknown words, of
+//   every length, kind and realm, and made after the reader's clock;
+// - chain.json: phrases of both realms, each from its secret to its
+//   master seed, node key, public key, node ID, login secret, and the
+//   entropy and wallet of the node's first XRP Ledger account on the
+//   testnet and on mainnet;
 // - keys.json: two node keys with a signature and their X25519 keys, an
 //   X25519 shared secret, and the node ID's hash input;
 // - paths.json: every seed path below the node key, with its text and its
@@ -28,10 +31,13 @@
 //     @scure/base@2.4.0 @noble/hashes@2.4.0 @noble/curves@2.4.0 xrpl@3.1.0
 //   NODE_PATH="$TMP/node_modules" node testdata/identity/generate-vectors.mjs
 //
-// The output is deterministic: running it again must not change the files.
+// Then regenerate testdata/xrpl's vectors, which sign with chain.json's
+// wallets. The output is deterministic: running it again must not change
+// the files.
 
 import { createRequire } from "node:module";
 import { writeFileSync } from "node:fs";
+import * as phrase from "./phrase.mjs";
 
 const require = createRequire(`${process.env.NODE_PATH}/`);
 const { entropyToMnemonic } = require("@scure/bip39");
@@ -40,7 +46,6 @@ const { HDKey } = require("@scure/bip32");
 const { base32nopad } = require("@scure/base");
 const { sha256 } = require("@noble/hashes/sha2.js");
 const { hmac } = require("@noble/hashes/hmac.js");
-const { hkdf } = require("@noble/hashes/hkdf.js");
 const { ed25519, x25519 } = require("@noble/curves/ed25519.js");
 const { Wallet, encodeSeed } = require("xrpl");
 
@@ -92,75 +97,28 @@ const XRPL_ACCOUNTS = [
   ["xrplMainnet", "node/xrpl/0/account/0"],
 ];
 
-// GF(2^11) with x^11 + x^2 + 1 and alpha = x, multiplied by shift and add.
-const gfMul = (a, b) => {
-  let product = 0;
-  for (; b > 0; b >>= 1, a <<= 1) {
-    if (a & 0x800) a ^= 0x805;
-    if (b & 1) product ^= a;
-  }
-  return product;
+// Phrases of both realms, a secret and a creation hour each from a counter.
+const words = (kind, created, secret) => {
+  const { data, check } = phrase.encode(kind, created, secret);
+  return [...data, ...check].map((word) => wordlist[word]).join(" ");
 };
-const gfPow = (power) => {
-  let element = 1;
-  for (let i = 0; i < power; i++) element = gfMul(element, 2);
-  return element;
-};
-
-// g(x) = (x - a)(x - a^2)...(x - a^6), highest coefficient first.
-const RS_GENERATOR = [1, 2, 3, 4, 5, 6].reduce(
-  (g, root) => [...g, 0].map((c, i) => c ^ (i > 0 ? gfMul(g[i - 1], gfPow(root)) : 0)),
-  [1],
-);
-
-// The check words: the data words shifted up by six places, divided by
-// g(x), by long division over the dividend's coefficients.
-const checkWords = (data) => {
-  const dividend = [...data, 0, 0, 0, 0, 0, 0];
-  for (let i = 0; i < data.length; i++) {
-    const factor = dividend[i];
-    if (factor === 0) continue;
-    RS_GENERATOR.forEach((c, j) => (dividend[i + j] ^= gfMul(factor, c)));
-  }
-  return dividend.slice(data.length);
-};
-
-// The words of a kind, an hour and a 16-byte secret: 154 bits, most
-// significant first, in 14 words of 11 bits, then the six check words.
-const KINDS = { test: 1, live: 2 };
-const EPOCH_MS = Date.UTC(2026, 0, 1);
-const MAX_HOURS = 2 ** 20 - 1;
-const phraseWords = (kind, created, secret) => {
-  const bits = (BigInt(kind) << 148n) | (BigInt(created) << 128n) | BigInt(`0x${hex(secret)}`);
-  const data = [];
-  for (let i = 13; i >= 0; i--) data.push(Number((bits >> BigInt(11 * i)) & 0x7ffn));
-  return [...data, ...checkWords(data)];
-};
-const text = (words) => words.map((index) => wordlist[index]).join(" ");
-
-// The master seed: HKDF-SHA256 of the secret, salt "dassie phrase", the
-// realm as info.
-const masterSeedOf = (secret, realm) =>
-  hkdf(sha256, secret, utf8("dassie phrase"), utf8(realm), 64);
-
-// 32 secrets, each in both realms, made at hours across the field.
 const chain = Array.from({ length: 64 }, (_, index) => {
-  const realm = index % 2 === 0 ? "test" : "live";
-  const secret = sha256(utf8(`dassie identity vector ${index >> 1}`)).subarray(0, 16);
-  const digest = sha256(utf8(`dassie identity hour ${index}`));
-  const created =
-    index < 2 ? [0, MAX_HOURS][index] : ((digest[0] << 16) | (digest[1] << 8) | digest[2]) & MAX_HOURS;
-  const masterSeed = masterSeedOf(secret, realm);
+  const digest = sha256(utf8(`dassie identity vector ${index}`));
+  const secret = digest.subarray(0, 16);
+  const kind = 1 + (index % 2);
+  const realm = phrase.KIND_REALMS[kind];
+  const created = new DataView(digest.buffer, digest.byteOffset + 16, 4).getUint32(0) &
+    phrase.MOST_CREATED;
+  const masterSeed = phrase.masterSeed(secret, realm);
   const nodeKey = fold(masterSeed, ["node"]);
   const publicKey = ed25519.getPublicKey(nodeKey);
   const entry = {
     index,
+    kind,
     realm,
-    kind: KINDS[realm],
     created,
-    createdAt: new Date(EPOCH_MS + created * 3_600_000).toISOString(),
     secret: hex(secret),
-    phrase: text(phraseWords(KINDS[realm], created, secret)),
+    phrase: words(kind, created, secret),
     masterSeed: hex(masterSeed),
     nodeKey: hex(nodeKey),
     publicKey: hex(publicKey),
@@ -174,111 +132,294 @@ const chain = Array.from({ length: 64 }, (_, index) => {
   }
   return entry;
 });
+write("chain.json", { chain });
 
-// Readings: what a person might type, and what reading it, expecting the
-// realm given, must give. Damage within the bound (at most two wrong words,
-// and 2 x wrong + unreadable at most five) restores the phrase, with the
-// positions it changed; one step past it is refused, since the code's
-// distance of seven leaves no other phrase within the bound.
-const pick = (seed, count, from) => {
-  const rank = (value) => hex(sha256(utf8(`${seed} ${value}`)));
-  return [...from]
-    .sort((a, b) => rank(a).localeCompare(rank(b)))
-    .slice(0, count)
-    .sort((a, b) => a - b);
+// The phrase format on its own (spec/decisions/phrase-format.md). Places
+// count from 0, the first word; a word's value is its index in the list.
+
+const zeros = (length) => new Array(length).fill(0);
+const SECRETS = [
+  ["zero", new Uint8Array(16)],
+  ["all ones", new Uint8Array(16).fill(0xff)],
+  ["the top bit", Uint8Array.from([0x80, ...zeros(15)])],
+  ["the bottom bit", Uint8Array.from([...zeros(15), 1])],
+  ["alternating", new Uint8Array(16).fill(0xa5)],
+  ...[0, 1, 2].map((index) => [
+    `counter ${index}`,
+    sha256(utf8(`dassie phrase vector ${index}`)).subarray(0, 16),
+  ]),
+];
+const secretOf = (name) => SECRETS.find(([label]) => label === name)[1];
+const NOW = phrase.hourOf(Date.UTC(2026, 9, 27, 13, 45));
+const CREATED = [0, 1, NOW, 0x55555, 0xaaaaa, phrase.MOST_CREATED];
+
+const made = (kind, created, secret) => {
+  const { data, check } = phrase.encode(kind, created, secret);
+  const indices = [...data, ...check];
+  if (phrase.syndromes(indices).some((value) => value !== 0)) throw new Error("not a codeword");
+  return indices;
 };
-const POSITIONS = Array.from({ length: 20 }, (_, i) => i);
-const damage = (entry, seed, wrong, unreadable, mark) => {
-  const words = entry.phrase.split(" ");
-  const wrongAt = pick(`${seed} wrong`, wrong, POSITIONS);
-  const rest = POSITIONS.filter((p) => !wrongAt.includes(p));
-  const unreadableAt = pick(`${seed} unreadable`, unreadable, rest);
-  for (const position of wrongAt) {
-    const index = wordlist.indexOf(words[position]);
-    words[position] = wordlist[(index + 1 + sha256(utf8(`${seed} ${position}`))[0]) % 2048];
+const spell = (indices) => indices.map((word) => wordlist[word]);
+
+// Phrases made from a kind, a creation hour and a secret: every secret in
+// both realms, and one secret at every edge of the creation hour.
+const madePhrases = [];
+SECRETS.forEach(([name, secret], index) => {
+  const hours = name === "counter 0" ? CREATED : [CREATED[index % CREATED.length]];
+  for (const created of hours) {
+    for (const kind of [1, 2]) {
+      const indices = made(kind, created, secret);
+      const realm = phrase.KIND_REALMS[kind];
+      madePhrases.push({
+        secretName: name,
+        kind,
+        realm,
+        created,
+        createdAt: phrase.hourStart(created),
+        secret: hex(secret),
+        dataWords: indices.slice(0, phrase.DATA_WORDS),
+        checkWords: indices.slice(phrase.DATA_WORDS),
+        words: spell(indices),
+        phrase: spell(indices).join(" "),
+        masterSeed: hex(phrase.masterSeed(secret, realm)),
+      });
+    }
   }
-  for (const position of unreadableAt) {
-    if (mark === "?") words[position] = "?";
-    if (mark === "unknown") words[position] = "xyzzy";
+});
+
+// The hour of a clock reading, and the readings outside the field, at
+// which a generator makes no phrase (`hour` null).
+const clocks = [
+  Date.UTC(2025, 11, 31, 23, 59, 59, 999),
+  Date.UTC(2026, 0, 1),
+  Date.UTC(2026, 0, 1, 0, 59, 59, 999),
+  Date.UTC(2026, 0, 1, 1),
+  Date.UTC(2026, 9, 27, 13, 45),
+  Date.UTC(2145, 7, 15, 15, 59, 59, 999),
+  Date.UTC(2145, 7, 15, 16),
+].map((ms) => ({
+  time: new Date(ms).toISOString(),
+  unixMillis: ms,
+  hour: phrase.hourOf(ms) ?? null,
+}));
+
+// Reading. A wrong word is another word of the list, picked from a hash of
+// the case's name; an unreadable word is `null` (marked by the owner) or a
+// word not in the list.
+const pick = (name, place, avoid) => {
+  for (let round = 0;; round += 1) {
+    const digest = sha256(utf8(`dassie phrase wrong word ${name} ${place} ${round}`));
+    const word = ((digest[0] << 8) | digest[1]) & 0x7ff;
+    if (word !== avoid) return word;
   }
-  return {
-    input: words.join(" "),
-    unreadable: mark === "marked" ? unreadableAt : [],
-    changed: [...wrongAt, ...unreadableAt].sort((a, b) => a - b),
-  };
 };
-const readings = [];
-const at = (index) => chain[index];
-// As written, in capitals, by the first four letters, with sloppy spaces.
-readings.push({ input: at(0).phrase, unreadable: [], realm: "test", phrase: at(0).phrase, changed: [] });
-readings.push({
-  input: `  ${at(1).phrase.toUpperCase()}\n`,
-  unreadable: [],
+const listed = phrase.wordIndex(wordlist);
+const UNKNOWN = ["dassie", "xxxx", "qwerty", "zzz", "kopje", "hyrax"];
+for (const word of UNKNOWN) {
+  if (listed.has(word.toLowerCase().slice(0, 4))) throw new Error(`${word} is in the list`);
+}
+
+const A = made(1, NOW, secretOf("counter 0"));
+const B = made(2, NOW, secretOf("counter 1"));
+const LATER = NOW + 24;
+
+// `indices` spelled out and damaged at places: `wrong` takes another word,
+// `unknown` a word not in the list, `marked` null.
+const damage = (name, indices, { wrong = [], unknown = [], marked = [] }) => {
+  const input = spell(indices);
+  for (const place of wrong) input[place] = wordlist[pick(name, place, indices[place])];
+  unknown.forEach((place, at) => (input[place] = UNKNOWN[at % UNKNOWN.length]));
+  for (const place of marked) input[place] = null;
+  return input;
+};
+
+// Each case gives the reader's realm and clock (an hour), the words read,
+// and what the reader makes of them. `expect` is what the case was built
+// to give, checked here apart from the decoder: "ok" (the source back,
+// unchanged), "corrected" (the source back, changed), or a refusal.
+const reading = [];
+const readCase = (name, input, { realm = "test", clock = LATER, source, expect }) => {
+  const outcome = phrase.read(wordlist, input, { realm, clock });
+  if (expect === "ok" || expect === "corrected") {
+    if (outcome.refused !== undefined) throw new Error(`${name}: refused ${outcome.refused}`);
+    if (outcome.phrase !== spell(source).join(" ")) throw new Error(`${name}: another phrase`);
+    if (outcome.corrected !== (expect === "corrected")) throw new Error(`${name}: corrected?`);
+  } else if (outcome.refused !== expect) {
+    throw new Error(`${name}: ${outcome.refused ?? "read"}, not ${expect}`);
+  }
+  const result = outcome.refused === undefined
+    ? {
+      phrase: outcome.phrase,
+      corrected: outcome.corrected,
+      changed: outcome.changed,
+      kind: outcome.kind,
+      realm: outcome.realm,
+      created: outcome.created,
+      createdAfterClock: outcome.createdAfterClock,
+      secret: hex(outcome.secret),
+      masterSeed: hex(outcome.masterSeed),
+    }
+    : outcome.refused === "tooDamaged"
+    ? { refused: "tooDamaged" }
+    : outcome;
+  reading.push({ name, realm, clock, input, result });
+};
+
+// A refusal as too damaged that no decoder within the bound can avoid: no
+// codeword lies within the errors it may correct of what was read.
+const tooDamaged = (name, source, damaged, options = {}) => {
+  const erasures = (damaged.unknown?.length ?? 0) + (damaged.marked?.length ?? 0);
+  const wrong = damaged.wrong?.length ?? 0;
+  const budget = phrase.errorBudget(erasures);
+  if (budget >= 0 && !(wrong > budget && wrong + budget <= 6 - erasures)) {
+    throw new Error(`${name}: not provably too damaged`);
+  }
+  readCase(name, damage(name, source, damaged), { ...options, source, expect: "tooDamaged" });
+};
+const corrected = (name, source, damaged, options = {}) =>
+  readCase(name, damage(name, source, damaged), { ...options, source, expect: "corrected" });
+
+readCase("clean, test realm", spell(A), { source: A, expect: "ok" });
+readCase("clean, live realm", spell(B), { realm: "live", source: B, expect: "ok" });
+readCase("upper case", spell(A).map((word) => word.toUpperCase()), { source: A, expect: "ok" });
+readCase("first four letters", spell(A).map((word) => word.slice(0, 4)), {
+  source: A,
+  expect: "ok",
+});
+readCase(
+  "mixed case, first four letters",
+  spell(B).map((word, place) =>
+    place % 2 === 0 ? word.slice(0, 4).toUpperCase() : word[0].toUpperCase() + word.slice(1)
+  ),
+  { realm: "live", source: B, expect: "ok" },
+);
+readCase(
+  "letters after the fourth are not read",
+  spell(A).map((word) => (word.length >= 4 ? `${word.slice(0, 4)}xyz` : word)),
+  { source: A, expect: "ok" },
+);
+
+for (const place of [0, 7, 13, 14, 19]) {
+  corrected(`one wrong word at ${place}`, A, { wrong: [place] });
+}
+corrected("two wrong words, first and last", A, { wrong: [0, 19] });
+corrected("two wrong words, side by side", A, { wrong: [3, 4] });
+corrected("two wrong check words", B, { wrong: [14, 15] }, { realm: "live" });
+corrected("two wrong words, data and check", B, { wrong: [12, 18] }, { realm: "live" });
+
+corrected("one marked word", A, { marked: [0] });
+corrected("one word not in the list", A, { unknown: [5] });
+corrected("two unreadable words", A, { marked: [1], unknown: [17] });
+corrected("three unreadable words", B, { marked: [2, 9], unknown: [13] }, { realm: "live" });
+corrected("four unreadable words", A, { marked: [0, 6, 14], unknown: [19] });
+corrected("five unreadable words, the first five", A, { marked: [0, 1, 2, 3, 4] });
+corrected("five unreadable words, check words", B, { unknown: [14, 15, 16, 17, 18] }, {
   realm: "live",
-  phrase: at(1).phrase,
-  changed: [],
 });
-readings.push({
-  input: at(2).phrase.split(" ").map((word) => word.slice(0, 4)).join("\t"),
-  unreadable: [],
-  realm: "test",
-  phrase: at(2).phrase,
-  changed: [],
+corrected("five unreadable words, spread", A, { marked: [0, 5, 10], unknown: [15, 19] });
+const plain = made(1, 0, secretOf("zero"));
+if (plain[5] !== 0) throw new Error("the zero secret's sixth word is the list's first");
+corrected("an unreadable word that is the list's first", plain, { marked: [5] });
+
+corrected("one wrong word and one unreadable", A, { wrong: [8], marked: [2] });
+corrected("one wrong word and two unreadable", B, { wrong: [19], marked: [0], unknown: [10] }, {
+  realm: "live",
 });
-// Damage within the bound, unreadable words written as "?", as an unknown
-// word, or marked by position.
-const WITHIN = [[1, 0], [2, 0], [0, 1], [0, 5], [1, 3], [2, 1], [1, 1], [0, 3]];
-const MARKS = ["?", "unknown", "marked"];
-WITHIN.forEach(([wrong, unreadable], i) => {
-  MARKS.forEach((mark, j) => {
-    const entry = at(3 + i * MARKS.length + j);
-    const reading = damage(entry, `within ${i} ${j}`, wrong, unreadable, mark);
-    readings.push({ ...reading, realm: entry.realm, phrase: entry.phrase });
-  });
+corrected("one wrong word and three unreadable", A, {
+  wrong: [11],
+  marked: [1, 4],
+  unknown: [16],
 });
-// One step past the bound.
-const BEYOND = [[3, 0], [2, 2], [1, 4], [0, 6], [3, 1]];
-BEYOND.forEach(([wrong, unreadable], i) => {
-  const entry = at(40 + i);
-  const reading = damage(entry, `beyond ${i}`, wrong, unreadable, i % 2 === 0 ? "?" : "marked");
-  readings.push({
-    input: reading.input,
-    unreadable: reading.unreadable,
-    realm: entry.realm,
-    error: "tooDamaged",
-  });
+corrected("two wrong words and one unreadable", A, { wrong: [6, 15], marked: [9] });
+
+tooDamaged("six unreadable words", A, { marked: [0, 3, 6, 9, 12, 15] });
+tooDamaged("six unreadable check words", A, { unknown: [14, 15, 16, 17, 18, 19] });
+tooDamaged("one wrong word and four unreadable", A, { wrong: [7], marked: [0, 1, 2, 3] });
+tooDamaged("two wrong words and two unreadable", B, { wrong: [5, 6], marked: [10, 11] }, {
+  realm: "live",
 });
-// BIP-39 phrases, and counts that are no phrase.
-for (const bytes of [16, 32]) {
-  const entropy = sha256(utf8(`dassie bip39 ${bytes}`)).subarray(0, bytes);
-  readings.push({ input: entropyToMnemonic(entropy, wordlist), unreadable: [], realm: "test", error: "bip39" });
-}
-const words = at(0).phrase.split(" ");
-for (const [input, error] of [
-  [words.slice(0, 19).join(" "), "wordCount"],
-  [[...words, "abandon"].join(" "), "bip39"],
-  [[...words, "abandon", "abandon"].join(" "), "wordCount"],
-  ["", "wordCount"],
-]) {
-  readings.push({ input, unreadable: [], realm: "test", error });
-}
-// A phrase of the other realm, and kinds this version does not know.
-readings.push({ input: at(1).phrase, unreadable: [], realm: "test", error: "otherRealm" });
-readings.push({ input: at(0).phrase, unreadable: [], realm: "live", error: "otherRealm" });
-const secret = Uint8Array.from(Buffer.from(at(0).secret, "hex"));
-for (const [kind, error] of [[0, "invalidKind"], [3, "newerKind"], [63, "newerKind"]]) {
-  readings.push({ input: text(phraseWords(kind, 0, secret)), unreadable: [], realm: "test", error });
-}
-// The kind is read after correction: a damaged phrase of the other realm
-// is refused as that, not shown corrected.
-readings.push({
-  input: damage(at(5), "other realm", 1, 1, "?").input,
-  unreadable: [],
-  realm: "test",
-  error: "otherRealm",
+tooDamaged("three wrong words", A, { wrong: [0, 9, 19] });
+tooDamaged("three wrong data words", B, { wrong: [1, 2, 3] }, { realm: "live" });
+tooDamaged("three wrong check words", A, { wrong: [14, 16, 18] });
+tooDamaged("three wrong words and one unreadable", A, { wrong: [2, 8, 17], marked: [5] });
+tooDamaged("four wrong words", A, { wrong: [0, 5, 10, 15] });
+tooDamaged("no word in the list", A, {
+  unknown: Array.from({ length: 20 }, (_, place) => place),
+});
+tooDamaged("every word marked", A, {
+  marked: Array.from({ length: 20 }, (_, place) => place),
 });
 
-write("chain.json", { chain, readings });
+for (const bytes of [16, 20, 24, 28, 32]) {
+  const entropy = sha256(utf8(`dassie phrase bip39 ${bytes}`)).subarray(0, bytes);
+  const input = entropyToMnemonic(entropy, wordlist).split(" ");
+  readCase(`a BIP-39 phrase of ${input.length} words`, input, { expect: "bip39" });
+}
+readCase("a phrase and one word more", [...spell(A), wordlist[0]], { expect: "bip39" });
+for (const length of [0, 1, 11, 13, 19, 22, 25]) {
+  const input = [...spell(A), ...spell(B)].slice(0, length);
+  readCase(`${length} words`, input, { expect: "length" });
+}
+
+const kindZero = made(0, NOW, secretOf("counter 2"));
+readCase("kind 0", spell(kindZero), { expect: "kindZero" });
+readCase("kind 0, with a wrong word", damage("kind 0", kindZero, { wrong: [10] }), {
+  expect: "kindZero",
+});
+for (const kind of [3, 42, 63]) {
+  readCase(`kind ${kind}`, spell(made(kind, NOW, secretOf("counter 2"))), {
+    expect: "unassignedKind",
+  });
+}
+readCase(
+  "kind 63, with two unreadable words",
+  damage("kind 63", made(63, NOW, secretOf("counter 2")), { marked: [0, 1] }),
+  { expect: "unassignedKind" },
+);
+readCase("a live phrase where a test phrase is expected", spell(B), { expect: "otherRealm" });
+readCase("a test phrase where a live phrase is expected", spell(A), {
+  realm: "live",
+  expect: "otherRealm",
+});
+readCase(
+  "a test phrase with a wrong word where a live phrase is expected",
+  damage("other realm", A, { wrong: [3] }),
+  { realm: "live", expect: "otherRealm" },
+);
+
+readCase("made in the reader's hour", spell(A), { clock: NOW, source: A, expect: "ok" });
+readCase("made an hour after the reader's clock", spell(A), {
+  clock: NOW - 1,
+  source: A,
+  expect: "ok",
+});
+const last = made(1, phrase.MOST_CREATED, secretOf("counter 2"));
+readCase("made in the field's last hour, read at its first", spell(last), {
+  clock: 0,
+  source: last,
+  expect: "ok",
+});
+const first = made(2, 0, secretOf("counter 2"));
+readCase("made in the field's first hour, read at its last", spell(first), {
+  realm: "live",
+  clock: phrase.MOST_CREATED,
+  source: first,
+  expect: "ok",
+});
+corrected("made after the reader's clock, with a wrong word", A, { wrong: [16] }, { clock: 0 });
+
+// Every phrase made reads back as itself in its own realm.
+for (const entry of madePhrases) {
+  const outcome = phrase.read(wordlist, entry.words, { realm: entry.realm, clock: NOW });
+  if (
+    outcome.phrase !== entry.phrase || outcome.corrected ||
+    hex(outcome.masterSeed) !== entry.masterSeed
+  ) {
+    throw new Error(`${entry.phrase} does not read back`);
+  }
+}
+
+write("phrase.json", { made: madePhrases, clocks, reading });
 
 const message = utf8("dassie test message");
 const keys = [fill(1), fill(3)].map((seed) => {
