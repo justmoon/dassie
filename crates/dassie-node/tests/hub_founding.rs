@@ -662,10 +662,16 @@ async fn a_live_realm_sponsor_founds_hubs_on_mainnet() {
             xrpl_server: String::new(),
         }))
         .await;
+    let refused = refused.unwrap_err();
     assert_eq!(
-        refused.unwrap_err().code(),
+        refused.code(),
         proto::ErrorCode::InvalidArgument,
         "no mainnet scheme joins a DSUSD hub"
+    );
+    assert!(
+        refused.message.contains("no settlement scheme"),
+        "{}",
+        refused.message
     );
 
     let xrp = found_and_check(&net, &serde_json::json!({})).await;

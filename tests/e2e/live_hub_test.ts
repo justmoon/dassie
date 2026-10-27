@@ -11,8 +11,9 @@
  * from its owner books of XRP and RLUSD, which peer with nobody, and the
  * two peer over both hubs, a method each.
  *
- * A node of the live realm is offered no mainnet hub's scheme while none
- * is built in. A client of one member pays the other's receiver in XRP
+ * A node of the live realm is offered mainnet's books, and no scheme of
+ * the testnet; a mainnet hub's scheme only once a default hub of it is
+ * built in, which the schemes' own tests check either way. A client of one member pays the other's receiver in XRP
  * over the XRP hub, and the other pays back in RLUSD over the RLUSD hub:
  * each payment keeps its ledger, so what arrived is what was sent, and
  * each owner's books show it, in step with what its accounts hold.
@@ -74,17 +75,23 @@ test(
       const [first, second] = members;
       assert(first && second, "two members");
 
-      // While no mainnet hub is built in, a node of the live realm is
-      // offered mainnet's books alone, and no hub's scheme.
+      // A node of the live realm is offered mainnet's books, and beside
+      // them only a mainnet hub's scheme, once a default hub of it is
+      // built in: none of the testnet's.
       const validator = scenario.nodes.find((node) =>
         !members.includes(node) && node.index !== xrpHub.sponsor
       );
       assert(validator, "a validator that sponsors nothing");
       const { schemes } = await validator.rpc.call("listSettlementSchemes", {});
-      assertEquals(schemes.map((scheme) => scheme.id).sort(), [
-        "xrpl-rlusd",
-        "xrpl-xrp",
-      ]);
+      const offered = schemes.map((scheme) => scheme.id);
+      const books = ["xrpl-rlusd", "xrpl-xrp"];
+      assertEquals(offered.filter((id) => books.includes(id)).sort(), books);
+      for (const id of offered) {
+        assert(
+          books.includes(id) || ["hub-xrpl-xrp", "hub-xrpl-rlusd"].includes(id),
+          `${id} offered in the live realm`,
+        );
+      }
 
       await joinedHubs(scenario);
 

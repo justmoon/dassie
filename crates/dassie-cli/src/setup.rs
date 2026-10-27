@@ -360,15 +360,42 @@ async fn setup(env: &Env, options: &Options) -> Result<(), Failure> {
     for scheme in &options.schemes {
         add_scheme(&mut client, scheme, &after.active_settlement_schemes).await?;
     }
+    settle_hub(&mut client, options, realm).await
+}
+
+/// Joins the default settlement hub of `realm` if the owner's flags say
+/// so; otherwise, in the live realm without `--no-hub`, says how to join
+/// it, while the node offers it.
+async fn settle_hub(client: &mut Client, options: &Options, realm: Realm) -> Result<(), Failure> {
+    let hub = DefaultHub::of(realm);
     if options.joins_hub(realm) {
-        join_default_hub(&mut client, DefaultHub::of(realm)).await?;
-    } else if realm == Realm::Live {
+        return join_default_hub(client, hub).await;
+    }
+    if !options.no_hub
+        && matches!(
+            hub_plan(hub, &list_schemes(client).await?),
+            HubPlan::Join(_)
+        )
+    {
         println!(
             "In the live realm, the node joins a settlement hub only once its owner turns hubs \
              on: pass --hub to join the default one."
         );
     }
     Ok(())
+}
+
+/// The settlement schemes the node lists.
+async fn list_schemes(client: &mut Client) -> Result<Vec<proto::SettlementSchemeInfo>, Failure> {
+    match call(
+        client,
+        Method::ListSettlementSchemes(proto::ListSettlementSchemesRequest {}),
+    )
+    .await?
+    {
+        response::Method::ListSettlementSchemes(list) => Ok(list.schemes),
+        _ => Err(unexpected()),
+    }
 }
 
 /// How `dassie setup` joins the realm's default settlement hub, from the
@@ -416,16 +443,7 @@ fn hub_plan(hub: DefaultHub, schemes: &[proto::SettlementSchemeInfo]) -> HubPlan
 /// adds the owner book it funds from, unless active, then its scheme. Each
 /// step prints one line.
 async fn join_default_hub(client: &mut Client, hub: DefaultHub) -> Result<(), Failure> {
-    let schemes = match call(
-        client,
-        Method::ListSettlementSchemes(proto::ListSettlementSchemesRequest {}),
-    )
-    .await?
-    {
-        response::Method::ListSettlementSchemes(list) => list.schemes,
-        _ => return Err(unexpected()),
-    };
-    match hub_plan(hub, &schemes) {
+    match hub_plan(hub, &list_schemes(client).await?) {
         HubPlan::NoneOffered => {
             println!(
                 "This build has no default settlement hub for the node's realm: joining none."
