@@ -301,7 +301,8 @@ fn withdraw_low(sim: &mut Sim, setup: &Setup) -> Result<u64, Outcome> {
         }
     }
     // The owner asks until the node has checked the gas, and topped it
-    // up: each ask before is refused, to try again shortly.
+    // up: each ask before is refused, to try again shortly, as is one while
+    // the account reads the hub behind it.
     let deadline = sim.now + GAS_WITHIN_MS;
     let mut refused = 0u32;
     loop {
@@ -311,7 +312,7 @@ fn withdraw_low(sim: &mut Sim, setup: &Setup) -> Result<u64, Outcome> {
         });
         match asked {
             Ok(()) => break,
-            Err(EngineError::Exhausted(_)) if sim.now < deadline => {
+            Err(EngineError::Exhausted(_) | EngineError::Precondition(_)) if sim.now < deadline => {
                 refused += 1;
                 sim.run_until(sim.now + 2_000);
             }
