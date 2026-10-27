@@ -4,52 +4,34 @@
  * passphrase before deriving from it and says why a login failed.
  */
 
-import { type Identity, loadIdentity } from "@dassie/wasm/web";
+import { loadIdentity } from "@dassie/wasm/web";
 import type { JSX } from "@solidjs/web";
-import { createSignal, Show } from "solid-js";
-import { checkPassphrase, submitLogin } from "../auth.ts";
-import {
-  IDENTITY_FAILED,
-  INVALID_PASSPHRASE,
-  loginFailure,
-} from "../messages.ts";
+import { submitLogin } from "../auth.ts";
+import { IDENTITY_FAILED, loginFailure } from "../messages.ts";
+import type { Realm } from "../phrase.ts";
 import { Card } from "../ui.tsx";
+import { PhraseEntry } from "./phrase.tsx";
 
-/** Asks for the passphrase and signs the owner in with its proof. */
-export function Login(): JSX.Element {
-  const [phrase, setPhrase] = createSignal("");
-  const [error, setError] = createSignal<string>();
-  const [pending, setPending] = createSignal(false);
+/**
+ * Asks for the passphrase, a phrase of `realm`, the node's, and signs the
+ * owner in with its proof.
+ */
+export function Login(props: { realm: Realm }): JSX.Element {
   // Loading the key derivation module while the passphrase is typed hides
   // its delay; a failure surfaces on submit.
   loadIdentity().catch(() => {});
 
   /** Signs in; resolves to what went wrong, or never, as the page reloads. */
-  const attempt = async (entered: string): Promise<string | undefined> => {
-    let identity: Identity;
+  const signIn = async (phrase: string): Promise<string | undefined> => {
+    let outcome;
     try {
-      identity = await loadIdentity();
+      outcome = await submitLogin(phrase, props.realm);
     } catch {
       return IDENTITY_FAILED;
     }
-    const normalized = checkPassphrase(identity, entered);
-    if (normalized === undefined) return INVALID_PASSPHRASE;
-    const outcome = await submitLogin(normalized);
     if (!outcome.ok) return loginFailure(outcome);
     location.reload();
     return undefined;
-  };
-
-  const submit = async (event: SubmitEvent) => {
-    event.preventDefault();
-    if (pending()) return;
-    setError(undefined);
-    setPending(true);
-    const failure = await attempt(phrase());
-    // On success the page is reloading: the button stays pending until then.
-    if (failure === undefined) return;
-    setError(failure);
-    setPending(false);
   };
 
   return (
@@ -64,33 +46,18 @@ export function Login(): JSX.Element {
       }
     >
       <p class="subtitle">Enter your wallet passphrase</p>
-      <form onSubmit={submit}>
-        <label for="login-phrase">Passphrase</label>
-        <input
-          id="login-phrase"
-          type="text"
-          data-testid="login-input"
-          autocomplete="off"
-          autocapitalize="none"
-          spellcheck={false}
-          placeholder="correct horse staple …"
-          value={phrase()}
-          onInput={(event) => setPhrase(event.currentTarget.value)}
-        />
-        <Show when={error()}>
-          <p class="error" role="alert" data-testid="login-error">{error()}</p>
-        </Show>
-        <div class="actions">
-          <button
-            type="submit"
-            class="primary"
-            data-testid="login-submit"
-            disabled={pending()}
-          >
-            {pending() ? "Reconnecting…" : "Reconnect"}
-          </button>
-        </div>
-      </form>
+      <PhraseEntry
+        realm={props.realm}
+        labels={{
+          id: "login-phrase",
+          input: "login-input",
+          submit: "login-submit",
+          error: "login-error",
+          action: "Reconnect",
+          pending: "Reconnecting…",
+        }}
+        onPhrase={signIn}
+      />
     </Card>
   );
 }

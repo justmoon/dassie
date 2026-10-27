@@ -144,17 +144,114 @@
   margin-bottom: 16px;
 }
 
-/* The passphrase: large and impossible to miss, as in the original. */
-.mnemonic {
+/*
+ * The passphrase: 20 numbered words in two columns of ten, down the first
+ * and then the second, as a metal plate lays them out, with the four
+ * letters a plate keeps in bold. The numbers are drawn, not written, so the
+ * list's text is the words alone.
+ */
+.phrase {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-rows: repeat(10, auto);
+  grid-auto-flow: column;
+  gap: 4px 24px;
+  margin: 0 0 16px;
   padding: 16px;
   font-family: var(--mono);
   font-size: 1.125rem;
-  line-height: 1.8;
-  word-spacing: 0.4em;
+  line-height: 1.6;
+  list-style: none;
+  counter-reset: word;
   background: var(--warning-bg);
   border: 2px solid var(--warning-line);
   border-radius: var(--radius);
-  user-select: all;
+}
+
+.phrase li {
+  counter-increment: word;
+  white-space: nowrap;
+}
+
+.phrase li::before {
+  display: inline-block;
+  min-width: 2.5ch;
+  margin-right: 1ch;
+  color: var(--muted);
+  text-align: right;
+  content: counter(word);
+}
+
+.phrase b {
+  font-weight: 700;
+}
+
+/* A word a correction changed, for the owner to compare with their copy. */
+.phrase li.changed {
+  margin: 0 -6px;
+  padding: 0 6px;
+  outline: 2px solid var(--warning-line);
+  border-radius: 4px;
+}
+
+/* Too narrow for two columns: one, in order. */
+@media (max-width: 420px) {
+  .phrase {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: none;
+    grid-auto-flow: row;
+  }
+}
+
+.phrase-date {
+  font-family: var(--mono);
+  color: var(--muted);
+}
+
+.page textarea.phrase-input {
+  margin: 8px 0 12px;
+  font-family: var(--mono);
+}
+
+/* What the owner typed, word by word, as the wallet reads it. */
+.typed .hint {
+  margin: 0 0 8px;
+}
+
+.phrase.typed-words {
+  font-size: 1rem;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+}
+
+.typed-words .word-toggle {
+  padding: 0 4px;
+  font: inherit;
+  font-weight: 400;
+  border-color: transparent;
+}
+
+.typed-words .word-toggle:hover {
+  background: var(--surface);
+}
+
+.typed-words .word-toggle[aria-pressed="true"],
+.typed-words .unknown {
+  color: var(--danger);
+  text-decoration: line-through;
+}
+
+.typed-words .unknown {
+  padding: 0 4px;
+  font-style: italic;
+  text-decoration: none;
+}
+
+kbd {
+  padding: 0 4px;
+  font-family: var(--mono);
+  border: 1px solid var(--line);
+  border-radius: 4px;
 }
 
 .balances {

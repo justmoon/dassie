@@ -76,6 +76,8 @@ Open Payments, `/btp`, the discovery document and the wallet's files do not appl
 
 Every HTTPS response but a WebSocket upgrade carries a strict Content Security Policy (`CONTENT_SECURITY_POLICY` in `http/response.rs`): nothing inline and nothing from other origins, with `wasm-unsafe-eval` only so the identity module the wallet runs can compile; framing is denied.
 
+Every response carries a `Date` header from the host's clock, as the HTTP server sets it. It is the node's clock as the wallet sees it before setup, when no session exists to ask over RPC: a phrase is made only while the browser's clock is within a day of it ([Wallet](wallet.md#key-derivation)).
+
 **HSTS is sent only while a certificate from ACME or from the owner is installed,** never with the self-signed one: once a browser saw the header, the owner would have no way past its warning.
 
 ## The node's discovery document

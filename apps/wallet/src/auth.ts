@@ -6,14 +6,10 @@
  * callers reload the page afterwards and let the gate pick the next screen.
  */
 
-import {
-  type Identity,
-  isPhraseError,
-  loadIdentity,
-  type Phrase,
-} from "@dassie/wasm/web";
+import { type Identity, loadIdentity } from "@dassie/wasm/web";
 import { loginRequest, setupRequest } from "@dassie/rpc/auth";
 import { hex } from "./hex.ts";
+import type { Realm } from "./phrase.ts";
 
 /** How a call to the node went. */
 export type Outcome =
@@ -35,64 +31,48 @@ export interface Credentials {
 }
 
 /**
- * The realm the wallet reads and makes phrases in: the test realm, the only
- * one a node takes from the wallet's setup today.
- */
-export const WALLET_REALM = "test";
-
-/**
- * The passphrase in canonical form, or undefined if it is not a phrase of
- * the wallet's realm that reads as written by this browser's clock
- * (spec/decisions/phrase-format.md). A phrase that would need correcting is
- * refused too, until the wallet shows corrections for the owner to confirm.
- */
-export function checkPassphrase(
-  identity: Identity,
-  phrase: string,
-): string | undefined {
-  let read: Phrase;
-  try {
-    read = identity.readPhrase(phrase, WALLET_REALM, Date.now()).exact();
-  } catch (error) {
-    if (isPhraseError(error)) return undefined;
-    throw error;
-  }
-  try {
-    return read.text;
-  } finally {
-    read.free();
-  }
-}
-
-/**
- * The node key and login proof of a passphrase. Throws if the passphrase is
- * not valid, so check it with {@link checkPassphrase} first.
+ * The node key and login proof of a phrase of `realm`, in the canonical
+ * form `readEntry` (`phrase.ts`) gives it once it read as written, or once
+ * the owner confirmed its correction. Throws if it does not read as
+ * written.
  */
 export function deriveCredentials(
   identity: Identity,
   phrase: string,
+  realm: Realm,
 ): Credentials {
-  const read = identity.readPhrase(phrase, WALLET_REALM, Date.now()).exact();
+  const read = identity.readPhrase(phrase, realm, Date.now()).exact();
   try {
-    const nodeKey = read.nodeKey(WALLET_REALM);
+    const nodeKey = read.nodeKey(realm);
     return { nodeKey, loginProof: identity.loginSecret(nodeKey) };
   } finally {
     read.free();
   }
 }
 
-/** `POST /api/setup`: stores the node key and signs the owner in. */
+/**
+ * `POST /api/setup`: stores the node key of a phrase of `realm`, sets the
+ * node up in that realm, and signs the owner in.
+ */
 export async function submitSetup(
   token: string,
   phrase: string,
+  realm: Realm,
 ): Promise<Outcome> {
-  const { nodeKey } = deriveCredentials(await loadIdentity(), phrase);
-  return await post("/api/setup", setupRequest(token, hex(nodeKey)));
+  const { nodeKey } = deriveCredentials(await loadIdentity(), phrase, realm);
+  return await post("/api/setup", setupRequest(token, hex(nodeKey), realm));
 }
 
-/** `POST /api/login`: signs the owner in with a passphrase's proof. */
-export async function submitLogin(phrase: string): Promise<Outcome> {
-  const { loginProof } = deriveCredentials(await loadIdentity(), phrase);
+/** `POST /api/login`: signs the owner in with the proof of a phrase of `realm`. */
+export async function submitLogin(
+  phrase: string,
+  realm: Realm,
+): Promise<Outcome> {
+  const { loginProof } = deriveCredentials(
+    await loadIdentity(),
+    phrase,
+    realm,
+  );
   return await post("/api/login", loginRequest(hex(loginProof)));
 }
 
