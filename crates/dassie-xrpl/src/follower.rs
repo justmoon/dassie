@@ -128,20 +128,23 @@ impl Follower {
     }
 
     /// After the news of an input was told: an owner's payment the account
-    /// keeps no more, and told nothing of, was lost with its state, and what
-    /// it did is in the holding; one it keeps for the scheme, validated
-    /// while the scheme was away, it tells again. Then the account is told
-    /// where the scheme is.
+    /// gave up while the scheme was away can never apply, and is cancelled;
+    /// one it keeps no more, and told nothing of, was lost with its state,
+    /// and what it did is in the holding; one it keeps for the scheme,
+    /// validated while the scheme was away, it tells again. Then the
+    /// account is told where the scheme is.
     pub(crate) fn caught_up(
         &mut self,
         account: &mut XrplAccount,
         scheme: Name,
         effects: &mut Vec<Effect>,
     ) {
-        if let Some((hash, _)) = self.owner_payment
-            && !account.keeps_transaction(&hash)
-        {
-            self.owner_done(OwnerPaymentState::Unknown, effects);
+        if let Some((hash, _)) = self.owner_payment {
+            if account.take_never_sent(scheme, hash) {
+                self.owner_done(OwnerPaymentState::Cancelled, effects);
+            } else if !account.keeps_transaction(&hash) {
+                self.owner_done(OwnerPaymentState::Unknown, effects);
+            }
         }
         account.follow(scheme, self.cursor, self.holds_anything());
     }

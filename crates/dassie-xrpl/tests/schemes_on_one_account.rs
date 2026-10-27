@@ -3,7 +3,7 @@
 //! (spec/areas/settlement.md#external-assets): the `xrpl-testnet-xrp` scheme,
 //! and a witness that books nothing and keeps the account running while
 //! the other is away. What a scheme misses while it is not on the account,
-//! it reads again once back, and books once.
+//! such as the owner's payment, it reads again once back, and books once.
 
 #![allow(
     clippy::unwrap_used,
@@ -12,10 +12,10 @@
     clippy::panic
 )]
 
-use dassie_kit::sim::SeededRng;
 use dassie_ledger::Name;
 use dassie_settlement::{
-    AssetEffect, Detach, Effect, ExternalAsset, LedgerInput, LedgerStatus, SettlementScheme,
+    AssetEffect, Detach, Effect, ExternalAsset, LedgerInput, LedgerStatus, OwnerPaymentState,
+    SettlementScheme,
 };
 use dassie_xrpl::account::{self, News, XrplAccount};
 use dassie_xrpl::fake::{FIRST_LEDGER, FakeLedger, RESERVE_BASE};
@@ -24,8 +24,6 @@ use dassie_xrpl::{AccountId, UNITS_PER_DROP, Wallet, XrplScheme};
 const ENTROPY: [u8; 32] = [1; 32];
 const XRPL: Name = dassie_ledger::name!(dassie_xrpl::scheme::SCHEME_ID);
 const WITNESS: Name = dassie_ledger::name!("witness");
-/// What the `xrpl-testnet-xrp` scheme settles: 50 XRP.
-const AMOUNT: u64 = 50_000_000 * UNITS_PER_DROP;
 /// What the owner pays out of the account: 20 XRP.
 const OWNER_AMOUNT: u64 = 20_000_000 * UNITS_PER_DROP;
 
@@ -92,8 +90,7 @@ impl Shared {
 
     /// Activates the `xrpl-testnet-xrp` scheme from what the books kept for it.
     fn activate(&mut self, checkpoint: Option<u64>, state: &[u8]) {
-        let node = Name::new("node").unwrap();
-        let scheme = XrplScheme::new(&self.account, node, checkpoint, state).unwrap();
+        let scheme = XrplScheme::new(&self.account, checkpoint, state).unwrap();
         self.scheme = Some(scheme);
         self.checkpoint = checkpoint.unwrap_or(0);
         self.stopped = false;
@@ -208,13 +205,6 @@ impl Shared {
         }
     }
 
-    /// Time passes, by `ms`, without a ledger closing.
-    fn wait(&mut self, ms: u64) {
-        self.now += ms;
-        self.account.on_timer(self.now);
-        self.tell();
-    }
-
     /// More ledgers than the history bound close while the account is
     /// away, and its server forgets the ledgers past what it keeps: the
     /// history the account walks has a gap.
@@ -225,21 +215,6 @@ impl Shared {
             self.ledger
                 .close_at(dassie_xrpl::unl::ledger_seconds(self.now));
         }
-    }
-
-    /// Settles [`AMOUNT`] with `to`, prepared and executed. Returns its ID.
-    fn settle(&mut self, to: AccountId) -> Name {
-        let peer_state = to.0;
-        let peer = Name::new("peer").unwrap();
-        let mut rng = SeededRng::new(1);
-        let scheme = self.scheme.as_mut().unwrap();
-        let prepared = scheme
-            .prepare_settlement(&mut rng, Some(&mut self.account), peer, AMOUNT, &peer_state)
-            .unwrap();
-        assert_eq!(prepared.amount, AMOUNT);
-        scheme.execute_settlement(Some(&mut self.account), prepared.id, &mut self.booked);
-        self.tell();
-        prepared.id
     }
 
     /// The owner pays [`OWNER_AMOUNT`] to `to`. Returns its ID.
@@ -256,32 +231,21 @@ impl Shared {
         id
     }
 
-    /// Hands the scheme what the books still hold pending, as the node does
-    /// once it activated.
-    fn reconcile(&mut self, pending: &[(Name, u64)]) {
-        let scheme = self.scheme.as_mut().unwrap();
-        scheme.reconcile(Some(&mut self.account), pending, &mut self.booked);
-        self.tell();
-    }
-
     /// What the books should hold: the balance less the reserve.
     fn bookable(&self) -> u64 {
         (self.ledger.balance(self.address()).unwrap() - RESERVE_BASE) * UNITS_PER_DROP
     }
 
     /// What the books hold now, as the node books what the scheme said
-    /// since it was activated: a settlement of ours posted takes
-    /// [`AMOUNT`] off them.
+    /// since it was activated: the owner's payment that applied takes
+    /// [`OWNER_AMOUNT`] off them.
     fn books(&self) -> i128 {
         let moved = |effect: &Effect| -> i128 {
             match *effect {
-                Effect::Deposit { amount } | Effect::IncomingSettlement { amount, .. } => {
-                    i128::from(amount)
-                }
+                Effect::Deposit { amount } => i128::from(amount),
                 Effect::Withdrawal { amount } | Effect::Fee { amount, .. } => -i128::from(amount),
                 Effect::Reconcile { amount, gain, .. } if gain => i128::from(amount),
                 Effect::Reconcile { amount, .. } => -i128::from(amount),
-                Effect::Finalize { .. } => -i128::from(AMOUNT),
                 Effect::OwnerPaid { applied: true, .. } => -i128::from(OWNER_AMOUNT),
                 _ => 0,
             }
@@ -295,7 +259,7 @@ impl Shared {
 }
 
 /// The account funded and synced, with both schemes on it, and the
-/// address of a peer's account, funded too.
+/// address of another account, funded too.
 fn synced() -> (Shared, AccountId) {
     let mut ledger = FakeLedger::new();
     let theirs = Wallet::from_entropy(&[2; 32]).account();
@@ -307,24 +271,21 @@ fn synced() -> (Shared, AccountId) {
     shared.connect();
     shared.close();
     assert!(shared.scheme().has_synced());
+    assert!(!shared.scheme().peers());
     (shared, theirs)
 }
 
-/// The `xrpl-testnet-xrp` scheme settles, then stops while its transaction is
-/// on its way; what happens to it then, `meanwhile` makes. The node then
-/// restarts: the account from what the witness had it write, the scheme
-/// from what it wrote before it stopped, with its settlement still pending
-/// in the books. With `short_history`, the server's account history
-/// (`account_tx`) no longer reaches back to the settlement when it does:
-/// a hint the account does not need.
-fn stopped_while_settling(
-    drop_submits: bool,
-    meanwhile: usize,
-    short_history: bool,
-) -> (Shared, Name) {
+/// The owner pays out of the account, and the `xrpl-testnet-xrp` scheme
+/// then stops while the payment is on its way; what happens to it then,
+/// `meanwhile` makes. The node then restarts: the account from what the
+/// witness had it write, the scheme from what it wrote before it stopped.
+/// With `short_history`, the server's account history (`account_tx`) no
+/// longer reaches back to the payment when it does: a hint the account
+/// does not need.
+fn stopped_while_paying(drop_submits: bool, meanwhile: usize, short_history: bool) -> (Shared, Name) {
     let (mut shared, theirs) = synced();
     shared.drop_submits = drop_submits;
-    let id = shared.settle(theirs);
+    let id = shared.pay_owner(theirs);
     let (state, checkpoint) = (shared.scheme().state(), shared.scheme().balance());
     shared.stop();
     for _ in 0..meanwhile {
@@ -333,33 +294,31 @@ fn stopped_while_settling(
     if short_history {
         shared.ledger.shorten_account_history();
     }
-    (restart(shared, checkpoint, &state, id), id)
+    (restart(shared, checkpoint, &state), id)
 }
 
 /// The node restarts: the account from what the witness had it write, the
-/// `xrpl-testnet-xrp` scheme from `checkpoint` and `state`, with settlement
-/// `id` still pending in the books.
-fn restart(shared: Shared, checkpoint: u64, state: &[u8], id: Name) -> Shared {
+/// `xrpl-testnet-xrp` scheme from `checkpoint` and `state`.
+fn restart(shared: Shared, checkpoint: u64, state: &[u8]) -> Shared {
     let kept = shared.account.state();
     let mut restarted = Shared::new(shared.ledger, &kept, None);
     restarted.tamper_lookup = shared.tamper_lookup;
     restarted.activate(Some(checkpoint), state);
-    restarted.reconcile(&[(id, AMOUNT)]);
     restarted.connect();
     restarted.close();
     restarted.close();
     restarted
 }
 
-/// The `xrpl-testnet-xrp` scheme settles, and the books refuse what it is told
-/// when the ledger validates the settlement, or, with `drop_submits`, when
-/// the account gives it up: its checkpoint stays as it was, while the
-/// witness keeps the account's written. The node then restarts, as after
-/// [`stopped_while_settling`].
-fn refused_while_settling(drop_submits: bool, short_history: bool) -> (Shared, Name) {
+/// The owner pays out of the account, and the books refuse what the
+/// `xrpl-testnet-xrp` scheme is told when the ledger validates the payment,
+/// or, with `drop_submits`, when the account gives it up: its checkpoint
+/// stays as it was, while the witness keeps the account's written. The
+/// node then restarts, as after [`stopped_while_paying`].
+fn refused_while_paying(drop_submits: bool, short_history: bool) -> (Shared, Name) {
     let (mut shared, theirs) = synced();
     shared.drop_submits = drop_submits;
-    let id = shared.settle(theirs);
+    let id = shared.pay_owner(theirs);
     let (state, checkpoint) = (shared.scheme().state(), shared.scheme().balance());
     shared.refuse_own = true;
     for _ in 0..25 {
@@ -373,7 +332,7 @@ fn refused_while_settling(drop_submits: bool, short_history: bool) -> (Shared, N
     if short_history {
         shared.ledger.shorten_account_history();
     }
-    (restart(shared, checkpoint, &state, id), id)
+    (restart(shared, checkpoint, &state), id)
 }
 
 /// What suspense booked, net.
@@ -388,16 +347,17 @@ fn suspense(booked: &[Effect]) -> i128 {
         .sum()
 }
 
-/// Asserts that settlement `id` was booked once, posted with its fee and
-/// never as a withdrawal, and that the books hold the balance.
+/// Asserts that the owner's payment `id` was booked once, its hold posted
+/// with its fee and never as a withdrawal, and that the books hold the
+/// balance.
 fn booked_once(shared: &Shared, id: Name) {
-    let finalized = shared.count(|e| *e == Effect::Finalize { settlement: id });
+    let posted = shared.count(|e| *e == Effect::OwnerPaid { id, applied: true });
+    let voided = shared.count(|e| matches!(e, Effect::OwnerPaid { applied: false, .. }));
     let fees = shared.count(|e| matches!(e, Effect::Fee { id: fee, .. } if *fee == id));
     let withdrawals = shared.count(|e| matches!(e, Effect::Withdrawal { .. }));
-    let cancelled = shared.count(|e| matches!(e, Effect::Cancel { .. }));
     assert_eq!(
-        (finalized, fees, withdrawals, cancelled),
-        (1, 1, 0, 0),
+        (posted, voided, fees, withdrawals),
+        (1, 0, 1, 0),
         "{:?}",
         shared.booked
     );
@@ -410,6 +370,21 @@ fn booked_once(shared: &Shared, id: Name) {
         shared.booked
     );
     assert_eq!(shared.scheme().status(), LedgerStatus::Synced);
+    assert_eq!(
+        shared.scheme().owner_payment(id),
+        OwnerPaymentState::Applied
+    );
+}
+
+/// Asserts that the owner's payment `id`, which never applied, was voided
+/// once, as `outcome`, and nothing booked of it but that.
+fn voided_once(shared: &Shared, id: Name, outcome: OwnerPaymentState) {
+    let voided = shared.count(|e| *e == Effect::OwnerPaid { id, applied: false });
+    let posted = shared.count(|e| matches!(e, Effect::OwnerPaid { applied: true, .. }));
+    let fees = shared.count(|e| matches!(e, Effect::Fee { id: fee, .. } if *fee == id));
+    assert_eq!((voided, posted, fees), (1, 0, 0), "{:?}", shared.booked);
+    assert_eq!(shared.scheme().balance(), shared.bookable());
+    assert_eq!(shared.scheme().owner_payment(id), outcome);
 }
 
 // spec/areas/settlement.md#external-assets: a scheme that joins an account
@@ -440,76 +415,38 @@ fn a_scheme_that_joins_books_its_first_sync_alone() {
     assert_eq!(shared.scheme().balance(), shared.bookable());
 }
 
-// spec/areas/settlement.md#external-assets: a settlement the ledger
-// validated while its scheme was stopped, and the other scheme on the
-// account ran on, is booked once after a restart: posted with its fee,
-// never also as a withdrawal.
+// Found in review: an owner's payment the ledger validated while the
+// `xrpl-testnet-xrp` scheme was stopped, and the other scheme kept the account
+// running, is kept for the scheme; after a restart the scheme reads it
+// again as the owner's payment, and its hold is posted once: never voided
+// as one whose outcome is unknown, nor read as a withdrawal.
 #[test]
-fn a_settlement_validated_while_its_scheme_stopped_is_booked_once() {
-    let (shared, id) = stopped_while_settling(false, 2, false);
-    let finalized = shared.count(|e| *e == Effect::Finalize { settlement: id });
-    let fees = shared.count(|e| matches!(e, Effect::Fee { id: fee, .. } if *fee == id));
-    let withdrawals = shared.count(|e| matches!(e, Effect::Withdrawal { .. }));
-    let cancelled = shared.count(|e| matches!(e, Effect::Cancel { .. }));
-    assert_eq!(
-        (finalized, fees, withdrawals, cancelled),
-        (1, 1, 0, 0),
-        "{:?}",
-        shared.booked
-    );
-    assert_eq!(shared.scheme().balance(), shared.bookable());
-    assert_eq!(shared.books(), i128::from(shared.bookable()));
-    assert_eq!(shared.scheme().status(), LedgerStatus::Synced);
+fn an_owner_payment_validated_while_its_scheme_stopped_is_posted_once() {
+    let (shared, id) = stopped_while_paying(false, 2, false);
+    booked_once(&shared, id);
 }
 
 // Found in review: as above, with a server whose account history no longer
-// reaches back to the settlement. The account walks the history the proven
-// state names, which finds the settlement by its hash: it is posted once
-// with its fee, and nothing goes through suspense.
+// reaches back to the payment. The account walks the history the proven
+// state names, which finds it by its hash: it is posted once with its fee,
+// and nothing goes through suspense.
 #[test]
-fn a_settlement_validated_while_its_scheme_stopped_is_booked_once_without_its_history() {
-    let (shared, id) = stopped_while_settling(false, 2, true);
-    let finalized = shared.count(|e| *e == Effect::Finalize { settlement: id });
-    let fees = shared.count(|e| matches!(e, Effect::Fee { id: fee, .. } if *fee == id));
-    let withdrawals = shared.count(|e| matches!(e, Effect::Withdrawal { .. }));
-    assert_eq!(
-        (finalized, fees, withdrawals),
-        (1, 1, 0),
-        "{:?}",
-        shared.booked
-    );
-    let suspense: i128 = shared
-        .booked
-        .iter()
-        .map(|effect| match *effect {
-            Effect::Reconcile { amount, gain, .. } if gain => i128::from(amount),
-            Effect::Reconcile { amount, .. } => -i128::from(amount),
-            _ => 0,
-        })
-        .sum();
-    assert_eq!(suspense, 0, "what suspense booked came back out");
-    assert_eq!(shared.scheme().balance(), shared.bookable());
-    assert_eq!(
-        shared.books(),
-        i128::from(shared.bookable()),
-        "{:?}",
-        shared.booked
-    );
-    assert_eq!(shared.scheme().status(), LedgerStatus::Synced);
+fn an_owner_payment_validated_while_its_scheme_stopped_is_posted_once_without_its_history() {
+    let (shared, id) = stopped_while_paying(false, 2, true);
+    booked_once(&shared, id);
 }
 
-// spec/designs/xrpl-validation.md#6-the-account-on-proofs: a settlement
-// validated while its scheme was stopped, in history the server no longer
-// has beyond the history bound, is one the scheme never reads again: the
-// account tells it so, the sync books what the balance lost through
-// suspense, and the scheme keeps that it never read it with its state,
-// across another restart. No server has it to prove, so it stays pending
-// for the owner: never cancelled, nor booked twice.
+// spec/designs/xrpl-validation.md#6-the-account-on-proofs: an owner's
+// payment validated while its scheme was stopped, in history the server no
+// longer has beyond the history bound, is one the scheme never reads again:
+// the account tells it so, the sync books what the balance lost through
+// suspense, and the hold is voided, what became of it unknown. Across
+// another restart, nothing of it is booked again.
 #[test]
-fn a_settlement_never_read_stays_pending_across_a_restart() {
+fn an_owner_payment_never_read_is_in_the_balance() {
     let (mut shared, theirs) = synced();
     shared.closes(260);
-    let id = shared.settle(theirs);
+    let id = shared.pay_owner(theirs);
     let (state, checkpoint) = (shared.scheme().state(), shared.scheme().balance());
     shared.stop();
     shared.close();
@@ -518,28 +455,23 @@ fn a_settlement_never_read_stays_pending_across_a_restart() {
     let kept = shared.account.state();
     let mut restarted = Shared::new(shared.ledger, &kept, None);
     restarted.activate(Some(checkpoint), &state);
-    restarted.reconcile(&[(id, AMOUNT)]);
-    // Synced, and told what it did not read, but not yet looked up.
     restarted.drop_lookups = true;
     restarted.connect();
     assert_eq!(restarted.account.unproven().history_gaps, 1);
-    let unread = |shared: &Shared| unread_in(&shared.scheme().state());
-    assert_eq!(unread(&restarted), 1);
-    let synced_books = restarted.books();
+    voided_once(&restarted, id, OwnerPaymentState::Unknown);
+    assert_eq!(restarted.books(), i128::from(restarted.bookable()));
     let (state, checkpoint) = (restarted.scheme().state(), restarted.scheme().balance());
-    assert_eq!(synced_books, i128::from(checkpoint));
     let kept = restarted.account.state();
     let mut again = Shared::new(restarted.ledger, &kept, None);
     again.activate(Some(checkpoint), &state);
-    again.reconcile(&[(id, AMOUNT)]);
     again.connect();
     again.close();
     again.close();
-    assert_eq!(unread(&again), 1);
-    let settled = again.count(|e| {
-        matches!(e, Effect::Finalize { settlement } | Effect::Cancel { settlement } if *settlement == id)
+    let told = again.count(|e| match e {
+        Effect::OwnerPaid { id: paid, .. } | Effect::Fee { id: paid, .. } => *paid == id,
+        _ => false,
     });
-    assert_eq!(settled, 0, "{:?}", again.booked);
+    assert_eq!(told, 0, "{:?}", again.booked);
     assert_eq!(again.scheme().balance(), again.bookable());
     assert_eq!(
         again.books(),
@@ -549,47 +481,44 @@ fn a_settlement_never_read_stays_pending_across_a_restart() {
     );
 }
 
-// spec/areas/settlement.md#external-assets: a settlement that can never
-// apply, found so while its scheme was stopped, is cancelled after a
-// restart, rather than left pending for good.
+// spec/areas/settlement.md#external-assets: the owner's payment that can
+// never apply, found so while its scheme was stopped, is cancelled after a
+// restart, its hold voided, rather than left on its way for good.
 #[test]
-fn a_settlement_given_up_while_its_scheme_stopped_is_cancelled() {
-    let (shared, id) = stopped_while_settling(true, 25, false);
-    let cancelled = shared.count(|e| *e == Effect::Cancel { settlement: id });
-    let finalized = shared.count(|e| matches!(e, Effect::Finalize { .. }));
-    assert_eq!((cancelled, finalized), (1, 0), "{:?}", shared.booked);
-    assert_eq!(shared.scheme().balance(), shared.bookable());
+fn an_owner_payment_given_up_while_its_scheme_stopped_is_cancelled() {
+    let (shared, id) = stopped_while_paying(true, 25, false);
+    voided_once(&shared, id, OwnerPaymentState::Cancelled);
 }
 
-// Found in review: the books refuse what a scheme is told with its own
-// settlement, validated, and stop it. The account no longer has it in
-// flight, and its state is written on for the other scheme on it, while the
-// scheme's checkpoint stays from before. The account keeps the settlement
-// for the scheme, as for one not on the account, so after a restart the
-// scheme reads it again as its own: posted once with its fee, never also
-// booked as a withdrawal.
+// Found in review: the books refuse what a scheme is told with the owner's
+// payment, validated, and stop it. The account no longer has it in flight,
+// and its state is written on for the other scheme on it, while the
+// scheme's checkpoint stays from before. The account keeps the payment for
+// the scheme, as for one not on the account, so after a restart the scheme
+// reads it again as its own: posted once with its fee, never also booked
+// as a withdrawal.
 #[test]
-fn a_settlement_told_in_a_refused_batch_is_booked_once() {
-    let (shared, id) = refused_while_settling(false, false);
+fn an_owner_payment_told_in_a_refused_batch_is_booked_once() {
+    let (shared, id) = refused_while_paying(false, false);
     booked_once(&shared, id);
 }
 
 // As above, with a server whose account history no longer reaches back to
-// the settlement: a hint the account does not need, as the history the
-// proven state names finds it, and it is booked once.
+// the payment: a hint the account does not need, as the history the proven
+// state names finds it, and it is booked once.
 #[test]
-fn a_settlement_told_in_a_refused_batch_is_booked_once_without_its_history() {
-    let (shared, id) = refused_while_settling(false, true);
+fn an_owner_payment_told_in_a_refused_batch_is_booked_once_without_its_history() {
+    let (shared, id) = refused_while_paying(false, true);
     booked_once(&shared, id);
 }
 
 // As above, with the books refusing what the scheme is told after the
-// restart, that it did not read its settlement again: told again after the
-// next restart, it still books the settlement once.
+// restart: told again after the next restart, it still books the payment
+// once.
 #[test]
-fn a_settlement_unread_in_a_refused_batch_is_booked_once() {
+fn an_owner_payment_refused_twice_is_booked_once() {
     let (mut shared, theirs) = synced();
-    let id = shared.settle(theirs);
+    let id = shared.pay_owner(theirs);
     let (state, checkpoint) = (shared.scheme().state(), shared.scheme().balance());
     shared.stop();
     shared.close();
@@ -598,7 +527,6 @@ fn a_settlement_unread_in_a_refused_batch_is_booked_once() {
     let kept = shared.account.state();
     let mut restarted = Shared::new(shared.ledger, &kept, None);
     restarted.activate(Some(checkpoint), &state);
-    restarted.reconcile(&[(id, AMOUNT)]);
     restarted.refuse_own = true;
     restarted.connect();
     assert!(
@@ -606,137 +534,14 @@ fn a_settlement_unread_in_a_refused_batch_is_booked_once() {
         "the books refused what the scheme was told"
     );
     restarted.close();
-    let again = restart(restarted, checkpoint, &state, id);
+    let again = restart(restarted, checkpoint, &state);
     booked_once(&again, id);
 }
 
-// A settlement given up while the books refuse what its scheme is told of
-// it is cancelled after a restart, rather than looked up for good.
+// The owner's payment given up while the books refuse what its scheme is
+// told of it is cancelled after a restart, its hold voided.
 #[test]
-fn a_settlement_given_up_in_a_refused_batch_is_cancelled() {
-    let (shared, id) = refused_while_settling(true, false);
-    let cancelled = shared.count(|e| *e == Effect::Cancel { settlement: id });
-    let finalized = shared.count(|e| matches!(e, Effect::Finalize { .. }));
-    assert_eq!((cancelled, finalized), (1, 0), "{:?}", shared.booked);
-    assert_eq!(shared.scheme().balance(), shared.bookable());
-}
-
-/// Changes the last hex digit of `answer`'s `key`.
-fn flip(answer: &mut serde_json::Value, key: &str) {
-    let Some(text) = answer["result"][key].as_str() else {
-        return;
-    };
-    let mut text = text.to_owned();
-    let last = if text.ends_with('0') { "1" } else { "0" };
-    text.pop();
-    text.push_str(last);
-    answer["result"][key] = text.into();
-}
-
-// spec/designs/xrpl-validation.md#4-what-is-proven-and-how: a lookup is
-// told only once its proof holds. A settlement the scheme settled while the
-// node did not post it is looked up after a restart; answers whose bytes
-// or metadata (from `tx` in binary), header or branch were changed prove
-// nothing: the scheme books nothing of them, and the account connects
-// anew. Once the server is honest, the settlement is posted once.
-#[test]
-fn a_lookup_that_does_not_prove_books_nothing() {
-    let tampers: [fn(&mut serde_json::Value); 4] = [
-        |answer| flip(answer, "tx"),
-        |answer| flip(answer, "meta"),
-        |answer| flip(answer, "ledger_header"),
-        |answer| answer["result"]["path"] = serde_json::json!([]),
-    ];
-    for tamper in tampers {
-        let (mut shared, theirs) = synced();
-        let id = shared.settle(theirs);
-        shared.close();
-        assert_eq!(
-            shared.count(|e| *e == Effect::Finalize { settlement: id }),
-            1
-        );
-        let (state, checkpoint) = (shared.scheme().state(), shared.scheme().balance());
-        // The node did not post it, and still holds it pending.
-        let kept = shared.account.state();
-        let mut restarted = Shared::new(shared.ledger, &kept, None);
-        restarted.tamper_lookup = Some(tamper);
-        restarted.activate(Some(checkpoint + AMOUNT), &state);
-        restarted.reconcile(&[(id, AMOUNT)]);
-        restarted.connect();
-        restarted.closes(2);
-        let lies: u64 = account::Doubt::ALL
-            .iter()
-            .map(|doubt| restarted.account.doubts(*doubt))
-            .sum();
-        assert!(lies > 0);
-        let settled = restarted.count(|e| match e {
-            Effect::Finalize { settlement } | Effect::Cancel { settlement } => *settlement == id,
-            Effect::Fee { id: fee, .. } => *fee == id,
-            _ => false,
-        });
-        assert_eq!(settled, 0, "{:?}", restarted.booked);
-        restarted.tamper_lookup = None;
-        restarted.wait(account::STALL_MS);
-        restarted.closes(2);
-        let finalized = restarted.count(|e| *e == Effect::Finalize { settlement: id });
-        assert_eq!(finalized, 1, "{:?}", restarted.booked);
-        assert_eq!(restarted.scheme().balance(), restarted.bookable());
-    }
-}
-
-// Found in review: an owner's payment the ledger validated while the
-// `xrpl-testnet-xrp` scheme was stopped, and the other scheme kept the account
-// running, is kept for the scheme; after a restart the scheme reads it
-// again as the owner's payment, and its hold is posted once: never voided
-// as one whose outcome is unknown, nor read as a settlement.
-#[test]
-fn an_owner_payment_validated_while_its_scheme_stopped_is_posted_once() {
-    let (mut shared, theirs) = synced();
-    let id = shared.pay_owner(theirs);
-    let (state, checkpoint) = (shared.scheme().state(), shared.scheme().balance());
-    shared.stop();
-    shared.close();
-    shared.close();
-    let kept = shared.account.state();
-    let mut restarted = Shared::new(shared.ledger, &kept, None);
-    restarted.activate(Some(checkpoint), &state);
-    restarted.connect();
-    restarted.close();
-    restarted.close();
-    let posted = restarted.count(|e| *e == Effect::OwnerPaid { id, applied: true });
-    let voided = restarted.count(|e| matches!(e, Effect::OwnerPaid { applied: false, .. }));
-    let fees = restarted.count(|e| matches!(e, Effect::Fee { id: fee, .. } if *fee == id));
-    let settled = restarted.count(|e| matches!(e, Effect::Finalize { .. } | Effect::Cancel { .. }));
-    let withdrawals = restarted.count(|e| matches!(e, Effect::Withdrawal { .. }));
-    assert_eq!(
-        (posted, voided, fees, settled, withdrawals),
-        (1, 0, 1, 0, 0),
-        "{:?}",
-        restarted.booked
-    );
-    assert_eq!(suspense(&restarted.booked), 0, "{:?}", restarted.booked);
-    assert_eq!(restarted.scheme().balance(), restarted.bookable());
-    assert_eq!(restarted.books(), i128::from(restarted.bookable()));
-}
-
-/// How many of the settlements a scheme's state looks up it never read:
-/// past the version, the cursor, the count of write-offs and the peers'
-/// addresses, each looked up is its hash and whether it is unread
-/// (spec/areas/xrpl.md#state-and-restarts).
-fn unread_in(state: &[u8]) -> usize {
-    let count = |at: usize| {
-        usize::try_from(u32::from_be_bytes(state[at..at + 4].try_into().unwrap())).unwrap()
-    };
-    assert_eq!(state[0], 1, "version 1");
-    let mut at = 1 + if state[1] == 0 { 1 } else { 9 } + 8;
-    let peers = count(at);
-    at += 4;
-    for _ in 0..peers {
-        at += 1 + usize::from(state[at]) + 20;
-    }
-    let recovering = count(at);
-    at += 4;
-    (0..recovering)
-        .filter(|n| state[at + n * 33 + 32] == 0xff)
-        .count()
+fn an_owner_payment_given_up_in_a_refused_batch_is_cancelled() {
+    let (shared, id) = refused_while_paying(true, false);
+    voided_once(&shared, id, OwnerPaymentState::Cancelled);
 }

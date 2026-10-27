@@ -2,9 +2,10 @@
 //! beside the network's XRP scheme on the one account
 //! (spec/areas/xrpl.md#the-token-scheme): `xrpl-testnet-dsusd` on the
 //! testnet, and `xrpl-rlusd` on mainnet, real money in the live realm
-//! (spec/areas/xrpl.md#rlusd). Its line set before it syncs, settling,
-//! booking by the line, and each scheme booking only its own settlements,
-//! with the books checked against the ledger after every ledger. The token
+//! (spec/areas/xrpl.md#rlusd), owner books that peer with no one. Its line
+//! set before it syncs, the owner's payments, booking by the line, and each
+//! scheme booking only its own holding, with the books checked against the
+//! ledger after every ledger. The token
 //! scheme's rules in depth are in `tests/token.rs`, in DSUSD; this pins that
 //! each network's token runs on them unchanged, and that each is guarded by
 //! its own network's pool (spec/decisions/issued-assets.md).
@@ -16,13 +17,12 @@
     clippy::panic
 )]
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
-use dassie_kit::sim::SeededRng;
 use dassie_ledger::{LedgerId, Name};
 use dassie_settlement::{
-    AssetEffect, DollarRate, Effect, ExternalAsset, LedgerInput, LedgerStatus, PegPause,
-    SchemeError, SettlementScheme,
+    AssetEffect, DollarRate, Effect, ExternalAsset, LedgerInput, LedgerStatus, OwnerPayment,
+    PegPause, SettlementScheme,
 };
 use dassie_xrpl::account::XrplAccount;
 use dassie_xrpl::amount::IssuedAsset;
@@ -49,7 +49,7 @@ struct Net {
     ids: [&'static str; 2],
     /// Its dollar token, as the fake issues it.
     token: IssuedAsset,
-    /// Its dollar token, as the scheme settles in it.
+    /// Its dollar token, as the scheme books it.
     settles_in: dassie_xrpl::Token,
 }
 
@@ -78,10 +78,12 @@ struct Books {
     suspense: i128,
     fees: i128,
     deposits: Vec<u64>,
-    peers: BTreeMap<Name, i128>,
-    pending: BTreeMap<Name, (Name, u64)>,
-    credited: BTreeSet<Name>,
-    finalized: Vec<Name>,
+    /// The owner's payments held against the owner's funds while they are
+    /// on their way, as the node holds them, by ID.
+    owner_holds: BTreeMap<Name, u64>,
+    /// The owner's payments no longer on their way, in order, and whether
+    /// each applied.
+    paid: Vec<(Name, bool)>,
 }
 
 impl Books {
@@ -92,7 +94,14 @@ impl Books {
                 self.owner += i128::from(amount);
                 self.deposits.push(amount);
             }
-            Effect::OwnerPaid { .. } => panic!("a token scheme pays the owner nothing"),
+            Effect::OwnerPaid { id, applied } => {
+                let amount = self.owner_holds.remove(&id).unwrap();
+                self.paid.push((id, applied));
+                if applied {
+                    self.settlement -= i128::from(amount);
+                    self.owner -= i128::from(amount);
+                }
+            }
             Effect::Withdrawal { amount } => {
                 self.settlement -= i128::from(amount);
                 self.owner -= i128::from(amount);
@@ -110,19 +119,8 @@ impl Books {
                 self.settlement -= i128::from(amount);
                 self.fees += i128::from(amount);
             }
-            Effect::IncomingSettlement { peer, amount, id } => {
-                assert!(self.credited.insert(id.unwrap()), "credited twice");
-                self.settlement += i128::from(amount);
-                *self.peers.entry(peer).or_default() += i128::from(amount);
-            }
-            Effect::Finalize { settlement } => {
-                let (peer, amount) = self.pending.remove(&settlement).unwrap();
-                self.settlement -= i128::from(amount);
-                *self.peers.entry(peer).or_default() -= i128::from(amount);
-                self.finalized.push(settlement);
-            }
-            Effect::Cancel { settlement } => {
-                self.pending.remove(&settlement).unwrap();
+            Effect::IncomingSettlement { .. } | Effect::Finalize { .. } | Effect::Cancel { .. } => {
+                panic!("an owner book books no settlements")
             }
             Effect::PeerLoss { .. } => panic!("an XRPL scheme books no peer losses"),
         }
@@ -130,7 +128,7 @@ impl Books {
 
     /// What the owner may spend, as the node tells the account.
     fn funds(&self) -> u64 {
-        let pending: i128 = self.pending.values().map(|(_, a)| i128::from(*a)).sum();
+        let pending: i128 = self.owner_holds.values().map(|a| i128::from(*a)).sum();
         u64::try_from((self.owner + self.suspense - self.fees - pending).max(0)).unwrap()
     }
 }
@@ -159,10 +157,6 @@ struct Node {
 }
 
 impl Node {
-    fn scheme(&mut self, index: usize) -> &mut dyn SettlementScheme {
-        self.schemes[index].as_deref_mut().unwrap()
-    }
-
     fn status(&self, index: usize) -> LedgerStatus {
         match self.account.status() {
             LedgerStatus::Synced => self.schemes[index].as_ref().unwrap().status(),
@@ -222,10 +216,10 @@ impl World {
                 return None;
             }
             Some(match (index, mainnet) {
-                (XRP, false) => Box::new(XrplScheme::new(&account, node, None, &[]).unwrap()),
-                (XRP, true) => Box::new(XrplMainnetScheme::new(&account, node, None, &[]).unwrap()),
-                (_, false) => Box::new(DsusdScheme::new(&account, node, None, &[]).unwrap()),
-                (_, true) => Box::new(RlusdScheme::new(&account, node, None, &[]).unwrap()),
+                (XRP, false) => Box::new(XrplScheme::new(&account, None, &[]).unwrap()),
+                (XRP, true) => Box::new(XrplMainnetScheme::new(&account, None, &[]).unwrap()),
+                (_, false) => Box::new(DsusdScheme::new(&account, None, &[]).unwrap()),
+                (_, true) => Box::new(RlusdScheme::new(&account, None, &[]).unwrap()),
             })
         };
         let schemes = [make(XRP), make(TOKEN)];
@@ -377,54 +371,39 @@ impl World {
         assert!(self.ledger.tokens_conserved());
     }
 
-    /// Peers `a` and `b` on scheme `index`: `a` asks. Returns the state `a`
-    /// keeps for `b`.
-    fn peer(&mut self, index: usize, a: usize, b: usize) -> Vec<u8> {
-        let (name_a, name_b) = (self.nodes[a].name, self.nodes[b].name);
-        let mut info = Vec::new();
-        self.nodes[b].scheme(index).peering_info(&mut info);
-        let mut request = Vec::new();
-        self.nodes[a]
-            .scheme(index)
-            .create_peering_request(name_b, &info, &mut request)
-            .unwrap();
-        let state_at_b = self.nodes[b]
-            .scheme(index)
-            .accept_peering_request(name_a, &request)
-            .unwrap();
-        let state_at_a = self.nodes[a]
-            .scheme(index)
-            .finalize_peering_request(name_b, &info)
-            .unwrap();
-        self.nodes[b].scheme(index).on_peered(name_a, &state_at_b);
-        self.nodes[a].scheme(index).on_peered(name_b, &state_at_a);
-        state_at_a
-    }
-
-    /// `from` settles `amount` with `to` on scheme `index`: prepared, then
-    /// executed, as the node does once its pending transfer is on disk.
-    fn settle(&mut self, index: usize, from: usize, to: usize, amount: u64, state: &[u8]) -> Name {
-        let peer = self.nodes[to].name;
+    /// The owner of node `from` pays `amount` of the holding of scheme
+    /// `index` to node `to`'s account, after a settlement check, which
+    /// reads the issuer, held against the owner's funds on the books as the
+    /// node holds it. Returns the payment's ID.
+    fn pay(&mut self, index: usize, from: usize, to: usize, amount: u64) -> Name {
+        let destination = self.address(to).to_address();
+        let now = self.now;
+        let node = &mut self.nodes[from];
+        if let Some(token) = &mut node.schemes[TOKEN] {
+            token.on_check(now, &mut node.account);
+        }
+        self.carry_out(from);
         let node = &mut self.nodes[from];
         if node.schemes[XRP].is_some() {
             let funds = node.books[XRP].funds();
             node.account.owner_funds(name(self.net.ids[XRP]), funds);
         }
-        let mut rng = SeededRng::new(1);
+        let payment = OwnerPayment {
+            destination,
+            tag: None,
+            memo: None,
+            amount,
+        };
         let scheme = node.schemes[index].as_deref_mut().unwrap();
-        let prepared = scheme
-            .prepare_settlement(&mut rng, Some(&mut node.account), peer, amount, state)
+        let id = scheme
+            .pay_owner(Some(&mut node.account), &payment)
             .unwrap();
+        let unit = scheme.unit();
         node.books[index]
-            .pending
-            .insert(prepared.id, (peer, prepared.amount));
-        let mut effects = Vec::new();
-        scheme.execute_settlement(Some(&mut node.account), prepared.id, &mut effects);
-        for effect in effects {
-            node.books[index].apply(effect);
-        }
+            .owner_holds
+            .insert(id, amount / unit * unit);
         self.carry_out(from);
-        prepared.id
+        id
     }
 
     /// The fake's issuer of the network's dollar mints `amount` of it to
@@ -473,26 +452,13 @@ impl World {
     }
 
     /// Why node `index`'s guard pauses its token scheme, if it does: then
-    /// it settles nothing, cannot receive and converts nothing.
-    fn paused(&mut self, index: usize, state: &[u8]) -> Option<PegPause> {
-        let peer = self.nodes[1 - index].name;
+    /// it converts nothing, and cannot receive.
+    fn paused(&mut self, index: usize) -> Option<PegPause> {
         let node = &mut self.nodes[index];
         let scheme = node.schemes[TOKEN].as_deref_mut().unwrap();
         let paused = scheme.peg().unwrap().paused;
         assert_eq!(scheme.converts(), paused.is_none());
         assert_eq!(scheme.can_receive(), paused.is_none());
-        let mut rng = SeededRng::new(1);
-        let account = Some(&mut node.account as &mut dyn ExternalAsset);
-        match scheme.prepare_settlement(&mut rng, account, peer, usd(1), state) {
-            Ok(prepared) => {
-                assert!(paused.is_none());
-                scheme.discard_settlement(Some(&mut node.account), prepared.id);
-            }
-            Err(error) => {
-                assert_eq!(error, SchemeError::Unavailable);
-                assert!(paused.is_some());
-            }
-        }
         paused
     }
 
@@ -509,11 +475,11 @@ impl World {
         let node = &mut self.nodes[index];
         let kept = node.schemes[TOKEN].as_ref().unwrap();
         let (balance, state) = (kept.balance(), kept.state());
-        let (account, name) = (&node.account, node.name);
+        let account = &node.account;
         node.schemes[TOKEN] = Some(if mainnet {
-            Box::new(RlusdScheme::new(account, name, Some(balance), &state).unwrap())
+            Box::new(RlusdScheme::new(account, Some(balance), &state).unwrap())
         } else {
-            Box::new(DsusdScheme::new(account, name, Some(balance), &state).unwrap())
+            Box::new(DsusdScheme::new(account, Some(balance), &state).unwrap())
         });
         self.tell(index);
         let connection = self.nodes[index].connection;
@@ -545,28 +511,27 @@ fn minutes_in(ms: u64) -> usize {
     usize::try_from(ms / 60_000).unwrap()
 }
 
-/// Two nodes on the network's dollar alone, synced and peered `0 → 1`, the
-/// pool at a dollar and read: what `0` keeps for `1`.
-fn guarded(net: Net) -> (World, Vec<u8>) {
+/// Two nodes on the network's dollar alone, synced, the pool at a dollar
+/// and read.
+fn guarded(net: Net) -> World {
     let mut world = World::new(net, &[&[TOKEN], &[TOKEN]]);
     world.closes(3);
-    let state = world.peer(TOKEN, 0, 1);
     world.mint(0, "50");
     world.pool(PAR_XRP);
     world.minutes(1, true);
     assert_eq!(world.price(0), Some(1_000_000));
-    assert_eq!(world.paused(0, &state), None);
-    (world, state)
+    assert_eq!(world.paused(0), None);
+    world
 }
 
 // spec/areas/xrpl.md#rlusd, spec/areas/xrpl.md#dsusd: each network's token
-// scheme is the token scheme with its token's issuer, currency, memo type
-// and ledger; it sets its line, syncs, books what is minted to it as the
-// owner's deposit, and settles whole millionths between two nodes that run
-// it alone. A node follows its own network's dollar alone: no line to
-// another token's issuer, test RLUSD's included.
+// scheme is the token scheme with its token's issuer, currency and ledger;
+// it sets its line, syncs, books what is minted to it as the owner's
+// deposit, and pays the owner's payments in whole millionths, which the
+// payee books as its deposit. A node follows its own network's dollar
+// alone: no line to another token's issuer, test RLUSD's included.
 #[test]
-fn two_nodes_settle_each_networks_dollar() {
+fn two_owners_pay_each_networks_dollar() {
     for (net, ledger, issuer) in [
         (
             TESTNET_NET,
@@ -586,6 +551,7 @@ fn two_nodes_settle_each_networks_dollar() {
             assert_eq!(node.status(TOKEN), LedgerStatus::Synced, "{}", node.name);
             let scheme = node.schemes[TOKEN].as_ref().unwrap();
             assert!(scheme.has_synced());
+            assert!(!scheme.peers());
             assert_eq!(scheme.ledger(), ledger);
             assert_eq!(scheme.id().as_str(), net.ids[TOKEN]);
             assert_eq!(scheme.issuer().as_deref(), Some(issuer));
@@ -606,18 +572,15 @@ fn two_nodes_settle_each_networks_dollar() {
                 }
             }
         }
-        let state_a = world.peer(TOKEN, 0, 1);
         world.mint(0, "50");
         world.close();
         assert_eq!(world.nodes[0].books[TOKEN].deposits, [usd(50_000_000)]);
-        // Less than a millionth is not settled.
-        let id = world.settle(TOKEN, 0, 1, usd(12_500_000) + 999, &state_a);
+        let id = world.pay(TOKEN, 0, 1, usd(12_500_000));
         world.close();
         let (a, b) = (&world.nodes[0].books[TOKEN], &world.nodes[1].books[TOKEN]);
-        assert_eq!(a.finalized, [id]);
-        assert_eq!(a.peers[&world.nodes[1].name], -i128::from(usd(12_500_000)));
-        assert_eq!(b.peers[&world.nodes[0].name], i128::from(usd(12_500_000)));
-        assert_eq!(b.credited.len(), 1);
+        assert_eq!(a.paid, [(id, true)]);
+        assert_eq!(a.owner, i128::from(usd(37_500_000)));
+        assert_eq!(b.deposits, [usd(12_500_000)]);
         // Gas, off the books without the XRP scheme.
         assert_eq!((a.fees, b.fees), (0, 0));
         assert_eq!(
@@ -631,10 +594,10 @@ fn two_nodes_settle_each_networks_dollar() {
     }
 }
 
-// spec/areas/xrpl.md#the-account: XRP and the network's dollar settle
-// through the node's one account, on either network, its sequences handed
-// out in order, each scheme booking only its own settlements and every fee
-// booked once, as gas on the XRP ledger.
+// spec/areas/xrpl.md#the-account: XRP and the network's dollar are booked
+// on the node's one account, on either network, its sequences handed out in
+// order, each scheme booking only its own holding and every fee booked
+// once, as gas on the XRP ledger.
 #[test]
 fn a_node_runs_xrp_and_its_networks_dollar_on_one_account() {
     for net in [TESTNET_NET, MAINNET_NET] {
@@ -657,10 +620,6 @@ fn a_node_runs_xrp_and_its_networks_dollar_on_one_account() {
         let mut codes = ["XRP".to_string(), net.token.currency.code()];
         codes.sort_unstable();
         assert_eq!(holdings, codes);
-        let states: Vec<Vec<u8>> = [XRP, TOKEN]
-            .into_iter()
-            .map(|index| world.peer(index, 0, 1))
-            .collect();
         world.mint(0, "40");
         world.close();
         let owner = world.nodes[0].books[TOKEN].owner;
@@ -668,23 +627,23 @@ fn a_node_runs_xrp_and_its_networks_dollar_on_one_account() {
         let mut ids: [Vec<Name>; 2] = Default::default();
         for round in 0..3 {
             // Both sign in one ledger: consecutive sequences.
-            ids[XRP].push(world.settle(XRP, 0, 1, 1_000_000 + round, &states[XRP]));
+            ids[XRP].push(world.pay(XRP, 0, 1, (1_000 + round) * UNITS_PER_DROP));
             let amount = usd(1_000_000 + round);
-            ids[TOKEN].push(world.settle(TOKEN, 0, 1, amount, &states[TOKEN]));
+            ids[TOKEN].push(world.pay(TOKEN, 0, 1, amount));
             world.close();
         }
         world.closes(2);
         let (a, b) = (&world.nodes[0], &world.nodes[1]);
         for index in [XRP, TOKEN] {
-            assert_eq!(a.books[index].finalized, ids[index], "{}", net.ids[index]);
-            assert_eq!(b.books[index].credited.len(), 3, "{}", net.ids[index]);
+            let paid: Vec<(Name, bool)> = ids[index].iter().map(|id| (*id, true)).collect();
+            assert_eq!(a.books[index].paid, paid, "{}", net.ids[index]);
         }
-        assert_eq!(b.books[TOKEN].peers[&a.name], i128::from(usd(3_000_003)));
+        assert_eq!(b.books[TOKEN].owner, i128::from(usd(3_000_003)));
         assert_eq!(
             world.ledger.token_balance(world.address(1), net.token),
             Some(value("3.000003"))
         );
-        // Every fee: the TrustSet and six settlements, on the XRP ledger.
+        // Every fee: the TrustSet and six payments, on the XRP ledger.
         let fees = |node: &Node| node.books[XRP].fees;
         assert_eq!(fees(a), i128::from(7 * FEE_BASE * UNITS_PER_DROP));
         assert_eq!(fees(b), i128::from(FEE_BASE * UNITS_PER_DROP));
@@ -695,28 +654,27 @@ fn a_node_runs_xrp_and_its_networks_dollar_on_one_account() {
     }
 }
 
-// spec/areas/xrpl.md#the-payment-it-signs: each scheme has its own memo
-// type, so a Payment of RLUSD on mainnet that carries another XRPL scheme's
-// memo, from the peer's own address, is no settlement: test RLUSD's, the
-// same token's on the testnet, DSUSD's, or either network's XRP's. The
-// RLUSD scheme books each as a deposit, and the same Payment with its own
-// memo type as a settlement.
+// spec/areas/xrpl.md#following-the-account: a Payment of RLUSD on mainnet
+// is booked by what it did to the line, whatever memo it carries: one with
+// the memo a settlement of any XRPL scheme carried while they peered,
+// naming the payer, is a deposit like any other.
 #[test]
-fn a_payment_with_another_schemes_memo_is_no_settlement() {
+fn a_payment_with_a_settlement_memo_is_a_deposit() {
     let mut world = World::new(MAINNET_NET, &[&[TOKEN], &[TOKEN]]);
     world.closes(4);
-    world.peer(TOKEN, 0, 1);
     world.mint(0, "10");
     world.close();
     let wallet = Wallet::from_entropy(&[world.nodes[0].seed; 32]);
     let address = wallet.account();
-    let others = [
-        rlusd::TESTNET_MEMO_TYPE,
-        dsusd::MEMO_TYPE,
-        scheme::MEMO_TYPE,
-        scheme::MAINNET_MEMO_TYPE,
-    ];
-    for memo_type in others.into_iter().chain([rlusd::MEMO_TYPE]) {
+    let memo_types = [
+        "xrpl-rlusd",
+        "xrpl-testnet-rlusd",
+        "xrpl-testnet-dsusd",
+        "xrpl-testnet-xrp",
+        "xrpl-xrp",
+    ]
+    .map(|id| format!("https://dassie.land/settlement/{id}/v1"));
+    for memo_type in &memo_types {
         let info =
             serde_json::json!({ "command": "account_info", "account": address.to_address() });
         let reply: serde_json::Value =
@@ -736,7 +694,7 @@ fn a_payment_with_another_schemes_memo_is_no_settlement() {
             flags: 0,
             network_id: None,
             memos: vec![Memo {
-                memo_type: memo_type.to_vec(),
+                memo_type: memo_type.as_bytes().to_vec(),
                 memo_data: world.nodes[0].name.as_str().as_bytes().to_vec(),
             }],
             signing: Signing::by(wallet.public_key()),
@@ -748,17 +706,7 @@ fn a_payment_with_another_schemes_memo_is_no_settlement() {
         world.closes(2);
     }
     let b = &world.nodes[1];
-    assert!(others.iter().all(|other| *other != rlusd::MEMO_TYPE));
-    assert_eq!(b.books[TOKEN].deposits, [usd(1_000_000); 4]);
-    assert_eq!(
-        b.books[TOKEN].credited.len(),
-        1,
-        "its own memo type settles"
-    );
-    assert_eq!(
-        b.books[TOKEN].peers[&world.nodes[0].name],
-        i128::from(usd(1_000_000))
-    );
+    assert_eq!(b.books[TOKEN].deposits, [usd(1_000_000); 5]);
     assert_eq!(
         world
             .ledger
@@ -770,37 +718,38 @@ fn a_payment_with_another_schemes_memo_is_no_settlement() {
 // spec/decisions/issued-assets.md: each network's dollar is priced by its
 // own pool and the node's XRP/USD rate. A pool moved 5% off a dollar,
 // downward or upward, pauses the scheme only once every reading was off for
-// the trip hold: then it settles nothing, cannot receive and converts
-// nothing, while what arrives is still booked. Back at a dollar, it resumes
-// only once every reading was inside the inner band for the recovery hold.
+// the trip hold: then it converts nothing and cannot receive, while what
+// arrives is still booked, and the owner may still pay. Back at a dollar,
+// it resumes only once every reading was inside the inner band for the
+// recovery hold.
 #[test]
 fn a_pool_off_its_peg_pauses_each_networks_dollar_both_ways() {
     for net in [TESTNET_NET, MAINNET_NET] {
         for (xrp, price) in [(190_000, 950_000), (210_000, 1_050_000)] {
-            let (mut world, state) = guarded(net);
+            let mut world = guarded(net);
             world.pool(xrp);
             // The first reading off, and the hold's minutes after it.
             world.minutes(minutes_in(TRIP_HOLD_MS), true);
             assert_eq!(world.price(0), Some(price));
-            assert_eq!(world.paused(0, &state), None, "the hold is not over");
+            assert_eq!(world.paused(0), None, "the hold is not over");
             world.minutes(1, true);
-            assert_eq!(world.paused(0, &state), Some(PegPause::OffPeg));
-            assert_eq!(world.paused(1, &state), Some(PegPause::OffPeg));
-            // What arrives is still booked.
+            assert_eq!(world.paused(0), Some(PegPause::OffPeg));
+            assert_eq!(world.paused(1), Some(PegPause::OffPeg));
+            // What arrives is still booked, and the owner still pays.
             world.mint(0, "1");
             world.close();
             let deposits = &world.nodes[0].books[TOKEN].deposits;
             assert_eq!(deposits, &[usd(50_000_000), usd(1_000_000)]);
+            let off = world.pay(TOKEN, 0, 1, usd(1_000_000));
+            world.close();
+            assert_eq!(world.nodes[0].books[TOKEN].paid, [(off, true)]);
             // Back at a dollar: off until the recovery hold is over.
             world.pool(PAR_XRP);
             world.minutes(minutes_in(RECOVER_HOLD_MS), true);
             assert_eq!(world.price(0), Some(1_000_000));
-            assert_eq!(world.paused(0, &state), Some(PegPause::OffPeg));
+            assert_eq!(world.paused(0), Some(PegPause::OffPeg));
             world.minutes(1, true);
-            assert_eq!(world.paused(0, &state), None);
-            let id = world.settle(TOKEN, 0, 1, usd(1_000_000), &state);
-            world.close();
-            assert_eq!(world.nodes[0].books[TOKEN].finalized, [id]);
+            assert_eq!(world.paused(0), None);
         }
     }
 }
@@ -816,33 +765,32 @@ fn without_a_reading_each_networks_dollar_pauses() {
         // No pool: the guard counts from when the node started.
         let mut world = World::new(net, &[&[TOKEN], &[TOKEN]]);
         world.closes(3);
-        let state = world.peer(TOKEN, 0, 1);
         world.mint(0, "50");
         world.minutes(minutes_in(MAX_READING_AGE_MS) - 1, true);
-        assert_eq!(world.paused(0, &state), None);
+        assert_eq!(world.paused(0), None);
         world.minutes(1, true);
-        assert_eq!(world.paused(0, &state), Some(PegPause::Stale));
+        assert_eq!(world.paused(0), Some(PegPause::Stale));
         assert_eq!(world.price(0), None);
         world.pool(PAR_XRP);
         world.minutes(1, true);
-        assert_eq!(world.paused(0, &state), None);
+        assert_eq!(world.paused(0), None);
 
         // A pool too thin.
         world.pool(PAR_XRP / 10_000);
         world.minutes(minutes_in(MAX_READING_AGE_MS) + 1, true);
-        assert_eq!(world.paused(0, &state), Some(PegPause::Stale));
+        assert_eq!(world.paused(0), Some(PegPause::Stale));
         world.pool(PAR_XRP);
         world.minutes(1, true);
-        assert_eq!(world.paused(0, &state), None);
+        assert_eq!(world.paused(0), None);
 
         // A stale rate: readings count until it is too old, and the guard
         // pauses once none has counted for the bound.
         world.minutes(minutes_in(MAX_RATE_AGE_MS + MAX_READING_AGE_MS), false);
-        assert_eq!(world.paused(0, &state), None);
+        assert_eq!(world.paused(0), None);
         world.minutes(1, false);
-        assert_eq!(world.paused(0, &state), Some(PegPause::Stale));
+        assert_eq!(world.paused(0), Some(PegPause::Stale));
         world.minutes(1, true);
-        assert_eq!(world.paused(0, &state), None);
+        assert_eq!(world.paused(0), None);
     }
 }
 
@@ -852,7 +800,7 @@ fn without_a_reading_each_networks_dollar_pauses() {
 // it there, and its price is not taken.
 #[test]
 fn an_old_answer_of_the_pool_is_not_taken() {
-    let (mut world, _) = guarded(TESTNET_NET);
+    let mut world = guarded(TESTNET_NET);
     let behind = world.ledger.clone();
     world.pool(PAR_XRP * 9 / 10);
     world.minutes(2, true);
@@ -872,22 +820,22 @@ fn an_old_answer_of_the_pool_is_not_taken() {
 #[test]
 fn the_guard_holds_across_a_restart() {
     for net in [TESTNET_NET, MAINNET_NET] {
-        let (mut world, state) = guarded(net);
+        let mut world = guarded(net);
         world.pool(PAR_XRP * 9 / 10);
         world.minutes(minutes_in(TRIP_HOLD_MS) + 1, true);
-        assert_eq!(world.paused(0, &state), Some(PegPause::OffPeg));
+        assert_eq!(world.paused(0), Some(PegPause::OffPeg));
         world.restart(0);
-        assert_eq!(world.paused(0, &state), Some(PegPause::OffPeg));
+        assert_eq!(world.paused(0), Some(PegPause::OffPeg));
         world.pool(PAR_XRP);
         world.minutes(minutes_in(RECOVER_HOLD_MS) / 2, true);
         world.restart(0);
         world.minutes(minutes_in(RECOVER_HOLD_MS) / 2, true);
-        assert_eq!(world.paused(0, &state), Some(PegPause::OffPeg));
+        assert_eq!(world.paused(0), Some(PegPause::OffPeg));
         world.minutes(1, true);
-        assert_eq!(world.paused(0, &state), None);
+        assert_eq!(world.paused(0), None);
         // Pegged, a restart keeps it so.
         world.restart(0);
-        assert_eq!(world.paused(0, &state), None);
+        assert_eq!(world.paused(0), None);
     }
 }
 
@@ -900,7 +848,7 @@ fn the_guard_holds_across_a_restart() {
 fn a_pool_a_server_lies_about_moves_no_price() {
     for net in [TESTNET_NET, MAINNET_NET] {
         for lie in [Lie::AlteredObject, Lie::FalseAbsence] {
-            let (mut world, _) = guarded(net);
+            let mut world = guarded(net);
             world.ledger.set_lie_for_all(Some(lie));
             world.pool(PAR_XRP * 9 / 10);
             world.minutes(1, true);

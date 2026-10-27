@@ -1294,6 +1294,22 @@ impl XrplAccount {
         }
     }
 
+    /// Forgets `scheme`'s transaction `hash` as never sent, if the account
+    /// remembers it so: it can never apply. Returns whether it did. How a
+    /// scheme learns that the owner's payment it still has on its way was
+    /// given up while the scheme was not on the account.
+    pub fn take_never_sent(&mut self, scheme: Name, hash: [u8; 32]) -> bool {
+        let Some(position) = self
+            .never_sent
+            .iter()
+            .position(|n| n.hash == hash && n.scheme == scheme)
+        else {
+            return false;
+        };
+        self.never_sent.remove(position);
+        true
+    }
+
     /// Whether a `TrustSet` of `scheme` is on its way.
     #[must_use]
     pub fn signs_trust_set(&self, scheme: Name) -> bool {
