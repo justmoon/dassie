@@ -31,7 +31,7 @@ Each file records one choice between real alternatives: the facts that forced it
 | [hub-keys-by-network](hub-keys-by-network.md) | A hub's keys name its network, and a validator validates on its owner's network | hubs, identity, node |
 | [hub-protocol-version](hub-protocol-version.md) | A hub runs one version of the hub protocol, which its ID commits to (moving a hub to another version not built) | hubs, overview, designs/settlement-hubs |
 | [hub-scheme-names](hub-scheme-names.md) | A hub scheme's ID names its underlying ledger and its asset (not built) | hubs, settlement, xrpl |
-| [hubs-only](hubs-only.md) | Peers settle only over settlement hubs (not built) | designs/settlement-hubs, settlement, network, xrpl, testing |
+| [hubs-only](hubs-only.md) | Peers settle only over settlement hubs | designs/settlement-hubs, settlement, network, xrpl, testing |
 | [issued-assets](issued-assets.md) | An issued asset's issuer is the owner's counterparty, and a dollar token pauses off its peg (transfer fees not built) | xrpl, settlement, connector |
 | [lazy-downlink-accounts](lazy-downlink-accounts.md) | A downlink's accounts open once value first moves with it, in room kept for it while its channel is open | network, settlement, connector, ledger |
 | [ledger-resets](ledger-resets.md) | A ledger below the newest seen is a reset only on the testnet, and only once its UNL validates it (the UNL's part, the network's constant as the gate and a proven absence not built) | xrpl, designs/xrpl-validation |
@@ -73,7 +73,7 @@ Each file records one choice between real alternatives: the facts that forced it
 | [scheme-names](scheme-names.md) | A scheme's ID names its ledger, network and asset, and a wallet address names the asset alone | settlement, xrpl, ledger, payments, identity |
 | [secrets-at-rest](secrets-at-rest.md) | Secrets at rest | node, http |
 | [settlement-hubs](settlement-hubs.md) | Settlement hubs (design, partly built) | designs/settlement-hubs |
-| [settlement-methods](settlement-methods.md) | A peering settles over every hub both nodes are in, and a packet keeps its ledger where it can (not built) | network, settlement, connector, peer-protocol |
+| [settlement-methods](settlement-methods.md) | A peering settles over every hub both nodes are in, and a packet keeps its ledger where it can | network, settlement, connector, peer-protocol |
 | [stub-in-debug-builds](stub-in-debug-builds.md) | The stub scheme runs only in builds with debug assertions | settlement, node, wallet, testing |
 | [synced-before-peering](synced-before-peering.md) | A node peers on a scheme only once it has seen its ledger | settlement, network, xrpl |
 | [thresholds-in-packets](thresholds-in-packets.md) | A link's thresholds are counted in its largest packet | settlement, connector |
@@ -84,7 +84,7 @@ Each file records one choice between real alternatives: the facts that forced it
 | [verified-ledgers](verified-ledgers.md) | The node books only what ledgers its own UNL validated prove (design, not built) | designs/xrpl-validation, xrpl, designs/settlement-hubs |
 | [visual-identity](visual-identity.md) | Dassie's visual identity is Kopje: solid rocks, nimble dassies, first light | website |
 | [website-hosting](website-hosting.md) | dassie.land is a bucket behind the mirror's load balancer | website, release |
-| [weighted-next-hops](weighted-next-hops.md) | A packet's next hop is drawn at random among its first hops, weighted by the fees each earned us (per method not built) | connector, network, stream |
+| [weighted-next-hops](weighted-next-hops.md) | A packet's next hop is drawn at random among its first hops, weighted by the fees each earned us | connector, network, stream |
 
 ## Adding or changing a decision
 

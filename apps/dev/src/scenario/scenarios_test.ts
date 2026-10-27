@@ -471,7 +471,7 @@ test("a hub's nodes are checked before the scenario starts", () => {
 test("a scenario that sets its nodes up otherwise does not resume", () => {
   const def = findScenario("two-nodes")!;
   assertEquals(dataShape(def), dataShape({ ...def }), "the same setup");
-  // The plain stub, as the scenario once ran it: its data is not resumed.
+  // Without the stub's config the setup differs: its data is not resumed.
   const { configs: _, ...plain } = def;
   assert(dataShape(plain) !== dataShape(def), "the stub's config");
   assert(
@@ -551,5 +551,8 @@ test("the live-hub scenario: an XRP hub and an RLUSD hub on mainnet", async () =
   assertEquals(def.mint?.token, "RLUSD");
   assertEquals(def.pool?.token, "RLUSD");
   assertEquals(resumes(def), false);
-  assertEquals(unavailable(def, false)?.startsWith("needs --xrpl fake"), true);
+  assertEquals(
+    unavailable(def, false)?.startsWith("needs the fake ledger"),
+    true,
+  );
 });

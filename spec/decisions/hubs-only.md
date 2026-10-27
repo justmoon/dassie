@@ -1,6 +1,6 @@
 # Peers settle only over settlement hubs
 
-**Areas:** [Settlement hubs](../designs/settlement-hubs.md#11-choosing-a-hub), [Settlement](../areas/settlement.md), [Network](../areas/network.md#peering), [XRPL](../areas/xrpl.md), [Testing](../areas/testing.md). Not built yet ([roadmap](../roadmap.md#hubs-only)).
+**Areas:** [Settlement hubs](../designs/settlement-hubs.md#11-choosing-a-hub), [Settlement](../areas/settlement.md), [Network](../areas/network.md#peering), [XRPL](../areas/xrpl.md), [Testing](../areas/testing.md). Built, but for what the [roadmap](../roadmap.md#hubs-only) still lists.
 
 ## Facts
 
@@ -11,7 +11,7 @@
 - With both ways to settle, every rule of credit, settlement and ending a peering exists twice, and so does every test and simulation of them.
 - Only a hub's validators need to be close to each other, so that a block is final soon after it is proposed. A member's legs to its peers are ordinary peer legs, and the rules already state an allowance for them; a member slower than it learns of some packets late, a cost it books ([the design](../designs/settlement-hubs.md#4-peering-over-a-hub)).
 - The schemes on the underlying ledgers also hold the owner's funds that pay into a hub and that the hub pays out to ([Settlement hubs](../areas/hubs.md#in-the-node)).
-- Most tests and simulations of a node are not about settlement, and today run on a stub that settles directly, through the whole credit machinery.
+- Most tests and simulations of a node are not about settlement, yet on a stub that settles directly they would run through the whole credit machinery.
 
 ## Decision
 

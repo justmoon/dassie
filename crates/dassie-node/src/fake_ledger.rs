@@ -1,7 +1,7 @@
 //! The fake XRP Ledger of `dassie-xrpl`, served as rippled serves the real
 //! one: its WebSocket API on `ws://`, its faucet on HTTPS, and a ledger
 //! closed every so often. For tests and dev environments only (feature
-//! `testing`): CI and `node --run dev -- --xrpl fake` settle against it.
+//! `testing`): CI and `node --run dev` settle against it.
 //! It is the testnet, or mainnet, which has no faucet
 //! (spec/decisions/mainnet-schemes.md).
 //!
