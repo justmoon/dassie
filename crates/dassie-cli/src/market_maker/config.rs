@@ -10,12 +10,18 @@
 //!   },
 //!   "xrp": {
 //!     "socket": "/run/mm-xrp/dassie.sock",
-//!     "ledger": "xrpl-testnet-xrp+xrp",
+//!     "ledger": "hub-xrpl-testnet-xrp+xrp",
+//!     "ownerBook": "xrpl-testnet-xrp+xrp",
 //!     "passphraseFile": "/etc/dassie-mm/xrp.phrase",
 //!     "tradeSize": 10000000000,
 //!     "band": { "low": 20000000000, "high": 200000000000 }
 //!   },
-//!   "token": { "socket": "…", "ledger": "xrpl-testnet-dsusd+usd", "…": "…" },
+//!   "token": {
+//!     "socket": "…",
+//!     "ledger": "hub-xrpl-testnet-dsusd+usd",
+//!     "ownerBook": "xrpl-testnet-dsusd+usd",
+//!     "…": "…"
+//!   },
 //!   "marginPpm": 5000,
 //!   "slippagePpm": 10000
 //! }
@@ -23,8 +29,13 @@
 //!
 //! `targets` lists the core nodes to trade through, at least one and at
 //! most [`MAX_TARGETS`], each once: a URL, or `{ url, feedPort }` for a
-//! target whose discovery document names no feed port. Amounts are in the
-//! nodes' ledger units (scale 9). `caFile` adds roots to trust the targets
+//! target whose discovery document names no feed port. Each node names
+//! two ledgers, each checked whole: `ledger`, the ledger of the settlement
+//! hub of its asset, which its trades are paid on and pay from, and
+//! `ownerBook`, the owner book of that asset on its XRP Ledger account,
+//! which funds the hub and which its rebalances spend from
+//! (spec/areas/rate-feed.md#market-maker). Amounts are in the nodes'
+//! ledger units (scale 9). `caFile` adds roots to trust the targets
 //! by, and `allowPrivate` lets the targets and the XRPL server be on
 //! private addresses, and the server on `ws://`: both for dev and tests.
 //! Every problem is a [`ConfigError`]; nothing here panics
@@ -81,8 +92,13 @@ pub struct Target {
 pub struct NodeConfig {
     /// Its IPC socket.
     pub socket: PathBuf,
-    /// The ledger it runs, such as `xrpl-testnet-xrp+xrp`.
+    /// The ledger of the settlement hub of its asset, which its trades are
+    /// paid on and pay from, such as `hub-xrpl-testnet-xrp+xrp`.
     pub ledger: String,
+    /// The ledger of the owner book of its asset on its XRP Ledger
+    /// account, which funds the hub and which a rebalance spends from, such
+    /// as `xrpl-testnet-xrp+xrp`.
+    pub owner_book: String,
     /// The file that holds its passphrase, for its XRPL account's keys.
     pub passphrase_file: PathBuf,
 }
@@ -124,8 +140,8 @@ pub enum ConfigError {
     Missing(String),
     /// A field's value is not what it may be.
     Invalid(String),
-    /// Both nodes run the same ledger, or use the same socket or
-    /// passphrase.
+    /// Both nodes trade on the same ledger, or name the same owner book,
+    /// socket or passphrase.
     SameNode(&'static str),
 }
 
@@ -194,6 +210,9 @@ pub fn parse(text: &str) -> Result<Config, ConfigError> {
     let (token_node, token_params) = node(&root, "token")?;
     if xrp.ledger == token_node.ledger {
         return Err(ConfigError::SameNode("ledger"));
+    }
+    if xrp.owner_book == token_node.owner_book {
+        return Err(ConfigError::SameNode("owner book"));
     }
     if xrp.socket == token_node.socket {
         return Err(ConfigError::SameNode("socket"));
@@ -416,15 +435,20 @@ pub fn parse_currency(text: &str) -> Option<Currency> {
 fn node(root: &Fields<'_>, key: &str) -> Result<(NodeConfig, NodeParams), ConfigError> {
     let fields = root.object(
         key,
-        &["socket", "ledger", "passphraseFile", "tradeSize", "band"],
+        &[
+            "socket",
+            "ledger",
+            "ownerBook",
+            "passphraseFile",
+            "tradeSize",
+            "band",
+        ],
     )?;
-    let ledger = fields.text("ledger")?;
-    let valid_ledger = ledger.len() <= MAX_LEDGER_ID_BYTES
-        && ledger
-            .bytes()
-            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-' || b == b'+');
-    if !valid_ledger {
-        return Err(fields.invalid("ledger"));
+    let ledger = ledger_id(&fields, "ledger")?;
+    let owner_book = ledger_id(&fields, "ownerBook")?;
+    // The hub's ledger and the book that funds it are two.
+    if owner_book == ledger {
+        return Err(fields.invalid("ownerBook"));
     }
     let band_fields = fields.object("band", &["low", "high"])?;
     let band = Band {
@@ -441,9 +465,25 @@ fn node(root: &Fields<'_>, key: &str) -> Result<(NodeConfig, NodeParams), Config
     let config = NodeConfig {
         socket: PathBuf::from(fields.text("socket")?),
         ledger: ledger.to_owned(),
+        owner_book: owner_book.to_owned(),
         passphrase_file: PathBuf::from(fields.text("passphraseFile")?),
     };
     Ok((config, NodeParams { trade_size, band }))
+}
+
+/// A ledger's ID, as a feed and `ListLedgers` name it: lowercase letters,
+/// digits, `-` and `+`, at most [`MAX_LEDGER_ID_BYTES`].
+fn ledger_id<'a>(fields: &Fields<'a>, key: &str) -> Result<&'a str, ConfigError> {
+    let ledger = fields.text(key)?;
+    let valid = ledger.len() <= MAX_LEDGER_ID_BYTES
+        && ledger
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-' || b == b'+');
+    if valid {
+        Ok(ledger)
+    } else {
+        Err(fields.invalid(key))
+    }
 }
 
 /// The wallet of the node whose passphrase is in `path`: the node's first
@@ -479,14 +519,16 @@ mod tests {
             },
             "xrp": {
                 "socket": "/run/a.sock",
-                "ledger": "xrpl-testnet-xrp+xrp",
+                "ledger": "hub-xrpl-testnet-xrp+xrp",
+                "ownerBook": "xrpl-testnet-xrp+xrp",
                 "passphraseFile": "/etc/a",
                 "tradeSize": 1_000_000_000,
                 "band": { "low": 10_000_000_000_u64, "high": 100_000_000_000_u64 },
             },
             "token": {
                 "socket": "/run/b.sock",
-                "ledger": "xrpl-testnet-dsusd+usd",
+                "ledger": "hub-xrpl-testnet-dsusd+usd",
+                "ownerBook": "xrpl-testnet-dsusd+usd",
                 "passphraseFile": "/etc/b",
                 "tradeSize": 500_000_000,
                 "band": { "low": 5_000_000_000_u64, "high": 50_000_000_000_u64 },
@@ -514,7 +556,10 @@ mod tests {
         assert_eq!(target.feed_port, None);
         assert_eq!(config.token.currency, dassie_xrpl::dsusd::CURRENCY);
         assert_eq!(config.token.issuer, dassie_xrpl::dsusd::ISSUER);
-        assert_eq!(config.xrp.ledger, "xrpl-testnet-xrp+xrp");
+        assert_eq!(config.xrp.ledger, "hub-xrpl-testnet-xrp+xrp");
+        assert_eq!(config.xrp.owner_book, "xrpl-testnet-xrp+xrp");
+        assert_eq!(config.token_node.ledger, "hub-xrpl-testnet-dsusd+usd");
+        assert_eq!(config.token_node.owner_book, "xrpl-testnet-dsusd+usd");
         assert_eq!(config.params.margin_ppm, 5_000);
         assert_eq!(config.params.token.trade_size, 500_000_000);
         assert_eq!(config.params.xrp.band.high, 100_000_000_000);
@@ -649,6 +694,21 @@ mod tests {
             invalid("xrp.ledger")
         );
         assert_eq!(
+            with(|v| v["token"]["ownerBook"] = json!("xrpl-testnet-dsusd usd")),
+            invalid("token.ownerBook")
+        );
+        assert_eq!(
+            with(|v| {
+                v["xrp"].as_object_mut().unwrap().remove("ownerBook");
+            }),
+            Err(ConfigError::Missing("xrp.ownerBook".into()))
+        );
+        // A node's hub is funded from a book of its own.
+        assert_eq!(
+            with(|v| v["xrp"]["ownerBook"] = json!("hub-xrpl-testnet-xrp+xrp")),
+            invalid("xrp.ownerBook")
+        );
+        assert_eq!(
             with(|v| v["xrp"]["tradeSize"] = json!(0)),
             invalid("xrp.tradeSize")
         );
@@ -681,8 +741,12 @@ mod tests {
     #[test]
     fn the_two_nodes_are_two() {
         assert_eq!(
-            with(|v| v["token"]["ledger"] = json!("xrpl-testnet-xrp+xrp")),
+            with(|v| v["token"]["ledger"] = json!("hub-xrpl-testnet-xrp+xrp")),
             Err(ConfigError::SameNode("ledger"))
+        );
+        assert_eq!(
+            with(|v| v["token"]["ownerBook"] = json!("xrpl-testnet-xrp+xrp")),
+            Err(ConfigError::SameNode("owner book"))
         );
         assert_eq!(
             with(|v| v["token"]["socket"] = json!("/run/a.sock")),

@@ -240,8 +240,8 @@ mod tests {
     use super::*;
 
     const NOW_MS: u64 = 1_790_000_000_000;
-    const XRP: &str = "xrpl-testnet-xrp+xrp";
-    const DSUSD: &str = "xrpl-testnet-dsusd+usd";
+    const XRP: &str = "hub-xrpl-testnet-xrp+xrp";
+    const DSUSD: &str = "hub-xrpl-testnet-dsusd+usd";
 
     fn key() -> NodeKey {
         NodeKey::from_bytes(&[3; 32])

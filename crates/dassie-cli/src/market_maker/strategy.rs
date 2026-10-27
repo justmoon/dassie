@@ -2,18 +2,19 @@
 //! (spec/areas/rate-feed.md#market-maker).
 //!
 //! Two nodes of the market maker's, each pinned to every target, hold one
-//! asset each: XRP on one, an issued token on the other. A trade pays from
-//! the node of asset `a` through one target to the node of `b`; it pays
-//! when the `b` it delivers, swapped back to `a` on the XRP Ledger's AMM
-//! pool, comes to more than it cost by the margin. Each target's trade is
-//! scored at that target's rates, and the best taken; a target that is not
-//! a confirmed uplink of both nodes is passed over. A rebalance moves a node's
-//! holding back into its band: one Payment from its XRPL account to the
-//! other node's, which delivers the other asset, no more than the other
-//! node's band has room for, and spends at most what is above the band's
-//! middle, through the pool.
+//! asset each: XRP on one, an issued token on the other, each in the
+//! settlement hub of its asset and in the owner book that funds it. A trade
+//! pays from the node of asset `a` through one target to the node of `b`,
+//! over their hubs; it pays when the `b` it delivers, swapped back to `a`
+//! on the XRP Ledger's AMM pool, comes to more than it cost by the margin.
+//! Each target's trade is scored at that target's rates, and the best
+//! taken; a target that is not a confirmed uplink of both nodes is passed
+//! over. A rebalance moves a node's holding back into its band: one Payment
+//! from its owner book's XRPL account to the other node's, which delivers
+//! the other asset, no more than the other node's band has room for, and
+//! spends at most what is above the band's middle, through the pool.
 //!
-//! Every amount is in the nodes' ledger units: both books count at scale 9
+//! Every amount is in the nodes' ledger units: all their books count at scale 9
 //! (spec/areas/ledger.md#ledgers-and-amounts), so a drop is
 //! [`UNITS_PER_DROP`] units and a millionth of the token [`UNITS_PER_MICRO`]
 //! units. Converting to the ledger's amounts rounds down, so the market
@@ -188,12 +189,14 @@ impl Pool {
 /// What one node holds, in its ledger's units, none below zero.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Holding {
-    /// The owner's balance in its books: what it can send through the
-    /// target, and what its band is about.
-    pub books: u64,
-    /// What its XRPL account holds that it may spend, as its books have
-    /// it: what a rebalance can spend now. Less than the books while the
-    /// target has not settled what it owes the node yet.
+    /// What the owner holds of the node's asset, by its books: its funds
+    /// in the hub's ledger and in the owner book, and a move between them
+    /// on its way. What it can send through a target, as the node moves
+    /// funds into the hub as it needs them, and what its band is about.
+    pub total: u64,
+    /// What the owner book's XRPL account holds that the owner may spend
+    /// now, as its books have it: what a rebalance can spend. Less than the
+    /// total by what is in the hub.
     pub on_ledger: u64,
 }
 
@@ -329,13 +332,13 @@ pub enum Decision {
 #[must_use]
 pub fn decide(inputs: &Inputs<'_>) -> Decision {
     for side in Side::BOTH {
-        if inputs.holdings.of(side).books > inputs.params.node(side).band.high {
+        if inputs.holdings.of(side).total > inputs.params.node(side).band.high {
             return match rebalance(inputs, side) {
                 Ok(rebalance) => Decision::Rebalance(rebalance),
                 Err(hold @ (Hold::Full | Hold::Dust)) => {
                     let other = side.other();
                     let within =
-                        inputs.holdings.of(other).books <= inputs.params.node(other).band.high;
+                        inputs.holdings.of(other).total <= inputs.params.node(other).band.high;
                     let from: &[Side] = if within { &[other] } else { &[] };
                     match trade(inputs, from) {
                         Decision::Hold(_) => Decision::Hold(hold),
@@ -374,7 +377,7 @@ fn trade(inputs: &Inputs<'_>, from: &[Side]) -> Decision {
             // What a node may send does not depend on the target: its band
             // is its own.
             let node = inputs.params.node(from);
-            let room = inputs.holdings.of(from).books.saturating_sub(node.band.low);
+            let room = inputs.holdings.of(from).total.saturating_sub(node.band.low);
             let debit = node.trade_size.min(room);
             if debit == 0 {
                 hold = further(hold, Hold::Bands);
@@ -458,21 +461,21 @@ pub fn check_quote(
 }
 
 /// The rebalance of `from`'s node, which is above its band: it spends what
-/// is above the band's middle, at most what its account holds now (less
-/// the fee's headroom, for XRP), and asks the pool for what a slippage's
-/// share less buys, so the price may move by that before it fails. It
-/// delivers no more than the other node's band has room for, so that node
-/// is not then above its band and rebalanced back, paying the pool's fee
-/// each way.
+/// is above the band's middle, at most what its owner book's account holds
+/// now (less the fee's headroom, for XRP), and asks the pool for what a
+/// slippage's share less buys, so the price may move by that before it
+/// fails. It delivers no more than the other node's band has room for, so
+/// that node is not then above its band and rebalanced back, paying the
+/// pool's fee each way.
 fn rebalance(inputs: &Inputs<'_>, from: Side) -> Result<Rebalance, Hold> {
     let band = inputs.params.node(from).band;
     let holding = inputs.holdings.of(from);
-    assert!(holding.books > band.high, "only a node above its band");
+    assert!(holding.total > band.high, "only a node above its band");
     let spendable = match from {
         Side::Xrp => holding.on_ledger.saturating_sub(FEE_HEADROOM_UNITS),
         Side::Token => holding.on_ledger,
     };
-    let excess = (holding.books - band.middle()).min(spendable);
+    let excess = (holding.total - band.middle()).min(spendable);
     let slippage = u128::from(MILLION) + u128::from(inputs.params.slippage_ppm);
     let target = u64::try_from(u128::from(excess) * u128::from(MILLION) / slippage)
         .map_err(|_| Hold::Range)?;
@@ -488,7 +491,7 @@ fn rebalance(inputs: &Inputs<'_>, from: Side) -> Result<Rebalance, Hold> {
         .node(to)
         .band
         .high
-        .saturating_sub(inputs.holdings.of(to).books);
+        .saturating_sub(inputs.holdings.of(to).total);
     let fits = to_amount(to, room, token).ok_or(Hold::Range)?;
     if fits.is_zero() {
         return Err(Hold::Full);
@@ -697,11 +700,11 @@ mod tests {
     const fn held(xrp: u64, token: u64) -> Holdings {
         Holdings {
             xrp: Holding {
-                books: xrp,
+                total: xrp,
                 on_ledger: xrp,
             },
             token: Holding {
-                books: token,
+                total: token,
                 on_ledger: token,
             },
         }
@@ -1086,8 +1089,9 @@ mod tests {
     #[test]
     fn a_rebalance_spends_only_what_the_account_holds() {
         let params = params();
-        // The books hold 120 XRP, but the target has settled only 30 of
-        // them so far: the rebalance spends 30, less the fee's headroom.
+        // The node holds 120 XRP, but only 30 of them in its owner book's
+        // account, the rest in the hub: the rebalance spends 30, less the
+        // fee's headroom.
         let mut unsettled = held(120 * ONE, 25 * ONE);
         unsettled.xrp.on_ledger = 30 * ONE;
         let Decision::Rebalance(rebalance) = decide(&inputs(&one(rates(1, 1)), unsettled, &params))
@@ -1095,7 +1099,7 @@ mod tests {
             panic!("a rebalance");
         };
         assert_eq!(rebalance.send_max, Amount::Xrp(30_000_000 - MAX_FEE_DROPS));
-        // Nothing settled yet: nothing to spend.
+        // Everything in the hub: nothing to spend.
         unsettled.xrp.on_ledger = 0;
         assert_eq!(
             decide(&inputs(&one(rates(1, 1)), unsettled, &params)),
@@ -1231,11 +1235,11 @@ mod tests {
     /// band's top of 60, the token node at its top of 40.
     const VM_STALLED: Holdings = Holdings {
         xrp: Holding {
-            books: 67_371_544_000,
+            total: 67_371_544_000,
             on_ledger: 66_896_544_000,
         },
         token: Holding {
-            books: 40 * ONE,
+            total: 40 * ONE,
             on_ledger: 40 * ONE,
         },
     };
@@ -1262,11 +1266,11 @@ mod tests {
         // rebalance comes first again, delivering what fits.
         let traded = Holdings {
             xrp: Holding {
-                books: VM_STALLED.xrp.books + trade.receive,
+                total: VM_STALLED.xrp.total + trade.receive,
                 on_ledger: VM_STALLED.xrp.on_ledger,
             },
             token: Holding {
-                books: 38 * ONE,
+                total: 38 * ONE,
                 on_ledger: 38 * ONE,
             },
         };
@@ -1287,7 +1291,7 @@ mod tests {
         // funds, so it comes first, though the trade would clear the margin.
         let mut room = VM_STALLED;
         room.token = Holding {
-            books: 30 * ONE,
+            total: 30 * ONE,
             on_ledger: 30 * ONE,
         };
         let Decision::Rebalance(rebalance) = decide(&vm_inputs(room, &params)) else {
@@ -1300,7 +1304,7 @@ mod tests {
         );
         // Below its top, the XRP node makes the same trade as above.
         let mut within = room;
-        within.xrp.books = 50 * ONE;
+        within.xrp.total = 50 * ONE;
         let Decision::Trade(trade) = decide(&vm_inputs(within, &params)) else {
             panic!("a trade");
         };
@@ -1322,7 +1326,7 @@ mod tests {
         inputs.targets = &targets;
         assert_eq!(decide(&inputs), Decision::Hold(Hold::Full));
         // Within its band, the XRP node makes that trade.
-        inputs.holdings.xrp.books = 50 * ONE;
+        inputs.holdings.xrp.total = 50 * ONE;
         let Decision::Trade(trade) = decide(&inputs) else {
             panic!("a trade");
         };
@@ -1331,7 +1335,7 @@ mod tests {
         // Both above their bands: no trade either way, as no node could
         // take a rebalance.
         let mut both = VM_STALLED;
-        both.token.books = 45 * ONE;
+        both.token.total = 45 * ONE;
         assert_eq!(
             decide(&vm_inputs(both, &params)),
             Decision::Hold(Hold::Full)
@@ -1341,13 +1345,13 @@ mod tests {
     #[test]
     fn a_rebalance_that_can_spend_nothing_yet_lets_a_trade_go_on() {
         let params = vm_params();
-        // The target has settled nothing of what the XRP node's books hold:
-        // its rebalance can spend nothing, and the token node still trades
-        // into it, within its band.
+        // Nothing of what the XRP node holds is in its owner book's account
+        // yet: its rebalance can spend nothing, and the token node still
+        // trades into it, within its band.
         let mut unsettled = VM_STALLED;
         unsettled.xrp.on_ledger = 0;
         unsettled.token = Holding {
-            books: 30 * ONE,
+            total: 30 * ONE,
             on_ledger: 30 * ONE,
         };
         let inputs = vm_inputs(unsettled, &params);
@@ -1357,7 +1361,7 @@ mod tests {
         };
         assert_eq!(trade.from, Side::Token);
         // Not below the token node's band.
-        unsettled.token.books = 5 * ONE;
+        unsettled.token.total = 5 * ONE;
         assert_eq!(
             decide(&vm_inputs(unsettled, &params)),
             Decision::Hold(Hold::Dust)

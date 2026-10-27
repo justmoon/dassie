@@ -3,8 +3,8 @@
  * this machine, and the dashboard to watch it at https://localhost.
  *
  * 1. Checks what it needs, and stops what a crashed run left behind.
- * 2. Builds the node (cargo), the wallet and the dashboard (Vite, in
- *    development mode, watching).
+ * 2. Builds the node and the fake XRP Ledger (cargo), the wallet and the
+ *    dashboard (Vite, in development mode, watching).
  * 3. Serves the dashboard with its control channel and the relay to the
  *    nodes, and the SNI proxy on 443.
  * 4. Runs the scenario chosen last, and rebuilds and restarts the nodes
@@ -13,20 +13,24 @@
  * Flags, for tests and special cases:
  *
  * - `--scenario <id>`: run this scenario instead of the one chosen last;
- * - `--dassie <path>`: run this binary, and do not build or watch the node;
+ * - `--dassie <path>`: run this binary, and do not build or watch the node,
+ *   nor build the fake ledger: the scenarios on the XRP Ledger run on the
+ *   one built last, if there is one;
  * - `--no-watch`: build the wallet and the dashboard once, watch nothing;
  * - `--no-proxy`: no SNI proxy on 443;
  * - `--headless`: no keys, no hints for a person;
  * - `--port-offset <n>`: move every port by n;
  * - `--state-dir <dir>`: keep the state there instead of `local/dev`
- *   (also `DASSIE_DEV_STATE_DIR`);
- * - `--xrpl <testnet|fake>`: where the XRPL scenarios settle: the public
- *   testnet (the default), or the fake ledger the tests use.
+ *   (also `DASSIE_DEV_STATE_DIR`).
+ *
+ * The scenarios on the XRP Ledger settle on the fake ledger the tests use,
+ * and on no other: they found hubs of their own, and need its issuer and
+ * pool (spec/areas/dev.md#scenarios).
  *
  * @module
  */
 
-import { mkdir, rm } from "node:fs/promises";
+import { mkdir, rm, stat } from "node:fs/promises";
 import process from "node:process";
 import { parseArgs } from "node:util";
 import { LogLevel } from "@dassie/rpc/proto";
@@ -54,11 +58,6 @@ const CONTROL_PORT = 10101;
 const PROXY_PORT = 443;
 
 const args = flags();
-const xrpl = args.xrpl ?? "testnet";
-if (xrpl !== "testnet" && xrpl !== "fake") {
-  console.error("--xrpl must be testnet or fake");
-  process.exit(2);
-}
 const offset = Number(args["port-offset"] ?? "0");
 const watch = !args["no-watch"];
 if (!Number.isSafeInteger(offset) || offset < 0 || offset > 40_000) {
@@ -155,6 +154,11 @@ async function start(): Promise<void> {
   }
 
   const dassie = args.dassie ?? DEV_BINARY;
+  // Built below with the node; with `--dassie`, the one built last, if any.
+  const fakeLedger = args.dassie === undefined ||
+      await stat(fakeLedgerBinary()).then(() => true, () => false)
+    ? fakeLedgerBinary()
+    : undefined;
   const env = new Environment({
     layout,
     dassie: () => dassie,
@@ -162,14 +166,14 @@ async function start(): Promise<void> {
     walletDir: `${ROOT}apps/wallet/dist-dev`,
     proxyPort: proxy ? proxyPort : undefined,
     log: process.env.DASSIE_LOG ?? "warn",
-    fakeLedger: xrpl === "fake" ? fakeLedgerBinary() : undefined,
+    fakeLedger,
     print,
   });
   environment = env;
   env.extraPids = () => builds.flatMap((build) => build.pids());
 
   const builder = args.dassie === undefined ? await buildNode(env) : undefined;
-  if (xrpl === "fake") {
+  if (args.dassie === undefined) {
     print("building the fake XRP Ledger…");
     await buildFakeLedger();
   }
@@ -218,7 +222,6 @@ function flags() {
         dassie: { type: "string" },
         "port-offset": { type: "string" },
         "state-dir": { type: "string" },
-        xrpl: { type: "string" },
       },
       strict: true,
     }).values;
