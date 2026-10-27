@@ -35,6 +35,7 @@ const _: () = assert!(PAYMENT > 4 * CREDIT);
 /// the stub with commitments takes, as a hub's member holds more than the
 /// connector puts in flight.
 const COMMITMENTS: usize = 64;
+const _: () = assert!(COMMITMENTS >= Policies::DEV.connector.max_pending_per_endpoint);
 
 /// What each stub starts with: 100 USD.
 const DEPOSIT: u64 = 100_000_000_000;
@@ -182,21 +183,91 @@ async fn credit_out(node: &TestNode) -> u64 {
     peers[0].credit_out
 }
 
+/// The settlements `node` sent its one peer: each takes the next sequence.
+async fn settlements(node: &TestNode) -> u64 {
+    let Ok(response::Method::ListSettlementChannels(channels)) = node
+        .ipc()
+        .await
+        .call(Method::ListSettlementChannels(
+            proto::ListSettlementChannelsRequest {},
+        ))
+        .await
+    else {
+        panic!("no channels")
+    };
+    assert_eq!(channels.channels.len(), 1);
+    channels.channels[0].settled_out
+}
+
+/// What A and B hold toward each other, and their stubs' balances.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Holds {
+    /// The credit A extends B: its hold toward B.
+    to_b: u64,
+    /// The credit B extends A: its hold toward A.
+    to_a: u64,
+    /// A's stub's balance.
+    stub_a: u64,
+    /// B's stub's balance.
+    stub_b: u64,
+}
+
+/// Reads [`Holds`], one value at a time.
+async fn holds(a: &TestNode, b: &TestNode) -> Holds {
+    Holds {
+        to_b: credit_out(a).await,
+        to_a: credit_out(b).await,
+        stub_a: stub_balance(a).await,
+        stub_b: stub_balance(b).await,
+    }
+}
+
+/// Waits until settling between A and B is quiet and stays so across two
+/// reads of their [`Holds`] a clock step apart that agree, and returns that
+/// read: [`quiet`] sees only the settlements already on their way, so a
+/// request to settle that landed in the last step shows up as a change
+/// between the reads, not as a read torn halfway through a settlement.
+async fn steady(
+    clock: &ManualClock,
+    a: &TestNode,
+    b: &TestNode,
+    key_a: &NodeKey,
+    key_b: &NodeKey,
+) -> Holds {
+    let mut last = None;
+    until(clock, async || {
+        if !quiet(a, b, key_a, key_b).await {
+            last = None;
+            return false;
+        }
+        let read = holds(a, b).await;
+        let agrees = last == Some(read) && quiet(a, b, key_a, key_b).await;
+        last = Some(read);
+        agrees
+    })
+    .await;
+    last.unwrap()
+}
+
 /// Checks that the holds are what settling funded: over a hub, the credit
 /// each extends the other is its own hold toward it, nothing unsecured
 /// (spec/areas/hubs.md#in-the-node). What moved from A's stub to B's net is
 /// what A settled less what B settled; what A settled funds its hold, which
 /// paid B `paid` and holds what is left, and what B settled holds B's.
-/// Once settling is quiet, nothing is on its way.
-async fn funded(a: &TestNode, b: &TestNode, paid: u64) {
-    let (to_b, to_a) = (credit_out(a).await, credit_out(b).await);
-    let moved = i128::from(DEPOSIT) - i128::from(stub_balance(a).await);
+fn funded(holds: Holds, paid: u64) {
+    let Holds {
+        to_b,
+        to_a,
+        stub_a,
+        stub_b,
+    } = holds;
+    let moved = i128::from(DEPOSIT) - i128::from(stub_a);
     assert_eq!(
         i128::from(to_b) + i128::from(paid) - i128::from(to_a),
         moved,
         "A holds {to_b} toward B, B {to_a} toward A"
     );
-    assert_eq!(stub_balance(a).await + stub_balance(b).await, 2 * DEPOSIT);
+    assert_eq!(stub_a + stub_b, 2 * DEPOSIT);
 }
 
 /// Whether settling between A and B is quiet: nothing on its way either
@@ -251,10 +322,6 @@ async fn two_daemons_peer_and_keep_their_peering() {
     .await;
     check_network(&a, &key_a, &key_b).await;
     check_network(&b, &key_b, &key_a).await;
-    // Each holds toward the other only what it settled: no credit runs
-    // ahead of a hold.
-    until(&clock, async || quiet(&a, &b, &key_a, &key_b).await).await;
-    funded(&a, &b, 0).await;
     // Both take QUIC, so they peered over it: each asked the other and
     // answered it there.
     for node in [&a, &b] {
@@ -301,11 +368,20 @@ async fn two_daemons_peer_and_keep_their_peering() {
     // A funded its hold toward B as it paid; once quiet, the books mirror
     // each other, and what moved from A's stub to B's paid B and holds
     // what is left.
-    until(&clock, async || quiet(&a, &b, &key_a, &key_b).await).await;
-    funded(&a, &b, PAYMENT).await;
-    let moved = DEPOSIT - stub_balance(&a).await;
-    // By A's books it owes B what it paid less what moved net: what B's
-    // hold toward A holds beyond A's toward B, so no more than B's hold.
+    let after = steady(&clock, &a, &b, &key_a, &key_b).await;
+    funded(after, PAYMENT);
+    let moved = DEPOSIT - after.stub_a;
+    // It did so many times as it went: asked to settle, A funds its hold
+    // as a junior that extends the credit would, half the way to its
+    // trigger (spec/areas/hubs.md#in-the-node), and B lets it owe little
+    // beyond that hold, so no one settlement moves the credit: what moved
+    // took at least one settlement per credit, several as A paid over four.
+    let settled = settlements(&a).await;
+    assert!(
+        settled.saturating_mul(CREDIT) >= moved,
+        "{settled} settlements moved {moved}"
+    );
+    // By A's books it owes B what it paid less what moved net.
     let left = i128::from(PAYMENT) - i128::from(moved);
     assert_eq!(owes(&a, &key_b).await, left);
     // Restarted, on its own ports as a node does, B still has its peering
