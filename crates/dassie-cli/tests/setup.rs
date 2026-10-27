@@ -198,6 +198,16 @@ fn refuses_a_phrase_of_another_realm(dir: &Path, owner: &str, ipc: &Path) {
         "{text}"
     );
     assert!(text.contains("a phrase of the live realm"), "{text}");
+
+    // Read by default as the test realm's, it is refused before the node is
+    // touched, with the flag that reads it as its own.
+    let unflagged = dassie(&["setup", "--passphrase-file", &live_owner], ipc);
+    let text = describe(&unflagged);
+    assert_eq!(unflagged.status.code(), Some(1), "{text}");
+    assert!(
+        text.contains("a phrase of the live realm, not of the test realm: pass --realm live"),
+        "{text}"
+    );
 }
 
 /// `dassie setup --asset` sets an account's config apart from its schemes,

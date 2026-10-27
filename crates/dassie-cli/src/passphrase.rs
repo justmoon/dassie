@@ -19,6 +19,30 @@ use zeroize::Zeroize;
 /// Most bytes in a passphrase file: a phrase, and a line break or two.
 const MAX_PHRASE_FILE_BYTES: u64 = dassie_identity::MAX_PHRASE_INPUT_BYTES as u64 + 2;
 
+/// Why no node key was read from a passphrase file. Neither names what the
+/// file holds beyond a realm.
+#[derive(Debug)]
+pub enum Refusal {
+    /// The file holds a valid phrase, of this realm rather than the one
+    /// expected, which the caller may know how to ask for.
+    OtherRealm {
+        /// What to tell the operator.
+        message: String,
+        /// The phrase's realm.
+        realm: Realm,
+    },
+    /// Any other reason, as what to tell the operator.
+    Other(String),
+}
+
+impl From<Refusal> for String {
+    fn from(refusal: Refusal) -> Self {
+        match refusal {
+            Refusal::OtherRealm { message, .. } | Refusal::Other(message) => message,
+        }
+    }
+}
+
 /// The node key of the passphrase in `path`, a phrase of `realm` read by a
 /// clock that reads `now_ms`, derived as the wallet derives it
 /// (spec/areas/identity.md#derivation-chain). The phrase and the master
@@ -30,22 +54,31 @@ const MAX_PHRASE_FILE_BYTES: u64 = dassie_identity::MAX_PHRASE_INPUT_BYTES as u6
 /// The file cannot be read, is too long, holds no valid passphrase, a
 /// phrase of the other realm, one made more than a day after `now_ms`, or
 /// one that needs correcting.
-pub fn node_key_from_file(path: &Path, realm: Realm, now_ms: u64) -> Result<NodeKey, String> {
+pub fn node_key_from_file(path: &Path, realm: Realm, now_ms: u64) -> Result<NodeKey, Refusal> {
     let shown = path.display();
-    let mut text = read_bounded(path, MAX_PHRASE_FILE_BYTES).map_err(|problem| match problem {
-        ReadProblem::TooLong => format!("{shown} is too long for a passphrase"),
-        ReadProblem::Io(problem) => format!("cannot read {shown}: {problem}"),
+    let mut text = read_bounded(path, MAX_PHRASE_FILE_BYTES).map_err(|problem| {
+        Refusal::Other(match problem {
+            ReadProblem::TooLong => format!("{shown} is too long for a passphrase"),
+            ReadProblem::Io(problem) => format!("cannot read {shown}: {problem}"),
+        })
     })?;
     let reading = Phrase::read(&text, Positions::NONE, realm, now_ms);
     text.zeroize();
     // The phrase's errors name positions, counts, a realm or a date, never
     // a word.
+    let refusal = |error| match error {
+        dassie_identity::Error::OtherRealm { realm: theirs } => Refusal::OtherRealm {
+            message: format!(
+                "{shown} holds a phrase of the {theirs} realm, not of the {realm} realm"
+            ),
+            realm: theirs,
+        },
+        error => Refusal::Other(format!("{shown} holds no valid passphrase: {error}")),
+    };
     let phrase = reading
         .and_then(dassie_identity::Reading::without_correction)
-        .map_err(|error| format!("{shown} holds no valid passphrase: {error}"))?;
-    let seed = phrase
-        .master_seed(realm)
-        .map_err(|error| format!("{shown} holds no valid passphrase: {error}"))?;
+        .map_err(refusal)?;
+    let seed = phrase.master_seed(realm).map_err(refusal)?;
     Ok(seed.node_key())
 }
 
@@ -122,10 +155,16 @@ mod tests {
         let key = node_key_from_file(&path, Realm::Test, now_ms()).unwrap();
         let expected = phrase.master_seed(Realm::Test).unwrap().node_key();
         assert_eq!(key.node_id(), expected.node_id());
-        let problem = node_key_from_file(&path, Realm::Live, now_ms())
-            .err()
-            .unwrap();
-        assert!(problem.contains("phrase of the test realm"), "{problem}");
+        let Some(Refusal::OtherRealm { message, realm }) =
+            node_key_from_file(&path, Realm::Live, now_ms()).err()
+        else {
+            panic!("a test phrase read as a live one is refused as the test realm's");
+        };
+        assert_eq!(realm, Realm::Test);
+        assert!(
+            message.contains("a phrase of the test realm, not of the live realm"),
+            "{message}"
+        );
     }
 
     // No one is there to confirm a correction, so a damaged phrase is
@@ -139,9 +178,11 @@ mod tests {
         let lost = words[2];
         words[2] = "?";
         std::fs::write(&path, words.join(" ")).unwrap();
-        let problem = node_key_from_file(&path, Realm::Test, now_ms())
-            .err()
-            .unwrap();
+        let problem = String::from(
+            node_key_from_file(&path, Realm::Test, now_ms())
+                .err()
+                .unwrap(),
+        );
         assert!(
             problem.contains("at word 3, which only its owner"),
             "{problem}"
@@ -158,9 +199,11 @@ mod tests {
         let phrase = phrase(Realm::Test);
         std::fs::write(&path, phrase.text().as_str()).unwrap();
         let behind = made().unix_ms() - 86_400_001;
-        let problem = node_key_from_file(&path, Realm::Test, behind)
-            .err()
-            .unwrap();
+        let problem = String::from(
+            node_key_from_file(&path, Realm::Test, behind)
+                .err()
+                .unwrap(),
+        );
         assert!(
             problem.contains(&format!("made on {}", made())),
             "{problem}"
@@ -173,20 +216,26 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("phrase");
         std::fs::write(&path, "abandon not a phrase").unwrap();
-        let problem = node_key_from_file(&path, Realm::Test, now_ms())
-            .err()
-            .unwrap();
+        let problem = String::from(
+            node_key_from_file(&path, Realm::Test, now_ms())
+                .err()
+                .unwrap(),
+        );
         assert!(problem.contains("no valid passphrase"), "{problem}");
         assert!(!problem.contains("abandon"), "{problem}");
         std::fs::write(&path, "abandon ".repeat(512)).unwrap();
-        let problem = node_key_from_file(&path, Realm::Test, now_ms())
-            .err()
-            .unwrap();
+        let problem = String::from(
+            node_key_from_file(&path, Realm::Test, now_ms())
+                .err()
+                .unwrap(),
+        );
         assert!(problem.contains("too long"), "{problem}");
         assert!(!problem.contains("abandon"), "{problem}");
-        let missing = node_key_from_file(&dir.path().join("absent"), Realm::Test, now_ms())
-            .err()
-            .unwrap();
+        let missing = String::from(
+            node_key_from_file(&dir.path().join("absent"), Realm::Test, now_ms())
+                .err()
+                .unwrap(),
+        );
         assert!(missing.contains("cannot read"), "{missing}");
     }
 }

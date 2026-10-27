@@ -212,17 +212,31 @@ pub fn run(options: &Options) -> ExitCode {
     }
 }
 
-async fn setup(env: &Env, options: &Options) -> Result<(), Failure> {
-    let realm = options.realm.unwrap_or_default();
+/// The node key of the passphrase file, a phrase of `realm`. A phrase of
+/// the other realm is valid, and the operator may only have left out
+/// `--realm`, so the refusal says how to read it as its own.
+fn node_key(options: &Options, realm: Realm) -> Result<NodeKey, String> {
     let phrase_realm = match realm {
         Realm::Test => dassie_identity::Realm::Test,
         Realm::Live => dassie_identity::Realm::Live,
     };
-    let key = passphrase::node_key_from_file(
+    passphrase::node_key_from_file(
         &options.passphrase_file,
         phrase_realm,
         passphrase::now_ms(),
-    )?;
+    )
+    .map_err(|refusal| match refusal {
+        passphrase::Refusal::OtherRealm { message, realm } => format!(
+            "{message}: pass --realm {realm} to set the node up in the {realm} realm. Nothing was \
+             changed."
+        ),
+        passphrase::Refusal::Other(message) => message,
+    })
+}
+
+async fn setup(env: &Env, options: &Options) -> Result<(), Failure> {
+    let realm = options.realm.unwrap_or_default();
+    let key = node_key(options, realm)?;
     let id = key.node_id();
     println!(
         "The passphrase in {} is node {id}.",
