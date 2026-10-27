@@ -101,7 +101,7 @@ Everything the service holds is bounded by a named limit: a datagram it reads by
 
 The feed has a UDP socket of its own, apart from QUIC's: its datagrams are not QUIC, and a socket of its own keeps the two from ever reading each other's traffic. Its default port is `DEFAULT_FEED_PORT`, 7768: a fixed port, so that owners open one rule in their firewalls and subscribers find a node that names no port at all; above 1024, so that a node without privileges binds it; and one no service is registered for.
 
-- **Under systemd** it comes from `dassie-feed.socket` (`ListenDatagram=7768`), taken by name like the others ([Node](node.md#runtimes)). It is optional, as QUIC's is: `dassie.service` only wants it, a node without it warns and runs, and an update that brings the unit enables it.
+- **Under systemd** it comes from `dassie-feed.socket` (`ListenDatagram=7768`), taken by name like the others ([Node](node.md#runtimes)). Unlike QUIC's, it is optional, since its port may be taken: `dassie.service` only wants it, a node without it warns and runs, and an update that brings the unit enables it.
 - **Standalone,** the node binds the HTTPS listener's address at that port, or where `--feed-listen` says: the dev environment and its tests give each node a port of its own (`6000+N`, moved by the port offset), since many nodes share one host.
 - A socket that cannot be bound leaves the node without a feed, and running.
 

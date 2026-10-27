@@ -568,7 +568,7 @@ fn pending_transfers_within_the_group_leave_the_funds_free() {
     ledger.check_invariants();
 }
 
-// M7: what the node gains or loses is the owner's. A reconciliation that
+// What the node gains or loses is the owner's. A reconciliation that
 // finds more money raises the owner's funds, one that finds less lowers
 // them, even below zero.
 #[test]

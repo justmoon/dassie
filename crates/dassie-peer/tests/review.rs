@@ -1,4 +1,5 @@
-//! What a review of M4a found, each as a test that failed before its fix.
+//! What a review of the peering lifecycle found, each as a test that failed
+//! before its fix.
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing)]
 

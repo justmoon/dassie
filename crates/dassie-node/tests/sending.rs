@@ -642,7 +642,7 @@ async fn the_nodes_own_urls_are_its_own_in_any_case() {
     assert_eq!(found.request.unwrap().remaining, Some(AMOUNT));
 }
 
-// "You send" (M7c): what is sent is fixed and goes out whole; the incoming
+// "You send": what is sent is fixed and goes out whole; the incoming
 // payment created takes any amount, and the quote says what it buys at
 // the measured rate.
 #[tokio::test(flavor = "multi_thread")]

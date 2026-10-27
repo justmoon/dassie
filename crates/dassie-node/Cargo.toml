@@ -43,8 +43,9 @@ tokio = { version = "1.53.2", features = ["rt-multi-thread", "macros", "net", "i
 tokio-util = { version = "0.7.20", features = ["codec", "rt"] }
 futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
 
-# HTTP/1.1 only: the wallet, the owner's API and, later, the protocol
-# endpoints. A dozen routes don't need a framework.
+# HTTP/1.1 only: the wallet, the owner's API and Open Payments, and the
+# client for other nodes' Open Payments and rate sources. A dozen routes
+# don't need a framework.
 hyper = { version = "1.12.0", features = ["server", "http1"] }
 hyper-util = { version = "0.1.21", features = ["tokio", "server", "server-graceful", "client-legacy", "http1"] }
 http-body-util = "0.1.5"
@@ -55,7 +56,7 @@ tokio-tungstenite = { version = "0.30.0", default-features = false, features = [
 
 # TLS with ring as the only provider: two providers in one build make
 # rustls refuse to pick one at runtime, and ring builds without cmake for
-# static binaries (M8). Every TLS crate below has its defaults off for that.
+# static binaries. Every TLS crate below has its defaults off for that.
 rustls = { version = "0.23.46", default-features = false, features = ["ring", "std", "tls12"] }
 tokio-rustls = { version = "0.26.6", default-features = false, features = ["ring", "tls12"] }
 rcgen = { version = "0.14.10", default-features = false, features = ["ring", "pem"] }
@@ -66,7 +67,8 @@ instant-acme = { version = "0.8.5", default-features = false, features = ["ring"
 # The ACME client's HTTP client, which instant-acme does not expose: ours
 # also reads the directory's terms of service, and trusts a test CA's root
 # when asked to. System roots otherwise, through the platform verifier.
-# Trusting the platform's roots plus dev and test roots, for peers.
+# Trusting the platform's roots plus dev and test roots, for outbound HTTPS
+# and WebSockets.
 rustls-platform-verifier = "0.7.1"
 # The resolver interface of hyper-util's connector, for filtering
 # addresses (spec/areas/peer-protocol.md#outbound-requests).

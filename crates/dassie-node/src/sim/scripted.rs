@@ -283,7 +283,7 @@ pub fn run_on(seed: u64, settling: Settling) -> Run {
     ended(sim, result)
 }
 
-/// A run across currencies (M7c): node 0 has dollars, node 2 XRP, nodes 1
+/// A run across currencies: node 0 has dollars, node 2 XRP, nodes 1
 /// and 3 both, node 1 charging for what passes. Clients pay receivers in
 /// the other currency, an outgoing payment crosses too, and a node
 /// crashes mid-payment.

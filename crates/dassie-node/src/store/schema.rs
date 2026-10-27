@@ -612,7 +612,7 @@ CREATE INDEX peer_ban_records_unbanned ON peer_ban_records (unbanned_at_ms)
   WHERE unbanned_at_ms IS NOT NULL;
 ";
 
-/// The XRPL scheme (M7b): the fees ledgers charge for the node's
+/// The XRPL scheme: the fees ledgers charge for the node's
 /// transactions are journaled with their transaction, and a scheme keeps
 /// what it must across restarts (its transactions in flight, where it is in
 /// its ledger, its peers' addresses) with its checkpoint, written in the
@@ -651,7 +651,7 @@ ALTER TABLE settlement_checkpoints ADD COLUMN state BLOB
   CHECK (state IS NULL OR length(state) <= 262144);
 ";
 
-/// Exchange rates, fees and spread (M7c, spec/decisions/exchange-rates.md): a
+/// Exchange rates, fees and spread (spec/decisions/exchange-rates.md): a
 /// Fulfill owed a verdict keeps a third transfer, our fee on transit; the
 /// owner sets the fee and the spread, the sources of exchange rates, and the
 /// currency totals are shown in; the last rates fetched outlive a restart,

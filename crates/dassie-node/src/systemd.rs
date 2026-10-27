@@ -1,10 +1,12 @@
 //! systemd: socket activation and readiness.
 //!
 //! Under systemd the daemon gets its sockets from the socket units, by name
-//! (spec/areas/node.md#runtimes): three it needs, and the UDP sockets for
-//! QUIC and the rate feed, which it can go without. The original did not check
-//! that `LISTEN_PID` names this process, and reported readiness by running
-//! `systemd-notify`. Here both are done in the process: the PID is
+//! (spec/areas/node.md#runtimes): four it needs, QUIC's UDP socket among
+//! them since QUIC is the peer protocol's only transport, and the rate
+//! feed's UDP socket, which it can go without: its unit is only wanted, and
+//! its port may be taken, so the node runs without a feed. The original did
+//! not check that `LISTEN_PID` names this process, and reported readiness by
+//! running `systemd-notify`. Here both are done in the process: the PID is
 //! checked, and `READY=1` and `STOPPING=1` go straight to `NOTIFY_SOCKET`.
 //!
 //! Taking the sockets must happen before any other thread exists, since it
@@ -47,8 +49,8 @@ pub struct ActivatedSockets {
     pub ipc: UnixListener,
     /// For the peer protocol over QUIC, its only transport.
     pub quic: UdpSocket,
-    /// For the rate feed, if its unit is installed: units from before the
-    /// feed have none.
+    /// For the rate feed, if systemd passed it: `dassie.service` only wants
+    /// its unit, which fails when its port is taken.
     pub feed: Option<UdpSocket>,
 }
 

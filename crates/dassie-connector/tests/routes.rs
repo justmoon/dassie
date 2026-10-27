@@ -1,4 +1,4 @@
-//! Peers and the route table (M4): packets to other nodes go to a peer the
+//! Peers and the route table: packets to other nodes go to a peer the
 //! routes name, never back where they came from; below our own address
 //! only children count; a packet that surely did not reach its peer is
 //! rejected at once.

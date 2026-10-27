@@ -1,8 +1,7 @@
 /**
  * End to end (spec/areas/testing.md#end-to-end): a BTP client pays the
- * node's STREAM receiver, and the journal matches the packet trace. Since
- * M6 the client pays an incoming payment, whose credentials the owner
- * creates.
+ * node's STREAM receiver, and the journal matches the packet trace. The
+ * client pays an incoming payment, whose credentials the owner creates.
  *
  * The client is the JavaScript reference stack: `ilp-plugin-btp` connects
  * with a token the node issued, and `ilp-protocol-stream` learns its

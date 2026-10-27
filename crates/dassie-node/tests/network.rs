@@ -43,7 +43,7 @@ fn simulated_networks_pay_across_restarts() {
     assert_passes(0, scripted::run);
 }
 
-// M7b: the same runs, settling on the XRP Ledger testnet scheme against
+// The same runs, settling on the XRP Ledger testnet scheme against
 // the fake ledger.
 #[test]
 fn simulated_networks_settle_on_the_xrp_ledger() {

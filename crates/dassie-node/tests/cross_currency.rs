@@ -1,4 +1,4 @@
-//! A payment across assets (M7c): A has dollars only, B has dollars and
+//! A payment across assets: A has dollars only, B has dollars and
 //! XRP. A pays B's XRP wallet address; the quote measures the rate with a
 //! probe, A pays from its dollars, and B converts what arrives at its own
 //! rates. B's books show the money where it is: in dollars.

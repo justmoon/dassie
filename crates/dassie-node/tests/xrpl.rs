@@ -1,5 +1,5 @@
 //! Two daemons settling on the XRP Ledger testnet scheme, over a real
-//! WebSocket to the fake ledger and its faucet over HTTPS (M7b): funded by
+//! WebSocket to the fake ledger and its faucet over HTTPS: funded by
 //! the faucet, they peer, pay several times the credit, so they settle on
 //! the ledger, and after both restart the books still match each account,
 //! less its reserve. A deposit from outside is booked once. A server that

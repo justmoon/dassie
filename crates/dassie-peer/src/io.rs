@@ -47,7 +47,8 @@ pub enum Failure {
     Unknown,
 }
 
-/// The HTTP response to one of our requests.
+/// The response to one of our requests: a status
+/// (spec/areas/peer-protocol.md#statuses) and a body.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Response {
     /// The status.
@@ -106,7 +107,7 @@ impl Eq for PacketAnswer {}
 /// A reply to an inbound request.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Reply {
-    /// The HTTP status (spec/areas/peer-protocol.md#statuses).
+    /// The status (spec/areas/peer-protocol.md#statuses).
     pub status: u16,
     /// For 200, the `PeerResponse`; otherwise a short text for people.
     pub body: Vec<u8>,

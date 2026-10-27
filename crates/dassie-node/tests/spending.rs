@@ -457,7 +457,7 @@ async fn a_client_revoking_its_grant_updates_the_owners_view() {
 
 // A receiver on another node is read with a grant from that node's
 // authorization server, as this node's own wallet address. The quote then
-// measures the rate of the route to it (M7c): these nodes do not peer, so
+// measures the rate of the route to it: these nodes do not peer, so
 // there is none, and no quote.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_quote_reads_a_receiver_on_another_node() {

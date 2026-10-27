@@ -531,8 +531,8 @@ fn a_settlement_out_of_order_is_refused() {
     assert_eq!(channel.settled_in, 0);
 }
 
-// Found in review: peerings persisted before channels existed (M4a) had
-// none, so settling with them could not be announced.
+// Found in review: a peering stored without a settlement channel had
+// none, so settling with it could not be announced.
 #[test]
 fn peerings_from_before_channels_get_one() {
     let (mut network, _, b) = peered(46);

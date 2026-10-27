@@ -1,6 +1,6 @@
 // The package is shared by the wallet and the dev dashboard, so it imports
 // nothing of either: only itself, Solid, the RPC packages, and uqr, a QR
-// encoder without dependencies of its own (M7b, deposit addresses).
+// encoder without dependencies of its own (for deposit addresses).
 
 import { test } from "node:test";
 import { assertEquals } from "@std/assert";

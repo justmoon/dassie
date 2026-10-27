@@ -1,5 +1,5 @@
 /**
- * Send (spec/decisions/open-payments.md, M6c, M7c): to a payment pointer, a
+ * Send (spec/decisions/open-payments.md): to a payment pointer, a
  * wallet address, or a payment request, on this node or another, in any
  * currency. The owner fixes what the recipient gets or what they send; the
  * node reads the recipient, measures the rate of the route, quotes what the

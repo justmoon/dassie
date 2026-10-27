@@ -244,7 +244,7 @@ enum Held {
 /// What a client wants from the node it reaches through a relay.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Purpose {
-    /// The owner's app, speaking the RPC contract. Not served yet.
+    /// The owner's app, speaking the RPC contract (`owner_app`).
     Owner = 1,
     /// Open Payments, over HTTP/1.1.
     Payments = 2,
