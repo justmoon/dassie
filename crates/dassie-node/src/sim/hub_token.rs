@@ -71,13 +71,21 @@ const SETTLED_WITHIN_MS: u64 =
     crate::node::Policies::DEFAULT.settlement_request_every_ms + CREDIT_WAIT_MS;
 
 /// How long an owner's withdrawal may wait for the escrow's gas: a read at
-/// the XRP account's next anchor, a top-up, and the ledger that applies
-/// it, each a few seconds; and the funding's backoff once if a top-up
-/// collided with another payment of the XRP book.
+/// the XRP account's anchor, a top-up, and the ledger that applies it,
+/// each a few seconds; a top-up that waits for another payment of the XRP
+/// book to apply first; and the check's first backoff once if one failed.
 const GAS_WITHIN_MS: u64 = 5 * 60_000;
 
 /// What someone sends the escrow, in drops: gas, never a deposit.
 const GIFT_DROPS: u64 = 5_000_000;
+
+/// The owner's withdrawal once the escrow's XRP fell, as the ledger stood
+/// when the node took it.
+struct Asked {
+    /// The escrow's last transaction's ledger once the node took the
+    /// withdrawal: the escrow pays it in a later one.
+    asked_after: u32,
+}
 
 /// What a seed draws.
 struct Setup {
@@ -183,14 +191,14 @@ fn script(sim: &mut Sim, rng: &mut SeededRng, setup: &Setup) -> Result<(), Outco
     sim.run_until_or(sim.now + PAID_WITHIN_MS, |sim| {
         sim.payments.iter().all(|payment| payment.done)
     });
-    let short = withdraw_low(sim, setup)?;
+    let asked = withdraw_low(sim, setup)?;
     // The least gas a member tops the escrow up to is below the reserve
     // of the escrow's signer list and trust line, which the payout set's
     // change of signer list needs: someone sends the escrow more, as
     // anyone may (spec/roadmap.md#token-hubs).
     gift(sim, setup);
     settle(sim);
-    check_topped_up(sim, setup.withdrawer, short)?;
+    check_topped_up(sim, setup.withdrawer, asked)?;
     check_calm(sim)?;
     stall(sim, rng)
 }
@@ -254,14 +262,20 @@ fn gift(sim: &mut Sim, setup: &Setup) {
 /// it asks the hub, and the escrow pays the withdrawal only after the
 /// top-up applied (spec/decisions/token-hubs.md).
 ///
-/// Returns the escrow's shortfall below the least gas once it fell.
-fn withdraw_low(sim: &mut Sim, setup: &Setup) -> Result<u64, Outcome> {
+/// Checks that the members' top-ups since it fell made up the escrow's
+/// shortfall before the node took the withdrawal (the escrow's last
+/// transaction before the fall bounds what is since: any in a later
+/// ledger came after), and returns where the ledger stood when the node
+/// took it.
+fn withdraw_low(sim: &mut Sim, setup: &Setup) -> Result<Asked, Outcome> {
     let index = setup.withdrawer;
     let hub = sim.hub.as_deref().unwrap();
     let escrow = hub.escrow();
     let least = hub.rules.terms.fees.least_payout;
     let units = dassie_hub::member::UNITS_PER_DROP;
     let low = LEAST_ESCROW_GAS_DROPS / 2;
+    let read = |problem| Outcome::safety("gas", problem);
+    let fell_after = last_ledger(&escrow_transactions(sim, escrow, 1, u32::MAX).map_err(read)?);
     let held = sim.ledger.balance(escrow).unwrap_or(0);
     sim.ledger.take_unrecorded(escrow, held.saturating_sub(low));
     sim.trace
@@ -327,6 +341,22 @@ fn withdraw_low(sim: &mut Sim, setup: &Setup) -> Result<u64, Outcome> {
             }
         }
     }
+    // The node took the withdrawal only once the escrow had its gas back:
+    // the members' top-ups since it fell, which applied before, make up
+    // its shortfall. The withdrawer's own is only what others' left short.
+    let records = escrow_transactions(sim, escrow, 1, u32::MAX).map_err(read)?;
+    let asked_after = last_ledger(&records);
+    let topped = topped_up(sim, &records, fell_after);
+    let short = LEAST_ESCROW_GAS_DROPS - low;
+    if topped < short {
+        return Err(Outcome::safety(
+            "gas",
+            format!(
+                "node {index} took its owner's withdrawal once the members had topped the \
+                 escrow up by {topped} drops since it fell, {short} short"
+            ),
+        ));
+    }
     let done = |sim: &Sim| {
         sim.core(index)
             .hub_status()
@@ -338,46 +368,56 @@ fn withdraw_low(sim: &mut Sim, setup: &Setup) -> Result<u64, Outcome> {
             format!("node {index}'s withdrawal did not land: {}", standing(sim)),
         ));
     }
-    Ok(LEAST_ESCROW_GAS_DROPS - low)
+    Ok(Asked { asked_after })
 }
 
-/// The members topped the escrow up by at least `short`, its shortfall
-/// below the least gas once it fell, before the escrow paid the withdrawer
-/// a withdrawal: Payments of XRP from their accounts that applied in
-/// earlier ledgers. The withdrawer's own top-up is only what another's left
-/// short, and others' withdrawals may have burnt some XRP since. Nothing
-/// tops the escrow up before its XRP fell, and someone else's XRP comes
-/// after the withdrawal.
-fn check_topped_up(sim: &mut Sim, index: usize, short: u64) -> Result<(), Outcome> {
+/// The newest ledger of `records`, or 0 for none.
+fn last_ledger(records: &[api::TxRecord]) -> u32 {
+    records
+        .iter()
+        .map(|record| record.ledger_index)
+        .max()
+        .unwrap_or(0)
+}
+
+/// The XRP the members paid the escrow in `records` after ledger `after`,
+/// in drops: their top-ups.
+fn topped_up(sim: &Sim, records: &[api::TxRecord], after: u32) -> u64 {
+    let escrow = sim.hub.as_deref().unwrap().escrow();
+    let members: Vec<dassie_xrpl::AccountId> = (0..sim.nodes.len()).map(xrpl_account).collect();
+    records
+        .iter()
+        .filter(|record| members.contains(&record.account) && record.succeeded())
+        .filter(|record| record.destination == Some(escrow))
+        .filter(|record| record.ledger_index > after)
+        .filter_map(|record| record.delivered)
+        .sum()
+}
+
+/// The escrow paid node `index` the withdrawal its owner asked for once
+/// the escrow's XRP fell, after the node took it, which it took only once
+/// the members' top-ups since the fall made up its shortfall
+/// ([`withdraw_low`]): its first payment to the node after then, in DSUSD.
+fn check_topped_up(sim: &mut Sim, index: usize, asked: Asked) -> Result<(), Outcome> {
     let escrow = sim.hub.as_deref().unwrap().escrow();
     let records = escrow_transactions(sim, escrow, 1, u32::MAX)
         .map_err(|problem| Outcome::safety("gas", problem))?;
-    let members: Vec<dassie_xrpl::AccountId> = (0..sim.nodes.len()).map(xrpl_account).collect();
     let to = xrpl_account(index);
     let Some(paid) = records
         .iter()
         .filter(|record| record.account == escrow && record.destination == Some(to))
-        .filter(|record| record.succeeded())
-        .max_by_key(|record| record.ledger_index)
+        .filter(|record| record.succeeded() && record.ledger_index > asked.asked_after)
+        .min_by_key(|record| (record.ledger_index, record.index))
     else {
         return Err(Outcome::safety(
             "gas",
-            format!("the escrow paid node {index} no withdrawal"),
+            format!("the escrow paid node {index} no withdrawal after its owner asked"),
         ));
     };
-    let topped: u64 = records
-        .iter()
-        .filter(|record| members.contains(&record.account) && record.succeeded())
-        .filter(|record| record.ledger_index < paid.ledger_index)
-        .filter_map(|record| record.delivered)
-        .sum();
-    if topped < short {
+    if paid.delivered_token.is_none() {
         return Err(Outcome::safety(
             "gas",
-            format!(
-                "the members topped the escrow up by {topped} drops before it paid node \
-                 {index}'s withdrawal, {short} short"
-            ),
+            format!("the escrow paid node {index}'s withdrawal in something else than DSUSD"),
         ));
     }
     sim.count("escrow gas topped up before a withdrawal");
