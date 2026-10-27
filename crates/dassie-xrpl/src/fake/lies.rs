@@ -9,7 +9,7 @@
 //! Each lie is counted as it is told, so a run can show that every kind
 //! was reached.
 
-use alloc::collections::BTreeMap;
+use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::vec::Vec;
 
 use serde_json::Value;
@@ -134,7 +134,15 @@ pub(super) struct Lies {
     every: Option<Lie>,
     /// How often each lie was told.
     told: BTreeMap<Lie, u64>,
+    /// The destination tags whose payments every connection leaves out of
+    /// the history it gives.
+    left_out: BTreeSet<u32>,
+    /// How often a payment was left out so.
+    left_out_told: u64,
 }
+
+/// The most destination tags whose payments are left out of the history.
+const MAX_LEFT_OUT: usize = 16;
 
 impl FakeLedger {
     /// Makes `connection` tell `lie` from now on, or be honest again.
@@ -156,6 +164,48 @@ impl FakeLedger {
     #[must_use]
     pub fn lies_told(&self, lie: Lie) -> u64 {
         self.lies.told.get(&lie).copied().unwrap_or(0)
+    }
+
+    /// Makes every connection, from now on, leave each payment with
+    /// destination tag `tag` out of the history it gives: `account_tx` and
+    /// the stream never name it, as a server that hides a deposit for good
+    /// does, where [`Lie::HistoryNewestLeftOut`] and
+    /// [`Lie::HistoryMiddleLeftOut`] leave out only what is newest or in
+    /// the middle of a page. What follows the history its proven state
+    /// names finds it all the same. At most a few tags.
+    pub fn leave_out_of_history(&mut self, tag: u32) {
+        assert!(
+            self.lies.left_out.len() < MAX_LEFT_OUT || self.lies.left_out.contains(&tag),
+            "a few tags"
+        );
+        self.lies.left_out.insert(tag);
+    }
+
+    /// How often a payment was left out of the history so.
+    #[must_use]
+    pub const fn left_out_of_history(&self) -> u64 {
+        self.lies.left_out_told
+    }
+
+    /// Whether the transaction of an `account_tx` entry, or of the stream,
+    /// is a payment with a tag left out of the history: its JSON's tag, or
+    /// in binary, its bytes'.
+    fn left_out(&self, entry: &Value) -> bool {
+        if self.lies.left_out.is_empty() {
+            return false;
+        }
+        let json = (entry.get("tx").or_else(|| entry.get("transaction")))
+            .and_then(|tx| tx.get("DestinationTag"))
+            .and_then(Value::as_u64)
+            .and_then(|tag| u32::try_from(tag).ok());
+        let binary = || {
+            let blob = entry.get("tx_blob").and_then(Value::as_str)?;
+            let bytes = crate::from_hex(blob)?;
+            let payment = <crate::codec::Payment as crate::codec::Transact>::decode(&bytes).ok()?;
+            payment.destination_tag
+        };
+        json.or_else(binary)
+            .is_some_and(|tag| self.lies.left_out.contains(&tag))
     }
 
     /// The lie `connection` tells, if it lies.
@@ -192,6 +242,10 @@ impl FakeLedger {
         connection: ConnectionId,
         message: &Value,
     ) -> Option<Vec<u8>> {
+        if self.left_out(message) {
+            self.lies.left_out_told = self.lies.left_out_told.saturating_add(1);
+            return None;
+        }
         let lie = self.lie(connection);
         match lie {
             Some(Lie::HistoryNewestLeftOut) => {
@@ -234,6 +288,17 @@ impl FakeLedger {
         request: &Value,
     ) -> Result<Value, Value> {
         let mut result = self.honest_account_tx(request)?;
+        if let Some(transactions) = (result.get_mut("transactions")).and_then(Value::as_array_mut) {
+            let before = transactions.len();
+            let mut kept = core::mem::take(transactions);
+            kept.retain(|entry| !self.left_out(entry));
+            let left = before.saturating_sub(kept.len());
+            *transactions = kept;
+            self.lies.left_out_told = self
+                .lies
+                .left_out_told
+                .saturating_add(u64::try_from(left).unwrap_or(u64::MAX));
+        }
         let Some(lie) = self.lie(connection) else {
             return Ok(result);
         };

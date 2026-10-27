@@ -260,14 +260,52 @@ fn at_par(object: &[u8]) -> bool {
     })
 }
 
+/// The issuer's hold on a token hub's escrow as one validated ledger's
+/// state holds it ([`hold_of`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct IssuerHold {
+    /// Whether the issuer froze or deep-froze the escrow's line on its
+    /// side, or froze every line.
+    pub frozen: bool,
+    /// Whether it charges a transfer rate other than par.
+    pub fee: bool,
+    /// The later of the two objects' last changes, as each names it
+    /// (`PreviousTxnLgrSeq`): both are as proven from this ledger on, and
+    /// so is the hold. It is not the ledger the hold changed in: any
+    /// transaction of the issuer's, or any deposit to the escrow, moves it.
+    pub since: u32,
+}
+
+impl IssuerHold {
+    /// The hold, named by `ledger`, the ledger it last changed in.
+    #[must_use]
+    pub const fn named(&self, ledger: u32) -> Issuer {
+        Issuer {
+            ledger,
+            frozen: self.frozen,
+            fee: self.fee,
+        }
+    }
+
+    /// Whether it holds the escrow as `issuer` does, whatever ledger that
+    /// is named by.
+    #[must_use]
+    pub const fn same(&self, issuer: &Issuer) -> bool {
+        self.frozen == issuer.frozen && self.fee == issuer.fee
+    }
+}
+
 /// The issuer's hold on a token hub's escrow, from a state proof of
 /// [`issuer_keys`] at one validated ledger: frozen if the issuer froze or
 /// deep-froze the escrow's line on its side, or froze every line; a fee if
-/// it charges a transfer rate other than par. Its ledger is the later of
-/// the two objects' last changes, as each names it (`PreviousTxnLgrSeq`).
-/// `None` for an XRP hub, or while either is not there or does not read.
+/// it charges a transfer rate other than par; as the two objects stand
+/// since the later of their last changes. An attestation names the hold
+/// by the ledger it last changed in, which a validator finds by proving
+/// the two as of the ledger before that, and further back while the hold
+/// there is the same (spec/areas/hubs.md#what-validators-attest). `None`
+/// for an XRP hub, or while either is not there or does not read.
 #[must_use]
-pub fn issuer_of(terms: &Terms, state: &ProvenState) -> Option<Issuer> {
+pub fn hold_of(terms: &Terms, state: &ProvenState) -> Option<IssuerHold> {
     let [line_key, root_key] = issuer_keys(terms)?;
     let (line, line_thread) = ripple_state(state.object(&line_key)??).ok()?;
     let view = line.view(AccountId(terms.escrow))?;
@@ -277,10 +315,10 @@ pub fn issuer_of(terms: &Terms, state: &ProvenState) -> Option<Issuer> {
         || view.theirs.deep_freeze
         || root.flags & account_flags::GLOBAL_FREEZE != 0;
     let fee = root.transfer_rate != 0 && root.transfer_rate != TRANSFER_RATE_PAR;
-    Some(Issuer {
-        ledger: thread_ledger(line_thread).max(thread_ledger(root.thread)),
+    Some(IssuerHold {
         frozen,
         fee,
+        since: thread_ledger(line_thread).max(thread_ledger(root.thread)),
     })
 }
 
