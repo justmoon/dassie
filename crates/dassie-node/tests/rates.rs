@@ -17,21 +17,18 @@ mod support;
 use dassie_node::clock::ManualClock;
 use dassie_node::node::Policies;
 use dassie_node::rpc::proto::{self, request::Method, response};
-use support::pair::{CA, key, prepare, until};
+use support::pair::{CA, key, prepare, until, until_by};
 use support::rates::{RatesServer, coinbase};
 use support::{Bound, START_MS, TestNode};
-
-const POLICIES: Policies = Policies {
-    rates_every_ms: 50,
-    ..Policies::DEFAULT
-};
 
 async fn start(dir: tempfile::TempDir, clock: ManualClock) -> TestNode {
     let env = [
         ("DASSIE_EXTRA_CA_FILE", CA),
         ("DASSIE_PEER_ALLOW_PRIVATE", "1"),
     ];
-    Bound::bind_in(dir).start(clock, 1, POLICIES, &env).await
+    Bound::bind_in(dir)
+        .start(clock, 1, Policies::DEFAULT, &env)
+        .await
 }
 
 async fn ledgers(node: &TestNode) -> proto::ListLedgersResponse {
@@ -117,18 +114,21 @@ async fn rates_are_fetched_kept_and_age() {
     );
     let fetched_at = euro.as_of_unix_ms;
     // The source stops answering well: the rate stays, until it is stale.
+    // Half an hour on, the node asks again, and is answered badly.
     server.answer(500, String::new());
+    let asked = server.asked();
     clock.advance(30 * 60 * 1_000);
-    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    until(&clock, async || server.asked() > asked).await;
     let list = ledgers(&node).await;
     assert_eq!(rate(&list, "EUR").unwrap().as_of_unix_ms, fetched_at);
     assert!(list.total.is_some());
     clock.advance(31 * 60 * 1_000);
     until(&clock, async || ledgers(&node).await.total.is_none()).await;
     assert!(rate(&ledgers(&node).await, "EUR").unwrap().stale);
-    // It answers again.
+    // It answers again: the node has it at its next fetch, within a
+    // minute of its clock.
     server.answer(200, coinbase(&[("EUR", "0.25")]));
-    until(&clock, async || ledgers(&node).await.total.is_some()).await;
+    until_by(&clock, 1_000, async || ledgers(&node).await.total.is_some()).await;
     assert_eq!(ledgers(&node).await.total.unwrap().amount, dollars / 4);
     // A restart has the rates at once, though the source is silent.
     server.answer(500, String::new());
