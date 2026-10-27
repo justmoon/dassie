@@ -279,8 +279,11 @@ fn drifted(sim: &mut Sim) -> Vec<Drifted> {
             else {
                 continue;
             };
-            let survives = (u128::from(credit_a) + u128::from(credit_b))
-                .saturating_sub(u128::from(policy::least_credit(MAX_PACKET, 0)));
+            // Asked at the asker's trigger, a debtor settles only if its
+            // books leave it its own trigger plus twice the least
+            // settlement (spec/decisions/crash-drift.md).
+            let settles = 2 * u128::from(TRIGGER) + 2 * u128::from(policy::minimum(MAX_PACKET));
+            let survives = (u128::from(credit_a) + u128::from(credit_b)).saturating_sub(settles);
             links.push(Drifted {
                 nodes: (a, b),
                 drift,

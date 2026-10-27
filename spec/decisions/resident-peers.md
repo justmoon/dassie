@@ -45,7 +45,7 @@
 - *T01 for every child address beneath ours,* held or not, so as to keep no entry per downlink: senders would retry payments to addresses nobody holds until they expire.
 - *Dropping the peers used least lately when memory runs short:* traffic, which an attacker controls, would then decide whose state is kept. The connection decides instead, and connections are bounded by key.
 - *Deleting accounts with nothing on them:* a former peer's balance is almost never exactly nothing ([closing-channels](closing-channels.md)), and the journal refers to its accounts.
-- *Moving a former peer's balance into one account per ledger for all former peers:* what each owed, and the trust each earned ([earned-trust](earned-trust.md)), would be lost to a later peering, and a late settlement could not be booked to the peer who sent it.
+- *Moving a former peer's balance into one account per ledger for all former peers:* what each owed, and the trust extended to each, would be lost to a later peering, and a late settlement could not be booked to the peer who sent it.
 - *Giving account numbers again:* the journal would have to be rewritten.
 - *Raising the account bound:* it only postpones the cap.
 - *Reading every account from disk when used:* the ledger does no I/O, so it stays deterministic and can be simulated.

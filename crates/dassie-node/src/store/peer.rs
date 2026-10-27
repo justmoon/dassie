@@ -80,7 +80,7 @@ impl Store {
     pub fn closed_channel(&self, node: &NodeId) -> Result<Option<Closed>, StoreError> {
         let connection = self.lock();
         let mut statement = connection.prepare_cached(
-            "SELECT settled_in, settled_out, ended_for_room, paid_us FROM settlement_channels
+            "SELECT settled_in, settled_out, paid_us FROM settlement_channels
              WHERE node = ?1 AND closed = 1",
         )?;
         let mut rows = statement.query([node.as_str()])?;
@@ -90,8 +90,7 @@ impl Store {
         Ok(Some(Closed {
             settled_in: from_sql_amount(row.get(0)?)?,
             settled_out: from_sql_amount(row.get(1)?)?,
-            ended_for_room: row.get(2)?,
-            paid_us: row.get(3)?,
+            paid_us: row.get(2)?,
         }))
     }
 }
@@ -101,8 +100,7 @@ impl Store {
 fn load_channels(connection: &Connection) -> Result<Vec<StoredChannel>, StoreError> {
     let mut statement = connection.prepare_cached(
         "SELECT node, public_key, url, settled_in, settled_out, outbox_sequence,
-                outbox_scheme, outbox_amount, outbox_data, outbox_attempts, ended_for_room,
-                paid_us
+                outbox_scheme, outbox_amount, outbox_data, outbox_attempts, paid_us
          FROM settlement_channels WHERE closed = 0 ORDER BY node",
     )?;
     let rows = statement.query_map([], |row| Ok(read_channel(row)))?;
@@ -146,8 +144,7 @@ fn read_channel(row: &Row<'_>) -> Result<StoredChannel, StoreError> {
             settled_in: from_sql_amount(row.get(3)?)?,
             settled_out: from_sql_amount(row.get(4)?)?,
             outbox,
-            ended_for_room: row.get(10)?,
-            paid_us: row.get(11)?,
+            paid_us: row.get(10)?,
         },
     })
 }
@@ -631,12 +628,11 @@ fn write_channel(transaction: &Transaction<'_>, stored: &StoredChannel) -> Resul
     transaction.execute_cached(
         "INSERT INTO settlement_channels (node, public_key, url, settled_in, settled_out,
            outbox_sequence, outbox_scheme, outbox_amount, outbox_data, outbox_attempts,
-           ended_for_room, paid_us)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
+           paid_us)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
          ON CONFLICT (node) DO UPDATE SET public_key = ?2, url = ?3, settled_in = ?4,
            settled_out = ?5, outbox_sequence = ?6, outbox_scheme = ?7, outbox_amount = ?8,
-           outbox_data = ?9, outbox_attempts = ?10, ended_for_room = ?11, paid_us = ?12,
-           closed = 0",
+           outbox_data = ?9, outbox_attempts = ?10, paid_us = ?11, closed = 0",
         params![
             stored.node.as_str(),
             channel.key.as_bytes().to_vec(),
@@ -652,7 +648,6 @@ fn write_channel(transaction: &Transaction<'_>, stored: &StoredChannel) -> Resul
             outbox.map(|o| to_sql_amount(o.amount)).transpose()?,
             outbox.map(|o| o.data.as_slice()),
             outbox.map(|o| i64::from(o.attempts)),
-            channel.ended_for_room,
             channel.paid_us,
         ],
     )?;
@@ -665,14 +660,13 @@ fn write_closed(transaction: &Transaction<'_>, stored: &StoredClosed) -> Result<
     let closed = &stored.closed;
     let changed = transaction.execute_cached(
         "UPDATE settlement_channels SET closed = 1, settled_in = ?2, settled_out = ?3,
-           ended_for_room = ?4, paid_us = ?5, outbox_sequence = NULL, outbox_scheme = NULL,
+           paid_us = ?4, outbox_sequence = NULL, outbox_scheme = NULL,
            outbox_amount = NULL, outbox_data = NULL, outbox_attempts = NULL
          WHERE node = ?1",
         params![
             stored.node.as_str(),
             to_sql_amount(closed.settled_in)?,
             to_sql_amount(closed.settled_out)?,
-            closed.ended_for_room,
             closed.paid_us,
         ],
     )?;

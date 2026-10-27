@@ -104,7 +104,6 @@ fn an_idle_channel_closes() {
         Some(&Closed {
             settled_in: 0,
             settled_out: 1,
-            ended_for_room: false,
             paid_us: false,
         })
     );
@@ -167,8 +166,8 @@ fn a_late_settlement_over_a_closed_channel_is_applied_once() {
 }
 
 // Peering again opens the channel where it was: our next settlement
-// follows the last, so the peer applies it, and the mark of an end for
-// room stays (spec/decisions/ended-for-room.md).
+// follows the last, so the peer applies it, after an end for room too
+// (spec/decisions/ended-for-room.md).
 #[test]
 fn peering_again_opens_the_channel_where_it_was() {
     let (mut network, a, b) = peered(204);
@@ -177,7 +176,7 @@ fn peering_again_opens_the_channel_where_it_was() {
     end(&mut network, &b, TerminationReason::ShortOfRoom);
     settle(&mut network, CONFIG.peer_dead_ms + 30_000);
     assert!(network.node(0).channel(&b).is_none());
-    assert!(network.nodes[0].hooks.closed[&b].ended_for_room);
+    assert!(network.nodes[0].hooks.closed.contains_key(&b));
     // The cooldown after an end for room passes, and the pair peers again.
     for _ in 0..60 {
         if network.node(0).peering_of(&b).is_some() && network.node(1).peering_of(&a).is_some() {
@@ -188,7 +187,6 @@ fn peering_again_opens_the_channel_where_it_was() {
     assert!(network.node(0).peering_of(&b).is_some(), "peered again");
     let channel = network.node(0).channel(&b).unwrap();
     assert_eq!(channel.settled_out, 1);
-    assert!(channel.ended_for_room);
     assert!(!network.nodes[0].hooks.closed.contains_key(&b));
     assert_eq!(network.node(1).channel(&a).unwrap().settled_in, 1);
     assert!(network.settle(0, b, 5));

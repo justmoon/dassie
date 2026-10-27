@@ -371,7 +371,7 @@ impl Core {
         // journal empty: what came before is in the batch.
         self.take_journal();
         let changed = if target > credit {
-            super::growth::raise_trust(&mut self.ledger, now, ledger, name, target - credit)
+            super::trust::raise_trust(&mut self.ledger, now, ledger, name, target - credit)
                 .map(|()| target)
         } else {
             let room = u64::try_from(position).unwrap_or(u64::MAX);
@@ -379,7 +379,7 @@ impl Core {
             if lower == 0 {
                 return;
             }
-            super::growth::lower_trust(&mut self.ledger, now, ledger, name, lower)
+            super::trust::lower_trust(&mut self.ledger, now, ledger, name, lower)
                 .map(|()| credit - lower)
         };
         match changed {

@@ -5,9 +5,9 @@
 ## Facts
 
 - A key costs nothing, and a downlink proves only that it holds one ([Network](../areas/network.md#downlinks)). Accounts stay for good once opened ([closing-channels](closing-channels.md)), and downlinks' accounts take a share of the ledger's of their own ([account-budgets](account-budgets.md)). Opened when a downlink's peering is accepted, they let one machine fill that share with keys that never move anything, after which the node takes no downlink with a new key.
-- A downlink that never moves value needs no accounts: nothing is owed either way, and the senior extends it no credit, so it can send no money until it settles in advance.
+- A downlink that never moves value needs no accounts: nothing is owed either way, and the node extends it no credit, so it can send no money until it settles in advance.
 - The connector books a packet's pending transfers on its endpoints' accounts when the Prepare arrives, and posts them on the Fulfill ([Connector](../areas/connector.md#booking-a-packet)). A settlement books on the peer's account when the books take it ([Settlement](../areas/settlement.md#incoming-settlements)); over a hub, our settlement to a peer funds our hold toward it, booked on the peer's account too ([Settlement](../areas/settlement.md#settlement-hubs)).
-- A downlink pays a node only when asked, and is asked at once, since the senior extends it no credit ([Settlement](../areas/settlement.md#asking-a-peer-to-settle)). Its settlement can land at any time while its channel is open.
+- A downlink pays a node only when asked, and is asked at once, since the node extends it no credit ([Settlement](../areas/settlement.md#asking-a-peer-to-settle)). Its settlement can land at any time while its channel is open.
 
 ## Decision
 
@@ -26,7 +26,7 @@
 - **A Prepare the downlink then rejects still opens its accounts.** What opens them is the transfer booked at the Prepare, not the Fulfill. Filling the downlinks' share so costs a sender a path with liquidity to the node for each key, and a day for the downlinks' places, but no fees. Making it cost fees would mean opening them on the Fulfill, below.
 - **Over a hub, a downlink that asks us to settle opens its accounts,** since we fund our hold toward it, as a payer over a hub does for any peer ([Settlement hubs](../areas/hubs.md#in-the-node)), and a payment to it needs that hold. The money that moves is ours, and stays ours until the downlink claims what we paid it, but the downlink pays nothing to open them.
 - **A downlink with accounts on another ledger has no room kept** for those on the ledger it peers on now, since what is kept is counted per node. It is accepted only while they fit, and value that moves with it later finds room unless the share filled meanwhile.
-- **A downlink's starting credit** (the senior's, nothing by default) is extended when its accounts open, not when its peering is made.
+- **A downlink's starting credit** (nothing over a hub) is extended when its accounts open, not when its peering is made.
 - **One scheme that is blind or stopped keeps every downlink without accounts open,** and its room kept, until it sees its ledger again: the cost of not knowing which scheme such a downlink settled on. A restart clears a stopped scheme, but one still blind after it keeps holding them, the channels' wait counted from the start again. Its places and room are bounded as the downlinks' are.
 - **After a restart, a downlink that turned core while its peering was ending** stands as a core peer without accounts, and gets no endpoint for the rest of that peering. Its peering is ending, so nothing is lost but packets it could not have been sent anyway.
 

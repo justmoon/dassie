@@ -18,8 +18,7 @@ Each file records one choice between real alternatives: the facts that forced it
 | [desktop-app](desktop-app.md) | The desktop app runs the node in its process and shows the wallet from the node's origin | desktop, node, http, overview |
 | [device-pairing](device-pairing.md) | Only the owner on the node's machine pairs a device, with a secret kept in memory | rpc, peer-protocol, node, designs/periphery |
 | [dsusd](dsusd.md) | A testnet dollar of our own, bought only with XRP through a pool we keep at the market | dsusd-keeper, xrpl, settlement |
-| [earned-trust](earned-trust.md) | Trust follows what a peer earned us | settlement, network |
-| [ended-for-room](ended-for-room.md) | A peering ended for room stays apart, and earns no credit back | network, settlement |
+| [ended-for-room](ended-for-room.md) | A peering ended for room stays apart | network, settlement |
 | [ending-a-peering](ending-a-peering.md) | A node that ends a peering collects first, and pays nothing | network, settlement, peer-protocol, connector |
 | [epoch-handover](epoch-handover.md) | Each validator set runs an epoch of its own, and a repeat finalizes an epoch's last block | hubs, designs/settlement-hubs |
 | [exchange-rates](exchange-rates.md) | Exchange rates, fees and spread | connector |
@@ -119,7 +118,6 @@ Decisions were once numbered, and commits, pull requests and issues still cite t
 | D15 | [bootstrap-network](bootstrap-network.md) |
 | D16 | [tigerstyle](tigerstyle.md) |
 | D19 | [own-books](own-books.md) |
-| D20 | [earned-trust](earned-trust.md) |
 | D21 | [node-and-pnpm](node-and-pnpm.md) |
 | D22 | [settlement-hubs](settlement-hubs.md) |
 | D23 | [own-fulfills](own-fulfills.md) |

@@ -14,7 +14,6 @@
 
 mod downlinks;
 mod events;
-mod growth;
 mod hub_funding;
 mod hub_moves;
 mod hubs;
@@ -30,6 +29,7 @@ mod probes;
 mod schemes;
 mod settlement;
 mod tokens;
+mod trust;
 
 #[cfg(test)]
 mod tests;
@@ -355,10 +355,9 @@ pub struct Core {
     realm: Realm,
     /// Whether the live realm may run.
     live: LiveRealm,
-    /// The credit a junior extends to its senior, and a senior to its
-    /// junior, at first (spec/decisions/earned-trust.md).
+    /// The credit by which a payer over a hub sizes what a request to
+    /// settle funds (spec/areas/settlement.md#credit).
     peer_credit: u64,
-    senior_credit: u64,
     /// Peer requests and replies, handed over once the batch is persisted.
     outputs_peer: Vec<Output>,
     /// Settling with peers.
@@ -515,7 +514,6 @@ impl Core {
             realm: parts.realm,
             live: parts.live,
             peer_credit: policies.peer_credit,
-            senior_credit: policies.senior_credit,
             outputs_peer: Vec::new(),
             settle: Settlements::new(now_ms, &policies),
             changes: Changes::default(),
@@ -992,22 +990,21 @@ fn check_bounds(policies: &Policies) {
         "incoming payments need room"
     );
     assert!(
-        policies.peer_credit <= dassie_ledger::MAX_TOTAL
-            && policies.senior_credit <= dassie_ledger::MAX_TOTAL,
+        policies.peer_credit <= dassie_ledger::MAX_TOTAL,
         "the credit fits the ledger"
     );
-    // Less credit, and a link could stop settling after one crash: its
-    // drift, up to what was in flight, would leave the debtor less than
-    // the minimum to settle when asked
-    // (spec/decisions/thresholds-in-packets.md).
-    let least = dassie_settlement::policy::least_credit(
-        connector.max_packet_amount,
-        connector.max_in_flight(),
-    );
+    // A payer over a hub asked with nothing held funds half the way from
+    // this credit down to its trigger, and nothing less than the least
+    // settlement: with less credit, a request would fund nothing, and a
+    // payee would ask for ever (spec/areas/settlement.md#credit).
+    let max_packet = connector.max_packet_amount;
     assert!(
-        policies.peer_credit >= least
-            && (policies.senior_credit == 0 || policies.senior_credit >= least),
-        "the credit survives a crash"
+        dassie_settlement::policy::requested_amount(
+            u128::from(policies.peer_credit),
+            dassie_settlement::policy::trigger(max_packet),
+            dassie_settlement::policy::minimum(max_packet),
+        ) > 0,
+        "a request to settle over a hub funds the hold"
     );
     // A request that never arrived is asked again at the next check; one
     // whose fate is unknown, or that the peer refused, only after a request

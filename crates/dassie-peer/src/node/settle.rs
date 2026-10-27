@@ -68,18 +68,6 @@ impl PeerNode {
             .or_else(|| hooks.closed_channel(*node))
     }
 
-    /// Whether we once ended a peering with `node` for want of room, as its
-    /// channel says, open or closed (spec/decisions/ended-for-room.md).
-    pub(crate) fn ended_for_room(&self, node: &NodeId, hooks: &dyn PeeringHooks) -> bool {
-        self.channels.get(node).map_or_else(
-            || {
-                self.closed_channel(node, hooks)
-                    .is_some_and(|closed| closed.ended_for_room)
-            },
-            |channel| channel.ended_for_room,
-        )
-    }
-
     /// The open channels with downlinks that never paid us: the places
     /// free receivers hold (spec/decisions/free-receivers-half.md). A
     /// channel outlives its peering, so these count the free receivers
