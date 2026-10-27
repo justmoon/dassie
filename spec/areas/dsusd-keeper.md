@@ -36,6 +36,8 @@ DSUSD the keeper needs for a step is minted to it first, as a step of its own. E
 
 The target is the mid between the bid and the ask of one exchange's XRP/USD ticker, in millionths of a dollar ([dsusd](../decisions/dsusd.md)). Before it moves any money the keeper refuses a ticker that is stale or from the future, crossed, wider than a bound, or outside the prices it believes (`src/price.ts`): moving the pool on a broken price would mint or burn DSUSD for nothing.
 
+The exchange's terms forbid publishing its price on a pool; a target from mainnet's XRP/RLUSD pool instead is not built yet ([roadmap](../roadmap.md#open-rate-sources)).
+
 ## Repricing with DSUSD alone
 
 A single-asset deposit or withdrawal of DSUSD moves the pool's DSUSD by exactly its amount and leaves its XRP as it is; the trading fee is taken in the LP tokens it issues or burns. So the amount to move is the difference between the pool's DSUSD and what its XRP is worth at the target, exactly (`gap` in `src/amm.ts`), and the pool lands on the target. Within the band (`DSUSD_KEEPER_BAND_PPM`) the keeper leaves it alone.
@@ -60,4 +62,5 @@ The pure parts are separate modules, each with `node --test` unit tests that nev
 ## Decisions
 
 - [dsusd](../decisions/dsusd.md): DSUSD beside RLUSD, bought only with XRP through the pool, one exchange's price, and repricing with DSUSD alone.
+- [open-rate-sources](../decisions/open-rate-sources.md): mainnet's XRP/RLUSD pool as the target, in place of the exchange's ticker (not built).
 - [issued-assets](../decisions/issued-assets.md): a dollar token is booked as `USD`, at par.

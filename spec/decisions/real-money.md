@@ -22,7 +22,7 @@ The `live` realm stays refused until all of these hold:
 - **the node checks the XRP Ledger's validators itself,** on both networks, against a UNL of its own, with transactions and state proven by branches against validated ledgers ([verified-ledgers](verified-ledgers.md));
 - **proof servers run:** a public rippled patched to serve those proofs, for each network, named in the node's defaults ([verified-ledgers](verified-ledgers.md));
 - **mainnet schemes exist for XRP and RLUSD,** each with a memo type of its own, and a ledger runs only in its node's realm ([mainnet-schemes](mainnet-schemes.md)). There is no DSUSD on mainnet;
-- **the dollar token's scheme pauses while its pool prices it off its peg** ([issued-assets](issued-assets.md));
+- **the dollar token's scheme pauses while its pool prices it off its peg** ([issued-assets](issued-assets.md)), until [open-rate-sources](open-rate-sources.md) turns the guard off and drops it from these gates (not built);
 - **settlement hubs run on mainnet:** a mainnet hub scheme, whose validators observe the escrow through proofs, and a default mainnet hub ([settlement-hubs](settlement-hubs.md));
 - there has been an external review;
 - a mainnet bootstrap node list exists.

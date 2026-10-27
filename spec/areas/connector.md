@@ -73,6 +73,8 @@ The ECB publishes once a business day, so its rates are up to a day behind the m
 
 Sources are asked through the node's outbound client, under its rules for outbound requests ([Peer protocol](peer-protocol.md)).
 
+The exchanges' terms license their data for personal or internal use only; sources whose terms allow a node's use are not built yet ([roadmap](../roadmap.md#open-rate-sources)).
+
 ### Inventory pricing
 
 Transit from one peer to another converts at a rate the owner's inventory moves from spot, so that what flows through a node brings its holdings back toward their targets without the node trading ([passive-rebalancing](../decisions/passive-rebalancing.md)). The curve and the table are in `pricing.rs`.
@@ -195,6 +197,7 @@ ILP-over-HTTP (RFC 35) is not built: the connector has no HTTP endpoint ([roadma
 
 - [owner-ledger](../decisions/owner-ledger.md): each endpoint has a ledger, and ILDCP answers its asset; the owner's own endpoints never convert; the display currency.
 - [exchange-rates](../decisions/exchange-rates.md): refreshed rates, staleness, exact math, the median of three sources per currency from three upstreams; fees and spread, and why the fee rounds down.
+- [open-rate-sources](../decisions/open-rate-sources.md): sources whose terms allow a node's use, XRP's from mainnet's XRP/RLUSD pool and the fiat currencies' from central banks (not built).
 - [passive-rebalancing](../decisions/passive-rebalancing.md): transit priced by the owner's inventory, anchored at spot, rather than the node trading.
 - [secrets-at-rest](../decisions/secrets-at-rest.md): BTP tokens are kept hashed.
 - [connector-timing](../decisions/connector-timing.md): timing at the packet's expiry, F05 at once, F08 data, F01 and F02, segment-aware prefixes, unique request IDs.
