@@ -167,31 +167,18 @@ impl OpenIncoming {
 }
 
 /// The tag of a connection's credentials: the payment's ID, then the
-/// connection's key; the ID alone for those issued before connections had
-/// keys.
+/// connection's key.
 pub(super) fn connection_tag(payment: PaymentId, key: ConnectionKey) -> Vec<u8> {
     let mut tag = payment.0.to_vec();
-    if key != ConnectionKey::LEGACY {
-        tag.extend_from_slice(&key.0);
-    }
+    tag.extend_from_slice(&key.0);
     tag
 }
 
 /// The payment and connection a tag names.
 fn parse_tag(tag: &[u8]) -> Option<(PaymentId, ConnectionKey)> {
-    let (id, key) = match tag.len() {
-        16 => (tag, None),
-        32 => {
-            let (id, key) = tag.split_at(16);
-            (id, Some(key))
-        }
-        _ => return None,
-    };
+    let (id, key) = tag.split_at_checked(16)?;
     let id = PaymentId(<[u8; 16]>::try_from(id).ok()?);
-    let key = match key {
-        None => ConnectionKey::LEGACY,
-        Some(key) => ConnectionKey(<[u8; 16]>::try_from(key).ok()?),
-    };
+    let key = ConnectionKey(<[u8; 16]>::try_from(key).ok()?);
     Some((id, key))
 }
 
@@ -425,7 +412,7 @@ impl Core {
     ) -> Result<Credentials, EngineError> {
         let mut key = [0u8; 16];
         self.rng.fill_bytes(&mut key);
-        let tag = connection_tag(id, ConnectionKey::from_random(key));
+        let tag = connection_tag(id, ConnectionKey(key));
         let Self {
             rng,
             receivers,
@@ -881,13 +868,12 @@ mod tests {
         #![proptest_config(ProptestConfig { cases: 512, ..ProptestConfig::default() })]
 
         // A packet's tag is whatever its sender put in the STREAM token:
-        // only the two lengths the node writes name a connection, and
-        // anything else is refused, without a panic
-        // (spec/decisions/tigerstyle.md).
+        // only the length the node writes names a connection, and anything
+        // else is refused, without a panic (spec/decisions/tigerstyle.md).
         #[test]
         fn any_tag_is_read_or_refused(tag in proptest::collection::vec(any::<u8>(), 0..48)) {
             let parsed = parse_tag(&tag);
-            prop_assert_eq!(parsed.is_some(), tag.len() == 16 || tag.len() == 32);
+            prop_assert_eq!(parsed.is_some(), tag.len() == 32);
             let (admission, paid) = admission(&BTreeMap::new(), &Finished::default(), LedgerId::StubUsd, 0, &tag);
             prop_assert_eq!(admission, Admission::Refuse(ErrorCode::F99_APPLICATION_ERROR));
             prop_assert_eq!(paid, None);

@@ -89,8 +89,8 @@ One SQLite file, `dassie.sqlite3`, in the data directory (`env.rs` has where). `
 
 - **One node per data directory.** The store holds an exclusive lock on `dassie.lock` in the data directory for as long as it is open, and a second daemon on the same directory stops at startup, saying so. Two nodes on one database would each sign, settle and book as if the other did not exist; SQLite's own locks keep only their transactions apart, and two daemons on different ports never meet at a socket. The lock goes with the process, so a crash leaves none behind.
 
-- **The application ID** claims a new file and refuses another application's. A file with the v0 node's ID is refused with a message to move it away and set up a new node with a new phrase, since no phrase v0 made is read ([database-continuity](../decisions/database-continuity.md)).
-- **Migrations** are numbered by `user_version`, each in its own transaction. A shipped migration is never edited; a change adds another. A database from a newer version is refused, which is why a rollback needs the copy below.
+- **The application ID** claims a new file and refuses another application's. A database of the early testnet, under the ID before this schema's, is refused with a message to set the node up again with a new phrase, since no phrase made before the testnet's reset is read, and left as it is ([database-continuity](../decisions/database-continuity.md)).
+- **Migrations** are numbered by `user_version`, each in its own transaction. The first creates the whole schema, with the rows a new node starts with. A shipped migration is never edited; a change adds another. A database from a newer version is refused, which is why a rollback needs the copy below.
 - **The copy before a migration.** Before migrating an existing database, the daemon writes a consistent copy (`VACUUM INTO`) to `dassie.sqlite3.pre-migration`. It does so before serving anything, so nothing the copy lacks has reached a peer, and a rollback of an update may put it back ([Release](release.md#rolling-back)).
 - **No new database while a rollback is half way.** A rollback moves the database aside as `dassie.sqlite3.rolling-back`, with its side files, puts the copy in, and only then renames what it moved aside to `dassie.sqlite3.rolled-back`. So `dassie.sqlite3.rolling-back` without `dassie.sqlite3` means exactly that a rollback stopped between those steps, and the node refuses to start, rather than start afresh with another identity, until the owner puts the copy in place or removes what was moved aside. A finished rollback leaves nothing that stops a deliberate fresh start.
 - **The schema check** runs at every open, after migrating: every table and column is exactly what the code expects (`store/schema.rs`), and a mismatch stops the daemon rather than letting it run on a schema it does not understand.
@@ -159,7 +159,7 @@ The CLI talks to the daemon over the IPC socket with the same RPC contract as th
 
 ## Decisions
 
-- [database-continuity](../decisions/database-continuity.md): a new schema, and v0 databases refused, since nobody ran the original.
+- [database-continuity](../decisions/database-continuity.md): the schema starts from one migration under an ID of its own, and neither v0 nor early-testnet databases are read.
 - [rpc-contract](../decisions/rpc-contract.md): the CLI talks to the daemon over the same contract as the wallet.
 - [real-money](../decisions/real-money.md): why the `live` realm is refused.
 - [hub-keys-by-network](../decisions/hub-keys-by-network.md): the validator file's network, and why one of real money is refused with the `live` realm.

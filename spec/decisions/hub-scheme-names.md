@@ -17,7 +17,7 @@
   - `hub-xrpl-xrp` and `hub-xrpl-rlusd` on mainnet.
 - **Its ledger is `<scheme>+<asset>`,** as every scheme's: `hub-xrpl-testnet-xrp+xrp`, `hub-xrpl-testnet-dsusd+usd`, `hub-xrpl-xrp+xrp`, `hub-xrpl-rlusd+usd`. A dollar token books as `USD` ([issued-assets](issued-assets.md)).
 - **The asset is always named,** even for XRP, so the hubs of one ledger read alike: a hub scheme's ID is `hub-` before the ID of the owner's book of its asset ([scheme-names](scheme-names.md)).
-- **`hub-xrp-testnet` becomes `hub-xrpl-testnet-xrp`,** with its ledger, by a migration of the database.
+- **`hub-xrp-testnet` becomes `hub-xrpl-testnet-xrp`,** with its ledger.
 
 ## Accepted
 

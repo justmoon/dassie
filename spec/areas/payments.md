@@ -68,7 +68,7 @@ The flow is GNAP's redirect interaction. The interaction URL carries a random ke
 ### What a grant allows
 
 - **A grant is bound to its client's key:** every later request of the grant must be signed with it, so a stolen token is of no use without the key.
-- **A limit caps the amount debited, and may also cap the amount received,** each binding on its own. A limit on the amount received alone is refused, as the Open Payments spec is changing it: the debit is what the owner pays, so a grant that caps anything caps that. **Grants kept from before with a receive limit alone are revoked** when the node upgrades, pending or approved, as the owner revokes a grant: their tokens stop working and their clients must ask again. A payment under such limits is refused, so a store put back from a backup pays nothing under one either. An item that only reads keeps such a limit, which bounds no payment there ([receive-limit-alone](../decisions/receive-limit-alone.md)).
+- **A limit caps the amount debited, and may also cap the amount received,** each binding on its own. A limit on the amount received alone is refused, as the Open Payments spec is changing it: the debit is what the owner pays, so a grant that caps anything caps that. A payment under such limits is refused, so a store put back from a backup pays nothing under one either ([receive-limit-alone](../decisions/receive-limit-alone.md)).
 - **A receive limit caps what payments deliver,** not only what they reserve: under one, a payment fixes what it delivers, though it fixed its debit, and delivers no more than its receive amount, as its receiver counts it, but for the rounding and rate changes the decision accepts ([receive-limit-caps-delivery](../decisions/receive-limit-caps-delivery.md)).
 - **On an item that creates outgoing payments, a debit limit is in its wallet address's asset,** code and scale, or the request is refused with the asset it must be in, since no payment from that wallet could fit it ([unusable-limits](../decisions/unusable-limits.md)).
 - **Each access item keeps to its own limits,** and only one item per wallet address may allow `create`, since otherwise which limits apply would be unclear. On an item that only reads or lists, a `receiver` limit narrows what it reaches.
@@ -168,7 +168,7 @@ The owner may pay an ILP address and a shared secret, as Receive hands them out 
 - [secrets-at-rest](../decisions/secrets-at-rest.md): tokens stored as hashes.
 - [own-books](../decisions/own-books.md): a payment's sent amount is what the node's own books posted.
 - [own-fulfills](../decisions/own-fulfills.md): why a receiver's word can complete a payment that heard of less.
-- [receive-limit-alone](../decisions/receive-limit-alone.md): why a receive limit alone is refused, and grants kept with one are revoked on upgrade rather than kept.
+- [receive-limit-alone](../decisions/receive-limit-alone.md): why a receive limit alone is refused.
 - [unusable-limits](../decisions/unusable-limits.md): why a debit limit in another asset is refused when the grant is asked for, and a receive limit in another asset than its receiver is flagged on the consent page.
 - [owners-share](../decisions/owners-share.md): why strangers leave the owner a share of each pool, who counts as the owner's side, and why an idle connection that paid only dust gives up its place.
 - [full-or-stopped-short](../decisions/full-or-stopped-short.md): why a receiver closes with a code that says whether its incoming payment was full, and why not with a message.

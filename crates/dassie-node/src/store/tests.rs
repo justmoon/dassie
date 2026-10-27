@@ -72,22 +72,33 @@ fn keeps_its_data_across_opens() {
     assert_eq!(store.config().unwrap(), config);
 }
 
-// spec/decisions/database-continuity.md: the original's database is refused
-// with a way forward.
+// spec/decisions/database-continuity.md: a database of the early testnet is
+// refused with a way forward, and left as it was, for the release that made
+// it.
 #[test]
-fn refuses_a_v0_database() {
+fn refuses_a_database_of_the_early_testnet() {
     let temp = tempfile::tempdir().unwrap();
-    let connection = Connection::open(temp.path().join(DATABASE_FILE)).unwrap();
+    let path = temp.path().join(DATABASE_FILE);
+    let connection = Connection::open(&path).unwrap();
     connection
-        .pragma_update(None, "application_id", V0_APPLICATION_ID)
+        .pragma_update(None, "application_id", EARLY_TESTNET_APPLICATION_ID)
         .unwrap();
+    connection.pragma_update(None, "user_version", 49).unwrap();
     connection
-        .execute_batch("CREATE TABLE scalar (key TEXT PRIMARY KEY) STRICT")
+        .execute_batch("CREATE TABLE replay_floors (node TEXT PRIMARY KEY) STRICT")
         .unwrap();
     drop(connection);
     let error = Store::open(temp.path()).unwrap_err();
-    assert!(matches!(error, StoreError::V0Database));
-    assert!(error.to_string().contains("new node"));
+    assert!(matches!(error, StoreError::EarlyTestnetDatabase));
+    assert!(error.to_string().contains("set the node up again"));
+    let connection = Connection::open(&path).unwrap();
+    let application_id: i32 = connection
+        .pragma_query_value(None, "application_id", |row| row.get(0))
+        .unwrap();
+    assert_eq!(
+        (application_id, user_version(&path)),
+        (EARLY_TESTNET_APPLICATION_ID, 49)
+    );
 }
 
 #[test]
@@ -122,114 +133,39 @@ fn user_version(path: &Path) -> i64 {
         .unwrap()
 }
 
-/// A database at schema version `version`, as an older Dassie left it.
-fn database_at(dir: &Path, version: usize) {
-    let mut connection = Connection::open(dir.join(DATABASE_FILE)).unwrap();
-    connection
-        .pragma_update(None, "application_id", APPLICATION_ID)
-        .unwrap();
-    schema::migrate_until(&mut connection, version).unwrap();
-}
-
-// spec/areas/settlement.md#external-assets: migration 45 gives each XRPL
-// account the config its schemes named of it, the first of them by ID, and
-// leaves the schemes whether they peer and nothing else.
-#[test]
-fn migration_45_gives_each_account_its_own_config() {
-    let temp = tempfile::tempdir().unwrap();
-    database_at(temp.path(), 44);
-    let connection = Connection::open(temp.path().join(DATABASE_FILE)).unwrap();
-    let schemes = [
-        ("stub", r#"{"trust":"unlimited"}"#),
-        (
-            "xrpl-testnet",
-            r#"{"server":"ws://a","peers":false,"faucet":null}"#,
-        ),
-        ("xrpl-testnet-dsusd", r#"{"server":"ws://b"}"#),
-        ("xrpl", r#"{"peers": true}"#),
-        ("xrpl-rlusd", ""),
-    ];
-    for (id, config) in schemes {
-        connection
-            .execute(
-                "INSERT INTO settlement_schemes (id, config, activated_at_ms) VALUES (?1, ?2, 7)",
-                [id, config],
-            )
-            .unwrap();
-    }
-    drop(connection);
-    let store = Store::open(temp.path()).unwrap();
-    assert_eq!(
-        store.asset_configs().unwrap(),
-        [(
-            "xrpl-testnet-account/0".to_string(),
-            r#"{"server":"ws://a","faucet":null}"#.to_string()
-        )]
-    );
-    let configs: Vec<(String, String)> = store
-        .settlement_schemes()
-        .unwrap()
-        .into_iter()
-        .map(|(id, config)| (id.as_str().to_string(), config))
-        .collect();
-    // Named as migration 46 names the XRP schemes.
-    let expected = [
-        ("stub", r#"{"trust":"unlimited"}"#),
-        ("xrpl-rlusd", ""),
-        ("xrpl-testnet-dsusd", ""),
-        ("xrpl-testnet-xrp", r#"{"peers":false}"#),
-        ("xrpl-xrp", ""),
-    ];
-    assert_eq!(
-        configs,
-        expected.map(|(id, config)| (id.to_string(), config.to_string()))
-    );
-}
-
-// Migration 45 takes nothing from a disabled scheme: test RLUSD's server,
-// which the node never read since it was disabled, does not become the
-// account's, so the schemes that run keep the default server.
-#[test]
-fn migration_45_takes_no_config_from_a_disabled_scheme() {
-    let temp = tempfile::tempdir().unwrap();
-    database_at(temp.path(), 44);
-    let connection = Connection::open(temp.path().join(DATABASE_FILE)).unwrap();
-    let schemes = [
-        ("xrpl-testnet", ""),
-        ("xrpl-testnet-rlusd", r#"{"server":"ws://old"}"#),
-    ];
-    for (id, config) in schemes {
-        connection
-            .execute(
-                "INSERT INTO settlement_schemes (id, config, activated_at_ms) VALUES (?1, ?2, 7)",
-                [id, config],
-            )
-            .unwrap();
-    }
-    drop(connection);
-    let store = Store::open(temp.path()).unwrap();
-    assert!(store.asset_configs().unwrap().is_empty());
-}
-
 // spec/decisions/release-integrity.md: a rollback needs the database as the
 // version before left it.
 #[test]
 fn keeps_a_copy_before_migrating() {
     let temp = tempfile::tempdir().unwrap();
     let copy = temp.path().join(PRE_MIGRATION_FILE);
+    let database = temp.path().join(DATABASE_FILE);
     drop(Store::open(temp.path()).unwrap());
     // A new database needs no copy, nor does one already current.
     drop(Store::open(temp.path()).unwrap());
     assert!(!copy.exists());
-    fs::remove_file(temp.path().join(DATABASE_FILE)).unwrap();
-    let older = usize::try_from(SCHEMA_VERSION - 1).unwrap();
-    database_at(temp.path(), older);
-    drop(Store::open(temp.path()).unwrap());
-    assert_eq!(user_version(&copy), SCHEMA_VERSION - 1);
+    // A version with one more migration keeps a copy before it migrates.
+    let next = [
+        schema::MIGRATIONS,
+        &["UPDATE node_config SET alias = 'next'"],
+    ]
+    .concat();
+    let store = Store::open_with(temp.path(), &next).unwrap();
+    assert_eq!(store.config().unwrap().alias.as_str(), "next");
+    drop(store);
+    assert_eq!(user_version(&copy), SCHEMA_VERSION);
     assert_eq!(mode(&copy), 0o600);
+    assert_eq!(user_version(&database), SCHEMA_VERSION + 1);
+    // The copy is the database as this version left it.
+    fs::rename(&copy, &database).unwrap();
     assert_eq!(
-        user_version(&temp.path().join(DATABASE_FILE)),
-        SCHEMA_VERSION
+        Store::open(temp.path())
+            .unwrap()
+            .config()
+            .unwrap()
+            .alias
+            .as_str(),
+        ""
     );
 }
 
@@ -495,75 +431,14 @@ fn a_new_session_survives_eviction_on_a_tie() {
     }
 }
 
-// Migration 5 rebuilds the token table: tokens from before keep everything,
-// revoked or not, and have no cap.
+// A payment may receive more than its amount, as a packet within the
+// tolerance may bring it (spec/decisions/paid-within-a-tolerance.md), and
+// its connections go with it.
 #[test]
-fn tokens_survive_the_upgrade_to_caps() {
-    let temp = tempfile::tempdir().unwrap();
-    let mut connection = Connection::open(temp.path().join(DATABASE_FILE)).unwrap();
-    connection
-        .pragma_update(None, "application_id", APPLICATION_ID)
-        .unwrap();
-    schema::migrate_until(&mut connection, 4).unwrap();
-    connection
-        .execute_batch(
-            "INSERT INTO btp_tokens VALUES (1, zeroblob(32), 'old', 'stub+usd', 5, NULL); \
-             INSERT INTO btp_tokens VALUES (2, randomblob(32), 'gone', 'stub+usd', 6, 7);",
-        )
-        .unwrap();
-    drop(connection);
-    let store = Store::open(temp.path()).unwrap();
-    let tokens = store.btp_tokens().unwrap();
-    assert_eq!(tokens.len(), 2);
-    assert_eq!((tokens[0].label.as_str(), tokens[0].cap), ("old", None));
-    assert_eq!(tokens[1].revoked_at_ms, Some(7));
-}
-
-// Migration 13 keeps what connections received apart: an open incoming
-// payment's credentials from before are one connection, which received
-// all it did; a closed one's connections are not read again.
-#[test]
-fn open_payments_keep_what_they_received_over_the_upgrade_to_connections() {
-    let temp = tempfile::tempdir().unwrap();
-    let mut connection = Connection::open(temp.path().join(DATABASE_FILE)).unwrap();
-    connection
-        .pragma_update(None, "application_id", APPLICATION_ID)
-        .unwrap();
-    schema::migrate_until(&mut connection, 12).unwrap();
-    connection
-        .execute_batch(
-            "INSERT INTO incoming_payments VALUES (x'01010101010101010101010101010101', \
-             'stub+usd', 'https://a.example/pay', NULL, 100, 40, 'g.a.b', zeroblob(32), NULL, \
-             10, 1000, NULL, 1); \
-             INSERT INTO incoming_payments VALUES (x'02020202020202020202020202020202', \
-             'stub+usd', 'https://a.example/pay', NULL, 10, 10, 'g.a.c', zeroblob(32), NULL, \
-             10, 1000, 20, 2);",
-        )
-        .unwrap();
-    drop(connection);
-    let store = Store::open(temp.path()).unwrap();
-    assert_eq!(
-        store.open_incoming_connections(30, 10).unwrap(),
-        [(PaymentId([1; 16]), ConnectionKey::LEGACY, 40)]
-    );
-}
-
-// Migration 28 lets a payment receive more than its amount, as a packet
-// within the tolerance may bring it
-// (spec/decisions/paid-within-a-tolerance.md), and keeps the payments and
-// what their connections received.
-#[test]
-fn payments_and_their_connections_survive_the_upgrade_to_a_tolerance() {
-    let temp = tempfile::tempdir().unwrap();
-    let mut connection = Connection::open(temp.path().join(DATABASE_FILE)).unwrap();
-    connection
-        .pragma_update(None, "application_id", APPLICATION_ID)
-        .unwrap();
-    connection
-        .pragma_update(None, "foreign_keys", "ON")
-        .unwrap();
-    schema::migrate_until(&mut connection, 27).unwrap();
-    connection
+fn a_payment_may_receive_more_than_its_amount() {
+    let store = Store::open_in_memory().unwrap();
+    store
+        .lock()
         .execute_batch(
             "INSERT INTO incoming_payments VALUES (x'01010101010101010101010101010101', \
              'stub+usd', 'https://a.example/pay', NULL, 100, 40, 'g.a.b', zeroblob(32), NULL, \
@@ -572,19 +447,17 @@ fn payments_and_their_connections_survive_the_upgrade_to_a_tolerance() {
                (x'01010101010101010101010101010101', x'08080808080808080808080808080808', 40);",
         )
         .unwrap();
-    let over = "UPDATE incoming_payments SET received_amount = 101";
-    assert!(connection.execute_batch(over).is_err());
-    drop(connection);
-    let store = Store::open(temp.path()).unwrap();
-    let key = ConnectionKey([8; 16]);
     assert_eq!(
         store.open_incoming_connections(30, 10).unwrap(),
-        [(PaymentId([1; 16]), key, 40)]
+        [(PaymentId([1; 16]), ConnectionKey([8; 16]), 40)]
     );
-    store.lock().execute_batch(over).unwrap();
+    store
+        .lock()
+        .execute_batch("UPDATE incoming_payments SET received_amount = 101")
+        .unwrap();
     let row = store.incoming_payment(PaymentId([1; 16])).unwrap().unwrap();
     assert_eq!((row.incoming_amount, row.received_amount), (Some(100), 101));
-    // A payment's connections still go with it.
+    // A payment's connections go with it.
     store
         .lock()
         .execute_batch("DELETE FROM incoming_payments")
@@ -802,85 +675,11 @@ fn clients_quotes_do_not_crowd_out_the_owners() {
     );
 }
 
-// Migration 19: nothing is settled at a peering's end
-// (spec/decisions/ending-a-peering.md). A final settlement still due when the
-// node upgrades is dropped with its columns; the channel, and what it owes
-// the peer on its accounts, stay.
+// spec/areas/rpc.md#paired-devices: the devices are a bounded list, which
+// never drops a device to make room.
 #[test]
-fn a_final_settlement_due_is_dropped_over_the_upgrade() {
-    let temp = tempfile::tempdir().unwrap();
-    database_at(temp.path(), 18);
-    let key = dassie_identity::NodeKey::from_bytes(&[3; 32]);
-    Connection::open(temp.path().join(DATABASE_FILE))
-        .unwrap()
-        .execute(
-            "INSERT INTO settlement_channels (node, public_key, url, settled_in, settled_out,
-               final_scheme, final_state)
-             VALUES (?1, ?2, 'https://c.example', 4, 7, 'stub', x'04')",
-            rusqlite::params![key.node_id().as_str(), key.public_key().as_bytes().to_vec()],
-        )
-        .unwrap();
-    let store = Store::open(temp.path()).unwrap();
-    let channels = store.load_peer().unwrap().channels;
-    assert_eq!(channels.len(), 1);
-    assert_eq!(channels[0].node, key.node_id());
-    assert_eq!(
-        (
-            channels[0].channel.settled_in,
-            channels[0].channel.settled_out
-        ),
-        (4, 7)
-    );
-}
-
-// Migrations 25 and 49: a peer's replay floor moved out of its peering into
-// a table of floors, which goes once a request is its connection's proved
-// sender's (spec/areas/peer-protocol.md#authentication). The peering
-// stays.
-#[test]
-fn replay_floors_go_with_the_upgrade() {
-    let temp = tempfile::tempdir().unwrap();
-    database_at(temp.path(), 24);
-    let key = dassie_identity::NodeKey::from_bytes(&[3; 32]);
-    let connection = Connection::open(temp.path().join(DATABASE_FILE)).unwrap();
-    connection
-        .execute(
-            "INSERT INTO peer_nodes (id, sources, first_seen_ms) VALUES (?1, 0, 1)",
-            [key.node_id().as_str()],
-        )
-        .unwrap();
-    connection
-        .execute(
-            "INSERT INTO peers (node, scheme, version, state, credit_out,
-               since_ms, inbound, last_seen_ms, replay_floor_ms)
-             VALUES (?1, 'stub', 1, x'', 0, 2, 0, 3, 1800000000123)",
-            [key.node_id().as_str()],
-        )
-        .unwrap();
-    drop(connection);
-    let store = Store::open(temp.path()).unwrap();
-    let stored = store.load_peer().unwrap();
-    assert!(stored.nodes[0].peering.is_some());
-    drop(store);
-    let connection = Connection::open(temp.path().join(DATABASE_FILE)).unwrap();
-    let floors: i64 = connection
-        .query_row(
-            "SELECT count(*) FROM sqlite_schema WHERE name = 'replay_floors'",
-            [],
-            |row| row.get(0),
-        )
-        .unwrap();
-    assert_eq!(floors, 0);
-}
-
-// spec/areas/rpc.md#paired-devices: a database from before devices gains
-// their table, which keeps a bounded list and never drops a device to make
-// room.
-#[test]
-fn devices_are_kept_after_the_upgrade_up_to_their_bound() {
-    let temp = tempfile::tempdir().unwrap();
-    database_at(temp.path(), 26);
-    let store = Store::open(temp.path()).unwrap();
+fn devices_are_kept_up_to_their_bound() {
+    let store = Store::open_in_memory().unwrap();
     let device = |seed: u8, paired_at_ms: u64| DeviceRow {
         id: dassie_identity::NodeKey::from_bytes(&[seed; 32]).node_id(),
         name: format!("device {seed}"),
@@ -910,128 +709,4 @@ fn devices_are_kept_after_the_upgrade_up_to_their_bound() {
     assert!(!store.delete_device(&first).unwrap());
     assert_eq!(store.device(&first).unwrap(), None);
     store.add_device(&device(200, 3_000)).unwrap();
-}
-
-/// Grants as a store at version 35 kept them, the `n`th with ID, revision
-/// and continuation hash of `n`, asked for at 10 and decided at 20; each
-/// approved one has a token whose hash is of `n + 100`. 1 and 6 to 9 create
-/// under a receive limit alone, 1 and 8 approved, 6 pending, 9 denied; 2
-/// to 4 create under a debit limit, both or none; 5 only reads under a
-/// receive limit; 7 creates incoming payments.
-fn grants_at_v35(dir: &Path) {
-    use serde_json::{Value, json};
-
-    database_at(dir, 35);
-    let usd = json!({ "value": "5", "assetCode": "USD", "assetScale": 9 });
-    let outgoing = |actions: Value, limits: Value| {
-        json!({
-            "type": "outgoing-payment",
-            "actions": actions,
-            "identifier": "https://a.example/.well-known/pay",
-            "limits": limits,
-        })
-    };
-    let create = json!(["create", "read"]);
-    let receive = json!({ "receiveAmount": usd });
-    let receive_alone = outgoing(create.clone(), receive.clone());
-    let debit_alone = outgoing(create.clone(), json!({ "debitAmount": usd }));
-    let both = outgoing(
-        create.clone(),
-        json!({ "debitAmount": usd, "receiveAmount": usd }),
-    );
-    let no_amount = outgoing(create, json!({ "interval": "R/2026-01-01T00:00:00Z/P1D" }));
-    let read_only = outgoing(json!(["read", "list"]), receive);
-    let incoming = json!({ "type": "incoming-payment", "actions": ["create", "read"] });
-    let quote = json!({ "type": "quote", "actions": ["create"] });
-    let grants: [(u8, &str, Value); 9] = [
-        (1, "approved", json!([receive_alone])),
-        (2, "approved", json!([debit_alone])),
-        (3, "approved", json!([both])),
-        (4, "approved", json!([no_amount])),
-        (5, "approved", json!([read_only])),
-        (6, "pending", json!([receive_alone])),
-        (7, "approved", json!([incoming])),
-        (8, "approved", json!([quote, receive_alone])),
-        (9, "denied", json!([receive_alone])),
-    ];
-    let connection = Connection::open(dir.join(DATABASE_FILE)).unwrap();
-    for (n, state, access) in &grants {
-        connection
-            .execute(
-                "INSERT INTO gnap_grants (id, state, client, client_key, access, needs_owner,
-                   continue_token_hash, interaction, created_at_ms, decided_at_ms, expires_at_ms,
-                   revision)
-                 VALUES (?1, ?2, 'https://client.example', '{}', ?3, 1, ?4, NULL, 10, ?5, 100, ?6)",
-                rusqlite::params![
-                    vec![*n; 16],
-                    state,
-                    access.to_string(),
-                    vec![*n; 32],
-                    (*state != "pending").then_some(20),
-                    i64::from(*n),
-                ],
-            )
-            .unwrap();
-        if *state == "approved" {
-            connection
-                .execute(
-                    "INSERT INTO gnap_tokens VALUES (?1, ?2, ?2, 20, 1000)",
-                    rusqlite::params![vec![*n + 100; 32], vec![*n; 16]],
-                )
-                .unwrap();
-        }
-    }
-}
-
-// Migration 36 (spec/areas/payments.md#what-a-grant-allows): a grant kept
-// from before that creates outgoing payments under a receive limit alone is
-// revoked, pending or approved, as the owner revokes one: its token stops
-// working, its client is refused, and the owner no longer sees it. Other
-// limits, items that only read, and other access types stay as they were.
-#[test]
-fn grants_that_limit_only_what_is_received_are_revoked_on_upgrade() {
-    let temp = tempfile::tempdir().unwrap();
-    grants_at_v35(temp.path());
-    let store = Store::open(temp.path()).unwrap();
-    let state_of = |n: u8| store.grant(PaymentId([n; 16])).unwrap().unwrap().state;
-    let token_works = |n: u8| store.access_token(&[n + 100; 32], 30).unwrap().is_some();
-    for n in [1, 8] {
-        assert_eq!(state_of(n), GrantState::Revoked, "grant {n}");
-        assert!(!token_works(n), "grant {n}");
-        // Its client, continuing it, is told it was not approved.
-        let continued = store.continued_grant(PaymentId([n; 16]), &[n; 32]).unwrap();
-        assert_eq!(continued.unwrap().state, GrantState::Revoked);
-    }
-    for n in [2, 3, 4, 5, 7] {
-        assert_eq!(state_of(n), GrantState::Approved, "grant {n}");
-        assert!(token_works(n), "grant {n}");
-    }
-    let pending = store.grant(PaymentId([6; 16])).unwrap().unwrap();
-    assert_eq!(
-        (pending.state, pending.decided_at_ms),
-        (GrantState::Revoked, Some(10))
-    );
-    assert_eq!(state_of(9), GrantState::Denied);
-    // The owner sees only the grants still approved.
-    let mut listed: Vec<u8> = store
-        .consented_grants(16)
-        .unwrap()
-        .iter()
-        .map(|grant| grant.id.0[0])
-        .collect();
-    listed.sort_unstable();
-    assert_eq!(listed, [2, 3, 4, 5, 7]);
-    // Each grant revoked has a revision of its own, past every other.
-    let revisions: Vec<i64> = store
-        .lock()
-        .prepare("SELECT revision FROM gnap_grants WHERE state = 'revoked' ORDER BY id")
-        .unwrap()
-        .query_map([], |row| row.get(0))
-        .unwrap()
-        .collect::<Result<_, _>>()
-        .unwrap();
-    assert_eq!(revisions, [10, 11, 12]);
-    // They go at the next pruning, as revoked grants do.
-    store.prune_grants(30).unwrap();
-    assert_eq!(store.grant(PaymentId([1; 16])).unwrap(), None);
 }
