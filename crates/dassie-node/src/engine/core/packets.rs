@@ -4,7 +4,7 @@
 use std::collections::BTreeMap;
 
 use dassie_connector::{EndpointId, Forwarded, Outcome, Responded, Upstream};
-use dassie_identity::SeedPath;
+use dassie_identity::{NodeSecret, Segment};
 use dassie_ilp::{Address, ErrorCode, Prepare, Timestamp};
 use dassie_ledger::LedgerId;
 use dassie_oer::Decode;
@@ -24,10 +24,6 @@ const PREPARE_TYPE: u8 = 12;
 /// ledger's slug follows. BTP clients' segments have no `-`, so they never
 /// collide with one.
 pub(super) const RECEIVER_SEGMENT: &str = "stream-";
-
-/// The prefix of a receiver's seed path: its server secret derives from the
-/// node key, so credentials stay valid across restarts.
-const RECEIVER_SECRET_PATH: &str = "node/stream-server/";
 
 /// Most STREAM connections a receiver keeps.
 const MAX_RECEIVER_CONNECTIONS: usize = 256;
@@ -62,12 +58,12 @@ impl Receiver {
         ledger: LedgerId,
         endpoint: EndpointId,
     ) -> Result<Self, EngineError> {
-        let path = format!("{RECEIVER_SECRET_PATH}{}", ledger_slug(ledger));
-        let path = SeedPath::parse(&path)
+        // The server secret derives from the node key, so credentials stay
+        // valid across restarts, and from the ledger's ID, so no two
+        // receivers share one.
+        let ledger_id = Segment::parse(ledger.as_str())
             .map_err(|_| EngineError::Internal("receiver seed path".into()))?;
-        let secret = key
-            .derive(&path)
-            .map_err(|_| EngineError::Internal("receiver secret".into()))?;
+        let secret = key.secret(NodeSecret::StreamReceiver { ledger: ledger_id });
         let address = receiver_address(own_address, ledger);
         let address = Address::parse(&address)
             .map_err(|_| EngineError::Internal("receiver address".into()))?;

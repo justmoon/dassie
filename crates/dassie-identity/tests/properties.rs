@@ -6,8 +6,9 @@
 use curve25519_dalek::Scalar;
 use curve25519_dalek::constants::EIGHT_TORSION;
 use dassie_identity::{
-    Error, LoginSecret, Mnemonic, NODE_LABEL_LENGTH, NodeId, NodeKey, NodeLabel, PKCS8_DER_LENGTH,
-    PublicKey, SPKI_DER_LENGTH, SeedPath, Signature, WordCount, X25519Public, X25519Secret,
+    Error, LoginSecret, Mnemonic, NODE_ID_BYTES, NODE_ID_LENGTH, NodeId, NodeKey, NodeSecret,
+    PKCS8_DER_LENGTH, PublicKey, SPKI_DER_LENGTH, Segment, Signature, WordCount, X25519Public,
+    X25519Secret,
 };
 use proptest::prelude::*;
 
@@ -226,62 +227,38 @@ proptest! {
     }
 
     #[test]
-    fn node_id_parse_never_panics(text in any::<String>()) {
+    fn node_id_parse_never_panics(text in "[a-zA-Z2-9=]{37,41}|\\PC{0,48}") {
         if let Ok(id) = NodeId::parse(&text) {
-            prop_assert_eq!(id.as_str(), text.as_str());
+            prop_assert_eq!(id.as_str(), text.to_ascii_lowercase());
         }
     }
 
+    // Every 24 bytes are an ID, whose text, in either case, names it and
+    // no other.
     #[test]
-    fn valid_node_ids_re_render_identically(text in "[A-Za-z0-9_-]{2,45}") {
-        let id = NodeId::parse(&text).unwrap();
-        prop_assert_eq!(id.as_str(), text.as_str());
-        prop_assert_eq!(id.to_string(), text.clone());
-        prop_assert_eq!(id.len(), text.len());
+    fn node_ids_round_trip(bytes: [u8; NODE_ID_BYTES]) {
+        let id = NodeId::from_bytes(&bytes);
+        prop_assert_eq!(id.to_bytes(), bytes);
+        prop_assert_eq!(id.as_str().len(), NODE_ID_LENGTH);
+        prop_assert!(id.as_str().bytes().all(|b| b.is_ascii_lowercase() || (b'2'..=b'7').contains(&b)));
+        prop_assert_eq!(NodeId::parse(id.as_str()), Ok(id));
+        prop_assert_eq!(NodeId::parse(&id.as_str().to_ascii_uppercase()), Ok(id));
+        prop_assert_eq!(id.to_string(), id.as_str());
     }
 
     #[test]
     fn computed_node_ids_are_valid(key: [u8; 32]) {
         let id = NodeId::from_public_key(&key);
-        prop_assert!(id.as_str().starts_with('d'));
-        prop_assert!(id.len() <= 33);
-        prop_assert!(!id.as_str().ends_with('A'));
         prop_assert_eq!(NodeId::parse(id.as_str()), Ok(id));
     }
 
-    // Every ID a key gives has a label, which names it and no other.
     #[test]
-    fn computed_node_ids_round_trip_through_their_labels(key: [u8; 32]) {
-        let id = NodeId::from_public_key(&key);
-        let label = id.label().unwrap();
-        prop_assert_eq!(label.as_str().len(), NODE_LABEL_LENGTH);
-        prop_assert!(label.as_str().bytes().all(|b| b.is_ascii_lowercase() || (b'2'..=b'7').contains(&b)));
-        prop_assert_eq!(NodeId::from_label(label.as_str()), Ok(id));
-        prop_assert_eq!(NodeLabel::parse(&label.as_str().to_ascii_uppercase()), Ok(label));
-    }
-
-    #[test]
-    fn node_label_parse_never_panics(text in "[a-zA-Z2-9=]{37,41}|\\PC{0,48}") {
-        if let Ok(label) = NodeLabel::parse(&text) {
-            prop_assert_eq!(label.as_str(), text.to_ascii_lowercase());
-            if let Ok(id) = label.node_id() {
-                prop_assert_eq!(id.label(), Ok(label));
-            }
-        }
-    }
-
-    #[test]
-    fn seed_path_parse_never_panics(text in any::<String>()) {
-        if let Ok(path) = SeedPath::parse(&text) {
-            prop_assert!(path.segments().all(|segment| !segment.is_empty()));
+    fn segment_parse_never_panics(text in any::<String>()) {
+        if let Ok(ledger) = Segment::parse(&text) {
+            prop_assert!(!ledger.as_str().is_empty() && !ledger.as_str().contains('/'));
             let key = NodeKey::from_bytes(&[5; 32]);
-            let _ = key.derive(&path);
+            let _ = key.secret(NodeSecret::StreamReceiver { ledger });
         }
-    }
-
-    #[test]
-    fn settlement_entropy_never_panics(scheme in any::<String>(), path in any::<String>()) {
-        let _ = NodeKey::from_bytes(&[5; 32]).settlement_entropy(&scheme, &path);
     }
 
     #[test]

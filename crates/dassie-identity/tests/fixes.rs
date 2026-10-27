@@ -6,7 +6,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing)]
 
 use dassie_identity::{
-    Error, Mnemonic, NodeKey, PKCS8_DER_LENGTH, PublicKey, SPKI_DER_LENGTH, SeedPath, X25519Public,
+    Error, Mnemonic, NodeKey, PKCS8_DER_LENGTH, PublicKey, SPKI_DER_LENGTH, Segment, X25519Public,
     X25519Secret,
 };
 
@@ -115,21 +115,17 @@ fn login_proof_is_checked_in_constant_time() {
 }
 
 /// The original split paths on `/` without looking at the segments, so a
-/// doubled or trailing slash derived an HMAC over an empty string.
+/// doubled or trailing slash derived an HMAC over an empty string. A
+/// segment a caller names is never empty and never holds a `/`.
 #[test]
 fn empty_seed_path_segments_are_rejected() {
     for text in ["", "/", "node/", "/node", "node//login", "node/login/"] {
         assert_eq!(
-            SeedPath::parse(text),
+            Segment::parse(text),
             Err(Error::InvalidSeedPath),
             "{text:?}"
         );
     }
-    let key = NodeKey::from_bytes(&[9; 32]);
-    assert_eq!(
-        key.settlement_entropy("xrpl", "seed//mainnet").map(|_| ()),
-        Err(Error::InvalidSeedPath)
-    );
 }
 
 /// The original used X25519 results without the RFC 7748 §6.1 check, so a

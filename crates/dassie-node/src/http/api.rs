@@ -15,12 +15,11 @@ use dassie_kit::ClientKey;
 use dassie_node_core::config::Realm;
 use dassie_node_core::origin;
 use dassie_node_core::session;
-use dassie_node_core::setup::{SetupError, SetupRequest};
+use dassie_node_core::setup::{LoginRequest, SetupError, SetupRequest};
 use http_body_util::{BodyExt, Limited};
 use hyper::body::Incoming;
 use hyper::header::{self, HeaderMap, HeaderValue};
 use hyper::{Request, Response, StatusCode};
-use serde::Deserialize;
 use serde::de::DeserializeOwned;
 
 use super::response::{self, Body, header_str, header_values};
@@ -29,23 +28,6 @@ use crate::node::{AuthError, NewSession, Node};
 
 /// Largest body accepted, in bytes.
 pub const MAX_BODY_BYTES: usize = 16 * 1024;
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct SetupBody {
-    setup_authorization_token: String,
-    raw_dassie_key_hex: String,
-    login_authorization_signature: String,
-    /// `test` or `live`; `test` if absent. Fixed for good once set up.
-    #[serde(default)]
-    realm: Option<String>,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct LoginBody {
-    login_authorization_signature: String,
-}
 
 /// A request refused before it reached its handler.
 #[derive(Debug)]
@@ -126,7 +108,7 @@ pub async fn setup(node: &Node, peer: SocketAddr, request: Request<Incoming>) ->
         return refusal.into_response();
     }
     let user_agent = user_agent(&request);
-    let body: SetupBody = match json_body(request, body_timeout(node)).await {
+    let body: SetupRequest = match json_body(request, body_timeout(node)).await {
         Ok(body) => body,
         Err(refusal) => return refusal.into_response(),
     };
@@ -134,12 +116,7 @@ pub async fn setup(node: &Node, peer: SocketAddr, request: Request<Incoming>) ->
         Ok(realm) => realm.unwrap_or_default(),
         Err(error) => return response::text(StatusCode::BAD_REQUEST, error.to_string()),
     };
-    let setup = SetupRequest {
-        setup_authorization_token: &body.setup_authorization_token,
-        raw_dassie_key_hex: &body.raw_dassie_key_hex,
-        login_authorization_signature: &body.login_authorization_signature,
-    };
-    signed_in(node.setup(&setup, realm, ClientKey::from_ip(peer.ip()), &user_agent))
+    signed_in(node.setup(&body, realm, ClientKey::from_ip(peer.ip()), &user_agent))
 }
 
 /// `POST /api/login`.
@@ -148,12 +125,12 @@ pub async fn login(node: &Node, peer: SocketAddr, request: Request<Incoming>) ->
         return refusal.into_response();
     }
     let user_agent = user_agent(&request);
-    let body: LoginBody = match json_body(request, body_timeout(node)).await {
+    let body: LoginRequest = match json_body(request, body_timeout(node)).await {
         Ok(body) => body,
         Err(refusal) => return refusal.into_response(),
     };
     signed_in(node.login(
-        &body.login_authorization_signature,
+        &body.login_proof,
         ClientKey::from_ip(peer.ip()),
         &user_agent,
     ))

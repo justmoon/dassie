@@ -1,12 +1,13 @@
 /**
- * The dev nodes' identities (spec/areas/dev.md#vanity-identities): node IDs
- * brute-forced to start with their short name, `d1_…` for the first. The table
- * keeps each one's BIP-39 entropy and ID; the phrase, the node key and the
- * login proof are derived from the entropy by `dassie-identity`, as the node
- * derives them.
+ * The dev nodes' identities (spec/areas/dev.md#dev-identities): the table
+ * keeps each node's BIP-39 entropy and the node ID it gives; the phrase, the
+ * node key and the login proof are derived from the entropy by
+ * `dassie-identity`, as the node derives them. A node is named by its
+ * index, `d1` for the first, and the dashboard finds a node's name from its
+ * ID through the table ({@linkcode names}).
  *
- * `scripts/vanity.ts` adds what a brute-forcer found, by the original's
- * rules ({@linkcode merge}).
+ * `scripts/vanity.ts` checks the table, and writes its IDs again from the
+ * entropy when the form of a node ID changes.
  *
  * @module
  */
@@ -53,12 +54,18 @@ export function parseTable(json: Record<string, readonly string[]>): Table {
   const entries = new Map<number, Entry>();
   for (const [key, value] of Object.entries(json)) {
     const index = Number(key);
-    if (!Number.isSafeInteger(index) || index < 0 || `${index}` !== key) {
-      throw new Error(`vanity table: index ${key}`);
+    if (
+      !Number.isSafeInteger(index) || index < 0 || index > MAX_INDEX ||
+      `${index}` !== key
+    ) {
+      throw new Error(`dev identities: index ${key}`);
     }
     const [entropy, id] = value;
-    if (value.length !== 2 || !/^[0-9a-f]{32}$/.test(entropy)) {
-      throw new Error(`vanity table: entry ${key}`);
+    if (
+      value.length !== 2 || !/^[0-9a-f]{32}$/.test(entropy) ||
+      !/^[a-z2-7]{39}$/.test(id)
+    ) {
+      throw new Error(`dev identities: entry ${key}`);
     }
     entries.set(index, [entropy, id]);
   }
@@ -74,10 +81,10 @@ export function formatTable(entries: Table): string {
   return `{\n${lines.join(",\n")}\n}\n`;
 }
 
-/** The index a vanity ID is for: `d12_…` is 11. */
-export function indexOf(id: string): number | undefined {
-  const match = /^d([1-9]\d{0,8})_/.exec(id);
-  return match ? Number(match[1]) - 1 : undefined;
+/** The node ID `entropy` gives. */
+export function idOf(entropy: string): string {
+  const phrase = mnemonicFromEntropy(Uint8Array.fromHex(entropy));
+  return nodeId(publicKey(deriveNodeKey(phrase)));
 }
 
 /** Derives the identity of `entropy`, which must give `id` (asserted). */
@@ -87,7 +94,7 @@ export function derive(index: number, [entropy, id]: Entry): Identity {
   const pub = publicKey(key);
   const derived = nodeId(pub);
   if (derived !== id) {
-    throw new Error(`vanity entry d${index + 1}: ${entropy} gives ${derived}`);
+    throw new Error(`dev identity d${index + 1}: ${entropy} gives ${derived}`);
   }
   return {
     index,
@@ -103,38 +110,13 @@ export function derive(index: number, [entropy, id]: Entry): Identity {
 /** The identity of the node at `index`, from `table`. */
 export function identity(table: Table, index: number): Identity {
   const entry = table.get(index);
-  if (!entry) throw new Error(`no vanity identity for d${index + 1}`);
+  if (!entry) throw new Error(`no dev identity for d${index + 1}`);
   return derive(index, entry);
 }
 
-/** How much an ID's `-` and `_` spoil its look: fewer is better. */
-function noise(id: string): number {
-  return (id.match(/[-_]/g) ?? []).length;
-}
-
-/**
- * Adds `found` (entropy and ID, already checked to derive each other) to
- * `entries`, by the original's rules: an entry is kept if its index is
- * new, or its ID has fewer `-` and `_` than the one there. Indexes above
- * {@linkcode MAX_INDEX} are dropped: no environment runs their nodes.
- */
-export function merge(entries: Table, found: readonly Entry[]): Table {
-  const merged = new Map(entries);
-  for (const entry of found) {
-    const index = indexOf(entry[1]);
-    if (index === undefined) throw new Error(`not a vanity ID: ${entry[1]}`);
-    if (index > MAX_INDEX) continue;
-    const known = merged.get(index);
-    if (!known || noise(entry[1]) < noise(known[1])) merged.set(index, entry);
-  }
-  return merged;
-}
-
-/** A brute-forcer's line, `[0x]<entropy hex>: <node ID>`, or nothing. */
-export function parseFound(line: string): Entry | undefined {
-  const text = line.trim();
-  if (text === "" || text.startsWith("#")) return undefined;
-  const match = /^(?:0x)?([0-9a-fA-F]{32}):\s*(\S+)$/.exec(text);
-  if (!match) throw new Error(`not an entry: ${text}`);
-  return [match[1].toLowerCase(), match[2]];
+/** Each node ID of `table`, with the short name of its node. */
+export function names(table: Table): ReadonlyMap<string, string> {
+  return new Map(
+    [...table].map(([index, [, id]]) => [id, `d${index + 1}`] as const),
+  );
 }

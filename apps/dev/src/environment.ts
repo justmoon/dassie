@@ -27,7 +27,7 @@ import {
   StateSchema,
 } from "@dassie/rpc/dev";
 import { LogLevel, LogLevelSchema } from "@dassie/rpc/proto";
-import { Collector, LogRing, shortName } from "./collect.ts";
+import { Collector, LogRing } from "./collect.ts";
 import { ControlHub } from "./control.ts";
 import { dataDir, type Layout } from "./paths.ts";
 import type { Stream } from "./process.ts";
@@ -47,7 +47,7 @@ import {
   unavailable,
 } from "./scenario/scenarios.ts";
 import { recordPids } from "./stale.ts";
-import { type Identity, identity, loadTable } from "./vanity.ts";
+import { type Identity, identity, loadTable, names } from "./vanity.ts";
 
 /** How often gathered logs and traffic go out to the dashboards. */
 const FLUSH_MS = 100;
@@ -97,6 +97,8 @@ const PHASES: Record<NodePhase, NodeState> = {
 export class Environment {
   readonly hub: ControlHub;
   readonly #table = loadTable();
+  /** Each dev node's ID, with its short name. */
+  readonly #names = names(this.#table);
   readonly #logs = new LogRing();
   readonly #peerings = new Map<string, string[]>();
   readonly #collectors = new Map<string, Collector>();
@@ -496,7 +498,7 @@ export class Environment {
       },
       failed: (name, what, message) =>
         this.log(LogLevel.WARN, `${name}: no ${what}: ${message}`),
-    }, shortName);
+    }, (id) => this.#names.get(id) ?? id);
     collector.start();
     this.#collectors.set(node.name, collector);
     const daemon = node.daemon;

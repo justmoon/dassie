@@ -49,7 +49,7 @@ impl fmt::Display for AuthError {
             Self::NotSetUp => f.write_str("Node is not set up yet"),
             Self::Setup(error) => error.fmt(f),
             Self::Realm(error) => error.fmt(f),
-            Self::InvalidLogin => f.write_str("Invalid login authorization signature"),
+            Self::InvalidLogin => f.write_str("Invalid login proof"),
             Self::RateLimited(_) => f.write_str("Too many attempts, try again later"),
             Self::Store(error) => error.fmt(f),
         }
@@ -80,7 +80,7 @@ impl Node {
     /// the dev switch.
     pub fn setup(
         &self,
-        request: &SetupRequest<'_>,
+        request: &SetupRequest,
         realm: Realm,
         client: ClientKey,
         user_agent: &str,

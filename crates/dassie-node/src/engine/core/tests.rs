@@ -142,7 +142,7 @@ fn a_settlement_cut_short_by_a_crash_is_reconciled() {
     use dassie_ledger::{AccountName, AccountPath, LedgerId, Name, Reference, TransferSpec};
 
     let store = Arc::new(Store::open_in_memory().unwrap());
-    let peer = Name::new("dpeer").unwrap();
+    let peer = Name::new("peeraaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa").unwrap();
     let path = AccountPath::new(LedgerId::StubUsd, AccountName::AssetsInterledger(peer));
     {
         let mut core = core_on(Arc::clone(&store), 5);
@@ -367,9 +367,7 @@ fn a_refused_batch_read_again_is_never_booked_twice() {
     const SCHEME: &str = "xrpl-testnet-xrp";
     const XRP: u64 = 1_000_000;
     let config = r#"{"server":"ws://ledger.test","faucet":null}"#;
-    let entropy = NodeKey::from_bytes(&[7; 32])
-        .settlement_entropy(TESTNET.seed.module, TESTNET.seed.path)
-        .unwrap();
+    let entropy = NodeKey::from_bytes(&[7; 32]).xrpl_account_entropy(TESTNET.id, 0);
     let account = Wallet::from_entropy(entropy.as_bytes()).account();
     let mut ledger = fake_ledger(false);
     ledger.fund(account);
@@ -444,9 +442,7 @@ fn a_reserve_change_is_reconciled_as_information() {
 
     const SCHEME: &str = "xrpl-testnet-xrp";
     let config = r#"{"server":"ws://ledger.test","faucet":null}"#;
-    let entropy = NodeKey::from_bytes(&[7; 32])
-        .settlement_entropy(TESTNET.seed.module, TESTNET.seed.path)
-        .unwrap();
+    let entropy = NodeKey::from_bytes(&[7; 32]).xrpl_account_entropy(TESTNET.id, 0);
     let account = dassie_xrpl::Wallet::from_entropy(entropy.as_bytes()).account();
     let mut ledger = fake_ledger(false);
     ledger.fund(account);
@@ -2509,9 +2505,7 @@ fn a_database_from_before_versioned_states_restarts_and_books_nothing_anew() {
     assert_eq!(rows(&store).len(), 5);
 
     // The ledger as the node left it: the account funded, nothing sent.
-    let entropy = NodeKey::from_bytes(&[7; 32])
-        .settlement_entropy(TESTNET.seed.module, TESTNET.seed.path)
-        .unwrap();
+    let entropy = NodeKey::from_bytes(&[7; 32]).xrpl_account_entropy(TESTNET.id, 0);
     let address = Wallet::from_entropy(entropy.as_bytes()).account();
     let mut ledger = fake_ledger(false);
     ledger.fund(address);
@@ -2906,9 +2900,7 @@ const SHARED_CONFIG: &str = r#"{"server":"ws://ledger.test","faucet":null}"#;
 /// The ledger with the node's first XRPL testnet account funded, and the
 /// account's address.
 fn funded_ledger() -> (dassie_xrpl::fake::FakeLedger, dassie_xrpl::AccountId) {
-    let entropy = NodeKey::from_bytes(&[7; 32])
-        .settlement_entropy(TESTNET.seed.module, TESTNET.seed.path)
-        .unwrap();
+    let entropy = NodeKey::from_bytes(&[7; 32]).xrpl_account_entropy(TESTNET.id, 0);
     let account = dassie_xrpl::Wallet::from_entropy(entropy.as_bytes()).account();
     let mut ledger = fake_ledger(false);
     ledger.fund(account);
@@ -3073,9 +3065,7 @@ fn rlusd_beside_xrp_on_one_account() {
     use dassie_xrpl::fake::{FAUCET_DROPS, FEE_BASE, RESERVE_BASE, RESERVE_INC};
 
     let config = r#"{"server":"ws://ledger.test"}"#;
-    let entropy = NodeKey::from_bytes(&[7; 32])
-        .settlement_entropy(MAINNET.seed.module, MAINNET.seed.path)
-        .unwrap();
+    let entropy = NodeKey::from_bytes(&[7; 32]).xrpl_account_entropy(MAINNET.id, 0);
     let address = Wallet::from_entropy(entropy.as_bytes()).account();
     let mut ledger = fake_ledger(true);
     // Mainnet has no faucet: the owner deposits.
@@ -3195,9 +3185,7 @@ fn dsusd_beside_xrp_and_no_test_rlusd() {
     use dassie_xrpl::fake::{FAUCET_DROPS, FEE_BASE, RESERVE_BASE, RESERVE_INC};
 
     let config = r#"{"server":"ws://ledger.test","faucet":null}"#;
-    let entropy = NodeKey::from_bytes(&[7; 32])
-        .settlement_entropy(TESTNET.seed.module, TESTNET.seed.path)
-        .unwrap();
+    let entropy = NodeKey::from_bytes(&[7; 32]).xrpl_account_entropy(TESTNET.id, 0);
     let address = Wallet::from_entropy(entropy.as_bytes()).account();
     let mut ledger = fake_ledger(false);
     ledger.fund(address);
@@ -3291,9 +3279,7 @@ fn rlusd_off_its_peg_converts_nothing() {
     use super::events::{Event, SettlementEvent};
 
     let config = r#"{"server":"ws://ledger.test"}"#;
-    let entropy = NodeKey::from_bytes(&[7; 32])
-        .settlement_entropy(MAINNET.seed.module, MAINNET.seed.path)
-        .unwrap();
+    let entropy = NodeKey::from_bytes(&[7; 32]).xrpl_account_entropy(MAINNET.id, 0);
     let address = Wallet::from_entropy(entropy.as_bytes()).account();
     let mut ledger = fake_ledger(true);
     ledger.deposit(address, FAUCET_DROPS);
@@ -3441,9 +3427,7 @@ fn on_dev_timers_the_peg_guard_trips_in_seconds() {
     use dassie_xrpl::{DROPS_PER_XRP, Wallet};
 
     let config = r#"{"server":"ws://ledger.test"}"#;
-    let entropy = NodeKey::from_bytes(&[7; 32])
-        .settlement_entropy(MAINNET.seed.module, MAINNET.seed.path)
-        .unwrap();
+    let entropy = NodeKey::from_bytes(&[7; 32]).xrpl_account_entropy(MAINNET.id, 0);
     let address = Wallet::from_entropy(entropy.as_bytes()).account();
     let mut ledger = fake_ledger(true);
     ledger.deposit(address, FAUCET_DROPS);
@@ -3519,9 +3503,7 @@ fn a_hub_ledger_converts_only_while_its_books_guard_runs() {
     use dassie_xrpl::{DROPS_PER_XRP, Wallet};
 
     let config = r#"{"server":"ws://ledger.test","faucet":null}"#;
-    let entropy = NodeKey::from_bytes(&[7; 32])
-        .settlement_entropy(TESTNET.seed.module, TESTNET.seed.path)
-        .unwrap();
+    let entropy = NodeKey::from_bytes(&[7; 32]).xrpl_account_entropy(TESTNET.id, 0);
     let address = Wallet::from_entropy(entropy.as_bytes()).account();
     let mut ledger = fake_ledger(false);
     ledger.fund(address);
@@ -3685,8 +3667,7 @@ fn rlusd_core_on(store: Arc<Store>, ledger: &mut dassie_xrpl::fake::FakeLedger, 
 
     let address = Wallet::from_entropy(
         NodeKey::from_bytes(&[7; 32])
-            .settlement_entropy(MAINNET.seed.module, MAINNET.seed.path)
-            .unwrap()
+            .xrpl_account_entropy(MAINNET.id, 0)
             .as_bytes(),
     )
     .account();
@@ -3949,7 +3930,7 @@ fn a_peer_loss_is_booked_from_where_the_money_left() {
     let mut core = core_on(Arc::clone(&store), 9);
     core.add_scheme("stub", String::new()).unwrap();
     let stub = Name::new("stub").unwrap();
-    let peer = Name::new("dpeer").unwrap();
+    let peer = Name::new("peeraaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa").unwrap();
     let (interledger, _) = core
         .ledger
         .open_peer(NOW, LedgerId::StubUsd, peer, 0)
@@ -4034,7 +4015,7 @@ fn hub_rules(margin: u64, allowance: u64) -> dassie_hub::Rules {
 
     let nonce = HUB_NONCE;
     let sponsor = NodeKey::from_bytes(&[100; 32]);
-    let master = escrow_master(&sponsor, TESTNET_NETWORK, &nonce).unwrap();
+    let master = escrow_master(&sponsor, TESTNET_NETWORK, &nonce);
     let terms = Terms {
         version: dassie_hub::rules::HUB_VERSION,
         nonce,
@@ -4235,6 +4216,23 @@ fn a_stored_scheme_of_another_realm_does_not_run() {
 // can remove the scheme, and its stored config goes.
 #[test]
 fn a_stored_scheme_whose_config_is_refused_does_not_run() {
+    a_stored_hub_scheme_does_not_run("not a hub");
+}
+
+// The case this release makes: a node joined the default hub, whose config
+// is empty, and no default hub is built in now, so the empty config names no
+// hub. Once a default hub is built in again, the empty config names it.
+#[test]
+fn a_stored_hub_scheme_with_no_default_hub_does_not_run() {
+    if dassie_hub::member::DEFAULT_TESTNET_HUB.is_some() {
+        return;
+    }
+    a_stored_hub_scheme_does_not_run("");
+}
+
+/// Restores a node that stored the hub scheme with `config`, which this
+/// version refuses, beside the stub, then removes the hub scheme.
+fn a_stored_hub_scheme_does_not_run(config: &str) {
     use dassie_ledger::Name;
 
     use super::{Event, SettlementEvent};
@@ -4246,7 +4244,7 @@ fn a_stored_scheme_whose_config_is_refused_does_not_run() {
     store
         .commit_ledger(&LedgerBatch {
             at_ms: NOW,
-            schemes_added: vec![(stub, String::new()), (hub, "not a hub".into())],
+            schemes_added: vec![(stub, String::new()), (hub, config.into())],
             ..LedgerBatch::default()
         })
         .unwrap();
@@ -4526,8 +4524,7 @@ fn a_peering_on_a_disabled_scheme_ends_and_the_pair_peers_on_another() {
 
     let address = Wallet::from_entropy(
         NodeKey::from_bytes(&[7; 32])
-            .settlement_entropy(TESTNET.seed.module, TESTNET.seed.path)
-            .unwrap()
+            .xrpl_account_entropy(TESTNET.id, 0)
             .as_bytes(),
     )
     .account();
@@ -4995,8 +4992,7 @@ impl Validators {
                     .consensus
             })
             .collect();
-        let member = dassie_hub::escrow::member_key(&NodeKey::from_bytes(&[7; 32]), &rules.id())
-            .unwrap()
+        let member = dassie_hub::member::member_key(&NodeKey::from_bytes(&[7; 32]), &rules.id())
             .public_key();
         Self {
             rules,
@@ -5099,8 +5095,7 @@ impl Validators {
         use dassie_hub::promise::HoldNumber;
 
         self.height += 1;
-        let key = dassie_hub::escrow::member_key(&NodeKey::from_bytes(&[7; 32]), &self.rules.id())
-            .unwrap();
+        let key = dassie_hub::member::member_key(&NodeKey::from_bytes(&[7; 32]), &self.rules.id());
         let fees = self.rules.terms.fees;
         let operation = SignedMemberOperation::sign(
             &self.rules.id(),
@@ -5754,7 +5749,7 @@ fn a_hub_withdrawal_takes_only_the_owners_funds() {
     wait_and_close(&mut core, &mut ledger, 4_000);
     // The node owes a hub peer most of it.
     let hub_ledger = LedgerId::HubXrplTestnetXrp;
-    let peer = dassie_ledger::Name::new("dpeer").unwrap();
+    let peer = dassie_ledger::Name::new("peeraaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa").unwrap();
     let (interledger, _) = core.ledger.open_peer(NOW, hub_ledger, peer, 0).unwrap();
     let owner = core.account(hub_ledger, AccountName::EquityOwner).unwrap();
     let owed = core.owner_available(hub_ledger) - 1_500_000 * units;

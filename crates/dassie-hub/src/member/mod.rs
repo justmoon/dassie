@@ -41,18 +41,34 @@ pub use scheme::{HubScheme, SCHEME_ID};
 /// scheme's config.
 ///
 /// None is built in until the testnet's hub is founded again under the
-/// current rules: the one founded before their margin and their encoding
-/// changed no longer decodes or checks. Meanwhile the wallet does not offer
-/// the scheme, and a scheme added without rules of its own does not start
-/// (spec/areas/hubs.md#in-the-node). Founding it again puts its rules'
-/// hex in `default-testnet-hub.hex` and this back to
+/// current rules and with its keys at the paths that name its network
+/// (spec/decisions/hub-keys-by-network.md). The one founded before, its
+/// margin and its encoding changed, no longer decodes or checks, and it
+/// names validator keys its validators no longer derive. Meanwhile the
+/// wallet does not offer the scheme, and a scheme added without rules of
+/// its own does not start (spec/areas/hubs.md#in-the-node). Founding it
+/// again puts its rules' hex in `default-testnet-hub.hex` and this back to
 /// `Some(include_str!("default-testnet-hub.hex"))`.
 pub const DEFAULT_TESTNET_HUB: Option<&str> = None;
 
+use dassie_identity::{NodeKey, NodeSecret};
 use dassie_ledger::{MAX_TOTAL, Name};
 
 use crate::digest::Digest;
 use crate::rules::Amount;
+
+/// A member's account key in the hub `hub`, at
+/// `node/hub/member/<hub ID>/account`: one key per hub, so accounts in two
+/// hubs are not linked by their key. The path needs no network: the hub ID
+/// is the hash of rules whose terms name it, so hubs on two networks never
+/// share an ID.
+#[must_use]
+pub fn member_key(node: &NodeKey, hub: &crate::rules::HubId) -> NodeKey {
+    let secret = node.secret(NodeSecret::HubMember {
+        hub: hub.0.as_bytes(),
+    });
+    NodeKey::from_bytes(secret.as_bytes())
+}
 
 /// Internal units per drop: the books count XRP at scale 9, the hub in
 /// drops, at scale 6.

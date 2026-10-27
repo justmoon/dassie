@@ -1,9 +1,9 @@
 //! The front door's one page (spec/areas/http.md#front-doors): what a
-//! browser shows at `https://<label>.<domain>/` or `https://<name>.<domain>/`,
+//! browser shows at `https://<node ID>.<domain>/` or `https://<name>.<domain>/`,
 //! the address of a node someone typed in.
 //!
 //! The front door writes it alone. Nothing of it comes from the node: the
-//! only variable parts are the name (the label, from the node ID, or a name
+//! only variable parts are the name (the node ID, or a name
 //! with the syntax of names, which the front door's view gives a holder,
 //! and the front door's domain), the node ID, and whether the node is
 //! connected to the front door now. Each is escaped, though none can hold a
@@ -11,7 +11,7 @@
 //! script, no form, no image, no cookie, and its one style is pinned by its
 //! hash.
 
-use dassie_identity::{NodeId, NodeLabel};
+use dassie_identity::NodeId;
 use dassie_peer::names::Name;
 use hyper::header::{self, HeaderValue};
 use hyper::{Response, StatusCode};
@@ -60,8 +60,8 @@ enum Part<'a> {
 /// The first label of the name a page is for.
 #[derive(Clone, Copy, Debug)]
 pub enum Reached<'a> {
-    /// The node's own label, which its ID decodes from.
-    Label(&'a NodeLabel),
+    /// The node's ID.
+    Id(&'a NodeId),
     /// A name the node holds, in the front door's view of the registrars'
     /// lists.
     Name(&'a Name),
@@ -73,7 +73,7 @@ pub enum Reached<'a> {
 pub fn render(domain: &str, reached: Reached<'_>, node: &NodeId, connected: bool) -> String {
     assert!(domain.len() <= MAX_DOMAIN_BYTES, "a domain is a hostname");
     let (first, held) = match reached {
-        Reached::Label(label) => (label.as_str(), ""),
+        Reached::Id(id) => (id.as_str(), ""),
         Reached::Name(name) => (
             name.as_str(),
             " The name is the node's while the network's registrars list it for \
@@ -193,10 +193,8 @@ mod tests {
 
     use super::*;
 
-    fn node() -> (NodeId, NodeLabel) {
-        let id = NodeKey::from_bytes(&[5; 32]).node_id();
-        let label = id.label().unwrap();
-        (id, label)
+    fn node() -> NodeId {
+        NodeKey::from_bytes(&[5; 32]).node_id()
     }
 
     #[test]
@@ -209,24 +207,24 @@ mod tests {
         assert!(CONTENT_SECURITY_POLICY.starts_with("default-src 'none';"));
         assert!(CONTENT_SECURITY_POLICY.ends_with("; sandbox"));
         // Exactly one style element, whose text is the hashed style.
-        let (id, label) = node();
-        let page = render("dassiepay.net", Reached::Label(&label), &id, true);
+        let id = node();
+        let page = render("dassiepay.net", Reached::Id(&id), &id, true);
         assert_eq!(page.matches("<style>").count(), 1);
         assert!(page.contains(&format!("<style>{STYLE}</style>")));
     }
 
     #[test]
     fn the_page_names_the_node_and_its_state() {
-        let (id, label) = node();
-        let name = format!("{}.dassiepay.net", label.as_str());
+        let id = node();
+        let name = format!("{}.dassiepay.net", id.as_str());
         for connected in [true, false] {
-            let page = render("dassiepay.net", Reached::Label(&label), &id, connected);
+            let page = render("dassiepay.net", Reached::Id(&id), &id, connected);
             assert!(page.contains(&format!("<code>{name}</code>")));
             assert!(page.contains(&format!("<code>{}</code>", id.as_str())));
             let address = format!("https://{name}/.well-known/pay");
             assert!(page.contains(&format!("<a href=\"{address}\">{address}</a>")));
             assert!(page.contains("<a href=\"https://dassie.land\">"));
-            // Any valid label has a page, even one no key gives: the page
+            // Any valid ID has a page, even one no key gives: the page
             // claims only that the address is that ID's.
             assert!(page.contains(
                 "<p>This is the address of the Dassie node with the ID below, reached \
@@ -254,7 +252,7 @@ mod tests {
 
     #[test]
     fn a_page_reached_by_name_shows_the_name_and_its_holder() {
-        let (id, label) = node();
+        let id = node();
         let alice = Name::parse("alice").unwrap();
         let page = render("dassiepay.net", Reached::Name(&alice), &id, true);
         assert!(page.contains("<code>alice.dassiepay.net</code>"), "{page}");
@@ -265,32 +263,32 @@ mod tests {
             "front door. The name is the node's while the network's registrars list it \
              for the node.</p>"
         ));
-        // The label's own page says nothing of names.
-        let page = render("dassiepay.net", Reached::Label(&label), &id, true);
+        // The ID's own page says nothing of names.
+        let page = render("dassiepay.net", Reached::Id(&id), &id, true);
         assert!(!page.contains("registrars"));
     }
 
     #[test]
     fn text_is_escaped() {
-        let (id, label) = node();
-        let page = render("<x>&\"'.example", Reached::Label(&label), &id, true);
+        let id = node();
+        let page = render("<x>&\"'.example", Reached::Id(&id), &id, true);
         assert!(!page.contains("<x>"));
         assert!(page.contains("&lt;x&gt;&amp;&quot;&#39;.example"));
     }
 
     #[test]
     fn the_page_stays_within_its_bound() {
-        let (id, label) = node();
+        let id = node();
         let longest = "\"".repeat(MAX_DOMAIN_BYTES);
-        assert!(render(&longest, Reached::Label(&label), &id, false).len() <= MAX_PAGE_BYTES);
+        assert!(render(&longest, Reached::Id(&id), &id, false).len() <= MAX_PAGE_BYTES);
         let name = Name::parse(&"a".repeat(dassie_peer::names::MAX_NAME_BYTES)).unwrap();
         assert!(render(&longest, Reached::Name(&name), &id, false).len() <= MAX_PAGE_BYTES);
     }
 
     #[test]
     fn the_answer_is_html_under_the_pages_policy() {
-        let (id, label) = node();
-        let answer = response("dassiepay.net", Reached::Label(&label), &id, false);
+        let id = node();
+        let answer = response("dassiepay.net", Reached::Id(&id), &id, false);
         assert_eq!(answer.status(), StatusCode::OK);
         let headers = answer.headers();
         assert_eq!(

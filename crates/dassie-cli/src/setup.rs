@@ -4,9 +4,9 @@
 //! (spec/areas/node.md#the-dassie-command,
 //! spec/decisions/headless-setup.md).
 //!
-//! It does what the wallet does: it derives the node key and its login
-//! proof from the phrase, and posts them with the setup token to
-//! `/api/setup` (spec/areas/http.md#setup). So the node checks a setup from
+//! It does what the wallet does: it derives the node key from the phrase,
+//! and posts it with the setup token to `/api/setup`
+//! (spec/areas/http.md#setup). So the node checks a setup from
 //! here exactly as one from a browser, and the phrase never reaches the
 //! node, only the key does, with the realm the node runs, the test realm
 //! unless `--realm` says otherwise: it is fixed then, for good
@@ -31,6 +31,7 @@ use dassie_node::rpc::proto::{self, request::Method, response};
 use dassie_node::tls;
 use dassie_node_core::config::Realm;
 use dassie_node_core::hex;
+use dassie_node_core::setup::SetupRequest;
 use http_body_util::{BodyExt, Full, Limited};
 use hyper_util::rt::TokioIo;
 use lexopt::prelude::*;
@@ -339,12 +340,12 @@ async fn claim(client: &mut Client, key: &NodeKey, realm: Realm) -> Result<bool,
     };
     // The key is what the node stores in its database once set up; the
     // phrase and the master seed, which it never gets, are gone already.
-    let body = format!(
-        r#"{{"setupAuthorizationToken":"{token}","rawDassieKeyHex":"{}","loginAuthorizationSignature":"{}","realm":"{}"}}"#,
-        hex::encode(key.as_bytes()),
-        hex::encode(key.login_secret().as_bytes()),
-        realm.as_str()
-    );
+    let body = serde_json::to_string(&SetupRequest {
+        setup_token: token.into(),
+        node_key: hex::encode(key.as_bytes()),
+        realm: Some(realm.as_str().into()),
+    })
+    .map_err(|error| error.to_string())?;
     post_setup(&listener, body).await
 }
 
@@ -769,10 +770,7 @@ mod tests {
 
     #[test]
     fn refusals_are_one_short_line() {
-        assert_eq!(
-            shown(b"Invalid setup authorization token"),
-            "Invalid setup authorization token"
-        );
+        assert_eq!(shown(b"Invalid setup token"), "Invalid setup token");
         assert_eq!(shown(b"a\nb\x1b[31m"), "a b [31m");
         assert_eq!(shown(&[b'x'; 1_000]).len(), MAX_REFUSAL_CHARS);
     }

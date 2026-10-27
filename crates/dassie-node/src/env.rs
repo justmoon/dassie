@@ -31,19 +31,19 @@ use crate::quic::proxy::{NoProxy, Proxy};
 /// startup, like any entry.
 /// `DASSIE_BOOTSTRAP_NODES=[]` makes a node run alone.
 pub const DEFAULT_BOOTSTRAP_NODES: &str = r#"[
-  {"id":"dDHq9ng9J1z7luQ64eN4MJ_4_w-KK4FPk","url":"https://boot1.dassie.xyz","publicKey":"w25V-7IreZNDCPvwCrpiIv9Li5uwomzPSvqHot9ffLI"},
-  {"id":"dE0GE90-9QCQI78S2_h5QaG81oo_cVKz1","url":"https://boot2.dassie.xyz","publicKey":"s9xgWff_UZ26HQwHT_aPd0q0SwyKPGXS74fd2xQjh14"},
-  {"id":"dtTay2e6AV4J940nFJ6_WPkVL-TyrVKGW","url":"https://boot3.dassie.xyz","publicKey":"--P-gYMJ_ZZrFHa4GiNfVQ0x2jSu9_dr7z0mI_bcngY"},
-  {"id":"dxZ8EFGaoQLvgSQacinFm64zjWeA0BzV-","url":"https://boot4.dassie.xyz","publicKey":"qNW0ZwnIvaca6f54gIG-YFLQSefzC6JA4h3Oh1QJU6I"}
+  {"id":"br5l3hqpjhlt5znzb24hrxqme77d7q7crlqfhza","url":"https://boot1.dassie.xyz","publicKey":"w25V-7IreZNDCPvwCrpiIv9Li5uwomzPSvqHot9ffLI"},
+  {"id":"cnayj52pxvacichpys3p4hsqnbxtliup3rkkz5i","url":"https://boot2.dassie.xyz","publicKey":"s9xgWff_UZ26HQwHT_aPd0q0SwyKPGXS74fd2xQjh14"},
+  {"id":"wu3lfwpoqblye7pdjhcspl6whzcux6j4vnkkdfq","url":"https://boot3.dassie.xyz","publicKey":"--P-gYMJ_ZZrFHa4GiNfVQ0x2jSu9_dr7z0mI_bcngY"},
+  {"id":"ywpqifdgvbalxycja2oiu4lg5ogogwpagqdtk7q","url":"https://boot4.dassie.xyz","publicKey":"qNW0ZwnIvaca6f54gIG-YFLQSefzC6JA4h3Oh1QJU6I"}
 ]"#;
 
 /// The relay a node keeps a connection to while it has no hostname, unless
 /// `DASSIE_RELAY` names another: the front door of the node's default name,
-/// `<label>.dassiepay.net`, which reaches the node only over that
+/// `<node ID>.dassiepay.net`, which reaches the node only over that
 /// connection (spec/decisions/default-relay.md,
 /// spec/areas/node.md#a-chosen-relay). Its ID is checked against its key at
 /// startup, like any entry. `DASSIE_RELAY=` (empty) keeps no relay.
-pub const DEFAULT_RELAY: &str = r#"{"id":"ddTEO6qzWIorLvNGybj0uyK-mhlVJNa-q","url":"https://relay.dassiepay.net","publicKey":"DliIZHngMG7GTDqfHBSP_dfSTmn8ziA9OE37FnxC7eo"}"#;
+pub const DEFAULT_RELAY: &str = r#"{"id":"ouyq52vm2yrivs542gzg4pjozcx2nbsvje227kq","url":"https://relay.dassiepay.net","publicKey":"DliIZHngMG7GTDqfHBSP_dfSTmn8ziA9OE37FnxC7eo"}"#;
 
 /// Most bootstrap nodes accepted: each a registrar whose name list every
 /// node reads (spec/areas/network.md#holders).
@@ -615,7 +615,7 @@ mod tests {
 
     #[test]
     fn bootstrap_nodes_are_listed_once() {
-        let one = r#"{"id":"dNKbwOMCw0DTToPM4tyyVASWxM4NP3MKW","url":"https://test1.dassie.xyz","publicKey":"QBe5HLbdYFtIpjFTIu_Lz8lkoUJ3fmAvFHfCb9CVwIM"}"#;
+        let one = r#"{"id":"gstpaogawdidju5a6m4lolevaes3cm4dj7omffq","url":"https://test1.dassie.xyz","publicKey":"QBe5HLbdYFtIpjFTIu_Lz8lkoUJ3fmAvFHfCb9CVwIM"}"#;
         let twice = format!("[{one},{one}]");
         let once = format!("[{one}]");
         assert!(settings(&[("HOME", "/h"), ("DASSIE_BOOTSTRAP_NODES", &twice)]).is_err());
@@ -640,7 +640,7 @@ mod tests {
             ("DASSIE_UPLINKS", "boot1.dassie.xyz"),
             (
                 "DASSIE_UPLINKS",
-                "dDHq9ng9J1z7luQ64eN4MJ_4_w-KK4FPk,dDHq9ng9J1z7luQ64eN4MJ_4_w-KK4FPk",
+                "br5l3hqpjhlt5znzb24hrxqme77d7q7crlqfhza,br5l3hqpjhlt5znzb24hrxqme77d7q7crlqfhza",
             ),
             ("DASSIE_BOOTSTRAP_NODES", "{"),
             (
@@ -742,8 +742,8 @@ mod tests {
             })
         };
         let (boot1, boot2) = (
-            "dDHq9ng9J1z7luQ64eN4MJ_4_w-KK4FPk",
-            "dE0GE90-9QCQI78S2_h5QaG81oo_cVKz1",
+            "br5l3hqpjhlt5znzb24hrxqme77d7q7crlqfhza",
+            "cnayj52pxvacichpys3p4hsqnbxtliup3rkkz5i",
         );
         assert_eq!(uplinks(""), Ok(vec![]));
         assert_eq!(
@@ -774,7 +774,7 @@ mod tests {
     // A bootstrap entry whose ID does not match its key is refused.
     #[test]
     fn bootstrap_ids_must_match_keys() {
-        let swapped = r#"[{"id":"dyrjUANXiJ5S6JXxwo7jdKKJjdLtK129U","url":"https://test1.dassie.xyz","publicKey":"QBe5HLbdYFtIpjFTIu_Lz8lkoUJ3fmAvFHfCb9CVwIM"}]"#;
+        let swapped = r#"[{"id":"zk4niagv4itzjorfprykhog5fcrgg5f3jllw6va","url":"https://test1.dassie.xyz","publicKey":"QBe5HLbdYFtIpjFTIu_Lz8lkoUJ3fmAvFHfCb9CVwIM"}]"#;
         assert!(settings(&[("HOME", "/h"), ("DASSIE_BOOTSTRAP_NODES", swapped)]).is_err());
     }
 
@@ -784,7 +784,7 @@ mod tests {
     fn bootstrap_keys_of_another_length_are_refused() {
         for key in ["QBe5HLbdYFtIpjFTIu_Lz8lkoUJ3fmAvFHfCb9CVwIMA", "QBe5", ""] {
             let nodes = format!(
-                r#"[{{"id":"dyrjUANXiJ5S6JXxwo7jdKKJjdLtK129U","url":"https://test1.dassie.xyz","publicKey":"{key}"}}]"#
+                r#"[{{"id":"zk4niagv4itzjorfprykhog5fcrgg5f3jllw6va","url":"https://test1.dassie.xyz","publicKey":"{key}"}}]"#
             );
             assert!(
                 settings(&[("HOME", "/h"), ("DASSIE_BOOTSTRAP_NODES", &nodes)]).is_err(),
@@ -798,13 +798,13 @@ mod tests {
     #[test]
     fn a_relay_is_one_checked_entry() {
         let relay = |value: &str| settings(&[("HOME", "/h"), ("DASSIE_RELAY", value)]);
-        let boot1 = r#"{"id":"dDHq9ng9J1z7luQ64eN4MJ_4_w-KK4FPk","url":"https://boot1.dassie.xyz","publicKey":"w25V-7IreZNDCPvwCrpiIv9Li5uwomzPSvqHot9ffLI"}"#;
+        let boot1 = r#"{"id":"br5l3hqpjhlt5znzb24hrxqme77d7q7crlqfhza","url":"https://boot1.dassie.xyz","publicKey":"w25V-7IreZNDCPvwCrpiIv9Li5uwomzPSvqHot9ffLI"}"#;
         let chosen = relay(boot1).unwrap().relay.unwrap();
         assert_eq!(chosen.node.url, "https://boot1.dassie.xyz");
         assert_eq!(chosen.node.public_key.node_id(), chosen.node.id);
         // One the owner named is kept, hostname or not.
         assert!(!chosen.is_default);
-        let swapped = r#"{"id":"dyrjUANXiJ5S6JXxwo7jdKKJjdLtK129U","url":"https://boot1.dassie.xyz","publicKey":"w25V-7IreZNDCPvwCrpiIv9Li5uwomzPSvqHot9ffLI"}"#;
+        let swapped = r#"{"id":"zk4niagv4itzjorfprykhog5fcrgg5f3jllw6va","url":"https://boot1.dassie.xyz","publicKey":"w25V-7IreZNDCPvwCrpiIv9Li5uwomzPSvqHot9ffLI"}"#;
         assert!(relay(swapped).is_err());
         assert!(relay(&format!("[{boot1}]")).is_err());
         let http = boot1.replace("https://", "http://");

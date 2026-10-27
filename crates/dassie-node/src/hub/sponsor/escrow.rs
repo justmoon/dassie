@@ -65,14 +65,12 @@ pub struct Setup {
 impl Setup {
     /// Sets the escrow up, until it is or `stop`.
     pub async fn run(mut self, stop: CancellationToken) {
-        let Some(master) =
-            escrow_master(&self.key, self.rules.terms.network, &self.rules.terms.nonce)
-                .filter(|master| master.account().0 == self.rules.terms.escrow)
-        else {
+        let master = escrow_master(&self.key, self.rules.terms.network, &self.rules.terms.nonce);
+        if master.account().0 != self.rules.terms.escrow {
             let problem = "the hub's escrow is not one the node's key makes".into();
             let _ = self.events.send(Event::Problem(problem)).await;
             return;
-        };
+        }
         loop {
             let client = self.node.outbound().cloned();
             match Session::connect(client.as_ref(), &self.xrpl).await {

@@ -236,7 +236,7 @@ test(
       await click(page, "recover-submit");
       assertEquals(
         await text(page, "node-id"),
-        "d1_UeCE9UMCwvVHSXdI9o0Tpz4rnidWvR",
+        "272r4ccpkqycyl2uoslxjd3i2e5hhyvz4j2wxui",
       );
     } finally {
       await browser.close();

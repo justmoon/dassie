@@ -37,7 +37,7 @@ impl Setup {
             .map(|i| (NodeKey::from_bytes(&[i; 32]), format!("v{i}.example:443")))
             .collect();
         let rules = rules(&sponsor, &nodes);
-        let master = escrow_master(&sponsor, TESTNET_NETWORK, &NONCE).unwrap();
+        let master = escrow_master(&sponsor, TESTNET_NETWORK, &NONCE);
         xrpl.fund(master.account());
         xrpl.close();
         let sequence = {

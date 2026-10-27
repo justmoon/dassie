@@ -18,7 +18,7 @@ The protocol is [RFC 29](https://interledger.org/developers/rfcs/stream-protocol
 
 A server derives each client's destination and shared secret from a 32-byte server secret and a random token, as `ilp-protocol-stream` does (`src/token.rs`). The token is encrypted under the server secret and carries the application's **connection tag** (for example the incoming payment it pays), and nothing else: not the receipt keys `ilp-protocol-stream` puts after it ([Receipts](#receipts)). Only the server that issued a token reads it, so its layout is the server's own. So the server keeps no table of issued credentials: they never pile up, and they survive restarts.
 
-The node derives each receiver's server secret from its node key at a fixed seed path, so the credentials it issued stay valid across restarts; that path never changes ([Identity](identity.md#derivation-chain)).
+The node derives each receiver's server secret from its node key at a seed path that names the receiver's ledger by its ID, so the credentials it issued stay valid across restarts and no two receivers share a secret; that path never changes ([Identity](identity.md#seed-paths)).
 
 ## Server
 

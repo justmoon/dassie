@@ -1,7 +1,7 @@
-//! Unpadded base64url (RFC 4648 §5): the encoding of node IDs, of the
-//! tokens the node hands out, and of the connection tokens STREAM puts in
-//! ILP addresses. One crate of its own, so that STREAM and identity share it
-//! without one depending on the other.
+//! Unpadded base64url (RFC 4648 §5): the encoding of public keys in
+//! configuration, of the tokens the node hands out, and of the connection
+//! tokens STREAM puts in ILP addresses. One crate of its own, so that
+//! crates share it without depending on each other.
 //!
 //! It is small enough that a dependency would cost more than it saves
 //! (spec/decisions/tigerstyle.md). Decoding is strict: no padding, no

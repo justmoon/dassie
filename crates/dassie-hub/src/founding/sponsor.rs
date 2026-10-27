@@ -32,12 +32,6 @@ pub const RETRY_MAX_MS: Millis = 60_000;
 /// checked its escrow, once it is set up.
 pub const STATUS_EVERY_MS: Millis = 5_000;
 
-const NODE_ID_SIZE: Size = Size::range(2, dassie_identity::MAX_NODE_ID_LENGTH);
-const NODE_ID_ALPHABET: Alphabet = Alphabet::EMPTY
-    .with_range(b'a', b'z')
-    .with_range(b'A', b'Z')
-    .with_range(b'0', b'9')
-    .with_chars(b"-_");
 const ENDPOINT_SIZE: Size = Size::range(1, MAX_ENDPOINT_LEN);
 const ENDPOINT_ALPHABET: Alphabet = Alphabet::EMPTY
     .with_range(b'a', b'z')
@@ -470,7 +464,7 @@ impl Invited {
 
 impl Encode for Invited {
     fn encoded_len(&self) -> usize {
-        size::prefixed(self.node.len())
+        self.node.encoded_len()
             + size::prefixed(self.endpoint.len())
             + 1
             + self.acceptance.as_ref().map_or(0, Encode::encoded_len)
@@ -480,7 +474,7 @@ impl Encode for Invited {
     }
 
     fn encode_to(&self, writer: &mut Writer<'_>) {
-        writer.write_ascii(self.node.as_str(), NODE_ID_SIZE, NODE_ID_ALPHABET);
+        self.node.encode_to(writer);
         writer.write_ascii(&self.endpoint, ENDPOINT_SIZE, ENDPOINT_ALPHABET);
         writer.write_bool(self.acceptance.is_some());
         if let Some(acceptance) = &self.acceptance {
@@ -500,8 +494,7 @@ impl<'a> Decode<'a> for Invited {
     type Error = HubDecodeError;
 
     fn decode(reader: &mut Reader<'a>) -> Result<Self, HubDecodeError> {
-        let node = NodeId::parse(reader.read_ascii(NODE_ID_SIZE, NODE_ID_ALPHABET)?)
-            .map_err(|_| HubDecodeError::Invalid("node ID"))?;
+        let node = NodeId::decode(reader)?;
         let endpoint = reader.read_ascii(ENDPOINT_SIZE, ENDPOINT_ALPHABET)?.into();
         let mut invited = Self::new(node, endpoint);
         if reader.read_bool()? {

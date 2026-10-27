@@ -25,7 +25,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use dassie_identity::{MAX_NODE_ID_LENGTH, NodeId};
+use dassie_identity::{NODE_ID_BYTES, NodeId};
 use dassie_kit::ClientKey;
 use dassie_node_core::config::NodeConfig;
 use dassie_node_core::connections::ConnectionLimits;
@@ -161,8 +161,6 @@ const SERVER_NAME: &str = "dassie";
 // Relayed streams take at most half of a connection's streams, so peer
 // requests on it always have room.
 const _: () = assert!(MAX_RELAYED_PER_DESTINATION * 2 <= MAX_STREAMS as usize);
-// A node ID's length fits OER's one-byte length determinant.
-const _: () = assert!(MAX_NODE_ID_LENGTH < 128);
 // No one client address, nor one relay address, takes every place.
 const _: () = assert!(MAX_RELAYED_PER_CLIENT_TO_DESTINATION < MAX_RELAYED_PER_DESTINATION);
 const _: () = assert!((MAX_RELAYED_PER_CLIENT as usize) < MAX_RELAYED);
@@ -1072,7 +1070,7 @@ async fn idle(moved_ms: &AtomicU64, started: tokio::time::Instant) {
 
 /// A relay request: kind, destination, purpose.
 fn relay_request(destination: &NodeId, purpose: u8) -> Vec<u8> {
-    let mut bytes = Vec::with_capacity(3 + MAX_NODE_ID_LENGTH);
+    let mut bytes = Vec::with_capacity(2 + NODE_ID_BYTES);
     bytes.push(StreamKind::Relay.byte());
     write_node_id(&mut bytes, destination);
     bytes.push(purpose);
@@ -1081,21 +1079,17 @@ fn relay_request(destination: &NodeId, purpose: u8) -> Vec<u8> {
 
 /// A relayed stream's header: kind, purpose, client.
 fn relayed_header(purpose: u8, client: &NodeId) -> Vec<u8> {
-    let mut bytes = Vec::with_capacity(3 + MAX_NODE_ID_LENGTH);
+    let mut bytes = Vec::with_capacity(2 + NODE_ID_BYTES);
     bytes.push(StreamKind::Relayed.byte());
     bytes.push(purpose);
     write_node_id(&mut bytes, client);
     bytes
 }
 
-/// Writes a node ID as the peer protocol's OER does: its length in one
-/// byte, then its characters.
+/// Writes a node ID as the peer protocol's OER does: its 24 bytes
+/// (spec/areas/identity.md#node-id).
 fn write_node_id(bytes: &mut Vec<u8>, id: &NodeId) {
-    // A node ID has at most `MAX_NODE_ID_LENGTH` characters, which fit.
-    let length = u8::try_from(id.len()).unwrap_or(u8::MAX);
-    assert!(usize::from(length) == id.len() && length < 128);
-    bytes.push(length);
-    bytes.extend_from_slice(id.as_str().as_bytes());
+    bytes.extend_from_slice(&id.to_bytes());
 }
 
 /// The rest of a relay request, after its kind: destination and purpose.
@@ -1120,14 +1114,11 @@ async fn read_byte(recv: &mut RecvStream) -> Option<u8> {
     Some(byte)
 }
 
-/// Reads a node ID written by [`write_node_id`], checking it as the wire
-/// schema does.
+/// Reads a node ID written by [`write_node_id`].
 async fn read_node_id(recv: &mut RecvStream) -> Option<NodeId> {
-    let length = usize::from(read_byte(recv).await?);
-    let mut buffer = [0u8; MAX_NODE_ID_LENGTH];
-    let text = buffer.get_mut(..length)?;
-    recv.read_exact(text).await.ok()?;
-    NodeId::parse(std::str::from_utf8(text).ok()?).ok()
+    let mut bytes = [0u8; NODE_ID_BYTES];
+    recv.read_exact(&mut bytes).await.ok()?;
+    Some(NodeId::from_bytes(&bytes))
 }
 
 fn client_tls(
@@ -1160,30 +1151,22 @@ fn server_tls(
 mod tests {
     use super::*;
     use dassie_identity::NodeKey;
-    use dassie_oer::{Alphabet, Size, Writer};
+    use dassie_oer::Encode;
 
     #[test]
     fn node_ids_are_written_as_the_peer_protocol_writes_them() {
         let id = NodeKey::from_bytes(&[1; 32]).node_id();
         let mut ours = Vec::new();
         write_node_id(&mut ours, &id);
-        let alphabet = Alphabet::EMPTY
-            .with_range(b'a', b'z')
-            .with_range(b'A', b'Z')
-            .with_range(b'0', b'9')
-            .with_chars(b"-_");
-        let mut oer = vec![0u8; ours.len()];
-        let mut writer = Writer::new(&mut oer);
-        writer.write_ascii(id.as_str(), Size::range(2, MAX_NODE_ID_LENGTH), alphabet);
-        assert_eq!(writer.position(), ours.len());
-        assert_eq!(ours, oer);
+        assert_eq!(ours, id.to_vec());
     }
 
     #[test]
     fn headers_lay_out_as_specified() {
-        let id = NodeId::parse("dAB").unwrap();
-        assert_eq!(relay_request(&id, 2), b"\x01\x03dAB\x02");
-        assert_eq!(relayed_header(2, &id), b"\x02\x02\x03dAB");
+        let id = NodeId::from_bytes(&[0xab; NODE_ID_BYTES]);
+        let ab = [0xab; NODE_ID_BYTES];
+        assert_eq!(relay_request(&id, 2), [&[1][..], &ab, &[2]].concat());
+        assert_eq!(relayed_header(2, &id), [&[2, 2][..], &ab].concat());
     }
 
     #[test]

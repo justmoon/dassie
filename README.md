@@ -40,7 +40,7 @@ From there, the wallet sends and receives payments, shows their status and your 
 
 **Open Payments.** Each ledger has a wallet address at `https://<your host>/pay/<ledger>`, for example `/pay/xrp`, and `$<your host>` names the default one. Other wallets and apps pay into it, and with a grant you approve in the wallet, they may also pay out of it, up to the limits you agreed to. The wallet's Send takes a payment pointer or a payment request, and its grants page lists who may do what.
 
-A node without a hostname answers Open Payments at `https://<label>.dassiepay.net` instead, through the front door there, which reaches it over a connection the node keeps to it while it has no hostname. `DASSIE_RELAY` names another relay, as the entry its front door logs, or, set empty, none ([default-relay](spec/decisions/default-relay.md)).
+A node without a hostname answers Open Payments at `https://<node ID>.dassiepay.net` instead, through the front door there, which reaches it over a connection the node keeps to it while it has no hostname. `DASSIE_RELAY` names another relay, as the entry its front door logs, or, set empty, none ([default-relay](spec/decisions/default-relay.md)).
 
 **BTP.** A BTP token, made in the wallet's settings, lets an ILP client such as `ilp-plugin-btp` spend through the node, at most its spending cap per window if you give it one. Over RPC, `createBtpToken` answers with the `btp+wss://` URL to connect with.
 
@@ -48,15 +48,15 @@ A node without a hostname answers Open Payments at `https://<label>.dassiepay.ne
 
 **Peers.** Nodes find each other through bootstrap nodes: by default the testnet's, `boot1`–`boot4.dassie.xyz`. A node needs a hostname to take part; it then registers with them by itself, and peers with nodes that share one of its settlement schemes. The bootstrap nodes run `xrpl-testnet-xrp` and `xrpl-testnet-dsusd`.
 
-`DASSIE_BOOTSTRAP_NODES` replaces the list, as JSON: `[{"id": "d…", "url": "https://host:port", "publicKey": "<base64url>"}]`, or `[]` to run alone. Under systemd, set it in a drop-in, then `sudo systemctl daemon-reload && sudo systemctl restart dassie`; `dassie update` leaves drop-ins alone. Version 0.1.1 and earlier have no default list, so they join the testnet with this one:
+`DASSIE_BOOTSTRAP_NODES` replaces the list, as JSON: `[{"id": "<node ID>", "url": "https://host:port", "publicKey": "<base64url>"}]`, or `[]` to run alone. Under systemd, set it in a drop-in, then `sudo systemctl daemon-reload && sudo systemctl restart dassie`; `dassie update` leaves drop-ins alone. Version 0.1.1 and earlier have no default list, so they join the testnet with this one:
 
 ```ini
 # /etc/systemd/system/dassie.service.d/bootstrap.conf
 [Service]
-Environment='DASSIE_BOOTSTRAP_NODES=[{"id":"dDHq9ng9J1z7luQ64eN4MJ_4_w-KK4FPk","url":"https://boot1.dassie.xyz","publicKey":"w25V-7IreZNDCPvwCrpiIv9Li5uwomzPSvqHot9ffLI"},{"id":"dE0GE90-9QCQI78S2_h5QaG81oo_cVKz1","url":"https://boot2.dassie.xyz","publicKey":"s9xgWff_UZ26HQwHT_aPd0q0SwyKPGXS74fd2xQjh14"},{"id":"dtTay2e6AV4J940nFJ6_WPkVL-TyrVKGW","url":"https://boot3.dassie.xyz","publicKey":"--P-gYMJ_ZZrFHa4GiNfVQ0x2jSu9_dr7z0mI_bcngY"},{"id":"dxZ8EFGaoQLvgSQacinFm64zjWeA0BzV-","url":"https://boot4.dassie.xyz","publicKey":"qNW0ZwnIvaca6f54gIG-YFLQSefzC6JA4h3Oh1QJU6I"}]'
+Environment='DASSIE_BOOTSTRAP_NODES=[{"id":"br5l3hqpjhlt5znzb24hrxqme77d7q7crlqfhza","url":"https://boot1.dassie.xyz","publicKey":"w25V-7IreZNDCPvwCrpiIv9Li5uwomzPSvqHot9ffLI"},{"id":"cnayj52pxvacichpys3p4hsqnbxtliup3rkkz5i","url":"https://boot2.dassie.xyz","publicKey":"s9xgWff_UZ26HQwHT_aPd0q0SwyKPGXS74fd2xQjh14"},{"id":"wu3lfwpoqblye7pdjhcspl6whzcux6j4vnkkdfq","url":"https://boot3.dassie.xyz","publicKey":"--P-gYMJ_ZZrFHa4GiNfVQ0x2jSu9_dr7z0mI_bcngY"},{"id":"ywpqifdgvbalxycja2oiu4lg5ogogwpagqdtk7q","url":"https://boot4.dassie.xyz","publicKey":"qNW0ZwnIvaca6f54gIG-YFLQSefzC6JA4h3Oh1QJU6I"}]'
 ```
 
-A node without a hostname still peers, as a periphery node: it asks core nodes to be its uplinks and is reached through them. `DASSIE_UPLINKS` pins them, as node IDs separated by commas (`d…,d…`): the node then asks only those, and looks for as many uplinks as it names, which is what a market maker's nodes need to trade through one core node. A node with a hostname ignores it, and says so when it starts.
+A node without a hostname still peers, as a periphery node: it asks core nodes to be its uplinks and is reached through them. `DASSIE_UPLINKS` pins them, as node IDs separated by commas (`<node ID>,<node ID>`): the node then asks only those, and looks for as many uplinks as it names, which is what a market maker's nodes need to trade through one core node. A node with a hostname ignores it, and says so when it starts.
 
 `listNodes`, `listPeers`, `listRoutes` and `getRegistrationStatus` show what your node knows, and the wallet's network page shows the same.
 
@@ -101,7 +101,8 @@ The node that asks to peer extends the other 1.1 units of credit; the node that 
 | `packages/rpc` | The client for the RPC contract, over WebSocket (browsers) or the IPC socket (Node) |
 | `tests/interop` | STREAM interop with `ilp-protocol-stream`, natively and in WASM; WASM vectors; the browser test |
 | `tests/e2e` | End-to-end tests on real binaries: a fresh install through `dassie init` and browser setup, with Pebble as the ACME CA; a BTP client paying the node's STREAM receiver; the `two-nodes` and `six-nodes` scenarios; Open Payments, including a third party's full flow with consent in the wallet; XRPL settlement and cross-currency payments; the wallet's pages in a browser; `node --run dev` and its dashboard; the installer and the updater on Debian, Ubuntu, Fedora and CentOS, in containers; dassie.land and its STREAM toy in a browser, under the site's CSP |
-| `testdata/original` | Generator for the golden vectors, run against the original |
+| `testdata/original` | Generator for the OER, ILP and STREAM golden vectors, run against the original |
+| `testdata/identity` | Generator for the identity golden vectors, every key a phrase derives, with libraries independent of Dassie's code |
 | `testdata/feed` | The rate feed's golden vectors, from `cargo run -p dassie-feed --example feed_vectors` |
 | `testdata/hub` | A settlement hub's golden vectors, from `cargo run -p dassie-hub --example hub_vectors` |
 | `testdata/xrpl` | Generator for the XRPL golden vectors, run against xrpl.js |

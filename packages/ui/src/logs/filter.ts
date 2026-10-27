@@ -56,19 +56,25 @@ export function visibleRange(
   return { start, end: Math.max(start, end) };
 }
 
-/** A piece of a log message: text, or a dev node's vanity ID. */
+/** A piece of a log message: text, or a node ID the reader has a name for. */
 export type Piece = string | { readonly id: string; readonly name: string };
 
 /**
- * `text` with the dev nodes' vanity IDs (`d12_…`) picked out, so the dev
- * dashboard can show them as links named `d12`.
+ * `text` with the node IDs `nameOf` names picked out, so the dev dashboard
+ * can show its nodes' IDs as links named `d12`. A node ID is 39 characters
+ * of lowercase base32 (spec/areas/identity.md#node-id).
  */
-export function splitIds(text: string): Piece[] {
+export function splitIds(
+  text: string,
+  nameOf: (id: string) => string | undefined,
+): Piece[] {
   const pieces: Piece[] = [];
   let last = 0;
-  for (const match of text.matchAll(/\b(d[1-9]\d{0,3})_[\w-]{25,30}\b/g)) {
+  for (const match of text.matchAll(/\b[a-z2-7]{38}[aiqy]\b/g)) {
+    const name = nameOf(match[0]);
+    if (name === undefined) continue;
     if (match.index > last) pieces.push(text.slice(last, match.index));
-    pieces.push({ id: match[0], name: match[1] });
+    pieces.push({ id: match[0], name });
     last = match.index + match[0].length;
   }
   if (last < text.length) pieces.push(text.slice(last));

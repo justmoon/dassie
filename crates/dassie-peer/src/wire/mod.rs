@@ -12,7 +12,7 @@ mod scheme;
 mod url;
 
 use dassie_identity::NodeId;
-use dassie_oer::{Alphabet, DecodeError, DecodeErrorKind, Reader, Size, Writer, oid, size};
+use dassie_oer::{Decode, DecodeError, DecodeErrorKind, Encode, Reader, Writer, oid, size};
 
 pub use content::{Content, PeeringRequest, TerminationReason};
 pub use envelope::{Authentication, Envelope, EnvelopeError, HmacAuthentication, encode_envelope};
@@ -121,19 +121,7 @@ pub const MAX_NAME_LIST: usize = 2048;
 /// name and node ID, which the transport's bound on a response must hold.
 pub const MAX_NAME_LIST_BYTES: usize = size::quantity(MAX_NAME_LIST)
     + MAX_NAME_LIST
-        * (size::prefixed(crate::names::MAX_NAME_BYTES)
-            + size::prefixed(dassie_identity::MAX_NODE_ID_LENGTH)
-            + 8);
-
-/// Node IDs: 2 to 45 characters of base64url.
-const NODE_ID_SIZE: Size = Size::range(2, dassie_identity::MAX_NODE_ID_LENGTH);
-
-/// The characters of a node ID.
-const NODE_ID_ALPHABET: Alphabet = Alphabet::EMPTY
-    .with_range(b'a', b'z')
-    .with_range(b'A', b'Z')
-    .with_range(b'0', b'9')
-    .with_chars(b"-_");
+        * (size::prefixed(crate::names::MAX_NAME_BYTES) + dassie_identity::NODE_ID_BYTES + 8);
 
 /// The kinds of message, by their CHOICE tag.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -301,21 +289,20 @@ pub fn peek_kind(body: &[u8]) -> Option<Kind> {
     Kind::from_tag(reader.read_context_tag().ok()?)
 }
 
-/// Reads a node ID.
+/// Reads a node ID: its 24 bytes, as `dassie-identity` writes them
+/// (spec/areas/identity.md#node-id).
 pub(crate) fn read_node_id(reader: &mut Reader<'_>) -> Result<NodeId, DecodeError> {
-    let offset = reader.offset();
-    let text = reader.read_ascii(NODE_ID_SIZE, NODE_ID_ALPHABET)?;
-    NodeId::parse(text).map_err(|_| DecodeError::new(offset, DecodeErrorKind::InvalidCharacter))
+    NodeId::decode(reader)
 }
 
 /// Writes a node ID.
 pub(crate) fn write_node_id(writer: &mut Writer<'_>, id: &NodeId) {
-    writer.write_ascii(id.as_str(), NODE_ID_SIZE, NODE_ID_ALPHABET);
+    id.encode_to(writer);
 }
 
-/// The encoded length of a node ID.
-pub(crate) fn node_id_len(id: &NodeId) -> usize {
-    dassie_oer::size::prefixed(id.as_str().len())
+/// The encoded length of a node ID: the same for every one.
+pub(crate) const fn node_id_len(_id: &NodeId) -> usize {
+    dassie_identity::NODE_ID_BYTES
 }
 
 /// Reads a fixed-size OCTET STRING, which OER writes without a length.

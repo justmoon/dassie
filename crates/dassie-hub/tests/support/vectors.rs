@@ -89,7 +89,7 @@ pub fn validator_keys() -> Vec<ValidatorKeys> {
 /// validators, of keys 0x21 to 0x24, each accepting at its own host.
 pub fn rules() -> Rules {
     let sponsor = sponsor();
-    let escrow = escrow_master(&sponsor, NETWORK, &NONCE).unwrap();
+    let escrow = escrow_master(&sponsor, NETWORK, &NONCE);
     let terms = starting_terms(NONCE, sponsor.public_key(), NETWORK, escrow.account().0);
     let validators = validator_nodes()
         .iter()
@@ -352,7 +352,7 @@ fn block_vector(rules: &Rules) -> Value {
 /// The escrow's setup as the sponsor signs it, and a withdrawal as
 /// validator 0 multi-signs it.
 fn escrow_vector(rules: &Rules) -> Value {
-    let master = escrow_master(&sponsor(), NETWORK, &NONCE).unwrap();
+    let master = escrow_master(&sponsor(), NETWORK, &NONCE);
     let setup: Vec<String> = setup(rules, &master, 3, 12)
         .iter()
         .map(|transaction| hex(transaction.blob()))

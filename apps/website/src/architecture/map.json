@@ -189,10 +189,10 @@
       "w": 246,
       "desc": "The Rust core crates compiled to WebAssembly, with TypeScript bindings: one build for browsers and Node, in two modules, so the wallet loads identity without STREAM. The wallet derives keys with exactly the code the node runs.",
       "does": [
-        "Identity: phrase to node key, node ID and login proof, and node labels",
+        "Identity: phrase to node key, node ID and login proof",
         "ILP packets and STREAM, for the STREAM toy and the interop tests",
         "Decrypting STREAM packets, for the STREAM toy",
-        "The phrase for a given entropy, for the dev network's vanity nodes"
+        "The phrase for a given entropy, for the dev network's nodes"
       ]
     },
     "wasm-crate": {
@@ -221,7 +221,7 @@
       "desc": "`node --run dev`: a network of real dassie nodes on one machine, so development runs the same code that ships.",
       "does": [
         "Builds the binary, starts the nodes on `dN.localhost` and restarts them when the Rust code changes",
-        "An SNI proxy on port 443, local certificates, vanity node identities, a rates server",
+        "An SNI proxy on port 443, local certificates, the dev nodes' identities, a rates server",
         "Sets nodes up through their own RPC, the same way the end-to-end tests do",
         "The scenario library: one node, two, six, the XRP Ledger ones, DSUSD that the fake ledger's issuer mints each node, two nodes in the live realm on the fake ledger's mainnet settling in XRP or in RLUSD, and one or two core nodes with a market maker's two periphery nodes pinned to each, beside a pool",
         "Drives the fake ledger as a scenario or a test asks: its issuer mints, freezes and claws back, its pool is set, and XRP arrives from outside",
@@ -371,11 +371,11 @@
         "QUIC over a WebSocket where UDP is blocked: every node takes the same QUIC packets at `/quic` on its HTTPS listener, and a node without a URL dials there when UDP has not connected within a second, keeping whichever connection proves the key first; where the network sets an HTTP proxy, that dial goes through it",
         "QUIC connections held apart by who opened them, as the key each proved says: core peers, downlinks and everyone else each have room of their own, so many downlinks never crowd out the links that carry the network",
         "Relayed streams: any QUIC node relays for the nodes connected to it, with TLS end to end, so a node without a public address that keeps a connection to a relay is still reached for Open Payments and by the owner's paired apps; a node without a hostname keeps one to the `dassiepay.net` front door unless `DASSIE_RELAY` names another or, empty, none",
-        "Front doors: a server with a key of its own and a wildcard certificate that takes Open Payments requests for `<label>.<domain>` and passes them to the node the label names, or for `<name>.<domain>` to the name's holder, which it takes from the registrars' name lists as every node does, over relayed streams it opens on the connection the node keeps to it; it returns only the node's signed JSON, under a policy that lets nothing run, and never a node's page or a cookie; at the root of a name it shows a short static page of its own, saying what the name is and whether the node is connected; on its relay host it takes QUIC over a WebSocket at `/quic` too, so a node whose UDP is blocked keeps it as its relay",
+        "Front doors: a server with a key of its own and a wildcard certificate that takes Open Payments requests for `<node ID>.<domain>` and passes them to the node the ID names, or for `<name>.<domain>` to the name's holder, which it takes from the registrars' name lists as every node does, over relayed streams it opens on the connection the node keeps to it; it returns only the node's signed JSON, under a policy that lets nothing run, and never a node's page or a cookie; at the root of a name it shows a short static page of its own, saying what the name is and whether the node is connected; on its relay host it takes QUIC over a WebSocket at `/quic` too, so a node whose UDP is blocked keeps it as its relay",
         "RPC with live streams, the log ring, the database inspector, and a discovery document at `/.well-known/dassie/node` that names the node's ID, key and feed port",
         "The owner's names, registered and renewed through the peer node, and how each stands with each registrar, streamed to the wallet; once the node holds a name, it accepts and signs Open Payments requests under `<name>.dassiepay.net` too, and under `<name>.<domain>` at any other front door its owner names it at, which front doors pass on to it, and stops when it no longer holds it",
         "Owner apps paired by the owner on the node's own machine: each proves a device key on a relayed stream and calls the RPC as the owner until it is revoked",
-        "Open Payments over HTTPS and relayed streams: wallet addresses, incoming payments, the GNAP authorization server, quotes and outgoing payments, each answer signed with the node key and written under the name the request came through; as a client at `dassiepay.net`, and when it fetches a client's key set there, the node takes only answers signed by the node a label names, or by a name's holder in its own view",
+        "Open Payments over HTTPS and relayed streams: wallet addresses, incoming payments, the GNAP authorization server, quotes and outgoing payments, each answer signed with the node key and written under the name the request came through; as a client at `dassiepay.net`, and when it fetches a client's key set there, the node takes only answers signed by the node whose ID the host names, or by a name's holder in its own view",
         "Exchange rates, fetched from several sources, the fee and spread on what passes between peers, and the price table rebuilt from them and the owner's funds whenever either changes",
         "A core node's rate feed: the price table, signed once and sent over UDP to every subscriber that proved its address, at most once a second while it changes, with the feed's port in the node's discovery document and its link state, and its counters in the owner's status rather than the log",
         "Credit to each peer that grows with the fees it earned the node, read from the journal; over a settlement hub, the credit is the node's own hold toward the peer, kept in step as the hold is funded and taken from, and nothing grows",
@@ -522,7 +522,7 @@
         "A validator's service, without IO: consensus and the ledger together, a bounded pool of operations with room kept for deadlines, the escrow's signatures gathered from the validators' keys only, and snapshots of the state checked against a certified root",
         "What members and validators say to each other: requests, and statements a validator signs alone, which a member trusts once f + 1 validators signed them alike",
         "A member's side: its account in the hub, which trusts what enough validators sign alike and reads the log in order, and the hub-xrpl-testnet-xrp scheme on it, which funds holds, signs and checks the promises each packet carries, claims on the hub what its peer's claims leave out, withdraws for the owner, and books the owner's deposits and withdrawals from the account's counts",
-        "The testnet's default hub, built in once founded under the current rules: boot1–4 its validators, founded by boot1, its escrow on the XRP Ledger testnet; a node joins it when its owner adds the `hub-xrpl-testnet-xrp` scheme without naming another"
+        "The testnet's default hub, built in once founded again under the current rules, with its keys at paths that name its network: boot1–4 its validators, founded by boot1, its escrow on the XRP Ledger testnet; a node joins it when its owner adds the `hub-xrpl-testnet-xrp` scheme without naming another"
       ]
     },
     "peer": {
@@ -702,9 +702,9 @@
       "w": 184,
       "desc": "Turns the owner's 24-word phrase into everything that identifies a node. The same phrase always gives the same node.",
       "does": [
-        "BIP-39 phrases and seed paths",
+        "BIP-39 phrases, and every secret below the node key as one typed path: the login, ledger accounts, a hub's keys, STREAM receivers, QUIC keys",
         "The Ed25519 node key, node ID and login secret, and X25519 keys",
-        "The node label: a node ID as a DNS name, as front doors serve it",
+        "The node ID: 39 characters of base32, the same in ILP addresses, DNS names and the wallet, and 24 bytes on the wire",
         "Signature checks under the ZIP-215 rules",
         "Builds to WebAssembly"
       ]
@@ -1302,12 +1302,6 @@
       "h": false
     },
     {
-      "f": "identity",
-      "t": "base64url",
-      "k": "uses",
-      "h": false
-    },
-    {
       "f": "sim",
       "t": "peer",
       "k": "uses",
@@ -1638,7 +1632,7 @@
             "identity",
             "peer"
           ],
-          "text": "A client asks for `https://<label>.dassiepay.net/.well-known/pay`. The front door turns the label back into the node ID. Under a name, `https://<name>.dassiepay.net`, it takes the node a quorum of the bootstrap nodes' name lists names as the holder, reading those lists itself as every node does."
+          "text": "A client asks for `https://<node ID>.dassiepay.net/.well-known/pay`. The front door reads the node ID from the host. Under a name, `https://<name>.dassiepay.net`, it takes the node a quorum of the bootstrap nodes' name lists names as the holder, reading those lists itself as every node does."
         },
         {
           "ids": [
@@ -1657,7 +1651,7 @@
             "payments",
             "identity"
           ],
-          "text": "The front door passes the JSON back unchanged. A Dassie-aware client checks the signature against the node the label names, or the name's holder in its own view; any other client trusts the front door."
+          "text": "The front door passes the JSON back unchanged. A Dassie-aware client checks the signature against the node the host names, or the name's holder in its own view; any other client trusts the front door."
         }
       ]
     },
@@ -1774,8 +1768,8 @@
     },
     {
       "t": "Golden vectors",
-      "p": "Byte-exact fixtures from other implementations: Dassie's first, TypeScript one, and `xrpl.js`. They pin the wire formats and key derivations.",
-      "ev": "testdata/original · testdata/xrpl · tests/vectors.rs"
+      "p": "Byte-exact fixtures from other implementations: Dassie's first, TypeScript one, `xrpl.js`, and for every key a node derives from its phrase, libraries independent of Dassie's code. They pin the wire formats and key derivations.",
+      "ev": "testdata/original · testdata/identity · testdata/xrpl · tests/vectors.rs"
     },
     {
       "t": "Property tests",
@@ -1859,7 +1853,7 @@
       "version": "0.2.3",
       "date": "2026-10-22",
       "changes": [
-        "Opening a node's front door name, `https://<label>.dassiepay.net/`, in a browser shows a short page the front door writes itself: the node ID the name stands for, whether that node is connected now, and its wallet address. The page runs no script and sets no cookie.",
+        "Opening a node's front door name, `https://<node ID>.dassiepay.net/`, in a browser shows a short page the front door writes itself: the node ID the name stands for, whether that node is connected now, and its wallet address. The page runs no script and sets no cookie.",
         "The wallet's Settings lists paired devices, with a Revoke for each, and pairs a new one with a QR code. It also shows which version of Dassie the node runs.",
         "A new node with a single bootstrap node always finds its first peers: while it has none, it also asks the bootstrap node for its own link state.",
         "Payments finish more reliably when the incoming payment being paid into has less room left than a packet, as when two payers share one: the sender sends what fits, a receiver without room is asked again, and a closed connection keeps saying why it closed.",
@@ -1882,7 +1876,7 @@
       "version": "0.2.1",
       "date": "2026-10-21",
       "changes": [
-        "A node without a hostname keeps a connection to the dassiepay.net front door by default, so Open Payments clients reach it at `<label>.dassiepay.net` with no setup. The front door, which the project runs, then sees when such a node is online. Set `DASSIE_RELAY` to another relay, or to nothing to keep none.",
+        "A node without a hostname keeps a connection to the dassiepay.net front door by default, so Open Payments clients reach it at `<node ID>.dassiepay.net` with no setup. The front door, which the project runs, then sees when such a node is online. Set `DASSIE_RELAY` to another relay, or to nothing to keep none.",
         "`dassie status` describes a periphery node as one: its uplinks, its relay and whether it is connected, and the names it answers to. The wallet says whether its front door can reach the node right now.",
         "The log says at startup whether the node has QUIC, and which transport each peer is reached over.",
         "Downlinks and core peers have QUIC connection places of their own, so a crowd of periphery nodes or strangers cannot crowd out a node's core links. A node with no room left says so, and the asking node turns to HTTPS.",
@@ -1896,7 +1890,7 @@
         "Peers talk over QUIC on UDP port 443, each checking the other's node key instead of a certificate authority; a peer that cannot be reached over UDP is asked over HTTPS. Installs gain a `dassie-quic.socket` unit, which the updater turns on.",
         "A node without a hostname joins as a periphery node: it peers with core nodes as their downlink, keeps its connections to them open, and is paid at an address beneath each of them.",
         "Any node relays encrypted streams to the nodes connected to it, and a node can keep a connection to a relay of its choice with `DASSIE_RELAY`.",
-        "Open Payments answers are signed with the node's key. A node without a hostname answers under `<label>.dassiepay.net` and the names in `DASSIE_PUBLIC_NAMES`, and `dassie front-door` runs a front door that passes Open Payments requests on to such nodes.",
+        "Open Payments answers are signed with the node's key. A node without a hostname answers under `<node ID>.dassiepay.net` and the names in `DASSIE_PUBLIC_NAMES`, and `dassie front-door` runs a front door that passes Open Payments requests on to such nodes.",
         "Ending a peering collects what the peer owes first and settles nothing for the end, a peer that stays short of room is set apart, and a ban takes effect at once.",
         "Hardening and fixes: XRP Ledger settlement copes with servers that lag or forget history, the updater keeps a node stopped when its database cannot be put back, and skips a version it rolled back, the installer never runs beside an update, and limits hold for strangers' replays, probes and Open Payments clients."
       ]

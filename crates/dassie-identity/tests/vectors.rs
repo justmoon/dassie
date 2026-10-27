@@ -1,13 +1,22 @@
-//! Golden vectors produced by the original at e962ab78: the derivation
-//! chain from entropy to every node secret, and the key-level vectors.
+//! Golden vectors from `testdata/identity/generate-vectors.mjs`, which
+//! computes them with libraries of its own: the derivation chain from
+//! entropy to every node secret, the key-level vectors, and every path
+//! below the node key (spec/areas/identity.md#derivation-chain).
 
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing)]
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::indexing_slicing,
+    clippy::panic
+)]
 
 mod support;
 
 use dassie_identity::{
-    LOGIN_PATH, Mnemonic, NodeId, NodeKey, PublicKey, SeedPath, Signature, X25519Secret,
+    HubKey, Mnemonic, NodeId, NodeKey, NodeSecret, PublicKey, QuicEndpoint, Segment, Signature,
+    X25519Secret,
 };
+use serde_json::Value;
 use support::{hex, hex_array, str_field, to_hex, vectors};
 
 #[test]
@@ -18,8 +27,10 @@ fn derivation_chain() {
         chain.len() >= 64,
         "the chain file should cover many phrases"
     );
+    let mut lengths = std::collections::BTreeSet::new();
     for entry in chain {
         let phrase = str_field(entry, "mnemonic");
+        lengths.insert(phrase.split(' ').count());
 
         let generated = Mnemonic::from_entropy(&hex(str_field(entry, "entropy"))).unwrap();
         assert_eq!(generated.phrase().as_str(), phrase);
@@ -38,51 +49,112 @@ fn derivation_chain() {
         let public_key = node_key.public_key();
         assert_eq!(to_hex(public_key.as_bytes()), str_field(entry, "publicKey"));
         assert_eq!(node_key.node_id().as_str(), str_field(entry, "nodeId"));
-        assert_eq!(
-            public_key.node_id().as_str(),
-            str_field(entry, "expectedNodeId")
-        );
+        assert_eq!(public_key.node_id().as_str(), str_field(entry, "nodeId"));
 
         let login = node_key.login_secret();
         assert_eq!(to_hex(login.as_bytes()), str_field(entry, "loginSecret"));
-        // The browser derives the same secret from the master seed.
-        let from_seed = seed.derive(&SeedPath::parse(LOGIN_PATH).unwrap());
-        assert_eq!(from_seed.as_bytes(), login.as_bytes());
 
-        let dev = seed.dev_session_token();
-        assert_eq!(to_hex(dev.as_bytes()), str_field(entry, "devSessionToken"));
-
-        let testnet = node_key
-            .settlement_entropy("xrpl-testnet", "seed-testnet")
-            .unwrap();
+        let testnet = node_key.xrpl_account_entropy(1, 0);
         assert_eq!(
             to_hex(testnet.as_bytes()),
             str_field(entry, "xrplTestnetEntropy")
         );
-        let mainnet = node_key.settlement_entropy("xrpl", "seed-mainnet").unwrap();
+        let mainnet = node_key.xrpl_account_entropy(0, 0);
         assert_eq!(
             to_hex(mainnet.as_bytes()),
             str_field(entry, "xrplMainnetEntropy")
         );
-        let path = SeedPath::parse("node/settlement-module/xrpl/seed-mainnet").unwrap();
-        assert_eq!(seed.derive(&path).as_bytes(), mainnet.as_bytes());
-        assert_eq!(
-            node_key.derive(&path).unwrap().as_bytes(),
-            mainnet.as_bytes()
-        );
+    }
+    assert_eq!(lengths.len(), 5, "phrases of every length");
+}
+
+/// The secret a vector names, by its function's name and arguments.
+fn secret_of<'a>(entry: &'a Value, nonce: &'a mut [u8; 32]) -> NodeSecret<'a> {
+    let quic = || match str_field(entry, "endpoint") {
+        "udp" => QuicEndpoint::Udp,
+        "tunnel" => QuicEndpoint::Tunnel,
+        other => panic!("endpoint {other}"),
+    };
+    match str_field(entry, "name") {
+        "login" => NodeSecret::Login,
+        "openPaymentsClient" => NodeSecret::OpenPaymentsClient,
+        "streamReceiver" => NodeSecret::StreamReceiver {
+            ledger: Segment::parse(str_field(entry, "ledger")).unwrap(),
+        },
+        "quicStatelessReset" => NodeSecret::QuicStatelessReset(quic()),
+        "quicConnectionIds" => NodeSecret::QuicConnectionIds(quic()),
+        "hub" => {
+            *nonce = hex_array(str_field(entry, "nonce"));
+            NodeSecret::Hub {
+                network: u32::try_from(entry["network"].as_u64().unwrap()).unwrap(),
+                nonce,
+                key: match str_field(entry, "key") {
+                    "consensus" => HubKey::Consensus,
+                    "escrow" => HubKey::Escrow,
+                    "payout" => HubKey::Payout,
+                    "escrow-master" => HubKey::EscrowMaster,
+                    other => panic!("hub key {other}"),
+                },
+            }
+        }
+        "hubMember" => {
+            *nonce = hex_array(str_field(entry, "hub"));
+            NodeSecret::HubMember { hub: nonce }
+        }
+        "xrplAccount" => NodeSecret::XrplAccount {
+            network: u32::try_from(entry["network"].as_u64().unwrap()).unwrap(),
+            index: u16::try_from(entry["index"].as_u64().unwrap()).unwrap(),
+        },
+        other => panic!("no secret {other}"),
     }
 }
 
+// Every path below the node key, each with its text and its secret, so a
+// path that moves fails here and not in a user's wallet.
 #[test]
-fn bootstrap_node_ids() {
-    let vectors = vectors("keys.json");
-    for node in vectors["bootstrap"].as_array().unwrap() {
-        let key: [u8; 32] = hex_array(str_field(node, "publicKey"));
-        let id = NodeId::from_public_key(&key);
-        assert_eq!(id.as_str(), str_field(node, "nodeId"));
-        assert_eq!(NodeId::parse(str_field(node, "nodeId")), Ok(id));
-        assert_eq!(PublicKey::from_bytes(&key).unwrap().node_id(), id);
+fn every_path_below_the_node_key() {
+    let vectors = vectors("paths.json");
+    let key = NodeKey::from_bytes(&hex_array(str_field(&vectors, "nodeKey")));
+    let entries = vectors["paths"].as_array().unwrap();
+    let mut names = std::collections::BTreeSet::new();
+    for entry in entries {
+        let mut bytes = [0; 32];
+        let which = secret_of(entry, &mut bytes);
+        names.insert(str_field(entry, "name"));
+        assert_eq!(which.to_string(), str_field(entry, "path"));
+        assert_eq!(
+            to_hex(key.secret(which).as_bytes()),
+            str_field(entry, "secret"),
+            "{which}"
+        );
     }
+    // One name per variant of `NodeSecret`.
+    assert_eq!(names.len(), 8);
+    let login = entries.iter().find(|entry| entry["name"] == "login");
+    assert_eq!(
+        to_hex(key.login_secret().as_bytes()),
+        str_field(login.unwrap(), "secret")
+    );
+}
+
+// The key of a hub's member account is the Ed25519 key of its secret, and
+// a validator's consensus key too.
+#[test]
+fn hub_keys_name_these_public_keys() {
+    let vectors = vectors("paths.json");
+    let key = NodeKey::from_bytes(&hex_array(str_field(&vectors, "nodeKey")));
+    let mut checked = 0;
+    for entry in vectors["paths"].as_array().unwrap() {
+        let Some(public_key) = entry["publicKey"].as_str() else {
+            continue;
+        };
+        let mut bytes = [0; 32];
+        let secret = key.secret(secret_of(entry, &mut bytes));
+        let derived = NodeKey::from_bytes(secret.as_bytes()).public_key();
+        assert_eq!(to_hex(derived.as_bytes()), public_key);
+        checked += 1;
+    }
+    assert_eq!(checked, 3, "two consensus keys and a member's");
 }
 
 #[test]
@@ -93,6 +165,14 @@ fn keys() {
         let public_key = key.public_key();
         assert_eq!(to_hex(public_key.as_bytes()), str_field(entry, "publicKey"));
         assert_eq!(key.node_id().as_str(), str_field(entry, "nodeId"));
+        let id = NodeId::from_public_key(public_key.as_bytes());
+        assert_eq!(NodeId::parse(str_field(entry, "nodeId")), Ok(id));
+        assert_eq!(
+            PublicKey::from_bytes(public_key.as_bytes())
+                .unwrap()
+                .node_id(),
+            id
+        );
 
         let x25519 = key.x25519_secret();
         assert_eq!(to_hex(x25519.as_bytes()), str_field(entry, "x25519Secret"));

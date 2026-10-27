@@ -1,7 +1,7 @@
 //! The v1 wire format: v0's layouts where v1 keeps them (checked against
-//! the original's vectors, from testdata/original),
-//! the v1 changes (spec/areas/peer-protocol.md#versions), and decoders that
-//! never panic.
+//! the original's vectors, from testdata/original, with each node ID as v1
+//! writes it), the v1 changes (spec/areas/peer-protocol.md#versions), and
+//! decoders that never panic.
 
 #![allow(
     clippy::unwrap_used,
@@ -57,6 +57,33 @@ fn vector(name: &str) -> Vec<u8> {
         .unwrap())
 }
 
+/// The v0 node IDs of nodes A and B, base64url after a `d`.
+const V0_IDS: [&str; 2] = [
+    "dagvMuaJff2H5DrnJw8llmK-WZ83WrSzY",
+    "dRLajGQUsQnlsol-B7F0Uf_og05hZo4C3",
+];
+
+/// A v0 vector with each node ID as v1 writes it: its 24 digest bytes in
+/// place of v0's length and base64url text (spec/areas/identity.md#node-id).
+fn with_v1_ids(v0: &[u8]) -> Vec<u8> {
+    let mut bytes = v0.to_vec();
+    for (text, key) in V0_IDS.iter().zip([node_a(), node_b()]) {
+        let mut old = vec![u8::try_from(text.len()).unwrap()];
+        old.extend(text.as_bytes());
+        let new = key.node_id().to_bytes();
+        let mut replaced = Vec::new();
+        let mut rest = bytes.as_slice();
+        while let Some(at) = rest.windows(old.len()).position(|window| window == old) {
+            replaced.extend(&rest[..at]);
+            replaced.extend(new);
+            rest = &rest[at + old.len()..];
+        }
+        replaced.extend(rest);
+        bytes = replaced;
+    }
+    bytes
+}
+
 fn node_a() -> NodeKey {
     NodeKey::from_bytes(&[1; 32])
 }
@@ -81,18 +108,18 @@ fn info_a() -> NodeInfo<'static> {
     }
 }
 
-// v1 keeps v0's node-info layout; only the OID's last arc changes, so a
-// v0-signed info cannot pass as a v1 link state.
+// v1 keeps v0's node-info layout but for the node IDs, and the OID's last
+// arc changes, so a v0-signed info cannot pass as a v1 link state.
 #[test]
 fn node_info_keeps_the_v0_layout_under_a_new_oid() {
-    let v0 = vector("nodeInfo");
+    assert!(NodeInfo::decode_exact(&vector("nodeInfo")).is_err());
+    let v0 = with_v1_ids(&vector("nodeInfo"));
     let v1 = info_a().to_vec();
     assert_eq!(v1.len(), v0.len());
     assert_eq!(v0[13], 0x02);
     assert_eq!(v1[13], 0x03);
     assert_eq!(v1[..13], v0[..13]);
     assert_eq!(v1[14..], v0[14..]);
-    assert!(NodeInfo::decode_exact(&v0).is_err());
 }
 
 // The original's signature over the v0 info checks out, now that it is
@@ -176,12 +203,8 @@ fn encoded_length(length: usize) -> Vec<u8> {
 #[test]
 fn node_lists_and_their_hashes_match_the_original() {
     let list = NodeListResponse(vec![node_a().node_id(), node_b().node_id()]);
-    assert_eq!(list.to_vec(), vector("nodeList"));
+    assert_eq!(list.to_vec(), with_v1_ids(&vector("nodeList")));
     let vectors = vectors();
-    assert_eq!(
-        to_hex(&Sha256::digest(list.to_vec())),
-        vectors["nodeList"]["sha256"].as_str().unwrap()
-    );
     let empty = NodeListResponse(Vec::new());
     assert_eq!(empty.to_vec(), vector("emptyNodeList"));
     assert_eq!(
@@ -189,7 +212,7 @@ fn node_lists_and_their_hashes_match_the_original() {
         vectors["emptyNodeList"]["sha256"].as_str().unwrap()
     );
     assert_eq!(
-        NodeListResponse::decode_exact(&vector("nodeList")).unwrap(),
+        NodeListResponse::decode_exact(&with_v1_ids(&vector("nodeList"))).unwrap(),
         list
     );
 }
@@ -215,7 +238,7 @@ fn a_v0_envelope_is_another_version() {
         Envelope::decode(&vector("nodeListHashRequest")),
         Err(EnvelopeError::Version(0))
     );
-    let mut v1 = vector("nodeListHashRequest");
+    let mut v1 = with_v1_ids(&vector("nodeListHashRequest"));
     v1[0] = 1;
     let envelope = Envelope::decode(&v1).unwrap();
     assert_eq!(envelope.sender, node_a().node_id());
@@ -244,7 +267,7 @@ fn v1_encodings_are_pinned() {
     let envelope = encode_envelope(&node_a().node_id(), &Authentication::Hmac(hmac()), &content);
     assert_eq!(
         to_hex(&envelope),
-        "0121646167764d75614a666632483544726e4a77386c6c6d4b2d575a38335772537a59\
+        "016a0bccb9a25f7f61f90eb9c9c3c96598af9667cdd6ad2cd8\
          818a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c\
          05050505050505050505050505050505\
          0000000000000007\
@@ -961,15 +984,15 @@ fn name_messages_are_bounded() {
     }
 }
 
-// The commitment is SHA-256 over the domain OID, the name and the holder's
-// node ID, each with its length ahead of it, and the salt: a golden value
+// The commitment is SHA-256 over the domain OID, the name with its length
+// ahead of it, the holder's node ID's 24 bytes and the salt: a golden value
 // computed apart from the code.
 #[test]
 fn a_commitment_is_pinned() {
     let commitment = Commitment::seal(&name("alice"), &node_a().node_id(), &Salt([7; 32]));
     assert_eq!(
         to_hex(&commitment.0),
-        "b3133351028596cfe0bb902945d506c424bf832decca2c6f5b630b98e2e12afd"
+        "0c9c7898d6b92066ef609ab7754369c0f0a29ab2546fe841e334f572b3351352"
     );
     assert_eq!(
         to_hex(dassie_peer::names::COMMITMENT_OID.as_slice()),
@@ -990,14 +1013,14 @@ fn name_answers_are_pinned_and_bounded() {
         "00000000000000070000018bcfe56800"
     );
     assert_eq!(NameReceipt::decode_exact(&receipt.to_vec()), Ok(receipt));
-    let id = |key: NodeKey| to_hex(key.node_id().as_str().as_bytes());
+    let id = |key: NodeKey| to_hex(&key.node_id().to_bytes());
     let bytes = name_list().to_vec();
     assert_eq!(
         to_hex(&bytes),
         format!(
             "0102\
-             05616c69636521{}000001a3185c5000\
-             03626f6221{}0000018bcfe56800",
+             05616c696365{}000001a3185c5000\
+             03626f62{}0000018bcfe56800",
             id(node_a()),
             id(node_b())
         )
@@ -1007,14 +1030,14 @@ fn name_answers_are_pinned_and_bounded() {
 
     // Out of order, or a name twice: malformed.
     let (count, entries) = bytes.split_at(2);
-    let (alice, bob) = entries.split_at(1 + 5 + 1 + 33 + 8);
+    let (alice, bob) = entries.split_at(1 + 5 + 24 + 8);
     let swapped = [count, bob, alice].concat();
     assert!(NameListResponse::decode_exact(&swapped).is_err());
     let twice = [count, alice, alice].concat();
     assert!(NameListResponse::decode_exact(&twice).is_err());
 
     // At most MAX_NAME_LIST names, and the largest list fits its bound.
-    let longest_id = NodeId::parse(&format!("d{}", "a".repeat(44))).unwrap();
+    let longest_id = node_a().node_id();
     let mut largest = NameListResponse(
         (0..=MAX_NAME_LIST)
             .map(|n| {

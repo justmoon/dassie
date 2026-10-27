@@ -3,25 +3,15 @@
 //! everything that tells one network from another from this table.
 //!
 //! Each network has its own asset kind, so an account's ID names its
-//! network ([`Network::of`]), and its own seed path, so the two networks'
-//! accounts have different keys and a Payment signed for one never applies
-//! on the other. Mainnet's account is of the `live` realm, so it runs only
-//! in a node of that realm, which stays refused
-//! (spec/decisions/real-money.md).
+//! network ([`Network::of`]), and the node derives an account's keys at a
+//! path that names the network's ID and the account's number
+//! (spec/areas/identity.md#seed-paths), so the two networks' accounts have
+//! different keys and a Payment signed for one never applies on the other.
+//! Mainnet's account is of the `live` realm, so it runs only in a node of
+//! that realm, which stays refused (spec/decisions/real-money.md).
 
 use dassie_ledger::{Name, Realm};
 use dassie_settlement::{AssetId, AssetKind};
-
-/// Where a network's wallet derives from: the node's settlement entropy of
-/// `module` at `path`, `node/settlement-module/<module>/<path>`. Frozen
-/// (spec/overview.md#frozen-surfaces).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Seed {
-    /// The settlement module the path names.
-    pub module: &'static str,
-    /// The path below it.
-    pub path: &'static str,
-}
 
 /// An XRP Ledger network.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -30,7 +20,10 @@ pub struct Network {
     pub name: &'static str,
     /// The network ID its servers report: a server that reports another,
     /// or none, stops the account. At most 1024, as a transaction names
-    /// its network only above that, and the account names none.
+    /// its network only above that, and the account names none. The keys
+    /// of the node's accounts on it derive at a path that names it,
+    /// `node/xrpl/<id>/account/<index>`, which is frozen
+    /// (spec/overview.md#frozen-surfaces).
     pub id: u32,
     /// The kind of the node's accounts on it.
     pub asset_kind: AssetKind,
@@ -38,8 +31,6 @@ pub struct Network {
     /// what other schemes spend of the XRP as gas is the owner's funds on
     /// its ledger (spec/decisions/external-assets.md).
     pub xrp_scheme: Name,
-    /// Where its wallet derives from.
-    pub seed: Seed,
     /// The server an account connects to when its config names none.
     pub server: &'static str,
     /// Its faucet, if it has one: an account without funds asks it, and a
@@ -62,28 +53,19 @@ pub const TESTNET: Network = Network {
     id: 1,
     asset_kind: AssetKind::XrplTestnetAccount,
     xrp_scheme: dassie_ledger::name!(crate::scheme::SCHEME_ID),
-    seed: Seed {
-        module: "xrpl-testnet",
-        path: "seed-testnet",
-    },
     server: "wss://testnet.xrpl.dassieland.net",
     faucet: Some(TESTNET_FAUCET),
     realm: Realm::Test,
     wrong_network: "the server is not on the XRP Ledger testnet; remove the scheme and add it with a testnet server",
 };
 
-/// The XRP Ledger mainnet: real money. Its wallet is the original's, at
-/// its path; it has no faucet. Its server is the project's proof server
-/// (spec/roadmap.md#proof-servers).
+/// The XRP Ledger mainnet: real money. It has no faucet. Its server is the
+/// project's proof server (spec/roadmap.md#proof-servers).
 pub const MAINNET: Network = Network {
     name: "mainnet",
     id: 0,
     asset_kind: AssetKind::XrplAccount,
     xrp_scheme: dassie_ledger::name!(crate::scheme::MAINNET_SCHEME_ID),
-    seed: Seed {
-        module: "xrpl",
-        path: "seed-mainnet",
-    },
     server: "wss://mainnet.xrpl.dassieland.net",
     faucet: None,
     realm: Realm::Live,
@@ -105,8 +87,8 @@ impl Network {
         }
     }
 
-    /// The node's first account on it, whose keys are at its seed path
-    /// (spec/areas/identity.md#derivation-chain).
+    /// The node's first account on it, whose keys derive at
+    /// `node/xrpl/<id>/account/0` (spec/areas/identity.md#seed-paths).
     #[must_use]
     pub const fn first(&self) -> AssetId {
         AssetId {
@@ -142,7 +124,6 @@ mod tests {
                 assert_ne!(network.id, other.id);
                 assert_ne!(network.asset_kind, other.asset_kind);
                 assert_ne!(network.xrp_scheme, other.xrp_scheme);
-                assert_ne!(network.seed, other.seed);
                 assert_ne!(network.server, other.server);
                 assert_ne!(network.realm, other.realm);
             }

@@ -171,9 +171,8 @@ fn hub_standing(sim: &Sim) -> String {
                 .map_or_else(
                     || "no hub account".into(),
                     |status| {
-                        let key = dassie_hub::escrow::member_key(&key(index), &hub.id())
-                            .unwrap()
-                            .public_key();
+                        let key =
+                            dassie_hub::member::member_key(&key(index), &hub.id()).public_key();
                         let known = hub.ledger().and_then(|ledger| ledger.account_of(&key));
                         format!(
                             "{:?} (the hub's {known:?}) {:?} reading {:?} moving {:?} on the XRP \
@@ -459,9 +458,7 @@ fn check_hub_books(sim: &Sim, liar: Option<usize>) -> Result<(), String> {
         if !in_step(sim, index) {
             continue;
         }
-        let member = dassie_hub::escrow::member_key(&key(index), &hub.id())
-            .unwrap()
-            .public_key();
+        let member = dassie_hub::member::member_key(&key(index), &hub.id()).public_key();
         let number = ledger
             .account_of(&member)
             .ok_or_else(|| format!("node {index} has no account in the hub"))?;

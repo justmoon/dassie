@@ -38,8 +38,8 @@ pub fn vectors(name: &str) -> Value {
     let text = std::fs::read_to_string(&path).expect("vector file");
     let value: Value = serde_json::from_str(&text).expect("vector JSON");
     assert_eq!(
-        value["source"], "e962ab78",
-        "vectors must come from the original"
+        value["generator"], "testdata/identity/generate-vectors.mjs",
+        "vectors must come from the generator"
     );
     value
 }

@@ -192,7 +192,7 @@ impl Hub {
     fn found_with(terms: fn(&NodeKey, AccountId) -> Terms) -> Self {
         let mut xrpl = FakeLedger::new();
         let sponsor = NodeKey::from_bytes(&[100; 32]);
-        let master = escrow_master(&sponsor, TESTNET_NETWORK, &NONCE).unwrap();
+        let master = escrow_master(&sponsor, TESTNET_NETWORK, &NONCE);
         let terms = terms(&sponsor, master.account());
         let nodes: Vec<NodeKey> = (1..=4).map(|i| NodeKey::from_bytes(&[i; 32])).collect();
         let validators: Vec<ValidatorKeys> = nodes
@@ -1009,7 +1009,7 @@ fn a_node_moves_its_funds_into_the_hub_and_out() {
 fn the_sponsor_sets_up_what_is_missing() {
     let mut xrpl = FakeLedger::new();
     let sponsor = NodeKey::from_bytes(&[100; 32]);
-    let master = escrow_master(&sponsor, TESTNET_NETWORK, &NONCE).unwrap();
+    let master = escrow_master(&sponsor, TESTNET_NETWORK, &NONCE);
     let terms = terms(&sponsor, master.account());
     let nodes: Vec<NodeKey> = (1..=4).map(|i| NodeKey::from_bytes(&[i; 32])).collect();
     let validators = nodes
@@ -1486,7 +1486,7 @@ fn the_check_takes_a_token_escrow_with_its_one_line() {
 fn the_sponsor_sets_up_a_token_escrows_line() {
     let mut xrpl = FakeLedger::new();
     let sponsor = NodeKey::from_bytes(&[100; 32]);
-    let master = escrow_master(&sponsor, TESTNET_NETWORK, &NONCE).unwrap();
+    let master = escrow_master(&sponsor, TESTNET_NETWORK, &NONCE);
     let terms = dsusd_terms(&sponsor, master.account());
     let nodes: Vec<NodeKey> = (1..=4).map(|i| NodeKey::from_bytes(&[i; 32])).collect();
     let validators = nodes

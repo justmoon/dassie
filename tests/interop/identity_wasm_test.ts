@@ -5,19 +5,16 @@
 import { test } from "node:test";
 import { readFile } from "node:fs/promises";
 
-import { assert, assertEquals, assertFalse, assertThrows } from "@std/assert";
+import { assert, assertEquals, assertFalse } from "@std/assert";
 
 import {
   decodeIlpPacket,
   deriveNodeKey,
-  devSessionToken,
   encodeFulfill,
   encodePrepare,
   encodeReject,
   loginSecret,
   nodeId,
-  nodeIdFromLabel,
-  nodeLabel,
   normalizeMnemonic,
   publicKey,
   sign,
@@ -27,14 +24,21 @@ import {
 const crates = new URL("../../crates/", import.meta.url);
 
 // eslint-disable-next-line typescript/no-explicit-any
+async function read(path: string): Promise<any> {
+  return JSON.parse(await readFile(new URL(path, crates), "utf8"));
+}
+
+// The identity vectors, from the generator of our own
+// (testdata/identity/generate-vectors.mjs).
+// eslint-disable-next-line typescript/no-explicit-any
 async function vectors(path: string): Promise<any> {
-  const document = JSON.parse(await readFile(new URL(path, crates), "utf8"));
-  assertEquals(document.source, "e962ab78");
+  const document = await read(`dassie-identity/tests/data/${path}`);
+  assertEquals(document.generator, "testdata/identity/generate-vectors.mjs");
   return document;
 }
 
-test("the passphrase chain matches the original", async () => {
-  const { chain } = await vectors("dassie-identity/tests/data/chain.json");
+test("the passphrase chain matches the vectors", async () => {
+  const { chain } = await vectors("chain.json");
   assert(chain.length > 60);
   for (const entry of chain) {
     assert(validateMnemonic(entry.mnemonic));
@@ -43,38 +47,11 @@ test("the passphrase chain matches the original", async () => {
     assertEquals(publicKey(nodeKey).toHex(), entry.publicKey);
     assertEquals(nodeId(publicKey(nodeKey)), entry.nodeId);
     assertEquals(loginSecret(nodeKey).toHex(), entry.loginSecret);
-    assertEquals(
-      devSessionToken(entry.mnemonic).toHex(),
-      entry.devSessionToken,
-    );
   }
-});
-
-test("node labels match the native ones", () => {
-  // As crates/dassie-identity/src/label.rs pins them, one of them for an
-  // ID whose digest ended in an `A`.
-  const vectors = [
-    [
-      "dNKbwOMCw0DTToPM4tyyVASWxM4NP3MKW",
-      "gstpaogawdidju5a6m4lolevaes3cm4dj7omffq",
-    ],
-    [
-      "dybOcrsdQrsRpq3WPpQI6kYcJpKt0_zY",
-      "zgzzzlwhkcxmi2nlowh2kar2sgdqtjflot7tmaa",
-    ],
-  ];
-  for (const [id, label] of vectors) {
-    assertEquals(nodeLabel(id), label);
-    assertEquals(nodeIdFromLabel(label.toUpperCase()), id);
-  }
-  assertThrows(() => nodeLabel("dabcA"));
-  assertThrows(() =>
-    nodeIdFromLabel("gstpaogawdidju5a6m4lolevaes3cm4dj7omffr")
-  );
 });
 
 test("phrases are validated and canonicalised", async () => {
-  const { chain } = await vectors("dassie-identity/tests/data/chain.json");
+  const { chain } = await vectors("chain.json");
   const phrase: string = chain[0].mnemonic;
   assertEquals(normalizeMnemonic(`  ${phrase.toUpperCase()}  `), phrase);
   // Only a valid BIP-39 phrase is a passphrase.
@@ -83,16 +60,12 @@ test("phrases are validated and canonicalised", async () => {
   assertFalse(validateMnemonic("not a passphrase"));
 });
 
-test("keys and node IDs match the original", async () => {
-  const { bootstrap, keys } = await vectors(
-    "dassie-identity/tests/data/keys.json",
-  );
-  for (const node of bootstrap) {
-    assertEquals(nodeId(Uint8Array.fromHex(node.publicKey)), node.nodeId);
-  }
+test("keys and node IDs match the vectors", async () => {
+  const { keys } = await vectors("keys.json");
   for (const key of keys) {
     const seed = Uint8Array.fromHex(key.seed);
     assertEquals(publicKey(seed).toHex(), key.publicKey);
+    assertEquals(nodeId(publicKey(seed)), key.nodeId);
     assertEquals(
       sign(seed, Uint8Array.fromHex(key.message)).toHex(),
       key.signature,
@@ -101,7 +74,8 @@ test("keys and node IDs match the original", async () => {
 });
 
 test("ILP packets match the original", async () => {
-  const { packets } = await vectors("dassie-ilp/tests/data/vectors.json");
+  const { packets, source } = await read("dassie-ilp/tests/data/vectors.json");
+  assertEquals(source, "e962ab78");
   for (const vector of packets) {
     const bytes = Uint8Array.fromHex(vector.encoded);
     const packet = decodeIlpPacket(bytes);

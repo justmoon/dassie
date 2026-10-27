@@ -98,10 +98,10 @@ pub async fn start_unnamed(seed: u8, names: &str) -> (TestNode, NodeKey) {
     (node, key)
 }
 
-/// `<label>.dassiepay.net`: the name of the node with `key` at the default
+/// `<node ID>.dassiepay.net`: the name of the node with `key` at the default
 /// front door.
 pub fn default_name(key: &NodeKey) -> String {
-    format!("{}.dassiepay.net", key.node_id().label().unwrap())
+    format!("{}.dassiepay.net", key.node_id())
 }
 
 /// Adds the stub ledger, with money in it, once the engine runs.

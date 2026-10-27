@@ -4,7 +4,7 @@
 
 ## Facts
 
-- A node without a hostname answers Open Payments at its default name, `<label>.dassiepay.net`, from its first start, and the wallet shows that name as its payment pointer ([Payments](../areas/payments.md#the-nodes-names)).
+- A node without a hostname answers Open Payments at its default name, `<node ID>.dassiepay.net`, from its first start, and the wallet shows that name as its payment pointer ([Payments](../areas/payments.md#the-nodes-names)).
 - The front door at `dassiepay.net` reaches a node only over the connection the node keeps to it as its relay; it never dials. Finding a node through records and home nodes is not built ([roadmap](../roadmap.md#periphery)).
 - So without a relay the default name answers 503: the payment pointer a new node shows reaches no one until its owner finds the front door's entry and puts it in the node's environment. Zero configuration is one of Dassie's principles ([Overview](../overview.md#principles)).
 - A relay is named by its node ID, URL and key, and the connection to it is pinned to the key. The default bootstrap nodes are built into the binary the same way ([bootstrap-network](bootstrap-network.md)).

@@ -1,6 +1,6 @@
 //! A front door (spec/areas/http.md#front-doors): the server that lets
 //! ordinary Open Payments clients reach nodes without a public address, at
-//! `<label>.<domain>`, and at `<name>.<domain>` for a name's holder.
+//! `<node ID>.<domain>`, and at `<name>.<domain>` for a name's holder.
 //!
 //! It is no node: it has no ledger and no wallet, and takes no peer
 //! requests. It runs two listeners with a key of its own, and reads names
@@ -10,7 +10,7 @@
 //!   to by naming it as their relay (`DASSIE_RELAY`,
 //!   spec/areas/node.md#a-chosen-relay);
 //! - an HTTPS listener ([`https`]) with a wildcard certificate, which
-//!   passes Open Payments requests to the node a name's label names, or
+//!   passes Open Payments requests to the node a name's first label names, or
 //!   to the holder of the name it is, over relayed streams it opens on that
 //!   node's connection ([`nodes`]), with TLS inside pinned to the node's
 //!   key, and answers the root of a name with a static page of its own

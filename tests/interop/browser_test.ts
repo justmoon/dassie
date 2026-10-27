@@ -108,7 +108,7 @@ test("the web build works in a browser", async () => {
       (globalThis as unknown as { __result: Record<string, string> }).__result
     );
     assertEquals(result, {
-      nodeId: "d1_UeCE9UMCwvVHSXdI9o0Tpz4rnidWvR",
+      nodeId: "272r4ccpkqycyl2uoslxjd3i2e5hhyvz4j2wxui",
       sent: "250000",
     });
   } finally {

@@ -10,6 +10,7 @@ export function logSources(dev: DevStore): LogSources {
   return {
     of: dev.sourceOf,
     href: (source) => `/nodes/${source}`,
+    nameOf: (id) => dev.state().nodes.find((node) => node.id === id)?.name,
   };
 }
 

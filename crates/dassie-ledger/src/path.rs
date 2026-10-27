@@ -200,7 +200,7 @@ mod tests {
 
     #[test]
     fn paths_round_trip() {
-        let node = Name::new("dNKbwOMCw0DTToPM4tyyVASWxM4NP3MKW").unwrap();
+        let node = Name::new("gstpaogawdidju5a6m4lolevaes3cm4dj7omffq").unwrap();
         let names = [
             AccountName::AssetsSettlement,
             AccountName::AssetsInterledger(node),

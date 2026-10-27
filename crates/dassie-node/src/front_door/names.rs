@@ -1,6 +1,6 @@
 //! The front door's view of who holds each name (spec/areas/http.md#front-doors,
 //! spec/areas/network.md#holders), so that it serves `<name>.<domain>` for
-//! the name's holder as it serves a node's label.
+//! the name's holder as it serves a node's ID.
 //!
 //! A front door is no node, so it reads the registrars' name lists itself:
 //! the configured bootstrap nodes', as every node does, on a node's cadence.

@@ -448,17 +448,14 @@ fn node(root: &Fields<'_>, key: &str) -> Result<(NodeConfig, NodeParams), Config
 
 /// The wallet of the node whose passphrase is in `path`: the node's first
 /// XRPL testnet account, derived exactly as the node derives it, from its
-/// key's settlement entropy (spec/areas/xrpl.md#the-wallet). The phrase is
+/// key (spec/areas/xrpl.md#the-wallet). The phrase is
 /// wiped once read, and no error names it.
 ///
 /// # Errors
 ///
 /// The file cannot be read, or holds no passphrase.
 pub fn wallet_from_file(path: &Path) -> Result<Wallet, String> {
-    let seed = TESTNET.seed;
-    let entropy = passphrase::node_key_from_file(path)?
-        .settlement_entropy(seed.module, seed.path)
-        .map_err(|_| "cannot derive the XRPL keys".to_owned())?;
+    let entropy = passphrase::node_key_from_file(path)?.xrpl_account_entropy(TESTNET.id, 0);
     Ok(Wallet::from_entropy(entropy.as_bytes()))
 }
 
@@ -729,9 +726,7 @@ mod tests {
         let wallet = wallet_from_file(&path).unwrap();
         // As the node derives it from its key.
         let key = Mnemonic::parse(phrase).unwrap().to_seed().node_key();
-        let entropy = key
-            .settlement_entropy(TESTNET.seed.module, TESTNET.seed.path)
-            .unwrap();
+        let entropy = key.xrpl_account_entropy(TESTNET.id, 0);
         assert_eq!(
             wallet.account(),
             Wallet::from_entropy(entropy.as_bytes()).account()

@@ -9,12 +9,12 @@ use dassie_oer::{Alphabet, DecodeError, DecodeErrorKind, Reader, Size, Writer, s
 /// Fewest characters in a name.
 pub const MIN_NAME_BYTES: usize = 3;
 
-/// Most characters in a name: fewer than a node label's 39
-/// (spec/areas/identity.md#node-label), so that no name is ever read as a
-/// label, nor a label as a name.
+/// Most characters in a name: fewer than a node ID's 39
+/// (spec/areas/identity.md#node-id), so that no name is ever read as a
+/// node ID, nor a node ID as a name.
 pub const MAX_NAME_BYTES: usize = 32;
 
-const _: () = assert!(MAX_NAME_BYTES < dassie_identity::NODE_LABEL_LENGTH);
+const _: () = assert!(MAX_NAME_BYTES < dassie_identity::NODE_ID_LENGTH);
 
 /// A name's size on the wire.
 const SIZE: Size = Size::range(MIN_NAME_BYTES, MAX_NAME_BYTES);
@@ -268,14 +268,11 @@ mod tests {
         assert!(Name::parse("abc--d").is_ok());
     }
 
-    // No name is as long as a node label, so neither is read as the other.
+    // No name is as long as a node ID, so neither is read as the other.
     #[test]
-    fn no_name_is_a_node_label() {
-        let label = dassie_identity::NodeKey::from_bytes(&[1; 32])
-            .node_id()
-            .label()
-            .unwrap();
-        assert_eq!(Name::parse(label.as_str()), Err(NameError::Length));
+    fn no_name_is_a_node_id() {
+        let id = dassie_identity::NodeKey::from_bytes(&[1; 32]).node_id();
+        assert_eq!(Name::parse(id.as_str()), Err(NameError::Length));
     }
 
     #[test]

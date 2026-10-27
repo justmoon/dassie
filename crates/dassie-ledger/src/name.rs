@@ -125,10 +125,10 @@ mod tests {
     #[test]
     fn checks_the_alphabet_and_length() {
         assert_eq!(
-            Name::new("dNKbwOMCw0DTToPM4tyyVASWxM4NP3MKW")
+            Name::new("gstpaogawdidju5a6m4lolevaes3cm4dj7omffq")
                 .unwrap()
                 .as_str(),
-            "dNKbwOMCw0DTToPM4tyyVASWxM4NP3MKW"
+            "gstpaogawdidju5a6m4lolevaes3cm4dj7omffq"
         );
         assert!(Name::new("").is_err());
         assert!(Name::new("a/b").is_err());

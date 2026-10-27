@@ -363,7 +363,7 @@ export type NetworkRoute = Message<"dassie.owner.v1.NetworkRoute"> & {
   node: string;
 
   /**
-   * For example "test.das.dNKbw…".
+   * For example "test.das.gstpa…".
    *
    * @generated from field: string prefix = 2;
    */

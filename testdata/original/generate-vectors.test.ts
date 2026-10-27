@@ -15,7 +15,6 @@ import { mkdirSync, writeFileSync } from "node:fs"
 import path from "node:path"
 import { base64ToUint8Array, stringToUint8Array } from "uint8array-extras"
 import { test } from "vitest"
-import { Wallet, encodeSeed } from "xrpl"
 
 import {
   integerAsBigint,
@@ -45,12 +44,6 @@ import {
 import { createMockDeterministicCrypto } from "@dassie/lib-reactive"
 import { createCrypto } from "@dassie/lib-reactive-io"
 
-import {
-  TEST_NODE_VANITY_ENTROPY,
-  TEST_NODE_VANITY_IDS,
-  TEST_NODE_VANITY_MNEMONICS,
-  TEST_NODE_VANITY_SEEDS,
-} from "../../app-dev/src/constants/vanity-nodes"
 import ildcpFixtures from "../../lib-protocol-ildcp/src/test/fixtures/packets"
 import ilpFixtures from "../../lib-protocol-ilp/src/test/fixtures/packets"
 import { getPskEnvironment } from "../../lib-protocol-stream/src/crypto/functions"
@@ -59,11 +52,7 @@ import { serializePacket } from "../../lib-protocol-stream/src/packets/parser"
 import { getSampleObjectIdentifiers } from "../../lib-oer/test/utils/sample-object-identifiers"
 import { getVariableLengthSamples } from "../../lib-oer/test/utils/sample-numbers"
 import { utf8TestValues } from "../../lib-oer/test/utils/sample-strings"
-import {
-  dassieNodeFingerprintV1Id,
-  dassiePeerNodeInfoId,
-} from "./constants/object-identifiers"
-import { getPrivateSeedAtPath, calculatePathHmac } from "./crypto/utils/seed-paths"
+import { dassiePeerNodeInfoId } from "./constants/object-identifiers"
 import { calculateNodeId } from "./ilp-connector/utils/calculate-node-id"
 import {
   nodeIdSchema,
@@ -100,110 +89,6 @@ const write = (relativePath: string, vectors: Record<string, unknown>) => {
   const document = { source: SOURCE, ...vectors }
   writeFileSync(file, JSON.stringify(toJson(document), undefined, 2) + "\n")
 }
-
-const xrplWallet = (entropy: Uint8Array) => {
-  const familySeed = encodeSeed(entropy.subarray(0, 16), "ed25519")
-  const wallet = Wallet.fromSeed(familySeed)
-  return { familySeed, address: wallet.classicAddress, publicKey: wallet.publicKey }
-}
-
-test("identity vectors", async () => {
-  // A deterministic spread over the vanity table, plus the last entry (the
-  // record holder), keeps the file small while covering many IDs.
-  // The ID list is an array in key order, so it is indexed by position, not
-  // by key; the record holder's key is far beyond the array's length.
-  const entries = Object.keys(TEST_NODE_VANITY_ENTROPY)
-    .map((key, position) => ({ index: Number(key), position }))
-    .filter(({ index }, position, all) => index % 16 === 0 || position === all.length - 1)
-
-  const chain = entries.map(({ index, position }) => {
-    const masterSeed = fromHex(TEST_NODE_VANITY_SEEDS[index]!)
-    const nodeKey = calculatePathHmac(Buffer.from(masterSeed), "node")
-    const publicKey = getPublicKey(nodeKey)
-    const testnetEntropy = getPrivateSeedAtPath(
-      nodeKey,
-      "node/settlement-module/xrpl-testnet/seed-testnet" as never,
-    )
-    const mainnetEntropy = getPrivateSeedAtPath(
-      nodeKey,
-      "node/settlement-module/xrpl/seed-mainnet" as never,
-    )
-    return {
-      index,
-      entropy: TEST_NODE_VANITY_ENTROPY[index],
-      mnemonic: TEST_NODE_VANITY_MNEMONICS[index],
-      masterSeed,
-      nodeKey,
-      publicKey,
-      nodeId: calculateNodeId(publicKey),
-      expectedNodeId: TEST_NODE_VANITY_IDS[position],
-      loginSecret: getPrivateSeedAtPath(nodeKey, "node/login" as never),
-      devSessionToken: calculatePathHmac(Buffer.from(masterSeed), "dev/session"),
-      xrplTestnetEntropy: testnetEntropy,
-      xrplTestnetWallet: xrplWallet(testnetEntropy),
-      xrplMainnetEntropy: mainnetEntropy,
-      xrplMainnetWallet: xrplWallet(mainnetEntropy),
-    }
-  })
-
-  for (const entry of chain) {
-    if (entry.nodeId !== entry.expectedNodeId) {
-      throw new Error(`Vanity table mismatch at ${entry.index}`)
-    }
-  }
-
-  write("dassie-identity/tests/data/chain.json", { chain })
-
-  const seedA = new Uint8Array(32).fill(1)
-  const seedB = new Uint8Array(32).fill(3)
-  const sessionPrivate = new Uint8Array(32).fill(2)
-  const publicA = getPublicKey(seedA)
-  const publicB = getPublicKey(seedB)
-  const sharedSecret = x25519.getSharedSecret(
-    sessionPrivate,
-    ed25519.utils.toMontgomery(publicB),
-  )
-
-  const bootstrap = [
-    ["test1.dassie.xyz", "QBe5HLbdYFtIpjFTIu_Lz8lkoUJ3fmAvFHfCb9CVwIM"],
-    ["test2.dassie.xyz", "tmS1PB42DEjYi-Ua4RNguhweId9YjT9Kml3uq3iZSuQ"],
-  ].map(([host, key]) => {
-    const publicKey = new Uint8Array(Buffer.from(key!, "base64url"))
-    return { host, publicKey, nodeId: calculateNodeId(publicKey) }
-  })
-
-  const keys = await Promise.all(
-    [seedA, seedB].map(async (seed) => {
-      const publicKey = getPublicKey(seed)
-      const message = stringToUint8Array("dassie test message")
-      return {
-        seed,
-        publicKey,
-        nodeId: calculateNodeId(publicKey),
-        x25519Secret: ed25519.utils.toMontgomerySecret(seed),
-        x25519Public: ed25519.utils.toMontgomery(publicKey),
-        message,
-        signature: await signAsync(message, seed),
-      }
-    }),
-  )
-
-  write("dassie-identity/tests/data/keys.json", {
-    bootstrap,
-    keys,
-    session: {
-      privateKey: sessionPrivate,
-      publicKey: x25519.getPublicKey(sessionPrivate),
-      peerPublicKey: publicB,
-      sharedSecret,
-    },
-    nodeIdHashInput: {
-      oid: dassieNodeFingerprintV1Id,
-      publicKey: publicA,
-      encoded: objectIdentifier().serializeOrThrow(dassieNodeFingerprintV1Id),
-    },
-  })
-})
 
 test("oer vectors", async () => {
   const unbounded = integerAsBigint([0n, undefined])

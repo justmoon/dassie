@@ -11,7 +11,7 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use dassie_identity::{NodeKey, SeedPath};
+use dassie_identity::{NodeKey, NodeSecret};
 use dassie_payments::jwk::{Jwk, Jwks};
 use dassie_payments::pointer;
 use dassie_payments::{SigningKey, VerifyingKey};
@@ -20,9 +20,6 @@ use sha2::{Digest as _, Sha256};
 use super::client::{self, ClientError};
 use crate::node::Node;
 use crate::outbound::WebRequest;
-
-/// The seed path of the node's Open Payments key.
-pub const CLIENT_KEY_PATH: &str = "node/open-payments-client";
 
 /// Most clients' key sets kept.
 const MAX_CACHED_KEY_SETS: usize = 256;
@@ -46,8 +43,7 @@ impl ClientKey {
     ///
     /// The derivation failed, which only a bug can cause.
     pub fn derive(node_key: &NodeKey) -> Result<Self, String> {
-        let path = SeedPath::parse(CLIENT_KEY_PATH).map_err(|e| e.to_string())?;
-        let seed = node_key.derive(&path).map_err(|e| e.to_string())?;
+        let seed = node_key.secret(NodeSecret::OpenPaymentsClient);
         let signing = SigningKey::from_bytes(seed.as_bytes());
         let digest = Sha256::digest(signing.verifying_key().as_bytes());
         let kid = format!(

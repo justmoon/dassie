@@ -29,7 +29,7 @@ Each file records one choice between real alternatives: the facts that forced it
 | [full-or-stopped-short](full-or-stopped-short.md) | A receiver says whether it is full or stopped short | payments, stream |
 | [headless-setup](headless-setup.md) | An owner who keeps the passphrase on the node's host sets the node up with `dassie setup`, through the node's own setup route | node, http, identity, overview |
 | [hub-founding](hub-founding.md) | The sponsor founds a hub over a stream of its own, and a quorum's signatures of the genesis found it | hubs, peer-protocol, designs/settlement-hubs |
-| [hub-keys-by-network](hub-keys-by-network.md) | A hub's keys name its network, except on the testnet, and a validator validates on its owner's network | hubs, identity, node |
+| [hub-keys-by-network](hub-keys-by-network.md) | A hub's keys name its network, and a validator validates on its owner's network | hubs, identity, node |
 | [hub-protocol-version](hub-protocol-version.md) | A hub runs one version of the hub protocol, which its ID commits to (moving a hub to another version not built) | hubs, overview, designs/settlement-hubs |
 | [hub-scheme-names](hub-scheme-names.md) | A hub scheme's ID names its underlying ledger and its asset (not built) | hubs, settlement, xrpl |
 | [hubs-only](hubs-only.md) | Peers settle only over settlement hubs (not built) | designs/settlement-hubs, settlement, network, xrpl, testing |

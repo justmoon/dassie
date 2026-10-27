@@ -45,7 +45,10 @@ let
   };
   testExtraFiles = {
     dassie-feed = [ (root + "/testdata/feed") ];
-    dassie-hub = [ (root + "/testdata/hub") ];
+    dassie-hub = [
+      (root + "/crates/dassie-identity/tests/data/paths.json")
+      (root + "/testdata/hub")
+    ];
     dassie-peer = [ (root + "/crates/dassie-oer/tests/data") ];
     dassie-xrpl = [
       (root + "/crates/dassie-identity/tests/data/chain.json")

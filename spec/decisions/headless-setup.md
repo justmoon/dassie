@@ -4,16 +4,16 @@
 
 ## Facts
 
-- Setting a node up takes its owner's passphrase: the node key and the login proof derive from it, and the node takes them, with the setup token, at `POST /api/setup` ([HTTP](../areas/http.md#setup)). The wallet does that in the browser, so that the phrase never leaves it.
+- Setting a node up takes its owner's passphrase: the node key derives from it, and the node takes it, with the setup token, at `POST /api/setup` ([HTTP](../areas/http.md#setup)). The wallet does that in the browser, so that the phrase never leaves it.
 - Some owners keep the phrase on the node's host anyway. The market maker's two nodes are set up by a VM that nobody logs in to, and the market maker already reads each node's phrase from a file to sign its swaps ([Rate feed](../areas/rate-feed.md#market-maker)). A headless node set up by a script is the same case. For them a browser adds a person to a step that is meant to run unattended.
-- The setup route checks the token, the key's form and the proof, and stores the key in the same write that deletes the token, so of two setups at once only one wins. A second way to set a node up would need all of that again.
+- The setup route checks the token and the key's form, and stores the key in the same write that deletes the token, so of two setups at once only one wins. A second way to set a node up would need all of that again.
 - A node with no hostname serves a self-signed certificate that names `localhost`. No CA can vouch for it, and anyone can make one that names `localhost`.
 - The node does not always hold every loopback address at its HTTPS port. A node that listens on one address (`--listen`), or on IPv6 alone where the host keeps IPv6 sockets apart from IPv4, leaves the other loopback address free at that port, and any user of the host can bind it.
 - The daemon's status, over the IPC socket, names the certificate it serves. Its key is in the node's database, beside the node key, which is stored in the clear there anyway ([secrets-at-rest](secrets-at-rest.md)).
 
 ## Decision
 
-- **`dassie setup --passphrase-file <file>` sets a node up from its owner's phrase, on the node's own host.** It derives the node key and the login proof as the wallet does, reads the setup token over the IPC socket, and posts them to the node's own `/api/setup` on loopback, at the HTTPS port the daemon reports. So the node checks it exactly as it checks the wallet, and the phrase never reaches the node: only the key does, as from a browser.
+- **`dassie setup --passphrase-file <file>` sets a node up from its owner's phrase, on the node's own host.** It derives the node key as the wallet does, reads the setup token over the IPC socket, and posts them to the node's own `/api/setup` on loopback, at the HTTPS port the daemon reports. So the node checks it exactly as it checks the wallet, and the phrase never reaches the node: only the key does, as from a browser.
 - **It pins the certificate the daemon names,** by the SHA-256 of its leaf, and requires the handshake to be signed by that certificate's key. A listener at a loopback address that cannot do that is passed over and sent nothing. Only the node, or whoever can read its database and so the node key too, can answer as the node.
 - **It is idempotent,** so a unit can run it at every start: a node set up with this phrase is left as it is, a node set up with another is refused with a code of its own and left untouched, an external asset's config it is given is set only if it differs, and of the settlement schemes it is given it adds only those that are not active.
 - **The phrase is read once from a bounded file and wiped as soon as the key is derived,** and no output or error names it.

@@ -64,7 +64,7 @@ Read a [decision](decisions/README.md) when an area doc links to it and you need
 
 | Area | What it covers |
 |---|---|
-| [Identity](areas/identity.md) | The passphrase, the key tree, the node key and ID, the login secret, settlement entropy |
+| [Identity](areas/identity.md) | The passphrase, the key tree, the node key and ID, the login secret, the XRP Ledger accounts' keys |
 | [Encoding](areas/encoding.md) | The canonical OER subset every wire format is written in |
 | [ILP](areas/ilp.md) | ILPv4 packets, timestamps, error codes, ILDCP and BTP codecs |
 | [STREAM](areas/stream.md) | STREAM connections, streams, frames and crypto |

@@ -130,7 +130,7 @@ Commands:
                                                    release's units;
                                                    repeatable
   verify-install    Verify that Dassie and its dependencies work here.
-  front-door        Run a front door: Open Payments at <label>.<domain> for
+  front-door        Run a front door: Open Payments at <node ID>.<domain> for
                     nodes that name it as their relay, and at
                     <name>.<domain> for the holder of a name, as the
                     registrars in DASSIE_BOOTSTRAP_NODES list it. Each flag

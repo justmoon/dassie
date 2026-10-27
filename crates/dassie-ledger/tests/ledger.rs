@@ -66,7 +66,7 @@ struct Accounts {
 }
 
 fn peer() -> Name {
-    Name::new("dNKbwOMCw0DTToPM4tyyVASWxM4NP3MKW").unwrap()
+    Name::new("gstpaogawdidju5a6m4lolevaes3cm4dj7omffq").unwrap()
 }
 
 // Opening an account again leaves its pending amounts as they are.

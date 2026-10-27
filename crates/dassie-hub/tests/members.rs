@@ -144,7 +144,7 @@ impl Validators {
     /// The sponsor's hub, with its escrow attested.
     fn found(faults: [Fault; 4]) -> Self {
         let sponsor = NodeKey::from_bytes(&[100; 32]);
-        let master = escrow_master(&sponsor, TESTNET_NETWORK, &NONCE).unwrap();
+        let master = escrow_master(&sponsor, TESTNET_NETWORK, &NONCE);
         let terms = terms(&sponsor, master.account().0);
         let nodes: Vec<NodeKey> = (1..=4).map(|i| NodeKey::from_bytes(&[i; 32])).collect();
         let keys: Vec<ValidatorKeys> = nodes

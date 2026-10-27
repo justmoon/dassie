@@ -4,7 +4,7 @@
 
 ## Facts
 
-- Owners want names people can say, which a 39-character node label is not. A name has value only if every node takes the same holder for it.
+- Owners want names people can say, which a 39-character node ID is not. A name has value only if every node takes the same holder for it.
 - Whoever sees a registration of a name in the clear can try to register it first. A registrar sees every registration it takes.
 - Every node already trusts the configured bootstrap nodes' lists, and takes a node as a member when strictly more than half of the configured bootstrap nodes list it ([membership-economics](membership-economics.md)). It needs no agreement among the bootstrap nodes for that. A list is authenticated only to the node that fetched it, so a bootstrap node can show different nodes different lists.
 - Two people may want the same name at the same time. The owners accept that either gets it, or neither; what they do not accept is losing a name to someone who learned it from their own registration.

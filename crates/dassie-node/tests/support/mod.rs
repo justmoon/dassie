@@ -559,26 +559,31 @@ pub fn post_json(node: &TestNode, path: &str, json: &str) -> Request<Full<Bytes>
         .unwrap()
 }
 
-/// The setup body for `key`, with the right proof.
+/// The setup body for `key`.
 pub fn setup_body(token: &str, key: &dassie_identity::NodeKey) -> String {
-    let hex = dassie_node_core::hex::encode;
-    format!(
-        r#"{{"setupAuthorizationToken":"{token}","rawDassieKeyHex":"{}","loginAuthorizationSignature":"{}"}}"#,
-        hex(key.as_bytes()),
-        hex(key.login_secret().as_bytes())
-    )
+    setup_request(token, key, None)
 }
 
 /// The same, asking for `realm`.
 pub fn setup_body_in(token: &str, key: &dassie_identity::NodeKey, realm: &str) -> String {
-    let body = setup_body(token, key);
-    let open = body.strip_suffix('}').unwrap();
-    format!(r#"{open},"realm":"{realm}"}}"#)
+    setup_request(token, key, Some(realm))
 }
 
+fn setup_request(token: &str, key: &dassie_identity::NodeKey, realm: Option<&str>) -> String {
+    serde_json::to_string(&dassie_node_core::setup::SetupRequest {
+        setup_token: token.into(),
+        node_key: dassie_node_core::hex::encode(key.as_bytes()),
+        realm: realm.map(Into::into),
+    })
+    .unwrap()
+}
+
+/// The login body for `key`, with its proof.
 pub fn login_body(key: &dassie_identity::NodeKey) -> String {
-    let proof = dassie_node_core::hex::encode(key.login_secret().as_bytes());
-    format!(r#"{{"loginAuthorizationSignature":"{proof}"}}"#)
+    serde_json::to_string(&dassie_node_core::setup::LoginRequest {
+        login_proof: dassie_node_core::hex::encode(key.login_secret().as_bytes()),
+    })
+    .unwrap()
 }
 
 /// Sets the node up with `key` and returns the session cookie.

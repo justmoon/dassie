@@ -215,7 +215,7 @@ async fn taken_only_from_the_holder(
     // Nor is the holder's answer taken as another node's.
     let other_url = format!(
         "https://{}.dassiepay.net/.well-known/pay",
-        key(62).node_id().label().unwrap()
+        key(62).node_id()
     );
     assert_eq!(
         fetched_by(a, &other_url, |request| pass_on(https, request)).await,
@@ -282,7 +282,7 @@ async fn a_node_answers_under_a_name_it_registered() {
     let Ok(proto::response::Method::GetStatus(status)) = status else {
         panic!("{status:?}")
     };
-    let label = format!("https://{}.dassiepay.net", id_p.label().unwrap());
+    let label = format!("https://{}.dassiepay.net", id_p);
     assert_eq!(
         status.open_payments_origins,
         [label, format!("https://{HOST}")]

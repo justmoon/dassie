@@ -169,7 +169,7 @@ fn decode_rules(hex: &str) -> Result<dassie_hub::Rules, SchemeError> {
 }
 
 /// The node's hub account in the hub of `config`: its key derived at
-/// `node/hub/<hub ID>/account`, paying out at the hub's end to the node's
+/// `node/hub/member/<hub ID>/account`, paying out at the hub's end to the node's
 /// own XRPL testnet account. A hub whose legs between members do not fit
 /// in the connector's message window is not joined: it is too far apart
 /// for a peering over it (spec/designs/settlement-hubs.md#4-peering-over-a-hub).
@@ -190,8 +190,7 @@ fn create_hub_account(
     if timers.margin.saturating_add(timers.allowance) > window_ms {
         return Err(SchemeError::InvalidConfig);
     }
-    let member =
-        dassie_hub::escrow::member_key(key, &rules.id()).ok_or(SchemeError::InvalidConfig)?;
+    let member = dassie_hub::member::member_key(key, &rules.id());
     let disbursal = dassie_hub::operation::Destination {
         account: own_xrpl_account(key)?.0,
         tag: None,
@@ -211,10 +210,7 @@ fn create_hub_account(
 /// The node's first XRPL testnet account: where its hub account pays out,
 /// and where it withdraws to.
 pub(super) fn own_xrpl_account(key: &NodeKey) -> Result<dassie_xrpl::AccountId, SchemeError> {
-    let seed = dassie_xrpl::network::TESTNET.seed;
-    let entropy = key
-        .settlement_entropy(seed.module, seed.path)
-        .map_err(|_| SchemeError::InvalidConfig)?;
+    let entropy = key.xrpl_account_entropy(dassie_xrpl::network::TESTNET.id, 0);
     Ok(dassie_xrpl::Wallet::from_entropy(entropy.as_bytes()).account())
 }
 
@@ -264,9 +260,9 @@ fn schemes_on(asset: AssetId) -> Vec<Name> {
 }
 
 /// Makes the external asset `id` with its config, and the state the books
-/// kept for it. The node's first XRPL account on a network derives its keys
-/// at its network's seed path, in `dassie_xrpl::network`, which is frozen
-/// (spec/areas/identity.md#derivation-chain). Further accounts are not
+/// kept for it. An XRPL account derives its keys at the path its ID names,
+/// its network's ID and its number, which is frozen
+/// (spec/areas/identity.md#seed-paths). Accounts beyond the first are not
 /// built.
 ///
 /// # Errors
@@ -282,10 +278,7 @@ fn create_asset(
         (AssetKind::XrplTestnetAccount | AssetKind::XrplAccount, 0) => {
             let network =
                 dassie_xrpl::network::Network::of(id.kind).ok_or(SchemeError::UnknownScheme)?;
-            let seed = network.seed;
-            let entropy = key
-                .settlement_entropy(seed.module, seed.path)
-                .map_err(|_| SchemeError::InvalidConfig)?;
+            let entropy = key.xrpl_account_entropy(network.id, id.index);
             Ok(Box::new(XrplAccount::new(
                 id,
                 &schemes_on(id),
@@ -1200,9 +1193,7 @@ mod tests {
             let any: &dyn core::any::Any = asset.as_ref();
             let account = any.downcast_ref::<XrplAccount>().unwrap();
             assert_eq!(account.network(), network);
-            let entropy = key
-                .settlement_entropy(network.seed.module, network.seed.path)
-                .unwrap();
+            let entropy = key.xrpl_account_entropy(network.id, 0);
             let wallet = dassie_xrpl::Wallet::from_entropy(entropy.as_bytes());
             assert_eq!(account.account(), wallet.account());
         }

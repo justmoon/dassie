@@ -1,4 +1,4 @@
-//! Golden vectors: the original's wallets on both networks, from
+//! Golden vectors: the node's wallets on both networks, from
 //! `dassie-identity`'s chain, and Payments, token amounts and TrustSets as
 //! xrpl.js 3.1.0 writes and signs them, with Payments that name a
 //! `SendMax` (testdata/xrpl).
@@ -26,52 +26,15 @@ fn text<'a>(value: &'a Value, key: &str) -> &'a str {
     value[key].as_str().unwrap_or_else(|| panic!("{key}"))
 }
 
-// The wallet is the original's (spec/areas/xrpl.md#the-wallet): the same
-// passphrase must find the same XRPL account. Every entry of the chain:
-// node key → settlement entropy → wallet.
+// The wallet of the node's first account on each network, as xrpl.js
+// derives it (spec/areas/xrpl.md#the-wallet): the same passphrase must
+// find the same XRPL account. Every entry of the chain: node key → the
+// account's entropy at its network's ID → wallet, the two networks' apart.
 #[test]
-fn the_original_wallets_derive_from_the_node_key() {
+fn each_networks_wallet_derives_from_the_node_key() {
     let chain = read("../dassie-identity/tests/data/chain.json");
     let entries = chain["chain"].as_array().unwrap();
     assert_eq!(entries.len(), 64);
-    for entry in entries {
-        let key: [u8; 32] = from_hex(text(entry, "nodeKey"))
-            .unwrap()
-            .try_into()
-            .unwrap();
-        let node_key = NodeKey::from_bytes(&key);
-        let entropy = node_key
-            .settlement_entropy("xrpl-testnet", "seed-testnet")
-            .unwrap();
-        let wallet = Wallet::from_entropy(entropy.as_bytes());
-        let expected = &entry["xrplTestnetWallet"];
-        assert_eq!(wallet.family_seed(), text(expected, "familySeed"));
-        assert_eq!(wallet.account().to_address(), text(expected, "address"));
-        assert_eq!(
-            hex_upper(wallet.public_key().as_bytes()),
-            text(expected, "publicKey")
-        );
-        assert_eq!(
-            AccountId::parse(text(expected, "address")),
-            Some(wallet.account())
-        );
-    }
-}
-
-// The mainnet wallet is the original's too, at its path
-// (spec/decisions/mainnet-schemes.md): the network table's seed path finds,
-// for every entry of the chain, the address the original derived. The
-// testnet's seed path is the one the wallets above pin.
-#[test]
-fn each_networks_seed_path_finds_the_original_wallet() {
-    let chain = read("../dassie-identity/tests/data/chain.json");
-    let entries = chain["chain"].as_array().unwrap();
-    assert_eq!(entries.len(), 64);
-    let testnet = network::TESTNET.seed;
-    assert_eq!(
-        (testnet.module, testnet.path),
-        ("xrpl-testnet", "seed-testnet")
-    );
     for entry in entries {
         let key: [u8; 32] = from_hex(text(entry, "nodeKey"))
             .unwrap()
@@ -83,9 +46,7 @@ fn each_networks_seed_path_finds_the_original_wallet() {
             (&network::TESTNET, "xrplTestnetWallet"),
             (&network::MAINNET, "xrplMainnetWallet"),
         ] {
-            let entropy = node_key
-                .settlement_entropy(network.seed.module, network.seed.path)
-                .unwrap();
+            let entropy = node_key.xrpl_account_entropy(network.id, 0);
             let derived = Wallet::from_entropy(entropy.as_bytes());
             let expected = &entry[wallet];
             assert_eq!(derived.family_seed(), text(expected, "familySeed"));
@@ -93,6 +54,10 @@ fn each_networks_seed_path_finds_the_original_wallet() {
             assert_eq!(
                 hex_upper(derived.public_key().as_bytes()),
                 text(expected, "publicKey")
+            );
+            assert_eq!(
+                AccountId::parse(text(expected, "address")),
+                Some(derived.account())
             );
             addresses.push(derived.account());
         }

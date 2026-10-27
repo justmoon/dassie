@@ -71,13 +71,6 @@ pub fn login_secret(node_key: &[u8]) -> Result<Vec<u8>, JsError> {
     Ok(node_key_from(node_key)?.login_secret().as_bytes().to_vec())
 }
 
-/// The development session token of a phrase (dev environment only).
-#[wasm_bindgen(js_name = devSessionToken)]
-pub fn dev_session_token(phrase: &str) -> Result<Vec<u8>, JsError> {
-    let seed = Mnemonic::parse(phrase).map_err(js)?.to_seed();
-    Ok(seed.dev_session_token().as_bytes().to_vec())
-}
-
 /// The Ed25519 public key of a node key.
 #[wasm_bindgen(js_name = publicKey)]
 pub fn public_key(node_key: &[u8]) -> Result<Vec<u8>, JsError> {
@@ -91,22 +84,6 @@ pub fn node_id(public_key: &[u8]) -> Result<String, JsError> {
         .try_into()
         .map_err(|_| JsError::new("a public key has 32 bytes"))?;
     Ok(String::from(NodeId::from_public_key(key).as_str()))
-}
-
-/// The label of a node ID, as front doors serve it: 39 characters of
-/// lowercase base32.
-#[wasm_bindgen(js_name = nodeLabel)]
-pub fn node_label(node_id: &str) -> Result<String, JsError> {
-    let id = NodeId::parse(node_id).map_err(js)?;
-    Ok(String::from(id.label().map_err(js)?.as_str()))
-}
-
-/// The node ID a label names, in either case.
-#[wasm_bindgen(js_name = nodeIdFromLabel)]
-pub fn node_id_from_label(label: &str) -> Result<String, JsError> {
-    Ok(String::from(
-        NodeId::from_label(label).map_err(js)?.as_str(),
-    ))
 }
 
 /// Signs `message` with a node key.

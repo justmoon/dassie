@@ -251,7 +251,7 @@ pub const fn max_node_info_bytes(
     extensions: usize,
     extension_bytes: usize,
 ) -> usize {
-    let node_id = size::prefixed(dassie_identity::MAX_NODE_ID_LENGTH);
+    let node_id = dassie_identity::NODE_ID_BYTES;
     let entries = neighbors.saturating_add(schemes).saturating_add(extensions);
     let fixed = NODE_INFO_OID.len()
         + node_id
