@@ -1,12 +1,13 @@
 //! The `xrpl-rlusd` settlement scheme (spec/areas/xrpl.md#rlusd): the
-//! [token scheme](crate::token) in RLUSD, Ripple's dollar token, on the
+//! [token scheme](crate::token) of RLUSD, Ripple's dollar token, an owner
+//! book that peers with no one, on the
 //! trust line of the node's mainnet account to RLUSD's mainnet issuer,
 //! booked on `xrpl-rlusd+usd`, a ledger of the live realm: real money.
 //!
 //! Test RLUSD, `xrpl-testnet-rlusd`, is disabled
-//! (spec/decisions/issued-assets.md): no type here settles in it, so no node
+//! (spec/decisions/issued-assets.md): no type here books it, so no node
 //! can activate it. Its constants stay, so that a node that ran it knows
-//! its ID, and no other scheme ever takes its memo type or its ledger.
+//! its ID, and no other scheme ever takes its ledger.
 
 use dassie_ledger::LedgerId;
 
@@ -21,11 +22,6 @@ pub use crate::token::UNITS_PER_MICRO;
 
 /// The scheme's ID.
 pub const SCHEME_ID: &str = "xrpl-rlusd";
-/// The memo that marks a settlement in RLUSD on mainnet: its own, never test
-/// RLUSD's, so a Payment is never read as a settlement of another XRPL
-/// scheme. A contract between peers, as every XRPL scheme's is
-/// (spec/areas/xrpl.md#the-payment-it-signs).
-pub const MEMO_TYPE: &[u8] = b"https://dassie.land/settlement/xrpl-rlusd/v1";
 /// RLUSD's issuer on the XRPL mainnet, `rMxCKbEDwqr76QuheSUMdEGf4B9xJ8m5De`,
 /// as Ripple publishes it.
 pub const ISSUER: AccountId = AccountId([
@@ -36,10 +32,9 @@ pub const ISSUER: AccountId = AccountId([
 pub const CURRENCY: Currency = Currency([
     0x52, 0x4C, 0x55, 0x53, 0x44, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 ]);
-/// RLUSD, as the token scheme settles in it.
+/// RLUSD, as the token scheme books it.
 pub const TOKEN: Token = Token {
     scheme: dassie_ledger::name!(SCHEME_ID),
-    memo_type: MEMO_TYPE,
     issuer: ISSUER,
     currency: CURRENCY,
     ledger: LedgerId::XrplRlusdUsd,
@@ -53,7 +48,7 @@ pub const TOKEN: Token = Token {
 pub const PEG: Peg = Peg {
     min_pool_drops: 100_000 * DROPS_PER_XRP,
 };
-/// The line the scheme settles on.
+/// The line the scheme books.
 pub const LINE: IssuedAsset = TOKEN.line();
 
 /// RLUSD on mainnet, as a type.
@@ -69,19 +64,15 @@ pub type RlusdScheme = TokenScheme<Rlusd>;
 
 /// The ID of test RLUSD's scheme, which is disabled.
 pub const TESTNET_SCHEME_ID: &str = "xrpl-testnet-rlusd";
-/// The memo that would mark a settlement in test RLUSD. Never another
-/// scheme's.
-pub const TESTNET_MEMO_TYPE: &[u8] = b"https://dassie.land/settlement/xrpl-testnet-rlusd/v1";
 /// RLUSD's issuer on the XRPL testnet, `rQhWct2fv4Vc4KRjRgMrxa8xPN9Zx9iLKV`.
 pub const TESTNET_ISSUER: AccountId = AccountId([
     0xFC, 0xF4, 0xDD, 0x8C, 0x64, 0x63, 0x6B, 0xC5, 0x03, 0xF4, 0xA5, 0x8D, 0xC6, 0xC6, 0x84, 0xD2,
     0xC7, 0xC3, 0xC2, 0x4F,
 ]);
-/// Test RLUSD, as the disabled scheme settled in it: a value only, which no
+/// Test RLUSD, as the disabled scheme booked it: a value only, which no
 /// [`IssuedToken`] names.
 pub const TESTNET_TOKEN: Token = Token {
     scheme: dassie_ledger::name!(TESTNET_SCHEME_ID),
-    memo_type: TESTNET_MEMO_TYPE,
     issuer: TESTNET_ISSUER,
     currency: CURRENCY,
     ledger: LedgerId::XrplTestnetRlusdUsd,

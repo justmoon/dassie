@@ -44,17 +44,22 @@
 //!   it says what to send its ledger, fetches its validator lists and
 //!   anchors on ledgers its UNL validated, signs, keeps the sequence and
 //!   what is in flight, and tells the schemes on it what the ledger says.
-//! - [`scheme`]: the XRP scheme, which settles in the account's XRP and
-//!   books what the account tells it: `xrpl-testnet-xrp` on the testnet, `xrpl-xrp`
-//!   on mainnet.
-//! - [`entry`]: the entry payments both kinds of scheme hold for nodes
-//!   new to us that paid before they peered.
-//! - [`token`]: the token scheme, which settles in a dollar token on the
+//!
+//! The schemes on the account are the owner's books of what the node holds
+//! on the XRP Ledger, which a settlement hub's funding pays from: each
+//! books what the account tells it, takes the owner's deposits and
+//! withdrawals, and pays the owner's payments, and none peers with anyone
+//! (spec/areas/xrpl.md#owner-books).
+//!
+//! - [`scheme`]: the XRP scheme, the book of the account's XRP:
+//!   `xrpl-testnet-xrp` on the testnet, `xrpl-xrp` on mainnet.
+//! - [`token`]: the token scheme, the book of a dollar token on the
 //!   account's trust line to its issuer, with the account's XRP as gas;
 //!   [`rlusd`] is it in RLUSD on mainnet (`xrpl-rlusd`), and keeps disabled
 //!   test RLUSD's constants; [`dsusd`] is it in DSUSD on the testnet
-//!   (`xrpl-testnet-dsusd`); [`peg`] is the guard that pauses a dollar
-//!   token's scheme while its AMM pool prices it off a dollar.
+//!   (`xrpl-testnet-dsusd`); [`peg`] is the guard that stops conversions
+//!   to and from a dollar token's ledger while its AMM pool prices it off
+//!   a dollar.
 //! - `fake` (feature `fake`): a model of the ledger, with tokens, AMM
 //!   pools and signer lists, real headers and hash trees of each ledger it
 //!   closes, validators that sign them and a publisher that lists them, the
@@ -80,7 +85,6 @@ pub mod base64;
 pub mod binary;
 pub mod codec;
 pub mod dsusd;
-pub mod entry;
 #[cfg(feature = "fake")]
 pub mod fake;
 mod follower;
