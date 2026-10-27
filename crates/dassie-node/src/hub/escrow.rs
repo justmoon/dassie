@@ -24,9 +24,9 @@
 //!   hub's issuer's hold (a freeze of the escrow's line, a global freeze, a
 //!   transfer fee) from proofs of the line and the issuer's account root,
 //!   and attested only where it differs from the hub's. What is judged as
-//!   of the newest ledger is judged only while the newest anchor is fresh
-//!   ([`ANCHOR_FRESH_MS`]): an old anchor delays attestations, never
-//!   invents them.
+//!   of the newest ledger is judged only from a proof as of the newest
+//!   anchor, while it is fresh ([`ANCHOR_FRESH_MS`]): an old anchor delays
+//!   attestations, never invents them.
 //! - **Resets by the verifier.** A reset of the test network is attested
 //!   only once a ledger of the new chain is proven under the UNL
 //!   (spec/decisions/ledger-resets.md), never from what the server says
