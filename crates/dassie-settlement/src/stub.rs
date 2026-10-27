@@ -682,20 +682,19 @@ impl SettlementScheme for Stub {
         let Some((peer, amount)) = self.prepared.remove(&settlement) else {
             return;
         };
-        let Some(hub) = &mut self.hub else {
-            return;
-        };
-        // Never short: what was prepared was spendable then, and only
-        // executing spends. Were it short, it would be cancelled, its money
-        // never moved.
-        match self.balance.checked_sub(amount) {
-            Some(balance) => {
-                self.balance = balance;
-                hub.funded_toward(peer, amount);
-                effects.push(Effect::Finalize { settlement });
-            }
-            None => effects.push(Effect::Cancel { settlement }),
+        // Only a stub with commitments prepares, and what it prepared was
+        // spendable then: only executing spends, so it is never short.
+        let hub = self.hub.as_mut();
+        assert!(hub.is_some(), "only a stub with commitments prepares");
+        assert!(
+            amount <= self.balance,
+            "a prepared settlement is never short"
+        );
+        self.balance = self.balance.saturating_sub(amount);
+        if let Some(hub) = hub {
+            hub.funded_toward(peer, amount);
         }
+        effects.push(Effect::Finalize { settlement });
     }
 
     fn reconcile(

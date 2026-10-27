@@ -648,6 +648,16 @@ impl PeerNode {
         if !repeat && (!self.schemes.contains(&request.scheme) || !hooks.speaks(request.scheme)) {
             return Err(RefusalReason::UnsupportedScheme);
         }
+        // A scheme neither over a hub nor of unlimited trust would settle
+        // directly, so a peering is never made on it, whoever asks
+        // (spec/decisions/hubs-only.md), as it is never one we ask on
+        // ([`Self::methods_with`]).
+        if !repeat
+            && !hooks.uses_commitments(request.scheme)
+            && !hooks.trusts_unlimited(request.scheme)
+        {
+            return Err(RefusalReason::UnsupportedScheme);
+        }
         // A downlink is in no node list: it enters the table by asking.
         let Some(entry) = self.table.get(sender) else {
             return if downlink {

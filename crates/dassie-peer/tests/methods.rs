@@ -155,6 +155,33 @@ fn a_pair_that_could_only_settle_directly_never_peers() {
     }
 }
 
+// spec/decisions/hubs-only.md: a node refuses a peering asked on a scheme
+// that would settle directly for it, though the node that asks takes the
+// scheme for one of unlimited trust: the asker is refused again and again,
+// and the pair never peers.
+#[test]
+fn a_peering_asked_on_a_scheme_that_would_settle_directly_is_refused() {
+    let mut network = Network::new(78, 2, 1, Config::DEV);
+    network.nodes[1].hooks.direct.insert(scheme(STUB));
+    let (a, b) = (*network.node(0).own(), *network.node(1).own());
+    settle(&mut network, 180_000);
+    let known = events(&network, 1, |event| *event == Event::NodeAdded(a));
+    assert!(known > 0, "node 1 never learned of node 0");
+    let refused = events(
+        &network,
+        0,
+        |event| matches!(event, Event::PeeringFailed { node, reason: "refused" } if *node == b),
+    );
+    assert!(refused > 1, "node 0 was refused {refused} times");
+    for (index, other) in [(0, b), (1, a)] {
+        assert!(network.node(index).peering_of(&other).is_none());
+        let peered = events(&network, index, |event| {
+            matches!(event, Event::Peered { .. })
+        });
+        assert_eq!(peered, 0, "node {index} peered");
+    }
+}
+
 // Each Prepare travels on the method it is sent on, and arrives naming it;
 // none goes on a scheme the peering has no method on.
 #[test]

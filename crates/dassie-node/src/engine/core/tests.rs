@@ -6083,12 +6083,13 @@ fn asks_a_core_node_to_peer_on_xrpl(peers: bool) -> bool {
 }
 
 // spec/areas/settlement.md#owner-books: the node never asks to peer on an
-// owner book, though a core node it knows lists it; on the same scheme
-// configured to peer, it asks.
+// owner book, though a core node it knows lists it; nor on the same scheme
+// configured to peer, which over no hub would settle directly, so it is
+// never a settlement method (spec/areas/network.md#settlement-methods).
 #[test]
 fn an_owner_book_is_never_asked_for() {
-    assert!(asks_a_core_node_to_peer_on_xrpl(true));
     assert!(!asks_a_core_node_to_peer_on_xrpl(false));
+    assert!(!asks_a_core_node_to_peer_on_xrpl(true));
 }
 
 // spec/areas/settlement.md#the-scheme-interface: the XRP Ledger scheme

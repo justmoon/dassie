@@ -73,7 +73,12 @@ Direct settlement would come back as a settlement method of its own kind beside 
   min(P · MAX_TOTAL_INITIAL_ROOM / N, P · MAX_PER_METHOD_INITIAL_ROOM)
   ```
 
-  with `MAX_TOTAL_INITIAL_ROOM` about 20 and `MAX_PER_METHOD_INITIAL_ROOM` about 10: one or two methods start at 10 P each, more share 20 P. **It must never fall below the least credit,** 7.5 P, or a link would stick after a crash it was meant to survive. So the two bounds hold together only up to `MAX_TOTAL_INITIAL_ROOM / 7.5` direct methods, two at those values: past that, a peering takes no further direct method, rather than extend less than a link survives on, or more in all than the total. What a method earns still raises its own credit, up to the cap.
+  with `MAX_TOTAL_INITIAL_ROOM` about 20 and `MAX_PER_METHOD_INITIAL_ROOM` about 10: one or two methods start at 10 P each, more share 20 P. **It must never fall below the least credit,** 7.5 P, or a link would stick after a crash it was meant to survive. So the two bounds hold together only up to `MAX_TOTAL_INITIAL_ROOM / 7.5` direct methods, two at those values, and past that one of them gives way. Which one is open, for the decision that brings direct settlement back:
+
+  - **Refuse a further direct method:** the total holds, so a peer can cost no more in all than it did with two methods, but a pair that runs more direct schemes settles on only the first of them, and a scheme its peer would rather be paid on may never become a method.
+  - **Raise each method to the least credit:** every direct scheme both run becomes a method, but the total a peering extends grows by the least credit with each method past the bound, so what one peer can cost grows with the schemes it runs.
+
+  What a method earns still raises its own credit, up to the cap.
 - **Entry payments** (§4), if a free half still needs a way in that is not a hub.
 - **Tests and simulations** of direct settlement: a peer that never settles costs at most its credit and is withdrawn; one short of room for a day is ended; one that spends its credit and vanishes costs at most that credit; a junior pays its senior in advance; credit grows with the fees a peer earned, counted on the peer's own ledger; a link that crashes drifted past what it survives is ruled out; and whole-node runs on the fake XRP Ledger with lying servers, where each node's books hold to its account. The simulations would run direct peerings beside hub peerings, each node judged by its own books.
 - **A stub that settles directly,** under a config of its own (§3), for the tests whose subject is direct settlement.
