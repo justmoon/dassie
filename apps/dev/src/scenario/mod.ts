@@ -126,6 +126,15 @@ const SPONSOR_FUNDED_WITHIN_MS = 60_000;
  */
 const FOUNDED_WITHIN_MS = 180_000;
 
+/**
+ * How long the members of a hub may take to peer once they joined it: one
+ * deposits into the hub from its owner book, which the validators credit
+ * once a validated ledger proves it, its link state then lists its
+ * account, and the other asks within a peering check. A guard against a
+ * hang, as the end-to-end tests' waits for a hub's members are.
+ */
+const PEERED_WITHIN_MS = 180_000;
+
 /** Where a validator's file is, in its data directory. */
 const VALIDATOR_FILE = "validator.json";
 
@@ -405,10 +414,50 @@ export class Scenario {
     for (const [hub, rules] of founded.flat()) {
       this.#configs[hubScheme(hub)] = hubConfig(rules);
     }
-    for (const node of this.nodes) {
-      if (!hubs.some((hub) => joins(this.def, hub, node.index))) continue;
-      await node.addSchemes(this.#schemes(node.index), this.#configs);
+    // Members of more hubs join first, and the members of fewer once those
+    // before them peered with each other. A node looks for peers only
+    // until its target of two is advertised
+    // (spec/areas/network.md#looking-for-peers), and two nodes share a hub
+    // only once one of them has an account in it: a member of two hubs,
+    // with more fellow members than that, would peer with whichever had
+    // an account first, and two members of both hubs, each at its target
+    // through the members of one hub alone, would never peer. Joined
+    // first, they are each other's only candidate; the others then have
+    // no more fellow members than their target, and peer with all.
+    const hubCount = (node: ScenarioNode) =>
+      hubs.filter((hub) => joins(this.def, hub, node.index)).length;
+    const members = this.nodes.filter((node) => hubCount(node) > 0);
+    const counts = [...new Set(members.map(hubCount))].sort((a, b) => b - a);
+    const joined: ScenarioNode[] = [];
+    for (const count of counts) {
+      if (joined.length > 0) await this.#peeredWithin(joined);
+      for (const node of members.filter((node) => hubCount(node) === count)) {
+        await node.addSchemes(this.#schemes(node.index), this.#configs);
+        joined.push(node);
+      }
     }
+  }
+
+  /** Waits until every two of `nodes` that share a hub are peered. */
+  async #peeredWithin(nodes: readonly ScenarioNode[]): Promise<void> {
+    const hubs = hubsOf(this.def);
+    const share = (a: ScenarioNode, b: ScenarioNode) =>
+      hubs.some((hub) =>
+        joins(this.def, hub, a.index) && joins(this.def, hub, b.index)
+      );
+    await until("the members of more hubs peered", async () => {
+      for (const node of nodes) {
+        const { peers } = await node.rpc.call("listPeers", {});
+        for (const other of nodes) {
+          if (other === node || !share(node, other)) continue;
+          const peered = peers.some((peer) =>
+            peer.node === other.id && peer.state === "peered"
+          );
+          if (!peered) return false;
+        }
+      }
+      return true;
+    }, PEERED_WITHIN_MS);
   }
 
   /**
