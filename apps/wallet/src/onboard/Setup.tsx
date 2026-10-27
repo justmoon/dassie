@@ -9,7 +9,7 @@
 import { type Identity, loadIdentity } from "@dassie/wasm/web";
 import type { JSX } from "@solidjs/web";
 import { createSignal, Match, Show, Switch } from "solid-js";
-import { checkPassphrase, submitSetup } from "../auth.ts";
+import { checkPassphrase, submitSetup, WALLET_REALM } from "../auth.ts";
 import {
   IDENTITY_FAILED,
   INVALID_PASSPHRASE,
@@ -89,7 +89,10 @@ function Intro(props: { go: Go }): JSX.Element {
   const generate = async () => {
     try {
       const identity = await loadIdentity();
-      props.go({ name: "generate", mnemonic: identity.generateMnemonic() });
+      const made = identity.generatePhrase(WALLET_REALM, Date.now());
+      const mnemonic = made.text;
+      made.free();
+      props.go({ name: "generate", mnemonic });
     } catch {
       setError(IDENTITY_FAILED);
     }

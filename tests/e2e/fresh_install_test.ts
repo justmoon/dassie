@@ -14,12 +14,7 @@ import { connect } from "node:tls";
 
 import { assert, assertEquals, assertMatch } from "@std/assert";
 import { Agent, fetch } from "undici";
-import {
-  deriveNodeKey,
-  generateMnemonic,
-  nodeId,
-  publicKey,
-} from "@dassie/wasm";
+import { deriveNodeKey, generatePhrase, nodeId, publicKey } from "@dassie/wasm";
 import type { Page } from "puppeteer-core";
 import { click, text, type } from "./browser.ts";
 import {
@@ -44,7 +39,7 @@ const missing = await missingTools();
 if (missing) console.warn(`skipping the end-to-end tests: ${missing}`);
 
 function expectedNodeId(phrase: string): string {
-  return nodeId(publicKey(deriveNodeKey(phrase)));
+  return nodeId(publicKey(deriveNodeKey(phrase, "test", Date.now())));
 }
 
 /** The certificate Pebble issues chains to the root Pebble generated. */
@@ -146,7 +141,7 @@ test(
 
       // Logging out and in again, with a wrong phrase first.
       await click(page, "logout");
-      await logIn(page, generateMnemonic());
+      await logIn(page, generatePhrase("test", Date.now()).text);
       assertMatch(await text(page, "login-error"), /does not belong/);
       await logIn(page, phrase);
       assertEquals(await text(page, "node-id"), expectedNodeId(phrase));

@@ -13,42 +13,62 @@
  * @example
  * ```ts
  * const identity = await loadIdentity();
- * const phrase = identity.generateMnemonic();
- * const nodeKey = identity.deriveNodeKey(phrase);
+ * const made = identity.generatePhrase("test", Date.now(), nodeNowMs);
+ * // Show made.words, and made.createdDate as `Generated 2026-02-19`.
+ * const reading = identity.readPhrase(typed, "test", Date.now());
+ * // If reading.corrected, show reading.words with reading.changed marked,
+ * // and go on only once the owner confirms.
+ * const nodeKey = reading.confirm().nodeKey("test");
  * ```
  *
  * @module
  */
 
 import init, {
-  deriveNodeKey,
-  generateMnemonic,
+  generatePhrase,
   loginSecret,
   nodeId,
-  normalizeMnemonic,
+  type Phrase,
+  type PhraseReading,
   publicKey,
-  validateMnemonic,
+  readPhrase,
 } from "./gen/web/dassie_identity.js";
+
+export {
+  isPhraseError,
+  type PhraseError,
+  type PhraseErrorCode,
+} from "./phrase_error.ts";
+export type { Phrase, PhraseReading };
 
 /** What the browser derives from a passphrase; the node derives the same. */
 export interface Identity {
-  /** A new 12-word phrase from the platform's random number generator. */
-  generateMnemonic(): string;
   /**
-   * Whether `phrase` is a valid BIP-39 phrase: known words and a matching
-   * checksum.
+   * A new phrase of `realm` from the platform's random number generator,
+   * made at `nowMs` (milliseconds since the Unix epoch). At setup, pass the
+   * node's clock as `nodeNowMs`: no phrase is made while the two are more
+   * than a day apart. Show the phrase with its `createdDate`. Throws a
+   * {@link PhraseError}.
    */
-  validateMnemonic(phrase: string): boolean;
+  generatePhrase(
+    realm: "test" | "live",
+    nowMs: number,
+    nodeNowMs?: number,
+  ): Phrase;
   /**
-   * The phrase in canonical form: lowercase, single spaces. Throws if the
-   * phrase is not valid.
+   * Reads a phrase the owner typed, expecting one of `realm`, by a clock
+   * that reads `nowMs`; the zero-based positions in `unreadable` are words
+   * the owner marks as unreadable. A reading that is `corrected` must be
+   * shown, with its `changed` positions marked, and `confirm`ed by the
+   * owner before its phrase is used. Throws a {@link PhraseError}: its kind,
+   * realm and creation time are checked before any correction is shown.
    */
-  normalizeMnemonic(phrase: string): string;
-  /**
-   * The node key (Ed25519 seed, 32 bytes) of a phrase. Throws if the phrase
-   * is not valid.
-   */
-  deriveNodeKey(phrase: string): Uint8Array;
+  readPhrase(
+    text: string,
+    realm: "test" | "live",
+    nowMs: number,
+    unreadable?: Uint32Array,
+  ): PhraseReading;
   /**
    * The login secret of a node key: what setup and login send as proof.
    * Throws unless the key has 32 bytes.
@@ -69,10 +89,8 @@ let loading: Promise<Identity> | undefined;
 export function loadIdentity(): Promise<Identity> {
   loading ??= init().then(
     (): Identity => ({
-      generateMnemonic,
-      validateMnemonic,
-      normalizeMnemonic,
-      deriveNodeKey,
+      generatePhrase,
+      readPhrase,
       loginSecret,
       publicKey,
       nodeId,

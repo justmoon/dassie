@@ -6,7 +6,12 @@
  * callers reload the page afterwards and let the gate pick the next screen.
  */
 
-import { type Identity, loadIdentity } from "@dassie/wasm/web";
+import {
+  type Identity,
+  isPhraseError,
+  loadIdentity,
+  type Phrase,
+} from "@dassie/wasm/web";
 import { loginRequest, setupRequest } from "@dassie/rpc/auth";
 import { hex } from "./hex.ts";
 
@@ -30,18 +35,33 @@ export interface Credentials {
 }
 
 /**
- * The passphrase in canonical form, or undefined if it is not a valid
- * BIP-39 phrase. The original accepted any string and silently derived a
- * different identity from it, so a typo looked like a wrong node.
+ * The realm the wallet reads and makes phrases in: the test realm, the only
+ * one a node takes from the wallet's setup today.
+ */
+export const WALLET_REALM = "test";
+
+/**
+ * The passphrase in canonical form, or undefined if it is not a phrase of
+ * the wallet's realm that reads as written by this browser's clock
+ * (spec/decisions/phrase-format.md). A phrase that would need correcting is
+ * refused too, until the wallet shows corrections for the owner to confirm.
  */
 export function checkPassphrase(
   identity: Identity,
   phrase: string,
 ): string | undefined {
-  // Normalizing parses the phrase, and throws if it is invalid; validating
-  // first keeps exceptions for real failures.
-  if (!identity.validateMnemonic(phrase)) return undefined;
-  return identity.normalizeMnemonic(phrase);
+  let read: Phrase;
+  try {
+    read = identity.readPhrase(phrase, WALLET_REALM, Date.now()).exact();
+  } catch (error) {
+    if (isPhraseError(error)) return undefined;
+    throw error;
+  }
+  try {
+    return read.text;
+  } finally {
+    read.free();
+  }
 }
 
 /**
@@ -52,8 +72,13 @@ export function deriveCredentials(
   identity: Identity,
   phrase: string,
 ): Credentials {
-  const nodeKey = identity.deriveNodeKey(phrase);
-  return { nodeKey, loginProof: identity.loginSecret(nodeKey) };
+  const read = identity.readPhrase(phrase, WALLET_REALM, Date.now()).exact();
+  try {
+    const nodeKey = read.nodeKey(WALLET_REALM);
+    return { nodeKey, loginProof: identity.loginSecret(nodeKey) };
+  } finally {
+    read.free();
+  }
 }
 
 /** `POST /api/setup`: stores the node key and signs the owner in. */

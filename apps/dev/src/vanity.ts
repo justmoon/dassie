@@ -12,13 +12,7 @@
  * @module
  */
 
-import {
-  deriveNodeKey,
-  loginSecret,
-  mnemonicFromEntropy,
-  nodeId,
-  publicKey,
-} from "@dassie/wasm";
+import { loginSecret, nodeId, phraseFromSecret, publicKey } from "@dassie/wasm";
 import table from "../vanity.json" with { type: "json" };
 import { MAX_NODES } from "./scenario/scenarios.ts";
 
@@ -81,16 +75,24 @@ export function formatTable(entries: Table): string {
   return `{\n${lines.join(",\n")}\n}\n`;
 }
 
+/** The phrase of `entropy`, a test-realm phrase made at 2026-01-01T00:00Z. */
+function phraseOf(entropy: string): { phrase: string; key: Uint8Array } {
+  const made = phraseFromSecret(Uint8Array.fromHex(entropy), "test", 0);
+  try {
+    return { phrase: made.text, key: made.nodeKey("test") };
+  } finally {
+    made.free();
+  }
+}
+
 /** The node ID `entropy` gives. */
 export function idOf(entropy: string): string {
-  const phrase = mnemonicFromEntropy(Uint8Array.fromHex(entropy));
-  return nodeId(publicKey(deriveNodeKey(phrase)));
+  return nodeId(publicKey(phraseOf(entropy).key));
 }
 
 /** Derives the identity of `entropy`, which must give `id` (asserted). */
 export function derive(index: number, [entropy, id]: Entry): Identity {
-  const phrase = mnemonicFromEntropy(Uint8Array.fromHex(entropy));
-  const key = deriveNodeKey(phrase);
+  const { phrase, key } = phraseOf(entropy);
   const pub = publicKey(key);
   const derived = nodeId(pub);
   if (derived !== id) {

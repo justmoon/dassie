@@ -101,7 +101,7 @@ async function setUp(owner: RpcClient) {
   });
   const { url } = await owner.call("getSetupUrl", {});
   const token = url.split("/setup/")[1];
-  const key = deriveNodeKey(PHRASE);
+  const key = deriveNodeKey(PHRASE, "test", Date.now());
   const dispatcher = new Agent({ connect: { ca: ROOT } });
   const origin = `https://localhost:${HTTPS_PORT}`;
   const response = await fetch(`${origin}/api/setup`, {

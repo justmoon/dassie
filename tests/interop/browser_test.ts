@@ -25,7 +25,7 @@ try {
   await initStream({ module_or_path: "./dassie_stream_bg.wasm" });
 
   const phrase = "pulp junk march life divorce celery flower bar one angry claw crush";
-  const nodeId = identity.nodeId(identity.publicKey(identity.deriveNodeKey(phrase)));
+  const nodeId = identity.nodeId(identity.publicKey(identity.deriveNodeKey(phrase, "test", Date.now())));
 
   const secret = new Uint8Array(32);
   crypto.getRandomValues(secret);
