@@ -115,7 +115,10 @@
           desktop = import ./nix/desktop-libs.nix { inherit pkgs; };
 
           # The workspace crate by crate, with its checks (nix/rust).
-          rust = import ./nix/rust { inherit pkgs toolchain craneLib; };
+          rust = import ./nix/rust {
+            inherit pkgs toolchain craneLib;
+            wallet = release.packages.wallet or null;
+          };
 
           # What the flake's own crane builds share: the workspace, and the
           # ci profile (Cargo.toml) rather than crane's default, release,
@@ -279,25 +282,25 @@
 
           # The desktop app (nix/desktop.nix), with the wallet built in, on
           # x86_64-linux, where the wallet is built: `nix run .#desktop`.
-          # The package builds in release; its check, below, in Cargo's
-          # desktop-check profile.
+          # The package builds in release; its check, below, wraps the app
+          # nix/rust built for the checks.
           desktopIn =
-            check:
+            binary:
             import ./nix/desktop.nix {
               inherit
                 lib
                 pkgs
                 craneLib
                 src
-                check
+                binary
                 ;
               inherit (release.packages) wallet;
             };
           desktop-app = lib.optionalAttrs (system == "x86_64-linux") {
-            desktop = desktopIn false;
+            desktop = desktopIn null;
           };
           desktop-check = lib.optionalAttrs (system == "x86_64-linux") {
-            desktop = desktopIn true;
+            desktop = desktopIn rust.desktop;
           };
 
           # The TypeScript side's checks (nix/ts.nix), on x86_64-linux too,
@@ -313,7 +316,7 @@
                 wasm-modules
                 ;
               inherit (release.packages) wallet;
-              e2e = rust.e2eBinaries release.packages.wallet;
+              e2e = rust.e2eBinaries;
             }
           );
         in
@@ -336,18 +339,6 @@
               inherit src;
               inherit (common) pname version;
             };
-            cargo-clippy-wasm = craneLib.cargoClippy (
-              common
-              // {
-                src = wasmSrc;
-                inherit cargoVendorDir;
-                cargoArtifacts = wasmArtifacts;
-                CARGO_PROFILE = "wasm";
-                CARGO_BUILD_TARGET = "wasm32-unknown-unknown";
-                cargoExtraArgs = "--locked --features identity,stream -p dassie-wasm";
-                cargoClippyExtraArgs = "-- -D warnings";
-              }
-            );
             # The dependencies' licenses and sources, and wildcard
             # requirements, by deny.toml: crane's default checks, which
             # need no network. The advisories change without a change
@@ -365,17 +356,32 @@
               inherit (common) pname version;
             };
             inherit wasm-modules;
+            # The WASM crates' lints, as `cargo clippy` checks them: without
+            # codegen, so nothing is compiled twice. The modules themselves
+            # are rustc's: they ship, in the wallet and on dassie.land, and
+            # clippy-driver compiles other code (it skips MIR's
+            # optimizations).
+            cargo-clippy-wasm = craneLib.cargoClippy (
+              common
+              // {
+                src = wasmSrc;
+                inherit cargoVendorDir;
+                cargoArtifacts = wasmArtifacts;
+                CARGO_PROFILE = "wasm";
+                CARGO_BUILD_TARGET = "wasm32-unknown-unknown";
+                cargoExtraArgs = "--locked --features identity,stream -p dassie-wasm";
+                cargoClippyExtraArgs = "-- -D warnings";
+              }
+            );
           }
-          # Each crate's tests and clippy, crate by crate (nix/rust): an edit
-          # builds the crates it reaches again, and runs their tests alone.
+          # Each crate's tests, its lints with them, crate by crate
+          # (nix/rust): an edit builds the crates it reaches again, and runs
+          # their tests alone.
           // rust.checks
           // (release.checks or { })
           // (ts.checks or { })
-          # The desktop app with Cargo, as nix/rust builds every other crate
-          # apart, since Tauri's build scripts pass their dependents what
-          # buildRustCrate cannot: clippy, its tests, and the packaged app
-          # built and wrapped, which they do not show, on one build of the
-          # workspace's crates (nix/desktop.nix).
+          # The packaged app: the desktop app nix/rust built for its tests,
+          # wrapped, which they do not show (nix/desktop.nix).
           // desktop-check;
 
           # The simulation campaign's VMs (scripts/sim-campaign.ts): CI's

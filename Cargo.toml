@@ -94,15 +94,6 @@ inherits = "dev"
 [profile.ci]
 inherits = "test"
 
-# The desktop app's check (nix/desktop.nix): ci's code, but with debug
-# assertions off, as the package builds it, since Tauri compiles other code
-# with them. Clippy, the app's tests and its package share the one build;
-# release's fat LTO, which made the check minutes slower, is not what it
-# checks.
-[profile.desktop-check]
-inherits = "ci"
-debug-assertions = false
-
 # The simulation runner, dassie-sim
 # (spec/decisions/random-seed-simulations.md): the test profile's code, so
 # that a run checks every invariant before every commit, as it does in tests,
