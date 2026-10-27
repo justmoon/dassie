@@ -265,7 +265,6 @@ fn terminations_channels_and_bans_round_trip() {
                 data: vec![9],
                 attempts: 2,
             }),
-            ended_for_room: true,
             paid_us: true,
         },
     };
@@ -310,8 +309,8 @@ fn terminations_channels_and_bans_round_trip() {
     assert_eq!(terminations, 0);
 }
 
-// A closed channel stays on disk with its sequences and its mark of an end
-// for room, and leaves what a restart loads; a late settlement moves its
+// A closed channel stays on disk with its sequences and whether the node
+// paid us, and leaves what a restart loads; a late settlement moves its
 // sequence, and opening it again writes it open
 // (spec/decisions/closing-channels.md).
 #[test]
@@ -326,7 +325,6 @@ fn a_closed_channel_stays_on_disk() {
             settled_in: 2,
             settled_out: 5,
             outbox: None,
-            ended_for_room: true,
             paid_us: true,
         },
     };

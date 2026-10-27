@@ -18,7 +18,7 @@ A node takes no new Prepare from a peer its messages surely do not reach.
 - **The refusal is T04,** temporary, before the connector's other checks, as a depeering node's is ([ending-a-peering](ending-a-peering.md)). Our Prepares still go to the peer: one that does not arrive fails at once.
 - **It is its own state,** apart from [ending-a-peering](ending-a-peering.md)'s refusal: either refuses, and lifting one leaves the other. A peering being made starts reached, since the two just answered each other; a peering that ends forgets it. It is not persisted: a restart tries the peer again.
 
-So a cut one way drifts the books by at most what was in flight when it began, as one crash does, and the [least credit](../areas/settlement.md#credit) covers it.
+So a cut one way drifts the books by at most what was in flight when it began, as one crash does, and a link survives it as it survives a crash ([Settlement](../areas/settlement.md#credit)).
 
 ## Accepted
 

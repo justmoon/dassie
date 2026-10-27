@@ -704,9 +704,7 @@ fn a_silent_peer_short_of_room_is_withdrawn_for_its_silence() {
 // spec/decisions/ended-for-room.md: a link that stayed short of room,
 // settling nothing, is ended, and the pair stays apart for the owner's
 // cooldown, by node 0's own clock: neither asks the other, and node 0 refuses
-// node 1's request. The next peering with it as node 0's senior raises it no
-// credit, which the channel remembers. Only past the cooldown do they peer
-// again.
+// node 1's request. Only past the cooldown do they peer again.
 #[test]
 fn a_peer_ended_for_room_is_not_peered_again_within_the_cooldown() {
     let (mut network, a, b) = peered(44);
@@ -725,8 +723,6 @@ fn a_peer_ended_for_room_is_not_peered_again_within_the_cooldown() {
                 }),
         "ended for room, not for another reason"
     );
-    assert!(network.node(0).channel(&b).unwrap().ended_for_room);
-    assert!(!network.node(1).channel(&a).unwrap().ended_for_room);
     let ended_at = network.clock(0);
     let cooldown = CONFIG.owner_termination_cooldown_ms;
     let body = peering_request(&network, &key(1), 1, 0);
@@ -740,7 +736,7 @@ fn a_peer_ended_for_room_is_not_peered_again_within_the_cooldown() {
             network.clock(0) - ended_at
         );
     }
-    // Past it, the two peer again, on the channel that remembers.
+    // Past it, the two peer again.
     for _ in 0..60 {
         if network.node(0).peering_of(&b).is_some() {
             break;
@@ -748,7 +744,6 @@ fn a_peer_ended_for_room_is_not_peered_again_within_the_cooldown() {
         settle(&mut network, 1_000);
     }
     assert!(network.node(0).peering_of(&b).is_some(), "peered again");
-    assert!(network.node(0).channel(&b).unwrap().ended_for_room);
 }
 
 /// Node 0 checks `peer` every second for `ms`, as its settlement checks do

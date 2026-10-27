@@ -63,24 +63,11 @@ pub const fn redeem_threshold(max_packet: u64) -> u64 {
     max_packet.saturating_mul(2)
 }
 
-/// The least credit that keeps a link settling after a crash drifted the
-/// two sides' books apart by `drift`. Asked at the asker's trigger, a
-/// debtor settles only if its own books leave it its trigger plus twice the
-/// minimum, so a link whose two sides count with these rules takes this
-/// much credit.
-#[must_use]
-pub const fn least_credit(max_packet: u64, drift: u64) -> u64 {
-    trigger(max_packet)
-        .saturating_mul(2)
-        .saturating_add(minimum(max_packet).saturating_mul(2))
-        .saturating_add(drift)
-}
-
 /// The least a node keeps spendable in its settlement hub: for each of its
 /// peerings over the hub, and for one while it has none, the most one
 /// request to settle has it fund the hold toward the peer. A payer over a
-/// hub settles as a junior that extends the default `credit` would, with
-/// its hold counted as paid in advance, so a request takes at most what
+/// hub settles as if it extended the default `credit`, with its hold
+/// counted as paid in advance, so a request takes at most what
 /// [`requested_amount`] gives at that credit, and never less than the
 /// least settlement: kept for every peering, no settlement asked of us
 /// waits for a deposit. At most half the [`hub_ceiling`], which bounds how
@@ -98,42 +85,15 @@ pub fn hub_floor(max_packet: u64, credit: u64, peerings: u64) -> u64 {
 }
 
 /// The most a node keeps in its settlement hub, its holds toward peers and
-/// theirs toward it included:
-/// as much as the most credit any peer can earn, a hundred of the largest
-/// packets. A hub that fails costs the node no more than a peer that
-/// earned all the credit it can and walked away
+/// theirs toward it included: a hundred of the largest packets, all that a
+/// hub that fails can cost the node. Its own holds count, since each is
+/// the credit it extends over the hub, paid in advance. Far enough above
+/// the [`hub_floor`] that each move between the hub and the node's own
+/// account carries many packets' worth
 /// (spec/designs/settlement-hubs.md#11-choosing-a-hub).
 #[must_use]
 pub const fn hub_ceiling(max_packet: u64) -> u64 {
-    credit_cap(max_packet)
-}
-
-/// The share of the fees a peer earned us by which the credit we extend
-/// to it grows, in millionths: 10%. A packet comes in through one peer and
-/// leaves through another, so its fee counts toward both; at most 50%, so
-/// that the credit a node hands out never exceeds what it earned
-/// (spec/decisions/earned-trust.md).
-pub const GROWTH_PPM: u64 = 100_000;
-const _: () = assert!(GROWTH_PPM <= 500_000, "growth above half the fees");
-
-/// The most credit a peer can earn: a hundred of the largest packets.
-/// Credit extended above it, as configured or from before, stays.
-#[must_use]
-pub const fn credit_cap(max_packet: u64) -> u64 {
     max_packet.saturating_mul(100)
-}
-
-/// The credit a peer earned `growth` more of, up to `cap`: never less than
-/// it was.
-#[must_use]
-pub fn raised(credit: u64, growth: u128, cap: u64) -> u64 {
-    if credit >= cap {
-        return credit;
-    }
-    let raised = u128::from(credit)
-        .saturating_add(growth)
-        .min(u128::from(cap));
-    u64::try_from(raised).unwrap_or(cap)
 }
 
 /// The credit a node extends to every peer on a scheme with unlimited trust
@@ -142,7 +102,7 @@ pub fn raised(credit: u64, growth: u128, cap: u64) -> u64 {
 /// units, so no test runs out of room. At most an eighth of what an
 /// account's counters hold, so that a peer's account, whose posted credits
 /// are the trust and all the peer ever paid us, takes seven times as much
-/// again. It never grows.
+/// again.
 pub const UNLIMITED_CREDIT: u64 = 1_000_000_000_000_000_000;
 const _: () = assert!(
     UNLIMITED_CREDIT <= MAX_TOTAL / 8,
@@ -185,31 +145,17 @@ mod tests {
     const T: u64 = trigger(P);
     const M: u64 = minimum(P);
 
-    // spec/decisions/earned-trust.md: credit grows by a tenth of the fees, up
-    // to a hundred packets, and never falls.
+    // Unlimited trust is a hundred million times the most a node keeps in
+    // its hub at the default largest packet: no test runs out of room.
     #[test]
-    fn credit_grows_up_to_the_cap() {
-        let cap = credit_cap(P);
-        assert_eq!(cap, 10_000_000_000);
-        assert_eq!(raised(C, 5, cap), C + 5);
-        assert_eq!(raised(cap - 1, 5, cap), cap);
-        assert_eq!(raised(cap + 7, 5, cap), cap + 7);
-    }
-
-    // Unlimited trust is a hundred million of the most credit a peer can
-    // earn at the default largest packet: no test runs out of room.
-    #[test]
-    fn unlimited_credit_dwarfs_any_earned_credit() {
-        assert_eq!(UNLIMITED_CREDIT / credit_cap(P), 100_000_000);
+    fn unlimited_credit_dwarfs_any_hold() {
+        assert_eq!(UNLIMITED_CREDIT / hub_ceiling(P), 100_000_000);
     }
 
     #[test]
     fn the_thresholds_follow_the_largest_packet() {
         assert_eq!((T, M), (150_000_000, 100_000_000));
         assert_eq!(redeem_threshold(P), 200_000_000);
-        // Two triggers, twice the minimum, and a crash's drift at the cap
-        // of two and a half packets in flight: 0.75 units.
-        assert_eq!(least_credit(P, 250_000_000), 750_000_000);
     }
 
     // A peer is asked to settle once our room for it has fallen to our
@@ -230,8 +176,9 @@ mod tests {
         assert_eq!(requested_amount(500_000_000, T, M), 175_000_000);
     }
 
-    // A senior extends a junior nothing: it asks at once, and the junior,
-    // owing nothing yet, pays in advance (spec/decisions/earned-trust.md).
+    // A payee whose hold is empty asks at once, and the payer, owing
+    // nothing yet, funds it in advance as if it extended the default credit
+    // (spec/designs/settlement-hubs.md#4-peering-over-a-hub).
     #[test]
     fn without_credit_a_peer_pays_in_advance() {
         assert!(ask(0, T));

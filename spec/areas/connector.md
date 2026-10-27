@@ -136,7 +136,7 @@ A limit refusal becomes T04, a full table T03. So a peer can push packets to us 
 
 The connector caps, for each peer's method and each way, what the packets in flight carry, at two and a half of the [largest packets](#the-largest-packet) (`IN_FLIGHT_PACKETS` and `Config::max_in_flight`). A Prepare that would pass it gets T05, from which STREAM backs off as from any temporary error, and never moves to another method.
 
-- **Why it exists.** A node that crashes with Prepares in flight never learns that its downstream fulfilled them, so each one drifts the two peers' books apart by its amount. Without a cap, a crash with many STREAM connections over one peer drifted the books far enough that settlement between them stalled for good. The cap is the most one crash, or one link cut one way ([unreachable-peers](../decisions/unreachable-peers.md)), costs a link, and the [least credit](settlement.md#credit) is derived from it.
+- **Why it exists.** A node that crashes with Prepares in flight never learns that its downstream fulfilled them, so each one drifts the two peers' books apart by its amount. Without a cap, a crash with many STREAM connections over one peer drifted the books far enough that settlement between them stalled for good. The cap is the most one crash, or one link cut one way ([unreachable-peers](../decisions/unreachable-peers.md)), costs a link, and what a link survives is counted in it ([Settlement](settlement.md#credit)).
 - **Two and a half.** A payment's STREAM keeps two of the largest packets in flight; the half packet left takes smaller ones, such as a quote's probes while a payment fills the link. Without it those probes are refused and the quote fails.
 - **Per method,** since each method's books are on a ledger of their own, and a crash drifts each by what was in flight on it: what a peer can cost is the sum over its methods ([settlement-methods](../decisions/settlement-methods.md)).
 - **Amounts, not packets,** so packets from parts of the network with a smaller largest packet just fit more of them.
@@ -145,7 +145,7 @@ The connector caps, for each peer's method and each way, what the packets in fli
 
 ## The largest packet
 
-A Prepare above the largest packet `P` gets F08, with the amounts. `P` is how much the owner is prepared to lose on a link, so every threshold of a link is counted in it: the cap above, and the settlement trigger, the least settlement and the least credit ([Settlement](settlement.md#positions-and-thresholds)). It is one value for the node, as is the default credit line; per-ledger values are not built ([roadmap](../roadmap.md#not-built-yet)).
+A Prepare above the largest packet `P` gets F08, with the amounts. `P` is how much the owner is prepared to lose on a link, so every threshold of a link is counted in it: the cap above, and the settlement trigger, the least settlement and the least default credit ([Settlement](settlement.md#positions-and-thresholds)). It is one value for the node, as is the default credit; per-ledger values are not built ([roadmap](../roadmap.md#not-built-yet)).
 
 ## Fees and spread
 
@@ -153,7 +153,7 @@ Only what passes from one peer to another is charged: the owner's fee, and on a 
 
 - **The fee rounds down,** so a packet too small to carry one passes free. Rounded up, it would take a payment's last packets whole, and strand the payment short.
 - **The spread and the curve are not booked per packet:** their gain is the net of the FX accounts, and negative when the node pays above spot for what it lacks.
-- **The fee is what a peer earns us,** and the credit we extend it grows from it ([Settlement](settlement.md#credit)). Fees default to 0.
+- **The fee is what a peer earns us,** and what weighs it as a next hop ([Routing](#routing)). Fees default to 0.
 - New charges apply from the engine's next step.
 
 ## Spending caps

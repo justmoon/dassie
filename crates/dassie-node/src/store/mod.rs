@@ -63,9 +63,7 @@ pub use hubs::{
     MAX_HUB_CONSENSUS_BYTES, MAX_HUB_LEDGER_BYTES, StoredHub,
 };
 pub use inspect::{BLOB_CUT, Cell, ColumnInfo, MAX_ROWS, RowsPage, TEXT_CUT, TableInfo, Value};
-pub use ledger::{
-    BtpTokenRow, Checkpoint, FeeRow, JournalRow, LedgerBatch, StoredLedger, TokenCap,
-};
+pub use ledger::{BtpTokenRow, Checkpoint, JournalRow, LedgerBatch, StoredLedger, TokenCap};
 pub use outgoing::{
     ForeignAmount, MAX_LIVE_OWNER_QUOTES, MAX_LIVE_QUOTES, OutgoingBatch, OutgoingProgress,
     OutgoingRow, OutgoingState, QuoteRow,

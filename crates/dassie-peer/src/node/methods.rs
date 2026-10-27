@@ -181,11 +181,8 @@ impl PeerNode {
         let room = self
             .peering_of(&node)
             .is_some_and(|peering| peering.methods.len() < MAX_METHODS);
-        let ended_for_room = self.ended_for_room(&node, hooks);
         let agreed = if room && hooks.speaks(scheme) {
-            hooks
-                .finalize(self.now_ms, node, scheme, &info, ended_for_room)
-                .ok()
+            hooks.finalize(self.now_ms, node, scheme, &info).ok()
         } else {
             None
         };

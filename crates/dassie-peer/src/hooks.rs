@@ -81,9 +81,7 @@ pub trait PeeringHooks {
     ) -> Result<Agreed, RefusalReason>;
 
     /// Completes our request to `peer`, which accepted: opens its
-    /// accounts. `ended_for_room` says we once ended a peering
-    /// with it for want of room, so it earns no more credit for asking
-    /// (spec/areas/settlement.md#credit).
+    /// accounts.
     ///
     /// # Errors
     ///
@@ -94,7 +92,6 @@ pub trait PeeringHooks {
         peer: NodeId,
         scheme: SchemeId,
         info: &[u8],
-        ended_for_room: bool,
     ) -> Result<Agreed, Declined>;
 
     /// Whether `scheme` holds an entry payment from `node`, which asks to

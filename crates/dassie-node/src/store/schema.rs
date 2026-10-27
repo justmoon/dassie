@@ -22,7 +22,7 @@ pub const EARLY_TESTNET_APPLICATION_ID: i32 = 0x7DA5_E2C9;
 
 /// The migrations, in order. Migration `n` (1-based) brings `user_version`
 /// to `n`. Never edit one that has shipped; add another.
-pub(super) const MIGRATIONS: &[&str] = &[BASELINE, MIGRATION_2, MIGRATION_3];
+pub(super) const MIGRATIONS: &[&str] = &[BASELINE, MIGRATION_2, MIGRATION_3, MIGRATION_4];
 
 /// The schema version this code writes: the number of migrations.
 pub const SCHEMA_VERSION: i64 = version_of(MIGRATIONS);
@@ -144,7 +144,7 @@ CREATE INDEX ledger_transfers_pending ON ledger_transfers (state) WHERE state = 
 CREATE INDEX ledger_transfers_by_debit_sequence ON ledger_transfers (debit, sequence);
 CREATE INDEX ledger_transfers_by_credit_sequence ON ledger_transfers (credit, sequence);
 -- A fee's packet is found by its reference, and where to start reading fees
--- by the last trust transfer (spec/decisions/earned-trust.md).
+-- by the last trust transfer (spec/decisions/hubs-only.md).
 CREATE INDEX ledger_transfers_by_packet ON ledger_transfers (packet_epoch, packet_sequence)
   WHERE packet_epoch IS NOT NULL;
 CREATE INDEX ledger_transfers_trust ON ledger_transfers (sequence) WHERE reference = 'trust';
@@ -693,6 +693,22 @@ ALTER TABLE settlement_schemes ADD COLUMN removing_since_ms INTEGER
   CHECK (removing_since_ms IS NULL OR removing_since_ms >= 0);
 ";
 
+/// Migration 4: what only settling directly needed goes
+/// (spec/decisions/hubs-only.md). A settlement channel no longer keeps
+/// whether we once ended a peering for want of room: over a hub the hold is
+/// all the credit there is, so the mark withholds nothing, and the cooldown
+/// after such an end is never persisted
+/// (spec/decisions/ended-for-room.md). The indexes that found the fees a
+/// peer earned us, and where to start reading them, go with the credit
+/// that grew from them. The column's own CHECK names only it, so SQLite
+/// drops it in place.
+const MIGRATION_4: &str = "
+ALTER TABLE settlement_channels DROP COLUMN ended_for_room;
+
+DROP INDEX ledger_transfers_by_packet;
+DROP INDEX ledger_transfers_trust;
+";
+
 /// Columns that hold secrets: the database inspector never reads them.
 pub const SECRET_COLUMNS: &[(&str, &str)] = &[
     ("node_key", "private_key"),
@@ -954,7 +970,6 @@ pub const TABLES: &[Table] = &[
             ("outbox_amount", "INTEGER", false, false),
             ("outbox_data", "BLOB", false, false),
             ("outbox_attempts", "INTEGER", false, false),
-            ("ended_for_room", "INTEGER", true, false),
             ("closed", "INTEGER", true, false),
             ("paid_us", "INTEGER", true, false),
         ],

@@ -4,7 +4,7 @@
 
 ## Facts
 
-A node that crashes with Prepares in flight never learns that its downstream fulfilled them, so each one drifts the two peers' books apart by its amount ([own-fulfills](own-fulfills.md)). STREAM limits packets in flight per connection, not per peer, so what a node had in flight over one peer was bounded only by the credit. In the simulation, a senior that crashed while its owner's payments were running had most of its junior's credit in flight; asked, the junior settled less than its minimum while the senior's books left it less than a packet of room, and the link stalled for good.
+A node that crashes with Prepares in flight never learns that its downstream fulfilled them, so each one drifts the two peers' books apart by its amount ([own-fulfills](own-fulfills.md)). STREAM limits packets in flight per connection, not per peer, so what a node had in flight over one peer was bounded only by the credit. In the simulation, a node that crashed while its owner's payments were running had most of the credit its peer extended in flight; asked, the peer settled less than its minimum while the crashed node's books left it less than a packet of room, and the link stalled for good.
 
 ## Decision
 
@@ -22,6 +22,6 @@ A node caps the money in flight with each peer, each way, at two and a half of i
 
 ## Rejected
 
-- *A share of the credit we extend:* the credit is asymmetric, and a senior extends none ([earned-trust](earned-trust.md)).
+- *A share of the credit we extend:* the credit is asymmetric, and a node may extend none, as a payee over a hub that holds nothing toward its payer does.
 - *A share of the room between the peers:* each node knows only the credit it extends.
 - *A share of recent settlements, or the rate times the round trip:* more moving parts than the problem needs.

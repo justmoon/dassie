@@ -72,7 +72,7 @@ Read a [decision](decisions/README.md) when an area doc links to it and you need
 | [Connector](areas/connector.md) | The packet path: endpoints, outcomes, timing, fees and spread, spending caps, money in flight, exchange rates, BTP |
 | [Peer protocol](areas/peer-protocol.md) | The wire protocol between nodes: transport, versions, messages, authentication by the QUIC connection, link states |
 | [Network](areas/network.md) | The node table, flooding, membership and registration, bootstrap nodes, peering and its lifecycle, routing |
-| [Settlement](areas/settlement.md) | Settlement schemes, external assets, credit and its growth, thresholds, settling on request, settlement channels |
+| [Settlement](areas/settlement.md) | Settlement schemes, external assets, credit, thresholds, settling on request, settlement channels |
 | [Settlement hubs](areas/hubs.md) | A hub's rules and its ledger: accounts, holds, what validators attest, and who gets the fees |
 | [XRPL](areas/xrpl.md) | The XRP Ledger accounts on the testnet and mainnet, the XRP scheme and the token scheme (DSUSD, RLUSD) on them, and the fake ledger |
 | [Payments](areas/payments.md) | Open Payments: wallet addresses, GNAP, incoming and outgoing payments, quotes, the owner's Send |
