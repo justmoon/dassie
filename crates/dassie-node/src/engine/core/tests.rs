@@ -2742,11 +2742,23 @@ pub(super) const STUB_TWO: &str = "stub-two";
 /// stub's, so that two nodes running both share two hubs.
 const STUB_TWO_HUB: [u8; 32] = *b"the second stub's pretend hub..!";
 
-/// The packets any [`StubTwo`] committed to or took a commitment for, in
-/// this process: none, while the connector carries a peer's packets on its
-/// first method alone (spec/decisions/settlement-methods.md), so every test
-/// may read it, whichever run beside it.
-static STUB_TWO_PACKETS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+std::thread_local! {
+    /// The packets any [`StubTwo`] of this thread committed to or took a
+    /// commitment for. A test runs its cores on its own thread, so it
+    /// counts the packets of that test's cores alone, whichever tests run
+    /// beside it.
+    static STUB_TWO_PACKETS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
+/// The packets [`StubTwo`] carried in this test so far.
+fn stub_two_packets() -> u64 {
+    STUB_TWO_PACKETS.with(std::cell::Cell::get)
+}
+
+/// Counts a packet [`StubTwo`] carried.
+fn count_stub_two_packet() {
+    STUB_TWO_PACKETS.with(|count| count.set(count.get() + 1));
+}
 
 /// The stub with commitments under another name, on a ledger of its own,
 /// the XRP hub's, whose owner book has no peg guard, and in a pretend hub
@@ -2907,7 +2919,7 @@ impl dassie_settlement::Commitments for StubTwo {
         promised: dassie_settlement::Promised,
         out: &mut Vec<u8>,
     ) -> Result<(), dassie_settlement::SchemeError> {
-        STUB_TWO_PACKETS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        count_stub_two_packet();
         self.with_inner(|inner| inner.commit(now_ms, peer, request_id, promised, out))
     }
 
@@ -2919,7 +2931,7 @@ impl dassie_settlement::Commitments for StubTwo {
         promised: dassie_settlement::Promised,
         commitment: &[u8],
     ) -> Result<(), dassie_settlement::SchemeError> {
-        STUB_TWO_PACKETS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        count_stub_two_packet();
         self.with_inner(|inner| {
             inner.check_commitment(now_ms, peer, request_id, promised, commitment)
         })
@@ -6336,6 +6348,25 @@ fn method_credit(sim: &crate::sim::Sim, index: usize, scheme: &str) -> u64 {
         .map_or(0, |(credit, _, _)| credit)
 }
 
+/// Whether both nodes of a [`two_hub_pair`] funded their holds toward the
+/// other on both methods.
+fn funded(sim: &crate::sim::Sim) -> bool {
+    (0..2).all(|index| {
+        ["stub", STUB_TWO]
+            .into_iter()
+            .all(|scheme| method_credit(sim, index, scheme) > 0)
+    })
+}
+
+/// Whether node 0 of a [`two_hub_pair`] has asked node 1 to settle on both
+/// methods, and waits for the answers.
+fn asked_on_both(sim: &crate::sim::Sim) -> bool {
+    let other = crate::sim::key(1).node_id();
+    let asked = &sim.core(0).settle.asked;
+    asked.contains_key(&(other, scheme_id("stub")))
+        && asked.contains_key(&(other, scheme_id(STUB_TWO)))
+}
+
 // spec/decisions/settlement-methods.md: two nodes that share two hubs peer
 // on both, the first the one the peering was made on and the second added,
 // in the same order on both sides. Each method has the peer's two accounts
@@ -6364,15 +6395,14 @@ fn a_pair_that_shares_two_hubs_keeps_each_method_apart() {
         // Its packets take the method its endpoint was made on.
         assert_eq!(core.packet_method(&other), Some(scheme_id("stub")));
     }
-    // Each asks the other on each method, whose room starts empty, and each
-    // funds its hold on each: the credit on a method is its hold.
-    let funded = |sim: &crate::sim::Sim| {
-        (0..2).all(|index| {
-            ["stub", STUB_TWO]
-                .into_iter()
-                .all(|scheme| method_credit(sim, index, scheme) > 0)
-        })
-    };
+    // Each asks the other on each method, whose room starts empty, its
+    // first check on both, each on its own, and each funds its hold on
+    // each: the credit on a method is its hold.
+    assert!(
+        sim.run_until_or(sim.now + 600_000, |sim| asked_on_both(sim) || funded(sim)),
+        "node 0 never asked on both methods"
+    );
+    assert!(asked_on_both(&sim), "node 0 asked on one method only");
     assert!(
         sim.run_until_or(sim.now + 600_000, funded),
         "the holds on both methods were not funded"
@@ -6475,11 +6505,7 @@ fn a_method_short_of_room_answers_t04_and_never_moves_the_packet() {
         method_credit(&sim, 0, STUB_TWO) > 0,
         "room on the second method"
     );
-    assert_eq!(
-        STUB_TWO_PACKETS.load(std::sync::atomic::Ordering::Relaxed),
-        0,
-        "a packet moved to the second method"
-    );
+    assert_eq!(stub_two_packets(), 0, "a packet moved to the second method");
     check_hub_packets(&sim).unwrap();
 }
 
@@ -6531,8 +6557,58 @@ fn a_prepare_on_a_method_not_carried_yet_answers_t04() {
         assert!(refused, "{:?}", core.outputs_peer);
     });
     assert_eq!(
-        STUB_TWO_PACKETS.load(std::sync::atomic::Ordering::Relaxed),
+        stub_two_packets(),
         0,
         "the Prepare's commitment was looked at"
     );
+}
+
+// spec/decisions/settlement-methods.md: node 0 drops the method the pair's
+// endpoints were made on. Node 1 drops it on being told, and both make the
+// peer's endpoint anew on the peering's new first method: it stays peered,
+// and a payment's packets go on that method, with every check of the books
+// and the endpoints holding after each step. (The two share the stub's hub
+// still, so they add its method again, after the other.)
+#[test]
+fn a_peering_that_loses_its_endpoints_method_carries_packets_on_the_next() {
+    use crate::sim::checks::check_hub_packets;
+
+    let mut sim = two_hub_pair(45, false);
+    assert!(
+        sim.run_until_or(sim.now + 600_000, funded),
+        "the holds on both methods were not funded"
+    );
+    let one = crate::sim::key(1).node_id();
+    sim.step(0, |core| {
+        let now = core.now_ms();
+        assert!(core.peer.drop_method(now, &one, scheme_id("stub")));
+        core.after_peer();
+    });
+    let moved = |sim: &crate::sim::Sim| {
+        (0..2).all(|index| {
+            let other = crate::sim::key(1 - index).node_id();
+            sim.core(index).packet_method(&other) == Some(scheme_id(STUB_TWO))
+                && sim.core(index).peer_endpoints.contains_key(&other)
+        })
+    };
+    assert!(
+        sim.run_until_or(sim.now + 120_000, moved),
+        "the endpoints stayed on the dropped method"
+    );
+    for index in 0..2 {
+        let other = crate::sim::key(1 - index).node_id();
+        let peering = sim.core(index).peer.peering_of(&other).unwrap();
+        assert_eq!(peering.first().scheme, scheme_id(STUB_TWO), "node {index}");
+    }
+    // A payment's packets go on the second method: node 0 commits to its
+    // first Prepare there, and node 1 checks the commitment.
+    let before = stub_two_packets();
+    assert!(sim.pay(0, 1, 1_000_000, None, None));
+    let carried = |_: &crate::sim::Sim| stub_two_packets() >= before + 2;
+    assert!(
+        sim.run_until_or(sim.now + 120_000, carried),
+        "no packet went on the remaining method"
+    );
+    sim.run_until(sim.now + 60_000);
+    check_hub_packets(&sim).unwrap();
 }

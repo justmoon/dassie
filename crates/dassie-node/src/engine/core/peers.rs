@@ -995,10 +995,13 @@ impl Core {
             | Event::SettlementRequestNotDelivered { peer } => {
                 self.settle.asked.retain(|(node, _), _| *node != peer);
             }
-            // A method dropped is asked on, and held off, no more.
+            // A method dropped is asked on, and held off, no more. If it
+            // was the one the peer's endpoint was made on, the endpoint
+            // moves to the peering's new first method.
             Event::MethodDropped { peer, scheme, .. } => {
                 self.settle.asked.remove(&(peer, scheme));
                 self.settle.backoff.remove(&(peer, scheme));
+                self.renew_peer_endpoint(peer);
             }
             // While our messages surely do not reach the peer, its new
             // Prepares are refused: a Fulfill of ours would count only in
@@ -1083,8 +1086,52 @@ impl Core {
         }
     }
 
-    /// Takes a peer's endpoint away. Nothing is in flight with it by now,
-    /// since the peering ended only once drained.
+    /// Makes the peer's endpoint anew on its peering's first method, if it
+    /// has none or one on another: the method it was made on was dropped,
+    /// by the peer or by us for a scheme the node does not run. Until the
+    /// connector has a slot per method, a peer's packets take its
+    /// endpoint's method (spec/decisions/settlement-methods.md), so a
+    /// peering that loses that method carries packets on its new first
+    /// one, never on none. What was in flight on the dropped method
+    /// expires, as at any endpoint's removal.
+    fn renew_peer_endpoint(&mut self, peer: NodeId) {
+        let Some(first) = self.peer.peering_of(&peer).map(|p| p.first().scheme) else {
+            return;
+        };
+        if self.endpoint_methods.get(&peer) == Some(&first) {
+            return;
+        }
+        self.remove_peer_endpoint(&peer);
+        if let Err(error) = self.add_peer_endpoint(peer) {
+            self.report(PeerEvent::NoEndpoint { node: peer, error });
+        }
+        self.mark_peer_endpoint(&peer);
+        self.update_routes();
+    }
+
+    /// Marks a peer's new endpoint as its peering's state has it: one
+    /// being ended stays drained; one we end privately still refuses the
+    /// peer's Prepares (spec/decisions/ending-a-peering.md).
+    pub(super) fn mark_peer_endpoint(&mut self, peer: &NodeId) {
+        let Some(&endpoint) = self.peer_endpoints.get(peer) else {
+            return;
+        };
+        let endpoint = EndpointId::Peer(endpoint);
+        let active = self.peer.active_peers().any(|(id, _)| id == peer);
+        let depeering = self
+            .peer
+            .peering_of(peer)
+            .is_some_and(|peering| peering.depeering.is_some());
+        if !active {
+            self.connector.set_draining(endpoint, true);
+        } else if depeering {
+            self.connector.set_refusing(endpoint, true);
+        }
+    }
+
+    /// Takes a peer's endpoint away: at a peering's end, nothing is in
+    /// flight with it by now, since the peering ended only once drained;
+    /// at a method's drop, what is in flight expires.
     fn remove_peer_endpoint(&mut self, peer: &NodeId) {
         if let Some(endpoint) = self.peer_endpoints.remove(peer) {
             self.endpoint_peers.remove(&endpoint);
