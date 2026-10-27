@@ -583,8 +583,9 @@ async function hubOf(node: ScenarioNode) {
 // The Hubs page (spec/areas/wallet.md#pages) on a member of the `hub`
 // scenario, once the members peered over the hub, as hub_test.ts waits for
 // it: it shows the hub with its balance and the holds toward the other
-// member, as the node reports them, and a deposit made on the page reaches
-// the hub.
+// member, as the node reports them, a deposit made on the page reaches the
+// hub, and the page turns the node's own moves, off for the deposit, on
+// again.
 test(
   "the hubs page shows a member's hub, and a deposit made on it reaches the hub",
   { skip: missingHub !== undefined },
@@ -610,16 +611,23 @@ test(
           (await peersOverHub(peer, member)),
         HUB_WITHIN_MS,
       );
-      // Quiet: the member holds something for its peer, and no move is on
-      // its way, so the deposit below is the only one.
+      // The member holds something for its peer.
       await scenario.until("a hold funded, nothing moving", async () => {
         const { hubs: [hub] } = await member.rpc.call("getHubStatus", {});
         return hub !== undefined && hub.moving === undefined &&
           hub.balance > 0n &&
           hub.paying.some((hold) => hold.peer === peer.id && hold.amount > 0n);
       }, HUB_WITHIN_MS);
+      // Quiet: the node's own moves off, and none on its way, so the
+      // deposit below is the only one.
+      const id = (await hubOf(member)).hubId;
+      await member.rpc.call("setHubAutomatic", { hubId: id, automatic: false });
+      await scenario.until(
+        "nothing moving",
+        async () => (await hubOf(member)).moving === undefined,
+        HUB_WITHIN_MS,
+      );
       const before = await hubOf(member);
-      const id = before.hubId;
 
       const page = await browser.newPage();
       const errors = watchErrors(page);
@@ -658,18 +666,36 @@ test(
       await until(
         page,
         "the deposit reaches the hub",
-        () => attribute(page, `hub-deposited-${id}`, "data-value"),
-        (value) => value === `${before.deposited + deposit}`,
+        async () => [
+          await attribute(page, `hub-deposited-${id}`, "data-value"),
+          await count(page, `hub-error-${id}`) > 0
+            ? await text(page, `hub-error-${id}`)
+            : "",
+        ],
+        ([value, refused]) => {
+          // A refusal fails here, not at the deadline.
+          assertEquals(refused, "", "the node refused the deposit");
+          return value === `${before.deposited + deposit}`;
+        },
         HUB_WITHIN_MS,
       );
       const after = await hubOf(member);
       assertEquals(after.deposited, before.deposited + deposit);
-      // The owner's move pauses the node's own.
+      await picture(page, "11-hubs-deposit");
+      // The node's own moves, turned on again on the page.
       assertMatch(
         await text(page, `hub-automatic-text-${id}`),
-        /^Your last move pauses your node's own moves/,
+        /moves nothing by itself/,
       );
-      await picture(page, "11-hubs-deposit");
+      await click(page, `hub-automatic-${id}`);
+      await until(
+        page,
+        "the node's own moves on",
+        () => text(page, `hub-automatic-text-${id}`),
+        (shown) => !shown.includes("moves nothing by itself"),
+      );
+      assert((await hubOf(member)).automatic, "the node's own moves are on");
+      assertEquals(await count(page, `hub-error-${id}`), 0);
       assertEquals(errors, [], "the page threw");
       await page.close();
     } finally {
