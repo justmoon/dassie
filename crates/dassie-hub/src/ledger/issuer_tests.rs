@@ -419,6 +419,29 @@ fn a_clawback_during_a_freeze_ends_the_hub_after_the_thaw() {
     assert_eq!(hub.ledger.phase(), Phase::Ended);
 }
 
+// A quorum's freeze that lands in the block in which the shutdown's notice
+// ends finds the hub ended: nothing a block holds stops the ledger, the
+// hold is recorded, so the payout's signers see the escrow held, and the
+// hub, which has no clock left to stop and takes no further block, is not
+// frozen. A fee and a clawback in that block do the same.
+#[test]
+fn a_hold_in_the_block_the_hub_ends_in_is_recorded_but_freezes_nothing() {
+    let mut hub = token_hub();
+    hub.join(1, 10_000_000);
+    hub.all_validators(|_| ValidatorOperation::Shutdown);
+    let Phase::ShuttingDown { ends } = hub.ledger.phase() else {
+        panic!("a quorum's votes shut the hub down");
+    };
+    let mut last = ops(&mut hub, 0..3, &issuer(10, true, true));
+    last.extend(ops(&mut hub, 0..3, &clawback(1, 11, 1_000_000)));
+    let outcomes = hub.block_at(ends, last, &[]);
+    assert!(outcomes.iter().all(|o| *o == APPLIED));
+    assert_eq!(hub.ledger.phase(), Phase::Ended);
+    assert_eq!(hub.ledger.frozen(), None);
+    assert!(hub.ledger.issuer().holds());
+    assert_eq!(hub.ledger.escrow().clawed_back, 1_000_000);
+}
+
 // A faulty validator's made-up clawbacks fill only its own share of the
 // pending ones, and a quorum's clawback still applies.
 #[test]
@@ -483,4 +506,16 @@ fn a_reconfiguration_waits_out_a_freeze() {
     assert_eq!(hub.ledger.pending_rules().unwrap().from_height, None);
     hub.block_at(thawed + 5_000, vec![], &[]);
     assert!(hub.ledger.pending_rules().unwrap().from_height.is_some());
+}
+
+// A receipt says an operation waits for the thaw, and a member reads it
+// back as such.
+#[test]
+fn a_waiting_operations_refusal_reads_back() {
+    use dassie_oer::{Encode, Reader};
+    let outcome = Outcome::Refused(Refusal::Frozen);
+    let bytes = outcome.to_vec();
+    let mut reader = Reader::new(&bytes);
+    assert_eq!(Outcome::decode(&mut reader).unwrap(), outcome);
+    reader.finish().unwrap();
 }

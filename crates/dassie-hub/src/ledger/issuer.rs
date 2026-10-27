@@ -139,7 +139,11 @@ impl Ledger {
         self.issuer_votes
             .retain(|(issuer, _)| issuer.ledger > state.ledger);
         match (state.holds(), self.frozen) {
-            (true, None) => self.frozen = Some(self.timestamp),
+            // An ended hub has no clock left to stop and takes no further
+            // block, so it never thaws: a hold that takes effect in the
+            // block its shutdown's notice ended in is recorded
+            // ([`Ledger::issuer`]) but freezes nothing.
+            (true, None) if self.phase != Phase::Ended => self.frozen = Some(self.timestamp),
             (false, Some(since)) => self.thaw(since),
             _ => {}
         }
@@ -271,8 +275,8 @@ impl Ledger {
     }
 
     /// Asserts what the issuer's acts leave: only a token hub has any; the
-    /// hub is frozen exactly while the state in force holds it, never once
-    /// it ended, and no deadline a frozen hub keeps lies before the freeze;
+    /// hub is frozen exactly while the state in force holds it and it has
+    /// not ended, and no deadline a frozen hub keeps lies before the freeze;
     /// votes are for newer states, and the tables are within their bounds.
     pub(super) fn check_issuer(&self) {
         if !self.token_hub() {
@@ -287,12 +291,11 @@ impl Ledger {
         }
         assert_eq!(
             self.frozen.is_some(),
-            self.issuer.holds(),
-            "frozen otherwise than the issuer holds the hub"
+            self.issuer.holds() && self.phase != Phase::Ended,
+            "frozen otherwise than the issuer holds a hub that has not ended"
         );
         if let Some(since) = self.frozen {
             assert!(since <= self.timestamp, "frozen from a later block");
-            assert!(self.phase != Phase::Ended, "a frozen hub ended");
             assert!(
                 self.validator_states
                     .iter()

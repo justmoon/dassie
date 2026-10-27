@@ -370,15 +370,19 @@ impl Ledger {
     /// The timestamp of the block from which the hub is frozen, while it
     /// is: it takes no member's operation but claims within the freeze's
     /// window ([`Ledger::freeze_window_end`]), credits no deposit, settles
-    /// no withdrawal and lets no notice run, and no payout set is to be
-    /// signed until the thaw (spec/decisions/token-hubs.md).
+    /// no withdrawal and lets no notice run (spec/decisions/token-hubs.md).
+    /// Whether the escrow is held, which keeps a payout set from being
+    /// signed, is [`Ledger::issuer`]'s: an ended hub is never frozen.
     #[must_use]
     pub const fn frozen(&self) -> Option<Millis> {
         self.frozen
     }
 
     /// What a quorum last attested of the issuer's hold on a token hub's
-    /// escrow.
+    /// escrow. It holds the escrow while [`Issuer::holds`] says so, frozen
+    /// or not: a hub whose shutdown's notice ended in the block the hold
+    /// took effect in is not frozen, since an ended hub has no clock to
+    /// stop, but its escrow is held all the same.
     #[must_use]
     pub const fn issuer(&self) -> &Issuer {
         &self.issuer
