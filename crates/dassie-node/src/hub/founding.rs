@@ -413,6 +413,7 @@ mod tests {
             hubs: Vec::new(),
             xrpl: "ws://127.0.0.1:1".into(),
             network: &dassie_xrpl::network::TESTNET,
+            unl: dassie_xrpl::validator_list::UnlConfig::testnet(),
         }
     }
 
