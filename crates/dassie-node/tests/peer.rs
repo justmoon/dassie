@@ -379,7 +379,7 @@ async fn two_daemons_peer_and_keep_their_peering() {
     funded(after, PAYMENT);
     let moved = DEPOSIT - after.stub_a;
     // It did so many times as it went: asked to settle, A funds its hold
-    // as a junior that extends the credit would, half the way to its
+    // as if it extended the default credit, half the way to its
     // trigger (spec/areas/hubs.md#in-the-node), and B lets it owe little
     // beyond that hold, so no one settlement moves the credit: what moved
     // took at least one settlement per credit, several as A paid over four.

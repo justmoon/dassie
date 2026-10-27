@@ -132,16 +132,13 @@ impl Opening<'_> {
 }
 
 /// The credit a downlink's new accounts start with on `scheme`, as the
-/// scheme has it ([`ActiveScheme::start_credit`] with the `default`
-/// credit), and none on a scheme the node does not run.
-pub(super) fn start_credit(
-    schemes: &BTreeMap<Name, ActiveScheme>,
-    scheme: Name,
-    default: u64,
-) -> u64 {
+/// scheme has it for a peer that did not ask
+/// ([`ActiveScheme::start_credit`]), and none on a scheme the node does
+/// not run.
+pub(super) fn start_credit(schemes: &BTreeMap<Name, ActiveScheme>, scheme: Name) -> u64 {
     schemes
         .get(&scheme)
-        .map_or(0, |active| active.start_credit(default))
+        .map_or(0, |active| active.start_credit(0))
 }
 
 /// Opens a downlink's accounts for the first packet that moves money to it.
@@ -150,8 +147,6 @@ pub(super) struct PacketOpening<'a> {
     pub peer: &'a dassie_peer::PeerNode,
     pub endpoint_peers: &'a BTreeMap<u64, NodeId>,
     pub schemes: &'a BTreeMap<Name, ActiveScheme>,
-    /// The default credit ([`ActiveScheme::start_credit`]).
-    pub credit: u64,
     /// What the last opening opened, for whom, until the packet is booked.
     pub last: Option<(NodeId, Opened)>,
 }
@@ -182,7 +177,7 @@ impl OpensAccounts for PacketOpening<'_> {
                     .get(scheme)
                     .is_some_and(|active| active.scheme.ledger() == on)
             })?;
-        let start = start_credit(self.schemes, scheme, self.credit);
+        let start = start_credit(self.schemes, scheme);
         let opened = self.opening.open(now_ms, ledger, node, on, start)?;
         self.last = opened.new.then_some((node, opened));
         Some(opened.account)
@@ -238,7 +233,6 @@ impl Core {
             peer,
             endpoint_peers,
             schemes,
-            peer_credit,
             rng,
             ..
         } = self;
@@ -258,7 +252,6 @@ impl Core {
             peer,
             endpoint_peers,
             schemes,
-            credit: *peer_credit,
             last: None,
         };
         connector.handle_prepare_with(
@@ -303,7 +296,7 @@ impl Core {
         {
             return false;
         }
-        let start = start_credit(&self.schemes, scheme, self.peer_credit);
+        let start = start_credit(&self.schemes, scheme);
         let mut opening = Opening {
             downlinks: &mut self.downlinks,
             written: &mut self.batch.downlink_accounts,

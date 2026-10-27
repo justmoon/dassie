@@ -27,9 +27,9 @@ use dassie_settlement::{AssetId, LedgerStatus};
 pub(super) struct Hooks<'a> {
     pub schemes: &'a mut BTreeMap<Name, ActiveScheme>,
     pub ledger: &'a mut Ledger,
-    /// The default credit, which a scheme that neither settles over a hub
-    /// nor trusts without limit extends at first
-    /// ([`ActiveScheme::start_credit`]).
+    /// The default credit, which the node that asked to peer extends at
+    /// first on a scheme that neither settles over a hub nor trusts
+    /// without limit ([`ActiveScheme::start_credit`]).
     pub credit: u64,
     pub connector: &'a Connector,
     pub endpoints: &'a BTreeMap<NodeId, u64>,
@@ -224,7 +224,6 @@ impl PeeringHooks for Hooks<'_> {
         data: &[u8],
     ) -> Result<Agreed, RefusalReason> {
         let peer_name = name(peer).ok_or(RefusalReason::Unspecified)?;
-        let default = self.credit;
         let active = self
             .scheme(scheme)
             .ok_or(RefusalReason::UnsupportedScheme)?;
@@ -232,8 +231,10 @@ impl PeeringHooks for Hooks<'_> {
         let unlimited = active.unlimited;
         // Over a hub the hold is all the credit there is; with unlimited
         // trust, it starts at the unlimited credit
-        // (spec/areas/settlement.md#credit).
-        let start = active.start_credit(default);
+        // (spec/areas/settlement.md#credit). On a scheme that settles
+        // directly, the node that accepted extends nothing, and the one
+        // that asked pays in advance.
+        let start = active.start_credit(0);
         let credit_out = self.credit_for(peer, ledger, start);
         // A downlink's accounts open once value moves with it, and only if
         // they fit then: the room for them is kept from now on, while its

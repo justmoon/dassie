@@ -144,7 +144,8 @@ CREATE INDEX ledger_transfers_pending ON ledger_transfers (state) WHERE state = 
 CREATE INDEX ledger_transfers_by_debit_sequence ON ledger_transfers (debit, sequence);
 CREATE INDEX ledger_transfers_by_credit_sequence ON ledger_transfers (credit, sequence);
 -- A fee's packet is found by its reference, and where to start reading fees
--- by the last trust transfer (spec/decisions/hubs-only.md).
+-- by the last trust transfer: for credit that grew from fees, which
+-- MIGRATION_4 drops with these two indexes.
 CREATE INDEX ledger_transfers_by_packet ON ledger_transfers (packet_epoch, packet_sequence)
   WHERE packet_epoch IS NOT NULL;
 CREATE INDEX ledger_transfers_trust ON ledger_transfers (sequence) WHERE reference = 'trust';

@@ -1144,7 +1144,7 @@ fn on_unlimited_trust_both_sides_extend_the_unlimited_credit() {
     );
     // A downlink's accounts open with it too, once value moves with it.
     assert_eq!(
-        super::downlinks::start_credit(&core.schemes, Name::new("stub").unwrap(), 0),
+        super::downlinks::start_credit(&core.schemes, Name::new("stub").unwrap()),
         UNLIMITED_CREDIT
     );
 }

@@ -1095,8 +1095,7 @@ impl Core {
                 // (spec/decisions/lazy-downlink-accounts.md).
                 None if self.downlink_may_open(&from) => {
                     let debit = self.account(ledger, AccountName::AssetsSettlement)?;
-                    let trust =
-                        super::downlinks::start_credit(&self.schemes, scheme, self.peer_credit);
+                    let trust = super::downlinks::start_credit(&self.schemes, scheme);
                     let reference = Reference::Settlement { scheme, id: scheme };
                     self.ledger
                         .validate_to_peer(debit, name, trust, amount, reference)
