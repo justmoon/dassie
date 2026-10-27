@@ -2,7 +2,9 @@
 // (spec/areas/wallet.md#pages) works against real nodes, and two nodes pay
 // each other through Open Payments, from the wallet's Send. A `two-nodes`
 // scenario runs, and a headless browser signed in to `d1` goes through the
-// pages; live data must arrive without a reload. `DASSIE_E2E_WALLET_DIR` serves a wallet build other than the one
+// pages; live data must arrive without a reload. A `hub` scenario then
+// shows the Hubs page on a member of a settlement hub, and a deposit made
+// there. `DASSIE_E2E_WALLET_DIR` serves a wallet build other than the one
 // embedded in the binary, for working on the wallet, and
 // `DASSIE_E2E_SCREENSHOTS` names a directory for a picture of each step.
 
@@ -25,16 +27,33 @@ import {
 } from "./browser.ts";
 import {
   DASSIE,
+  FAKE_LEDGER,
+  missingScenarioTools,
   missingTools,
   SCENARIO_PORT_OFFSET,
   startBrowser,
 } from "./harness.ts";
-import { Scenario, type ScenarioNode } from "@dassie/dev/scenario";
+import { HUB_SCHEME, Scenario, type ScenarioNode } from "@dassie/dev/scenario";
 
+/**
+ * The tests here run one after another, each scenario stopped before the
+ * next starts, so they share one offset. The `hub` scenario's six nodes
+ * take 18701 up, 19701 up and 20701 up, and its fake ledger and rate
+ * server 24900, 24901 and 24910, clear of the other files' (see
+ * market_maker_targets_test.ts).
+ */
 const PORT_OFFSET = SCENARIO_PORT_OFFSET + 700;
 
 const missing = await missingTools();
 if (missing) console.warn(`skipping the wallet tests: ${missing}`);
+const missingHub = missing ?? await missingScenarioTools();
+
+/**
+ * How long the hub's members may take to open their accounts and peer over
+ * it, and a deposit to reach it: each move and operation waits for a
+ * validated ledger and a final block, as in hub_test.ts.
+ */
+const HUB_WITHIN_MS = 180_000;
 
 const devWallet = process.env.DASSIE_E2E_WALLET_DIR;
 const screenshots = process.env.DASSIE_E2E_SCREENSHOTS;
@@ -316,6 +335,11 @@ test("every page of the wallet works against two nodes", {
       );
     });
 
+    await t.test("hubs: a node in no hub says how to join one", async () => {
+      await click(page, "nav-hubs");
+      await text(page, "hubs-none");
+    });
+
     await t.test(
       "network: the graph, the listing and a peer's details",
       async () => {
@@ -527,6 +551,151 @@ test(
       assert(
         !(await page.evaluate(() => location.pathname.startsWith("/setup"))),
       );
+      assertEquals(errors, [], "the page threw");
+      await page.close();
+    } finally {
+      await browser.close();
+      const failures = await scenario.stop();
+      await rm(dir, { recursive: true, force: true }).catch(() => {});
+      assertEquals(failures, []);
+    }
+  },
+);
+
+/** Whether `node` peers with `peer` over the hub. */
+async function peersOverHub(
+  node: ScenarioNode,
+  peer: ScenarioNode,
+): Promise<boolean> {
+  const { peers } = await node.rpc.call("listPeers", {});
+  return peers.some((p) =>
+    p.node === peer.id && p.scheme === HUB_SCHEME && p.state === "peered"
+  );
+}
+
+/** `node`'s one hub, as the node reports it. */
+async function hubOf(node: ScenarioNode) {
+  const { hubs } = await node.rpc.call("getHubStatus", {});
+  assertEquals(hubs.length, 1, `${node.name}'s hubs`);
+  return hubs[0];
+}
+
+// The Hubs page (spec/areas/wallet.md#pages) on a member of the `hub`
+// scenario, once the members peered over the hub, as hub_test.ts waits for
+// it: it shows the hub with its balance and the holds toward the other
+// member, as the node reports them, a deposit made on the page reaches the
+// hub, and the page turns the node's own moves, off for the deposit, on
+// again.
+test(
+  "the hubs page shows a member's hub, and a deposit made on it reaches the hub",
+  { skip: missingHub !== undefined },
+  async () => {
+    const scenario = await Scenario.temporary("hub", {
+      dassie: DASSIE,
+      fakeLedger: FAKE_LEDGER,
+      portOffset: PORT_OFFSET,
+      env,
+    });
+    const dir = await mkdtemp(join(tmpdir(), "dassie-wallet-"));
+    const browser = await startBrowser(dir);
+    try {
+      const members = scenario.def.hub?.members ?? [];
+      const [member, peer] = scenario.nodes.filter((node) =>
+        members.includes(node.index)
+      );
+      assert(member && peer, "the scenario has two members");
+      await scenario.until(
+        "peered over the hub",
+        async () =>
+          (await peersOverHub(member, peer)) &&
+          (await peersOverHub(peer, member)),
+        HUB_WITHIN_MS,
+      );
+      // The member holds something for its peer.
+      await scenario.until("a hold funded, nothing moving", async () => {
+        const { hubs: [hub] } = await member.rpc.call("getHubStatus", {});
+        return hub !== undefined && hub.moving === undefined &&
+          hub.balance > 0n &&
+          hub.paying.some((hold) => hold.peer === peer.id && hold.amount > 0n);
+      }, HUB_WITHIN_MS);
+      // Quiet: the node's own moves off, and none on its way, so the
+      // deposit below is the only one.
+      const id = (await hubOf(member)).hubId;
+      await member.rpc.call("setHubAutomatic", { hubId: id, automatic: false });
+      await scenario.until(
+        "nothing moving",
+        async () => (await hubOf(member)).moving === undefined,
+        HUB_WITHIN_MS,
+      );
+      const before = await hubOf(member);
+
+      const page = await browser.newPage();
+      const errors = watchErrors(page);
+      await signInWallet(page, member);
+      await click(page, "nav-hubs");
+      // As the node reports them: the balance, and the hold toward the
+      // peer, in the hub ledger's units.
+      await until(
+        page,
+        "the balance shows",
+        async () => [
+          await attribute(page, `hub-balance-${id}`, "data-value"),
+          `${(await hubOf(member)).balance}`,
+        ],
+        ([shown, reported]) => shown === reported,
+      );
+      const hold = before.paying.find((hold) => hold.peer === peer.id)!;
+      assertEquals(await count(page, `hub-paying-${id}-${hold.account}`), 1);
+      await until(
+        page,
+        "the holds show",
+        async () => [
+          await attribute(page, `hub-paying-${id}-total`, "data-value"),
+          `${
+            (await hubOf(member)).paying.reduce((sum, h) => sum + h.amount, 0n)
+          }`,
+        ],
+        ([shown, reported]) => shown === reported,
+      );
+      await picture(page, "10-hubs");
+
+      // 1 XRP, at the hub ledger's scale 9.
+      const deposit = 1_000_000_000n;
+      await type(page, `hub-amount-${id}`, "1");
+      await click(page, `hub-deposit-${id}`);
+      await until(
+        page,
+        "the deposit reaches the hub",
+        async () => [
+          await attribute(page, `hub-deposited-${id}`, "data-value"),
+          await count(page, `hub-error-${id}`) > 0
+            ? await text(page, `hub-error-${id}`)
+            : "",
+        ],
+        ([value, refused]) => {
+          // A refusal fails here, not at the deadline.
+          assertEquals(refused, "", "the node refused the deposit");
+          return value === `${before.deposited + deposit}`;
+        },
+        HUB_WITHIN_MS,
+      );
+      const after = await hubOf(member);
+      assertEquals(after.deposited, before.deposited + deposit);
+      await picture(page, "11-hubs-deposit");
+      // The node's own moves, turned on again on the page.
+      assertMatch(
+        await text(page, `hub-automatic-text-${id}`),
+        /moves nothing by itself/,
+      );
+      await click(page, `hub-automatic-${id}`);
+      await until(
+        page,
+        "the node's own moves on",
+        () => text(page, `hub-automatic-text-${id}`),
+        (shown) => !shown.includes("moves nothing by itself"),
+      );
+      assert((await hubOf(member)).automatic, "the node's own moves are on");
+      assertEquals(await count(page, `hub-error-${id}`), 0);
       assertEquals(errors, [], "the page threw");
       await page.close();
     } finally {

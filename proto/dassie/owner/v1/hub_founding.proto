@@ -4,7 +4,7 @@ package dassie.owner.v1;
 
 // Founding a settlement hub as its sponsor
 // (spec/areas/hubs.md#founding-a-hub), and the payout bundles the node
-// keeps of the hub it is a member of (spec/areas/hubs.md#payout-bundles).
+// keeps of each hub it is a member of (spec/areas/hubs.md#payout-bundles).
 // The contract has no services: these methods are numbered in `Request`
 // and `Response` (transport.proto) with the rest: FoundHub,
 // DropHubFounding, ListHubFoundings and GetHubPayout.
@@ -114,10 +114,16 @@ message HubPayoutBundle {
   uint32 transactions = 3;
 }
 
-// The payout bundles of the hub the node is a member of, which validators
+// The payout bundles of a hub the node is a member of, which validators
 // sign once the hub ended or stalled. FAILED_PRECONDITION while no
 // settlement hub scheme runs.
-message GetHubPayoutRequest {}
+message GetHubPayoutRequest {
+  // The hub, by its ID as HubStatus.hub_id gives it (hub_member.proto);
+  // empty while the node is in one hub only. NOT_FOUND for a hub the node
+  // is not in, INVALID_ARGUMENT for an ID that is not 64 hex digits, or
+  // for none while it is in several.
+  string hub_id = 1;
+}
 
 message GetHubPayoutResponse {
   // The hub's ID, as hex.

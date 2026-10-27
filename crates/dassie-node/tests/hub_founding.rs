@@ -367,19 +367,43 @@ async fn a_sponsor_founds_a_hub_with_four_validator_daemons() {
         let reply = sponsor
             .ipc()
             .await
-            .call(Method::GetHubPayout(proto::GetHubPayoutRequest {}))
+            .call(Method::GetHubPayout(proto::GetHubPayoutRequest::default()))
             .await;
         matches!(reply, Ok(response::Method::GetHubPayout(payout)) if payout.bundles.len() == 2)
     })
     .await;
+    // The node's only hub, unnamed or named by its ID; no other.
     let Ok(response::Method::GetHubPayout(payout)) = sponsor
         .ipc()
         .await
-        .call(Method::GetHubPayout(proto::GetHubPayoutRequest {}))
+        .call(Method::GetHubPayout(proto::GetHubPayoutRequest {
+            hub_id: hub.clone(),
+        }))
         .await
     else {
         panic!("no payout");
     };
+    let unnamed = sponsor
+        .ipc()
+        .await
+        .call(Method::GetHubPayout(proto::GetHubPayoutRequest::default()))
+        .await;
+    assert!(
+        matches!(&unnamed, Ok(response::Method::GetHubPayout(only)) if *only == payout),
+        "{unnamed:?}"
+    );
+    let other = sponsor
+        .ipc()
+        .await
+        .call(Method::GetHubPayout(proto::GetHubPayoutRequest {
+            hub_id: "00".repeat(32),
+        }))
+        .await;
+    assert_eq!(
+        other.unwrap_err().code(),
+        proto::ErrorCode::NotFound,
+        "a hub the node is not in"
+    );
     assert_eq!(payout.hub, hub);
     assert_eq!(payout.quorum, 3);
     assert_eq!(

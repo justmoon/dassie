@@ -10,7 +10,7 @@
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { LedgerConnection } from "@dassie/rpc/proto";
+import { HubFoundingStage, LedgerConnection } from "@dassie/rpc/proto";
 import { caFile, certificate } from "../certs.ts";
 import {
   askIssuer,
@@ -107,10 +107,6 @@ const SPONSOR_FUNDED_WITHIN_MS = 60_000;
  * (spec/areas/hubs.md#founding-a-hub).
  */
 const FOUNDED_WITHIN_MS = 180_000;
-
-/** `HubFoundingStage.FOUNDED` (`proto/dassie/owner/v1/hub_founding.proto`):
- * a quorum checked the escrow, and the hub takes deposits. */
-const FOUNDED = 5;
 
 /** Where a validator's file is, in its data directory. */
 const VALIDATOR_FILE = "validator.json";
@@ -405,8 +401,9 @@ export class Scenario {
             : `: ${founding.problem}`;
           where = `stage ${founding.stage}${problem}`;
         }
-        rules = foundings.find((founding) => founding.stage === FOUNDED)
-          ?.rules ?? "";
+        rules = foundings.find((founding) =>
+          founding.stage === HubFoundingStage.FOUNDED
+        )?.rules ?? "";
         return rules !== "";
       }, FOUNDED_WITHIN_MS);
     } catch (error) {

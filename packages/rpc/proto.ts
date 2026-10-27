@@ -9,6 +9,8 @@ export * from "./src/gen/dassie/owner/v1/btp_pb.ts";
 export * from "./src/gen/dassie/owner/v1/config_pb.ts";
 export * from "./src/gen/dassie/owner/v1/debug_pb.ts";
 export * from "./src/gen/dassie/owner/v1/devices_pb.ts";
+export * from "./src/gen/dassie/owner/v1/hub_founding_pb.ts";
+export * from "./src/gen/dassie/owner/v1/hub_member_pb.ts";
 export * from "./src/gen/dassie/owner/v1/inspect_pb.ts";
 export * from "./src/gen/dassie/owner/v1/ledger_pb.ts";
 export * from "./src/gen/dassie/owner/v1/names_pb.ts";

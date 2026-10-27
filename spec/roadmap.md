@@ -77,7 +77,7 @@ A node is in one hub per asset, and in hubs of several assets ([hubs-only](decis
 - **Parts that can be built side by side:**
   - the node: funding, payouts and moves per hub, each from the owner's book of its asset, with each hub's funding kept in the database ([built](areas/hubs.md#in-the-node)); a token hub's funding counted in its asset rather than in drops: the owner book's spendable amount and fee, and the amounts `dassie hub` takes and shows;
   - advertising: the link state names every hub the node is in, each with its scheme and asset, in a bounded list, and still reads the one hub of nodes that name only one ([built](areas/hubs.md#in-the-node));
-  - the owner's view: each hub's account, holds and moves over RPC and in `dassie hub` ([built](areas/hubs.md#in-the-node)), and in the wallet; `dassie hub payout` for a hub other than the first;
+  - the owner's view: each hub's account, holds, moves and payout over RPC, in `dassie hub` and on the wallet's Hubs page ([built](areas/wallet.md#pages)); a stream of the hubs, which the wallet asks for every few seconds meanwhile, as the RPC contract streams live data ([rpc-contract](decisions/rpc-contract.md));
   - a pair in two hubs peering over both, each a method ([Settlement methods](#settlement-methods)).
 - **Later:** several hubs of one asset, with a limit per validator operator over all of them, once running hubs show it is worth it.
 - **Done when:** in the `node` simulation, nodes in an XRP hub and a DSUSD hub fund, advertise and pay out each on its own; a pair in both carries packets over both; and one hub's failure leaves the other's method working.
