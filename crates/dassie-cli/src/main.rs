@@ -97,11 +97,12 @@ Commands:
   hub foundings     Show each hub the node founds: which validators
                     accepted, signed and run it, and its escrow.
   hub drop <nonce>  Drop a founding.
-  hub payout [<hub ID>]
-                    Show the payout bundles kept of the hub, as `hub
-                    status` shows it, and once a quorum signed one set,
-                    its transactions to submit. The ID is needed only
-                    while the node is in several hubs.
+  hub payout        Show the payout bundles kept of a hub, and once a
+                    quorum signed one set, its transactions to submit.
+                      --hub <hub ID>            the hub, as `hub status`
+                                                shows it (or the ID alone);
+                                                needed only while the node
+                                                is in several
   setup             Set the node up from its owner's passphrase, on the
                     node's own host, without a browser, set the config of
                     the accounts it is given, add the settlement

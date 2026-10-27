@@ -11,9 +11,9 @@
 //!   accepted, signed and run the hub, and whether its escrow is set up
 //!   and checked; once fixed, the rules a member's scheme takes.
 //! - `dassie hub drop <nonce>` drops a founding.
-//! - `dassie hub payout [<hub ID>]` shows the payout bundles kept of the
-//!   hub of that ID, or of the node's only hub, and, once a quorum's sign
-//!   one set, its transactions to submit.
+//! - `dassie hub payout [--hub <hub ID>]` (or the ID alone) shows the
+//!   payout bundles kept of the hub of that ID, or of the node's only hub,
+//!   and, once a quorum's sign one set, its transactions to submit.
 
 use dassie_node::env::Env;
 use dassie_node::rpc::proto::{self, request::Method, response};
@@ -59,6 +59,8 @@ pub fn args(word: &str, parser: &mut lexopt::Parser) -> Result<Command, lexopt::
         "foundings" => Command::List,
         "payout" => Command::Payout(match parser.next()? {
             Some(Value(hub)) => hub_id(&hub.string()?)?,
+            // As the other `dassie hub` commands name it.
+            Some(Long("hub")) => hub_id(&parser.value()?.string()?)?,
             Some(other) => return Err(other.unexpected()),
             None => String::new(),
         }),
@@ -349,6 +351,11 @@ mod tests {
         );
         assert!(parse(&["payout", "x"]).is_err());
         assert!(parse(&["payout", &hub, &hub]).is_err());
-        assert!(parse(&["payout", "--hub", &hub]).is_err());
+        assert_eq!(
+            parse(&["payout", "--hub", &hub]).unwrap(),
+            Command::Payout("ab".repeat(32))
+        );
+        assert!(parse(&["payout", "--hub"]).is_err());
+        assert!(parse(&["payout", "--hub", &hub, &hub]).is_err());
     }
 }
