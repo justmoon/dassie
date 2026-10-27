@@ -237,11 +237,6 @@
               nativeBuildInputs = [ wasm-bindgen ];
               # Each of dassie-wasm's features is a module of its own; each
               # build writes the same file, so it is bound before the next.
-              # clippy-driver compiles the workspace's crates, as `cargo
-              # clippy` would lint them, so that building the modules lints
-              # them too, and nothing compiles them again to lint them.
-              RUSTC_WORKSPACE_WRAPPER = "${toolchain}/bin/clippy-driver";
-              CLIPPY_ARGS = "-D__CLIPPY_HACKERY__warnings__CLIPPY_HACKERY__";
               buildPhaseCargoCommand = ''
                 for feature in identity stream; do
                   cargo rustc --locked -p dassie-wasm --lib --crate-type cdylib \
@@ -361,6 +356,23 @@
               inherit (common) pname version;
             };
             inherit wasm-modules;
+            # The WASM crates' lints, as `cargo clippy` checks them: without
+            # codegen, so nothing is compiled twice. The modules themselves
+            # are rustc's: they ship, in the wallet and on dassie.land, and
+            # clippy-driver compiles other code (it skips MIR's
+            # optimizations).
+            cargo-clippy-wasm = craneLib.cargoClippy (
+              common
+              // {
+                src = wasmSrc;
+                inherit cargoVendorDir;
+                cargoArtifacts = wasmArtifacts;
+                CARGO_PROFILE = "wasm";
+                CARGO_BUILD_TARGET = "wasm32-unknown-unknown";
+                cargoExtraArgs = "--locked --features identity,stream -p dassie-wasm";
+                cargoClippyExtraArgs = "-- -D warnings";
+              }
+            );
           }
           # Each crate's tests, its lints with them, crate by crate
           # (nix/rust): an edit builds the crates it reaches again, and runs
