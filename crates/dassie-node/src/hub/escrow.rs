@@ -16,7 +16,11 @@
 //!   (spec/areas/xrpl.md#following-the-account), so a transaction its
 //!   server leaves out of the escrow's history and of its stream is found
 //!   all the same. The stream and the history (`account_tx`) only hint at
-//!   hashes, sooner; each hint is proven, and its proof kept for the walk.
+//!   hashes, sooner; each hint is proven, oldest first and many at a time,
+//!   and its proof kept for the walk, which starts no higher than the
+//!   hints proven cover and steps through their proofs rather than proving
+//!   each in turn (`walk_top`): so a burst of payments to the
+//!   escrow delays it no more than proving their hints takes.
 //!   Each transaction is proven by its own bytes and metadata in a
 //!   validated ledger, and read as `dassie_hub::escrow` reads it: a
 //!   deposit, the outcome of a pending withdrawal, the old validators'
@@ -25,9 +29,9 @@
 //!   ledger only once a walk passed it, and no further than the newest
 //!   proven ledger. A walk holds one transaction per object at a time, and
 //!   one with no room yet among what waits for the hub waits rather than
-//!   being dropped; hints past their bound ([`MAX_HINTS`]) are dropped, as
-//!   the walk finds them: so no number of small payments to the escrow
-//!   makes it skip a deposit.
+//!   being dropped; a hint the stream brings past their bound
+//!   ([`MAX_HINTS`]) has the history read again from its ledger: so no
+//!   number of small payments to the escrow makes it skip a deposit.
 //! - **State by state proofs, at a fresh anchor.** The escrow's setup is
 //!   checked, while no quorum has, from proofs of its account root, its
 //!   signer list and a token hub's line at one validated ledger; a token
@@ -144,13 +148,20 @@ pub const RESUBMIT_MS: u64 = 2 * ANCHOR_EVERY_MS;
 
 /// The most transactions hinted at and not yet proven: two pages of the
 /// escrow's history. A page is asked for only while there is room for a
-/// whole one; a hint that finds no room is dropped, as the walk finds its
-/// transaction.
+/// whole one; a hint the stream brings without room has the history read
+/// again from its ledger, once there is.
 pub const MAX_HINTS: usize = 2 * PAGE as usize;
 
-/// The most proofs of hinted transactions kept until the walk reaches
-/// them: as many as there are hints.
-const MAX_PROVEN: usize = MAX_HINTS;
+/// The most transactions proven from hints kept until a walk passes them:
+/// what the walk steps through rather than proving each in turn. Several
+/// times the hints, since a walk goes up only as far as the hints proven
+/// cover, and lets go of what it stepped through only once it ends.
+const MAX_PROVEN: usize = 8 * MAX_HINTS;
+
+/// The most of them kept with their record, for the walk to hand on once
+/// what waits for the hub has room: one that finds no room among these is
+/// proven again when the walk reaches it.
+const MAX_PROVEN_RECORDS: usize = MAX_HINTS;
 
 /// The most steps one input takes along a chain, through transactions
 /// proven already from hints.
@@ -347,6 +358,34 @@ struct HoldSearch {
     query: Option<QueryId>,
 }
 
+/// A transaction proven from a hint before a walk reached it: what the
+/// walk needs to step past it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct Ahead {
+    /// The ledger it is in.
+    ledger: u32,
+    /// For each of the walked objects it changed, the transaction that
+    /// changed it before.
+    threads: Vec<([u8; 32], Option<Thread>)>,
+    /// Its record, while what waits for the hub has no room for it; none
+    /// once it was handed on, when the walk only steps past it.
+    record: Option<Box<TxRecord>>,
+}
+
+/// Reading the escrow's history from the server, for hints: at a
+/// connection, from the cursor, a window back; and again from the ledger
+/// of a hint the stream brought without room.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct Reading {
+    from: u32,
+    to: u32,
+    marker: Option<Value>,
+    /// Whether a page is asked for.
+    asking: bool,
+    /// Each transaction the history holds up to this ledger was hinted.
+    through: u32,
+}
+
 /// A transaction the server hinted at, not yet proven.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct Hint {
@@ -392,14 +431,8 @@ enum Phase {
     Waiting {
         since_ms: u64,
     },
-    /// Subscribed, and reading the history from `from` to `to`, at
-    /// `marker`; `asking` while a page is asked for.
-    CatchingUp {
-        from: u32,
-        to: u32,
-        marker: Option<Value>,
-        asking: bool,
-    },
+    /// Subscribed, and reading the history from the cursor.
+    CatchingUp,
     Following,
 }
 
@@ -418,8 +451,17 @@ pub struct Watcher {
     /// What each of the verifier's open queries is for.
     queries: BTreeMap<QueryId, Purpose>,
     hints: BTreeMap<[u8; 32], Hint>,
+    /// The escrow's history being read for hints.
+    reading: Option<Reading>,
+    /// The lowest ledger of a hint the stream brought without room: the
+    /// history is read again from there.
+    overflow_from: Option<u32>,
+    /// The newest ledger the stream said closed.
+    streamed_to: u32,
     /// Hinted transactions proven, kept for the walk, by hash.
-    proven: BTreeMap<[u8; 32], Decoded>,
+    proven: BTreeMap<[u8; 32], Ahead>,
+    /// The same, by ledger: the newest make room for older ones.
+    proven_order: BTreeSet<(u32, [u8; 32])>,
     /// The keys of the objects whose history is walked: the escrow's
     /// account root, and a token hub's line.
     walk_keys: Vec<[u8; 32]>,
@@ -446,6 +488,11 @@ pub struct Watcher {
     /// The hold last named, with the newest ledger it was proven at: so
     /// the next search ends once it reaches that stretch.
     named: Option<(Issuer, u32)>,
+    /// A hold a search could not name on this connection, with the
+    /// stretch it was proven the same over, from the ledger after one its
+    /// server keeps no state of: a search that reaches that stretch ends
+    /// there, naming nothing, rather than proving the same again.
+    unnamed: Option<(IssuerHold, u32, u32)>,
     /// When the hub was last seen to let go of the escrow.
     thawed_ms: Option<u64>,
     /// The newest anchor, and when it was proven.
@@ -499,7 +546,11 @@ impl Watcher {
             verifier: Verifier::new(network, unl, signatures),
             queries: BTreeMap::new(),
             hints: BTreeMap::new(),
+            reading: None,
+            overflow_from: None,
+            streamed_to: 0,
             proven: BTreeMap::new(),
+            proven_order: BTreeSet::new(),
             walk_keys: Vec::new(),
             walk: None,
             walked_to: cursor.map_or(0, |cursor| cursor.scanned_to.saturating_sub(RESCAN_LEDGERS)),
@@ -511,6 +562,7 @@ impl Watcher {
             proven_issuer: None,
             search: None,
             named: None,
+            unnamed: None,
             thawed_ms: None,
             anchored: None,
             anchor_asked_ms: None,
@@ -602,6 +654,33 @@ impl Watcher {
             .count();
         assert!(hint_queries <= MAX_HINT_QUERIES, "hint proofs are bounded");
         assert!(self.proven.len() <= MAX_PROVEN, "proofs kept are bounded");
+        assert_eq!(self.proven.len(), self.proven_order.len());
+        assert!(
+            (self.proven.values())
+                .filter(|ahead| ahead.record.is_some())
+                .count()
+                <= MAX_PROVEN_RECORDS,
+            "records kept are bounded"
+        );
+        self.check_queries();
+        if let (Some(cursor), Some((anchor, _))) = (self.cursor, self.anchored) {
+            assert!(
+                cursor.scanned_to <= cursor.newest_ledger.max(anchor.index),
+                "the cursor passes no ledger beyond the newest proven"
+            );
+        }
+        if self.phase == Phase::Disconnected {
+            assert!(self.pending.is_empty() && self.proof_asks.is_empty());
+            assert!(self.hints.is_empty(), "hints are a connection's");
+            assert!(self.reading.is_none() && self.overflow_from.is_none());
+        }
+        if self.reading.is_some() {
+            assert!(self.subscribed(), "the history is read once subscribed");
+        }
+    }
+
+    /// Asserts what holds of its queries, its walk and its search.
+    fn check_queries(&self) {
         assert!(self.walk_keys.len() <= 2, "the root and a line");
         for (id, purpose) in &self.queries {
             match purpose {
@@ -638,16 +717,6 @@ impl Watcher {
         }
         if let Some(search) = self.search {
             assert!(search.since <= search.top, "a search goes back");
-        }
-        if let (Some(cursor), Some((anchor, _))) = (self.cursor, self.anchored) {
-            assert!(
-                cursor.scanned_to <= cursor.newest_ledger.max(anchor.index),
-                "the cursor passes no ledger beyond the newest proven"
-            );
-        }
-        if self.phase == Phase::Disconnected {
-            assert!(self.pending.is_empty() && self.proof_asks.is_empty());
-            assert!(self.hints.is_empty(), "hints are a connection's");
         }
     }
 }
@@ -745,6 +814,11 @@ impl Watcher {
             self.verifier.cancel(id);
         }
         self.hints.clear();
+        self.reading = None;
+        self.overflow_from = None;
+        self.streamed_to = 0;
+        // The next server may keep more history than this one.
+        self.unnamed = None;
         // What was sent on it goes again on the next, once following.
         for submit in &mut self.submits {
             submit.sent_ms = None;
@@ -853,7 +927,8 @@ impl Watcher {
                 }
             }
             Message::Transaction(record) if self.subscribed() => self.hinted(&record),
-            Message::LedgerClosed(_) if self.subscribed() => {
+            Message::LedgerClosed(closed) if self.subscribed() => {
+                self.streamed_to = self.streamed_to.max(closed.ledger_index);
                 self.anchor_asked_ms = Some(self.now_ms);
                 self.verifier.anchor_now(self.now_ms);
             }
@@ -881,7 +956,7 @@ impl Watcher {
     }
 
     const fn subscribed(&self) -> bool {
-        matches!(self.phase, Phase::Following | Phase::CatchingUp { .. })
+        matches!(self.phase, Phase::Following | Phase::CatchingUp)
     }
 
     /// Asks the server, unless its requests are full: whether it did.
@@ -927,6 +1002,9 @@ impl Watcher {
 
     /// Waits, and asks the server where it stands again later.
     fn wait(&mut self) {
+        // The history is read again once it follows the server again.
+        self.reading = None;
+        self.overflow_from = None;
         self.phase = Phase::Waiting {
             since_ms: self.now_ms,
         };
@@ -968,12 +1046,14 @@ impl Watcher {
         let from = self
             .cursor
             .map_or(0, |cursor| cursor.scanned_to.saturating_sub(RESCAN_LEDGERS));
-        self.phase = Phase::CatchingUp {
+        self.phase = Phase::CatchingUp;
+        self.reading = Some(Reading {
             from,
             to: state.validated_ledger,
             marker: None,
             asking: false,
-        };
+            through: from.saturating_sub(1),
+        });
         let escrow = self.escrow;
         self.ask(Asked::Subscribe, |id| api::subscribe(id, escrow));
     }
@@ -988,20 +1068,14 @@ impl Watcher {
     /// for a whole page of hints.
     fn read_history(&mut self) {
         let room = self.hints.len().saturating_add(PAGE as usize) <= MAX_HINTS;
-        let Phase::CatchingUp {
-            from,
-            to,
-            marker,
-            asking,
-        } = &mut self.phase
-        else {
+        let Some(reading) = self.reading.as_mut() else {
             return;
         };
-        if *asking || !room {
+        if reading.asking || !room {
             return;
         }
-        *asking = true;
-        let (from, to, marker) = (*from, *to, marker.clone());
+        reading.asking = true;
+        let (from, to, marker) = (reading.from, reading.to, reading.marker.clone());
         let escrow = self.escrow;
         self.ask(Asked::History, |id| {
             api::account_tx(id, escrow, from, to, marker.as_ref())
@@ -1020,30 +1094,68 @@ impl Watcher {
         for record in &page.transactions {
             self.hinted(record);
         }
-        let Phase::CatchingUp { marker, asking, .. } = &mut self.phase else {
+        let Some(reading) = self.reading.as_mut() else {
             return;
         };
-        *asking = false;
+        reading.asking = false;
         if page.marker.is_some() {
-            *marker = page.marker;
+            // The next page may hold more of this one's newest ledger.
+            let newest = (page.transactions.iter())
+                .map(|record| record.ledger_index)
+                .max();
+            if let Some(newest) = newest {
+                reading.through = reading.through.max(newest.saturating_sub(1));
+            }
+            reading.marker = page.marker;
             return self.read_history();
         }
-        self.phase = Phase::Following;
-        self.escrow_checked_ms = None;
-        self.send_submits();
+        self.reading = None;
+        if self.phase == Phase::CatchingUp {
+            self.phase = Phase::Following;
+            self.escrow_checked_ms = None;
+            self.send_submits();
+        }
+    }
+
+    /// Once there is room for a page of hints, reads the history again
+    /// from the first hint the stream brought without room, while it
+    /// follows the stream.
+    fn reread_overflow(&mut self) {
+        let room = self.hints.len().saturating_add(PAGE as usize) <= MAX_HINTS;
+        if !self.following() || self.reading.is_some() || !room {
+            return;
+        }
+        let Some(from) = self.overflow_from.take() else {
+            return;
+        };
+        self.reading = Some(Reading {
+            from,
+            to: self.streamed_to.max(from),
+            marker: None,
+            asking: false,
+            through: from.saturating_sub(1),
+        });
+        self.read_history();
     }
 
     /// The server hints at `record`, in its stream or the escrow's
     /// history: its proof is asked for, unless it was attested already, or
-    /// its ledger is one a walk passed. A hint without room is dropped: the
-    /// walk finds its transaction.
+    /// its ledger is one a walk passed. A hint the stream brings without
+    /// room has the history read again from its ledger once there is
+    /// room, so that it is proven with the others, many at a time, and the
+    /// walk steps through their proofs.
     fn hinted(&mut self, record: &TxRecord) {
         let hash = record.hash;
+        let ledger = record.ledger_index;
         let known = self.known(&hash)
             || self.hints.contains_key(&hash)
             || self.proven.contains_key(&hash)
-            || record.ledger_index <= self.walked_to;
-        if known || self.hints.len() >= MAX_HINTS {
+            || ledger <= self.walked_to;
+        if known {
+            return;
+        }
+        if self.hints.len() >= MAX_HINTS {
+            self.overflow_from = Some(self.overflow_from.map_or(ledger, |from| from.min(ledger)));
             return;
         }
         self.hints.insert(
@@ -1175,7 +1287,9 @@ impl Watcher {
         self.cancel_walk();
         self.cancel_search();
         self.named = None;
+        self.unnamed = None;
         self.proven.clear();
+        self.proven_order.clear();
         self.walked_to = 0;
         // The old chain's deposits wait no more: their ledgers would hold
         // the new chain's cursor. Its withdrawals were written off: what
@@ -1205,10 +1319,8 @@ impl Watcher {
                 }
                 // Without room, it waits for the walk; with none for its
                 // proof, the walk proves it again.
-                self.record(&decoded.record);
-                if decoded.record.ledger_index > self.walked_to && self.proven.len() < MAX_PROVEN {
-                    self.proven.insert(hash, decoded);
-                }
+                let taken = self.record(&decoded.record);
+                self.keep_ahead(decoded, taken);
             }
             (Purpose::Hint(hash), _) => self.not_found(hash),
             (Purpose::Escrow, Verdict::State(state)) => self.escrow_state(&state),
@@ -1216,7 +1328,15 @@ impl Watcher {
             (Purpose::Walk, Verdict::State(state)) => self.walk_from(&state),
             (Purpose::Step(key), Verdict::Applied(proven) | Verdict::Before(proven)) => {
                 if let Some(index) = self.stepped(key, id) {
-                    self.found(index, &proven.decoded);
+                    let decoded = &proven.decoded;
+                    let record = &decoded.record;
+                    self.found(
+                        index,
+                        record.hash,
+                        record.ledger_index,
+                        &decoded.threads,
+                        Some(record),
+                    );
                 }
             }
             (Purpose::Step(key), _) => {
@@ -1310,6 +1430,7 @@ impl Watcher {
         if self.phase == Phase::Disconnected {
             return;
         }
+        self.reread_overflow();
         self.read_history();
         self.prove_hints();
         self.start_walk();
@@ -1337,7 +1458,6 @@ impl Watcher {
         }
         if let Some(keys) = issuer_keys(&view.rules.terms)
             && !self.open(Purpose::Issuer)
-            && self.search.is_none()
             && self.due(self.issuer_checked_ms, ISSUER_CHECK_EVERY_MS)
         {
             self.issuer_checked_ms = Some(self.now_ms);
@@ -1706,22 +1826,46 @@ fn thread_of(escrow: AccountId, key: &[u8; 32], bytes: &[u8]) -> Result<Option<T
 
 /// Walking the escrow's history (spec/areas/xrpl.md#following-the-account).
 impl Watcher {
-    /// Starts a walk at the newest anchor, once the last walk ended and
-    /// the anchor is past it, by proving the escrow's objects there.
+    /// Starts a walk once the last one ended, by proving the escrow's
+    /// objects at [`Self::walk_top`].
     fn start_walk(&mut self) {
-        let due = self
-            .anchor()
-            .is_some_and(|anchor| anchor.index > self.walked_to);
-        if !due
-            || !self.subscribed()
+        if !self.subscribed()
             || self.walk.is_some()
             || self.walk_keys.is_empty()
             || self.open(Purpose::Walk)
         {
             return;
         }
+        let (Some(anchor), Some(top)) = (self.anchor(), self.walk_top()) else {
+            return;
+        };
+        let at = (top < anchor.index).then_some(top);
         let keys = self.walk_keys.clone();
-        self.query(Purpose::Walk, Query::State { keys, at: None });
+        self.query(Purpose::Walk, Query::State { keys, at });
+    }
+
+    /// Where the next walk starts, if past the last one: the newest
+    /// anchor, but below what the server hinted at and the watcher has not
+    /// proven yet, below the first hint the stream brought without room,
+    /// and no further than the history read so far, so that the walk steps
+    /// through the proofs of the hints rather than proving each in turn,
+    /// newest first, while the hints are proven oldest first, many at a
+    /// time. A hint the server did not prove holds no walk back, nor does
+    /// anything the server hints at above the anchor.
+    fn walk_top(&self) -> Option<u32> {
+        let mut top = self.anchor()?.index;
+        let unproven = (self.hints.values())
+            .filter(|hint| hint.tries == 0)
+            .map(|hint| hint.ledger);
+        let unread = (self
+            .reading
+            .iter()
+            .map(|reading| reading.through.saturating_add(1)))
+        .chain(self.overflow_from);
+        for ledger in unproven.chain(unread) {
+            top = top.min(ledger.saturating_sub(1));
+        }
+        (top > self.walked_to).then_some(top)
     }
 
     /// The escrow's objects proven at a ledger past the last walk: a walk
@@ -1820,12 +1964,40 @@ impl Watcher {
         if query.is_some() {
             return false;
         }
-        if let Some(decoded) = self.proven.remove(&hash) {
-            // Proven before its object was walked, it may not name what
-            // changed it before: then it is proven again.
-            if decoded.threads.iter().any(|(of, _)| *of == key) {
-                return self.found(index, &decoded);
+        // Proven before its object was walked, it may not name what changed
+        // it before: then it is proven again.
+        if let Some(ahead) = self.proven.get(&hash)
+            && ahead.threads.iter().any(|(of, _)| *of == key)
+        {
+            let ahead = ahead.clone();
+            let moved = self.found(
+                index,
+                hash,
+                ahead.ledger,
+                &ahead.threads,
+                ahead.record.as_deref(),
+            );
+            // Handed on now, it needs its record no more: the other
+            // object's chain only steps past it.
+            if moved
+                && ahead.record.is_some()
+                && self
+                    .chain(index)
+                    .is_none_or(|chain| chain.waiting.is_none())
+                && let Some(kept) = self.proven.get_mut(&hash)
+            {
+                kept.record = None;
             }
+            return moved;
+        }
+        // Its hint's proof is on its way: the walk waits for it rather than
+        // proving it twice.
+        if self
+            .hints
+            .get(&hash)
+            .is_some_and(|hint| hint.query.is_some())
+        {
+            return false;
         }
         if retry_at_ms > self.now_ms {
             return false;
@@ -1846,25 +2018,31 @@ impl Watcher {
         false
     }
 
-    /// The next transaction on chain `index`, proven: it is the one the
-    /// chain names, in the ledger it names, and changed the chain's
-    /// object, or the server's proofs do not agree with the state it
-    /// proved, and the walk starts again on a new connection. It is handed
-    /// on to be attested, or waits for room, and the chain goes on to the
+    /// The next transaction on chain `index`, proven, of `hash` in
+    /// `ledger`, with the transactions before it on each object it
+    /// changed: it is the one the chain names, in the ledger it names, and
+    /// changed the chain's object, or the server's proofs do not agree with
+    /// the state it proved, and the walk starts again on a new connection.
+    /// Its `record` is handed on to be attested, or waits for room; none,
+    /// it was handed on when it was proven. The chain goes on to the
     /// transaction that changed the object before.
-    fn found(&mut self, index: usize, decoded: &Decoded) -> bool {
+    fn found(
+        &mut self,
+        index: usize,
+        hash: [u8; 32],
+        ledger: u32,
+        threads: &[([u8; 32], Option<Thread>)],
+        record: Option<&TxRecord>,
+    ) -> bool {
         let Some(chain) = self.chain(index) else {
             return false;
         };
         let (key, next) = (chain.key, chain.next);
-        let record = &decoded.record;
-        let before = (decoded.threads.iter())
+        let before = (threads.iter())
             .find(|(of, _)| *of == key)
             .map(|(_, before)| *before);
-        let agrees = next == Some((record.hash, record.ledger_index))
-            && before.is_some_and(|before| {
-                before.is_none_or(|(_, earlier)| earlier <= record.ledger_index)
-            });
+        let agrees = next == Some((hash, ledger))
+            && before.is_some_and(|before| before.is_none_or(|(_, earlier)| earlier <= ledger));
         let (true, Some(before)) = (agrees, before) else {
             self.cancel_walk();
             self.out.push_back(Out::Problem(
@@ -1873,10 +2051,13 @@ impl Watcher {
             self.out.push_back(Out::Reconnect);
             return false;
         };
-        if self.record(record) {
-            self.chain_to(index, before);
-        } else if let Some(chain) = self.chain_mut(index) {
-            chain.waiting = Some((Box::new(record.clone()), before));
+        match record {
+            Some(record) if !self.record(record) => {
+                if let Some(chain) = self.chain_mut(index) {
+                    chain.waiting = Some((Box::new(record.clone()), before));
+                }
+            }
+            _ => self.chain_to(index, before),
         }
         true
     }
@@ -1941,10 +2122,57 @@ impl Watcher {
             return;
         };
         self.walked_to = self.walked_to.max(walk.top);
-        let walked_to = self.walked_to;
-        self.proven
-            .retain(|_, decoded| decoded.record.ledger_index > walked_to);
+        let passed = (self.proven_order.iter())
+            .take_while(|(ledger, _)| *ledger <= self.walked_to)
+            .copied()
+            .collect::<Vec<_>>();
+        for (_, hash) in passed {
+            self.forget_ahead(&hash);
+        }
         self.advance_cursor();
+    }
+
+    /// Keeps the proof of a transaction proven from a hint for a walk to
+    /// step through, if a walk will reach it: with its record if it was
+    /// not `taken`, while there is room for one. Without room, the newest
+    /// makes room for an older one, which a walk reaches sooner, since
+    /// each starts above the last.
+    fn keep_ahead(&mut self, decoded: Decoded, taken: bool) {
+        let Decoded {
+            record, threads, ..
+        } = decoded;
+        let (hash, ledger) = (record.hash, record.ledger_index);
+        let records = (self.proven.values())
+            .filter(|ahead| ahead.record.is_some())
+            .count();
+        let useless = ledger <= self.walked_to
+            || threads.is_empty()
+            || self.proven.contains_key(&hash)
+            || (!taken && records >= MAX_PROVEN_RECORDS);
+        if useless {
+            return;
+        }
+        if self.proven.len() >= MAX_PROVEN {
+            match self.proven_order.last().copied() {
+                Some((newest, evicted)) if newest > ledger => self.forget_ahead(&evicted),
+                _ => return,
+            }
+        }
+        self.proven_order.insert((ledger, hash));
+        self.proven.insert(
+            hash,
+            Ahead {
+                ledger,
+                threads,
+                record: (!taken).then(|| Box::new(record)),
+            },
+        );
+    }
+
+    fn forget_ahead(&mut self, hash: &[u8; 32]) {
+        if let Some(ahead) = self.proven.remove(hash) {
+            self.proven_order.remove(&(ahead.ledger, *hash));
+        }
     }
 
     /// Gives up the walk under way: the next starts again from where the
@@ -2013,6 +2241,17 @@ impl Watcher {
         if let Some(ledger) = self.known_name(&search) {
             return self.hold_named(search, ledger);
         }
+        // It reached a stretch its server could not search past: it names
+        // nothing, as the last search did, and proves nothing again.
+        if let Some((hold, from, to)) = self.unnamed
+            && hold.frozen == search.hold.frozen
+            && hold.fee == search.hold.fee
+            && (from..=to.saturating_add(1)).contains(&search.since)
+        {
+            self.unnamed = Some((hold, from, to.max(search.top)));
+            self.search = None;
+            return;
+        }
         let Some(view) = self.view.as_ref() else {
             return;
         };
@@ -2063,7 +2302,8 @@ impl Watcher {
     /// it the same since: the same there, and the search goes on from what
     /// that ledger proves; or not, or not there at all, and the hold
     /// changed in the ledger after. A server that keeps no such ledger ends
-    /// the search, and the next check searches again.
+    /// the search, naming nothing; and the next searches, on this
+    /// connection, end where they reach the stretch it searched.
     fn hold_before(&mut self, id: QueryId, verdict: Verdict) {
         // A verdict that came at once, before its query was noted, is the
         // search's too.
@@ -2094,12 +2334,14 @@ impl Watcher {
                 }
             }
             (Verdict::NoLedger, _) => self.hold_named(search, search.since),
-            _ => {
+            (Verdict::NoHistory, _) => {
                 self.search = None;
+                self.unnamed = Some((search.hold, search.since, search.top));
                 self.out.push_back(Out::Problem(
                     "the XRPL server keeps too short a history to name the issuer's hold by the ledger it changed in",
                 ));
             }
+            _ => self.search = None,
         }
     }
 

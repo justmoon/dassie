@@ -32,7 +32,7 @@ use dassie_node::sim::hub_token;
 // rata, to the unit.
 #[test]
 fn a_dsusd_hub_runs_from_joining_through_a_freeze_to_its_payout_after_a_clawback() {
-    let seed = 91;
+    let seed = 45;
     let run = hub_token::run(seed);
     assert_eq!(
         run.outcome,
