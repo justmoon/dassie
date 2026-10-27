@@ -7,6 +7,7 @@
       "realm": "test",
       "created": 0,
       "createdAt": "2026-01-01T00:00:00.000Z",
+      "date": "2026-01-01",
       "secret": "00000000000000000000000000000000",
       "dataWords": [
         32,
@@ -63,6 +64,7 @@
       "realm": "live",
       "created": 0,
       "createdAt": "2026-01-01T00:00:00.000Z",
+      "date": "2026-01-01",
       "secret": "00000000000000000000000000000000",
       "dataWords": [
         64,
@@ -119,6 +121,7 @@
       "realm": "test",
       "created": 1,
       "createdAt": "2026-01-01T01:00:00.000Z",
+      "date": "2026-01-01",
       "secret": "ffffffffffffffffffffffffffffffff",
       "dataWords": [
         32,
@@ -175,6 +178,7 @@
       "realm": "live",
       "created": 1,
       "createdAt": "2026-01-01T01:00:00.000Z",
+      "date": "2026-01-01",
       "secret": "ffffffffffffffffffffffffffffffff",
       "dataWords": [
         64,
@@ -231,6 +235,7 @@
       "realm": "test",
       "created": 7189,
       "createdAt": "2026-10-27T13:00:00.000Z",
+      "date": "2026-10-27",
       "secret": "80000000000000000000000000000000",
       "dataWords": [
         32,
@@ -287,6 +292,7 @@
       "realm": "live",
       "created": 7189,
       "createdAt": "2026-10-27T13:00:00.000Z",
+      "date": "2026-10-27",
       "secret": "80000000000000000000000000000000",
       "dataWords": [
         64,
@@ -343,6 +349,7 @@
       "realm": "test",
       "created": 349525,
       "createdAt": "2065-11-15T13:00:00.000Z",
+      "date": "2065-11-15",
       "secret": "00000000000000000000000000000001",
       "dataWords": [
         42,
@@ -399,6 +406,7 @@
       "realm": "live",
       "created": 349525,
       "createdAt": "2065-11-15T13:00:00.000Z",
+      "date": "2065-11-15",
       "secret": "00000000000000000000000000000001",
       "dataWords": [
         74,
@@ -455,6 +463,7 @@
       "realm": "test",
       "created": 699050,
       "createdAt": "2105-10-01T02:00:00.000Z",
+      "date": "2105-10-01",
       "secret": "a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5",
       "dataWords": [
         53,
@@ -511,6 +520,7 @@
       "realm": "live",
       "created": 699050,
       "createdAt": "2105-10-01T02:00:00.000Z",
+      "date": "2105-10-01",
       "secret": "a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5",
       "dataWords": [
         85,
@@ -567,6 +577,7 @@
       "realm": "test",
       "created": 0,
       "createdAt": "2026-01-01T00:00:00.000Z",
+      "date": "2026-01-01",
       "secret": "6fb5791e13a6b877c68d56ba331686da",
       "dataWords": [
         32,
@@ -623,6 +634,7 @@
       "realm": "live",
       "created": 0,
       "createdAt": "2026-01-01T00:00:00.000Z",
+      "date": "2026-01-01",
       "secret": "6fb5791e13a6b877c68d56ba331686da",
       "dataWords": [
         64,
@@ -679,6 +691,7 @@
       "realm": "test",
       "created": 1,
       "createdAt": "2026-01-01T01:00:00.000Z",
+      "date": "2026-01-01",
       "secret": "6fb5791e13a6b877c68d56ba331686da",
       "dataWords": [
         32,
@@ -735,6 +748,7 @@
       "realm": "live",
       "created": 1,
       "createdAt": "2026-01-01T01:00:00.000Z",
+      "date": "2026-01-01",
       "secret": "6fb5791e13a6b877c68d56ba331686da",
       "dataWords": [
         64,
@@ -791,6 +805,7 @@
       "realm": "test",
       "created": 7189,
       "createdAt": "2026-10-27T13:00:00.000Z",
+      "date": "2026-10-27",
       "secret": "6fb5791e13a6b877c68d56ba331686da",
       "dataWords": [
         32,
@@ -847,6 +862,7 @@
       "realm": "live",
       "created": 7189,
       "createdAt": "2026-10-27T13:00:00.000Z",
+      "date": "2026-10-27",
       "secret": "6fb5791e13a6b877c68d56ba331686da",
       "dataWords": [
         64,
@@ -903,6 +919,7 @@
       "realm": "test",
       "created": 349525,
       "createdAt": "2065-11-15T13:00:00.000Z",
+      "date": "2065-11-15",
       "secret": "6fb5791e13a6b877c68d56ba331686da",
       "dataWords": [
         42,
@@ -959,6 +976,7 @@
       "realm": "live",
       "created": 349525,
       "createdAt": "2065-11-15T13:00:00.000Z",
+      "date": "2065-11-15",
       "secret": "6fb5791e13a6b877c68d56ba331686da",
       "dataWords": [
         74,
@@ -1015,6 +1033,7 @@
       "realm": "test",
       "created": 699050,
       "createdAt": "2105-10-01T02:00:00.000Z",
+      "date": "2105-10-01",
       "secret": "6fb5791e13a6b877c68d56ba331686da",
       "dataWords": [
         53,
@@ -1071,6 +1090,7 @@
       "realm": "live",
       "created": 699050,
       "createdAt": "2105-10-01T02:00:00.000Z",
+      "date": "2105-10-01",
       "secret": "6fb5791e13a6b877c68d56ba331686da",
       "dataWords": [
         85,
@@ -1127,6 +1147,7 @@
       "realm": "test",
       "created": 1048575,
       "createdAt": "2145-08-15T15:00:00.000Z",
+      "date": "2145-08-15",
       "secret": "6fb5791e13a6b877c68d56ba331686da",
       "dataWords": [
         63,
@@ -1183,6 +1204,7 @@
       "realm": "live",
       "created": 1048575,
       "createdAt": "2145-08-15T15:00:00.000Z",
+      "date": "2145-08-15",
       "secret": "6fb5791e13a6b877c68d56ba331686da",
       "dataWords": [
         95,
@@ -1239,6 +1261,7 @@
       "realm": "test",
       "created": 0,
       "createdAt": "2026-01-01T00:00:00.000Z",
+      "date": "2026-01-01",
       "secret": "dee783781380dbfe0786b9d9cc2c1434",
       "dataWords": [
         32,
@@ -1295,6 +1318,7 @@
       "realm": "live",
       "created": 0,
       "createdAt": "2026-01-01T00:00:00.000Z",
+      "date": "2026-01-01",
       "secret": "dee783781380dbfe0786b9d9cc2c1434",
       "dataWords": [
         64,
@@ -1351,6 +1375,7 @@
       "realm": "test",
       "created": 1,
       "createdAt": "2026-01-01T01:00:00.000Z",
+      "date": "2026-01-01",
       "secret": "c23e76284e5f80a3040b23dcd9019e64",
       "dataWords": [
         32,
@@ -1407,6 +1432,7 @@
       "realm": "live",
       "created": 1,
       "createdAt": "2026-01-01T01:00:00.000Z",
+      "date": "2026-01-01",
       "secret": "c23e76284e5f80a3040b23dcd9019e64",
       "dataWords": [
         64,
@@ -1499,7 +1525,7 @@
     {
       "name": "clean, test realm",
       "realm": "test",
-      "clock": 7213,
+      "clockUnixMs": 1793237400000,
       "input": [
         "advice",
         "deal",
@@ -1529,7 +1555,7 @@
         "kind": 1,
         "realm": "test",
         "created": 7189,
-        "createdAfterClock": false,
+        "date": "2026-10-27",
         "secret": "6fb5791e13a6b877c68d56ba331686da",
         "masterSeed": "213d12fb780c10ef1f5e37a04bfaa527fb81e77ec856719c01960e2119a4127def2c9be5bc7cbbad08e25bb645ac2aec439ccfb95e790d121f23bd6bbd3e384e"
       }
@@ -1537,7 +1563,7 @@
     {
       "name": "clean, live realm",
       "realm": "live",
-      "clock": 7213,
+      "clockUnixMs": 1793237400000,
       "input": [
         "amount",
         "deal",
@@ -1567,7 +1593,7 @@
         "kind": 2,
         "realm": "live",
         "created": 7189,
-        "createdAfterClock": false,
+        "date": "2026-10-27",
         "secret": "dee783781380dbfe0786b9d9cc2c1434",
         "masterSeed": "3e3db26b2ddc3a226fbe0f91f3bce82f0e832f6e2c07ef4d88d88d21089bbf8d6427e6db73da7465ba61702cbaabc0fed83639cad08fb23c58e897d501765eee"
       }
@@ -1575,7 +1601,7 @@
     {
       "name": "upper case",
       "realm": "test",
-      "clock": 7213,
+      "clockUnixMs": 1793237400000,
       "input": [
         "ADVICE",
         "DEAL",
@@ -1605,7 +1631,7 @@
         "kind": 1,
         "realm": "test",
         "created": 7189,
-        "createdAfterClock": false,
+        "date": "2026-10-27",
         "secret": "6fb5791e13a6b877c68d56ba331686da",
         "masterSeed": "213d12fb780c10ef1f5e37a04bfaa527fb81e77ec856719c01960e2119a4127def2c9be5bc7cbbad08e25bb645ac2aec439ccfb95e790d121f23bd6bbd3e384e"
       }
@@ -1613,7 +1639,7 @@
     {
       "name": "first four letters",
       "realm": "test",
-      "clock": 7213,
+      "clockUnixMs": 1793237400000,
       "input": [
         "advi",
         "deal",
@@ -1643,7 +1669,7 @@
         "kind": 1,
         "realm": "test",
         "created": 7189,
-        "createdAfterClock": false,
+        "date": "2026-10-27",
         "secret": "6fb5791e13a6b877c68d56ba331686da",
         "masterSeed": "213d12fb780c10ef1f5e37a04bfaa527fb81e77ec856719c01960e2119a4127def2c9be5bc7cbbad08e25bb645ac2aec439ccfb95e790d121f23bd6bbd3e384e"
       }
@@ -1651,7 +1677,7 @@
     {
       "name": "mixed case, first four letters",
       "realm": "live",
-      "clock": 7213,
+      "clockUnixMs": 1793237400000,
       "input": [
         "AMOU",
         "Deal",
@@ -1681,7 +1707,7 @@
         "kind": 2,
         "realm": "live",
         "created": 7189,
-        "createdAfterClock": false,
+        "date": "2026-10-27",
         "secret": "dee783781380dbfe0786b9d9cc2c1434",
         "masterSeed": "3e3db26b2ddc3a226fbe0f91f3bce82f0e832f6e2c07ef4d88d88d21089bbf8d6427e6db73da7465ba61702cbaabc0fed83639cad08fb23c58e897d501765eee"
       }
@@ -1689,7 +1715,7 @@
     {
       "name": "letters after the fourth are not read",
       "realm": "test",
-      "clock": 7213,
+      "clockUnixMs": 1793237400000,
       "input": [
         "advixyz",
         "dealxyz",
@@ -1719,7 +1745,7 @@
         "kind": 1,
         "realm": "test",
         "created": 7189,
-        "createdAfterClock": false,
+        "date": "2026-10-27",
         "secret": "6fb5791e13a6b877c68d56ba331686da",
         "masterSeed": "213d12fb780c10ef1f5e37a04bfaa527fb81e77ec856719c01960e2119a4127def2c9be5bc7cbbad08e25bb645ac2aec439ccfb95e790d121f23bd6bbd3e384e"
       }
@@ -1727,7 +1753,7 @@
     {
       "name": "one wrong word at 0",
       "realm": "test",
-      "clock": 7213,
+      "clockUnixMs": 1793237400000,
       "input": [
         "enlist",
         "deal",
@@ -1759,7 +1785,7 @@
         "kind": 1,
         "realm": "test",
         "created": 7189,
-        "createdAfterClock": false,
+        "date": "2026-10-27",
         "secret": "6fb5791e13a6b877c68d56ba331686da",
         "masterSeed": "213d12fb780c10ef1f5e37a04bfaa527fb81e77ec856719c01960e2119a4127def2c9be5bc7cbbad08e25bb645ac2aec439ccfb95e790d121f23bd6bbd3e384e"
       }
@@ -1767,7 +1793,7 @@
     {
       "name": "one wrong word at 7",
       "realm": "test",
-      "clock": 7213,
+      "clockUnixMs": 1793237400000,
       "input": [
         "advice",
         "deal",
@@ -1799,7 +1825,7 @@
         "kind": 1,
         "realm": "test",
         "created": 7189,
-        "createdAfterClock": false,
+        "date": "2026-10-27",
         "secret": "6fb5791e13a6b877c68d56ba331686da",
         "masterSeed": "213d12fb780c10ef1f5e37a04bfaa527fb81e77ec856719c01960e2119a4127def2c9be5bc7cbbad08e25bb645ac2aec439ccfb95e790d121f23bd6bbd3e384e"
       }
@@ -1807,7 +1833,7 @@
     {
       "name": "one wrong word at 13",
       "realm": "test",
-      "clock": 7213,
+      "clockUnixMs": 1793237400000,
       "input": [
         "advice",
         "deal",
@@ -1839,7 +1865,7 @@
         "kind": 1,
         "realm": "test",
         "created": 7189,
-        "createdAfterClock": false,
+        "date": "2026-10-27",
         "secret": "6fb5791e13a6b877c68d56ba331686da",
         "masterSeed": "213d12fb780c10ef1f5e37a04bfaa527fb81e77ec856719c01960e2119a4127def2c9be5bc7cbbad08e25bb645ac2aec439ccfb95e790d121f23bd6bbd3e384e"
       }
@@ -1847,7 +1873,7 @@
     {
       "name": "one wrong word at 14",
       "realm": "test",
-      "clock": 7213,
+      "clockUnixMs": 1793237400000,
       "input": [
         "advice",
         "deal",
@@ -1879,7 +1905,7 @@
         "kind": 1,
         "realm": "test",
         "created": 7189,
-        "createdAfterClock": false,
+        "date": "2026-10-27",
         "secret": "6fb5791e13a6b877c68d56ba331686da",
         "masterSeed": "213d12fb780c10ef1f5e37a04bfaa527fb81e77ec856719c01960e2119a4127def2c9be5bc7cbbad08e25bb645ac2aec439ccfb95e790d121f23bd6bbd3e384e"
       }
@@ -1887,7 +1913,7 @@
     {
       "name": "one wrong word at 19",
       "realm": "test",
-      "clock": 7213,
+      "clockUnixMs": 1793237400000,
       "input": [
         "advice",
         "deal",
@@ -1919,7 +1945,7 @@
         "kind": 1,
         "realm": "test",
         "created": 7189,
-        "createdAfterClock": false,
+        "date": "2026-10-27",
         "secret": "6fb5791e13a6b877c68d56ba331686da",
         "masterSeed": "213d12fb780c10ef1f5e37a04bfaa527fb81e77ec856719c01960e2119a4127def2c9be5bc7cbbad08e25bb645ac2aec439ccfb95e790d121f23bd6bbd3e384e"
       }
@@ -1927,7 +1953,7 @@
     {
       "name": "two wrong words, first and last",
       "realm": "test",
-      "clock": 7213,
+      "clockUnixMs": 1793237400000,
       "input": [
         "festival",
         "deal",
@@ -1960,7 +1986,7 @@
         "kind": 1,
         "realm": "test",
         "created": 7189,
-        "createdAfterClock": false,
+        "date": "2026-10-27",
         "secret": "6fb5791e13a6b877c68d56ba331686da",
         "masterSeed": "213d12fb780c10ef1f5e37a04bfaa527fb81e77ec856719c01960e2119a4127def2c9be5bc7cbbad08e25bb645ac2aec439ccfb95e790d121f23bd6bbd3e384e"
       }
@@ -1968,7 +1994,7 @@
     {
       "name": "two wrong words, side by side",
       "realm": "test",
-      "clock": 7213,
+      "clockUnixMs": 1793237400000,
       "input": [
         "advice",
         "deal",
@@ -2001,7 +2027,7 @@
         "kind": 1,
         "realm": "test",
         "created": 7189,
-        "createdAfterClock": false,
+        "date": "2026-10-27",
         "secret": "6fb5791e13a6b877c68d56ba331686da",
         "masterSeed": "213d12fb780c10ef1f5e37a04bfaa527fb81e77ec856719c01960e2119a4127def2c9be5bc7cbbad08e25bb645ac2aec439ccfb95e790d121f23bd6bbd3e384e"
       }
@@ -2009,7 +2035,7 @@
     {
       "name": "two wrong check words",
       "realm": "live",
-      "clock": 7213,
+      "clockUnixMs": 1793237400000,
       "input": [
         "amount",
         "deal",
@@ -2042,7 +2068,7 @@
         "kind": 2,
         "realm": "live",
         "created": 7189,
-        "createdAfterClock": false,
+        "date": "2026-10-27",
         "secret": "dee783781380dbfe0786b9d9cc2c1434",
         "masterSeed": "3e3db26b2ddc3a226fbe0f91f3bce82f0e832f6e2c07ef4d88d88d21089bbf8d6427e6db73da7465ba61702cbaabc0fed83639cad08fb23c58e897d501765eee"
       }
@@ -2050,7 +2076,7 @@
     {
       "name": "two wrong words, data and check",
       "realm": "live",
-      "clock": 7213,
+      "clockUnixMs": 1793237400000,
       "input": [
         "amount",
         "deal",
@@ -2083,7 +2109,7 @@
         "kind": 2,
         "realm": "live",
         "created": 7189,
-        "createdAfterClock": false,
+        "date": "2026-10-27",
         "secret": "dee783781380dbfe0786b9d9cc2c1434",
         "masterSeed": "3e3db26b2ddc3a226fbe0f91f3bce82f0e832f6e2c07ef4d88d88d21089bbf8d6427e6db73da7465ba61702cbaabc0fed83639cad08fb23c58e897d501765eee"
       }
@@ -2091,7 +2117,7 @@
     {
       "name": "one marked word",
       "realm": "test",
-      "clock": 7213,
+      "clockUnixMs": 1793237400000,
       "input": [
         null,
         "deal",
@@ -2123,7 +2149,7 @@
         "kind": 1,
         "realm": "test",
         "created": 7189,
-        "createdAfterClock": false,
+        "date": "2026-10-27",
         "secret": "6fb5791e13a6b877c68d56ba331686da",
         "masterSeed": "213d12fb780c10ef1f5e37a04bfaa527fb81e77ec856719c01960e2119a4127def2c9be5bc7cbbad08e25bb645ac2aec439ccfb95e790d121f23bd6bbd3e384e"
       }
@@ -2131,7 +2157,7 @@
     {
       "name": "one word not in the list",
       "realm": "test",
-      "clock": 7213,
+      "clockUnixMs": 1793237400000,
       "input": [
         "advice",
         "deal",
@@ -2163,7 +2189,7 @@
         "kind": 1,
         "realm": "test",
         "created": 7189,
-        "createdAfterClock": false,
+        "date": "2026-10-27",
         "secret": "6fb5791e13a6b877c68d56ba331686da",
         "masterSeed": "213d12fb780c10ef1f5e37a04bfaa527fb81e77ec856719c01960e2119a4127def2c9be5bc7cbbad08e25bb645ac2aec439ccfb95e790d121f23bd6bbd3e384e"
       }
@@ -2171,7 +2197,7 @@
     {
       "name": "two unreadable words",
       "realm": "test",
-      "clock": 7213,
+      "clockUnixMs": 1793237400000,
       "input": [
         "advice",
         null,
@@ -2204,7 +2230,7 @@
         "kind": 1,
         "realm": "test",
         "created": 7189,
-        "createdAfterClock": false,
+        "date": "2026-10-27",
         "secret": "6fb5791e13a6b877c68d56ba331686da",
         "masterSeed": "213d12fb780c10ef1f5e37a04bfaa527fb81e77ec856719c01960e2119a4127def2c9be5bc7cbbad08e25bb645ac2aec439ccfb95e790d121f23bd6bbd3e384e"
       }
@@ -2212,7 +2238,7 @@
     {
       "name": "three unreadable words",
       "realm": "live",
-      "clock": 7213,
+      "clockUnixMs": 1793237400000,
       "input": [
         "amount",
         "deal",
@@ -2246,7 +2272,7 @@
         "kind": 2,
         "realm": "live",
         "created": 7189,
-        "createdAfterClock": false,
+        "date": "2026-10-27",
         "secret": "dee783781380dbfe0786b9d9cc2c1434",
         "masterSeed": "3e3db26b2ddc3a226fbe0f91f3bce82f0e832f6e2c07ef4d88d88d21089bbf8d6427e6db73da7465ba61702cbaabc0fed83639cad08fb23c58e897d501765eee"
       }
@@ -2254,7 +2280,7 @@
     {
       "name": "four unreadable words",
       "realm": "test",
-      "clock": 7213,
+      "clockUnixMs": 1793237400000,
       "input": [
         null,
         "deal",
@@ -2289,7 +2315,7 @@
         "kind": 1,
         "realm": "test",
         "created": 7189,
-        "createdAfterClock": false,
+        "date": "2026-10-27",
         "secret": "6fb5791e13a6b877c68d56ba331686da",
         "masterSeed": "213d12fb780c10ef1f5e37a04bfaa527fb81e77ec856719c01960e2119a4127def2c9be5bc7cbbad08e25bb645ac2aec439ccfb95e790d121f23bd6bbd3e384e"
       }
@@ -2297,7 +2323,7 @@
     {
       "name": "five unreadable words, the first five",
       "realm": "test",
-      "clock": 7213,
+      "clockUnixMs": 1793237400000,
       "input": [
         null,
         null,
@@ -2333,7 +2359,7 @@
         "kind": 1,
         "realm": "test",
         "created": 7189,
-        "createdAfterClock": false,
+        "date": "2026-10-27",
         "secret": "6fb5791e13a6b877c68d56ba331686da",
         "masterSeed": "213d12fb780c10ef1f5e37a04bfaa527fb81e77ec856719c01960e2119a4127def2c9be5bc7cbbad08e25bb645ac2aec439ccfb95e790d121f23bd6bbd3e384e"
       }
@@ -2341,7 +2367,7 @@
     {
       "name": "five unreadable words, check words",
       "realm": "live",
-      "clock": 7213,
+      "clockUnixMs": 1793237400000,
       "input": [
         "amount",
         "deal",
@@ -2377,7 +2403,7 @@
         "kind": 2,
         "realm": "live",
         "created": 7189,
-        "createdAfterClock": false,
+        "date": "2026-10-27",
         "secret": "dee783781380dbfe0786b9d9cc2c1434",
         "masterSeed": "3e3db26b2ddc3a226fbe0f91f3bce82f0e832f6e2c07ef4d88d88d21089bbf8d6427e6db73da7465ba61702cbaabc0fed83639cad08fb23c58e897d501765eee"
       }
@@ -2385,7 +2411,7 @@
     {
       "name": "five unreadable words, spread",
       "realm": "test",
-      "clock": 7213,
+      "clockUnixMs": 1793237400000,
       "input": [
         null,
         "deal",
@@ -2421,7 +2447,7 @@
         "kind": 1,
         "realm": "test",
         "created": 7189,
-        "createdAfterClock": false,
+        "date": "2026-10-27",
         "secret": "6fb5791e13a6b877c68d56ba331686da",
         "masterSeed": "213d12fb780c10ef1f5e37a04bfaa527fb81e77ec856719c01960e2119a4127def2c9be5bc7cbbad08e25bb645ac2aec439ccfb95e790d121f23bd6bbd3e384e"
       }
@@ -2429,7 +2455,7 @@
     {
       "name": "an unreadable word that is the list's first",
       "realm": "test",
-      "clock": 7213,
+      "clockUnixMs": 1793237400000,
       "input": [
         "advice",
         "abandon",
@@ -2461,7 +2487,7 @@
         "kind": 1,
         "realm": "test",
         "created": 0,
-        "createdAfterClock": false,
+        "date": "2026-01-01",
         "secret": "00000000000000000000000000000000",
         "masterSeed": "79aed3956f96868657a6584a65037692ece36897e7bcd1e2600fce4c3517056e05cb6ce5aa8e060140f6e2bf3e8af905fb9755cd367e96f516a397861c309efb"
       }
@@ -2469,7 +2495,7 @@
     {
       "name": "one wrong word and one unreadable",
       "realm": "test",
-      "clock": 7213,
+      "clockUnixMs": 1793237400000,
       "input": [
         "advice",
         "deal",
@@ -2502,7 +2528,7 @@
         "kind": 1,
         "realm": "test",
         "created": 7189,
-        "createdAfterClock": false,
+        "date": "2026-10-27",
         "secret": "6fb5791e13a6b877c68d56ba331686da",
         "masterSeed": "213d12fb780c10ef1f5e37a04bfaa527fb81e77ec856719c01960e2119a4127def2c9be5bc7cbbad08e25bb645ac2aec439ccfb95e790d121f23bd6bbd3e384e"
       }
@@ -2510,7 +2536,7 @@
     {
       "name": "one wrong word and two unreadable",
       "realm": "live",
-      "clock": 7213,
+      "clockUnixMs": 1793237400000,
       "input": [
         null,
         "deal",
@@ -2544,7 +2570,7 @@
         "kind": 2,
         "realm": "live",
         "created": 7189,
-        "createdAfterClock": false,
+        "date": "2026-10-27",
         "secret": "dee783781380dbfe0786b9d9cc2c1434",
         "masterSeed": "3e3db26b2ddc3a226fbe0f91f3bce82f0e832f6e2c07ef4d88d88d21089bbf8d6427e6db73da7465ba61702cbaabc0fed83639cad08fb23c58e897d501765eee"
       }
@@ -2552,7 +2578,7 @@
     {
       "name": "one wrong word and three unreadable",
       "realm": "test",
-      "clock": 7213,
+      "clockUnixMs": 1793237400000,
       "input": [
         "advice",
         null,
@@ -2587,7 +2613,7 @@
         "kind": 1,
         "realm": "test",
         "created": 7189,
-        "createdAfterClock": false,
+        "date": "2026-10-27",
         "secret": "6fb5791e13a6b877c68d56ba331686da",
         "masterSeed": "213d12fb780c10ef1f5e37a04bfaa527fb81e77ec856719c01960e2119a4127def2c9be5bc7cbbad08e25bb645ac2aec439ccfb95e790d121f23bd6bbd3e384e"
       }
@@ -2595,7 +2621,7 @@
     {
       "name": "two wrong words and one unreadable",
       "realm": "test",
-      "clock": 7213,
+      "clockUnixMs": 1793237400000,
       "input": [
         "advice",
         "deal",
@@ -2629,7 +2655,7 @@
         "kind": 1,
         "realm": "test",
         "created": 7189,
-        "createdAfterClock": false,
+        "date": "2026-10-27",
         "secret": "6fb5791e13a6b877c68d56ba331686da",
         "masterSeed": "213d12fb780c10ef1f5e37a04bfaa527fb81e77ec856719c01960e2119a4127def2c9be5bc7cbbad08e25bb645ac2aec439ccfb95e790d121f23bd6bbd3e384e"
       }
@@ -2637,7 +2663,7 @@
     {
       "name": "six unreadable words",
       "realm": "test",
-      "clock": 7213,
+      "clockUnixMs": 1793237400000,
       "input": [
         null,
         "deal",
@@ -2667,7 +2693,7 @@
     {
       "name": "six unreadable check words",
       "realm": "test",
-      "clock": 7213,
+      "clockUnixMs": 1793237400000,
       "input": [
         "advice",
         "deal",
@@ -2697,7 +2723,7 @@
     {
       "name": "one wrong word and four unreadable",
       "realm": "test",
-      "clock": 7213,
+      "clockUnixMs": 1793237400000,
       "input": [
         null,
         null,
@@ -2727,7 +2753,7 @@
     {
       "name": "two wrong words and two unreadable",
       "realm": "live",
-      "clock": 7213,
+      "clockUnixMs": 1793237400000,
       "input": [
         "amount",
         "deal",
@@ -2757,7 +2783,7 @@
     {
       "name": "three wrong words",
       "realm": "test",
-      "clock": 7213,
+      "clockUnixMs": 1793237400000,
       "input": [
         "layer",
         "deal",
@@ -2787,7 +2813,7 @@
     {
       "name": "three wrong data words",
       "realm": "live",
-      "clock": 7213,
+      "clockUnixMs": 1793237400000,
       "input": [
         "amount",
         "object",
@@ -2817,7 +2843,7 @@
     {
       "name": "three wrong check words",
       "realm": "test",
-      "clock": 7213,
+      "clockUnixMs": 1793237400000,
       "input": [
         "advice",
         "deal",
@@ -2847,7 +2873,7 @@
     {
       "name": "three wrong words and one unreadable",
       "realm": "test",
-      "clock": 7213,
+      "clockUnixMs": 1793237400000,
       "input": [
         "advice",
         "deal",
@@ -2877,7 +2903,7 @@
     {
       "name": "four wrong words",
       "realm": "test",
-      "clock": 7213,
+      "clockUnixMs": 1793237400000,
       "input": [
         "brave",
         "deal",
@@ -2907,7 +2933,7 @@
     {
       "name": "no word in the list",
       "realm": "test",
-      "clock": 7213,
+      "clockUnixMs": 1793237400000,
       "input": [
         "dassie",
         "xxxx",
@@ -2937,7 +2963,7 @@
     {
       "name": "every word marked",
       "realm": "test",
-      "clock": 7213,
+      "clockUnixMs": 1793237400000,
       "input": [
         null,
         null,
@@ -2967,7 +2993,7 @@
     {
       "name": "a BIP-39 phrase of 12 words",
       "realm": "test",
-      "clock": 7213,
+      "clockUnixMs": 1793237400000,
       "input": [
         "zero",
         "pigeon",
@@ -2989,7 +3015,7 @@
     {
       "name": "a BIP-39 phrase of 15 words",
       "realm": "test",
-      "clock": 7213,
+      "clockUnixMs": 1793237400000,
       "input": [
         "seven",
         "pumpkin",
@@ -3014,7 +3040,7 @@
     {
       "name": "a BIP-39 phrase of 18 words",
       "realm": "test",
-      "clock": 7213,
+      "clockUnixMs": 1793237400000,
       "input": [
         "pulp",
         "live",
@@ -3042,7 +3068,7 @@
     {
       "name": "a BIP-39 phrase of 21 words",
       "realm": "test",
-      "clock": 7213,
+      "clockUnixMs": 1793237400000,
       "input": [
         "salmon",
         "undo",
@@ -3073,7 +3099,7 @@
     {
       "name": "a BIP-39 phrase of 24 words",
       "realm": "test",
-      "clock": 7213,
+      "clockUnixMs": 1793237400000,
       "input": [
         "thought",
         "near",
@@ -3107,7 +3133,7 @@
     {
       "name": "a phrase and one word more",
       "realm": "test",
-      "clock": 7213,
+      "clockUnixMs": 1793237400000,
       "input": [
         "advice",
         "deal",
@@ -3138,7 +3164,7 @@
     {
       "name": "0 words",
       "realm": "test",
-      "clock": 7213,
+      "clockUnixMs": 1793237400000,
       "input": [],
       "result": {
         "refused": "length"
@@ -3147,7 +3173,7 @@
     {
       "name": "1 words",
       "realm": "test",
-      "clock": 7213,
+      "clockUnixMs": 1793237400000,
       "input": [
         "advice"
       ],
@@ -3158,7 +3184,7 @@
     {
       "name": "11 words",
       "realm": "test",
-      "clock": 7213,
+      "clockUnixMs": 1793237400000,
       "input": [
         "advice",
         "deal",
@@ -3179,7 +3205,7 @@
     {
       "name": "13 words",
       "realm": "test",
-      "clock": 7213,
+      "clockUnixMs": 1793237400000,
       "input": [
         "advice",
         "deal",
@@ -3202,7 +3228,7 @@
     {
       "name": "19 words",
       "realm": "test",
-      "clock": 7213,
+      "clockUnixMs": 1793237400000,
       "input": [
         "advice",
         "deal",
@@ -3231,7 +3257,7 @@
     {
       "name": "22 words",
       "realm": "test",
-      "clock": 7213,
+      "clockUnixMs": 1793237400000,
       "input": [
         "advice",
         "deal",
@@ -3263,7 +3289,7 @@
     {
       "name": "25 words",
       "realm": "test",
-      "clock": 7213,
+      "clockUnixMs": 1793237400000,
       "input": [
         "advice",
         "deal",
@@ -3298,7 +3324,7 @@
     {
       "name": "kind 0",
       "realm": "test",
-      "clock": 7213,
+      "clockUnixMs": 1793237400000,
       "input": [
         "abandon",
         "deal",
@@ -3328,7 +3354,7 @@
     {
       "name": "kind 0, with a wrong word",
       "realm": "test",
-      "clock": 7213,
+      "clockUnixMs": 1793237400000,
       "input": [
         "abandon",
         "deal",
@@ -3358,7 +3384,7 @@
     {
       "name": "kind 3",
       "realm": "test",
-      "clock": 7213,
+      "clockUnixMs": 1793237400000,
       "input": [
         "army",
         "deal",
@@ -3389,7 +3415,7 @@
     {
       "name": "kind 42",
       "realm": "test",
-      "clock": 7213,
+      "clockUnixMs": 1793237400000,
       "input": [
         "pool",
         "deal",
@@ -3420,7 +3446,7 @@
     {
       "name": "kind 63",
       "realm": "test",
-      "clock": 7213,
+      "clockUnixMs": 1793237400000,
       "input": [
         "winter",
         "deal",
@@ -3451,7 +3477,7 @@
     {
       "name": "kind 63, with two unreadable words",
       "realm": "test",
-      "clock": 7213,
+      "clockUnixMs": 1793237400000,
       "input": [
         null,
         null,
@@ -3482,7 +3508,7 @@
     {
       "name": "a live phrase where a test phrase is expected",
       "realm": "test",
-      "clock": 7213,
+      "clockUnixMs": 1793237400000,
       "input": [
         "amount",
         "deal",
@@ -3513,7 +3539,7 @@
     {
       "name": "a test phrase where a live phrase is expected",
       "realm": "live",
-      "clock": 7213,
+      "clockUnixMs": 1793237400000,
       "input": [
         "advice",
         "deal",
@@ -3544,7 +3570,7 @@
     {
       "name": "a test phrase with a wrong word where a live phrase is expected",
       "realm": "live",
-      "clock": 7213,
+      "clockUnixMs": 1793237400000,
       "input": [
         "advice",
         "deal",
@@ -3575,7 +3601,7 @@
     {
       "name": "made in the reader's hour",
       "realm": "test",
-      "clock": 7189,
+      "clockUnixMs": 1793109540000,
       "input": [
         "advice",
         "deal",
@@ -3605,7 +3631,7 @@
         "kind": 1,
         "realm": "test",
         "created": 7189,
-        "createdAfterClock": false,
+        "date": "2026-10-27",
         "secret": "6fb5791e13a6b877c68d56ba331686da",
         "masterSeed": "213d12fb780c10ef1f5e37a04bfaa527fb81e77ec856719c01960e2119a4127def2c9be5bc7cbbad08e25bb645ac2aec439ccfb95e790d121f23bd6bbd3e384e"
       }
@@ -3613,7 +3639,7 @@
     {
       "name": "made an hour after the reader's clock",
       "realm": "test",
-      "clock": 7188,
+      "clockUnixMs": 1793104200000,
       "input": [
         "advice",
         "deal",
@@ -3643,15 +3669,149 @@
         "kind": 1,
         "realm": "test",
         "created": 7189,
-        "createdAfterClock": true,
+        "date": "2026-10-27",
         "secret": "6fb5791e13a6b877c68d56ba331686da",
         "masterSeed": "213d12fb780c10ef1f5e37a04bfaa527fb81e77ec856719c01960e2119a4127def2c9be5bc7cbbad08e25bb645ac2aec439ccfb95e790d121f23bd6bbd3e384e"
       }
     },
     {
+      "name": "made exactly a day after the reader's clock",
+      "realm": "test",
+      "clockUnixMs": 1793019600000,
+      "input": [
+        "advice",
+        "deal",
+        "finger",
+        "survey",
+        "tongue",
+        "second",
+        "pluck",
+        "senior",
+        "vast",
+        "boy",
+        "hill",
+        "book",
+        "foam",
+        "swap",
+        "demise",
+        "aim",
+        "excite",
+        "proof",
+        "ivory",
+        "loud"
+      ],
+      "result": {
+        "phrase": "advice deal finger survey tongue second pluck senior vast boy hill book foam swap demise aim excite proof ivory loud",
+        "corrected": false,
+        "changed": [],
+        "kind": 1,
+        "realm": "test",
+        "created": 7189,
+        "date": "2026-10-27",
+        "secret": "6fb5791e13a6b877c68d56ba331686da",
+        "masterSeed": "213d12fb780c10ef1f5e37a04bfaa527fb81e77ec856719c01960e2119a4127def2c9be5bc7cbbad08e25bb645ac2aec439ccfb95e790d121f23bd6bbd3e384e"
+      }
+    },
+    {
+      "name": "made a day and a millisecond after the reader's clock",
+      "realm": "test",
+      "clockUnixMs": 1793019599999,
+      "input": [
+        "advice",
+        "deal",
+        "finger",
+        "survey",
+        "tongue",
+        "second",
+        "pluck",
+        "senior",
+        "vast",
+        "boy",
+        "hill",
+        "book",
+        "foam",
+        "swap",
+        "demise",
+        "aim",
+        "excite",
+        "proof",
+        "ivory",
+        "loud"
+      ],
+      "result": {
+        "refused": "createdInFuture",
+        "created": 7189,
+        "date": "2026-10-27"
+      }
+    },
+    {
+      "name": "made a day and a half after the reader's clock",
+      "realm": "live",
+      "clockUnixMs": 1792978200000,
+      "input": [
+        "amount",
+        "deal",
+        "fuel",
+        "inherit",
+        "assume",
+        "act",
+        "liar",
+        "that",
+        "limit",
+        "aspect",
+        "outside",
+        "toward",
+        "raccoon",
+        "make",
+        "never",
+        "equip",
+        "betray",
+        "charge",
+        "fox",
+        "good"
+      ],
+      "result": {
+        "refused": "createdInFuture",
+        "created": 7189,
+        "date": "2026-10-27"
+      }
+    },
+    {
       "name": "made in the field's last hour, read at its first",
       "realm": "test",
-      "clock": 0,
+      "clockUnixMs": 1767225600000,
+      "input": [
+        "among",
+        "zoo",
+        "wire",
+        "busy",
+        "suffer",
+        "antenna",
+        "garbage",
+        "agree",
+        "scissors",
+        "bind",
+        "differ",
+        "hold",
+        "all",
+        "smart",
+        "dash",
+        "hollow",
+        "stuff",
+        "document",
+        "lens",
+        "machine"
+      ],
+      "result": {
+        "refused": "createdInFuture",
+        "created": 1048575,
+        "date": "2145-08-15"
+      }
+    },
+    {
+      "name": "made in the field's last hour, read in it",
+      "realm": "test",
+      "clockUnixMs": 5542097400000,
       "input": [
         "among",
         "zoo",
@@ -3681,7 +3841,7 @@
         "kind": 1,
         "realm": "test",
         "created": 1048575,
-        "createdAfterClock": true,
+        "date": "2145-08-15",
         "secret": "c23e76284e5f80a3040b23dcd9019e64",
         "masterSeed": "2b2b86350d779fc3c33ec63bf97836064d07cf3472635c3f6a2abd09f316dd20a9ffded9eff1c60cc180f2ab2160e906d34c75626d8d5a44eaf480a226493567"
       }
@@ -3689,7 +3849,7 @@
     {
       "name": "made in the field's first hour, read at its last",
       "realm": "live",
-      "clock": 1048575,
+      "clockUnixMs": 5542099140000,
       "input": [
         "amount",
         "abandon",
@@ -3719,15 +3879,47 @@
         "kind": 2,
         "realm": "live",
         "created": 0,
-        "createdAfterClock": false,
+        "date": "2026-01-01",
         "secret": "c23e76284e5f80a3040b23dcd9019e64",
         "masterSeed": "d69f0fab5fe76da2fa9e34848f1e69b0c659f45bc305cfd8bcec6319ae0932bfef65668d36f74259b357b8ef33d1bd54f8ac726f31d878f5a41c3df3ec9b223c"
       }
     },
     {
+      "name": "made in the field's first hour, read by a clock at 1970",
+      "realm": "live",
+      "clockUnixMs": 0,
+      "input": [
+        "amount",
+        "abandon",
+        "around",
+        "busy",
+        "suffer",
+        "antenna",
+        "garbage",
+        "agree",
+        "scissors",
+        "bind",
+        "differ",
+        "hold",
+        "all",
+        "smart",
+        "surprise",
+        "excite",
+        "volcano",
+        "miracle",
+        "cherry",
+        "retreat"
+      ],
+      "result": {
+        "refused": "createdInFuture",
+        "created": 0,
+        "date": "2026-01-01"
+      }
+    },
+    {
       "name": "made after the reader's clock, with a wrong word",
       "realm": "test",
-      "clock": 0,
+      "clockUnixMs": 1767225600000,
       "input": [
         "advice",
         "deal",
@@ -3745,23 +3937,46 @@
         "swap",
         "demise",
         "aim",
-        "away",
+        "foil",
         "proof",
         "ivory",
         "loud"
       ],
       "result": {
-        "phrase": "advice deal finger survey tongue second pluck senior vast boy hill book foam swap demise aim excite proof ivory loud",
-        "corrected": true,
-        "changed": [
-          16
-        ],
-        "kind": 1,
-        "realm": "test",
+        "refused": "createdInFuture",
         "created": 7189,
-        "createdAfterClock": true,
-        "secret": "6fb5791e13a6b877c68d56ba331686da",
-        "masterSeed": "213d12fb780c10ef1f5e37a04bfaa527fb81e77ec856719c01960e2119a4127def2c9be5bc7cbbad08e25bb645ac2aec439ccfb95e790d121f23bd6bbd3e384e"
+        "date": "2026-10-27"
+      }
+    },
+    {
+      "name": "a test phrase made after the reader's clock where a live phrase is expected",
+      "realm": "live",
+      "clockUnixMs": 1767225600000,
+      "input": [
+        "advice",
+        "deal",
+        "finger",
+        "survey",
+        "tongue",
+        "second",
+        "pluck",
+        "senior",
+        "vast",
+        "boy",
+        "hill",
+        "book",
+        "foam",
+        "swap",
+        "demise",
+        "aim",
+        "excite",
+        "proof",
+        "ivory",
+        "loud"
+      ],
+      "result": {
+        "refused": "otherRealm",
+        "realm": "test"
       }
     }
   ]

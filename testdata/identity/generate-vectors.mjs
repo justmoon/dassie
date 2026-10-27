@@ -15,7 +15,8 @@
 //   made from a kind, a creation hour and a secret, with their data and
 //   check words and master seed; the hours of clock readings; and phrases
 //   as a reader reads them, with wrong, unreadable and unknown words, of
-//   every length, kind and realm, and made after the reader's clock;
+//   every length, kind and realm, and made more than a day after the
+//   reader's clock;
 // - chain.json: phrases of both realms, each from its secret to its
 //   master seed, node key, public key, node ID, login secret, and the
 //   entropy and wallet of the node's first XRP Ledger account on the
@@ -176,6 +177,7 @@ SECRETS.forEach(([name, secret], index) => {
         realm,
         created,
         createdAt: phrase.hourStart(created),
+        date: phrase.dateOf(created),
         secret: hex(secret),
         dataWords: indices.slice(0, phrase.DATA_WORDS),
         checkWords: indices.slice(phrase.DATA_WORDS),
@@ -221,7 +223,10 @@ for (const word of UNKNOWN) {
 
 const A = made(1, NOW, secretOf("counter 0"));
 const B = made(2, NOW, secretOf("counter 1"));
-const LATER = NOW + 24;
+// A reader's clock, in milliseconds since the Unix epoch: by default a day
+// and a half after A and B were made.
+const clockAt = (hour, minutes = 0) => phrase.EPOCH_MS + hour * phrase.HOUR_MS + minutes * 60_000;
+const LATER = clockAt(NOW + 36, 30);
 
 // `indices` spelled out and damaged at places: `wrong` takes another word,
 // `unknown` a word not in the list, `marked` null.
@@ -233,10 +238,11 @@ const damage = (name, indices, { wrong = [], unknown = [], marked = [] }) => {
   return input;
 };
 
-// Each case gives the reader's realm and clock (an hour), the words read,
-// and what the reader makes of them. `expect` is what the case was built
-// to give, checked here apart from the decoder: "ok" (the source back,
-// unchanged), "corrected" (the source back, changed), or a refusal.
+// Each case gives the reader's realm and clock (milliseconds since the Unix
+// epoch), the words read, and what the reader makes of them. `expect` is
+// what the case was built to give, checked here apart from the decoder:
+// "ok" (the source back, unchanged), "corrected" (the source back,
+// changed), or a refusal.
 const reading = [];
 const readCase = (name, input, { realm = "test", clock = LATER, source, expect }) => {
   const outcome = phrase.read(wordlist, input, { realm, clock });
@@ -255,14 +261,14 @@ const readCase = (name, input, { realm = "test", clock = LATER, source, expect }
       kind: outcome.kind,
       realm: outcome.realm,
       created: outcome.created,
-      createdAfterClock: outcome.createdAfterClock,
+      date: outcome.date,
       secret: hex(outcome.secret),
       masterSeed: hex(outcome.masterSeed),
     }
     : outcome.refused === "tooDamaged"
     ? { refused: "tooDamaged" }
     : outcome;
-  reading.push({ name, realm, clock, input, result });
+  reading.push({ name, realm, clockUnixMs: clock, input, result });
 };
 
 // A refusal as too damaged that no decoder within the bound can avoid: no
@@ -387,30 +393,65 @@ readCase(
   { realm: "live", expect: "otherRealm" },
 );
 
-readCase("made in the reader's hour", spell(A), { clock: NOW, source: A, expect: "ok" });
+readCase("made in the reader's hour", spell(A), { clock: clockAt(NOW, 59), source: A, expect: "ok" });
 readCase("made an hour after the reader's clock", spell(A), {
-  clock: NOW - 1,
+  clock: clockAt(NOW - 1, 30),
   source: A,
   expect: "ok",
 });
+readCase("made exactly a day after the reader's clock", spell(A), {
+  clock: clockAt(NOW - 24),
+  source: A,
+  expect: "ok",
+});
+readCase("made a day and a millisecond after the reader's clock", spell(A), {
+  clock: clockAt(NOW - 24) - 1,
+  expect: "createdInFuture",
+});
+readCase("made a day and a half after the reader's clock", spell(B), {
+  realm: "live",
+  clock: clockAt(NOW - 36, 30),
+  expect: "createdInFuture",
+});
 const last = made(1, phrase.MOST_CREATED, secretOf("counter 2"));
 readCase("made in the field's last hour, read at its first", spell(last), {
-  clock: 0,
+  clock: clockAt(0),
+  expect: "createdInFuture",
+});
+readCase("made in the field's last hour, read in it", spell(last), {
+  clock: clockAt(phrase.MOST_CREATED, 30),
   source: last,
   expect: "ok",
 });
 const first = made(2, 0, secretOf("counter 2"));
 readCase("made in the field's first hour, read at its last", spell(first), {
   realm: "live",
-  clock: phrase.MOST_CREATED,
+  clock: clockAt(phrase.MOST_CREATED, 59),
   source: first,
   expect: "ok",
 });
-corrected("made after the reader's clock, with a wrong word", A, { wrong: [16] }, { clock: 0 });
+readCase("made in the field's first hour, read by a clock at 1970", spell(first), {
+  realm: "live",
+  clock: 0,
+  expect: "createdInFuture",
+});
+readCase(
+  "made after the reader's clock, with a wrong word",
+  damage("future", A, { wrong: [16] }),
+  { clock: clockAt(0), expect: "createdInFuture" },
+);
+readCase(
+  "a test phrase made after the reader's clock where a live phrase is expected",
+  spell(A),
+  { realm: "live", clock: clockAt(0), expect: "otherRealm" },
+);
 
 // Every phrase made reads back as itself in its own realm.
 for (const entry of madePhrases) {
-  const outcome = phrase.read(wordlist, entry.words, { realm: entry.realm, clock: NOW });
+  const outcome = phrase.read(wordlist, entry.words, {
+    realm: entry.realm,
+    clock: clockAt(phrase.MOST_CREATED),
+  });
   if (
     outcome.phrase !== entry.phrase || outcome.corrected ||
     hex(outcome.masterSeed) !== entry.masterSeed

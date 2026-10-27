@@ -1,6 +1,6 @@
 use core::fmt;
 
-use crate::phrase::{Positions, Realm};
+use crate::phrase::{Created, Positions, Realm};
 
 /// Why an input was rejected.
 ///
@@ -41,6 +41,15 @@ pub enum Error {
     OtherRealm {
         /// The phrase's realm.
         realm: Realm,
+    },
+    /// The phrase says it was made more than a day after the reader's
+    /// clock. No phrase is made in the future, so the reader's clock is
+    /// behind, the words are not the owner's phrase, or the clock of the
+    /// machine that made it ran ahead, and setting the reader's clock past
+    /// this date reads it.
+    CreatedInFuture {
+        /// When the phrase says it was made.
+        created: Created,
     },
     /// The phrase was read only by correcting the words at these
     /// positions, and the reader has no one to confirm the correction.
@@ -86,6 +95,15 @@ impl fmt::Display for Error {
             }
             Self::OtherRealm { realm } => {
                 return write!(f, "phrase of the {realm} realm");
+            }
+            Self::CreatedInFuture { created } => {
+                return write!(
+                    f,
+                    "the phrase says it was made on {created}, more than a day after this \
+                     clock's time, and no phrase is made in the future: this clock is behind, \
+                     the words are not the phrase, or the clock of the machine that made it ran \
+                     ahead, and then setting this clock past {created} reads it"
+                );
             }
             Self::NeedsConfirmation { changed } => {
                 // One-based, since this text is meant for people.

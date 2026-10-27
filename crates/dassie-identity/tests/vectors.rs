@@ -1,8 +1,10 @@
 //! Golden vectors from `testdata/identity/generate-vectors.mjs`, which
-//! computes them apart from Dassie's code: the derivation chain from a
-//! phrase's secret to every node secret, phrases as typed and damaged with
-//! what reading them gives, the key-level vectors, and every path below the
-//! node key (spec/areas/identity.md#derivation-chain).
+//! computes them apart from Dassie's code: the phrase format, written from
+//! its decision alone (`testdata/identity/phrase.mjs`), with phrases as
+//! made, clock readings, and phrases as typed and damaged with what reading
+//! them gives; the derivation chain from a phrase to every node secret; the
+//! key-level vectors; and every path below the node key
+//! (spec/areas/identity.md#derivation-chain).
 
 #![allow(
     clippy::unwrap_used,
@@ -12,6 +14,8 @@
 )]
 
 mod support;
+
+use std::collections::BTreeMap;
 
 use dassie_identity::{
     Created, Error, HubKey, NodeId, NodeKey, NodeSecret, Phrase, PhraseSecret, Positions,
@@ -31,31 +35,47 @@ const fn other(realm: Realm) -> Realm {
     }
 }
 
+fn number(entry: &Value, field: &str) -> u64 {
+    entry[field]
+        .as_u64()
+        .unwrap_or_else(|| panic!("missing number {field}"))
+}
+
+fn created_of(entry: &Value) -> Created {
+    Created::from_hours(u32::try_from(number(entry, "created")).unwrap()).unwrap()
+}
+
+/// A reader's clock past every phrase's creation time.
+const AFTER_EVERY_PHRASE: u64 = u64::MAX;
+
 #[test]
 fn derivation_chain() {
     let vectors = vectors("chain.json");
     let chain = vectors["chain"].as_array().unwrap();
     assert_eq!(chain.len(), 64, "the chain file covers many phrases");
+    let mut realms = BTreeMap::new();
     for entry in chain {
         let phrase = str_field(entry, "phrase");
         let realm = realm_of(entry);
-        let hours = u32::try_from(entry["created"].as_u64().unwrap()).unwrap();
-        let created = Created::from_hours(hours).unwrap();
+        *realms.entry(realm.as_str()).or_insert(0) += 1;
+        let created = created_of(entry);
         let secret = PhraseSecret::from_bytes(hex_array(str_field(entry, "secret")));
+        assert_eq!(
+            number(entry, "kind"),
+            if realm == Realm::Test { 1 } else { 2 }
+        );
 
         let made = Phrase::new(realm, created, &secret);
         assert_eq!(made.text().as_str(), phrase);
 
-        let Ok(Reading::Exact(read)) = Phrase::read(phrase, Positions::NONE, realm) else {
+        let Ok(Reading::Exact(read)) =
+            Phrase::read(phrase, Positions::NONE, realm, AFTER_EVERY_PHRASE)
+        else {
             panic!("{phrase} reads as written");
         };
         assert_eq!(read.realm(), realm);
         assert_eq!(read.created(), created);
         assert_eq!(read.secret().as_bytes(), secret.as_bytes());
-        assert_eq!(
-            read.created().unix_ms(),
-            Created::EPOCH_UNIX_MS + u64::from(hours) * 3_600_000
-        );
 
         let seed = read.master_seed(realm).unwrap();
         assert_eq!(
@@ -89,29 +109,113 @@ fn derivation_chain() {
             str_field(entry, "xrplMainnetEntropy")
         );
     }
+    assert_eq!(realms.get("test"), Some(&32), "both realms");
+    assert_eq!(realms.get("live"), Some(&32), "both realms");
 }
 
-// Each secret is in the chain once per realm, and is a different node in
-// each.
+// Phrases made from a kind, a creation hour and a secret: their words, the
+// date they show, and the master seed, which is another for each realm.
 #[test]
-fn one_secret_is_a_node_of_its_own_in_each_realm() {
-    let vectors = vectors("chain.json");
-    let chain = vectors["chain"].as_array().unwrap();
-    for pair in chain.chunks(2) {
-        let [test, live] = pair else { panic!("pairs") };
-        assert_eq!(realm_of(test), Realm::Test);
-        assert_eq!(realm_of(live), Realm::Live);
-        assert_eq!(str_field(test, "secret"), str_field(live, "secret"));
-        for field in ["phrase", "masterSeed", "nodeKey", "nodeId", "loginSecret"] {
-            assert_ne!(str_field(test, field), str_field(live, field), "{field}");
+fn made_phrases() {
+    let vectors = vectors("phrase.json");
+    let made = vectors["made"].as_array().unwrap();
+    let mut seeds: BTreeMap<(&str, u64), BTreeMap<&str, &str>> = BTreeMap::new();
+    for entry in made {
+        let realm = realm_of(entry);
+        let created = created_of(entry);
+        let secret = PhraseSecret::from_bytes(hex_array(str_field(entry, "secret")));
+        let phrase = Phrase::new(realm, created, &secret);
+        let words: Vec<&str> = entry["words"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|word| word.as_str().unwrap())
+            .collect();
+        assert_eq!(phrase.words().collect::<Vec<_>>(), words);
+        assert_eq!(phrase.text().as_str(), str_field(entry, "phrase"));
+        assert_eq!(phrase.created(), created);
+        assert_eq!(created.to_string(), str_field(entry, "date"));
+        let seed = phrase.master_seed(realm).unwrap();
+        assert_eq!(to_hex(seed.as_bytes()), str_field(entry, "masterSeed"));
+        seeds
+            .entry((str_field(entry, "secret"), number(entry, "created")))
+            .or_default()
+            .insert(realm.as_str(), str_field(entry, "masterSeed"));
+    }
+    // Every secret is made in both realms, and is a node of its own in
+    // each.
+    for both in seeds.values() {
+        assert_eq!(both.len(), 2);
+        assert_ne!(both.get("test"), both.get("live"));
+    }
+}
+
+// The hour a clock reading lies in, and no hour outside the field, where
+// no phrase is made.
+#[test]
+fn clock_readings() {
+    let vectors = vectors("phrase.json");
+    for clock in vectors["clocks"].as_array().unwrap() {
+        let now_ms = number(clock, "unixMillis");
+        let hour = clock["hour"]
+            .as_u64()
+            .map(|hour| Created::from_hours(u32::try_from(hour).unwrap()).unwrap());
+        assert_eq!(
+            Created::at_unix_ms(now_ms),
+            hour,
+            "{}",
+            str_field(clock, "time")
+        );
+        let generated = Phrase::generate(&mut Sevens, Realm::Test, now_ms);
+        match hour {
+            Some(hour) => assert_eq!(generated.unwrap().created(), hour),
+            None => assert_eq!(generated.map(|_| ()), Err(Error::ClockOutOfRange)),
         }
     }
 }
 
-/// The positions a reading's field lists.
-fn positions(reading: &Value, field: &str) -> Positions {
-    reading[field]
-        .as_array()
+/// An RNG that always gives sevens.
+struct Sevens;
+
+impl rand_core::TryRng for Sevens {
+    type Error = core::convert::Infallible;
+
+    fn try_next_u32(&mut self) -> Result<u32, Self::Error> {
+        Ok(0x0707_0707)
+    }
+
+    fn try_next_u64(&mut self) -> Result<u64, Self::Error> {
+        Ok(0x0707_0707_0707_0707)
+    }
+
+    fn try_fill_bytes(&mut self, destination: &mut [u8]) -> Result<(), Self::Error> {
+        destination.fill(7);
+        Ok(())
+    }
+}
+
+impl rand_core::TryCryptoRng for Sevens {}
+
+/// A reading's input as text, with the positions the owner marks as
+/// unreadable. A marked word is typed as the list's first word, which reads
+/// fine, so only the mark makes it an erasure.
+fn typed(input: &[Value]) -> (String, Positions) {
+    let mut unreadable = Positions::NONE;
+    let words: Vec<&str> = input
+        .iter()
+        .enumerate()
+        .map(|(position, word)| {
+            word.as_str().unwrap_or_else(|| {
+                unreadable = unreadable.with(position);
+                "abandon"
+            })
+        })
+        .collect();
+    (words.join(" "), unreadable)
+}
+
+fn positions(list: &Value) -> Positions {
+    list.as_array()
         .unwrap()
         .iter()
         .fold(Positions::NONE, |positions, position| {
@@ -119,52 +223,107 @@ fn positions(reading: &Value, field: &str) -> Positions {
         })
 }
 
+// Phrases as a reader reads them: typed sloppily, with wrong, unknown and
+// unreadable words, of other lengths, kinds and realms, and made more than
+// a day after the reader's clock, each with what the decision's steps make
+// of it, in their order.
 #[test]
 fn readings() {
-    let vectors = vectors("chain.json");
-    let readings = vectors["readings"].as_array().unwrap();
-    let mut corrected = 0;
+    let vectors = vectors("phrase.json");
+    let readings = vectors["reading"].as_array().unwrap();
+    let mut outcomes = BTreeMap::new();
     for reading in readings {
-        let input = str_field(reading, "input");
+        let name = str_field(reading, "name");
+        let input = reading["input"].as_array().unwrap();
+        let (text, unreadable) = typed(input);
         let realm = realm_of(reading);
-        let result = Phrase::read(input, positions(reading, "unreadable"), realm);
-        let Some(error) = reading["error"].as_str() else {
-            let expected = str_field(reading, "phrase");
-            let changed = positions(reading, "changed");
-            let phrase = match result {
+        let now_ms = number(reading, "clockUnixMs");
+        let result = &reading["result"];
+        let read = Phrase::read(&text, unreadable, realm, now_ms);
+        let Some(refused) = result["refused"].as_str() else {
+            let expected = str_field(result, "phrase");
+            let changed = positions(&result["changed"]);
+            let phrase = match read {
                 Ok(Reading::Exact(phrase)) => {
-                    assert!(changed.is_empty(), "{input}");
+                    assert!(changed.is_empty(), "{name}");
+                    assert_eq!(result["corrected"], false, "{name}");
+                    *outcomes.entry("exact").or_insert(0) += 1;
                     phrase
                 }
                 Ok(Reading::Corrected(correction)) => {
-                    assert_eq!(correction.changed(), changed, "{input}");
-                    assert_eq!(correction.text().as_str(), expected);
-                    corrected += 1;
+                    assert_eq!(result["corrected"], true, "{name}");
+                    assert_eq!(correction.changed(), changed, "{name}");
+                    assert_eq!(correction.text().as_str(), expected, "{name}");
+                    assert_eq!(correction.created(), created_of(result), "{name}");
+                    assert_eq!(correction.realm(), realm_of(result), "{name}");
+                    *outcomes.entry("corrected").or_insert(0) += 1;
                     correction.confirm()
                 }
-                Err(error) => panic!("{input}: {error}"),
+                Err(error) => panic!("{name}: {error}"),
             };
-            assert_eq!(phrase.text().as_str(), expected);
+            assert_eq!(phrase.text().as_str(), expected, "{name}");
+            assert_eq!(phrase.created(), created_of(result), "{name}");
+            assert_eq!(phrase.created().to_string(), str_field(result, "date"));
+            assert_eq!(
+                to_hex(phrase.secret().as_bytes()),
+                str_field(result, "secret")
+            );
+            let seed = phrase.master_seed(realm).unwrap();
+            assert_eq!(to_hex(seed.as_bytes()), str_field(result, "masterSeed"));
             continue;
         };
-        let result = result.map(|_| ());
-        let matched = match error {
-            "tooDamaged" => result == Err(Error::TooDamaged),
-            "bip39" => matches!(result, Err(Error::Bip39Phrase { .. })),
-            "wordCount" => matches!(result, Err(Error::WrongWordCount { .. })),
-            "otherRealm" => {
-                result
-                    == Err(Error::OtherRealm {
-                        realm: other(realm),
-                    })
+        let expected = match refused {
+            "bip39" => Error::Bip39Phrase { words: input.len() },
+            "length" => Error::WrongWordCount { words: input.len() },
+            "tooDamaged" => Error::TooDamaged,
+            "kindZero" => Error::InvalidKind,
+            "unassignedKind" => Error::NewerKind {
+                kind: u8::try_from(number(result, "kind")).unwrap(),
+            },
+            "otherRealm" => Error::OtherRealm {
+                realm: realm_of(result),
+            },
+            "createdInFuture" => {
+                let created = created_of(result);
+                assert_eq!(created.to_string(), str_field(result, "date"));
+                Error::CreatedInFuture { created }
             }
-            "invalidKind" => result == Err(Error::InvalidKind),
-            "newerKind" => matches!(result, Err(Error::NewerKind { .. })),
-            other => panic!("no error {other}"),
+            other => panic!("no refusal {other}"),
         };
-        assert!(matched, "{input}: {result:?}, expected {error}");
+        assert_eq!(read.map(|_| ()), Err(expected), "{name}");
+        *outcomes.entry(refused).or_insert(0) += 1;
     }
-    assert!(corrected >= 20, "{corrected}");
+    // Every outcome is covered, and corrections most.
+    assert_eq!(outcomes.len(), 9, "{outcomes:?}");
+    assert!(outcomes["corrected"] >= 20, "{outcomes:?}");
+}
+
+// The refusal of a phrase from the future names its date, and says how to
+// read it anyway.
+#[test]
+fn a_phrase_from_the_future_names_its_date() {
+    let vectors = vectors("phrase.json");
+    let reading = vectors["reading"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|reading| reading["result"]["refused"] == "createdInFuture")
+        .unwrap();
+    let (text, unreadable) = typed(reading["input"].as_array().unwrap());
+    let error = Phrase::read(
+        &text,
+        unreadable,
+        realm_of(reading),
+        number(reading, "clockUnixMs"),
+    )
+    .unwrap_err()
+    .to_string();
+    let date = str_field(&reading["result"], "date");
+    assert!(error.contains(&format!("made on {date}")), "{error}");
+    assert!(
+        error.contains(&format!("setting this clock past {date}")),
+        "{error}"
+    );
 }
 
 /// The secret a vector names, by its function's name and arguments.

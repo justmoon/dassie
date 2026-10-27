@@ -14,6 +14,9 @@ use dassie_identity::{
 };
 use proptest::prelude::*;
 
+/// A reader's clock past every phrase's creation time.
+const AFTER_EVERY_PHRASE: u64 = u64::MAX;
+
 fn realm() -> impl Strategy<Value = Realm> {
     prop_oneof![Just(Realm::Test), Just(Realm::Live)]
 }
@@ -266,7 +269,7 @@ proptest! {
         prop_assert_eq!(phrase.words().count(), PHRASE_WORDS);
 
         let text = phrase.text();
-        let Ok(Reading::Exact(read)) = Phrase::read(text.as_str(), Positions::NONE, realm) else {
+        let Ok(Reading::Exact(read)) = Phrase::read(text.as_str(), Positions::NONE, realm, AFTER_EVERY_PHRASE) else {
             panic!("a phrase reads as written");
         };
         prop_assert_eq!(read.text().as_str().to_owned(), text.as_str());
@@ -276,7 +279,7 @@ proptest! {
 
         let other = match realm { Realm::Test => Realm::Live, Realm::Live => Realm::Test };
         prop_assert_eq!(
-            Phrase::read(text.as_str(), Positions::NONE, other).map(|_| ()),
+            Phrase::read(text.as_str(), Positions::NONE, other, AFTER_EVERY_PHRASE).map(|_| ()),
             Err(Error::OtherRealm { realm })
         );
         // The same secret in the other realm is another node.
@@ -296,7 +299,7 @@ proptest! {
         let phrase = phrase_of(realm, hours, secret);
         let words: Vec<&str> = phrase.words().collect();
         let text = mangle(&words, &separators, &styles);
-        let Ok(Reading::Exact(read)) = Phrase::read(&text, Positions::NONE, realm) else {
+        let Ok(Reading::Exact(read)) = Phrase::read(&text, Positions::NONE, realm, AFTER_EVERY_PHRASE) else {
             panic!("{text} reads as written");
         };
         prop_assert_eq!(read.text().as_str().to_owned(), phrase.text().as_str().to_owned());
@@ -317,7 +320,7 @@ proptest! {
         let other = phrase_of(Realm::Test, hours ^ 0x5555, noise);
         let (text, marked) = damaged(&phrase, &other, &wrong, &unreadable, mark);
         let expected = wrong.iter().chain(&unreadable).fold(Positions::NONE, |p, &i| p.with(i));
-        match Phrase::read(&text, marked, realm).unwrap() {
+        match Phrase::read(&text, marked, realm, AFTER_EVERY_PHRASE).unwrap() {
             Reading::Exact(read) => {
                 prop_assert!(expected.is_empty());
                 prop_assert_eq!(read.text().as_str().to_owned(), phrase.text().as_str().to_owned());
@@ -346,7 +349,7 @@ proptest! {
         let phrase = phrase_of(realm, hours, secret);
         let other = phrase_of(Realm::Live, hours ^ 0x2aaa, noise);
         let (text, marked) = damaged(&phrase, &other, &wrong, &unreadable, mark);
-        prop_assert_eq!(Phrase::read(&text, marked, realm).map(|_| ()), Err(Error::TooDamaged));
+        prop_assert_eq!(Phrase::read(&text, marked, realm, AFTER_EVERY_PHRASE).map(|_| ()), Err(Error::TooDamaged));
     }
 
     #[test]
@@ -357,16 +360,40 @@ proptest! {
         prop_assert_eq!(first.text().as_str().to_owned(), second.text().as_str().to_owned());
         prop_assert_eq!(first.realm(), realm);
         prop_assert_eq!(first.created().hours(), hours);
-        prop_assert!(!first.created().is_after(now_ms));
+        // A new phrase reads at once by the clock that made it.
+        let read = Phrase::read(first.text().as_str(), Positions::NONE, realm, now_ms);
+        prop_assert!(matches!(read, Ok(Reading::Exact(_))));
+    }
+
+    // The creation time refuses a phrase exactly when it is more than a
+    // day after the reader's clock, and before a correction is shown.
+    #[test]
+    fn a_phrase_more_than_a_day_ahead_is_refused(
+        realm in realm(),
+        hours in hours(),
+        secret: [u8; 16],
+        behind_ms in 0u64..3 * 86_400_000,
+        unreadable in 0usize..PHRASE_WORDS,
+    ) {
+        let phrase = phrase_of(realm, hours, secret);
+        let created = phrase.created();
+        let now_ms = created.unix_ms().saturating_sub(behind_ms);
+        let marked = Positions::NONE.with(unreadable);
+        let read = Phrase::read(phrase.text().as_str(), marked, realm, now_ms);
+        if created.unix_ms() - now_ms > 86_400_000 {
+            prop_assert_eq!(read.map(|_| ()), Err(Error::CreatedInFuture { created }));
+        } else {
+            prop_assert!(matches!(read, Ok(Reading::Corrected(_))));
+        }
     }
 
     #[test]
     fn phrase_read_never_panics(text in any::<String>(), bits: u32, realm in realm()) {
         let marked = Positions::from_bits(bits & 0xf_ffff).unwrap();
-        match Phrase::read(&text, marked, realm) {
+        match Phrase::read(&text, marked, realm, AFTER_EVERY_PHRASE) {
             Ok(Reading::Exact(phrase)) => {
                 let text = phrase.text();
-                let again = Phrase::read(text.as_str(), Positions::NONE, realm);
+                let again = Phrase::read(text.as_str(), Positions::NONE, realm, AFTER_EVERY_PHRASE);
                 prop_assert!(matches!(again, Ok(Reading::Exact(_))));
             }
             Ok(Reading::Corrected(correction)) => {
@@ -391,7 +418,7 @@ proptest! {
         let two = phrase_of(Realm::Live, 2, secrets[1]);
         let words: Vec<&str> = one.words().chain(two.words()).collect();
         let salad: Vec<&str> = picks.iter().map(|pick| *pick.get(&words)).collect();
-        match Phrase::read(&salad.join(" "), Positions::NONE, realm) {
+        match Phrase::read(&salad.join(" "), Positions::NONE, realm, AFTER_EVERY_PHRASE) {
             Ok(Reading::Exact(phrase)) => {
                 prop_assert_eq!(phrase.text().as_str().to_owned(), salad.join(" "));
             }

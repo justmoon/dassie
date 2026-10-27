@@ -9,8 +9,9 @@
 //!
 //! A phrase is read by [`Phrase::read`]: words by their first four letters,
 //! unknown or unreadable words as erasures, only 20 of them, corrected
-//! within the code's bound, and refused by kind and realm before any
-//! correction is shown. A correction comes back as a [`Correction`], which
+//! within the code's bound, and refused by kind, realm and a creation time
+//! more than a day ahead of the reader's clock before any correction is
+//! shown. A correction comes back as a [`Correction`], which
 //! gives up its phrase only once the caller [confirms](Correction::confirm)
 //! it. The master seed is HKDF-SHA256 of the secret, keyed by the realm.
 
@@ -112,10 +113,11 @@ impl fmt::Display for Realm {
 
 /// When a phrase was made: hours since 2026-01-01T00:00:00Z, rounded down.
 ///
-/// The field has 20 bits, so it ends in August 2145. The time never refuses
-/// a phrase: a creation time after the reader's clock
-/// ([`is_after`](Self::is_after)) is shown to the owner, as a sign that one
-/// of the two clocks is wrong.
+/// The field has 20 bits, so it ends in August 2145. A phrase that says it
+/// was made more than a day after the reader's clock is refused
+/// ([`Error::CreatedInFuture`]), and a new phrase is shown with its date,
+/// which [`Display`](fmt::Display) writes as the decision shows it:
+/// `2026-02-19`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Created(u32);
 
@@ -127,6 +129,8 @@ impl Created {
     pub const MAX_HOURS: u32 = (1 << CREATED_BITS) - 1;
 
     const HOUR_MS: u64 = 3_600_000;
+
+    const DAY_MS: u64 = 24 * Self::HOUR_MS;
 
     /// The hour `hours` after the epoch, if the field can hold it.
     #[must_use]
@@ -158,11 +162,48 @@ impl Created {
         Self::EPOCH_UNIX_MS + self.0 as u64 * Self::HOUR_MS
     }
 
-    /// Whether the hour starts after `now_ms`: the phrase was made later
-    /// than the reader's clock says it is, so one of the clocks is wrong.
+    /// Whether the hour starts more than a day after `now_ms`, the
+    /// reader's clock: a phrase cannot be made in the future, so either
+    /// that clock is behind, the words are not the phrase, or the clock
+    /// that made the phrase ran ahead.
     #[must_use]
-    pub const fn is_after(self, now_ms: u64) -> bool {
-        self.unix_ms() > now_ms
+    pub const fn is_more_than_a_day_after(self, now_ms: u64) -> bool {
+        self.unix_ms() > now_ms.saturating_add(Self::DAY_MS)
+    }
+
+    /// The day the hour lies in, as year, month and day of the month, in
+    /// UTC.
+    #[must_use]
+    // The year is below 2146 and the month and day below 32, so the
+    // narrowing conversions are exact.
+    #[allow(clippy::cast_possible_truncation)]
+    pub const fn date(self) -> (u16, u8, u8) {
+        // Howard Hinnant's `civil_from_days`, on days counted from
+        // 0000-03-01 of the proleptic Gregorian calendar, which puts the
+        // leap day at the end of a year. Every hour of the field is after
+        // 1970, so nothing here is negative.
+        let days = self.unix_ms() / Self::DAY_MS + 719_468;
+        let era = days / 146_097;
+        let day_of_era = days % 146_097;
+        let year_of_era =
+            (day_of_era - day_of_era / 1460 + day_of_era / 36_524 - day_of_era / 146_096) / 365;
+        let day_of_year = day_of_era - (365 * year_of_era + year_of_era / 4 - year_of_era / 100);
+        let month_from_march = (5 * day_of_year + 2) / 153;
+        let day = day_of_year - (153 * month_from_march + 2) / 5 + 1;
+        let month = if month_from_march < 10 {
+            month_from_march + 3
+        } else {
+            month_from_march - 9
+        };
+        let year = year_of_era + era * 400 + if month <= 2 { 1 } else { 0 };
+        (year as u16, month as u8, day as u8)
+    }
+}
+
+impl fmt::Display for Created {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let (year, month, day) = self.date();
+        write!(f, "{year:04}-{month:02}-{day:02}")
     }
 }
 
@@ -309,10 +350,12 @@ impl Phrase {
     /// is matched by its first four letters, or in full if it is shorter.
     /// A word not on the list, `?` say, or one at a position in
     /// `unreadable`, is an erasure: its place is known, its value is not.
-    /// Up to two wrong words, and up to five when `2 × wrong + erasures`,
-    /// are restored. The kind and realm are checked before any correction
-    /// is returned, so an owner never confirms a phrase that is refused
-    /// next.
+    /// Up to two wrong words are restored, and erasures with them while
+    /// `2 × wrong + erasures` is at most five. The kind, the realm and the
+    /// creation time are checked before any correction is returned, so an
+    /// owner never confirms a phrase that is refused next: a phrase made
+    /// more than a day after `now_ms`, the reader's clock in milliseconds
+    /// since the Unix epoch, is refused.
     ///
     /// # Errors
     ///
@@ -322,8 +365,14 @@ impl Phrase {
     /// [`Error::TooDamaged`] beyond what the code restores;
     /// [`Error::InvalidKind`] and [`Error::NewerKind`] for kinds this
     /// version does not know; [`Error::OtherRealm`] for a phrase of the
-    /// realm not expected.
-    pub fn read(text: &str, unreadable: Positions, expected: Realm) -> Result<Reading, Error> {
+    /// realm not expected; [`Error::CreatedInFuture`] for one made more
+    /// than a day after `now_ms`.
+    pub fn read(
+        text: &str,
+        unreadable: Positions,
+        expected: Realm,
+        now_ms: u64,
+    ) -> Result<Reading, Error> {
         let (received, erasures) = read_words(text, unreadable)?;
         let (words, changed) =
             reed_solomon::decode(&received, erasures.bits()).map_err(|_| Error::TooDamaged)?;
@@ -332,6 +381,10 @@ impl Phrase {
         let realm = phrase.realm();
         if realm != expected {
             return Err(Error::OtherRealm { realm });
+        }
+        let created = phrase.created();
+        if created.is_more_than_a_day_after(now_ms) {
+            return Err(Error::CreatedInFuture { created });
         }
         assert!(
             changed >> LENGTH == 0,
@@ -705,6 +758,9 @@ mod tests {
         Created::from_hours(hours).unwrap()
     }
 
+    /// A reader's clock past every phrase's creation time.
+    const AFTER_EVERY_PHRASE: u64 = u64::MAX;
+
     // The fields land where the table puts them: kind, then hour, then
     // secret, most significant first.
     #[test]
@@ -740,7 +796,13 @@ mod tests {
             assert_eq!(phrase.realm(), realm);
             assert_eq!(phrase.created(), created(hours));
             assert_eq!(phrase.secret().as_bytes(), &[byte; 16]);
-            let reading = Phrase::read(phrase.text().as_str(), Positions::NONE, realm).unwrap();
+            let reading = Phrase::read(
+                phrase.text().as_str(),
+                Positions::NONE,
+                realm,
+                AFTER_EVERY_PHRASE,
+            )
+            .unwrap();
             let Reading::Exact(read) = reading else {
                 panic!("read as written")
             };
@@ -777,14 +839,45 @@ mod tests {
     }
 
     #[test]
-    fn a_time_after_the_clock_is_seen_not_refused() {
+    fn a_time_more_than_a_day_ahead_is_refused() {
+        const DAY_MS: u64 = 86_400_000;
         let hour = created(100);
-        assert!(!hour.is_after(hour.unix_ms()));
-        assert!(!hour.is_after(hour.unix_ms() + 1));
-        assert!(hour.is_after(hour.unix_ms() - 1));
-        // A phrase from the future reads as any other.
-        let phrase = Phrase::new(Realm::Test, created(Created::MAX_HOURS), &secret(1));
-        assert!(Phrase::read(phrase.text().as_str(), Positions::NONE, Realm::Test).is_ok());
+        assert!(!hour.is_more_than_a_day_after(hour.unix_ms()));
+        assert!(!hour.is_more_than_a_day_after(hour.unix_ms() - DAY_MS));
+        assert!(hour.is_more_than_a_day_after(hour.unix_ms() - DAY_MS - 1));
+        assert!(created(0).is_more_than_a_day_after(0));
+        assert!(!created(Created::MAX_HOURS).is_more_than_a_day_after(u64::MAX));
+
+        let phrase = Phrase::new(Realm::Test, hour, &secret(1));
+        let text = phrase.text();
+        let read = |now_ms| Phrase::read(text.as_str(), Positions::NONE, Realm::Test, now_ms);
+        assert!(read(hour.unix_ms() - DAY_MS).is_ok());
+        assert_eq!(
+            read(hour.unix_ms() - DAY_MS - 1).map(|_| ()),
+            Err(Error::CreatedInFuture { created: hour })
+        );
+    }
+
+    #[test]
+    fn dates_are_days_of_the_calendar() {
+        assert_eq!(std::format!("{}", created(0)), "2026-01-01");
+        assert_eq!(std::format!("{}", created(23)), "2026-01-01");
+        assert_eq!(std::format!("{}", created(24)), "2026-01-02");
+        // 2026-02-19, as the decision shows a new phrase's date.
+        assert_eq!(
+            std::format!("{}", created((31 + 18) * 24 + 13)),
+            "2026-02-19"
+        );
+        // 2028 is a leap year: Feb 29, then Mar 1.
+        let feb_29_2028 = (365 + 365 + 31 + 28) * 24;
+        assert_eq!(created(feb_29_2028).date(), (2028, 2, 29));
+        assert_eq!(created(feb_29_2028 + 24).date(), (2028, 3, 1));
+        assert_eq!(created(Created::MAX_HOURS).date(), (2145, 8, 15));
+        // 2100 is not a leap year.
+        let mar_1_2100 =
+            u32::try_from((4_107_542_400_000 - Created::EPOCH_UNIX_MS) / 3_600_000).unwrap();
+        assert_eq!(created(mar_1_2100 - 1).date(), (2100, 2, 28));
+        assert_eq!(created(mar_1_2100).date(), (2100, 3, 1));
     }
 
     #[test]
@@ -812,7 +905,8 @@ mod tests {
         );
         let mut text = std::string::String::from(phrase.text().as_str());
         text = text.replacen(phrase.words().next().unwrap(), "?", 1);
-        let reading = Phrase::read(&text, Positions::NONE, Realm::Test).unwrap();
+        let reading =
+            Phrase::read(&text, Positions::NONE, Realm::Test, AFTER_EVERY_PHRASE).unwrap();
         assert_eq!(
             std::format!("{reading:?}"),
             "Corrected(Correction { changed: [0], .. })"

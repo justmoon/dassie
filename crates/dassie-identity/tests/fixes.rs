@@ -14,6 +14,9 @@ use dassie_identity::{
 const ZERO_BIP39_PHRASE: &str =
     "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
 
+/// A reader's clock past every phrase's creation time.
+const AFTER_EVERY_PHRASE: u64 = u64::MAX;
+
 fn phrase(realm: Realm) -> Phrase {
     let created = Created::from_hours(7_000).unwrap();
     Phrase::new(realm, created, &PhraseSecret::from_bytes([0x42; 16]))
@@ -31,14 +34,26 @@ fn a_wrong_word_is_corrected_only_with_confirmation() {
     let phrase = phrase(Realm::Test);
     let mut typed = words(&phrase);
     typed[7] = if typed[7] == "zoo" { "abandon" } else { "zoo" };
-    let reading = Phrase::read(&typed.join(" "), Positions::NONE, Realm::Test).unwrap();
+    let reading = Phrase::read(
+        &typed.join(" "),
+        Positions::NONE,
+        Realm::Test,
+        AFTER_EVERY_PHRASE,
+    )
+    .unwrap();
     let Reading::Corrected(correction) = reading else {
         panic!("a wrong word is a correction");
     };
     assert_eq!(correction.changed(), Positions::NONE.with(7));
     assert_eq!(correction.text().as_str(), phrase.text().as_str());
 
-    let reading = Phrase::read(&typed.join(" "), Positions::NONE, Realm::Test).unwrap();
+    let reading = Phrase::read(
+        &typed.join(" "),
+        Positions::NONE,
+        Realm::Test,
+        AFTER_EVERY_PHRASE,
+    )
+    .unwrap();
     let error = reading.without_correction().unwrap_err();
     assert_eq!(
         error,
@@ -61,7 +76,13 @@ fn unknown_and_marked_words_are_erasures() {
     for position in [0, 4, 9, 14, 19] {
         typed[position] = "?";
     }
-    let reading = Phrase::read(&typed.join(" "), Positions::NONE, Realm::Live).unwrap();
+    let reading = Phrase::read(
+        &typed.join(" "),
+        Positions::NONE,
+        Realm::Live,
+        AFTER_EVERY_PHRASE,
+    )
+    .unwrap();
     let Reading::Corrected(correction) = reading else {
         panic!("five unreadable words are restored");
     };
@@ -72,15 +93,24 @@ fn unknown_and_marked_words_are_erasures() {
     // check word is kept back to catch a mistake.
     typed[1] = "?";
     assert_eq!(
-        Phrase::read(&typed.join(" "), Positions::NONE, Realm::Live).map(|_| ()),
+        Phrase::read(
+            &typed.join(" "),
+            Positions::NONE,
+            Realm::Live,
+            AFTER_EVERY_PHRASE
+        )
+        .map(|_| ()),
         Err(Error::TooDamaged)
     );
 
     // Marking a word that reads fine makes it an erasure too.
     let unreadable = Positions::NONE.with(3).with(11);
-    let Ok(Reading::Corrected(correction)) =
-        Phrase::read(phrase.text().as_str(), unreadable, Realm::Live)
-    else {
+    let Ok(Reading::Corrected(correction)) = Phrase::read(
+        phrase.text().as_str(),
+        unreadable,
+        Realm::Live,
+        AFTER_EVERY_PHRASE,
+    ) else {
         panic!("marked words are restored");
     };
     assert_eq!(correction.changed(), unreadable);
@@ -101,7 +131,13 @@ fn three_wrong_words_are_too_many() {
         };
     }
     assert_eq!(
-        Phrase::read(&typed.join(" "), Positions::NONE, Realm::Test).map(|_| ()),
+        Phrase::read(
+            &typed.join(" "),
+            Positions::NONE,
+            Realm::Test,
+            AFTER_EVERY_PHRASE
+        )
+        .map(|_| ()),
         Err(Error::TooDamaged)
     );
 }
@@ -111,17 +147,23 @@ fn three_wrong_words_are_too_many() {
 #[test]
 fn bip39_phrases_are_refused_as_such() {
     assert_eq!(
-        Phrase::read(ZERO_BIP39_PHRASE, Positions::NONE, Realm::Test).map(|_| ()),
+        Phrase::read(
+            ZERO_BIP39_PHRASE,
+            Positions::NONE,
+            Realm::Test,
+            AFTER_EVERY_PHRASE
+        )
+        .map(|_| ()),
         Err(Error::Bip39Phrase { words: 12 })
     );
     let eleven = ZERO_BIP39_PHRASE.replacen("abandon ", "", 1);
     assert_eq!(
-        Phrase::read(&eleven, Positions::NONE, Realm::Test).map(|_| ()),
+        Phrase::read(&eleven, Positions::NONE, Realm::Test, AFTER_EVERY_PHRASE).map(|_| ()),
         Err(Error::WrongWordCount { words: 11 })
     );
     let long = " ".repeat(dassie_identity::MAX_PHRASE_INPUT_BYTES + 1);
     assert_eq!(
-        Phrase::read(&long, Positions::NONE, Realm::Test).map(|_| ()),
+        Phrase::read(&long, Positions::NONE, Realm::Test, AFTER_EVERY_PHRASE).map(|_| ()),
         Err(Error::PhraseTooLong)
     );
 }
@@ -133,13 +175,25 @@ fn bip39_phrases_are_refused_as_such() {
 fn a_phrase_of_the_other_realm_is_refused_before_correction() {
     let live = phrase(Realm::Live);
     assert_eq!(
-        Phrase::read(live.text().as_str(), Positions::NONE, Realm::Test).map(|_| ()),
+        Phrase::read(
+            live.text().as_str(),
+            Positions::NONE,
+            Realm::Test,
+            AFTER_EVERY_PHRASE
+        )
+        .map(|_| ()),
         Err(Error::OtherRealm { realm: Realm::Live })
     );
     let mut typed = words(&live);
     typed[5] = "?";
     assert_eq!(
-        Phrase::read(&typed.join(" "), Positions::NONE, Realm::Test).map(|_| ()),
+        Phrase::read(
+            &typed.join(" "),
+            Positions::NONE,
+            Realm::Test,
+            AFTER_EVERY_PHRASE
+        )
+        .map(|_| ()),
         Err(Error::OtherRealm { realm: Realm::Live })
     );
     assert_eq!(
@@ -154,19 +208,45 @@ fn a_phrase_of_the_other_realm_is_refused_before_correction() {
     assert_ne!(live_key.node_id(), test_key.node_id());
 }
 
-/// A phrase made at a time after the reader's clock reads like any other:
-/// the owner is shown the time, and the phrase is never locked out.
+/// A phrase made more than a day after the reader's clock is refused, and
+/// before any correction is shown; the refusal names the phrase's date and
+/// says how to read it anyway: by setting the clock past that date.
 #[test]
-fn a_phrase_from_the_future_is_read() {
-    let made = Created::from_hours(Created::MAX_HOURS).unwrap();
+fn a_phrase_from_the_future_is_refused_with_its_date() {
+    // 2026-02-19T13:00Z, the decision's example of a date.
+    let made = Created::from_hours((31 + 18) * 24 + 13).unwrap();
     let phrase = Phrase::new(Realm::Test, made, &PhraseSecret::from_bytes([1; 16]));
-    let now_ms = Created::EPOCH_UNIX_MS + 1_000;
-    let Ok(Reading::Exact(read)) =
-        Phrase::read(phrase.text().as_str(), Positions::NONE, Realm::Test)
-    else {
+    let day_ms = 86_400_000;
+    let behind = made.unix_ms() - day_ms - 1;
+    let error = Phrase::read(phrase.text().as_str(), Positions::NONE, Realm::Test, behind)
+        .map(|_| ())
+        .unwrap_err();
+    assert_eq!(error, Error::CreatedInFuture { created: made });
+    let text = error.to_string();
+    assert!(text.contains("made on 2026-02-19"), "{text}");
+    assert!(text.contains("no phrase is made in the future"), "{text}");
+    assert!(
+        text.contains("setting this clock past 2026-02-19"),
+        "{text}"
+    );
+
+    // Damaged, it is refused all the same, and no correction is shown.
+    let mut typed = words(&phrase);
+    typed[4] = "?";
+    assert_eq!(
+        Phrase::read(&typed.join(" "), Positions::NONE, Realm::Test, behind).map(|_| ()),
+        Err(Error::CreatedInFuture { created: made })
+    );
+
+    // A day ahead is no more than a clock that is off.
+    let Ok(Reading::Exact(read)) = Phrase::read(
+        phrase.text().as_str(),
+        Positions::NONE,
+        Realm::Test,
+        made.unix_ms() - day_ms,
+    ) else {
         panic!("read as written");
     };
-    assert!(read.created().is_after(now_ms));
     assert!(read.master_seed(Realm::Test).is_ok());
 }
 

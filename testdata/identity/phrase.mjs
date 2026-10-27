@@ -213,13 +213,16 @@ export const encode = (kind, created, secret) => {
 // ---- Time: hours since 2026-01-01T00:00:00Z, rounded down ----
 
 export const EPOCH_MS = Date.UTC(2026, 0, 1);
-const HOUR_MS = 3_600_000;
+export const HOUR_MS = 3_600_000;
+export const DAY_MS = 24 * HOUR_MS;
 // The hour of a clock reading, or undefined outside the field.
 export const hourOf = (ms) => {
   const hour = Math.floor((ms - EPOCH_MS) / HOUR_MS);
   return hour < 0 || hour > MOST_CREATED ? undefined : hour;
 };
 export const hourStart = (hour) => new Date(EPOCH_MS + hour * HOUR_MS).toISOString();
+// The date of an hour, as a phrase's date is shown: `2026-02-19`.
+export const dateOf = (hour) => hourStart(hour).slice(0, 10);
 
 // ---- The master seed ----
 
@@ -245,9 +248,9 @@ export const wordIndex = (wordlist) => {
 };
 
 // Reads a phrase given as its words, `null` for a word the owner marks as
-// unreadable, as a reader expecting `realm` whose clock is at `clock`
-// (an hour of the field). The outcome is what the decision's steps say,
-// in their order.
+// unreadable, as a reader expecting `realm` whose clock reads `clock`
+// (milliseconds since the Unix epoch). The outcome is what the decision's
+// steps say, in their order.
 export const read = (wordlist, input, { realm, clock }) => {
   const index = wordIndex(wordlist);
   if (input.length !== WORDS) {
@@ -262,6 +265,11 @@ export const read = (wordlist, input, { realm, clock }) => {
   const phraseRealm = KIND_REALMS[kind];
   if (phraseRealm === undefined) return { refused: "unassignedKind", kind };
   if (phraseRealm !== realm) return { refused: "otherRealm", realm: phraseRealm };
+  // A creation time more than a day after the reader's clock, which the
+  // refusal names by its date.
+  if (EPOCH_MS + created * HOUR_MS - clock > DAY_MS) {
+    return { refused: "createdInFuture", created, date: dateOf(created) };
+  }
   const changed = restored.flatMap((word, place) => (word === received[place] ? [] : [place]));
   return {
     phrase: restored.map((word) => wordlist[word]).join(" "),
@@ -271,7 +279,7 @@ export const read = (wordlist, input, { realm, clock }) => {
     kind,
     realm: phraseRealm,
     created,
-    createdAfterClock: created > clock,
+    date: dateOf(created),
     secret,
     masterSeed: masterSeed(secret, phraseRealm),
   };
