@@ -192,7 +192,8 @@
         "Identity: phrase to node key, node ID and login proof",
         "ILP packets and STREAM, for the STREAM toy and the interop tests",
         "Decrypting STREAM packets, for the STREAM toy",
-        "The phrase for a given entropy, for the dev network's nodes"
+        "Phrases made, and read with corrections the owner confirms",
+        "The phrase of a given secret, for the dev network's nodes"
       ]
     },
     "wasm-crate": {
