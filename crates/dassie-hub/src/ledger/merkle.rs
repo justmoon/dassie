@@ -165,7 +165,36 @@ impl Ledger {
             bytes.extend_from_slice(&pool.voters.bits().to_be_bytes());
         }
         self.header_votes(&mut bytes);
+        self.header_issuer(&mut bytes);
         bytes
+    }
+
+    /// What the issuer of a token hub's asset did, as the hub took it:
+    /// whether and since when the hub is frozen, the state in force and the
+    /// votes for newer ones, what was clawed back, and the clawbacks
+    /// pending and remembered.
+    fn header_issuer(&self, bytes: &mut Vec<u8>) {
+        push_option(bytes, self.frozen);
+        push_issuer(bytes, &self.issuer);
+        push_count(bytes, self.issuer_votes.len());
+        for (issuer, signers) in &self.issuer_votes {
+            push_issuer(bytes, issuer);
+            bytes.extend_from_slice(&signers.bits().to_be_bytes());
+        }
+        bytes.extend_from_slice(&self.escrow.clawed_back.to_be_bytes());
+        bytes.extend_from_slice(&self.escrow.clawback_floor.to_be_bytes());
+        push_count(bytes, self.clawback_votes.len());
+        for (clawback, signers) in &self.clawback_votes {
+            bytes.extend_from_slice(clawback.transaction.as_bytes());
+            bytes.extend_from_slice(&clawback.ledger.to_be_bytes());
+            bytes.extend_from_slice(&clawback.amount.to_be_bytes());
+            bytes.extend_from_slice(&signers.bits().to_be_bytes());
+        }
+        push_count(bytes, self.recent_clawbacks.len());
+        for (hash, ledger) in &self.recent_clawbacks {
+            bytes.extend_from_slice(hash.as_bytes());
+            bytes.extend_from_slice(&ledger.to_be_bytes());
+        }
     }
 
     fn header_votes(&self, bytes: &mut Vec<u8>) {
@@ -205,6 +234,12 @@ impl Ledger {
 
 fn push_count(bytes: &mut Vec<u8>, count: usize) {
     bytes.extend_from_slice(&u32::try_from(count).unwrap_or(u32::MAX).to_be_bytes());
+}
+
+fn push_issuer(bytes: &mut Vec<u8>, issuer: &crate::operation::Issuer) {
+    bytes.extend_from_slice(&issuer.ledger.to_be_bytes());
+    bytes.push(u8::from(issuer.frozen));
+    bytes.push(u8::from(issuer.fee));
 }
 
 fn push_option(bytes: &mut Vec<u8>, value: Option<u64>) {

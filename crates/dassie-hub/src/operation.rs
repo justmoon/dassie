@@ -175,6 +175,48 @@ pub enum ValidatorOperation {
         /// Its escrow sequence.
         sequence: u32,
     },
+    /// What the issuer of a token hub's asset holds the escrow to, as of
+    /// the validated ledger in which it last changed
+    /// (spec/decisions/token-hubs.md).
+    AttestIssuer(Issuer),
+    /// A clawback of the hub's asset from the escrow, in a validated
+    /// ledger (spec/decisions/token-hubs.md).
+    AttestClawback(Clawback),
+}
+
+/// The issuer's hold on a token hub's escrow, as a validator proved it: a
+/// state, taken as of the ledger in which it last changed, so that a newer
+/// one replaces an older and a late vote for an older one is stale.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Issuer {
+    /// The validated ledger in which the state last changed: the ledger
+    /// of the issuer's transaction that changed it.
+    pub ledger: u32,
+    /// Whether the escrow's line is frozen or deep frozen, or the issuer
+    /// froze every line.
+    pub frozen: bool,
+    /// Whether the issuer charges a transfer fee.
+    pub fee: bool,
+}
+
+impl Issuer {
+    /// Whether it holds the hub still: a freeze, or a transfer fee, which
+    /// freezes the hub as a freeze does.
+    #[must_use]
+    pub const fn holds(&self) -> bool {
+        self.frozen || self.fee
+    }
+}
+
+/// A clawback from the escrow, as each validator attests it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Clawback {
+    /// The issuer's transaction.
+    pub transaction: Digest,
+    /// The validated ledger it is in.
+    pub ledger: u32,
+    /// What it took from the escrow, in the hub's unit.
+    pub amount: Amount,
 }
 
 /// A payment to the escrow, as each validator attests it
@@ -573,6 +615,8 @@ impl Encode for ValidatorOperation {
             Self::Reconfigure(rules) => rules.encoded_len(),
             Self::SetEndpoint(endpoint) => dassie_oer::size::prefixed(endpoint.len()),
             Self::Shutdown => 0,
+            Self::AttestIssuer(_) => ISSUER_LEN,
+            Self::AttestClawback(_) => CLAWBACK_LEN,
         }
     }
 
@@ -611,9 +655,25 @@ impl Encode for ValidatorOperation {
                 writer.write_u8(7);
                 writer.write_u32(*sequence);
             }
+            Self::AttestIssuer(issuer) => {
+                writer.write_u8(8);
+                writer.write_u32(issuer.ledger);
+                writer.write_bool(issuer.frozen);
+                writer.write_bool(issuer.fee);
+            }
+            Self::AttestClawback(clawback) => {
+                writer.write_u8(9);
+                write_digest(writer, &clawback.transaction);
+                writer.write_u32(clawback.ledger);
+                writer.write_u64(clawback.amount);
+            }
         }
     }
 }
+
+const ISSUER_LEN: usize = 4 + 1 + 1;
+
+const CLAWBACK_LEN: usize = DIGEST_LEN + 4 + 8;
 
 impl ValidatorOperation {
     /// Decodes a validator's operation.
@@ -643,6 +703,16 @@ impl ValidatorOperation {
             7 => Self::AttestSignerList {
                 sequence: reader.read_u32()?,
             },
+            8 => Self::AttestIssuer(Issuer {
+                ledger: reader.read_u32()?,
+                frozen: reader.read_bool()?,
+                fee: reader.read_bool()?,
+            }),
+            9 => Self::AttestClawback(Clawback {
+                transaction: read_digest(reader)?,
+                ledger: reader.read_u32()?,
+                amount: reader.read_u64()?,
+            }),
             other => return Err(HubDecodeError::UnknownChoice(u64::from(other))),
         })
     }
@@ -841,6 +911,16 @@ mod tests {
             ValidatorOperation::Shutdown,
             ValidatorOperation::AttestEscrow { sequence: 3 },
             ValidatorOperation::AttestSignerList { sequence: 4 },
+            ValidatorOperation::AttestIssuer(Issuer {
+                ledger: 7,
+                frozen: true,
+                fee: false,
+            }),
+            ValidatorOperation::AttestClawback(Clawback {
+                transaction: Digest([8; 32]),
+                ledger: 9,
+                amount: 10,
+            }),
         ] {
             let signed = SignedValidatorOperation::sign(
                 &hub,

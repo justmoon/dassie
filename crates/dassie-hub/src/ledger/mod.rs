@@ -12,6 +12,7 @@ mod escrow;
 mod fees;
 mod holds;
 mod invariants;
+mod issuer;
 mod member;
 mod merkle;
 mod outcome;
@@ -22,6 +23,7 @@ mod validator;
 use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
 
+pub use issuer::{CLAWBACK_SHARE, MAX_CLAWBACKS};
 pub use merkle::{merkle_proof, merkle_root, result_leaf, results_root, verify_proof};
 pub use outcome::{Detail, Failure, Outcome, Refusal};
 pub use state::{
@@ -30,7 +32,7 @@ pub use state::{
 };
 
 use crate::digest::Digest;
-use crate::operation::{AccountNumber, Operation};
+use crate::operation::{AccountNumber, Clawback, Issuer, Operation};
 use crate::promise::HoldNumber;
 use crate::rules::{Amount, HubId, Millis, Rules, RulesError, Terms};
 use crate::validators::{Signers, ValidatorIndex, ValidatorSet};
@@ -109,6 +111,18 @@ pub struct Ledger {
     /// The height from which the validators in force sign blocks: no block
     /// records votes for blocks before it, signed by others.
     pub(crate) set_since: u64,
+    /// The timestamp of the block from which the hub is frozen, while it
+    /// is (spec/decisions/token-hubs.md).
+    pub(crate) frozen: Option<Millis>,
+    /// What a quorum last attested of the issuer's hold on the escrow.
+    pub(crate) issuer: Issuer,
+    /// Votes for newer states of the issuer's hold, one per validator.
+    pub(crate) issuer_votes: Vec<(Issuer, Signers)>,
+    /// Clawbacks fewer than a quorum attested, by what each attested.
+    pub(crate) clawback_votes: Vec<(Clawback, Signers)>,
+    /// Clawbacks applied and still remembered, by transaction, with their
+    /// ledger.
+    pub(crate) recent_clawbacks: BTreeMap<Digest, u32>,
 }
 
 /// The XRP Ledger testnet's network ID, the one network on which the hub
@@ -153,6 +167,8 @@ impl Ledger {
                 checked: false,
                 deposit_floor: 0,
                 signer_list: None,
+                clawed_back: 0,
+                clawback_floor: 0,
             },
             accounts: BTreeMap::new(),
             keys: BTreeMap::new(),
@@ -174,6 +190,11 @@ impl Ledger {
             reset_votes_since: None,
             written_off_at: None,
             set_since: 1,
+            frozen: None,
+            issuer: Issuer::default(),
+            issuer_votes: Vec::new(),
+            clawback_votes: Vec::new(),
+            recent_clawbacks: BTreeMap::new(),
             rules,
         };
         ledger.open_validator_accounts(timestamp);
@@ -250,14 +271,16 @@ impl Ledger {
         Ok(outcomes)
     }
 
-    /// What falls due at the block's timestamp before its operations run:
-    /// reductions of holds, new rules, the end of a shutdown's notice, and
-    /// a shutdown forced by an absent validator.
+    /// What falls due by the hub's clock before the block's operations
+    /// run: reductions of holds, new rules, the end of a shutdown's notice,
+    /// and a shutdown forced by an absent validator. While the hub is
+    /// frozen its clock stands still, so nothing falls due.
     fn apply_due(&mut self) {
         self.apply_reductions();
         self.apply_pending_rules();
+        let clock = self.clock();
         if let Phase::ShuttingDown { ends } = self.phase {
-            if self.timestamp >= ends {
+            if clock >= ends {
                 self.phase = Phase::Ended;
             }
         } else if self.phase == Phase::Running && self.validator_absent() {
@@ -267,15 +290,26 @@ impl Ledger {
 
     fn validator_absent(&self) -> bool {
         let absence = self.rules.terms.timers.absence;
+        let clock = self.clock();
         self.validator_states
             .iter()
-            .any(|v| self.timestamp.saturating_sub(v.last_recorded) > absence)
+            .any(|v| clock.saturating_sub(v.last_recorded) > absence)
+    }
+
+    /// The time every notice and the absence of validators run by: the
+    /// block's timestamp, but while the hub is frozen the freeze's, so no
+    /// notice runs during a freeze (spec/decisions/token-hubs.md). Every
+    /// deadline is set by it, and the thaw moves those still to come back
+    /// by the freeze's length.
+    #[must_use]
+    pub fn clock(&self) -> Millis {
+        self.frozen.unwrap_or(self.timestamp)
     }
 
     fn begin_shutdown(&mut self) {
         let notice = self.rules.terms.timers.shutdown_notice;
         self.phase = Phase::ShuttingDown {
-            ends: self.timestamp.saturating_add(notice),
+            ends: self.clock().saturating_add(notice),
         };
     }
 
@@ -331,6 +365,23 @@ impl Ledger {
     #[must_use]
     pub const fn escrow(&self) -> &Escrow {
         &self.escrow
+    }
+
+    /// The timestamp of the block from which the hub is frozen, while it
+    /// is: it takes no member's operation but claims within the freeze's
+    /// window ([`Ledger::freeze_window_end`]), credits no deposit, settles
+    /// no withdrawal and lets no notice run, and no payout set is to be
+    /// signed until the thaw (spec/decisions/token-hubs.md).
+    #[must_use]
+    pub const fn frozen(&self) -> Option<Millis> {
+        self.frozen
+    }
+
+    /// What a quorum last attested of the issuer's hold on a token hub's
+    /// escrow.
+    #[must_use]
+    pub const fn issuer(&self) -> &Issuer {
+        &self.issuer
     }
 
     /// An account.
@@ -449,5 +500,7 @@ impl Ledger {
     }
 }
 
+#[cfg(test)]
+mod issuer_tests;
 #[cfg(test)]
 pub(crate) mod tests;

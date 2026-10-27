@@ -74,9 +74,10 @@ impl Ledger {
 
     /// Credits every deposit a quorum agrees on, once the escrow is
     /// checked. One whose payback finds the withdrawals full waits for the
-    /// next block.
+    /// next block. While the hub is frozen, deposits wait for the thaw,
+    /// their attestations kept (spec/decisions/token-hubs.md).
     pub(super) fn credit_deposits(&mut self) {
-        if !self.escrow.checked {
+        if !self.escrow.checked || self.frozen.is_some() {
             return;
         }
         let quorum = self.validators.quorum();
@@ -191,8 +192,12 @@ impl Ledger {
     /// Settles every withdrawal a quorum agrees on, in escrow sequence
     /// order. Run after each attestation and at the end of every block,
     /// since a change of validators can give attestations already made a
-    /// quorum, and those validators may not attest again.
+    /// quorum, and those validators may not attest again. While the hub is
+    /// frozen, outcomes wait for the thaw, their attestations kept.
     pub(super) fn settle_withdrawals(&mut self) {
+        if self.frozen.is_some() {
+            return;
+        }
         let quorum = self.validators.quorum();
         let agreed: Vec<(u32, bool)> = self
             .withdrawals
@@ -259,10 +264,12 @@ impl Ledger {
     }
 
     /// Writes off what a reset of the test network took: every balance,
-    /// reserve, hold and pending payment. Accounts stay, and lock their
-    /// reserve again from what they next receive. Deposits wait until the
-    /// validators checked the escrow made again.
+    /// reserve, hold and pending payment, and the issuer's acts on the old
+    /// chain. Accounts stay, and lock their reserve again from what they
+    /// next receive. Deposits wait until the validators checked the escrow
+    /// made again.
     pub(super) fn write_off(&mut self) {
+        self.write_off_issuer();
         let closing: Vec<AccountNumber> = self
             .accounts
             .iter()

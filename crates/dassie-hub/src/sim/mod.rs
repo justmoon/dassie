@@ -18,6 +18,7 @@
 )]
 
 pub mod chaos;
+pub mod issuer;
 
 use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::format;
