@@ -1211,9 +1211,14 @@ fn a_scheme_without_an_account_runs() {
     let ours = peering::Membership::read(&info, &hub.rules.id()).unwrap();
     assert_eq!(ours.account, peering::NONE);
     assert_eq!(ours.key, hub.key.public_key());
-    // Not advertised until the node carries packets without promises
-    // (spec/roadmap.md#joining-by-being-paid).
-    assert_eq!(scheme.commitments().unwrap().membership(), None);
+    // Advertised with no account, so that a member with one pays it in.
+    assert_eq!(
+        scheme.commitments().unwrap().membership(),
+        Some(dassie_settlement::Membership {
+            hub: *hub.rules.id().0.as_bytes(),
+            account: dassie_settlement::Membership::NO_ACCOUNT,
+        })
+    );
     // Two members without an account do not peer.
     let mut keyless = Vec::new();
     peering::Membership {

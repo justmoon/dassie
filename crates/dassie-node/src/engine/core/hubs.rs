@@ -67,7 +67,7 @@ pub struct HubPeer {
     /// The credit we extend to it, while its accounts are open.
     pub credit: Option<u64>,
     /// Our settlements to it still pending: what funds our hold once they
-    /// execute.
+    /// execute. Not a `pay` that opens its account, which funds none.
     pub settling: u64,
 }
 
@@ -79,6 +79,32 @@ pub struct HubPeer {
 #[must_use]
 pub(super) fn hub_credit(holds: HoldsWith, settling: u64) -> u64 {
     holds.toward.saturating_add(settling).min(MAX_TOTAL)
+}
+
+/// How a peering over a hub stands while one of its two ends has no account
+/// in the hub (spec/designs/settlement-hubs.md#5-joining). Its packets
+/// carry no promises either way, and the books alone take them
+/// ([`Commitments::commits_with`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Joining {
+    /// We have an account and the peer none: we pay it in with the hub's
+    /// minimum for a new account, this much, once we owe it that much, and
+    /// extend it nothing meanwhile.
+    Paying(u64),
+    /// We have none and the peer has one: it pays us in with the hub's
+    /// minimum for a new account, this much, once it owes us that much.
+    PaidIn(u64),
+}
+
+/// The credit a member without an account extends the peer that is to pay
+/// it in: room for the peer to owe it the hub's minimum for a new account,
+/// `minimum`, and our `trigger` besides, so that the member asks the peer to
+/// settle just as it owes the minimum, and the packets on their way then
+/// still fit (spec/designs/settlement-hubs.md#5-joining). It is what the
+/// member risks if the peer goes away before it pays.
+#[must_use]
+pub(super) fn paid_in_credit(minimum: u64, trigger: u64) -> u64 {
+    minimum.saturating_add(trigger).min(MAX_TOTAL)
 }
 
 /// The hubs our link state lists, from the membership of each scheme over
@@ -130,11 +156,34 @@ impl Core {
             .flatten()
     }
 
+    /// How the peering with `peer` over the hub of `scheme` stands while
+    /// one of us has no account in the hub; None once both have one, and
+    /// for a scheme that is not over a hub or does not run.
+    pub(super) fn joining(&mut self, scheme: Name, peer: Name) -> Option<Joining> {
+        if !self.schemes.get(&scheme)?.over_hub {
+            return None;
+        }
+        let (paying, paid_in) = self.with_commitments(scheme, |c| {
+            (c.opening_minimum(peer), c.paid_in_minimum(peer))
+        })?;
+        paying.map(Joining::Paying).or(paid_in.map(Joining::PaidIn))
+    }
+
+    /// [`joining`](Self::joining) with `node` on its method on `method`.
+    pub(super) fn joining_on(&mut self, node: &NodeId, method: SchemeId) -> Option<Joining> {
+        let scheme = Name::new(method.as_str()).ok()?;
+        let peer = Name::new(node.as_str()).ok()?;
+        self.joining(scheme, peer)
+    }
+
     /// The settlement hubs we are a member of, as our link state lists them
     /// (spec/designs/settlement-hubs.md#11-choosing-a-hub): one per scheme
     /// over a hub that runs and reports a membership
-    /// (`Commitments::membership`), which a hub scheme does once its
-    /// account has its number, in the order of the schemes.
+    /// (`Commitments::membership`), in the order of the schemes. A hub
+    /// scheme reports one once its account has its number, or once the hub
+    /// agrees it has none, with no number: a member with an account then
+    /// peers with it over the hub and pays it in
+    /// (spec/designs/settlement-hubs.md#5-joining).
     pub(super) fn hub_listings(&mut self) -> Vec<HubListing> {
         let hubs: Vec<Name> = self
             .schemes
@@ -200,6 +249,8 @@ impl Core {
                     .with_commitments(scheme, |c| c.holds(peer))
                     .unwrap_or_default();
                 let books = self.hub_books(scheme, node);
+                // A `pay` into the hub funds no hold.
+                let paying = matches!(self.joining(scheme, peer), Some(Joining::Paying(_)));
                 out.push(HubPeer {
                     peer,
                     held: held
@@ -212,7 +263,9 @@ impl Core {
                     peered: self.peer.peering_of(&node).is_some(),
                     holds,
                     credit: books.map(|(credit, _, _)| credit),
-                    settling: books.map_or(0, |(_, _, settling)| settling),
+                    settling: books
+                        .filter(|_| !paying)
+                        .map_or(0, |(_, _, settling)| settling),
                 });
             }
         }
@@ -278,6 +331,14 @@ impl Core {
     /// and the books move together for every scheme that reports what it
     /// took when the books took it, as the stub does; the hub's scheme
     /// learns of a take from the hub, later.
+    ///
+    /// While we have no account in the hub and the peer has one, the credit
+    /// is instead what lets it owe us the hub's minimum for a new account
+    /// ([`paid_in_credit`]): it pays us in once it does
+    /// (spec/designs/settlement-hubs.md#5-joining). While the peer has none,
+    /// we extend it nothing, not even our `pay` on its way: the `pay` is the
+    /// peer's once it executes, unlike what funds a hold, so counting it
+    /// would let the peer spend it twice.
     // Panics only on a broken invariant: the amounts were checked against
     // the accounts just now, and the journal was drained before the write.
     #[allow(clippy::panic)]
@@ -294,7 +355,11 @@ impl Core {
         let Some(ledger) = self.schemes.get(&scheme).map(|a| a.scheme.ledger()) else {
             return;
         };
-        let target = hub_credit(holds, settling);
+        let target = match self.joining(scheme, name) {
+            Some(Joining::PaidIn(minimum)) => paid_in_credit(minimum, self.settle.trigger),
+            Some(Joining::Paying(_)) => 0,
+            None => hub_credit(holds, settling),
+        };
         let now = self.now_ms;
         if target == credit {
             return;
@@ -352,7 +417,10 @@ impl Core {
     /// the hold has no room, is refused for liquidity, and never moved to
     /// another method (spec/decisions/settlement-methods.md); one committed
     /// to that could not be sent is forgotten by the scheme at once, as
-    /// nothing reached the peer.
+    /// nothing reached the peer. To a peer we do not commit with, while one
+    /// of us has no account in the hub, the Prepare goes without a
+    /// commitment, on the books alone
+    /// (spec/designs/settlement-hubs.md#5-joining).
     pub(super) fn send_over_hub(
         &mut self,
         now: u64,
@@ -365,6 +433,25 @@ impl Core {
         let Some(promise) = promised(packet) else {
             return Some(HubSent::Refused);
         };
+        let Some(commits) = self.with_commitments(scheme, |c| c.commits_with(peer)) else {
+            return Some(HubSent::Refused);
+        };
+        if !commits {
+            let sent = self.peer.send_method_packet(
+                now,
+                node,
+                method,
+                request_id,
+                packet,
+                &[],
+                timeout_ms,
+            );
+            return Some(if sent.is_ok() {
+                HubSent::Sent
+            } else {
+                HubSent::Unreachable
+            });
+        }
         let mut commitment = Vec::new();
         let committed = self
             .with_commitments(scheme, |c| {
@@ -420,11 +507,18 @@ impl Core {
     /// As the payee: checks a peer's commitment for its Prepare on its
     /// method on `method` before we forward it; one on a method that is not
     /// over a hub needs none. A packet the commitment does not cover is
-    /// rejected at
-    /// once, as one beyond a peer's credit is (T04). So is one that came
-    /// without a commitment, which the peer protocol hands on for the node
-    /// to judge: the node does not yet take Prepares on what a peer with no
-    /// account in the hub is owed (spec/roadmap.md#joining-by-being-paid).
+    /// rejected at once, as one beyond a peer's credit is (T04).
+    ///
+    /// From a peer we do not commit with, while one of us has no account in
+    /// the hub, a Prepare is the books' alone to judge, as the connector
+    /// judges a packet against the credit we extend, and a commitment that
+    /// came with it is ignored (spec/designs/settlement-hubs.md#5-joining):
+    /// a peer we pay in, to which we extend nothing, spends only what we owe
+    /// it; the peer that pays us in, what lets it owe us the hub's minimum
+    /// for a new account. From a peer we commit with, one without a
+    /// commitment is refused as well: our books count its hold toward us as
+    /// paid, so they would let it spend that hold without a promise we
+    /// could claim it with (`Commitments::commits_with`).
     pub(super) fn check_hub_prepare(
         &mut self,
         now: u64,
@@ -442,6 +536,15 @@ impl Core {
             return true;
         };
         let refused = "the hold does not cover the packet";
+        // A scheme that stopped takes nothing: its packets are refused,
+        // never let through unchecked.
+        let Some(commits) = self.with_commitments(scheme, |c| c.commits_with(peer)) else {
+            self.refuse_prepare(now, node, request_id, refused);
+            return false;
+        };
+        if !commits {
+            return true;
+        }
         let Some(commitment) = commitment else {
             self.refuse_prepare(now, node, request_id, refused);
             return false;
@@ -558,10 +661,27 @@ impl Core {
         let Some(method) = self.packet_method(&node) else {
             return;
         };
-        if let Some((scheme, peer)) = self.hub_peering(&node, method) {
-            self.with_commitments(scheme, |c| {
+        let Some((scheme, peer)) = self.hub_peering(&node, method) else {
+            return;
+        };
+        // A packet to a peer we do not commit with went without a
+        // commitment, so the hub can never pay it: it is decided at once.
+        let commits = self.with_commitments(scheme, |c| {
+            let commits = c.commits_with(peer);
+            if commits {
                 c.on_hub_wait(now, peer, wait.request_id, wait.condition, wait.backstop_ms);
-            });
+            }
+            commits
+        });
+        if commits == Some(false) {
+            self.settle_decided(
+                now,
+                Decided {
+                    peer,
+                    request_id: wait.request_id,
+                    fulfillment: None,
+                },
+            );
         }
     }
 

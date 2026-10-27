@@ -190,10 +190,10 @@ pub trait Commitments {
 
     /// The hub we are a member of: what our link state names, so that
     /// peers in the same hub peer with us over it. A member the hub has no
-    /// account for yet, to be paid in by a peer
-    /// (spec/designs/settlement-hubs.md#5-joining), says None until the
-    /// node carries packets on a peering without promises
-    /// (spec/roadmap.md#joining-by-being-paid). None, by default.
+    /// account for yet says so with [`Membership::NO_ACCOUNT`], once the
+    /// hub agrees it has none, so that a peer with an account peers with it
+    /// and pays it in (spec/designs/settlement-hubs.md#5-joining). None, by
+    /// default.
     fn membership(&self) -> Option<Membership> {
         None
     }
@@ -204,17 +204,24 @@ pub trait Commitments {
     /// it, and the payer extends it nothing, until the payer pays it in
     /// (spec/designs/settlement-hubs.md#5-joining). True, by default.
     ///
+    /// Without promises, the node takes the peer's Prepares on its books
+    /// alone: the payer extends the newcomer no credit, so the newcomer
+    /// spends only what the payer owes it, through the payer; the newcomer
+    /// extends the payer the credit to owe it the hub's minimum for a new
+    /// account ([`paid_in_minimum`](Self::paid_in_minimum)).
+    ///
     /// The two ends can disagree for a while: each learns of the newcomer's
     /// account from the hub on its own, the newcomer when it reads it, the
     /// payer when its `pay` executes or when it next asks the hub for the
     /// key's account, as it does now and then. Each end follows its own
     /// answer for the Prepares it sends. A Prepare that comes without a
-    /// commitment its receiver expected is taken as one without, on what
-    /// its sender owes the receiver; one with a commitment its receiver
-    /// did not expect, as if it had none. The peer protocol hands either
-    /// on, on a method over a hub (spec/areas/peer-protocol.md#message-set);
-    /// the node's part is not built yet
-    /// (spec/roadmap.md#joining-by-being-paid).
+    /// commitment its receiver expected is refused for want of room (T04)
+    /// until its sender learns of the account too: the receiver's books
+    /// count the sender's hold toward it as paid, so they would let the
+    /// sender spend that hold without a promise to claim it with. One with a
+    /// commitment its receiver did not expect is taken as if it had none.
+    /// The peer protocol hands either on, on a method over a hub
+    /// (spec/areas/peer-protocol.md#message-set).
     fn commits_with(&self, peer: Name) -> bool {
         let _ = peer;
         true
@@ -224,9 +231,24 @@ pub trait Commitments {
     /// one, the least a settlement to it must be, in internal units: the
     /// hub's minimum for a new account, which the settlement pays it into
     /// the hub with. The node settles with such a peer only once it owes it
-    /// that much, never before, and the scheme refuses less. None, by
-    /// default, and for a peer with an account.
+    /// that much, never before, and then that much, less than which the
+    /// scheme refuses. It neither asks such a peer to settle nor judges its
+    /// room, since it extends it nothing. None, by default, and for a peer
+    /// with an account.
     fn opening_minimum(&self, peer: Name) -> Option<u64> {
+        let _ = peer;
+        None
+    }
+
+    /// As the newcomer: while we have no account in the hub and `peer` has
+    /// one, the hub's minimum for a new account, in internal units, which
+    /// the peer pays us in with once it owes us that much
+    /// (spec/designs/settlement-hubs.md#5-joining). The node extends such a
+    /// peer the credit to owe it that much and its trigger besides, so that
+    /// it asks the peer to settle once the peer owes it the minimum: what
+    /// the newcomer risks if the peer goes away first. None, by default,
+    /// and once we have an account.
+    fn paid_in_minimum(&self, peer: Name) -> Option<u64> {
         let _ = peer;
         None
     }

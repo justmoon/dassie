@@ -328,6 +328,15 @@ impl HubScheme {
         Ok(scheme)
     }
 
+    /// What a settlement leaves in the account for fees: its own, and a
+    /// redeem's. The hub takes a redeem only from an account that can pay
+    /// its fee, so a member that settled all it had, as one paid into the
+    /// hub may have nothing else, could otherwise never take what its
+    /// peers' holds owe it (spec/designs/settlement-hubs.md#5-joining).
+    const fn kept_for_fees(&self) -> Amount {
+        self.terms.fees.operation.saturating_mul(2)
+    }
+
     /// The hub's margin M: how much earlier than its Prepare a commitment
     /// expires.
     const fn margin(&self) -> u64 {
@@ -1213,7 +1222,7 @@ impl HubScheme {
         let spendable = self
             .spendable_balance(account)
             .saturating_sub(account.committed())
-            .saturating_sub(self.terms.fees.operation);
+            .saturating_sub(self.kept_for_fees());
         let drops = drops.min(spendable);
         if drops < minimum {
             return Err(SchemeError::Unavailable);
@@ -1493,7 +1502,7 @@ impl SettlementScheme for HubScheme {
         let balance = self.spendable_balance(account);
         let spendable = balance
             .saturating_sub(account.committed())
-            .saturating_sub(self.terms.fees.operation)
+            .saturating_sub(self.kept_for_fees())
             .saturating_sub(reserve);
         // At most what the account can spend: a node asked to settle funds
         // the hold with what it has (spec/areas/hubs.md#in-the-node).
@@ -1646,6 +1655,10 @@ impl SettlementScheme for HubScheme {
 
     fn commitments(&mut self) -> Option<&mut dyn Commitments> {
         Some(self)
+    }
+
+    fn peer_hub_account(&self, peer: Name) -> Option<u32> {
+        self.peer_account(peer).map(|number| number.0)
     }
 
     fn check_invariants(&self) {
@@ -1832,17 +1845,20 @@ impl Commitments for HubScheme {
         Some(units(room))
     }
 
-    /// The hub, and our account in it once it has its number. None before,
-    /// also while the hub has no account for our key: the node does not yet
-    /// carry packets on a peering without promises
-    /// (spec/roadmap.md#joining-by-being-paid), so a member to be paid in
-    /// is not advertised, and peers keep peering with it on any other
-    /// scheme. Its peering info presents it with no account all the same.
+    /// The hub, and our account in it once it has its number; once f + 1
+    /// validators agree the hub has none for our key, the hub with no
+    /// account, so that a member with one peers with us and pays us in
+    /// (spec/designs/settlement-hubs.md#5-joining), as our peering info
+    /// presents us. None before either.
     fn membership(&self) -> Option<dassie_settlement::Membership> {
-        let account = self.account?;
+        let account = match self.account {
+            Some(account) => account.0,
+            None if self.synced => dassie_settlement::Membership::NO_ACCOUNT,
+            None => return None,
+        };
         Some(dassie_settlement::Membership {
             hub: *self.hub.0.as_bytes(),
-            account: account.0,
+            account,
         })
     }
 
@@ -1858,6 +1874,13 @@ impl Commitments for HubScheme {
     fn opening_minimum(&self, peer: Name) -> Option<u64> {
         let keyless = self.peers.get(&peer)?.account == NONE;
         (keyless && self.account.is_some()).then(|| units(self.terms.new_account_minimum()))
+    }
+
+    /// The hub's minimum for a new account, from a peer with one, while we
+    /// have none: what it pays us in with.
+    fn paid_in_minimum(&self, peer: Name) -> Option<u64> {
+        let keyed = self.peers.get(&peer)?.account != NONE;
+        (keyed && self.account.is_none()).then(|| units(self.terms.new_account_minimum()))
     }
 }
 

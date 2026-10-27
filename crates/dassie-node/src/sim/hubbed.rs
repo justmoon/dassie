@@ -7,6 +7,11 @@
 //! quorum signed one payout set, over time; or, one run in ten, f + 1
 //! validators collude and fork the chain, which must leave evidence.
 //!
+//! Two runs join a hub by being paid (spec/designs/settlement-hubs.md#5-joining):
+//! in [`paid_in`] a node with no account in the hub is paid into it by a
+//! member it peers with, and in [`cycled`] fresh keys are paid less than
+//! the hub's minimum for a new account and go away.
+//!
 //! Each node is judged by its own books (spec/decisions/own-books.md): its
 //! books hold what its schemes hold, on the XRP Ledger and in the hub, its
 //! owner's funds moved by what its receivers took, and what it booked as
@@ -369,6 +374,16 @@ pub(super) fn pay(sim: &mut Sim, rng: &mut SeededRng) {
 /// never happen is checked. A payer that sends no claims stops nothing,
 /// since its payees claim on the hub (spec/designs/settlement-hubs.md#4-peering-over-a-hub).
 pub(super) fn check_calm(sim: &Sim, liar: Option<(usize, MemberLie)>) -> Result<(), Outcome> {
+    check_calm_with(sim, liar, &[])
+}
+
+/// [`check_calm`], with the nodes `paid_in` a peer paid into the hub, whose
+/// owners paid no account reserve.
+fn check_calm_with(
+    sim: &Sim,
+    liar: Option<(usize, MemberLie)>,
+    paid_in: &[usize],
+) -> Result<(), Outcome> {
     let stops = liar.is_some_and(|(_, lie)| lie != MemberLie::NoClaims);
     let incoming = sim
         .payments
@@ -395,7 +410,8 @@ pub(super) fn check_calm(sim: &Sim, liar: Option<(usize, MemberLie)>) -> Result<
             check_hub_books(sim, liar.map(|(node, _)| node)).map_err(|problem| {
                 Outcome::safety("hub-books", format!("{problem}; {}", hub_standing(sim)))
             }),
-            check_owners(sim).map_err(|problem| Outcome::safety("hub-owner-books", problem)),
+            check_owners(sim, paid_in)
+                .map_err(|problem| Outcome::safety("hub-owner-books", problem)),
             check_escrow(sim).map_err(|problem| Outcome::safety("hub-escrow", problem)),
             check_in_step(sim, liar.map(|(node, _)| node))
                 .map_err(|problem| Outcome::liveness("hub-in-step", problem)),
@@ -590,10 +606,20 @@ pub(super) fn check_moved(sim: &Sim, liar: Option<usize>) -> Result<(), String> 
 /// liar's among them, paid what it sent, as
 /// [`checks::check_owner_books`](super::checks::check_owner_books) has it:
 /// a token's books follow its packets, not what the node read of the hub.
-fn check_owners(sim: &Sim) -> Result<(), String> {
-    let reserve = i128::from(dassie_hub::member::units(
+/// The account reserve of a node `paid_in` by a peer came out of that
+/// peer's `pay`, not out of its owner's funds
+/// (spec/designs/settlement-hubs.md#5-joining).
+fn check_owners(sim: &Sim, paid_in: &[usize]) -> Result<(), String> {
+    let account_reserve = i128::from(dassie_hub::member::units(
         sim.hub.as_deref().unwrap().rules.terms.fees.account_reserve,
     ));
+    let reserve = |index: usize| {
+        if paid_in.contains(&index) {
+            0
+        } else {
+            account_reserve
+        }
+    };
     // One behind the hub, or moving funds, has not booked all of it yet:
     // the checks of being in step and of moves say so.
     let done = |index: &usize| in_step(sim, *index) && !moving(sim, *index);
@@ -606,7 +632,7 @@ fn check_owners(sim: &Sim) -> Result<(), String> {
         };
         let pool = owner(XRP) + owner(HUB);
         let fundings = i128::from(sim.fundings.get(&index).copied().unwrap_or(0));
-        let deposit = (fundings * i128::from(FAUCET_DROPS) - 1_000_000) * 1_000 - reserve;
+        let deposit = (fundings * i128::from(FAUCET_DROPS) - 1_000_000) * 1_000 - reserve(index);
         let received: i128 = sim
             .payments
             .iter()
@@ -962,6 +988,247 @@ fn collude(sim: &mut Sim) -> Result<(), Outcome> {
         }
         None => Ok(()),
     }
+}
+
+/// The node of the runs of joining by being paid that has no account in
+/// the hub, and peers with node 1 alone.
+pub const NEWCOMER: usize = 2;
+
+/// The payer of [`NEWCOMER`]: a member that pays it in.
+const PAYER: usize = 1;
+
+/// The hub's minimum for a new account, in internal units.
+fn minimum(sim: &Sim) -> u64 {
+    let terms = &sim.hub.as_deref().unwrap().rules.terms;
+    dassie_hub::member::units(terms.new_account_minimum())
+}
+
+/// Whether the hub has an account for node `index`'s key.
+fn has_account(sim: &Sim, index: usize) -> bool {
+    let hub = sim.hub.as_deref().unwrap();
+    let key = dassie_hub::member::member_key(&key(index), &hub.id()).public_key();
+    hub.ledger()
+        .is_some_and(|ledger| ledger.account_of(&key).is_some())
+}
+
+/// Nodes 0 and 1 join a hub of 4 validators by deposit; the nodes from
+/// [`NEWCOMER`] on turn their own moves off, so they never deposit, and peer
+/// with [`PAYER`] alone, so that what node 0 pays them crosses it. Then the
+/// network forms, every peering over the hub.
+fn form_with_newcomers(sim: &mut Sim) -> Result<(), Outcome> {
+    let count = sim.nodes.len();
+    for index in NEWCOMER..count {
+        sim.step(index, |core| {
+            core.set_hub_automatic(None, false).unwrap();
+        });
+    }
+    let members_joined = |sim: &Sim| {
+        (0..NEWCOMER).all(|index| {
+            sim.core(index).hub_status().is_some_and(|status| {
+                status.account.is_some() && status.status == dassie_settlement::LedgerStatus::Synced
+            })
+        })
+    };
+    if !sim.run_until_or(START + JOINED_WITHIN_MS, members_joined) {
+        return Err(Outcome::liveness(
+            "joined",
+            format!(
+                "the members did not join the hub in time: {}",
+                hub_standing(sim)
+            ),
+        ));
+    }
+    for index in NEWCOMER..count {
+        for other in (0..count).filter(|other| *other != index && *other != PAYER) {
+            sim.step(index, |core| core.ban_node(key(other).node_id()).unwrap());
+            sim.step(other, |core| core.ban_node(key(index).node_id()).unwrap());
+        }
+    }
+    sim.join_network(PAYER + 1);
+    if !sim.run_until_or(sim.now + READY_WITHIN_MS, routed) {
+        return Err(Outcome::liveness(
+            "ready",
+            format!("the network was not ready in time: {}", hub_standing(sim)),
+        ));
+    }
+    over_hub(sim)
+}
+
+/// Joining a hub by being paid (`node-hub`, spec/designs/settlement-hubs.md#5-joining):
+/// [`NEWCOMER`], with no account in the hub, peers with [`PAYER`], a member,
+/// over it. Paid less than the hub's minimum for a new account, it is not
+/// paid in; paid more, its payer pays it in, though both crash around the
+/// `pay`. It sets its disbursal address first, never deposits, and pays
+/// and is paid over the hub from then on, each node's books holding to the
+/// hub's.
+#[must_use]
+pub fn paid_in(seed: u64) -> Run {
+    let mut rng = SeededRng::new(seed ^ 0x6a6f_696e_6564);
+    let mut sim = Sim::with(seed, 3, 0, BTreeMap::new(), Settling::Hub(4));
+    let result = script_paid_in(&mut sim, &mut rng);
+    ended(sim, result)
+}
+
+fn script_paid_in(sim: &mut Sim, rng: &mut SeededRng) -> Result<(), Outcome> {
+    form_with_newcomers(sim)?;
+    let minimum = minimum(sim);
+    // Short of the minimum: what the payer owes it is not paid in.
+    let short = minimum / 2 + rng.below(minimum / 4);
+    sim.pay(0, NEWCOMER, short, None, None);
+    if !sim.run_until_or(sim.now + PAID_WITHIN_MS, paid) {
+        return Err(Outcome::liveness(
+            "paid-short",
+            "a payment short of the minimum did not complete",
+        ));
+    }
+    sim.run_until(sim.now + CALM_MS);
+    if has_account(sim, NEWCOMER) {
+        return Err(Outcome::safety(
+            "paid-in-early",
+            format!("node {NEWCOMER} was paid in, owed {short} of {minimum}"),
+        ));
+    }
+    sim.count("newcomers not paid in short of the minimum");
+    // Past it: paid in, while the payer crashes with its `pay` on its way,
+    // and the newcomer once its account is open.
+    sim.pay(0, NEWCOMER, minimum, None, None);
+    let newcomer = key(NEWCOMER).node_id();
+    let paying = |sim: &Sim| {
+        sim.nodes[PAYER]
+            .core
+            .as_ref()
+            .is_some_and(|core| core.settling_with(&newcomer))
+    };
+    if sim.run_until_or(sim.now + PAID_WITHIN_MS, paying) {
+        sim.run_until(sim.now + rng.below(250));
+        if paying(sim) {
+            sim.count("payers crashed paying a newcomer in");
+        }
+        sim.crash(PAYER);
+        sim.run_until(sim.now + 1_000 + rng.below(9_000));
+        sim.start(PAYER);
+    }
+    if !sim.run_until_or(sim.now + PAID_WITHIN_MS, |sim| has_account(sim, NEWCOMER)) {
+        return Err(Outcome::liveness(
+            "paid-in",
+            format!(
+                "node {NEWCOMER} was never paid in, owed {}: {}",
+                sim.owes(PAYER, &key(NEWCOMER).node_id()),
+                hub_standing(sim)
+            ),
+        ));
+    }
+    sim.run_until(sim.now + rng.below(5_000));
+    sim.crash(NEWCOMER);
+    sim.run_until(sim.now + 1_000 + rng.below(9_000));
+    sim.start(NEWCOMER);
+    sim.count("newcomers paid in");
+    // Over the hub from then on, both ways: what it is paid it takes from
+    // its payer's hold, and spends from its own, out of its account, which
+    // its payer's `pay` left it little beyond the account reserve.
+    let more = minimum / 4 + rng.below(minimum);
+    sim.pay(0, NEWCOMER, more, None, None);
+    sim.run_until_or(sim.now + PAID_WITHIN_MS, paid);
+    sim.run_until(sim.now + CALM_MS);
+    let back = more / 4 + rng.below(more / 4);
+    sim.pay(NEWCOMER, 0, back, None, None);
+    sim.run_until_or(sim.now + PAID_WITHIN_MS, paid);
+    settle_down(sim, None);
+    first_failure([
+        check_calm_with(sim, None, &[NEWCOMER]),
+        check_paid_in(sim).map_err(|problem| Outcome::safety("paid-in", problem)),
+    ])
+}
+
+/// [`NEWCOMER`]'s account in the hub was opened by its payer's `pay`, at
+/// the minimum, never by a deposit, and has its disbursal address.
+fn check_paid_in(sim: &Sim) -> Result<(), String> {
+    let hub = sim.hub.as_deref().unwrap();
+    let ledger = hub.ledger().ok_or("no honest validator runs")?;
+    let key = dassie_hub::member::member_key(&key(NEWCOMER), &hub.id()).public_key();
+    let number = ledger
+        .account_of(&key)
+        .ok_or_else(|| format!("node {NEWCOMER} has no account in the hub"))?;
+    let account = ledger.account(number).unwrap();
+    if account.deposited != 0 {
+        return Err(format!(
+            "node {NEWCOMER} deposited {} into the hub",
+            account.deposited
+        ));
+    }
+    if account.disbursal.is_none() {
+        return Err(format!("node {NEWCOMER} has no disbursal address"));
+    }
+    Ok(())
+}
+
+/// Fresh keys cycled through a member (`node-hub`,
+/// spec/decisions/hubs-only.md): nodes from [`NEWCOMER`] on, each with no
+/// account in the hub, peer with [`PAYER`], are paid less than the hub's
+/// minimum for a new account, try to spend more than they are owed, and go
+/// away. None is paid in, none spends more than it is owed, and the member
+/// pays nothing into the hub for them.
+#[must_use]
+pub fn cycled(seed: u64) -> Run {
+    let mut rng = SeededRng::new(seed ^ 0x6379_636c_6564);
+    let mut sim = Sim::with(seed, 4, 0, BTreeMap::new(), Settling::Hub(4));
+    let result = script_cycled(&mut sim, &mut rng);
+    ended(sim, result)
+}
+
+fn script_cycled(sim: &mut Sim, rng: &mut SeededRng) -> Result<(), Outcome> {
+    form_with_newcomers(sim)?;
+    let minimum = minimum(sim);
+    let count = sim.nodes.len();
+    for index in NEWCOMER..count {
+        let owed = minimum / 4 + rng.below(minimum / 2);
+        sim.pay(0, index, owed, None, None);
+        if !sim.run_until_or(sim.now + PAID_WITHIN_MS, paid) {
+            return Err(Outcome::liveness(
+                "paid-short",
+                format!("a payment to node {index} did not complete"),
+            ));
+        }
+        let first = sim.payments.len();
+        sim.pay(index, 0, 2 * owed, None, None);
+        sim.run_until(sim.now + PAID_WITHIN_MS);
+        let spent = sim.payments[first..]
+            .iter()
+            .map(|payment| received(sim, payment))
+            .sum::<u64>();
+        if spent > owed {
+            return Err(Outcome::safety(
+                "overspent",
+                format!("node {index} spent {spent}, owed {owed}"),
+            ));
+        }
+        let peer = key(index).node_id();
+        if sim.owes(PAYER, &peer) < 0 {
+            return Err(Outcome::safety(
+                "trusted",
+                format!("node {PAYER} let node {index} owe it"),
+            ));
+        }
+        sim.crash(index);
+        sim.trace
+            .push(format!("{} node {index} goes away", sim.now));
+    }
+    sim.run_until(sim.now + CALM_MS);
+    if let Some(index) = (NEWCOMER..count).find(|index| has_account(sim, *index)) {
+        return Err(Outcome::safety(
+            "paid-in",
+            format!("node {index} was paid in, owed less than the minimum"),
+        ));
+    }
+    sim.count("fresh keys cycled");
+    first_failure([
+        check_hub_validators(sim).map_err(|problem| Outcome::safety("hub-agreement", problem)),
+        super::checks::check_hub_packets(sim)
+            .map_err(|problem| Outcome::safety("hub-packets", problem)),
+        super::checks::check_hub_credit(sim)
+            .map_err(|problem| Outcome::safety("hub-credit", problem)),
+        check_losses(sim).map_err(|problem| Outcome::safety("hub-losses", problem)),
+    ])
 }
 
 #[cfg(test)]
