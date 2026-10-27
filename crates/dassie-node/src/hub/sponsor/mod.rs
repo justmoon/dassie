@@ -34,9 +34,9 @@ use crate::node::Node;
 use crate::store::{FoundingRow, StoreError};
 
 /// What funds a new hub's escrow unless the owner says otherwise, in
-/// drops: the XRP Ledger's reserve for the account and its signer list,
-/// the fees of its setup, and room for the fees of the hub's own
-/// transactions.
+/// drops: the XRP Ledger's reserve for the account, its signer list and,
+/// for a token hub, its trust line, the fees of its setup, and room for
+/// the fees of the hub's own transactions (at least [`least_funding`]).
 pub const ESCROW_FUNDING_DROPS: u64 = 2_000_000;
 
 /// The XRP Ledger testnet's reserve for each object an account owns, in

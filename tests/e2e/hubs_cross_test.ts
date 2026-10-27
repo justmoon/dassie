@@ -119,8 +119,9 @@ test(
       // taken together, as the node moves funds between them by itself:
       // the payer's owner paid what was sent in XRP, and the fees of its
       // moves and operations; the payee's got dollars, what arrived less
-      // those of its own; and the members of both hold more XRP and fewer
-      // dollars, as they took the one and paid the other.
+      // those of its own; and the members of both, taken together, hold
+      // more XRP and fewer dollars, as whichever of them the payment
+      // crossed took the one and paid the other.
       const after = await Promise.all(
         members.map((node) => booksOverHubs(scenario, node)),
       );

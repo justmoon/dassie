@@ -594,7 +594,7 @@ export function unavailable(
   if (def.pool !== undefined && !fakeLedger) {
     return `needs --xrpl fake: only the fake ledger's issuer makes a pool of ${def.pool.token}`;
   }
-  if (def.hub !== undefined && !fakeLedger) {
+  if ((def.hub !== undefined || def.hubs !== undefined) && !fakeLedger) {
     return "needs --xrpl fake: each run founds a hub of its own, whose escrow stays off the public testnet";
   }
   return undefined;
