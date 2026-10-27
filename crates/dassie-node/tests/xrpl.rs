@@ -334,6 +334,11 @@ async fn two_daemons_settle_on_the_xrp_ledger_across_restarts() {
             && quiet(&a, &b).await
     })
     .await;
+    // A later read of the ledger books nothing twice in a few seconds more
+    // of their time: a check that nothing happens, which a slow machine
+    // only weakens. Then wait out any settlement that started meanwhile.
+    settle(&clock).await;
+    until(&clock, async || quiet(&a, &b).await).await;
     // The deposit is booked once; the owners' funds moved only by it, and
     // by the fees of settlements made since.
     assert_eq!(deposits(&a).await, [FUNDED as u64, 3_000_000_000]);
@@ -900,6 +905,11 @@ async fn two_daemons_settle_dsusd_across_restarts() {
             && quiet(&a, &b).await
     })
     .await;
+    // A later read of the ledger books nothing twice in a few seconds more
+    // of their time: a check that nothing happens, which a slow machine
+    // only weakens. Then wait out any settlement that started meanwhile.
+    settle(&clock).await;
+    until(&clock, async || quiet(&a, &b).await).await;
     assert_eq!(deposits(&a).await, [20_000_000_000]);
     assert!(deposits(&b).await.is_empty());
     assert_eq!(

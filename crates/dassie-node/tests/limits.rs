@@ -294,12 +294,14 @@ async fn anonymous_sockets_close_after_their_lifetime() {
 }
 
 /// Checks that the node closes `stream` without a word, as it does a
-/// connection past the client's share on arrival. It does so at once, so
-/// the wait is a hang's guard ([`HANG`]); a connection held instead stays
-/// open until the TLS handshake's timeout, and fails the test.
+/// connection past the client's share on arrival. It does so at once. A
+/// connection it held instead would close too, but only at the TLS
+/// handshake's timeout, so the wait ends at half of that: a close that
+/// comes later is a held connection, and fails the test.
 async fn is_refused(stream: &mut TcpStream, what: &str) {
     let mut buffer = [0; 16];
-    let read = tokio::time::timeout(HANG, stream.read(&mut buffer))
+    let refused_within = dassie_node::http::TLS_HANDSHAKE_TIMEOUT / 2;
+    let read = tokio::time::timeout(refused_within, stream.read(&mut buffer))
         .await
         .unwrap_or_else(|_| panic!("{what} was held"));
     assert!(matches!(read, Ok(0) | Err(_)), "{what}: {read:?}");
