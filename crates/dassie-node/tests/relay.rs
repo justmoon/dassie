@@ -438,7 +438,8 @@ async fn a_relay_reaches_its_node_beside_other_connections(relay_is_lower: bool)
     assert_eq!(echo(&mut stream, b"one").await, b"one");
     drop(stream);
     // The first one closes once idle; the kept one stays.
-    until(|| node.quic.open_connections() == 1).await;
+    until(|| node.quic.relay_link() == RelayLink::Connected && node.quic.open_connections() == 1)
+        .await;
     send(&node, &relay).await;
     // Each also takes another connection from the other's key, as when one
     // dials the other while it holds no open connection; they go idle too.
