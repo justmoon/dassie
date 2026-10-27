@@ -74,17 +74,17 @@ use crate::tls;
 pub const ALPN: &[u8] = b"dassie/1";
 
 /// Most time to set up a connection, within a request's own time.
-const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
+pub const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Time a periphery node's dial over UDP has before it dials over a tunnel
 /// too ([`tunnel`]): long enough for a handshake over UDP where it gets
 /// through, and short beside the time to connect, so that the tunnel has
 /// most of it where UDP does not.
-const TUNNEL_HEAD_START: Duration = Duration::from_secs(1);
+pub const TUNNEL_HEAD_START: Duration = Duration::from_secs(1);
 
 /// A connection nothing was sent on for this long closes. Peers send
 /// heartbeats more often.
-const IDLE_TIMEOUT: Duration = Duration::from_secs(30);
+pub const IDLE_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// How often, in each idle timeout, a connection kept open for its own sake,
 /// such as a node's to the relay it chose, shows it is alive: well within
@@ -95,7 +95,7 @@ const KEEP_ALIVES_PER_IDLE_TIMEOUT: u32 = 3;
 /// Least time a node that could not be reached, or had no room for us, is
 /// not dialled for peer requests: the first wait, which doubles with each
 /// failure after it.
-const BACKOFF_MIN: Duration = Duration::from_secs(1);
+pub const BACKOFF_MIN: Duration = Duration::from_secs(1);
 
 /// Most time a node that could not be reached is not dialled for: short,
 /// so that a peer that restarted or changed its address is reached again
