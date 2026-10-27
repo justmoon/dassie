@@ -8,9 +8,13 @@
 //! state lists both hubs, and each pair peers over both, each hub a method
 //! of the peering. Payments go in XRP and in dollars, and from one into the
 //! other, across hops, each packet on the method of the ledger it came in
-//! on. Then the hub of the method the peerings were not made on loses
-//! f + 1 validators, stalls and pays out, while the other keeps carrying
-//! payments and every peering is kept.
+//! on. Then the owner of one node removes the scheme of one hub, the
+//! seed's: its methods on it wind down, each asked to settle once and
+//! dropped within its bound, while its peerings carry on over the other
+//! hub. That hub then loses f + 1 validators, stalls and pays out: each
+//! other member's scheme over it can no longer receive, so the member
+//! offers it to no peer, while the other hub keeps carrying payments and
+//! every peering is kept on it.
 //!
 //! Each node is judged by its own books (spec/decisions/own-books.md): in
 //! each hub, what its account and its peers' holds toward it hold, as that
@@ -452,8 +456,8 @@ fn setup(seed: u64) -> (SeededRng, Setup) {
 pub fn describe(seed: u64) -> String {
     let (_, setup) = setup(seed);
     format!(
-        "{} members of an XRP hub and a DSUSD hub of {} validators each; the hub of the \
-         method their peerings were not made on fails",
+        "{} members of an XRP hub and a DSUSD hub of {} validators each; an owner removes \
+         one hub's scheme, and that hub fails",
         setup.members, setup.validators
     )
 }
@@ -532,10 +536,21 @@ fn script(sim: &mut Sim, rng: &mut SeededRng) -> Result<(), Outcome> {
         check_hubs(sim, &all),
         check_carried(sim).map_err(|problem| Outcome::liveness("methods-carried", problem)),
     ])?;
-    // The hub of the other method fails: its method is unavailable from
-    // then on, so the payments after go over the first.
-    let failing = place_of(sim, other);
-    let working = place_of(sim, first);
+    // Which hub fails is the seed's: each method carries packets. Before it
+    // does, the owner of a node the seed draws removes that hub's scheme:
+    // the node's methods on it wind down, each collected once within its
+    // bound, while its peerings carry on over the other hub.
+    let (failed, working_ledger) = if rng.below(2) == 0 {
+        (other, first)
+    } else {
+        (first, other)
+    };
+    let failing = place_of(sim, failed);
+    let working = place_of(sim, working_ledger);
+    let remover = usize::try_from(rng.below(sim.nodes.len() as u64)).unwrap();
+    remove_hub(sim, remover, failed, &peerings)?;
+    // The hub then fails: its method is unavailable from then on, so the
+    // payments after go over the other.
     let height = sim
         .hub_at(working)
         .ledger()
@@ -544,12 +559,11 @@ fn script(sim: &mut Sim, rng: &mut SeededRng) -> Result<(), Outcome> {
     stall(sim, rng, failing)?;
     let there = amount(rng);
     let back = amount(rng);
-    if !sim.pay_in(0, (first, first), 2, there, None, None)
-        || !sim.pay_in(2, (first, first), 0, back, None, None)
-    {
+    let on = (working_ledger, working_ledger);
+    if !sim.pay_in(0, on, 2, there, None, None) || !sim.pay_in(2, on, 0, back, None, None) {
         return Err(Outcome::liveness(
             "paid-after",
-            format!("a payment after the {other} hub failed could not start"),
+            format!("a payment after the {failed} hub failed could not start"),
         ));
     }
     assert_eq!(sim.payments.len(), paid_before + 2);
@@ -564,12 +578,12 @@ fn script(sim: &mut Sim, rng: &mut SeededRng) -> Result<(), Outcome> {
     // packets when the other hub failed fails here.
     let after = sim.payments[paid_before..].iter().map(|payment| {
         let (sent, got) = (super::sent(payment), super::received(sim, payment));
-        let least = super::least_across(first, first, sent);
+        let least = super::least_across(working_ledger, working_ledger, sent);
         if !payment.done || sent == 0 {
             Err(Outcome::liveness(
                 "paid-after",
                 format!(
-                    "a payment from node {} to {} after the {other} hub failed did not finish: \
+                    "a payment from node {} to {} after the {failed} hub failed did not finish: \
                      sent {sent} of {}, received {got}",
                     payment.from, payment.to, payment.amount,
                 ),
@@ -590,7 +604,10 @@ fn script(sim: &mut Sim, rng: &mut SeededRng) -> Result<(), Outcome> {
         [
             check_events(sim).map_err(|problem| Outcome::safety("events", problem)),
             check_hubs(sim, &[working]),
-            check_kept(sim, &peerings, first).map_err(|problem| Outcome::liveness("kept", problem)),
+            check_kept(sim, &peerings, working_ledger)
+                .map_err(|problem| Outcome::liveness("kept", problem)),
+            check_failed(sim, failed, remover)
+                .map_err(|problem| Outcome::liveness("hub-failed", problem)),
             (sim.hub_at(working)
                 .ledger()
                 .map_or(0, |ledger| ledger.height())
@@ -599,7 +616,7 @@ fn script(sim: &mut Sim, rng: &mut SeededRng) -> Result<(), Outcome> {
                 .ok_or_else(|| {
                     Outcome::liveness(
                         "hub-running",
-                        format!("the {first} hub finalized nothing past height {height}"),
+                        format!("the {working_ledger} hub finalized nothing past height {height}"),
                     )
                 }),
         ]
@@ -609,6 +626,171 @@ fn script(sim: &mut Sim, rng: &mut SeededRng) -> Result<(), Outcome> {
     )?;
     sim.count("a hub failed and the other carried on");
     Ok(())
+}
+
+/// The most a method being wound down takes: its two waits
+/// (spec/decisions/settlement-methods.md), and the time a check of the
+/// peerings and a message take.
+const WIND_WITHIN_MS: u64 = 2 * crate::node::Policies::DEFAULT.peer.depeer_wait_ms
+    + crate::node::Policies::DEFAULT.peer.peering_check_ms
+    + super::LEDGER_CLOSE_MS;
+
+/// The owner of node `index` removes the scheme of the hub of `ledger`
+/// (spec/areas/network.md#settlement-methods): it is not refused for the
+/// methods on it, which wind down, each asked to settle and dropped
+/// within its bound, on both sides (that it is asked only once, the core's
+/// tests show). Then the scheme is being removed with
+/// no method left on it, and every peering of the node in `peerings` is
+/// kept, on its method on the other hub.
+fn remove_hub(
+    sim: &mut Sim,
+    index: usize,
+    ledger: LedgerId,
+    peerings: &BTreeSet<(usize, NodeId)>,
+) -> Result<(), Outcome> {
+    let scheme = Settling::scheme(ledger).0;
+    let id = dassie_peer::wire::SchemeId::parse(scheme).unwrap();
+    // The owner first revokes the tokens its clients paid from that ledger
+    // with, each payment done: a token in use refuses the removal.
+    let tokens: BTreeSet<u64> = sim
+        .payments
+        .iter()
+        .filter(|payment| payment.from == index && payment.ledger == ledger)
+        .map(|payment| payment.token.0)
+        .collect();
+    let mut removed = Ok(());
+    sim.step(index, |core| {
+        for token in tokens {
+            core.revoke_token(token).unwrap();
+        }
+        removed = core.remove_scheme(scheme);
+    });
+    removed.map_err(|error| {
+        Outcome::liveness(
+            "removed",
+            format!("node {index}'s owner could not remove {scheme}: {error:?}"),
+        )
+    })?;
+    sim.trace
+        .push(format!("{} node {index}'s owner removes {scheme}", sim.now));
+    // Each method's winding as last seen before it was dropped.
+    let last: std::cell::RefCell<BTreeMap<NodeId, dassie_peer::Winding>> =
+        std::cell::RefCell::default();
+    let gone = |sim: &Sim| {
+        let mut left = false;
+        for peer in sim.core(index).network().peers {
+            if let Some(method) = peer.peering.method(id) {
+                left = true;
+                if let Some(winding) = method.winding {
+                    last.borrow_mut().insert(peer.id, winding);
+                }
+            }
+        }
+        !left
+    };
+    if !sim.run_until_or(sim.now + WIND_WITHIN_MS, gone) {
+        return Err(Outcome::liveness(
+            "wound-down",
+            format!("node {index}'s methods on {scheme} were not dropped within their bound"),
+        ));
+    }
+    let peers: Vec<NodeId> = peerings
+        .iter()
+        .filter(|(of, _)| *of == index)
+        .map(|(_, peer)| *peer)
+        .collect();
+    if let Some(peer) = peers
+        .iter()
+        .find(|peer| last.borrow().get(peer).is_none_or(|w| w.asked_ms.is_none()))
+    {
+        return Err(Outcome::liveness(
+            "wound-down",
+            format!("node {index} dropped its method with {peer} without asking it to settle"),
+        ));
+    }
+    // The peer drops it at once once told.
+    let told = |sim: &Sim| {
+        (0..sim.nodes.len()).all(|other| {
+            sim.core(other)
+                .network()
+                .peers
+                .iter()
+                .filter(|peer| peer.id == key(index).node_id())
+                .all(|peer| peer.peering.method(id).is_none())
+        })
+    };
+    if !sim.run_until_or(sim.now + WIND_WITHIN_MS, told) {
+        return Err(Outcome::liveness(
+            "wound-down",
+            format!("a peer of node {index} kept its method on {scheme}"),
+        ));
+    }
+    sim.count("hub schemes removed");
+    let kept = peerings
+        .iter()
+        .copied()
+        .filter(|(of, peer)| *of == index || *peer == key(index).node_id())
+        .collect();
+    let other = if ledger == HUB { HUB_DSUSD } else { HUB };
+    first_failure([
+        check_removing(sim, index, ledger)
+            .map_err(|problem| Outcome::liveness("removing", problem)),
+        check_kept(sim, &kept, other).map_err(|problem| Outcome::liveness("kept", problem)),
+    ])
+}
+
+/// Node `index` is removing the scheme over the hub of `ledger`, with no
+/// method left on it, and offers it to no peer. It goes once nothing can
+/// come over it any more: the wait for what peers may still settle on it
+/// takes the longest backoff between a settlement's tries, longer than the
+/// run (spec/decisions/settlement-methods.md); the core's tests show it go.
+fn check_removing(sim: &Sim, index: usize, ledger: LedgerId) -> Result<(), String> {
+    let scheme = Settling::scheme(ledger).0;
+    let id = dassie_peer::wire::SchemeId::parse(scheme).unwrap();
+    let core = sim.core(index);
+    let removing = core
+        .ledger_views()
+        .into_iter()
+        .find(|view| view.scheme == scheme)
+        .map_or(Some(0), |view| view.removing);
+    if removing != Some(0) {
+        return Err(format!(
+            "node {index}'s owner removed {scheme}, which is {removing:?} methods from going"
+        ));
+    }
+    if offers(sim, index, id) {
+        return Err(format!("node {index} still offers {scheme} once removed"));
+    }
+    Ok(())
+}
+
+/// Every member of the hub of `failed` that still runs its scheme, all but
+/// `remover`, can no longer receive over it once it stalled
+/// (spec/decisions/settlement-methods.md): its own link state lists the
+/// scheme no more, so it is offered to no peer, and its methods on it are
+/// dropped once they could not receive for as long as a silent peer is
+/// kept, which is longer than the run.
+fn check_failed(sim: &Sim, failed: LedgerId, remover: usize) -> Result<(), String> {
+    let scheme = dassie_peer::wire::SchemeId::parse(Settling::scheme(failed).0).unwrap();
+    for index in members_of(sim, place_of(sim, failed)).filter(|index| *index != remover) {
+        if offers(sim, index, scheme) {
+            return Err(format!(
+                "node {index} still offers {scheme} once its hub failed"
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// Whether node `index`'s own link state lists `scheme`: whether it
+/// offers peerings on it.
+fn offers(sim: &Sim, index: usize, scheme: dassie_peer::wire::SchemeId) -> bool {
+    let network = sim.core(index).network();
+    network
+        .nodes
+        .iter()
+        .find(|node| node.id == network.own)
+        .is_some_and(|own| own.schemes.contains(&scheme))
 }
 
 /// Every peering has a method on each of `schemes`: every hub both nodes
@@ -662,20 +844,17 @@ fn first_ledger(sim: &Sim) -> Result<LedgerId, Outcome> {
     }
 }
 
-/// Every peering made before the hub failed is kept, with its method on
-/// the hub of `first`, which carries on.
-fn check_kept(
-    sim: &Sim,
-    before: &BTreeSet<(usize, NodeId)>,
-    first: LedgerId,
-) -> Result<(), String> {
+/// Every peering of `before` is kept, with its method on the hub of `on`,
+/// which carries on: a hub that failed, or whose scheme an owner removed,
+/// takes only its own methods with it.
+fn check_kept(sim: &Sim, before: &BTreeSet<(usize, NodeId)>, on: LedgerId) -> Result<(), String> {
     let now = peerings(sim);
     if let Some((index, peer)) = before.difference(&now).next() {
         return Err(format!(
-            "node {index} no longer peers with {peer} once a hub failed"
+            "node {index} no longer peers with {peer} once a hub went"
         ));
     }
-    check_methods(sim, &[Settling::scheme(first).0])
+    check_methods(sim, &[Settling::scheme(on).0])
 }
 
 /// Each method carried packets: packets that keep their ledger take the

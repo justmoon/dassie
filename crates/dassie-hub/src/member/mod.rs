@@ -34,7 +34,6 @@ pub use account::{FIRST, HubAccount, News, Purpose};
 pub use mainnet::{DEFAULT_MAINNET_VALIDATORS, ListedValidator, check_default_hub};
 pub use mirror::HoldMirror;
 pub use payout::{Payouts, Taken};
-pub use peering::peer_account;
 pub use scheme::{
     DSUSD_SCHEME_ID, HubScheme, MAINNET_SCHEME_ID, RLUSD_SCHEME_ID, SCHEME_ID, scheme_of,
 };

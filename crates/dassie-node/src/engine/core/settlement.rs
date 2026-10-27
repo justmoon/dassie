@@ -438,10 +438,21 @@ impl Core {
 
     /// Each method of each active peering, by peer and then in the order
     /// the pair agreed them: at most [`dassie_peer::MAX_METHODS`] a peer.
+    /// Not one being wound down (spec/decisions/settlement-methods.md): the
+    /// wind-down asks the peer to settle on it once, and its room decides
+    /// nothing, since it takes no new Prepare and is dropped within its
+    /// bound, so short, it would only end the whole peering over a method
+    /// that goes anyway.
     fn methods_of_active_peers(&self) -> Vec<(NodeId, SchemeId)> {
         self.peer
             .active_peers()
-            .flat_map(|(id, peering)| peering.schemes().map(move |scheme| (*id, scheme)))
+            .flat_map(|(id, peering)| {
+                peering
+                    .methods
+                    .iter()
+                    .filter(|method| !method.winding_down())
+                    .map(move |method| (*id, method.scheme))
+            })
             .collect()
     }
 

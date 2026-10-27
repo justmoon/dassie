@@ -66,7 +66,7 @@ pub async fn status(env: &Env) -> Result<(), String> {
         if let Some(relay) = relay(node.relay.as_ref(), node.periphery) {
             line("Relay", &relay);
         }
-        line("Ledgers", &ledgers(&mut client).await);
+        peers_and_ledgers(&mut client, peers.as_deref()).await;
         for hub in crate::hub::summary(&mut client).await {
             line("Hub", &hub);
         }
@@ -288,6 +288,68 @@ fn membership(
 
 fn peered(peers: &[proto::NetworkPeer]) -> impl Iterator<Item = &proto::NetworkPeer> {
     peers.iter().filter(|peer| peer.state == "peered")
+}
+
+/// The most peers `status` lists the methods of; the wallet lists every
+/// one.
+const MAX_PEERS_LISTED: usize = 12;
+
+/// Each peer's settlement methods (spec/decisions/settlement-methods.md),
+/// one entry a peer, at most [`MAX_PEERS_LISTED`]: on each its scheme, the
+/// credit the node extends, what is owed, and whether the node withdrew it
+/// for room or winds it down. Amounts are in the asset of the scheme's
+/// ledger, as `ledgers` has it. None while the node peers with no one.
+fn methods(peers: &[proto::NetworkPeer], ledgers: &[proto::Ledger]) -> Option<String> {
+    let total = peered(peers).count();
+    if total == 0 {
+        return None;
+    }
+    let listed = peered(peers).take(MAX_PEERS_LISTED).map(|peer| {
+        let methods: Vec<String> = peer
+            .methods
+            .iter()
+            .map(|method| peer_method(method, ledgers))
+            .collect();
+        if methods.is_empty() {
+            format!("{}: no method", peer.node)
+        } else {
+            format!("{}: {}", peer.node, methods.join("; "))
+        }
+    });
+    let more = total.saturating_sub(MAX_PEERS_LISTED);
+    let rest = (more > 0).then(|| format!("and {more} more, which the wallet lists"));
+    Some(entries(listed.chain(rest)))
+}
+
+/// One settlement method of a peer, as `methods` names it.
+fn peer_method(method: &proto::PeerMethod, ledgers: &[proto::Ledger]) -> String {
+    let ledger = ledgers
+        .iter()
+        .find(|ledger| ledger.settlement_scheme == method.scheme);
+    let (scale, code) = ledger.map_or((0, ""), |ledger| {
+        (ledger.asset_scale, ledger.asset_code.as_str())
+    });
+    let sum = |value: i64| {
+        let value = amount(value, scale);
+        if code.is_empty() {
+            value
+        } else {
+            format!("{value} {code}")
+        }
+    };
+    let credit = sum(i64::try_from(method.credit_out).unwrap_or(i64::MAX));
+    let owed = match method.owed {
+        0 => "nothing owed".into(),
+        owed if owed > 0 => format!("the node owes {}", sum(owed)),
+        owed => format!("owes the node {}", sum(owed.saturating_neg())),
+    };
+    let mut text = format!("{}, credit {credit}, {owed}", method.scheme);
+    if method.winding_down {
+        text.push_str(", winding down");
+    } else if method.withdrawn {
+        text.push_str(", withdrawn for room");
+    }
+    text
 }
 
 /// A periphery node's uplinks, which are its peers, and whether each is
@@ -605,18 +667,38 @@ fn who(id: &str, url: &str) -> String {
     }
 }
 
-async fn ledgers(client: &mut Client) -> String {
-    let list = match client
+/// Prints each peer's settlement methods, if the node peers with any, and
+/// the node's ledgers, whose assets the methods' amounts are in.
+async fn peers_and_ledgers(client: &mut Client, peers: Option<&[proto::NetworkPeer]>) {
+    let ledgers = ledger_list(client).await;
+    if let Some(peers) = peers
+        && let Some(methods) = methods(peers, ledgers.as_deref().unwrap_or_default())
+    {
+        line("Peers", &methods);
+    }
+    line("Ledgers", &ledgers_line(ledgers));
+}
+
+/// The node's ledgers, or why the daemon would not say.
+async fn ledger_list(client: &mut Client) -> Result<Vec<proto::Ledger>, String> {
+    match client
         .call(Method::ListLedgers(proto::ListLedgersRequest {}))
         .await
     {
-        Ok(response::Method::ListLedgers(list)) => list,
-        other => return format!("unknown ({})", unexpected(other)),
+        Ok(response::Method::ListLedgers(list)) => Ok(list.ledgers),
+        other => Err(unexpected(other)),
+    }
+}
+
+fn ledgers_line(ledgers: Result<Vec<proto::Ledger>, String>) -> String {
+    let ledgers = match ledgers {
+        Ok(ledgers) => ledgers,
+        Err(problem) => return format!("unknown ({problem})"),
     };
-    if list.ledgers.is_empty() {
+    if ledgers.is_empty() {
         return "none yet: add one in the wallet".into();
     }
-    entries(list.ledgers.iter().map(|ledger| {
+    entries(ledgers.iter().map(|ledger| {
         format!(
             "{}: {} {}, {}",
             ledger.id,
@@ -1080,6 +1162,70 @@ mod tests {
         let names = names_line(&peer).unwrap();
         assert!(names.contains("1 renewal sent"), "{names}");
         assert!(!names.contains("registrar"), "{names}");
+    }
+
+    fn method(scheme: &str, credit_out: u64, owed: i64) -> proto::PeerMethod {
+        proto::PeerMethod {
+            scheme: scheme.into(),
+            credit_out,
+            owed,
+            ..Default::default()
+        }
+    }
+
+    fn xrp_hub() -> proto::Ledger {
+        proto::Ledger {
+            id: "hub-xrpl-testnet-xrp+xrp".into(),
+            settlement_scheme: "hub-xrpl-testnet-xrp".into(),
+            asset_code: "XRP".into(),
+            asset_scale: 6,
+            ..Default::default()
+        }
+    }
+
+    // spec/areas/node.md#the-dassie-command: each peer's methods, with the
+    // credit, what is owed either way, and whether one is wound down or
+    // withdrawn; a scheme whose ledger the node no longer lists shows its
+    // units.
+    #[test]
+    fn each_peers_methods() {
+        let mut first = peer(UPLINK, true, 0);
+        first.methods = vec![
+            method("hub-xrpl-testnet-xrp", 10_000_000, -1_500_000),
+            proto::PeerMethod {
+                winding_down: true,
+                ..method("hub-xrpl-testnet-dsusd", 5_000, 250)
+            },
+        ];
+        let mut second = peer("peer2", false, 0);
+        second.methods = vec![proto::PeerMethod {
+            withdrawn: true,
+            ..method("hub-xrpl-testnet-xrp", 2_000_000, 0)
+        }];
+        let mut ending = peer("peer3", true, 0);
+        ending.state = "terminating".into();
+        assert_eq!(
+            methods(&[first, second, ending], &[xrp_hub()]).unwrap(),
+            format!(
+                "{UPLINK}: hub-xrpl-testnet-xrp, credit 10 XRP, owes the node 1.5 XRP; \
+                 hub-xrpl-testnet-dsusd, credit 5000, the node owes 250, winding down\n  {:<12} \
+                 peer2: hub-xrpl-testnet-xrp, credit 2 XRP, nothing owed, withdrawn for room",
+                ""
+            )
+        );
+        assert_eq!(methods(&[], &[]), None, "a line for no peer");
+    }
+
+    // Bounded, whatever the number of peers: the wallet lists them all.
+    #[test]
+    fn peers_listed_are_bounded() {
+        let peers: Vec<proto::NetworkPeer> = (0..MAX_PEERS_LISTED + 3)
+            .map(|index| peer(&format!("peer{index}"), true, 0))
+            .collect();
+        let text = methods(&peers, &[]).unwrap();
+        assert_eq!(text.lines().count(), MAX_PEERS_LISTED + 1);
+        assert!(text.ends_with("and 3 more, which the wallet lists"));
+        assert!(text.contains("peer0: no method"));
     }
 
     #[test]
