@@ -1,24 +1,30 @@
 /**
- * End to end (spec/areas/testing.md#end-to-end): the `xrpl-settlement`
- * scenario settles and reconciles across restarts. The nodes are the real
- * binary; the XRP Ledger is the node's fake, over WebSocket, with its
- * faucet over HTTPS: CI does not depend on the public testnet. Set
- * `DASSIE_XRPL_TESTNET=1` to run it against the testnet instead, by hand.
+ * End to end (spec/areas/testing.md#end-to-end): the XRP Ledger under a
+ * settlement hub. The `hub` scenario's nodes are the real binary; the XRP
+ * Ledger is the node's fake, over WebSocket, with its faucet over HTTPS,
+ * and each node's XRPL scheme follows it on proofs, as against the public
+ * testnet. The scenario runs only on the fake ledger: each run founds a hub
+ * of its own, whose escrow and validators must stay off the public
+ * testnet, so this test has no switch to it.
  *
- * The faucet funds both nodes; a client of d1 pays d2's receiver several
- * times the credit, so d1 settles on the ledger as it pays; then both
- * restart, catch up, and their books match their accounts, less the
- * reserve, with nothing booked twice.
+ * What `hub_test.ts` does not check: the faucet funds the members' owner
+ * books of XRP, which follow the ledger and show an address that starts
+ * with `r`; a client of one member pays the other's receiver more than
+ * the payer's account in the hub can spend above its floor, so the payer
+ * moves XRP into the hub as it pays, which its owner book pays; and once
+ * both members restart, their owner books and hub books, their accounts'
+ * counters in the hub and their peer accounts are as they were, each book
+ * holding what its account on the ledger holds, so nothing was booked
+ * twice.
  */
 
 import { test } from "node:test";
-import { assert, assertEquals } from "@std/assert";
-import { Buffer } from "node:buffer";
-import { readFile } from "node:fs/promises";
-import process from "node:process";
-import WebSocket from "#ws";
-import { createConnection } from "ilp-protocol-stream";
-import { LedgerConnection } from "@dassie/rpc/proto";
+import { assert, assertEquals, assertMatch } from "@std/assert";
+import {
+  LedgerConnection,
+  type Transfer,
+  TransferState,
+} from "@dassie/rpc/proto";
 
 import {
   DASSIE,
@@ -26,201 +32,198 @@ import {
   missingScenarioTools,
   SCENARIO_PORT_OFFSET,
 } from "./harness.ts";
-import { BtpClient } from "./btp.ts";
-import { Scenario, type ScenarioNode } from "@dassie/dev/scenario";
+import {
+  HUB_OWNER_LEDGER,
+  HUB_WITHIN_MS,
+  hubBooks,
+  joinedHub,
+  ledger,
+  members,
+  pay,
+  peerAccounts,
+  settledOverHub,
+} from "./settling.ts";
+import { HUB_LEDGER, Scenario, type ScenarioNode } from "@dassie/dev/scenario";
 
-const LEDGER = "xrpl-testnet-xrp+xrp";
-/** 5 XRP: over four times what a peer extends, so d1 must settle. */
-const PAYMENT = 5_000_000_000n;
-/** What a node extends to each peer: 1.1 XRP. */
-const CREDIT = 1_100_000_000n;
-/** Every node's trigger: one and a half of the largest packets (spec/decisions/thresholds-in-packets.md). */
-const TRIGGER = 150_000_000n;
+/** The largest packet, in internal units: 0.1 XRP. */
+const MAX_PACKET = 100_000_000n;
+/**
+ * What the payment takes beyond what the payer's account in the hub can
+ * spend above its floor: ten of the largest packets, more than the
+ * trigger and the payee's redeem threshold together, so that what the
+ * payer funds of its hold takes the account below its floor even with
+ * what it still owes unfunded.
+ */
+const BEYOND_FLOOR = 10n * MAX_PACKET;
 const PORT_OFFSET = SCENARIO_PORT_OFFSET + 600;
 
 const missing = await missingScenarioTools();
-const testnet = process.env.DASSIE_XRPL_TESTNET === "1";
 
-/** A node's XRPL ledger, as its owner sees it. */
-async function ledger(node: ScenarioNode) {
-  const { ledgers } = await node.rpc.call("listLedgers", {});
-  const found = ledgers.find((l) => l.id === LEDGER);
-  assert(found, `${node.name} has no ${LEDGER}`);
-  return found;
+/** `node`'s account in the hub, as its owner sees it: the scenario's one
+ * hub. */
+async function hubStatus(node: ScenarioNode) {
+  const { hubs } = await node.rpc.call("getHubStatus", {});
+  assertEquals(hubs.length, 1, `${node.name} is in ${hubs.length} hubs`);
+  return hubs[0];
 }
 
-/** Whether every node follows the ledger, and has been funded. */
-async function funded(scenario: Scenario): Promise<boolean> {
-  for (const node of scenario.nodes) {
-    const view = await ledger(node);
-    if (view.connection !== LedgerConnection.SYNCED) return false;
-    if (view.ownerBalance <= 0n) return false;
-  }
-  return true;
-}
+/** The most transfers one page of `listTransfers` holds. */
+const TRANSFER_PAGE = 1_000;
+/** The most pages {@linkcode transfersSince} reads: far more than a run
+ * of this test writes. */
+const MAX_TRANSFER_PAGES = 100;
 
 /**
- * What each node owes each peer net, by its own books, by `node>peer`: its
- * peer account less the credit it extends, negative when the peer owes it.
+ * The transfers `node` wrote or changed after `after`, each once, as it
+ * last was, by ID; and the last sequence number it read.
  */
-async function peerAccounts(scenario: Scenario): Promise<Map<string, bigint>> {
-  const byId = new Map(scenario.nodes.map((node) => [node.id, node.name]));
-  const accounts = new Map<string, bigint>();
-  for (const node of scenario.nodes) {
-    const list = await node.rpc.call("listAccounts", {});
-    for (const account of list.accounts) {
-      for (const kind of ["assets/interledger", "contra/trust"]) {
-        const prefix = `${LEDGER}:${kind}/`;
-        if (!account.path.startsWith(prefix)) continue;
-        const key = `${node.name}>${
-          byId.get(account.path.slice(prefix.length))
-        }`;
-        const net = account.creditsPosted - account.debitsPosted;
-        accounts.set(key, (accounts.get(key) ?? 0n) + net);
-      }
-    }
+async function transfersSince(node: ScenarioNode, after?: bigint) {
+  const byId = new Map<bigint, Transfer>();
+  let last = after;
+  for (let page = 0; page < MAX_TRANSFER_PAGES; page++) {
+    const { transfers } = await node.rpc.call("listTransfers", {
+      afterSequence: last,
+      limit: TRANSFER_PAGE,
+    });
+    for (const transfer of transfers) byId.set(transfer.id, transfer);
+    if (transfers.length > 0) last = transfers[transfers.length - 1].sequence;
+    if (transfers.length < TRANSFER_PAGE) return { byId, last };
   }
-  return accounts;
+  throw new Error(`${node.name} has over ${MAX_TRANSFER_PAGES} pages`);
 }
 
-/**
- * Settling went quiet: nothing on its way, no node's books showing a peer
- * at its trigger (its room for the peer down to one and a half of the
- * largest packets, spec/decisions/thresholds-in-packets.md), and both books
- * agree. A senior extends its junior nothing, so until the junior paid in
- * advance it is at its trigger.
- */
-async function quiet(scenario: Scenario): Promise<boolean> {
-  for (const node of scenario.nodes) {
-    const { channels } = await node.rpc.call("listSettlementChannels", {});
-    if (channels.some((channel) => channel.sending)) return false;
-    const view = await ledger(node);
-    if (view.connection !== LedgerConnection.SYNCED) return false;
-    const { peers } = await node.rpc.call("listPeers", {});
-    if (peers.some((peer) => peer.creditOut + peer.owed <= TRIGGER)) {
-      return false;
-    }
+/** The fees `node` booked on its ledger `id` after `after`: the XRP
+ * Ledger's for its transactions, or the hub's for its operations. */
+async function feesSince(
+  node: ScenarioNode,
+  id: string,
+  after: bigint | undefined,
+): Promise<bigint> {
+  const { byId } = await transfersSince(node, after);
+  let fees = 0n;
+  for (const transfer of byId.values()) {
+    if (transfer.reference.case !== "fee") continue;
+    if (transfer.state !== TransferState.POSTED) continue;
+    if (!transfer.debitPath.startsWith(`${id}:`)) continue;
+    fees += transfer.amount;
   }
-  const accounts = await peerAccounts(scenario);
-  for (const [pair, mine] of accounts) {
-    const [node, peer] = pair.split(">");
-    const theirs = accounts.get(`${peer}>${node}`);
-    if (theirs === undefined || mine + theirs !== 0n) return false;
-  }
-  return accounts.size > 0;
+  return fees;
 }
 
-/** What the books hold, and what the owners have, by node. */
-async function books(scenario: Scenario) {
-  const out = new Map<string, [bigint, bigint]>();
-  for (const node of scenario.nodes) {
-    const view = await ledger(node);
-    out.set(node.name, [view.onLedgerBalance, view.ownerBalance]);
-  }
-  return out;
-}
-
-/**
- * Longer than a node's settlement interval (4 s, 1 s with dev timings): a
- * settlement that is due starts within it.
- */
-const SETTLE_CHECK_MS = 5_000;
-
-/**
- * Settling is over: quiet, and still quiet with the same books once a
- * settlement interval has passed. Quiet alone also holds between two
- * settlements, while the next one is due but not yet started.
- */
-async function settled(scenario: Scenario): Promise<boolean> {
-  if (!(await quiet(scenario))) return false;
-  const first = await books(scenario);
-  await new Promise((resolve) => setTimeout(resolve, SETTLE_CHECK_MS));
-  if (!(await quiet(scenario))) return false;
-  const second = await books(scenario);
-  return [...first].every(([name, [onLedger, owner]]) => {
-    const now = second.get(name);
-    return now !== undefined && now[0] === onLedger && now[1] === owner;
-  });
+/** What a member's books and its account's counters in the hub hold. */
+async function kept(node: ScenarioNode) {
+  const status = await hubStatus(node);
+  return {
+    books: await hubBooks(node),
+    deposited: status.deposited,
+    withdrawn: status.withdrawn,
+    returned: status.returned,
+  };
 }
 
 test(
-  "xrpl-settlement settles on the XRP Ledger, and reconciles across restarts",
+  "the hub's members settle from their owner books on the XRP Ledger, and reconcile across restarts",
   { skip: missing !== undefined },
   async () => {
-    const scenario = await Scenario.temporary("xrpl-settlement", {
+    const scenario = await Scenario.temporary("hub", {
       dassie: DASSIE,
-      fakeLedger: testnet ? undefined : FAKE_LEDGER,
+      fakeLedger: FAKE_LEDGER,
       portOffset: PORT_OFFSET,
     });
     try {
-      await scenario.until("funded", () => funded(scenario), 120_000);
-      await scenario.until("peered", () => scenario.converged(), 120_000);
-      const [d1, d2] = scenario.nodes;
-      const address = (await ledger(d1)).depositAddress;
-      assert(address.startsWith("r"), address);
-      // The junior pays its senior in advance before it can send through
-      // it, on the ledger (spec/decisions/earned-trust.md).
-      await scenario.until("paid in advance", () => settled(scenario), 120_000);
-
-      const before = await ledger(d1);
-      const token = await d1.rpc.call("createBtpToken", {
-        label: "e2e",
-        ledger: LEDGER,
-      });
-      const { payment: credentials } = await d2.rpc.call(
-        "createIncomingPayment",
-        {},
-      );
-      assert(credentials);
-      const server = token.url.replace(`@${d1.hostname}:`, "@localhost:");
-      const ca = await readFile(scenario.caFile, "utf8");
-      const plugin = new BtpClient({ server }, {
-        WebSocket: class extends WebSocket {
-          constructor(url: string) {
-            super(url, { ca });
-          }
-        },
-      });
-      await plugin.connect();
-      try {
-        const connection = await createConnection({
-          plugin,
-          destinationAccount: credentials.destinationAccount,
-          sharedSecret: Buffer.from(credentials.sharedSecret),
-        });
-        const stream = connection.createStream();
-        await stream.sendTotal(Number(PAYMENT), { timeout: 240_000 });
-        assertEquals(BigInt(stream.totalSent), PAYMENT);
-        await connection.end();
-      } finally {
-        await plugin.disconnect();
+      const nodes = members(scenario);
+      const [payer, payee] = nodes;
+      // The faucet funded each member's owner book, which follows the fake
+      // ledger, and shows where the owner deposits.
+      await scenario.until("owner books funded", async () => {
+        for (const node of nodes) {
+          const view = await ledger(node, HUB_OWNER_LEDGER);
+          if (view.connection !== LedgerConnection.SYNCED) return false;
+          if (view.ownerBalance <= 0n) return false;
+        }
+        return true;
+      }, HUB_WITHIN_MS);
+      for (const node of nodes) {
+        const view = await ledger(node, HUB_OWNER_LEDGER);
+        assert(view.faucet, `${node.name}'s testnet has a faucet`);
+        assertMatch(view.depositAddress, /^r/);
       }
-      await scenario.until("settled", () => settled(scenario), 120_000);
-      // d1 paid on the ledger, and owes d2 no more than the credit a
-      // junior extends; its owner's balance fell by what it sent.
-      const after = await ledger(d1);
-      assert(
-        after.onLedgerBalance < before.onLedgerBalance,
-        "d1 settled on the ledger",
-      );
-      const owes = (await peerAccounts(scenario)).get("d1>d2")!;
-      assert(owes <= CREDIT, `d1 still owes ${owes}`);
-      assertEquals(after.ownerBalance <= before.ownerBalance - PAYMENT, true);
+      await joinedHub(scenario);
 
-      // Restarted, both catch up and book nothing twice.
-      const kept = await books(scenario);
-      const accounts = await peerAccounts(scenario);
-      for (const node of scenario.nodes) {
+      // More than the payer's account can spend above its floor, so it
+      // moves XRP in from its owner book as it pays
+      // (spec/areas/hubs.md#in-the-node).
+      const status = await hubStatus(payer);
+      assert(status.automatic, "the payer moves funds by itself");
+      const spendable = status.balance > status.floor
+        ? status.balance - status.floor
+        : 0n;
+      const payment = spendable + BEYOND_FLOOR;
+      const before = await kept(payer);
+      const hubBefore = await ledger(payer, HUB_LEDGER);
+      const ownerBefore = await ledger(payer, HUB_OWNER_LEDGER);
+      const { last: journaled } = await transfersSince(payer);
+      await pay(scenario, [payer, payee], HUB_LEDGER, payment, HUB_LEDGER);
+      await scenario.until(
+        "settled",
+        () => settledOverHub(scenario),
+        HUB_WITHIN_MS,
+      );
+      const after = await kept(payer);
+      const moved = after.deposited - before.deposited;
+      assert(moved > 0n, "the payer moved nothing into the hub");
+      assertEquals(after.withdrawn, before.withdrawn, "the payer withdrew");
+      // The owner book paid what moved and the XRP Ledger's fees for
+      // moving it; the hub book got what moved, less what was paid and
+      // the hub's fees for the operations that paid it.
+      const ownerAfter = await ledger(payer, HUB_OWNER_LEDGER);
+      const ownerFees = await feesSince(payer, HUB_OWNER_LEDGER, journaled);
+      assert(ownerFees > 0n, "the moves paid no ledger fee");
+      assertEquals(
+        ownerBefore.ownerBalance - ownerAfter.ownerBalance,
+        moved + ownerFees,
+        "what the owner book paid",
+      );
+      const hubAfter = await ledger(payer, HUB_LEDGER);
+      const hubFees = await feesSince(payer, HUB_LEDGER, journaled);
+      assertEquals(
+        hubAfter.ownerBalance - hubBefore.ownerBalance,
+        moved - payment - hubFees,
+        "what the hub book got",
+      );
+
+      // Restarted, both members read the ledger and the hub again, and
+      // book nothing twice: each book still holds what its account holds.
+      const books = await Promise.all(nodes.map(kept));
+      const accounts = await peerAccounts(scenario, HUB_LEDGER);
+      for (const node of nodes) {
         const { code, output } = (await node.stop())!;
         assertEquals(code, 0, output);
       }
-      for (const node of scenario.nodes) {
+      for (const node of nodes) {
         await node.start();
         await node.waitForEngine();
       }
-      await scenario.until("caught up", () => settled(scenario), 120_000);
-      assertEquals(await books(scenario), kept, "the books after a restart");
-      assertEquals(await peerAccounts(scenario), accounts, "peer accounts");
+      await scenario.until(
+        "caught up",
+        () => settledOverHub(scenario),
+        HUB_WITHIN_MS,
+      );
+      assertEquals(
+        await Promise.all(nodes.map(kept)),
+        books,
+        "the books after a restart",
+      );
+      assertEquals(
+        await peerAccounts(scenario, HUB_LEDGER),
+        accounts,
+        "peer accounts",
+      );
+      assertEquals(
+        (await peerAccounts(scenario, HUB_OWNER_LEDGER)).size,
+        0,
+        "the owner books peer with nobody",
+      );
     } finally {
       const failures = await scenario.stop();
       assertEquals(failures, [], failures.join("\n"));
