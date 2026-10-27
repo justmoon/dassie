@@ -1043,3 +1043,21 @@ fn a_stopped_hubs_validator_hears_of_each_change_it_proved() {
     assert_eq!(setup.issuer_states(), [(false, false), (true, false)]);
     assert!(setup.watcher.proven_issuer().unwrap().frozen);
 }
+
+// More withdrawals open than the connection keeps each go once: one sent
+// already makes room for the next, and is only not sent again.
+#[test]
+fn more_open_withdrawals_than_kept_each_go() {
+    let mut setup = Setup::new();
+    setup.view.checked = true;
+    setup.connect();
+    setup.closes(2);
+    let count = MAX_QUEUED_SUBMITS + 8;
+    let first = setup.view.next_sequence;
+    for offset in 0..count {
+        let sequence = first + u32::try_from(offset).unwrap();
+        setup.watcher.submit(withdrawal_blob(&setup, sequence));
+        setup.run();
+    }
+    assert_eq!(setup.submitted.len(), count);
+}

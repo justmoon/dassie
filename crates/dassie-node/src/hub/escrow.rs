@@ -628,10 +628,24 @@ impl Watcher {
         }
         self.prune_submits();
         if self.submits.len() >= MAX_QUEUED_SUBMITS {
-            self.out.push_back(Out::Problem(
-                "too many escrow transactions wait for the XRPL server: one was dropped",
-            ));
-            return;
+            // A hub may have more withdrawals open than are kept: the one
+            // of the lowest sequence that went once already makes room,
+            // and is not sent again.
+            let sent = (self.submits.iter().enumerate())
+                .filter(|(_, kept)| kept.sent_ms.is_some())
+                .min_by_key(|(_, kept)| kept.sequence)
+                .map(|(index, _)| index);
+            match sent {
+                Some(index) => {
+                    self.submits.remove(index);
+                }
+                None => {
+                    self.out.push_back(Out::Problem(
+                        "too many escrow transactions wait for the XRPL server: one was dropped",
+                    ));
+                    return;
+                }
+            }
         }
         self.submits.push_back(Submit {
             sequence,
