@@ -14,6 +14,11 @@
  * whichever pays best; targets that pay alike take turns. So both core
  * nodes take DSUSD in, through two nodes of the market maker's, each with
  * an uplink to both.
+ *
+ * Until a core node prices each asset whole, its feed offers more than
+ * spot for XRP, which it holds most of (`PRICED_APART`): the test then
+ * checks only that a trade crosses each core node over both hubs,
+ * whichever way.
  */
 
 import { test } from "node:test";
@@ -59,9 +64,12 @@ const RUN_MS = 600_000;
 const PORT_OFFSET = 10_000;
 
 const missing = await missingScenarioTools();
+/** Whether the core nodes price each asset whole, so their feeds ask for
+ * what they lack, and the test checks that each takes it in. */
+const whole = PRICED_APART === undefined;
 
 test("a market maker trades through each of two core nodes over hubs", {
-  skip: PRICED_APART ?? missing !== undefined,
+  skip: missing,
 }, async () => {
   const scenario = await Scenario.temporary(SCENARIO, {
     dassie: DASSIE,
@@ -107,7 +115,10 @@ test("a market maker trades through each of two core nodes over hubs", {
     maker.exited.then(() => exited = true);
     try {
       // A trade's DSUSD reached each: only the market maker pays a core
-      // node DSUSD.
+      // node DSUSD. Priced apart, a trade through each in either
+      // direction: only a trade moves a core node's DSUSD, its hub and its
+      // book together, since its own moves between them pay their gas in
+      // XRP.
       await scenario.until(
         "the market maker trades through each core node",
         async () => {
@@ -115,7 +126,9 @@ test("a market maker trades through each of two core nodes over hubs", {
           const dsusd = await Promise.all(
             cores.map((node) => held(node, DSUSD)),
           );
-          return dsusd.every((held, i) => held >= dsusdBefore[i] + TRADE);
+          return dsusd.every((held, i) =>
+            whole ? held >= dsusdBefore[i] + TRADE : held !== dsusdBefore[i]
+          );
         },
         RUN_MS,
       );
@@ -136,14 +149,20 @@ test("a market maker trades through each of two core nodes over hubs", {
 
     // Each core node holds a larger share of its value in DSUSD, the
     // asset it lacked, its hub and its owner book taken together: DSUSD
-    // over XRP rose, which at one rate is its share.
+    // over XRP rose, which at one rate is its share. Priced apart, each
+    // converted: one asset came in over its hub and the other went out
+    // over the other.
     for (const [i, core] of cores.entries()) {
       const xrpAfter = await held(core, XRP);
       const dsusdAfter = await held(core, DSUSD);
+      const went = `${core.name} went from ${dsusdBefore[i]} DSUSD and ` +
+        `${xrpBefore[i]} XRP to ${dsusdAfter} DSUSD and ${xrpAfter} XRP`;
       assert(
-        dsusdAfter * xrpBefore[i] > dsusdBefore[i] * xrpAfter,
-        `${core.name} went from ${dsusdBefore[i]} DSUSD and ` +
-          `${xrpBefore[i]} XRP to ${dsusdAfter} DSUSD and ${xrpAfter} XRP`,
+        whole
+          ? dsusdAfter * xrpBefore[i] > dsusdBefore[i] * xrpAfter
+          : dsusdAfter !== dsusdBefore[i] &&
+            (dsusdAfter > dsusdBefore[i]) === (xrpAfter < xrpBefore[i]),
+        went,
       );
     }
   } finally {

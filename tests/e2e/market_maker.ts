@@ -71,10 +71,10 @@ const AMM_INFO_TIMEOUT_MS = 10_000;
  * its two hub accounts hold, rather than what it holds of each asset. Its
  * feed then offers more than spot for XRP, the asset it holds most of, and
  * the market maker trades it further from balance
- * (spec/areas/rate-feed.md#market-maker). Meanwhile the test with one
- * target checks only that a trade crosses the core node over both hubs,
- * whichever way, and the test with two is skipped. Both run whole once
- * inventory pricing counts each asset whole (spec/roadmap.md#hubs-only).
+ * (spec/areas/rate-feed.md#market-maker). Meanwhile the tests check only
+ * that a trade crosses each core node over both hubs, whichever way. They
+ * check the whole loop once inventory pricing counts each asset whole
+ * (spec/roadmap.md#hubs-only).
  */
 export const PRICED_APART: string | undefined =
   "a core node prices its hubs' ledgers apart from their owner books (spec/roadmap.md#hubs-only)";
