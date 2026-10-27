@@ -1228,13 +1228,19 @@ impl HubAccount {
     /// counts.
     ///
     /// A freeze that ended moves the deadline of every reduction it
-    /// mirrors that had not passed at the freeze back by the freeze's
-    /// length, as the hub's thaw does: from the freeze's stamp to the
-    /// thaw's, which the account knows only as no later than the block it
-    /// learnt of the thaw at, or of the next freeze. So a reduction never
-    /// applies here before it does in the hub, and a hold's records never
-    /// close early; one that was due during a freeze the account missed
-    /// whole applies early.
+    /// mirrors that was made at or before the freeze's stamp and had not
+    /// passed at it back by the freeze's length, as the hub's thaw does:
+    /// from the freeze's stamp to the thaw's, which the account knows only
+    /// as no later than the block it learnt of the thaw at, or of the next
+    /// freeze. A frozen hub takes no `hold-reduce`, so its thaw moves only
+    /// those: one made after the thaw, which the cursor may read before
+    /// f + 1 agree on the thaw, stays as it is, and so does one read anew
+    /// from holds that reflect the thaw already. So a reduction never
+    /// applies here after it does in the hub, which would leave the payee
+    /// room the hold no longer has, and a hold's records never close
+    /// early; one that was due during a freeze the account missed whole,
+    /// or read anew while the hub was frozen before the account agreed on
+    /// the freeze, applies early, which only leaves the payee less room.
     fn issuer_agreed(&mut self, statement: &Statement) {
         let Statement::Issuer {
             height,
@@ -1267,7 +1273,8 @@ impl HubAccount {
         let until = state.frozen.unwrap_or(state.timestamp);
         let length = until.saturating_sub(since);
         for mirror in self.holds.values_mut() {
-            if let Some((_, at)) = mirror.reduction.as_mut()
+            if mirror.reduced_at <= since
+                && let Some((_, at)) = mirror.reduction.as_mut()
                 && *at > since
             {
                 *at = at.saturating_add(length);
@@ -1679,8 +1686,21 @@ impl HubAccount {
         let unread = self.take_unread(view.sequence);
         let before = core::mem::take(&mut self.holds);
         self.strangers.clear();
+        // The holds as of the block reflect every thaw up to it. Only a
+        // freeze f + 1 agree held from before the block to after it left
+        // their reductions to be moved: as made at its stamp, its thaw
+        // moves them, as the hub's does. Any other freeze moves none of
+        // them, which at worst applies one early here.
+        let as_of = match self.issuer {
+            Some(IssuerState {
+                height: agreed,
+                frozen: Some(since),
+                ..
+            }) if agreed >= height && since <= timestamp => since,
+            _ => timestamp,
+        };
         for (number, hold) in holds {
-            let mut mirror = HoldMirror::of(&hold);
+            let mut mirror = HoldMirror::of(&hold, as_of);
             if let Some(old) = before.get(&number) {
                 mirror.claimed = old.claimed.clone();
                 mirror

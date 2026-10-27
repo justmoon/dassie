@@ -1496,6 +1496,171 @@ fn a_freeze_is_read_from_what_f_plus_one_sign() {
     );
 }
 
+/// Account 9's `operation` with `sequence`, executed in the block at
+/// `height`, stamped `1_000 + height`, with `detail`.
+fn executed_by_9(
+    hub: &Hub,
+    sequence: u64,
+    height: u64,
+    operation: MemberOperation,
+    detail: crate::ledger::Detail,
+) -> Statement {
+    let signed = SignedMemberOperation::sign(
+        &hub.rules.id(),
+        AccountNumber(9),
+        sequence,
+        10,
+        operation,
+        &NodeKey::from_bytes(&[9; 32]),
+    );
+    Statement::Executed {
+        height,
+        timestamp: 1_000 + height,
+        index: 0,
+        operation: Operation::Member(signed),
+        outcome: Outcome::Applied { fee: 10, detail },
+    }
+}
+
+// spec/decisions/token-hubs.md: a thaw moves back only the reductions made
+// by the freeze, as the hub's does, since a frozen hub takes no
+// `hold-reduce`. One made after the thaw, which the cursor reads before
+// f + 1 agree on the thaw, stays as the hub has it.
+#[test]
+fn a_thaw_moves_no_reduction_made_after_it() {
+    let hub = Hub::new();
+    let mut account = synced(&hub);
+    let notice = hub.rules.terms.timers.hold_notice;
+    let (first, second) = (
+        crate::promise::HoldNumber(1),
+        crate::promise::HoldNumber(2),
+    );
+    let open = |sequence, height, hold| {
+        let operation = MemberOperation::HoldOpen {
+            payee: AccountNumber(7),
+            amount: 100,
+        };
+        executed_by_9(
+            &hub,
+            sequence,
+            height,
+            operation,
+            crate::ledger::Detail::Hold(hold),
+        )
+    };
+    let reduce = |sequence, height, hold| {
+        let operation = MemberOperation::HoldReduce { hold, amount: 30 };
+        executed_by_9(&hub, sequence, height, operation, crate::ledger::Detail::None)
+    };
+    let final_at = |height: u64| Statement::Final {
+        height,
+        timestamp: 1_000 + height,
+    };
+    // The first reduced in the block the hub froze at, the second once it
+    // thawed at 20.
+    let read = [
+        open(1, 10, first),
+        open(2, 11, second),
+        reduce(3, 12, first),
+        reduce(4, 21, second),
+        final_at(21),
+    ];
+    issuer_says(&hub, &mut account, 0..2, 12, Some(1_012));
+    for v in 0..3 {
+        say_all(&hub, &mut account, v, &read);
+    }
+    assert_eq!(account.cursor(), 21);
+    assert_eq!(account.frozen(), Some(1_012), "the thaw not agreed yet");
+    issuer_says(&hub, &mut account, 0..2, 20, None);
+    assert_eq!(account.frozen(), None);
+    let at = |hold| account.hold(hold).unwrap().reduction.unwrap().1;
+    assert_eq!(at(first), 1_012 + notice + 8, "moved by the freeze");
+    assert_eq!(at(second), 1_021 + notice, "as the hub has it");
+    account.check_invariants();
+    // A restart keeps when each reduction was made.
+    let restored = HubAccount::new(
+        FIRST,
+        hub.rules.clone(),
+        Arc::clone(&hub.key),
+        Destination {
+            account: [5; 20],
+            tag: None,
+        },
+        Name::new(SCHEME_ID).unwrap(),
+        &account.state(),
+    )
+    .unwrap();
+    for hold in [first, second] {
+        assert_eq!(restored.hold(hold), account.hold(hold));
+    }
+    assert_eq!(account.hold(second).unwrap().reduced_at, 1_021);
+}
+
+// spec/decisions/token-hubs.md: holds read anew reflect every thaw up to
+// their block, so a thaw the account agrees on later moves none of their
+// reductions again; a freeze f + 1 agree held through their block leaves
+// them to its thaw, as the hub's does.
+#[test]
+fn a_thaw_moves_no_reduction_read_anew_after_it() {
+    let hub = Hub::new();
+    let notice = hub.rules.terms.timers.hold_notice;
+    let hold = crate::promise::HoldNumber(1);
+    let view = crate::client::HoldView {
+        payer: AccountNumber(9),
+        payee: AccountNumber(7),
+        amount: 100,
+        reduction: Some((30, 8_000 + notice)),
+        total: 0,
+        through: 0,
+    };
+    let trimmed = Statement::Trimmed {
+        height: 100,
+        below: 50,
+    };
+    let holds = Statement::Holds {
+        height: 100,
+        timestamp: 9_000,
+        account: AccountNumber(7),
+        page: 0,
+        pages: 1,
+        holds: alloc::vec![(hold, view)],
+    };
+    let read_anew = |account: &mut HubAccount| {
+        for v in 0..2 {
+            say_all(&hub, account, v, core::slice::from_ref(&trimmed));
+        }
+        assert!(account.is_resyncing());
+        for v in 0..2 {
+            say_all(
+                &hub,
+                account,
+                v,
+                &[hub.account_statement(100, true), holds.clone()],
+            );
+        }
+        assert!(!account.is_resyncing());
+        assert_eq!(account.cursor(), 100);
+    };
+    let at = |account: &HubAccount| account.hold(hold).unwrap().reduction.unwrap().1;
+
+    // The hub thawed at 50, before the block read anew.
+    let mut account = synced(&hub);
+    issuer_says(&hub, &mut account, 0..2, 6, Some(1_006));
+    read_anew(&mut account);
+    issuer_says(&hub, &mut account, 0..2, 50, None);
+    assert_eq!(account.frozen(), None);
+    assert_eq!(at(&account), 8_000 + notice, "moved in the hub already");
+    account.check_invariants();
+
+    // Frozen from before the block to after it, as f + 1 agree.
+    let mut account = synced(&hub);
+    issuer_says(&hub, &mut account, 0..2, 120, Some(1_006));
+    read_anew(&mut account);
+    issuer_says(&hub, &mut account, 0..2, 130, None);
+    assert_eq!(at(&account), 8_000 + notice + (1_130 - 1_006), "its thaw");
+    account.check_invariants();
+}
+
 /// A claim on hold 2 for one commitment expiring at `expiry`.
 fn claim_expiring(expiry: crate::rules::Millis) -> MemberOperation {
     claim_on(2, expiry)

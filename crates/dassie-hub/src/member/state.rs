@@ -6,8 +6,9 @@
 //!   the operations waiting or on their way, and the issuer's hold on a
 //!   token hub's escrow as last agreed: one on its way is signed again
 //!   alike (Ed25519 signs deterministically), so its outcome is still known
-//!   as ours. Its version 1 had no issuer's hold, and is read as knowing
-//!   none.
+//!   as ours. Its version 1 had no issuer's hold nor when a reduction was
+//!   made, and is read as knowing none, each reduction as made before any
+//!   freeze it learns of.
 //! - **The scheme** keeps its peers and the records of their holds: the next
 //!   sequence, W and T of our claims and the packets the hub may still pay,
 //!   and what we fulfilled that no claim of the payer's covers, and its
@@ -33,7 +34,8 @@ use crate::digest::Digest;
 use crate::operation::{AccountNumber, MemberOperation, SignedMemberOperation};
 use crate::promise::{Claim, Commitment, HoldNumber, Signed};
 
-/// The account's state's version: 2 keeps the issuer's hold.
+/// The account's state's version: 2 keeps the issuer's hold, and when
+/// each hold's reduction was made.
 const VERSION: u8 = 2;
 /// The scheme's state's version: 2 keeps its unread `pay`s.
 const SCHEME_VERSION: u8 = 2;
@@ -186,6 +188,7 @@ fn write_hold(out: &mut Out, hold: &HoldMirror) {
     out.option(hold.reduction.as_ref(), |out, (amount, at)| {
         out.u64(*amount);
         out.u64(*at);
+        out.u64(hold.reduced_at);
     });
     out.u64(hold.total);
     out.u64(hold.through);
@@ -196,13 +199,23 @@ fn write_hold(out: &mut Out, hold: &HoldMirror) {
     }
 }
 
-fn read_hold(reader: &mut Reader<'_>) -> Option<HoldMirror> {
+/// A hold as `write_hold` wrote it; of version 1, whose reductions have no
+/// stamp, each as made before any freeze the account learns of.
+fn read_hold(reader: &mut Reader<'_>, version: u8) -> Option<HoldMirror> {
     let mut hold = HoldMirror::opened(
         AccountNumber(reader.read_u32().ok()?),
         AccountNumber(reader.read_u32().ok()?),
         reader.read_u64().ok()?,
     );
-    hold.reduction = read_option(reader, |r| Some((r.read_u64().ok()?, r.read_u64().ok()?)))?;
+    let reduction = read_option(reader, |r| {
+        let reduction = (r.read_u64().ok()?, r.read_u64().ok()?);
+        let made = if version >= 2 { r.read_u64().ok()? } else { 0 };
+        Some((reduction, made))
+    })?;
+    if let Some((reduction, made)) = reduction {
+        hold.reduction = Some(reduction);
+        hold.reduced_at = made;
+    }
     hold.total = reader.read_u64().ok()?;
     hold.through = reader.read_u64().ok()?;
     let count = read_count(reader, 16, usize::from(u16::MAX))?;
@@ -257,7 +270,7 @@ pub(super) fn restore_account(account: &mut HubAccount, state: &[u8]) -> Option<
     let holds = read_count(&mut reader, 8, most)?;
     for _ in 0..holds {
         let number = HoldNumber(reader.read_u64().ok()?);
-        account.holds.insert(number, read_hold(&mut reader)?);
+        account.holds.insert(number, read_hold(&mut reader, version)?);
         if reader.read_bool().ok()? {
             account.strangers.insert(number);
         }

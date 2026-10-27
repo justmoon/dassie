@@ -22,6 +22,13 @@ pub struct HoldMirror {
     pub amount: Amount,
     /// A reduction waiting for its notice: how much, and from when.
     pub reduction: Option<(Amount, Millis)>,
+    /// When the reduction waiting was made: the stamp of the block whose
+    /// `hold-reduce` made it, or, for one read anew from the hub's holds,
+    /// the stamp up to which they reflect the hub's thaws. A thaw moves
+    /// only a reduction made at or before its freeze's stamp, as the hub's
+    /// does: a frozen hub takes no `hold-reduce`, so its thaw finds only
+    /// those.
+    pub reduced_at: Millis,
     /// T of the last redeemed claim.
     pub total: Amount,
     /// W of the last redeemed claim.
@@ -39,21 +46,24 @@ impl HoldMirror {
             payee,
             amount,
             reduction: None,
+            reduced_at: 0,
             total: 0,
             through: 0,
             claimed: BTreeMap::new(),
         }
     }
 
-    /// A hold as a statement told it: what `claim` took above its W is
-    /// not in the view, and starts empty.
+    /// A hold as a statement told it, its reduction counted as made at
+    /// `as_of`: what `claim` took above its W is not in the view, and
+    /// starts empty.
     #[must_use]
-    pub const fn of(view: &HoldView) -> Self {
+    pub const fn of(view: &HoldView, as_of: Millis) -> Self {
         Self {
             payer: view.payer,
             payee: view.payee,
             amount: view.amount,
             reduction: view.reduction,
+            reduced_at: as_of,
             total: view.total,
             through: view.through,
             claimed: BTreeMap::new(),
@@ -87,6 +97,7 @@ impl HoldMirror {
     /// A `hold-reduce` applied in a block stamped `timestamp`: it takes
     /// effect after `notice`, and replaces any earlier one.
     pub const fn reduce(&mut self, amount: Amount, timestamp: Millis, notice: Millis) {
+        self.reduced_at = timestamp;
         self.reduction = if amount > 0 {
             Some((amount, timestamp.saturating_add(notice)))
         } else {
