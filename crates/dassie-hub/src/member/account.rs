@@ -56,10 +56,12 @@
 //!   the hub's method is unavailable until the thaw.
 //! - **A hub that stalled or ended.** Once f + 1 validators each kept
 //!   naming the same newest final block for as long as the hub's stall,
-//!   one of them honest, the hub stalled or ended ([`HubAccount::stalled`]):
-//!   its scheme can no longer receive, and the node drops its methods
-//!   (spec/decisions/settlement-methods.md). Being cut off from the
-//!   validators judges nothing.
+//!   one of them honest, and fewer than f + 1 named a newer one within it,
+//!   the hub stalled or ended ([`HubAccount::stalled`]): its scheme can no
+//!   longer receive, and the node drops its methods
+//!   (spec/decisions/settlement-methods.md). A validator cut off alone
+//!   declares a stall too, but the others name newer blocks; being cut
+//!   off from the validators judges nothing.
 //! - **Room for deadlines.** What has no deadline takes at most
 //!   [`MAX_QUEUED_WITHOUT_DEADLINE`] of the queue, so claims and redeems
 //!   always find room.
@@ -438,8 +440,9 @@ pub struct HubAccount {
     /// ends is not held whole, so it covers nothing.
     dirty: Vec<bool>,
     /// Per validator, the newest final block it named from its own
-    /// endpoint, and when the account first and last heard it name it, by
-    /// the node's clock: what tells a hub that stalled ([`Self::stalled`]).
+    /// endpoint ([`Self::names_tip`]), and when the account first and last
+    /// heard it name it, by the node's clock: what tells a hub that
+    /// stalled ([`Self::stalled`]).
     /// Not kept with the books: a restart judges again.
     tips: Vec<Option<Tip>>,
     finals: BTreeMap<u64, Millis>,
@@ -664,10 +667,12 @@ impl HubAccount {
     }
 
     /// Whether the hub stalled or ended, as far as its validators tell
-    /// (spec/areas/hubs.md#the-members-side): f + 1 of them, one honest,
+    /// (spec/areas/hubs.md#a-hub-that-failed): f + 1 of them, one honest,
     /// each kept naming the same newest final block for as long as the
     /// hub's stall (`Timers::stall`), by the node's clock, and fewer than
-    /// f + 1 named a newer one within the stall. An honest validator that
+    /// f + 1 named a newer one within the stall; each names its newest in
+    /// what it states as of it ([`Self::names_tip`]), never in the `Final`
+    /// that ends a long answer where it stopped. An honest validator that
     /// finalized nothing for that long declared the hub stalled and never
     /// votes in it again, and a hub that ended makes no block; one cut off
     /// alone from the others declares too, but the hub goes on, and f + 1
@@ -1150,6 +1155,15 @@ impl HubAccount {
                 && signed.validator.get() == endpoint
             {
                 self.covers(endpoint, height);
+            }
+            // Its newest final block, from what it states as of it: not
+            // from a `Final`, which ends a long answer where it stopped.
+            if let Statement::Account { height, .. }
+            | Statement::Holds { height, .. }
+            | Statement::Trimmed { height, .. }
+            | Statement::Issuer { height, .. } = signed.statement
+                && signed.validator.get() == endpoint
+            {
                 self.names_tip(endpoint, height);
             }
             // Only for an account we know: the cursor of one we do not is
@@ -1185,8 +1199,13 @@ impl HubAccount {
         }
     }
 
-    /// Validator `v` named the final block at `height` as its newest: a
-    /// higher one than before starts its tip again.
+    /// Validator `v` named the final block at `height` as its newest, in a
+    /// statement as of its newest (its word on an account, on holds, on
+    /// its trimmed history or on the issuer's hold), which the account
+    /// asks for every [`ACCOUNT_EVERY_MS`]: a higher one than before starts
+    /// its tip again. A `Final` names none: an answer too long ends with
+    /// the block it stopped at, which a member far behind would hear again
+    /// and again from a hub that goes on.
     fn names_tip(&mut self, v: usize, height: u64) {
         let now = self.now_ms;
         let Some(tip) = self.tips.get_mut(v) else {

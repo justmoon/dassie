@@ -2263,12 +2263,18 @@ fn from_at(hub: &Hub, account: &mut HubAccount, now_ms: u64, v: usize, statement
     );
 }
 
-/// The newest final block, at `height`.
+/// The end of an answer, at `height`.
 const fn final_at(height: u64) -> Statement {
     Statement::Final {
         height,
         timestamp: 1_000 + height,
     }
+}
+
+/// A validator's word on someone else's account as of its newest final
+/// block, at `height`: what names that block.
+fn newest_at(height: u64) -> Statement {
+    no_account_for(NodeKey::from_bytes(&[7; 32]).public_key(), height)
 }
 
 // spec/areas/hubs.md#the-members-side, spec/decisions/settlement-methods.md:
@@ -2284,17 +2290,17 @@ fn a_hub_whose_validators_name_one_block_for_a_stall_cannot_receive() {
     let stall = hub.rules.terms.timers.stall;
     let mut effects = Vec::new();
     for v in 0..3 {
-        from_at(&hub, &mut account, 1_000, v, &[final_at(20)]);
+        from_at(&hub, &mut account, 1_000, v, &[newest_at(20)]);
     }
     scheme.on_asset(1_000, &mut account, &mut effects);
     assert!(scheme.can_receive());
     for v in 0..3 {
-        from_at(&hub, &mut account, 1_000 + stall - 1, v, &[final_at(20)]);
+        from_at(&hub, &mut account, 1_000 + stall - 1, v, &[newest_at(20)]);
     }
     assert!(!account.stalled(), "not for a stall yet");
-    from_at(&hub, &mut account, 1_000 + stall, 0, &[final_at(20)]);
+    from_at(&hub, &mut account, 1_000 + stall, 0, &[newest_at(20)]);
     assert!(!account.stalled(), "one alone may lie");
-    from_at(&hub, &mut account, 1_000 + stall, 1, &[final_at(20)]);
+    from_at(&hub, &mut account, 1_000 + stall, 1, &[newest_at(20)]);
     assert!(account.stalled());
     scheme.on_asset(1_000 + stall, &mut account, &mut effects);
     assert!(!scheme.can_receive());
@@ -2305,7 +2311,7 @@ fn a_hub_whose_validators_name_one_block_for_a_stall_cannot_receive() {
     scheme.on_asset(1_000 + 10 * stall, &mut account, &mut effects);
     assert!(!scheme.can_receive(), "forgotten in silence");
     // A newer block, from one of the two, undoes it.
-    from_at(&hub, &mut account, 1_000 + 10 * stall, 1, &[final_at(21)]);
+    from_at(&hub, &mut account, 1_000 + 10 * stall, 1, &[newest_at(21)]);
     scheme.on_asset(1_000 + 10 * stall, &mut account, &mut effects);
     assert!(scheme.can_receive(), "judged stalled while it goes on");
     account.check_invariants();
@@ -2322,15 +2328,15 @@ fn a_hub_that_goes_on_is_not_failed_by_f_plus_one_stuck() {
     let stall = hub.rules.terms.timers.stall;
     let mut effects = Vec::new();
     for v in 0..4 {
-        from_at(&hub, &mut account, 1_000, v, &[final_at(20)]);
+        from_at(&hub, &mut account, 1_000, v, &[newest_at(20)]);
     }
     for step in 1..=4 {
         let now = 1_000 + step * stall / 2;
         for v in 0..2 {
-            from_at(&hub, &mut account, now, v, &[final_at(20)]);
+            from_at(&hub, &mut account, now, v, &[newest_at(20)]);
         }
         for v in 2..4 {
-            from_at(&hub, &mut account, now, v, &[final_at(20 + step)]);
+            from_at(&hub, &mut account, now, v, &[newest_at(20 + step)]);
         }
         scheme.on_asset(now, &mut account, &mut effects);
         assert!(!account.stalled(), "judged stalled while it goes on");
@@ -2339,7 +2345,7 @@ fn a_hub_that_goes_on_is_not_failed_by_f_plus_one_stuck() {
     // Once the two go quiet too, past the stall, the stuck two decide.
     account.on_timer(1_000 + 4 * stall);
     for v in 0..2 {
-        from_at(&hub, &mut account, 1_000 + 4 * stall, v, &[final_at(20)]);
+        from_at(&hub, &mut account, 1_000 + 4 * stall, v, &[newest_at(20)]);
     }
     assert!(account.stalled());
     account.check_invariants();
@@ -2357,7 +2363,7 @@ fn neither_silence_nor_a_freeze_is_a_failed_hub() {
     let stall = hub.rules.terms.timers.stall;
     let mut effects = Vec::new();
     for v in 0..4 {
-        from_at(&hub, &mut account, 1_000, v, &[final_at(20)]);
+        from_at(&hub, &mut account, 1_000, v, &[newest_at(20)]);
     }
     account.on_timer(1_000 + 10 * stall);
     scheme.on_asset(1_000 + 10 * stall, &mut account, &mut effects);
@@ -2370,13 +2376,36 @@ fn neither_silence_nor_a_freeze_is_a_failed_hub() {
     for step in 0..4 {
         let now = start + step * stall / 2;
         for v in 0..4 {
-            from_at(&hub, &mut account, now, v, &[final_at(22 + step)]);
+            from_at(&hub, &mut account, now, v, &[newest_at(22 + step)]);
         }
         scheme.on_asset(now, &mut account, &mut effects);
         assert!(!account.stalled());
         assert!(scheme.can_receive(), "a freeze failed the hub");
         assert_eq!(scheme.status(), LedgerStatus::Synced);
         assert_eq!(account.status(), LedgerStatus::Syncing, "unavailable");
+    }
+    account.check_invariants();
+}
+
+// A member far behind asks from its cursor, and a validator whose answer
+// is too long ends it with the block it stopped at, the same each time
+// while the cursor stays: that names no newest block, so a hub that goes on
+// is not judged stalled however long the member is stuck reading.
+#[test]
+fn the_end_of_a_long_answer_names_no_stall() {
+    let hub = Hub::new();
+    let (mut account, mut scheme) = synced_scheme(&hub);
+    let stall = hub.rules.terms.timers.stall;
+    let mut effects = Vec::new();
+    for step in 0..=4 {
+        let now = 1_000 + step * stall / 2;
+        for v in 0..4 {
+            from_at(&hub, &mut account, now, v, &[final_at(20)]);
+            from_at(&hub, &mut account, now, v, &[newest_at(40 + step)]);
+        }
+        scheme.on_asset(now, &mut account, &mut effects);
+        assert!(!account.stalled(), "a page end taken for the newest block");
+        assert!(scheme.can_receive());
     }
     account.check_invariants();
 }

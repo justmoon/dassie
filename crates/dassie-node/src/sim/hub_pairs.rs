@@ -637,8 +637,9 @@ const WIND_WITHIN_MS: u64 = 2 * crate::node::Policies::DEFAULT.peer.depeer_wait_
 
 /// The owner of node `index` removes the scheme of the hub of `ledger`
 /// (spec/areas/network.md#settlement-methods): it is not refused for the
-/// methods on it, which wind down, each asked to settle once and dropped
-/// within its bound, on both sides. Then the scheme is being removed with
+/// methods on it, which wind down, each asked to settle and dropped
+/// within its bound, on both sides (that it is asked only once, the core's
+/// tests show). Then the scheme is being removed with
 /// no method left on it, and every peering of the node in `peerings` is
 /// kept, on its method on the other hub.
 fn remove_hub(

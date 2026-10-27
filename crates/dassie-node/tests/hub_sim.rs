@@ -15,8 +15,8 @@
 //! members and validators, and payments across dollars in the DSUSD hub and
 //! XRP in the XRP hub; the `node-hubs` run (`dassie_node::sim::hub_pairs`)
 //! has every node in both hubs, each pair peered over both, until an owner
-//! removes one hub's scheme, that hub fails and the other carries on. These tests run them on fixed seeds, and
-//! `dassie-sim` on any.
+//! removes one hub's scheme, that hub fails and the other carries on. These
+//! tests run them on fixed seeds, and `dassie-sim` on any.
 
 #![allow(
     clippy::unwrap_used,

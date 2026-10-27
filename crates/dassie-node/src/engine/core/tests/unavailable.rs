@@ -105,7 +105,8 @@ fn a_method_wound_down_is_asked_only_by_its_wind_down() {
         asks, 1,
         "the regular check asked on a method being wound down"
     );
-    // The stub, which is not wound down, is still asked as it was.
+    // Once the pair hears each other again, the method is dropped within
+    // its bound, and the peering goes on, on the stub.
     sim.cut.clear();
     assert!(
         sim.run_until_or(sim.now + 2 * PEER.depeer_wait_ms, |sim| {
