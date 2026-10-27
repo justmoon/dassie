@@ -228,15 +228,15 @@ export type NetworkPeer = Message<"dassie.owner.v1.NetworkPeer"> & {
   node: string;
 
   /**
-   * The settlement scheme of its first method, for example "stub"; every
-   * method is in `methods`.
+   * The settlement scheme of the method this node's packets with the peer
+   * take, for example "stub"; every method is in `methods`.
    *
    * @generated from field: string scheme = 2;
    */
   scheme: string;
 
   /**
-   * The credit this node extends to the peer on its first method, in the
+   * The credit this node extends to the peer on that method, in the
    * scheme ledger's units.
    *
    * @generated from field: uint64 credit_out = 5;

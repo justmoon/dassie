@@ -554,6 +554,11 @@ impl Core {
         }
         self.update_peer_schemes();
         self.batch.schemes_added.retain(|(added, _)| *added != id);
+        // Its removal is written after the additions: one left in the batch
+        // would mark the scheme removing if it is added again in it.
+        self.batch
+            .schemes_removing
+            .retain(|(removing, _)| *removing != id);
         self.batch.schemes_removed.push(id);
         let now = self.now_ms();
         if let Some(receiver) = self.receivers.remove(&ledger) {

@@ -139,23 +139,19 @@ fn a_scheme_removed_winds_its_method_down_then_goes() {
         !sim.core(0).peer.schemes().contains(&scheme_id(STUB_TWO)),
         "still offered"
     );
+    // The method's winding as last seen before it was dropped.
+    let last = std::cell::Cell::new(None);
     assert!(
-        sim.run_until_or(start + WIND_BOUND_MS, |sim| second(sim).is_none()),
+        sim.run_until_or(start + WIND_BOUND_MS, |sim| match second(sim) {
+            Some(method) => {
+                last.set(method.winding);
+                false
+            }
+            None => true,
+        }),
         "not dropped in time"
     );
-    // Asked once, and what the peer said it had on its way was booked
-    // before the method was dropped.
-    let (winding, dropped) = (
-        line(&sim, " 0 PeerNode(MethodWinding {"),
-        line(&sim, " 0 PeerNode(MethodDropped {"),
-    );
-    let between = &sim.trace[winding..dropped];
-    let count = |what: &str| between.iter().filter(|line| line.contains(what)).count();
-    assert_eq!(count(" 0 PeerNode(SettlementRequestAnswered {"), 1);
-    assert!(
-        count(" 0 Settlement(SettlementBooked {") >= 1,
-        "nothing collected"
-    );
+    collected_before_dropped(&sim, last.get());
     assert!(
         sim.run_until_or(sim.now + 10_000, |sim| !runs_second(sim, 0)),
         "the scheme stayed"
@@ -176,6 +172,40 @@ fn a_scheme_removed_winds_its_method_down_then_goes() {
     sim.run_until(sim.now + 120_000);
     assert_eq!(methods(&sim, 0), ["stub"]);
     assert_eq!(methods(&sim, 1), ["stub"]);
+}
+
+/// Node 0's method on the second stub, last seen as `winding` before it
+/// was dropped, was dropped once the peer's settlement on it was booked on
+/// it and its answer said that was all, not when the wait for the answer
+/// ran out; and the peer was asked once.
+fn collected_before_dropped(sim: &Sim, winding: Option<dassie_peer::Winding>) {
+    // The answer comes in the step the method is dropped in, so the trace
+    // tells when that was.
+    let winding = winding.expect("never wound down");
+    assert!(winding.booked > 0, "nothing collected on it: {winding:?}");
+    let asked = winding.asked_ms.expect("never asked");
+    let dropped_ms: u64 = sim.trace[line(sim, " 0 PeerNode(MethodDropped {")]
+        .split(' ')
+        .next()
+        .and_then(|ms| ms.parse().ok())
+        .expect("a time");
+    assert!(
+        dropped_ms < asked + PEER.depeer_wait_ms,
+        "dropped only when the wait ran out"
+    );
+    // Asked once, and the peer's settlement was booked before the method
+    // was dropped.
+    let (winding, dropped) = (
+        line(sim, " 0 PeerNode(MethodWinding {"),
+        line(sim, " 0 PeerNode(MethodDropped {"),
+    );
+    let between = &sim.trace[winding..dropped];
+    let count = |what: &str| between.iter().filter(|line| line.contains(what)).count();
+    assert_eq!(count(" 0 PeerNode(SettlementRequestAnswered {"), 1);
+    assert!(
+        count(" 0 Settlement(SettlementBooked {") >= 1,
+        "nothing collected"
+    );
 }
 
 // A removal carries on across a restart: the node starts with the scheme
