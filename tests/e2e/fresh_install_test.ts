@@ -37,6 +37,7 @@ import {
   startBrowser,
   startPebble,
   waitForPort,
+  waitForSocket,
 } from "./harness.ts";
 
 const missing = await missingTools();
@@ -204,7 +205,10 @@ test(
         DASSIE_RELAY: NO_RELAY,
       },
     });
+    // The daemon listens on its ports before it publishes its IPC socket,
+    // which it does only once it answers there, so `init` waits for both.
     await waitForPort(18843);
+    await waitForSocket(`${dir}/ipc.sock`);
     const browser = await startBrowser(dir);
     try {
       const output = await dassie(dir, [
