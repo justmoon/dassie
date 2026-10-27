@@ -46,8 +46,6 @@ pub enum Error {
     /// A Diffie-Hellman result was all zeros: the peer's key has small order
     /// and would let it force a known shared secret.
     NonContributory,
-    /// Text is not canonical unpadded base64url.
-    InvalidBase64,
     /// A node label is not 39 base32 characters naming a node ID.
     InvalidLabel,
 }
@@ -72,7 +70,6 @@ impl fmt::Display for Error {
             Self::InvalidSignature => "invalid signature",
             Self::InvalidDer => "invalid DER key encoding",
             Self::NonContributory => "non-contributory Diffie-Hellman result",
-            Self::InvalidBase64 => "invalid base64url",
             Self::InvalidLabel => "invalid node label",
         };
         f.write_str(text)

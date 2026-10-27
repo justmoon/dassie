@@ -45,7 +45,8 @@ use super::engine::MAX_BOUNDARIES;
 use super::epochs::MAX_EPOCHS;
 use super::types::{Block, Certificate, Finalized, Vote, VoteKind};
 use super::wire::MAX_DELIVERED_BLOCKS;
-use super::wire::{optional_len, read_digest, read_optional, unexpected, write_optional};
+use super::wire::{optional_len, read_optional, unexpected, write_optional};
+use crate::codec::read_digest;
 use crate::digest::Digest;
 use crate::validators::{MAX_VALIDATORS, MIN_VALIDATORS, ValidatorSet};
 

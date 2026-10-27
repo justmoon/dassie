@@ -631,7 +631,7 @@ pub type Tokens = Mutex<TokenCache>;
 mod tests {
     #![allow(clippy::unwrap_used, clippy::indexing_slicing)]
 
-    use dassie_identity::{NodeKey, base64url};
+    use dassie_identity::NodeKey;
     use dassie_payments::uri::MAX_URI_BYTES;
 
     use super::*;
@@ -651,7 +651,7 @@ mod tests {
             fields: &[("content-digest", &digest)],
         };
         let mut keyid = [0u8; 43];
-        let length = base64url::encode(key.public_key().as_bytes(), &mut keyid);
+        let length = dassie_base64url::encode(key.public_key().as_bytes(), &mut keyid);
         let keyid = std::str::from_utf8(&keyid[..length]).unwrap();
         let sign = |base: &[u8]| *key.sign(base).as_bytes();
         let signed = httpsig::sign_response(&request, &answer, true, sign, keyid, 1_000).unwrap();

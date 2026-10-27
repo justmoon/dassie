@@ -6,7 +6,6 @@ mod support;
 
 use dassie_oer::{Reader, Writer};
 use dassie_stream::allocate::{Claim, allocate};
-use dassie_stream::base64url;
 use dassie_stream::crypto::{Cipher, Keys, OVERHEAD};
 use dassie_stream::packet::{Frames, Packet, PacketType};
 use dassie_stream::token::{MAX_CONNECTION_TAG_LENGTH, MAX_TOKEN_LENGTH, ServerSecret};
@@ -129,47 +128,6 @@ proptest! {
     }
 
     #[test]
-    fn base64url_round_trips(bytes in prop::collection::vec(any::<u8>(), 0..200)) {
-        let mut encoded = vec![0; base64url::encoded_len(bytes.len())];
-        let length = base64url::encode(&bytes, &mut encoded);
-        let mut decoded = vec![0; bytes.len()];
-        prop_assert_eq!(base64url::decode(&encoded[..length], &mut decoded), Ok(bytes.len()));
-        prop_assert_eq!(decoded, bytes);
-    }
-
-    #[test]
-    fn base64url_decoding_is_canonical(text in "[A-Za-z0-9_-]{0,40}") {
-        let mut decoded = [0u8; 40];
-        if let Ok(length) = base64url::decode(text.as_bytes(), &mut decoded) {
-            let mut encoded = [0u8; 60];
-            let written = base64url::encode(&decoded[..length], &mut encoded);
-            prop_assert_eq!(&encoded[..written], text.as_bytes());
-        }
-    }
-
-    #[test]
-    fn base64url_decoding_never_panics(
-        raw: Vec<u8>,
-        text in "[A-Za-z0-9_-]{0,80}",
-        mutations in arbitrary::mutations(),
-        output_length in 0usize..80,
-    ) {
-        // Raw bytes mostly fail at the first character; damaged base64url
-        // gets further. Output buffers of every length, too short included.
-        let mut damaged = text.into_bytes();
-        arbitrary::damage(&mut damaged, &mutations);
-        for input in [raw, damaged] {
-            let mut output = vec![0; output_length];
-            if let Ok(length) = base64url::decode(&input, &mut output) {
-                prop_assert!(length <= output_length);
-                let mut encoded = vec![0; base64url::encoded_len(length)];
-                let written = base64url::encode(&output[..length], &mut encoded);
-                prop_assert_eq!(&encoded[..written], input.as_slice());
-            }
-        }
-    }
-
-    #[test]
     fn encryption_round_trips(plaintext in prop::collection::vec(any::<u8>(), 0..500), iv: [u8; 12]) {
         let keys = Keys::derive(b"shared");
         let mut buffer = vec![0; OVERHEAD + plaintext.len()];
@@ -184,5 +142,26 @@ proptest! {
         let rate = Rate::new(numerator, denominator).unwrap();
         let source = rate.max_source_amount(destination);
         prop_assert!(rate.destination_amount(source) <= destination);
+    }
+
+    // A fixed-receive quote covers its delivery; a fixed-send one never
+    // delivers more than the debit buys.
+    #[test]
+    fn quotes_cover_what_they_deliver(
+        numerator in 1u64..1_000_000,
+        denominator in 1u64..1_000_000,
+        amount in 0u64..u64::MAX / 2,
+    ) {
+        let rate = Rate::new(numerator, denominator).unwrap();
+        if let Some(delivered) = rate
+            .min_source_amount(amount)
+            .and_then(|debit| rate.checked_destination_amount(debit))
+        {
+            prop_assert!(delivered >= amount);
+        }
+        if let Some(delivered) = rate.checked_destination_amount(amount) {
+            prop_assert!(u128::from(delivered) * u128::from(denominator)
+                <= u128::from(amount) * u128::from(numerator));
+        }
     }
 }

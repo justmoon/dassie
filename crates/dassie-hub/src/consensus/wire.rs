@@ -35,6 +35,7 @@ use dassie_identity::Signature;
 use dassie_oer::{Decode, DecodeError, DecodeErrorKind, Encode, Reader, Size, Writer, size};
 
 use super::types::{Block, Certificate, MAX_PAYLOAD_BYTES, Vote, VoteKind};
+use crate::codec::{DIGEST_LEN, SIGNATURE_LEN, read_digest, read_signature};
 use crate::digest::Digest;
 use crate::validators::{MAX_VALIDATORS, Signers, ValidatorIndex};
 
@@ -47,9 +48,6 @@ pub const MAX_DELIVERED_BLOCKS: usize = 32;
 
 /// The most certificates one delivery carries.
 pub const MAX_DELIVERED_CERTIFICATES: usize = 64;
-
-const SIGNATURE_BYTES: usize = 64;
-const DIGEST_BYTES: usize = 32;
 
 /// A leader's proposal: the block and the leader's notarize vote for it,
 /// which is its signature.
@@ -113,16 +111,6 @@ pub(super) fn unexpected(reader: &Reader<'_>) -> DecodeError {
     reader.error(DecodeErrorKind::UnexpectedValue)
 }
 
-pub(super) fn read_digest(reader: &mut Reader<'_>) -> Result<Digest, DecodeError> {
-    Ok(Digest(*reader.read_array::<DIGEST_BYTES>()?))
-}
-
-fn read_signature(reader: &mut Reader<'_>) -> Result<Signature, DecodeError> {
-    Ok(Signature::from_bytes(
-        *reader.read_array::<SIGNATURE_BYTES>()?,
-    ))
-}
-
 fn read_kind(reader: &mut Reader<'_>) -> Result<VoteKind, DecodeError> {
     let code = reader.read_u8()?;
     VoteKind::from_code(code).ok_or_else(|| unexpected(reader))
@@ -138,7 +126,7 @@ fn check_nullify(reader: &Reader<'_>, kind: VoteKind, block: &Digest) -> Result<
 
 impl Encode for Block {
     fn encoded_len(&self) -> usize {
-        8 + 8 + 8 + DIGEST_BYTES + 8 + 8 + size::prefixed(self.payload.len())
+        8 + 8 + 8 + DIGEST_LEN + 8 + 8 + size::prefixed(self.payload.len())
     }
 
     fn encode_to(&self, writer: &mut Writer<'_>) {
@@ -179,7 +167,7 @@ impl<'a> Decode<'a> for Block {
 
 impl Encode for Vote {
     fn encoded_len(&self) -> usize {
-        1 + 8 + 8 + DIGEST_BYTES + 1 + SIGNATURE_BYTES
+        1 + 8 + 8 + DIGEST_LEN + 1 + SIGNATURE_LEN
     }
 
     fn encode_to(&self, writer: &mut Writer<'_>) {
@@ -220,10 +208,10 @@ impl Encode for Certificate {
     fn encoded_len(&self) -> usize {
         1 + 8
             + 8
-            + DIGEST_BYTES
+            + DIGEST_LEN
             + 2
             + size::quantity(self.signatures.len())
-            + SIGNATURE_BYTES * self.signatures.len()
+            + SIGNATURE_LEN * self.signatures.len()
     }
 
     fn encode_to(&self, writer: &mut Writer<'_>) {
@@ -405,7 +393,7 @@ impl Encode for Message {
     fn encoded_len(&self) -> usize {
         size::tag(self.tag())
             + match self {
-                Self::Proposal(proposal) => proposal.block.encoded_len() + SIGNATURE_BYTES,
+                Self::Proposal(proposal) => proposal.block.encoded_len() + SIGNATURE_LEN,
                 Self::Vote(vote) => vote.encoded_len(),
                 Self::Certificate(certificate) => certificate.encoded_len(),
                 Self::Fetch(_) => 24,

@@ -27,6 +27,7 @@ dassie-release = { path = "../dassie-release" }
 # `dassie market-maker`: the target's feed, the market maker's XRPL keys
 # from its nodes' passphrases, and the AMM pool it swaps through.
 dassie-feed = { path = "../dassie-feed" }
+dassie-base64url = { path = "../dassie-base64url" }
 dassie-identity = { path = "../dassie-identity" }
 dassie-xrpl = { path = "../dassie-xrpl" }
 tokio = { version = "1.53.2", features = ["rt-multi-thread", "macros", "net", "signal", "time", "sync"] }

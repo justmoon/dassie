@@ -1,8 +1,9 @@
 //! Open Payments (v1.4.0) without IO.
 //!
 //! - [`resources`] and [`amount`]: the JSON of wallet addresses, incoming
-//!   and outgoing payments, quotes, pages and errors; [`quote`]: what a
-//!   payment debits and delivers at a rate.
+//!   and outgoing payments, quotes, pages and errors. What a quote debits
+//!   and delivers at a rate is `dassie_stream::Rate`'s arithmetic, the rate
+//!   STREAM measures.
 //! - [`gnap`]: grant requests, the rules on them, access checks and the
 //!   interaction hash.
 //! - [`httpsig`]: HTTP message signatures (RFC 9421) and `Content-Digest`
@@ -27,7 +28,6 @@ pub mod httpsig;
 pub mod interval;
 pub mod jwk;
 pub mod pointer;
-pub mod quote;
 pub mod resources;
 pub mod sf;
 pub mod time;

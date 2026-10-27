@@ -7,7 +7,7 @@ use std::os::unix::fs::OpenOptionsExt as _;
 use std::path::Path;
 
 use base64::Engine as _;
-use dassie_identity::{NodeKey, base64url};
+use dassie_identity::NodeKey;
 use rustls::pki_types::PrivateKeyDer;
 use rustls::pki_types::pem::PemObject;
 
@@ -87,7 +87,7 @@ pub fn read_or_make(path: &Path) -> Result<NodeKey, String> {
 pub fn relay_entry(key: &NodeKey, url: &str) -> String {
     let public = key.public_key();
     let mut encoded = [0u8; 43];
-    let length = base64url::encode(public.as_bytes(), &mut encoded);
+    let length = dassie_base64url::encode(public.as_bytes(), &mut encoded);
     let encoded = std::str::from_utf8(encoded.get(..length).unwrap_or_default()).unwrap_or("");
     serde_json::json!({
         "id": key.node_id().as_str(),

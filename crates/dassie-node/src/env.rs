@@ -17,7 +17,7 @@ use std::ffi::OsString;
 use std::fmt;
 use std::path::PathBuf;
 
-use dassie_identity::{NodeId, PublicKey, base64url};
+use dassie_identity::{NodeId, PublicKey};
 use dassie_node_core::config::{Hostname, LiveRealm};
 use serde::Deserialize;
 
@@ -545,12 +545,12 @@ fn relay(env: &Env) -> Result<Option<Relay>, EnvError> {
 /// ID is the one the key gives.
 fn check_bootstrap_node(node: &BootstrapNodeJson) -> Option<BootstrapNode> {
     let mut key = [0; 32];
-    // `decode` asserts the output has room, so a longer key is refused
-    // here rather than ending the node.
-    if base64url::decoded_len(node.public_key.len()) != Some(key.len()) {
+    // A key must decode to exactly 32 bytes: a shorter one would leave the
+    // rest of `key` zero.
+    if dassie_base64url::decoded_len(node.public_key.len()) != Some(key.len()) {
         return None;
     }
-    base64url::decode(node.public_key.as_bytes(), &mut key).ok()?;
+    dassie_base64url::decode(node.public_key.as_bytes(), &mut key).ok()?;
     if !dassie_peer::wire::is_valid_url(&node.url) {
         return None;
     }

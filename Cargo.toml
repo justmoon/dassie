@@ -1,5 +1,6 @@
 [workspace]
 members = [
+  "crates/dassie-base64url",
   "crates/dassie-cli",
   "crates/dassie-connector",
   "crates/dassie-desktop",

@@ -11,6 +11,7 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
+dassie-base64url = { path = "../dassie-base64url" }
 dassie-oer = { path = "../dassie-oer", default-features = false }
 # Ed25519 signing. `fast` keeps the precomputed basepoint tables, since
 # simulations sign a lot; `zeroize` wipes the signing key on drop.

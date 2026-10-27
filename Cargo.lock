@@ -969,11 +969,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "dassie-base64url"
+version = "0.2.9"
+dependencies = [
+ "proptest",
+]
+
+[[package]]
 name = "dassie-cli"
 version = "0.2.9"
 dependencies = [
  "bytes",
  "cliclack",
+ "dassie-base64url",
  "dassie-feed",
  "dassie-identity",
  "dassie-node",
@@ -1075,6 +1083,7 @@ name = "dassie-identity"
 version = "0.2.9"
 dependencies = [
  "curve25519-dalek",
+ "dassie-base64url",
  "dassie-oer",
  "ed25519-dalek",
  "ed25519-zebra",
@@ -1120,6 +1129,7 @@ version = "0.2.9"
 dependencies = [
  "base64 0.22.1",
  "bytes",
+ "dassie-base64url",
  "dassie-connector",
  "dassie-feed",
  "dassie-hub",
@@ -1198,6 +1208,7 @@ name = "dassie-payments"
 version = "0.2.9"
 dependencies = [
  "base64 0.22.1",
+ "dassie-base64url",
  "dassie-identity",
  "ed25519-dalek",
  "proptest",
@@ -1266,6 +1277,7 @@ name = "dassie-stream"
 version = "0.2.9"
 dependencies = [
  "aes-gcm",
+ "dassie-base64url",
  "dassie-ilp",
  "dassie-kit",
  "dassie-oer",

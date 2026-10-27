@@ -20,7 +20,6 @@
 extern crate alloc;
 
 pub mod allocate;
-pub mod base64url;
 mod buffers;
 mod connection;
 pub mod crypto;

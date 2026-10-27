@@ -6,7 +6,6 @@
 //! the key's hash, which a reader checks. It names only what the node
 //! knows without its engine, so it costs no more than a static file.
 
-use dassie_stream::base64url;
 use hyper::StatusCode;
 use hyper::header::{self, HeaderValue};
 use serde::Serialize;
@@ -32,8 +31,8 @@ struct Discovery {
 
 /// A public key in base64url.
 fn encode(key: &[u8; 32]) -> String {
-    let mut text = [0u8; base64url::encoded_len(32)];
-    let length = base64url::encode(key, &mut text);
+    let mut text = [0u8; dassie_base64url::encoded_len(32)];
+    let length = dassie_base64url::encode(key, &mut text);
     String::from_utf8_lossy(text.get(..length).unwrap_or_default()).into_owned()
 }
 

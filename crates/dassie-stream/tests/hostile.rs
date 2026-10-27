@@ -14,7 +14,6 @@ use dassie_ilp::{
 };
 use dassie_kit::sim::SeededRng;
 use dassie_oer::{Decode, Encode};
-use dassie_stream::base64url;
 use dassie_stream::crypto::{Cipher, Keys};
 use dassie_stream::packet::PacketType;
 use dassie_stream::token::{MAX_TOKEN_LENGTH, ServerSecret};
@@ -175,15 +174,15 @@ impl Target {
         let token = match self {
             Self::Segment(segment) => {
                 let mut token = vec![0; segment.len()];
-                let length = base64url::decode(segment.as_bytes(), &mut token).unwrap_or(0);
+                let length = dassie_base64url::decode(segment.as_bytes(), &mut token).unwrap_or(0);
                 token.truncate(length);
                 return (segment.clone(), token);
             }
             Self::Token(token) => token.clone(),
             Self::Sealed(plaintext) => arbitrary::seal(&Cipher::new(&SERVER_SECRET), plaintext),
         };
-        let mut segment = vec![0; base64url::encoded_len(token.len())];
-        let length = base64url::encode(&token, &mut segment);
+        let mut segment = vec![0; dassie_base64url::encoded_len(token.len())];
+        let length = dassie_base64url::encode(&token, &mut segment);
         segment.truncate(length);
         (String::from_utf8(segment).unwrap(), token)
     }

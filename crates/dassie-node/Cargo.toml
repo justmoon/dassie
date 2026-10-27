@@ -22,6 +22,7 @@ name = "fake_ledger"
 required-features = ["testing"]
 
 [dependencies]
+dassie-base64url = { path = "../dassie-base64url" }
 dassie-connector = { path = "../dassie-connector" }
 dassie-feed = { path = "../dassie-feed" }
 dassie-hub = { path = "../dassie-hub" }

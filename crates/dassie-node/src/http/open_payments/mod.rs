@@ -28,7 +28,6 @@ use hyper::header::{self, HeaderValue};
 use hyper::{Method, Request, Response, StatusCode};
 use serde::Serialize;
 
-use dassie_identity::base64url;
 use dassie_payments::httpsig;
 
 use super::response::{self, Body, header_str};
@@ -175,7 +174,7 @@ impl Answered {
         };
         let public = key.public_key();
         let mut keyid = [0u8; 43];
-        let keyid_length = base64url::encode(public.as_bytes(), &mut keyid);
+        let keyid_length = dassie_base64url::encode(public.as_bytes(), &mut keyid);
         let keyid = std::str::from_utf8(keyid.get(..keyid_length).unwrap_or_default());
         let signed = keyid.ok().and_then(|keyid| {
             let sign = |base: &[u8]| *key.sign(base).as_bytes();

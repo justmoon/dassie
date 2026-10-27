@@ -11,7 +11,7 @@ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::sync::Arc;
 use std::time::Duration;
 
-use dassie_identity::{NodeId, PublicKey, base64url};
+use dassie_identity::{NodeId, PublicKey};
 use dassie_node::clock::Clock;
 use dassie_node::outbound::{OutboundClient, WebRequest};
 use serde_json::Value;
@@ -160,7 +160,7 @@ pub fn parse_discovery(body: &[u8]) -> Result<TargetInfo, String> {
         .and_then(Value::as_str)
         .ok_or("no public key")?;
     let mut public_key = [0u8; 32];
-    let length = base64url::decode(encoded.as_bytes(), &mut public_key)
+    let length = dassie_base64url::decode(encoded.as_bytes(), &mut public_key)
         .map_err(|_| "a public key that is not base64url")?;
     if length != public_key.len() {
         return Err("a public key that is not 32 bytes".into());
@@ -197,7 +197,7 @@ mod tests {
 
     fn encode(key: &[u8; 32]) -> String {
         let mut text = [0u8; 64];
-        let length = base64url::encode(key, &mut text);
+        let length = dassie_base64url::encode(key, &mut text);
         String::from_utf8(text[..length].to_vec()).unwrap()
     }
 

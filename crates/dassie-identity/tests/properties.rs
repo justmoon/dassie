@@ -8,7 +8,6 @@ use curve25519_dalek::constants::EIGHT_TORSION;
 use dassie_identity::{
     Error, LoginSecret, Mnemonic, NODE_LABEL_LENGTH, NodeId, NodeKey, NodeLabel, PKCS8_DER_LENGTH,
     PublicKey, SPKI_DER_LENGTH, SeedPath, Signature, WordCount, X25519Public, X25519Secret,
-    base64url,
 };
 use proptest::prelude::*;
 
@@ -91,18 +90,6 @@ fn low_order_u() -> impl Strategy<Value = [u8; 32]> {
         }
         u
     })
-}
-
-/// Bytes that are mostly base64url characters, so that some decode and the
-/// rest fail at every check: a byte outside the alphabet, a length no
-/// encoding has, or leftover bits that are not zero.
-fn base64url_like() -> impl Strategy<Value = Vec<u8>> {
-    let alphabet = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_".to_vec();
-    let byte = prop_oneof![8 => prop::sample::select(alphabet), 1 => any::<u8>()];
-    prop_oneof![
-        prop::collection::vec(any::<u8>(), 0..64),
-        prop::collection::vec(byte, 0..64),
-    ]
 }
 
 /// A login secret and a candidate proof: the secret itself, with one bit
@@ -284,32 +271,6 @@ proptest! {
     }
 
     #[test]
-    fn base64url_round_trips(bytes in prop::collection::vec(any::<u8>(), 0..64)) {
-        let mut encoded = vec![0; base64url::encoded_len(bytes.len())];
-        let length = base64url::encode(&bytes, &mut encoded);
-        prop_assert_eq!(length, encoded.len());
-        prop_assert!(!encoded.contains(&b'='));
-        let mut decoded = vec![0; base64url::decoded_len(encoded.len()).unwrap()];
-        prop_assert_eq!(base64url::decode(&encoded, &mut decoded), Ok(bytes.len()));
-        prop_assert_eq!(decoded, bytes);
-    }
-
-    #[test]
-    fn base64url_decoding_is_canonical(text in "[A-Za-z0-9_=+/-]{0,40}") {
-        let input = text.as_bytes();
-        let Some(capacity) = base64url::decoded_len(input.len()) else {
-            prop_assert_eq!(base64url::decode(input, &mut []), Err(Error::InvalidBase64));
-            return Ok(());
-        };
-        let mut decoded = vec![0; capacity];
-        if let Ok(length) = base64url::decode(input, &mut decoded) {
-            let mut encoded = vec![0; base64url::encoded_len(length)];
-            base64url::encode(&decoded[..length], &mut encoded);
-            prop_assert_eq!(encoded.as_slice(), input);
-        }
-    }
-
-    #[test]
     fn seed_path_parse_never_panics(text in any::<String>()) {
         if let Ok(path) = SeedPath::parse(&text) {
             prop_assert!(path.segments().all(|segment| !segment.is_empty()));
@@ -338,27 +299,6 @@ proptest! {
                 prop_assert_eq!(error, Error::InvalidEntropyLength);
                 prop_assert_eq!(WordCount::from_entropy_bytes(entropy.len()), None);
             }
-        }
-    }
-
-    /// Callers size the output with `decoded_len` or larger, so that is the
-    /// contract tested; the bytes past the decoded length are left alone.
-    #[test]
-    fn base64url_decode_never_panics(input in base64url_like(), slack in 0usize..4) {
-        let Some(length) = base64url::decoded_len(input.len()) else {
-            prop_assert_eq!(base64url::decode(&input, &mut []), Err(Error::InvalidBase64));
-            return Ok(());
-        };
-        let mut output = vec![0xa5; length + slack];
-        match base64url::decode(&input, &mut output) {
-            Ok(written) => {
-                prop_assert_eq!(written, length);
-                prop_assert!(output[length..].iter().all(|&byte| byte == 0xa5));
-                let mut encoded = vec![0; base64url::encoded_len(length)];
-                base64url::encode(&output[..length], &mut encoded);
-                prop_assert_eq!(encoded, input);
-            }
-            Err(error) => prop_assert_eq!(error, Error::InvalidBase64),
         }
     }
 
