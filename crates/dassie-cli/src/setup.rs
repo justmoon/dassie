@@ -207,7 +207,12 @@ pub fn run(options: &Options) -> ExitCode {
 }
 
 async fn setup(env: &Env, options: &Options) -> Result<(), Failure> {
-    let key = passphrase::node_key_from_file(&options.passphrase_file)?;
+    let realm = options.realm.unwrap_or_default();
+    let phrase_realm = match realm {
+        Realm::Test => dassie_identity::Realm::Test,
+        Realm::Live => dassie_identity::Realm::Live,
+    };
+    let key = passphrase::node_key_from_file(&options.passphrase_file, phrase_realm)?;
     let id = key.node_id();
     println!(
         "The passphrase in {} is node {id}.",
@@ -217,7 +222,6 @@ async fn setup(env: &Env, options: &Options) -> Result<(), Failure> {
         .await
         .map_err(|_| "The Dassie daemon did not answer on its socket".to_owned())??;
     let before = basic_state(&mut client).await?;
-    let realm = options.realm.unwrap_or_default();
     let claimed = is_uninitialized(&before) && claim(&mut client, &key, realm).await?;
     drop(key);
     // Again after a claim, to see it took; and after one that found the

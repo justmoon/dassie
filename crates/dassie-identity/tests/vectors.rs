@@ -1,7 +1,8 @@
 //! Golden vectors from `testdata/identity/generate-vectors.mjs`, which
-//! computes them with libraries of its own: the derivation chain from
-//! entropy to every node secret, the key-level vectors, and every path
-//! below the node key (spec/areas/identity.md#derivation-chain).
+//! computes them apart from Dassie's code: the derivation chain from a
+//! phrase's secret to every node secret, phrases as typed and damaged with
+//! what reading them gives, the key-level vectors, and every path below the
+//! node key (spec/areas/identity.md#derivation-chain).
 
 #![allow(
     clippy::unwrap_used,
@@ -13,34 +14,58 @@
 mod support;
 
 use dassie_identity::{
-    HubKey, Mnemonic, NodeId, NodeKey, NodeSecret, PublicKey, QuicEndpoint, Segment, Signature,
+    Created, Error, HubKey, NodeId, NodeKey, NodeSecret, Phrase, PhraseSecret, Positions,
+    PublicKey, QuicEndpoint, Reading, Realm, Segment, Signature,
 };
 use serde_json::Value;
 use support::{hex, hex_array, str_field, to_hex, vectors};
+
+fn realm_of(entry: &Value) -> Realm {
+    Realm::parse(str_field(entry, "realm")).unwrap()
+}
+
+const fn other(realm: Realm) -> Realm {
+    match realm {
+        Realm::Test => Realm::Live,
+        Realm::Live => Realm::Test,
+    }
+}
 
 #[test]
 fn derivation_chain() {
     let vectors = vectors("chain.json");
     let chain = vectors["chain"].as_array().unwrap();
-    assert!(
-        chain.len() >= 64,
-        "the chain file should cover many phrases"
-    );
-    let mut lengths = std::collections::BTreeSet::new();
+    assert_eq!(chain.len(), 64, "the chain file covers many phrases");
     for entry in chain {
-        let phrase = str_field(entry, "mnemonic");
-        lengths.insert(phrase.split(' ').count());
+        let phrase = str_field(entry, "phrase");
+        let realm = realm_of(entry);
+        let hours = u32::try_from(entry["created"].as_u64().unwrap()).unwrap();
+        let created = Created::from_hours(hours).unwrap();
+        let secret = PhraseSecret::from_bytes(hex_array(str_field(entry, "secret")));
 
-        let generated = Mnemonic::from_entropy(&hex(str_field(entry, "entropy"))).unwrap();
-        assert_eq!(generated.phrase().as_str(), phrase);
+        let made = Phrase::new(realm, created, &secret);
+        assert_eq!(made.text().as_str(), phrase);
 
-        let mnemonic = Mnemonic::parse(phrase).unwrap();
-        assert_eq!(to_hex(mnemonic.entropy()), str_field(entry, "entropy"));
-        let seed = mnemonic.to_seed();
+        let Ok(Reading::Exact(read)) = Phrase::read(phrase, Positions::NONE, realm) else {
+            panic!("{phrase} reads as written");
+        };
+        assert_eq!(read.realm(), realm);
+        assert_eq!(read.created(), created);
+        assert_eq!(read.secret().as_bytes(), secret.as_bytes());
+        assert_eq!(
+            read.created().unix_ms(),
+            Created::EPOCH_UNIX_MS + u64::from(hours) * 3_600_000
+        );
+
+        let seed = read.master_seed(realm).unwrap();
         assert_eq!(
             to_hex(seed.as_bytes()),
             str_field(entry, "masterSeed"),
             "{phrase}"
+        );
+        assert_eq!(
+            read.master_seed(other(realm)).map(|_| ()),
+            Err(Error::OtherRealm { realm })
         );
 
         let node_key = seed.node_key();
@@ -64,7 +89,82 @@ fn derivation_chain() {
             str_field(entry, "xrplMainnetEntropy")
         );
     }
-    assert_eq!(lengths.len(), 5, "phrases of every length");
+}
+
+// Each secret is in the chain once per realm, and is a different node in
+// each.
+#[test]
+fn one_secret_is_a_node_of_its_own_in_each_realm() {
+    let vectors = vectors("chain.json");
+    let chain = vectors["chain"].as_array().unwrap();
+    for pair in chain.chunks(2) {
+        let [test, live] = pair else { panic!("pairs") };
+        assert_eq!(realm_of(test), Realm::Test);
+        assert_eq!(realm_of(live), Realm::Live);
+        assert_eq!(str_field(test, "secret"), str_field(live, "secret"));
+        for field in ["phrase", "masterSeed", "nodeKey", "nodeId", "loginSecret"] {
+            assert_ne!(str_field(test, field), str_field(live, field), "{field}");
+        }
+    }
+}
+
+/// The positions a reading's field lists.
+fn positions(reading: &Value, field: &str) -> Positions {
+    reading[field]
+        .as_array()
+        .unwrap()
+        .iter()
+        .fold(Positions::NONE, |positions, position| {
+            positions.with(usize::try_from(position.as_u64().unwrap()).unwrap())
+        })
+}
+
+#[test]
+fn readings() {
+    let vectors = vectors("chain.json");
+    let readings = vectors["readings"].as_array().unwrap();
+    let mut corrected = 0;
+    for reading in readings {
+        let input = str_field(reading, "input");
+        let realm = realm_of(reading);
+        let result = Phrase::read(input, positions(reading, "unreadable"), realm);
+        let Some(error) = reading["error"].as_str() else {
+            let expected = str_field(reading, "phrase");
+            let changed = positions(reading, "changed");
+            let phrase = match result {
+                Ok(Reading::Exact(phrase)) => {
+                    assert!(changed.is_empty(), "{input}");
+                    phrase
+                }
+                Ok(Reading::Corrected(correction)) => {
+                    assert_eq!(correction.changed(), changed, "{input}");
+                    assert_eq!(correction.text().as_str(), expected);
+                    corrected += 1;
+                    correction.confirm()
+                }
+                Err(error) => panic!("{input}: {error}"),
+            };
+            assert_eq!(phrase.text().as_str(), expected);
+            continue;
+        };
+        let result = result.map(|_| ());
+        let matched = match error {
+            "tooDamaged" => result == Err(Error::TooDamaged),
+            "bip39" => matches!(result, Err(Error::Bip39Phrase { .. })),
+            "wordCount" => matches!(result, Err(Error::WrongWordCount { .. })),
+            "otherRealm" => {
+                result
+                    == Err(Error::OtherRealm {
+                        realm: other(realm),
+                    })
+            }
+            "invalidKind" => result == Err(Error::InvalidKind),
+            "newerKind" => matches!(result, Err(Error::NewerKind { .. })),
+            other => panic!("no error {other}"),
+        };
+        assert!(matched, "{input}: {result:?}, expected {error}");
+    }
+    assert!(corrected >= 20, "{corrected}");
 }
 
 /// The secret a vector names, by its function's name and arguments.

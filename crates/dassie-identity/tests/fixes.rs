@@ -1,55 +1,216 @@
-//! What the identity crate refuses, each as a test: a phrase that is not
-//! BIP-39, DER that is not exactly the encoding it writes, seed paths with
-//! empty segments; and the login proof, which it compares in constant time.
+//! What the identity crate refuses, each as a test: a phrase it cannot read
+//! or would have to correct without asking, DER that is not exactly the
+//! encoding it writes, seed paths with empty segments; and the login proof,
+//! which it compares in constant time.
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing)]
 
 use dassie_identity::{
-    Error, Mnemonic, NodeKey, PKCS8_DER_LENGTH, PublicKey, SPKI_DER_LENGTH, Segment,
+    Created, Error, NodeKey, PKCS8_DER_LENGTH, Phrase, PhraseSecret, Positions, PublicKey, Reading,
+    Realm, SPKI_DER_LENGTH, Segment,
 };
 
-const ZERO_PHRASE: &str =
+/// The BIP-39 phrase of sixteen zero bytes.
+const ZERO_BIP39_PHRASE: &str =
     "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
 
-/// A phrase with a swapped or mistyped word fails its checksum, rather
-/// than silently deriving a different node.
+fn phrase(realm: Realm) -> Phrase {
+    let created = Created::from_hours(7_000).unwrap();
+    Phrase::new(realm, created, &PhraseSecret::from_bytes([0x42; 16]))
+}
+
+fn words(phrase: &Phrase) -> Vec<&'static str> {
+    phrase.words().collect()
+}
+
+/// A wrong word is restored, but never silently: the reading is a
+/// correction, which gives up the phrase only when confirmed, and a reader
+/// with no one to confirm it is told which positions, never which words.
 #[test]
-fn a_phrase_with_a_bad_checksum_is_rejected() {
-    assert!(Mnemonic::parse(ZERO_PHRASE).is_ok());
-    let wrong_last_word = ZERO_PHRASE.replace("about", "abandon");
+fn a_wrong_word_is_corrected_only_with_confirmation() {
+    let phrase = phrase(Realm::Test);
+    let mut typed = words(&phrase);
+    typed[7] = if typed[7] == "zoo" { "abandon" } else { "zoo" };
+    let reading = Phrase::read(&typed.join(" "), Positions::NONE, Realm::Test).unwrap();
+    let Reading::Corrected(correction) = reading else {
+        panic!("a wrong word is a correction");
+    };
+    assert_eq!(correction.changed(), Positions::NONE.with(7));
+    assert_eq!(correction.text().as_str(), phrase.text().as_str());
+
+    let reading = Phrase::read(&typed.join(" "), Positions::NONE, Realm::Test).unwrap();
+    let error = reading.without_correction().unwrap_err();
     assert_eq!(
-        Mnemonic::parse(&wrong_last_word).map(|_| ()),
-        Err(Error::InvalidChecksum)
+        error,
+        Error::NeedsConfirmation {
+            changed: Positions::NONE.with(7)
+        }
     );
-    let swapped = "about abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon";
     assert_eq!(
-        Mnemonic::parse(swapped).map(|_| ()),
-        Err(Error::InvalidChecksum)
+        error.to_string(),
+        "the phrase needs correcting at word 8, which only its owner can confirm"
     );
 }
 
-/// Unknown words are reported with their position so the UI can point at
-/// them.
+/// A word not on the list, or one marked unreadable, is an erasure: its
+/// place is known, so it costs half what a wrong word does.
 #[test]
-fn an_unknown_word_is_rejected() {
-    let typo = ZERO_PHRASE.replacen("abandon", "abandn", 1);
+fn unknown_and_marked_words_are_erasures() {
+    let phrase = phrase(Realm::Live);
+    let mut typed = words(&phrase);
+    for position in [0, 4, 9, 14, 19] {
+        typed[position] = "?";
+    }
+    let reading = Phrase::read(&typed.join(" "), Positions::NONE, Realm::Live).unwrap();
+    let Reading::Corrected(correction) = reading else {
+        panic!("five unreadable words are restored");
+    };
+    assert_eq!(correction.changed().len(), 5);
+    assert_eq!(correction.confirm().text().as_str(), phrase.text().as_str());
+
+    // A sixth is one too many, though the code could restore six: one
+    // check word is kept back to catch a mistake.
+    typed[1] = "?";
     assert_eq!(
-        Mnemonic::parse(&typo).map(|_| ()),
-        Err(Error::UnknownWord { position: 0 })
+        Phrase::read(&typed.join(" "), Positions::NONE, Realm::Live).map(|_| ()),
+        Err(Error::TooDamaged)
     );
-    // A four-letter prefix identifies a word uniquely, but it is not the
-    // word, and the seed is computed over the full word.
-    let prefix = ZERO_PHRASE.replace("about", "abou");
+
+    // Marking a word that reads fine makes it an erasure too.
+    let unreadable = Positions::NONE.with(3).with(11);
+    let Ok(Reading::Corrected(correction)) =
+        Phrase::read(phrase.text().as_str(), unreadable, Realm::Live)
+    else {
+        panic!("marked words are restored");
+    };
+    assert_eq!(correction.changed(), unreadable);
+}
+
+/// Three wrong words are refused rather than corrected, even though the
+/// code's distance would allow it: one random phrase in 2.4 × 10⁸ would
+/// pass.
+#[test]
+fn three_wrong_words_are_too_many() {
+    let phrase = phrase(Realm::Test);
+    let mut typed = words(&phrase);
+    for position in [2, 10, 17] {
+        typed[position] = if typed[position] == "zoo" {
+            "abandon"
+        } else {
+            "zoo"
+        };
+    }
     assert_eq!(
-        Mnemonic::parse(&prefix).map(|_| ()),
-        Err(Error::UnknownWord { position: 11 })
-    );
-    let eleven = ZERO_PHRASE.replacen("abandon ", "", 1);
-    assert_eq!(
-        Mnemonic::parse(&eleven).map(|_| ()),
-        Err(Error::InvalidWordCount)
+        Phrase::read(&typed.join(" "), Positions::NONE, Realm::Test).map(|_| ()),
+        Err(Error::TooDamaged)
     );
 }
+
+/// A BIP-39 phrase, another wallet's or a Dassie phrase from before this
+/// format, is refused as that, and other counts as no phrase.
+#[test]
+fn bip39_phrases_are_refused_as_such() {
+    assert_eq!(
+        Phrase::read(ZERO_BIP39_PHRASE, Positions::NONE, Realm::Test).map(|_| ()),
+        Err(Error::Bip39Phrase { words: 12 })
+    );
+    let eleven = ZERO_BIP39_PHRASE.replacen("abandon ", "", 1);
+    assert_eq!(
+        Phrase::read(&eleven, Positions::NONE, Realm::Test).map(|_| ()),
+        Err(Error::WrongWordCount { words: 11 })
+    );
+    let long = " ".repeat(dassie_identity::MAX_PHRASE_INPUT_BYTES + 1);
+    assert_eq!(
+        Phrase::read(&long, Positions::NONE, Realm::Test).map(|_| ()),
+        Err(Error::PhraseTooLong)
+    );
+}
+
+/// The realm is checked when reading and again when deriving, and before
+/// any correction is shown, so the owner never confirms a phrase that is
+/// refused next.
+#[test]
+fn a_phrase_of_the_other_realm_is_refused_before_correction() {
+    let live = phrase(Realm::Live);
+    assert_eq!(
+        Phrase::read(live.text().as_str(), Positions::NONE, Realm::Test).map(|_| ()),
+        Err(Error::OtherRealm { realm: Realm::Live })
+    );
+    let mut typed = words(&live);
+    typed[5] = "?";
+    assert_eq!(
+        Phrase::read(&typed.join(" "), Positions::NONE, Realm::Test).map(|_| ()),
+        Err(Error::OtherRealm { realm: Realm::Live })
+    );
+    assert_eq!(
+        live.master_seed(Realm::Test).map(|_| ()),
+        Err(Error::OtherRealm { realm: Realm::Live })
+    );
+    // The same secret in the other realm is another node.
+    let test = phrase(Realm::Test);
+    let live_key = live.master_seed(Realm::Live).unwrap().node_key();
+    let test_key = test.master_seed(Realm::Test).unwrap().node_key();
+    assert_eq!(live.secret().as_bytes(), test.secret().as_bytes());
+    assert_ne!(live_key.node_id(), test_key.node_id());
+}
+
+/// A phrase made at a time after the reader's clock reads like any other:
+/// the owner is shown the time, and the phrase is never locked out.
+#[test]
+fn a_phrase_from_the_future_is_read() {
+    let made = Created::from_hours(Created::MAX_HOURS).unwrap();
+    let phrase = Phrase::new(Realm::Test, made, &PhraseSecret::from_bytes([1; 16]));
+    let now_ms = Created::EPOCH_UNIX_MS + 1_000;
+    let Ok(Reading::Exact(read)) =
+        Phrase::read(phrase.text().as_str(), Positions::NONE, Realm::Test)
+    else {
+        panic!("read as written");
+    };
+    assert!(read.created().is_after(now_ms));
+    assert!(read.master_seed(Realm::Test).is_ok());
+}
+
+/// A generator makes a phrase only while its clock lies within the field.
+#[test]
+fn no_phrase_is_made_outside_the_field() {
+    let mut rng = Fixed;
+    let before = Created::EPOCH_UNIX_MS - 1;
+    assert_eq!(
+        Phrase::generate(&mut rng, Realm::Test, before).map(|_| ()),
+        Err(Error::ClockOutOfRange)
+    );
+    let after = Created::from_hours(Created::MAX_HOURS).unwrap().unix_ms() + 3_600_000;
+    assert_eq!(
+        Phrase::generate(&mut rng, Realm::Test, after).map(|_| ()),
+        Err(Error::ClockOutOfRange)
+    );
+    let phrase = Phrase::generate(&mut rng, Realm::Live, after - 1).unwrap();
+    assert_eq!(phrase.created().hours(), Created::MAX_HOURS);
+    assert_eq!(phrase.realm(), Realm::Live);
+    assert_eq!(phrase.secret().as_bytes(), &[7; 16]);
+}
+
+/// An RNG that always gives sevens.
+struct Fixed;
+
+impl rand_core::TryRng for Fixed {
+    type Error = core::convert::Infallible;
+
+    fn try_next_u32(&mut self) -> Result<u32, Self::Error> {
+        Ok(0x0707_0707)
+    }
+
+    fn try_next_u64(&mut self) -> Result<u64, Self::Error> {
+        Ok(0x0707_0707_0707_0707)
+    }
+
+    fn try_fill_bytes(&mut self, destination: &mut [u8]) -> Result<(), Self::Error> {
+        destination.fill(7);
+        Ok(())
+    }
+}
+
+impl rand_core::TryCryptoRng for Fixed {}
 
 /// The SPKI encoding has the BIT STRING's unused-bits byte, so a 44-byte
 /// DER gives a 32-byte key, not a 33-byte one starting with `00`.

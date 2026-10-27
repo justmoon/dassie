@@ -455,13 +455,16 @@ fn node(root: &Fields<'_>, key: &str) -> Result<(NodeConfig, NodeParams), Config
 ///
 /// The file cannot be read, or holds no passphrase.
 pub fn wallet_from_file(path: &Path) -> Result<Wallet, String> {
-    let entropy = passphrase::node_key_from_file(path)?.xrpl_account_entropy(TESTNET.id, 0);
+    // The market maker trades on the testnet only, so its phrases are the
+    // test realm's.
+    let key = passphrase::node_key_from_file(path, dassie_identity::Realm::Test)?;
+    let entropy = key.xrpl_account_entropy(TESTNET.id, 0);
     Ok(Wallet::from_entropy(entropy.as_bytes()))
 }
 
 #[cfg(test)]
 mod tests {
-    use dassie_identity::Mnemonic;
+    use dassie_identity::{Created, Phrase, PhraseSecret, Realm};
     use serde_json::json;
 
     use super::*;
@@ -720,12 +723,12 @@ mod tests {
     fn the_wallet_is_the_nodes() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("phrase");
-        let phrase = "abandon abandon abandon abandon abandon abandon abandon abandon \
-                      abandon abandon abandon about";
-        std::fs::write(&path, format!("{phrase}\n")).unwrap();
+        let created = Created::from_hours(7_000).unwrap();
+        let phrase = Phrase::new(Realm::Test, created, &PhraseSecret::from_bytes([3; 16]));
+        std::fs::write(&path, format!("{}\n", phrase.text().as_str())).unwrap();
         let wallet = wallet_from_file(&path).unwrap();
         // As the node derives it from its key.
-        let key = Mnemonic::parse(phrase).unwrap().to_seed().node_key();
+        let key = phrase.master_seed(Realm::Test).unwrap().node_key();
         let entropy = key.xrpl_account_entropy(TESTNET.id, 0);
         assert_eq!(
             wallet.account(),

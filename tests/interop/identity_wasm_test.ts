@@ -41,8 +41,8 @@ test("the passphrase chain matches the vectors", async () => {
   const { chain } = await vectors("chain.json");
   assert(chain.length > 60);
   for (const entry of chain) {
-    assert(validateMnemonic(entry.mnemonic));
-    const nodeKey = deriveNodeKey(entry.mnemonic);
+    assert(validateMnemonic(entry.phrase, entry.realm));
+    const nodeKey = deriveNodeKey(entry.phrase, entry.realm);
     assertEquals(nodeKey.toHex(), entry.nodeKey);
     assertEquals(publicKey(nodeKey).toHex(), entry.publicKey);
     assertEquals(nodeId(publicKey(nodeKey)), entry.nodeId);
@@ -51,13 +51,28 @@ test("the passphrase chain matches the vectors", async () => {
 });
 
 test("phrases are validated and canonicalised", async () => {
-  const { chain } = await vectors("chain.json");
-  const phrase: string = chain[0].mnemonic;
+  const { chain, readings } = await vectors("chain.json");
+  const phrase: string = chain[0].phrase;
   assertEquals(normalizeMnemonic(`  ${phrase.toUpperCase()}  `), phrase);
-  // Only a valid BIP-39 phrase is a passphrase.
+  // A phrase of the other realm, a BIP-39 phrase and no phrase at all are
+  // refused.
+  assertFalse(validateMnemonic(phrase, "live"));
   const words = phrase.split(" ");
-  assertFalse(validateMnemonic([...words.slice(0, 11), words[0]].join(" ")));
+  assertFalse(validateMnemonic(words.slice(0, 12).join(" ")));
   assertFalse(validateMnemonic("not a passphrase"));
+  // The readings that need no correction read as the vectors say; these
+  // bindings take no correction yet, since nothing shows one to confirm.
+  for (const reading of readings) {
+    if (reading.error !== undefined || reading.unreadable.length > 0) continue;
+    if (reading.changed.length > 0) {
+      assertFalse(validateMnemonic(reading.input, reading.realm));
+    } else {
+      assertEquals(
+        normalizeMnemonic(reading.input, reading.realm),
+        reading.phrase,
+      );
+    }
+  }
 });
 
 test("keys and node IDs match the vectors", async () => {

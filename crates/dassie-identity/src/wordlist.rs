@@ -1,7 +1,12 @@
 //! The BIP-39 English wordlist, verbatim from the BIP's `english.txt`.
 //!
-//! It is sorted, so lookups binary-search it. The tests below pin its
-//! SHA-256 to the official file's, so a corrupted entry cannot slip in.
+//! A phrase's words are indices into it (spec/decisions/phrase-format.md).
+//! No two of its words share their first four letters, and a shorter word
+//! is no word's first four, so a word is read by its first four letters, or
+//! in full if it is shorter: what a metal plate keeps of it. The list is
+//! sorted, and so are those keys, so lookups binary-search it. The tests
+//! below pin its SHA-256 to the official file's, so a corrupted entry
+//! cannot slip in.
 
 /// The 2048 BIP-39 English words in index order.
 pub(crate) static ENGLISH: [&str; 2048] = [
@@ -218,11 +223,45 @@ pub(crate) static ENGLISH: [&str; 2048] = [
     "zoo",
 ];
 
+/// Letters of a word that identify it.
+pub(crate) const KEY_LETTERS: usize = 4;
+
+/// The key a word is looked up by: its first four letters, or all of it if
+/// it is shorter.
+fn key(word: &[u8]) -> &[u8] {
+    word.get(..KEY_LETTERS).unwrap_or(word)
+}
+
+/// The index of the word `typed` names, by its first four letters, or in
+/// full if it is shorter, in any ASCII case. A word shorter than four
+/// letters names only the word it is, never one it begins: `act` is `act`,
+/// not `action`.
+pub(crate) fn find(typed: &str) -> Option<u16> {
+    let mut lowered = [0u8; KEY_LETTERS];
+    let typed = key(typed.as_bytes());
+    let slot = lowered.get_mut(..typed.len())?;
+    slot.copy_from_slice(typed);
+    slot.make_ascii_lowercase();
+    let found = ENGLISH.binary_search_by(|word| key(word.as_bytes()).cmp(slot));
+    zeroize::Zeroize::zeroize(&mut lowered);
+    found.ok().and_then(|index| u16::try_from(index).ok())
+}
+
+/// The word at `index`, an 11-bit word of a phrase.
+// Panics only on a broken invariant: a phrase's words have 11 bits.
+#[allow(clippy::panic)]
+pub(crate) fn word(index: u16) -> &'static str {
+    let Some(word) = ENGLISH.get(usize::from(index)) else {
+        panic!("an 11-bit index is within the wordlist");
+    };
+    word
+}
+
 #[cfg(test)]
 mod tests {
     use sha2::{Digest, Sha256};
 
-    use super::ENGLISH;
+    use super::{ENGLISH, find, key};
 
     #[test]
     fn sorted_and_unique_so_binary_search_works() {
@@ -235,6 +274,47 @@ mod tests {
         assert!(ENGLISH.iter().all(|word| {
             (3..=8).contains(&word.len()) && word.bytes().all(|byte| byte.is_ascii_lowercase())
         }));
+    }
+
+    // The phrase format reads words by these keys, so they must be unique,
+    // and sorted for the binary search.
+    #[test]
+    fn keys_are_sorted_and_unique() {
+        assert!(
+            ENGLISH
+                .windows(2)
+                .all(|pair| matches!(pair, [a, b] if key(a.as_bytes()) < key(b.as_bytes())))
+        );
+        for (index, word) in ENGLISH.iter().enumerate() {
+            let index = u16::try_from(index).unwrap();
+            assert_eq!(find(word), Some(index));
+            assert_eq!(find(&word.to_ascii_uppercase()), Some(index));
+            assert_eq!(find(&word[..word.len().min(4)]), Some(index));
+            let longer = std::format!("{}xyz", &word[..word.len().min(4)]);
+            assert_eq!(
+                find(&longer),
+                (word.len() >= 4).then_some(index),
+                "{longer}"
+            );
+        }
+    }
+
+    #[test]
+    fn short_words_name_only_themselves() {
+        assert_eq!(find("act"), Some(19));
+        assert_eq!(ENGLISH[19], "act");
+        assert_eq!(find("acti"), Some(20));
+        assert_eq!(ENGLISH[20], "action");
+        assert_eq!(find("ac"), None);
+        assert_eq!(find("aba"), None);
+        assert_eq!(find(""), None);
+        assert_eq!(find("acts"), None);
+        assert_eq!(find("Abou"), Some(3));
+        assert_eq!(find("zoo"), Some(2047));
+        assert_eq!(find("zzzz"), None);
+        assert_eq!(find("?"), None);
+        assert_eq!(find("abän"), None);
+        assert_eq!(find("ab\u{e4}ndon"), None);
     }
 
     /// SHA-256 of the official `english.txt`, which ends with a newline.

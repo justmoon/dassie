@@ -14,7 +14,7 @@ use std::path::Path;
 use std::process::{Child, Command, Output, Stdio};
 use std::time::{Duration, Instant};
 
-use dassie_identity::Mnemonic;
+use dassie_identity::{Created, Phrase, PhraseSecret, Realm};
 
 const DASSIE: &str = env!("CARGO_BIN_EXE_dassie");
 /// Ports no other test of this crate uses, since the tests of a crate run
@@ -84,12 +84,15 @@ fn dassie(args: &[&str], ipc: &Path) -> Output {
         .unwrap()
 }
 
-/// A passphrase file for `entropy`, and its node ID.
-fn phrase_file(dir: &Path, name: &str, entropy: u8) -> (String, String) {
-    let mnemonic = Mnemonic::from_entropy(&[entropy; 16]).unwrap();
+/// A passphrase file of a test-realm phrase whose secret is `byte`
+/// sixteen times, and its node ID.
+fn phrase_file(dir: &Path, name: &str, byte: u8) -> (String, String) {
+    let created = Created::from_hours(7_000).unwrap();
+    let phrase = Phrase::new(Realm::Test, created, &PhraseSecret::from_bytes([byte; 16]));
     let path = dir.join(name);
-    std::fs::write(&path, format!("{}\n", mnemonic.phrase().as_str())).unwrap();
-    let id = mnemonic.to_seed().node_key().node_id().as_str().to_owned();
+    std::fs::write(&path, format!("{}\n", phrase.text().as_str())).unwrap();
+    let key = phrase.master_seed(Realm::Test).unwrap().node_key();
+    let id = key.node_id().as_str().to_owned();
     (path.to_str().unwrap().to_owned(), id)
 }
 
@@ -118,17 +121,14 @@ fn setup_claims_a_node_once_and_refuses_another_passphrase() {
         "{text}"
     );
 
-    // The realm is fixed at setup.
+    // A phrase names its realm, and is refused as another's.
     let live = dassie(
         &["setup", "--passphrase-file", &owner, "--realm", "live"],
         &ipc,
     );
     let text = describe(&live);
     assert_eq!(live.status.code(), Some(1), "{text}");
-    assert!(
-        text.contains("The node runs the test realm, not live"),
-        "{text}"
-    );
+    assert!(text.contains("phrase of the test realm"), "{text}");
 
     let refused = dassie(
         &["setup", "--passphrase-file", &stranger, "--scheme", "stub"],
