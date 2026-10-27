@@ -84,13 +84,19 @@ impl<'a> Decode<'a> for Entry<'a> {
 pub struct HubMembership {
     /// The hub's ID: the hash of its rules.
     pub hub_id: [u8; 32],
-    /// The node's account number in the hub.
+    /// The node's account number in the hub, or
+    /// [`NO_ACCOUNT`](Self::NO_ACCOUNT).
     pub account: u32,
     /// Whether it takes new peers over the hub.
     pub takes_peers: bool,
 }
 
 impl HubMembership {
+    /// The account number of a member the hub has no account for yet, to
+    /// be paid in by a peer with one
+    /// (spec/designs/settlement-hubs.md#5-joining): a hub never gives out 0.
+    pub const NO_ACCOUNT: u32 = 0;
+
     /// The bytes of its encoding: the ID, the account and the flag.
     pub const ENCODED_BYTES: usize = 32 + 4 + 1;
 }

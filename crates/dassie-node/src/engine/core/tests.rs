@@ -859,7 +859,7 @@ fn the_core_does_not_log() {
     let mut read = 0;
     for entry in std::fs::read_dir(&dir).unwrap() {
         let path = entry.unwrap().path();
-        // The tests, and the directory of those in files of their own.
+        // The tests, in `tests.rs` and its folder, may read what they like.
         if path
             .file_name()
             .is_some_and(|name| name == "tests.rs" || name == "tests")
@@ -3018,7 +3018,9 @@ impl dassie_settlement::Commitments for StubTwo {
     fn membership(&self) -> Option<dassie_settlement::Membership> {
         Some(dassie_settlement::Membership {
             hub: STUB_TWO_HUB,
-            account: 0,
+            // An account, as the stub's: two members without one do not
+            // peer over their hub.
+            account: 1,
         })
     }
 
@@ -6649,3 +6651,5 @@ fn a_dropped_method_takes_its_slot_and_brings_it_back() {
 // The lifecycle of settlement methods in the node: winding down, dropping
 // and the owner's removal of a scheme.
 mod winding;
+
+mod joining;

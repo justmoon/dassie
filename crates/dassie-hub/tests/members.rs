@@ -1699,12 +1699,13 @@ fn peering_again_as_another_waits_for_the_old_to_settle() {
 }
 
 /// A member asked to settle funds its hold with at most what its account
-/// can spend: what is left once the operation's fee is set aside
+/// can spend: what is left once the operation's fee and a redeem's are set
+/// aside, so that it can still take what its peers' holds owe it
 /// (spec/areas/hubs.md#in-the-node).
 #[test]
 fn a_hold_is_funded_with_at_most_what_the_account_can_spend() {
     let (mut world, a, b) = World::pair([Fault::Honest; 4], 2);
-    let spendable = world.balance(a) - FEE;
+    let spendable = world.balance(a) - 2 * FEE;
     let settlement = world.settle(a, b, units(1_000 * XRP)).unwrap();
     assert_eq!(
         world.members[a].books.pending[&settlement].1,
@@ -1717,7 +1718,7 @@ fn a_hold_is_funded_with_at_most_what_the_account_can_spend() {
         world.validators.ledger.hold(hold).unwrap().amount,
         2 * XRP + spendable
     );
-    assert_eq!(world.balance(a), 0);
+    assert_eq!(world.balance(a), FEE, "a redeem's fee is left");
 }
 
 /// The owner's deposits and withdrawals are booked as theirs, from how far
@@ -1870,6 +1871,17 @@ impl World {
             .opening_minimum(peer)
     }
 
+    /// What member `i`, without an account, is to be paid in with by `j`,
+    /// which has one.
+    fn paid_in_minimum(&mut self, i: usize, j: usize) -> Option<u64> {
+        let peer = self.members[j].name;
+        self.members[i]
+            .scheme
+            .commitments()
+            .unwrap()
+            .paid_in_minimum(peer)
+    }
+
     /// Member `i`'s account as the ledger has it.
     fn ledger_account(&self, i: usize) -> &dassie_hub::ledger::Account {
         self.validators.ledger.account(self.number(i)).unwrap()
@@ -1901,14 +1913,19 @@ fn a_newcomer_is_paid_in_at_the_minimum_and_not_before() {
     assert_eq!(member.account.status(), LedgerStatus::Unfunded);
     assert!(member.scheme.has_synced(), "it runs without a deposit");
     assert_eq!(member.scheme.balance(), 0);
-    // Not advertised until the node carries packets without promises
-    // (spec/roadmap.md#joining-by-being-paid).
-    assert_eq!(member.scheme.commitments().unwrap().membership(), None);
+    // Advertised with no account, so that a member with one pays it in.
+    let membership = member.scheme.commitments().unwrap().membership();
+    assert_eq!(
+        membership.map(|m| m.account),
+        Some(dassie_settlement::Membership::NO_ACCOUNT)
+    );
     world.peer(a, c);
     assert!(!world.commits_with(a, c));
     assert!(!world.commits_with(c, a));
     assert_eq!(world.opening_minimum(a, c), Some(units(MINIMUM)));
     assert_eq!(world.opening_minimum(c, a), None);
+    assert_eq!(world.paid_in_minimum(c, a), Some(units(MINIMUM)));
+    assert_eq!(world.paid_in_minimum(a, c), None);
     assert_eq!(
         world.prepare((a, c), 1, P, 10_000),
         Err(SchemeError::Unavailable),
@@ -1953,10 +1970,17 @@ fn a_newcomer_is_paid_in_at_the_minimum_and_not_before() {
     assert!(world.commits_with(a, c));
     assert!(world.commits_with(c, a));
     assert_eq!(world.opening_minimum(a, c), None);
+    assert_eq!(world.paid_in_minimum(c, a), None);
     assert_eq!(
         world.members[a].scheme.peer_account(name_c),
         Some(world.number(c))
     );
+    assert_eq!(
+        world.members[a].scheme.peer_hub_account(name_c),
+        Some(world.number(c).0)
+    );
+    let membership = world.members[c].scheme.commitments().unwrap().membership();
+    assert_eq!(membership.map(|m| m.account), Some(world.number(c).0));
     world.settle(a, c, units(2 * XRP)).unwrap();
     world.run(1_000);
     assert!(world.hold(a, c).is_some());

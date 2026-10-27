@@ -413,14 +413,19 @@ impl Core {
     }
 
     /// The peerings over the hub of `scheme`: each peer's node and its
-    /// account in the hub.
+    /// account in the hub, as the scheme knows it, which for a peer paid
+    /// into the hub is not the none it gave at peering
+    /// (spec/designs/settlement-hubs.md#5-joining); 0 for a peer without
+    /// one.
     fn hub_peerings(
         &self,
         scheme: Name,
-        account: &HubAccount,
+        _account: &HubAccount,
     ) -> Vec<(dassie_identity::NodeId, u32)> {
-        let hub = account.hub();
-        let Some(scheme) = dassie_peer::wire::SchemeId::parse(scheme.as_str()) else {
+        let Some(active) = self.schemes.get(&scheme) else {
+            return Vec::new();
+        };
+        let Some(method) = dassie_peer::wire::SchemeId::parse(scheme.as_str()) else {
             return Vec::new();
         };
         // Every peering with a method over the hub, whichever of its
@@ -428,9 +433,10 @@ impl Core {
         self.peer
             .active_peers()
             .filter_map(|(node, peering)| {
-                let method = peering.method(scheme)?;
-                let number = dassie_hub::member::peer_account(&method.state, &hub)?;
-                Some((*node, number.0))
+                peering.method(method)?;
+                let peer = Name::new(node.as_str()).ok()?;
+                let number = active.scheme.peer_hub_account(peer).unwrap_or(0);
+                Some((*node, number))
             })
             .collect()
     }

@@ -290,7 +290,10 @@ impl PeerNode {
     }
 
     /// The hub schemes among `common` over a hub we share with the node of
-    /// `link`, both taking new peers over it. Where both list their hubs,
+    /// `link`, both taking new peers over it, and one of us at least with
+    /// an account in it: two without one could never pay each other in
+    /// (spec/designs/settlement-hubs.md#5-joining), so such a pair peers on
+    /// another scheme both run, if any. Where both list their hubs,
     /// each scheme both list over the same hub; otherwise only the hub the
     /// hub extension names, which is the list's first, over the first hub
     /// scheme both run, as a node that reads no list sees it
@@ -312,16 +315,14 @@ impl PeerNode {
                 .filter(|scheme| {
                     matches!(
                         (listed(&self.own_hubs, *scheme), listed(&link.hubs, *scheme)),
-                        (Some(own), Some(theirs))
-                            if own.hub_id == theirs.hub_id && own.takes_peers && theirs.takes_peers
+                        (Some(own), Some(theirs)) if shares_hub(&own, &theirs)
                     )
                 })
                 .collect();
         }
         let shared = matches!(
             (self.own_info.hub, link.hub),
-            (Some(own), Some(theirs))
-                if own.hub_id == theirs.hub_id && own.takes_peers && theirs.takes_peers
+            (Some(own), Some(theirs)) if shares_hub(&own, &theirs)
         );
         if shared {
             over_hub.next().into_iter().collect()
@@ -785,4 +786,16 @@ impl PeerNode {
 
 fn refused(reason: RefusalReason) -> Reply {
     ok(&PeeringResponse::Refused(reason).to_vec())
+}
+
+/// Whether a peering may settle over the hub `own` and `theirs` name: the
+/// same hub, both taking new peers over it, and one at least with an
+/// account in it, so that it can pay the other in
+/// (spec/designs/settlement-hubs.md#5-joining).
+fn shares_hub(own: &crate::wire::HubMembership, theirs: &crate::wire::HubMembership) -> bool {
+    use crate::wire::HubMembership;
+    own.hub_id == theirs.hub_id
+        && own.takes_peers
+        && theirs.takes_peers
+        && (own.account != HubMembership::NO_ACCOUNT || theirs.account != HubMembership::NO_ACCOUNT)
 }

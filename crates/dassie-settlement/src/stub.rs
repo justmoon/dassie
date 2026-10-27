@@ -44,6 +44,11 @@ const CLAIM: &[u8] = b"stub claim";
 /// The pretend hub that every stub with commitments is a member of.
 const STUB_HUB: [u8; 32] = *b"the stub with commitments' hub..";
 
+/// The account every stub with commitments says it has in its pretend hub:
+/// not [`Membership::NO_ACCOUNT`], so that nodes on it peer over the hub
+/// (spec/designs/settlement-hubs.md#5-joining).
+const STUB_ACCOUNT: u32 = 1;
+
 /// The version of a stub with commitments' state.
 const STATE_VERSION: u8 = 1;
 
@@ -539,7 +544,7 @@ impl Commitments for StubHub {
     fn membership(&self) -> Option<Membership> {
         Some(Membership {
             hub: STUB_HUB,
-            account: 0,
+            account: STUB_ACCOUNT,
         })
     }
 
@@ -1279,6 +1284,7 @@ mod tests {
         let mut stub = Stub::new(r#"{"commitments":1}"#, None, &[]).unwrap();
         let membership = stub.commitments().unwrap().membership().unwrap();
         assert_eq!(membership.hub, STUB_HUB);
+        assert_ne!(membership.account, Membership::NO_ACCOUNT);
     }
 
     const TRUSTING: &str = r#" { "trust" : "unlimited" } "#;

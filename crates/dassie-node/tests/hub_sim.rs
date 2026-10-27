@@ -170,3 +170,37 @@ fn hub_members_pay_across_currencies() {
 fn nodes_in_two_hubs_peer_over_both_and_survive_one_failing() {
     assert_passes(PAIRS_SEED, hub_pairs::run);
 }
+
+// spec/designs/settlement-hubs.md#5-joining: a node with no account in the
+// hub peers with a member over it, is paid in without depositing once the
+// member owes it the hub's minimum for a new account and not before, though
+// both crash around the `pay` (on seed 1 the payer with it on its way),
+// sets its disbursal address, and pays and is paid over the hub from then
+// on, each node's books holding to the hub's: the `pay` is booked once on
+// each side. Fresh keys cycled through a member, each paid less than the
+// minimum, are never paid in, spend no more than they are owed, and cost
+// the member nothing (spec/decisions/hubs-only.md).
+#[test]
+fn a_node_joins_a_hub_by_being_paid() {
+    let runs = [
+        (
+            caught(|| hubbed::paid_in(1)),
+            &[
+                "newcomers not paid in short of the minimum",
+                "payers crashed paying a newcomer in",
+                "newcomers paid in",
+            ][..],
+        ),
+        (caught(|| hubbed::cycled(1)), &["fresh keys cycled"][..]),
+    ];
+    for (run, counted) in runs {
+        assert!(!run.outcome.is_failure(), "{}", run.outcome);
+        for what in counted {
+            assert!(
+                run.counts.contains_key(*what),
+                "never {what}: {:?}",
+                run.counts
+            );
+        }
+    }
+}
