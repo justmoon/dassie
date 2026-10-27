@@ -3,7 +3,7 @@
 //!
 //! ```text
 //! dassie-sim list                                  the simulations
-//! dassie-sim run <sim> [<seeds>]                   runs seeds, a random one by default
+//! dassie-sim run <sim> [<seeds>] [--jobs <n>]      runs seeds, a random one by default
 //! dassie-sim explain <sim> <seed> [--grep <text>]  runs a seed and prints its trace
 //! dassie-sim campaign [--minutes <n>] [--jobs <n>] [--sims <sim>,...]
 //!                                                  runs random seeds, a line of JSON each
@@ -15,6 +15,12 @@
 //! (`0..1000`, which runs 0 to 999) or a git commit's full SHA. Build it with
 //! `--profile sim`, which keeps assertions on, so that every invariant is
 //! checked before every commit, as in tests.
+//!
+//! `run` makes a range's runs `--jobs` at once, by default one per core,
+//! each in a process of its own, as a campaign does, and prints them in the
+//! order of their seeds, as if made one after another. A single seed, or
+//! `--jobs 1`, runs in the runner's own process, one seed after another,
+//! where a debugger can follow it.
 //!
 //! The exit status of `run` and `explain` is 1 when a run broke safety, 2
 //! when one broke liveness and none safety, 3 when the runner itself
@@ -82,22 +88,23 @@ use std::ops::RangeInclusive;
 use std::process::ExitCode;
 use std::time::Instant;
 
-use dassie_sim::{Outcome, Run, SIMS, Sim, caught, find, parse_seeds};
+use dassie_sim::{Outcome, SIMS, Sim, caught, find, parse_seeds};
 
 mod campaign;
+mod range;
 
 use campaign::{MOST_JOBS, MOST_MINUTES, Plan};
 
 const USAGE: &str = "\
 usage: dassie-sim list
-       dassie-sim run <sim> [<seeds>]
+       dassie-sim run <sim> [<seeds>] [--jobs <n>]
        dassie-sim explain <sim> <seed> [--grep <text>]
        dassie-sim campaign [--minutes <n>] [--jobs <n>] [--sims <sim>,...]
        dassie-sim record <sim> <seed>
 
 <seeds> is a number, a range such as 0..1000, or a git commit's full SHA.
-A campaign runs random seeds, 10 minutes on every core by default, and
-prints a line of JSON per run.";
+A range runs on every core by default. A campaign runs random seeds, 10
+minutes on every core by default, and prints a line of JSON per run.";
 
 /// How long a campaign runs when not told.
 const DEFAULT_MINUTES: u64 = 10;
@@ -109,6 +116,8 @@ enum Command {
     Run {
         sim: &'static Sim,
         seeds: Option<RangeInclusive<u64>>,
+        /// How many runs to make at once.
+        jobs: usize,
     },
     Explain {
         sim: &'static Sim,
@@ -170,11 +179,20 @@ fn parse(mut parser: lexopt::Parser) -> Result<Command, String> {
         ["run", sim] => Command::Run {
             sim: named(sim)?,
             seeds: None,
+            jobs: 1,
         },
-        ["run", sim, seeds] => Command::Run {
-            sim: named(sim)?,
-            seeds: Some(parse_seeds(seeds)?),
-        },
+        ["run", sim, seeds] => {
+            let seeds = parse_seeds(seeds)?;
+            let jobs = flags.jobs.take().unwrap_or_else(cores);
+            // As many as there are seeds, at most.
+            let count = usize::try_from(seeds.end() - seeds.start());
+            let jobs = jobs.min(count.map_or(usize::MAX, |count| count.saturating_add(1)));
+            Command::Run {
+                sim: named(sim)?,
+                seeds: Some(seeds),
+                jobs,
+            }
+        }
         ["explain", sim, seed] => Command::Explain {
             sim: named(sim)?,
             seed: one_seed(seed)?,
@@ -191,9 +209,9 @@ fn parse(mut parser: lexopt::Parser) -> Result<Command, String> {
         || flags.jobs.is_some()
         || flags.sims.is_some()
     {
-        return Err(
-            "--grep is only for explain, and --minutes, --jobs and --sims for campaign".into(),
-        );
+        let only = "--grep is only for explain, --jobs for a range and campaign, and \
+                    --minutes and --sims for campaign";
+        return Err(only.into());
     }
     Ok(command)
 }
@@ -204,12 +222,17 @@ fn campaign_plan(flags: Flags) -> Result<Command, String> {
     if flags.grep.is_some() {
         return Err("--grep is only for explain".into());
     }
-    let cores = std::thread::available_parallelism().map_or(1, std::num::NonZero::get);
     Ok(Command::Campaign(Plan {
         sims: flags.sims.unwrap_or_else(|| SIMS.iter().collect()),
         minutes: flags.minutes.unwrap_or(DEFAULT_MINUTES),
-        jobs: flags.jobs.unwrap_or(cores).min(MOST_JOBS),
+        jobs: flags.jobs.unwrap_or_else(cores),
     }))
+}
+
+/// How many runs to make at once when not told: one per core.
+fn cores() -> usize {
+    let cores = std::thread::available_parallelism().map_or(1, std::num::NonZero::get);
+    cores.min(MOST_JOBS)
 }
 
 /// A number from `least` to `most`, for `flag`.
@@ -259,13 +282,27 @@ fn execute(command: Command) -> ExitCode {
     let printed = match command {
         Command::Help => writeln!(out, "{USAGE}"),
         Command::List => list(&mut out),
-        Command::Run { sim, seeds } => match seeds.map_or_else(random_seed, Ok) {
-            Ok(seeds) => run(&mut out, &mut tally, sim, seeds),
-            Err(problem) => {
-                eprintln!("dassie-sim: {problem}");
-                return ExitCode::from(3);
+        Command::Run { sim, seeds, jobs } => {
+            let ran = seeds.map_or_else(random_seed, Ok).and_then(|seeds| {
+                if jobs == 1 || seeds.start() == seeds.end() {
+                    Ok(run(&mut out, &mut tally, sim, seeds))
+                } else {
+                    // A failed write is printed's, and a failed runner the
+                    // problem's.
+                    match run_apart(&mut out, &mut tally, sim, seeds, jobs) {
+                        Ok(ran) => ran.map(Ok),
+                        Err(error) => Ok(Err(error)),
+                    }
+                }
+            });
+            match ran {
+                Ok(printed) => printed,
+                Err(problem) => {
+                    eprintln!("dassie-sim: {problem}");
+                    return ExitCode::from(3);
+                }
             }
-        },
+        }
         Command::Explain { sim, seed, grep } => explain(&mut out, &mut tally, sim, seed, &grep),
         // A campaign's run: its record says how it ended, as the
         // campaign's own status does not.
@@ -314,8 +351,8 @@ fn random_seed() -> Result<RangeInclusive<u64>, String> {
     Ok(seed..=seed)
 }
 
-/// Runs every seed, and prints how each ended. Each run is in `tally`
-/// before anything is printed about it.
+/// Runs every seed, one after another in this process, and prints how
+/// each ended. Each run is in `tally` before anything is printed about it.
 fn run(
     out: &mut impl Write,
     tally: &mut Tally,
@@ -327,12 +364,58 @@ fn run(
         out.flush()?;
         let started = Instant::now();
         let run = caught(|| (sim.run)(seed));
-        tally.add(&run);
-        writeln!(out, "  {} in {:.2?}", run.outcome, started.elapsed())?;
-        if !run.counts.is_empty() {
-            writeln!(out, "  reached {}", counted(&run.counts))?;
-        }
+        ended(out, tally, &run.outcome, &run.counts, started.elapsed())?;
     }
+    totals(out, tally)
+}
+
+/// Runs every seed, `jobs` at once, each in a process of its own, and
+/// prints how each ended, in the order of the seeds, as [`run`] does. Says
+/// what failed if the runner itself did.
+fn run_apart(
+    out: &mut impl Write,
+    tally: &mut Tally,
+    sim: &'static Sim,
+    seeds: RangeInclusive<u64>,
+    jobs: usize,
+) -> io::Result<Result<(), String>> {
+    let ran = range::range(sim, seeds, jobs, |recorded| {
+        writeln!(
+            out,
+            "{} {}: {}",
+            sim.name,
+            recorded.seed,
+            (sim.describe)(recorded.seed)
+        )?;
+        let took = std::time::Duration::from_millis(recorded.ms);
+        ended(out, tally, &recorded.outcome, &recorded.counts, took)?;
+        out.flush()
+    })?;
+    if ran.is_ok() {
+        totals(out, tally)?;
+    }
+    Ok(ran)
+}
+
+/// Counts a run that ended as `outcome` after `took`, having counted
+/// `counts`, then prints how it ended.
+fn ended<K: AsRef<str>>(
+    out: &mut impl Write,
+    tally: &mut Tally,
+    outcome: &Outcome,
+    counts: &BTreeMap<K, u64>,
+    took: std::time::Duration,
+) -> io::Result<()> {
+    tally.add(outcome, counts);
+    writeln!(out, "  {outcome} in {took:.2?}")?;
+    if !counts.is_empty() {
+        writeln!(out, "  reached {}", counted(counts))?;
+    }
+    Ok(())
+}
+
+/// Prints how the runs of a range ended, all together.
+fn totals(out: &mut impl Write, tally: &Tally) -> io::Result<()> {
     if tally.runs > 1 {
         writeln!(
             out,
@@ -356,7 +439,7 @@ fn explain(
 ) -> io::Result<()> {
     writeln!(out, "{} {seed}: {}", sim.name, (sim.describe)(seed))?;
     let run = caught(|| (sim.run)(seed));
-    tally.add(&run);
+    tally.add(&run.outcome, &run.counts);
     for line in run.trace.iter().filter(|line| line.contains(grep)) {
         writeln!(out, "{line}")?;
     }
@@ -371,10 +454,10 @@ fn explain(
 }
 
 /// What runs counted, as `crashes 3, settlements taken 12`.
-fn counted(counts: &BTreeMap<&'static str, u64>) -> String {
+fn counted<K: AsRef<str>>(counts: &BTreeMap<K, u64>) -> String {
     let counts: Vec<String> = counts
         .iter()
-        .map(|(what, count)| format!("{what} {count}"))
+        .map(|(what, count)| format!("{} {count}", what.as_ref()))
         .collect();
     counts.join(", ")
 }
@@ -387,16 +470,16 @@ struct Tally {
     unsupported: u64,
     safety: u64,
     liveness: u64,
-    counts: BTreeMap<&'static str, u64>,
+    counts: BTreeMap<String, u64>,
 }
 
 impl Tally {
-    fn add(&mut self, run: &Run) {
+    fn add<K: AsRef<str>>(&mut self, outcome: &Outcome, counts: &BTreeMap<K, u64>) {
         self.runs += 1;
-        for (what, count) in &run.counts {
-            *self.counts.entry(what).or_default() += count;
+        for (what, count) in counts {
+            *self.counts.entry(what.as_ref().to_owned()).or_default() += count;
         }
-        match run.outcome {
+        match outcome {
             Outcome::Pass => self.passed += 1,
             Outcome::Unsupported(_) => self.unsupported += 1,
             Outcome::Safety(_) => self.safety += 1,
@@ -417,6 +500,8 @@ impl Tally {
 
 #[cfg(test)]
 mod tests {
+    use dassie_sim::Run;
+
     use super::*;
 
     /// A simulation whose every seed breaks safety.

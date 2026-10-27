@@ -3,6 +3,8 @@
 //! as one line of JSON. What the lines hold is the runner's contract with the
 //! campaign's supervisor, in the runner's docs.
 //!
+//! Its crew of threads also runs a range of seeds (`crate::range`).
+//!
 //! Each run is a process of its own, `dassie-sim record`, which one of the
 //! campaign's threads starts and waits for; the main thread writes every
 //! line, so lines never interleave. Runs in one process would share what
@@ -76,7 +78,7 @@ const MESSAGES_PER_JOB: usize = 16;
 
 /// How often a thread waiting for a run looks whether the campaign has
 /// stopped, and so how long the campaign takes at most to stop its runs.
-const LOOK: Duration = Duration::from_millis(100);
+pub const LOOK: Duration = Duration::from_millis(100);
 
 /// How often a thread looks whether a run's process has ended, once its
 /// output has closed, which it does as it ends.
@@ -94,7 +96,7 @@ pub const CAMPAIGN_ENV: &str = "DASSIE_SIM_CAMPAIGN";
 const SEED_BITS: u32 = 53;
 
 /// How a run can end, as a record names it.
-const OUTCOMES: [&str; 4] = ["pass", "safety", "liveness", "unsupported"];
+pub const OUTCOMES: [&str; 4] = ["pass", "safety", "liveness", "unsupported"];
 
 /// What a campaign runs.
 pub struct Plan {
@@ -128,12 +130,12 @@ pub fn campaign(out: &mut impl Write, plan: &Plan) -> io::Result<ExitCode> {
     let end = started + Duration::from_secs(plan.minutes * 60);
     let crew = Crew {
         sims: plan.sims.clone().into(),
-        end,
+        end: Some(end),
         draw: Arc::new(from_the_os),
         run: Arc::new(in_a_process),
     };
     let mut tally = Tally::default();
-    if let Err(problem) = crew.run(plan.jobs, out, &mut tally)? {
+    if let Err(problem) = crew.run(plan.jobs, &mut written(out, &mut tally))? {
         eprintln!("dassie-sim: {problem}");
         return Ok(ExitCode::from(3));
     }
@@ -143,22 +145,25 @@ pub fn campaign(out: &mut impl Write, plan: &Plan) -> io::Result<ExitCode> {
 }
 
 /// Where a crew's threads get each run's seed, and the number that picks
-/// its simulation: the OS in a campaign, a fixed list in a test, which
-/// never runs random seeds. `None` ends a thread's work.
-type Draw = Arc<dyn Fn() -> Option<Result<(u64, u64), String>> + Send + Sync>;
+/// its simulation: the OS in a campaign, the seeds in order for a range,
+/// a fixed list in a test, which never runs random seeds. `None` ends a
+/// thread's work, as it must once the flag says the crew stopped.
+pub type Draw = Arc<dyn Fn(&AtomicBool) -> Option<Result<(u64, u64), String>> + Send + Sync>;
 
 /// How a crew makes a run of a simulation, from its seed and what the seed
 /// drew: in a process of its own in a campaign, and in the test's own
 /// process in a test. It ends the run early, with an error, once the flag
 /// says the campaign stopped.
-type Runner = Arc<dyn Fn(&'static Sim, u64, &str, &AtomicBool) -> io::Result<Ran> + Send + Sync>;
+pub type Runner =
+    Arc<dyn Fn(&'static Sim, u64, &str, &AtomicBool) -> io::Result<Ran> + Send + Sync>;
 
-/// A finished run: its record, and what the tally counts of it.
+/// A finished run: its seed, its record, and what the tally counts of it.
 #[derive(Debug)]
-struct Ran {
-    record: Value,
-    outcome: &'static str,
-    ms: u64,
+pub struct Ran {
+    pub seed: u64,
+    pub record: Value,
+    pub outcome: &'static str,
+    pub ms: u64,
 }
 
 impl Ran {
@@ -171,6 +176,7 @@ impl Ran {
         let ours = record.get("sim").is_some_and(|named| named == sim)
             && record.get("seed").is_some_and(|drawn| drawn == seed);
         ours.then_some(Self {
+            seed,
             record,
             outcome,
             ms,
@@ -180,6 +186,7 @@ impl Ran {
     /// The run of `run`, as a record says it.
     fn new(sim: &str, seed: u64, options: &str, run: &Run, ms: u64) -> Self {
         Self {
+            seed,
             record: record(sim, seed, options, run, ms),
             outcome: run.outcome.name(),
             ms,
@@ -189,31 +196,31 @@ impl Ran {
 
 /// A seed and a pick from the OS: the one place a campaign draws
 /// randomness.
-fn from_the_os() -> Option<Result<(u64, u64), String>> {
+fn from_the_os(_: &AtomicBool) -> Option<Result<(u64, u64), String>> {
     let drawn = getrandom::u64().and_then(|seed| Ok((seed >> (64 - SEED_BITS), getrandom::u64()?)));
     Some(drawn.map_err(|error| error.to_string()))
 }
 
-/// The threads that make the runs.
-struct Crew {
-    sims: Arc<[&'static Sim]>,
-    /// When the threads stop starting runs.
-    end: Instant,
-    draw: Draw,
-    run: Runner,
+/// The threads that make the runs, for a campaign or a range of seeds.
+pub struct Crew {
+    pub sims: Arc<[&'static Sim]>,
+    /// When the threads stop starting runs, if not only once the draw
+    /// has no more.
+    pub end: Option<Instant>,
+    pub draw: Draw,
+    pub run: Runner,
 }
 
 impl Crew {
-    /// Makes runs on `jobs` threads until the end, writing each run's
-    /// record to `out` and counting it, until each thread is done. Says
+    /// Makes runs on `jobs` threads until the end, handing each finished
+    /// run to `report` on this thread, until each thread is done. Says
     /// what failed if the runner itself did. However it ends, early too,
-    /// it stops the runs under way, and returns only once every thread
-    /// has ended.
-    fn run(
+    /// as when `report` fails, it stops the runs under way, and returns
+    /// only once every thread has ended.
+    pub fn run(
         &self,
         jobs: usize,
-        out: &mut impl Write,
-        tally: &mut Tally,
+        report: &mut impl FnMut(&'static str, Ran) -> io::Result<()>,
     ) -> io::Result<Result<(), String>> {
         let stop = Arc::new(AtomicBool::new(false));
         let (sender, receiver) = mpsc::sync_channel(jobs * MESSAGES_PER_JOB);
@@ -228,7 +235,7 @@ impl Crew {
             );
             let thread = thread::Builder::new()
                 .name(format!("job {job}"))
-                .spawn(move || work(&sims, end, &*draw, &*run, &stop, &sender));
+                .spawn(move || work(&sims, end, &draw, &run, &stop, &sender));
             match thread {
                 Ok(thread) => threads.push(thread),
                 Err(error) => {
@@ -238,7 +245,7 @@ impl Crew {
             }
         }
         drop(sender);
-        let result = spawned.and_then(|()| listen(&receiver, threads.len(), out, tally));
+        let result = spawned.and_then(|()| listen(&receiver, threads.len(), report));
         // The threads start no more runs, and stop and reap those under
         // way; one waiting to send finds nobody listening.
         stop.store(true, Ordering::Relaxed);
@@ -251,23 +258,18 @@ impl Crew {
     }
 }
 
-/// Writes and counts each run's record the threads send, until `working`
-/// threads are done. Says what failed if the runner itself did.
+/// Hands each run the threads send to `report`, until `working` threads
+/// are done. Says what failed if the runner itself did.
 fn listen(
     receiver: &Receiver<Message>,
     mut working: usize,
-    out: &mut impl Write,
-    tally: &mut Tally,
+    report: &mut impl FnMut(&'static str, Ran) -> io::Result<()>,
 ) -> io::Result<Result<(), String>> {
     while working > 0 {
         // Each thread holds a sender until it is done.
         let Ok(message) = receiver.recv() else { break };
         match message {
-            Message::Finished(sim, ran) => {
-                writeln!(out, "{}", ran.record)?;
-                out.flush()?;
-                tally.add(sim, ran.outcome, ran.ms);
-            }
+            Message::Finished(sim, ran) => report(sim, ran)?,
             Message::Done => working -= 1,
             Message::Failed(problem) => return Ok(Err(problem)),
         }
@@ -275,18 +277,32 @@ fn listen(
     Ok(Ok(()))
 }
 
-/// A thread's work: makes the runs `draw` gives until the campaign's end,
-/// until `draw` has no more, or until the campaign stops.
+/// Writes each run's record to `out`, a line of JSON, and counts it: what
+/// a campaign does with its runs.
+fn written<'a>(
+    out: &'a mut impl Write,
+    tally: &'a mut Tally,
+) -> impl FnMut(&'static str, Ran) -> io::Result<()> + 'a {
+    |sim, ran| {
+        writeln!(out, "{}", ran.record)?;
+        out.flush()?;
+        tally.add(sim, ran.outcome, ran.ms);
+        Ok(())
+    }
+}
+
+/// A thread's work: makes the runs `draw` gives until the end, until
+/// `draw` has no more, or until the crew stops.
 fn work(
     sims: &[&'static Sim],
-    end: Instant,
-    draw: &(dyn Fn() -> Option<Result<(u64, u64), String>> + Send + Sync),
-    run: &(dyn Fn(&'static Sim, u64, &str, &AtomicBool) -> io::Result<Ran> + Send + Sync),
+    end: Option<Instant>,
+    draw: &Draw,
+    run: &Runner,
     stop: &AtomicBool,
     sender: &SyncSender<Message>,
 ) {
-    while Instant::now() < end && !stop.load(Ordering::Relaxed) {
-        let (seed, picked) = match draw() {
+    while end.is_none_or(|end| Instant::now() < end) && !stop.load(Ordering::Relaxed) {
+        let (seed, picked) = match draw(stop) {
             Some(Ok(drawn)) => drawn,
             Some(Err(problem)) => {
                 let _ = sender.send(Message::Failed(format!("no random seed: {problem}")));
@@ -310,7 +326,7 @@ fn work(
 }
 
 /// What `seed` of `sim` draws, as `dassie-sim run` prints it.
-fn described(sim: &Sim, seed: u64) -> String {
+pub fn described(sim: &Sim, seed: u64) -> String {
     catch_unwind(AssertUnwindSafe(|| (sim.describe)(seed)))
         .unwrap_or_else(|_| "(describing it panicked)".to_owned())
 }
@@ -347,7 +363,9 @@ pub fn here(sim: &'static Sim, seed: u64) -> Value {
     ran_here(sim, seed).record
 }
 
-fn ran_here(sim: &'static Sim, seed: u64) -> Ran {
+/// Makes a run here, in this process: what a crew's runner does in a test,
+/// whose process is not the runner's and cannot start `dassie-sim record`.
+pub fn ran_here(sim: &'static Sim, seed: u64) -> Ran {
     let options = described(sim, seed);
     let since = Instant::now();
     let run = caught(|| (sim.run)(seed));
@@ -358,7 +376,12 @@ fn ran_here(sim: &'static Sim, seed: u64) -> Ran {
 /// the one the process wrote, or, when it wrote none, or ran past
 /// [`RUN_LIMIT`] and was stopped, one that says so. Once `stop` says the
 /// campaign stopped, it stops the run and says so instead.
-fn in_a_process(sim: &'static Sim, seed: u64, options: &str, stop: &AtomicBool) -> io::Result<Ran> {
+pub fn in_a_process(
+    sim: &'static Sim,
+    seed: u64,
+    options: &str,
+    stop: &AtomicBool,
+) -> io::Result<Ran> {
     let mut command = Command::new(env::current_exe()?);
     command
         .args(["record", sim.name, &seed.to_string()])
@@ -707,7 +730,7 @@ mod tests {
     /// trip the tripwire.
     fn fixed(runs: u64) -> Draw {
         let next = Arc::new(std::sync::atomic::AtomicU64::new(0));
-        Arc::new(move || {
+        Arc::new(move |_| {
             let index = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             (index < runs).then_some(Ok((index * 500, index)))
         })
@@ -717,7 +740,7 @@ mod tests {
     fn tripwire_crew(draw: Draw, run: Runner) -> Crew {
         Crew {
             sims: vec![find("tripwire").unwrap()].into(),
-            end: Instant::now() + Duration::from_secs(60),
+            end: Some(Instant::now() + Duration::from_secs(60)),
             draw,
             run,
         }
@@ -734,7 +757,10 @@ mod tests {
             Arc::new(|sim, seed, _, _| Ok(ran_here(sim, seed))),
         );
         let (mut out, mut tally) = (Vec::new(), Tally::default());
-        assert_eq!(crew.run(4, &mut out, &mut tally).unwrap(), Ok(()));
+        assert_eq!(
+            crew.run(4, &mut written(&mut out, &mut tally)).unwrap(),
+            Ok(())
+        );
         let mut lines: Vec<Value> = String::from_utf8(out)
             .unwrap()
             .lines()
@@ -756,7 +782,10 @@ mod tests {
         let failing: Runner = Arc::new(|_, _, _, _| Err(io::ErrorKind::NotFound.into()));
         let crew = tripwire_crew(fixed(100), failing);
         let (mut out, mut tally) = (Vec::new(), Tally::default());
-        let problem = crew.run(2, &mut out, &mut tally).unwrap().unwrap_err();
+        let problem = crew
+            .run(2, &mut written(&mut out, &mut tally))
+            .unwrap()
+            .unwrap_err();
         assert!(problem.starts_with("cannot make a run"), "{problem}");
         assert!(out.is_empty());
     }
@@ -805,11 +834,11 @@ mod tests {
         // both are under way, and its record finds the output closed.
         let files = env::temp_dir().join(format!("dassie-sim-early-{}", std::process::id()));
         std::fs::create_dir_all(&files).unwrap();
-        let written = files.clone();
+        let dir = files.clone();
         let run: Runner = Arc::new(move |sim, seed, options, stop| {
             if seed == 0 {
                 let numbered = |file: &std::fs::DirEntry| file.metadata().unwrap().len() > 0;
-                while std::fs::read_dir(&written)
+                while std::fs::read_dir(&dir)
                     .unwrap()
                     .flatten()
                     .filter(numbered)
@@ -820,14 +849,14 @@ mod tests {
                 }
                 return Ok(ran_here(sim, seed));
             }
-            let file = written.join(seed.to_string());
+            let file = dir.join(seed.to_string());
             let sleeping = shell("echo $$ > \"$1\"; exec sleep 600", file.to_str().unwrap());
             let ended = apart(sleeping, RUN_LIMIT, stop)?.ok_or(io::ErrorKind::Interrupted)?;
             Ok(ended_as(sim.name, seed, options, ended, 1))
         });
         let crew = tripwire_crew(fixed(3), run);
         let started = Instant::now();
-        let ended = crew.run(3, &mut Closed, &mut Tally::default());
+        let ended = crew.run(3, &mut written(&mut Closed, &mut Tally::default()));
         assert_eq!(ended.unwrap_err().kind(), io::ErrorKind::BrokenPipe);
         assert!(started.elapsed() < Duration::from_secs(60));
         // Both sleeping runs were stopped, and reaped, before it returned.
