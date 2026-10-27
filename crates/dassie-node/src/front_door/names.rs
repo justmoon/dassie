@@ -5,9 +5,8 @@
 //! A front door is no node, so it reads the registrars' name lists itself:
 //! the configured bootstrap nodes', as every node does, on a node's cadence.
 //! It polls each list's hash, downloads the list when the hash changed, and
-//! takes a list only in an answer authenticated under the registrar's
-//! configured key. It asks as an authenticated client with its own key, and
-//! only reads, so no registrar keeps replay state for it. The holder of a
+//! takes a list only from a connection that proved the registrar's
+//! configured key, and its own connection proves its own key. The holder of a
 //! name is whom a quorum of the configured registrars' fresh lists name,
 //! and the view freezes while fewer than a quorum are fresh, exactly as a
 //! node's: both are [`Holders`]'.

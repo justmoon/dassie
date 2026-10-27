@@ -330,7 +330,7 @@ impl PeerNode {
         config.validate();
         let own = key.node_id();
         let mut node = Self {
-            key,
+            key: Arc::clone(&key),
             own,
             own_info: own_info.checked(),
             own_hubs: Vec::new(),

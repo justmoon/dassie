@@ -284,8 +284,8 @@ impl Drop for PeerPermit {
     }
 }
 
-/// Requests without authentication, per client address: they are for tools
-/// and debugging, since nodes authenticate every request.
+/// Failed peer requests, per key a connection proved
+/// ([`Node::peer_charge`]).
 const PEER_ANONYMOUS: RateLimitPolicy = RateLimitPolicy {
     client_burst: 20,
     client_refill_ms: 1_000,

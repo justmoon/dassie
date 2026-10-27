@@ -1,8 +1,8 @@
 //! The peer protocol's tables (spec/areas/network.md#persistence): the node
 //! table with each node's link state, registration and peering, our own
-//! link-state sequence, settlement channels, bans and replay
-//! floors, a registrar's log and names, the node's view of
-//! who holds each name, and its own registrations of names. They are
+//! link-state sequence, settlement channels, bans, a registrar's log
+//! and names, the node's view of who holds each name, and its own
+//! registrations of names. They are
 //! written in the same transaction as the ledger, so a peering and its
 //! accounts, or a settlement and its message, land together.
 
