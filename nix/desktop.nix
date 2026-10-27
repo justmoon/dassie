@@ -42,9 +42,7 @@ let
     CARGO_PROFILE = if check then "ci" else "release";
     doCheck = false;
     nativeBuildInputs =
-      desktopLibs.nativeBuildInputs
-      ++ [ pkgs.wrapGAppsHook3 ]
-      ++ lib.optional check pkgs.cargo-nextest;
+      desktopLibs.nativeBuildInputs ++ [ pkgs.wrapGAppsHook3 ] ++ lib.optional check pkgs.cargo-nextest;
     buildInputs = desktopLibs.buildInputs ++ [
       pkgs.glib-networking
       pkgs.gsettings-desktop-schemas
