@@ -99,6 +99,9 @@ message LedgerRemovalBlocker {
     KIND_FINAL_SETTLEMENTS = 3;
     // Outgoing payments from its ledger have not finished.
     KIND_OUTGOING_PAYMENTS = 4;
+    // A move between its settlement hub and the owner book of the hub's
+    // asset is on its way (hub_member.proto). Its count is 1.
+    KIND_HUB_MOVE = 5;
   }
 }
 

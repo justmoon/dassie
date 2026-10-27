@@ -1,16 +1,21 @@
-//! `dassie hub`: the node's account in its settlement hub, and the owner's
-//! moves between it and the node's XRP Ledger testnet account, over the IPC
-//! socket (spec/areas/hubs.md#in-the-node).
+//! `dassie hub`: the node's account in each settlement hub it is in, and
+//! the owner's moves between it and the owner book of the hub's asset (the
+//! node's XRP Ledger testnet account, for the XRP hub), over the IPC socket
+//! (spec/areas/hubs.md#in-the-node).
 //!
-//! - `dassie hub status` shows the account, its holds, the floor and the
-//!   ceiling the node keeps it between, and the move on its way.
+//! - `dassie hub status` shows each hub's account, its holds, the floor and
+//!   the ceiling the node keeps it between, and the move on its way.
 //! - `dassie hub deposit <XRP>` and `dassie hub withdraw <XRP>` move funds
-//!   now, which pauses the node's own moves for a while.
+//!   now, which pauses the node's own moves of that hub for a while.
 //! - `dassie hub auto on|off` turns the node's own moves on or off.
 //! - `dassie hub give-up` gives up a move that is late; the node's own
-//!   moves then wait for the owner.
+//!   moves of that hub then wait for the owner.
 //! - `dassie hub found`, `foundings`, `drop` and `payout` found hubs, and
 //!   show the payout bundles kept ([`crate::founding`]).
+//!
+//! Each of `deposit`, `withdraw`, `auto` and `give-up` acts on one hub:
+//! `--hub <ID>` names it, as `status` shows it, and is needed only while
+//! the node is in more than one.
 
 use dassie_node::env::Env;
 use dassie_node::rpc::proto::{self, request::Method, response};
@@ -25,9 +30,18 @@ const SCALE: u32 = 9;
 /// What `dassie hub` is asked to do.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Command {
-    /// Show the account.
+    /// Show each hub's account.
     Status,
-    /// Deposit this many units from the XRP Ledger account.
+    /// Act on the hub named by its ID in hex, or the node's only hub.
+    Move(Move, String),
+    /// Found a hub, or see the foundings or the payout bundles.
+    Founding(crate::founding::Command),
+}
+
+/// What the owner does with one hub's account.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Move {
+    /// Deposit this many units from the owner book of the hub's asset.
     Deposit(u64),
     /// Withdraw this many units to the XRP Ledger account.
     Withdraw(u64),
@@ -35,8 +49,6 @@ pub enum Command {
     Automatic(bool),
     /// Give up the late move.
     GiveUp,
-    /// Found a hub, or see the foundings or the payout bundles.
-    Founding(crate::founding::Command),
 }
 
 /// Reads `dassie hub`'s arguments.
@@ -45,18 +57,18 @@ pub enum Command {
 ///
 /// A command line that is not one of the above.
 pub fn args(parser: &mut lexopt::Parser) -> Result<Command, lexopt::Error> {
-    let command = match parser.next()? {
-        None => Command::Status,
+    let action = match parser.next()? {
+        None => return Ok(Command::Status),
         Some(Value(word)) => match word.string()?.as_str() {
-            "status" => Command::Status,
-            "deposit" => Command::Deposit(xrp(&parser.value()?.string()?)?),
-            "withdraw" => Command::Withdraw(xrp(&parser.value()?.string()?)?),
+            "status" => None,
+            "deposit" => Some(Move::Deposit(xrp(&parser.value()?.string()?)?)),
+            "withdraw" => Some(Move::Withdraw(xrp(&parser.value()?.string()?)?)),
             "auto" => match parser.value()?.string()?.as_str() {
-                "on" => Command::Automatic(true),
-                "off" => Command::Automatic(false),
+                "on" => Some(Move::Automatic(true)),
+                "off" => Some(Move::Automatic(false)),
                 other => return Err(format!("`auto` takes on or off, not {other:?}").into()),
             },
-            "give-up" => Command::GiveUp,
+            "give-up" => Some(Move::GiveUp),
             word @ ("found" | "foundings" | "drop" | "payout") => {
                 return crate::founding::args(word, parser).map(Command::Founding);
             }
@@ -64,10 +76,27 @@ pub fn args(parser: &mut lexopt::Parser) -> Result<Command, lexopt::Error> {
         },
         Some(other) => return Err(other.unexpected()),
     };
-    if let Some(extra) = parser.next()? {
-        return Err(extra.unexpected());
+    let mut hub = String::new();
+    while let Some(arg) = parser.next()? {
+        match arg {
+            Long("hub") if action.is_some() && hub.is_empty() => {
+                hub = hub_id(&parser.value()?.string()?)?;
+            }
+            other => return Err(other.unexpected()),
+        }
     }
-    Ok(command)
+    Ok(action.map_or(Command::Status, |action| Command::Move(action, hub)))
+}
+
+/// A hub's ID, as `dassie hub status` shows it: 64 hex digits.
+fn hub_id(text: &str) -> Result<String, String> {
+    let hex = text.len() == 64 && text.bytes().all(|byte| byte.is_ascii_hexdigit());
+    if !hex {
+        return Err(format!(
+            "{text:?} is not a hub's ID, the 64 hex digits `dassie hub status` shows"
+        ));
+    }
+    Ok(text.to_ascii_lowercase())
 }
 
 /// An amount of XRP, such as `2.5`, in the hub ledger's units.
@@ -95,20 +124,30 @@ pub async fn run(env: &Env, command: Command) -> Result<(), String> {
         return crate::founding::run(env, command).await;
     }
     let mut client = Client::connect(env).await.map_err(|error| error.message)?;
-    let method = match command {
-        Command::Status => Method::GetHubStatus(proto::GetHubStatusRequest {}),
-        Command::Deposit(amount) => Method::HubDeposit(proto::HubDepositRequest { amount }),
-        Command::Withdraw(amount) => Method::HubWithdraw(proto::HubWithdrawRequest { amount }),
-        Command::Automatic(automatic) => {
-            Method::SetHubAutomatic(proto::SetHubAutomaticRequest { automatic })
+    let Command::Move(action, hub_id) = command else {
+        let hubs = statuses(&mut client).await?;
+        if hubs.is_empty() {
+            println!("The node is in no settlement hub: no hub scheme runs.");
         }
-        Command::GiveUp => Method::HubGiveUp(proto::HubGiveUpRequest {}),
-        Command::Founding(_) => return Err("not a move".into()),
+        for (index, status) in hubs.iter().enumerate() {
+            if index > 0 {
+                println!();
+            }
+            show(status, now_ms());
+        }
+        return Ok(());
+    };
+    let method = match action {
+        Move::Deposit(amount) => Method::HubDeposit(proto::HubDepositRequest { amount, hub_id }),
+        Move::Withdraw(amount) => Method::HubWithdraw(proto::HubWithdrawRequest { amount, hub_id }),
+        Move::Automatic(automatic) => {
+            Method::SetHubAutomatic(proto::SetHubAutomaticRequest { automatic, hub_id })
+        }
+        Move::GiveUp => Method::HubGiveUp(proto::HubGiveUpRequest { hub_id }),
     };
     let status = match client.call(method).await {
         Ok(
-            response::Method::GetHubStatus(proto::GetHubStatusResponse { status })
-            | response::Method::HubDeposit(proto::HubDepositResponse { status })
+            response::Method::HubDeposit(proto::HubDepositResponse { status })
             | response::Method::HubWithdraw(proto::HubWithdrawResponse { status })
             | response::Method::SetHubAutomatic(proto::SetHubAutomaticResponse { status })
             | response::Method::HubGiveUp(proto::HubGiveUpResponse { status }),
@@ -119,17 +158,25 @@ pub async fn run(env: &Env, command: Command) -> Result<(), String> {
     Ok(())
 }
 
-/// The hub's line in `dassie status`, while a hub scheme runs.
-pub async fn summary(client: &mut Client) -> Option<String> {
+/// Each hub the node is in whose scheme runs.
+async fn statuses(client: &mut Client) -> Result<Vec<proto::HubStatus>, String> {
     match client
         .call(Method::GetHubStatus(proto::GetHubStatusRequest {}))
         .await
     {
-        Ok(response::Method::GetHubStatus(proto::GetHubStatusResponse {
-            status: Some(status),
-        })) => Some(brief(&status)),
-        _ => None,
+        Ok(response::Method::GetHubStatus(proto::GetHubStatusResponse { hubs })) => Ok(hubs),
+        other => Err(unexpected(other)),
     }
+}
+
+/// Each hub's line in `dassie status`, for each hub scheme that runs.
+pub async fn summary(client: &mut Client) -> Vec<String> {
+    statuses(client)
+        .await
+        .unwrap_or_default()
+        .iter()
+        .map(|status| format!("{}: {}", status.scheme, brief(status)))
+        .collect()
 }
 
 /// The account in a few words: its number and balance, how it stands, and
@@ -169,9 +216,10 @@ fn xrp_text(units: u64) -> String {
     format!("{} XRP", amount(signed(units), SCALE))
 }
 
-/// Prints the account, line by line.
+/// Prints a hub's account, line by line.
 fn show(status: &proto::HubStatus, now_ms: i64) {
     println!("Settlement hub {}", status.hub_id);
+    line("Scheme", &status.scheme);
     line("Account", &brief(status));
     line(
         "Balance",
@@ -294,20 +342,42 @@ mod tests {
     #[test]
     fn the_command_line_names_one_move() {
         let parse = |args: &[&str]| args_of(args).map_err(|error| error.to_string());
+        let only = |action| Ok(Command::Move(action, String::new()));
         assert_eq!(parse(&[]), Ok(Command::Status));
-        assert_eq!(
-            parse(&["deposit", "3"]),
-            Ok(Command::Deposit(3_000_000_000))
-        );
+        assert_eq!(parse(&["status"]), Ok(Command::Status));
+        assert_eq!(parse(&["deposit", "3"]), only(Move::Deposit(3_000_000_000)));
         assert_eq!(
             parse(&["withdraw", "0.5"]),
-            Ok(Command::Withdraw(500_000_000))
+            only(Move::Withdraw(500_000_000))
         );
-        assert_eq!(parse(&["auto", "off"]), Ok(Command::Automatic(false)));
+        assert_eq!(parse(&["auto", "off"]), only(Move::Automatic(false)));
         assert!(parse(&["auto", "maybe"]).is_err());
-        assert_eq!(parse(&["give-up"]), Ok(Command::GiveUp));
+        assert_eq!(parse(&["give-up"]), only(Move::GiveUp));
         assert!(parse(&["deposit"]).is_err());
         assert!(parse(&["status", "now"]).is_err());
+    }
+
+    // A move names its hub only while the node is in several; status shows
+    // them all.
+    #[test]
+    fn a_move_names_its_hub_by_its_id() {
+        let parse = |args: &[&str]| args_of(args).map_err(|error| error.to_string());
+        let id = "AB".repeat(32);
+        assert_eq!(
+            parse(&["withdraw", "1", "--hub", &id]),
+            Ok(Command::Move(
+                Move::Withdraw(1_000_000_000),
+                "ab".repeat(32)
+            ))
+        );
+        assert_eq!(
+            parse(&["give-up", "--hub", &id]),
+            Ok(Command::Move(Move::GiveUp, "ab".repeat(32)))
+        );
+        assert!(parse(&["give-up", "--hub", "abc"]).is_err());
+        assert!(parse(&["give-up", "--hub", &id, "--hub", &id]).is_err());
+        assert!(parse(&["status", "--hub", &id]).is_err());
+        assert!(parse(&["deposit", "--hub", &id]).is_err());
     }
 
     fn args_of(words: &[&str]) -> Result<Command, lexopt::Error> {

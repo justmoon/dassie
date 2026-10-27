@@ -5,8 +5,9 @@
 //! - `dassie status` says how it is doing, `dassie setup-url` prints the
 //!   link that completes setup, and `dassie pair` a code that pairs an owner
 //!   app, over the IPC socket too.
-//! - `dassie hub` shows the node's account in its settlement hub, and moves
-//!   the owner's funds between it and the node's XRP Ledger account;
+//! - `dassie hub` shows the node's account in each settlement hub it is in,
+//!   and moves the owner's funds between one and the node's XRP Ledger
+//!   account;
 //!   `dassie hub found` founds a hub, and `dassie hub payout` shows its
 //!   payout bundles.
 //! - `dassie setup` sets the node up from its owner's passphrase, without
@@ -68,8 +69,8 @@ Commands:
   status            Show how the node is doing: version, address,
                     certificate, setup, network, ledgers and updates.
   setup-url         Print the link that completes setup in a browser.
-  hub [status]      Show the node's account in its settlement hub, and the
-                    floor and ceiling the node keeps it between.
+  hub [status]      Show the node's account in each settlement hub it is
+                    in, and the floor and ceiling the node keeps it between.
   hub deposit <XRP> Move XRP from the node's XRP Ledger account into the
                     hub, opening the account there if it has none.
   hub withdraw <XRP>
@@ -79,6 +80,10 @@ Commands:
                     or not.
   hub give-up       Give up a move the hub has not shown for long; the node
                     then moves nothing by itself until you act.
+                    Each of these acts on one hub:
+                      --hub <hub ID>            the hub, as `hub status`
+                                                shows it; needed only while
+                                                the node is in several
   hub found <node ID>@<host:port>...
                     Found a settlement hub with these validators, as its
                     sponsor; every one of them must accept.

@@ -1,11 +1,11 @@
-//! A member's copies of its hub's payout bundles
+//! A member's copies of its hubs' payout bundles
 //! (spec/areas/hubs.md#payout-bundles): every so often, the node asks each
-//! validator of the hub it is a member of for the payout set it signed,
+//! validator of each hub it is a member of for the payout set it signed,
 //! which it has only once the hub ended or stalled, reads it a page at a
 //! time, checks it (`dassie_hub::member::Payouts`) and keeps the highest
-//! of each validator's in the database. With a quorum's bundles of one set
-//! the owner can submit it, its own payout among it, if the validators are
-//! gone ([`payout`]).
+//! of each validator's in the database, apart for each hub. With a
+//! quorum's bundles of one set the owner can submit it, its own payout
+//! among it, if the validators are gone ([`payout`]).
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -41,10 +41,14 @@ const EXCHANGE_TIMEOUT: Duration = Duration::from_secs(10);
 /// hand.
 const TICK: Duration = Duration::from_secs(1);
 
-/// Asks the validators of the node's hub for their payout sets every
-/// [`PAYOUT_POLL_MS`] while a hub scheme runs, until `shutdown`.
+/// Asks the validators of each of the node's hubs for their payout sets
+/// every [`PAYOUT_POLL_MS`] while its hub scheme runs, until `shutdown`.
+/// What each hub's validators sign is checked and kept apart from the
+/// others', by the hub's ID.
 pub async fn run(node: Arc<Node>, shutdown: CancellationToken) {
-    let mut payouts: Option<Payouts> = None;
+    // One per hub the node is in: at most `dassie_peer::MAX_OWN_HUBS`, as
+    // the hub schemes are.
+    let mut kept: Vec<Payouts> = Vec::new();
     let mut next_ms = 0_u64;
     let mut moves = node.clock().subscribe();
     loop {
@@ -58,24 +62,44 @@ pub async fn run(node: Arc<Node>, shutdown: CancellationToken) {
             continue;
         }
         next_ms = now.saturating_add(PAYOUT_POLL_MS);
-        let Some(rules) = hub_rules(&node).await else {
-            continue;
-        };
-        if payouts
-            .as_ref()
-            .is_none_or(|kept| kept.rules().id() != rules.id())
-        {
-            payouts = Some(restored(&node, rules));
-        }
-        if let Some(payouts) = payouts.as_mut() {
-            round(&node, &HubClient::of(&node), payouts, &shutdown).await;
-        }
+        kept = following(&node, hub_rules(&node).await, kept);
+        let client = HubClient::of(&node);
+        // The hubs are asked at once too, so that one whose validators are
+        // gone holds up no other hub's round.
+        futures_util::future::join_all(
+            kept.iter_mut()
+                .map(|payouts| round(&node, &client, payouts, &shutdown)),
+        )
+        .await;
     }
 }
 
-/// The rules of the hub the node is a member of, while its scheme runs.
-async fn hub_rules(node: &Node) -> Option<Rules> {
-    node.engine()?.hub_rules().await.ok().flatten()
+/// The rules of each hub the node is a member of, while its scheme runs.
+async fn hub_rules(node: &Node) -> Vec<Rules> {
+    match node.engine() {
+        Some(engine) => engine.hub_rules().await.unwrap_or_default(),
+        None => Vec::new(),
+    }
+}
+
+/// The payout bundles to follow, one set per hub of `rules`: those already
+/// followed kept as they are, a hub joined since restored from the
+/// database, and a hub left forgotten, its bundles kept in the database.
+fn following(node: &Node, rules: Vec<Rules>, mut kept: Vec<Payouts>) -> Vec<Payouts> {
+    assert!(
+        rules.len() <= dassie_peer::MAX_OWN_HUBS,
+        "a hub scheme per asset"
+    );
+    rules
+        .into_iter()
+        .map(|rules| {
+            let id = rules.id();
+            match kept.iter().position(|payouts| payouts.rules().id() == id) {
+                Some(index) => kept.swap_remove(index),
+                None => restored(node, rules),
+            }
+        })
+        .collect()
 }
 
 /// What the database keeps of the hub's payout bundles, checked again.
@@ -219,13 +243,14 @@ pub struct PayoutStatus {
     pub ready: Option<(u64, Vec<Vec<u8>>)>,
 }
 
-/// What the node holds of the payout of the hub it is a member of.
+/// What the node holds of the payout of the first hub it is a member of:
+/// the one hub of a node in one.
 ///
 /// # Errors
 ///
 /// The database failed. `Ok(None)` when no hub scheme runs.
 pub async fn payout(node: &Node) -> Result<Option<PayoutStatus>, StoreError> {
-    let Some(rules) = hub_rules(node).await else {
+    let Some(rules) = hub_rules(node).await.into_iter().next() else {
         return Ok(None);
     };
     let hub = rules.id();

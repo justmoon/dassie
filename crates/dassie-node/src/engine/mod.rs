@@ -454,15 +454,21 @@ impl Engine {
         self.call(|core| Ok(core.peer_settings())).await
     }
 
-    /// The node's account in its settlement hub and its funding, while a
-    /// hub scheme runs.
-    pub async fn hub_status(&self) -> Result<Option<HubStatus>, EngineError> {
-        self.call(|core| Ok(core.hub_status())).await
+    /// The node's account in each settlement hub it is in and its
+    /// funding, for each hub scheme that runs.
+    pub async fn hub_statuses(&self) -> Result<Vec<HubStatus>, EngineError> {
+        self.call(|core| Ok(core.hub_statuses())).await
     }
 
-    /// The owner deposits into the hub from the XRPL account.
-    pub async fn hub_deposit(&self, amount: u64) -> Result<HubStatus, EngineError> {
-        self.call(move |core| core.hub_deposit(amount)).await
+    /// The owner deposits into the hub `hub` (its ID, or none for the
+    /// node's only hub) from the owner book of its asset.
+    pub async fn hub_deposit(
+        &self,
+        hub: Option<[u8; 32]>,
+        amount: u64,
+    ) -> Result<HubStatus, EngineError> {
+        self.call(move |core| core.hub_deposit_to(hub, amount))
+            .await
     }
 
     /// Pays `drops` from the XRPL testnet account to `destination`: the
@@ -479,9 +485,9 @@ impl Engine {
         .await
     }
 
-    /// The rules of the hub the node is a member of, while its scheme
+    /// The rules of each hub the node is a member of, while its scheme
     /// runs.
-    pub async fn hub_rules(&self) -> Result<Option<dassie_hub::Rules>, EngineError> {
+    pub async fn hub_rules(&self) -> Result<Vec<dassie_hub::Rules>, EngineError> {
         self.call(|core| Ok(core.hub_rules())).await
     }
 
@@ -499,27 +505,32 @@ impl Engine {
         .await
     }
 
-    /// The owner withdraws from the hub to the XRPL account.
-    pub async fn hub_withdraw(&self, amount: u64) -> Result<HubStatus, EngineError> {
-        self.call(move |core| core.hub_withdraw(amount)).await
+    /// The owner withdraws from the hub `hub` (its ID, or none for the
+    /// node's only hub) to the XRPL account.
+    pub async fn hub_withdraw(
+        &self,
+        hub: Option<[u8; 32]>,
+        amount: u64,
+    ) -> Result<HubStatus, EngineError> {
+        self.call(move |core| core.hub_withdraw_from(hub, amount))
+            .await
     }
 
-    /// The owner gives up the late move between the hub and the XRPL
-    /// account.
-    pub async fn hub_give_up(&self) -> Result<HubStatus, EngineError> {
-        self.call(|core| core.hub_give_up()).await
+    /// The owner gives up the late move between the hub `hub` (its ID, or
+    /// none for the node's only hub) and the owner book of its asset.
+    pub async fn hub_give_up(&self, hub: Option<[u8; 32]>) -> Result<HubStatus, EngineError> {
+        self.call(move |core| core.hub_give_up(hub)).await
     }
 
-    /// Turns the node's own moves to and from the hub on or off.
+    /// Turns the node's own moves to and from the hub `hub` (its ID, or
+    /// none for the node's only hub) on or off.
     pub async fn set_hub_automatic(
         &self,
+        hub: Option<[u8; 32]>,
         automatic: bool,
-    ) -> Result<Option<HubStatus>, EngineError> {
-        self.call(move |core| {
-            core.set_hub_automatic(automatic)?;
-            Ok(core.hub_status())
-        })
-        .await
+    ) -> Result<HubStatus, EngineError> {
+        self.call(move |core| core.set_hub_automatic(hub, automatic))
+            .await
     }
 
     /// Changes the owner's peer settings.

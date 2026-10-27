@@ -710,3 +710,73 @@ fn devices_are_kept_up_to_their_bound() {
     assert_eq!(store.device(&first).unwrap(), None);
     store.add_device(&device(200, 3_000)).unwrap();
 }
+
+// spec/areas/hubs.md#in-the-node: a new node keeps no row for any hub, and
+// a hub without a row reads as one with nothing on its way and the node's
+// own moves on.
+#[test]
+fn a_hub_without_a_row_reads_as_the_defaults() {
+    let store = Store::open_in_memory().unwrap();
+    assert!(store.hub_fundings().unwrap().is_empty());
+    let xrp = dassie_ledger::Name::new("hub-xrpl-testnet-xrp").unwrap();
+    assert_eq!(
+        store.hub_funding(xrp).unwrap(),
+        (true, HubFundingRow::default())
+    );
+}
+
+// spec/areas/hubs.md#in-the-node: each hub's moves are kept on their own,
+// so one hub's move, pause or choice never touches another's.
+#[test]
+fn each_hubs_funding_is_kept_on_its_own() {
+    let store = Store::open_in_memory().unwrap();
+    let xrp = dassie_ledger::Name::new("hub-xrpl-testnet-xrp").unwrap();
+    let dsusd = dassie_ledger::Name::new("hub-xrpl-testnet-dsusd").unwrap();
+    let xrp_row = HubFundingRow {
+        paused_until_ms: 0,
+        moving: Some(HubMoveRow {
+            deposit: false,
+            drops: 1_000_000,
+            target: 1_000_100,
+            payment: "out-1".into(),
+            by_owner: false,
+            sent_ms: 9,
+            applied_ms: None,
+        }),
+        given_up: None,
+    };
+    let dsusd_row = HubFundingRow {
+        paused_until_ms: 40,
+        moving: None,
+        given_up: Some((true, 5)),
+    };
+    store
+        .commit_ledger(&LedgerBatch {
+            at_ms: 1,
+            hub_automatic: [(dsusd, false)].into(),
+            hub_funding: [(xrp, xrp_row.clone()), (dsusd, dsusd_row.clone())].into(),
+            ..LedgerBatch::default()
+        })
+        .unwrap();
+    assert_eq!(store.hub_funding(xrp).unwrap(), (true, xrp_row.clone()));
+    assert_eq!(store.hub_funding(dsusd).unwrap(), (false, dsusd_row));
+    // The XRP hub's move done, and its own moves turned off: the DSUSD
+    // hub's stay as they were.
+    let done = HubFundingRow {
+        moving: None,
+        ..xrp_row
+    };
+    store
+        .commit_ledger(&LedgerBatch {
+            at_ms: 2,
+            hub_automatic: [(xrp, false)].into(),
+            hub_funding: [(xrp, done.clone())].into(),
+            ..LedgerBatch::default()
+        })
+        .unwrap();
+    let all = store.hub_fundings().unwrap();
+    assert_eq!(all.len(), 2);
+    assert_eq!(all[&xrp], (false, done));
+    assert_eq!(all[&dsusd].1.given_up, Some((true, 5)));
+    assert!(!all[&dsusd].0);
+}

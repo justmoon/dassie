@@ -14,8 +14,9 @@ use dassie_ilp::{Address, ErrorCode, Prepare, Response};
 use dassie_ledger::Name;
 use dassie_ledger::{AccountName, AccountPath, MAX_TOTAL};
 use dassie_oer::Decode;
-use dassie_peer::wire::HubMembership;
-use dassie_settlement::{Commitments, Decided, HoldsWith, Promised, policy};
+use dassie_peer::MAX_OWN_HUBS;
+use dassie_peer::wire::{HubListing, HubMembership, SchemeId};
+use dassie_settlement::{Commitments, Decided, HoldsWith, Membership, Promised, policy};
 
 use super::Core;
 use super::events::SettlementEvent;
@@ -80,6 +81,37 @@ pub(super) fn hub_credit(holds: HoldsWith, settling: u64) -> u64 {
     holds.toward.saturating_add(settling).min(MAX_TOTAL)
 }
 
+/// The hubs our link state lists, from the membership of each scheme over
+/// a hub, in the schemes' order: at most [`MAX_OWN_HUBS`], each hub and each
+/// scheme once, the first scheme of a hub naming it. Each takes peers over
+/// its hub.
+fn listings(memberships: impl IntoIterator<Item = (Name, Membership)>) -> Vec<HubListing> {
+    let mut listings: Vec<HubListing> = Vec::new();
+    for (scheme, membership) in memberships {
+        let Some(scheme) = SchemeId::parse(scheme.as_str()) else {
+            continue;
+        };
+        let named = listings
+            .iter()
+            .any(|listing| listing.scheme == scheme || listing.membership.hub_id == membership.hub);
+        if named {
+            continue;
+        }
+        if listings.len() == MAX_OWN_HUBS {
+            break;
+        }
+        listings.push(HubListing {
+            scheme,
+            membership: HubMembership {
+                hub_id: membership.hub,
+                account: membership.account,
+                takes_peers: true,
+            },
+        });
+    }
+    listings
+}
+
 impl Core {
     /// The scheme and the peer's name, if the peering with `node` is over a
     /// hub: its scheme signs promises per packet. A peering being ended
@@ -95,24 +127,33 @@ impl Core {
             .flatten()
     }
 
-    /// The settlement hub we are a member of, as our link state names it
-    /// (spec/designs/settlement-hubs.md#11-choosing-a-hub): that of the
-    /// first scheme over a hub that runs and has an account in it.
-    pub(super) fn hub_membership(&mut self) -> Option<HubMembership> {
+    /// The settlement hubs we are a member of, as our link state lists them
+    /// (spec/designs/settlement-hubs.md#11-choosing-a-hub): one per scheme
+    /// over a hub that runs and has an account in it, as the scheme reports
+    /// it (`Commitments::membership`), in the order of the schemes.
+    pub(super) fn hub_listings(&mut self) -> Vec<HubListing> {
         let hubs: Vec<Name> = self
             .schemes
             .iter()
             .filter(|(_, active)| active.over_hub)
             .map(|(name, _)| *name)
             .collect();
-        hubs.into_iter().find_map(|scheme| {
-            let membership = self.with_commitments(scheme, |c| c.membership())??;
-            Some(HubMembership {
-                hub_id: membership.hub,
-                account: membership.account,
-                takes_peers: true,
+        let memberships: Vec<(Name, Membership)> = hubs
+            .into_iter()
+            .filter_map(|scheme| {
+                let membership = self.with_commitments(scheme, |c| c.membership())??;
+                Some((scheme, membership))
             })
-        })
+            .collect();
+        listings(memberships)
+    }
+
+    /// The first of the hubs we are a member of, which the hub extension of
+    /// our link state names for nodes that read no list.
+    pub(super) fn hub_membership(&mut self) -> Option<HubMembership> {
+        self.hub_listings()
+            .first()
+            .map(|listing| listing.membership)
     }
 
     /// Each peering over a hub, and each peer a scheme over a hub holds
@@ -276,16 +317,13 @@ impl Core {
         }
     }
 
-    /// Names in our link state the hub we are a member of now, if that
-    /// changed: a new link state follows.
+    /// Lists in our link state the hubs we are a member of now, if that
+    /// changed: a new link state follows. The node's hubs change with its
+    /// schemes, so their funding follows them here too.
     pub(super) fn advertise_hub(&mut self) {
-        let hub = self.hub_membership();
-        if self.peer.own_info().hub == hub {
-            return;
-        }
-        let mut info = self.peer.own_info().clone();
-        info.hub = hub;
-        self.peer.set_own_info(self.now_ms, info);
+        let hubs = self.hub_listings();
+        self.peer.set_own_hubs(self.now_ms, hubs);
+        self.follow_hubs();
     }
 
     /// Runs `f` on the commitments side of `scheme`, if it has one.
@@ -530,5 +568,68 @@ impl Core {
             &mut self.up,
         );
         self.responded(now, responded, None);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn member(scheme: &str, hub: u8, account: u32) -> (Name, Membership) {
+        (
+            Name::new(scheme).unwrap(),
+            Membership {
+                hub: [hub; 32],
+                account,
+            },
+        )
+    }
+
+    // spec/areas/peer-protocol.md#link-states: the link state lists every
+    // hub the node is a member of, each with its scheme, in the schemes'
+    // order; the first is the one the hub extension names.
+    #[test]
+    fn every_hub_is_listed_with_its_scheme() {
+        let listed = listings([
+            member("hub-xrpl-testnet-dsusd", 2, 9),
+            member("hub-xrpl-testnet-xrp", 1, 4),
+        ]);
+        let named: Vec<(&str, [u8; 32], u32)> = listed
+            .iter()
+            .map(|listing| {
+                (
+                    listing.scheme.as_str(),
+                    listing.membership.hub_id,
+                    listing.membership.account,
+                )
+            })
+            .collect();
+        assert_eq!(
+            named,
+            [
+                ("hub-xrpl-testnet-dsusd", [2; 32], 9),
+                ("hub-xrpl-testnet-xrp", [1; 32], 4)
+            ]
+        );
+        assert!(listed.iter().all(|listing| listing.membership.takes_peers));
+        assert!(dassie_peer::wire::HubList(listed).is_valid());
+        assert!(listings([]).is_empty());
+    }
+
+    // A hub is named once, by its first scheme, and the list is bounded.
+    #[test]
+    fn the_list_names_each_hub_once_and_is_bounded() {
+        let listed = listings([
+            member("x", 5, 0),
+            member("aa", 1, 1),
+            member("bb", 1, 2),
+            member("cc", 3, 3),
+        ]);
+        let schemes: Vec<&str> = listed.iter().map(|l| l.scheme.as_str()).collect();
+        assert_eq!(schemes, ["aa", "cc"], "no scheme the wire cannot name");
+        let many = (0..10u8).map(|n| member(&format!("hub-{n}"), n, 0));
+        let listed = listings(many);
+        assert_eq!(listed.len(), MAX_OWN_HUBS);
+        assert!(dassie_peer::wire::HubList(listed).is_valid());
     }
 }

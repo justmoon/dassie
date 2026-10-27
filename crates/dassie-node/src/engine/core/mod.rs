@@ -381,8 +381,10 @@ pub struct Core {
     sweeps: Sweeps,
     /// What the core reports, until it is handed over.
     events: Events,
-    /// Moving the owner's funds between the XRPL account and the hub.
-    funding: hub_funding::Funding,
+    /// Moving the owner's funds between each hub the node is in and the
+    /// owner book of its asset, by the scheme over the hub: at most
+    /// `dassie_peer::MAX_OWN_HUBS`.
+    funding: BTreeMap<Name, hub_funding::Funding>,
 }
 
 /// The exchange rates, and the price table the connector charges transit and
@@ -523,7 +525,7 @@ impl Core {
             peer_settings: PeerSettings::DEFAULT,
             sweeps: Sweeps::DUE,
             events: Events::new(),
-            funding: hub_funding::Funding::new(now_ms, policies.settlement_interval_ms),
+            funding: BTreeMap::new(),
         };
         core.restore()?;
         Ok(core)
@@ -537,9 +539,9 @@ impl Core {
             self.prices.rates.set_at(code, rate, as_of_ms);
         }
         self.peer_settings = store.peer_settings().map_err(text)?;
-        self.load_funding()?;
         self.load_tokens(&store).map_err(text)?;
         self.load_schemes(&store)?;
+        self.load_funding()?;
         self.load_incoming()?;
         self.load_outgoing()?;
         self.update_peer_schemes();
@@ -729,8 +731,8 @@ impl Core {
             && batch.tokens_created.is_empty()
             && batch.tokens_revoked.is_empty()
             && batch.token_caps.is_empty()
-            && batch.hub_automatic.is_none()
-            && batch.hub_funding.is_none());
+            && batch.hub_automatic.is_empty()
+            && batch.hub_funding.is_empty());
         self.changes.network |= !batch.peer.is_empty();
         self.changes.payments |= batch.changes_payments();
         self.batch.at_ms = self.now_ms;
