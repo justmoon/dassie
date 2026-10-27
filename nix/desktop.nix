@@ -7,11 +7,10 @@
 # library path.
 #
 # The package builds in release, as owners install it. With `check`, the
-# flake's check builds it in the ci profile (Cargo.toml), and first runs
-# clippy and the app's tests on the same build, so that the workspace's
-# crates compile once for all three: the code is the same, every
-# `debug_assertions` in it a run-time switch, and how well the app is
-# optimized is not what the check checks.
+# flake's check builds it in the desktop-check profile (Cargo.toml), with
+# debug assertions off as in release, so that it compiles the code the
+# package ships, Tauri's included, and first runs clippy and the app's tests
+# on the same build, so that the crates compile once for all three.
 {
   lib,
   pkgs,
@@ -39,7 +38,7 @@ let
     pname = "dassie-desktop";
     strictDeps = true;
     cargoExtraArgs = "--locked -p dassie-desktop";
-    CARGO_PROFILE = if check then "ci" else "release";
+    CARGO_PROFILE = if check then "desktop-check" else "release";
     doCheck = false;
     nativeBuildInputs =
       desktopLibs.nativeBuildInputs ++ [ pkgs.wrapGAppsHook3 ] ++ lib.optional check pkgs.cargo-nextest;
@@ -57,7 +56,7 @@ craneLib.buildPackage (
     DASSIE_BUILD_VERSION = version;
     preBuild = lib.optionalString check ''
       cargoWithProfile clippy --locked -p dassie-desktop --all-targets -- -D warnings
-      cargo nextest run --cargo-profile ci --profile ci --locked -p dassie-desktop \
+      cargo nextest run --cargo-profile desktop-check --profile ci --locked -p dassie-desktop \
         --color never --show-progress none
     '';
     preFixup = ''

@@ -279,8 +279,8 @@
 
           # The desktop app (nix/desktop.nix), with the wallet built in, on
           # x86_64-linux, where the wallet is built: `nix run .#desktop`.
-          # The package builds in release; its check, below, in
-          # desktop-check.
+          # The package builds in release; its check, below, in Cargo's
+          # desktop-check profile.
           desktopIn =
             check:
             import ./nix/desktop.nix {

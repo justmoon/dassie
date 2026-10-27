@@ -86,13 +86,21 @@ strip = true
 [profile.e2e]
 inherits = "dev"
 
-# The desktop app's Nix check (nix/desktop.nix), which builds with Cargo:
-# the test profile's settings, under a name that does not put `cargo check`
-# and clippy in test mode, which would lint only cfg(test) code. nix/rust
-# builds the other crates with the same checks on
-# (spec/decisions/crate-by-crate-builds.md).
+# The flake's crane builds (flake.nix): the test profile's settings, under
+# a name that does not put `cargo check` and clippy in test mode, which
+# would lint only cfg(test) code. nix/rust builds the crates with the same
+# checks on (spec/decisions/crate-by-crate-builds.md).
 [profile.ci]
 inherits = "test"
+
+# The desktop app's check (nix/desktop.nix): ci's code, but with debug
+# assertions off, as the package builds it, since Tauri compiles other code
+# with them. Clippy, the app's tests and its package share the one build;
+# release's fat LTO, which made the check minutes slower, is not what it
+# checks.
+[profile.desktop-check]
+inherits = "ci"
+debug-assertions = false
 
 # The simulation runner, dassie-sim
 # (spec/decisions/random-seed-simulations.md): the test profile's code, so
