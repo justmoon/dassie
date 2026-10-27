@@ -28,6 +28,23 @@ export function Card(
   );
 }
 
+/**
+ * Kopje's value cube, drawn small for UI: its glyph as the brand page draws
+ * it (`#cube` in apps/website/brand/index.html), never redrawn. It is the
+ * only colored glyph, and marks value alone, such as a balance.
+ */
+export function ValueCube(): JSX.Element {
+  return (
+    <svg class="value-cube" viewBox="0 0 24 24" aria-hidden="true">
+      <g stroke="#2B2420" stroke-width="1.5" stroke-linejoin="round">
+        <path d="M12 2.5 20.5 7.2 12 12 3.5 7.2Z" fill="#DDB3F6" />
+        <path d="M3.5 7.2 12 12v9.5l-8.5-4.8Z" fill="#A85FE0" />
+        <path d="M20.5 7.2 12 12v9.5l8.5-4.8Z" fill="#C487EE" />
+      </g>
+    </svg>
+  );
+}
+
 /** A page's heading; the router focuses it on navigation. */
 export function PageTitle(props: ParentProps): JSX.Element {
   return <h1 tabindex="-1">{props.children}</h1>;

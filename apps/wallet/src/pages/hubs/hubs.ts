@@ -113,13 +113,25 @@ export function automaticText(
   if (!status.automatic) {
     return "Your node moves nothing by itself. You move funds yourself.";
   }
-  const until = status.pausedUntilUnixMs;
-  if (until !== undefined && Number(until) > nowMs) {
-    return `Your last move pauses your node's own moves ${
-      relativeTime(until, nowMs).replace(/^in /, "for ")
+  const left = status.pausedUntilUnixMs === undefined
+    ? 0
+    : Number(status.pausedUntilUnixMs) - nowMs;
+  if (left >= 1_000) {
+    return `Your last move pauses your node's own moves for ${
+      durationText(left)
     } more. Then it keeps this account between its floor and ceiling by itself again.`;
   }
   return "Your node keeps this account between its floor and ceiling by itself.";
+}
+
+/** A duration of at least a second, for people, rounded up to the unit it
+ * is shown in, so what is left never reads as nothing. */
+export function durationText(ms: number): string {
+  const seconds = Math.ceil(ms / 1_000);
+  if (seconds < 60) return `${seconds} s`;
+  if (seconds < 3_600) return `${Math.ceil(seconds / 60)} min`;
+  if (seconds < 86_400) return `${Math.ceil(seconds / 3_600)} h`;
+  return `${Math.ceil(seconds / 86_400)} d`;
 }
 
 /** A hold toward a peer or from one, as the page lists it. */

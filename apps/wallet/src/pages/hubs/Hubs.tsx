@@ -6,8 +6,8 @@
  * and each hub's payout once it ended or stalled
  * (spec/areas/hubs.md#payout-bundles). No stream carries hubs, so the page
  * asks again every few seconds while it shows (spec/areas/wallet.md#live-data).
- * It draws in Kopje (apps/website/brand/index.html): violet only for the
- * balance, ember for action.
+ * It draws in Kopje (apps/website/brand/index.html): the value cube only
+ * beside the balance, ember for action.
  */
 
 import type { JSX } from "@solidjs/web";
@@ -45,6 +45,7 @@ import {
   Field,
   PageTitle,
   Spinner,
+  ValueCube,
 } from "@dassie/ui/ui";
 import { schemeName } from "../schemes.ts";
 import {
@@ -88,6 +89,10 @@ function pollHubs(): PolledHubs {
   >(new Map());
   const [now, setNow] = createSignal(Date.now());
   let asking = false;
+  // How many answers of actions the page took: a poll that started before
+  // the latest of them answers with the state from before it, and is
+  // dropped.
+  let taken = 0;
   let payoutsAskedMs = Number.NEGATIVE_INFINITY;
   const askPayouts = async (list: readonly HubStatus[]) => {
     const next = new Map<string, GetHubPayoutResponse>();
@@ -108,8 +113,10 @@ function pollHubs(): PolledHubs {
   const ask = async () => {
     if (asking) return;
     asking = true;
+    const takenBefore = taken;
     try {
       const answer = await client.call("getHubStatus", {});
+      if (taken !== takenBefore) return;
       setHubs(answer.hubs);
       setError(undefined);
       setNow(Date.now());
@@ -131,7 +138,10 @@ function pollHubs(): PolledHubs {
     error,
     payouts,
     now,
-    take: (status) => setHubs(withHub(hubs() ?? [], status)),
+    take: (status) => {
+      taken += 1;
+      setHubs(withHub(hubs() ?? [], status));
+    },
   };
 }
 
@@ -244,7 +254,7 @@ function HubAccount(
   return (
     <>
       <div class="hub-balance">
-        <span class="value-mark" aria-hidden="true" />
+        <ValueCube />
         <div>
           <p class="muted">Yours to spend in the hub</p>
           <Amount
@@ -452,12 +462,8 @@ function Moves(
           </Alert>
         )}
       </Show>
-      <form
-        onSubmit={(event: SubmitEvent) => {
-          event.preventDefault();
-          void move("deposit");
-        }}
-      >
+      {/* Enter moves nothing: the owner picks which way with a button. */}
+      <form onSubmit={(event: SubmitEvent) => event.preventDefault()}>
         <Field
           label={`Amount, in ${props.currency.code}`}
           for={field}
@@ -476,16 +482,17 @@ function Moves(
           <button
             type="button"
             data-testid={`hub-withdraw-${id()}`}
-            disabled={busy() || props.status.moving !== undefined}
+            disabled={busy()}
             onClick={() => void move("withdraw")}
           >
             Withdraw
           </button>
           <button
-            type="submit"
+            type="button"
             class="primary"
             data-testid={`hub-deposit-${id()}`}
-            disabled={busy() || props.status.moving !== undefined}
+            disabled={busy()}
+            onClick={() => void move("deposit")}
           >
             Deposit
           </button>

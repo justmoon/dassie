@@ -54,9 +54,9 @@
  * Kopje, Dassie's visual identity (apps/website/brand/index.html), for a
  * part of a page that already draws in it: the tokens above, taken from
  * Kopje's palette, light and dusk. Daylight surfaces, Warm Stone rules,
- * Ink text, Ember for action, and Violet Crystal for value alone, never
- * text or a button. Kopje's fonts are the website's; here each falls back
- * to the system's.
+ * Ink text, Ember for action, and Violet Crystal for value alone, in the
+ * value cube (`ValueCube`), never text or a button. Kopje's fonts are the
+ * website's; here each falls back to the system's.
  */
 .kopje {
   --surface: light-dark(#fbf6ee, #2a221d);
@@ -67,7 +67,6 @@
   --accent: light-dark(#a94e2a, #e58a57);
   --accent-text: #fbf6ee;
   --ember: #a94e2a;
-  --value: #a85fe0;
   --font: "Figtree", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --mono: "DM Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
   color: var(--text);
@@ -88,15 +87,11 @@
   font-family: var(--mono);
 }
 
-/* The cube, Kopje's mark of value, beside a balance. */
-.value-mark {
-  display: inline-block;
+/* Kopje's value cube (`ValueCube`), beside a balance. */
+.value-cube {
   flex: none;
-  width: 14px;
-  height: 14px;
-  background: var(--value, #a85fe0);
-  border-radius: 2px;
-  transform: rotate(45deg);
+  width: 24px;
+  height: 24px;
 }
 
 *,

@@ -13,6 +13,7 @@ import {
 import { currencyOf } from "@dassie/ui/currency";
 import {
   automaticText,
+  durationText,
   givenUpText,
   holdRows,
   holdsTotal,
@@ -107,6 +108,31 @@ test("whether the node moves funds by itself, and its pause", () => {
     ),
     "Your last move pauses your node's own moves for 1 h more. Then it keeps this account between its floor and ceiling by itself again.",
   );
+  // Less than a second left is no pause; a second or more never reads as
+  // nothing.
+  assertEquals(
+    automaticText(
+      { automatic: true, pausedUntilUnixMs: BigInt(NOW + 400) },
+      NOW,
+    ),
+    "Your node keeps this account between its floor and ceiling by itself.",
+  );
+  assertMatch(
+    automaticText(
+      { automatic: true, pausedUntilUnixMs: BigInt(NOW + 1_200) },
+      NOW,
+    ),
+    /for 2 s more/,
+  );
+});
+
+test("a duration left, rounded up", () => {
+  assertEquals(durationText(1_000), "1 s");
+  assertEquals(durationText(58_500), "59 s");
+  assertEquals(durationText(59_001), "1 min");
+  assertEquals(durationText(90_000), "2 min");
+  assertEquals(durationText(3_600_000), "1 h");
+  assertEquals(durationText(86_400_000), "1 d");
 });
 
 test("holds are listed as the node reports them", () => {
