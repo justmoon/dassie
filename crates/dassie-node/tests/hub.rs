@@ -6,10 +6,11 @@
 //! restarts goes on from what it stored; and a node that validates no such
 //! hub says so.
 
-// The validators run over real sockets, on the system's clock, or on one
-// the test moves where waiting on real time would make the outcome depend
-// on how busy the machine is: their timers are the production ones either
-// way (spec/areas/testing.md).
+// The validators run over real sockets on a clock the test moves by hand,
+// and so do the member nodes beside them, on the same clock: their timers
+// are the production ones, and the test waits for a number of steps of that
+// clock, never for a span of real time, so that how busy the machine is
+// cannot decide the outcome (spec/areas/testing.md#over-real-sockets).
 #![allow(
     clippy::disallowed_types,
     clippy::unwrap_used,
@@ -34,7 +35,7 @@ use dassie_hub::service::wire::Message;
 use dassie_hub::{HubId, Millis};
 use dassie_identity::{NodeKey, PublicKey};
 use dassie_kit::ClientKey;
-use dassie_node::clock::{Clock, ManualClock, SystemClock};
+use dassie_node::clock::{Clock, ManualClock};
 use dassie_node::hub::driver::Driver;
 use dassie_node::hub::service::{BACKOFF_MAX, EscrowLinks, HubTask, SEND_TIMEOUT};
 use dassie_node::hub::transport::{HubPermit, MAX_MEMBER_MESSAGE_BYTES, Route, StateReply};
@@ -220,13 +221,10 @@ struct Running {
     links: EscrowLinks,
 }
 
-fn start(node: &Node, rules: &Rules, genesis: Millis) -> Running {
-    start_on(node, rules, genesis, Arc::new(SystemClock))
-}
-
-/// [`start`], on `clock`.
-fn start_on(node: &Node, rules: &Rules, genesis: Millis, clock: Arc<dyn Clock>) -> Running {
+/// Starts `node`'s validator of the hub of `rules`, on `clock`.
+fn start(node: &Node, rules: &Rules, genesis: Millis, clock: &ManualClock) -> Running {
     let now = clock.now_ms();
+    let clock = Arc::new(clock.clone());
     let driver = Driver::open(Arc::clone(&node.store), rules, genesis, &node.key, now).unwrap();
     let client = HubClient::new(Some(Arc::clone(&node.quic)), client());
     let (task, links) = HubTask::new(driver, client, Arc::clone(&node.hubs), clock);
@@ -241,17 +239,6 @@ fn height(node: &Node) -> u64 {
         .statuses()
         .first()
         .map_or(0, |status| status.height)
-}
-
-/// Waits, 20 s at most, until `done`.
-async fn until(what: &str, mut done: impl FnMut() -> bool) {
-    for _ in 0..2_000 {
-        if done() {
-            return;
-        }
-        tokio::time::sleep(Duration::from_millis(10)).await;
-    }
-    panic!("not done in time: {what}");
 }
 
 /// How far the validators' clock moves at a time when the test moves it: a
@@ -277,9 +264,9 @@ const _: () = assert!(
 );
 
 /// Moves `clock` a step at a time until `done`, [`STEPS`] steps at most.
-async fn until_moved(clock: &ManualClock, what: &str, mut done: impl FnMut() -> bool) {
+async fn until_moved(clock: &ManualClock, what: &str, mut done: impl AsyncFnMut() -> bool) {
     for _ in 0..STEPS {
-        if done() {
+        if done().await {
             return;
         }
         clock.advance(STEP_MS);
@@ -291,19 +278,30 @@ async fn until_moved(clock: &ManualClock, what: &str, mut done: impl FnMut() -> 
 /// Asks every validator `request` at once, as a member does, until f + 1
 /// of them signed a statement alike, and returns it: validators answer as
 /// of their own final block, so they agree once f + 1 answer at one height.
-async fn ask(member: &HubClient, nodes: &[Node], rules: &Rules, request: Request) -> Statement {
+/// Between two rounds the validators' `clock` moves a step, so that one
+/// behind the others reaches their height.
+async fn ask(
+    clock: &ManualClock,
+    member: &HubClient,
+    nodes: &[Node],
+    rules: &Rules,
+    request: Request,
+) -> Statement {
     let hub = rules.id();
     let set = rules.validator_set().unwrap();
     let mut agreement = Agreement::new(hub, set, 4096);
     let message = Message::Request(request).to_vec();
     for _ in 0..50 {
+        // An exchange over loopback ends at once; its timeout is QUIC's
+        // and the connection's, in real time, so it only guards against
+        // a hang: a short one would fail the test on a busy machine.
         let asks = nodes.iter().map(|node| {
             member.exchange(
                 node.key.node_id(),
                 &node.endpoint,
                 &hub,
                 &message,
-                Duration::from_secs(5),
+                support::HANG,
             )
         });
         for replies in futures_util::future::join_all(asks).await {
@@ -316,6 +314,8 @@ async fn ask(member: &HubClient, nodes: &[Node], rules: &Rules, request: Request
                 }
             }
         }
+        clock.advance(STEP_MS);
+        tokio::time::sleep(Duration::from_millis(POLL_MS)).await;
     }
     panic!("no f + 1 validators agreed");
 }
@@ -325,9 +325,13 @@ async fn four_validators_finalize_blocks_over_quic_and_a_member_hears_them() {
     let shutdown = CancellationToken::new();
     let nodes: Vec<Node> = (1..=4).map(|seed| node(seed, &shutdown)).collect();
     let rules = rules(&nodes);
-    let genesis = SystemClock.now_ms();
-    let mut running: Vec<Running> = nodes.iter().map(|n| start(n, &rules, genesis)).collect();
-    until("blocks become final", || {
+    let clock = ManualClock::new(support::START_MS);
+    let genesis = clock.now_ms();
+    let mut running: Vec<Running> = nodes
+        .iter()
+        .map(|n| start(n, &rules, genesis, &clock))
+        .collect();
+    until_moved(&clock, "blocks become final", async || {
         nodes.iter().all(|n| height(n) >= 10)
     })
     .await;
@@ -338,7 +342,7 @@ async fn four_validators_finalize_blocks_over_quic_and_a_member_hears_them() {
         let attest = ValidatorOperation::AttestEscrow { sequence: 5 };
         validator.links.attest.send(attest).await.unwrap();
     }
-    until("a quorum checked the escrow", || {
+    until_moved(&clock, "a quorum checked the escrow", async || {
         nodes
             .iter()
             .all(|n| n.hubs.statuses().iter().all(|s| s.escrow_checked))
@@ -350,7 +354,7 @@ async fn four_validators_finalize_blocks_over_quic_and_a_member_hears_them() {
     let member = node(50, &shutdown);
     let member = HubClient::new(Some(Arc::clone(&member.quic)), client());
     let key = NodeKey::from_bytes(&[1; 32]).public_key();
-    let agreed = ask(&member, &nodes, &rules, Request::Account(key)).await;
+    let agreed = ask(&clock, &member, &nodes, &rules, Request::Account(key)).await;
     assert!(
         matches!(agreed, Statement::Account { account: None, .. }),
         "f + 1 validators agree there is no such account: {agreed:?}"
@@ -367,17 +371,18 @@ async fn four_validators_finalize_blocks_over_quic_and_a_member_hears_them() {
         .unwrap()
         .height;
     assert!(at >= 10);
-    until("the others go on without it", || {
+    until_moved(&clock, "the others go on without it", async || {
         [0, 1, 3].iter().all(|&i| height(&nodes[i]) >= at + 10)
     })
     .await;
-    running.insert(2, start(&nodes[2], &rules, genesis));
+    running.insert(2, start(&nodes[2], &rules, genesis, &clock));
     assert!(
         height(&nodes[2]) >= at,
         "it resumes from its last final block"
     );
     let others = height(&nodes[0]);
-    until("it catches up and goes on", || {
+    // The others hear of it once their backoff from it ends, on real time.
+    until_moved(&clock, "it catches up and goes on", async || {
         height(&nodes[2]) > others + 5
     })
     .await;
@@ -400,14 +405,12 @@ async fn a_node_that_validates_no_such_hub_resets_the_stream() {
     let message = Message::Request(Request::Account(key)).to_vec();
     let hub = HubId(dassie_hub::Digest([9; 32]));
     let to = validator.key.node_id();
+    // Each exchange's timeout, and the half of it a connection may take, are
+    // real time, so they only guard against a hang: a short one could end
+    // an exchange as these do, `Failed` or `Unreachable`, before the node
+    // did, or fail one that ran slowly on a busy machine.
     let answer = member
-        .exchange(
-            to,
-            &validator.endpoint,
-            &hub,
-            &message,
-            Duration::from_secs(5),
-        )
+        .exchange(to, &validator.endpoint, &hub, &message, support::HANG)
         .await;
     // Nothing past the hub's ID is read: the stream is reset.
     assert!(
@@ -418,13 +421,7 @@ async fn a_node_that_validates_no_such_hub_resets_the_stream() {
     // A key other than the validator's own is never reached.
     let stranger = NodeKey::from_bytes(&[3; 32]).node_id();
     let answer = member
-        .exchange(
-            stranger,
-            &validator.endpoint,
-            &hub,
-            &message,
-            Duration::from_secs(2),
-        )
+        .exchange(stranger, &validator.endpoint, &hub, &message, support::HANG)
         .await;
     assert_eq!(answer, Err(HubExchangeError::Unreachable));
     shutdown.cancel();
@@ -441,16 +438,21 @@ async fn a_member_node_hears_its_validators_through_its_engine() {
     let shutdown = CancellationToken::new();
     let nodes: Vec<Node> = (1..=4).map(|seed| node(seed, &shutdown)).collect();
     let rules = rules(&nodes);
-    let genesis = SystemClock.now_ms();
-    let running: Vec<Running> = nodes.iter().map(|n| start(n, &rules, genesis)).collect();
-    until("blocks become final", || {
+    let clock = ManualClock::new(support::START_MS);
+    let genesis = clock.now_ms();
+    let running: Vec<Running> = nodes
+        .iter()
+        .map(|n| start(n, &rules, genesis, &clock))
+        .collect();
+    until_moved(&clock, "blocks become final", async || {
         nodes.iter().all(|n| height(n) >= 3)
     })
     .await;
 
+    // The member runs on the validators' clock.
     let member = support::Bound::new()
         .start(
-            dassie_node::clock::ManualClock::new(support::START_MS),
+            clock.clone(),
             1,
             dassie_node::node::Policies::DEFAULT,
             // The test roots, as the other nodes of these tests trust them:
@@ -465,47 +467,37 @@ async fn a_member_node_hears_its_validators_through_its_engine() {
     let mut owner = member.ipc().await;
     let hex: String = rules.to_vec().iter().map(|b| format!("{b:02x}")).collect();
     let config = serde_json::json!({ "rules": hex }).to_string();
-    let mut added = None;
-    for _ in 0..200 {
-        let reply = owner
-            .call(Method::AddSettlementScheme(
-                proto::AddSettlementSchemeRequest {
-                    id: dassie_hub::member::SCHEME_ID.into(),
-                    config: config.clone(),
-                },
-            ))
-            .await;
-        if let Ok(response::Method::AddSettlementScheme(scheme)) = reply {
-            added = scheme.ledger;
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(10)).await;
-    }
-    let ledger = added.expect("the hub scheme is added").id;
-    let mut connection = proto::LedgerConnection::Unspecified;
-    for _ in 0..1_000 {
-        let Ok(response::Method::ListLedgers(list)) = owner
-            .call(Method::ListLedgers(proto::ListLedgersRequest {}))
-            .await
-        else {
-            panic!("no ledgers");
-        };
-        let hub = list.ledgers.iter().find(|l| l.id == ledger).unwrap();
-        connection = proto::LedgerConnection::try_from(hub.connection).unwrap();
-        if connection == proto::LedgerConnection::Unfunded {
-            break;
-        }
-        // The account asks again on its own timers, which run on the
-        // member's clock: an exchange lost to a slow machine is asked again,
-        // as in a running node.
-        member.clock.advance(250);
-        tokio::time::sleep(Duration::from_millis(20)).await;
-    }
-    assert_eq!(
-        connection,
-        proto::LedgerConnection::Unfunded,
-        "f + 1 validators agree the account does not exist yet"
-    );
+    member.engine_started().await;
+    let reply = owner
+        .call(Method::AddSettlementScheme(
+            proto::AddSettlementSchemeRequest {
+                id: dassie_hub::member::SCHEME_ID.into(),
+                config,
+            },
+        ))
+        .await;
+    let Ok(response::Method::AddSettlementScheme(scheme)) = reply else {
+        panic!("the hub scheme is not added: {reply:?}");
+    };
+    let ledger = scheme.ledger.expect("the hub scheme names its ledger").id;
+    // The account asks again on its own timers, which run on the shared
+    // clock: an exchange lost to a slow machine is asked again, as in a
+    // running node.
+    until_moved(
+        &clock,
+        "f + 1 validators agree the account does not exist yet",
+        async || {
+            let Ok(response::Method::ListLedgers(list)) = owner
+                .call(Method::ListLedgers(proto::ListLedgersRequest {}))
+                .await
+            else {
+                panic!("no ledgers");
+            };
+            let hub = list.ledgers.iter().find(|l| l.id == ledger).unwrap();
+            hub.connection() == proto::LedgerConnection::Unfunded
+        },
+    )
+    .await;
     member.stop().await;
     shutdown.cancel();
     for validator in running {
@@ -526,9 +518,11 @@ async fn a_validator_far_behind_catches_up_from_a_peers_state() {
     let rules = rules(&nodes);
     let clock = ManualClock::new(support::START_MS);
     let genesis = clock.now_ms();
-    let start = |node: &Node| start_on(node, &rules, genesis, Arc::new(clock.clone()));
-    let mut running: Vec<Running> = nodes.iter().map(start).collect();
-    until_moved(&clock, "blocks become final", || {
+    let mut running: Vec<Running> = nodes
+        .iter()
+        .map(|n| start(n, &rules, genesis, &clock))
+        .collect();
+    until_moved(&clock, "blocks become final", async || {
         nodes.iter().all(|n| height(n) >= 5)
     })
     .await;
@@ -547,14 +541,16 @@ async fn a_validator_far_behind_catches_up_from_a_peers_state() {
     // Each keeps its last RETAINED_BLOCKS final blocks: past this, the
     // block after `at` is gone from every one of them.
     let past = at + u64::try_from(dassie_hub::consensus::RETAINED_BLOCKS).unwrap();
-    until_moved(&clock, "the others finalize past what they keep", || {
-        (0..3).all(|i| height(&nodes[i]) > past)
-    })
+    until_moved(
+        &clock,
+        "the others finalize past what they keep",
+        async || (0..3).all(|i| height(&nodes[i]) > past),
+    )
     .await;
 
     // The others hear of it once their backoff from it ends, on real time.
-    running.push(start(&nodes[3]));
-    until_moved(&clock, "it catches up through a peer's state", || {
+    running.push(start(&nodes[3], &rules, genesis, &clock));
+    until_moved(&clock, "it catches up through a peer's state", async || {
         nodes[3]
             .hubs
             .statuses()
@@ -564,7 +560,7 @@ async fn a_validator_far_behind_catches_up_from_a_peers_state() {
     .await;
     let caught = height(&nodes[3]);
     assert!(caught > past, "it took a state from after it left");
-    until_moved(&clock, "it finalizes again", || {
+    until_moved(&clock, "it finalizes again", async || {
         height(&nodes[3]) > caught + 5
     })
     .await;
@@ -612,10 +608,12 @@ async fn a_strangers_request_is_cut_at_the_member_bound() {
     let ask = |from: &Node, length: usize| {
         let client = HubClient::new(Some(Arc::clone(&from.quic)), client());
         let (to, endpoint) = (validator.key.node_id(), validator.endpoint.clone());
+        // The timeout only guards against a hang: one that ran out would
+        // end the exchange as `Failed`, as a cut one does.
         async move {
             let message = vec![0xff; length];
             client
-                .exchange(to, &endpoint, &hub, &message, Duration::from_secs(5))
+                .exchange(to, &endpoint, &hub, &message, support::HANG)
                 .await
         }
     };
@@ -701,26 +699,22 @@ fn deposits(
     })
 }
 
-/// Adds settlement scheme `id` with `config`, once the engine takes it.
+/// Adds settlement scheme `id` with `config`, once the engine runs.
 async fn add_scheme(node: &support::TestNode, id: &str, config: &str) {
-    use dassie_node::rpc::proto::{self, request::Method, response};
+    use dassie_node::rpc::proto::{self, request::Method};
 
-    let mut owner = node.ipc().await;
-    for _ in 0..200 {
-        let reply = owner
-            .call(Method::AddSettlementScheme(
-                proto::AddSettlementSchemeRequest {
-                    id: id.into(),
-                    config: config.into(),
-                },
-            ))
-            .await;
-        if let Ok(response::Method::AddSettlementScheme(_)) = reply {
-            return;
-        }
-        tokio::time::sleep(Duration::from_millis(10)).await;
-    }
-    panic!("{id} is not added");
+    node.engine_started().await;
+    let added = node
+        .ipc()
+        .await
+        .call(Method::AddSettlementScheme(
+            proto::AddSettlementSchemeRequest {
+                id: id.into(),
+                config: config.into(),
+            },
+        ))
+        .await;
+    assert!(added.is_ok(), "{id} is not added: {added:?}");
 }
 
 // spec/areas/hubs.md#in-the-node, end to end: a member node with its XRP
@@ -736,13 +730,17 @@ async fn a_member_node_opens_its_hub_account_by_a_deposit() {
     let shutdown = CancellationToken::new();
     let nodes: Vec<Node> = (1..=4).map(|seed| node(seed, &shutdown)).collect();
     let rules = rules(&nodes);
-    let genesis = SystemClock.now_ms();
-    let running: Vec<Running> = nodes.iter().map(|n| start(n, &rules, genesis)).collect();
+    let clock = ManualClock::new(support::START_MS);
+    let genesis = clock.now_ms();
+    let running: Vec<Running> = nodes
+        .iter()
+        .map(|n| start(n, &rules, genesis, &clock))
+        .collect();
     for validator in &running {
         let attest = ValidatorOperation::AttestEscrow { sequence: 5 };
         validator.links.attest.send(attest).await.unwrap();
     }
-    until("a quorum checked the escrow", || {
+    until_moved(&clock, "a quorum checked the escrow", async || {
         nodes
             .iter()
             .all(|n| n.hubs.statuses().iter().all(|s| s.escrow_checked))
@@ -766,9 +764,11 @@ async fn a_member_node_opens_its_hub_account_by_a_deposit() {
     .await
     .unwrap();
 
+    // The member, and the fake ledger's closes, run on the validators'
+    // clock.
     let member = support::Bound::new()
         .start(
-            dassie_node::clock::ManualClock::new(support::START_MS),
+            clock.clone(),
             1,
             dassie_node::node::Policies::DEFAULT,
             &[
@@ -779,7 +779,7 @@ async fn a_member_node_opens_its_hub_account_by_a_deposit() {
         .await;
     let member_key = NodeKey::from_bytes(&[60; 32]);
     support::set_up(&member, &member_key).await;
-    xrpl.close_on(Arc::new(member.clock.clone()));
+    xrpl.close_on(Arc::new(clock.clone()));
     let mut xrpl_config = serde_json::json!({ "server": xrpl.url, "faucet": null });
     if let (Some(config), Some(serde_json::Value::Object(publishers))) =
         (xrpl_config.as_object_mut(), xrpl.publishers())
@@ -801,11 +801,15 @@ async fn a_member_node_opens_its_hub_account_by_a_deposit() {
         .deposit_address;
     xrpl.ledger()
         .fund(dassie_xrpl::AccountId::parse(&address).unwrap());
-    support::pair::until(&member.clock, async || {
-        ledgers(&member).await.iter().any(|l| {
-            l.id == "xrpl-testnet-xrp+xrp" && l.connection() == proto::LedgerConnection::Synced
-        })
-    })
+    until_moved(
+        &clock,
+        "the member's XRP Ledger account is synced",
+        async || {
+            ledgers(&member).await.iter().any(|l| {
+                l.id == "xrpl-testnet-xrp+xrp" && l.connection() == proto::LedgerConnection::Synced
+            })
+        },
+    )
     .await;
     let hex: String = rules.to_vec().iter().map(|b| format!("{b:02x}")).collect();
     let hub_config = serde_json::json!({ "rules": hex }).to_string();
@@ -814,7 +818,10 @@ async fn a_member_node_opens_its_hub_account_by_a_deposit() {
     // Told it has no account, the node opens one from its XRP Ledger
     // account; the validators attest the deposit they see.
     let escrow = dassie_xrpl::AccountId(rules.terms.escrow);
-    support::pair::until(&member.clock, async || !deposits(&xrpl, escrow).is_empty()).await;
+    until_moved(&clock, "the member deposits", async || {
+        !deposits(&xrpl, escrow).is_empty()
+    })
+    .await;
     let made = deposits(&xrpl, escrow);
     let hub_key = dassie_hub::escrow::member_key(&member_key, &rules.id())
         .unwrap()
@@ -825,7 +832,7 @@ async fn a_member_node_opens_its_hub_account_by_a_deposit() {
         let attest = ValidatorOperation::AttestDeposit(made[0]);
         validator.links.attest.send(attest).await.unwrap();
     }
-    support::pair::until(&member.clock, async || {
+    until_moved(&clock, "the member reads its account", async || {
         hub_status(&member)
             .await
             .is_some_and(|s| s.account.is_some() && s.moving.is_none() && s.balance > 0)
@@ -841,7 +848,7 @@ async fn a_member_node_opens_its_hub_account_by_a_deposit() {
     // The deposit less the reserve and the fee of setting the disbursal
     // address.
     let expected = (made[0].amount - fees.account_reserve - fees.operation) * units;
-    support::pair::until(&member.clock, async || {
+    until_moved(&clock, "the books hold what the hub holds", async || {
         let balance = hub_status(&member).await.map(|s| s.balance);
         let booked = ledgers(&member)
             .await
