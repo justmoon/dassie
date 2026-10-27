@@ -106,13 +106,22 @@ pub trait PeeringHooks {
     /// capacity.
     fn entry(&self, node: NodeId, scheme: SchemeId, data: &[u8]) -> EntryPayment;
 
-    /// Whether peerings on `scheme` are over a settlement hub: each Prepare
-    /// on them comes with the payer's commitment, in a `hubPacket`, and
-    /// the reply to a Fulfill may carry the payer's claim
+    /// Whether methods on `scheme` are over a settlement hub: each Prepare
+    /// on them comes with the payer's commitment, in its `methodPacket`,
+    /// and the reply to a Fulfill may carry the payer's claim
     /// (spec/designs/settlement-hubs.md#4-peering-over-a-hub). A Prepare
-    /// without a commitment is refused on such a peering, and one with a
+    /// without a commitment is refused on such a method, and one with a
     /// commitment on any other.
     fn uses_commitments(&self, scheme: SchemeId) -> bool;
+
+    /// Whether the node takes a further settlement method on `scheme` with
+    /// `peer`, beside those their peering has
+    /// (spec/decisions/settlement-methods.md): whether it asks for one, as
+    /// the node that made the peering, and whether it takes the peer's
+    /// request for one. A method it takes opens its accounts as a
+    /// peering's first does, through [`accept`](Self::accept) or
+    /// [`finalize`](Self::finalize).
+    fn wants_method(&self, peer: NodeId, scheme: SchemeId) -> bool;
 
     /// Whether nothing is in flight with `peer` any more: no packet waits
     /// for its response, in either direction. A terminating peering ends

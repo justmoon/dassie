@@ -774,14 +774,21 @@ impl Core {
         // (spec/decisions/ending-a-peering.md).
         if let Ok(node) = dassie_identity::NodeId::parse(peer.as_str()) {
             self.settle.asked.remove(&node);
-            self.peer
-                .room(self.now_ms, &node, dassie_peer::Room::Enough);
+            let method = self.peer.peering_of(&node).and_then(|peering| {
+                peering
+                    .schemes()
+                    .find(|method| method.as_str() == scheme.as_str())
+            });
+            if let Some(method) = method {
+                self.peer
+                    .room(self.now_ms, &node, method, dassie_peer::Room::Enough);
+            }
             // Counted toward what it said was on its way only on the
             // peering's scheme, whose units the answer is in.
             if self
                 .peer
                 .peering_of(&node)
-                .is_some_and(|peering| peering.scheme.as_str() == scheme.as_str())
+                .is_some_and(|peering| peering.first().scheme.as_str() == scheme.as_str())
             {
                 self.peer.settlement_booked(self.now_ms, &node, amount);
             }
@@ -910,7 +917,7 @@ impl Core {
         let peers = self
             .peer
             .peers()
-            .filter(|(_, peering)| peering.scheme.as_str() == id.as_str())
+            .filter(|(_, peering)| peering.first().scheme.as_str() == id.as_str())
             .count();
         [
             (tokens, RemovalBlocker::BtpTokens(count(tokens))),

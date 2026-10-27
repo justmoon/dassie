@@ -1139,8 +1139,8 @@ fn a_junior_pays_its_senior_in_advance() {
         (1, 0)
     };
     assert!(!peering(&sim, junior).inbound, "both sides accepted");
-    assert_eq!(peering(&sim, senior).credit_out, 0);
-    assert_eq!(i128::from(peering(&sim, junior).credit_out), CREDIT);
+    assert_eq!(peering(&sim, senior).first().credit_out, 0);
+    assert_eq!(i128::from(peering(&sim, junior).first().credit_out), CREDIT);
     let (senior_id, junior_id) = (key(senior).node_id(), key(junior).node_id());
     assert_eq!(sim.owes(senior, &junior_id), 475_000_000, "paid in advance");
     assert_eq!(sim.owes(junior, &senior_id), -475_000_000);
@@ -1558,7 +1558,7 @@ fn on_unlimited_trust_nodes_pay_without_settling() {
     );
     for index in 0..2 {
         for peer in sim.core(index).network().peers {
-            assert_eq!(peer.peering.credit_out, policy::UNLIMITED_CREDIT);
+            assert_eq!(peer.peering.first().credit_out, policy::UNLIMITED_CREDIT);
         }
     }
     let credit = Policies::DEFAULT.peer_credit;

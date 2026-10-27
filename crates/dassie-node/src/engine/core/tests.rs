@@ -2097,13 +2097,13 @@ fn a_downlink_that_owes_nothing_is_never_short_of_room() {
     core.finish_step(&mut outputs);
     let id = downlink.node_id();
     assert!(core.peer.is_downlink(&id) && core.peer.peering_of(&id).is_some());
-    assert_eq!(core.peer.peering_of(&id).unwrap().credit_out, 0);
+    assert_eq!(core.peer.peering_of(&id).unwrap().first().credit_out, 0);
     let grace = Policies::DEFAULT.peer.advertise_short_grace_ms;
     for second in 2..=grace / 1_000 * 2 {
         core.begin_step(NOW + second * 1_000);
         core.finish_step(&mut outputs);
     }
-    assert_eq!(core.peer.peering_of(&id).unwrap().short_for_ms, 0);
+    assert_eq!(core.peer.peering_of(&id).unwrap().first().short_for_ms, 0);
 }
 
 /// A core node that takes at most `max_downlinks` downlinks, on the store.
@@ -3508,7 +3508,7 @@ fn xrpl_downlink_peers_on(
     );
     follow_xrpl(core, ledger);
     let peering = core.peer.peering_of(&id).expect("peered");
-    assert_eq!(peering.scheme.as_str(), scheme);
+    assert_eq!(peering.first().scheme.as_str(), scheme);
     id
 }
 
@@ -3595,8 +3595,8 @@ fn a_transfer_fee_asks_no_peer_and_ends_none_for_room() {
         "in the link state during a transfer fee"
     );
     core.settle.asked.remove(&id);
-    let short = core.peer.peering_of(&id).unwrap().short_for_ms;
-    let reached = core.peer.peering_of(&id).unwrap().short_reached_ms;
+    let short = core.peer.peering_of(&id).unwrap().first().short_for_ms;
+    let reached = core.peer.peering_of(&id).unwrap().first().short_reached_ms;
     check(&mut core, &mut ledger, &mut now);
     check(&mut core, &mut ledger, &mut now);
     assert!(
@@ -3605,11 +3605,12 @@ fn a_transfer_fee_asks_no_peer_and_ends_none_for_room() {
     );
     let peering = core.peer.peering_of(&id).unwrap();
     assert!(
-        peering.short_for_ms > short,
+        peering.first().short_for_ms > short,
         "short of room, toward withdrawing it"
     );
     assert_eq!(
-        peering.short_reached_ms, reached,
+        peering.first().short_reached_ms,
+        reached,
         "never toward ending it for room"
     );
 
@@ -3625,7 +3626,7 @@ fn a_transfer_fee_asks_no_peer_and_ends_none_for_room() {
         core.settle.asked.contains_key(&id),
         "asked once the fee is gone"
     );
-    assert!(core.peer.peering_of(&id).unwrap().short_reached_ms > reached);
+    assert!(core.peer.peering_of(&id).unwrap().first().short_reached_ms > reached);
 }
 
 /// A new incoming payment on the stub ledger, of the owner's or a
@@ -4211,7 +4212,10 @@ fn stub_core_with_downlink_on(store: Arc<Store>, config: &str) -> (Core, dassie_
     let mut outputs = Vec::new();
     core.finish_step(&mut outputs);
     let id = downlink.node_id();
-    assert_eq!(core.peer.peering_of(&id).unwrap().scheme.as_str(), "stub");
+    assert_eq!(
+        core.peer.peering_of(&id).unwrap().first().scheme.as_str(),
+        "stub"
+    );
     core.flush();
     (core, id)
 }
@@ -4284,7 +4288,8 @@ fn a_peering_on_a_disabled_scheme_ends_and_the_pair_peers_on_another() {
         .into_iter()
         .find(|node| node.id == id)
         .unwrap();
-    node.peering.as_mut().unwrap().scheme = dassie_peer::wire::SchemeId::parse(rlusd).unwrap();
+    node.peering.as_mut().unwrap().methods[0].scheme =
+        dassie_peer::wire::SchemeId::parse(rlusd).unwrap();
     let config = r#"{"server":"ws://ledger.test","faucet":null}"#;
     store
         .commit_ledger(&LedgerBatch {
@@ -4314,7 +4319,7 @@ fn a_peering_on_a_disabled_scheme_ends_and_the_pair_peers_on_another() {
     let mut core = core_taking_downlinks(Arc::clone(&store), Realm::Test, refused, start);
     assert!(core.schemes.is_empty(), "test RLUSD does not run");
     assert_eq!(
-        core.peer.peering_of(&id).unwrap().scheme.as_str(),
+        core.peer.peering_of(&id).unwrap().first().scheme.as_str(),
         rlusd,
         "its peering is loaded"
     );

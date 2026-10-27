@@ -85,7 +85,9 @@ impl PeerNode {
         let mut downlinks = 0;
         for node in stored.nodes {
             let mut entry = stored_entry(&node, self.config.link_state_rate);
-            if let Some(peering) = node.peering {
+            // A peering has a method, or it is none.
+            let peering = node.peering.filter(|peering| !peering.methods.is_empty());
+            if let Some(peering) = peering {
                 peered = true;
                 self.restore_peering(&mut entry, node.id, peering, node.termination);
             } else {
@@ -211,6 +213,18 @@ impl PeerNode {
         peering.depeering = peering
             .depeering
             .map(|depeering| Depeering::new(depeering.since_ms, depeering.reason));
+        // Each method on a scheme of its own, within the bound; the time
+        // short starts from the next check.
+        let mut seen = Vec::new();
+        peering.methods.retain(|method| {
+            let first = !seen.contains(&method.scheme);
+            seen.push(method.scheme);
+            first
+        });
+        peering.methods.truncate(super::MAX_METHODS);
+        for method in &mut peering.methods {
+            method.short_checked_ms = None;
+        }
         // Advertised at once if heard from recently: a restart does not
         // drop our neighbors (spec/decisions/peering-lifecycle.md).
         let confirmed = peering.heard_within(now, self.config.peer_confirm_ms);
@@ -294,17 +308,19 @@ impl PeerNode {
     }
 
     /// Notes what a settlement check found of the room our books give
-    /// `peer`. A peer short, settling nothing, for longer than
-    /// [`Config::advertise_short_grace_ms`](crate::Config) of checks at
-    /// which the node could ask is no longer advertised: it is stuck, not
+    /// `peer` on its method on `scheme`. A method short, settling nothing,
+    /// for longer than [`Config::advertise_short_grace_ms`](crate::Config)
+    /// of checks at which the node could ask is withdrawn, and the peer is
+    /// no longer advertised once all its methods are: it is stuck, not
     /// waiting for a routine settlement
-    /// (spec/decisions/peering-lifecycle.md). Of that time, only what passed
+    /// (spec/decisions/peering-lifecycle.md,
+    /// spec/decisions/settlement-methods.md). Of that time, only what passed
     /// while the last request to settle may have reached the peer counts
     /// toward ending the peering: one that cannot be reached is asked at
     /// every check, and each attempt fails before it reaches the peer, so it
     /// costs the peer nothing; nor does any time while no settlement from
     /// the peer could reach us ([`Room::ShortUnpayable`]).
-    pub fn room(&mut self, now_ms: u64, peer: &NodeId, room: Room) {
+    pub fn room(&mut self, now_ms: u64, peer: &NodeId, scheme: SchemeId, room: Room) {
         self.advance(now_ms);
         let now = self.now_ms;
         let Some(entry) = self.table.get_mut(peer) else {
@@ -313,35 +329,37 @@ impl PeerNode {
         let PeerState::Peered(peering) = &mut entry.peer else {
             return;
         };
-        let advertise = &mut entry.advertise;
-        let before = (peering.short_for_ms, peering.short_reached_ms);
+        let Some(method) = peering.method_mut(scheme) else {
+            return;
+        };
+        let before = (method.short_for_ms, method.short_reached_ms);
         match room {
             Room::Short { most_ms } | Room::ShortUnpayable { most_ms } => {
-                let since = advertise
+                let since = method
                     .short_checked_ms
                     .map_or(0, |at| now.saturating_sub(at).min(most_ms));
-                peering.short_for_ms = peering.short_for_ms.saturating_add(since);
+                method.short_for_ms = method.short_for_ms.saturating_add(since);
                 // Only time the peer could have restored its room counts
                 // toward ending the peering for it.
                 let payable = matches!(room, Room::Short { .. });
-                if payable && !advertise.settle_unreached {
-                    peering.short_reached_ms = peering.short_reached_ms.saturating_add(since);
+                if payable && !entry.advertise.settle_unreached {
+                    method.short_reached_ms = method.short_reached_ms.saturating_add(since);
                 }
-                advertise.short_checked_ms = Some(now);
+                method.short_checked_ms = Some(now);
             }
             Room::Enough => {
-                peering.short_for_ms = 0;
-                peering.short_reached_ms = 0;
-                advertise.short_checked_ms = None;
+                method.short_for_ms = 0;
+                method.short_reached_ms = 0;
+                method.short_checked_ms = None;
             }
             // The time until the next check that can judge does not count.
-            Room::Unjudged => advertise.short_checked_ms = None,
+            Room::Unjudged => method.short_checked_ms = None,
         }
         assert!(
-            peering.short_reached_ms <= peering.short_for_ms,
+            method.short_reached_ms <= method.short_for_ms,
             "more time short while reached than short"
         );
-        if (peering.short_for_ms, peering.short_reached_ms) != before {
+        if (method.short_for_ms, method.short_reached_ms) != before {
             self.dirty.insert(*peer);
         }
     }
@@ -614,9 +632,32 @@ impl PeerNode {
     }
 
     /// Each entry's invariants: peers have channels, sources and keys, and
-    /// only active peers are advertised.
+    /// a method or more each on a scheme of its own; only active peers are
+    /// advertised.
     fn check_entries(&self) {
+        assert!(
+            self.dropping
+                .keys()
+                .all(|(node, _)| self.peering_of(node).is_some()),
+            "only methods of peerings are dropped"
+        );
         for (id, entry) in &self.table {
+            if let Some(peering) = entry.peering() {
+                let methods = &peering.methods;
+                assert!(
+                    (1..=super::MAX_METHODS).contains(&methods.len()),
+                    "a peering has a method, within the bound"
+                );
+                assert!(
+                    methods.iter().enumerate().all(|(index, method)| {
+                        methods
+                            .iter()
+                            .skip(index + 1)
+                            .all(|other| other.scheme != method.scheme)
+                    }),
+                    "a method per scheme"
+                );
+            }
             assert!(
                 entry.peering().is_none() || entry.key.is_none() || self.channels.contains_key(id),
                 "a peer we can reach has a channel"

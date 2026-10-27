@@ -171,7 +171,7 @@ impl OpensAccounts for PacketOpening<'_> {
             .peer
             .peering_of(&node)
             .filter(|_| self.peer.is_downlink(&node))?;
-        let scheme = Name::new(peering.scheme.as_str()).ok()?;
+        let scheme = Name::new(peering.first().scheme.as_str()).ok()?;
         let start = start_credit(self.schemes, scheme, self.senior_credit);
         let opened = self.opening.open(now_ms, ledger, node, on, start)?;
         self.last = opened.new.then_some((node, opened));
@@ -289,7 +289,7 @@ impl Core {
         };
         // Its packets book on them from now on, if it peers on this ledger.
         let peered_here = self.peer.peering_of(&node).is_some_and(|peering| {
-            Name::new(peering.scheme.as_str()).is_ok_and(|peered| {
+            Name::new(peering.first().scheme.as_str()).is_ok_and(|peered| {
                 self.schemes
                     .get(&peered)
                     .is_some_and(|active| active.scheme.ledger() == on)

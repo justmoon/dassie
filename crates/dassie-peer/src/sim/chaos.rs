@@ -2,8 +2,12 @@
 //! spec/decisions/random-seed-simulations.md): random sizes and bootstrap
 //! lists, a rough network, a forger sending copies of requests as its own,
 //! crashes, restarts and partitions, owners ending peerings and banning
-//! nodes, settlements, then a calm in which the network must converge,
-//! every termination finish and every settlement arrive exactly once.
+//! nodes, settlements, nodes that run a second scheme and stop and start
+//! either, so that peerings gain and drop settlement methods and end with
+//! their last, Prepares on each method, then a calm in which the network
+//! must converge, every termination finish, every settlement arrive
+//! exactly once and both ends of a peering hold the same methods: one on
+//! each scheme both run.
 
 use alloc::format;
 use alloc::string::String;
@@ -12,8 +16,9 @@ use alloc::vec::Vec;
 use dassie_identity::NodeId;
 use dassie_kit::sim::{Outcome, Run, SeededRng};
 
-use super::{Faults, Network, START, connected};
-use crate::wire::TerminationReason;
+use super::{Faults, Network, SECOND, START, STUB, connected, scheme};
+use crate::io::Event;
+use crate::wire::{SchemeId, TerminationReason};
 use crate::{Config, routing};
 
 /// The production settings: on the simulated clock a day costs seconds of
@@ -59,14 +64,40 @@ pub fn describe(seed: u64) -> String {
 }
 
 /// Runs the seed and checks the calm network it leaves, counting the
-/// forger's copies, so that a generator that stops sending them shows.
+/// forger's copies, the methods added and dropped and the Prepares taken on
+/// the second scheme's, so that a generator that stops reaching them
+/// shows.
 #[must_use]
 pub fn run(seed: u64) -> Run {
     let network = network(seed);
-    let forgeries = u64::try_from(network.forgeries).unwrap_or(u64::MAX);
+    let count = |n: usize| u64::try_from(n).unwrap_or(u64::MAX);
+    let forgeries = count(network.forgeries);
+    let added = count(events(&network, |event| {
+        matches!(event, Event::MethodAdded { .. })
+    }));
+    let dropped = count(events(&network, |event| {
+        matches!(event, Event::MethodDropped { .. })
+    }));
+    let second = network
+        .prepares_taken
+        .get(&scheme(SECOND))
+        .copied()
+        .unwrap_or(0);
     let mut run = Run::new(check(&network), network.trace);
     run.counts.insert("forgeries", forgeries);
+    run.counts.insert("methods added", added);
+    run.counts.insert("methods dropped", dropped);
+    run.counts.insert("prepares on a second method", second);
     run
+}
+
+/// How many of the network's events `wanted` picks.
+fn events(network: &Network, wanted: impl Fn(&Event) -> bool) -> usize {
+    network
+        .events
+        .iter()
+        .filter(|(_, event)| wanted(event))
+        .count()
 }
 
 /// Runs the seed: its size, its chaos, its calm.
@@ -74,6 +105,14 @@ pub fn run(seed: u64) -> Run {
 pub fn network(seed: u64) -> Network {
     let (mut rng, count, bootstraps) = size(seed);
     let mut network = Network::new(seed, count, bootstraps, CONFIG);
+    // Most nodes run a second scheme too, so most pairs settle on two
+    // methods; the others settle on one.
+    let second: Vec<bool> = (0..count).map(|_| rng.next_u64() % 4 != 0).collect();
+    for (index, runs) in second.iter().enumerate() {
+        if *runs {
+            network.set_running(index, scheme(SECOND), true);
+        }
+    }
     network.faults = Faults::ROUGH;
     let mut at = START;
     while at < START + CHAOS_MS {
@@ -83,11 +122,13 @@ pub fn network(seed: u64) -> Network {
     }
     network.faults = Faults::NONE;
     network.cut.clear();
-    for index in 0..count {
+    for (index, runs_second) in second.iter().enumerate() {
         if !network.is_up(index) {
             network.start(index);
         }
         network.nodes[index].hooks.busy.clear();
+        network.set_running(index, scheme(STUB), true);
+        network.set_running(index, scheme(SECOND), *runs_second);
         let banned: Vec<NodeId> = network.node(index).bans().copied().collect();
         network.act(index, |node, now| {
             for id in &banned {
@@ -95,8 +136,27 @@ pub fn network(seed: u64) -> Network {
             }
         });
     }
+    // Halfway through the calm, a Prepare on every method: one that only
+    // its sender holds, its drop lost with a restart, is told so, and asked
+    // for again if both run its scheme.
+    network.run_until(START + CHAOS_MS + CALM_MS / 2);
+    for index in 0..count {
+        prepare_on_each(&mut network, index);
+    }
     network.run_until(START + CHAOS_MS + CALM_MS);
     network
+}
+
+/// Node `index` sends a Prepare on each method of each of its peerings.
+fn prepare_on_each(network: &mut Network, index: usize) {
+    let methods: Vec<(NodeId, SchemeId)> = network
+        .node(index)
+        .active_peers()
+        .flat_map(|(peer, peering)| peering.schemes().map(move |scheme| (*peer, scheme)))
+        .collect();
+    for (peer, method) in methods {
+        network.prepare(index, peer, method);
+    }
 }
 
 fn chaos(network: &mut Network, rng: &mut SeededRng) {
@@ -130,7 +190,7 @@ fn lifecycle(network: &mut Network, rng: &mut SeededRng, index: usize) {
         let at = usize::try_from(rng.next_u64() % peers.len().max(1) as u64).unwrap();
         peers.get(at).copied()
     };
-    match rng.next_u64() % 4 {
+    match rng.next_u64() % 6 {
         0 => {
             if let Some(peer) = pick_peer(rng) {
                 network.act(index, |node, now| {
@@ -163,7 +223,7 @@ fn lifecycle(network: &mut Network, rng: &mut SeededRng, index: usize) {
                 network.settle(index, peer, amount);
             }
         }
-        _ => {
+        3 => {
             if let Some(peer) = pick_peer(rng) {
                 let busy = &mut network.nodes[index].hooks.busy;
                 if !busy.remove(&peer) {
@@ -171,6 +231,18 @@ fn lifecycle(network: &mut Network, rng: &mut SeededRng, index: usize) {
                 }
             }
         }
+        // The node stops running a scheme, or starts again: its methods on
+        // it are dropped, and a peering left with none ends.
+        4 => {
+            let toggled = scheme(if rng.next_u64().is_multiple_of(3) {
+                STUB
+            } else {
+                SECOND
+            });
+            let running = network.runs(index, toggled);
+            network.set_running(index, toggled, !running);
+        }
+        _ => prepare_on_each(network, index),
     }
 }
 
@@ -180,6 +252,7 @@ fn lifecycle(network: &mut Network, rng: &mut SeededRng, index: usize) {
 /// that did not converge in the calm, a liveness failure.
 fn check(network: &Network) -> Outcome {
     let result = forgeries(network)
+        .and_then(|()| misplaced(network))
         .and_then(|()| settlements(network))
         .and_then(|()| {
             converged(network).map_err(|problem| Outcome::liveness("converged", problem))
@@ -192,6 +265,14 @@ fn check(network: &Network) -> Outcome {
 fn forgeries(network: &Network) -> Result<(), Outcome> {
     match network.forgeries_taken.first() {
         Some(taken) => Err(Outcome::safety("forgeries", taken.clone())),
+        None => Ok(()),
+    }
+}
+
+/// Every Prepare taken on a method was sent on it.
+fn misplaced(network: &Network) -> Result<(), Outcome> {
+    match network.misplaced.first() {
+        Some(misplaced) => Err(Outcome::safety("methods", misplaced.clone())),
         None => Ok(()),
     }
 }
@@ -329,7 +410,35 @@ fn finished(network: &Network) -> Result<(), String> {
             if !node.is_advertised(peer) {
                 return Err(format!("node {index} does not advertise node {other}"));
             }
+            methods_agree(network, index, other)?;
         }
+    }
+    Ok(())
+}
+
+/// Both ends of the peering of nodes `index` and `other` hold the same
+/// methods: one on each scheme both run
+/// (spec/decisions/settlement-methods.md).
+fn methods_agree(network: &Network, index: usize, other: usize) -> Result<(), String> {
+    let both: Vec<SchemeId> = [scheme(STUB), scheme(SECOND)]
+        .into_iter()
+        .filter(|scheme| network.runs(index, *scheme) && network.runs(other, *scheme))
+        .collect();
+    let held = |from: usize, to: usize| -> Vec<SchemeId> {
+        let to = *network.node(to).own();
+        let mut schemes: Vec<SchemeId> = network
+            .node(from)
+            .peering_of(&to)
+            .map(|peering| peering.schemes().collect())
+            .unwrap_or_default();
+        schemes.sort_unstable();
+        schemes
+    };
+    let (ours, theirs) = (held(index, other), held(other, index));
+    if ours != both || theirs != both {
+        return Err(format!(
+            "nodes {index} and {other} run {both:?} and hold methods {ours:?} and {theirs:?}"
+        ));
     }
     Ok(())
 }

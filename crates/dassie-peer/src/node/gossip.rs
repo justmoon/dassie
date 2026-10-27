@@ -20,14 +20,12 @@ use crate::wire::{
 const ROUTES_PERIOD_MS: u64 = 60_000;
 
 /// Most extensions our own link state carries: the periphery one or a
-/// feed port, a hub, the methods one and a hub list
-/// ([`PeerNode::own_extensions`]). The methods one is budgeted, though no
-/// node issues it yet.
-const MAX_OWN_EXTENSIONS: usize = 4;
+/// feed port, a hub and a hub list ([`PeerNode::own_extensions`]).
+const MAX_OWN_EXTENSIONS: usize = 3;
 
 /// Most bytes their values take together: a feed port, a hub and a list of
-/// [`MAX_OWN_HUBS`] hubs, at the longest scheme IDs; the periphery and
-/// methods ones are empty.
+/// [`MAX_OWN_HUBS`] hubs, at the longest scheme IDs; the periphery one is
+/// empty.
 const MAX_OWN_EXTENSION_BYTES: usize =
     2 + HubMembership::ENCODED_BYTES + hub_list_bytes(MAX_OWN_HUBS);
 

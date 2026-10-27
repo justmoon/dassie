@@ -38,8 +38,10 @@ pub use io::{
     Response, SettlementAnswer, Stats,
 };
 pub use node::{
-    BanError, Bootstrap, MAX_OWN_HUBS, MAX_SCHEMES, MAX_UPLINKS, NodeView, OwnInfo, PeerNode,
-    PeerStatus, RegisterError, RegistrationStatus, SendError,
+    BanError, Bootstrap, MAX_METHODS, MAX_OWN_HUBS, MAX_SCHEMES, MAX_UPLINKS, NodeView, OwnInfo,
+    PeerNode, PeerStatus, RegisterError, RegistrationStatus, SendError,
 };
 pub use persist::{PeerBatch, Stored, StoredChannel, StoredClosed, StoredNode};
-pub use table::{Advertise, Depeering, Network, Peering, Registration, Room, Sources, Termination};
+pub use table::{
+    Advertise, Depeering, Method, Network, Peering, Registration, Room, Sources, Termination,
+};

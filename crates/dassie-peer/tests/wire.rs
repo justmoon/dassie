@@ -19,13 +19,13 @@ use dassie_identity::{NodeId, NodeKey, PublicKey, Signature};
 use dassie_oer::{Decode, Encode};
 use dassie_peer::names::{Commitment, MAX_NAME_BYTES, Name, Salt};
 use dassie_peer::wire::{
-    Content, EXTENSION_HUB, EXTENSION_HUBS, EXTENSION_METHODS, Entry, HubList, HubListing,
-    HubMembership, InvalidNodeInfo, Kind, LinkStateResponse, MAX_COMMITMENT_BYTES, MAX_HUBS,
-    MAX_NAME_LIST, MAX_NAME_LIST_BYTES, MAX_URL_BYTES, MethodResponse, NameHolding,
-    NameListResponse, NameReceipt, NodeInfo, NodeListResponse, PeeringRequest, PeeringResponse,
-    RefusalReason, SchemeId, SignedNodeInfo, TerminationReason, decode_expiry, decode_hash,
-    decode_octets, decode_settling, encode_expiry, encode_octets, encode_settling, hub_list_bytes,
-    is_valid_url, peek_kind, sign_node_info,
+    Content, EXTENSION_HUB, EXTENSION_HUBS, Entry, HubList, HubListing, HubMembership,
+    InvalidNodeInfo, Kind, LinkStateResponse, MAX_COMMITMENT_BYTES, MAX_HUBS, MAX_NAME_LIST,
+    MAX_NAME_LIST_BYTES, MAX_URL_BYTES, MethodResponse, NameHolding, NameListResponse, NameReceipt,
+    NodeInfo, NodeListResponse, PeeringRequest, PeeringResponse, RefusalReason, SchemeId,
+    SignedNodeInfo, TerminationReason, decode_expiry, decode_hash, decode_octets, decode_settling,
+    encode_expiry, encode_octets, encode_settling, hub_list_bytes, is_valid_url, peek_kind,
+    sign_node_info,
 };
 use proptest::prelude::*;
 use sha2::{Digest, Sha256};
@@ -218,7 +218,7 @@ fn node_lists_and_their_hashes_match_the_original() {
 }
 
 // An `interledgerPacket` is v0's without the length v0 wrapped its fields
-// in: flat, as a `hubPacket` is.
+// in: flat, as a `methodPacket` is.
 #[test]
 fn interledger_packets_are_flat() {
     let content = Content::InterledgerPacket {
@@ -616,39 +616,16 @@ fn tag_5_is_no_message() {
     assert!(Content::decode_exact(&[0x85, 4, b's', b't', b'u', b'b', 1, 0]).is_err());
 }
 
-// spec/areas/peer-protocol.md#message-set: `hubPacket [12]` carries a
-// Prepare with its commitment, which is never empty and bounded.
+// Tag 12 is reserved, as `hubPacket`, which `methodPacket` replaced, had
+// it: no message has it, so a node refuses one as malformed
+// (spec/areas/peer-protocol.md#versions).
 #[test]
-fn hub_packets_are_pinned_and_bounded() {
-    let content = Content::HubPacket {
-        request_id: 7,
-        packet: &[0x0c],
-        commitment: &[0xab, 0xab],
-    };
-    assert_eq!(to_hex(&content.to_vec()), "8c00000007010c02abab");
-    assert_eq!(Content::decode_exact(&content.to_vec()).unwrap(), content);
-    assert_eq!(Kind::from_tag(12), Some(Kind::HubPacket));
-    assert_eq!(content.kind(), Kind::HubPacket);
-    assert!(!Kind::HubPacket.is_read_only());
-    assert!(Kind::HubPacket.carries_packet() && Kind::InterledgerPacket.carries_packet());
+fn tag_12_is_no_message() {
+    assert_eq!(Kind::from_tag(12), None);
+    assert!(Content::decode_exact(&[0x8c]).is_err());
+    assert!(Content::decode_exact(&hex("8c00000007010c02abab")).is_err());
+    assert!(Kind::MethodPacket.carries_packet() && Kind::InterledgerPacket.carries_packet());
     assert!(!Kind::Settlement.carries_packet());
-    // An empty commitment, and one past the bound, are malformed.
-    assert!(Content::decode_exact(&hex("8c00000007010c00")).is_err());
-    let at_bound = Content::HubPacket {
-        request_id: 7,
-        packet: &[0x0c],
-        commitment: &[0xab; MAX_COMMITMENT_BYTES],
-    };
-    let mut bytes = at_bound.to_vec();
-    assert_eq!(Content::decode_exact(&bytes).unwrap(), at_bound);
-    assert_eq!(bytes[7..10], [0x82, 0x01, 0x00]);
-    bytes[9] = 0x01;
-    bytes.push(0xab);
-    assert!(Content::decode_exact(&bytes).is_err());
-    // Nothing may follow the commitment.
-    let mut trailing = content.to_vec();
-    trailing.push(0);
-    assert!(Content::decode_exact(&trailing).is_err());
 }
 
 /// A signed link state of node A with these extensions.
@@ -754,10 +731,9 @@ fn the_largest_own_link_state_fits_its_bound() {
     let hubs = hubs.to_vec();
     assert_eq!(hubs.len(), hub_list_bytes(dassie_peer::MAX_OWN_HUBS));
     let port = 4433u16.to_be_bytes();
-    let extensions: [(u16, &[u8]); 4] = [
+    let extensions: [(u16, &[u8]); 3] = [
         (dassie_peer::wire::EXTENSION_FEED, &port),
         (EXTENSION_HUB, &hub),
-        (EXTENSION_METHODS, &[]),
         (EXTENSION_HUBS, &hubs),
     ];
     let info = NodeInfo {
@@ -972,7 +948,7 @@ fn name_answers_are_pinned_and_bounded() {
 // are tags 18 to 20 (spec/decisions/settlement-methods.md). Each changes
 // state, or moves money, and needs authentication; a `methodPacket`
 // carries a Prepare, with a commitment that is empty on a method not over a
-// hub, bounded as a `hubPacket`'s.
+// hub, and bounded.
 #[test]
 fn settlement_method_messages_are_pinned_and_bounded() {
     let packet = Content::MethodPacket {
@@ -1055,32 +1031,22 @@ fn method_answers_are_pinned() {
     assert!(MethodResponse::decode_exact(&[0x82, 0x00]).is_err());
 }
 
-// spec/areas/peer-protocol.md#link-states: extension type 6, with an empty
-// value, says a node has settlement methods; one with a value says nothing,
-// and the link state still verifies.
+// spec/areas/peer-protocol.md#link-states: extension type 6 is reserved.
+// No node issues it, and a link state that carries one, empty or not, still
+// verifies and keeps it, as one of an unknown type.
 #[test]
-fn the_methods_extension_is_read_strictly() {
-    let signed = |extensions: &[(u16, &[u8])]| {
-        let bytes = with_extensions(extensions);
+fn extension_6_is_reserved() {
+    for value in [&[][..], &[0][..]] {
+        let bytes = with_extensions(&[(6, value)]);
         let signed = SignedNodeInfo::decode_exact(&bytes).unwrap();
         assert!(signed.verify().is_ok());
-        signed.info.has_methods()
-    };
-    assert!(signed(&[(EXTENSION_METHODS, &[])]));
-    assert!(!signed(&[]));
-    assert!(!signed(&[(EXTENSION_METHODS, &[0])]));
-    // The first methods extension is the one read.
-    assert!(!signed(&[
-        (EXTENSION_METHODS, &[0]),
-        (EXTENSION_METHODS, &[])
-    ]));
-    let full = signed_full();
-    assert!(
-        !SignedNodeInfo::decode_exact(&full)
-            .unwrap()
-            .info
-            .has_methods()
-    );
+        assert!(
+            signed
+                .info
+                .entries
+                .contains(&Entry::Extension { kind: 6, value })
+        );
+    }
 }
 
 fn listing(scheme: &str, hub: u8, account: u32, takes_peers: bool) -> HubListing {

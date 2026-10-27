@@ -43,6 +43,19 @@ pub const START: u64 = 1_800_000_000_000;
 /// The credit every simulated peering extends.
 pub const CREDIT: u64 = 1_100_000_000;
 
+/// The scheme every simulated node runs and peers on.
+pub const STUB: &str = "stub";
+
+/// A second scheme, which a pair that both run it settles on as a second
+/// method of its peering (spec/decisions/settlement-methods.md).
+pub const SECOND: &str = "stub-two";
+
+/// The scheme with ID `id`, one of the simulation's.
+#[must_use]
+pub fn scheme(id: &str) -> SchemeId {
+    SchemeId::parse(id).unwrap()
+}
+
 /// Hooks for the stub scheme: always agrees. Peers in `busy` still have
 /// packets in flight, and those in `settling` a settlement of ours under
 /// way in the node.
@@ -64,9 +77,14 @@ pub struct StubHooks {
     pub closed: BTreeMap<NodeId, crate::Closed>,
     /// Nodes whose channels the books hold open.
     pub holding: BTreeSet<NodeId>,
-    /// Whether the node no longer runs the stub scheme, as one disabled or
+    /// Whether the node runs neither scheme any more, as ones disabled or
     /// of the other realm.
     pub unrun: bool,
+    /// The schemes the node no longer runs, of the two.
+    pub unrun_schemes: BTreeSet<SchemeId>,
+    /// Whether the node refuses every further method of a peering, as the
+    /// node does while it keeps one method per peering.
+    pub refuse_methods: bool,
     /// Whether the stub scheme takes entry payments
     /// (spec/decisions/pay-to-enter.md).
     pub takes_entries: bool,
@@ -89,11 +107,13 @@ impl StubHooks {
 
 impl PeeringHooks for StubHooks {
     fn speaks(&self, scheme: SchemeId) -> bool {
-        scheme.as_str() == "stub" && !self.unrun
+        matches!(scheme.as_str(), STUB | SECOND)
+            && !self.unrun
+            && !self.unrun_schemes.contains(&scheme)
     }
 
     fn peering_info(&mut self, scheme: SchemeId, _: &mut Vec<u8>) -> Result<(), Declined> {
-        if scheme.as_str() == "stub" && !self.unrun {
+        if self.speaks(scheme) {
             Ok(())
         } else {
             Err(Declined)
@@ -142,7 +162,7 @@ impl PeeringHooks for StubHooks {
     }
 
     fn entry(&self, node: NodeId, scheme: SchemeId, data: &[u8]) -> crate::EntryPayment {
-        if !self.takes_entries || scheme.as_str() != "stub" {
+        if !self.takes_entries || scheme.as_str() != STUB {
             crate::EntryPayment::NotTaken
         } else if self.entries.contains(&(node, data.to_vec())) {
             crate::EntryPayment::Held
@@ -152,7 +172,11 @@ impl PeeringHooks for StubHooks {
     }
 
     fn uses_commitments(&self, scheme: SchemeId) -> bool {
-        self.commitments && scheme.as_str() == "stub"
+        self.commitments && scheme.as_str() == STUB
+    }
+
+    fn wants_method(&self, _: NodeId, _: SchemeId) -> bool {
+        !self.refuse_methods
     }
 
     fn drained(&self, peer: NodeId) -> bool {
@@ -408,6 +432,19 @@ pub struct Network {
     pub events: Vec<(usize, Event)>,
     /// ILP packets received: by which node, from whom, with which ID.
     pub packets: Vec<(usize, NodeId, u32)>,
+    /// The schemes each node peers on, in order, kept across restarts:
+    /// [`STUB`] alone, unless set here.
+    pub schemes: BTreeMap<usize, Vec<SchemeId>>,
+    /// Prepares sent on a method, by who sent them, to whom, with which
+    /// ID: the scheme they were sent on.
+    pub prepares_sent: BTreeMap<(usize, NodeId, u32), SchemeId>,
+    /// Prepares taken on a method, by the scheme of the method.
+    pub prepares_taken: BTreeMap<SchemeId, u64>,
+    /// Prepares taken on another method than the one they were sent on: a
+    /// safety failure.
+    pub misplaced: Vec<String>,
+    /// The next request ID each node's Prepares take.
+    next_prepare: u32,
     /// Settlements applied.
     pub applied: Vec<Applied>,
     /// Settlement requests taken: by which node, from whom.
@@ -547,6 +584,11 @@ impl Network {
             touched: BTreeSet::new(),
             events: Vec::new(),
             packets: Vec::new(),
+            schemes: BTreeMap::new(),
+            prepares_sent: BTreeMap::new(),
+            prepares_taken: BTreeMap::new(),
+            misplaced: Vec::new(),
+            next_prepare: 0,
             applied: Vec::new(),
             settlement_requests: Vec::new(),
             settled: Vec::new(),
@@ -626,7 +668,12 @@ impl Network {
             Box::new(SeededRng::new(seed)),
             now,
         );
-        node.set_schemes(now, vec![SchemeId::parse("stub").unwrap()]);
+        let schemes = self
+            .schemes
+            .get(&index)
+            .cloned()
+            .unwrap_or_else(|| vec![scheme(STUB)]);
+        node.set_schemes(now, schemes);
         if let Some(uplinks) = self.pinned.get(&index) {
             node.pin_uplinks(uplinks.clone());
         }
@@ -800,8 +847,8 @@ impl Network {
         let Some(node) = self.nodes[index].node.as_mut() else {
             return false;
         };
-        let scheme = SchemeId::parse("stub").unwrap();
-        let Ok(sequence) = node.send_settlement(now, &peer, scheme, amount, Vec::new()) else {
+        let Ok(sequence) = node.send_settlement(now, &peer, scheme(STUB), amount, Vec::new())
+        else {
             return false;
         };
         self.settled.push((index, peer, amount, sequence));
@@ -809,6 +856,67 @@ impl Network {
             .push(format!("{} {index} settles {amount} #{sequence}", self.now));
         self.drain(index);
         true
+    }
+
+    /// Node `index` sends a Prepare to `peer` on its method on `scheme`, if
+    /// it has one. Returns whether it went.
+    pub fn prepare(&mut self, index: usize, peer: NodeId, method: SchemeId) -> bool {
+        let now = self.local_now(index);
+        let Some(node) = self.nodes[index].node.as_mut() else {
+            return false;
+        };
+        let request_id = self.next_prepare;
+        self.next_prepare = self.next_prepare.wrapping_add(1);
+        let sent = node.send_method_packet(now, &peer, method, request_id, &[12, 0], &[], 10_000);
+        if sent.is_ok() {
+            self.prepares_sent.insert((index, peer, request_id), method);
+            self.trace.push(format!(
+                "{} {index} prepares #{request_id} on {method}",
+                self.now
+            ));
+        }
+        self.drain(index);
+        sent.is_ok()
+    }
+
+    /// Whether node `index` runs `scheme`, and peers on it.
+    pub fn runs(&self, index: usize, scheme: SchemeId) -> bool {
+        self.schemes
+            .get(&index)
+            .map_or(scheme == self::scheme(STUB), |schemes| {
+                schemes.contains(&scheme)
+            })
+    }
+
+    /// Node `index` runs `scheme` again, or no longer: it peers on it, as
+    /// its link state says, or drops its methods on it and lists it no
+    /// more, as a node does with a scheme it stops
+    /// (spec/decisions/settlement-methods.md).
+    pub fn set_running(&mut self, index: usize, scheme: SchemeId, running: bool) {
+        let mut schemes = self
+            .schemes
+            .get(&index)
+            .cloned()
+            .unwrap_or_else(|| vec![self::scheme(STUB)]);
+        let hooks = &mut self.nodes[index].hooks;
+        if running {
+            hooks.unrun_schemes.remove(&scheme);
+            if !schemes.contains(&scheme) {
+                schemes.push(scheme);
+                schemes.sort_unstable();
+            }
+        } else {
+            hooks.unrun_schemes.insert(scheme);
+            schemes.retain(|other| *other != scheme);
+        }
+        self.schemes.insert(index, schemes.clone());
+        if self.is_up(index) {
+            self.act_with_hooks(index, |node, hooks, now| {
+                node.set_schemes(now, schemes);
+                // What is due now drops the methods on a scheme it stopped.
+                node.handle_timeout(now, hooks);
+            });
+        }
     }
 
     /// Whether the node `node` holds an open channel with node `with`, as
@@ -1058,9 +1166,21 @@ impl Network {
                 answer,
                 from: sender,
                 request_id,
+                scheme: method,
                 ..
             } => {
                 self.packets.push((to, sender, request_id));
+                if let Some(method) = method {
+                    *self.prepares_taken.entry(method).or_default() += 1;
+                    let receiver = key(to).node_id();
+                    let sent = self.prepares_sent.get(&(from, receiver, request_id));
+                    if sent != Some(&method) {
+                        self.misplaced.push(format!(
+                            "{} node {to} took node {from}'s Prepare #{request_id} on {method}, sent on {sent:?}",
+                            self.now
+                        ));
+                    }
+                }
                 Some(sim.hooks.reply(answer))
             }
             Inbound::Settlement { .. } if self.refuse_settlements.contains_key(&to) => {

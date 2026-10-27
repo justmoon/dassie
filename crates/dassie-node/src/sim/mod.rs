@@ -497,16 +497,25 @@ fn ilp_packet(body: &[u8]) -> Option<(u32, dassie_ilp::Packet<'_>)> {
     if !dassie_peer::wire::peek_kind(body).is_some_and(dassie_peer::wire::Kind::carries_packet) {
         return None;
     }
-    // A Prepare over a settlement hub comes with its commitment, which the
-    // simulation does not read.
+    // A Prepare comes on a method, over a settlement hub with its
+    // commitment, which the simulation does not read.
     let (Content::InterledgerPacket { request_id, packet }
-    | Content::HubPacket {
+    | Content::MethodPacket {
         request_id, packet, ..
     }) = Content::decode_exact(body).ok()?
     else {
         return None;
     };
     Some((request_id, dassie_ilp::Packet::decode_exact(packet).ok()?))
+}
+
+/// Whether a peer message is a Prepare over a settlement hub: on a method
+/// that carries the payer's commitment.
+fn hub_prepare(body: &[u8]) -> bool {
+    matches!(
+        dassie_peer::wire::Content::decode_exact(body),
+        Ok(dassie_peer::wire::Content::MethodPacket { commitment, .. }) if !commitment.is_empty()
+    )
 }
 
 /// Node `index`'s URL.
@@ -1607,7 +1616,7 @@ impl Sim {
                     .peers
                     .into_iter()
                     .find(|view| view.id == *peer)
-                    .map(|view| view.peering.scheme)
+                    .map(|view| view.peering.first().scheme)
             });
             self.withdrawn.push(Withdrawal {
                 at: self.now,
@@ -1648,7 +1657,9 @@ impl Sim {
                         self.trace
                             .push(format!("{} {index} asks {to} to settle", self.now));
                     }
-                    Some(dassie_peer::wire::Kind::HubPacket) => self.count("prepares over a hub"),
+                    Some(dassie_peer::wire::Kind::MethodPacket) if hub_prepare(&request.body) => {
+                        self.count("prepares over a hub");
+                    }
                     _ => {}
                 }
                 let withheld = self.hub_intercept(index, to, &request.body);

@@ -62,6 +62,7 @@ fn peer_node(severity: Severity, event: &dassie_peer::Event) {
         } => {
             emit!(severity, target: target::PEER, %node, %scheme, inbound, "peered");
         }
+        Event::MethodAdded { .. } | Event::MethodDropped { .. } => peer_method(severity, event),
         Event::RoutesChanged => emit!(severity, target: target::ROUTING, "routes changed"),
         Event::NodeAdded(node) => emit!(severity, target: target::PEER, %node, "node added"),
         Event::NodeRemoved(node) => emit!(severity, target: target::PEER, %node, "node removed"),
@@ -214,6 +215,27 @@ fn own_names(severity: Severity, event: &dassie_peer::NameEvent) {
 }
 
 /// The peer node's events about settlement messages.
+fn peer_method(severity: Severity, event: &dassie_peer::Event) {
+    use dassie_peer::Event;
+    match event {
+        Event::MethodAdded {
+            peer,
+            scheme,
+            inbound,
+        } => {
+            emit!(severity, target: target::PEER, %peer, %scheme, inbound, "settlement method added");
+        }
+        Event::MethodDropped {
+            peer,
+            scheme,
+            by_us,
+        } => {
+            emit!(severity, target: target::PEER, %peer, %scheme, by_us, "settlement method dropped");
+        }
+        _ => {}
+    }
+}
+
 fn peer_settlement(severity: Severity, event: &dassie_peer::Event) {
     use dassie_peer::Event;
     match event {

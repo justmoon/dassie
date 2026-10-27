@@ -335,7 +335,7 @@ fn the_credit_over_a_hub_follows_the_holds() {
             .network()
             .peers
             .iter()
-            .any(|peer| peer.id == id && peer.peering.credit_out > 0)
+            .any(|peer| peer.id == id && peer.peering.first().credit_out > 0)
     };
     assert!(sim.run_until_or(sim.now + 120_000, funded), "no hold");
     let (credit, holds, settling) = books(&mut sim, 0, 1);

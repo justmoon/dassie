@@ -53,8 +53,10 @@ pub const MAX_EXTENSION_BYTES: usize = 2048;
 /// no URL, dials out to its uplinks and is reached only over the
 /// connections it opened (spec/areas/peer-protocol.md#link-states). Its
 /// value is empty. Only with it may a link state's URL be empty. Type 1 is
-/// kept for a post-quantum key, and type 2 is reserved: no extension has
-/// it, so that no node reads it as one.
+/// kept for a post-quantum key, and types 2 and 6 are reserved: no
+/// extension has them, so that no node reads either as one. Type 6 was
+/// to say that a node has settlement methods, which every node of this
+/// version has (spec/areas/peer-protocol.md#versions).
 pub const EXTENSION_PERIPHERY: u16 = 3;
 
 /// The link-state extension that names the UDP port of a core node's rate
@@ -67,13 +69,6 @@ pub const EXTENSION_FEED: u16 = 4;
 /// member of (spec/designs/settlement-hubs.md#11-choosing-a-hub): a
 /// [`HubMembership`] in canonical OER. A node in no hub leaves it out.
 pub const EXTENSION_HUB: u16 = 5;
-
-/// The link-state extension that says a node has settlement methods
-/// (spec/decisions/settlement-methods.md): it takes `methodPacket`,
-/// `methodAdd` and `methodDrop`, which a node without them refuses with
-/// 400, so a node sends them only to one whose link state carries this.
-/// Its value is empty.
-pub const EXTENSION_METHODS: u16 = 6;
 
 /// The link-state extension that lists the settlement hubs a node is a
 /// member of, each with the scheme it settles on, and so its asset: a
@@ -88,8 +83,9 @@ pub const EXTENSION_HUBS: u16 = 7;
 /// hubs a node joins.
 pub const MAX_HUBS: usize = 16;
 
-/// Most bytes in the commitment a `hubPacket` or `methodPacket` carries
-/// with its Prepare: a signature and what it covers, well within this.
+/// Most bytes in the commitment a `methodPacket` carries with its Prepare
+/// on a method over a hub: a signature and what it covers, well within
+/// this.
 pub const MAX_COMMITMENT_BYTES: usize = 256;
 
 /// Most bytes after the verdict in the reply to a Fulfill on a peering
@@ -136,10 +132,10 @@ pub enum Kind {
     PeeringInfoRequest,
     /// `peeringTermination [10]`.
     PeeringTermination,
-    /// `settlementRequest [11]`.
+    /// `settlementRequest [11]`. Tag 12 follows it unused: it was
+    /// `hubPacket`, which `methodPacket` replaced, and is reserved, never
+    /// given to another message.
     SettlementRequest,
-    /// `hubPacket [12]`.
-    HubPacket,
     /// `nameCommit [13]`.
     NameCommit,
     /// `nameUnseal [14]`.
@@ -174,7 +170,6 @@ impl Kind {
             9 => Self::PeeringInfoRequest,
             10 => Self::PeeringTermination,
             11 => Self::SettlementRequest,
-            12 => Self::HubPacket,
             13 => Self::NameCommit,
             14 => Self::NameUnseal,
             15 => Self::NameRenew,
@@ -202,7 +197,6 @@ impl Kind {
             Self::PeeringInfoRequest => 9,
             Self::PeeringTermination => 10,
             Self::SettlementRequest => 11,
-            Self::HubPacket => 12,
             Self::NameCommit => 13,
             Self::NameUnseal => 14,
             Self::NameRenew => 15,
@@ -218,10 +212,7 @@ impl Kind {
     /// the connector's, not those of the protocol's own requests.
     #[must_use]
     pub const fn carries_packet(self) -> bool {
-        matches!(
-            self,
-            Self::InterledgerPacket | Self::HubPacket | Self::MethodPacket
-        )
+        matches!(self, Self::InterledgerPacket | Self::MethodPacket)
     }
 
     /// Whether a message of this kind only reads: it changes nothing at the

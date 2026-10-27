@@ -221,9 +221,9 @@ impl Core {
         let hub = account.hub();
         self.peer
             .active_peers()
-            .filter(|(_, peering)| peering.scheme.as_str() == HUB.as_str())
+            .filter(|(_, peering)| peering.first().scheme.as_str() == HUB.as_str())
             .filter_map(|(node, peering)| {
-                let number = dassie_hub::member::peer_account(&peering.state, &hub)?;
+                let number = dassie_hub::member::peer_account(&peering.first().state, &hub)?;
                 Some((*node, number.0))
             })
             .collect()

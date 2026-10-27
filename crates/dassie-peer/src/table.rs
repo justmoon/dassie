@@ -8,7 +8,9 @@ use alloc::vec::Vec;
 use dassie_identity::{NodeId, PublicKey};
 
 use crate::config::Rate;
-use crate::wire::{Endpoint, HubMembership, SchemeId, SignedNodeInfo, TerminationReason};
+use crate::wire::{
+    Endpoint, HubListing, HubMembership, SchemeId, SignedNodeInfo, TerminationReason,
+};
 
 /// Why a node is in the table. A node with none left is removed
 /// after a grace period.
@@ -167,6 +169,10 @@ pub struct LinkState {
     pub periphery: bool,
     /// The settlement hub the node is a member of, if it names one.
     pub hub: Option<HubMembership>,
+    /// The settlement hubs it lists, each with its scheme: empty for a
+    /// node that names its hub only in the hub extension, or whose list
+    /// breaks its rules.
+    pub hubs: Vec<HubListing>,
     /// Copies of this sequence received, for suppressing the flood.
     pub copies: u8,
     /// When to forward it, if it is to be.
@@ -191,6 +197,7 @@ impl LinkState {
             schemes: signed.info.schemes().collect(),
             periphery: signed.info.is_periphery(),
             hub: signed.info.hub(),
+            hubs: signed.info.hubs(),
             copies: 1,
             retransmit_at_ms: None,
             from: None,
@@ -205,28 +212,28 @@ impl LinkState {
     }
 }
 
-/// A peering that exists.
+/// A settlement method of a peering: a scheme the pair settles on, with
+/// what the scheme keeps for the peer on it and how long the room our
+/// books give the peer on it has been short
+/// (spec/decisions/settlement-methods.md). It is withdrawn while it has
+/// been short past the grace ([`Method::withdrawn`]); the hold-down after
+/// a withdrawal is the peering's ([`Advertise`]).
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Peering {
-    /// The scheme it settles with.
+pub struct Method {
+    /// The scheme it settles on.
     pub scheme: SchemeId,
     /// The scheme's state for this peer.
     pub state: Vec<u8>,
-    /// The credit we extend to the peer. The credit it extends to us is
-    /// not ours to know (spec/decisions/own-fulfills.md).
+    /// The credit we extend to the peer on it. The credit it extends to us
+    /// is not ours to know (spec/decisions/own-fulfills.md).
     pub credit_out: u64,
-    /// When it began.
-    pub since_ms: u64,
-    /// Whether the peer asked.
-    pub inbound: bool,
-    /// The last message from it.
-    pub last_seen_ms: u64,
-    /// How long the room our books give the peer has been short of a
-    /// packet, settling nothing (spec/decisions/peering-lifecycle.md):
-    /// counted only between checks at which the node could ask it to settle,
-    /// so neither the node's downtime nor an outage of its ledger counts.
-    /// Kept across a restart, so a node that restarts often still ends a link
-    /// that stays short. It withdraws the peer.
+    /// How long the room our books give the peer on this method has been
+    /// short of a packet, settling nothing
+    /// (spec/decisions/peering-lifecycle.md): counted only between checks
+    /// at which the node could ask it to settle, so neither the node's
+    /// downtime nor an outage of its ledger counts. Kept across a restart,
+    /// so a node that restarts often still ends a link that stays short. It
+    /// withdraws the method.
     pub short_for_ms: u64,
     /// How much of [`short_for_ms`](Self::short_for_ms) passed while the
     /// peer could be reached: the last request to settle was not one that
@@ -235,6 +242,51 @@ pub struct Peering {
     /// it had no chance to restore (spec/decisions/peering-lifecycle.md).
     /// Kept across a restart too.
     pub short_reached_ms: u64,
+    /// The last check that found the method short while the node could
+    /// ask: the next one adds the time since. Not kept across a restart.
+    pub short_checked_ms: Option<u64>,
+}
+
+impl Method {
+    /// A method just agreed, on `scheme`.
+    #[must_use]
+    pub const fn new(scheme: SchemeId, state: Vec<u8>, credit_out: u64) -> Self {
+        Self {
+            scheme,
+            state,
+            credit_out,
+            short_for_ms: 0,
+            short_reached_ms: 0,
+            short_checked_ms: None,
+        }
+    }
+
+    /// Whether it is withdrawn for room: short past `grace_ms`. Its packets
+    /// take another method or another first hop, and the peer is listed as
+    /// our neighbor only while one of its methods is not withdrawn
+    /// (spec/decisions/settlement-methods.md).
+    #[must_use]
+    pub const fn withdrawn(&self, grace_ms: u64) -> bool {
+        self.short_for_ms >= grace_ms
+    }
+}
+
+/// A peering that exists: one per pair of nodes, with its settlement
+/// methods (spec/decisions/settlement-methods.md). It has one to
+/// [`MAX_METHODS`](crate::MAX_METHODS) of them, each on a scheme of its
+/// own, the first the one it was made on while that lasts; a peering left
+/// with none ends. The rest is the pair's, whatever the methods, as are
+/// its settlement channel and the mark of an end for room.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Peering {
+    /// Its methods, in the order they were agreed: never empty.
+    pub methods: Vec<Method>,
+    /// When it began.
+    pub since_ms: u64,
+    /// Whether the peer asked.
+    pub inbound: bool,
+    /// The last message from it.
+    pub last_seen_ms: u64,
     /// Our decision to end it, while we collect first
     /// (spec/decisions/ending-a-peering.md).
     pub depeering: Option<Depeering>,
@@ -285,11 +337,81 @@ impl Depeering {
 }
 
 impl Peering {
+    /// A peering made at `now_ms` on its first method.
+    #[must_use]
+    pub fn new(first: Method, now_ms: u64, inbound: bool) -> Self {
+        Self {
+            methods: alloc::vec![first],
+            since_ms: now_ms,
+            inbound,
+            last_seen_ms: now_ms,
+            depeering: None,
+        }
+    }
+
     /// Whether it was heard from within the last `window_ms`: online, as
     /// the advertise flag sees it (spec/decisions/peering-lifecycle.md).
     #[must_use]
     pub const fn heard_within(&self, now_ms: u64, window_ms: u64) -> bool {
         self.last_seen_ms.saturating_add(window_ms) >= now_ms
+    }
+
+    /// Its first method: the one it was made on, while that lasts. A node
+    /// that keeps one method per peering reads it here.
+    ///
+    /// # Panics
+    ///
+    /// If it has none, which no peering has.
+    // Every peering is made with a method and ends with its last, which the
+    // node's invariants check.
+    #[must_use]
+    #[allow(clippy::panic)]
+    pub fn first(&self) -> &Method {
+        let Some(first) = self.methods.first() else {
+            panic!("a peering has a method");
+        };
+        first
+    }
+
+    /// Its method on `scheme`, if it has one.
+    #[must_use]
+    pub fn method(&self, scheme: SchemeId) -> Option<&Method> {
+        self.methods.iter().find(|method| method.scheme == scheme)
+    }
+
+    /// The same, to change it.
+    pub fn method_mut(&mut self, scheme: SchemeId) -> Option<&mut Method> {
+        self.methods
+            .iter_mut()
+            .find(|method| method.scheme == scheme)
+    }
+
+    /// Whether it has a method on `scheme`.
+    #[must_use]
+    pub fn has(&self, scheme: SchemeId) -> bool {
+        self.method(scheme).is_some()
+    }
+
+    /// The schemes of its methods, in order.
+    pub fn schemes(&self) -> impl Iterator<Item = SchemeId> + '_ {
+        self.methods.iter().map(|method| method.scheme)
+    }
+
+    /// Whether every method is withdrawn for room, so that the peer is no
+    /// longer listed for room ([`Method::withdrawn`]).
+    #[must_use]
+    pub fn withdrawn(&self, grace_ms: u64) -> bool {
+        self.methods.iter().all(|method| method.withdrawn(grace_ms))
+    }
+
+    /// Whether a method has been short, while the peer could be reached,
+    /// for `limit_ms`: one such ends the peering
+    /// (spec/decisions/settlement-methods.md).
+    #[must_use]
+    pub fn short_for_good(&self, limit_ms: u64) -> bool {
+        self.methods
+            .iter()
+            .any(|method| method.short_reached_ms >= limit_ms)
     }
 }
 
@@ -346,9 +468,6 @@ pub struct Advertise {
     pub hold_until_ms: u64,
     /// Withdrawals not yet forgotten.
     pub flaps: u32,
-    /// The last check that found the peer short while the node could ask:
-    /// the next one adds the time since. Not kept across a restart.
-    pub short_checked_ms: Option<u64>,
     /// Whether the last request to settle that came back surely never
     /// reached the peer (spec/decisions/peering-lifecycle.md). Not kept
     /// across a restart, whose first check adds nothing anyway.
@@ -452,6 +571,11 @@ pub struct Entry {
     pub peering_at_ms: u64,
     /// Failed peering attempts in a row, for backoff.
     pub peering_failures: u32,
+    /// When to try adding a method to our peering with it again. Not kept
+    /// across a restart.
+    pub method_at_ms: u64,
+    /// Failed attempts to add a method in a row, for backoff.
+    pub method_failures: u32,
     /// Since when routes have not reached it.
     pub unreachable_ms: Option<u64>,
     /// Its link states' rate limit.
@@ -479,6 +603,8 @@ impl Entry {
             refresh_failures: 0,
             peering_at_ms: now_ms,
             peering_failures: 0,
+            method_at_ms: now_ms,
+            method_failures: 0,
             unreachable_ms: None,
             bucket: Bucket::full(rate, now_ms),
             advertise: Advertise {
@@ -486,7 +612,6 @@ impl Entry {
                 on_since_ms: 0,
                 hold_until_ms: 0,
                 flaps: 0,
-                short_checked_ms: None,
                 settle_unreached: false,
             },
             refuse_until_ms: 0,

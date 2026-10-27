@@ -106,7 +106,7 @@ impl Core {
             let ledger = self
                 .peer
                 .peering_of(node)
-                .and_then(|peering| Name::new(peering.scheme.as_str()).ok())
+                .and_then(|peering| Name::new(peering.first().scheme.as_str()).ok())
                 .and_then(|scheme| self.schemes.get(&scheme))
                 .map(|active| active.scheme.ledger());
             let account = ledger

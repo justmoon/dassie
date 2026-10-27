@@ -87,7 +87,7 @@ impl Core {
     /// (spec/decisions/ending-a-peering.md), and so does one whose scheme
     /// stopped: its packets are then refused, never let through unchecked.
     pub(super) fn hub_peering(&self, node: &NodeId) -> Option<(Name, Name)> {
-        let scheme = self.peer.peering_of(node)?.scheme;
+        let scheme = self.peer.peering_of(node)?.first().scheme;
         let scheme = Name::new(scheme.as_str()).ok()?;
         let over_hub = self.schemes.get(&scheme)?.over_hub;
         over_hub
@@ -133,7 +133,7 @@ impl Core {
             let mut peers: std::collections::BTreeSet<Name> =
                 held.iter().map(|(peer, _)| *peer).collect();
             for (node, peering) in self.peer.peers() {
-                if peering.scheme.as_str() == scheme.as_str()
+                if peering.first().scheme.as_str() == scheme.as_str()
                     && let Ok(name) = Name::new(node.as_str())
                 {
                     peers.insert(name);
@@ -210,7 +210,7 @@ impl Core {
             .peer
             .peers()
             .filter_map(|(node, peering)| {
-                let scheme = Name::new(peering.scheme.as_str()).ok()?;
+                let scheme = Name::new(peering.first().scheme.as_str()).ok()?;
                 let active = self.schemes.get(&scheme)?;
                 (active.over_hub && active.failed.is_none()).then_some((scheme, *node))
             })
