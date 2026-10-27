@@ -150,9 +150,6 @@ impl Store {
 mod tests {
     #![allow(clippy::unwrap_used, clippy::indexing_slicing)]
 
-    use rusqlite::Connection;
-
-    use super::super::schema::{self, APPLICATION_ID};
     use super::*;
 
     #[test]
@@ -200,83 +197,5 @@ mod tests {
         assert_eq!(store.display_currency().unwrap(), Some("EUR"));
         store.set_display_currency(None).unwrap();
         assert_eq!(store.display_currency().unwrap(), None);
-    }
-
-    // Migration 12 takes a Fulfill owed without a third transfer, which
-    // migration 15 lets go, and starts with no fee and the sources, to
-    // which migration 22 adds the ECB.
-    #[test]
-    fn migration_12_starts_with_no_fee_and_the_sources() {
-        let temp = tempfile::tempdir().unwrap();
-        let mut connection =
-            Connection::open(temp.path().join(super::super::DATABASE_FILE)).unwrap();
-        connection
-            .pragma_update(None, "application_id", APPLICATION_ID)
-            .unwrap();
-        schema::migrate_until(&mut connection, 11).unwrap();
-        let peer = dassie_identity::NodeKey::from_bytes(&[9; 32]).node_id();
-        connection
-            .execute_batch(&format!(
-                "INSERT INTO ledger_accounts VALUES (0, 'stub+usd:equity/owner', 0, 0); \
-                 INSERT INTO ledger_accounts VALUES (1, 'stub+usd:equity/suspense', 0, 0); \
-                 INSERT INTO owed_fulfills (packet_epoch, packet_sequence, peer, request_id, \
-                   fulfill, compensation, debit_1, credit_1, amount_1, expires_at_ms, \
-                   created_at_ms) VALUES (1, 2, '{peer}', 3, x'01', 'loss', 0, 1, 5, 9, 8);"
-            ))
-            .unwrap();
-        drop(connection);
-        let store = Store::open(temp.path()).unwrap();
-        let settings = store.peer_settings().unwrap();
-        assert_eq!(settings, crate::store::PeerSettings::DEFAULT);
-        assert_eq!(store.rate_sources().unwrap(), RateSource::defaults());
-    }
-
-    /// A store at migration 21 whose rate sources `sql` sets, migrated.
-    fn migrated_from_21(sql: &str) -> Vec<RateSource> {
-        let temp = tempfile::tempdir().unwrap();
-        let mut connection =
-            Connection::open(temp.path().join(super::super::DATABASE_FILE)).unwrap();
-        connection
-            .pragma_update(None, "application_id", APPLICATION_ID)
-            .unwrap();
-        schema::migrate_until(&mut connection, 21).unwrap();
-        connection.execute_batch(sql).unwrap();
-        drop(connection);
-        Store::open(temp.path()).unwrap().rate_sources().unwrap()
-    }
-
-    // Migration 22 adds the ECB to the sources a node started with, so
-    // that three cover every currency, and leaves an owner's own alone.
-    #[test]
-    fn migration_22_adds_the_ecb_only_to_the_sources_a_node_started_with() {
-        assert_eq!(migrated_from_21(""), RateSource::defaults());
-        let reordered = migrated_from_21(
-            "DELETE FROM rate_sources; INSERT INTO rate_sources VALUES \
-             (0, 'kraken', NULL), (1, 'coinbase', NULL), (2, 'bitstamp', NULL);",
-        );
-        assert_eq!(
-            reordered,
-            [
-                SourceKind::Kraken,
-                SourceKind::Coinbase,
-                SourceKind::Bitstamp
-            ]
-            .map(RateSource::of)
-        );
-        let dev = migrated_from_21(
-            "DELETE FROM rate_sources; INSERT INTO rate_sources VALUES \
-             (0, 'coinbase', 'https://localhost:10100/rates.json');",
-        );
-        assert_eq!(
-            dev,
-            [RateSource {
-                kind: SourceKind::Coinbase,
-                url: Some("https://localhost:10100/rates.json".into()),
-            }]
-        );
-        assert_eq!(
-            migrated_from_21("DELETE FROM rate_sources;"),
-            [] as [RateSource; 0]
-        );
     }
 }

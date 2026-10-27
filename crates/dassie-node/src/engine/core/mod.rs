@@ -1157,10 +1157,8 @@ type Checkpoints = (
     BTreeMap<dassie_settlement::AssetId, String>,
 );
 
-/// The owner's config of each external asset that has one, written one
-/// way, as `SetAssetConfig` writes it: migration 45 moved each from a
-/// scheme's config as the owner had written it, so the same config set
-/// again is the same, and does not wait for the next start.
+/// The owner's config of each external asset that has one, as
+/// `SetAssetConfig` wrote it.
 fn asset_configs(store: &Store) -> Result<BTreeMap<dassie_settlement::AssetId, String>, String> {
     store
         .asset_configs()
@@ -1169,9 +1167,6 @@ fn asset_configs(store: &Store) -> Result<BTreeMap<dassie_settlement::AssetId, S
         .map(|(id, config)| {
             let id = dassie_settlement::AssetId::parse(&id)
                 .ok_or_else(|| format!("an external asset this node does not know: {id}"))?;
-            let config = serde_json::from_str::<serde_json::Value>(&config)
-                .map(|value| value.to_string())
-                .unwrap_or(config);
             Ok((id, config))
         })
         .collect()

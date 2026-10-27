@@ -24,8 +24,6 @@ mod ledger;
 #[cfg(test)]
 mod ledger_tests;
 mod outgoing;
-#[cfg(test)]
-mod owed_tests;
 mod payments;
 mod peer;
 mod peer_settings;
@@ -79,7 +77,7 @@ pub use payments::{
 };
 pub use peer_settings::PeerSettings;
 pub use rates::StoredRate;
-pub use schema::{APPLICATION_ID, SCHEMA_VERSION, V0_APPLICATION_ID};
+pub use schema::{APPLICATION_ID, EARLY_TESTNET_APPLICATION_ID, SCHEMA_VERSION};
 pub use snapshot::{
     PRE_MIGRATION_FILE, ROLLED_BACK_FILE, ROLLING_BACK_FILE, Restored, restore_pre_migration,
 };
@@ -105,8 +103,8 @@ pub enum StoreError {
     Sqlite(rusqlite::Error),
     /// Creating or securing the data directory failed.
     Io(std::io::Error),
-    /// The file is a database of the original Dassie.
-    V0Database,
+    /// The file is a database of the early testnet.
+    EarlyTestnetDatabase,
     /// The file belongs to another application.
     ForeignDatabase(i32),
     /// The file was written by a newer version.
@@ -136,10 +134,11 @@ impl fmt::Display for StoreError {
         match self {
             Self::Sqlite(error) => write!(f, "database error: {error}"),
             Self::Io(error) => write!(f, "data directory: {error}"),
-            Self::V0Database => f.write_str(
-                "this is a database of Dassie v0, which this version cannot read; \
-                 move it away and set up a new node with a new phrase, since \
-                 this version reads no phrase v0 made",
+            Self::EarlyTestnetDatabase => f.write_str(
+                "this database was made by a release of Dassie for the early testnet, \
+                 before the testnet was reset, and this version cannot read it; move it \
+                 away and set the node up again with a new phrase, since this version \
+                 reads no phrase made before the reset",
             ),
             Self::ForeignDatabase(id) => {
                 write!(
@@ -258,6 +257,12 @@ pub struct Store {
 impl Store {
     /// Opens or creates the database in `data_dir`.
     pub fn open(data_dir: &Path) -> Result<Self, StoreError> {
+        Self::open_with(data_dir, schema::MIGRATIONS)
+    }
+
+    /// [`Store::open`] with `migrations` for this code's, so that a test can
+    /// open a database as a version with more of them would.
+    fn open_with(data_dir: &Path, migrations: &[&str]) -> Result<Self, StoreError> {
         secure_directory(data_dir)?;
         let lock = lock_directory(data_dir)?;
         let path = data_dir.join(DATABASE_FILE);
@@ -273,22 +278,26 @@ impl Store {
         connection.pragma_update(None, "synchronous", "FULL")?;
         // Before migrating, so that a rollback to the version before can
         // have the database back as that version left it.
-        if let Some(from) = schema::pending_migration(&connection)? {
+        if let Some(from) = schema::pending_migration(&connection, migrations)? {
             snapshot::keep_copy(&connection, data_dir, from)?;
         }
-        Self::prepare(connection, Some(lock))
+        Self::prepare(connection, Some(lock), migrations)
     }
 
     /// A database in memory, for `verify-install` and tests.
     pub fn open_in_memory() -> Result<Self, StoreError> {
-        Self::prepare(migrated_in_memory()?, None)
+        Self::prepare(migrated_in_memory()?, None, schema::MIGRATIONS)
     }
 
-    fn prepare(mut connection: Connection, lock: Option<fs::File>) -> Result<Self, StoreError> {
+    fn prepare(
+        mut connection: Connection,
+        lock: Option<fs::File>,
+        migrations: &[&str],
+    ) -> Result<Self, StoreError> {
         connection.busy_timeout(std::time::Duration::from_secs(5))?;
         connection.set_prepared_statement_cache_capacity(STATEMENT_CACHE);
         connection.pragma_update(None, "foreign_keys", "ON")?;
-        schema::prepare(&mut connection)?;
+        schema::prepare(&mut connection, migrations)?;
         schema::check(&mut connection)?;
         Ok(Self {
             connection: Mutex::new(connection),
@@ -612,9 +621,9 @@ fn secure_directory(path: &Path) -> Result<(), StoreError> {
 }
 
 /// A database in memory at the current schema: a copy of one the process
-/// migrated once. Replaying every migration took most of the time a
-/// simulation or a test spent opening each of its stores; a copy starts
-/// from the same bytes, which [`Store::prepare`] still checks.
+/// migrated once, so that a simulation or a test that opens many stores
+/// migrates only once; a copy starts from the same bytes, which
+/// [`Store::prepare`] still checks.
 fn migrated_in_memory() -> Result<Connection, StoreError> {
     static MIGRATED: Mutex<Option<Connection>> = Mutex::new(None);
     let mut migrated = MIGRATED.lock().unwrap_or_else(PoisonError::into_inner);
@@ -622,7 +631,7 @@ fn migrated_in_memory() -> Result<Connection, StoreError> {
         Some(source) => source,
         None => {
             let mut source = Connection::open_in_memory()?;
-            schema::prepare(&mut source)?;
+            schema::prepare(&mut source, schema::MIGRATIONS)?;
             source
         }
     };

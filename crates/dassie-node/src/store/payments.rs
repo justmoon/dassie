@@ -135,24 +135,9 @@ impl IncomingRow {
 
 /// Which credentials of an incoming payment a STREAM connection uses: each
 /// read of the payment gets its own, so each payment that pays it has a
-/// connection of its own. [`ConnectionKey::LEGACY`] for those issued with
-/// the payment before connections had keys.
+/// connection of its own.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ConnectionKey(pub [u8; 16]);
-
-impl ConnectionKey {
-    /// The key of credentials issued before connections had keys.
-    pub const LEGACY: Self = Self([0; 16]);
-
-    /// A key from random bytes: never [`Self::LEGACY`].
-    #[must_use]
-    pub fn from_random(mut bytes: [u8; 16]) -> Self {
-        if bytes == [0; 16] {
-            bytes[0] = 1;
-        }
-        Self(bytes)
-    }
-}
 
 /// What our receiver took into an incoming payment from one packet, over
 /// one of its connections.
