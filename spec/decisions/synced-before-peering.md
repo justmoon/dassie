@@ -1,6 +1,6 @@
 # A node peers on a scheme only once it has seen its ledger
 
-**Areas:** [Settlement](../areas/settlement.md), [Network](../areas/network.md), [XRPL](../areas/xrpl.md).
+**Areas:** [Settlement](../areas/settlement.md), [Network](../areas/network.md), [Settlement hubs](../areas/hubs.md#in-the-node).
 
 ## Facts
 
@@ -21,7 +21,7 @@ The first sync is kept with the scheme's state, so a restart with the ledger dow
 
 ## Accepted
 
-- **A node whose ledger is unreachable at its first start cannot peer on that scheme until it is.** A testnet node with only the XRPL scheme stays without peers until its ledger server answers.
+- **A node whose ledger is unreachable at its first start cannot peer on that scheme until it is.** A node in one settlement hub alone stays without peers until its hub has told it what it holds there, if only that it holds nothing. No XRPL scheme peers ([hubs-only](hubs-only.md)): what a node peers on is the hub's ledger, which the hub's validators read the XRP Ledger for, so what counts is that the node can reach its hub.
 - **A testnet reset starts the account from nothing** and drops the cursor, while peerings on the scheme stay; the node takes no new ones until it has synced again. The reset takes the peers' accounts too, so a peer can hardly pay into it meanwhile.
 
 ## Rejected

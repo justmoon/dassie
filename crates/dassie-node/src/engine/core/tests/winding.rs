@@ -2,7 +2,8 @@
 //! (spec/decisions/settlement-methods.md, spec/areas/network.md#settlement-methods):
 //! a hub both nodes join is added to their peering; the owner's removal of a
 //! scheme winds its methods down, collecting once within a bound, and the
-//! scheme goes after, across a restart too; a method whose scheme cannot
+//! scheme goes after, across a restart too, and the node starts again
+//! without it, its methods kept across restarts; a method whose scheme cannot
 //! receive, or is no longer run, is dropped at once. A stored peering
 //! loading as one method is the store's to test. On a pair that runs the stub and [`StubTwo`](super::StubTwo),
 //! each a pretend hub of its own.
@@ -251,6 +252,45 @@ fn a_removal_carries_on_after_a_restart() {
     );
     assert_eq!(methods(&sim, 0), ["stub"]);
     assert!(accounts_stay(&sim));
+}
+
+// spec/decisions/settlement-methods.md, spec/areas/node.md#persistence: a
+// node restarted from its database keeps both methods of its peering, in
+// the order they were agreed, none wound down; and a node whose owner
+// removed a scheme its peer settled on starts again from its database once
+// the scheme is gone, peered on the other method alone. Found in review:
+// removing a scheme that peers used left their peerings without a ledger,
+// and the node could not start again.
+#[test]
+fn both_methods_outlive_a_restart_and_a_removed_scheme_leaves_a_node_that_starts() {
+    let mut sim = pair(58, true);
+    sim.crash(1);
+    sim.run_until(sim.now + 1_000);
+    sim.start(1);
+    assert_eq!(methods(&sim, 1), ["stub", STUB_TWO], "as stored");
+    sim.run_until(sim.now + 60_000);
+    for index in 0..2 {
+        assert_eq!(methods(&sim, index), ["stub", STUB_TWO], "node {index}");
+    }
+    assert!(second(&sim).is_some_and(|method| !method.winding_down()));
+    let mut removed = Ok(());
+    sim.step(0, |core| removed = core.remove_scheme(STUB_TWO));
+    removed.unwrap();
+    let wait = sim.core(0).removal_wait_ms();
+    assert!(
+        sim.run_until_or(sim.now + WIND_BOUND_MS + wait, |sim| !runs_second(sim, 0)),
+        "the scheme stayed"
+    );
+    sim.crash(0);
+    sim.run_until(sim.now + 1_000);
+    sim.start(0);
+    assert!(!runs_second(&sim, 0), "the removed scheme came back");
+    assert_eq!(methods(&sim, 0), ["stub"]);
+    assert!(
+        sim.run_until_or(sim.now + 60_000, |sim| methods(sim, 1) == ["stub"]),
+        "the peer kept the method"
+    );
+    assert_eq!(methods(&sim, 0), ["stub"]);
 }
 
 // spec/areas/settlement.md#incoming-settlements: a peer's settlement on a

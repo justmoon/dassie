@@ -37,7 +37,7 @@ pub static SIMS: &[Sim] = &[
         name: "node",
         about: "whole nodes' engine cores, with a network, faults and payments drawn per seed, \
                 through chaos, then healed, on the stub with unlimited trust or with \
-                commitments",
+                commitments, or over a settlement hub run in the simulation",
         describe: dassie_node::sim::swarm::describe,
         run: dassie_node::sim::swarm::run,
         // The most, and most of the time: it runs the node whole, and each
@@ -96,11 +96,22 @@ pub static SIMS: &[Sim] = &[
     Sim {
         name: "node-hubs",
         about: "whole nodes' engine cores in an XRP hub and a DSUSD hub, each pair peered over \
-                both, paying in XRP and in dollars, each over its own hub, until the hub of the \
-                method the peerings were not made on stalls and pays out while the other \
+                both, paying in XRP and in dollars, each over its own hub, until an owner \
+                removes one hub's scheme and that hub stalls and pays out while the other \
                 carries on",
         describe: dassie_node::sim::hub_pairs::describe,
         run: dassie_node::sim::hub_pairs::run,
+        // A script over two hubs, as long as `node-hub`'s runs.
+        weight: 5,
+    },
+    Sim {
+        name: "node-hub-routes",
+        about: "whole nodes' engine cores in an XRP hub and a DSUSD hub, paying across nodes in \
+                both without converting, one node with two first hops drawn by the fees each \
+                earned it: a hop that refuses, an attacker's rejected packets and a hop short of \
+                room",
+        describe: dassie_node::sim::hub_routes::describe,
+        run: dassie_node::sim::hub_routes::run,
         // A script over two hubs, as long as `node-hub`'s runs.
         weight: 5,
     },
@@ -114,6 +125,27 @@ pub static SIMS: &[Sim] = &[
         describe: dassie_node::sim::hub_token::describe,
         run: dassie_node::sim::hub_token::run,
         // A script as long as node-hub's.
+        weight: 5,
+    },
+    Sim {
+        name: "node-hub-live",
+        about: "whole nodes' engine cores in the live realm peered over a settlement hub of XRP \
+                on the fake XRP Ledger's mainnet, funding it from their XRP owner books, which \
+                their owners' deposits fund, while their servers and the hub's validators' \
+                servers lie",
+        describe: dassie_node::sim::hub_live::describe_live,
+        run: dassie_node::sim::hub_live::run_live,
+        // A script over a hub, shorter than node-hub's.
+        weight: 5,
+    },
+    Sim {
+        name: "node-hub-rlusd",
+        about: "the same over a hub of RLUSD, funded from the members' RLUSD owner books and its \
+                escrow's gas from their XRP books, paying each other over it while the token is \
+                off its peg",
+        describe: dassie_node::sim::hub_live::describe_rlusd,
+        run: dassie_node::sim::hub_live::run_rlusd,
+        // A script over a hub, shorter than node-hub's.
         weight: 5,
     },
     Sim {

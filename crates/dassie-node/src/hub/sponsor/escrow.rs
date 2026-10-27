@@ -1,8 +1,8 @@
 //! Setting up a founded hub's escrow on the XRP Ledger, as its sponsor
 //! (spec/areas/hubs.md#founding-a-hub): the payment from the node's XRPL
-//! testnet account that creates it, then what is missing of its setup,
-//! signed by its master key, which the node derives from its own key and
-//! the hub's nonce, the master key disabled last. What to do next is
+//! account on the hub's network that creates it, then what is missing of
+//! its setup, signed by its master key, which the node derives from its
+//! own key and the hub's nonce, the master key disabled last. What to do next is
 //! `dassie_hub::escrow::setup_step`'s to say, from what the ledger shows;
 //! this carries it out, over a WebSocket of its own to the XRPL server.
 //!
@@ -148,7 +148,8 @@ impl Setup {
         Ok(false)
     }
 
-    /// Funds the escrow from the XRPL testnet account, unless a payment that
+    /// Funds the escrow from the node's XRPL account on the hub's network,
+    /// the testnet's or mainnet's as its realm is, unless a payment that
     /// does is still on its way or may yet arrive: never twice. One the XRP
     /// scheme cancelled moved nothing, and is paid again; after one the
     /// ledger recorded as failed, none is.

@@ -18,8 +18,7 @@ Each file records one choice between real alternatives: the facts that forced it
 | [desktop-app](desktop-app.md) | The desktop app runs the node in its process and shows the wallet from the node's origin | desktop, node, http, overview |
 | [device-pairing](device-pairing.md) | Only the owner on the node's machine pairs a device, with a secret kept in memory | rpc, peer-protocol, node, designs/periphery |
 | [dsusd](dsusd.md) | A testnet dollar of our own, bought only with XRP through a pool we keep at the market | dsusd-keeper, xrpl, settlement |
-| [earned-trust](earned-trust.md) | Trust follows what a peer earned us | settlement, network |
-| [ended-for-room](ended-for-room.md) | A peering ended for room stays apart, and earns no credit back | network, settlement |
+| [ended-for-room](ended-for-room.md) | A peering ended for room stays apart | network, settlement |
 | [ending-a-peering](ending-a-peering.md) | A node that ends a peering collects first, and pays nothing | network, settlement, peer-protocol, connector |
 | [epoch-handover](epoch-handover.md) | Each validator set runs an epoch of its own, and a repeat finalizes an epoch's last block | hubs, designs/settlement-hubs |
 | [exchange-rates](exchange-rates.md) | Exchange rates, fees and spread | connector |
@@ -32,7 +31,7 @@ Each file records one choice between real alternatives: the facts that forced it
 | [hub-keys-by-network](hub-keys-by-network.md) | A hub's keys name its network, and a validator validates on its owner's network | hubs, identity, node |
 | [hub-protocol-version](hub-protocol-version.md) | A hub runs one version of the hub protocol, which its ID commits to (moving a hub to another version not built) | hubs, overview, designs/settlement-hubs |
 | [hub-scheme-names](hub-scheme-names.md) | A hub scheme's ID names its underlying ledger and its asset (not built) | hubs, settlement, xrpl |
-| [hubs-only](hubs-only.md) | Peers settle only over settlement hubs (not built) | designs/settlement-hubs, settlement, network, xrpl, testing |
+| [hubs-only](hubs-only.md) | Peers settle only over settlement hubs | designs/settlement-hubs, settlement, network, xrpl, testing |
 | [issued-assets](issued-assets.md) | An issued asset's issuer is the owner's counterparty, and a dollar token pauses off its peg (transfer fees not built) | xrpl, settlement, connector |
 | [lazy-downlink-accounts](lazy-downlink-accounts.md) | A downlink's accounts open once value first moves with it, in room kept for it while its channel is open | network, settlement, connector, ledger |
 | [ledger-resets](ledger-resets.md) | A ledger below the newest seen is a reset only on the testnet, and only once its UNL validates it (the UNL's part, the network's constant as the gate and a proven absence not built) | xrpl, designs/xrpl-validation |
@@ -52,7 +51,6 @@ Each file records one choice between real alternatives: the facts that forced it
 | [paid-within-a-tolerance](paid-within-a-tolerance.md) | A payment within a tolerance of its amount is paid in full | payments, stream |
 | [passive-rebalancing](passive-rebalancing.md) | Nodes rebalance passively: inventory pricing, a rate feed and market makers | connector, rate-feed, settlement |
 | [path-failures-retried](path-failures-retried.md) | A sender sends money again after a too-low rate or a node's final error, until failures without progress stop it | stream, payments |
-| [pay-to-enter](pay-to-enter.md) | A newcomer pays to enter: a payment on the ledger before it asks, held for it until it peers (the newcomer's side not built) | network, xrpl, settlement, peer-protocol, designs/periphery |
 | [peer-protocol-v1](peer-protocol-v1.md) | Peer protocol: v0 or v1 | peer-protocol, identity |
 | [peering-lifecycle](peering-lifecycle.md) | Peering lifecycle and liveness | network |
 | [periphery-lists-no-neighbors](periphery-lists-no-neighbors.md) | A periphery node's link state lists no neighbors, so it may keep many uplinks | network, peer-protocol, connector |
@@ -75,7 +73,7 @@ Each file records one choice between real alternatives: the facts that forced it
 | [scheme-names](scheme-names.md) | A scheme's ID names its ledger, network and asset, and a wallet address names the asset alone | settlement, xrpl, ledger, payments, identity |
 | [secrets-at-rest](secrets-at-rest.md) | Secrets at rest | node, http |
 | [settlement-hubs](settlement-hubs.md) | Settlement hubs (design, partly built) | designs/settlement-hubs |
-| [settlement-methods](settlement-methods.md) | A peering settles over every hub both nodes are in, and a packet keeps its ledger where it can (not built) | network, settlement, connector, peer-protocol |
+| [settlement-methods](settlement-methods.md) | A peering settles over every hub both nodes are in, and a packet keeps its ledger where it can | network, settlement, connector, peer-protocol |
 | [stub-in-debug-builds](stub-in-debug-builds.md) | The stub scheme runs only in builds with debug assertions | settlement, node, wallet, testing |
 | [synced-before-peering](synced-before-peering.md) | A node peers on a scheme only once it has seen its ledger | settlement, network, xrpl |
 | [thresholds-in-packets](thresholds-in-packets.md) | A link's thresholds are counted in its largest packet | settlement, connector |
@@ -86,7 +84,7 @@ Each file records one choice between real alternatives: the facts that forced it
 | [verified-ledgers](verified-ledgers.md) | The node books only what ledgers its own UNL validated prove (design, not built) | designs/xrpl-validation, xrpl, designs/settlement-hubs |
 | [visual-identity](visual-identity.md) | Dassie's visual identity is Kopje: solid rocks, nimble dassies, first light | website |
 | [website-hosting](website-hosting.md) | dassie.land is a bucket behind the mirror's load balancer | website, release |
-| [weighted-next-hops](weighted-next-hops.md) | A packet's next hop is drawn at random among its first hops, weighted by the fees each earned us (per method not built) | connector, network, stream |
+| [weighted-next-hops](weighted-next-hops.md) | A packet's next hop is drawn at random among its first hops, weighted by the fees each earned us | connector, network, stream |
 
 ## Adding or changing a decision
 
@@ -119,7 +117,6 @@ Decisions were once numbered, and commits, pull requests and issues still cite t
 | D15 | [bootstrap-network](bootstrap-network.md) |
 | D16 | [tigerstyle](tigerstyle.md) |
 | D19 | [own-books](own-books.md) |
-| D20 | [earned-trust](earned-trust.md) |
 | D21 | [node-and-pnpm](node-and-pnpm.md) |
 | D22 | [settlement-hubs](settlement-hubs.md) |
 | D23 | [own-fulfills](own-fulfills.md) |

@@ -1,22 +1,18 @@
-//! The `xrpl-testnet-xrp` scheme against the fake ledger: each rule of how it
-//! books transactions and settles (spec/areas/xrpl.md#following-the-account,
-//! spec/areas/xrpl.md#settling), restarts and catch-up, with the books
-//! checked against the ledger after every step.
+//! The `xrpl-testnet-xrp` scheme against the fake ledger: each rule of how
+//! the owner's book of the account's XRP books transactions
+//! (spec/areas/xrpl.md#following-the-account), pays the owner's payments
+//! (spec/areas/xrpl.md#deposits-and-withdrawals), restarts and catches up,
+//! with the books checked against the ledger after every step.
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing)]
 
-use std::collections::{BTreeMap, BTreeSet};
-
-use dassie_kit::sim::SeededRng;
 use dassie_ledger::Name;
 use dassie_settlement::{
-    EntryPayment, ExternalAsset, LedgerInput, LedgerStatus, ReconcileCause, SchemeError,
-    SettlementScheme,
+    ExternalAsset, LedgerInput, LedgerStatus, OwnerPayment, OwnerPaymentState, ReconcileCause,
+    SchemeError,
 };
 use dassie_xrpl::account::{Doubt, HISTORY_BOUND, STALL_MS};
-use dassie_xrpl::entry::ENTRY_HOLD_LEDGERS;
 use dassie_xrpl::fake::{FAUCET_DROPS, FakeLedger, Lie, RESERVE_BASE};
-use dassie_xrpl::scheme::MEMO_TYPE;
 use support::{Effect, XrplScheme};
 
 mod support;
@@ -30,21 +26,23 @@ struct Books {
     owner: i128,
     suspense: i128,
     fees: i128,
-    /// Each peer's account, as what we owe it net of what it settled.
-    peers: BTreeMap<Name, i128>,
-    /// Our settlements prepared: peer and amount.
-    pending: BTreeMap<Name, (Name, u64)>,
-    /// Settlements in, by ID: each once.
-    credited: BTreeSet<Name>,
-    finalized: Vec<Name>,
+    /// Settlements cancelled: ones a restart left pending.
     cancelled: Vec<Name>,
+    /// Settlements signed before the XRPL schemes stopped peering, held
+    /// pending as the node holds them: by ID, what each pays.
+    settling: std::collections::BTreeMap<Name, u64>,
+    /// Those of them posted, in order.
+    finalized: Vec<Name>,
     /// Each reconciliation, in order: what the books gained, and why.
     reconciled: Vec<(i128, ReconcileCause)>,
     /// The transaction of each fee, in order.
     fee_ids: Vec<Name>,
     /// The owner's payments held while on their way, as the node holds
     /// them: by ID, what each pays.
-    held: BTreeMap<Name, u64>,
+    held: std::collections::BTreeMap<Name, u64>,
+    /// The owner's payments no longer on their way, in order, and whether
+    /// each applied.
+    paid: Vec<(Name, bool)>,
 }
 
 struct Node {
@@ -104,7 +102,7 @@ impl World {
         };
         for seed in 0..count {
             let node = name(&format!("node{seed}"));
-            let scheme = XrplScheme::new("", &entropy(seed + 1), node, None, &[]).unwrap();
+            let scheme = XrplScheme::new("", &entropy(seed + 1), None, &[]).unwrap();
             world.nodes.push(Node {
                 name: node,
                 scheme,
@@ -208,6 +206,7 @@ impl World {
                 }
                 Effect::OwnerPaid { id, applied } => {
                     let amount = books.held.remove(&id).unwrap();
+                    books.paid.push((id, applied));
                     if applied {
                         books.settlement -= i128::from(amount);
                         books.owner -= i128::from(amount);
@@ -232,20 +231,14 @@ impl World {
                     books.fees += i128::from(amount);
                     books.fee_ids.push(id);
                 }
-                Effect::IncomingSettlement { peer, amount, id } => {
-                    assert!(books.credited.insert(id.unwrap()), "credited twice");
-                    books.settlement += i128::from(amount);
-                    *books.peers.entry(peer).or_default() += i128::from(amount);
+                Effect::Cancel { settlement } => {
+                    books.settling.remove(&settlement);
+                    books.cancelled.push(settlement);
                 }
                 Effect::Finalize { settlement } => {
-                    let (peer, amount) = books.pending.remove(&settlement).unwrap();
+                    let amount = books.settling.remove(&settlement).unwrap();
                     books.settlement -= i128::from(amount);
-                    *books.peers.entry(peer).or_default() -= i128::from(amount);
                     books.finalized.push(settlement);
-                }
-                Effect::Cancel { settlement } => {
-                    books.pending.remove(&settlement).unwrap();
-                    books.cancelled.push(settlement);
                 }
                 Effect::LedgerSend { message } => self.request(index, &message),
                 Effect::Reconnect => {
@@ -347,38 +340,11 @@ impl World {
                 && !node.lagging
                 && let Some(balance) = self.ledger.balance(node.scheme.account())
             {
-                // Less what it holds of entry payments, which is off the
-                // books (spec/decisions/pay-to-enter.md).
-                let bookable = (balance * UNITS_PER_DROP)
-                    .saturating_sub(node.scheme.reserve())
-                    .saturating_sub(node.scheme.entries_held());
+                let bookable = (balance * UNITS_PER_DROP).saturating_sub(node.scheme.reserve());
                 assert_eq!(node.scheme.balance(), bookable, "{}", node.name);
             }
         }
         assert_eq!(self.ledger.total(), dassie_xrpl::MAX_DROPS);
-    }
-
-    /// Peers `a` and `b`, as the peer protocol would: `a` asks.
-    fn peer(&mut self, a: usize, b: usize) -> (Vec<u8>, Vec<u8>) {
-        let (name_a, name_b) = (self.nodes[a].name, self.nodes[b].name);
-        let mut info = Vec::new();
-        self.nodes[b].scheme.peering_info(&mut info);
-        let mut request = Vec::new();
-        self.nodes[a]
-            .scheme
-            .create_peering_request(name_b, &info, &mut request)
-            .unwrap();
-        let state_at_b = self.nodes[b]
-            .scheme
-            .accept_peering_request(name_a, &request)
-            .unwrap();
-        let state_at_a = self.nodes[a]
-            .scheme
-            .finalize_peering_request(name_b, &info)
-            .unwrap();
-        self.nodes[b].scheme.on_peered(name_a, &state_at_b);
-        self.nodes[a].scheme.on_peered(name_b, &state_at_a);
-        (state_at_a, state_at_b)
     }
 
     /// Node `index`'s owner pays `payment` out of the account, which the
@@ -386,7 +352,7 @@ impl World {
     fn pay_owner(
         &mut self,
         index: usize,
-        payment: &dassie_settlement::OwnerPayment,
+        payment: &OwnerPayment,
         effects: &mut Vec<Effect>,
     ) -> Result<Name, SchemeError> {
         let id = self.nodes[index].scheme.pay_owner(payment, effects)?;
@@ -397,46 +363,64 @@ impl World {
         Ok(id)
     }
 
-    /// `from` settles `amount` with `to`, whose state at `from` is
-    /// `state`. Returns the settlement's ID.
-    fn settle(&mut self, from: usize, to: usize, amount: u64, state: &[u8]) -> Name {
-        let peer = self.nodes[to].name;
-        let mut rng = SeededRng::new(1);
-        let prepared = self.nodes[from]
-            .scheme
-            .prepare_settlement(&mut rng, peer, amount, state)
-            .unwrap();
-        self.nodes[from]
-            .books
-            .pending
-            .insert(prepared.id, (peer, prepared.amount));
+    /// Node `from`'s owner pays `amount` to node `to`'s account, and it is
+    /// submitted. Returns the payment's ID.
+    fn pay(&mut self, from: usize, to: usize, amount: u64) -> Name {
+        let payment = OwnerPayment {
+            destination: self.account(to).to_address(),
+            tag: None,
+            memo: None,
+            amount,
+        };
         let mut effects = Vec::new();
-        self.nodes[from]
-            .scheme
-            .execute_settlement(prepared.id, &mut effects);
+        let id = self.pay_owner(from, &payment, &mut effects).unwrap();
         self.apply(from, effects);
-        prepared.id
+        id
+    }
+
+    /// What the node keeps of node `index`'s scheme and account: their
+    /// state, and the balance it checkpointed.
+    fn kept(&self, index: usize) -> (Vec<u8>, u64) {
+        (
+            self.nodes[index].scheme.state(),
+            self.nodes[index].scheme.balance(),
+        )
+    }
+
+    /// Node `index` restarts: its scheme and account made again from what
+    /// the node kept.
+    fn restore(&mut self, index: usize, (state, checkpoint): (Vec<u8>, u64)) {
+        let seed = u8::try_from(index + 1).unwrap();
+        let mut scheme = XrplScheme::new("", &entropy(seed), Some(checkpoint), &state).unwrap();
+        let started = std::mem::take(&mut scheme.started);
+        self.nodes[index].scheme = scheme;
+        self.apply(index, started);
+    }
+
+    /// What became of node `index`'s owner's payment `id`.
+    fn owner_payment(&self, index: usize, id: Name) -> OwnerPaymentState {
+        self.nodes[index].scheme.owner_payment(id)
     }
 }
 
-/// Two funded, synced nodes, peered: the states each keeps for the other.
-fn funded_pair() -> (World, Vec<u8>, Vec<u8>) {
+/// Two funded, synced nodes.
+fn funded() -> World {
     let mut world = World::new(2);
     world.closes(2);
     for node in &world.nodes {
         assert_eq!(node.scheme.status(), LedgerStatus::Synced, "{}", node.name);
     }
-    let (state_a, state_b) = world.peer(0, 1);
-    (world, state_a, state_b)
+    world
 }
 
 const FUNDED: u64 = (FAUCET_DROPS - RESERVE_BASE) * UNITS_PER_DROP;
+const FEE: i128 = 10 * UNITS_PER_DROP as i128;
 
 // An account the faucet creates is a deposit, the reserve
 // left out.
 #[test]
 fn a_new_account_is_funded_and_its_reserve_never_booked() {
-    let (world, _, _) = funded_pair();
+    let world = funded();
     for node in &world.nodes {
         assert_eq!(node.books.owner, i128::from(FUNDED));
         assert_eq!(node.scheme.reserve(), RESERVE_BASE * UNITS_PER_DROP);
@@ -444,409 +428,72 @@ fn a_new_account_is_funded_and_its_reserve_never_booked() {
     }
 }
 
-// A settlement is whole drops; it is posted once it
-// succeeded, its fee booked, and the peer credits what was delivered,
-// once.
+// spec/areas/xrpl.md#owner-books: the scheme is an owner book, whatever its
+// config says: it peers with no one.
 #[test]
-fn a_settlement_settles_both_books() {
-    let (mut world, state_a, _) = funded_pair();
-    let id = world.settle(0, 1, 5_000_000_999, &state_a);
-    world.close();
-    let (a, b) = (&world.nodes[0].books, &world.nodes[1].books);
-    assert_eq!(a.finalized, [id]);
-    assert_eq!(a.peers[&world.nodes[1].name], -5_000_000_000);
-    assert_eq!(a.fees, 10 * i128::from(UNITS_PER_DROP));
-    assert_eq!(b.peers[&world.nodes[0].name], 5_000_000_000);
-    assert_eq!(b.credited.len(), 1);
-    assert_eq!(b.owner, i128::from(FUNDED));
-}
-
-// A Payment with our memo from an address that is not the peer's is a
-// deposit: attribution cannot be spoofed.
-#[test]
-fn a_settlement_from_the_wrong_address_is_a_deposit() {
-    let mut world = World::new(3);
-    world.closes(2);
-    // Node 0 knows node 1's address; node 2 sends claiming to be node 1.
-    let (_, _) = world.peer(0, 1);
-    let mut info = Vec::new();
-    world.nodes[0].scheme.peering_info(&mut info);
-    let impostor = world.nodes[2].name;
-    world.nodes[2].name = world.nodes[1].name;
-    let mut request = Vec::new();
-    world.nodes[2]
-        .scheme
-        .create_peering_request(name("node0"), &info, &mut request)
-        .unwrap();
-    let _ = impostor;
-    world.settle(2, 0, 1_000_000_000, &info);
-    world.close();
-    let books = &world.nodes[0].books;
-    assert!(books.credited.is_empty());
-    assert_eq!(books.owner, i128::from(FUNDED) + 1_000_000_000);
-}
-
-// A peer's address goes when its settlement channel closes
-// (spec/decisions/closing-channels.md): a Payment from it after that is
-// the owner's deposit, as from any address no peer gave. The state version
-// changes with it, though the balance does not, so the node writes the
-// state without the address and a restart does not bring it back.
-#[test]
-fn a_closed_peers_address_is_forgotten() {
-    let (mut world, _, state_b) = funded_pair();
-    let peer = world.nodes[1].name;
-    let address = world.nodes[1].scheme.account().to_address();
-    world.settle(1, 0, 1_000_000_000, &state_b);
-    world.close();
-    assert_eq!(world.nodes[0].books.peers.get(&peer), Some(&1_000_000_000));
-    let (version, balance) = (
-        world.nodes[0].scheme.state_version(),
-        world.nodes[0].scheme.balance(),
-    );
-    world.nodes[0].scheme.on_closed(peer);
-    world.nodes[0].scheme.check_invariants();
-    assert_eq!(world.nodes[0].scheme.balance(), balance);
-    assert_ne!(world.nodes[0].scheme.state_version(), version);
-    let state = String::from_utf8(world.nodes[0].scheme.state()).unwrap();
-    assert!(!state.contains(&address), "{state}");
-    // A channel closed again changes nothing more.
-    let version = world.nodes[0].scheme.state_version();
-    world.nodes[0].scheme.on_closed(peer);
-    assert_eq!(world.nodes[0].scheme.state_version(), version);
-    world.settle(1, 0, 2_000_000_000, &state_b);
-    world.close();
-    let books = &world.nodes[0].books;
-    assert_eq!(books.peers.get(&peer), Some(&1_000_000_000));
-    assert_eq!(books.owner, i128::from(FUNDED) + 2_000_000_000);
-}
-
-// Peering attempts that never became peerings, ours and others', as many
-// as the scheme keeps addresses, take no peer's place: the peer's next
-// settlement is still its own, not the owner's deposit.
-#[test]
-fn peering_attempts_never_displace_a_peers_address() {
-    let (mut world, _, state_b) = funded_pair();
-    let peer = world.nodes[1].name;
-    let mut info = Vec::new();
-    world.nodes[1].scheme.peering_info(&mut info);
-    for i in 0..dassie_xrpl::scheme::MAX_PEERS {
-        let stranger = name(&format!("stranger{i}"));
-        let mut request = Vec::new();
-        let scheme = &mut world.nodes[0].scheme;
-        scheme
-            .create_peering_request(stranger, &info, &mut request)
-            .unwrap();
-        scheme.accept_peering_request(stranger, &info).unwrap();
-        scheme.check_invariants();
+fn the_scheme_peers_with_no_one() {
+    for config in ["", r#"{"peers": true}"#, r#"{"peers": false}"#] {
+        dassie_xrpl::scheme::SchemeConfig::parse(config).unwrap();
     }
-    world.settle(1, 0, 3_000_000_000, &state_b);
-    world.close();
-    let books = &world.nodes[0].books;
-    assert_eq!(books.owner, i128::from(FUNDED));
-    assert_eq!(books.peers.get(&peer), Some(&3_000_000_000));
+    let world = funded();
+    for node in &world.nodes {
+        assert!(!node.scheme.peers(), "{}", node.name);
+    }
 }
 
-/// The least entry payment the nodes here take: one largest packet at the
-/// node's default, 0.1 XRP, in internal units.
-const ENTRY: u64 = 100_000_000;
-
-/// The request data node `index` sends node `to` when it asks to peer: its
-/// own address.
-fn request_of(world: &mut World, index: usize, to: usize) -> Vec<u8> {
-    let mut info = Vec::new();
-    world.nodes[to].scheme.peering_info(&mut info);
-    let mut request = Vec::new();
-    let peer = world.nodes[to].name;
-    world.nodes[index]
-        .scheme
-        .create_peering_request(peer, &info, &mut request)
-        .unwrap();
-    request
-}
-
-/// Node `from` pays node `to` `amount` before they peer, as it would
-/// settle with it: from its address, with the scheme's memo naming itself.
-fn pay_to_enter(world: &mut World, from: usize, to: usize, amount: u64) {
-    let mut info = Vec::new();
-    world.nodes[to].scheme.peering_info(&mut info);
-    world.settle(from, to, amount, &info);
-}
-
-/// Node `index` books what it held from `peer`, just peered.
-fn take_entry(world: &mut World, index: usize, peer: Name) {
-    let mut effects = Vec::new();
-    world.nodes[index].scheme.take_entry(peer, &mut effects);
-    world.nodes[index].scheme.check_invariants();
-    world.apply(index, effects);
-    world.check();
-}
-
-// spec/decisions/pay-to-enter.md: a Payment with our memo from a node not
-// yet peered, of at least one largest packet, is held off the books once
-// validated, bound to the node it names and the address it came from. Once
-// the node peers from that address, it is booked as its settlement, once,
-// and is no longer held.
+// spec/areas/xrpl.md#following-the-account: a Payment with the memo a
+// settlement carried while the XRPL schemes peered, naming a node, is the
+// owner's deposit like any other: nothing is a settlement.
 #[test]
-fn a_payment_before_peering_is_held_until_its_node_peers() {
-    let mut world = World::new(2);
-    world.closes(2);
-    world.nodes[0].scheme.take_entries_from(ENTRY);
-    let newcomer = world.nodes[1].name;
-    let request = request_of(&mut world, 1, 0);
-    let entry = |world: &World, node: Name, data: &[u8]| world.nodes[0].scheme.entry(node, data);
-    assert_eq!(entry(&world, newcomer, &request), EntryPayment::Missing);
-    pay_to_enter(&mut world, 1, 0, ENTRY);
-    assert_eq!(
-        entry(&world, newcomer, &request),
-        EntryPayment::Missing,
-        "not validated yet"
-    );
-    world.close();
-    let books = &world.nodes[0].books;
-    assert_eq!(books.owner, i128::from(FUNDED), "no deposit");
-    assert!(books.credited.is_empty());
-    assert_eq!(world.nodes[0].scheme.entries_held(), ENTRY);
-    assert_eq!(entry(&world, newcomer, &request), EntryPayment::Held);
-    // Bound to the node its memo names, and to the address it came from.
-    assert_eq!(
-        entry(&world, name("node9"), &request),
-        EntryPayment::Missing
-    );
-    let elsewhere = request_of(&mut world, 0, 1);
-    assert_eq!(entry(&world, newcomer, &elsewhere), EntryPayment::Missing);
-    world.peer(1, 0);
-    take_entry(&mut world, 0, newcomer);
-    let books = &world.nodes[0].books;
-    assert_eq!(books.peers[&newcomer], i128::from(ENTRY));
-    assert_eq!(books.credited.len(), 1);
-    assert_eq!(books.owner, i128::from(FUNDED));
-    assert_eq!(world.nodes[0].scheme.entries_held(), 0);
-    // Used: it admits no one again, and books nothing more.
-    assert_eq!(entry(&world, newcomer, &request), EntryPayment::Missing);
-    take_entry(&mut world, 0, newcomer);
-    world.closes(2);
-    assert_eq!(world.nodes[0].books.credited.len(), 1);
-    assert_eq!(world.nodes[0].books.peers[&newcomer], i128::from(ENTRY));
-}
-
-// spec/decisions/pay-to-enter.md: what is less than one largest packet is
-// no entry payment but the owner's deposit at once; a payment to another
-// address is not ours to hold; and one held that its node never claims is
-// the owner's deposit once its hold is over.
-#[test]
-fn an_entry_payment_is_held_only_when_it_counts() {
-    let mut world = World::new(3);
-    world.closes(2);
-    world.nodes[0].scheme.take_entries_from(ENTRY);
-    let newcomer = world.nodes[1].name;
-    let request = request_of(&mut world, 1, 0);
-    pay_to_enter(&mut world, 1, 0, ENTRY - UNITS_PER_DROP);
-    pay_to_enter(&mut world, 1, 2, ENTRY);
-    world.close();
-    let books = &world.nodes[0].books;
-    assert_eq!(books.owner, i128::from(FUNDED + ENTRY - UNITS_PER_DROP));
-    assert_eq!(world.nodes[0].scheme.entries_held(), 0);
-    assert_eq!(
-        world.nodes[0].scheme.entry(newcomer, &request),
-        EntryPayment::Missing
-    );
-    pay_to_enter(&mut world, 1, 0, ENTRY);
-    world.close();
-    assert_eq!(
-        world.nodes[0].scheme.entry(newcomer, &request),
-        EntryPayment::Held
-    );
-    world.pass(ENTRY_HOLD_LEDGERS);
-    world.closes(2);
-    let books = &world.nodes[0].books;
-    assert_eq!(world.nodes[0].scheme.entries_held(), 0);
-    assert_eq!(books.owner, i128::from(FUNDED + 2 * ENTRY - UNITS_PER_DROP));
-    assert!(books.credited.is_empty());
-    assert_eq!(
-        world.nodes[0].scheme.entry(newcomer, &request),
-        EntryPayment::Missing
-    );
-}
-
-// spec/decisions/pay-to-enter.md: an entry payment held is kept with the
-// scheme's state, so a restart before its node peers still holds it, and
-// one after books it no second time.
-#[test]
-fn an_entry_payment_survives_a_restart_and_is_booked_once() {
-    let mut world = World::new(2);
-    world.closes(2);
-    world.nodes[0].scheme.take_entries_from(ENTRY);
-    let newcomer = world.nodes[1].name;
-    let request = request_of(&mut world, 1, 0);
-    pay_to_enter(&mut world, 1, 0, ENTRY);
-    world.close();
-    let restart = |world: &mut World| {
-        let state = world.nodes[0].scheme.state();
-        let checkpoint = world.nodes[0].scheme.balance();
-        world.disconnect(0);
-        let node = world.nodes[0].name;
-        world.nodes[0].scheme =
-            XrplScheme::new("", &entropy(1), node, Some(checkpoint), &state).unwrap();
-        world.nodes[0].scheme.take_entries_from(ENTRY);
-        world.connect(0);
-        world.closes(2);
+fn a_payment_with_a_settlement_memo_is_a_deposit() {
+    let mut world = funded();
+    let payment = OwnerPayment {
+        destination: world.account(0).to_address(),
+        tag: None,
+        memo: Some(dassie_settlement::OwnerMemo {
+            memo_type: b"https://dassie.land/settlement/xrpl-testnet-xrp/v1".to_vec(),
+            data: b"node1".to_vec(),
+        }),
+        amount: 1_000_000_000,
     };
-    restart(&mut world);
-    assert_eq!(world.nodes[0].scheme.entries_held(), ENTRY);
-    assert_eq!(
-        world.nodes[0].scheme.entry(newcomer, &request),
-        EntryPayment::Held
-    );
-    world.peer(1, 0);
-    take_entry(&mut world, 0, newcomer);
-    restart(&mut world);
-    let books = &world.nodes[0].books;
-    assert_eq!(books.credited.len(), 1);
-    assert_eq!(books.peers[&newcomer], i128::from(ENTRY));
-    assert_eq!(books.owner, i128::from(FUNDED));
-    assert_eq!(world.nodes[0].scheme.entries_held(), 0);
-}
-
-/// Two synced nodes, node 0 taking entry payments and holding one from node
-/// 1, its account then raised a reserve so high that what it holds above the
-/// reserve, `left` drops, is less than the entry held: the reserve took part
-/// of it, as fees or the owner's spending outside the node would.
-fn drained_with_entry(left: u64) -> (World, Vec<u8>) {
-    let mut world = World::new(2);
-    world.closes(2);
-    world.nodes[0].scheme.take_entries_from(ENTRY);
-    let request = request_of(&mut world, 1, 0);
-    pay_to_enter(&mut world, 1, 0, ENTRY);
+    let mut effects = Vec::new();
+    let id = world.pay_owner(1, &payment, &mut effects).unwrap();
+    world.apply(1, effects);
     world.close();
-    assert_eq!(world.nodes[0].scheme.entries_held(), ENTRY);
-    let balance = world.ledger.balance(world.account(0)).unwrap();
-    world.ledger.set_reserve(balance - left, 0);
-    world.close();
-    assert_eq!(world.nodes[0].scheme.balance(), 0, "the books hold nothing");
-    (world, request)
-}
-
-/// Node 0 restarts from what its books kept, and catches up.
-fn restart_first(world: &mut World) {
-    let state = world.nodes[0].scheme.state();
-    let checkpoint = world.nodes[0].scheme.balance();
-    world.disconnect(0);
-    let node = world.nodes[0].name;
-    world.nodes[0].scheme =
-        XrplScheme::new("", &entropy(1), node, Some(checkpoint), &state).unwrap();
-    world.nodes[0].scheme.take_entries_from(ENTRY);
-    world.connect(0);
-    world.closes(2);
-}
-
-// spec/decisions/pay-to-enter.md: an entry payment taken once the account no
-// longer holds all of it above the reserve credits its node what it paid, and
-// the books match what is left, the shortfall through suspense, so they still
-// match the account, before and after a restart.
-#[test]
-fn an_entry_payment_taken_short_is_matched_through_suspense() {
-    const LEFT: u64 = 40_000;
-    let (mut world, _) = drained_with_entry(LEFT);
-    let newcomer = world.nodes[1].name;
-    world.peer(1, 0);
-    take_entry(&mut world, 0, newcomer);
+    assert_eq!(world.owner_payment(1, id), OwnerPaymentState::Applied);
     let books = &world.nodes[0].books;
-    assert_eq!(books.peers[&newcomer], i128::from(ENTRY));
-    assert_eq!(books.settlement, i128::from(LEFT * UNITS_PER_DROP));
-    assert_eq!(
-        books.reconciled.last(),
-        Some(&(
-            -i128::from(ENTRY - LEFT * UNITS_PER_DROP),
-            ReconcileCause::Unexplained
-        ))
-    );
-    restart_first(&mut world);
-    assert_eq!(
-        world.nodes[0].scheme.balance(),
-        LEFT * UNITS_PER_DROP,
-        "nothing booked again"
-    );
-    assert_eq!(world.nodes[0].books.credited.len(), 1);
+    assert_eq!(books.owner, i128::from(FUNDED) + 1_000_000_000);
+    assert_eq!(books.suspense, 0);
 }
 
-// spec/decisions/pay-to-enter.md: an entry payment whose hold is over once
-// the account no longer holds all of it above the reserve is the owner's
-// deposit, and the books match what is left, so a restart after it reads
-// the same.
-#[test]
-fn an_entry_payment_expired_short_is_matched_through_suspense() {
-    const LEFT: u64 = 40_000;
-    let (mut world, _) = drained_with_entry(LEFT);
-    let owner = world.nodes[0].books.owner;
-    world.pass(ENTRY_HOLD_LEDGERS);
-    world.closes(2);
-    assert_eq!(world.nodes[0].scheme.entries_held(), 0);
-    let books = &world.nodes[0].books;
-    assert_eq!(books.owner, owner + i128::from(ENTRY));
-    assert_eq!(books.settlement, i128::from(LEFT * UNITS_PER_DROP));
-    restart_first(&mut world);
-    assert_eq!(world.nodes[0].scheme.balance(), LEFT * UNITS_PER_DROP);
-    assert!(world.nodes[0].books.credited.is_empty());
-}
-
-// A Payment the ledger refuses after taking its fee (here: to an account
-// that does not exist, too little to create it) is cancelled, its fee
-// booked.
-#[test]
-fn a_failed_settlement_is_cancelled_and_costs_its_fee() {
-    let (mut world, _, _) = funded_pair();
-    let nobody = dassie_xrpl::Wallet::from_seed([77; 16]).account();
-    let id = world.settle(0, 1, 1_000, &nobody.0);
-    world.close();
-    let books = &world.nodes[0].books;
-    assert_eq!(books.cancelled, [id]);
-    assert_eq!(books.fees, 10 * i128::from(UNITS_PER_DROP));
-}
-
-// A settlement whose submission was lost is looked for once past its last
-// ledger, and cancelled when the ledger never saw it.
-#[test]
-fn a_lost_submission_expires_and_is_cancelled() {
-    let (mut world, state_a, _) = funded_pair();
-    world.nodes[0].drop_submits = true;
-    let id = world.settle(0, 1, 2_000_000_000, &state_a);
-    world.closes(25);
-    assert_eq!(world.nodes[0].books.cancelled, [id]);
-    assert!(world.nodes[0].books.pending.is_empty());
-    // The sequence was read again: the next one gets through.
-    world.nodes[0].drop_submits = false;
-    let next = world.settle(0, 1, 2_000_000_000, &state_a);
-    world.close();
-    assert_eq!(world.nodes[0].books.finalized, [next]);
-}
-
-// A settlement signed and kept before a restart is submitted again
-// after it, and posted once; what happened while away is booked once,
-// with who did it.
+// An owner's payment signed and kept before a restart is submitted again
+// after it, and booked once; what happened while away is booked once, as
+// what it was.
 #[test]
 fn a_restart_resubmits_and_catches_up() {
-    let (mut world, state_a, state_b) = funded_pair();
+    let mut world = funded();
     world.nodes[0].drop_submits = true;
-    let id = world.settle(0, 1, 3_000_000_000, &state_a);
-    // Node 0 goes down with its settlement signed; its state and balance
-    // are what the node kept.
-    let state = world.nodes[0].scheme.state();
-    let checkpoint = world.nodes[0].scheme.balance();
+    let id = world.pay(0, 1, 3_000_000_000);
+    // Node 0 goes down with its payment signed; its state and balance are
+    // what the node kept.
+    let kept = world.kept(0);
     world.disconnect(0);
-    // Meanwhile node 1 settles with node 0, and someone deposits.
-    world.settle(1, 0, 4_000_000_000, &state_b);
+    // Meanwhile node 1's owner pays node 0, and someone deposits.
+    world.pay(1, 0, 4_000_000_000);
     world.ledger.deposit(world.account(0), 7_000_000);
     world.closes(2);
-    let node = world.nodes[0].name;
-    world.nodes[0].scheme =
-        XrplScheme::new("", &entropy(1), node, Some(checkpoint), &state).unwrap();
+    world.restore(0, kept);
     world.nodes[0].drop_submits = false;
     world.connect(0);
     world.closes(2);
+    assert_eq!(world.owner_payment(0, id), OwnerPaymentState::Applied);
     let books = &world.nodes[0].books;
-    assert_eq!(books.finalized, [id]);
-    assert_eq!(books.credited.len(), 1);
-    assert_eq!(books.owner, i128::from(FUNDED) + 7_000_000_000);
+    assert_eq!(books.paid, [(id, true)]);
+    assert_eq!(
+        books.owner,
+        i128::from(FUNDED) - 3_000_000_000 + 4_000_000_000 + 7_000_000_000
+    );
+    assert_eq!(books.fees, FEE);
     assert_eq!(books.suspense, 0);
 }
 
@@ -856,29 +503,29 @@ fn a_restart_resubmits_and_catches_up() {
 // nothing it cannot prove.
 #[test]
 fn a_short_history_within_the_bound_stalls() {
-    let (mut world, _, state_b) = funded_pair();
+    let mut world = funded();
     world.disconnect(0);
-    world.settle(1, 0, 4_000_000_000, &state_b);
+    world.pay(1, 0, 4_000_000_000);
     world.closes(3);
     world.ledger.forget_history();
     world.connect(0);
     world.closes(1);
     let books = &world.nodes[0].books;
-    assert!(books.credited.is_empty() && books.reconciled.is_empty());
+    assert_eq!(books.owner, i128::from(FUNDED));
+    assert!(books.reconciled.is_empty());
     assert_eq!(world.nodes[0].scheme.status(), LedgerStatus::Syncing);
     let waiting = world.nodes[0].scheme.account.waiting().unwrap();
     assert!(waiting.contains("history is too short"), "{waiting}");
 }
 
-/// Two funded, synced and peered nodes, the first of which settles `amount`
-/// with the second while it is away for longer than the history bound,
-/// past the first flag ledger. Its server has forgotten the settlement's
-/// ledger.
+/// Two funded, synced nodes, the second of which pays `amount` to the first
+/// while it is away for longer than the history bound, past the first flag
+/// ledger. Its server has forgotten the payment's ledger.
 fn away_beyond_the_bound(amount: u64) -> World {
-    let (mut world, _, state_b) = funded_pair();
+    let mut world = funded();
     world.closes(260);
     world.disconnect(0);
-    world.settle(1, 0, amount, &state_b);
+    world.pay(1, 0, amount);
     world.closes(3);
     world.disconnect(1);
     world.pass(HISTORY_BOUND + 300);
@@ -897,7 +544,7 @@ fn history_beyond_the_bound_reconciles_by_the_balance() {
     assert_eq!(world.nodes[0].scheme.account.unproven().history_gaps, 1);
     assert_eq!(world.nodes[0].scheme.status(), LedgerStatus::Synced);
     assert_eq!(world.nodes[0].books.suspense, 4_000_000_000);
-    assert!(world.nodes[0].books.credited.is_empty());
+    assert_eq!(world.nodes[0].books.owner, i128::from(FUNDED));
     // Nothing the scheme can name: a warning.
     assert_eq!(
         world.nodes[0].books.reconciled,
@@ -909,7 +556,7 @@ fn history_beyond_the_bound_reconciles_by_the_balance() {
 // reserve's, which is expected.
 #[test]
 fn a_new_reserve_is_reconciled() {
-    let (mut world, _, _) = funded_pair();
+    let mut world = funded();
     assert!(world.nodes[0].books.reconciled.is_empty());
     world.ledger.set_reserve(2 * RESERVE_BASE, 0);
     world.close();
@@ -926,7 +573,7 @@ fn a_new_reserve_is_reconciled() {
 // back.
 #[test]
 fn a_reserve_above_the_balance_explains_down_to_nothing() {
-    let (mut world, _, _) = funded_pair();
+    let mut world = funded();
     let held = i128::from(world.nodes[0].scheme.balance());
     assert!(held > 0);
     world.ledger.set_reserve(2 * FAUCET_DROPS, 0);
@@ -971,7 +618,7 @@ fn a_reserve_change_is_told_from_an_unexplained_difference() {
 // again, whose funds are a deposit.
 #[test]
 fn a_testnet_reset_is_a_loss_and_a_new_deposit() {
-    let (mut world, _, _) = funded_pair();
+    let mut world = funded();
     world.ledger.reset();
     world.disconnect(0);
     world.connect(0);
@@ -991,7 +638,7 @@ fn a_testnet_reset_is_a_loss_and_a_new_deposit() {
 // deposit once the ledger shows it, never booked at the asking.
 #[test]
 fn the_owner_asks_the_faucet_for_more() {
-    let (mut world, _, _) = funded_pair();
+    let mut world = funded();
     assert!(world.nodes[0].scheme.has_faucet());
     let ask = |world: &mut World| {
         let mut effects = Vec::new();
@@ -1023,8 +670,7 @@ fn the_owner_asks_the_faucet_for_more() {
 
 #[test]
 fn a_ledger_without_a_faucet_is_never_asked() {
-    let mut scheme =
-        XrplScheme::new(r#"{"faucet":null}"#, &entropy(1), name("node0"), None, &[]).unwrap();
+    let mut scheme = XrplScheme::new(r#"{"faucet":null}"#, &entropy(1), None, &[]).unwrap();
     assert!(!scheme.has_faucet());
     let mut effects = Vec::new();
     assert_eq!(
@@ -1034,14 +680,13 @@ fn a_ledger_without_a_faucet_is_never_asked() {
     assert!(effects.is_empty());
 }
 
-// spec/decisions/synced-before-peering.md: the scheme has synced once its
-// first sync booked what the account held as the owner's, and the node peers
-// on it only from then. That is kept with its state, so a restart that cannot
-// reach the ledger keeps it.
+// The scheme has synced once its first sync booked what the account held
+// as the owner's, from when on it tells a deposit from what it held. That
+// is kept with its state, so a restart that cannot reach the ledger keeps
+// it.
 #[test]
 fn the_first_sync_is_kept_across_restarts() {
-    let node = name("node0");
-    let fresh = XrplScheme::new("", &entropy(1), node, None, &[]).unwrap();
+    let fresh = XrplScheme::new("", &entropy(1), None, &[]).unwrap();
     assert!(!fresh.has_synced(), "synced before it saw its ledger");
     let mut world = World::new(1);
     world.closes(2);
@@ -1049,7 +694,7 @@ fn the_first_sync_is_kept_across_restarts() {
     let state = world.nodes[0].scheme.state();
     let checkpoint = world.nodes[0].scheme.balance();
     world.disconnect(0);
-    let restarted = XrplScheme::new("", &entropy(1), node, Some(checkpoint), &state).unwrap();
+    let restarted = XrplScheme::new("", &entropy(1), Some(checkpoint), &state).unwrap();
     assert_eq!(restarted.status(), LedgerStatus::Connecting);
     assert!(restarted.has_synced(), "a restart forgot the first sync");
 }
@@ -1060,7 +705,7 @@ fn the_first_sync_is_kept_across_restarts() {
 // loss, the new a deposit.
 #[test]
 fn a_reset_is_recognised_when_the_account_exists_again() {
-    let (mut world, _, _) = funded_pair();
+    let mut world = funded();
     world.disconnect(0);
     world.ledger.reset();
     world.ledger.fund(world.account(0));
@@ -1074,16 +719,16 @@ fn a_reset_is_recognised_when_the_account_exists_again() {
 }
 
 // Found in review: after a reconnect, a server says the account does not
-// exist, while a settlement of ours applied. An absence counts only when
+// exist, while the owner's payment applied. An absence counts only when
 // proven: nothing is cancelled or written off, and once the server is
-// honest the settlement is posted.
+// honest the payment is booked.
 #[test]
 fn an_absence_the_server_made_up_cancels_nothing() {
-    let (mut world, state_a, _) = funded_pair();
-    let id = world.settle(0, 1, 5_000_000_000, &state_a);
+    let mut world = funded();
+    let id = world.pay(0, 1, 5_000_000_000);
     world.disconnect(0);
     world.close();
-    assert!(world.nodes[1].books.credited.contains(&id));
+    assert_eq!(world.owner_payment(1, id), OwnerPaymentState::Unknown);
     let write_offs = world.nodes[0].scheme.account.write_offs();
     world.ledger.set_lie_for_all(Some(Lie::FalseAbsence));
     world.connect(0);
@@ -1091,21 +736,21 @@ fn an_absence_the_server_made_up_cancels_nothing() {
     world.ledger.set_lie_for_all(None);
     assert!(world.ledger.lies_told(Lie::FalseAbsence) > 0);
     let books = &world.nodes[0].books;
-    assert!(books.cancelled.is_empty() && books.reconciled.is_empty());
+    assert!(books.paid.is_empty() && books.reconciled.is_empty());
     assert_eq!(world.nodes[0].scheme.account.write_offs(), write_offs);
     world.wait(STALL_MS);
     world.closes(2);
-    assert_eq!(world.nodes[0].books.finalized, [id]);
+    assert_eq!(world.nodes[0].books.paid, [(id, true)]);
     assert_eq!(world.nodes[0].scheme.status(), LedgerStatus::Synced);
 }
 
 // As above, against a server that stopped at the first ledger, before the
 // account was made: it is never believed, and the scheme waits. Once a
-// server has caught up, the settlement is posted.
+// server has caught up, the payment is booked.
 #[test]
 fn a_server_that_never_saw_the_account_writes_nothing_off() {
-    let (mut world, state_a, _) = funded_pair();
-    let id = world.settle(0, 1, 5_000_000_000, &state_a);
+    let mut world = funded();
+    let id = world.pay(0, 1, 5_000_000_000);
     world.disconnect(0);
     world.close();
     world.nodes[0].behind = Some(FakeLedger::new());
@@ -1114,307 +759,105 @@ fn a_server_that_never_saw_the_account_writes_nothing_off() {
     world.closes(10);
     assert!(world.nodes[0].reconnects > 0);
     let books = &world.nodes[0].books;
-    assert!(books.cancelled.is_empty());
+    assert!(books.paid.is_empty());
     assert_eq!(books.suspense, 0);
-    assert!(books.pending.contains_key(&id));
+    assert_eq!(world.owner_payment(0, id), OwnerPaymentState::InFlight);
     assert_eq!(world.nodes[0].scheme.status(), LedgerStatus::Syncing);
     world.nodes[0].behind = None;
     world.disconnect(0);
     world.connect(0);
     world.closes(2);
     let books = &world.nodes[0].books;
-    assert_eq!(books.finalized, [id]);
+    assert_eq!(books.paid, [(id, true)]);
     assert_eq!(books.suspense, 0);
     assert_eq!(world.nodes[0].scheme.status(), LedgerStatus::Synced);
 }
 
-// A settlement never executed is dropped past its last ledger, and its
-// sequence is the next one's: the account's sequence as the anchor proves
-// it, so the next settlement applies.
-#[test]
-fn a_dropped_settlement_s_sequence_is_used_again() {
-    let (mut world, state_a, _) = funded_pair();
-    let peer = world.nodes[1].name;
-    let mut rng = SeededRng::new(1);
-    world.nodes[0]
-        .scheme
-        .prepare_settlement(&mut rng, peer, 1_000_000_000, &state_a)
-        .unwrap();
-    world.closes(25);
-    let next = world.settle(0, 1, 1_000_000_000, &state_a);
-    world.close();
-    assert_eq!(world.nodes[0].books.finalized, [next]);
-    assert_eq!(world.nodes[0].scheme.status(), LedgerStatus::Synced);
-}
-
 // spec/decisions/ledger-resets.md: a server behind what the scheme booked
-// (here a peer's settlement), or only behind the newest ledger it saw, says
-// nothing new: nothing is booked from it, and the scheme waits for one that
-// caught up.
+// (here a deposit), or only behind the newest ledger it saw, says nothing
+// new: nothing is booked from it, and the scheme waits for one that caught
+// up.
 #[test]
 fn a_server_behind_is_never_booked_from() {
-    for settled in [true, false] {
-        let (mut world, _, state_b) = funded_pair();
+    for paid in [true, false] {
+        let mut world = funded();
         let behind = world.ledger.clone();
-        if settled {
-            world.settle(1, 0, 4_000_000_000, &state_b);
+        if paid {
+            world.pay(1, 0, 4_000_000_000);
         }
         world.closes(3);
         let books = |world: &World| {
             let books = &world.nodes[0].books;
-            (
-                books.settlement,
-                books.owner,
-                books.suspense,
-                books.credited.len(),
-            )
+            (books.settlement, books.owner, books.suspense)
         };
         let before = books(&world);
         world.disconnect(0);
         world.nodes[0].behind = Some(behind);
         world.connect(0);
         world.closes(3);
-        assert_eq!(books(&world), before, "{settled}");
+        assert_eq!(books(&world), before, "{paid}");
         assert_eq!(world.nodes[0].scheme.status(), LedgerStatus::Syncing);
         world.nodes[0].behind = None;
         world.disconnect(0);
         world.connect(0);
         world.closes(2);
-        assert_eq!(books(&world), before, "{settled}");
+        assert_eq!(books(&world), before, "{paid}");
         assert_eq!(world.nodes[0].scheme.status(), LedgerStatus::Synced);
     }
 }
 
-// spec/areas/xrpl.md#settlement-messages: the settlement message is a bare
-// notice, with no amount and no data, and books nothing: the ledger does.
-// Whatever one says, it is taken and books nothing.
+// The owner's payment waits while the account cannot make it: beyond what
+// it holds above the reserve, or before it syncs again.
 #[test]
-fn the_settlement_message_is_a_bare_notice() {
-    let (mut world, state_a, _) = funded_pair();
-    let mut effects = Vec::new();
-    let peer = world.nodes[1].name;
-    let scheme = &mut world.nodes[0].scheme;
-    assert!(!scheme.scheme.books_messages());
-    for (amount, data) in [(0, &[][..]), (10, &[1; 32][..]), (u64::MAX, &[1; 31][..])] {
-        scheme
-            .handle_settlement(peer, amount, data, &[], &mut effects)
-            .unwrap();
-    }
-    assert!(effects.is_empty());
-    let mut rng = SeededRng::new(1);
-    let prepared = scheme
-        .prepare_settlement(&mut rng, peer, 1_000_000_000, &state_a)
-        .unwrap();
-    assert!(prepared.message.is_empty());
-    assert!(scheme.scheme.settlement_message(prepared.id).is_empty());
-    let _ = MEMO_TYPE;
-}
-
-// spec/areas/xrpl.md#the-payment-it-signs: a peer's address travels as its
-// 20-byte account ID, and nothing else is one.
-#[test]
-fn a_peers_address_is_its_account_id() {
-    let (mut world, state_a, _) = funded_pair();
-    let ours = world.nodes[1].scheme.deposit_address().unwrap();
-    assert_eq!(state_a.len(), 20);
+fn an_owners_payment_waits_when_it_cannot_be_made() {
+    let mut world = funded();
+    let to = world.account(1).to_address();
+    let payment = |amount| OwnerPayment {
+        destination: to.clone(),
+        tag: None,
+        memo: None,
+        amount,
+    };
     assert_eq!(
-        dassie_xrpl::AccountId(state_a.clone().try_into().unwrap()).to_address(),
-        ours
+        world.pay_owner(0, &payment(FUNDED + UNITS_PER_DROP), &mut Vec::new()),
+        Err(SchemeError::Unavailable)
     );
-    let peer = world.nodes[1].name;
-    let mut out = Vec::new();
-    let text = ours.as_bytes();
-    for info in [text, &state_a[..19], &[0; 21][..]] {
-        assert!(
-            world.nodes[0]
-                .scheme
-                .create_peering_request(peer, info, &mut out)
-                .is_err()
-        );
-    }
-}
-
-// Settlements wait while the scheme cannot settle: before it syncs, under
-// a drop, or beyond what it holds above the reserve.
-#[test]
-fn a_settlement_waits_when_it_cannot_be_made() {
-    let (mut world, state_a, _) = funded_pair();
-    let peer = world.nodes[1].name;
-    let mut rng = SeededRng::new(1);
-    let scheme = &mut world.nodes[0].scheme;
-    for amount in [999, FUNDED + UNITS_PER_DROP] {
-        assert_eq!(
-            scheme
-                .prepare_settlement(&mut rng, peer, amount, &state_a)
-                .err(),
-            Some(dassie_settlement::SchemeError::Unavailable),
-            "{amount}"
-        );
-    }
     world.disconnect(0);
     assert_eq!(
-        world.nodes[0]
-            .scheme
-            .prepare_settlement(&mut rng, peer, 1_000_000, &state_a)
-            .err(),
-        Some(dassie_settlement::SchemeError::Unavailable)
+        world.pay_owner(0, &payment(1_000_000), &mut Vec::new()),
+        Err(SchemeError::Unavailable)
     );
 }
 
-// Several settlements in flight at once, to several peers, with
-// consecutive sequences: all get in.
-#[test]
-fn settlements_go_several_at_once() {
-    let mut world = World::new(4);
-    world.closes(2);
-    let states: Vec<Vec<u8>> = (1..4).map(|b| world.peer(0, b).0).collect();
-    let ids: Vec<Name> = states
-        .iter()
-        .enumerate()
-        .map(|(i, state)| world.settle(0, i + 1, 1_000_000_000, state))
-        .collect();
-    world.close();
-    assert_eq!(world.nodes[0].books.finalized, ids);
-    for b in 1..4 {
-        assert_eq!(world.nodes[b].books.credited.len(), 1);
-    }
-}
-
-// Found in review: a settlement of ours that the ledger validated while the
+// Found in review: the owner's payment that the ledger validated while the
 // node was away, with an account history too short to read it from, is
-// still posted, once looked up by its hash: what the balance booked
-// through suspense comes back out of it.
+// still booked, once, as applied, with its fee: nothing goes through
+// suspense.
 #[test]
-fn a_settlement_validated_while_away_is_still_posted() {
-    let (mut world, state_a, _) = funded_pair();
-    let id = world.settle(0, 1, 3_000_000_000, &state_a);
-    let state = world.nodes[0].scheme.state();
-    let checkpoint = world.nodes[0].scheme.balance();
+fn an_owners_payment_validated_while_away_is_still_booked() {
+    let mut world = funded();
+    let id = world.pay(0, 1, 3_000_000_000);
+    let kept = world.kept(0);
     world.disconnect(0);
     world.closes(2);
     world.ledger.shorten_account_history();
-    let node = world.nodes[0].name;
-    world.nodes[0].scheme =
-        XrplScheme::new("", &entropy(1), node, Some(checkpoint), &state).unwrap();
+    world.restore(0, kept);
     world.connect(0);
     world.closes(40);
+    assert_eq!(world.owner_payment(0, id), OwnerPaymentState::Applied);
     let books = &world.nodes[0].books;
-    assert_eq!(books.finalized, [id]);
-    assert!(books.pending.is_empty());
-    assert_eq!(books.suspense, 0, "the suspense entry came back out");
-}
-
-// As above, with a settlement and fee larger than what the account holds
-// after it: posting them takes the books below zero, and what they are
-// short comes from suspense, so the books still match the balance.
-#[test]
-fn a_large_settlement_validated_while_away_keeps_the_books() {
-    let (mut world, state_a, _) = funded_pair();
-    let id = world.settle(0, 1, 700_000_000_000, &state_a);
-    let state = world.nodes[0].scheme.state();
-    let checkpoint = world.nodes[0].scheme.balance();
-    world.disconnect(0);
-    world.closes(2);
-    world.ledger.shorten_account_history();
-    let node = world.nodes[0].name;
-    world.nodes[0].scheme =
-        XrplScheme::new("", &entropy(1), node, Some(checkpoint), &state).unwrap();
-    world.connect(0);
-    world.closes(40);
-    let books = &world.nodes[0].books;
-    assert_eq!(books.finalized, [id]);
-    assert!(books.pending.is_empty());
-    assert_eq!(books.suspense, 0, "the suspense entry came back out");
-}
-
-// Found in review: a settlement the node prepared but could not book, so
-// never executed, is never sent, even across a reconnect.
-#[test]
-fn a_settlement_never_executed_is_never_sent() {
-    let (mut world, state_a, _) = funded_pair();
-    let peer = world.nodes[1].name;
-    let mut rng = SeededRng::new(1);
-    world.nodes[0]
-        .scheme
-        .prepare_settlement(&mut rng, peer, 3_000_000_000, &state_a)
-        .unwrap();
-    world.disconnect(0);
-    world.connect(0);
-    world.closes(25);
-    assert_eq!(world.nodes[1].books.credited.len(), 0, "nothing was paid");
-    // One discarded at once frees its sequence for the next.
-    let prepared = world.nodes[0]
-        .scheme
-        .prepare_settlement(&mut rng, peer, 1_000_000_000, &state_a)
-        .unwrap();
-    world.nodes[0].scheme.discard_settlement(prepared.id);
-    let id = world.settle(0, 1, 1_000_000_000, &state_a);
-    world.close();
-    assert_eq!(world.nodes[0].books.finalized, [id]);
-}
-
-// spec/areas/xrpl.md#state-and-restarts: a settlement signed and booked,
-// but never executed (the node stopped first), is dropped past its last
-// ledger, and the account remembers it as never sent. The scheme that
-// reconciles it after a restart cancels it, rather than looking for a hash
-// no ledger will ever hold and leaving it pending for good.
-#[test]
-fn a_settlement_never_sent_is_cancelled_after_a_restart() {
-    let (mut world, state_a, _) = funded_pair();
-    let peer = world.nodes[1].name;
-    let mut rng = SeededRng::new(1);
-    let prepared = world.nodes[0]
-        .scheme
-        .prepare_settlement(&mut rng, peer, 3_000_000_000, &state_a)
-        .unwrap();
-    world.nodes[0]
-        .books
-        .pending
-        .insert(prepared.id, (peer, prepared.amount));
-    world.closes(25);
-    let state = world.nodes[0].scheme.state();
-    let checkpoint = world.nodes[0].scheme.balance();
-    world.disconnect(0);
-    let node = world.nodes[0].name;
-    world.nodes[0].scheme =
-        XrplScheme::new("", &entropy(1), node, Some(checkpoint), &state).unwrap();
-    let mut effects = Vec::new();
-    world.nodes[0]
-        .scheme
-        .reconcile(&[(prepared.id, prepared.amount)], &mut effects);
-    assert_eq!(
-        effects,
-        [Effect::Cancel {
-            settlement: prepared.id
-        }]
-    );
-    world.apply(0, effects);
-    world.nodes[0].proved.clear();
-    world.connect(0);
-    world.closes(2);
-    let books = &world.nodes[0].books;
-    assert_eq!(books.cancelled, [prepared.id]);
-    assert!(books.pending.is_empty());
-    // What it proved is the history the walk found, which the ledger
-    // holds: never a hash no ledger will.
-    for hash in world.nodes[0].proved.clone() {
-        let request = serde_json::json!({ "command": "tx", "transaction": hash });
-        let reply = world
-            .ledger
-            .request(99, &serde_json::to_vec(&request).unwrap());
-        let reply: serde_json::Value = serde_json::from_slice(&reply).unwrap();
-        assert_eq!(
-            reply["status"], "success",
-            "looked for a transaction never sent"
-        );
-    }
+    assert_eq!(books.paid, [(id, true)]);
+    assert!(books.held.is_empty());
+    assert_eq!(books.owner, i128::from(FUNDED) - 3_000_000_000);
+    assert_eq!(books.fees, FEE);
+    assert_eq!(books.suspense, 0);
 }
 
 // Found in review: a connection that goes quiet is made anew, rather than
 // leaving the scheme synced to a ledger it no longer hears.
 #[test]
 fn a_silent_connection_is_made_anew() {
-    let (mut world, _, _) = funded_pair();
+    let mut world = funded();
     // The ledger forgets the connection; the scheme is not told.
     let connection = world.nodes[0].connection;
     world.ledger.disconnect(connection);
@@ -1429,93 +872,197 @@ fn a_silent_connection_is_made_anew() {
 }
 
 // Found in review: after a testnet reset, what was in flight can never
-// apply: it is cancelled, and settling starts anew.
+// apply: it is cancelled, and paying starts anew.
 #[test]
 fn a_reset_cancels_what_was_in_flight() {
-    let (mut world, state_a, _) = funded_pair();
+    let mut world = funded();
     world.nodes[0].drop_submits = true;
-    let id = world.settle(0, 1, 3_000_000_000, &state_a);
+    let id = world.pay(0, 1, 3_000_000_000);
     world.ledger.reset();
     world.disconnect(0);
     world.connect(0);
     world.closes(20);
-    assert_eq!(world.nodes[0].books.cancelled, [id]);
+    assert_eq!(world.owner_payment(0, id), OwnerPaymentState::Cancelled);
     world.nodes[0].drop_submits = false;
-    let next = world.settle(0, 1, 1_000_000_000, &state_a);
-    world.close();
-    assert_eq!(world.nodes[0].books.finalized, [next]);
-}
-
-// Found in review: a settlement the node held pending across a restart
-// though the scheme had settled it (its posting waited for an earlier
-// announcement) is looked up by its hash, and posted.
-#[test]
-fn a_pending_settlement_unknown_to_the_scheme_is_recovered() {
-    let (mut world, state_a, _) = funded_pair();
-    let id = world.settle(0, 1, 3_000_000_000, &state_a);
-    world.close();
-    // The scheme settled it; the node did not post it.
-    let finalized = world.nodes[0].books.finalized.pop().unwrap();
-    assert_eq!(finalized, id);
-    let peer = world.nodes[1].name;
-    let books = &mut world.nodes[0].books;
-    books.pending.insert(id, (peer, 3_000_000_000));
-    books.settlement += 3_000_000_000;
-    *books.peers.get_mut(&peer).unwrap() += 3_000_000_000;
-    // A restart hands the scheme what the node holds pending.
-    let state = world.nodes[0].scheme.state();
-    let checkpoint = world.nodes[0].scheme.balance();
-    world.disconnect(0);
-    let node = world.nodes[0].name;
-    world.nodes[0].scheme =
-        XrplScheme::new("", &entropy(1), node, Some(checkpoint), &state).unwrap();
-    let mut effects = Vec::new();
-    world.nodes[0]
-        .scheme
-        .reconcile(&[(id, 3_000_000_000)], &mut effects);
-    world.connect(0);
+    // The faucet made the account again, on the new chain.
+    world.ledger.fund(world.account(1));
     world.closes(2);
-    assert_eq!(world.nodes[0].books.finalized, [id]);
-    assert!(world.nodes[0].books.pending.is_empty());
+    let next = world.pay(0, 1, 1_000_000_000);
+    world.close();
+    assert_eq!(world.owner_payment(0, next), OwnerPaymentState::Applied);
 }
 
-// A settlement left pending across a restart that no history holds cannot
-// be known to have applied: it stays pending, for the owner
-// (spec/areas/xrpl.md#state-and-restarts). It is asked again less and less
-// often, not at every ledger.
+// spec/areas/xrpl.md#state-and-restarts: a settlement a node still holds
+// pending after a restart, signed before the XRPL schemes stopped peering,
+// is cancelled: none is booked as a settlement any more.
 #[test]
-fn a_settlement_no_history_holds_stays_pending_and_is_asked_less_often() {
-    let (mut world, _, _) = funded_pair();
-    let id = Name::hex(&[7; 32], true);
-    let peer = world.nodes[1].name;
-    world.nodes[0]
-        .books
-        .pending
-        .insert(id, (peer, 1_000_000_000));
-    let state = world.nodes[0].scheme.state();
-    let checkpoint = world.nodes[0].scheme.balance();
+fn a_settlement_left_pending_is_cancelled() {
+    let mut world = funded();
+    let kept = world.kept(0);
     world.disconnect(0);
-    let node = world.nodes[0].name;
-    world.nodes[0].scheme =
-        XrplScheme::new("", &entropy(1), node, Some(checkpoint), &state).unwrap();
+    world.restore(0, kept);
+    world.connect(0);
+    let id = Name::hex(&[7; 32], true);
     let mut effects = Vec::new();
     world.nodes[0]
         .scheme
         .reconcile(&[(id, 1_000_000_000)], &mut effects);
-    let lookups = |world: &World| {
-        let looked_up = dassie_xrpl::hex_upper(&[7; 32]);
-        let proved = world.nodes[0].proved.iter();
-        proved.filter(|hash| **hash == looked_up).count()
-    };
+    assert_eq!(effects, [Effect::Cancel { settlement: id }]);
+    world.apply(0, effects);
+    world.closes(2);
+    assert_eq!(world.nodes[0].books.cancelled, [id]);
+    assert_eq!(world.nodes[0].books.owner, i128::from(FUNDED));
+}
+
+/// Node 0 signs, as the XRPL schemes did to settle, a Payment of `drops`
+/// to node 1 that is not the owner's, and executes it if `executed`, and
+/// restarts: the node holds the settlement pending, and hands it to the
+/// scheme. Returns the settlement's ID and what the scheme asked.
+fn left_pending(world: &mut World, drops: u64, executed: bool) -> (Name, Vec<Effect>) {
+    let scheme = dassie_ledger::name!(dassie_xrpl::scheme::SCHEME_ID);
+    let to = world.account(1);
+    let account = &mut world.nodes[0].scheme.account;
+    let hash = account
+        .sign_payment_to(scheme, (to, None), drops, Vec::new())
+        .unwrap();
+    let id = Name::hex(&hash, true);
+    world.nodes[0]
+        .books
+        .settling
+        .insert(id, drops * UNITS_PER_DROP);
+    // Its submission is lost with the restart.
+    if executed {
+        assert!(world.nodes[0].scheme.account.execute(scheme, hash));
+    }
+    let kept = world.kept(0);
+    world.disconnect(0);
+    world.restore(0, kept);
+    let mut effects = Vec::new();
+    world.nodes[0]
+        .scheme
+        .reconcile(&[(id, drops * UNITS_PER_DROP)], &mut effects);
+    (id, effects)
+}
+
+// spec/areas/xrpl.md#state-and-restarts: a settlement signed before the
+// XRPL schemes stopped peering, its Payment executed and in flight at the
+// restart, stays pending until the ledger says what became of it: it may
+// still apply, and cancelling one that applied would pay twice. Once
+// validated, it is posted, with its fee, never booked as the owner's
+// withdrawal.
+#[test]
+fn a_settlement_in_flight_at_the_restart_waits_for_the_ledger() {
+    let mut world = funded();
+    let (id, effects) = left_pending(&mut world, 2_000, true);
+    assert!(
+        effects
+            .iter()
+            .all(|effect| !matches!(effect, Effect::Cancel { .. }))
+    );
+    world.apply(0, effects);
     world.connect(0);
-    world.closes(600);
-    // Asked at once, then after 1, 2, 4 … 256 ledgers: 10 times in 600.
-    assert_eq!(lookups(&world), 10);
-    world.closes(512);
-    assert_eq!(lookups(&world), 12, "asked every 256 ledgers at most");
+    world.closes(3);
     let books = &world.nodes[0].books;
-    assert!(books.finalized.is_empty() && books.cancelled.is_empty());
-    assert!(books.pending.contains_key(&id));
+    assert_eq!(books.finalized, [id]);
+    assert!(books.cancelled.is_empty(), "{:?}", books.cancelled);
+    assert_eq!(books.fee_ids, [id]);
+    assert_eq!(books.owner, i128::from(FUNDED), "no withdrawal");
+    assert!(books.reconciled.is_empty(), "{:?}", books.reconciled);
+    world.check();
+}
+
+// spec/areas/xrpl.md#state-and-restarts: one signed and never executed was
+// never submitted: it is given up, and cancelled at once.
+#[test]
+fn a_settlement_never_executed_is_cancelled_at_the_restart() {
+    let mut world = funded();
+    let (id, effects) = left_pending(&mut world, 2_000, false);
+    assert_eq!(effects, [Effect::Cancel { settlement: id }]);
+    world.apply(0, effects);
+    world.connect(0);
+    world.closes(3);
+    let books = &world.nodes[0].books;
+    assert!(books.finalized.is_empty() && books.settling.is_empty());
+    assert_eq!(books.owner, i128::from(FUNDED));
+    world.check();
+    // Its sequence is taken by the next.
+    let next = world.pay(0, 1, 1_000_000_000);
+    world.close();
+    assert_eq!(world.owner_payment(0, next), OwnerPaymentState::Applied);
+}
+
+/// What node 1 paid node 0 to enter, in internal units: 0.1 XRP.
+const ENTRY_PAID: u64 = 100_000_000;
+
+/// Node 0's scheme state, as the scheme wrote it while the XRPL schemes
+/// peered (version 1), in a world of three nodes once node 2 had peered
+/// with it and node 1 had paid it [`ENTRY_PAID`] to enter, validated at
+/// ledger 5000003, index 0, and held off its books.
+const PEERING_STATE: [&str; 17] = [
+    // The version.
+    "01",
+    // The cursor: present, at ledger 5000003, index 0.
+    "FF",
+    "004C4B43",
+    "00000000",
+    // The count of write-offs.
+    "0000000000000001",
+    // The peers' addresses: node2's.
+    "00000001",
+    "056E6F646532",
+    "F59A8039C40BF1A6ADF7CEC4374C6449CBD0F114",
+    // The settlements looked up after a restart: none.
+    "00000000",
+    // The entry payments held: node1's, from its account, of
+    // ENTRY_PAID, its hash and the ledger its hold ran to.
+    "00000001",
+    "056E6F646531",
+    "12EF6422DC22833EF13442F83E89FB113C01A65A",
+    "0000000005F5E100",
+    "C0C37ED66D6059BCB2DAABF06E40DC2CBFECFC708B62EA7CBDD7C97D9FC28C77",
+    "004C4EC7",
+    // No owner's payment on its way, and none done.
+    "00",
+    "00",
+];
+
+// spec/areas/xrpl.md#state-and-restarts: a scheme reads the state it wrote
+// while it peered. It drops the peers' addresses, and books the entry
+// payments it held as the owner's deposit, once, as it did with a hold
+// that ran out: the books then match the account, nothing booked twice
+// and nothing lost, and the state it writes is the owner book's.
+#[test]
+fn a_state_written_while_peering_books_its_entry_payments_as_a_deposit() {
+    let mut world = World::new(3);
+    world.closes(2);
+    let account_state = world.nodes[0].scheme.account.state();
+    world.disconnect(0);
+    // The payment node 0 held, made again at the same place in the ledger.
+    let id = world.pay(1, 0, ENTRY_PAID);
+    world.close();
+    let record = validated(&mut world, id.as_str());
+    assert_eq!((record.ledger_index, record.index), (0x004C_4B43, 0));
+    let scheme_state = dassie_xrpl::from_hex(&PEERING_STATE.concat()).unwrap();
+    let state = support::join_bytes(&account_state, &scheme_state);
+    world.restore(0, (state, FUNDED));
+    world.connect(0);
+    world.closes(2);
+    let books = &world.nodes[0].books;
+    assert_eq!(books.owner, i128::from(FUNDED + ENTRY_PAID));
+    assert_eq!(books.settlement, i128::from(FUNDED + ENTRY_PAID));
+    assert!(books.reconciled.is_empty(), "{:?}", books.reconciled);
+    assert_eq!(world.nodes[0].scheme.balance(), FUNDED + ENTRY_PAID);
+    let written = dassie_settlement::SettlementScheme::state(&world.nodes[0].scheme.scheme);
+    assert_eq!(written[0], 2, "the owner book's");
+    // A restart from what it writes now books nothing again.
+    let kept = world.kept(0);
+    world.disconnect(0);
+    world.restore(0, kept);
+    world.connect(0);
+    world.closes(2);
+    let books = &world.nodes[0].books;
+    assert_eq!(books.owner, i128::from(FUNDED + ENTRY_PAID));
+    assert!(books.reconciled.is_empty(), "{:?}", books.reconciled);
 }
 
 // spec/decisions/tigerstyle.md: a server that reports more XRP for the
@@ -1523,7 +1070,7 @@ fn a_settlement_no_history_holds_stays_pending_and_is_asked_less_often() {
 // amount clamped to fit.
 #[test]
 fn more_xrp_than_the_books_hold_stops_the_scheme() {
-    let (mut world, _, _) = funded_pair();
+    let mut world = funded();
     let owner = world.nodes[0].books.owner;
     let account = world.account(0);
     world.ledger.deposit(account, dassie_xrpl::MAX_DROPS / 10);
@@ -1537,53 +1084,26 @@ fn more_xrp_than_the_books_hold_stops_the_scheme() {
     assert_eq!(world.nodes[1].scheme.status(), LedgerStatus::Synced);
 }
 
-// Found by the invariants (spec/decisions/tigerstyle.md): more settlements to
-// look up after a restart than requests may wait made the scheme reconnect,
-// and then look them all up again, for ever. It asks for a few at a time.
-#[test]
-fn many_settlements_to_recover_are_looked_up_a_few_at_a_time() {
-    let (mut world, _, _) = funded_pair();
-    let state = world.nodes[0].scheme.state();
-    let checkpoint = world.nodes[0].scheme.balance();
-    world.disconnect(0);
-    let node = world.nodes[0].name;
-    world.nodes[0].scheme =
-        XrplScheme::new("", &entropy(1), node, Some(checkpoint), &state).unwrap();
-    let pending: Vec<(Name, u64)> = (0..20)
-        .map(|byte| (Name::hex(&[byte; 32], true), 1_000_000_000))
-        .collect();
-    let mut effects = Vec::new();
-    world.nodes[0].scheme.reconcile(&pending, &mut effects);
-    world.nodes[0].hold = Some("tx_proof");
-    let before = world.nodes[0].proved.len();
-    world.connect(0);
-    world.closes(2);
-    assert_eq!(world.nodes[0].scheme.status(), LedgerStatus::Synced);
-    assert_eq!(world.nodes[0].reconnects, 0);
-    let looked_up: Vec<String> = (0..20)
-        .map(|byte| dassie_xrpl::hex_upper(&[byte; 32]))
-        .collect();
-    let asked = world.nodes[0].proved.iter().skip(before);
-    assert_eq!(asked.filter(|hash| looked_up.contains(hash)).count(), 8);
-}
-
-// An account at the last sequence there is can send nothing more: a
-// settlement waits rather than reuse it.
+// An account at the last sequence there is can send nothing more: the
+// owner's payment waits rather than reuse it.
 #[test]
 fn the_last_sequence_is_never_reused() {
-    let (mut world, state_a, _) = funded_pair();
+    let mut world = funded();
     let account = world.account(0);
     world.ledger.set_sequence(account, u32::MAX);
     world.close();
     world.disconnect(0);
     world.connect(0);
-    let peer = world.nodes[1].name;
-    let mut rng = SeededRng::new(1);
-    let prepared =
-        world.nodes[0]
-            .scheme
-            .prepare_settlement(&mut rng, peer, 1_000_000_000, &state_a);
-    assert_eq!(prepared.map(|_| ()), Err(SchemeError::Unavailable));
+    let payment = OwnerPayment {
+        destination: world.account(1).to_address(),
+        tag: None,
+        memo: None,
+        amount: 1_000_000_000,
+    };
+    assert_eq!(
+        world.pay_owner(0, &payment, &mut Vec::new()),
+        Err(SchemeError::Unavailable)
+    );
 }
 
 /// Whether node `index`'s scheme stopped.
@@ -1598,7 +1118,7 @@ fn failed(world: &World, index: usize) -> bool {
 // (spec/designs/xrpl-validation.md#6-the-account-on-proofs).
 #[test]
 fn the_network_is_checked_before_the_account_is_read() {
-    let (world, _, _) = funded_pair();
+    let world = funded();
     let asked = &world.nodes[0].asked;
     assert_eq!(
         asked[..4],
@@ -1622,8 +1142,6 @@ fn a_server_off_the_testnet_stops_the_scheme() {
         ledger.set_network_id(network);
         let mut world = World::on(ledger, 2);
         world.closes(20);
-        let peer = world.nodes[1].name;
-        let (state, _) = world.peer(0, 1);
         for index in 0..2 {
             assert!(failed(&world, index), "{network:?}");
             assert_eq!(world.nodes[index].asked, ["server_state"], "{network:?}");
@@ -1637,14 +1155,15 @@ fn a_server_off_the_testnet_stops_the_scheme() {
             );
             assert_eq!(world.nodes[index].scheme.deadline(), None);
         }
-        let mut rng = SeededRng::new(1);
-        let prepared =
-            world.nodes[0]
-                .scheme
-                .prepare_settlement(&mut rng, peer, 1_000_000_000, &state);
+        let payment = OwnerPayment {
+            destination: world.account(1).to_address(),
+            tag: None,
+            memo: None,
+            amount: 1_000_000_000,
+        };
         assert_eq!(
-            prepared.err(),
-            Some(SchemeError::Unavailable),
+            world.pay_owner(0, &payment, &mut Vec::new()),
+            Err(SchemeError::Unavailable),
             "{network:?}"
         );
     }
@@ -1655,7 +1174,7 @@ fn a_server_off_the_testnet_stops_the_scheme() {
 // The other node, on its own connection, goes on.
 #[test]
 fn a_synced_scheme_whose_server_leaves_the_testnet_stops() {
-    let (mut world, _, _) = funded_pair();
+    let mut world = funded();
     let before = (world.nodes[0].books.owner, world.nodes[0].books.settlement);
     world.ledger.set_network_id(Some(0));
     world.disconnect(0);
@@ -1692,13 +1211,13 @@ fn submitted_hash(world: &World, index: usize) -> String {
 // spec/areas/xrpl.md#deposits-and-withdrawals: the owner pays out of the
 // account, to a destination with a tag and one memo, as a deposit into a
 // settlement hub is made. Once the ledger validated it, it is the owner's
-// withdrawal, with its fee; the account it reached books it as a deposit,
-// as it books any payment from an address no peer gave. One at a time.
+// withdrawal, with its fee; the account it reached books it as a deposit.
+// One at a time.
 #[test]
 fn the_owner_pays_out_of_the_account() {
-    use dassie_settlement::{OwnerMemo, OwnerPayment, OwnerPaymentState};
+    use dassie_settlement::OwnerMemo;
 
-    let (mut world, _, _) = funded_pair();
+    let mut world = funded();
     let to = world.account(1);
     let payment = OwnerPayment {
         destination: to.to_address(),
@@ -1711,10 +1230,7 @@ fn the_owner_pays_out_of_the_account() {
     };
     let mut effects = Vec::new();
     let id = world.pay_owner(0, &payment, &mut effects).unwrap();
-    assert_eq!(
-        world.nodes[0].scheme.owner_payment(id),
-        OwnerPaymentState::InFlight
-    );
+    assert_eq!(world.owner_payment(0, id), OwnerPaymentState::InFlight);
     assert_eq!(
         world.pay_owner(0, &payment, &mut Vec::new()),
         Err(SchemeError::Unavailable),
@@ -1722,16 +1238,11 @@ fn the_owner_pays_out_of_the_account() {
     );
     world.apply(0, effects);
     world.close();
-    assert_eq!(
-        world.nodes[0].scheme.owner_payment(id),
-        OwnerPaymentState::Applied
-    );
-    let fee = 10 * i128::from(UNITS_PER_DROP);
+    assert_eq!(world.owner_payment(0, id), OwnerPaymentState::Applied);
     let (a, b) = (&world.nodes[0].books, &world.nodes[1].books);
     assert_eq!(a.owner, i128::from(FUNDED) - 3_000_000_000);
-    assert_eq!(a.fees, fee);
+    assert_eq!(a.fees, FEE);
     assert_eq!(b.owner, i128::from(FUNDED) + 3_000_000_000);
-    assert!(b.credited.is_empty(), "no settlement");
     assert_eq!(a.suspense + b.suspense, 0);
     let hash = submitted_hash(&world, 0);
     assert_eq!(hash, id.as_str(), "its ID is its hash");
@@ -1750,79 +1261,28 @@ fn the_owner_pays_out_of_the_account() {
 // outlives the next restart, for the last payment only.
 #[test]
 fn the_owners_payment_outlives_a_restart() {
-    use dassie_settlement::{OwnerPayment, OwnerPaymentState};
-
-    let (mut world, _, _) = funded_pair();
-    let payment = OwnerPayment {
-        destination: world.account(1).to_address(),
-        tag: None,
-        memo: None,
-        amount: 3_000_000_000,
-    };
-    let mut effects = Vec::new();
-    let id = world.pay_owner(0, &payment, &mut effects).unwrap();
-    world.apply(0, effects);
+    let mut world = funded();
+    let id = world.pay(0, 1, 3_000_000_000);
     world.close();
-    let fee = 10 * i128::from(UNITS_PER_DROP);
     world.nodes[0].drop_submits = true;
-    let second = world.pay_owner(0, &payment, &mut Vec::new()).unwrap();
-    let state = world.nodes[0].scheme.state();
-    let checkpoint = world.nodes[0].scheme.balance();
+    let second = world.pay(0, 1, 3_000_000_000);
+    let kept = world.kept(0);
     world.disconnect(0);
-    let node = world.nodes[0].name;
-    world.nodes[0].scheme =
-        XrplScheme::new("", &entropy(1), node, Some(checkpoint), &state).unwrap();
-    assert_eq!(
-        world.nodes[0].scheme.owner_payment(second),
-        OwnerPaymentState::InFlight
-    );
+    world.restore(0, kept);
+    assert_eq!(world.owner_payment(0, second), OwnerPaymentState::InFlight);
     world.nodes[0].drop_submits = false;
     world.connect(0);
     world.closes(2);
     // Its outcome outlives another restart; the one before is no longer
     // the scheme's to tell.
-    let state = world.nodes[0].scheme.state();
-    let checkpoint = world.nodes[0].scheme.balance();
-    world.nodes[0].scheme =
-        XrplScheme::new("", &entropy(1), node, Some(checkpoint), &state).unwrap();
-    assert_eq!(
-        world.nodes[0].scheme.owner_payment(second),
-        OwnerPaymentState::Applied
-    );
-    assert_eq!(
-        world.nodes[0].scheme.owner_payment(id),
-        OwnerPaymentState::Unknown
-    );
+    let kept = world.kept(0);
+    world.restore(0, kept);
+    assert_eq!(world.owner_payment(0, second), OwnerPaymentState::Applied);
+    assert_eq!(world.owner_payment(0, id), OwnerPaymentState::Unknown);
     let a = &world.nodes[0].books;
     assert_eq!(a.owner, i128::from(FUNDED) - 6_000_000_000);
-    assert_eq!(a.fees, 2 * fee);
+    assert_eq!(a.fees, 2 * FEE);
     assert_eq!(a.suspense, 0);
-}
-
-// spec/areas/xrpl.md#deposits-and-withdrawals: an owner's payment carries
-// the memo type its reader expects, but never a settlement's, which a peer
-// would take for a settlement.
-#[test]
-fn an_owners_payment_never_carries_a_settlements_memo_type() {
-    use dassie_settlement::{OwnerMemo, OwnerPayment};
-
-    let (mut world, _, _) = funded_pair();
-    let to = world.account(1);
-    for memo_type in dassie_xrpl::scheme::SETTLEMENT_MEMO_TYPES {
-        let payment = OwnerPayment {
-            destination: to.to_address(),
-            tag: None,
-            memo: Some(OwnerMemo {
-                memo_type: memo_type.to_vec(),
-                data: b"node1".to_vec(),
-            }),
-            amount: 1_000_000,
-        };
-        assert_eq!(
-            world.pay_owner(0, &payment, &mut Vec::new()),
-            Err(SchemeError::InvalidData)
-        );
-    }
 }
 
 // An owner's payment the ledger refuses costs its fee and nothing else; one
@@ -1830,9 +1290,9 @@ fn an_owners_payment_never_carries_a_settlements_memo_type() {
 // before anything is signed.
 #[test]
 fn a_failed_owner_payment_costs_only_its_fee() {
-    use dassie_settlement::{OwnerMemo, OwnerPayment, OwnerPaymentState, PaymentFailure};
+    use dassie_settlement::{OwnerMemo, PaymentFailure};
 
-    let (mut world, _, _) = funded_pair();
+    let mut world = funded();
     let nobody = dassie_xrpl::Wallet::from_seed([77; 16]).account();
     let payment = |destination: AccountId, amount: u64, memo: usize| OwnerPayment {
         destination: destination.to_address(),
@@ -1864,11 +1324,11 @@ fn a_failed_owner_payment_costs_only_its_fee() {
     // A failure the ledger recorded, too little: never taken for one that
     // never reached the ledger, also after a restart.
     let too_little = OwnerPaymentState::Failed(PaymentFailure::TooLittle);
-    assert_eq!(world.nodes[0].scheme.owner_payment(id), too_little);
+    assert_eq!(world.owner_payment(0, id), too_little);
     let books = &world.nodes[0].books;
     assert_eq!(books.owner, i128::from(FUNDED));
-    assert_eq!(books.fees, 10 * i128::from(UNITS_PER_DROP));
-    assert!(books.cancelled.is_empty() && books.finalized.is_empty());
+    assert_eq!(books.fees, FEE);
+    assert_eq!(books.paid, [(id, false)]);
     // Any other failure is told apart from it: to an account that takes
     // only payments with a destination tag, without one.
     let peer = world.account(1);
@@ -1884,7 +1344,7 @@ fn a_failed_owner_payment_costs_only_its_fee() {
     world.apply(0, effects);
     world.close();
     assert_eq!(
-        world.nodes[0].scheme.owner_payment(other),
+        world.owner_payment(0, other),
         OwnerPaymentState::Failed(PaymentFailure::Other)
     );
     // What became of the last outlives a restart.
@@ -1894,50 +1354,38 @@ fn a_failed_owner_payment_costs_only_its_fee() {
         .unwrap();
     world.apply(0, effects);
     world.close();
-    let state = world.nodes[0].scheme.state();
-    let checkpoint = world.nodes[0].scheme.balance();
-    let node = world.nodes[0].name;
-    world.nodes[0].scheme =
-        XrplScheme::new("", &entropy(1), node, Some(checkpoint), &state).unwrap();
-    assert_eq!(world.nodes[0].scheme.owner_payment(again), too_little);
+    let kept = world.kept(0);
+    world.restore(0, kept);
+    assert_eq!(world.owner_payment(0, again), too_little);
 }
 
 // An owner's payment whose submission was lost is looked for once past its
 // last ledger and, never seen there, cancelled: it moved nothing, not even
-// a fee, which a failure the ledger recorded would have cost.
+// a fee, which a failure the ledger recorded would have cost. The sequence
+// is read again: the next one gets through.
 #[test]
 fn a_lost_owners_payment_is_cancelled_not_failed() {
-    use dassie_settlement::{OwnerPayment, OwnerPaymentState};
-
-    let (mut world, _, _) = funded_pair();
+    let mut world = funded();
     world.nodes[0].drop_submits = true;
-    let payment = OwnerPayment {
-        destination: world.account(1).to_address(),
-        tag: None,
-        memo: None,
-        amount: 3_000_000_000,
-    };
-    let mut effects = Vec::new();
-    let id = world.pay_owner(0, &payment, &mut effects).unwrap();
-    world.apply(0, effects);
+    let id = world.pay(0, 1, 3_000_000_000);
     world.closes(25);
-    assert_eq!(
-        world.nodes[0].scheme.owner_payment(id),
-        OwnerPaymentState::Cancelled
-    );
+    assert_eq!(world.owner_payment(0, id), OwnerPaymentState::Cancelled);
     let books = &world.nodes[0].books;
     assert_eq!(books.owner, i128::from(FUNDED));
     assert_eq!(books.fees, 0);
+    world.nodes[0].drop_submits = false;
+    let next = world.pay(0, 1, 2_000_000_000);
+    world.close();
+    assert_eq!(world.owner_payment(0, next), OwnerPaymentState::Applied);
 }
 
-/// What node `index`'s books say happened: what was credited, finalized and
-/// cancelled, what suspense reconciled, and the account's write-offs.
-fn outcomes(world: &World, index: usize) -> (Vec<Name>, Vec<Name>, Vec<Name>, usize, u64) {
+/// What node `index`'s books say happened: the owner's payments done,
+/// what was cancelled, what suspense reconciled, and the account's
+/// write-offs.
+fn outcomes(world: &World, index: usize) -> (Vec<(Name, bool)>, Vec<Name>, usize, u64) {
     let node = &world.nodes[index];
-    let credited: Vec<Name> = node.books.credited.iter().copied().collect();
     (
-        credited,
-        node.books.finalized.clone(),
+        node.books.paid.clone(),
         node.books.cancelled.clone(),
         node.books.reconciled.len(),
         node.scheme.account.write_offs(),
@@ -1947,21 +1395,21 @@ fn outcomes(world: &World, index: usize) -> (Vec<Name>, Vec<Name>, Vec<Name>, us
 // spec/designs/xrpl-validation.md#1-the-rule: whatever a server lies about,
 // in each way the lying fake ledger tells, nothing is booked that the
 // ledger did not apply, nothing it applied is cancelled, and nothing is
-// written off. A settlement of ours and one of the peer's applied while
-// node 0 was away, and it comes back to a server that lies; what it books
-// meanwhile, if anything, is what the ledger applied. Once its server is
-// honest, it settles both, once, and its books hold the ledger's.
+// written off. The owner's payment and a payment to the account applied
+// while node 0 was away, and it comes back to a server that lies; what it
+// books meanwhile, if anything, is what the ledger applied. Once its server
+// is honest, it books both, once, and its books hold the ledger's.
 #[test]
 fn a_lying_server_books_cancels_and_writes_off_nothing() {
     for lie in Lie::ALL {
-        let (mut world, state_a, state_b) = funded_pair();
+        let mut world = funded();
         // Ledgers enough that some closed long enough ago for their
         // validations to be stale, which an old anchor is.
         world.closes(70);
         let before = outcomes(&world, 0);
-        let ours = world.settle(0, 1, 2_000_000_000, &state_a);
-        let theirs = world.settle(1, 0, 3_000_000_000, &state_b);
-        // And the owner's deposit: three transactions, one in the middle.
+        let ours = world.pay(0, 1, 2_000_000_000);
+        world.pay(1, 0, 3_000_000_000);
+        // And a deposit: three transactions, one in the middle.
         let account = world.account(0);
         world.ledger.deposit(account, 5_000_000);
         world.nodes[0].lagging = true;
@@ -1972,16 +1420,14 @@ fn a_lying_server_books_cancels_and_writes_off_nothing() {
         world.connect(0);
         world.closes(3);
         assert!(world.ledger.lies_told(lie) > 0, "{lie:?} never told");
-        let (credited, finalized, cancelled, reconciled, write_offs) = outcomes(&world, 0);
+        let (paid, cancelled, reconciled, write_offs) = outcomes(&world, 0);
+        assert!(paid.iter().all(|done| *done == (ours, true)), "{lie:?}");
+        assert_eq!(cancelled, before.1, "{lie:?}");
+        assert_eq!((reconciled, write_offs), (before.2, before.3), "{lie:?}");
         assert!(
-            credited
-                .iter()
-                .all(|id| *id == theirs || before.0.contains(id)),
+            world.nodes[0].books.owner <= i128::from(FUNDED) + 8_000_000_000,
             "{lie:?}"
         );
-        assert!(finalized.iter().all(|id| *id == ours), "{lie:?}");
-        assert_eq!(cancelled, before.2, "{lie:?}");
-        assert_eq!((reconciled, write_offs), (before.3, before.4), "{lie:?}");
         assert!(!failed(&world, 0), "{lie:?}");
         world.ledger.set_lie(lying, None);
         world.wait(STALL_MS);
@@ -1993,68 +1439,66 @@ fn a_lying_server_books_cancels_and_writes_off_nothing() {
             LedgerStatus::Synced,
             "{lie:?}"
         );
-        let (credited, finalized, cancelled, reconciled, write_offs) = outcomes(&world, 0);
+        let (paid, cancelled, reconciled, write_offs) = outcomes(&world, 0);
+        assert_eq!(paid, [(ours, true)], "{lie:?}");
+        assert_eq!(cancelled, before.1, "{lie:?}");
+        assert_eq!((reconciled, write_offs), (before.2, before.3), "{lie:?}");
         assert_eq!(
-            credited.iter().filter(|id| **id == theirs).count(),
-            1,
+            world.nodes[0].books.owner,
+            i128::from(FUNDED) - 2_000_000_000 + 3_000_000_000 + 5_000_000_000,
             "{lie:?}"
         );
-        assert_eq!(finalized, [ours], "{lie:?}");
-        assert_eq!(cancelled, before.2, "{lie:?}");
-        assert_eq!((reconciled, write_offs), (before.3, before.4), "{lie:?}");
     }
 }
 
-// spec/designs/xrpl-validation.md#4-what-is-proven-and-how: a settlement of
-// ours that never applied, while the account's sequence moved past it with
-// no transaction taking its number, as for an account deleted and made
-// again, can be proven neither applied nor absent. A server that proves it
-// applied, in a ledger the anchor's chain does not hold, is caught: it is
-// not booked. Nor is it cancelled once the server is honest: it stays
-// pending for the owner, and is counted.
+// spec/designs/xrpl-validation.md#4-what-is-proven-and-how: the owner's
+// payment that never applied, while the account's sequence moved past it
+// with no transaction taking its number, as for an account deleted and
+// made again, can be proven neither applied nor absent. A server that
+// proves it applied, in a ledger the anchor's chain does not hold, is
+// caught: it is not booked as applied, nor as cancelled once the server is
+// honest.
 #[test]
 fn a_made_up_proof_of_ours_books_nothing() {
-    let (mut world, state_a, _) = funded_pair();
+    let mut world = funded();
     let account = world.account(0);
     let sequence = world.ledger.sequence(account).unwrap();
-    let ours = world.settle(0, 1, 2_000_000_000, &state_a);
+    let ours = world.pay(0, 1, 2_000_000_000);
     world.ledger.set_sequence(account, sequence + 5);
     world.nodes[0].lagging = true;
     world.ledger.set_lie_for_all(Some(Lie::Transaction));
     world.closes(30);
     assert!(world.ledger.lies_told(Lie::Transaction) > 0);
     assert!(world.nodes[0].scheme.account.doubts(Doubt::Ledger) > 0);
-    let books = &world.nodes[0].books;
-    assert!(books.finalized.is_empty() && books.cancelled.is_empty());
+    let applied = |world: &World| world.nodes[0].books.paid.contains(&(ours, true));
+    assert!(!applied(&world));
+    assert!(world.nodes[0].books.cancelled.is_empty());
     world.ledger.set_lie_for_all(None);
     world.wait(STALL_MS);
     world.closes(3);
     world.nodes[0].lagging = false;
-    let books = &world.nodes[0].books;
-    assert!(books.finalized.is_empty() && books.cancelled.is_empty());
-    assert!(books.pending.contains_key(&ours));
-    assert!(world.nodes[0].scheme.account.unproven().settlements > 0);
-    // The next settlement takes the sequence the anchor proves, and applies.
-    let next = world.settle(0, 1, 1_000_000_000, &state_a);
-    world.close();
-    assert_eq!(world.nodes[0].books.finalized, [next]);
+    assert!(!applied(&world));
+    assert_ne!(world.owner_payment(0, ours), OwnerPaymentState::Applied);
+    assert_ne!(world.owner_payment(0, ours), OwnerPaymentState::Cancelled);
+    assert_eq!(world.nodes[0].books.owner, i128::from(FUNDED));
 }
 
-// spec/designs/xrpl-validation.md#4-what-is-proven-and-how: a settlement of
-// ours that never applied is cancelled only once proven absent: the
+// spec/designs/xrpl-validation.md#4-what-is-proven-and-how: the owner's
+// payment that never applied is cancelled only once proven absent: the
 // account's sequence, proven at an anchor past its last ledger, is not
 // past its own.
 #[test]
-fn a_settlement_is_cancelled_only_once_proven_absent() {
-    let (mut world, state_a, _) = funded_pair();
+fn an_owners_payment_is_cancelled_only_once_proven_absent() {
+    let mut world = funded();
     world.nodes[0].drop_submits = true;
-    let id = world.settle(0, 1, 3_000_000_000, &state_a);
+    let id = world.pay(0, 1, 3_000_000_000);
     world.closes(20);
-    assert!(
-        world.nodes[0].books.cancelled.is_empty(),
+    assert_eq!(
+        world.owner_payment(0, id),
+        OwnerPaymentState::InFlight,
         "not yet past its last ledger"
     );
     world.closes(2);
-    assert_eq!(world.nodes[0].books.cancelled, [id]);
+    assert_eq!(world.owner_payment(0, id), OwnerPaymentState::Cancelled);
     assert_eq!(world.nodes[0].scheme.account.unproven().settlements, 0);
 }

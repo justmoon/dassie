@@ -71,6 +71,13 @@ struct Setup {
     rate: u32,
     /// The issuer's hold, by the ledger after which it held so.
     truth: BTreeMap<u32, (bool, bool)>,
+    /// How long an answer takes to come back from the server: none, at
+    /// once; else it comes on the next round ([`Setup::rounds`]).
+    round_trip_ms: u64,
+    /// The server's answers on their way back.
+    on_the_way: Vec<Vec<u8>>,
+    /// What it told the owner, in order.
+    problems: Vec<&'static str>,
 }
 
 /// The watcher of `escrow` on the testnet, trusting the fake's validators.
@@ -149,6 +156,9 @@ impl Setup {
             holder,
             rate: 0,
             truth: BTreeMap::new(),
+            round_trip_ms: 0,
+            on_the_way: Vec::new(),
+            problems: Vec::new(),
         };
         if token.is_some() {
             setup.hold_dsusd();
@@ -225,7 +235,11 @@ impl Setup {
                         self.submitted.push(bytes.clone());
                     }
                     let answer = self.xrpl.request(self.connection, &bytes);
-                    self.watcher.message(self.now, &answer, &self.view);
+                    if self.round_trip_ms == 0 {
+                        self.watcher.message(self.now, &answer, &self.view);
+                    } else {
+                        self.on_the_way.push(answer);
+                    }
                 }
                 Out::Fetch(url) => {
                     let body = self.xrpl.fetch(&url);
@@ -249,7 +263,7 @@ impl Setup {
                     }
                 }
                 Out::Cursor(cursor) => self.cursor = Some(cursor),
-                Out::Problem(_) => {}
+                Out::Problem(problem) => self.problems.push(problem),
             }
         }
         panic!("the watcher does not settle");
@@ -282,6 +296,7 @@ impl Setup {
 
     /// A new connection, which tells the lie set for it.
     fn reconnect(&mut self) {
+        self.on_the_way.clear();
         self.watcher.disconnected();
         self.xrpl.disconnect(self.connection);
         self.connection += 1;
@@ -302,6 +317,31 @@ impl Setup {
         }
         self.run();
         self.watcher.tick(self.now, &self.view);
+        self.run();
+    }
+
+    /// Over a connection whose answers take `round_trip_ms` to come back,
+    /// [`CLOSE_INTERVAL_S`] passes in rounds, each answer of one round
+    /// coming back in the next, and then a ledger closes.
+    fn close_slowly(&mut self) {
+        assert!(self.round_trip_ms > 0);
+        let rounds = CLOSE_INTERVAL_S * 1_000 / self.round_trip_ms;
+        for _ in 0..rounds {
+            self.now += self.round_trip_ms;
+            for answer in std::mem::take(&mut self.on_the_way) {
+                self.watcher.message(self.now, &answer, &self.view);
+            }
+            self.run();
+            self.watcher.tick(self.now, &self.view);
+            self.run();
+        }
+        let streamed = self.xrpl.close_at(ledger_seconds(self.now));
+        self.note_truth();
+        for (connection, bytes) in streamed {
+            if connection == self.connection {
+                self.watcher.message(self.now, &bytes, &self.view);
+            }
+        }
         self.run();
     }
 
@@ -1224,4 +1264,236 @@ fn a_dropped_freeze_is_attested_again() {
         "{:?}",
         setup.issuer_states()
     );
+}
+
+/// The tags of the deposits it attested, in order.
+fn deposit_tags(setup: &Setup) -> Vec<u32> {
+    setup
+        .attested
+        .iter()
+        .filter_map(|op| match op {
+            ValidatorOperation::AttestDeposit(deposit) => Some(deposit.tag),
+            _ => None,
+        })
+        .collect()
+}
+
+/// The issuer's holds it attested, in order, with the ledgers they name.
+fn issuer_votes(setup: &Setup) -> Vec<Issuer> {
+    setup
+        .attested
+        .iter()
+        .filter_map(|op| match op {
+            ValidatorOperation::AttestIssuer(issuer) => Some(*issuer),
+            _ => None,
+        })
+        .collect()
+}
+
+// A deposit its server leaves out of the escrow's history and of its
+// stream, for good, is found by the history the escrow's proven state
+// names: attested, and again by a watcher that restarts from its cursor.
+#[test]
+fn a_deposit_its_server_leaves_out_of_the_history_is_attested() {
+    let mut setup = Setup::new();
+    setup.view.checked = true;
+    setup.xrpl.leave_out_of_history(7);
+    setup.connect();
+    setup.closes(2);
+    setup.attested.clear();
+    let escrow = setup.escrow();
+    setup.xrpl.deposit_tagged(escrow, 5_000_000, Some(7));
+    setup.close();
+    let deposit_ledger = setup.xrpl.ledger();
+    setup.closes(2);
+    assert_eq!(deposit_tags(&setup), [7]);
+    assert!(setup.cursor.unwrap().scanned_to >= deposit_ledger);
+
+    // A new connection reads the history again, which leaves it out too:
+    // nothing is attested twice.
+    setup.reconnect();
+    setup.closes(2);
+    assert_eq!(deposit_tags(&setup), [7]);
+    assert!(setup.xrpl.left_out_of_history() >= 2, "left out of both");
+
+    // Restarted from its cursor, the watcher's first walk reaches back a
+    // window, and attests it again: its driver, started again too, names
+    // no deposit recorded.
+    setup.view.deposits_recorded.clear();
+    setup.watcher = watcher(escrow, setup.cursor);
+    setup.reconnect();
+    setup.closes(2);
+    assert_eq!(deposit_tags(&setup), [7, 7]);
+}
+
+// However many small payments reach the escrow, more than its hints hold,
+// a deposit its server leaves out of the history among them is attested,
+// as each of them is, once.
+#[test]
+fn a_deposit_left_out_among_many_small_payments_is_attested() {
+    const HIDDEN: u32 = 1_000_000;
+    let mut setup = Setup::new();
+    setup.view.checked = true;
+    setup.xrpl.leave_out_of_history(HIDDEN);
+    setup.connect();
+    setup.closes(2);
+    setup.attested.clear();
+    let escrow = setup.escrow();
+    let count = MAX_HINTS + PAGE as usize + 7;
+    for tag in 0..count {
+        if tag == count / 2 {
+            setup.xrpl.deposit_tagged(escrow, 5_000_000, Some(HIDDEN));
+        }
+        setup
+            .xrpl
+            .deposit_tagged(escrow, 1_000, Some(u32::try_from(tag).unwrap() + 1));
+    }
+    setup.close();
+    let paid_in = setup.xrpl.ledger();
+    // More arrive in the ledgers after, while it walks.
+    for tag in 0..10 {
+        setup
+            .xrpl
+            .deposit_tagged(escrow, 1_000, Some(HIDDEN + 1 + tag));
+        setup.closes(1);
+    }
+    setup.closes(30);
+    let tags: BTreeSet<u32> = deposit_tags(&setup).into_iter().collect();
+    assert_eq!(tags.len(), count + 11, "every deposit, once");
+    assert!(tags.contains(&HIDDEN), "the one left out");
+    assert_eq!(setup.attested.len(), count + 11, "nothing attested twice");
+    assert!(setup.xrpl.left_out_of_history() > 0);
+    assert!(setup.cursor.unwrap().scanned_to >= paid_in);
+}
+
+// Over a connection whose answers take a while, more small payments to the
+// escrow in each ledger than its hints hold, sustained, keep the walk of its
+// history no more than a few ledgers behind: what the stream dropped is
+// read again from the history and proven many at a time, and the walk
+// steps through those proofs rather than proving each in turn. Every
+// deposit is attested, once.
+#[test]
+fn a_sustained_burst_over_a_slow_connection_keeps_the_walk_close_behind() {
+    /// A slow round trip to the server.
+    const ROUND_TRIP_MS: u64 = 100;
+    /// Ledgers with a burst each.
+    const LEDGERS: u32 = 8;
+    /// How far behind the newest ledger the cursor may be, once a burst
+    /// closed: the ledger closing, the next anchor, the walk.
+    const MAX_LAG: u32 = 2;
+    let mut setup = Setup::new();
+    setup.view.checked = true;
+    setup.connect();
+    setup.closes(2);
+    setup.attested.clear();
+    setup.round_trip_ms = ROUND_TRIP_MS;
+    let escrow = setup.escrow();
+    let per_ledger = u32::try_from(MAX_HINTS).unwrap() + PAGE / 2;
+    let mut lags = Vec::new();
+    for ledger in 0..LEDGERS {
+        for payment in 0..per_ledger {
+            let tag = ledger * per_ledger + payment + 1;
+            setup.xrpl.deposit_tagged(escrow, 1_000, Some(tag));
+        }
+        setup.close_slowly();
+        let scanned_to = setup.cursor.map_or(0, |cursor| cursor.scanned_to);
+        lags.push(setup.xrpl.ledger().saturating_sub(scanned_to));
+    }
+    for _ in 0..MAX_LAG {
+        setup.close_slowly();
+    }
+    let count = usize::try_from(LEDGERS * per_ledger).unwrap();
+    let tags: BTreeSet<u32> = deposit_tags(&setup).into_iter().collect();
+    assert_eq!(tags.len(), count, "every deposit");
+    assert_eq!(setup.attested.len(), count, "nothing attested twice");
+    assert!(
+        lags.iter().all(|lag| *lag <= MAX_LAG),
+        "the walk keeps up: {lags:?}"
+    );
+}
+
+// spec/areas/hubs.md#what-validators-attest: validators name the issuer's
+// hold by the ledger of the transaction that changed it, however busy the
+// issuer and the escrow are in the ledgers after, so that two validators
+// that prove it at different ledgers name the same one, each once.
+#[test]
+fn validators_name_a_busy_issuers_hold_by_the_ledger_it_changed_in() {
+    let mut setup = Setup::of(Some(DSUSD));
+    setup.view.checked = true;
+    let escrow = setup.escrow();
+    let holder = setup.holder.account();
+    // The issuer pays the holder, and the holder deposits to the escrow, in
+    // every ledger: the issuer's account root and the escrow's line both
+    // change in each.
+    let busy = |setup: &mut Setup, ledgers: u32| {
+        for _ in 0..ledgers {
+            let paid = DSUSD.amount(TokenValue::parse("1").unwrap());
+            setup.xrpl.issue(holder, paid).unwrap();
+            setup.deposit_dsusd("0.5", 3);
+            setup.close();
+        }
+        setup.tick(STALL_MS);
+    };
+    let checks = u32::try_from(ISSUER_CHECK_EVERY_MS / 4_000).unwrap() + 3;
+    setup.connect();
+    busy(&mut setup, checks);
+
+    setup.xrpl.freeze(escrow, DSUSD, true).unwrap();
+    busy(&mut setup, 1);
+    let frozen_at = setup.xrpl.ledger();
+    busy(&mut setup, 3 * checks);
+    let first = issuer_votes(&setup);
+    assert_eq!(first, [hold(frozen_at, true)], "once, by its ledger");
+
+    // Another validator, which proves it later, names the same ledger.
+    setup.watcher = watcher(escrow, None);
+    setup.attested.clear();
+    setup.reconnect();
+    busy(&mut setup, 3 * checks);
+    assert_eq!(issuer_votes(&setup), [hold(frozen_at, true)]);
+
+    setup.xrpl.freeze(escrow, DSUSD, false).unwrap();
+    busy(&mut setup, 1);
+    let thawed_at = setup.xrpl.ledger();
+    busy(&mut setup, 3 * checks);
+    assert_eq!(
+        issuer_votes(&setup),
+        [hold(frozen_at, true), hold(thawed_at, false)]
+    );
+    assert!(thawed_at > frozen_at + 3 * checks);
+}
+
+// A server that keeps too short a history to name the issuer's hold by the
+// ledger it changed in is said to once: the checks after, on the same
+// connection, end where the search ended, proving nothing again. A new
+// connection, whose server may keep more, searches again.
+#[test]
+fn a_hold_its_server_cannot_name_is_searched_once_a_connection() {
+    const SHORT: &str = "the XRPL server keeps too short a history to name the issuer's hold by the ledger it changed in";
+    let told = |setup: &Setup| setup.problems.iter().filter(|said| **said == SHORT).count();
+    let mut setup = Setup::of(Some(DSUSD));
+    setup.view.checked = true;
+    let escrow = setup.escrow();
+    setup.connect();
+    // The freeze's ledger closes between two checks of the hold, and the
+    // ledgers before it are gone by the next.
+    let checks = u32::try_from(ISSUER_CHECK_EVERY_MS / 4_000).unwrap();
+    setup.closes(3);
+    for _ in 0..checks {
+        if setup.watcher.issuer_checked_ms == Some(setup.now) {
+            break;
+        }
+        setup.close();
+    }
+    assert_eq!(setup.watcher.issuer_checked_ms, Some(setup.now));
+    setup.xrpl.freeze(escrow, DSUSD, true).unwrap();
+    setup.close();
+    setup.xrpl.forget_history();
+    setup.closes(4 * checks);
+    assert_eq!(told(&setup), 1, "{:?}", setup.problems);
+    assert!(issuer_votes(&setup).is_empty(), "nothing is named");
+    assert_eq!(setup.reconnects, 0);
+    setup.reconnect();
+    setup.closes(4 * checks);
+    assert_eq!(told(&setup), 2, "{:?}", setup.problems);
 }

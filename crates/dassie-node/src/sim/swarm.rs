@@ -5,15 +5,22 @@
 //! that rare combinations get their turn.
 //!
 //! A run settles on the stub with unlimited trust, where nothing settles,
-//! or on the stub with commitments, as a hub's members settle
-//! (spec/areas/testing.md#levels).
+//! on the stub with commitments, as a hub's members settle
+//! (spec/areas/testing.md#levels), or over a hub of XRP run in the
+//! simulation, as the `node-hub` runs do
+//! (spec/areas/testing.md#over-a-settlement-hub). A run over a hub forms as
+//! those do, the members joining the hub before the network, and its chaos
+//! begins once every member joined; its members' connections to the fake
+//! XRP Ledger drop and come back to servers that lie, and its books are
+//! judged as theirs are ([`hub_checks`](super::hub_checks)).
 //!
 //! A run has two phases. In the chaos, payments start while nodes crash
 //! or fail a commit and restart, links are cut and healed, messages are
 //! lost, a forger sends copies of requests as its own, and owners end
 //! peerings and ban peers; each node's clock is off the network's by up to
-//! 10 s, throughout. The network may also split in two, for minutes
-//! or for days: a partition that outlasts the chaos keeps the network as
+//! 10 s, or over a hub half its precision, throughout. The network may also
+//! split in two, for minutes or for days, or over a hub for minutes: a
+//! partition that outlasts the chaos keeps the network as
 //! the chaos left it, its cuts too, until it ends. Then the network heals:
 //! every node runs, no link is cut, nothing is lost or forged, and within
 //! [`HEAL_MS`] the network must settle down, unless crashes drifted a
@@ -33,11 +40,13 @@ use super::checks::{
     check, check_delivered, check_events, check_finished, check_mid_flight, check_settled,
     not_settled_down,
 };
+use super::hub_checks::waiting;
+use super::hubbed::{JOINED_WITHIN_MS, join_hub, over_hub as peered_over_hub};
 use super::scripted::{
     PAID_WITHIN_MS, READY_WITHIN_MS, collected_before_telling, ended, ready,
     settled_nothing_once_ending, trace_ms, until_peered,
 };
-use super::{Delivery, LONGEST_LIE_MS, START, Settling, Sim, key};
+use super::{Delivery, LONGEST_LIE_MS, REGIONAL_LATENCY_MS, Settling, Sim, key};
 use crate::engine::LedgerEvent;
 use crate::node::Policies;
 use crate::store::{Aim, OutgoingState};
@@ -49,7 +58,8 @@ use dassie_xrpl::fake::{Lie, VALIDATORS};
 /// network was faulty, and above all while a partition kept it split,
 /// waits out its backoff before it is tried again: a registration, a
 /// refresh of a link state, a peering attempt, a peer's hold-down, or a
-/// settlement to be sent again. Once each has been tried again, the network
+/// settlement to be sent again, or over a hub a move of funds into or out
+/// of it, late after its own wait. Once each has been tried again, the network
 /// forms as a new one does, and then the payments left, started once it is
 /// ready, take as long as a run's payments may, with the settlements they
 /// call for. A run past it is stuck, not slow. It follows those rules, and
@@ -67,6 +77,10 @@ const LONGEST_WAIT_MS: u64 = {
     }
     longest
 };
+
+// A move into or out of a hub is late after its wait (`CREDIT_WAIT_MS`,
+// which `JOINED_WITHIN_MS` is), within the longest wait.
+const _: () = assert!(JOINED_WITHIN_MS <= LONGEST_WAIT_MS);
 
 /// How often a healing network is looked at.
 const LOOK_MS: u64 = 5_000;
@@ -177,8 +191,15 @@ impl Partition {
     /// payments expire before the network heals. None is longer: the
     /// longest of those timings is that day, so a longer split only repeats
     /// them, and each simulated day costs up to a minute of wall time.
+    ///
+    /// Over a hub, whose validators make a block every block interval, a
+    /// simulated hour costs a minute or more of wall time, so a split there
+    /// spreads only over the timings up to the wait of a move into or out
+    /// of the hub ([`LONGEST_DOUBLING_OVER_HUB`]): the hold-downs of an
+    /// hour, the stale link states and the silence that ends a peering are
+    /// left to the runs on the stub, whose nodes run the same peer protocol.
     #[must_use]
-    pub fn draw(seed: u64, nodes: usize, chaos_ms: u64) -> Option<Self> {
+    pub fn draw(seed: u64, nodes: usize, chaos_ms: u64, over_hub: bool) -> Option<Self> {
         let mut rng = SeededRng::new(seed ^ 0x9a27_0000);
         let count = u64::try_from(nodes).unwrap();
         assert!((2..64).contains(&count));
@@ -193,7 +214,10 @@ impl Partition {
                 apart
             }
         };
-        let length_ms = if rng.below(4) != 0 {
+        let length_ms = if over_hub {
+            let least = PEER.peer_confirm_ms << rng.below(LONGEST_DOUBLING_OVER_HUB);
+            least + rng.below(least)
+        } else if rng.below(4) != 0 {
             let least = PEER.peer_confirm_ms << rng.below(LONGEST_DOUBLING);
             least + rng.below(least)
         } else {
@@ -222,16 +246,37 @@ impl Partition {
 const LONGEST_DOUBLING: u64 = 10;
 const _: () = assert!(PEER.peer_confirm_ms << LONGEST_DOUBLING <= PEER.peer_dead_ms);
 
+/// How many times, less one, a partition over a hub may double the time a
+/// peer stays confirmed: doubled once more, which the draw stays below, it
+/// outlasts the wait of a move into or out of the hub (`CREDIT_WAIT_MS`,
+/// `engine/core/hub_funding.rs`, which [`JOINED_WITHIN_MS`] is), so that the
+/// longest splits make moves late, and peers wait out their grace for room
+/// and their confirmation, while none reaches the hold-downs of an hour.
+const LONGEST_DOUBLING_OVER_HUB: u64 = 4;
+const _: () = assert!(PEER.peer_confirm_ms << LONGEST_DOUBLING_OVER_HUB > JOINED_WITHIN_MS);
+const _: () =
+    assert!(PEER.peer_confirm_ms << LONGEST_DOUBLING_OVER_HUB < PEER.advertise_hold_max_ms);
+
 impl Options {
     /// The options `seed` draws.
     #[must_use]
     pub fn swarm(seed: u64) -> Self {
         let mut rng = SeededRng::new(seed ^ 0x5a4a_4d00);
-        let nodes = 2 + usize::try_from(rng.below(11)).unwrap();
-        let bootstraps = 1 + usize::try_from(rng.below(3)).unwrap().min(nodes - 1);
         let settling = settling(seed);
+        let hub = over_hub(settling);
+        let nodes = 2 + usize::try_from(rng.below(11)).unwrap();
+        // A hub's members, from a generator of their own, so that the runs
+        // on the stub draw what they drew before there were runs over a hub.
+        let nodes = if hub { members(seed) } else { nodes };
+        let bootstraps = 1 + usize::try_from(rng.below(3)).unwrap().min(nodes - 1);
         let shortest = 1 + rng.below(50);
-        let latency_ms = (shortest, shortest + rng.below(400));
+        // A hub's validators and members are in one region, as its
+        // consensus's timings assume.
+        let latency_ms = if hub {
+            REGIONAL_LATENCY_MS
+        } else {
+            (shortest, shortest + rng.below(400))
+        };
         let loss_per_mille = switched(&mut rng, 31);
         let chaos_ms = 30_000 + rng.below(210_001);
         let step_ms = 500 + rng.below(5_000);
@@ -257,8 +302,8 @@ impl Options {
         let payments = (1 + rng.below(8), rng.below(3));
         let largest_payment = LEAST_PAYMENT + rng.below(3_300_000_001);
         let forgery_per_mille = switched(&mut rng, 51);
-        let skew_ms = switched(&mut rng, MOST_SKEW_MS + 1);
-        let partition = Partition::draw(seed, nodes, chaos_ms);
+        let skew_ms = switched(&mut rng, most_skew_ms(settling) + 1);
+        let partition = Partition::draw(seed, nodes, chaos_ms, hub);
         Self {
             nodes,
             bootstraps,
@@ -288,28 +333,63 @@ impl Options {
     }
 }
 
-/// What a run settles over (spec/areas/testing.md#levels): in half the
-/// seeds the stub with unlimited trust, where nothing settles, so that the
-/// chaos and the payments are the subject; in the other half the stub with
-/// commitments, so that packets take the path over a settlement hub and
-/// settlements fund holds as a hub's members' do, with room for 1, 2, 4 or
-/// 8 packets in flight per peer each way. Its own generator, so that it
-/// draws nothing else's.
+/// What a run settles over (spec/areas/testing.md#levels): in one seed in
+/// [`HUB_ONE_IN`] a hub of XRP of 4 to 7 honest validators run in the
+/// simulation, as `node-hub`'s, so that whole nodes settle over a hub
+/// through the chaos; of the rest, in half the stub with unlimited trust,
+/// where nothing settles, so that the chaos and the payments are the
+/// subject, and in the other half the stub with commitments, so that
+/// packets take the path over a settlement hub and settlements fund holds
+/// as a hub's members' do, with room for 1, 2, 4 or 8 packets in flight per
+/// peer each way. Its own generators, so that it draws nothing else's, and
+/// the hub's apart, so that every other seed draws what it drew before.
 fn settling(seed: u64) -> Settling {
     let mut rng = SeededRng::new(seed ^ 0x6875_6240);
-    if rng.below(2) == 0 {
+    let stub = if rng.below(2) == 0 {
         Settling::Trusting
     } else {
         Settling::StubHub(1 << rng.below(4))
+    };
+    let mut hub = SeededRng::new(seed ^ 0x6875_6241);
+    if hub.below(HUB_ONE_IN) == 0 {
+        Settling::Hub(4 + usize::try_from(hub.below(4)).unwrap())
+    } else {
+        stub
+    }
+}
+
+/// How rarely a seed draws a run over a hub: one in this many. A run over
+/// a hub takes ten times the wall time of one on the stub, or more, as its
+/// validators make a block every block interval, so that the runs over a
+/// hub, one in this many, take about as much of the `node` simulation's
+/// time in a campaign as the rest together.
+const HUB_ONE_IN: u64 = 8;
+
+/// How many members a run over a hub has, 2 to 5: each reads the hub every
+/// so often, which costs wall time as validators do. Its own generator, so
+/// that it draws nothing else's.
+fn members(seed: u64) -> usize {
+    let mut rng = SeededRng::new(seed ^ 0x6d65_6d62);
+    2 + usize::try_from(rng.below(4)).unwrap()
+}
+
+/// The most a node's clock is off the network's: over a hub, as its
+/// validators' are, within half the hub's precision, which its members
+/// leave as margin (spec/designs/settlement-hubs.md#3-the-ledger): one
+/// whose clock is off further may have its commitments refused as too far
+/// ahead, as the design means it to.
+const fn most_skew_ms(settling: Settling) -> u64 {
+    if over_hub(settling) {
+        dassie_hub::consensus::Config::DEFAULT.precision_ms / 2
+    } else {
+        MOST_SKEW_MS
     }
 }
 
 /// Whether the run is over a hub run in the simulation, whose members
 /// fund their accounts in it from their owners' books on the fake XRP
 /// Ledger: only such a run has connections to that ledger for the chaos to
-/// drop, or to send to a server that lies. The draw makes none yet
-/// (spec/roadmap.md#continuous-simulation), so the acts on the ledger stay
-/// off.
+/// drop, or to send to a server that lies.
 const fn over_hub(settling: Settling) -> bool {
     matches!(settling, Settling::Hub(_))
 }
@@ -399,9 +479,12 @@ pub fn run(seed: u64) -> Run {
     let options = Options::swarm(seed);
     let mut rng = SeededRng::new(seed ^ 0xc4a0_5000);
     let skews = options.skews(seed);
+    let hub = over_hub(options.settling);
+    // A hub's members join it before the network, as the scripted runs
+    // over a hub do: with no bootstrap node until then.
     let mut sim = Sim::with_skews(
         seed,
-        options.bootstraps,
+        if hub { 0 } else { options.bootstraps },
         std::collections::BTreeMap::new(),
         options.settling,
         Policies::DEFAULT.peer,
@@ -413,14 +496,26 @@ pub fn run(seed: u64) -> Run {
     sim.latency_ms = options.latency_ms;
     // The network forms first, calm, as the scripted runs' does: at
     // production timings that takes minutes, longer than a payer keeps
-    // trying, and a payment before it has nowhere to go.
+    // trying, and a payment before it has nowhere to go. Over a hub, every
+    // member first joins the hub, by deposit from its XRP Ledger account,
+    // and the chaos begins only once all did.
     sim.loss_per_mille = 0;
-    if !sim.run_until_or(START + READY_WITHIN_MS, ready) {
+    if hub {
+        sim.count("runs over a hub");
+        if let Err(late) = join_hub(&mut sim) {
+            return ended(sim, Err(late));
+        }
+        sim.join_network(options.bootstraps);
+    }
+    if !sim.run_until_or(sim.now + READY_WITHIN_MS, ready) {
         let late = Err(Outcome::liveness(
             "ready",
             "the network was not ready in time",
         ));
         return ended(sim, late);
+    }
+    if hub && let Err(off) = peered_over_hub(&sim) {
+        return ended(sim, Err(off));
     }
     sim.trace.push(format!("{} ready", sim.now));
     sim.loss_per_mille = options.loss_per_mille;
@@ -670,10 +765,16 @@ fn pay(sim: &mut Sim, options: &Options, rng: &mut SeededRng, left: &mut (u64, u
             Err(_) if !up(sim, from) || !up(sim, to) => {}
             Err(refusal) => {
                 left.1 -= 1;
-                // Refused rightly only while the owner's pool holds less
-                // than the payment: on the XRP Ledger, before the faucet's
-                // funding is booked. Any other refusal fails the run.
-                let pool = sim.balances(from).get("equity/owner").copied().unwrap_or(0);
+                // Refused rightly only while the owner's pool on the ledger
+                // the payer spends from holds less than the payment: on the
+                // XRP Ledger, before the faucet's funding is booked; over a
+                // hub, the member's book in the hub, whatever its owner
+                // still holds on the XRP Ledger. Any other refusal fails
+                // the run.
+                let pool = (sim.balances_on(from, sim.settling.ledger()))
+                    .get("equity/owner")
+                    .copied()
+                    .unwrap_or(0);
                 if pool < i128::from(amount) {
                     sim.count("outgoing refused");
                 } else {
@@ -1024,6 +1125,12 @@ fn heal(
         return Err(not_settled_down(sim, HEAL_MS / 1_000, &what));
     }
     check(sim)?;
+    // The owners' ends and bans in the chaos made pairs peer anew: over a
+    // hub, those peerings too go over it, never over an owner's XRP
+    // Ledger account.
+    if over_hub(options.settling) {
+        peered_over_hub(sim)?;
+    }
     for end in ends.iter().filter(|end| !end.ban) {
         // A ban of the peer while the node collects tells it at once.
         let banned = ends
@@ -1068,6 +1175,14 @@ fn unsettled(sim: &Sim) -> Option<String> {
     }
     if sim.ledger.queued() > 0 {
         return Some("transactions wait for the ledger to close".into());
+    }
+    // Over a hub, a member's account reads it every so often, and moves
+    // funds into it or out of it as its floor and ceiling call for: its
+    // books are judged once it read the hub and its moves are done.
+    if over_hub(sim.settling)
+        && let Some(what) = waiting(sim)
+    {
+        return Some(what);
     }
     // The ledger closes every few seconds and the nodes talk to it all
     // the time: what matters is a transaction on its way in or out.
@@ -1285,6 +1400,39 @@ fn names(message: &[u8], key: &str, value: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // A share of the seeds draws a run over a hub, which keeps its members'
+    // clocks within the hub's precision and its partitions short of the
+    // hold-downs of an hour, and turns the acts on the fake ledger on.
+    #[test]
+    fn some_seeds_draw_a_run_over_a_hub_bounded_for_it() {
+        let drawn: Vec<(u64, Options)> = (0..200)
+            .map(|seed| (seed, Options::swarm(seed)))
+            .filter(|(_, options)| over_hub(options.settling))
+            .collect();
+        assert!(drawn.len() >= 10, "{} runs over a hub", drawn.len());
+        for (seed, options) in &drawn {
+            assert!((2..=5).contains(&options.nodes), "seed {seed}");
+            assert!(options.bootstraps <= options.nodes, "seed {seed}");
+            assert_eq!(options.latency_ms, REGIONAL_LATENCY_MS, "seed {seed}");
+            assert!(options.skew_ms <= most_skew_ms(options.settling));
+            assert!(options.skew_ms < MOST_SKEW_MS, "seed {seed}");
+            if let Some(partition) = options.partition {
+                assert!(
+                    partition.length_ms < PEER.peer_confirm_ms << LONGEST_DOUBLING_OVER_HUB,
+                    "seed {seed}"
+                );
+            }
+        }
+        assert!(drawn.iter().any(|(_, options)| options.weights.lie > 0));
+        assert!(drawn.iter().any(|(_, options)| options.partition.is_some()));
+        assert!(
+            (0..200)
+                .map(Options::swarm)
+                .filter(|options| !over_hub(options.settling))
+                .all(|options| options.weights.lie == 0 && options.weights.ledger_drop == 0)
+        );
+    }
 
     #[test]
     fn only_reconnects_since_the_payers_last_start_count() {

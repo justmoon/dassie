@@ -1,44 +1,35 @@
 //! The XRP scheme (spec/areas/xrpl.md), sans-IO: `xrpl-testnet-xrp` on the
 //! testnet ([`XrplScheme`]), `xrpl-xrp` on mainnet ([`XrplMainnetScheme`]).
 //!
-//! It settles in the XRP of the node's first XRPL account on its network
-//! ([`XrplAccount`]), which connects, signs and follows the ledger for it.
-//! Each network's XRP it settles in is an [`Xrp`]: its scheme's ID, its
-//! memo type, its ledger and its network.
+//! It is the owner's book of the XRP of the node's first XRPL account on its
+//! network ([`XrplAccount`]), which connects, signs and follows the ledger
+//! for it, and which a settlement hub's funding pays from
+//! (spec/areas/xrpl.md#owner-books). It peers with no one. Each network's
+//! XRP it books is an [`Xrp`]: its scheme's ID, its ledger and its network.
 //! Every validated transaction the account tells it of is booked once, in
 //! ledger order, from a cursor kept with the books:
 //!
-//! - one of our settlements: posted when it succeeded, voided when it
-//!   failed, its fee booked either way;
-//! - a Payment from a peer's known address, with our memo naming the peer:
-//!   a settlement from it, by the XRP it delivered;
-//! - a Payment of at least one largest packet with our memo naming a node
-//!   that is not our peer at that address: an entry payment, held off the
-//!   books until the node peers from that address, which books it as its
-//!   settlement, or for a while, after which it is the owner's deposit
-//!   ([`crate::entry`], spec/decisions/pay-to-enter.md);
+//! - the owner's payment: posted when it succeeded, voided when it failed,
+//!   its fee booked either way;
 //! - a transaction another scheme on the account signed, such as an RLUSD
-//!   settlement or a `TrustSet`: its fee, booked here as a ledger fee, since
-//!   this is the ledger whose scheme settles in the account's XRP
+//!   owner's payment or a `TrustSet`: its fee, booked here as a ledger fee,
+//!   since this is the ledger whose scheme books the account's XRP
 //!   (spec/decisions/external-assets.md);
-//! - anything else that adds XRP: a deposit; that takes it: a withdrawal.
+//! - anything else that adds XRP, whatever memo it carries: a deposit; that
+//!   takes it: a withdrawal.
 //!
 //! After each, what the books hold must be the account's balance less its
 //! reserve; any difference (a reserve change, a balance below the reserve)
 //! is reconciled through `equity/suspense`, the part a change of the
 //! reserve explains as the reserve's. The reserve itself is never booked,
-//! so it is never spent. Settlements are whole drops,
-//! failures are checked, and an account created by a
-//! payment is a deposit like any other.
+//! so it is never spent. The owner's payments are whole drops, failures are
+//! checked, and an account created by a payment is a deposit like any
+//! other.
 //!
-//! It settles only on its account's network, which the account checks
-//! before it reads anything (spec/decisions/real-money.md). Each network's
-//! scheme has a memo type of its own, so a Payment of one is never read as
-//! a settlement of the other (spec/decisions/mainnet-schemes.md): the
-//! original's mainnet module, never registered, wrote the testnet's, and
-//! would have taken every settlement for a deposit. Mainnet's
-//! books on a ledger of the live realm, which runs only in a node of that
-//! realm, still refused (spec/decisions/real-money.md).
+//! It books only its account's network, which the account checks before it
+//! reads anything (spec/decisions/real-money.md). Mainnet's books on a
+//! ledger of the live realm, which runs only in a node of that realm
+//! (spec/decisions/real-money.md).
 
 use alloc::vec::Vec;
 use core::any::Any;
@@ -46,7 +37,7 @@ use core::marker::PhantomData;
 
 use dassie_ledger::{LedgerId, Name};
 use dassie_settlement::{
-    AssetId, Effect, EntryPayment, ExternalAsset, LedgerStatus, OwnerPayment, OwnerPaymentState,
+    AssetId, Effect, ExternalAsset, LedgerStatus, OwnerPayment, OwnerPaymentState,
     PreparedSettlement, ReconcileCause, SchemeError, SettlementScheme,
 };
 use rand_core::CryptoRng;
@@ -56,23 +47,17 @@ use crate::UNITS_PER_DROP;
 use crate::account::{MAX_ACCOUNT_DROPS, News, Ours, XrplAccount};
 use crate::api::{AccountInfo, TxRecord};
 use crate::codec::Memo;
-use crate::follower::{Follower, failure_of, hash_name, narrow};
-use crate::kept::{In, Out};
+use crate::follower::{Follower, failure_of, hash_name, narrow, reconcile_pending, settled};
+use crate::kept::{In, Out, SCHEME_VERSION};
 use crate::keys::AccountId;
 use crate::network::{self, Network};
 
 /// The testnet scheme's ID: the ledger, its network and its asset
 /// (spec/decisions/scheme-names.md).
 pub const SCHEME_ID: &str = "xrpl-testnet-xrp";
-/// The memo that marks a settlement on the testnet: the scheme's ID, in
-/// the URL every XRPL scheme's memo type is
-/// (spec/areas/xrpl.md#the-payment-it-signs).
-pub const MEMO_TYPE: &[u8] = b"https://dassie.land/settlement/xrpl-testnet-xrp/v1";
 
-/// A network's XRP, as the scheme settles in it: what tells one XRP scheme
-/// from another. Each is a contract between peers that run its scheme, so
-/// none changes but with the peer protocol's version
-/// (spec/areas/xrpl.md#the-payment-it-signs).
+/// A network's XRP, as the scheme books it: what tells one XRP scheme from
+/// another.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Xrp {
     /// The scheme's ID, which is also the slug of its ledger.
@@ -80,26 +65,22 @@ pub struct Xrp {
     /// The scheme's ID as a name: its network's XRP scheme, whose books
     /// hold the account's XRP.
     pub scheme: Name,
-    /// The memo that marks a settlement in it: its own, so a Payment is
-    /// never read as a settlement of another XRPL scheme.
-    pub memo_type: &'static [u8],
     /// The ledger the scheme books on, of its network's realm.
     pub ledger: LedgerId,
     /// The network whose XRP it is.
     pub network: &'static Network,
 }
 
-/// XRP on the testnet, as `xrpl-testnet-xrp` settles in it.
+/// XRP on the testnet, as `xrpl-testnet-xrp` books it.
 pub const TESTNET_XRP: Xrp = Xrp {
     scheme_id: SCHEME_ID,
     scheme: dassie_ledger::name!(SCHEME_ID),
-    memo_type: MEMO_TYPE,
     ledger: LedgerId::XrplTestnetXrp,
     network: &network::TESTNET,
 };
 
-/// A network's XRP an [`XrpScheme`] settles in, as a type, so each
-/// network's XRP scheme is a type of its own ([`XrplScheme`]).
+/// A network's XRP an [`XrpScheme`] books, as a type, so each network's XRP
+/// scheme is a type of its own ([`XrplScheme`]).
 pub trait NativeXrp: 'static {
     /// The XRP.
     const XRP: Xrp;
@@ -119,16 +100,11 @@ pub type XrplScheme = XrpScheme<TestnetXrp>;
 /// The mainnet scheme's ID: the ledger and its asset, mainnet being the
 /// network a name leaves out (spec/decisions/scheme-names.md).
 pub const MAINNET_SCHEME_ID: &str = "xrpl-xrp";
-/// The memo that marks a settlement on mainnet: its own, never the
-/// testnet's, which the original wrote on both. A contract between
-/// peers, as the testnet's is (spec/areas/xrpl.md#the-payment-it-signs).
-pub const MAINNET_MEMO_TYPE: &[u8] = b"https://dassie.land/settlement/xrpl-xrp/v1";
 
-/// XRP on mainnet, as `xrpl-xrp` settles in it: real money.
+/// XRP on mainnet, as `xrpl-xrp` books it: real money.
 pub const MAINNET_XRP: Xrp = Xrp {
     scheme_id: MAINNET_SCHEME_ID,
     scheme: dassie_ledger::name!(MAINNET_SCHEME_ID),
-    memo_type: MAINNET_MEMO_TYPE,
     ledger: LedgerId::XrplXrp,
     network: &network::MAINNET,
 };
@@ -144,17 +120,6 @@ impl NativeXrp for MainnetXrp {
 /// The `xrpl-xrp` scheme, on mainnet.
 pub type XrplMainnetScheme = XrpScheme<MainnetXrp>;
 
-/// The memo type of every XRPL scheme's settlements, on either network:
-/// an owner's payment never carries one, so it is never taken for a
-/// settlement ([`owner_memos`]).
-pub const SETTLEMENT_MEMO_TYPES: [&[u8]; 5] = [
-    MEMO_TYPE,
-    MAINNET_MEMO_TYPE,
-    crate::dsusd::MEMO_TYPE,
-    crate::rlusd::MEMO_TYPE,
-    crate::rlusd::TESTNET_MEMO_TYPE,
-];
-
 /// The memos of an owner's payment ([`SettlementScheme::pay_owner`]): its
 /// one memo, if any, of the type its reader expects, such as the key of
 /// the account a deposit opens in a settlement hub.
@@ -162,14 +127,12 @@ pub const SETTLEMENT_MEMO_TYPES: [&[u8]; 5] = [
 /// # Errors
 ///
 /// `InvalidData` for a memo beyond
-/// [`MAX_OWNER_MEMO_BYTES`](dassie_settlement::MAX_OWNER_MEMO_BYTES), or of a
-/// settlement's memo type.
+/// [`MAX_OWNER_MEMO_BYTES`](dassie_settlement::MAX_OWNER_MEMO_BYTES).
 pub(crate) fn owner_memos(payment: &OwnerPayment) -> Result<Vec<Memo>, SchemeError> {
     let Some(memo) = &payment.memo else {
         return Ok(Vec::new());
     };
-    let settles = SETTLEMENT_MEMO_TYPES.contains(&memo.memo_type.as_slice());
-    if !memo.fits() || settles {
+    if !memo.fits() {
         return Err(SchemeError::InvalidData);
     }
     Ok(alloc::vec![Memo {
@@ -178,21 +141,19 @@ pub(crate) fn owner_memos(payment: &OwnerPayment) -> Result<Vec<Memo>, SchemeErr
     }])
 }
 
-/// What an XRPL scheme's config says: whether the node peers on the
-/// scheme (spec/areas/xrpl.md#owner-books). The account it settles
-/// through has a config of its own ([`crate::account::Config`]), set apart
-/// from any scheme's (spec/areas/settlement.md#external-assets).
+/// What an XRPL scheme's config says: nothing that changes it
+/// (spec/areas/xrpl.md#owner-books). It may say `"peers"`, a boolean,
+/// which a node read when the XRPL schemes peered: it is read still, so a
+/// config that says it loads, and it has no effect, since every XRPL
+/// scheme is an owner book. The account it books has a config of its own
+/// ([`crate::account::Config`]), set apart from any scheme's
+/// (spec/areas/settlement.md#external-assets).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct SchemeConfig {
-    /// Whether the node peers on the scheme: `"peers": false` makes it an
-    /// owner book, which peers with nobody
-    /// ([`SettlementScheme::peers`]). It peers unless told.
-    pub peers: bool,
-}
+pub struct SchemeConfig;
 
 impl SchemeConfig {
     /// The config in `text`: empty, or a JSON object with at most
-    /// `peers`, a boolean.
+    /// `peers`, a boolean, which it reads and ignores.
     ///
     /// # Errors
     ///
@@ -202,7 +163,7 @@ impl SchemeConfig {
     pub fn parse(text: &str) -> Result<Self, SchemeError> {
         let text = text.trim();
         if text.is_empty() {
-            return Ok(Self { peers: true });
+            return Ok(Self);
         }
         if text.len() > crate::account::MAX_CONFIG {
             return Err(SchemeError::InvalidConfig);
@@ -211,15 +172,14 @@ impl SchemeConfig {
         let Value::Object(mut object) = value else {
             return Err(SchemeError::InvalidConfig);
         };
-        let peers = match object.remove("peers") {
-            None => true,
-            Some(Value::Bool(peers)) => peers,
+        match object.remove("peers") {
+            None | Some(Value::Bool(_)) => {}
             Some(_) => return Err(SchemeError::InvalidConfig),
-        };
+        }
         if !object.is_empty() {
             return Err(SchemeError::InvalidConfig);
         }
-        Ok(Self { peers })
+        Ok(Self)
     }
 
     /// Whether `text`, a config the scheme refuses, names what is the
@@ -235,15 +195,13 @@ impl SchemeConfig {
     }
 }
 
-pub use crate::follower::MAX_PEERS;
-
 /// The account `asset` is, if it is one.
 pub(crate) fn account_of(asset: &mut dyn ExternalAsset) -> Option<&mut XrplAccount> {
     let any: &mut dyn Any = asset;
     any.downcast_mut()
 }
 
-/// The scheme that settles in the XRP of `N`'s network.
+/// The scheme that books the XRP of `N`'s network.
 pub struct XrpScheme<N: NativeXrp> {
     /// What it keeps of the account, as every scheme on it does.
     f: Follower,
@@ -265,17 +223,17 @@ pub struct XrpScheme<N: NativeXrp> {
 }
 
 impl<N: NativeXrp> XrpScheme<N> {
-    /// The scheme that settles from `account`, for node `node`, with what
-    /// the books last checkpointed and the state they kept.
+    /// The scheme that books `account`, with what the books last
+    /// checkpointed and the state they kept: of this version, or of the
+    /// one the scheme wrote while it peered
+    /// (spec/areas/xrpl.md#state-and-restarts).
     ///
     /// # Errors
     ///
-    /// If the account is on another network, or the state is invalid, or
-    /// looks up a transaction the account has in flight or remembers as
-    /// never sent: a state the two never wrote.
+    /// If the account is on another network, or the state is invalid: a
+    /// state the scheme never wrote.
     pub fn new(
         account: &XrplAccount,
-        node: Name,
         checkpoint: Option<u64>,
         state: &[u8],
     ) -> Result<Self, SchemeError> {
@@ -288,7 +246,7 @@ impl<N: NativeXrp> XrpScheme<N> {
             return Err(SchemeError::InvalidConfig);
         }
         let mut scheme = Self {
-            f: Follower::new(account, node, checkpoint, MAX_ACCOUNT_DROPS),
+            f: Follower::new(account, checkpoint, MAX_ACCOUNT_DROPS),
             balance: None,
             owner_count: 0,
             reserve: (0, 0),
@@ -297,39 +255,20 @@ impl<N: NativeXrp> XrpScheme<N> {
             xrp: PhantomData,
         };
         if !state.is_empty() {
-            let mut input = In::state(state).ok_or(SchemeError::InvalidData)?;
-            scheme.f.read(&mut input).ok_or(SchemeError::InvalidData)?;
+            let (mut input, version) = In::versioned(state).ok_or(SchemeError::InvalidData)?;
+            scheme
+                .f
+                .read(&mut input, version)
+                .ok_or(SchemeError::InvalidData)?;
             input.finish().ok_or(SchemeError::InvalidData)?;
         }
-        scheme.f.fits(account)?;
         Ok(scheme)
     }
 
-    /// The account it settles from.
+    /// The account it books.
     #[must_use]
     pub const fn account(&self) -> AccountId {
         self.f.account
-    }
-
-    /// Takes entry payments of at least `minimum`, in internal units: one
-    /// largest packet (spec/decisions/pay-to-enter.md). Until it is told,
-    /// it takes none.
-    pub fn take_entries_from(&mut self, minimum: u64) {
-        self.f.entries.take_from(minimum);
-    }
-
-    /// Whether the node peers on the scheme, as its config says
-    /// ([`SchemeConfig::peers`]): one that does not is an owner book
-    /// (spec/areas/xrpl.md#owner-books). It peers until told.
-    pub fn set_peers(&mut self, peers: bool) {
-        self.f.peering = peers;
-    }
-
-    /// What it holds of entry payments, in internal units: in the account,
-    /// and never on the books.
-    #[must_use]
-    pub fn entries_held(&self) -> u64 {
-        self.f.entries.total()
     }
 
     /// The reserve the account holds back, in drops.
@@ -339,63 +278,67 @@ impl<N: NativeXrp> XrpScheme<N> {
     }
 
     /// What the books should hold for a balance: what is above the reserve,
-    /// in internal units, less the entry payments held.
+    /// in internal units.
     fn bookable(&self, balance: u64, owner_count: u32) -> u64 {
-        self.above(balance, self.reserve_drops(owner_count))
-    }
-
-    /// What the books should hold for a balance above a reserve of
-    /// `reserve` drops, in internal units: the entry payments held are not
-    /// theirs until their nodes peer or their hold is over.
-    fn above(&self, balance: u64, reserve: u64) -> u64 {
-        units(balance.saturating_sub(reserve)).saturating_sub(self.f.entries.total())
+        above(balance, self.reserve_drops(owner_count))
     }
 
     /// Takes one piece of news from the account.
-    fn tell(&mut self, account: &mut XrplAccount, news: &News, effects: &mut Vec<Effect>) {
+    fn tell(&mut self, news: &News, effects: &mut Vec<Effect>) {
         let id = self.id();
         match news {
-            News::Synced(info) => self.synced(account, info, effects),
+            News::Synced(info) => self.synced(info, effects),
             News::Transaction { record, ours } => {
                 let mine = ours.filter(|ours| ours.scheme == id);
                 let other = ours.filter(|ours| ours.scheme != id);
                 self.transaction(record, mine, other, effects);
             }
+            // The account cancels only what can never apply: proven absent
+            // past its last ledger, its number taken by another, or written
+            // off. It moved nothing, not even a fee.
+            News::Cancelled { scheme, hash, .. }
+                if *scheme == id && self.f.is_owner_payment(hash) =>
+            {
+                self.f.owner_done(OwnerPaymentState::Cancelled, effects);
+            }
+            // A settlement signed before the XRPL schemes stopped peering.
             News::Cancelled { scheme, hash, .. } if *scheme == id => {
-                // The account cancels only what can never apply: proven
-                // absent past its last ledger, its number taken by another,
-                // or written off. It moved nothing, not even a fee.
-                if self.f.is_owner_payment(hash) {
-                    self.f.owner_done(OwnerPaymentState::Cancelled, effects);
-                } else {
-                    effects.push(Effect::Cancel {
-                        settlement: hash_name(hash),
-                    });
-                }
+                effects.push(Effect::Cancel {
+                    settlement: hash_name(hash),
+                });
             }
             News::Cancelled { .. } => {}
-            News::WrittenOff { restarted } => self.written_off(*restarted, effects),
+            News::WrittenOff { .. } => self.written_off(effects),
             News::LedgerClosed { reserve_changed } => {
                 if *reserve_changed && self.synced {
                     self.match_balance(effects);
                 }
-                self.f.ask_recover(account, self.synced);
             }
             // What became of it is in the balance the sync matched.
             News::Unread { hash, .. } if self.f.is_owner_payment(hash) => {
                 self.f.owner_done(OwnerPaymentState::Unknown, effects);
             }
-            News::Unread { hash, ours } if ours.scheme == id => self.f.unread(*hash),
-            News::Unread { .. } => {}
-            News::Found { hash, record } => self.recovered(*hash, record, effects),
-            News::Line { .. } | News::Issuer { .. } | News::Pool { .. } => {}
+            // A settlement signed before the XRPL schemes stopped peering,
+            // read nowhere: voided, as the owner's payment is.
+            News::Unread { hash, ours }
+                if ours.scheme == id && ours.settles && !self.f.was_owner_payment(hash) =>
+            {
+                effects.push(Effect::Cancel {
+                    settlement: hash_name(hash),
+                });
+            }
+            News::Unread { .. }
+            | News::Found { .. }
+            | News::Line { .. }
+            | News::Issuer { .. }
+            | News::Pool { .. } => {}
         }
     }
 
     /// Up to date as of `info`: the books are made to match the balance.
     /// The first sync books what the account holds above the reserve as
     /// the owner's deposit.
-    fn synced(&mut self, account: &mut XrplAccount, info: &AccountInfo, effects: &mut Vec<Effect>) {
+    fn synced(&mut self, info: &AccountInfo, effects: &mut Vec<Effect>) {
         let first = self.f.cursor.is_none() && self.f.booked == 0;
         self.balance = Some(info.balance);
         self.owner_count = info.owner_count;
@@ -408,13 +351,12 @@ impl<N: NativeXrp> XrpScheme<N> {
         let at = (info.ledger_index, u32::MAX);
         self.f.cursor = Some(self.f.cursor.map_or(at, |cursor| cursor.max(at)));
         self.synced = true;
-        self.f.ask_recover(account, self.synced);
     }
 
     /// The account is gone: what the books held is a loss through suspense,
     /// and the scheme starts from nothing.
-    fn written_off(&mut self, restarted: bool, effects: &mut Vec<Effect>) {
-        self.f.written_off(restarted, effects);
+    fn written_off(&mut self, effects: &mut Vec<Effect>) {
+        self.f.written_off(effects);
         self.balance = None;
         self.matched_reserve = None;
         self.synced = false;
@@ -430,10 +372,10 @@ impl<N: NativeXrp> XrpScheme<N> {
             return;
         };
         let reserve = self.reserve_drops(self.owner_count);
-        let target = self.above(balance, reserve);
+        let target = above(balance, reserve);
         let unchanged = self
             .matched_reserve
-            .map_or(target, |matched| self.above(balance, matched));
+            .map_or(target, |matched| above(balance, matched));
         self.f
             .reconcile_to(unchanged, ReconcileCause::Unexplained, effects);
         self.f
@@ -441,16 +383,20 @@ impl<N: NativeXrp> XrpScheme<N> {
         self.matched_reserve = Some(reserve);
     }
 
-    /// Books one validated transaction, once, in ledger order. One of ours
-    /// is settled whenever the ledger shows it, even behind the cursor:
-    /// what the balance booked through suspense meanwhile comes back out.
-    /// So is the fee of one another scheme on the account signed (`other`),
-    /// once the scheme has synced, unless the account tells it again for
-    /// the scheme that signed it: this scheme was told it, and booked it,
-    /// when the ledger validated it. Before its first sync, a scheme books
-    /// no other: the sync books what the account holds then as the
-    /// owner's, which a scheme that joins an account other schemes read
-    /// from earlier is told after their history.
+    /// Books one validated transaction, once, in ledger order. The owner's
+    /// payment is booked whenever the ledger shows it, even behind the
+    /// cursor: what the balance booked through suspense meanwhile comes
+    /// back out. So is the fee of one another scheme on the account signed
+    /// (`other`), once the scheme has synced, unless the account tells it
+    /// again for the scheme that signed it: this scheme was told it, and
+    /// booked it, when the ledger validated it. Before its first sync, a
+    /// scheme books no other: the sync books what the account holds then
+    /// as the owner's, which a scheme that joins an account other schemes
+    /// read from earlier is told after their history. One of its own that
+    /// is no owner's payment, a settlement signed before the XRPL schemes
+    /// stopped peering, is posted or voided as the settlement the node
+    /// holds pending, as the owner's payment is, wherever the ledger shows
+    /// it.
     fn transaction(
         &mut self,
         record: &TxRecord,
@@ -460,8 +406,7 @@ impl<N: NativeXrp> XrpScheme<N> {
     ) {
         let at = (record.ledger_index, record.index);
         if self.f.cursor.is_none_or(|cursor| at <= cursor) {
-            if let Some(ours) = mine {
-                let booked = self.ours(record, ours, effects);
+            if let Some(booked) = mine.and_then(|ours| self.ours(record, ours, effects)) {
                 self.f.hold(booked, effects);
                 self.match_balance(effects);
             } else if other.is_some_and(|other| !other.again) && self.f.cursor.is_some() {
@@ -480,8 +425,8 @@ impl<N: NativeXrp> XrpScheme<N> {
             }
         }
         let mut booked = i128::from(self.f.booked);
-        if let Some(ours) = mine {
-            booked = self.ours(record, ours, effects);
+        if let Some(owner) = mine.and_then(|ours| self.ours(record, ours, effects)) {
+            booked = owner;
         } else if other.is_some() {
             // Its fee is ours to book; anything else it did to the XRP is
             // a deposit or a withdrawal, as from anyone.
@@ -499,17 +444,7 @@ impl<N: NativeXrp> XrpScheme<N> {
                 }
             }
         } else if let Some(change) = change {
-            if let Some(peer) = self.settled_by(record) {
-                let amount = units(record.delivered.unwrap_or(0));
-                effects.push(Effect::IncomingSettlement {
-                    peer,
-                    amount,
-                    id: Some(hash_name(&record.hash)),
-                });
-                booked += i128::from(amount);
-            } else if self.held_entry(record) {
-                // Off the books until its node peers, or its hold is over.
-            } else if change.after > change.before {
+            if change.after > change.before {
                 let amount = units(change.after - change.before);
                 effects.push(Effect::Deposit { amount });
                 booked += i128::from(amount);
@@ -523,45 +458,32 @@ impl<N: NativeXrp> XrpScheme<N> {
         self.match_balance(effects);
     }
 
-    /// Settles one of our transactions the ledger validated, which paid
-    /// `paid` in internal units: posted or voided, and its fee booked either
-    /// way, and no longer looked up. Returns what the books then hold.
-    fn resolve(&mut self, record: &TxRecord, paid: u64, effects: &mut Vec<Effect>) -> i128 {
-        self.f.resolved(&record.hash);
-        let mut booked = i128::from(self.f.booked);
-        let settlement = hash_name(&record.hash);
-        if record.succeeded() {
-            effects.push(Effect::Finalize { settlement });
-            booked -= i128::from(paid);
-        } else {
-            effects.push(Effect::Cancel { settlement });
-        }
-        effects.push(Effect::Fee {
-            amount: units(record.fee),
-            id: settlement,
-        });
-        booked - i128::from(units(record.fee))
-    }
-
     /// Books one of our transactions the ledger validated: the owner's
-    /// payment on its way, the owner's last one read again, or a
-    /// settlement. Returns what the books then hold.
-    fn ours(&mut self, record: &TxRecord, ours: Ours, effects: &mut Vec<Effect>) -> i128 {
+    /// payment on its way, the owner's last one read again, or a settlement
+    /// signed before the XRPL schemes stopped peering, with its fee. Returns
+    /// what the books then hold.
+    fn ours(&mut self, record: &TxRecord, ours: Ours, effects: &mut Vec<Effect>) -> Option<i128> {
         if self.f.is_owner_payment(&record.hash) {
-            self.owner_paid(record, effects)
+            Some(self.owner_paid(record, effects))
         } else if self.f.was_owner_payment(&record.hash) {
-            self.owner_read_again(record, ours.drops, effects)
+            Some(self.owner_read_again(record, ours.drops, effects))
         } else {
-            self.resolve(record, units(ours.drops), effects)
+            let paid = settled(record, units(ours.drops), effects);
+            let fee = units(record.fee);
+            effects.push(Effect::Fee {
+                amount: fee,
+                id: hash_name(&record.hash),
+            });
+            Some(i128::from(self.f.booked) - i128::from(paid) - i128::from(fee))
         }
     }
 
-    /// The owner's last payment, read again: never a settlement. One whose
-    /// outcome the scheme had given up on as unknown, its hold voided, is
-    /// booked now as the owner's withdrawal of the `drops` it paid when it
-    /// succeeded, with its fee either way, and what the balance booked
-    /// through suspense meanwhile comes back out; one already booked books
-    /// nothing again. Returns what the books then hold.
+    /// The owner's last payment, read again. One whose outcome the scheme
+    /// had given up on as unknown, its hold voided, is booked now as the
+    /// owner's withdrawal of the `drops` it paid when it succeeded, with
+    /// its fee either way, and what the balance booked through suspense
+    /// meanwhile comes back out; one already booked books nothing again.
+    /// Returns what the books then hold.
     fn owner_read_again(
         &mut self,
         record: &TxRecord,
@@ -622,58 +544,12 @@ impl<N: NativeXrp> XrpScheme<N> {
         });
         i128::from(self.f.booked) - i128::from(fee)
     }
+}
 
-    /// The outcome of a settlement of ours that a restart left pending,
-    /// posted or voided now (spec/areas/xrpl.md#state-and-restarts). `hash`
-    /// is what was looked up. One the scheme read before the restart, it
-    /// booked then, with its fee and what it did to the balance. One it
-    /// never read is booked now as one of ours read behind the cursor is:
-    /// by what the books hold pending for it, which is what we signed, with
-    /// its fee, and what the balance booked through suspense at the sync
-    /// comes back out. The account checked the fee before it told it.
-    fn recovered(&mut self, hash: [u8; 32], record: &TxRecord, effects: &mut Vec<Effect>) {
-        let Some(recovering) = self.f.found(&hash) else {
-            return;
-        };
-        let settlement = hash_name(&hash);
-        if let (true, Some(amount)) = (recovering.unread, recovering.amount) {
-            let booked = self.resolve(record, amount, effects);
-            self.f.hold(booked, effects);
-            self.match_balance(effects);
-            return;
-        }
-        effects.push(if record.succeeded() {
-            Effect::Finalize { settlement }
-        } else {
-            Effect::Cancel { settlement }
-        });
-    }
-
-    /// The peer a transaction settles from: a successful Payment of XRP to
-    /// us with our memo, naming a peer whose known address sent it.
-    fn settled_by(&self, record: &TxRecord) -> Option<Name> {
-        let peer = self.named_by(record)?;
-        self.f.sent_by_peer(record, peer).then_some(peer)
-    }
-
-    /// The node a successful Payment of XRP to us names in our memo, other
-    /// than ours: whoever sent it.
-    fn named_by(&self, record: &TxRecord) -> Option<Name> {
-        record.delivered?;
-        self.f.named_by(record, N::XRP.memo_type)
-    }
-
-    /// Holds `record` as an entry payment, if it is one the table takes: a
-    /// Payment with our memo naming a node not our peer at the address it
-    /// came from, of at least one largest packet
-    /// (spec/decisions/pay-to-enter.md). Returns whether it does.
-    fn held_entry(&mut self, record: &TxRecord) -> bool {
-        let Some(node) = self.named_by(record) else {
-            return false;
-        };
-        let amount = units(record.delivered.unwrap_or(0));
-        self.f.hold_entry(record, node, amount)
-    }
+/// What the books should hold for a balance above a reserve of `reserve`
+/// drops, in internal units.
+fn above(balance: u64, reserve: u64) -> u64 {
+    units(balance.saturating_sub(reserve))
 }
 
 /// Drops in internal units. Only amounts checked against
@@ -715,8 +591,9 @@ impl<N: NativeXrp> SettlementScheme for XrpScheme<N> {
         self.f.cursor.is_some()
     }
 
+    /// An owner book: it peers with no one (spec/areas/xrpl.md#owner-books).
     fn peers(&self) -> bool {
-        self.f.peering
+        false
     }
 
     fn unit(&self) -> u64 {
@@ -729,7 +606,7 @@ impl<N: NativeXrp> SettlementScheme for XrpScheme<N> {
     }
 
     fn state(&self) -> Vec<u8> {
-        let mut out = Out::state();
+        let mut out = Out::state(SCHEME_VERSION);
         self.f.write(&mut out);
         out.0
     }
@@ -740,10 +617,7 @@ impl<N: NativeXrp> SettlementScheme for XrpScheme<N> {
 
     fn on_asset(&mut self, _now_ms: u64, asset: &mut dyn ExternalAsset, effects: &mut Vec<Effect>) {
         let account = account_of(asset);
-        assert!(
-            account.is_some(),
-            "the scheme settles through an XRPL account"
-        );
+        assert!(account.is_some(), "the scheme books an XRPL account");
         let Some(account) = account else {
             return;
         };
@@ -754,8 +628,9 @@ impl<N: NativeXrp> SettlementScheme for XrpScheme<N> {
         );
         let news = account.news().to_vec();
         if self.f.catch_up(account, &news) {
-            self.written_off(true, effects);
+            self.written_off(effects);
         }
+        self.f.book_entries(effects);
         // The reserve the books are matched to is the one the account had
         // when it last told something: a reserve it read meanwhile, before
         // it is synced again, is matched when it is.
@@ -763,106 +638,61 @@ impl<N: NativeXrp> SettlementScheme for XrpScheme<N> {
             self.reserve = account.reserve_params();
         }
         for item in &news {
-            self.tell(account, item, effects);
-        }
-        if self.f.expire_entries(effects) {
-            self.match_balance(effects);
+            self.tell(item, effects);
         }
         self.f.caught_up(account, self.id(), effects);
     }
 
+    /// None: it peers with no one.
     fn peering_info(&self, out: &mut Vec<u8>) {
-        self.f.peering_info(out);
+        out.clear();
     }
 
     fn create_peering_request(
         &mut self,
         _peer: Name,
-        peering_info: &[u8],
-        out: &mut Vec<u8>,
+        _peering_info: &[u8],
+        _out: &mut Vec<u8>,
     ) -> Result<(), SchemeError> {
-        self.f.create_peering_request(peering_info, out)
+        Err(SchemeError::Unsupported)
     }
 
-    fn accept_peering_request(&mut self, _peer: Name, data: &[u8]) -> Result<Vec<u8>, SchemeError> {
-        self.f.accept_peering_request(data)
+    fn accept_peering_request(
+        &mut self,
+        _peer: Name,
+        _data: &[u8],
+    ) -> Result<Vec<u8>, SchemeError> {
+        Err(SchemeError::Unsupported)
     }
 
     fn finalize_peering_request(
         &mut self,
         _peer: Name,
-        peering_info: &[u8],
+        _peering_info: &[u8],
     ) -> Result<Vec<u8>, SchemeError> {
-        self.f.finalize_peering_request(peering_info)
+        Err(SchemeError::Unsupported)
     }
 
-    fn on_peered(&mut self, peer: Name, state: &[u8]) {
-        self.f.on_peered(peer, state);
-    }
-
-    fn on_closed(&mut self, peer: Name) {
-        self.f.on_closed(peer);
-    }
-
-    /// The address the request names is where `peer` settles from.
-    fn entry(&self, peer: Name, data: &[u8]) -> EntryPayment {
-        self.f.entry(peer, data)
-    }
-
-    /// Books what it held from `peer`, from the address it peered with, as
-    /// its settlements: the books hold it from now on.
-    fn take_entry(&mut self, peer: Name, effects: &mut Vec<Effect>) {
-        self.f.take_entry(peer, effects);
-        self.match_balance(effects);
-    }
-
-    /// Unavailable unless the account can sign it now
-    /// ([`XrplAccount::sign_payment`]). It settles whole drops.
     fn prepare_settlement(
         &mut self,
         _rng: &mut dyn CryptoRng,
-        asset: Option<&mut dyn ExternalAsset>,
-        peer: Name,
-        amount: u64,
-        peer_state: &[u8],
+        _asset: Option<&mut dyn ExternalAsset>,
+        _peer: Name,
+        _amount: u64,
+        _peer_state: &[u8],
     ) -> Result<PreparedSettlement, SchemeError> {
-        let destination = self.f.destination(peer, peer_state)?;
-        let account = asset.and_then(account_of).ok_or(SchemeError::Unavailable)?;
-        let drops = amount / UNITS_PER_DROP;
-        let memo = Memo {
-            memo_type: N::XRP.memo_type.to_vec(),
-            memo_data: self.f.node.as_str().as_bytes().to_vec(),
-        };
-        let hash = account.sign_payment(self.id(), destination, drops, alloc::vec![memo])?;
-        Ok(PreparedSettlement {
-            id: hash_name(&hash),
-            amount: drops * UNITS_PER_DROP,
-            // A bare notice: the ledger says what arrived.
-            message: Vec::new(),
-        })
+        Err(SchemeError::Unsupported)
     }
 
-    fn settlement_message(&self, _settlement: Name) -> Vec<u8> {
-        Vec::new()
-    }
-
-    /// The ledger says what arrived: a `settlement` message is a bare
-    /// notice (spec/areas/xrpl.md#settlement-messages).
-    fn books_messages(&self) -> bool {
-        false
-    }
-
+    /// It prepares none, so none is executed: one the node asks for anyway
+    /// can never apply.
     fn execute_settlement(
         &mut self,
-        asset: Option<&mut dyn ExternalAsset>,
+        _asset: Option<&mut dyn ExternalAsset>,
         settlement: Name,
         effects: &mut Vec<Effect>,
     ) {
-        Follower::execute(asset, self.id(), settlement, effects);
-    }
-
-    fn discard_settlement(&mut self, asset: Option<&mut dyn ExternalAsset>, settlement: Name) {
-        Follower::discard(asset, self.id(), settlement);
+        effects.push(Effect::Cancel { settlement });
     }
 
     fn reconcile(
@@ -871,10 +701,19 @@ impl<N: NativeXrp> SettlementScheme for XrpScheme<N> {
         pending: &[(Name, u64)],
         effects: &mut Vec<Effect>,
     ) {
-        let id = self.id();
-        self.f.reconcile(asset, id, pending, effects);
+        reconcile_pending(asset.and_then(account_of), self.id(), pending, effects);
     }
 
+    /// A `settlement` message on it is a bare notice and books nothing:
+    /// whatever a Payment moved on the ledger is the owner's deposit.
+    fn books_messages(&self) -> bool {
+        false
+    }
+
+    /// Acknowledged, booking nothing: one a peering stored from when the
+    /// scheme peered left in a channel. Refused, the peer would send it
+    /// again for ever, and the channel, which carries one settlement at a
+    /// time, would never carry another (spec/areas/xrpl.md#owner-books).
     fn handle_settlement(
         &mut self,
         _peer: Name,
@@ -883,9 +722,6 @@ impl<N: NativeXrp> SettlementScheme for XrpScheme<N> {
         _peer_state: &[u8],
         _effects: &mut Vec<Effect>,
     ) -> Result<(), SchemeError> {
-        // A bare notice books nothing, and says nothing to check: the
-        // ledger says what arrived, once
-        // (spec/areas/xrpl.md#settlement-messages).
         Ok(())
     }
 
@@ -937,10 +773,25 @@ impl<N: NativeXrp> SettlementScheme for XrpScheme<N> {
 #[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
+    use crate::api::BalanceChange;
 
-    /// A successful Payment of XRP from `from` to `to`, with one memo of
-    /// `memo_type` naming `peer`.
-    fn payment(from: AccountId, to: AccountId, memo_type: &[u8], peer: Name) -> TxRecord {
+    /// The scheme of `N`, on its network's first account, synced at ledger
+    /// 5 with the books holding 20 XRP.
+    fn synced<N: NativeXrp>() -> (XrplAccount, XrpScheme<N>) {
+        let network = N::XRP.network;
+        let account =
+            XrplAccount::new(network.first(), &[network.xrp_scheme], "", &[7; 32], &[]).unwrap();
+        let mut scheme = XrpScheme::<N>::new(&account, Some(units(20_000_000)), &[]).unwrap();
+        scheme.f.cursor = Some((5, 0));
+        scheme.balance = Some(20_000_000);
+        scheme.synced = true;
+        scheme.check_invariants();
+        (account, scheme)
+    }
+
+    /// A successful Payment of a million drops from `from` to `to`, with one
+    /// memo of `memo_type` naming `node`.
+    fn payment(from: AccountId, to: AccountId, memo_type: &[u8], node: &str) -> TxRecord {
         TxRecord {
             hash: [1; 32],
             ledger_index: 10,
@@ -955,50 +806,56 @@ mod tests {
             result: "tesSUCCESS".into(),
             delivered: Some(1_000_000),
             delivered_token: None,
-            memo: Some((memo_type.to_vec(), peer.as_str().as_bytes().to_vec())),
-            changes: Vec::new(),
+            memo: Some((memo_type.to_vec(), node.as_bytes().to_vec())),
+            changes: alloc::vec![BalanceChange {
+                account: to,
+                before: 20_000_000,
+                after: 21_000_000,
+                owner_count: None,
+            }],
             lines: Vec::new(),
         }
     }
 
-    /// Whether the scheme of `N` takes a Payment from its peer's address,
-    /// naming the peer, with `memo_type` for the peer's settlement.
-    fn settles<N: NativeXrp>(memo_type: &[u8]) -> bool {
-        let network = N::XRP.network;
-        let account =
-            XrplAccount::new(network.first(), &[network.xrp_scheme], "", &[7; 32], &[]).unwrap();
-        let node = Name::new("node0").unwrap();
-        let mut scheme = XrpScheme::<N>::new(&account, node, None, &[]).unwrap();
-        let (peer, address) = (Name::new("node1").unwrap(), AccountId([1; 20]));
-        scheme.f.learn(peer, address);
-        scheme.check_invariants();
-        let record = payment(address, account.account(), memo_type, peer);
-        scheme.settled_by(&record) == Some(peer)
+    // spec/areas/xrpl.md#following-the-account: a Payment that carries the
+    // memo a settlement carried while the XRPL schemes peered, naming a
+    // node, is the owner's deposit like any other, on either network.
+    #[test]
+    fn a_payment_with_a_settlement_memo_is_a_deposit() {
+        fn deposit<N: NativeXrp>(memo_type: &[u8]) {
+            let (account, mut scheme) = synced::<N>();
+            let record = payment(AccountId([1; 20]), account.account(), memo_type, "node1");
+            let mut effects = Vec::new();
+            scheme.transaction(&record, None, None, &mut effects);
+            scheme.check_invariants();
+            assert_eq!(
+                effects,
+                [Effect::Deposit {
+                    amount: units(1_000_000)
+                }]
+            );
+            assert_eq!(scheme.balance(), units(21_000_000));
+        }
+        let testnet = b"https://dassie.land/settlement/xrpl-testnet-xrp/v1";
+        let mainnet = b"https://dassie.land/settlement/xrpl-xrp/v1";
+        for memo_type in [&testnet[..], &mainnet[..]] {
+            deposit::<TestnetXrp>(memo_type);
+            deposit::<MainnetXrp>(memo_type);
+        }
     }
 
-    // spec/decisions/mainnet-schemes.md: each network's XRP scheme reads
-    // only its own memo type, so a Payment with the other network's, from
-    // a peer's address and naming the peer, is never its settlement but the
-    // owner's deposit; the original wrote the testnet's on both.
+    // spec/areas/xrpl.md#owner-books: a scheme's config may say `peers`,
+    // which is read and changes nothing; what is the account's, its server,
+    // faucet and publishers, is the account's own config, and refused here.
     #[test]
-    fn a_settlement_of_the_other_network_is_a_deposit() {
-        assert!(settles::<TestnetXrp>(MEMO_TYPE));
-        assert!(!settles::<TestnetXrp>(MAINNET_MEMO_TYPE));
-        assert!(settles::<MainnetXrp>(MAINNET_MEMO_TYPE));
-        assert!(!settles::<MainnetXrp>(MEMO_TYPE));
-    }
-
-    // spec/areas/xrpl.md#owner-books: a scheme's config says only whether
-    // it peers; what is the account's, its server, faucet and publishers,
-    // is the account's own config, and refused here.
-    #[test]
-    fn a_config_says_only_whether_the_scheme_peers() {
-        let parse = |text: &str| SchemeConfig::parse(text).unwrap();
-        assert!(parse("").peers);
-        assert!(parse("  ").peers);
-        assert!(!parse(r#"{"peers": false}"#).peers);
-        assert!(parse(r#"{"peers": true}"#).peers);
-        assert!(parse("{}").peers);
+    fn a_config_may_say_only_whether_the_scheme_peers() {
+        for accepted in ["", "  ", r#"{"peers": false}"#, r#"{"peers": true}"#, "{}"] {
+            assert_eq!(
+                SchemeConfig::parse(accepted),
+                Ok(SchemeConfig),
+                "{accepted}"
+            );
+        }
         for refused in [
             r#"{"peers": 0}"#,
             r#"{"peers": "no"}"#,
@@ -1022,33 +879,54 @@ mod tests {
         assert_eq!(SchemeConfig::parse(&long), Err(SchemeError::InvalidConfig));
     }
 
-    // spec/areas/settlement.md#owner-books: an owner book peers with nobody:
-    // it says so, and refuses every step of a peering as unsupported.
+    // spec/areas/xrpl.md#owner-books: every XRP scheme is an owner book: it
+    // says it peers with no one, gives no peering info, refuses every step
+    // of a peering and every settlement of its own as unsupported, takes a
+    // peer's settlement message as a bare notice that books nothing, and
+    // cancels any settlement a restart left pending.
     #[test]
-    fn an_owner_book_refuses_to_peer() {
-        let network = TestnetXrp::XRP.network;
-        let account =
-            XrplAccount::new(network.first(), &[network.xrp_scheme], "", &[7; 32], &[]).unwrap();
-        let mut scheme = XrplScheme::new(&account, Name::new("node0").unwrap(), None, &[]).unwrap();
-        assert!(scheme.peers());
-        scheme.set_peers(false);
-        assert!(!scheme.peers());
-        let peer = Name::new("node1").unwrap();
-        let mut info = Vec::new();
-        crate::follower::address_bytes(AccountId([1; 20]), &mut info);
-        let mut out = Vec::new();
-        assert_eq!(
-            scheme.create_peering_request(peer, &info, &mut out),
-            Err(SchemeError::Unsupported)
-        );
-        assert_eq!(
-            scheme.accept_peering_request(peer, &info),
-            Err(SchemeError::Unsupported)
-        );
-        assert_eq!(
-            scheme.finalize_peering_request(peer, &info),
-            Err(SchemeError::Unsupported)
-        );
-        scheme.check_invariants();
+    fn an_xrp_scheme_peers_with_no_one() {
+        fn refuses<N: NativeXrp>() {
+            let (_, mut scheme) = synced::<N>();
+            assert!(!scheme.peers());
+            let peer = Name::new("node1").unwrap();
+            let mut info = alloc::vec![1];
+            scheme.peering_info(&mut info);
+            assert!(info.is_empty());
+            let address = [1; 20];
+            let mut out = Vec::new();
+            assert_eq!(
+                scheme.create_peering_request(peer, &address, &mut out),
+                Err(SchemeError::Unsupported)
+            );
+            assert_eq!(
+                scheme.accept_peering_request(peer, &address),
+                Err(SchemeError::Unsupported)
+            );
+            assert_eq!(
+                scheme.finalize_peering_request(peer, &address),
+                Err(SchemeError::Unsupported)
+            );
+            let mut rng = dassie_kit::sim::SeededRng::new(1);
+            assert_eq!(
+                scheme
+                    .prepare_settlement(&mut rng, None, peer, units(1), &address)
+                    .err(),
+                Some(SchemeError::Unsupported)
+            );
+            let mut effects = Vec::new();
+            assert!(!scheme.books_messages());
+            assert_eq!(
+                scheme.handle_settlement(peer, units(1), &[1], &address, &mut effects),
+                Ok(())
+            );
+            assert!(effects.is_empty());
+            let settlement = hash_name(&[2; 32]);
+            scheme.reconcile(None, &[(settlement, units(1))], &mut effects);
+            assert_eq!(effects, [Effect::Cancel { settlement }]);
+            scheme.check_invariants();
+        }
+        refuses::<TestnetXrp>();
+        refuses::<MainnetXrp>();
     }
 }

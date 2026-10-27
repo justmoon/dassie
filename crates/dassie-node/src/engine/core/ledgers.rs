@@ -61,10 +61,24 @@ impl ActiveScheme {
         self.scheme.converts() && (self.failed.is_none() || self.scheme.peg().is_none())
     }
 
-    /// The credit the node extends at first to a peer on it, given the
-    /// `default` for the peer's role: nothing over a hub, whose hold is all
-    /// the credit there is; [`UNLIMITED_CREDIT`](dassie_settlement::policy::UNLIMITED_CREDIT)
-    /// with unlimited trust (spec/areas/settlement.md#the-stub-scheme).
+    /// Whether a method on it would settle directly: it is neither over a
+    /// hub nor of unlimited trust, as every XRPL scheme, an owner book. A
+    /// peering stored from when the XRPL schemes peered may still have a
+    /// method on one: it carries no packet, its peer is asked for nothing
+    /// on it, and the peer protocol drops it at its next review
+    /// (spec/areas/settlement.md#owner-books).
+    pub fn settles_directly(&self) -> bool {
+        !self.over_hub && !self.unlimited
+    }
+
+    /// The credit the node extends at first to a peer on it: nothing over a
+    /// hub, whose hold is all the credit there is;
+    /// [`UNLIMITED_CREDIT`](dassie_settlement::policy::UNLIMITED_CREDIT)
+    /// with unlimited trust (spec/areas/settlement.md#credit). A scheme
+    /// that settles directly extends `default`: the default credit from the
+    /// node that asked to peer, and nothing from the node that accepted or
+    /// to a downlink, which pay in advance. A branch that no scheme reaches
+    /// once none peers directly (spec/decisions/hubs-only.md).
     pub fn start_credit(&self, default: u64) -> u64 {
         if self.over_hub {
             0

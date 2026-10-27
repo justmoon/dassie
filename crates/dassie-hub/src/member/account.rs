@@ -54,6 +54,14 @@
 //!   queue keeps its room for the claims the hub still pays. It takes no
 //!   new settlement, withdrawal or redeem, and says it is not synced, so
 //!   the hub's method is unavailable until the thaw.
+//! - **A hub that stalled or ended.** Once f + 1 validators each kept
+//!   naming the same newest final block for as long as the hub's stall,
+//!   one of them honest, and fewer than f + 1 named a newer one within it,
+//!   the hub stalled or ended ([`HubAccount::stalled`]): its scheme can no
+//!   longer receive, and the node drops its methods
+//!   (spec/decisions/settlement-methods.md). A validator cut off alone
+//!   declares a stall too, but the others name newer blocks; being cut
+//!   off from the validators judges nothing.
 //! - **Room for deadlines.** What has no deadline takes at most
 //!   [`MAX_QUEUED_WITHOUT_DEADLINE`] of the queue, so claims and redeems
 //!   always find room.
@@ -313,6 +321,15 @@ pub(super) struct IssuerState {
     pub(super) held: bool,
 }
 
+/// The newest final block one validator named from its own endpoint, and
+/// when the account first and last heard it name it, by the node's clock.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Tip {
+    height: u64,
+    first_ms: u64,
+    last_ms: u64,
+}
+
 /// The last expiry a commitment claimed on a hub frozen since the block
 /// stamped `since` may have, as the hub's ledger reckons it
 /// ([`Ledger::freeze_window_end`](crate::ledger::Ledger::freeze_window_end)):
@@ -399,6 +416,12 @@ pub struct HubAccount {
     waiting_view: Option<(u64, AccountView)>,
     unfunded: bool,
     heard: bool,
+    /// It was in step with the hub ([`Self::is_synced`]) since it started,
+    /// and has neither started over nor read its state anew since: what it
+    /// has not read is only the newest blocks it heard of
+    /// ([`Self::keeps_up`]). Not kept with the books: after a restart it
+    /// catches up first.
+    kept_up: bool,
     /// The validators no longer keep what touched the account since its
     /// cursor: it reads its state anew.
     resync: bool,
@@ -422,6 +445,12 @@ pub struct HubAccount {
     /// its last `Final` from its own endpoint: the answer that `Final`
     /// ends is not held whole, so it covers nothing.
     dirty: Vec<bool>,
+    /// Per validator, the newest final block it named from its own
+    /// endpoint ([`Self::names_tip`]), and when the account first and last
+    /// heard it name it, by the node's clock: what tells a hub that
+    /// stalled ([`Self::stalled`]).
+    /// Not kept with the books: a restart judges again.
+    tips: Vec<Option<Tip>>,
     finals: BTreeMap<u64, Millis>,
     told_final: u64,
     /// Operations agreed executed, by block and their place in it: the
@@ -490,6 +519,7 @@ impl HubAccount {
             waiting_view: None,
             unfunded: false,
             heard: false,
+            kept_up: false,
             resync: false,
             trimmed_since: None,
             resync_holds: None,
@@ -498,6 +528,7 @@ impl HubAccount {
             lookups: BTreeMap::new(),
             covered: alloc::vec![0; n],
             dirty: alloc::vec![false; n],
+            tips: alloc::vec![None; n],
             finals: BTreeMap::new(),
             told_final: 0,
             buffer: BTreeMap::new(),
@@ -640,6 +671,49 @@ impl HubAccount {
         self.failed.is_none()
             && self.number.is_some()
             && self.view.is_some_and(|(height, _)| height <= self.cursor)
+    }
+
+    /// Whether the hub stalled or ended, as far as its validators tell
+    /// (spec/areas/hubs.md#a-hub-that-failed): f + 1 of them, one honest,
+    /// each kept naming the same newest final block for as long as the
+    /// hub's stall (`Timers::stall`), by the node's clock, and fewer than
+    /// f + 1 named a newer one within the stall; each names its newest in
+    /// what it states as of it ([`Self::names_tip`]), never in the `Final`
+    /// that ends a long answer where it stopped. An honest validator that
+    /// finalized nothing for that long declared the hub stalled and never
+    /// votes in it again, and a hub that ended makes no block; one cut off
+    /// alone from the others declares too, but the hub goes on, and f + 1
+    /// of the others, one honest, name newer blocks. A validator that
+    /// names a newer block starts its count again, so a hub that goes on
+    /// is never judged so; one the account no longer hears keeps what it
+    /// last said, so being cut off from the hub never makes the judgment,
+    /// nor undoes it. A frozen hub still makes blocks, and is never judged
+    /// stalled. A restart judges again.
+    #[must_use]
+    pub fn stalled(&self) -> bool {
+        let stall = self.rules.terms.timers.stall;
+        let mut stuck = 0_usize;
+        let mut moving = 0_usize;
+        for tip in self.tips.iter().flatten() {
+            if tip.last_ms.saturating_sub(tip.first_ms) >= stall {
+                stuck += 1;
+            } else if self.now_ms.saturating_sub(tip.first_ms) < stall {
+                moving += 1;
+            }
+        }
+        stuck >= self.set.one_honest() && moving < self.set.one_honest()
+    }
+
+    /// Whether the account keeps up with the hub: it was in step with it
+    /// since it started ([`Self::is_synced`]), and since then only lags in
+    /// reading the newest blocks it heard of, never having fallen so far
+    /// behind that it started over or read its state anew. The node's
+    /// packets may go over the hub meanwhile, unless it is frozen
+    /// (spec/decisions/settlement-methods.md); nothing moves into or out of
+    /// it until the account is in step.
+    #[must_use]
+    pub const fn keeps_up(&self) -> bool {
+        self.failed.is_none() && self.kept_up && !self.resync
     }
 
     /// What the operations waiting or on their way take from the balance,
@@ -1101,6 +1175,16 @@ impl HubAccount {
             {
                 self.covers(endpoint, height);
             }
+            // Its newest final block, from what it states as of it: not
+            // from a `Final`, which ends a long answer where it stopped.
+            if let Statement::Account { height, .. }
+            | Statement::Holds { height, .. }
+            | Statement::Trimmed { height, .. }
+            | Statement::Issuer { height, .. } = signed.statement
+                && signed.validator.get() == endpoint
+            {
+                self.names_tip(endpoint, height);
+            }
             // Only for an account we know: the cursor of one we do not is
             // set when we learn of it, from its state.
             if let Statement::Trimmed { below, .. } = signed.statement
@@ -1118,6 +1202,7 @@ impl HubAccount {
             }
         }
         self.advance();
+        self.kept_up = !self.resync && (self.kept_up || self.is_synced());
         self.drop_waiting_claims();
         self.pump();
     }
@@ -1134,9 +1219,34 @@ impl HubAccount {
         }
     }
 
+    /// Validator `v` named the final block at `height` as its newest, in a
+    /// statement as of its newest (its word on an account, on holds, on
+    /// its trimmed history or on the issuer's hold), which the account
+    /// asks for every [`ACCOUNT_EVERY_MS`]: a higher one than before starts
+    /// its tip again. A `Final` names none: an answer too long ends with
+    /// the block it stopped at, which a member far behind would hear again
+    /// and again from a hub that goes on.
+    fn names_tip(&mut self, v: usize, height: u64) {
+        let now = self.now_ms;
+        let Some(tip) = self.tips.get_mut(v) else {
+            return;
+        };
+        match tip {
+            Some(tip) if height <= tip.height => tip.last_ms = tip.last_ms.max(now),
+            _ => {
+                *tip = Some(Tip {
+                    height,
+                    first_ms: now,
+                    last_ms: now,
+                });
+            }
+        }
+    }
+
     /// Forgets everything read above the cursor, to read it again: no
     /// validator covers anything past the cursor until it answered anew.
     fn start_over(&mut self) {
+        self.kept_up = false;
         self.buffer.clear();
         self.agreement = agreement(self.hub, &self.set, &self.rules.terms);
         let cursor = self.cursor;
@@ -1960,6 +2070,14 @@ impl ExternalAsset for HubAccount {
         assert!(self.effects.len() <= MAX_EFFECTS);
         assert_eq!(self.covered.len(), self.set.len());
         assert_eq!(self.dirty.len(), self.set.len());
+        assert_eq!(self.tips.len(), self.set.len());
+        assert!(
+            self.tips
+                .iter()
+                .flatten()
+                .all(|tip| tip.first_ms <= tip.last_ms),
+            "a tip heard last before first"
+        );
         assert!(
             on_their_way_hold(&self.queue),
             "one operation on its way at a time, or claims beside it"

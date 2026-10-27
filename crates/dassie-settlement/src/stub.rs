@@ -59,11 +59,13 @@ const STATE_VERSION: u8 = 1;
 const UNLIMITED: &[u8] = b"unlimited trust";
 
 /// The stub scheme. Its "underlying ledger" is a number, which the node's
-/// checkpoint keeps across restarts.
+/// checkpoint keeps across restarts. It comes in two kinds, and peers only
+/// with a stub of its own kind.
 ///
-/// **Test realm only:** a peer's settlement claim is believed as stated.
-/// Anyone peered over the stub can mint credit, which is why it
-/// only ever holds test money.
+/// **Test realm only:** a peer on the stub can take what it was never
+/// paid: with unlimited trust, it spends without ever settling; with
+/// commitments, its settlement is believed as stated. Anyone peered over
+/// the stub can mint credit, which is why it only ever holds test money.
 ///
 /// **With commitments,** for tests of the packet path over a settlement hub
 /// without a hub: its peerings carry a commitment with each Prepare and a
@@ -77,21 +79,21 @@ const UNLIMITED: &[u8] = b"unlimited trust";
 /// peers on it extend each other
 /// [`UNLIMITED_CREDIT`](crate::policy::UNLIMITED_CREDIT), never ask each
 /// other to settle and never settle
-/// ([`SettlementScheme::unlimited_trust`]). It peers only with a stub that
-/// trusts as it does.
+/// ([`SettlementScheme::unlimited_trust`]).
 #[derive(Debug)]
 pub struct Stub {
     balance: u64,
+    /// Our settlements prepared and not executed: only a stub with
+    /// commitments settles.
     prepared: BTreeMap<Name, (Name, u64)>,
+    /// The pretend hub of a stub with commitments; none for one with
+    /// unlimited trust.
     hub: Option<StubHub>,
-    unlimited: bool,
 }
 
 /// What a stub's config asks for.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Mode {
-    /// The plain stub, which settles when asked.
-    Plain,
     /// The stub with commitments, at most this many packets in flight per
     /// peer each way.
     Commitments(usize),
@@ -102,10 +104,11 @@ enum Mode {
 impl Stub {
     /// The stub, with the balance last checkpointed, or the initial balance
     /// on first activation, and the state last checkpointed. Its config is
-    /// empty or `{}`; `{"commitments": N}` for a stub with commitments that
-    /// holds at most `N` packets in flight per peer each way, `N` from 1 to
-    /// [`MAX_STUB_COMMITMENTS`]; or `{"trust": "unlimited"}` for a stub with
-    /// unlimited trust. Only a stub with commitments has a state: its
+    /// `{"commitments": N}` for a stub with commitments that holds at most
+    /// `N` packets in flight per peer each way, `N` from 1 to
+    /// [`MAX_STUB_COMMITMENTS`]; or `{"trust": "unlimited"}`, empty or `{}`
+    /// for a stub with unlimited trust, so that a stub added without a
+    /// config never settles. Only a stub with commitments has a state: its
     /// holds.
     ///
     /// # Errors
@@ -113,34 +116,41 @@ impl Stub {
     /// If `config` is anything else, or the state is not one the stub
     /// wrote with that config.
     pub fn new(config: &str, checkpoint: Option<u64>, state: &[u8]) -> Result<Self, SchemeError> {
-        let mode = mode(config).ok_or(SchemeError::InvalidConfig)?;
-        let hub = match mode {
+        let hub = match mode(config).ok_or(SchemeError::InvalidConfig)? {
             Mode::Commitments(limit) => Some(StubHub::new(limit, state)?),
-            Mode::Plain | Mode::Unlimited if state.is_empty() => None,
-            Mode::Plain | Mode::Unlimited => return Err(SchemeError::InvalidConfig),
+            Mode::Unlimited if state.is_empty() => None,
+            Mode::Unlimited => return Err(SchemeError::InvalidConfig),
         };
         Ok(Self {
             balance: checkpoint.unwrap_or(STUB_INITIAL_BALANCE),
             prepared: BTreeMap::new(),
             hub,
-            unlimited: mode == Mode::Unlimited,
         })
     }
 
-    /// Whether `data`, a peer's peering info, request or response, is what
-    /// a stub of our kind writes: [`UNLIMITED`] between stubs with
-    /// unlimited trust; anything to any other stub, which reads none of it.
-    fn of_our_kind(&self, data: &[u8]) -> bool {
-        !self.unlimited || data == UNLIMITED
+    /// Whether it is the stub with unlimited trust: the one without a
+    /// pretend hub.
+    const fn unlimited(&self) -> bool {
+        self.hub.is_none()
     }
 
-    /// Writes our peering info or request: [`UNLIMITED`] for a
-    /// stub with unlimited trust, nothing for any other.
+    /// What a stub of our kind writes as its peering info, request and
+    /// response: [`UNLIMITED`] with unlimited trust, nothing with
+    /// commitments.
+    fn ours(&self) -> &'static [u8] {
+        if self.unlimited() { UNLIMITED } else { &[] }
+    }
+
+    /// Whether `data`, a peer's peering info, request or response, is what
+    /// a stub of our kind writes.
+    fn of_our_kind(&self, data: &[u8]) -> bool {
+        data == self.ours()
+    }
+
+    /// Writes our peering info or request.
     fn write_ours(&self, out: &mut Vec<u8>) {
         out.clear();
-        if self.unlimited {
-            out.extend_from_slice(UNLIMITED);
-        }
+        out.extend_from_slice(self.ours());
     }
 }
 
@@ -148,11 +158,11 @@ impl Stub {
 fn mode(config: &str) -> Option<Mode> {
     let config = config.trim();
     if config.is_empty() {
-        return Some(Mode::Plain);
+        return Some(Mode::Unlimited);
     }
     let inner = config.strip_prefix('{')?.strip_suffix('}')?.trim();
     if inner.is_empty() {
-        return Some(Mode::Plain);
+        return Some(Mode::Unlimited);
     }
     let (key, value) = inner.split_once(':')?;
     let value = value.trim();
@@ -590,7 +600,7 @@ impl SettlementScheme for Stub {
         self.write_ours(out);
     }
 
-    /// A stub with unlimited trust asks only a stub that trusts as it does.
+    /// A stub asks only a stub of its own kind.
     fn create_peering_request(
         &mut self,
         _peer: Name,
@@ -604,8 +614,7 @@ impl SettlementScheme for Stub {
         Ok(())
     }
 
-    /// A stub with unlimited trust accepts only a stub that trusts as it
-    /// does.
+    /// A stub accepts only a stub of its own kind.
     fn accept_peering_request(&mut self, _peer: Name, data: &[u8]) -> Result<Vec<u8>, SchemeError> {
         if !self.of_our_kind(data) {
             return Err(SchemeError::InvalidData);
@@ -625,7 +634,7 @@ impl SettlementScheme for Stub {
     }
 
     fn unlimited_trust(&self) -> bool {
-        self.unlimited
+        self.unlimited()
     }
 
     /// With commitments, a settlement funds our hold toward the peer, so it
@@ -640,27 +649,21 @@ impl SettlementScheme for Stub {
         amount: u64,
         _peer_state: &[u8],
     ) -> Result<PreparedSettlement, SchemeError> {
-        if self.unlimited {
+        let Some(hub) = &self.hub else {
             return Err(SchemeError::Unsupported);
-        }
+        };
         if self.prepared.len() >= MAX_PREPARED {
             return Err(SchemeError::TooManyPrepared);
         }
-        let amount = match &self.hub {
-            Some(hub) => {
-                let spendable = self.balance.saturating_sub(
-                    self.prepared
-                        .values()
-                        .fold(0, |sum, (_, amount)| sum.saturating_add(*amount)),
-                );
-                let amount = amount.min(spendable);
-                if amount == 0 || !hub.has_room_for(peer) {
-                    return Err(SchemeError::Unavailable);
-                }
-                amount
-            }
-            None => amount,
-        };
+        let spendable = self.balance.saturating_sub(
+            self.prepared
+                .values()
+                .fold(0, |sum, (_, amount)| sum.saturating_add(*amount)),
+        );
+        let amount = amount.min(spendable);
+        if amount == 0 || !hub.has_room_for(peer) {
+            return Err(SchemeError::Unavailable);
+        }
         let id = random_id(rng);
         self.prepared.insert(id, (peer, amount));
         Ok(PreparedSettlement {
@@ -679,17 +682,19 @@ impl SettlementScheme for Stub {
         let Some((peer, amount)) = self.prepared.remove(&settlement) else {
             return;
         };
-        match self.balance.checked_sub(amount) {
-            Some(balance) => {
-                self.balance = balance;
-                if let Some(hub) = &mut self.hub {
-                    hub.funded_toward(peer, amount);
-                }
-                effects.push(Effect::Finalize { settlement });
-            }
-            // The original threw and left the transfer pending.
-            None => effects.push(Effect::Cancel { settlement }),
+        // Only a stub with commitments prepares, and what it prepared was
+        // spendable then: only executing spends, so it is never short.
+        let hub = self.hub.as_mut();
+        assert!(hub.is_some(), "only a stub with commitments prepares");
+        assert!(
+            amount <= self.balance,
+            "a prepared settlement is never short"
+        );
+        self.balance = self.balance.saturating_sub(amount);
+        if let Some(hub) = hub {
+            hub.funded_toward(peer, amount);
         }
+        effects.push(Effect::Finalize { settlement });
     }
 
     fn reconcile(
@@ -719,16 +724,14 @@ impl SettlementScheme for Stub {
         effects: &mut Vec<Effect>,
     ) -> Result<(), SchemeError> {
         // With unlimited trust, it peers only with stubs that never settle.
-        if self.unlimited {
+        let Some(hub) = &mut self.hub else {
             return Err(SchemeError::InvalidData);
-        }
+        };
         self.balance = self
             .balance
             .checked_add(amount)
             .ok_or(SchemeError::Overflow)?;
-        if let Some(hub) = &mut self.hub {
-            hub.funded_from(peer, amount);
-        }
+        hub.funded_from(peer, amount);
         effects.push(Effect::IncomingSettlement {
             peer,
             amount,
@@ -760,8 +763,8 @@ impl SettlementScheme for Stub {
     fn check_invariants(&self) {
         assert!(self.prepared.len() <= MAX_PREPARED);
         assert!(
-            !self.unlimited || (self.prepared.is_empty() && self.hub.is_none()),
-            "a stub with unlimited trust prepared a settlement, or holds commitments"
+            !self.unlimited() || self.prepared.is_empty(),
+            "a stub with unlimited trust prepared a settlement"
         );
         if let Some(hub) = &self.hub {
             hub.check_invariants();
@@ -801,9 +804,13 @@ mod tests {
         );
     }
 
+    /// A stub with commitments that holds at most one packet in flight per
+    /// peer each way.
+    const HOLDING: &str = r#"{"commitments":1}"#;
+
     #[test]
     fn deposits_and_incoming_settlements_grow_the_balance() {
-        let mut stub = Stub::new("", Some(10), &[]).unwrap();
+        let mut stub = Stub::new(HOLDING, Some(10), &[]).unwrap();
         let mut effects = Vec::new();
         stub.deposit(5, &mut effects).unwrap();
         stub.handle_settlement(peer(), 3, &[], &[], &mut effects)
@@ -827,42 +834,35 @@ mod tests {
         );
     }
 
-    // A failed execution cancels its settlement, so no transfer stays
-    // pending.
+    // A settlement executes once, and finalizes as it executes.
     #[test]
-    fn a_settlement_beyond_the_balance_is_cancelled() {
-        let mut stub = Stub::new("", Some(10), &[]).unwrap();
+    fn a_settlement_executes_once() {
+        let mut stub = Stub::new(HOLDING, Some(10), &[]).unwrap();
         let mut rng = SeededRng::new(1);
         let small = stub
             .prepare_settlement(&mut rng, None, peer(), 4, &[])
             .unwrap();
-        let large = stub
-            .prepare_settlement(&mut rng, None, peer(), 40, &[])
+        let other = stub
+            .prepare_settlement(&mut rng, None, peer(), 4, &[])
             .unwrap();
-        assert_ne!(small.id, large.id);
+        assert_ne!(small.id, other.id);
         assert_eq!(small.id.as_str().len(), 32);
         let mut effects = Vec::new();
         stub.execute_settlement(None, small.id, &mut effects);
-        stub.execute_settlement(None, large.id, &mut effects);
         // Executing twice does nothing.
         stub.execute_settlement(None, small.id, &mut effects);
         assert_eq!(
             effects,
-            [
-                Effect::Finalize {
-                    settlement: small.id
-                },
-                Effect::Cancel {
-                    settlement: large.id
-                }
-            ]
+            [Effect::Finalize {
+                settlement: small.id
+            }]
         );
         assert_eq!(stub.balance(), 6);
     }
 
     #[test]
     fn settlements_pending_at_a_restart_are_cancelled() {
-        let mut stub = Stub::new("", Some(10), &[]).unwrap();
+        let mut stub = Stub::new(HOLDING, Some(10), &[]).unwrap();
         let mut rng = SeededRng::new(3);
         let known = stub
             .prepare_settlement(&mut rng, None, peer(), 4, &[])
@@ -876,7 +876,7 @@ mod tests {
 
     #[test]
     fn preparations_are_bounded() {
-        let mut stub = Stub::new("", None, &[]).unwrap();
+        let mut stub = Stub::new(HOLDING, None, &[]).unwrap();
         let mut rng = SeededRng::new(2);
         for _ in 0..MAX_PREPARED {
             stub.prepare_settlement(&mut rng, None, peer(), 1, &[])
@@ -894,7 +894,7 @@ mod tests {
     // settled nothing more.
     #[test]
     fn a_discarded_settlement_frees_its_slot() {
-        let mut stub = Stub::new("", None, &[]).unwrap();
+        let mut stub = Stub::new(HOLDING, None, &[]).unwrap();
         let mut rng = SeededRng::new(2);
         for _ in 0..MAX_PREPARED * 2 {
             let prepared = stub
@@ -907,9 +907,12 @@ mod tests {
     }
 
     #[test]
-    fn the_stub_takes_no_config_but_its_commitments() {
-        assert!(Stub::new("", None, &[]).unwrap().commitments().is_none());
-        assert!(Stub::new("{}", None, &[]).unwrap().commitments().is_none());
+    fn the_stub_takes_no_config_but_its_commitments_or_its_trust() {
+        for trusting in ["", "{}", " { } ", r#"{"trust":"unlimited"}"#] {
+            let mut stub = Stub::new(trusting, None, &[]).unwrap();
+            assert!(stub.unlimited_trust(), "{trusting}");
+            assert!(stub.commitments().is_none(), "{trusting}");
+        }
         assert!(
             Stub::new(r#" { "commitments" : 3 } "#, None, &[])
                 .unwrap()
@@ -1076,15 +1079,6 @@ mod tests {
         assert_eq!(held(&mut stub), one(0, 0, MAX_UNCLAIMED));
     }
 
-    // A stub without commitments holds nothing per packet, and is not over
-    // a hub.
-    #[test]
-    fn a_plain_stub_has_no_commitments() {
-        let mut stub = Stub::new("", None, &[]).unwrap();
-        assert!(stub.commitments().is_none());
-        stub.check_invariants();
-    }
-
     fn holds(stub: &mut Stub) -> HoldsWith {
         stub.check_invariants();
         stub.commitments().unwrap().holds(peer())
@@ -1210,7 +1204,7 @@ mod tests {
     }
 
     // The holds outlast a restart in the stub's state, and a state the stub
-    // did not write is refused, as is one for a stub without commitments.
+    // did not write is refused, as is one for a stub with unlimited trust.
     #[test]
     fn holds_outlast_a_restart() {
         let config = r#"{"commitments":1}"#;
@@ -1266,15 +1260,16 @@ mod tests {
         stub.execute_settlement(None, second.id, &mut effects);
         assert_eq!(holds(&mut stub).toward, 10);
         assert_eq!(stub.balance(), 0);
-        // A plain stub prepares what it is asked, and cancels what it cannot
-        // pay when it executes, as before.
-        let mut plain = Stub::new("", Some(1), &[]).unwrap();
         assert_eq!(
-            plain
-                .prepare_settlement(&mut rng, None, peer(), 7, &[])
-                .unwrap()
-                .amount,
-            7
+            effects,
+            [
+                Effect::Finalize {
+                    settlement: first.id
+                },
+                Effect::Finalize {
+                    settlement: second.id
+                }
+            ]
         );
     }
 
@@ -1300,10 +1295,10 @@ mod tests {
         assert!(trusting.state().is_empty());
         assert_eq!(trusting.balance(), 7);
         trusting.check_invariants();
-        for other in ["", "{}", r#"{"commitments":2}"#] {
+        for other in [HOLDING, r#"{"commitments":2}"#] {
             assert!(!Stub::new(other, None, &[]).unwrap().unlimited_trust());
         }
-        let mut holds = Stub::new(r#"{"commitments":1}"#, None, &[]).unwrap();
+        let mut holds = Stub::new(HOLDING, None, &[]).unwrap();
         settle(&mut holds, 3);
         assert_eq!(
             Stub::new(TRUSTING, None, &holds.state()).err(),
@@ -1351,26 +1346,28 @@ mod tests {
         asker.finalize_peering_request(peer(), &info).is_ok()
     }
 
-    // A stub with unlimited trust peers only with another, either way
-    // round: never with a stub that would ask it to settle, or wait for its
-    // settlements. Other stubs peer as before.
+    // A stub peers only with its own kind, either way round: one with
+    // unlimited trust never with a stub that would ask it to settle, or
+    // wait for its settlements, and one with commitments never with a stub
+    // that settles nothing into its holds. A stub added without a config
+    // is one with unlimited trust.
     #[test]
-    fn unlimited_trust_peers_only_with_its_kind() {
+    fn a_stub_peers_only_with_its_kind() {
         let trusting = || Stub::new(TRUSTING, None, &[]).unwrap();
-        let plain = || Stub::new("", None, &[]).unwrap();
-        let holding = || Stub::new(r#"{"commitments":1}"#, None, &[]).unwrap();
+        let unconfigured = || Stub::new("", None, &[]).unwrap();
+        let holding = || Stub::new(HOLDING, None, &[]).unwrap();
         assert!(peers_with(&mut trusting(), &mut trusting()));
-        assert!(peers_with(&mut plain(), &mut holding()));
-        assert!(peers_with(&mut plain(), &mut plain()));
-        for mut other in [plain(), holding()] {
-            assert!(!peers_with(&mut trusting(), &mut other));
-            assert!(!peers_with(&mut other, &mut trusting()));
+        assert!(peers_with(&mut unconfigured(), &mut trusting()));
+        assert!(peers_with(&mut holding(), &mut holding()));
+        for mut other in [trusting(), unconfigured()] {
+            assert!(!peers_with(&mut holding(), &mut other));
+            assert!(!peers_with(&mut other, &mut holding()));
         }
-        // What it writes is fixed: a plain stub writes nothing.
+        // What it writes is fixed: a stub with commitments writes nothing.
         let mut info = Vec::new();
         trusting().peering_info(&mut info);
         assert_eq!(info, UNLIMITED);
-        plain().peering_info(&mut info);
+        holding().peering_info(&mut info);
         assert!(info.is_empty());
     }
 }

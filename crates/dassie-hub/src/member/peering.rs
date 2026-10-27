@@ -82,16 +82,6 @@ impl Membership {
     }
 }
 
-/// The account in `hub` of the peer whose state, as the scheme keeps it
-/// for a peering, is `state`: how the node tells which of its holds is
-/// toward which peer. A peer that had no account when it peered gave
-/// account 0, the hub's never; the scheme learns its account once it has
-/// one ([`HubScheme::peer_account`](super::HubScheme::peer_account)).
-#[must_use]
-pub fn peer_account(state: &[u8], hub: &HubId) -> Option<AccountNumber> {
-    Membership::read(state, hub).ok().map(|m| m.account)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -128,7 +118,8 @@ mod tests {
         let mut bytes = Vec::new();
         member.write(&mut bytes);
         assert_eq!(bytes.len(), MEMBERSHIP_LEN, "the same length as any");
-        assert_eq!(Membership::read(&bytes, &hub), Ok(member));
-        assert_eq!(peer_account(&bytes, &hub), Some(NONE));
+        let read = Membership::read(&bytes, &hub).unwrap();
+        assert_eq!(read, member);
+        assert_eq!(read.account, NONE);
     }
 }

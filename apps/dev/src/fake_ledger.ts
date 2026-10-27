@@ -2,7 +2,8 @@
  * The fake XRP Ledger: the node's own model of the ledger, served over
  * WebSocket with a faucet over HTTPS, for scenarios that settle on the XRP
  * Ledger without the public testnet. CI's end-to-end tests run against it,
- * and `node --run dev -- --xrpl fake`. It is the testnet, or mainnet, which
+ * and so does every scenario of `node --run dev` on the XRP Ledger: it is
+ * the only one they settle on. It is the testnet, or mainnet, which
  * has no faucet: there, XRP arrives as a deposit from outside, as an owner
  * sends it. Next to its faucet, the issuer of its network's dollar, DSUSD
  * on the testnet and RLUSD on mainnet, mints, freezes and claws back on

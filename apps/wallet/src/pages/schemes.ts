@@ -17,15 +17,15 @@ const NAMES: Record<string, string> = {
 
 const DESCRIPTIONS: Record<string, string> = {
   stub:
-    "Test dollars without an underlying ledger, for development and tests: a peer's settlement is believed as stated, so it never holds anything real. Only development builds offer it.",
+    "Test dollars without an underlying ledger, for development and tests: its peers trust each other without limit and never settle, so it never holds anything real. Only development builds offer it.",
   "xrpl-xrp":
-    "Settles in XRP on the XRP Ledger mainnet: real money. There is no faucet: send XRP to the account to fund it; the ledger holds back a reserve.",
+    "Holds your XRP on the XRP Ledger mainnet: real money. Your settlement hubs are funded from here; it settles with no peer itself. There is no faucet: send XRP to the account to fund it. The ledger holds back a reserve.",
   "xrpl-rlusd":
-    "Settles in RLUSD, Ripple's dollar token, on the XRP Ledger mainnet: real money, from the same account as XRP. The account pays its fees and its reserve in XRP, which you send to it: there is no faucet. The node pauses it while RLUSD's XRP/RLUSD AMM pool prices it off a dollar.",
+    "Holds your RLUSD, Ripple's dollar token, on the XRP Ledger mainnet: real money, in the same account as your XRP. Your RLUSD settlement hub is funded from here; it settles with no peer itself. The account pays its fees and its reserve in XRP, which you send to it: there is no faucet. While RLUSD's XRP/RLUSD AMM pool prices it off a dollar, the node stops converting it.",
   "xrpl-testnet-xrp":
-    "Settles in test XRP on the XRP Ledger testnet. The testnet faucet funds the account; the ledger holds back a reserve.",
+    "Holds your test XRP on the XRP Ledger testnet. Your settlement hubs are funded from here; it settles with no peer itself. The testnet faucet funds the account, and the ledger holds back a reserve.",
   "xrpl-testnet-dsusd":
-    "Settles in test DSUSD, Dassie's testnet dollar token, on the XRP Ledger testnet, from the same account as XRP. The account pays its fees and its reserve in XRP, from the testnet faucet; DSUSD is bought with XRP on the testnet's XRP/DSUSD AMM pool, as there is no faucet for it. The node pauses it while that pool prices it off a dollar.",
+    "Holds your test DSUSD, Dassie's testnet dollar token, on the XRP Ledger testnet, in the same account as your XRP. Your DSUSD settlement hub is funded from here; it settles with no peer itself. The account pays its fees and its reserve in XRP, from the testnet faucet; DSUSD is bought with XRP on the testnet's XRP/DSUSD AMM pool, as there is no faucet for it. While that pool prices it off a dollar, the node stops converting it.",
   "hub-xrpl-testnet-xrp":
     "Settles in test XRP through the testnet's settlement hub, a ledger kept by a few validators and backed by an escrow on the XRP Ledger testnet, with peers in the same hub. It needs the XRP Ledger Testnet scheme: the node moves about 2.5 test XRP from that account into the hub at once (the hub account's 2 XRP reserve, and some to spend), and keeps its hub balance between a floor and a ceiling from there on.",
   "hub-xrpl-testnet-dsusd":

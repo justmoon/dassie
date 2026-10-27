@@ -4,10 +4,8 @@
 //! funds by funding the payer's hold as it goes, keep their peering, holds
 //! and balances across a restart, and end the peering
 //! (spec/areas/settlement.md#the-stub-scheme, spec/areas/hubs.md#in-the-node).
-//! Two that share two schemes peer on both, as two settlement methods, and
-//! keep both across a restart; the owner's removal of one scheme winds its
-//! method down, and the peering carries on, on the other
-//! (spec/decisions/settlement-methods.md).
+//! Two methods over two hubs, kept across restarts and wound down when the
+//! owner removes a scheme, are the core tests' (`engine::core::tests::winding`).
 
 #![allow(
     clippy::unwrap_used,
@@ -26,10 +24,7 @@ use dassie_node::clock::{Clock, ManualClock};
 use dassie_node::node::Policies;
 use dassie_node::rpc::proto::{self, request::Method, response};
 use support::btp_client::{BtpClient, pay_stream};
-use support::pair::{
-    CA, CERT as CERT_PEM, KEY as KEY_PEM, XRPL_ACCOUNT, bootstrap, key, peered, peered_on, prepare,
-    prepare_settling, set_asset_config, settle, until,
-};
+use support::pair::{CA, bootstrap, key, peered, prepare, prepare_settling, settle, until};
 use support::{Bound, START_MS, TestNode};
 
 /// 5 USD: over four times the credit a payer over a hub funds its hold as
@@ -168,19 +163,6 @@ async fn peers(node: &TestNode) -> Vec<proto::NetworkPeer> {
         panic!("no peers")
     };
     peers.peers
-}
-
-/// The node's ledgers.
-async fn ledgers(node: &TestNode) -> Vec<proto::Ledger> {
-    let Ok(response::Method::ListLedgers(list)) = node
-        .ipc()
-        .await
-        .call(Method::ListLedgers(proto::ListLedgersRequest {}))
-        .await
-    else {
-        panic!("no ledgers")
-    };
-    list.ledgers
 }
 
 /// The node's stub's balance on its "underlying ledger".
@@ -379,7 +361,7 @@ async fn two_daemons_peer_and_keep_their_peering() {
     funded(after, PAYMENT);
     let moved = DEPOSIT - after.stub_a;
     // It did so many times as it went: asked to settle, A funds its hold
-    // as a junior that extends the credit would, half the way to its
+    // as if it extended the default credit, half the way to its
     // trigger (spec/areas/hubs.md#in-the-node), and B lets it owe little
     // beyond that hold, so no one settlement moves the credit: what moved
     // took at least one settlement per credit, several as A paid over four.
@@ -504,174 +486,4 @@ async fn the_peer_settings_are_the_owners() {
     }
     assert_eq!(settings().await, (1_000, 2_000, 30_000));
     node.stop().await;
-}
-
-/// A fake XRP Ledger testnet whose ledgers close on `clock`, with its
-/// faucet, and the config of an account on it.
-async fn fake_xrpl(clock: &ManualClock) -> (dassie_node::fake_ledger::Server, String) {
-    use dassie_node::fake_ledger::{Options, Server};
-    use dassie_node::store::StoredCertificate;
-    use dassie_node_core::certificate::CertificateSource;
-
-    let server = Server::start(Options {
-        network: &dassie_xrpl::network::TESTNET,
-        listen: ([127, 0, 0, 1], 0).into(),
-        faucet: Some((
-            ([127, 0, 0, 1], 0).into(),
-            StoredCertificate {
-                source: CertificateSource::Manual,
-                chain_pem: std::fs::read_to_string(CERT_PEM).unwrap(),
-                key_pem: std::fs::read_to_string(KEY_PEM).unwrap(),
-            },
-        )),
-        close_every: std::time::Duration::from_millis(100),
-    })
-    .await
-    .unwrap();
-    server.close_on(std::sync::Arc::new(clock.clone()));
-    let mut config = serde_json::json!({
-        "server": server.url,
-        "faucet": server.faucet_url,
-    });
-    if let (Some(object), Some(serde_json::Value::Object(publishers))) =
-        (config.as_object_mut(), server.publishers())
-    {
-        object.extend(publishers);
-    }
-    (server, config.to_string())
-}
-
-/// Adds the XRP Ledger testnet scheme to `node`, settling through its
-/// account on the fake ledger of `config`.
-async fn add_xrpl(node: &TestNode, config: &str) {
-    set_asset_config(node, XRPL_ACCOUNT, config).await;
-    let added = node
-        .ipc()
-        .await
-        .call(Method::AddSettlementScheme(
-            proto::AddSettlementSchemeRequest {
-                id: "xrpl-testnet-xrp".into(),
-                config: String::new(),
-            },
-        ))
-        .await;
-    assert!(added.is_ok(), "{added:?}");
-}
-
-/// The schemes of the settlement methods of the peering with `peer` that
-/// the database in `dir` holds, in order.
-fn stored_methods(dir: &std::path::Path, peer: &NodeKey) -> Vec<String> {
-    let store = dassie_node::store::Store::open(&dir.join("state")).unwrap();
-    let stored = store.load_peer().unwrap();
-    let node = stored
-        .nodes
-        .iter()
-        .find(|node| node.id == peer.node_id())
-        .unwrap();
-    node.peering
-        .as_ref()
-        .unwrap()
-        .methods
-        .iter()
-        .map(|method| method.scheme.to_string())
-        .collect()
-}
-
-// spec/decisions/settlement-methods.md, spec/areas/node.md#persistence:
-// two daemons that share the stub with commitments' pretend hub and both
-// run the XRP Ledger testnet scheme peer on the hub, then add the XRP
-// Ledger as a second method, with accounts on both ledgers; restarted,
-// each keeps both methods, in the order they were agreed, and lists both.
-// A's owner then removes the XRP Ledger scheme, which peers settle on: not
-// refused, it winds its method down and goes, the peering carrying on, on
-// the hub, and A starts again with it. Found in review: removing a scheme
-// that peers used left their peerings without a ledger, and the engine
-// could not start again.
-#[tokio::test(flavor = "multi_thread")]
-async fn two_daemons_keep_two_methods_across_a_restart() {
-    let clock = ManualClock::new(START_MS);
-    let (_server, config) = fake_xrpl(&clock).await;
-    let (key_a, key_b) = (key(25), key(26));
-    let (bound_a, bound_b) = (Bound::new(), Bound::new());
-    let nodes = bootstrap(&key_a, bound_a.https_port());
-    let env = [
-        ("DASSIE_BOOTSTRAP_NODES", nodes.as_str()),
-        ("DASSIE_EXTRA_CA_FILE", CA),
-        ("DASSIE_PEER_ALLOW_PRIVATE", "1"),
-    ];
-    let a = bound_a.start(clock.clone(), 4, Policies::DEV, &env).await;
-    let b = bound_b.start(clock.clone(), 5, Policies::DEV, &env).await;
-    prepare_settling(&a, &key_a, COMMITMENTS).await;
-    prepare_settling(&b, &key_b, COMMITMENTS).await;
-    add_xrpl(&a, &config).await;
-    add_xrpl(&b, &config).await;
-    let xrpl = "xrpl-testnet-xrp+xrp";
-    until(&clock, async || {
-        peered(&a, &key_b).await
-            && peered(&b, &key_a).await
-            && peered_on(&a, &key_b, xrpl).await
-            && peered_on(&b, &key_a, xrpl).await
-    })
-    .await;
-    settle(&clock).await;
-    // The peering is one, on the hub first.
-    for node in [&a, &b] {
-        let peers = peers(node).await;
-        assert_eq!(peers.len(), 1);
-        assert_eq!(peers[0].scheme, "stub");
-    }
-    let methods = ["stub".to_string(), "xrpl-testnet-xrp".to_string()];
-    let ports_b = b.ports();
-    let (dir, _) = b.stop().await;
-    assert_eq!(stored_methods(dir.path(), &key_a), methods);
-    let b = Bound::bind_again(dir, ports_b)
-        .await
-        .start(clock.clone(), 6, Policies::DEV, &env)
-        .await;
-    assert!(peered(&b, &key_a).await && peered_on(&b, &key_a, xrpl).await);
-    settle(&clock).await;
-    settle(&clock).await;
-    for node in [&a, &b] {
-        let peers = peers(node).await;
-        let listed: Vec<&str> = peers[0]
-            .methods
-            .iter()
-            .map(|method| method.scheme.as_str())
-            .collect();
-        assert_eq!(listed, methods);
-        assert!(peers[0].methods.iter().all(|method| !method.winding_down));
-    }
-    let removed = a
-        .ipc()
-        .await
-        .call(Method::RemoveSettlementScheme(
-            proto::RemoveSettlementSchemeRequest {
-                id: "xrpl-testnet-xrp".into(),
-            },
-        ))
-        .await;
-    assert!(removed.is_ok(), "{removed:?}");
-    // Until its method is dropped, the scheme runs, being removed.
-    if let Some(ledger) = ledgers(&a).await.iter().find(|l| l.id == xrpl) {
-        assert_eq!(ledger.removing_methods, Some(1));
-        assert!(ledger.removal_blockers.is_empty());
-    }
-    until(&clock, async || {
-        ledgers(&a).await.iter().all(|ledger| ledger.id != xrpl)
-            && peers(&a).await[0].methods.len() == 1
-            && peers(&b).await[0].methods.len() == 1
-    })
-    .await;
-    assert_eq!(peers(&a).await[0].scheme, "stub");
-    let ports_a = a.ports();
-    let (dir_a, _) = a.stop().await;
-    assert_eq!(stored_methods(dir_a.path(), &key_b), ["stub"]);
-    let a = Bound::bind_again(dir_a, ports_a)
-        .await
-        .start(clock.clone(), 7, Policies::DEV, &env)
-        .await;
-    assert!(peered(&a, &key_b).await);
-    a.stop().await;
-    let (dir_b, _) = b.stop().await;
-    assert_eq!(stored_methods(dir_b.path(), &key_a), ["stub"]);
 }

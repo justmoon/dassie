@@ -1,6 +1,6 @@
 # A peer is in memory only while it is needed: a downlink while it is connected, a core peer while its channel is open
 
-**Areas:** [Ledger](../areas/ledger.md), [Settlement](../areas/settlement.md#settlement-channels), [Network](../areas/network.md#downlinks), [XRP Ledger](../areas/xrpl.md#state-and-restarts), [Periphery](../designs/periphery.md#4-downlinks-on-a-core-node). Not built yet ([roadmap](../roadmap.md#not-built-yet)): on `main`, a downlink is in memory while it is peered and its channel is open, and every peer's ledger accounts stay in memory for good.
+**Areas:** [Ledger](../areas/ledger.md), [Settlement](../areas/settlement.md#settlement-channels), [Network](../areas/network.md#downlinks), [Periphery](../designs/periphery.md#4-downlinks-on-a-core-node). Not built yet ([roadmap](../roadmap.md#not-built-yet)): on `main`, a downlink is in memory while it is peered and its channel is open, and every peer's ledger accounts stay in memory for good.
 
 ## Facts
 
@@ -9,7 +9,6 @@
 - A connection holds a place by the key it proved, and downlinks' connections have places of their own ([places-by-proved-key](places-by-proved-key.md)). Setting one up is bounded in all and per client address.
 - A settlement channel closes to disk once idle, and is read back when needed ([closing-channels](closing-channels.md)). A peer's two ledger accounts stay in memory when it closes, since the journal refers to them by number, and account numbers are dense indices in the order accounts were opened. So the ledger's account bound caps the peers a node ever has; past it, a peering is refused for capacity.
 - A downlink proves only that it holds its key, and keys cost nothing ([free-receivers-half](free-receivers-half.md)). State kept for every downlink ever peered, or peered lately, is state an attacker decides the size of.
-- The XRP Ledger schemes recognise a peer's settlement on the ledger by its sender's address, which a scheme keeps in its state and forgets when the peer's channel closes. A Payment from an address it no longer knows is the owner's deposit ([closing-channels](closing-channels.md)).
 
 ## Decision
 
@@ -23,7 +22,7 @@
 - **A packet for a peered downlink not in memory fails as one for an absent downlink does:** with T01, found by that entry, without reading the disk. Every other child address finds no route, with F02, as it does once a peering ends: a former or banned downlink's too, though its channel is still open. A periphery node between connections so loses no payment for good: its senders try again.
 - **Account numbers stay for good.** They are taken from a counter and never given again, so the journal's references stay valid. The ledger holds only the accounts in memory, and for each ledger the totals of the accounts on disk, so every ledger still balances in memory. Only a peer's two accounts leave memory; the owner's never do.
 - **One way to a peer's accounts:** found in memory, else read from disk, else opened. A core peer's peering, a downlink's first packet that moves money ([lazy-downlink-accounts](lazy-downlink-accounts.md)), a settlement from the peer, by message or on the ledger, and a loss booked against it all take it. Accounts read for one step go back to disk at its end, if nothing else needs them.
-- **Settlements are recognised from disk.** The schemes keep their peers' addresses in a table on disk keyed by address, not in their state, so a Payment from a peer that is not in memory is still booked to the peer's accounts, as the peer's settlement, not as the owner's deposit.
+- **Settlements are recognised from disk.** A settlement from a peer that is not in memory, over a hub it shares with the node, is still booked to the peer's accounts, read from disk, as the peer's settlement ([hubs-only](hubs-only.md)).
 - **Timers for downlinks not in memory run from the disk.** Ending a peering with a downlink silent for as long as a silent peer is kept is found by a sweep of the disk by when each was last heard from; closing its channel once idle, by a sweep by the channel's last activity. Each sweep is bounded in what it reads. A downlink whose peering ended while it was away is told when it next connects, as a former downlink is ([Network](../areas/network.md#termination)).
 - **The owner's views read the disk** for what is not in memory: a peer's accounts and balances, and channels.
 
@@ -45,7 +44,7 @@
 - *T01 for every child address beneath ours,* held or not, so as to keep no entry per downlink: senders would retry payments to addresses nobody holds until they expire.
 - *Dropping the peers used least lately when memory runs short:* traffic, which an attacker controls, would then decide whose state is kept. The connection decides instead, and connections are bounded by key.
 - *Deleting accounts with nothing on them:* a former peer's balance is almost never exactly nothing ([closing-channels](closing-channels.md)), and the journal refers to its accounts.
-- *Moving a former peer's balance into one account per ledger for all former peers:* what each owed, and the trust each earned ([earned-trust](earned-trust.md)), would be lost to a later peering, and a late settlement could not be booked to the peer who sent it.
+- *Moving a former peer's balance into one account per ledger for all former peers:* what each owed, and the trust extended to each, would be lost to a later peering, and a late settlement could not be booked to the peer who sent it.
 - *Giving account numbers again:* the journal would have to be rewritten.
 - *Raising the account bound:* it only postpones the cap.
 - *Reading every account from disk when used:* the ledger does no I/O, so it stays deterministic and can be simulated.

@@ -103,7 +103,11 @@ number() {
 }
 
 # The defaults are starting points. Amounts are in the nodes' ledger units,
-# a billionth of an XRP or a dollar. The XRP band's top, 80 XRP, is below
+# a billionth of an XRP or a dollar, and a band is about what a node holds
+# of its asset in its hub and its owner book together. Each band's middle
+# is above the most a node keeps in its hub, a hundred of the largest
+# packets, so what a rebalance spends above it is in the owner book, which
+# the rebalance spends from. The XRP band's top, 80 XRP, is below
 # the faucet's grant of 100 XRP (about 99 after the reserve), so the first
 # rebalance buys DSUSD into the DSUSD node: up to the DSUSD band's top of
 # 40, which costs about 32 XRP at the testnet pool's 0.76 XRP a DSUSD.

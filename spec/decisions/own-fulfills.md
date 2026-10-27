@@ -12,7 +12,7 @@ Each node books the Fulfills it sends as final, and only its owner bans.
 
 - **A node keeps its own Fulfills,** whatever its upstream does with them. No verdict is asked for or owed.
 - **A peer costs us at most the credit we extend,** plus what it has in flight ([packets-in-flight](packets-in-flight.md)). Past the credit, its packets are refused; using all of it is what the credit is for. No other limit on what a peer costs us is needed.
-- **Only the owner bans.** Which peers are worth keeping is judged by what they earn us ([earned-trust](earned-trust.md)), not by what they lose us.
+- **Only the owner bans.** Which peers are worth keeping is judged by what they earn us ([weighted-next-hops](weighted-next-hops.md)), not by what they lose us.
 - **A node knows only the credit it extends,** never the credit its peer extends to it. So only the creditor can tell when a peer should settle: **it asks, and the debtor decides how much,** settling in a way that never makes it ask back.
 
 ## Accepted
@@ -24,7 +24,7 @@ The simulation is stricter on purpose. It rules out a run that crashes drifted t
 ## Rejected
 
 - *The upstream decides whether a Fulfill counted,* answering each with a verdict from a durable record, and the downstream booking a loss on a refusal. It costs durable state, retries and a verdict per Fulfill; a dishonest upstream can still refuse Fulfills it forwarded and keep the difference; and refusals then need a limit of their own. If we keep our own Fulfills, a refusal changes nothing in our books: it only means the upstream does not see that it owes us more.
-- *A grace limit per peer,* a share of the credit we extend, counting refusals and overdue debt, past which a peer is banned. A senior extends its junior nothing, so the limit fell to its floor, and the simulation banned honest juniors for the Fulfills one of their crashes made them refuse. Both things it counted are already bounded by the credit.
+- *A grace limit per peer,* a share of the credit we extend, counting refusals and overdue debt, past which a peer is banned. A node may extend a peer nothing, so the limit fell to its floor, and the simulation banned honest peers for the Fulfills one of their crashes made them refuse. Both things it counted are already bounded by the credit.
 - *The downstream deciding,* with the upstream taking any valid Fulfill however late: the upstream would have to persist every Prepare, and the downstream would hold a free option on every packet.
 - *Holding transfers pending until a verdict:* pending transfers would pile up while a peer is silent, blocking everyone's packets.
 - *Persisting packets in flight on both sides,* so that a crash loses no Fulfill: a write per Prepare, and a Fulfill that arrives after the upstream's expiry would still count on one side only.

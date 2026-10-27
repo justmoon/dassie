@@ -23,7 +23,7 @@
 
 ## Accepted
 
-- **The spread's gain can be negative.** The curve moves the rate past spot in the sender's favour, so a node short of an asset pays for getting it back. Like the spread, this is not booked per packet: it is the net of the FX accounts, and does not count toward a peer's credit growth ([Settlement](../areas/settlement.md#credit)).
+- **The spread's gain can be negative.** The curve moves the rate past spot in the sender's favour, so a node short of an asset pays for getting it back. Like the spread, this is not booked per packet: it is the net of the FX accounts.
 - **A node may pay up to `k` above spot** for what it lacks, which an arbitrageur takes when the market is that far from the oracle. That is the price of rebalancing, bounded by `k` per unit.
 - **The oracle's errors pass through.** A spot rate off by less than `k` from the market leaves a node's curve exploitable by that much; the median of three sources keeps it close.
 - **The feed says the most a packet gets, not exactly what it gets.** A packet gets less than the published rate by its own impact, near target about `4k` times its share of the node's value, and by whatever moved since the table was built. A subscriber that knows the node's value and `k` can work out the rest; one that does not still never gets more than it was told.

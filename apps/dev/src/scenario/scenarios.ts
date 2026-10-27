@@ -21,8 +21,6 @@ export interface ScenarioDef {
   readonly addedSchemes: readonly string[];
   /** The bootstrap nodes, by index. */
   readonly bootstrap: readonly number[];
-  /** Why it cannot run yet, if it cannot. */
-  readonly unavailable?: string;
   /**
    * What the fake ledger's issuers mint each node that runs the token's
    * scheme, once its trust line exists: a token and its value in dollars,
@@ -204,9 +202,38 @@ export const UNLIMITED_STUB = JSON.stringify({ trust: "unlimited" });
  * (spec/areas/settlement.md#owner-books). */
 export const OWNER_BOOK = JSON.stringify({ peers: false });
 
-/** Why the market maker's scenarios cannot run. */
-export const MARKET_MAKER_PARKED =
-  "parked until the market maker runs on hubs (spec/roadmap.md#hubs-only)";
+/** The scheme of a member of the DSUSD hub on the testnet. */
+export const DSUSD_HUB_SCHEME = "hub-xrpl-testnet-dsusd";
+
+/**
+ * What a member of the testnet's XRP hub runs, of its DSUSD hub, and of
+ * both: each hub's scheme and the owner book of its asset, and the owner
+ * book of XRP, which pays a DSUSD hub's gas (`hubs.ts`).
+ */
+const IN_XRP_HUB = [HUB_OWNER_BOOK, HUB_SCHEME];
+const IN_DSUSD_HUB = [HUB_OWNER_BOOK, TOKEN_SCHEMES.DSUSD, DSUSD_HUB_SCHEME];
+const IN_BOTH_HUBS = [
+  HUB_OWNER_BOOK,
+  HUB_SCHEME,
+  TOKEN_SCHEMES.DSUSD,
+  DSUSD_HUB_SCHEME,
+];
+
+/**
+ * The market maker's scenarios' XRP hub and DSUSD hub: four validators,
+ * the first the sponsor, which found both on the fake ledger, and the
+ * members of each, by index (spec/areas/rate-feed.md#market-maker).
+ */
+function marketMakerHubs(
+  inXrp: readonly number[],
+  inDsusd: readonly number[],
+): ScenarioDef["hubs"] {
+  const validators = [0, 1, 2, 3];
+  return [
+    { validators, sponsor: 0, members: inXrp },
+    { validators, sponsor: 0, members: inDsusd, token: "DSUSD" },
+  ];
+}
 
 export const SCENARIOS: readonly ScenarioDef[] = [
   {
@@ -279,41 +306,60 @@ export const SCENARIOS: readonly ScenarioDef[] = [
     id: "market-maker",
     name: "Market Maker",
     description:
-      "A core node with XRP and DSUSD, most of its value in XRP, and a market maker's two periphery nodes pinned to it, one with XRP and one with DSUSD, beside the fake ledger's XRP/DSUSD pool at the dev rate",
-    unavailable: MARKET_MAKER_PARKED,
+      "Four nodes validate an XRP hub and a DSUSD hub that the first of them founds on the fake ledger, beside its XRP/DSUSD pool at the dev rate; a core node joins both, most of its value in XRP, and a market maker's two periphery nodes pinned to it join one each, one with XRP and one with DSUSD",
     schemes: [
-      ["xrpl-testnet-xrp", "xrpl-testnet-dsusd"],
-      ["xrpl-testnet-xrp"],
-      ["xrpl-testnet-dsusd"],
+      [HUB_OWNER_BOOK],
+      [],
+      [],
+      [],
+      IN_BOTH_HUBS,
+      IN_XRP_HUB,
+      IN_DSUSD_HUB,
     ],
-    addedSchemes: ["xrpl-testnet-xrp", "xrpl-testnet-dsusd"],
-    bootstrap: [0],
-    periphery: [{ node: 1, uplinks: [0] }, { node: 2, uplinks: [0] }],
+    addedSchemes: IN_BOTH_HUBS,
+    bootstrap: [4],
+    periphery: [{ node: 5, uplinks: [4] }, { node: 6, uplinks: [4] }],
+    configs: {
+      [HUB_OWNER_BOOK]: OWNER_BOOK,
+      [TOKEN_SCHEMES.DSUSD]: OWNER_BOOK,
+    },
     // The faucet's 1000 XRP are worth 500 dollars at the dev rates, so the
     // core node holds about a twentieth of its value in DSUSD.
     mint: { token: "DSUSD", value: "25" },
     // Deep, so that the market maker's swaps hardly move its price.
     pool: { token: "DSUSD", value: "50000", tradingFee: 500 },
+    hubs: marketMakerHubs([4, 5], [4, 6]),
   },
   {
     id: "market-maker-two-targets",
     name: "Market Maker, Two Targets",
     description:
-      "Two core nodes with XRP and DSUSD, most of their value in XRP, and a market maker's two periphery nodes each pinned to both, one with XRP and one with DSUSD, beside the fake ledger's XRP/DSUSD pool at the dev rate",
-    unavailable: MARKET_MAKER_PARKED,
+      "Four nodes validate an XRP hub and a DSUSD hub that the first of them founds on the fake ledger, beside its XRP/DSUSD pool at the dev rate; two core nodes join both, most of their value in XRP, and a market maker's two periphery nodes each pinned to both join one each, one with XRP and one with DSUSD",
     schemes: [
-      ["xrpl-testnet-xrp", "xrpl-testnet-dsusd"],
-      ["xrpl-testnet-xrp", "xrpl-testnet-dsusd"],
-      ["xrpl-testnet-xrp"],
-      ["xrpl-testnet-dsusd"],
+      [HUB_OWNER_BOOK],
+      [],
+      [],
+      [],
+      IN_BOTH_HUBS,
+      IN_BOTH_HUBS,
+      IN_XRP_HUB,
+      IN_DSUSD_HUB,
     ],
-    addedSchemes: ["xrpl-testnet-xrp", "xrpl-testnet-dsusd"],
-    bootstrap: [0, 1],
-    periphery: [{ node: 2, uplinks: [0, 1] }, { node: 3, uplinks: [0, 1] }],
+    addedSchemes: IN_BOTH_HUBS,
+    bootstrap: [4, 5],
+    periphery: [
+      { node: 6, uplinks: [4, 5] },
+      { node: 7, uplinks: [4, 5] },
+    ],
+    configs: {
+      [HUB_OWNER_BOOK]: OWNER_BOOK,
+      [TOKEN_SCHEMES.DSUSD]: OWNER_BOOK,
+    },
     // As in "market-maker": each core node holds about a twentieth of its
     // value in DSUSD.
     mint: { token: "DSUSD", value: "25" },
     pool: { token: "DSUSD", value: "50000", tradingFee: 500 },
+    hubs: marketMakerHubs([4, 5, 6], [4, 5, 7]),
   },
   {
     id: "hub",
@@ -373,6 +419,37 @@ export const SCENARIOS: readonly ScenarioDef[] = [
         sponsor: 0,
         members: [5, 6, 7],
         token: "DSUSD",
+      },
+    ],
+  },
+  {
+    id: "live-hub",
+    name: "Mainnet Hubs, Fake",
+    description:
+      "Four nodes in the live realm, by the dev switch, validate an XRP hub and an RLUSD hub that the first of them founds on the fake ledger's mainnet, beside its XRP/RLUSD pool at the dev rate; every account is funded by a deposit, as mainnet has no faucet; two members join both hubs with the founded rules in their schemes' config, fund their accounts from their own XRP and RLUSD, and peer over both",
+    schemes: [
+      ["xrpl-xrp"],
+      [],
+      [],
+      [],
+      ["xrpl-xrp", "hub-xrpl-xrp", "xrpl-rlusd", "hub-xrpl-rlusd"],
+      ["xrpl-xrp", "hub-xrpl-xrp", "xrpl-rlusd", "hub-xrpl-rlusd"],
+    ],
+    addedSchemes: ["xrpl-xrp", "hub-xrpl-xrp"],
+    bootstrap: [4, 5],
+    configs: { "xrpl-xrp": OWNER_BOOK, "xrpl-rlusd": OWNER_BOOK },
+    mint: { token: "RLUSD", value: "100" },
+    // As deep as live-owner-books's: RLUSD's peg guard reads no price
+    // from a shallower one.
+    pool: { token: "RLUSD", value: "100000", tradingFee: 500 },
+    realm: "live",
+    hubs: [
+      { validators: [0, 1, 2, 3], sponsor: 0, members: [4, 5] },
+      {
+        validators: [0, 1, 2, 3],
+        sponsor: 0,
+        members: [4, 5],
+        token: "RLUSD",
       },
     ],
   },
@@ -631,23 +708,30 @@ function ownerBookOnly(config: string | undefined): boolean {
   }
 }
 
-/** Why `def` cannot run, with the fake XRP Ledger or without it. */
+/**
+ * Why `def` cannot run without the fake XRP Ledger, if it cannot: the only
+ * XRP Ledger the dev environment runs its scenarios on, once it is built
+ * (spec/areas/dev.md#scenarios).
+ */
 export function unavailable(
   def: ScenarioDef,
   fakeLedger: boolean,
 ): string | undefined {
-  if (def.unavailable) return def.unavailable;
-  if (live(def) && !fakeLedger) {
-    return "needs --xrpl fake: the live realm runs only against the fake ledger's mainnet, never with real money";
+  if (fakeLedger) return undefined;
+  if (live(def)) {
+    return "needs the fake ledger: the live realm runs only against the fake ledger's mainnet, never with real money";
   }
-  if (def.mint !== undefined && !fakeLedger) {
-    return `needs --xrpl fake: only the fake ledger's issuer mints ${def.mint.token} on demand`;
+  if (def.mint !== undefined) {
+    return `needs the fake ledger: only the fake ledger's issuer mints ${def.mint.token} on demand`;
   }
-  if (def.pool !== undefined && !fakeLedger) {
-    return `needs --xrpl fake: only the fake ledger's issuer makes a pool of ${def.pool.token}`;
+  if (def.pool !== undefined) {
+    return `needs the fake ledger: only the fake ledger's issuer makes a pool of ${def.pool.token}`;
   }
-  if ((def.hub !== undefined || def.hubs !== undefined) && !fakeLedger) {
-    return "needs --xrpl fake: each run founds a hub of its own, whose escrow stays off the public testnet";
+  if (def.hub !== undefined || def.hubs !== undefined) {
+    return "needs the fake ledger: each run founds a hub of its own, whose escrow stays off the public testnet";
+  }
+  if (settlesOnXrpl(def)) {
+    return "needs the fake ledger: the dev environment settles on no other XRP Ledger";
   }
   return undefined;
 }

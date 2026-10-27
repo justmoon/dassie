@@ -434,9 +434,7 @@ fn settlement(severity: Severity, event: &SettlementEvent) {
         | SettlementEvent::PeerSettlementUnbooked { .. }
         | SettlementEvent::PegPaused { .. }
         | SettlementEvent::PegResumed { .. }
-        | SettlementEvent::CreditRaised { .. }
-        | SettlementEvent::HubCredit { .. }
-        | SettlementEvent::EarningsNotRead { .. } => settlement_outcome(severity, event),
+        | SettlementEvent::HubCredit { .. } => settlement_outcome(severity, event),
         SettlementEvent::HistoryGap { .. } | SettlementEvent::SettlementUnproven { .. } => {
             unproven(severity, event);
         }
@@ -510,9 +508,6 @@ fn settlement_outcome(severity: Severity, event: &SettlementEvent) {
         SettlementEvent::PegResumed { scheme } => {
             emit!(severity, target: target::SETTLEMENT, %scheme, "the token is back on its peg: the scheme runs again");
         }
-        SettlementEvent::CreditRaised { peer, credit } => {
-            emit!(severity, target: target::SETTLEMENT, %peer, credit, "a peer earned more credit");
-        }
         SettlementEvent::Reconciling { scheme, pending } => {
             emit!(severity, target: target::SETTLEMENT, %scheme, pending, "reconciling settlements from before the restart");
         }
@@ -522,9 +517,6 @@ fn settlement_outcome(severity: Severity, event: &SettlementEvent) {
             holds,
         } => {
             emit!(severity, target: target::SETTLEMENT, %peer, credit, holds, "the credit over a hub followed its holds");
-        }
-        SettlementEvent::EarningsNotRead { error } => {
-            emit!(severity, target: target::SETTLEMENT, %error, "the fees peers earned could not be credited");
         }
         // Logged by `settlement`.
         SettlementEvent::BalanceBooked { .. }

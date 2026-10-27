@@ -96,17 +96,13 @@ pub struct Policies {
     pub connector: dassie_connector::Config,
     /// The peer protocol's bounds and timers.
     pub peer: dassie_peer::Config,
-    /// The credit a junior extends to the node that accepted its peering
-    /// request, in its ledger's units: 1.1 units at scale 9 on the test
-    /// network (spec/areas/settlement.md#credit,
-    /// spec/decisions/earned-trust.md). At least what survives a crash
+    /// The credit by which a payer over a settlement hub sizes what one
+    /// request to settle has it fund its hold with, in its ledger's units:
+    /// 1.1 units at scale 9 on the test network
+    /// (spec/areas/settlement.md#credit). Large enough that a request
+    /// funds at least the least settlement
     /// (spec/decisions/thresholds-in-packets.md).
     pub peer_credit: u64,
-    /// The credit a senior extends to the node whose peering request it
-    /// accepted, at first: nothing, so a newcomer pays in advance until the
-    /// peering earned it more (spec/decisions/earned-trust.md). Otherwise at
-    /// least what survives a crash, as `peer_credit`.
-    pub senior_credit: u64,
     /// How often peers are checked, to ask those near the credit we extend
     /// to settle (spec/decisions/own-fulfills.md).
     pub settlement_interval_ms: u64,
@@ -166,7 +162,6 @@ impl Policies {
         },
         peer: dassie_peer::Config::DEFAULT,
         peer_credit: 1_100_000_000,
-        senior_credit: 0,
         settlement_interval_ms: 4_000,
         settlement_request_every_ms: 60_000,
         incoming: crate::engine::IncomingPolicy::DEFAULT,

@@ -1,9 +1,11 @@
 /**
  * What the market maker's end-to-end tests share
- * (spec/areas/rate-feed.md#market-maker): reading the nodes' books, the
- * fake ledger's pool, and writing the market maker's config. A scenario
- * runs one or more core nodes with XRP and DSUSD, and the market maker's
- * two periphery nodes, one with each, pinned to every core node.
+ * (spec/areas/rate-feed.md#market-maker): the scenario's nodes, reading
+ * what they hold across their hubs and owner books, the fake ledger's
+ * pool, and writing the market maker's config. A scenario founds an XRP
+ * hub and a DSUSD hub; its core nodes, the targets, join both, with XRP
+ * and DSUSD, and the market maker's two periphery nodes, pinned to every
+ * core node, join one each: one with XRP, one with DSUSD.
  *
  * @module
  */
@@ -12,11 +14,26 @@ import { assert } from "@std/assert";
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { Agent, fetch } from "undici";
-import { LedgerConnection } from "@dassie/rpc/proto";
-import type { Scenario, ScenarioNode } from "@dassie/dev/scenario";
+import {
+  hubLedger,
+  hubOwnerLedger,
+  hubsOf,
+  joins,
+  type Scenario,
+  type ScenarioNode,
+} from "@dassie/dev/scenario";
 
-export const XRP = "xrpl-testnet-xrp+xrp";
-export const DSUSD = "xrpl-testnet-dsusd+usd";
+/** The ledgers of the XRP hub and of the DSUSD hub, which the market
+ * maker trades on and the core nodes convert between. */
+export const XRP_HUB = "hub-xrpl-testnet-xrp+xrp";
+export const DSUSD_HUB = "hub-xrpl-testnet-dsusd+usd";
+/** The owner books that fund them, on each node's XRP Ledger account. */
+export const XRP_BOOK = "xrpl-testnet-xrp+xrp";
+export const DSUSD_BOOK = "xrpl-testnet-dsusd+usd";
+/** An asset, as a node holds it: its hub's ledger and its owner book. */
+export type Asset = readonly [hub: string, book: string];
+export const XRP: Asset = [XRP_HUB, XRP_BOOK];
+export const DSUSD: Asset = [DSUSD_HUB, DSUSD_BOOK];
 /** DSUSD's issuer on the testnet, which the fake ledger issues it at. */
 export const ISSUER = "rURgPoYNN7tGqBzGXFeCLmKYgpSjYgJP6M";
 /** DSUSD's currency code as the ledger holds it: its letters, padded. */
@@ -43,13 +60,57 @@ const XRP_BAND = 6n * UNIT;
 /** The DSUSD node's band, in dollars: room for every trade a run makes. */
 const DSUSD_LOW = 5n * UNIT;
 const DSUSD_HIGH = 40n * UNIT;
-/**
- * Longer than a node's settlement interval (1 s with dev timings): a
- * settlement that is due starts within it.
- */
-const SETTLE_CHECK_MS = 5_000;
 /** How long the fake ledger may take to answer `amm_info`. */
 const AMM_INFO_TIMEOUT_MS = 10_000;
+
+/**
+ * Why the market maker's tests do not check that it moves its targets
+ * toward balance, while they do not: a core node prices the ledger of each
+ * of its hubs apart from the owner book that funds it
+ * (spec/areas/connector.md#inventory-pricing), so its curve follows what
+ * its two hub accounts hold, rather than what it holds of each asset. Its
+ * feed then offers more than spot for XRP, the asset it holds most of, and
+ * the market maker trades it further from balance
+ * (spec/areas/rate-feed.md#market-maker). Meanwhile the tests check only
+ * that a trade crosses each core node over both hubs, whichever way. They
+ * check the whole loop once inventory pricing counts each asset whole
+ * (spec/roadmap.md#hubs-only).
+ */
+export const PRICED_APART: string | undefined =
+  "a core node prices its hubs' ledgers apart from their owner books (spec/roadmap.md#hubs-only)";
+
+/** The nodes of a market maker's scenario. */
+export interface MarketMakerNodes {
+  /** The core nodes, its targets, members of both hubs. */
+  readonly cores: ScenarioNode[];
+  /** The market maker's node in the XRP hub. */
+  readonly xrpNode: ScenarioNode;
+  /** The market maker's node in the DSUSD hub. */
+  readonly dsusdNode: ScenarioNode;
+}
+
+/** The scenario's core nodes and the market maker's two, by the hubs each
+ * joins: the cores both, the market maker's one each. */
+export function marketMakerNodes(scenario: Scenario): MarketMakerNodes {
+  const [xrpHub, dsusdHub] = hubsOf(scenario.def);
+  assert(xrpHub && dsusdHub, "the scenario has no XRP and DSUSD hubs");
+  const inXrp = (node: ScenarioNode) => joins(scenario.def, xrpHub, node.index);
+  const inDsusd = (node: ScenarioNode) =>
+    joins(scenario.def, dsusdHub, node.index);
+  const cores = scenario.nodes.filter((node) => inXrp(node) && inDsusd(node));
+  const xrpNode = scenario.nodes.find((node) => inXrp(node) && !inDsusd(node));
+  const dsusdNode = scenario.nodes.find((node) =>
+    inDsusd(node) && !inXrp(node)
+  );
+  assert(cores.length > 0 && xrpNode && dsusdNode, "the market maker's nodes");
+  assert(
+    hubLedger(xrpHub) === XRP_HUB && hubLedger(dsusdHub) === DSUSD_HUB &&
+      hubOwnerLedger(xrpHub) === XRP_BOOK &&
+      hubOwnerLedger(dsusdHub) === DSUSD_BOOK,
+    "the hubs' ledgers",
+  );
+  return { cores, xrpNode, dsusdNode };
+}
 
 /** A node's ledger, as its owner sees it. */
 export async function ledger(node: ScenarioNode, id: string) {
@@ -64,21 +125,36 @@ export async function owner(node: ScenarioNode, id: string): Promise<bigint> {
   return found.ownerBalance;
 }
 
-/** The XRP a node's account holds, in the books' units: for the DSUSD
- * node, which runs no XRP ledger, its gas, off its books. */
-async function accountXrp(node: ScenarioNode): Promise<bigint> {
-  const { externalAssets } = await node.rpc.call("listLedgers", {});
-  const holding = externalAssets
-    .flatMap((asset) => asset.holdings)
-    .find((holding) => holding.assetCode === "XRP");
-  assert(holding, `${node.name}'s account shows no XRP`);
-  return holding.amount * 10n ** BigInt(9 - holding.assetScale);
+/**
+ * What the owner holds of `asset` on a node: in its hub and in the owner
+ * book that funds it, between which the node moves funds by itself
+ * (spec/areas/hubs.md#in-the-node). Read once the moves are done, as
+ * settling over the hubs waits for.
+ */
+export async function held(
+  node: ScenarioNode,
+  [hub, book]: Asset,
+): Promise<bigint> {
+  return (await owner(node, hub)) + (await owner(node, book));
 }
 
-/** The node IDs `node` is peered with, sorted. */
-export async function peersOf(node: ScenarioNode): Promise<string[]> {
-  const { peers } = await node.rpc.call("listPeers", {});
-  return peers.map((peer) => peer.node).sort();
+/**
+ * What `node` holds of `asset`, as `held` reads it, while none of its
+ * hubs moves funds to or from its owner books: a move on its way is booked
+ * out of the ledger it leaves before it is booked into the other, so
+ * between the two the sum reads short of it. `undefined` while one moves.
+ */
+export async function heldAtRest(
+  node: ScenarioNode,
+  asset: Asset,
+): Promise<bigint | undefined> {
+  const atRest = async () => {
+    const { hubs } = await node.rpc.call("getHubStatus", {});
+    return hubs.every((hub) => hub.moving === undefined);
+  };
+  if (!await atRest()) return undefined;
+  const sum = await held(node, asset);
+  return await atRest() ? sum : undefined;
 }
 
 /**
@@ -102,90 +178,13 @@ export async function feedPort(
   }
 }
 
-/**
- * What each node owes each peer net, by its own books, by
- * `node>peer@ledger`: its peer account less the credit it extends,
- * negative when the peer owes it.
- */
-export async function peerAccounts(
-  scenario: Scenario,
-): Promise<Map<string, bigint>> {
-  const byId = new Map(scenario.nodes.map((node) => [node.id, node.name]));
-  const accounts = new Map<string, bigint>();
-  for (const node of scenario.nodes) {
-    const list = await node.rpc.call("listAccounts", {});
-    for (const account of list.accounts) {
-      const match = /^(.+):(assets\/interledger|contra\/trust)\/(.+)$/
-        .exec(account.path);
-      if (!match) continue;
-      const peer = byId.get(match[3]) ?? match[3];
-      const key = `${node.name}>${peer}@${match[1]}`;
-      const net = account.creditsPosted - account.debitsPosted;
-      accounts.set(key, (accounts.get(key) ?? 0n) + net);
-    }
-  }
-  return accounts;
-}
-
-/** What each node's books hold: per ledger, on the ledger and the
- * owner's. */
-export async function books(
-  scenario: Scenario,
-): Promise<Map<string, string>> {
-  const out = new Map<string, string>();
-  for (const node of scenario.nodes) {
-    const { ledgers } = await node.rpc.call("listLedgers", {});
-    for (const entry of ledgers) {
-      out.set(
-        `${node.name}@${entry.id}`,
-        `${entry.onLedgerBalance}/${entry.ownerBalance}`,
-      );
-    }
-  }
-  return out;
-}
-
-/**
- * Settling went quiet: no payment or settlement on its way, every ledger
- * followed, each pair of books agrees, and there are at least `least` peer
- * accounts, both sides of each peering counted.
- */
-export async function quiet(
-  scenario: Scenario,
-  least: number,
-): Promise<boolean> {
-  for (const node of scenario.nodes) {
-    const { channels } = await node.rpc.call("listSettlementChannels", {});
-    if (channels.some((channel) => channel.sending)) return false;
-    const { payments } = await node.rpc.call("listOutgoingPayments", {});
-    if (payments.some((payment) => payment.state === "sending")) return false;
-    const { ledgers } = await node.rpc.call("listLedgers", {});
-    if (ledgers.some((view) => view.connection !== LedgerConnection.SYNCED)) {
-      return false;
-    }
-  }
-  const accounts = await peerAccounts(scenario);
-  for (const [key, mine] of accounts) {
-    const [pair, on] = key.split("@");
-    const [node, peer] = pair.split(">");
-    const theirs = accounts.get(`${peer}>${node}@${on}`);
-    if (theirs === undefined || mine + theirs !== 0n) return false;
-  }
-  return accounts.size >= least;
-}
-
-/** Settling went quiet and stays so: a settlement that is due but not
- * started yet shows only in a while, as the books move. */
-export async function settled(
-  scenario: Scenario,
-  least: number,
-): Promise<boolean> {
-  if (!(await quiet(scenario, least))) return false;
-  const before = await books(scenario);
-  await new Promise((resolve) => setTimeout(resolve, SETTLE_CHECK_MS));
-  const after = await books(scenario);
-  return (await quiet(scenario, least)) &&
-    [...before].every(([key, value]) => after.get(key) === value);
+/** Whether `node` has fresh rates for XRP and dollars, which its feed
+ * prices its hubs' ledgers at. */
+export async function freshRates(node: ScenarioNode): Promise<boolean> {
+  const { rates } = await node.rpc.call("listLedgers", {});
+  return ["XRP", "USD"].every((code) =>
+    rates.some((rate) => rate.assetCode === code && !rate.stale)
+  );
 }
 
 /** A decimal, such as `"49995.5"` or `"1e-3"`, at `scale` decimals,
@@ -248,9 +247,10 @@ export async function pool(scenario: Scenario): Promise<Pool> {
   }
 }
 
-/** What the market maker holds, in the books' units: XRP on its XRP
- * node's books and its DSUSD node's gas, and DSUSD on its DSUSD node's
- * books. */
+/** What the market maker holds, in the books' units: XRP in its XRP
+ * node's hub and owner book and in its DSUSD node's owner book of XRP,
+ * which pays that node's gas, and DSUSD in its DSUSD node's hub and owner
+ * book. */
 export interface Holdings {
   readonly xrp: bigint;
   readonly dsusd: bigint;
@@ -261,8 +261,8 @@ export async function holdings(
   dsusdNode: ScenarioNode,
 ): Promise<Holdings> {
   return {
-    xrp: (await owner(xrpNode, XRP)) + (await accountXrp(dsusdNode)),
-    dsusd: await owner(dsusdNode, DSUSD),
+    xrp: (await held(xrpNode, XRP)) + (await owner(dsusdNode, XRP_BOOK)),
+    dsusd: await held(dsusdNode, DSUSD),
   };
 }
 
@@ -280,9 +280,10 @@ export function dollars(scaled: bigint, at: Pool): string {
 
 /**
  * Writes the market maker's config, and its nodes' passphrases beside it,
- * into `dir`: the `targets` to trade through, its two nodes, and the pool
- * on the fake ledger. The XRP node's band is `xrpBand` around what it holds
- * now. Returns the config's path.
+ * into `dir`: the `targets` to trade through, its two nodes, each with its
+ * hub's ledger and the owner book that funds it, and the pool on the fake
+ * ledger. The XRP node's band is `xrpBand` around what it holds now, in
+ * its hub and its book. Returns the config's path.
  */
 export async function writeConfig(
   scenario: Scenario,
@@ -296,7 +297,7 @@ export async function writeConfig(
     const file = join(dir, `${node.name}.phrase`);
     await writeFile(file, `${node.identity.phrase}\n`, { mode: 0o600 });
   }
-  const xrpHeld = await owner(xrpNode, XRP);
+  const xrpHeld = await held(xrpNode, XRP);
   const config = {
     targets,
     xrpl: {
@@ -305,7 +306,8 @@ export async function writeConfig(
     },
     xrp: {
       socket: xrpNode.socket,
-      ledger: XRP,
+      ledger: XRP_HUB,
+      ownerBook: XRP_BOOK,
       passphraseFile: join(dir, `${xrpNode.name}.phrase`),
       tradeSize: Number(TRADE),
       band: {
@@ -315,7 +317,8 @@ export async function writeConfig(
     },
     token: {
       socket: dsusdNode.socket,
-      ledger: DSUSD,
+      ledger: DSUSD_HUB,
+      ownerBook: DSUSD_BOOK,
       passphraseFile: join(dir, `${dsusdNode.name}.phrase`),
       tradeSize: Number(TRADE),
       band: { low: Number(DSUSD_LOW), high: Number(DSUSD_HIGH) },

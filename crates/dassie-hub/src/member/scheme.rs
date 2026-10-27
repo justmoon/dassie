@@ -43,6 +43,17 @@
 //!   sets its disbursal address first, and the peering goes on as any
 //!   other.
 //!
+//! - **A hub that failed cannot receive.** Once the hub shut down, as the
+//!   failure of an operation that touched the account for the shutdown
+//!   says, or stalled or ended, as its validators tell
+//!   ([`HubAccount::stalled`]), no peer's settlement can reach us over it:
+//!   the scheme says it cannot receive
+//!   ([`SettlementScheme::can_receive`]), and the node drops its methods,
+//!   without collecting, after the bound it keeps for any scheme that
+//!   cannot (spec/decisions/settlement-methods.md). A frozen hub is not
+//!   failed: its method is unavailable until the thaw, through the
+//!   account's status (spec/decisions/token-hubs.md).
+//!
 //! [`deposit`](SettlementScheme::deposit) is unsupported: the owner
 //! deposits from the underlying ledger.
 
@@ -70,7 +81,7 @@ use super::{UNITS_PER_DROP, digest_name, units};
 use crate::client::AccountView;
 use crate::digest::Digest;
 use crate::ledger::TESTNET_NETWORK;
-use crate::ledger::{Detail, Outcome};
+use crate::ledger::{Detail, Failure, Outcome};
 use crate::operation::{AccountNumber, MemberOperation, Operation, SignedMemberOperation};
 use crate::promise::{Claim, Commitment, HoldNumber, Signed};
 use crate::rules::{Amount, Asset, HubId, Terms};
@@ -246,6 +257,29 @@ pub struct HubScheme {
     losses: VecDeque<(Name, Loss)>,
     decided: VecDeque<Decided>,
     now_ms: u64,
+    /// The hub is shutting down or ended: an operation that touched the
+    /// account failed for it. A hub never runs again after, so it stays
+    /// set; not kept with the books, so a restart learns it again, from
+    /// the next such failure, or from the validators once the hub ended
+    /// ([`HubAccount::stalled`]).
+    shut_down: bool,
+    /// The hub stalled or ended, as its validators last told the account.
+    stalled: bool,
+}
+
+/// Whether `news` says the hub is shutting down or ended: an operation
+/// that touched the account failed for it, in a final block.
+const fn shuts_down(news: &News) -> bool {
+    matches!(
+        news,
+        News::Executed {
+            outcome: Outcome::Failed {
+                reason: Failure::ShuttingDown,
+                ..
+            },
+            ..
+        }
+    )
 }
 
 /// The account `asset` is, if it is one.
@@ -337,6 +371,8 @@ impl HubScheme {
             losses: VecDeque::new(),
             decided: VecDeque::new(),
             now_ms: 0,
+            shut_down: false,
+            stalled: false,
         };
         if !state.is_empty() {
             super::state::restore_scheme(&mut scheme, state).ok_or(SchemeError::InvalidData)?;
@@ -1332,6 +1368,13 @@ impl SettlementScheme for HubScheme {
         self.synced
     }
 
+    /// Not once the hub shut down, stalled or ended: no peer's settlement
+    /// reaches us over it any more, and the node drops its methods
+    /// (spec/decisions/settlement-methods.md). A frozen hub can: it thaws.
+    fn can_receive(&self) -> bool {
+        !self.shut_down && !self.stalled
+    }
+
     fn unit(&self) -> u64 {
         UNITS_PER_DROP
     }
@@ -1364,6 +1407,7 @@ impl SettlementScheme for HubScheme {
         self.account = account.number();
         let news = account.news().to_vec();
         for item in &news {
+            self.shut_down |= shuts_down(item);
             self.tell(account, item, effects);
         }
         // Holds toward us are followed from our peers only.
@@ -1387,6 +1431,7 @@ impl SettlementScheme for HubScheme {
         self.book_losses(effects);
         account.wake(self.next_due());
         self.cursor = account.cursor();
+        self.stalled = account.stalled();
     }
 
     /// Our membership: with our account, or, once f + 1 validators agree

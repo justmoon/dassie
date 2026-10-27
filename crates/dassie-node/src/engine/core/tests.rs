@@ -1083,78 +1083,10 @@ fn a_stopped_scheme_closes_its_connection() {
     assert_eq!(core.ledger_views()[0].status, LedgerStatus::Connecting);
 }
 
-// spec/decisions/earned-trust.md: a node that once accepted a peer's request
-// extended it nothing, on a trust account that stays when the peering ends.
-// Peering again on its own request, it is the junior, and extends at least
-// the default credit: it posts the difference, rather than keep the senior's
-// nothing.
-// Goes with direct settlement: the credit machinery (spec/roadmap.md#hubs-only).
-#[test]
-fn a_junior_extends_at_least_the_default_credit() {
-    use dassie_ledger::{AccountName, AccountPath, LedgerId, Name};
-    use dassie_peer::PeeringHooks;
-
-    let mut core = core(7);
-    core.add_scheme("stub", String::new()).unwrap();
-    let peer = NodeKey::from_bytes(&[9; 32]).node_id();
-    let name = Name::new(peer.as_str()).unwrap();
-    core.ledger
-        .open_peer(NOW, LedgerId::StubUsd, name, core.senior_credit)
-        .unwrap();
-    let scheme = dassie_peer::wire::SchemeId::parse("stub").unwrap();
-    let agreed = core
-        .with_peer(|_, hooks, _| hooks.finalize(NOW, peer, scheme, &[], false))
-        .unwrap();
-    assert_eq!(agreed.credit_out, Policies::DEFAULT.peer_credit);
-    let contra = core
-        .ledger
-        .find(&AccountPath::new(
-            LedgerId::StubUsd,
-            AccountName::ContraTrust(name),
-        ))
-        .unwrap();
-    let trust = dassie_settlement::policy::trust(core.ledger.account(contra).unwrap().balance());
-    assert_eq!(trust, Policies::DEFAULT.peer_credit);
-}
-
-// spec/decisions/ended-for-room.md: a peering we ended because the peer's
-// room stayed short is formed again later on our own request. We are the
-// junior now, but the peer gets no more credit than it had as our junior: the
-// default would be a new line for a peer that never settled.
-// Goes with direct settlement: the credit machinery (spec/roadmap.md#hubs-only).
-#[test]
-fn a_junior_keeps_the_lower_credit_of_a_peer_it_ended_for_room() {
-    use dassie_ledger::{AccountName, AccountPath, LedgerId, Name};
-    use dassie_peer::PeeringHooks;
-
-    let mut core = core(7);
-    core.add_scheme("stub", String::new()).unwrap();
-    let peer = NodeKey::from_bytes(&[9; 32]).node_id();
-    let name = Name::new(peer.as_str()).unwrap();
-    core.ledger
-        .open_peer(NOW, LedgerId::StubUsd, name, core.senior_credit)
-        .unwrap();
-    let scheme = dassie_peer::wire::SchemeId::parse("stub").unwrap();
-    let agreed = core
-        .with_peer(|_, hooks, _| hooks.finalize(NOW, peer, scheme, &[], true))
-        .unwrap();
-    assert_eq!(agreed.credit_out, core.senior_credit);
-    assert!(core.senior_credit < Policies::DEFAULT.peer_credit);
-    let contra = core
-        .ledger
-        .find(&AccountPath::new(
-            LedgerId::StubUsd,
-            AccountName::ContraTrust(name),
-        ))
-        .unwrap();
-    let trust = dassie_settlement::policy::trust(core.ledger.account(contra).unwrap().balance());
-    assert_eq!(trust, core.senior_credit);
-}
-
 // spec/areas/settlement.md#the-stub-scheme: on the stub with unlimited trust,
-// the senior and the junior alike extend the unlimited credit, and a trust
-// account from an earlier peering that holds less, even one ended for room,
-// is raised to it.
+// the node that accepts and the node that asked alike extend the unlimited
+// credit, and a trust account from an earlier peering that holds less is
+// raised to it.
 #[test]
 fn on_unlimited_trust_both_sides_extend_the_unlimited_credit() {
     use dassie_ledger::{AccountName, AccountPath, LedgerId, Name};
@@ -1178,12 +1110,12 @@ fn on_unlimited_trust_both_sides_extend_the_unlimited_credit() {
                 .balance(),
         )
     };
-    // As the senior, to a new peer, and to one we once extended less.
+    // Accepting, to a new peer, and to one we once extended less.
     let fresh = seeded_node(1);
     let known = seeded_node(2);
     let name = Name::new(known.as_str()).unwrap();
     core.ledger
-        .open_peer(NOW, LedgerId::StubUsd, name, core.senior_credit)
+        .open_peer(NOW, LedgerId::StubUsd, name, 0)
         .unwrap();
     for peer in [fresh, known] {
         let agreed = core
@@ -1192,14 +1124,14 @@ fn on_unlimited_trust_both_sides_extend_the_unlimited_credit() {
         assert_eq!(agreed.credit_out, UNLIMITED_CREDIT);
         assert_eq!(trust_of(&core, peer), UNLIMITED_CREDIT);
     }
-    // As the junior, to a peer we once ended for room.
+    // Asking, to a peer we once extended less.
     let ended = seeded_node(3);
     let name = Name::new(ended.as_str()).unwrap();
     core.ledger
-        .open_peer(NOW, LedgerId::StubUsd, name, core.senior_credit)
+        .open_peer(NOW, LedgerId::StubUsd, name, 0)
         .unwrap();
     let agreed = core
-        .with_peer(|_, hooks, _| hooks.finalize(NOW, ended, scheme, &info, true))
+        .with_peer(|_, hooks, _| hooks.finalize(NOW, ended, scheme, &info))
         .unwrap();
     assert_eq!(agreed.credit_out, UNLIMITED_CREDIT);
     assert_eq!(trust_of(&core, ended), UNLIMITED_CREDIT);
@@ -1212,7 +1144,7 @@ fn on_unlimited_trust_both_sides_extend_the_unlimited_credit() {
     );
     // A downlink's accounts open with it too, once value moves with it.
     assert_eq!(
-        super::downlinks::start_credit(&core.schemes, Name::new("stub").unwrap(), 0),
+        super::downlinks::start_credit(&core.schemes, Name::new("stub").unwrap()),
         UNLIMITED_CREDIT
     );
 }
@@ -1452,7 +1384,7 @@ fn downlinks_never_take_the_room_core_peers_need() {
     let scheme = dassie_peer::wire::SchemeId::parse("stub").unwrap();
     let last = NodeKey::from_bytes(&[2; 32]).node_id();
     let info = stub_info(&mut core);
-    core.with_peer(|_, hooks, _| hooks.finalize(NOW, last, scheme, &info, false))
+    core.with_peer(|_, hooks, _| hooks.finalize(NOW, last, scheme, &info))
         .unwrap();
     core.take_journal();
     assert_eq!(
@@ -2124,8 +2056,8 @@ fn downlink_request_on(downlink: &Arc<NodeKey>, now: u64, scheme: &str, data: &[
 }
 
 // spec/areas/network.md#advertised-peers: a downlink that owes nothing is
-// never short of room in our books, though we extend it nothing as its
-// senior: withdrawing it would only stop the payments to it that raise its
+// never short of room in our books, though we extend it nothing over the
+// hub: withdrawing it would only stop the payments to it that raise its
 // room.
 #[test]
 fn a_downlink_that_owes_nothing_is_never_short_of_room() {
@@ -2155,38 +2087,6 @@ fn a_downlink_that_owes_nothing_is_never_short_of_room() {
         core.finish_step(&mut outputs);
     }
     assert_eq!(core.peer.peering_of(&id).unwrap().first().short_for_ms, 0);
-}
-
-/// A core node that takes at most `max_downlinks` downlinks, on the store.
-fn core_taking_few_downlinks(store: Arc<Store>, max_downlinks: usize, now: u64) -> Core {
-    let policies = Policies {
-        peer: dassie_peer::Config {
-            max_downlinks,
-            ..Policies::DEFAULT.peer
-        },
-        ..Policies::DEFAULT
-    };
-    Core::start(
-        CoreParts {
-            store,
-            key: Arc::new(NodeKey::from_bytes(&[7; 32])),
-            realm: Realm::Test,
-            live: dassie_node_core::config::LiveRealm::Refused,
-            policies,
-            rng: Box::new(SeededRng::new(5)),
-            peer_rng: Box::new(SeededRng::new(6)),
-            own_info: dassie_peer::OwnInfo {
-                url: Some("https://core.test".into()),
-                alias: String::new(),
-                feed_port: None,
-                hub: None,
-            },
-            bootstrap: Vec::new(),
-            uplinks: Vec::new(),
-        },
-        now,
-    )
-    .unwrap()
 }
 
 /// `core` takes `downlink`'s peering request on `scheme`, with the scheme's
@@ -2226,206 +2126,6 @@ fn asks_as_downlink(
 /// An XRPL scheme's peering data naming `account`: its account ID.
 fn address_data(account: dassie_xrpl::AccountId) -> Vec<u8> {
     account.0.to_vec()
-}
-
-/// What `node`'s account on `ledger` took in, posted: its settlements.
-fn settled_in(
-    core: &Core,
-    ledger: dassie_ledger::LedgerId,
-    node: &dassie_identity::NodeId,
-) -> u128 {
-    let peer = dassie_ledger::Name::new(node.as_str()).unwrap();
-    let name = dassie_ledger::AccountName::AssetsInterledger(peer);
-    let account = core.account(ledger, name).unwrap();
-    core.ledger
-        .account(account)
-        .unwrap()
-        .balance()
-        .credits_posted
-}
-
-/// `wallet` pays `drops` to `to` on `ledger` before `node` asks to peer with
-/// it, as a settlement of `node`'s would: with the XRP scheme's memo naming
-/// `node` (spec/decisions/pay-to-enter.md).
-fn pay_to_enter(
-    ledger: &mut dassie_xrpl::fake::FakeLedger,
-    wallet: &dassie_xrpl::Wallet,
-    to: dassie_xrpl::AccountId,
-    node: &NodeKey,
-    drops: u64,
-) {
-    use dassie_xrpl::codec::{Amount, Memo, Payment, Signing, Transact};
-
-    let payment = Payment {
-        account: wallet.account(),
-        destination: to,
-        destination_tag: None,
-        amount: Amount::Xrp(drops),
-        send_max: None,
-        fee: dassie_xrpl::fake::FEE_BASE,
-        sequence: ledger.sequence(wallet.account()).unwrap(),
-        last_ledger_sequence: Some(ledger.ledger() + 10),
-        flags: 0,
-        network_id: None,
-        memos: vec![Memo {
-            memo_type: dassie_xrpl::scheme::MEMO_TYPE.to_vec(),
-            memo_data: node.node_id().as_str().as_bytes().to_vec(),
-        }],
-        signing: Signing::by(wallet.public_key()),
-    }
-    .sign(wallet);
-    let submit = serde_json::json!({
-        "command": "submit",
-        "tx_blob": dassie_xrpl::hex_upper(&payment.blob),
-    });
-    let submitted: serde_json::Value =
-        serde_json::from_slice(&ledger.request(1, &serde_json::to_vec(&submit).unwrap())).unwrap();
-    assert_eq!(submitted["result"]["engine_result"], "tesSUCCESS");
-}
-
-// spec/decisions/pay-to-enter.md: past a full free half, a newcomer that paid
-// the uplink one largest packet on the XRP Ledger before it asked, from the
-// address its request names and with the scheme's memo naming it, gets in.
-// What it paid is held off the books until then, across a restart, and is
-// booked once as its settlement as it peers, which marks it as a downlink
-// that paid us. One that did not pay is told to.
-// It had no accounts before: what it paid opens them, as a downlink's
-// (spec/decisions/lazy-downlink-accounts.md).
-// Goes with direct settlement: entry payments (spec/roadmap.md#hubs-only).
-#[test]
-fn a_newcomer_that_paid_to_enter_is_taken_and_booked_once() {
-    use dassie_ledger::LedgerId;
-    use dassie_peer::wire::RefusalReason;
-    use dassie_xrpl::{UNITS_PER_DROP, Wallet};
-
-    const SCHEME: &str = "xrpl-testnet-xrp";
-    const ENTRY_DROPS: u64 = 100_000;
-    let (mut ledger, uplink) = funded_ledger();
-    let store = Arc::new(Store::open_in_memory().unwrap());
-    let mut core = core_taking_few_downlinks(Arc::clone(&store), 2, NOW);
-    core.add_scheme("stub", String::new()).unwrap();
-    add_xrpl(&mut core, SCHEME, SHARED_CONFIG).unwrap();
-    follow_xrpl(&mut core, &mut ledger);
-    let free = Arc::new(NodeKey::from_bytes(&[11; 32]));
-    assert_eq!(
-        asks_as_downlink(&mut core, &free, NOW + 1_000, ("stub", &[])),
-        None
-    );
-    // The newcomer's own account, which its request names.
-    let newcomer = Arc::new(NodeKey::from_bytes(&[12; 32]));
-    let wallet = Wallet::from_seed([12; 16]);
-    ledger.fund(wallet.account());
-    close_xrpl(&mut core, &mut ledger);
-    let data = address_data(wallet.account());
-    let ask = |core: &mut Core, at: u64| asks_as_downlink(core, &newcomer, at, (SCHEME, &data));
-    assert_eq!(ask(&mut core, NOW + 2_000), Some(RefusalReason::PayToEnter));
-    pay_to_enter(&mut ledger, &wallet, uplink, &newcomer, ENTRY_DROPS);
-    let owner_before = core.owner_available(LedgerId::XrplTestnetXrp);
-    close_xrpl(&mut core, &mut ledger);
-    assert_eq!(
-        core.owner_available(LedgerId::XrplTestnetXrp),
-        owner_before,
-        "held, not the owner's"
-    );
-    core.flush();
-    drop(core);
-    let mut core = core_taking_few_downlinks(Arc::clone(&store), 2, NOW + 3_000);
-    follow_xrpl(&mut core, &mut ledger);
-    assert_eq!(ask(&mut core, NOW + 4_000), None);
-    let id = newcomer.node_id();
-    assert!(core.peer.is_downlink(&id));
-    assert!(
-        core.peer.channel(&id).unwrap().paid_us,
-        "a downlink that paid us"
-    );
-    // It had no accounts: its entry payment opened them, in the room kept
-    // for them, as a downlink's (spec/decisions/lazy-downlink-accounts.md).
-    let name = dassie_ledger::Name::new(id.as_str()).unwrap();
-    assert!(
-        core.downlinks
-            .opened
-            .contains(&(LedgerId::XrplTestnetXrp, name))
-    );
-    assert!(!core.downlinks.waiting.contains(&id));
-    core.check_invariants();
-    let paid = |core: &Core| settled_in(core, LedgerId::XrplTestnetXrp, &id);
-    assert_eq!(paid(&core), u128::from(ENTRY_DROPS * UNITS_PER_DROP));
-    assert_eq!(core.owner_available(LedgerId::XrplTestnetXrp), owner_before);
-    core.flush();
-    drop(core);
-    let mut core = core_taking_few_downlinks(Arc::clone(&store), 2, NOW + 5_000);
-    follow_xrpl(&mut core, &mut ledger);
-    close_xrpl(&mut core, &mut ledger);
-    assert_eq!(
-        paid(&core),
-        u128::from(ENTRY_DROPS * UNITS_PER_DROP),
-        "once"
-    );
-    assert!(core.peer.channel(&id).unwrap().paid_us);
-}
-
-/// Fills the downlinks' share of `core`'s peers' accounts, beside the room
-/// kept for downlinks waiting for theirs, with former downlinks' accounts
-/// on the stub's ledger.
-fn fill_downlinks_share(core: &mut Core) {
-    let max_accounts = core.ledger.config().max_accounts;
-    let anyone = NodeKey::from_bytes(&[4; 32]).node_id();
-    let mut seed = 1 << 20;
-    while core.downlinks.fit(max_accounts, &anyone) {
-        assert!(open_downlink_on_stub(core, seed));
-        core.take_journal();
-        seed += 1;
-    }
-}
-
-// spec/decisions/pay-to-enter.md, spec/decisions/account-budgets.md: past a
-// full free half, a newcomer whose accounts would not fit the downlinks'
-// share is refused for capacity, not told to pay: a payment it made would
-// get it no peering. One that paid anyway is refused all the same, and its
-// payment stays held, not booked.
-// Goes with direct settlement: entry payments (spec/roadmap.md#hubs-only).
-#[test]
-fn a_newcomer_without_room_for_its_accounts_is_not_told_to_pay() {
-    use dassie_ledger::LedgerId;
-    use dassie_peer::wire::RefusalReason;
-    use dassie_xrpl::Wallet;
-
-    const SCHEME: &str = "xrpl-testnet-xrp";
-    let (mut ledger, uplink) = funded_ledger();
-    let store = Arc::new(Store::open_in_memory().unwrap());
-    let mut core = core_taking_few_downlinks(Arc::clone(&store), 2, NOW);
-    core.add_scheme("stub", String::new()).unwrap();
-    add_xrpl(&mut core, SCHEME, SHARED_CONFIG).unwrap();
-    follow_xrpl(&mut core, &mut ledger);
-    let free = Arc::new(NodeKey::from_bytes(&[11; 32]));
-    assert_eq!(
-        asks_as_downlink(&mut core, &free, NOW + 1_000, ("stub", &[])),
-        None
-    );
-    fill_downlinks_share(&mut core);
-    let newcomer = Arc::new(NodeKey::from_bytes(&[12; 32]));
-    let wallet = Wallet::from_seed([12; 16]);
-    ledger.fund(wallet.account());
-    close_xrpl(&mut core, &mut ledger);
-    let data = address_data(wallet.account());
-    let ask = |core: &mut Core, at: u64| asks_as_downlink(core, &newcomer, at, (SCHEME, &data));
-    assert_eq!(ask(&mut core, NOW + 2_000), Some(RefusalReason::Capacity));
-    pay_to_enter(&mut ledger, &wallet, uplink, &newcomer, 100_000);
-    let owner_before = core.owner_available(LedgerId::XrplTestnetXrp);
-    close_xrpl(&mut core, &mut ledger);
-    // A new session, as a newcomer that paid would ask in.
-    core.flush();
-    drop(core);
-    let mut core = core_taking_few_downlinks(Arc::clone(&store), 2, NOW + 3_000);
-    follow_xrpl(&mut core, &mut ledger);
-    assert_eq!(ask(&mut core, NOW + 4_000), Some(RefusalReason::Capacity));
-    assert!(core.peer.peering_of(&newcomer.node_id()).is_none());
-    assert_eq!(
-        core.owner_available(LedgerId::XrplTestnetXrp),
-        owner_before,
-        "still held"
-    );
-    core.check_invariants();
 }
 
 /// Closes a ledger of `ledger`, and hands the XRP Ledger account what its
@@ -3120,10 +2820,9 @@ fn a_refused_write_off_asks_the_ledger_nothing() {
 }
 
 // spec/areas/settlement.md#external-assets: a scheme activated on an account
-// that has read its ledger already is told it has synced, and is peered on
-// from then: the account connects anew, and reads again from the earliest
-// place of its schemes.
-// Its link-state checks go with direct settlement (spec/roadmap.md#hubs-only).
+// that has read its ledger already is told it has synced: the account
+// connects anew, and reads again from the earliest place of its schemes.
+// An owner book, it is peered on by no one (spec/areas/xrpl.md#owner-books).
 #[test]
 fn a_scheme_activated_on_a_synced_account_is_told_it_has_synced() {
     use dassie_ledger::Name;
@@ -3149,7 +2848,7 @@ fn a_scheme_activated_on_a_synced_account_is_told_it_has_synced() {
         .unwrap();
     assert_eq!(view.status, LedgerStatus::Synced);
     let id = SchemeId::parse("xrpl-testnet-xrp").unwrap();
-    assert!(core.peer.schemes().contains(&id));
+    assert!(!core.peer.schemes().contains(&id), "an owner book");
 }
 
 // spec/areas/settlement.md#external-assets: an account whose connection was
@@ -3187,10 +2886,10 @@ fn a_scheme_activated_on_a_closed_account_connects_it_again() {
 // and reads the line, which is set with a TrustSet whose fee is a ledger fee
 // on `xrpl-xrp+xrp` and whose reserve is reconciled there, and the wallet sees
 // both holdings as the ledger says, a freeze included.
-// spec/areas/settlement.md#when-peers-cannot-pay-us: while the issuer froze
-// the line deep, or froze its token for every holder (read at the
-// settlement check), the link state leaves the scheme out; it stays synced.
-// Its link-state checks go with direct settlement (spec/roadmap.md#hubs-only).
+// While the issuer froze the line deep, or froze its token for every
+// holder (read at the settlement check), the wallet sees the freeze, and
+// the scheme stays synced. Neither scheme is in the link state, frozen or
+// not: owner books peer with no one (spec/areas/xrpl.md#owner-books).
 #[test]
 #[allow(clippy::too_many_lines)]
 fn rlusd_beside_xrp_on_one_account() {
@@ -3252,9 +2951,9 @@ fn rlusd_beside_xrp_on_one_account() {
         core.peer
             .schemes()
             .iter()
-            .any(|scheme| scheme.as_str() == "xrpl-rlusd")
+            .any(|scheme| scheme.as_str().starts_with("xrpl"))
     };
-    assert!(advertised(&core));
+    assert!(!advertised(&core), "owner books");
 
     ledger
         .issue(
@@ -3280,7 +2979,6 @@ fn rlusd_beside_xrp_on_one_account() {
         .deep_freeze(address, IssuedAsset::RLUSD, true)
         .unwrap();
     close_xrpl(&mut core, &mut ledger);
-    assert!(!advertised(&core), "advertised while it cannot receive");
     let frozen = freeze(&core);
     assert!(frozen.line && frozen.deep && !frozen.global, "{frozen:?}");
     assert_eq!(
@@ -3289,7 +2987,7 @@ fn rlusd_beside_xrp_on_one_account() {
     );
     ledger.freeze(address, IssuedAsset::RLUSD, false).unwrap();
     close_xrpl(&mut core, &mut ledger);
-    assert!(advertised(&core));
+    assert_eq!(freeze(&core), dassie_settlement::Freeze::default());
 
     // A global freeze changes only the issuer's account: read at the
     // settlement check.
@@ -3297,10 +2995,9 @@ fn rlusd_beside_xrp_on_one_account() {
         .global_freeze(dassie_xrpl::rlusd::ISSUER, true)
         .unwrap();
     close_xrpl(&mut core, &mut ledger);
-    assert!(advertised(&core));
     core.begin_step(NOW + 60_000);
     follow_xrpl(&mut core, &mut ledger);
-    assert!(!advertised(&core), "advertised during a global freeze");
+    assert!(!advertised(&core), "owner books");
     let frozen = freeze(&core);
     assert!(!frozen.line && frozen.global, "{frozen:?}");
 }
@@ -3309,10 +3006,10 @@ fn rlusd_beside_xrp_on_one_account() {
 // node's one XRPL testnet account: the token scheme sets its line, whose
 // TrustSet's fee is a ledger fee on `xrpl-testnet-xrp+xrp` and whose reserve is
 // held back there; it books only its own token, on a dollar ledger of its
-// own; the wallet sees both holdings, and the link state offers both
-// schemes. Test RLUSD, disabled, is refused beside them
-// (spec/decisions/issued-assets.md), and has no ledger.
-// Its link-state checks go with direct settlement (spec/roadmap.md#hubs-only).
+// own; the wallet sees both holdings, and the link state offers neither
+// scheme, owner books both (spec/areas/xrpl.md#owner-books). Test RLUSD,
+// disabled, is refused beside them (spec/decisions/issued-assets.md), and
+// has no ledger.
 #[test]
 #[allow(clippy::too_many_lines)]
 fn dsusd_beside_xrp_and_no_test_rlusd() {
@@ -3373,10 +3070,7 @@ fn dsusd_beside_xrp_and_no_test_rlusd() {
     codes.sort_unstable();
     assert_eq!(codes, ["DSUSD", "XRP"]);
     let advertised: Vec<&str> = core.peer.schemes().iter().map(|s| s.as_str()).collect();
-    for scheme in ["xrpl-testnet-xrp", "xrpl-testnet-dsusd"] {
-        assert!(advertised.contains(&scheme), "{scheme}: {advertised:?}");
-    }
-    assert_eq!(advertised.len(), 2);
+    assert!(advertised.is_empty(), "owner books: {advertised:?}");
 
     ledger
         .issue(
@@ -3400,10 +3094,10 @@ fn dsusd_beside_xrp_and_no_test_rlusd() {
 // fetches XRP's rate for it beside its own ledgers', and hands it over at
 // each settlement check. Once mainnet's pool has priced RLUSD off its peg
 // for the trip hold, the price table leaves `xrpl-rlusd+usd` out, so nothing
-// converts to or from it, the link state leaves the scheme out, and the
-// owner sees the guard and is told; what arrives is still booked. Back at a
-// dollar for the recovery hold, it comes back.
-// Its link-state checks go with direct settlement (spec/roadmap.md#hubs-only).
+// converts to or from it, and the owner sees the guard and is told; what
+// arrives is still booked. Back at a dollar for the recovery hold, it comes
+// back. The link state never offers the scheme, an owner book
+// (spec/areas/xrpl.md#owner-books).
 #[test]
 #[allow(clippy::too_many_lines)]
 fn rlusd_off_its_peg_converts_nothing() {
@@ -3486,13 +3180,13 @@ fn rlusd_off_its_peg_converts_nothing() {
     minutes(&mut core, &mut ledger, 2);
     assert_eq!(peg(&core).paused, None);
     assert_eq!(peg(&core).last.map(|(price, _)| price), Some(1_000_000));
-    assert!(priced(&core) && advertised(&core));
+    assert!(priced(&core) && !advertised(&core));
     assert!(core.price_table().price(LedgerId::XrplXrp, rlusd).is_some());
 
     // 5% under a dollar: priced on until the hold is over.
     pool(&mut ledger, 190_000);
     minutes(&mut core, &mut ledger, TRIP_HOLD_MS / 60_000);
-    assert!(priced(&core) && advertised(&core));
+    assert!(priced(&core) && !advertised(&core));
     let events = minutes(&mut core, &mut ledger, 1);
     assert_eq!(peg(&core).paused, Some(PegPause::OffPeg));
     assert_eq!(peg(&core).last.map(|(price, _)| price), Some(950_000));
@@ -3502,7 +3196,7 @@ fn rlusd_off_its_peg_converts_nothing() {
         "converts at spot while off its peg"
     );
     assert!(core.price_table().ledger(LedgerId::XrplXrp).is_some());
-    assert!(!advertised(&core), "in the link state while off its peg");
+    assert!(!advertised(&core), "an owner book");
     let told = |events: &[Output], paused: bool| {
         events.iter().any(|output| match output {
             Output::Event(Event::Settlement(SettlementEvent::PegPaused { scheme, .. })) => {
@@ -3533,7 +3227,7 @@ fn rlusd_off_its_peg_converts_nothing() {
     assert!(!priced(&core));
     let events = minutes(&mut core, &mut ledger, 1);
     assert_eq!(peg(&core).paused, None);
-    assert!(priced(&core) && advertised(&core));
+    assert!(priced(&core) && !advertised(&core));
     assert!(!core.price_table().halted(rlusd));
     assert!(told(&events, false));
 
@@ -3828,156 +3522,6 @@ fn rlusd_core_on(store: Arc<Store>, ledger: &mut dassie_xrpl::fake::FakeLedger, 
     let rlusd = Name::new("xrpl-rlusd").unwrap();
     assert_eq!(core.schemes[&rlusd].scheme.status(), LedgerStatus::Synced);
     core
-}
-
-/// The downlink of key `[11; 32]` asks `core` to peer on `scheme`, a
-/// scheme of the XRP Ledger on `ledger`, at `now`, and the peering is made.
-fn xrpl_downlink_peers_on(
-    core: &mut Core,
-    ledger: &mut dassie_xrpl::fake::FakeLedger,
-    now: u64,
-    scheme: &str,
-) -> dassie_identity::NodeId {
-    use dassie_xrpl::Wallet;
-
-    let downlink = Arc::new(NodeKey::from_bytes(&[11; 32]));
-    let id = downlink.node_id();
-    let data = Wallet::from_entropy(&[11; 32]).account().0;
-    core.begin_step(now);
-    let body = downlink_request_on(&downlink, now, scheme, &data);
-    core.peer_inbound(
-        dassie_peer::InboundId(1),
-        downlink.public_key(),
-        &body,
-        None,
-    );
-    follow_xrpl(core, ledger);
-    let peering = core.peer.peering_of(&id).expect("peered");
-    assert_eq!(peering.first().scheme.as_str(), scheme);
-    id
-}
-
-/// A downlink that peers with `core` on RLUSD at `now`, and uses up the
-/// dollar of credit we extend it: it owes us, and our room for it is gone.
-fn rlusd_downlink_owing(
-    core: &mut Core,
-    ledger: &mut dassie_xrpl::fake::FakeLedger,
-    now: u64,
-) -> dassie_identity::NodeId {
-    use dassie_ledger::{AccountName, LedgerId, Name, Reference, TransferSpec};
-
-    let id = xrpl_downlink_peers_on(core, ledger, now, "xrpl-rlusd");
-    assert!(core.open_downlink_accounts(id, dassie_ledger::name!("xrpl-rlusd")));
-    let name = Name::new(id.as_str()).unwrap();
-    let on = LedgerId::XrplRlusdUsd;
-    let account = |core: &Core, name| core.account(on, name).unwrap();
-    let interledger = account(core, AccountName::AssetsInterledger(name));
-    let dollar = 1_000_000_000;
-    for (debit, credit, reference) in [
-        (
-            account(core, AccountName::ContraTrust(name)),
-            interledger,
-            Reference::Trust,
-        ),
-        (
-            interledger,
-            account(core, AccountName::EquitySuspense),
-            Reference::Reconciliation,
-        ),
-    ] {
-        let spec = TransferSpec {
-            debit,
-            credit,
-            amount: dollar,
-            pending: false,
-            reference,
-        };
-        core.ledger.create(now, &spec).unwrap();
-    }
-    id
-}
-
-// spec/areas/settlement.md#when-peers-cannot-pay-us: while RLUSD's issuer
-// charges a transfer fee, no RLUSD node can pay us, as none pays the fee.
-// The node asks no peer on the scheme to settle, and reports a peer short of
-// room as one that cannot pay us (`Room::ShortUnpayable`), so its time short
-// counts toward withdrawing it but never toward ending it for room. The
-// scheme leaves the link state meanwhile, and stays synced. Once the fee is
-// gone, the peer is asked again, and its time short counts in full.
-// Goes with direct settlement: peering on the XRP Ledger (spec/roadmap.md#hubs-only).
-#[test]
-fn a_transfer_fee_asks_no_peer_and_ends_none_for_room() {
-    use dassie_ledger::Name;
-    use dassie_settlement::LedgerStatus;
-    use dassie_xrpl::fake::FakeLedger;
-
-    let mut ledger = fake_ledger(true);
-    let mut core = rlusd_core(&mut ledger);
-    let rlusd = Name::new("xrpl-rlusd").unwrap();
-    let mut now = NOW + 1_000;
-    let id = rlusd_downlink_owing(&mut core, &mut ledger, now);
-
-    // The issuer charges a transfer fee, read at the settlement check.
-    ledger
-        .set_transfer_rate(dassie_xrpl::rlusd::ISSUER, 1_002_000_000)
-        .unwrap();
-    close_xrpl(&mut core, &mut ledger);
-    let interval = core.settle.interval_ms;
-    let check = |core: &mut Core, ledger: &mut FakeLedger, now: &mut u64| {
-        *now += interval;
-        core.begin_step(*now);
-        follow_xrpl(core, ledger);
-    };
-    check(&mut core, &mut ledger, &mut now);
-    check(&mut core, &mut ledger, &mut now);
-    assert!(!core.schemes[&rlusd].scheme.can_receive());
-    assert_eq!(core.schemes[&rlusd].scheme.status(), LedgerStatus::Synced);
-    assert!(
-        !core
-            .peer
-            .schemes()
-            .iter()
-            .any(|scheme| scheme.as_str() == "xrpl-rlusd"),
-        "in the link state during a transfer fee"
-    );
-    core.settle.asked.remove(&(id, scheme_id("xrpl-rlusd")));
-    let short = core.peer.peering_of(&id).unwrap().first().short_for_ms;
-    let reached = core.peer.peering_of(&id).unwrap().first().short_reached_ms;
-    check(&mut core, &mut ledger, &mut now);
-    check(&mut core, &mut ledger, &mut now);
-    assert!(
-        !core
-            .settle
-            .asked
-            .contains_key(&(id, scheme_id("xrpl-rlusd"))),
-        "asked during a transfer fee"
-    );
-    let peering = core.peer.peering_of(&id).unwrap();
-    assert!(
-        peering.first().short_for_ms > short,
-        "short of room, toward withdrawing it"
-    );
-    assert_eq!(
-        peering.first().short_reached_ms,
-        reached,
-        "never toward ending it for room"
-    );
-
-    // The fee is gone: the peer is asked again, and its time short counts.
-    ledger
-        .set_transfer_rate(dassie_xrpl::rlusd::ISSUER, 0)
-        .unwrap();
-    close_xrpl(&mut core, &mut ledger);
-    check(&mut core, &mut ledger, &mut now);
-    check(&mut core, &mut ledger, &mut now);
-    assert!(core.schemes[&rlusd].scheme.can_receive());
-    assert!(
-        core.settle
-            .asked
-            .contains_key(&(id, scheme_id("xrpl-rlusd"))),
-        "asked once the fee is gone"
-    );
-    assert!(core.peer.peering_of(&id).unwrap().first().short_reached_ms > reached);
 }
 
 /// A new incoming payment on the stub ledger, of the owner's or a
@@ -4597,15 +4141,10 @@ fn until_unrun_ended(core: &mut Core, peer: &dassie_identity::NodeId, from: u64)
 // spec/areas/settlement.md#schemes-and-ledgers: a node that peered on test
 // RLUSD, whose scheme is disabled, starts without the scheme and ends the
 // peering, collecting nothing: no settlement on it could be booked. The
-// peer's accounts on the scheme's ledger stay as they were. The pair is not
-// kept apart: the same peer then peers on DSUSD, which both run.
-// Goes with direct settlement: peering on the XRP Ledger (spec/roadmap.md#hubs-only).
+// peer's accounts on the scheme's ledger stay as they were.
 #[test]
-#[allow(clippy::too_many_lines)]
-fn a_peering_on_a_disabled_scheme_ends_and_the_pair_peers_on_another() {
+fn a_peering_on_a_disabled_scheme_ends_collecting_nothing() {
     use dassie_ledger::{AccountName, LedgerId, Name};
-    use dassie_xrpl::Wallet;
-    use dassie_xrpl::fake::FakeLedger;
 
     use crate::store::LedgerBatch;
 
@@ -4669,34 +4208,16 @@ fn a_peering_on_a_disabled_scheme_ends_and_the_pair_peers_on_another() {
     );
     let before = books(&core);
     assert_ne!(before, [0, 0]);
-    let ended = until_unrun_ended(&mut core, &id, start);
+    until_unrun_ended(&mut core, &id, start);
     assert_eq!(books(&core), before, "nothing written off or settled");
-
-    let address = Wallet::from_entropy(
-        NodeKey::from_bytes(&[7; 32])
-            .xrpl_account_entropy(TESTNET.id, 0)
-            .as_bytes(),
-    )
-    .account();
-    let mut ledger = FakeLedger::new();
-    ledger.fund(address);
-    ledger.close();
-    for scheme in ["xrpl-testnet-xrp", "xrpl-testnet-dsusd"] {
-        add_xrpl(&mut core, scheme, config).unwrap();
-        follow_xrpl(&mut core, &mut ledger);
-    }
-    close_xrpl(&mut core, &mut ledger);
-    close_xrpl(&mut core, &mut ledger);
-    xrpl_downlink_peers_on(&mut core, &mut ledger, ended + 1_000, "xrpl-testnet-dsusd");
 }
 
 // spec/areas/settlement.md#schemes-and-ledgers: so is a peering on a scheme
 // of the other realm, once the node's realm changed: here a test node's
 // peering on the stub, when the node starts in the live realm by the dev
-// switch. The same peer then peers on RLUSD, mainnet's.
-// Goes with direct settlement: peering on the XRP Ledger (spec/roadmap.md#hubs-only).
+// switch, running RLUSD, mainnet's.
 #[test]
-fn a_peering_on_a_scheme_of_another_realm_ends_and_the_pair_peers_on_another() {
+fn a_peering_on_a_scheme_of_another_realm_ends_collecting_nothing() {
     let store = Arc::new(Store::open_in_memory().unwrap());
     let (test, id) = stub_core_with_downlink_on(Arc::clone(&store), TRUSTING);
     let start = test.now_ms() + 1_000;
@@ -4707,8 +4228,7 @@ fn a_peering_on_a_scheme_of_another_realm_ends_and_the_pair_peers_on_another() {
         live.peer.peering_of(&id).is_some(),
         "its peering is loaded, and ending"
     );
-    let ended = until_unrun_ended(&mut live, &id, start);
-    xrpl_downlink_peers_on(&mut live, &mut ledger, ended + 1_000, "xrpl-rlusd");
+    until_unrun_ended(&mut live, &id, start);
 }
 
 /// What the books hold on `ledger`: its accounts with their balances, and
@@ -4766,7 +4286,7 @@ fn a_stored_scheme_of_another_realm_keeps_what_is_pending_on_its_ledger() {
     // The books take a settlement to it as one over a hub: the credit we
     // extend it is raised first.
     let now = test.now_ms();
-    super::growth::raise_trust(&mut test.ledger, now, on, peer, 400).unwrap();
+    super::trust::raise_trust(&mut test.ledger, now, on, peer, 400).unwrap();
     let pending = TransferSpec {
         debit: test
             .account(on, AccountName::AssetsInterledger(peer))
@@ -4898,8 +4418,8 @@ fn hub_books(core: &mut Core, peer: dassie_identity::NodeId) -> (u64, u64, u64) 
 }
 
 // spec/areas/hubs.md#in-the-node: asked to settle over a hub, a payer funds
-// its hold toward the peer with what it would otherwise have paid, as a
-// junior that extends the default credit would, though it extends none:
+// its hold toward the peer with what it would otherwise have paid, as if it
+// extended the default credit, though it extends none:
 // the credit is raised by it first, so that the books take the settlement,
 // and once the settlement executed the credit is the hold it funded.
 #[test]
@@ -6088,11 +5608,13 @@ fn tells_link_state(
     outputs
 }
 
-/// Whether a core node with the XRP Ledger testnet scheme synced on a fake
-/// ledger, peering on it if `peers` and an owner book otherwise, asks a
-/// core node it bootstraps from, whose link state lists the scheme alone,
-/// to peer, within a minute of learning that link state.
-fn asks_a_core_node_to_peer_on_xrpl(peers: bool) -> bool {
+/// Whether a core node running `scheme`, which `add` adds on a fake ledger,
+/// asks a core node it bootstraps from, whose link state lists the scheme
+/// alone, to peer, within a minute of learning that link state.
+fn asks_a_core_node_to_peer_on(
+    scheme: &str,
+    add: impl FnOnce(&mut Core, &mut dassie_xrpl::fake::FakeLedger),
+) -> bool {
     use dassie_peer::wire::Kind;
 
     let (mut ledger, _) = funded_ledger();
@@ -6123,20 +5645,11 @@ fn asks_a_core_node_to_peer_on_xrpl(peers: bool) -> bool {
         NOW,
     )
     .unwrap();
-    let config = if peers {
-        r#"{"server":"ws://ledger.test","faucet":null}"#
-    } else {
-        r#"{"server":"ws://ledger.test","faucet":null,"peers":false}"#
-    };
-    add_xrpl(&mut core, "xrpl-testnet-xrp", config).unwrap();
-    follow_xrpl(&mut core, &mut ledger);
-    close_xrpl(&mut core, &mut ledger);
-    let xrpl = dassie_ledger::Name::new("xrpl-testnet-xrp").unwrap();
-    assert!(core.schemes[&xrpl].scheme.has_synced());
+    add(&mut core, &mut ledger);
 
     // The other node tells its link state, a core node's on the scheme.
     let at = core.now_ms() + 1_000;
-    let mut outputs = tells_link_state(&mut core, &other, (url, "xrpl-testnet-xrp"), at);
+    let mut outputs = tells_link_state(&mut core, &other, (url, scheme), at);
     for second in 1..=60 {
         core.begin_step(at + second * 1_000);
         core.finish_step(&mut outputs);
@@ -6149,12 +5662,86 @@ fn asks_a_core_node_to_peer_on_xrpl(peers: bool) -> bool {
 }
 
 // spec/areas/settlement.md#owner-books: the node never asks to peer on an
-// owner book, though a core node it knows lists it; on the same scheme
-// configured to peer, it asks.
+// owner book, though a core node it knows lists it, whatever its config
+// says of `peers`: every XRPL scheme is an owner book
+// (spec/areas/xrpl.md#owner-books). On a scheme that peers, the same node
+// asks.
 #[test]
 fn an_owner_book_is_never_asked_for() {
-    assert!(asks_a_core_node_to_peer_on_xrpl(true));
-    assert!(!asks_a_core_node_to_peer_on_xrpl(false));
+    let stub = |core: &mut Core, _: &mut dassie_xrpl::fake::FakeLedger| {
+        add_stub(core, TRUSTING);
+    };
+    assert!(
+        asks_a_core_node_to_peer_on("stub", stub),
+        "not asked on a scheme that peers"
+    );
+    for peers in ["", r#","peers":true"#, r#","peers":false"#] {
+        let xrpl = |core: &mut Core, ledger: &mut dassie_xrpl::fake::FakeLedger| {
+            let config = format!(r#"{{"server":"ws://ledger.test","faucet":null{peers}}}"#);
+            add_xrpl(core, "xrpl-testnet-xrp", &config).unwrap();
+            follow_xrpl(core, ledger);
+            close_xrpl(core, ledger);
+            let xrpl = dassie_ledger::Name::new("xrpl-testnet-xrp").unwrap();
+            assert!(core.schemes[&xrpl].scheme.has_synced());
+        };
+        assert!(
+            !asks_a_core_node_to_peer_on("xrpl-testnet-xrp", xrpl),
+            "asked on an owner book, its config saying {peers:?}"
+        );
+    }
+}
+
+// spec/areas/xrpl.md#owner-books: a settlement message on an XRPL scheme,
+// as one a channel kept from when the scheme peered, is acknowledged as a
+// bare notice: it books nothing, and the channel moves on to the next.
+#[test]
+fn a_settlement_message_on_an_owner_book_is_applied_and_books_nothing() {
+    use dassie_peer::wire::{Content, SchemeId};
+
+    let store = Arc::new(Store::open_in_memory().unwrap());
+    let (mut core, id) = stub_core_with_downlink_on(store, TRUSTING);
+    let downlink = Arc::new(NodeKey::from_bytes(&[11; 32]));
+    assert_eq!(downlink.node_id(), id);
+    add_xrpl(&mut core, "xrpl-testnet-xrp", SHARED_CONFIG).unwrap();
+    let xrpl = dassie_ledger::Name::new("xrpl-testnet-xrp").unwrap();
+    let journal = core.ledger.next_transfer_id();
+    let scheme = SchemeId::parse("xrpl-testnet-xrp").unwrap();
+    for (sequence, amount) in [(1, 0), (2, 5_000)] {
+        let at = NOW + 2_000 + sequence * 1_000;
+        core.begin_step(at);
+        let body = Content::Settlement {
+            scheme,
+            amount,
+            data: &[],
+            sequence,
+        }
+        .to_vec();
+        core.peer_inbound(
+            dassie_peer::InboundId(at),
+            downlink.public_key(),
+            &body,
+            None,
+        );
+        let mut outputs = Vec::new();
+        core.finish_step(&mut outputs);
+        let reply = outputs
+            .iter()
+            .find_map(|output| match output {
+                Output::PeerReply { reply, .. } => Some(reply),
+                _ => None,
+            })
+            .unwrap();
+        assert_eq!(
+            reply.status,
+            200,
+            "{}",
+            String::from_utf8_lossy(&reply.body)
+        );
+        assert_eq!(core.peer.channel(&id).unwrap().settled_in, sequence);
+    }
+    assert_eq!(core.ledger.next_transfer_id(), journal, "nothing booked");
+    assert!(core.schemes[&xrpl].failed.is_none(), "the scheme runs on");
+    core.check_invariants();
 }
 
 // spec/areas/settlement.md#the-scheme-interface: the XRP Ledger scheme
@@ -6653,3 +6240,4 @@ fn a_dropped_method_takes_its_slot_and_brings_it_back() {
 mod winding;
 
 mod joining;
+mod unavailable;

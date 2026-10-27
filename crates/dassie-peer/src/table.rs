@@ -351,8 +351,8 @@ impl Winding {
 /// methods (spec/decisions/settlement-methods.md). It has one to
 /// [`MAX_METHODS`](crate::MAX_METHODS) of them, each on a scheme of its
 /// own, the first the one it was made on while that lasts; a peering left
-/// with none ends. The rest is the pair's, whatever the methods, as are
-/// its settlement channel and the mark of an end for room.
+/// with none ends. The rest is the pair's, whatever the methods, as is
+/// its settlement channel.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Peering {
     /// Its methods, in the order they were agreed: never empty.

@@ -1,7 +1,7 @@
 //! The node's account on an XRP Ledger network, as an external asset
 //! (spec/areas/xrpl.md#the-account), sans-IO.
 //!
-//! The account owns what the schemes that settle through it would
+//! The account owns what the schemes that book it would
 //! otherwise race for: its keys, the connection to its ledger, the next
 //! sequence and the transactions in flight, and what it holds as the ledger
 //! says. It says what to send ([`AssetEffect::Send`]) and reads what comes
@@ -66,7 +66,7 @@ use crate::api::{
     TxRecord,
 };
 use crate::codec::{Amount, Memo, Payment, Signing, Transact, TrustSet};
-use crate::kept::{In, Out};
+use crate::kept::{ACCOUNT_VERSION, In, Out};
 use crate::keys::{AccountId, PublicKey, Wallet};
 use crate::network::{Network, TESTNET};
 use crate::peg::PoolReading;
@@ -273,7 +273,7 @@ pub struct Ours {
     pub drops: u64,
     /// The token it pays, for a Payment of a token.
     pub token: Option<TokenValue>,
-    /// Whether it settles with a peer: a Payment. A `TrustSet` does not.
+    /// Whether it is a Payment, rather than a `TrustSet`.
     pub settles: bool,
     /// Whether it was kept for its scheme while the scheme was not on the
     /// account, and is told again for it alone: the schemes that were on
@@ -296,14 +296,13 @@ pub enum News {
         /// The scheme that signed it, if it was in flight: it is no longer.
         ours: Option<Ours>,
     },
-    /// A transaction of `scheme` can never apply: its settlement is
-    /// cancelled.
+    /// A transaction of `scheme` can never apply.
     Cancelled {
         /// The scheme that signed it.
         scheme: Name,
         /// The transaction.
         hash: [u8; 32],
-        /// Whether it was a settlement, rather than a `TrustSet`.
+        /// Whether it was a Payment, rather than a `TrustSet`.
         settles: bool,
     },
     /// The account is gone, and with it what the books held of it: a
@@ -321,17 +320,15 @@ pub enum News {
     /// A transaction of a scheme's, kept for it while it was not on the
     /// account, that it did not read again once back: the history the
     /// account walked had a gap there, which the server no longer has. What
-    /// it did is in the balance the scheme synced to; the scheme looks it up
-    /// by its hash, and books it as one it never read, by the amount it
-    /// settled, once proven.
+    /// it did is in the balance the scheme synced to.
     Unread {
         /// The transaction.
         hash: [u8; 32],
         /// What it was, as the scheme signed it.
         ours: Ours,
     },
-    /// A transaction a scheme looked up, proven in a ledger of the anchor's
-    /// chain.
+    /// A transaction looked up ([`XrplAccount::look_up`]), proven in a
+    /// ledger of the anchor's chain.
     Found {
         /// The hash the scheme looked up.
         hash: [u8; 32],
@@ -375,19 +372,6 @@ pub struct ProvenBalance {
     pub drops: Option<u64>,
     /// The validated ledger it was proven at.
     pub ledger_index: u32,
-}
-
-/// What became of a settlement a scheme still holds pending after a
-/// restart ([`XrplAccount::resume`]).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Resumed {
-    /// In flight: submitted again once synced.
-    InFlight,
-    /// Signed and never sent, and dropped past its last ledger: it can
-    /// never apply.
-    NeverSent,
-    /// Not known to the account: only the ledger can say.
-    Unknown,
 }
 
 /// One of our transactions on its way, kept with the books.
@@ -743,7 +727,7 @@ impl XrplAccount {
             effects: Vec::new(),
         };
         if !state.is_empty() {
-            let mut input = In::state(state).ok_or(SchemeError::InvalidData)?;
+            let mut input = In::state(state, ACCOUNT_VERSION).ok_or(SchemeError::InvalidData)?;
             account.read(&mut input).ok_or(SchemeError::InvalidData)?;
         }
         Ok(account)
@@ -1062,9 +1046,11 @@ impl XrplAccount {
             && self.gas_allows(scheme, gas)
     }
 
-    /// Signs a Payment of `drops` to `destination` for `scheme`, with the
-    /// next sequence, and keeps it in flight, not yet executed. Returns its
-    /// hash.
+    /// Signs a Payment of `drops` to `destination` with its destination
+    /// tag, if any, for `scheme`, with the next sequence, and keeps it in
+    /// flight, not yet executed: how the owner pays, also an account that
+    /// tells its payers apart by tags, such as a settlement hub's escrow.
+    /// Returns its hash.
     ///
     /// # Errors
     ///
@@ -1073,24 +1059,6 @@ impl XrplAccount {
     /// is at least a drop, the network fee is at most [`MAX_FEE_DROPS`],
     /// and the amount and the fee fit above the reserve after what is in
     /// flight.
-    pub fn sign_payment(
-        &mut self,
-        scheme: Name,
-        destination: AccountId,
-        drops: u64,
-        memos: Vec<Memo>,
-    ) -> Result<[u8; 32], SchemeError> {
-        self.sign_payment_to(scheme, (destination, None), drops, memos)
-    }
-
-    /// Signs a Payment of `drops` to `destination` with its destination
-    /// tag, if any, as [`sign_payment`](Self::sign_payment) does: how the
-    /// owner pays an account that tells its payers apart by tags, such as a
-    /// settlement hub's escrow.
-    ///
-    /// # Errors
-    ///
-    /// As [`sign_payment`](Self::sign_payment).
     pub fn sign_payment_to(
         &mut self,
         scheme: Name,
@@ -1122,9 +1090,12 @@ impl XrplAccount {
         Ok(self.keep(scheme, signed.hash, signed.blob, drops, fee, None, 0))
     }
 
-    /// Signs a Payment of a token `amount` to `destination` for `scheme`,
-    /// without paths and never partial, and keeps it in flight, not yet
-    /// executed, as [`sign_payment`](Self::sign_payment). Its fee is gas.
+    /// Signs a Payment of a token `amount` to `destination` with its
+    /// destination tag, if any, for `scheme`, without paths and never
+    /// partial, and keeps it in flight, not yet executed, as
+    /// [`sign_payment_to`](Self::sign_payment_to): how the owner pays a
+    /// token out of the line, also to an account that tells its payers
+    /// apart by tags, such as a settlement hub's escrow. Its fee is gas.
     ///
     /// # Errors
     ///
@@ -1132,25 +1103,6 @@ impl XrplAccount {
     /// of XRP now, the amount is above zero, the line holds it after what
     /// the scheme has in flight, and the fee fits the gas
     /// ([`gas_allows`](Self::gas_allows)).
-    pub fn sign_token_payment(
-        &mut self,
-        scheme: Name,
-        destination: AccountId,
-        amount: TokenAmount,
-        memos: Vec<Memo>,
-    ) -> Result<[u8; 32], SchemeError> {
-        self.sign_token_payment_to(scheme, (destination, None), amount, memos)
-    }
-
-    /// Signs a Payment of a token `amount` to `destination` with its
-    /// destination tag, if any, as
-    /// [`sign_token_payment`](Self::sign_token_payment) does: how the owner
-    /// pays a token out of the line to an account that tells its payers
-    /// apart by tags, such as a settlement hub's escrow.
-    ///
-    /// # Errors
-    ///
-    /// As [`sign_token_payment`](Self::sign_token_payment).
     pub fn sign_token_payment_to(
         &mut self,
         scheme: Name,
@@ -1227,7 +1179,7 @@ impl XrplAccount {
     /// # Errors
     ///
     /// [`SchemeError::Unavailable`] unless the account could sign now
-    /// ([`sign_payment`](Self::sign_payment)) and the fee and the reserve
+    /// ([`sign_payment_to`](Self::sign_payment_to)) and the fee and the reserve
     /// fit the gas ([`gas_allows`](Self::gas_allows)).
     pub fn sign_trust_set(
         &mut self,
@@ -1342,25 +1294,20 @@ impl XrplAccount {
         }
     }
 
-    /// `scheme` still holds the settlement of transaction `hash` pending
-    /// after a restart: one in flight is submitted again once synced; one
-    /// dropped as never sent can never apply, and is forgotten now.
-    pub fn resume(&mut self, scheme: Name, hash: [u8; 32]) -> Resumed {
-        if let Some(transaction) = self.in_flight.iter_mut().find(|t| t.hash == hash) {
-            assert_eq!(transaction.scheme, scheme, "a scheme resumes its own");
-            transaction.executed = true;
-            transaction.needs_submit = true;
-            return Resumed::InFlight;
-        }
-        if let Some(position) = self
+    /// Forgets `scheme`'s transaction `hash` as never sent, if the account
+    /// remembers it so: it can never apply. Returns whether it did. How a
+    /// scheme learns that the owner's payment it still has on its way was
+    /// given up while the scheme was not on the account.
+    pub fn take_never_sent(&mut self, scheme: Name, hash: [u8; 32]) -> bool {
+        let Some(position) = self
             .never_sent
             .iter()
             .position(|n| n.hash == hash && n.scheme == scheme)
-        {
-            self.never_sent.remove(position);
-            return Resumed::NeverSent;
-        }
-        Resumed::Unknown
+        else {
+            return false;
+        };
+        self.never_sent.remove(position);
+        true
     }
 
     /// Whether a `TrustSet` of `scheme` is on its way.
@@ -1583,8 +1530,7 @@ impl XrplAccount {
     /// starts its sequence anew. Its schemes write off what they held; one
     /// not on the account does when it is back, as the count of write-offs
     /// tells it ([`write_offs`](Self::write_offs)), and what was kept for
-    /// it went with the chain: a settlement is cancelled, as one in flight
-    /// is.
+    /// it went with the chain: it is cancelled, as one in flight is.
     fn write_off(&mut self, restarted: bool) {
         assert!(
             !self.holds_anything() || self.network_id.is_some_and(resets),
@@ -1784,8 +1730,8 @@ impl XrplAccount {
         }
     }
 
-    /// Our transaction never applied, as proven: its scheme cancels its
-    /// settlement, and its sequence is the next one's, if it was the last.
+    /// Our transaction never applied, as proven: it is cancelled, and its
+    /// sequence is the next one's, if it was the last.
     fn give_up(&mut self, hash: [u8; 32]) {
         let Some(position) = self.in_flight.iter().position(|t| t.hash == hash) else {
             return;
@@ -1824,7 +1770,7 @@ impl XrplAccount {
     /// scheme, as for one not on the account: a transaction the ledger
     /// validated, or one it was told it did not read again, as kept; one
     /// that can never apply as never sent. Otherwise the scheme would read
-    /// its own settlement again as a withdrawal, and post it once found.
+    /// the owner's payment again as anyone's withdrawal.
     fn keep_untaken(&mut self, scheme: Name) {
         let mut parked = Vec::new();
         let mut never_sent = Vec::new();
@@ -1880,7 +1826,7 @@ impl XrplAccount {
     }
 
     /// A proven transaction that touches the account: it moves the holding
-    /// if it is newer than what the account told, settles one of ours in
+    /// if it is newer than what the account told, ends one of ours in
     /// flight whatever its place, and is told to every scheme. One of the
     /// account's that is not ours used up its sequence numbers: one of ours
     /// that took any of them can never apply, and is cancelled.
@@ -2528,7 +2474,7 @@ impl ExternalAsset for XrplAccount {
     }
 
     fn state(&self) -> Vec<u8> {
-        let mut out = Out::state();
+        let mut out = Out::state(ACCOUNT_VERSION);
         self.write(&mut out);
         out.0
     }
@@ -2659,8 +2605,7 @@ mod tests {
 
     // spec/areas/xrpl.md#the-account: schemes on one account take its
     // sequences in order, never the same one; and what a scheme signed and
-    // never sent is remembered for that scheme alone, until it reconciles
-    // it.
+    // never sent is remembered, until it is executed and can never be.
     #[test]
     fn schemes_on_one_account_never_share_a_sequence() {
         let (a, b) = (dassie_ledger::name!("a"), dassie_ledger::name!("b"));
@@ -2671,24 +2616,31 @@ mod tests {
         account.balance = Some(1_000_000_000);
         account.validated = 10;
         let to = Wallet::from_entropy(&[2; 32]).account();
-        let first = account.sign_payment(a, to, 1_000, Vec::new()).unwrap();
-        let second = account.sign_payment(b, to, 1_000, Vec::new()).unwrap();
-        let third = account.sign_payment(a, to, 1_000, Vec::new()).unwrap();
+        let first = account
+            .sign_payment_to(a, (to, None), 1_000, Vec::new())
+            .unwrap();
+        let second = account
+            .sign_payment_to(b, (to, None), 1_000, Vec::new())
+            .unwrap();
+        let third = account
+            .sign_payment_to(a, (to, None), 1_000, Vec::new())
+            .unwrap();
         let sequences: Vec<u32> = account.in_flight.iter().map(|t| t.sequence).collect();
         assert_eq!(sequences, [5, 6, 7]);
         assert!(account.execute(b, second));
-        // Past their last ledger, the two never executed are dropped; the
-        // one executed is looked for, as the account's sequence moved past
-        // its own.
+        // Past their last ledger, the two never executed are dropped, and
+        // remembered as never sent; the one executed is looked for, as the
+        // account's sequence moved past its own.
         account.validated = 11 + LEDGER_WINDOW;
         account.proven_sequence = 7;
         account.expire();
-        assert_eq!(account.resume(b, second), Resumed::InFlight);
-        assert_eq!(account.resume(b, first), Resumed::Unknown, "another's");
-        assert_eq!(account.resume(a, first), Resumed::NeverSent);
-        assert_eq!(account.resume(a, first), Resumed::Unknown, "reconciled");
+        assert!(account.holds_transaction(&second), "in flight");
+        assert!(account.holds_transaction(&first), "never sent");
         assert!(!account.execute(a, third), "never sent, never executed");
-        assert_eq!(account.resume(a, third), Resumed::Unknown, "executed");
+        assert!(
+            !account.holds_transaction(&third),
+            "forgotten once executed"
+        );
         account.check_invariants();
     }
 
@@ -2700,7 +2652,6 @@ mod tests {
         use dassie_settlement::{Effect, SettlementScheme};
 
         for (network, stops) in [(0, true), (2, true), (1, false)] {
-            let node = dassie_ledger::name!("node");
             let mut account = XrplAccount::new(
                 FIRST,
                 &[dassie_ledger::name!(crate::scheme::SCHEME_ID)],
@@ -2709,7 +2660,7 @@ mod tests {
                 &[],
             )
             .unwrap();
-            let mut scheme = crate::XrplScheme::new(&account, node, Some(5_000), &[]).unwrap();
+            let mut scheme = crate::XrplScheme::new(&account, Some(5_000), &[]).unwrap();
             account.phase = Phase::Synced;
             account.at = Some((NEWEST, u32::MAX));
             account.follow(scheme.id(), Some((NEWEST, u32::MAX)), true);
@@ -2735,7 +2686,7 @@ mod tests {
         }
     }
 
-    /// An account through which `schemes` settle, synced at ledger 10.
+    /// An account `schemes` book, synced at ledger 10.
     fn synced_account(schemes: &[Name]) -> XrplAccount {
         let mut account = XrplAccount::new(FIRST, schemes, "", &[1; 32], &[]).unwrap();
         account.phase = Phase::Synced;
@@ -2754,9 +2705,13 @@ mod tests {
         let (a, b) = (dassie_ledger::name!("a"), dassie_ledger::name!("b"));
         let mut account = synced_account(&[a, b]);
         let to = Wallet::from_entropy(&[2; 32]).account();
-        let first = account.sign_payment(a, to, 1_000, Vec::new()).unwrap();
+        let first = account
+            .sign_payment_to(a, (to, None), 1_000, Vec::new())
+            .unwrap();
         assert!(account.execute(a, first));
-        account.sign_payment(b, to, 1_000, Vec::new()).unwrap();
+        account
+            .sign_payment_to(b, (to, None), 1_000, Vec::new())
+            .unwrap();
         let in_flight = account.state();
         // Past its last ledger, b's, never executed, is never sent.
         account.validated = 11 + LEDGER_WINDOW;
@@ -2878,46 +2833,129 @@ mod tests {
         account.check_invariants();
     }
 
-    // A scheme's state keeps which settlements it looks up it never read,
-    // each one it looks up once: any other is a state it never wrote.
-    #[test]
-    fn a_scheme_state_keeps_what_it_never_read() {
-        use dassie_settlement::SettlementScheme;
+    /// A scheme's state as the XRPL schemes wrote it while they peered,
+    /// with the books synced at ledger 100: a peer's address, a settlement
+    /// looked up after a restart, an entry payment of 2 XRP held, no
+    /// owner's payment on its way, and the last one applied. Written by
+    /// that code, and read back by it byte for byte.
+    const PEERING_STATE: &str = "01 FF 00000064 00000002 0000000000000000
+        00000001 05 6E6F646531 0101010101010101010101010101010101010101
+        00000001 0202020202020202020202020202020202020202020202020202020202020202 00
+        00000001 05 6E6F646532 0303030303030303030303030303030303030303 0000000077359400
+            0404040404040404040404040404040404040404040404040404040404040404 00000400
+        00
+        FF 0505050505050505050505050505050505050505050505050505050505050505 01";
 
+    fn bytes(hex: &str) -> Vec<u8> {
+        crate::from_hex(&hex.split_whitespace().collect::<alloc::string::String>()).unwrap()
+    }
+
+    // spec/areas/xrpl.md#state-and-restarts: a scheme reads the state it
+    // wrote while the XRPL schemes peered. The peers' addresses and the
+    // settlements it looked up go; the entry payments it held are the
+    // owner's deposit, booked once, as a hold that ran out was, so the
+    // books hold what the account does; and it writes its own version from
+    // then on, which reads back as it was. The XRP scheme and a token
+    // scheme, whose peg guard follows, read it alike.
+    #[test]
+    fn a_state_written_while_the_schemes_peered_is_read() {
+        use dassie_settlement::{Effect, OwnerPaymentState, SettlementScheme};
+
+        let (xrp, dsusd) = (
+            dassie_ledger::name!(crate::scheme::SCHEME_ID),
+            dassie_ledger::name!(crate::dsusd::SCHEME_ID),
+        );
+        let mut account = synced_account(&[xrp, dsusd]);
+        let old = bytes(PEERING_STATE);
+        let checkpoint = 9_000_000_000;
+        let mut scheme = crate::XrplScheme::new(&account, Some(checkpoint), &old).unwrap();
+        scheme.check_invariants();
+        assert_eq!(scheme.balance(), checkpoint);
+        let owner = Name::hex(&[5; 32], true);
+        assert_eq!(scheme.owner_payment(owner), OwnerPaymentState::Applied);
+        // Booked the first time the scheme is told of the account, as the
+        // node makes it, though the account has nothing new to tell.
+        assert!(account.news.is_empty());
+        let mut effects = Vec::new();
+        scheme.on_asset(0, &mut account, &mut effects);
+        assert_eq!(
+            effects.first(),
+            Some(&Effect::Deposit {
+                amount: 2_000_000_000
+            })
+        );
+        assert_eq!(scheme.balance(), checkpoint + 2_000_000_000);
+        scheme.check_invariants();
+        let kept = scheme.state();
+        assert_eq!(
+            kept,
+            bytes(
+                "02 FF 00000064 00000002 0000000000000000 00
+                 FF 0505050505050505050505050505050505050505050505050505050505050505 01"
+            )
+        );
+        let mut again = crate::XrplScheme::new(&account, Some(scheme.balance()), &kept).unwrap();
+        assert_eq!(again.state(), kept);
+        let mut effects = Vec::new();
+        again.on_asset(0, &mut account, &mut effects);
+        assert!(
+            !effects.iter().any(|e| matches!(e, Effect::Deposit { .. })),
+            "booked once: {effects:?}"
+        );
+        // A token scheme's state holds its peg guard after it.
+        let mut old_token = old.clone();
+        old_token.extend_from_slice(&[0, 0, 0, 0]);
+        let mut token = crate::DsusdScheme::new(&account, Some(checkpoint), &old_token).unwrap();
+        let mut effects = Vec::new();
+        token.on_asset(0, &mut account, &mut effects);
+        assert_eq!(
+            effects.first(),
+            Some(&Effect::Deposit {
+                amount: 2_000_000_000
+            })
+        );
+        assert!(token.state().starts_with(&kept), "the guard after it");
+        token.check_invariants();
+    }
+
+    // A state of the old version is read whole, as one of the new is: an
+    // entry payment twice, or held before the first sync, or more than the
+    // state held, is a state the scheme never wrote.
+    #[test]
+    fn a_state_written_while_the_schemes_peered_is_checked() {
         let id = dassie_ledger::name!(crate::scheme::SCHEME_ID);
         let account = synced_account(&[id]);
-        let node = dassie_ledger::name!("node");
-        let state = |recovering: &[([u8; 32], bool)]| {
-            let mut out = Out::state();
-            out.option(Some((10, u32::MAX)), |out, (ledger, index)| {
-                out.u32(ledger);
-                out.u32(index);
-            });
-            out.u64(0);
-            out.count(0);
-            out.count(recovering.len());
-            for (hash, unread) in recovering {
-                out.bytes(hash);
-                out.bool(*unread);
-            }
-            out.count(0);
-            out.option(None::<()>, |_, ()| {});
-            out.option(None::<()>, |_, ()| {});
-            out.0
+        let refused = |hex: &str| crate::XrplScheme::new(&account, None, &bytes(hex)).is_err();
+        assert!(!refused(PEERING_STATE));
+        let entry = |hash: u8| {
+            alloc::format!(
+                "05 6E6F646532 {} 0000000077359400 {} 00000400",
+                "03".repeat(20),
+                {
+                    let byte = alloc::format!("{hash:02X}");
+                    byte.repeat(32)
+                }
+            )
         };
-        let kept = state(&[([1; 32], true), ([2; 32], false)]);
-        let scheme = crate::XrplScheme::new(&account, node, Some(0), &kept).unwrap();
-        assert_eq!(scheme.state(), kept);
-        let twice = state(&[([1; 32], true), ([1; 32], false)]);
-        assert!(crate::XrplScheme::new(&account, node, Some(0), &twice).is_err());
-        let mut longer = kept;
-        longer.push(0);
-        assert!(crate::XrplScheme::new(&account, node, Some(0), &longer).is_err());
+        let state = |cursor: &str, entries: &[u8]| {
+            let mut hex = alloc::format!("01 {cursor} 0000000000000000 00000000 00000000");
+            hex.push_str(&alloc::format!(" {:08X}", entries.len()));
+            for hash in entries {
+                hex.push(' ');
+                hex.push_str(&entry(*hash));
+            }
+            hex.push_str(" 00 00");
+            hex
+        };
+        assert!(!refused(&state("FF 00000064 00000002", &[4, 5])));
+        assert!(refused(&state("FF 00000064 00000002", &[4, 4])), "twice");
+        assert!(refused(&state("00", &[4])), "before the first sync");
+        assert!(!refused(&state("00", &[])));
     }
 
     // spec/areas/xrpl.md#state-and-restarts: a state is read whole, of its
-    // version alone: one cut short anywhere, with a byte more, or of
-    // another version is refused, the account's and a scheme's alike.
+    // version: one cut short anywhere, with a byte more, or of a version
+    // it never wrote is refused, the account's and a scheme's alike.
     #[test]
     fn a_state_is_read_whole_and_of_its_version() {
         use dassie_settlement::SettlementScheme;
@@ -2925,22 +2963,22 @@ mod tests {
         let id = dassie_ledger::name!(crate::scheme::SCHEME_ID);
         let mut account = synced_account(&[id]);
         let to = Wallet::from_entropy(&[2; 32]).account();
-        let hash = account.sign_payment(id, to, 1_000, Vec::new()).unwrap();
+        let hash = account
+            .sign_payment_to(id, (to, None), 1_000, Vec::new())
+            .unwrap();
         assert!(account.execute(id, hash));
-        let mut scheme =
-            crate::XrplScheme::new(&account, dassie_ledger::name!("node"), None, &[]).unwrap();
-        let mut info = Vec::new();
-        crate::follower::address_bytes(to, &mut info);
-        scheme.on_peered(dassie_ledger::name!("peer"), &info);
+        let mut scheme = crate::XrplScheme::new(&account, None, &[]).unwrap();
+        let mut effects = Vec::new();
+        scheme.on_asset(0, &mut account, &mut effects);
+        account.told();
         let (kept, scheme_kept) = (account.state(), scheme.state());
         let restored = XrplAccount::new(FIRST, &[id], "", &[1; 32], &kept).unwrap();
         assert_eq!(restored.state(), kept);
-        let node = dassie_ledger::name!("node");
-        let again = crate::XrplScheme::new(&restored, node, None, &scheme_kept).unwrap();
+        let again = crate::XrplScheme::new(&restored, None, &scheme_kept).unwrap();
         assert_eq!(again.state(), scheme_kept);
         let refused = |state: &[u8]| {
             XrplAccount::new(FIRST, &[id], "", &[1; 32], state).is_err()
-                && crate::XrplScheme::new(&restored, node, None, state).is_err()
+                && crate::XrplScheme::new(&restored, None, state).is_err()
         };
         for state in [&kept, &scheme_kept] {
             for cut in 1..state.len() {
@@ -2950,7 +2988,7 @@ mod tests {
             longer.push(0);
             assert!(refused(&longer));
             let mut other = state.clone();
-            other[0] = 2;
+            other[0] = 3;
             assert!(refused(&other));
         }
     }

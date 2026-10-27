@@ -55,10 +55,6 @@ pub(super) struct Settlements {
     /// largest packet (spec/decisions/thresholds-in-packets.md).
     pub trigger: u64,
     pub minimum: u64,
-    /// The most credit a peer can earn (spec/decisions/earned-trust.md).
-    pub credit_cap: u64,
-    /// Where reading the fees peers earned us stands.
-    pub growth: super::growth::Growth,
     /// When each peer was last asked to settle on each method, until it
     /// settles on it (spec/decisions/settlement-methods.md).
     pub asked: BTreeMap<(NodeId, SchemeId), u64>,
@@ -98,10 +94,8 @@ impl Settlements {
             request_every_ms: policies.settlement_request_every_ms,
             trigger: policy::trigger(policies.connector.max_packet_amount),
             minimum: policy::minimum(policies.connector.max_packet_amount),
-            credit_cap: policy::credit_cap(policies.connector.max_packet_amount),
             max_packet: policies.connector.max_packet_amount,
             peg: policies.peg,
-            growth: super::growth::Growth::new(),
             asked: BTreeMap::new(),
             settling: BTreeMap::new(),
             to_execute: Vec::new(),
@@ -209,7 +203,6 @@ impl Core {
             return;
         }
         self.settle.at_ms = now.saturating_add(self.settle.interval_ms);
-        self.grow_credit();
         self.check_schemes();
         self.report_room();
         self.ask_peers();
@@ -445,10 +438,31 @@ impl Core {
 
     /// Each method of each active peering, by peer and then in the order
     /// the pair agreed them: at most [`dassie_peer::MAX_METHODS`] a peer.
+    /// Not one being wound down (spec/decisions/settlement-methods.md): the
+    /// wind-down asks the peer to settle on it once, and its room decides
+    /// nothing, since it takes no new Prepare and is dropped within its
+    /// bound, so short, it would only end the whole peering over a method
+    /// that goes anyway. Nor one that would settle directly, as one on an
+    /// owner book a peering stored from when the XRPL schemes peered still
+    /// has (spec/areas/settlement.md#owner-books): nothing can be settled
+    /// on it, so a request would only fail, and its room would end the
+    /// peering, its hub methods too, until the peer protocol drops it.
     fn methods_of_active_peers(&self) -> Vec<(NodeId, SchemeId)> {
+        let direct = |scheme: SchemeId| {
+            Name::new(scheme.as_str())
+                .ok()
+                .and_then(|name| self.schemes.get(&name))
+                .is_some_and(super::ledgers::ActiveScheme::settles_directly)
+        };
         self.peer
             .active_peers()
-            .flat_map(|(id, peering)| peering.schemes().map(move |scheme| (*id, scheme)))
+            .flat_map(|(id, peering)| {
+                peering
+                    .methods
+                    .iter()
+                    .filter(move |method| !method.winding_down() && !direct(method.scheme))
+                    .map(move |method| (*id, method.scheme))
+            })
             .collect()
     }
 
@@ -730,7 +744,7 @@ impl Core {
             return;
         }
         if let Err(error) =
-            super::growth::raise_trust(&mut self.ledger, self.now_ms, at.ledger, name, amount)
+            super::trust::raise_trust(&mut self.ledger, self.now_ms, at.ledger, name, amount)
         {
             self.report(SettlementEvent::BooksCannotSettle { node, error });
             return;
@@ -1102,8 +1116,7 @@ impl Core {
                 // (spec/decisions/lazy-downlink-accounts.md).
                 None if self.downlink_may_open(&from) => {
                     let debit = self.account(ledger, AccountName::AssetsSettlement)?;
-                    let trust =
-                        super::downlinks::start_credit(&self.schemes, scheme, self.senior_credit);
+                    let trust = super::downlinks::start_credit(&self.schemes, scheme);
                     let reference = Reference::Settlement { scheme, id: scheme };
                     self.ledger
                         .validate_to_peer(debit, name, trust, amount, reference)
@@ -1144,9 +1157,9 @@ impl Core {
     }
 }
 
-/// Where a payer over a hub stands when asked to settle: as a junior that
-/// extends the default credit `credit` would, with the hold it keeps toward
-/// the peer counted as what it paid in advance. So it funds the hold with
+/// Where a payer over a hub stands when asked to settle: as if it extended
+/// the default credit `credit`, with the hold it keeps toward the peer
+/// counted as what it paid in advance. So it funds the hold with
 /// what it would otherwise have paid
 /// (spec/designs/settlement-hubs.md#4-peering-over-a-hub), whatever the
 /// hold's part of the credit it extends.

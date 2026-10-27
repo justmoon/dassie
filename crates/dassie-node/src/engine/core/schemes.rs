@@ -82,18 +82,30 @@ const HUB_SCHEMES: [&str; 4] = [
     dassie_hub::member::RLUSD_SCHEME_ID,
 ];
 
-/// The default hub of scheme `id`, if it is a hub's: the hex of the rules
-/// built in, or `None` while none is
-/// (spec/designs/settlement-hubs.md#11-choosing-a-hub). None is built in on
-/// mainnet yet (spec/roadmap.md#mainnet-hubs): a mainnet hub's scheme runs
+/// The default hub of each scheme of [`HUB_SCHEMES`], in its order: the
+/// hex of the rules built in, or `None` while none is
+/// (spec/designs/settlement-hubs.md#11-choosing-a-hub). Mainnet's are
+/// placeholders until the project's validators found them
+/// (spec/roadmap.md#mainnet-hubs): while one is `None`, its scheme runs
 /// only with the rules its config names, and is not offered.
-fn default_hub(id: &str) -> Option<Option<&'static str>> {
-    match id {
-        dassie_hub::member::SCHEME_ID => Some(dassie_hub::member::DEFAULT_TESTNET_HUB),
-        dassie_hub::member::DSUSD_SCHEME_ID => Some(dassie_hub::member::DEFAULT_TESTNET_DSUSD_HUB),
-        dassie_hub::member::MAINNET_SCHEME_ID | dassie_hub::member::RLUSD_SCHEME_ID => Some(None),
-        _ => None,
-    }
+type DefaultHubs = [Option<&'static str>; HUB_SCHEMES.len()];
+
+/// The default hubs this build carries.
+const DEFAULT_HUBS: DefaultHubs = [
+    dassie_hub::member::DEFAULT_TESTNET_HUB,
+    dassie_hub::member::DEFAULT_TESTNET_DSUSD_HUB,
+    dassie_hub::member::DEFAULT_MAINNET_HUB,
+    dassie_hub::member::DEFAULT_MAINNET_RLUSD_HUB,
+];
+
+/// The default hub of scheme `id` among `hubs`, if it is a hub's: the hex
+/// of the rules built in, or `None` while none is.
+fn default_hub(id: &str, hubs: &DefaultHubs) -> Option<Option<&'static str>> {
+    HUB_SCHEMES
+        .iter()
+        .zip(hubs)
+        .find(|(scheme, _)| **scheme == id)
+        .map(|(_, hub)| *hub)
 }
 
 /// The schemes the node no longer runs: test RLUSD, for which DSUSD stands
@@ -142,9 +154,14 @@ fn not_run_in(id: &str, stub_runs: bool) -> Option<&'static str> {
 /// added with a config of its own is listed as any active scheme.
 #[must_use]
 pub fn offered(info: &SchemeInfo, realm: Realm) -> bool {
+    offered_in(info, realm, &DEFAULT_HUBS)
+}
+
+/// [`offered`], with the default hubs `hubs` built in.
+fn offered_in(info: &SchemeInfo, realm: Realm, hubs: &DefaultHubs) -> bool {
     not_run(info.id).is_none()
         && info.ledger.realm() == realm
-        && default_hub(info.id).is_none_or(|hub| hub.is_some())
+        && default_hub(info.id, hubs).is_none_or(|hub| hub.is_some())
 }
 
 /// The external asset scheme `id` settles through, if any, and the config
@@ -182,11 +199,11 @@ fn asset_of(id: &str) -> Option<AssetId> {
 
 /// The rules of the hub the config of hub scheme `id` names: the hex of
 /// their encoding as `{"rules": "…"}`, or nothing for the scheme's default
-/// hub, while one is built in
+/// hub among `hubs`, while one is built in
 /// (spec/designs/settlement-hubs.md#11-choosing-a-hub).
-fn hub_rules(id: &str, config: &str) -> Result<dassie_hub::Rules, SchemeError> {
+fn hub_rules(id: &str, config: &str, hubs: &DefaultHubs) -> Result<dassie_hub::Rules, SchemeError> {
     let hex = if config.trim().is_empty() {
-        default_hub(id)
+        default_hub(id, hubs)
             .flatten()
             .ok_or(SchemeError::InvalidConfig)?
     } else {
@@ -226,13 +243,24 @@ fn create_hub_account(
     id: AssetId,
     config: &str,
     state: &[u8],
+    with: (&NodeKey, u64),
+) -> Result<Box<dyn ExternalAsset>, SchemeError> {
+    create_hub_account_in(id, config, state, with, &DEFAULT_HUBS)
+}
+
+/// [`create_hub_account`], with the default hubs `hubs` built in.
+fn create_hub_account_in(
+    id: AssetId,
+    config: &str,
+    state: &[u8],
     (key, window_ms): (&NodeKey, u64),
+    hubs: &DefaultHubs,
 ) -> Result<Box<dyn ExternalAsset>, SchemeError> {
     let scheme = HUB_SCHEMES
         .into_iter()
         .find(|scheme| dassie_hub::member::account_id(scheme) == Some(id))
         .ok_or(SchemeError::UnknownScheme)?;
-    let rules = hub_rules(scheme, config)?;
+    let rules = hub_rules(scheme, config, hubs)?;
     if dassie_hub::member::scheme_of(&rules.terms).map(|(named, _)| named) != Some(scheme) {
         return Err(SchemeError::InvalidConfig);
     }
@@ -415,7 +443,6 @@ fn create(
     id: &str,
     config: &str,
     checkpoint: Option<&Checkpoint>,
-    key: &NodeKey,
     asset: Option<&dyn ExternalAsset>,
     max_packet: u64,
     peg: dassie_xrpl::peg::Timings,
@@ -426,51 +453,35 @@ fn create(
         any.and_then(|asset| asset.downcast_ref::<XrplAccount>())
             .ok_or(SchemeError::InvalidConfig)
     };
-    let node = || Name::new(key.node_id().as_str()).map_err(|_| SchemeError::InvalidData);
     let state = checkpoint.map_or(&[][..], |c| c.state.as_slice());
-    // What a node new to us pays to enter: one largest packet, the least it
-    // settles (spec/decisions/pay-to-enter.md). An owner book, which peers
-    // with nobody, takes none: a payment naming a node is a deposit there.
-    let entry = dassie_settlement::policy::minimum(max_packet);
-    let peers = || dassie_xrpl::scheme::SchemeConfig::parse(config).map(|config| config.peers);
+    // Every XRPL scheme is an owner book: its config may still say
+    // `peers`, which is read and has no effect
+    // (spec/areas/xrpl.md#owner-books).
+    let owner_book = || dassie_xrpl::scheme::SchemeConfig::parse(config).map(|_| ());
     match id {
         "stub" => Ok(Box::new(Stub::new(config, balance, state)?)),
         dassie_xrpl::scheme::SCHEME_ID => {
-            let mut scheme = XrplScheme::new(account()?, node()?, balance, state)?;
-            let peers = peers()?;
-            scheme.set_peers(peers);
-            if peers {
-                scheme.take_entries_from(entry);
-            }
-            Ok(Box::new(scheme))
+            owner_book()?;
+            Ok(Box::new(XrplScheme::new(account()?, balance, state)?))
         }
         dassie_xrpl::scheme::MAINNET_SCHEME_ID => {
-            let mut scheme = XrplMainnetScheme::new(account()?, node()?, balance, state)?;
-            let peers = peers()?;
-            scheme.set_peers(peers);
-            if peers {
-                scheme.take_entries_from(entry);
-            }
-            Ok(Box::new(scheme))
+            owner_book()?;
+            Ok(Box::new(XrplMainnetScheme::new(
+                account()?,
+                balance,
+                state,
+            )?))
         }
         dassie_xrpl::rlusd::SCHEME_ID => {
-            let mut scheme = RlusdScheme::new(account()?, node()?, balance, state)?;
+            owner_book()?;
+            let mut scheme = RlusdScheme::new(account()?, balance, state)?;
             scheme.set_peg_timings(peg);
-            let peers = peers()?;
-            scheme.set_peers(peers);
-            if peers {
-                scheme.take_entries_from(entry);
-            }
             Ok(Box::new(scheme))
         }
         dassie_xrpl::dsusd::SCHEME_ID => {
-            let mut scheme = DsusdScheme::new(account()?, node()?, balance, state)?;
+            owner_book()?;
+            let mut scheme = DsusdScheme::new(account()?, balance, state)?;
             scheme.set_peg_timings(peg);
-            let peers = peers()?;
-            scheme.set_peers(peers);
-            if peers {
-                scheme.take_entries_from(entry);
-            }
             Ok(Box::new(scheme))
         }
         id if HUB_SCHEMES.contains(&id) => create_hub_scheme(id, asset, max_packet, balance, state),
@@ -621,7 +632,6 @@ impl Core {
                 id.as_str(),
                 config,
                 checkpoint,
-                &self.key,
                 None,
                 self.settle.max_packet,
                 self.settle.peg,
@@ -664,7 +674,6 @@ impl Core {
                 id.as_str(),
                 config,
                 checkpoint,
-                &self.key,
                 Some(active.asset.as_ref()),
                 self.settle.max_packet,
                 self.settle.peg,
@@ -1381,7 +1390,7 @@ mod tests {
         use dassie_oer::Encode;
 
         let xrp = super::super::tests::hub_config(600, 300);
-        let mut rules = hub_rules(dassie_hub::member::SCHEME_ID, &xrp).unwrap();
+        let mut rules = hub_rules(dassie_hub::member::SCHEME_ID, &xrp, &DEFAULT_HUBS).unwrap();
         rules.terms.network = network;
         rules.terms.asset = asset;
         if asset != Asset::Xrp {
@@ -1453,7 +1462,6 @@ mod tests {
             DSUSD_SCHEME_ID,
             &dsusd,
             None,
-            &key,
             Some(made.as_ref()),
             1_000_000,
             dassie_xrpl::peg::Timings::DEFAULT,
@@ -1466,7 +1474,6 @@ mod tests {
                 SCHEME_ID,
                 &dsusd,
                 None,
-                &key,
                 Some(made.as_ref()),
                 1_000_000,
                 dassie_xrpl::peg::Timings::DEFAULT,
@@ -1491,9 +1498,9 @@ mod tests {
     // through an account of the live realm's kind of its own, and books on
     // its live ledger. A testnet hub's rules given to a mainnet scheme, or a
     // mainnet hub's to a testnet scheme, are an invalid config, so a hub's
-    // terms are on the network of its scheme's realm. No mainnet hub is
-    // built in: the schemes run only with rules of their own, and are not
-    // offered.
+    // terms are on the network of its scheme's realm. While no mainnet hub
+    // is built in, the schemes run only with rules of their own, and are
+    // not offered.
     #[test]
     fn each_mainnet_hub_scheme_joins_only_a_mainnet_hub_of_its_asset() {
         use dassie_hub::member::{MAINNET_SCHEME_ID, RLUSD_SCHEME_ID, SCHEME_ID};
@@ -1520,7 +1527,12 @@ mod tests {
             assert_eq!(schemes_on(account), [Name::new(id).unwrap()]);
             accounts.push(account);
             let made = create_hub_account(account, config, &[], (&key, window)).unwrap();
-            for wrong in [other.as_str(), testnet.as_str(), ""] {
+            let built_in = default_hub(id, &DEFAULT_HUBS).flatten().is_some();
+            let empty = if built_in { None } else { Some("") };
+            for wrong in [Some(other.as_str()), Some(testnet.as_str()), empty]
+                .into_iter()
+                .flatten()
+            {
                 assert!(
                     matches!(
                         create_hub_account(account, wrong, &[], (&key, window)),
@@ -1533,7 +1545,6 @@ mod tests {
                 id,
                 config,
                 None,
-                &key,
                 Some(made.as_ref()),
                 1_000_000,
                 dassie_xrpl::peg::Timings::DEFAULT,
@@ -1544,7 +1555,8 @@ mod tests {
             assert_eq!(scheme.asset(), Some(account));
             let info = SCHEMES.iter().find(|info| info.id == id).unwrap();
             assert_eq!(info.ledger, ledger);
-            assert!(!offered(info, Realm::Live) && !offered(info, Realm::Test));
+            assert_eq!(offered(info, Realm::Live), built_in);
+            assert!(!offered(info, Realm::Test));
         }
         assert_ne!(accounts[0], accounts[1], "an account per hub");
         let testnet_account = asset_of(SCHEME_ID).unwrap();
@@ -1553,6 +1565,62 @@ mod tests {
             create_hub_account(testnet_account, &xrp, &[], (&key, window)),
             Err(SchemeError::InvalidConfig)
         ));
+    }
+
+    // spec/designs/settlement-hubs.md#11-choosing-a-hub: once a default
+    // mainnet hub is built in, a node of the live realm is offered its
+    // scheme, and the scheme added with an empty config joins it; while
+    // none is, neither. A test-realm node is offered neither either way.
+    #[test]
+    fn a_built_in_mainnet_hub_is_offered_and_joined_with_an_empty_config() {
+        use dassie_hub::member::{MAINNET_SCHEME_ID, RLUSD_SCHEME_ID};
+        use dassie_hub::rules::Asset;
+        use dassie_xrpl::network::MAINNET;
+
+        let rules_of = |config: String| -> &'static str {
+            let value: serde_json::Value = serde_json::from_str(&config).unwrap();
+            value["rules"].as_str().unwrap().to_owned().leak()
+        };
+        let rlusd = Asset::Token {
+            currency: dassie_xrpl::rlusd::CURRENCY,
+            issuer: dassie_xrpl::rlusd::ISSUER,
+        };
+        let xrp = rules_of(hub_config_on(MAINNET.id, Asset::Xrp));
+        let rlusd = rules_of(hub_config_on(MAINNET.id, rlusd));
+        let built_in: DefaultHubs = [None, None, Some(xrp), Some(rlusd)];
+        let none: DefaultHubs = [None; HUB_SCHEMES.len()];
+        let key = NodeKey::from_bytes(&[7; 32]);
+        let window = u64::MAX;
+        for (id, hex) in [(MAINNET_SCHEME_ID, xrp), (RLUSD_SCHEME_ID, rlusd)] {
+            let info = SCHEMES.iter().find(|info| info.id == id).unwrap();
+            assert_eq!(default_hub(id, &built_in), Some(Some(hex)));
+            assert!(offered_in(info, Realm::Live, &built_in), "{id}");
+            assert!(!offered_in(info, Realm::Test, &built_in), "{id}");
+            assert!(!offered_in(info, Realm::Live, &none), "{id}");
+            let account = asset_of(id).unwrap();
+            let made = create_hub_account_in(account, "", &[], (&key, window), &built_in).unwrap();
+            let any: &dyn core::any::Any = made.as_ref();
+            let member = any
+                .downcast_ref::<dassie_hub::member::HubAccount>()
+                .unwrap();
+            assert_eq!(member.hub(), decode_rules(hex).unwrap().id(), "{id}");
+            assert!(matches!(
+                create_hub_account_in(account, "", &[], (&key, window), &none),
+                Err(SchemeError::InvalidConfig)
+            ));
+        }
+        // A default of one asset is no default of the other.
+        let swapped: DefaultHubs = [None, None, Some(rlusd), Some(xrp)];
+        let account = asset_of(MAINNET_SCHEME_ID).unwrap();
+        assert!(matches!(
+            create_hub_account_in(account, "", &[], (&key, window), &swapped),
+            Err(SchemeError::InvalidConfig)
+        ));
+        // Not a hub's scheme: no default to look up.
+        assert_eq!(
+            default_hub(dassie_xrpl::scheme::MAINNET_SCHEME_ID, &built_in),
+            None
+        );
     }
 
     // A node offers only its realm's schemes.
@@ -1605,7 +1673,6 @@ mod tests {
                 id,
                 "",
                 None,
-                &key,
                 Some(asset.as_ref()),
                 0,
                 dassie_xrpl::peg::Timings::DEFAULT

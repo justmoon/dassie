@@ -15,7 +15,7 @@
 - **The sponsor drives.** It asks each validator in turn, persists where its founding stands after every answer that changed it, and asks again after a wait that doubles. Validators never talk to each other while a hub is founded.
 - **The genesis certificate** is a quorum's consensus-key signatures of the genesis block, under a domain tag of its own. A validator signs one genesis per nonce, the same one again as often as asked, and runs the hub a certificate founds, its own signature in it or not, as long as it signed no other genesis under the nonce and the rules carry its own acceptance as it makes it.
 - **Places.** Each hub a validator runs, each genesis it signed and each acceptance younger than a day holds one of its places, its bound on hubs: a sponsor that stops halfway frees an acceptance's place by itself, and a signed genesis's once its hub runs.
-- **The escrow last.** Once a quorum runs the hub, the sponsor funds the escrow with an owner's payment from its XRP Ledger testnet account, sets up what is missing of it, the master key disabled last, and asks the validators until f + 1 say a quorum checked it.
+- **The escrow last.** Once a quorum runs the hub, the sponsor funds the escrow with an owner's payment from its XRP Ledger account on the hub's network, sets up what is missing of it, the master key disabled last, and asks the validators until f + 1 say a quorum checked it.
 
 ## Accepted
 

@@ -32,7 +32,7 @@ pub mod wire;
 
 pub use channel::{Channel, Closed, Outgoing};
 pub use config::{Config, Rate};
-pub use hooks::{Agreed, Declined, EntryPayment, PeeringHooks};
+pub use hooks::{Agreed, Declined, PeeringHooks};
 pub use io::{
     Event, Failure, Inbound, InboundId, NameEvent, Output, PacketAnswer, Reply, Request, RequestId,
     Response, SettlementAnswer, Stats,

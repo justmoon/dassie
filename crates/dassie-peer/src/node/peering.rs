@@ -12,7 +12,7 @@ use super::gossip::Retransmit;
 use super::inbound::Accepted;
 use super::inbound::{Probe, ProbeFor, ok};
 use super::{PeerNode, Problem, Purpose};
-use crate::hooks::{EntryPayment, PeeringHooks};
+use crate::hooks::PeeringHooks;
 use crate::io::{Event, Inbound, InboundId, Reply};
 use crate::table::{
     Advertise, Entry, LinkState, Method, Network, PeerState, Peering as PeeringState, Sources,
@@ -262,10 +262,13 @@ impl PeerNode {
 
     /// The schemes a peering with the node of `link` settles on, in order
     /// (spec/decisions/settlement-methods.md): each hub both nodes are in and
-    /// take new peers over, then each other scheme both run that is not over
-    /// a hub. The first is the one to ask for a peering on, and each of the
-    /// others a further method of it. A hub scheme without a shared hub
-    /// would leave each side without the other's account
+    /// take new peers over, then each other scheme both run whose peers
+    /// trust each other without limit, the test stub's. A scheme that is
+    /// neither over a hub nor of unlimited trust would settle directly, so
+    /// it is never a method (spec/decisions/hubs-only.md). The first is the
+    /// one to ask for a peering on, and each of the others a further method
+    /// of it. A hub scheme without a shared hub would leave each side
+    /// without the other's account
     /// (spec/designs/settlement-hubs.md#11-choosing-a-hub). At most one per
     /// scheme we peer on, so at most [`MAX_METHODS`](crate::MAX_METHODS).
     pub(crate) fn methods_with(&self, hooks: &dyn PeeringHooks, link: &LinkState) -> Vec<SchemeId> {
@@ -280,10 +283,9 @@ impl PeerNode {
         }
         let mut methods = self.shared_hubs(hooks, link, common.iter().copied());
         methods.extend(
-            common
-                .iter()
-                .copied()
-                .filter(|scheme| !hooks.uses_commitments(*scheme)),
+            common.iter().copied().filter(|scheme| {
+                !hooks.uses_commitments(*scheme) && hooks.trusts_unlimited(*scheme)
+            }),
         );
         assert!(methods.len() <= crate::MAX_METHODS, "a method per scheme");
         methods
@@ -427,8 +429,7 @@ impl PeerNode {
                     _ => Vec::new(),
                 };
                 let now = self.now_ms;
-                let ended_for_room = self.ended_for_room(&node, hooks);
-                match hooks.finalize(now, node, scheme, &info, ended_for_room) {
+                match hooks.finalize(now, node, scheme, &info) {
                     Ok(agreed) => {
                         if !self.become_peered(hooks, node, scheme, agreed, false) {
                             self.fail_attempt(node, "no room left");
@@ -646,10 +647,17 @@ impl PeerNode {
         if !repeat && (!self.schemes.contains(&request.scheme) || !hooks.speaks(request.scheme)) {
             return Err(RefusalReason::UnsupportedScheme);
         }
+        // A scheme neither over a hub nor of unlimited trust would settle
+        // directly, so a peering is never made on it, whoever asks
+        // (spec/decisions/hubs-only.md), as it is never one we ask on
+        // ([`Self::methods_with`]).
+        if !repeat && hooks.settles_directly(request.scheme) {
+            return Err(RefusalReason::UnsupportedScheme);
+        }
         // A downlink is in no node list: it enters the table by asking.
         let Some(entry) = self.table.get(sender) else {
             return if downlink {
-                self.downlink_room(hooks, sender, request)
+                self.downlink_room(hooks, sender)
             } else {
                 Err(RefusalReason::UnknownNode)
             };
@@ -675,7 +683,7 @@ impl PeerNode {
             self.abandon_attempt(*sender);
         }
         if downlink {
-            return self.downlink_room(hooks, sender, request);
+            return self.downlink_room(hooks, sender);
         }
         let inbound = self.core_peers().filter(|(_, p)| p.inbound).count();
         if inbound >= self.config.max_inbound()
@@ -689,15 +697,11 @@ impl PeerNode {
     /// Whether a downlink `sender` fits: its place in the table, its
     /// peering and its channel, under their own bound, apart from the core
     /// peering slots (spec/areas/network.md#downlinks); and, if it never
-    /// paid us, among the free receivers, unless its request's scheme
-    /// holds what it paid us to enter. Past a full free half, with room
-    /// left, a scheme that takes entry payments tells it to pay
-    /// (spec/decisions/pay-to-enter.md).
+    /// paid us, among the free receivers.
     fn downlink_room(
         &self,
         hooks: &dyn PeeringHooks,
         sender: &NodeId,
-        request: &PeeringRequest<'_>,
     ) -> Result<(), RefusalReason> {
         let peered = self.peers().filter(|(id, _)| self.is_downlink(id)).count();
         let placed = self.is_downlink(sender) || self.downlinks() < self.config.max_downlinks;
@@ -705,12 +709,9 @@ impl PeerNode {
             return Err(RefusalReason::Capacity);
         }
         if self.free_room_for(hooks, sender) {
-            return Ok(());
-        }
-        match hooks.entry(*sender, request.scheme, request.data) {
-            EntryPayment::Held => Ok(()),
-            EntryPayment::Missing => Err(RefusalReason::PayToEnter),
-            EntryPayment::NotTaken => Err(RefusalReason::Capacity),
+            Ok(())
+        } else {
+            Err(RefusalReason::Capacity)
         }
     }
 

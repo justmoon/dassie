@@ -20,6 +20,7 @@
 //! within its own settlement asset, and books nothing but the fee.
 
 pub mod account;
+pub mod mainnet;
 mod mirror;
 mod payee;
 mod payer;
@@ -30,9 +31,9 @@ pub mod scheme;
 mod state;
 
 pub use account::{FIRST, HubAccount, News, Purpose};
+pub use mainnet::{DEFAULT_MAINNET_VALIDATORS, ListedValidator, check_default_hub};
 pub use mirror::HoldMirror;
 pub use payout::{Payouts, Taken};
-pub use peering::peer_account;
 pub use scheme::{
     DSUSD_SCHEME_ID, HubScheme, MAINNET_SCHEME_ID, RLUSD_SCHEME_ID, SCHEME_ID, scheme_of,
 };
@@ -77,6 +78,33 @@ pub const DEFAULT_TESTNET_HUB: Option<&str> = None;
 /// wallet does not offer `hub-xrpl-testnet-dsusd`, and the scheme added
 /// without rules of its own does not start (spec/areas/hubs.md#in-the-node).
 pub const DEFAULT_TESTNET_DSUSD_HUB: Option<&str> = None;
+
+/// The default hub of XRP on the XRP Ledger's mainnet, as the hex of its
+/// rules' encoding, kept as [`DEFAULT_TESTNET_HUB`] is: founded by the
+/// project with the validators it runs on mainnet, each on the default
+/// list of mainnet validators ([`DEFAULT_MAINNET_VALIDATORS`]), holding
+/// real XRP. A node joins it only once its owner turns hubs on, by adding
+/// `hub-xrpl-xrp`; one names another mainnet hub in the scheme's config.
+///
+/// None is built in until the project's mainnet validators found it: an
+/// operator's step, which puts its rules' hex in `default-mainnet-hub.hex`
+/// and this to `Some(include_str!("default-mainnet-hub.hex"))`, once
+/// [`check_default_hub`] passes it against the list, as a test checks.
+/// Meanwhile the wallet does not offer `hub-xrpl-xrp`, and the scheme added
+/// without rules of its own does not start (spec/areas/hubs.md#in-the-node).
+pub const DEFAULT_MAINNET_HUB: Option<&str> = None;
+
+/// The default hub of RLUSD on the XRP Ledger's mainnet, kept as
+/// [`DEFAULT_MAINNET_HUB`] is: founded by the project with its mainnet
+/// validators, holding RLUSD of its issuer (spec/decisions/token-hubs.md).
+///
+/// None is built in until they found it: an operator's step, which puts
+/// its rules' hex in `default-mainnet-rlusd-hub.hex` and this to
+/// `Some(include_str!("default-mainnet-rlusd-hub.hex"))`, once
+/// [`check_default_hub`] passes it. Meanwhile the wallet does not offer
+/// `hub-xrpl-rlusd`, and the scheme added without rules of its own does
+/// not start.
+pub const DEFAULT_MAINNET_RLUSD_HUB: Option<&str> = None;
 
 /// The account a node's account in the hub of scheme `scheme` is, as an
 /// external asset: on the XRP Ledger testnet, [`FIRST`] in its XRP hub and

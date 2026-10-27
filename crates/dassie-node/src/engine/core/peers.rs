@@ -10,8 +10,8 @@ use dassie_ilp::ErrorCode;
 use dassie_ledger::{AccountName, AccountPath, Ledger, LedgerId, Name};
 use dassie_peer::wire::{RefusalReason, SchemeId, TerminationReason};
 use dassie_peer::{
-    Agreed, BanError, Declined, EntryPayment, Event, InboundId, NameEvent, Output as PeerOutput,
-    PacketAnswer, PeeringHooks, Reply,
+    Agreed, BanError, Declined, Event, InboundId, NameEvent, Output as PeerOutput, PacketAnswer,
+    PeeringHooks, Reply,
 };
 
 use super::downlinks::Downlinks;
@@ -27,11 +27,10 @@ use dassie_settlement::{AssetId, LedgerStatus};
 pub(super) struct Hooks<'a> {
     pub schemes: &'a mut BTreeMap<Name, ActiveScheme>,
     pub ledger: &'a mut Ledger,
-    /// The credit a junior extends to its senior at first
-    /// (spec/decisions/earned-trust.md).
+    /// The default credit, which the node that asked to peer extends at
+    /// first on a scheme that neither settles over a hub nor trusts
+    /// without limit ([`ActiveScheme::start_credit`]).
     pub credit: u64,
-    /// The credit a senior extends to its junior at first.
-    pub senior_credit: u64,
     pub connector: &'a Connector,
     pub endpoints: &'a BTreeMap<NodeId, u64>,
     /// The external assets the schemes settle through, for their status.
@@ -74,7 +73,7 @@ impl Hooks<'_> {
         amount: u64,
     ) -> Result<(), ()> {
         let name = Name::new(peer.as_str()).map_err(|_| ())?;
-        super::growth::raise_trust(self.ledger, now_ms, ledger, name, amount).map_err(|_| ())
+        super::trust::raise_trust(self.ledger, now_ms, ledger, name, amount).map_err(|_| ())
     }
 
     /// Opens a core peer's accounts and extends it `start`, once.
@@ -225,17 +224,17 @@ impl PeeringHooks for Hooks<'_> {
         data: &[u8],
     ) -> Result<Agreed, RefusalReason> {
         let peer_name = name(peer).ok_or(RefusalReason::Unspecified)?;
-        let senior_credit = self.senior_credit;
         let active = self
             .scheme(scheme)
             .ok_or(RefusalReason::UnsupportedScheme)?;
         let ledger = active.scheme.ledger();
         let unlimited = active.unlimited;
-        // We accept, so we are the senior: the requester gets our credit
-        // only once the peering earned it (spec/decisions/earned-trust.md).
         // Over a hub the hold is all the credit there is; with unlimited
-        // trust, it starts at the unlimited credit.
-        let start = active.start_credit(senior_credit);
+        // trust, it starts at the unlimited credit
+        // (spec/areas/settlement.md#credit). On a scheme that settles
+        // directly, the node that accepted extends nothing, and the one
+        // that asked pays in advance.
+        let start = active.start_credit(0);
         let credit_out = self.credit_for(peer, ledger, start);
         // A downlink's accounts open once value moves with it, and only if
         // they fit then: the room for them is kept from now on, while its
@@ -283,16 +282,14 @@ impl PeeringHooks for Hooks<'_> {
         peer: NodeId,
         scheme: SchemeId,
         info: &[u8],
-        ended_for_room: bool,
     ) -> Result<Agreed, Declined> {
         let peer_name = name(peer).ok_or(Declined)?;
         let default = self.credit;
         let active = self.scheme(scheme).ok_or(Declined)?;
         let ledger = active.scheme.ledger();
-        // Our request was accepted, so we are the junior, and extend the
-        // default credit line (spec/decisions/earned-trust.md). Over a hub
-        // the hold is all the credit there is; with unlimited trust, it is
-        // the unlimited credit.
+        // Over a hub the hold is all the credit there is; with unlimited
+        // trust, it is the unlimited credit
+        // (spec/areas/settlement.md#credit).
         let hub = active.over_hub;
         let unlimited = active.unlimited;
         let start = active.start_credit(default);
@@ -305,14 +302,12 @@ impl PeeringHooks for Hooks<'_> {
         // We ask only core nodes: a periphery node is asked by nobody.
         self.open(now_ms, peer, ledger, start)
             .map_err(|()| Declined)?;
-        // A trust account from an earlier peering may hold less, from a
-        // time we were the senior: a junior extends at least the default,
-        // unless we ended a peering with it for room, which keeps what it
-        // had (spec/decisions/ended-for-room.md). Unlimited trust is raised
-        // even then: a peer on it is never asked to settle.
+        // With unlimited trust, a trust account from an earlier peering on
+        // another kind of stub is raised to it: a peer on it is never asked
+        // to settle, so its room must never run out.
         let credit_out = if hub {
             0
-        } else if credit_out < start && (!ended_for_room || unlimited) {
+        } else if unlimited && credit_out < start {
             self.raise(now_ms, peer, ledger, start - credit_out)
                 .map_err(|()| Declined)?;
             start
@@ -324,37 +319,6 @@ impl PeeringHooks for Hooks<'_> {
         Ok(Agreed { state, credit_out })
     }
 
-    /// What the scheme holds that `node` paid us to enter: none on a scheme
-    /// that is not running (spec/decisions/pay-to-enter.md).
-    fn entry(&self, node: NodeId, scheme: SchemeId, data: &[u8]) -> EntryPayment {
-        let Some(peer) = name(node) else {
-            return EntryPayment::NotTaken;
-        };
-        let Some(active) = Name::new(scheme.as_str())
-            .ok()
-            .and_then(|scheme| self.schemes.get(&scheme))
-            .filter(|active| active.failed.is_none())
-        else {
-            return EntryPayment::NotTaken;
-        };
-        // Its accounts, which its payment opens as it peers, must fit the
-        // downlinks' share beside those opened and kept, or it is refused
-        // for capacity before it is told to pay, and never let in on a
-        // payment the peering would then refuse
-        // (spec/decisions/account-budgets.md,
-        // spec/decisions/lazy-downlink-accounts.md).
-        if !has_accounts(self.ledger, active.scheme.ledger(), peer)
-            && !self.downlinks.fit(self.ledger.config().max_accounts, &node)
-        {
-            return EntryPayment::NotTaken;
-        }
-        match active.scheme.entry(peer, data) {
-            dassie_settlement::EntryPayment::NotTaken => EntryPayment::NotTaken,
-            dassie_settlement::EntryPayment::Missing => EntryPayment::Missing,
-            dassie_settlement::EntryPayment::Held => EntryPayment::Held,
-        }
-    }
-
     /// A peering over a hub carries a commitment with each Prepare and a
     /// claim in each reply to a Fulfill
     /// (spec/designs/settlement-hubs.md#13-how-it-fits-the-node).
@@ -363,6 +327,15 @@ impl PeeringHooks for Hooks<'_> {
             .ok()
             .and_then(|name| self.schemes.get(&name))
             .is_some_and(|active| active.over_hub)
+    }
+
+    /// Only the stub with unlimited trust's peers trust each other without
+    /// limit (spec/areas/settlement.md#the-stub-scheme).
+    fn trusts_unlimited(&self, scheme: SchemeId) -> bool {
+        Name::new(scheme.as_str())
+            .ok()
+            .and_then(|name| self.schemes.get(&name))
+            .is_some_and(|active| active.unlimited)
     }
 
     fn forwarded_over_hub(&self, peer: NodeId, request_id: u32) -> bool {
@@ -614,6 +587,17 @@ impl Core {
         (self.connector.stats(), *self.peer.stats())
     }
 
+    /// What `peer` earned us as a next hop on its method on `ledger`, as of
+    /// `at_ms`: its weight in drawing next hops among those with a method on
+    /// that ledger (spec/areas/connector.md#routing), for a simulation to
+    /// read. None without a slot there.
+    #[cfg(any(test, feature = "testing"))]
+    #[must_use]
+    pub fn next_hop_weight(&self, peer: &NodeId, ledger: LedgerId, at_ms: u64) -> Option<u64> {
+        let endpoint = EndpointId::Peer(*self.peer_endpoints.get(peer)?);
+        self.connector.earnings(endpoint, ledger, at_ms)
+    }
+
     /// The network as the owner sees it.
     pub fn network(&self) -> NetworkView {
         NetworkView {
@@ -626,9 +610,9 @@ impl Core {
                 .into_iter()
                 .filter_map(|view| {
                     let mut peering = view.peering?;
-                    // The credit we extend now on each method, which grows
-                    // (spec/decisions/earned-trust.md); the peering keeps
-                    // what it started with.
+                    // The credit we extend now on each method, which over
+                    // a hub follows the holds (spec/areas/hubs.md#in-the-node);
+                    // the peering keeps what it started with.
                     for method in &mut peering.methods {
                         if let Some(credit) = self.credit_out(view.id, method.scheme) {
                             method.credit_out = credit;
@@ -681,7 +665,6 @@ impl Core {
             schemes: &mut self.schemes,
             ledger: &mut self.ledger,
             credit: self.peer_credit,
-            senior_credit: self.senior_credit,
             connector: &self.connector,
             endpoints: &self.peer_endpoints,
             assets: &self.assets,
@@ -848,15 +831,25 @@ impl Core {
     }
 
     /// Whether our packets may go to `peer` on its method on `scheme`
-    /// (spec/decisions/settlement-methods.md): the scheme runs, sees its
-    /// ledger and can receive a peer's settlement, and the method is not
-    /// withdrawn for room. Which method a packet takes depends on this and
+    /// (spec/decisions/settlement-methods.md): the scheme runs, settles
+    /// over a hub or trusts without limit, sees its ledger and can receive
+    /// a peer's settlement, and the method is not withdrawn for room. A
+    /// method that would settle directly, as one on an owner book that a
+    /// peering stored from when the XRPL schemes peered still has, carries
+    /// nothing until the peer protocol drops it
+    /// (spec/areas/settlement.md#owner-books). Which method a packet takes depends on this and
     /// its incoming ledger, never on the room each has.
     ///
     /// A hub scheme without an account of its own, which the hub agrees it
     /// has none of, sees its hub all the same toward a peer with one: that
     /// peer pays us in, and meanwhile we spend what it owes us through it,
     /// the books alone bounding it (spec/designs/settlement-hubs.md#5-joining).
+    ///
+    /// A hub scheme whose account only lags in reading the newest blocks it
+    /// heard of sees its hub too, unless the hub is frozen: the account is
+    /// behind the validators for a moment after nearly every block, and a
+    /// packet would otherwise leave its ledger now and then for another
+    /// method.
     pub(super) fn method_available(&self, peer: &NodeId, scheme: SchemeId) -> bool {
         let Some(method) = self
             .peer
@@ -865,9 +858,9 @@ impl Core {
         else {
             return false;
         };
-        let Some(active) = Name::new(scheme.as_str())
+        let Some((id, active)) = Name::new(scheme.as_str())
             .ok()
-            .and_then(|name| self.schemes.get(&name))
+            .and_then(|id| Some((id, self.schemes.get(&id)?)))
         else {
             return false;
         };
@@ -879,10 +872,18 @@ impl Core {
                         .and_then(|peer| active.scheme.peer_hub_account(peer))
                         .is_some()
             }
+            LedgerStatus::Syncing => {
+                active.over_hub
+                    && active.scheme.status() == LedgerStatus::Synced
+                    && self
+                        .hub_account(id)
+                        .is_some_and(|account| account.keeps_up() && account.frozen().is_none())
+            }
             _ => false,
         };
         let grace_ms = self.peer.config().advertise_short_grace_ms;
         active.failed.is_none()
+            && !active.settles_directly()
             && sees_ledger
             && active.scheme.can_receive()
             && !method.withdrawn(grace_ms)
@@ -1099,31 +1100,11 @@ impl Core {
         self.take_journal();
     }
 
-    /// Books what `node`, just peered on `scheme`, paid us to enter as its
-    /// settlement, in the batch that keeps the peering: it marks the node
-    /// as one that paid us, as any settlement of a largest packet does
-    /// (spec/decisions/pay-to-enter.md).
-    fn take_entry(&mut self, node: NodeId, scheme: SchemeId) {
-        let (Some(peer), Ok(scheme)) = (name(node), Name::new(scheme.as_str())) else {
-            return;
-        };
-        let Some(active) = self.schemes.get_mut(&scheme).filter(|a| a.failed.is_none()) else {
-            return;
-        };
-        let mut effects = Vec::new();
-        active.scheme.take_entry(peer, &mut effects);
-        if effects.is_empty() {
-            return;
-        }
-        let ledger = active.scheme.ledger();
-        self.scheme_effects(scheme, ledger, &effects);
-    }
-
     pub(super) fn peer_event(&mut self, event: Event) {
         self.changes.network = true;
         self.report(event.clone());
         match event {
-            Event::Peered { node, scheme, .. } => {
+            Event::Peered { node, .. } => {
                 self.peerings_changed = true;
                 // A downlink's channel opened: room is kept for its
                 // accounts until value moves with it.
@@ -1132,7 +1113,6 @@ impl Core {
                     self.report(PeerEvent::NoEndpoint { node, error });
                 }
                 self.update_routes();
-                self.take_entry(node, scheme);
             }
             Event::RoutesChanged => self.update_routes(),
             // The claim for a Fulfill of ours, of a Prepare the peer sent on
@@ -1145,7 +1125,7 @@ impl Core {
                 request_id,
                 claim,
             } => self.hub_claim_received(self.now_ms, &peer, request_id, &claim),
-            // Asked again at the next check, not a minute later: a junior
+            // Asked again at the next check, not a minute later: a peer
             // that had not yet taken in our acceptance pays in advance at
             // once (spec/decisions/own-fulfills.md), and a request that never
             // arrived does not use up the grace before a peer short of room

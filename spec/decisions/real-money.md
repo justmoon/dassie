@@ -31,7 +31,7 @@ The `live` realm stays refused until all of these hold:
 
 ## Accepted
 
-- **Launch, then observe.** Incentive problems no running network has shown yet (hub fees that follow congestion, idle and setup fees, how fast credit grows) are not solved before the launch. Their starting values are in the code; running nodes show which need more.
+- **Launch, then observe.** Incentive problems no running network has shown yet (hub fees that follow congestion, idle and setup fees) are not solved before the launch. Their starting values are in the code; running nodes show which need more.
 - **What verifying ledgers leaves:** a proof server that is down stalls the nodes that rely on it, an anchor may be as old as the freshness bound allows, and beyond the history the proof servers keep a server can move a peer's settlement into the owner's suspense ([verified-ledgers](verified-ledgers.md)).
 
 ## Rejected

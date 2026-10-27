@@ -23,18 +23,6 @@ pub struct Agreed {
     pub credit_out: u64,
 }
 
-/// Whether a scheme takes entry payments, and holds one from a node that
-/// asks to peer (spec/decisions/pay-to-enter.md).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum EntryPayment {
-    /// The scheme takes none: a node new to us waits for a free place.
-    NotTaken,
-    /// It takes them, and holds none bound to the node and its request.
-    Missing,
-    /// It holds one: the node paid us on the ledger before it peered.
-    Held,
-}
-
 /// What peering needs from the node.
 pub trait PeeringHooks {
     /// Whether the node runs `scheme`: it is active. The peerings on a
@@ -81,9 +69,7 @@ pub trait PeeringHooks {
     ) -> Result<Agreed, RefusalReason>;
 
     /// Completes our request to `peer`, which accepted: opens its
-    /// accounts. `ended_for_room` says we once ended a peering
-    /// with it for want of room, so it earns no more credit for asking
-    /// (spec/areas/settlement.md#credit).
+    /// accounts.
     ///
     /// # Errors
     ///
@@ -94,17 +80,7 @@ pub trait PeeringHooks {
         peer: NodeId,
         scheme: SchemeId,
         info: &[u8],
-        ended_for_room: bool,
     ) -> Result<Agreed, Declined>;
-
-    /// Whether `scheme` holds an entry payment from `node`, which asks to
-    /// peer with the scheme's `data`: a payment of at least one largest
-    /// packet that reached us on the ledger before any peering, bound to
-    /// the node and to its request (spec/decisions/pay-to-enter.md). A
-    /// downlink that holds one gets in past a full free half; one on a
-    /// scheme that takes them is told to pay, rather than refused for
-    /// capacity.
-    fn entry(&self, node: NodeId, scheme: SchemeId, data: &[u8]) -> EntryPayment;
 
     /// Whether methods on `scheme` are over a settlement hub: each Prepare
     /// on them comes with the payer's commitment, in its `methodPacket`,
@@ -115,6 +91,24 @@ pub trait PeeringHooks {
     /// account in the hub (spec/designs/settlement-hubs.md#5-joining): the
     /// node, not the peer protocol, decides what it takes without one.
     fn uses_commitments(&self, scheme: SchemeId) -> bool;
+
+    /// Whether peers on `scheme` trust each other without limit: they never
+    /// ask each other to settle and never settle, as on the test stub with
+    /// unlimited trust (spec/areas/settlement.md#the-stub-scheme). Beside
+    /// the hubs two nodes share, only such a scheme becomes a method of
+    /// their peering: no method settles directly
+    /// (spec/decisions/hubs-only.md).
+    fn trusts_unlimited(&self, scheme: SchemeId) -> bool;
+
+    /// Whether a method on `scheme` would settle directly: it is neither
+    /// over a hub nor of unlimited trust. No peering is made on such a
+    /// scheme, and a method on one, as a peering stored from when a scheme
+    /// settled directly may have, is dropped at once
+    /// (spec/decisions/hubs-only.md). So is one on a scheme the node does
+    /// not run.
+    fn settles_directly(&self, scheme: SchemeId) -> bool {
+        !self.uses_commitments(scheme) && !self.trusts_unlimited(scheme)
+    }
 
     /// Whether our Prepare in flight to `peer` with `request_id` went on a
     /// method over a settlement hub, whether or not the peering still has

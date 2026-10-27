@@ -32,7 +32,7 @@ Read a [decision](decisions/README.md) when an area doc links to it and you need
 | `crates/dassie-node` | [Node](areas/node.md), and by module: `engine/` [Connector](areas/connector.md), [Settlement](areas/settlement.md), [Ledger](areas/ledger.md); `http/` [HTTP](areas/http.md), with `http/btp.rs` [Connector](areas/connector.md) and `http/open_payments/` [Payments](areas/payments.md); `open_payments/` [Payments](areas/payments.md); `rpc/` [RPC](areas/rpc.md); `store/` [Node](areas/node.md#persistence) and the area of the table; `rates.rs`, `node/rates.rs` [Connector](areas/connector.md#exchange-rates); `feed.rs` [Rate feed](areas/rate-feed.md#the-node-side); `hub/` [Settlement hubs](areas/hubs.md#the-validator-in-the-node), with `hub/founding.rs` and `hub/sponsor/` [founding a hub](areas/hubs.md#founding-a-hub), `hub/payouts.rs` [payout bundles](areas/hubs.md#payout-bundles), `hub/transport.rs` and `quic/hub.rs` [the hub's stream](areas/peer-protocol.md#the-hubs-stream); `outbound.rs`, `peer_server.rs` [Peer protocol](areas/peer-protocol.md); `quic/` [Peer protocol](areas/peer-protocol.md#quic), with `quic/relay.rs` [relayed streams](areas/peer-protocol.md#relayed-streams); `acme.rs`, `tls.rs` [HTTP](areas/http.md); `front_door/` [front doors](areas/http.md#front-doors), with [relayed streams](areas/peer-protocol.md#relayed-streams), and `front_door/names.rs` [names](areas/network.md#names); `engine/core/names.rs` [names](areas/network.md#names), with [RPC](areas/rpc.md); `fake_ledger.rs` [XRPL](areas/xrpl.md); `sim/` [Testing](areas/testing.md#deterministic-simulation) |
 | `crates/dassie-cli` | [Node](areas/node.md), [Release](areas/release.md) (`dassie update`), [HTTP](areas/http.md#setup) (`dassie setup`) |
 | `crates/dassie-wallet-assets` | [Node](areas/node.md), [HTTP](areas/http.md) |
-| `crates/dassie-cli/src/market_maker/` | [Rate feed](areas/rate-feed.md#market-maker), [XRPL](areas/xrpl.md#amm-pools), [Payments](areas/payments.md#paying-stream-credentials), [Node](areas/node.md#the-dassie-command); parked until the market maker runs on hubs ([Roadmap](roadmap.md#hubs-only)) |
+| `crates/dassie-cli/src/market_maker/` | [Rate feed](areas/rate-feed.md#market-maker), [XRPL](areas/xrpl.md#amm-pools), [Payments](areas/payments.md#paying-stream-credentials), [Settlement hubs](areas/hubs.md#in-the-node), [Node](areas/node.md#the-dassie-command) |
 | `crates/dassie-desktop`, `nix/desktop.nix`, `nix/desktop-libs.nix` | [Desktop](areas/desktop.md), [Node](areas/node.md), [HTTP](areas/http.md) |
 | `crates/dassie-release` | [Release](areas/release.md) |
 | `crates/dassie-sim` | [Testing](areas/testing.md) |
@@ -48,7 +48,7 @@ Read a [decision](decisions/README.md) when an area doc links to it and you need
 | `apps/dev` | [Dev](areas/dev.md) |
 | `apps/dev-dashboard` | [Dev](areas/dev.md), [Wallet](areas/wallet.md) |
 | `apps/dsusd-keeper` | [DSUSD keeper](areas/dsusd-keeper.md), [XRPL](areas/xrpl.md) |
-| `apps/market-maker` | [Market maker VM](areas/market-maker-vm.md), [Rate feed](areas/rate-feed.md#market-maker), [Release](areas/release.md); parked until the market maker runs on hubs ([Roadmap](roadmap.md#hubs-only)) |
+| `apps/market-maker` | [Market maker VM](areas/market-maker-vm.md), [Rate feed](areas/rate-feed.md#market-maker), [Release](areas/release.md), [Settlement hubs](areas/hubs.md#in-the-node) |
 | `apps/website`, `scripts/website/`, `.github/workflows/website.yml` | [Website](areas/website.md) |
 | `tests/e2e` | [Testing](areas/testing.md), and the area under test |
 | `tests/interop` | [Testing](areas/testing.md), [STREAM](areas/stream.md), [Payments](areas/payments.md) |
@@ -72,7 +72,7 @@ Read a [decision](decisions/README.md) when an area doc links to it and you need
 | [Connector](areas/connector.md) | The packet path: endpoints, outcomes, timing, fees and spread, spending caps, money in flight, exchange rates, BTP |
 | [Peer protocol](areas/peer-protocol.md) | The wire protocol between nodes: transport, versions, messages, authentication by the QUIC connection, link states |
 | [Network](areas/network.md) | The node table, flooding, membership and registration, bootstrap nodes, peering and its lifecycle, routing |
-| [Settlement](areas/settlement.md) | Settlement schemes, external assets, credit and its growth, thresholds, settling on request, settlement channels |
+| [Settlement](areas/settlement.md) | Settlement schemes, external assets, credit, thresholds, settling on request, settlement channels |
 | [Settlement hubs](areas/hubs.md) | A hub's rules and its ledger: accounts, holds, what validators attest, and who gets the fees |
 | [XRPL](areas/xrpl.md) | The XRP Ledger accounts on the testnet and mainnet, the XRP scheme and the token scheme (DSUSD, RLUSD) on them, and the fake ledger |
 | [Payments](areas/payments.md) | Open Payments: wallet addresses, GNAP, incoming and outgoing payments, quotes, the owner's Send |
@@ -86,11 +86,11 @@ Read a [decision](decisions/README.md) when an area doc links to it and you need
 | [Desktop](areas/desktop.md) | The desktop app: the owner's node in its process, the wallet's window, the tray and starting at login |
 | [Dev](areas/dev.md) | The local dev network and its dashboard |
 | [DSUSD keeper](areas/dsusd-keeper.md) | The testnet dollar token of our own: its issuer, its pool, and the keeper that holds the pool at the market |
-| [Market maker VM](areas/market-maker-vm.md) | The VM that runs a market maker and its two nodes against testnet core nodes: secrets, releases and updates, settings; parked until the market maker runs on hubs |
+| [Market maker VM](areas/market-maker-vm.md) | The VM that runs a market maker and its two nodes against testnet core nodes: secrets, releases and updates, settings, and the testnet hubs it waits for |
 | [Proof servers](areas/proof-servers.md) | The patched XRP Ledger servers that answer the node's proofs: the patch, its build, and the public server per network |
 | [Testing](areas/testing.md) | Test levels, golden vectors, simulations and the simulation runner |
 
-Not built yet: the [roadmap](roadmap.md), and the designs in `designs/`: what is not built of [settlement hubs](designs/settlement-hubs.md), what is not built of the [periphery](designs/periphery.md), [checking the XRP Ledger's validators](designs/xrpl-validation.md), and what is not built of [names](designs/names.md).
+Not built yet: the [roadmap](roadmap.md), and the designs in `designs/`: what is not built of [settlement hubs](designs/settlement-hubs.md), what is not built of the [periphery](designs/periphery.md), [checking the XRP Ledger's validators](designs/xrpl-validation.md), and what is not built of [names](designs/names.md). [Direct settlement](designs/direct-settlement.md) keeps how peers settled without a hub, which left the code, and what bringing it back would take.
 
 ## What belongs here
 

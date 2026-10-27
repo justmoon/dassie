@@ -1,7 +1,8 @@
 //! Nothing that comes from the network, or from disk, makes the crate
 //! panic or breaks the scheme's invariants
 //! (spec/areas/testing.md#property-tests, spec/decisions/tigerstyle.md): the
-//! ledger's messages, peers' bytes, the config and the state the books kept.
+//! ledger's messages, the bytes of nodes that would peer, the config and the
+//! state the books kept.
 
 #![allow(
     clippy::unwrap_used,
@@ -12,7 +13,7 @@
 
 use dassie_kit::sim::SeededRng;
 use dassie_ledger::{MAX_TOTAL, Name};
-use dassie_settlement::{LedgerInput, LedgerStatus};
+use dassie_settlement::{LedgerInput, LedgerStatus, OwnerPayment, SchemeError, SettlementScheme};
 use dassie_xrpl::Config;
 use dassie_xrpl::amount::{MAX_DECIMALS, MAX_EXPONENT, MAX_MANTISSA, MIN_EXPONENT, MIN_MANTISSA};
 use dassie_xrpl::api::line_flags;
@@ -22,7 +23,6 @@ use dassie_xrpl::codec::{
     TokenValue, Transact, Transaction, TrustSet,
 };
 use dassie_xrpl::keys::{MAX_SIGNATURE_BYTES, PublicKey, Signature};
-use dassie_xrpl::scheme::MEMO_TYPE;
 use dassie_xrpl::{AccountId, MAX_DROPS, UNITS_PER_DROP, Wallet, api, base58, from_hex, hex_upper};
 use proptest::prelude::*;
 use serde_json::{Map, Value, json};
@@ -32,14 +32,8 @@ mod support;
 
 const ENTROPY: [u8; 32] = [5; 32];
 
-fn node() -> Name {
-    Name::new("node").unwrap()
-}
-
-/// The peer the scheme knows, and settles with.
-fn peer() -> Name {
-    Name::new("peer").unwrap()
-}
+/// The memo a settlement carried while the XRPL schemes peered.
+const MEMO_TYPE: &[u8] = b"https://dassie.land/settlement/xrpl-testnet-xrp/v1";
 
 fn ours() -> AccountId {
     Wallet::from_entropy(&ENTROPY).account()
@@ -50,10 +44,11 @@ fn theirs() -> AccountId {
 }
 
 fn scheme() -> XrplScheme {
-    XrplScheme::new("", &ENTROPY, node(), Some(1_000), &[]).unwrap()
+    XrplScheme::new("", &ENTROPY, Some(1_000), &[]).unwrap()
 }
 
-/// Peering info as a scheme writes it: the 20-byte account ID.
+/// An account's 20-byte ID, as peering info carried it while the XRPL
+/// schemes peered.
 fn address_bytes(account: AccountId) -> Vec<u8> {
     account.0.to_vec()
 }
@@ -1198,8 +1193,8 @@ enum Step {
     Funded(bool),
     /// Time passes.
     Timer(u64),
-    /// A settlement of drops to the peer, executed or discarded.
-    Settle(u64, bool),
+    /// The owner pays drops to another account.
+    Pay(u64),
 }
 
 fn step() -> impl Strategy<Value = Step> {
@@ -1213,13 +1208,12 @@ fn step() -> impl Strategy<Value = Step> {
         1 => any::<bool>().prop_map(Step::Disconnect),
         1 => any::<bool>().prop_map(Step::Funded),
         1 => (0u64..40_000).prop_map(Step::Timer),
-        2 => (prop_oneof![1u64..1_000_000, 1u64..100_000_000_000], any::<bool>())
-            .prop_map(|(drops, execute)| Step::Settle(drops, execute)),
+        2 => prop_oneof![1u64..1_000_000, 1u64..100_000_000_000].prop_map(Step::Pay),
     ]
 }
 
-/// A state as the scheme writes it, with any values, and up to
-/// `in_flight_count` settlements on their way.
+/// A state as the scheme and its account write it, with any values, and up
+/// to `in_flight_count` transactions on their way.
 fn state_value(in_flight_count: usize) -> impl Strategy<Value = Value> {
     let blob = field(prop::collection::vec(any::<u8>(), 0..80).prop_map(Leaf::Hex));
     let executed = field(prop_oneof![
@@ -1251,16 +1245,6 @@ fn state_value(in_flight_count: usize) -> impl Strategy<Value = Value> {
                 )
             },
         );
-    let name = prop_oneof![
-        3 => Just("peer".to_string()),
-        1 => "[a-z0-9]{1,12}",
-        1 => "\\PC{0,8}",
-    ];
-    let peer = (name, account(1, 3));
-    let recovering = prop_oneof![
-        4 => any::<[u8; 32]>().prop_map(|hash| Leaf::Hex(hash.to_vec())),
-        1 => junk(),
-    ];
     let cursor = prop_oneof![
         1 => Just(Value::Null),
         3 => (index(), index()).prop_map(|(ledger, at)| {
@@ -1272,38 +1256,17 @@ fn state_value(in_flight_count: usize) -> impl Strategy<Value = Value> {
         cursor,
         prop_oneof![4 => (0u64..64).prop_map(Leaf::Index), 1 => index()],
         prop::collection::vec(in_flight, 0..=in_flight_count),
-        prop::collection::vec(peer, 0..4),
-        prop_oneof![
-            1 => Just(None),
-            4 => prop::collection::vec(recovering, 0..4).prop_map(Some),
-        ],
     )
-        .prop_map(|(cursor, sequence, in_flight, peers, recovering)| {
-            let peers: Map<String, Value> = peers
-                .into_iter()
-                .filter_map(|(name, address)| Some((name, address.value(NONE)?)))
-                .collect();
-            let mut state = with(
+        .prop_map(|(cursor, sequence, in_flight)| {
+            with(
                 object(NONE, &[("sequence", &sequence)]),
-                vec![
-                    ("cursor", cursor),
-                    ("in_flight", Value::from(in_flight)),
-                    ("peers", Value::Object(peers)),
-                ],
-            );
-            if let Some(recovering) = recovering {
-                let recovering: Vec<Value> = recovering
-                    .iter()
-                    .filter_map(|leaf| leaf.value(NONE))
-                    .collect();
-                state = with(state, vec![("recovering", Value::from(recovering))]);
-            }
-            state
+                vec![("cursor", cursor), ("in_flight", Value::from(in_flight))],
+            )
         })
 }
 
-/// A state the scheme could have written: settlements on their way, the
-/// peer's address, and where it had read to.
+/// A state the scheme and its account could have written: transactions on
+/// their way, and where it had read to.
 fn kept_state() -> impl Strategy<Value = Vec<u8>> {
     let in_flight = (
         prop::collection::vec(any::<u8>(), 1..80),
@@ -1312,13 +1275,8 @@ fn kept_state() -> impl Strategy<Value = Vec<u8>> {
         prop::option::of(any::<bool>()),
     );
     let cursor = prop::option::of((0u32..32, prop_oneof![Just(u32::MAX), 0u32..8]));
-    (
-        cursor,
-        1u32..64,
-        prop::collection::vec(in_flight, 0..4),
-        prop::collection::vec(any::<[u8; 32]>(), 0..2),
-    )
-        .prop_map(|(cursor, first, in_flight, recovering)| {
+    (cursor, 1u32..64, prop::collection::vec(in_flight, 0..4)).prop_map(
+        |(cursor, first, in_flight)| {
             let in_flight: Vec<Value> = in_flight
                 .iter()
                 .zip(first..)
@@ -1334,63 +1292,15 @@ fn kept_state() -> impl Strategy<Value = Vec<u8>> {
                 })
                 .collect();
             let next = first + u32::try_from(in_flight.len()).unwrap();
-            let recovering: Vec<String> = recovering.iter().map(|hash| hex_upper(hash)).collect();
             json!({
                 "cursor": cursor.map(|(ledger, at)| [ledger, at]),
                 "sequence": next,
                 "in_flight": in_flight,
-                "peers": { "peer": theirs().to_address() },
-                "recovering": recovering,
             })
             .to_string()
             .into_bytes()
-        })
-}
-
-/// The hashes of what `state` has in flight, and of what it looks up.
-fn in_flight_and_looked_up(state: &Value) -> (Vec<Vec<u8>>, Vec<Vec<u8>>) {
-    let list = |key: &str| {
-        state
-            .get(key)
-            .and_then(Value::as_array)
-            .cloned()
-            .unwrap_or_default()
-    };
-    let in_flight = list("in_flight")
-        .iter()
-        .filter_map(|t| from_hex(t.get("blob")?.as_str()?))
-        .map(|blob| codec::hash(&blob).to_vec())
-        .collect();
-    let looked_up = list("recovering")
-        .iter()
-        .filter_map(|hash| from_hex(hash.as_str()?))
-        .collect();
-    (in_flight, looked_up)
-}
-
-/// `state`, looking up what it has in flight first, if it has any: a state
-/// neither the account nor the scheme wrote.
-fn looked_up_in_flight(state: &[u8]) -> Vec<u8> {
-    let Ok(mut value) = serde_json::from_slice::<Value>(state) else {
-        return state.to_vec();
-    };
-    let Some(hash) = in_flight_and_looked_up(&value).0.first().cloned() else {
-        return state.to_vec();
-    };
-    match value.get_mut("recovering") {
-        Some(Value::Array(recovering)) => recovering.push(hex_upper(&hash).into()),
-        _ => value["recovering"] = json!([hex_upper(&hash)]),
-    }
-    serde_json::to_vec(&value).unwrap()
-}
-
-/// Whether `state` looks up something it has in flight.
-fn looks_up_in_flight(state: &[u8]) -> bool {
-    let Ok(value) = serde_json::from_slice::<Value>(state) else {
-        return false;
-    };
-    let (in_flight, looked_up) = in_flight_and_looked_up(&value);
-    looked_up.iter().any(|hash| in_flight.contains(hash))
+        },
+    )
 }
 
 /// Drops as a JSON number, as the state keeps them.
@@ -1410,27 +1320,22 @@ struct Run {
     now: u64,
     /// Requests sent and not yet answered: ID, and the hash it names.
     sent: Vec<(u64, Option<[u8; 32]>)>,
-    /// Hashes the scheme knows: its settlements, and those it looks for.
+    /// Hashes the scheme knows: its transactions, and the settlements a
+    /// restart left pending.
     hashes: Vec<[u8; 32]>,
     /// The network's ledger: one more each step.
     ledger: u64,
-    rng: SeededRng,
 }
 
 impl Run {
     fn new(scheme: XrplScheme) -> Self {
         let state: Value = serde_json::from_slice(&scheme.state()).unwrap();
-        let blobs = state["in_flight"]
+        let hashes = state["in_flight"]
             .as_array()
             .unwrap()
             .iter()
-            .map(|t| codec::hash(&from_hex(t["blob"].as_str().unwrap()).unwrap()));
-        let recovering = state["recovering"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|h| from_hex(h.as_str().unwrap()).unwrap().try_into().unwrap());
-        let hashes = blobs.chain(recovering).collect();
+            .map(|t| codec::hash(&from_hex(t["blob"].as_str().unwrap()).unwrap()))
+            .collect();
         // The account exists, with 1,000 XRP.
         let mut proofs = dassie_xrpl::fake::FakeLedger::new();
         proofs.fund(ours());
@@ -1442,7 +1347,6 @@ impl Run {
             proofs,
             sent: Vec::new(),
             hashes,
-            rng: SeededRng::new(1),
         }
     }
 
@@ -1504,7 +1408,7 @@ impl Run {
         if matches!(self.scheme.status(), LedgerStatus::Failed(_)) {
             let state = self.scheme.state();
             let balance = self.scheme.balance();
-            self.scheme = XrplScheme::new("", &ENTROPY, node(), Some(balance), &state).unwrap();
+            self.scheme = XrplScheme::new("", &ENTROPY, Some(balance), &state).unwrap();
             self.sent.clear();
             self.input(LedgerInput::Connected);
         }
@@ -1578,24 +1482,18 @@ impl Run {
                 self.scheme.on_timer(self.now, &mut effects);
                 self.apply(effects);
             }
-            Step::Settle(drops, execute) => {
-                let prepared = self.scheme.prepare_settlement(
-                    &mut self.rng,
-                    peer(),
-                    drops * UNITS_PER_DROP,
-                    &address_bytes(theirs()),
-                );
+            Step::Pay(drops) => {
+                let payment = OwnerPayment {
+                    destination: theirs().to_address(),
+                    tag: None,
+                    memo: None,
+                    amount: drops * UNITS_PER_DROP,
+                };
                 let mut effects = Vec::new();
-                if let Ok(prepared) = prepared {
-                    // The ID is the hash; the message is a bare notice.
-                    assert!(prepared.message.is_empty());
-                    let hash = from_hex(prepared.id.as_str()).unwrap();
+                if let Ok(id) = self.scheme.pay_owner(&payment, &mut effects) {
+                    // The ID is the hash.
+                    let hash = from_hex(id.as_str()).unwrap();
                     self.hashes.push(hash.try_into().unwrap());
-                    if *execute {
-                        self.scheme.execute_settlement(prepared.id, &mut effects);
-                    } else {
-                        self.scheme.discard_settlement(prepared.id);
-                    }
                 }
                 self.apply(effects);
             }
@@ -1625,8 +1523,8 @@ fn synced_scheme() -> XrplScheme {
     run.scheme
 }
 
-/// Peering info, a request or a settlement claim from a peer: anything,
-/// and valid ones changed.
+/// Peering info, a request or a settlement claim from a node that would
+/// peer: anything, and ones once valid changed.
 fn peer_bytes() -> impl Strategy<Value = Vec<u8>> {
     prop_oneof![
         prop::collection::vec(any::<u8>(), 0..64),
@@ -1887,7 +1785,7 @@ proptest! {
 
     #[test]
     fn configs_parse_or_are_refused(text in config_text()) {
-        let scheme = XrplScheme::new(&text, &ENTROPY, node(), None, &[]);
+        let scheme = XrplScheme::new(&text, &ENTROPY, None, &[]);
         match Config::parse(&text) {
             Ok(config) => {
                 prop_assert!(config.server.starts_with("wss://") || config.server.starts_with("ws://"));
@@ -1911,25 +1809,22 @@ proptest! {
         ],
         mutations in mutations(),
         checkpoint in prop::option::of(0..=MAX_TOTAL),
-        look_up_in_flight in any::<bool>(),
     ) {
-        let mut state = mutate(state, &mutations);
-        if look_up_in_flight {
-            state = looked_up_in_flight(&state);
-        }
-        if let Ok(scheme) = XrplScheme::new("", &ENTROPY, node(), checkpoint, &state) {
+        let state = mutate(state, &mutations);
+        if let Ok(scheme) = XrplScheme::new("", &ENTROPY, checkpoint, &state) {
             scheme.check_invariants();
-            // The scheme never looks up what the account has in flight.
-            prop_assert!(!looks_up_in_flight(&state));
             // What it keeps of it, it can start from again.
             let kept = scheme.state();
-            let again = XrplScheme::new("", &ENTROPY, node(), checkpoint, &kept).unwrap();
+            let again = XrplScheme::new("", &ENTROPY, checkpoint, &kept).unwrap();
             prop_assert_eq!(again.state(), kept);
         }
     }
 
+    /// Whatever a node that would peer sends, the scheme, an owner book,
+    /// refuses it as unsupported, but for a settlement message, which it
+    /// acknowledges as a bare notice; either way it changes nothing.
     #[test]
-    fn peers_cannot_make_the_scheme_panic(
+    fn nodes_that_would_peer_get_nothing(
         calls in prop::collection::vec(
             (0u8..5, prop::sample::select(&["peer", "other", "third"][..]), peer_bytes(), peer_bytes(),
              prop_oneof![1u64..1_000_000_000_000, any::<u64>()]),
@@ -1937,34 +1832,34 @@ proptest! {
         ),
     ) {
         let mut scheme = synced_scheme();
+        let (state, balance) = (scheme.state(), scheme.balance());
         let mut rng = SeededRng::new(1);
+        let inner = &mut scheme.scheme;
+        prop_assert!(!inner.peers());
         for (call, peer, first, second, amount) in calls {
             let peer = Name::new(peer).unwrap();
             let mut out = Vec::new();
             let mut effects = Vec::new();
-            match call {
-                0 => {
-                    let _ = scheme.create_peering_request(peer, &first, &mut out);
-                }
-                1 => {
-                    let _ = scheme.accept_peering_request(peer, &first);
-                }
-                2 => {
-                    let _ = scheme.finalize_peering_request(peer, &first);
-                }
-                3 => {
-                    if let Ok(prepared) = scheme.prepare_settlement(&mut rng, peer, amount, &first) {
-                        scheme.execute_settlement(prepared.id, &mut effects);
-                    }
-                }
+            let refused = match call {
+                0 => inner.create_peering_request(peer, &first, &mut out),
+                1 => inner.accept_peering_request(peer, &first).map(drop),
+                2 => inner.finalize_peering_request(peer, &first).map(drop),
+                3 => inner
+                    .prepare_settlement(&mut rng, None, peer, amount, &first)
+                    .map(drop),
                 _ => {
-                    let _ = scheme.handle_settlement(peer, amount, &first, &second, &mut effects);
+                    prop_assert!(!inner.books_messages());
+                    let taken = inner.handle_settlement(peer, amount, &first, &second, &mut effects);
+                    prop_assert_eq!(taken, Ok(()));
+                    Err(SchemeError::Unsupported)
                 }
-            }
-            scheme.check_invariants();
+            };
+            prop_assert_eq!(refused, Err(SchemeError::Unsupported));
+            prop_assert!(effects.is_empty() && out.is_empty());
+            inner.check_invariants();
         }
-        let state = scheme.state();
-        prop_assert!(XrplScheme::new("", &ENTROPY, node(), Some(scheme.balance()), &state).is_ok());
+        prop_assert_eq!(scheme.state(), state);
+        prop_assert_eq!(scheme.balance(), balance);
     }
 
     #[test]
@@ -1978,13 +1873,12 @@ proptest! {
         recovering in prop::collection::vec(any::<[u8; 32]>(), 0..3),
         steps in prop::collection::vec(step(), 1..120),
     ) {
-        let scheme = XrplScheme::new("", &ENTROPY, node(), checkpoint, &state)
-            .or_else(|_| XrplScheme::new("", &ENTROPY, node(), checkpoint, &[]))
+        let scheme = XrplScheme::new("", &ENTROPY, checkpoint, &state)
+            .or_else(|_| XrplScheme::new("", &ENTROPY, checkpoint, &[]))
             .unwrap();
         let mut run = Run::new(scheme);
-        // The peer, as peering told it.
-        run.scheme.on_peered(peer(), &address_bytes(theirs()));
-        // Settlements a restart left pending, to look for.
+        // Settlements a restart left pending, from before the XRPL schemes
+        // stopped peering: cancelled.
         let pending: Vec<(Name, u64)> =
             recovering.iter().map(|hash| (Name::hex(hash, true), 1)).collect();
         let mut effects = Vec::new();
@@ -2000,6 +1894,6 @@ proptest! {
         run.apply(effects);
         // The state it keeps is one it can start from again.
         let state = run.scheme.state();
-        prop_assert!(XrplScheme::new("", &ENTROPY, node(), Some(run.scheme.balance()), &state).is_ok());
+        prop_assert!(XrplScheme::new("", &ENTROPY, Some(run.scheme.balance()), &state).is_ok());
     }
 }

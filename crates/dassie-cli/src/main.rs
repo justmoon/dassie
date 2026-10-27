@@ -90,14 +90,19 @@ Commands:
                                                 the node is in several
   hub found <node ID>@<host:port>...
                     Found a settlement hub with these validators, as its
-                    sponsor; every one of them must accept.
+                    sponsor, on the XRP Ledger network of the node's
+                    realm (the testnet, or mainnet in the live realm),
+                    funded from the realm's XRP book; every one of them
+                    must accept.
                       --terms <file>            JSON of the terms that
                                                 differ from the starting
                                                 ones
                       --escrow-funding <XRP>    what funds the escrow
                       --xrpl <url>              the XRPL server to set the
                                                 escrow up on (default: the
-                                                XRP Ledger testnet scheme's)
+                                                server of the node's XRP
+                                                Ledger account on that
+                                                network)
   hub foundings     Show each hub the node founds: which validators
                     accepted, signed and run it, and its escrow.
   hub drop <nonce>  Drop a founding.
@@ -113,7 +118,8 @@ Commands:
                     schemes it lacks, and join the realm's default
                     settlement hub if this build has one: the owner book
                     it funds from, peering with nobody, then the hub's
-                    scheme. Running it again changes nothing; it
+                    scheme; in the live realm only with --hub. Running
+                    it again changes nothing; it
                     exits 3, changing nothing, if the node is another
                     passphrase's.
                       --passphrase-file <file>  the passphrase, alone
@@ -128,6 +134,8 @@ Commands:
                                                 (default: test; live only
                                                 by the dev switch)
                       --no-hub                  join no settlement hub
+                      --hub                     join the default hub in
+                                                the live realm too
   pair              Print a code that pairs an owner app with the node, for
                     the next five minutes.
   update           Update Dassie to the newest release, once its signature

@@ -1,8 +1,9 @@
 //! `dassie market-maker` (spec/areas/rate-feed.md#market-maker): watches
 //! the feeds of one or more core nodes, its targets, trades through the
-//! one that pays best with two nodes of its own when its rates and an AMM
-//! pool on the XRP Ledger leave a margin, and moves its own funds back on
-//! the ledger.
+//! one that pays best with two nodes of its own, each a member of the
+//! settlement hub of its asset, when its rates and an AMM pool on the XRP
+//! Ledger leave a margin, and moves its own funds back on the ledger, from
+//! the owner book that funds one node's hub to the other's.
 //!
 //! - [`config`]: the config file, checked whole before anything connects;
 //! - [`target`]: who each target is, from its discovery document;
@@ -166,13 +167,18 @@ struct Current {
 /// A rebalance that paid, or may have, from a node's account, which the
 /// node may not have booked yet. Until it has, its holding still counts
 /// what the rebalance spent, and a decision from it would spend that
-/// again: below the node's band.
+/// again: below the node's band. It counts as booked once the node's
+/// holding fell by at least what it can have cost, so that a move of the
+/// node's own between hub and book, which lowers what the books say while
+/// it is on its way, is not taken for it unless it is as large.
 #[derive(Clone, Copy, Debug)]
 struct Unbooked {
     /// The node whose account paid.
     from: Side,
-    /// What the account held, as its books had it, before.
-    on_ledger: u64,
+    /// What the node held, as its books had it, before.
+    total: u64,
+    /// The least the rebalance can have spent ([`strategy::least_spent`]).
+    least: u64,
     /// When the market maker stops waiting: the rebalance never applied,
     /// or the node booked it as something else.
     until_ms: u64,
@@ -194,8 +200,9 @@ impl Wallets {
 }
 
 impl MarketMaker {
-    /// Derives the keys, checks that each node runs its ledger on the
-    /// account they open, and starts following each target: a target that
+    /// Derives the keys, checks that each node runs its owner book on the
+    /// account they open, and its hub's ledger in the same asset, and
+    /// starts following each target: a target that
     /// does not answer yet is asked again, while the others trade.
     async fn start(
         config: Config,
@@ -211,11 +218,13 @@ impl MarketMaker {
             Side::Xrp,
             config.xrp.socket.clone(),
             config.xrp.ledger.clone(),
+            config.xrp.owner_book.clone(),
         );
         let mut token = Node::new(
             Side::Token,
             config.token_node.socket.clone(),
             config.token_node.ledger.clone(),
+            config.token_node.owner_book.clone(),
         );
         check_node(&mut xrp, wallets.xrp.account(), &config.token).await?;
         check_node(&mut token, wallets.token.account(), &config.token).await?;
@@ -327,7 +336,10 @@ impl MarketMaker {
             }
         };
         if let Some(unbooked) = self.unbooked {
-            let booked = holdings.of(unbooked.from).on_ledger < unbooked.on_ledger;
+            let fell = unbooked
+                .total
+                .saturating_sub(holdings.of(unbooked.from).total);
+            let booked = fell >= unbooked.least;
             if !booked && now_ms < unbooked.until_ms {
                 tracing::info!(
                     target: TARGET, from = unbooked.from.name(), ?holdings,
@@ -486,7 +498,8 @@ impl MarketMaker {
         if outcome.as_ref().is_ok_and(xrpl::Outcome::may_have_paid) {
             self.unbooked = Some(Unbooked {
                 from: rebalance.from,
-                on_ledger: holdings.of(rebalance.from).on_ledger,
+                total: holdings.of(rebalance.from).total,
+                least: strategy::least_spent(rebalance, self.config.params.slippage_ppm),
                 until_ms: self.clock.now_ms().saturating_add(UNBOOKED_WAIT_MS),
             });
         }
@@ -503,24 +516,25 @@ impl MarketMaker {
     }
 }
 
-/// Checks that `node` runs its ledger on the account `account`, the one
-/// its passphrase opens, so a rebalance pays from and to the nodes'
+/// Checks that `node` runs its owner book on the account `account`, the
+/// one its passphrase opens, so a rebalance pays from and to the nodes'
 /// accounts: the XRP node's in XRP, and the token node's in the pool's
-/// token, of the issuer its ledger settles in, so what a rebalance
-/// delivers to it is booked on that ledger.
+/// token, of the issuer its book holds, so what a rebalance delivers to it
+/// is booked there. Its hub's ledger holds the same asset
+/// ([`Node::ledger_state`]), and the node funds the hub from that book.
 async fn check_node(
     node: &mut Node,
     account: AccountId,
     token: &IssuedAsset,
 ) -> Result<(), String> {
     let state = node.ledger_state().await?;
-    check_ledger(node.side, &node.ledger, &state, account, token)?;
+    check_ledger(node.side, &node.owner_book, &state, account, token)?;
     tracing::info!(target: TARGET, side = node.side.name(), socket = %node.socket().display(), "node ready");
     Ok(())
 }
 
 /// What [`check_node`] checks of what the node of `side` says of its
-/// ledger `ledger`.
+/// owner book `ledger`.
 fn check_ledger(
     side: Side,
     ledger: &str,
@@ -561,7 +575,7 @@ mod tests {
         let state = |asset: &str, issuer: String| LedgerState {
             asset_code: asset.into(),
             holding: Holding {
-                books: 0,
+                total: 0,
                 on_ledger: 0,
             },
             deposit_address: account.to_address(),

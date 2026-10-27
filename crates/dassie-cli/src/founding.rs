@@ -5,8 +5,10 @@
 //!
 //! - `dassie hub found <node ID>@<host:port>... [--terms FILE]
 //!   [--escrow-funding XRP] [--xrpl URL]` founds a hub with these
-//!   validators, every one of which must accept. Without `--terms` the
-//!   terms are the starting ones; a file of JSON sets what differs.
+//!   validators, every one of which must accept, on the XRP Ledger network
+//!   of the node's realm: the testnet, or mainnet in the live realm.
+//!   Without `--terms` the terms are the starting ones; a file of JSON sets
+//!   what differs.
 //! - `dassie hub foundings` shows each founding: which validators
 //!   accepted, signed and run the hub, and whether its escrow is set up
 //!   and checked; once fixed, the rules a member's scheme takes.

@@ -217,8 +217,12 @@ pub fn outgoing_flows(sim: &Sim) -> impl Iterator<Item = Flow> + '_ {
 /// Once the network is calm, no node's books show an honest peer still at
 /// its ask point on any method: asked, the peer settled
 /// (spec/decisions/own-fulfills.md,
-/// spec/areas/settlement.md#asking-a-peer-to-settle).
+/// spec/areas/settlement.md#asking-a-peer-to-settle). Over a hub of XRP,
+/// as the runs over a hub check it.
 pub fn check_settled(sim: &Sim) -> Result<(), String> {
+    if is_hub_run(sim) {
+        return super::hub_checks::check_settled_with_honest(sim, None);
+    }
     for index in 0..sim.nodes.len() {
         for peer in sim.core(index).network().peers {
             if peer.termination.is_some() {
@@ -279,17 +283,41 @@ fn drifted(sim: &mut Sim) -> Vec<Drifted> {
             else {
                 continue;
             };
-            let survives = (u128::from(credit_a) + u128::from(credit_b))
-                .saturating_sub(u128::from(policy::least_credit(MAX_PACKET, 0)));
+            let (short_a, short_b) = (policy::ask(room_a, TRIGGER), policy::ask(room_b, TRIGGER));
+            let survives = match (short_a, short_b) {
+                (true, false) => survives(sim, credit_a, b, credit_b),
+                (false, true) => survives(sim, credit_b, a, credit_a),
+                _ => survives(sim, credit_a, b, credit_b).min(survives(sim, credit_b, a, credit_a)),
+            };
             links.push(Drifted {
                 nodes: (a, b),
                 drift,
                 survives,
-                short: policy::ask(room_a, TRIGGER) || policy::ask(room_b, TRIGGER),
+                short: short_a || short_b,
             });
         }
     }
     links
+}
+
+/// How far a link survives drift when the side that extends `asker` asks
+/// node `payer`, which extends `credit`, to settle: asked at the asker's
+/// trigger, the payer settles only if its books leave it its own trigger
+/// plus twice the least settlement, and over a hub it answers as if it
+/// extended its default credit (spec/decisions/crash-drift.md).
+fn survives(sim: &Sim, asker: u64, payer: usize, credit: u64) -> u128 {
+    let over_hub =
+        matches!(sim.settling, Settling::StubHub(_)) || sim.settling.hub_validators().is_some();
+    let answers = if over_hub {
+        sim.credits
+            .get(&payer)
+            .copied()
+            .unwrap_or(Policies::DEFAULT.peer_credit)
+    } else {
+        credit
+    };
+    let settles = 2 * u128::from(TRIGGER) + 2 * u128::from(policy::minimum(MAX_PACKET));
+    (u128::from(asker) + u128::from(answers)).saturating_sub(settles)
 }
 
 /// A link that crashes drifted past what it survives, stuck as the
@@ -658,11 +686,23 @@ fn check_outgoing_payment(
     Ok(())
 }
 
+/// Whether the run is over one hub of XRP run in the simulation, whose
+/// members fund their accounts in it from their XRP Ledger accounts: its
+/// books are the hub's to check.
+fn is_hub_run(sim: &Sim) -> bool {
+    matches!(sim.settling, Settling::Hub(_))
+}
+
 /// Each node's books, on their own: they hold what its scheme holds, and
 /// it settled what it owed. The underlying ledgers neither made nor lost
 /// money. No check compares two nodes' books, or adds them up: each keeps
-/// its own, and they may drift (spec/decisions/own-books.md).
+/// its own, and they may drift (spec/decisions/own-books.md). Over a hub of
+/// XRP, as the runs over a hub check them, in the hub and on the XRP Ledger
+/// account each member funds its hub account from.
 pub fn check_books(sim: &Sim) -> Result<(), Outcome> {
+    if is_hub_run(sim) {
+        return super::hub_checks::check_books(sim);
+    }
     first_failure([
         check_owner_books(sim).map_err(|problem| Outcome::safety("owner-books", problem)),
         check_ledgers(sim).map_err(|problem| Outcome::safety("ledgers", problem)),

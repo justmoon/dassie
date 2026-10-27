@@ -70,6 +70,11 @@ pub struct StubHooks {
     /// Whether the stub scheme's peerings are over a hub: Prepares on them
     /// come with commitments.
     pub commitments: bool,
+    /// The schemes that would settle directly: neither over a hub nor of
+    /// unlimited trust, so never a method of a peering
+    /// (spec/decisions/hubs-only.md). Every other scheme not over a hub
+    /// trusts without limit, as the test stub with unlimited trust does.
+    pub direct: BTreeSet<SchemeId>,
     /// What the node replies to a Fulfill on a peering over a hub with, as
     /// a payer's claim.
     pub claim: Vec<u8>,
@@ -88,12 +93,6 @@ pub struct StubHooks {
     /// Whether the node refuses every further method of a peering, as a
     /// node does whose accounts for one do not fit.
     pub refuse_methods: bool,
-    /// Whether the stub scheme takes entry payments
-    /// (spec/decisions/pay-to-enter.md).
-    pub takes_entries: bool,
-    /// The nodes it holds one from, each with the request data it is bound
-    /// to.
-    pub entries: BTreeSet<(NodeId, Vec<u8>)>,
 }
 
 impl StubHooks {
@@ -150,32 +149,19 @@ impl PeeringHooks for StubHooks {
         })
     }
 
-    fn finalize(
-        &mut self,
-        _: u64,
-        _: NodeId,
-        _: SchemeId,
-        _: &[u8],
-        _: bool,
-    ) -> Result<Agreed, Declined> {
+    fn finalize(&mut self, _: u64, _: NodeId, _: SchemeId, _: &[u8]) -> Result<Agreed, Declined> {
         Ok(Agreed {
             state: Vec::new(),
             credit_out: CREDIT,
         })
     }
 
-    fn entry(&self, node: NodeId, scheme: SchemeId, data: &[u8]) -> crate::EntryPayment {
-        if !self.takes_entries || scheme.as_str() != STUB {
-            crate::EntryPayment::NotTaken
-        } else if self.entries.contains(&(node, data.to_vec())) {
-            crate::EntryPayment::Held
-        } else {
-            crate::EntryPayment::Missing
-        }
-    }
-
     fn uses_commitments(&self, scheme: SchemeId) -> bool {
         self.commitments && scheme.as_str() == STUB
+    }
+
+    fn trusts_unlimited(&self, scheme: SchemeId) -> bool {
+        !self.uses_commitments(scheme) && !self.direct.contains(&scheme)
     }
 
     // The stub forwards no packets: what a peer's response answers is the
