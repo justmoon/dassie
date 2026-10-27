@@ -12,7 +12,7 @@ use super::inbound::Accepted;
 use super::{PeerNode, Problem, Purpose};
 use crate::hooks::PeeringHooks;
 use crate::io::{Event, Reply};
-use crate::table::{Advertise, Depeering, Entry, PeerState, Termination, backoff};
+use crate::table::{Advertise, Depeering, Entry, PeerState, Peering, Termination, backoff};
 use crate::wire::{Content, SchemeId, TerminationReason};
 
 /// Why a node could not be banned.
@@ -110,6 +110,24 @@ impl PeerNode {
         }
     }
 
+    /// When the next step of ending `peering` privately is due: when its
+    /// wait ends, or when it was collected; whether our own settlements are
+    /// done, only the hooks tell, so that is looked at with each peering
+    /// check.
+    fn next_depeer(&self, peering: &Peering) -> u64 {
+        let (now, wait) = (self.now_ms, self.config.depeer_wait_ms);
+        peering
+            .depeering
+            .map_or(u64::MAX, |depeering| match depeering.asked_ms {
+                None => depeering
+                    .since_ms
+                    .saturating_add(wait)
+                    .min(self.peering.check_at_ms()),
+                Some(_) if depeering.collected() => now,
+                Some(asked) => asked.saturating_add(wait),
+            })
+    }
+
     /// Asks `peer` to settle a last time. A request that cannot be sent
     /// counts as asked, and is waited out.
     fn ask_final(&mut self, peer: NodeId, scheme: SchemeId) {
@@ -147,15 +165,28 @@ impl PeerNode {
         }
     }
 
-    /// Our books took `amount` from `peer` in a settlement: what it said
-    /// was on its way, if we are ending the peering, comes closer
-    /// (spec/decisions/ending-a-peering.md).
-    pub fn settlement_booked(&mut self, now_ms: u64, peer: &NodeId, amount: u64) {
+    /// Our books took `amount` from `peer` in a settlement on its method on
+    /// `scheme`: what it said was on its way, if we are ending the peering
+    /// and collect on that method, or winding the method down, comes closer
+    /// (spec/decisions/ending-a-peering.md,
+    /// spec/decisions/settlement-methods.md). Each answer is in its own
+    /// method's units, so a settlement on another method counts toward
+    /// neither.
+    pub fn settlement_booked(&mut self, now_ms: u64, peer: &NodeId, scheme: SchemeId, amount: u64) {
         self.advance(now_ms);
-        if let Some(depeering) = self.depeering_mut(peer)
+        let collecting = self
+            .peering_of(peer)
+            .is_some_and(|peering| peering.collecting_on(scheme));
+        if collecting
+            && let Some(depeering) = self.depeering_mut(peer)
             && depeering.asked_ms.is_some()
         {
             depeering.booked = depeering.booked.saturating_add(amount);
+        }
+        if let Some(winding) = self.winding_mut(peer, scheme)
+            && winding.asked_ms.is_some()
+        {
+            winding.booked = winding.booked.saturating_add(amount);
         }
     }
 
@@ -383,7 +414,9 @@ impl PeerNode {
         self.terminate_silent();
         self.terminate_short();
         self.end_unrun(hooks);
+        self.drop_unpayable(hooks);
         self.advance_depeerings(hooks);
+        self.advance_windings(hooks);
         self.update_advertised();
         let telling: Vec<NodeId> = self.telling.keys().copied().collect();
         for peer in telling {
@@ -438,7 +471,7 @@ impl PeerNode {
                     // it could be reached, as long as a silent peer. The
                     // time short grows only at checks, which come with an
                     // input: due at once when one passed a limit.
-                    let stuck = peering.withdrawn(config.advertise_short_grace_ms);
+                    let stuck = peering.unavailable(config.advertise_short_grace_ms);
                     let ended = if !ending && peering.short_for_good(config.peer_dead_ms) {
                         now
                     } else {
@@ -463,22 +496,13 @@ impl PeerNode {
                     } else {
                         u64::MAX
                     };
-                    // A peering we are ending privately takes its next step
-                    // when its wait ends, or when it was collected; whether
-                    // our own settlements are done, only the hooks tell, so
-                    // that is looked at with each peering check.
-                    let depeer = peering.depeering.map_or(u64::MAX, |depeering| {
-                        let wait = config.depeer_wait_ms;
-                        match depeering.asked_ms {
-                            None => depeering
-                                .since_ms
-                                .saturating_add(wait)
-                                .min(self.peering.check_at_ms()),
-                            Some(_) if depeering.collected() => now,
-                            Some(asked) => asked.saturating_add(wait),
-                        }
-                    });
-                    Some(silent.min(flag).min(ended).min(depeer))
+                    // Ending it privately, winding a method down, or dropping
+                    // one that cannot receive.
+                    let collect = self
+                        .next_depeer(peering)
+                        .min(self.next_wind(peering))
+                        .min(self.next_unpayable(peering));
+                    Some(silent.min(flag).min(ended).min(collect))
                 }
                 PeerState::Terminating(_, termination) => {
                     Some(if termination.told(now, config.termination_timeout_ms) {
@@ -610,8 +634,8 @@ impl PeerNode {
     }
 
     /// A peer is advertised while it is confirmed, has had room for a
-    /// packet within the grace on one of its methods at least, and is not
-    /// held down; each withdrawal holds it down longer, until it has been
+    /// packet within the grace on one of its methods at least that is not
+    /// being wound down, and is not held down; each withdrawal holds it down longer, until it has been
     /// stable a while (spec/decisions/peering-lifecycle.md,
     /// spec/decisions/settlement-methods.md).
     fn update_advertised(&mut self) {
@@ -622,9 +646,12 @@ impl PeerNode {
             let Some(peering) = entry.active_peering() else {
                 continue;
             };
+            // A method being wound down is no more available than one
+            // withdrawn for room, but only room is reported as the reason.
             let short = peering.withdrawn(config.advertise_short_grace_ms);
+            let unavailable = peering.unavailable(config.advertise_short_grace_ms);
             let live = peering.heard_within(now, config.peer_confirm_ms) && !self.bans.contains(id);
-            let healthy = live && !short;
+            let healthy = live && !unavailable;
             let advertise = &mut entry.advertise;
             if advertise.on
                 && advertise

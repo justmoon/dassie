@@ -14,7 +14,7 @@ use std::sync::Arc;
 
 use dassie_identity::{NodeId, NodeKey};
 use dassie_oer::Decode;
-use dassie_peer::sim::{Arriving, Network, key, url};
+use dassie_peer::sim::{Arriving, Network, STUB, key, scheme, url};
 use dassie_peer::wire::{
     Content, Entry, NodeInfo, PeeringRequest, PeeringResponse, RefusalReason, SchemeId,
     SignedNodeInfo, TerminationReason, sign_node_info,
@@ -1344,7 +1344,9 @@ fn a_node_ending_a_peering_waits_for_what_the_peer_has_on_its_way() {
     });
     settle(&mut network, 5_000);
     assert_eq!(ending(&network, 0, &b), ["depeering", "answered"]);
-    network.act(0, |node, now| node.settlement_booked(now, &b, 5));
+    network.act(0, |node, now| {
+        node.settlement_booked(now, &b, scheme(STUB), 5)
+    });
     settle(&mut network, 5_000);
     assert_eq!(ended(&network, 0, &b), 1);
     let (mut network, _, b) = peered(56);

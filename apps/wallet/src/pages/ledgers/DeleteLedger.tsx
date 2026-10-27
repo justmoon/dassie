@@ -18,7 +18,11 @@ import {
   PageTitle,
 } from "@dassie/ui/ui";
 import { schemeName } from "../schemes.ts";
-import { expectedConfirmation, removalChecklist } from "./removal.ts";
+import {
+  expectedConfirmation,
+  removalChecklist,
+  removingNotice,
+} from "./removal.ts";
 
 export function DeleteLedger(props: RouteProps): JSX.Element {
   const data = useNodeData();
@@ -43,16 +47,18 @@ function Removal(props: { scheme: string }): JSX.Element {
   const [touched, setTouched] = createSignal(false);
   const [pending, setPending] = createSignal(false);
   const [error, setError] = createSignal<string>();
-  const blockers = () =>
-    data.ledgers()?.find((ledger) => ledger.settlementScheme === props.scheme)
-      ?.removalBlockers ?? [];
+  const ledger = () =>
+    data.ledgers()?.find((entry) => entry.settlementScheme === props.scheme);
+  const blockers = () => ledger()?.removalBlockers ?? [];
+  const removing = () => removingNotice(ledger()?.removingMethods);
   const confirmed = () => typed() === expectedConfirmation(props.scheme);
   const remove = async () => {
     setPending(true);
     setError(undefined);
     try {
       await client.call("removeSettlementScheme", { id: props.scheme });
-      toast({ title: `Removed ${schemeName(props.scheme)}` });
+      // It goes at once, or once its peers have settled up.
+      toast({ title: `Removing ${schemeName(props.scheme)}` });
       router.navigate("/ledgers");
     } catch (failure) {
       setError(describe(failure));
@@ -68,6 +74,13 @@ function Removal(props: { scheme: string }): JSX.Element {
           on it stays, and comes back when you add the ledger again, but your
           node no longer settles on it meanwhile.
         </Alert>
+        <Show when={removing()}>
+          {(notice) => (
+            <Alert title={notice().title} testid="delete-removing">
+              {notice().text}
+            </Alert>
+          )}
+        </Show>
         <h2>Prerequisites</h2>
         <Checklist items={removalChecklist(blockers())} />
         <Field
@@ -99,7 +112,8 @@ function Removal(props: { scheme: string }): JSX.Element {
             type="button"
             class="danger"
             data-testid="delete-submit"
-            disabled={!confirmed() || blockers().length > 0 || pending()}
+            disabled={!confirmed() || blockers().length > 0 ||
+              removing() !== undefined || pending()}
             onClick={remove}
           >
             Remove Ledger Account

@@ -22,7 +22,7 @@ pub const EARLY_TESTNET_APPLICATION_ID: i32 = 0x7DA5_E2C9;
 
 /// The migrations, in order. Migration `n` (1-based) brings `user_version`
 /// to `n`. Never edit one that has shipped; add another.
-pub(super) const MIGRATIONS: &[&str] = &[BASELINE, MIGRATION_2];
+pub(super) const MIGRATIONS: &[&str] = &[BASELINE, MIGRATION_2, MIGRATION_3];
 
 /// The schema version this code writes: the number of migrations.
 pub const SCHEMA_VERSION: i64 = version_of(MIGRATIONS);
@@ -680,6 +680,19 @@ ALTER TABLE peers DROP COLUMN short_for_ms;
 ALTER TABLE peers DROP COLUMN short_reached_ms;
 ";
 
+/// Migration 3: winding settlement methods down
+/// (spec/decisions/settlement-methods.md). A method the node decided to
+/// drop, and collects on first, keeps since when; a scheme its owner
+/// removes keeps since when, and runs until its methods are dropped. Both
+/// carry on across a restart.
+const MIGRATION_3: &str = "
+ALTER TABLE peer_methods ADD COLUMN winding_since_ms INTEGER
+  CHECK (winding_since_ms IS NULL OR winding_since_ms >= 0);
+
+ALTER TABLE settlement_schemes ADD COLUMN removing_since_ms INTEGER
+  CHECK (removing_since_ms IS NULL OR removing_since_ms >= 0);
+";
+
 /// Columns that hold secrets: the database inspector never reads them.
 pub const SECRET_COLUMNS: &[(&str, &str)] = &[
     ("node_key", "private_key"),
@@ -819,6 +832,7 @@ pub const TABLES: &[Table] = &[
             ("id", "TEXT", true, true),
             ("config", "TEXT", true, false),
             ("activated_at_ms", "INTEGER", true, false),
+            ("removing_since_ms", "INTEGER", false, false),
         ],
     },
     Table {
@@ -904,6 +918,7 @@ pub const TABLES: &[Table] = &[
             ("credit_out", "INTEGER", true, false),
             ("short_for_ms", "INTEGER", true, false),
             ("short_reached_ms", "INTEGER", true, false),
+            ("winding_since_ms", "INTEGER", false, false),
         ],
     },
     Table {

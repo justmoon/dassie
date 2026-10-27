@@ -46,6 +46,10 @@ message Ledger {
   // What the peg guard of a dollar token's scheme says
   // (spec/areas/xrpl.md#the-peg-guard); absent for a scheme without one.
   LedgerPeg peg = 16;
+  // While its owner removes its scheme (RemoveSettlementScheme): how many
+  // settlement methods of peerings on it are left to wind down before it
+  // goes. Absent while it is not being removed.
+  optional uint32 removing_methods = 17;
 }
 
 // A dollar token's peg guard: whether it pauses the scheme, and the token's
@@ -91,7 +95,9 @@ message LedgerRemovalBlocker {
 
   enum Kind {
     KIND_UNSPECIFIED = 0;
-    // Peers settle with it, or are ending a peering that does.
+    // Never sent: peerings that settle with it no longer keep a scheme
+    // from being removed, which winds their methods down
+    // (Ledger.removing_methods).
     KIND_PEERS = 1;
     // BTP tokens use its ledger.
     KIND_BTP_TOKENS = 2;
@@ -286,8 +292,12 @@ message AddSettlementSchemeResponse {
 }
 
 // Deactivates a scheme. Its books stay, and come back when it is added
-// again. FAILED_PRECONDITION while a BTP token uses its ledger; NOT_FOUND if
-// it is not active.
+// again. A scheme peers settle with is offered to no peer from then on, and
+// runs until each of their settlement methods on it is wound down, which
+// takes a bounded time, then goes (Ledger.removing_methods,
+// spec/decisions/settlement-methods.md). FAILED_PRECONDITION while a BTP
+// token uses its ledger, outgoing payments from it have not finished, or a
+// move of its hub is on its way; NOT_FOUND if it is not active.
 message RemoveSettlementSchemeRequest {
   string id = 1;
 }

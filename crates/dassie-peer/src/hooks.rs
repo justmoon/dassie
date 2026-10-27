@@ -139,6 +139,19 @@ pub trait PeeringHooks {
     /// the peer node's own to know.
     fn settling_to(&self, peer: NodeId) -> bool;
 
+    /// Whether a settlement of ours to `peer` on `scheme` is under way in
+    /// the node, as [`settling_to`](Self::settling_to) says of any scheme:
+    /// a node winding down its method on `scheme` waits for it before it
+    /// asks the peer to settle on it (spec/decisions/settlement-methods.md).
+    fn settling_on(&self, peer: NodeId, scheme: SchemeId) -> bool;
+
+    /// Whether a peer's settlement on `scheme` can reach us now: not while
+    /// our line on its ledger cannot receive
+    /// (spec/areas/settlement.md#when-peers-cannot-pay-us). A method on a
+    /// scheme that cannot for as long as a silent peer is kept is dropped,
+    /// without collecting (spec/decisions/settlement-methods.md).
+    fn receives(&self, scheme: SchemeId) -> bool;
+
     /// What stays of the closed settlement channel with `node`, as it was
     /// last written, or `None` if there never was one
     /// (spec/decisions/closing-channels.md). The node reads it from disk

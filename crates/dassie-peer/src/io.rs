@@ -210,6 +210,15 @@ pub enum Event {
         /// Whether the peer asked.
         inbound: bool,
     },
+    /// We decided to drop a settlement method, and collect on it first,
+    /// telling no one until we have (spec/decisions/settlement-methods.md):
+    /// it takes no new packets from the peer.
+    MethodWinding {
+        /// The peer.
+        peer: NodeId,
+        /// Its scheme.
+        scheme: SchemeId,
+    },
     /// A settlement method was dropped from a peering that keeps another:
     /// nothing more is settled or sent on it, and what its accounts show
     /// stays owed (spec/decisions/settlement-methods.md).

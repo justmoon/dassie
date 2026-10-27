@@ -391,6 +391,31 @@ impl PeeringHooks for Hooks<'_> {
             .any(|transfer| super::settlement::settles_to(self.ledger, transfer, &peer))
     }
 
+    // Ours on `scheme` alone: those pending in its ledger.
+    fn settling_on(&self, peer: NodeId, scheme: SchemeId) -> bool {
+        let Some(ledger) = Name::new(scheme.as_str())
+            .ok()
+            .and_then(|name| self.schemes.get(&name))
+            .map(|active| active.scheme.ledger())
+        else {
+            return false;
+        };
+        self.ledger.pending_transfers().any(|transfer| {
+            super::settlement::settles_to(self.ledger, transfer, &peer)
+                && self
+                    .ledger
+                    .account(transfer.debit)
+                    .is_some_and(|account| account.path().ledger == ledger)
+        })
+    }
+
+    fn receives(&self, scheme: SchemeId) -> bool {
+        Name::new(scheme.as_str())
+            .ok()
+            .and_then(|name| self.schemes.get(&name))
+            .is_some_and(|active| active.scheme.can_receive())
+    }
+
     // A database that cannot be read leaves the core unable to tell a
     // settlement applied from one that is not: it stops, as when a write
     // fails, and restarts from the disk.
@@ -490,6 +515,9 @@ pub struct PeerView {
     /// What we owe the peer net on each of the peering's methods, in the
     /// peering's order.
     pub owed_by_method: Vec<Option<i128>>,
+    /// Whether each of the peering's methods is withdrawn for room, in the
+    /// peering's order.
+    pub withdrawn_by_method: Vec<bool>,
 }
 
 /// The network as the owner sees it.
@@ -587,11 +615,16 @@ impl Core {
                     let owed_by_method = (peering.methods.iter())
                         .map(|method| self.owed(view.id, method.scheme))
                         .collect();
+                    let grace = self.peer.config().advertise_short_grace_ms;
+                    let withdrawn_by_method = (peering.methods.iter())
+                        .map(|method| method.withdrawn(grace))
+                        .collect();
                     Some(PeerView {
                         id: view.id,
                         carried,
                         owed: self.owed(view.id, carried),
                         owed_by_method,
+                        withdrawn_by_method,
                         peering,
                         termination: view.termination,
                         advertised: view.advertised,
@@ -724,6 +757,12 @@ impl Core {
             let carried = self.endpoint_methods.get(&from);
             if carried.is_some_and(|carried| *carried != scheme) {
                 self.refuse_prepare(now, &from, request_id, "the method carries no packets yet");
+                return answer.reply(&[]);
+            }
+            // A method being wound down takes no new packets
+            // (spec/decisions/settlement-methods.md).
+            if self.peer.method_winding(&from, scheme) {
+                self.refuse_prepare(now, &from, request_id, "the method is being wound down");
                 return answer.reply(&[]);
             }
             if !self.check_hub_prepare(
@@ -898,6 +937,7 @@ impl Core {
             self.with_peer(|peer, hooks, now| peer.handle_timeout(now, hooks));
             self.after_peer();
         }
+        self.finish_removals();
     }
 
     /// Tells the peer node which schemes it may peer on, in a fixed order:
@@ -920,6 +960,7 @@ impl Core {
             .iter()
             .filter(|(_, active)| {
                 active.failed.is_none()
+                    && active.removing.is_none()
                     && active.scheme.peers()
                     && active.scheme.has_synced()
                     && active.scheme.can_receive()

@@ -222,8 +222,15 @@ impl PeerNode {
             first
         });
         peering.methods.truncate(super::MAX_METHODS);
+        // A method being wound down keeps its decision, and takes its steps
+        // again (spec/decisions/settlement-methods.md); whether its scheme
+        // can receive is looked at afresh.
         for method in &mut peering.methods {
             method.short_checked_ms = None;
+            method.winding = method
+                .winding
+                .map(|winding| crate::table::Winding::new(winding.since_ms));
+            method.unpayable_since_ms = None;
         }
         // Advertised at once if heard from recently: a restart does not
         // drop our neighbors (spec/decisions/peering-lifecycle.md).
@@ -657,6 +664,19 @@ impl PeerNode {
                     }),
                     "a method per scheme"
                 );
+                for method in methods {
+                    if let Some(winding) = method.winding {
+                        assert!(
+                            winding.asked_ms.is_none_or(|asked| asked <= self.now_ms),
+                            "a method's peer is asked to settle at a time passed"
+                        );
+                        assert!(
+                            winding.asked_ms.is_some()
+                                || (winding.promised.is_none() && winding.booked == 0),
+                            "nothing is collected on a method before it is asked"
+                        );
+                    }
+                }
             }
             assert!(
                 entry.peering().is_none() || entry.key.is_none() || self.channels.contains_key(id),

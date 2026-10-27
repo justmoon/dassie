@@ -17,7 +17,7 @@ use dassie_peer::names::{
 use dassie_peer::wire::{Endpoint, SchemeId, TerminationReason};
 use dassie_peer::{
     Channel, Closed, Depeering, Method, Network, Outgoing, PeerBatch, Peering, Registration,
-    Sources, Stored, StoredChannel, StoredClosed, StoredNode, Termination,
+    Sources, Stored, StoredChannel, StoredClosed, StoredNode, Termination, Winding,
 };
 use rusqlite::{Connection, Row, Transaction, params};
 
@@ -412,7 +412,8 @@ fn load_methods(connection: &Connection, nodes: &mut [StoredNode]) -> Result<(),
         .map(|(index, node)| (node.id, index))
         .collect();
     let mut statement = connection.prepare_cached(
-        "SELECT node, scheme, state, credit_out, short_for_ms, short_reached_ms
+        "SELECT node, scheme, state, credit_out, short_for_ms, short_reached_ms,
+           winding_since_ms
          FROM peer_methods ORDER BY node, position",
     )?;
     let mut rows = statement.query([])?;
@@ -433,6 +434,11 @@ fn load_methods(connection: &Connection, nodes: &mut [StoredNode]) -> Result<(),
             short_for_ms,
             short_reached_ms,
             short_checked_ms: None,
+            // Its steps are taken again.
+            winding: row
+                .get::<_, Option<i64>>(6)?
+                .map(|since| Winding::new(from_sql_time(since))),
+            unpayable_since_ms: None,
         };
         let peering = at
             .get(&node)
@@ -739,8 +745,8 @@ fn write_methods(
     for (position, method) in peering.methods.iter().enumerate() {
         transaction.execute_cached(
             "INSERT INTO peer_methods (node, scheme, position, state, credit_out,
-               short_for_ms, short_reached_ms)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+               short_for_ms, short_reached_ms, winding_since_ms)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
             params![
                 node.as_str(),
                 method.scheme.as_str(),
@@ -751,6 +757,7 @@ fn write_methods(
                     .map_err(|_| StoreError::Corrupt("time short of room"))?,
                 i64::try_from(method.short_reached_ms)
                     .map_err(|_| StoreError::Corrupt("time short of room while reached"))?,
+                method.winding.map(|winding| to_sql_time(winding.since_ms)),
             ],
         )?;
     }

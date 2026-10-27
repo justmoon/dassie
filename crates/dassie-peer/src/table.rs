@@ -257,6 +257,18 @@ pub struct Method {
     /// The last check that found the method short while the node could
     /// ask: the next one adds the time since. Not kept across a restart.
     pub short_checked_ms: Option<u64>,
+    /// Our decision to drop it, while we collect on it first
+    /// (spec/decisions/settlement-methods.md): it takes no new packets from
+    /// the peer, and counts as unavailable. Kept across a restart, which
+    /// takes its steps again.
+    pub winding: Option<Winding>,
+    /// Since when its scheme has been unable to receive a peer's
+    /// settlement, as the node last looked
+    /// (spec/areas/settlement.md#when-peers-cannot-pay-us): once that has
+    /// lasted as long as a silent peer is kept, the method is dropped at
+    /// once. Not kept across a restart: counted from the node's start, as a
+    /// peer's silence is.
+    pub unpayable_since_ms: Option<u64>,
 }
 
 impl Method {
@@ -270,7 +282,17 @@ impl Method {
             short_for_ms: 0,
             short_reached_ms: 0,
             short_checked_ms: None,
+            winding: None,
+            unpayable_since_ms: None,
         }
+    }
+
+    /// Whether we are winding it down: collecting on it before we drop it
+    /// (spec/decisions/settlement-methods.md). It takes no new packets from
+    /// the peer, and counts as unavailable.
+    #[must_use]
+    pub const fn winding_down(&self) -> bool {
+        self.winding.is_some()
     }
 
     /// Whether it is withdrawn for room: short past `grace_ms`. Its packets
@@ -280,6 +302,48 @@ impl Method {
     #[must_use]
     pub const fn withdrawn(&self, grace_ms: u64) -> bool {
         self.short_for_ms >= grace_ms
+    }
+}
+
+/// Our decision to drop a method, kept to ourselves while we collect on it
+/// (spec/decisions/settlement-methods.md), as a peering is ended
+/// ([`Depeering`]): once our own settlements on it are done, or we waited
+/// long enough, we ask the peer to settle on it once; once what it said is
+/// on its way is booked, or we waited long enough, we drop it and tell the
+/// peer.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Winding {
+    /// When we decided.
+    pub since_ms: u64,
+    /// When we asked the peer to settle on it. Not kept across a restart,
+    /// which takes the steps again.
+    pub asked_ms: Option<u64>,
+    /// What the peer said it has on its way to us on it, once it answered
+    /// with an amount, in the method's units.
+    pub promised: Option<u64>,
+    /// What our books took from the peer on it since we asked.
+    pub booked: u64,
+}
+
+impl Winding {
+    /// A decision taken at `now_ms`.
+    #[must_use]
+    pub const fn new(now_ms: u64) -> Self {
+        Self {
+            since_ms: now_ms,
+            asked_ms: None,
+            promised: None,
+            booked: 0,
+        }
+    }
+
+    /// Whether what the peer said it has on its way is booked.
+    #[must_use]
+    pub const fn collected(&self) -> bool {
+        match self.promised {
+            Some(promised) => self.booked >= promised,
+            None => false,
+        }
     }
 }
 
@@ -426,6 +490,16 @@ impl Peering {
     #[must_use]
     pub fn withdrawn(&self, grace_ms: u64) -> bool {
         self.methods.iter().all(|method| method.withdrawn(grace_ms))
+    }
+
+    /// Whether every method is withdrawn for room or being wound down, so
+    /// that the peer is no longer listed as our neighbor
+    /// (spec/decisions/settlement-methods.md).
+    #[must_use]
+    pub fn unavailable(&self, grace_ms: u64) -> bool {
+        self.methods
+            .iter()
+            .all(|method| method.withdrawn(grace_ms) || method.winding_down())
     }
 
     /// Whether a method has been short, while the peer could be reached,

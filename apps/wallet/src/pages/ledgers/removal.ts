@@ -1,6 +1,8 @@
 /**
  * Removing a ledger (spec/areas/wallet.md#pages): what must hold
- * first, as the node reports it, and the confirmation the owner types.
+ * first, as the node reports it, the confirmation the owner types, and a
+ * ledger whose peers the node settles up with before it goes
+ * (spec/decisions/settlement-methods.md).
  */
 
 import {
@@ -18,21 +20,17 @@ const plural = (count: number, one: string, many: string) =>
   `${count} ${count === 1 ? one : many}`;
 
 /**
- * The checklist: always whether peers settle with the scheme, as the
- * original showed, and each other blocker the node names.
+ * The checklist: always what happens to the peers that settle with the
+ * scheme, which no longer keep it, and each blocker the node names.
  */
 export function removalChecklist(
   blockers: readonly LedgerRemovalBlocker[],
 ): CheckItem[] {
-  const peers = blockers.find((blocker) => blocker.kind === Kind.PEERS);
   const items: CheckItem[] = [{
     id: "peers",
-    label: peers
-      ? `Settlement scheme is still in use for ${
-        plural(peers.count, "peer", "peers")
-      }`
-      : "Not used by any peers",
-    state: peers ? "invalid" : "valid",
+    label:
+      "Peers that settle with it are asked to settle once, then your node stops settling with them on it",
+    state: "valid",
   }];
   for (const blocker of blockers) {
     if (blocker.kind === Kind.BTP_TOKENS) {
@@ -75,4 +73,24 @@ export function removalChecklist(
     }
   }
   return items;
+}
+
+/**
+ * What the owner sees of a ledger being removed: how many peers the node
+ * is still settling up with on it. Nothing for one not being removed.
+ */
+export function removingNotice(
+  removingMethods: number | undefined,
+): { title: string; text: string } | undefined {
+  if (removingMethods === undefined) {
+    return undefined;
+  }
+  return {
+    title: "Being removed",
+    text: removingMethods === 0
+      ? "Your node removes it as soon as nothing else uses it."
+      : `Your node is settling up with ${
+        plural(removingMethods, "peer", "peers")
+      } on it first, which takes a few minutes at most. Then it goes.`,
+  };
 }
