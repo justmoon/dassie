@@ -3660,12 +3660,6 @@ rec {
         libName = "dassie_identity";
         dependencies = [
           {
-            name = "curve25519-dalek";
-            packageId = "curve25519-dalek";
-            usesDefaultFeatures = false;
-            features = [ "zeroize" ];
-          }
-          {
             name = "dassie-oer";
             packageId = "dassie-oer";
             usesDefaultFeatures = false;
@@ -3716,6 +3710,11 @@ rec {
           }
         ];
         devDependencies = [
+          {
+            name = "curve25519-dalek";
+            packageId = "curve25519-dalek";
+            usesDefaultFeatures = false;
+          }
           {
             name = "proptest";
             packageId = "proptest";
