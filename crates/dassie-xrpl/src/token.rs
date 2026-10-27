@@ -718,7 +718,7 @@ impl<T: IssuedToken> SettlementScheme for TokenScheme<T> {
         if self.f.catch_up(account, &news) {
             self.written_off(effects);
         }
-        self.f.book_entries(effects);
+        self.f.book_entries(&news, effects);
         for item in &news {
             self.tell(now_ms, account, item, effects);
         }

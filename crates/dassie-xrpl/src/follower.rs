@@ -112,12 +112,16 @@ impl Follower {
     }
 
     /// Books what a state written while the schemes peered held of entry
-    /// payments as the owner's deposit, once: the account holds them, and
-    /// the books hold them from now on, as they would have once their hold
-    /// ran out. Returns whether it booked any. The scheme calls it before
-    /// it takes any news, after a write-off it missed, which took them with
-    /// the account, so the books match the account as it is.
-    pub(crate) fn book_entries(&mut self, effects: &mut Vec<Effect>) -> bool {
+    /// payments as the owner's deposit, once, when the account tells the
+    /// scheme `news`: the account holds them, and the books hold them from
+    /// now on, as they would have once their hold ran out. Returns whether
+    /// it booked any. The scheme calls it before it takes the news, after a
+    /// write-off it missed, which took them with the account, so the books
+    /// match the account as it is.
+    pub(crate) fn book_entries(&mut self, news: &[News], effects: &mut Vec<Effect>) -> bool {
+        if news.is_empty() {
+            return false;
+        }
         let amount = core::mem::take(&mut self.entries);
         if amount == 0 || self.cursor.is_none() {
             return false;

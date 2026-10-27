@@ -606,7 +606,7 @@ impl<N: NativeXrp> SettlementScheme for XrpScheme<N> {
         if self.f.catch_up(account, &news) {
             self.written_off(effects);
         }
-        self.f.book_entries(effects);
+        self.f.book_entries(&news, effects);
         // The reserve the books are matched to is the one the account had
         // when it last told something: a reserve it read meanwhile, before
         // it is synced again, is matched when it is.
