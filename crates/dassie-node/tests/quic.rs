@@ -450,8 +450,9 @@ fn counts(core: usize, downlinks: usize, others: usize) -> Counts {
 
 /// Waits until `done`, which the endpoint reaches on its own, on real time
 /// as QUIC's own timers run: in a moment, or once a backoff of its is over.
-/// The limit only tells a hang, twice the idle timeout, the longest of the
-/// endpoint's timers, which no machine is slow enough to reach.
+/// The limit only tells a hang: twice the idle timeout, the longest of the
+/// timers any wait here depends on, which no machine is slow enough to
+/// reach.
 async fn until(mut done: impl FnMut() -> bool) {
     let deadline = tokio::time::Instant::now() + 2 * IDLE_TIMEOUT;
     while !done() {

@@ -352,7 +352,7 @@ async fn send(from: &Side, to: NodeId, url: &str) -> Result<Vec<u8>, Failure> {
 }
 
 /// How long a wait here may take before the test calls it a hang: twice
-/// the longest of the endpoint's timers, the idle timeout. Tunnels and QUIC
+/// the idle timeout, the longest of the timers any wait here depends on. Tunnels and QUIC
 /// connections run on real time, as QUIC's own timers do, so the tests
 /// wait for them in real time; but what a test waits for comes in a moment
 /// on any machine, and a slow one never reaches this.
@@ -533,9 +533,13 @@ async fn a_tunnel_that_ends_closes_its_connection_at_once() {
             && downlink.quic.open_tunnels() == 0
     })
     .await;
-    // Sooner than the idle timeout, which would close it otherwise: nothing
-    // gets through a tunnel that broke, keep-alives included.
-    assert!(broken.elapsed() < IDLE_TIMEOUT);
+    // Well before the idle timeout, which would close it otherwise: nothing
+    // gets through a tunnel that broke, keep-alives included. QUIC counts
+    // that timeout from the last packet a side received, which came just
+    // before the tunnel broke, so the idle close would come a little short
+    // of an idle timeout after `broken`; half of it rules that out with
+    // room on both sides.
+    assert!(broken.elapsed() < IDLE_TIMEOUT / 2);
     let response = uplink.side.quic.send_held(&to_periphery(&downlink)).await;
     assert_eq!(response.err(), Some(Failure::NotDelivered));
     // The next request dials again.
@@ -615,7 +619,11 @@ async fn a_tunnel_that_carries_no_packet_ends_sooner() {
     let mut ws = raw_tunnel(quic, "127.0.0.1:40000".parse().unwrap()).await;
     assert_eq!(quic.places().unwrap().setting_up, 1);
     let ended = async { while let Some(Ok(_)) = ws.next().await {} };
-    tokio::time::timeout(CONNECT_TIMEOUT, ended)
+    // Half way between the two timers: the tunnel's own deadline starts a
+    // moment after this one, so the time to connect itself would leave the
+    // two to race.
+    let between = (tunnel::FIRST_PACKET_TIMEOUT + CONNECT_TIMEOUT) / 2;
+    tokio::time::timeout(between, ended)
         .await
         .expect("a tunnel without a packet stayed open as long as one without a connection");
     let elapsed = started.elapsed();
