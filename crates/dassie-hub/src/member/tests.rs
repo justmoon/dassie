@@ -1032,3 +1032,412 @@ fn the_default_testnet_hub_is_the_one_founded() {
         ]
     );
 }
+
+/// The hub's word that it has no account for the member's key, as of
+/// `height`.
+fn none_statement(hub: &Hub, height: u64) -> Statement {
+    Statement::Account {
+        height,
+        key: hub.key.public_key(),
+        account: None,
+    }
+}
+
+/// The member's account 7 as of `height`, opened by a `pay` of `paid`:
+/// nothing of it deposited.
+fn paid_in_statement(hub: &Hub, height: u64, paid: u64) -> Statement {
+    let reserve = hub.rules.terms.fees.account_reserve;
+    Statement::Account {
+        height,
+        key: hub.key.public_key(),
+        account: Some((
+            AccountNumber(7),
+            AccountView {
+                key: hub.key.public_key(),
+                balance: paid - reserve,
+                reserve,
+                sequence: 0,
+                disbursal: false,
+                closing: false,
+                deposited: 0,
+                withdrawn: 0,
+                returned: 0,
+            },
+        )),
+    }
+}
+
+/// The payer's key: account 9's.
+fn payer_key() -> NodeKey {
+    NodeKey::from_bytes(&[9; 32])
+}
+
+/// Account 9's `pay` of `paid` to the member's key, which opened its
+/// account 7 in the block at `height`.
+fn pay_statement(hub: &Hub, height: u64, paid: u64) -> Statement {
+    let signed = SignedMemberOperation::sign(
+        &hub.rules.id(),
+        AccountNumber(9),
+        0,
+        10,
+        MemberOperation::Pay {
+            key: hub.key.public_key(),
+            amount: paid,
+        },
+        &payer_key(),
+    );
+    Statement::Executed {
+        height,
+        timestamp: 1_000 + height,
+        index: 0,
+        operation: Operation::Member(signed),
+        outcome: Outcome::Applied {
+            fee: 10,
+            detail: crate::ledger::Detail::Account(AccountNumber(7)),
+        },
+    }
+}
+
+/// What `paid_in` pays the member: the hub's minimum for a new account.
+fn minimum(hub: &Hub) -> u64 {
+    hub.rules.terms.new_account_minimum()
+}
+
+// spec/designs/settlement-hubs.md#5-joining: an account the hub had none
+// for reads what opened it in order, from where f + 1 validators agreed it
+// had none, a peer's `pay` among it; then sets its disbursal address before
+// anything else.
+#[test]
+fn an_account_opened_since_reads_what_opened_it() {
+    let hub = Hub::new();
+    let mut account = hub.account();
+    for v in 0..2 {
+        from(&mut account, v, &hub.says(v, &[none_statement(&hub, 5)]));
+    }
+    assert_eq!(account.status(), LedgerStatus::Unfunded);
+    assert_eq!(account.cursor(), 5, "nothing touched what did not exist");
+    assert!(matches!(account.news(), [News::Unfunded]));
+    account.told();
+    let paid = minimum(&hub);
+    for v in 0..2 {
+        from(
+            &mut account,
+            v,
+            &hub.says(v, &[paid_in_statement(&hub, 9, paid)]),
+        );
+    }
+    assert_eq!(account.number(), Some(AccountNumber(7)));
+    assert_eq!(account.cursor(), 5, "read from where it had none");
+    assert!(!account.is_synced());
+    assert!(
+        account.news().is_empty(),
+        "its state waits for what led there"
+    );
+    assert!(submitted(&mut account).is_empty());
+    let final_block = Statement::Final {
+        height: 9,
+        timestamp: 1_009,
+    };
+    for v in 0..3 {
+        let answer = [pay_statement(&hub, 7, paid), final_block.clone()];
+        from(&mut account, v, &hub.says(v, &answer));
+    }
+    assert_eq!(account.cursor(), 9);
+    assert!(account.is_synced());
+    assert!(
+        matches!(
+            account.news(),
+            [
+                News::Executed {
+                    height: 7,
+                    ours: None,
+                    ..
+                },
+                News::Final { height: 9, .. },
+                News::Account { height: 9, .. }
+            ]
+        ),
+        "{:?}",
+        account.news()
+    );
+    let first = submitted(&mut account);
+    assert!(matches!(
+        first[0].operation,
+        MemberOperation::SetDisbursal(_)
+    ));
+    assert_eq!(first[0].sequence, 0);
+    account.check_invariants();
+}
+
+/// A scheme told by f + 1 validators that the hub has no account for its
+/// key, as of the block at 5.
+fn without_an_account(hub: &Hub) -> (HubAccount, HubScheme) {
+    let mut account = hub.account();
+    let mut scheme = HubScheme::new(&account, 100_000_000, None, &[]).unwrap();
+    assert_eq!(scheme.commitments().unwrap().membership(), None);
+    for v in 0..2 {
+        from(&mut account, v, &hub.says(v, &[none_statement(hub, 5)]));
+    }
+    let mut effects = Vec::new();
+    scheme.on_asset(0, &mut account, &mut effects);
+    account.told();
+    assert!(effects.is_empty());
+    (account, scheme)
+}
+
+/// The peer of account 9, as its peering info presents it.
+fn payer_state(hub: &Hub) -> Vec<u8> {
+    let mut state = Vec::new();
+    peering::Membership {
+        hub: hub.rules.id(),
+        account: AccountNumber(9),
+        key: payer_key().public_key(),
+    }
+    .write(&mut state);
+    state
+}
+
+// spec/designs/settlement-hubs.md#5-joining: a scheme whose key the hub has
+// no account for runs, presents its key with no account, peers only with a
+// member that has one, and takes no promises from it.
+#[test]
+fn a_scheme_without_an_account_runs() {
+    let hub = Hub::new();
+    let (_, mut scheme) = without_an_account(&hub);
+    assert!(scheme.has_synced(), "it runs without a deposit");
+    assert_eq!(scheme.balance(), 0);
+    let mut info = Vec::new();
+    scheme.peering_info(&mut info);
+    let ours = peering::Membership::read(&info, &hub.rules.id()).unwrap();
+    assert_eq!(ours.account, peering::NONE);
+    assert_eq!(ours.key, hub.key.public_key());
+    assert_eq!(
+        scheme.commitments().unwrap().membership(),
+        Some(dassie_settlement::Membership {
+            hub: *hub.rules.id().0.as_bytes(),
+            account: dassie_settlement::Membership::NO_ACCOUNT,
+        })
+    );
+    // Two members without an account do not peer.
+    let mut keyless = Vec::new();
+    peering::Membership {
+        hub: hub.rules.id(),
+        account: peering::NONE,
+        key: NodeKey::from_bytes(&[8; 32]).public_key(),
+    }
+    .write(&mut keyless);
+    let other = Name::new("other").unwrap();
+    assert_eq!(
+        scheme.accept_peering_request(other, &keyless),
+        Err(SchemeError::Unavailable)
+    );
+    let mut out = Vec::new();
+    assert_eq!(
+        scheme.create_peering_request(other, &keyless, &mut out),
+        Err(SchemeError::Unavailable)
+    );
+    // One with an account peers, and promises nothing either way.
+    let payer = Name::new("payer").unwrap();
+    let state = payer_state(&hub);
+    assert_eq!(
+        scheme.accept_peering_request(payer, &state),
+        Ok(state.clone())
+    );
+    scheme.on_peered(payer, &state);
+    let commitments = scheme.commitments().unwrap();
+    assert!(!commitments.commits_with(payer));
+    assert_eq!(commitments.opening_minimum(payer), None, "we pay no one in");
+    scheme.check_invariants();
+}
+
+// spec/designs/settlement-hubs.md#5-joining: the `pay` that opened the
+// account is the paying peer's settlement, read once, and the account
+// reserve is the reserve's; from then on the scheme is a member as any.
+#[test]
+fn a_scheme_paid_in_books_its_peers_settlement() {
+    let hub = Hub::new();
+    let (mut account, mut scheme) = without_an_account(&hub);
+    let payer = Name::new("payer").unwrap();
+    scheme.on_peered(payer, &payer_state(&hub));
+    let paid = minimum(&hub);
+    for v in 0..2 {
+        from(
+            &mut account,
+            v,
+            &hub.says(v, &[paid_in_statement(&hub, 9, paid)]),
+        );
+    }
+    let final_block = Statement::Final {
+        height: 9,
+        timestamp: 1_009,
+    };
+    for v in 0..3 {
+        let answer = [pay_statement(&hub, 7, paid), final_block.clone()];
+        from(&mut account, v, &hub.says(v, &answer));
+    }
+    let mut effects = Vec::new();
+    scheme.on_asset(0, &mut account, &mut effects);
+    account.told();
+    let reserve = hub.rules.terms.fees.account_reserve;
+    assert_eq!(
+        effects,
+        [
+            dassie_settlement::Effect::IncomingSettlement {
+                peer: payer,
+                amount: units(paid),
+                id: effects.first().and_then(|effect| match effect {
+                    dassie_settlement::Effect::IncomingSettlement { id, .. } => *id,
+                    _ => None,
+                }),
+            },
+            dassie_settlement::Effect::Reconcile {
+                amount: units(reserve),
+                gain: false,
+                cause: dassie_settlement::ReconcileCause::Reserve,
+            },
+        ]
+    );
+    assert_eq!(scheme.balance(), units(paid - reserve));
+    assert!(scheme.commitments().unwrap().commits_with(payer));
+    assert_eq!(
+        scheme.commitments().unwrap().membership().unwrap().account,
+        7
+    );
+    let mut info = Vec::new();
+    scheme.peering_info(&mut info);
+    assert_eq!(
+        peering::Membership::read(&info, &hub.rules.id())
+            .unwrap()
+            .account,
+        AccountNumber(7)
+    );
+    // Read once: said again, nothing more is booked.
+    for v in 0..4 {
+        let answer = [pay_statement(&hub, 7, paid), final_block.clone()];
+        from(&mut account, v, &hub.says(v, &answer));
+    }
+    let mut effects = Vec::new();
+    scheme.on_asset(0, &mut account, &mut effects);
+    assert!(effects.is_empty());
+    scheme.check_invariants();
+    account.check_invariants();
+}
+
+/// A scheme on an account known to validators 0 and 1, as of the block at
+/// 5.
+fn synced_scheme(hub: &Hub) -> (HubAccount, HubScheme) {
+    let mut account = hub.account();
+    let mut scheme = HubScheme::new(&account, 100_000_000, None, &[]).unwrap();
+    for v in 0..2 {
+        from(
+            &mut account,
+            v,
+            &hub.says(v, &[hub.account_statement(5, true)]),
+        );
+    }
+    let mut effects = Vec::new();
+    scheme.on_asset(0, &mut account, &mut effects);
+    account.told();
+    assert!(scheme.has_synced());
+    (account, scheme)
+}
+
+/// The hub's word on `key`, as of `height`: it has no account for it.
+fn no_account_for(key: dassie_identity::PublicKey, height: u64) -> Statement {
+    Statement::Account {
+        height,
+        key,
+        account: None,
+    }
+}
+
+// spec/areas/hubs.md#when-the-history-is-gone: a `pay` of ours whose
+// outcome the account never read is never cancelled on a guess. It stays
+// on its way across a restart, and waits for f + 1 validators to say
+// whether the hub has an account for the key it paid in, as of a block it
+// had executed by: none as of an older block says nothing; none as of
+// that block cancels it, and takes back through suspense what the
+// account's state counted of it meanwhile.
+#[test]
+fn an_unread_pay_waits_for_the_hub_across_a_restart() {
+    let hub = Hub::new();
+    let (account, mut scheme) = synced_scheme(&hub);
+    let settlement = Name::new("00112233445566778899aabbccddeeff").unwrap();
+    let key = NodeKey::from_bytes(&[8; 32]).public_key();
+    scheme.settling.insert(
+        settlement,
+        scheme::Settling {
+            peer: Name::new("newcomer").unwrap(),
+            drops: 5,
+        },
+    );
+    scheme
+        .unread_pays
+        .insert(settlement, scheme::UnreadPay { key, height: 20 });
+    scheme.check_invariants();
+    // A restart.
+    let state = scheme.state();
+    let mut account = HubAccount::new(
+        FIRST,
+        hub.rules.clone(),
+        Arc::clone(&hub.key),
+        Destination {
+            account: [5; 20],
+            tag: None,
+        },
+        Name::new(SCHEME_ID).unwrap(),
+        &account.state(),
+    )
+    .unwrap();
+    let mut scheme = HubScheme::new(&account, 100_000_000, Some(scheme.balance()), &state).unwrap();
+    assert_eq!(scheme.state(), state, "the scheme's state round-trips");
+    let booked = scheme.balance();
+    let mut effects = Vec::new();
+    scheme.reconcile(Some(&mut account), &[(settlement, units(5))], &mut effects);
+    assert!(effects.is_empty(), "not cancelled on a guess");
+    scheme.on_asset(0, &mut account, &mut effects);
+    account.told();
+    assert!(effects.is_empty());
+    for v in 0..2 {
+        from(&mut account, v, &hub.says(v, &[no_account_for(key, 10)]));
+    }
+    scheme.on_asset(0, &mut account, &mut effects);
+    account.told();
+    assert!(effects.is_empty(), "as of a block before it executed");
+    assert!(scheme.unread_pays.contains_key(&settlement));
+    for v in 0..2 {
+        from(&mut account, v, &hub.says(v, &[no_account_for(key, 20)]));
+    }
+    scheme.on_asset(0, &mut account, &mut effects);
+    assert_eq!(
+        effects,
+        [
+            dassie_settlement::Effect::Cancel { settlement },
+            dassie_settlement::Effect::Reconcile {
+                amount: units(5),
+                gain: false,
+                cause: dassie_settlement::ReconcileCause::Unexplained,
+            },
+        ]
+    );
+    assert_eq!(scheme.balance(), booked - units(5));
+    assert!(scheme.unread_pays.is_empty());
+    assert!(scheme.settling.is_empty());
+    scheme.check_invariants();
+}
+
+// The scheme's state of version 1, from before unread `pay`s were kept,
+// reads as one with none.
+#[test]
+fn a_scheme_state_of_version_1_reads_with_no_unread_pays() {
+    let hub = Hub::new();
+    let (account, scheme) = synced_scheme(&hub);
+    let state = scheme.state();
+    assert_eq!(state.first(), Some(&2));
+    let (body, count) = state.split_at(state.len() - 4);
+    assert_eq!(count, [0; 4], "no unread pays");
+    let mut old = body.to_vec();
+    old[0] = 1;
+    let restored = HubScheme::new(&account, 100_000_000, Some(scheme.balance()), &old).unwrap();
+    assert_eq!(restored.state(), state);
+}
