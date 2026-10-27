@@ -71,10 +71,14 @@ Commands:
   setup-url         Print the link that completes setup in a browser.
   hub [status]      Show the node's account in each settlement hub it is
                     in, and the floor and ceiling the node keeps it between.
-  hub deposit <XRP> Move XRP from the node's XRP Ledger account into the
-                    hub, opening the account there if it has none.
-  hub withdraw <XRP>
-                    Move XRP from the hub to the node's XRP Ledger account.
+  hub deposit <amount>
+                    Move the hub's asset, XRP or DSUSD, from the node's XRP
+                    Ledger account into the hub, opening the account there
+                    if it has none.
+  hub withdraw <amount>
+                    Move the hub's asset from the hub to the node's XRP
+                    Ledger account; from a DSUSD hub, once the node checked
+                    its escrow has the XRP it pays fees with.
                     Either move pauses the node's own moves for an hour.
   hub auto on|off   Let the node move funds to and from the hub by itself,
                     or not.

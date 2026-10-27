@@ -14,12 +14,17 @@ use rusqlite::{OptionalExtension, Transaction, params};
 
 use super::{Cached, Store, StoreError};
 
-/// The move on its way, as the database keeps it. Amounts are in drops.
+/// The move on its way, as the database keeps it. Amounts are in the hub
+/// asset's smallest unit, as the hub counts it: drops of XRP, or
+/// millionths of a token such as DSUSD. The columns that hold them are
+/// named for drops (`move_drops`, `given_up_drops`), and hold a token
+/// hub's millionths alike: a row is keyed by the scheme over its hub,
+/// which names the asset.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct HubMoveRow {
     /// Whether it is a deposit into the hub, rather than a withdrawal.
     pub deposit: bool,
-    /// How much.
+    /// How much, in the hub asset's smallest unit.
     pub drops: u64,
     /// The value of the hub account's counter that shows it done.
     pub target: u64,

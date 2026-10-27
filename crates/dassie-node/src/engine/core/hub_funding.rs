@@ -1,7 +1,10 @@
-//! Moving the owner's funds between the node's XRPL testnet account and its
-//! account in a settlement hub (spec/areas/hubs.md#in-the-node,
+//! Moving the owner's funds between the owner book of a hub's asset, on the
+//! node's XRPL testnet account, and its account in that settlement hub
+//! (spec/areas/hubs.md#in-the-node,
 //! spec/designs/settlement-hubs.md#11-choosing-a-hub): when a move is due,
 //! and when one on its way is done. `hub_moves.rs` makes the moves.
+//! Amounts are in the hub asset's smallest unit, as the hub counts it:
+//! drops of XRP, or millionths of a token such as DSUSD.
 //!
 //! - **Between a floor and a ceiling.** What the hub account can spend
 //!   stays above a floor of what its peerings over the hub need to fund
@@ -41,6 +44,15 @@
 //! - **The owner's moves** go the same way, and pause the automatic ones
 //!   for a while, so the node does not undo them at once. The owner may
 //!   turn the automatic moves off. The database keeps both.
+//! - **Nothing moves into or out of a hub that is unavailable**, such as a
+//!   frozen token hub (spec/decisions/token-hubs.md): its scheme or its
+//!   account is not in step with the hub.
+//! - **A token hub's gas first.** Before the node asks a token hub for a
+//!   withdrawal, it reads the escrow's XRP, proven, and if that is below
+//!   the least the hub's crate fixes (`LEAST_ESCROW_GAS_DROPS`), sends the
+//!   escrow the shortfall from its XRP owner book and waits until that
+//!   applied ([`Gas`]). A top-up that fails holds the withdrawal back for
+//!   the funding's backoff.
 //!
 //! Each side books its half when it sees it happen: the XRP scheme the
 //! owner's withdrawal once its Payment applied, the hub scheme the owner's
@@ -71,12 +83,24 @@ pub enum Direction {
     Withdraw,
 }
 
+/// How long a check of a token hub's gas holds for the next withdrawal:
+/// the escrow's XRP falls only by the gas of each transaction it sends,
+/// which is a small part of [`LEAST_ESCROW_GAS_DROPS`], so a check a few
+/// minutes old still says enough; an owner who withdraws after it has the
+/// escrow checked again.
+pub const GAS_CHECK_LASTS_MS: u64 = 600_000;
+
+/// The least XRP, in drops, a token hub's escrow holds before a member
+/// asks it for a withdrawal ([`dassie_hub::member::LEAST_ESCROW_GAS_DROPS`]).
+pub const LEAST_ESCROW_GAS_DROPS: u64 = dassie_hub::member::LEAST_ESCROW_GAS_DROPS;
+
 /// A move decided on, not made yet.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Planned {
     /// Which way.
     pub direction: Direction,
-    /// How much, in drops.
+    /// How much, in the hub asset's smallest unit (drops of XRP, or
+    /// millionths of a token).
     pub drops: u64,
     /// Whether the owner asked for it.
     pub owner: bool,
@@ -113,7 +137,7 @@ impl Planned {
 pub struct Move {
     /// Which way.
     pub direction: Direction,
-    /// How much, in drops.
+    /// How much, in the hub asset's smallest unit.
     pub drops: u64,
     /// Whether the owner asked for it.
     pub owner: bool,
@@ -128,7 +152,8 @@ pub struct Move {
     pub applied_ms: Option<u64>,
 }
 
-/// The node's hub account, as last agreed, in drops.
+/// The node's hub account, as last agreed, in the hub asset's smallest
+/// unit.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Held {
     /// What it can spend.
@@ -142,14 +167,17 @@ pub struct Held {
     pub withdrawn: u64,
 }
 
-/// What the moves are decided from.
+/// What the moves are decided from, in the hub asset's smallest unit.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Standing {
     /// The hub account, once agreed.
     pub held: Option<Held>,
     /// Whether the hub says it has no account for the node's key.
     pub unfunded: bool,
-    /// The floor and the ceiling, in drops.
+    /// Whether the hub is unavailable, as a frozen token hub is: nothing
+    /// moves into or out of it.
+    pub unavailable: bool,
+    /// The floor and the ceiling.
     pub floor: u64,
     /// The ceiling.
     pub ceiling: u64,
@@ -165,16 +193,70 @@ pub struct Standing {
     pub withdrawal_fees: u64,
     /// The least deposit worth its fees: a largest packet.
     pub least_deposit: u64,
-    /// The owner's funds on the XRPL account a deposit may take, in drops;
-    /// `None` while its scheme does not run synced.
+    /// The owner's funds in the owner book of the hub's asset a deposit
+    /// may take, after its fee; `None` while the book does not run synced.
     pub xrpl: Option<u64>,
-    /// The owner's funds on the hub's ledger, in drops: what a withdrawal
-    /// may take, with its fees. What the hub account holds beyond them is
-    /// owed to peers.
+    /// The owner's funds on the hub's ledger: what a withdrawal may take,
+    /// with its fees. What the hub account holds beyond them is owed to
+    /// peers.
     pub hub_owner: u64,
     /// What became of the payment of the move on its way, as the scheme of
     /// the side it leaves says.
     pub paying: OwnerPaymentState,
+}
+
+/// Where the check of a token hub's gas before a withdrawal stands
+/// (spec/decisions/token-hubs.md). Not kept across restarts: a restart
+/// checks again, and a top-up still on its way then holds the XRP owner
+/// book's payments, so a second one is refused until it is done.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Gas {
+    /// Not checked for the next withdrawal.
+    Unchecked,
+    /// The escrow's XRP asked for, to be proven at ledger `after` or later.
+    Reading {
+        /// The XRP Ledger's newest ledger the node had proven when it
+        /// asked.
+        after: u32,
+    },
+    /// The node's top-up of the escrow's XRP, on its way.
+    ToppingUp {
+        /// Its payment's ID with the XRP owner book.
+        payment: Name,
+    },
+    /// The escrow holds the least gas, or the node's top-up applied, as of
+    /// `at_ms`.
+    Ready {
+        /// When it was checked.
+        at_ms: u64,
+    },
+}
+
+/// What the gas check is decided from.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct GasSeen {
+    /// The newest ledger the XRP owner book's account has proven, if it
+    /// runs in step with its ledger.
+    pub anchor: Option<u32>,
+    /// The escrow's XRP as last proven, in drops (`None` for no account),
+    /// and the ledger it was proven at.
+    pub proven: Option<(Option<u64>, u32)>,
+    /// What became of the node's top-up on its way, as the XRP owner book
+    /// says.
+    pub topping_up: OwnerPaymentState,
+}
+
+/// What the gas check asks for next.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum GasNext {
+    /// The escrow has its gas: the withdrawal may go.
+    Ready,
+    /// Nothing for now.
+    Wait,
+    /// Read the escrow's XRP.
+    Read,
+    /// Send the escrow this many drops of XRP.
+    TopUp(u64),
 }
 
 /// The node's moves between its XRPL account and its hub account.
@@ -197,6 +279,8 @@ pub struct Funding {
     /// The next check.
     pub at_ms: u64,
     interval_ms: u64,
+    /// The check of a token hub's gas before its next withdrawal.
+    pub gas: Gas,
 }
 
 impl Funding {
@@ -211,6 +295,7 @@ impl Funding {
             backoff_ms: FIRST_BACKOFF_MS,
             at_ms: now_ms,
             interval_ms,
+            gas: Gas::Unchecked,
         }
     }
 
@@ -276,6 +361,11 @@ impl Funding {
     /// A move that failed, or could not be made: the next waits.
     pub fn failed(&mut self, now_ms: u64) {
         self.moving = None;
+        self.back_off(now_ms);
+    }
+
+    /// The next automatic move waits the backoff, which doubles.
+    fn back_off(&mut self, now_ms: u64) {
         self.not_before_ms = now_ms.saturating_add(self.backoff_ms);
         self.backoff_ms = self.backoff_ms.saturating_mul(2).min(MAX_BACKOFF_MS);
     }
@@ -285,6 +375,7 @@ impl Funding {
     /// acted since, or a failure's backoff lasts.
     pub fn due(&self, now_ms: u64, standing: &Standing) -> Option<Planned> {
         let waiting = self.moving.is_some()
+            || standing.unavailable
             || self.given_up.is_some()
             || !self.automatic
             || now_ms < self.paused_until_ms
@@ -320,6 +411,9 @@ impl Funding {
     /// moves.
     pub fn start(&mut self, now_ms: u64, planned: Planned, payment: Name) {
         assert!(self.moving.is_none(), "one move at a time");
+        if planned.direction == Direction::Withdraw {
+            self.gas = Gas::Unchecked;
+        }
         if planned.owner {
             self.paused_until_ms = now_ms.saturating_add(OWNER_PAUSE_MS);
             self.owner_acted();
@@ -333,6 +427,80 @@ impl Funding {
             sent_ms: now_ms,
             applied_ms: None,
         });
+    }
+
+    /// Whether a token hub's escrow has its gas for a withdrawal now.
+    pub const fn gas_ready(&self, now_ms: u64) -> bool {
+        matches!(self.gas, Gas::Ready { at_ms } if now_ms < at_ms.saturating_add(GAS_CHECK_LASTS_MS))
+    }
+
+    /// Whether a check of a token hub's gas is under way: read or topped
+    /// up, and not yet ready.
+    pub const fn gas_checking(&self) -> bool {
+        matches!(self.gas, Gas::Reading { .. } | Gas::ToppingUp { .. })
+    }
+
+    /// The next step of the check of a token hub's gas before a
+    /// withdrawal, from what the XRP owner book's account proved of the
+    /// escrow: read its XRP, at the newest ledger proven or later, then
+    /// send it the shortfall below [`LEAST_ESCROW_GAS_DROPS`], and wait
+    /// until that applied. Its whole XRP counts, never a part of it kept
+    /// for its reserve. A top-up that moved nothing fails: the funding
+    /// backs off, and checks again after.
+    pub fn gas_step(&mut self, now_ms: u64, seen: &GasSeen) -> GasNext {
+        if self.gas_ready(now_ms) {
+            return GasNext::Ready;
+        }
+        match self.gas {
+            Gas::Unchecked | Gas::Ready { .. } if now_ms < self.not_before_ms => GasNext::Wait,
+            Gas::Unchecked | Gas::Ready { .. } => match seen.anchor {
+                Some(after) => {
+                    self.gas = Gas::Reading { after };
+                    GasNext::Read
+                }
+                None => GasNext::Wait,
+            },
+            Gas::Reading { after } => match seen.proven {
+                Some((drops, at)) if at >= after => {
+                    let held = drops.unwrap_or(0);
+                    if held >= LEAST_ESCROW_GAS_DROPS {
+                        self.gas = Gas::Ready { at_ms: now_ms };
+                        GasNext::Ready
+                    } else {
+                        GasNext::TopUp(LEAST_ESCROW_GAS_DROPS - held)
+                    }
+                }
+                _ => GasNext::Read,
+            },
+            Gas::ToppingUp { .. } => match seen.topping_up {
+                OwnerPaymentState::Applied => {
+                    self.gas = Gas::Ready { at_ms: now_ms };
+                    GasNext::Ready
+                }
+                OwnerPaymentState::Failed(_) | OwnerPaymentState::Cancelled => {
+                    self.gas_failed(now_ms);
+                    GasNext::Wait
+                }
+                _ => GasNext::Wait,
+            },
+        }
+    }
+
+    /// The node's top-up of the escrow's gas went out as `payment`.
+    pub fn topping_up(&mut self, payment: Name) {
+        assert!(
+            matches!(self.gas, Gas::Reading { .. }),
+            "a top-up follows a read"
+        );
+        self.gas = Gas::ToppingUp { payment };
+    }
+
+    /// The top-up the gas check asked for could not be made, or moved
+    /// nothing: the withdrawal waits the funding's backoff, and the gas is
+    /// checked again after.
+    pub fn gas_failed(&mut self, now_ms: u64) {
+        self.gas = Gas::Unchecked;
+        self.back_off(now_ms);
     }
 
     /// Whether a check is due, and when the next is.
@@ -367,6 +535,7 @@ mod tests {
                 withdrawn: 3,
             }),
             unfunded: false,
+            unavailable: false,
             floor: 400_000,
             ceiling: 10_000_000,
             opening: 2_401_000,
@@ -557,5 +726,80 @@ mod tests {
         assert!(funding.due(5 + OWNER_PAUSE_MS, &low).is_some());
         funding.automatic = false;
         assert_eq!(funding.due(5 + OWNER_PAUSE_MS, &low), None);
+    }
+
+    // spec/decisions/token-hubs.md: before a token hub's withdrawal, the
+    // escrow's XRP is read at the newest ledger proven or later; with
+    // enough, the withdrawal goes; short, the shortfall is topped up, and
+    // the withdrawal waits for it to apply; a top-up that failed backs off.
+    // A withdrawal started takes the check with it.
+    #[test]
+    fn a_token_hubs_withdrawal_tops_up_the_gas_first() {
+        let mut funding = Funding::new(0, 4_000);
+        let mut seen = GasSeen {
+            anchor: None,
+            proven: None,
+            topping_up: OwnerPaymentState::Unknown,
+        };
+        assert_eq!(funding.gas_step(1, &seen), GasNext::Wait, "nothing proven");
+        seen.anchor = Some(10);
+        assert_eq!(funding.gas_step(1, &seen), GasNext::Read);
+        assert!(funding.gas_checking());
+        seen.proven = Some((Some(LEAST_ESCROW_GAS_DROPS * 5), 9));
+        assert_eq!(funding.gas_step(2, &seen), GasNext::Read, "read before");
+        seen.proven = Some((Some(LEAST_ESCROW_GAS_DROPS), 10));
+        assert_eq!(funding.gas_step(3, &seen), GasNext::Ready);
+        assert!(funding.gas_ready(3) && !funding.gas_ready(3 + GAS_CHECK_LASTS_MS));
+        funding.start(4, Planned::withdraw(1_000_000, 0, 3, true), payment());
+        assert!(!funding.gas_ready(5), "each withdrawal checks again");
+        funding.moving = None;
+
+        // Short: topped up by the shortfall, ready once that applied.
+        seen.anchor = Some(11);
+        assert_eq!(funding.gas_step(5, &seen), GasNext::Read);
+        seen.proven = Some((Some(300_000), 11));
+        assert_eq!(
+            funding.gas_step(6, &seen),
+            GasNext::TopUp(LEAST_ESCROW_GAS_DROPS - 300_000)
+        );
+        funding.topping_up(payment());
+        assert_eq!(funding.gas_step(7, &seen), GasNext::Wait);
+        seen.topping_up = OwnerPaymentState::Applied;
+        assert_eq!(funding.gas_step(8, &seen), GasNext::Ready);
+
+        // An escrow with no account is short of all of it; a top-up that
+        // moved nothing backs off, the automatic moves with it.
+        funding.gas = Gas::Unchecked;
+        seen.proven = Some((None, 11));
+        assert_eq!(funding.gas_step(9, &seen), GasNext::Read);
+        assert_eq!(
+            funding.gas_step(9, &seen),
+            GasNext::TopUp(LEAST_ESCROW_GAS_DROPS)
+        );
+        funding.topping_up(payment());
+        seen.topping_up = OwnerPaymentState::Cancelled;
+        assert_eq!(funding.gas_step(10, &seen), GasNext::Wait);
+        assert_eq!(funding.gas, Gas::Unchecked);
+        assert_eq!(funding.gas_step(11, &seen), GasNext::Wait, "backing off");
+        assert_eq!(funding.due(11, &standing(12_000_000, 14_000_000)), None);
+        assert_eq!(
+            funding.gas_step(10 + FIRST_BACKOFF_MS, &seen),
+            GasNext::Read
+        );
+    }
+
+    // spec/decisions/token-hubs.md: nothing moves into or out of a hub that
+    // is unavailable, as a frozen one is.
+    #[test]
+    fn nothing_moves_while_the_hub_is_unavailable() {
+        let funding = Funding::new(0, 4_000);
+        for mut standing in [
+            standing(100_000, 2_000_000),
+            standing(12_000_000, 14_000_000),
+        ] {
+            assert!(funding.due(1, &standing).is_some());
+            standing.unavailable = true;
+            assert_eq!(funding.due(1, &standing), None);
+        }
     }
 }

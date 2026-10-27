@@ -1,12 +1,15 @@
 //! `dassie hub`: the node's account in each settlement hub it is in, and
-//! the owner's moves between it and the owner book of the hub's asset (the
-//! node's XRP Ledger testnet account, for the XRP hub), over the IPC socket
-//! (spec/areas/hubs.md#in-the-node).
+//! the owner's moves between it and the owner book of the hub's asset (on
+//! the node's XRP Ledger testnet account: XRP for the XRP hub, DSUSD for
+//! the DSUSD hub), over the IPC socket (spec/areas/hubs.md#in-the-node).
+//! Amounts are in the hub's asset, which its scheme names.
 //!
 //! - `dassie hub status` shows each hub's account, its holds, the floor and
 //!   the ceiling the node keeps it between, and the move on its way.
-//! - `dassie hub deposit <XRP>` and `dassie hub withdraw <XRP>` move funds
-//!   now, which pauses the node's own moves of that hub for a while.
+//! - `dassie hub deposit <amount>` and `dassie hub withdraw <amount>` move
+//!   funds now, which pauses the node's own moves of that hub for a while.
+//!   A token hub's withdrawal may first have the node check, and top up,
+//!   the XRP its escrow pays fees with: try again shortly.
 //! - `dassie hub auto on|off` turns the node's own moves on or off.
 //! - `dassie hub give-up` gives up a move that is late; the node's own
 //!   moves of that hub then wait for the owner.
@@ -24,7 +27,8 @@ use lexopt::prelude::*;
 use crate::client::Client;
 use crate::status::{amount, date, entries, line, unexpected};
 
-/// The scale the hub ledger counts XRP at: amounts are in its units.
+/// The scale the hub ledgers count their asset at, XRP and dollars alike:
+/// amounts are in their units.
 const SCALE: u32 = 9;
 
 /// What `dassie hub` is asked to do.
@@ -61,8 +65,8 @@ pub fn args(parser: &mut lexopt::Parser) -> Result<Command, lexopt::Error> {
         None => return Ok(Command::Status),
         Some(Value(word)) => match word.string()?.as_str() {
             "status" => None,
-            "deposit" => Some(Move::Deposit(xrp(&parser.value()?.string()?)?)),
-            "withdraw" => Some(Move::Withdraw(xrp(&parser.value()?.string()?)?)),
+            "deposit" => Some(Move::Deposit(hub_amount(&parser.value()?.string()?)?)),
+            "withdraw" => Some(Move::Withdraw(hub_amount(&parser.value()?.string()?)?)),
             "auto" => match parser.value()?.string()?.as_str() {
                 "on" => Some(Move::Automatic(true)),
                 "off" => Some(Move::Automatic(false)),
@@ -101,7 +105,18 @@ fn hub_id(text: &str) -> Result<String, String> {
 
 /// An amount of XRP, such as `2.5`, in the hub ledger's units.
 pub(crate) fn xrp(text: &str) -> Result<u64, String> {
-    let invalid = || format!("{text:?} is not an amount of XRP, such as 2.5");
+    units(text, "XRP")
+}
+
+/// An amount of a hub's asset, such as `2.5`, in its ledger's units, which
+/// count XRP and dollars at one scale.
+fn hub_amount(text: &str) -> Result<u64, String> {
+    units(text, "the hub's asset")
+}
+
+/// An amount of `what`, such as `2.5`, in units at [`SCALE`].
+fn units(text: &str, what: &str) -> Result<u64, String> {
+    let invalid = || format!("{text:?} is not an amount of {what}, such as 2.5");
     let (whole, fraction) = text.split_once('.').unwrap_or((text, ""));
     let digits = |part: &str| part.bytes().all(|byte| byte.is_ascii_digit());
     let scale = usize::try_from(SCALE).unwrap_or(usize::MAX);
@@ -183,10 +198,7 @@ pub async fn summary(client: &mut Client) -> Vec<String> {
 /// how many validators answer.
 fn brief(status: &proto::HubStatus) -> String {
     let account = match status.account {
-        Some(number) => format!(
-            "account {number}, {} XRP",
-            amount(signed(status.balance), SCALE)
-        ),
+        Some(number) => format!("account {number}, {}", text(status, status.balance)),
         None => "no account yet".into(),
     };
     format!(
@@ -212,8 +224,20 @@ fn signed(units: u64) -> i64 {
     i64::try_from(units).unwrap_or(i64::MAX)
 }
 
-fn xrp_text(units: u64) -> String {
-    format!("{} XRP", amount(signed(units), SCALE))
+/// The code of the asset of the hub of `status`, as its scheme names it
+/// last (spec/decisions/hub-scheme-names.md): `XRP`, `DSUSD`.
+fn code(status: &proto::HubStatus) -> String {
+    status
+        .scheme
+        .rsplit('-')
+        .next()
+        .filter(|code| !code.is_empty() && status.scheme.starts_with("hub-"))
+        .map_or_else(|| "XRP".into(), str::to_ascii_uppercase)
+}
+
+/// `units` of the asset of the hub of `status`.
+fn text(status: &proto::HubStatus, units: u64) -> String {
+    format!("{} {}", amount(signed(units), SCALE), code(status))
 }
 
 /// Prints a hub's account, line by line.
@@ -225,28 +249,28 @@ fn show(status: &proto::HubStatus, now_ms: i64) {
         "Balance",
         &format!(
             "{} spendable, {} reserve",
-            xrp_text(status.balance),
-            xrp_text(status.reserve)
+            text(status, status.balance),
+            text(status, status.reserve)
         ),
     );
     line(
         "Moved",
         &format!(
             "{} deposited, {} withdrawn, {} came back",
-            xrp_text(status.deposited),
-            xrp_text(status.withdrawn),
-            xrp_text(status.returned)
+            text(status, status.deposited),
+            text(status, status.withdrawn),
+            text(status, status.returned)
         ),
     );
     line("Keeps", &keeps(status, now_ms));
     if let Some(moving) = &status.moving {
-        line("Moving", &moving_text(moving));
+        line("Moving", &moving_text(status, moving));
     }
     if let Some(given_up) = &status.given_up {
-        line("Given up", &given_up_text(given_up));
+        line("Given up", &given_up_text(status, given_up));
     }
-    line("Paying", &holds(&status.paying, "to"));
-    line("Taking", &holds(&status.taking, "from"));
+    line("Paying", &holds(status, &status.paying, "to"));
+    line("Taking", &holds(status, &status.taking, "from"));
 }
 
 /// The floor, the ceiling, and whether the node moves funds by itself.
@@ -264,26 +288,26 @@ fn keeps(status: &proto::HubStatus, now_ms: i64) -> String {
     };
     format!(
         "between {} and {}; {who}",
-        xrp_text(status.floor),
-        xrp_text(status.ceiling)
+        text(status, status.floor),
+        text(status, status.ceiling)
     )
 }
 
 /// A move the owner gave up: what the other side may still show.
-fn given_up_text(given_up: &proto::HubMove) -> String {
+fn given_up_text(status: &proto::HubStatus, given_up: &proto::HubMove) -> String {
     match proto::hub_move::Direction::try_from(given_up.direction) {
         Ok(proto::hub_move::Direction::Withdraw) => format!(
             "a withdrawal of {}; the XRP Ledger account may still receive it",
-            xrp_text(given_up.amount)
+            text(status, given_up.amount)
         ),
         _ => format!(
             "a deposit of {}; the hub may still credit it",
-            xrp_text(given_up.amount)
+            text(status, given_up.amount)
         ),
     }
 }
 
-fn moving_text(moving: &proto::HubMove) -> String {
+fn moving_text(status: &proto::HubStatus, moving: &proto::HubMove) -> String {
     let direction = match proto::hub_move::Direction::try_from(moving.direction) {
         Ok(proto::hub_move::Direction::Withdraw) => "a withdrawal",
         _ => "a deposit",
@@ -293,17 +317,17 @@ fn moving_text(moving: &proto::HubMove) -> String {
     } else {
         "the node's"
     };
-    let mut text = format!("{direction} of {}, {whose}", xrp_text(moving.amount));
+    let mut said = format!("{direction} of {}, {whose}", text(status, moving.amount));
     if moving.late {
-        text.push_str(
+        said.push_str(
             ". IT IS LATE: the hub has not shown it yet; the node waits for it and pays \
              nothing again",
         );
     }
-    text
+    said
 }
 
-fn holds(holds: &[proto::HubHold], way: &str) -> String {
+fn holds(status: &proto::HubStatus, holds: &[proto::HubHold], way: &str) -> String {
     if holds.is_empty() {
         return "no holds".into();
     }
@@ -313,7 +337,7 @@ fn holds(holds: &[proto::HubHold], way: &str) -> String {
         } else {
             format!("{} (account {})", hold.peer, hold.account)
         };
-        format!("{} {way} {who}", xrp_text(hold.amount))
+        format!("{} {way} {who}", text(status, hold.amount))
     }))
 }
 
@@ -417,11 +441,30 @@ mod tests {
             by_owner: true,
             ..Default::default()
         };
-        assert_eq!(moving_text(&moving), "a withdrawal of 1 XRP, yours");
+        assert_eq!(
+            moving_text(&status, &moving),
+            "a withdrawal of 1 XRP, yours"
+        );
         let late = proto::HubMove {
             late: true,
             ..moving
         };
-        assert!(moving_text(&late).contains("IT IS LATE"));
+        assert!(moving_text(&status, &late).contains("IT IS LATE"));
+    }
+
+    // A hub's amounts are in its asset, which its scheme names last.
+    #[test]
+    fn amounts_are_in_the_hubs_asset() {
+        let mut status = proto::HubStatus {
+            scheme: "hub-xrpl-testnet-dsusd".into(),
+            account: Some(2),
+            balance: 1_500_000_000,
+            ..Default::default()
+        };
+        assert!(brief(&status).starts_with("account 2, 1.5 DSUSD"));
+        status.scheme = "hub-xrpl-testnet-xrp".into();
+        assert!(brief(&status).starts_with("account 2, 1.5 XRP"));
+        assert_eq!(hub_amount("2.5"), Ok(2_500_000_000));
+        assert!(hub_amount("x").is_err_and(|error| error.contains("the hub's asset")));
     }
 }

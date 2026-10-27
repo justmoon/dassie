@@ -50,8 +50,8 @@ pub enum LedgerId {
     /// the hub holds is a claim on its validators, not on the XRP Ledger.
     HubXrplTestnetXrp,
     /// DSUSD in a settlement hub on the XRP Ledger testnet, booked as `USD`
-    /// at par as the token is (spec/decisions/hub-scheme-names.md). No
-    /// scheme books on it yet (spec/roadmap.md#token-hubs).
+    /// at par as the token is (spec/decisions/hub-scheme-names.md): the
+    /// ledger of the `hub-xrpl-testnet-dsusd` scheme.
     HubXrplTestnetDsusdUsd,
 }
 

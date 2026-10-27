@@ -7,10 +7,11 @@
 //!   executed in the order of the log once a quorum vouched for every
 //!   block up to it, mirrors the holds it pays into or takes from, and
 //!   submits the member's operations one at a time.
-//! - [`HubScheme`] is the `hub-xrpl-testnet-xrp` settlement scheme on it: it
-//!   peers with members of the same hub, settles by funding the hold toward
-//!   a peer, and signs and checks the promises each packet carries
-//!   ([`Commitments`](dassie_settlement::Commitments)).
+//! - [`HubScheme`] is the settlement scheme on it, named by the hub's
+//!   asset (`hub-xrpl-testnet-xrp`, `hub-xrpl-testnet-dsusd`,
+//!   [`scheme_of`]): it peers with members of the same hub, settles by
+//!   funding the hold toward a peer, and signs and checks the promises each
+//!   packet carries ([`Commitments`](dassie_settlement::Commitments)).
 //!
 //! How hub money is booked: a hold is the credit its payee extends, so
 //! funding one is the payer's outgoing settlement and the payee's incoming
@@ -32,7 +33,9 @@ pub use account::{FIRST, HubAccount, News, Purpose};
 pub use mirror::HoldMirror;
 pub use payout::{Payouts, Taken};
 pub use peering::peer_account;
-pub use scheme::{HubScheme, SCHEME_ID};
+pub use scheme::{DSUSD_SCHEME_ID, HubScheme, SCHEME_ID, scheme_of};
+
+pub use crate::rules::LEAST_ESCROW_GAS_DROPS;
 
 /// The default hub of the XRP Ledger testnet, as the hex of its rules'
 /// encoding, kept like the default bootstrap node list
@@ -50,6 +53,39 @@ pub use scheme::{HubScheme, SCHEME_ID};
 /// again puts its rules' hex in `default-testnet-hub.hex` and this back to
 /// `Some(include_str!("default-testnet-hub.hex"))`.
 pub const DEFAULT_TESTNET_HUB: Option<&str> = None;
+
+/// The default DSUSD hub of the XRP Ledger testnet, as the hex of its
+/// rules' encoding, kept as [`DEFAULT_TESTNET_HUB`] is: founded by boot1
+/// with boot1–4 as its validators, holding DSUSD
+/// (spec/decisions/token-hubs.md). A node names another DSUSD hub in its
+/// scheme's config.
+///
+/// None is built in until boot1 founds it under the current rules: an
+/// operator's step, which puts its rules' hex in
+/// `default-testnet-dsusd-hub.hex` and this to
+/// `Some(include_str!("default-testnet-dsusd-hub.hex"))`. Meanwhile the
+/// wallet does not offer `hub-xrpl-testnet-dsusd`, and the scheme added
+/// without rules of its own does not start (spec/areas/hubs.md#in-the-node).
+pub const DEFAULT_TESTNET_DSUSD_HUB: Option<&str> = None;
+
+/// The account a node's account in the hub of scheme `scheme` is, as an
+/// external asset: [`FIRST`] in its XRP hub, the next in its DSUSD hub. A
+/// node is in one hub per asset (spec/decisions/hubs-only.md), so the
+/// scheme names the account; its key is derived for the hub it is in
+/// ([`member_key`]), so the number is only its place among the node's
+/// accounts. `None` for a scheme that is no hub's.
+#[must_use]
+pub fn account_id(scheme: &str) -> Option<dassie_settlement::AssetId> {
+    let index = match scheme {
+        SCHEME_ID => FIRST.index,
+        DSUSD_SCHEME_ID => FIRST.index + 1,
+        _ => return None,
+    };
+    Some(dassie_settlement::AssetId {
+        kind: FIRST.kind,
+        index,
+    })
+}
 
 use dassie_identity::{NodeKey, NodeSecret};
 use dassie_ledger::{MAX_TOTAL, Name};
@@ -70,9 +106,18 @@ pub fn member_key(node: &NodeKey, hub: &crate::rules::HubId) -> NodeKey {
     NodeKey::from_bytes(secret.as_bytes())
 }
 
-/// Internal units per drop: the books count XRP at scale 9, the hub in
-/// drops, at scale 6.
+/// Internal units per unit of a hub's asset: the books count XRP and a
+/// dollar token at scale 9, a hub in its asset's smallest unit, drops of
+/// XRP or millionths of a token ([`TOKEN_DECIMALS`](crate::rules::TOKEN_DECIMALS)),
+/// at scale 6. So one rate serves both, and what is said here in drops
+/// holds for a token hub's millionths.
 pub const UNITS_PER_DROP: u64 = dassie_xrpl::UNITS_PER_DROP;
+
+const _: () = assert!(
+    UNITS_PER_DROP == dassie_xrpl::token::UNITS_PER_MICRO
+        && UNITS_PER_DROP == 10u64.pow(9 - crate::rules::TOKEN_DECIMALS as u32),
+    "a drop and a token's unit are the same in the books"
+);
 
 /// The most drops the books can hold: [`MAX_TOTAL`] in units.
 pub const MAX_DROPS: Amount = MAX_TOTAL / UNITS_PER_DROP;

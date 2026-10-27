@@ -366,6 +366,17 @@ pub enum News {
     },
 }
 
+/// An account's XRP, as a read asked for proved it
+/// ([`XrplAccount::read_balance`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ProvenBalance {
+    /// Its XRP in drops, all of it, the reserve included; `None` if the
+    /// account does not exist.
+    pub drops: Option<u64>,
+    /// The validated ledger it was proven at.
+    pub ledger_index: u32,
+}
+
 /// What became of a settlement a scheme still holds pending after a
 /// restart ([`XrplAccount::resume`]).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -598,6 +609,12 @@ pub struct XrplAccount {
     /// The pools the schemes asked for, each with the account its `AMM`
     /// object last named: told with the next anchor that proves it.
     pools: BTreeMap<IssuedAsset, history::PoolWatch>,
+    /// The accounts whose XRP the node asked for ([`XrplAccount::read_balance`]):
+    /// read at the anchor.
+    balances_asked: BTreeSet<AccountId>,
+    /// What the reads of balances asked for proved, by account, at most
+    /// [`MAX_SCHEMES`].
+    balances: BTreeMap<AccountId, ProvenBalance>,
     /// How often one of our transactions could be proven neither applied
     /// The network the connection's server is on, once checked.
     network_id: Option<u32>,
@@ -694,6 +711,8 @@ impl XrplAccount {
             tried: BTreeSet::new(),
             proven_sequence: 0,
             issuers_asked: BTreeSet::new(),
+            balances_asked: BTreeSet::new(),
+            balances: BTreeMap::new(),
             reading: None,
             pools: BTreeMap::new(),
             phase: Phase::Disconnected,
@@ -902,6 +921,29 @@ impl XrplAccount {
             );
         }
         self.read_asked();
+    }
+
+    /// Reads the XRP balance of `account`, any account on the ledger, such
+    /// as a token hub's escrow whose gas a member checks before it asks for
+    /// a withdrawal (spec/decisions/token-hubs.md): proven at the anchor, as
+    /// one state proof of the account's root, the way a scheme's issuer or
+    /// pool is read. What it proved is [`proven_balance`](Self::proven_balance).
+    /// At most [`MAX_SCHEMES`] accounts are asked for at once; more wait to
+    /// be asked again.
+    pub fn read_balance(&mut self, account: AccountId) {
+        if self.balances_asked.contains(&account) || self.balances_asked.len() < MAX_SCHEMES {
+            self.balances_asked.insert(account);
+            self.read_asked();
+        }
+    }
+
+    /// The XRP balance of `account` as last proven by a read asked for
+    /// ([`read_balance`](Self::read_balance)), with the ledger it was
+    /// proven at: a read asked for after the anchor's ledger proves it at
+    /// that ledger or later.
+    #[must_use]
+    pub fn proven_balance(&self, account: &AccountId) -> Option<ProvenBalance> {
+        self.balances.get(account).copied()
     }
 
     /// Whether transaction `hash` is in flight, or remembered as never
@@ -1578,6 +1620,7 @@ impl XrplAccount {
             *state = None;
         }
         self.issuers.clear();
+        self.balances.clear();
         for watch in self.pools.values_mut() {
             watch.account = None;
         }
@@ -2513,6 +2556,8 @@ impl ExternalAsset for XrplAccount {
         assert!(self.lists.len() <= MAX_LISTS);
         assert!(self.tried.len() <= MAX_IN_FLIGHT);
         assert!(self.issuers_asked.len() <= MAX_SCHEMES);
+        assert!(self.balances_asked.len() <= MAX_SCHEMES);
+        assert!(self.balances.len() <= MAX_SCHEMES);
         assert!(self.pools.len() <= MAX_SCHEMES);
         if let Some(walk) = &self.walk {
             walk.check_invariants();
@@ -2775,6 +2820,60 @@ mod tests {
             assert_eq!(account.lines[&crate::dsusd::LINE], None);
             account.check_invariants();
         }
+    }
+
+    // spec/decisions/token-hubs.md: the XRP balance of any account, such
+    // as a token hub's escrow, is read when asked, at most MAX_SCHEMES at
+    // once and kept, the lowest first to go past that; what a read proved
+    // is kept with the ledger it was proven at, and a write-off forgets it
+    // with the chain.
+    #[test]
+    fn a_balance_asked_for_is_kept_as_proven() {
+        let mut account = synced_account(&[dassie_ledger::name!(crate::scheme::SCHEME_ID)]);
+        account.balance = Some(10_000_000);
+        let accounts: Vec<AccountId> = (1..=u8::try_from(MAX_SCHEMES).unwrap() + 1)
+            .map(|byte| AccountId([byte; 20]))
+            .collect();
+        for asked in &accounts {
+            account.read_balance(*asked);
+        }
+        assert_eq!(account.balances_asked.len(), MAX_SCHEMES, "more wait");
+        assert!(!account.balances_asked.contains(&accounts[MAX_SCHEMES]));
+        account.check_invariants();
+        let proven = |drops, ledger_index| ProvenBalance {
+            drops,
+            ledger_index,
+        };
+        let read: Vec<(AccountId, ProvenBalance)> = accounts[..MAX_SCHEMES]
+            .iter()
+            .map(|asked| (*asked, proven(Some(5), NEWEST)))
+            .collect();
+        account.keep_balances(read);
+        assert!(account.balances_asked.is_empty(), "each asked once");
+        assert_eq!(
+            account.proven_balance(&accounts[0]),
+            Some(proven(Some(5), NEWEST))
+        );
+        account.read_balance(accounts[MAX_SCHEMES]);
+        account.keep_balances(alloc::vec![(
+            accounts[MAX_SCHEMES],
+            proven(None, NEWEST + 1)
+        )]);
+        assert_eq!(
+            account.proven_balance(&accounts[0]),
+            None,
+            "the lowest went"
+        );
+        assert_eq!(
+            account.proven_balance(&accounts[MAX_SCHEMES]),
+            Some(proven(None, NEWEST + 1)),
+            "an account that does not exist"
+        );
+        account.check_invariants();
+        account.write_off(true);
+        account.disconnected();
+        assert_eq!(account.proven_balance(&accounts[MAX_SCHEMES]), None);
+        account.check_invariants();
     }
 
     // A scheme's state keeps which settlements it looks up it never read,

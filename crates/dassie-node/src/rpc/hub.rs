@@ -83,6 +83,10 @@ fn hub_status(status: &HubStatus) -> proto::HubStatus {
         .map(|byte| format!("{byte:02x}"))
         .collect();
     let (validators, answering) = status.validators;
+    // A move counts the hub asset's smallest unit, drops of XRP or
+    // millionths of a token, which the books count alike: one rate takes
+    // either to the ledger's units, as every other amount here is.
+    let units = |smallest: u64| smallest.saturating_mul(dassie_hub::member::UNITS_PER_DROP);
     proto::HubStatus {
         hub_id: hex,
         scheme: status.scheme.as_str().into(),
@@ -101,9 +105,7 @@ fn hub_status(status: &HubStatus) -> proto::HubStatus {
         paused_until_unix_ms: status.paused_until_ms.map(convert::time),
         moving: status.moving.map(|moving| proto::HubMove {
             direction: direction_of(moving.direction).into(),
-            amount: moving
-                .drops
-                .saturating_mul(dassie_hub::member::UNITS_PER_DROP),
+            amount: units(moving.drops),
             by_owner: moving.owner,
             sent_at_unix_ms: convert::time(moving.sent_ms),
             applied_at_unix_ms: moving.applied_ms.map(convert::time),
@@ -111,7 +113,7 @@ fn hub_status(status: &HubStatus) -> proto::HubStatus {
         }),
         given_up: status.given_up.map(|(direction, drops)| proto::HubMove {
             direction: direction_of(direction).into(),
-            amount: drops.saturating_mul(dassie_hub::member::UNITS_PER_DROP),
+            amount: units(drops),
             ..Default::default()
         }),
         validators: u32::try_from(validators).unwrap_or(u32::MAX),
