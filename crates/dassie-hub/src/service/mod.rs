@@ -211,8 +211,13 @@ pub struct Validator {
     /// lower one after it.
     payout_height: Option<u64>,
     /// The newest state of the issuer's hold our host proved on the escrow's
-    /// ledger ([`Validator::prove_issuer`]).
+    /// ledger ([`Validator::prove_issuer`]), on the chain the ledger
+    /// follows: forgotten once it writes off a reset.
     proven_issuer: Option<crate::operation::Issuer>,
+    /// When the ledger last wrote off a reset of the test network, as of
+    /// our last look: what we kept of the old chain goes once it changes
+    /// ([`Validator::forget_old_chain`]).
+    written_off_at: Option<Millis>,
     /// When a stalled validator next passes its last final block on.
     pass_tip_at: Millis,
     /// The payout set we signed, for members that ask.
@@ -258,6 +263,7 @@ impl Validator {
             .ok_or(RulesError::Validators)?;
         let block = genesis_block(&rules, timestamp);
         let hub = *ledger.hub();
+        let written_off_at = ledger.written_off_at();
         let stored = Stored::genesis(block, set);
         let consensus_key = Arc::new(NodeKey::from_bytes(keys.consensus.as_bytes()));
         let engine = Engine::new(Config::DEFAULT, hub.0, consensus_key.clone(), stored, now);
@@ -279,6 +285,7 @@ impl Validator {
             waiting_deposits: VecDeque::new(),
             payout_height: None,
             proven_issuer: None,
+            written_off_at,
             pass_tip_at: 0,
             payout: None,
             actions: VecDeque::new(),
@@ -338,6 +345,7 @@ impl Validator {
             .and_then(|index| ledger.validator(index))
             .map_or(0, |state| state.sequence);
         let complete_from = ledger.height().saturating_add(1);
+        let written_off_at = ledger.written_off_at();
         Ok(Self {
             hub,
             consensus_public,
@@ -355,6 +363,7 @@ impl Validator {
             waiting_deposits: VecDeque::new(),
             payout_height: None,
             proven_issuer: None,
+            written_off_at,
             pass_tip_at: 0,
             payout: None,
             actions: VecDeque::new(),
@@ -834,6 +843,7 @@ impl Validator {
         }
         self.batches.push(self.engine.take_batch());
         self.take_finals();
+        self.forget_old_chain();
         self.attest_passed(now);
         self.attest_waiting(now);
         self.sign_withdrawals();
@@ -862,6 +872,23 @@ impl Validator {
             self.sign_payout();
         }
         self.chain.check_invariants();
+    }
+
+    /// Forgets what we kept of the escrow's old chain once the ledger wrote
+    /// off a reset of the test network (spec/decisions/ledger-resets.md):
+    /// the issuer's hold our host proved there, whose ledger index the new
+    /// chain's start far below, so it would outweigh every state the new
+    /// chain shows, a freeze among them; and our attestations of the old
+    /// chain's deposits that wait for room, which the new chain never
+    /// paid. The ledger's own state of the hold, written off with the rest,
+    /// counts until our host proves one on the new chain.
+    fn forget_old_chain(&mut self) {
+        let written_off_at = self.chain.ledger.written_off_at();
+        if written_off_at != self.written_off_at {
+            self.written_off_at = written_off_at;
+            self.proven_issuer = None;
+            self.waiting_deposits.clear();
+        }
     }
 
     /// Settles our operations the blocks that became final took, and keeps
@@ -1002,7 +1029,9 @@ impl Validator {
     /// host proved on the escrow's ledger, and signs the payout set if it
     /// was waiting for the thaw: a hub that stopped while the issuer held
     /// it makes no block that could show the thaw
-    /// (spec/areas/hubs.md#payout-bundles). Only the newest counts.
+    /// (spec/areas/hubs.md#payout-bundles). Only the newest counts, on the
+    /// chain the ledger follows: a reset the ledger wrote off forgets the
+    /// old chain's ([`Self::forget_old_chain`]).
     pub fn prove_issuer(&mut self, now: Millis, issuer: crate::operation::Issuer) {
         if self
             .proven_issuer
@@ -1406,6 +1435,85 @@ mod tests {
         };
         v.tick(2_001);
         assert_eq!(payouts(&mut v), 1, "signed once let go");
+    }
+
+    // spec/decisions/ledger-resets.md, spec/decisions/token-hubs.md: what
+    // our host proved of the issuer's hold on the old chain goes with the
+    // reset the ledger writes off. A thaw proven there, at a ledger index
+    // far above the new chain's, does not outweigh a freeze on the new one:
+    // the hub stops while frozen, and signs no payout set until a thaw.
+    #[test]
+    fn a_thaw_proven_before_a_reset_signs_nothing_while_the_new_chain_freezes() {
+        use crate::operation::Issuer;
+        let mut v = validator();
+        let ledger = &mut v.chain.ledger;
+        ledger.rules.terms = crate::rules::tests::token_terms(ledger.rules.terms.clone());
+        let payouts = |v: &mut Validator| {
+            let mut count = 0;
+            while let Some(action) = v.poll() {
+                count += usize::from(matches!(action, Action::Payout(..)));
+            }
+            count
+        };
+        v.prove_issuer(
+            1_000,
+            Issuer {
+                ledger: 90_000_000,
+                frozen: false,
+                fee: false,
+            },
+        );
+        // The ledger writes the reset off, and the issuer then freezes the
+        // escrow on the new chain; the hub ends frozen.
+        let ledger = &mut v.chain.ledger;
+        ledger.written_off_at = Some(1_500);
+        ledger.issuer = Issuer {
+            ledger: 50,
+            frozen: true,
+            fee: false,
+        };
+        ledger.phase = Phase::Ended;
+        v.tick(2_000);
+        assert_eq!(payouts(&mut v), 0, "signed while frozen");
+        // A thaw our host proves on the new chain is signed.
+        v.prove_issuer(
+            2_001,
+            Issuer {
+                ledger: 60,
+                frozen: false,
+                fee: false,
+            },
+        );
+        assert_eq!(payouts(&mut v), 1, "not signed once thawed");
+    }
+
+    // spec/areas/hubs.md: after a reset the ledger wrote off, the old
+    // chain's deposits wait no more: our attestations of them that found no
+    // room are not made again.
+    #[test]
+    fn a_reset_forgets_the_deposits_that_wait_for_room() {
+        let mut v = validator();
+        let deposit = Deposit {
+            transaction: Digest([1; 32]),
+            ledger: 10,
+            amount: 50_000_000,
+            sender: [3; 20],
+            tag: 0,
+            key: None,
+        };
+        v.waiting_deposits.push_back(deposit);
+        v.chain.ledger.written_off_at = Some(1_500);
+        v.tick(2_000);
+        assert!(
+            v.waiting_deposits.is_empty(),
+            "the old chain's deposit waits"
+        );
+        assert!(
+            !v.own
+                .iter()
+                .any(|own| matches!(own.signed.operation, ValidatorOperation::AttestDeposit(_))),
+            "attested again"
+        );
     }
 
     // spec/areas/hubs.md#a-frozen-hub: a token hub's answers to `Since`
