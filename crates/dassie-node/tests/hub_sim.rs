@@ -160,12 +160,11 @@ fn hub_members_pay_across_currencies() {
 // spec/areas/testing.md#over-a-settlement-hub,
 // spec/decisions/settlement-methods.md: nodes in an XRP hub and a DSUSD hub
 // fund each from the owner book of its asset, each pair peers over both,
-// and they pay in XRP and in dollars; each hub and each member's books in
-// it hold, and what a peer cost on each method is bounded by the holds on
-// its hub. Then the hub of the method packets do not take stalls and pays
-// out exactly the final balances, while the other carries every payment
-// after it and every peering is kept. Packets take one method until the
-// connector picks one per packet.
+// and they pay in XRP and in dollars, each method carrying packets; each
+// hub and each member's books in it hold, and what a peer cost on each
+// method is bounded by the holds on its hub. Then the hub of the method the
+// peerings were not made on stalls and pays out exactly the final balances,
+// while the other carries every payment after it and every peering is kept.
 #[test]
 fn nodes_in_two_hubs_peer_over_both_and_survive_one_failing() {
     assert_passes(PAIRS_SEED, hub_pairs::run);

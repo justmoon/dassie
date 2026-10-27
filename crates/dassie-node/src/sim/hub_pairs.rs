@@ -7,9 +7,10 @@
 //! on neither, and funds each hub from the book of its asset; its link
 //! state lists both hubs, and each pair peers over both, each hub a method
 //! of the peering. Payments go in XRP and in dollars, and from one into the
-//! other, across hops. Then the hub of the method the packets do not take
-//! loses f + 1 validators, stalls and pays out, while the other keeps
-//! carrying payments and every peering is kept.
+//! other, across hops, each packet on the method of the ledger it came in
+//! on. Then the hub of the method the peerings were not made on loses
+//! f + 1 validators, stalls and pays out, while the other keeps carrying
+//! payments and every peering is kept.
 //!
 //! Each node is judged by its own books (spec/decisions/own-books.md): in
 //! each hub, what its account and its peers' holds toward it hold, as that
@@ -42,15 +43,6 @@ use super::hubbed::{check_losses, paid, routed};
 use super::scripted::{READY_WITHIN_MS, ended};
 use super::{HUB, HUB_DSUSD, MINT_MICROS, START, Settling, Sim, key, xrpl_account};
 use crate::engine::core::{Direction, HubStatus};
-
-/// Whether the connector draws each packet's method among the methods of
-/// its peering ([Settlement methods](spec/roadmap.md#settlement-methods)).
-/// Until it does, every packet with a peer takes the method of the peer's
-/// connector endpoint, its peering's first, and an owner's packets start
-/// only on that method's ledger: the run then pays from that ledger alone,
-/// checks only that its method carried packets, and fails the other hub.
-/// Set true once the connector's method slots are built.
-const CONNECTOR_SLOTS: bool = false;
 
 /// How long a move into a hub may be on its way before it is late
 /// (`CREDIT_WAIT_MS`, `engine/core/hub_funding.rs`).
@@ -461,7 +453,7 @@ pub fn describe(seed: u64) -> String {
     let (_, setup) = setup(seed);
     format!(
         "{} members of an XRP hub and a DSUSD hub of {} validators each; the hub of the \
-         method their packets do not take fails",
+         method their peerings were not made on fails",
         setup.members, setup.validators
     )
 }
@@ -513,14 +505,13 @@ fn script(sim: &mut Sim, rng: &mut SeededRng) -> Result<(), Outcome> {
     }
     let peerings = peerings(sim);
     sim.count("pairs peered over both hubs");
-    // Until the connector picks a method per packet, a node's packets to a
-    // peer all take the method of its connector endpoint for the peer, its
-    // peering's first, and its owner's packets only a first hop on the
-    // ledger they start on: so payments start on the first method's ledger,
-    // and one is paid into the other.
+    // A packet takes the method of the ledger it came in on, where the hop
+    // has it (spec/areas/connector.md#settlement-method-slots): so payments
+    // start on either ledger, each crossing its own hub, and one is paid
+    // from the other method's ledger into the first's.
     let first = first_ledger(sim)?;
     let other = if first == HUB { HUB_DSUSD } else { HUB };
-    let start = if CONNECTOR_SLOTS { other } else { first };
+    let start = other;
     // In each currency across the hop between nodes 0 and 2, and from one
     // into the other between two nodes drawn.
     let amount = |rng: &mut SeededRng| 100_000_000 + rng.below(2_200_000_000);
@@ -539,11 +530,10 @@ fn script(sim: &mut Sim, rng: &mut SeededRng) -> Result<(), Outcome> {
     first_failure([
         check_across(sim),
         check_hubs(sim, &all),
-        check_carried(sim, first).map_err(|problem| Outcome::liveness("methods-carried", problem)),
+        check_carried(sim).map_err(|problem| Outcome::liveness("methods-carried", problem)),
     ])?;
-    // The hub of the other method fails: until the connector picks a
-    // method per packet, it carries no packets, so that the payments after
-    // go on as before over the first.
+    // The hub of the other method fails: its method is unavailable from
+    // then on, so the payments after go over the first.
     let failing = place_of(sim, other);
     let working = place_of(sim, first);
     let height = sim
@@ -656,9 +646,7 @@ fn peerings(sim: &Sim) -> BTreeSet<(usize, NodeId)> {
         .collect()
 }
 
-/// The ledger of the method every peer's packets take, which the
-/// connector's endpoint for the peer takes: its peering's first, the one
-/// it was made on.
+/// The ledger of every peering's first method, the one it was made on.
 fn first_ledger(sim: &Sim) -> Result<LedgerId, Outcome> {
     let firsts: BTreeSet<String> = (0..sim.nodes.len())
         .flat_map(|index| sim.core(index).network().peers)
@@ -690,22 +678,13 @@ fn check_kept(
     check_methods(sim, &[Settling::scheme(first).0])
 }
 
-/// Each method carried packets: once the connector picks a method per
-/// packet ([`CONNECTOR_SLOTS`]), packets that keep their ledger take the
+/// Each method carried packets: packets that keep their ledger take the
 /// method on it, so payments in XRP cross the XRP hub and payments in
-/// dollars the DSUSD hub. Until then, the method of `first` carries them
-/// all.
-fn check_carried(sim: &Sim, first: LedgerId) -> Result<(), String> {
+/// dollars the DSUSD hub.
+fn check_carried(sim: &Sim) -> Result<(), String> {
     let over = |what| sim.counts.get(what).copied().unwrap_or(0);
     let (xrp, dsusd) = (over(PREPARES_OVER_XRP), over(PREPARES_OVER_DSUSD));
-    let carried = if CONNECTOR_SLOTS {
-        xrp > 0 && dsusd > 0
-    } else if first == HUB {
-        xrp > 0
-    } else {
-        dsusd > 0
-    };
-    if !carried {
+    if xrp == 0 || dsusd == 0 {
         return Err(format!(
             "packets crossed the XRP hub {xrp} times and the DSUSD hub {dsusd} times"
         ));
