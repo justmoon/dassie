@@ -1751,6 +1751,46 @@
       }
     },
     {
+      "name": "a Kelvin sign is no k",
+      "realm": "test",
+      "clockUnixMs": 1793237400000,
+      "input": [
+        "advice",
+        "deal",
+        "fluid",
+        "seed",
+        "embody",
+        "unable",
+        "wreck",
+        "before",
+        "just",
+        "guide",
+        "inform",
+        "discover",
+        "nut",
+        "immune",
+        "spoil",
+        "lock",
+        "dog",
+        "outside",
+        "Kitten",
+        "tip"
+      ],
+      "result": {
+        "phrase": "advice deal fluid seed embody unable wreck before just guide inform discover nut immune spoil lock dog outside kitten tip",
+        "corrected": true,
+        "changed": [
+          18
+        ],
+        "kind": 1,
+        "realm": "test",
+        "created": 7189,
+        "date": "2026-10-27",
+        "secret": "9b85d21f62fe2285e5b3c7387de5eb8d",
+        "masterSeed": "f30e812fb1424b8f19b9f001bd13e5a61477e082c818db4c4600399be256dbba5fb9294f0f0ec9ff57f01da8979f3ad26a56f9ea12ad9af26773501542638b88"
+      }
+    },
+    {
       "name": "one wrong word at 0",
       "realm": "test",
       "clockUnixMs": 1793237400000,

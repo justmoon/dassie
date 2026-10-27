@@ -234,8 +234,10 @@ export const masterSeed = (secret, realm) =>
 const BIP39_LENGTHS = new Set([12, 15, 18, 21, 24]);
 
 // A word's key: its first four letters, or all of it if it is shorter, in
-// lower case.
-const key = (word) => word.toLowerCase().slice(0, 4);
+// lower case. Only ASCII letters change case, as in dassie-identity: a
+// letter whose Unicode lower case is an ASCII one (the Kelvin sign's is `k`)
+// matches no word.
+const key = (word) => word.slice(0, 4).replace(/[A-Z]/g, (letter) => letter.toLowerCase());
 
 export const wordIndex = (wordlist) => {
   if (wordlist.length !== FIELD_SIZE) throw new Error("2048 words");

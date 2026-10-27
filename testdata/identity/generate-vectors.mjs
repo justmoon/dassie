@@ -304,6 +304,18 @@ readCase(
   spell(A).map((word) => (word.length >= 4 ? `${word.slice(0, 4)}xyz` : word)),
   { source: A, expect: "ok" },
 );
+// Only ASCII letters change case: the Kelvin sign, whose Unicode lower case
+// is `k`, makes a word that is not in the list, so it reads as unreadable.
+const kelvinSecret = [...Array(64).keys()]
+  .map((index) => sha256(utf8(`dassie phrase kelvin ${index}`)).subarray(0, 16))
+  .find((secret) => spell(made(1, NOW, secret)).some((word) => word.startsWith("k")));
+const K = made(1, NOW, kelvinSecret);
+const kelvinAt = spell(K).findIndex((word) => word.startsWith("k"));
+readCase(
+  "a Kelvin sign is no k",
+  spell(K).map((word, place) => (place === kelvinAt ? `K${word.slice(1)}` : word)),
+  { source: K, expect: "corrected" },
+);
 
 for (const place of [0, 7, 13, 14, 19]) {
   corrected(`one wrong word at ${place}`, A, { wrong: [place] });
