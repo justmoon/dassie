@@ -169,6 +169,7 @@ impl Simulation {
         let mut fulfillment = [0u8; 32];
         fulfillment[..8].copy_from_slice(&self.rng.next_u64().to_be_bytes());
         let packet = self.packet(fulfillment);
+        self.h.draw = self.rng.next_u64();
         match self.h.prepare(self.now, source, request_id, &packet) {
             Handled::Forward(sent) => {
                 assert!(self.awaiting.insert((source, request_id)));

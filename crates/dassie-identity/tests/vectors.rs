@@ -83,6 +83,7 @@ fn secret_of<'a>(entry: &'a Value, nonce: &'a mut [u8; 32]) -> NodeSecret<'a> {
         },
         "quicStatelessReset" => NodeSecret::QuicStatelessReset(quic()),
         "quicConnectionIds" => NodeSecret::QuicConnectionIds(quic()),
+        "routing" => NodeSecret::Routing,
         "hub" => {
             *nonce = hex_array(str_field(entry, "nonce"));
             NodeSecret::Hub {
@@ -129,7 +130,7 @@ fn every_path_below_the_node_key() {
         );
     }
     // One name per variant of `NodeSecret`.
-    assert_eq!(names.len(), 8);
+    assert_eq!(names.len(), 9);
     let login = entries.iter().find(|entry| entry["name"] == "login");
     assert_eq!(
         to_hex(key.login_secret().as_bytes()),

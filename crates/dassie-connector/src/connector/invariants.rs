@@ -15,14 +15,16 @@ impl Connector {
     /// - each endpoint's count of packets in flight from it is right, and
     ///   each peer's money in flight either way, within its limit
     ///   (spec/decisions/packets-in-flight.md);
+    /// - only peers earn weight in drawing next hops, and a packet earns
+    ///   its next hop at most what came in, only between peers
+    ///   (spec/decisions/weighted-next-hops.md);
     /// - the bounds hold, and the trace is in order.
     ///
     /// # Panics
     ///
     /// If one does not hold.
     pub fn check_invariants(&self, ledger: &Ledger) {
-        assert!(self.pending.len() <= self.config.max_pending);
-        assert!(self.endpoints.len() <= self.config.max_endpoints);
+        self.check_bounds();
         assert_eq!(self.deadlines.len(), self.pending.len(), "deadlines");
         let mut from: BTreeMap<EndpointId, usize> = BTreeMap::new();
         let mut money_from: BTreeMap<EndpointId, u64> = BTreeMap::new();
@@ -85,12 +87,41 @@ impl Connector {
                 "money to {id} within bounds"
             );
         }
+        self.check_caps();
+        self.check_earnings();
+        self.trace.check_invariants();
+    }
+
+    /// The packets in flight, endpoints and routes stay within their
+    /// tables' bounds.
+    fn check_bounds(&self) {
+        assert!(self.pending.len() <= self.config.max_pending);
+        assert!(self.endpoints.len() <= self.config.max_endpoints);
         assert!(
             self.routes.len() <= self.config.max_routes,
             "routes within bounds"
         );
-        self.check_caps();
-        self.trace.check_invariants();
+    }
+
+    /// Only peers earn weight in drawing next hops, and only packets from
+    /// one peer to another earn it, at most what came in: the fee we
+    /// charge on transit (spec/decisions/weighted-next-hops.md).
+    fn check_earnings(&self) {
+        for (id, endpoint) in self.endpoints.iter() {
+            assert!(
+                id.is_peer() || endpoint.earned == 0,
+                "only peers earn weight"
+            );
+        }
+        for (&(destination, _), entry) in &self.pending {
+            assert!(
+                entry.earns == 0
+                    || (entry.source.is_peer()
+                        && destination.is_peer()
+                        && entry.earns <= entry.amount_in),
+                "a packet earns its next hop only its fee on transit"
+            );
+        }
     }
 
     /// Each cap holds what its account's packets in flight charge, and

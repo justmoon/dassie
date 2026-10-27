@@ -1,5 +1,6 @@
 //! The connector: endpoints, packets in flight, and the trace.
 
+mod hops;
 mod invariants;
 mod prepare;
 mod response;
@@ -127,6 +128,9 @@ pub(crate) struct Pending {
     pub backstop_ms: Option<u64>,
     /// It expired and waits for the hub to decide it.
     pub awaiting_hub: bool,
+    /// What its Fulfill earns its next hop toward the draw: our fee, if
+    /// the packet kept its ledger (spec/decisions/weighted-next-hops.md).
+    pub earns: u64,
 }
 
 /// Opens a peer's accounts for the first packet that moves money with it,
@@ -341,6 +345,8 @@ impl Connector {
             unreached: false,
             child: false,
             hub: false,
+            earned: 0,
+            earned_since_ms: 0,
         };
         self.endpoints.insert(id, endpoint, own)
     }
@@ -384,6 +390,8 @@ impl Connector {
             unreached: false,
             child: false,
             hub: false,
+            earned: 0,
+            earned_since_ms: 0,
         };
         self.endpoints.insert(id, endpoint, own)
     }
@@ -743,56 +751,17 @@ impl Connector {
         trace
     }
 
-    /// The next hop for `destination`: below our own address only
-    /// children (or F02); beyond it, the longest whole-segment
-    /// prefix in the route table, its first hop that is an endpoint and not
-    /// the packet's source, so packets do not bounce between peers.
-    pub(crate) fn next_hop(
-        &self,
-        destination: Address<'_>,
-        source: Option<EndpointId>,
-    ) -> Option<EndpointId> {
-        let own = Address::parse(&self.own_address).ok()?;
-        if destination.has_prefix(own) {
-            // A child may address itself; only routes between nodes could
-            // loop.
-            return self.endpoints.route_child(destination);
-        }
-        if let Some(below) = self.below_child_address(destination) {
-            return self.endpoints.route_child_below(&self.own_address, below);
-        }
-        // A periphery node forwards nothing for a peer.
-        if self.periphery.is_some() && source.is_some_and(EndpointId::is_peer) {
-            return None;
-        }
-        let text = destination.as_str();
-        let mut end = text.len();
-        loop {
-            let prefix = text.get(..end)?;
-            if let Some(options) = self.routes.get(prefix) {
-                let hop = options.iter().flatten().find(|hop| {
-                    Some(**hop) != source
-                        && self
-                            .endpoints
-                            .get(**hop)
-                            .is_some_and(|endpoint| !endpoint.draining)
-                });
-                if let Some(hop) = hop {
-                    return Some(*hop);
-                }
-            }
-            end = prefix.rfind('.')?;
-        }
-    }
-
     /// Where a packet to `destination` from one of the node's own
     /// endpoints would go first, and that endpoint's ledger: what such a
     /// packet must be paid from, since the node's own endpoints never
-    /// convert.
+    /// convert. Not drawn: the route's first usable hop, by the order the
+    /// routes list them, so a quote or a payment picks its ledger once
+    /// (spec/decisions/weighted-next-hops.md); each of its packets then
+    /// draws among the hops on that ledger.
     #[must_use]
     pub fn first_hop(&self, destination: &str) -> Option<(EndpointId, LedgerId)> {
         let address = Address::parse(destination).ok()?;
-        let hop = self.next_hop(address, None)?;
+        let hop = self.next_hop(0, address, None, 0)?;
         self.endpoints
             .get(hop)
             .map(|endpoint| (hop, endpoint.ledger))

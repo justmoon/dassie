@@ -176,6 +176,7 @@ const paths = [
     { name: "quicStatelessReset", endpoint, path: `node/quic/${reset}` },
     { name: "quicConnectionIds", endpoint, path: `node/quic/${ids}` },
   ]),
+  { name: "routing", path: "node/routing" },
   ...[1, 0].flatMap((network) =>
     HUB_KEYS.map((key) => ({
       name: "hub",

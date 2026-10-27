@@ -85,6 +85,11 @@
       "secret": "2ed202fd380b9eac0ec93a8524c28735c100eeeb386517c14d8bf19281ec8ded"
     },
     {
+      "name": "routing",
+      "path": "node/routing",
+      "secret": "d766df2ecf1f06c6f7863f1ea0f66f449b45a3a4e911f01eed29a89f5b653d2f"
+    },
+    {
       "name": "hub",
       "network": 1,
       "nonce": "0202020202020202020202020202020202020202020202020202020202020202",

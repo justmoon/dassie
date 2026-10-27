@@ -43,7 +43,18 @@ pub struct Config {
     pub max_rate_age_ms: u64,
     /// Most accounts with a spending cap.
     pub max_caps: usize,
+    /// How long until what a peer earned us counts half as much in drawing
+    /// next hops: it halves once per period
+    /// (spec/decisions/weighted-next-hops.md).
+    pub earnings_half_life_ms: u64,
+    /// The share of next-hop draws, in parts per million, that ignore what
+    /// the hops earned us and give each the same chance
+    /// (spec/decisions/weighted-next-hops.md).
+    pub explore_ppm: u32,
 }
+
+/// Parts per million: the whole of the draws.
+pub(crate) const PPM: u32 = 1_000_000;
 
 /// How much money may be in flight with one peer each way, in packets of
 /// [`Config::max_packet_amount`] (spec/decisions/packets-in-flight.md,
@@ -73,6 +84,8 @@ impl Config {
         max_packet_amount: 100_000_000,
         max_rate_age_ms: 60 * 60 * 1_000,
         max_caps: 256,
+        earnings_half_life_ms: 60 * 60 * 1_000,
+        explore_ppm: 100_000,
     };
 
     /// Checks the bounds make sense.
@@ -93,6 +106,8 @@ impl Config {
         // Request IDs are u32s: a counter skipping IDs in use always finds
         // one while fewer than 2^32 are pending.
         assert!(u32::try_from(self.max_pending).is_ok());
+        assert!(self.earnings_half_life_ms > 0, "earnings decay");
+        assert!(self.explore_ppm <= PPM, "a share of the draws");
     }
 
     /// The most money in flight with one peer each way

@@ -153,6 +153,9 @@ impl Connector {
                 .transfers
                 .map(|id| id.and_then(|id| ledger.pending(id).copied())),
         });
+        if posted.is_some() {
+            self.earn(now_ms, from, entry.earns);
+        }
         let upstream = self.resolve(now_ms, &entry, &resolution, ledger, out);
         Responded::Resolved { upstream, posted }
     }
