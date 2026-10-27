@@ -2878,9 +2878,9 @@ mod tests {
         let mut effects = Vec::new();
         scheme.on_asset(0, &mut account, &mut effects);
         assert!(effects.is_empty(), "{effects:?}");
-        account
-            .news
-            .push(News::LedgerClosed { reserve_changed: false });
+        account.news.push(News::LedgerClosed {
+            reserve_changed: false,
+        });
         scheme.on_asset(0, &mut account, &mut effects);
         assert_eq!(
             effects.first(),

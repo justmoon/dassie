@@ -1273,7 +1273,12 @@ impl Sim {
         *slots += 1;
         self.count("member exchanges");
         let generation = self.nodes[member].generation;
-        if self.rng.next_u64() % 1000 < self.loss_per_mille || self.apart.contains(&member) {
+        // A member whose ledger is down reaches its hub no more than the
+        // XRP Ledger: its exchanges time out, as a lost one does.
+        if self.rng.next_u64() % 1000 < self.loss_per_mille
+            || self.apart.contains(&member)
+            || self.ledger_down.contains(&member)
+        {
             self.schedule(
                 EXCHANGE_TIMEOUT_MS,
                 Delivery::HubExchangeEnd { member, endpoint },

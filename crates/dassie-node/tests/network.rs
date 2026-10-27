@@ -14,14 +14,12 @@
 //! unlimited trust (`Settling::Trusting`, which `Sim::new` gives), so that
 //! no credit runs out and no request to settle or settlement shapes what
 //! they check (spec/areas/testing.md#levels). A test of settlement over a
-//! hub runs on the stub with commitments, as `hub_path.rs` does. The tests
-//! of direct settlement (lying peers, a junior paying its senior in
-//! advance, credit growing with fees), on the plain stub (`Settling::Stub`)
-//! or the direct XRP Ledger schemes, say so: they go with it
-//! (spec/roadmap.md#hubs-only).
-//! So does a test whose subject is not settlement but that pays across
-//! currencies: it stays on the direct schemes until runs across currencies
-//! go over hubs.
+//! hub runs on the stub with commitments, as `hub_path.rs` does, or over
+//! hubs run in the simulation, as one that needs a hub's ledger out of
+//! reach or two currencies does. The tests of direct settlement (lying
+//! peers, a junior paying its senior in advance), on the plain stub
+//! (`Settling::Stub`), say so: they go with it (spec/roadmap.md#hubs-only).
+//! The XRP Ledger's own runs keep owner books (`Settling::OwnerBooks`).
 
 #![allow(
     clippy::unwrap_used,
@@ -952,6 +950,67 @@ fn requests_to_settle_that_never_arrived_withdraw_no_honest_payer() {
     );
     assert!(hold(&mut sim) > 0, "the payer funded no hold");
     assert!(sim.advertises(payee, &payer_id));
+}
+
+/// Whether node `index` has its account in its hub, in step with it.
+fn joined_hub(sim: &Sim, index: usize) -> bool {
+    sim.core(index)
+        .hub_status()
+        .is_some_and(|status| status.account.is_some() && status.status == LedgerStatus::Synced)
+}
+
+// spec/decisions/peering-lifecycle.md: a peer whose room stays short of a
+// packet past the grace, settling nothing, is withdrawn, and advertised
+// again once it settles. Over a hub, a node's room for its peer is the
+// peer's hold toward it (spec/areas/hubs.md#in-the-node). Node 0 pays node
+// 1 more than its hold as its links to the hub drop: it cannot fund the
+// hold again when asked, and past the grace node 1 withdraws it. Both stay
+// peered. Once its links are back, node 0 funds its hold, node 1 lists it
+// again, and the payment completes.
+#[test]
+fn a_peer_short_of_room_over_a_hub_is_withdrawn_until_it_funds_its_hold() {
+    let mut sim = Sim::with(7, 2, 0, BTreeMap::new(), Settling::Hub(4));
+    sim.loss_per_mille = 0;
+    assert!(
+        sim.run_until_or(START + 600_000, |sim| joined_hub(sim, 0)
+            && joined_hub(sim, 1)),
+        "the nodes did not join the hub"
+    );
+    sim.join_network(1);
+    let (zero, one) = (key(0).node_id(), key(1).node_id());
+    let peered = |sim: &Sim| sim.peers(0).contains(&one) && sim.peers(1).contains(&zero);
+    assert!(
+        sim.run_until_or(sim.now + 10 * 60_000, peered),
+        "the nodes did not peer"
+    );
+    sim.run_until(sim.now + 60_000);
+    assert!(sim.advertises(1, &zero));
+    sim.ledger_down.insert(0);
+    let from = sim.now;
+    sim.pay(0, 1, 3_000_000_000, None, None);
+    let grace = Policies::DEFAULT.peer.advertise_short_grace_ms;
+    sim.run_until(from + grace + 120_000);
+    assert!(
+        sim.withdrawn
+            .iter()
+            .any(|withdrawal| withdrawal.by == 1 && withdrawal.peer == zero),
+        "node 1 never withdrew node 0"
+    );
+    assert!(!sim.advertises(1, &zero), "node 1 lists node 0 again");
+    assert!(sim.peers(1).contains(&zero), "the peering ended");
+    assert!(
+        !sim.payments[0].done,
+        "paid while node 0 could not fund its hold"
+    );
+    sim.ledger_down.clear();
+    assert!(
+        sim.run_until_or(sim.now + 5 * 60_000, |sim| sim.advertises(1, &zero)),
+        "node 1 never listed node 0 again"
+    );
+    assert!(
+        sim.run_until_or(sim.now + 10 * 60_000, |sim| sim.payments[0].done),
+        "the payment did not finish"
+    );
 }
 
 // spec/decisions/earned-trust.md: the node whose peering request was
