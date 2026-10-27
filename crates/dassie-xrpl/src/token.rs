@@ -58,7 +58,7 @@ use crate::amount::IssuedAsset;
 use crate::amount::{Currency, TokenAmount, TokenValue};
 use crate::api::{AccountInfo, AccountSettings, LineView, TxRecord};
 use crate::codec::TF_SET_NO_RIPPLE;
-use crate::follower::{Follower, cancel_pending, failure_of, narrow};
+use crate::follower::{Follower, failure_of, hash_name, narrow, reconcile_pending, settled};
 use crate::kept::{In, Out, SCHEME_VERSION};
 use crate::keys::AccountId;
 use crate::network::Network;
@@ -304,12 +304,22 @@ impl<T: IssuedToken> TokenScheme<T> {
                 let mine = ours.filter(|ours| ours.scheme == id);
                 self.transaction(account, record, mine, effects);
             }
-            News::Cancelled { scheme, hash, .. } if *scheme == id => {
+            News::Cancelled {
+                scheme,
+                hash,
+                settles,
+            } if *scheme == id => {
                 // It moved nothing, not even a fee.
                 if self.f.is_owner_payment(hash) {
                     self.f.owner_done(OwnerPaymentState::Cancelled, effects);
                 } else if self.trust_set == Some(*hash) {
                     self.trust_failed();
+                } else if *settles {
+                    // A settlement signed before the XRPL schemes stopped
+                    // peering.
+                    effects.push(Effect::Cancel {
+                        settlement: hash_name(hash),
+                    });
                 }
             }
             News::Cancelled { .. } => {}
@@ -318,6 +328,15 @@ impl<T: IssuedToken> TokenScheme<T> {
             // What became of it is in the line the sync matched.
             News::Unread { hash, .. } if self.f.is_owner_payment(hash) => {
                 self.f.owner_done(OwnerPaymentState::Unknown, effects);
+            }
+            // A settlement signed before the XRPL schemes stopped peering,
+            // read nowhere: voided, as the owner's payment is.
+            News::Unread { hash, ours }
+                if ours.scheme == id && ours.settles && !self.f.was_owner_payment(hash) =>
+            {
+                effects.push(Effect::Cancel {
+                    settlement: hash_name(hash),
+                });
             }
             News::Unread { .. } | News::Found { .. } => {}
             News::Issuer { issuer, settings } if *issuer == T::TOKEN.issuer => {
@@ -433,8 +452,9 @@ impl<T: IssuedToken> TokenScheme<T> {
     /// did to the line. The owner's payment is booked whenever the ledger
     /// shows it, even behind the cursor. Before the first sync, it only
     /// says what the line is. One of its own that is no owner's payment, a
-    /// settlement signed before the XRPL schemes stopped peering, is booked
-    /// as anyone's.
+    /// settlement signed before the XRPL schemes stopped peering, is posted
+    /// or voided as the settlement the node holds pending, as the owner's
+    /// payment is, wherever the ledger shows it.
     fn transaction(
         &mut self,
         account: &mut XrplAccount,
@@ -505,16 +525,18 @@ impl<T: IssuedToken> TokenScheme<T> {
         self.check_line(account, at, effects);
     }
 
-    /// Books one of our Payments the ledger validated, if it is the owner's
-    /// payment on its way or the owner's last one read again. Returns what
-    /// the books then hold; `None` for any other.
+    /// Books one of our Payments the ledger validated: the owner's payment
+    /// on its way, the owner's last one read again, or a settlement signed
+    /// before the XRPL schemes stopped peering. Its fee is gas, which this
+    /// ledger does not hold. Returns what the books then hold.
     fn ours(&mut self, record: &TxRecord, ours: &Ours, effects: &mut Vec<Effect>) -> Option<i128> {
         if self.f.is_owner_payment(&record.hash) {
             Some(self.owner_paid(record, effects))
         } else if self.f.was_owner_payment(&record.hash) {
             Some(self.owner_read_again(record, ours, effects))
         } else {
-            None
+            let taken = settled(record, paid(ours), effects);
+            Some(i128::from(self.f.booked) - i128::from(taken))
         }
     }
 
@@ -718,7 +740,7 @@ impl<T: IssuedToken> SettlementScheme for TokenScheme<T> {
         if self.f.catch_up(account, &news) {
             self.written_off(effects);
         }
-        self.f.book_entries(&news, effects);
+        self.f.book_entries(effects);
         for item in &news {
             self.tell(now_ms, account, item, effects);
         }
@@ -779,13 +801,23 @@ impl<T: IssuedToken> SettlementScheme for TokenScheme<T> {
 
     fn reconcile(
         &mut self,
-        _asset: Option<&mut dyn ExternalAsset>,
+        asset: Option<&mut dyn ExternalAsset>,
         pending: &[(Name, u64)],
         effects: &mut Vec<Effect>,
     ) {
-        cancel_pending(pending, effects);
+        reconcile_pending(asset.and_then(account_of), self.id(), pending, effects);
     }
 
+    /// A `settlement` message on it is a bare notice and books nothing:
+    /// whatever a Payment moved on the ledger is the owner's deposit.
+    fn books_messages(&self) -> bool {
+        false
+    }
+
+    /// Acknowledged, booking nothing: one a peering stored from when the
+    /// scheme peered left in a channel. Refused, the peer would send it
+    /// again for ever, and the channel, which carries one settlement at a
+    /// time, would never carry another (spec/areas/xrpl.md#owner-books).
     fn handle_settlement(
         &mut self,
         _peer: Name,
@@ -794,7 +826,7 @@ impl<T: IssuedToken> SettlementScheme for TokenScheme<T> {
         _peer_state: &[u8],
         _effects: &mut Vec<Effect>,
     ) -> Result<(), SchemeError> {
-        Err(SchemeError::Unsupported)
+        Ok(())
     }
 
     fn deposit(&mut self, _amount: u64, _effects: &mut Vec<Effect>) -> Result<(), SchemeError> {

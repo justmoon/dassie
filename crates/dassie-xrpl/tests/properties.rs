@@ -1821,7 +1821,8 @@ proptest! {
     }
 
     /// Whatever a node that would peer sends, the scheme, an owner book,
-    /// refuses it as unsupported, and changes nothing.
+    /// refuses it as unsupported, but for a settlement message, which it
+    /// acknowledges as a bare notice; either way it changes nothing.
     #[test]
     fn nodes_that_would_peer_get_nothing(
         calls in prop::collection::vec(
@@ -1846,7 +1847,12 @@ proptest! {
                 3 => inner
                     .prepare_settlement(&mut rng, None, peer, amount, &first)
                     .map(drop),
-                _ => inner.handle_settlement(peer, amount, &first, &second, &mut effects),
+                _ => {
+                    prop_assert!(!inner.books_messages());
+                    let taken = inner.handle_settlement(peer, amount, &first, &second, &mut effects);
+                    prop_assert_eq!(taken, Ok(()));
+                    Err(SchemeError::Unsupported)
+                }
             };
             prop_assert_eq!(refused, Err(SchemeError::Unsupported));
             prop_assert!(effects.is_empty() && out.is_empty());

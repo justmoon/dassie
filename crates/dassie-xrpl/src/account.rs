@@ -2873,14 +2873,10 @@ mod tests {
         assert_eq!(scheme.balance(), checkpoint);
         let owner = Name::hex(&[5; 32], true);
         assert_eq!(scheme.owner_payment(owner), OwnerPaymentState::Applied);
-        // Booked once the account tells what it learnt: here, a ledger
-        // closed.
+        // Booked the first time the scheme is told of the account, as the
+        // node makes it, though the account has nothing new to tell.
+        assert!(account.news.is_empty());
         let mut effects = Vec::new();
-        scheme.on_asset(0, &mut account, &mut effects);
-        assert!(effects.is_empty(), "{effects:?}");
-        account.news.push(News::LedgerClosed {
-            reserve_changed: false,
-        });
         scheme.on_asset(0, &mut account, &mut effects);
         assert_eq!(
             effects.first(),

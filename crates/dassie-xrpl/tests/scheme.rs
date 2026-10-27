@@ -28,6 +28,11 @@ struct Books {
     fees: i128,
     /// Settlements cancelled: ones a restart left pending.
     cancelled: Vec<Name>,
+    /// Settlements signed before the XRPL schemes stopped peering, held
+    /// pending as the node holds them: by ID, what each pays.
+    settling: std::collections::BTreeMap<Name, u64>,
+    /// Those of them posted, in order.
+    finalized: Vec<Name>,
     /// Each reconciliation, in order: what the books gained, and why.
     reconciled: Vec<(i128, ReconcileCause)>,
     /// The transaction of each fee, in order.
@@ -226,7 +231,15 @@ impl World {
                     books.fees += i128::from(amount);
                     books.fee_ids.push(id);
                 }
-                Effect::Cancel { settlement } => books.cancelled.push(settlement),
+                Effect::Cancel { settlement } => {
+                    books.settling.remove(&settlement);
+                    books.cancelled.push(settlement);
+                }
+                Effect::Finalize { settlement } => {
+                    let amount = books.settling.remove(&settlement).unwrap();
+                    books.settlement -= i128::from(amount);
+                    books.finalized.push(settlement);
+                }
                 Effect::LedgerSend { message } => self.request(index, &message),
                 Effect::Reconnect => {
                     node.reconnects += 1;
@@ -378,8 +391,10 @@ impl World {
     /// the node kept.
     fn restore(&mut self, index: usize, (state, checkpoint): (Vec<u8>, u64)) {
         let seed = u8::try_from(index + 1).unwrap();
-        self.nodes[index].scheme =
-            XrplScheme::new("", &entropy(seed), Some(checkpoint), &state).unwrap();
+        let mut scheme = XrplScheme::new("", &entropy(seed), Some(checkpoint), &state).unwrap();
+        let started = std::mem::take(&mut scheme.started);
+        self.nodes[index].scheme = scheme;
+        self.apply(index, started);
     }
 
     /// What became of node `index`'s owner's payment `id`.
@@ -897,6 +912,83 @@ fn a_settlement_left_pending_is_cancelled() {
     world.closes(2);
     assert_eq!(world.nodes[0].books.cancelled, [id]);
     assert_eq!(world.nodes[0].books.owner, i128::from(FUNDED));
+}
+
+/// Node 0 signs, as the XRPL schemes did to settle, a Payment of `drops`
+/// to node 1 that is not the owner's, and executes it if `executed`, and
+/// restarts: the node holds the settlement pending, and hands it to the
+/// scheme. Returns the settlement's ID and what the scheme asked.
+fn left_pending(world: &mut World, drops: u64, executed: bool) -> (Name, Vec<Effect>) {
+    let scheme = dassie_ledger::name!(dassie_xrpl::scheme::SCHEME_ID);
+    let to = world.account(1);
+    let account = &mut world.nodes[0].scheme.account;
+    let hash = account
+        .sign_payment_to(scheme, (to, None), drops, Vec::new())
+        .unwrap();
+    let id = Name::hex(&hash, true);
+    world.nodes[0]
+        .books
+        .settling
+        .insert(id, drops * UNITS_PER_DROP);
+    // Its submission is lost with the restart.
+    if executed {
+        assert!(world.nodes[0].scheme.account.execute(scheme, hash));
+    }
+    let kept = world.kept(0);
+    world.disconnect(0);
+    world.restore(0, kept);
+    let mut effects = Vec::new();
+    world.nodes[0]
+        .scheme
+        .reconcile(&[(id, drops * UNITS_PER_DROP)], &mut effects);
+    (id, effects)
+}
+
+// spec/areas/xrpl.md#state-and-restarts: a settlement signed before the
+// XRPL schemes stopped peering, its Payment executed and in flight at the
+// restart, stays pending until the ledger says what became of it: it may
+// still apply, and cancelling one that applied would pay twice. Once
+// validated, it is posted, with its fee, never booked as the owner's
+// withdrawal.
+#[test]
+fn a_settlement_in_flight_at_the_restart_waits_for_the_ledger() {
+    let mut world = funded();
+    let (id, effects) = left_pending(&mut world, 2_000, true);
+    assert!(
+        effects
+            .iter()
+            .all(|effect| !matches!(effect, Effect::Cancel { .. }))
+    );
+    world.apply(0, effects);
+    world.connect(0);
+    world.closes(3);
+    let books = &world.nodes[0].books;
+    assert_eq!(books.finalized, [id]);
+    assert!(books.cancelled.is_empty(), "{:?}", books.cancelled);
+    assert_eq!(books.fee_ids, [id]);
+    assert_eq!(books.owner, i128::from(FUNDED), "no withdrawal");
+    assert!(books.reconciled.is_empty(), "{:?}", books.reconciled);
+    world.check();
+}
+
+// spec/areas/xrpl.md#state-and-restarts: one signed and never executed was
+// never submitted: it is given up, and cancelled at once.
+#[test]
+fn a_settlement_never_executed_is_cancelled_at_the_restart() {
+    let mut world = funded();
+    let (id, effects) = left_pending(&mut world, 2_000, false);
+    assert_eq!(effects, [Effect::Cancel { settlement: id }]);
+    world.apply(0, effects);
+    world.connect(0);
+    world.closes(3);
+    let books = &world.nodes[0].books;
+    assert!(books.finalized.is_empty() && books.settling.is_empty());
+    assert_eq!(books.owner, i128::from(FUNDED));
+    world.check();
+    // Its sequence is taken by the next.
+    let next = world.pay(0, 1, 1_000_000_000);
+    world.close();
+    assert_eq!(world.owner_payment(0, next), OwnerPaymentState::Applied);
 }
 
 /// What node 1 paid node 0 to enter, in internal units: 0.1 XRP.

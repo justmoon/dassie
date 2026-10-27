@@ -5676,11 +5676,13 @@ fn tells_link_state(
     outputs
 }
 
-/// Whether a core node with the XRP Ledger testnet scheme synced on a fake
-/// ledger, its config saying `"peers": peers`, asks a
-/// core node it bootstraps from, whose link state lists the scheme alone,
-/// to peer, within a minute of learning that link state.
-fn asks_a_core_node_to_peer_on_xrpl(peers: bool) -> bool {
+/// Whether a core node running `scheme`, which `add` adds on a fake ledger,
+/// asks a core node it bootstraps from, whose link state lists the scheme
+/// alone, to peer, within a minute of learning that link state.
+fn asks_a_core_node_to_peer_on(
+    scheme: &str,
+    add: impl FnOnce(&mut Core, &mut dassie_xrpl::fake::FakeLedger),
+) -> bool {
     use dassie_peer::wire::Kind;
 
     let (mut ledger, _) = funded_ledger();
@@ -5711,20 +5713,11 @@ fn asks_a_core_node_to_peer_on_xrpl(peers: bool) -> bool {
         NOW,
     )
     .unwrap();
-    let config = if peers {
-        r#"{"server":"ws://ledger.test","faucet":null}"#
-    } else {
-        r#"{"server":"ws://ledger.test","faucet":null,"peers":false}"#
-    };
-    add_xrpl(&mut core, "xrpl-testnet-xrp", config).unwrap();
-    follow_xrpl(&mut core, &mut ledger);
-    close_xrpl(&mut core, &mut ledger);
-    let xrpl = dassie_ledger::Name::new("xrpl-testnet-xrp").unwrap();
-    assert!(core.schemes[&xrpl].scheme.has_synced());
+    add(&mut core, &mut ledger);
 
     // The other node tells its link state, a core node's on the scheme.
     let at = core.now_ms() + 1_000;
-    let mut outputs = tells_link_state(&mut core, &other, (url, "xrpl-testnet-xrp"), at);
+    let mut outputs = tells_link_state(&mut core, &other, (url, scheme), at);
     for second in 1..=60 {
         core.begin_step(at + second * 1_000);
         core.finish_step(&mut outputs);
@@ -5739,11 +5732,84 @@ fn asks_a_core_node_to_peer_on_xrpl(peers: bool) -> bool {
 // spec/areas/settlement.md#owner-books: the node never asks to peer on an
 // owner book, though a core node it knows lists it, whatever its config
 // says of `peers`: every XRPL scheme is an owner book
-// (spec/areas/xrpl.md#owner-books).
+// (spec/areas/xrpl.md#owner-books). On a scheme that peers, the same node
+// asks.
 #[test]
 fn an_owner_book_is_never_asked_for() {
-    assert!(!asks_a_core_node_to_peer_on_xrpl(true));
-    assert!(!asks_a_core_node_to_peer_on_xrpl(false));
+    let stub = |core: &mut Core, _: &mut dassie_xrpl::fake::FakeLedger| {
+        add_stub(core, TRUSTING);
+    };
+    assert!(
+        asks_a_core_node_to_peer_on("stub", stub),
+        "not asked on a scheme that peers"
+    );
+    for peers in ["", r#","peers":true"#, r#","peers":false"#] {
+        let xrpl = |core: &mut Core, ledger: &mut dassie_xrpl::fake::FakeLedger| {
+            let config = format!(r#"{{"server":"ws://ledger.test","faucet":null{peers}}}"#);
+            add_xrpl(core, "xrpl-testnet-xrp", &config).unwrap();
+            follow_xrpl(core, ledger);
+            close_xrpl(core, ledger);
+            let xrpl = dassie_ledger::Name::new("xrpl-testnet-xrp").unwrap();
+            assert!(core.schemes[&xrpl].scheme.has_synced());
+        };
+        assert!(
+            !asks_a_core_node_to_peer_on("xrpl-testnet-xrp", xrpl),
+            "asked on an owner book, its config saying {peers:?}"
+        );
+    }
+}
+
+// spec/areas/xrpl.md#owner-books: a settlement message on an XRPL scheme,
+// as one a channel kept from when the scheme peered, is acknowledged as a
+// bare notice: it books nothing, and the channel moves on to the next.
+#[test]
+fn a_settlement_message_on_an_owner_book_is_applied_and_books_nothing() {
+    use dassie_peer::wire::{Content, SchemeId};
+
+    let store = Arc::new(Store::open_in_memory().unwrap());
+    let (mut core, id) = stub_core_with_downlink_on(store, TRUSTING);
+    let downlink = Arc::new(NodeKey::from_bytes(&[11; 32]));
+    assert_eq!(downlink.node_id(), id);
+    add_xrpl(&mut core, "xrpl-testnet-xrp", SHARED_CONFIG).unwrap();
+    let xrpl = dassie_ledger::Name::new("xrpl-testnet-xrp").unwrap();
+    let journal = core.ledger.next_transfer_id();
+    let scheme = SchemeId::parse("xrpl-testnet-xrp").unwrap();
+    for (sequence, amount) in [(1, 0), (2, 5_000)] {
+        let at = NOW + 2_000 + sequence * 1_000;
+        core.begin_step(at);
+        let body = Content::Settlement {
+            scheme,
+            amount,
+            data: &[],
+            sequence,
+        }
+        .to_vec();
+        core.peer_inbound(
+            dassie_peer::InboundId(at),
+            downlink.public_key(),
+            &body,
+            None,
+        );
+        let mut outputs = Vec::new();
+        core.finish_step(&mut outputs);
+        let reply = outputs
+            .iter()
+            .find_map(|output| match output {
+                Output::PeerReply { reply, .. } => Some(reply),
+                _ => None,
+            })
+            .unwrap();
+        assert_eq!(
+            reply.status,
+            200,
+            "{}",
+            String::from_utf8_lossy(&reply.body)
+        );
+        assert_eq!(core.peer.channel(&id).unwrap().settled_in, sequence);
+    }
+    assert_eq!(core.ledger.next_transfer_id(), journal, "nothing booked");
+    assert!(core.schemes[&xrpl].failed.is_none(), "the scheme runs on");
+    core.check_invariants();
 }
 
 // spec/areas/settlement.md#the-scheme-interface: the XRP Ledger scheme

@@ -59,8 +59,9 @@ pub(crate) struct Follower {
     /// What a state written while the schemes peered held of entry
     /// payments, in internal units: in the account, and never on the books.
     /// It is the owner's deposit, as a hold that ran out was, booked the
-    /// next time the account tells the scheme what it learnt
-    /// ([`Self::book_entries`]); never written again.
+    /// first time the scheme is told of the account, as it starts and
+    /// before its state is written ([`Self::book_entries`]); never written
+    /// again.
     pub(crate) entries: u64,
     // Learnt from the account, as it told the scheme.
     /// The account's newest validated ledger.
@@ -112,16 +113,15 @@ impl Follower {
     }
 
     /// Books what a state written while the schemes peered held of entry
-    /// payments as the owner's deposit, once, when the account tells the
-    /// scheme `news`: the account holds them, and the books hold them from
-    /// now on, as they would have once their hold ran out. Returns whether
-    /// it booked any. The scheme calls it before it takes the news, after a
-    /// write-off it missed, which took them with the account, so the books
-    /// match the account as it is.
-    pub(crate) fn book_entries(&mut self, news: &[News], effects: &mut Vec<Effect>) -> bool {
-        if news.is_empty() {
-            return false;
-        }
+    /// payments as the owner's deposit, once, the first time the scheme is
+    /// told of the account, which the node does as it makes the scheme,
+    /// before it writes its state: the account holds them, and the books
+    /// hold them from now on, as they would have once their hold ran out.
+    /// Returns whether it booked any. The scheme calls it before it takes
+    /// the news, after a write-off it missed, which took them with the
+    /// account, so the books match the account as it is; a write-off the
+    /// account tells later takes them as a loss with the rest.
+    pub(crate) fn book_entries(&mut self, effects: &mut Vec<Effect>) -> bool {
         let amount = core::mem::take(&mut self.entries);
         if amount == 0 || self.cursor.is_none() {
             return false;
@@ -201,16 +201,50 @@ impl Follower {
     }
 }
 
-/// Settlements the node still holds pending after a restart, signed before
-/// the XRPL schemes stopped peering: none is booked as a settlement any
-/// more, so each is cancelled. What the ledger did with one is booked as
-/// any transaction of the account's is, by what it moved: the owner's
-/// withdrawal, if it applied.
-pub(crate) fn cancel_pending(pending: &[(Name, u64)], effects: &mut Vec<Effect>) {
+/// Settlements the node still holds pending after a restart, signed by
+/// `scheme` before the XRPL schemes stopped peering, on `account`. One whose
+/// Payment the account will still tell the scheme of, executed and in
+/// flight or kept for it, stays pending until it does ([`settled`]): it may
+/// still apply, and cancelling one that applied would pay the peer twice,
+/// over a hub as well. Any other is cancelled: one signed and never
+/// executed, which was never submitted and is given up now, one the account
+/// gave up as never sent, and one it does not know, whose outcome was lost
+/// with its state and is in the balance the next sync matches.
+pub(crate) fn reconcile_pending(
+    mut account: Option<&mut XrplAccount>,
+    scheme: Name,
+    pending: &[(Name, u64)],
+    effects: &mut Vec<Effect>,
+) {
     for (settlement, _) in pending {
-        effects.push(Effect::Cancel {
-            settlement: *settlement,
-        });
+        let waits = match (name_hash(*settlement), account.as_deref_mut()) {
+            (Some(hash), Some(account)) => {
+                account.discard(scheme, hash);
+                !account.take_never_sent(scheme, hash) && account.keeps_transaction(&hash)
+            }
+            _ => false,
+        };
+        if !waits {
+            effects.push(Effect::Cancel {
+                settlement: *settlement,
+            });
+        }
+    }
+}
+
+/// One of the scheme's own Payments the ledger validated that is not the
+/// owner's: a settlement signed before the XRPL schemes stopped peering,
+/// which the node holds pending ([`reconcile_pending`]). Posted if it
+/// applied, voided if not. Returns what it took from the books: `paid`, in
+/// internal units, if it applied.
+pub(crate) fn settled(record: &TxRecord, paid: u64, effects: &mut Vec<Effect>) -> u64 {
+    let settlement = hash_name(&record.hash);
+    if record.succeeded() {
+        effects.push(Effect::Finalize { settlement });
+        paid
+    } else {
+        effects.push(Effect::Cancel { settlement });
+        0
     }
 }
 
@@ -255,8 +289,8 @@ impl Follower {
     }
 
     /// Where `payment` goes and the memo it carries, if the scheme may sign
-    /// one now: one at a time, never to the account itself, with a memo of
-    /// the type its reader expects, never a settlement's ([`owner_memos`]).
+    /// one now: one at a time, never to the account itself, with the memo
+    /// it is given, if it fits ([`owner_memos`]).
     ///
     /// # Errors
     ///

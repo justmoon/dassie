@@ -23,6 +23,11 @@ use serde_json::{Map, Value};
 /// What the scheme and its account ask, in the order they ask it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Effect {
+    /// A settlement signed before the XRPL schemes stopped peering, which
+    /// the node holds pending: posted.
+    Finalize {
+        settlement: Name,
+    },
     Cancel {
         settlement: Name,
     },
@@ -62,9 +67,8 @@ impl From<dassie_settlement::Effect> for Effect {
     fn from(effect: dassie_settlement::Effect) -> Self {
         use dassie_settlement::Effect as E;
         match effect {
-            E::IncomingSettlement { .. } | E::Finalize { .. } => {
-                panic!("an owner book books no settlements")
-            }
+            E::IncomingSettlement { .. } => panic!("an owner book books no settlements"),
+            E::Finalize { settlement } => Self::Finalize { settlement },
             E::Cancel { settlement } => Self::Cancel { settlement },
             E::Deposit { amount } => Self::Deposit { amount },
             E::Withdrawal { amount } => Self::Withdrawal { amount },
@@ -100,6 +104,9 @@ impl From<AssetEffect> for Effect {
 pub struct XrplScheme {
     pub account: XrplAccount,
     pub scheme: dassie_xrpl::XrplScheme,
+    /// What the scheme booked as the node made it: entry payments a state
+    /// written while the schemes peered held, as the owner's deposit.
+    pub started: Vec<Effect>,
 }
 
 impl XrplScheme {
@@ -116,10 +123,20 @@ impl XrplScheme {
         let config = dassie_xrpl::fake::with_publishers(config, &dassie_xrpl::network::TESTNET);
         let account = XrplAccount::new(account::FIRST, &schemes, &config, entropy, &account_state)?;
         let scheme = dassie_xrpl::XrplScheme::new(&account, checkpoint, &scheme_state)?;
-        let mut both = Self { account, scheme };
+        let mut both = Self {
+            account,
+            scheme,
+            started: Vec::new(),
+        };
         let mut effects = Vec::new();
         both.tell(0, &mut effects);
-        assert!(effects.is_empty(), "{effects:?}");
+        assert!(
+            effects
+                .iter()
+                .all(|effect| matches!(effect, Effect::Deposit { .. })),
+            "{effects:?}"
+        );
+        both.started = effects;
         Ok(both)
     }
 

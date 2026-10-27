@@ -52,6 +52,11 @@ struct Books {
     reconciled: Vec<(i128, ReconcileCause)>,
     /// Settlements cancelled: ones a restart left pending.
     cancelled: Vec<Name>,
+    /// Settlements signed before the XRPL schemes stopped peering, held
+    /// pending as the node holds them: by ID, what each pays.
+    settling: BTreeMap<Name, u64>,
+    /// Those of them posted, in order.
+    finalized: Vec<Name>,
     /// The owner's payments no longer on their way, in order, and whether
     /// each applied.
     paid: Vec<(Name, bool)>,
@@ -108,10 +113,19 @@ impl Books {
                 self.settlement -= i128::from(amount);
                 self.fees += i128::from(amount);
             }
-            Effect::Cancel { settlement } => self.cancelled.push(settlement),
-            Effect::IncomingSettlement { .. } | Effect::Finalize { .. } => {
-                panic!("an owner book books no settlements")
+            Effect::Cancel { settlement } => {
+                self.settling.remove(&settlement);
+                self.cancelled.push(settlement);
             }
+            Effect::Finalize { settlement } => {
+                let amount = self
+                    .settling
+                    .remove(&settlement)
+                    .expect("a settlement held pending");
+                self.settlement -= i128::from(amount);
+                self.finalized.push(settlement);
+            }
+            Effect::IncomingSettlement { .. } => panic!("an owner book books no settlements"),
             Effect::PeerLoss { .. } => panic!("an XRPL scheme books no peer losses"),
         }
     }
@@ -1499,6 +1513,52 @@ fn a_payment_of_a_scheme_away_is_booked_once_without_its_history() {
         );
         assert_eq!(books.settlement, i128::from(usd(8_000_000)), "{why:?}");
     }
+}
+
+// spec/areas/xrpl.md#state-and-restarts: a settlement of DSUSD signed
+// before the XRPL schemes stopped peering, its Payment executed and in
+// flight at the restart, stays pending until the ledger says what became
+// of it, and is then posted, never booked as the owner's withdrawal; its
+// fee is the XRP scheme's gas.
+#[test]
+fn a_token_settlement_in_flight_at_the_restart_waits_for_the_ledger() {
+    let mut world = World::past_a_flag_ledger(&[true, false]);
+    world.closes(3);
+    world.mint(0, "10");
+    world.close();
+    let scheme = name(dsusd::SCHEME_ID);
+    let to = world.address(1);
+    let node = &mut world.nodes[0];
+    let hash = node
+        .account
+        .sign_token_payment_to(
+            scheme,
+            (to, None),
+            IssuedAsset::DSUSD.amount(value("2")),
+            Vec::new(),
+        )
+        .unwrap();
+    assert!(node.account.execute(scheme, hash));
+    let id = Name::hex(&hash, true);
+    node.books[USD].settling.insert(id, usd(2_000_000));
+    // Its submission is lost with the restart.
+    world.restart(0);
+    let node = &mut world.nodes[0];
+    let mut effects = Vec::new();
+    node.dsusd.as_mut().unwrap().reconcile(
+        Some(&mut node.account),
+        &[(id, usd(2_000_000))],
+        &mut effects,
+    );
+    assert!(effects.is_empty(), "{effects:?}");
+    world.closes(3);
+    let books = &world.nodes[0].books[USD];
+    assert_eq!(books.finalized, [id]);
+    assert!(books.cancelled.is_empty() && books.withdrawals.is_empty());
+    assert_eq!(books.settlement, i128::from(usd(8_000_000)));
+    assert!(books.reconciled.is_empty(), "{:?}", books.reconciled);
+    assert!(world.nodes[0].books[XRP].fee_ids.contains(&id), "its gas");
+    world.check();
 }
 
 // spec/designs/xrpl-validation.md#6-the-account-on-proofs: an owner's
