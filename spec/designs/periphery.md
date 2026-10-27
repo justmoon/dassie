@@ -55,7 +55,7 @@ A core node keeps its peerings with other core nodes, and its downlinks, under s
 - **Core relationships:** at most 32 settlement channels open with core nodes, as against 512 today. A channel outlives its peering, and closes once idle, to disk, which frees its place ([Settlement](../areas/settlement.md#settlement-channels)). Its ledger accounts close to disk with it, with what they show, and come back with it ([resident-peers](../decisions/resident-peers.md)).
 - **Downlinks** live in a table of their own, not in the node table. Each row holds:
   - the downlink's node ID and public key;
-  - its scheme, and the scheme's data for it (on the XRP Ledger, its account address);
+  - its scheme, and the scheme's data for it;
   - the credit we extend it;
   - when it was last heard from;
   - what was settled each way, and the settlement message on its way, if any.
@@ -64,7 +64,7 @@ A core node keeps its peerings with other core nodes, and its downlinks, under s
 - **In memory only while connected** ([resident-peers](../decisions/resident-peers.md)). A downlink's peering, settlement channel and ledger accounts are read in when its connection proves its key, and dropped once it has no connection and nothing still needs them: no transfer of its pending, no settlement of ours on its way, no hold, no termination under way. Everything is on disk already, so dropping writes nothing. Its timers run from the disk while it is away.
 - **Limits:** at most 10 000 downlinks peered at once, and at most 100 000 rows, about 50 MB. Memory holds only the connected ones and those something still needs, bounded by the downlinks' open channels, and for each other one with an open channel a small entry: its node ID, whether it paid us and whether it is peered. A row with no peering, idle as a closed channel is, is closed. When the rows are full, the node refuses new downlinks. What is built is one bound on downlinks, which live in the node table, and whose channels close once idle, as every channel does ([Network](../areas/network.md#downlinks)); their QUIC connections hold places of their own, with room for that many downlinks ([Peer protocol](../areas/peer-protocol.md#quic)).
 - **No withdrawal for room** for a downlink that owes nothing is built ([Network](../areas/network.md#advertised-peers)).
-- **The XRPL scheme** keeps its peers' addresses in a table keyed by account, not in its state ([XRP Ledger](../areas/xrpl.md#state-and-restarts)). With many downlinks, its state would grow with every one and be written whole at every checkpoint, and a scheme that kept only the newest addresses, or only those of downlinks in memory, could not recognise a settlement from a downlink it forgot.
+- **No XRPL scheme keeps a downlink's address:** none peers ([hubs-only](../decisions/hubs-only.md), [XRP Ledger](../areas/xrpl.md#owner-books)), so many downlinks grow no XRPL scheme's state.
 
 ## 5. Reaching a periphery node
 
@@ -168,7 +168,7 @@ The first rule narrows a condition for real money, "an account's creation is a d
 
 - **The uplink evicts** a free receiver that has received nothing and sent nothing for 30 days. Ending the peering, the uplink pays nothing, and it still asks the receiver to settle once. A receiver whose account exists by then, and holds more than the reserve, answers as any junior does, paying half the way to its own trigger. Either way it loses at most the credit it extends. Its row stays, and counts toward the rows' limit (§4), until the receiver peers again and is settled as usual, or nothing is owed.
 - **A free receiver that leaves** asks the uplink to settle once, as any node ending a peering does. Below the reserve, the uplink has nothing it can send yet, and the receiver stays owed.
-- **On the uplink,** free receivers take at most half of its downlinks. This is built ([Network](../areas/network.md#downlinks), [free-receivers-half](../decisions/free-receivers-half.md)): a downlink is a free receiver until the uplink's books take a settlement of at least one largest packet from it, and stays a paying one after. Once free receivers hold half of the downlinks' places, a new one is refused; one that paid is bounded by the downlinks' bound alone, and no downlink is ended or displaced for the rule. So keys made for nothing fill only the free half. A newcomer gets in past a full free half by paying the uplink one largest packet on the ledger before it asks, which the uplink holds for it and books as its settlement as it peers ([pay-to-enter](../decisions/pay-to-enter.md)); the uplink's side is built, the newcomer's is not.
+- **On the uplink,** free receivers take at most half of its downlinks. This is built ([Network](../areas/network.md#downlinks), [free-receivers-half](../decisions/free-receivers-half.md)): a downlink is a free receiver until the uplink's books take a settlement of at least one largest packet from it, and stays a paying one after. Once free receivers hold half of the downlinks' places, a new one is refused; one that paid is bounded by the downlinks' bound alone, and no downlink is ended or displaced for the rule. So keys made for nothing fill only the free half.
 
 ## 9. Browser nodes
 
@@ -183,7 +183,7 @@ A browser node is a short-lived periphery node, for demos: it lets someone join 
 - **`dassie-node`**: its QUIC endpoint, QUIC over a WebSocket, relayed streams, signed Open Payments answers and front doors, which serve the WebSocket too, are built.
 - **`dassie-peer`** gains the downlink table, the `periphery` extension, records, home nodes and lookups, and the transport's link-state extension.
 - **`dassie-connector`** routes beneath a downlink's child address, and a periphery node's STREAM receiver takes its child addresses.
-- **The XRPL scheme** gains its table of peers' addresses and the two rules of §8, which [hubs-only](../decisions/hubs-only.md) supersedes: a free receiver is paid into its uplink's hub instead ([Settlement hubs](../areas/hubs.md#the-members-side)).
+- **The XRPL scheme** was to gain the two rules of §8, which [hubs-only](../decisions/hubs-only.md) supersedes: a free receiver is paid into its uplink's hub instead ([Settlement hubs](../areas/hubs.md#the-members-side)).
 - **The RPC contract** (`proto/dassie/owner/v1`) gains pairing and devices.
 - **The apps** paired with a node are a desktop app and a mobile app, both over the RPC contract. The [desktop app](../areas/desktop.md) that runs its own node is built.
 - **The simulations** ([Testing](../areas/testing.md#the-simulations)) run periphery nodes that lose their uplinks, relays and home nodes that withhold, ground core keys that capture home slots, free receivers paid into their uplink's hub (their first settlement creating their XRPL account is superseded by [hubs-only](../decisions/hubs-only.md)), free receivers evicted while owed, and downlinks over the limits.

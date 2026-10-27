@@ -52,7 +52,6 @@ Each file records one choice between real alternatives: the facts that forced it
 | [paid-within-a-tolerance](paid-within-a-tolerance.md) | A payment within a tolerance of its amount is paid in full | payments, stream |
 | [passive-rebalancing](passive-rebalancing.md) | Nodes rebalance passively: inventory pricing, a rate feed and market makers | connector, rate-feed, settlement |
 | [path-failures-retried](path-failures-retried.md) | A sender sends money again after a too-low rate or a node's final error, until failures without progress stop it | stream, payments |
-| [pay-to-enter](pay-to-enter.md) | A newcomer pays to enter: a payment on the ledger before it asks, held for it until it peers (the newcomer's side not built) | network, xrpl, settlement, peer-protocol, designs/periphery |
 | [peer-protocol-v1](peer-protocol-v1.md) | Peer protocol: v0 or v1 | peer-protocol, identity |
 | [peering-lifecycle](peering-lifecycle.md) | Peering lifecycle and liveness | network |
 | [periphery-lists-no-neighbors](periphery-lists-no-neighbors.md) | A periphery node's link state lists no neighbors, so it may keep many uplinks | network, peer-protocol, connector |
