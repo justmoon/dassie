@@ -1,32 +1,41 @@
 //! Inventory pricing (spec/areas/connector.md#inventory-pricing,
 //! spec/decisions/passive-rebalancing.md): what a node gives for what a peer
-//! brings it from another ledger, moved from spot by how much of each ledger
+//! brings it from another ledger, moved from spot by how much of each asset
 //! the owner holds, so that conversions bring a skewed inventory back toward
 //! its targets without the node trading.
 //!
-//! For each ledger that converts, `v_i` is what the owner holds on it,
-//! valued at spot; `s_i = v_i / Σv` is its share, and `t_i = 1/n` its target.
-//! A unit of it is worth `w_i = (1 − k) + k · t_i / s_i` against spot, so a
-//! ledger short of its target is worth more. The rate from `a` to `b` is
-//! `spot(a → b) · w_a / w_b · (1 − spread)`:
+//! The owner's funds are counted per asset, each asset whole: a ledger
+//! counts with the others that name the same asset
+//! ([`PriceTable::build_by_asset`]), as a settlement hub's ledger counts
+//! with the owner book that funds it, between which the node moves its
+//! funds by itself. For each asset that converts, `v_i` is what the owner
+//! holds of it on its ledgers, valued at spot; `s_i = v_i / Σv` is its
+//! share, and `t_i = 1/n` its target, for `n` assets. A unit of it, on any
+//! of its ledgers, is worth `w_i = (1 − k) + k · t_i / s_i` against spot, so
+//! an asset short of its target is worth more. The rate from `a` to `b` is
+//! `spot(a → b) · w_a / w_b · (1 − spread)`, and between two ledgers of one
+//! asset spot less the spread:
 //!
 //! - **1 at target:** with every share at its target, the rate is spot less
 //!   the spread.
 //! - **The bonus is capped** at `1 + k`: bringing in what the node lacks is
 //!   rewarded, but never by more than `k` above spot.
 //! - **The penalty is not:** taking out what the node lacks gets worse
-//!   without bound, and out of a ledger with nothing, nothing converts.
+//!   without bound, and out of a ledger with nothing, nothing converts,
+//!   however much of its asset the owner holds on another.
 //! - **Each packet pays its own impact, at the worst state in flight:** the
 //!   holdings a packet is priced at are those after its own move, with every
-//!   packet in flight resolved against it. The ledger it comes in on counts
-//!   every pending credit and none of its pending debits, and the packet's
-//!   own amount in; the ledger it goes out on counts every pending debit and
-//!   none of its pending credits, less what the packet takes out at spot;
-//!   every other ledger counts what is posted. So no packet held, rejected
-//!   or in flight beside it ever improves another's price, and a round trip
-//!   never gains: its second leg is priced at a state at least as adverse as
-//!   the first leg's, swapped, and at one state `w_a/w_b · w_b/w_a = 1`
-//!   before the cap and the spread, which both only take away.
+//!   packet in flight resolved against it. Each ledger of the asset it comes
+//!   in as counts every pending credit and none of its pending debits, and
+//!   the ledger it comes in on the packet's own amount in; each ledger of the
+//!   asset it goes out as counts every pending debit and none of its pending
+//!   credits, and the ledger it goes out on less what the packet takes out
+//!   at spot; every other ledger counts what is posted. So no packet held,
+//!   rejected or in flight beside it, on any ledger, ever improves another's
+//!   price, and a round trip never gains: its second leg is priced at a
+//!   state at least as adverse as the first leg's, swapped, and at one state
+//!   `w_a/w_b · w_b/w_a = 1` before the cap and the spread, which both only
+//!   take away.
 //!
 //! Everything is exact integer arithmetic, rounding down: shares are known to
 //! twelve decimals, and a rate is never better for the sender than the curve
@@ -35,8 +44,9 @@
 //! then reads what the owner holds on each ledger, in constant time each, and
 //! is priced without allocating.
 //!
-//! A ledger is priced by its currency alone, whatever settles it, so a
-//! settlement hub's ledger is priced as any other. Rates on different
+//! A ledger is valued by its currency alone, whatever settles it, so a
+//! settlement hub's ledger is valued as any other, and weighed as its
+//! asset. Rates on different
 //! ledgers are in different units; [`PriceTable::best_output`] compares them
 //! relative to spot (spec/areas/connector.md#comparing-outputs).
 
@@ -182,6 +192,7 @@ impl Holding {
 pub type Holdings = [Holding; MAX_PRICED_LEDGERS];
 
 /// A ledger to price, with the owner's group on it and what that holds.
+/// Which asset it counts toward is [`PriceTable::build_by_asset`]'s to say.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Inventory {
     /// The ledger.
@@ -200,6 +211,11 @@ pub struct LedgerPrice {
     pub ledger: LedgerId,
     /// The root of the owner's group on it.
     pub owner: AccountId,
+    /// The asset its holding counts toward, named by a ledger: itself, or
+    /// for a settlement hub's ledger the owner book that funds the hub.
+    /// The ledgers that name the same count as one holding, with one share
+    /// and one target ([`PriceTable::build_by_asset`]).
+    pub asset: LedgerId,
     /// How many units of its asset the common base buys, times
     /// 10^[`RATE_PRECISION`], as [`Rates`] has it.
     pub rate: u128,
@@ -279,6 +295,9 @@ pub struct PriceTable {
     valid_until_ms: u64,
     pricing: Pricing,
     ledgers: [Option<LedgerPrice>; MAX_PRICED_LEDGERS],
+    /// How many assets its ledgers count toward: the `n` of each target
+    /// `1/n`, at most as many as the ledgers.
+    assets: usize,
     prices: [Option<Price>; MAX_PRICES],
     /// The ledgers that convert nothing now ([`Self::halt`]).
     halted: [Option<LedgerId>; MAX_PRICED_LEDGERS],
@@ -305,6 +324,7 @@ impl PriceTable {
             valid_until_ms: u64::MAX,
             pricing,
             ledgers: [None; MAX_PRICED_LEDGERS],
+            assets: 0,
             prices: [None; MAX_PRICES],
             halted: [None; MAX_PRICED_LEDGERS],
         }
@@ -319,7 +339,8 @@ impl PriceTable {
     /// owner holds nothing on or whose rate rounds to nothing or does not
     /// fit, is absent. A ledger named twice counts once, at its first.
     /// Every ledger with a currency is priced alike, whatever settles it: a
-    /// settlement hub's ledger as one a node settles on directly.
+    /// settlement hub's ledger as one a node settles on directly. Each
+    /// ledger is an asset of its own ([`Self::build_by_asset`]).
     ///
     /// # Panics
     ///
@@ -331,6 +352,41 @@ impl PriceTable {
     pub fn build(
         rates: &Rates,
         inventories: &[Inventory],
+        pricing: Pricing,
+        now_ms: u64,
+        max_rate_age_ms: u64,
+    ) -> Self {
+        Self::build_by_asset(
+            rates,
+            inventories,
+            |ledger| ledger,
+            pricing,
+            now_ms,
+            max_rate_age_ms,
+        )
+    }
+
+    /// [`Self::build`], with each ledger's holding counted toward the asset
+    /// `asset_of` names for it by a ledger: the ledgers priced that name
+    /// the same count as one holding, with one share of the owner's funds
+    /// and one target, `1/n` for `n` assets, so that an asset is counted
+    /// whole however its funds are spread over its ledgers
+    /// (spec/decisions/passive-rebalancing.md). A node names, for a
+    /// settlement hub's ledger, the owner book that funds the hub, and for
+    /// every other ledger the ledger itself; an asset whose ledgers are not
+    /// all priced counts those that are. A pair of ledgers of one asset
+    /// converts at spot less the spread, while the owner holds anything on
+    /// the way out.
+    ///
+    /// # Panics
+    ///
+    /// As [`Self::build`]; and if `asset_of` names, for a ledger, one of
+    /// another currency or realm: an asset's ledgers hold the same thing.
+    #[must_use]
+    pub fn build_by_asset(
+        rates: &Rates,
+        inventories: &[Inventory],
+        asset_of: impl Fn(LedgerId) -> LedgerId,
         pricing: Pricing,
         now_ms: u64,
         max_rate_age_ms: u64,
@@ -370,17 +426,28 @@ impl PriceTable {
             if value_unit(rate, asset.scale).is_none() {
                 continue;
             }
+            let counts_with = asset_of(inventory.ledger);
+            assert!(
+                counts_with.asset().code == asset.code
+                    && counts_with.realm() == inventory.ledger.realm(),
+                "an asset's ledgers hold one currency of one realm"
+            );
+            // Another asset, unless a ledger before it counts toward it.
+            let new = !table.ledgers().any(|entry| entry.asset == counts_with);
             if let Some(slot) = table.ledgers.get_mut(count) {
                 *slot = Some(LedgerPrice {
                     ledger: inventory.ledger,
                     owner: inventory.owner,
+                    asset: counts_with,
                     rate,
                     as_of_ms,
                     holding: inventory.holding,
                 });
                 count += 1;
+                table.assets += usize::from(new);
             }
         }
+        assert!(table.assets <= count && count <= MAX_PRICED_LEDGERS);
         table.price_pairs();
         table
     }
@@ -437,6 +504,13 @@ impl PriceTable {
     #[must_use]
     pub const fn valid_until_ms(&self) -> u64 {
         self.valid_until_ms
+    }
+
+    /// How many assets its ledgers count toward
+    /// ([`Self::build_by_asset`]): the `n` of each asset's target `1/n`.
+    #[must_use]
+    pub const fn assets(&self) -> usize {
+        self.assets
     }
 
     /// The ledgers it prices.
@@ -570,31 +644,52 @@ impl PriceTable {
         }
         // What the packet takes out, at spot, in the common base.
         let taken = value_of(net, entry_in);
+        let (asset_in, asset_out) = (entry_in.asset, entry_out.asset);
         let mut total = 0u128;
-        let (mut value_in, mut value_out) = (0, 0);
-        let mut count = 0usize;
+        let (mut value_in, mut value_out, mut left_out) = (0u128, 0u128, 0u128);
         for (index, (entry, holding)) in entries.iter().flatten().zip(holdings).enumerate() {
-            count += 1;
+            // Each ledger of the asset in at its most, each of the asset out
+            // at its least, and the packet's own move on its two ledgers.
             let value = if index == from {
-                value_in = value_of(holding.most().saturating_add(amount_in), entry);
-                value_in
+                value_of(holding.most().saturating_add(amount_in), entry)
             } else if index == to {
-                value_out = value_of(holding.least(), entry).saturating_sub(taken);
-                value_out
+                left_out = value_of(holding.least(), entry).saturating_sub(taken);
+                left_out
+            } else if entry.asset == asset_in {
+                value_of(holding.most(), entry)
+            } else if entry.asset == asset_out {
+                value_of(holding.least(), entry)
             } else {
                 value_of(holding.posted, entry)
             };
-            // At most 16 values of at most MAX_VALUE each.
+            // At most 16 values of at most MAX_VALUE each, of which each
+            // asset's are a part.
             total = total.saturating_add(value);
+            if entry.asset == asset_in {
+                value_in = value_in.saturating_add(value);
+            } else if entry.asset == asset_out {
+                value_out = value_out.saturating_add(value);
+            }
         }
-        let (numerator, denominator) = factor(
-            share(value_in, total),
-            share(value_out, total),
-            count,
-            self.pricing,
-        )
-        .ok_or(PriceError::NoFunds)?;
-        let multiplier = mul_div(numerator, spread, denominator).ok_or(PriceError::NoRate)?;
+        // Out of a ledger with nothing left on it, nothing converts, however
+        // much of its asset the owner holds on another: it cannot pay out.
+        if left_out == 0 {
+            return Err(PriceError::NoFunds);
+        }
+        // Between two ledgers of one asset the curve is one: spot, less the
+        // spread.
+        let multiplier = if asset_in == asset_out {
+            spread
+        } else {
+            let (numerator, denominator) = factor(
+                share(value_in, total),
+                share(value_out, total),
+                self.assets,
+                self.pricing,
+            )
+            .ok_or(PriceError::NoFunds)?;
+            mul_div(numerator, spread, denominator).ok_or(PriceError::NoRate)?
+        };
         // At most `1 + k` times the rate at target: one that does not fit is
         // no rate, and one the penalty rounds to nothing is too little on
         // the way out.
@@ -803,7 +898,7 @@ fn share(value: u128, total: u128) -> u128 {
 }
 
 /// The curve's `w_in / w_out`, as a fraction, capped at `1 + k`; `None`
-/// when the owner holds nothing on the way out. Of `count` ledgers, each
+/// when the owner holds nothing on the way out. Of `count` assets, each
 /// with a target of `1/count`, these hold `share_in` and `share_out`.
 fn factor(share_in: u128, share_out: u128, count: usize, pricing: Pricing) -> Option<(u128, u128)> {
     if share_out == 0 {
@@ -816,7 +911,7 @@ fn factor(share_in: u128, share_out: u128, count: usize, pricing: Pricing) -> Op
     }
     let count = u128::try_from(count).unwrap_or(u128::MAX);
     assert!(share_in <= SHARE_ONE && share_out <= SHARE_ONE && count <= 16);
-    // `10^6 · n · s · w = (10^6 − k) · n · s + k`, for a ledger of share `s`,
+    // `10^6 · n · s · w = (10^6 − k) · n · s + k`, for an asset of share `s`,
     // in shares.
     let weight = |share: u128| (MILLION - k) * count * share + k * SHARE_ONE;
     let numerator = weight(share_in) * share_out;
@@ -1278,6 +1373,195 @@ mod tests {
         let hub = [held(USD, DOLLAR), held(HUB, DOLLAR)];
         let unrated = PriceTable::build(&dollars, &hub, k, NOW, AGE);
         assert!(unrated.ledger(HUB).is_none() && unrated.prices().count() == 0);
+    }
+
+    /// The asset a ledger counts toward, as a node names it: for a hub's
+    /// ledger, the owner book that funds the hub.
+    const fn book_of(ledger: LedgerId) -> LedgerId {
+        match ledger {
+            LedgerId::HubXrplTestnetXrp => LedgerId::XrplTestnetXrp,
+            LedgerId::HubXrplTestnetDsusdUsd => LedgerId::XrplTestnetDsusdUsd,
+            LedgerId::HubXrplXrp => LedgerId::XrplXrp,
+            LedgerId::HubXrplRlusdUsd => LedgerId::XrplRlusdUsd,
+            other => other,
+        }
+    }
+
+    /// The table of `inventories`, each asset counted whole: the XRP hub's
+    /// ledger with the XRP Ledger's XRP, the owner book that funds it.
+    fn whole(inventories: &[Inventory], pricing: Pricing) -> PriceTable {
+        PriceTable::build_by_asset(&rates(), inventories, book_of, pricing, NOW, AGE)
+    }
+
+    // spec/decisions/passive-rebalancing.md: a node holds an asset in its
+    // hub and in the owner book that funds it, and moves its funds between
+    // the two by itself. With most of its XRP in the book, counted whole it
+    // holds XRP at its target, and converts at spot; priced apart, its hub
+    // would read short, and pay the capped bonus for XRP brought in there.
+    #[test]
+    fn an_asset_counts_whole_across_its_hub_and_its_book() {
+        let k = pricing(50_000, 0);
+        let inventories = [
+            held(USD, 100 * DOLLAR),
+            held(XRP, 190 * DOLLAR),
+            held(HUB, 10 * DOLLAR),
+        ];
+        let table = whole(&inventories, k);
+        assert_eq!(table.assets(), 2);
+        assert_eq!(table.ledger(HUB).unwrap().asset, XRP);
+        assert_eq!(table.ledger(XRP).unwrap().asset, XRP);
+        assert_eq!(table.ledger(USD).unwrap().asset, USD);
+        assert_eq!(rate(&table, HUB, USD), RATE_ONE_E15 / 2);
+        assert_eq!(rate(&table, USD, HUB), 2 * RATE_ONE_E15);
+        let apart = build(&inventories, k);
+        assert_eq!(apart.assets(), 3);
+        assert_eq!(rate(&apart, HUB, USD), 525_000_000_000_000);
+        assert!(rate(&apart, USD, HUB) < 2 * RATE_ONE_E15);
+        // With none of it in the hub, XRP is still at its target: what comes
+        // in on the hub converts at spot, and nothing goes out on it, which
+        // has nothing to pay out.
+        let none = [
+            held(USD, 100 * DOLLAR),
+            held(XRP, 200 * DOLLAR),
+            held(HUB, 0),
+        ];
+        let table = whole(&none, k);
+        let holdings = table.holdings();
+        assert_eq!(rate(&table, HUB, USD), RATE_ONE_E15 / 2);
+        assert_eq!(rate(&table, HUB, XRP), RATE_ONE_E15);
+        assert!(table.price(USD, HUB).is_none() && table.price(XRP, HUB).is_none());
+        assert_eq!(
+            table.rate(USD, HUB, 1, 1, &holdings),
+            Err(PriceError::NoFunds)
+        );
+        assert_eq!(rate(&build(&none, k), HUB, USD), 525_000_000_000_000);
+        // Short of XRP as a whole, however it is spread, the curve moves
+        // the same: 25/75, as above, with the XRP in the hub or the book.
+        for (book, hub) in [(150, 0), (75, 75), (1, 149)] {
+            let skewed = [
+                held(USD, 25 * DOLLAR),
+                held(XRP, book * DOLLAR),
+                held(HUB, hub * DOLLAR),
+            ];
+            let skewed = whole(&skewed, k);
+            assert_eq!(rate(&skewed, HUB, USD), 468_253_968_253_968);
+        }
+        // A hub whose book is not priced counts alone.
+        let alone = whole(&[held(USD, 100 * DOLLAR), held(HUB, 200 * DOLLAR)], k);
+        assert_eq!(alone.assets(), 2);
+        assert_eq!(rate(&alone, HUB, USD), RATE_ONE_E15 / 2);
+    }
+
+    // With two assets at target, however each is spread over its ledgers,
+    // every pair converts at spot less the spread: between the two ledgers
+    // of one asset, one to one less the spread.
+    #[test]
+    fn two_assets_at_target_convert_at_spot_less_the_spread() {
+        let k = pricing(50_000, 5_000);
+        for (book, hub) in [(200, 0), (120, 80), (1, 199)] {
+            let inventories = [
+                held(USD, 100 * DOLLAR),
+                held(XRP, book * DOLLAR),
+                held(HUB, hub * DOLLAR),
+            ];
+            let table = whole(&inventories, k);
+            assert_eq!(rate(&table, USD, XRP), 1_990_000_000_000_000);
+            assert_eq!(rate(&table, XRP, USD), 497_500_000_000_000);
+            if hub > 0 {
+                assert_eq!(rate(&table, USD, HUB), 1_990_000_000_000_000);
+                assert_eq!(rate(&table, XRP, HUB), 995_000_000_000_000);
+            }
+            assert_eq!(rate(&table, HUB, USD), 497_500_000_000_000);
+            assert_eq!(rate(&table, HUB, XRP), 995_000_000_000_000);
+        }
+    }
+
+    // spec/decisions/passive-rebalancing.md: the worst state in flight
+    // holds across an asset's ledgers. What is in flight on the book counts
+    // against a packet on the hub as it would on the hub: XRP on its way
+    // in makes bringing XRP in worse, XRP on its way out makes taking it
+    // out worse, and neither other half ever makes either better.
+    #[test]
+    fn what_is_in_flight_on_the_book_counts_against_a_packet_on_the_hub() {
+        let inventories = [
+            held(USD, 100 * DOLLAR),
+            held(XRP, 150 * DOLLAR),
+            held(HUB, 50 * DOLLAR),
+        ];
+        let table = whole(&inventories, pricing(50_000, 0));
+        let at_target = table.holdings();
+        let with = |from: LedgerId, to: LedgerId, book: Holding| {
+            let mut holdings = at_target;
+            holdings[1] = book;
+            table.rate(from, to, 0, 0, &holdings).unwrap()
+        };
+        let book = at_target[1];
+        let coming = Holding {
+            credits_pending: u128::from(20 * DOLLAR),
+            ..book
+        };
+        let going = Holding {
+            debits_pending: u128::from(20 * DOLLAR),
+            ..book
+        };
+        let (into, out_of) = (rate(&table, HUB, USD), rate(&table, USD, HUB));
+        assert!(with(HUB, USD, coming) < into);
+        assert_eq!(with(HUB, USD, going), into);
+        assert!(with(USD, HUB, going) < out_of);
+        assert_eq!(with(USD, HUB, coming), out_of);
+        // So a packet in on the hub is never priced better by a deposit on
+        // its way from the book, held out of it and not yet in the hub.
+        let mut deposit = at_target;
+        deposit[1].debits_pending = u128::from(40 * DOLLAR);
+        deposit[2].credits_pending = u128::from(40 * DOLLAR);
+        assert!(table.rate(HUB, USD, 0, 0, &deposit).unwrap() < into);
+        assert!(table.rate(USD, HUB, 0, 0, &deposit).unwrap() < out_of);
+    }
+
+    // The bounds hold with every ledger of a realm priced, its hubs
+    // counted with their books, at holdings as large as a value counts.
+    #[test]
+    fn the_bounds_hold_with_every_ledger_of_a_realm_by_asset() {
+        for realm in [Realm::Test, Realm::Live] {
+            let mut ledgers: Vec<Inventory> = LedgerId::ALL
+                .into_iter()
+                .filter(|ledger| ledger.realm() == realm)
+                .map(|ledger| held(ledger, u64::MAX))
+                .collect();
+            for inventory in &mut ledgers {
+                inventory.holding.posted = u128::MAX;
+                inventory.holding.credits_pending = u128::MAX;
+            }
+            assert!(ledgers.len() <= MAX_PRICED_LEDGERS);
+            let table = whole(&ledgers, pricing(MAX_REBALANCE_PPM, 0));
+            let hubs = ledgers
+                .iter()
+                .filter(|inventory| book_of(inventory.ledger) != inventory.ledger)
+                .count();
+            assert_eq!(table.ledgers().count(), ledgers.len());
+            assert_eq!(table.assets(), ledgers.len() - hubs);
+            let holdings = table.holdings();
+            for from in table.ledgers() {
+                for to in table.ledgers() {
+                    if from.ledger != to.ledger {
+                        let _ = table.rate(from.ledger, to.ledger, u64::MAX, u64::MAX, &holdings);
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    #[should_panic(expected = "an asset's ledgers hold one currency of one realm")]
+    fn an_asset_is_one_currency() {
+        let _ = PriceTable::build_by_asset(
+            &rates(),
+            &[held(USD, DOLLAR), held(HUB, DOLLAR)],
+            |_| USD,
+            pricing(0, 0),
+            NOW,
+            AGE,
+        );
     }
 
     #[test]
