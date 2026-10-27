@@ -121,6 +121,9 @@ pub enum RemovalBlocker {
     Peers(u32),
     /// Outgoing payments from its ledger have not finished.
     OutgoingPayments(u32),
+    /// A move between its hub and the owner book of the hub's asset is on
+    /// its way: the move is its account's in that hub.
+    HubMove,
 }
 
 impl RemovalBlocker {
@@ -131,6 +134,7 @@ impl RemovalBlocker {
             Self::BtpTokens(_) => "BTP tokens use its ledger",
             Self::Peers(_) => "peers settle with it",
             Self::OutgoingPayments(_) => "outgoing payments from its ledger have not finished",
+            Self::HubMove => "a move between its hub and the owner book is on its way",
         }
     }
 }
@@ -918,6 +922,10 @@ impl Core {
             (
                 self.unfinished_on(ledger),
                 RemovalBlocker::OutgoingPayments(count(self.unfinished_on(ledger))),
+            ),
+            (
+                usize::from(self.hub_move_on_its_way(id)),
+                RemovalBlocker::HubMove,
             ),
         ]
         .into_iter()

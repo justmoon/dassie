@@ -685,16 +685,28 @@ fn ledgers() -> BoxedStrategy<Method> {
     .boxed()
 }
 
+/// A hub named by its ID, or none.
+fn hub_id() -> BoxedStrategy<String> {
+    field(&[
+        "",
+        "4c5ef2ba00000000000000000000000000000000000000000000000000000000",
+    ])
+}
+
 /// The hub member's methods: refused without a hub scheme, never a bug.
 fn hub() -> BoxedStrategy<Method> {
     prop_oneof![
         Just(Method::GetHubStatus(proto::GetHubStatusRequest {})),
-        number().prop_map(|amount| Method::HubDeposit(proto::HubDepositRequest { amount })),
-        number().prop_map(|amount| Method::HubWithdraw(proto::HubWithdrawRequest { amount })),
-        any::<bool>().prop_map(|automatic| {
-            Method::SetHubAutomatic(proto::SetHubAutomaticRequest { automatic })
+        (number(), hub_id()).prop_map(|(amount, hub_id)| {
+            Method::HubDeposit(proto::HubDepositRequest { amount, hub_id })
         }),
-        Just(Method::HubGiveUp(proto::HubGiveUpRequest {})),
+        (number(), hub_id()).prop_map(|(amount, hub_id)| {
+            Method::HubWithdraw(proto::HubWithdrawRequest { amount, hub_id })
+        }),
+        (any::<bool>(), hub_id()).prop_map(|(automatic, hub_id)| {
+            Method::SetHubAutomatic(proto::SetHubAutomaticRequest { automatic, hub_id })
+        }),
+        hub_id().prop_map(|hub_id| Method::HubGiveUp(proto::HubGiveUpRequest { hub_id })),
         (
             field(&["", "{}", "{\"fees\":{\"operation\":0}}", "["]),
             number()

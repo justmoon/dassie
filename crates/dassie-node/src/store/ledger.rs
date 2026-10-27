@@ -63,12 +63,14 @@ pub struct LedgerBatch {
     pub outgoing: super::OutgoingBatch,
     /// The owner's peer settings, if they changed.
     pub peer_settings: Option<super::PeerSettings>,
-    /// Whether the node moves funds between its XRPL account and its hub
-    /// by itself, if the owner changed it.
-    pub hub_automatic: Option<bool>,
+    /// Whether the node moves funds between the owner book of a hub's
+    /// asset and the hub by itself, for each hub, by its scheme, whose
+    /// owner changed it.
+    pub hub_automatic: std::collections::BTreeMap<Name, bool>,
     /// The move between them on its way, and until when the owner's last
-    /// move pauses the node's own, if either changed.
-    pub hub_funding: Option<super::HubFundingRow>,
+    /// move pauses the node's own, for each hub, by its scheme, where
+    /// either changed.
+    pub hub_funding: std::collections::BTreeMap<Name, super::HubFundingRow>,
 }
 
 impl LedgerBatch {
@@ -92,8 +94,8 @@ impl LedgerBatch {
             && self.incoming_connections_gone.is_empty()
             && self.outgoing.is_empty()
             && self.peer_settings.is_none()
-            && self.hub_automatic.is_none()
-            && self.hub_funding.is_none()
+            && self.hub_automatic.is_empty()
+            && self.hub_funding.is_empty()
     }
 
     /// Whether it changes Open Payments resources.
@@ -394,8 +396,8 @@ impl Store {
         super::peer_settings::write_peer_settings(&transaction, batch.peer_settings)?;
         super::hub_funding::write_hub_funding(
             &transaction,
-            batch.hub_automatic,
-            batch.hub_funding.as_ref(),
+            &batch.hub_automatic,
+            &batch.hub_funding,
         )?;
         #[cfg(feature = "testing")]
         self.fail_if_aimed(&transaction, batch);

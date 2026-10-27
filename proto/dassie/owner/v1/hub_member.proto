@@ -4,13 +4,20 @@ package dassie.owner.v1;
 
 import "dassie/owner/v1/ledger.proto";
 
-// The node's account in its settlement hub, and moving the owner's funds
-// between it and the node's XRP Ledger testnet account
+// The node's account in each settlement hub it is in, one per asset, and
+// moving the owner's funds between it and the owner book of the hub's
+// asset: for the XRP hub, the node's XRP Ledger testnet account
 // (spec/areas/hubs.md#in-the-node). The contract has no services: these
 // methods are numbered in `Request` and `Response` (transport.proto) with
 // the rest: GetHubStatus, HubDeposit, HubWithdraw, SetHubAutomatic and
-// HubGiveUp. Each fails with FAILED_PRECONDITION while no settlement hub
-// scheme runs.
+// HubGiveUp.
+//
+// Each method but GetHubStatus acts on one hub, which its request names by
+// `hub_id`: the hub's ID as 64 hex digits, as `HubStatus.hub_id` gives it,
+// or empty while the node is in one hub only. Each fails with
+// FAILED_PRECONDITION while no settlement hub scheme runs, NOT_FOUND for a
+// hub the node is not in, and INVALID_ARGUMENT for a `hub_id` that is not
+// 64 hex digits, or empty while the node is in several hubs.
 //
 // Amounts are in the hub ledger's smallest unit, as `Ledger` amounts are:
 // XRP at scale 9. A move pays whole drops; what is less is left.
@@ -25,7 +32,8 @@ message HubHold {
   uint64 amount = 3;
 }
 
-// A move between the hub and the XRP Ledger account on its way. It is done
+// A move between the hub and the owner book of its asset, on the node's XRP
+// Ledger account, on its way. It is done
 // once the hub account's counters show it, and failed only once the side it
 // leaves says its payment moved nothing: until then no other move is made,
 // and it is never paid again.
@@ -45,9 +53,9 @@ message HubMove {
 
   enum Direction {
     DIRECTION_UNSPECIFIED = 0;
-    // From the XRP Ledger account into the hub.
+    // From the owner book into the hub.
     DIRECTION_DEPOSIT = 1;
-    // From the hub to the XRP Ledger account.
+    // From the hub to the owner book.
     DIRECTION_WITHDRAW = 2;
   }
 }
@@ -95,56 +103,75 @@ message HubStatus {
   // What withdrawals the escrow could not pay brought back: the owner's
   // deposits too, counted apart.
   uint64 returned = 18;
+  // The settlement scheme over the hub, which names its ledger and asset,
+  // such as `hub-xrpl-testnet-xrp`.
+  string scheme = 19;
 }
 
+// Every hub the node is in whose scheme runs, in the order of their
+// schemes; none while none runs.
 message GetHubStatusRequest {}
 
 message GetHubStatusResponse {
-  HubStatus status = 1;
+  repeated HubStatus hubs = 1;
 }
 
-// Deposits from the XRP Ledger account into the hub, opening the account if
-// the hub has none for the node yet. Pauses the automatic moves for a
-// while. RESOURCE_EXHAUSTED while a move is on its way; INVALID_ARGUMENT for
-// less than a drop, or less than opening the account takes;
-// FAILED_PRECONDITION before the hub said whether the account exists, while
-// the XRP Ledger testnet scheme does not run synced, or for more than the
-// owner's funds there with the fee.
+// Deposits from the owner book of the hub's asset into the hub, opening the
+// account if the hub has none for the node yet. Pauses the hub's automatic
+// moves for a while. RESOURCE_EXHAUSTED while a move of the hub is on its
+// way; INVALID_ARGUMENT for less than a drop, or less than opening the
+// account takes; FAILED_PRECONDITION before the hub said whether the
+// account exists, while the owner book does not run synced, or for more
+// than the owner's funds there with the fee.
 message HubDepositRequest {
   uint64 amount = 1;
+  // The hub, by its ID as HubStatus.hub_id gives it; empty while the node
+  // is in one hub only. NOT_FOUND for a hub the node is not in,
+  // INVALID_ARGUMENT for none while it is in several.
+  string hub_id = 2;
 }
 
 message HubDepositResponse {
   HubStatus status = 1;
 }
 
-// Withdraws from the hub to the XRP Ledger account. Pauses the automatic
-// moves for a while. RESOURCE_EXHAUSTED while a move is on its way;
+// Withdraws from the hub to the owner book of its asset, on the node's XRP
+// Ledger account. Pauses the hub's
+// automatic moves for a while. RESOURCE_EXHAUSTED while a move of the hub is
+// on its way;
 // INVALID_ARGUMENT for less than the hub pays out; FAILED_PRECONDITION
 // without an account in the hub, or for more than it can spend with the
 // fees.
 message HubWithdrawRequest {
   uint64 amount = 1;
+  // The hub, as in HubDepositRequest.
+  string hub_id = 2;
 }
 
 message HubWithdrawResponse {
   HubStatus status = 1;
 }
 
-// Turns the node's own moves on or off. The node keeps the choice.
+// Turns the node's own moves to and from the hub on or off. The node keeps
+// the choice, per hub.
 message SetHubAutomaticRequest {
   bool automatic = 1;
+  // The hub, as in HubDepositRequest.
+  string hub_id = 2;
 }
 
 message SetHubAutomaticResponse {
   HubStatus status = 1;
 }
 
-// Gives up the move on its way, once it is late: the node forgets it and
-// books nothing. Its own moves then wait until the owner turns them on again
-// or moves funds. FAILED_PRECONDITION when no move is on its way, or it is
+// Gives up the hub's move on its way, once it is late: the node forgets it
+// and books nothing. Its own moves of the hub then wait until the owner turns
+// them on again or moves funds. FAILED_PRECONDITION when no move is on its way, or it is
 // not late.
-message HubGiveUpRequest {}
+message HubGiveUpRequest {
+  // The hub, as in HubDepositRequest.
+  string hub_id = 1;
+}
 
 message HubGiveUpResponse {
   HubStatus status = 1;
