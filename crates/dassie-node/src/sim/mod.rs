@@ -34,8 +34,9 @@
 //! sends exactly its debit amount, across a crash of its node too, and
 //! its receiver gets what it sent.
 //!
-//! A run whose subject is not settlement peers over the stub with
-//! unlimited trust, and never settles.
+//! `Settling::Trusting` runs the stub with unlimited trust: its peers never
+//! run out of room and never settle, for targeted tests whose subject is
+//! not settlement.
 //!
 //! Each run settles over the stub, or over the XRP Ledger testnet scheme
 //! against a fake ledger in the same process: its connections lag,

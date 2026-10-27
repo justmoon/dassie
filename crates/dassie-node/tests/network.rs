@@ -17,7 +17,10 @@
 //! (spec/areas/testing.md#levels). A test of settlement over a hub runs
 //! on the stub with commitments, as `hub_path.rs` does. The tests of direct
 //! settlement, on the plain stub or the direct XRP Ledger schemes, say so:
-//! they go with it (spec/roadmap.md#hubs-only).
+//! they go with it (spec/roadmap.md#hubs-only). A few that are not about
+//! settlement stay on the plain stub or the direct schemes until the
+//! node-stub simulation or the runs across currencies move off them, and
+//! say that instead.
 
 #![allow(
     clippy::unwrap_used,
@@ -1105,50 +1108,59 @@ fn a_peer_short_of_room_is_withdrawn_until_it_settles() {
 }
 
 // spec/decisions/peering-lifecycle.md: requests to settle that never arrived
-// withdraw no one. For over two request intervals, nothing the senior sends
-// reaches its junior, which is still heard from and pays in advance as soon
-// as it is asked: each request that fails to arrive is asked again at the
-// next check, not an interval later, so the junior is asked as soon as the
-// link is back, well within the grace.
-// Goes with direct settlement (spec/roadmap.md#hubs-only).
+// withdraw no one. Over a hub, each node asks the other to fund its hold
+// toward it as they peer (spec/areas/hubs.md#in-the-node). For over two
+// request intervals, nothing node 1 sends reaches node 0, which is still
+// heard from and funds its hold as soon as it is asked: each request that
+// fails to arrive is asked again at the next check, not an interval later,
+// so node 0 is asked as soon as the link is back, well within the grace.
 #[test]
-fn requests_to_settle_that_never_arrived_withdraw_no_honest_junior() {
-    let mut sim = Sim::new(3, 2, 1);
+fn requests_to_settle_that_never_arrived_withdraw_no_honest_payer() {
+    let mut sim = Sim::with(3, 2, 1, BTreeMap::new(), Settling::StubHub(1));
     sim.loss_per_mille = 0;
     let peered = |sim: &Sim| !sim.peers(0).is_empty() && !sim.peers(1).is_empty();
     assert!(
         sim.run_until_or(START + 120_000, peered),
         "the nodes did not peer"
     );
-    // The senior is the node that accepted the request: its peering is
-    // inbound.
-    let senior = usize::from(!sim.core(0).network().peers[0].peering.inbound);
-    let junior = 1 - senior;
-    assert!(sim.core(senior).network().peers[0].peering.inbound);
-    let junior_id = key(junior).node_id();
+    let (payer, payee) = (0, 1);
+    let payer_id = key(payer).node_id();
+    // What the payer holds toward the payee, by its own stub.
+    let hold = |sim: &mut Sim| {
+        let payee_id = key(payee).node_id();
+        sim.nodes[payer]
+            .core
+            .as_mut()
+            .unwrap()
+            .hub_peers()
+            .into_iter()
+            .find(|hub| hub.peer.as_str() == payee_id.as_str())
+            .map_or(0, |hub| hub.holds.toward)
+    };
     let policies = Policies::DEFAULT;
     let cut_for = 2 * policies.settlement_request_every_ms + 6_000;
-    sim.cut.insert((senior, junior));
+    sim.cut.insert((payee, payer));
     let cut_at = sim.now;
     sim.run_until(cut_at + cut_for);
-    assert!(
-        sim.owes(senior, &junior_id) <= 0,
-        "the junior paid in advance while its senior could not reach it"
+    assert_eq!(
+        hold(&mut sim),
+        0,
+        "the payer funded its hold while the payee could not reach it"
     );
     sim.cut.clear();
     sim.run_until(cut_at + policies.peer.advertise_short_grace_ms + 60_000);
     let for_room: Vec<u64> = sim
         .withdrawn
         .iter()
-        .filter(|withdrawal| withdrawal.by == senior && withdrawal.peer == junior_id)
+        .filter(|withdrawal| withdrawal.by == payee && withdrawal.peer == payer_id)
         .map(|withdrawal| withdrawal.at - cut_at)
         .collect();
     assert!(
         for_room.is_empty(),
-        "the senior withdrew its junior for room, {for_room:?} ms after the cut"
+        "the payee withdrew the payer for room, {for_room:?} ms after the cut"
     );
-    assert!(sim.owes(senior, &junior_id) > 0, "not paid in advance");
-    assert!(sim.advertises(senior, &junior_id));
+    assert!(hold(&mut sim) > 0, "the payer funded no hold");
+    assert!(sim.advertises(payee, &payer_id));
 }
 
 // spec/decisions/earned-trust.md: the node whose peering request was
@@ -1287,14 +1299,15 @@ fn an_error_event_fails_the_run() {
 // A peer asked to settle answers with what it has on its way
 // (spec/decisions/ending-a-peering.md): the settlement it makes, or one
 // already under way, which under the one-at-a-time rule is the whole answer.
-// Every amount a node is told is one its peer made to it.
-// Goes with direct settlement (spec/roadmap.md#hubs-only).
+// Over a hub, that is what it funds its hold toward the asker with
+// (spec/areas/hubs.md#in-the-node), so the runs are over the stub with
+// commitments. Every amount a node is told is one its peer made to it.
 #[test]
 fn a_peer_asked_to_settle_tells_what_it_has_on_its_way() {
     let id = |index: usize| format!("{:?}", key(index).node_id());
     let mut told = 0;
     for seed in 0..6 {
-        let run = scripted::run(seed);
+        let run = scripted::run_stub_hub(seed);
         assert!(!run.outcome.is_failure(), "seed {seed}: {}", run.outcome);
         // (who settled, to whom, how much)
         let mut made = std::collections::BTreeSet::new();
