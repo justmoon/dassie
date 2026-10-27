@@ -268,7 +268,12 @@ fn deposits_refused_for_room_in_a_freeze_are_credited_after_a_restart() {
     );
     let before = escrow_balance(&sim);
     let deposits = share + 3;
-    for _ in 0..deposits {
+    // The deposits past the share are in ledgers after this one.
+    let mut refused_after = 0;
+    for n in 0..deposits {
+        if n == share {
+            refused_after = sim.ledger.ledger();
+        }
         deposit_dsusd(&mut sim, &holder, escrow, account.0);
     }
     sim.run_until(sim.now + 60_000);
@@ -277,6 +282,18 @@ fn deposits_refused_for_room_in_a_freeze_are_credited_after_a_restart() {
         before,
         "nothing credited while frozen"
     );
+    // No validator persisted a cursor past a deposit refused for room: a
+    // restart reads each again, however many ledgers close before it.
+    let hub = sim.hub.as_deref().unwrap();
+    for validator in &hub.validators {
+        let cursor = validator.store.hub_escrow(hub.rules.id().0.as_bytes());
+        let cursor = cursor.unwrap().expect("the escrow was followed");
+        assert!(
+            cursor.scanned_to <= refused_after,
+            "the cursor passed a refused deposit: {} > {refused_after}",
+            cursor.scanned_to
+        );
+    }
 
     // Every validator restarts during the freeze.
     for index in 0..4 {

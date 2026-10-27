@@ -168,6 +168,10 @@ pub struct Driver {
     /// The ledger's height when `awaited` was last looked at, unless it
     /// changed since.
     awaited_at: Option<u64>,
+    /// When the ledger last wrote off a reset test network's escrow, as of
+    /// `awaited` and `recorded`: once it writes off again, the deposits
+    /// they hold are the old chain's, which no ledger records any more.
+    chain: Option<Millis>,
 }
 
 impl std::fmt::Debug for Driver {
@@ -210,6 +214,7 @@ impl Driver {
             }
             let validator = Validator::resume(keys, stored.clone(), ledger, now)
                 .map_err(|_| DriverError::Stored("its ledger is not its tip's"))?;
+            let chain = validator.ledger().written_off_at();
             return Ok(Self {
                 hub,
                 own,
@@ -221,6 +226,7 @@ impl Driver {
                 awaited: BTreeMap::new(),
                 recorded: VecDeque::new(),
                 awaited_at: None,
+                chain,
             });
         }
         let validator = Validator::genesis(rules.clone(), keys, genesis_ms, now)
@@ -244,6 +250,7 @@ impl Driver {
             awaited: BTreeMap::new(),
             recorded: VecDeque::new(),
             awaited_at: None,
+            chain: None,
         })
     }
 
@@ -355,10 +362,18 @@ impl Driver {
     /// no more, to those the escrow's view names: each once the ledger's
     /// height changed, or one was attested, since they were last looked
     /// at. Once the hub ended, or while the node validates in no set in
-    /// force, none can be recorded, and none is waited for.
+    /// force, none can be recorded, and none is waited for. Once the ledger
+    /// wrote off a reset test network's escrow, the old chain's deposits
+    /// are waited for and named no more: the watcher attests again what it
+    /// reads on the new chain.
     fn settle_deposits(&mut self) {
         let ledger = self.validator.ledger();
         let height = ledger.height();
+        if ledger.written_off_at() != self.chain {
+            self.chain = ledger.written_off_at();
+            self.awaited.clear();
+            self.recorded.clear();
+        }
         if self.awaited.is_empty() || self.awaited_at == Some(height) {
             return;
         }
@@ -1093,6 +1108,52 @@ mod tests {
         let view = net.drivers[0].escrow_view();
         assert!(named(&view, 5), "attested again after the thaw");
         assert_eq!(net.drivers[0].validator().ledger().members(), 5);
+    }
+
+    // spec/decisions/ledger-resets.md: once the ledger wrote off a reset
+    // test network's escrow, the old chain's deposits, which it records no
+    // more, are waited for and named no more, so they never take the room
+    // of the new chain's.
+    #[test]
+    fn a_reset_forgets_the_old_chains_deposits() {
+        use dassie_hub::digest::Digest;
+        use dassie_hub::operation::Deposit;
+
+        let mut net = Net::with_terms(|terms| {
+            terms.asset = dassie_hub::rules::Asset::Token {
+                currency: dassie_xrpl::dsusd::CURRENCY,
+                issuer: dassie_xrpl::dsusd::ISSUER,
+            };
+            terms.fees.gas = dassie_hub::rules::LEAST_TOKEN_GAS_DROPS;
+            terms.fees.ledger = 0;
+            terms.limits.pending_deposits = 16;
+        });
+        attest_all(&mut net, &ValidatorOperation::AttestEscrow { sequence: 5 });
+        net.run(1_000);
+        attest_all(&mut net, &issuer(20, true));
+        net.run(1_000);
+        for n in 1..=5 {
+            let deposit = Deposit {
+                transaction: Digest([n; 32]),
+                ledger: 30,
+                amount: 50_000_000,
+                sender: [3; 20],
+                tag: 0,
+                key: Some(NodeKey::from_bytes(&[n; 32]).public_key()),
+            };
+            attest_all(&mut net, &ValidatorOperation::AttestDeposit(deposit));
+            net.run(1_000);
+        }
+        assert_eq!(net.drivers[0].awaited.len(), 1, "one refused for room");
+        assert!(!net.drivers[0].recorded.is_empty());
+
+        attest_all(&mut net, &ValidatorOperation::AttestReset { ledger: 1 });
+        net.run(1_000);
+        for driver in &net.drivers {
+            assert!(driver.validator().ledger().written_off_at().is_some());
+            assert!(driver.awaited.is_empty(), "the old chain's waits no more");
+            assert!(driver.escrow_view().deposits_recorded.is_empty());
+        }
     }
 
     // spec/areas/hubs.md#payout-bundles: a hub that stalled while the

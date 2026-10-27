@@ -54,7 +54,7 @@ struct Setup {
     /// Whether the validator takes each attestation at once.
     taking: bool,
     /// Attestations it has not taken yet.
-    untaken: Vec<Option<[u8; 32]>>,
+    untaken: Vec<(ValidatorOperation, Option<[u8; 32]>)>,
     /// Whether the hub takes the escrow's check and the issuer's hold as
     /// soon as they are attested, as a quorum would.
     quorum: bool,
@@ -238,14 +238,14 @@ impl Setup {
                 Out::Attest(operation, transaction) => {
                     self.take(&operation);
                     let deposit = matches!(operation, ValidatorOperation::AttestDeposit(_));
-                    self.attested.push(operation);
+                    self.attested.push(operation.clone());
                     if self.taking {
                         self.watcher.taken(transaction);
                         if deposit {
                             self.record(transaction);
                         }
                     } else {
-                        self.untaken.push(transaction);
+                        self.untaken.push((operation, transaction));
                     }
                 }
                 Out::Cursor(cursor) => self.cursor = Some(cursor),
@@ -562,7 +562,7 @@ fn an_attestation_counts_once_the_validator_took_it() {
     setup.closes(2);
     assert_eq!(setup.attested.len(), 1);
     // Once taken, and the hub recorded it, the cursor moves on.
-    for transaction in core::mem::take(&mut setup.untaken) {
+    for (_, transaction) in core::mem::take(&mut setup.untaken) {
         setup.watcher.taken(transaction);
         setup.record(transaction);
     }
@@ -586,8 +586,8 @@ fn a_dropped_attestation_holds_the_cursor_only_below_it() {
     setup.close();
     let deposit_ledger = setup.xrpl.ledger();
     setup.closes(2);
-    for transaction in core::mem::take(&mut setup.untaken) {
-        setup.watcher.dropped(transaction);
+    for (operation, transaction) in core::mem::take(&mut setup.untaken) {
+        setup.watcher.dropped(&operation, transaction);
     }
     setup.run();
     setup.closes(2);
@@ -1044,8 +1044,19 @@ fn a_stopped_hubs_validator_hears_of_each_change_it_proved() {
     assert!(setup.watcher.proven_issuer().unwrap().frozen);
 }
 
+/// How often the watcher submitted `blob`.
+fn times_sent(setup: &Setup, blob: &[u8]) -> usize {
+    let hex: String = blob.iter().map(|byte| format!("{byte:02X}")).collect();
+    (setup.submitted.iter())
+        .filter(|request| String::from_utf8_lossy(request).contains(&hex))
+        .count()
+}
+
 // More withdrawals open than the connection keeps each go once: one sent
-// already makes room for the next, and is only not sent again.
+// already makes room for the next, and is only not sent again. The one
+// that makes room is of the highest sequence: the escrow's sequences apply
+// in order, so the lowest, which every later one waits on, is still sent
+// again.
 #[test]
 fn more_open_withdrawals_than_kept_each_go() {
     let mut setup = Setup::new();
@@ -1054,10 +1065,100 @@ fn more_open_withdrawals_than_kept_each_go() {
     setup.closes(2);
     let count = MAX_QUEUED_SUBMITS + 8;
     let first = setup.view.next_sequence;
+    let last = first + u32::try_from(count - 1).unwrap();
     for offset in 0..count {
         let sequence = first + u32::try_from(offset).unwrap();
         setup.watcher.submit(withdrawal_blob(&setup, sequence));
         setup.run();
     }
     assert_eq!(setup.submitted.len(), count);
+    setup.tick(RESUBMIT_MS);
+    assert_eq!(
+        times_sent(&setup, &withdrawal_blob(&setup, first)),
+        2,
+        "the lowest goes again"
+    );
+    assert_eq!(times_sent(&setup, &withdrawal_blob(&setup, last)), 2);
+    assert_eq!(
+        times_sent(&setup, &withdrawal_blob(&setup, last - 1)),
+        1,
+        "one of the highest made room"
+    );
+}
+
+// spec/decisions/ledger-resets.md: a reset of the test network writes off
+// the old chain's withdrawals. What the escrow's signers signed for it is
+// not sent to the new chain, however long it stays.
+#[test]
+fn the_old_chains_withdrawals_are_not_sent_to_the_new_one() {
+    let mut setup = Setup::new();
+    setup.view.checked = true;
+    setup.connect();
+    setup.closes(2);
+    let blob = withdrawal_blob(&setup, setup.view.next_sequence);
+    setup.watcher.submit(blob.clone());
+    setup.run();
+    assert_eq!(times_sent(&setup, &blob), 1);
+
+    setup.xrpl.reset();
+    setup.close();
+    setup.watcher.disconnected();
+    setup.connect();
+    setup.closes(2);
+    assert!(
+        any(&setup.attested, |op| matches!(
+            op,
+            ValidatorOperation::AttestReset { .. }
+        )),
+        "the reset is attested"
+    );
+    for _ in 0..3 {
+        setup.tick(RESUBMIT_MS);
+    }
+    assert_eq!(times_sent(&setup, &blob), 1, "not on the new chain");
+}
+
+// A freeze proven after a thaw the validator heard of, whose attestation
+// the host dropped, is attested again once proven again: else the
+// validator of a stopped hub would go on signing by the thaw.
+#[test]
+fn a_dropped_freeze_is_attested_again() {
+    let mut setup = Setup::of(Some(DSUSD));
+    setup.view.checked = true;
+    setup.view.issuer = hold(1, true);
+    let escrow = setup.escrow();
+    setup.xrpl.freeze(escrow, DSUSD, true).unwrap();
+    setup.close();
+    setup.connect();
+    let pause = |setup: &mut Setup| {
+        for _ in 0..ISSUER_CHECK_EVERY_MS / 4_000 + 3 {
+            setup.closes(1);
+        }
+        setup.tick(STALL_MS);
+    };
+    pause(&mut setup);
+    setup.xrpl.freeze(escrow, DSUSD, false).unwrap();
+    pause(&mut setup);
+    assert_eq!(setup.issuer_states(), [(false, false)]);
+
+    setup.taking = false;
+    setup.xrpl.freeze(escrow, DSUSD, true).unwrap();
+    pause(&mut setup);
+    assert_eq!(setup.issuer_states(), [(false, false), (true, false)]);
+    for (operation, transaction) in core::mem::take(&mut setup.untaken) {
+        setup.watcher.dropped(&operation, transaction);
+    }
+    setup.taking = true;
+    pause(&mut setup);
+    assert_eq!(
+        setup.issuer_states().last(),
+        Some(&(true, false)),
+        "attested again"
+    );
+    assert_eq!(
+        setup.issuer_states().iter().filter(|s| s.0).count(),
+        2,
+        "{:?}",
+        setup.issuer_states()
+    );
 }

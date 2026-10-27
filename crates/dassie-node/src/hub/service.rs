@@ -505,13 +505,13 @@ impl HubTask {
         if let Some(finalized) = effects.behind {
             self.fetch(finalized, shutdown);
         }
-        // Each goes once the connection has room; past the bound the
-        // oldest is dropped, and the XRPL connection, which sends again
-        // every withdrawal still open that it has, may not have it.
+        // Each goes once the connection has room; past the bound the newest
+        // is dropped. The escrow's sequences apply in order, so only those
+        // signed after it could wait on it, never one that came before.
         for blob in effects.submits {
             if self.unsent.len() >= ESCROW_QUEUE {
-                self.unsent.pop_front();
                 tracing::warn!(target: target::HUB, "the XRPL connection is not keeping up: an escrow transaction was dropped");
+                continue;
             }
             self.unsent.push_back(blob);
         }

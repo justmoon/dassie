@@ -366,6 +366,9 @@ pub struct Watcher {
     attested_escrow: Option<u32>,
     issuer_checked_ms: Option<u64>,
     attested_issuer: Option<Issuer>,
+    /// What it attested of the issuer's hold before `attested_issuer`: what
+    /// the validator last heard, should the host drop that.
+    attested_issuer_before: Option<Issuer>,
     /// Whether it said the verifier stopped.
     failed_told: bool,
     /// What the validator's ledger said last.
@@ -422,6 +425,7 @@ impl Watcher {
             attested_escrow: None,
             issuer_checked_ms: None,
             attested_issuer: None,
+            attested_issuer_before: None,
             failed_told: false,
             view: None,
             untaken: BTreeMap::new(),
@@ -543,12 +547,25 @@ impl Watcher {
         self.advance_cursor();
     }
 
-    /// The host dropped the attestation of `transaction` before the
-    /// validator took it: it waits no more. A deposit's is attested again
-    /// later, and holds the cursor until the hub recorded it; of any other,
-    /// no cursor this watcher persists passes its ledger, so a restart
-    /// reads it again.
-    pub fn dropped(&mut self, transaction: Option<[u8; 32]>) {
+    /// The host dropped `operation`, the attestation of `transaction`,
+    /// before the validator took it: it waits no more. A deposit's is
+    /// attested again later, and holds the cursor until the hub recorded
+    /// it; of any other transaction, no cursor this watcher persists passes
+    /// its ledger, so a restart reads it again. The escrow's check and the
+    /// issuer's hold are attested again once proven again: the validator
+    /// signs a stopped hub's payout set by what it heard of the hold.
+    pub fn dropped(&mut self, operation: &ValidatorOperation, transaction: Option<[u8; 32]>) {
+        match operation {
+            ValidatorOperation::AttestIssuer(issuer) if self.attested_issuer == Some(*issuer) => {
+                self.attested_issuer = self.attested_issuer_before.take();
+            }
+            ValidatorOperation::AttestEscrow { sequence }
+                if self.attested_escrow == Some(*sequence) =>
+            {
+                self.attested_escrow = None;
+            }
+            _ => {}
+        }
         let Some(hash) = transaction else {
             return;
         };
@@ -629,11 +646,12 @@ impl Watcher {
         self.prune_submits();
         if self.submits.len() >= MAX_QUEUED_SUBMITS {
             // A hub may have more withdrawals open than are kept: the one
-            // of the lowest sequence that went once already makes room,
-            // and is not sent again.
+            // of the highest sequence that went once already makes room,
+            // and is not sent again. The escrow's sequences apply in order,
+            // so only those above it could wait on it, never one below.
             let sent = (self.submits.iter().enumerate())
                 .filter(|(_, kept)| kept.sent_ms.is_some())
-                .min_by_key(|(_, kept)| kept.sequence)
+                .max_by_key(|(_, kept)| kept.sequence)
                 .map(|(index, _)| index);
             match sent {
                 Some(index) => {
@@ -1030,10 +1048,13 @@ impl Watcher {
         self.attested_escrow = None;
         self.issuer_checked_ms = None;
         self.attested_issuer = None;
+        self.attested_issuer_before = None;
         self.proven_issuer = None;
         // The old chain's deposits wait no more: their ledgers would hold
-        // the new chain's cursor.
+        // the new chain's cursor. Its withdrawals were written off: what
+        // the escrow's signers signed for it is not sent to the new one.
         self.deposits.clear();
+        self.submits.clear();
         self.persist(cursor);
         // What the server said of the old chain goes with it: the escrow's
         // history is read again on the new one.
@@ -1137,7 +1158,7 @@ impl Watcher {
             .attested_issuer
             .is_none_or(|voted| voted != proven && voted.ledger <= proven.ledger);
         if (differs || reverts) && proven.ledger > hub.ledger && forward {
-            self.attested_issuer = Some(proven);
+            self.attested_issuer_before = self.attested_issuer.replace(proven);
             self.out
                 .push_back(Out::Attest(ValidatorOperation::AttestIssuer(proven), None));
         }
