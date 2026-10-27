@@ -62,8 +62,9 @@ Secrets (master seed, node key, derived secrets, X25519 and shared secrets) are 
 ## Decisions
 
 - [peer-protocol-v1](../decisions/peer-protocol-v1.md): peer authentication by static-static X25519 between node keys.
-- [database-continuity](../decisions/database-continuity.md): an owner recovers by entering the phrase again, which gives the same node ID and accounts.
+- [database-continuity](../decisions/database-continuity.md): a v0 database is not migrated; an owner sets the node up again.
 - [secrets-at-rest](../decisions/secrets-at-rest.md): the node key stays plaintext at rest.
 - [tigerstyle](../decisions/tigerstyle.md): deterministic, bounded, no OS randomness in the core.
 - [node-and-pnpm](../decisions/node-and-pnpm.md): one `web` build of the WASM modules for browsers and Node.
 - [hub-keys-by-network](../decisions/hub-keys-by-network.md): a hub's keys name its network.
+- [phrase-format](../decisions/phrase-format.md): a phrase of 20 words that says its realm and when it was made, corrects its own errors, and keys the master seed by its realm, in place of BIP-39 (not built yet).
