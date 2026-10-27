@@ -2250,3 +2250,182 @@ fn a_hold_is_booked_to_the_peer_whose_key_signed_it() {
     assert_eq!(settled_by(&effects), [payer]);
     scheme.check_invariants();
 }
+
+/// Validator `v` says `statements` at `now_ms`, by the node's clock.
+fn from_at(hub: &Hub, account: &mut HubAccount, now_ms: u64, v: usize, statements: &[Statement]) {
+    let message = hub.says(v, statements);
+    account.on_ledger(
+        now_ms,
+        LedgerInput::From {
+            endpoint: v,
+            message: &message,
+        },
+    );
+}
+
+/// The newest final block, at `height`.
+const fn final_at(height: u64) -> Statement {
+    Statement::Final {
+        height,
+        timestamp: 1_000 + height,
+    }
+}
+
+// spec/areas/hubs.md#the-members-side, spec/decisions/settlement-methods.md:
+// once f + 1 validators each kept naming the same newest final block for as
+// long as the hub's stall, one of them honest, the hub stalled, and its
+// scheme can no longer receive. One alone may lie; a validator that names a
+// newer block starts its count again, so a hub that goes on is never judged
+// stalled.
+#[test]
+fn a_hub_whose_validators_name_one_block_for_a_stall_cannot_receive() {
+    let hub = Hub::new();
+    let (mut account, mut scheme) = synced_scheme(&hub);
+    let stall = hub.rules.terms.timers.stall;
+    let mut effects = Vec::new();
+    for v in 0..3 {
+        from_at(&hub, &mut account, 1_000, v, &[final_at(20)]);
+    }
+    scheme.on_asset(1_000, &mut account, &mut effects);
+    assert!(scheme.can_receive());
+    for v in 0..3 {
+        from_at(&hub, &mut account, 1_000 + stall - 1, v, &[final_at(20)]);
+    }
+    assert!(!account.stalled(), "not for a stall yet");
+    from_at(&hub, &mut account, 1_000 + stall, 0, &[final_at(20)]);
+    assert!(!account.stalled(), "one alone may lie");
+    from_at(&hub, &mut account, 1_000 + stall, 1, &[final_at(20)]);
+    assert!(account.stalled());
+    scheme.on_asset(1_000 + stall, &mut account, &mut effects);
+    assert!(!scheme.can_receive());
+    account.check_invariants();
+    // Silence keeps the judgment: the validators of a hub that ended may
+    // be gone.
+    account.on_timer(1_000 + 10 * stall);
+    scheme.on_asset(1_000 + 10 * stall, &mut account, &mut effects);
+    assert!(!scheme.can_receive(), "forgotten in silence");
+    // A newer block, from one of the two, undoes it.
+    from_at(&hub, &mut account, 1_000 + 10 * stall, 1, &[final_at(21)]);
+    scheme.on_asset(1_000 + 10 * stall, &mut account, &mut effects);
+    assert!(scheme.can_receive(), "judged stalled while it goes on");
+    account.check_invariants();
+}
+
+// A validator cut off alone from the others declares a stall and keeps
+// naming its last final block, and a faulty one may say the same: two of
+// four, f + 1, but the hub goes on, and the other two, f + 1, name newer
+// blocks, so its scheme still receives.
+#[test]
+fn a_hub_that_goes_on_is_not_failed_by_f_plus_one_stuck() {
+    let hub = Hub::new();
+    let (mut account, mut scheme) = synced_scheme(&hub);
+    let stall = hub.rules.terms.timers.stall;
+    let mut effects = Vec::new();
+    for v in 0..4 {
+        from_at(&hub, &mut account, 1_000, v, &[final_at(20)]);
+    }
+    for step in 1..=4 {
+        let now = 1_000 + step * stall / 2;
+        for v in 0..2 {
+            from_at(&hub, &mut account, now, v, &[final_at(20)]);
+        }
+        for v in 2..4 {
+            from_at(&hub, &mut account, now, v, &[final_at(20 + step)]);
+        }
+        scheme.on_asset(now, &mut account, &mut effects);
+        assert!(!account.stalled(), "judged stalled while it goes on");
+        assert!(scheme.can_receive());
+    }
+    // Once the two go quiet too, past the stall, the stuck two decide.
+    account.on_timer(1_000 + 4 * stall);
+    for v in 0..2 {
+        from_at(&hub, &mut account, 1_000 + 4 * stall, v, &[final_at(20)]);
+    }
+    assert!(account.stalled());
+    account.check_invariants();
+}
+
+// Being cut off from the hub judges nothing: validators the account no
+// longer hears say nothing of the hub, however long, so a scheme that only
+// lost its ledger keeps its methods (spec/areas/network.md#asking-and-answering).
+// Nor does a freeze: a frozen hub still makes blocks, and its method is
+// unavailable, not failed, until the thaw (spec/decisions/token-hubs.md).
+#[test]
+fn neither_silence_nor_a_freeze_is_a_failed_hub() {
+    let hub = Hub::new();
+    let (mut account, mut scheme) = synced_scheme(&hub);
+    let stall = hub.rules.terms.timers.stall;
+    let mut effects = Vec::new();
+    for v in 0..4 {
+        from_at(&hub, &mut account, 1_000, v, &[final_at(20)]);
+    }
+    account.on_timer(1_000 + 10 * stall);
+    scheme.on_asset(1_000 + 10 * stall, &mut account, &mut effects);
+    assert!(!account.stalled());
+    assert!(scheme.can_receive());
+
+    issuer_says(&hub, &mut account, 0..2, 21, Some(1_021));
+    assert_eq!(account.frozen(), Some(1_021));
+    let start = 1_000 + 10 * stall;
+    for step in 0..4 {
+        let now = start + step * stall / 2;
+        for v in 0..4 {
+            from_at(&hub, &mut account, now, v, &[final_at(22 + step)]);
+        }
+        scheme.on_asset(now, &mut account, &mut effects);
+        assert!(!account.stalled());
+        assert!(scheme.can_receive(), "a freeze failed the hub");
+        assert_eq!(scheme.status(), LedgerStatus::Synced);
+        assert_eq!(account.status(), LedgerStatus::Syncing, "unavailable");
+    }
+    account.check_invariants();
+}
+
+// spec/designs/settlement-hubs.md#9-shutdown: a hub shutting down takes no
+// settlement, so once an operation that touched the account failed for the
+// shutdown, the scheme can no longer receive. A hub never runs again after.
+#[test]
+fn a_hub_shutting_down_cannot_receive() {
+    let hub = Hub::new();
+    let (mut account, mut scheme) = synced_scheme(&hub);
+    let signed = SignedMemberOperation::sign(
+        &hub.rules.id(),
+        AccountNumber(9),
+        1,
+        10,
+        MemberOperation::Transfer {
+            to: AccountNumber(7),
+            amount: 5,
+        },
+        &NodeKey::from_bytes(&[9; 32]),
+    );
+    let failed = Statement::Executed {
+        height: 11,
+        timestamp: 1_011,
+        index: 0,
+        operation: Operation::Member(signed),
+        outcome: Outcome::Failed {
+            fee: 10,
+            reason: crate::ledger::Failure::ShuttingDown,
+        },
+    };
+    let mut effects = Vec::new();
+    for v in 0..3 {
+        from_at(
+            &hub,
+            &mut account,
+            1_000,
+            v,
+            &[failed.clone(), final_at(11)],
+        );
+    }
+    assert_eq!(account.cursor(), 11);
+    scheme.on_asset(1_000, &mut account, &mut effects);
+    account.told();
+    assert!(!scheme.can_receive());
+    for v in 0..3 {
+        from_at(&hub, &mut account, 2_000, v, &[final_at(12)]);
+    }
+    scheme.on_asset(2_000, &mut account, &mut effects);
+    assert!(!scheme.can_receive(), "a hub shut down runs again");
+}
