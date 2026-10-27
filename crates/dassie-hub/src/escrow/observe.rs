@@ -124,13 +124,14 @@ pub fn outcome_of(record: &TxRecord, escrow: AccountId) -> Option<(u32, bool)> {
 /// The keys of what the validators prove of the escrow's setup, at one
 /// validated ledger (spec/designs/settlement-hubs.md#2-founding-a-hub):
 /// its account root, its signer list, and for a token hub its line to the
-/// issuer.
+/// issuer and the issuer's account root.
 #[must_use]
 pub fn escrow_keys(terms: &Terms) -> Vec<[u8; 32]> {
     let escrow = AccountId(terms.escrow);
     let mut keys = alloc::vec![account_key(escrow), signer_list_key(escrow)];
     if let Asset::Token { currency, issuer } = terms.asset {
         keys.push(line_key(escrow, issuer, currency));
+        keys.push(account_key(issuer));
     }
     keys
 }
@@ -162,8 +163,9 @@ fn proven<'a>(state: &'a ProvenState, key: &[u8; 32]) -> Result<Option<&'a [u8]>
 /// setup makes it, at par on both sides, and nothing else it owns: its
 /// owner count is what its signer list and that line count, one each. What
 /// others make that names the escrow, a line to it or a check to it, is
-/// charged to them and gives no one a way in. Its next sequence, once it
-/// passes.
+/// charged to them and gives no one a way in. A token hub's issuer charges
+/// no transfer fee (spec/decisions/token-hubs.md). Its next sequence, once
+/// it passes.
 ///
 /// # Errors
 ///
@@ -195,6 +197,12 @@ pub fn check_proven_escrow(rules: &Rules, state: &ProvenState) -> Result<u32, Es
         let line =
             proven(state, &line_key(escrow, issuer, currency))?.ok_or(EscrowFault::TrustLine)?;
         check_escrow_line(terms, line)?;
+        let issuer_root = proven(state, &account_key(issuer))?.ok_or(EscrowFault::Issuer)?;
+        let issuer_root = account_root(issuer_root).map_err(|_| EscrowFault::Issuer)?;
+        let par = matches!(issuer_root.transfer_rate, 0 | TRANSFER_RATE_PAR);
+        if issuer_root.account != issuer || !par {
+            return Err(EscrowFault::Issuer);
+        }
         owned = 2;
     }
     if root.owner_count != owned {

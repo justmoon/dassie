@@ -223,6 +223,9 @@ pub enum EscrowFault {
     /// It owns other objects, or more than one page of them: for a token
     /// hub, anything but its signer list and its one line to the issuer.
     Objects,
+    /// A token hub's issuer has no account, or charges a fee on transfers
+    /// between holders: a transfer rate other than par.
+    Issuer,
 }
 
 /// The validators' check of the escrow before the first block, and after a

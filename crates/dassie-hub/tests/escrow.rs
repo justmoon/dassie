@@ -768,6 +768,28 @@ fn with_qualities(line: &[u8], qualities: &[(u8, u32)]) -> Vec<u8> {
     out
 }
 
+// spec/decisions/token-hubs.md: a hub takes only a token whose issuer
+// charges no transfer fee; the check from proofs reads the issuer's account
+// root at the same ledger, and takes the escrow once the fee is gone.
+#[test]
+fn the_check_from_proofs_refuses_an_issuer_that_charges_a_fee() {
+    let mut hub = Hub::found_with(dsusd_terms);
+    let escrow = hub.escrow();
+    let next = sequence(&mut hub.xrpl, escrow);
+    let issuer = IssuedAsset::DSUSD.issuer;
+    for (rate, checked) in [
+        (1_002_000_000, Err(EscrowFault::Issuer)),
+        (api::TRANSFER_RATE_PAR, Ok(next)),
+        (2_000_000_000, Err(EscrowFault::Issuer)),
+        (0, Ok(next)),
+    ] {
+        hub.xrpl.set_transfer_rate(issuer, rate).unwrap();
+        hub.xrpl.close();
+        let proven = proven_escrow(&mut hub.xrpl, &hub.rules.terms);
+        assert_eq!(check_proven_escrow(&hub.rules, &proven), checked, "{rate}");
+    }
+}
+
 // spec/areas/hubs.md#the-escrow: a token hub's escrow line is at par on
 // both sides. A quality on either side, which its master key could set
 // before the setup disables it, would skew what withdrawals deliver and
