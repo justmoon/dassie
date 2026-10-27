@@ -106,6 +106,10 @@ pub(super) struct Snapshot {
     pub(super) through: u64,
     /// A reduction waiting: how much, and from when.
     pub(super) reduction: Option<(Amount, Millis)>,
+    /// While the hub is frozen, the last expiry a claim on it may carry
+    /// (`HubAccount::freeze_window_end`): no packet goes over the hub until
+    /// the thaw (spec/decisions/token-hubs.md).
+    pub(super) window: Option<Millis>,
 }
 
 /// A loss a packet caused, booked at the next chance.
@@ -198,8 +202,9 @@ impl Payer {
     /// # Errors
     ///
     /// [`SchemeError::Unavailable`] without a hold, or room in it, or room
-    /// to keep the packet; [`SchemeError::InvalidData`] for a request it
-    /// has, or an expiry before the margin.
+    /// to keep the packet, or while the hub is frozen;
+    /// [`SchemeError::InvalidData`] for a request it has, or an expiry
+    /// before the margin.
     pub(super) fn commit(
         &mut self,
         request_id: u32,
@@ -207,6 +212,9 @@ impl Payer {
         margin: Millis,
     ) -> Result<Commitment, SchemeError> {
         let hold = self.hold.ok_or(SchemeError::Unavailable)?;
+        if self.snapshot.window.is_some() {
+            return Err(SchemeError::Unavailable);
+        }
         if self.requests.contains_key(&request_id) {
             return Err(SchemeError::InvalidData);
         }

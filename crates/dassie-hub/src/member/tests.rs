@@ -1437,3 +1437,224 @@ fn a_scheme_state_of_version_1_reads_with_no_unread_pays() {
     let restored = HubScheme::new(&account, 100_000_000, Some(scheme.balance()), &old).unwrap();
     assert_eq!(restored.state(), state);
 }
+
+/// What validators `who` say of the issuer's hold after the block at
+/// `height`: frozen since `since`, if any.
+fn issuer_says(
+    hub: &Hub,
+    account: &mut HubAccount,
+    who: core::ops::Range<usize>,
+    height: u64,
+    since: Option<u64>,
+) {
+    let statement = Statement::Issuer {
+        height,
+        timestamp: 1_000 + height,
+        frozen: since,
+        held: since.is_some(),
+    };
+    for v in who {
+        from(account, v, &hub.says(v, core::slice::from_ref(&statement)));
+    }
+}
+
+// spec/decisions/token-hubs.md: the account knows the hub frozen once
+// f + 1 validators say so, the newest they agree on, and its method is
+// unavailable meanwhile; its window is the one the ledger reckons.
+#[test]
+fn a_freeze_is_read_from_what_f_plus_one_sign() {
+    let hub = Hub::new();
+    let mut account = synced(&hub);
+    issuer_says(&hub, &mut account, 0..1, 6, Some(1_006));
+    assert_eq!(account.frozen(), None, "one alone may lie");
+    issuer_says(&hub, &mut account, 1..2, 6, Some(1_006));
+    assert_eq!(account.frozen(), Some(1_006));
+    assert!(account.escrow_held());
+    assert_eq!(account.status(), LedgerStatus::Syncing, "unavailable");
+    issuer_says(&hub, &mut account, 0..2, 5, None);
+    assert_eq!(account.frozen(), Some(1_006), "an older state says nothing");
+    issuer_says(&hub, &mut account, 2..4, 8, None);
+    assert_eq!(account.frozen(), None, "thawed");
+    assert_eq!(account.status(), LedgerStatus::Synced);
+    account.check_invariants();
+
+    // The window is the ledger's.
+    let mut token = crate::ledger::tests::Hub::with(|rules| {
+        rules.terms = crate::rules::tests::token_terms(rules.terms.clone());
+    });
+    token.all_validators(|_| {
+        crate::operation::ValidatorOperation::AttestIssuer(crate::operation::Issuer {
+            ledger: 5,
+            frozen: true,
+            fee: false,
+        })
+    });
+    let since = token.ledger.frozen().unwrap();
+    assert_eq!(
+        Some(account::freeze_window_end(token.ledger.terms(), since)),
+        token.ledger.freeze_window_end()
+    );
+}
+
+/// A claim on hold 2 for one commitment expiring at `expiry`.
+fn claim_expiring(expiry: crate::rules::Millis) -> MemberOperation {
+    let commitment = crate::promise::Commitment {
+        hold: crate::promise::HoldNumber(2),
+        sequence: 1,
+        amount: 5,
+        condition: [3; 32],
+        expiry,
+    };
+    let signed = crate::promise::Signed::sign(
+        commitment,
+        &Hub::new().rules.id(),
+        &NodeKey::from_bytes(&[9; 32]),
+    );
+    MemberOperation::Claim {
+        hold: crate::promise::HoldNumber(2),
+        fulfilled: alloc::vec![crate::promise::Fulfilled {
+            commitment: signed,
+            fulfillment: [4; 32],
+        }],
+    }
+}
+
+/// A synced account whose settlement `s`, a `hold-fund`, is on its way
+/// with sequence 3 when the hub freezes.
+fn frozen_with_a_settlement_on_its_way(hub: &Hub) -> (HubAccount, Name, MemberOperation) {
+    let mut account = synced(hub);
+    let settlement = Name::new("s").unwrap();
+    let fund = MemberOperation::HoldFund {
+        hold: crate::promise::HoldNumber(1),
+        amount: 1,
+    };
+    account.prepare(settlement, fund.clone()).unwrap();
+    assert!(account.execute(settlement));
+    let sent = submitted(&mut account);
+    assert_eq!(sent.len(), 4);
+    assert_eq!(sent[0].sequence, 3);
+    issuer_says(hub, &mut account, 0..2, 6, Some(1_006));
+    (account, settlement, fund)
+}
+
+// spec/decisions/token-hubs.md: a frozen hub moves nothing, so no
+// settlement or withdrawal is taken on, and a claim it would not take in
+// the freeze's window goes back to the scheme, to claim what it holds.
+#[test]
+fn a_frozen_hub_takes_on_only_what_it_takes() {
+    let hub = Hub::new();
+    let (mut account, _, fund) = frozen_with_a_settlement_on_its_way(&hub);
+    assert_eq!(
+        account.prepare(Name::new("t").unwrap(), fund),
+        Err(SchemeError::Unavailable),
+        "no settlement while frozen"
+    );
+    let release = MemberOperation::HoldRelease {
+        hold: crate::promise::HoldNumber(1),
+    };
+    assert_eq!(
+        account.submit(Purpose::Withdraw, release),
+        Err(SchemeError::Unavailable),
+        "no withdrawal while frozen"
+    );
+    let window = account.freeze_window_end().unwrap();
+    let hold = crate::promise::HoldNumber(2);
+    account
+        .submit(Purpose::Claim(hold), claim_expiring(window + 1))
+        .unwrap();
+    assert!(submitted(&mut account).is_empty());
+    account.on_timer(1);
+    assert!(!account.has(Purpose::Claim(hold)));
+    assert!(account.news().contains(&News::Dropped {
+        purpose: Purpose::Claim(hold),
+    }));
+    account.check_invariants();
+}
+
+// spec/decisions/token-hubs.md: while the hub is frozen, an operation on
+// its way waits for the thaw, and a claim the hub takes goes beside it
+// with its sequence. Whichever applies, the other can never apply after
+// it: it is signed again with the next sequence.
+#[test]
+fn a_claim_goes_beside_an_operation_that_waits_for_the_thaw() {
+    let hub = Hub::new();
+    let (mut account, settlement, fund) = frozen_with_a_settlement_on_its_way(&hub);
+    let hold = crate::promise::HoldNumber(2);
+    let claim = claim_expiring(account.freeze_window_end().unwrap());
+    account.submit(Purpose::Claim(hold), claim.clone()).unwrap();
+    let sent = submitted(&mut account);
+    assert_eq!(sent.len(), 4);
+    assert_eq!((sent[0].sequence, &sent[0].operation), (3, &claim));
+    account.check_invariants();
+    // Sent again in time; what waits is not.
+    account.on_timer(10 * account::RESUBMIT_MS);
+    let again = submitted(&mut account);
+    assert!(!again.is_empty());
+    assert!(again.iter().all(|signed| signed.operation == claim));
+    // The claim applies: the settlement can never apply with its sequence.
+    let applied = Statement::Executed {
+        height: 7,
+        timestamp: 1_007,
+        index: 0,
+        operation: Operation::Member(sent[0].clone()),
+        outcome: Outcome::Applied {
+            fee: 10,
+            detail: crate::ledger::Detail::Paid(5),
+        },
+    };
+    let final_block = Statement::Final {
+        height: 7,
+        timestamp: 1_007,
+    };
+    for v in 0..3 {
+        let answer = hub.says(v, &[applied.clone(), final_block.clone()]);
+        from(&mut account, v, &answer);
+    }
+    assert_eq!(account.cursor(), 7);
+    assert!(!account.has(Purpose::Claim(hold)));
+    assert!(
+        !account.was_sent(Purpose::Settle(settlement)),
+        "never to apply"
+    );
+    assert!(account.has(Purpose::Settle(settlement)), "but kept");
+    assert!(submitted(&mut account).is_empty(), "until the thaw");
+    // After the thaw it goes, with the next sequence.
+    issuer_says(&hub, &mut account, 0..2, 8, None);
+    let sent = submitted(&mut account);
+    assert_eq!(sent.len(), 4);
+    assert_eq!((sent[0].sequence, &sent[0].operation), (4, &fund));
+    account.check_invariants();
+}
+
+// The freeze is kept with the books, so a restart during it knows it; a
+// state of version 1 knows none.
+#[test]
+fn the_freeze_is_kept_across_a_restart() {
+    let hub = Hub::new();
+    let mut account = synced(&hub);
+    let restore = |state: &[u8]| {
+        HubAccount::new(
+            FIRST,
+            hub.rules.clone(),
+            Arc::clone(&hub.key),
+            Destination {
+                account: [5; 20],
+                tag: None,
+            },
+            Name::new(SCHEME_ID).unwrap(),
+            state,
+        )
+        .unwrap()
+    };
+    let state = account.state();
+    assert_eq!(state.first(), Some(&2));
+    assert_eq!(state.last(), Some(&0), "no issuer's hold known");
+    let mut old = state[..state.len() - 1].to_vec();
+    old[0] = 1;
+    assert_eq!(restore(&old).state(), state);
+    issuer_says(&hub, &mut account, 0..2, 6, Some(1_006));
+    let restored = restore(&account.state());
+    assert_eq!(restored.frozen(), Some(1_006));
+    assert!(restored.escrow_held());
+    assert_eq!(restored.state(), account.state());
+}
