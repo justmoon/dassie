@@ -674,7 +674,7 @@ async fn the_owner_sends_a_fixed_amount() {
     .await;
     assert_eq!((paid.incoming_amount, paid.received_amount), (None, AMOUNT));
     // Naming a ledger the route does not start on is refused.
-    let named = a.ipc().await.call(fixed("xrpl-testnet+xrp")).await;
+    let named = a.ipc().await.call(fixed("xrpl-testnet-xrp+xrp")).await;
     assert_eq!(code(named), proto::ErrorCode::InvalidArgument);
 }
 

@@ -8,8 +8,9 @@
 //! proof from the phrase, and posts them with the setup token to
 //! `/api/setup` (spec/areas/http.md#setup). So the node checks a setup from
 //! here exactly as one from a browser, and the phrase never reaches the
-//! node, only the key does. Then it waits for the engine and adds each
-//! settlement scheme it is given that is not active.
+//! node, only the key does. Then it waits for the engine, sets the config
+//! of each external asset it is given, and adds each settlement scheme it
+//! is given that is not active.
 //!
 //! Running it again changes nothing, and a node set up with another phrase
 //! is refused, untouched. Every call is bounded in time, every wait in
@@ -42,6 +43,8 @@ use crate::passphrase;
 
 /// Most `--scheme` flags.
 const MAX_SCHEMES: usize = 16;
+/// Most `--asset` flags.
+const MAX_ASSETS: usize = 8;
 /// Exit code for a node that is set up with another passphrase.
 const OTHER_NODE: u8 = 3;
 /// How long one call over the IPC socket may take.
@@ -71,12 +74,15 @@ pub struct Options {
     pub passphrase_file: PathBuf,
     /// The settlement schemes the node should have, in order.
     pub schemes: Vec<Scheme>,
+    /// The external assets' configs, set before any scheme is added.
+    pub assets: Vec<Scheme>,
 }
 
-/// A settlement scheme to add, with its config.
+/// A settlement scheme to add, or an external asset to configure, with
+/// its config.
 #[derive(Debug, PartialEq, Eq)]
 pub struct Scheme {
-    /// Its ID, for example `stub`.
+    /// Its ID, for example `stub` or `xrpl-testnet-account/0`.
     pub id: String,
     /// Its config, JSON; empty for none.
     pub config: String,
@@ -86,18 +92,17 @@ pub struct Scheme {
 pub fn args(parser: &mut lexopt::Parser) -> Result<Options, lexopt::Error> {
     let mut passphrase_file = None;
     let mut schemes: Vec<Scheme> = Vec::new();
+    let mut assets: Vec<Scheme> = Vec::new();
     while let Some(argument) = parser.next()? {
         match argument {
             Long("passphrase-file") => passphrase_file = Some(PathBuf::from(parser.value()?)),
             Long("scheme") => {
-                let scheme = scheme(&parser.value()?.string()?)?;
-                if schemes.len() == MAX_SCHEMES {
-                    return Err(format!("more than {MAX_SCHEMES} --scheme flags").into());
-                }
-                if schemes.iter().any(|known| known.id == scheme.id) {
-                    return Err(format!("--scheme {} given twice", scheme.id).into());
-                }
-                schemes.push(scheme);
+                let scheme = scheme("scheme", &parser.value()?.string()?)?;
+                add_once("scheme", &mut schemes, scheme, MAX_SCHEMES)?;
+            }
+            Long("asset") => {
+                let asset = scheme("asset", &parser.value()?.string()?)?;
+                add_once("asset", &mut assets, asset, MAX_ASSETS)?;
             }
             other => return Err(other.unexpected()),
         }
@@ -106,14 +111,34 @@ pub fn args(parser: &mut lexopt::Parser) -> Result<Options, lexopt::Error> {
     Ok(Options {
         passphrase_file,
         schemes,
+        assets,
     })
 }
 
-/// `<id>` or `<id>=<config>`: the config is everything after the first `=`.
-fn scheme(text: &str) -> Result<Scheme, lexopt::Error> {
+/// Adds what `--<flag>` names to `known`, at most `most` of them, and each
+/// once.
+fn add_once(
+    flag: &str,
+    known: &mut Vec<Scheme>,
+    new: Scheme,
+    most: usize,
+) -> Result<(), lexopt::Error> {
+    if known.len() == most {
+        return Err(format!("more than {most} --{flag} flags").into());
+    }
+    if known.iter().any(|known| known.id == new.id) {
+        return Err(format!("--{flag} {} given twice", new.id).into());
+    }
+    known.push(new);
+    Ok(())
+}
+
+/// `<id>` or `<id>=<config>`, as `--<flag>` gives it: the config is
+/// everything after the first `=`.
+fn scheme(flag: &str, text: &str) -> Result<Scheme, lexopt::Error> {
     let (id, config) = text.split_once('=').unwrap_or((text, ""));
     if id.is_empty() {
-        return Err(format!("--scheme {text:?} names no scheme").into());
+        return Err(format!("--{flag} {text:?} names no {flag}").into());
     }
     Ok(Scheme {
         id: id.to_owned(),
@@ -205,6 +230,9 @@ async fn setup(env: &Env, options: &Options) -> Result<(), Failure> {
     }
     wait_for_engine(&mut client).await?;
     println!("The node's engine is running.");
+    for asset in &options.assets {
+        set_asset_config(&mut client, asset).await?;
+    }
     for scheme in &options.schemes {
         add_scheme(&mut client, scheme, &after.active_settlement_schemes).await?;
     }
@@ -494,6 +522,34 @@ fn wait_seconds() -> u64 {
     POLL_INTERVAL.saturating_mul(MAX_POLLS).as_secs()
 }
 
+/// Sets the owner's config of the external asset `asset` names: the same
+/// config again changes nothing (spec/areas/settlement.md#external-assets).
+async fn set_asset_config(client: &mut Client, asset: &Scheme) -> Result<(), Failure> {
+    let id = &asset.id;
+    let method = Method::SetAssetConfig(proto::SetAssetConfigRequest {
+        asset: id.clone(),
+        config: asset.config.clone(),
+    });
+    match call(client, method).await {
+        Ok(response::Method::SetAssetConfig(set)) if set.in_effect => {
+            println!("Set the config of {id}.");
+            Ok(())
+        }
+        Ok(response::Method::SetAssetConfig(_)) => {
+            println!(
+                "Set the config of {id}; the node takes it at its next start, since schemes \
+                 settle through it now."
+            );
+            Ok(())
+        }
+        Ok(_) => Err(unexpected()),
+        Err(error) => Err(Failure::Failed(format!(
+            "Could not set the config of {id}: {}",
+            error.message
+        ))),
+    }
+}
+
 /// Adds `scheme` unless it is among `active`, and polls, a bounded number
 /// of times, until the node lists a ledger of it.
 async fn add_scheme(
@@ -555,7 +611,9 @@ mod tests {
             "--scheme",
             "stub",
             "--scheme",
-            r#"xrpl-testnet={"a":"b=c"}"#,
+            r#"xrpl-testnet-xrp={"a":"b=c"}"#,
+            "--asset",
+            r#"xrpl-testnet-account/0={"server":"wss://a"}"#,
         ])
         .unwrap();
         assert_eq!(options.passphrase_file, PathBuf::from("/run/phrase"));
@@ -567,7 +625,7 @@ mod tests {
                     config: String::new()
                 },
                 Scheme {
-                    id: "xrpl-testnet".into(),
+                    id: "xrpl-testnet-xrp".into(),
                     config: r#"{"a":"b=c"}"#.into()
                 },
             ]
@@ -586,8 +644,26 @@ mod tests {
             "stub=x",
         ]);
         assert!(twice.unwrap_err().contains("twice"));
+        assert_eq!(
+            options.assets,
+            [Scheme {
+                id: "xrpl-testnet-account/0".into(),
+                config: r#"{"server":"wss://a"}"#.into()
+            }]
+        );
         let unnamed = parse(&["--passphrase-file", "p", "--scheme", "={}"]);
         assert!(unnamed.unwrap_err().contains("names no scheme"));
+        let unnamed = parse(&["--passphrase-file", "p", "--asset", "={}"]);
+        assert!(unnamed.unwrap_err().contains("names no asset"));
+        let twice = parse(&[
+            "--passphrase-file",
+            "p",
+            "--asset",
+            "a/0",
+            "--asset",
+            "a/0={}",
+        ]);
+        assert!(twice.unwrap_err().contains("--asset a/0 given twice"));
         let mut many = vec!["--passphrase-file".to_owned(), "p".to_owned()];
         for n in 0..=MAX_SCHEMES {
             many.extend(["--scheme".to_owned(), format!("s{n}")]);

@@ -1,6 +1,6 @@
 //! Two schemes on the node's first XRPL testnet account, against the fake
-//! ledger, as DSUSD shares it with `xrpl-testnet`
-//! (spec/areas/settlement.md#external-assets): the `xrpl-testnet` scheme,
+//! ledger, as DSUSD shares it with `xrpl-testnet-xrp`
+//! (spec/areas/settlement.md#external-assets): the `xrpl-testnet-xrp` scheme,
 //! and a witness that books nothing and keeps the account running while
 //! the other is away. What a scheme misses while it is not on the account,
 //! it reads again once back, and books once.
@@ -24,7 +24,7 @@ use dassie_xrpl::{AccountId, UNITS_PER_DROP, Wallet, XrplScheme};
 const ENTROPY: [u8; 32] = [1; 32];
 const XRPL: Name = dassie_ledger::name!(dassie_xrpl::scheme::SCHEME_ID);
 const WITNESS: Name = dassie_ledger::name!("witness");
-/// What the `xrpl-testnet` scheme settles: 50 XRP.
+/// What the `xrpl-testnet-xrp` scheme settles: 50 XRP.
 const AMOUNT: u64 = 50_000_000 * UNITS_PER_DROP;
 /// What the owner pays out of the account: 20 XRP.
 const OWNER_AMOUNT: u64 = 20_000_000 * UNITS_PER_DROP;
@@ -33,16 +33,16 @@ const OWNER_AMOUNT: u64 = 20_000_000 * UNITS_PER_DROP;
 struct Shared {
     ledger: FakeLedger,
     account: XrplAccount,
-    /// The `xrpl-testnet` scheme, once active.
+    /// The `xrpl-testnet-xrp` scheme, once active.
     scheme: Option<XrplScheme>,
     /// Whether the books stopped it: it is told nothing more.
     stopped: bool,
     /// Where the witness reads from.
     witness: Option<(u32, u32)>,
-    /// What the books held for the `xrpl-testnet` scheme when it was last
+    /// What the books held for the `xrpl-testnet-xrp` scheme when it was last
     /// activated.
     checkpoint: u64,
-    /// What the `xrpl-testnet` scheme booked since, in order.
+    /// What the `xrpl-testnet-xrp` scheme booked since, in order.
     booked: Vec<Effect>,
     connection: u64,
     /// Whether the network loses submissions.
@@ -50,7 +50,7 @@ struct Shared {
     /// Whether the server answers no lookup of a transaction: no proof
     /// asked for without its ledger.
     drop_lookups: bool,
-    /// Whether the books refuse what the `xrpl-testnet` scheme is next told
+    /// Whether the books refuse what the `xrpl-testnet-xrp` scheme is next told
     /// of its own, which stops it.
     refuse_own: bool,
     /// What a server's answer to a proof of a transaction is changed to
@@ -90,7 +90,7 @@ impl Shared {
         self.scheme.as_ref().unwrap()
     }
 
-    /// Activates the `xrpl-testnet` scheme from what the books kept for it.
+    /// Activates the `xrpl-testnet-xrp` scheme from what the books kept for it.
     fn activate(&mut self, checkpoint: Option<u64>, state: &[u8]) {
         let node = Name::new("node").unwrap();
         let scheme = XrplScheme::new(&self.account, node, checkpoint, state).unwrap();
@@ -100,7 +100,7 @@ impl Shared {
         self.tell();
     }
 
-    /// Stops the `xrpl-testnet` scheme, as the books refusing what it said
+    /// Stops the `xrpl-testnet-xrp` scheme, as the books refusing what it said
     /// does: the account lets go of it, and the witness runs on.
     fn stop(&mut self) {
         self.stopped = true;
@@ -312,7 +312,7 @@ fn synced() -> (Shared, AccountId) {
     (shared, theirs)
 }
 
-/// The `xrpl-testnet` scheme settles, then stops while its transaction is
+/// The `xrpl-testnet-xrp` scheme settles, then stops while its transaction is
 /// on its way; what happens to it then, `meanwhile` makes. The node then
 /// restarts: the account from what the witness had it write, the scheme
 /// from what it wrote before it stopped, with its settlement still pending
@@ -339,7 +339,7 @@ fn stopped_while_settling(
 }
 
 /// The node restarts: the account from what the witness had it write, the
-/// `xrpl-testnet` scheme from `checkpoint` and `state`, with settlement
+/// `xrpl-testnet-xrp` scheme from `checkpoint` and `state`, with settlement
 /// `id` still pending in the books.
 fn restart(shared: Shared, checkpoint: u64, state: &[u8], id: Name) -> Shared {
     let kept = shared.account.state();
@@ -353,7 +353,7 @@ fn restart(shared: Shared, checkpoint: u64, state: &[u8], id: Name) -> Shared {
     restarted
 }
 
-/// The `xrpl-testnet` scheme settles, and the books refuse what it is told
+/// The `xrpl-testnet-xrp` scheme settles, and the books refuse what it is told
 /// when the ledger validates the settlement, or, with `drop_submits`, when
 /// the account gives it up: its checkpoint stays as it was, while the
 /// witness keeps the account's written. The node then restarts, as after
@@ -525,10 +525,7 @@ fn a_settlement_never_read_stays_pending_across_a_restart() {
     restarted.drop_lookups = true;
     restarted.connect();
     assert_eq!(restarted.account.unproven().history_gaps, 1);
-    let unread = |shared: &Shared| {
-        let state: serde_json::Value = serde_json::from_slice(&shared.scheme().state()).unwrap();
-        state["unread"].as_array().map_or(0, Vec::len)
-    };
+    let unread = |shared: &Shared| unread_in(&shared.scheme().state());
     assert_eq!(unread(&restarted), 1);
     let synced_books = restarted.books();
     let (state, checkpoint) = (restarted.scheme().state(), restarted.scheme().balance());
@@ -690,7 +687,7 @@ fn a_lookup_that_does_not_prove_books_nothing() {
 }
 
 // Found in review: an owner's payment the ledger validated while the
-// `xrpl-testnet` scheme was stopped, and the other scheme kept the account
+// `xrpl-testnet-xrp` scheme was stopped, and the other scheme kept the account
 // running, is kept for the scheme; after a restart the scheme reads it
 // again as the owner's payment, and its hold is posted once: never voided
 // as one whose outcome is unknown, nor read as a settlement.
@@ -722,4 +719,26 @@ fn an_owner_payment_validated_while_its_scheme_stopped_is_posted_once() {
     assert_eq!(suspense(&restarted.booked), 0, "{:?}", restarted.booked);
     assert_eq!(restarted.scheme().balance(), restarted.bookable());
     assert_eq!(restarted.books(), i128::from(restarted.bookable()));
+}
+
+/// How many of the settlements a scheme's state looks up it never read:
+/// past the version, the cursor, the count of write-offs and the peers'
+/// addresses, each looked up is its hash and whether it is unread
+/// (spec/areas/xrpl.md#state-and-restarts).
+fn unread_in(state: &[u8]) -> usize {
+    let count = |at: usize| {
+        usize::try_from(u32::from_be_bytes(state[at..at + 4].try_into().unwrap())).unwrap()
+    };
+    assert_eq!(state[0], 1, "version 1");
+    let mut at = 1 + if state[1] == 0 { 1 } else { 9 } + 8;
+    let peers = count(at);
+    at += 4;
+    for _ in 0..peers {
+        at += 1 + usize::from(state[at]) + 20;
+    }
+    let recovering = count(at);
+    at += 4;
+    (0..recovering)
+        .filter(|n| state[at + n * 33 + 32] == 0xff)
+        .count()
 }

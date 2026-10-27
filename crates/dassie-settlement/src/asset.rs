@@ -59,7 +59,11 @@ impl AssetKind {
 pub struct AssetId {
     /// What it is.
     pub kind: AssetKind,
-    /// Which of the node's of that kind: the first is 0.
+    /// Which of the node's of that kind: the first is 0. Only the first of
+    /// each kind is built; the number is kept, in every stored ID and the
+    /// owner's config of the asset, so that a further account of a kind,
+    /// which a new seed path would derive, takes an ID of its own without
+    /// renaming the first's (spec/areas/settlement.md#external-assets).
     pub index: u16,
 }
 

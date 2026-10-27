@@ -36,12 +36,12 @@ async fn wallet_addresses_and_their_keys() {
     assert_eq!(address["assetScale"], 9);
     assert_eq!(address["authServer"], format!("{origin}/gnap"));
     assert_eq!(address["resourceServer"], origin);
-    let by_ledger = body(&send(node.https, true, get(&node, "/pay/stub")).await);
-    assert_eq!(by_ledger["id"], format!("{origin}/pay/stub"));
-    let missing = send(node.https, true, get(&node, "/pay/xrpl")).await;
+    let by_ledger = body(&send(node.https, true, get(&node, "/pay/usd")).await);
+    assert_eq!(by_ledger["id"], format!("{origin}/pay/usd"));
+    let missing = send(node.https, true, get(&node, "/pay/xrp")).await;
     assert_eq!(missing.status, StatusCode::NOT_FOUND);
     assert_eq!(body(&missing)["error"]["code"], "not_found");
-    let jwks = body(&send(node.https, true, get(&node, "/pay/stub/jwks.json")).await);
+    let jwks = body(&send(node.https, true, get(&node, "/pay/usd/jwks.json")).await);
     let own = ClientKey::derive(&key).unwrap();
     assert_eq!(jwks["keys"][0]["kid"], own.kid());
     let preflight = Request::builder()
@@ -69,7 +69,7 @@ async fn a_client_creates_and_reads_incoming_payments() {
     let client = Client::keyed(7);
     let token = grant(&node, &client, incoming_access(&node)).await;
     let create = json!({
-        "walletAddress": format!("{}/pay/stub", node.origin()),
+        "walletAddress": format!("{}/pay/usd", node.origin()),
         "incomingAmount": { "value": "250000000", "assetCode": "USD", "assetScale": 9 },
         "metadata": { "description": "coffee" },
     });
@@ -149,7 +149,7 @@ async fn each_read_pays_over_a_connection_of_its_own() {
     let client = Client::keyed(7);
     let token = grant(&node, &client, incoming_access(&node)).await;
     let create = json!({
-        "walletAddress": format!("{}/pay/stub", node.origin()),
+        "walletAddress": format!("{}/pay/usd", node.origin()),
         "incomingAmount": { "value": "300", "assetCode": "USD", "assetScale": 9 },
     });
     let reply = send(
@@ -451,7 +451,7 @@ async fn clients_reach_their_own_payments_and_read_any() {
     // Stored under the wallet address's canonical URL.
     assert_eq!(
         payment["walletAddress"],
-        format!("{}/pay/stub", node.origin())
+        format!("{}/pay/usd", node.origin())
     );
     let path = path_of(&node, &payment["id"]);
     // Bob may neither complete nor list Alice's payment.
@@ -465,7 +465,7 @@ async fn clients_reach_their_own_payments_and_read_any() {
     assert_eq!(reply.status, StatusCode::FORBIDDEN, "{}", reply.text());
     let list = format!(
         "/incoming-payments?wallet-address={}",
-        dassie_payments::uri::percent_encode(&format!("{}/pay/stub", node.origin()))
+        dassie_payments::uri::percent_encode(&format!("{}/pay/usd", node.origin()))
     );
     let page = body(
         &send(

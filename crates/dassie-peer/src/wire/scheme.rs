@@ -5,7 +5,7 @@ use core::fmt;
 use dassie_oer::{Alphabet, DecodeError, DecodeErrorKind, Reader, Size, Writer, size};
 
 /// Most characters in a scheme ID. v0 allowed 128; v1 allows 64, which is
-/// what the node stores, and is plenty for `xrpl-testnet`.
+/// what the node stores, and is plenty for `xrpl-testnet-xrp`.
 pub const MAX_SCHEME_ID: usize = 64;
 
 const SIZE: Size = Size::range(2, MAX_SCHEME_ID);
@@ -87,7 +87,7 @@ mod tests {
     #[test]
     fn scheme_ids_follow_the_alphabet() {
         assert_eq!(SchemeId::parse("stub").unwrap().as_str(), "stub");
-        assert!(SchemeId::parse("xrpl-testnet").is_some());
+        assert!(SchemeId::parse("xrpl-testnet-xrp").is_some());
         assert!(SchemeId::parse("s").is_none());
         assert!(SchemeId::parse("Stub").is_none());
         assert!(SchemeId::parse("stub+usd").is_none());

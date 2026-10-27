@@ -103,7 +103,7 @@ async fn create(
         return Err(OpError::new(429, "too_many_requests", "slow down"));
     }
     let mut new = new_incoming(ledger, &authorized, body)?;
-    // As grants do: `$host` and `/pay/<slug>` are one wallet address,
+    // As grants do: `$host` and `/pay/<wallet name>` are one wallet address,
     // which `$host` stops naming when the default ledger changes.
     new.wallet_address = urls.wallet_address(ledger, false);
     node.store().prune_incoming(node.now_ms())?;

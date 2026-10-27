@@ -197,11 +197,17 @@ impl Net {
         {
             config.extend(publishers);
         }
-        add_scheme(&sponsor, "xrpl-testnet", &xrpl_config.to_string()).await;
+        support::pair::set_asset_config(
+            &sponsor,
+            support::pair::XRPL_ACCOUNT,
+            &xrpl_config.to_string(),
+        )
+        .await;
+        add_scheme(&sponsor, "xrpl-testnet-xrp", "").await;
         let address = ledgers(&sponsor)
             .await
             .into_iter()
-            .find(|l| l.id == "xrpl-testnet+xrp")
+            .find(|l| l.id == "xrpl-testnet-xrp+xrp")
             .unwrap()
             .deposit_address;
         xrpl.ledger()
@@ -209,7 +215,7 @@ impl Net {
         before_sync(&xrpl);
         until(&clock, 250, async || {
             ledgers(&sponsor).await.iter().any(|l| {
-                l.id == "xrpl-testnet+xrp" && l.connection() == proto::LedgerConnection::Synced
+                l.id == "xrpl-testnet-xrp+xrp" && l.connection() == proto::LedgerConnection::Synced
             })
         })
         .await;
@@ -577,7 +583,7 @@ async fn a_funding_too_little_for_the_escrow_is_paid_once() {
     let address = ledgers(&net.sponsor)
         .await
         .into_iter()
-        .find(|l| l.id == "xrpl-testnet+xrp")
+        .find(|l| l.id == "xrpl-testnet-xrp+xrp")
         .unwrap()
         .deposit_address;
     let sponsor = dassie_xrpl::AccountId::parse(&address).unwrap();
@@ -631,7 +637,7 @@ async fn a_cancelled_funding_is_paid_again() {
     let address = ledgers(&net.sponsor)
         .await
         .into_iter()
-        .find(|l| l.id == "xrpl-testnet+xrp")
+        .find(|l| l.id == "xrpl-testnet-xrp+xrp")
         .unwrap()
         .deposit_address;
     let sponsor = dassie_xrpl::AccountId::parse(&address).unwrap();

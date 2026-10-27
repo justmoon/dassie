@@ -239,7 +239,7 @@ pub fn token_hash(token: &str) -> [u8; 32] {
 }
 
 /// Rewrites each access item's wallet address to the canonical URL of the
-/// ledger it names, so that `$host` and `/pay/<slug>` mean the same; then
+/// ledger it names, so that `$host` and `/pay/<wallet name>` mean the same; then
 /// refuses two items that create outgoing payments from one.
 ///
 /// Refuses too an item that creates outgoing payments with a debit limit

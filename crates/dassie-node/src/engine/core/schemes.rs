@@ -67,15 +67,45 @@ pub const SCHEMES: &[SchemeInfo] = &[
 /// account kept for it loads, as for any scheme not on the account.
 pub const DISABLED: &[&str] = &[dassie_xrpl::rlusd::TESTNET_SCHEME_ID];
 
+/// Whether this build runs the stub scheme: only one with debug
+/// assertions, as dev, the end-to-end tests, the tests and the simulations
+/// are, never a release (spec/decisions/stub-in-debug-builds.md). A peer on
+/// the stub mints what it says it settled, and the stub's dollars convert
+/// at par into the dollar tokens', so a release node that ran it could be
+/// drained of them.
+pub const STUB_RUNS: bool = cfg!(debug_assertions);
+
+/// Why this build does not run scheme `id`, if it does not: a disabled
+/// scheme, such as test RLUSD, or the stub in a release build. One stored
+/// is left as it is, as a disabled one: its books stay.
+#[must_use]
+pub fn not_run(id: &str) -> Option<&'static str> {
+    not_run_in(id, STUB_RUNS)
+}
+
+/// [`not_run`], in a build that runs the stub or not.
+fn not_run_in(id: &str, stub_runs: bool) -> Option<&'static str> {
+    if DISABLED.contains(&id) {
+        Some("the scheme is disabled (spec/decisions/issued-assets.md)")
+    } else if id == "stub" && !stub_runs {
+        Some(
+            "the stub runs only in a build with debug assertions (spec/decisions/stub-in-debug-builds.md)",
+        )
+    } else {
+        None
+    }
+}
+
 /// Whether the scheme `info` is offered to the owner of a node of `realm`
-/// to add: only one of the node's realm, which is the only realm it runs
+/// to add: only one this build runs ([`not_run`]), of the node's realm, which is the only realm it runs
 /// (spec/decisions/mainnet-schemes.md), and a settlement hub's only once
 /// the node knows a hub to join without being told one, so the wallet never
 /// offers what it cannot add with nothing to fill in. One added with a
 /// config of its own is listed as any active scheme.
 #[must_use]
 pub fn offered(info: &SchemeInfo, realm: Realm) -> bool {
-    info.ledger.realm() == realm
+    not_run(info.id).is_none()
+        && info.ledger.realm() == realm
         && (info.id != dassie_hub::member::SCHEME_ID
             || dassie_hub::member::DEFAULT_TESTNET_HUB.is_some())
 }
@@ -85,7 +115,7 @@ pub fn offered(info: &SchemeInfo, realm: Realm) -> bool {
 /// their config names, which are the account's. Those of a network settle
 /// through the node's first XRPL account on it, so one address holds the
 /// XRP of one and the gas of the others (spec/areas/xrpl.md#the-account):
-/// the testnet's, or mainnet's for `xrpl` and `xrpl-rlusd`. Disabled test
+/// the testnet's, or mainnet's for `xrpl-xrp` and `xrpl-rlusd`. Disabled test
 /// RLUSD's is the testnet's.
 fn asset_of(id: &str) -> Option<AssetId> {
     #[cfg(test)]
@@ -188,23 +218,36 @@ pub(super) fn own_xrpl_account(key: &NodeKey) -> Result<dassie_xrpl::AccountId, 
     Ok(dassie_xrpl::Wallet::from_entropy(entropy.as_bytes()).account())
 }
 
-/// The config `asset` is made with, from that of a scheme on it: for an
-/// XRPL account, what the scheme's config says of the account, without
-/// whether the node peers on the scheme, which is the scheme's alone, and
-/// written one way, so that schemes on the account that say the same of it
-/// share it (spec/areas/xrpl.md#owner-books); for any other asset, all of
-/// it.
+/// Whether `asset` is an XRPL account, whose config is its own, set by
+/// the owner apart from any scheme's (spec/areas/settlement.md#external-assets).
+const fn configured_alone(asset: AssetId) -> bool {
+    matches!(
+        asset.kind,
+        AssetKind::XrplTestnetAccount | AssetKind::XrplAccount
+    )
+}
+
+/// The owner's config of `asset`, checked as the asset reads it, and
+/// written one way: empty for its network's defaults, otherwise its JSON
+/// with its keys in order and no spaces, so that two that say the same are
+/// the same. Only the first XRPL account of each network is built.
 ///
 /// # Errors
 ///
-/// If an XRPL scheme's config is no JSON object.
-fn asset_config(asset: AssetId, config: &str) -> Result<String, SchemeError> {
-    match asset.kind {
-        AssetKind::XrplTestnetAccount | AssetKind::XrplAccount => {
-            Ok(dassie_xrpl::scheme::SchemeConfig::parse(config)?.account)
-        }
-        _ => Ok(config.to_string()),
+/// [`EngineError::Invalid`] for another asset, or a config it refuses.
+fn checked_asset_config(asset: AssetId, config: &str) -> Result<String, EngineError> {
+    let network = dassie_xrpl::network::Network::of(asset.kind)
+        .filter(|_| asset.index == 0)
+        .ok_or_else(|| EngineError::Invalid("no external asset the owner configures".into()))?;
+    let invalid = |error: SchemeError| EngineError::Invalid(error.to_string());
+    let config = config.trim();
+    if config.is_empty() {
+        return Ok(String::new());
     }
+    dassie_xrpl::account::Config::parse_on(config, network).map_err(invalid)?;
+    let value: serde_json::Value =
+        serde_json::from_str(config).map_err(|_| invalid(SchemeError::InvalidConfig))?;
+    Ok(value.to_string())
 }
 
 /// The schemes that may settle through `asset`, disabled ones included.
@@ -427,6 +470,12 @@ pub struct AssetView {
     pub faucet: bool,
     /// What it could not prove of its ledger since the node started.
     pub unproven: Unproven,
+    /// The config it runs with: for an XRPL account, the owner's, empty
+    /// for its network's defaults.
+    pub config: String,
+    /// Whether the owner set another config since it was made, which it
+    /// takes at the node's next start.
+    pub config_waits: bool,
 }
 
 /// What comes for an asset from its connection or its faucet.
@@ -494,7 +543,8 @@ impl Core {
             .map_err(invalid)?;
             return Ok((scheme, None));
         };
-        let asset_config = asset_config(asset, config).map_err(invalid)?;
+        let alone = configured_alone(asset);
+        let asset_config = self.config_for(asset, config)?;
         let new = !self.assets.contains_key(&asset);
         if new {
             let state = self
@@ -522,7 +572,9 @@ impl Core {
             );
         }
         let made = match self.assets.get(&asset) {
-            Some(active) if active.config == asset_config => create(
+            // An XRPL account runs with the config it was made with until
+            // the next start, whatever the owner set since.
+            Some(active) if alone || active.config == asset_config => create(
                 id.as_str(),
                 config,
                 checkpoint,
@@ -533,7 +585,7 @@ impl Core {
             )
             .map_err(invalid),
             _ => Err(EngineError::Precondition(
-                "the account is in use with another server or faucet".into(),
+                "the account is in use with another config".into(),
             )),
         };
         match made {
@@ -543,6 +595,69 @@ impl Core {
                 Err(error)
             }
         }
+    }
+
+    /// The config `asset` is made with, for a scheme of config `config`: an
+    /// XRPL account's is its own, the owner's; a hub account's is its
+    /// scheme's, the hub's rules.
+    ///
+    /// # Errors
+    ///
+    /// [`EngineError::Invalid`] for an XRPL scheme whose config names the
+    /// account's server, faucet or publishers, which are the account's.
+    fn config_for(&self, asset: AssetId, config: &str) -> Result<String, EngineError> {
+        if !configured_alone(asset) {
+            return Ok(config.to_string());
+        }
+        if dassie_xrpl::scheme::SchemeConfig::parse(config).is_err()
+            && dassie_xrpl::scheme::SchemeConfig::names_the_account(config)
+        {
+            return Err(EngineError::Invalid(
+                "the account's server, faucet and publishers are its own config: \
+                 set them with SetAssetConfig"
+                    .into(),
+            ));
+        }
+        Ok(self.asset_configs.get(&asset).cloned().unwrap_or_default())
+    }
+
+    /// Sets the owner's config of external asset `id`: for an XRPL account,
+    /// its server, its faucet and its validator list publishers
+    /// (spec/areas/settlement.md#external-assets). Empty for its network's
+    /// defaults. Kept with the books; an asset made after takes it, and one
+    /// active now, with schemes settling through it, at the node's next
+    /// start. Returns whether it is in effect now.
+    ///
+    /// # Errors
+    ///
+    /// [`EngineError::Invalid`] for an unknown asset, one the owner does not
+    /// configure, or a config it refuses; [`EngineError::Precondition`] for
+    /// an account of the other realm.
+    pub fn set_asset_config(&mut self, id: &str, config: &str) -> Result<bool, EngineError> {
+        let asset = AssetId::parse(id)
+            .ok_or_else(|| EngineError::Invalid("unknown external asset".into()))?;
+        let config = checked_asset_config(asset, config)?;
+        let realm = dassie_xrpl::network::Network::of(asset.kind).map(|network| network.realm);
+        if realm != Some(super::ledger_realm(self.realm)) {
+            return Err(EngineError::Precondition(
+                "the account is of another realm than the node's".into(),
+            ));
+        }
+        let stored = self.asset_configs.get(&asset).cloned().unwrap_or_default();
+        if stored != config {
+            self.batch
+                .asset_configs
+                .push((asset.to_string(), config.clone()));
+            if config.is_empty() {
+                self.asset_configs.remove(&asset);
+            } else {
+                self.asset_configs.insert(asset, config.clone());
+            }
+        }
+        Ok(self
+            .assets
+            .get(&asset)
+            .is_none_or(|active| active.config == config))
     }
 
     /// Lets go of `asset` once no scheme settles through it: its connection
@@ -945,6 +1060,9 @@ impl Core {
                     .collect(),
                 faucet: active.asset.has_faucet(),
                 unproven: active.asset.unproven(),
+                config: active.config.clone(),
+                config_waits: configured_alone(*id)
+                    && self.asset_configs.get(id).map_or("", String::as_str) != active.config,
             })
             .collect()
     }
@@ -1071,7 +1189,7 @@ mod tests {
 
     // spec/decisions/mainnet-schemes.md: each XRPL scheme settles through
     // the first account on its own network, whose keys are at that
-    // network's seed path, mainnet's the original's; only `xrpl` and
+    // network's seed path, mainnet's the original's; only `xrpl-xrp` and
     // `xrpl-rlusd`, the live realm's, settle through mainnet's.
     #[test]
     fn each_xrpl_scheme_settles_through_its_networks_account() {
@@ -1117,7 +1235,7 @@ mod tests {
     #[test]
     fn what_an_asset_could_not_prove_is_warned_of_once_as_it_grows() {
         let asset = dassie_xrpl::account::FIRST;
-        let schemes = [Name::new("xrpl-testnet").unwrap()];
+        let schemes = [Name::new("xrpl-testnet-xrp").unwrap()];
         let counts = |history_gaps, settlements| Unproven {
             history_gaps,
             settlements,
@@ -1203,6 +1321,22 @@ mod tests {
         let testnet = xrpl(dassie_xrpl::scheme::SCHEME_ID);
         assert!(offered(mainnet, Realm::Live) && !offered(mainnet, Realm::Test));
         assert!(offered(testnet, Realm::Test) && !offered(testnet, Realm::Live));
+    }
+
+    // spec/decisions/stub-in-debug-builds.md: a build with debug
+    // assertions, as every test is, runs the stub; a release build neither
+    // offers nor runs it, and runs every other scheme as before.
+    #[test]
+    fn only_a_build_with_debug_assertions_runs_the_stub() {
+        // Tests are built with debug assertions.
+        assert_eq!(not_run("stub"), None);
+        assert!(not_run_in("stub", false).is_some_and(|why| why.contains("debug assertions")));
+        assert_eq!(not_run_in("stub", true), None);
+        for info in SCHEMES.iter().filter(|info| info.id != "stub") {
+            assert_eq!(not_run_in(info.id, false), None, "{}", info.id);
+        }
+        let disabled = dassie_xrpl::rlusd::TESTNET_SCHEME_ID;
+        assert!(not_run_in(disabled, true).is_some_and(|why| why.contains("disabled")));
     }
 
     // spec/decisions/issued-assets.md: test RLUSD is neither offered nor

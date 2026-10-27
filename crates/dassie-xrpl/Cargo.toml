@@ -17,6 +17,9 @@ fake = []
 
 [dependencies]
 dassie-ledger = { path = "../dassie-ledger" }
+# What the account and its schemes keep is canonical OER, as a hub
+# member's state is (spec/areas/xrpl.md#state-and-restarts).
+dassie-oer = { path = "../dassie-oer", default-features = false, features = ["alloc"] }
 dassie-settlement = { path = "../dassie-settlement" }
 # Ed25519, as the original's ed25519 wallets sign (`sEd…` seeds).
 ed25519-dalek = { version = "3.0", default-features = false, features = ["fast", "zeroize"] }

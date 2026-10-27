@@ -7,7 +7,7 @@
 - A settlement scheme's ID is its ledger's slug, and its ledger is `<scheme>+<asset>` ([Settlement](../areas/settlement.md#schemes-and-ledgers)). A node advertises and peers by scheme ID, so two nodes agree on what a hub scheme settles in only by its name.
 - There is a hub scheme for each asset and underlying ledger ([the design](../designs/settlement-hubs.md#13-how-it-fits-the-node)). Hubs are to hold XRP and dollar tokens, on the XRP Ledger's testnet and mainnet ([token-hubs](token-hubs.md)).
 - XRP and RLUSD exist on several ledgers, not only the XRP Ledger. A name that gives the asset and the network but not the ledger, as `hub-xrp-testnet` does, says nothing about which ledger the escrow is on.
-- The schemes on the XRP Ledger are named for it already: `xrpl-testnet`, `xrpl-testnet-dsusd`, `xrpl`, `xrpl-rlusd`.
+- The schemes on the XRP Ledger are named for it, its network and their asset: `xrpl-testnet-xrp`, `xrpl-testnet-dsusd`, `xrpl-xrp`, `xrpl-rlusd` ([scheme-names](scheme-names.md)).
 - The XRP hub scheme runs on the testnet only, with one hub, whose validators the project runs.
 
 ## Decision
@@ -16,7 +16,7 @@
   - `hub-xrpl-testnet-xrp` and `hub-xrpl-testnet-dsusd` on the XRP Ledger testnet;
   - `hub-xrpl-xrp` and `hub-xrpl-rlusd` on mainnet.
 - **Its ledger is `<scheme>+<asset>`,** as every scheme's: `hub-xrpl-testnet-xrp+xrp`, `hub-xrpl-testnet-dsusd+usd`, `hub-xrpl-xrp+xrp`, `hub-xrpl-rlusd+usd`. A dollar token books as `USD` ([issued-assets](issued-assets.md)).
-- **The asset is always named,** even for XRP, whose direct schemes leave it out, so the hubs of one ledger read alike.
+- **The asset is always named,** even for XRP, so the hubs of one ledger read alike: a hub scheme's ID is `hub-` before the ID of the owner's book of its asset ([scheme-names](scheme-names.md)).
 - **`hub-xrp-testnet` becomes `hub-xrpl-testnet-xrp`,** with its ledger, by a migration of the database.
 
 ## Accepted
@@ -27,5 +27,4 @@
 ## Rejected
 
 - *Keeping `hub-xrp-testnet`, and naming the ledger only for new schemes:* one scheme would read differently from the rest, and its name would stay ambiguous.
-- *The underlying scheme's ID with `hub-` before it* (`hub-xrpl-testnet` for XRP): the XRP scheme's name leaves its asset out, so the XRP hub's name would read as the ledger's only hub.
 - *The network in the hub's configuration, with one name for both:* peers would tell networks apart from each other's configs, as [mainnet-schemes](mainnet-schemes.md) rejects for the direct schemes.

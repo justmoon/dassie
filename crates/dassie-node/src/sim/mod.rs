@@ -37,7 +37,7 @@
 //! against a fake ledger in the same process (M7b): its connections lag,
 //! lose requests and drop, and the books must still match every node's
 //! account, less its reserve, with no XRP made or lost. A run in the live
-//! realm settles over mainnet's schemes, `xrpl` and `xrpl-rlusd`, against
+//! realm settles over mainnet's schemes, `xrpl-xrp` and `xrpl-rlusd`, against
 //! the fake ledger's mainnet, which has no faucet: each node's owner
 //! deposits (spec/decisions/mainnet-schemes.md).
 //!
@@ -168,7 +168,7 @@ pub enum Settling {
     StubHub(usize),
     /// The XRP Ledger testnet scheme, against the fake ledger.
     Xrpl,
-    /// The XRP Ledger mainnet scheme, `xrpl`, in the live realm, against
+    /// The XRP Ledger mainnet scheme, `xrpl-xrp`, in the live realm, against
     /// the fake ledger's mainnet.
     XrplLive,
     /// Node 0 on the stub, 2 on the XRP Ledger, 1 and 3 on both (M7c).
@@ -204,11 +204,11 @@ pub const DSUSD: LedgerId = LedgerId::XrplTestnetDsusdUsd;
 /// XRP in a settlement hub on the XRP Ledger testnet.
 pub const HUB: LedgerId = LedgerId::HubXrplTestnetXrp;
 
-/// The ledger's config of both XRPL schemes: the same, since they settle
-/// through one account.
+/// The config of the testnet's XRPL account, which its schemes settle
+/// through (spec/areas/settlement.md#external-assets).
 const XRPL_CONFIG: &str =
     r#"{"server":"ws://ledger.test","faucet":"https://faucet.test/accounts"}"#;
-/// The config of mainnet's scheme: mainnet has no faucet.
+/// The config of mainnet's account: mainnet has no faucet.
 const XRPL_LIVE_CONFIG: &str = r#"{"server":"ws://ledger.test"}"#;
 /// The secret the fake ledger's validators sign under, and the nodes check
 /// their validations by: a keyed hash, much cheaper than signatures, and as
@@ -315,27 +315,40 @@ impl Settling {
     /// The scheme of `ledger`, and its configuration.
     pub const fn scheme(ledger: LedgerId) -> (&'static str, &'static str) {
         match ledger {
-            LedgerId::XrplTestnetXrp => ("xrpl-testnet", XRPL_CONFIG),
-            LedgerId::XrplXrp => ("xrpl", XRPL_LIVE_CONFIG),
-            LedgerId::XrplRlusdUsd => ("xrpl-rlusd", XRPL_LIVE_CONFIG),
-            LedgerId::XrplTestnetDsusdUsd => ("xrpl-testnet-dsusd", XRPL_CONFIG),
+            LedgerId::XrplTestnetXrp => ("xrpl-testnet-xrp", ""),
+            LedgerId::XrplXrp => ("xrpl-xrp", ""),
+            LedgerId::XrplRlusdUsd => ("xrpl-rlusd", ""),
+            LedgerId::XrplTestnetDsusdUsd => ("xrpl-testnet-dsusd", ""),
             LedgerId::HubXrplTestnetXrp => (dassie_hub::member::SCHEME_ID, ""),
             _ => ("stub", ""),
         }
     }
 
     /// The configuration its nodes give the scheme of `ledger`: the stub
-    /// with commitments in a run over it; an XRPL scheme trusting the fake
-    /// ledger's validators.
+    /// with commitments in a run over it, or a hub's rules.
     pub fn config(self, ledger: LedgerId) -> String {
         match self {
             Self::StubHub(limit) if ledger == USD => format!(r#"{{"commitments":{limit}}}"#),
             Self::Hub(validators) if ledger == HUB => hub::config(validators),
-            _ if self.on_xrpl() && Self::scheme(ledger).0 != "stub" => {
-                dassie_xrpl::fake::with_publishers(Self::scheme(ledger).1, self.network())
-            }
             _ => Self::scheme(ledger).1.into(),
         }
+    }
+
+    /// The XRPL account its nodes' XRPL schemes settle through, if any, and
+    /// its config: the fake ledger's server and faucet, trusting its
+    /// validators.
+    pub fn account_config(self) -> Option<(String, String)> {
+        let network = self.network();
+        let config = if network.faucet.is_some() {
+            XRPL_CONFIG
+        } else {
+            XRPL_LIVE_CONFIG
+        };
+        let uses = self.on_xrpl() || matches!(self, Self::Hub(_));
+        uses.then(|| {
+            let config = dassie_xrpl::fake::with_publishers(config, network);
+            (network.first().to_string(), config)
+        })
     }
 }
 
@@ -1014,12 +1027,17 @@ impl Sim {
         }
         for index in 0..count {
             sim.start(index);
+            if let Some((asset, config)) = settling.account_config() {
+                sim.step(index, |core| {
+                    core.set_asset_config(&asset, &config).unwrap();
+                });
+            }
             // A member of a hub funds its account there from its XRP Ledger
             // testnet account.
             if matches!(settling, Settling::Hub(_)) {
                 let config = settling.config(XRP);
                 sim.step(index, |core| {
-                    core.add_scheme("xrpl-testnet", config).unwrap();
+                    core.add_scheme("xrpl-testnet-xrp", config).unwrap();
                 });
             }
             for &ledger in settling.ledgers(index) {

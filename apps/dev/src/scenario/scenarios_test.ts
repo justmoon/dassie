@@ -114,7 +114,7 @@ test("a pool is priced at the dev rates, exactly", () => {
 // against the fake ledger's mainnet, and a live scenario's nodes start from
 // scratch each run, since mainnet never resets.
 test("a live scenario runs mainnet's schemes on the fake ledger's mainnet only", () => {
-  const mainnet = ["xrpl", "xrpl-rlusd"];
+  const mainnet = ["xrpl-xrp", "xrpl-rlusd"];
   const ids = SCENARIOS.filter(live).map((def) => def.id);
   assertEquals(ids, ["xrpl-live-settlement", "rlusd-live-settlement"]);
   for (const def of SCENARIOS) {

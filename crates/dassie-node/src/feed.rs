@@ -773,7 +773,7 @@ mod tests {
         feed.check().unwrap();
         assert_eq!(feed.fee_ppm, 1_000);
         let ids: Vec<&str> = feed.ledgers.iter().map(|ledger| ledger.id).collect();
-        assert_eq!(ids, ["stub+usd", "xrpl-testnet+xrp"]);
+        assert_eq!(ids, ["stub+usd", "xrpl-testnet-xrp+xrp"]);
         assert!(
             feed.ledgers
                 .iter()
@@ -845,8 +845,8 @@ mod tests {
         let table = table(10_000_000_000, 0, NOW);
         assert!(table.price(XRP, USD).is_some() && table.price(USD, XRP).is_none());
         let feed = Content::of(&table, MAX_PACKET, NOW).feed(&key(), NOW, NOW + 1);
-        assert_eq!(feed.rate("stub+usd", "xrpl-testnet+xrp"), None);
-        assert!(feed.rate("xrpl-testnet+xrp", "stub+usd").is_some());
+        assert_eq!(feed.rate("stub+usd", "xrpl-testnet-xrp+xrp"), None);
+        assert!(feed.rate("xrpl-testnet-xrp+xrp", "stub+usd").is_some());
     }
 
     // A feed never outlives the rates it says: it ends when they age out,

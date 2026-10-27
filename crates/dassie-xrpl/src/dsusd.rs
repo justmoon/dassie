@@ -21,7 +21,7 @@ pub const SCHEME_ID: &str = "xrpl-testnet-dsusd";
 /// Payment is never read as a settlement of another XRPL scheme. A
 /// contract between peers, as the other XRPL schemes' are
 /// (spec/areas/xrpl.md#the-payment-it-signs).
-pub const MEMO_TYPE: &[u8] = b"https://dassie.land/settlement/dsusd-testnet/v1";
+pub const MEMO_TYPE: &[u8] = b"https://dassie.land/settlement/xrpl-testnet-dsusd/v1";
 /// DSUSD's issuer on the XRPL testnet, `rURgPoYNN7tGqBzGXFeCLmKYgpSjYgJP6M`.
 pub const ISSUER: AccountId = AccountId([
     0x7D, 0x54, 0x40, 0x1D, 0x33, 0xC3, 0xA8, 0xED, 0x1C, 0x9D, 0x61, 0xE2, 0x3D, 0x5D, 0x51, 0xA7,
@@ -86,7 +86,9 @@ mod tests {
     // ledger of its own, so a Payment is never taken for a settlement of
     // another, nor test money booked with real; each books on a ledger of
     // its network's realm whose slug is its ID; and no two settle in one
-    // asset on one network, nor two tokens on one issuer's line.
+    // asset on one network, nor two tokens on one issuer's line. Each ID
+    // names the ledger, the network but mainnet, and the asset, and its
+    // memo type is that ID's (spec/decisions/scheme-names.md).
     #[test]
     fn no_two_xrpl_schemes_share_a_memo_type_an_issuer_or_a_ledger() {
         use crate::network::Network;
@@ -127,6 +129,14 @@ mod tests {
             assert_eq!(scheme.ledger.realm(), scheme.network.realm, "{id}");
             let slug = scheme.ledger.as_str().split('+').next();
             assert_eq!(slug, Some(id), "the ledger's slug is the scheme's");
+            let network = match scheme.network.realm {
+                dassie_ledger::Realm::Test => "testnet-",
+                dassie_ledger::Realm::Live => "",
+            };
+            let asset = id.rsplit('-').next().unwrap_or_default();
+            assert_eq!(id, alloc::format!("xrpl-{network}{asset}"), "the grammar");
+            let memo = alloc::format!("https://dassie.land/settlement/{id}/v1");
+            assert_eq!(scheme.memo_type, memo.as_bytes(), "{id}");
             assert_ne!(scheme.memo_type, OWNER_MEMO_TYPE, "{id}");
             if scheme.line.is_some() {
                 assert_eq!(scheme.ledger.asset().code, "USD", "{id}");

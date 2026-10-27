@@ -32,13 +32,13 @@ On NixOS, each release publishes a flake instead, `https://get.dassie.land/<vers
 
 Once set up, the wallet asks you for a first ledger:
 
-- **Stub** settles nothing, but gives you 100 test USD to play with.
-- **XRP Ledger Testnet** settles in test XRP. The testnet faucet funds the node's account. Over RPC, it is `addSettlementScheme` with `xrpl-testnet`, and an optional JSON config naming another `server` or `faucet`.
+- **Stub**, offered only by development builds, settles nothing, but gives you 100 test USD to play with.
+- **XRP Ledger Testnet** settles in test XRP. The testnet faucet funds the node's account. Over RPC, it is `addSettlementScheme` with `xrpl-testnet-xrp`; the account's `server` and `faucet` are its own config, `setAssetConfig` on `xrpl-testnet-account/0` (or `dassie setup --asset`).
 - **DSUSD on the XRP Ledger Testnet**, `xrpl-testnet-dsusd`, settles in DSUSD, Dassie's own testnet dollar, from the same account, which pays its fees in XRP; you buy DSUSD with test XRP on the testnet's XRP/DSUSD pool. It stands in on the testnet for Ripple's RLUSD, whose testnet scheme, `xrpl-testnet-rlusd`, is disabled: a node that ran it starts without it, and its test RLUSD stays on its line.
 
 From there, the wallet sends and receives payments, shows their status and your activity, and manages everything below.
 
-**Open Payments.** Each ledger has a wallet address at `https://<your host>/pay/<ledger>`, for example `/pay/stub`, and `$<your host>` names the default one. Other wallets and apps pay into it, and with a grant you approve in the wallet, they may also pay out of it, up to the limits you agreed to. The wallet's Send takes a payment pointer or a payment request, and its grants page lists who may do what.
+**Open Payments.** Each ledger has a wallet address at `https://<your host>/pay/<ledger>`, for example `/pay/xrp`, and `$<your host>` names the default one. Other wallets and apps pay into it, and with a grant you approve in the wallet, they may also pay out of it, up to the limits you agreed to. The wallet's Send takes a payment pointer or a payment request, and its grants page lists who may do what.
 
 A node without a hostname answers Open Payments at `https://<label>.dassiepay.net` instead, through the front door there, which reaches it over a connection the node keeps to it while it has no hostname. `DASSIE_RELAY` names another relay, as the entry its front door logs, or, set empty, none ([default-relay](spec/decisions/default-relay.md)).
 
@@ -46,7 +46,7 @@ A node without a hostname answers Open Payments at `https://<label>.dassiepay.ne
 
 **Exchange rates.** When your ledgers hold different currencies, the node converts between them at rates it fetches from Coinbase, Kraken, Bitstamp and the European Central Bank, taking the median of the three that cover each currency. You can change the sources and the currency the wallet shows totals in, in the wallet's settings or with `setRateSources` and `setDisplayCurrency`.
 
-**Peers.** Nodes find each other through bootstrap nodes: by default the testnet's, `boot1`–`boot4.dassie.xyz`. A node needs a hostname to take part; it then registers with them by itself, and peers with nodes that share one of its settlement schemes. The bootstrap nodes run `xrpl-testnet` and `xrpl-testnet-dsusd`.
+**Peers.** Nodes find each other through bootstrap nodes: by default the testnet's, `boot1`–`boot4.dassie.xyz`. A node needs a hostname to take part; it then registers with them by itself, and peers with nodes that share one of its settlement schemes. The bootstrap nodes run `xrpl-testnet-xrp` and `xrpl-testnet-dsusd`.
 
 `DASSIE_BOOTSTRAP_NODES` replaces the list, as JSON: `[{"id": "d…", "url": "https://host:port", "publicKey": "<base64url>"}]`, or `[]` to run alone. Under systemd, set it in a drop-in, then `sudo systemctl daemon-reload && sudo systemctl restart dassie`; `dassie update` leaves drop-ins alone. Version 0.1.1 and earlier have no default list, so they join the testnet with this one:
 

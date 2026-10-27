@@ -131,6 +131,86 @@ fn database_at(dir: &Path, version: usize) {
     schema::migrate_until(&mut connection, version).unwrap();
 }
 
+// spec/areas/settlement.md#external-assets: migration 45 gives each XRPL
+// account the config its schemes named of it, the first of them by ID, and
+// leaves the schemes whether they peer and nothing else.
+#[test]
+fn migration_45_gives_each_account_its_own_config() {
+    let temp = tempfile::tempdir().unwrap();
+    database_at(temp.path(), 44);
+    let connection = Connection::open(temp.path().join(DATABASE_FILE)).unwrap();
+    let schemes = [
+        ("stub", r#"{"trust":"unlimited"}"#),
+        (
+            "xrpl-testnet",
+            r#"{"server":"ws://a","peers":false,"faucet":null}"#,
+        ),
+        ("xrpl-testnet-dsusd", r#"{"server":"ws://b"}"#),
+        ("xrpl", r#"{"peers": true}"#),
+        ("xrpl-rlusd", ""),
+    ];
+    for (id, config) in schemes {
+        connection
+            .execute(
+                "INSERT INTO settlement_schemes (id, config, activated_at_ms) VALUES (?1, ?2, 7)",
+                [id, config],
+            )
+            .unwrap();
+    }
+    drop(connection);
+    let store = Store::open(temp.path()).unwrap();
+    assert_eq!(
+        store.asset_configs().unwrap(),
+        [(
+            "xrpl-testnet-account/0".to_string(),
+            r#"{"server":"ws://a","faucet":null}"#.to_string()
+        )]
+    );
+    let configs: Vec<(String, String)> = store
+        .settlement_schemes()
+        .unwrap()
+        .into_iter()
+        .map(|(id, config)| (id.as_str().to_string(), config))
+        .collect();
+    // Named as migration 46 names the XRP schemes.
+    let expected = [
+        ("stub", r#"{"trust":"unlimited"}"#),
+        ("xrpl-rlusd", ""),
+        ("xrpl-testnet-dsusd", ""),
+        ("xrpl-testnet-xrp", r#"{"peers":false}"#),
+        ("xrpl-xrp", ""),
+    ];
+    assert_eq!(
+        configs,
+        expected.map(|(id, config)| (id.to_string(), config.to_string()))
+    );
+}
+
+// Migration 45 takes nothing from a disabled scheme: test RLUSD's server,
+// which the node never read since it was disabled, does not become the
+// account's, so the schemes that run keep the default server.
+#[test]
+fn migration_45_takes_no_config_from_a_disabled_scheme() {
+    let temp = tempfile::tempdir().unwrap();
+    database_at(temp.path(), 44);
+    let connection = Connection::open(temp.path().join(DATABASE_FILE)).unwrap();
+    let schemes = [
+        ("xrpl-testnet", ""),
+        ("xrpl-testnet-rlusd", r#"{"server":"ws://old"}"#),
+    ];
+    for (id, config) in schemes {
+        connection
+            .execute(
+                "INSERT INTO settlement_schemes (id, config, activated_at_ms) VALUES (?1, ?2, 7)",
+                [id, config],
+            )
+            .unwrap();
+    }
+    drop(connection);
+    let store = Store::open(temp.path()).unwrap();
+    assert!(store.asset_configs().unwrap().is_empty());
+}
+
 // spec/decisions/release-integrity.md: a rollback needs the database as the
 // version before left it.
 #[test]

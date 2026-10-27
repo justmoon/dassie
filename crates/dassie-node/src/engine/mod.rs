@@ -201,6 +201,17 @@ impl Engine {
         self.call(move |core| core.stub_deposit(amount)).await
     }
 
+    /// Sets the owner's config of an external asset. Whether it is in
+    /// effect now, rather than at the next start.
+    pub async fn set_asset_config(
+        &self,
+        asset: String,
+        config: String,
+    ) -> Result<bool, EngineError> {
+        self.call(move |core| core.set_asset_config(&asset, &config))
+            .await
+    }
+
     /// Asks the faucet of a scheme's test ledger for money.
     pub async fn ask_faucet(&self, scheme: String) -> Result<LedgerView, EngineError> {
         self.call(move |core| core.ask_faucet(&scheme)).await

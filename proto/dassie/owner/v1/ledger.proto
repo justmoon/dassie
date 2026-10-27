@@ -164,7 +164,7 @@ message ExternalAsset {
   // keeps it from going on, such as a validator list it has none of.
   string connection_problem = 5;
   // The settlement schemes that settle through it, for example
-  // "xrpl-testnet" and "xrpl-testnet-dsusd".
+  // "xrpl-testnet-xrp" and "xrpl-testnet-dsusd".
   repeated string settlement_schemes = 6;
   // Whether the node can ask a faucet for test money on it: AskFaucet
   // with any of its schemes.
@@ -179,6 +179,12 @@ message ExternalAsset {
   // else signed for the account: each stays pending, for the owner, and
   // is logged as a warning.
   uint64 unproven_settlements = 9;
+  // The config it runs with (SetAssetConfig): empty for its network's
+  // defaults.
+  string config = 10;
+  // The owner set another config since it was made, which it takes at the
+  // node's next start.
+  bool config_waits = 11;
 }
 
 // What an external asset holds of one asset, as its ledger last said.
@@ -266,7 +272,9 @@ message SetDisplayCurrencyResponse {}
 message AddSettlementSchemeRequest {
   // For example "stub".
   string id = 1;
-  // The scheme's config, JSON. The stub takes none: empty or "{}".
+  // The scheme's config, JSON. The stub takes none: empty or "{}". An XRP
+  // Ledger scheme takes at most {"peers": false}; its account's server,
+  // faucet and publishers are the account's config (SetAssetConfig).
   string config = 2;
 }
 
@@ -294,13 +302,36 @@ message StubDepositResponse {
   Ledger ledger = 1;
 }
 
+// Sets the owner's config of an external asset, kept with the books
+// (spec/areas/settlement.md#external-assets). For an XRP Ledger account,
+// "xrpl-testnet-account/0" or "xrpl-account/0", it is JSON with any of
+// "server" (a WebSocket URL), "faucet" (an HTTPS URL, or null for none; a
+// network without a faucet takes only null) and "publishers" (the
+// validator list publishers it trusts, which replace its network's);
+// empty for its network's defaults. A settlement scheme's config never
+// names these. An asset made after takes it at once; one that schemes
+// settle through now, at the node's next start. INVALID_ARGUMENT for an
+// unknown asset, one the owner does not configure, or a config it
+// refuses; FAILED_PRECONDITION for an account of the other realm.
+message SetAssetConfigRequest {
+  // The asset's ID, as ExternalAsset.id writes it.
+  string asset = 1;
+  string config = 2;
+}
+
+message SetAssetConfigResponse {
+  // Whether the asset runs with it now: false while schemes settle
+  // through it with another, until the node's next start.
+  bool in_effect = 1;
+}
+
 // Asks the faucet of a test ledger for money. Nothing is booked at once:
 // what the faucet sends is a deposit once the ledger shows it. NOT_FOUND if
 // the scheme is not active, FAILED_PRECONDITION if its ledger has no faucet,
 // RESOURCE_EXHAUSTED if the faucet was asked less than a minute ago or the
 // ledger cannot be reached.
 message AskFaucetRequest {
-  // The settlement scheme's ID, for example "xrpl-testnet".
+  // The settlement scheme's ID, for example "xrpl-testnet-xrp".
   string settlement_scheme = 1;
 }
 

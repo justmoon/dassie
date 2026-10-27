@@ -32,13 +32,13 @@ use dassie_node::node::{Node, Policies};
 use dassie_node::rpc::proto::{self, request::Method};
 use dassie_node::store::StoredCertificate;
 use dassie_node_core::certificate::CertificateSource;
-use support::pair::{CA, CERT, KEY, key, prepare_with, until};
+use support::pair::{CA, CERT, KEY, key, prepare_on_xrpl, until};
 use support::rates::{RatesServer, coinbase};
 use support::{Bound, START_MS, TestNode, send};
 use tokio::net::UdpSocket;
 
 const USD: &str = "stub+usd";
-const XRP: &str = "xrpl-testnet+xrp";
+const XRP: &str = "xrpl-testnet-xrp+xrp";
 
 /// How long a datagram that is coming takes at most, in real time.
 const ARRIVES: Duration = Duration::from_secs(5);
@@ -179,7 +179,7 @@ async fn core_node(server: &Server, rates: &RatesServer, owner: &NodeKey) -> Tes
     server.close_on(std::sync::Arc::new(clock.clone()));
     let node = bound.start(clock.clone(), 61, policies, &env).await;
     let config = support::pair::xrpl_config(server);
-    prepare_with(&node, owner, "xrpl-testnet", &config).await;
+    prepare_on_xrpl(&node, owner, "xrpl-testnet-xrp", &config).await;
     let mut ipc = node.ipc().await;
     ipc.call(Method::AddSettlementScheme(
         proto::AddSettlementSchemeRequest {

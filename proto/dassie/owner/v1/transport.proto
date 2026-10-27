@@ -119,6 +119,7 @@ message Request {
     // Streaming.
     SubscribeLedgersRequest subscribe_ledgers = 55;
     AskFaucetRequest ask_faucet = 56;
+    SetAssetConfigRequest set_asset_config = 57;
 
     CreateBtpTokenRequest create_btp_token = 60;
     ListBtpTokensRequest list_btp_tokens = 61;
@@ -252,6 +253,7 @@ message Response {
     StubDepositResponse stub_deposit = 53;
     ListSettlementSchemesResponse list_settlement_schemes = 54;
     AskFaucetResponse ask_faucet = 56;
+    SetAssetConfigResponse set_asset_config = 57;
 
     CreateBtpTokenResponse create_btp_token = 60;
     ListBtpTokensResponse list_btp_tokens = 61;

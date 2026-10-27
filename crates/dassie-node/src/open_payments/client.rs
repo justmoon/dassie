@@ -674,7 +674,7 @@ mod tests {
         let alice = Name::parse("alice").unwrap();
         for (url, host) in [
             (
-                format!("https://{label}.dassiepay.net/pay/stub"),
+                format!("https://{label}.dassiepay.net/pay/usd"),
                 FrontDoorHost::Label(id),
             ),
             (

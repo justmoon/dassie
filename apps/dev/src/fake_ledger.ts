@@ -67,8 +67,9 @@ export interface FakeLedger {
   stop(): Promise<void>;
 }
 
-/** What an XRPL scheme is set up with to use `ledger`: its server, its
- * faucet, `null` on mainnet, and the publisher of its validators. */
+/** What a node's XRPL account is set up with to use `ledger`: its server,
+ * its faucet, `null` on mainnet, and the publisher of its validators
+ * (spec/areas/settlement.md#external-assets). */
 export function xrplConfig(
   ledger: Pick<FakeLedger, "url" | "faucet" | "publishers">,
 ): string {

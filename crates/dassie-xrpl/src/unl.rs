@@ -49,17 +49,15 @@ use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::vec::Vec;
 use core::cmp::Ordering;
 
-use serde_json::{Value, json};
-
 use crate::header::LedgerHeader;
-use crate::keys::{PublicKey, Signature};
-use crate::manifest::Manifest;
+use crate::kept::{In, Out};
+use crate::keys::{MAX_SIGNATURE_BYTES, PublicKey, Signature};
+use crate::manifest::{MAX_MANIFEST_BYTES, Manifest};
 use crate::validation::{FULL, FULLY_CANONICAL, Validation};
 use crate::validator_list::{
     List, ListError, MAX_BLOBS, MAX_LIST_BYTES, MAX_LIST_VALIDATORS, MAX_PUBLISHERS, Message,
     SignedBlob, UnlConfig,
 };
-use crate::{from_hex, hex_upper};
 
 /// The most lists of one publisher kept pending: as many as one answer of
 /// its site carries.
@@ -371,6 +369,14 @@ pub enum AnchorError {
     NoQuorum(Tally),
 }
 
+/// A publisher's part of a state, as read, unverified.
+struct KeptPublisher {
+    manifest: Option<Manifest>,
+    highest: Option<u32>,
+    current: Option<Kept>,
+    pending: Vec<Kept>,
+}
+
 /// A list kept, as it came: its blob and signature, and the publisher's
 /// manifest it verified under.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -382,48 +388,44 @@ struct Kept {
 }
 
 impl Kept {
-    fn state(&self) -> Value {
-        json!({
-            "blob": hex_upper(&self.blob),
-            "signature": hex_upper(self.signature.as_bytes()),
-            "manifest": hex_upper(&self.manifest.to_bytes()),
-        })
+    /// Writes it as it came: its blob, its signature and the publisher's
+    /// manifest it verified under.
+    fn write(&self, out: &mut Out) {
+        out.octets(&self.blob);
+        out.octets(self.signature.as_bytes());
+        out.octets(&self.manifest.to_bytes());
     }
 
-    /// One the account wrote, unverified; `None` if it is not that.
-    fn restore(value: &Value) -> Option<Option<Self>> {
-        if value.is_null() {
-            return Some(None);
-        }
-        let blob = from_hex(value.get("blob")?.as_str()?)?;
-        if blob.len() > MAX_LIST_BYTES {
-            return None;
-        }
-        let signature = Signature::from_slice(&from_hex(value.get("signature")?.as_str()?)?)?;
-        let manifest = Manifest::from_bytes(&from_hex(value.get("manifest")?.as_str()?)?).ok()?;
-        Some(Some(Self {
+    /// One [`Self::write`] wrote, unverified; `None` if it is not that.
+    fn read(input: &mut In<'_>) -> Option<Self> {
+        let blob = input.octets(MAX_LIST_BYTES)?.to_vec();
+        let signature = Signature::from_slice(input.octets(MAX_SIGNATURE_BYTES)?)?;
+        let manifest = Manifest::from_bytes(input.octets(MAX_MANIFEST_BYTES)?).ok()?;
+        Some(Self {
             list: List::parse(&blob).ok()?,
             blob,
             signature,
             manifest,
-        }))
+        })
     }
 
-    /// The pending lists the account wrote, unverified: at most
-    /// [`MAX_PENDING`], or one or none as written before it kept more.
-    /// `None` if it is not that.
-    fn restore_pending(value: &Value) -> Option<Vec<Self>> {
-        let Some(entries) = value.as_array() else {
-            return Some(Self::restore(value)?.into_iter().collect());
-        };
-        if entries.len() > MAX_PENDING {
-            return None;
+    /// A publisher's part that [`Unl::write`] wrote after its key.
+    fn read_publisher(input: &mut In<'_>) -> Option<KeptPublisher> {
+        let manifest =
+            input.option(|input| Manifest::from_bytes(input.octets(MAX_MANIFEST_BYTES)?).ok())?;
+        let highest = input.option(In::u32)?;
+        let current = input.option(Self::read)?;
+        let count = input.count(12, MAX_PENDING)?;
+        let mut pending = Vec::with_capacity(count);
+        for _ in 0..count {
+            pending.push(Self::read(input)?);
         }
-        let mut pending = Vec::with_capacity(entries.len());
-        for entry in entries {
-            pending.push(Self::restore(entry)??);
-        }
-        Some(pending)
+        Some(KeptPublisher {
+            manifest,
+            highest,
+            current,
+            pending,
+        })
     }
 
     fn expired(&self, now_s: u64) -> bool {
@@ -765,6 +767,13 @@ impl Unl {
             .filter(|(master, lists)| *lists >= threshold && !revoked(master))
             .map(|(master, _)| master)
             .collect()
+    }
+
+    /// How many validators' manifests it keeps: each listed master's
+    /// newest.
+    #[must_use]
+    pub fn manifest_count(&self) -> usize {
+        self.manifests.len()
     }
 
     /// The key a listed `master` signs with: its newest manifest's, none
@@ -1237,60 +1246,79 @@ impl Unl {
     /// back to a key it rotated away from; and whether it is UNL-blocked,
     /// so that a restart does not lift the block, as it does rippled's.
     #[must_use]
-    pub fn state(&self) -> Value {
-        let publishers: Vec<Value> = (self.config.publishers.iter())
-            .zip(&self.publishers)
-            .map(|(publisher, state)| {
-                json!({
-                    "key": hex_upper(publisher.master_key.as_bytes()),
-                    "manifest": state.manifest.as_ref().map(|manifest| hex_upper(&manifest.to_bytes())),
-                    "highest": state.highest,
-                    "current": state.current.as_ref().map(Kept::state),
-                    "pending": state.pending.iter().map(Kept::state).collect::<Vec<_>>(),
-                })
-            })
-            .collect();
-        let manifests: Vec<Value> = (self.manifests.values())
-            .map(|manifest| hex_upper(&manifest.to_bytes()).into())
-            .collect();
-        json!({ "publishers": publishers, "manifests": manifests, "blocked": self.blocked })
+    pub fn state(&self) -> Vec<u8> {
+        let mut out = Out(Vec::new());
+        self.write(&mut out);
+        out.0
     }
 
-    /// What [`Self::state`] wrote, under `config` at `now_ms`, every list
+    /// Writes what it keeps ([`Self::state`]): for each publisher, its key,
+    /// its newest manifest, the highest sequence seen, and its current and
+    /// pending lists; then the masters' manifests, and whether it is
+    /// blocked.
+    pub(crate) fn write(&self, out: &mut Out) {
+        out.count(self.publishers.len());
+        for (publisher, state) in self.config.publishers.iter().zip(&self.publishers) {
+            out.bytes(publisher.master_key.as_bytes());
+            out.option(state.manifest.as_ref(), |out, manifest| {
+                out.octets(&manifest.to_bytes());
+            });
+            out.option(state.highest, Out::u32);
+            out.option(state.current.as_ref(), |out, kept| kept.write(out));
+            out.count(state.pending.len());
+            for kept in &state.pending {
+                kept.write(out);
+            }
+        }
+        out.count(self.manifests.len());
+        for manifest in self.manifests.values() {
+            out.octets(&manifest.to_bytes());
+        }
+        out.bool(self.blocked);
+    }
+
+    /// What [`Self::state`] wrote, as [`Self::read`] reads it, with no
+    /// byte left over.
+    #[must_use]
+    pub fn restore(config: UnlConfig, state: &[u8], now_ms: u64) -> Option<Self> {
+        let mut input = In(dassie_oer::Reader::new(state));
+        let unl = Self::read(config, &mut input, now_ms)?;
+        input.finish()?;
+        Some(unl)
+    }
+
+    /// What [`Self::write`] wrote, under `config` at `now_ms`, every list
     /// and manifest verified again, and moved on to `now_ms` as a tick
     /// would. One that no longer verifies, because the publishers changed,
     /// or that expired, is dropped, to be fetched again; one that was in
     /// effect and expired blocks. The block holds under the same publishers
-    /// only, and a state without it, as written before the node kept one,
-    /// is not blocked but for what the lists show. A publisher's pending
-    /// lists are read as written, and so is the one pending list or none
-    /// written before the account kept more. `None` for a state the account
-    /// never writes: a publisher twice, more manifests than
-    /// [`MAX_MANIFESTS`] or two of one master, a list above its publisher's
-    /// highest sequence, more than [`MAX_PENDING`] pending lists, a pending
-    /// list not above the current one and the one before it, not taking
-    /// effect later than the one before it, or naming no time it takes
-    /// effect, or lists of a publisher that revoked its key.
-    #[must_use]
-    pub fn restore(config: UnlConfig, state: &Value, now_ms: u64) -> Option<Self> {
+    /// only. `None` for a state the account never writes: a publisher
+    /// twice, more manifests than [`MAX_MANIFESTS`] or two of one master, a
+    /// list above its publisher's highest sequence, more than
+    /// [`MAX_PENDING`] pending lists, a pending list not above the current
+    /// one and the one before it, not taking effect later than the one
+    /// before it, or naming no time it takes effect, or lists of a
+    /// publisher that revoked its key.
+    pub(crate) fn read(config: UnlConfig, input: &mut In<'_>, now_ms: u64) -> Option<Self> {
         let mut unl = Self::new(config);
-        let publishers = state.get("publishers")?.as_array()?;
-        let manifests = state.get("manifests")?.as_array()?;
-        if publishers.len() > MAX_PUBLISHERS || manifests.len() > MAX_MANIFESTS {
-            return None;
-        }
-        let blocked = match state.get("blocked") {
-            None => false,
-            Some(blocked) => blocked.as_bool()?,
-        };
+        let now_s = ledger_seconds(now_ms);
+        // A key, presence bytes and a count: at least 40 bytes a publisher.
+        let count = input.count(40, MAX_PUBLISHERS)?;
+        let mut publishers = Vec::with_capacity(count);
         let mut keys = BTreeSet::new();
-        for entry in publishers {
-            let key = from_hex(entry.get("key")?.as_str()?)?;
-            let key = PublicKey::from_bytes(key.try_into().ok()?)?;
+        for _ in 0..count {
+            let key = PublicKey::from_bytes(input.array()?)?;
             if !keys.insert(key) {
                 return None;
             }
+            publishers.push((key, Kept::read_publisher(input)?));
         }
+        let count = input.count(4, MAX_MANIFESTS)?;
+        let mut manifests = Vec::with_capacity(count);
+        for _ in 0..count {
+            manifests.push(Manifest::from_bytes(input.octets(MAX_MANIFEST_BYTES)?).ok()?);
+        }
+        let blocked = input.bool()?;
         // The block holds for the publishers it was set under; other
         // publishers start afresh, as rippled does with a new config.
         let configured: BTreeSet<PublicKey> = (unl.config.publishers.iter())
@@ -1298,17 +1326,14 @@ impl Unl {
             .collect();
         unl.blocked = blocked && keys == configured;
         let mut rotated = [false; MAX_PUBLISHERS];
-        for entry in publishers {
-            let key = from_hex(entry.get("key")?.as_str()?)?;
-            let key = PublicKey::from_bytes(key.try_into().ok()?)?;
+        for (key, kept) in publishers {
             if let Some(publisher) = unl.position(&key) {
-                let moved = unl.restore_publisher(publisher, entry, ledger_seconds(now_ms))?;
+                let moved = unl.restore_publisher(publisher, kept, now_s)?;
                 *rotated.get_mut(publisher)? = moved;
             }
         }
         let mut masters = BTreeSet::new();
-        for entry in manifests {
-            let manifest = Manifest::from_bytes(&from_hex(entry.as_str()?)?).ok()?;
+        for manifest in manifests {
             if !masters.insert(manifest.master_key) {
                 return None;
             }
@@ -1323,23 +1348,24 @@ impl Unl {
                 unl.take_list_manifests(publisher);
             }
         }
-        unl.settle(ledger_seconds(now_ms));
+        unl.settle(now_s);
         Some(unl)
     }
 
-    /// Publisher `publisher`'s part of the state, in `entry`: whether a
+    /// Publisher `publisher`'s part of the state, as read: whether a
     /// pending list took effect since, and so is moved in.
-    fn restore_publisher(&mut self, publisher: usize, entry: &Value, now_s: u64) -> Option<bool> {
-        let highest = match entry.get("highest")? {
-            Value::Null => None,
-            highest => Some(u32::try_from(highest.as_u64()?).ok()?),
-        };
-        let manifest = match entry.get("manifest")? {
-            Value::Null => None,
-            manifest => Some(Manifest::from_bytes(&from_hex(manifest.as_str()?)?).ok()?),
-        };
-        let mut current = Kept::restore(entry.get("current")?)?;
-        let mut pending = Kept::restore_pending(entry.get("pending")?)?;
+    fn restore_publisher(
+        &mut self,
+        publisher: usize,
+        kept: KeptPublisher,
+        now_s: u64,
+    ) -> Option<bool> {
+        let KeptPublisher {
+            manifest,
+            highest,
+            mut current,
+            mut pending,
+        } = kept;
         let above = |kept: &Kept| highest.is_none_or(|highest| kept.list.sequence > highest);
         let revoked = manifest.as_ref().is_some_and(Manifest::is_revocation);
         let mut lists = current.iter().chain(pending.iter());
@@ -2331,16 +2357,6 @@ mod tests {
             .unwrap();
         let all: Vec<&TestValidator> = v.iter().collect();
         assert_eq!(unl.unl(NOW_MS).unwrap(), keys(&all));
-        // A state kept before the node kept the block, with C's list never
-        // fetched, starts unblocked, as rippled restarts with the lists it
-        // cached.
-        let mut kept = restored.state();
-        kept.as_object_mut().unwrap().remove("blocked");
-        let restarted = Unl::restore(unl.config.clone(), &kept, NOW_MS).unwrap();
-        assert_eq!(
-            restarted.unl(NOW_MS).unwrap(),
-            keys(&[&v[1], &v[2], &v[3], &v[4]])
-        );
     }
 
     // A publisher that revokes its key leaves no list, but sets no block,
@@ -2708,6 +2724,112 @@ mod tests {
 
     /// A UNL of two publishers with a current and a pending list, and a
     /// manifest newer than the lists'.
+    /// A UNL's state as [`Unl::write`] lays it out, for tests that change
+    /// what it wrote.
+    #[derive(Clone)]
+    struct Kept {
+        publishers: Vec<KeptPublisher>,
+        manifests: Vec<Vec<u8>>,
+        blocked: bool,
+    }
+
+    #[derive(Clone)]
+    struct KeptPublisher {
+        key: [u8; 33],
+        manifest: Option<Vec<u8>>,
+        highest: Option<u32>,
+        current: Option<KeptList>,
+        pending: Vec<KeptList>,
+    }
+
+    #[derive(Clone)]
+    struct KeptList {
+        blob: Vec<u8>,
+        signature: Vec<u8>,
+        manifest: Vec<u8>,
+    }
+
+    impl KeptList {
+        fn decode(input: &mut In<'_>) -> Self {
+            Self {
+                blob: input.octets(usize::MAX).unwrap().to_vec(),
+                signature: input.octets(usize::MAX).unwrap().to_vec(),
+                manifest: input.octets(usize::MAX).unwrap().to_vec(),
+            }
+        }
+
+        fn encode(&self, out: &mut Out) {
+            out.octets(&self.blob);
+            out.octets(&self.signature);
+            out.octets(&self.manifest);
+        }
+    }
+
+    impl Kept {
+        fn decode(state: &[u8]) -> Self {
+            let mut input = In(dassie_oer::Reader::new(state));
+            let count = input.count(0, usize::MAX).unwrap();
+            let publishers = (0..count)
+                .map(|_| KeptPublisher {
+                    key: input.array().unwrap(),
+                    manifest: input
+                        .option(|input| Some(input.octets(usize::MAX)?.to_vec()))
+                        .unwrap(),
+                    highest: input.option(In::u32).unwrap(),
+                    current: input.option(|input| Some(KeptList::decode(input))).unwrap(),
+                    pending: {
+                        let count = input.count(0, usize::MAX).unwrap();
+                        (0..count).map(|_| KeptList::decode(&mut input)).collect()
+                    },
+                })
+                .collect();
+            let count = input.count(0, usize::MAX).unwrap();
+            let manifests = (0..count)
+                .map(|_| input.octets(usize::MAX).unwrap().to_vec())
+                .collect();
+            let blocked = input.bool().unwrap();
+            input.finish().unwrap();
+            Self {
+                publishers,
+                manifests,
+                blocked,
+            }
+        }
+
+        fn encode(&self) -> Vec<u8> {
+            let mut out = Out(Vec::new());
+            out.count(self.publishers.len());
+            for publisher in &self.publishers {
+                out.bytes(&publisher.key);
+                out.option(publisher.manifest.as_ref(), |out, manifest| {
+                    out.octets(manifest);
+                });
+                out.option(publisher.highest, Out::u32);
+                out.option(publisher.current.as_ref(), |out, kept| kept.encode(out));
+                out.count(publisher.pending.len());
+                for kept in &publisher.pending {
+                    kept.encode(&mut out);
+                }
+            }
+            out.count(self.manifests.len());
+            for manifest in &self.manifests {
+                out.octets(manifest);
+            }
+            out.bool(self.blocked);
+            out.0
+        }
+    }
+
+    // What the account writes reads back as it was written, byte for byte.
+    #[test]
+    fn the_decoded_state_is_the_written_one() {
+        let (unl, _, _) = kept_state();
+        let state = unl.state();
+        let decoded = Kept::decode(&state);
+        assert!(!decoded.blocked);
+        assert_eq!(decoded.encode(), state);
+    }
+
     fn kept_state() -> (Unl, [TestPublisher; 2], Vec<TestValidator>) {
         let publishers = [publisher(1), publisher(2)];
         let validators = validators(10..16);
@@ -2733,10 +2855,7 @@ mod tests {
         let (unl, _, validators) = kept_state();
         let state = unl.state();
         // Every listed master's newest manifest.
-        assert_eq!(
-            state["manifests"].as_array().unwrap().len(),
-            validators.len()
-        );
+        assert_eq!(Kept::decode(&state).manifests.len(), validators.len());
         let restored = Unl::restore(unl.config.clone(), &state, NOW_MS).unwrap();
         restored.check_invariants();
         assert_eq!(restored, unl);
@@ -2780,10 +2899,7 @@ mod tests {
         let body = ours.body(&[list(1, &validators), next.clone(), later.clone()]);
         unl.take_list(&body, NOW_MS).unwrap();
         let state = unl.state();
-        assert_eq!(
-            state["publishers"][0]["pending"].as_array().unwrap().len(),
-            2
-        );
+        assert_eq!(Kept::decode(&state).publishers[0].pending.len(), 2);
         let restored = Unl::restore(unl.config.clone(), &state, NOW_MS).unwrap();
         restored.check_invariants();
         assert_eq!(restored, unl);
@@ -2817,26 +2933,9 @@ mod tests {
         assert!(restored.blocked(at_ms));
     }
 
-    // A state written when a publisher kept one pending list, or none,
-    // still loads.
-    #[test]
-    fn a_state_with_one_pending_list_loads() {
-        let (unl, _, _) = kept_state();
-        let mut state = unl.state();
-        let pending = state["publishers"][0]["pending"][0].clone();
-        assert!(pending.is_object());
-        state["publishers"][0]["pending"] = pending;
-        state["publishers"][1]["pending"] = Value::Null;
-        let restored = Unl::restore(unl.config.clone(), &state, NOW_MS).unwrap();
-        restored.check_invariants();
-        assert_eq!(restored, unl);
-        assert_eq!(restored.lists(0).1.len(), 1);
-    }
-
     // Lists that wait with no current list: an account's first answer
     // dated ahead, or a current list that expired while one waits. They
-    // hold the invariants and round-trip, also in the form written when a
-    // publisher kept one pending list.
+    // hold the invariants and round-trip.
     #[test]
     fn pending_lists_wait_without_a_current_one() {
         let ours = publisher(1);
@@ -2871,14 +2970,8 @@ mod tests {
         unl.tick(expired_ms);
         assert_eq!(unl.lists(0).0, None);
         assert_eq!(unl.lists(0).1.len(), 1);
-        let mut state = round_trip(&unl, expired_ms);
-        // As written when a publisher kept one pending list.
-        let pending = state["publishers"][0]["pending"][0].clone();
-        state["publishers"][0]["pending"] = pending;
-        assert_eq!(state["publishers"][0]["current"], Value::Null);
-        let restored = Unl::restore(unl.config.clone(), &state, expired_ms).unwrap();
-        restored.check_invariants();
-        assert_eq!(restored, unl);
+        let state = round_trip(&unl, expired_ms);
+        assert!(Kept::decode(&state).publishers[0].current.is_none());
         // Then the one that waits takes effect.
         let due_ms = NOW_MS + 120_000;
         unl.tick(due_ms);
@@ -2924,68 +3017,67 @@ mod tests {
     #[test]
     fn an_impossible_state_is_refused() {
         let (unl, publishers, _) = kept_state();
-        let state = unl.state();
+        let state = Kept::decode(&unl.state());
         let config = || unl.config.clone();
-        let refused = |change: &dyn Fn(&mut Value)| {
+        let refused = |change: &dyn Fn(&mut Kept)| {
             let mut changed = state.clone();
             change(&mut changed);
-            Unl::restore(config(), &changed, NOW_MS)
+            Unl::restore(config(), &changed.encode(), NOW_MS)
         };
+        assert!(refused(&|_| {}).is_some());
         // A publisher twice: two current lists for one.
         assert_eq!(
             refused(&|state| {
-                let first = state["publishers"][0].clone();
-                state["publishers"].as_array_mut().unwrap().push(first);
+                let first = state.publishers[0].clone();
+                state.publishers.push(first);
             }),
             None
         );
         // Two manifests for one master.
         assert_eq!(
             refused(&|state| {
-                let first = state["manifests"][0].clone();
-                state["manifests"].as_array_mut().unwrap().push(first);
+                let first = state.manifests[0].clone();
+                state.manifests.push(first);
             }),
             None
         );
         assert_eq!(
-            refused(&|state| state["manifests"] = vec![Value::Null; MAX_MANIFESTS + 1].into()),
+            refused(&|state| state.manifests = vec![vec![0]; MAX_MANIFESTS + 1]),
             None
         );
         // A list above the highest sequence.
         assert_eq!(
-            refused(&|state| state["publishers"][1]["highest"] = 2.into()),
+            refused(&|state| state.publishers[1].highest = Some(2)),
             None
         );
-        assert_eq!(
-            refused(&|state| state["publishers"][1]["highest"] = Value::Null),
-            None
-        );
+        assert_eq!(refused(&|state| state.publishers[1].highest = None), None);
         // A pending list not above the current one, or in effect already.
         assert_eq!(
             refused(&|state| {
-                let current = state["publishers"][1]["current"].clone();
-                state["publishers"][1]["pending"] = current;
+                let current = state.publishers[1].current.clone().unwrap();
+                state.publishers[1].pending = vec![current];
             }),
             None
         );
         // Lists of a publisher that revoked its key.
         let revocation = Manifest::sign(REVOKED, &publishers[0].master, None, None);
         assert_eq!(
-            refused(&|state| {
-                state["publishers"][0]["manifest"] = hex_upper(&revocation.to_bytes()).into();
-            }),
+            refused(&|state| state.publishers[0].manifest = Some(revocation.to_bytes())),
             None
         );
-        // Bytes that do not read.
+        // Bytes that do not read, or bytes left over.
         assert_eq!(
-            refused(&|state| state["publishers"][0]["current"]["blob"] = "00".into()),
+            refused(&|state| state.publishers[0].current.as_mut().unwrap().blob = vec![0]),
             None
         );
-        assert_eq!(Unl::restore(config(), &json!({}), NOW_MS), None);
+        assert_eq!(Unl::restore(config(), &[], NOW_MS), None);
+        let mut longer = state.encode();
+        longer.push(0);
+        assert_eq!(Unl::restore(config(), &longer, NOW_MS), None);
         // A list whose signature no longer verifies is dropped, not refused.
         let dropped = refused(&|state| {
-            let other = state["publishers"][0]["current"]["signature"].clone();
-            state["publishers"][1]["current"]["signature"] = other;
+            let other = state.publishers[0].current.clone().unwrap().signature;
+            state.publishers[1].current.as_mut().unwrap().signature = other;
         })
         .unwrap();
         dropped.check_invariants();
@@ -2993,8 +3085,8 @@ mod tests {
         // So is a publisher's manifest its master did not sign, with the
         // lists verified under it.
         let unsigned = refused(&|state| {
-            let other = state["publishers"][0]["manifest"].clone();
-            state["publishers"][1]["manifest"] = other;
+            let other = state.publishers[0].manifest.clone();
+            state.publishers[1].manifest = other;
         })
         .unwrap();
         unsigned.check_invariants();
@@ -3017,11 +3109,11 @@ mod tests {
         };
         let body = ours.body(&[list(1, &validators), waiting(2, 60), waiting(3, 120)]);
         unl.take_list(&body, NOW_MS).unwrap();
-        let state = unl.state();
-        let refused = |change: &dyn Fn(&mut Vec<Value>)| {
+        let state = Kept::decode(&unl.state());
+        let refused = |change: &dyn Fn(&mut Vec<KeptList>)| {
             let mut changed = state.clone();
-            change(changed["publishers"][0]["pending"].as_array_mut().unwrap());
-            Unl::restore(unl.config.clone(), &changed, NOW_MS)
+            change(&mut changed.publishers[0].pending);
+            Unl::restore(unl.config.clone(), &changed.encode(), NOW_MS)
         };
         assert!(refused(&|_| {}).is_some());
         assert_eq!(refused(&|pending| pending.swap(0, 1)), None);
@@ -3030,11 +3122,8 @@ mod tests {
             refused(&|pending| pending.resize(MAX_PENDING + 1, pending[1].clone())),
             None
         );
-        let sooner = |pending: &mut Vec<Value>| {
-            let blob = hex_upper(&waiting(3, 60).to_blob());
-            pending[1]["blob"] = blob.into();
-        };
+        let sooner = |pending: &mut Vec<KeptList>| pending[1].blob = waiting(3, 60).to_blob();
         assert_eq!(refused(&sooner), None);
-        assert_eq!(refused(&|pending| pending[1] = Value::Null), None);
+        assert_eq!(refused(&|pending| pending[1].manifest = vec![0]), None);
     }
 }

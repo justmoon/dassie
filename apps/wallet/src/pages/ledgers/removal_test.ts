@@ -12,7 +12,10 @@ const blocker = (kind: Kind, count: number) =>
 
 test("the confirmation names the scheme", () => {
   assertEquals(expectedConfirmation("stub"), "DELETE STUB");
-  assertEquals(expectedConfirmation("xrpl-testnet"), "DELETE XRPL-TESTNET");
+  assertEquals(
+    expectedConfirmation("xrpl-testnet-xrp"),
+    "DELETE XRPL-TESTNET-XRP",
+  );
 });
 
 test("the checklist shows what blocks the removal", () => {

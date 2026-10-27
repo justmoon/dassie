@@ -965,7 +965,7 @@ async fn payments_to_stream_credentials_are_no_resources() {
 async fn two_items_may_not_both_create_from_one_wallet_address() {
     let (node, key) = start().await;
     let client = own_client(&node, &key);
-    let slug = format!("{}/pay/stub", node.origin());
+    let slug = format!("{}/pay/usd", node.origin());
     let request = json!({
         "access_token": { "access": [
             {

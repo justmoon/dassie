@@ -17,7 +17,10 @@ pub const CA: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../testdata/tls/ro
 pub const CERT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../testdata/tls/cert.pem");
 pub const KEY: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../testdata/tls/key.pem");
 
-/// The config of an XRPL scheme on the fake ledger `server`: its server
+/// The node's XRPL testnet account, as external assets are named.
+pub const XRPL_ACCOUNT: &str = "xrpl-testnet-account/0";
+
+/// The config of an XRPL account on the fake ledger `server`: its server
 /// and faucet, and the publisher of its validators, whose list it serves.
 pub fn xrpl_config(server: &dassie_node::fake_ledger::Server) -> String {
     let mut config = serde_json::json!({
@@ -54,6 +57,39 @@ pub async fn prepare(node: &TestNode, key: &NodeKey) {
 
 /// Sets a node up as a peer, settling with `scheme` set up with `config`.
 pub async fn prepare_with(node: &TestNode, key: &NodeKey, scheme: &str, config: &str) {
+    prepare_base(node, key).await;
+    add_scheme(node, scheme, config).await;
+}
+
+/// Sets a node up as a peer, settling with the XRPL scheme `scheme`
+/// through its testnet account, whose config is `account`.
+pub async fn prepare_on_xrpl(node: &TestNode, key: &NodeKey, scheme: &str, account: &str) {
+    prepare_base(node, key).await;
+    set_asset_config(node, XRPL_ACCOUNT, account).await;
+    add_scheme(node, scheme, "").await;
+}
+
+/// Sets the owner's config of the node's external asset `asset`, once the
+/// engine takes it.
+pub async fn set_asset_config(node: &TestNode, asset: &str, config: &str) {
+    let mut owner = node.ipc().await;
+    for _ in 0..200 {
+        let set = owner
+            .call(Method::SetAssetConfig(proto::SetAssetConfigRequest {
+                asset: asset.into(),
+                config: config.into(),
+            }))
+            .await;
+        if set.is_ok() {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    panic!("the config of {asset} was not set");
+}
+
+/// Sets a node up as a peer: owner, hostname and certificate.
+async fn prepare_base(node: &TestNode, key: &NodeKey) {
     set_up(node, key).await;
     let mut owner = node.ipc().await;
     let hostname = owner
@@ -69,6 +105,11 @@ pub async fn prepare_with(node: &TestNode, key: &NodeKey, scheme: &str, config: 
         }))
         .await;
     assert!(certificate.is_ok(), "{certificate:?}");
+}
+
+/// Adds settlement scheme `scheme` with `config`, once the engine takes it.
+async fn add_scheme(node: &TestNode, scheme: &str, config: &str) {
+    let mut owner = node.ipc().await;
     for _ in 0..200 {
         let added = owner
             .call(Method::AddSettlementScheme(

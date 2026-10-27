@@ -27,7 +27,7 @@ import {
 } from "./settling.ts";
 import { Scenario } from "@dassie/dev/scenario";
 
-const XRP_LEDGER = "xrpl+xrp";
+const XRP_LEDGER = "xrpl-xrp+xrp";
 /** 5 XRP: over four times what a peer extends, so d1 must settle. */
 const PAYMENT = 5_000_000_000n;
 /**

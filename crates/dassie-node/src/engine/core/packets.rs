@@ -32,8 +32,10 @@ const RECEIVER_SECRET_PATH: &str = "node/stream-server/";
 /// Most STREAM connections a receiver keeps.
 const MAX_RECEIVER_CONNECTIONS: usize = 256;
 
-/// The part of a ledger's ID before the `+`: its name in wallet addresses
-/// and receiver addresses.
+/// The part of a ledger's ID before the `+`, its scheme's ID: its name in
+/// its receiver's and its payer's addresses, and its receiver's seed path.
+/// Its wallet address names it for people instead
+/// (`LedgerId::wallet_name`).
 #[must_use]
 pub fn ledger_slug(ledger: LedgerId) -> &'static str {
     let id = ledger.as_str();

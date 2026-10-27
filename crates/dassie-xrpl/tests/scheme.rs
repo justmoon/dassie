@@ -1,4 +1,4 @@
-//! The `xrpl-testnet` scheme against the fake ledger: each rule of how it
+//! The `xrpl-testnet-xrp` scheme against the fake ledger: each rule of how it
 //! books transactions and settles (spec/areas/xrpl.md#following-the-account,
 //! spec/areas/xrpl.md#settling), restarts and catch-up, with the books
 //! checked against the ledger after every step.

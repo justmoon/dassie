@@ -698,17 +698,26 @@ fn rotated_keys_are_learnt_from_the_server() {
     assert_eq!(harness.reconnects, 0);
 }
 
-/// A state whose anchor is `anchor`, written as the account writes it.
+/// A state whose anchor is `anchor`, written as the account writes it
+/// (version 1): nothing signed, the anchor, and a UNL that holds nothing
+/// of its publishers yet.
 fn state_with_anchor(index: u32, close_time: u32, hash: [u8; 32]) -> Vec<u8> {
-    json!({
-        "sequence": 0, "in_flight": [], "never_sent": [], "parked": [], "write_offs": 0,
-        "anchor": {
-            "index": index, "close_time": close_time,
-            "hash": dassie_xrpl::hex_upper(&hash), "flag": null,
-        },
-    })
-    .to_string()
-    .into_bytes()
+    let mut state = vec![1];
+    state.extend_from_slice(&0u32.to_be_bytes());
+    state.extend_from_slice(&0u64.to_be_bytes());
+    for _ in 0..3 {
+        state.extend_from_slice(&0u32.to_be_bytes());
+    }
+    state.push(0xff);
+    state.extend_from_slice(&index.to_be_bytes());
+    state.extend_from_slice(&close_time.to_be_bytes());
+    state.extend_from_slice(&hash);
+    state.push(0);
+    state.extend_from_slice(&0u64.to_be_bytes());
+    state.extend_from_slice(&0u32.to_be_bytes());
+    state.extend_from_slice(&0u32.to_be_bytes());
+    state.push(0);
+    state
 }
 
 // spec/designs/xrpl-validation.md#7-resets-under-a-unl: a later ledger whose
@@ -796,32 +805,6 @@ fn a_ledger_far_along_the_kept_chain_is_proven_on_it() {
     assert!(harness.anchored_at().unwrap() > kept.index + 256);
     assert!(harness.anchor_is_the_ledgers());
     assert_eq!(harness.account.status(), LedgerStatus::Synced);
-}
-
-// spec/designs/xrpl-validation.md#10-configuration-and-state: a state
-// written before anchors kept its newest ledger without a hash. The first
-// anchor replaces it by the chain rule: below it and closed later is a
-// reset on the testnet, and on mainnet replaces it, since only the old
-// hint can have been wrong.
-#[test]
-fn an_older_state_s_newest_ledger_is_a_hint() {
-    for ledger in [FakeLedger::new(), FakeLedger::mainnet()] {
-        let resets = ledger.network().resets();
-        let close = ledger_seconds(ledger.now_ms());
-        let state = json!({
-            "sequence": 0, "in_flight": [], "never_sent": [], "write_offs": 0,
-            "newest": [ledger.ledger() + 1_000, close - 400],
-        })
-        .to_string();
-        let mut harness = Harness::new(ledger, state.as_bytes());
-        harness.connect();
-        assert_eq!(harness.account.write_offs(), u64::from(resets));
-        assert_eq!(harness.account.status(), LedgerStatus::Synced);
-        assert!(harness.anchor_is_the_ledgers());
-        let written: Value = serde_json::from_slice(&harness.account.state()).unwrap();
-        assert_eq!(written["newest"], Value::Null);
-        assert!(written["anchor"].is_object());
-    }
 }
 
 // The validations' freshness is by the node's clock: one that runs far

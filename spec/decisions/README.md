@@ -67,9 +67,11 @@ Each file records one choice between real alternatives: the facts that forced it
 | [resident-peers](resident-peers.md) | A peer is in memory only while it is needed: a downlink while it is connected, a core peer while its channel is open | ledger, settlement, network, xrpl, designs/periphery |
 | [rpc-contract](rpc-contract.md) | UI and CLI RPC contract | rpc, wallet |
 | [rust-and-typescript](rust-and-typescript.md) | What runs in Rust and what in TypeScript | overview, engineering |
+| [scheme-names](scheme-names.md) | A scheme's ID names its ledger, network and asset, and a wallet address names the asset alone | settlement, xrpl, ledger, payments, identity |
 | [secrets-at-rest](secrets-at-rest.md) | Secrets at rest | node, http |
 | [settlement-hubs](settlement-hubs.md) | Settlement hubs (design, partly built) | designs/settlement-hubs |
 | [settlement-methods](settlement-methods.md) | A peering settles over every hub both nodes are in, and a packet keeps its ledger where it can (not built) | network, settlement, connector, peer-protocol |
+| [stub-in-debug-builds](stub-in-debug-builds.md) | The stub scheme runs only in builds with debug assertions | settlement, node, wallet, testing |
 | [synced-before-peering](synced-before-peering.md) | A node peers on a scheme only once it has seen its ledger | settlement, network, xrpl |
 | [thresholds-in-packets](thresholds-in-packets.md) | A link's thresholds are counted in its largest packet | settlement, connector |
 | [tigerstyle](tigerstyle.md) | Engineering style: pragmatic TigerStyle and deterministic simulation | engineering, testing |

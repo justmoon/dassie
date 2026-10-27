@@ -1310,6 +1310,7 @@ dependencies = [
  "dassie-identity",
  "dassie-kit",
  "dassie-ledger",
+ "dassie-oer",
  "dassie-settlement",
  "dassie-xrpl",
  "ecdsa",

@@ -65,6 +65,12 @@ pub async fn dispatch(node: &Arc<Node>, method: Method, items: &Items) -> Result
                 ledger: Some(ledger(&view)),
             })
         }
+        Method::SetAssetConfig(request) => {
+            let in_effect = engine
+                .set_asset_config(request.asset, request.config)
+                .await?;
+            response::Method::SetAssetConfig(proto::SetAssetConfigResponse { in_effect })
+        }
         other => return dispatch_more(node, &engine, other, items).await,
     };
     Ok(Reply::Unary(reply))
@@ -465,6 +471,8 @@ pub(super) fn external_asset(view: &AssetView) -> proto::ExternalAsset {
         faucet: view.faucet,
         history_gaps: view.unproven.history_gaps,
         unproven_settlements: view.unproven.settlements,
+        config: view.config.clone(),
+        config_waits: view.config_waits,
     }
 }
 
@@ -688,12 +696,14 @@ mod tests {
             holdings: Vec::new(),
             status: dassie_settlement::LedgerStatus::Synced,
             waiting: None,
-            schemes: vec!["xrpl-testnet".into()],
+            schemes: vec!["xrpl-testnet-xrp".into()],
             faucet: false,
             unproven: dassie_settlement::Unproven {
                 history_gaps: 2,
                 settlements: 1,
             },
+            config: String::new(),
+            config_waits: false,
         });
         assert_eq!((shown.history_gaps, shown.unproven_settlements), (2, 1));
     }

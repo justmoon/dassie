@@ -101,7 +101,7 @@ const COOKIE_ABSENT: u64 = 0;
 const COOKIE_PRESENT: u64 = 1;
 
 const LEDGER_ID_SIZE: Size = Size::range(1, MAX_LEDGER_ID_BYTES);
-/// The characters of a ledger ID, such as `xrpl-testnet+xrp`.
+/// The characters of a ledger ID, such as `xrpl-testnet-xrp+xrp`.
 const LEDGER_ID_ALPHABET: Alphabet = Alphabet::EMPTY
     .with_range(b'a', b'z')
     .with_range(b'0', b'9')
@@ -197,7 +197,7 @@ pub enum InvalidFeed {
 /// A ledger a node converts on.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Ledger<'a> {
-    /// Its ID, such as `xrpl-testnet+xrp`.
+    /// Its ID, such as `xrpl-testnet-xrp+xrp`.
     pub id: &'a str,
     /// The most one packet may carry when it comes in on this ledger, in
     /// its units.

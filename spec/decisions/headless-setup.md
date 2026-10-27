@@ -15,7 +15,7 @@
 
 - **`dassie setup --passphrase-file <file>` sets a node up from its owner's phrase, on the node's own host.** It derives the node key and the login proof as the wallet does, reads the setup token over the IPC socket, and posts them to the node's own `/api/setup` on loopback, at the HTTPS port the daemon reports. So the node checks it exactly as it checks the wallet, and the phrase never reaches the node: only the key does, as from a browser.
 - **It pins the certificate the daemon names,** by the SHA-256 of its leaf, and requires the handshake to be signed by that certificate's key. A listener at a loopback address that cannot do that is passed over and sent nothing. Only the node, or whoever can read its database and so the node key too, can answer as the node.
-- **It is idempotent,** so a unit can run it at every start: a node set up with this phrase is left as it is, a node set up with another is refused with a code of its own and left untouched, and of the settlement schemes it is given it adds only those that are not active.
+- **It is idempotent,** so a unit can run it at every start: a node set up with this phrase is left as it is, a node set up with another is refused with a code of its own and left untouched, an external asset's config it is given is set only if it differs, and of the settlement schemes it is given it adds only those that are not active.
 - **The phrase is read once from a bounded file and wiped as soon as the key is derived,** and no output or error names it.
 
 ## Accepted

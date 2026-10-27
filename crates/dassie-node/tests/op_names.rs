@@ -106,10 +106,10 @@ async fn a_node_answers_under_each_of_its_names_and_signs_its_answers() {
         assert_eq!(body(&reply)["error"]["code"], "misdirected_request");
     }
     // Errors are signed too.
-    let missing = fetch(&node, &default, "/pay/xrpl", "n3").await;
+    let missing = fetch(&node, &default, "/pay/xrp", "n3").await;
     assert_eq!(missing.status, StatusCode::NOT_FOUND);
     assert_eq!(
-        check(&node, &missing, "/pay/xrpl", &default, "n3", None),
+        check(&node, &missing, "/pay/xrp", &default, "n3", None),
         Ok(id)
     );
     node.stop().await;
@@ -189,7 +189,7 @@ async fn a_grant_holds_under_every_name() {
         Some(format!("https://{default}").as_str())
     );
     // Under the owner's name, naming the wallet by that name.
-    let create = json!({ "walletAddress": format!("https://{OWNERS}/pay/stub") });
+    let create = json!({ "walletAddress": format!("https://{OWNERS}/pay/usd") });
     let reply = send(
         node.https,
         true,
@@ -214,7 +214,7 @@ async fn a_grant_holds_under_every_name() {
     assert!(path.starts_with("/incoming-payments/"), "{id}");
     assert_eq!(
         payment["walletAddress"],
-        format!("https://{OWNERS}/pay/stub")
+        format!("https://{OWNERS}/pay/usd")
     );
     // Read under the default name: written under that one.
     let reply = send(
@@ -226,14 +226,14 @@ async fn a_grant_holds_under_every_name() {
     assert_eq!(reply.status, StatusCode::OK, "{}", reply.text());
     let read = body(&reply);
     assert_eq!(read["id"], format!("https://{default}{path}"));
-    assert_eq!(read["walletAddress"], format!("https://{default}/pay/stub"));
+    assert_eq!(read["walletAddress"], format!("https://{default}/pay/usd"));
     // A request signed for one name does not verify under another.
     let mut moved = signed_under(&node, &default, &client, "GET", &path, Some(&token), None);
     moved.headers_mut().insert("host", OWNERS.parse().unwrap());
     let reply = send(node.https, true, moved).await;
     assert_eq!(reply.status, StatusCode::UNAUTHORIZED, "{}", reply.text());
     // Nor does a wallet elsewhere pass for one of the node's.
-    let elsewhere = json!({ "walletAddress": "https://elsewhere.example/pay/stub" });
+    let elsewhere = json!({ "walletAddress": "https://elsewhere.example/pay/usd" });
     let reply = send(
         node.https,
         true,
@@ -366,7 +366,7 @@ async fn a_pending_grant_keeps_its_name() {
     let issued = body(&reply);
     assert_eq!(
         issued["access_token"]["access"][0]["identifier"],
-        format!("https://{OWNERS}/pay/stub")
+        format!("https://{OWNERS}/pay/usd")
     );
     node.stop().await;
     wallet.stop().await;

@@ -305,6 +305,9 @@ pub struct Core {
     assets: BTreeMap<dassie_settlement::AssetId, schemes::ActiveAsset>,
     /// What the books last kept for each external asset: its state.
     asset_checkpoints: BTreeMap<dassie_settlement::AssetId, Vec<u8>>,
+    /// The owner's config of each external asset that has one
+    /// (spec/areas/settlement.md#external-assets).
+    asset_configs: BTreeMap<dassie_settlement::AssetId, String>,
     /// The last connection number given to an asset.
     next_epoch: u64,
     /// Each active ledger's STREAM receiver.
@@ -450,6 +453,8 @@ impl Core {
     /// # Errors
     ///
     /// The database is unreadable or inconsistent.
+    // One line per field of the core, which it builds whole.
+    #[allow(clippy::too_many_lines)]
     pub fn start(parts: CoreParts, now_ms: u64) -> Result<Self, String> {
         check_parts(&parts)?;
         let peer = new_peer(
@@ -464,7 +469,7 @@ impl Core {
         let ledger = restore_ledger(&parts.store, policies.ledger)?;
         let opened = restore_downlink_accounts(&parts.store, &ledger)?;
         let connector = new_connector(&parts.store, &parts.key, parts.realm, &policies)?;
-        let (checkpoints, asset_checkpoints) = checkpoints(&parts.store)?;
+        let (checkpoints, asset_checkpoints, asset_configs) = checkpoints(&parts.store)?;
         let mut core = Self {
             store: parts.store,
             rng: parts.rng,
@@ -478,6 +483,7 @@ impl Core {
             unusable: BTreeSet::new(),
             assets: BTreeMap::new(),
             asset_checkpoints,
+            asset_configs,
             next_epoch: 0,
             receivers: BTreeMap::new(),
             next_local: 0,
@@ -719,6 +725,7 @@ impl Core {
             && batch.schemes_removed.is_empty()
             && batch.checkpoints.is_empty()
             && batch.asset_checkpoints.is_empty()
+            && batch.asset_configs.is_empty()
             && batch.tokens_created.is_empty()
             && batch.tokens_revoked.is_empty()
             && batch.token_caps.is_empty()
@@ -1143,12 +1150,35 @@ fn new_connector(
 }
 
 /// What the books last kept for each scheme, and for each external asset.
+/// And the owner's config of each external asset that has one.
 type Checkpoints = (
     BTreeMap<Name, Checkpoint>,
     BTreeMap<dassie_settlement::AssetId, Vec<u8>>,
+    BTreeMap<dassie_settlement::AssetId, String>,
 );
 
-/// What the books last kept for each scheme and each external asset.
+/// The owner's config of each external asset that has one, written one
+/// way, as `SetAssetConfig` writes it: migration 45 moved each from a
+/// scheme's config as the owner had written it, so the same config set
+/// again is the same, and does not wait for the next start.
+fn asset_configs(store: &Store) -> Result<BTreeMap<dassie_settlement::AssetId, String>, String> {
+    store
+        .asset_configs()
+        .map_err(text)?
+        .into_iter()
+        .map(|(id, config)| {
+            let id = dassie_settlement::AssetId::parse(&id)
+                .ok_or_else(|| format!("an external asset this node does not know: {id}"))?;
+            let config = serde_json::from_str::<serde_json::Value>(&config)
+                .map(|value| value.to_string())
+                .unwrap_or(config);
+            Ok((id, config))
+        })
+        .collect()
+}
+
+/// What the books last kept for each scheme and each external asset, and
+/// the owner's config of each asset.
 fn checkpoints(store: &Store) -> Result<Checkpoints, String> {
     let schemes = store.checkpoints().map_err(text)?.into_iter().collect();
     let assets = store
@@ -1161,7 +1191,7 @@ fn checkpoints(store: &Store) -> Result<Checkpoints, String> {
             Ok((id, state))
         })
         .collect::<Result<_, String>>()?;
-    Ok((schemes, assets))
+    Ok((schemes, assets, asset_configs(store)?))
 }
 
 /// The ledger, from its journal.

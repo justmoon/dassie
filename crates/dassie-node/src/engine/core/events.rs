@@ -263,9 +263,10 @@ pub enum SettlementEvent {
         /// Why it was refused.
         reason: String,
     },
-    /// A stored scheme is disabled, such as test RLUSD: it does not run, and
-    /// its books and its line stay as they are
-    /// (spec/decisions/issued-assets.md).
+    /// A stored scheme is disabled, such as test RLUSD, or the stub in a
+    /// release build: it does not run, and its books and its line stay as
+    /// they are (spec/decisions/issued-assets.md,
+    /// spec/decisions/stub-in-debug-builds.md).
     Disabled {
         /// The scheme.
         scheme: Name,

@@ -32,7 +32,7 @@ const account = create(ExternalAssetSchema, {
   address: "rAccount",
   holdings: [xrp, rlusd],
   connection: LedgerConnection.SYNCED,
-  settlementSchemes: ["xrpl", "xrpl-rlusd"],
+  settlementSchemes: ["xrpl-xrp", "xrpl-rlusd"],
   faucet: false,
 });
 

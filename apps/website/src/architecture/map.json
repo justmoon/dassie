@@ -346,7 +346,7 @@
         "`dassie daemon`: standalone, or socket-activated by systemd",
         "`dassie init`: the domain name and the certificate, then a URL to finish setup in the browser",
         "`dassie status`, which also says whether a core node's rate feed reaches anyone, `dassie setup-url` to print that URL again, and `dassie pair` for a code that pairs an owner app",
-        "`dassie setup`: sets a node up without a browser, from its owner's passphrase in a file on the node's host, and adds the settlement schemes it lacks; run again, it changes nothing, and it refuses a node that is another passphrase's",
+        "`dassie setup`: sets a node up without a browser, from its owner's passphrase in a file on the node's host, sets each XRP Ledger account's own config (`--asset`, its server and faucet), and adds the settlement schemes it lacks; run again, it changes nothing, and it refuses a node that is another passphrase's",
         "`dassie hub`: shows the node's account in its settlement hub, moves the owner's funds between it and the node's XRP Ledger account, turns the node's own moves on or off, and gives up a move the hub has not shown for long; `dassie hub found` founds a hub with validators the owner picks, and `dassie hub payout` shows the payout bundles kept and, once a quorum signed one set, its transactions to submit",
         "`dassie update`: fetches, verifies and switches to a newer release, and goes back if it does not start",
         "`dassie verify-install`, which also names the release key",
@@ -456,7 +456,7 @@
         "Pays a token scheme's fees in XRP: booked on the XRP ledger when the XRP scheme shares the account, off the books otherwise",
         "Stops settling while the issuer freezes the line, and stops asking peers to pay while the line cannot receive",
         "Pauses a dollar token's scheme, and the node's conversions to and from its ledger, while the token's AMM pool, priced at the node's XRP rate, says it is off its dollar peg or cannot be read",
-        "Never books the reserve, and catches up after a restart",
+        "Never books the reserve, and catches up after a restart from what the account and each scheme keep, each in one versioned encoding that a reader of another version refuses",
         "Asks the testnet faucet when the account is new, or when the owner wants more test XRP; mainnet has none, so its account waits for the owner's deposit",
         "Reports what the account holds, as its anchor proves it, for the wallet: XRP and its reserve, and each line with its freezes",
         "Fakes the ledger for tests: XRP, trust lines, token payments through the issuer and their failures, issuers of DSUSD and RLUSD that mint, freeze and claw back, AMM pools that Payments with a `SendMax` swap through, and signer lists, regular keys and destination tags, with who may sign checked again as a transaction applies",
@@ -478,7 +478,7 @@
         "A scheme that pauses, as a dollar token's off its peg: it settles nothing, cannot be paid and converts nothing meanwhile, and says why",
         "External assets: what the node holds outside its books, as the ledger says, apart from the schemes that settle through it, the documents they fetch through the node, such as validator lists, and what they wait for",
         "Gas: a holding one scheme spends and another settles in is spent only within the owner's funds",
-        "The stub scheme: 100 test USD, so everything works without a real ledger; with commitments, peerings over a settlement hub without a hub; with unlimited trust, peers that never settle, for tests not about settlement",
+        "The stub scheme, only in builds with debug assertions (dev, tests, simulations), never a release: 100 test USD, so everything works without a real ledger; with commitments, peerings over a settlement hub without a hub; with unlimited trust, peers that never settle, for tests not about settlement",
         "The settlement policy: when a creditor asks a peer to settle, and how much the debtor pays, counted in the largest packet; and the floor and the ceiling a node keeps its settlement hub account between",
         "The owner's payments: a scheme pays the owner's funds out of its account, as the node moves them between two of its ledgers",
         "Owner books: a scheme the node never peers on, which keeps what the node holds on its ledger and pays the owner's payments",
@@ -1134,6 +1134,12 @@
     {
       "f": "xrpl",
       "t": "ledger",
+      "k": "uses",
+      "h": true
+    },
+    {
+      "f": "xrpl",
+      "t": "oer",
       "k": "uses",
       "h": true
     },

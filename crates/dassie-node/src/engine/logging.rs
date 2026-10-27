@@ -333,7 +333,7 @@ fn activation(severity: Severity, event: &SettlementEvent) {
             emit!(severity, target: target::SETTLEMENT, %scheme, %reason, "the scheme's stored config no longer makes a scheme: it does not run, and its books stay as they are");
         }
         SettlementEvent::Disabled { scheme } => {
-            emit!(severity, target: target::SETTLEMENT, %scheme, "the scheme is disabled: it does not run, and its books and its line stay as they are");
+            emit!(severity, target: target::SETTLEMENT, %scheme, "the scheme does not run in this build: its books and its line stay as they are");
         }
         // `settlement` hands only these here.
         _ => {}
@@ -572,7 +572,7 @@ mod tests {
     fn what_an_asset_could_not_prove_is_logged_as_a_warning() {
         let asset = dassie_xrpl::account::FIRST;
         let schemes = vec![
-            dassie_ledger::Name::new("xrpl-testnet").unwrap(),
+            dassie_ledger::Name::new("xrpl-testnet-xrp").unwrap(),
             dassie_ledger::Name::new("xrpl-testnet-dsusd").unwrap(),
         ];
         let lines = capture(|| {
@@ -601,7 +601,7 @@ mod tests {
                     ("asset".to_string(), asset.to_string()),
                     (
                         "schemes".to_string(),
-                        "xrpl-testnet,xrpl-testnet-dsusd".to_string()
+                        "xrpl-testnet-xrp,xrpl-testnet-dsusd".to_string()
                     ),
                     ("total".to_string(), total.to_string()),
                 ]

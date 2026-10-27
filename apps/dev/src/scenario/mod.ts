@@ -127,6 +127,8 @@ export class Scenario {
   rates?: RateServer;
   /** What each scheme is set up with, by ID. */
   #configs: Record<string, string> = {};
+  /** What each external asset is set up with, by ID. */
+  #assets: Record<string, string> = {};
   readonly def: ScenarioDef;
   readonly options: ScenarioOptions;
 
@@ -207,11 +209,12 @@ export class Scenario {
           undefined,
           ledgerNetwork(def),
         );
-        // Every XRPL scheme settles through the node's one account, which
-        // they set up alike.
-        for (const scheme of XRPL_SCHEMES) {
-          scenario.#configs[scheme] = xrplConfig(scenario.ledger);
-        }
+        // Every XRPL scheme settles through the node's one account on the
+        // network, whose config is its own.
+        const account = ledgerNetwork(def) === "mainnet"
+          ? "xrpl-account/0"
+          : "xrpl-testnet-account/0";
+        scenario.#assets[account] = xrplConfig(scenario.ledger);
         const pool = def.pool;
         if (pool !== undefined) {
           // At the rates the nodes start with, so that the pool and the
@@ -314,6 +317,7 @@ export class Scenario {
         this.#configs,
         this.rates?.url,
         this.def.realm ?? "test",
+        this.#assets,
       );
     } catch (error) {
       // A node that failed is stopped and dropped, so its index is free.

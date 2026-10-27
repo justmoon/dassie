@@ -39,13 +39,14 @@ use alloc::collections::{BTreeMap, BTreeSet, VecDeque};
 use alloc::string::String;
 use alloc::vec::Vec;
 
-use serde_json::{Value, json};
+use serde_json::Value;
 
 use crate::anchor::{
     Ancestry, Doubt, Judged, KeptAnchor, LedgerHash, LedgerProof, ProvenLists, ProvenState,
     ProvenTx, ancestry, judge, ledger_hash, ledger_proof, prove_state, prove_transaction,
 };
 use crate::api::{self, ApiError, MAX_PROOF_KEYS, TxProof, Validations};
+use crate::kept;
 use crate::keys::PublicKey;
 use crate::lists::{self, ListFetches};
 use crate::skip_list::{SkipList, recent_key};
@@ -422,12 +423,14 @@ impl Verifier {
     /// What it keeps, to restore after a restart: its UNL's lists and
     /// manifests and whether it is blocked, and its anchor, so that a
     /// restart neither lifts a block nor takes an older anchor as current.
+    /// It is written as the account's state is: a version, then the
+    /// anchor, then the UNL (spec/areas/xrpl.md#state-and-restarts).
     #[must_use]
-    pub fn state(&self) -> Value {
-        json!({
-            "unl": self.unl.state(),
-            "anchor": self.anchor.as_ref().map(KeptAnchor::state),
-        })
+    pub fn state(&self) -> Vec<u8> {
+        let mut out = kept::Out::state();
+        out.option(self.anchor.as_ref(), |out, anchor| anchor.write(out));
+        self.unl.write(&mut out);
+        out.0
     }
 
     /// A verifier as [`Self::new`] makes it, with what [`Self::state`]
@@ -438,14 +441,13 @@ impl Verifier {
         network_id: u32,
         config: UnlConfig,
         signatures: Box<dyn ValidationSignatures + Send>,
-        state: &Value,
+        state: &[u8],
         now_ms: u64,
     ) -> Option<Self> {
-        let unl = Unl::restore(config.clone(), state.get("unl")?, now_ms)?;
-        let anchor = match state.get("anchor")? {
-            Value::Null => None,
-            kept => Some(KeptAnchor::restore(kept)?),
-        };
+        let mut input = kept::In::state(state)?;
+        let anchor = input.option(KeptAnchor::read)?;
+        let unl = Unl::read(config.clone(), &mut input, now_ms)?;
+        input.finish()?;
         let mut verifier = Self::new(network_id, config, signatures);
         verifier.unl = unl;
         verifier.anchor = anchor;
