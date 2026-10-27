@@ -729,26 +729,29 @@ impl Validator {
         self.send_statements(from, statements);
     }
 
-    /// What was executed that touches `account` from `height` on, a token
-    /// hub's issuer's hold as of the newest final block, and the newest
-    /// final block, as far as they fit in one answer. Members read a freeze
-    /// from the issuer's hold as they read everything else, from what f + 1
-    /// validators sign alike (spec/areas/hubs.md#a-frozen-hub). It is as of
+    /// What was executed that touches `account` from `height` on, as far
+    /// as it fits in one answer, then a token hub's issuer's hold as of the
+    /// newest final block, and the final block the answer covers. Every
+    /// answer states the issuer's hold, a short one and `Trimmed` too, so a
+    /// member reads a freeze from what f + 1 validators sign alike, as it
+    /// reads everything else (spec/areas/hubs.md#a-frozen-hub). It is as of
     /// the newest block even when the answer stops before it: the hold is
     /// known only as it is now.
     fn since(&self, account: AccountNumber, from: u64) -> Vec<Statement> {
+        let ledger = &self.chain.ledger;
+        let issuer = Statement::issuer(ledger);
         let tip = Statement::Final {
-            height: self.chain.ledger.height(),
-            timestamp: self.chain.ledger.timestamp(),
+            height: ledger.height(),
+            timestamp: ledger.timestamp(),
         };
-        let issuer = Statement::issuer(&self.chain.ledger);
         // What we no longer keep, we cannot vouch for: the member reads its
         // state anew (spec/areas/hubs.md#the-validators-service).
         if from < self.complete_from {
-            return alloc::vec![Statement::Trimmed {
-                height: self.chain.ledger.height(),
+            let trimmed = Statement::Trimmed {
+                height: ledger.height(),
                 below: self.complete_from,
-            }];
+            };
+            return issuer.into_iter().chain([trimmed]).collect();
         }
         let mut statements = Vec::new();
         let mut bytes = 0usize;
@@ -1370,6 +1373,68 @@ mod tests {
         };
         v.tick(2_001);
         assert_eq!(payouts(&mut v), 1, "signed once let go");
+    }
+
+    // spec/areas/hubs.md#a-frozen-hub: a token hub's answers to `Since`
+    // end with the issuer's hold as of the tip, before the final block,
+    // whether short, long or trimmed; an XRP hub's never carry it. The end
+    // of an answer takes at most what the bound on its bytes counts.
+    #[test]
+    fn a_token_hubs_answers_state_the_issuers_hold() {
+        use crate::operation::Issuer;
+        let mut v = validator();
+        assert!(
+            !v.since(AccountNumber(6), 1)
+                .iter()
+                .any(|s| matches!(s, Statement::Issuer { .. })),
+            "an XRP hub has no issuer"
+        );
+        let ledger = &mut v.chain.ledger;
+        ledger.rules.terms = crate::rules::tests::token_terms(ledger.rules.terms.clone());
+        ledger.frozen = Some(ledger.timestamp());
+        ledger.issuer = Issuer {
+            ledger: 5,
+            frozen: true,
+            fee: false,
+        };
+        let held = Statement::issuer(&v.chain.ledger).unwrap();
+        assert!(matches!(
+            held,
+            Statement::Issuer {
+                frozen: Some(_),
+                held: true,
+                ..
+            }
+        ));
+        let tail = [
+            held.clone(),
+            Statement::Final {
+                height: v.chain.ledger.height(),
+                timestamp: v.chain.ledger.timestamp(),
+            },
+        ];
+        assert_eq!(tail.len(), SINCE_TAIL);
+        assert_eq!(
+            tail.iter().map(Encode::encoded_len).sum::<usize>(),
+            FINAL_STATEMENT_BYTES + ISSUER_STATEMENT_BYTES
+        );
+        // Short: what touched the account, then the tail.
+        v.history.push_back(block_of(2, 1));
+        let short = v.since(AccountNumber(6), 1);
+        assert_eq!(short.len(), 1 + SINCE_TAIL);
+        assert_eq!(&short[1..], &tail);
+        // Long: it stops before a block, the hold as of the tip before the
+        // final block it covers.
+        v.history.push_back(block_of(3, MAX_ANSWER));
+        let long = v.since(AccountNumber(6), 1);
+        assert_eq!(long.len(), 1 + SINCE_TAIL);
+        assert_eq!(long[1], held);
+        assert!(matches!(long[2], Statement::Final { height: 2, .. }));
+        // Trimmed: the member reads its state anew, and the freeze with it.
+        v.complete_from = 2;
+        let trimmed = v.since(AccountNumber(6), 1);
+        assert_eq!(trimmed[0], held);
+        assert!(matches!(trimmed[1], Statement::Trimmed { below: 2, .. }));
     }
 
     // Our attestation of a deposit that failed for want of room waits, and

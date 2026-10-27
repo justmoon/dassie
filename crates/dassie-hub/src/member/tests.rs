@@ -2052,3 +2052,114 @@ fn a_frozen_hub_keeps_the_queue_for_claims() {
     account.submit(claim, claim_on(2, 1)).unwrap();
     account.check_invariants();
 }
+
+// The owner's view of its assets: a member's account holds its hub's
+// asset at six decimals, as the hub counts it: XRP in an XRP hub, the
+// token, named by its code and issuer, in a token hub. A freeze is of the
+// escrow's line, which the hub's status shows, not the member's
+// (spec/areas/hubs.md#a-frozen-hub).
+#[test]
+fn an_account_holds_its_hubs_asset() {
+    let held = |account: &HubAccount| {
+        let holdings = account.holdings();
+        assert_eq!(holdings.len(), 1);
+        holdings[0].clone()
+    };
+    let xrp = held(&synced(&Hub::new()));
+    assert_eq!(
+        (xrp.code.as_str(), xrp.issuer.clone(), xrp.scale),
+        ("XRP", None, 6)
+    );
+    assert!(xrp.amount > 0 && !xrp.freeze.line);
+
+    let mut hub = Hub::new();
+    hub.rules = crate::ledger::tests::resigned(hub.rules, |rules| {
+        rules.terms = crate::rules::tests::token_terms(rules.terms.clone());
+    });
+    let mut account = synced(&hub);
+    let token = held(&account);
+    assert_eq!(token.code, dassie_xrpl::dsusd::CURRENCY.code());
+    assert_eq!(token.issuer, Some(dassie_xrpl::dsusd::ISSUER.to_address()));
+    assert_eq!(
+        (token.scale, token.amount, token.reserve),
+        (6, xrp.amount, xrp.reserve)
+    );
+    issuer_says(&hub, &mut account, 0..2, 6, Some(1_006));
+    assert_eq!(held(&account).freeze, dassie_settlement::Freeze::default());
+}
+
+// spec/areas/hubs.md#a-frozen-hub: the validators state the issuer's hold
+// as of their tip, so an account may learn of a freeze and its thaw before
+// it read a reduction applied before the freeze. Read after, the reduction
+// falls due as late as one it read first: its notice extended by the
+// freeze, as the hub's thaw extends it, so it never applies here before it
+// does in the hub.
+#[test]
+fn a_reduction_read_after_the_thaw_waits_as_the_hub_does() {
+    let hub = Hub::new();
+    let reduced = |height: u64| {
+        let signed = SignedMemberOperation::sign(
+            &hub.rules.id(),
+            AccountNumber(9),
+            1,
+            10,
+            MemberOperation::HoldReduce {
+                hold: crate::promise::HoldNumber(1),
+                amount: 1,
+            },
+            &NodeKey::from_bytes(&[9; 32]),
+        );
+        Statement::Executed {
+            height,
+            timestamp: height,
+            index: 0,
+            operation: Operation::Member(signed),
+            outcome: Outcome::Applied {
+                fee: 10,
+                detail: crate::ledger::Detail::None,
+            },
+        }
+    };
+    let read = |account: &mut HubAccount| {
+        let statements = [
+            opened_toward_us(&hub, 9, 1, 6),
+            reduced(7),
+            Statement::Final {
+                height: 7,
+                timestamp: 7,
+            },
+        ];
+        for v in 0..3 {
+            say_all(&hub, account, v, &statements);
+        }
+        assert_eq!(account.cursor(), 7);
+    };
+    // Frozen since the block stamped 10, as of height 20; thawed as of
+    // height 30, stamped 1_030.
+    let freeze_and_thaw = |account: &mut HubAccount| {
+        issuer_says(&hub, account, 0..2, 20, Some(10));
+        issuer_says(&hub, account, 0..2, 30, None);
+    };
+    let due = |account: &HubAccount| {
+        account
+            .hold(crate::promise::HoldNumber(1))
+            .and_then(|mirror| mirror.reduction)
+            .map(|(_, at)| at)
+    };
+    let notice = hub.rules.terms.timers.hold_notice;
+    assert!(notice > 10, "pending at the freeze");
+
+    let mut first = synced(&hub);
+    first.follow([AccountNumber(9)]);
+    read(&mut first);
+    assert_eq!(due(&first), Some(7 + notice));
+    freeze_and_thaw(&mut first);
+    assert_eq!(due(&first), Some(7 + notice + 1_020));
+
+    let mut after = synced(&hub);
+    after.follow([AccountNumber(9)]);
+    freeze_and_thaw(&mut after);
+    read(&mut after);
+    assert_eq!(due(&after), due(&first));
+    after.check_invariants();
+}

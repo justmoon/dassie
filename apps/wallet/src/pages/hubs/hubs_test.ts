@@ -19,6 +19,8 @@ import {
   holdsTotal,
   hubConnectionText,
   hubCurrency,
+  hubIssuerText,
+  hubStandingText,
   moveText,
   payoutState,
   payoutText,
@@ -53,6 +55,36 @@ test("the account's connection is said only when it is not up to date", () => {
     /first deposit opens it/,
   );
   assertMatch(hubConnectionText(LedgerConnection.FAILED)!, /cannot follow/);
+});
+
+test("a hub its token's issuer froze says so, and since when", () => {
+  assertEquals(hubIssuerText({ escrowHeld: false }, NOW), undefined);
+  const frozen = {
+    frozenSinceUnixMs: BigInt(NOW - 120_000),
+    escrowHeld: true,
+    connection: LedgerConnection.SYNCING,
+  };
+  assertMatch(
+    hubIssuerText(frozen, NOW)!,
+    /holds the hub's escrow, which froze the hub 2 min ago/,
+  );
+  assertMatch(hubIssuerText(frozen, NOW)!, /no payment crosses this hub/);
+  // Its account follows the hub all the same: not "reading".
+  assertEquals(hubStandingText(frozen), undefined);
+  // One the node cannot follow says so all the same.
+  assertMatch(
+    hubStandingText({ ...frozen, connection: LedgerConnection.FAILED })!,
+    /cannot follow/,
+  );
+  assertMatch(
+    hubStandingText({ connection: LedgerConnection.SYNCING })!,
+    /Reading/,
+  );
+  // An ended hub the issuer still holds pays out nothing until it lets go.
+  assertMatch(
+    hubIssuerText({ escrowHeld: true }, NOW)!,
+    /pays out nothing until the issuer lets go/,
+  );
 });
 
 test("validators answering", () => {

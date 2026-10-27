@@ -166,6 +166,13 @@ pub struct HubStatus {
     pub given_up: Option<(Direction, u64)>,
     /// How many validators the hub has, and how many answer.
     pub validators: (usize, usize),
+    /// The stamp of the hub's block from which a token hub's issuer
+    /// freezes it, as f + 1 validators last said
+    /// (spec/areas/hubs.md#a-frozen-hub).
+    pub frozen_since_ms: Option<u64>,
+    /// Whether the issuer holds the escrow: frozen, or charging a transfer
+    /// fee.
+    pub escrow_held: bool,
 }
 
 /// Internal units in the hub asset's smallest unit, rounded up: a floor is
@@ -1048,6 +1055,8 @@ impl Core {
             late: funding.late(now),
             given_up: funding.given_up,
             validators: account.answering(),
+            frozen_since_ms: account.frozen(),
+            escrow_held: account.escrow_held(),
         })
     }
 
