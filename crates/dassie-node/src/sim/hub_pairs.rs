@@ -461,7 +461,7 @@ pub fn describe(seed: u64) -> String {
     let (_, setup) = setup(seed);
     format!(
         "{} members of an XRP hub and a DSUSD hub of {} validators each; the hub of the \
-         methods their packets do not take fails",
+         method their packets do not take fails",
         setup.members, setup.validators
     )
 }
