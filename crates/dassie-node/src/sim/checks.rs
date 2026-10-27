@@ -36,7 +36,7 @@ pub fn check_cap(sim: &Sim, payment: &Payment) -> Result<(), String> {
         .into_iter()
         .find(|row| row.id == id)
         .unwrap();
-    let ledger = sim.settling.ledger();
+    let ledger = payment.ledger;
     let path = format!("{ledger}:equity/owner/btp/{id}");
     let mut spent: Vec<(u64, u64)> = Vec::new();
     let mut after = None;
@@ -686,11 +686,11 @@ fn check_outgoing_payment(
     Ok(())
 }
 
-/// Whether the run is over one hub of XRP run in the simulation, whose
-/// members fund their accounts in it from their XRP Ledger accounts: its
-/// books are the hub's to check.
+/// Whether the run is over a hub of XRP run in the simulation, or two hubs,
+/// whose members fund their accounts in them from their owner books on the
+/// XRP Ledger: its books are the hubs' to check.
 fn is_hub_run(sim: &Sim) -> bool {
-    matches!(sim.settling, Settling::Hub(_))
+    matches!(sim.settling, Settling::Hub(_) | Settling::Hubs(_))
 }
 
 /// Each node's books, on their own: they hold what its scheme holds, and

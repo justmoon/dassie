@@ -14,6 +14,12 @@ use dassie_node::sim::swarm;
 /// commit, forgeries and dropped connections to the fake XRP Ledger.
 const HUB_SEED: u64 = 33;
 
+/// The seed of a run over two hubs the tests run: one of the shortest in
+/// wall time, two members of an XRP hub and a DSUSD hub of 6 validators
+/// each, paying in both currencies through crashes mid-payment, a cut,
+/// failed commits and dropped connections to the fake XRP Ledger.
+const TWO_HUBS_SEED: u64 = 130;
+
 /// A seed passes, and run twice at once on two threads makes the same run:
 /// nothing a run does reaches another, or depends on its thread. A seed
 /// whose run takes a fraction of a second: three nodes on the stub with
@@ -38,6 +44,10 @@ fn a_random_seed_runs_over_a_hub() {
         "seed {HUB_SEED}: {}",
         run.outcome
     );
+    assert!(
+        !run.counts.contains_key("runs over two hubs"),
+        "seed {HUB_SEED} is over one hub"
+    );
     for reached in [
         "runs over a hub",
         "prepares over a hub",
@@ -47,6 +57,34 @@ fn a_random_seed_runs_over_a_hub() {
         assert!(
             run.counts.get(reached).is_some_and(|count| *count > 0),
             "seed {HUB_SEED} reached no {reached}: {:?}",
+            run.counts
+        );
+    }
+}
+
+// spec/areas/testing.md#the-simulations: a seed that draws a run over two
+// hubs passes, its members settling over both through the chaos, packets
+// crossing each, and its books are judged hub by hub as the runs over hubs
+// judge them.
+#[test]
+fn a_random_seed_runs_over_two_hubs() {
+    let run = caught(|| swarm::run(TWO_HUBS_SEED));
+    assert_eq!(
+        run.outcome,
+        Outcome::Pass,
+        "seed {TWO_HUBS_SEED}: {}",
+        run.outcome
+    );
+    for reached in [
+        "runs over two hubs",
+        "prepares over the XRP hub",
+        "prepares over the DSUSD hub",
+        "settlements taken",
+        "ledger drops",
+    ] {
+        assert!(
+            run.counts.get(reached).is_some_and(|count| *count > 0),
+            "seed {TWO_HUBS_SEED} reached no {reached}: {:?}",
             run.counts
         );
     }

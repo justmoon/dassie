@@ -28,12 +28,12 @@ use dassie_kit::sim::{Outcome, Run, SeededRng};
 
 use super::checks::{check_events, check_incoming, first_failure};
 use super::hub::{MemberLie, terms};
-// The checks moved to `hub_checks`, still reachable here, where the runs
-// beside this one found them.
+// Whether the members joined, still reachable here, where the tests found
+// it.
 pub use super::hub_checks::joined;
-pub(super) use super::hub_checks::{
-    check_escrow, check_hub_books, check_hub_validators, check_in_step, check_losses, check_moved,
-    check_owners, check_payout, check_settled_with_honest, hub_standing, in_step, members, moving,
+use super::hub_checks::{
+    check_each, check_losses, check_payout, check_settled_with_honest, check_validators_in,
+    hub_standing, idle_in, places,
 };
 use super::scripted::{READY_WITHIN_MS, ended};
 use super::{START, Settling, Sim, key, received};
@@ -271,13 +271,10 @@ pub(super) fn over_hub(sim: &Sim) -> Result<(), Outcome> {
 /// done. A liar's moves and reading are its own.
 pub(super) fn settle_down(sim: &mut Sim, liar: Option<usize>) {
     sim.run_until(sim.now + CALM_MS);
-    let settled = |sim: &Sim| {
-        members(sim)
-            .filter(|index| Some(*index) != liar)
-            .all(|index| !moving(sim, index) && in_step(sim, index))
-            && check_settled_with_honest(sim, liar).is_ok()
-    };
-    sim.run_until_or(sim.now + SETTLED_WITHIN_MS, settled);
+    let all = places(sim);
+    let settled =
+        move |sim: &Sim| idle_in(sim, &all, liar) && check_settled_with_honest(sim, liar).is_ok();
+    sim.run_until_or(sim.now + SETTLED_WITHIN_MS, &settled);
     // The last settlement may have executed a block before the accounts
     // read it: a while of quiet, then the accounts read the hub again.
     sim.run_until(sim.now + CALM_MS);
@@ -332,30 +329,23 @@ fn check_calm_with(
     } else {
         super::checks::check_finished(sim).map_err(|problem| Outcome::liveness("finished", problem))
     };
+    let liar = liar.map(|(node, _)| node);
     first_failure(
         [
             check_events(sim).map_err(|problem| Outcome::safety("events", problem)),
-            check_hub_validators(sim).map_err(|problem| Outcome::safety("hub-agreement", problem)),
             super::checks::check_hub_packets(sim)
                 .map_err(|problem| Outcome::safety("hub-packets", problem)),
             super::checks::check_hub_credit(sim)
                 .map_err(|problem| Outcome::safety("hub-credit", problem)),
             check_losses(sim).map_err(|problem| Outcome::safety("hub-losses", problem)),
-            check_hub_books(sim, liar.map(|(node, _)| node)).map_err(|problem| {
-                Outcome::safety("hub-books", format!("{problem}; {}", hub_standing(sim)))
-            }),
-            check_owners(sim, paid_in)
-                .map_err(|problem| Outcome::safety("hub-owner-books", problem)),
-            check_escrow(sim).map_err(|problem| Outcome::safety("hub-escrow", problem)),
-            check_in_step(sim, liar.map(|(node, _)| node))
-                .map_err(|problem| Outcome::liveness("hub-in-step", problem)),
-            check_moved(sim, liar.map(|(node, _)| node))
-                .map_err(|problem| Outcome::liveness("hub-moves", problem)),
-            finished,
-            check_settled_with_honest(sim, liar.map(|(node, _)| node))
-                .map_err(|problem| Outcome::liveness("settled", problem)),
         ]
         .into_iter()
+        .chain(check_each(sim, &places(sim), liar, paid_in))
+        .chain([
+            finished,
+            check_settled_with_honest(sim, liar)
+                .map_err(|problem| Outcome::liveness("settled", problem)),
+        ])
         .chain(incoming)
         .collect::<Vec<_>>(),
     )
@@ -758,7 +748,7 @@ fn script_cycled(sim: &mut Sim, rng: &mut SeededRng) -> Result<(), Outcome> {
     }
     sim.count("fresh keys cycled");
     first_failure([
-        check_hub_validators(sim).map_err(|problem| Outcome::safety("hub-agreement", problem)),
+        check_validators_in(sim, 0).map_err(|problem| Outcome::safety("hub-agreement", problem)),
         super::checks::check_hub_packets(sim)
             .map_err(|problem| Outcome::safety("hub-packets", problem)),
         super::checks::check_hub_credit(sim)
@@ -770,6 +760,7 @@ fn script_cycled(sim: &mut Sim, rng: &mut SeededRng) -> Result<(), Outcome> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::sim::hub_checks::check_escrow_in;
 
     // A withdrawal the escrow paid and the hub has not settled yet: the
     // hub still owes it until a quorum attests the payment, so the escrow
@@ -801,7 +792,7 @@ mod tests {
             sim.run_until_or(sim.now + 120_000, can_pay),
             "the deposit did not land"
         );
-        check_escrow(&sim).unwrap();
+        check_escrow_in(&sim, 0).unwrap();
         let hub = sim.hub.as_deref().unwrap();
         let before = sim.ledger.balance(hub.escrow()).unwrap_or(0);
         sim.step(0, |core| {
@@ -821,6 +812,6 @@ mod tests {
             assert!(sim.now < deadline, "the escrow never paid the withdrawal");
             sim.run_until(sim.now + 5);
         }
-        check_escrow(&sim).unwrap();
+        check_escrow_in(&sim, 0).unwrap();
     }
 }
