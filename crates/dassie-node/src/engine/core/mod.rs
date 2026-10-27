@@ -345,14 +345,10 @@ pub struct Core {
     /// keeps room for (spec/decisions/account-budgets.md,
     /// spec/decisions/lazy-downlink-accounts.md).
     downlinks: downlinks::Downlinks,
-    /// Peers' connector endpoints, both ways.
+    /// Peers' connector endpoints, both ways: one per peering, with a slot
+    /// per settlement method (spec/decisions/settlement-methods.md).
     peer_endpoints: BTreeMap<dassie_identity::NodeId, u64>,
     endpoint_peers: BTreeMap<u64, dassie_identity::NodeId>,
-    /// The settlement method each peer's endpoint carries packets on: the
-    /// one of the endpoint's ledger, the peering's first when the endpoint
-    /// was made. Until the connector has a slot per method, every packet
-    /// with a peer takes it (spec/decisions/settlement-methods.md).
-    endpoint_methods: BTreeMap<dassie_identity::NodeId, dassie_peer::wire::SchemeId>,
     next_peer_endpoint: u64,
     /// The realm: `test` or `g` in nodes' addresses, and the realm of the
     /// only ledgers the node runs.
@@ -515,7 +511,6 @@ impl Core {
             },
             peer_endpoints: BTreeMap::new(),
             endpoint_peers: BTreeMap::new(),
-            endpoint_methods: BTreeMap::new(),
             next_peer_endpoint: 0,
             realm: parts.realm,
             live: parts.live,
@@ -655,7 +650,13 @@ impl Core {
     fn finish_round(&mut self, out: &mut Vec<Output>) -> bool {
         self.peer_timers();
         self.scheme_timers();
+        let checked_at = self.settle.at_ms;
         self.settlement_timers();
+        // A settlement check judges each method's room, which withdraws it
+        // or not: its slot follows.
+        if self.settle.at_ms != checked_at {
+            self.sync_peer_slots();
+        }
         self.fund_hub();
         self.expire(self.now_ms);
         self.hub_waits(self.now_ms);
@@ -937,6 +938,10 @@ impl Core {
     }
 }
 
+// A peer's connector endpoint has a slot for each method of its peering
+// (spec/areas/connector.md#settlement-method-slots).
+const _: () = assert!(dassie_connector::MAX_SLOTS == dassie_peer::MAX_METHODS);
+
 /// The bounds must fit one another (asserted at start; configuration, not
 /// input).
 fn check_bounds(policies: &Policies) {
@@ -959,6 +964,7 @@ fn check_bounds(policies: &Policies) {
         SCHEMES.len() < dassie_peer::MAX_SCHEMES,
         "every scheme the node runs fits its link state"
     );
+
     // A downlink sends only its own packets, and has a child's share.
     assert!(
         connector.max_pending

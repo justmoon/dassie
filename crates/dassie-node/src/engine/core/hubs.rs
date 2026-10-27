@@ -554,8 +554,8 @@ impl Core {
         let Some(node) = self.endpoint_peers.get(&endpoint).copied() else {
             return;
         };
-        // Our packets to it take its endpoint's method.
-        let Some(method) = self.packet_method(&node) else {
+        // The method the packet went on.
+        let Some(method) = self.method_on(&node, wait.ledger) else {
             return;
         };
         if let Some((scheme, peer)) = self.hub_peering(&node, method) {

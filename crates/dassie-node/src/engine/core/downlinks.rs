@@ -203,13 +203,27 @@ pub(super) enum PrepareIn<'p> {
 }
 
 impl Core {
-    /// Hands the connector a Prepare from `source` with `request_id`; a
-    /// packet that moves money to a downlink without accounts opens them
-    /// (spec/decisions/lazy-downlink-accounts.md).
+    /// Hands the connector a Prepare from one of the node's own endpoints,
+    /// `source`, with `request_id`, as [`Self::connect_prepare_on`] does.
     pub(super) fn connect_prepare(
         &mut self,
         now_ms: u64,
+        source: (EndpointId, u32),
+        packet: PrepareIn<'_>,
+    ) -> dassie_connector::Outcome {
+        self.connect_prepare_on(now_ms, source, None, packet)
+    }
+
+    /// Hands the connector a Prepare from `source` with `request_id`, on
+    /// its slot on `on`, the ledger of the method a peer's Prepare came on
+    /// (a child's only slot if `None`); a packet that moves money to a
+    /// downlink's slot without accounts opens them
+    /// (spec/decisions/lazy-downlink-accounts.md).
+    pub(super) fn connect_prepare_on(
+        &mut self,
+        now_ms: u64,
         (source, request_id): (EndpointId, u32),
+        on: Option<LedgerId>,
         packet: PrepareIn<'_>,
     ) -> dassie_connector::Outcome {
         let Self {
@@ -249,6 +263,7 @@ impl Core {
         connector.handle_prepare_with(
             now_ms,
             (source, request_id),
+            on,
             packet,
             ledger,
             &prices.table,
@@ -296,18 +311,11 @@ impl Core {
         let Some(opened) = opening.open(self.now_ms, &mut self.ledger, node, on, start) else {
             return false;
         };
-        // Its packets book on them from now on, if they take a method on
-        // this ledger: its endpoint's.
-        let peered_here = self.endpoint_methods.get(&node).is_some_and(|method| {
-            Name::new(method.as_str()).is_ok_and(|peered| {
-                self.schemes
-                    .get(&peered)
-                    .is_some_and(|active| active.scheme.ledger() == on)
-            })
-        });
-        if peered_here && let Some(&endpoint) = self.peer_endpoints.get(&node) {
+        // Its packets on its method on this ledger book on them from now
+        // on, if it has one.
+        if let Some(&endpoint) = self.peer_endpoints.get(&node) {
             self.connector
-                .open_account(EndpointId::Peer(endpoint), opened.account);
+                .open_account(EndpointId::Peer(endpoint), on, opened.account);
         }
         true
     }

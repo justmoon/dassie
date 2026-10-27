@@ -55,7 +55,7 @@ pub use connector::{
     Connector, Forwarded, HubWait, MAX_CHILD_ADDRESSES, MAX_ROUTE_OPTIONS, OpensAccounts,
     OpensNone, Outcome, Posted, Responded, RoutesError, Stats, Upstream,
 };
-pub use endpoint::{EndpointError, EndpointId};
+pub use endpoint::{EndpointError, EndpointId, MAX_SLOTS, SlotError, SlotView};
 pub use fx::{RATE_PRECISION, Rates, convert, convert_at};
 pub use pricing::{
     BestOutput, Holding, Holdings, Inventory, Price, PriceError, PriceTable, Pricing,

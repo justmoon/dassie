@@ -74,6 +74,7 @@ fn send(h: &mut Harness, from: EndpointId, to: &str, amount: u64, opener: &mut O
     let outcome = h.connector.handle_prepare_with(
         NOW,
         (from, request_id),
+        None,
         &packet,
         &mut h.ledger,
         &prices,

@@ -2,22 +2,37 @@
 
 use alloc::collections::BTreeMap;
 
-use dassie_ledger::{AccountId, Ledger, Reference};
+use dassie_ledger::{AccountId, Ledger, LedgerId, Reference};
 
 use super::Connector;
-use crate::endpoint::EndpointId;
+use crate::endpoint::{EndpointId, MAX_SLOTS};
+
+/// What the packets in flight count on one slot: packets either way, the
+/// money from it, and the money to it with how many packets carry some.
+#[derive(Clone, Copy, Debug, Default)]
+struct OnSlot {
+    pending: usize,
+    money_from: u64,
+    money_to: u64,
+    carrying_to: usize,
+}
 
 impl Connector {
     /// Asserts the connector's invariants, and that its packets' transfers
     /// are pending in `ledger` with their trace IDs:
     ///
     /// - the deadline and incoming tables match the packets in flight;
-    /// - each endpoint's count of packets in flight from it is right, and
-    ///   each peer's money in flight either way, within its limit
-    ///   (spec/decisions/packets-in-flight.md);
+    /// - each endpoint's count of packets in flight from it is right; each
+    ///   has a slot per ledger at most, a child one, a peer at most
+    ///   [`MAX_SLOTS`]; each packet is on a slot of its source and of its
+    ///   destination, and each slot's count of its packets in flight is
+    ///   right, a removed slot having some; and each peer's money in flight
+    ///   either way on each slot, within its limit
+    ///   (spec/decisions/packets-in-flight.md,
+    ///   spec/decisions/settlement-methods.md);
     /// - only peers earn weight in drawing next hops, and a packet earns
-    ///   its next hop at most what came in, only between peers
-    ///   (spec/decisions/weighted-next-hops.md);
+    ///   its next hop at most what came in, only between peers and only on
+    ///   the ledger it came in on (spec/decisions/weighted-next-hops.md);
     /// - the bounds hold, and the trace is in order.
     ///
     /// # Panics
@@ -27,8 +42,7 @@ impl Connector {
         self.check_bounds();
         assert_eq!(self.deadlines.len(), self.pending.len(), "deadlines");
         let mut from: BTreeMap<EndpointId, usize> = BTreeMap::new();
-        let mut money_from: BTreeMap<EndpointId, u64> = BTreeMap::new();
-        let mut money_to: BTreeMap<EndpointId, (u64, usize)> = BTreeMap::new();
+        let mut on_slots: BTreeMap<(EndpointId, LedgerId), OnSlot> = BTreeMap::new();
         let mut live_incoming = 0;
         for (&(destination, request_id), entry) in &self.pending {
             assert!(
@@ -48,11 +62,14 @@ impl Connector {
                     "a packet without its incoming request ID"
                 );
                 *from.entry(entry.source).or_default() += 1;
-                *money_from.entry(entry.source).or_default() += entry.amount_in;
+                let on = on_slots.entry((entry.source, entry.in_ledger)).or_default();
+                on.pending += 1;
+                on.money_from += entry.amount_in;
             }
-            let to = money_to.entry(destination).or_default();
-            to.0 += entry.amount_out;
-            to.1 += usize::from(entry.amount_out > 0);
+            let on = on_slots.entry((destination, entry.out_ledger)).or_default();
+            on.pending += 1;
+            on.money_to += entry.amount_out;
+            on.carrying_to += usize::from(entry.amount_out > 0);
             for id in entry.transfers.into_iter().flatten() {
                 let transfer = ledger.pending(id);
                 assert!(
@@ -62,6 +79,21 @@ impl Connector {
             }
         }
         assert_eq!(self.incoming.len(), live_incoming, "incoming request IDs");
+        self.check_endpoints(&from, &on_slots);
+        self.check_caps();
+        self.check_earnings();
+        self.trace.check_invariants();
+    }
+
+    /// Each endpoint's count of packets in flight from it, and each of its
+    /// slots' packets and money in flight, are what the packets in flight
+    /// say, within bounds; and every packet is on a slot of its endpoints.
+    fn check_endpoints(
+        &self,
+        from: &BTreeMap<EndpointId, usize>,
+        on_slots: &BTreeMap<(EndpointId, LedgerId), OnSlot>,
+    ) {
+        let mut slots_seen = 0;
         for (id, endpoint) in self.endpoints.iter() {
             let expected = from.get(id).copied().unwrap_or(0);
             assert_eq!(
@@ -69,27 +101,46 @@ impl Connector {
                 "packets in flight from {id}"
             );
             assert!(endpoint.pending_from <= self.max_pending_from(*id));
-            if !id.is_peer() {
-                assert_eq!((endpoint.money_from, endpoint.money_to), (0, 0));
-                continue;
+            let most = if id.is_peer() { MAX_SLOTS } else { 1 };
+            assert!(endpoint.slots.len() <= most, "slots of {id} within bounds");
+            for (index, slot) in endpoint.slots.iter().enumerate() {
+                assert!(
+                    endpoint
+                        .slots
+                        .iter()
+                        .skip(index + 1)
+                        .all(|other| other.ledger != slot.ledger),
+                    "a slot of {id} per ledger"
+                );
+                let on = on_slots
+                    .get(&(*id, slot.ledger))
+                    .copied()
+                    .unwrap_or_default();
+                slots_seen += usize::from(on_slots.contains_key(&(*id, slot.ledger)));
+                assert_eq!(slot.pending, on.pending, "packets on a slot of {id}");
+                assert!(!slot.removed || slot.pending > 0, "a removed slot waits");
+                assert!(id.is_peer() || slot.usable(), "a child's slot is usable");
+                if !id.is_peer() {
+                    assert_eq!((slot.money_from, slot.money_to), (0, 0));
+                    continue;
+                }
+                let max = self.config.max_in_flight();
+                assert_eq!(slot.money_from, on.money_from, "money from {id}");
+                assert_eq!(slot.money_to, on.money_to, "money to {id}");
+                assert!(slot.money_from <= max, "money from {id} within bounds");
+                assert!(
+                    slot.money_to <= max || on.carrying_to == 1,
+                    "money to {id} within bounds"
+                );
             }
-            let max = self.config.max_in_flight();
-            let (to, packets) = money_to.get(id).copied().unwrap_or_default();
-            assert_eq!(
-                endpoint.money_from,
-                money_from.get(id).copied().unwrap_or(0),
-                "money in flight from {id}"
-            );
-            assert_eq!(endpoint.money_to, to, "money in flight to {id}");
-            assert!(endpoint.money_from <= max, "money from {id} within bounds");
-            assert!(
-                endpoint.money_to <= max || packets == 1,
-                "money to {id} within bounds"
-            );
         }
-        self.check_caps();
-        self.check_earnings();
-        self.trace.check_invariants();
+        // Every packet is on a slot of its endpoints, but those of a
+        // source that went away.
+        let gone = on_slots
+            .keys()
+            .filter(|(id, _)| self.endpoints.get(*id).is_none())
+            .count();
+        assert_eq!(slots_seen + gone, on_slots.len(), "a packet on no slot");
     }
 
     /// The packets in flight, endpoints and routes stay within their
@@ -109,7 +160,7 @@ impl Connector {
     fn check_earnings(&self) {
         for (id, endpoint) in self.endpoints.iter() {
             assert!(
-                id.is_peer() || endpoint.earned == 0,
+                id.is_peer() || endpoint.slots.iter().all(|slot| slot.earned == 0),
                 "only peers earn weight"
             );
         }
@@ -118,6 +169,7 @@ impl Connector {
                 entry.earns == 0
                     || (entry.source.is_peer()
                         && destination.is_peer()
+                        && entry.in_ledger == entry.out_ledger
                         && entry.earns <= entry.amount_in),
                 "a packet earns its next hop only its fee on transit"
             );

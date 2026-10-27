@@ -1,17 +1,24 @@
-//! A packet's next hop, and what each hop earned us
-//! (spec/areas/connector.md#routing, spec/decisions/weighted-next-hops.md).
+//! A packet's next hop and the method it takes there, and what each hop
+//! earned us (spec/areas/connector.md#routing,
+//! spec/decisions/weighted-next-hops.md,
+//! spec/decisions/settlement-methods.md).
 //!
-//! Beyond our own address, each packet's next hop is drawn from a route's
-//! usable options with a number the caller draws from its RNG, so a
-//! simulation stays deterministic. Among the options on the ledger the
-//! packet came in on, each is weighted by the fees we earned on packets
-//! fulfilled through it that kept their ledger, halved every half-life; a
-//! fixed share of the draws ignores the weights. Only when no option keeps
-//! the ledger does a peer's packet go to any usable option, each as likely.
-//! The owner's own packets never convert, so they go only to options on
-//! their own ledger.
+//! Each packet's next hop is drawn from a route's usable options with a
+//! number the caller draws from its RNG, so a simulation stays
+//! deterministic. A hop is usable while it is an endpoint, is not the
+//! packet's source, is not draining, and has a method available. Among the
+//! options with an available method on the ledger the packet came in on,
+//! each is weighted by the fees we earned on packets fulfilled through it on
+//! that ledger that kept it, halved every half-life, and the packet goes on
+//! that method; a fixed share of the draws ignores the weights. Only when no
+//! option keeps the ledger does a peer's packet go to any usable option,
+//! each as likely, on the method the price table gives the best rate for
+//! ([`route`](super::Connector)). The owner's own packets never convert, so
+//! they go only to options with a method on their own ledger. Which method
+//! a packet takes depends on the methods available, never on their room.
 
 use dassie_ilp::Address;
+use dassie_ledger::LedgerId;
 
 use super::{Connector, MAX_ROUTE_OPTIONS};
 use crate::config::PPM;
@@ -20,144 +27,173 @@ use crate::endpoint::EndpointId;
 /// A usable option and its weight.
 type Weighted = (EndpointId, u64);
 
+/// Where a packet goes next.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Hop {
+    /// To this endpoint, on its method on this ledger; with none, a peer's
+    /// packet that converts, on the hop's method the price table gives the
+    /// best rate for.
+    To(EndpointId, Option<LedgerId>),
+    /// A route has hops, but none with a method a packet may take now: a
+    /// want of liquidity, which passes.
+    NoMethod,
+    /// No route.
+    None,
+}
+
 impl Connector {
-    /// The next hop for `destination`: below our own address only
-    /// children (or F02); beyond it, the longest whole-segment
-    /// prefix in the route table, and one of its options that is an
-    /// endpoint, is not the packet's source (so packets do not bounce
-    /// between peers) and is not draining, drawn with `draw`. Without a
-    /// source, for [`first_hop`](Self::first_hop), the first such option.
+    /// The next hop for `destination`, for a packet from `source` on its
+    /// slot on a ledger: below our own address only children (or none);
+    /// beyond it, the longest whole-segment prefix in the route table, and
+    /// one of its usable options, drawn with `draw`, so packets do not
+    /// bounce between peers. Without a source, for
+    /// [`first_hop`](Self::first_hop), the first usable option and its
+    /// first available method.
     pub(crate) fn next_hop(
         &self,
         now_ms: u64,
         destination: Address<'_>,
-        source: Option<EndpointId>,
+        source: Option<(EndpointId, LedgerId)>,
         draw: u64,
-    ) -> Option<EndpointId> {
-        let own = Address::parse(&self.own_address).ok()?;
+    ) -> Hop {
+        let Ok(own) = Address::parse(&self.own_address) else {
+            return Hop::None;
+        };
+        // A child may address itself; only routes between nodes could
+        // loop.
         if destination.has_prefix(own) {
-            // A child may address itself; only routes between nodes could
-            // loop.
-            return self.endpoints.route_child(destination);
+            return self
+                .endpoints
+                .route_child(destination)
+                .map_or(Hop::None, |child| {
+                    self.draw_hop(now_ms, &[Some(child)], source, false, draw)
+                });
         }
         if let Some(below) = self.below_child_address(destination) {
-            return self.endpoints.route_child_below(&self.own_address, below);
+            return self
+                .endpoints
+                .route_child_below(&self.own_address, below)
+                .map_or(Hop::None, |child| {
+                    self.draw_hop(now_ms, &[Some(child)], source, false, draw)
+                });
         }
         // A periphery node forwards nothing for a peer.
-        if self.periphery.is_some() && source.is_some_and(EndpointId::is_peer) {
-            return None;
+        if self.periphery.is_some() && source.is_some_and(|(id, _)| id.is_peer()) {
+            return Hop::None;
         }
         let text = destination.as_str();
         let mut end = text.len();
-        loop {
-            let prefix = text.get(..end)?;
-            if let Some(options) = self.routes.get(prefix)
-                && let Some(hop) = self.draw_hop(now_ms, options, source, draw)
-            {
-                return Some(hop);
+        let mut no_method = false;
+        while let Some(prefix) = text.get(..end) {
+            if let Some(options) = self.routes.get(prefix) {
+                match self.draw_hop(now_ms, options, source, true, draw) {
+                    hop @ Hop::To(..) => return hop,
+                    Hop::NoMethod => no_method = true,
+                    Hop::None => {}
+                }
             }
-            end = prefix.rfind('.')?;
+            let Some(at) = prefix.rfind('.') else {
+                break;
+            };
+            end = at;
         }
+        if no_method { Hop::NoMethod } else { Hop::None }
     }
 
-    /// One of a route's usable `options` for a packet from `source`, drawn
-    /// with `draw`: weighted among those on the packet's incoming ledger,
-    /// and otherwise, for a peer's packet, each as likely. The owner's own
-    /// packets with no option on their ledger take the first usable one,
-    /// which refuses a packet that moves money (`amounts`).
+    /// One of `options` for a packet from `source`, drawn with `draw`:
+    /// weighted among those with an available method on the packet's
+    /// incoming ledger, which it then takes; otherwise, for a peer's
+    /// packet, each as likely, its method left to the price table. The
+    /// owner's own packets with no option on their ledger take the first
+    /// usable one and its first available method, which refuses a packet
+    /// that moves money (`amounts`). With `exclude_source`, the source is
+    /// no option.
     fn draw_hop(
         &self,
         now_ms: u64,
-        options: &[Option<EndpointId>; MAX_ROUTE_OPTIONS],
-        source: Option<EndpointId>,
+        options: &[Option<EndpointId>],
+        source: Option<(EndpointId, LedgerId)>,
+        exclude_source: bool,
         draw: u64,
-    ) -> Option<EndpointId> {
-        let usable = |hop: &&EndpointId| {
-            Some(**hop) != source
-                && self
-                    .endpoints
-                    .get(**hop)
-                    .is_some_and(|endpoint| !endpoint.draining)
-        };
-        let first = options.iter().flatten().find(usable).copied();
-        let Some(incoming) = source
-            .and_then(|source| self.endpoints.get(source))
-            .map(|endpoint| endpoint.ledger)
-        else {
-            return first;
-        };
+    ) -> Hop {
         let half_life_ms = self.config.earnings_half_life_ms;
+        let mut reachable = false;
+        let mut first = None;
         let mut keeping = [(EndpointId::Peer(0), 0); MAX_ROUTE_OPTIONS];
         let mut kept = 0;
         let mut any = [(EndpointId::Peer(0), 0); MAX_ROUTE_OPTIONS];
-        let mut usable_count = 0;
-        for hop in options.iter().flatten().filter(usable) {
-            let Some(endpoint) = self.endpoints.get(*hop) else {
+        let mut usable = 0;
+        for hop in options.iter().flatten().copied() {
+            if exclude_source && source.is_some_and(|(id, _)| id == hop) {
+                continue;
+            }
+            let Some(endpoint) = self.endpoints.get(hop).filter(|e| !e.draining) else {
                 continue;
             };
-            if endpoint.ledger == incoming
-                && let Some(slot) = keeping.get_mut(kept)
+            reachable = true;
+            let Some(slot) = endpoint.first_usable() else {
+                continue;
+            };
+            first = first.or(Some((hop, slot.ledger)));
+            if let Some(on) = source.and_then(|(_, incoming)| endpoint.usable_on(incoming))
+                && let Some(entry) = keeping.get_mut(kept)
             {
-                let (weight, _) = decayed(
-                    endpoint.earned,
-                    endpoint.earned_since_ms,
-                    now_ms,
-                    half_life_ms,
-                );
-                *slot = (*hop, weight);
+                let (weight, _) = decayed(on.earned, on.earned_since_ms, now_ms, half_life_ms);
+                *entry = (hop, weight);
                 kept += 1;
             }
-            if let Some(slot) = any.get_mut(usable_count) {
+            if let Some(entry) = any.get_mut(usable) {
                 // Converting packets are drawn evenly: no weight.
-                *slot = (*hop, 0);
-                usable_count += 1;
+                *entry = (hop, 0);
+                usable += 1;
             }
         }
-        if kept > 0 {
-            return choose(keeping.get(..kept)?, draw, self.config.explore_ppm);
+        let explore_ppm = self.config.explore_ppm;
+        let chosen = |options: &[Weighted], ledger| {
+            choose(options, draw, explore_ppm).map_or(Hop::None, |hop| Hop::To(hop, ledger))
+        };
+        match source {
+            Some((_, incoming)) if kept > 0 => {
+                chosen(keeping.get(..kept).unwrap_or_default(), Some(incoming))
+            }
+            Some((id, _)) if id.is_peer() && usable > 0 => {
+                chosen(any.get(..usable).unwrap_or_default(), None)
+            }
+            _ => match first {
+                Some((hop, ledger)) => Hop::To(hop, Some(ledger)),
+                None if reachable => Hop::NoMethod,
+                None => Hop::None,
+            },
         }
-        if source.is_some_and(EndpointId::is_peer) {
-            return choose(any.get(..usable_count)?, draw, self.config.explore_ppm);
-        }
-        first
     }
 
-    /// Counts `fee` toward `to`'s weight in the draw: the fee we earned on
-    /// a packet fulfilled through it that kept its ledger. Its earlier
-    /// earnings are halved first for every half-life since; with none
-    /// left, a half-life starts now.
-    pub(crate) fn earn(&mut self, now_ms: u64, to: EndpointId, fee: u64) {
+    /// Counts `fee` toward `to`'s weight on its method on `ledger` in the
+    /// draw: the fee we earned on a packet fulfilled through it that kept
+    /// its ledger. Its earlier earnings there are halved first for every
+    /// half-life since; with none left, a half-life starts now.
+    pub(crate) fn earn(&mut self, now_ms: u64, to: EndpointId, ledger: LedgerId, fee: u64) {
         if fee == 0 || !to.is_peer() {
             return;
         }
         let half_life_ms = self.config.earnings_half_life_ms;
-        if let Some(endpoint) = self.endpoints.get_mut(to) {
-            let (earned, since_ms) = decayed(
-                endpoint.earned,
-                endpoint.earned_since_ms,
-                now_ms,
-                half_life_ms,
-            );
-            endpoint.earned = earned.saturating_add(fee);
+        if let Some(slot) = self.endpoints.slot_mut(to, ledger) {
+            let (earned, since_ms) =
+                decayed(slot.earned, slot.earned_since_ms, now_ms, half_life_ms);
+            slot.earned = earned.saturating_add(fee);
             // Earnings from nothing start their half-life now.
-            endpoint.earned_since_ms = if earned == 0 { now_ms } else { since_ms };
+            slot.earned_since_ms = if earned == 0 { now_ms } else { since_ms };
         }
     }
 
-    /// What a peer earned us as of `now_ms`: its weight in drawing next
-    /// hops among those on its ledger.
+    /// What a peer earned us on its method on `ledger` as of `now_ms`: its
+    /// weight in drawing next hops among those with a method on that
+    /// ledger.
     #[must_use]
-    pub fn earnings(&self, id: EndpointId, now_ms: u64) -> Option<u64> {
+    pub fn earnings(&self, id: EndpointId, ledger: LedgerId, now_ms: u64) -> Option<u64> {
         let half_life_ms = self.config.earnings_half_life_ms;
-        self.endpoints.get(id).map(|endpoint| {
-            decayed(
-                endpoint.earned,
-                endpoint.earned_since_ms,
-                now_ms,
-                half_life_ms,
-            )
-            .0
-        })
+        self.endpoints
+            .slot(id, ledger)
+            .map(|slot| decayed(slot.earned, slot.earned_since_ms, now_ms, half_life_ms).0)
     }
 }
 

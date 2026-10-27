@@ -130,7 +130,7 @@ impl Core {
         if revoked {
             self.refuse_revoked(link, request_id);
         } else {
-            self.prepare_from(EndpointId::Btp(link), request_id, packet);
+            self.prepare_from((EndpointId::Btp(link), None), request_id, packet);
         }
     }
 
@@ -161,7 +161,8 @@ impl Core {
     ///
     /// For a response, whether it fulfilled a packet of ours and the books
     /// posted it: what a claim over a hub counts. `scheme` is the method a
-    /// Prepare came on.
+    /// Prepare came on, whose slot the connector books it on; one on a
+    /// scheme the node does not run is refused for want of liquidity on it.
     pub(super) fn peer_packet(
         &mut self,
         from: dassie_identity::NodeId,
@@ -179,9 +180,17 @@ impl Core {
         let source = EndpointId::Peer(endpoint);
         match packet.first() {
             Some(&PREPARE_TYPE) => {
-                if !self.prepare_from(source, request_id, packet)
-                    && let Some(method) = prepare_on
-                {
+                let on = prepare_on.map(|method| self.method_ledger(method));
+                let taken = match on {
+                    Some(None) => {
+                        let message = "the settlement method is not open";
+                        self.refuse_prepare(self.now_ms(), &from, request_id, message);
+                        false
+                    }
+                    Some(on) => self.prepare_from((source, on), request_id, packet),
+                    None => self.prepare_from((source, None), request_id, packet),
+                };
+                if !taken && let Some(method) = prepare_on {
                     self.hub_prepare_dropped(&from, method, request_id);
                 }
                 false
@@ -191,17 +200,38 @@ impl Core {
         }
     }
 
-    /// A Prepare from an endpoint, through the connector.
+    /// The ledger of the scheme of settlement method `method`, if the node
+    /// runs it.
+    pub(super) fn method_ledger(&self, method: SchemeId) -> Option<LedgerId> {
+        let name = dassie_ledger::Name::new(method.as_str()).ok()?;
+        self.schemes.get(&name).map(|active| active.scheme.ledger())
+    }
+
+    /// A Prepare from an endpoint, on its slot on `on` (a peer's method's
+    /// ledger; a child's only slot if `None`), through the connector.
     /// Whether the connector took it: forwarded, answered, or a duplicate
     /// of one it holds.
-    fn prepare_from(&mut self, source: EndpointId, request_id: u32, packet: &[u8]) -> bool {
+    fn prepare_from(
+        &mut self,
+        (source, on): (EndpointId, Option<LedgerId>),
+        request_id: u32,
+        packet: &[u8],
+    ) -> bool {
         let now = self.now_ms();
-        let outcome = self.connect_prepare(now, (source, request_id), PrepareIn::Given(packet));
+        let incoming = PrepareIn::Given(packet);
+        let outcome = self.connect_prepare_on(now, (source, request_id), on, incoming);
         match outcome {
             Outcome::Forward(forwarded) => self.forwarded(now, forwarded),
             Outcome::Respond(length) => {
+                // Answered on the slot it came on, a child's only one.
+                let ledger =
+                    on.or_else(|| self.connector.slots(source).next().map(|slot| slot.ledger));
+                let Some(ledger) = ledger else {
+                    return true;
+                };
                 let upstream = Upstream {
                     to: source,
+                    ledger,
                     request_id,
                     length,
                 };
@@ -272,12 +302,14 @@ impl Core {
         }
     }
 
-    /// Sends an ILP packet to a peer. A Prepare that cannot be sent fails
-    /// at once; a response that cannot leaves the peer to time out.
+    /// Sends an ILP packet to a peer, on its method on `ledger`: a
+    /// Prepare's is the slot the connector chose, a response's the one its
+    /// Prepare came on. A Prepare that cannot be sent fails at once; a
+    /// response that cannot leaves the peer to time out.
     fn send_to_peer(
         &mut self,
         now: u64,
-        endpoint: u64,
+        (endpoint, ledger): (u64, LedgerId),
         request_id: u32,
         prepare: Option<usize>,
         response: Option<usize>,
@@ -295,11 +327,10 @@ impl Core {
             (None, None) => return,
         };
         let packet = packet.to_vec();
-        // Every packet with the peer takes its endpoint's method, chosen by
-        // structure, never by room: one short of room answers T04, and the
-        // packet never moves to another method
-        // (spec/decisions/settlement-methods.md).
-        let method = self.packet_method(&node);
+        // The method the connector chose, by structure, never by room: one
+        // short of room answers T04, and the packet never moves to another
+        // method (spec/decisions/settlement-methods.md).
+        let method = self.method_on(&node, ledger);
         if prepare.is_none() {
             if let Some(method) = method {
                 self.answered_over_hub(now, (&node, method), request_id, &packet);
@@ -386,7 +417,7 @@ impl Core {
             EndpointId::Peer(endpoint) => {
                 self.send_to_peer(
                     now,
-                    endpoint,
+                    (endpoint, forwarded.ledger),
                     forwarded.request_id,
                     Some(forwarded.length),
                     None,
@@ -527,7 +558,7 @@ impl Core {
             EndpointId::Peer(endpoint) => {
                 self.send_to_peer(
                     now,
-                    endpoint,
+                    (endpoint, upstream.ledger),
                     upstream.request_id,
                     None,
                     Some(upstream.length),

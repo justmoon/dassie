@@ -19,8 +19,8 @@ use alloc::vec::Vec;
 
 use crate::pricing::DEFAULT_REBALANCE_PPM;
 use crate::{
-    Charges, Config, Connector, EndpointId, Holding, Inventory, Outcome, PriceTable, Pricing,
-    Rates, Responded, Upstream,
+    Charges, Config, Connector, EndpointId, Holding, Inventory, OpensNone, Outcome, PriceTable,
+    Pricing, Rates, Responded, Upstream,
 };
 use dassie_ilp::{
     Address, ErrorCode, Fulfill, MAX_PACKET_LENGTH, Prepare, Reject, Response, Timestamp,
@@ -147,6 +147,31 @@ impl Harness {
             packet,
             &mut self.ledger,
             &prices,
+            self.draw,
+            &mut self.buffer,
+        );
+        self.check();
+        outcome
+    }
+
+    /// Handles a Prepare from `from` on its slot on `on`, the ledger of the
+    /// settlement method a peer's Prepare came on.
+    pub fn prepare_on(
+        &mut self,
+        now: u64,
+        (from, on): (EndpointId, LedgerId),
+        request_id: u32,
+        packet: &[u8],
+    ) -> Outcome {
+        let prices = self.prices(now);
+        let outcome = self.connector.handle_prepare_with(
+            now,
+            (from, request_id),
+            Some(on),
+            packet,
+            &mut self.ledger,
+            &prices,
+            &mut OpensNone,
             self.draw,
             &mut self.buffer,
         );
@@ -325,6 +350,22 @@ impl Harness {
                 first,
             )
             .unwrap();
+        account
+    }
+
+    /// A further settlement method of the peer `peer:{id}`, whose node is
+    /// `node`, on `ledger`, extending it `trust` there: a slot on the
+    /// peer's accounts on that ledger.
+    pub fn add_slot(&mut self, ledger: LedgerId, id: u64, node: &str, trust: u64) -> AccountId {
+        let name = dassie_ledger::Name::new(node).unwrap();
+        let (account, _) = self.ledger.open_peer(0, ledger, name, trust).unwrap();
+        while let Some(entry) = self.ledger.poll_journal() {
+            self.journal.push(entry);
+        }
+        self.connector
+            .add_slot(EndpointId::Peer(id), ledger, Some(account))
+            .unwrap();
+        self.check();
         account
     }
 
