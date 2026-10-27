@@ -20,11 +20,7 @@
 
 import { test } from "node:test";
 import { assert, assertEquals, assertMatch } from "@std/assert";
-import {
-  LedgerConnection,
-  type Transfer,
-  TransferState,
-} from "@dassie/rpc/proto";
+import { type Transfer, TransferState } from "@dassie/rpc/proto";
 
 import {
   DASSIE,
@@ -33,6 +29,7 @@ import {
   SCENARIO_PORT_OFFSET,
 } from "./harness.ts";
 import {
+  fundedInOwnerBook,
   HUB_OWNER_LEDGER,
   HUB_WITHIN_MS,
   hubBooks,
@@ -137,9 +134,7 @@ test(
       // ledger, and shows where the owner deposits.
       await scenario.until("owner books funded", async () => {
         for (const node of nodes) {
-          const view = await ledger(node, HUB_OWNER_LEDGER);
-          if (view.connection !== LedgerConnection.SYNCED) return false;
-          if (view.ownerBalance <= 0n) return false;
+          if (!(await fundedInOwnerBook(node))) return false;
         }
         return true;
       }, HUB_WITHIN_MS);
@@ -173,6 +168,11 @@ test(
       const moved = after.deposited - before.deposited;
       assert(moved > 0n, "the payer moved nothing into the hub");
       assertEquals(after.withdrawn, before.withdrawn, "the payer withdrew");
+      assertEquals(
+        after.returned,
+        before.returned,
+        "the hub returned funds to the payer",
+      );
       // The owner book paid what moved and the XRP Ledger's fees for
       // moving it; the hub book got what moved, less what was paid and
       // the hub's fees for the operations that paid it.

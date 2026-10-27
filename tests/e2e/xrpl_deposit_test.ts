@@ -25,7 +25,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import process from "node:process";
 import { assert, assertEquals, assertMatch } from "@std/assert";
-import { LedgerConnection } from "@dassie/rpc/proto";
 import { HUB_OWNER_BOOK, Scenario } from "@dassie/dev/scenario";
 import type { Page } from "puppeteer-core";
 import { click, count, signIn, text, until } from "./browser.ts";
@@ -37,12 +36,23 @@ import {
   SCENARIO_PORT_OFFSET,
   startBrowser,
 } from "./harness.ts";
-import { HUB_OWNER_LEDGER, HUB_WITHIN_MS, ledger } from "./settling.ts";
+import {
+  fundedInOwnerBook,
+  HUB_OWNER_LEDGER,
+  HUB_WITHIN_MS,
+  ledger,
+} from "./settling.ts";
 
 const LEDGER = HUB_OWNER_LEDGER;
 const PORT_OFFSET = SCENARIO_PORT_OFFSET + 800;
 /** The faucet is asked at most once a minute, the account's making included. */
 const FAUCET_PACE_MS = 60_000;
+/**
+ * How long before that minute is over the test clicks the faucet's button
+ * at the latest: the click reaches the node a moment later, and must find
+ * the minute not yet passed.
+ */
+const FAUCET_MARGIN_MS = 15_000;
 
 async function missingTools(): Promise<string | undefined> {
   const missing = await missingScenarioTools();
@@ -83,11 +93,11 @@ test(
       // minute from now it would ask again.
       const started = Date.now();
       const member = await scenario.addNode();
-      await scenario.until("funded", async () => {
-        const view = await ledger(member, LEDGER);
-        return view.connection === LedgerConnection.SYNCED &&
-          view.ownerBalance > 0n;
-      }, HUB_WITHIN_MS);
+      await scenario.until(
+        "funded",
+        () => fundedInOwnerBook(member),
+        HUB_WITHIN_MS,
+      );
       const funded = await ledger(member, LEDGER);
       assert(funded.faucet, "the testnet has a faucet");
 
@@ -119,8 +129,8 @@ test(
       // The faucet made the account a moment ago: it is asked again only a
       // minute on, and the page says why.
       assert(
-        Date.now() - started < FAUCET_PACE_MS,
-        "a minute passed before the page was ready: the node would ask the faucet again",
+        Date.now() - started < FAUCET_PACE_MS - FAUCET_MARGIN_MS,
+        "nearly a minute passed before the page was ready: the node might ask the faucet again",
       );
       await click(page, "faucet");
       await until(

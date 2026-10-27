@@ -325,6 +325,13 @@ export async function peersOverHub(
   );
 }
 
+/** Whether `node`'s owner book of XRP follows the ledger and holds funds,
+ * as the faucet funds it. */
+export async function fundedInOwnerBook(node: ScenarioNode): Promise<boolean> {
+  const view = await ledger(node, HUB_OWNER_LEDGER);
+  return view.connection === LedgerConnection.SYNCED && view.ownerBalance > 0n;
+}
+
 /** Whether `node` follows the hub and has an account in it with funds. */
 export async function fundedInHub(node: ScenarioNode): Promise<boolean> {
   const view = await ledger(node, HUB_LEDGER);
