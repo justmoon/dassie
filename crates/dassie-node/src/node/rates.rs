@@ -3,12 +3,11 @@
 //! handed to the engine.
 
 use std::sync::Arc;
-use std::time::Duration;
 
 use tokio_util::sync::CancellationToken;
 
 use super::Node;
-use crate::clock::clock_moved;
+use crate::clock::interval_passed;
 use crate::log::target;
 use crate::outbound::WebRequest;
 use crate::rates::{self, Answer, BASE, MAX_RESPONSE_BYTES, RateSource};
@@ -32,30 +31,13 @@ impl Node {
                 self.fetch_rates(&engine).await;
             }
             let next_ms = self.now_ms().saturating_add(self.policies.rates_every_ms);
-            loop {
-                let wait_ms = next_ms.saturating_sub(self.now_ms());
-                if wait_ms == 0 {
-                    break;
-                }
-                tokio::select! {
-                    () = shutdown.cancelled() => return,
-                    // A clock no one moves by hand is the system clock, which
-                    // may step back, and then the rates kept before the step
-                    // are stamped in its future and not fresh. So on it the
-                    // interval's real end is the deadline, and a step never
-                    // puts off the next fetch.
-                    () = tokio::time::sleep(Duration::from_millis(wait_ms)) => {
-                        if moves.is_none() {
-                            break;
-                        }
-                    }
-                    () = clock_moved(&mut moves) => {}
-                    () = self.rates_wake.notified() => break,
-                    changed = engines.changed() => {
-                        if changed.is_err() {
-                            return;
-                        }
-                        break;
+            tokio::select! {
+                () = shutdown.cancelled() => return,
+                () = interval_passed(&*self.clock, &mut moves, next_ms) => {}
+                () = self.rates_wake.notified() => {}
+                changed = engines.changed() => {
+                    if changed.is_err() {
+                        return;
                     }
                 }
             }

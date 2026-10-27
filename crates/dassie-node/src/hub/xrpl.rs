@@ -21,7 +21,7 @@ use tokio_util::sync::CancellationToken;
 use super::driver::hex;
 use super::escrow::{Out, Watcher};
 use super::service::EscrowLinks;
-use crate::clock::Clock;
+use crate::clock::{Clock, clock_moved};
 use crate::log::target;
 use crate::outbound::{OutboundClient, WebSocket};
 use crate::store::Store;
@@ -35,7 +35,8 @@ const BACKOFF_MAX: Duration = Duration::from_secs(60);
 /// The most attestations waiting for room in the validator's queue.
 const MAX_WAITING_ATTESTATIONS: usize = 256;
 
-/// How often the watcher's timers are looked at.
+/// How often the watcher's timers are looked at on the system clock; a
+/// clock moved by hand has them looked at whenever it moves.
 const TICK: Duration = Duration::from_secs(1);
 
 /// Follows one hub's escrow until shutdown.
@@ -127,12 +128,13 @@ impl Follow {
     ) where
         S: AsyncRead + AsyncWrite + Unpin,
     {
+        let clock = Arc::clone(&self.clock);
         let mut tick = tokio::time::interval(TICK);
+        let mut moves = clock.subscribe();
         loop {
             if !self.flush(&mut socket, watcher).await {
                 return;
             }
-            let now = self.clock.now_ms();
             tokio::select! {
                 () = shutdown.cancelled() => {
                     let _ = socket.close(None).await;
@@ -141,11 +143,11 @@ impl Follow {
                 incoming = socket.next() => match incoming {
                     Some(Ok(Message::Text(text))) => {
                         let view = self.links.view.borrow().clone();
-                        watcher.message(now, text.as_bytes(), &view);
+                        watcher.message(clock.now_ms(), text.as_bytes(), &view);
                     }
                     Some(Ok(Message::Binary(bytes))) => {
                         let view = self.links.view.borrow().clone();
-                        watcher.message(now, &bytes, &view);
+                        watcher.message(clock.now_ms(), &bytes, &view);
                     }
                     Some(Ok(Message::Ping(_) | Message::Pong(_) | Message::Frame(_))) => {}
                     Some(Ok(Message::Close(_)) | Err(_)) | None => return,
@@ -156,14 +158,18 @@ impl Follow {
                 },
                 _ = tick.tick() => {
                     let view = self.links.view.borrow().clone();
-                    watcher.tick(now, &view);
+                    watcher.tick(clock.now_ms(), &view);
+                }
+                () = clock_moved(&mut moves) => {
+                    let view = self.links.view.borrow().clone();
+                    watcher.tick(clock.now_ms(), &view);
                 }
                 changed = self.links.view.changed() => {
                     if changed.is_err() {
                         return;
                     }
                     let view = self.links.view.borrow_and_update().clone();
-                    watcher.tick(now, &view);
+                    watcher.tick(clock.now_ms(), &view);
                 }
             }
         }

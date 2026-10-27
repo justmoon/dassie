@@ -35,6 +35,35 @@ pub async fn clock_moved(wake: &mut Option<watch::Receiver<u64>>) {
     }
 }
 
+/// Resolves once an interval that ends at `deadline_ms` on `clock` has
+/// passed: on a clock moved by hand, when the clock reaches the deadline,
+/// woken by its moves; on the system clock, when the interval's real time
+/// has passed, whatever the wall clock did meanwhile. The system clock may
+/// step back, and a deadline counted on it would then be put off by the
+/// step; so a periodic task paced by this one comes every interval of real
+/// time in production, and in a test whenever the test moves the clock past
+/// its deadline. `moves` is what [`Clock::subscribe`] gave.
+pub async fn interval_passed(
+    clock: &dyn Clock,
+    moves: &mut Option<watch::Receiver<u64>>,
+    deadline_ms: u64,
+) {
+    loop {
+        let wait_ms = deadline_ms.saturating_sub(clock.now_ms());
+        if wait_ms == 0 {
+            return;
+        }
+        tokio::select! {
+            () = tokio::time::sleep(std::time::Duration::from_millis(wait_ms)) => {
+                if moves.is_none() {
+                    return;
+                }
+            }
+            () = clock_moved(moves) => {}
+        }
+    }
+}
+
 /// The system clock.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct SystemClock;

@@ -28,7 +28,7 @@ use dassie_node_core::config::Ports;
 use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
 
-use crate::clock::{Clock, SharedRng};
+use crate::clock::{Clock, SharedRng, interval_passed};
 use crate::env::{Env, EnvError, Settings};
 use crate::log::target;
 use crate::node::{Node, NodeError, NodeOptions, PeerOptions, Policies, Runtime};
@@ -38,8 +38,9 @@ use crate::supervisor::{BeforeUp, Start};
 use crate::systemd::{self, ActivationError, Notifier};
 use crate::{http, ipc, supervisor, tls};
 
-/// How often expired sessions are deleted.
-const PRUNE_INTERVAL: Duration = Duration::from_secs(3_600);
+/// How often expired sessions are deleted, in ms: of real time on the
+/// system clock, and of the node's clock on one moved by hand.
+const PRUNE_INTERVAL_MS: u64 = 3_600_000;
 /// Time services get to stop at shutdown.
 const STOP_TIMEOUT: Duration = Duration::from_secs(15);
 
@@ -858,7 +859,11 @@ fn supervise(
     );
 }
 
+/// Deletes the expired sessions at once and every [`PRUNE_INTERVAL_MS`],
+/// until `shutdown`.
 async fn prune_sessions(node: Arc<Node>, shutdown: CancellationToken) {
+    let clock = node.clock();
+    let mut moves = clock.subscribe();
     loop {
         match node.prune_sessions() {
             Ok(0) => {}
@@ -867,9 +872,10 @@ async fn prune_sessions(node: Arc<Node>, shutdown: CancellationToken) {
                 tracing::warn!(target: target::AUTH, %error, "could not delete expired sessions")
             }
         }
+        let next_ms = clock.now_ms().saturating_add(PRUNE_INTERVAL_MS);
         tokio::select! {
             () = shutdown.cancelled() => return,
-            () = tokio::time::sleep(PRUNE_INTERVAL) => {}
+            () = interval_passed(&*clock, &mut moves, next_ms) => {}
         }
     }
 }
