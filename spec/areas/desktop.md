@@ -19,7 +19,7 @@ The node is the same code as the server's, and stops the same way: quitting the 
 - **There is no HTTP listener.** HTTP serves ACME's http-01 challenges and redirects browsers to HTTPS ([HTTP](http.md#listeners)); no CA reaches a listener on loopback, and the window loads the wallet over HTTPS. So the node binds none, and the app keeps one port, not two.
 - **QUIC listens on every address, on a port the system picks** ([Runtimes](node.md#runtimes)): a periphery node dials its relay and its uplinks, and is never dialled.
 - **There is no rate feed's socket.** A periphery node publishes no feed ([Rate feed](rate-feed.md#the-node-side)), so it binds none, and the feed's default port stays free for a node that serves on this machine.
-- **Being core is not supported.** A hostname set in the wallet makes the node core, which needs its listeners reachable from the internet and port 80 for ACME. The desktop app keeps HTTPS on loopback and has no HTTP listener.
+- **It is never core.** Its QUIC endpoint is apart from its HTTPS listener's port, so it stays a [periphery node](network.md#periphery-nodes) even with a hostname set in the wallet. Being core would need listeners reachable from the internet and port 80 for ACME, and the desktop app keeps HTTPS on loopback with no HTTP listener.
 
 ## The window
 

@@ -175,7 +175,7 @@ impl Bound {
     }
 
     /// QUIC on another loopback address, `127.0.0.2`, at the HTTPS port
-    /// number, so that the node still says it takes QUIC; and on
+    /// number, so that the node keeps its URL; and on
     /// `127.0.0.1`, where its URL leads, a UDP socket that drops
     /// everything, as a network that blocks UDP does. Its tunnels at
     /// `/quic` are the only way in.
