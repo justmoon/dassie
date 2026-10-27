@@ -36,10 +36,10 @@ import {
   type ScenarioHub,
   sponsors,
   validatesAny,
+  xrpOwnerBook,
 } from "./hubs.ts";
 import {
   findScenario,
-  HUB_OWNER_BOOK,
   hubConfig,
   invalid,
   type IssuedToken,
@@ -67,6 +67,8 @@ export {
   joins,
   type ScenarioHub,
   TOKEN_HUBS,
+  XRP_HUBS,
+  xrpOwnerBook,
 } from "./hubs.ts";
 export {
   DEFAULT_SCENARIO,
@@ -114,7 +116,8 @@ const LINE_WITHIN_MS = 60_000;
 const ADDRESS_WITHIN_MS = 30_000;
 
 /** How long a hub's sponsor may take to show XRP in its owner book: the
- * faucet funds its account in the next ledger. */
+ * faucet funds its account in the next ledger, or on mainnet the deposit
+ * the scenario sends it. */
 const SPONSOR_FUNDED_WITHIN_MS = 60_000;
 
 /**
@@ -289,10 +292,11 @@ export class Scenario {
       for (let index = 0; index < def.schemes.length; index++) {
         await scenario.#startNode(index);
       }
-      await scenario.#foundHubs();
       // Mainnet has no faucet: each account is funded as an owner funds
-      // it, before its token's line can exist.
+      // it, before its token's line can exist, and before a sponsor can
+      // fund a hub's escrow from it.
       await Promise.all(scenario.nodes.map((node) => scenario.#fund(node)));
+      await scenario.#foundHubs();
       const mint = def.mint;
       if (mint !== undefined) {
         await Promise.all(
@@ -360,13 +364,14 @@ export class Scenario {
 
   /**
    * Writes the validator file of node `index`, on every start, as its
-   * owner would: it validates the hubs the scenario's sponsors found, and
-   * follows their escrows on the fake ledger, whose URL is the same every
-   * run.
+   * owner would: it validates the hubs the scenario's sponsors found, by
+   * their IDs in the scenario's realm, and follows their escrows on the
+   * fake ledger, whose URL is the same every run, on its network: mainnet
+   * in a live scenario.
    */
   async #writeValidatorFile(index: number): Promise<void> {
     const ids = sponsors(this.def).map((sponsor) =>
-      identity(this.#table, sponsor).id
+      identity(this.#table, sponsor, this.#realm).id
     );
     if (ids.length === 0 || !this.ledger) {
       throw new Error("a validator needs the scenario's hub and fake ledger");
@@ -377,7 +382,14 @@ export class Scenario {
     const content = JSON.parse(
       validatorFile(ids[0], this.ledger.url, this.ledger.publishers),
     ) as Record<string, unknown>;
-    await writeFile(file, JSON.stringify({ ...content, sponsors: ids }));
+    await writeFile(
+      file,
+      JSON.stringify({
+        ...content,
+        sponsors: ids,
+        network: ledgerNetwork(this.def),
+      }),
+    );
   }
 
   /** The running node `index` of a hub. */
@@ -476,7 +488,7 @@ export class Scenario {
       await until(`${sponsor.name}'s XRP`, async () => {
         const { ledgers } = await sponsor.rpc.call("listLedgers", {});
         const book = ledgers.find((ledger) =>
-          ledger.settlementScheme === HUB_OWNER_BOOK
+          ledger.settlementScheme === xrpOwnerBook(this.def)
         );
         return book?.connection === LedgerConnection.SYNCED &&
           book.ownerBalance > 0n;

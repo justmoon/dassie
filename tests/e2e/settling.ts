@@ -3,7 +3,8 @@
  * (`mainnet_test.ts`), and of the `hub` scenario's
  * settlement hub (`hub_test.ts`, `xrpl_test.ts`, `xrpl_deposit_test.ts`),
  * and of the `two-hubs` scenario's hubs of XRP and DSUSD
- * (`hubs_cross_test.ts`): a node's ledger, whether it runs in the live
+ * (`hubs_cross_test.ts`) and the `live-hub` scenario's of XRP and RLUSD on
+ * mainnet (`live_hub_test.ts`): a node's ledger, whether it runs in the live
  * realm, what it owes its peers by its own books, when settling is over,
  * over the hubs, how the hubs' members join them, and a
  * payment from a BTP client of one node to another's receiver.
@@ -30,6 +31,7 @@ import {
   type Scenario,
   type ScenarioHub,
   type ScenarioNode,
+  xrpOwnerBook,
 } from "@dassie/dev/scenario";
 
 /** Every node's trigger: one and a half of the largest packets
@@ -480,12 +482,13 @@ async function inStepOverHubs(
 ): Promise<boolean> {
   const { channels } = await node.rpc.call("listSettlementChannels", {});
   if (channels.some((channel) => channel.sending)) return false;
+  const xrpBook = xrpOwnerBook(scenario.def);
   const expected: [string, () => Promise<bigint>][] = [
-    [HUB_OWNER_LEDGER, () => heldIn(node, HUB_OWNER_BOOK, "XRP")],
+    [`${xrpBook}+xrp`, () => heldIn(node, xrpBook, "XRP")],
   ];
   for (const hub of hubsOfNode(scenario, node)) {
     const book = hubOwnerBook(hub);
-    if (book !== HUB_OWNER_BOOK) {
+    if (book !== xrpBook) {
       const code = hub.token ?? "XRP";
       expected.push([hubOwnerLedger(hub), () => heldIn(node, book, code)]);
     }
@@ -510,7 +513,7 @@ export async function booksOverHubs(
   scenario: Scenario,
   node: ScenarioNode,
 ): Promise<Record<string, [bigint, bigint]>> {
-  const ids = new Set([HUB_OWNER_LEDGER]);
+  const ids = new Set([`${xrpOwnerBook(scenario.def)}+xrp`]);
   for (const hub of hubsOfNode(scenario, node)) {
     ids.add(hubOwnerLedger(hub));
     ids.add(hubLedger(hub));

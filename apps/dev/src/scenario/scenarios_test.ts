@@ -188,9 +188,9 @@ test("a pool is priced at the dev rates, exactly", () => {
 // against the fake ledger's mainnet, and a live scenario's nodes start from
 // scratch each run, since mainnet never resets.
 test("a live scenario runs mainnet's schemes on the fake ledger's mainnet only", () => {
-  const mainnet = ["xrpl-xrp", "xrpl-rlusd"];
+  const mainnet = ["xrpl-xrp", "xrpl-rlusd", "hub-xrpl-xrp", "hub-xrpl-rlusd"];
   const ids = SCENARIOS.filter(live).map((def) => def.id);
-  assertEquals(ids, ["live-owner-books"]);
+  assertEquals(ids, ["live-owner-books", "live-hub"]);
   for (const def of SCENARIOS) {
     for (const schemes of [...def.schemes, def.addedSchemes]) {
       for (const scheme of schemes) {
@@ -525,4 +525,31 @@ test("the two-hubs scenario: an XRP hub, a DSUSD hub, two members in both", asyn
     unavailable(def, false)?.startsWith("needs the fake ledger"),
     true,
   );
+});
+
+// spec/areas/dev.md#scenarios: the live-hub scenario's four validators run
+// an XRP hub and an RLUSD hub on the fake ledger's mainnet, by the dev
+// switch; its two members join both with mainnet's hub schemes, funded
+// from their live books, and the RLUSD hub's token is the one the fake
+// ledger mints them and prices in its pool. It starts from scratch, as
+// every live and hub scenario does.
+test("the live-hub scenario: an XRP hub and an RLUSD hub on mainnet", async () => {
+  const { hubOwnerBook, hubScheme, hubsOf, invalidHubs, joins, xrpOwnerBook } =
+    await import("./hubs.ts");
+  const def = findScenario("live-hub")!;
+  assertEquals(live(def), true);
+  assertEquals(invalid(def), undefined);
+  assertEquals(invalidHubs(def), undefined);
+  const [xrp, rlusd] = hubsOf(def);
+  assertEquals([xrp, rlusd].map(hubScheme), ["hub-xrpl-xrp", "hub-xrpl-rlusd"]);
+  assertEquals([xrp, rlusd].map(hubOwnerBook), ["xrpl-xrp", "xrpl-rlusd"]);
+  assertEquals(xrpOwnerBook(def), "xrpl-xrp");
+  const members = (hub: typeof xrp) =>
+    def.schemes.flatMap((_, index) => joins(def, hub, index) ? [index] : []);
+  assertEquals(members(xrp), [4, 5]);
+  assertEquals(members(rlusd), [4, 5]);
+  assertEquals(def.mint?.token, "RLUSD");
+  assertEquals(def.pool?.token, "RLUSD");
+  assertEquals(resumes(def), false);
+  assertEquals(unavailable(def, false)?.startsWith("needs --xrpl fake"), true);
 });

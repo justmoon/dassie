@@ -1,5 +1,5 @@
 import { test } from "node:test";
-import { assertEquals } from "@std/assert";
+import { assert, assertEquals } from "@std/assert";
 import {
   hubLedger,
   hubOwnerBook,
@@ -11,6 +11,7 @@ import {
   type ScenarioHub,
   sponsors,
   validatesAny,
+  xrpOwnerBook,
 } from "./hubs.ts";
 import {
   findScenario,
@@ -50,10 +51,65 @@ test("a hub's scheme, ledgers and terms follow from its asset", () => {
       issuer: "rURgPoYNN7tGqBzGXFeCLmKYgpSjYgJP6M",
     },
   });
-  // The one hub of the `hub` scenario is its hubs.
+  // The one hub of the `hub` scenario is its hubs, on the testnet; the
+  // same ones each time, so that they compare as themselves.
   const hub = findScenario("hub")!;
-  assertEquals(hubsOf(hub), [hub.hub!]);
+  assertEquals(hubsOf(hub), [{ ...hub.hub!, network: "testnet" }]);
+  assert(hubsOf(hub)[0] === hubsOf(hub)[0]);
   assertEquals(hubsOf(findScenario("two-nodes")!), []);
+});
+
+// spec/decisions/hub-scheme-names.md: on mainnet, a live scenario's, the
+// XRP hub's scheme, ledgers and owner book are mainnet's, and an RLUSD
+// hub's terms name RLUSD by its issuer on mainnet.
+test("a mainnet hub's scheme, ledgers and terms follow from its asset", () => {
+  const xrp: ScenarioHub = {
+    validators: [0],
+    sponsor: 0,
+    members: [1],
+    network: "mainnet",
+  };
+  const rlusd: ScenarioHub = { ...xrp, token: "RLUSD" };
+  assertEquals(
+    [hubScheme(xrp), hubLedger(xrp), hubOwnerBook(xrp), hubOwnerLedger(xrp)],
+    ["hub-xrpl-xrp", "hub-xrpl-xrp+xrp", "xrpl-xrp", "xrpl-xrp+xrp"],
+  );
+  assertEquals(
+    [
+      hubScheme(rlusd),
+      hubLedger(rlusd),
+      hubOwnerBook(rlusd),
+      hubOwnerLedger(rlusd),
+    ],
+    ["hub-xrpl-rlusd", "hub-xrpl-rlusd+usd", "xrpl-rlusd", "xrpl-rlusd+usd"],
+  );
+  assertEquals(hubTerms(xrp), "");
+  assertEquals(JSON.parse(hubTerms(rlusd)), {
+    asset: {
+      currency: "524C555344000000000000000000000000000000",
+      issuer: "rMxCKbEDwqr76QuheSUMdEGf4B9xJ8m5De",
+    },
+  });
+  const def = findScenario("live-hub")!;
+  assertEquals(hubsOf(def).map((hub) => hub.network), ["mainnet", "mainnet"]);
+  assertEquals(xrpOwnerBook(def), "xrpl-xrp");
+  assertEquals(xrpOwnerBook(findScenario("hub")!), HUB_OWNER_BOOK);
+  // A sponsor in the live realm funds the escrow from its mainnet XRP, and
+  // the fake mainnet has no DSUSD.
+  assertEquals(
+    invalidHubs({
+      ...def,
+      schemes: def.schemes.map((s, i) => i === 0 ? [HUB_OWNER_BOOK] : s),
+    }),
+    "the sponsor runs no xrpl-xrp, which funds the escrow",
+  );
+  assertEquals(
+    invalidHubs({
+      ...def,
+      hubs: [def.hubs![0], { ...def.hubs![1], token: "DSUSD" }],
+    }),
+    "no hub of DSUSD on the fake mainnet",
+  );
 });
 
 test("several hubs are checked before the scenario starts", () => {

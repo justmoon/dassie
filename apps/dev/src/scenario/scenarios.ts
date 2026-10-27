@@ -423,6 +423,37 @@ export const SCENARIOS: readonly ScenarioDef[] = [
     ],
   },
   {
+    id: "live-hub",
+    name: "Mainnet Hubs, Fake",
+    description:
+      "Four nodes in the live realm, by the dev switch, validate an XRP hub and an RLUSD hub that the first of them founds on the fake ledger's mainnet, beside its XRP/RLUSD pool at the dev rate; every account is funded by a deposit, as mainnet has no faucet; two members join both hubs with the founded rules in their schemes' config, fund their accounts from their own XRP and RLUSD, and peer over both",
+    schemes: [
+      ["xrpl-xrp"],
+      [],
+      [],
+      [],
+      ["xrpl-xrp", "hub-xrpl-xrp", "xrpl-rlusd", "hub-xrpl-rlusd"],
+      ["xrpl-xrp", "hub-xrpl-xrp", "xrpl-rlusd", "hub-xrpl-rlusd"],
+    ],
+    addedSchemes: ["xrpl-xrp", "hub-xrpl-xrp"],
+    bootstrap: [4, 5],
+    configs: { "xrpl-xrp": OWNER_BOOK, "xrpl-rlusd": OWNER_BOOK },
+    mint: { token: "RLUSD", value: "100" },
+    // As deep as live-owner-books's: RLUSD's peg guard reads no price
+    // from a shallower one.
+    pool: { token: "RLUSD", value: "100000", tradingFee: 500 },
+    realm: "live",
+    hubs: [
+      { validators: [0, 1, 2, 3], sponsor: 0, members: [4, 5] },
+      {
+        validators: [0, 1, 2, 3],
+        sponsor: 0,
+        members: [4, 5],
+        token: "RLUSD",
+      },
+    ],
+  },
+  {
     id: "one-node",
     name: "One Node",
     description:

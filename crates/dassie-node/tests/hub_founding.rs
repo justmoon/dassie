@@ -6,7 +6,8 @@
 //! sponsor funds and sets up the escrow on the fake XRP Ledger from its own
 //! account; the validators' watchers check it and attest it; and once the
 //! hub stalls, a member fetches its validators' payout bundles and checks
-//! them.
+//! them. A node of the live realm, by the dev switch, founds hubs on the
+//! fake ledger's mainnet, funded from its mainnet XRP.
 
 #![allow(
     clippy::unwrap_used,
@@ -23,16 +24,23 @@ use dassie_node::clock::ManualClock;
 use dassie_node::fake_ledger::{Options, Server};
 use dassie_node::node::Policies;
 use dassie_node::rpc::proto::{self, request::Method, response};
-use dassie_xrpl::network::TESTNET;
+use dassie_xrpl::network::{MAINNET, Network, TESTNET};
 use support::pair::{CA, CERT, KEY};
-use support::{Bound, START_MS, TestNode, set_up};
+use support::{Bound, START_MS, TestNode, post_json, send, set_up, setup_body_in};
 
 mod support;
 
-/// Sets `node` up with `key`, a hostname and a certificate: what a
-/// validator needs to name its endpoint.
-async fn prepare(node: &TestNode, key: &NodeKey) {
-    set_up(node, key).await;
+/// Sets `node` up with `key` in the realm of `network`, with a hostname
+/// and a certificate: what a validator needs to name its endpoint.
+async fn prepare(node: &TestNode, key: &NodeKey, network: &Network) {
+    if network.realm == dassie_ledger::Realm::Live {
+        let token = node.setup_token().await;
+        let body = setup_body_in(&token, key, "live");
+        let reply = send(node.https, true, post_json(node, "/api/setup", &body)).await;
+        assert_eq!(reply.status.as_u16(), 200, "{}", reply.text());
+    } else {
+        set_up(node, key).await;
+    }
     let mut owner = node.ipc().await;
     let hostname = owner
         .call(Method::SetHostname(proto::SetHostnameRequest {
@@ -115,18 +123,20 @@ async fn until(clock: &ManualClock, step_ms: u64, mut done: impl AsyncFnMut() ->
 }
 
 /// What every validator's file says: the sponsor it validates for, no hub
-/// of its own, the fake ledger to follow escrows on, and the publisher of
-/// its validators, whose UNL the escrow's ledgers are proven under.
+/// of its own, the network and the fake ledger to follow escrows on, and
+/// the publisher of its validators, whose UNL the escrow's ledgers are
+/// proven under.
 fn validator_file(
     dir: &std::path::Path,
     sponsor: &NodeKey,
-    xrpl: &str,
+    (network, xrpl): (&Network, &str),
     publishers: Option<serde_json::Value>,
 ) -> String {
     let path = dir.join("validator.json");
     let mut file = serde_json::json!({
         "sponsors": [sponsor.node_id().as_str()],
         "hubs": [],
+        "network": network.name,
         "xrpl": xrpl,
     });
     if let (Some(file), Some(serde_json::Value::Object(publishers))) =
@@ -138,24 +148,47 @@ fn validator_file(
     path.to_str().unwrap().to_owned()
 }
 
+/// What the owner deposits to the sponsor's mainnet account, which has no
+/// faucet: enough for a few escrows.
+const MAINNET_DEPOSIT_DROPS: u64 = 100_000_000;
+
+/// What every daemon of a net on `network` runs with: the live realm's
+/// dev switch on mainnet (spec/decisions/real-money.md).
+fn env_on(network: &Network) -> Vec<(&'static str, &'static str)> {
+    let mut env = vec![
+        ("DASSIE_PEER_ALLOW_PRIVATE", "1"),
+        ("DASSIE_EXTRA_CA_FILE", CA),
+    ];
+    if network.realm == dassie_ledger::Realm::Live {
+        env.push(("DASSIE_DEV_LIVE_REALM", "1"));
+    }
+    env
+}
+
 /// A fake XRP Ledger, four validator daemons whose file lists the
-/// sponsor, and the sponsor's daemon, its XRP Ledger testnet account
-/// funded and synced, all at one clock.
+/// sponsor, and the sponsor's daemon, its XRP Ledger account funded and
+/// synced, all at one clock: on the testnet, or on mainnet in the live
+/// realm.
 struct Net {
     xrpl: Server,
     clock: ManualClock,
     sponsor: TestNode,
     validators: Vec<TestNode>,
     keys: Vec<NodeKey>,
+    network: &'static Network,
     _files: tempfile::TempDir,
 }
 
 impl Net {
     async fn start(before_sync: impl FnOnce(&Server)) -> Self {
+        Self::start_on(&TESTNET, before_sync).await
+    }
+
+    async fn start_on(network: &'static Network, before_sync: impl FnOnce(&Server)) -> Self {
         // Its HTTPS listener serves its validators' list; the sponsor asks
         // no faucet.
         let xrpl = Server::start(Options {
-            network: &dassie_xrpl::network::TESTNET,
+            network,
             listen: "127.0.0.1:0".parse().unwrap(),
             faucet: Some((
                 "127.0.0.1:0".parse().unwrap(),
@@ -173,16 +206,15 @@ impl Net {
         xrpl.close_on(std::sync::Arc::new(clock.clone()));
         let sponsor_key = NodeKey::from_bytes(&[70; 32]);
         let files = tempfile::tempdir().unwrap();
-        let file = validator_file(files.path(), &sponsor_key, &xrpl.url, xrpl.publishers());
-        let env = [
-            ("DASSIE_PEER_ALLOW_PRIVATE", "1"),
-            ("DASSIE_EXTRA_CA_FILE", CA),
-        ];
-        let validator_env = [
-            ("DASSIE_PEER_ALLOW_PRIVATE", "1"),
-            ("DASSIE_EXTRA_CA_FILE", CA),
-            ("DASSIE_VALIDATOR_CONFIG", file.as_str()),
-        ];
+        let file = validator_file(
+            files.path(),
+            &sponsor_key,
+            (network, &xrpl.url),
+            xrpl.publishers(),
+        );
+        let env = env_on(network);
+        let mut validator_env = env.clone();
+        validator_env.push(("DASSIE_VALIDATOR_CONFIG", file.as_str()));
         let mut validators = Vec::new();
         let keys: Vec<NodeKey> = (71..=74)
             .map(|seed| NodeKey::from_bytes(&[seed; 32]))
@@ -191,13 +223,13 @@ impl Net {
             let node = Bound::new()
                 .start(clock.clone(), seed, Policies::DEV, &validator_env)
                 .await;
-            prepare(&node, key).await;
+            prepare(&node, key, network).await;
             validators.push(node);
         }
         let sponsor = Bound::new()
             .start(clock.clone(), 70, Policies::DEV, &env)
             .await;
-        prepare(&sponsor, &sponsor_key).await;
+        prepare(&sponsor, &sponsor_key, network).await;
         let mut xrpl_config = serde_json::json!({ "server": xrpl.url, "faucet": null });
         if let (Some(config), Some(serde_json::Value::Object(publishers))) =
             (xrpl_config.as_object_mut(), xrpl.publishers())
@@ -206,24 +238,33 @@ impl Net {
         }
         support::pair::set_asset_config(
             &sponsor,
-            support::pair::XRPL_ACCOUNT,
+            &network.first().to_string(),
             &xrpl_config.to_string(),
         )
         .await;
-        add_scheme(&sponsor, "xrpl-testnet-xrp", "").await;
+        // The XRP book, peering with nobody, as `dassie setup` adds it.
+        let book = network.xrp_scheme.as_str();
+        let ledger = format!("{book}+xrp");
+        add_scheme(&sponsor, book, r#"{"peers":false}"#).await;
         let address = ledgers(&sponsor)
             .await
             .into_iter()
-            .find(|l| l.id == "xrpl-testnet-xrp+xrp")
+            .find(|l| l.id == ledger)
             .unwrap()
             .deposit_address;
-        xrpl.ledger()
-            .fund(dassie_xrpl::AccountId::parse(&address).unwrap());
+        // Mainnet has no faucet: the owner deposits.
+        let address = dassie_xrpl::AccountId::parse(&address).unwrap();
+        if network.faucet.is_some() {
+            xrpl.ledger().fund(address);
+        } else {
+            xrpl.ledger().deposit(address, MAINNET_DEPOSIT_DROPS);
+        }
         before_sync(&xrpl);
         until(&clock, 250, async || {
-            ledgers(&sponsor).await.iter().any(|l| {
-                l.id == "xrpl-testnet-xrp+xrp" && l.connection() == proto::LedgerConnection::Synced
-            })
+            ledgers(&sponsor)
+                .await
+                .iter()
+                .any(|l| l.id == ledger && l.connection() == proto::LedgerConnection::Synced)
         })
         .await;
         Self {
@@ -232,6 +273,7 @@ impl Net {
             sponsor,
             validators,
             keys,
+            network,
             _files: files,
         }
     }
@@ -251,10 +293,7 @@ impl Net {
     /// Stops the sponsor's daemon and starts it again on its database.
     async fn restart_sponsor(self) -> Self {
         let (dir, clock) = self.sponsor.stop().await;
-        let env = [
-            ("DASSIE_PEER_ALLOW_PRIVATE", "1"),
-            ("DASSIE_EXTRA_CA_FILE", CA),
-        ];
+        let env = env_on(self.network);
         let sponsor = Bound::bind_in(dir)
             .start(clock, 70, Policies::DEV, &env)
             .await;
@@ -488,10 +527,7 @@ async fn a_sponsor_founds_a_dsusd_hub() {
         founded.escrow_funded && founded.escrow_set_up,
         "{founded:?}"
     );
-    let bytes = dassie_xrpl::from_hex(&founded.rules).unwrap();
-    let mut reader = dassie_oer::Reader::new(&bytes);
-    let rules = dassie_hub::Rules::decode(&mut reader).unwrap();
-    reader.finish().unwrap();
+    let rules = rules_of(&founded);
     assert_eq!(
         rules.terms.asset,
         dassie_hub::rules::Asset::Token {
@@ -514,6 +550,172 @@ async fn a_sponsor_founds_a_dsusd_hub() {
     // Its signer list and its line to the issuer: two objects.
     let escrow = dassie_xrpl::AccountId::parse(&founded.escrow).unwrap();
     assert_eq!(net.xrpl.ledger().owner_count(escrow), Some(2));
+    net.stop().await;
+}
+
+/// The rules of `founded`, decoded.
+fn rules_of(founded: &proto::HubFounding) -> dassie_hub::Rules {
+    let bytes = dassie_xrpl::from_hex(&founded.rules).unwrap();
+    let mut reader = dassie_oer::Reader::new(&bytes);
+    let rules = dassie_hub::Rules::decode(&mut reader).unwrap();
+    reader.finish().unwrap();
+    rules
+}
+
+/// Founds a hub of `terms` as `net`'s sponsor, and waits until it is
+/// founded, its escrow funded and set up, and every validator checked it:
+/// the founding.
+async fn found_and_check(net: &Net, terms: &serde_json::Value) -> proto::HubFounding {
+    let before = net
+        .sponsor
+        .ipc()
+        .await
+        .call(Method::ListHubFoundings(proto::ListHubFoundingsRequest {}))
+        .await;
+    let Ok(response::Method::ListHubFoundings(before)) = before else {
+        panic!("{before:?}");
+    };
+    let found = net
+        .sponsor
+        .ipc()
+        .await
+        .call(Method::FoundHub(proto::FoundHubRequest {
+            validators: net.invites(),
+            terms: terms.to_string(),
+            escrow_funding_drops: None,
+            xrpl_server: String::new(),
+        }))
+        .await;
+    let Ok(response::Method::FoundHub(found)) = found else {
+        panic!("{found:?}");
+    };
+    let nonce = found.founding.unwrap().nonce;
+    assert!(before.foundings.iter().all(|f| f.nonce != nonce));
+    let this = async || {
+        let reply = net
+            .sponsor
+            .ipc()
+            .await
+            .call(Method::ListHubFoundings(proto::ListHubFoundingsRequest {}))
+            .await;
+        let Ok(response::Method::ListHubFoundings(list)) = reply else {
+            panic!("{reply:?}");
+        };
+        list.foundings
+            .into_iter()
+            .find(|f| f.nonce == nonce)
+            .unwrap()
+    };
+    until(&net.clock, 250, async || {
+        this().await.stage() == proto::HubFoundingStage::Founded
+    })
+    .await;
+    let founded = this().await;
+    assert!(
+        founded.escrow_funded && founded.escrow_set_up,
+        "{founded:?}"
+    );
+    until(&net.clock, 250, async || {
+        let mut checked = 0;
+        for node in &net.validators {
+            let hubs = validating(node).await;
+            let hub = hubs.iter().find(|h| h.hub == founded.hub);
+            checked += usize::from(hub.is_some_and(|h| h.escrow_checked));
+        }
+        checked == net.validators.len()
+    })
+    .await;
+    founded
+}
+
+// spec/areas/hubs.md#founding-a-hub: a node of the live realm, by the dev
+// switch, founds hubs on mainnet: its terms name mainnet, its escrow's key
+// derives at the path that names mainnet
+// (spec/decisions/hub-keys-by-network.md), and its escrow is funded from
+// the sponsor's `xrpl-xrp` book on the fake ledger's mainnet; validators
+// whose file names mainnet accept, sign, run and check it. An RLUSD hub's
+// terms name RLUSD's issuer, and its setup makes the line to it. A token
+// no mainnet scheme joins is refused.
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+async fn a_live_realm_sponsor_founds_hubs_on_mainnet() {
+    use dassie_hub::rules::Asset;
+
+    let net = Net::start_on(&MAINNET, |_| {}).await;
+    let sponsor_key = NodeKey::from_bytes(&[70; 32]);
+    let entropy = sponsor_key.xrpl_account_entropy(MAINNET.id, 0);
+    let mainnet_account = dassie_xrpl::Wallet::from_entropy(entropy.as_bytes()).account();
+    let funded = net.xrpl.ledger().balance(mainnet_account).unwrap();
+
+    // DSUSD is no mainnet hub's asset.
+    let dsusd = serde_json::json!({ "asset": {
+        "currency": dassie_xrpl::dsusd::CURRENCY.to_string(),
+        "issuer": dassie_xrpl::dsusd::ISSUER.to_address(),
+    }});
+    let refused = net
+        .sponsor
+        .ipc()
+        .await
+        .call(Method::FoundHub(proto::FoundHubRequest {
+            validators: net.invites(),
+            terms: dsusd.to_string(),
+            escrow_funding_drops: None,
+            xrpl_server: String::new(),
+        }))
+        .await;
+    let refused = refused.unwrap_err();
+    assert_eq!(
+        refused.code(),
+        proto::ErrorCode::InvalidArgument,
+        "no mainnet scheme joins a DSUSD hub"
+    );
+    assert!(
+        refused.message.contains("no settlement scheme"),
+        "{}",
+        refused.message
+    );
+
+    let xrp = found_and_check(&net, &serde_json::json!({})).await;
+    let rules = rules_of(&xrp);
+    assert_eq!(rules.terms.network, MAINNET.id);
+    assert_eq!(rules.terms.asset, Asset::Xrp);
+    assert_eq!(
+        dassie_hub::member::scheme_of(&rules.terms).map(|(scheme, _)| scheme),
+        Some(dassie_hub::member::MAINNET_SCHEME_ID)
+    );
+    let master = dassie_hub::escrow::escrow_master(&sponsor_key, MAINNET.id, &rules.terms.nonce);
+    assert_eq!(master.account().0, rules.terms.escrow, "mainnet's key path");
+    let testnet_master =
+        dassie_hub::escrow::escrow_master(&sponsor_key, TESTNET.id, &rules.terms.nonce);
+    assert_ne!(testnet_master.account().0, rules.terms.escrow);
+    // Paid from the sponsor's mainnet account.
+    let escrow = dassie_xrpl::AccountId::parse(&xrp.escrow).unwrap();
+    assert!(net.xrpl.ledger().balance(escrow).is_some());
+    assert!(net.xrpl.ledger().balance(mainnet_account).unwrap() < funded);
+
+    let rlusd = serde_json::json!({ "asset": {
+        "currency": dassie_xrpl::rlusd::CURRENCY.to_string(),
+        "issuer": dassie_xrpl::rlusd::ISSUER.to_address(),
+    }});
+    let token = found_and_check(&net, &rlusd).await;
+    let rules = rules_of(&token);
+    assert_eq!(rules.terms.network, MAINNET.id);
+    assert_eq!(
+        rules.terms.asset,
+        Asset::Token {
+            currency: dassie_xrpl::rlusd::CURRENCY,
+            issuer: dassie_xrpl::rlusd::ISSUER,
+        }
+    );
+    assert_eq!(
+        dassie_hub::member::scheme_of(&rules.terms).map(|(scheme, _)| scheme),
+        Some(dassie_hub::member::RLUSD_SCHEME_ID)
+    );
+    // Its signer list and its line to RLUSD's issuer: two objects.
+    let escrow = dassie_xrpl::AccountId::parse(&token.escrow).unwrap();
+    assert_eq!(net.xrpl.ledger().owner_count(escrow), Some(2));
+    for node in &net.validators {
+        assert_eq!(validating(node).await.len(), 2);
+    }
     net.stop().await;
 }
 
@@ -592,7 +794,7 @@ async fn a_strangers_founding_stream_is_reset_unread() {
     let sponsor = NodeKey::from_bytes(&[80; 32]);
     let stranger = NodeKey::from_bytes(&[81; 32]);
     let files = tempfile::tempdir().unwrap();
-    let file = validator_file(files.path(), &sponsor, "ws://127.0.0.1:1", None);
+    let file = validator_file(files.path(), &sponsor, (&TESTNET, "ws://127.0.0.1:1"), None);
     let env = [
         ("DASSIE_PEER_ALLOW_PRIVATE", "1"),
         ("DASSIE_EXTRA_CA_FILE", CA),

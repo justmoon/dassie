@@ -105,10 +105,15 @@ pub(super) const fn gas_book_ledger(hub: LedgerId) -> Option<LedgerId> {
     }
 }
 
-/// The ledger of the owner book that funds the escrow of a hub the node
-/// founds: hubs are founded on the XRP Ledger testnet, in XRP
-/// (spec/areas/hubs.md#founding-a-hub).
-const FOUNDING_LEDGER: LedgerId = LedgerId::XrplTestnetXrp;
+/// The ledger of the owner book that funds the escrow of a hub a node of
+/// `realm` founds: XRP on the XRP Ledger network of its realm, the
+/// testnet's or mainnet's (spec/areas/hubs.md#founding-a-hub).
+const fn founding_ledger(realm: dassie_node_core::config::Realm) -> LedgerId {
+    match super::ledger_realm(realm) {
+        dassie_ledger::Realm::Test => LedgerId::XrplTestnetXrp,
+        dassie_ledger::Realm::Live => LedgerId::XrplXrp,
+    }
+}
 
 /// A hold of ours or toward us in the hub, as the owner sees it.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -332,7 +337,8 @@ impl Core {
     /// The owner book that funds the escrow of a hub the node founds, and
     /// its ledger: `None` while none is active.
     fn founding_book(&self) -> Option<(Name, LedgerId)> {
-        Some((self.book_on(FOUNDING_LEDGER)?, FOUNDING_LEDGER))
+        let ledger = founding_ledger(self.realm);
+        Some((self.book_on(ledger)?, ledger))
     }
 
     /// The XRP owner book on the network of the hub of `scheme`, and its
@@ -886,9 +892,10 @@ impl Core {
 /// Funding the escrow of a hub the node founds
 /// (spec/areas/hubs.md#founding-a-hub).
 impl Core {
-    /// Pays `drops` from the owner's funds on the XRPL testnet account to
-    /// `destination`, with no tag, through the owner book of XRP on the
-    /// testnet, whether the node peers on it or not: the payment that
+    /// Pays `drops` from the owner's funds on the node's XRPL account of
+    /// its realm's network to `destination`, with no tag, through the owner
+    /// book of XRP there (`xrpl-testnet-xrp`, or `xrpl-xrp` in the live
+    /// realm), whether the node peers on it or not: the payment that
     /// creates the escrow of a hub the node founds. Held against the
     /// owner's funds while it is on its way, as any owner's payment. Its ID,
     /// to follow it by.
@@ -955,8 +962,8 @@ impl Core {
             .collect()
     }
 
-    /// What became of the owner's payment `id` out of the XRPL testnet
-    /// account, as the owner book of XRP on the testnet says; unknown while
+    /// What became of the owner's payment `id` out of the XRPL account of
+    /// the node's realm, as the owner book of XRP there says; unknown while
     /// it does not run.
     #[must_use]
     pub fn xrpl_owner_payment(&self, id: Name) -> OwnerPaymentState {
