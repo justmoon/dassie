@@ -55,6 +55,7 @@ Each file records one choice between real alternatives: the facts that forced it
 | [peer-protocol-v1](peer-protocol-v1.md) | Peer protocol: v0 or v1 | peer-protocol, identity |
 | [peering-lifecycle](peering-lifecycle.md) | Peering lifecycle and liveness | network |
 | [periphery-lists-no-neighbors](periphery-lists-no-neighbors.md) | A periphery node's link state lists no neighbors, so it may keep many uplinks | network, peer-protocol, connector |
+| [phrase-format](phrase-format.md) | A phrase says its realm and when it was made, and corrects its own errors | identity, http, node, wallet, overview |
 | [places-by-proved-key](places-by-proved-key.md) | A connection holds a place by the key it proved | peer-protocol, network, designs/periphery |
 | [promotion-to-core](promotion-to-core.md) | A node becomes core by registering and being promoted (not built) | network, peer-protocol, designs/periphery |
 | [public-domains](public-domains.md) | Payment names live under dassiepay.net, memo types and the mirror under dassie.land | payments, http, xrpl, release, overview |

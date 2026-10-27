@@ -67,3 +67,4 @@ Secrets (master seed, node key, derived secrets, X25519 and shared secrets) are 
 - [tigerstyle](../decisions/tigerstyle.md): deterministic, bounded, no OS randomness in the core.
 - [node-and-pnpm](../decisions/node-and-pnpm.md): one `web` build of the WASM modules for browsers and Node.
 - [hub-keys-by-network](../decisions/hub-keys-by-network.md): a hub's keys name its network.
+- [phrase-format](../decisions/phrase-format.md): a phrase of 20 words that says its realm and when it was made, corrects its own errors, and keys the master seed by its realm, in place of BIP-39 (not built yet).
