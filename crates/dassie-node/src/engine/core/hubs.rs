@@ -11,8 +11,8 @@
 use dassie_connector::{EndpointId, HubWait};
 use dassie_identity::NodeId;
 use dassie_ilp::{Address, ErrorCode, Prepare, Response};
-use dassie_ledger::Name;
 use dassie_ledger::{AccountName, AccountPath, MAX_TOTAL};
+use dassie_ledger::{LedgerId, Name};
 use dassie_oer::Decode;
 use dassie_peer::MAX_OWN_HUBS;
 use dassie_peer::wire::{HubListing, HubMembership, SchemeId};
@@ -480,17 +480,19 @@ impl Core {
         Some(HubSent::Sent)
     }
 
-    /// As the payee: tells the scheme of `method` what became of a peer's
-    /// Prepare on it we answered: a fulfillment it keeps until a claim
-    /// covers it, or a release.
+    /// As the payee: tells the scheme over a hub on `ledger` what became of
+    /// a peer's Prepare on its method there we answered: a fulfillment it
+    /// keeps until a claim covers it, or a release. The method may have
+    /// been dropped since the Prepare came: its packets resolve on its slot
+    /// (spec/decisions/settlement-methods.md).
     pub(super) fn answered_over_hub(
         &mut self,
         now: u64,
-        (node, method): (&NodeId, SchemeId),
+        (node, ledger): (&NodeId, LedgerId),
         request_id: u32,
         packet: &[u8],
     ) {
-        let Some((scheme, peer)) = self.hub_peering(node, method) else {
+        let Some((scheme, peer)) = self.packet_hub(node, ledger) else {
             return;
         };
         match Response::decode_exact(packet) {
@@ -584,18 +586,19 @@ impl Core {
     }
 
     /// As the payer: the claim that goes in our reply to a peer's Fulfill
-    /// of our Prepare `request_id`, which went on its method on `method`;
-    /// `taken` says whether our books took the Fulfill.
+    /// of our Prepare `request_id`, which went on its method on `ledger`,
+    /// dropped since or not; `taken` says whether our books took the
+    /// Fulfill.
     pub(super) fn hub_claim(
         &mut self,
         now: u64,
         node: &NodeId,
-        method: SchemeId,
+        ledger: LedgerId,
         request_id: u32,
         taken: bool,
     ) -> Vec<u8> {
         let mut claim = Vec::new();
-        if let Some((scheme, peer)) = self.hub_peering(node, method) {
+        if let Some((scheme, peer)) = self.packet_hub(node, ledger) {
             self.with_commitments(scheme, |c| {
                 c.claim(now, peer, request_id, taken, &mut claim)
             });
@@ -608,25 +611,35 @@ impl Core {
     }
 
     /// As the payer: a peer rejected our Prepare `request_id` on its method
-    /// on `method`, or it never reached the peer: what the scheme kept for
-    /// it is forgotten.
-    pub(super) fn hub_rejected(&mut self, node: &NodeId, method: SchemeId, request_id: u32) {
-        if let Some((scheme, peer)) = self.hub_peering(node, method) {
+    /// on `ledger`, dropped since or not, or it never reached the peer: what
+    /// the scheme kept for it is forgotten.
+    pub(super) fn hub_rejected(&mut self, node: &NodeId, ledger: LedgerId, request_id: u32) {
+        if let Some((scheme, peer)) = self.packet_hub(node, ledger) {
             self.with_commitments(scheme, |c| c.on_answered(peer, request_id));
         }
     }
 
     /// As the payee: the claim a peer sent in its reply to our Fulfill of
-    /// its Prepare on its method on `method`.
+    /// its Prepare `request_id`, on whichever of its methods, dropped since
+    /// or not: each scheme over a hub is handed it, and verifies it against
+    /// the one hold it is signed for.
     pub(super) fn hub_claim_received(
         &mut self,
         now: u64,
         node: &NodeId,
-        method: SchemeId,
         request_id: u32,
         claim: &[u8],
     ) {
-        if let Some((scheme, peer)) = self.hub_peering(node, method) {
+        let Ok(peer) = Name::new(node.as_str()) else {
+            return;
+        };
+        let hubs: Vec<Name> = self
+            .schemes
+            .iter()
+            .filter(|(_, active)| active.over_hub)
+            .map(|(scheme, _)| *scheme)
+            .collect();
+        for scheme in hubs {
             self.with_commitments(scheme, |c| c.on_claim(now, peer, request_id, claim));
         }
     }

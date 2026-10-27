@@ -365,6 +365,20 @@ impl PeeringHooks for Hooks<'_> {
             .is_some_and(|active| active.over_hub)
     }
 
+    fn forwarded_over_hub(&self, peer: NodeId, request_id: u32) -> bool {
+        self.endpoints
+            .get(&peer)
+            .and_then(|id| {
+                self.connector
+                    .forwarded_on(EndpointId::Peer(*id), request_id)
+            })
+            .is_some_and(|ledger| {
+                self.schemes
+                    .values()
+                    .any(|active| active.over_hub && active.scheme.ledger() == ledger)
+            })
+    }
+
     /// A method on a scheme the node runs, whose two accounts with the peer
     /// fit as a peering's first method's would: in the core peers' share of
     /// the peers' account room, or the downlinks', unless the peer has them
@@ -779,24 +793,23 @@ impl Core {
         {
             return answer.reply(&[]);
         }
-        // A response's method is its packet's, which the connector forgets
-        // once the response resolves it.
-        let method = if is_prepare {
-            scheme
+        // A response's method is its packet's slot, which the connector
+        // forgets once the response resolves it: found by its ledger, so a
+        // method dropped since still hears of it.
+        let forwarded = if is_prepare {
+            None
         } else {
-            self.forwarded_method(&from, request_id)
+            self.forwarded_ledger(&from, request_id)
         };
         let taken = self.peer_packet(from, scheme, request_id, &packet);
-        let Some(method) = method else {
+        let Some(ledger) = forwarded else {
             return answer.reply(&[]);
         };
         if answer.takes_claim() {
-            let claim = self.hub_claim(now, &from, method, request_id, taken);
+            let claim = self.hub_claim(now, &from, ledger, request_id, taken);
             return answer.reply(&claim);
         }
-        if !is_prepare {
-            self.hub_rejected(&from, method, request_id);
-        }
+        self.hub_rejected(&from, ledger, request_id);
         answer.reply(&[])
     }
 
@@ -826,12 +839,12 @@ impl Core {
         Some((scheme, name(*peer)?))
     }
 
-    /// The settlement method our Prepare in flight to `peer` with
-    /// `request_id` went on: the slot the connector chose for it.
-    pub(super) fn forwarded_method(&self, peer: &NodeId, request_id: u32) -> Option<SchemeId> {
+    /// The ledger of the slot our Prepare in flight to `peer` with
+    /// `request_id` went on, which the connector chose for it: its
+    /// method's, whether or not the peering still lists it.
+    pub(super) fn forwarded_ledger(&self, peer: &NodeId, request_id: u32) -> Option<LedgerId> {
         let endpoint = EndpointId::Peer(*self.peer_endpoints.get(peer)?);
-        let ledger = self.connector.forwarded_on(endpoint, request_id)?;
-        self.method_on(peer, ledger)
+        self.connector.forwarded_on(endpoint, request_id)
     }
 
     /// Whether our packets may go to `peer` on its method on `scheme`
@@ -839,6 +852,11 @@ impl Core {
     /// ledger and can receive a peer's settlement, and the method is not
     /// withdrawn for room. Which method a packet takes depends on this and
     /// its incoming ledger, never on the room each has.
+    ///
+    /// A hub scheme without an account of its own, which the hub agrees it
+    /// has none of, sees its hub all the same toward a peer with one: that
+    /// peer pays us in, and meanwhile we spend what it owes us through it,
+    /// the books alone bounding it (spec/designs/settlement-hubs.md#5-joining).
     pub(super) fn method_available(&self, peer: &NodeId, scheme: SchemeId) -> bool {
         let Some(method) = self
             .peer
@@ -853,9 +871,19 @@ impl Core {
         else {
             return false;
         };
+        let sees_ledger = match self.scheme_status(active) {
+            LedgerStatus::Synced => true,
+            LedgerStatus::Unfunded => {
+                active.over_hub
+                    && name(*peer)
+                        .and_then(|peer| active.scheme.peer_hub_account(peer))
+                        .is_some()
+            }
+            _ => false,
+        };
         let grace_ms = self.peer.config().advertise_short_grace_ms;
         active.failed.is_none()
-            && self.scheme_status(active) == LedgerStatus::Synced
+            && sees_ledger
             && active.scheme.can_receive()
             && !method.withdrawn(grace_ms)
             && !method.winding_down()
@@ -1088,24 +1116,15 @@ impl Core {
             }
             Event::RoutesChanged => self.update_routes(),
             // The claim for a Fulfill of ours, of a Prepare the peer sent on
-            // one of its methods, which the connector no longer holds: a
-            // claim is signed for one hub's hold and verifies against it
-            // alone, so each method over a hub is handed it, and the others
-            // drop it.
+            // one of its methods, which the connector no longer holds and
+            // the peering may have dropped since: a claim is signed for one
+            // hub's hold and verifies against it alone, so each scheme over
+            // a hub is handed it, and the others drop it.
             Event::FulfillReply {
                 peer,
                 request_id,
                 claim,
-            } => {
-                let methods: Vec<SchemeId> = self
-                    .peer
-                    .peering_of(&peer)
-                    .map(|peering| peering.schemes().collect())
-                    .unwrap_or_default();
-                for method in methods {
-                    self.hub_claim_received(self.now_ms, &peer, method, request_id, &claim);
-                }
-            }
+            } => self.hub_claim_received(self.now_ms, &peer, request_id, &claim),
             // Asked again at the next check, not a minute later: a junior
             // that had not yet taken in our acceptance pays in advance at
             // once (spec/decisions/own-fulfills.md), and a request that never
@@ -1146,9 +1165,7 @@ impl Core {
                 if definite && let Some(&endpoint) = self.peer_endpoints.get(&peer) {
                     // Over a hub, the scheme of the packet's method forgets
                     // the commitment too, a dropped method's as well.
-                    let ledger = self
-                        .connector
-                        .forwarded_on(EndpointId::Peer(endpoint), request_id);
+                    let ledger = self.forwarded_ledger(&peer, request_id);
                     if let Some((scheme, name)) =
                         ledger.and_then(|ledger| self.packet_hub(&peer, ledger))
                     {

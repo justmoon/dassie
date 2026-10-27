@@ -177,8 +177,8 @@ fn nodes_in_two_hubs_peer_over_both_and_survive_one_failing() {
 // sets its disbursal address, and pays and is paid over the hub from then
 // on, each node's books holding to the hub's: the `pay` is booked once on
 // each side. Fresh keys cycled through a member, each paid less than the
-// minimum, are never paid in, spend no more than they are owed, and cost
-// the member nothing (spec/decisions/hubs-only.md).
+// minimum, are never paid in, spend some of what they are owed and no more,
+// and cost the member nothing (spec/decisions/hubs-only.md).
 #[test]
 fn a_node_joins_a_hub_by_being_paid() {
     let runs = [

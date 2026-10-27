@@ -1184,8 +1184,8 @@ fn check_paid_in(sim: &Sim) -> Result<(), String> {
 /// spec/decisions/hubs-only.md): nodes from [`NEWCOMER`] on, each with no
 /// account in the hub, peer with [`PAYER`], are paid less than the hub's
 /// minimum for a new account, try to spend more than they are owed, and go
-/// away. None is paid in, none spends more than it is owed, and the member
-/// pays nothing into the hub for them.
+/// away. Each spends some of what it is owed, none more, none is paid in,
+/// and the member pays nothing into the hub for them.
 #[must_use]
 pub fn cycled(seed: u64) -> Run {
     let mut rng = SeededRng::new(seed ^ 0x6379_636c_6564);
@@ -1218,6 +1218,15 @@ fn script_cycled(sim: &mut Sim, rng: &mut SeededRng) -> Result<(), Outcome> {
             return Err(Outcome::safety(
                 "overspent",
                 format!("node {index} spent {spent}, owed {owed}"),
+            ));
+        }
+        // It spends what it is owed through the payer before it is paid
+        // in (spec/designs/settlement-hubs.md#5-joining), or the bound
+        // above says nothing.
+        if spent == 0 {
+            return Err(Outcome::liveness(
+                "unspent",
+                format!("node {index} spent nothing of the {owed} it is owed"),
             ));
         }
         let peer = key(index).node_id();

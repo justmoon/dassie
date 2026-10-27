@@ -3,7 +3,9 @@
 //! spec/areas/connector.md#routing): every method carries packets, each
 //! keeping the ledger it came in on, a method short of room answers T04 and
 //! moves no packet to another, a converting packet takes its hop's method
-//! with the best rate, and what each hop earned weighs per peer and ledger.
+//! with the best rate, what each hop earned weighs per peer and ledger, and
+//! the packets in flight on a method dropped resolve on its slot, its hub's
+//! scheme hearing of each.
 //! Three nodes run the stub with commitments, in dollars, and
 //! [`StubTwo`](super::StubTwo), in XRP in a hub; nodes 0 and 2 ban each
 //! other, so what one pays the other passes node 1.
@@ -113,6 +115,19 @@ fn pay(
     amount: u64,
     least: u64,
 ) {
+    pay_with(sim, (from, ledger), (to, into), amount, least, false);
+}
+
+/// [`pay`], with a shared secret the receiver does not know if `forged`:
+/// the receiver then rejects every packet.
+fn pay_with(
+    sim: &mut Sim,
+    (from, ledger): (usize, LedgerId),
+    (to, into): (usize, LedgerId),
+    amount: u64,
+    least: u64,
+    forged: bool,
+) {
     let mut incoming = None;
     sim.step(to, |core| {
         let payment = core
@@ -140,7 +155,11 @@ fn pay(
                 quote_id: None,
                 receiver: format!("https://n{to}.test/incoming-payments/{}", incoming.id),
                 destination: incoming.ilp_address.clone(),
-                shared_secret: incoming.shared_secret,
+                shared_secret: if forged {
+                    incoming.shared_secret.map(|byte| !byte)
+                } else {
+                    incoming.shared_secret
+                },
                 debit_amount: amount,
                 receive_amount: ForeignAmount {
                     value: least,
@@ -375,4 +394,131 @@ fn a_method_back_before_its_packets_resolve_takes_its_slot_back() {
     sim.run_until(sim.now + 120_000);
     assert!(!in_flight(&sim), "the packet never resolved");
     crate::sim::checks::check_hub_packets(&sim).unwrap();
+}
+
+/// What node `index`'s scheme `scheme` holds of the packets between it and
+/// node `peer`.
+fn held(sim: &mut Sim, index: usize, peer: usize, scheme: &str) -> dassie_settlement::Held {
+    let peer = Name::new(key(peer).node_id().as_str()).unwrap();
+    let core = sim.nodes[index].core.as_mut().unwrap();
+    core.hub_peers()
+        .into_iter()
+        .find(|of| of.peer == peer && of.scheme.as_str() == scheme)
+        .map(|of| of.held)
+        .unwrap_or_default()
+}
+
+/// Whether node `index` has a packet to `to` in flight.
+fn pending(sim: &Sim, index: usize, to: NodeId) -> bool {
+    let core = sim.core(index);
+    let endpoint = EndpointId::Peer(core.peer_endpoints[&to]);
+    core.packets(None, 100_000)
+        .into_iter()
+        .any(|record| record.destination == Some(endpoint) && record.state == PacketState::Pending)
+}
+
+/// Whether node `index`'s peering with `other` has its method on the stub.
+fn has_method(sim: &Sim, index: usize, other: NodeId) -> bool {
+    sim.core(index)
+        .peer
+        .peering_of(&other)
+        .unwrap()
+        .schemes()
+        .any(|scheme| scheme == scheme_id("stub"))
+}
+
+/// Node 0 pays node 2 in dollars while node 2's messages to node 1 are
+/// lost, with a shared secret node 2 does not know if `forged`, and with
+/// packets in flight node 0 and node 1 drop their dollar method, over the
+/// stub's pretend hub; then the messages go through again. Checks that each
+/// packet resolved on the dropped method's slot before the method came
+/// back, and that neither node's scheme still holds a packet between them,
+/// and says what became of node 0's packets to node 1.
+fn dropped_with_packets_in_flight(seed: u64, forged: bool) -> Vec<PacketState> {
+    let mut sim = line(seed, false);
+    let (zero, one, two) = (key(0).node_id(), key(1).node_id(), key(2).node_id());
+    sim.cut.insert((2, 1));
+    pay_with(&mut sim, (0, USD), (2, USD), 1_000_000, 1_000_000, forged);
+    assert!(
+        sim.run_until_or(sim.now + 10_000, |sim| pending(sim, 1, two)),
+        "no packet in flight to node 2"
+    );
+    assert!(pending(&sim, 0, one), "no packet in flight to node 1");
+    assert!(
+        held(&mut sim, 0, 1, "stub").ours > 0,
+        "node 0 committed to none"
+    );
+    assert!(held(&mut sim, 1, 0, "stub").theirs > 0, "node 1 took none");
+    for (index, other) in [(0, one), (1, zero)] {
+        sim.step(index, |core| {
+            let now = core.now_ms();
+            assert!(core.peer.drop_method(now, &other, scheme_id("stub")));
+            core.after_peer();
+        });
+    }
+    let dropped = |sim: &Sim| !has_method(sim, 0, one) && !has_method(sim, 1, zero);
+    assert!(dropped(&sim), "the method was not dropped");
+    sim.cut.clear();
+    assert!(
+        sim.run_until_or(sim.now + 30_000, |sim| !pending(sim, 0, one)),
+        "the packets never resolved"
+    );
+    assert!(
+        dropped(&sim),
+        "the method came back before its packets resolved"
+    );
+    assert_eq!(held(&mut sim, 0, 1, "stub").ours, 0, "node 0 kept a packet");
+    assert_eq!(
+        held(&mut sim, 1, 0, "stub").theirs,
+        0,
+        "node 1 kept a packet"
+    );
+    let endpoint = EndpointId::Peer(sim.core(0).peer_endpoints[&one]);
+    let answered = sim
+        .core(0)
+        .packets(None, 100_000)
+        .into_iter()
+        .filter(|record| record.destination == Some(endpoint))
+        .map(|record| record.state)
+        .collect();
+    // The payer's claim follows its reply to the Fulfill, within a few
+    // seconds of the simulation's time.
+    let mut claimed = false;
+    for _ in 0..50 {
+        claimed = held(&mut sim, 1, 0, "stub").unclaimed == 0;
+        if claimed {
+            break;
+        }
+        sim.run_until(sim.now + 100);
+    }
+    assert!(claimed, "node 1 kept a fulfillment no claim covers");
+    crate::sim::checks::check_hub_packets(&sim).unwrap();
+    answered
+}
+
+// A method over a hub dropped while a packet is in flight on it still
+// hears what becomes of it, on its slot (spec/decisions/settlement-methods.md):
+// fulfilled, the payee's scheme keeps the fulfillment and takes the payer's
+// claim for it, and the payer's forgets the commitment it claimed.
+#[test]
+fn a_dropped_methods_fulfilled_packet_is_claimed_over_its_hub() {
+    let answered = dropped_with_packets_in_flight(56, false);
+    assert!(
+        answered.contains(&PacketState::Fulfilled),
+        "no packet fulfilled: {answered:?}"
+    );
+}
+
+// Rejected, the payer's scheme releases the commitment, and the payee's the
+// packet it took.
+#[test]
+fn a_dropped_methods_rejected_packet_is_released_over_its_hub() {
+    let answered = dropped_with_packets_in_flight(56, true);
+    assert!(
+        answered
+            .iter()
+            .any(|state| matches!(state, PacketState::Rejected(_))),
+        "no packet rejected: {answered:?}"
+    );
+    assert!(!answered.contains(&PacketState::Fulfilled));
 }

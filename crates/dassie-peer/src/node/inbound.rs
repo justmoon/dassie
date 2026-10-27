@@ -186,11 +186,13 @@ impl PeerNode {
             return refuse(409, "not peered");
         };
         // A Fulfill names no method: its reply may carry a claim on a
-        // peering with one over a hub, and the node knows which its Prepare
-        // went on.
+        // peering with one over a hub, or for a Prepare of ours that went
+        // on one dropped since, and the node knows which its Prepare went
+        // on.
         let hub = peering
             .schemes()
-            .any(|scheme| hooks.uses_commitments(scheme));
+            .any(|scheme| hooks.uses_commitments(scheme))
+            || hooks.forwarded_over_hub(accepted.sender, request_id);
         Inbound::Packet {
             from: accepted.sender,
             request_id,

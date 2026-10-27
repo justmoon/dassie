@@ -330,17 +330,15 @@ impl Core {
         // The method the connector chose, by structure, never by room: one
         // short of room answers T04, and the packet never moves to another
         // method (spec/decisions/settlement-methods.md).
-        let method = self.method_on(&node, ledger);
         if prepare.is_none() {
-            if let Some(method) = method {
-                self.answered_over_hub(now, (&node, method), request_id, &packet);
-            }
+            // The Prepare's slot, whose method may have been dropped since.
+            self.answered_over_hub(now, (&node, ledger), request_id, &packet);
             // A response is retried by the peer node until it arrives.
             self.peer.send_response(now, &node, request_id, &packet);
             self.after_peer();
             return;
         }
-        let sent = match method {
+        let sent = match self.method_on(&node, ledger) {
             None => HubSent::Unreachable,
             Some(method) => {
                 match self.send_over_hub(now, (&node, method), request_id, &packet, timeout_ms) {

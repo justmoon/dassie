@@ -178,6 +178,12 @@ impl PeeringHooks for StubHooks {
         self.commitments && scheme.as_str() == STUB
     }
 
+    // The stub forwards no packets: what a peer's response answers is the
+    // simulation's, and a peering's methods say whether a claim goes.
+    fn forwarded_over_hub(&self, _: NodeId, _: u32) -> bool {
+        false
+    }
+
     fn wants_method(&self, _: NodeId, _: bool, _: SchemeId) -> bool {
         !self.refuse_methods
     }

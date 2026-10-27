@@ -116,6 +116,14 @@ pub trait PeeringHooks {
     /// node, not the peer protocol, decides what it takes without one.
     fn uses_commitments(&self, scheme: SchemeId) -> bool;
 
+    /// Whether our Prepare in flight to `peer` with `request_id` went on a
+    /// method over a settlement hub, whether or not the peering still has
+    /// that method: a dropped method's packets resolve on it
+    /// (spec/decisions/settlement-methods.md), and the reply to the peer's
+    /// Fulfill of one carries our claim even once the peering has no
+    /// method over a hub left.
+    fn forwarded_over_hub(&self, peer: NodeId, request_id: u32) -> bool;
+
     /// Whether the node takes a further settlement method on `scheme` with
     /// `peer`, beside those their peering has
     /// (spec/decisions/settlement-methods.md): whether it asks for one, as
