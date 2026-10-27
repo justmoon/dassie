@@ -1531,10 +1531,7 @@ fn a_thaw_moves_no_reduction_made_after_it() {
     let hub = Hub::new();
     let mut account = synced(&hub);
     let notice = hub.rules.terms.timers.hold_notice;
-    let (first, second) = (
-        crate::promise::HoldNumber(1),
-        crate::promise::HoldNumber(2),
-    );
+    let (first, second) = (crate::promise::HoldNumber(1), crate::promise::HoldNumber(2));
     let open = |sequence, height, hold| {
         let operation = MemberOperation::HoldOpen {
             payee: AccountNumber(7),
@@ -1550,7 +1547,13 @@ fn a_thaw_moves_no_reduction_made_after_it() {
     };
     let reduce = |sequence, height, hold| {
         let operation = MemberOperation::HoldReduce { hold, amount: 30 };
-        executed_by_9(&hub, sequence, height, operation, crate::ledger::Detail::None)
+        executed_by_9(
+            &hub,
+            sequence,
+            height,
+            operation,
+            crate::ledger::Detail::None,
+        )
     };
     let final_at = |height: u64| Statement::Final {
         height,

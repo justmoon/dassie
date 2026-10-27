@@ -927,7 +927,11 @@ mod tests {
         };
         assert_eq!(funding.gas_step(1, &seen), GasNext::Read);
         seen.proven = Some((Some(100_000), 30));
-        assert_eq!(funding.gas_step(2, &seen), GasNext::Wait, "T1 holds the book");
+        assert_eq!(
+            funding.gas_step(2, &seen),
+            GasNext::Wait,
+            "T1 holds the book"
+        );
         assert_eq!(funding.gas, Gas::Waiting);
         assert!(funding.gas_checking());
         seen.anchor = Some(31);
@@ -939,7 +943,11 @@ mod tests {
         seen.book_held = false;
         assert_eq!(funding.gas_step(4, &seen), GasNext::Read);
         assert_eq!(funding.gas, Gas::Reading { after: 34 });
-        assert_eq!(funding.gas_step(5, &seen), GasNext::Read, "not the old read");
+        assert_eq!(
+            funding.gas_step(5, &seen),
+            GasNext::Read,
+            "not the old read"
+        );
         seen.proven = Some((Some(100_000 + LEAST_ESCROW_GAS_DROPS), 34));
         assert_eq!(funding.gas_step(6, &seen), GasNext::Ready, "T1 shows");
 

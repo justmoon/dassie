@@ -270,7 +270,9 @@ pub(super) fn restore_account(account: &mut HubAccount, state: &[u8]) -> Option<
     let holds = read_count(&mut reader, 8, most)?;
     for _ in 0..holds {
         let number = HoldNumber(reader.read_u64().ok()?);
-        account.holds.insert(number, read_hold(&mut reader, version)?);
+        account
+            .holds
+            .insert(number, read_hold(&mut reader, version)?);
         if reader.read_bool().ok()? {
             account.strangers.insert(number);
         }

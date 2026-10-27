@@ -787,7 +787,9 @@ mod tests {
         let method = |id: &str| Method::new(SchemeId::parse(id).unwrap(), Vec::new(), 0);
         let peered = |order: [&str; 3]| {
             let mut peering = Peering::new(method(order[0]), 0, false);
-            peering.methods.extend(order[1..].iter().map(|id| method(id)));
+            peering
+                .methods
+                .extend(order[1..].iter().map(|id| method(id)));
             peering
         };
         let id = |id| SchemeId::parse(id).unwrap();
