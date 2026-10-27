@@ -386,7 +386,6 @@ impl Phrase {
         let (received, erasures) = read_words(text, unreadable)?;
         let (words, changed) =
             reed_solomon::decode(&received, erasures.bits()).map_err(|_| Error::TooDamaged)?;
-        let words = Zeroizing::new(words);
         let phrase = Self::from_codeword(&words)?;
         let realm = phrase.realm();
         if realm != expected {

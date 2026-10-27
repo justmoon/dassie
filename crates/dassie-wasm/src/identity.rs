@@ -145,7 +145,11 @@ fn positions(positions: Positions) -> Vec<u32> {
 
 /// A phrase: from [`generate_phrase`], [`phrase_from_secret`], or a
 /// [`PhraseReading`] that read as written or whose correction the owner
-/// confirmed. It is held in the module's memory and wiped when freed.
+/// confirmed. It is held in the module's memory and wiped when freed, and
+/// its getters make their JavaScript strings straight from memory that is
+/// wiped, leaving no copy in the module's heap. The JavaScript strings, and
+/// the copy of a typed phrase that crosses into the module, are the
+/// JavaScript engine's and are not wiped.
 #[wasm_bindgen(js_name = Phrase)]
 pub struct JsPhrase {
     phrase: Phrase,
@@ -154,17 +158,17 @@ pub struct JsPhrase {
 #[wasm_bindgen(js_class = Phrase)]
 impl JsPhrase {
     /// The canonical phrase: the words in full, lowercase, single spaces.
-    #[wasm_bindgen(getter)]
+    #[wasm_bindgen(getter, unchecked_return_type = "string")]
     #[must_use]
-    pub fn text(&self) -> String {
-        String::from(self.phrase.text().as_str())
+    pub fn text(&self) -> JsValue {
+        JsValue::from_str(self.phrase.text().as_str())
     }
 
     /// The 20 words in order.
-    #[wasm_bindgen(getter)]
+    #[wasm_bindgen(getter, unchecked_return_type = "string[]")]
     #[must_use]
-    pub fn words(&self) -> Vec<String> {
-        self.phrase.words().map(String::from).collect()
+    pub fn words(&self) -> Vec<JsValue> {
+        self.phrase.words().map(JsValue::from_str).collect()
     }
 
     /// The realm the phrase's kind names: `test` or `live`.
@@ -263,17 +267,17 @@ impl PhraseReading {
     }
 
     /// The words, corrected, to show.
-    #[wasm_bindgen(getter)]
+    #[wasm_bindgen(getter, unchecked_return_type = "string[]")]
     #[must_use]
-    pub fn words(&self) -> Vec<String> {
-        self.words_shown().map(String::from).collect()
+    pub fn words(&self) -> Vec<JsValue> {
+        self.words_shown().map(JsValue::from_str).collect()
     }
 
     /// The phrase in canonical form, corrected, to show.
-    #[wasm_bindgen(getter)]
+    #[wasm_bindgen(getter, unchecked_return_type = "string")]
     #[must_use]
-    pub fn text(&self) -> String {
-        String::from(self.text_shown().as_str())
+    pub fn text(&self) -> JsValue {
+        JsValue::from_str(self.text_shown().as_str())
     }
 
     /// The realm the phrase's kind names: always the one expected.

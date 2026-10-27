@@ -86,7 +86,9 @@ fn generator() -> [u16; CHECK + 1] {
     product
 }
 
-/// The codeword of `data`: the data words, then the check words.
+/// The codeword of `data`: the data words, then the check words. The data
+/// words carry a phrase's secret, so the remainder is wiped; the codeword
+/// is the caller's to keep in memory that is wiped.
 pub(crate) fn encode(data: &[u16; DATA]) -> [u16; LENGTH] {
     assert!(
         data.iter().all(|&word| usize::from(word) < gf::SIZE),
@@ -94,17 +96,17 @@ pub(crate) fn encode(data: &[u16; DATA]) -> [u16; LENGTH] {
     );
     let generator = generator();
     // The remainder, highest coefficient first, by long division.
-    let mut remainder = [0u16; CHECK];
+    let mut remainder = Zeroizing::new([0u16; CHECK]);
     for &word in data {
-        let feedback = word ^ at(&remainder, 0);
+        let feedback = word ^ at(&*remainder, 0);
         for index in 0..CHECK {
             let next = if index + 1 < CHECK {
-                at(&remainder, index + 1)
+                at(&*remainder, index + 1)
             } else {
                 0
             };
             set(
-                &mut remainder,
+                &mut *remainder,
                 index,
                 next ^ gf::mul(feedback, at(&generator, index + 1)),
             );
@@ -113,7 +115,7 @@ pub(crate) fn encode(data: &[u16; DATA]) -> [u16; LENGTH] {
     let mut codeword = [0u16; LENGTH];
     let (head, tail) = codeword.split_at_mut(DATA);
     head.copy_from_slice(data);
-    tail.copy_from_slice(&remainder);
+    tail.copy_from_slice(&*remainder);
     codeword
 }
 
@@ -204,14 +206,14 @@ fn locator(syndromes: &[u16; CHECK], erasures: Mask, count: usize) -> (Poly, usi
 /// values are ignored), within the bound: at most [`MAX_ERRORS`] errors,
 /// and `2 × errors + erasures` at most [`MAX_WEIGHT`].
 ///
-/// Returns the codeword and the positions whose word it changed, every
-/// erasure among them; or [`TooDamaged`] when no codeword is within the
-/// bound. The bound leaves the code distance to spare, so the codeword,
-/// if there is one, is the only one.
+/// Returns the codeword, in memory that is wiped, and the positions whose
+/// word it changed, every erasure among them; or [`TooDamaged`] when no
+/// codeword is within the bound. The bound leaves the code distance to
+/// spare, so the codeword, if there is one, is the only one.
 pub(crate) fn decode(
     received: &[u16; LENGTH],
     erasures: Mask,
-) -> Result<([u16; LENGTH], Mask), TooDamaged> {
+) -> Result<(Zeroizing<[u16; LENGTH]>, Mask), TooDamaged> {
     assert!(
         erasures >> LENGTH == 0,
         "erasures are positions in the word"
@@ -230,14 +232,15 @@ pub(crate) fn decode(
     }
     let syndromes = syndromes(&word);
     if count == 0 && syndromes.iter().all(|&s| s == 0) {
-        return Ok((*word, 0));
+        return Ok((word, 0));
     }
     let (lambda, length) = locator(&syndromes, erasures, count);
     if degree(&lambda) != length || length > CHECK {
         return Err(TooDamaged);
     }
     correct(&mut word, &syndromes, &lambda)?;
-    check(received, *word, erasures)
+    let changed = check(received, &word, erasures)?;
+    Ok((word, changed))
 }
 
 /// Finds the locator's roots among the positions (Chien) and corrects the
@@ -280,19 +283,19 @@ fn correct(
     }
 }
 
-/// Takes `corrected` only if it is a codeword within the bound of
-/// `received`, whatever the steps before found.
+/// The positions `corrected` changes, if it is a codeword within the bound
+/// of `received`, whatever the steps before found.
 fn check(
     received: &[u16; LENGTH],
-    corrected: [u16; LENGTH],
+    corrected: &[u16; LENGTH],
     erasures: Mask,
-) -> Result<([u16; LENGTH], Mask), TooDamaged> {
-    if !is_codeword(&corrected) {
+) -> Result<Mask, TooDamaged> {
+    if !is_codeword(corrected) {
         return Err(TooDamaged);
     }
     let mut changed = erasures;
     let mut errors = 0;
-    for (position, (&old, &new)) in received.iter().zip(&corrected).enumerate() {
+    for (position, (&old, &new)) in received.iter().zip(corrected).enumerate() {
         if erasures & (1 << position) == 0 && old != new {
             changed |= 1 << position;
             errors += 1;
@@ -302,7 +305,7 @@ fn check(
     if errors > MAX_ERRORS || weight > MAX_WEIGHT {
         return Err(TooDamaged);
     }
-    Ok((corrected, changed))
+    Ok(changed)
 }
 
 #[cfg(test)]
@@ -409,7 +412,7 @@ mod tests {
             let codeword = encode(&data);
             assert_eq!(&codeword[..DATA], &data);
             assert!(is_codeword(&codeword));
-            assert_eq!(decode(&codeword, 0), Ok((codeword, 0)));
+            assert_eq!(decode(&codeword, 0), Ok((Zeroizing::new(codeword), 0)));
         }
         assert_eq!(encode(&[0; DATA]), [0; LENGTH]);
     }
@@ -444,7 +447,7 @@ mod tests {
                     let received = damage(&mut words, &codeword, errors, erasures);
                     assert_eq!(
                         decode(&received, erasures),
-                        Ok((codeword, errors | erasures)),
+                        Ok((Zeroizing::new(codeword), errors | erasures)),
                         "errors {errors:#x}, erasures {erasures:#x}"
                     );
                     cases += 1;
