@@ -1,6 +1,6 @@
 # A peering settles over every hub both nodes are in, and a packet keeps its ledger where it can
 
-**Areas:** [Network](../areas/network.md#peering), [Settlement](../areas/settlement.md), [Connector](../areas/connector.md#routing), [Peer protocol](../areas/peer-protocol.md). Built in the peer protocol and the node's books and settling, and so is winding methods down, the owner's removal of a scheme included; the connector's place per method is not yet ([roadmap](../roadmap.md#settlement-methods)).
+**Areas:** [Network](../areas/network.md#peering), [Settlement](../areas/settlement.md), [Connector](../areas/connector.md#routing), [Peer protocol](../areas/peer-protocol.md). Built in the peer protocol, the node's books and settling, and the connector, which has a slot per method in each peer's endpoint, and so is winding methods down, the owner's removal of a scheme included; what is left is showing it in the node simulation ([roadmap](../roadmap.md#settlement-methods)).
 
 ## Facts
 

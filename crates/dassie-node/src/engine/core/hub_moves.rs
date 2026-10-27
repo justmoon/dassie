@@ -746,7 +746,7 @@ impl Core {
                     }
                 }
                 if refused {
-                    self.read_balance_of(escrow);
+                    self.read_balance_of(scheme, escrow);
                 }
                 false
             }
