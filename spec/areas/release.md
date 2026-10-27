@@ -62,7 +62,9 @@ How Dassie is built, signed, published, installed and updated. A release is one 
 
 ## Install layout
 
-The original's layout, kept for operators' habits and docs. Each version is unpacked into `/opt/dassie/<version>`, and `/opt/dassie/current`, a symlink switched with one rename, names the one that runs. The previous version stays beside it, for a rollback. The node runs as a dynamic systemd user, with its data in `/var/lib/dassie`; members of the group `dassie-users` may use the IPC socket, and so administer the node.
+The original's layout. Each version is unpacked into `/opt/dassie/<version>`, and `/opt/dassie/current`, a symlink switched with one rename, names the one that runs. The previous version stays beside it, for a rollback. The node runs as a dynamic systemd user, with its data in `/var/lib/dassie`; members of the group `dassie-users` may use the IPC socket, and so administer the node.
+
+**It is frozen** ([Overview](../overview.md#frozen-surfaces)): every installed node's `dassie update`, and `install.sh`, unpack into `/opt/dassie/<version>`, switch `current` and lock `.update.lock` by these names, and the units run what `current` names. So a new layout would break the updaters already installed: a rename needs a release that understands both and every node to update through it, as the mirror's names do. The install tests pin it ([Tests](#tests)).
 
 ## systemd units
 
