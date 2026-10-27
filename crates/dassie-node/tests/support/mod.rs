@@ -135,6 +135,45 @@ impl Bound {
         }
     }
 
+    /// Listeners on the ports a daemon that stopped had, for it to start
+    /// again on `dir` where its peers know it, as a node restarts on its
+    /// ports: on fresh ones its peers could not reach it again. The OS gave
+    /// this test those ports; the stopped daemon's QUIC endpoint lets go of
+    /// its socket once its driver has ended, in its own time, so each is
+    /// bound once it is free, a hang aside ([`HANG`]).
+    pub async fn bind_again(dir: tempfile::TempDir, ports: Ports) -> Self {
+        let http = eventually("the HTTP port free again", async || {
+            std::net::TcpListener::bind(ports.http).ok()
+        })
+        .await;
+        let https = eventually("the HTTPS port free again", async || {
+            std::net::TcpListener::bind(ports.https).ok()
+        })
+        .await;
+        let quic = eventually("the QUIC port free again", async || {
+            std::net::UdpSocket::bind(ports.https).ok()
+        })
+        .await;
+        let feed = eventually("the feed's port free again", async || {
+            std::net::UdpSocket::bind(ports.feed).ok()
+        })
+        .await;
+        let ipc_path = dir.path().join("ipc.sock");
+        let ipc = ipc::bind(&ipc_path).unwrap();
+        Self {
+            dir,
+            http,
+            https,
+            quic,
+            feed,
+            with_feed: true,
+            ipc_path,
+            ipc,
+            notify: None,
+            blackhole: None,
+        }
+    }
+
     /// QUIC on another loopback address, `127.0.0.2`, at the HTTPS port
     /// number, so that the node still says it takes QUIC; and on
     /// `127.0.0.1`, where its URL leads, a UDP socket that drops
@@ -202,7 +241,14 @@ impl Bound {
             .chain(env.iter().copied())
             .chain([("DASSIE_STATE_DIRECTORY", state_text.as_str())]);
         let settings = Settings::from_env(&Env::from_pairs(pairs)).unwrap();
+        let fresh = !state.join(dassie_node::store::DATABASE_FILE).exists();
         let store = Store::open(&state).unwrap();
+        // A new node starts with public rate sources on the internet, which
+        // no test may reach: a test's node has none, unless the test sets
+        // its own, which a restart keeps.
+        if fresh {
+            store.set_rate_sources(&[]).unwrap();
+        }
         let (http_address, https_address) =
             (http.local_addr().unwrap(), https.local_addr().unwrap());
         let (hand_out, handed) = tokio::sync::oneshot::channel();
@@ -266,7 +312,24 @@ pub struct TestNode {
     _blackhole: Option<std::net::UdpSocket>,
 }
 
+/// Where a daemon listened, to start it again there ([`Bound::bind_again`]).
+#[derive(Clone, Copy, Debug)]
+pub struct Ports {
+    pub http: SocketAddr,
+    pub https: SocketAddr,
+    pub feed: SocketAddr,
+}
+
 impl TestNode {
+    /// Where it listens.
+    pub const fn ports(&self) -> Ports {
+        Ports {
+            http: self.http,
+            https: self.https,
+            feed: self.feed,
+        }
+    }
+
     /// A daemon on a fresh directory.
     pub async fn start() -> Self {
         Self::start_in(tempfile::tempdir().unwrap(), ManualClock::new(START_MS), 1).await

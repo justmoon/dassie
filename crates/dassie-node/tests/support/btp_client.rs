@@ -16,7 +16,9 @@ use dassie_ilp::{Address, Prepare, Response, Timestamp, ildcp};
 use dassie_kit::sim::SeededRng;
 use dassie_node::clock::{Clock, ManualClock};
 use dassie_oer::{Decode, Encode};
-use dassie_stream::{AssetDetails, BUFFER_LENGTH, Config, Connection, ErrorCode, Policy, Role};
+use dassie_stream::{
+    AssetDetails, BUFFER_LENGTH, Config, Connection, ErrorCode, Event, Policy, Role,
+};
 use futures_util::{SinkExt, StreamExt};
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
@@ -306,6 +308,16 @@ async fn send(
         while let Some(transmit) = connection.poll_transmit(now, &mut rng, &mut buffer) {
             let id = client.prepare(&buffer[..transmit.length]).await;
             in_flight.insert(id, transmit.request_id);
+        }
+        // A rate that could not be measured is not measured again: no
+        // money moves on this connection, so it ends now rather than idle
+        // through its rounds while the daemons' clock runs on.
+        while let Some(event) = connection.poll_event() {
+            if matches!(event, Event::ExchangeRateMeasurementFailed) && stream.is_none() {
+                eprintln!("the exchange rate to {destination} could not be measured");
+                connection.close(now, ErrorCode::NO_ERROR);
+                return sent(&connection, stream);
+            }
         }
         if stream.is_none() && connection.exchange_rate().is_some() {
             let id = connection.open_stream().unwrap();
