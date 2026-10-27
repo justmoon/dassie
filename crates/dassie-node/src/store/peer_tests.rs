@@ -31,6 +31,8 @@ fn node(seed: u8) -> StoredNode {
                 short_for_ms: 17,
                 short_reached_ms: 12,
                 short_checked_ms: None,
+                winding: None,
+                unpayable_since_ms: None,
             }],
             since_ms: 14,
             inbound: true,
@@ -86,6 +88,8 @@ fn method(scheme: &str, credit_out: u64) -> Method {
         short_for_ms: credit_out / 100,
         short_reached_ms: credit_out / 200,
         short_checked_ms: None,
+        winding: None,
+        unpayable_since_ms: None,
     }
 }
 
@@ -546,4 +550,68 @@ fn the_registrations_round_trip() {
         },
     );
     assert_eq!(store.load_peer().unwrap().registrations, [again, carol]);
+}
+
+// spec/decisions/settlement-methods.md: a method being wound down keeps when
+// the node decided, and only that: its steps are taken again after a
+// restart.
+#[test]
+fn a_method_wound_down_keeps_its_decision() {
+    let store = Store::open_in_memory().unwrap();
+    let mut peered = node(1);
+    let peering = peered.peering.as_mut().unwrap();
+    let mut second = method("zz-second", 1_100);
+    second.winding = Some(dassie_peer::Winding {
+        since_ms: 30,
+        asked_ms: Some(31),
+        promised: Some(5),
+        booked: 2,
+    });
+    peering.methods.push(second);
+    commit(
+        &store,
+        PeerBatch {
+            nodes: vec![peered.clone()],
+            ..PeerBatch::default()
+        },
+    );
+    let loaded = store.load_peer().unwrap();
+    let methods = &loaded.nodes[0].peering.as_ref().unwrap().methods;
+    assert_eq!(methods[0].winding, None);
+    assert_eq!(methods[1].winding, Some(dassie_peer::Winding::new(30)));
+}
+
+// spec/decisions/settlement-methods.md: a scheme its owner removes keeps since
+// when, so a restart carries the removal on; one removed for good, or added
+// again, is not being removed.
+#[test]
+fn a_scheme_being_removed_keeps_since_when() {
+    let store = Store::open_in_memory().unwrap();
+    let (stub, two) = (
+        dassie_ledger::Name::new("stub").unwrap(),
+        dassie_ledger::Name::new("stub-two").unwrap(),
+    );
+    store
+        .commit_ledger(&LedgerBatch {
+            schemes_added: vec![(stub, "{}".into()), (two, "{}".into())],
+            schemes_removing: vec![(two, 40)],
+            ..LedgerBatch::default()
+        })
+        .unwrap();
+    assert_eq!(store.removing_schemes().unwrap(), [(two, 40)]);
+    store
+        .commit_ledger(&LedgerBatch {
+            schemes_removed: vec![two],
+            ..LedgerBatch::default()
+        })
+        .unwrap();
+    assert!(store.removing_schemes().unwrap().is_empty());
+    store
+        .commit_ledger(&LedgerBatch {
+            schemes_added: vec![(two, "{}".into())],
+            ..LedgerBatch::default()
+        })
+        .unwrap();
+    assert!(store.removing_schemes().unwrap().is_empty());
+    assert_eq!(store.settlement_schemes().unwrap().len(), 2);
 }

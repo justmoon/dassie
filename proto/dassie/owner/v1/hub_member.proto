@@ -105,8 +105,18 @@ message HubStatus {
   // deposits too, counted apart.
   uint64 returned = 18;
   // The settlement scheme over the hub, which names its ledger and asset,
-  // such as `hub-xrpl-testnet-xrp`.
+  // such as `hub-xrpl-testnet-xrp`, or `hub-xrpl-rlusd` on mainnet.
   string scheme = 19;
+  // While the issuer of a token hub's asset freezes the hub: the stamp of
+  // the hub's block from which it is frozen, as the validators last said.
+  // Meanwhile the hub's method is unavailable: no packet goes over it, and
+  // nothing moves into or out of it; what waits goes after the thaw, and
+  // claims the hub still pays go. Never for an XRP hub.
+  optional int64 frozen_since_unix_ms = 20;
+  // Whether the issuer holds the hub's escrow: a freeze of its line or of
+  // the token, or a transfer fee. While it does, the escrow pays out
+  // nothing, and a hub that ended pays out only once the issuer lets go.
+  bool escrow_held = 21;
 }
 
 // Every hub the node is in whose scheme runs, in the order of their

@@ -191,6 +191,16 @@ impl Core {
             .any(|transfer| matches!(transfer.reference, Reference::Settlement { .. }))
     }
 
+    /// Whether the books hold a settlement of ours to `node` not yet final,
+    /// for a simulation to aim a fault at.
+    #[cfg(feature = "testing")]
+    #[must_use]
+    pub fn settling_with(&self, node: &NodeId) -> bool {
+        self.ledger
+            .pending_transfers()
+            .any(|transfer| self.settles_to(transfer, node))
+    }
+
     /// Checks every peer, asking those near the credit we extend to settle,
     /// and announces settlements that waited for an earlier one.
     pub(super) fn settlement_timers(&mut self) {
@@ -231,9 +241,14 @@ impl Core {
             // (spec/areas/network.md#advertised-peers).
             let owes_nothing = self.peer.is_downlink(&node)
                 && self.owed(node, scheme).is_some_and(|owed| owed >= 0);
-            let room = if !self.sees_ledger(scheme) {
+            // A peer we are to pay into a hub can owe us nothing: we extend
+            // it nothing until it has an account there
+            // (spec/designs/settlement-hubs.md#5-joining).
+            let joining = self.joining_on(&node, scheme);
+            let paying = matches!(joining, Some(super::hubs::Joining::Paying(_)));
+            let room = if !self.sees_ledger_joining(scheme, joining) {
                 Room::Unjudged
-            } else if owes_nothing {
+            } else if owes_nothing || paying {
                 Room::Enough
             } else if self
                 .position(node, scheme)
@@ -266,6 +281,15 @@ impl Core {
                 .get(&name)
                 .is_some_and(|active| self.scheme_status(active) == LedgerStatus::Synced)
         })
+    }
+
+    /// [`sees_ledger`](Self::sees_ledger), for a peering that stands as
+    /// `joining`: a scheme the hub has no account for yet, to be paid in by
+    /// the peer, waits to be funded, yet sees the hub, and reads the `pay`
+    /// that opens its account as the peer's settlement
+    /// (spec/designs/settlement-hubs.md#5-joining).
+    fn sees_ledger_joining(&self, scheme: SchemeId, joining: Option<super::hubs::Joining>) -> bool {
+        matches!(joining, Some(super::hubs::Joining::PaidIn(_))) || self.sees_ledger(scheme)
     }
 
     /// Whether peers on `scheme` trust each other without limit, so that
@@ -386,9 +410,18 @@ impl Core {
         let peers = self.methods_of_active_peers();
         self.settle.asked.retain(|key, _| peers.contains(key));
         for (node, scheme) in peers {
+            // While one of us has no account in the hub, there are no holds:
+            // a peer we are to pay in cannot settle, and the one that pays
+            // us in is asked by the books alone
+            // (spec/designs/settlement-hubs.md#5-joining).
+            let joining = self.joining_on(&node, scheme);
             // Nor while its settlement cannot reach us: it would only fail,
             // and cost the peer a fee. Nor ever with unlimited trust.
-            if !self.sees_ledger(scheme) || !self.can_receive(scheme) || self.unlimited(scheme) {
+            if !self.sees_ledger_joining(scheme, joining)
+                || !self.can_receive(scheme)
+                || self.unlimited(scheme)
+                || matches!(joining, Some(super::hubs::Joining::Paying(_)))
+            {
                 continue;
             }
             let due = self
@@ -399,9 +432,10 @@ impl Core {
             let close = self
                 .position(node, scheme)
                 .is_some_and(|at| policy::ask(at.position, self.settle.trigger))
-                || self
-                    .hub_room(node, scheme)
-                    .is_some_and(|room| policy::ask(u128::from(room), self.settle.trigger));
+                || joining.is_none()
+                    && self
+                        .hub_room(node, scheme)
+                        .is_some_and(|room| policy::ask(u128::from(room), self.settle.trigger));
             if due && close && self.peer.request_settlement(now, &node, scheme).is_ok() {
                 self.settle.asked.insert((node, scheme), now);
             }
@@ -459,9 +493,20 @@ impl Core {
         else {
             return 0;
         };
+        // While one of us has no account in its hub, we pay the peer in once
+        // we owe it the hub's minimum for a new account, never before, with
+        // what we owe it; without an account, we have nothing to pay with
+        // (spec/designs/settlement-hubs.md#5-joining).
+        let joining = self.joining_on(&node, scheme);
+        if matches!(joining, Some(super::hubs::Joining::PaidIn(_))) {
+            return 0;
+        }
         let Some((mut at, mut over_hub, mut amount)) = self.requested(node, scheme) else {
             return 0;
         };
+        if let Some(super::hubs::Joining::Paying(minimum)) = joining {
+            amount = self.pay_in_amount(&at, minimum);
+        }
         // Over a hub, what we settle funds our hold toward the peer: value
         // moves with it, which opens a downlink's accounts, and then stands
         // where they do. Without room for them, nothing is settled
@@ -474,6 +519,9 @@ impl Core {
                 return 0;
             };
             (at, over_hub, amount) = opened;
+            if let Some(super::hubs::Joining::Paying(minimum)) = joining {
+                amount = self.pay_in_amount(&at, minimum);
+            }
         }
         if amount > 0 {
             self.prepare_settlement(node, &at, amount, &state, over_hub);
@@ -499,6 +547,22 @@ impl Core {
             policy::requested_amount(position, self.settle.trigger, self.settle.minimum),
         );
         Some((at, over_hub, amount))
+    }
+
+    /// What we pay a peer into its hub with, standing at `at` with it: what
+    /// we owe it net, in whole units of the ledger, once that is at least
+    /// the hub's minimum for a new account, `minimum`, and nothing before.
+    /// So whoever cycles fresh keys through us pays each one's minimum
+    /// itself (spec/decisions/hubs-only.md). All of it, not the minimum
+    /// alone: once the peer has its account, what we owed it beyond the
+    /// `pay` no claim could ever cover, since its packets came without
+    /// promises; so the scheme pays it only once our account can spend all
+    /// of it, and answers not now before.
+    fn pay_in_amount(&self, at: &Position, minimum: u64) -> u64 {
+        let position = i128::try_from(at.position).unwrap_or(i128::MAX);
+        let owed = u64::try_from(position - i128::from(at.credit_out)).unwrap_or(0);
+        let owed = self.whole_units(&at.scheme, owed);
+        if owed >= minimum { owed } else { 0 }
     }
 
     /// Whether `node` has accounts on `ledger`.
@@ -652,6 +716,17 @@ impl Core {
         };
         if !over_hub {
             self.prepare_and_book(node, name, at, amount, state);
+            return;
+        }
+        // A `pay` into the hub funds no hold: it is the peer's once it
+        // executes, and we owe it that much already, so the books take it
+        // without credit (spec/designs/settlement-hubs.md#5-joining).
+        if matches!(
+            self.joining(at.scheme, name),
+            Some(super::hubs::Joining::Paying(_))
+        ) {
+            self.prepare_and_book(node, name, at, amount, state);
+            self.sync_credit_with(at.scheme, node);
             return;
         }
         if let Err(error) =

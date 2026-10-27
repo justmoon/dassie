@@ -5,7 +5,9 @@
 //! and balances across a restart, and end the peering
 //! (spec/areas/settlement.md#the-stub-scheme, spec/areas/hubs.md#in-the-node).
 //! Two that share two schemes peer on both, as two settlement methods, and
-//! keep both across a restart (spec/decisions/settlement-methods.md).
+//! keep both across a restart; the owner's removal of one scheme winds its
+//! method down, and the peering carries on, on the other
+//! (spec/decisions/settlement-methods.md).
 
 #![allow(
     clippy::unwrap_used,
@@ -166,6 +168,19 @@ async fn peers(node: &TestNode) -> Vec<proto::NetworkPeer> {
         panic!("no peers")
     };
     peers.peers
+}
+
+/// The node's ledgers.
+async fn ledgers(node: &TestNode) -> Vec<proto::Ledger> {
+    let Ok(response::Method::ListLedgers(list)) = node
+        .ipc()
+        .await
+        .call(Method::ListLedgers(proto::ListLedgersRequest {}))
+        .await
+    else {
+        panic!("no ledgers")
+    };
+    list.ledgers
 }
 
 /// The node's stub's balance on its "underlying ledger".
@@ -334,19 +349,6 @@ async fn two_daemons_peer_and_keep_their_peering() {
         assert!(quic.stats().sent.load(Ordering::Relaxed) > 0);
         assert!(quic.stats().answered.load(Ordering::Relaxed) > 0);
     }
-    // Found in review: removing a scheme that peers use left their
-    // peerings without a ledger, and the engine could not start again.
-    let removed = a
-        .ipc()
-        .await
-        .call(Method::RemoveSettlementScheme(
-            proto::RemoveSettlementSchemeRequest { id: "stub".into() },
-        ))
-        .await;
-    assert_eq!(
-        removed.unwrap_err().code(),
-        proto::ErrorCode::FailedPrecondition
-    );
     // A client of A pays B's receiver, one hop away, beyond what one
     // settlement funds.
     let mut owner_a = a.ipc().await;
@@ -579,7 +581,12 @@ fn stored_methods(dir: &std::path::Path, peer: &NodeKey) -> Vec<String> {
 // two daemons that share the stub with commitments' pretend hub and both
 // run the XRP Ledger testnet scheme peer on the hub, then add the XRP
 // Ledger as a second method, with accounts on both ledgers; restarted,
-// each keeps both methods, in the order they were agreed.
+// each keeps both methods, in the order they were agreed, and lists both.
+// A's owner then removes the XRP Ledger scheme, which peers settle on: not
+// refused, it winds its method down and goes, the peering carrying on, on
+// the hub, and A starts again with it. Found in review: removing a scheme
+// that peers used left their peerings without a ledger, and the engine
+// could not start again.
 #[tokio::test(flavor = "multi_thread")]
 async fn two_daemons_keep_two_methods_across_a_restart() {
     let clock = ManualClock::new(START_MS);
@@ -624,8 +631,47 @@ async fn two_daemons_keep_two_methods_across_a_restart() {
     assert!(peered(&b, &key_a).await && peered_on(&b, &key_a, xrpl).await);
     settle(&clock).await;
     settle(&clock).await;
+    for node in [&a, &b] {
+        let peers = peers(node).await;
+        let listed: Vec<&str> = peers[0]
+            .methods
+            .iter()
+            .map(|method| method.scheme.as_str())
+            .collect();
+        assert_eq!(listed, methods);
+        assert!(peers[0].methods.iter().all(|method| !method.winding_down));
+    }
+    let removed = a
+        .ipc()
+        .await
+        .call(Method::RemoveSettlementScheme(
+            proto::RemoveSettlementSchemeRequest {
+                id: "xrpl-testnet-xrp".into(),
+            },
+        ))
+        .await;
+    assert!(removed.is_ok(), "{removed:?}");
+    // Until its method is dropped, the scheme runs, being removed.
+    if let Some(ledger) = ledgers(&a).await.iter().find(|l| l.id == xrpl) {
+        assert_eq!(ledger.removing_methods, Some(1));
+        assert!(ledger.removal_blockers.is_empty());
+    }
+    until(&clock, async || {
+        ledgers(&a).await.iter().all(|ledger| ledger.id != xrpl)
+            && peers(&a).await[0].methods.len() == 1
+            && peers(&b).await[0].methods.len() == 1
+    })
+    .await;
+    assert_eq!(peers(&a).await[0].scheme, "stub");
+    let ports_a = a.ports();
     let (dir_a, _) = a.stop().await;
-    assert_eq!(stored_methods(dir_a.path(), &key_b), methods);
+    assert_eq!(stored_methods(dir_a.path(), &key_b), ["stub"]);
+    let a = Bound::bind_again(dir_a, ports_a)
+        .await
+        .start(clock.clone(), 7, Policies::DEV, &env)
+        .await;
+    assert!(peered(&a, &key_b).await);
+    a.stop().await;
     let (dir_b, _) = b.stop().await;
-    assert_eq!(stored_methods(dir_b.path(), &key_a), methods);
+    assert_eq!(stored_methods(dir_b.path(), &key_a), ["stub"]);
 }

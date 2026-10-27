@@ -43,6 +43,8 @@ import {
   uplinkConnected,
   uplinkState,
 } from "./periphery.ts";
+import { methodState, peerMethods } from "./methods.ts";
+import { schemeName } from "../schemes.ts";
 
 export function Network(props: RouteProps): JSX.Element {
   const data = useNodeData();
@@ -325,8 +327,37 @@ function NodeDetail(props: { node: NetworkNode }): JSX.Element {
       <Show when={node().peering}>
         {(peering) => (
           <dl class="facts">
-            <dt>Scheme</dt>
-            <dd>{peering().scheme}</dd>
+            <dt>Settles on</dt>
+            <dd>
+              <ul data-testid="peer-methods">
+                <For each={peerMethods(peering())}>
+                  {(method) => (
+                    <li data-testid={`peer-method-${method.scheme}`}>
+                      {schemeName(method.scheme)}, owed to it{" "}
+                      <Amount
+                        value={method.owed}
+                        currency={currency(method.scheme)}
+                      />
+                      <Show when={methodState(method)}>
+                        {(state) => (
+                          <>
+                            {" "}
+                            <span title={state().hint}>
+                              <Badge
+                                tone={state().tone}
+                                testid={`peer-method-state-${method.scheme}`}
+                              >
+                                {state().label}
+                              </Badge>
+                            </span>
+                          </>
+                        )}
+                      </Show>
+                    </li>
+                  )}
+                </For>
+              </ul>
+            </dd>
             <dt>Since</dt>
             <dd>{dateTime(peering().sinceUnixMs)}</dd>
             <dt>Status</dt>
@@ -337,13 +368,6 @@ function NodeDetail(props: { node: NetworkNode }): JSX.Element {
             <dd>{dateTime(peering().lastSeenUnixMs)}</dd>
             <dt>Advertised</dt>
             <dd>{peering().advertised ? "yes" : "no"}</dd>
-            <dt>Owed to it</dt>
-            <dd>
-              <Amount
-                value={peering().owed}
-                currency={currency(peering().scheme)}
-              />
-            </dd>
             <Show when={peering().terminationReason}>
               <dt>Ending, because</dt>
               <dd>{peering().terminationReason}</dd>

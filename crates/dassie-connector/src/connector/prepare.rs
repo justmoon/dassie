@@ -6,15 +6,17 @@ use dassie_ilp::{
     ildcp,
 };
 use dassie_ledger::{
-    AccountId, AccountName, AccountPath, Ledger, Reference, TraceId, TransferError, TransferSpec,
+    AccountId, AccountName, AccountPath, Ledger, LedgerId, Reference, TraceId, TransferError,
+    TransferSpec,
 };
 use dassie_oer::{Decode, Encode};
 
+use super::hops::Hop;
 use super::{Connector, Forwarded, OpensAccounts, OpensNone, Outcome, Pending};
 use crate::PacketTransfers;
 use crate::cap::CapRefusal;
 use crate::charges::Charges;
-use crate::endpoint::EndpointId;
+use crate::endpoint::{EndpointId, MAX_SLOTS};
 use crate::pricing::{PriceError, PriceTable};
 use crate::trace::{PacketRecord, PacketState};
 
@@ -23,6 +25,7 @@ use crate::trace::{PacketRecord, PacketState};
 const ILDCP_RESPONSE_LENGTH: usize = 3 + dassie_ilp::MAX_ADDRESS_LENGTH + 1 + 3 + 255;
 
 /// A refusal before the packet goes anywhere.
+#[derive(Clone, Copy)]
 struct Refusal {
     code: ErrorCode,
     message: &'static str,
@@ -41,6 +44,10 @@ const fn refuse(code: ErrorCode, message: &'static str) -> Refusal {
 /// Where a routed packet goes, and what it books.
 struct Route {
     to: EndpointId,
+    /// The ledger of the source's slot it came in on, and of the
+    /// destination's slot it goes out on.
+    in_ledger: LedgerId,
+    out_ledger: LedgerId,
     expires_at: Timestamp,
     /// Our fee, out of the incoming amount: only on transit.
     fee: u64,
@@ -54,11 +61,11 @@ struct Booked {
 }
 
 impl Connector {
-    /// Handles a Prepare from `source` with the request ID it used, at
-    /// `prices`: what transit is charged and converts at, and the spot
-    /// rates a packet into the owner's own endpoints converts at. `draw`, a
-    /// number from the caller's RNG, draws the packet's next hop among a
-    /// route's options (spec/decisions/weighted-next-hops.md).
+    /// Handles a Prepare from `source` with the request ID it used, on its
+    /// first slot, at `prices`: what transit is charged and converts at, and
+    /// the spot rates a packet into the owner's own endpoints converts at.
+    /// `draw`, a number from the caller's RNG, draws the packet's next hop
+    /// among a route's options (spec/decisions/weighted-next-hops.md).
     ///
     /// # Panics
     ///
@@ -79,6 +86,7 @@ impl Connector {
         self.handle_prepare_with(
             now_ms,
             (source, request_id),
+            None,
             packet,
             ledger,
             prices,
@@ -88,9 +96,14 @@ impl Connector {
         )
     }
 
-    /// [`handle_prepare`](Self::handle_prepare), where `accounts` opens the
-    /// accounts of a peer that has none yet, for a packet to it that moves
-    /// money (spec/decisions/lazy-downlink-accounts.md).
+    /// [`handle_prepare`](Self::handle_prepare), on the source's slot on
+    /// `on`, the ledger of the settlement method a peer's Prepare came on
+    /// (its first slot if `None`), where `accounts` opens the accounts of a
+    /// peer's slot that has none yet, for a packet to it that moves money
+    /// (spec/decisions/lazy-downlink-accounts.md). A Prepare on a method the
+    /// source has no slot for, or one being removed, is refused for want of
+    /// liquidity on it (T04): the connector books a packet on the method it
+    /// came on, or not at all.
     ///
     /// # Panics
     ///
@@ -100,6 +113,7 @@ impl Connector {
         &mut self,
         now_ms: u64,
         (source, request_id): (EndpointId, u32),
+        on: Option<LedgerId>,
         packet: &[u8],
         ledger: &mut Ledger,
         prices: &PriceTable,
@@ -120,37 +134,14 @@ impl Connector {
         }
         self.stats.prepares += 1;
         let trace = self.next_trace();
-        // A peering that ends takes no new Prepares; one we end and have
-        // not told the peer of yet refuses them as for want of liquidity
-        // (spec/decisions/ending-a-peering.md), and so does one our messages
-        // surely do not reach, since a Fulfill of ours would count only in
-        // our books (spec/decisions/unreachable-peers.md). Our Reject is the
-        // first message to try it again.
-        let closed = self.endpoints.get(source).and_then(|endpoint| {
-            if endpoint.draining {
-                Some(refuse(
-                    ErrorCode::T01_PEER_UNREACHABLE,
-                    "the peering is ending",
-                ))
-            } else if endpoint.refusing {
-                Some(refuse(
-                    ErrorCode::T04_INSUFFICIENT_LIQUIDITY,
-                    "insufficient liquidity",
-                ))
-            } else if endpoint.unreached {
-                Some(refuse(
-                    ErrorCode::T04_INSUFFICIENT_LIQUIDITY,
-                    "cannot answer the peer",
-                ))
-            } else {
-                None
+        let in_ledger = match self.source_slot(source, on) {
+            Ok(in_ledger) => in_ledger,
+            Err(refusal) => {
+                self.trace
+                    .push(PacketRecord::new(trace, source, "", 0, now_ms));
+                return self.answer(now_ms, trace, &refusal, out);
             }
-        });
-        if let Some(refusal) = closed {
-            self.trace
-                .push(PacketRecord::new(trace, source, "", 0, now_ms));
-            return self.answer(now_ms, trace, &refusal, out);
-        }
+        };
         let Ok(prepare) = Prepare::decode_exact(packet) else {
             self.trace
                 .push(PacketRecord::new(trace, source, "", 0, now_ms));
@@ -170,9 +161,10 @@ impl Connector {
         );
         self.trace.push(record);
         if prepare.destination.has_prefix(ildcp::ADDRESS) {
-            return self.ildcp(now_ms, trace, source, &prepare, out);
+            return self.ildcp(now_ms, trace, (source, in_ledger), &prepare, out);
         }
-        let route = match self.route(now_ms, source, &prepare, prices, ledger, draw) {
+        let from = (source, in_ledger);
+        let route = match self.route(now_ms, from, &prepare, prices, ledger, draw) {
             Ok(route) => route,
             Err(refusal) => return self.answer(now_ms, trace, &refusal, out),
         };
@@ -182,6 +174,48 @@ impl Connector {
             Err(refusal) => return self.answer(now_ms, trace, &refusal, out),
         };
         self.forward(trace, source, request_id, &prepare, &route, booked, out)
+    }
+
+    /// The ledger of `source`'s slot on `on` (its first if `None`) that a
+    /// Prepare comes in on, if the source takes new Prepares there. A
+    /// peering that ends takes no new Prepares; one we end and have not
+    /// told the peer of yet refuses them as for want of liquidity
+    /// (spec/decisions/ending-a-peering.md), and so does one our messages
+    /// surely do not reach, since a Fulfill of ours would count only in our
+    /// books (spec/decisions/unreachable-peers.md). Our Reject is the first
+    /// message to try it again. A method with no open slot is refused as
+    /// for want of liquidity on it.
+    fn source_slot(&self, source: EndpointId, on: Option<LedgerId>) -> Result<LedgerId, Refusal> {
+        let endpoint = self
+            .endpoints
+            .get(source)
+            .ok_or(refuse(ErrorCode::T00_INTERNAL_ERROR, "internal error"))?;
+        if endpoint.draining {
+            return Err(refuse(
+                ErrorCode::T01_PEER_UNREACHABLE,
+                "the peering is ending",
+            ));
+        }
+        if endpoint.refusing {
+            return Err(refuse(
+                ErrorCode::T04_INSUFFICIENT_LIQUIDITY,
+                "insufficient liquidity",
+            ));
+        }
+        if endpoint.unreached {
+            return Err(refuse(
+                ErrorCode::T04_INSUFFICIENT_LIQUIDITY,
+                "cannot answer the peer",
+            ));
+        }
+        let slot = match on {
+            Some(ledger) => endpoint.slot(ledger).filter(|slot| !slot.removed),
+            None => endpoint.first_slot(),
+        };
+        slot.map(|slot| slot.ledger).ok_or(refuse(
+            ErrorCode::T04_INSUFFICIENT_LIQUIDITY,
+            "the settlement method is not open",
+        ))
     }
 
     /// Answers at once with a reject from this node.
@@ -208,14 +242,14 @@ impl Connector {
         Outcome::Respond(length)
     }
 
-    /// Answers an ILDCP request with the source's routed address and its
-    /// ledger's asset. It must carry no money and the
-    /// ILDCP condition, or it is not one.
+    /// Answers an ILDCP request with the source's routed address and the
+    /// asset of the ledger of its slot the request came on. It must carry
+    /// no money and the ILDCP condition, or it is not one.
     fn ildcp(
         &mut self,
         now_ms: u64,
         trace: TraceId,
-        source: EndpointId,
+        (source, on): (EndpointId, LedgerId),
         prepare: &Prepare<'_>,
         out: &mut [u8],
     ) -> Outcome {
@@ -234,7 +268,7 @@ impl Connector {
             let refusal = refuse(ErrorCode::T00_INTERNAL_ERROR, "internal error");
             return self.answer(now_ms, trace, &refusal, out);
         };
-        let asset = endpoint.ledger.asset();
+        let asset = on.asset();
         let response = ildcp::Response {
             address,
             asset_scale: asset.scale,
@@ -259,7 +293,7 @@ impl Connector {
     fn route(
         &self,
         now_ms: u64,
-        source: EndpointId,
+        (source, in_ledger): (EndpointId, LedgerId),
         prepare: &Prepare<'_>,
         prices: &PriceTable,
         ledger: &Ledger,
@@ -280,10 +314,19 @@ impl Connector {
             ));
         }
         // Unroutable, including anything below our own address that is no
-        // endpoint's and our own address itself.
-        let to = self
-            .next_hop(now_ms, prepare.destination, Some(source), draw)
-            .ok_or(refuse(ErrorCode::F02_UNREACHABLE, "no route found"))?;
+        // endpoint's and our own address itself. A route whose hops have
+        // no method available now is short of liquidity, which passes.
+        let asker = (Some(source), Some(in_ledger));
+        let (to, method) = match self.next_hop(now_ms, prepare.destination, asker, Some(draw)) {
+            Hop::To(to, method) => (to, method),
+            Hop::NoMethod => {
+                return Err(refuse(
+                    ErrorCode::T04_INSUFFICIENT_LIQUIDITY,
+                    "no settlement method available",
+                ));
+            }
+            Hop::None => return Err(refuse(ErrorCode::F02_UNREACHABLE, "no route found")),
+        };
         let incoming_ms = prepare.expires_at.unix_ms;
         let latest_ms = incoming_ms.saturating_sub(config.message_window_ms);
         if latest_ms < now_ms.saturating_add(config.min_timeout_ms) {
@@ -303,14 +346,68 @@ impl Connector {
                 }),
             });
         }
-        let (fee, amount_out) = self.amounts(now_ms, source, to, prepare.amount, prices, ledger)?;
-        self.admits_in_flight(source, to, prepare.amount, amount_out)?;
+        let from = (source, in_ledger);
+        let out_ledger = match method {
+            Some(method) => method,
+            None => self.best_method(now_ms, from, to, prepare.amount, prices, ledger)?,
+        };
+        let onto = (to, out_ledger);
+        let (fee, amount_out) = self.amounts(now_ms, from, onto, prepare.amount, prices, ledger)?;
+        self.admits_in_flight(from, onto, prepare.amount, amount_out)?;
         Ok(Route {
             to,
+            in_ledger,
+            out_ledger,
             expires_at,
             fee,
             amount_out,
         })
+    }
+
+    /// The method a peer's packet that converts takes at `to`, its drawn
+    /// next hop: of `to`'s available methods, the one the price table gives
+    /// the best rate for, rates on different ledgers compared at spot
+    /// (`PriceTable::best_output`), so that it pays out what the node holds
+    /// above its target (spec/decisions/settlement-methods.md). A hop with
+    /// one method takes it; so does a packet into the node's own endpoints,
+    /// which have one each. With no rate on any, the first, which then
+    /// refuses the packet as a conversion without a rate does.
+    fn best_method(
+        &self,
+        now_ms: u64,
+        (source, in_ledger): (EndpointId, LedgerId),
+        to: EndpointId,
+        amount: u64,
+        prices: &PriceTable,
+        ledger: &Ledger,
+    ) -> Result<LedgerId, Refusal> {
+        let internal = refuse(ErrorCode::T00_INTERNAL_ERROR, "internal error");
+        let endpoint = self.endpoints.get(to).ok_or(internal)?;
+        let mut candidates = [in_ledger; MAX_SLOTS];
+        let mut count = 0;
+        for slot in endpoint.slots.iter().filter(|slot| slot.usable()) {
+            if let Some(entry) = candidates.get_mut(count) {
+                *entry = slot.ledger;
+                count += 1;
+            }
+        }
+        let candidates = candidates.get(..count).unwrap_or_default();
+        let first = *candidates.first().ok_or(internal)?;
+        if candidates.len() == 1 || !(source.is_peer() && to.is_peer()) {
+            return Ok(first);
+        }
+        let fee = prices.charges().fee(amount);
+        let holdings = prices.live_holdings(ledger);
+        let best = prices.best_output(
+            in_ledger,
+            candidates,
+            amount,
+            amount - fee,
+            &holdings,
+            now_ms,
+            self.config.max_rate_age_ms,
+        );
+        Ok(best.map_or(first, |best| best.ledger))
     }
 
     /// Whether the money in flight with each peer the packet passes stays
@@ -322,8 +419,8 @@ impl Connector {
     /// a conversion made larger than the limit.
     fn admits_in_flight(
         &self,
-        source: EndpointId,
-        to: EndpointId,
+        (source, in_ledger): (EndpointId, LedgerId),
+        (to, out_ledger): (EndpointId, LedgerId),
         amount_in: u64,
         amount_out: u64,
     ) -> Result<(), Refusal> {
@@ -331,8 +428,14 @@ impl Connector {
         let over = |in_flight: u64, amount: u64| {
             amount > 0 && in_flight > 0 && in_flight.saturating_add(amount) > max
         };
-        let from = self.endpoints.get(source).map_or(0, |e| e.money_from);
-        let onward = self.endpoints.get(to).map_or(0, |e| e.money_to);
+        let from = self
+            .endpoints
+            .slot(source, in_ledger)
+            .map_or(0, |slot| slot.money_from);
+        let onward = self
+            .endpoints
+            .slot(to, out_ledger)
+            .map_or(0, |slot| slot.money_to);
         if (source.is_peer() && over(from, amount_in)) || (to.is_peer() && over(onward, amount_out))
         {
             return Err(refuse(
@@ -355,17 +458,18 @@ impl Connector {
     fn amounts(
         &self,
         now_ms: u64,
-        source: EndpointId,
-        to: EndpointId,
+        (source, in_ledger): (EndpointId, LedgerId),
+        (to, out_ledger): (EndpointId, LedgerId),
         amount: u64,
         prices: &PriceTable,
         ledger: &Ledger,
     ) -> Result<(u64, u64), Refusal> {
         let internal = refuse(ErrorCode::T00_INTERNAL_ERROR, "internal error");
-        let (Some(from), Some(destination)) = (self.endpoints.get(source), self.endpoints.get(to))
-        else {
+        if self.endpoints.slot(source, in_ledger).is_none()
+            || self.endpoints.slot(to, out_ledger).is_none()
+        {
             return Err(internal);
-        };
+        }
         let transit = source.is_peer() && to.is_peer();
         let charges = if transit {
             prices.charges()
@@ -374,7 +478,7 @@ impl Connector {
         };
         let fee = charges.fee(amount);
         let net = amount - fee;
-        let converts = from.ledger != destination.ledger && amount > 0;
+        let converts = in_ledger != out_ledger && amount > 0;
         if converts && !source.is_peer() {
             return Err(refuse(
                 ErrorCode::F02_UNREACHABLE,
@@ -388,18 +492,12 @@ impl Connector {
             let holdings = prices.live_holdings(ledger);
             prices
                 .convert(
-                    from.ledger,
-                    destination.ledger,
-                    amount,
-                    net,
-                    &holdings,
-                    now_ms,
-                    max_age_ms,
+                    in_ledger, out_ledger, amount, net, &holdings, now_ms, max_age_ms,
                 )
                 .map_err(price_refusal)?
         } else {
             prices
-                .convert_at_spot(from.ledger, destination.ledger, net, now_ms, max_age_ms)
+                .convert_at_spot(in_ledger, out_ledger, net, now_ms, max_age_ms)
                 .map_err(price_refusal)?
         };
         if amount > 0 && amount_out == 0 {
@@ -429,8 +527,10 @@ impl Connector {
         (ledger, accounts): (&mut Ledger, &mut dyn OpensAccounts),
     ) -> Result<Booked, Refusal> {
         let internal = refuse(ErrorCode::T00_INTERNAL_ERROR, "internal error");
-        let (Some(from), Some(to)) = (self.endpoints.get(source), self.endpoints.get(route.to))
-        else {
+        let (Some(from), Some(to)) = (
+            self.endpoints.slot(source, route.in_ledger),
+            self.endpoints.slot(route.to, route.out_ledger),
+        ) else {
             return Err(internal);
         };
         let nothing = Booked {
@@ -465,15 +565,15 @@ impl Connector {
                 ErrorCode::T04_INSUFFICIENT_LIQUIDITY,
                 "no room for the peer's accounts",
             ))?;
-            self.open_account(route.to, account);
+            self.open_account(route.to, on, account);
         }
         let transfers = match self.book_transfers(now_ms, trace, source, route, amount_in, ledger) {
             Ok(transfers) => transfers,
             Err(refusal) => {
                 if opens {
                     accounts.take_back(ledger, route.to, on);
-                    if let Some(endpoint) = self.endpoints.get_mut(route.to) {
-                        endpoint.account = None;
+                    if let Some(slot) = self.endpoints.slot_mut(route.to, on) {
+                        slot.account = None;
                     }
                 }
                 return Err(refusal);
@@ -500,8 +600,10 @@ impl Connector {
         ledger: &mut Ledger,
     ) -> Result<PacketTransfers, Refusal> {
         let internal = refuse(ErrorCode::T00_INTERNAL_ERROR, "internal error");
-        let (Some(from), Some(to)) = (self.endpoints.get(source), self.endpoints.get(route.to))
-        else {
+        let (Some(from), Some(to)) = (
+            self.endpoints.slot(source, route.in_ledger),
+            self.endpoints.slot(route.to, route.out_ledger),
+        ) else {
             return Err(internal);
         };
         let (Some(from_account), Some(to_account)) = (from.account, to.account) else {
@@ -560,29 +662,49 @@ impl Connector {
         Ok(slots.map(|slot| slot.and_then(|_| ids.next())))
     }
 
-    /// How long a packet to `to` may wait for its hub after its expiry, if
-    /// `to` is a peer over a hub: until the incoming expiry, and at most one
-    /// message window past its own, even when the incoming expiry is far.
-    /// The hub decides well within it, and the packet holds money in flight
-    /// meanwhile.
-    fn backstop(&self, to: EndpointId, incoming_ms: u64, expires_at_ms: u64) -> Option<u64> {
+    /// How long a packet on `route` may wait for its hub after its expiry,
+    /// if it goes to a peer on a method over a hub: until the incoming
+    /// expiry, and at most one message window past its own, even when the
+    /// incoming expiry is far. The hub decides well within it, and the
+    /// packet holds money in flight meanwhile.
+    fn backstop(&self, route: &Route, incoming_ms: u64, expires_at_ms: u64) -> Option<u64> {
         self.endpoints
-            .get(to)
-            .is_some_and(|endpoint| endpoint.hub)
+            .slot(route.to, route.out_ledger)
+            .is_some_and(|slot| slot.hub)
             .then_some(incoming_ms.min(expires_at_ms.saturating_add(self.config.message_window_ms)))
     }
 
-    /// What a packet from `source` on `route` earns its next hop toward
-    /// the draw once fulfilled: our fee, only if it keeps its ledger, since
+    /// What a packet on `route` earns its next hop's method toward the
+    /// draw once fulfilled: our fee, only if it keeps its ledger, since
     /// fees on different ledgers do not compare
     /// (spec/decisions/weighted-next-hops.md).
-    fn earns(&self, source: EndpointId, route: &Route) -> u64 {
-        let kept_ledger = self
-            .endpoints
-            .get(source)
-            .zip(self.endpoints.get(route.to))
-            .is_some_and(|(from, to)| from.ledger == to.ledger);
-        if kept_ledger { route.fee } else { 0 }
+    fn earns(route: &Route) -> u64 {
+        if route.in_ledger == route.out_ledger {
+            route.fee
+        } else {
+            0
+        }
+    }
+
+    /// Counts a packet just forwarded on `route` in flight: from its source,
+    /// and on the slots it came in and goes out on, with the money a peer's
+    /// carry (spec/decisions/packets-in-flight.md).
+    fn count_in_flight(&mut self, source: EndpointId, route: &Route, amount_in: u64) {
+        if let Some(endpoint) = self.endpoints.get_mut(source) {
+            endpoint.pending_from += 1;
+        }
+        if let Some(slot) = self.endpoints.slot_mut(source, route.in_ledger) {
+            slot.pending += 1;
+            if source.is_peer() {
+                slot.money_from += amount_in;
+            }
+        }
+        if let Some(slot) = self.endpoints.slot_mut(route.to, route.out_ledger) {
+            slot.pending += 1;
+            if route.to.is_peer() {
+                slot.money_to += route.amount_out;
+            }
+        }
     }
 
     /// Registers the packet as in flight and writes the outgoing Prepare.
@@ -609,6 +731,8 @@ impl Connector {
                 trace,
                 source,
                 source_request_id,
+                in_ledger: route.in_ledger,
+                out_ledger: route.out_ledger,
                 source_gone: false,
                 condition: prepare.execution_condition,
                 amount_in: prepare.amount,
@@ -617,24 +741,14 @@ impl Connector {
                 transfers,
                 failure: None,
                 charge,
-                backstop_ms: self.backstop(route.to, prepare.expires_at.unix_ms, expires_at_ms),
+                backstop_ms: self.backstop(route, prepare.expires_at.unix_ms, expires_at_ms),
                 awaiting_hub: false,
-                earns: self.earns(source, route),
+                earns: Self::earns(route),
             },
         );
         self.deadlines.insert((expires_at_ms, route.to, request_id));
         self.incoming.insert((source, source_request_id));
-        if let Some(endpoint) = self.endpoints.get_mut(source) {
-            endpoint.pending_from += 1;
-            if source.is_peer() {
-                endpoint.money_from += prepare.amount;
-            }
-        }
-        if let Some(endpoint) = self.endpoints.get_mut(route.to)
-            && route.to.is_peer()
-        {
-            endpoint.money_to += route.amount_out;
-        }
+        self.count_in_flight(source, route, prepare.amount);
         // A packet below a periphery node's address beneath an uplink
         // reaches its endpoint written below the node's own, the address
         // the endpoint knows (spec/areas/connector.md#a-periphery-node).
@@ -654,7 +768,7 @@ impl Connector {
         };
         let length = outgoing.encode(out);
         self.rewritten = rewritten;
-        let to = route.to;
+        let (to, ledger) = (route.to, route.out_ledger);
         let amount_out = route.amount_out;
         self.trace.update(trace, |record| {
             record.destination = Some(to);
@@ -664,6 +778,7 @@ impl Connector {
         self.stats.forwarded += 1;
         Outcome::Forward(Forwarded {
             to,
+            ledger,
             request_id,
             length,
         })

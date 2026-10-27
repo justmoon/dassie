@@ -62,7 +62,9 @@ fn peer_node(severity: Severity, event: &dassie_peer::Event) {
         } => {
             emit!(severity, target: target::PEER, %node, %scheme, inbound, "peered");
         }
-        Event::MethodAdded { .. } | Event::MethodDropped { .. } => peer_method(severity, event),
+        Event::MethodAdded { .. } | Event::MethodWinding { .. } | Event::MethodDropped { .. } => {
+            peer_method(severity, event);
+        }
         Event::RoutesChanged => emit!(severity, target: target::ROUTING, "routes changed"),
         Event::NodeAdded(node) => emit!(severity, target: target::PEER, %node, "node added"),
         Event::NodeRemoved(node) => emit!(severity, target: target::PEER, %node, "node removed"),
@@ -224,6 +226,9 @@ fn peer_method(severity: Severity, event: &dassie_peer::Event) {
             inbound,
         } => {
             emit!(severity, target: target::PEER, %peer, %scheme, inbound, "settlement method added");
+        }
+        Event::MethodWinding { peer, scheme } => {
+            emit!(severity, target: target::PEER, %peer, %scheme, "winding a settlement method down: collecting on it before it is dropped");
         }
         Event::MethodDropped {
             peer,
@@ -426,6 +431,7 @@ fn settlement(severity: Severity, event: &SettlementEvent) {
         | SettlementEvent::PeerSettled { .. }
         | SettlementEvent::SettlementBooked { .. }
         | SettlementEvent::PeerSettlementRefused { .. }
+        | SettlementEvent::PeerSettlementUnbooked { .. }
         | SettlementEvent::PegPaused { .. }
         | SettlementEvent::PegResumed { .. }
         | SettlementEvent::CreditRaised { .. }
@@ -489,6 +495,13 @@ fn settlement_outcome(severity: Severity, event: &SettlementEvent) {
         }
         SettlementEvent::PeerSettlementRefused { from, error } => {
             emit!(severity, target: target::SETTLEMENT, %from, %error, "a settlement was refused");
+        }
+        SettlementEvent::PeerSettlementUnbooked {
+            from,
+            scheme,
+            amount,
+        } => {
+            emit!(severity, target: target::SETTLEMENT, %from, %scheme, amount, "a settlement on a scheme the node does not run was acknowledged, and booked nothing");
         }
         SettlementEvent::PegPaused { scheme, why } => {
             let why = why.message();

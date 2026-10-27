@@ -18,6 +18,12 @@
 //! them over time from what the validators kept, as any member would, and
 //! submits a set once a quorum signed it
 //! (spec/designs/settlement-hubs.md#9-shutdown).
+//!
+//! A run may found two hubs on the one fake ledger ([`specs`]), each
+//! described by its asset, the network of its escrow and its sponsor's
+//! nonce, with validators of keys and endpoints of its own. The functions
+//! that act on a validator name it by [`validator_id`], which for the first
+//! hub is its index in the rules, so that a run of one hub reads as before.
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::sync::Arc;
@@ -33,13 +39,14 @@ use dassie_hub::operation::{
     MemberOperation, Operation, SignedMemberOperation, ValidatorOperation,
 };
 use dassie_hub::promise::{Commitment, Fulfilled, Signed};
-use dassie_hub::rules::{Fees, Limits, Rules, Terms, Timers};
+use dassie_hub::rules::{Asset, Fees, Limits, Rules, Terms, Timers};
 use dassie_hub::service::payload::Payload;
 use dassie_hub::service::wire::Message as HubMessage;
 use dassie_hub::sim::Role;
 use dassie_hub::validators::ValidatorIndex;
 use dassie_hub::{Digest, Millis};
 use dassie_identity::{NodeKey, PublicKey};
+use dassie_ledger::LedgerId;
 use dassie_oer::{Decode, Encode};
 use dassie_xrpl::AccountId;
 use dassie_xrpl::api;
@@ -47,7 +54,7 @@ use dassie_xrpl::codec::{Signer, Transact};
 use dassie_xrpl::fake::{FEE_BASE, KeyedSignatures, LIST_SITE};
 use dassie_xrpl::validator_list::UnlConfig;
 
-use super::{Delivery, Sim};
+use super::{Delivery, Settling, Sim};
 use crate::engine::LedgerEvent;
 use crate::hub::driver::{Driver, Effects, Peer, Step};
 use crate::hub::escrow::{EscrowView, Out, Watcher};
@@ -55,8 +62,19 @@ use crate::hub::transport::{MAX_EXCHANGES_PER_VALIDATOR, decode_frames};
 use crate::node::Policies;
 use crate::store::Store;
 
-/// The nonce the sponsor picked for the simulated hub.
+/// The nonce the sponsor picked for the run's first hub.
 pub const NONCE: [u8; 32] = [0x4e; 32];
+
+/// The nonce the sponsor picked for the run's second hub: another escrow.
+pub const SECOND_NONCE: [u8; 32] = [0x4f; 32];
+
+/// The most hubs a run founds.
+pub const MAX_HUBS: usize = 2;
+
+/// The most validators a hub of a run has: its validators' keys, endpoints
+/// and places in the simulation's deliveries are told apart from another
+/// hub's by it.
+pub const MAX_VALIDATORS: usize = 16;
 
 /// The sponsor's node key.
 #[must_use]
@@ -64,16 +82,114 @@ pub fn sponsor() -> NodeKey {
     NodeKey::from_bytes(&[100; 32])
 }
 
-/// Validator `index`'s node key, the same in every run.
-#[must_use]
-pub fn validator_key(index: usize) -> NodeKey {
-    NodeKey::from_bytes(&[u8::try_from(index + 200).unwrap(); 32])
+/// What a hub of a run is: its place among the run's hubs, which tells its
+/// validators' keys and endpoints apart, its asset, the network its escrow
+/// is on, and the nonce its sponsor picked, which makes its escrow its own.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct HubSpec {
+    /// Its place: 0 for [`Sim::hub`], 1 for [`Sim::second_hub`].
+    pub place: usize,
+    /// What it holds.
+    pub asset: Asset,
+    /// The network of its escrow.
+    pub network: u32,
+    /// Its sponsor's nonce.
+    pub nonce: [u8; 32],
 }
 
-/// Where validator `index` is reached.
+impl HubSpec {
+    /// The run's first hub, of `asset`, on the testnet.
+    #[must_use]
+    pub const fn first(asset: Asset) -> Self {
+        Self {
+            place: 0,
+            asset,
+            network: TESTNET_NETWORK,
+            nonce: NONCE,
+        }
+    }
+
+    /// The run's second hub, of `asset`, on the testnet.
+    #[must_use]
+    pub const fn second(asset: Asset) -> Self {
+        Self {
+            place: 1,
+            asset,
+            network: TESTNET_NETWORK,
+            nonce: SECOND_NONCE,
+        }
+    }
+}
+
+/// The hubs a run over hubs founds, by their places: XRP in the first, as
+/// [`Settling::Hub`] has it, and DSUSD in the second for a run in both, or
+/// in the first for a run of DSUSD alone.
+#[must_use]
+pub fn specs(settling: Settling) -> Vec<HubSpec> {
+    let xrp = HubSpec::first(Asset::Xrp);
+    match settling {
+        Settling::Hub(_) => vec![xrp],
+        Settling::HubDsusd(_) => vec![HubSpec::first(super::hub_token::ASSET)],
+        Settling::Hubs(_) | Settling::HubAcross(_) => {
+            vec![xrp, HubSpec::second(super::hub_token::ASSET)]
+        }
+        _ => Vec::new(),
+    }
+}
+
+/// The hub of a run whose ledger is `ledger`, if it has one.
+#[must_use]
+pub fn spec_of(settling: Settling, ledger: LedgerId) -> Option<HubSpec> {
+    let asset = match ledger {
+        super::HUB => Asset::Xrp,
+        super::HUB_DSUSD => super::hub_token::ASSET,
+        _ => return None,
+    };
+    specs(settling).into_iter().find(|spec| spec.asset == asset)
+}
+
+/// Validator `index`'s node key in the run's first hub, the same in every
+/// run.
+#[must_use]
+pub fn validator_key(index: usize) -> NodeKey {
+    validator_key_in(0, index)
+}
+
+/// Validator `index`'s node key in the hub at `place`.
+#[must_use]
+pub fn validator_key_in(place: usize, index: usize) -> NodeKey {
+    assert!(place < MAX_HUBS && index < MAX_VALIDATORS);
+    NodeKey::from_bytes(&[u8::try_from(200 + place * MAX_VALIDATORS + index).unwrap(); 32])
+}
+
+/// Where validator `index` of the run's first hub is reached.
 #[must_use]
 pub fn endpoint(index: usize) -> String {
-    format!("v{index}.test:443")
+    endpoint_in(0, index)
+}
+
+/// Where validator `index` of the hub at `place` is reached.
+#[must_use]
+pub fn endpoint_in(place: usize, index: usize) -> String {
+    match place {
+        0 => format!("v{index}.test:443"),
+        _ => format!("v{index}.hub{place}.test:443"),
+    }
+}
+
+/// Validator `index` of the hub at `place` as the simulation's deliveries
+/// and the functions that act on a validator name it: the first hub's
+/// validators by their indexes, a later hub's past every validator of the
+/// hubs before it.
+#[must_use]
+pub const fn validator_id(place: usize, index: usize) -> usize {
+    place * MAX_VALIDATORS + index
+}
+
+/// The place of a validator's hub and its index there, from its
+/// [`validator_id`].
+const fn split(id: usize) -> (usize, usize) {
+    (id / MAX_VALIDATORS, id % MAX_VALIDATORS)
 }
 
 /// The peer IDs of members start here, above every validator's index.
@@ -106,38 +222,47 @@ pub(super) const VALIDATOR_FIFO: usize = 1 << 20;
 /// (spec/designs/settlement-hubs.md#9-shutdown).
 const ABSENCE_MS: Millis = 86_400_000;
 
-/// The terms of the simulated hub with `validators` validators: the design's
-/// starting values, with the timings derived from consensus's (Δ, the
-/// precision, the margin with f faulty leaders) and from the connector's
-/// message window, which the margin and the allowance for the legs between
-/// members share (spec/designs/settlement-hubs.md#4-peering-over-a-hub). The
-/// stall is the shortest the rules allow, twice the recovery from the
-/// longest outage (`consensus/config.rs`).
+/// The terms of the run's first hub, of XRP, with `validators` validators:
+/// the design's starting values, with the timings derived from consensus's
+/// (Δ, the precision, the margin with f faulty leaders) and from the
+/// connector's message window, which the margin and the allowance for the
+/// legs between members share
+/// (spec/designs/settlement-hubs.md#4-peering-over-a-hub). The stall is the
+/// shortest the rules allow, twice the recovery from the longest outage
+/// (`consensus/config.rs`).
 #[must_use]
 pub fn terms(validators: usize) -> Terms {
-    terms_of(validators, dassie_hub::rules::Asset::Xrp)
+    terms_of(validators, Asset::Xrp)
 }
 
-/// [`terms`] of a hub of `asset`: a token hub's charge no ledger fee and
-/// name the least gas in its place, which the escrow pays in XRP
-/// (spec/decisions/token-hubs.md), and count in millionths of the token
-/// what an XRP hub counts in drops.
+/// [`terms`] of a first hub of `asset`.
 #[must_use]
-pub fn terms_of(validators: usize, asset: dassie_hub::rules::Asset) -> Terms {
+pub fn terms_of(validators: usize, asset: Asset) -> Terms {
+    terms_in(&HubSpec::first(asset), validators)
+}
+
+/// [`terms`] of the hub `spec`: its escrow on its network, from its nonce.
+/// A token hub's charge no ledger fee and name the least gas in its place,
+/// which the escrow pays in XRP (spec/decisions/token-hubs.md), and count in
+/// millionths of the token what an XRP hub counts in drops.
+#[must_use]
+pub fn terms_in(spec: &HubSpec, validators: usize) -> Terms {
     let sponsor = sponsor();
-    let escrow = escrow_master(&sponsor, TESTNET_NETWORK, &NONCE).account().0;
+    let escrow = escrow_master(&sponsor, spec.network, &spec.nonce)
+        .account()
+        .0;
     let faults = u64::try_from(validators - 1).unwrap() / 3;
     let config = Config::DEFAULT;
     let margin = config.margin_ms(faults);
     let window = Policies::DEFAULT.connector.message_window_ms;
-    let token = asset != dassie_hub::rules::Asset::Xrp;
+    let token = spec.asset != Asset::Xrp;
     Terms {
         version: dassie_hub::rules::HUB_VERSION,
-        nonce: NONCE,
+        nonce: spec.nonce,
         sponsor: sponsor.public_key(),
-        network: 1,
+        network: spec.network,
         escrow,
-        asset,
+        asset: spec.asset,
         fees: Fees {
             operation: 10,
             ledger: if token { 0 } else { 100 },
@@ -177,22 +302,30 @@ pub fn terms_of(validators: usize, asset: dassie_hub::rules::Asset) -> Terms {
     }
 }
 
-/// The rules of the simulated hub with `validators` validators.
+/// The rules of the run's first hub, of XRP, with `validators` validators.
 #[must_use]
 pub fn rules(validators: usize) -> Rules {
-    rules_of(validators, dassie_hub::rules::Asset::Xrp)
+    rules_of(validators, Asset::Xrp)
 }
 
-/// [`rules`] of a hub of `asset`.
+/// [`rules`] of a first hub of `asset`.
 #[must_use]
-pub fn rules_of(validators: usize, asset: dassie_hub::rules::Asset) -> Rules {
-    let terms = terms_of(validators, asset);
+pub fn rules_of(validators: usize, asset: Asset) -> Rules {
+    rules_in(&HubSpec::first(asset), validators)
+}
+
+/// The rules of the hub `spec` with `validators` validators, each with the
+/// key and the endpoint of its place.
+#[must_use]
+pub fn rules_in(spec: &HubSpec, validators: usize) -> Rules {
+    assert!(validators <= MAX_VALIDATORS, "a hub of a run is small");
+    let terms = terms_in(spec, validators);
     let acceptances = (0..validators)
         .map(|index| {
-            let node = validator_key(index);
-            ValidatorKeys::derive(&node, TESTNET_NETWORK, &NONCE)
+            let node = validator_key_in(spec.place, index);
+            ValidatorKeys::derive(&node, spec.network, &spec.nonce)
                 .unwrap()
-                .accept(&node, &terms, endpoint(index))
+                .accept(&node, &terms, endpoint_in(spec.place, index))
                 .unwrap()
         })
         .collect();
@@ -204,16 +337,23 @@ pub fn rules_of(validators: usize, asset: dassie_hub::rules::Asset) -> Rules {
     rules
 }
 
-/// The scheme config a member gives the hub's scheme: its rules.
+/// The scheme config a member gives the scheme of the run's first hub, of
+/// XRP: its rules.
 #[must_use]
 pub fn config(validators: usize) -> String {
-    config_of(validators, dassie_hub::rules::Asset::Xrp)
+    config_of(validators, Asset::Xrp)
 }
 
-/// [`config`] of a hub of `asset`.
+/// [`config`] of a first hub of `asset`.
 #[must_use]
-pub fn config_of(validators: usize, asset: dassie_hub::rules::Asset) -> String {
-    let hex: String = rules_of(validators, asset)
+pub fn config_of(validators: usize, asset: Asset) -> String {
+    config_in(&HubSpec::first(asset), validators)
+}
+
+/// The scheme config a member gives the scheme of the hub `spec`.
+#[must_use]
+pub fn config_in(spec: &HubSpec, validators: usize) -> String {
+    let hex: String = rules_in(spec, validators)
         .to_vec()
         .iter()
         .map(|byte| format!("{byte:02x}"))
@@ -321,8 +461,10 @@ pub struct Payout {
     pub escrow_after: Option<(u64, u32)>,
 }
 
-/// The hub of a run.
+/// A hub of a run.
 pub struct HubNet {
+    /// What it is.
+    pub spec: HubSpec,
     /// Its rules.
     pub rules: Rules,
     /// Its validators, by their place in the rules.
@@ -384,6 +526,13 @@ impl HubNet {
         AccountId(self.rules.terms.escrow)
     }
 
+    /// Its validator `index` as the simulation's functions that act on a
+    /// validator name it ([`validator_id`]).
+    #[must_use]
+    pub const fn validator_id(&self, index: usize) -> usize {
+        validator_id(self.spec.place, index)
+    }
+
     /// The honest validators' indexes.
     pub fn honest(&self) -> impl Iterator<Item = usize> + '_ {
         (0..self.validators.len()).filter(|index| self.validators[*index].honest())
@@ -443,17 +592,21 @@ type Sends = Vec<(usize, Vec<u8>)>;
 type Shares = Vec<(u32, Signer)>;
 
 impl Sim {
-    /// Founds the run's hub: the sponsor funds the escrow and sets it up as
-    /// the rules say, its master key disabled last; then each validator
+    /// Founds the run's hubs ([`specs`]), each with validators of `roles`.
+    pub(super) fn found_hub(&mut self, roles: &[Role]) {
+        for spec in specs(self.settling) {
+            self.found_hub_in(spec, roles);
+        }
+    }
+
+    /// Founds the hub `spec`: the sponsor funds the escrow and sets it up
+    /// as the rules say, its master key disabled last; then each validator
     /// starts from genesis, with its role and a clock off by at most half
     /// the precision.
-    pub(super) fn found_hub(&mut self, roles: &[Role]) {
+    fn found_hub_in(&mut self, spec: HubSpec, roles: &[Role]) {
         let count = roles.len();
-        let rules = match self.settling {
-            super::Settling::HubDsusd(_) => rules_of(count, super::hub_token::ASSET),
-            _ => rules(count),
-        };
-        let master = escrow_master(&sponsor(), TESTNET_NETWORK, &NONCE);
+        let rules = rules_in(&spec, count);
+        let master = escrow_master(&sponsor(), spec.network, &spec.nonce);
         let escrow = master.account();
         self.ledger.fund(escrow);
         self.ledger.close();
@@ -473,7 +626,7 @@ impl Sim {
                 .unwrap()
                 - half;
             validators.push(HubValidator {
-                node: Arc::new(validator_key(index)),
+                node: Arc::new(validator_key_in(spec.place, index)),
                 store: Arc::new(Store::open_in_memory().unwrap()),
                 driver: None,
                 watcher: None,
@@ -490,7 +643,8 @@ impl Sim {
                 last_fetch: None,
             });
         }
-        self.hub = Some(Box::new(HubNet {
+        let net = Some(Box::new(HubNet {
+            spec,
             rules,
             validators,
             exchanges: BTreeMap::new(),
@@ -504,38 +658,85 @@ impl Sim {
             submitter,
             liar: None,
         }));
+        match spec.place {
+            0 => self.hub = net,
+            _ => self.second_hub = net,
+        }
         self.trace.push(format!(
-            "{} the hub of {count} validators is founded",
-            self.now
+            "{} the hub of {count} validators at {} is founded",
+            self.now, spec.place
         ));
         for index in 0..count {
-            self.start_validator(index);
+            self.start_validator(validator_id(spec.place, index));
         }
     }
 
-    fn hub(&self) -> &HubNet {
-        self.hub.as_deref().unwrap()
+    /// The run's hubs that are founded, by their places.
+    pub fn hubs(&self) -> impl Iterator<Item = &HubNet> + '_ {
+        [self.hub.as_deref(), self.second_hub.as_deref()]
+            .into_iter()
+            .flatten()
     }
 
-    fn hub_mut(&mut self) -> &mut HubNet {
-        self.hub.as_deref_mut().unwrap()
+    /// The run's hub at `place`.
+    ///
+    /// # Panics
+    ///
+    /// If the run has none there.
+    #[must_use]
+    pub fn hub_at(&self, place: usize) -> &HubNet {
+        match place {
+            0 => self.hub.as_deref().unwrap(),
+            _ => self.second_hub.as_deref().unwrap(),
+        }
     }
 
-    /// Validator `index`'s clock.
-    fn validator_now(&self, index: usize) -> u64 {
-        self.now
-            .saturating_add_signed(self.hub().validators[index].skew_ms)
+    fn hub_at_mut(&mut self, place: usize) -> &mut HubNet {
+        match place {
+            0 => self.hub.as_deref_mut().unwrap(),
+            _ => self.second_hub.as_deref_mut().unwrap(),
+        }
     }
 
-    /// Starts validator `index` from its database, as its node does, and
-    /// connects its watcher to the fake ledger.
-    pub fn start_validator(&mut self, index: usize) {
-        let now = self.validator_now(index);
+    /// The hub of the validator `id`.
+    fn net(&self, id: usize) -> &HubNet {
+        self.hub_at(split(id).0)
+    }
+
+    fn net_mut(&mut self, id: usize) -> &mut HubNet {
+        self.hub_at_mut(split(id).0)
+    }
+
+    /// The validator `id`.
+    fn validator(&self, id: usize) -> &HubValidator {
+        &self.net(id).validators[split(id).1]
+    }
+
+    fn validator_mut(&mut self, id: usize) -> &mut HubValidator {
+        &mut self.net_mut(id).validators[split(id).1]
+    }
+
+    /// The places of the run's hubs that are founded.
+    fn places(&self) -> Vec<usize> {
+        self.hubs().map(|hub| hub.spec.place).collect()
+    }
+
+    /// Validator `id`'s clock.
+    fn validator_now(&self, id: usize) -> u64 {
+        self.now.saturating_add_signed(self.validator(id).skew_ms)
+    }
+
+    /// Starts validator `id` ([`validator_id`]; in the first hub, its
+    /// index) from its database, as its node does, and connects its watcher
+    /// to the fake ledger.
+    pub fn start_validator(&mut self, id: usize) {
+        let now = self.validator_now(id);
         let network_now = self.now;
         let genesis = super::START;
         self.next_connection += 1;
         let connection = self.next_connection;
-        let hub = self.hub_mut();
+        let index = split(id).1;
+        let hub = self.net_mut(id);
         let rules = hub.rules.clone();
         let validator = &mut hub.validators[index];
         assert!(validator.driver.is_none(), "a validator starts once");
@@ -561,9 +762,8 @@ impl Sim {
             unl,
             signatures,
         );
-        self.ledger
-            .set_lie(connection, self.hub().validators[index].lie);
-        let validator = &mut self.hub_mut().validators[index];
+        self.ledger.set_lie(connection, self.validator(id).lie);
+        let validator = self.validator_mut(id);
         validator.view = Some(driver.escrow_view());
         validator.driver = Some(driver);
         validator.watcher = Some(watcher);
@@ -576,12 +776,12 @@ impl Sim {
         validator.watch_at = network_now + WATCH_TICK_MS;
         validator.stepped_at = network_now;
         self.trace
-            .push(format!("{} validator {index} starts", self.now));
+            .push(format!("{} validator {id} starts", self.now));
         let delay = self.latency();
         self.schedule(
             delay,
             Delivery::ValidatorLedgerEvent {
-                validator: index,
+                validator: id,
                 generation,
                 connection,
                 message: None,
@@ -589,10 +789,10 @@ impl Sim {
         );
     }
 
-    /// Crashes validator `index`: what it did not write is lost, its
-    /// database stays.
+    /// Crashes validator `index` ([`validator_id`]; in the first hub, its
+    /// index): what it did not write is lost, its database stays.
     pub fn crash_validator(&mut self, index: usize) {
-        let validator = &mut self.hub_mut().validators[index];
+        let validator = self.validator_mut(index);
         validator.driver = None;
         validator.watcher = None;
         let link = validator.link.take();
@@ -604,12 +804,11 @@ impl Sim {
             .push(format!("{} validator {index} crashes", self.now));
     }
 
-    /// When the hub's validators are next due, on the network's clock: a
+    /// When the hubs' validators are next due, on the network's clock: a
     /// validator's own deadline, at least every second, or its watcher's.
     pub(super) fn hub_deadline(&self) -> Option<u64> {
-        let hub = self.hub.as_deref()?;
-        hub.validators
-            .iter()
+        self.hubs()
+            .flat_map(|hub| &hub.validators)
             .filter(|validator| validator.driver.is_some())
             .map(|validator| {
                 let driver = validator.driver.as_ref().unwrap();
@@ -622,14 +821,18 @@ impl Sim {
             .min()
     }
 
-    /// Runs what is due of every validator.
+    /// Runs what is due of every validator of every hub.
     pub(super) fn hub_due(&mut self) {
-        let Some(count) = self.hub.as_deref().map(|hub| hub.validators.len()) else {
+        let ids: Vec<usize> = self
+            .hubs()
+            .flat_map(|hub| (0..hub.validators.len()).map(|index| hub.validator_id(index)))
+            .collect();
+        if ids.is_empty() {
             return;
-        };
+        }
         self.liar_claims();
-        for index in 0..count {
-            let validator = &self.hub().validators[index];
+        for index in ids {
+            let validator = self.validator(index);
             let Some(driver) = validator.driver.as_ref() else {
                 continue;
             };
@@ -638,7 +841,7 @@ impl Sim {
             if idle || driver.deadline().is_some_and(|at| at <= local) {
                 self.validator_step(index, Input::Tick, ReplyTo::Nobody);
             }
-            if self.hub().validators[index].watch_at <= self.now {
+            if self.validator(index).watch_at <= self.now {
                 self.watch_tick(index);
             }
         }
@@ -648,7 +851,7 @@ impl Sim {
     fn watch_tick(&mut self, index: usize) {
         let now = self.validator_now(index);
         let network_now = self.now;
-        let validator = &mut self.hub_mut().validators[index];
+        let validator = self.validator_mut(index);
         validator.watch_at = network_now + WATCH_TICK_MS;
         let (Some(watcher), Some(driver)) = (validator.watcher.as_mut(), validator.driver.as_ref())
         else {
@@ -669,7 +872,7 @@ impl Sim {
     fn validator_step(&mut self, index: usize, input: Input, reply_to: ReplyTo) -> bool {
         let now = self.validator_now(index);
         let network_now = self.now;
-        let validator = &mut self.hub_mut().validators[index];
+        let validator = self.validator_mut(index);
         let Some(driver) = validator.driver.as_mut() else {
             return false;
         };
@@ -711,7 +914,7 @@ impl Sim {
             behind,
             evidence,
         } = effects;
-        let silent = self.hub().validators[index].role == Role::Silent;
+        let silent = self.validator(index).role == Role::Silent;
         match reply_to {
             ReplyTo::Nobody => {}
             ReplyTo::Validator(to) if !silent => {
@@ -725,7 +928,7 @@ impl Sim {
         let sends = self.resolve(index, sends);
         self.route_sends(index, sends);
         for blob in submits {
-            if let Some(watcher) = self.hub_mut().validators[index].watcher.as_mut() {
+            if let Some(watcher) = self.validator_mut(index).watcher.as_mut() {
                 watcher.submit(blob);
             }
         }
@@ -738,7 +941,7 @@ impl Sim {
             ));
         }
         if signed {
-            self.gather_payout();
+            self.gather_payout_in(split(index).0);
         }
         if let Some(finalized) = behind {
             self.fetch_state(index, finalized);
@@ -748,7 +951,7 @@ impl Sim {
         }
         // What the ledger says of the escrow changed: the watcher hears.
         let now = self.validator_now(index);
-        let validator = &mut self.hub_mut().validators[index];
+        let validator = self.validator_mut(index);
         if let (Some(driver), Some(watcher)) =
             (validator.driver.as_ref(), validator.watcher.as_mut())
         {
@@ -770,28 +973,31 @@ impl Sim {
             "{} validator {index} has evidence against {culprits:?}",
             self.now
         ));
-        let hub = self.hub_mut();
+        let (_, local) = split(index);
+        let hub = self.net_mut(index);
         let honest_named: Vec<usize> = culprits
             .iter()
             .map(ValidatorIndex::get)
             .filter(|named| hub.validators.get(*named).is_some_and(HubValidator::honest))
             .collect();
-        if hub.validators[index].honest() && !honest_named.is_empty() {
+        if hub.validators[local].honest() && !honest_named.is_empty() {
             hub.breaches.push(format!(
-                "validator {index} has evidence against honest validators {honest_named:?}"
+                "validator {local} has evidence against honest validators {honest_named:?}"
             ));
         }
-        hub.evidence.push((index, evidence));
+        hub.evidence.push((local, evidence));
     }
 
-    /// The validators each send goes to, by their place in the rules.
+    /// The validators of its hub each send goes to, as the simulation names
+    /// them ([`validator_id`]).
     fn resolve(&self, index: usize, sends: Vec<(Peer, Vec<u8>)>) -> Sends {
-        let hub = self.hub();
+        let hub = self.net(index);
         sends
             .into_iter()
             .filter_map(|(peer, message)| {
                 let to = (0..hub.validators.len())
                     .find(|other| hub.validators[*other].node.node_id() == peer.node)?;
+                let to = hub.validator_id(to);
                 (to != index).then_some((to, message))
             })
             .collect()
@@ -803,7 +1009,7 @@ impl Sim {
     /// proposes to too few, an equivocating one proposes two blocks, each to
     /// half of the others, and colluders fork the chain once.
     fn route_sends(&mut self, from: usize, sends: Sends) {
-        let role = self.hub().validators[from].role;
+        let role = self.validator(from).role;
         if role == Role::Silent {
             return;
         }
@@ -826,7 +1032,7 @@ impl Sim {
             match (role, proposal) {
                 (Role::Withhold, Some(_)) => {}
                 (Role::Partial, Some(_)) => {
-                    let few = self.hub().faults();
+                    let few = self.net(from).faults();
                     for to in recipients.into_iter().take(few) {
                         self.send_to_validator(from, to, message.clone(), false);
                     }
@@ -840,12 +1046,14 @@ impl Sim {
                 (Role::Equivocate, Some(proposal)) => {
                     self.equivocate(from, &recipients, proposal, &[from]);
                 }
-                (Role::Collude, Some(proposal)) if !self.hub().forked => {
-                    let colluders: Vec<usize> = (0..self.hub().validators.len())
-                        .filter(|index| self.hub().validators[*index].role == Role::Collude)
+                (Role::Collude, Some(proposal)) if !self.net(from).forked => {
+                    let hub = self.net(from);
+                    let colluders: Vec<usize> = (0..hub.validators.len())
+                        .filter(|index| hub.validators[*index].role == Role::Collude)
+                        .map(|index| hub.validator_id(index))
                         .collect();
                     if self.equivocate(from, &recipients, proposal.clone(), &colluders) {
-                        self.hub_mut().forked = true;
+                        self.net_mut(from).forked = true;
                     }
                 }
                 _ => {
@@ -878,14 +1086,18 @@ impl Sim {
         kind: VoteKind,
         block: &dassie_hub::consensus::Block,
     ) -> Vote {
-        let hub = self.hub();
-        let keys =
-            ValidatorKeys::derive(&hub.validators[index].node, TESTNET_NETWORK, &NONCE).unwrap();
+        let hub = self.net(index);
+        let keys = ValidatorKeys::derive(
+            &self.validator(index).node,
+            hub.spec.network,
+            &hub.spec.nonce,
+        )
+        .unwrap();
         let digest = block.digest(&hub.id().0);
         Vote::sign(
             &hub.id().0,
             &keys.consensus,
-            ValidatorIndex::new(index).unwrap(),
+            ValidatorIndex::new(split(index).1).unwrap(),
             kind,
             (block.epoch, block.view),
             digest,
@@ -908,14 +1120,11 @@ impl Sim {
         let first = proposal.block.clone();
         let mut other = first.clone();
         other.timestamp_ms += 1;
-        let payload = self.hub().validators[leader]
-            .driver
-            .as_ref()
-            .and_then(|driver| {
-                driver
-                    .validator()
-                    .empty_payload(&other.parent, other.height, other.timestamp_ms)
-            });
+        let payload = self.validator(leader).driver.as_ref().and_then(|driver| {
+            driver
+                .validator()
+                .empty_payload(&other.parent, other.height, other.timestamp_ms)
+        });
         let Some(payload) = payload else {
             for &recipient in to {
                 let bytes = hub_consensus(&Consensus::Proposal(proposal.clone()));
@@ -971,7 +1180,16 @@ impl Sim {
     /// cut or the network loses it. A reply is taken as a message from its
     /// sender, whose own reply goes nowhere, as an exchange's does.
     fn send_to_validator(&mut self, from: usize, to: usize, message: Vec<u8>, reply: bool) {
-        let cut = self.hub().cut.contains(&(from.min(to), from.max(to)));
+        debug_assert_eq!(
+            split(from).0,
+            split(to).0,
+            "validators talk within their hub"
+        );
+        let (from_index, to_index) = (split(from).1, split(to).1);
+        let cut = self
+            .net(from)
+            .cut
+            .contains(&(from_index.min(to_index), from_index.max(to_index)));
         if cut || self.rng.next_u64() % 1000 < self.loss_per_mille {
             return;
         }
@@ -995,9 +1213,9 @@ impl Sim {
         message: Vec<u8>,
         reply: bool,
     ) {
-        let node = self.hub().validators[from].node.public_key();
+        let node = self.validator(from).node.public_key();
         let input = Input::Message {
-            from: PeerId(u64::try_from(from).unwrap()),
+            from: PeerId(u64::try_from(split(from).1).unwrap()),
             node: Some(node),
             bytes: message,
         };
@@ -1010,24 +1228,29 @@ impl Sim {
     }
 
     /// A member's hub account sends `message` to the validator at
-    /// `endpoint`, as the node's driver does: at most a few exchanges with
-    /// each validator at once, each taking at most the account's interval
-    /// for sending again; what does not arrive, the account asks again.
+    /// `endpoint` of the hub `hub`, as the node's driver does: at most a few
+    /// exchanges with each validator at once, each taking at most the
+    /// account's interval for sending again; what does not arrive, the
+    /// account asks again. The deliveries name the validator as
+    /// [`validator_id`] does.
     pub(super) fn hub_send(
         &mut self,
         member: usize,
+        hub: &dassie_hub::HubId,
         asset: String,
         epoch: u64,
         endpoint: usize,
         message: Vec<u8>,
     ) {
-        let Some(hub) = self.hub.as_deref_mut() else {
+        let Some(net) = self.hubs().find(|net| net.id() == *hub) else {
             return;
         };
-        if endpoint >= hub.validators.len() {
+        if endpoint >= net.validators.len() {
             return;
         }
-        if let Some(at) = self.late_claim(member, &message) {
+        let place = net.spec.place;
+        let endpoint = validator_id(place, endpoint);
+        if let Some(at) = self.late_claim(place, member, &message) {
             self.count("claims held back");
             self.schedule(
                 at - self.now,
@@ -1039,8 +1262,11 @@ impl Sim {
             );
             return;
         }
-        let hub = self.hub_mut();
-        let slots = hub.exchanges.entry((member, endpoint)).or_default();
+        let hub = self.net_mut(endpoint);
+        let slots = hub
+            .exchanges
+            .entry((member, split(endpoint).1))
+            .or_default();
         if *slots >= MAX_EXCHANGES_PER_VALIDATOR {
             return;
         }
@@ -1079,7 +1305,7 @@ impl Sim {
         endpoint: usize,
         message: Vec<u8>,
     ) {
-        let up = self.hub().validators[endpoint].driver.is_some();
+        let up = self.validator(endpoint).driver.is_some();
         if up {
             self.answering = Some((member, generation, asset, epoch, endpoint));
             let input = Input::Message {
@@ -1136,17 +1362,21 @@ impl Sim {
         if self.nodes[member].generation != generation {
             return;
         }
-        let event = LedgerEvent::From { endpoint, message };
+        let event = LedgerEvent::From {
+            endpoint: split(endpoint).1,
+            message,
+        };
         self.step(member, |core| core.ledger_event(asset, epoch, &event));
     }
 
     /// A member's exchange with a validator is over: its place is free.
     pub(super) fn hub_exchange_end(&mut self, member: usize, endpoint: usize) {
-        if let Some(slots) = self
-            .hub
-            .as_deref_mut()
-            .and_then(|hub| hub.exchanges.get_mut(&(member, endpoint)))
-        {
+        let (place, index) = split(endpoint);
+        let net = match place {
+            0 => self.hub.as_deref_mut(),
+            _ => self.second_hub.as_deref_mut(),
+        };
+        if let Some(slots) = net.and_then(|hub| hub.exchanges.get_mut(&(member, index))) {
             *slots = slots.saturating_sub(1);
         }
     }
@@ -1156,7 +1386,7 @@ impl Sim {
     /// one fetch at a time and at most one a second.
     fn fetch_state(&mut self, index: usize, finalized: Box<Finalized>) {
         let now = self.now;
-        let validator = &self.hub().validators[index];
+        let validator = self.validator(index);
         let due = validator
             .last_fetch
             .is_none_or(|at| now.saturating_sub(at) >= CATCH_UP_EVERY_MS);
@@ -1164,12 +1394,13 @@ impl Sim {
             return;
         }
         let height = finalized.block.height;
-        let hub = self.hub();
+        let local = split(index).1;
+        let hub = self.net(index);
         let id = hub.id();
         let state = (0..hub.validators.len())
-            .filter(|other| *other != index && hub.validators[*other].driver.is_some())
+            .filter(|other| *other != local && hub.validators[*other].driver.is_some())
             .filter(|other| {
-                !hub.cut.contains(&(index.min(*other), index.max(*other)))
+                !hub.cut.contains(&(local.min(*other), local.max(*other)))
                     && hub.validators[*other].role != Role::Silent
             })
             .find_map(|other| {
@@ -1179,8 +1410,8 @@ impl Sim {
                     .ok()
                     .flatten()
             });
-        let generation = hub.validators[index].generation;
-        let validator = &mut self.hub_mut().validators[index];
+        let generation = hub.validators[local].generation;
+        let validator = self.validator_mut(index);
         validator.last_fetch = Some(now);
         let Some(state) = state else {
             return;
@@ -1207,7 +1438,7 @@ impl Sim {
         finalized: Box<Finalized>,
         state: Vec<u8>,
     ) {
-        if self.hub().validators[index].generation != generation {
+        if self.validator(index).generation != generation {
             return;
         }
         self.validator_step(index, Input::CatchUp(finalized, state), ReplyTo::Nobody);
@@ -1218,7 +1449,7 @@ impl Sim {
     /// its cursor, which the database keeps.
     fn drain_watcher(&mut self, index: usize) {
         loop {
-            let validator = &mut self.hub_mut().validators[index];
+            let validator = self.validator_mut(index);
             let Some(out) = validator.watcher.as_mut().and_then(Watcher::poll) else {
                 return;
             };
@@ -1250,8 +1481,8 @@ impl Sim {
                     self.validator_step(index, Input::Attest(operation), ReplyTo::Nobody);
                 }
                 Out::Cursor(cursor) => {
-                    let hub = self.hub().id();
-                    self.hub().validators[index]
+                    let hub = self.net(index).id();
+                    self.validator(index)
                         .store
                         .set_hub_escrow(hub.0.as_bytes(), &cursor)
                         .unwrap();
@@ -1264,13 +1495,13 @@ impl Sim {
                 Out::Fetch(url) => {
                     let now = self.validator_now(index);
                     let body = self.ledger.fetch(&url);
-                    if let Some(watcher) = self.hub_mut().validators[index].watcher.as_mut() {
+                    if let Some(watcher) = self.validator_mut(index).watcher.as_mut() {
                         watcher.fetched(now, &url, body.as_deref());
                     }
                 }
                 Out::Reconnect => self.reconnect_validator(index),
             }
-            if let Some(watcher) = self.hub().validators[index].watcher.as_ref() {
+            if let Some(watcher) = self.validator(index).watcher.as_ref() {
                 watcher.check_invariants();
             }
         }
@@ -1283,7 +1514,7 @@ impl Sim {
         connection: u64,
         message: &[u8],
     ) {
-        let validator = &self.hub().validators[index];
+        let validator = self.validator(index);
         if validator.link != Some(connection) {
             return;
         }
@@ -1311,7 +1542,7 @@ impl Sim {
         message: Option<Vec<u8>>,
     ) {
         let now = self.validator_now(index);
-        let validator = &mut self.hub_mut().validators[index];
+        let validator = self.validator_mut(index);
         if validator.generation != generation || validator.link != Some(connection) {
             return;
         }
@@ -1331,15 +1562,14 @@ impl Sim {
 
     /// The fake ledger's stream message on `connection`, if a validator's.
     pub(super) fn validator_stream(&mut self, connection: u64, message: Vec<u8>) -> bool {
-        let Some(hub) = self.hub.as_deref() else {
+        let found = self.hubs().find_map(|hub| {
+            let index = (0..hub.validators.len())
+                .find(|index| hub.validators[*index].link == Some(connection))?;
+            Some((hub.validator_id(index), hub.validators[index].generation))
+        });
+        let Some((index, generation)) = found else {
             return false;
         };
-        let Some(index) =
-            (0..hub.validators.len()).find(|index| hub.validators[*index].link == Some(connection))
-        else {
-            return false;
-        };
-        let generation = hub.validators[index].generation;
         let delay = self.latency();
         self.schedule(
             delay,
@@ -1356,8 +1586,9 @@ impl Sim {
     /// What holds after every step of validator `index`: its invariants,
     /// and no honest validator finalized another state at a height than the
     /// first one to reach it did.
-    fn check_validator(&mut self, index: usize) {
-        let hub = self.hub_mut();
+    fn check_validator(&mut self, id: usize) {
+        let index = split(id).1;
+        let hub = self.net_mut(id);
         let validator = &hub.validators[index];
         let Some(driver) = validator.driver.as_ref() else {
             return;
@@ -1388,9 +1619,14 @@ impl Sim {
     /// Gathers the payout sets the honest validators signed, as kept in
     /// their databases, over time: once a quorum signed one set, it is
     /// assembled and kept for submission. Faulty validators' signatures are
-    /// not counted, nor needed.
+    /// not counted, nor needed. Of the run's first hub.
     pub fn gather_payout(&mut self) {
-        let hub = self.hub();
+        self.gather_payout_in(0);
+    }
+
+    /// [`Sim::gather_payout`] of the hub at `place`.
+    pub fn gather_payout_in(&mut self, place: usize) {
+        let hub = self.hub_at(place);
         if hub.payout.is_some() {
             return;
         }
@@ -1480,7 +1716,7 @@ impl Sim {
             set.transactions.len()
         ));
         self.count("payout sets gathered");
-        self.hub_mut().payout = Some(Payout {
+        self.hub_at_mut(place).payout = Some(Payout {
             ledger,
             set,
             blobs,
@@ -1500,11 +1736,15 @@ impl Sim {
     /// go in only once the selector that puts those keys on the list
     /// applied: what the escrow keys sign goes first, up to the selector,
     /// and the payouts at the next close. Each part goes once nothing else
-    /// waits for the ledger.
+    /// waits for the ledger, a hub's after another's.
     pub(super) fn submit_payout(&mut self) {
-        let Some(hub) = self.hub.as_deref() else {
-            return;
-        };
+        for place in self.places() {
+            self.submit_payout_in(place);
+        }
+    }
+
+    fn submit_payout_in(&mut self, place: usize) {
+        let hub = self.hub_at(place);
         let Some(payout) = hub.payout.as_ref() else {
             return;
         };
@@ -1532,7 +1772,7 @@ impl Sim {
         }
         // What goes in now applies in the ledger after the last validated.
         let (now, ledger) = (self.now, self.ledger.ledger() + 1);
-        let payout = self.hub_mut().payout.as_mut().unwrap();
+        let payout = self.hub_at_mut(place).payout.as_mut().unwrap();
         payout.next = until;
         payout.waiting = true;
         if first {
@@ -1544,9 +1784,13 @@ impl Sim {
     /// Once the ledger closed: what the escrow holds after the last part of
     /// the payout set applied.
     pub(super) fn payout_closed(&mut self) {
-        let Some(hub) = self.hub.as_deref() else {
-            return;
-        };
+        for place in self.places() {
+            self.payout_closed_in(place);
+        }
+    }
+
+    fn payout_closed_in(&mut self, place: usize) {
+        let hub = self.hub_at(place);
         let escrow = hub.escrow();
         let Some(payout) = hub.payout.as_ref() else {
             return;
@@ -1559,7 +1803,7 @@ impl Sim {
             self.ledger.balance(escrow).unwrap_or(0),
             self.ledger.ledger(),
         );
-        let payout = self.hub_mut().payout.as_mut().unwrap();
+        let payout = self.hub_at_mut(place).payout.as_mut().unwrap();
         payout.waiting = false;
         if done {
             payout.escrow_after = Some((after, ledger));
@@ -1645,6 +1889,12 @@ pub struct Liar {
     claim_at: u64,
 }
 
+/// What a run counts of the Prepares over the XRP hub's method.
+pub const PREPARES_OVER_XRP: &str = "prepares over the XRP hub";
+
+/// What a run counts of the Prepares over the DSUSD hub's method.
+pub const PREPARES_OVER_DSUSD: &str = "prepares over the DSUSD hub";
+
 /// How often a member that claims twice claims.
 const CLAIM_EVERY_MS: u64 = 2_000;
 
@@ -1664,7 +1914,7 @@ impl Sim {
                 core.lie(crate::engine::core::Lie::NoClaims);
             });
         }
-        self.hub_mut().liar = Some(Liar {
+        self.hub_at_mut(0).liar = Some(Liar {
             node,
             lie,
             commitments: BTreeMap::new(),
@@ -1683,6 +1933,7 @@ impl Sim {
     /// Fulfills to itself.
     pub(super) fn hub_intercept(&mut self, from: usize, to: usize, body: &[u8]) -> bool {
         use dassie_peer::wire::Content;
+        self.count_method(body);
         let Some(liar) = self.hub.as_deref_mut().and_then(|hub| hub.liar.as_mut()) else {
             return false;
         };
@@ -1734,10 +1985,37 @@ impl Sim {
         withheld
     }
 
+    /// Counts a Prepare over a hub by the method it takes, so that a run in
+    /// two hubs can tell that each carried packets
+    /// (spec/decisions/settlement-methods.md).
+    fn count_method(&mut self, body: &[u8]) {
+        use dassie_peer::wire::{Content, Kind, peek_kind};
+        if peek_kind(body) != Some(Kind::MethodPacket) {
+            return;
+        }
+        let Ok(Content::MethodPacket {
+            scheme, commitment, ..
+        }) = Content::decode_exact(body)
+        else {
+            return;
+        };
+        if commitment.is_empty() {
+            return;
+        }
+        match scheme.as_str() {
+            dassie_hub::member::SCHEME_ID => self.count(PREPARES_OVER_XRP),
+            dassie_hub::member::DSUSD_SCHEME_ID => self.count(PREPARES_OVER_DSUSD),
+            _ => {}
+        }
+    }
+
     /// When the dishonest member that claims late sends a claim of its
     /// own: just before the first of its commitments expires, if that is
-    /// later than now.
-    fn late_claim(&self, member: usize, message: &[u8]) -> Option<u64> {
+    /// later than now. A member lies in the run's first hub only.
+    fn late_claim(&self, place: usize, member: usize, message: &[u8]) -> Option<u64> {
+        if place != 0 {
+            return None;
+        }
         let liar = self.hub.as_deref()?.liar.as_ref()?;
         let MemberLie::ClaimsLate(lead) = liar.lie else {
             return None;
@@ -1800,7 +2078,7 @@ impl Sim {
             .collect();
         let validators = hub.validators.len();
         let now = self.now;
-        let liar = self.hub_mut().liar.as_mut().unwrap();
+        let liar = self.hub_at_mut(0).liar.as_mut().unwrap();
         liar.claim_at = now + CLAIM_EVERY_MS;
         liar.fulfilled.clear();
         let Some(hold) = pairs.first().map(|pair| pair.commitment.value.hold) else {
@@ -1848,7 +2126,7 @@ impl Sim {
     /// A member's submission reaches a validator outside its account's
     /// exchanges: it is answered by no one.
     pub(super) fn hub_submit(&mut self, member: usize, endpoint: usize, message: Vec<u8>) {
-        if self.hub().validators[endpoint].driver.is_none() {
+        if self.validator(endpoint).driver.is_none() {
             return;
         }
         let input = Input::Message {
@@ -1867,8 +2145,8 @@ impl Sim {
     fn reconnect_validator(&mut self, index: usize) {
         self.next_connection += 1;
         let connection = self.next_connection;
-        let lie = self.hub().validators[index].lie;
-        let validator = &mut self.hub_mut().validators[index];
+        let lie = self.validator(index).lie;
+        let validator = self.validator_mut(index);
         let Some(watcher) = validator.watcher.as_mut() else {
             return;
         };
@@ -1892,20 +2170,21 @@ impl Sim {
         );
     }
 
-    /// Validator `index`'s server tells `lie` on every connection from now
-    /// on, or none: the one it has drops, and the next lies
+    /// Validator `index`'s server ([`validator_id`]; in the first hub,
+    /// its index) tells `lie` on every connection from now on, or none:
+    /// the one it has drops, and the next lies
     /// (spec/designs/xrpl-validation.md#11-the-fake-ledger-the-lying-server-and-the-simulation).
     /// As [`Sim::lie_to`] makes a member's server lie, but for as long as
     /// it is told, so a validator's verifier meets the lie again on every
     /// connection it makes.
     pub fn lie_to_validator(&mut self, index: usize, lie: Option<dassie_xrpl::fake::Lie>) {
-        self.hub_mut().validators[index].lie = lie;
+        self.validator_mut(index).lie = lie;
         self.count("lying validator servers");
         self.trace.push(format!(
             "{} validator {index}'s XRPL server lies: {lie:?}",
             self.now
         ));
-        if self.hub().validators[index].watcher.is_some() {
+        if self.validator(index).watcher.is_some() {
             self.reconnect_validator(index);
         }
     }

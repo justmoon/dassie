@@ -134,13 +134,14 @@ pub fn check_incoming(sim: &Sim, payment: &Payment) -> Result<(), Outcome> {
     Ok(())
 }
 
-/// Each owner's pool moved by exactly what its incoming payments
-/// received, and each live client's token by what it sent: each node's
-/// books against what its own clients and receivers really moved.
+/// Each owner's pool on the ledger the run pays over moved by exactly what
+/// its incoming payments received, and each live client's token by what it
+/// sent: each node's books against what its own clients and receivers
+/// really moved.
 pub fn check_owner_books(sim: &Sim) -> Result<(), String> {
     let all = || sim.payments.iter().chain(&sim.abandoned);
     for index in 0..sim.nodes.len() {
-        let balances = sim.balances(index);
+        let balances = sim.balances_on(index, sim.settling.ledger());
         let pool = balances["equity/owner"];
         let received: i128 = all()
             .filter(|payment| payment.to == index)
@@ -304,8 +305,8 @@ pub fn drifted_past(sim: &mut Sim) -> Option<String> {
         .map(|link| link.describe())
 }
 
-/// The credit node `index` extends node `other` on the method their
-/// packets take, and its room for it there, while they are peered.
+/// The credit node `index` extends node `other` on their peering's first
+/// method, and its room for it there, while they are peered.
 fn room(sim: &Sim, index: usize, other: usize) -> Option<(u64, u128)> {
     let id = key(other).node_id();
     let peer = sim.nodes[index]
@@ -316,7 +317,7 @@ fn room(sim: &Sim, index: usize, other: usize) -> Option<(u64, u128)> {
         .into_iter()
         .find(|peer| peer.id == id)?;
     let owed = peer.owed?;
-    let credit = peer.peering.method(peer.carried)?.credit_out;
+    let credit = peer.peering.first().credit_out;
     Some((
         credit,
         u128::try_from(owed + i128::from(credit)).unwrap_or(0),
@@ -711,12 +712,11 @@ pub fn check_anchored(sim: &Sim) -> Result<(), String> {
     Ok(())
 }
 
-/// Whether node `index` books `ledger`: one it pays over, or an owner book
-/// a DSUSD hub's member funds its account in the hub from, and pays the
-/// escrow's gas from.
+/// Whether node `index` books `ledger`: one it pays over, or one of its
+/// owner books, in a run of them or one a hub's member funds its account in
+/// the hub from, and pays the escrow's gas from.
 fn books(sim: &Sim, index: usize, ledger: LedgerId) -> bool {
-    sim.settling.ledgers(index).contains(&ledger)
-        || matches!(sim.settling, Settling::HubDsusd(_)) && (ledger == XRP || ledger == DSUSD)
+    sim.settling.books(index, ledger)
 }
 
 /// On the XRP Ledger, the faucet funded every node, and on a token the
@@ -849,24 +849,27 @@ fn check_fake_ledger(sim: &Sim) -> Result<(), String> {
 pub fn check_ledgers(sim: &Sim) -> Result<(), String> {
     let count = sim.nodes.len();
     let ledger = sim.settling.ledger();
+    let trusting = matches!(sim.settling, Settling::Trusting | Settling::OwnerBooks);
     let mut stubs = 0i128;
     for index in 0..count {
         let held = check_held(sim, index, ledger)?;
-        if sim.settling == Settling::Trusting && held != Settling::deposit(USD) {
+        if trusting && held != Settling::deposit(USD) {
             return Err(format!(
                 "node {index}'s stub holds {held} on unlimited trust, which never settles"
             ));
         }
         stubs += held;
     }
-    if sim.settling.on_stub() {
+    if ledger == USD {
         let total = Settling::deposit(USD) * i128::try_from(count).unwrap();
         if stubs != total {
             return Err(format!("the stubs hold {stubs}, not {total}"));
         }
-        return Ok(());
     }
-    check_fake_ledger(sim)
+    if sim.settling.on_xrpl() {
+        check_fake_ledger(sim)?;
+    }
+    Ok(())
 }
 
 /// A run across currencies: every payment finished, each node settled
@@ -912,7 +915,13 @@ pub fn check_across(sim: &Sim) -> Result<(), Outcome> {
 /// Fulfill to a crash.
 fn check_received_across(sim: &Sim) -> Result<(), String> {
     for payment in &sim.payments {
-        let into = *sim.settling.ledgers(payment.to).last().unwrap();
+        let into = sim.nodes[payment.to]
+            .store
+            .incoming_payment(payment.incoming)
+            .unwrap()
+            .map_or(*sim.settling.ledgers(payment.to).last().unwrap(), |row| {
+                row.ledger
+            });
         let (got, sent) = (
             u128::from(received(sim, payment)),
             u128::from(sent(payment)),
@@ -953,9 +962,7 @@ fn check_prices(sim: &Sim) -> Result<(), String> {
 fn check_assets(sim: &Sim) -> Result<(), String> {
     let count = sim.nodes.len();
     let ledgers: &[LedgerId] = match sim.settling {
-        Settling::XrpRlusd => &[RLUSD, LIVE_XRP],
-        Settling::XrpDsusd => &[DSUSD, XRP],
-        Settling::HubAcross(_) => &[USD, super::HUB],
+        Settling::HubAcross(_) | Settling::Hubs(_) => &[super::HUB_DSUSD, super::HUB],
         _ => &[USD, XRP],
     };
     for &ledger in ledgers {

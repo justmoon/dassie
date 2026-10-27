@@ -4,8 +4,9 @@
 //! crashes, restarts and partitions, owners ending peerings and banning
 //! nodes, settlements, nodes that run a second scheme and stop and start
 //! either, so that peerings gain and drop settlement methods and end with
-//! their last, Prepares on each method, then a calm in which the network
-//! must converge, every termination finish, every settlement arrive
+//! their last, owners removing a scheme, whose methods are wound down
+//! within their bound, Prepares on each method, then a calm in which the
+//! network must converge, every termination finish, every settlement arrive
 //! exactly once and both ends of a peering hold the same methods: one on
 //! each scheme both run.
 
@@ -47,6 +48,11 @@ const CALM_MS: u64 = CONFIG.owner_termination_cooldown_ms
 // steps and tell the peer (spec/decisions/ending-a-peering.md).
 const _: () = assert!(CALM_MS > 2 * CONFIG.depeer_wait_ms + CONFIG.termination_timeout_ms);
 
+/// The most a method being wound down outlasts its two waits: the review
+/// that takes a step runs when it is due, give or take the simulation's
+/// steps (spec/decisions/settlement-methods.md).
+const WIND_SLACK_MS: u64 = 10_000;
+
 /// The seed's generator for the run, and what it draws first: how many
 /// nodes, and how many of them are bootstrap nodes.
 fn size(seed: u64) -> (SeededRng, usize, usize) {
@@ -71,7 +77,7 @@ pub fn describe(seed: u64) -> String {
 /// them.
 #[must_use]
 pub fn run(seed: u64) -> Run {
-    let network = network(seed);
+    let (network, late) = wound_network(seed);
     let count = |n: usize| u64::try_from(n).unwrap_or(u64::MAX);
     let forgeries = count(network.forgeries);
     let added = count(events(&network, |event| {
@@ -80,16 +86,24 @@ pub fn run(seed: u64) -> Run {
     let dropped = count(events(&network, |event| {
         matches!(event, Event::MethodDropped { .. })
     }));
+    let wound = count(events(&network, |event| {
+        matches!(event, Event::MethodWinding { .. })
+    }));
     let second = network
         .prepares_taken
         .get(&scheme(SECOND))
         .copied()
         .unwrap_or(0);
     let one_sided = network.one_sided;
-    let mut run = Run::new(check(&network), network.trace);
+    let outcome = match late.first() {
+        Some(late) => Outcome::liveness("wound down", late.clone()),
+        None => check(&network),
+    };
+    let mut run = Run::new(outcome, network.trace);
     run.counts.insert("forgeries", forgeries);
     run.counts.insert("methods added", added);
     run.counts.insert("methods dropped", dropped);
+    run.counts.insert("methods wound down", wound);
     run.counts.insert("prepares on a second method", second);
     run.counts
         .insert("prepares on a one-sided method", one_sided);
@@ -108,6 +122,12 @@ fn events(network: &Network, wanted: impl Fn(&Event) -> bool) -> usize {
 /// Runs the seed: its size, its chaos, its calm.
 #[must_use]
 pub fn network(seed: u64) -> Network {
+    wound_network(seed).0
+}
+
+/// The same, with each method wound down past its bound, as found at the
+/// chaos's steps.
+fn wound_network(seed: u64) -> (Network, Vec<String>) {
     let (mut rng, count, bootstraps) = size(seed);
     let mut network = Network::new(seed, count, bootstraps, CONFIG);
     // Most nodes run a second scheme too, so most pairs settle on two
@@ -119,17 +139,23 @@ pub fn network(seed: u64) -> Network {
         }
     }
     network.faults = Faults::ROUGH;
+    // When each node last started, on its clock.
+    let mut started: Vec<u64> = (0..count).map(|index| network.clock(index)).collect();
+    let mut late = Vec::new();
     let mut at = START;
     while at < START + CHAOS_MS {
         at += 2_000 + rng.next_u64() % 3_000;
         network.run_until(at);
-        chaos(&mut network, &mut rng);
+        late.extend(wound_late(&network, &started));
+        chaos(&mut network, &mut rng, &mut started);
+        network.finish_removals();
     }
     network.faults = Faults::NONE;
     network.cut.clear();
     for (index, runs_second) in second.iter().enumerate() {
         if !network.is_up(index) {
             network.start(index);
+            started[index] = network.clock(index);
         }
         network.nodes[index].hooks.busy.clear();
         network.set_running(index, scheme(STUB), true);
@@ -149,7 +175,41 @@ pub fn network(seed: u64) -> Network {
         prepare_on_each(&mut network, index);
     }
     network.run_until(START + CHAOS_MS + CALM_MS);
-    network
+    late.extend(wound_late(&network, &started));
+    (network, late)
+}
+
+/// The methods a node that is up winds down past their bound: its two
+/// waits, from when it decided or, after a restart, from its start, which
+/// takes the steps again (spec/decisions/settlement-methods.md). A peering
+/// being ended collects as it does, and is not looked at.
+fn wound_late(network: &Network, started: &[u64]) -> Vec<String> {
+    let bound = 2 * CONFIG.depeer_wait_ms + WIND_SLACK_MS;
+    let mut late = Vec::new();
+    for (index, start) in started.iter().enumerate() {
+        if !network.is_up(index) {
+            continue;
+        }
+        let now = network.clock(index);
+        for (peer, peering) in network.node(index).active_peers() {
+            if peering.depeering.is_some() {
+                continue;
+            }
+            for method in &peering.methods {
+                let Some(winding) = method.winding else {
+                    continue;
+                };
+                let from = winding.since_ms.max(*start);
+                if now > from + bound {
+                    late.push(format!(
+                        "node {index} winds down its method on {} with {peer} since {}",
+                        method.scheme, winding.since_ms
+                    ));
+                }
+            }
+        }
+    }
+    late
 }
 
 /// Node `index` sends a Prepare on each method of each of its peerings.
@@ -164,12 +224,15 @@ fn prepare_on_each(network: &mut Network, index: usize) {
     }
 }
 
-fn chaos(network: &mut Network, rng: &mut SeededRng) {
+fn chaos(network: &mut Network, rng: &mut SeededRng, started: &mut [u64]) {
     let count = network.nodes.len();
     let pick = usize::try_from(rng.next_u64() % count as u64).unwrap();
     match rng.next_u64() % 6 {
         0 if network.up().count() * 3 > count * 2 => network.crash(pick),
-        1 if !network.is_up(pick) => network.start(pick),
+        1 if !network.is_up(pick) => {
+            network.start(pick);
+            started[pick] = network.clock(pick);
+        }
         2 => {
             let other = usize::try_from(rng.next_u64() % count as u64).unwrap();
             if other != pick {
@@ -195,7 +258,7 @@ fn lifecycle(network: &mut Network, rng: &mut SeededRng, index: usize) {
         let at = usize::try_from(rng.next_u64() % peers.len().max(1) as u64).unwrap();
         peers.get(at).copied()
     };
-    match rng.next_u64() % 6 {
+    match rng.next_u64() % 7 {
         0 => {
             if let Some(peer) = pick_peer(rng) {
                 network.act(index, |node, now| {
@@ -246,6 +309,19 @@ fn lifecycle(network: &mut Network, rng: &mut SeededRng, index: usize) {
             });
             let running = network.runs(index, toggled);
             network.set_running(index, toggled, !running);
+        }
+        // Its owner removes a scheme it runs: its methods on it are wound
+        // down, collected first, and the node runs it until each is
+        // dropped.
+        5 => {
+            let removed = scheme(if rng.next_u64().is_multiple_of(3) {
+                STUB
+            } else {
+                SECOND
+            });
+            if network.runs(index, removed) {
+                network.remove_scheme(index, removed);
+            }
         }
         _ => prepare_on_each(network, index),
     }

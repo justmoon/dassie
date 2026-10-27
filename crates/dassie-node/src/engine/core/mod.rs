@@ -345,14 +345,10 @@ pub struct Core {
     /// keeps room for (spec/decisions/account-budgets.md,
     /// spec/decisions/lazy-downlink-accounts.md).
     downlinks: downlinks::Downlinks,
-    /// Peers' connector endpoints, both ways.
+    /// Peers' connector endpoints, both ways: one per peering, with a slot
+    /// per settlement method (spec/decisions/settlement-methods.md).
     peer_endpoints: BTreeMap<dassie_identity::NodeId, u64>,
     endpoint_peers: BTreeMap<u64, dassie_identity::NodeId>,
-    /// The settlement method each peer's endpoint carries packets on: the
-    /// one of the endpoint's ledger, the peering's first when the endpoint
-    /// was made. Until the connector has a slot per method, every packet
-    /// with a peer takes it (spec/decisions/settlement-methods.md).
-    endpoint_methods: BTreeMap<dassie_identity::NodeId, dassie_peer::wire::SchemeId>,
     next_peer_endpoint: u64,
     /// The realm: `test` or `g` in nodes' addresses, and the realm of the
     /// only ledgers the node runs.
@@ -515,7 +511,6 @@ impl Core {
             },
             peer_endpoints: BTreeMap::new(),
             endpoint_peers: BTreeMap::new(),
-            endpoint_methods: BTreeMap::new(),
             next_peer_endpoint: 0,
             realm: parts.realm,
             live: parts.live,
@@ -554,12 +549,14 @@ impl Core {
         self.restore_waiting();
         let peers: Vec<dassie_identity::NodeId> = self.peer.peers().map(|(id, _)| *id).collect();
         for node in peers {
-            // A peer whose first method's scheme does not run, as one
-            // disabled or of the other realm, has no ledger to book on: it
-            // gets no endpoint, which the rest of the node does without.
-            // The peer protocol's first review drops that method, and the
-            // endpoint is made on the peering's next one, or ends a peering
-            // left with none (spec/areas/settlement.md#schemes-and-ledgers,
+            // A peer gets an endpoint with a slot for each method whose
+            // scheme runs ([`Self::wanted_slots`]). A method whose scheme
+            // does not, as one disabled or of the other realm, has no ledger
+            // to book on, and gets no slot; a peer with no method that has
+            // one gets no endpoint, which the rest of the node does
+            // without. The peer protocol's first review drops such a
+            // method, and ends a peering left with none
+            // (spec/areas/settlement.md#schemes-and-ledgers,
             // spec/decisions/settlement-methods.md). The original threw, and
             // stopped what served that peer.
             if let Err(error) = self.add_peer_endpoint(node) {
@@ -627,6 +624,7 @@ impl Core {
             self.outgoing_deadline(),
             self.probe_deadline(),
             self.schemes_deadline(),
+            self.removals_deadline(),
             self.funding_deadline(),
             self.work_left(),
         ]
@@ -655,7 +653,13 @@ impl Core {
     fn finish_round(&mut self, out: &mut Vec<Output>) -> bool {
         self.peer_timers();
         self.scheme_timers();
+        let checked_at = self.settle.at_ms;
         self.settlement_timers();
+        // A settlement check judges each method's room, which withdraws it
+        // or not: its slot follows.
+        if self.settle.at_ms != checked_at {
+            self.sync_peer_slots();
+        }
         self.fund_hub();
         self.expire(self.now_ms);
         self.hub_waits(self.now_ms);
@@ -863,10 +867,17 @@ impl Core {
     }
 
     /// The ledger a payment to `destination` goes out on, and whether it
-    /// goes to one of the node's own endpoints.
-    pub fn route_of(&self, destination: &str) -> Option<(dassie_ledger::LedgerId, bool)> {
+    /// goes to one of the node's own endpoints: `ledger`, the one the owner
+    /// asks to pay from, if a first hop has a method available on it;
+    /// otherwise the first available method of the first hop
+    /// ([`first_hop`](dassie_connector::Connector::first_hop)).
+    pub fn route_of(
+        &self,
+        destination: &str,
+        ledger: Option<dassie_ledger::LedgerId>,
+    ) -> Option<(dassie_ledger::LedgerId, bool)> {
         self.connector
-            .first_hop(destination)
+            .first_hop(destination, ledger)
             .map(|(hop, ledger)| (ledger, !hop.is_peer()))
     }
 
@@ -937,6 +948,10 @@ impl Core {
     }
 }
 
+// A peer's connector endpoint has a slot for each method of its peering
+// (spec/areas/connector.md#settlement-method-slots).
+const _: () = assert!(dassie_connector::MAX_SLOTS == dassie_peer::MAX_METHODS);
+
 /// The bounds must fit one another (asserted at start; configuration, not
 /// input).
 fn check_bounds(policies: &Policies) {
@@ -959,6 +974,7 @@ fn check_bounds(policies: &Policies) {
         SCHEMES.len() < dassie_peer::MAX_SCHEMES,
         "every scheme the node runs fits its link state"
     );
+
     // A downlink sends only its own packets, and has a child's share.
     assert!(
         connector.max_pending

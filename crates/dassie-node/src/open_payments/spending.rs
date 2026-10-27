@@ -320,7 +320,7 @@ pub async fn measure(
 ) -> Result<(Rate, Option<(String, u8)>), OpError> {
     let engine = node.engine().ok_or_else(OpError::unavailable)?;
     let route = engine
-        .route_of(destination.to_string())
+        .route_of(destination.to_string(), Some(ledger))
         .await
         .map_err(|_| OpError::unavailable())?;
     let Some((route_ledger, own)) = route else {

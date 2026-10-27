@@ -169,20 +169,20 @@ fn options_are_weighted_by_what_they_earned() {
     for request_id in 2..5 {
         earn(&mut h, TWO, "test.das.dtwo", 1_000, request_id);
     }
-    assert_eq!(h.connector.earnings(ONE, NOW), Some(1_000));
-    assert_eq!(h.connector.earnings(TWO, NOW), Some(3_000));
+    assert_eq!(h.connector.earnings(ONE, USD, NOW), Some(1_000));
+    assert_eq!(h.connector.earnings(TWO, USD, NOW), Some(3_000));
     let hits = spread(&mut h, SOURCE, 1_000, 1_000);
     assert_eq!(hits, BTreeMap::from([(ONE, 250), (TWO, 750)]));
     // Rejects, the spread's, earned nothing.
-    assert_eq!(h.connector.earnings(TWO, NOW), Some(3_000));
+    assert_eq!(h.connector.earnings(TWO, USD, NOW), Some(3_000));
     // A converting packet's fee counts toward no hop.
     let (to, sent_id) = send(&mut h, (SOURCE, 10), "test.das.dthree", 100_000, 0).unwrap();
     h.respond(NOW, to, sent_id, &fulfill([1; 32])).unwrap();
-    assert_eq!(h.connector.earnings(THREE, NOW), Some(0));
+    assert_eq!(h.connector.earnings(THREE, XRP, NOW), Some(0));
     // Nor does the owner's packet, which pays no fee.
     let (to, sent_id) = send(&mut h, (ALICE, 11), "test.das.done", 100_000, 0).unwrap();
     h.respond(NOW, to, sent_id, &fulfill([1; 32])).unwrap();
-    assert_eq!(h.connector.earnings(ONE, NOW), Some(1_000));
+    assert_eq!(h.connector.earnings(ONE, USD, NOW), Some(1_000));
 }
 
 // Earnings halve once per half-life, so a hop that stopped earning falls
@@ -193,10 +193,10 @@ fn earnings_decay() {
     let mut h = harness(Config::DEFAULT);
     route(&mut h, &[ONE, TWO]);
     earn(&mut h, TWO, "test.das.dtwo", 1_000, 1);
-    assert_eq!(h.connector.earnings(TWO, NOW + half - 1), Some(1_000));
-    assert_eq!(h.connector.earnings(TWO, NOW + half), Some(500));
-    assert_eq!(h.connector.earnings(TWO, NOW + 3 * half), Some(125));
-    assert_eq!(h.connector.earnings(TWO, NOW + 64 * half), Some(0));
+    assert_eq!(h.connector.earnings(TWO, USD, NOW + half - 1), Some(1_000));
+    assert_eq!(h.connector.earnings(TWO, USD, NOW + half), Some(500));
+    assert_eq!(h.connector.earnings(TWO, USD, NOW + 3 * half), Some(125));
+    assert_eq!(h.connector.earnings(TWO, USD, NOW + 64 * half), Some(0));
 }
 
 // A share of the draws ignores the weights, so a hop that earned nothing
@@ -228,7 +228,7 @@ fn a_hop_short_of_room_keeps_its_weight() {
     earn(&mut h, TWO, "test.das.dtwo", 1_000, 1);
     let hits = spread(&mut h, SOURCE, 1_000, 100);
     assert_eq!(hits, BTreeMap::from([(TWO, 100)]));
-    assert_eq!(h.connector.earnings(TWO, NOW), Some(1_000));
+    assert_eq!(h.connector.earnings(TWO, USD, NOW), Some(1_000));
 }
 
 // The same draws send packets the same way.
@@ -259,7 +259,10 @@ fn a_draw_decides_alone() {
 fn the_owners_packets_keep_their_ledger() {
     let mut h = harness(Config::DEFAULT);
     route(&mut h, &[THREE, ONE, FOUR, TWO]);
-    assert_eq!(h.connector.first_hop("test.das.dfar.x"), Some((THREE, XRP)));
+    assert_eq!(
+        h.connector.first_hop("test.das.dfar.x", None),
+        Some((THREE, XRP))
+    );
     let hits = spread(&mut h, ALICE, 1_000, 100);
     assert_eq!(hits, BTreeMap::from([(ONE, 50), (TWO, 50)]));
     route(&mut h, &[THREE, FOUR]);

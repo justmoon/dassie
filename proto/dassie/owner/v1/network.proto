@@ -69,10 +69,13 @@ message ListNodesResponse {
 // A peering.
 message NetworkPeer {
   string node = 1;
-  // The settlement scheme, for example "stub".
+  // The settlement scheme of the peering's first method, for example
+  // "stub": the one it was made on, until that is dropped, and then the
+  // one of the rest with the lowest scheme ID. Every method is in
+  // `methods`.
   string scheme = 2;
-  // The credit this node extends to the peer, in the scheme ledger's
-  // units.
+  // The credit this node extends to the peer on that method, in the
+  // scheme ledger's units.
   uint64 credit_out = 5;
   int64 since_unix_ms = 6;
   // The last authenticated message from the peer.
@@ -89,13 +92,38 @@ message NetworkPeer {
   // Whether this node lists the peer as a neighbor in its link state, so
   // others route through it: it is confirmed, and not held down.
   bool advertised = 11;
-  // What this node owes the peer net, in the scheme ledger's units:
-  // negative when the peer owes this node.
+  // What this node owes the peer net on the peering's first method, in
+  // that scheme ledger's units: negative when the peer owes this node.
   int64 owed = 12;
   // Whether the peer was heard from within the last 60 s. An offline peer
   // is not advertised, so no route goes through it; the peering stays
   // until it has been silent for a day (spec/decisions/peering-lifecycle.md).
   bool online = 15;
+  // Its settlement methods, one per settlement hub both nodes are in
+  // (spec/decisions/settlement-methods.md), in the order they were added,
+  // except that dropping the first sorts those left by scheme ID: the
+  // first is the one `scheme` names.
+  repeated PeerMethod methods = 16;
+}
+
+// A settlement method of a peering: a scheme the pair settles on, with its
+// own accounts and credit (spec/decisions/settlement-methods.md).
+message PeerMethod {
+  // Its settlement scheme, for example "hub-xrpl-testnet-xrp".
+  string scheme = 1;
+  // The credit this node extends to the peer on it, in the scheme ledger's
+  // units.
+  uint64 credit_out = 2;
+  // What this node owes the peer net on it, in the scheme ledger's units:
+  // negative when the peer owes this node.
+  int64 owed = 3;
+  // Whether it is withdrawn: the room this node's books give the peer on
+  // it has been short of a packet past the grace.
+  bool withdrawn = 4;
+  // Whether this node winds it down, as when its owner removes the scheme:
+  // it takes no new packets from the peer, and is dropped once the peer
+  // was asked to settle on it, within a bounded time.
+  bool winding_down = 5;
 }
 
 message ListPeersRequest {}

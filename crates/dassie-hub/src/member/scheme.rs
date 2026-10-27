@@ -2,10 +2,11 @@
 //! sans-IO: a member's side of peering over a settlement hub, through its
 //! [`HubAccount`]. Its ID and ledger name the hub's underlying ledger and
 //! its asset (spec/decisions/hub-scheme-names.md), as the hub's rules give
-//! it ([`scheme_of`]): `hub-xrpl-testnet-xrp` for XRP, `hub-xrpl-testnet-dsusd`
-//! for DSUSD. Amounts are in the asset's smallest unit, drops of XRP or
-//! millionths of the token, which the books count alike
-//! ([`UNITS_PER_DROP`]).
+//! it ([`scheme_of`]): `hub-xrpl-testnet-xrp` for XRP and
+//! `hub-xrpl-testnet-dsusd` for DSUSD on the testnet, `hub-xrpl-xrp` for
+//! XRP and `hub-xrpl-rlusd` for RLUSD on mainnet. Amounts are in the
+//! asset's smallest unit, drops of XRP or millionths of the token, which
+//! the books count alike ([`UNITS_PER_DROP`]).
 //!
 //! - **Peering** exchanges the hub's ID and each side's account number and
 //!   key; a peer in another hub is refused.
@@ -80,23 +81,43 @@ pub const SCHEME_ID: &str = "hub-xrpl-testnet-xrp";
 /// The ID of the scheme over a hub of DSUSD on the XRP Ledger testnet.
 pub const DSUSD_SCHEME_ID: &str = "hub-xrpl-testnet-dsusd";
 
-/// The scheme over a hub of `terms`, and its ledger: XRP gives
-/// [`SCHEME_ID`], DSUSD [`DSUSD_SCHEME_ID`], both on the XRP Ledger
-/// testnet. `None` for any other asset or network, which no scheme runs:
-/// the IDs on mainnet are not built yet (spec/roadmap.md#mainnet-hubs).
+/// The ID of the scheme over a hub of XRP on the XRP Ledger mainnet: real
+/// money.
+pub const MAINNET_SCHEME_ID: &str = "hub-xrpl-xrp";
+
+/// The ID of the scheme over a hub of RLUSD on the XRP Ledger mainnet: real
+/// money.
+pub const RLUSD_SCHEME_ID: &str = "hub-xrpl-rlusd";
+
+/// The scheme over a hub of `terms`, and its ledger, named by the hub's
+/// network and asset (spec/decisions/hub-scheme-names.md): on the XRP
+/// Ledger testnet, XRP gives [`SCHEME_ID`] and DSUSD [`DSUSD_SCHEME_ID`];
+/// on mainnet, XRP gives [`MAINNET_SCHEME_ID`] and RLUSD
+/// [`RLUSD_SCHEME_ID`]. `None` for any other asset or network, which no
+/// scheme runs.
 #[must_use]
 pub fn scheme_of(terms: &Terms) -> Option<(&'static str, LedgerId)> {
-    if terms.network != TESTNET_NETWORK {
-        return None;
-    }
-    match terms.asset {
-        Asset::Xrp => Some((SCHEME_ID, LedgerId::HubXrplTestnetXrp)),
-        Asset::Token { currency, issuer }
-            if currency == dassie_xrpl::dsusd::CURRENCY && issuer == dassie_xrpl::dsusd::ISSUER =>
-        {
-            Some((DSUSD_SCHEME_ID, LedgerId::HubXrplTestnetDsusdUsd))
+    use dassie_xrpl::network::MAINNET;
+    let holds = |token: &dassie_xrpl::token::Token| {
+        terms.network == token.network.id
+            && terms.asset
+                == Asset::Token {
+                    currency: token.currency,
+                    issuer: token.issuer,
+                }
+    };
+    if terms.asset == Asset::Xrp {
+        match terms.network {
+            TESTNET_NETWORK => Some((SCHEME_ID, LedgerId::HubXrplTestnetXrp)),
+            network if network == MAINNET.id => Some((MAINNET_SCHEME_ID, LedgerId::HubXrplXrp)),
+            _ => None,
         }
-        Asset::Token { .. } => None,
+    } else if holds(&dassie_xrpl::dsusd::TOKEN) {
+        Some((DSUSD_SCHEME_ID, LedgerId::HubXrplTestnetDsusdUsd))
+    } else if holds(&dassie_xrpl::rlusd::TOKEN) {
+        Some((RLUSD_SCHEME_ID, LedgerId::HubXrplRlusdUsd))
+    } else {
+        None
     }
 }
 
@@ -326,6 +347,15 @@ impl HubScheme {
             return Err(SchemeError::InvalidData);
         }
         Ok(scheme)
+    }
+
+    /// What a settlement leaves in the account for fees: its own, and a
+    /// redeem's. The hub takes a redeem only from an account that can pay
+    /// its fee, so a member that settled all it had, as one paid into the
+    /// hub may have nothing else, could otherwise never take what its
+    /// peers' holds owe it (spec/designs/settlement-hubs.md#5-joining).
+    const fn kept_for_fees(&self) -> Amount {
+        self.terms.fees.operation.saturating_mul(2)
     }
 
     /// The hub's margin M: how much earlier than its Prepare a commitment
@@ -837,7 +867,11 @@ impl HubScheme {
         }
     }
 
-    /// Books an operation of another member's that touches us.
+    /// Books an operation of another member's that touches us. It is a
+    /// peer's only if signed by the key the peer gave us, not merely from
+    /// the account it claims: a node that claims another's account number
+    /// would otherwise have that member's `pay`, or hold, booked as its own
+    /// settlement.
     fn other(
         &mut self,
         operation: &SignedMemberOperation,
@@ -847,10 +881,13 @@ impl HubScheme {
         let Outcome::Applied { detail, .. } = outcome else {
             return;
         };
+        let hub = self.hub;
         let peer = self
             .peers
             .iter()
-            .find(|(_, peer)| peer.account == operation.account)
+            .find(|(_, peer)| {
+                peer.account == operation.account && operation.verifies(&hub, &peer.key)
+            })
             .map(|(name, _)| *name);
         match (&operation.operation, detail) {
             (MemberOperation::HoldOpen { payee, amount }, Detail::Hold(number))
@@ -1190,9 +1227,11 @@ impl HubScheme {
     /// A settlement to `peer`, which has no account in the hub yet: a
     /// `pay` of `drops` to the key it gave, which opens its account with
     /// them (spec/designs/settlement-hubs.md#5-joining). At least the hub's
-    /// minimum for a new account, never less, and at most what our account
-    /// can spend; one at a time, so it is paid in once, and not for
-    /// [`PAY_AGAIN_MS`] after one failed.
+    /// minimum for a new account, never less, and only once our account
+    /// can spend all of it: what we owe the peer beyond a `pay` no claim
+    /// could ever cover, since its packets came without promises. One at a
+    /// time, so it is paid in once, and not for [`PAY_AGAIN_MS`] after one
+    /// failed.
     fn prepare_pay_in(
         &mut self,
         rng: &mut dyn CryptoRng,
@@ -1213,9 +1252,8 @@ impl HubScheme {
         let spendable = self
             .spendable_balance(account)
             .saturating_sub(account.committed())
-            .saturating_sub(self.terms.fees.operation);
-        let drops = drops.min(spendable);
-        if drops < minimum {
+            .saturating_sub(self.kept_for_fees());
+        if drops > spendable {
             return Err(SchemeError::Unavailable);
         }
         let operation = MemberOperation::Pay {
@@ -1493,7 +1531,7 @@ impl SettlementScheme for HubScheme {
         let balance = self.spendable_balance(account);
         let spendable = balance
             .saturating_sub(account.committed())
-            .saturating_sub(self.terms.fees.operation)
+            .saturating_sub(self.kept_for_fees())
             .saturating_sub(reserve);
         // At most what the account can spend: a node asked to settle funds
         // the hold with what it has (spec/areas/hubs.md#in-the-node).
@@ -1646,6 +1684,10 @@ impl SettlementScheme for HubScheme {
 
     fn commitments(&mut self) -> Option<&mut dyn Commitments> {
         Some(self)
+    }
+
+    fn peer_hub_account(&self, peer: Name) -> Option<u32> {
+        self.peer_account(peer).map(|number| number.0)
     }
 
     fn check_invariants(&self) {
@@ -1832,17 +1874,20 @@ impl Commitments for HubScheme {
         Some(units(room))
     }
 
-    /// The hub, and our account in it once it has its number. None before,
-    /// also while the hub has no account for our key: the node does not yet
-    /// carry packets on a peering without promises
-    /// (spec/roadmap.md#joining-by-being-paid), so a member to be paid in
-    /// is not advertised, and peers keep peering with it on any other
-    /// scheme. Its peering info presents it with no account all the same.
+    /// The hub, and our account in it once it has its number; once f + 1
+    /// validators agree the hub has none for our key, the hub with no
+    /// account, so that a member with one peers with us and pays us in
+    /// (spec/designs/settlement-hubs.md#5-joining), as our peering info
+    /// presents us. None before either.
     fn membership(&self) -> Option<dassie_settlement::Membership> {
-        let account = self.account?;
+        let account = match self.account {
+            Some(account) => account.0,
+            None if self.synced => dassie_settlement::Membership::NO_ACCOUNT,
+            None => return None,
+        };
         Some(dassie_settlement::Membership {
             hub: *self.hub.0.as_bytes(),
-            account: account.0,
+            account,
         })
     }
 
@@ -1858,6 +1903,13 @@ impl Commitments for HubScheme {
     fn opening_minimum(&self, peer: Name) -> Option<u64> {
         let keyless = self.peers.get(&peer)?.account == NONE;
         (keyless && self.account.is_some()).then(|| units(self.terms.new_account_minimum()))
+    }
+
+    /// The hub's minimum for a new account, from a peer with one, while we
+    /// have none: what it pays us in with.
+    fn paid_in_minimum(&self, peer: Name) -> Option<u64> {
+        let keyed = self.peers.get(&peer)?.account != NONE;
+        (keyed && self.account.is_none()).then(|| units(self.terms.new_account_minimum()))
     }
 }
 
@@ -1945,14 +1997,22 @@ mod tests {
             currency: dassie_xrpl::rlusd::CURRENCY,
             issuer: dassie_xrpl::rlusd::ISSUER,
         };
-        assert_eq!(scheme_of(&other), None, "no scheme over another token");
-        let mut mainnet = xrp.terms.clone();
-        mainnet.network = 0;
         assert_eq!(
-            scheme_of(&mainnet),
+            scheme_of(&other),
             None,
-            "mainnet's hub schemes are not built"
+            "no scheme over RLUSD on the testnet"
         );
+        // On mainnet, XRP and RLUSD name the live realm's schemes, and
+        // DSUSD, the testnet's token, none.
+        let mut mainnet = xrp.terms.clone();
+        mainnet.network = dassie_xrpl::network::MAINNET.id;
+        let xrpl_xrp = (MAINNET_SCHEME_ID, LedgerId::HubXrplXrp);
+        assert_eq!(scheme_of(&mainnet), Some(xrpl_xrp));
+        mainnet.asset = other.asset;
+        let xrpl_rlusd = (RLUSD_SCHEME_ID, LedgerId::HubXrplRlusdUsd);
+        assert_eq!(scheme_of(&mainnet), Some(xrpl_rlusd));
+        mainnet.asset = dsusd.terms.asset;
+        assert_eq!(scheme_of(&mainnet), None, "no scheme over DSUSD on mainnet");
         let other = with_terms(&xrp, other);
         assert!(matches!(
             scheme(other, DSUSD_SCHEME_ID),

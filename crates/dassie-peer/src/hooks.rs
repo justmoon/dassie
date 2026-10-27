@@ -116,6 +116,14 @@ pub trait PeeringHooks {
     /// node, not the peer protocol, decides what it takes without one.
     fn uses_commitments(&self, scheme: SchemeId) -> bool;
 
+    /// Whether our Prepare in flight to `peer` with `request_id` went on a
+    /// method over a settlement hub, whether or not the peering still has
+    /// that method: a dropped method's packets resolve on it
+    /// (spec/decisions/settlement-methods.md), and the reply to the peer's
+    /// Fulfill of one carries our claim even once the peering has no
+    /// method over a hub left.
+    fn forwarded_over_hub(&self, peer: NodeId, request_id: u32) -> bool;
+
     /// Whether the node takes a further settlement method on `scheme` with
     /// `peer`, beside those their peering has
     /// (spec/decisions/settlement-methods.md): whether it asks for one, as
@@ -138,6 +146,19 @@ pub trait PeeringHooks {
     /// (spec/decisions/ending-a-peering.md); the message announcing one is
     /// the peer node's own to know.
     fn settling_to(&self, peer: NodeId) -> bool;
+
+    /// Whether a settlement of ours to `peer` on `scheme` is under way in
+    /// the node, as [`settling_to`](Self::settling_to) says of any scheme:
+    /// a node winding down its method on `scheme` waits for it before it
+    /// asks the peer to settle on it (spec/decisions/settlement-methods.md).
+    fn settling_on(&self, peer: NodeId, scheme: SchemeId) -> bool;
+
+    /// Whether a peer's settlement on `scheme` can reach us now: not while
+    /// our line on its ledger cannot receive
+    /// (spec/areas/settlement.md#when-peers-cannot-pay-us). A method on a
+    /// scheme that cannot for as long as a silent peer is kept is dropped,
+    /// without collecting (spec/decisions/settlement-methods.md).
+    fn receives(&self, scheme: SchemeId) -> bool;
 
     /// What stays of the closed settlement channel with `node`, as it was
     /// last written, or `None` if there never was one

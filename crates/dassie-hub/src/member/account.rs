@@ -67,7 +67,7 @@
 //! it submits as any operation. Closing is not built yet.
 
 use alloc::collections::{BTreeMap, BTreeSet, VecDeque};
-use alloc::string::String;
+use alloc::string::{String, ToString};
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 
@@ -89,7 +89,7 @@ use crate::operation::{
     AccountNumber, Destination, MemberOperation, Operation, SignedMemberOperation,
 };
 use crate::promise::{HoldNumber, Promise, Signed};
-use crate::rules::{Amount, HubId, MAX_HOLD_MS, Millis, Rules, Terms};
+use crate::rules::{Amount, Asset, HubId, MAX_HOLD_MS, Millis, Rules, Terms};
 use crate::validators::{MAX_VALIDATORS, ValidatorSet};
 
 /// The node's first hub account: in the default hub of the XRP Ledger
@@ -386,6 +386,13 @@ pub struct HubAccount {
     /// The issuer's hold on a token hub's escrow, as last agreed; kept
     /// with the books, so a restart during a freeze knows it.
     pub(super) issuer: Option<IssuerState>,
+    /// The last freeze the account learnt ended: its stamp, and the stamp
+    /// of the block the account learnt the thaw at, no earlier than the
+    /// thaw's. A reduction applied before it and read only after the thaw
+    /// moves by its length as one mirrored then did. Not kept with the
+    /// books: one read after a restart applies early, as one due during a
+    /// freeze the account missed whole.
+    thawed: Option<(Millis, Millis)>,
     view: Option<(u64, AccountView)>,
     /// An agreed state of the account above the cursor, told once read up
     /// to it.
@@ -478,6 +485,7 @@ impl HubAccount {
             stale_sequence: None,
             disbursal_set: false,
             issuer: None,
+            thawed: None,
             view: None,
             waiting_view: None,
             unfunded: false,
@@ -1241,6 +1249,10 @@ impl HubAccount {
     /// early; one that was due during a freeze the account missed whole,
     /// or read anew while the hub was frozen before the account agreed on
     /// the freeze, applies early, which only leaves the payee less room.
+    /// The validators state the issuer's hold as of their tip, so the
+    /// account may learn of a freeze, and of its thaw, before it read a
+    /// reduction made at or before the freeze: that one moves by the
+    /// freeze's length once read ([`Self::mirror`]).
     fn issuer_agreed(&mut self, statement: &Statement) {
         let Statement::Issuer {
             height,
@@ -1272,6 +1284,7 @@ impl HubAccount {
         }
         let until = state.frozen.unwrap_or(state.timestamp);
         let length = until.saturating_sub(since);
+        self.thawed = Some((since, until));
         for mirror in self.holds.values_mut() {
             if mirror.reduced_at <= since
                 && let Some((_, at)) = mirror.reduction.as_mut()
@@ -1574,6 +1587,16 @@ impl HubAccount {
             MemberOperation::HoldReduce { hold, amount } => {
                 if let Some(mirror) = self.holds.get_mut(hold) {
                     mirror.reduce(*amount, timestamp, notice);
+                    // Applied at or before a freeze the account already
+                    // learnt ended, and pending at it: the thaw moved it in the
+                    // hub ([`Self::issuer_agreed`]).
+                    if let Some((since, until)) = self.thawed
+                        && timestamp <= since
+                        && let Some((_, at)) = mirror.reduction.as_mut()
+                        && *at > since
+                    {
+                        *at = at.saturating_add(until.saturating_sub(since));
+                    }
                 }
             }
             MemberOperation::HoldRelease { hold } => self.drop_hold(*hold),
@@ -1778,14 +1801,21 @@ impl ExternalAsset for HubAccount {
         self.id
     }
 
-    /// Its XRP in the hub: the balance and the account reserve, as last
-    /// agreed.
+    /// Its asset in the hub: the balance and the account reserve, as last
+    /// agreed, at six decimals, as the hub counts them: XRP in drops, or
+    /// the token in millionths, named by its code and issuer. The issuer
+    /// freezes the escrow's line, not the member's: a frozen hub shows in
+    /// the hub's status (spec/areas/hubs.md#a-frozen-hub), not here.
     fn holdings(&self) -> Vec<Holding> {
+        let (code, issuer) = match self.rules.terms.asset {
+            Asset::Xrp => ("XRP".to_string(), None),
+            Asset::Token { currency, issuer } => (currency.code(), Some(issuer.to_address())),
+        };
         self.view
             .iter()
             .map(|(_, view)| Holding {
-                code: "XRP".into(),
-                issuer: None,
+                code: code.clone(),
+                issuer: issuer.clone(),
                 amount: u128::from(view.balance).saturating_add(u128::from(view.reserve)),
                 scale: 6,
                 reserve: u128::from(view.reserve),

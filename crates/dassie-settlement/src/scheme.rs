@@ -671,6 +671,16 @@ pub trait SettlementScheme: Send {
         None
     }
 
+    /// Over a settlement hub: `peer`'s account number in the hub, as the
+    /// scheme knows it, which may be one the hub opened for the peer's key
+    /// after the peering was made, as a peer paid into the hub has
+    /// (spec/designs/settlement-hubs.md#5-joining). None for a peer without
+    /// one, and by default.
+    fn peer_hub_account(&self, peer: Name) -> Option<u32> {
+        let _ = peer;
+        None
+    }
+
     /// Whether peers on the scheme trust each other without limit, as the
     /// stub with unlimited trust's do, for tests whose subject is not
     /// settlement (spec/areas/settlement.md#the-stub-scheme). The node then

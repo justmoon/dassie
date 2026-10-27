@@ -315,23 +315,17 @@ test("every page of the wallet works against two nodes", {
       assertEquals(await paid(), 250_000_000n);
     });
 
-    await t.test("ledgers: a peered ledger cannot be removed", async () => {
+    // Its removal would settle up with the peer first, and then drop its
+    // method (spec/decisions/settlement-methods.md): peers no longer keep
+    // it. The page says so; the ledger stays, for the steps after.
+    await t.test("ledgers: peers do not keep a ledger", async () => {
       await visit(page, d1, "/ledgers");
       await text(page, "ledger-stub+usd");
       await picture(page, "03-ledgers");
       await click(page, "ledger-delete-stub");
       assertEquals(
         await attribute(page, "prereq-peers", "data-state"),
-        "invalid",
-      );
-      await type(page, "delete-confirmation", "DELETE STUB");
-      assertEquals(
-        await page.evaluate(() =>
-          (document.querySelector(
-            '[data-testid="delete-submit"]',
-          ) as HTMLButtonElement).disabled
-        ),
-        true,
+        "valid",
       );
     });
 

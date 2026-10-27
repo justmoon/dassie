@@ -78,6 +78,27 @@ impl Ledger {
         share.min(table.saturating_sub(self.pending_deposits.len()))
     }
 
+    /// Whether the ledger recorded validator `index`'s attestation of the
+    /// deposit `transaction`, in validated ledger `ledger`, or takes it no
+    /// more: credited, pending with that attestation, or below the floor.
+    /// Until then the validator's watcher holds its cursor before the
+    /// deposit (spec/areas/hubs.md#the-validator-in-the-node).
+    #[must_use]
+    pub fn deposit_recorded(
+        &self,
+        index: ValidatorIndex,
+        transaction: &Digest,
+        ledger: u32,
+    ) -> bool {
+        if self.recent_deposits.contains_key(transaction) {
+            return true;
+        }
+        match self.pending_deposits.get(transaction) {
+            Some(pending) => pending.attested_by(index),
+            None => ledger < self.escrow.deposit_floor,
+        }
+    }
+
     /// How many pending deposits validator `index` attested.
     fn attested_pending(&self, index: ValidatorIndex) -> usize {
         self.pending_deposits

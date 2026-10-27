@@ -14,8 +14,8 @@
 use std::sync::Arc;
 
 use dassie_identity::{NodeId, NodeKey};
-use dassie_peer::sim::{Arriving, Network, STUB, key, scheme, url};
-use dassie_peer::wire::{Content, HubMembership};
+use dassie_peer::sim::{Arriving, Network, SECOND, STUB, key, scheme, url};
+use dassie_peer::wire::{Content, HubMembership, SchemeId};
 use dassie_peer::{Config, Event, Inbound, InboundId, OwnInfo, Reply};
 
 /// A Prepare, as far as the peer protocol reads one.
@@ -305,9 +305,22 @@ fn an_empty_reply_gives_no_claim() {
 /// Two nodes whose only scheme is over a hub, each a member of `hubs[i]`,
 /// after a while to find each other.
 fn over_hubs(seed: u64, hubs: [Option<HubMembership>; 2]) -> (Network, NodeId, NodeId) {
+    over_hubs_with(seed, hubs, false)
+}
+
+/// [`over_hubs`], each node running the second scheme, not over a hub,
+/// too if `second`.
+fn over_hubs_with(
+    seed: u64,
+    hubs: [Option<HubMembership>; 2],
+    second: bool,
+) -> (Network, NodeId, NodeId) {
     let mut network = Network::new(seed, 2, 1, Config::DEV);
     for (index, hub) in hubs.into_iter().enumerate() {
         network.nodes[index].hooks.commitments = true;
+        if second {
+            network.set_running(index, scheme(SECOND), true);
+        }
         let now = network.clock(index);
         let info = OwnInfo {
             url: Some(url(index)),
@@ -328,6 +341,42 @@ fn member(hub: u8, takes_peers: bool) -> Option<HubMembership> {
         account: 1,
         takes_peers,
     })
+}
+
+/// A member of `hub` the hub has no account for yet, to be paid in.
+fn newcomer(hub: u8) -> Option<HubMembership> {
+    Some(HubMembership {
+        hub_id: [hub; 32],
+        account: HubMembership::NO_ACCOUNT,
+        takes_peers: true,
+    })
+}
+
+/// The schemes of node `index`'s methods with `peer`, none without a
+/// peering.
+fn methods(network: &Network, index: usize, peer: &NodeId) -> Vec<SchemeId> {
+    network
+        .node(index)
+        .peering_of(peer)
+        .map(|peering| peering.schemes().collect())
+        .unwrap_or_default()
+}
+
+// A member without an account in a hub peers over it with one that has an
+// account, which pays it in; two without one could never pay each other in
+// (spec/designs/settlement-hubs.md#5-joining), so they do not peer over it,
+// and peer on another scheme both run instead.
+#[test]
+fn two_members_without_an_account_peer_on_another_scheme() {
+    let (network, a, b) = over_hubs(7, [member(1, true), newcomer(1)]);
+    assert_eq!(methods(&network, 0, &b), [scheme(STUB)]);
+    assert_eq!(methods(&network, 1, &a), [scheme(STUB)]);
+    let (network, a, b) = over_hubs(7, [newcomer(1), newcomer(1)]);
+    assert!(network.node(0).peering_of(&b).is_none());
+    assert!(network.node(1).peering_of(&a).is_none());
+    let (network, a, b) = over_hubs_with(7, [newcomer(1), newcomer(1)], true);
+    assert_eq!(methods(&network, 0, &b), [scheme(SECOND)]);
+    assert_eq!(methods(&network, 1, &a), [scheme(SECOND)]);
 }
 
 // A scheme over a hub is asked for only by a node that shares the hub with

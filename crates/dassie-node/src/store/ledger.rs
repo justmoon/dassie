@@ -32,6 +32,11 @@ pub struct LedgerBatch {
     /// before the additions; a scheme added and then removed within the
     /// batch is left out of `schemes_added`.
     pub schemes_removed: Vec<Name>,
+    /// Settlement schemes their owner removes, each with since when, while
+    /// their settlement methods are wound down
+    /// (spec/decisions/settlement-methods.md). Written after the additions;
+    /// one removed in the same batch is gone with its row.
+    pub schemes_removing: Vec<(Name, u64)>,
     /// Each scheme's balance as the books now record it, and its state.
     pub checkpoints: Vec<(Name, Checkpoint)>,
     /// Each external asset's state, by its ID as text, written with what
@@ -81,6 +86,7 @@ impl LedgerBatch {
             && self.downlink_accounts.is_empty()
             && self.schemes_added.is_empty()
             && self.schemes_removed.is_empty()
+            && self.schemes_removing.is_empty()
             && self.checkpoints.is_empty()
             && self.asset_checkpoints.is_empty()
             && self.asset_configs.is_empty()
@@ -273,6 +279,26 @@ impl Store {
             .map(|row| {
                 let (id, config) = row?;
                 Ok((name(&id, "scheme ID")?, config))
+            })
+            .collect()
+    }
+
+    /// The active settlement schemes their owner removes, by ID, each with
+    /// since when: they run until their settlement methods are wound down
+    /// (spec/decisions/settlement-methods.md).
+    pub fn removing_schemes(&self) -> Result<Vec<(Name, u64)>, StoreError> {
+        let connection = self.lock();
+        let mut statement = connection.prepare_cached(
+            "SELECT id, removing_since_ms FROM settlement_schemes \
+             WHERE removing_since_ms IS NOT NULL ORDER BY id",
+        )?;
+        statement
+            .query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+            })?
+            .map(|row| {
+                let (id, since) = row?;
+                Ok((name(&id, "scheme ID")?, from_sql_time(since)))
             })
             .collect()
     }
@@ -777,6 +803,12 @@ fn write_settlement(transaction: &Transaction<'_>, batch: &LedgerBatch) -> Resul
         transaction.execute_cached(
             "INSERT INTO settlement_schemes (id, config, activated_at_ms) VALUES (?1, ?2, ?3)",
             params![id.as_str(), config, at],
+        )?;
+    }
+    for (id, since) in &batch.schemes_removing {
+        transaction.execute_cached(
+            "UPDATE settlement_schemes SET removing_since_ms = ?2 WHERE id = ?1",
+            params![id.as_str(), to_sql_time(*since)],
         )?;
     }
     for (scheme, checkpoint) in &batch.checkpoints {

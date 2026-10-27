@@ -99,6 +99,20 @@ impl Hooks<'_> {
     }
 }
 
+/// A slot a peer's endpoint should have: one per method of its peering
+/// (spec/decisions/settlement-methods.md).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct WantedSlot {
+    /// The method's scheme's ledger.
+    pub ledger: LedgerId,
+    /// The peer's account there, if open.
+    pub account: Option<dassie_ledger::AccountId>,
+    /// Whether the method is over a hub.
+    pub hub: bool,
+    /// Whether our packets may take it.
+    pub available: bool,
+}
+
 /// What an inbound request gave, owned, for after the peer node is done.
 enum Inbound {
     Reply(Reply),
@@ -351,6 +365,20 @@ impl PeeringHooks for Hooks<'_> {
             .is_some_and(|active| active.over_hub)
     }
 
+    fn forwarded_over_hub(&self, peer: NodeId, request_id: u32) -> bool {
+        self.endpoints
+            .get(&peer)
+            .and_then(|id| {
+                self.connector
+                    .forwarded_on(EndpointId::Peer(*id), request_id)
+            })
+            .is_some_and(|ledger| {
+                self.schemes
+                    .values()
+                    .any(|active| active.over_hub && active.scheme.ledger() == ledger)
+            })
+    }
+
     /// A method on a scheme the node runs, whose two accounts with the peer
     /// fit as a peering's first method's would: in the core peers' share of
     /// the peers' account room, or the downlinks', unless the peer has them
@@ -389,6 +417,31 @@ impl PeeringHooks for Hooks<'_> {
         self.ledger
             .pending_transfers()
             .any(|transfer| super::settlement::settles_to(self.ledger, transfer, &peer))
+    }
+
+    // Ours on `scheme` alone: those pending in its ledger.
+    fn settling_on(&self, peer: NodeId, scheme: SchemeId) -> bool {
+        let Some(ledger) = Name::new(scheme.as_str())
+            .ok()
+            .and_then(|name| self.schemes.get(&name))
+            .map(|active| active.scheme.ledger())
+        else {
+            return false;
+        };
+        self.ledger.pending_transfers().any(|transfer| {
+            super::settlement::settles_to(self.ledger, transfer, &peer)
+                && self
+                    .ledger
+                    .account(transfer.debit)
+                    .is_some_and(|account| account.path().ledger == ledger)
+        })
+    }
+
+    fn receives(&self, scheme: SchemeId) -> bool {
+        Name::new(scheme.as_str())
+            .ok()
+            .and_then(|name| self.schemes.get(&name))
+            .is_some_and(|active| active.scheme.can_receive())
     }
 
     // A database that cannot be read leaves the core unable to tell a
@@ -481,15 +534,15 @@ pub struct PeerView {
     pub advertised: bool,
     /// Whether it was heard from recently enough to count as online.
     pub online: bool,
-    /// The method our packets with it take.
-    pub carried: SchemeId,
-    /// What we owe the peer net on the method our packets with it take;
-    /// negative when it owes us. Each method's is in its own ledger's
-    /// units.
+    /// What we owe the peer net on its peering's first method; negative
+    /// when it owes us. Each method's is in its own ledger's units.
     pub owed: Option<i128>,
     /// What we owe the peer net on each of the peering's methods, in the
     /// peering's order.
     pub owed_by_method: Vec<Option<i128>>,
+    /// Whether each of the peering's methods is withdrawn for room, in the
+    /// peering's order.
+    pub withdrawn_by_method: Vec<bool>,
 }
 
 /// The network as the owner sees it.
@@ -581,17 +634,19 @@ impl Core {
                             method.credit_out = credit;
                         }
                     }
-                    let carried = self
-                        .packet_method(&view.id)
-                        .unwrap_or(peering.first().scheme);
+                    let first = peering.first().scheme;
                     let owed_by_method = (peering.methods.iter())
                         .map(|method| self.owed(view.id, method.scheme))
                         .collect();
+                    let grace = self.peer.config().advertise_short_grace_ms;
+                    let withdrawn_by_method = (peering.methods.iter())
+                        .map(|method| method.withdrawn(grace))
+                        .collect();
                     Some(PeerView {
                         id: view.id,
-                        carried,
-                        owed: self.owed(view.id, carried),
+                        owed: self.owed(view.id, first),
                         owed_by_method,
+                        withdrawn_by_method,
                         peering,
                         termination: view.termination,
                         advertised: view.advertised,
@@ -700,10 +755,10 @@ impl Core {
 
     /// An ILP packet from a peer, and the reply to it, on the packet's
     /// settlement method (spec/decisions/settlement-methods.md): a Prepare's
-    /// is the one it came on, a Fulfill's or Reject's the one our Prepare
-    /// went on, which is the method of the peer's endpoint. Over a hub, a
-    /// Prepare goes on only if its commitment covers it, and the reply to a
-    /// Fulfill carries our claim
+    /// is the one it came on, which the connector books it on, a Fulfill's
+    /// or Reject's the one our Prepare went on, the slot the connector
+    /// chose for it. Over a hub, a Prepare goes on only if its commitment
+    /// covers it, and the reply to a Fulfill carries our claim
     /// (spec/designs/settlement-hubs.md#4-peering-over-a-hub).
     fn packet_inbound(&mut self, inbound: PeerPacket) -> Reply {
         let PeerPacket {
@@ -716,54 +771,136 @@ impl Core {
         } = inbound;
         let now = self.now_ms;
         let is_prepare = packet.first() == Some(&dassie_ilp::TYPE_PREPARE);
-        if let (true, Some(scheme)) = (is_prepare, scheme) {
-            // The connector books a peer's packets on its endpoint's
-            // ledger alone: a Prepare on another of its methods waits for
-            // the connector to carry that method, and is refused for want of
-            // room on it, never moved to another.
-            let carried = self.endpoint_methods.get(&from);
-            if carried.is_some_and(|carried| *carried != scheme) {
-                self.refuse_prepare(now, &from, request_id, "the method carries no packets yet");
-                return answer.reply(&[]);
-            }
-            if !self.check_hub_prepare(
+        // A method being wound down takes no new Prepares from the peer
+        // (spec/areas/network.md#settlement-methods): its slot is
+        // unavailable for ours, and the connector books the peer's on any
+        // slot it has.
+        if let (true, Some(scheme)) = (is_prepare, scheme)
+            && self.peer.method_winding(&from, scheme)
+        {
+            self.refuse_prepare(now, &from, request_id, "the method is being wound down");
+            return answer.reply(&[]);
+        }
+        if let (true, Some(scheme)) = (is_prepare, scheme)
+            && !self.check_hub_prepare(
                 now,
                 &from,
                 scheme,
                 request_id,
                 &packet,
                 commitment.as_deref(),
-            ) {
-                return answer.reply(&[]);
-            }
+            )
+        {
+            return answer.reply(&[]);
         }
+        // A response's method is its packet's slot, which the connector
+        // forgets once the response resolves it: found by its ledger, so a
+        // method dropped since still hears of it.
+        let forwarded = if is_prepare {
+            None
+        } else {
+            self.forwarded_ledger(&from, request_id)
+        };
         let taken = self.peer_packet(from, scheme, request_id, &packet);
-        let Some(method) = self.packet_method(&from) else {
+        let Some(ledger) = forwarded else {
             return answer.reply(&[]);
         };
         if answer.takes_claim() {
-            let claim = self.hub_claim(now, &from, method, request_id, taken);
+            let claim = self.hub_claim(now, &from, ledger, request_id, taken);
             return answer.reply(&claim);
         }
-        if !is_prepare {
-            self.hub_rejected(&from, method, request_id);
-        }
+        self.hub_rejected(&from, ledger, request_id);
         answer.reply(&[])
     }
 
-    /// The settlement method our packets with `peer` take: its endpoint's,
-    /// or, for a peer without one, its peering's first. `None` if it is no
-    /// peer.
-    pub(super) fn packet_method(&self, peer: &NodeId) -> Option<SchemeId> {
-        self.endpoint_methods.get(peer).copied().or_else(|| {
-            self.peer
-                .peering_of(peer)
-                .map(|peering| peering.first().scheme)
+    /// The settlement method of `peer`'s peering on `ledger`: each method
+    /// is on a ledger of its own, and so is its slot in the peer's
+    /// endpoint. `None` if it has none there, as for a method dropped.
+    pub(super) fn method_on(&self, peer: &NodeId, ledger: LedgerId) -> Option<SchemeId> {
+        self.peer.peering_of(peer)?.schemes().find(|scheme| {
+            Name::new(scheme.as_str())
+                .ok()
+                .and_then(|name| self.schemes.get(&name))
+                .is_some_and(|active| active.scheme.ledger() == ledger)
         })
     }
 
+    /// The scheme over a hub on `ledger`, and `peer`'s name in it, for a
+    /// packet with `peer` in flight on its slot there: whether or not the
+    /// peering still lists the method, since a dropped method's packets
+    /// resolve on it, and one that timed out over a hub resolves as the hub
+    /// decided (spec/designs/settlement-hubs.md#4-peering-over-a-hub).
+    /// `None` if the method is not over a hub.
+    pub(super) fn packet_hub(&self, peer: &NodeId, ledger: LedgerId) -> Option<(Name, Name)> {
+        let (&scheme, _) = self
+            .schemes
+            .iter()
+            .find(|(_, active)| active.over_hub && active.scheme.ledger() == ledger)?;
+        Some((scheme, name(*peer)?))
+    }
+
+    /// The ledger of the slot our Prepare in flight to `peer` with
+    /// `request_id` went on, which the connector chose for it: its
+    /// method's, whether or not the peering still lists it.
+    pub(super) fn forwarded_ledger(&self, peer: &NodeId, request_id: u32) -> Option<LedgerId> {
+        let endpoint = EndpointId::Peer(*self.peer_endpoints.get(peer)?);
+        self.connector.forwarded_on(endpoint, request_id)
+    }
+
+    /// Whether our packets may go to `peer` on its method on `scheme`
+    /// (spec/decisions/settlement-methods.md): the scheme runs, sees its
+    /// ledger and can receive a peer's settlement, and the method is not
+    /// withdrawn for room. Which method a packet takes depends on this and
+    /// its incoming ledger, never on the room each has.
+    ///
+    /// A hub scheme without an account of its own, which the hub agrees it
+    /// has none of, sees its hub all the same toward a peer with one: that
+    /// peer pays us in, and meanwhile we spend what it owes us through it,
+    /// the books alone bounding it (spec/designs/settlement-hubs.md#5-joining).
+    pub(super) fn method_available(&self, peer: &NodeId, scheme: SchemeId) -> bool {
+        let Some(method) = self
+            .peer
+            .peering_of(peer)
+            .and_then(|peering| peering.method(scheme))
+        else {
+            return false;
+        };
+        let Some(active) = Name::new(scheme.as_str())
+            .ok()
+            .and_then(|name| self.schemes.get(&name))
+        else {
+            return false;
+        };
+        let sees_ledger = match self.scheme_status(active) {
+            LedgerStatus::Synced => true,
+            LedgerStatus::Unfunded => {
+                active.over_hub
+                    && name(*peer)
+                        .and_then(|peer| active.scheme.peer_hub_account(peer))
+                        .is_some()
+            }
+            _ => false,
+        };
+        let grace_ms = self.peer.config().advertise_short_grace_ms;
+        active.failed.is_none()
+            && sees_ledger
+            && active.scheme.can_receive()
+            && !method.withdrawn(grace_ms)
+            && !method.winding_down()
+    }
+
     /// Applies a peer's settlement, once: refused with 400 if the books
-    /// cannot take it, which changes nothing.
+    /// cannot take it, which changes nothing, and the peer sends it again
+    /// until they can, as once a scheme that stopped runs again.
+    ///
+    /// One on a scheme the node does not run, as one its owner removed, is
+    /// acknowledged and books nothing (spec/areas/settlement.md#incoming-settlements):
+    /// it could never be booked, and the peer, which sends the pair's
+    /// settlements one at a time, would send it again for ever, the rest
+    /// of the channel waiting behind it. What it moved, if anything, stays
+    /// on the scheme's ledger, which the scheme reads when it runs again; a
+    /// removed scheme ran on until such a settlement had its time
+    /// ([`Core::removal_wait_ms`]).
     fn settlement_from(
         &mut self,
         from: NodeId,
@@ -773,6 +910,16 @@ impl Core {
         sequence: u64,
         reply: Reply,
     ) -> Reply {
+        let runs = Name::new(scheme.as_str()).is_ok_and(|name| self.schemes.contains_key(&name));
+        if !runs {
+            self.report(SettlementEvent::PeerSettlementUnbooked {
+                from,
+                scheme,
+                amount,
+            });
+            self.peer.settlement_applied(self.now_ms, &from, sequence);
+            return reply;
+        }
         match self.incoming_settlement(from, scheme, amount, data) {
             Ok(()) => {
                 self.peer.settlement_applied(self.now_ms, &from, sequence);
@@ -897,7 +1044,10 @@ impl Core {
         if self.peer.poll_timeout().is_some_and(|at| at <= now) {
             self.with_peer(|peer, hooks, now| peer.handle_timeout(now, hooks));
             self.after_peer();
+            // The peer node's reviews add, drop and withdraw methods.
+            self.sync_peer_slots();
         }
+        self.finish_removals();
     }
 
     /// Tells the peer node which schemes it may peer on, in a fixed order:
@@ -915,11 +1065,14 @@ impl Core {
     /// the original's started from those active at its start, so of two
     /// changes the second undid the first.
     pub(super) fn update_peer_schemes(&mut self) {
+        // Whether each method may carry our packets follows its scheme.
+        self.sync_peer_slots();
         let schemes: Vec<SchemeId> = self
             .schemes
             .iter()
             .filter(|(_, active)| {
                 active.failed.is_none()
+                    && active.removing.is_none()
                     && active.scheme.peers()
                     && active.scheme.has_synced()
                     && active.scheme.can_receive()
@@ -983,16 +1136,15 @@ impl Core {
             }
             Event::RoutesChanged => self.update_routes(),
             // The claim for a Fulfill of ours, of a Prepare the peer sent on
-            // the method our packets with it take.
+            // one of its methods, which the connector no longer holds and
+            // the peering may have dropped since: a claim is signed for one
+            // hub's hold and verifies against it alone, so each scheme over
+            // a hub is handed it, and the others drop it.
             Event::FulfillReply {
                 peer,
                 request_id,
                 claim,
-            } => {
-                if let Some(method) = self.packet_method(&peer) {
-                    self.hub_claim_received(self.now_ms, &peer, method, request_id, &claim);
-                }
-            }
+            } => self.hub_claim_received(self.now_ms, &peer, request_id, &claim),
             // Asked again at the next check, not a minute later: a junior
             // that had not yet taken in our acceptance pays in advance at
             // once (spec/decisions/own-fulfills.md), and a request that never
@@ -1005,13 +1157,13 @@ impl Core {
             | Event::SettlementRequestNotDelivered { peer } => {
                 self.settle.asked.retain(|(node, _), _| *node != peer);
             }
-            // A method dropped is asked on, and held off, no more. If it
-            // was the one the peer's endpoint was made on, the endpoint
-            // moves to the peering's new first method.
+            // A method dropped is asked on, and held off, no more, and its
+            // slot in the peer's endpoint goes, once what is in flight on
+            // it resolved.
             Event::MethodDropped { peer, scheme, .. } => {
                 self.settle.asked.remove(&(peer, scheme));
                 self.settle.backoff.remove(&(peer, scheme));
-                self.renew_peer_endpoint(peer);
+                self.resync_slots(peer);
             }
             // While our messages surely do not reach the peer, its new
             // Prepares are refused: a Fulfill of ours would count only in
@@ -1031,9 +1183,13 @@ impl Core {
                 // one that may have is left to expire, so a peer that
                 // fulfilled it does not bear its loss.
                 if definite && let Some(&endpoint) = self.peer_endpoints.get(&peer) {
-                    // Over a hub, the scheme forgets the commitment too.
-                    if let Some(method) = self.packet_method(&peer) {
-                        self.hub_rejected(&peer, method, request_id);
+                    // Over a hub, the scheme of the packet's method forgets
+                    // the commitment too, a dropped method's as well.
+                    let ledger = self.forwarded_ledger(&peer, request_id);
+                    if let Some((scheme, name)) =
+                        ledger.and_then(|ledger| self.packet_hub(&peer, ledger))
+                    {
+                        self.with_commitments(scheme, |c| c.on_answered(name, request_id));
                     }
                     self.connector.fail_forwarded(
                         self.now_ms,
@@ -1076,6 +1232,13 @@ impl Core {
                 self.remove_peer_endpoint(&peer);
                 self.update_routes();
             }
+            // A method added gets a slot of its own; one withdrawn, or no
+            // longer, or being wound down, is available no more, or again.
+            Event::MethodAdded { peer, .. }
+            | Event::MethodWinding { peer, .. }
+            | Event::Advertised { peer, .. } => {
+                self.resync_slots(peer);
+            }
             // Its accounts stay with what they show; the schemes forget
             // what they kept of the node for its settlements
             // (spec/decisions/closing-channels.md).
@@ -1096,31 +1259,116 @@ impl Core {
         }
     }
 
-    /// Makes the peer's endpoint anew on its peering's first method, if it
-    /// has none or one on another: the method it was made on was dropped,
-    /// by the peer or by us for a scheme the node does not run. Until the
-    /// connector has a slot per method, a peer's packets take its
-    /// endpoint's method (spec/decisions/settlement-methods.md), so a
-    /// peering that loses that method carries packets on its new first
-    /// one, never on none: the rest's lowest scheme ID, which the peer
-    /// picks alike. What was in flight on the dropped method goes as at
-    /// any endpoint's removal: our Prepares to the peer are rejected at
-    /// once (T01), so a Fulfill the peer sends for one later finds nothing
-    /// to answer and is dropped, and the peer's Prepares to us get no
-    /// reply, and expire on its side.
-    fn renew_peer_endpoint(&mut self, peer: NodeId) {
-        let Some(first) = self.peer.peering_of(&peer).map(|p| p.first().scheme) else {
-            return;
+    /// The slots `node`'s endpoint should have: one per method of its
+    /// peering whose scheme is active, in the peering's order, on the
+    /// scheme's ledger and the peer's account there, which only a downlink
+    /// may lack (spec/decisions/lazy-downlink-accounts.md), over a hub if
+    /// the scheme is, and available as [`Self::method_available`] says.
+    pub(super) fn wanted_slots(&self, node: &NodeId) -> Vec<WantedSlot> {
+        let Some(peering) = self.peer.peering_of(node) else {
+            return Vec::new();
         };
-        if self.endpoint_methods.get(&peer) == Some(&first) {
-            return;
+        let Some(peer) = name(*node) else {
+            return Vec::new();
+        };
+        let downlink = self.peer.is_downlink(node);
+        peering
+            .schemes()
+            .filter_map(|method| {
+                let active = self.schemes.get(&Name::new(method.as_str()).ok()?)?;
+                let ledger = active.scheme.ledger();
+                let account = self.ledger.find(&AccountPath::new(
+                    ledger,
+                    AccountName::AssetsInterledger(peer),
+                ));
+                (account.is_some() || downlink).then(|| WantedSlot {
+                    ledger,
+                    account,
+                    hub: active.over_hub,
+                    available: self.method_available(node, method),
+                })
+            })
+            .collect()
+    }
+
+    /// Brings `node`'s endpoint's slots in line with its peering's methods
+    /// ([`Self::wanted_slots`]): a slot for a method added, none for one
+    /// dropped, whose packets in flight still resolve on it, and each
+    /// slot's hub flag, its availability and an account opened since. A
+    /// peer without an endpoint gets one once a method has a slot to make
+    /// it with. Returns whether it made one, so the routes reach it.
+    pub(super) fn sync_slots_of(&mut self, node: NodeId) -> bool {
+        let wanted = self.wanted_slots(&node);
+        let Some(&id) = self.peer_endpoints.get(&node) else {
+            if wanted.is_empty() || self.peer.peering_of(&node).is_none() {
+                return false;
+            }
+            if let Err(error) = self.add_peer_endpoint(node) {
+                self.report(PeerEvent::NoEndpoint { node, error });
+                return false;
+            }
+            self.mark_peer_endpoint(&node);
+            return true;
+        };
+        let endpoint = EndpointId::Peer(id);
+        let gone: Vec<LedgerId> = self
+            .connector
+            .slots(endpoint)
+            .filter(|slot| !slot.removed && !wanted.iter().any(|w| w.ledger == slot.ledger))
+            .map(|slot| slot.ledger)
+            .collect();
+        for ledger in gone {
+            self.connector.remove_slot(endpoint, ledger);
         }
-        self.remove_peer_endpoint(&peer);
-        if let Err(error) = self.add_peer_endpoint(peer) {
-            self.report(PeerEvent::NoEndpoint { node: peer, error });
+        for slot in &wanted {
+            let has = self
+                .connector
+                .slots(endpoint)
+                .find(|view| view.ledger == slot.ledger && !view.removed);
+            match has {
+                None => {
+                    if let Err(error) = self.connector.add_slot(endpoint, slot.ledger, slot.account)
+                    {
+                        self.report(PeerEvent::NoEndpoint {
+                            node,
+                            error: error.to_string(),
+                        });
+                        continue;
+                    }
+                }
+                Some(view) if view.account.is_none() => {
+                    if let Some(account) = slot.account {
+                        self.connector.open_account(endpoint, slot.ledger, account);
+                    }
+                }
+                Some(_) => {}
+            }
+            self.connector.set_hub(endpoint, slot.ledger, slot.hub);
+            self.connector
+                .set_available(endpoint, slot.ledger, slot.available);
         }
-        self.mark_peer_endpoint(&peer);
-        self.update_routes();
+        false
+    }
+
+    /// Brings `node`'s slots in line with its methods
+    /// ([`Self::sync_slots_of`]), and the routes with an endpoint made.
+    fn resync_slots(&mut self, node: NodeId) {
+        if self.sync_slots_of(node) {
+            self.update_routes();
+        }
+    }
+
+    /// Brings every peer's slots in line with its methods
+    /// ([`Self::sync_slots_of`]), and the routes with the endpoints made.
+    pub(super) fn sync_peer_slots(&mut self) {
+        let peers: Vec<NodeId> = self.peer.peers().map(|(node, _)| *node).collect();
+        let mut made = false;
+        for node in peers {
+            made |= self.sync_slots_of(node);
+        }
+        if made {
+            self.update_routes();
+        }
     }
 
     /// Marks a peer's new endpoint as its peering's state has it: one
@@ -1143,15 +1391,15 @@ impl Core {
         }
     }
 
-    /// Takes a peer's endpoint away: at a peering's end, nothing is in
-    /// flight with it by now, since the peering ended only once drained;
-    /// at a method's drop, our Prepares to it are rejected at once (T01),
-    /// a Fulfill for one that comes later is dropped, and its Prepares to
-    /// us get no reply.
+    /// Takes a peer's endpoint away, at a peering's end: nothing is in
+    /// flight with it by now, since the peering ended only once drained.
+    /// Were anything left, our Prepares to it would be rejected at once
+    /// (T01), a Fulfill for one that comes later dropped, and its Prepares
+    /// to us get no reply. A method's drop takes only its slot away, whose
+    /// packets resolve on it ([`Self::sync_peer_slots`]).
     fn remove_peer_endpoint(&mut self, peer: &NodeId) {
         if let Some(endpoint) = self.peer_endpoints.remove(peer) {
             self.endpoint_peers.remove(&endpoint);
-            self.endpoint_methods.remove(peer);
             let now = self.now_ms;
             // What was in flight to it is due now: the step expires it as
             // it finishes, rather than here, which the expiry could reach
@@ -1162,14 +1410,14 @@ impl Core {
         }
     }
 
-    /// Makes a peer a connector endpoint, on its peering's first method's
-    /// ledger, at the address ILDCP will tell it: its own
+    /// Makes a peer a connector endpoint, with a slot per method of its
+    /// peering on the method's ledger and the peer's account there
+    /// ([`Self::wanted_slots`]), at the address ILDCP will tell it: its own
     /// `<scheme>.das.<id>`, which routes reach as they reach any node's; or,
     /// for a downlink, its child address beneath ours, `<our address>.<id>`,
     /// which reaches it through us
-    /// (spec/areas/connector.md#addresses-and-endpoints). Until the
-    /// connector has a slot per method, every packet with the peer takes
-    /// that method, and the others carry none
+    /// (spec/areas/connector.md#addresses-and-endpoints). Every method
+    /// carries packets, each on its own slot
     /// (spec/decisions/settlement-methods.md). The original gave a peer that
     /// was not a member an address beneath its own that nothing routed to,
     /// and stored the addresses its peers gave it without reading them.
@@ -1177,25 +1425,17 @@ impl Core {
         if self.peer_endpoints.contains_key(&node) {
             return Ok(());
         }
-        let peering = self.peer.peering_of(&node).ok_or("not peered")?;
-        let method = peering.first().scheme;
-        let scheme = Name::new(method.as_str()).map_err(|e| e.to_string())?;
-        let ledger = self
-            .schemes
-            .get(&scheme)
-            .map(|active| active.scheme.ledger())
-            .ok_or("the peer's scheme is not active")?;
-        let name = Name::new(node.as_str()).map_err(|e| e.to_string())?;
-        let account = self.ledger.find(&dassie_ledger::AccountPath::new(
-            ledger,
-            dassie_ledger::AccountName::AssetsInterledger(name),
-        ));
+        self.peer.peering_of(&node).ok_or("not peered")?;
         // A downlink's accounts open with the first packet that moves money
         // to it, or its first settlement
-        // (spec/decisions/lazy-downlink-accounts.md).
-        if account.is_none() && !self.peer.is_downlink(&node) {
-            return Err("the peer's account is missing".into());
-        }
+        // (spec/decisions/lazy-downlink-accounts.md); a core peer's are
+        // there, or its method gets no slot.
+        let first = self
+            .wanted_slots(&node)
+            .into_iter()
+            .next()
+            .ok_or("no method of the peer's has a scheme and an account")?;
+        let (ledger, account) = (first.ledger, first.account);
         let id = self.next_peer_endpoint;
         self.next_peer_endpoint += 1;
         let address = if self.peer.is_downlink(&node) {
@@ -1209,19 +1449,13 @@ impl Core {
             .map_err(|e| e.to_string())?;
         self.peer_endpoints.insert(node, id);
         self.endpoint_peers.insert(id, node);
-        self.endpoint_methods.insert(node, method);
         if !self.peer.reachable(&node) {
             self.connector.set_unreached(EndpointId::Peer(id), true);
         }
-        let over_hub = self
-            .schemes
-            .get(&scheme)
-            .is_some_and(|active| active.over_hub);
-        if over_hub {
-            // A packet that timed out waits for the hub before it is
-            // rejected upstream (spec/designs/settlement-hubs.md#4-peering-over-a-hub).
-            self.connector.set_hub(EndpointId::Peer(id), true);
-        }
+        // The further methods, and each slot's flags: a packet on a method
+        // over a hub that timed out waits for the hub before it is rejected
+        // upstream (spec/designs/settlement-hubs.md#4-peering-over-a-hub).
+        self.sync_slots_of(node);
         Ok(())
     }
 

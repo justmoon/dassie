@@ -254,9 +254,9 @@ impl Follow {
                     // never taken, so the cursor stays before it, and a
                     // restart reads it again.
                     if self.retry.len() >= MAX_WAITING_ATTESTATIONS
-                        && let Some((_, dropped)) = self.retry.pop_front()
+                        && let Some((dropped, transaction)) = self.retry.pop_front()
                     {
-                        watcher.dropped(dropped);
+                        watcher.dropped(&dropped, transaction);
                     }
                     self.retry.push_back((operation, transaction));
                     self.hand_over(watcher);

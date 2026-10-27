@@ -193,7 +193,9 @@ impl Engine {
         self.call(move |core| core.add_scheme(&id, config)).await
     }
 
-    /// Deactivates a settlement scheme.
+    /// Deactivates a settlement scheme: at once, or, while peerings settle
+    /// on it, once their methods on it are wound down
+    /// (spec/decisions/settlement-methods.md).
     pub async fn remove_scheme(&self, id: String) -> Result<(), EngineError> {
         self.call(move |core| core.remove_scheme(&id)).await
     }
@@ -373,12 +375,15 @@ impl Engine {
     }
 
     /// The ledger a payment to `destination` goes out on, and whether it
-    /// goes to one of the node's own endpoints; none without a route.
+    /// goes to one of the node's own endpoints, `ledger` if a first hop
+    /// takes it; none without a route.
     pub async fn route_of(
         &self,
         destination: String,
+        ledger: Option<dassie_ledger::LedgerId>,
     ) -> Result<Option<(dassie_ledger::LedgerId, bool)>, EngineError> {
-        self.call(move |core| Ok(core.route_of(&destination))).await
+        self.call(move |core| Ok(core.route_of(&destination, ledger)))
+            .await
     }
 
     /// The currencies of the active ledgers, whose rates the node needs.

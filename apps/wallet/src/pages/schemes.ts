@@ -11,6 +11,8 @@ const NAMES: Record<string, string> = {
   "hub-xrpl-testnet-xrp": "XRP in a settlement hub on the XRP Ledger Testnet",
   "hub-xrpl-testnet-dsusd":
     "DSUSD in a settlement hub on the XRP Ledger Testnet",
+  "hub-xrpl-xrp": "XRP in a settlement hub on the XRP Ledger",
+  "hub-xrpl-rlusd": "RLUSD in a settlement hub on the XRP Ledger",
 };
 
 const DESCRIPTIONS: Record<string, string> = {
@@ -28,6 +30,10 @@ const DESCRIPTIONS: Record<string, string> = {
     "Settles in test XRP through the testnet's settlement hub, a ledger kept by a few validators and backed by an escrow on the XRP Ledger testnet, with peers in the same hub. It needs the XRP Ledger Testnet scheme: the node moves about 2.5 test XRP from that account into the hub at once (the hub account's 2 XRP reserve, and some to spend), and keeps its hub balance between a floor and a ceiling from there on.",
   "hub-xrpl-testnet-dsusd":
     "Settles in test DSUSD through the testnet's DSUSD settlement hub, a ledger kept by a few validators and backed by an escrow on the XRP Ledger testnet, with peers in the same hub. It needs the DSUSD on the XRP Ledger Testnet scheme, from which the node moves DSUSD into the hub and back, keeping its hub balance between a floor and a ceiling, and the XRP Ledger Testnet scheme: the hub's escrow pays its XRP Ledger fees in XRP, and before the node withdraws it tops that up from its own XRP if the escrow holds less than 1 XRP. While DSUSD's XRP/DSUSD pool prices it off a dollar, the node stops converting into and out of the hub's DSUSD; settling over the hub goes on.",
+  "hub-xrpl-xrp":
+    "Settles in XRP through a settlement hub on the XRP Ledger mainnet, a ledger kept by a few validators and backed by an escrow on the XRP Ledger: real money, with peers in the same hub. It needs the XRP Ledger scheme: the node moves XRP from that account into the hub, the hub account's reserve and some to spend, and keeps its hub balance between a floor and a ceiling from there on.",
+  "hub-xrpl-rlusd":
+    "Settles in RLUSD through a settlement hub on the XRP Ledger mainnet, a ledger kept by a few validators and backed by an escrow on the XRP Ledger: real money, with peers in the same hub. It needs the RLUSD on the XRP Ledger scheme, from which the node moves RLUSD into the hub and back, keeping its hub balance between a floor and a ceiling, and the XRP Ledger scheme: the hub's escrow pays its XRP Ledger fees in XRP, and before the node withdraws it tops that up from its own XRP if the escrow holds less than 1 XRP. While RLUSD's XRP/RLUSD pool prices it off a dollar, the node stops converting into and out of the hub's RLUSD; settling over the hub goes on.",
 };
 
 /**

@@ -9,7 +9,16 @@ use dassie_connector::sim::traffic;
 
 #[test]
 fn the_runs_exercise_every_outcome() {
-    let (_, harness) = traffic::finished(1);
+    let (trace, harness) = traffic::finished(1);
+    // Peers' packets kept their ledger, and converted where no hop could.
+    let last = trace.last().unwrap();
+    let counts: Vec<u64> = last
+        .split(' ')
+        .filter_map(|word| word.parse().ok())
+        .collect();
+    assert!(last.starts_with("kept") && counts.len() == 2, "{last}");
+    assert!(counts.iter().all(|count| *count > 0), "{last}");
+
     let stats = harness.connector.stats();
     for (name, count) in [
         ("forwarded", stats.forwarded),

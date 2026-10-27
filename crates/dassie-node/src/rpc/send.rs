@@ -263,10 +263,10 @@ async fn wallet(node: &Node, urls: &Urls, url: &str) -> Result<Wallet, RpcError>
 
 /// The ledger to pay the receiver at `destination` from: the one the route
 /// to it starts on, since the node's own endpoints never convert. One
-/// named must be it.
+/// named must be one a first hop takes.
 async fn ledger_for(engine: &Engine, named: &str, destination: &str) -> Result<LedgerId, RpcError> {
     let (ledger, _) = engine
-        .route_of(destination.to_string())
+        .route_of(destination.to_string(), LedgerId::parse(named))
         .await?
         .ok_or_else(|| RpcError::precondition("there is no route to the recipient"))?;
     if !named.is_empty() && named != ledger.as_str() {

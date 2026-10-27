@@ -17,7 +17,10 @@ use dassie_ledger::{AccountId, Ledger, LedgerId, TraceId, TransferId};
 use crate::PacketTransfers;
 use crate::cap::{CapError, CapState, CapUsage, CapView, SpendingCap};
 use crate::config::Config;
-use crate::endpoint::{Endpoint, EndpointError, EndpointId, Endpoints};
+use crate::endpoint::{
+    Endpoint, EndpointError, EndpointId, Endpoints, MAX_HELD_SLOTS, MAX_SLOTS, Slot, SlotError,
+    SlotView,
+};
 use crate::trace::{PacketRecord, Trace, TraceEvent};
 
 /// Most next hops a route lists.
@@ -59,6 +62,9 @@ pub enum Outcome {
 pub struct Forwarded {
     /// The endpoint to send it to.
     pub to: EndpointId,
+    /// The ledger of its slot the packet goes on: for a peer, the
+    /// settlement method to send it on.
+    pub ledger: LedgerId,
     /// The request ID to send it with; the response comes back with it.
     pub request_id: u32,
     /// The packet's length in the buffer.
@@ -70,6 +76,9 @@ pub struct Forwarded {
 pub struct Upstream {
     /// The endpoint the Prepare came from.
     pub to: EndpointId,
+    /// The ledger of its slot the Prepare came in on: for a peer, the
+    /// settlement method it came on.
+    pub ledger: LedgerId,
     /// The request ID it came with.
     pub request_id: u32,
     /// The response's length in the buffer.
@@ -106,6 +115,11 @@ pub(crate) struct Pending {
     pub trace: TraceId,
     pub source: EndpointId,
     pub source_request_id: u32,
+    /// The ledger of the source's slot it came in on, and of the
+    /// destination's slot it went out on: what it books on, and what the
+    /// money in flight on each slot counts it in.
+    pub in_ledger: LedgerId,
+    pub out_ledger: LedgerId,
     /// The source is gone: the response has nowhere to go, but the
     /// transfers are still settled by it.
     pub source_gone: bool,
@@ -211,6 +225,8 @@ pub struct Connector {
 pub struct HubWait {
     /// The peer it went to.
     pub destination: EndpointId,
+    /// The ledger of the method it went on.
+    pub ledger: LedgerId,
     /// The request ID it went with.
     pub request_id: u32,
     /// Its condition.
@@ -332,31 +348,18 @@ impl Connector {
             return Err(EndpointError::Full);
         }
         let own = Address::parse(&self.own_address).map_err(|_| EndpointError::InvalidAddress)?;
-        let endpoint = Endpoint {
-            address: String::from(address),
-            account: Some(account),
-            ledger,
-            next_request_id: 0,
-            pending_from: 0,
-            money_from: 0,
-            money_to: 0,
-            draining: false,
-            refusing: false,
-            unreached: false,
-            child: false,
-            hub: false,
-            earned: 0,
-            earned_since_ms: 0,
-        };
+        let endpoint = Endpoint::new(address, Slot::new(ledger, Some(account)), 0);
         self.endpoints.insert(id, endpoint, own)
     }
 
     /// Adds a peer at `address`, which is only what ILDCP tells it: packets
-    /// reach peers through the route table. Its first request ID is chosen
-    /// by the caller at random, so that after a restart our new packets do
-    /// not reuse IDs the peer still holds from before. A peer without
-    /// `account` has its accounts opened by the first packet that moves
-    /// money with it ([`OpensAccounts`]).
+    /// reach peers through the route table. It starts with one slot, its
+    /// peering's first settlement method on `ledger`; further methods are
+    /// [`add_slot`](Self::add_slot)s. Its first request ID is chosen by the
+    /// caller at random, so that after a restart our new packets do not
+    /// reuse IDs the peer still holds from before. A slot without `account`
+    /// has its accounts opened by the first packet that moves money with it
+    /// ([`OpensAccounts`]).
     ///
     /// # Errors
     ///
@@ -377,23 +380,101 @@ impl Connector {
             return Err(EndpointError::Full);
         }
         let own = Address::parse(&self.own_address).map_err(|_| EndpointError::InvalidAddress)?;
-        let endpoint = Endpoint {
-            address: String::from(address),
-            account,
-            ledger,
-            next_request_id: first_request_id,
-            pending_from: 0,
-            money_from: 0,
-            money_to: 0,
-            draining: false,
-            refusing: false,
-            unreached: false,
-            child: false,
-            hub: false,
-            earned: 0,
-            earned_since_ms: 0,
-        };
+        let endpoint = Endpoint::new(address, Slot::new(ledger, account), first_request_id);
         self.endpoints.insert(id, endpoint, own)
+    }
+
+    /// Adds a slot on `ledger` to a peer: a further settlement method of its
+    /// peering, on a ledger none of its slots is on
+    /// (spec/decisions/settlement-methods.md). A slot on `ledger` that was
+    /// removed and still waits for its packets is taken up again, with
+    /// them, and moves last, as a method added again comes last in its
+    /// peering. A new slot is available, and not over a hub, until the node
+    /// says otherwise; one taken up again is available, and keeps whether
+    /// it is over a hub, which its packets in flight still need.
+    ///
+    /// # Errors
+    ///
+    /// No such peer, a slot on `ledger` already, [`MAX_SLOTS`] in use, or
+    /// [`MAX_HELD_SLOTS`] with the removed ones.
+    ///
+    /// # Panics
+    ///
+    /// If a slot taken up again had another account.
+    pub fn add_slot(
+        &mut self,
+        id: EndpointId,
+        ledger: LedgerId,
+        account: Option<AccountId>,
+    ) -> Result<(), SlotError> {
+        let endpoint = self
+            .endpoints
+            .get_mut(id)
+            .filter(|_| id.is_peer())
+            .ok_or(SlotError::Unknown)?;
+        let at = endpoint.slots.iter().position(|slot| slot.ledger == ledger);
+        if at.is_some_and(|at| endpoint.slots.get(at).is_some_and(|slot| !slot.removed)) {
+            return Err(SlotError::Duplicate);
+        }
+        let in_use = endpoint.slots.iter().filter(|slot| !slot.removed).count();
+        if in_use >= MAX_SLOTS || (at.is_none() && endpoint.slots.len() >= MAX_HELD_SLOTS) {
+            return Err(SlotError::Full);
+        }
+        let Some(at) = at else {
+            endpoint.slots.push(Slot::new(ledger, account));
+            return Ok(());
+        };
+        let mut slot = endpoint.slots.remove(at);
+        assert!(
+            slot.account.is_none() || account.is_none() || slot.account == account,
+            "a slot's account never changes"
+        );
+        slot.removed = false;
+        slot.available = true;
+        slot.account = slot.account.or(account);
+        endpoint.slots.push(slot);
+        Ok(())
+    }
+
+    /// Removes a peer's slot on `ledger`: no new packet takes it, either
+    /// way. Its packets in flight resolve, or expire, as any packet does,
+    /// and the slot goes with the last of them, within the longest hold
+    /// time. Returns whether it had the slot.
+    pub fn remove_slot(&mut self, id: EndpointId, ledger: LedgerId) -> bool {
+        let Some(endpoint) = self.endpoints.get_mut(id).filter(|_| id.is_peer()) else {
+            return false;
+        };
+        let Some(slot) = endpoint.slot_mut(ledger).filter(|slot| !slot.removed) else {
+            return false;
+        };
+        slot.removed = true;
+        endpoint
+            .slots
+            .retain(|slot| !slot.removed || slot.pending > 0);
+        true
+    }
+
+    /// Lets the node send packets on a peer's slot on `ledger`, or not
+    /// (spec/decisions/settlement-methods.md): which method a packet takes
+    /// depends on the methods available, never on their room. Returns
+    /// whether it has the slot.
+    pub fn set_available(&mut self, id: EndpointId, ledger: LedgerId, available: bool) -> bool {
+        if !id.is_peer() {
+            return false;
+        }
+        self.endpoints
+            .slot_mut(id, ledger)
+            .map(|slot| slot.available = available)
+            .is_some()
+    }
+
+    /// An endpoint's slots, in the order they were added, removed ones that
+    /// wait for their packets included.
+    pub fn slots(&self, id: EndpointId) -> impl Iterator<Item = SlotView> + '_ {
+        self.endpoints
+            .get(id)
+            .into_iter()
+            .flat_map(|endpoint| endpoint.slots.iter().map(Slot::view))
     }
 
     /// Replaces the route table: for each prefix outside our own address,
@@ -492,42 +573,55 @@ impl Connector {
         true
     }
 
-    /// The account `id`'s packets debit and credit, if it has one yet.
+    /// The account the packets on `id`'s first slot debit and credit, if
+    /// it has one yet: a child's only one.
     #[must_use]
     pub fn account_of(&self, id: EndpointId) -> Option<AccountId> {
-        self.endpoints.get(id).and_then(|endpoint| endpoint.account)
+        self.endpoints
+            .get(id)
+            .and_then(Endpoint::first_slot)
+            .and_then(|slot| slot.account)
     }
 
-    /// Gives a peer that had none the account its packets debit and
-    /// credit, opened by the node outside a packet, as for a settlement
-    /// (spec/decisions/lazy-downlink-accounts.md). Returns whether the
-    /// endpoint exists.
+    /// The account the packets on `id`'s slot on `ledger` debit and
+    /// credit, if it has the slot and the account yet.
+    #[must_use]
+    pub fn account_on(&self, id: EndpointId, ledger: LedgerId) -> Option<AccountId> {
+        self.endpoints
+            .slot(id, ledger)
+            .and_then(|slot| slot.account)
+    }
+
+    /// Gives a peer's slot on `ledger` that had none the account its
+    /// packets debit and credit, opened by the node outside a packet, as
+    /// for a settlement (spec/decisions/lazy-downlink-accounts.md). Returns
+    /// whether the slot exists.
     ///
     /// # Panics
     ///
-    /// If the endpoint already has another account.
-    pub fn open_account(&mut self, id: EndpointId, account: AccountId) -> bool {
+    /// If the slot already has another account.
+    pub fn open_account(&mut self, id: EndpointId, ledger: LedgerId, account: AccountId) -> bool {
         self.endpoints
-            .get_mut(id)
-            .map(|endpoint| {
+            .slot_mut(id, ledger)
+            .map(|slot| {
                 assert!(
-                    endpoint.account.is_none_or(|had| had == account),
-                    "an endpoint's account never changes"
+                    slot.account.is_none_or(|had| had == account),
+                    "a slot's account never changes"
                 );
-                endpoint.account = Some(account);
+                slot.account = Some(account);
             })
             .is_some()
     }
 
-    /// Marks a peer as one we peer with over a settlement hub, or not.
-    /// Returns whether it is a peer endpoint.
-    pub fn set_hub(&mut self, id: EndpointId, hub: bool) -> bool {
+    /// Marks a peer's slot on `ledger` as a method over a settlement hub, or
+    /// not. Returns whether it is a peer's slot.
+    pub fn set_hub(&mut self, id: EndpointId, ledger: LedgerId, hub: bool) -> bool {
         if !id.is_peer() {
             return false;
         }
         self.endpoints
-            .get_mut(id)
-            .map(|endpoint| endpoint.hub = hub)
+            .slot_mut(id, ledger)
+            .map(|slot| slot.hub = hub)
             .is_some()
     }
 
@@ -693,11 +787,22 @@ impl Connector {
         None
     }
 
-    /// Every endpoint: its ID, address and ledger.
+    /// Every endpoint with a slot: its ID, address and its first slot's
+    /// ledger, a child's only one.
     pub fn endpoints(&self) -> impl Iterator<Item = (EndpointId, &str, LedgerId)> {
-        self.endpoints
-            .iter()
-            .map(|(id, endpoint)| (*id, endpoint.address.as_str(), endpoint.ledger))
+        self.endpoints.iter().filter_map(|(id, endpoint)| {
+            let slot = endpoint.first_slot()?;
+            Some((*id, endpoint.address.as_str(), slot.ledger))
+        })
+    }
+
+    /// The ledger of the slot a packet in flight to `to` with
+    /// `request_id` went out on: for a peer, its settlement method.
+    #[must_use]
+    pub fn forwarded_on(&self, to: EndpointId, request_id: u32) -> Option<LedgerId> {
+        self.pending
+            .get(&(to, request_id))
+            .map(|entry| entry.out_ledger)
     }
 
     /// The address an endpoint was added with.
@@ -752,19 +857,26 @@ impl Connector {
     }
 
     /// Where a packet to `destination` from one of the node's own
-    /// endpoints would go first, and that endpoint's ledger: what such a
-    /// packet must be paid from, since the node's own endpoints never
-    /// convert. Not drawn: the route's first usable hop, by the order the
-    /// routes list them, so a quote or a payment picks its ledger once
-    /// (spec/decisions/weighted-next-hops.md); each of its packets then
-    /// draws among the hops on that ledger.
+    /// endpoints would go first, and the ledger of the slot it would take:
+    /// what such a packet must be paid from, since the node's own endpoints
+    /// never convert. Not drawn: the route's first usable hop, by the order
+    /// the routes list them, with a method available on `ledger`, the one
+    /// the owner asks to pay from; with no such hop, or none asked for, the
+    /// first usable hop and its first available method. So a quote or a
+    /// payment picks its ledger once (spec/decisions/weighted-next-hops.md);
+    /// each of its packets then draws among the hops with a method on that
+    /// ledger.
     #[must_use]
-    pub fn first_hop(&self, destination: &str) -> Option<(EndpointId, LedgerId)> {
+    pub fn first_hop(
+        &self,
+        destination: &str,
+        ledger: Option<LedgerId>,
+    ) -> Option<(EndpointId, LedgerId)> {
         let address = Address::parse(destination).ok()?;
-        let hop = self.next_hop(0, address, None, 0)?;
-        self.endpoints
-            .get(hop)
-            .map(|endpoint| (hop, endpoint.ledger))
+        match self.next_hop(0, address, (None, ledger), None) {
+            hops::Hop::To(hop, Some(ledger)) => Some((hop, ledger)),
+            hops::Hop::To(_, None) | hops::Hop::NoMethod | hops::Hop::None => None,
+        }
     }
 
     /// The routes, for inspection.

@@ -1,6 +1,6 @@
 # A packet's next hop is drawn at random among its first hops, weighted by the fees each earned us
 
-**Areas:** [Connector](../areas/connector.md#routing), [Network](../areas/network.md#routing), [Stream](../areas/stream.md#responses). Built for peers on one ledger each: the draw, the weights, the exploring share, the owner's packets kept on their ledger, and the keyed cut. Waiting for settlement methods ([roadmap](../roadmap.md#settlement-methods)): weights per peer and ledger, and a converting hop's method with the best rate.
+**Areas:** [Connector](../areas/connector.md#routing), [Network](../areas/network.md#routing), [Stream](../areas/stream.md#responses). Built: the draw over each hop's methods, the weights per peer and ledger, the exploring share, the owner's packets kept on their ledger, a converting hop's method with the best rate, and the keyed cut. Shown in the node simulation, not yet ([roadmap](../roadmap.md#random-next-hops)).
 
 ## Facts
 

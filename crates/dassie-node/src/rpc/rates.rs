@@ -178,6 +178,7 @@ mod tests {
             waiting: None,
             peg: None,
             removal_blockers: Vec::new(),
+            removing: None,
         }
     }
 

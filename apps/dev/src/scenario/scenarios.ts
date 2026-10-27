@@ -45,7 +45,7 @@ export interface ScenarioDef {
   /**
    * The realm its nodes run in: `test` unless it says `live`. Live nodes
    * run mainnet's schemes, by the node's dev switch, which only a build
-   * with debug assertions honours (spec/decisions/mainnet-schemes.md), and
+   * with debug assertions honors (spec/decisions/mainnet-schemes.md), and
    * only against the fake ledger's mainnet, never with real money.
    */
   readonly realm?: "test" | "live";
@@ -62,6 +62,12 @@ export interface ScenarioDef {
    * ledger has it, so such a scenario needs it.
    */
   readonly hub?: HubDef;
+  /**
+   * Several settlement hubs on the fake ledger, in place of `hub`: each
+   * founded and joined as `hub` is, of XRP or of `token`, one per asset,
+   * with the scheme of its asset (`hubs.ts`).
+   */
+  readonly hubs?: readonly (HubDef & { readonly token?: IssuedToken })[];
 }
 
 /**
@@ -187,62 +193,63 @@ export function joinsHub(def: ScenarioDef, index: number): boolean {
  */
 export const MAINNET_DEPOSIT_DROPS = 1_000_000_000n;
 
+/**
+ * The stub with unlimited trust (spec/areas/settlement.md#the-stub-scheme):
+ * peers on it never run out of room and never settle, so the scenarios
+ * whose subject is not settlement settle nothing directly.
+ */
+export const UNLIMITED_STUB = JSON.stringify({ trust: "unlimited" });
+
+/** An XRP Ledger scheme's config as an owner book, which peers with nobody
+ * (spec/areas/settlement.md#owner-books). */
+export const OWNER_BOOK = JSON.stringify({ peers: false });
+
+/** Why the market maker's scenarios cannot run. */
+export const MARKET_MAKER_PARKED =
+  "parked until the market maker runs on hubs (spec/roadmap.md#hubs-only)";
+
 export const SCENARIOS: readonly ScenarioDef[] = [
   {
     id: "two-nodes",
     name: "Two Simple Nodes",
     description:
-      "Network with two nodes using default configuration and stub settlement",
+      "Network with two nodes using default configuration and the stub with unlimited trust, which never settles",
     schemes: [["stub"], ["stub"]],
     addedSchemes: ["stub"],
     bootstrap: [0, 1],
+    configs: { stub: UNLIMITED_STUB },
   },
   {
     id: "six-nodes",
     name: "Six Simple Nodes",
     description:
-      "Network with six nodes using default configuration and stub settlement",
+      "Network with six nodes using default configuration and the stub with unlimited trust, which never settles",
     schemes: Array.from({ length: 6 }, () => ["stub"]),
     addedSchemes: ["stub"],
     bootstrap: [0, 1],
+    configs: { stub: UNLIMITED_STUB },
   },
   {
-    id: "xrpl-settlement",
-    name: "XRPL Testnet Settlement",
-    description: "Network with two nodes using XRPL testnet settlement",
-    schemes: [["xrpl-testnet-xrp"], ["xrpl-testnet-xrp"]],
-    addedSchemes: ["xrpl-testnet-xrp"],
-    bootstrap: [0, 1],
-  },
-  {
-    id: "dsusd-settlement",
-    name: "DSUSD Settlement",
+    id: "dsusd-owner-book",
+    name: "DSUSD Owner Book",
     description:
-      "Network with two nodes settling in test DSUSD on the XRP Ledger, minted by the fake ledger's issuer, beside the fake ledger's XRP/DSUSD pool at the dev rate, which keeps DSUSD on its peg",
-    schemes: [["xrpl-testnet-dsusd"], ["xrpl-testnet-dsusd"]],
+      "A node that holds test DSUSD on the XRP Ledger in its owner book, which peers with nobody, minted by the fake ledger's issuer, beside the fake ledger's XRP/DSUSD pool at the dev rate, which keeps DSUSD on its peg",
+    schemes: [["xrpl-testnet-dsusd"]],
     addedSchemes: ["xrpl-testnet-dsusd"],
-    bootstrap: [0, 1],
+    bootstrap: [],
+    configs: { "xrpl-testnet-dsusd": OWNER_BOOK },
     mint: { token: "DSUSD", value: "100" },
     pool: { token: "DSUSD", value: "50000", tradingFee: 500 },
   },
   {
-    id: "xrpl-live-settlement",
-    name: "XRPL Mainnet Settlement, Fake",
+    id: "live-owner-books",
+    name: "Mainnet Owner Books, Fake",
     description:
-      "Network with two nodes in the live realm settling in XRP on the fake ledger's mainnet, by the dev switch; each node's account is funded by a deposit, as mainnet has no faucet",
-    schemes: [["xrpl-xrp"], ["xrpl-xrp"]],
-    addedSchemes: ["xrpl-xrp"],
-    bootstrap: [0, 1],
-    realm: "live",
-  },
-  {
-    id: "rlusd-live-settlement",
-    name: "RLUSD Mainnet Settlement, Fake",
-    description:
-      "Network with two nodes in the live realm settling in RLUSD on the fake ledger's mainnet, by the dev switch, minted by its RLUSD issuer, beside its XRP/RLUSD pool at the dev rate, which keeps RLUSD on its peg",
-    schemes: [["xrpl-rlusd"], ["xrpl-rlusd"]],
-    addedSchemes: ["xrpl-rlusd"],
-    bootstrap: [0, 1],
+      "A node in the live realm that holds XRP and RLUSD on the fake ledger's mainnet in its owner books, which peer with nobody, by the dev switch; its account is funded by a deposit, as mainnet has no faucet, and RLUSD's issuer mints it RLUSD beside its XRP/RLUSD pool at the dev rate, which keeps RLUSD on its peg",
+    schemes: [["xrpl-xrp", "xrpl-rlusd"]],
+    addedSchemes: ["xrpl-xrp", "xrpl-rlusd"],
+    bootstrap: [],
+    configs: { "xrpl-xrp": OWNER_BOOK, "xrpl-rlusd": OWNER_BOOK },
     mint: { token: "RLUSD", value: "100" },
     // 200,000 XRP at the dev rate: deeper than RLUSD's floor of 100,000
     // XRP, below which its peg guard reads no price, even 5% off its peg.
@@ -251,18 +258,29 @@ export const SCENARIOS: readonly ScenarioDef[] = [
   },
   {
     id: "cross-currency",
-    name: "Cross-currency Settlement",
+    name: "Cross-currency Payments",
     description:
-      "Two nodes using different settlement methods (stub and XRPL testnet) and a third node supporting both",
-    schemes: [["stub"], ["stub", "xrpl-testnet-xrp"], ["xrpl-testnet-xrp"]],
-    addedSchemes: ["stub"],
+      "A node with dollars on the stub with unlimited trust, a node with XRP in a settlement hub that four validators found on the fake ledger, and a node with both, which converts between them",
+    schemes: [
+      ["stub"],
+      ["stub", HUB_OWNER_BOOK, HUB_SCHEME],
+      [HUB_OWNER_BOOK, HUB_SCHEME],
+      [HUB_OWNER_BOOK],
+      [],
+      [],
+      [],
+    ],
+    addedSchemes: [HUB_OWNER_BOOK, HUB_SCHEME],
     bootstrap: [0, 1],
+    configs: { stub: UNLIMITED_STUB, [HUB_OWNER_BOOK]: OWNER_BOOK },
+    hub: { validators: [3, 4, 5, 6], sponsor: 3, members: [1, 2] },
   },
   {
     id: "market-maker",
     name: "Market Maker",
     description:
       "A core node with XRP and DSUSD, most of its value in XRP, and a market maker's two periphery nodes pinned to it, one with XRP and one with DSUSD, beside the fake ledger's XRP/DSUSD pool at the dev rate",
+    unavailable: MARKET_MAKER_PARKED,
     schemes: [
       ["xrpl-testnet-xrp", "xrpl-testnet-dsusd"],
       ["xrpl-testnet-xrp"],
@@ -282,6 +300,7 @@ export const SCENARIOS: readonly ScenarioDef[] = [
     name: "Market Maker, Two Targets",
     description:
       "Two core nodes with XRP and DSUSD, most of their value in XRP, and a market maker's two periphery nodes each pinned to both, one with XRP and one with DSUSD, beside the fake ledger's XRP/DSUSD pool at the dev rate",
+    unavailable: MARKET_MAKER_PARKED,
     schemes: [
       ["xrpl-testnet-xrp", "xrpl-testnet-dsusd"],
       ["xrpl-testnet-xrp", "xrpl-testnet-dsusd"],
@@ -311,16 +330,61 @@ export const SCENARIOS: readonly ScenarioDef[] = [
     ],
     addedSchemes: [HUB_OWNER_BOOK, HUB_SCHEME],
     bootstrap: [4, 5],
-    configs: { [HUB_OWNER_BOOK]: JSON.stringify({ peers: false }) },
+    configs: { [HUB_OWNER_BOOK]: OWNER_BOOK },
     hub: { validators: [0, 1, 2, 3], sponsor: 0, members: [4, 5] },
+  },
+  {
+    id: "two-hubs",
+    name: "XRP and DSUSD Hubs",
+    description:
+      "Four nodes validate an XRP hub and a DSUSD hub that the first of them founds on the fake ledger, beside its XRP/DSUSD pool at the dev rate; one member joins the XRP hub alone, one the DSUSD hub alone, and two join both, peer over both and convert between them, each funding its accounts from its own XRP and DSUSD",
+    schemes: [
+      [HUB_OWNER_BOOK],
+      [],
+      [],
+      [],
+      [HUB_OWNER_BOOK, HUB_SCHEME],
+      [
+        HUB_OWNER_BOOK,
+        HUB_SCHEME,
+        "xrpl-testnet-dsusd",
+        "hub-xrpl-testnet-dsusd",
+      ],
+      [
+        HUB_OWNER_BOOK,
+        HUB_SCHEME,
+        "xrpl-testnet-dsusd",
+        "hub-xrpl-testnet-dsusd",
+      ],
+      [HUB_OWNER_BOOK, "xrpl-testnet-dsusd", "hub-xrpl-testnet-dsusd"],
+    ],
+    addedSchemes: [HUB_OWNER_BOOK, HUB_SCHEME],
+    bootstrap: [5, 6],
+    configs: {
+      [HUB_OWNER_BOOK]: JSON.stringify({ peers: false }),
+      "xrpl-testnet-dsusd": JSON.stringify({ peers: false }),
+    },
+    mint: { token: "DSUSD", value: "100" },
+    pool: { token: "DSUSD", value: "50000", tradingFee: 500 },
+    hubs: [
+      { validators: [0, 1, 2, 3], sponsor: 0, members: [4, 5, 6] },
+      {
+        validators: [0, 1, 2, 3],
+        sponsor: 0,
+        members: [5, 6, 7],
+        token: "DSUSD",
+      },
+    ],
   },
   {
     id: "one-node",
     name: "One Node",
-    description: "A single node with stub settlement and no peers",
+    description:
+      "A single node with the stub with unlimited trust and no peers",
     schemes: [["stub"]],
     addedSchemes: ["stub"],
     bootstrap: [],
+    configs: { stub: UNLIMITED_STUB },
   },
 ];
 
@@ -356,7 +420,7 @@ export function startsFresh(def: ScenarioDef): string | undefined {
   if (live(def)) {
     return "runs on a new fake mainnet, which never resets";
   }
-  if (def.hub !== undefined) {
+  if (def.hub !== undefined || def.hubs !== undefined) {
     return "founds its hub on a new fake ledger, since its escrow stays on the old one";
   }
   return undefined;
@@ -366,6 +430,27 @@ export function startsFresh(def: ScenarioDef): string | undefined {
  * they start from scratch ({@linkcode startsFresh}). */
 export function resumes(def: ScenarioDef): boolean {
   return startsFresh(def) === undefined;
+}
+
+/**
+ * What `def`'s nodes keep in their data from how it sets them up, as text:
+ * their schemes and those of added nodes, each scheme's config, their
+ * realm and which are periphery nodes. A node keeps a scheme with the
+ * config it was added with, so data a scenario left resumes only while
+ * this is the same; once the scenario sets its nodes up otherwise, they
+ * start from scratch (spec/areas/dev.md#restarts-and-resets).
+ */
+export function dataShape(def: ScenarioDef): string {
+  const configs = Object.entries(def.configs ?? {}).sort(([a], [b]) =>
+    a < b ? -1 : a > b ? 1 : 0
+  );
+  return JSON.stringify({
+    schemes: def.schemes,
+    addedSchemes: def.addedSchemes,
+    configs,
+    realm: def.realm ?? "test",
+    periphery: def.periphery ?? [],
+  });
 }
 
 /** Whether `def` settles on the XRP Ledger, with any of its nodes. */
@@ -460,8 +545,11 @@ function invalidPeriphery(def: ScenarioDef): string | undefined {
  * is founded with, each one of its nodes, once; a sponsor among its nodes
  * that runs the owner book of XRP, which funds the escrow; and members,
  * each one of its nodes, once, that run the hub's scheme and the owner
- * book alone, as nodes added later do, the book peering with nobody: a
- * peering two members make before their hub accounts exist stays direct
+ * book, the book peering with nobody, as nodes added later do, with
+ * nothing else. A member may run another scheme too, as a node that
+ * converts between the hub and the stub does, but no other member runs
+ * it: two members that share one peer over it before their hub accounts
+ * exist, and that peering stays off the hub
  * (spec/areas/hubs.md#in-the-node). No other node runs the hub's scheme,
  * whose config is the founded hub's rules, never the scenario's.
  */
@@ -493,13 +581,26 @@ export function invalidHub(def: ScenarioDef): string | undefined {
   const joins = (schemes: readonly string[]) =>
     schemes.length === joining.length &&
     [...schemes].sort().every((scheme, i) => scheme === joining[i]);
+  // Each scheme a member runs besides the hub's and the book, by the
+  // member that runs it.
+  const besides = new Map<string, number>();
   for (let index = 0; index < count; index++) {
     const schemes = def.schemes[index];
     const member = members.includes(index);
-    if (member && !joins(schemes)) {
+    if (member && !joining.every((scheme) => schemes.includes(scheme))) {
       return `hub member ${index} runs ${schemes.join(", ")}, not ${
         joining.join(" and ")
-      } alone`;
+      }`;
+    }
+    if (member) {
+      for (const scheme of schemes) {
+        if (joining.includes(scheme)) continue;
+        const other = besides.get(scheme);
+        if (other !== undefined) {
+          return `hub members ${other} and ${index} both run ${scheme}, so they would peer over it`;
+        }
+        besides.set(scheme, index);
+      }
     }
     if (!member && schemes.includes(HUB_SCHEME)) {
       return `node ${index} runs ${HUB_SCHEME} and is no hub member`;
@@ -545,7 +646,7 @@ export function unavailable(
   if (def.pool !== undefined && !fakeLedger) {
     return `needs --xrpl fake: only the fake ledger's issuer makes a pool of ${def.pool.token}`;
   }
-  if (def.hub !== undefined && !fakeLedger) {
+  if ((def.hub !== undefined || def.hubs !== undefined) && !fakeLedger) {
     return "needs --xrpl fake: each run founds a hub of its own, whose escrow stays off the public testnet";
   }
   return undefined;

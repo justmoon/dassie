@@ -4,9 +4,9 @@
 //! seeds. A failure names its seed: `dassie-sim run node-stub <seed>` replays it,
 //! `dassie-sim explain node-stub <seed>` prints its trace, and `dassie-sim run
 //! node-stub <from>..<to>` runs others
-//! (spec/decisions/random-seed-simulations.md); so do `node-xrpl`,
-//! `node-xrpl-lies`, `node-xrpl-live`, `node-currencies`, `node-rlusd` and
-//! `node-xrp-rlusd`.
+//! (spec/decisions/random-seed-simulations.md); so do `node-owner-books` and
+//! `node-owner-books-live`, whose runs keep the owner's books on the fake XRP
+//! Ledger (`dassie_node::sim::owner_books`).
 //!
 //! The node-stub runs, and the targeted tests below whose subject is not
 //! settlement (a hop that crashes after posting, a late Fulfill, payments
@@ -33,7 +33,7 @@
 use std::collections::BTreeMap;
 
 use dassie_identity::NodeId;
-use dassie_kit::sim::{Outcome, assert_passes, caught, each};
+use dassie_kit::sim::{Outcome, assert_passes, caught};
 use dassie_ledger::LedgerId;
 use dassie_node::engine::{EngineError, EngineEvent, Lie, NewIncoming, NewOutgoing};
 use dassie_node::node::Policies;
@@ -41,8 +41,8 @@ use dassie_node::sim::checks::{
     check, check_across, check_books, check_events, check_ledgers, drifted_past, not_settled_down,
 };
 use dassie_node::sim::{
-    CHARGES, CREDIT, LEDGER_CLOSE_MS, LIVE_XRP, START, Settling, Sim, USD, XRP, key, received,
-    scripted, sent, xrpl_account,
+    CHARGES, CREDIT, LEDGER_CLOSE_MS, LIVE_XRP, START, Settling, Sim, USD, XRP, key, owner_books,
+    received, scripted, sent, xrpl_account,
 };
 use dassie_node::store::{Aim, ForeignAmount, OutgoingRow, OutgoingState, PaymentId, PeerSettings};
 use dassie_payments::amount::Amount;
@@ -67,37 +67,23 @@ fn simulated_networks_pay_across_restarts() {
     assert_passes(0, scripted::run);
 }
 
-// The same runs, settling on the XRP Ledger testnet scheme against
-// the fake ledger.
-// Goes with the direct XRP Ledger schemes, once hub runs cover it (spec/roadmap.md#hubs-only).
-#[test]
-fn simulated_networks_settle_on_the_xrp_ledger() {
-    assert_passes(0, scripted::run_xrpl);
-}
-
-// spec/designs/xrpl-validation.md#11-the-fake-ledger-the-lying-server-and-the-simulation:
-// the nodes' servers tell each kind of lie in turn while payments settle,
-// then a validator rotates its key, a quorum is withheld and a list lapses.
+// spec/areas/xrpl.md#owner-books: the same runs, each node keeping its
+// owner's books of XRP and DSUSD on the fake ledger's testnet, peering on
+// neither, while the issuer claws back and freezes lines and the owners pay
+// out of their books; then the nodes' servers tell each kind of lie in
+// turn, a validator rotates its key, a quorum is withheld and a list lapses.
 // Each node's books hold to the fake ledger's truth, every node anchored,
-// and the network settles as before. Between them, the two seeds tell
-// every kind of lie: how long a lying server's connection lasts decides
-// which it gets to tell. The nodes catch what the verifier catches.
-// Goes with the direct XRP Ledger schemes, once hub runs cover it (spec/roadmap.md#hubs-only).
+// and every ledger is synced at the end.
 #[test]
-fn simulated_networks_settle_through_lying_servers() {
-    let seeds = [0, 3];
-    let mut reached: BTreeMap<&str, u64> = BTreeMap::new();
-    for (seed, run) in seeds
-        .iter()
-        .zip(each(&seeds, |seed| caught(|| scripted::run_lies(seed))))
-    {
-        assert!(!run.outcome.is_failure(), "seed {seed}: {}", run.outcome);
-        for (what, count) in run.counts {
-            *reached.entry(what).or_default() += count;
-        }
-    }
-    let lies = dassie_xrpl::fake::Lie::ALL.map(dassie_node::sim::told_as);
-    for what in lies.into_iter().chain([
+fn owner_books_hold_through_the_issuers_acts_and_lying_servers() {
+    let run = caught(|| owner_books::run(0));
+    assert!(!run.outcome.is_failure(), "seed 0: {}", run.outcome);
+    for what in [
+        "issuer mints",
+        "issuer clawbacks",
+        "owner payments made",
+        "owners whose payments out landed",
+        "lying servers",
         "lies caught",
         "anchors",
         "transactions proven",
@@ -106,21 +92,22 @@ fn simulated_networks_settle_through_lying_servers() {
         "validator keys rotated",
         "quorums withheld",
         "validator lists lapsed",
-    ]) {
+    ] {
         assert!(
-            reached.contains_key(what),
-            "the seeds never reached {what}: {reached:?}"
+            run.counts.contains_key(what),
+            "the run never reached {what}: {:?}",
+            run.counts
         );
     }
 }
 
-// spec/decisions/mainnet-schemes.md: the same runs in the live realm, on
-// mainnet's scheme against the fake ledger's mainnet, funded by their
-// owners' deposits.
-// Goes with the direct XRP Ledger schemes, once hub runs cover it (spec/roadmap.md#hubs-only).
+// spec/decisions/mainnet-schemes.md: the owner books of XRP and RLUSD in
+// the live realm, on the fake ledger's mainnet, funded by the owners'
+// deposits, through the issuer's acts and a lying server; the nodes peer
+// with no one.
 #[test]
-fn simulated_networks_settle_on_mainnet_in_the_live_realm() {
-    assert_passes(0, scripted::run_xrpl_live);
+fn live_owner_books_hold_on_mainnet() {
+    assert_passes(0, owner_books::run_live);
 }
 
 // spec/decisions/mainnet-schemes.md: two nodes in the live realm, at
@@ -163,40 +150,6 @@ fn two_live_nodes_settle_xrp_on_mainnet() {
     check(&sim).unwrap();
 }
 
-// Goes with the direct XRP Ledger schemes, once hub runs cover it (spec/roadmap.md#hubs-only).
-#[test]
-fn simulated_networks_pay_across_currencies() {
-    assert_passes(0, scripted::run_across);
-}
-
-// spec/areas/xrpl.md#rlusd: the same runs settling in RLUSD, in the live
-// realm on the fake ledger's mainnet, with the issuer clawing back and
-// freezing while payments are under way; each node's books count what the
-// issuer did as its owner's deposits and withdrawals, and hold its line.
-// Goes with the direct XRP Ledger schemes, once hub runs cover it (spec/roadmap.md#hubs-only).
-#[test]
-fn simulated_networks_settle_in_rlusd_through_the_issuers_acts() {
-    assert_passes(0, scripted::run_rlusd);
-}
-
-// spec/areas/xrpl.md#the-account: across RLUSD and XRP in the live realm,
-// with both schemes on one mainnet account at the nodes that run both: no
-// sequence is taken twice, and every XRP fee is booked once, which the
-// books against the account show.
-// Goes with the direct XRP Ledger schemes, once hub runs cover it (spec/roadmap.md#hubs-only).
-#[test]
-fn simulated_networks_pay_across_rlusd_and_xrp() {
-    assert_passes(0, scripted::run_xrp_rlusd);
-}
-
-// spec/areas/xrpl.md#dsusd: the same across DSUSD and XRP: the token scheme
-// in DSUSD, through the issuer's acts, on the account XRP settles from.
-// Goes with the direct XRP Ledger schemes, once hub runs cover it (spec/roadmap.md#hubs-only).
-#[test]
-fn simulated_networks_pay_across_dsusd_and_xrp() {
-    assert_passes(0, scripted::run_xrp_dsusd);
-}
-
 // On this seed, a node ends a peering just after its books took the peer's
 // settlement from the XRP Ledger, before the settlement's message arrived.
 // The peer's last answer names that settlement, which the node does not
@@ -205,7 +158,7 @@ fn simulated_networks_pay_across_dsusd_and_xrp() {
 // Goes with the direct XRP Ledger schemes, once hub runs cover it (spec/roadmap.md#hubs-only).
 #[test]
 fn a_peering_ended_after_its_last_settlement_was_booked_ends_after_the_wait() {
-    let run = scripted::run_xrpl(7_000_002_237);
+    let run = scripted::run_on(7_000_002_237, Settling::Xrpl);
     assert!(!run.outcome.is_failure(), "{}", run.outcome);
 }
 
@@ -1252,10 +1205,10 @@ fn credit_grows_with_the_fees_a_peer_earned() {
 // client measures the rate again (spec/areas/stream.md#responses): the
 // receiver got less than the rate promises, so the library stops sending
 // until its user sets a rate. Here node 1, the only hop between XRP and
-// dollars, charges three times as much once the client knows its rate; in
-// node-xrp-rlusd a withdrawn route sent the packets through node 1 instead
-// of a hop that charged nothing. A client that never measured again waited
-// for ever.
+// dollars, charges three times as much once the client knows its rate, as
+// when a withdrawn route sends the packets through a hop that charges
+// instead of one that charged nothing. A client that never measured again
+// waited for ever.
 // On the direct schemes until runs across currencies go over hubs (spec/roadmap.md#hubs-only).
 #[test]
 fn a_payment_whose_path_got_dearer_measures_its_rate_again() {

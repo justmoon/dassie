@@ -8,6 +8,7 @@
 use dassie_connector::sim::*;
 use dassie_connector::{Config, EndpointId, HubWait, Outcome, Responded};
 use dassie_ilp::{ErrorCode, Response};
+use dassie_ledger::LedgerId;
 use dassie_oer::Decode;
 
 const BTP: EndpointId = EndpointId::Btp(1);
@@ -36,7 +37,7 @@ fn harness() -> Harness {
     };
     let mut harness = Harness::new(config, 10_000_000_000);
     harness.add_peer(1, "dhub", TRUST, 0);
-    assert!(harness.connector.set_hub(HUB_PEER, true));
+    assert!(harness.connector.set_hub(HUB_PEER, LedgerId::StubUsd, true));
     harness
         .connector
         .set_routes([("test.das.dhub", &[HUB_PEER][..])])
@@ -166,7 +167,11 @@ fn only_waiting_packets_are_settled_by_the_hub() {
 #[test]
 fn packets_to_other_peers_are_rejected_at_their_expiry() {
     let mut harness = harness();
-    assert!(harness.connector.set_hub(HUB_PEER, false));
+    assert!(
+        harness
+            .connector
+            .set_hub(HUB_PEER, LedgerId::StubUsd, false)
+    );
     send(&mut harness, 1, [3; 32]);
     let upstream = harness.timeout(NOW + 19_000).unwrap();
     assert_eq!(
@@ -174,7 +179,7 @@ fn packets_to_other_peers_are_rejected_at_their_expiry() {
         ErrorCode::R00_TRANSFER_TIMED_OUT
     );
     assert!(
-        !harness.connector.set_hub(BTP, true),
+        !harness.connector.set_hub(BTP, LedgerId::StubUsd, true),
         "only peers settle over hubs"
     );
 }
@@ -250,7 +255,7 @@ fn a_waiting_packet_can_still_be_failed() {
 #[test]
 fn transit_converts_into_and_out_of_a_hub_ledger() {
     use dassie_connector::RATE_PRECISION;
-    use dassie_ledger::{AccountName, LedgerId};
+    use dassie_ledger::AccountName;
     const HUB: LedgerId = LedgerId::HubXrplTestnetXrp;
     const DOLLAR_PEER: EndpointId = EndpointId::Peer(2);
     let dollar = 1_000_000_000;
@@ -265,7 +270,7 @@ fn transit_converts_into_and_out_of_a_hub_ledger() {
         .set_at("XRP", 2 * 10u128.pow(RATE_PRECISION), NOW);
     harness.add_peer_on(HUB, 3, "dxrp", TRUST, 0);
     let hub_peer = EndpointId::Peer(3);
-    assert!(harness.connector.set_hub(hub_peer, true));
+    assert!(harness.connector.set_hub(hub_peer, HUB, true));
     harness.add_peer(2, "dusd", TRUST, 0);
     harness
         .connector

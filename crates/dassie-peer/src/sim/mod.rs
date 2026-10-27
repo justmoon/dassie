@@ -82,6 +82,9 @@ pub struct StubHooks {
     pub unrun: bool,
     /// The schemes the node no longer runs, of the two.
     pub unrun_schemes: BTreeSet<SchemeId>,
+    /// The schemes that cannot receive a peer's settlement now, as while
+    /// an issuer froze the node's line.
+    pub unpayable: BTreeSet<SchemeId>,
     /// Whether the node refuses every further method of a peering, as a
     /// node does whose accounts for one do not fit.
     pub refuse_methods: bool,
@@ -175,6 +178,12 @@ impl PeeringHooks for StubHooks {
         self.commitments && scheme.as_str() == STUB
     }
 
+    // The stub forwards no packets: what a peer's response answers is the
+    // simulation's, and a peering's methods say whether a claim goes.
+    fn forwarded_over_hub(&self, _: NodeId, _: u32) -> bool {
+        false
+    }
+
     fn wants_method(&self, _: NodeId, _: bool, _: SchemeId) -> bool {
         !self.refuse_methods
     }
@@ -185,6 +194,14 @@ impl PeeringHooks for StubHooks {
 
     fn settling_to(&self, peer: NodeId) -> bool {
         self.settling.contains(&peer)
+    }
+
+    fn settling_on(&self, peer: NodeId, _: SchemeId) -> bool {
+        self.settling.contains(&peer)
+    }
+
+    fn receives(&self, scheme: SchemeId) -> bool {
+        !self.unpayable.contains(&scheme)
     }
 
     fn closed_channel(&self, node: NodeId) -> Option<crate::Closed> {
@@ -435,6 +452,9 @@ pub struct Network {
     /// The schemes each node peers on, in order, kept across restarts:
     /// [`STUB`] alone, unless set here.
     pub schemes: BTreeMap<usize, Vec<SchemeId>>,
+    /// The schemes an owner removes, by node, which the node still runs
+    /// while it winds down its methods on them ([`Network::remove_scheme`]).
+    pub removing: BTreeSet<(usize, SchemeId)>,
     /// Prepares sent on a method, by who sent them, to whom, with which
     /// ID: the scheme they were sent on.
     pub prepares_sent: BTreeMap<(usize, NodeId, u32), SchemeId>,
@@ -589,6 +609,7 @@ impl Network {
             events: Vec::new(),
             packets: Vec::new(),
             schemes: BTreeMap::new(),
+            removing: BTreeSet::new(),
             prepares_sent: BTreeMap::new(),
             prepares_taken: BTreeMap::new(),
             misplaced: Vec::new(),
@@ -903,6 +924,7 @@ impl Network {
             .get(&index)
             .cloned()
             .unwrap_or_else(|| vec![self::scheme(STUB)]);
+        self.removing.remove(&(index, scheme));
         let hooks = &mut self.nodes[index].hooks;
         if running {
             hooks.unrun_schemes.remove(&scheme);
@@ -920,6 +942,59 @@ impl Network {
                 node.set_schemes(now, schemes);
                 // What is due now drops the methods on a scheme it stopped.
                 node.handle_timeout(now, hooks);
+            });
+        }
+    }
+
+    /// Node `index`'s owner removes `scheme`, as a node does
+    /// (spec/decisions/settlement-methods.md): the node lists it no more, so
+    /// no method is added on it, and winds down each of its methods on it,
+    /// running it until each is dropped; then it runs it no more
+    /// ([`Self::finish_removals`]).
+    pub fn remove_scheme(&mut self, index: usize, scheme: SchemeId) {
+        let mut schemes = self
+            .schemes
+            .get(&index)
+            .cloned()
+            .unwrap_or_else(|| vec![self::scheme(STUB)]);
+        schemes.retain(|other| *other != scheme);
+        self.schemes.insert(index, schemes.clone());
+        self.removing.insert((index, scheme));
+        self.trace
+            .push(format!("{} {index} removes {scheme}", self.now));
+        if self.is_up(index) {
+            self.act(index, |node, now| node.set_schemes(now, schemes));
+        }
+        self.finish_removals();
+    }
+
+    /// Carries on the owners' removals of schemes: a node that is up winds
+    /// down each method it still holds on a scheme it removes, as after a
+    /// restart, and runs a scheme no peering has a method on any more no
+    /// longer.
+    pub fn finish_removals(&mut self) {
+        let removing: Vec<(usize, SchemeId)> = self.removing.iter().copied().collect();
+        for (index, scheme) in removing {
+            if !self.is_up(index) {
+                continue;
+            }
+            let peers: Vec<NodeId> = self
+                .node(index)
+                .peers()
+                .filter(|(_, peering)| peering.has(scheme))
+                .map(|(id, _)| *id)
+                .collect();
+            if peers.is_empty() {
+                self.removing.remove(&(index, scheme));
+                self.nodes[index].hooks.unrun_schemes.insert(scheme);
+                self.trace
+                    .push(format!("{} {index} removed {scheme}", self.now));
+                continue;
+            }
+            self.act(index, |node, now| {
+                for peer in &peers {
+                    node.wind_down(now, peer, scheme);
+                }
             });
         }
     }

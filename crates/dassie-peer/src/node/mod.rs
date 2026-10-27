@@ -209,6 +209,9 @@ pub(crate) enum Purpose {
     /// Asking a peer to settle a last time, before we tell it we end the
     /// peering (spec/decisions/ending-a-peering.md).
     FinalRequest,
+    /// Asking a peer to settle on a method once, before we drop it
+    /// (spec/decisions/settlement-methods.md).
+    WindRequest(SchemeId),
     /// Telling a peer we end the peering.
     Termination,
 }
@@ -792,6 +795,7 @@ impl PeerNode {
             }
             Purpose::Settlement(sequence) => self.on_settlement(to, sequence, &result),
             Purpose::FinalRequest => self.on_final_request(to, &result),
+            Purpose::WindRequest(scheme) => self.on_wind_request(to, scheme, &result),
             Purpose::Termination => self.on_termination(to, &result),
             Purpose::Response(answer) => self.on_answer(*answer, result),
         }

@@ -376,6 +376,16 @@ pub enum SettlementEvent {
         /// Why.
         error: EngineError,
     },
+    /// A peer's settlement on a scheme the node does not run, as one its
+    /// owner removed, was acknowledged and booked nothing.
+    PeerSettlementUnbooked {
+        /// The peer.
+        from: NodeId,
+        /// The scheme it named.
+        scheme: dassie_peer::wire::SchemeId,
+        /// What it stated.
+        amount: u64,
+    },
     /// The fees a peer earned us raised the credit we extend to it
     /// (spec/decisions/earned-trust.md).
     CreditRaised {
@@ -460,6 +470,7 @@ const fn peer_node_severity(event: &dassie_peer::Event) -> Severity {
     match event {
         Event::Peered { .. }
         | Event::MethodAdded { .. }
+        | Event::MethodWinding { .. }
         | Event::MethodDropped { .. }
         | Event::Depeering { .. }
         | Event::Terminating { .. }
@@ -566,6 +577,7 @@ const fn settlement_severity(event: &SettlementEvent) -> Severity {
         | SettlementEvent::Failed { .. }
         | SettlementEvent::PeerLoss { .. }
         | SettlementEvent::PeerSettlementRefused { .. }
+        | SettlementEvent::PeerSettlementUnbooked { .. }
         | SettlementEvent::HistoryGap { .. }
         | SettlementEvent::SettlementUnproven { .. } => Severity::Warn,
         SettlementEvent::SchemeStopped { .. }

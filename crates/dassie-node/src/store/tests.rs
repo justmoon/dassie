@@ -829,6 +829,8 @@ fn a_peering_stored_before_methods_loads_as_its_one_method() {
             short_for_ms: 17,
             short_reached_ms: 12,
             short_checked_ms: None,
+            winding: None,
+            unpayable_since_ms: None,
         }]
     );
     assert_eq!(
