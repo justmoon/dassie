@@ -15,6 +15,33 @@ use crate::store::Store;
 
 const NOW: u64 = 1_800_000_000_000;
 
+/// The stub with unlimited trust, for the tests whose subject is not
+/// settlement: no credit runs out, and no request to settle or settlement
+/// shapes what they check (spec/areas/settlement.md#the-stub-scheme).
+const TRUSTING: &str = r#"{"trust":"unlimited"}"#;
+
+/// The stub with commitments, the stand-in for a hub's member, for the tests
+/// of settlement, so that what they check holds on the path over a hub
+/// (spec/areas/settlement.md#the-stub-scheme).
+const COMMITTING: &str = r#"{"commitments":1}"#;
+
+/// Adds the stub of `config` to `core`.
+fn add_stub(core: &mut Core, config: &str) -> super::LedgerView {
+    core.add_scheme("stub", config.into()).unwrap()
+}
+
+/// What `core`'s stub writes as its peering info, which a peer of the stub
+/// with unlimited trust writes too.
+fn stub_info(core: &mut Core) -> Vec<u8> {
+    use dassie_peer::PeeringHooks;
+
+    let scheme = dassie_peer::wire::SchemeId::parse("stub").unwrap();
+    let mut info = Vec::new();
+    core.with_peer(|_, hooks, _| hooks.peering_info(scheme, &mut info))
+        .unwrap();
+    info
+}
+
 /// The node's first XRPL testnet account, which the XRP Ledger scheme
 /// settles through: its connection is the account's.
 const XRPL_ACCOUNT: &str = "xrpl-testnet-account/0";
@@ -69,7 +96,7 @@ fn core_with(
 fn session(seed: u64) -> Vec<Output> {
     let mut core = core(seed);
     let mut outputs = Vec::new();
-    core.add_scheme("stub", String::new()).unwrap();
+    add_stub(&mut core, TRUSTING);
     let token = core
         .create_token("wallet".into(), "stub+usd", None)
         .unwrap();
@@ -145,7 +172,7 @@ fn a_settlement_cut_short_by_a_crash_is_reconciled() {
     let path = AccountPath::new(LedgerId::StubUsd, AccountName::AssetsInterledger(peer));
     {
         let mut core = core_on(Arc::clone(&store), 5);
-        core.add_scheme("stub", String::new()).unwrap();
+        add_stub(&mut core, COMMITTING);
         let (interledger, _) = core
             .ledger
             .open_peer(NOW, LedgerId::StubUsd, peer, 1_000)
@@ -192,7 +219,7 @@ fn a_refused_effect_books_none_of_its_batch() {
 
     let store = Arc::new(Store::open_in_memory().unwrap());
     let mut core = core_on(Arc::clone(&store), 9);
-    core.add_scheme("stub", String::new()).unwrap();
+    add_stub(&mut core, COMMITTING);
     core.flush();
     let stub = Name::new("stub").unwrap();
     let settlement = core
@@ -232,7 +259,7 @@ fn a_stopped_scheme_is_not_peered_on() {
 
     let store = Arc::new(Store::open_in_memory().unwrap());
     let mut core = core_on(Arc::clone(&store), 9);
-    core.add_scheme("stub", String::new()).unwrap();
+    add_stub(&mut core, TRUSTING);
     let stub = SchemeId::parse("stub").unwrap();
     assert_eq!(core.peer.schemes(), [stub]);
     let effects = [Effect::Deposit { amount: MAX_TOTAL }];
@@ -506,7 +533,7 @@ fn removal_blockers_match_the_refusal() {
     use super::RemovalBlocker;
 
     let mut core = core(2);
-    let view = core.add_scheme("stub", String::new()).unwrap();
+    let view = add_stub(&mut core, TRUSTING);
     assert!(view.removal_blockers.is_empty());
     core.create_token("a".into(), "stub+usd", None).unwrap();
     core.create_token("b".into(), "stub+usd", None).unwrap();
@@ -529,7 +556,7 @@ fn token_caps_survive_a_restart() {
     };
     let id = {
         let mut core = core_on(Arc::clone(&store), 3);
-        core.add_scheme("stub", String::new()).unwrap();
+        add_stub(&mut core, TRUSTING);
         let token = core
             .create_token("capped".into(), "stub+usd", Some(cap))
             .unwrap();
@@ -579,7 +606,7 @@ fn a_revoked_tokens_link_takes_no_prepare_before_it_closes() {
     use dassie_oer::Decode;
 
     let mut core = core(81);
-    core.add_scheme("stub", String::new()).unwrap();
+    add_stub(&mut core, TRUSTING);
     let cap = SpendingCap {
         amount: 5_000,
         window_ms: 60_000,
@@ -653,7 +680,7 @@ fn steps_report_what_they_changed() {
     core.take_changes();
     core.finish_step(&mut outputs);
     assert_eq!(core.take_changes(), super::Changes::default());
-    core.add_scheme("stub", String::new()).unwrap();
+    add_stub(&mut core, TRUSTING);
     core.finish_step(&mut outputs);
     assert!(core.take_changes().ledger);
     // The rate feed follows the prices: new charges move them, and a table
@@ -739,7 +766,7 @@ fn a_failed_commit_hands_nothing_over() {
     let store = Arc::new(Store::open_in_memory().unwrap());
     let mut core = core_on(Arc::clone(&store), 8);
     let mut outputs = Vec::new();
-    core.add_scheme("stub", String::new()).unwrap();
+    add_stub(&mut core, TRUSTING);
     let token = core
         .create_token("wallet".into(), "stub+usd", None)
         .unwrap();
@@ -778,7 +805,7 @@ fn a_failed_commit_hands_nothing_over() {
 fn a_broken_invariant_never_reaches_the_disk() {
     let store = Arc::new(Store::open_in_memory().unwrap());
     let mut core = core_on(Arc::clone(&store), 6);
-    core.add_scheme("stub", String::new()).unwrap();
+    add_stub(&mut core, TRUSTING);
     core.flush();
     let payment = core
         .create_incoming_payment(super::NewIncoming {
@@ -809,7 +836,7 @@ fn sweeps_follow_the_engine_clock() {
     let mut outputs = Vec::new();
     for (at, sweeps) in [(NOW, 2), (NOW + 10, 2), (NOW + 999, 2), (NOW + 1_000, 3)] {
         core.begin_step(at);
-        core.add_scheme("stub", String::new()).ok();
+        core.add_scheme("stub", TRUSTING.into()).ok();
         core.finish_step(&mut outputs);
         assert_eq!(core.sweeps.count, sweeps, "at {at}");
     }
@@ -841,7 +868,7 @@ fn the_core_does_not_log() {
 #[test]
 fn a_probe_to_nowhere_ends_at_once() {
     let mut core = core(8);
-    core.add_scheme("stub", String::new()).unwrap();
+    add_stub(&mut core, TRUSTING);
     let mut outputs = Vec::new();
     core.finish_step(&mut outputs);
     let ledger = dassie_ledger::LedgerId::StubUsd;
@@ -871,7 +898,7 @@ fn a_probe_to_nowhere_ends_at_once() {
 /// that receiver's address.
 fn probing_core(seed: u64) -> (Core, String) {
     let mut core = core(seed);
-    core.add_scheme("stub", String::new()).unwrap();
+    add_stub(&mut core, TRUSTING);
     let mut outputs = Vec::new();
     core.finish_step(&mut outputs);
     core.begin_step(NOW + 1);
@@ -1049,6 +1076,7 @@ fn a_stopped_scheme_closes_its_connection() {
 // Peering again on its own request, it is the junior, and extends at least
 // the default credit: it posts the difference, rather than keep the senior's
 // nothing.
+// Goes with direct settlement: the credit machinery (spec/roadmap.md#hubs-only).
 #[test]
 fn a_junior_extends_at_least_the_default_credit() {
     use dassie_ledger::{AccountName, AccountPath, LedgerId, Name};
@@ -1081,6 +1109,7 @@ fn a_junior_extends_at_least_the_default_credit() {
 // room stayed short is formed again later on our own request. We are the
 // junior now, but the peer gets no more credit than it had as our junior: the
 // default would be a new line for a peer that never settled.
+// Goes with direct settlement: the credit machinery (spec/roadmap.md#hubs-only).
 #[test]
 fn a_junior_keeps_the_lower_credit_of_a_peer_it_ended_for_room() {
     use dassie_ledger::{AccountName, AccountPath, LedgerId, Name};
@@ -1179,7 +1208,7 @@ fn on_unlimited_trust_both_sides_extend_the_unlimited_credit() {
 // spec/areas/settlement.md#the-stub-scheme: on the stub with unlimited trust,
 // the node never asks a peer to settle on its own account, not even a
 // downlink nothing moved with yet, which stands where one extended no
-// credit does and which the plain stub asks at once
+// credit does and which the stub with commitments asks at once
 // (a_downlink_that_moves_no_value_leaves_nothing_behind). Asked to settle,
 // as at a peering's end, it prepares nothing and answers that nothing is on
 // its way.
@@ -1256,7 +1285,7 @@ fn a_settlement_of_a_largest_packet_marks_its_payer() {
     };
     store.commit_ledger(&batch).unwrap();
     let mut core = core_on(Arc::clone(&store), 9);
-    core.add_scheme("stub", String::new()).unwrap();
+    add_stub(&mut core, COMMITTING);
     let minimum = core.settle.minimum;
     let mut effects = Vec::new();
     for (key, amount) in [(&paying, minimum), (&short, minimum - 1)] {
@@ -1337,9 +1366,9 @@ fn seeded_node(seed: u32) -> dassie_identity::NodeId {
     NodeKey::from_bytes(&bytes).node_id()
 }
 
-/// Accepts a peering request from [`seeded_node`] `seed` on the stub, as a
-/// downlink's if `downlink`: a core peer's accounts open, a downlink's only
-/// once value moves with it.
+/// Accepts a peering request from [`seeded_node`] `seed` on the stub, with
+/// the stub's own peering info, as a downlink's if `downlink`: a core peer's
+/// accounts open, a downlink's only once value moves with it.
 fn accept_on_stub(
     core: &mut Core,
     seed: u32,
@@ -1349,7 +1378,8 @@ fn accept_on_stub(
 
     let peer = seeded_node(seed);
     let scheme = dassie_peer::wire::SchemeId::parse("stub").unwrap();
-    let accepted = core.with_peer(|_, hooks, _| hooks.accept(NOW, peer, downlink, scheme, &[]));
+    let info = stub_info(core);
+    let accepted = core.with_peer(|_, hooks, _| hooks.accept(NOW, peer, downlink, scheme, &info));
     core.take_journal();
     accepted.map(|_| ())
 }
@@ -1384,7 +1414,7 @@ fn downlinks_never_take_the_room_core_peers_need() {
     use dassie_peer::wire::RefusalReason;
 
     let mut core = core(7);
-    core.add_scheme("stub", String::new()).unwrap();
+    add_stub(&mut core, TRUSTING);
     let max_accounts = Policies::DEFAULT.ledger.max_accounts;
     let pairs = u32::try_from(super::peers::peer_budget(max_accounts, true) / 2).unwrap();
     for seed in 0..pairs {
@@ -1409,7 +1439,8 @@ fn downlinks_never_take_the_room_core_peers_need() {
     }
     let scheme = dassie_peer::wire::SchemeId::parse("stub").unwrap();
     let last = NodeKey::from_bytes(&[2; 32]).node_id();
-    core.with_peer(|_, hooks, _| hooks.finalize(NOW, last, scheme, &[], false))
+    let info = stub_info(&mut core);
+    core.with_peer(|_, hooks, _| hooks.finalize(NOW, last, scheme, &info, false))
         .unwrap();
     core.take_journal();
     assert_eq!(
@@ -1431,11 +1462,11 @@ fn downlinks_never_take_the_room_core_peers_need() {
 fn the_downlinks_accounts_are_known_after_a_restart() {
     let dir = tempfile::tempdir().unwrap();
     let store = Arc::new(Store::open(dir.path()).unwrap());
-    let (mut core, opened) = stub_core_with_downlink(Arc::clone(&store));
+    let (mut core, opened) = stub_core_with_downlink_on(Arc::clone(&store), TRUSTING);
     let waiting = Arc::new(NodeKey::from_bytes(&[12; 32]));
     let at = NOW + 2_000;
     core.begin_step(at);
-    let body = downlink_request(&waiting, at);
+    let body = stub_downlink_request(&mut core, &waiting, at);
     core.peer_inbound(dassie_peer::InboundId(2), waiting.public_key(), &body, None);
     let mut outputs = Vec::new();
     core.finish_step(&mut outputs);
@@ -1488,7 +1519,7 @@ fn has_any_accounts(core: &Core, node: dassie_identity::NodeId) -> bool {
 #[test]
 fn a_downlink_that_moves_no_value_leaves_nothing_behind() {
     let store = Arc::new(Store::open_in_memory().unwrap());
-    let (mut core, id) = stub_core_with_downlink(store);
+    let (mut core, id) = stub_core_with_downlink_on(store, COMMITTING);
     let stub = dassie_peer::wire::SchemeId::parse("stub").unwrap();
     assert!(!has_any_accounts(&core, id));
     assert!(core.downlinks.waiting.contains(&id));
@@ -1531,7 +1562,7 @@ fn a_downlink_that_moves_no_value_leaves_nothing_behind() {
 #[test]
 fn a_downlinks_channel_without_accounts_waits_for_every_scheme() {
     let store = Arc::new(Store::open_in_memory().unwrap());
-    let (mut core, id) = stub_core_with_downlink(store);
+    let (mut core, id) = stub_core_with_downlink_on(store, TRUSTING);
     let stub = dassie_ledger::name!("stub");
     core.stop_scheme(stub, super::EngineError::Invalid("blind".into()));
     let mut now = NOW + 1_000;
@@ -1556,7 +1587,7 @@ fn a_downlinks_channel_without_accounts_waits_for_every_scheme() {
 #[test]
 fn a_downlinks_settlement_the_books_cannot_take_is_refused_first() {
     let store = Arc::new(Store::open_in_memory().unwrap());
-    let (mut core, id) = stub_core_with_downlink(store);
+    let (mut core, id) = stub_core_with_downlink_on(store, COMMITTING);
     let stub = dassie_ledger::name!("stub");
     let scheme = dassie_peer::wire::SchemeId::parse("stub").unwrap();
     core.begin_step(NOW + 2_000);
@@ -1598,7 +1629,7 @@ fn over_a_hub_a_request_that_settles_nothing_opens_nothing() {
 #[test]
 fn a_payment_to_a_downlink_opens_its_accounts() {
     let store = Arc::new(Store::open_in_memory().unwrap());
-    let (mut core, id) = stub_core_with_downlink(Arc::clone(&store));
+    let (mut core, id) = stub_core_with_downlink_on(Arc::clone(&store), TRUSTING);
     let token = core
         .create_token("wallet".into(), "stub+usd", None)
         .unwrap();
@@ -1646,7 +1677,7 @@ fn a_downlinks_first_settlement_opens_its_accounts() {
     use dassie_settlement::Effect;
 
     let store = Arc::new(Store::open_in_memory().unwrap());
-    let (mut core, id) = stub_core_with_downlink(store);
+    let (mut core, id) = stub_core_with_downlink_on(store, COMMITTING);
     let stub = dassie_ledger::name!("stub");
     let name = dassie_ledger::Name::new(id.as_str()).unwrap();
     core.begin_step(NOW + 2_000);
@@ -1673,7 +1704,7 @@ fn the_books_hold_a_channel_open_while_anything_of_it_is_pending() {
     use dassie_peer::PeeringHooks;
 
     let mut core = core(7);
-    core.add_scheme("stub", String::new()).unwrap();
+    add_stub(&mut core, COMMITTING);
     let peer = NodeKey::from_bytes(&[9; 32]).node_id();
     let name = Name::new(peer.as_str()).unwrap();
     core.ledger
@@ -1732,7 +1763,7 @@ fn a_restarted_receiver_tells_a_reconnecting_sender_what_got_there() {
     let key = ConnectionKey([8; 16]);
     let id = {
         let mut core = core_on(Arc::clone(&store), 5);
-        core.add_scheme("stub", String::new()).unwrap();
+        add_stub(&mut core, TRUSTING);
         let payment = core
             .create_incoming_payment(NewIncoming {
                 ledger: LedgerId::StubUsd,
@@ -1799,7 +1830,7 @@ fn a_payment_completed_short_tells_its_senders_so() {
     };
     let ids = {
         let mut core = core_on(Arc::clone(&store), 5);
-        core.add_scheme("stub", String::new()).unwrap();
+        add_stub(&mut core, TRUSTING);
         let ids = [Some(100), None].map(|incoming_amount| {
             let payment = core
                 .create_incoming_payment(NewIncoming {
@@ -1885,7 +1916,7 @@ fn a_payment_within_its_tolerance_is_paid_in_full() {
     let paid = [DOLLAR - 100_000, DOLLAR + 100_000];
     let ids = {
         let mut core = core_on(Arc::clone(&store), 5);
-        core.add_scheme("stub", String::new()).unwrap();
+        add_stub(&mut core, TRUSTING);
         let ids = paid.map(|amount| {
             let payment = core
                 .create_incoming_payment(NewIncoming {
@@ -1939,7 +1970,7 @@ fn payment_paid_by_every_connection(core: &mut Core) -> crate::store::PaymentId 
     use super::incoming::{MAX_CONNECTIONS_PER_PAYMENT, NewIncoming};
     use crate::store::IncomingPaid;
 
-    core.add_scheme("stub", String::new()).unwrap();
+    add_stub(core, TRUSTING);
     let payment = core
         .create_incoming_payment(NewIncoming {
             ledger: dassie_ledger::LedgerId::StubUsd,
@@ -2037,9 +2068,17 @@ fn a_replaced_connection_is_forgotten_across_a_restart() {
     );
 }
 
-/// A periphery node's peering request, from `downlink`, at `now`.
+/// A periphery node's peering request on the stub with commitments, which
+/// writes no peering info, from `downlink`, at `now`.
 fn downlink_request(downlink: &Arc<NodeKey>, now: u64) -> Vec<u8> {
     downlink_request_on(downlink, now, "stub", &[])
+}
+
+/// A periphery node's peering request to `core`, from `downlink`, at `now`,
+/// on `core`'s stub, with the peering info the stub writes.
+fn stub_downlink_request(core: &mut Core, downlink: &Arc<NodeKey>, now: u64) -> Vec<u8> {
+    let info = stub_info(core);
+    downlink_request_on(downlink, now, "stub", &info)
 }
 
 /// A peering request from `downlink` on `scheme`, with the scheme's `data`.
@@ -2081,13 +2120,13 @@ fn a_downlink_that_owes_nothing_is_never_short_of_room() {
     let store = Arc::new(Store::open_in_memory().unwrap());
     let refused = dassie_node_core::config::LiveRealm::Refused;
     let mut core = core_taking_downlinks(store, Realm::Test, refused, NOW);
-    core.add_scheme("stub", String::new()).unwrap();
+    add_stub(&mut core, COMMITTING);
     let mut outputs = Vec::new();
     core.finish_step(&mut outputs);
     let downlink = Arc::new(NodeKey::from_bytes(&[11; 32]));
     let at = NOW + 1_000;
     core.begin_step(at);
-    let body = downlink_request(&downlink, at);
+    let body = stub_downlink_request(&mut core, &downlink, at);
     core.peer_inbound(
         dassie_peer::InboundId(1),
         downlink.public_key(),
@@ -2240,6 +2279,7 @@ fn pay_to_enter(
 // that paid us. One that did not pay is told to.
 // It had no accounts before: what it paid opens them, as a downlink's
 // (spec/decisions/lazy-downlink-accounts.md).
+// Goes with direct settlement: entry payments (spec/roadmap.md#hubs-only).
 #[test]
 fn a_newcomer_that_paid_to_enter_is_taken_and_booked_once() {
     use dassie_ledger::LedgerId;
@@ -2331,6 +2371,7 @@ fn fill_downlinks_share(core: &mut Core) {
 // share is refused for capacity, not told to pay: a payment it made would
 // get it no peering. One that paid anyway is refused all the same, and its
 // payment stays held, not booked.
+// Goes with direct settlement: entry payments (spec/roadmap.md#hubs-only).
 #[test]
 fn a_newcomer_without_room_for_its_accounts_is_not_told_to_pay() {
     use dassie_ledger::LedgerId;
@@ -2993,6 +3034,7 @@ fn a_scheme_activated_on_a_closed_account_connects_it_again() {
 // spec/areas/settlement.md#when-peers-cannot-pay-us: while the issuer froze
 // the line deep, or froze its token for every holder (read at the
 // settlement check), the link state leaves the scheme out; it stays synced.
+// Its link-state checks go with direct settlement (spec/roadmap.md#hubs-only).
 #[test]
 #[allow(clippy::too_many_lines)]
 fn rlusd_beside_xrp_on_one_account() {
@@ -3114,6 +3156,7 @@ fn rlusd_beside_xrp_on_one_account() {
 // own; the wallet sees both holdings, and the link state offers both
 // schemes. Test RLUSD, disabled, is refused beside them
 // (spec/decisions/issued-assets.md), and has no ledger.
+// Its link-state checks go with direct settlement (spec/roadmap.md#hubs-only).
 #[test]
 #[allow(clippy::too_many_lines)]
 fn dsusd_beside_xrp_and_no_test_rlusd() {
@@ -3204,6 +3247,7 @@ fn dsusd_beside_xrp_and_no_test_rlusd() {
 // converts to or from it, the link state leaves the scheme out, and the
 // owner sees the guard and is told; what arrives is still booked. Back at a
 // dollar for the recovery hold, it comes back.
+// Its link-state checks go with direct settlement (spec/roadmap.md#hubs-only).
 #[test]
 #[allow(clippy::too_many_lines)]
 fn rlusd_off_its_peg_converts_nothing() {
@@ -3704,6 +3748,7 @@ fn rlusd_downlink_owing(
 // counts toward withdrawing it but never toward ending it for room. The
 // scheme leaves the link state meanwhile, and stays synced. Once the fee is
 // gone, the peer is asked again, and its time short counts in full.
+// Goes with direct settlement: peering on the XRP Ledger (spec/roadmap.md#hubs-only).
 #[test]
 fn a_transfer_fee_asks_no_peer_and_ends_none_for_room() {
     use dassie_ledger::Name;
@@ -3795,7 +3840,7 @@ fn new_incoming(
 #[test]
 fn a_core_node_refuses_an_uplink() {
     let mut core = core(12);
-    core.add_scheme("stub", String::new()).unwrap();
+    add_stub(&mut core, TRUSTING);
     assert!(!core.peer.is_periphery());
     let uplink = NodeKey::from_bytes(&[11; 32]).node_id();
     let refused = core.create_incoming_payment(new_incoming(None, Some(uplink)));
@@ -3837,7 +3882,7 @@ fn a_periphery_node_refuses_an_uplink_it_has_not() {
         NOW,
     )
     .unwrap();
-    core.add_scheme("stub", String::new()).unwrap();
+    add_stub(&mut core, TRUSTING);
     assert!(core.peer.is_periphery());
     // The clients' share is full, with a payment that received nothing.
     core.incoming_policy.max_open_clients = 1;
@@ -3869,7 +3914,7 @@ fn a_peer_loss_is_booked_from_where_the_money_left() {
 
     let store = Arc::new(Store::open_in_memory().unwrap());
     let mut core = core_on(Arc::clone(&store), 9);
-    core.add_scheme("stub", String::new()).unwrap();
+    add_stub(&mut core, COMMITTING);
     let stub = Name::new("stub").unwrap();
     let peer = Name::new("peeraaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa").unwrap();
     let (interledger, _) = core
@@ -4134,7 +4179,7 @@ fn a_stored_scheme_of_another_realm_does_not_run() {
 
     let store = Arc::new(Store::open_in_memory().unwrap());
     let mut test = core_on(Arc::clone(&store), 4);
-    test.add_scheme("stub", String::new()).unwrap();
+    add_stub(&mut test, TRUSTING);
     let mut outputs = Vec::new();
     test.finish_step(&mut outputs);
     drop(test);
@@ -4185,7 +4230,7 @@ fn a_stored_hub_scheme_does_not_run(config: &str) {
     store
         .commit_ledger(&LedgerBatch {
             at_ms: NOW,
-            schemes_added: vec![(stub, String::new()), (hub, config.into())],
+            schemes_added: vec![(stub, TRUSTING.into()), (hub, config.into())],
             ..LedgerBatch::default()
         })
         .unwrap();
@@ -4232,9 +4277,12 @@ fn a_stored_scheme_left_out_is_added_again() {
 
     let mut core = core_on(Arc::clone(&store), 4);
     assert!(core.ledger_views().is_empty());
-    core.add_scheme("stub", String::new()).unwrap();
+    add_stub(&mut core, TRUSTING);
     core.finish_step(&mut Vec::new());
-    assert_eq!(store.settlement_schemes().unwrap(), [(stub, String::new())]);
+    assert_eq!(
+        store.settlement_schemes().unwrap(),
+        [(stub, TRUSTING.into())]
+    );
     drop(core);
     assert_eq!(core_on(store, 4).ledger_views().len(), 1);
 }
@@ -4324,29 +4372,18 @@ fn a_stored_test_rlusd_scheme_does_not_run() {
     assert_eq!(transfers.len(), 1, "the deposit alone: nothing written off");
 }
 
-/// A test node on `store` that takes downlinks, with the downlink of key
-/// `[11; 32]` peered on the stub at `NOW + 1_000`, and all of it written:
-/// the node, and the downlink's ID.
-fn stub_core_with_downlink(store: Arc<Store>) -> (Core, dassie_identity::NodeId) {
-    stub_core_with_downlink_on(store, "")
-}
-
-/// As [`stub_core_with_downlink`], on the stub of `config`, the downlink
-/// asking with the peering info the stub writes.
+/// A test node on `store` that takes downlinks, on the stub of `config`,
+/// with the downlink of key `[11; 32]` peered on it at `NOW + 1_000`, asking
+/// with the peering info the stub writes, and all of it written: the node,
+/// and the downlink's ID.
 fn stub_core_with_downlink_on(store: Arc<Store>, config: &str) -> (Core, dassie_identity::NodeId) {
-    use dassie_peer::PeeringHooks;
-
     let refused = dassie_node_core::config::LiveRealm::Refused;
     let mut core = core_taking_downlinks(store, Realm::Test, refused, NOW);
-    core.add_scheme("stub", config.into()).unwrap();
-    let scheme = dassie_peer::wire::SchemeId::parse("stub").unwrap();
-    let mut info = Vec::new();
-    core.with_peer(|_, hooks, _| hooks.peering_info(scheme, &mut info))
-        .unwrap();
+    add_stub(&mut core, config);
     let downlink = Arc::new(NodeKey::from_bytes(&[11; 32]));
     let at = NOW + 1_000;
     core.begin_step(at);
-    let body = downlink_request_on(&downlink, at, "stub", &info);
+    let body = stub_downlink_request(&mut core, &downlink, at);
     core.peer_inbound(
         dassie_peer::InboundId(1),
         downlink.public_key(),
@@ -4397,6 +4434,7 @@ fn until_unrun_ended(core: &mut Core, peer: &dassie_identity::NodeId, from: u64)
 // peering, collecting nothing: no settlement on it could be booked. The
 // peer's accounts on the scheme's ledger stay as they were. The pair is not
 // kept apart: the same peer then peers on DSUSD, which both run.
+// Goes with direct settlement: peering on the XRP Ledger (spec/roadmap.md#hubs-only).
 #[test]
 #[allow(clippy::too_many_lines)]
 fn a_peering_on_a_disabled_scheme_ends_and_the_pair_peers_on_another() {
@@ -4411,7 +4449,7 @@ fn a_peering_on_a_disabled_scheme_ends_and_the_pair_peers_on_another() {
     // with the credit extended. Made over the stub, then moved to test
     // RLUSD, which can no longer be added.
     let store = Arc::new(Store::open_in_memory().unwrap());
-    let (mut core, id) = stub_core_with_downlink(Arc::clone(&store));
+    let (mut core, id) = stub_core_with_downlink_on(Arc::clone(&store), TRUSTING);
     let name = Name::new(id.as_str()).unwrap();
     let on = LedgerId::XrplTestnetRlusdUsd;
     let at = core.now_ms();
@@ -4490,10 +4528,11 @@ fn a_peering_on_a_disabled_scheme_ends_and_the_pair_peers_on_another() {
 // of the other realm, once the node's realm changed: here a test node's
 // peering on the stub, when the node starts in the live realm by the dev
 // switch. The same peer then peers on RLUSD, mainnet's.
+// Goes with direct settlement: peering on the XRP Ledger (spec/roadmap.md#hubs-only).
 #[test]
 fn a_peering_on_a_scheme_of_another_realm_ends_and_the_pair_peers_on_another() {
     let store = Arc::new(Store::open_in_memory().unwrap());
-    let (test, id) = stub_core_with_downlink(Arc::clone(&store));
+    let (test, id) = stub_core_with_downlink_on(Arc::clone(&store), TRUSTING);
     let start = test.now_ms() + 1_000;
     drop(test);
     let mut ledger = dassie_xrpl::fake::FakeLedger::mainnet();
@@ -4552,7 +4591,7 @@ fn a_stored_scheme_of_another_realm_keeps_what_is_pending_on_its_ledger() {
 
     let on = LedgerId::StubUsd;
     let store = Arc::new(Store::open_in_memory().unwrap());
-    let (mut test, id) = stub_core_with_downlink(Arc::clone(&store));
+    let (mut test, id) = stub_core_with_downlink_on(Arc::clone(&store), COMMITTING);
     assert!(test.open_downlink_accounts(id, dassie_ledger::name!("stub")));
     let token = test
         .create_token("wallet".into(), "stub+usd", None)
