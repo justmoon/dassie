@@ -147,7 +147,7 @@ function upgradeStatus(
         connection: "upgrade",
         "sec-websocket-key": "dGhlIHNhbXBsZSBub25jZQ==",
         "sec-websocket-version": "13",
-        "sec-websocket-protocol": "dassie.ui.v1",
+        "sec-websocket-protocol": "dassie.owner.v1",
       },
     });
     request.once("response", (response) => {

@@ -225,7 +225,7 @@ test("cross-currency pays across assets, and reconciles across restarts", {
     };
     await scenario.until(
       "d3 has it all",
-      async () => (await arrived())?.completedAtMs !== undefined,
+      async () => (await arrived())?.completedAtUnixMs !== undefined,
     );
     const incoming = await arrived();
     assert(incoming, "d3 has the payment");

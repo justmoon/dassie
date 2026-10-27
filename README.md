@@ -90,7 +90,7 @@ The node that asks to peer extends the other 1.1 units of credit; the node that 
 | `resources` | What a release ships beside the binary: the systemd units (the node, its sockets and the daily updater) and `install.sh`, and the release key (`minisign.pub`) |
 | `scripts/build-wasm.ts` | Builds the WASM modules and their bindings (`node --run build:wasm`) |
 | `scripts/release.ts` | Signs a built release for the mirror and checks it with `dassie-release verify`, as the release workflow does |
-| `proto/dassie/ui/v1` | The RPC contract between the node and its owner's clients |
+| `proto/dassie/owner/v1` | The RPC contract between the node and its owner's clients |
 | `proto/dassie/dev/v1` | The dev environment's control channel, between the dev server and its dashboard |
 | `apps/wallet` | The wallet (Solid 2), embedded in the binary: every page of the original, with live data, plus grants and consent for Open Payments |
 | `apps/dev` | `node --run dev`: the scenarios on real binaries, certificates, vanity identities, the dev server with its SNI proxy and relay, a rates server; also the scenario library the end-to-end tests use |

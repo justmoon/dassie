@@ -22,8 +22,8 @@ export interface LimitFields {
   spentDebit: bigint;
   spentReceive: bigint;
   /** When the interval's windows start and end, as the node reads it. */
-  startsAtMs?: bigint;
-  endsAtMs?: bigint;
+  startsAtUnixMs?: bigint;
+  endsAtUnixMs?: bigint;
   /** The receiver as read while the owner is asked. */
   receiverPayment?: ReceiverFields;
 }
@@ -33,7 +33,7 @@ export interface ReceiverFields {
   assetCode: string;
   assetScale: number;
   remaining?: bigint;
-  expiresAtMs?: bigint;
+  expiresAtUnixMs?: bigint;
   closed: boolean;
   error: string;
   /** Whether the grant's receive limit is in another asset than this. */
@@ -321,9 +321,9 @@ export function toText(
     return "Anyone the app chooses";
   }
   const read = limits.receiverPayment;
-  const open = read?.expiresAtMs !== undefined && read.error === "" &&
+  const open = read?.expiresAtUnixMs !== undefined && read.error === "" &&
       !read.closed
-    ? `, open until ${dateText(read.expiresAtMs, timeZone)}`
+    ? `, open until ${dateText(read.expiresAtUnixMs, timeZone)}`
     : "";
   return `One payment request at ${hostOf(limits.receiver)}${open}`;
 }
@@ -356,7 +356,7 @@ export function spanText(
       } is a total for all payments, not renewed, until you revoke access.`;
   }
   const renews = `The limit renews ${renewText(limits.interval)}`;
-  const { startsAtMs: start, endsAtMs: end } = limits;
+  const { startsAtUnixMs: start, endsAtUnixMs: end } = limits;
   if (end !== undefined && end <= nowMs) {
     return `Ended on ${date(end)}: no payment can be made.`;
   }

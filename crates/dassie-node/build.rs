@@ -1,6 +1,6 @@
 //! Generates the RPC contract's messages and embeds the wallet.
 //!
-//! - `proto/dassie/ui/v1` at the repo root becomes `dassie.ui.v1.rs`.
+//! - `proto/dassie/owner/v1` at the repo root becomes `dassie.owner.v1.rs`.
 //!   protox parses it in Rust, so no `protoc` binary is needed.
 //! - The built wallet in `$DASSIE_WALLET_DIST` becomes `wallet_assets.rs`, a
 //!   table of files with their type, ETag and, where it pays, a gzip copy.
@@ -36,8 +36,8 @@ fn main() -> BuildResult {
 
 fn generate_contract() -> BuildResult {
     let root = "../../proto";
-    println!("cargo:rerun-if-changed={root}/dassie/ui/v1");
-    let file = format!("{root}/dassie/ui/v1/transport.proto");
+    println!("cargo:rerun-if-changed={root}/dassie/owner/v1");
+    let file = format!("{root}/dassie/owner/v1/transport.proto");
     let descriptors = protox::compile([file], [root])?;
     prost_build::Config::new().compile_fds(descriptors)?;
     Ok(())

@@ -69,8 +69,8 @@ export function progress(sent: bigint, debit: bigint): number {
 }
 
 /** How long a quote is still good for, or that it lapsed. */
-export function lapseText(expiresAtMs: bigint, nowMs: number): string {
-  const left = Number(expiresAtMs) - nowMs;
+export function lapseText(expiresAtUnixMs: bigint, nowMs: number): string {
+  const left = Number(expiresAtUnixMs) - nowMs;
   if (left <= 0) return "This quote has lapsed.";
   const seconds = Math.ceil(left / 1000);
   if (seconds < 60) return `Good for ${seconds} more seconds.`;

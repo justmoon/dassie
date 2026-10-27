@@ -10,7 +10,8 @@
     "./dev": "./dev.ts"
   },
   "scripts": {
-    "gen": "node scripts/gen.ts"
+    "gen": "node scripts/gen.ts",
+    "lint": "buf lint ../../proto"
   },
   "dependencies": {
     "@bufbuild/protobuf": "^2.16.0"

@@ -1,4 +1,4 @@
-//! The RPC contract with the owner's clients (`proto/dassie/ui/v1`,
+//! The RPC contract with the owner's clients (`proto/dassie/owner/v1`,
 //! spec/decisions/rpc-contract.md).
 //!
 //! [`connection::serve`] runs one connection, over the WebSocket or the IPC
@@ -31,11 +31,11 @@ use dassie_node_core::session::SessionId;
 /// The generated messages.
 #[allow(missing_docs, clippy::all, clippy::pedantic)]
 pub mod proto {
-    include!(concat!(env!("OUT_DIR"), "/dassie.ui.v1.rs"));
+    include!(concat!(env!("OUT_DIR"), "/dassie.owner.v1.rs"));
 }
 
 /// The WebSocket subprotocol of this contract.
-pub const SUBPROTOCOL: &str = "dassie.ui.v1";
+pub const SUBPROTOCOL: &str = "dassie.owner.v1";
 
 /// Largest message, in bytes, either way.
 pub const MAX_MESSAGE_BYTES: usize = 1 << 20;

@@ -7,10 +7,10 @@ use std::sync::Arc;
 use dassie_identity::NodeId;
 use dassie_ledger::LedgerId;
 
-use super::RpcError;
 use super::handlers::{Items, Reply};
 use super::live::{self, Follow, Source};
 use super::proto::{self, request::Method, response, stream_item};
+use super::{RpcError, convert};
 use crate::engine::{Engine, EngineError, NewIncoming};
 use crate::node::Node;
 use crate::open_payments::{AddressError, Urls, WalletAddresses};
@@ -183,12 +183,16 @@ async fn create(
         .map_err(|_| RpcError::invalid("the uplink is not a node ID"))?;
     let metadata = (!request.description.is_empty())
         .then(|| serde_json::json!({ "description": request.description }).to_string());
+    let expires_at_ms = match request.expires_at_unix_ms {
+        0 => None,
+        ms => Some(u64::try_from(ms).map_err(|_| RpcError::invalid("the expiry is before 1970"))?),
+    };
     let new = NewIncoming {
         ledger,
         wallet_address: urls.wallet_address(ledger, false),
         client: None,
         incoming_amount: request.incoming_amount,
-        expires_at_ms: (request.expires_at_ms != 0).then_some(request.expires_at_ms),
+        expires_at_ms,
         metadata,
         uplink,
     };
@@ -212,9 +216,9 @@ pub fn incoming(urls: &Urls, row: &IncomingRow) -> proto::IncomingPayment {
         received_amount: row.received_amount,
         client: row.client.clone().unwrap_or_default(),
         metadata_json: row.metadata.clone().unwrap_or_default(),
-        created_at_ms: row.created_at_ms,
-        expires_at_ms: row.expires_at_ms,
-        completed_at_ms: row.completed_at_ms,
+        created_at_unix_ms: convert::time(row.created_at_ms),
+        expires_at_unix_ms: convert::time(row.expires_at_ms),
+        completed_at_unix_ms: row.completed_at_ms.map(convert::time),
         destination_account: row.ilp_address.clone(),
         shared_secret: row.shared_secret.to_vec(),
     }
@@ -246,8 +250,8 @@ pub fn outgoing(urls: &Urls, row: &OutgoingRow) -> proto::OutgoingPayment {
             .map(|quote| format!("{}/quotes/{quote}", urls.origin()))
             .unwrap_or_default(),
         metadata_json: row.metadata.clone().unwrap_or_default(),
-        created_at_ms: row.created_at_ms,
-        finished_at_ms: row.finished_at_ms,
+        created_at_unix_ms: convert::time(row.created_at_ms),
+        finished_at_unix_ms: row.finished_at_ms.map(convert::time),
         recipient_url: row.recipient.clone().unwrap_or_default(),
         recipient_pointer: row
             .recipient

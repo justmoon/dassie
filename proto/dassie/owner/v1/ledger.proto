@@ -1,0 +1,309 @@
+syntax = "proto3";
+
+package dassie.owner.v1;
+
+import "dassie/owner/v1/config.proto";
+
+// A ledger the node keeps books for, with the settlement scheme that moves
+// its money. Amounts are integers in the asset's smallest unit: an amount of
+// 1 is 10^-asset_scale units of the asset.
+message Ledger {
+  // For example "stub+usd".
+  string id = 1;
+  // The settlement scheme serving it, for example "stub".
+  string settlement_scheme = 2;
+  string asset_code = 3;
+  uint32 asset_scale = 4;
+  // What the owner has: the posted total of the owner's accounts on this
+  // ledger, the pool and every endpoint's sub-account. May be negative
+  // after the underlying ledger lost money; spending stops then.
+  int64 owner_balance = 5;
+  // Of that, what packets in flight hold.
+  uint64 owner_pending = 6;
+  // The balance on the underlying ledger, as the books have it: less what
+  // the ledger holds back.
+  uint64 on_ledger_balance = 7;
+  // What keeps its scheme from being removed now; empty when it can be.
+  repeated LedgerRemovalBlocker removal_blockers = 8;
+  // What the underlying ledger holds back, never spendable: XRPL's
+  // reserve.
+  uint64 reserve = 9;
+  // Where the owner sends money to fund it, if anywhere: an XRPL address.
+  string deposit_address = 10;
+  // How the scheme stands with its underlying ledger.
+  LedgerConnection connection = 11;
+  // Why, when it is FAILED; otherwise what it waits for, if something
+  // keeps it from going on, such as a validator list it has none of.
+  string connection_problem = 12;
+  // Whether the node can ask a faucet for test money on it: AskFaucet.
+  bool faucet = 13;
+  // The realm its money belongs to: TEST money has no value.
+  Realm realm = 14;
+  // Who issues what it settles in, for a token: an address on its
+  // underlying ledger, which what the owner deposits must name. Empty for
+  // the ledger's own asset.
+  string issuer = 15;
+  // What the peg guard of a dollar token's scheme says
+  // (spec/areas/xrpl.md#the-peg-guard); absent for a scheme without one.
+  LedgerPeg peg = 16;
+}
+
+// A dollar token's peg guard: whether it pauses the scheme, and the token's
+// price at the last reading of its AMM pool that counted.
+message LedgerPeg {
+  // Why the scheme is paused; UNSPECIFIED while it runs. Paused, it
+  // settles nothing, peers are not asked to pay on it, and nothing
+  // converts to or from its ledger; what arrives is still booked.
+  PegPause paused = 1;
+  // The token's price at the last reading that counted, in millionths of
+  // a dollar; absent before one counted.
+  optional uint64 price_ppm = 2;
+  // The validated ledger that reading is as of.
+  uint32 ledger_index = 3;
+}
+
+enum PegPause {
+  // Not paused.
+  PEG_PAUSE_UNSPECIFIED = 0;
+  // Its pool prices the token off a dollar, and has for the guard's hold.
+  PEG_PAUSE_OFF_PEG = 1;
+  // No reading of its pool has counted for too long: the pool unread or
+  // too thin, or the node's XRP rate stale. The guard fails closed.
+  PEG_PAUSE_STALE = 2;
+}
+
+enum LedgerConnection {
+  LEDGER_CONNECTION_UNSPECIFIED = 0;
+  // No ledger to follow, or it is followed and up to date.
+  LEDGER_CONNECTION_SYNCED = 1;
+  LEDGER_CONNECTION_CONNECTING = 2;
+  // Connected, booking what happened meanwhile.
+  LEDGER_CONNECTION_SYNCING = 3;
+  // Its account does not exist yet: it waits for funds.
+  LEDGER_CONNECTION_UNFUNDED = 4;
+  LEDGER_CONNECTION_FAILED = 5;
+}
+
+// Something that keeps a scheme from being removed, and how many of it.
+message LedgerRemovalBlocker {
+  Kind kind = 1;
+  uint32 count = 2;
+
+  enum Kind {
+    KIND_UNSPECIFIED = 0;
+    // Peers settle with it, or are ending a peering that does.
+    KIND_PEERS = 1;
+    // BTP tokens use its ledger.
+    KIND_BTP_TOKENS = 2;
+    // Peerings that ended still have to be settled with it.
+    KIND_FINAL_SETTLEMENTS = 3;
+    // Outgoing payments from its ledger have not finished.
+    KIND_OUTGOING_PAYMENTS = 4;
+  }
+}
+
+// Streams the ledgers, whole, each time they change: balances included.
+message SubscribeLedgersRequest {}
+
+// A settlement scheme this node can run.
+message SettlementSchemeInfo {
+  // For example "stub".
+  string id = 1;
+  // For people, for example "Stub".
+  string name = 2;
+  // The ledger it serves, for example "stub+usd".
+  string ledger = 3;
+  string asset_code = 4;
+  uint32 asset_scale = 5;
+  // The realm its money belongs to.
+  Realm realm = 6;
+  bool active = 7;
+}
+
+message ListSettlementSchemesRequest {}
+
+message ListSettlementSchemesResponse {
+  // In a fixed order.
+  repeated SettlementSchemeInfo schemes = 1;
+}
+
+message ListLedgersRequest {}
+
+message ListLedgersResponse {
+  // The ledgers of active settlement schemes, in a fixed order.
+  repeated Ledger ledgers = 1;
+  // The exchange rates the node converts at
+  // (spec/decisions/exchange-rates.md), by currency.
+  repeated ExchangeRate rates = 2;
+  // The currency the owner sees totals in; empty for none.
+  string display_currency = 3;
+  // What the owner has on every ledger together, in the display currency
+  // at the current rates. Absent without a display currency, or while a
+  // rate it needs is missing or stale.
+  DisplayTotal total = 4;
+  // What the ledgers settle through, in a fixed order: each external asset
+  // with what it holds as its ledger says, never as the books add it up.
+  repeated ExternalAsset external_assets = 5;
+}
+
+// Something the node holds outside its books, which settlement schemes
+// settle through (spec/areas/settlement.md#external-assets): its account
+// on the XRP Ledger testnet.
+message ExternalAsset {
+  // Its kind and number, for example "xrpl-testnet-account/0".
+  string id = 1;
+  // Where the owner sends money to fund it: an XRPL address. Empty for
+  // none.
+  string address = 2;
+  // What it holds, each asset as its ledger last said: none until the
+  // ledger has said.
+  repeated Holding holdings = 3;
+  // How it stands with its ledger.
+  LedgerConnection connection = 4;
+  // Why, when it is FAILED; otherwise what it waits for, if something
+  // keeps it from going on, such as a validator list it has none of.
+  string connection_problem = 5;
+  // The settlement schemes that settle through it, for example
+  // "xrpl-testnet" and "xrpl-testnet-dsusd".
+  repeated string settlement_schemes = 6;
+  // Whether the node can ask a faucet for test money on it: AskFaucet
+  // with any of its schemes.
+  bool faucet = 7;
+  // How often, since the node started, the history it read had a gap its
+  // server no longer had, beyond the history bound: what fell in one its
+  // schemes matched through suspense, without who it was. Each is logged
+  // as a warning.
+  uint64 history_gaps = 8;
+  // How many of its settlements, since the node started, are past their
+  // last ledger and proven neither applied nor absent, as when someone
+  // else signed for the account: each stays pending, for the owner, and
+  // is logged as a warning.
+  uint64 unproven_settlements = 9;
+}
+
+// What an external asset holds of one asset, as its ledger last said.
+message Holding {
+  // For example "XRP", or a token's code, "RLUSD".
+  string asset_code = 1;
+  // Who issued it, for a token: an address on the ledger. Empty for the
+  // ledger's own asset.
+  string issuer = 2;
+  // An amount of 1 is 10^-asset_scale units of the asset, rounded down.
+  uint64 amount = 3;
+  // The ledger's own precision where the amount fits in at it, else a
+  // smaller one: a token's fifteen decimals hold a few thousand units only.
+  uint32 asset_scale = 4;
+  // What the ledger holds back of it, in the same units, never
+  // spendable: XRPL's reserve, which the account's trust lines raise.
+  uint64 reserve = 5;
+  // Its issuer froze this line: it pays only the issuer, and still
+  // receives.
+  bool frozen = 6;
+  // Its issuer deep-froze this line: it neither pays nor receives.
+  bool deep_frozen = 7;
+  // Its issuer froze the token for every holder: no holder pays another.
+  bool global_freeze = 8;
+}
+
+// How many units of a currency one US dollar buys.
+message ExchangeRate {
+  string asset_code = 1;
+  // A decimal, such as "1.8656".
+  string per_usd = 2;
+  int64 as_of_unix_ms = 3;
+  // Older than an hour: packets that need it are refused.
+  bool stale = 4;
+}
+
+// An amount in the display currency.
+message DisplayTotal {
+  string asset_code = 1;
+  uint32 asset_scale = 2;
+  int64 amount = 3;
+}
+
+// Where the node fetches exchange rates (spec/decisions/exchange-rates.md). A
+// currency's rate is the median of the sources that cover it, once more than
+// half of them gave one.
+message RateSource {
+  // "coinbase", "kraken", "bitstamp" or "ecb".
+  string kind = 1;
+  // A server of Coinbase's format other than Coinbase's own, for
+  // "coinbase" only; empty for the kind's own server.
+  string url = 2;
+}
+
+message GetRateSourcesRequest {}
+
+message GetRateSourcesResponse {
+  repeated RateSource sources = 1;
+}
+
+// Replaces the sources, and fetches from them at once. INVALID_ARGUMENT
+// for more than 8, an unknown kind, or a URL that is not HTTPS or not for
+// "coinbase".
+message SetRateSourcesRequest {
+  repeated RateSource sources = 1;
+}
+
+message SetRateSourcesResponse {
+  repeated RateSource sources = 1;
+}
+
+// Chooses the currency totals are shown in. INVALID_ARGUMENT for one the
+// node keeps no rates for.
+message SetDisplayCurrencyRequest {
+  // Empty for none.
+  string currency = 1;
+}
+
+message SetDisplayCurrencyResponse {}
+
+// Activates a settlement scheme and its ledger. On its first activation the
+// scheme's balance becomes the owner's deposit; later activations book only
+// what changed meanwhile. INVALID_ARGUMENT for an unknown scheme or a config
+// it refuses, FAILED_PRECONDITION if it is active, or of the other realm.
+message AddSettlementSchemeRequest {
+  // For example "stub".
+  string id = 1;
+  // The scheme's config, JSON. The stub takes none: empty or "{}".
+  string config = 2;
+}
+
+message AddSettlementSchemeResponse {
+  Ledger ledger = 1;
+}
+
+// Deactivates a scheme. Its books stay, and come back when it is added
+// again. FAILED_PRECONDITION while a BTP token uses its ledger; NOT_FOUND if
+// it is not active.
+message RemoveSettlementSchemeRequest {
+  string id = 1;
+}
+
+message RemoveSettlementSchemeResponse {}
+
+// Adds test money through the stub scheme. FAILED_PRECONDITION if the stub
+// is not active.
+message StubDepositRequest {
+  // In the stub ledger's units (USD at scale 9). Not zero.
+  uint64 amount = 1;
+}
+
+message StubDepositResponse {
+  Ledger ledger = 1;
+}
+
+// Asks the faucet of a test ledger for money. Nothing is booked at once:
+// what the faucet sends is a deposit once the ledger shows it. NOT_FOUND if
+// the scheme is not active, FAILED_PRECONDITION if its ledger has no faucet,
+// RESOURCE_EXHAUSTED if the faucet was asked less than a minute ago or the
+// ledger cannot be reached.
+message AskFaucetRequest {
+  // The settlement scheme's ID, for example "xrpl-testnet".
+  string settlement_scheme = 1;
+}
+
+message AskFaucetResponse {
+  Ledger ledger = 1;
+}

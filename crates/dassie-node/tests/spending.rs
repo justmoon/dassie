@@ -45,6 +45,11 @@ fn host(node: &TestNode) -> String {
     format!("{}/.well-known/pay", node.origin())
 }
 
+/// Milliseconds as the contract's signed times.
+fn unix(ms: u64) -> i64 {
+    i64::try_from(ms).unwrap()
+}
+
 fn usd(value: u64) -> Value {
     json!({ "value": value.to_string(), "assetCode": "USD", "assetScale": 9 })
 }
@@ -1250,8 +1255,8 @@ async fn the_owner_sees_the_span_and_receiver_of_a_request() {
     // Here: the first window and six more, from tomorrow.
     let local = receiver(&node, 700).await;
     let limits = asked_limits(&node, &client, &local, Some(&format!("R6/{start}/P1D"))).await;
-    assert_eq!(limits.starts_at_ms, Some(start_ms));
-    assert_eq!(limits.ends_at_ms, Some(start_ms + 7 * DAY_MS));
+    assert_eq!(limits.starts_at_unix_ms, Some(unix(start_ms)));
+    assert_eq!(limits.ends_at_unix_ms, Some(unix(start_ms + 7 * DAY_MS)));
     let read = limits.receiver_payment.unwrap();
     assert_eq!(read.error, "");
     assert_eq!((read.asset_code.as_str(), read.asset_scale), ("USD", 9));
@@ -1263,8 +1268,8 @@ async fn the_owner_sees_the_span_and_receiver_of_a_request() {
     // On another node, for ever.
     let remote = receiver(&payee, 300).await;
     let limits = asked_limits(&node, &client, &remote, Some(&format!("R/{start}/P1D"))).await;
-    assert_eq!(limits.starts_at_ms, Some(start_ms));
-    assert_eq!(limits.ends_at_ms, None);
+    assert_eq!(limits.starts_at_unix_ms, Some(unix(start_ms)));
+    assert_eq!(limits.ends_at_unix_ms, None);
     let read = limits.receiver_payment.unwrap();
     assert_eq!(read.error, "");
     assert_eq!(read.remaining, Some(300));
@@ -1273,7 +1278,10 @@ async fn the_owner_sees_the_span_and_receiver_of_a_request() {
     let (prefix, _) = local.rsplit_once('/').unwrap();
     let missing = format!("{prefix}/{}", "0".repeat(26));
     let limits = asked_limits(&node, &client, &missing, None).await;
-    assert_eq!((limits.starts_at_ms, limits.ends_at_ms), (None, None));
+    assert_eq!(
+        (limits.starts_at_unix_ms, limits.ends_at_unix_ms),
+        (None, None)
+    );
     let read = limits.receiver_payment.unwrap();
     assert_eq!(read.error, "it is not a payment request that can be read");
     assert_eq!(read.asset_code, "");

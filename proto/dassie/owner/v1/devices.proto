@@ -1,0 +1,57 @@
+syntax = "proto3";
+
+package dassie.owner.v1;
+
+// Paired devices: owner apps that call the node with a device key
+// (spec/areas/rpc.md#paired-devices).
+
+message Device {
+  // The device key's node ID: names the device in RevokeDevice.
+  string id = 1;
+  // As the app named itself when it paired.
+  string name = 2;
+  int64 paired_at_unix_ms = 3;
+  // Updated at most once an hour.
+  int64 last_seen_at_unix_ms = 4;
+}
+
+// Starts a pairing, replacing one not claimed yet. FAILED_PRECONDITION
+// unless the caller is the IPC socket or a browser on loopback, or before
+// the node is set up.
+message StartPairingRequest {}
+
+message StartPairingResponse {
+  // The pairing code, a `dassie-pair:` URI of version 1 (`v=1`), for a
+  // QR code.
+  string code = 1;
+  int64 expires_at_unix_ms = 2;
+}
+
+// The one call a device that is not paired may make, on a stream with
+// purpose `owner`. NOT_FOUND if the secret is not the pairing's, or it
+// expired or was claimed; RESOURCE_EXHAUSTED if the node keeps as many
+// devices as it may. A stream that was not paired when it opened ends after
+// a short lifetime even once the claim succeeds: the app opens another,
+// which is the paired device's.
+message ClaimPairingRequest {
+  // The pairing code's secret.
+  string secret = 1;
+  // How the device names itself to the owner: 1 to 64 bytes.
+  string name = 2;
+}
+
+message ClaimPairingResponse {}
+
+message ListDevicesRequest {}
+
+message ListDevicesResponse {
+  // Most recently paired first.
+  repeated Device devices = 1;
+}
+
+// NOT_FOUND if there is no such device. Its open connections close.
+message RevokeDeviceRequest {
+  string id = 1;
+}
+
+message RevokeDeviceResponse {}

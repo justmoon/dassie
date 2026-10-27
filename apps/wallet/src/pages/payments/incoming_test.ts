@@ -7,19 +7,22 @@ import {
   newestFirst,
 } from "./incoming.ts";
 
-const payment = (id: string, createdAtMs: bigint) => ({
+const payment = (id: string, createdAtUnixMs: bigint) => ({
   id,
   client: "",
   metadataJson: "",
-  createdAtMs,
-  expiresAtMs: 2_000n,
+  createdAtUnixMs,
+  expiresAtUnixMs: 2_000n,
 });
 
 test("an incoming payment is open until completed or expired", () => {
-  assertEquals(incomingState({ expiresAtMs: 2_000n }, 1_999), "open");
-  assertEquals(incomingState({ expiresAtMs: 2_000n }, 2_000), "expired");
+  assertEquals(incomingState({ expiresAtUnixMs: 2_000n }, 1_999), "open");
+  assertEquals(incomingState({ expiresAtUnixMs: 2_000n }, 2_000), "expired");
   assertEquals(
-    incomingState({ expiresAtMs: 2_000n, completedAtMs: 1_000n }, 3_000),
+    incomingState(
+      { expiresAtUnixMs: 2_000n, completedAtUnixMs: 1_000n },
+      3_000,
+    ),
     "completed",
   );
 });

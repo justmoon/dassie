@@ -1,0 +1,371 @@
+// The node's RPC contract with its owner's clients: the wallet in the
+// browser and the `dassie` CLI. Decision spec/decisions/rpc-contract.md
+// (spec/decisions/rpc-contract.md) chose it;
+// spec/areas/rpc.md has the details. This file is normative: change it
+// first, then both sides.
+//
+// Transports
+// ----------
+// - WebSocket at `wss://<host>/rpc`, subprotocol `dassie.owner.v1`. Every
+//   message is one binary frame. The session cookie authenticates the
+//   socket, and is checked again on every call: once the session ends, the
+//   server closes the socket with code 4001.
+// - The IPC socket (`/run/dassie.sock`). Every message is a frame with a
+//   4-byte big-endian length prefix. Whoever can open the socket is the
+//   owner, so every call is authenticated.
+// - A relayed stream with purpose `owner` (`dassie-owner/1`), through a
+//   relay or dialled directly, framed as the IPC socket. Its TLS proves the
+//   device's key: a paired device's calls are authenticated, and one not
+//   paired may only claim a pairing. Revoking the device closes the stream.
+// All limit a message to 1 MiB, and refuse calls beyond a fixed number in
+// flight per connection (`ERROR_CODE_RESOURCE_EXHAUSTED`).
+//
+// Calls
+// -----
+// The client sends a `Request` under a call ID of its choice, unique among
+// its calls in flight. The server answers that ID with exactly one of:
+// - a `Response`, for a unary method;
+// - any number of `StreamItem`s, then a `StreamEnd`, for a streaming method;
+// - an `Error`, which ends either kind of call.
+// A `Cancel` ends a call early; the server sends nothing more for it. The
+// ID may be reused once the call has ended.
+//
+// The method numbers in `Request`, `Response` and `StreamItem` are shared:
+// a method's response or items always carry its request's number.
+//
+// Live streams
+// ------------
+// The `Subscribe*` methods stream live state
+// (spec/areas/rpc.md#live-streams), either the whole value each time, or a
+// snapshot followed by changes: an item with `reset` set replaces what the
+// client holds (a large snapshot comes as several items, the first with
+// `reset`), and later items upsert and remove entries by key. The node
+// publishes only what is on disk, sends at most 4 items a second, coalescing
+// what changed in between, and an item at least every 60 s even when nothing
+// did. A stream ends with UNAVAILABLE when the node's engine restarts; the
+// client subscribes again. A connection may hold 12 streams, and the node 64
+// in all.
+
+syntax = "proto3";
+
+package dassie.owner.v1;
+
+import "dassie/owner/v1/acme.proto";
+import "dassie/owner/v1/btp.proto";
+import "dassie/owner/v1/config.proto";
+import "dassie/owner/v1/debug.proto";
+import "dassie/owner/v1/devices.proto";
+import "dassie/owner/v1/hub_founding.proto";
+import "dassie/owner/v1/hub_member.proto";
+import "dassie/owner/v1/inspect.proto";
+import "dassie/owner/v1/ledger.proto";
+import "dassie/owner/v1/names.proto";
+import "dassie/owner/v1/network.proto";
+import "dassie/owner/v1/node.proto";
+import "dassie/owner/v1/payments.proto";
+import "dassie/owner/v1/sessions.proto";
+import "dassie/owner/v1/tls.proto";
+
+// Client to node.
+message ClientMessage {
+  uint32 call_id = 1;
+
+  oneof kind {
+    Request request = 2;
+    Cancel cancel = 3;
+  }
+}
+
+// Ends a call early.
+message Cancel {}
+
+message Request {
+  // 70 was CreateStreamCredentials, which incoming payments replaced.
+  reserved 70;
+
+  oneof method {
+    // Public: the only method an unauthenticated socket may call.
+    GetBasicStateRequest get_basic_state = 1;
+    GetStatusRequest get_status = 2;
+
+    GetConfigRequest get_config = 10;
+    GetSetupUrlRequest get_setup_url = 11;
+    SetHostnameRequest set_hostname = 12;
+    SetRealmRequest set_realm = 13;
+    SetPortsRequest set_ports = 14;
+    SetAliasRequest set_alias = 15;
+
+    SetCertificateRequest set_certificate = 20;
+
+    // Streaming.
+    ObtainCertificateRequest obtain_certificate = 30;
+    GetAcmeTermsRequest get_acme_terms = 31;
+
+    ListSessionsRequest list_sessions = 40;
+    RevokeSessionRequest revoke_session = 41;
+    RevokeAllSessionsRequest revoke_all_sessions = 42;
+    StartPairingRequest start_pairing = 43;
+    ClaimPairingRequest claim_pairing = 44;
+    ListDevicesRequest list_devices = 45;
+    RevokeDeviceRequest revoke_device = 46;
+
+    // UNAVAILABLE from here on while the node's ledger is not running: before
+    // setup, or for a moment after a failure.
+    ListLedgersRequest list_ledgers = 50;
+    AddSettlementSchemeRequest add_settlement_scheme = 51;
+    RemoveSettlementSchemeRequest remove_settlement_scheme = 52;
+    StubDepositRequest stub_deposit = 53;
+    ListSettlementSchemesRequest list_settlement_schemes = 54;
+    // Streaming.
+    SubscribeLedgersRequest subscribe_ledgers = 55;
+    AskFaucetRequest ask_faucet = 56;
+
+    CreateBtpTokenRequest create_btp_token = 60;
+    ListBtpTokensRequest list_btp_tokens = 61;
+    RevokeBtpTokenRequest revoke_btp_token = 62;
+    SetBtpTokenCapRequest set_btp_token_cap = 63;
+
+    ListWalletAddressesRequest list_wallet_addresses = 71;
+    SetDefaultLedgerRequest set_default_ledger = 72;
+    CreateIncomingPaymentRequest create_incoming_payment = 73;
+    CompleteIncomingPaymentRequest complete_incoming_payment = 74;
+    ListIncomingPaymentsRequest list_incoming_payments = 75;
+    // Streaming.
+    SubscribeIncomingPaymentsRequest subscribe_incoming_payments = 76;
+    ListOutgoingPaymentsRequest list_outgoing_payments = 77;
+    // Streaming.
+    SubscribeOutgoingPaymentsRequest subscribe_outgoing_payments = 78;
+
+    ListAccountsRequest list_accounts = 80;
+    ListTransfersRequest list_transfers = 81;
+    ListPacketsRequest list_packets = 82;
+    // Streaming.
+    SubscribePacketsRequest subscribe_packets = 83;
+    // Streaming.
+    SubscribeTransfersRequest subscribe_transfers = 84;
+
+    ListNodesRequest list_nodes = 90;
+    ListPeersRequest list_peers = 91;
+    ListRoutesRequest list_routes = 92;
+    GetRegistrationStatusRequest get_registration_status = 93;
+    TerminatePeeringRequest terminate_peering = 94;
+    BanNodeRequest ban_node = 95;
+    UnbanNodeRequest unban_node = 96;
+    ListBansRequest list_bans = 97;
+    ListSettlementChannelsRequest list_settlement_channels = 98;
+    RegisterWithBootstrapRequest register_with_bootstrap = 99;
+    // Streaming.
+    SubscribeNodesRequest subscribe_nodes = 100;
+    // Streaming.
+    SubscribeRoutesRequest subscribe_routes = 101;
+    // Streaming.
+    SubscribeRegistrationRequest subscribe_registration = 102;
+
+    // Streaming; works before setup too.
+    SubscribeLogsRequest subscribe_logs = 110;
+    ListDatabaseTablesRequest list_database_tables = 111;
+    ListDatabaseRowsRequest list_database_rows = 112;
+    ListServicesRequest list_services = 113;
+
+    GetGrantRequestRequest get_grant_request = 114;
+    DecideGrantRequest decide_grant = 115;
+    ListGrantsRequest list_grants = 116;
+    // Streaming.
+    SubscribeGrantsRequest subscribe_grants = 117;
+    RevokeGrantRequest revoke_grant = 118;
+
+    ResolveRecipientRequest resolve_recipient = 119;
+    QuoteSendRequest quote_send = 120;
+    SendPaymentRequest send_payment = 121;
+    // Streaming.
+    SubscribeOutgoingPaymentRequest subscribe_outgoing_payment = 122;
+
+    GetPeerSettingsRequest get_peer_settings = 123;
+    SetPeerSettingsRequest set_peer_settings = 124;
+
+    GetRateSourcesRequest get_rate_sources = 125;
+    SetRateSourcesRequest set_rate_sources = 126;
+    SetDisplayCurrencyRequest set_display_currency = 127;
+
+    // The node's account in its settlement hub (hub_member.proto).
+    GetHubStatusRequest get_hub_status = 130;
+    HubDepositRequest hub_deposit = 131;
+    HubWithdrawRequest hub_withdraw = 132;
+    SetHubAutomaticRequest set_hub_automatic = 133;
+    HubGiveUpRequest hub_give_up = 134;
+
+    // Founding a settlement hub (hub_founding.proto).
+    FoundHubRequest found_hub = 135;
+    DropHubFoundingRequest drop_hub_founding = 136;
+    ListHubFoundingsRequest list_hub_foundings = 137;
+    GetHubPayoutRequest get_hub_payout = 138;
+
+    // The owner's names (names.proto).
+    RegisterNameRequest register_name = 140;
+    RenewNameRequest renew_name = 141;
+    // Streaming.
+    SubscribeNamesRequest subscribe_names = 142;
+  }
+}
+
+// Node to client.
+message ServerMessage {
+  uint32 call_id = 1;
+
+  oneof kind {
+    Response response = 2;
+    StreamItem item = 3;
+    StreamEnd end = 4;
+    Error error = 5;
+  }
+}
+
+message Response {
+  reserved 70;
+
+  oneof method {
+    GetBasicStateResponse get_basic_state = 1;
+    GetStatusResponse get_status = 2;
+
+    GetConfigResponse get_config = 10;
+    GetSetupUrlResponse get_setup_url = 11;
+    SetHostnameResponse set_hostname = 12;
+    SetRealmResponse set_realm = 13;
+    SetPortsResponse set_ports = 14;
+    SetAliasResponse set_alias = 15;
+
+    SetCertificateResponse set_certificate = 20;
+
+    GetAcmeTermsResponse get_acme_terms = 31;
+
+    ListSessionsResponse list_sessions = 40;
+    RevokeSessionResponse revoke_session = 41;
+    RevokeAllSessionsResponse revoke_all_sessions = 42;
+    StartPairingResponse start_pairing = 43;
+    ClaimPairingResponse claim_pairing = 44;
+    ListDevicesResponse list_devices = 45;
+    RevokeDeviceResponse revoke_device = 46;
+
+    ListLedgersResponse list_ledgers = 50;
+    AddSettlementSchemeResponse add_settlement_scheme = 51;
+    RemoveSettlementSchemeResponse remove_settlement_scheme = 52;
+    StubDepositResponse stub_deposit = 53;
+    ListSettlementSchemesResponse list_settlement_schemes = 54;
+    AskFaucetResponse ask_faucet = 56;
+
+    CreateBtpTokenResponse create_btp_token = 60;
+    ListBtpTokensResponse list_btp_tokens = 61;
+    RevokeBtpTokenResponse revoke_btp_token = 62;
+    SetBtpTokenCapResponse set_btp_token_cap = 63;
+
+    ListWalletAddressesResponse list_wallet_addresses = 71;
+    SetDefaultLedgerResponse set_default_ledger = 72;
+    CreateIncomingPaymentResponse create_incoming_payment = 73;
+    CompleteIncomingPaymentResponse complete_incoming_payment = 74;
+    ListIncomingPaymentsResponse list_incoming_payments = 75;
+    ListOutgoingPaymentsResponse list_outgoing_payments = 77;
+
+    ListAccountsResponse list_accounts = 80;
+    ListTransfersResponse list_transfers = 81;
+    ListPacketsResponse list_packets = 82;
+
+    ListNodesResponse list_nodes = 90;
+    ListPeersResponse list_peers = 91;
+    ListRoutesResponse list_routes = 92;
+    GetRegistrationStatusResponse get_registration_status = 93;
+    TerminatePeeringResponse terminate_peering = 94;
+    BanNodeResponse ban_node = 95;
+    UnbanNodeResponse unban_node = 96;
+    ListBansResponse list_bans = 97;
+    ListSettlementChannelsResponse list_settlement_channels = 98;
+    RegisterWithBootstrapResponse register_with_bootstrap = 99;
+
+    ListDatabaseTablesResponse list_database_tables = 111;
+    ListDatabaseRowsResponse list_database_rows = 112;
+    ListServicesResponse list_services = 113;
+
+    GetGrantRequestResponse get_grant_request = 114;
+    DecideGrantResponse decide_grant = 115;
+    ListGrantsResponse list_grants = 116;
+    RevokeGrantResponse revoke_grant = 118;
+
+    ResolveRecipientResponse resolve_recipient = 119;
+    QuoteSendResponse quote_send = 120;
+    SendPaymentResponse send_payment = 121;
+
+    GetPeerSettingsResponse get_peer_settings = 123;
+    SetPeerSettingsResponse set_peer_settings = 124;
+
+    GetRateSourcesResponse get_rate_sources = 125;
+    SetRateSourcesResponse set_rate_sources = 126;
+    SetDisplayCurrencyResponse set_display_currency = 127;
+
+    GetHubStatusResponse get_hub_status = 130;
+    HubDepositResponse hub_deposit = 131;
+    HubWithdrawResponse hub_withdraw = 132;
+    SetHubAutomaticResponse set_hub_automatic = 133;
+    HubGiveUpResponse hub_give_up = 134;
+
+    FoundHubResponse found_hub = 135;
+    DropHubFoundingResponse drop_hub_founding = 136;
+    ListHubFoundingsResponse list_hub_foundings = 137;
+    GetHubPayoutResponse get_hub_payout = 138;
+
+    RegisterNameResponse register_name = 140;
+    RenewNameResponse renew_name = 141;
+  }
+}
+
+message StreamItem {
+  oneof method {
+    AcmeProgress obtain_certificate = 30;
+    // The ledgers, whole, each time they change.
+    ListLedgersResponse subscribe_ledgers = 55;
+    IncomingPaymentEvent subscribe_incoming_payments = 76;
+    OutgoingPaymentEvent subscribe_outgoing_payments = 78;
+    PacketEvent subscribe_packets = 83;
+    TransferEvent subscribe_transfers = 84;
+    NodeTableEvent subscribe_nodes = 100;
+    // The routes, whole, each time they change.
+    ListRoutesResponse subscribe_routes = 101;
+    // The registration status, whole, each time it changes.
+    GetRegistrationStatusResponse subscribe_registration = 102;
+    LogEvent subscribe_logs = 110;
+    // The approved grants, whole, each time they change.
+    ListGrantsResponse subscribe_grants = 117;
+    // The payment, whole, each time it changes.
+    OutgoingPayment subscribe_outgoing_payment = 122;
+    // The owner's names, whole, each time they change.
+    NamesStatus subscribe_names = 142;
+  }
+}
+
+// A stream finished without error.
+message StreamEnd {}
+
+message Error {
+  ErrorCode code = 1;
+  // For people; clients branch on the code only.
+  string message = 2;
+}
+
+enum ErrorCode {
+  ERROR_CODE_UNSPECIFIED = 0;
+  // The call needs an authenticated session.
+  ERROR_CODE_UNAUTHENTICATED = 1;
+  // The request is malformed or a value is out of range.
+  ERROR_CODE_INVALID_ARGUMENT = 2;
+  // The node is not in a state that allows the call, e.g. setup is done.
+  ERROR_CODE_FAILED_PRECONDITION = 3;
+  ERROR_CODE_NOT_FOUND = 4;
+  // Too many calls in flight, or a limit was reached.
+  ERROR_CODE_RESOURCE_EXHAUSTED = 5;
+  // Something the node depends on (e.g. the ACME server) failed; retrying
+  // later may help.
+  ERROR_CODE_UNAVAILABLE = 6;
+  // A bug in the node. The message says no more than that; details go to
+  // the node's log.
+  ERROR_CODE_INTERNAL = 7;
+  // The node does not know the method: the client is newer than the node.
+  ERROR_CODE_UNIMPLEMENTED = 8;
+}

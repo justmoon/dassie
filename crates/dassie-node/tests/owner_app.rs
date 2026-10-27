@@ -199,7 +199,7 @@ async fn a_device_pairs_directly_and_then_calls_as_the_owner() {
         ErrorCode::Unauthenticated
     );
     let (code_text, secret) = start_pairing(&node).await;
-    assert!(code_text.starts_with(&format!("dassie-pair:{id}?secret=")));
+    assert!(code_text.starts_with(&format!("dassie-pair:{id}?v=1&secret=")));
     claim(&mut app, &secret, "Phone").await.unwrap();
     assert_eq!(app.state().await, proto::NodeState::Authenticated);
     app.call(Method::GetStatus(proto::GetStatusRequest {}))

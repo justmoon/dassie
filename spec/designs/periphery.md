@@ -184,7 +184,7 @@ A browser node is a short-lived periphery node, for demos: it lets someone join 
 - **`dassie-peer`** gains the downlink table, the `periphery` extension, records, home nodes and lookups, and the transport's link-state extension.
 - **`dassie-connector`** routes beneath a downlink's child address, and a periphery node's STREAM receiver takes its child addresses.
 - **The XRPL scheme** gains its table of peers' addresses and the two rules of §8, which [hubs-only](../decisions/hubs-only.md) supersedes: a free receiver is paid into its uplink's hub instead ([roadmap](../roadmap.md#joining-by-being-paid)).
-- **The RPC contract** (`proto/dassie/ui/v1`) gains pairing and devices.
+- **The RPC contract** (`proto/dassie/owner/v1`) gains pairing and devices.
 - **The apps** paired with a node are a desktop app and a mobile app, both over the RPC contract. The [desktop app](../areas/desktop.md) that runs its own node is built.
 - **The simulations** ([Testing](../areas/testing.md#the-simulations)) run periphery nodes that lose their uplinks, relays and home nodes that withhold, ground core keys that capture home slots, free receivers paid into their uplink's hub (their first settlement creating their XRPL account is superseded by [hubs-only](../decisions/hubs-only.md)), free receivers evicted while owed, and downlinks over the limits.
 

@@ -23,7 +23,7 @@ The same policy applies in development, so there is no HMR: a change shows after
 
 ## Talking to the node
 
-- **RPC.** One client over a WebSocket to the node's own origin, carrying the contract in `proto/dassie/ui/v1` ([RPC](rpc.md)). When the node ends this browser's session (logged out elsewhere, or revoked), the wallet reloads, which shows the login page.
+- **RPC.** One client over a WebSocket to the node's own origin, carrying the contract in `proto/dassie/owner/v1` ([RPC](rpc.md)). When the node ends this browser's session (logged out elsewhere, or revoked), the wallet reloads, which shows the login page.
 - **HTTP.** Setup, login and logout are the node's only routes outside the contract ([HTTP](http.md#setup), [login and logout](http.md#login-and-logout)). Success sets or clears the session cookie, and the wallet reloads so that [the gate](#the-gate) picks the next screen rather than the wallet tracking it.
 
 ## Key derivation

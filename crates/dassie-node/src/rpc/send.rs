@@ -21,12 +21,12 @@ use dassie_payments::resources::IncomingPayment;
 use dassie_payments::time;
 use dassie_payments::uri::Uri;
 
-use super::RpcError;
 use super::handlers::{Items, Reply};
 use super::live::{self, Follow, Source};
 use super::payments::outgoing;
 use super::proto::quote_send_request::Amount as Amount_;
 use super::proto::{self, request::Method, response, stream_item};
+use super::{RpcError, convert};
 use crate::engine::{Engine, NewIncoming, Prober};
 use crate::node::Node;
 use crate::open_payments::client::{self, ClientError};
@@ -158,10 +158,11 @@ impl Found {
             proto::PaymentRequest {
                 url: url.clone(),
                 remaining,
-                expires_at_ms: payment
+                expires_at_unix_ms: payment
                     .expires_at
                     .as_deref()
-                    .and_then(|at| time::parse_rfc3339(at).ok()),
+                    .and_then(|at| time::parse_rfc3339(at).ok())
+                    .map(convert::time),
                 description: payment
                     .metadata
                     .as_ref()
@@ -477,7 +478,7 @@ fn send_quote(row: QuoteRow, recipient: Option<proto::Recipient>) -> proto::Send
             asset_scale: row.receive_amount.asset_scale.into(),
         }),
         receiver: row.receiver,
-        expires_at_ms: row.expires_at_ms,
+        expires_at_unix_ms: convert::time(row.expires_at_ms),
         recipient,
     }
 }

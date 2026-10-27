@@ -2,12 +2,14 @@
 
 The typed contract between the node and its owner's clients: the wallet in the browser over a WebSocket, the `dassie` CLI and the dev environment over the IPC socket, and paired owner apps over relayed streams. One contract serves all three.
 
-**Paths:** `proto/dassie/ui/v1/` (the contract: `transport.proto` holds the envelopes, errors and method list, the other files one area each), `packages/rpc/` (`src/gen/` is generated), `crates/dassie-node/src/rpc/`, `crates/dassie-node/src/http/ws.rs`, `crates/dassie-node/src/ipc.rs`, `crates/dassie-node/src/owner_app.rs`, `crates/dassie-node/src/node/devices.rs`, `crates/dassie-node/build.rs`
+**Paths:** `proto/dassie/owner/v1/` (the contract: `transport.proto` holds the envelopes, errors and method list, the other files one area each), `packages/rpc/` (`src/gen/` is generated), `crates/dassie-node/src/rpc/`, `crates/dassie-node/src/http/ws.rs`, `crates/dassie-node/src/ipc.rs`, `crates/dassie-node/src/owner_app.rs`, `crates/dassie-node/src/node/devices.rs`, `crates/dassie-node/build.rs`
 **Read with:** [HTTP](http.md), [Node](node.md), [Wallet](wallet.md), [Payments](payments.md), [Dev](dev.md)
 
 ## The contract
 
-- **`proto/dassie/ui/v1` is normative:** change it first, then both sides. Each `.proto` file documents its methods' arguments, results and errors. `dassie-node`'s build script compiles it for Rust; `packages/rpc` generates the TypeScript (`node --run gen`), and records the contract's hash beside it, so a test fails when the contract changed without regenerating.
+- **`proto/dassie/owner/v1` is normative:** change it first, then both sides. Each `.proto` file documents its methods' arguments, results and errors. `dassie-node`'s build script compiles it for Rust; `packages/rpc` generates the TypeScript (`node --run gen`), and records the contract's hash beside it, so a test fails when the contract changed without regenerating. `buf lint` checks it in CI.
+- **The package is `dassie.owner.v1`:** the owner's contract, whichever client speaks it (the wallet, the CLI, a paired app), and the WebSocket's subprotocol has the same name.
+- **A point in time is an `int64` named `*_unix_ms`,** milliseconds since 1970, in every message; a duration is a `uint64` named `*_ms`. Signed, so that a client's language reads it as it reads its own clock.
 - **One contract, three transports.** The browser's WebSocket at `/rpc`, the IPC socket and an owner app's relayed stream carry the same messages; only the framing and who the caller is differ.
 - **Methods are numbered `oneof` members,** and a retired number is `reserved`, never reused. A node that does not know a method (the client is newer) answers `UNIMPLEMENTED`.
 - **Every call ends with exactly one terminal message,** a response, a stream's end or an error, even when its handler panics. A failure is always a typed error, never a success that carries one; `INTERNAL` says only that the log has the details, so a bug never leaks internals to a client.
@@ -31,7 +33,7 @@ An owner app is paired with the node through a device key, an Ed25519 key it mak
 
 - **The app reaches the node on a relayed stream with purpose `owner`** ([Peer protocol](peer-protocol.md#relayed-streams)), through a relay the node keeps a connection to or by dialling the node's QUIC endpoint directly. The stream's TLS is pinned to the node's key and proves the device key, so a relay reads and forges nothing. Messages are framed as on the IPC socket. The wallet, `/api/*` and `/rpc` are still never relayed: an app proves a key rather than carrying a browser's cookie.
 - **Only the owner on the node's own machine starts a pairing:** over the IPC socket (`dassie pair`), or in a browser that reached the node from a loopback address. A session's cookie used from anywhere else cannot turn itself into a device's lasting access, which would survive revoking every session. A paired device cannot start one either.
-- **A pairing is one secret, in memory only,** good for a few minutes and claimed once. Starting another replaces it, and a restart forgets it. The pairing code is a `dassie-pair:` URI with the node ID, the secret, and where the node is reached: its own URL, where its QUIC endpoint answers there, else the peers it is connected to, which relay to it, a few at most. The wallet shows it as a QR code.
+- **A pairing is one secret, in memory only,** good for a few minutes and claimed once. Starting another replaces it, and a restart forgets it. The pairing code is a `dassie-pair:` URI with a version (`v`), the node ID, the secret, and where the node is reached: its own URL, where its QUIC endpoint answers there, else the peers it is connected to, which relay to it, a few at most. The wallet shows it as a QR code. An app reads a code of a version it knows and refuses another, and ignores parameters it does not know, so a version adds parameters without a new number; the code is read by apps outside the node's release, which is why it has a version at all.
 - **A device that is not paired may call only `GetBasicState` and `ClaimPairing`,** which pairs the key its stream proved under the name it gives. Its stream lasts only as long as an anonymous socket does, whatever it sends, so that streams nobody can use do not hold the places of the owner's apps at a relay; once paired, the app connects again. The node keeps a bounded list of devices; a full list refuses a new one rather than dropping one the owner paired.
 - **The device is checked on every call,** as a session is. Revoking it closes its streams, as a session's end closes its sockets.
 
@@ -73,6 +75,6 @@ Every queue, stream and socket is bounded ([tigerstyle](../decisions/tigerstyle.
 
 ## Decisions
 
-- [rpc-contract](../decisions/rpc-contract.md): a protobuf contract in `proto/dassie/ui/v1` over one WebSocket per client and the IPC socket, typed errors, and `Subscribe*` streams instead of polling; why not JSON.
+- [rpc-contract](../decisions/rpc-contract.md): a protobuf contract in `proto/dassie/owner/v1` over one WebSocket per client and the IPC socket, typed errors, and `Subscribe*` streams instead of polling; why not JSON.
 - [tigerstyle](../decisions/tigerstyle.md): every queue, stream and socket bounded; idle sockets close.
 - [device-pairing](../decisions/device-pairing.md): only the owner on the node's machine starts a pairing, its secret kept in memory and claimed once over the `owner` stream; a full device list refuses a new device.

@@ -79,9 +79,9 @@ function OutgoingPayments(): JSX.Element {
   );
   const payments = () =>
     [...Object.values(live.state.byId)].sort((a, b) =>
-      a.createdAtMs === b.createdAtMs
+      a.createdAtUnixMs === b.createdAtUnixMs
         ? a.id.localeCompare(b.id)
-        : a.createdAtMs > b.createdAtMs
+        : a.createdAtUnixMs > b.createdAtUnixMs
         ? -1
         : 1
     );
@@ -141,7 +141,7 @@ function OutgoingRow(props: { payment: OutgoingPayment }): JSX.Element {
       </p>
       <p class="muted">
         Sent by {clientLabel(props.payment.client)},{" "}
-        {dateTime(props.payment.createdAtMs)}
+        {dateTime(props.payment.createdAtUnixMs)}
       </p>
       <Show when={props.payment.failure !== ""}>
         <p class="muted" data-testid="outgoing-failure">
@@ -198,7 +198,7 @@ function Row(props: { payment: IncomingPayment; now: number }): JSX.Element {
       </p>
       <p class="muted">
         Requested by {clientLabel(props.payment.client)},{" "}
-        {dateTime(props.payment.createdAtMs)}
+        {dateTime(props.payment.createdAtUnixMs)}
       </p>
       <Show when={state() === "open"}>
         <ConfirmButton

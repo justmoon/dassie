@@ -153,7 +153,7 @@ const shopRead = {
   assetCode: "EUR",
   assetScale: 2,
   remaining: 2000n,
-  expiresAtMs: at("2026-10-16T18:30:00Z"),
+  expiresAtUnixMs: at("2026-10-16T18:30:00Z"),
   closed: false,
   error: "",
   limitInOtherAsset: false,
@@ -165,7 +165,7 @@ test("A: a fixed send, renewed for ever", () => {
       ...none,
       interval: "R/2026-10-16T08:00:00Z/P1D",
       debitAmount: usd(1_000_000_000n),
-      startsAtMs: at("2026-10-16T08:00:00Z"),
+      startsAtUnixMs: at("2026-10-16T08:00:00Z"),
     }),
     {
       send:
@@ -183,8 +183,8 @@ test("B: a capped receive in another currency, with an end", () => {
     interval: "R11/2026-10-01T00:00:00Z/P1M",
     debitAmount: usd(6_000_000_000n),
     receiveAmount: eur(500n),
-    startsAtMs: at("2026-10-01T00:00:00Z"),
-    endsAtMs: at("2027-10-01T00:00:00Z"),
+    startsAtUnixMs: at("2026-10-01T00:00:00Z"),
+    endsAtUnixMs: at("2027-10-01T00:00:00Z"),
   };
   assertEquals(facts(limits), {
     send:
@@ -332,7 +332,7 @@ test("F: a start in the future, renewed for ever", () => {
     ...none,
     interval: "R/2026-11-01T00:00:00Z/P1M",
     debitAmount: usd(20_000_000_000n),
-    startsAtMs: at("2026-11-01T00:00:00Z"),
+    startsAtUnixMs: at("2026-11-01T00:00:00Z"),
   });
   assertEquals(
     shown.send,
@@ -350,8 +350,8 @@ test("G: a start in the future, with an end", () => {
       ...none,
       interval: "R2/2026-11-01T00:00:00Z/P1M",
       debitAmount: usd(20_000_000_000n),
-      startsAtMs: at("2026-11-01T00:00:00Z"),
-      endsAtMs: at("2027-02-01T00:00:00Z"),
+      startsAtUnixMs: at("2026-11-01T00:00:00Z"),
+      endsAtUnixMs: at("2027-02-01T00:00:00Z"),
     }).lasts,
     "From Nov 1, 2026 until Feb 1, 2027 (3 months); nothing can be sent before then. The limit renews every month.",
   );
@@ -363,7 +363,7 @@ test("H: an end only", () => {
       ...none,
       interval: "R/P1M/2027-01-01T00:00:00Z",
       debitAmount: usd(20_000_000_000n),
-      endsAtMs: at("2027-01-01T00:00:00Z"),
+      endsAtUnixMs: at("2027-01-01T00:00:00Z"),
     }).lasts,
     "Until Jan 1, 2027. The limit renews every month.",
   );
@@ -402,8 +402,8 @@ test("a single window does not renew", () => {
     ...none,
     interval: "R0/2026-10-01T00:00:00Z/P1M",
     debitAmount: usd(1_000_000_000n),
-    startsAtMs: at("2026-10-01T00:00:00Z"),
-    endsAtMs: at("2026-11-01T00:00:00Z"),
+    startsAtUnixMs: at("2026-10-01T00:00:00Z"),
+    endsAtUnixMs: at("2026-11-01T00:00:00Z"),
   };
   assertEquals(
     facts(once).lasts,
@@ -413,8 +413,8 @@ test("a single window does not renew", () => {
     facts({
       ...once,
       interval: "R0/2026-11-01T00:00:00Z/P1M",
-      startsAtMs: at("2026-11-01T00:00:00Z"),
-      endsAtMs: at("2026-12-01T00:00:00Z"),
+      startsAtUnixMs: at("2026-11-01T00:00:00Z"),
+      endsAtUnixMs: at("2026-12-01T00:00:00Z"),
     }).lasts,
     "From Nov 1, 2026 until Dec 1, 2026 (1 month); nothing can be sent before then.",
   );
@@ -426,8 +426,8 @@ test("an interval that has ended says nothing can be sent", () => {
       ...none,
       interval: "R0/2026-09-01T00:00:00Z/P1M",
       debitAmount: usd(1_000_000_000n),
-      startsAtMs: at("2026-09-01T00:00:00Z"),
-      endsAtMs: at("2026-10-01T00:00:00Z"),
+      startsAtUnixMs: at("2026-09-01T00:00:00Z"),
+      endsAtUnixMs: at("2026-10-01T00:00:00Z"),
     }).lasts,
     "Ended on Oct 1, 2026: no payment can be made.",
   );

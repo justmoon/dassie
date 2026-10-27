@@ -86,13 +86,19 @@ pub struct Reach {
     pub relays: Vec<(NodeId, String)>,
 }
 
+/// The version of the pairing code's parameters, its `v`. An app reads a
+/// code of a version it knows and refuses another; within a version, it
+/// ignores parameters it does not know, so a version adds parameters
+/// without a new number (spec/areas/rpc.md#paired-devices).
+pub const PAIRING_CODE_VERSION: u32 = 1;
+
 /// The pairing code for `node`'s `secret`, reached as `reach` says:
-/// `dassie-pair:<node ID>?secret=<hex>`, then `direct=<URL>` and
+/// `dassie-pair:<node ID>?v=1&secret=<hex>`, then `direct=<URL>` and
 /// `relay=<node ID>@<URL>` for each place, URLs percent-encoded.
 #[must_use]
 pub fn pairing_code(node: &NodeId, secret: &[u8; SECRET_BYTES], reach: &Reach) -> String {
     let mut code = format!(
-        "dassie-pair:{}?secret={}",
+        "dassie-pair:{}?v={PAIRING_CODE_VERSION}&secret={}",
         node.as_str(),
         hex::encode(secret)
     );
@@ -231,7 +237,7 @@ mod tests {
         assert_eq!(
             code,
             format!(
-                "dassie-pair:{node}?secret={}&direct=https%3A%2F%2Fnode.example%3A4443\
+                "dassie-pair:{node}?v=1&secret={}&direct=https%3A%2F%2Fnode.example%3A4443\
                  &relay={relay}%40https%3A%2F%2Frelay.example",
                 "ab".repeat(32)
             )
