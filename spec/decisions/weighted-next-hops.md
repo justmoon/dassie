@@ -40,7 +40,7 @@
 - *Weights from the amount fulfilled:* with no fee charged, it costs nothing to push.
 - *Weights per destination:* state grows with destinations times hops, for a gain not shown yet.
 - *A draw per payment:* a packet sent again would meet the same bad node.
-- *Weights read from the journal at each draw, as credit growth reads its fees:* a cost per packet, for a measure that may be forgotten.
+- *Weights read from the journal at each draw:* a cost per packet, for a measure that may be forgotten.
 - *A base weight added to the fees:* it needs a unit on every ledger, and its share shrinks as fees grow with traffic, so a busy node stops trying its other hops.
 - *Fees valued at spot, to weigh hops on different ledgers:* exchange rates in a routing weight, for the converting draws alone, which [settlement-methods](settlement-methods.md) keeps out of every measure per peer.
 - *The best-rate method among all first hops when none keeps the ledger:* one node would carry every converting packet, and could stop them all.
