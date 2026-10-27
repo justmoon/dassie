@@ -126,7 +126,7 @@ use dassie_xrpl::DROPS_PER_XRP;
 use dassie_xrpl::account::{Doubt, LEDGER_SILENCE_MS, Proofs, REQUEST_TIMEOUT_MS, STALL_MS};
 use dassie_xrpl::amount::IssuedAsset;
 use dassie_xrpl::codec::TokenValue;
-use dassie_xrpl::fake::{FAUCET_DROPS, FakeLedger, Lie};
+use dassie_xrpl::fake::{FAUCET_DROPS, FakeLedger, Lie, RESERVE_BASE};
 use dassie_xrpl::network::{MAINNET, Network, TESTNET};
 
 use crate::engine::{
@@ -282,8 +282,9 @@ impl Settling {
         match self {
             Self::Stub | Self::Trusting | Self::StubHub(_) | Self::OwnerBooks => USD,
             Self::Xrpl => XRP,
+            Self::XrplLive => LIVE_XRP,
             // No run pays over it: its nodes do not peer.
-            Self::XrplLive | Self::OwnerBooksLive => LIVE_XRP,
+            Self::OwnerBooksLive => LIVE_XRP,
             Self::HubDsusd(_) => HUB_DSUSD,
             Self::Hub(_) => HUB,
             Self::Cross => panic!("a run across currencies has two ledgers"),
@@ -381,7 +382,7 @@ impl Settling {
     pub const fn deposit(ledger: LedgerId) -> i128 {
         match ledger {
             LedgerId::XrplTestnetXrp | LedgerId::XrplXrp => {
-                (FAUCET_DROPS as i128 - 1_000_000) * 1_000
+                (FAUCET_DROPS as i128 - RESERVE_BASE as i128) * 1_000
             }
             LedgerId::XrplRlusdUsd | LedgerId::XrplTestnetDsusdUsd => MINT_MICROS as i128 * 1_000,
             _ => 100_000_000_000,
@@ -2931,7 +2932,7 @@ impl Sim {
         match self.settling.ledger() {
             LedgerId::XrplTestnetXrp | LedgerId::XrplXrp => {
                 let fundings = i128::from(self.fundings.get(&index).copied().unwrap_or(0));
-                (fundings * i128::from(FAUCET_DROPS) - 1_000_000).max(0) * 1_000
+                (fundings * i128::from(FAUCET_DROPS) - i128::from(RESERVE_BASE)).max(0) * 1_000
             }
             LedgerId::XrplRlusdUsd | LedgerId::XrplTestnetDsusdUsd => {
                 let (minted, clawed) = self.issued.get(&index).copied().unwrap_or((0, 0));

@@ -38,14 +38,14 @@ use dassie_ledger::{LedgerId, Name};
 use dassie_settlement::{LedgerStatus, OwnerPaymentState};
 use dassie_xrpl::DROPS_PER_XRP;
 use dassie_xrpl::account::{LIST_REFRESH_MS, LIST_RETRY_MS, STALL_MS};
-use dassie_xrpl::fake::{FAUCET_DROPS, Lie};
+use dassie_xrpl::fake::{FAUCET_DROPS, Lie, RESERVE_BASE};
 
 use super::checks::{
     check, check_anchored, check_events, check_funded, check_held, check_ledgers, check_pegged,
     check_settled, check_true, check_withdrawn, first_failure,
 };
 use super::scripted::{PAID_WITHIN_MS, READY_WITHIN_MS, ended, paid, script, size};
-use super::{IssuerFreeze, LEDGER_RECONNECT_MS, LONGEST_LIE_MS, START, Settling, Sim};
+use super::{IssuerFreeze, LONGEST_LIE_MS, START, Settling, Sim};
 
 /// How long a server lies to a node: the longest a drawn one does.
 const LIE_MS: u64 = LONGEST_LIE_MS;
@@ -65,10 +65,6 @@ const MOST_CLAWED_DOLLARS: u64 = 5;
 /// The least an owner pays out of its XRP book at once, in drops: the base
 /// reserve, which the outside address it pays needs to exist.
 const LEAST_PAID_OUT_DROPS: u64 = DROPS_PER_XRP;
-
-/// The base reserve of an account, in drops, which its first funding fills
-/// and its books never hold (`Sim::deposit` has it too).
-const BASE_RESERVE_DROPS: i128 = 1_000_000;
 
 /// The owners' payments out of their XRP books: each node's last one, to
 /// follow it until its ledger decided it.
@@ -178,7 +174,9 @@ pub fn run(seed: u64) -> Run {
 /// While payments are under way, the issuer claws some of a holder's token
 /// back, then freezes a holder's line, deep or not, or every line, and
 /// lifts it again. A freeze lasts up to the grace a peer short of room has
-/// before it is withdrawn, drawn from the production timings.
+/// before it is withdrawn, drawn from the production timings. The issuer
+/// acts only on lines it minted to: it waits for every holder's, and a
+/// holder whose line it has not minted to by then is spared.
 fn issuer_acts(sim: &mut Sim, rng: &mut SeededRng) {
     let Some((token, _)) = sim.settling.token() else {
         return;
@@ -186,6 +184,16 @@ fn issuer_acts(sim: &mut Sim, rng: &mut SeededRng) {
     let holders: Vec<usize> = (0..sim.nodes.len())
         .filter(|index| sim.settling.books(*index, token))
         .collect();
+    sim.run_until_or(sim.now + READY_WITHIN_MS, |sim| {
+        holders.iter().all(|index| sim.issued.contains_key(index))
+    });
+    let holders: Vec<usize> = holders
+        .into_iter()
+        .filter(|index| sim.issued.contains_key(index))
+        .collect();
+    if holders.is_empty() {
+        return;
+    }
     let pick =
         |rng: &mut SeededRng| holders[usize::try_from(rng.below(holders.len() as u64)).unwrap()];
     sim.run_until(sim.now + rng.below(4_000));
@@ -220,11 +228,6 @@ fn lies(sim: &mut Sim, rng: &mut SeededRng, owners: &mut PaidOut) -> Result<(), 
             // the server gives on connecting, and its stream, have
             // something to leave out, or to hint at in an old ledger.
             sim.fund(liar);
-            sim.outages.push((
-                Some(liar),
-                sim.now,
-                sim.now + LEDGER_RECONNECT_MS + LIE_MS + STALL_MS,
-            ));
             sim.lie_to(liar, lie, LIE_MS);
         }
         sim.run_until(sim.now + STALL_MS / 2);
@@ -259,12 +262,10 @@ fn validators_fail(sim: &mut Sim) {
     sim.trace
         .push(format!("{} validators {quorum_short:?} withheld", sim.now));
     sim.count("quorums withheld");
-    let withheld = sim.now;
     sim.run_until(sim.now + WITHHELD_MS);
     for validator in quorum_short {
         sim.ledger.withhold_validator(validator, false);
     }
-    sim.outages.push((None, withheld, sim.now + STALL_MS));
     // A list that lapses: every node fetches it, it expires, and the nodes
     // wait until the publisher publishes another.
     let seconds = |ms: u64| u32::try_from(dassie_xrpl::unl::ledger_seconds(ms)).unwrap();
@@ -277,9 +278,6 @@ fn validators_fail(sim: &mut Sim) {
         .publish_validator_list(seconds(sim.now + 30 * 24 * 3_600_000), None);
     sim.trace
         .push(format!("{} a new list is published", sim.now));
-    // Every node waits from the list's lapse until it fetched the new one.
-    sim.outages
-        .push((None, lapses, sim.now + LIST_RETRY_MS + STALL_MS));
 }
 
 /// Whether every running node's every ledger is synced.
@@ -322,7 +320,7 @@ fn deposited(sim: &Sim, index: usize, ledger: LedgerId) -> i128 {
         return minted - clawed;
     }
     let fundings = i128::from(sim.fundings.get(&index).copied().unwrap_or(0));
-    (fundings * i128::from(FAUCET_DROPS) - BASE_RESERVE_DROPS) * 1_000
+    (fundings * i128::from(FAUCET_DROPS) - i128::from(RESERVE_BASE)) * 1_000
 }
 
 /// Each node's owner books, judged by themselves

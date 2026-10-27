@@ -87,6 +87,8 @@ fn owner_books_hold_through_the_issuers_acts_and_lying_servers() {
         "lies caught",
         "anchors",
         "transactions proven",
+        "absences proven",
+        "validator lists fetched",
         "validator keys rotated",
         "quorums withheld",
         "validator lists lapsed",
@@ -146,6 +148,18 @@ fn two_live_nodes_settle_xrp_on_mainnet() {
         .map_or(0, |(_, channel)| channel.settled_out);
     assert!(settled > 0, "node 1 never settled");
     check(&sim).unwrap();
+}
+
+// On this seed, a node ends a peering just after its books took the peer's
+// settlement from the XRP Ledger, before the settlement's message arrived.
+// The peer's last answer names that settlement, which the node does not
+// count, so it waits the whole time before it tells the peer, as
+// spec/decisions/ending-a-peering.md lets it.
+// Goes with the direct XRP Ledger schemes, once hub runs cover it (spec/roadmap.md#hubs-only).
+#[test]
+fn a_peering_ended_after_its_last_settlement_was_booked_ends_after_the_wait() {
+    let run = scripted::run_on(7_000_002_237, Settling::Xrpl);
+    assert!(!run.outcome.is_failure(), "{}", run.outcome);
 }
 
 #[test]
