@@ -90,7 +90,7 @@ Read a [decision](decisions/README.md) when an area doc links to it and you need
 | [Proof servers](areas/proof-servers.md) | The patched XRP Ledger servers that answer the node's proofs: the patch, its build, and the public server per network |
 | [Testing](areas/testing.md) | Test levels, golden vectors, simulations and the simulation runner |
 
-Not built yet: the [roadmap](roadmap.md), and the designs in `designs/`: what is not built of [settlement hubs](designs/settlement-hubs.md), what is not built of the [periphery](designs/periphery.md), [checking the XRP Ledger's validators](designs/xrpl-validation.md), and what is not built of [names](designs/names.md).
+Not built yet: the [roadmap](roadmap.md), and the designs in `designs/`: what is not built of [settlement hubs](designs/settlement-hubs.md), what is not built of the [periphery](designs/periphery.md), [checking the XRP Ledger's validators](designs/xrpl-validation.md), and what is not built of [names](designs/names.md). [Direct settlement](designs/direct-settlement.md) keeps how peers settled without a hub, which left the code, and what bringing it back would take.
 
 ## What belongs here
 

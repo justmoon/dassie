@@ -4,7 +4,7 @@
 
 ## Facts
 
-- The stub believes a peer's settlement as stated: anyone peered over it mints what it says it settled ([Settlement](../areas/settlement.md#the-stub-scheme)).
+- Anyone peered over the stub mints money: on the stub with unlimited trust a peer spends without ever settling, and on the stub with commitments a peer's settlement is believed as stated ([Settlement](../areas/settlement.md#the-stub-scheme)).
 - Its ledger, `stub+usd`, counts US dollars, and the connector converts dollars at par between the dollar ledgers, so a node's stub dollars buy its DSUSD, or any token a peer holds at a dollar ([issued-assets](issued-assets.md)).
 - The realm gate keeps the stub off live nodes, but every test-realm node offered it: a stub peer of a testnet node could take the node's DSUSD, or a market maker's inventory, for dollars it minted.
 - Dev, the end-to-end tests, the tests and the simulations run on the stub, and are built with debug assertions: dev and the end-to-end binary in the `dev` and `e2e` profiles, tests and simulations in `test` and its heirs. A release is built without them, and the live realm's dev switch already relies on that ([mainnet-schemes](mainnet-schemes.md)).
@@ -17,7 +17,7 @@
 ## Accepted
 
 - **The stub's code ships in release binaries,** unreachable: a runtime gate keeps both branches compiled and tested in every build, where a cargo feature would leave the release branch untested.
-- **A testnet node set up on a release can no longer try Dassie on the stub;** it starts on the XRP Ledger testnet, whose faucet funds it.
+- **A testnet node set up on a release cannot try Dassie on the stub;** it starts on the XRP Ledger testnet, whose faucet funds its account, and settles over the testnet's hub.
 
 ## Rejected
 

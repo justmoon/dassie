@@ -14,7 +14,7 @@
 
 ## Decision
 
-- **Peers settle only over settlement hubs.** Direct settlement leaves the code: no scheme on an underlying ledger peers any more, and the credit machinery that only direct peerings need goes with it. How direct settlement worked, and what it would take to bring it back, stays in a design doc of its own, written as it leaves.
+- **Peers settle only over settlement hubs.** Direct settlement leaves the code: no scheme on an underlying ledger peers any more, and the credit machinery that only direct peerings need goes with it. How direct settlement worked, and what it would take to bring it back, stays in [a design doc of its own](../designs/direct-settlement.md).
 - **The schemes on the underlying ledgers stay, as the owner's books.** They hold the owner's funds on each ledger, pay into a hub and take what it pays out, and never peer.
 - **Every hub two nodes share is a settlement method of their peering** ([settlement-methods](settlement-methods.md)). A node is in a hub once it has chosen it, whether or not it has an account there yet. A pair that shares no hub does not peer.
 - **One hub per asset per node.** A node is in at most one hub for each asset and underlying ledger, and may be in hubs of several assets.

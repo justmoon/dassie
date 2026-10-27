@@ -1083,74 +1083,6 @@ fn a_stopped_scheme_closes_its_connection() {
     assert_eq!(core.ledger_views()[0].status, LedgerStatus::Connecting);
 }
 
-// spec/decisions/earned-trust.md: a node that once accepted a peer's request
-// extended it nothing, on a trust account that stays when the peering ends.
-// Peering again on its own request, it is the junior, and extends at least
-// the default credit: it posts the difference, rather than keep the senior's
-// nothing.
-// Goes with direct settlement: the credit machinery (spec/roadmap.md#hubs-only).
-#[test]
-fn a_junior_extends_at_least_the_default_credit() {
-    use dassie_ledger::{AccountName, AccountPath, LedgerId, Name};
-    use dassie_peer::PeeringHooks;
-
-    let mut core = core(7);
-    core.add_scheme("stub", String::new()).unwrap();
-    let peer = NodeKey::from_bytes(&[9; 32]).node_id();
-    let name = Name::new(peer.as_str()).unwrap();
-    core.ledger
-        .open_peer(NOW, LedgerId::StubUsd, name, core.senior_credit)
-        .unwrap();
-    let scheme = dassie_peer::wire::SchemeId::parse("stub").unwrap();
-    let agreed = core
-        .with_peer(|_, hooks, _| hooks.finalize(NOW, peer, scheme, &[], false))
-        .unwrap();
-    assert_eq!(agreed.credit_out, Policies::DEFAULT.peer_credit);
-    let contra = core
-        .ledger
-        .find(&AccountPath::new(
-            LedgerId::StubUsd,
-            AccountName::ContraTrust(name),
-        ))
-        .unwrap();
-    let trust = dassie_settlement::policy::trust(core.ledger.account(contra).unwrap().balance());
-    assert_eq!(trust, Policies::DEFAULT.peer_credit);
-}
-
-// spec/decisions/ended-for-room.md: a peering we ended because the peer's
-// room stayed short is formed again later on our own request. We are the
-// junior now, but the peer gets no more credit than it had as our junior: the
-// default would be a new line for a peer that never settled.
-// Goes with direct settlement: the credit machinery (spec/roadmap.md#hubs-only).
-#[test]
-fn a_junior_keeps_the_lower_credit_of_a_peer_it_ended_for_room() {
-    use dassie_ledger::{AccountName, AccountPath, LedgerId, Name};
-    use dassie_peer::PeeringHooks;
-
-    let mut core = core(7);
-    core.add_scheme("stub", String::new()).unwrap();
-    let peer = NodeKey::from_bytes(&[9; 32]).node_id();
-    let name = Name::new(peer.as_str()).unwrap();
-    core.ledger
-        .open_peer(NOW, LedgerId::StubUsd, name, core.senior_credit)
-        .unwrap();
-    let scheme = dassie_peer::wire::SchemeId::parse("stub").unwrap();
-    let agreed = core
-        .with_peer(|_, hooks, _| hooks.finalize(NOW, peer, scheme, &[], true))
-        .unwrap();
-    assert_eq!(agreed.credit_out, core.senior_credit);
-    assert!(core.senior_credit < Policies::DEFAULT.peer_credit);
-    let contra = core
-        .ledger
-        .find(&AccountPath::new(
-            LedgerId::StubUsd,
-            AccountName::ContraTrust(name),
-        ))
-        .unwrap();
-    let trust = dassie_settlement::policy::trust(core.ledger.account(contra).unwrap().balance());
-    assert_eq!(trust, core.senior_credit);
-}
-
 // spec/areas/settlement.md#the-stub-scheme: on the stub with unlimited trust,
 // the senior and the junior alike extend the unlimited credit, and a trust
 // account from an earlier peering that holds less, even one ended for room,
@@ -2303,12 +2235,13 @@ fn a_newcomer_that_paid_to_enter_is_taken_and_booked_once() {
     let (mut ledger, uplink) = funded_ledger();
     let store = Arc::new(Store::open_in_memory().unwrap());
     let mut core = core_taking_few_downlinks(Arc::clone(&store), 2, NOW);
-    core.add_scheme("stub", String::new()).unwrap();
+    add_stub(&mut core, TRUSTING);
+    let info = stub_info(&mut core);
     add_xrpl(&mut core, SCHEME, SHARED_CONFIG).unwrap();
     follow_xrpl(&mut core, &mut ledger);
     let free = Arc::new(NodeKey::from_bytes(&[11; 32]));
     assert_eq!(
-        asks_as_downlink(&mut core, &free, NOW + 1_000, ("stub", &[])),
+        asks_as_downlink(&mut core, &free, NOW + 1_000, ("stub", &info)),
         None
     );
     // The newcomer's own account, which its request names.
@@ -2394,12 +2327,13 @@ fn a_newcomer_without_room_for_its_accounts_is_not_told_to_pay() {
     let (mut ledger, uplink) = funded_ledger();
     let store = Arc::new(Store::open_in_memory().unwrap());
     let mut core = core_taking_few_downlinks(Arc::clone(&store), 2, NOW);
-    core.add_scheme("stub", String::new()).unwrap();
+    add_stub(&mut core, TRUSTING);
+    let info = stub_info(&mut core);
     add_xrpl(&mut core, SCHEME, SHARED_CONFIG).unwrap();
     follow_xrpl(&mut core, &mut ledger);
     let free = Arc::new(NodeKey::from_bytes(&[11; 32]));
     assert_eq!(
-        asks_as_downlink(&mut core, &free, NOW + 1_000, ("stub", &[])),
+        asks_as_downlink(&mut core, &free, NOW + 1_000, ("stub", &info)),
         None
     );
     fill_downlinks_share(&mut core);
