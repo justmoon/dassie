@@ -338,13 +338,28 @@ export function ledgerNetwork(def: ScenarioDef): "testnet" | "mainnet" {
 }
 
 /**
- * Whether `def`'s nodes resume with their data after a restart. Not a live
- * scenario's: the fake ledger is a new chain on every run, and mainnet
- * never resets, so a mainnet account that knew an earlier chain stops
- * (spec/areas/xrpl.md#real-money). Its nodes start from scratch.
+ * Why `def`'s nodes start from scratch on every run, a restart too, if
+ * they do; the fake ledger is a new chain on every run. A live scenario's
+ * because mainnet never resets, so a mainnet account that knew an earlier
+ * chain stops (spec/areas/xrpl.md#real-money). A hub scenario's because
+ * its hub's escrow is on the earlier chain alone, and nothing sets it up
+ * again on the new one, so its members could neither deposit nor settle
+ * (spec/areas/hubs.md#founding-a-hub).
  */
+export function startsFresh(def: ScenarioDef): string | undefined {
+  if (live(def)) {
+    return "runs on a new fake mainnet, which never resets";
+  }
+  if (def.hub !== undefined) {
+    return "founds its hub on a new fake ledger, since its escrow stays on the old one";
+  }
+  return undefined;
+}
+
+/** Whether `def`'s nodes resume with their data after a restart: unless
+ * they start from scratch ({@linkcode startsFresh}). */
 export function resumes(def: ScenarioDef): boolean {
-  return !live(def);
+  return startsFresh(def) === undefined;
 }
 
 /** Whether `def` settles on the XRP Ledger, with any of its nodes. */

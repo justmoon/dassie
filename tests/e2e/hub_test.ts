@@ -9,7 +9,8 @@
  * packets, so the payer funds its hold toward the payee over the hub as it
  * pays; what arrived is what was sent, each member's books hold what its
  * accounts hold, and both members' books are unchanged once they restart.
- * The validators keep running meanwhile, so the hub does too.
+ * The validators keep running meanwhile, so the hub does too. A node added
+ * then joins the hub as a member, funds its account and peers over it.
  */
 
 import { test } from "node:test";
@@ -117,7 +118,10 @@ async function ownerFunds(node: ScenarioNode): Promise<bigint> {
  * booked as their settlements as they funded them, each less what its
  * ledger holds back (spec/areas/testing.md#each-node-judged-by-its-own-books).
  * A peer's hold toward it is read from the peer, as the credit the peer
- * extends it.
+ * extends it. That credit is the hold and the peer's settlements on their
+ * way, so it is the hold only once the peer is quiet too: the check holds
+ * once every member is, which {@linkcode settled} asks of each in turn and
+ * again a settlement interval later.
  */
 async function inStep(
   scenario: Scenario,
@@ -175,7 +179,7 @@ async function peersOverHub(
 }
 
 test(
-  "hub founds a settlement hub, and its members settle over it across restarts",
+  "hub founds a settlement hub, its members settle over it across restarts, and an added node joins it",
   { skip: missing !== undefined },
   async () => {
     const scenario = await Scenario.temporary("hub", {
@@ -259,6 +263,33 @@ test(
         accounts,
         "peer accounts",
       );
+
+      // A node added later joins the hub as a member: its scheme takes the
+      // founded hub's rules, and it funds its account from its owner book,
+      // then peers over the hub alone.
+      const added = await scenario.addNode();
+      const { activeSettlementSchemes } = await added.rpc.call(
+        "getBasicState",
+        {},
+      );
+      assert(
+        activeSettlementSchemes.includes(HUB_SCHEME),
+        `${added.name} runs ${activeSettlementSchemes.join(", ")}`,
+      );
+      await scenario.until(`${added.name} funded in the hub`, async () => {
+        const view = await ledger(added, HUB_LEDGER);
+        return view.connection === LedgerConnection.SYNCED &&
+          view.ownerBalance > 0n;
+      }, HUB_WITHIN_MS);
+      await scenario.until(
+        `${added.name} peered over the hub`,
+        async () =>
+          (await peersOverHub(added, payer)) ||
+          (await peersOverHub(added, payee)),
+        HUB_WITHIN_MS,
+      );
+      const { peers } = await added.rpc.call("listPeers", {});
+      for (const peer of peers) assertEquals(peer.scheme, HUB_SCHEME);
     } finally {
       const failures = await scenario.stop();
       assertEquals(failures, [], failures.join("\n"));

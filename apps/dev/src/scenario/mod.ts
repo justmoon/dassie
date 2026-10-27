@@ -68,6 +68,7 @@ export {
   resumes,
   type ScenarioDef,
   SCENARIOS,
+  startsFresh,
   TOKEN_SCHEMES,
   unavailable,
   validates,
@@ -347,9 +348,11 @@ export class Scenario {
    * Founds the scenario's hub once its nodes run, as the sponsor's owner
    * would (spec/areas/hubs.md#founding-a-hub): with every validator, once
    * the sponsor's owner book of XRP, which funds the escrow, shows XRP.
-   * Then each member joins it with its rules. A founding the sponsor keeps
-   * from an earlier run is taken as it is, and members that joined keep
-   * their scheme, so a restart founds nothing again.
+   * Then each member joins it with its rules. The dev environment starts a
+   * hub scenario from scratch on every run (`startsFresh`), since its
+   * escrow stays on the earlier run's fake ledger; should the sponsor keep
+   * a founding all the same, it is taken as it is, and members that joined
+   * keep their scheme, so nothing is founded twice.
    */
   async #foundHub(): Promise<void> {
     const hub = this.def.hub;
@@ -381,12 +384,28 @@ export class Scenario {
       });
     }
     let rules = "";
-    await until("the hub founded", async () => {
-      const { foundings } = await sponsor.rpc.call("listHubFoundings", {});
-      rules = foundings.find((founding) => founding.stage === FOUNDED)?.rules ??
-        "";
-      return rules !== "";
-    }, FOUNDED_WITHIN_MS);
+    // Where the founding stands, and what holds it up, as the sponsor last
+    // said: the error if it is never founded.
+    let where = "no founding";
+    try {
+      await until("the hub founded", async () => {
+        const { foundings } = await sponsor.rpc.call("listHubFoundings", {});
+        const [founding] = foundings;
+        if (founding !== undefined) {
+          const problem = founding.problem === ""
+            ? ""
+            : `: ${founding.problem}`;
+          where = `stage ${founding.stage}${problem}`;
+        }
+        rules = foundings.find((founding) => founding.stage === FOUNDED)
+          ?.rules ?? "";
+        return rules !== "";
+      }, FOUNDED_WITHIN_MS);
+    } catch (error) {
+      throw new Error(`${sponsor.name} founded no hub (${where})`, {
+        cause: error,
+      });
+    }
     this.#configs[HUB_SCHEME] = hubConfig(rules);
     for (const node of this.nodes) {
       if (!joinsHub(this.def, node.index)) continue;

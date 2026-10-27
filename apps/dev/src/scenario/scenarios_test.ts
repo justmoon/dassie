@@ -20,6 +20,7 @@ import {
   type ScenarioDef,
   SCENARIOS,
   settlesOnXrpl,
+  startsFresh,
   TOKEN_SCHEMES,
   unavailable,
   validates,
@@ -142,7 +143,7 @@ test("a live scenario runs mainnet's schemes on the fake ledger's mainnet only",
       assertEquals(token === "RLUSD", live(def), def.id);
     }
     assertEquals(ledgerNetwork(def), live(def) ? "mainnet" : "testnet");
-    assertEquals(resumes(def), !live(def));
+    assertEquals(resumes(def), !live(def) && def.hub === undefined, def.id);
   }
   const rlusd = findScenario("rlusd-live-settlement")!;
   assertEquals(TOKEN_SCHEMES.RLUSD, "xrpl-rlusd");
@@ -195,7 +196,14 @@ test("the hub scenario: four validators, a sponsor among them, two members", () 
   // Members are its bootstrap nodes: they meet without the validators.
   assertEquals(def.bootstrap, def.hub?.members);
   assertEquals(settlesOnXrpl(def), true);
-  assertEquals(resumes(def), true);
+  // A restart starts it from scratch: the fake ledger is a new chain, and
+  // its hub's escrow is on the old one.
+  assertEquals(resumes(def), false);
+  assertEquals(
+    startsFresh(def),
+    "founds its hub on a new fake ledger, since its escrow stays on the old one",
+  );
+  assertEquals(startsFresh(findScenario("xrpl-settlement")!), undefined);
   assertEquals(
     unavailable(def, false),
     "needs --xrpl fake: each run founds a hub of its own, whose escrow stays off the public testnet",

@@ -42,8 +42,8 @@ import {
 import {
   MAX_NODES,
   peripheryOf,
-  resumes,
   type ScenarioDef,
+  startsFresh,
   unavailable,
 } from "./scenario/scenarios.ts";
 import { recordPids } from "./stale.ts";
@@ -395,12 +395,14 @@ export class Environment {
     if (this.#stopping) return;
     const def = findScenario(this.#scenarioId)!;
     // A live scenario's nodes cannot resume on the new fake mainnet, which
-    // never resets: they start from scratch.
-    const fresh = wipe || !resumes(def);
-    if (fresh && !wipe) {
+    // never resets, nor a hub scenario's, whose escrow is on the old chain:
+    // they start from scratch.
+    const why = startsFresh(def);
+    const fresh = wipe || why !== undefined;
+    if (why !== undefined && !wipe) {
       this.log(
         LogLevel.INFO,
-        `${def.id} runs on a new fake mainnet, which never resets: its nodes start from scratch`,
+        `${def.id} ${why}: its nodes start from scratch`,
       );
     }
     if (fresh) await this.#wipe();
