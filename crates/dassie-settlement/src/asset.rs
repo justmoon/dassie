@@ -32,6 +32,9 @@ pub enum AssetKind {
     /// An account in a settlement hub on the XRP Ledger testnet
     /// (spec/designs/settlement-hubs.md).
     HubTestnetAccount,
+    /// An account in a settlement hub on the XRP Ledger mainnet: real
+    /// money (spec/decisions/hub-scheme-names.md).
+    HubAccount,
 }
 
 impl AssetKind {
@@ -40,6 +43,7 @@ impl AssetKind {
         Self::XrplTestnetAccount,
         Self::XrplAccount,
         Self::HubTestnetAccount,
+        Self::HubAccount,
     ];
 
     /// Its name, as IDs and the database write it.
@@ -49,6 +53,7 @@ impl AssetKind {
             Self::XrplTestnetAccount => "xrpl-testnet-account",
             Self::XrplAccount => "xrpl-account",
             Self::HubTestnetAccount => "hub-testnet-account",
+            Self::HubAccount => "hub-account",
         }
     }
 }

@@ -29,7 +29,8 @@
 //!   payload of its blocks.
 //! - [`member`]: a member's side: its account in the hub as an external
 //!   asset, and the settlement scheme on it that the hub's asset names,
-//!   `hub-xrpl-testnet-xrp` or `hub-xrpl-testnet-dsusd`.
+//!   `hub-xrpl-testnet-xrp`, `hub-xrpl-testnet-dsusd`, `hub-xrpl-xrp` or
+//!   `hub-xrpl-rlusd`.
 //!
 //! Like the other protocol crates, it never reads a clock, an RNG or a
 //! socket of its own (spec/decisions/tigerstyle.md): time and randomness

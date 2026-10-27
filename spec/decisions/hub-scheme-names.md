@@ -1,6 +1,6 @@
 # A hub scheme's ID names its underlying ledger and its asset
 
-**Areas:** [Settlement hubs](../areas/hubs.md#in-the-node), [Settlement](../areas/settlement.md#schemes-and-ledgers), [XRPL](../areas/xrpl.md). The testnet's are built; mainnet's are not yet ([roadmap](../roadmap.md#mainnet-hubs)).
+**Areas:** [Settlement hubs](../areas/hubs.md#in-the-node), [Settlement](../areas/settlement.md#schemes-and-ledgers), [XRPL](../areas/xrpl.md). Both networks' are built; mainnet's run in the live realm only, with no default hub built in yet ([roadmap](../roadmap.md#mainnet-hubs)).
 
 ## Facts
 

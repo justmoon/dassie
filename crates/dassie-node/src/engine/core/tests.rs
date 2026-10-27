@@ -13,6 +13,7 @@ use super::{Core, CoreParts, Outbound, Output};
 use crate::node::Policies;
 use crate::store::Store;
 
+mod hub_moves;
 mod slots;
 
 const NOW: u64 = 1_800_000_000_000;
@@ -858,8 +859,11 @@ fn the_core_does_not_log() {
     let mut read = 0;
     for entry in std::fs::read_dir(&dir).unwrap() {
         let path = entry.unwrap().path();
-        // The tests, in `tests.rs` and the modules under `tests/`.
-        if path.is_dir() || path.file_name().is_some_and(|name| name == "tests.rs") {
+        // The tests, and the directory of those in files of their own.
+        if path
+            .file_name()
+            .is_some_and(|name| name == "tests.rs" || name == "tests")
+        {
             continue;
         }
         let text = std::fs::read_to_string(&path).unwrap();

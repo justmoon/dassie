@@ -105,7 +105,7 @@ message HubStatus {
   // deposits too, counted apart.
   uint64 returned = 18;
   // The settlement scheme over the hub, which names its ledger and asset,
-  // such as `hub-xrpl-testnet-xrp`.
+  // such as `hub-xrpl-testnet-xrp`, or `hub-xrpl-rlusd` on mainnet.
   string scheme = 19;
 }
 
