@@ -138,7 +138,7 @@ fn hub_members_hold_to_the_ledger_through_lying_servers() {
         "owner moves into the hub",
         "owner moves while lied to",
         "own moves while lied to",
-        "lying validator servers",
+        "validator servers lying in a round",
     ]) {
         assert!(
             reached.contains_key(what),
@@ -161,10 +161,12 @@ fn hub_members_pay_across_currencies() {
 // spec/decisions/settlement-methods.md: nodes in an XRP hub and a DSUSD hub
 // fund each from the owner book of its asset, each pair peers over both,
 // and they pay in XRP and in dollars; each hub and each member's books in
-// it hold, and what a peer cost is bounded by the holds summed over the
-// methods. Then one hub stalls and pays out exactly the final balances,
-// while the other carries payments on and every peering is kept.
+// it hold, and what a peer cost on each method is bounded by the holds on
+// its hub. Then the hub of the method packets do not take stalls and pays
+// out exactly the final balances, while the other carries every payment
+// after it and every peering is kept. Packets take one method until the
+// connector picks one per packet.
 #[test]
-fn nodes_in_two_hubs_pay_over_both_and_survive_one_failing() {
+fn nodes_in_two_hubs_peer_over_both_and_survive_one_failing() {
     assert_passes(PAIRS_SEED, hub_pairs::run);
 }

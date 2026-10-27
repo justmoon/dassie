@@ -28,10 +28,11 @@ use dassie_xrpl::fake::Lie;
 use dassie_xrpl::{DROPS_PER_XRP, UNITS_PER_DROP};
 
 use super::checks::{check_across, check_anchored, check_true, check_withdrawn, first_failure};
-use super::hub_pairs::{check_hubs, join_hubs};
+use super::hub_pairs::{check_hubs, join_hubs, status_in};
 use super::hubbed::{PAID_WITHIN_MS, check_calm, form, over_hub, paid, pay, routed, settle_down};
 use super::scripted::{READY_WITHIN_MS, ended};
 use super::{HUB, LEDGER_CLOSE_MS, LEDGER_RECONNECT_MS, LONGEST_LIE_MS, Settling, Sim};
+use crate::engine::core::Direction;
 use crate::node::Policies;
 
 /// How long a server of [`run_lies`] lies to a member: the longest a drawn
@@ -157,6 +158,7 @@ fn lie_to_validators(sim: &mut Sim, rng: &mut SeededRng, round: &[(usize, Lie)])
             round[0].1
         };
         sim.lie_to_validator(validator, Some(lie));
+        sim.count("validator servers lying in a round");
     }
     if !each_another && lying > 1 {
         sim.count("validator servers telling one lie");
@@ -167,8 +169,10 @@ fn lie_to_validators(sim: &mut Sim, rng: &mut SeededRng, round: &[(usize, Lie)])
 /// What the hub's validators attested holds on the fake ledger, while
 /// their servers lie: the escrow holds what the hub owes and the sponsor
 /// left, but for the withdrawals it paid that a quorum has not attested
-/// yet, and the hub wrote off no reset the ledger never made. A lying
-/// server makes a watcher attest nothing, never something false
+/// yet, and no more but for the members' deposits on their way, so that a
+/// withdrawal attested as paid that the escrow never paid fails as well;
+/// and the hub wrote off no reset the ledger never made. A lying server
+/// makes a watcher attest nothing, never something false
 /// (spec/areas/hubs.md#what-validators-attest).
 fn attested_truly(sim: &Sim) -> Result<(), Outcome> {
     let hub = sim.hub.as_deref().unwrap();
@@ -179,14 +183,19 @@ fn attested_truly(sim: &Sim) -> Result<(), Outcome> {
         .withdrawals()
         .map(|(_, withdrawal)| withdrawal.amount + withdrawal.ledger_fee)
         .sum();
+    let depositing: u64 = (0..sim.nodes.len())
+        .filter_map(|index| status_in(sim, index, hub.spec.place)?.moving)
+        .filter(|moving| moving.direction == Direction::Deposit)
+        .map(|moving| moving.drops)
+        .sum();
     let held = sim.ledger.balance(hub.escrow()).unwrap_or(0);
     let owed = hub.escrow_funding + ledger.supply();
-    if held + withdrawing < owed {
+    if held + withdrawing < owed || held > owed + depositing {
         return Err(Outcome::safety(
             "attested",
             format!(
-                "the hub owes {owed} with {withdrawing} queued out, more than its escrow \
-                 holds, {held}"
+                "the hub owes {owed} with {withdrawing} queued out and {depositing} on its way \
+                 in, while its escrow holds {held}"
             ),
         ));
     }

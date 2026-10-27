@@ -712,11 +712,11 @@ pub fn check_anchored(sim: &Sim) -> Result<(), String> {
 }
 
 /// Whether node `index` books `ledger`: one it pays over, or an owner book
-/// a DSUSD hub's member funds its account in the hub from, and pays the
-/// escrow's gas from.
+/// a hub's member funds its account in the hub from, and pays the escrow's
+/// gas from.
 fn books(sim: &Sim, index: usize, ledger: LedgerId) -> bool {
     sim.settling.ledgers(index).contains(&ledger)
-        || matches!(sim.settling, Settling::HubDsusd(_)) && (ledger == XRP || ledger == DSUSD)
+        || sim.settling.owner_books(index).contains(&ledger)
 }
 
 /// On the XRP Ledger, the faucet funded every node, and on a token the

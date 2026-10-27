@@ -7,15 +7,16 @@
 //! on neither, and funds each hub from the book of its asset; its link
 //! state lists both hubs, and each pair peers over both, each hub a method
 //! of the peering. Payments go in XRP and in dollars, and from one into the
-//! other, across hops. Then the XRP hub loses f + 1 validators, stalls and
-//! pays out, while the DSUSD hub keeps carrying payments and every peering
-//! is kept.
+//! other, across hops. Then the hub of the method the packets do not take
+//! loses f + 1 validators, stalls and pays out, while the other keeps
+//! carrying payments and every peering is kept.
 //!
 //! Each node is judged by its own books (spec/decisions/own-books.md): in
 //! each hub, what its account and its peers' holds toward it hold, as that
 //! hub's honest validators have it; and what it booked as lost on a peer
-//! is never more than the holds between them, summed over the methods of
-//! their peering. The helpers here judge a run of any number of hubs, hub
+//! over a hub is never more than the holds between them on that hub,
+//! which bounds what the peer can cost summed over the methods of their
+//! peering. The helpers here judge a run of any number of hubs, hub
 //! by hub, and `node-hub-currencies` shares them.
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -33,8 +34,8 @@ use dassie_xrpl::codec::Amount;
 use dassie_xrpl::{DROPS_PER_XRP, UNITS_PER_DROP};
 
 use super::checks::{
-    check_across, check_events, check_held, check_hub_credit, check_hub_packets, check_incoming,
-    check_settled, first_failure,
+    check_across, check_events, check_held, check_hub_credit, check_hub_packets, check_settled,
+    first_failure,
 };
 use super::hub::{HubNet, PREPARES_OVER_DSUSD, PREPARES_OVER_XRP, owed};
 use super::hubbed::{check_losses, paid, routed};
@@ -410,8 +411,7 @@ fn check_escrow_in(sim: &Sim, place: usize) -> Result<(), String> {
 /// books in each, once the network is calm: the validators, each member's
 /// books and its account in step, each escrow; and over all of them, no
 /// packet held past the connector, no credit apart from the holds, and no
-/// loss on a peer beyond the holds between them summed over the methods of
-/// the peering.
+/// loss on a peer over a hub beyond the holds between them on that hub.
 pub(super) fn check_hubs(sim: &Sim, places: &[usize]) -> Result<(), Outcome> {
     let mut checks = vec![
         check_hub_packets(sim).map_err(|problem| Outcome::safety("hub-packets", problem)),
@@ -553,29 +553,43 @@ fn script(sim: &mut Sim, rng: &mut SeededRng) -> Result<(), Outcome> {
     let paid_before = sim.payments.len();
     stall(sim, rng, failing)?;
     let there = amount(rng);
-    sim.pay_in(0, (first, first), 2, there, None, None);
     let back = amount(rng);
-    sim.pay_in(2, (first, first), 0, back, None, None);
+    if !sim.pay_in(0, (first, first), 2, there, None, None)
+        || !sim.pay_in(2, (first, first), 0, back, None, None)
+    {
+        return Err(Outcome::liveness(
+            "paid-after",
+            format!("a payment after the {other} hub failed could not start"),
+        ));
+    }
+    assert_eq!(sim.payments.len(), paid_before + 2);
     sim.run_until_or(sim.now + PAID_WITHIN_MS, |sim| {
         sim.payments[paid_before..]
             .iter()
             .all(|payment| payment.done)
     });
     settle_down_in(sim, &[working]);
-    // Each finished, with what was sent less what the hop between charged.
+    // Each finished, having sent something, and arrived with what was sent
+    // less what the hop between charged: a method that stopped carrying
+    // packets when the other hub failed fails here.
     let after = sim.payments[paid_before..].iter().map(|payment| {
-        let least = super::least_across(first, first, super::sent(payment));
-        if !payment.done {
-            check_incoming(sim, payment)
-        } else if super::received(sim, payment) < least {
+        let (sent, got) = (super::sent(payment), super::received(sim, payment));
+        let least = super::least_across(first, first, sent);
+        if !payment.done || sent == 0 {
+            Err(Outcome::liveness(
+                "paid-after",
+                format!(
+                    "a payment from node {} to {} after the {other} hub failed did not finish: \
+                     sent {sent} of {}, received {got}",
+                    payment.from, payment.to, payment.amount,
+                ),
+            ))
+        } else if got < least {
             Err(Outcome::safety(
                 "received",
                 format!(
-                    "node {} received {} of node {}'s {}",
-                    payment.to,
-                    super::received(sim, payment),
-                    payment.from,
-                    super::sent(payment)
+                    "node {} received {got} of node {}'s {sent}",
+                    payment.to, payment.from,
                 ),
             ))
         } else {
@@ -642,12 +656,13 @@ fn peerings(sim: &Sim) -> BTreeSet<(usize, NodeId)> {
         .collect()
 }
 
-/// The ledger of the method every peering was made on, its first, which
-/// the connector's endpoint for the peer takes.
+/// The ledger of the method every peer's packets take, which the
+/// connector's endpoint for the peer takes: its peering's first, the one
+/// it was made on.
 fn first_ledger(sim: &Sim) -> Result<LedgerId, Outcome> {
     let firsts: BTreeSet<String> = (0..sim.nodes.len())
         .flat_map(|index| sim.core(index).network().peers)
-        .map(|peer| peer.peering.first().scheme.as_str().to_owned())
+        .map(|peer| peer.carried.as_str().to_owned())
         .collect();
     match firsts.iter().collect::<Vec<_>>().as_slice() {
         [first] if first.as_str() == Settling::scheme(HUB).0 => Ok(HUB),

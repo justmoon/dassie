@@ -2171,7 +2171,8 @@ impl Sim {
     }
 
     /// Validator `index`'s server ([`validator_id`]; in the first hub,
-    /// its index) tells `lie` on every connection from now on, or none: the one it has drops, and the next lies
+    /// its index) tells `lie` on every connection from now on, or none:
+    /// the one it has drops, and the next lies
     /// (spec/designs/xrpl-validation.md#11-the-fake-ledger-the-lying-server-and-the-simulation).
     /// As [`Sim::lie_to`] makes a member's server lie, but for as long as
     /// it is told, so a validator's verifier meets the lie again on every
