@@ -40,7 +40,7 @@
 //! [`deposit`](SettlementScheme::deposit) is unsupported: the owner
 //! deposits from the underlying ledger.
 
-use alloc::collections::{BTreeMap, BTreeSet, VecDeque};
+use alloc::collections::{BTreeMap, VecDeque};
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::any::Any;
@@ -63,7 +63,7 @@ use super::peering::{Membership, NONE};
 use super::{UNITS_PER_DROP, digest_name, units};
 use crate::client::AccountView;
 use crate::digest::Digest;
-use crate::ledger::{Detail, Failure, Outcome};
+use crate::ledger::{Detail, Outcome};
 use crate::operation::{AccountNumber, MemberOperation, Operation, SignedMemberOperation};
 use crate::promise::{Claim, Commitment, HoldNumber, Signed};
 use crate::rules::{Amount, HubId, Terms};
@@ -82,6 +82,14 @@ const MAX_STRANGERS: usize = 64;
 const MAX_LOSSES: usize = MAX_PEERS * super::payer::MAX_PACKETS;
 /// Most waits decided and not yet taken.
 const MAX_DECIDED: usize = MAX_PEERS * super::payer::MAX_PACKETS;
+/// How often the scheme asks the hub for the account of a peer that has
+/// none in its records, so it learns of one a deposit opened without
+/// paying the peer in first. Reads cost nothing.
+pub const LOOK_UP_EVERY_MS: u64 = 60_000;
+/// How long the scheme waits after its `pay` to a peer failed before it
+/// pays that peer in again: each try costs an operation's fee, and what
+/// failed it, as a full account table, does not pass at once.
+pub const PAY_AGAIN_MS: u64 = 60_000;
 
 /// A peer over the hub.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -93,6 +101,12 @@ pub(super) struct Peer {
     pub(super) payer: Payer,
     /// Its hold toward us.
     pub(super) payee: Payee,
+    /// While it has no account in our records: when to ask the hub for
+    /// one next. Not kept across restarts: a restart asks at once.
+    pub(super) look_up_ms: u64,
+    /// While it has no account in our records: before when not to pay it
+    /// in, since our last `pay` to it failed. Not kept across restarts.
+    pub(super) pay_after_ms: u64,
 }
 
 impl Peer {
@@ -123,6 +137,18 @@ impl Peer {
 pub(super) struct Settling {
     pub(super) peer: Name,
     pub(super) drops: Amount,
+}
+
+/// Our `pay` whose sequence the account used while the history of what it
+/// did was gone (spec/areas/hubs.md#when-the-history-is-gone): whether it
+/// applied, the hub's account for the key it paid in says.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct UnreadPay {
+    /// The key it paid in.
+    pub(super) key: PublicKey,
+    /// The block the account read anew as of: the `pay` had executed by
+    /// then.
+    pub(super) height: u64,
 }
 
 /// The `hub-xrpl-testnet-xrp` scheme.
@@ -158,9 +184,10 @@ pub struct HubScheme {
     /// shown yet: that much of its growth is booked already.
     pub(super) booked_ahead: Amount,
     strangers: BTreeMap<HoldNumber, SignedMemberOperation>,
-    /// Peers without an account in our records whose account to ask the
-    /// hub for: our `pay` to them failed, as the hub has one for their key.
-    look_ups: BTreeSet<Name>,
+    /// Our settlements that are a `pay` whose outcome the account never
+    /// read, by settlement: still on their way until the hub says whether
+    /// it has an account for the key. Kept with the books.
+    pub(super) unread_pays: BTreeMap<Name, UnreadPay>,
     losses: VecDeque<(Name, Loss)>,
     decided: VecDeque<Decided>,
     now_ms: u64,
@@ -246,7 +273,7 @@ impl HubScheme {
             withdrawals_made: 0,
             booked_ahead: 0,
             strangers: BTreeMap::new(),
-            look_ups: BTreeSet::new(),
+            unread_pays: BTreeMap::new(),
             losses: VecDeque::new(),
             decided: VecDeque::new(),
             now_ms: 0,
@@ -324,8 +351,13 @@ impl HubScheme {
             // peer that had none when it peered, which a deposit opened.
             News::Member {
                 key,
-                account: Some(number),
+                account,
+                height,
             } => {
+                self.pay_resolved(key, *account, *height, effects);
+                let Some(number) = account else {
+                    return;
+                };
                 for peer in self.peers.values_mut() {
                     if peer.key == *key && peer.account == NONE {
                         peer.account = *number;
@@ -335,7 +367,6 @@ impl HubScheme {
                     }
                 }
             }
-            News::Member { account: None, .. } => {}
             // The hub has no account for our key: we hold nothing in it,
             // and run, to be paid in by a peer
             // (spec/designs/settlement-hubs.md#5-joining).
@@ -372,10 +403,11 @@ impl HubScheme {
     /// deposit; on the first state of an account opened since the hub said
     /// it had none, what deposits credited it as the owner's, never more,
     /// and its reserve as the reserve's; after, the owner's deposits and
-    /// withdrawals since the last
-    /// state, by how far the account's counters grew, and the rest
-    /// reconciled through suspense, as the reserve's when the account
-    /// reserve changed.
+    /// withdrawals since the last state, by how far the account's counters
+    /// grew, and the rest reconciled through suspense, as the reserve's
+    /// when the account reserve changed. An unread `pay` of ours counts as
+    /// still ours until the hub says whether it applied, as the books hold
+    /// it pending.
     fn match_balance(
         &mut self,
         account: &HubAccount,
@@ -383,7 +415,11 @@ impl HubScheme {
         effects: &mut Vec<Effect>,
     ) {
         self.account = account.number();
-        let target = units(view.balance.saturating_add(self.toward_us(account)));
+        let target = units(
+            view.balance
+                .saturating_add(self.toward_us(account))
+                .saturating_add(self.unread_paying()),
+        );
         // Opened since the hub said it had no account for our key: only
         // what deposits credited it is the owner's, and what a peer's `pay`
         // brought was booked as its settlement when the account read it.
@@ -519,10 +555,10 @@ impl HubScheme {
         let id = operation_hash(operation);
         match purpose {
             Purpose::Settle(settlement) => {
-                if let (Outcome::Failed { reason, .. }, MemberOperation::Pay { .. }) =
+                if let (Outcome::Failed { .. }, MemberOperation::Pay { .. }) =
                     (outcome, &operation.operation)
                 {
-                    self.not_paid_in(settlement, reason);
+                    self.not_paid_in(settlement);
                 }
                 self.settled(settlement, operation, applied, detail, effects);
             }
@@ -582,20 +618,79 @@ impl HubScheme {
             .map(|(name, _)| *name)
     }
 
-    /// Our `pay` for `settlement` failed: if the hub has an account for the
-    /// peer's key already, as a deposit opened it, we ask which, and the
-    /// next settlement funds a hold toward it.
-    fn not_paid_in(&mut self, settlement: Name, reason: Failure) {
+    /// Our `pay` for `settlement` failed. We ask the hub at once for the
+    /// account of the peer's key: one a deposit opened first fails it, and
+    /// the next settlement then funds a hold toward it. Whatever failed
+    /// it, the peer is not paid in again for [`PAY_AGAIN_MS`], since each
+    /// try costs a fee.
+    fn not_paid_in(&mut self, settlement: Name) {
+        let now = self.now_ms;
         let Some(settling) = self.settling.get(&settlement) else {
             return;
         };
-        let keyless = self
+        if let Some(peer) = self
             .peers
-            .get(&settling.peer)
-            .is_some_and(|peer| peer.account == NONE);
-        if reason == Failure::Exists && keyless {
-            self.look_ups.insert(settling.peer);
+            .get_mut(&settling.peer)
+            .filter(|peer| peer.account == NONE)
+        {
+            peer.look_up_ms = now;
+            peer.pay_after_ms = now.saturating_add(PAY_AGAIN_MS);
         }
+    }
+
+    /// The hub's account for `key` as of the block at `height`, for each
+    /// unread `pay` of ours to it. One there means the `pay` applied: the
+    /// hub opened it with our `pay`, or had it already, which takes a
+    /// deposit for the key racing our `pay`; then it is booked as made
+    /// rather than risk paying the peer in twice. None as of a block the
+    /// `pay` had executed by means it failed, and it is cancelled; none as
+    /// of an older block says nothing, and is asked again.
+    ///
+    /// While it waited, the account's state counted it as still ours, as
+    /// the books hold it ([`Self::match_balance`]): cancelled, what that
+    /// counted is taken back through suspense.
+    fn pay_resolved(
+        &mut self,
+        key: &PublicKey,
+        number: Option<AccountNumber>,
+        height: u64,
+        effects: &mut Vec<Effect>,
+    ) {
+        let answered: Vec<Name> = self
+            .unread_pays
+            .iter()
+            .filter(|(_, unread)| {
+                unread.key == *key && (number.is_some() || height >= unread.height)
+            })
+            .map(|(settlement, _)| *settlement)
+            .collect();
+        for settlement in answered {
+            self.unread_pays.remove(&settlement);
+            let Some(settling) = self.settling.remove(&settlement) else {
+                continue;
+            };
+            let amount = units(settling.drops);
+            if number.is_some() {
+                effects.push(Effect::Finalize { settlement });
+            } else {
+                effects.push(Effect::Cancel { settlement });
+                effects.push(Effect::Reconcile {
+                    amount,
+                    gain: false,
+                    cause: ReconcileCause::Unexplained,
+                });
+            }
+            self.booked = self.booked.saturating_sub(amount);
+        }
+    }
+
+    /// What our unread `pay`s move, in drops: still ours until the hub
+    /// says whether they applied.
+    fn unread_paying(&self) -> Amount {
+        self.unread_pays
+            .keys()
+            .filter_map(|settlement| self.settling.get(settlement))
+            .fold(0, |sum, settling| sum.saturating_add(settling.drops))
     }
 
     /// One of our settlements applied, or failed.
@@ -988,8 +1083,33 @@ impl HubScheme {
         self.peers
             .values()
             .filter_map(|peer| peer.payee.next_due(now, timing))
+            .chain(
+                self.peers
+                    .values()
+                    .filter(|peer| peer.account == NONE)
+                    .map(|peer| peer.look_up_ms),
+            )
             .filter(|at| *at > now)
             .min()
+    }
+
+    /// Asks the hub for the accounts of keys whose account we wait for:
+    /// the key of each unread `pay` of ours, at every turn until the hub
+    /// answers as of a block after it, before anything else; and each peer
+    /// without an account in our records, every [`LOOK_UP_EVERY_MS`], so
+    /// that one a deposit opened is learnt without paying the peer in. A
+    /// key the account cannot ask about yet is asked about at the next
+    /// turn.
+    fn ask_accounts(&mut self, account: &mut HubAccount) {
+        for unread in self.unread_pays.values() {
+            account.look_up(unread.key);
+        }
+        let now = self.now_ms;
+        for peer in self.peers.values_mut() {
+            if peer.account == NONE && peer.look_up_ms <= now && account.look_up(peer.key) {
+                peer.look_up_ms = now.saturating_add(LOOK_UP_EVERY_MS);
+            }
+        }
     }
 
     fn peer(&mut self, name: Name) -> Option<&mut Peer> {
@@ -1020,7 +1140,8 @@ impl HubScheme {
     /// `pay` of `drops` to the key it gave, which opens its account with
     /// them (spec/designs/settlement-hubs.md#5-joining). At least the hub's
     /// minimum for a new account, never less, and at most what our account
-    /// can spend; one at a time, so it is paid in once.
+    /// can spend; one at a time, so it is paid in once, and not for
+    /// [`PAY_AGAIN_MS`] after one failed.
     fn prepare_pay_in(
         &mut self,
         rng: &mut dyn CryptoRng,
@@ -1031,7 +1152,11 @@ impl HubScheme {
         opening: bool,
     ) -> Result<PreparedSettlement, SchemeError> {
         let minimum = self.terms.new_account_minimum();
-        if opening || drops < minimum {
+        let failed_lately = self
+            .peers
+            .get(&peer)
+            .is_some_and(|known| self.now_ms < known.pay_after_ms);
+        if opening || failed_lately || drops < minimum {
             return Err(SchemeError::Unavailable);
         }
         let spendable = self
@@ -1159,11 +1284,7 @@ impl SettlementScheme for HubScheme {
                 .map(|peer| peer.account)
                 .filter(|number| *number != NONE),
         );
-        for name in core::mem::take(&mut self.look_ups) {
-            if let Some(peer) = self.peers.get(&name).filter(|peer| peer.account == NONE) {
-                account.look_up(peer.key);
-            }
-        }
+        self.ask_accounts(account);
         if !account.has(Purpose::Withdraw) {
             // Not queued, and not told: only the counters can say.
             self.withdrawal_done(OwnerPaymentState::Unknown, effects);
@@ -1259,6 +1380,8 @@ impl SettlementScheme for HubScheme {
                 key: membership.key,
                 payer: Payer::new(),
                 payee: Payee::default(),
+                look_up_ms: 0,
+                pay_after_ms: 0,
             },
         );
     }
@@ -1375,7 +1498,8 @@ impl SettlementScheme for HubScheme {
 
     /// A settlement the account still has is sent, or is on its way; one
     /// it does not have was never sent: the account and the scheme are
-    /// written together, so one that executed was booked with them.
+    /// written together, so one that executed was booked with them. An
+    /// unread `pay` waits for the hub's word on the key it paid in.
     fn reconcile(
         &mut self,
         asset: Option<&mut dyn ExternalAsset>,
@@ -1391,7 +1515,7 @@ impl SettlementScheme for HubScheme {
             return;
         };
         for (settlement, _) in pending {
-            if !account.execute(*settlement) {
+            if !self.unread_pays.contains_key(settlement) && !account.execute(*settlement) {
                 self.settling.remove(settlement);
                 effects.push(Effect::Cancel {
                     settlement: *settlement,
@@ -1493,7 +1617,12 @@ impl SettlementScheme for HubScheme {
                 .all(|s| self.peers.contains_key(&s.peer) || s.drops > 0),
             "a settlement moves whole drops"
         );
-        assert!(self.look_ups.len() <= MAX_PEERS);
+        assert!(
+            self.unread_pays
+                .keys()
+                .all(|settlement| self.settling.contains_key(settlement)),
+            "an unread pay is a settlement on its way"
+        );
         if self.counters.is_some() {
             assert!(self.synced, "the owner's moves count from the first sync");
             assert!(

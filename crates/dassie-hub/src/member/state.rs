@@ -8,9 +8,11 @@
 //!   as ours.
 //! - **The scheme** keeps its peers and the records of their holds: the next
 //!   sequence, W and T of our claims and the packets the hub may still pay,
-//!   and what we fulfilled that no claim of the payer's covers. Packets in
-//!   flight at a restart are gone with the node's own: one of ours counts as
-//!   given up, one of the peer's as never taken.
+//!   and what we fulfilled that no claim of the payer's covers, and its
+//!   `pay`s whose outcome it never read. Packets in flight at a restart are
+//!   gone with the node's own: one of ours counts as given up, one of the
+//!   peer's as never taken. Its version 1 had no unread `pay`s, and is read
+//!   as having none.
 
 use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
@@ -23,13 +25,15 @@ use super::account::{HubAccount, Purpose, Queued};
 use super::mirror::HoldMirror;
 use super::payee::{Claiming, Done, Payee, Taken};
 use super::payer::{Packet, PaidOnHub, Payer, State};
-use super::scheme::{HubScheme, Peer, Settling};
+use super::scheme::{HubScheme, Peer, Settling, UnreadPay};
 use crate::codec::{read_key, write_key};
 use crate::digest::Digest;
 use crate::operation::{AccountNumber, MemberOperation, SignedMemberOperation};
 use crate::promise::{Claim, Commitment, HoldNumber, Signed};
 
 const VERSION: u8 = 1;
+/// The scheme's state's version: 2 keeps its unread `pay`s.
+const SCHEME_VERSION: u8 = 2;
 
 /// Bytes being written.
 struct Out(Vec<u8>);
@@ -296,7 +300,7 @@ fn read_queued(account: &HubAccount, reader: &mut Reader<'_>) -> Option<Queued> 
 /// The scheme's state.
 pub(super) fn scheme_state(scheme: &HubScheme) -> Vec<u8> {
     let mut out = Out(Vec::new());
-    out.u8(VERSION);
+    out.u8(SCHEME_VERSION);
     out.bool(scheme.synced);
     out.u64(scheme.cursor);
     out.option(scheme.account.as_ref(), |out, number| out.u32(number.0));
@@ -335,6 +339,12 @@ pub(super) fn scheme_state(scheme: &HubScheme) -> Vec<u8> {
         });
     });
     out.u64(scheme.booked_ahead);
+    out.count(scheme.unread_pays.len());
+    for (settlement, unread) in &scheme.unread_pays {
+        out.name(settlement);
+        write_key_to(&mut out, &unread.key);
+        out.u64(unread.height);
+    }
     out.0
 }
 
@@ -484,7 +494,8 @@ fn read_payee(reader: &mut Reader<'_>) -> Option<Payee> {
 /// Restores the scheme's state, refusing one it did not write.
 pub(super) fn restore_scheme(scheme: &mut HubScheme, state: &[u8]) -> Option<()> {
     let mut reader = Reader::new(state);
-    if reader.read_u8().ok()? != VERSION {
+    let version = reader.read_u8().ok()?;
+    if version != 1 && version != SCHEME_VERSION {
         return None;
     }
     scheme.synced = reader.read_bool().ok()?;
@@ -500,6 +511,8 @@ pub(super) fn restore_scheme(scheme: &mut HubScheme, state: &[u8]) -> Option<()>
             key,
             payer: read_payer(&mut reader)?,
             payee: read_payee(&mut reader)?,
+            look_up_ms: 0,
+            pay_after_ms: 0,
         };
         if scheme.peers.insert(name, peer).is_some() {
             return None;
@@ -537,7 +550,30 @@ pub(super) fn restore_scheme(scheme: &mut HubScheme, state: &[u8]) -> Option<()>
         (number <= scheme.withdrawals_made).then_some((number, outcome))
     })?;
     scheme.booked_ahead = reader.read_u64().ok()?;
+    if version >= 2 {
+        read_unread_pays(scheme, &mut reader)?;
+    }
     reader.finish().ok()?;
+    Some(())
+}
+
+/// The scheme's unread `pay`s, each one of its settlements on their way.
+fn read_unread_pays(scheme: &mut HubScheme, reader: &mut Reader<'_>) -> Option<()> {
+    let unread = read_count(reader, 42, 64)?;
+    for _ in 0..unread {
+        let settlement = read_name(reader)?;
+        let key = read_key(reader).ok()?;
+        let height = reader.read_u64().ok()?;
+        let known = scheme.settling.contains_key(&settlement);
+        if !known
+            || scheme
+                .unread_pays
+                .insert(settlement, UnreadPay { key, height })
+                .is_some()
+        {
+            return None;
+        }
+    }
     Some(())
 }
 

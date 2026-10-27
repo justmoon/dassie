@@ -2047,3 +2047,165 @@ fn fresh_keys_cost_the_payer_nothing() {
     assert_eq!(world.opening_minimum(a, again), Some(units(MINIMUM)));
     assert_eq!(world.balance(a), before - MINIMUM - FEE);
 }
+
+/// A payer whose `pay` executed while it could not read its history books
+/// it once the hub says it has an account for the key it paid in, f + 1
+/// agreeing: as made, never cancelled, so the newcomer is paid in once and
+/// the next settlement funds a hold toward it. The `pay`'s fee goes
+/// through suspense, as any unread operation's.
+#[test]
+fn a_pay_the_payer_never_read_is_booked_as_made() {
+    let mut world = World::new([Fault::Honest; 4]);
+    let a = world.join("alice", 31, 100);
+    let c = world.newcomer("carol", 33);
+    world.run(3_000);
+    world.peer(a, c);
+    let (name_a, name_c) = (world.members[a].name, world.members[c].name);
+    let before = world.balance(a);
+    let settlement = world.settle(a, c, units(MINIMUM)).unwrap();
+    world.members[a].offline = true;
+    world.run(5_000);
+    assert!(world.has_account(c), "the `pay` executed");
+    world.validators.trim();
+    world.members[a].offline = false;
+    world.run(3_000);
+    assert!(!world.members[a].account.is_resyncing());
+    let books = &world.members[a].books;
+    assert_eq!(books.finalized, [settlement]);
+    assert!(books.cancelled.is_empty());
+    assert_eq!(books.peers[&name_c], -i128::from(units(MINIMUM)));
+    assert_eq!(books.suspense, -i128::from(units(FEE)));
+    assert_eq!(
+        world.members[a].scheme.peer_account(name_c),
+        Some(world.number(c))
+    );
+    assert!(world.commits_with(a, c));
+    assert_eq!(world.opening_minimum(a, c), None);
+    world.settle(a, c, units(XRP)).unwrap();
+    world.run(1_000);
+    assert!(world.hold(a, c).is_some(), "not paid in again");
+    assert_eq!(
+        world.members[c].books.peers[&name_a],
+        i128::from(units(MINIMUM + XRP))
+    );
+    assert_eq!(
+        world.balance(a),
+        before - MINIMUM - XRP - HOLD_RESERVE - 2 * FEE
+    );
+    for i in [a, c] {
+        assert_eq!(world.members[i].scheme.balance(), world.truth(i));
+    }
+    assert_eq!(world.members[c].books.suspense, 0);
+}
+
+/// A `pay` the payer never read that did not apply, as another operation
+/// signed with its key took its sequence: the hub says, f + 1 agreeing as
+/// of a block at or after the one the payer read anew at, that the key has
+/// no account, and the settlement is cancelled; what the payer's books
+/// counted of it meanwhile comes back out of suspense. Paid in later, the
+/// newcomer is paid in once.
+#[test]
+fn a_pay_the_payer_never_read_that_failed_is_cancelled() {
+    let mut world = World::new([Fault::Honest; 4]);
+    let a = world.join("alice", 31, 100);
+    let b = world.join("bob", 32, 100);
+    let c = world.newcomer("carol", 33);
+    world.run(3_000);
+    world.peer(a, c);
+    let name_c = world.members[c].name;
+    let before = world.balance(a);
+    let to = world.number(b);
+    world.raw(a, MemberOperation::Transfer { to, amount: 1 });
+    let settlement = world.settle(a, c, units(MINIMUM)).unwrap();
+    world.members[a].offline = true;
+    world.run(2_000);
+    assert!(!world.has_account(c), "refused for its sequence");
+    world.validators.trim();
+    world.members[a].offline = false;
+    world.run(3_000);
+    assert!(!world.members[a].account.is_resyncing());
+    let books = &world.members[a].books;
+    assert_eq!(books.cancelled, [settlement]);
+    assert!(books.finalized.is_empty());
+    assert!(!books.peers.contains_key(&name_c));
+    assert_eq!(
+        books.suspense,
+        -i128::from(units(1 + FEE)),
+        "only the transfer it never read"
+    );
+    assert_eq!(world.members[a].scheme.balance(), world.truth(a));
+    assert_eq!(world.opening_minimum(a, c), Some(units(MINIMUM)));
+    let again = world.settle(a, c, units(MINIMUM)).unwrap();
+    world.run(3_000);
+    assert_eq!(world.members[a].books.finalized, [again]);
+    assert_eq!(world.balance(a), before - 1 - FEE - MINIMUM - FEE);
+    assert_eq!(world.balance(c), MINIMUM - ACCOUNT_RESERVE - FEE);
+    for i in [a, c] {
+        assert_eq!(world.members[i].scheme.balance(), world.truth(i));
+    }
+}
+
+/// A payer asks the hub for the account of a peer without one now and
+/// then, so it learns of one the peer's own deposit opened without paying
+/// it in: both ends then promise, and nothing was submitted for it.
+#[test]
+fn a_payer_learns_a_deposit_opened_its_peers_account() {
+    use dassie_hub::member::scheme::LOOK_UP_EVERY_MS;
+    let mut world = World::new([Fault::Honest; 4]);
+    let a = world.join("alice", 31, 100);
+    let c = world.newcomer("carol", 33);
+    world.run(3_000);
+    world.peer(a, c);
+    // Asked once at peering: none yet.
+    world.run(3_000);
+    let name_c = world.members[c].name;
+    let sequence = world.ledger_account(a).sequence;
+    let key = world.members[c].key.public_key();
+    world.validators.deposit(&key, 10 * XRP);
+    world.run(3_000);
+    assert!(world.commits_with(c, a), "it knows its own account");
+    assert!(!world.commits_with(a, c), "not asked again yet");
+    world.run(LOOK_UP_EVERY_MS);
+    assert_eq!(
+        world.members[a].scheme.peer_account(name_c),
+        Some(world.number(c))
+    );
+    assert!(world.commits_with(a, c));
+    assert_eq!(world.opening_minimum(a, c), None);
+    assert_eq!(world.ledger_account(a).sequence, sequence, "nothing paid");
+}
+
+/// A `pay` that failed is not tried again at once: each try costs the
+/// payer a fee.
+#[test]
+fn a_failed_pay_is_not_tried_again_at_once() {
+    use dassie_hub::member::scheme::PAY_AGAIN_MS;
+    let mut world = World::new([Fault::Honest; 4]);
+    let a = world.join("alice", 31, 100);
+    let b = world.join("bob", 32, 100);
+    let c = world.newcomer("carol", 33);
+    world.run(3_000);
+    world.peer(a, c);
+    let to = world.number(b);
+    let drain = world.balance(a) - FEE - 15;
+    world.raw(a, MemberOperation::Transfer { to, amount: drain });
+    let settlement = world.settle(a, c, units(MINIMUM)).unwrap();
+    world.run(3_000);
+    assert_eq!(world.members[a].books.cancelled, [settlement]);
+    assert!(!world.has_account(c));
+    let number = world.number(a);
+    world.validators.top_up(number, 100 * XRP);
+    world.run(1_000);
+    assert_eq!(
+        world.settle(a, c, units(MINIMUM)),
+        Err(SchemeError::Unavailable),
+        "not again so soon"
+    );
+    world.run(PAY_AGAIN_MS);
+    world.settle(a, c, units(MINIMUM)).unwrap();
+    world.run(3_000);
+    assert!(world.has_account(c));
+    for i in [a, c] {
+        assert_eq!(world.members[i].scheme.balance(), world.truth(i));
+    }
+}

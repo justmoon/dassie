@@ -202,6 +202,15 @@ pub trait Commitments {
     /// promise from, so the payee takes its packets on what the payer owes
     /// it, and the payer extends it nothing, until the payer pays it in
     /// (spec/designs/settlement-hubs.md#5-joining). True, by default.
+    ///
+    /// The two ends can disagree for a while: each learns of the newcomer's
+    /// account from the hub on its own, the newcomer when it reads it, the
+    /// payer when its `pay` executes or when it next asks the hub for the
+    /// key's account, as it does now and then. Each end follows its own
+    /// answer for the Prepares it sends. A Prepare that comes without a
+    /// commitment its receiver expected is taken as one without, on what
+    /// its sender owes the receiver; one with a commitment its receiver
+    /// did not expect, as if it had none.
     fn commits_with(&self, peer: Name) -> bool {
         let _ = peer;
         true

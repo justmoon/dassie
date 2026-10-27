@@ -261,6 +261,9 @@ pub enum News {
         key: PublicKey,
         /// Its account, if it has one.
         account: Option<AccountNumber>,
+        /// The block the answer is as of: none as of an older block says
+        /// nothing of what happened since.
+        height: u64,
     },
 }
 
@@ -671,11 +674,13 @@ impl HubAccount {
 
     /// Asks the validators which account `key` has, until f + 1 agree:
     /// the answer comes as [`News::Member`]. At most [`MAX_LOOKUPS`] at
-    /// once; past them, nothing is asked.
-    pub fn look_up(&mut self, key: PublicKey) {
+    /// once; past them, nothing is asked. Returns whether `key` is asked
+    /// about.
+    pub fn look_up(&mut self, key: PublicKey) -> bool {
         if self.lookups.len() < MAX_LOOKUPS {
             self.lookups.insert(*key.as_bytes(), key);
         }
+        self.lookups.contains_key(key.as_bytes())
     }
 
     /// The accounts whose holds toward us the scheme follows: its peers'.
@@ -946,10 +951,18 @@ impl HubAccount {
                 key,
                 account,
             } if key == self.key.public_key() => self.account_agreed(height, account),
-            Statement::Account { key, account, .. } => {
+            Statement::Account {
+                height,
+                key,
+                account,
+            } => {
                 if self.lookups.remove(key.as_bytes()).is_some() {
                     let account = account.map(|(number, _)| number);
-                    self.push_news(News::Member { key, account });
+                    self.push_news(News::Member {
+                        key,
+                        account,
+                        height,
+                    });
                 }
             }
             // Its history since the cursor is gone: it reads its state anew.

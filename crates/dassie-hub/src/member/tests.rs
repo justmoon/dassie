@@ -1322,3 +1322,122 @@ fn a_scheme_paid_in_books_its_peers_settlement() {
     scheme.check_invariants();
     account.check_invariants();
 }
+
+/// A scheme on an account known to validators 0 and 1, as of the block at
+/// 5.
+fn synced_scheme(hub: &Hub) -> (HubAccount, HubScheme) {
+    let mut account = hub.account();
+    let mut scheme = HubScheme::new(&account, 100_000_000, None, &[]).unwrap();
+    for v in 0..2 {
+        from(
+            &mut account,
+            v,
+            &hub.says(v, &[hub.account_statement(5, true)]),
+        );
+    }
+    let mut effects = Vec::new();
+    scheme.on_asset(0, &mut account, &mut effects);
+    account.told();
+    assert!(scheme.has_synced());
+    (account, scheme)
+}
+
+/// The hub's word on `key`, as of `height`: it has no account for it.
+fn no_account_for(key: dassie_identity::PublicKey, height: u64) -> Statement {
+    Statement::Account {
+        height,
+        key,
+        account: None,
+    }
+}
+
+// spec/areas/hubs.md#when-the-history-is-gone: a `pay` of ours whose
+// outcome the account never read is never cancelled on a guess. It stays
+// on its way across a restart, and waits for f + 1 validators to say
+// whether the hub has an account for the key it paid in, as of a block it
+// had executed by: none as of an older block says nothing; none as of
+// that block cancels it, and takes back through suspense what the
+// account's state counted of it meanwhile.
+#[test]
+fn an_unread_pay_waits_for_the_hub_across_a_restart() {
+    let hub = Hub::new();
+    let (account, mut scheme) = synced_scheme(&hub);
+    let settlement = Name::new("00112233445566778899aabbccddeeff").unwrap();
+    let key = NodeKey::from_bytes(&[8; 32]).public_key();
+    scheme.settling.insert(
+        settlement,
+        scheme::Settling {
+            peer: Name::new("newcomer").unwrap(),
+            drops: 5,
+        },
+    );
+    scheme
+        .unread_pays
+        .insert(settlement, scheme::UnreadPay { key, height: 20 });
+    scheme.check_invariants();
+    // A restart.
+    let state = scheme.state();
+    let mut account = HubAccount::new(
+        FIRST,
+        hub.rules.clone(),
+        Arc::clone(&hub.key),
+        Destination {
+            account: [5; 20],
+            tag: None,
+        },
+        Name::new(SCHEME_ID).unwrap(),
+        &account.state(),
+    )
+    .unwrap();
+    let mut scheme = HubScheme::new(&account, 100_000_000, Some(scheme.balance()), &state).unwrap();
+    assert_eq!(scheme.state(), state, "the scheme's state round-trips");
+    let booked = scheme.balance();
+    let mut effects = Vec::new();
+    scheme.reconcile(Some(&mut account), &[(settlement, units(5))], &mut effects);
+    assert!(effects.is_empty(), "not cancelled on a guess");
+    scheme.on_asset(0, &mut account, &mut effects);
+    account.told();
+    assert!(effects.is_empty());
+    for v in 0..2 {
+        from(&mut account, v, &hub.says(v, &[no_account_for(key, 10)]));
+    }
+    scheme.on_asset(0, &mut account, &mut effects);
+    account.told();
+    assert!(effects.is_empty(), "as of a block before it executed");
+    assert!(scheme.unread_pays.contains_key(&settlement));
+    for v in 0..2 {
+        from(&mut account, v, &hub.says(v, &[no_account_for(key, 20)]));
+    }
+    scheme.on_asset(0, &mut account, &mut effects);
+    assert_eq!(
+        effects,
+        [
+            dassie_settlement::Effect::Cancel { settlement },
+            dassie_settlement::Effect::Reconcile {
+                amount: units(5),
+                gain: false,
+                cause: dassie_settlement::ReconcileCause::Unexplained,
+            },
+        ]
+    );
+    assert_eq!(scheme.balance(), booked - units(5));
+    assert!(scheme.unread_pays.is_empty());
+    assert!(scheme.settling.is_empty());
+    scheme.check_invariants();
+}
+
+// The scheme's state of version 1, from before unread `pay`s were kept,
+// reads as one with none.
+#[test]
+fn a_scheme_state_of_version_1_reads_with_no_unread_pays() {
+    let hub = Hub::new();
+    let (account, scheme) = synced_scheme(&hub);
+    let state = scheme.state();
+    assert_eq!(state.first(), Some(&2));
+    let (body, count) = state.split_at(state.len() - 4);
+    assert_eq!(count, [0; 4], "no unread pays");
+    let mut old = body.to_vec();
+    old[0] = 1;
+    let restored = HubScheme::new(&account, 100_000_000, Some(scheme.balance()), &old).unwrap();
+    assert_eq!(restored.state(), state);
+}
