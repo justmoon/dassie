@@ -30,9 +30,16 @@ impl Node {
             if let Some(engine) = self.engine() {
                 self.fetch_rates(&engine).await;
             }
-            let next_ms = self.now_ms().saturating_add(self.policies.rates_every_ms);
+            let every_ms = self.policies.rates_every_ms;
+            let mut next_ms = self.now_ms().saturating_add(every_ms);
             loop {
-                let wait_ms = next_ms.saturating_sub(self.now_ms());
+                // A deadline more than an interval away means the wall
+                // clock stepped back. The rates kept before the step are
+                // stamped in its future and so not fresh, so the next fetch
+                // comes at most an interval on, as it would on real time.
+                let now_ms = self.now_ms();
+                next_ms = next_ms.min(now_ms.saturating_add(every_ms));
+                let wait_ms = next_ms.saturating_sub(now_ms);
                 if wait_ms == 0 {
                     break;
                 }

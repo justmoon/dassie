@@ -73,8 +73,13 @@ impl RatesServer {
                         return;
                     };
                     let service = service_fn(move |_| {
-                        let (status, body) = served.lock().unwrap().clone();
-                        counted.fetch_add(1, Ordering::SeqCst);
+                        // Counted under the answer's lock, so a request
+                        // counted after `answer` returned took its answer.
+                        let (status, body) = {
+                            let answer = served.lock().unwrap();
+                            counted.fetch_add(1, Ordering::SeqCst);
+                            answer.clone()
+                        };
                         let mut response = Response::new(Full::new(Bytes::from(body)));
                         *response.status_mut() = StatusCode::from_u16(status).unwrap();
                         async move { Ok::<_, Infallible>(response) }
@@ -103,7 +108,9 @@ impl RatesServer {
         *self.answer.lock().unwrap() = (status, body);
     }
 
-    /// How many requests it answered.
+    /// How many requests it answered. Each is counted with the answer it
+    /// took, so those counted after [`answer`](Self::answer) returned got
+    /// the new answer.
     pub fn asked(&self) -> usize {
         self.asked.load(Ordering::SeqCst)
     }
