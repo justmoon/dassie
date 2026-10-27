@@ -19,7 +19,7 @@ type Executed = Result<Detail, Result<Failure, Refusal>>;
 /// for: a validator may change its mind, as when it saw a reset or new
 /// rules differently from the others first. Whether a quorum now agrees on
 /// `value`.
-fn vote<T: PartialEq + Copy>(
+pub(super) fn vote<T: PartialEq + Copy>(
     votes: &mut Vec<(T, Signers)>,
     index: ValidatorIndex,
     value: T,
@@ -98,6 +98,8 @@ impl Ledger {
                 }
                 Ok(Detail::None)
             }
+            ValidatorOperation::AttestIssuer(issuer) => self.attest_issuer(index, *issuer),
+            ValidatorOperation::AttestClawback(clawback) => self.attest_clawback(index, clawback),
             ValidatorOperation::Shutdown => {
                 if self.shutdown_votes.contains(index) {
                     return Err(Err(Refusal::NotAllowed));
@@ -209,7 +211,7 @@ impl Ledger {
                 rules: rules.clone(),
                 from_height: None,
                 at: self
-                    .timestamp
+                    .clock()
                     .saturating_add(self.rules.terms.timers.reconfigure_notice),
             });
             self.rules_votes.clear();
@@ -227,11 +229,12 @@ impl Ledger {
     /// (spec/designs/settlement-hubs.md#8-changing-the-validators).
     pub(super) fn apply_pending_rules(&mut self) {
         let height = self.height;
+        let clock = self.clock();
         let Some(pending) = self.pending_rules.as_mut() else {
             return;
         };
         match pending.from_height {
-            None if pending.at <= self.timestamp => {
+            None if pending.at <= clock => {
                 pending.from_height = Some(height.saturating_add(2));
                 return;
             }
@@ -270,7 +273,7 @@ impl Ledger {
             self.validator_states.push(ValidatorState {
                 endpoint: acceptance.endpoint.clone(),
                 sequence: kept.map_or(0, |s| s.sequence),
-                last_recorded: self.timestamp,
+                last_recorded: clock,
                 account,
             });
         }
@@ -324,6 +327,17 @@ impl Ledger {
             withdrawal.delivered = remap(withdrawal.delivered);
             withdrawal.failed = remap(withdrawal.failed);
         }
+        // The issuer's acts are attested once, at the ledger they happened
+        // in, as deposits are: their votes follow their validators.
+        for (_, signers) in &mut self.issuer_votes {
+            *signers = remap(*signers);
+        }
+        for (_, signers) in &mut self.clawback_votes {
+            *signers = remap(*signers);
+        }
+        self.issuer_votes.retain(|(_, signers)| signers.count() > 0);
+        self.clawback_votes
+            .retain(|(_, signers)| signers.count() > 0);
         self.shutdown_votes = Signers::NONE;
         self.reset_votes = Signers::NONE;
         self.reset_votes_since = None;

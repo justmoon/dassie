@@ -11,6 +11,10 @@
 //! faulty, no two honest validators finalize different blocks at one height,
 //! and blocks finalize again within the heal's deadline; with f + 1
 //! colluding, a fork may happen, but then evidence must appear.
+//!
+//! Then the seed runs a hub's ledger, in three seeds of four a token hub's
+//! through its issuer's freezes, thaws, transfer fees and clawbacks
+//! ([`super::issuer`]), with oracles of its own.
 
 use alloc::format;
 use alloc::string::String;
@@ -156,7 +160,7 @@ pub fn describe(seed: u64) -> String {
     } else {
         format!("{} validators, Byzantine: {byzantine:?}", setup.roles.len())
     };
-    described + &outage
+    described + &outage + "; " + &super::issuer::describe(seed)
 }
 
 /// The longest blocks may take to finalize again after the heal, from the
@@ -189,8 +193,15 @@ pub fn run(seed: u64) -> Run {
     }
     let mut counts = rough(&mut network, &mut rng, &setup);
     let (top, backoff) = heal(&mut network);
-    let outcome = check(&network, &setup, top);
-    let mut run = Run::new(outcome, core::mem::take(&mut network.trace));
+    let mut outcome = check(&network, &setup, top);
+    let mut trace = core::mem::take(&mut network.trace);
+    let (ledger_outcome, ledger_trace, ledger_counts) = super::issuer::run(seed);
+    if !outcome.is_failure() {
+        outcome = ledger_outcome;
+    }
+    trace.extend(ledger_trace);
+    counts.extend(ledger_counts);
+    let mut run = Run::new(outcome, trace);
     if network.evidence_found() {
         counts.insert("evidence", 1);
     }

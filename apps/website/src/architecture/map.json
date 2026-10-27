@@ -519,6 +519,7 @@
         "Fees split among the validators whose votes the log recorded",
         "A validator's state as bytes, its consensus state and its ledger, from which it comes back after a restart without ever signing a vote that conflicts with one it sent",
         "Test network resets written off in place",
+        "A token issuer's acts, as a quorum of validators attests them: a freeze or a transfer fee freezes the hub, which then takes only claims of packets in flight and lets no notice run until the thaw; a clawback ends it, and the payout set pays the withdrawals already on their way first and every account its share of what is left",
         "Founding a hub: the sponsor's proposal, each validator's decision to accept or sign, and the genesis certificate, a quorum's signatures over the genesis block",
         "The escrow on the XRP Ledger: the validators' keys, the sponsor's setup step by step and its check, for a token hub with its one trust line to the issuer and its fees paid in the escrow's own XRP, withdrawals, and the payout set that pays everyone out at the end, which each validator signs and hands to members a page at a time, and which a quorum's bundles put together",
         "A validator's service, without IO: consensus and the ledger together, a bounded pool of operations with room kept for deadlines, the escrow's signatures gathered from the validators' keys only, and snapshots of the state checked against a certified root",

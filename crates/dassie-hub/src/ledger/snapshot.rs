@@ -20,13 +20,20 @@ use super::state::{
 };
 use crate::codec::{HubDecodeError, read_digest, read_key};
 use crate::digest::Digest;
-use crate::operation::{AccountNumber, Deposit, Destination};
+use crate::operation::{AccountNumber, Clawback, Deposit, Destination, Issuer};
 use crate::promise::HoldNumber;
 use crate::rules::{HubId, Rules};
 use crate::validators::Signers;
 
 /// The most validator states a snapshot carries.
 const MAX_VALIDATOR_STATES: u32 = 64;
+
+/// The most votes for the issuer's hold a snapshot carries: one per
+/// validator.
+const MAX_ISSUER_VOTES: usize = crate::validators::MAX_VALIDATORS;
+
+/// The most pending clawbacks a snapshot carries: each validator's share.
+const MAX_CLAWBACK_VOTES: usize = crate::validators::MAX_VALIDATORS * super::CLAWBACK_SHARE;
 
 /// Bytes written as OER reads them: fixed-width big-endian integers,
 /// booleans as `00`/`ff`.
@@ -56,6 +63,11 @@ impl Out {
     }
     fn item<T: Encode>(&mut self, value: &T) {
         self.0.extend_from_slice(&value.to_vec());
+    }
+    fn issuer(&mut self, issuer: &Issuer) {
+        self.u32(issuer.ledger);
+        self.bool(issuer.frozen);
+        self.bool(issuer.fee);
     }
     fn votes(&mut self, votes: &[(u32, Signers)]) {
         self.count(votes.len());
@@ -95,7 +107,33 @@ impl Ledger {
         out.u64(self.set_since);
         self.snapshot_tables(&mut out);
         self.snapshot_votes(&mut out);
+        self.snapshot_issuer(&mut out);
         out.0
+    }
+
+    fn snapshot_issuer(&self, out: &mut Out) {
+        out.bool(self.frozen.is_some());
+        out.u64(self.frozen.unwrap_or(0));
+        out.issuer(&self.issuer);
+        out.count(self.issuer_votes.len());
+        for (issuer, signers) in &self.issuer_votes {
+            out.issuer(issuer);
+            out.u16(signers.bits());
+        }
+        out.u64(self.escrow.clawed_back);
+        out.u32(self.escrow.clawback_floor);
+        out.count(self.clawback_votes.len());
+        for (clawback, signers) in &self.clawback_votes {
+            out.bytes(clawback.transaction.as_bytes());
+            out.u32(clawback.ledger);
+            out.u64(clawback.amount);
+            out.u16(signers.bits());
+        }
+        out.count(self.recent_clawbacks.len());
+        for (hash, ledger) in &self.recent_clawbacks {
+            out.bytes(hash.as_bytes());
+            out.u32(*ledger);
+        }
     }
 
     fn snapshot_tables(&self, out: &mut Out) {
@@ -231,10 +269,16 @@ impl Ledger {
             reset_votes_since: None,
             written_off_at: None,
             set_since,
+            frozen: None,
+            issuer: Issuer::default(),
+            issuer_votes: Vec::new(),
+            clawback_votes: Vec::new(),
+            recent_clawbacks: BTreeMap::new(),
             rules,
         };
         ledger.restore_tables(&mut reader)?;
         ledger.restore_votes(&mut reader)?;
+        ledger.restore_issuer(&mut reader)?;
         reader.finish()?;
         Ok(ledger)
     }
@@ -322,6 +366,54 @@ impl Ledger {
         self.shutdown_votes = Signers::from_bits(reader.read_u16()?);
         Ok(())
     }
+
+    fn restore_issuer(&mut self, reader: &mut Reader<'_>) -> Result<(), HubDecodeError> {
+        let frozen = reader.read_bool()?;
+        let since = reader.read_u64()?;
+        self.frozen = frozen.then_some(since);
+        self.issuer = read_issuer(reader)?;
+        let count = reader.read_u32()?;
+        if usize::try_from(count).unwrap_or(usize::MAX) > MAX_ISSUER_VOTES {
+            return Err(HubDecodeError::Invalid("issuer votes"));
+        }
+        for _ in 0..count {
+            let issuer = read_issuer(reader)?;
+            self.issuer_votes
+                .push((issuer, Signers::from_bits(reader.read_u16()?)));
+        }
+        self.escrow.clawed_back = reader.read_u64()?;
+        self.escrow.clawback_floor = reader.read_u32()?;
+        let count = reader.read_u32()?;
+        if usize::try_from(count).unwrap_or(usize::MAX) > MAX_CLAWBACK_VOTES {
+            return Err(HubDecodeError::Invalid("clawback votes"));
+        }
+        for _ in 0..count {
+            let clawback = Clawback {
+                transaction: read_digest(reader)?,
+                ledger: reader.read_u32()?,
+                amount: reader.read_u64()?,
+            };
+            self.clawback_votes
+                .push((clawback, Signers::from_bits(reader.read_u16()?)));
+        }
+        let count = reader.read_u32()?;
+        if usize::try_from(count).unwrap_or(usize::MAX) > super::MAX_CLAWBACKS {
+            return Err(HubDecodeError::Invalid("clawbacks"));
+        }
+        for _ in 0..count {
+            let hash = read_digest(reader)?;
+            insert_ascending(&mut self.recent_clawbacks, hash, reader.read_u32()?)?;
+        }
+        Ok(())
+    }
+}
+
+fn read_issuer(reader: &mut Reader<'_>) -> Result<Issuer, HubDecodeError> {
+    Ok(Issuer {
+        ledger: reader.read_u32()?,
+        frozen: reader.read_bool()?,
+        fee: reader.read_bool()?,
+    })
 }
 
 /// Inserts an entry of a table whose keys a snapshot writes in strictly
@@ -353,12 +445,15 @@ fn read_escrow(reader: &mut Reader<'_>) -> Result<Escrow, HubDecodeError> {
     let deposit_floor = reader.read_u32()?;
     let has_list = reader.read_bool()?;
     let list = reader.read_u32()?;
+    // What the issuer clawed back comes with the issuer's acts, last.
     Ok(Escrow {
         balance,
         next_sequence,
         checked,
         deposit_floor,
         signer_list: has_list.then_some(list),
+        clawed_back: 0,
+        clawback_floor: 0,
     })
 }
 

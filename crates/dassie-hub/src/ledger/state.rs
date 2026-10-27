@@ -136,6 +136,25 @@ pub struct Escrow {
     /// escrow's signer list, once a new set took over
     /// (spec/designs/settlement-hubs.md#8-changing-the-validators).
     pub signer_list: Option<u32>,
+    /// Everything the issuer clawed back from a token hub's escrow, as a
+    /// quorum attested it: what the hub owes and the escrow no longer
+    /// holds, apart from `balance`, which still counts what the hub owes
+    /// (spec/decisions/token-hubs.md). Saturating.
+    pub clawed_back: Amount,
+    /// The lowest ledger whose clawbacks the hub still remembers, as
+    /// `deposit_floor` is for deposits.
+    pub clawback_floor: u32,
+}
+
+impl Escrow {
+    /// What the escrow still holds of what the hub accounts for: its
+    /// balance less what the issuer clawed back. A clawback may have taken
+    /// a deposit not yet credited, so this is never below nothing, and a
+    /// deposit credited later adds only what the clawback left of it.
+    #[must_use]
+    pub const fn held(&self) -> Amount {
+        self.balance.saturating_sub(self.clawed_back)
+    }
 }
 
 /// Where the hub is in its life (spec/designs/settlement-hubs.md#9-shutdown).

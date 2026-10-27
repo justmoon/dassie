@@ -67,8 +67,10 @@ impl Ledger {
     }
 
     /// Records the block's votes in the pools they are for, and when each
-    /// voter was last seen taking part.
+    /// voter was last seen taking part, by the hub's clock, which stands
+    /// still while the hub is frozen.
     pub(super) fn record_votes(&mut self, block: &Block<'_>) {
+        let clock = self.clock();
         for (height, signers) in block.votes {
             match self.pools.iter_mut().find(|pool| pool.height == *height) {
                 Some(pool) => pool.voters = pool.voters.with_all(*signers),
@@ -88,20 +90,23 @@ impl Ledger {
             }
             for index in signers.iter() {
                 if let Some(state) = self.validator_states.get_mut(index.get()) {
-                    state.last_recorded = block.timestamp;
+                    state.last_recorded = clock;
                 }
             }
         }
     }
 
-    /// What closes a block: pools whose window ended are paid out, and
-    /// deposits that waited are credited.
+    /// What closes a block: pools whose window ended are paid out, the
+    /// issuer's acts a quorum attested take effect, and deposits and
+    /// withdrawals that waited are settled.
     pub(super) fn end_block(&mut self) {
         let floor = self.vote_floor(self.height);
         while self.pools.first().is_some_and(|pool| pool.height <= floor) {
             let pool = self.pools.remove(0);
             self.distribute(pool);
         }
+        self.settle_issuer();
+        self.settle_clawbacks();
         self.credit_deposits();
         self.settle_withdrawals();
     }

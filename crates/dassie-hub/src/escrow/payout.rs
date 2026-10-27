@@ -6,7 +6,9 @@
 //! In escrow sequence order: every withdrawal not yet settled and a change
 //! of signer list not yet made, as they were already signed; the selector,
 //! which hands the escrow to keys made for this set alone; and one Payment
-//! per account to its disbursal address, signed with those keys. The first
+//! per account to its disbursal address, signed with those keys. After a
+//! clawback, accounts are paid pro rata to what the hub owes them out of
+//! what the escrow still holds ([`shares`]). The first
 //! selector the XRP Ledger applies decides which set pays out: every other
 //! set's payments are then signed by keys not on the list, and are refused
 //! without using a sequence, so two sets never mix.
@@ -90,8 +92,9 @@ fn selector_entries(rules: &Rules, height: u64) -> Option<Vec<SignerEntry>> {
     Some(entries)
 }
 
-/// What each account is paid out: its balance and reserves, and the holds
-/// it paid into, which go back to their payers first.
+/// What each account is paid out: its share of what the hub owes it, its
+/// balance and reserves and the holds it paid into, which go back to their
+/// payers first ([`shares`]).
 fn owed(ledger: &Ledger) -> alloc::collections::BTreeMap<crate::operation::AccountNumber, Drops> {
     let mut owed: alloc::collections::BTreeMap<_, Drops> = ledger
         .accounts()
@@ -104,7 +107,41 @@ fn owed(ledger: &Ledger) -> alloc::collections::BTreeMap<crate::operation::Accou
                 .saturating_add(hold.reserve);
         }
     }
+    let (have, due) = shares(ledger);
+    if have < due {
+        for total in owed.values_mut() {
+            let share = u128::from(*total).saturating_mul(u128::from(have)) / u128::from(due);
+            *total = Drops::try_from(share).unwrap_or(*total).min(*total);
+        }
+    }
     owed
+}
+
+/// What the payout set shares out among what the hub owes beyond the
+/// withdrawals it already sequenced, and what it owes there: once the
+/// issuer clawed back from a token hub's escrow, the escrow holds less
+/// than the hub owes (spec/decisions/token-hubs.md).
+///
+/// The withdrawals already given a sequence go first, as already signed,
+/// and are paid in full. Beyond them the hub owes every account its
+/// balance, reserves and the holds it paid into, the fees waiting for
+/// their voters and the reserve account; the escrow holds that less what
+/// was clawed back. Each account is paid its part of what the escrow holds
+/// in proportion to what the hub owes it, rounded down, and so is nothing
+/// more than the escrow holds; what the fees and the reserve account would
+/// take, and what rounding leaves, stays in the escrow, as at any payout.
+/// With nothing clawed back the two are equal, and every account is paid
+/// all it is owed.
+#[must_use]
+pub fn shares(ledger: &Ledger) -> (Drops, Drops) {
+    let sequenced = ledger
+        .withdrawals()
+        .map(|(_, withdrawal)| withdrawal.amount.saturating_add(withdrawal.ledger_fee))
+        .fold(0, Drops::saturating_add);
+    let escrow = ledger.escrow();
+    let due = escrow.balance.saturating_sub(sequenced);
+    let have = escrow.held().saturating_sub(sequenced).min(due);
+    (have, due)
 }
 
 /// The payout set of `ledger`'s state, the state after the block at its
