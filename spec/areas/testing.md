@@ -208,6 +208,8 @@ The dev environment's scenarios run headless in CI on real binaries with the wal
 
 **Passive rebalancing, the whole loop** (`market_maker_test.ts`, on the `market-maker` scenario): a core node short of DSUSD publishes its feed, and `dassie market-maker`, run from the same build for a bounded time, trades through it with its two pinned nodes and swaps back through the fake ledger's pool ([Rate feed](rate-feed.md#market-maker)). It reads what each party holds from its own books and the ledger: the core node's share of its value in DSUSD rose, toward its target; the market maker's value, at the pool's price after the run, grew; and every node's books are unchanged across a restart. With two targets (`market_maker_targets_test.ts`, on `market-maker-two-targets`), it trades through each: both core nodes take DSUSD in, and each one's share of its value in DSUSD rises. It waits on what the books and the pool show, each wait bounded, never on the market maker's log; the decisions themselves are the strategy's unit tests.
 
+**The wallet's Hubs page** (`wallet_test.ts`, on the `hub` scenario): once the members peered over the hub, and one holds something for the other with no move on its way, a headless browser signed in to that member shows its hub with the balance and the hold the node reports, in the hub ledger's units; a deposit typed on the page reaches the hub, which its `deposited` counter shows grown by exactly that much, and the page says the owner's move pauses the node's own ([Wallet](wallet.md#pages)).
+
 ## Installer and updater
 
 The install tests run the installer and the updater in containers with systemd as PID 1, against a mirror of signed test releases; [Release](release.md#tests) states what they check. Two rules for changing them:
