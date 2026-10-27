@@ -12,7 +12,10 @@
 //! unless `--realm` says otherwise: it is fixed then, for good
 //! (spec/decisions/mainnet-schemes.md). Then it waits for the engine, sets
 //! the config of each external asset it is given, and adds each settlement
-//! scheme it is given that is not active.
+//! scheme it is given that is not active. Then, unless `--no-hub`, it joins
+//! the realm's default settlement hub when the node offers one: the owner
+//! book the hub funds from, peering with nobody, unless it is active, and
+//! the hub's scheme (spec/decisions/hubs-only.md).
 //!
 //! A phrase names its realm (spec/decisions/phrase-format.md), so it is
 //! read as a phrase of that realm and refused as one of the other; one
@@ -77,6 +80,18 @@ const POLL_INTERVAL: Duration = Duration::from_millis(200);
 const MAX_POLLS: u32 = 300;
 /// Bytes of a setup token, as hex.
 const TOKEN_HEX_CHARS: usize = 2 * dassie_node_core::setup::SETUP_TOKEN_BYTES;
+/// The scheme over the realm's default settlement hub, which the node
+/// lists only while this build has a default hub built in
+/// (spec/areas/hubs.md#in-the-node): the testnet's XRP hub. The live realm
+/// has none yet.
+const DEFAULT_HUB_SCHEME: &str = "hub-xrpl-testnet-xrp";
+/// The owner book the default hub funds from: XRP on the node's XRP Ledger
+/// testnet account (spec/areas/settlement.md#owner-books).
+const DEFAULT_HUB_BOOK: &str = dassie_xrpl::scheme::SCHEME_ID;
+/// The owner book's config when `dassie setup` adds it for the hub: a book
+/// that peers with nobody, since peers settle only over hubs
+/// (spec/decisions/hubs-only.md).
+const OWNER_BOOK_CONFIG: &str = r#"{"peers":false}"#;
 
 /// What `dassie setup` was asked to do.
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -90,6 +105,9 @@ pub struct Options {
     /// The realm the node is set up in, if `--realm` names one: the test
     /// realm otherwise.
     pub realm: Option<Realm>,
+    /// Whether to leave the realm's default settlement hub alone
+    /// (`--no-hub`), rather than join it.
+    pub no_hub: bool,
 }
 
 /// A settlement scheme to add, or an external asset to configure, with
@@ -108,9 +126,11 @@ pub fn args(parser: &mut lexopt::Parser) -> Result<Options, lexopt::Error> {
     let mut schemes: Vec<Scheme> = Vec::new();
     let mut assets: Vec<Scheme> = Vec::new();
     let mut realm = None;
+    let mut no_hub = false;
     while let Some(argument) = parser.next()? {
         match argument {
             Long("passphrase-file") => passphrase_file = Some(PathBuf::from(parser.value()?)),
+            Long("no-hub") => no_hub = true,
             Long("realm") => {
                 let text = parser.value()?.string()?;
                 let parsed = Realm::parse(&text)
@@ -134,6 +154,7 @@ pub fn args(parser: &mut lexopt::Parser) -> Result<Options, lexopt::Error> {
         schemes,
         assets,
         realm,
+        no_hub,
     })
 }
 
@@ -294,6 +315,81 @@ async fn setup(env: &Env, options: &Options) -> Result<(), Failure> {
     }
     for scheme in &options.schemes {
         add_scheme(&mut client, scheme, &after.active_settlement_schemes).await?;
+    }
+    if !options.no_hub {
+        join_default_hub(&mut client).await?;
+    }
+    Ok(())
+}
+
+/// How `dassie setup` joins the realm's default settlement hub, from the
+/// schemes the node lists.
+#[derive(Debug, PartialEq, Eq)]
+enum HubPlan {
+    /// The node offers no default hub: this build has none built in, or
+    /// the node's realm has none.
+    NoneOffered,
+    /// The node runs the hub's scheme already, over the default hub or the
+    /// one its config names.
+    Joined,
+    /// Add these schemes, in order: the owner book the hub funds from, if
+    /// it is not active, then the hub's scheme, with no config, for the
+    /// default hub.
+    Join(Vec<Scheme>),
+}
+
+/// The plan for the default hub, from the node's `ListSettlementSchemes`:
+/// it lists the hub's scheme while it offers the default hub, or runs the
+/// scheme (spec/areas/node.md#the-dassie-command).
+fn hub_plan(schemes: &[proto::SettlementSchemeInfo]) -> HubPlan {
+    let listed = |id: &str| schemes.iter().find(|scheme| scheme.id == id);
+    match listed(DEFAULT_HUB_SCHEME) {
+        None => HubPlan::NoneOffered,
+        Some(hub) if hub.active => HubPlan::Joined,
+        Some(_) => {
+            let mut steps = Vec::with_capacity(2);
+            if !listed(DEFAULT_HUB_BOOK).is_some_and(|book| book.active) {
+                steps.push(Scheme {
+                    id: DEFAULT_HUB_BOOK.to_owned(),
+                    config: OWNER_BOOK_CONFIG.to_owned(),
+                });
+            }
+            steps.push(Scheme {
+                id: DEFAULT_HUB_SCHEME.to_owned(),
+                config: String::new(),
+            });
+            HubPlan::Join(steps)
+        }
+    }
+}
+
+/// Joins the realm's default settlement hub, if the node offers one: adds
+/// the owner book it funds from, unless active, then its scheme. Each step
+/// prints one line.
+async fn join_default_hub(client: &mut Client) -> Result<(), Failure> {
+    let schemes = match call(
+        client,
+        Method::ListSettlementSchemes(proto::ListSettlementSchemesRequest {}),
+    )
+    .await?
+    {
+        response::Method::ListSettlementSchemes(list) => list.schemes,
+        _ => return Err(unexpected()),
+    };
+    match hub_plan(&schemes) {
+        HubPlan::NoneOffered => {
+            println!(
+                "This build has no default settlement hub for the node's realm: joining none."
+            );
+        }
+        HubPlan::Joined => {
+            println!("The settlement scheme {DEFAULT_HUB_SCHEME} is active already.");
+        }
+        HubPlan::Join(steps) => {
+            for step in &steps {
+                add_scheme(client, step, &[]).await?;
+            }
+        }
     }
     Ok(())
 }
@@ -751,6 +847,75 @@ mod tests {
         assert_eq!(live.realm, Some(Realm::Live));
         let main = parse(&["--passphrase-file", "p", "--realm", "main"]);
         assert!(main.unwrap_err().contains("test or live"));
+    }
+
+    // The default hub is joined unless `--no-hub`.
+    #[test]
+    fn no_hub() {
+        assert!(!parse(&["--passphrase-file", "p"]).unwrap().no_hub);
+        let no_hub = parse(&["--passphrase-file", "p", "--no-hub"]).unwrap();
+        assert!(no_hub.no_hub);
+        assert!(parse(&["--passphrase-file", "p", "--no-hub=yes"]).is_err());
+    }
+
+    fn listed(id: &str, active: bool) -> proto::SettlementSchemeInfo {
+        proto::SettlementSchemeInfo {
+            id: id.into(),
+            active,
+            ..Default::default()
+        }
+    }
+
+    fn scheme(id: &str, config: &str) -> Scheme {
+        Scheme {
+            id: id.into(),
+            config: config.into(),
+        }
+    }
+
+    // The node lists the hub's scheme only while it offers the default hub,
+    // or runs the scheme; the plan adds the owner book it funds from first,
+    // peering with nobody, unless it is active, and changes nothing the
+    // second time.
+    #[test]
+    fn the_default_hub_is_joined_when_the_node_offers_one() {
+        let book = DEFAULT_HUB_BOOK;
+        let hub = DEFAULT_HUB_SCHEME;
+        assert_eq!(hub_plan(&[]), HubPlan::NoneOffered);
+        assert_eq!(
+            hub_plan(&[listed("stub", true), listed(book, false)]),
+            HubPlan::NoneOffered
+        );
+        assert_eq!(
+            hub_plan(&[listed(book, false), listed(hub, false)]),
+            HubPlan::Join(vec![scheme(book, r#"{"peers":false}"#), scheme(hub, "")])
+        );
+        assert_eq!(
+            hub_plan(&[listed(book, true), listed(hub, false)]),
+            HubPlan::Join(vec![scheme(hub, "")])
+        );
+        // Run again, with what the first run added active; or a hub scheme
+        // the owner added with rules of its own.
+        assert_eq!(
+            hub_plan(&[listed(book, true), listed(hub, true)]),
+            HubPlan::Joined
+        );
+    }
+
+    // The IDs are the node's: the hub's scheme, and the owner book of the
+    // hub's asset.
+    #[test]
+    fn the_default_hub_names_schemes_the_node_runs() {
+        for id in [DEFAULT_HUB_SCHEME, DEFAULT_HUB_BOOK] {
+            assert!(
+                dassie_node::engine::SCHEMES
+                    .iter()
+                    .any(|info| info.id == id),
+                "{id}"
+            );
+        }
+        let config: serde_json::Value = serde_json::from_str(OWNER_BOOK_CONFIG).unwrap();
+        assert_eq!(config, serde_json::json!({ "peers": false }));
     }
 
     #[test]

@@ -118,6 +118,7 @@ fn setup_claims_a_node_once_and_refuses_another_passphrase() {
         "{text}"
     );
     assert!(text.contains("The node's engine is running."), "{text}");
+    joins_no_hub_while_none_is_built_in(&text, &owner, &ipc);
 
     let again = dassie(&["setup", "--passphrase-file", &owner], &ipc);
     let text = describe(&again);
@@ -208,6 +209,22 @@ fn refuses_a_phrase_of_another_realm(dir: &Path, owner: &str, ipc: &Path) {
         text.contains("a phrase of the live realm, not of the test realm: pass --realm live"),
         "{text}"
     );
+}
+
+/// `dassie setup` joins the realm's default settlement hub only while the
+/// node offers one: no build has one built in yet, so it says so and adds
+/// nothing (`text` is the first run's output); `--no-hub` leaves the hub
+/// out altogether.
+fn joins_no_hub_while_none_is_built_in(text: &str, owner: &str, ipc: &Path) {
+    assert!(
+        text.contains("This build has no default settlement hub"),
+        "{text}"
+    );
+    assert!(!text.contains("Added"), "{text}");
+    let no_hub = dassie(&["setup", "--passphrase-file", owner, "--no-hub"], ipc);
+    let text = describe(&no_hub);
+    assert!(no_hub.status.success(), "{text}");
+    assert!(!text.contains("settlement hub"), "{text}");
 }
 
 /// `dassie setup --asset` sets an account's config apart from its schemes,
