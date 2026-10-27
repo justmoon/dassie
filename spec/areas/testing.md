@@ -183,12 +183,12 @@ A check's name changes only when the check is renamed. A panic's file and line a
 **Reproducing a failure.** A test or run that fails names its simulation and seed.
 
 - `dassie-sim run <sim> <seed>` replays it, and `dassie-sim explain <sim> <seed>` prints its trace, optionally only the lines that match.
-
-**A range of seeds** runs on every core: each seed in a process of its own, as in a campaign, so that runs share nothing. Its output is in the order of the seeds, the same as if they ran one after another, since each seed is independent of the others. A run stuck past the wall-time limit, or one that aborts, is reported as in a campaign rather than ending the range. A single seed, or `--jobs 1`, runs in the runner's own process, where a debugger can follow it.
 - Build the runner with `--profile sim`, which is the test profile with assertions and overflow checks on, so a seed replays exactly as the test of the same seed.
 - A seed reproduces a failure only at the commit it ran on, so a fix comes with a targeted test that sets up the situation directly.
 - A panic is a safety failure that loses its trace; replay the seed to see what led to it.
 - A git commit's full SHA is also a seed, so that a commit names its own run.
+
+**A range of seeds** runs on every core: each seed in a process of its own, as in a campaign, so that runs share nothing. Its output is in the order of the seeds, the same as if they ran one after another, since each seed is independent of the others. A run stuck past the wall-time limit, or one that aborts, is reported as in a campaign rather than ending the range. A single seed, or `--jobs 1`, runs in the runner's own process, where a debugger can follow it.
 
 ## The campaign
 
