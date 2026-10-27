@@ -11,7 +11,7 @@ Deterministic simulation is the main source of confidence ([tigerstyle](../decis
 
 - golden vectors pin the wire formats and derivations that must never change;
 - interop tests pin the standards against their reference implementations;
-- end-to-end tests check the real IO layer that a simulation replaces.
+- tests over real sockets, and end-to-end tests, check the real IO layer that a simulation replaces ([below](#over-real-sockets)).
 
 Rules for every test:
 
@@ -19,6 +19,7 @@ Rules for every test:
 - **Every simulation or property-test failure prints the seed that reproduces it.**
 - **CI runs fixed seeds only, no simulation sweeps and no fuzzing:** a simulation in CI is a scenario on one fixed seed, or the few that between them reach what it checks ([Engineering](../engineering.md#no-fuzzing-or-random-seeds-in-ci)).
 - **Each Rust test runs in its own process, at once with every other.** CI runs them with cargo-nextest (`.config/nextest.toml`), so that it takes as long as its slowest test rather than all of them in turn. A test relies on no other test's process, state or order, and takes its ports from the OS, or fixed ones no other test uses. Nextest retries no test: one that fails only sometimes fails CI.
+- **No Rust test's outcome depends on how fast the machine is.** A Rust test waits for progress, on its own clock or for an event, never for a span of real time ([below](#over-real-sockets)). The end-to-end tests cannot: they run the real binaries on a real clock with dev timings ([below](#simulation-time-follows-production)), so they wait for the protocol in real time. A wait for progress there polls against a generous limit, a hang's guard, and a check that something does not happen watches for longer than the dev timing that would make it happen.
 - **The end-to-end tests skip what they lack outside CI, and fail on it in CI** (`CI=true`), so a missing tool never passes CI silently.
 
 **Which stub a test settles on.** A new test whose subject is not settlement (the peer protocol, routing, payments, the wallet, the RPC) runs its nodes on the stub with unlimited trust, so that no credit runs out, and no request to settle or settlement shapes what it checks ([Settlement](settlement.md#the-stub-scheme)). Most such tests and the simulations still run on the plain stub, and settle as its peers do. A test of settlement over a hub runs on the stub with commitments or a simulated hub ([below](#over-a-settlement-hub)), and a test of direct settlement on the plain stub or the fake XRP Ledger.
@@ -38,6 +39,16 @@ Properties pin what no example can: every decoder never panics, only canonical e
 ## Interop
 
 Dassie runs against the reference implementations, which are the oracle for the standards: STREAM against `ilp-protocol-stream` in both directions, natively and in WASM; the BTP server against `ilp-plugin-btp`; Open Payments against `@interledger/open-payments`, which validates every response against the specs, with the node both as server and as a client of another node. The WASM build is also run in a headless browser, as the wallet and the website load it.
+
+## Over real sockets
+
+The Rust tests that run nodes over real sockets (`crates/*/tests/`) are the only check of what a simulation replaces with its in-memory transport: the transports and their security, their framing, and how a node handles the connections it makes and takes. They check that IO layer, and leave the protocol to the simulations:
+
+- **A real-socket test checks only what a simulation cannot.** It runs as much protocol as it needs to reach the IO it checks. A protocol scenario judged for its own sake (a validator catching up, a peering ending, settlements after a partition) belongs in a simulation.
+- **The protocol it runs, it runs on a clock the test moves by hand** (`ManualClock`). The node's protocol timers, the engine's and those of the services beside it, are to run on the node's clock and wake when it moves, so that a test reaches a wait of minutes or days in steps rather than in real time; the few services that still pace themselves on real time are [not built yet](../roadmap.md#not-built-yet). Only the IO layer's own timeouts, a connection's or a handshake's, run on real time by design.
+- **A wait is bounded by progress, never by wall time.** A test waits for what it looks for, while it moves its clock on, and gives up after a number of steps of its clock, never after a span of real time: no sleep that stands in for a wait, no polling against a real-time limit a slow machine can reach. Where only real time will do, as for QUIC's own transport timers, the wait is generous, a hang's guard rather than what decides the test, and its comment says why.
+
+A simulation already judges the protocol, deterministically and on every seed it runs, so a real-socket test that also races the wall clock adds nothing to that confidence, only a way to fail. CI runs every test at once on a shared machine, where a loaded one runs a real-time scenario several times slower than a developer's, and nextest retries nothing: such a test fails pull requests that never touched what it tests.
 
 ## Deterministic simulation
 
