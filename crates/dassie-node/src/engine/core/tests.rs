@@ -259,7 +259,7 @@ fn a_stopped_scheme_is_not_peered_on() {
 
     let store = Arc::new(Store::open_in_memory().unwrap());
     let mut core = core_on(Arc::clone(&store), 9);
-    add_stub(&mut core, TRUSTING);
+    add_stub(&mut core, COMMITTING);
     let stub = SchemeId::parse("stub").unwrap();
     assert_eq!(core.peer.schemes(), [stub]);
     let effects = [Effect::Deposit { amount: MAX_TOTAL }];
@@ -1562,7 +1562,7 @@ fn a_downlink_that_moves_no_value_leaves_nothing_behind() {
 #[test]
 fn a_downlinks_channel_without_accounts_waits_for_every_scheme() {
     let store = Arc::new(Store::open_in_memory().unwrap());
-    let (mut core, id) = stub_core_with_downlink_on(store, TRUSTING);
+    let (mut core, id) = stub_core_with_downlink_on(store, COMMITTING);
     let stub = dassie_ledger::name!("stub");
     core.stop_scheme(stub, super::EngineError::Invalid("blind".into()));
     let mut now = NOW + 1_000;
@@ -2968,6 +2968,7 @@ fn a_refused_write_off_asks_the_ledger_nothing() {
 // that has read its ledger already is told it has synced, and is peered on
 // from then: the account connects anew, and reads again from the earliest
 // place of its schemes.
+// Its link-state checks go with direct settlement (spec/roadmap.md#hubs-only).
 #[test]
 fn a_scheme_activated_on_a_synced_account_is_told_it_has_synced() {
     use dassie_ledger::Name;
