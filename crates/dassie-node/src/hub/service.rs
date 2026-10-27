@@ -387,6 +387,7 @@ impl HubTask {
                     self.catch_up(*finalized, &state, shutdown).await?;
                 }
                 Input::Message(inbound) => {
+                    heard_from(&self.backoffs, &inbound);
                     let now = self.clock.now_ms();
                     let node = inbound.node.as_ref();
                     let step = self
@@ -589,9 +590,7 @@ impl Exchange {
                 }
             }
             Err(error) => {
-                let previous = backoffs.get(&peer.node).map(|(_, wait)| *wait);
-                let (pause, wait) = after_failure(&error, previous);
-                backoffs.insert(peer.node, (tokio::time::Instant::now() + pause, wait));
+                failed(&mut backoffs, peer.node, &error);
                 tracing::debug!(target: target::HUB, node = %peer.node, %error, "a validator could not be reached");
             }
         }
@@ -613,6 +612,41 @@ fn after_failure(error: &HubExchangeError, previous: Option<Duration>) -> (Durat
     (wait, wait)
 }
 
+/// Leaves `node` alone for a while after an exchange with it failed with
+/// `error`.
+fn failed(
+    backoffs: &mut BTreeMap<NodeId, (tokio::time::Instant, Duration)>,
+    node: NodeId,
+    error: &HubExchangeError,
+) {
+    let previous = backoffs.get(&node).map(|(_, wait)| *wait);
+    let (pause, wait) = after_failure(error, previous);
+    backoffs.insert(node, (tokio::time::Instant::now() + pause, wait));
+}
+
+/// Ends the wait before sending again to the node that sent `inbound`, if
+/// the transport proved its key: a validator that comes back is sent to as
+/// soon as anything of it arrives (spec/areas/hubs.md#the-validator-in-the-node).
+/// Only the proved key counts, never the handle a message names, so nobody
+/// ends the wait for a node but that node itself, and all it can make us
+/// do is send to it, each exchange bounded by [`SEND_TIMEOUT`], which it
+/// can anyway by answering slowly. The wait the next failure doubles from
+/// stays: one that reaches us but that we cannot reach still waits longer
+/// after each failure, until an exchange with it succeeds. It adds no
+/// entry.
+fn heard_from(backoffs: &Backoffs, inbound: &Inbound) {
+    let Some(key) = inbound.node else {
+        return;
+    };
+    let mut held = backoffs.lock().unwrap_or_else(PoisonError::into_inner);
+    if held.is_empty() {
+        return;
+    }
+    if let Some((until, _)) = held.get_mut(&key.node_id()) {
+        *until = (*until).min(tokio::time::Instant::now());
+    }
+}
+
 /// Whether `node` could not be reached lately, so nothing is sent to it
 /// until its wait is over.
 fn backing_off(backoffs: &Backoffs, node: &NodeId) -> bool {
@@ -626,6 +660,7 @@ fn backing_off(backoffs: &Backoffs, node: &NodeId) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use dassie_identity::PublicKey;
 
     // A validator that answered busy is up: it is tried again shortly, and
     // a burst of busy answers never backs off from it for longer.
@@ -653,5 +688,64 @@ mod tests {
             "an unreachable one is left alone longer"
         );
         assert_eq!(after_failure(&busy, wait), (BUSY_RETRY, BACKOFF_MAX));
+    }
+
+    fn from(sender: PublicKey, proved: Option<PublicKey>) -> Inbound {
+        Inbound {
+            from: Sender(sender).peer(),
+            node: proved,
+            message: Vec::new(),
+            reply: None,
+        }
+    }
+
+    // A validator backed off from a peer it could not reach sends to it again
+    // as soon as the peer is heard from, by the key the transport proved;
+    // nothing else ends the wait, and the wait still grows with the next
+    // failure.
+    #[test]
+    fn hearing_from_a_validator_ends_the_wait_for_it_alone() {
+        let peer = NodeKey::from_bytes(&[1; 32]).public_key();
+        let other = NodeKey::from_bytes(&[2; 32]).public_key();
+        let backoffs = Backoffs::default();
+        {
+            let mut held = backoffs.lock().unwrap();
+            for _ in 0..10 {
+                failed(&mut held, peer.node_id(), &HubExchangeError::Unreachable);
+            }
+            failed(&mut held, other.node_id(), &HubExchangeError::Unreachable);
+        }
+        assert!(backing_off(&backoffs, &peer.node_id()));
+
+        // Another node, one that names the peer's handle, and one whose key
+        // nothing proved, end nothing.
+        heard_from(&backoffs, &from(other, Some(other)));
+        heard_from(&backoffs, &from(peer, Some(other)));
+        heard_from(&backoffs, &from(peer, None));
+        assert!(
+            backing_off(&backoffs, &peer.node_id()),
+            "only the peer itself ends its wait"
+        );
+        assert!(!backing_off(&backoffs, &other.node_id()));
+
+        // The peer itself does, and the other's wait is untouched by it.
+        failed(
+            &mut backoffs.lock().unwrap(),
+            other.node_id(),
+            &HubExchangeError::Unreachable,
+        );
+        heard_from(&backoffs, &from(peer, Some(peer)));
+        assert!(!backing_off(&backoffs, &peer.node_id()), "sent to at once");
+        assert!(backing_off(&backoffs, &other.node_id()));
+
+        // Its wait still grows from where it was.
+        let mut held = backoffs.lock().unwrap();
+        failed(&mut held, peer.node_id(), &HubExchangeError::Unreachable);
+        assert_eq!(
+            held.get(&peer.node_id()).map(|(_, wait)| *wait),
+            Some(BACKOFF_MAX)
+        );
+        drop(held);
+        assert!(backing_off(&backoffs, &peer.node_id()));
     }
 }
