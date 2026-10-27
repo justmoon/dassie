@@ -96,6 +96,20 @@ async function ready(scenario: Scenario): Promise<boolean> {
   return rates.some((rate) => rate.assetCode === "XRP" && !rate.stale);
 }
 
+/** What `node` holds for `peer` over the hub: the credit it extends the
+ * peer there (spec/areas/hubs.md#in-the-node). */
+async function holdToward(
+  node: ScenarioNode,
+  peer: ScenarioNode,
+): Promise<bigint> {
+  const { peers } = await node.rpc.call("listPeers", {});
+  const found = peers.find((entry) =>
+    entry.node === peer.id && entry.scheme === HUB_SCHEME
+  );
+  assert(found, `${node.name} does not peer with ${peer.name} over the hub`);
+  return found.creditOut;
+}
+
 /** A node's balance in one of its accounts, by path. */
 async function balance(node: ScenarioNode, path: string): Promise<bigint> {
   const { accounts } = await node.rpc.call("listAccounts", {});
@@ -195,6 +209,8 @@ test(
         `${quote.debitAmount}`,
       );
 
+      const holdBefore = await holdToward(d2, d3);
+      const d3HubBefore = (await ledger(d3, HUB_LEDGER)).onLedgerBalance;
       const usdBefore = (await ledger(d1, USD)).ownerBalance;
       const feesBefore = await balance(d2, `${USD}:revenue/fees`);
       const { payment } = await d1.rpc.call("sendPayment", {
@@ -253,6 +269,18 @@ test(
         "settled over the hub",
         () => settledOverHub(scenario),
         HUB_WITHIN_MS,
+      );
+      // Over the hub: d2's hold toward d3 grew, and d3's book of the hub
+      // holds what it grew by, which never passes what d3 received.
+      const moved = await holdToward(d2, d3) - holdBefore;
+      assert(
+        moved > 0n && moved <= incoming.receivedAmount,
+        `d2's hold toward d3 grew by ${moved}`,
+      );
+      assertEquals(
+        (await ledger(d3, HUB_LEDGER)).onLedgerBalance - d3HubBefore,
+        moved,
+        "d3's book of the hub",
       );
       const stub = await stubBooks(scenario);
       const accounts = await owed(scenario);

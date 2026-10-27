@@ -1,7 +1,8 @@
 import { test } from "node:test";
-import { assertEquals, assertThrows } from "@std/assert";
+import { assert, assertEquals, assertThrows } from "@std/assert";
 import { DEV_RATES } from "../rates.ts";
 import {
+  dataShape,
   findScenario,
   HUB_OWNER_BOOK,
   HUB_SCHEME,
@@ -446,5 +447,27 @@ test("a hub's nodes are checked before the scenario starts", () => {
   assertEquals(
     invalid({ ...base, periphery: [{ node: 9, uplinks: [0] }] }),
     "no node 9",
+  );
+});
+
+test("a scenario that sets its nodes up otherwise does not resume", () => {
+  const def = findScenario("two-nodes")!;
+  assertEquals(dataShape(def), dataShape({ ...def }), "the same setup");
+  // The plain stub, as the scenario once ran it: its data is not resumed.
+  const { configs: _, ...plain } = def;
+  assert(dataShape(plain) !== dataShape(def), "the stub's config");
+  assert(
+    dataShape({ ...def, realm: "live" }) !== dataShape(def),
+    "another realm",
+  );
+  assert(
+    dataShape({ ...def, addedSchemes: [] }) !== dataShape(def),
+    "another scheme for added nodes",
+  );
+  // The order configs are written in changes nothing.
+  const two = { a: "1", b: "2" };
+  assertEquals(
+    dataShape({ ...def, configs: two }),
+    dataShape({ ...def, configs: { b: "2", a: "1" } }),
   );
 });

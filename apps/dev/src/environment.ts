@@ -7,6 +7,7 @@
  * @module
  */
 
+import { createHash } from "node:crypto";
 import { readFile, rm, writeFile } from "node:fs/promises";
 import { create } from "@bufbuild/protobuf";
 import {
@@ -40,6 +41,7 @@ import {
   SCENARIOS,
 } from "./scenario/mod.ts";
 import {
+  dataShape,
   MAX_NODES,
   peripheryOf,
   type ScenarioDef,
@@ -137,22 +139,38 @@ export class Environment {
 
   /**
    * The scenario last chosen, from the state directory, or `override`.
-   * Whether that is another scenario than the data was left by, which then
-   * must not be resumed.
+   * Whether the data was left by another scenario, or by this one when it
+   * set its nodes up otherwise ({@linkcode dataShape}), which then must not
+   * be resumed.
    */
   async restoreScenario(override?: string): Promise<boolean> {
     const saved = await readFile(this.options.layout.scenarioFile, "utf8")
       .then((text) => text.trim(), () => undefined);
-    const def = findScenario(override ?? saved ?? DEFAULT_SCENARIO);
+    const [savedId, savedMark] = saved?.split(" ") ?? [];
+    const def = findScenario(override ?? savedId ?? DEFAULT_SCENARIO);
     this.#scenarioId = def && !this.#unavailable(def)
       ? def.id
       : DEFAULT_SCENARIO;
-    if (saved === this.#scenarioId) return false;
+    const mark = scenarioMark(findScenario(this.#scenarioId)!);
+    if (savedId === this.#scenarioId && savedMark === mark) return false;
+    if (savedId === this.#scenarioId) {
+      this.log(
+        LogLevel.INFO,
+        `${savedId} sets its nodes up otherwise than its data was made: they start from scratch`,
+      );
+    }
+    await this.#saveScenario();
+    return saved !== undefined;
+  }
+
+  /** Records the scenario chosen, and how it sets its nodes up, in the
+   * state directory. */
+  async #saveScenario(): Promise<void> {
+    const def = findScenario(this.#scenarioId)!;
     await writeFile(
       this.options.layout.scenarioFile,
-      `${this.#scenarioId}\n`,
+      `${def.id} ${scenarioMark(def)}\n`,
     );
-    return saved !== undefined;
   }
 
   /** Why `def` cannot run here, with or without the fake ledger. */
@@ -334,7 +352,7 @@ export class Environment {
     return this.#enqueue(`scenario ${id}`, async () => {
       this.#scenarioId = id;
       this.#added = 0;
-      await writeFile(this.options.layout.scenarioFile, `${id}\n`);
+      await this.#saveScenario();
       await this.#run(true);
     });
   }
@@ -591,4 +609,13 @@ export class Environment {
     });
     this.#changed();
   }
+}
+
+/** A short digest of how `def` sets its nodes up ({@linkcode dataShape}),
+ * which the state directory records beside the scenario chosen. */
+function scenarioMark(def: ScenarioDef): string {
+  return createHash("sha256").update(dataShape(def)).digest("hex").slice(
+    0,
+    16,
+  );
 }

@@ -45,7 +45,7 @@ export interface ScenarioDef {
   /**
    * The realm its nodes run in: `test` unless it says `live`. Live nodes
    * run mainnet's schemes, by the node's dev switch, which only a build
-   * with debug assertions honours (spec/decisions/mainnet-schemes.md), and
+   * with debug assertions honors (spec/decisions/mainnet-schemes.md), and
    * only against the fake ledger's mainnet, never with real money.
    */
   readonly realm?: "test" | "live";
@@ -381,6 +381,27 @@ export function startsFresh(def: ScenarioDef): string | undefined {
  * they start from scratch ({@linkcode startsFresh}). */
 export function resumes(def: ScenarioDef): boolean {
   return startsFresh(def) === undefined;
+}
+
+/**
+ * What `def`'s nodes keep in their data from how it sets them up, as text:
+ * their schemes and those of added nodes, each scheme's config, their
+ * realm and which are periphery nodes. A node keeps a scheme with the
+ * config it was added with, so data a scenario left resumes only while
+ * this is the same; once the scenario sets its nodes up otherwise, they
+ * start from scratch (spec/areas/dev.md#restarts-and-resets).
+ */
+export function dataShape(def: ScenarioDef): string {
+  const configs = Object.entries(def.configs ?? {}).sort(([a], [b]) =>
+    a < b ? -1 : a > b ? 1 : 0
+  );
+  return JSON.stringify({
+    schemes: def.schemes,
+    addedSchemes: def.addedSchemes,
+    configs,
+    realm: def.realm ?? "test",
+    periphery: def.periphery ?? [],
+  });
 }
 
 /** Whether `def` settles on the XRP Ledger, with any of its nodes. */
