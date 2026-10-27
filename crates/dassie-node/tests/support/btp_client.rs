@@ -10,7 +10,6 @@
 )]
 
 use std::collections::BTreeMap;
-use std::time::Duration;
 
 use dassie_ilp::btp::{self, Body, ContentType, ProtocolData, ProtocolDataEntry};
 use dassie_ilp::{Address, Prepare, Response, Timestamp, ildcp};
@@ -22,7 +21,7 @@ use futures_util::{SinkExt, StreamExt};
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 
-use super::{Socket, TestNode, connect_tls};
+use super::{HANG, Socket, TestNode, connect_tls};
 
 /// A BTP client.
 pub struct BtpClient {
@@ -114,8 +113,11 @@ impl BtpClient {
         request_id
     }
 
+    /// The next message from the node. What the tests wait for here the
+    /// node sends without waiting on its clock, so only a hang ends the
+    /// wait ([`HANG`]).
     pub async fn receive(&mut self) -> Option<Received> {
-        let next = tokio::time::timeout(Duration::from_secs(10), self.socket.next())
+        let next = tokio::time::timeout(HANG, self.socket.next())
             .await
             .expect("the node said nothing");
         let Some(Ok(Message::Binary(bytes))) = next else {
@@ -139,7 +141,7 @@ impl BtpClient {
     /// The close code, once the node closes.
     pub async fn closed(&mut self) -> Option<u16> {
         loop {
-            match tokio::time::timeout(Duration::from_secs(10), self.socket.next())
+            match tokio::time::timeout(HANG, self.socket.next())
                 .await
                 .expect("the socket stayed open")
             {

@@ -18,6 +18,7 @@ pub mod rates;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use bytes::Bytes;
 use dassie_kit::sim::SeededRng;
@@ -49,6 +50,31 @@ use tokio_util::sync::CancellationToken;
 
 /// 2027-01-15, a plausible now.
 pub const START_MS: u64 = 1_800_000_000_000;
+
+/// How long a wait for what runs in real time may take before it is called
+/// a hang (spec/areas/testing.md#over-real-sockets): a minute, far past
+/// every real-time timer such a wait depends on, a connection's or a
+/// handshake's timeout, so that only a hang reaches it, never a loaded
+/// machine.
+pub const HANG: Duration = Duration::from_secs(60);
+
+/// Tries `attempt` until it gives something, giving up only on a hang
+/// ([`HANG`]): for what the IO layer does in its own real time, such as a
+/// closed connection's place coming back, or for work no clock paces. The
+/// protocol's waits move the test's clock instead.
+pub async fn eventually<T>(what: &str, mut attempt: impl AsyncFnMut() -> Option<T>) -> T {
+    let deadline = tokio::time::Instant::now() + HANG;
+    loop {
+        if let Some(done) = attempt().await {
+            return done;
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "hung for {HANG:?}: {what}"
+        );
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+}
 
 /// A daemon's listeners, bound before it starts, so that other nodes can
 /// be told where it will be.
@@ -211,7 +237,9 @@ impl Bound {
             handle: Some(handle),
             _blackhole: blackhole,
         };
-        node.wait_until_up().await;
+        // The listeners were bound before the daemon started, so clients
+        // reach it from now on; what is left to wait for is that it made its
+        // endpoint and its node, which it hands out.
         node.quic = handed.await.ok();
         node.node = node_handed.await.unwrap_or_default();
         node
@@ -264,23 +292,30 @@ impl TestNode {
         Bound::bind_in(dir).start(clock, seed, policies, &[]).await
     }
 
-    async fn wait_until_up(&self) {
-        for _ in 0..200 {
-            if UnixStream::connect(&self.ipc).await.is_ok()
-                && TcpStream::connect(self.https).await.is_ok()
-            {
-                return;
-            }
-            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-        }
-        panic!("the daemon did not come up");
+    /// Waits until the daemon's engine runs, as it does once the node is set
+    /// up. Starting it is work that no clock paces, so this waits for it to
+    /// happen, giving up only on a hang ([`HANG`]).
+    pub async fn engine_started(&self) {
+        let mut engines = self
+            .node
+            .upgrade()
+            .expect("the daemon made no node")
+            .engines();
+        let started = async { engines.wait_for(Option::is_some).await.map(|_| ()) };
+        tokio::time::timeout(HANG, started)
+            .await
+            .expect("the engine did not start")
+            .expect("the daemon ended");
     }
 
     /// Waits for the daemon to end by itself, and returns how it ended and
-    /// its directory.
+    /// its directory. A daemon ends by itself when a service fails its
+    /// start, after the supervisor's backoffs between its attempts, which
+    /// are real time: so this waits in real time, giving up only on a hang
+    /// ([`HANG`]).
     pub async fn ended(mut self) -> (Result<(), DaemonError>, tempfile::TempDir) {
         let handle = self.handle.take().unwrap();
-        let outcome = tokio::time::timeout(std::time::Duration::from_secs(30), handle)
+        let outcome = tokio::time::timeout(HANG, handle)
             .await
             .expect("the daemon did not end")
             .unwrap();

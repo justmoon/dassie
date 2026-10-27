@@ -3,8 +3,6 @@
 
 #![allow(clippy::panic)]
 
-use std::time::Duration;
-
 use bytes::Bytes;
 use dassie_identity::NodeKey;
 use dassie_node::clock::{Clock, ManualClock};
@@ -106,30 +104,25 @@ pub fn default_name(key: &NodeKey) -> String {
     format!("{}.dassiepay.net", key.node_id().label().unwrap())
 }
 
-/// Adds the stub ledger, with money in it.
+/// Adds the stub ledger, with money in it, once the engine runs.
 pub async fn add_stub(node: &TestNode) {
+    node.engine_started().await;
     let mut owner = node.ipc().await;
-    for _ in 0..200 {
-        let added = owner
-            .call(Method::AddSettlementScheme(
-                proto::AddSettlementSchemeRequest {
-                    id: "stub".into(),
-                    config: String::new(),
-                },
-            ))
-            .await;
-        if added.is_ok() {
-            owner
-                .call(Method::StubDeposit(proto::StubDepositRequest {
-                    amount: 100_000_000_000,
-                }))
-                .await
-                .unwrap();
-            return;
-        }
-        tokio::time::sleep(Duration::from_millis(10)).await;
-    }
-    panic!("the stub scheme did not start");
+    let added = owner
+        .call(Method::AddSettlementScheme(
+            proto::AddSettlementSchemeRequest {
+                id: "stub".into(),
+                config: String::new(),
+            },
+        ))
+        .await;
+    assert!(added.is_ok(), "the stub scheme did not start: {added:?}");
+    owner
+        .call(Method::StubDeposit(proto::StubDepositRequest {
+            amount: 100_000_000_000,
+        }))
+        .await
+        .unwrap();
 }
 
 /// A request to the node, signed by `client` with `token` if given.
