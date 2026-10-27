@@ -175,7 +175,7 @@ impl PeeringHooks for StubHooks {
         self.commitments && scheme.as_str() == STUB
     }
 
-    fn wants_method(&self, _: NodeId, _: SchemeId) -> bool {
+    fn wants_method(&self, _: NodeId, _: bool, _: SchemeId) -> bool {
         !self.refuse_methods
     }
 

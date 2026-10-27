@@ -25,6 +25,11 @@ const TRUSTING: &str = r#"{"trust":"unlimited"}"#;
 /// (spec/areas/settlement.md#the-stub-scheme).
 const COMMITTING: &str = r#"{"commitments":1}"#;
 
+/// The scheme ID `id`, as the peer protocol names a settlement method.
+fn scheme_id(id: &str) -> dassie_peer::wire::SchemeId {
+    dassie_peer::wire::SchemeId::parse(id).unwrap()
+}
+
 /// Adds the stub of `config` to `core`.
 fn add_stub(core: &mut Core, config: &str) -> super::LedgerView {
     core.add_scheme("stub", config.into()).unwrap()
@@ -2729,6 +2734,267 @@ impl dassie_settlement::SettlementScheme for HubStandIn {
     fn check_invariants(&self) {}
 }
 
+/// A second stub with commitments, for the tests of a peering with two
+/// settlement methods over hubs ([`StubTwo`]).
+pub(super) const STUB_TWO: &str = "stub-two";
+
+/// The pretend hub every [`StubTwo`] is a member of: another than the
+/// stub's, so that two nodes running both share two hubs.
+const STUB_TWO_HUB: [u8; 32] = *b"the second stub's pretend hub..!";
+
+/// The packets any [`StubTwo`] committed to or took a commitment for, in
+/// this process: none, while the connector carries a peer's packets on its
+/// first method alone (spec/decisions/settlement-methods.md), so every test
+/// may read it, whichever run beside it.
+static STUB_TWO_PACKETS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// The stub with commitments under another name, on a ledger of its own,
+/// the XRP hub's, whose owner book has no peg guard, and in a pretend hub
+/// of its own: what it does is the stub's.
+/// Its stub is in a cell: the commitments' reads take `&self`, and the
+/// stub lends them only as `&mut`.
+pub(super) struct StubTwo(std::cell::RefCell<dassie_settlement::Stub>);
+
+impl StubTwo {
+    /// The scheme, as the node makes it.
+    pub(super) fn boxed(
+        config: &str,
+        checkpoint: Option<u64>,
+        state: &[u8],
+    ) -> Result<Box<dyn dassie_settlement::SettlementScheme>, dassie_settlement::SchemeError> {
+        let stub = dassie_settlement::Stub::new(config, checkpoint, state)?;
+        Ok(Box::new(Self(std::cell::RefCell::new(stub))))
+    }
+
+    /// Runs `f` on the stub.
+    fn stub<R>(&self, f: impl FnOnce(&mut dassie_settlement::Stub) -> R) -> R {
+        f(&mut self.0.borrow_mut())
+    }
+
+    /// Runs `f` on the stub's commitments.
+    fn with_inner<R>(&self, f: impl FnOnce(&mut dyn dassie_settlement::Commitments) -> R) -> R {
+        use dassie_settlement::SettlementScheme;
+        self.stub(|stub| f(stub.commitments().expect("a stub with commitments")))
+    }
+}
+
+impl dassie_settlement::SettlementScheme for StubTwo {
+    fn id(&self) -> dassie_ledger::Name {
+        dassie_ledger::name!(STUB_TWO)
+    }
+
+    fn ledger(&self) -> dassie_ledger::LedgerId {
+        dassie_ledger::LedgerId::HubXrplTestnetXrp
+    }
+
+    fn balance(&self) -> u64 {
+        self.stub(|stub| stub.balance())
+    }
+
+    fn state(&self) -> Vec<u8> {
+        self.stub(|stub| stub.state())
+    }
+
+    fn state_version(&self) -> u64 {
+        self.stub(|stub| stub.state_version())
+    }
+
+    fn peering_info(&self, out: &mut Vec<u8>) {
+        self.stub(|stub| stub.peering_info(out));
+    }
+
+    fn create_peering_request(
+        &mut self,
+        peer: dassie_ledger::Name,
+        info: &[u8],
+        out: &mut Vec<u8>,
+    ) -> Result<(), dassie_settlement::SchemeError> {
+        self.stub(|stub| stub.create_peering_request(peer, info, out))
+    }
+
+    fn accept_peering_request(
+        &mut self,
+        peer: dassie_ledger::Name,
+        data: &[u8],
+    ) -> Result<Vec<u8>, dassie_settlement::SchemeError> {
+        self.stub(|stub| stub.accept_peering_request(peer, data))
+    }
+
+    fn finalize_peering_request(
+        &mut self,
+        peer: dassie_ledger::Name,
+        info: &[u8],
+    ) -> Result<Vec<u8>, dassie_settlement::SchemeError> {
+        self.stub(|stub| stub.finalize_peering_request(peer, info))
+    }
+
+    fn unlimited_trust(&self) -> bool {
+        self.stub(|stub| stub.unlimited_trust())
+    }
+
+    fn prepare_settlement(
+        &mut self,
+        rng: &mut dyn rand_core::CryptoRng,
+        asset: Option<&mut dyn dassie_settlement::ExternalAsset>,
+        peer: dassie_ledger::Name,
+        amount: u64,
+        state: &[u8],
+    ) -> Result<dassie_settlement::PreparedSettlement, dassie_settlement::SchemeError> {
+        self.stub(|stub| stub.prepare_settlement(rng, asset, peer, amount, state))
+    }
+
+    fn discard_settlement(
+        &mut self,
+        asset: Option<&mut dyn dassie_settlement::ExternalAsset>,
+        settlement: dassie_ledger::Name,
+    ) {
+        self.stub(|stub| stub.discard_settlement(asset, settlement));
+    }
+
+    fn execute_settlement(
+        &mut self,
+        asset: Option<&mut dyn dassie_settlement::ExternalAsset>,
+        settlement: dassie_ledger::Name,
+        effects: &mut Vec<dassie_settlement::Effect>,
+    ) {
+        self.stub(|stub| stub.execute_settlement(asset, settlement, effects));
+    }
+
+    fn reconcile(
+        &mut self,
+        asset: Option<&mut dyn dassie_settlement::ExternalAsset>,
+        pending: &[(dassie_ledger::Name, u64)],
+        effects: &mut Vec<dassie_settlement::Effect>,
+    ) {
+        self.stub(|stub| stub.reconcile(asset, pending, effects));
+    }
+
+    fn handle_settlement(
+        &mut self,
+        peer: dassie_ledger::Name,
+        amount: u64,
+        data: &[u8],
+        state: &[u8],
+        effects: &mut Vec<dassie_settlement::Effect>,
+    ) -> Result<(), dassie_settlement::SchemeError> {
+        self.stub(|stub| stub.handle_settlement(peer, amount, data, state, effects))
+    }
+
+    fn deposit(
+        &mut self,
+        amount: u64,
+        effects: &mut Vec<dassie_settlement::Effect>,
+    ) -> Result<(), dassie_settlement::SchemeError> {
+        self.stub(|stub| stub.deposit(amount, effects))
+    }
+
+    fn commitments(&mut self) -> Option<&mut dyn dassie_settlement::Commitments> {
+        self.0.get_mut().commitments()?;
+        Some(self)
+    }
+
+    fn check_invariants(&self) {
+        self.stub(|stub| stub.check_invariants());
+    }
+}
+
+impl dassie_settlement::Commitments for StubTwo {
+    fn commit(
+        &mut self,
+        now_ms: u64,
+        peer: dassie_ledger::Name,
+        request_id: u32,
+        promised: dassie_settlement::Promised,
+        out: &mut Vec<u8>,
+    ) -> Result<(), dassie_settlement::SchemeError> {
+        STUB_TWO_PACKETS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        self.with_inner(|inner| inner.commit(now_ms, peer, request_id, promised, out))
+    }
+
+    fn check_commitment(
+        &mut self,
+        now_ms: u64,
+        peer: dassie_ledger::Name,
+        request_id: u32,
+        promised: dassie_settlement::Promised,
+        commitment: &[u8],
+    ) -> Result<(), dassie_settlement::SchemeError> {
+        STUB_TWO_PACKETS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        self.with_inner(|inner| {
+            inner.check_commitment(now_ms, peer, request_id, promised, commitment)
+        })
+    }
+
+    fn on_fulfilled(
+        &mut self,
+        now_ms: u64,
+        peer: dassie_ledger::Name,
+        request_id: u32,
+        fulfillment: [u8; 32],
+    ) {
+        self.with_inner(|inner| inner.on_fulfilled(now_ms, peer, request_id, fulfillment));
+    }
+
+    fn on_released(&mut self, peer: dassie_ledger::Name, request_id: u32) {
+        self.with_inner(|inner| inner.on_released(peer, request_id));
+    }
+
+    fn claim(
+        &mut self,
+        now_ms: u64,
+        peer: dassie_ledger::Name,
+        request_id: u32,
+        taken: bool,
+        out: &mut Vec<u8>,
+    ) {
+        self.with_inner(|inner| inner.claim(now_ms, peer, request_id, taken, out));
+    }
+
+    fn on_claim(&mut self, now_ms: u64, peer: dassie_ledger::Name, request_id: u32, claim: &[u8]) {
+        self.with_inner(|inner| inner.on_claim(now_ms, peer, request_id, claim));
+    }
+
+    fn on_hub_wait(
+        &mut self,
+        now_ms: u64,
+        peer: dassie_ledger::Name,
+        request_id: u32,
+        condition: [u8; 32],
+        backstop_ms: u64,
+    ) {
+        self.with_inner(|inner| {
+            inner.on_hub_wait(now_ms, peer, request_id, condition, backstop_ms);
+        });
+    }
+
+    fn on_answered(&mut self, peer: dassie_ledger::Name, request_id: u32) {
+        self.with_inner(|inner| inner.on_answered(peer, request_id));
+    }
+
+    fn take_decided(&mut self, out: &mut Vec<dassie_settlement::Decided>) {
+        self.with_inner(|inner| inner.take_decided(out));
+    }
+
+    fn holds(&self, peer: dassie_ledger::Name) -> dassie_settlement::HoldsWith {
+        self.with_inner(|inner| inner.holds(peer))
+    }
+
+    fn room_from(&self, peer: dassie_ledger::Name) -> Option<u64> {
+        self.with_inner(|inner| inner.room_from(peer))
+    }
+
+    fn membership(&self) -> Option<dassie_settlement::Membership> {
+        Some(dassie_settlement::Membership {
+            hub: STUB_TWO_HUB,
+            account: 0,
+        })
+    }
+
+    fn held(&self, out: &mut Vec<(dassie_ledger::Name, dassie_settlement::Held)>) -> bool {
+        self.with_inner(|inner| inner.held(out))
+    }
+}
+
 /// The config both schemes on the XRPL account name: its server and its
 /// faucet.
 const SHARED_CONFIG: &str = r#"{"server":"ws://ledger.test","faucet":null}"#;
@@ -3640,13 +3906,16 @@ fn a_transfer_fee_asks_no_peer_and_ends_none_for_room() {
             .any(|scheme| scheme.as_str() == "xrpl-rlusd"),
         "in the link state during a transfer fee"
     );
-    core.settle.asked.remove(&id);
+    core.settle.asked.remove(&(id, scheme_id("xrpl-rlusd")));
     let short = core.peer.peering_of(&id).unwrap().first().short_for_ms;
     let reached = core.peer.peering_of(&id).unwrap().first().short_reached_ms;
     check(&mut core, &mut ledger, &mut now);
     check(&mut core, &mut ledger, &mut now);
     assert!(
-        !core.settle.asked.contains_key(&id),
+        !core
+            .settle
+            .asked
+            .contains_key(&(id, scheme_id("xrpl-rlusd"))),
         "asked during a transfer fee"
     );
     let peering = core.peer.peering_of(&id).unwrap();
@@ -3669,7 +3938,9 @@ fn a_transfer_fee_asks_no_peer_and_ends_none_for_room() {
     check(&mut core, &mut ledger, &mut now);
     assert!(core.schemes[&rlusd].scheme.can_receive());
     assert!(
-        core.settle.asked.contains_key(&id),
+        core.settle
+            .asked
+            .contains_key(&(id, scheme_id("xrpl-rlusd"))),
         "asked once the fee is gone"
     );
     assert!(core.peer.peering_of(&id).unwrap().first().short_reached_ms > reached);
@@ -4761,7 +5032,7 @@ fn over_a_hub_a_payee_asks_by_the_room_of_the_hold_toward_it() {
     outputs.clear();
     core.finish_step(&mut outputs);
     assert!(
-        core.settle.asked.contains_key(&peer),
+        core.settle.asked.contains_key(&(peer, scheme)),
         "the peer was not asked"
     );
 }
@@ -6004,4 +6275,264 @@ fn a_live_realm_node_takes_no_part_in_names() {
     assert!(names.off);
     assert!(names.names.is_empty());
     assert!(super::names_enabled(Realm::Test) && !super::names_enabled(Realm::Live));
+}
+
+/// Two nodes in the simulation, both running the stub with commitments and
+/// [`StubTwo`], each its own pretend hub, so that they share two hubs: node
+/// 0 held off from settling with node 1 on the stub if `held_off`, as a
+/// node whose settlements on it keep failing is, so that it never funds its
+/// hold there. Runs until each has a peering with the other on both, at
+/// most ten minutes, as a network takes to be ready.
+fn two_hub_pair(seed: u64, held_off: bool) -> crate::sim::Sim {
+    use crate::sim::{START, Settling, Sim};
+
+    let mut sim = Sim::with(
+        seed,
+        2,
+        1,
+        std::collections::BTreeMap::new(),
+        Settling::StubHub(4),
+    );
+    sim.loss_per_mille = 0;
+    for index in 0..2 {
+        sim.step(index, |core| {
+            core.add_scheme(STUB_TWO, r#"{"commitments":4}"#.into())
+                .unwrap();
+        });
+    }
+    if held_off {
+        let peer = crate::sim::key(1).node_id();
+        sim.step(0, |core| {
+            core.settle
+                .backoff
+                .insert((peer, scheme_id("stub")), (u64::MAX, 1));
+        });
+    }
+    let both = |sim: &Sim| {
+        (0..2).all(|index| {
+            let other = crate::sim::key(1 - index).node_id();
+            sim.core(index)
+                .peer
+                .peering_of(&other)
+                .is_some_and(|peering| peering.methods.len() == 2)
+        })
+    };
+    assert!(
+        sim.run_until_or(START + 600_000, both),
+        "the pair did not peer on both hubs"
+    );
+    sim
+}
+
+/// The credit node `index` of `sim` extends its peer on the method on
+/// `scheme`: its hold toward the peer there and its settlements to it on
+/// their way, as the simulation checks after every step
+/// (`check_hub_credit`).
+fn method_credit(sim: &crate::sim::Sim, index: usize, scheme: &str) -> u64 {
+    let other = crate::sim::key(1 - index).node_id();
+    let name = dassie_ledger::Name::new(scheme).unwrap();
+    sim.core(index)
+        .hub_books(name, other)
+        .map_or(0, |(credit, _, _)| credit)
+}
+
+// spec/decisions/settlement-methods.md: two nodes that share two hubs peer
+// on both, the first the one the peering was made on and the second added,
+// in the same order on both sides. Each method has the peer's two accounts
+// on its own ledger, is asked to settle and funds its hold on its own, and
+// keeps the credit in step with its own hold; a restart keeps both methods
+// with what each holds.
+#[test]
+fn a_pair_that_shares_two_hubs_keeps_each_method_apart() {
+    use crate::sim::checks::{check_hub_credit, check_hub_packets};
+    use dassie_ledger::LedgerId;
+
+    let mut sim = two_hub_pair(41, false);
+    for index in 0..2 {
+        let other = crate::sim::key(1 - index).node_id();
+        let core = sim.core(index);
+        let peering = core.peer.peering_of(&other).unwrap();
+        let schemes: Vec<String> = peering.schemes().map(|s| s.to_string()).collect();
+        assert_eq!(schemes, ["stub", STUB_TWO], "node {index}");
+        let name = dassie_ledger::Name::new(other.as_str()).unwrap();
+        for ledger in [LedgerId::StubUsd, LedgerId::HubXrplTestnetXrp] {
+            assert!(
+                super::peers::has_accounts(&core.ledger, ledger, name),
+                "node {index} on {ledger:?}"
+            );
+        }
+        // Its packets take the method its endpoint was made on.
+        assert_eq!(core.packet_method(&other), Some(scheme_id("stub")));
+    }
+    // Each asks the other on each method, whose room starts empty, and each
+    // funds its hold on each: the credit on a method is its hold.
+    let funded = |sim: &crate::sim::Sim| {
+        (0..2).all(|index| {
+            ["stub", STUB_TWO]
+                .into_iter()
+                .all(|scheme| method_credit(sim, index, scheme) > 0)
+        })
+    };
+    assert!(
+        sim.run_until_or(sim.now + 600_000, funded),
+        "the holds on both methods were not funded"
+    );
+    sim.run_until(sim.now + 60_000);
+    check_hub_credit(&sim).unwrap();
+    check_hub_packets(&sim).unwrap();
+    let before: Vec<dassie_peer::Peering> = (0..2)
+        .map(|index| {
+            let other = crate::sim::key(1 - index).node_id();
+            sim.core(index).peer.peering_of(&other).unwrap().clone()
+        })
+        .collect();
+    let two = method_credit(&sim, 0, STUB_TWO);
+
+    // Restarted, node 0 has both methods, as they were, and their books.
+    sim.crash(0);
+    sim.start(0);
+    let other = crate::sim::key(1).node_id();
+    let restored = sim.core(0).peer.peering_of(&other).unwrap().clone();
+    let schemes = |peering: &dassie_peer::Peering| -> Vec<(String, Vec<u8>)> {
+        peering
+            .methods
+            .iter()
+            .map(|method| (method.scheme.to_string(), method.state.clone()))
+            .collect()
+    };
+    assert_eq!(schemes(&restored), schemes(&before[0]));
+    assert_eq!(method_credit(&sim, 0, STUB_TWO), two);
+    sim.run_until(sim.now + 60_000);
+    check_hub_credit(&sim).unwrap();
+    assert_eq!(
+        sim.core(0).peer.peering_of(&other).unwrap().methods.len(),
+        2
+    );
+    // Packets go on the first method, beside the second.
+    assert!(sim.pay(0, 1, 1_000_000, None, None));
+    let paid = |sim: &crate::sim::Sim| crate::sim::received(sim, &sim.payments[0]) == 1_000_000;
+    assert!(sim.run_until_or(sim.now + 120_000, paid), "not paid");
+    check_hub_credit(&sim).unwrap();
+    check_hub_packets(&sim).unwrap();
+}
+
+// spec/decisions/settlement-methods.md: settling is held off per method. A
+// cancelled settlement's backoff on one method leaves the other free to
+// settle, and a method dropped is forgotten by both the requests and the
+// backoff.
+#[test]
+fn a_settlement_held_off_on_one_method_holds_up_no_other() {
+    let mut sim = two_hub_pair(42, false);
+    sim.run_until(sim.now + 60_000);
+    let peer = crate::sim::key(1).node_id();
+    let (stub, two) = (scheme_id("stub"), scheme_id(STUB_TWO));
+    sim.step(0, |core| {
+        assert!(core.can_settle(&peer, stub) && core.can_settle(&peer, two));
+        let until = core.now_ms() + 60_000;
+        core.settle.backoff.insert((peer, stub), (until, 1));
+        assert!(!core.can_settle(&peer, stub), "held off on the stub");
+        assert!(core.can_settle(&peer, two), "not on the second method");
+        core.settle.asked.insert((peer, two), core.now_ms());
+        core.peer_event(dassie_peer::Event::MethodDropped {
+            peer,
+            scheme: stub,
+            by_us: true,
+        });
+        assert!(core.settle.backoff.is_empty());
+        assert!(core.settle.asked.contains_key(&(peer, two)));
+    });
+}
+
+// spec/decisions/settlement-methods.md: a method is chosen by structure,
+// never by room. Node 0 never funds its hold on the stub, the method its
+// packets to node 1 take, while its hold on the second method is funded:
+// its payment gets nowhere, answered for want of room, and not one packet
+// moves to the second method.
+#[test]
+fn a_method_short_of_room_answers_t04_and_never_moves_the_packet() {
+    use crate::sim::checks::check_hub_packets;
+
+    let mut sim = two_hub_pair(43, true);
+    let held_on_two = |sim: &crate::sim::Sim| method_credit(sim, 0, STUB_TWO) > 0;
+    assert!(
+        sim.run_until_or(sim.now + 600_000, held_on_two),
+        "node 0 did not fund its hold on the second method"
+    );
+    assert_eq!(
+        method_credit(&sim, 0, "stub"),
+        0,
+        "nothing to fund it on the stub"
+    );
+    assert!(sim.pay(0, 1, 1_000_000, None, None));
+    sim.run_until(sim.now + 120_000);
+    let payment = &sim.payments[0];
+    assert_eq!(
+        crate::sim::received(&sim, payment),
+        0,
+        "paid on another method"
+    );
+    assert!(
+        method_credit(&sim, 0, STUB_TWO) > 0,
+        "room on the second method"
+    );
+    assert_eq!(
+        STUB_TWO_PACKETS.load(std::sync::atomic::Ordering::Relaxed),
+        0,
+        "a packet moved to the second method"
+    );
+    check_hub_packets(&sim).unwrap();
+}
+
+// spec/decisions/settlement-methods.md: node 1 sends a Prepare on the
+// second method, which node 0's connector does not carry yet: refused for
+// want of room on it (T04), and its commitment never looked at.
+#[test]
+fn a_prepare_on_a_method_not_carried_yet_answers_t04() {
+    use dassie_oer::Decode;
+    use dassie_peer::wire::{Content, Kind};
+
+    let mut sim = two_hub_pair(44, false);
+    let one = crate::sim::key(1).node_id();
+    let zero = crate::sim::key(0).node_id();
+    let prepare = dassie_ilp::Prepare {
+        amount: 10,
+        expires_at: Timestamp::from_unix_ms(sim.now + 30_000),
+        execution_condition: [7; 32],
+        destination: dassie_ilp::Address::parse(&format!("test.das.{zero}")).unwrap(),
+        data: &[],
+    }
+    .to_vec();
+    let body = Content::MethodPacket {
+        request_id: 77,
+        scheme: scheme_id(STUB_TWO),
+        packet: &prepare,
+        commitment: &[],
+    }
+    .to_vec();
+    let from = crate::sim::key(1).public_key();
+    sim.step(0, |core| {
+        core.peer_inbound(dassie_peer::InboundId(9_999), from, &body, None);
+        let t04 = |packet: &[u8]| {
+            matches!(dassie_ilp::Response::decode_exact(packet),
+                Ok(dassie_ilp::Response::Reject(reject))
+                    if reject.code == dassie_ilp::ErrorCode::T04_INSUFFICIENT_LIQUIDITY)
+        };
+        let refused = core.outputs_peer.iter().any(|output| match output {
+            Output::PeerRequest(request)
+                if request.to == one && request.kind == Kind::InterledgerPacket =>
+            {
+                matches!(
+                    Content::decode_exact(&request.body),
+                    Ok(Content::InterledgerPacket { request_id: 77, packet }) if t04(packet)
+                )
+            }
+            _ => false,
+        });
+        assert!(refused, "{:?}", core.outputs_peer);
+    });
+    assert_eq!(
+        STUB_TWO_PACKETS.load(std::sync::atomic::Ordering::Relaxed),
+        0,
+        "the Prepare's commitment was looked at"
+    );
 }

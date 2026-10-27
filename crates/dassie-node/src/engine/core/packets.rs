@@ -8,6 +8,7 @@ use dassie_identity::{NodeSecret, Segment};
 use dassie_ilp::{Address, ErrorCode, Prepare, Timestamp};
 use dassie_ledger::LedgerId;
 use dassie_oer::Decode;
+use dassie_peer::wire::SchemeId;
 use dassie_stream::{AssetDetails, ConnectionId, Event, Policy, Server, ServerConfig};
 
 use super::Core;
@@ -159,25 +160,29 @@ impl Core {
     /// peered can only be a resend, and is dropped.
     ///
     /// For a response, whether it fulfilled a packet of ours and the books
-    /// posted it: what a claim over a hub counts.
+    /// posted it: what a claim over a hub counts. `scheme` is the method a
+    /// Prepare came on.
     pub(super) fn peer_packet(
         &mut self,
         from: dassie_identity::NodeId,
+        scheme: Option<SchemeId>,
         request_id: u32,
         packet: &[u8],
     ) -> bool {
-        let is_prepare = packet.first() == Some(&PREPARE_TYPE);
+        let prepare_on = scheme.filter(|_| packet.first() == Some(&PREPARE_TYPE));
         let Some(&endpoint) = self.peer_endpoints.get(&from) else {
-            if is_prepare {
-                self.hub_prepare_dropped(&from, request_id);
+            if let Some(method) = prepare_on {
+                self.hub_prepare_dropped(&from, method, request_id);
             }
             return false;
         };
         let source = EndpointId::Peer(endpoint);
         match packet.first() {
             Some(&PREPARE_TYPE) => {
-                if !self.prepare_from(source, request_id, packet) {
-                    self.hub_prepare_dropped(&from, request_id);
+                if !self.prepare_from(source, request_id, packet)
+                    && let Some(method) = prepare_on
+                {
+                    self.hub_prepare_dropped(&from, method, request_id);
                 }
                 false
             }
@@ -290,22 +295,39 @@ impl Core {
             (None, None) => return,
         };
         let packet = packet.to_vec();
+        // Every packet with the peer takes its endpoint's method, chosen by
+        // structure, never by room: one short of room answers T04, and the
+        // packet never moves to another method
+        // (spec/decisions/settlement-methods.md).
+        let method = self.packet_method(&node);
         if prepare.is_none() {
-            self.answered_over_hub(now, &node, request_id, &packet);
+            if let Some(method) = method {
+                self.answered_over_hub(now, (&node, method), request_id, &packet);
+            }
             // A response is retried by the peer node until it arrives.
             self.peer.send_response(now, &node, request_id, &packet);
             self.after_peer();
             return;
         }
-        let sent = match self.send_over_hub(now, &node, request_id, &packet, timeout_ms) {
-            Some(sent) => sent,
-            None => match self
-                .peer
-                .send_packet(now, &node, request_id, &packet, timeout_ms)
-            {
-                Ok(_) => HubSent::Sent,
-                Err(_) => HubSent::Unreachable,
-            },
+        let sent = match method {
+            None => HubSent::Unreachable,
+            Some(method) => {
+                match self.send_over_hub(now, (&node, method), request_id, &packet, timeout_ms) {
+                    Some(sent) => sent,
+                    None => match self.peer.send_method_packet(
+                        now,
+                        &node,
+                        method,
+                        request_id,
+                        &packet,
+                        &[],
+                        timeout_ms,
+                    ) {
+                        Ok(_) => HubSent::Sent,
+                        Err(_) => HubSent::Unreachable,
+                    },
+                }
+            }
         };
         let failure = match sent {
             HubSent::Sent => None,

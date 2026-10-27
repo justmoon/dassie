@@ -103,9 +103,20 @@ impl Hooks<'_> {
 enum Inbound {
     Reply(Reply),
     Deferred,
-    Packet(NodeId, u32, Vec<u8>, Option<Vec<u8>>, PacketAnswer),
+    Packet(PeerPacket),
     Settlement(NodeId, SchemeId, u64, Vec<u8>, u64, Reply),
     SettlementRequest(NodeId, SchemeId, dassie_peer::SettlementAnswer),
+}
+
+/// An ILP packet from a peer, owned.
+struct PeerPacket {
+    from: NodeId,
+    request_id: u32,
+    packet: Vec<u8>,
+    /// The method a Prepare came on; `None` with a Fulfill or Reject.
+    scheme: Option<SchemeId>,
+    commitment: Option<Vec<u8>>,
+    answer: PacketAnswer,
 }
 
 /// A node's name in the ledger.
@@ -340,11 +351,32 @@ impl PeeringHooks for Hooks<'_> {
             .is_some_and(|active| active.over_hub)
     }
 
-    /// None yet: the node keeps one settlement method per peering, the one
-    /// it was made on, until its accounts, credit and persistence are kept
-    /// per method (spec/roadmap.md#settlement-methods).
-    fn wants_method(&self, _: NodeId, _: SchemeId) -> bool {
-        false
+    /// A method on a scheme the node runs, whose two accounts with the peer
+    /// fit as a peering's first method's would: in the core peers' share of
+    /// the peers' account room, or the downlinks', unless the peer has them
+    /// on the scheme's ledger already, from an earlier peering
+    /// (spec/decisions/settlement-methods.md,
+    /// spec/decisions/account-budgets.md). Each method is on a ledger of its
+    /// own, as each running scheme is: its accounts, credit and position
+    /// are its own.
+    fn wants_method(&self, peer: NodeId, downlink: bool, scheme: SchemeId) -> bool {
+        let Some(active) = Name::new(scheme.as_str())
+            .ok()
+            .and_then(|name| self.schemes.get(&name))
+            .filter(|active| active.failed.is_none() && active.scheme.peers())
+        else {
+            return false;
+        };
+        let Some(peer_name) = name(peer) else {
+            return false;
+        };
+        let max_accounts = self.ledger.config().max_accounts;
+        has_accounts(self.ledger, active.scheme.ledger(), peer_name)
+            || if downlink {
+                self.downlinks.fit(max_accounts, &peer)
+            } else {
+                room_for_core_peer(self.ledger, &self.downlinks.opened)
+            }
     }
 
     fn drained(&self, peer: NodeId) -> bool {
@@ -449,7 +481,9 @@ pub struct PeerView {
     pub advertised: bool,
     /// Whether it was heard from recently enough to count as online.
     pub online: bool,
-    /// What we owe the peer net; negative when it owes us.
+    /// What we owe the peer net on the method our packets with it take;
+    /// negative when it owes us. Each method's is in its own ledger's
+    /// units.
     pub owed: Option<i128>,
 }
 
@@ -534,19 +568,20 @@ impl Core {
                 .into_iter()
                 .filter_map(|view| {
                     let mut peering = view.peering?;
-                    // The credit we extend now, which grows
+                    // The credit we extend now on each method, which grows
                     // (spec/decisions/earned-trust.md); the peering keeps
                     // what it started with.
-                    let scheme = peering.first().scheme;
-                    if let (Some(credit), Some(method)) = (
-                        self.credit_out(view.id, scheme),
-                        peering.methods.first_mut(),
-                    ) {
-                        method.credit_out = credit;
+                    for method in &mut peering.methods {
+                        if let Some(credit) = self.credit_out(view.id, method.scheme) {
+                            method.credit_out = credit;
+                        }
                     }
+                    let carried = self
+                        .packet_method(&view.id)
+                        .unwrap_or(peering.first().scheme);
                     Some(PeerView {
                         id: view.id,
-                        owed: self.owed(view.id, scheme),
+                        owed: self.owed(view.id, carried),
                         peering,
                         termination: view.termination,
                         advertised: view.advertised,
@@ -609,16 +644,17 @@ impl Core {
                     from,
                     request_id,
                     packet,
+                    scheme,
                     commitment,
                     answer,
-                    ..
-                } => Inbound::Packet(
+                } => Inbound::Packet(PeerPacket {
                     from,
                     request_id,
-                    packet.to_vec(),
-                    commitment.map(<[u8]>::to_vec),
+                    packet: packet.to_vec(),
+                    scheme,
+                    commitment: commitment.map(<[u8]>::to_vec),
                     answer,
-                ),
+                }),
                 dassie_peer::Inbound::Settlement {
                     from,
                     scheme,
@@ -637,9 +673,7 @@ impl Core {
         let reply = match outcome {
             Inbound::Reply(reply) => Some(reply),
             Inbound::Deferred => None,
-            Inbound::Packet(from, request_id, packet, commitment, answer) => {
-                Some(self.packet_inbound(from, request_id, &packet, commitment.as_deref(), answer))
-            }
+            Inbound::Packet(packet) => Some(self.packet_inbound(packet)),
             Inbound::Settlement(from, scheme, amount, data, sequence, reply) => {
                 Some(self.settlement_from(from, scheme, amount, &data, sequence, reply))
             }
@@ -654,32 +688,68 @@ impl Core {
         self.after_peer();
     }
 
-    /// An ILP packet from a peer, and the reply to it. Over a hub, a
+    /// An ILP packet from a peer, and the reply to it, on the packet's
+    /// settlement method (spec/decisions/settlement-methods.md): a Prepare's
+    /// is the one it came on, a Fulfill's or Reject's the one our Prepare
+    /// went on, which is the method of the peer's endpoint. Over a hub, a
     /// Prepare goes on only if its commitment covers it, and the reply to a
     /// Fulfill carries our claim
     /// (spec/designs/settlement-hubs.md#4-peering-over-a-hub).
-    fn packet_inbound(
-        &mut self,
-        from: NodeId,
-        request_id: u32,
-        packet: &[u8],
-        commitment: Option<&[u8]>,
-        answer: dassie_peer::PacketAnswer,
-    ) -> Reply {
+    fn packet_inbound(&mut self, inbound: PeerPacket) -> Reply {
+        let PeerPacket {
+            from,
+            request_id,
+            packet,
+            scheme,
+            commitment,
+            answer,
+        } = inbound;
         let now = self.now_ms;
         let is_prepare = packet.first() == Some(&dassie_ilp::TYPE_PREPARE);
-        if is_prepare && !self.check_hub_prepare(now, &from, request_id, packet, commitment) {
-            return answer.reply(&[]);
+        if let (true, Some(scheme)) = (is_prepare, scheme) {
+            // The connector books a peer's packets on its endpoint's
+            // ledger alone: a Prepare on another of its methods waits for
+            // the connector to carry that method, and is refused for want of
+            // room on it, never moved to another.
+            let carried = self.endpoint_methods.get(&from);
+            if carried.is_some_and(|carried| *carried != scheme) {
+                self.refuse_prepare(now, &from, request_id, "the method carries no packets yet");
+                return answer.reply(&[]);
+            }
+            if !self.check_hub_prepare(
+                now,
+                &from,
+                scheme,
+                request_id,
+                &packet,
+                commitment.as_deref(),
+            ) {
+                return answer.reply(&[]);
+            }
         }
-        let taken = self.peer_packet(from, request_id, packet);
+        let taken = self.peer_packet(from, scheme, request_id, &packet);
+        let Some(method) = self.packet_method(&from) else {
+            return answer.reply(&[]);
+        };
         if answer.takes_claim() {
-            let claim = self.hub_claim(now, &from, request_id, taken);
+            let claim = self.hub_claim(now, &from, method, request_id, taken);
             return answer.reply(&claim);
         }
         if !is_prepare {
-            self.hub_rejected(&from, request_id);
+            self.hub_rejected(&from, method, request_id);
         }
         answer.reply(&[])
+    }
+
+    /// The settlement method our packets with `peer` take: its endpoint's,
+    /// or, for a peer without one, its peering's first. `None` if it is no
+    /// peer.
+    pub(super) fn packet_method(&self, peer: &NodeId) -> Option<SchemeId> {
+        self.endpoint_methods.get(peer).copied().or_else(|| {
+            self.peer
+                .peering_of(peer)
+                .map(|peering| peering.first().scheme)
+        })
     }
 
     /// Applies a peer's settlement, once: refused with 400 if the books
@@ -902,19 +972,33 @@ impl Core {
                 self.take_entry(node, scheme);
             }
             Event::RoutesChanged => self.update_routes(),
+            // The claim for a Fulfill of ours, of a Prepare the peer sent on
+            // the method our packets with it take.
             Event::FulfillReply {
                 peer,
                 request_id,
                 claim,
-            } => self.hub_claim_received(self.now_ms, &peer, request_id, &claim),
+            } => {
+                if let Some(method) = self.packet_method(&peer) {
+                    self.hub_claim_received(self.now_ms, &peer, method, request_id, &claim);
+                }
+            }
             // Asked again at the next check, not a minute later: a junior
             // that had not yet taken in our acceptance pays in advance at
             // once (spec/decisions/own-fulfills.md), and a request that never
             // arrived does not use up the grace before a peer short of room
-            // is withdrawn (spec/decisions/peering-lifecycle.md).
+            // is withdrawn (spec/decisions/peering-lifecycle.md). A refusal
+            // for not being peered, or a request that never left, says so
+            // of the peering, not of one method: each of its methods may be
+            // asked again.
             Event::SettlementRequestRefused { peer }
             | Event::SettlementRequestNotDelivered { peer } => {
-                self.settle.asked.remove(&peer);
+                self.settle.asked.retain(|(node, _), _| *node != peer);
+            }
+            // A method dropped is asked on, and held off, no more.
+            Event::MethodDropped { peer, scheme, .. } => {
+                self.settle.asked.remove(&(peer, scheme));
+                self.settle.backoff.remove(&(peer, scheme));
             }
             // While our messages surely do not reach the peer, its new
             // Prepares are refused: a Fulfill of ours would count only in
@@ -935,7 +1019,9 @@ impl Core {
                 // fulfilled it does not bear its loss.
                 if definite && let Some(&endpoint) = self.peer_endpoints.get(&peer) {
                     // Over a hub, the scheme forgets the commitment too.
-                    self.hub_rejected(&peer, request_id);
+                    if let Some(method) = self.packet_method(&peer) {
+                        self.hub_rejected(&peer, method, request_id);
+                    }
                     self.connector.fail_forwarded(
                         self.now_ms,
                         EndpointId::Peer(endpoint),
@@ -981,7 +1067,7 @@ impl Core {
             // what they kept of the node for its settlements
             // (spec/decisions/closing-channels.md).
             Event::ChannelClosed { peer } => {
-                self.settle.backoff.remove(&peer);
+                self.settle.backoff.retain(|(node, _), _| *node != peer);
                 // A downlink that never moved value leaves nothing behind
                 // (spec/decisions/lazy-downlink-accounts.md).
                 self.refresh_waiting(peer);
@@ -1002,6 +1088,7 @@ impl Core {
     fn remove_peer_endpoint(&mut self, peer: &NodeId) {
         if let Some(endpoint) = self.peer_endpoints.remove(peer) {
             self.endpoint_peers.remove(&endpoint);
+            self.endpoint_methods.remove(peer);
             let now = self.now_ms;
             // What was in flight to it is due now: the step expires it as
             // it finishes, rather than here, which the expiry could reach
@@ -1012,20 +1099,24 @@ impl Core {
         }
     }
 
-    /// Makes a peer a connector endpoint, on its scheme's ledger, at the
-    /// address ILDCP will tell it: its own `<scheme>.das.<id>`, which
-    /// routes reach as they reach any node's; or, for a downlink, its child
-    /// address beneath ours, `<our address>.<id>`, which reaches it through
-    /// us (spec/areas/connector.md#addresses-and-endpoints). The original
-    /// gave a peer that was not a member an address beneath its own that
-    /// nothing routed to, and stored the addresses its peers gave
-    /// it without reading them.
+    /// Makes a peer a connector endpoint, on its peering's first method's
+    /// ledger, at the address ILDCP will tell it: its own
+    /// `<scheme>.das.<id>`, which routes reach as they reach any node's; or,
+    /// for a downlink, its child address beneath ours, `<our address>.<id>`,
+    /// which reaches it through us
+    /// (spec/areas/connector.md#addresses-and-endpoints). Until the
+    /// connector has a slot per method, every packet with the peer takes
+    /// that method, and the others carry none
+    /// (spec/decisions/settlement-methods.md). The original gave a peer that
+    /// was not a member an address beneath its own that nothing routed to,
+    /// and stored the addresses its peers gave it without reading them.
     pub(super) fn add_peer_endpoint(&mut self, node: NodeId) -> Result<(), String> {
         if self.peer_endpoints.contains_key(&node) {
             return Ok(());
         }
         let peering = self.peer.peering_of(&node).ok_or("not peered")?;
-        let scheme = Name::new(peering.first().scheme.as_str()).map_err(|e| e.to_string())?;
+        let method = peering.first().scheme;
+        let scheme = Name::new(method.as_str()).map_err(|e| e.to_string())?;
         let ledger = self
             .schemes
             .get(&scheme)
@@ -1055,6 +1146,7 @@ impl Core {
             .map_err(|e| e.to_string())?;
         self.peer_endpoints.insert(node, id);
         self.endpoint_peers.insert(id, node);
+        self.endpoint_methods.insert(node, method);
         if !self.peer.reachable(&node) {
             self.connector.set_unreached(EndpointId::Peer(id), true);
         }

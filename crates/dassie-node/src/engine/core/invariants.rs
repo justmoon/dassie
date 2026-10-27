@@ -91,11 +91,16 @@ impl Core {
         );
     }
 
-    /// A peer's connector endpoint, both ways round, on the peer's account
-    /// on its peering's ledger: only a downlink nothing moved with yet has
-    /// none (spec/decisions/lazy-downlink-accounts.md).
+    /// A peer's connector endpoint, both ways round, with the method its
+    /// packets take, on the peer's account on that method's ledger: only a
+    /// downlink nothing moved with yet has none
+    /// (spec/decisions/lazy-downlink-accounts.md).
     fn check_peer_endpoints(&self) {
         assert_eq!(self.peer_endpoints.len(), self.endpoint_peers.len());
+        assert!(
+            self.endpoint_methods.keys().eq(self.peer_endpoints.keys()),
+            "every peer's endpoint, and only one, has its method"
+        );
         for (node, endpoint) in &self.peer_endpoints {
             assert_eq!(
                 self.endpoint_peers.get(endpoint),
@@ -104,9 +109,9 @@ impl Core {
             );
             assert!(*endpoint < self.next_peer_endpoint);
             let ledger = self
-                .peer
-                .peering_of(node)
-                .and_then(|peering| Name::new(peering.first().scheme.as_str()).ok())
+                .endpoint_methods
+                .get(node)
+                .and_then(|method| Name::new(method.as_str()).ok())
                 .and_then(|scheme| self.schemes.get(&scheme))
                 .map(|active| active.scheme.ledger());
             let account = ledger

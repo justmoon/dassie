@@ -348,6 +348,11 @@ pub struct Core {
     /// Peers' connector endpoints, both ways.
     peer_endpoints: BTreeMap<dassie_identity::NodeId, u64>,
     endpoint_peers: BTreeMap<u64, dassie_identity::NodeId>,
+    /// The settlement method each peer's endpoint carries packets on: the
+    /// one of the endpoint's ledger, the peering's first when the endpoint
+    /// was made. Until the connector has a slot per method, every packet
+    /// with a peer takes it (spec/decisions/settlement-methods.md).
+    endpoint_methods: BTreeMap<dassie_identity::NodeId, dassie_peer::wire::SchemeId>,
     next_peer_endpoint: u64,
     /// The realm: `test` or `g` in nodes' addresses, and the realm of the
     /// only ledgers the node runs.
@@ -510,6 +515,7 @@ impl Core {
             },
             peer_endpoints: BTreeMap::new(),
             endpoint_peers: BTreeMap::new(),
+            endpoint_methods: BTreeMap::new(),
             next_peer_endpoint: 0,
             realm: parts.realm,
             live: parts.live,
