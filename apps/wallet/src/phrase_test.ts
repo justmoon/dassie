@@ -2,11 +2,13 @@ import { test } from "node:test";
 import { assert, assertEquals, assertMatch, assertThrows } from "@std/assert";
 import { phraseFromSecret, phraseWords, readPhrase } from "@dassie/wasm";
 import {
+  carryMarks,
   clockOfDate,
   keyLetters,
   namesWord,
   readEntry,
   realmOf,
+  typedTokens,
   typedWords,
 } from "./phrase.ts";
 
@@ -134,4 +136,24 @@ test("each refusal says what is wrong, before any correction", () => {
   const tomorrow = made("test", 7, LAST_WEEK_HOURS + 7 * 24 + 37).text;
   assertMatch(refusal(tomorrow), /made on 2026-10-28.*past 2026-10-28/);
   assertMatch(refusal("aban ".repeat(300)), /longer than a phrase/);
+});
+
+// A mark is the owner's on a word, not on a place: an edit elsewhere moves
+// it with its word, and it goes with the word or the text it was on.
+test("marks on unreadable words stay on their words", () => {
+  const carry = (before: string, after: string, marks: number[]) =>
+    carryMarks(typedTokens(before), typedTokens(after), marks);
+  assertEquals(typedTokens("  aban  abil\nable "), ["aban", "abil", "able"]);
+  // A word inserted before the marked one moves the mark along.
+  assertEquals(carry("a b d e", "a b c d e", [3]), [4]);
+  // A word removed before it moves the mark back.
+  assertEquals(carry("a b c d e", "a b d e", [0, 4]), [0, 3]);
+  // Words typed after it leave it where it is.
+  assertEquals(carry("a b c", "a b c d", [1]), [1]);
+  // Editing the marked word, or removing it, drops its mark.
+  assertEquals(carry("a b c", "a bx c", [1, 2]), [2]);
+  assertEquals(carry("a b c", "a c", [1]), []);
+  // Clearing the field drops every mark, stale ones too.
+  assertEquals(carry("a b c", "", [0, 2, 7]), []);
+  assertEquals(carry("a b c", "a b c", [0, 7]), [0]);
 });

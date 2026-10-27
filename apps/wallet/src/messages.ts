@@ -1,6 +1,6 @@
 /** What the wallet tells people when something goes wrong. */
 
-import type { PhraseError } from "@dassie/wasm/web";
+import { isPhraseError, type PhraseError } from "@dassie/wasm/web";
 import type { Outcome } from "./auth.ts";
 import type { Realm } from "./phrase.ts";
 
@@ -44,7 +44,7 @@ export function phraseRefusal(error: PhraseError, expected: Realm): string {
     case "tooLong":
       return "That is much longer than a phrase.";
     case "tooDamaged":
-      return "Too many words are wrong or unreadable to restore the phrase. Check each word against your copy, and mark a word you cannot read rather than guess it: the wallet restores up to five words marked unreadable, but at most two wrong ones.";
+      return "Too many words are wrong or unreadable to restore the phrase. Check each word against your copy, and mark a word you cannot read rather than guess it: the wallet restores up to five words marked unreadable, one wrong word with up to three unreadable, or two wrong words with one unreadable.";
     case "invalidKind":
       return "These words are not a Dassie phrase.";
     case "newerKind":
@@ -66,6 +66,17 @@ export function phraseRefusal(error: PhraseError, expected: Realm): string {
     default:
       return "The wallet could not read that phrase.";
   }
+}
+
+/**
+ * Why setup or login could not derive the key from a phrase that had read:
+ * a refusal of the phrase, as when this device's clock moved back more than
+ * a day since, in its own words, or the module failing to load.
+ */
+export function credentialFailure(error: unknown, expected: Realm): string {
+  return isPhraseError(error)
+    ? phraseRefusal(error, expected)
+    : IDENTITY_FAILED;
 }
 
 /** Why no phrase was made: the clocks it is checked against. */

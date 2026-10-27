@@ -1,7 +1,12 @@
 import { test } from "node:test";
 import { assertEquals, assertMatch, assertNotMatch } from "@std/assert";
 import type { PhraseError, PhraseErrorCode } from "@dassie/wasm/web";
-import { phraseNotMade, phraseRefusal } from "./messages.ts";
+import {
+  credentialFailure,
+  IDENTITY_FAILED,
+  phraseNotMade,
+  phraseRefusal,
+} from "./messages.ts";
 
 function refusal(
   code: PhraseErrorCode,
@@ -52,4 +57,20 @@ test("a refusal without its details still reads", () => {
 test("no phrase is made while the clocks disagree", () => {
   assertMatch(phraseNotMade(refusal("clocksApart")), /more than a day apart/);
   assertMatch(phraseNotMade(refusal("clockOutOfRange")), /Set it right/);
+});
+
+// Deriving the key reads the phrase again, by the clock of that moment, so
+// a refusal then is worded as one, not as the module failing to load.
+test("a refusal while deriving the key says why", () => {
+  assertMatch(
+    credentialFailure(
+      refusal("createdInFuture", { date: "2026-11-02" }),
+      "test",
+    ),
+    /made on 2026-11-02/,
+  );
+  assertEquals(
+    credentialFailure(new Error("failed to fetch"), "test"),
+    IDENTITY_FAILED,
+  );
 });

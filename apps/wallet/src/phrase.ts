@@ -105,6 +105,43 @@ export function typedWords(
   }
 }
 
+/** The words the owner typed, as typed, split at white space. */
+export function typedTokens(text: string): string[] {
+  return text.split(/\s+/).filter((token) => token !== "");
+}
+
+/**
+ * The owner's marks on words they cannot read, carried from the words
+ * typed `before` an edit to those `after` it, so that a mark stays on its
+ * word: marks before the edited stretch stay, those after it move with
+ * their words, and a mark on a word the edit changed or removed is
+ * dropped, as is every mark once the field is cleared.
+ */
+export function carryMarks(
+  before: readonly string[],
+  after: readonly string[],
+  marks: readonly number[],
+): number[] {
+  let prefix = 0;
+  while (
+    prefix < before.length && prefix < after.length &&
+    before[prefix] === after[prefix]
+  ) prefix++;
+  let suffix = 0;
+  while (
+    suffix < before.length - prefix && suffix < after.length - prefix &&
+    before[before.length - 1 - suffix] === after[after.length - 1 - suffix]
+  ) suffix++;
+  const shift = after.length - before.length;
+  return marks.flatMap((position) => {
+    if (position < prefix) return [position];
+    if (position >= before.length - suffix && position < before.length) {
+      return [position + shift];
+    }
+    return [];
+  });
+}
+
 /**
  * A phrase the reading had to correct: the words it reads as, with the
  * positions that changed, for the owner to compare with their copy. Its

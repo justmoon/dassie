@@ -247,6 +247,11 @@
   text-decoration: none;
 }
 
+/* A correction's note takes the focus only to be read out. */
+.correction-note:focus {
+  outline: none;
+}
+
 kbd {
   padding: 0 4px;
   font-family: var(--mono);

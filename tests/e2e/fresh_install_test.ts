@@ -95,7 +95,7 @@ async function assertServedByPebble(): Promise<void> {
 /** Generates a wallet in the setup wizard; returns its phrase. */
 async function generateWallet(page: Page): Promise<string> {
   await click(page, "generate-wallet");
-  const phrase = (await text(page, "mnemonic")).replace(/\s+/g, " ");
+  const phrase = (await text(page, "new-phrase")).replace(/\s+/g, " ");
   const words = phrase.split(" ");
   assertEquals(words.length, 20);
   // A new phrase shows the date it records, by this machine's clock.

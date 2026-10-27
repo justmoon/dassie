@@ -7,7 +7,7 @@
 import { loadIdentity } from "@dassie/wasm/web";
 import type { JSX } from "@solidjs/web";
 import { submitLogin } from "../auth.ts";
-import { IDENTITY_FAILED, loginFailure } from "../messages.ts";
+import { credentialFailure, loginFailure } from "../messages.ts";
 import type { Realm } from "../phrase.ts";
 import { Card } from "../ui.tsx";
 import { PhraseEntry } from "./phrase.tsx";
@@ -26,8 +26,8 @@ export function Login(props: { realm: Realm }): JSX.Element {
     let outcome;
     try {
       outcome = await submitLogin(phrase, props.realm);
-    } catch {
-      return IDENTITY_FAILED;
+    } catch (error) {
+      return credentialFailure(error, props.realm);
     }
     if (!outcome.ok) return loginFailure(outcome);
     location.reload();

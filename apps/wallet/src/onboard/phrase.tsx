@@ -12,11 +12,13 @@ import type { JSX } from "@solidjs/web";
 import { createSignal, For, onCleanup, Show } from "solid-js";
 import { IDENTITY_FAILED } from "../messages.ts";
 import {
+  carryMarks,
   type Correction,
   keyLetters,
   PHRASE_WORDS,
   readEntry,
   type Realm,
+  typedTokens,
   typedWords,
 } from "../phrase.ts";
 
@@ -184,7 +186,13 @@ export function PhraseEntry(props: {
             placeholder="aban abil able abou …"
             value={text()}
             onInput={(event) => {
-              setText(event.currentTarget.value);
+              const typed = event.currentTarget.value;
+              // A mark stays on its word, not on its place, as words are
+              // added or removed before it.
+              setUnreadable((marked) =>
+                carryMarks(typedTokens(text()), typedTokens(typed), marked)
+              );
+              setText(typed);
               setError(undefined);
             }}
             onKeyDown={(event: KeyboardEvent) => {
@@ -309,7 +317,16 @@ function ConfirmCorrection(props: {
   const count = props.correction.changed.size;
   return (
     <div data-testid="phrase-correction">
-      <p>
+      <p
+        class="correction-note"
+        tabindex="-1"
+        ref={(element: HTMLParagraphElement) => {
+          // The correction takes the place of the form, and of the focus
+          // with it, so the focus moves to what it says, which a screen
+          // reader reads out.
+          requestAnimationFrame(() => element.focus());
+        }}
+      >
         {count === 1 ? "One word was" : `${count} words were`}{" "}
         wrong or unreadable, and the wallet restored{" "}
         {count === 1 ? "it" : "them"}. Compare the marked{" "}

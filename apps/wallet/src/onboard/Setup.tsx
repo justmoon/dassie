@@ -11,6 +11,7 @@ import type { JSX } from "@solidjs/web";
 import { createSignal, Match, Show, Switch } from "solid-js";
 import { submitSetup } from "../auth.ts";
 import {
+  credentialFailure,
   IDENTITY_FAILED,
   NODE_CLOCK_UNKNOWN,
   phraseNotMade,
@@ -188,7 +189,7 @@ function Generate(props: { made: Made; go: Go }): JSX.Element {
         A metal plate made for 24 words holds them: it needs only the first four
         letters of each word, shown in bold.
       </p>
-      <PhraseGrid words={props.made.words} testid="mnemonic" />
+      <PhraseGrid words={props.made.words} testid="new-phrase" />
       <p class="phrase-date" data-testid="phrase-date">
         Generated {props.made.date}
       </p>
@@ -330,7 +331,7 @@ function Opening(props: {
       }
       setError(setupFailure(outcome));
     },
-    () => setError(IDENTITY_FAILED),
+    (error: unknown) => setError(credentialFailure(error, props.realm)),
   );
   return (
     <Card title="Opening Wallet">
