@@ -49,6 +49,8 @@ Dassie is not a consensus system ([own-books](decisions/own-books.md)). Each nod
 
 CI runs tests on fixed seeds only, property tests included ([Testing](areas/testing.md#property-tests)), and no simulation sweeps: a simulation in CI is a scenario on one fixed seed, or the few that between them reach what it checks. A random seed per commit would fail pull requests on bugs they did not touch, and a sweep makes every one of them wait for what the campaign checks anyway. Random-seed campaigns and any fuzzing run outside CI, and never in it, nightly included ([random-seed-simulations](decisions/random-seed-simulations.md)).
 
+For the same reason no test's outcome depends on how fast the machine is: a test over real sockets runs its protocol on a clock it moves by hand, and waits for progress, never for a span of real time ([Testing](areas/testing.md#over-real-sockets)).
+
 ## TypeScript and packages
 
 - **Type-strippable TypeScript only.** Node runs the sources as they are, by stripping their types, and nothing is emitted. So the code uses only syntax that strips (no enums, no parameter properties: `erasableSyntaxOnly`) and imports with `.ts` extensions.
