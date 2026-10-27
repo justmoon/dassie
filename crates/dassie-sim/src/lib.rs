@@ -104,55 +104,24 @@ pub static SIMS: &[Sim] = &[
         weight: 5,
     },
     Sim {
-        name: "node-xrpl",
-        about: "the same, settling on a fake XRP Ledger whose connections lag and drop",
-        describe: dassie_node::sim::scripted::describe,
-        run: dassie_node::sim::scripted::run_xrpl,
+        name: "node-owner-books",
+        about: "whole nodes' engine cores paying over the stub with unlimited trust, as \
+                scripted, each keeping its owner's books of XRP and DSUSD on a fake XRP \
+                Ledger, paying out of them while the issuer claws back and freezes lines, \
+                its servers telling each kind of lie in turn, while its validators rotate a \
+                key, withhold a quorum and let a list lapse",
+        describe: dassie_node::sim::owner_books::describe,
+        run: dassie_node::sim::owner_books::run,
+        // A script: its seeds vary the detail, not the situation.
         weight: 5,
     },
     Sim {
-        name: "node-xrpl-lies",
-        about: "the same on the fake XRP Ledger, its servers telling each kind of lie in turn, \
-                while its validators rotate a key, withhold a quorum and let a list lapse",
-        describe: dassie_node::sim::scripted::describe,
-        run: dassie_node::sim::scripted::run_lies,
-        weight: 5,
-    },
-    Sim {
-        name: "node-xrpl-live",
-        about: "the same in the live realm, settling on the fake XRP Ledger's mainnet",
-        describe: dassie_node::sim::scripted::describe,
-        run: dassie_node::sim::scripted::run_xrpl_live,
-        weight: 5,
-    },
-    Sim {
-        name: "node-currencies",
-        about: "the same across dollars and XRP, through a node that converts and charges",
-        describe: dassie_node::sim::scripted::describe_across,
-        run: dassie_node::sim::scripted::run_across,
-        // A script too, but the only runs across currencies until the
-        // `node` simulation draws them.
-        weight: 5,
-    },
-    Sim {
-        name: "node-rlusd",
-        about: "the same in the live realm, settling in RLUSD on the fake mainnet, while its issuer claws back and freezes lines",
-        describe: dassie_node::sim::scripted::describe,
-        run: dassie_node::sim::scripted::run_rlusd,
-        weight: 5,
-    },
-    Sim {
-        name: "node-xrp-rlusd",
-        about: "the same across RLUSD and XRP in the live realm, both schemes on one mainnet account at the nodes that run both",
-        describe: dassie_node::sim::scripted::describe_xrp_rlusd,
-        run: dassie_node::sim::scripted::run_xrp_rlusd,
-        weight: 5,
-    },
-    Sim {
-        name: "node-xrp-dsusd",
-        about: "the same across DSUSD and XRP, the token scheme in DSUSD while its issuer acts",
-        describe: dassie_node::sim::scripted::describe_xrp_dsusd,
-        run: dassie_node::sim::scripted::run_xrp_dsusd,
+        name: "node-owner-books-live",
+        about: "the owner's books of XRP and RLUSD in the live realm on the fake XRP Ledger's \
+                mainnet, funded by deposits, while the issuer claws back and freezes lines \
+                and a server lies, its nodes peering with no one",
+        describe: dassie_node::sim::owner_books::describe_live,
+        run: dassie_node::sim::owner_books::run_live,
         weight: 5,
     },
     Sim {

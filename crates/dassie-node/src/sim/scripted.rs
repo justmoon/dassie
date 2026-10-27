@@ -2,22 +2,18 @@
 //! and comes back, payments cross it while another node crashes, an owner
 //! ends a peering, and the books are checked. Over the stub with unlimited
 //! trust, where nothing settles, since what `node-stub` runs is crashes,
-//! restarts and payments; over the stub with commitments, as a hub's
-//! members settle; and, until direct settlement goes
-//! (spec/roadmap.md#hubs-only), over the XRP Ledger, over RLUSD, and across
-//! currencies: dollars and XRP, or a dollar token and XRP on one account,
-//! RLUSD on mainnet in the live realm or DSUSD on the testnet. On a token
-//! the issuer claws back and freezes while payments are under way.
+//! restarts and payments; and over the stub with commitments, as a hub's
+//! members settle. The runs of owner books on the fake XRP Ledger
+//! (`owner_books.rs`) follow the same script, with the owner's payments
+//! out of its books and the issuer's acts while payments are under way.
 
 use std::collections::BTreeMap;
 
 use dassie_connector::SpendingCap;
 use dassie_kit::sim::{Outcome, Run, SeededRng};
-use dassie_xrpl::account::{LIST_REFRESH_MS, LIST_RETRY_MS, STALL_MS};
-use dassie_xrpl::fake::Lie;
 
-use super::checks::{check, check_across, check_events, check_settled, check_withdrawn};
-use super::{IssuerFreeze, LEDGER_RECONNECT_MS, LONGEST_LIE_MS, START, Settling, Sim, key};
+use super::checks::{check, check_events, check_settled, check_withdrawn};
+use super::{START, Settling, Sim, key};
 use crate::node::Policies;
 use crate::store::OutgoingState;
 
@@ -51,7 +47,7 @@ pub(super) fn ready(sim: &Sim) -> bool {
 }
 
 /// Whether every payment of the run has finished, one way or the other.
-fn paid(sim: &Sim) -> bool {
+pub(super) fn paid(sim: &Sim) -> bool {
     sim.payments.iter().all(|payment| payment.done)
         && sim.outgoing.iter().all(|&(from, _, _, outgoing)| {
             sim.nodes[from]
@@ -62,49 +58,20 @@ fn paid(sim: &Sim) -> bool {
         })
 }
 
-/// What a run over one ledger draws first: its generator, how many nodes,
+/// What a run of the script draws first: its generator, how many nodes,
 /// and how many of them are bootstrap nodes.
-fn size(seed: u64) -> (SeededRng, usize, usize) {
+pub(super) fn size(seed: u64) -> (SeededRng, usize, usize) {
     let mut rng = SeededRng::new(seed ^ 0xfeed);
     let count = 2 + usize::try_from(rng.next_u64() % 4).unwrap();
     let bootstraps = 1 + usize::try_from(rng.next_u64() % 2).unwrap().min(count - 1);
     (rng, count, bootstraps)
 }
 
-/// What a run across currencies draws first: its generator and how many
-/// nodes. Two of them are bootstrap nodes.
-fn size_across(seed: u64) -> (SeededRng, usize) {
-    let mut rng = SeededRng::new(seed ^ 0xc055);
-    let count = 3 + usize::try_from(rng.next_u64() % 2).unwrap();
-    (rng, count)
-}
-
-/// What a seed draws for a run over one ledger, before it starts.
+/// What a seed draws for a run of the script, before it starts.
 #[must_use]
 pub fn describe(seed: u64) -> String {
     let (_, count, bootstraps) = size(seed);
     format!("{count} nodes, {bootstraps} bootstrap")
-}
-
-/// What a seed draws for a run across currencies, before it starts.
-#[must_use]
-pub fn describe_across(seed: u64) -> String {
-    let (_, count) = size_across(seed);
-    format!("{count} nodes, 2 bootstrap, dollars and XRP")
-}
-
-/// What a seed draws for a run across RLUSD and XRP, before it starts.
-#[must_use]
-pub fn describe_xrp_rlusd(seed: u64) -> String {
-    let (_, count) = size_across(seed);
-    format!("{count} nodes, 2 bootstrap, RLUSD and XRP")
-}
-
-/// What a seed draws for a run across DSUSD and XRP, before it starts.
-#[must_use]
-pub fn describe_xrp_dsusd(seed: u64) -> String {
-    let (_, count) = size_across(seed);
-    format!("{count} nodes, 2 bootstrap, DSUSD and XRP")
 }
 
 /// A run over the stub with unlimited trust: its subject is crashes,
@@ -140,188 +107,16 @@ pub fn run_stub_hub(seed: u64) -> Run {
     run_on(seed, Settling::StubHub(hub_limit(seed)))
 }
 
-/// A run over the XRP Ledger testnet scheme, against the fake ledger.
-#[must_use]
-pub fn run_xrpl(seed: u64) -> Run {
-    run_on(seed, Settling::Xrpl)
-}
-
-/// A run in the live realm, over the XRP Ledger mainnet scheme against the
-/// fake ledger's mainnet (spec/decisions/mainnet-schemes.md).
-#[must_use]
-pub fn run_xrpl_live(seed: u64) -> Run {
-    run_on(seed, Settling::XrplLive)
-}
-
-/// A run over the RLUSD scheme alone, in the live realm against the fake
-/// ledger's mainnet, whose issuer claws back and freezes while payments
-/// are under way (spec/decisions/mainnet-schemes.md).
-#[must_use]
-pub fn run_rlusd(seed: u64) -> Run {
-    run_on(seed, Settling::Rlusd)
-}
-
-/// A run over the XRP Ledger testnet scheme against servers that lie
-/// (spec/designs/xrpl-validation.md#11-the-fake-ledger-the-lying-server-and-the-simulation):
-/// once the network is ready and payments are under way, a node's
-/// connection to the ledger comes back to a server that tells each kind of
-/// lie in turn, for [`LIE_MS`]; then a validator rotates its key, a quorum
-/// of the validators is withheld for a while, and the publisher's list
-/// lapses before a new one comes. Each node's books must hold to the fake
-/// ledger's truth throughout, and the network settles as before.
-#[must_use]
-pub fn run_lies(seed: u64) -> Run {
-    let (mut rng, count, bootstraps) = size(seed);
-    let mut sim = Sim::with(seed, count, bootstraps, BTreeMap::new(), Settling::Xrpl);
-    let result = script_lies(&mut sim, &mut rng)
-        .and_then(|()| check(&sim))
-        .and_then(|()| {
-            check_withdrawn(&sim).map_err(|problem| Outcome::liveness("withdrawn", problem))
-        });
-    ended(sim, result)
-}
-
-/// How long a server of [`run_lies`] lies to a node: the longest a drawn
-/// one does.
-const LIE_MS: u64 = LONGEST_LIE_MS;
-
-/// How long a quorum of the validators is withheld: longer than the account
-/// waits before it connects anew.
-const WITHHELD_MS: u64 = 4 * STALL_MS;
-
-/// How long the list a publisher lets lapse lasts: longer than a node takes
-/// to fetch it again, so that every node holds it when it expires.
-const LAPSING_LIST_MS: u64 = 2 * LIST_REFRESH_MS;
-
-fn script_lies(sim: &mut Sim, rng: &mut SeededRng) -> Result<(), Outcome> {
-    let count = sim.nodes.len();
-    if !sim.run_until_or(START + READY_WITHIN_MS, ready) {
-        return Err(Outcome::liveness(
-            "ready",
-            "the network was not ready in time",
-        ));
-    }
-    pay(sim, rng);
-    for lie in Lie::ALL {
-        // Its owner asks the faucet for more three times as the node's
-        // connection drops, and once more while the server lies: so the
-        // history the server gives on connecting, and its stream, have
-        // something to leave out, or to hint at in an old ledger.
-        let liar = usize::try_from(rng.next_u64() % count as u64).unwrap();
-        for _ in 0..3 {
-            sim.fund(liar);
-        }
-        // Only the liar's pairs may be withdrawn meanwhile: it sees nothing
-        // of its ledger until its next connection anchors.
-        sim.outages.push((
-            Some(liar),
-            sim.now,
-            sim.now + LEDGER_RECONNECT_MS + LIE_MS + STALL_MS,
-        ));
-        sim.lie_to(liar, lie, LIE_MS);
-        sim.run_until(sim.now + STALL_MS / 2);
-        sim.fund(liar);
-        sim.run_until(sim.now + LIE_MS + STALL_MS / 2);
-    }
-    sim.end_lies();
-    // A validator's new key: the nodes learn it from the server's
-    // `manifest` method before any list carries it.
-    sim.ledger.rotate_validator(0);
-    sim.count("validator keys rotated");
-    sim.trace
-        .push(format!("{} validator 0 rotates its key", sim.now));
-    sim.run_until(sim.now + LIE_MS);
-    // A quorum withheld: no ledger is validated, and every node waits.
-    let quorum_short = [1, 2];
-    for validator in quorum_short {
-        sim.ledger.withhold_validator(validator, true);
-    }
-    sim.trace
-        .push(format!("{} validators {quorum_short:?} withheld", sim.now));
-    sim.count("quorums withheld");
-    let withheld = sim.now;
-    sim.run_until(sim.now + WITHHELD_MS);
-    for validator in quorum_short {
-        sim.ledger.withhold_validator(validator, false);
-    }
-    sim.outages.push((None, withheld, sim.now + STALL_MS));
-    // A list that lapses: every node fetches it, it expires, and the nodes
-    // wait until the publisher publishes another.
-    let seconds = |ms: u64| u32::try_from(dassie_xrpl::unl::ledger_seconds(ms)).unwrap();
-    let lapses = sim.now + LAPSING_LIST_MS;
-    sim.ledger.publish_validator_list(seconds(lapses), None);
-    sim.trace.push(format!("{} the list is to lapse", sim.now));
-    sim.run_until(lapses + LIST_RETRY_MS);
-    sim.count("validator lists lapsed");
-    sim.ledger
-        .publish_validator_list(seconds(sim.now + 30 * 24 * 3_600_000), None);
-    sim.trace
-        .push(format!("{} a new list is published", sim.now));
-    // Every node waits from the list's lapse until it fetched the new one.
-    sim.outages
-        .push((None, lapses, sim.now + LIST_RETRY_MS + STALL_MS));
-    // The payments left finish, and the network settles down as before.
-    sim.run_until_or(sim.now + PAID_WITHIN_MS, paid);
-    let calm = |sim: &Sim| {
-        paid(sim)
-            && check_settled(sim).is_ok()
-            && (0..sim.nodes.len()).all(|index| {
-                (sim.core(index).ledger_views().iter())
-                    .all(|view| view.status == dassie_settlement::LedgerStatus::Synced)
-            })
-    };
-    sim.run_until_or(sim.now + READY_WITHIN_MS, calm);
-    sim.run_until(sim.now + 60_000);
-    Ok(())
-}
-
 /// A run settling over `settling`, which holds one ledger.
 #[must_use]
 pub fn run_on(seed: u64, settling: Settling) -> Run {
     let (mut rng, count, bootstraps) = size(seed);
     let mut sim = Sim::with(seed, count, bootstraps, BTreeMap::new(), settling);
-    let result = script(&mut sim, &mut rng)
+    let result = script(&mut sim, &mut rng, |_, _| {})
         .and_then(|()| check(&sim))
         .and_then(|()| {
             check_withdrawn(&sim).map_err(|problem| Outcome::liveness("withdrawn", problem))
         });
-    ended(sim, result)
-}
-
-/// A run across currencies: node 0 has dollars, node 2 XRP, nodes 1
-/// and 3 both, node 1 charging for what passes. Clients pay receivers in
-/// the other currency, an outgoing payment crosses too, and a node
-/// crashes mid-payment.
-#[must_use]
-pub fn run_across(seed: u64) -> Run {
-    run_across_on(seed, Settling::Cross)
-}
-
-/// A run across RLUSD and XRP, in the live realm against the fake ledger's
-/// mainnet: node 0 has RLUSD, node 2 XRP, nodes 1 and 3 both on one
-/// account, node 1 charging for what passes, so a node signs for both
-/// schemes and books every XRP fee once. Clients pay receivers in the other
-/// currency, and the issuer claws back and freezes meanwhile.
-#[must_use]
-pub fn run_xrp_rlusd(seed: u64) -> Run {
-    run_across_on(seed, Settling::XrpRlusd)
-}
-
-/// A run across DSUSD and XRP, as [`run_xrp_rlusd`] on the testnet, with
-/// the token scheme in DSUSD, whose issuer claws back and freezes
-/// meanwhile.
-#[must_use]
-pub fn run_xrp_dsusd(seed: u64) -> Run {
-    run_across_on(seed, Settling::XrpDsusd)
-}
-
-fn run_across_on(seed: u64, settling: Settling) -> Run {
-    let (mut rng, count) = size_across(seed);
-    let mut sim = Sim::with(seed, count, 2, BTreeMap::new(), settling);
-    script_across(&mut sim, &mut rng);
-    let result = check_across(&sim).and_then(|()| {
-        check_withdrawn(&sim).map_err(|problem| Outcome::liveness("withdrawn", problem))
-    });
     ended(sim, result)
 }
 
@@ -345,7 +140,15 @@ pub(super) fn ended(mut sim: Sim, result: Result<(), Outcome>) -> Run {
     run
 }
 
-fn script(sim: &mut Sim, rng: &mut SeededRng) -> Result<(), Outcome> {
+/// The script: the network forms, a node crashes and comes back, the
+/// network forms again, payments start, and `while_paying` acts while they
+/// are under way; then a node crashes mid-payment, and an owner ends a
+/// peering.
+pub(super) fn script(
+    sim: &mut Sim,
+    rng: &mut SeededRng,
+    while_paying: impl FnOnce(&mut Sim, &mut SeededRng),
+) -> Result<(), Outcome> {
     let count = sim.nodes.len();
     if !sim.run_until_or(START + READY_WITHIN_MS, ready) {
         return Err(Outcome::liveness(
@@ -386,52 +189,15 @@ fn script(sim: &mut Sim, rng: &mut SeededRng) -> Result<(), Outcome> {
         ));
     }
     pay(sim, rng);
-    // A node's connection to its ledger drops while it settles.
+    // A node's connection to its ledger drops while it pays.
     if sim.settling.on_xrpl() {
         sim.run_until(sim.now + rng.next_u64() % 4_000);
         let dropped = usize::try_from(rng.next_u64() % count as u64).unwrap();
         sim.drop_ledger_link(dropped);
     }
-    issuer_acts(sim, rng);
+    while_paying(sim, rng);
     crash_mid_payment(sim, rng, 120_000);
     terminate(sim, rng)
-}
-
-/// The most the issuer claws back at once, in dollars: a few payments'
-/// worth, well within what it minted, so that every node's owner can still
-/// pay.
-const MOST_CLAWED_DOLLARS: u64 = 5;
-
-/// On a token, while payments are under way, the issuer claws some of a
-/// holder's token back, then freezes a holder's line, deep or not, or every
-/// line, and lifts it again. A freeze lasts up to the grace a peer short of
-/// room has before it is withdrawn, drawn from the production timings: one
-/// that outlasts it withdraws the pairs it stops, as it should
-/// ([`check_withdrawn`]).
-fn issuer_acts(sim: &mut Sim, rng: &mut SeededRng) {
-    let Some((token, _)) = sim.settling.token() else {
-        return;
-    };
-    let holders: Vec<usize> = (0..sim.nodes.len())
-        .filter(|index| sim.settling.ledgers(*index).contains(&token))
-        .collect();
-    let pick = |rng: &mut SeededRng| {
-        holders[usize::try_from(rng.next_u64() % holders.len() as u64).unwrap()]
-    };
-    sim.run_until(sim.now + rng.next_u64() % 4_000);
-    let clawed = pick(rng);
-    let dollars = 1 + rng.next_u64() % MOST_CLAWED_DOLLARS;
-    sim.claw_back(clawed, i128::from(dollars) * 1_000_000_000);
-    sim.run_until(sim.now + rng.next_u64() % 4_000);
-    let frozen = pick(rng);
-    let freeze = match rng.next_u64() % 3 {
-        0 => IssuerFreeze::Line(frozen),
-        1 => IssuerFreeze::Deep(frozen),
-        _ => IssuerFreeze::Global,
-    };
-    sim.issuer_freeze(freeze, true);
-    sim.run_until(sim.now + rng.next_u64() % sim.peer.advertise_short_grace_ms);
-    sim.issuer_freeze(freeze, false);
 }
 
 /// Payments of up to three times the default credit, one with a capped
@@ -682,25 +448,4 @@ pub(super) fn settled_nothing_once_ending(
         )),
         None => Ok(()),
     }
-}
-
-fn script_across(sim: &mut Sim, rng: &mut SeededRng) {
-    sim.run_until(START + 60_000);
-    sim.loss_per_mille = 0;
-    sim.run_until(sim.now + 60_000);
-    // Dollars to XRP, and back; each up to twice the credit, so the hops
-    // settle on both ledgers.
-    let amount = |rng: &mut SeededRng| 100_000_000 + rng.next_u64() % 2_200_000_000;
-    let there = amount(rng);
-    sim.pay(0, 2, there, None, None);
-    let back = amount(rng);
-    sim.pay(2, 0, back, None, None);
-    // Into a node's own receiver in the other currency: it converts, and
-    // charges nothing.
-    let own = amount(rng);
-    sim.pay(0, 1, own, None, None);
-    let debit = 50_000_000 + rng.next_u64() % 1_000_000_000;
-    sim.pay_outgoing_across(2, 0, debit);
-    issuer_acts(sim, rng);
-    crash_mid_payment(sim, rng, 180_000);
 }

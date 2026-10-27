@@ -134,13 +134,14 @@ pub fn check_incoming(sim: &Sim, payment: &Payment) -> Result<(), Outcome> {
     Ok(())
 }
 
-/// Each owner's pool moved by exactly what its incoming payments
-/// received, and each live client's token by what it sent: each node's
-/// books against what its own clients and receivers really moved.
+/// Each owner's pool on the ledger the run pays over moved by exactly what
+/// its incoming payments received, and each live client's token by what it
+/// sent: each node's books against what its own clients and receivers
+/// really moved.
 pub fn check_owner_books(sim: &Sim) -> Result<(), String> {
     let all = || sim.payments.iter().chain(&sim.abandoned);
     for index in 0..sim.nodes.len() {
-        let balances = sim.balances(index);
+        let balances = sim.balances_on(index, sim.settling.ledger());
         let pool = balances["equity/owner"];
         let received: i128 = all()
             .filter(|payment| payment.to == index)
@@ -704,11 +705,11 @@ pub fn check_anchored(sim: &Sim) -> Result<(), String> {
     Ok(())
 }
 
-/// Whether node `index` books `ledger`: one it pays over, or an owner book
-/// a DSUSD hub's member funds its account in the hub from, and pays the
-/// escrow's gas from.
+/// Whether node `index` books `ledger`: one it pays over, an owner book of
+/// a run of them, or an owner book a DSUSD hub's member funds its account
+/// in the hub from, and pays the escrow's gas from.
 fn books(sim: &Sim, index: usize, ledger: LedgerId) -> bool {
-    sim.settling.ledgers(index).contains(&ledger)
+    sim.settling.books(index, ledger)
         || matches!(sim.settling, Settling::HubDsusd(_)) && (ledger == XRP || ledger == DSUSD)
 }
 
@@ -842,24 +843,27 @@ fn check_fake_ledger(sim: &Sim) -> Result<(), String> {
 pub fn check_ledgers(sim: &Sim) -> Result<(), String> {
     let count = sim.nodes.len();
     let ledger = sim.settling.ledger();
+    let trusting = matches!(sim.settling, Settling::Trusting | Settling::OwnerBooks);
     let mut stubs = 0i128;
     for index in 0..count {
         let held = check_held(sim, index, ledger)?;
-        if sim.settling == Settling::Trusting && held != Settling::deposit(USD) {
+        if trusting && held != Settling::deposit(USD) {
             return Err(format!(
                 "node {index}'s stub holds {held} on unlimited trust, which never settles"
             ));
         }
         stubs += held;
     }
-    if sim.settling.on_stub() {
+    if ledger == USD {
         let total = Settling::deposit(USD) * i128::try_from(count).unwrap();
         if stubs != total {
             return Err(format!("the stubs hold {stubs}, not {total}"));
         }
-        return Ok(());
     }
-    check_fake_ledger(sim)
+    if sim.settling.on_xrpl() {
+        check_fake_ledger(sim)?;
+    }
+    Ok(())
 }
 
 /// A run across currencies: every payment finished, each node settled
@@ -946,8 +950,6 @@ fn check_prices(sim: &Sim) -> Result<(), String> {
 fn check_assets(sim: &Sim) -> Result<(), String> {
     let count = sim.nodes.len();
     let ledgers: &[LedgerId] = match sim.settling {
-        Settling::XrpRlusd => &[RLUSD, LIVE_XRP],
-        Settling::XrpDsusd => &[DSUSD, XRP],
         Settling::HubAcross(_) => &[USD, super::HUB],
         _ => &[USD, XRP],
     };
