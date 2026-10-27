@@ -19,7 +19,7 @@
 - **The mirror** is `get.dassie.land`, and the installer is at `sh.dassie.land`.
 - These are frozen ([Overview](../overview.md#frozen-surfaces)): both payment domains, the memo types' domain, the mirror and the installer's host, which README one-liners and owners' provisioning scripts name. A change is a new name served beside the old one, for as long as anyone may still use the old.
 - **The realms share the mirror and the memo types' domain.** One binary serves both realms, so it updates from one mirror. Each network's scheme has a memo type of its own (`xrpl-testnet-xrp` and `xrpl-xrp`, `xrpl-testnet-rlusd` and `xrpl-rlusd`), so a settlement on one network never passes for another's, and the domain need not tell them apart.
-- **One passphrase is a different node in each realm,** so no name can mean one node on the testnet and another, or the same, in the live realm. The phrase itself is to say its realm, so a live phrase is refused on a test node and the other way round ([roadmap](../roadmap.md#smaller-open-points)).
+- **One passphrase is a different node in each realm,** so no name can mean one node on the testnet and another, or the same, in the live realm. How is not decided yet ([roadmap](../roadmap.md#smaller-open-points)).
 - **The rest stay the release's:** the bootstrap nodes, the default relay and the proof servers move by a release, with no step for anyone outside it.
 
 ## Accepted
