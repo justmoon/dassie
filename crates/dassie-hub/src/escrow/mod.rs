@@ -16,8 +16,8 @@ pub mod transactions;
 
 pub use keys::{ValidatorKeys, escrow_master};
 pub use observe::{
-    OPEN_MEMO_TYPE, check_escrow_line, check_proven_escrow, clawback_of, deposit_of, escrow_keys,
-    issuer_keys, issuer_of, outcome_of, withdrawal_outcome,
+    IssuerHold, OPEN_MEMO_TYPE, check_escrow_line, check_proven_escrow, clawback_of, deposit_of,
+    escrow_keys, hold_of, issuer_keys, outcome_of, withdrawal_outcome,
 };
 pub use payout::{
     MAX_PAYOUT_BUNDLE_BYTES, PayoutBundle, PayoutEntry, PayoutError, PayoutSet, PayoutTransaction,
