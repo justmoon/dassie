@@ -383,7 +383,7 @@
         "Exchange rates, fetched from several sources, the fee and spread on what passes between peers, and the price table rebuilt from them and the owner's funds whenever either changes",
         "A core node's rate feed: the price table, signed once and sent over UDP to every subscriber that proved its address, at most once a second while it changes, with the feed's port in the node's discovery document and its link state, and its counters in the owner's status rather than the log",
         "Credit to each peer that grows with the fees it earned the node, read from the journal; over a settlement hub, the credit is the node's own hold toward the peer, kept in step as the hold is funded and taken from, and nothing grows",
-        "Settlement methods: a peering's accounts, credit, requests to settle and their backoff, and the credit over each hub kept per method, each on its own ledger, and every method stored with its peering; a further method is taken while its accounts fit; every packet with a peer takes the method its connector endpoint is on, by structure, so a method short of room answers T04 and never passes the packet to another",
+        "Settlement methods: a peering's accounts, credit, requests to settle and their backoff, and the credit over each hub kept per method, each on its own ledger, and every method stored with its peering; a further method is taken while its accounts fit; every packet with a peer takes the method its connector endpoint is on, by structure, so a method short of room answers T04 and never passes the packet to another; the owner's removal of a scheme that peers settle on is not refused but winds their methods on it down, the scheme running until each is dropped, across a restart too, and the owner sees every method of each peering",
         "Peerings over a settlement hub: the node lists every hub it is a member of, one per asset, in its link state and peers over it with members of the same hub, sends a commitment with each Prepare and a claim with each reply to a Fulfill, and books what a peering cost beyond its hold as a loss on the peer",
         "Settlement hubs' validator role, which an owner turns on for the sponsors it lists: a validator per hub, its consensus state and ledger written before each step's messages go out, the hub's messages over a QUIC stream of their own, and the hub's escrow followed on the XRP Ledger only through a verifier of the network's UNL, attesting only what it proved: deposits, outcomes and clawbacks by their transactions' proofs, the escrow's setup and the issuer's hold by state proofs at a fresh anchor, and resets of the test network; it hands the XRPL connection no escrow transaction while the issuer holds a token hub's escrow",
         "Founding settlement hubs: as a sponsor, it asks the validators its owner picked to accept the terms, gathers a quorum's signatures of the genesis and hands them the certificate, then funds the escrow from its XRP Ledger account and sets it up; as a validator, it accepts only listed sponsors' terms, on the XRP Ledger network its owner names (the testnet unless it names another), within its bound on hubs, signs one genesis per nonce and runs the hub its certificate founds",
@@ -549,8 +549,9 @@
         "Peering on its own, and routing, keeping a few first hops per node, picked by a hash only the node itself can compute",
         "Periphery nodes without a URL and with no neighbors in their link state, which peer only with core nodes as their downlinks, and only with those their owner pinned when it pinned any, as many as a market maker trades through",
         "Downlinks that never paid the node take at most half of its places for downlinks, so keys made for nothing cannot keep out those that pay; a newcomer that paid on the ledger before it asked gets in past them, and one that has not is told to pay",
-        "Advertising only peers that are alive and not stuck short of room on every method, never ending one for room it could not pay",
-        "Delivering settlements and requests to settle, ending peerings, dropping a method on a scheme the node no longer runs and ending a peering left with none, bans",
+        "Advertising only peers that are alive and not stuck short of room, or being wound down, on every method, never ending one for room it could not pay",
+        "Delivering settlements and requests to settle, ending peerings, bans",
+        "Winding a settlement method down as a peering ends, on that method alone: no new packets from the peer on it, the peer asked to settle on it once, each step bounded, then the method dropped and the peer told, what is left staying owed; a method whose scheme the node no longer runs, or that has not been able to receive for as long as a silent peer is kept, is dropped at once; a peering left with no method ends",
         "Settlement channels that close once idle, kept on disk so a late settlement still counts once",
         "Settlement methods: a peering can hold a method for every hub both nodes are in, each agreed, added and dropped on its own, and every Prepare travels on one, over a hub with the payer's commitment, the payer's claim coming back in the reply to its Fulfill",
         "Names people can say, at the bootstrap nodes as registrars: a log of sealed commitments, each name granted to the earliest one unsealed once every earlier window has closed, renewed by its holder, and a name list served as the node list is",
@@ -1549,6 +1550,13 @@
             "peer"
           ],
           "text": "The settlement reaches the peer exactly once, even across crashes and restarts. Simulations check this for every seed."
+        },
+        {
+          "ids": [
+            "node",
+            "peer"
+          ],
+          "text": "When the owner removes a hub's scheme, the node settles up on that method first: it takes no new packets there, asks the peer to settle once, then drops the method within a few minutes. The peering carries on over their other hubs."
         }
       ]
     },

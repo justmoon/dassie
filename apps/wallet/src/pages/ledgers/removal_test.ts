@@ -55,11 +55,7 @@ test("a move of the ledger's hub on its way blocks the removal", () => {
   );
 });
 
-test("peers no longer keep a ledger: its removal settles up with them", () => {
-  assertEquals(
-    removalChecklist([blocker(Kind.PEERS, 2)]).map((item) => item.state),
-    ["valid"],
-  );
+test("a ledger being removed settles up with its peers first", () => {
   assertEquals(removingNotice(undefined), undefined);
   assertEquals(
     removingNotice(2)?.text,

@@ -64,7 +64,7 @@ export function removalChecklist(
           "Funds are on their way between its settlement hub and the ledger that funds it; wait for them, or give the move up on the Hubs page once it is late",
         state: "invalid",
       });
-    } else if (blocker.kind !== Kind.PEERS) {
+    } else {
       items.push({
         id: `other-${blocker.kind}`,
         label: "Something else keeps it in use",
