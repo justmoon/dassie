@@ -36,7 +36,7 @@ async fn ready(node: &TestNode) -> Owner {
         .call(Method::AddSettlementScheme(
             proto::AddSettlementSchemeRequest {
                 id: "stub".into(),
-                config: String::new(),
+                config: STUB_UNLIMITED.into(),
             },
         ))
         .await

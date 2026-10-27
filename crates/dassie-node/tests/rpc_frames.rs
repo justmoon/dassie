@@ -237,7 +237,7 @@ fn running_node(
             .clone()
             .unwrap();
         engine
-            .add_scheme("stub".into(), String::new())
+            .add_scheme("stub".into(), support::STUB_UNLIMITED.into())
             .await
             .unwrap();
     });

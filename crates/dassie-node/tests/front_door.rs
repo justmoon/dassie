@@ -468,7 +468,7 @@ async fn a_periphery_node_with_an_uplink_is_reached_through_its_front_door() {
     set_up(&p, &key_p).await;
     add_stub(&p).await;
     pair::until(&clock, async || {
-        pair::peered(&a, &key_p).await && pair::peered(&p, &key_a).await
+        pair::peered_downlink(&a, &key_p).await && pair::peered(&p, &key_a).await
     })
     .await;
     let name = name_of(&key_p.node_id());

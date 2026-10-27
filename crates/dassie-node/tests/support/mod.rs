@@ -51,6 +51,21 @@ use tokio_util::sync::CancellationToken;
 /// 2027-01-15, a plausible now.
 pub const START_MS: u64 = 1_800_000_000_000;
 
+/// The config of the stub with unlimited trust, on which a test whose
+/// subject is not settlement runs its nodes: no credit runs out, and no
+/// request to settle or settlement shapes what it checks
+/// (spec/areas/testing.md#levels, spec/areas/settlement.md#the-stub-scheme).
+pub const STUB_UNLIMITED: &str = r#"{"trust":"unlimited"}"#;
+
+/// The config of the stub with commitments, holding at most `limit`
+/// packets in flight per peer each way, for a test of settlement: its
+/// settlements fund holds as a hub member's do
+/// (spec/areas/settlement.md#the-stub-scheme). The stub refuses a limit
+/// out of its range.
+pub fn stub_with_commitments(limit: usize) -> String {
+    format!(r#"{{"commitments":{limit}}}"#)
+}
+
 /// How long a wait for what runs in real time may take before it is called
 /// a hang (spec/areas/testing.md#over-real-sockets): a minute, far past
 /// every real-time timer such a wait depends on, a connection's or a
