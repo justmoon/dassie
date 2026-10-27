@@ -221,8 +221,7 @@ fn peer(view: &PeerView) -> proto::NetworkPeer {
         None => ("peered", ""),
     };
     // The method our packets take, whose credit `owed` is measured
-    // against; the peering's further methods are not reported yet
-    // (spec/roadmap.md#settlement-methods).
+    // against; `methods` lists every one.
     let carried = peering.method(view.carried).unwrap_or(peering.first());
     proto::NetworkPeer {
         node: view.id.to_string(),
@@ -235,10 +234,26 @@ fn peer(view: &PeerView) -> proto::NetworkPeer {
         termination_reason: reason.into(),
         advertised: view.advertised,
         online: view.online,
-        owed: view.owed.map_or(0, |owed| {
-            i64::try_from(owed).unwrap_or(if owed < 0 { i64::MIN } else { i64::MAX })
-        }),
+        owed: view.owed.map_or(0, saturate),
+        // Every method, the carried one included: `scheme` and `credit_out`
+        // stay as they are, as the contract is additive
+        // (spec/decisions/rpc-contract.md).
+        methods: (peering.methods.iter())
+            .zip(&view.owed_by_method)
+            .zip(&view.withdrawn_by_method)
+            .map(|((method, owed), withdrawn)| proto::PeerMethod {
+                scheme: method.scheme.to_string(),
+                credit_out: method.credit_out,
+                owed: owed.map_or(0, saturate),
+                withdrawn: *withdrawn,
+                winding_down: method.winding_down(),
+            })
+            .collect(),
     }
+}
+
+fn saturate(owed: i128) -> i64 {
+    i64::try_from(owed).unwrap_or(if owed < 0 { i64::MIN } else { i64::MAX })
 }
 
 const fn peer_settings(settings: PeerSettings) -> proto::PeerSettings {

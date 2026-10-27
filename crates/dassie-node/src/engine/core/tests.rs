@@ -856,7 +856,8 @@ fn the_core_does_not_log() {
     let mut read = 0;
     for entry in std::fs::read_dir(&dir).unwrap() {
         let path = entry.unwrap().path();
-        if path.file_name().is_some_and(|name| name == "tests.rs") {
+        // The tests, in `tests.rs` and the modules under `tests/`.
+        if path.is_dir() || path.file_name().is_some_and(|name| name == "tests.rs") {
             continue;
         }
         let text = std::fs::read_to_string(&path).unwrap();
@@ -2748,6 +2749,15 @@ std::thread_local! {
     /// counts the packets of that test's cores alone, whichever tests run
     /// beside it.
     static STUB_TWO_PACKETS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+    /// Whether every [`StubTwo`] of this thread cannot receive a peer's
+    /// settlement, as a scheme whose line an issuer froze
+    /// (spec/areas/settlement.md#when-peers-cannot-pay-us).
+    static STUB_TWO_UNPAYABLE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Makes every [`StubTwo`] of this test unable to receive, or able again.
+fn stub_two_unpayable(unpayable: bool) {
+    STUB_TWO_UNPAYABLE.with(|cell| cell.set(unpayable));
 }
 
 /// The packets [`StubTwo`] carried in this test so far.
@@ -2793,6 +2803,10 @@ impl StubTwo {
 impl dassie_settlement::SettlementScheme for StubTwo {
     fn id(&self) -> dassie_ledger::Name {
         dassie_ledger::name!(STUB_TWO)
+    }
+
+    fn can_receive(&self) -> bool {
+        !STUB_TWO_UNPAYABLE.with(std::cell::Cell::get)
     }
 
     fn ledger(&self) -> dassie_ledger::LedgerId {
@@ -6612,3 +6626,7 @@ fn a_peering_that_loses_its_endpoints_method_carries_packets_on_the_next() {
     sim.run_until(sim.now + 60_000);
     check_hub_packets(&sim).unwrap();
 }
+
+// The lifecycle of settlement methods in the node: winding down, dropping
+// and the owner's removal of a scheme.
+mod winding;

@@ -352,3 +352,192 @@ fn a_peering_being_ended_that_loses_its_first_method_ends() {
     });
     assert_eq!((dropped, told), (0, 1));
 }
+
+/// How many times node `index` asked `peer` to settle: the requests `peer`
+/// took from it.
+fn asked(network: &Network, index: usize, peer: &NodeId) -> usize {
+    let from = *network.node(index).own();
+    let to = (0..network.nodes.len())
+        .find(|other| network.node(*other).own() == peer)
+        .unwrap();
+    network
+        .settlement_requests
+        .iter()
+        .filter(|(at, sender)| *at == to && *sender == from)
+        .count()
+}
+
+/// Whether node `index` winds down its method on `on` with `peer`.
+fn winding(network: &Network, index: usize, peer: &NodeId, on: &str) -> bool {
+    network
+        .node(index)
+        .peering_of(peer)
+        .and_then(|peering| peering.method(scheme(on)))
+        .is_some_and(dassie_peer::Method::winding_down)
+}
+
+// spec/decisions/settlement-methods.md: a method wound down is collected
+// first. The node asks the peer to settle on it once, waits for what the
+// peer said is on its way, and only once it is booked drops the method and
+// tells the peer, which drops it at once; the peering goes on, on the
+// other method, both still advertising it.
+#[test]
+fn a_method_wound_down_is_collected_once_then_dropped() {
+    let (mut network, a, b) = both(80);
+    network.promise.insert(1, 5);
+    network.remove_scheme(0, scheme(SECOND));
+    settle(&mut network, 5_000);
+    assert!(
+        winding(&network, 0, &b, SECOND),
+        "dropped before collecting"
+    );
+    assert_eq!(methods(&network, 1, &a), two(), "the peer was told early");
+    assert_eq!(asked(&network, 0, &b), 1);
+    // A settlement on the other method counts for nothing here.
+    network.act(0, |node, now| {
+        node.settlement_booked(now, &b, scheme(STUB), 5);
+    });
+    settle(&mut network, 5_000);
+    assert!(winding(&network, 0, &b, SECOND));
+    network.act(0, |node, now| {
+        node.settlement_booked(now, &b, scheme(SECOND), 5);
+    });
+    settle(&mut network, 5_000);
+    assert_eq!(methods(&network, 0, &b), [scheme(STUB)]);
+    assert_eq!(methods(&network, 1, &a), [scheme(STUB)]);
+    assert_eq!(asked(&network, 0, &b), 1, "asked more than once");
+    assert!(network.node(0).is_advertised(&b) && network.node(1).is_advertised(&a));
+    assert_eq!(
+        events(&network, 0, |event| matches!(
+            event,
+            Event::MethodWinding { .. }
+        )),
+        1
+    );
+}
+
+// Each step is bounded: a settlement of ours on the method that never
+// finishes is waited for no longer than the wait, and what the peer said is
+// on its way, never booked, no longer than the wait again.
+#[test]
+fn a_method_wound_down_is_dropped_within_its_bound() {
+    let (mut network, a, b) = both(81);
+    let wait = Config::DEV.depeer_wait_ms;
+    network.promise.insert(1, 5);
+    network.nodes[0].hooks.settling.insert(b);
+    network.remove_scheme(0, scheme(SECOND));
+    settle(&mut network, wait - 2_000);
+    assert_eq!(asked(&network, 0, &b), 0, "asked before its own settled");
+    settle(&mut network, 4_000);
+    assert_eq!(asked(&network, 0, &b), 1);
+    assert!(winding(&network, 0, &b, SECOND));
+    settle(&mut network, wait);
+    assert_eq!(methods(&network, 0, &b), [scheme(STUB)]);
+    assert_eq!(methods(&network, 1, &a), [scheme(STUB)]);
+}
+
+// A peering that winds down its last method ends once it is collected,
+// told then; while it collects, the peer is no longer advertised.
+#[test]
+fn a_peering_that_winds_down_its_last_method_ends() {
+    let mut network = Network::new(82, 2, 1, Config::DEV);
+    let (a, b) = (*network.node(0).own(), *network.node(1).own());
+    wait(&mut network, |network| {
+        network.node(0).is_advertised(&b) && network.node(1).is_advertised(&a)
+    });
+    network.promise.insert(1, 5);
+    network.act(0, |node, now| {
+        assert!(node.wind_down(now, &b, scheme(STUB)));
+    });
+    settle(&mut network, 3_000);
+    assert!(!network.node(0).is_advertised(&b), "still advertised");
+    assert!(network.node(0).peering_of(&b).is_some());
+    assert!(network.node(1).peering_of(&a).is_some());
+    network.act(0, |node, now| {
+        node.settlement_booked(now, &b, scheme(STUB), 5);
+    });
+    wait(&mut network, |network| {
+        network.node(0).peering_of(&b).is_none() && network.node(1).peering_of(&a).is_none()
+    });
+    assert_eq!(asked(&network, 0, &b), 1);
+}
+
+// A method being wound down keeps its decision across a restart, and takes
+// its steps again: the method is dropped within the bound counted from the
+// start.
+#[test]
+fn a_method_wound_down_carries_on_after_a_restart() {
+    let (mut network, a, b) = both(83);
+    let wait = Config::DEV.depeer_wait_ms;
+    network.nodes[0].hooks.settling.insert(b);
+    network.remove_scheme(0, scheme(SECOND));
+    settle(&mut network, 1_000);
+    network.crash(0);
+    settle(&mut network, 1_000);
+    network.start(0);
+    network.node(0).check_invariants();
+    assert!(winding(&network, 0, &b, SECOND), "forgotten in the restart");
+    settle(&mut network, 2 * wait + 5_000);
+    assert_eq!(methods(&network, 0, &b), [scheme(STUB)]);
+    assert_eq!(methods(&network, 1, &a), [scheme(STUB)]);
+}
+
+// spec/decisions/settlement-methods.md: a method on a scheme that cannot
+// receive is dropped at once, collecting nothing, once it has not been able
+// to for as long as a silent peer is kept; before then it stays.
+#[test]
+fn a_method_that_cannot_receive_is_dropped_after_a_silent_peers_time() {
+    let (mut network, a, b) = both(84);
+    let dead = Config::DEV.peer_dead_ms;
+    // The node lists it no more while it cannot receive.
+    network.schemes.insert(0, vec![scheme(STUB)]);
+    network.act(0, |node, now| node.set_schemes(now, vec![scheme(STUB)]));
+    network.nodes[0].hooks.unpayable.insert(scheme(SECOND));
+    settle(&mut network, dead - 10_000);
+    assert_eq!(methods(&network, 0, &b), two());
+    settle(&mut network, 20_000);
+    assert_eq!(methods(&network, 0, &b), [scheme(STUB)]);
+    assert_eq!(methods(&network, 1, &a), [scheme(STUB)]);
+    assert_eq!(asked(&network, 0, &b), 0, "collected on it");
+    assert_eq!(
+        events(&network, 0, |event| matches!(
+            event,
+            Event::MethodWinding { .. }
+        )),
+        0
+    );
+}
+
+// A scheme that can receive again before then keeps its method, and its
+// time starts again.
+#[test]
+fn a_scheme_that_can_receive_again_keeps_its_method() {
+    let (mut network, _, b) = both(85);
+    let dead = Config::DEV.peer_dead_ms;
+    network.nodes[0].hooks.unpayable.insert(scheme(SECOND));
+    settle(&mut network, dead - 10_000);
+    network.nodes[0].hooks.unpayable.clear();
+    settle(&mut network, 5_000);
+    network.nodes[0].hooks.unpayable.insert(scheme(SECOND));
+    settle(&mut network, dead - 10_000);
+    assert_eq!(methods(&network, 0, &b), two());
+}
+
+// The owner's removal of a scheme, as the simulation's nodes do it: the
+// node lists it no more, winds down its methods on it, and runs it until
+// each is dropped. The peering is kept on the other method, and the
+// method is not added back.
+#[test]
+fn a_scheme_removed_winds_down_its_methods() {
+    let (mut network, a, b) = both(86);
+    network.remove_scheme(0, scheme(SECOND));
+    assert!(winding(&network, 0, &b, SECOND));
+    assert!(network.removing.contains(&(0, scheme(SECOND))));
+    settle(&mut network, 2 * Config::DEV.depeer_wait_ms + 5_000);
+    network.finish_removals();
+    assert!(network.removing.is_empty(), "the scheme still runs");
+    settle(&mut network, 60_000);
+    assert_eq!(methods(&network, 0, &b), [scheme(STUB)]);
+    assert_eq!(methods(&network, 1, &a), [scheme(STUB)]);
+    assert!(network.node(0).is_advertised(&b) && network.node(1).is_advertised(&a));
+}

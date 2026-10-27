@@ -193,7 +193,9 @@ impl Engine {
         self.call(move |core| core.add_scheme(&id, config)).await
     }
 
-    /// Deactivates a settlement scheme.
+    /// Deactivates a settlement scheme: at once, or, while peerings settle
+    /// on it, once their methods on it are wound down
+    /// (spec/decisions/settlement-methods.md).
     pub async fn remove_scheme(&self, id: String) -> Result<(), EngineError> {
         self.call(move |core| core.remove_scheme(&id)).await
     }

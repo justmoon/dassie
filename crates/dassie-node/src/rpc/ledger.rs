@@ -441,6 +441,7 @@ pub(super) fn ledger(view: &LedgerView) -> proto::Ledger {
         connection: connection(view.status).into(),
         connection_problem: problem(view.status, view.waiting),
         peg: view.peg.map(peg),
+        removing_methods: view.removing,
     }
 }
 
@@ -528,7 +529,6 @@ pub(super) const fn connection(status: LedgerStatus) -> proto::LedgerConnection 
 fn blocker(blocker: &RemovalBlocker) -> proto::LedgerRemovalBlocker {
     use proto::ledger_removal_blocker::Kind;
     let (kind, count) = match *blocker {
-        RemovalBlocker::Peers(count) => (Kind::Peers, count),
         RemovalBlocker::BtpTokens(count) => (Kind::BtpTokens, count),
         RemovalBlocker::OutgoingPayments(count) => (Kind::OutgoingPayments, count),
         RemovalBlocker::HubMove => (Kind::HubMove, 1),

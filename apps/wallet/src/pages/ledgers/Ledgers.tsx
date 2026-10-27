@@ -1,19 +1,21 @@
 /** Ledgers (spec/areas/wallet.md#pages): each active ledger, with its
- * balances and, for a dollar token's, its peg guard, and the exchange rates
- * the node converts at, with their age (spec/decisions/exchange-rates.md). */
+ * balances, whether it is being removed, and, for a dollar token's, its peg
+ * guard, and the exchange rates the node converts at, with their age
+ * (spec/decisions/exchange-rates.md). */
 
 import type { JSX } from "@solidjs/web";
 import { For, Show } from "solid-js";
 import { Amount, ledgerCurrency } from "@dassie/ui/amount";
 import { useNodeData } from "@dassie/ui/node-data";
 import { Link } from "@dassie/ui/router";
-import { Card, LiveNote, PageTitle } from "@dassie/ui/ui";
+import { Alert, Card, LiveNote, PageTitle } from "@dassie/ui/ui";
 import { schemeName } from "../schemes.ts";
 import { assetName, assetOf } from "../assets/assets.ts";
 import { ageText, rateText } from "../settings/rates.ts";
 import { connectionText } from "./connection.ts";
 import { DepositAddress } from "./DepositAddress.tsx";
 import { PegGuard } from "./PegGuard.tsx";
+import { removingNotice } from "./removal.ts";
 
 export function Ledgers(): JSX.Element {
   const data = useNodeData();
@@ -53,6 +55,16 @@ export function Ledgers(): JSX.Element {
                 <p data-testid={`ledger-connection-${ledger().id}`}>
                   {text()}
                 </p>
+              )}
+            </Show>
+            <Show when={removingNotice(ledger().removingMethods)}>
+              {(notice) => (
+                <Alert
+                  title={notice().title}
+                  testid={`ledger-removing-${ledger().id}`}
+                >
+                  {notice().text}
+                </Alert>
               )}
             </Show>
             <PegGuard ledger={ledger()} />
