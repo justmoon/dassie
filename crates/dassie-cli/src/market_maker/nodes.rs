@@ -8,7 +8,8 @@
 //! its XRP Ledger account, which funds the hub and which its rebalances
 //! spend from. The node moves funds between the two by itself, between the
 //! hub's floor and ceiling (spec/areas/hubs.md#in-the-node), so what it
-//! holds is both, and a move between them on its way.
+//! holds is both: a move between them counts where the ledger it leaves
+//! still has it, and nowhere while it is on neither.
 //!
 //! A trade asks the receiving node for an incoming payment beneath the
 //! target, so that the payment reaches it through that target and no
@@ -53,7 +54,7 @@ pub struct Node {
 }
 
 /// What a node says of its asset: `ListLedgers` of its hub's ledger and
-/// its owner book, and `GetHubStatus` of its hub.
+/// its owner book.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LedgerState {
     /// The asset's code, as both ledgers name it.
@@ -67,8 +68,7 @@ pub struct LedgerState {
 }
 
 /// What the node's ledgers say, as [`holding`] reads them: the hub's
-/// ledger and the owner book, each from `ListLedgers`, and from
-/// `GetHubStatus` what is on its way into the hub.
+/// ledger and the owner book, each from `ListLedgers`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Views {
     /// The owner's funds on the hub's ledger.
@@ -81,9 +81,6 @@ pub struct Views {
     /// What the book's account holds, as the books have it, less what the
     /// ledger holds back.
     pub book_on_ledger: u64,
-    /// A deposit into the hub that the XRP Ledger applied, so the book
-    /// booked it out, and the hub has not credited yet: on neither ledger.
-    pub arriving: u64,
 }
 
 /// How a trade ended.
@@ -196,10 +193,12 @@ impl Node {
                 ));
             }
         }
-        if hub.asset_code != book.asset_code {
+        // A hub's ledger reports no issuer today; one that does must name
+        // the book's.
+        let issuers_differ = !hub.issuer.is_empty() && hub.issuer != book.issuer;
+        if hub.asset_code != book.asset_code || issuers_differ {
             return Err(format!("{} and {} hold different assets", hub.id, book.id));
         }
-        let scheme = hub.settlement_scheme.clone();
         let (asset_code, deposit_address, issuer) = (
             book.asset_code.clone(),
             book.deposit_address.clone(),
@@ -210,7 +209,6 @@ impl Node {
             book_owner: book.owner_balance,
             book_pending: book.owner_pending,
             book_on_ledger: book.on_ledger_balance,
-            arriving: self.arriving(&scheme).await?,
         };
         Ok(LedgerState {
             asset_code,
@@ -218,32 +216,6 @@ impl Node {
             deposit_address,
             issuer,
         })
-    }
-
-    /// A deposit into the hub over which `scheme` settles that the XRP
-    /// Ledger applied and the hub has not credited yet: what is on neither
-    /// of the node's ledgers (spec/areas/hubs.md#in-the-node).
-    async fn arriving(&mut self, scheme: &str) -> Result<u64, String> {
-        let response::Method::GetHubStatus(status) = self
-            .call(Method::GetHubStatus(proto::GetHubStatusRequest {}))
-            .await?
-        else {
-            return Err("GetHubStatus answered out of turn".into());
-        };
-        let hub = status
-            .hubs
-            .iter()
-            .find(|hub| hub.scheme == scheme)
-            .ok_or_else(|| format!("the {} node is in no hub over {scheme}", self.side.name()))?;
-        Ok(hub.moving.as_ref().map_or(0, |moving| {
-            let deposit = proto::hub_move::Direction::try_from(moving.direction)
-                == Ok(proto::hub_move::Direction::Deposit);
-            if deposit && moving.applied_at_unix_ms.is_some() {
-                moving.amount
-            } else {
-                0
-            }
-        }))
     }
 
     /// The uplinks the node is confirmed with now: peerings it lists as
@@ -271,20 +243,22 @@ impl Node {
 }
 
 /// What a node holds of its asset, from what its ledgers say: its funds
-/// in the hub and in the owner book, none below zero, and a deposit on
-/// neither, applied and not credited yet; of that, what the owner book's
-/// account may spend now: what it holds, at most the owner's funds there
-/// less what payments on their way out of it hold. A withdrawal is counted
-/// on the hub's ledger until the hub executes it, and in the book once the
-/// account sees it arrive: between, for as long as the escrow's payment
-/// takes, the holding reads short of it, never above.
+/// in the hub and in the owner book, none below zero; of that, what the
+/// owner book's account may spend now: what it holds, at most the owner's
+/// funds there less what payments on their way out of it hold. A move
+/// between hub and book counts on the ledger it leaves until that ledger
+/// books it out, and on the other once that one books it in: a deposit is
+/// held in the book until the XRP Ledger applies it and credited by the
+/// hub some seconds later, and a withdrawal stays on the hub's ledger
+/// until the hub executes it and reaches the book when the account sees
+/// it arrive. Between, the holding reads short of the move, never above:
+/// the two ledgers book on their own schedules, and counting a move in
+/// flight from either side could count it twice.
 #[must_use]
 pub fn holding(views: &Views) -> Holding {
     let positive = |balance: i64| u64::try_from(balance.max(0)).unwrap_or(0);
     let book = positive(views.book_owner);
-    let total = positive(views.hub_owner)
-        .saturating_add(book)
-        .saturating_add(views.arriving);
+    let total = positive(views.hub_owner).saturating_add(book);
     let on_ledger = views
         .book_on_ledger
         .min(book.saturating_sub(views.book_pending));
@@ -451,7 +425,6 @@ mod tests {
             book_owner: book,
             book_pending: 0,
             book_on_ledger: book.unsigned_abs(),
-            arriving: 0,
         }
     }
 
@@ -468,18 +441,22 @@ mod tests {
     }
 
     #[test]
-    fn a_deposit_on_its_way_counts_once() {
+    fn a_deposit_on_its_way_never_counts_twice() {
         // Held in the book until the XRP Ledger applied it: still the
         // owner's there, but not the account's to spend.
         let mut leaving = views(5 * ONE, 95 * ONE);
         leaving.book_pending = units(10);
         assert_eq!(holding(&leaving).total, units(100));
         assert_eq!(holding(&leaving).on_ledger, units(85));
-        // Applied: out of the book, not in the hub yet, so on its way.
-        let mut arriving = views(5 * ONE, 85 * ONE);
-        arriving.arriving = units(10);
-        assert_eq!(holding(&arriving).total, units(100));
-        assert_eq!(holding(&arriving).on_ledger, units(85));
+        // Applied: out of the book, not credited by the hub yet, so on
+        // neither ledger, and the holding reads short of it.
+        let applied = views(5 * ONE, 85 * ONE);
+        assert_eq!(holding(&applied).total, units(90));
+        assert_eq!(holding(&applied).on_ledger, units(85));
+        // Credited: in the hub, once.
+        let credited = views(15 * ONE, 85 * ONE);
+        assert_eq!(holding(&credited).total, units(100));
+        assert_eq!(holding(&credited).on_ledger, units(85));
     }
 
     #[test]
@@ -498,8 +475,7 @@ mod tests {
         let held = holding(&views(-ONE, -2 * ONE));
         assert_eq!(held.total, 0);
         assert_eq!(held.on_ledger, 0);
-        let mut most = views(i64::MAX, i64::MAX);
-        most.arriving = u64::MAX;
-        assert_eq!(holding(&most).total, u64::MAX);
+        let most = holding(&views(i64::MAX, i64::MAX));
+        assert_eq!(most.total, i64::MAX.unsigned_abs() * 2);
     }
 }

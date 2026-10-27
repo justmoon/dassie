@@ -190,8 +190,8 @@ impl Pool {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Holding {
     /// What the owner holds of the node's asset, by its books: its funds
-    /// in the hub's ledger and in the owner book, and a move between them
-    /// on its way. What it can send through a target, as the node moves
+    /// in the hub's ledger and in the owner book, short of a move between
+    /// them on its way, never above. What it can send through a target, as the node moves
     /// funds into the hub as it needs them, and what its band is about.
     pub total: u64,
     /// What the owner book's XRPL account holds that the owner may spend
@@ -526,6 +526,22 @@ fn rebalance(inputs: &Inputs<'_>, from: Side) -> Result<Rebalance, Hold> {
         deliver: fits,
         send_max: to_amount(from, most, token).ok_or(Hold::Range)?,
     })
+}
+
+/// The least `rebalance` can have spent of its node's asset, in its
+/// ledger's units, if it paid: it may spend a slippage's share more than
+/// what it delivers costs at the price read, so it costs at least its
+/// `send_max` less that share, and the pool may have moved its way since,
+/// by up to another such share. A node's books that have fallen by less
+/// have not booked it: a move of the node's own between hub and book, on
+/// its way, also lowers what they say (spec/areas/rate-feed.md#bands).
+/// At least one unit, so that nothing is booked before anything fell.
+#[must_use]
+pub fn least_spent(rebalance: &Rebalance, slippage_ppm: u32) -> u64 {
+    let most = u128::from(to_units(rebalance.send_max).unwrap_or(0));
+    let share = u128::from(MILLION) + u128::from(slippage_ppm);
+    let least = most * u128::from(MILLION) / share * u128::from(MILLION) / share;
+    u64::try_from(least).unwrap_or(u64::MAX).max(1)
 }
 
 /// What `debit` sent through the target delivers at `rate_e15`, as its
@@ -1084,6 +1100,39 @@ mod tests {
         };
         assert_ne!(exact.value, delivered.value, "a price of more digits");
         assert_eq!(to_units(rebalance.deliver), to_units(Amount::Token(exact)));
+    }
+
+    #[test]
+    fn a_rebalance_is_booked_once_the_books_fell_by_what_it_cost() {
+        let params = params();
+        let rate = POOL_XRP_TO_TOKEN / 100 * 102;
+        let Decision::Rebalance(rebalance) = decide(&inputs(
+            &one(rates(rate, POOL_TOKEN_TO_XRP)),
+            held(20 * ONE, 60 * ONE),
+            &params,
+        )) else {
+            panic!("a rebalance");
+        };
+        let cost = amm::swap_in(
+            pool().holds(Side::Token),
+            pool().holds(Side::Xrp),
+            0,
+            rebalance.deliver,
+        )
+        .unwrap();
+        let least = least_spent(&rebalance, params.slippage_ppm);
+        // What it costs at the price read is more, and a slippage's share
+        // less than that still counts it booked.
+        let cost = to_units(cost).unwrap();
+        assert!(least < cost);
+        assert!(clears(least, cost, params.slippage_ppm - 1));
+        // Nothing fell: never booked.
+        let dust = Rebalance {
+            from: Side::Xrp,
+            deliver: Amount::Xrp(0),
+            send_max: Amount::Xrp(0),
+        };
+        assert_eq!(least_spent(&dust, params.slippage_ppm), 1);
     }
 
     #[test]

@@ -44,6 +44,7 @@ import {
   feedPort,
   freshRates,
   held,
+  heldAtRest,
   holdings,
   marketMakerNodes,
   pool,
@@ -137,17 +138,21 @@ test(
       try {
         // A trade's DSUSD reached d1, and the XRP node's went back through
         // the pool: the only swaps on it are the market maker's. Priced
-        // apart, a trade through d1 in either direction: only a trade
-        // moves d1's DSUSD, its hub and its book together, since its own
-        // moves between them pay their gas in XRP.
+        // apart, a trade through d1 in either direction: at rest, only a
+        // trade moves d1's DSUSD, its hub and its book together, since its
+        // own moves between them pay their gas in XRP; while one is on its
+        // way, the sum reads short of it.
         await scenario.until(
           whole
             ? "the market maker trades through d1 and swaps back through the pool"
             : "the market maker trades through d1",
           async () => {
             if (exited) throw new Error("the market maker exited");
+            if (!whole) {
+              const dsusd = await heldAtRest(d1, DSUSD);
+              return dsusd !== undefined && dsusd !== d1Dsusd;
+            }
             const dsusd = await held(d1, DSUSD);
-            if (!whole) return dsusd !== d1Dsusd;
             const now = await pool(scenario);
             return now.xrp > seeded.xrp && dsusd >= d1Dsusd + TRADE;
           },

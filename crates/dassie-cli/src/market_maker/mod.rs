@@ -167,13 +167,18 @@ struct Current {
 /// A rebalance that paid, or may have, from a node's account, which the
 /// node may not have booked yet. Until it has, its holding still counts
 /// what the rebalance spent, and a decision from it would spend that
-/// again: below the node's band.
+/// again: below the node's band. It counts as booked once the node's
+/// holding fell by at least what it can have cost, so that a move of the
+/// node's own between hub and book, which lowers what the books say while
+/// it is on its way, is not taken for it unless it is as large.
 #[derive(Clone, Copy, Debug)]
 struct Unbooked {
     /// The node whose account paid.
     from: Side,
-    /// What the account held, as its books had it, before.
-    on_ledger: u64,
+    /// What the node held, as its books had it, before.
+    total: u64,
+    /// The least the rebalance can have spent ([`strategy::least_spent`]).
+    least: u64,
     /// When the market maker stops waiting: the rebalance never applied,
     /// or the node booked it as something else.
     until_ms: u64,
@@ -331,7 +336,10 @@ impl MarketMaker {
             }
         };
         if let Some(unbooked) = self.unbooked {
-            let booked = holdings.of(unbooked.from).on_ledger < unbooked.on_ledger;
+            let fell = unbooked
+                .total
+                .saturating_sub(holdings.of(unbooked.from).total);
+            let booked = fell >= unbooked.least;
             if !booked && now_ms < unbooked.until_ms {
                 tracing::info!(
                     target: TARGET, from = unbooked.from.name(), ?holdings,
@@ -490,7 +498,8 @@ impl MarketMaker {
         if outcome.as_ref().is_ok_and(xrpl::Outcome::may_have_paid) {
             self.unbooked = Some(Unbooked {
                 from: rebalance.from,
-                on_ledger: holdings.of(rebalance.from).on_ledger,
+                total: holdings.of(rebalance.from).total,
+                least: strategy::least_spent(rebalance, self.config.params.slippage_ppm),
                 until_ms: self.clock.now_ms().saturating_add(UNBOOKED_WAIT_MS),
             });
         }

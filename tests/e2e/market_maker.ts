@@ -139,6 +139,25 @@ export async function held(
 }
 
 /**
+ * What `node` holds of `asset`, as `held` reads it, while none of its
+ * hubs moves funds to or from its owner books: a move on its way is booked
+ * out of the ledger it leaves before it is booked into the other, so
+ * between the two the sum reads short of it. `undefined` while one moves.
+ */
+export async function heldAtRest(
+  node: ScenarioNode,
+  asset: Asset,
+): Promise<bigint | undefined> {
+  const atRest = async () => {
+    const { hubs } = await node.rpc.call("getHubStatus", {});
+    return hubs.every((hub) => hub.moving === undefined);
+  };
+  if (!await atRest()) return undefined;
+  const sum = await held(node, asset);
+  return await atRest() ? sum : undefined;
+}
+
+/**
  * The port `node`'s discovery document names for its feed, if it names one.
  */
 export async function feedPort(

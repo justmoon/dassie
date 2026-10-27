@@ -1684,7 +1684,7 @@
             "connector",
             "ledger"
           ],
-          "text": "A core node in an XRP hub and a dollar token's hub converts between the two hubs' ledgers, and prices each conversion by what it holds: short of dollars, it takes them in at better than its spot rate, and gives them out at worse."
+          "text": "A core node in an XRP hub and a dollar token's hub converts between the two hubs' ledgers, and prices each conversion by what it holds: short of dollars, it takes them in at better than its spot rate, and gives them out at worse. This needs it to count each asset whole, a hub's ledger together with the owner book that funds it; for now it prices each ledger apart, which can send trades the other way."
         },
         {
           "ids": [
@@ -1722,7 +1722,7 @@
             "cli",
             "xrpl"
           ],
-          "text": "Once the XRP node holds more than its band, in its hub and its owner book together, the market maker swaps the surplus back into dollars through the pool: one Payment from that node's owner book's account to the other's, whose `SendMax` bounds the price. The core node holds more dollars than before, and the market maker more value."
+          "text": "Once the XRP node holds more than its band, in its hub and its owner book together, the market maker swaps the surplus back into dollars through the pool: one Payment from that node's owner book's account to the other's, whose `SendMax` bounds the price. Once the core node prices each asset whole, it holds more dollars than before, and the market maker more value."
         }
       ]
     },

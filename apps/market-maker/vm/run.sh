@@ -13,7 +13,8 @@
 #    DSUSD node joins no XRP hub, and neither joins a hub it does not name.
 #    A hub's scheme names no rules, so it takes the default hub of its
 #    asset, which runs only once its rules are built into the release
-#    (spec/areas/market-maker-vm.md).
+#    (spec/areas/market-maker-vm.md). It changes no scheme a node already
+#    runs, so a node with a database from before hubs starts afresh.
 # 2. Writes the market maker's config (crates/dassie-cli/src/market_maker/
 #    config.rs) beside the phrases, from the settings startup.sh wrote
 #    from the instance metadata (MM_*, in /etc/dassie-mm/settings.env).

@@ -35,6 +35,7 @@ import {
   feedPort,
   freshRates,
   held,
+  heldAtRest,
   marketMakerNodes,
   PRICED_APART,
   TRADE,
@@ -116,18 +117,22 @@ test("a market maker trades through each of two core nodes over hubs", {
     try {
       // A trade's DSUSD reached each: only the market maker pays a core
       // node DSUSD. Priced apart, a trade through each in either
-      // direction: only a trade moves a core node's DSUSD, its hub and its
-      // book together, since its own moves between them pay their gas in
-      // XRP.
+      // direction: at rest, only a trade moves a core node's DSUSD, its
+      // hub and its book together, since its own moves between them pay
+      // their gas in XRP; while one is on its way, the sum reads short of
+      // it.
       await scenario.until(
         "the market maker trades through each core node",
         async () => {
           if (exited) throw new Error("the market maker exited");
           const dsusd = await Promise.all(
-            cores.map((node) => held(node, DSUSD)),
+            cores.map((node) =>
+              whole ? held(node, DSUSD) : heldAtRest(node, DSUSD)
+            ),
           );
           return dsusd.every((held, i) =>
-            whole ? held >= dsusdBefore[i] + TRADE : held !== dsusdBefore[i]
+            held !== undefined &&
+            (whole ? held >= dsusdBefore[i] + TRADE : held !== dsusdBefore[i])
           );
         },
         RUN_MS,
