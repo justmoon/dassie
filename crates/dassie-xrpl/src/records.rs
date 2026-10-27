@@ -15,7 +15,8 @@
 //!   JSON the stream and `tx` give does: who sent it, what it paid, its
 //!   result, what it did to accounts' XRP and to trust lines, and its
 //!   first memo. What it delivered is the metadata's `DeliveredAmount`,
-//!   else a successful Payment's `Amount` when it is not partial. Beside
+//!   else a successful Payment's `Amount`, partial or not, as rippled's
+//!   `delivered_amount` reads it. Beside
 //!   the record, what the account walks the history by: for each object it
 //!   follows that the transaction changed, the one that changed it before,
 //!   and the sender's sequence numbers it used up.
@@ -30,7 +31,7 @@ use alloc::vec::Vec;
 use crate::amount::{Amount, Asset, Currency, TokenAmount, TokenValue};
 use crate::api::{BalanceChange, LineChange, SignerList, TrustLine, TxRecord};
 use crate::binary::{Field, FieldId, Fields, Type};
-use crate::codec::{DecodeError, MAX_SIGNERS, SignerEntry, TF_PARTIAL_PAYMENT};
+use crate::codec::{DecodeError, MAX_SIGNERS, SignerEntry};
 use crate::keys::{AccountId, sha512_half};
 
 /// The transaction that last changed an object, and its ledger, as the
@@ -880,9 +881,12 @@ pub fn transaction(
     let result = result_name(meta.result.ok_or(DecodeError::Field)?).ok_or(DecodeError::Value)?;
     let is_payment = kind == PAYMENT;
     // What it delivered: the metadata's, else the whole amount of a
-    // Payment that succeeded and was not partial.
+    // Payment that succeeded, as rippled's `delivered_amount` reads it.
+    // rippled writes `DeliveredAmount` only when a payment delivered less
+    // than its `Amount`, so one flagged partial that delivered in full has
+    // none.
     let delivered = meta.delivered.or_else(|| {
-        let whole = is_payment && result == "tesSUCCESS" && fields.flags & TF_PARTIAL_PAYMENT == 0;
+        let whole = is_payment && result == "tesSUCCESS";
         fields.amount.filter(|_| whole)
     });
     // A `TicketCreate` makes its tickets only if it succeeds: one that
@@ -1089,6 +1093,45 @@ mod tests {
         assert_eq!(uses("tesSUCCESS"), (7, 4));
         assert_eq!(uses("tecINSUFFICIENT_RESERVE"), (7, 1));
         assert_eq!(uses("tecDIR_FULL"), (7, 1));
+    }
+
+    // rippled writes `DeliveredAmount` only when a payment delivered less
+    // than its `Amount`: a token payment flagged partial that delivered in
+    // full has none, and delivered its `Amount`, as `delivered_amount`
+    // reads it. One that failed delivered nothing.
+    #[test]
+    fn a_partial_payment_delivered_in_full_delivered_its_amount() {
+        use crate::binary::{write_field, xrp};
+        use crate::codec::TF_PARTIAL_PAYMENT;
+
+        let sender = crate::keys::Wallet::from_entropy(&[1; 32]).account();
+        let escrow = crate::keys::Wallet::from_entropy(&[2; 32]).account();
+        let sent = crate::rlusd::LINE.amount(TokenValue::parse("12.5").unwrap());
+        let mut tx = Vec::new();
+        write_field(&mut tx, TRANSACTION_TYPE, &PAYMENT.to_be_bytes());
+        write_field(&mut tx, FLAGS, &TF_PARTIAL_PAYMENT.to_be_bytes());
+        write_field(&mut tx, SEQUENCE, &7u32.to_be_bytes());
+        write_field(&mut tx, AMOUNT, &sent.to_bytes());
+        write_field(&mut tx, FEE, &xrp(12));
+        write_field(&mut tx, ACCOUNT, &sender.0);
+        write_field(&mut tx, DESTINATION, &escrow.0);
+        let meta = |result: &str| {
+            let mut meta = Vec::new();
+            write_field(&mut meta, TRANSACTION_INDEX, &0u32.to_be_bytes());
+            write_field(&mut meta, AFFECTED_NODES, &[]);
+            write_field(
+                &mut meta,
+                TRANSACTION_RESULT,
+                &[result_code(result).unwrap()],
+            );
+            meta
+        };
+        let record = |result| transaction(&tx, &meta(result), 20, &[]).unwrap().record;
+        let delivered = record("tesSUCCESS");
+        assert!(delivered.is_payment);
+        assert_eq!(delivered.delivered_token, Some(sent));
+        assert_eq!(delivered.delivered, None);
+        assert_eq!(record("tecPATH_PARTIAL").delivered_token, None);
     }
 
     #[test]
