@@ -1,18 +1,22 @@
 # The Cargo workspace (crates/) as one derivation per crate, so that an
 # edit rebuilds the crate edited and the crates built on it, and runs only
 # their tests again; a lockfile bump rebuilds the dependencies it moved and
-# what is built on them (spec/decisions/build-system.md). Cargo.nix is
-# crate2nix's description of the workspace, committed and held to Cargo.lock
-# by a check (`nix run .#cargo-nix` after a change to a manifest or the
-# lockfile); nixpkgs' buildRustCrate builds it.
+# what is built on them (spec/decisions/crate-by-crate-builds.md). Cargo.nix
+# is crate2nix's description of the workspace, committed and held to
+# Cargo.lock by a check (`nix run .#cargo-nix` after a change to a manifest
+# or the lockfile); nixpkgs' buildRustCrate builds it.
 #
-# For each member, as checks: its tests, run with nextest (crate-<name>-test),
-# and clippy over its library and binaries (crate-<name>-clippy) and over its
-# tests and examples (crate-<name>-clippy-tests).
+# Every crate builds once: with the features the whole workspace asks of
+# it, the workspace's own with clippy-driver, which lints them as they
+# compile. For each member, as a check, its tests, run with nextest
+# (crate-<name>-test), which builds its library, binaries, tests and
+# examples, and so lints them all.
 {
   pkgs,
   toolchain,
   craneLib,
+  # The built wallet, which the binaries embed, where it is built.
+  wallet ? null,
 }:
 let
   inherit (pkgs) lib;
@@ -22,7 +26,7 @@ let
   # scripts hand their dependents metadata under names with a colon in them,
   # which buildRustCrate passes on as shell variables and bash refuses: the
   # flake checks it with Cargo (nix/desktop.nix).
-  members = lib.remove "dassie-desktop" (map (lib.removePrefix "crates/") workspace.members);
+  members = map (lib.removePrefix "crates/") workspace.members;
 
   # What a member reads from outside its directory: its library, binaries
   # and build script (extraFiles), and its tests and examples too
@@ -40,6 +44,9 @@ let
       (root + "/testdata/tls")
     ];
     dassie-release = [ (root + "/testdata/release") ];
+    # Tauri's build script reads the version the crate takes from the
+    # workspace.
+    dassie-desktop = [ (root + "/Cargo.toml") ];
     # The node's table of media types, which its build script shares.
     dassie-wallet-assets = [ (root + "/crates/dassie-node/src/http/mime.rs") ];
   };
@@ -53,12 +60,6 @@ let
       (root + "/resources/proof-server/xrpld-testnet.cfg")
     ];
   };
-  # Features a member's tests build with beyond its default and those its
-  # dev-dependencies turn on: what CI's `cargo test` named.
-  testFeatures = {
-    dassie-cli = [ "test-key" ];
-  };
-
   # What only a member's tests and examples read: an edit there runs its
   # own tests again, not everything built on it.
   testOnly =
@@ -102,13 +103,13 @@ let
   # unbearably slow without; the workspace's crates compile at opt-level 1,
   # in as many codegen units as Cargo's: buildRustCrate's default is one,
   # on one core, and optimizing them further bought the tests nothing.
-  ciFlags = [
+  ciFlags = debugAssertions: [
     "-C"
     "debuginfo=line-tables-only"
     "-C"
     "overflow-checks=on"
     "-C"
-    "debug-assertions=on"
+    "debug-assertions=${if debugAssertions then "on" else "off"}"
   ];
   # Cargo compiles from the workspace's root, so a panic, `file!()` and a
   # test's failure name `crates/<name>/src/...`, as the simulation
@@ -159,6 +160,52 @@ let
       // memberFlags name crate
     );
 
+  # What a build script hands the crates built on it (`cargo:KEY=VALUE`
+  # for a crate with `links`), which Cargo passes to their build scripts as
+  # DEP_<LINKS>_<KEY>, buildRustCrate writes as `export` lines to a file
+  # they source. Two things Cargo allows that this can't carry, which Tauri
+  # relies on, are mended after a crate is built (keepBuildDir) and before
+  # one is configured (depEnv):
+  # - A path into the crate's build directory, as its OUT_DIR or its
+  #   source: Cargo keeps them, a derivation's build directory is gone once
+  #   it is built. The directory is kept in the output, without what is
+  #   compiled, and the paths name it there.
+  # - A name bash won't export, as Tauri's core plugins' `core:path`: it is
+  #   written to a file instead, and `env`, through which buildRustCrate
+  #   runs a build script, hands it on.
+  keepBuildDir = ''
+    if [ -s "$lib/env" ] && grep -qF "$NIX_BUILD_TOP/" "$lib/env"; then
+      kept=$lib/build
+      mkdir -p "$kept"
+      tar -C "$NIX_BUILD_TOP" --exclude='*/target/lib' --exclude='*/target/deps' \
+        --exclude='*/target/buildDeps' -cf - . | tar -C "$kept" -xf -
+      find "$kept" -xtype l -delete
+      grep -rlIF "$NIX_BUILD_TOP/" "$kept" "$lib/env" | xargs -r sed -i -E "s#(^|[\"'=: ])$NIX_BUILD_TOP/#\\1$kept/#g"
+    fi
+    if [ -s "$lib/env" ]; then
+      while IFS= read -r line; do
+        assignment=''${line#export }
+        name=''${assignment%%=*}
+        if [[ $line == export\ * && ! $name =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
+          value=''${assignment#*=}
+          value=''${value#\"}
+          value=''${value%\"}
+          printf 'echo %q >> "$NIX_BUILD_TOP/.dep-env"\n' "$name=$value"
+        else
+          printf '%s\n' "$line"
+        fi
+      done < "$lib/env" > env.mended
+      mv env.mended "$lib/env"
+    fi
+  '';
+  depEnv = pkgs.writeShellScriptBin "env" ''
+    if [ -s "$NIX_BUILD_TOP/.dep-env" ]; then
+      mapfile -t passed < "$NIX_BUILD_TOP/.dep-env"
+      exec ${pkgs.coreutils}/bin/env "''${passed[@]}" "$@"
+    fi
+    exec ${pkgs.coreutils}/bin/env "$@"
+  '';
+
   buildRustCrateForPkgs =
     p: crate:
     (p.buildRustCrate.override {
@@ -169,7 +216,12 @@ let
       (
         crate
         // {
-          extraRustcOpts = (crate.extraRustcOpts or [ ]) ++ ciFlags;
+          extraRustcOpts = (crate.extraRustcOpts or [ ]) ++ ciFlags (crate.debugAssertions or true);
+          preConfigure = ''
+            export PATH=${depEnv}/bin:$PATH
+          ''
+          + (crate.preConfigure or "");
+          postInstall = (crate.postInstall or "") + keepBuildDir;
         }
       );
 
@@ -233,26 +285,144 @@ let
   cargoNix = import ./Cargo.nix {
     inherit pkgs buildRustCrateForPkgs;
   };
+  inherit (cargoNix.internal) dependencyDerivations filterEnabledDependencies;
+  idOf = name: cargoNix.workspaceMembers.${name}.packageId;
+  memberIds = map idOf members;
+  isMember = id: lib.elem id memberIds;
 
   # The features a member turns on for its own tests by depending on itself
   # (`[dev-dependencies] dassie-node = { path = ".", features = [...] }`),
-  # which Cargo unifies into the crate its tests build. buildRustCrate
-  # builds a crate and its tests apart, so its tests build with those
-  # features, and Cargo.nix's crates leave its dependency on itself out.
+  # which Cargo unifies into the crate its tests build; Cargo.nix's crates
+  # leave that dependency out, and its features join the member's own.
   selfTestFeatures =
     name:
     ((lib.importTOML (root + "/crates/${name}/Cargo.toml")).dev-dependencies or { }).${name}.features
       or [ ];
-  withoutSelf =
-    name:
-    cargoNix.internal.crates
-    // {
-      ${name} = cargoNix.internal.crates.${name} // {
-        devDependencies = lib.filter (dep: dep.packageId != name) (
-          cargoNix.internal.crates.${name}.devDependencies or [ ]
-        );
-      };
+  crateConfigs = lib.mapAttrs (
+    id: config:
+    config
+    // lib.optionalAttrs (isMember id) {
+      devDependencies = lib.filter (dep: dep.packageId != id) (config.devDependencies or [ ]);
+    }
+  ) cargoNix.internal.crates;
+  target = cargoNix.internal.makeDefaultTarget pkgs.stdenv.hostPlatform // {
+    test = false;
+  };
+
+  # Every crate's features, once for the whole workspace, as
+  # `cargo test --workspace` unifies them: what each member, its tests
+  # included, asks of each crate, together. A crate builds once, with them,
+  # for everything built on it; resolving them from each member apart, as
+  # crate2nix does, built a crate once for each set of features a member's
+  # tree asked of it, and again for each set of its dependencies'
+  # (spec/decisions/crate-by-crate-builds.md). `testing` features only add
+  # code a test turns on, so the end-to-end binaries are built with them
+  # too; dassie-release's tool is one of them.
+  extraFeatures = {
+    dassie-release = [ "tool" ];
+  };
+  features = lib.foldl' (
+    cache: name:
+    cargoNix.internal.mergePackageFeatures {
+      inherit crateConfigs target;
+      packageId = idOf name;
+      features = [ "default" ] ++ selfTestFeatures name ++ extraFeatures.${name} or [ ];
+      featuresByPackageId = cache;
+      runTests = true;
+    }
+  ) { } members;
+  featuresOf = id: features.${id} or [ ];
+
+  # A crate's dependencies of `kind`, as its features enable them, built.
+  depConfigs =
+    id: kind:
+    filterEnabledDependencies {
+      features = featuresOf id;
+      inherit target;
+      dependencies = crateConfigs.${id}.${kind} or [ ];
     };
+  depsOf =
+    id: kind:
+    dependencyDerivations {
+      features = featuresOf id;
+      inherit target;
+      buildByPackageId = dep: crates.${dep};
+      dependencies = crateConfigs.${id}.${kind} or [ ];
+    };
+  # Dependencies under another name (`foo = { package = "bar" }`).
+  renamesOf =
+    id: kinds:
+    lib.mapAttrs
+      (
+        _:
+        map (dep: {
+          inherit (dep) rename;
+          inherit (crateConfigs.${dep.packageId}) version;
+        })
+      )
+      (
+        lib.groupBy (dep: dep.name) (lib.filter (dep: dep ? rename) (lib.concatMap (depConfigs id) kinds))
+      );
+
+  # The crates only the desktop app is built on, Tauri's: they compile with
+  # debug assertions off, as the app ships, since Tauri compiles other code
+  # with them (its IPC, the runtime authority generate_context! expands,
+  # devtools, its embedded assets), and the check is to compile the code
+  # owners get. The crates the node shares with the rest keep them; theirs
+  # are switches at run time.
+  depIds =
+    id:
+    map (dep: dep.packageId) (
+      depConfigs id "dependencies"
+      ++ depConfigs id "buildDependencies"
+      ++ lib.optionals (isMember id) (depConfigs id "devDependencies")
+    );
+  closure =
+    ids:
+    map (crate: crate.key) (
+      builtins.genericClosure {
+        startSet = map (key: { inherit key; }) ids;
+        operator = { key }: map (key: { inherit key; }) (depIds key);
+      }
+    );
+  desktopOnly = lib.subtractLists (closure (lib.remove (idOf "dassie-desktop") memberIds)) (closure [
+    (idOf "dassie-desktop")
+  ]);
+
+  # What buildRustCrate is given for a crate: its features, its
+  # dependencies built, and the wallet for the crate that embeds it.
+  argsOf =
+    id:
+    let
+      config = removeAttrs crateConfigs.${id} [
+        "resolvedDefaultFeatures"
+        "devDependencies"
+      ];
+    in
+    config
+    // {
+      src =
+        config.src or (pkgs.fetchurl {
+          name = "${config.crateName}-${config.version}.tar.gz";
+          url = "https://static.crates.io/crates/${config.crateName}/${config.crateName}-${config.version}.crate";
+          inherit (config) sha256;
+        });
+      features = featuresOf id;
+      dependencies = depsOf id "dependencies";
+      buildDependencies = depsOf id "buildDependencies";
+      crateRenames = renamesOf id [
+        "dependencies"
+        "buildDependencies"
+      ];
+      release = true;
+    }
+    // lib.optionalAttrs (lib.elem id desktopOnly) { debugAssertions = false; }
+    // lib.optionalAttrs (config.crateName == "dassie-wallet-assets" && wallet != null) {
+      DASSIE_WALLET_DIST = wallet;
+    };
+  # Every crate of the lockfile the workspace uses, built once: the
+  # workspace's own with clippy-driver, so that building one lints it.
+  crates = lib.mapAttrs (id: _: buildWithClippy pkgs (argsOf id)) crateConfigs;
 
   # The .rs files directly in a member's `dir` (tests/ or examples/).
   targetsIn =
@@ -269,22 +439,41 @@ let
     else
       [ ];
 
+  # Features a member's own tests build its library with, beyond the
+  # workspace's: the CLI's test key, which trusts testdata/release's key
+  # and so is never in a binary anything else runs.
+  testFeatures = {
+    dassie-cli = [ "test-key" ];
+  };
+
   # A member's tests, each target in a derivation of its own, so that they
   # compile at once and an edit to one test file compiles that one again:
   # buildRustCrate would compile the library, its unit tests and every file
-  # in tests/ one after another. The library builds on its own, with the
-  # features its tests turn on, and its binaries, which integration tests
-  # run as CARGO_BIN_EXE_<name>; its unit tests from its source without
-  # tests/ or examples/; and each file in tests/, and each example, from
-  # the crate without src/, with what the files beside it share
-  # (tests/support), linking that library.
-  splitTests =
-    name: build: p: crate:
+  # in tests/ one after another. They link the library everything else
+  # links (with the CLI's test key, one of its own), and its binaries, which
+  # integration tests run as CARGO_BIN_EXE_<name>; the unit tests build from
+  # its source without tests/ or examples/; each file in tests/, and each
+  # example, from the crate without src/, with what the files beside it
+  # share (tests/support).
+  tests = lib.genAttrs members (
+    name:
     let
+      id = idOf name;
       dir = root + "/crates/${name}";
-      library = build p (crate // { buildTests = false; });
-      unit = build p (
-        crate
+      args = argsOf id // {
+        features = featuresOf id ++ testFeatures.${name} or [ ];
+      };
+      library = if testFeatures ? ${name} then buildWithClippy pkgs args else crates.${id};
+      testArgs = args // {
+        dependencies = args.dependencies ++ depsOf id "devDependencies";
+        crateRenames = renamesOf id [
+          "dependencies"
+          "buildDependencies"
+          "devDependencies"
+        ];
+      };
+      unit = buildWithClippy pkgs (
+        testArgs
         // {
           buildTests = true;
           # Unit tests may read the test data beside tests/ (tests/data).
@@ -315,8 +504,8 @@ let
         let
           kindDir = dir + "/${kind}";
         in
-        build p (
-          removeAttrs crate [ "build" ]
+        buildWithClippy pkgs (
+          removeAttrs testArgs [ "build" ]
           // {
             crateName = "${name}-${lib.removeSuffix "s" kind}-${file}";
             memberName = name;
@@ -326,7 +515,7 @@ let
               path = "examples/${file}.rs";
             };
             libPath = "no-library";
-            dependencies = (crate.dependencies or [ ]) ++ (crate.devDependencies or [ ]) ++ [ library ];
+            dependencies = testArgs.dependencies ++ [ library ];
             src = targetSrc name (
               lib.fileset.unions [
                 (dir + "/Cargo.toml")
@@ -346,7 +535,7 @@ let
             CARGO_TARGET_TMPDIR = targetTmpDir;
             lints = workspace.lints;
           }
-          // memberFlags name crate
+          // memberFlags name testArgs
         );
     in
     pkgs.symlinkJoin {
@@ -357,39 +546,9 @@ let
       ++ map (target "tests") (targetsIn name "tests")
       ++ lib.attrValues examples;
       # Each example's own derivation, for what runs one alone (e2e).
-      passthru = { inherit examples; };
-    };
-
-  # A member's tree with its tests split (splitTests), each crate built by
-  # `build`: the tests' binaries, or with clippy, the lints of its tests
-  # and examples.
-  testTree =
-    name: build:
-    let
-      packageId = cargoNix.workspaceMembers.${name}.packageId;
-    in
-    (cargoNix.internal.builtRustCratesWithFeatures {
-      inherit packageId;
-      crateConfigs = withoutSelf name;
-      features = [ "default" ] ++ selfTestFeatures name ++ testFeatures.${name} or [ ];
-      runTests = true;
-      buildRustCrateForPkgsFunc =
-        p: crate: if crate.crateName == name then splitTests name build p crate else build p crate;
-    }).crates.${packageId};
-  testBinaries = name: testTree name buildRustCrateForPkgs;
-
-  # A member's library and binaries, linted.
-  clippyTree =
-    name:
-    let
-      packageId = cargoNix.workspaceMembers.${name}.packageId;
-    in
-    (cargoNix.internal.builtRustCratesWithFeatures {
-      inherit packageId;
-      features = [ "default" ];
-      runTests = false;
-      buildRustCrateForPkgsFunc = buildWithClippy;
-    }).crates.${packageId};
+      passthru = { inherit examples library; };
+    }
+  );
 
   # Cargo's metadata of the workspace, which nextest reads to place the
   # binaries it runs: from its manifests alone, with dummy targets, so that
@@ -423,7 +582,7 @@ let
   runTests =
     name:
     let
-      binaries = testBinaries name;
+      binaries = tests.${name};
       underscored = lib.replaceStrings [ "-" ] [ "_" ] name;
       triple = pkgs.stdenv.hostPlatform.rust.rustcTarget;
     in
@@ -543,42 +702,23 @@ let
     touch $out
   '';
   # The binaries the end-to-end tests run, as `node --run build:e2e` lays
-  # them out in target/e2e: the node with `wallet` built in, dassie-release
+  # them out in target/e2e: the node with the wallet built in, dassie-release
   # for the release script's tests, and the fake XRP Ledger and the interop
-  # tests' STREAM peer, the examples the crates' tests build. From the
-  # crates' own derivations, so that an edit builds only the crates it
-  # reached, and copying them is all that is left to do here.
-  binaryOf =
-    name: features: build:
-    let
-      packageId = cargoNix.workspaceMembers.${name}.packageId;
-    in
-    (cargoNix.internal.builtRustCratesWithFeatures {
-      inherit packageId features;
-      runTests = false;
-      buildRustCrateForPkgsFunc = build;
-    }).crates.${packageId};
-  e2eBinaries =
-    wallet:
-    let
-      dassie = binaryOf "dassie-cli" [ "default" ] (
-        p: crate:
-        buildRustCrateForPkgs p (
-          crate
-          // lib.optionalAttrs (crate.crateName == "dassie-wallet-assets") { DASSIE_WALLET_DIST = wallet; }
-        )
-      );
-      release = binaryOf "dassie-release" [ "tool" ] buildRustCrateForPkgs;
-    in
-    pkgs.runCommand "dassie-e2e" { } ''
-      mkdir -p $out/examples
-      cp ${dassie}/bin/dassie ${release}/bin/dassie-release $out/
-      cp ${(testBinaries "dassie-node").examples.fake_ledger}/bin/fake_ledger $out/examples/
-      cp ${(testBinaries "dassie-stream").examples.interop_peer}/bin/interop_peer $out/examples/
-    '';
+  # tests' STREAM peer, the examples the crates' tests build. Each was built
+  # for the checks already; this only copies them.
+  e2eBinaries = pkgs.runCommand "dassie-e2e" { } ''
+    mkdir -p $out/examples
+    cp ${crates.${idOf "dassie-cli"}}/bin/dassie ${
+      crates.${idOf "dassie-release"}
+    }/bin/dassie-release $out/
+    cp ${tests.dassie-node.examples.fake_ledger}/bin/fake_ledger $out/examples/
+    cp ${tests.dassie-stream.examples.interop_peer}/bin/interop_peer $out/examples/
+  '';
 in
 {
-  inherit testBinaries runTests e2eBinaries;
+  inherit runTests e2eBinaries;
+  # The desktop app, built for the checks, which the flake wraps.
+  desktop = crates.${idOf "dassie-desktop"};
 
   # After a change to Cargo.lock, a manifest or a crate's targets.
   generate = pkgs.writeShellApplication {
@@ -593,8 +733,6 @@ in
   checks =
     lib.concatMapAttrs (name: _: {
       "crate-${name}-test" = runTests name;
-      "crate-${name}-clippy" = clippyTree name;
-      "crate-${name}-clippy-tests" = testTree name buildWithClippy;
     }) (lib.genAttrs members (_: null))
     // {
       cargo-nix-current = cargoNixCurrent;

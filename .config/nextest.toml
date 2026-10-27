@@ -1,8 +1,7 @@
 # cargo-nextest, which runs each crate's tests in the Nix checks
-# (nix/rust, and the desktop app's in nix/desktop.nix): every test in its own process,
-# all of them at once, so that a check takes as long as its build and its
-# slowest test rather than the sum of its test binaries. A local
-# `cargo test` runs the same tests.
+# (nix/rust): every test in its own process, all of them at once, so that a
+# check takes as long as its build and its slowest test rather than the sum
+# of its test binaries. A local `cargo test` runs the same tests.
 
 # The Nix checks' profile (`--profile ci`).
 [profile.ci]
