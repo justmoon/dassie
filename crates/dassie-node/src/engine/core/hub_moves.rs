@@ -352,7 +352,7 @@ impl Core {
     }
 
     /// The node's account in the hub of `scheme`, while the scheme runs.
-    fn hub_account(&self, scheme: Name) -> Option<&HubAccount> {
+    pub(super) fn hub_account(&self, scheme: Name) -> Option<&HubAccount> {
         let active = self.schemes.get(&scheme)?;
         if active.failed.is_some() {
             return None;

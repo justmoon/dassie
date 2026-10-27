@@ -105,6 +105,17 @@ pub static SIMS: &[Sim] = &[
         weight: 5,
     },
     Sim {
+        name: "node-hub-routes",
+        about: "whole nodes' engine cores in an XRP hub and a DSUSD hub, paying across nodes in \
+                both without converting, one node with two first hops drawn by the fees each \
+                earned it: a hop that refuses, an attacker's rejected packets and a hop short of \
+                room",
+        describe: dassie_node::sim::hub_routes::describe,
+        run: dassie_node::sim::hub_routes::run,
+        // A script over two hubs, as long as `node-hub`'s runs.
+        weight: 5,
+    },
+    Sim {
         name: "node-hub-dsusd",
         about: "whole nodes' engine cores peered over a settlement hub of DSUSD, funding it from \
                 their DSUSD owner books, paying off the token's peg, the escrow's XRP sent to it \
