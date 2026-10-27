@@ -3,9 +3,15 @@ import { assertEquals, assertThrows } from "@std/assert";
 import { DEV_RATES } from "../rates.ts";
 import {
   findScenario,
+  HUB_OWNER_BOOK,
+  HUB_SCHEME,
+  hubConfig,
   invalid,
+  invalidHub,
+  joinsHub,
   ledgerNetwork,
   live,
+  MAX_NODES,
   micros,
   minted,
   peripheryOf,
@@ -13,8 +19,11 @@ import {
   resumes,
   type ScenarioDef,
   SCENARIOS,
+  settlesOnXrpl,
   TOKEN_SCHEMES,
   unavailable,
+  validates,
+  validatorFile,
 } from "./scenarios.ts";
 
 test("every scenario's periphery nodes are pinned to its core nodes", () => {
@@ -161,4 +170,140 @@ test("every scenario that settles in a dollar token has its pool", () => {
       assertEquals(def.pool?.token, token, `${def.id} has no ${token} pool`);
     }
   }
+});
+
+// spec/areas/dev.md#scenarios: the hub scenario's four validators run the
+// hub the first of them founds; its two members, and nodes added later,
+// join it with their owner book of XRP, which peers with nobody, so they
+// peer over the hub alone; only the fake ledger has it.
+test("the hub scenario: four validators, a sponsor among them, two members", () => {
+  const def = findScenario("hub")!;
+  assertEquals(invalid(def), undefined);
+  assertEquals(def.schemes.length <= MAX_NODES, true);
+  assertEquals(
+    def.schemes.map((_, index) => validates(def, index)),
+    [true, true, true, true, false, false],
+  );
+  assertEquals(
+    def.schemes.map((_, index) => joinsHub(def, index)),
+    [false, false, false, false, true, true],
+  );
+  assertEquals(joinsHub(def, def.schemes.length), true, "an added node");
+  assertEquals(validates(def, def.schemes.length), false, "an added node");
+  assertEquals(def.hub?.sponsor, 0);
+  assertEquals(def.schemes[0], [HUB_OWNER_BOOK]);
+  // Members are its bootstrap nodes: they meet without the validators.
+  assertEquals(def.bootstrap, def.hub?.members);
+  assertEquals(settlesOnXrpl(def), true);
+  assertEquals(resumes(def), true);
+  assertEquals(
+    unavailable(def, false),
+    "needs --xrpl fake: each run founds a hub of its own, whose escrow stays off the public testnet",
+  );
+  assertEquals(unavailable(def, true), undefined);
+  // No other scenario has a hub, and no node of one runs the hub's
+  // scheme, whose config only a founding gives.
+  for (const other of SCENARIOS) {
+    if (other.hub !== undefined) continue;
+    assertEquals(
+      [...other.schemes, other.addedSchemes].flat().includes(HUB_SCHEME),
+      false,
+      other.id,
+    );
+    assertEquals(joinsHub(other, 0), false, other.id);
+    assertEquals(validates(other, 0), false, other.id);
+  }
+});
+
+test("a hub's validator file and its members' config", () => {
+  assertEquals(JSON.parse(validatorFile("abc", "ws://127.0.0.1:1")), {
+    sponsors: ["abc"],
+    hubs: [],
+    xrpl: "ws://127.0.0.1:1",
+    network: "testnet",
+  });
+  assertEquals(JSON.parse(hubConfig("00ff")), { rules: "00ff" });
+});
+
+test("a hub's nodes are checked before the scenario starts", () => {
+  const book = [HUB_OWNER_BOOK];
+  const member = [HUB_OWNER_BOOK, HUB_SCHEME];
+  const base: ScenarioDef = {
+    id: "t",
+    name: "t",
+    description: "t",
+    schemes: [book, [], [], [], member, member],
+    addedSchemes: member,
+    bootstrap: [4, 5],
+    configs: { [HUB_OWNER_BOOK]: `{"peers": false}` },
+    hub: { validators: [0, 1, 2, 3], sponsor: 0, members: [4, 5] },
+  };
+  assertEquals(invalidHub(base), undefined);
+  assertEquals(invalidHub({ ...base, hub: undefined }), undefined);
+  const hub = (changes: Partial<NonNullable<ScenarioDef["hub"]>>) =>
+    invalid({ ...base, hub: { ...base.hub!, ...changes } });
+  assertEquals(
+    hub({ validators: [0, 1, 2] }),
+    "a hub has 4 to 16 validators, not 3",
+  );
+  assertEquals(
+    hub({ validators: Array.from({ length: 17 }, (_, i) => i) }),
+    "a hub has 4 to 16 validators, not 17",
+  );
+  assertEquals(hub({ validators: [0, 1, 2, 2] }), "a hub validator twice");
+  assertEquals(hub({ validators: [0, 1, 2, 6] }), "no node 6");
+  assertEquals(hub({ members: [4, 4] }), "a hub member twice");
+  assertEquals(hub({ members: [4, 7] }), "no node 7");
+  assertEquals(hub({ members: [] }), "a hub has no member");
+  assertEquals(hub({ sponsor: 9 }), "no node 9");
+  assertEquals(
+    hub({ sponsor: 1 }),
+    "the sponsor runs no xrpl-testnet-xrp, which funds the escrow",
+  );
+  // A validator may be a member too, as long as it runs what members run.
+  assertEquals(
+    invalid({
+      ...base,
+      schemes: [member, [], [], [], member, member],
+      hub: { ...base.hub!, members: [0, 4, 5] },
+    }),
+    undefined,
+  );
+  const schemes = (index: number, these: string[]) =>
+    invalid({
+      ...base,
+      schemes: base.schemes.map((s, i) => i === index ? these : s),
+    });
+  assertEquals(
+    schemes(4, [HUB_SCHEME]),
+    "hub member 4 runs hub-xrpl-testnet-xrp, not hub-xrpl-testnet-xrp and xrpl-testnet-xrp alone",
+  );
+  assertEquals(
+    schemes(5, [...member, "stub"]),
+    "hub member 5 runs xrpl-testnet-xrp, hub-xrpl-testnet-xrp, stub, not hub-xrpl-testnet-xrp and xrpl-testnet-xrp alone",
+  );
+  assertEquals(
+    schemes(1, member),
+    "node 1 runs hub-xrpl-testnet-xrp and is no hub member",
+  );
+  assertEquals(
+    invalid({ ...base, addedSchemes: ["stub"] }),
+    "added nodes run stub, not hub-xrpl-testnet-xrp and xrpl-testnet-xrp alone",
+  );
+  const configs = (these: Record<string, string> | undefined) =>
+    invalid({ ...base, configs: these });
+  const peers = `xrpl-testnet-xrp peers: its config must say "peers": false`;
+  assertEquals(configs(undefined), peers);
+  assertEquals(configs({ [HUB_OWNER_BOOK]: "" }), peers);
+  assertEquals(configs({ [HUB_OWNER_BOOK]: `{"peers": true}` }), peers);
+  assertEquals(configs({ [HUB_OWNER_BOOK]: "{" }), peers);
+  assertEquals(
+    configs({ ...base.configs, [HUB_SCHEME]: hubConfig("00") }),
+    "hub-xrpl-testnet-xrp's config is the founded hub's rules",
+  );
+  // The periphery's checks come first.
+  assertEquals(
+    invalid({ ...base, periphery: [{ node: 9, uplinks: [0] }] }),
+    "no node 9",
+  );
 });

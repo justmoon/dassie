@@ -7,9 +7,10 @@
  * @module
  */
 
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { LedgerConnection } from "@dassie/rpc/proto";
 import { caFile, certificate } from "../certs.ts";
 import {
   askIssuer,
@@ -19,7 +20,7 @@ import {
   startFakeLedger,
   xrplConfig,
 } from "../fake_ledger.ts";
-import { type Layout, layout as defaultLayout } from "../paths.ts";
+import { dataDir, type Layout, layout as defaultLayout } from "../paths.ts";
 import { DEV_RATES, type RateServer, startRates } from "../rates.ts";
 import type { Stream } from "../process.ts";
 import { identity, loadTable, type Table } from "../vanity.ts";
@@ -27,8 +28,12 @@ import { until } from "../wait.ts";
 import { type NodeEnvironment, ScenarioNode } from "./node.ts";
 import {
   findScenario,
+  HUB_OWNER_BOOK,
+  HUB_SCHEME,
+  hubConfig,
   invalid,
   type IssuedToken,
+  joinsHub,
   ledgerNetwork,
   live,
   MAINNET_DEPOSIT_DROPS,
@@ -39,6 +44,8 @@ import {
   type ScenarioDef,
   settlesOnXrpl,
   unavailable,
+  validates,
+  validatorFile,
   XRPL_SCHEMES,
 } from "./scenarios.ts";
 
@@ -46,7 +53,12 @@ export { ScenarioNode } from "./node.ts";
 export {
   DEFAULT_SCENARIO,
   findScenario,
+  HUB_LEDGER,
+  HUB_OWNER_BOOK,
+  HUB_SCHEME,
+  type HubDef,
   type IssuedToken,
+  joinsHub,
   live,
   MAINNET_DEPOSIT_DROPS,
   MAX_NODES,
@@ -58,6 +70,7 @@ export {
   SCENARIOS,
   TOKEN_SCHEMES,
   unavailable,
+  validates,
   XRPL_SCHEMES,
 } from "./scenarios.ts";
 export { type Layout, layout, socketPath } from "../paths.ts";
@@ -80,6 +93,26 @@ const LINE_WITHIN_MS = 60_000;
 /** How long a node may take to show its mainnet account's address, once
  * its scheme is added. */
 const ADDRESS_WITHIN_MS = 30_000;
+
+/** How long a hub's sponsor may take to show XRP in its owner book: the
+ * faucet funds its account in the next ledger. */
+const SPONSOR_FUNDED_WITHIN_MS = 60_000;
+
+/**
+ * How long a hub may take to be founded, from the sponsor's request: each
+ * validator accepts, signs and runs it within seconds, the escrow's
+ * funding and setup take a ledger each, and the sponsor asks a validator
+ * that did not answer again after a wait that doubles up to a minute
+ * (spec/areas/hubs.md#founding-a-hub).
+ */
+const FOUNDED_WITHIN_MS = 180_000;
+
+/** `HubFoundingStage.FOUNDED` (`proto/dassie/owner/v1/hub_founding.proto`):
+ * a quorum checked the escrow, and the hub takes deposits. */
+const FOUNDED = 5;
+
+/** Where a validator's file is, in its data directory. */
+const VALIDATOR_FILE = "validator.json";
 
 /** How a scenario runs. */
 export interface ScenarioOptions {
@@ -140,6 +173,7 @@ export class Scenario {
   ) {
     this.def = def;
     this.options = options;
+    this.#configs = { ...def.configs };
     this.#table = loadTable();
     this.#environment = environment;
     this.#temporary = temporary;
@@ -231,6 +265,7 @@ export class Scenario {
       for (let index = 0; index < def.schemes.length; index++) {
         await scenario.#startNode(index);
       }
+      await scenario.#foundHub();
       // Mainnet has no faucet: each account is funded as an owner funds
       // it, before its token's line can exist.
       await Promise.all(scenario.nodes.map((node) => scenario.#fund(node)));
@@ -273,6 +308,92 @@ export class Scenario {
     return this.def.schemes[index] ?? this.def.addedSchemes;
   }
 
+  /**
+   * The schemes node `index` can be set up with now: all it runs, but the
+   * hub's while the hub is not founded, since its config is the founded
+   * hub's rules.
+   */
+  #schemesNow(index: number): readonly string[] {
+    const schemes = this.#schemes(index);
+    if (this.#configs[HUB_SCHEME] !== undefined) return schemes;
+    return schemes.filter((scheme) => scheme !== HUB_SCHEME);
+  }
+
+  /** Where node `index`'s validator file is. */
+  #validatorFile(index: number): string {
+    const name = identity(this.#table, index).name;
+    return join(dataDir(this.options.layout, name), VALIDATOR_FILE);
+  }
+
+  /**
+   * Writes the validator file of node `index`, on every start, as its
+   * owner would: it validates the hubs the scenario's sponsor founds, and
+   * follows their escrows on the fake ledger, whose URL is the same every
+   * run.
+   */
+  async #writeValidatorFile(index: number): Promise<void> {
+    const hub = this.def.hub;
+    if (hub === undefined || !this.ledger) {
+      throw new Error("a validator needs the scenario's hub and fake ledger");
+    }
+    const file = this.#validatorFile(index);
+    const name = identity(this.#table, index).name;
+    await mkdir(dataDir(this.options.layout, name), { recursive: true });
+    const sponsor = identity(this.#table, hub.sponsor).id;
+    await writeFile(file, validatorFile(sponsor, this.ledger.url));
+  }
+
+  /**
+   * Founds the scenario's hub once its nodes run, as the sponsor's owner
+   * would (spec/areas/hubs.md#founding-a-hub): with every validator, once
+   * the sponsor's owner book of XRP, which funds the escrow, shows XRP.
+   * Then each member joins it with its rules. A founding the sponsor keeps
+   * from an earlier run is taken as it is, and members that joined keep
+   * their scheme, so a restart founds nothing again.
+   */
+  async #foundHub(): Promise<void> {
+    const hub = this.def.hub;
+    if (hub === undefined) return;
+    const byIndex = (index: number) => {
+      const node = this.nodes.find((node) => node.index === index);
+      if (!node) throw new Error(`node ${index} of the hub is not running`);
+      return node;
+    };
+    const sponsor = byIndex(hub.sponsor);
+    const { foundings } = await sponsor.rpc.call("listHubFoundings", {});
+    if (foundings.length === 0) {
+      await until(`${sponsor.name}'s XRP`, async () => {
+        const { ledgers } = await sponsor.rpc.call("listLedgers", {});
+        const book = ledgers.find((ledger) =>
+          ledger.settlementScheme === HUB_OWNER_BOOK
+        );
+        return book?.connection === LedgerConnection.SYNCED &&
+          book.ownerBalance > 0n;
+      }, SPONSOR_FUNDED_WITHIN_MS);
+      const validators = hub.validators.map(byIndex).map((node) => ({
+        node: node.id,
+        endpoint: `${node.hostname}:${node.httpsPort}`,
+      }));
+      await sponsor.rpc.call("foundHub", {
+        validators,
+        terms: "",
+        xrplServer: "",
+      });
+    }
+    let rules = "";
+    await until("the hub founded", async () => {
+      const { foundings } = await sponsor.rpc.call("listHubFoundings", {});
+      rules = foundings.find((founding) => founding.stage === FOUNDED)?.rules ??
+        "";
+      return rules !== "";
+    }, FOUNDED_WITHIN_MS);
+    this.#configs[HUB_SCHEME] = hubConfig(rules);
+    for (const node of this.nodes) {
+      if (!joinsHub(this.def, node.index)) continue;
+      await node.addSchemes(this.#schemes(node.index), this.#configs);
+    }
+  }
+
   /** Whether node `index` is minted the scenario's token. */
   #minted(index: number): boolean {
     return minted(this.def, this.#schemes(index));
@@ -295,6 +416,9 @@ export class Scenario {
         .map((uplink) => identity(this.#table, uplink).id)
         .join(",");
     }
+    if (validates(this.def, index)) {
+      env.DASSIE_VALIDATOR_CONFIG = this.#validatorFile(index);
+    }
     return env;
   }
 
@@ -310,10 +434,11 @@ export class Scenario {
     const report = this.options.onNode ?? (() => {});
     try {
       report(node, "starting");
+      if (validates(this.def, index)) await this.#writeValidatorFile(index);
       await node.start();
       report(node, "setting-up");
       await node.setUp(
-        this.#schemes(index),
+        this.#schemesNow(index),
         this.#configs,
         this.rates?.url,
         this.def.realm ?? "test",
