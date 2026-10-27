@@ -61,6 +61,38 @@ export function hubConnectionText(
   }
 }
 
+/**
+ * What the issuer of a token hub's asset holds of the hub's escrow, for
+ * people (spec/areas/hubs.md#a-frozen-hub): a freeze, and since when, or a
+ * hold that keeps an ended hub's payout back. Nothing while it holds
+ * nothing, as for every XRP hub.
+ */
+export function hubIssuerText(
+  status: Pick<HubStatus, "frozenSinceUnixMs" | "escrowHeld">,
+  nowMs: number,
+): string | undefined {
+  if (status.frozenSinceUnixMs !== undefined) {
+    return `The issuer of this hub's token froze the hub's escrow ${
+      relativeTime(status.frozenSinceUnixMs, nowMs)
+    }. Until it lets go, no payment crosses this hub and nothing moves into or out of it. Your node still claims what peers owe it for payments it passed on before the freeze, and the rest waits for the thaw.`;
+  }
+  if (status.escrowHeld) {
+    return "The issuer of this hub's token holds the hub's escrow. The escrow pays out nothing until the issuer lets go.";
+  }
+  return undefined;
+}
+
+/** How the node's account stands with the hub, for people, with the
+ * issuer's freeze first: a frozen hub's account follows the hub all the
+ * same, but takes on nothing until the thaw. Nothing while it is up to
+ * date. */
+export function hubStandingText(
+  status: Pick<HubStatus, "connection" | "frozenSinceUnixMs">,
+): string | undefined {
+  if (status.frozenSinceUnixMs !== undefined) return undefined;
+  return hubConnectionText(status.connection);
+}
+
 /** How many validators answered, for people. */
 export function validatorsText(validators: number, answering: number): string {
   return `${answering} of ${validators} ${

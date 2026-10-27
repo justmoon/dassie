@@ -118,6 +118,9 @@ fn hub_status(status: &HubStatus) -> proto::HubStatus {
         }),
         validators: u32::try_from(validators).unwrap_or(u32::MAX),
         validators_answering: u32::try_from(answering).unwrap_or(u32::MAX),
+        // The hub's clock is the Unix time its validators stamp blocks with.
+        frozen_since_unix_ms: status.frozen_since_ms.map(convert::time),
+        escrow_held: status.escrow_held,
     }
 }
 

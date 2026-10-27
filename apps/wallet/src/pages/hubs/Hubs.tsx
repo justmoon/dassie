@@ -6,8 +6,10 @@
  * and each hub's payout once it ended or stalled
  * (spec/areas/hubs.md#payout-bundles). No stream carries hubs, so the page
  * asks again every few seconds while it shows (spec/areas/wallet.md#live-data).
- * It draws in Kopje (apps/website/brand/index.html): the value cube only
- * beside the balance, ember for action.
+ * A token hub its issuer froze says so, and since when
+ * (spec/areas/hubs.md#a-frozen-hub). It draws in Kopje
+ * (apps/website/brand/index.html): the value cube only beside the balance,
+ * ember for action.
  */
 
 import type { JSX } from "@solidjs/web";
@@ -54,8 +56,9 @@ import {
   holdRows,
   holdsTotal,
   HUB_POLL_MS,
-  hubConnectionText,
   hubCurrency,
+  hubIssuerText,
+  hubStandingText,
   LATE_TEXT,
   moveText,
   PAYOUT_POLL_MS,
@@ -215,7 +218,20 @@ function HubCard(
           {" "}· your account {props.status.account}
         </Show>
       </p>
-      <Show when={hubConnectionText(props.status.connection)}>
+      <Show when={hubIssuerText(props.status, props.polled.now())}>
+        {(text) => (
+          <Alert
+            title={props.status.frozenSinceUnixMs !== undefined
+              ? "Frozen by its issuer"
+              : "Held by its issuer"}
+            tone="warning"
+            testid={`hub-frozen-${id()}`}
+          >
+            {text()}
+          </Alert>
+        )}
+      </Show>
+      <Show when={hubStandingText(props.status)}>
         {(text) => <p data-testid={`hub-connection-${id()}`}>{text()}</p>}
       </Show>
       <Show

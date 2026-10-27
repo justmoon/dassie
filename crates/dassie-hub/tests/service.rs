@@ -425,6 +425,50 @@ fn validators_agree_and_tell_the_member() {
     });
     assert!(executed, "the member learned its operation applied");
     assert!(agreed.iter().any(|s| matches!(s, Statement::Final { .. })));
+    assert!(
+        !agreed.iter().any(|s| matches!(s, Statement::Issuer { .. })),
+        "an XRP hub has no issuer to state"
+    );
+}
+
+/// What f + 1 validators agreed of the issuer's hold in their answers to
+/// the member's `Since`, newest last, read from the messages since the
+/// last time.
+fn issuer_heard(net: &mut Network, number: AccountNumber) -> Vec<(u64, Option<u64>, bool)> {
+    net.member.clear();
+    net.request(&Request::Since {
+        account: number,
+        from: 1,
+    });
+    let hub = *net.validators[0].ledger().hub();
+    let set = net.validators[0].ledger().validators().clone();
+    let mut agreement = Agreement::new(hub, set, 4096);
+    let mut heard = Vec::new();
+    for bytes in &net.member {
+        let Ok(Message::Statements(list)) = Message::decode_exact(bytes) else {
+            panic!("not statements");
+        };
+        // Each answer ends with the issuer's hold, then its final block.
+        let kinds: Vec<&Statement> = list.iter().map(|s| &s.statement).collect();
+        let [.., Statement::Issuer { height, .. }, Statement::Final { height: last, .. }] =
+            kinds.as_slice()
+        else {
+            panic!("an answer that does not end with the issuer's hold: {kinds:?}");
+        };
+        assert!(height >= last, "the hold as of the tip");
+        for signed in list {
+            if let Some(Statement::Issuer {
+                height,
+                frozen,
+                held,
+                ..
+            }) = agreement.add(signed)
+            {
+                heard.push((height, frozen, held));
+            }
+        }
+    }
+    heard
 }
 
 /// A funded member with a disbursal address.
@@ -1101,6 +1145,32 @@ fn attest_issuer(net: &mut Network, ledger: u32, frozen: bool) {
         assert_eq!(validator.ledger().issuer().holds(), frozen);
         assert_eq!(validator.ledger().frozen().is_some(), frozen);
     }
+}
+
+// spec/areas/hubs.md#a-frozen-hub: a token hub's validators end every
+// answer to `Since` with the issuer's hold as of the tip, so a member hears
+// of a freeze, and since which block's stamp, from what f + 1 of them sign,
+// and of the thaw alike.
+#[test]
+fn a_member_hears_of_a_freeze_and_the_thaw_in_its_answers() {
+    let mut net = Network::with_terms(token);
+    let (number, _) = member(&mut net, 31);
+    let before = issuer_heard(&mut net, number);
+    assert_eq!(before.last().map(|h| (h.1, h.2)), Some((None, false)));
+
+    attest_issuer(&mut net, 20, true);
+    let stamp = net.validators[0].ledger().frozen();
+    assert!(stamp.is_some());
+    let frozen = issuer_heard(&mut net, number);
+    let (height, since, held) = *frozen.last().expect("the freeze agreed");
+    assert_eq!((since, held), (stamp, true), "frozen since the block's stamp");
+    assert!(height >= before.last().unwrap().0);
+
+    attest_issuer(&mut net, 21, false);
+    let thawed = issuer_heard(&mut net, number);
+    let (later, since, held) = *thawed.last().expect("the thaw agreed");
+    assert_eq!((since, held), (None, false), "thawed");
+    assert!(later > height);
 }
 
 // spec/decisions/token-hubs.md: while the issuer holds a token hub's

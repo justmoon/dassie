@@ -66,11 +66,24 @@ pub const EXECUTED_OVERHEAD: usize = 1 + 8 + 8 + 4 + (1 + 8 + 1 + 8);
 pub const MAX_BLOCK_STATEMENT_BYTES: usize =
     crate::consensus::MAX_PAYLOAD_BYTES + payload::MAX_OPERATIONS * EXECUTED_OVERHEAD;
 
+/// The statements that end every answer to `Since`, beyond what touched
+/// the account: a token hub's issuer's hold ([`Statement::Issuer`]) and
+/// the final block it covers ([`Statement::Final`]).
+pub const ANSWER_TAIL: usize = 2;
+
+/// The most bytes of the statements that end an answer to `Since`: the
+/// issuer's hold (its tag, height, timestamp, the stamp of the freeze with
+/// its presence, and whether the issuer holds the escrow), and the final
+/// block (its tag, height and timestamp).
+pub const ANSWER_TAIL_BYTES: usize = (1 + 8 + 8 + 1 + 8 + 1) + (1 + 8 + 8);
+
 /// The most bytes of statements an honest answer to `Since` carries, over
 /// however many messages it spans: up to [`MAX_ANSWER_BYTES`] of them, or
-/// its first block whole if that is more, and the final block it covers.
-/// What a member's tally must hold of one validator's answer.
-pub const MAX_SINCE_ANSWER_BYTES: usize = MAX_ANSWER_BYTES + MAX_BLOCK_STATEMENT_BYTES + 64;
+/// its first block whole if that is more, then the issuer's hold and the
+/// final block it covers. What a member's tally must hold of one
+/// validator's answer.
+pub const MAX_SINCE_ANSWER_BYTES: usize =
+    MAX_ANSWER_BYTES + MAX_BLOCK_STATEMENT_BYTES + ANSWER_TAIL_BYTES;
 
 const _: () = assert!(MAX_SINCE_ANSWER_BYTES >= MAX_ANSWER_BYTES + MAX_BLOCK_STATEMENT_BYTES);
 
@@ -708,20 +721,27 @@ impl Validator {
         self.send_statements(from, statements);
     }
 
-    /// What was executed that touches `account` from `height` on, and the
-    /// newest final block, as far as they fit in one answer.
+    /// What was executed that touches `account` from `height` on, as far
+    /// as it fits in one answer, then a token hub's issuer's hold as of the
+    /// newest final block, and the final block the answer covers. Every
+    /// answer states the issuer's hold, a short one and `Trimmed` too, so a
+    /// member reads a freeze as it reads everything else
+    /// (spec/areas/hubs.md#a-frozen-hub).
     fn since(&self, account: AccountNumber, from: u64) -> Vec<Statement> {
+        let ledger = &self.chain.ledger;
+        let issuer = Statement::issuer(ledger);
         let tip = Statement::Final {
-            height: self.chain.ledger.height(),
-            timestamp: self.chain.ledger.timestamp(),
+            height: ledger.height(),
+            timestamp: ledger.timestamp(),
         };
         // What we no longer keep, we cannot vouch for: the member reads its
         // state anew (spec/areas/hubs.md#the-validators-service).
         if from < self.complete_from {
-            return alloc::vec![Statement::Trimmed {
-                height: self.chain.ledger.height(),
+            let trimmed = Statement::Trimmed {
+                height: ledger.height(),
                 below: self.complete_from,
-            }];
+            };
+            return issuer.into_iter().chain([trimmed]).collect();
         }
         let mut statements = Vec::new();
         let mut bytes = 0usize;
@@ -736,6 +756,7 @@ impl Validator {
                 || bytes.saturating_add(block_bytes) > MAX_ANSWER_BYTES;
             bytes = bytes.saturating_add(block_bytes);
             if long && !statements.is_empty() {
+                statements.extend(issuer);
                 statements.push(Statement::Final {
                     height: block.height.saturating_sub(1),
                     timestamp: block.timestamp.saturating_sub(1),
@@ -744,6 +765,7 @@ impl Validator {
             }
             statements.extend(of_block);
         }
+        statements.extend(issuer);
         statements.push(tip);
         statements
     }
@@ -1284,6 +1306,68 @@ mod tests {
         };
         v.tick(2_001);
         assert_eq!(payouts(&mut v), 1, "signed once let go");
+    }
+
+    // spec/areas/hubs.md#a-frozen-hub: a token hub's answers to `Since`
+    // end with the issuer's hold as of the tip, before the final block,
+    // whether short, long or trimmed; an XRP hub's never carry it. The end
+    // of an answer takes at most what the bound on its bytes counts.
+    #[test]
+    fn a_token_hubs_answers_state_the_issuers_hold() {
+        use crate::operation::Issuer;
+        let mut v = validator();
+        assert!(
+            !v.since(AccountNumber(6), 1)
+                .iter()
+                .any(|s| matches!(s, Statement::Issuer { .. })),
+            "an XRP hub has no issuer"
+        );
+        let ledger = &mut v.chain.ledger;
+        ledger.rules.terms = crate::rules::tests::token_terms(ledger.rules.terms.clone());
+        ledger.frozen = Some(ledger.timestamp());
+        ledger.issuer = Issuer {
+            ledger: 5,
+            frozen: true,
+            fee: false,
+        };
+        let held = Statement::issuer(&v.chain.ledger).unwrap();
+        assert!(matches!(
+            held,
+            Statement::Issuer {
+                frozen: Some(_),
+                held: true,
+                ..
+            }
+        ));
+        let tail = [
+            held.clone(),
+            Statement::Final {
+                height: v.chain.ledger.height(),
+                timestamp: v.chain.ledger.timestamp(),
+            },
+        ];
+        assert_eq!(tail.len(), ANSWER_TAIL);
+        assert_eq!(
+            tail.iter().map(Encode::encoded_len).sum::<usize>(),
+            ANSWER_TAIL_BYTES
+        );
+        // Short: what touched the account, then the tail.
+        v.history.push_back(block_of(2, 1));
+        let short = v.since(AccountNumber(6), 1);
+        assert_eq!(short.len(), 1 + ANSWER_TAIL);
+        assert_eq!(&short[1..], &tail);
+        // Long: it stops before a block, the hold as of the tip before the
+        // final block it covers.
+        v.history.push_back(block_of(3, MAX_ANSWER));
+        let long = v.since(AccountNumber(6), 1);
+        assert_eq!(long.len(), 1 + ANSWER_TAIL);
+        assert_eq!(long[1], held);
+        assert!(matches!(long[2], Statement::Final { height: 2, .. }));
+        // Trimmed: the member reads its state anew, and the freeze with it.
+        v.complete_from = 2;
+        let trimmed = v.since(AccountNumber(6), 1);
+        assert_eq!(trimmed[0], held);
+        assert!(matches!(trimmed[1], Statement::Trimmed { below: 2, .. }));
     }
 
     // Our attestation of a deposit that failed for want of room waits, and

@@ -67,7 +67,7 @@
 //! it submits as any operation. Closing is not built yet.
 
 use alloc::collections::{BTreeMap, BTreeSet, VecDeque};
-use alloc::string::String;
+use alloc::string::{String, ToString};
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 
@@ -82,14 +82,14 @@ use dassie_settlement::{
 use super::mirror::HoldMirror;
 use crate::client::{AccountView, Agreement, MAX_STATEMENTS, Request, Statement};
 use crate::consensus::Config;
-use crate::service::MAX_ANSWER;
+use crate::service::{ANSWER_TAIL, MAX_ANSWER};
 
 use crate::ledger::{Detail, Outcome, Refusal};
 use crate::operation::{
     AccountNumber, Destination, MemberOperation, Operation, SignedMemberOperation,
 };
 use crate::promise::{HoldNumber, Promise, Signed};
-use crate::rules::{Amount, HubId, MAX_HOLD_MS, Millis, Rules, Terms};
+use crate::rules::{Amount, Asset, HubId, MAX_HOLD_MS, Millis, Rules, Terms};
 use crate::validators::{MAX_VALIDATORS, ValidatorSet};
 
 /// The node's first hub account: in the default hub of the XRP Ledger
@@ -138,10 +138,13 @@ fn max_news(terms: &Terms) -> usize {
 }
 
 /// A tally of statements in which each validator's signatures on statements
-/// still waiting fit a buffer's worth and a message more: an honest answer
-/// is never refused.
+/// still waiting fit a buffer's worth, the statements that end each of the
+/// two answers it holds (the issuer's hold and the final block), and a
+/// message more: an honest answer is never refused.
 fn agreement(hub: HubId, set: &ValidatorSet, terms: &Terms) -> Agreement {
-    let quota = max_buffered(terms).saturating_add(MAX_STATEMENTS);
+    let quota = max_buffered(terms)
+        .saturating_add(2 * ANSWER_TAIL)
+        .saturating_add(MAX_STATEMENTS);
     Agreement::new(hub, set.clone(), quota.saturating_mul(set.len()))
 }
 /// Most messages between two takings: a round of requests and a
@@ -1754,14 +1757,21 @@ impl ExternalAsset for HubAccount {
         self.id
     }
 
-    /// Its XRP in the hub: the balance and the account reserve, as last
-    /// agreed.
+    /// Its asset in the hub: the balance and the account reserve, as last
+    /// agreed, at six decimals, as the hub counts them: XRP in drops, or
+    /// the token in millionths, named by its code and issuer. The issuer
+    /// freezes the escrow's line, not the member's: a frozen hub shows in
+    /// the hub's status (spec/areas/hubs.md#a-frozen-hub), not here.
     fn holdings(&self) -> Vec<Holding> {
+        let (code, issuer) = match self.rules.terms.asset {
+            Asset::Xrp => ("XRP".to_string(), None),
+            Asset::Token { currency, issuer } => (currency.code(), Some(issuer.to_address())),
+        };
         self.view
             .iter()
             .map(|(_, view)| Holding {
-                code: "XRP".into(),
-                issuer: None,
+                code: code.clone(),
+                issuer: issuer.clone(),
                 amount: u128::from(view.balance).saturating_add(u128::from(view.reserve)),
                 scale: 6,
                 reserve: u128::from(view.reserve),
