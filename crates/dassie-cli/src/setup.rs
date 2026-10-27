@@ -14,8 +14,14 @@
 //! the config of each external asset it is given, and adds each settlement
 //! scheme it is given that is not active.
 //!
+//! A phrase names its realm (spec/decisions/phrase-format.md), so it is
+//! read as a phrase of that realm and refused as one of the other; one
+//! that needs correcting, or that says it was made more than a day after
+//! the host's clock, is refused too, since no one is here to confirm or to
+//! set the clock.
+//!
 //! Running it again changes nothing, and a node set up with another phrase,
-//! or in another realm than `--realm` names, is refused, untouched. Every
+//! or in another realm than the phrase's, is refused, untouched. Every
 //! call is bounded in time, every wait in attempts, and each step prints
 //! one line.
 
@@ -212,7 +218,11 @@ async fn setup(env: &Env, options: &Options) -> Result<(), Failure> {
         Realm::Test => dassie_identity::Realm::Test,
         Realm::Live => dassie_identity::Realm::Live,
     };
-    let key = passphrase::node_key_from_file(&options.passphrase_file, phrase_realm)?;
+    let key = passphrase::node_key_from_file(
+        &options.passphrase_file,
+        phrase_realm,
+        passphrase::now_ms(),
+    )?;
     let id = key.node_id();
     println!(
         "The passphrase in {} is node {id}.",
@@ -222,6 +232,20 @@ async fn setup(env: &Env, options: &Options) -> Result<(), Failure> {
         .await
         .map_err(|_| "The Dassie daemon did not answer on its socket".to_owned())??;
     let before = basic_state(&mut client).await?;
+    // A node set up before runs its realm for good, and a phrase of the
+    // other is not its owner's.
+    if !is_uninitialized(&before) {
+        let runs = node_realm(&mut client).await?;
+        if runs != realm {
+            return Err(Failure::Failed(format!(
+                "The node runs the {} realm, and the passphrase in {} is a phrase of the {} \
+                 realm: a node's realm is fixed when it is set up. Nothing was changed.",
+                runs.as_str(),
+                options.passphrase_file.display(),
+                realm.as_str()
+            )));
+        }
+    }
     let claimed = is_uninitialized(&before) && claim(&mut client, &key, realm).await?;
     drop(key);
     // Again after a claim, to see it took; and after one that found the
@@ -243,17 +267,6 @@ async fn setup(env: &Env, options: &Options) -> Result<(), Failure> {
             after.node_id,
             options.passphrase_file.display()
         )));
-    }
-    if let Some(asked) = options.realm {
-        let runs = node_realm(&mut client).await?;
-        if runs != asked {
-            return Err(Failure::Failed(format!(
-                "The node runs the {} realm, not {}: a node's realm is fixed when it is set \
-                 up. Nothing was changed.",
-                runs.as_str(),
-                asked.as_str()
-            )));
-        }
     }
     if claimed {
         println!("Set the node up as {id}, in the {} realm.", realm.as_str());

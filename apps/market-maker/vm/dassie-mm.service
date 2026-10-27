@@ -19,6 +19,12 @@ PartOf=dassie-mm-node@xrp.service dassie-mm-node@dsusd.service
 After=dassie-mm-node@xrp.service dassie-mm-node@dsusd.service
 Wants=network-online.target
 After=network-online.target
+# It reads the phrases only once the clock is synced: no one is here to
+# set it, and a phrase is refused while it says it was made more than a
+# day after the clock (spec/decisions/phrase-format.md). startup.sh enables
+# the service that holds time-sync.target back until then.
+Wants=time-sync.target
+After=time-sync.target
 
 [Service]
 Type=exec

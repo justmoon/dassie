@@ -225,6 +225,15 @@ for unit in dassie-mm-node@.service dassie-mm.service dassie-mm-update.service d
 done
 systemctl daemon-reload
 systemctl enable dassie-mm.service dassie-mm-update.timer
+# time-sync.target, which the market maker starts after, waits for the
+# clock to be synced only while a service of the clock's daemon holds it
+# back: chrony's, or timesyncd's.
+for wait in chrony-wait.service systemd-time-wait-sync.service; do
+  if systemctl cat "$wait" > /dev/null 2>&1; then
+    systemctl enable "$wait"
+    break
+  fi
+done
 systemctl restart dassie-mm-update.timer
 # The market maker stops first, so that it does not restart with each node;
 # then both nodes start on the units and settings just written, and it

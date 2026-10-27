@@ -7,7 +7,9 @@
 //! holds: the phrase is the owner's only backup and the key to every
 //! ledger account the node has. A phrase that reads only by correcting
 //! some of its words is refused, naming their positions, since no one is
-//! there to confirm the correction (spec/decisions/phrase-format.md).
+//! there to confirm the correction; so is one that says it was made more
+//! than a day after the host's clock, naming its date
+//! (spec/decisions/phrase-format.md).
 
 use std::path::Path;
 
@@ -17,24 +19,27 @@ use zeroize::Zeroize;
 /// Most bytes in a passphrase file: a phrase, and a line break or two.
 const MAX_PHRASE_FILE_BYTES: u64 = dassie_identity::MAX_PHRASE_INPUT_BYTES as u64 + 2;
 
-/// The node key of the passphrase in `path`, a phrase of `realm`, derived
-/// as the wallet derives it (spec/areas/identity.md#derivation-chain). The
-/// phrase and the master seed are wiped before this returns, and the key
-/// wipes itself when dropped.
+/// The node key of the passphrase in `path`, a phrase of `realm` read by a
+/// clock that reads `now_ms`, derived as the wallet derives it
+/// (spec/areas/identity.md#derivation-chain). The phrase and the master
+/// seed are wiped before this returns, and the key wipes itself when
+/// dropped.
 ///
 /// # Errors
 ///
 /// The file cannot be read, is too long, holds no valid passphrase, a
-/// phrase of the other realm, or one that needs correcting.
-pub fn node_key_from_file(path: &Path, realm: Realm) -> Result<NodeKey, String> {
+/// phrase of the other realm, one made more than a day after `now_ms`, or
+/// one that needs correcting.
+pub fn node_key_from_file(path: &Path, realm: Realm, now_ms: u64) -> Result<NodeKey, String> {
     let shown = path.display();
     let mut text = read_bounded(path, MAX_PHRASE_FILE_BYTES).map_err(|problem| match problem {
         ReadProblem::TooLong => format!("{shown} is too long for a passphrase"),
         ReadProblem::Io(problem) => format!("cannot read {shown}: {problem}"),
     })?;
-    let reading = Phrase::read(&text, Positions::NONE, realm);
+    let reading = Phrase::read(&text, Positions::NONE, realm, now_ms);
     text.zeroize();
-    // The phrase's errors name positions and counts, never a word.
+    // The phrase's errors name positions, counts, a realm or a date, never
+    // a word.
     let phrase = reading
         .and_then(dassie_identity::Reading::without_correction)
         .map_err(|error| format!("{shown} holds no valid passphrase: {error}"))?;
@@ -42,6 +47,20 @@ pub fn node_key_from_file(path: &Path, realm: Realm) -> Result<NodeKey, String> 
         .master_seed(realm)
         .map_err(|error| format!("{shown} holds no valid passphrase: {error}"))?;
     Ok(seed.node_key())
+}
+
+/// The host's clock, in milliseconds since the Unix epoch. A reader with
+/// no one to confirm reads a phrase only once that clock is synced, which
+/// the systemd units that run one see to (`time-sync.target`).
+#[must_use]
+// The CLI is the edge where the time comes in.
+#[allow(clippy::disallowed_types)]
+pub fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |since| {
+            u64::try_from(since.as_millis()).unwrap_or(u64::MAX)
+        })
 }
 
 /// Why a file was not read.
@@ -81,8 +100,16 @@ mod tests {
     use dassie_identity::{Created, PhraseSecret};
 
     fn phrase(realm: Realm) -> Phrase {
-        let created = Created::from_hours(7_000).unwrap();
-        Phrase::new(realm, created, &PhraseSecret::from_bytes([7; 16]))
+        Phrase::new(realm, made(), &PhraseSecret::from_bytes([7; 16]))
+    }
+
+    fn made() -> Created {
+        Created::from_hours(7_000).unwrap()
+    }
+
+    /// The clock of a reader an hour after the phrase was made.
+    fn now_ms() -> u64 {
+        made().unix_ms() + 3_600_000
     }
 
     #[test]
@@ -92,10 +119,12 @@ mod tests {
         let phrase = phrase(Realm::Test);
         // Surrounding white space, as an editor leaves it, is no part of it.
         std::fs::write(&path, format!("  {}\n\n", phrase.text().as_str())).unwrap();
-        let key = node_key_from_file(&path, Realm::Test).unwrap();
+        let key = node_key_from_file(&path, Realm::Test, now_ms()).unwrap();
         let expected = phrase.master_seed(Realm::Test).unwrap().node_key();
         assert_eq!(key.node_id(), expected.node_id());
-        let problem = node_key_from_file(&path, Realm::Live).err().unwrap();
+        let problem = node_key_from_file(&path, Realm::Live, now_ms())
+            .err()
+            .unwrap();
         assert!(problem.contains("phrase of the test realm"), "{problem}");
     }
 
@@ -110,7 +139,9 @@ mod tests {
         let lost = words[2];
         words[2] = "?";
         std::fs::write(&path, words.join(" ")).unwrap();
-        let problem = node_key_from_file(&path, Realm::Test).err().unwrap();
+        let problem = node_key_from_file(&path, Realm::Test, now_ms())
+            .err()
+            .unwrap();
         assert!(
             problem.contains("at word 3, which only its owner"),
             "{problem}"
@@ -118,19 +149,42 @@ mod tests {
         assert!(!problem.contains(lost), "{problem}");
     }
 
+    // A phrase from more than a day after the host's clock is refused,
+    // with its date, so the owner sees why.
+    #[test]
+    fn a_phrase_from_the_future_is_refused_with_its_date() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("phrase");
+        let phrase = phrase(Realm::Test);
+        std::fs::write(&path, phrase.text().as_str()).unwrap();
+        let behind = made().unix_ms() - 86_400_001;
+        let problem = node_key_from_file(&path, Realm::Test, behind)
+            .err()
+            .unwrap();
+        assert!(
+            problem.contains(&format!("made on {}", made())),
+            "{problem}"
+        );
+        assert!(node_key_from_file(&path, Realm::Test, behind + 1).is_ok());
+    }
+
     #[test]
     fn no_error_names_what_the_file_holds() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("phrase");
         std::fs::write(&path, "abandon not a phrase").unwrap();
-        let problem = node_key_from_file(&path, Realm::Test).err().unwrap();
+        let problem = node_key_from_file(&path, Realm::Test, now_ms())
+            .err()
+            .unwrap();
         assert!(problem.contains("no valid passphrase"), "{problem}");
         assert!(!problem.contains("abandon"), "{problem}");
         std::fs::write(&path, "abandon ".repeat(512)).unwrap();
-        let problem = node_key_from_file(&path, Realm::Test).err().unwrap();
+        let problem = node_key_from_file(&path, Realm::Test, now_ms())
+            .err()
+            .unwrap();
         assert!(problem.contains("too long"), "{problem}");
         assert!(!problem.contains("abandon"), "{problem}");
-        let missing = node_key_from_file(&dir.path().join("absent"), Realm::Test)
+        let missing = node_key_from_file(&dir.path().join("absent"), Realm::Test, now_ms())
             .err()
             .unwrap();
         assert!(missing.contains("cannot read"), "{missing}");
