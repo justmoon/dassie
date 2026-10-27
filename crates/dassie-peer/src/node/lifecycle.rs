@@ -80,8 +80,9 @@ impl PeerNode {
     /// peer are done, or we waited long enough, ask it to settle once; once
     /// what it said is on its way is booked, or we waited long enough, tell
     /// it. The request names the peering's first method, whose units the
-    /// answer is in: a node that keeps one method per peering collects all
-    /// it is owed so.
+    /// answer is in: the node collects on that method alone, and what a
+    /// further method's accounts show stays owed
+    /// (spec/decisions/settlement-methods.md).
     fn advance_depeerings(&mut self, hooks: &dyn PeeringHooks) {
         let (now, wait) = (self.now_ms, self.config.depeer_wait_ms);
         let depeering: Vec<(NodeId, SchemeId, Depeering)> = self
