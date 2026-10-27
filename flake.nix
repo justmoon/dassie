@@ -128,6 +128,83 @@
             inherit (desktop) nativeBuildInputs buildInputs;
           };
           cargoArtifacts = craneLib.buildDepsOnly common;
+
+          # The workspace as Cargo reads it, without its code: every
+          # manifest as it is, the lockfile and Cargo's configuration, and
+          # crane's dummy for each target. A derivation that needs Cargo to
+          # read the workspace but builds few of its crates, or none, starts
+          # from it, so that an edit to the others leaves it as it was.
+          manifests = lib.fileset.unions [
+            ./.cargo/config.toml
+            ./Cargo.toml
+            ./Cargo.lock
+            ./clippy.toml
+            (lib.fileset.fileFilter (file: file.name == "Cargo.toml") ./crates)
+          ];
+          skeleton = pkgs.runCommand "dassie-skeleton" { } ''
+            cp -r --no-preserve=mode ${
+              craneLib.mkDummySrc {
+                src = lib.fileset.toSource {
+                  root = ./.;
+                  fileset = manifests;
+                };
+              }
+            } $out
+            cp -r --no-preserve=mode ${
+              lib.fileset.toSource {
+                root = ./.;
+                fileset = manifests;
+              }
+            }/. $out/
+          '';
+
+          # What the WASM modules build from: dassie-wasm and the crates it
+          # is built on, without their tests, in the skeleton. An edit to a
+          # crate the modules don't use leaves them as they were, and with
+          # them the wallet, the site and every TypeScript check, which are
+          # built on them.
+          wasmCrates = map (crate: crate.key) (
+            builtins.genericClosure {
+              startSet = [ { key = "dassie-wasm"; } ];
+              operator =
+                { key }:
+                lib.mapAttrsToList (_: dep: { key = lib.removePrefix "../" dep.path; }) (
+                  lib.filterAttrs (_: dep: dep ? path && dep.path != ".") (
+                    (lib.importTOML ./crates/${key}/Cargo.toml).dependencies or { }
+                  )
+                );
+            }
+          );
+          wasmSrc =
+            let
+              crates = lib.fileset.toSource {
+                root = ./.;
+                fileset = lib.fileset.unions (
+                  map (
+                    crate:
+                    lib.fileset.difference ./crates/${crate} (
+                      lib.fileset.unions (
+                        map (dir: lib.fileset.maybeMissing ./crates/${crate}/${dir}) [
+                          "tests"
+                          "benches"
+                          "examples"
+                        ]
+                      )
+                    )
+                  ) wasmCrates
+                );
+              };
+            in
+            pkgs.runCommand "dassie-wasm-src" { } ''
+              cp -r --no-preserve=mode ${skeleton} $out
+              for crate in ${lib.concatStringsSep " " wasmCrates}; do
+                rm -r $out/crates/$crate
+                cp -r --no-preserve=mode ${crates}/crates/$crate $out/crates/$crate
+              done
+            '';
+          # wasmSrc is built, so crane is told where the dependencies are,
+          # rather than reading its lockfile at evaluation.
+          cargoVendorDir = craneLib.vendorCargoDeps { cargoLock = ./Cargo.lock; };
           wasmArtifacts = craneLib.buildDepsOnly (
             common
             // {
@@ -146,6 +223,8 @@
           wasm-modules = craneLib.mkCargoDerivation (
             common
             // {
+              src = wasmSrc;
+              inherit cargoVendorDir;
               pname = "wasm-modules";
               cargoArtifacts = wasmArtifacts;
               nativeBuildInputs = [ wasm-bindgen ];
@@ -259,6 +338,8 @@
             cargo-clippy-wasm = craneLib.cargoClippy (
               common
               // {
+                src = wasmSrc;
+                inherit cargoVendorDir;
                 cargoArtifacts = wasmArtifacts;
                 CARGO_PROFILE = "wasm";
                 CARGO_BUILD_TARGET = "wasm32-unknown-unknown";
