@@ -424,11 +424,7 @@ impl Core {
     /// into the hub is not the none it gave at peering
     /// (spec/designs/settlement-hubs.md#5-joining); 0 for a peer without
     /// one.
-    fn hub_peerings(
-        &self,
-        scheme: Name,
-        _account: &HubAccount,
-    ) -> Vec<(dassie_identity::NodeId, u32)> {
+    fn hub_peerings(&self, scheme: Name) -> Vec<(dassie_identity::NodeId, u32)> {
         let Some(active) = self.schemes.get(&scheme) else {
             return Vec::new();
         };
@@ -507,7 +503,7 @@ impl Core {
         let active = self.schemes.get(&scheme)?;
         let terms = account.terms();
         let fees = terms.fees;
-        let (floor, ceiling) = self.hub_limits(self.hub_peerings(scheme, account).len());
+        let (floor, ceiling) = self.hub_limits(self.hub_peerings(scheme).len());
         let (floor, ceiling) = (drops_up(floor), ceiling / UNITS_PER_DROP);
         let unfunded = active
             .asset
@@ -1003,7 +999,7 @@ impl Core {
     /// the scheme runs.
     fn hub_status_of(&self, scheme: Name) -> Option<HubStatus> {
         let account = self.hub_account(scheme)?;
-        let peers = self.hub_peerings(scheme, account);
+        let peers = self.hub_peerings(scheme);
         let (floor, ceiling) = self.hub_limits(peers.len());
         let number = account.number();
         let view = account.view().map(|(_, view)| *view);

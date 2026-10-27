@@ -228,8 +228,8 @@ export type NetworkPeer = Message<"dassie.owner.v1.NetworkPeer"> & {
   node: string;
 
   /**
-   * The settlement scheme of the method this node's packets with the peer
-   * take, for example "stub"; every method is in `methods`.
+   * The settlement scheme of the peering's first method, the one it was
+   * made on, for example "stub"; every method is in `methods`.
    *
    * @generated from field: string scheme = 2;
    */
@@ -288,9 +288,8 @@ export type NetworkPeer = Message<"dassie.owner.v1.NetworkPeer"> & {
   advertised: boolean;
 
   /**
-   * What this node owes the peer net on the method its packets with the
-   * peer take, in that scheme ledger's units: negative when the peer owes
-   * this node.
+   * What this node owes the peer net on the peering's first method, in
+   * that scheme ledger's units: negative when the peer owes this node.
    *
    * @generated from field: int64 owed = 12;
    */

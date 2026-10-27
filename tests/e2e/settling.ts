@@ -1,11 +1,11 @@
 /**
  * What the end-to-end tests of mainnet's schemes in the live realm share
- * (`mainnet_test.ts`, `mainnet_xrp_test.ts`), and of the `hub` scenario's
+ * (`mainnet_test.ts`), and of the `hub` scenario's
  * settlement hub (`hub_test.ts`, `xrpl_test.ts`, `xrpl_deposit_test.ts`),
  * and of the `two-hubs` scenario's hubs of XRP and DSUSD
  * (`hubs_cross_test.ts`): a node's ledger, whether it runs in the live
  * realm, what it owes its peers by its own books, when settling is over,
- * directly or over the hubs, how the hubs' members join them, and a
+ * over the hubs, how the hubs' members join them, and a
  * payment from a BTP client of one node to another's receiver.
  */
 
