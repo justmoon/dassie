@@ -1103,6 +1103,65 @@ fn attest_issuer(net: &mut Network, ledger: u32, frozen: bool) {
     }
 }
 
+/// The issuer's hold each validator's answer to `Since` ends with, before
+/// its final block.
+fn issuer_told(net: &mut Network, account: AccountNumber) -> Vec<Statement> {
+    net.member.clear();
+    net.request(&Request::Since { account, from: 1 });
+    assert_eq!(net.member.len(), 4, "each answers in one message");
+    net.member
+        .iter()
+        .map(|bytes| {
+            let Ok(Message::Statements(list)) = Message::decode_exact(bytes) else {
+                panic!("not statements");
+            };
+            let [.., issuer, last] = list.as_slice() else {
+                panic!("too short");
+            };
+            assert!(matches!(last.statement, Statement::Final { .. }));
+            issuer.statement.clone()
+        })
+        .collect()
+}
+
+// spec/areas/hubs.md#a-frozen-hub: a token hub's validators state the
+// issuer's hold in every answer to `Since`, so members read a freeze and
+// its thaw from what f + 1 of them sign alike.
+#[test]
+fn a_token_hubs_validators_tell_members_of_a_freeze() {
+    let mut net = Network::with_terms(token);
+    let (number, _) = member(&mut net, 31);
+    for told in issuer_told(&mut net, number) {
+        assert!(matches!(
+            told,
+            Statement::Issuer {
+                frozen: None,
+                held: false,
+                ..
+            }
+        ));
+    }
+    attest_issuer(&mut net, 20, true);
+    let frozen = net.validators[0].ledger().frozen();
+    let told = issuer_told(&mut net, number);
+    assert!(told.iter().all(|t| *t == told[0]), "all alike");
+    assert!(matches!(
+        told[0],
+        Statement::Issuer { frozen: f, held: true, .. } if f == frozen && f.is_some()
+    ));
+    attest_issuer(&mut net, 21, false);
+    for told in issuer_told(&mut net, number) {
+        assert!(matches!(
+            told,
+            Statement::Issuer {
+                frozen: None,
+                held: false,
+                ..
+            }
+        ));
+    }
+}
+
 // spec/decisions/token-hubs.md: while the issuer holds a token hub's
 // escrow, no validator signs a withdrawal or submits one a quorum signed,
 // shares signed before the freeze included: its Payment would fail on the

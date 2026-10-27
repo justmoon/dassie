@@ -66,11 +66,32 @@ pub const EXECUTED_OVERHEAD: usize = 1 + 8 + 8 + 4 + (1 + 8 + 1 + 8);
 pub const MAX_BLOCK_STATEMENT_BYTES: usize =
     crate::consensus::MAX_PAYLOAD_BYTES + payload::MAX_OPERATIONS * EXECUTED_OVERHEAD;
 
+/// The encoded size of [`Statement::Final`]: its tag, height and
+/// timestamp.
+pub const FINAL_STATEMENT_BYTES: usize = 1 + 8 + 8;
+
+/// The encoded size of [`Statement::Issuer`] at its longest: its tag,
+/// height, timestamp, the freeze's stamp if any, and whether the issuer
+/// holds the escrow.
+pub const ISSUER_STATEMENT_BYTES: usize = 1 + 8 + 8 + (1 + 8) + 1;
+
+/// How many statements end every answer to `Since` that is not
+/// `Trimmed`: a token hub's issuer's hold and the final block it covers.
+pub const SINCE_TAIL: usize = 2;
+
+/// Room for what ends an answer to `Since`: the issuer's hold and the
+/// final block.
+const SINCE_TAIL_BYTES: usize = 64;
+
+const _: () = assert!(SINCE_TAIL_BYTES >= FINAL_STATEMENT_BYTES + ISSUER_STATEMENT_BYTES);
+
 /// The most bytes of statements an honest answer to `Since` carries, over
 /// however many messages it spans: up to [`MAX_ANSWER_BYTES`] of them, or
-/// its first block whole if that is more, and the final block it covers.
-/// What a member's tally must hold of one validator's answer.
-pub const MAX_SINCE_ANSWER_BYTES: usize = MAX_ANSWER_BYTES + MAX_BLOCK_STATEMENT_BYTES + 64;
+/// its first block whole if that is more, the issuer's hold of a token
+/// hub, and the final block it covers. What a member's tally must hold of
+/// one validator's answer.
+pub const MAX_SINCE_ANSWER_BYTES: usize =
+    MAX_ANSWER_BYTES + MAX_BLOCK_STATEMENT_BYTES + SINCE_TAIL_BYTES;
 
 const _: () = assert!(MAX_SINCE_ANSWER_BYTES >= MAX_ANSWER_BYTES + MAX_BLOCK_STATEMENT_BYTES);
 
@@ -708,13 +729,19 @@ impl Validator {
         self.send_statements(from, statements);
     }
 
-    /// What was executed that touches `account` from `height` on, and the
-    /// newest final block, as far as they fit in one answer.
+    /// What was executed that touches `account` from `height` on, a token
+    /// hub's issuer's hold as of the newest final block, and the newest
+    /// final block, as far as they fit in one answer. Members read a freeze
+    /// from the issuer's hold as they read everything else, from what f + 1
+    /// validators sign alike (spec/areas/hubs.md#a-frozen-hub). It is as of
+    /// the newest block even when the answer stops before it: the hold is
+    /// known only as it is now.
     fn since(&self, account: AccountNumber, from: u64) -> Vec<Statement> {
         let tip = Statement::Final {
             height: self.chain.ledger.height(),
             timestamp: self.chain.ledger.timestamp(),
         };
+        let issuer = Statement::issuer(&self.chain.ledger);
         // What we no longer keep, we cannot vouch for: the member reads its
         // state anew (spec/areas/hubs.md#the-validators-service).
         if from < self.complete_from {
@@ -736,6 +763,7 @@ impl Validator {
                 || bytes.saturating_add(block_bytes) > MAX_ANSWER_BYTES;
             bytes = bytes.saturating_add(block_bytes);
             if long && !statements.is_empty() {
+                statements.extend(issuer);
                 statements.push(Statement::Final {
                     height: block.height.saturating_sub(1),
                     timestamp: block.timestamp.saturating_sub(1),
@@ -744,6 +772,7 @@ impl Validator {
             }
             statements.extend(of_block);
         }
+        statements.extend(issuer);
         statements.push(tip);
         statements
     }
@@ -1231,6 +1260,63 @@ mod tests {
             Statement::Executed { height: 2, .. }
         ));
         v.check_invariants();
+    }
+
+    // A token hub's answers to `Since` end with the issuer's hold as of the
+    // newest block, then the final block, whether the answer runs to the
+    // tip or stops before a block; an XRP hub's carry none
+    // (spec/areas/hubs.md#a-frozen-hub).
+    #[test]
+    fn a_token_hubs_answers_carry_the_issuers_hold() {
+        use crate::operation::Issuer;
+        let tail = |statements: &[Statement]| -> Vec<Statement> {
+            statements[statements.len().saturating_sub(2)..].to_vec()
+        };
+        let mut xrp = validator();
+        xrp.history.push_back(block_of(2, 1));
+        let statements = xrp.since(AccountNumber(6), 1);
+        assert!(
+            !statements
+                .iter()
+                .any(|s| matches!(s, Statement::Issuer { .. })),
+            "none over an XRP hub"
+        );
+
+        let mut v = validator();
+        let ledger = &mut v.chain.ledger;
+        ledger.rules.terms = crate::rules::tests::token_terms(ledger.rules.terms.clone());
+        ledger.issuer = Issuer {
+            ledger: 5,
+            frozen: true,
+            fee: false,
+        };
+        ledger.frozen = Some(7);
+        let height = v.chain.ledger.height();
+        let timestamp = v.chain.ledger.timestamp();
+        let hold = Statement::Issuer {
+            height,
+            timestamp,
+            frozen: Some(7),
+            held: true,
+        };
+        assert_eq!(hold.encoded_len(), ISSUER_STATEMENT_BYTES);
+        let last = Statement::Final { height, timestamp };
+        assert_eq!(last.encoded_len(), FINAL_STATEMENT_BYTES);
+
+        v.history.push_back(block_of(2, 1));
+        let statements = v.since(AccountNumber(6), 1);
+        assert_eq!(tail(&statements), [hold.clone(), last]);
+
+        // Stopped before a block: the final block is the one before it, the
+        // hold still as of the newest.
+        v.history.push_back(block_of(3, MAX_ANSWER));
+        let statements = v.since(AccountNumber(6), 1);
+        let ends = tail(&statements);
+        assert_eq!(ends[0], hold);
+        assert!(matches!(ends[1], Statement::Final { height: 2, .. }));
+        let bytes: usize = statements.iter().map(Encode::encoded_len).sum();
+        assert!(bytes <= MAX_SINCE_ANSWER_BYTES);
+        assert!(statements.len() <= MAX_ANSWER + SINCE_TAIL);
     }
 
     #[test]
