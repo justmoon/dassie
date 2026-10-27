@@ -1,7 +1,8 @@
 //! `dassie hub`: the node's account in each settlement hub it is in, and
 //! the owner's moves between it and the owner book of the hub's asset (on
-//! the node's XRP Ledger testnet account: XRP for the XRP hub, DSUSD for
-//! the DSUSD hub), over the IPC socket (spec/areas/hubs.md#in-the-node).
+//! the node's XRP Ledger account on the hub's network: XRP for an XRP hub,
+//! DSUSD or RLUSD for a token hub), over the IPC socket
+//! (spec/areas/hubs.md#in-the-node).
 //! Amounts are in the hub's asset, which its scheme names.
 //!
 //! - `dassie hub status` shows each hub's account, its holds, the floor and

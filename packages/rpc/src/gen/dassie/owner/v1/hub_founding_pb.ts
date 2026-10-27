@@ -120,7 +120,8 @@ export type HubFounding = Message<"dassie.owner.v1.HubFounding"> & {
 
   /**
    * The hub's rules in canonical OER, as hex, once fixed: what a member's
-   * `hub-xrpl-testnet-xrp` scheme config and a validator's file name.
+   * hub scheme config (`hub-xrpl-testnet-xrp`, or `hub-xrpl-xrp` on
+   * mainnet) and a validator's file name.
    *
    * @generated from field: string rules = 4;
    */
@@ -173,13 +174,16 @@ export const HubFoundingSchema: GenMessage<HubFounding> = /*@__PURE__*/
   messageDesc(file_dassie_owner_v1_hub_founding, 2);
 
 /**
- * Founds a hub with these validators, all of which must accept. The terms
- * are the starting ones but for what `terms` sets, as JSON
+ * Founds a hub with these validators, all of which must accept, on the
+ * XRP Ledger network of the node's realm: the testnet, or mainnet in the
+ * live realm. Its escrow is funded from the node's XRP on that network.
+ * The terms are the starting ones but for what `terms` sets, as JSON
  * (`{"asset":{...},"fees":{...},"limits":{...},"timers":{...}}`); a hub
- * holds XRP unless `asset` names a token by its `currency` and `issuer`.
- * INVALID_ARGUMENT for fewer than 4 or more than 16 validators, one named
- * twice, or terms that do not check; FAILED_PRECONDITION before setup, or
- * while the node keeps as many foundings as it does.
+ * holds XRP unless `asset` names a token by its `currency` and `issuer`:
+ * DSUSD on the testnet, RLUSD on mainnet. INVALID_ARGUMENT for fewer than
+ * 4 or more than 16 validators, one named twice, terms that do not check,
+ * or a hub no settlement scheme joins; FAILED_PRECONDITION before setup,
+ * or while the node keeps as many foundings as it does.
  *
  * @generated from message dassie.owner.v1.FoundHubRequest
  */
@@ -202,8 +206,8 @@ export type FoundHubRequest = Message<"dassie.owner.v1.FoundHubRequest"> & {
   escrowFundingDrops?: bigint | undefined;
 
   /**
-   * The XRPL server the escrow is set up on; the XRP Ledger testnet
-   * scheme's if empty.
+   * The XRPL server the escrow is set up on; if empty, the server of the
+   * node's XRP Ledger account on the realm's network.
    *
    * @generated from field: string xrpl_server = 4;
    */
