@@ -11,7 +11,7 @@ use dassie_node::clock::ManualClock;
 use dassie_node::node::Policies;
 use dassie_node::rpc::proto::{self, request::Method, response};
 
-use super::{Bound, START_MS, TestNode, set_up};
+use super::{Bound, START_MS, STUB_UNLIMITED, TestNode, set_up, stub_with_commitments};
 
 pub const CA: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../testdata/tls/root.pem");
 pub const CERT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../testdata/tls/cert.pem");
@@ -50,9 +50,17 @@ pub fn bootstrap(node: &NodeKey, port: u16) -> String {
     )
 }
 
-/// Sets a node up as a peer: owner, hostname, certificate, stub scheme.
+/// Sets a node up as a peer: owner, hostname, certificate, and the stub
+/// with unlimited trust, for a test whose subject is not settlement.
 pub async fn prepare(node: &TestNode, key: &NodeKey) {
-    prepare_with(node, key, "stub", "").await;
+    prepare_with(node, key, "stub", STUB_UNLIMITED).await;
+}
+
+/// Sets a node up as a peer on the stub with commitments, holding at most
+/// `limit` packets in flight per peer each way: for a test of settlement,
+/// whose settlements fund holds as a hub member's do.
+pub async fn prepare_settling(node: &TestNode, key: &NodeKey, limit: usize) {
+    prepare_with(node, key, "stub", &stub_with_commitments(limit)).await;
 }
 
 /// Sets a node up as a peer, settling with `scheme` set up with `config`.
@@ -166,8 +174,29 @@ pub async fn settle(clock: &ManualClock) {
     }
 }
 
+/// Whether `a` holds accounts for `b` on the stub's ledger: a core peer's
+/// open as its peering is made.
 pub async fn peered(a: &TestNode, b: &NodeKey) -> bool {
     peered_on(a, b, "stub+usd").await
+}
+
+/// Whether `uplink` holds a peering with its downlink `downlink`. Its
+/// accounts for a downlink open only once value moves with it, which on the
+/// stub with unlimited trust is its first packet, as nothing settles
+/// (spec/decisions/lazy-downlink-accounts.md).
+pub async fn peered_downlink(uplink: &TestNode, downlink: &NodeKey) -> bool {
+    let reply = uplink
+        .ipc()
+        .await
+        .call(Method::ListPeers(proto::ListPeersRequest {}))
+        .await;
+    let Ok(response::Method::ListPeers(list)) = reply else {
+        panic!("{reply:?}")
+    };
+    let id = downlink.node_id().to_string();
+    list.peers
+        .iter()
+        .any(|peer| peer.node == id && peer.inbound && peer.state == "peered")
 }
 
 /// Whether `a` holds accounts for `b` on `ledger`.
@@ -177,7 +206,7 @@ pub async fn peered_on(a: &TestNode, b: &NodeKey, ledger: &str) -> bool {
 }
 
 /// Two nodes that peer, A the bootstrap node, at the same clock; set up
-/// as peers and peered.
+/// as peers on the stub with unlimited trust, and peered.
 pub struct Pair {
     pub a: TestNode,
     pub b: TestNode,

@@ -700,7 +700,7 @@ async fn a_relayed_payments_stream_serves_only_open_payments() {
         let adding = owner.call(Method::AddSettlementScheme(
             proto::AddSettlementSchemeRequest {
                 id: "stub".into(),
-                config: String::new(),
+                config: support::STUB_UNLIMITED.into(),
             },
         ));
         adding.await.ok()
