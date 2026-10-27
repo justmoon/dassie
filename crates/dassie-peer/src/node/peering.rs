@@ -651,10 +651,7 @@ impl PeerNode {
         // directly, so a peering is never made on it, whoever asks
         // (spec/decisions/hubs-only.md), as it is never one we ask on
         // ([`Self::methods_with`]).
-        if !repeat
-            && !hooks.uses_commitments(request.scheme)
-            && !hooks.trusts_unlimited(request.scheme)
-        {
+        if !repeat && hooks.settles_directly(request.scheme) {
             return Err(RefusalReason::UnsupportedScheme);
         }
         // A downlink is in no node list: it enters the table by asking.

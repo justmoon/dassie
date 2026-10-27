@@ -398,13 +398,15 @@ impl PeerNode {
     }
 
     /// Looks after the peerings: ends silent ones and those on a scheme
-    /// the node does not run, sets the advertise flags, tells
-    /// terminations, and ends those that are done.
+    /// the node does not run or that would settle directly, sets the
+    /// advertise flags, tells terminations, and ends those that are done.
+    /// A method dropped for its scheme goes before room is judged, so its
+    /// shortness never ends the peering.
     pub(super) fn review_peers(&mut self, hooks: &dyn PeeringHooks) {
         self.end_downlinks();
         self.terminate_silent();
-        self.terminate_short();
         self.end_unrun(hooks);
+        self.terminate_short();
         self.drop_unpayable(hooks);
         self.advance_depeerings(hooks);
         self.advance_windings(hooks);
@@ -588,10 +590,13 @@ impl PeerNode {
 
     /// Drops the methods on a scheme the node does not run, as one disabled
     /// or of the other realm, which the node starts without
-    /// (spec/areas/settlement.md#schemes-and-ledgers), and ends a peering
-    /// that has no other: no packet crosses such a method, no settlement on
-    /// it can be booked, and while one lasts the pair cannot settle on a
-    /// scheme it shares. So nothing is collected first, as for a ban: the
+    /// (spec/areas/settlement.md#schemes-and-ledgers), and those on a scheme
+    /// that would settle directly, as one a peering stored from when the
+    /// XRP Ledger's schemes peered still has (spec/decisions/hubs-only.md),
+    /// and ends a peering that has no other: no packet crosses such a
+    /// method, no settlement on it can be booked, and while one lasts the
+    /// pair cannot settle on a scheme it shares. So nothing is collected
+    /// first, as for a ban: the
     /// peer is told at once (spec/decisions/settlement-methods.md). A
     /// decision already taken to end the peering keeps its reason, so an
     /// end for the owner or for room keeps its cooldown; otherwise the
@@ -606,8 +611,9 @@ impl PeerNode {
             let Some(peering) = entry.active_peering() else {
                 continue;
             };
-            let unrun = peering.schemes().filter(|scheme| !hooks.speaks(*scheme));
-            if peering.schemes().all(|scheme| !hooks.speaks(scheme)) {
+            let gone = |scheme: SchemeId| !hooks.speaks(scheme) || hooks.settles_directly(scheme);
+            let unrun = peering.schemes().filter(|scheme| gone(*scheme));
+            if peering.schemes().all(gone) {
                 let reason = peering
                     .depeering
                     .map_or(TerminationReason::Unspecified, |depeering| depeering.reason);

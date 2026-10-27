@@ -61,6 +61,16 @@ impl ActiveScheme {
         self.scheme.converts() && (self.failed.is_none() || self.scheme.peg().is_none())
     }
 
+    /// Whether a method on it would settle directly: it is neither over a
+    /// hub nor of unlimited trust, as every XRPL scheme, an owner book. A
+    /// peering stored from when the XRPL schemes peered may still have a
+    /// method on one: it carries no packet, its peer is asked for nothing
+    /// on it, and the peer protocol drops it at its next review
+    /// (spec/areas/settlement.md#owner-books).
+    pub fn settles_directly(&self) -> bool {
+        !self.over_hub && !self.unlimited
+    }
+
     /// The credit the node extends at first to a peer on it: nothing over a
     /// hub, whose hold is all the credit there is;
     /// [`UNLIMITED_CREDIT`](dassie_settlement::policy::UNLIMITED_CREDIT)

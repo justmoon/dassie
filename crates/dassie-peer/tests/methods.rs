@@ -182,6 +182,42 @@ fn a_peering_asked_on_a_scheme_that_would_settle_directly_is_refused() {
     }
 }
 
+// spec/decisions/hubs-only.md: a stored peering may have a method on a
+// scheme that would settle directly, as one from when the XRP Ledger's
+// schemes peered: the node drops it at its next review, without collecting,
+// and tells the peer, which drops it at once; the peering goes on, on the
+// other. One left with only such methods ends at once.
+#[test]
+fn a_method_that_would_settle_directly_is_dropped_and_the_peering_kept() {
+    let (mut network, a, b) = both(79);
+    network.nodes[0].hooks.direct.insert(scheme(SECOND));
+    wait(&mut network, |network| {
+        methods(network, 0, &b) == [scheme(STUB)] && methods(network, 1, &a) == [scheme(STUB)]
+    });
+    let dropped = |network: &Network, index, by_us| {
+        events(network, index, |event| {
+            matches!(event, Event::MethodDropped { scheme: s, by_us: u, .. }
+                if *s == scheme(SECOND) && *u == by_us)
+        })
+    };
+    assert_eq!(
+        (dropped(&network, 0, true), dropped(&network, 1, false)),
+        (1, 1)
+    );
+    let collected = events(&network, 0, |event| {
+        matches!(event, Event::MethodWinding { .. })
+    });
+    assert_eq!(collected, 0, "collected on a method that settles nothing");
+    // The pair does not add it back.
+    settle(&mut network, 120_000);
+    assert_eq!(methods(&network, 0, &b), [scheme(STUB)]);
+    assert_eq!(methods(&network, 1, &a), [scheme(STUB)]);
+    network.nodes[0].hooks.direct.insert(scheme(STUB));
+    wait(&mut network, |network| {
+        network.node(0).peering_of(&b).is_none() && network.node(1).peering_of(&a).is_none()
+    });
+}
+
 // Each Prepare travels on the method it is sent on, and arrives naming it;
 // none goes on a scheme the peering has no method on.
 #[test]

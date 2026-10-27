@@ -6,7 +6,7 @@
 
 use std::collections::BTreeMap;
 
-use dassie_ledger::Name;
+use dassie_ledger::{LedgerId, Name};
 
 use super::{STUB_TWO, scheme_id};
 use crate::sim::{START, Settling, Sim, key};
@@ -202,4 +202,130 @@ fn a_failed_hubs_method_is_dropped_and_the_peering_kept() {
         "the failed hub's method was not dropped: {:?}",
         methods(&sim, 0, 1)
     );
+}
+
+/// The XRP Ledger testnet's owner book, as a scheme.
+const OWNER_BOOK: &str = "xrpl-testnet-xrp";
+
+/// Gives node `index`'s stored peering with the other node a method on the
+/// owner book first, as a peering made on it before the hub was added, and
+/// the peer's accounts on its ledger with nothing extended: a node that
+/// took it for a method would find the peer short of room there, and ask
+/// it to settle. The node is down after.
+fn store_owner_book_method(sim: &mut Sim, index: usize) {
+    let other = key(1 - index).node_id();
+    let peer = Name::new(other.as_str()).unwrap();
+    sim.step(index, |core| {
+        let now = core.now_ms();
+        core.ledger
+            .open_peer(now, LedgerId::XrplTestnetXrp, peer, 0)
+            .unwrap();
+    });
+    sim.crash(index);
+    let store = &sim.nodes[index].store;
+    let stored = store.load_peer().unwrap();
+    let mut node = stored
+        .nodes
+        .into_iter()
+        .find(|node| node.id == other)
+        .unwrap();
+    let peering = node.peering.as_mut().unwrap();
+    let mut method = peering.first().clone();
+    method.scheme = scheme_id(OWNER_BOOK);
+    method.state = Vec::new();
+    method.credit_out = 0;
+    peering.methods.insert(0, method);
+    let mut batch = crate::store::LedgerBatch::default();
+    batch.peer.nodes.push(node);
+    store.commit_ledger(&batch).unwrap();
+    let stored = store.load_peer().unwrap();
+    let peering = stored
+        .nodes
+        .iter()
+        .find_map(|node| node.peering.as_ref().filter(|_| node.id == other))
+        .unwrap();
+    let schemes: Vec<String> = peering.schemes().map(|s| s.to_string()).collect();
+    assert_eq!(schemes, [OWNER_BOOK, dassie_hub::member::SCHEME_ID]);
+}
+
+// spec/areas/settlement.md#owner-books: a peering stored from when the XRP
+// Ledger's schemes peered, made on `xrpl-testnet-xrp` and over a hub since.
+// The XRPL scheme is an owner book now, which settles nothing: its method
+// carries no packet and its peer is never asked to settle on it, though the
+// node extends the peer nothing there; each node drops it at its first
+// review after the start, without collecting, and the peering carries on
+// over the hub, which a payment then crosses. What the method's accounts
+// hold stays on them.
+#[test]
+fn a_stored_method_on_an_owner_book_is_dropped_and_the_peering_kept() {
+    let mut sim = Sim::with(63, 2, 0, BTreeMap::new(), Settling::Hub(4));
+    sim.loss_per_mille = 0;
+    assert!(
+        sim.run_until_or(START + 600_000, crate::sim::hubbed::joined),
+        "the members did not join the hub"
+    );
+    sim.join_network(1);
+    let hub = dassie_hub::member::SCHEME_ID;
+    let over_hub = |sim: &Sim| methods(sim, 0, 1) == [hub] && methods(sim, 1, 0) == [hub];
+    assert!(
+        sim.run_until_or(sim.now + 600_000, over_hub),
+        "the pair did not peer over the hub: {:?}",
+        methods(&sim, 0, 1)
+    );
+    for index in 0..2 {
+        store_owner_book_method(&mut sim, index);
+    }
+    // Each node drops it at its start or soon after, and tells the other.
+    // Until then, the method is never available to a packet, and the peer
+    // is never asked to settle on it.
+    let mark = sim.trace.len();
+    for index in 0..2 {
+        sim.start(index);
+    }
+    let xrpl = scheme_id(OWNER_BOOK);
+    let wrong = |sim: &Sim| {
+        (0..2).any(|index| {
+            let other = key(1 - index).node_id();
+            let core = sim.core(index);
+            core.method_available(&other, xrpl) || core.settle.asked.contains_key(&(other, xrpl))
+        })
+    };
+    assert!(
+        sim.run_until_or(sim.now + 120_000, |sim| wrong(sim) || over_hub(sim)),
+        "the method on the owner book was not dropped"
+    );
+    assert!(!wrong(&sim), "the method on the owner book was taken");
+    let ours = format!("scheme: {xrpl:?}, by_us: true");
+    assert!(
+        sim.trace[mark..]
+            .iter()
+            .any(|line| line.contains("PeerNode(MethodDropped {") && line.contains(&ours)),
+        "{:?}",
+        &sim.trace[mark..]
+    );
+    let winding = sim.trace[mark..]
+        .iter()
+        .any(|line| line.contains("PeerNode(MethodWinding {"));
+    assert!(!winding, "collected on a method that settles nothing");
+    // The peering carries on over the hub; the pair does not take the owner
+    // book back, nor ask on it.
+    let amount = 3 * crate::node::Policies::DEFAULT.connector.max_packet_amount;
+    assert!(sim.pay(0, 1, amount, None, Some(amount)));
+    assert!(
+        !sim.run_until_or(sim.now + 300_000, |sim| wrong(sim) || !over_hub(sim)),
+        "the owner book came back"
+    );
+    assert!(
+        sim.payments[0].done,
+        "the payment over the hub did not finish"
+    );
+    for index in 0..2 {
+        let other = key(1 - index).node_id();
+        let balances = sim.balances_on(index, LedgerId::XrplTestnetXrp);
+        assert_eq!(
+            balances.get(&format!("assets/interledger/{other}")),
+            Some(&0),
+            "node {index}: a packet moved on the owner book"
+        );
+    }
 }
