@@ -21,16 +21,17 @@ use dassie_kit::sim::{Outcome, Run};
 use dassie_node::sim::hub_live;
 
 /// What every run must reach, beside what each counts of its own: the
-/// members joined, their servers lied and the hub's validators' servers
-/// too, the members caught lies, and paid each other over the hub's method
-/// meanwhile.
+/// members joined, their servers lied, the hub's validators' watchers
+/// connected to lying servers and dropped them, the members caught lies,
+/// and paid each other over the hub's method meanwhile.
 fn check_reached(run: &Run, joined: &str, over: &str) {
     for counted in [joined, "members paid each other under lying servers"] {
         assert_eq!(run.counts.get(counted), Some(&1), "{counted}");
     }
     for counted in [
         "lying servers",
-        "validator servers lying to the hub",
+        "validator connections to lying servers",
+        "lying servers validators dropped",
         "lies caught",
         "XRPL nodes anchored",
         over,

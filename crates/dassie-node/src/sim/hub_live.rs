@@ -364,9 +364,7 @@ fn escrow_holds(sim: &Sim) -> u64 {
 /// ledger, and the hub writes off no reset, which mainnet never makes.
 fn check_escrow(sim: &Sim) -> Result<(), String> {
     let hub = sim.hub.as_deref().unwrap();
-    let Some(ledger) = hub.ledger() else {
-        return Ok(());
-    };
+    let ledger = hub.ledger().ok_or("no honest validator runs")?;
     let depositing: u64 = (0..sim.nodes.len())
         .filter_map(|index| sim.core(index).hub_status()?.moving)
         .filter(|moving| moving.direction == Direction::Deposit)
@@ -396,8 +394,12 @@ fn check_escrow(sim: &Sim) -> Result<(), String> {
     Ok(())
 }
 
-/// [`check_escrow`] after a ledger of lies, as a safety failure.
+/// [`check_escrow`] after a ledger of lies, as a safety failure: while no
+/// honest validator runs, nobody attested anything to check.
 fn attested_truly(sim: &Sim) -> Result<(), Outcome> {
+    if sim.hub.as_deref().unwrap().ledger().is_none() {
+        return Ok(());
+    }
     check_escrow(sim).map_err(|problem| Outcome::safety("attested", problem))
 }
 
@@ -460,8 +462,9 @@ fn off_peg(sim: &mut Sim, rng: &mut SeededRng) -> Result<(), Outcome> {
     Ok(())
 }
 
-/// The network calms down: every move done, every account in step, every
-/// peer that was asked settled.
+/// The network calms down: every move done and every account in step with
+/// the hub. Whether every peer that was asked to settle did is left
+/// unchecked here, as in `node-hub-dsusd`; `node-hub-lies` checks it.
 fn settle(sim: &mut Sim) {
     sim.run_until(sim.now + CALM_MS);
     let settled =

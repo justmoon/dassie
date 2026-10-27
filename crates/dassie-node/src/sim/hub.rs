@@ -1523,7 +1523,12 @@ impl Sim {
                         watcher.fetched(now, &url, body.as_deref());
                     }
                 }
-                Out::Reconnect => self.reconnect_validator(index),
+                Out::Reconnect => {
+                    if self.validator(index).lie.is_some() {
+                        self.count("lying servers validators dropped");
+                    }
+                    self.reconnect_validator(index);
+                }
             }
             if let Some(watcher) = self.validator(index).watcher.as_ref() {
                 watcher.check_invariants();
@@ -2190,6 +2195,9 @@ impl Sim {
         }
         self.ledger.set_lie(connection, lie);
         self.count("validator reconnects");
+        if lie.is_some() {
+            self.count("validator connections to lying servers");
+        }
         let delay = self.latency();
         self.schedule(
             delay,
