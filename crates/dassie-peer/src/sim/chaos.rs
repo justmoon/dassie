@@ -64,9 +64,11 @@ pub fn describe(seed: u64) -> String {
 }
 
 /// Runs the seed and checks the calm network it leaves, counting the
-/// forger's copies, the methods added and dropped and the Prepares taken on
-/// the second scheme's, so that a generator that stops reaching them
-/// shows.
+/// forger's copies, the methods added and dropped, the Prepares taken on
+/// the second scheme's and those refused for a method only their sender
+/// held, so that a generator that stops reaching them shows, and so do
+/// methods that come apart more often than restarts and lost drops make
+/// them.
 #[must_use]
 pub fn run(seed: u64) -> Run {
     let network = network(seed);
@@ -83,11 +85,14 @@ pub fn run(seed: u64) -> Run {
         .get(&scheme(SECOND))
         .copied()
         .unwrap_or(0);
+    let one_sided = network.one_sided;
     let mut run = Run::new(check(&network), network.trace);
     run.counts.insert("forgeries", forgeries);
     run.counts.insert("methods added", added);
     run.counts.insert("methods dropped", dropped);
     run.counts.insert("prepares on a second method", second);
+    run.counts
+        .insert("prepares on a one-sided method", one_sided);
     run
 }
 

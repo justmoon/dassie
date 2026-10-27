@@ -194,7 +194,7 @@ impl LinkState {
             endpoint: Endpoint::of_url(signed.info.url),
             alias: signed.info.alias.into(),
             neighbors,
-            schemes: signed.info.schemes().collect(),
+            schemes: first_of_each(signed.info.schemes()),
             periphery: signed.info.is_periphery(),
             hub: signed.info.hub(),
             hubs: signed.info.hubs(),
@@ -210,6 +210,18 @@ impl LinkState {
         self.sequence.saturating_add(stale_ms) >= now_ms
             && self.sequence <= now_ms.saturating_add(max_future_ms)
     }
+}
+
+/// Each scheme of a link state once, at its first place: the sender's order
+/// is its preference, and a scheme it repeats is not a second one.
+fn first_of_each(schemes: impl Iterator<Item = SchemeId>) -> Vec<SchemeId> {
+    let mut unique: Vec<SchemeId> = Vec::new();
+    for scheme in schemes {
+        if !unique.contains(&scheme) {
+            unique.push(scheme);
+        }
+    }
+    unique
 }
 
 /// A settlement method of a peering: a scheme the pair settles on, with
@@ -390,6 +402,18 @@ impl Peering {
     #[must_use]
     pub fn has(&self, scheme: SchemeId) -> bool {
         self.method(scheme).is_some()
+    }
+
+    /// Whether it is being ended and collects on its method on `scheme`:
+    /// the first, in whose units what the peer said is on its way is
+    /// ([`Depeering`]).
+    #[must_use]
+    pub fn collecting_on(&self, scheme: SchemeId) -> bool {
+        self.depeering.is_some()
+            && self
+                .methods
+                .first()
+                .is_some_and(|method| method.scheme == scheme)
     }
 
     /// The schemes of its methods, in order.
@@ -576,6 +600,9 @@ pub struct Entry {
     pub method_at_ms: u64,
     /// Failed attempts to add a method in a row, for backoff.
     pub method_failures: u32,
+    /// The scheme of our last request for a method, so the next asks for
+    /// the one after it: a scheme the peer refuses holds up no other.
+    pub method_tried: Option<SchemeId>,
     /// Since when routes have not reached it.
     pub unreachable_ms: Option<u64>,
     /// Its link states' rate limit.
@@ -605,6 +632,7 @@ impl Entry {
             peering_failures: 0,
             method_at_ms: now_ms,
             method_failures: 0,
+            method_tried: None,
             unreachable_ms: None,
             bucket: Bucket::full(rate, now_ms),
             advertise: Advertise {

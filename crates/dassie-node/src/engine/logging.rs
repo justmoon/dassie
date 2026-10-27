@@ -214,7 +214,7 @@ fn own_names(severity: Severity, event: &dassie_peer::NameEvent) {
     }
 }
 
-/// The peer node's events about settlement messages.
+/// The peer node's events about a peering's settlement methods.
 fn peer_method(severity: Severity, event: &dassie_peer::Event) {
     use dassie_peer::Event;
     match event {
@@ -236,6 +236,7 @@ fn peer_method(severity: Severity, event: &dassie_peer::Event) {
     }
 }
 
+/// The peer node's events about settlement messages.
 fn peer_settlement(severity: Severity, event: &dassie_peer::Event) {
     use dassie_peer::Event;
     match event {

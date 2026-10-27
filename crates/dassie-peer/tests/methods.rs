@@ -11,10 +11,13 @@
     clippy::panic
 )]
 
-use dassie_identity::NodeId;
-use dassie_peer::sim::{Network, SECOND, STUB, scheme};
-use dassie_peer::wire::SchemeId;
-use dassie_peer::{Config, Event, SendError};
+use dassie_identity::{NodeId, NodeKey};
+use dassie_kit::sim::SeededRng;
+use dassie_peer::sim::{Network, SECOND, START, STUB, StubHooks, key, scheme};
+use dassie_peer::wire::{Entry, Kind, NodeInfo, SchemeId, TerminationReason, sign_node_info};
+use dassie_peer::{
+    Config, Event, MAX_SCHEMES, Output, OwnInfo, PeerNode, SendError, Sources, Stored, StoredNode,
+};
 
 fn settle(network: &mut Network, ms: u64) {
     let until = network.now + ms;
@@ -246,4 +249,106 @@ fn a_method_only_one_side_holds_is_repaired() {
     settle(&mut network, 5_000);
     assert_eq!(methods(&network, asked, &ids[other]), [scheme(STUB)]);
     assert!(network.node(asked).peering_of(&ids[other]).is_some());
+}
+
+// A link state that lists a scheme many times names one method on it: the
+// methods with a node come from our own schemes, each once, however often
+// its list repeats one, and a node seeking peers picks such a node and asks
+// it how it peers.
+#[test]
+fn a_scheme_listed_again_is_one_method() {
+    let mallory = NodeKey::from_bytes(&[91; 32]);
+    let entries = core::iter::repeat_n(Entry::Scheme(scheme(STUB)), MAX_SCHEMES + 1)
+        .chain(core::iter::repeat_n(
+            Entry::Scheme(scheme(SECOND)),
+            MAX_SCHEMES + 1,
+        ))
+        .collect();
+    let info = NodeInfo {
+        sequence: START,
+        url: "https://mallory.test",
+        alias: "",
+        public_key: *mallory.public_key().as_bytes(),
+        entries,
+    };
+    let stored = Stored {
+        nodes: vec![StoredNode {
+            id: mallory.node_id(),
+            link_state: Some(sign_node_info(&mallory, &info)),
+            sources: Sources::MAJORITY,
+            first_seen_ms: START,
+            registration: None,
+            peering: None,
+            termination: None,
+        }],
+        ..Stored::default()
+    };
+    let mut node = PeerNode::new(
+        Config::DEV,
+        key(0),
+        OwnInfo {
+            url: Some("https://n0.test".into()),
+            alias: String::new(),
+            feed_port: None,
+            hub: None,
+        },
+        Vec::new(),
+        stored,
+        Box::new(SeededRng::new(78)),
+        START,
+    );
+    node.set_schemes(START, vec![scheme(STUB), scheme(SECOND)]);
+    let view = node
+        .nodes()
+        .into_iter()
+        .find(|view| view.id == mallory.node_id())
+        .unwrap();
+    assert_eq!(view.schemes, [scheme(STUB), scheme(SECOND)]);
+    let mut hooks = StubHooks::default();
+    let mut asked = false;
+    let mut now = START;
+    for _ in 0..1_000 {
+        node.handle_timeout(now, &mut hooks);
+        while let Some(output) = node.poll_output() {
+            asked |= matches!(output, Output::Request(request)
+                if request.to == mallory.node_id() && request.kind == Kind::PeeringInfoRequest);
+        }
+        if asked {
+            break;
+        }
+        now = node.poll_timeout().unwrap_or(now + 1_000).max(now + 1);
+    }
+    assert!(asked, "never asked the node how it peers");
+    node.check_invariants();
+}
+
+// A peering being ended collects on its first method, in whose units the
+// peer says what it has on its way: one that loses that method, its scheme
+// no longer run, ends at once rather than collect on another.
+#[test]
+fn a_peering_being_ended_that_loses_its_first_method_ends() {
+    let (mut network, _, b) = both(79);
+    network.cut.insert((0, 1));
+    network.cut.insert((1, 0));
+    network.act(0, |node, now| {
+        assert!(node.terminate(now, &b, TerminationReason::Owner));
+    });
+    network.set_running(0, scheme(STUB), false);
+    settle(&mut network, 5_000);
+    let dropped = events(
+        &network,
+        0,
+        |event| matches!(event, Event::MethodDropped { scheme: s, .. } if *s == scheme(STUB)),
+    );
+    let told = events(&network, 0, |event| {
+        matches!(
+            event,
+            Event::Terminating {
+                by_us: true,
+                reason: TerminationReason::Owner,
+                ..
+            }
+        )
+    });
+    assert_eq!((dropped, told), (0, 1));
 }

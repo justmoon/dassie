@@ -443,6 +443,10 @@ pub struct Network {
     /// Prepares taken on another method than the one they were sent on: a
     /// safety failure.
     pub misplaced: Vec<String>,
+    /// Prepares refused with a 409 because the receiver holds no such
+    /// method or peering: each finds a method only its sender held, which
+    /// the refusal then repairs.
+    pub one_sided: u64,
     /// The next request ID each node's Prepares take.
     next_prepare: u32,
     /// Settlements applied.
@@ -588,6 +592,7 @@ impl Network {
             prepares_sent: BTreeMap::new(),
             prepares_taken: BTreeMap::new(),
             misplaced: Vec::new(),
+            one_sided: 0,
             next_prepare: 0,
             applied: Vec::new(),
             settlement_requests: Vec::new(),
@@ -1219,6 +1224,9 @@ impl Network {
                 Some(answer.reply(self.promise.get(&to).copied().unwrap_or(0)))
             }
         };
+        if kind == Kind::MethodPacket && reply.as_ref().is_some_and(|reply| reply.status == 409) {
+            self.one_sided += 1;
+        }
         self.drain(to);
         // A registrar that withholds receipts logged the commitment, and
         // never answers.

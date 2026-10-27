@@ -24,9 +24,10 @@ impl PeerNode {
     /// a scheme a peering with it settles on ([`Self::methods_with`]) that
     /// it has no method on, and the node wants one on. One request at a
     /// time; a peer that refused, or that the node does not want a method
-    /// with, is asked again only after a backoff. Looked at whenever the
-    /// node does what is due, which a node with peers does at least once a
-    /// heartbeat, so nothing waits on a timer of its own.
+    /// with, is asked again only after a backoff, and then for the next
+    /// scheme it lacks, so one refused holds up no other. Looked at
+    /// whenever the node does what is due, which a node with peers does at
+    /// least once a heartbeat, so nothing waits on a timer of its own.
     pub(super) fn seek_methods(&mut self, hooks: &mut dyn PeeringHooks) {
         if self.peering.method_attempt.is_some() {
             return;
@@ -49,17 +50,29 @@ impl PeerNode {
             }
             // Not while we are telling the peer we dropped it: the drop
             // could arrive after the request.
-            let missing = self.methods_with(hooks, link).into_iter().find(|scheme| {
-                !peering.has(*scheme) && !self.dropping.contains_key(&(*id, *scheme))
-            });
-            if let Some(scheme) = missing {
-                wanted = Some((*id, scheme));
+            let missing: Vec<SchemeId> = self
+                .methods_with(hooks, link)
+                .into_iter()
+                .filter(|scheme| {
+                    !peering.has(*scheme) && !self.dropping.contains_key(&(*id, *scheme))
+                })
+                .collect();
+            // The one after the scheme asked for last, round the list.
+            let after = entry
+                .method_tried
+                .and_then(|tried| missing.iter().position(|scheme| *scheme == tried))
+                .map_or(0, |at| at + 1);
+            if let Some(scheme) = missing.iter().cycle().nth(after) {
+                wanted = Some((*id, *scheme));
                 break;
             }
         }
         let Some((node, scheme)) = wanted else {
             return;
         };
+        if let Some(entry) = self.table.get_mut(&node) {
+            entry.method_tried = Some(scheme);
+        }
         if !hooks.speaks(scheme) || !hooks.wants_method(node, scheme) {
             self.method_failed(node);
             return;
@@ -156,6 +169,12 @@ impl PeerNode {
             )
         });
         if !accepted {
+            return self.method_failed(node);
+        }
+        // A Prepare of the peer's on the method reached us before its
+        // acceptance did, and we told the peer we have no such method: it
+        // drops it, so we add none, and ask again once it heard.
+        if self.dropping.contains_key(&(node, scheme)) {
             return self.method_failed(node);
         }
         let room = self
@@ -305,7 +324,7 @@ impl PeerNode {
         if !peering.has(scheme) {
             return ok(&[]);
         }
-        if peering.methods.len() > 1 {
+        if peering.methods.len() > 1 && !peering.collecting_on(scheme) {
             self.remove_method(sender, scheme, false);
         } else if self
             .table
@@ -337,7 +356,9 @@ impl PeerNode {
         if !peering.has(scheme) {
             return false;
         }
-        if peering.methods.len() == 1 {
+        // A peering being ended collects on its first method: one that
+        // loses it ends at once, as one that loses its last.
+        if peering.methods.len() == 1 || peering.collecting_on(scheme) {
             let reason = peering
                 .depeering
                 .map_or(TerminationReason::Unspecified, |depeering| depeering.reason);

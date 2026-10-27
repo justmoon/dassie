@@ -269,15 +269,22 @@ impl PeerNode {
     /// (spec/designs/settlement-hubs.md#11-choosing-a-hub). At most one per
     /// scheme we peer on, so at most [`MAX_METHODS`](crate::MAX_METHODS).
     pub(crate) fn methods_with(&self, hooks: &dyn PeeringHooks, link: &LinkState) -> Vec<SchemeId> {
-        // In the other node's order, as before hubs.
-        let common = || {
-            link.schemes
+        // In the other node's order, as before hubs, each scheme once: the
+        // list is the other node's, which may repeat a scheme, so the bound
+        // comes from our own schemes.
+        let mut common: Vec<SchemeId> = Vec::with_capacity(self.schemes.len());
+        for scheme in &link.schemes {
+            if self.schemes.contains(scheme) && !common.contains(scheme) {
+                common.push(*scheme);
+            }
+        }
+        let mut methods = self.shared_hubs(hooks, link, common.iter().copied());
+        methods.extend(
+            common
                 .iter()
                 .copied()
-                .filter(|scheme| self.schemes.contains(scheme))
-        };
-        let mut methods = self.shared_hubs(hooks, link, common());
-        methods.extend(common().filter(|scheme| !hooks.uses_commitments(*scheme)));
+                .filter(|scheme| !hooks.uses_commitments(*scheme)),
+        );
         assert!(methods.len() <= crate::MAX_METHODS, "a method per scheme");
         methods
     }
@@ -521,6 +528,7 @@ impl PeerNode {
         // Its further methods are asked for at once.
         entry.method_at_ms = now;
         entry.method_failures = 0;
+        entry.method_tried = None;
         self.dirty.insert(node);
         if fresh {
             // It just answered us, or we it after probing its URL: what an

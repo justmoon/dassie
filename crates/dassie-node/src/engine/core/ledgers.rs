@@ -774,14 +774,13 @@ impl Core {
         // (spec/decisions/ending-a-peering.md).
         if let Ok(node) = dassie_identity::NodeId::parse(peer.as_str()) {
             self.settle.asked.remove(&node);
-            let method = self.peer.peering_of(&node).and_then(|peering| {
-                peering
-                    .schemes()
-                    .find(|method| method.as_str() == scheme.as_str())
-            });
-            if let Some(method) = method {
+            if let Some(first) = self
+                .peer
+                .peering_of(&node)
+                .map(|peering| peering.first().scheme)
+            {
                 self.peer
-                    .room(self.now_ms, &node, method, dassie_peer::Room::Enough);
+                    .room(self.now_ms, &node, first, dassie_peer::Room::Enough);
             }
             // Counted toward what it said was on its way only on the
             // peering's scheme, whose units the answer is in.
