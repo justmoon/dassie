@@ -87,6 +87,7 @@
 
 pub mod checks;
 pub mod hub;
+pub mod hub_runs;
 pub mod hubbed;
 pub mod scripted;
 pub mod swarm;
@@ -106,6 +107,7 @@ use dassie_oer::Decode;
 use dassie_payments::amount::paid_in_full;
 use dassie_peer::wire::SchemeId;
 use dassie_peer::{Bootstrap, Failure, InboundId, OwnInfo, RequestId, Response};
+use dassie_settlement::MAX_STUB_COMMITMENTS;
 use dassie_settlement::policy;
 use dassie_stream::{AssetDetails, BUFFER_LENGTH, Config, Connection, Policy, Role};
 use dassie_xrpl::DROPS_PER_XRP;
@@ -212,6 +214,11 @@ pub enum Settling {
     /// the hub from its XRP Ledger testnet account, and peers over the hub
     /// (spec/areas/hubs.md#in-the-node).
     Hub(usize),
+    /// Across currencies over hubs: node 0 in dollars over the stub with
+    /// commitments, the packet path of a hub without one, node 2 in a
+    /// settlement hub of this many validators, as [`Self::Hub`], nodes 1
+    /// and 3 on both (spec/areas/testing.md#over-a-settlement-hub).
+    HubAcross(usize),
 }
 
 /// The stub ledger, in dollars.
@@ -243,6 +250,9 @@ const VALIDATION_SECRET: [u8; 32] = *b"dassie simulation validations ok";
 /// What the fake ledger's issuer mints each node on its token's ledger once
 /// its line exists, in millionths of a dollar: as much as the stub gives.
 pub const MINT_MICROS: u64 = 100_000_000;
+/// What each member's owner moves into the hub in a run across currencies
+/// over hubs, in XRP: as many as the stub gives dollars.
+pub const HUB_STAKE_XRP: u64 = 100;
 /// What a token's pool holds of it, in whole tokens: beside twice as many
 /// XRP, a dollar at [`RATES`], and deep enough for either network's floor.
 pub const POOL_TOKENS: u64 = 100_000;
@@ -259,6 +269,7 @@ impl Settling {
             Self::Cross | Self::XrpRlusd | Self::XrpDsusd => {
                 panic!("a run across currencies has two ledgers")
             }
+            Self::HubAcross(_) => panic!("a run across currencies has two ledgers"),
         }
     }
 
@@ -274,6 +285,9 @@ impl Settling {
             (Self::XrpDsusd, 0) => &[DSUSD],
             (Self::XrpDsusd, _) => &[DSUSD, XRP],
             (Self::Hub(_), _) => &[HUB],
+            (Self::HubAcross(_), 0) => &[USD],
+            (Self::HubAcross(_), 2) => &[HUB],
+            (Self::HubAcross(_), _) => &[USD, HUB],
         }
     }
 
@@ -299,7 +313,8 @@ impl Settling {
             | Self::Xrpl
             | Self::XrplLive
             | Self::Cross
-            | Self::Hub(_) => None,
+            | Self::Hub(_)
+            | Self::HubAcross(_) => None,
         }
     }
 
@@ -322,7 +337,10 @@ impl Settling {
 
     /// Whether it runs across currencies, checked by [`checks::check_across`].
     pub const fn across(self) -> bool {
-        matches!(self, Self::Cross | Self::XrpRlusd | Self::XrpDsusd)
+        matches!(
+            self,
+            Self::Cross | Self::XrpRlusd | Self::XrpDsusd | Self::HubAcross(_)
+        )
     }
 
     /// What each node's owner starts with on `ledger`: the stub's balance,
@@ -333,6 +351,9 @@ impl Settling {
                 (FAUCET_DROPS as i128 - 1_000_000) * 1_000
             }
             LedgerId::XrplRlusdUsd | LedgerId::XrplTestnetDsusdUsd => MINT_MICROS as i128 * 1_000,
+            // In a run across currencies over hubs, what each member's
+            // owner moves into the hub, [`HUB_STAKE_XRP`].
+            LedgerId::HubXrplTestnetXrp => HUB_STAKE_XRP as i128 * DROPS_PER_XRP as i128 * 1_000,
             _ => 100_000_000_000,
         }
     }
@@ -357,6 +378,12 @@ impl Settling {
             Self::Trusting if ledger == USD => r#"{"trust":"unlimited"}"#.into(),
             Self::StubHub(limit) if ledger == USD => format!(r#"{{"commitments":{limit}}}"#),
             Self::Hub(validators) if ledger == HUB => hub::config(validators),
+            Self::HubAcross(validators) if ledger == HUB => hub::config(validators),
+            // As many packets in flight as the stub takes: a hub bounds its
+            // packets by their holds alone.
+            Self::HubAcross(_) if ledger == USD => {
+                format!(r#"{{"commitments":{MAX_STUB_COMMITMENTS}}}"#)
+            }
             _ => Self::scheme(ledger).1.into(),
         }
     }
@@ -1040,7 +1067,7 @@ impl Sim {
                 fulfills: BTreeMap::new(),
             });
         }
-        if let Settling::Hub(validators) = settling {
+        if let Settling::Hub(validators) | Settling::HubAcross(validators) = settling {
             sim.latency_ms = REGIONAL_LATENCY_MS;
             sim.found_hub(&vec![dassie_hub::sim::Role::Honest; validators]);
         }
@@ -1053,7 +1080,7 @@ impl Sim {
             }
             // A member of a hub funds its account there from its XRP Ledger
             // testnet account.
-            if matches!(settling, Settling::Hub(_)) {
+            if settling.ledgers(index).contains(&HUB) {
                 let config = settling.config(XRP);
                 sim.step(index, |core| {
                     core.add_scheme("xrpl-testnet-xrp", config).unwrap();
@@ -1403,7 +1430,10 @@ impl Sim {
         if self.settling.across() {
             self.watch_prices(index);
         }
-        if matches!(self.settling, Settling::StubHub(_) | Settling::Hub(_)) {
+        if matches!(
+            self.settling,
+            Settling::StubHub(_) | Settling::Hub(_) | Settling::HubAcross(_)
+        ) {
             self.watch_hub(index);
         }
         if self.settling.on_xrpl() {
@@ -1452,7 +1482,9 @@ impl Sim {
             // the holds for a while, never below them
             // (spec/areas/hubs.md#in-the-node). The stub reports a take when
             // the books take it, so there the two are always one.
-            let real = matches!(self.settling, Settling::Hub(_));
+            // Across the stub with commitments and a real hub, every peer
+            // is held to the real hub's bound.
+            let real = matches!(self.settling, Settling::Hub(_) | Settling::HubAcross(_));
             if peer.peered
                 && let Some(credit) = peer.credit
                 && (credit < holds || credit > holds && !real)

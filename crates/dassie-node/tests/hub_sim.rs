@@ -9,6 +9,11 @@
 //! stall and its escrow pay out, or f + 1 validators collude. The campaign
 //! runs it from random seeds, outside CI: `dassie-sim run node-hub <seed>`
 //! replays a seed, `dassie-sim explain node-hub <seed>` prints its trace.
+//!
+//! The `node-hub-lies` and `node-hub-currencies` runs
+//! (`dassie_node::sim::hub_runs`) put lying XRP Ledger servers under a hub's
+//! members, and payments across dollars and XRP in a hub; these tests run
+//! them on fixed seeds, and `dassie-sim` on any.
 
 #![allow(
     clippy::unwrap_used,
@@ -19,7 +24,16 @@
 
 use std::collections::BTreeMap;
 
-use dassie_node::sim::{START, Settling, Sim, hubbed, key};
+use dassie_kit::sim::{assert_passes, caught, each};
+use dassie_node::sim::{START, Settling, Sim, hub_runs, hubbed, key};
+
+/// The seeds of `node-hub-lies` the tests run, which between them tell
+/// every kind of lie: how long a lying server's connection lasts decides
+/// which it gets to tell.
+const LIES_SEEDS: [u64; 2] = [5, 7];
+
+/// The seed of `node-hub-currencies` the tests run.
+const ACROSS_SEED: u64 = 3;
 
 // spec/areas/hubs.md#in-the-node: a node opens its account in the hub by a
 // deposit from its XRP Ledger testnet account, which the validators see on
@@ -79,4 +93,53 @@ fn payments_both_ways_through_a_hop_over_a_hub_complete() {
             .map(|payment| (payment.from, payment.to, dassie_node::sim::sent(payment)))
             .collect::<Vec<_>>()
     );
+}
+
+// spec/areas/testing.md#over-a-settlement-hub: members peered over a hub,
+// whose XRP Ledger servers tell each kind of lie in turn while they pay and
+// their owners fund their accounts and move funds into the hub, then a
+// validator of the ledger rotates its key, a quorum is withheld and a list
+// lapses. Each member's books hold to the fake ledger's truth and to the
+// hub, every member anchored, the payments complete and the hub keeps
+// running. Between them, the seeds tell every kind of lie, and the members
+// catch what the verifier catches: so a change that quietly bypasses it
+// fails.
+#[test]
+fn hub_members_hold_to_the_ledger_through_lying_servers() {
+    let mut reached: BTreeMap<&str, u64> = BTreeMap::new();
+    for (seed, run) in LIES_SEEDS.iter().zip(each(&LIES_SEEDS, |seed| {
+        caught(|| hub_runs::run_lies(seed))
+    })) {
+        assert!(!run.outcome.is_failure(), "seed {seed}: {}", run.outcome);
+        for (what, count) in run.counts {
+            *reached.entry(what).or_default() += count;
+        }
+    }
+    let lies = dassie_xrpl::fake::Lie::ALL.map(dassie_node::sim::told_as);
+    for what in lies.into_iter().chain([
+        "lies caught",
+        "anchors",
+        "transactions proven",
+        "absences proven",
+        "validator lists fetched",
+        "validator keys rotated",
+        "quorums withheld",
+        "validator lists lapsed",
+        "owner moves into the hub",
+    ]) {
+        assert!(
+            reached.contains_key(what),
+            "the seeds never reached {what}: {reached:?}"
+        );
+    }
+}
+
+// spec/areas/testing.md#over-a-settlement-hub: across dollars over the stub
+// with commitments and XRP in a hub, through nodes on both that convert and
+// price by their inventory, one of them charging: what arrives is what was
+// sent at the rates, less the fees, an outgoing payment crosses, and the
+// hub and its members' books hold.
+#[test]
+fn hub_members_pay_across_currencies() {
+    assert_passes(ACROSS_SEED, hub_runs::run_across);
 }

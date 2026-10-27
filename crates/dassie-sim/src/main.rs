@@ -301,8 +301,8 @@ fn execute(command: Command) -> ExitCode {
 }
 
 fn list(out: &mut impl Write) -> io::Result<()> {
-    for sim in &SIMS {
-        writeln!(out, "{:<16} {}", sim.name, sim.about)?;
+    for sim in SIMS {
+        writeln!(out, "{:<20} {}", sim.name, sim.about)?;
     }
     Ok(())
 }
