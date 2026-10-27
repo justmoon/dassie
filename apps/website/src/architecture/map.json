@@ -106,7 +106,7 @@
         "Deposit pages like an exchange's: the address as a QR code, what to send, and the reserve; a button for testnet XRP from the faucet, and none on mainnet, which has no faucet; for a dollar token, DSUSD on the testnet or RLUSD on mainnet, both the token and the XRP its fees need, at the same address, and that DSUSD is bought with XRP on the testnet's pool",
         "A dollar token's ledger shows its peg guard: the token's last price on its pool, and while the node pauses it, why: off its peg, or its price unread",
         "A page of what the node holds outside its books, as the ledger reports it: its XRP and reserve, its token lines, and whether an issuer froze one",
-        "A page of each settlement hub the node is in, the first drawn in Kopje: its balance, the holds toward each peer and from it, the move on its way, depositing and withdrawing, and the hub's payout once it ended or stalled",
+        "A page of each settlement hub the node is in, drawn in Kopje: its balance, the holds toward each peer and from it, the move on its way, depositing and withdrawing, and the hub's payout once it ended or stalled",
         "Wallet addresses and payment requests for Open Payments",
         "The consent page for apps, the apps it has let in, and their grants",
         "The network as the node routes over it, its peers online and offline, bans, and the node's settings",
