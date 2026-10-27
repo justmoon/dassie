@@ -372,24 +372,14 @@ async fn the_peer_settings_are_the_owners() {
         )
     };
     // The curve is on from the start (spec/decisions/passive-rebalancing.md).
-    assert_eq!(settings().await, (0, 0, Some(50_000)));
-    assert_eq!(
-        read(owner.call(set(1_000, 2_000, Some(30_000))).await),
-        1_000
-    );
-    for (fee, spread, rebalance) in [
-        (100_001, 0, None),
-        (0, 100_001, None),
-        (0, 0, Some(100_001)),
-    ] {
+    assert_eq!(settings().await, (0, 0, 50_000));
+    assert_eq!(read(owner.call(set(1_000, 2_000, 30_000)).await), 1_000);
+    for (fee, spread, rebalance) in [(100_001, 0, 0), (0, 100_001, 0), (0, 0, 100_001)] {
         assert!(
             owner.call(set(fee, spread, rebalance)).await.is_err(),
-            "{fee} {spread} {rebalance:?}"
+            "{fee} {spread} {rebalance}"
         );
     }
-    assert_eq!(settings().await, (1_000, 2_000, Some(30_000)));
-    // Without `k`, the node keeps its own.
-    assert_eq!(read(owner.call(set(3_000, 2_000, None)).await), 3_000);
-    assert_eq!(settings().await, (3_000, 2_000, Some(30_000)));
+    assert_eq!(settings().await, (1_000, 2_000, 30_000));
     node.stop().await;
 }

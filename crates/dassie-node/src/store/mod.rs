@@ -46,7 +46,7 @@ use std::time::Duration;
 
 use dassie_identity::NodeKey;
 use dassie_node_core::certificate::CertificateSource;
-use dassie_node_core::config::{Alias, DirectoryUrl, Hostname, NodeConfig, Ports, Realm};
+use dassie_node_core::config::{Alias, DirectoryUrl, Hostname, NodeConfig, Realm};
 use dassie_node_core::session::{SessionId, SessionPolicy, SessionTimes};
 use rusqlite::{Connection, OptionalExtension, Params, Row, params};
 
@@ -316,26 +316,23 @@ impl Store {
     /// The configuration.
     pub fn config(&self) -> Result<NodeConfig, StoreError> {
         let row = self.lock().query_row_cached(
-            "SELECT realm, hostname, http_port, https_port, alias, acme_directory_url FROM node_config",
+            "SELECT realm, hostname, alias, acme_directory_url FROM node_config",
             [],
             |row| {
                 Ok((
                     row.get::<_, String>(0)?,
                     row.get::<_, Option<String>>(1)?,
-                    row.get::<_, u32>(2)?,
-                    row.get::<_, u32>(3)?,
-                    row.get::<_, String>(4)?,
-                    row.get::<_, String>(5)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
                 ))
             },
         )?;
-        let (realm, hostname, http_port, https_port, alias, directory) = row;
+        let (realm, hostname, alias, directory) = row;
         Ok(NodeConfig {
             realm: Realm::parse(&realm).map_err(|_| StoreError::Corrupt("realm"))?,
             hostname: hostname
                 .map(|name| Hostname::parse(&name).map_err(|_| StoreError::Corrupt("hostname")))
                 .transpose()?,
-            ports: Ports::new(http_port, https_port).map_err(|_| StoreError::Corrupt("ports"))?,
             alias: Alias::parse(&alias).map_err(|_| StoreError::Corrupt("alias"))?,
             acme_directory: DirectoryUrl::parse(&directory)
                 .map_err(|_| StoreError::Corrupt("ACME directory"))?,
@@ -345,13 +342,10 @@ impl Store {
     /// Stores the configuration.
     pub fn set_config(&self, config: &NodeConfig) -> Result<(), StoreError> {
         self.lock().execute_cached(
-            "UPDATE node_config SET realm = ?1, hostname = ?2, http_port = ?3, https_port = ?4, \
-             alias = ?5, acme_directory_url = ?6",
+            "UPDATE node_config SET realm = ?1, hostname = ?2, alias = ?3, acme_directory_url = ?4",
             params![
                 config.realm.as_str(),
                 config.hostname.as_ref().map(Hostname::as_str),
-                config.ports.http(),
-                config.ports.https(),
                 config.alias.as_str(),
                 config.acme_directory.as_str(),
             ],

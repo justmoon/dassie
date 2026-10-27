@@ -52,16 +52,12 @@ export function relayState(relay: Relay | null): {
       return { text: "connected", tone: "good" };
     case RelayConnection.CONNECTING:
       return { text: "connecting", tone: "plain" };
-    case RelayConnection.UNREACHABLE:
+    default:
+      // UNREACHABLE, or a state this wallet does not know.
       return {
         text:
           "unreachable, so Open Payments clients cannot reach this node through it",
         tone: "bad",
       };
-    default:
-      // A state this wallet does not know says only whether it is connected.
-      return relay.connected
-        ? { text: "connected", tone: "good" }
-        : { text: "not connected", tone: "bad" };
   }
 }

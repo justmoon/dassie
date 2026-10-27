@@ -215,8 +215,8 @@ impl Alias {
     }
 }
 
-/// The ports the standalone runtime listens on. Under systemd the socket
-/// units decide, and these are not used.
+/// The ports the standalone runtime listens on: the defaults, or those its
+/// flags give. Under systemd the socket units decide.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Ports {
     http: u16,
@@ -296,8 +296,6 @@ pub struct NodeConfig {
     pub realm: Realm,
     /// The public DNS name, once configured.
     pub hostname: Option<Hostname>,
-    /// The standalone runtime's ports.
-    pub ports: Ports,
     /// Shown to other nodes.
     pub alias: Alias,
     /// Where certificates are renewed.
@@ -309,7 +307,6 @@ impl Default for NodeConfig {
         Self {
             realm: Realm::Test,
             hostname: None,
-            ports: Ports::DEFAULT,
             alias: Alias::default(),
             acme_directory: DirectoryUrl::default(),
         }

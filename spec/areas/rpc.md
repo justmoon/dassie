@@ -11,7 +11,7 @@ The typed contract between the node and its owner's clients: the wallet in the b
 - **The package is `dassie.owner.v1`:** the owner's contract, whichever client speaks it (the wallet, the CLI, a paired app), and the WebSocket's subprotocol has the same name.
 - **A point in time is an `int64` named `*_unix_ms`,** milliseconds since 1970, in every message; a duration is a `uint64` named `*_ms`. Signed, so that a client's language reads it as it reads its own clock.
 - **One contract, three transports.** The browser's WebSocket at `/rpc`, the IPC socket and an owner app's relayed stream carry the same messages; only the framing and who the caller is differ.
-- **Methods are numbered `oneof` members,** and a retired number is `reserved`, never reused. A node that does not know a method (the client is newer) answers `UNIMPLEMENTED`.
+- **Methods are numbered `oneof` members.** While every client ships in the same release as the node, a method or field that goes is deleted with its number, and neither end keeps a fallback for an older other end, since none can meet it; once owner apps ship apart from the node, a retired number is `reserved`, never reused. A node that does not know a method (the client is newer) answers `UNIMPLEMENTED`.
 - **Every call ends with exactly one terminal message,** a response, a stream's end or an error, even when its handler panics. A failure is always a typed error, never a success that carries one; `INTERNAL` says only that the log has the details, so a bug never leaks internals to a client.
 - The dev environment's control contract, `proto/dassie/dev/v1`, is separate ([dev.md](dev.md)); nothing in the node accepts it.
 

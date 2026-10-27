@@ -26,26 +26,17 @@ test("an uplink says whether it is connected, and since when it is not", () => {
 });
 
 test("the relay's state reads as the node reports it", () => {
-  const relay = (connection: RelayConnection, connected = false) => ({
+  const relay = (connection: RelayConnection) => ({
     url: "https://relay.dassiepay.net",
-    connected,
     connection,
   });
-  assertEquals(relayState(relay(RelayConnection.CONNECTED, true)).tone, "good");
+  assertEquals(relayState(relay(RelayConnection.CONNECTED)).tone, "good");
   assertEquals(relayState(relay(RelayConnection.CONNECTING)), {
     text: "connecting",
     tone: "plain",
   });
   assertEquals(relayState(relay(RelayConnection.UNREACHABLE)).tone, "bad");
   assertEquals(relayState(null).tone, "bad");
-  // A node that reports no state of the three still says whether it is
-  // connected.
-  assertEquals(
-    relayState(relay(RelayConnection.UNSPECIFIED, true)).text,
-    "connected",
-  );
-  assertEquals(
-    relayState(relay(RelayConnection.UNSPECIFIED)).text,
-    "not connected",
-  );
+  // A state the wallet does not know reads as unreachable.
+  assertEquals(relayState(relay(RelayConnection.UNSPECIFIED)).tone, "bad");
 });

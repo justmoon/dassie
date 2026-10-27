@@ -94,9 +94,9 @@ impl std::error::Error for DaemonError {}
 /// The standalone runtime's TCP listeners.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum TcpPorts {
-    /// HTTP and HTTPS on the configured ports.
+    /// HTTP and HTTPS on 80 and 443 (spec/areas/node.md#runtimes).
     #[default]
-    Configured,
+    Standard,
     /// HTTP and HTTPS on these ports instead: for running unprivileged, and
     /// for the development environment's many nodes.
     These(Ports),
@@ -203,10 +203,7 @@ impl Prepared {
             }
             Runtime::Standalone => {
                 let (http, https) = match options.ports {
-                    TcpPorts::Configured => {
-                        let ports = store.config().map_err(DaemonError::Store)?.ports;
-                        bind_ports(ports, options.listen)?
-                    }
+                    TcpPorts::Standard => bind_ports(Ports::DEFAULT, options.listen)?,
                     TcpPorts::These(ports) => bind_ports(ports, options.listen)?,
                     TcpPorts::HttpsOnly(port) => (None, bind_tcp(port, options.listen)?),
                 };

@@ -7,11 +7,7 @@ const label = "gstpaogawdidju5a6m4lolevaes3cm4dj7omffq";
 
 /** A relay at `url` as the node reports it, in `connection`. */
 function relay(url: string, connection: RelayConnection): Relay {
-  return {
-    url,
-    connected: connection === RelayConnection.CONNECTED,
-    connection,
-  };
+  return { url, connection };
 }
 
 test("pointers at the default front door are told apart", () => {
@@ -33,13 +29,9 @@ test("a name at the front door is reachable while the node is connected to it", 
     frontDoorState(pointer, relay(door, UNREACHABLE)),
     "disconnected",
   );
-  // Without a state (UNSPECIFIED), or with one the wallet does not know,
-  // whether it is connected decides.
-  const { UNSPECIFIED } = RelayConnection;
-  const unsaid = { url: door, connected: false, connection: UNSPECIFIED };
+  // A state the wallet does not know reads as disconnected.
+  const unsaid = relay(door, RelayConnection.UNSPECIFIED);
   assertEquals(frontDoorState(pointer, unsaid), "disconnected");
-  const held = { ...unsaid, connected: true };
-  assertEquals(frontDoorState(pointer, held), "reachable");
   // Opted out with an empty DASSIE_RELAY.
   assertEquals(frontDoorState(pointer, null), "no-relay");
   // Another relay does not take the front door's requests.

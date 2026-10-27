@@ -431,16 +431,14 @@ message DecideGrantResponse {
   string finish_url = 1;
 }
 
-// The grants the owner approved and has not revoked.
-message ListGrantsRequest {}
+// Streaming: the approved grants, whole, each time they change.
+message SubscribeGrantsRequest {}
 
-message ListGrantsResponse {
+// The grants the owner approved and has not revoked.
+message ApprovedGrants {
   // Newest first.
   repeated Grant grants = 1;
 }
-
-// Streaming: the approved grants, whole, each time they change.
-message SubscribeGrantsRequest {}
 
 // Revokes a grant and its tokens. NOT_FOUND for an unknown one.
 message RevokeGrantRequest {

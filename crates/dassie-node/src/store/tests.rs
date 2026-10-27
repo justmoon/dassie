@@ -374,12 +374,10 @@ fn the_schema_refuses_invalid_config() {
     let connection = store.lock();
     for update in [
         "UPDATE node_config SET hostname = 'Upper.Example'",
-        "UPDATE node_config SET http_port = 0",
-        "UPDATE node_config SET https_port = http_port",
         "UPDATE node_config SET realm = 'main'",
         "UPDATE node_config SET acme_directory_url = 'http://x'",
-        "INSERT INTO node_config (id, realm, http_port, https_port, alias, acme_directory_url) \
-         VALUES (2, 'test', 1, 2, '', 'https://x')",
+        "INSERT INTO node_config (id, realm, alias, acme_directory_url) \
+         VALUES (2, 'test', '', 'https://x')",
     ] {
         assert!(connection.execute(update, []).is_err(), "{update}");
     }

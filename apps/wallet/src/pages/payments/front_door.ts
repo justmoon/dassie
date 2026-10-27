@@ -20,7 +20,6 @@ export function atFrontDoor(pointer: string): boolean {
 /** The relay the node reports (`GetStatus`). */
 export interface Relay {
   readonly url: string;
-  readonly connected: boolean;
   readonly connection: RelayConnection;
 }
 
@@ -62,11 +61,9 @@ export function frontDoorState(
       return "reachable";
     case RelayConnection.CONNECTING:
       return "connecting";
-    case RelayConnection.UNREACHABLE:
-      return "disconnected";
     default:
-      // A state this wallet does not know says only whether it is connected.
-      return relay.connected ? "reachable" : "disconnected";
+      // UNREACHABLE, or a state this wallet does not know.
+      return "disconnected";
   }
 }
 

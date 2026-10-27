@@ -20,8 +20,6 @@ pub fn config(config: &NodeConfig) -> proto::NodeConfig {
             .as_ref()
             .map(|name| name.as_str().to_string())
             .unwrap_or_default(),
-        http_port: config.ports.http().into(),
-        https_port: config.ports.https().into(),
         alias: config.alias.as_str().into(),
         acme_directory_url: config.acme_directory.as_str().into(),
     }

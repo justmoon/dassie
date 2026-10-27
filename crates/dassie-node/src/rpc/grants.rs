@@ -55,7 +55,6 @@ pub async fn dispatch(
                 finish_url: finish.unwrap_or_default(),
             })
         }
-        Method::ListGrants(_) => response::Method::ListGrants(list(node, &urls).await?),
         Method::SubscribeGrants(_) => return subscribe(node, engine, urls, items).await,
         Method::RevokeGrant(request) => {
             let id = grant_id(&request.id)?;
@@ -83,7 +82,6 @@ pub const fn is_grants(method: &Method) -> bool {
         method,
         Method::GetGrantRequest(_)
             | Method::DecideGrant(_)
-            | Method::ListGrants(_)
             | Method::SubscribeGrants(_)
             | Method::RevokeGrant(_)
     )
@@ -97,7 +95,7 @@ fn op_error(error: OpError) -> RpcError {
     error.into()
 }
 
-async fn list(node: &Node, urls: &Urls) -> Result<proto::ListGrantsResponse, RpcError> {
+async fn list(node: &Node, urls: &Urls) -> Result<proto::ApprovedGrants, RpcError> {
     let rows = node
         .store()
         .consented_grants(MAX_LISTED)
@@ -107,7 +105,7 @@ async fn list(node: &Node, urls: &Urls) -> Result<proto::ListGrantsResponse, Rpc
         let access: Vec<Access> = serde_json::from_str(&row.access).map_err(RpcError::internal)?;
         grants.push(grant(node, urls, &row, &access).await?);
     }
-    Ok(proto::ListGrantsResponse { grants })
+    Ok(proto::ApprovedGrants { grants })
 }
 
 /// A grant as the owner reads it: its access, and what each

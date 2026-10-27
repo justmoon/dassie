@@ -81,9 +81,11 @@ message Cancel {}
 
 message Request {
   // 13 was SetRealm: the realm is fixed at setup, with the node key
-  // (spec/decisions/mainnet-schemes.md). 70 was CreateStreamCredentials,
-  // which incoming payments replaced.
-  reserved 13, 70;
+  // (spec/decisions/mainnet-schemes.md). 14 was SetPorts: the standalone
+  // runtime binds 80 and 443 unless its flags say otherwise
+  // (spec/areas/node.md#runtimes). 70 was CreateStreamCredentials, which
+  // incoming payments replaced.
+  reserved 13, 14, 70;
 
   oneof method {
     // Public: the only method an unauthenticated socket may call.
@@ -93,7 +95,6 @@ message Request {
     GetConfigRequest get_config = 10;
     GetSetupUrlRequest get_setup_url = 11;
     SetHostnameRequest set_hostname = 12;
-    SetPortsRequest set_ports = 14;
     SetAliasRequest set_alias = 15;
 
     SetCertificateRequest set_certificate = 20;
@@ -171,7 +172,6 @@ message Request {
 
     GetGrantRequestRequest get_grant_request = 114;
     DecideGrantRequest decide_grant = 115;
-    ListGrantsRequest list_grants = 116;
     // Streaming.
     SubscribeGrantsRequest subscribe_grants = 117;
     RevokeGrantRequest revoke_grant = 118;
@@ -223,7 +223,7 @@ message ServerMessage {
 }
 
 message Response {
-  reserved 13, 70;
+  reserved 13, 14, 70;
 
   oneof method {
     GetBasicStateResponse get_basic_state = 1;
@@ -232,7 +232,6 @@ message Response {
     GetConfigResponse get_config = 10;
     GetSetupUrlResponse get_setup_url = 11;
     SetHostnameResponse set_hostname = 12;
-    SetPortsResponse set_ports = 14;
     SetAliasResponse set_alias = 15;
 
     SetCertificateResponse set_certificate = 20;
@@ -288,7 +287,6 @@ message Response {
 
     GetGrantRequestResponse get_grant_request = 114;
     DecideGrantResponse decide_grant = 115;
-    ListGrantsResponse list_grants = 116;
     RevokeGrantResponse revoke_grant = 118;
 
     ResolveRecipientResponse resolve_recipient = 119;
@@ -334,7 +332,7 @@ message StreamItem {
     GetRegistrationStatusResponse subscribe_registration = 102;
     LogEvent subscribe_logs = 110;
     // The approved grants, whole, each time they change.
-    ListGrantsResponse subscribe_grants = 117;
+    ApprovedGrants subscribe_grants = 117;
     // The payment, whole, each time it changes.
     OutgoingPayment subscribe_outgoing_payment = 122;
     // The owner's names, whole, each time they change.

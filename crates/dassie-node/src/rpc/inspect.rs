@@ -231,14 +231,12 @@ fn cells(node: &Node) -> Vec<proto::Cell> {
             "config",
             0,
             format!(
-                "realm {}, hostname {}, ports {}/{}, alias {:?}",
+                "realm {}, hostname {}, alias {:?}",
                 config.realm.ilp_allocation_scheme(),
                 config
                     .hostname
                     .as_ref()
                     .map_or("none", |name| name.as_str()),
-                config.ports.http(),
-                config.ports.https(),
                 config.alias.as_str(),
             ),
         ),
