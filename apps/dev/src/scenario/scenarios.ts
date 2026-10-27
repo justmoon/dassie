@@ -1,8 +1,9 @@
 /**
  * The scenarios (spec/areas/dev.md#scenarios): how many nodes, which are
  * bootstrap nodes, which are periphery nodes, which settlement schemes
- * they use, and their realm. Nodes added later join as core nodes with the
- * scenario's default schemes.
+ * they use, with which configs, their realm, and the settlement hub some
+ * of them validate and the others join. Nodes added later join as core
+ * nodes with the scenario's default schemes.
  *
  * @module
  */
@@ -48,6 +49,36 @@ export interface ScenarioDef {
    * only against the fake ledger's mainnet, never with real money.
    */
   readonly realm?: "test" | "live";
+  /**
+   * Each scheme's config, by scheme ID, where it is not empty, for every
+   * node that runs it: such as `{"peers":false}` for an XRP Ledger scheme
+   * that is only its owner's book (spec/areas/settlement.md#owner-books).
+   * The hub scheme's is the founded hub's rules, never set here.
+   */
+  readonly configs?: Readonly<Record<string, string>>;
+  /**
+   * A settlement hub on the fake ledger: the scenario founds it once its
+   * nodes run, and its members join it once it is founded. Only the fake
+   * ledger has it, so such a scenario needs it.
+   */
+  readonly hub?: HubDef;
+}
+
+/**
+ * A settlement hub of a scenario (spec/areas/hubs.md#founding-a-hub): the
+ * nodes that validate it, by a validator file that lists the sponsor; the
+ * sponsor, which founds it through its owner's RPC and funds its escrow
+ * from its owner book of XRP; and the members, which join it with its
+ * rules and fund their accounts in it from their own owner books of XRP.
+ * Nodes added later join it as members.
+ */
+export interface HubDef {
+  /** The nodes that validate it, by index. */
+  readonly validators: readonly number[];
+  /** The node that founds it, by index. */
+  readonly sponsor: number;
+  /** The nodes that join it, by index. */
+  readonly members: readonly number[];
 }
 
 /** A periphery node of a scenario, and the nodes it is pinned to. */
@@ -90,6 +121,58 @@ export const XRPL_SCHEMES: readonly string[] = [
   "xrpl-xrp",
   "xrpl-rlusd",
 ];
+
+/** The scheme of a member of the XRP hub on the testnet, and its ledger. */
+export const HUB_SCHEME = "hub-xrpl-testnet-xrp";
+export const HUB_LEDGER = "hub-xrpl-testnet-xrp+xrp";
+
+/**
+ * The owner book of the hub's asset: the XRP Ledger testnet scheme in XRP,
+ * from which the sponsor funds the escrow and a member its account
+ * (spec/areas/hubs.md#in-the-node).
+ */
+export const HUB_OWNER_BOOK = "xrpl-testnet-xrp";
+
+/** The fewest and the most validators a hub is founded with
+ * (`FoundHubRequest`). */
+export const MIN_HUB_VALIDATORS = 4;
+export const MAX_HUB_VALIDATORS = 16;
+
+/**
+ * What a member's hub scheme is set up with: the founded hub's rules, the
+ * hex of their encoding, as `ListHubFoundings` shows them.
+ */
+export function hubConfig(rules: string): string {
+  return JSON.stringify({ rules });
+}
+
+/**
+ * The validator file of a node that validates the hubs `sponsor` founds,
+ * following their escrows on the XRP Ledger testnet at `xrpl`
+ * (spec/areas/hubs.md#the-validator-in-the-node): it lists no hub, since
+ * the sponsor founds them with the node.
+ */
+export function validatorFile(sponsor: string, xrpl: string): string {
+  return JSON.stringify({
+    sponsors: [sponsor],
+    hubs: [],
+    xrpl,
+    network: "testnet",
+  });
+}
+
+/** Whether node `index` of `def` validates its hub. */
+export function validates(def: ScenarioDef, index: number): boolean {
+  return def.hub?.validators.includes(index) ?? false;
+}
+
+/** Whether node `index` of `def` is a member of its hub: one it names, or
+ * one added later. */
+export function joinsHub(def: ScenarioDef, index: number): boolean {
+  const hub = def.hub;
+  if (hub === undefined) return false;
+  return hub.members.includes(index) || index >= def.schemes.length;
+}
 
 /**
  * What a live scenario deposits into each node's mainnet account, in drops,
@@ -208,6 +291,24 @@ export const SCENARIOS: readonly ScenarioDef[] = [
     pool: { token: "DSUSD", value: "50000", tradingFee: 500 },
   },
   {
+    id: "hub",
+    name: "Settlement Hub",
+    description:
+      "Four nodes validate a settlement hub that the first of them founds on the fake ledger, and two members join it, fund it from their own XRP and peer over it alone",
+    schemes: [
+      [HUB_OWNER_BOOK],
+      [],
+      [],
+      [],
+      [HUB_OWNER_BOOK, HUB_SCHEME],
+      [HUB_OWNER_BOOK, HUB_SCHEME],
+    ],
+    addedSchemes: [HUB_OWNER_BOOK, HUB_SCHEME],
+    bootstrap: [4, 5],
+    configs: { [HUB_OWNER_BOOK]: JSON.stringify({ peers: false }) },
+    hub: { validators: [0, 1, 2, 3], sponsor: 0, members: [4, 5] },
+  },
+  {
     id: "one-node",
     name: "One Node",
     description: "A single node with stub settlement and no peers",
@@ -237,13 +338,28 @@ export function ledgerNetwork(def: ScenarioDef): "testnet" | "mainnet" {
 }
 
 /**
- * Whether `def`'s nodes resume with their data after a restart. Not a live
- * scenario's: the fake ledger is a new chain on every run, and mainnet
- * never resets, so a mainnet account that knew an earlier chain stops
- * (spec/areas/xrpl.md#real-money). Its nodes start from scratch.
+ * Why `def`'s nodes start from scratch on every run, a restart too, if
+ * they do; the fake ledger is a new chain on every run. A live scenario's
+ * because mainnet never resets, so a mainnet account that knew an earlier
+ * chain stops (spec/areas/xrpl.md#real-money). A hub scenario's because
+ * its hub's escrow is on the earlier chain alone, and nothing sets it up
+ * again on the new one, so its members could neither deposit nor settle
+ * (spec/areas/hubs.md#founding-a-hub).
  */
+export function startsFresh(def: ScenarioDef): string | undefined {
+  if (live(def)) {
+    return "runs on a new fake mainnet, which never resets";
+  }
+  if (def.hub !== undefined) {
+    return "founds its hub on a new fake ledger, since its escrow stays on the old one";
+  }
+  return undefined;
+}
+
+/** Whether `def`'s nodes resume with their data after a restart: unless
+ * they start from scratch ({@linkcode startsFresh}). */
 export function resumes(def: ScenarioDef): boolean {
-  return !live(def);
+  return startsFresh(def) === undefined;
 }
 
 /** Whether `def` settles on the XRP Ledger, with any of its nodes. */
@@ -298,12 +414,17 @@ export function poolDrops(value: string, xrpPerDollar: string): bigint {
 }
 
 /**
- * What is wrong with `def`'s periphery nodes, if anything: each is one of
- * its nodes, once, and no bootstrap node, since a node list is served
- * only by core nodes; each is pinned to at least one core node of it, each
- * once. The node checks how many it may name (`DASSIE_UPLINKS`).
+ * What is wrong with `def`, if anything: with its periphery nodes, each of
+ * which is one of its nodes, once, and no bootstrap node, since a node list
+ * is served only by core nodes, and is pinned to at least one core node of
+ * it, each once (the node checks how many it may name, `DASSIE_UPLINKS`);
+ * or with its hub ({@linkcode invalidHub}).
  */
 export function invalid(def: ScenarioDef): string | undefined {
+  return invalidPeriphery(def) ?? invalidHub(def);
+}
+
+function invalidPeriphery(def: ScenarioDef): string | undefined {
   const count = def.schemes.length;
   const inRange = (index: number) =>
     Number.isSafeInteger(index) && index >= 0 && index < count;
@@ -328,6 +449,81 @@ export function invalid(def: ScenarioDef): string | undefined {
   return undefined;
 }
 
+/**
+ * What is wrong with `def`'s hub, if anything: as many validators as a hub
+ * is founded with, each one of its nodes, once; a sponsor among its nodes
+ * that runs the owner book of XRP, which funds the escrow; and members,
+ * each one of its nodes, once, that run the hub's scheme and the owner
+ * book alone, as nodes added later do, the book peering with nobody: a
+ * peering two members make before their hub accounts exist stays direct
+ * (spec/areas/hubs.md#in-the-node). No other node runs the hub's scheme,
+ * whose config is the founded hub's rules, never the scenario's.
+ */
+export function invalidHub(def: ScenarioDef): string | undefined {
+  const hub = def.hub;
+  if (hub === undefined) return undefined;
+  const count = def.schemes.length;
+  const inRange = (index: number) =>
+    Number.isSafeInteger(index) && index >= 0 && index < count;
+  const { validators, sponsor, members } = hub;
+  if (
+    validators.length < MIN_HUB_VALIDATORS ||
+    validators.length > MAX_HUB_VALIDATORS
+  ) {
+    return `a hub has ${MIN_HUB_VALIDATORS} to ${MAX_HUB_VALIDATORS} validators, not ${validators.length}`;
+  }
+  const roles = [["validator", validators], ["member", members]] as const;
+  for (const [role, nodes] of roles) {
+    if (new Set(nodes).size !== nodes.length) return `a hub ${role} twice`;
+    const stray = nodes.find((index) => !inRange(index));
+    if (stray !== undefined) return `no node ${stray}`;
+  }
+  if (!inRange(sponsor)) return `no node ${sponsor}`;
+  if (!def.schemes[sponsor].includes(HUB_OWNER_BOOK)) {
+    return `the sponsor runs no ${HUB_OWNER_BOOK}, which funds the escrow`;
+  }
+  if (members.length === 0) return "a hub has no member";
+  const joining = [HUB_OWNER_BOOK, HUB_SCHEME].sort();
+  const joins = (schemes: readonly string[]) =>
+    schemes.length === joining.length &&
+    [...schemes].sort().every((scheme, i) => scheme === joining[i]);
+  for (let index = 0; index < count; index++) {
+    const schemes = def.schemes[index];
+    const member = members.includes(index);
+    if (member && !joins(schemes)) {
+      return `hub member ${index} runs ${schemes.join(", ")}, not ${
+        joining.join(" and ")
+      } alone`;
+    }
+    if (!member && schemes.includes(HUB_SCHEME)) {
+      return `node ${index} runs ${HUB_SCHEME} and is no hub member`;
+    }
+  }
+  if (!joins(def.addedSchemes)) {
+    return `added nodes run ${def.addedSchemes.join(", ")}, not ${
+      joining.join(" and ")
+    } alone`;
+  }
+  if (def.configs?.[HUB_SCHEME] !== undefined) {
+    return `${HUB_SCHEME}'s config is the founded hub's rules`;
+  }
+  if (!ownerBookOnly(def.configs?.[HUB_OWNER_BOOK])) {
+    return `${HUB_OWNER_BOOK} peers: its config must say "peers": false`;
+  }
+  return undefined;
+}
+
+/** Whether an XRP Ledger scheme's `config` makes it an owner book, which
+ * peers with nobody (spec/areas/xrpl.md#owner-books). */
+function ownerBookOnly(config: string | undefined): boolean {
+  if (config === undefined) return false;
+  try {
+    return (JSON.parse(config) as { peers?: unknown }).peers === false;
+  } catch {
+    return false;
+  }
+}
+
 /** Why `def` cannot run, with the fake XRP Ledger or without it. */
 export function unavailable(
   def: ScenarioDef,
@@ -342,6 +538,9 @@ export function unavailable(
   }
   if (def.pool !== undefined && !fakeLedger) {
     return `needs --xrpl fake: only the fake ledger's issuer makes a pool of ${def.pool.token}`;
+  }
+  if (def.hub !== undefined && !fakeLedger) {
+    return "needs --xrpl fake: each run founds a hub of its own, whose escrow stays off the public testnet";
   }
   return undefined;
 }

@@ -224,7 +224,8 @@
         "Builds the binary, starts the nodes on `dN.localhost` and restarts them when the Rust code changes",
         "An SNI proxy on port 443, local certificates, the dev nodes' identities, a rates server",
         "Sets nodes up through their own RPC, the same way the end-to-end tests do",
-        "The scenario library: one node, two, six, the XRP Ledger ones, DSUSD that the fake ledger's issuer mints each node, two nodes in the live realm on the fake ledger's mainnet settling in XRP or in RLUSD, and one or two core nodes with a market maker's two periphery nodes pinned to each, beside a pool",
+        "The scenario library: one node, two, six, the XRP Ledger ones, DSUSD that the fake ledger's issuer mints each node, two nodes in the live realm on the fake ledger's mainnet settling in XRP or in RLUSD, one or two core nodes with a market maker's two periphery nodes pinned to each, beside a pool, and a settlement hub on the fake ledger with four validators and two members",
+        "Founds a scenario's hub through its sponsor's own RPC, with a validator file for each of its validators, and has its members join with the founded hub's rules and fund their accounts in it from their own XRP",
         "Drives the fake ledger as a scenario or a test asks: its issuer mints, freezes and claws back, its pool is set, and XRP arrives from outside",
         "Runs the live realm only by the node's dev switch and only against the fake ledger's mainnet, funding each node's account by a deposit, as mainnet has no faucet; a live scenario's nodes start from scratch each run, since mainnet never resets"
       ]
