@@ -188,6 +188,8 @@ A check's name changes only when the check is renamed. A panic's file and line a
 - A panic is a safety failure that loses its trace; replay the seed to see what led to it.
 - A git commit's full SHA is also a seed, so that a commit names its own run.
 
+**A range of seeds** runs on every core: each seed in a process of its own, as in a campaign, so that runs share nothing. Its output is in the order of the seeds, the same as if they ran one after another, since each seed is independent of the others. A run stuck past the wall-time limit, or one that aborts, is reported as in a campaign rather than ending the range. A single seed, or `--jobs 1`, runs in the runner's own process, where a debugger can follow it.
+
 ## The campaign
 
 The campaign runs the simulations from random seeds on spot VMs, outside CI ([random-seed-simulations](../decisions/random-seed-simulations.md)). Its supervisor, `scripts/sim-campaign.ts`, runs one loop at a time on each VM: it builds a commit's `dassie-sim` in the `sim` profile, runs the runner's [campaign command](#the-runner-dassie-sim) on every core for a while, reports, and exits. systemd starts the next loop from a fresh checkout of `main`, so a change to the supervisor or the runner on `main` reaches every VM within a loop. The VMs' setup is in `scripts/sim-campaign/`.

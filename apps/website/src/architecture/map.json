@@ -661,7 +661,7 @@
       "w": 184,
       "desc": "A developer tool that runs the simulations from any seed, and the engine of the simulation campaign. Each simulation lives in the crate it simulates, and a seed fixes its whole run, so a seed that fails replays the same way every time.",
       "does": [
-        "Runs one seed, a range of seeds, or the seed a git commit names: `dassie-sim run peer 0..1000`",
+        "Runs one seed, a range of seeds on every core, or the seed a git commit names: `dassie-sim run peer 0..1000`",
         "Prints a run's trace to explain a failure: `dassie-sim explain peer 42`",
         "Runs random seeds on every core as a campaign, mostly of the `node` simulation, and prints each run as a line of JSON: `dassie-sim campaign --minutes 60`",
         "Gives each failure a signature, its simulation, outcome and the check or line that failed, the same for every seed that fails there",
