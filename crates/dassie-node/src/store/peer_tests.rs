@@ -77,6 +77,76 @@ fn the_node_table_round_trips() {
     assert_eq!(stored.nodes, expected);
 }
 
+/// A method on `scheme`, with `credit_out`.
+fn method(scheme: &str, credit_out: u64) -> Method {
+    Method {
+        scheme: SchemeId::parse(scheme).unwrap(),
+        state: scheme.as_bytes().to_vec(),
+        credit_out,
+        short_for_ms: credit_out / 100,
+        short_reached_ms: credit_out / 200,
+        short_checked_ms: None,
+    }
+}
+
+// spec/decisions/settlement-methods.md: a peering's methods round-trip in
+// the order the pair agreed them, each with what is its own; one dropped
+// goes, and the others keep their order.
+#[test]
+fn a_peerings_methods_round_trip_in_order() {
+    let store = Store::open_in_memory().unwrap();
+    let mut peered = node(1);
+    let peering = peered.peering.as_mut().unwrap();
+    peering.methods.push(method("zz-second", 1_100));
+    peering.methods.push(method("aa-third", 1_200));
+    commit(
+        &store,
+        PeerBatch {
+            nodes: vec![peered.clone()],
+            ..PeerBatch::default()
+        },
+    );
+    assert_eq!(store.load_peer().unwrap().nodes, [peered.clone()]);
+    peered.peering.as_mut().unwrap().methods.remove(1);
+    commit(
+        &store,
+        PeerBatch {
+            nodes: vec![peered.clone()],
+            ..PeerBatch::default()
+        },
+    );
+    let loaded = store.load_peer().unwrap();
+    let schemes: Vec<&str> = loaded.nodes[0]
+        .peering
+        .as_ref()
+        .unwrap()
+        .methods
+        .iter()
+        .map(|method| method.scheme.as_str())
+        .collect();
+    assert_eq!(schemes, ["stub", "aa-third"]);
+    assert_eq!(loaded.nodes, [peered]);
+}
+
+// A method's time short of room while reached is never more than its time
+// short: the table refuses one that is.
+#[test]
+fn the_table_refuses_a_method_reached_longer_than_short() {
+    let store = Store::open_in_memory().unwrap();
+    let mut peered = node(1);
+    let first = &mut peered.peering.as_mut().unwrap().methods[0];
+    first.short_reached_ms = first.short_for_ms + 1;
+    let batch = LedgerBatch {
+        peer: PeerBatch {
+            nodes: vec![peered],
+            ..PeerBatch::default()
+        },
+        ..LedgerBatch::default()
+    };
+    assert!(store.commit_ledger(&batch).is_err());
+    assert!(store.load_peer().unwrap().nodes.is_empty());
+}
+
 // A peering ended, or a node removed, takes its peering row with it.
 #[test]
 fn peerings_end_with_their_nodes() {
@@ -102,11 +172,15 @@ fn peerings_end_with_their_nodes() {
     let stored = store.load_peer().unwrap();
     assert_eq!(stored.nodes.len(), 1);
     assert_eq!(stored.nodes[0].peering, None);
-    let peers: i64 = store
-        .lock()
-        .query_row("SELECT count(*) FROM peers", [], |row| row.get(0))
-        .unwrap();
-    assert_eq!(peers, 0);
+    for table in ["peers", "peer_methods"] {
+        let rows: i64 = store
+            .lock()
+            .query_row(&format!("SELECT count(*) FROM {table}"), [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(rows, 0, "{table}");
+    }
 }
 
 // The peer rows commit with the ledger's, or not at all: a peering and

@@ -22,7 +22,7 @@ pub const EARLY_TESTNET_APPLICATION_ID: i32 = 0x7DA5_E2C9;
 
 /// The migrations, in order. Migration `n` (1-based) brings `user_version`
 /// to `n`. Never edit one that has shipped; add another.
-pub(super) const MIGRATIONS: &[&str] = &[BASELINE];
+pub(super) const MIGRATIONS: &[&str] = &[BASELINE, MIGRATION_2];
 
 /// The schema version this code writes: the number of migrations.
 pub const SCHEMA_VERSION: i64 = version_of(MIGRATIONS);
@@ -648,6 +648,38 @@ CREATE TABLE hub_payouts (
 ) STRICT, WITHOUT ROWID;
 ";
 
+/// Migration 2: a peering's settlement methods, a row each
+/// (spec/decisions/settlement-methods.md): its scheme, its place in the
+/// order the pair agreed them, the scheme's state for the peer, the credit
+/// we extend on it, and how long the peer's room on it has been short. A
+/// stored peering's one method moves out of its `peers` row, which keeps
+/// what is the pair's. `ALTER TABLE ... DROP COLUMN` rebuilds `peers` in
+/// place, so `peer_terminations` keeps its reference, and nothing cascades.
+const MIGRATION_2: &str = "
+CREATE TABLE peer_methods (
+  node TEXT NOT NULL REFERENCES peers (node) ON DELETE CASCADE,
+  scheme TEXT NOT NULL CHECK (length(scheme) BETWEEN 2 AND 64),
+  position INTEGER NOT NULL CHECK (position BETWEEN 0 AND 15),
+  state BLOB NOT NULL,
+  credit_out INTEGER NOT NULL CHECK (credit_out >= 0),
+  short_for_ms INTEGER NOT NULL CHECK (short_for_ms >= 0),
+  short_reached_ms INTEGER NOT NULL
+    CHECK (short_reached_ms BETWEEN 0 AND short_for_ms),
+  PRIMARY KEY (node, scheme),
+  UNIQUE (node, position)
+) STRICT, WITHOUT ROWID;
+
+INSERT INTO peer_methods (node, scheme, position, state, credit_out, short_for_ms,
+  short_reached_ms)
+SELECT node, scheme, 0, state, credit_out, short_for_ms, short_reached_ms FROM peers;
+
+ALTER TABLE peers DROP COLUMN scheme;
+ALTER TABLE peers DROP COLUMN state;
+ALTER TABLE peers DROP COLUMN credit_out;
+ALTER TABLE peers DROP COLUMN short_for_ms;
+ALTER TABLE peers DROP COLUMN short_reached_ms;
+";
+
 /// Columns that hold secrets: the database inspector never reads them.
 pub const SECRET_COLUMNS: &[(&str, &str)] = &[
     ("node_key", "private_key"),
@@ -854,15 +886,23 @@ pub const TABLES: &[Table] = &[
         without_rowid: true,
         columns: &[
             ("node", "TEXT", true, true),
-            ("scheme", "TEXT", true, false),
-            ("state", "BLOB", true, false),
-            ("credit_out", "INTEGER", true, false),
             ("since_ms", "INTEGER", true, false),
             ("inbound", "INTEGER", true, false),
             ("last_seen_ms", "INTEGER", true, false),
-            ("short_for_ms", "INTEGER", true, false),
             ("depeering_since_ms", "INTEGER", false, false),
             ("depeering_reason", "INTEGER", false, false),
+        ],
+    },
+    Table {
+        name: "peer_methods",
+        without_rowid: true,
+        columns: &[
+            ("node", "TEXT", true, true),
+            ("scheme", "TEXT", true, true),
+            ("position", "INTEGER", true, false),
+            ("state", "BLOB", true, false),
+            ("credit_out", "INTEGER", true, false),
+            ("short_for_ms", "INTEGER", true, false),
             ("short_reached_ms", "INTEGER", true, false),
         ],
     },
