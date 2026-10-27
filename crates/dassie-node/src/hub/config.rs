@@ -8,7 +8,8 @@
 //!   "sponsors": ["<node ID>", ...],
 //!   "hubs": [{ "rules": "<hex>", "genesisMs": 1800000000000, "xrpl": "wss://..." }],
 //!   "xrpl": "wss://...",
-//!   "network": "testnet"
+//!   "network": "testnet",
+//!   "publishers": [{ "key": "<hex>", "sites": ["https://..."] }]
 //! }
 //! ```
 //!
@@ -25,6 +26,11 @@
 //! `network` is the XRP Ledger network of every hub the node validates, by
 //! name, the testnet unless it says otherwise; a network of real money is
 //! refused while the live realm is (spec/decisions/real-money.md).
+//! `publishers` are the validator list publishers whose lists make the UNL
+//! the node proves the escrows' ledgers under, as an XRPL account's config
+//! names them (spec/designs/xrpl-validation.md#10-configuration-and-state):
+//! by default the network's own, which only a test or a dev network
+//! replaces.
 
 use dassie_hub::Rules;
 use dassie_identity::NodeId;
@@ -33,6 +39,7 @@ use dassie_node_core::config::LiveRealm;
 use dassie_oer::Reader;
 use dassie_xrpl::Network;
 use dassie_xrpl::network::{NETWORKS, TESTNET};
+use dassie_xrpl::validator_list::UnlConfig;
 use serde::Deserialize;
 
 /// The most hubs a node validates: its own limit
@@ -61,6 +68,9 @@ pub struct ValidatorConfig {
     /// The XRP Ledger network every hub it validates is on: it accepts
     /// terms on no other.
     pub network: &'static Network,
+    /// The validator list publishers whose lists make the UNL it proves
+    /// that network's ledgers under.
+    pub unl: UnlConfig,
 }
 
 /// One hub the node validates.
@@ -82,6 +92,7 @@ struct File {
     hubs: Vec<HubEntry>,
     xrpl: Option<String>,
     network: Option<String>,
+    publishers: Option<serde_json::Value>,
 }
 
 #[derive(Deserialize)]
@@ -101,6 +112,7 @@ struct HubEntry {
 pub fn parse(text: &str, live: LiveRealm) -> Result<ValidatorConfig, String> {
     let file: File = serde_json::from_str(text).map_err(|error| error.to_string())?;
     let network = network(file.network.as_deref(), live)?;
+    let unl = unl(file.publishers.as_ref(), network)?;
     if file.sponsors.len() > MAX_SPONSORS {
         return Err(format!("lists more than {MAX_SPONSORS} sponsors"));
     }
@@ -127,7 +139,26 @@ pub fn parse(text: &str, live: LiveRealm) -> Result<ValidatorConfig, String> {
         hubs,
         xrpl,
         network,
+        unl,
     })
+}
+
+/// The publishers `publishers` names, else `network`'s own.
+fn unl(publishers: Option<&serde_json::Value>, network: &Network) -> Result<UnlConfig, String> {
+    let own = UnlConfig::for_network(network.id);
+    let Some(publishers) = publishers else {
+        return own.ok_or_else(|| {
+            format!(
+                "names no validator list publishers, and the network {:?} has none built in",
+                network.name
+            )
+        });
+    };
+    let base = own.unwrap_or(UnlConfig {
+        publishers: Vec::new(),
+    });
+    base.with_override(&serde_json::json!({ "publishers": publishers }))
+        .ok_or_else(|| "its validator list publishers are not ones the node follows".into())
 }
 
 /// The network `name` names, the testnet if none: only one of the live
@@ -391,6 +422,33 @@ pub(crate) mod tests {
             let error = parse(&file_on(&listed, &testnet, "mainnet"), live).unwrap_err();
             assert!(error.contains("not the file's \"mainnet\""), "{error}");
         }
+    }
+
+    // The validators' UNL is the network's, unless the file names other
+    // publishers, as a dev network's fake ledger has its own.
+    #[test]
+    fn the_publishers_are_the_networks_unless_named() {
+        let refused = LiveRealm::Refused;
+        let sponsor = NodeKey::from_bytes(&[100; 32]);
+        let rules = rules(&sponsor, &nodes());
+        let listed = vec![sponsor.node_id().as_str().to_string()];
+        let config = parse(&file(&listed, &rules), refused).unwrap();
+        assert_eq!(config.unl, UnlConfig::testnet());
+
+        let fake = dassie_xrpl::fake::FakeLedger::new();
+        let publishers = fake.publishers(dassie_xrpl::fake::LIST_SITE);
+        let mut named: serde_json::Value = serde_json::from_str(&file(&listed, &rules)).unwrap();
+        named["publishers"] = publishers["publishers"].clone();
+        let config = parse(&named.to_string(), refused).unwrap();
+        assert_eq!(
+            config.unl,
+            UnlConfig::testnet().with_override(&publishers).unwrap()
+        );
+        assert_ne!(config.unl, UnlConfig::testnet());
+
+        named["publishers"] = serde_json::json!([]);
+        let error = parse(&named.to_string(), refused).unwrap_err();
+        assert!(error.contains("publishers"), "{error}");
     }
 
     #[test]

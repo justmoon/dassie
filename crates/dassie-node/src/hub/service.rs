@@ -91,7 +91,7 @@ pub async fn run(node: Arc<Node>, config: Arc<ValidatorConfig>, shutdown: Cancel
                 tracing::warn!(target: target::HUB, hub = %hex(id.0.as_bytes()), "validating as many hubs as the node does: not this one");
                 continue;
             }
-            match start(&node, &key, &hub, &client, &tasks, &stop) {
+            match start(&node, &key, &hub, &config.unl, &client, &tasks, &stop) {
                 Ok(true) => running.push(id),
                 Ok(false) => {}
                 // The database failed: the service starts again.
@@ -150,6 +150,7 @@ fn start(
     node: &Arc<Node>,
     key: &NodeKey,
     hub: &HubConfig,
+    unl: &dassie_xrpl::validator_list::UnlConfig,
     client: &HubClient,
     tasks: &TaskTracker,
     stop: &CancellationToken,
@@ -188,6 +189,7 @@ fn start(
         clock: node.clock(),
         links,
         retry: std::collections::VecDeque::new(),
+        unl: unl.clone(),
     };
     let stop_ = stop.clone();
     tasks.spawn(async move {

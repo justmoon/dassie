@@ -345,7 +345,10 @@ export class Scenario {
     const name = identity(this.#table, index).name;
     await mkdir(dataDir(this.options.layout, name), { recursive: true });
     const sponsor = identity(this.#table, hub.sponsor).id;
-    await writeFile(file, validatorFile(sponsor, this.ledger.url));
+    await writeFile(
+      file,
+      validatorFile(sponsor, this.ledger.url, this.ledger.publishers),
+    );
   }
 
   /**

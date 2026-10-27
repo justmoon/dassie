@@ -485,6 +485,7 @@ impl Driver {
                 .collect(),
             signer_list: escrow.signer_list,
             written_off_at: ledger.written_off_at(),
+            issuer: *ledger.issuer(),
         }
     }
 

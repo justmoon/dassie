@@ -115,14 +115,25 @@ async fn until(clock: &ManualClock, step_ms: u64, mut done: impl AsyncFnMut() ->
 }
 
 /// What every validator's file says: the sponsor it validates for, no hub
-/// of its own, and the fake ledger to follow escrows on.
-fn validator_file(dir: &std::path::Path, sponsor: &NodeKey, xrpl: &str) -> String {
+/// of its own, the fake ledger to follow escrows on, and the publisher of
+/// its validators, whose UNL the escrow's ledgers are proven under.
+fn validator_file(
+    dir: &std::path::Path,
+    sponsor: &NodeKey,
+    xrpl: &str,
+    publishers: Option<serde_json::Value>,
+) -> String {
     let path = dir.join("validator.json");
-    let file = serde_json::json!({
+    let mut file = serde_json::json!({
         "sponsors": [sponsor.node_id().as_str()],
         "hubs": [],
         "xrpl": xrpl,
     });
+    if let (Some(file), Some(serde_json::Value::Object(publishers))) =
+        (file.as_object_mut(), publishers)
+    {
+        file.extend(publishers);
+    }
     std::fs::write(&path, file.to_string()).unwrap();
     path.to_str().unwrap().to_owned()
 }
@@ -162,7 +173,7 @@ impl Net {
         xrpl.close_on(std::sync::Arc::new(clock.clone()));
         let sponsor_key = NodeKey::from_bytes(&[70; 32]);
         let files = tempfile::tempdir().unwrap();
-        let file = validator_file(files.path(), &sponsor_key, &xrpl.url);
+        let file = validator_file(files.path(), &sponsor_key, &xrpl.url, xrpl.publishers());
         let env = [
             ("DASSIE_PEER_ALLOW_PRIVATE", "1"),
             ("DASSIE_EXTRA_CA_FILE", CA),
@@ -500,7 +511,7 @@ async fn a_strangers_founding_stream_is_reset_unread() {
     let sponsor = NodeKey::from_bytes(&[80; 32]);
     let stranger = NodeKey::from_bytes(&[81; 32]);
     let files = tempfile::tempdir().unwrap();
-    let file = validator_file(files.path(), &sponsor, "ws://127.0.0.1:1");
+    let file = validator_file(files.path(), &sponsor, "ws://127.0.0.1:1", None);
     let env = [
         ("DASSIE_PEER_ALLOW_PRIVATE", "1"),
         ("DASSIE_EXTRA_CA_FILE", CA),

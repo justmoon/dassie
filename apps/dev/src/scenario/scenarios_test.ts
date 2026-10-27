@@ -230,6 +230,17 @@ test("a hub's validator file and its members' config", () => {
     xrpl: "ws://127.0.0.1:1",
     network: "testnet",
   });
+  const publishers = { publishers: [{ key: "ED00", sites: ["https://x"] }] };
+  assertEquals(
+    JSON.parse(validatorFile("abc", "ws://127.0.0.1:1", publishers)),
+    {
+      sponsors: ["abc"],
+      hubs: [],
+      xrpl: "ws://127.0.0.1:1",
+      network: "testnet",
+      ...publishers,
+    },
+  );
   assertEquals(JSON.parse(hubConfig("00ff")), { rules: "00ff" });
 });
 

@@ -17,9 +17,9 @@
 
 use dassie_hub::escrow::{
     EscrowFault, EscrowSeen, OPEN_MEMO_TYPE, PayoutBundle, PayoutError, PayoutTransaction,
-    SetupStep, ValidatorKeys, assemble, check_escrow, deposit_of, escrow_master, outcome_of,
-    payout_set, setup, setup_step, sign_payout_set, signer_list_set, withdrawal_outcome,
-    withdrawal_payment,
+    SetupStep, ValidatorKeys, assemble, check_escrow, check_escrow_line, check_proven_escrow,
+    deposit_of, escrow_keys, escrow_master, outcome_of, payout_set, setup, setup_step,
+    sign_payout_set, signer_list_set, withdrawal_outcome, withdrawal_payment,
 };
 use dassie_hub::ledger::Failure;
 use dassie_hub::ledger::TESTNET_NETWORK;
@@ -616,6 +616,213 @@ fn the_check_refuses_an_escrow_with_a_way_in() {
     assert_eq!(
         check(&unvalidated, &objects),
         Err(EscrowFault::NotValidated)
+    );
+}
+
+/// What a state proof of the escrow's setup at the server's validated
+/// ledger holds, its branches checked against the ledger's header: as a
+/// validator's verifier proves it, but for the anchor.
+fn proven_escrow(xrpl: &mut FakeLedger, terms: &Terms) -> dassie_xrpl::anchor::ProvenState {
+    let keys = escrow_keys(terms);
+    let answer = request(xrpl, &api::state_proof(5, &keys, None));
+    let answer = api::state_proof_result(&answer).unwrap();
+    dassie_xrpl::anchor::prove_state(&answer, &keys, None).unwrap()
+}
+
+// spec/areas/hubs.md#what-validators-attest: validators check the escrow
+// from a state proof of its account root, signer list and a token hub's
+// line, at one validated ledger: what the escrow owns is what its owner
+// count says, so what others make that names it does not count, and what
+// it made itself does.
+#[test]
+fn the_check_from_proofs_counts_what_the_escrow_owns() {
+    for terms in [terms as fn(&NodeKey, AccountId) -> Terms, dsusd_terms] {
+        let mut hub = Hub::found_with(terms);
+        let escrow = hub.escrow();
+        let next = sequence(&mut hub.xrpl, escrow);
+        let proven = proven_escrow(&mut hub.xrpl, &hub.rules.terms);
+        assert_eq!(check_proven_escrow(&hub.rules, &proven), Ok(next));
+
+        // A line someone else opens to the escrow is theirs.
+        let stranger = Wallet::from_seed([41; 16]);
+        hub.xrpl.deposit(stranger.account(), 50_000_000);
+        hub.xrpl.close();
+        let trust = TrustSet {
+            account: stranger.account(),
+            limit: dassie_xrpl::codec::TokenAmount {
+                value: TokenValue::parse("10").unwrap(),
+                currency: IssuedAsset::DSUSD.currency,
+                issuer: escrow,
+            },
+            fee: FEE_BASE,
+            sequence: sequence(&mut hub.xrpl, stranger.account()),
+            last_ledger_sequence: None,
+            flags: 0,
+            network_id: None,
+            memos: Vec::new(),
+            signing: Signing::by(stranger.public_key()),
+        }
+        .sign(&stranger);
+        assert_eq!(submit(&mut hub.xrpl, &trust.blob), "tesSUCCESS");
+        hub.xrpl.close();
+        let proven = proven_escrow(&mut hub.xrpl, &hub.rules.terms);
+        assert_eq!(check_proven_escrow(&hub.rules, &proven), Ok(next));
+
+        // Its flags as the setup leaves them, or the check fails.
+        let flags = hub.xrpl.account_flags(escrow).unwrap();
+        for (cleared, fault) in [
+            (api::account_flags::DISABLE_MASTER, EscrowFault::MasterKey),
+            (
+                api::account_flags::REQUIRE_DEST_TAG,
+                EscrowFault::NoRequireDest,
+            ),
+        ] {
+            hub.xrpl.set_account_flags(escrow, flags & !cleared);
+            hub.xrpl.close();
+            let proven = proven_escrow(&mut hub.xrpl, &hub.rules.terms);
+            assert_eq!(check_proven_escrow(&hub.rules, &proven), Err(fault));
+        }
+        hub.xrpl.set_account_flags(escrow, flags);
+        hub.xrpl.close();
+
+        // Another set's signer list is not the rules'.
+        let mut other = hub.rules.clone();
+        other.validators.pop();
+        let proven = proven_escrow(&mut hub.xrpl, &hub.rules.terms);
+        assert_eq!(
+            check_proven_escrow(&other, &proven),
+            Err(EscrowFault::SignerList)
+        );
+    }
+
+    // An escrow whose master key made a line of its own before the setup
+    // owns one object more than the setup leaves it.
+    let mut xrpl = FakeLedger::new();
+    let sponsor = NodeKey::from_bytes(&[101; 32]);
+    let master = escrow_master(&sponsor, TESTNET_NETWORK, &NONCE);
+    let hub_terms = terms(&sponsor, master.account());
+    let nodes: Vec<NodeKey> = (1..=4).map(|i| NodeKey::from_bytes(&[i; 32])).collect();
+    let acceptances: Vec<Acceptance> = nodes
+        .iter()
+        .enumerate()
+        .map(|(i, node)| {
+            ValidatorKeys::derive(node, TESTNET_NETWORK, &NONCE)
+                .unwrap()
+                .accept(node, &hub_terms, format!("v{i}.example:443"))
+                .unwrap()
+        })
+        .collect();
+    let rules = Rules {
+        terms: hub_terms,
+        validators: acceptances,
+    };
+    xrpl.fund(master.account());
+    xrpl.close();
+    let kept = TrustSet {
+        account: master.account(),
+        limit: IssuedAsset::DSUSD.amount(TokenValue::parse("10").unwrap()),
+        fee: FEE_BASE,
+        sequence: sequence(&mut xrpl, master.account()),
+        last_ledger_sequence: None,
+        flags: 0,
+        network_id: None,
+        memos: Vec::new(),
+        signing: Signing::by(master.public_key()),
+    }
+    .sign(&master);
+    assert_eq!(submit(&mut xrpl, &kept.blob), "tesSUCCESS");
+    xrpl.close();
+    let next = sequence(&mut xrpl, master.account());
+    for transaction in setup(&rules, &master, next, FEE_BASE) {
+        assert_eq!(submit(&mut xrpl, transaction.blob()), "tesSUCCESS");
+    }
+    xrpl.close();
+    let proven = proven_escrow(&mut xrpl, &rules.terms);
+    assert_eq!(
+        check_proven_escrow(&rules, &proven),
+        Err(EscrowFault::Objects)
+    );
+}
+
+/// `line`, a `RippleState` in rippled's binary form, with the `UInt32`
+/// fields `qualities` added, all in canonical order.
+fn with_qualities(line: &[u8], qualities: &[(u8, u32)]) -> Vec<u8> {
+    use dassie_xrpl::binary::{FieldId, Fields, Type, write_field};
+    let mut fields: Vec<(FieldId, Vec<u8>)> = Fields::new(line)
+        .map(|field| {
+            let field = field.unwrap();
+            (field.id, field.value.to_vec())
+        })
+        .collect();
+    for (code, quality) in qualities {
+        fields.push((
+            FieldId::new(Type::UInt32, *code),
+            quality.to_be_bytes().to_vec(),
+        ));
+    }
+    fields.sort_by_key(|(id, _)| *id);
+    let mut out = Vec::new();
+    for (id, value) in fields {
+        write_field(&mut out, id, &value);
+    }
+    out
+}
+
+// spec/decisions/token-hubs.md: a hub takes only a token whose issuer
+// charges no transfer fee; the check from proofs reads the issuer's account
+// root at the same ledger, and takes the escrow once the fee is gone.
+#[test]
+fn the_check_from_proofs_refuses_an_issuer_that_charges_a_fee() {
+    let mut hub = Hub::found_with(dsusd_terms);
+    let escrow = hub.escrow();
+    let next = sequence(&mut hub.xrpl, escrow);
+    let issuer = IssuedAsset::DSUSD.issuer;
+    for (rate, checked) in [
+        (1_002_000_000, Err(EscrowFault::Issuer)),
+        (api::TRANSFER_RATE_PAR, Ok(next)),
+        (2_000_000_000, Err(EscrowFault::Issuer)),
+        (0, Ok(next)),
+    ] {
+        hub.xrpl.set_transfer_rate(issuer, rate).unwrap();
+        hub.xrpl.close();
+        let proven = proven_escrow(&mut hub.xrpl, &hub.rules.terms);
+        assert_eq!(check_proven_escrow(&hub.rules, &proven), checked, "{rate}");
+    }
+}
+
+// spec/areas/hubs.md#the-escrow: a token hub's escrow line is at par on
+// both sides. A quality on either side, which its master key could set
+// before the setup disables it, would skew what withdrawals deliver and
+// deposits add, so the validators' check from proofs refuses it as the
+// check from JSON does.
+#[test]
+fn the_check_from_proofs_takes_the_escrow_line_only_at_par() {
+    let mut hub = Hub::found_with(dsusd_terms);
+    let terms = hub.rules.terms.clone();
+    let proven = proven_escrow(&mut hub.xrpl, &terms);
+    let line = proven.object(&escrow_keys(&terms)[2]).unwrap().unwrap();
+    assert_eq!(with_qualities(line, &[]), line);
+    assert_eq!(check_escrow_line(&terms, line), Ok(()));
+    // HighQualityIn, HighQualityOut, LowQualityIn and LowQualityOut, as
+    // rippled numbers a line's fields.
+    for code in 16..=19 {
+        for par in [0, 1_000_000_000] {
+            let line = with_qualities(line, &[(code, par)]);
+            assert_eq!(check_escrow_line(&terms, &line), Ok(()), "{code} {par}");
+        }
+        for off in [1, 999_999_999, 1_000_000_001, u32::MAX] {
+            let line = with_qualities(line, &[(code, off)]);
+            assert_eq!(
+                check_escrow_line(&terms, &line),
+                Err(EscrowFault::TrustLine),
+                "{code} {off}"
+            );
+        }
+    }
+    let both = with_qualities(line, &[(16, 1_000_000_000), (19, 1_100_000_000)]);
+    assert_eq!(
+        check_escrow_line(&terms, &both),
+        Err(EscrowFault::TrustLine)
     );
 }
 
