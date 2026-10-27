@@ -52,6 +52,8 @@ fn promised(packet: &[u8]) -> Option<Promised> {
 pub struct HubPeer {
     /// The peer.
     pub peer: Name,
+    /// The hub scheme of the method this is of.
+    pub scheme: Name,
     /// What the scheme holds of the packets between us, if it counts them.
     pub held: dassie_settlement::Held,
     /// The connector's packets to the peer, in flight or waiting for the
@@ -202,6 +204,7 @@ impl Core {
                 let books = self.hub_books(scheme, node);
                 out.push(HubPeer {
                     peer,
+                    scheme,
                     held: held
                         .iter()
                         .find(|(name, _)| *name == peer)

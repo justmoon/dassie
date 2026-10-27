@@ -207,15 +207,17 @@ fn script(sim: &mut Sim, rng: &mut SeededRng, setup: &Setup) -> Result<(), Outco
 fn over_hub(sim: &Sim) -> Result<(), Outcome> {
     for index in 0..sim.nodes.len() {
         for peer in sim.core(index).network().peers {
-            let scheme = peer.peering.first().scheme;
-            if scheme.as_str() != dassie_hub::member::DSUSD_SCHEME_ID {
-                return Err(Outcome::liveness(
-                    "over-hub",
-                    format!(
-                        "node {index} peers with {} over {scheme:?}, not the hub",
-                        peer.id
-                    ),
-                ));
+            for method in &peer.peering.methods {
+                let scheme = method.scheme;
+                if scheme.as_str() != dassie_hub::member::DSUSD_SCHEME_ID {
+                    return Err(Outcome::liveness(
+                        "over-hub",
+                        format!(
+                            "node {index} peers with {} over {scheme:?}, not the hub",
+                            peer.id
+                        ),
+                    ));
+                }
             }
         }
     }

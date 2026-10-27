@@ -82,7 +82,7 @@ use dassie_settlement::{
 use super::mirror::HoldMirror;
 use crate::client::{AccountView, Agreement, MAX_STATEMENTS, Request, Statement};
 use crate::consensus::Config;
-use crate::service::MAX_ANSWER;
+use crate::service::{MAX_ANSWER, SINCE_TAIL};
 
 use crate::ledger::{Detail, Outcome, Refusal};
 use crate::operation::{
@@ -139,11 +139,15 @@ fn max_news(terms: &Terms) -> usize {
 
 /// A tally of statements in which each validator's signatures on statements
 /// still waiting fit a buffer's worth and a message more: an honest answer
-/// is never refused.
+/// is never refused. The message more also holds what ends each of the two
+/// answers a buffer holds, the issuer's hold and the final block.
 fn agreement(hub: HubId, set: &ValidatorSet, terms: &Terms) -> Agreement {
     let quota = max_buffered(terms).saturating_add(MAX_STATEMENTS);
     Agreement::new(hub, set.clone(), quota.saturating_mul(set.len()))
 }
+
+const _: () = assert!(MAX_STATEMENTS >= 2 * SINCE_TAIL);
+
 /// Most messages between two takings: a round of requests and a
 /// submission to every validator, a few times over.
 const MAX_EFFECTS: usize = 8 * MAX_VALIDATORS;

@@ -301,20 +301,20 @@ pub(super) fn join_hub(sim: &mut Sim) -> Result<(), Outcome> {
 /// owner's alone (spec/designs/settlement-hubs.md#11-choosing-a-hub).
 pub(super) fn over_hub(sim: &Sim) -> Result<(), Outcome> {
     for index in 0..sim.nodes.len() {
-        let methods: Vec<_> = (sim.core(index).network().peers.iter())
-            .flat_map(|peer| peer.peering.schemes().map(|scheme| (peer.id, scheme)))
-            .collect();
-        for (peer, scheme) in methods {
-            let ours = (sim.settling.ledgers(index).iter())
-                .any(|ledger| Settling::scheme(*ledger).0 == scheme.as_str());
-            if !ours {
-                return Err(Outcome::liveness(
-                    "over-hub",
-                    format!(
-                        "node {index} peers with {} over {scheme:?}, not the hub",
-                        peer,
-                    ),
-                ));
+        for peer in sim.core(index).network().peers {
+            for method in &peer.peering.methods {
+                let scheme = method.scheme;
+                let ours = (sim.settling.ledgers(index).iter())
+                    .any(|ledger| Settling::scheme(*ledger).0 == scheme.as_str());
+                if !ours {
+                    return Err(Outcome::liveness(
+                        "over-hub",
+                        format!(
+                            "node {index} peers with {} over {scheme:?}, not the hub",
+                            peer.id,
+                        ),
+                    ));
+                }
             }
         }
     }
@@ -414,7 +414,7 @@ pub(super) fn check_calm(sim: &Sim, liar: Option<(usize, MemberLie)>) -> Result<
 }
 
 /// Once the network is calm, no honest node's books show an honest peer
-/// still at its ask point: asked, the peer settled
+/// still at its ask point on any method: asked, the peer settled
 /// (spec/areas/settlement.md#asking-a-peer-to-settle). A liar's settling is
 /// its own.
 fn check_settled_with_honest(sim: &Sim, liar: Option<usize>) -> Result<(), String> {
@@ -423,16 +423,20 @@ fn check_settled_with_honest(sim: &Sim, liar: Option<usize>) -> Result<(), Strin
             if liar.is_some_and(|liar| key(liar).node_id() == peer.id) {
                 continue;
             }
-            if peer.owed.is_none() || peer.termination.is_some() {
+            if peer.termination.is_some() {
                 continue;
             }
-            let rooms = super::checks::method_rooms(sim, index, &peer.id, &peer.peering);
-            for (scheme, position, credit) in rooms {
+            for (method, owed) in peer.peering.methods.iter().zip(&peer.owed_by_method) {
+                let Some(owed) = *owed else {
+                    continue;
+                };
+                let credit = method.credit_out;
+                let position = u128::try_from(owed + i128::from(credit)).unwrap_or(0);
                 if dassie_settlement::policy::ask(position, super::TRIGGER) {
                     return Err(format!(
-                        "node {index}'s room for {} on {scheme:?} is {position} of {credit}: it \
-                         never settled",
-                        peer.id
+                        "node {index}'s room for {} on {} is {position} of {credit}: it never \
+                         settled",
+                        peer.id, method.scheme,
                     ));
                 }
             }
@@ -459,16 +463,15 @@ pub(super) fn check_hub_validators(sim: &Sim) -> Result<(), String> {
 /// own books: its losses as it booked them, its holds as its scheme read
 /// them.
 pub(super) fn check_losses(sim: &Sim) -> Result<(), String> {
-    for ((index, peer), lost) in &sim.hub_losses {
-        let (toward, from) = sim
-            .hub_most_held
-            .get(&(*index, peer.clone()))
-            .copied()
-            .unwrap_or((0, 0));
+    // Per method: each hub the two share holds its own holds, in its own
+    // asset.
+    for (method, lost) in &sim.hub_losses {
+        let (toward, from) = sim.hub_most_held.get(method).copied().unwrap_or((0, 0));
         if *lost > toward.saturating_add(from) {
+            let (index, peer, scheme) = method;
             return Err(format!(
-                "node {index} lost {lost} on {peer}, more than its hold toward it ({toward}) \
-                 and its hold toward it ({from}) held"
+                "node {index} lost {lost} on {peer} over {scheme}, more than its hold toward \
+                 it ({toward}) and its hold toward it ({from}) held"
             ));
         }
     }

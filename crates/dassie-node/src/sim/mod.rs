@@ -962,11 +962,12 @@ pub struct Sim {
     /// validator.
     answering: Option<(usize, u64, String, u64, usize)>,
     /// What each node booked as lost on each peer over a hub
-    /// (`SettlementEvent::PeerLoss`), by node and peer.
-    pub hub_losses: BTreeMap<(usize, String), u64>,
+    /// (`SettlementEvent::PeerLoss`), by node, peer and hub scheme.
+    pub hub_losses: BTreeMap<(usize, String, String), u64>,
     /// The most each node's hold toward each peer over a hub held, and the
-    /// most the peer's hold toward it held, as its scheme read them.
-    pub hub_most_held: BTreeMap<(usize, String), (u64, u64)>,
+    /// most the peer's hold toward it held, as its scheme read them, by
+    /// node, peer and hub scheme.
+    pub hub_most_held: BTreeMap<(usize, String, String), (u64, u64)>,
 }
 
 // Every run, whatever it checks besides, ends without an error event: a
@@ -1521,22 +1522,7 @@ impl Sim {
         let Some(core) = self.nodes[index].core.as_mut() else {
             return;
         };
-        let peers = core.hub_peers();
-        // Each peer's holds, summed over the methods of its peering, each
-        // over a hub of its own: what it can cost us is bounded by all of
-        // them together (spec/decisions/settlement-methods.md).
-        let mut holds_with: BTreeMap<String, (u64, u64)> = BTreeMap::new();
-        for peer in &peers {
-            let sum = holds_with.entry(peer.peer.to_string()).or_default();
-            sum.0 = sum.0.saturating_add(peer.holds.toward);
-            sum.1 = sum.1.saturating_add(peer.holds.from);
-        }
-        for (peer, (toward, from)) in holds_with {
-            let most = self.hub_most_held.entry((index, peer)).or_default();
-            most.0 = most.0.max(toward);
-            most.1 = most.1.max(from);
-        }
-        for peer in peers {
+        for peer in core.hub_peers() {
             let held = peer.held;
             if held.ours > peer.pending_to || held.theirs > peer.pending_from {
                 let leak = format!(
@@ -1546,6 +1532,12 @@ impl Sim {
                 );
                 record_once(&mut self.hub_leaks, index, peer.peer, leak);
             }
+            let most = self
+                .hub_most_held
+                .entry((index, peer.peer.to_string(), peer.scheme.to_string()))
+                .or_default();
+            most.0 = most.0.max(peer.holds.toward);
+            most.1 = most.1.max(peer.holds.from);
             let holds = peer.holds.toward.saturating_add(peer.settling);
             // Over a real hub, a take from our hold reaches the books only
             // once the hub reports it, and the credit is lowered only as far
@@ -1553,6 +1545,7 @@ impl Sim {
             // the holds for a while, never below them
             // (spec/areas/hubs.md#in-the-node). The stub reports a take when
             // the books take it, so there the two are always one.
+            // Each method is held to the bound of its own hub.
             let real = !matches!(self.settling, Settling::StubHub(_));
             if peer.peered
                 && let Some(credit) = peer.credit
@@ -1700,11 +1693,17 @@ impl Sim {
         ) {
             self.count("settlements taken");
         }
-        if let Event::Settlement(SettlementEvent::PeerLoss { peer, amount, .. }) = event {
+        if let Event::Settlement(SettlementEvent::PeerLoss {
+            scheme,
+            peer,
+            amount,
+            ..
+        }) = event
+        {
             self.count("losses booked over a hub");
             *self
                 .hub_losses
-                .entry((index, peer.to_string()))
+                .entry((index, peer.to_string(), scheme.to_string()))
                 .or_default() += *amount;
         }
         if let Event::PeerNode(dassie_peer::Event::Depeering { reason, .. }) = event {

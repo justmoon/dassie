@@ -481,10 +481,15 @@ pub struct PeerView {
     pub advertised: bool,
     /// Whether it was heard from recently enough to count as online.
     pub online: bool,
+    /// The method our packets with it take.
+    pub carried: SchemeId,
     /// What we owe the peer net on the method our packets with it take;
     /// negative when it owes us. Each method's is in its own ledger's
     /// units.
     pub owed: Option<i128>,
+    /// What we owe the peer net on each of the peering's methods, in the
+    /// peering's order.
+    pub owed_by_method: Vec<Option<i128>>,
 }
 
 /// The network as the owner sees it.
@@ -579,9 +584,14 @@ impl Core {
                     let carried = self
                         .packet_method(&view.id)
                         .unwrap_or(peering.first().scheme);
+                    let owed_by_method = (peering.methods.iter())
+                        .map(|method| self.owed(view.id, method.scheme))
+                        .collect();
                     Some(PeerView {
                         id: view.id,
+                        carried,
                         owed: self.owed(view.id, carried),
+                        owed_by_method,
                         peering,
                         termination: view.termination,
                         advertised: view.advertised,

@@ -271,6 +271,9 @@ pub struct Watcher {
     phase: Phase,
     next_id: u64,
     pending: BTreeMap<u64, Asked>,
+    /// The transactions of the submits among `pending`, by request: one
+    /// whose answer a connection never brought goes again on the next.
+    submitting: BTreeMap<u64, Vec<u8>>,
     /// The verifier's asks on this connection, by their request's id.
     proof_asks: BTreeMap<u64, Ask>,
     verifier: Verifier,
@@ -334,6 +337,7 @@ impl Watcher {
             phase: Phase::Disconnected,
             next_id: 1,
             pending: BTreeMap::new(),
+            submitting: BTreeMap::new(),
             proof_asks: BTreeMap::new(),
             verifier: Verifier::new(network, unl, signatures),
             queries: BTreeMap::new(),
@@ -415,6 +419,10 @@ impl Watcher {
         assert!(self.hints.len() <= MAX_HINTS, "hints are bounded");
         assert!(self.held.len() <= MAX_HELD, "held outcomes are bounded");
         assert!(self.pending.len() <= MAX_PENDING, "requests are bounded");
+        assert!(
+            (self.submitting.keys()).all(|id| self.pending.get(id) == Some(&Asked::Submit)),
+            "a submit's transaction is kept only while it is asked"
+        );
         assert!(
             self.proof_asks.len() <= MAX_PROOF_ASKS,
             "proof asks are bounded"
@@ -507,6 +515,19 @@ impl Watcher {
     /// forgotten: the next one reads the history again from the cursor,
     /// which passed no hint not yet proven.
     fn forget_connection(&mut self) {
+        // A submit whose answer this connection never brought, or that
+        // never went on it, goes again on the next: it waits as a submit
+        // made while disconnected does. The same transaction twice is
+        // taken once by the XRP Ledger.
+        for blob in std::mem::take(&mut self.submitting).into_values().rev() {
+            if self.queued.len() < MAX_QUEUED_SUBMITS {
+                self.queued.push_front(blob);
+            } else {
+                self.out.push_back(Out::Problem(
+                    "too many escrow transactions wait for the XRPL server: one was dropped",
+                ));
+            }
+        }
         self.pending.clear();
         self.proof_asks.clear();
         let hinted: Vec<QueryId> = (self.queries.iter())
@@ -526,7 +547,7 @@ impl Watcher {
     /// Submits a signed escrow transaction, now or once following.
     pub fn submit(&mut self, blob: Vec<u8>) {
         if self.following() {
-            self.ask(Asked::Submit, |id| api::submit(id, &blob));
+            self.ask_submit(blob);
         } else if self.queued.len() < MAX_QUEUED_SUBMITS {
             self.queued.push_back(blob);
         } else {
@@ -577,6 +598,7 @@ impl Watcher {
                 if let Some(ask) = self.proof_asks.remove(&id) {
                     self.verifier.answered(&ask, outcome, self.now_ms);
                 } else if let Some(asked) = self.pending.remove(&id) {
+                    self.submitting.remove(&id);
                     self.answer(asked, outcome);
                 }
             }
@@ -616,13 +638,23 @@ impl Watcher {
         matches!(self.phase, Phase::Following | Phase::CatchingUp { .. })
     }
 
-    fn ask(&mut self, asked: Asked, request: impl FnOnce(u64) -> Vec<u8>) {
+    /// Asks the server, unless too much is asked already: the request's ID
+    /// if it went.
+    fn ask(&mut self, asked: Asked, request: impl FnOnce(u64) -> Vec<u8>) -> Option<u64> {
         if self.pending.len() >= MAX_PENDING {
-            return;
+            return None;
         }
         let id = self.fresh_id();
         self.pending.insert(id, asked);
         self.out.push_back(Out::Send(request(id)));
+        Some(id)
+    }
+
+    /// Asks the server to submit `blob`, keeping it until answered.
+    fn ask_submit(&mut self, blob: Vec<u8>) {
+        if let Some(id) = self.ask(Asked::Submit, |id| api::submit(id, &blob)) {
+            self.submitting.insert(id, blob);
+        }
     }
 
     fn fresh_id(&mut self) -> u64 {
@@ -759,7 +791,7 @@ impl Watcher {
         self.phase = Phase::Following;
         self.escrow_checked_ms = None;
         while let Some(blob) = self.queued.pop_front() {
-            self.ask(Asked::Submit, |id| api::submit(id, &blob));
+            self.ask_submit(blob);
         }
     }
 
