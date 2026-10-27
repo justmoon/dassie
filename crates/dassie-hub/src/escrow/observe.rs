@@ -1,15 +1,26 @@
 //! What a validator attests from the escrow's transactions on the XRP
 //! Ledger (spec/designs/settlement-hubs.md#6-deposits-and-withdrawals).
 //! Each validator follows the escrow on its own servers, and reads only
-//! validated ledgers.
+//! what it proved: transactions in ledgers its UNL validated, each read as
+//! a record from its proven bytes, and the escrow's setup and a token's
+//! issuer's hold on it from a state proof at one such ledger
+//! (spec/designs/xrpl-validation.md#12-who-else-uses-it).
+
+use alloc::vec::Vec;
 
 use dassie_xrpl::AccountId;
-use dassie_xrpl::api::TxRecord;
-use dassie_xrpl::codec::Amount;
+use dassie_xrpl::anchor::ProvenState;
+use dassie_xrpl::api::{TRANSFER_RATE_PAR, TxRecord, account_flags};
+use dassie_xrpl::binary::{FieldId, Fields, Type};
+use dassie_xrpl::codec::{Amount, TokenValue};
+use dassie_xrpl::records::{
+    Thread, account_key, account_root, line_key, ripple_state, signer_list, signer_list_key,
+};
 
+use super::transactions::{EscrowFault, is_escrow_line, signer_entries, signer_quorum};
 use crate::digest::Digest;
-use crate::operation::Deposit;
-use crate::rules::Terms;
+use crate::operation::{Clawback, Deposit, Issuer};
+use crate::rules::{Asset, Rules, TOKEN_DECIMALS, Terms};
 
 /// The memo type of a deposit that opens an account: its data is the new
 /// account's key, 32 bytes. Wallets outside Dassie write it too, so it is
@@ -108,4 +119,155 @@ pub fn outcome_of(record: &TxRecord, escrow: AccountId) -> Option<(u32, bool)> {
     } else {
         None
     }
+}
+
+/// The keys of what the validators prove of the escrow's setup, at one
+/// validated ledger (spec/designs/settlement-hubs.md#2-founding-a-hub):
+/// its account root, its signer list, and for a token hub its line to the
+/// issuer.
+#[must_use]
+pub fn escrow_keys(terms: &Terms) -> Vec<[u8; 32]> {
+    let escrow = AccountId(terms.escrow);
+    let mut keys = alloc::vec![account_key(escrow), signer_list_key(escrow)];
+    if let Asset::Token { currency, issuer } = terms.asset {
+        keys.push(line_key(escrow, issuer, currency));
+    }
+    keys
+}
+
+/// The keys of what the validators prove of a token hub's issuer's hold on
+/// the escrow: the escrow's line to it and its account root; `None` for an
+/// XRP hub.
+#[must_use]
+pub fn issuer_keys(terms: &Terms) -> Option<[[u8; 32]; 2]> {
+    let Asset::Token { currency, issuer } = terms.asset else {
+        return None;
+    };
+    Some([
+        line_key(AccountId(terms.escrow), issuer, currency),
+        account_key(issuer),
+    ])
+}
+
+/// The object `state` proves under `key`: `Err` if it proves nothing
+/// there, `Ok(None)` if it proves the key holds none.
+fn proven<'a>(state: &'a ProvenState, key: &[u8; 32]) -> Result<Option<&'a [u8]>, EscrowFault> {
+    state.object(key).ok_or(EscrowFault::NotValidated)
+}
+
+/// The validators' check of the escrow ([`check_escrow`]) from a state
+/// proof of [`escrow_keys`] at one validated ledger: the account root with
+/// its master key disabled, no regular key and `RequireDest`, the signer
+/// list exactly the rules', for a token hub its line to the issuer as the
+/// setup makes it, at par on both sides, and nothing else it owns: its
+/// owner count is what its signer list and that line count, one each. What
+/// others make that names the escrow, a line to it or a check to it, is
+/// charged to them and gives no one a way in. Its next sequence, once it
+/// passes.
+///
+/// # Errors
+///
+/// Why the escrow is not one the validators take.
+pub fn check_proven_escrow(rules: &Rules, state: &ProvenState) -> Result<u32, EscrowFault> {
+    let terms = &rules.terms;
+    let escrow = AccountId(terms.escrow);
+    let root = proven(state, &account_key(escrow))?.ok_or(EscrowFault::NoAccount)?;
+    let root = account_root(root).map_err(|_| EscrowFault::NoAccount)?;
+    if root.account != escrow {
+        return Err(EscrowFault::NoAccount);
+    }
+    if root.flags & account_flags::DISABLE_MASTER == 0 {
+        return Err(EscrowFault::MasterKey);
+    }
+    if root.regular_key.is_some() {
+        return Err(EscrowFault::RegularKey);
+    }
+    if root.flags & account_flags::REQUIRE_DEST_TAG == 0 {
+        return Err(EscrowFault::NoRequireDest);
+    }
+    let list = proven(state, &signer_list_key(escrow))?.ok_or(EscrowFault::SignerList)?;
+    let (list, _) = signer_list(list).map_err(|_| EscrowFault::SignerList)?;
+    if list.quorum != signer_quorum(rules) || list.entries != signer_entries(rules) {
+        return Err(EscrowFault::SignerList);
+    }
+    let mut owned = 1_u32;
+    if let Asset::Token { currency, issuer } = terms.asset {
+        let line =
+            proven(state, &line_key(escrow, issuer, currency))?.ok_or(EscrowFault::TrustLine)?;
+        let (read, _) = ripple_state(line).map_err(|_| EscrowFault::TrustLine)?;
+        if !at_par(line) || !is_escrow_line(terms, &read) {
+            return Err(EscrowFault::TrustLine);
+        }
+        owned = 2;
+    }
+    if root.owner_count != owned {
+        return Err(EscrowFault::Objects);
+    }
+    Ok(root.sequence)
+}
+
+/// Whether a `RippleState` in rippled's binary form values what it pays and
+/// takes at par on both sides: no quality, or one of zero or a billion.
+fn at_par(object: &[u8]) -> bool {
+    const PAR: u32 = 1_000_000_000;
+    let qualities = [20, 21, 22, 23].map(|code| FieldId::new(Type::UInt32, code));
+    Fields::new(object).all(|field| {
+        field.is_ok_and(|field| {
+            !qualities.contains(&field.id) || field.uint32().is_ok_and(|q| q == 0 || q == PAR)
+        })
+    })
+}
+
+/// The issuer's hold on a token hub's escrow, from a state proof of
+/// [`issuer_keys`] at one validated ledger: frozen if the issuer froze or
+/// deep-froze the escrow's line on its side, or froze every line; a fee if
+/// it charges a transfer rate other than par. Its ledger is the later of
+/// the two objects' last changes, as each names it (`PreviousTxnLgrSeq`).
+/// `None` for an XRP hub, or while either is not there or does not read.
+#[must_use]
+pub fn issuer_of(terms: &Terms, state: &ProvenState) -> Option<Issuer> {
+    let [line_key, root_key] = issuer_keys(terms)?;
+    let (line, line_thread) = ripple_state(state.object(&line_key)??).ok()?;
+    let view = line.view(AccountId(terms.escrow))?;
+    let root = account_root(state.object(&root_key)??).ok()?;
+    let thread_ledger = |thread: Option<Thread>| thread.map_or(0, |(_, ledger)| ledger);
+    let frozen = view.theirs.freeze
+        || view.theirs.deep_freeze
+        || root.flags & account_flags::GLOBAL_FREEZE != 0;
+    let fee = root.transfer_rate != 0 && root.transfer_rate != TRANSFER_RATE_PAR;
+    Some(Issuer {
+        ledger: thread_ledger(line_thread).max(thread_ledger(root.thread)),
+        frozen,
+        fee,
+    })
+}
+
+/// A clawback from a token hub's escrow, if `record` is one: a transaction
+/// of the issuer's that succeeded in a validated ledger, that is no
+/// Payment, and that took from the escrow's balance on its line. Nothing
+/// else the issuer sends lowers a holder's balance. What it took is in the
+/// hub's unit, rounded up, so that what the hub keeps apart for it is
+/// never less than it took.
+#[must_use]
+pub fn clawback_of(record: &TxRecord, terms: &Terms) -> Option<Clawback> {
+    let Asset::Token { currency, issuer } = terms.asset else {
+        return None;
+    };
+    let escrow = AccountId(terms.escrow);
+    if !record.validated || !record.succeeded() || record.is_payment || record.account != issuer {
+        return None;
+    }
+    let (before, after) = record.line(escrow, issuer, currency)?.balance_of(escrow)?;
+    let took = before.checked_sub(after)?;
+    if took.is_zero() || took.is_negative() {
+        return None;
+    }
+    let floor = u64::try_from(took.floor_units(TOKEN_DECIMALS)?).ok()?;
+    let exact = TokenValue::from_units(floor, TOKEN_DECIMALS) == Some(took);
+    let amount = if exact { floor } else { floor.checked_add(1)? };
+    Some(Clawback {
+        transaction: Digest(record.hash),
+        ledger: record.ledger_index,
+        amount,
+    })
 }
