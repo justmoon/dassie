@@ -1,7 +1,7 @@
 [package]
 name = "dassie-identity"
 version.workspace = true
-description = "Dassie node identity: BIP-39 phrases, seed paths, Ed25519 node keys and node IDs"
+description = "Dassie node identity: recovery phrases, seed paths, Ed25519 node keys and node IDs"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -18,8 +18,9 @@ ed25519-dalek = { version = "3.0", default-features = false, features = ["fast",
 # Ed25519 verification by the ZIP-215 rules (spec/areas/identity.md#node-key),
 # which dalek's `verify` does not follow. Built on the same curve25519-dalek.
 ed25519-zebra = { version = "5.0", default-features = false }
+# The master seed from a phrase's secret (spec/decisions/phrase-format.md).
+hkdf = { version = "0.13", default-features = false }
 hmac = { version = "0.13", default-features = false, features = ["zeroize"] }
-pbkdf2 = { version = "0.13", default-features = false, features = ["hmac"] }
 # The RNG trait shared with ed25519-dalek 3. Only the trait: the caller
 # injects the generator, so the crate never touches the OS RNG.
 rand_core = { version = "0.10", default-features = false }

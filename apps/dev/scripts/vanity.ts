@@ -2,11 +2,11 @@
  * Keeps the dev nodes' identities (`apps/dev/vanity.json`,
  * spec/areas/dev.md#dev-identities).
  *
- * - `node --run vanity -- --check` derives every entry and fails on any that
- *   does not give its ID.
- * - `node --run vanity -- --write` writes every entry's ID again from its
- *   entropy, as `dassie-identity` derives it: for when the form of a node ID
- *   changes. The keys stay.
+ * - `node --run vanity -- --check` derives every entry in both realms and
+ *   fails on any that does not give its IDs.
+ * - `node --run vanity -- --write` writes every entry's IDs again from its
+ *   secret, as `dassie-identity` derives them: for when the derivation or
+ *   the form of a node ID changes. The secrets stay.
  */
 
 import { readFile, writeFile } from "node:fs/promises";
@@ -24,19 +24,22 @@ const [mode] = process.argv.slice(2);
 
 if (mode === "--check") {
   const table = loadTable();
-  for (const [index, entry] of table) derive(index, entry);
-  console.log(`${table.size} entries, each gives its ID`);
+  for (const [index, entry] of table) {
+    derive(index, entry, "test");
+    derive(index, entry, "live");
+  }
+  console.log(`${table.size} entries, each gives its IDs`);
 } else if (mode === "--write") {
-  // The IDs there may be of an older form: only the entropy is read.
+  // The IDs there may be of an older form: only the secret is read.
   const json: Record<string, string[]> = JSON.parse(
     await readFile(path, "utf8"),
   );
-  const entropies = Object.fromEntries(
+  const secrets = Object.fromEntries(
     Object.entries(json).map((
-      [index, [entropy]],
-    ) => [index, [entropy, idOf(entropy)]]),
+      [index, [secret]],
+    ) => [index, [secret, idOf(secret, "test"), idOf(secret, "live")]]),
   );
-  const written = parseTable(entropies);
+  const written = parseTable(secrets);
   await writeFile(path, formatTable(written));
   console.log(`${written.size} entries written`);
 } else {

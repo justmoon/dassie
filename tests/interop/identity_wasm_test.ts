@@ -5,7 +5,7 @@
 import { test } from "node:test";
 import { readFile } from "node:fs/promises";
 
-import { assert, assertEquals, assertFalse } from "@std/assert";
+import { assert, assertEquals, assertThrows } from "@std/assert";
 
 import {
   decodeIlpPacket,
@@ -13,12 +13,15 @@ import {
   encodeFulfill,
   encodePrepare,
   encodeReject,
+  generatePhrase,
+  isPhraseError,
   loginSecret,
   nodeId,
-  normalizeMnemonic,
+  type PhraseErrorCode,
+  phraseFromSecret,
   publicKey,
+  readPhrase,
   sign,
-  validateMnemonic,
 } from "@dassie/wasm";
 
 const crates = new URL("../../crates/", import.meta.url);
@@ -37,12 +40,25 @@ async function vectors(path: string): Promise<any> {
   return document;
 }
 
+/** A reader's clock past every phrase's creation time. */
+const AFTER_EVERY_PHRASE = Date.UTC(2145, 7, 16);
+
 test("the passphrase chain matches the vectors", async () => {
   const { chain } = await vectors("chain.json");
   assert(chain.length > 60);
   for (const entry of chain) {
-    assert(validateMnemonic(entry.mnemonic));
-    const nodeKey = deriveNodeKey(entry.mnemonic);
+    const made = phraseFromSecret(
+      Uint8Array.fromHex(entry.secret),
+      entry.realm,
+      entry.created,
+    );
+    assertEquals(made.text, entry.phrase);
+    made.free();
+    const nodeKey = deriveNodeKey(
+      entry.phrase,
+      entry.realm,
+      AFTER_EVERY_PHRASE,
+    );
     assertEquals(nodeKey.toHex(), entry.nodeKey);
     assertEquals(publicKey(nodeKey).toHex(), entry.publicKey);
     assertEquals(nodeId(publicKey(nodeKey)), entry.nodeId);
@@ -50,14 +66,103 @@ test("the passphrase chain matches the vectors", async () => {
   }
 });
 
-test("phrases are validated and canonicalised", async () => {
-  const { chain } = await vectors("chain.json");
-  const phrase: string = chain[0].mnemonic;
-  assertEquals(normalizeMnemonic(`  ${phrase.toUpperCase()}  `), phrase);
-  // Only a valid BIP-39 phrase is a passphrase.
-  const words = phrase.split(" ");
-  assertFalse(validateMnemonic([...words.slice(0, 11), words[0]].join(" ")));
-  assertFalse(validateMnemonic("not a passphrase"));
+/** The code a reading's refusal is thrown with, by the vectors' names. */
+const CODES: Record<string, PhraseErrorCode> = {
+  bip39: "bip39",
+  length: "wordCount",
+  tooDamaged: "tooDamaged",
+  kindZero: "invalidKind",
+  unassignedKind: "newerKind",
+  otherRealm: "otherRealm",
+  createdInFuture: "createdInFuture",
+};
+
+test("phrases read as the vectors say", async () => {
+  const { made, reading } = await vectors("phrase.json");
+  for (const entry of made) {
+    const phrase = phraseFromSecret(
+      Uint8Array.fromHex(entry.secret),
+      entry.realm,
+      entry.created,
+    );
+    assertEquals(phrase.words, entry.words);
+    assertEquals(phrase.createdDate, entry.date);
+    phrase.free();
+  }
+  for (const vector of reading) {
+    // A word marked unreadable is typed as one that reads fine, so only the
+    // mark makes it an erasure.
+    const unreadable = vector.input.flatMap((word: string | null, at: number) =>
+      word === null ? [at] : []
+    );
+    const text = vector.input.map((word: string | null) => word ?? "abandon")
+      .join(" ");
+    const read = () =>
+      readPhrase(
+        text,
+        vector.realm,
+        vector.clockUnixMs,
+        Uint32Array.from(unreadable),
+      );
+    const { result } = vector;
+    if (result.refused === undefined) {
+      const reading = read();
+      assertEquals(reading.corrected, result.corrected, vector.name);
+      assertEquals([...reading.changed], result.changed, vector.name);
+      assertEquals(reading.text, result.phrase, vector.name);
+      assertEquals(reading.createdDate, result.date, vector.name);
+      assertEquals(reading.realm, result.realm, vector.name);
+      const phrase = reading.confirm();
+      assertEquals(phrase.text, result.phrase);
+      phrase.free();
+      if (!result.corrected) {
+        assertEquals(
+          deriveNodeKey(text, vector.realm, vector.clockUnixMs).length,
+          32,
+        );
+      } else {
+        // A script has no one to confirm a correction, so it is refused,
+        // by the positions alone.
+        const error = assertThrows(() => read().exact());
+        assert(isPhraseError(error));
+        assertEquals(error.code, "needsConfirmation");
+        assertEquals([...error.changed!], result.changed);
+      }
+      continue;
+    }
+    const error = assertThrows(read);
+    assert(isPhraseError(error), vector.name);
+    assertEquals(error.code, CODES[result.refused], vector.name);
+    if (result.refused === "otherRealm") {
+      assertEquals(error.realm, result.realm);
+    }
+    if (result.refused === "createdInFuture") {
+      assertEquals(error.date, result.date);
+    }
+  }
+});
+
+test("a new phrase reads back by the clock that made it", () => {
+  const now = Date.UTC(2026, 9, 27, 13, 45);
+  const made = generatePhrase("live", now, now + 3_600_000);
+  assertEquals(made.words.length, 20);
+  assertEquals(made.createdDate, "2026-10-27");
+  const reading = readPhrase(made.text.toUpperCase(), "live", now);
+  assertEquals(reading.corrected, false);
+  assertEquals(reading.confirm().nodeKey("live"), made.nodeKey("live"));
+  const error = assertThrows(() => made.nodeKey("test"));
+  assert(isPhraseError(error));
+  assertEquals(error.code, "otherRealm");
+  // No phrase is made while the wallet's clock and the node's are more
+  // than a day apart, nor outside the hours a phrase records.
+  const apart = assertThrows(() =>
+    generatePhrase("test", now, now - 86_400_001)
+  );
+  assert(isPhraseError(apart));
+  assertEquals(apart.code, "clocksApart");
+  const early = assertThrows(() => generatePhrase("test", Date.UTC(2025, 0)));
+  assert(isPhraseError(early));
+  assertEquals(early.code, "clockOutOfRange");
 });
 
 test("keys and node IDs match the vectors", async () => {

@@ -99,9 +99,9 @@
       "x": 20,
       "y": 48,
       "w": 180,
-      "desc": "The web app the node's owner runs it from, built into the dassie binary. The owner's 24-word phrase is checked and turned into keys right in the browser, and never sent to the node.",
+      "desc": "The web app the node's owner runs it from, built into the dassie binary. The owner's 20-word phrase is checked and turned into keys right in the browser, and never sent to the node.",
       "does": [
-        "Setup and login",
+        "Setup and login: a new phrase shown numbered as a metal plate holds it, and a phrase typed by its first four letters, with any correction shown word by word for the owner to confirm",
         "Accounts and ledgers, sending and receiving, payment status and activity",
         "Deposit pages like an exchange's: the address as a QR code, what to send, and the reserve; a button for testnet XRP from the faucet, and none on mainnet, which has no faucet; for a dollar token, DSUSD on the testnet or RLUSD on mainnet, both the token and the XRP its fees need, at the same address, and that DSUSD is bought with XRP on the testnet's pool",
         "A dollar token's ledger shows its peg guard: the token's last price on its pool, and while the node pauses it, why: off its peg, or its price unread",
@@ -192,7 +192,8 @@
         "Identity: phrase to node key, node ID and login proof",
         "ILP packets and STREAM, for the STREAM toy and the interop tests",
         "Decrypting STREAM packets, for the STREAM toy",
-        "The phrase for a given entropy, for the dev network's nodes"
+        "Phrases made, and read with corrections the owner confirms",
+        "The phrase of a given secret, for the dev network's nodes"
       ]
     },
     "wasm-crate": {
@@ -700,9 +701,9 @@
       "x": 408,
       "y": 844,
       "w": 184,
-      "desc": "Turns the owner's 24-word phrase into everything that identifies a node. The same phrase always gives the same node.",
+      "desc": "Turns the owner's 20-word phrase into everything that identifies a node. The phrase names its realm and corrects a few wrong or unreadable words, never without the owner's say. The same phrase always gives the same node.",
       "does": [
-        "BIP-39 phrases, and every secret below the node key as one typed path: the login, ledger accounts, a hub's keys, STREAM receivers, QUIC keys",
+        "Phrases of 20 words with a realm, a creation time and Reed–Solomon check words, and every secret below the node key as one typed path: the login, ledger accounts, a hub's keys, STREAM receivers, QUIC keys",
         "The Ed25519 node key, node ID and login secret",
         "The node ID: 39 characters of base32, the same in ILP addresses, DNS names and the wallet, and 24 bytes on the wire",
         "Signature checks under the ZIP-215 rules",
@@ -1372,7 +1373,7 @@
           "ids": [
             "wallet"
           ],
-          "text": "The owner opens the wallet, which the node serves from inside the dassie binary, and types the 24-word phrase."
+          "text": "The owner opens the wallet, which the node serves from inside the dassie binary, and types the 20-word phrase. A phrase of the other realm is refused, and a corrected one is used only once the owner confirms it."
         },
         {
           "ids": [
@@ -1768,7 +1769,7 @@
     },
     {
       "t": "Golden vectors",
-      "p": "Byte-exact fixtures from other implementations: Dassie's first, TypeScript one, `xrpl.js`, and for every key a node derives from its phrase, libraries independent of Dassie's code. They pin the wire formats and key derivations.",
+      "p": "Byte-exact fixtures from other implementations: Dassie's first, TypeScript one, `xrpl.js`, and for every key a node derives from its phrase, a generator apart from Dassie's code. They pin the wire formats and key derivations.",
       "ev": "testdata/original · testdata/identity · testdata/xrpl · tests/vectors.rs"
     },
     {

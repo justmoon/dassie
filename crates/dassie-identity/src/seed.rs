@@ -6,7 +6,8 @@
 //! HMAC key and the segment as the message. The node key is the path
 //! `node`, and every secret below it is one of [`crate::NodeSecret`]. The
 //! derivation is frozen (spec/areas/identity.md#derivation-chain): the same
-//! phrase must recover the same node and the same ledger accounts.
+//! phrase must recover the same node and the same ledger accounts. The
+//! master seed itself comes from the phrase ([`crate::Phrase::master_seed`]).
 
 use hmac::{Hmac, KeyInit, Mac};
 use sha2::Sha256;
@@ -19,7 +20,8 @@ use crate::secret::secret_bytes;
 const NODE_SEGMENT: &str = "node";
 
 secret_bytes!(
-    /// The 64-byte BIP-39 seed: the root of every secret of a node.
+    /// The 64-byte master seed of a phrase: the root of every secret of a
+    /// node.
     ///
     /// Only the browser holds it during setup and login. The node itself
     /// keeps only the [`NodeKey`] derived from it.

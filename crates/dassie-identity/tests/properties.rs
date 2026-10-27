@@ -1,19 +1,133 @@
-//! Properties: phrases and node IDs round-trip, every parser and decoder
-//! never panics on arbitrary input, and whatever they accept is canonical.
+//! Properties: phrases and node IDs round-trip, damaged phrases are
+//! restored within the code's bound and refused past it, every parser and
+//! decoder never panics on arbitrary input, and whatever they accept is
+//! canonical.
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing)]
 
 use curve25519_dalek::Scalar;
 use curve25519_dalek::constants::EIGHT_TORSION;
 use dassie_identity::{
-    Error, LoginSecret, Mnemonic, NODE_ID_BYTES, NODE_ID_LENGTH, NodeId, NodeKey, NodeSecret,
-    PKCS8_DER_LENGTH, PublicKey, SPKI_DER_LENGTH, Segment, Signature, WordCount,
+    Created, Error, LoginSecret, NODE_ID_BYTES, NODE_ID_LENGTH, NodeId, NodeKey, NodeSecret,
+    PHRASE_WORDS, PKCS8_DER_LENGTH, Phrase, PhraseSecret, Positions, PublicKey, Reading, Realm,
+    SPKI_DER_LENGTH, Segment, Signature,
 };
 use proptest::prelude::*;
 
-fn entropy() -> impl Strategy<Value = Vec<u8>> {
-    prop::sample::select(vec![16usize, 20, 24, 28, 32])
-        .prop_flat_map(|length| prop::collection::vec(any::<u8>(), length))
+/// A reader's clock past every phrase's creation time.
+const AFTER_EVERY_PHRASE: u64 = u64::MAX;
+
+fn realm() -> impl Strategy<Value = Realm> {
+    prop_oneof![Just(Realm::Test), Just(Realm::Live)]
+}
+
+/// Creation hours: the field's ends, and anything between.
+fn hours() -> impl Strategy<Value = u32> {
+    prop_oneof![Just(0), Just(Created::MAX_HOURS), 0..=Created::MAX_HOURS]
+}
+
+fn phrase_of(realm: Realm, hours: u32, secret: [u8; 16]) -> Phrase {
+    let created = Created::from_hours(hours).unwrap();
+    Phrase::new(realm, created, &PhraseSecret::from_bytes(secret))
+}
+
+/// Wrong and unreadable positions, apart, for each `(wrong, unreadable)`
+/// count in `counts`.
+fn damage(counts: Vec<(usize, usize)>) -> impl Strategy<Value = (Vec<usize>, Vec<usize>)> {
+    (
+        prop::sample::select(counts),
+        Just((0..PHRASE_WORDS).collect::<Vec<_>>()).prop_shuffle(),
+    )
+        .prop_map(|((wrong, unreadable), order)| {
+            (
+                order[..wrong].to_vec(),
+                order[wrong..wrong + unreadable].to_vec(),
+            )
+        })
+}
+
+/// Every count within the bound: at most two wrong, and `2 × wrong +
+/// unreadable` at most five.
+fn within_the_bound() -> Vec<(usize, usize)> {
+    (0..=5usize)
+        .flat_map(|unreadable| {
+            (0..=2.min((5 - unreadable) / 2)).map(move |wrong| (wrong, unreadable))
+        })
+        .collect()
+}
+
+/// Counts past the bound for which no other phrase is within it either:
+/// `wrong + unreadable + (5 − unreadable) / 2` stays below the code's
+/// distance of seven, so they must be refused, never corrected.
+const PAST_THE_BOUND: [(usize, usize); 9] = [
+    (3, 0),
+    (4, 0),
+    (3, 1),
+    (2, 2),
+    (3, 2),
+    (2, 3),
+    (1, 4),
+    (1, 5),
+    (0, 6),
+];
+
+/// How an unreadable word is written: as `?`, as a word not on the list,
+/// or left as it was and marked by its position.
+#[derive(Clone, Copy, Debug)]
+enum Mark {
+    Question,
+    Unknown,
+    Position,
+}
+
+fn mark() -> impl Strategy<Value = Mark> {
+    prop_oneof![
+        Just(Mark::Question),
+        Just(Mark::Unknown),
+        Just(Mark::Position)
+    ]
+}
+
+/// `phrase` with the words at `wrong` replaced by others of the list (by
+/// the words of `other`, shifted where they are the same), and the words at
+/// `unreadable` written as `mark` says. Returns the text and the marked
+/// positions.
+fn damaged(
+    phrase: &Phrase,
+    other: &Phrase,
+    wrong: &[usize],
+    unreadable: &[usize],
+    mark: Mark,
+) -> (String, Positions) {
+    let mut words: Vec<&str> = phrase.words().collect();
+    let others: Vec<&str> = other.words().collect();
+    let fallback: Vec<&str> = Phrase::new(
+        Realm::Live,
+        Created::from_hours(1).unwrap(),
+        &PhraseSecret::from_bytes([0x99; 16]),
+    )
+    .words()
+    .collect();
+    for &position in wrong {
+        words[position] = if others[position] == words[position] {
+            fallback
+                .iter()
+                .copied()
+                .find(|word| *word != words[position])
+                .unwrap()
+        } else {
+            others[position]
+        };
+    }
+    let mut marked = Positions::NONE;
+    for &position in unreadable {
+        match mark {
+            Mark::Question => words[position] = "?",
+            Mark::Unknown => words[position] = "xyzzy",
+            Mark::Position => marked = marked.with(position),
+        }
+    }
+    (words.join(" "), marked)
 }
 
 /// ℓ, the order of the base point, little-endian.
@@ -122,16 +236,24 @@ fn signature(r: &[u8; 32], s: &[u8; 32]) -> Signature {
     Signature::from_bytes(bytes)
 }
 
-/// Joins words with random runs of ASCII whitespace and random case, as a
-/// person might type them.
-fn mangle(words: &[&str], separators: &[String], upper: &[bool]) -> String {
+/// Joins words with random runs of whitespace and random case, some cut
+/// to their first four letters or with letters after them, as a person
+/// might type them or a plate keep them.
+fn mangle(words: &[&str], separators: &[String], styles: &[u8]) -> String {
     let mut text = String::new();
     for (index, word) in words.iter().enumerate() {
         text.push_str(&separators[index % separators.len()]);
-        if upper[index % upper.len()] {
+        let style = styles[index % styles.len()];
+        let word = match style % 3 {
+            0 => (*word).to_owned(),
+            1 => word[..word.len().min(4)].to_owned(),
+            _ if word.len() >= 4 => format!("{}zq", &word[..4]),
+            _ => (*word).to_owned(),
+        };
+        if style >= 3 {
             text.push_str(&word.to_ascii_uppercase());
         } else {
-            text.push_str(word);
+            text.push_str(&word);
         }
     }
     text
@@ -139,69 +261,182 @@ fn mangle(words: &[&str], separators: &[String], upper: &[bool]) -> String {
 
 proptest! {
     #[test]
-    fn mnemonics_round_trip(entropy in entropy()) {
-        let mnemonic = Mnemonic::from_entropy(&entropy).unwrap();
-        let count = mnemonic.word_count();
-        prop_assert_eq!(WordCount::from_entropy_bytes(entropy.len()), Some(count));
-        prop_assert_eq!(mnemonic.words().count(), count.words());
+    fn phrases_round_trip(realm in realm(), hours in hours(), secret: [u8; 16]) {
+        let phrase = phrase_of(realm, hours, secret);
+        prop_assert_eq!(phrase.realm(), realm);
+        prop_assert_eq!(phrase.created().hours(), hours);
+        prop_assert_eq!(*phrase.secret().as_bytes(), secret);
+        prop_assert_eq!(phrase.words().count(), PHRASE_WORDS);
 
-        let phrase = mnemonic.phrase();
-        let parsed = Mnemonic::parse(phrase.as_str()).unwrap();
-        prop_assert_eq!(parsed.entropy(), entropy.as_slice());
-        let reparsed = parsed.phrase();
-        prop_assert_eq!(reparsed.as_str(), phrase.as_str());
+        let text = phrase.text();
+        let Ok(Reading::Exact(read)) = Phrase::read(text.as_str(), Positions::NONE, realm, AFTER_EVERY_PHRASE) else {
+            panic!("a phrase reads as written");
+        };
+        prop_assert_eq!(read.text().as_str().to_owned(), text.as_str());
+        let ours = phrase.master_seed(realm).unwrap();
+        let again = read.master_seed(realm).unwrap();
+        prop_assert_eq!(ours.as_bytes(), again.as_bytes());
+
+        let other = match realm { Realm::Test => Realm::Live, Realm::Live => Realm::Test };
+        prop_assert_eq!(
+            Phrase::read(text.as_str(), Positions::NONE, other, AFTER_EVERY_PHRASE).map(|_| ()),
+            Err(Error::OtherRealm { realm })
+        );
+        // The same secret in the other realm is another node.
+        let twin = phrase_of(other, hours, secret);
+        let theirs = twin.master_seed(other).unwrap();
+        prop_assert_ne!(ours.as_bytes(), theirs.as_bytes());
     }
 
     #[test]
-    fn sloppy_phrases_parse_to_the_same_entropy(
-        entropy in entropy(),
-        separators in prop::collection::vec("[ \t\r\n]{1,3}", 1..5),
-        upper in prop::collection::vec(any::<bool>(), 1..5),
+    fn sloppy_phrases_read_the_same(
+        realm in realm(),
+        hours in hours(),
+        secret: [u8; 16],
+        separators in prop::collection::vec("[ \t\r\n\u{a0}\u{3000}]{1,3}", 1..5),
+        styles in prop::collection::vec(0u8..6, 1..7),
     ) {
-        let mnemonic = Mnemonic::from_entropy(&entropy).unwrap();
-        let words: Vec<&str> = mnemonic.words().collect();
-        let text = mangle(&words, &separators, &upper);
-        let parsed = Mnemonic::parse(&text).unwrap();
-        prop_assert_eq!(parsed.entropy(), entropy.as_slice());
+        let phrase = phrase_of(realm, hours, secret);
+        let words: Vec<&str> = phrase.words().collect();
+        let text = mangle(&words, &separators, &styles);
+        let Ok(Reading::Exact(read)) = Phrase::read(&text, Positions::NONE, realm, AFTER_EVERY_PHRASE) else {
+            panic!("{text} reads as written");
+        };
+        prop_assert_eq!(read.text().as_str().to_owned(), phrase.text().as_str().to_owned());
     }
 
+    // Every damage within the bound is restored, and the correction names
+    // exactly the damaged positions.
     #[test]
-    fn generated_phrases_are_deterministic(seed: [u8; 32], words in 0usize..5) {
-        let count = [
-            WordCount::Twelve,
-            WordCount::Fifteen,
-            WordCount::Eighteen,
-            WordCount::TwentyOne,
-            WordCount::TwentyFour,
-        ][words];
-        let first = Mnemonic::generate(&mut CountingRng(seed), count);
-        let second = Mnemonic::generate(&mut CountingRng(seed), count);
-        prop_assert_eq!(first.entropy(), second.entropy());
-        prop_assert_eq!(first.word_count(), count);
-    }
-
-    #[test]
-    fn mnemonic_parse_never_panics(text in any::<String>()) {
-        if let Ok(mnemonic) = Mnemonic::parse(&text) {
-            let phrase = mnemonic.phrase();
-            let reparsed = Mnemonic::parse(phrase.as_str()).unwrap();
-            prop_assert_eq!(reparsed.entropy(), mnemonic.entropy());
+    fn damage_within_the_bound_is_corrected(
+        realm in realm(),
+        hours in hours(),
+        secret: [u8; 16],
+        noise: [u8; 16],
+        (wrong, unreadable) in damage(within_the_bound()),
+        mark in mark(),
+    ) {
+        let phrase = phrase_of(realm, hours, secret);
+        let other = phrase_of(Realm::Test, hours ^ 0x5555, noise);
+        let (text, marked) = damaged(&phrase, &other, &wrong, &unreadable, mark);
+        let expected = wrong.iter().chain(&unreadable).fold(Positions::NONE, |p, &i| p.with(i));
+        match Phrase::read(&text, marked, realm, AFTER_EVERY_PHRASE).unwrap() {
+            Reading::Exact(read) => {
+                prop_assert!(expected.is_empty());
+                prop_assert_eq!(read.text().as_str().to_owned(), phrase.text().as_str().to_owned());
+            }
+            Reading::Corrected(correction) => {
+                prop_assert_eq!(correction.changed(), expected);
+                prop_assert_eq!(correction.realm(), realm);
+                prop_assert_eq!(correction.created().hours(), hours);
+                prop_assert_eq!(correction.text().as_str().to_owned(), phrase.text().as_str().to_owned());
+                prop_assert_eq!(*correction.confirm().secret().as_bytes(), secret);
+            }
         }
     }
 
-    /// Phrases of real words in random order mostly fail the checksum, and
-    /// must never panic whatever their length.
+    // One step and more past the bound, as far as no other phrase is within
+    // it, a phrase is refused, never corrected into another.
     #[test]
-    fn word_salad_never_panics(entropy in entropy(), picks in prop::collection::vec(any::<prop::sample::Index>(), 0..30)) {
-        let mnemonic = Mnemonic::from_entropy(&entropy).unwrap();
-        let words: Vec<&str> = mnemonic.words().collect();
-        let salad: Vec<&str> = picks.iter().map(|pick| *pick.get(&words)).collect();
-        match Mnemonic::parse(&salad.join(" ")) {
-            Ok(parsed) => {
-                let phrase = parsed.phrase();
-                prop_assert_eq!(phrase.as_str(), salad.join(" "));
+    fn damage_past_the_bound_is_refused(
+        realm in realm(),
+        hours in hours(),
+        secret: [u8; 16],
+        noise: [u8; 16],
+        (wrong, unreadable) in damage(PAST_THE_BOUND.to_vec()),
+        mark in mark(),
+    ) {
+        let phrase = phrase_of(realm, hours, secret);
+        let other = phrase_of(Realm::Live, hours ^ 0x2aaa, noise);
+        let (text, marked) = damaged(&phrase, &other, &wrong, &unreadable, mark);
+        prop_assert_eq!(Phrase::read(&text, marked, realm, AFTER_EVERY_PHRASE).map(|_| ()), Err(Error::TooDamaged));
+    }
+
+    #[test]
+    fn generated_phrases_are_deterministic(seed: [u8; 32], realm in realm(), hours in hours(), within_ms in 0u64..3_600_000) {
+        let now_ms = Created::from_hours(hours).unwrap().unix_ms() + within_ms;
+        let first = Phrase::generate(&mut CountingRng(seed), realm, now_ms).unwrap();
+        let second = Phrase::generate(&mut CountingRng(seed), realm, now_ms).unwrap();
+        prop_assert_eq!(first.text().as_str().to_owned(), second.text().as_str().to_owned());
+        prop_assert_eq!(first.realm(), realm);
+        prop_assert_eq!(first.created().hours(), hours);
+        // A new phrase reads at once by the clock that made it.
+        let read = Phrase::read(first.text().as_str(), Positions::NONE, realm, now_ms);
+        prop_assert!(matches!(read, Ok(Reading::Exact(_))));
+    }
+
+    // The creation time refuses a phrase exactly when it is more than a
+    // day after the reader's clock, and before a correction is shown.
+    #[test]
+    fn a_phrase_more_than_a_day_ahead_is_refused(
+        realm in realm(),
+        hours in hours(),
+        secret: [u8; 16],
+        behind_ms in 0u64..3 * 86_400_000,
+        unreadable in 0usize..PHRASE_WORDS,
+    ) {
+        let phrase = phrase_of(realm, hours, secret);
+        let created = phrase.created();
+        let now_ms = created.unix_ms().saturating_sub(behind_ms);
+        let marked = Positions::NONE.with(unreadable);
+        let read = Phrase::read(phrase.text().as_str(), marked, realm, now_ms);
+        if created.unix_ms() - now_ms > 86_400_000 {
+            prop_assert_eq!(read.map(|_| ()), Err(Error::CreatedInFuture { created }));
+        } else {
+            prop_assert!(matches!(read, Ok(Reading::Corrected(_))));
+        }
+    }
+
+    #[test]
+    fn phrase_read_never_panics(text in any::<String>(), bits: u32, realm in realm()) {
+        let marked = Positions::from_bits(bits & 0xf_ffff).unwrap();
+        match Phrase::read(&text, marked, realm, AFTER_EVERY_PHRASE) {
+            Ok(Reading::Exact(phrase)) => {
+                let text = phrase.text();
+                let again = Phrase::read(text.as_str(), Positions::NONE, realm, AFTER_EVERY_PHRASE);
+                prop_assert!(matches!(again, Ok(Reading::Exact(_))));
             }
-            Err(error) => prop_assert!(matches!(error, Error::InvalidChecksum | Error::InvalidWordCount)),
+            Ok(Reading::Corrected(correction)) => {
+                prop_assert!(!correction.changed().is_empty());
+                prop_assert!(correction.changed().len() <= 5);
+            }
+            Err(_) => {}
+        }
+    }
+
+    /// Twenty words of the list in any order are almost never a phrase,
+    /// and what is taken is within two words of what was read: nothing is
+    /// marked and every word is on the list, so only wrong words are
+    /// corrected.
+    #[test]
+    fn word_salad_is_refused_or_within_the_bound(
+        secrets: [[u8; 16]; 2],
+        picks in prop::collection::vec(any::<prop::sample::Index>(), 0..30),
+        realm in realm(),
+    ) {
+        let one = phrase_of(Realm::Test, 1, secrets[0]);
+        let two = phrase_of(Realm::Live, 2, secrets[1]);
+        let words: Vec<&str> = one.words().chain(two.words()).collect();
+        let salad: Vec<&str> = picks.iter().map(|pick| *pick.get(&words)).collect();
+        match Phrase::read(&salad.join(" "), Positions::NONE, realm, AFTER_EVERY_PHRASE) {
+            Ok(Reading::Exact(phrase)) => {
+                prop_assert_eq!(phrase.text().as_str().to_owned(), salad.join(" "));
+            }
+            Ok(Reading::Corrected(correction)) => {
+                prop_assert!(correction.changed().len() <= 2);
+            }
+            Err(error) => {
+                let expected = matches!(
+                    error,
+                    Error::TooDamaged
+                        | Error::Bip39Phrase { .. }
+                        | Error::WrongWordCount { .. }
+                        | Error::InvalidKind
+                        | Error::NewerKind { .. }
+                        | Error::OtherRealm { .. }
+                );
+                prop_assert!(expected, "{}", error);
+            }
         }
     }
 
@@ -245,17 +480,6 @@ proptest! {
         let _ = NodeKey::from_pkcs8_der(&bytes);
         let _ = PublicKey::from_spki_der(&bytes);
         let _ = PublicKey::from_bytes(&key);
-    }
-
-    #[test]
-    fn mnemonic_from_entropy_never_panics(entropy in prop::collection::vec(any::<u8>(), 0..48)) {
-        match Mnemonic::from_entropy(&entropy) {
-            Ok(mnemonic) => prop_assert_eq!(mnemonic.entropy(), entropy.as_slice()),
-            Err(error) => {
-                prop_assert_eq!(error, Error::InvalidEntropyLength);
-                prop_assert_eq!(WordCount::from_entropy_bytes(entropy.len()), None);
-            }
-        }
     }
 
     #[test]

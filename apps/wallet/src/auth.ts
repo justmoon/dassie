@@ -9,6 +9,7 @@
 import { type Identity, loadIdentity } from "@dassie/wasm/web";
 import { loginRequest, setupRequest } from "@dassie/rpc/auth";
 import { hex } from "./hex.ts";
+import type { Realm } from "./phrase.ts";
 
 /** How a call to the node went. */
 export type Outcome =
@@ -30,44 +31,48 @@ export interface Credentials {
 }
 
 /**
- * The passphrase in canonical form, or undefined if it is not a valid
- * BIP-39 phrase. The original accepted any string and silently derived a
- * different identity from it, so a typo looked like a wrong node.
- */
-export function checkPassphrase(
-  identity: Identity,
-  phrase: string,
-): string | undefined {
-  // Normalizing parses the phrase, and throws if it is invalid; validating
-  // first keeps exceptions for real failures.
-  if (!identity.validateMnemonic(phrase)) return undefined;
-  return identity.normalizeMnemonic(phrase);
-}
-
-/**
- * The node key and login proof of a passphrase. Throws if the passphrase is
- * not valid, so check it with {@link checkPassphrase} first.
+ * The node key and login proof of a phrase of `realm`, in the canonical
+ * form `readEntry` (`phrase.ts`) gives it once it read as written, or once
+ * the owner confirmed its correction. Throws if it does not read as
+ * written.
  */
 export function deriveCredentials(
   identity: Identity,
   phrase: string,
+  realm: Realm,
 ): Credentials {
-  const nodeKey = identity.deriveNodeKey(phrase);
-  return { nodeKey, loginProof: identity.loginSecret(nodeKey) };
+  const read = identity.readPhrase(phrase, realm, Date.now()).exact();
+  try {
+    const nodeKey = read.nodeKey(realm);
+    return { nodeKey, loginProof: identity.loginSecret(nodeKey) };
+  } finally {
+    read.free();
+  }
 }
 
-/** `POST /api/setup`: stores the node key and signs the owner in. */
+/**
+ * `POST /api/setup`: stores the node key of a phrase of `realm`, sets the
+ * node up in that realm, and signs the owner in.
+ */
 export async function submitSetup(
   token: string,
   phrase: string,
+  realm: Realm,
 ): Promise<Outcome> {
-  const { nodeKey } = deriveCredentials(await loadIdentity(), phrase);
-  return await post("/api/setup", setupRequest(token, hex(nodeKey)));
+  const { nodeKey } = deriveCredentials(await loadIdentity(), phrase, realm);
+  return await post("/api/setup", setupRequest(token, hex(nodeKey), realm));
 }
 
-/** `POST /api/login`: signs the owner in with a passphrase's proof. */
-export async function submitLogin(phrase: string): Promise<Outcome> {
-  const { loginProof } = deriveCredentials(await loadIdentity(), phrase);
+/** `POST /api/login`: signs the owner in with the proof of a phrase of `realm`. */
+export async function submitLogin(
+  phrase: string,
+  realm: Realm,
+): Promise<Outcome> {
+  const { loginProof } = deriveCredentials(
+    await loadIdentity(),
+    phrase,
+    realm,
+  );
   return await post("/api/login", loginRequest(hex(loginProof)));
 }
 

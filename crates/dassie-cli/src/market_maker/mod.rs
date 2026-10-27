@@ -202,9 +202,10 @@ impl MarketMaker {
         clock: Arc<dyn Clock>,
         shutdown: CancellationToken,
     ) -> Result<Self, String> {
+        let now_ms = clock.now_ms();
         let wallets = Wallets {
-            xrp: config::wallet_from_file(&config.xrp.passphrase_file)?,
-            token: config::wallet_from_file(&config.token_node.passphrase_file)?,
+            xrp: config::wallet_from_file(&config.xrp.passphrase_file, now_ms)?,
+            token: config::wallet_from_file(&config.token_node.passphrase_file, now_ms)?,
         };
         let mut xrp = Node::new(
             Side::Xrp,

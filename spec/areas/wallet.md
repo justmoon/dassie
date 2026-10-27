@@ -29,7 +29,10 @@ The same policy applies in development, so there is no HMR: a change shows after
 ## Key derivation
 
 - Keys are derived in the browser with `dassie-identity` compiled to WASM, the same code the node runs ([Identity](identity.md), [rust-and-typescript](../decisions/rust-and-typescript.md)), so the browser and the node cannot disagree on what a passphrase means.
-- A passphrase is checked (known words and checksum) and normalized before anything is derived from it.
+- **The realm is the node's.** The wallet makes and reads phrases in the realm `GetBasicState` reports, as the first segment of the node's ILP address, which before setup is the realm the node sets up in, and setup names it in its request ([HTTP](http.md#setup)). A phrase of the other realm is refused at setup and at login, before anything is derived ([phrase-format](../decisions/phrase-format.md)). A node that reports a realm the wallet does not know gets neither the setup wizard nor the login page.
+- **A new phrase** is made by the browser's clock, and only while that clock is within a day of the node's, which the wallet reads from the `Date` header of a response from the node ([HTTP](http.md#response-headers)). It is shown with the date it was made, its 20 words numbered in two columns of ten, as a metal plate lays them out, with the four letters a plate keeps in bold. The owner then types one of the words back, which is matched as a reading matches it.
+- **Entering a phrase,** at setup and at login, the owner sees what each word reads as while typing, matched by its first four letters with the reader's own code, with a word not on the list flagged; they can mark a word they cannot read, and the mark stays on that word as words are added or removed before it, or type `?` for it. Each refusal has words of its own (`apps/wallet/src/messages.ts`): a BIP-39 phrase, a wrong count, too damaged, not a phrase, a newer Dassie, the other realm, and a date after this clock, which says how to read a phrase made by a clock that ran ahead.
+- **A correction is shown before it is used:** the 20 words with the changed ones marked, which takes the focus so that a screen reader reads it out, and the phrase is taken only once the owner confirms it.
 - Setup sends the node key; login sends only the login proof derived from it. The passphrase never leaves the browser and is never stored, in the URL or anywhere else.
 
 ## The gate
@@ -86,6 +89,7 @@ The wallet, the dev dashboard and the website share them: amounts, live data, th
 ## Decisions
 
 - [rust-and-typescript](../decisions/rust-and-typescript.md): the wallet is Solid 2, and keys are derived in the browser with the node's own code compiled to WASM.
+- [phrase-format](../decisions/phrase-format.md): the phrase the wallet makes and reads, its realm, and corrections the owner confirms.
 - [rpc-contract](../decisions/rpc-contract.md): the typed RPC contract and its live streams.
 - [external-assets](../decisions/external-assets.md): holdings as the ledger reports them, never as the books add them up.
 - [owner-ledger](../decisions/owner-ledger.md): every amount carries its currency; the display currency and its total.

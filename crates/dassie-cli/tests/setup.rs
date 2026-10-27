@@ -14,7 +14,7 @@ use std::path::Path;
 use std::process::{Child, Command, Output, Stdio};
 use std::time::{Duration, Instant};
 
-use dassie_identity::Mnemonic;
+use dassie_identity::{Created, Phrase, PhraseSecret, Realm};
 
 const DASSIE: &str = env!("CARGO_BIN_EXE_dassie");
 /// Ports no other test of this crate uses, since the tests of a crate run
@@ -84,12 +84,21 @@ fn dassie(args: &[&str], ipc: &Path) -> Output {
         .unwrap()
 }
 
-/// A passphrase file for `entropy`, and its node ID.
-fn phrase_file(dir: &Path, name: &str, entropy: u8) -> (String, String) {
-    let mnemonic = Mnemonic::from_entropy(&[entropy; 16]).unwrap();
+/// A passphrase file of a test-realm phrase whose secret is `byte`
+/// sixteen times, and its node ID.
+fn phrase_file(dir: &Path, name: &str, byte: u8) -> (String, String) {
+    phrase_file_in(Realm::Test, dir, name, byte)
+}
+
+/// A passphrase file of a phrase of `realm` whose secret is `byte` sixteen
+/// times, made in 2026, and its node ID.
+fn phrase_file_in(realm: Realm, dir: &Path, name: &str, byte: u8) -> (String, String) {
+    let created = Created::from_hours(7_000).unwrap();
+    let phrase = Phrase::new(realm, created, &PhraseSecret::from_bytes([byte; 16]));
     let path = dir.join(name);
-    std::fs::write(&path, format!("{}\n", mnemonic.phrase().as_str())).unwrap();
-    let id = mnemonic.to_seed().node_key().node_id().as_str().to_owned();
+    std::fs::write(&path, format!("{}\n", phrase.text().as_str())).unwrap();
+    let key = phrase.master_seed(realm).unwrap().node_key();
+    let id = key.node_id().as_str().to_owned();
     (path.to_str().unwrap().to_owned(), id)
 }
 
@@ -118,17 +127,7 @@ fn setup_claims_a_node_once_and_refuses_another_passphrase() {
         "{text}"
     );
 
-    // The realm is fixed at setup.
-    let live = dassie(
-        &["setup", "--passphrase-file", &owner, "--realm", "live"],
-        &ipc,
-    );
-    let text = describe(&live);
-    assert_eq!(live.status.code(), Some(1), "{text}");
-    assert!(
-        text.contains("The node runs the test realm, not live"),
-        "{text}"
-    );
+    refuses_a_phrase_of_another_realm(dir.path(), &owner, &ipc);
 
     let refused = dassie(
         &["setup", "--passphrase-file", &stranger, "--scheme", "stub"],
@@ -175,6 +174,42 @@ fn setup_claims_a_node_once_and_refuses_another_passphrase() {
     assert!(!log.contains(&first_words), "{log}");
 }
 
+/// A phrase names its realm: read as another realm's, it is refused as a
+/// phrase of its own, and a phrase of a realm the node does not run is
+/// refused too, before the node is touched.
+fn refuses_a_phrase_of_another_realm(dir: &Path, owner: &str, ipc: &Path) {
+    let live = dassie(
+        &["setup", "--passphrase-file", owner, "--realm", "live"],
+        ipc,
+    );
+    let text = describe(&live);
+    assert_eq!(live.status.code(), Some(1), "{text}");
+    assert!(text.contains("phrase of the test realm"), "{text}");
+
+    let (live_owner, _) = phrase_file_in(Realm::Live, dir, "live", 7);
+    let live = dassie(
+        &["setup", "--passphrase-file", &live_owner, "--realm", "live"],
+        ipc,
+    );
+    let text = describe(&live);
+    assert_eq!(live.status.code(), Some(1), "{text}");
+    assert!(
+        text.contains("The node runs the test realm, and the passphrase"),
+        "{text}"
+    );
+    assert!(text.contains("a phrase of the live realm"), "{text}");
+
+    // Read by default as the test realm's, it is refused before the node is
+    // touched, with the flag that reads it as its own.
+    let unflagged = dassie(&["setup", "--passphrase-file", &live_owner], ipc);
+    let text = describe(&unflagged);
+    assert_eq!(unflagged.status.code(), Some(1), "{text}");
+    assert!(
+        text.contains("a phrase of the live realm, not of the test realm: pass --realm live"),
+        "{text}"
+    );
+}
+
 /// `dassie setup --asset` sets an account's config apart from its schemes,
 /// checked as the account reads it, and the same again changes nothing.
 fn sets_an_accounts_config(owner: &str, ipc: &Path) {
@@ -217,6 +252,20 @@ fn setup_explains_a_missing_daemon_and_a_bad_file() {
     assert_eq!(refused.status.code(), Some(1), "{text}");
     assert!(text.contains("holds no valid passphrase"), "{text}");
     assert!(!text.contains("nothing like"), "{text}");
+
+    // A phrase that says it was made in 2145 is refused by today's clock,
+    // with its date.
+    let last = Created::from_hours(Created::MAX_HOURS).unwrap();
+    let future = Phrase::new(Realm::Test, last, &PhraseSecret::from_bytes([7; 16]));
+    let path = dir.path().join("future");
+    std::fs::write(&path, future.text().as_str()).unwrap();
+    let refused = dassie(
+        &["setup", "--passphrase-file", path.to_str().unwrap()],
+        &ipc,
+    );
+    let text = describe(&refused);
+    assert_eq!(refused.status.code(), Some(1), "{text}");
+    assert!(text.contains("made on 2145-08-15"), "{text}");
 
     let usage = dassie(&["setup"], &ipc);
     assert_eq!(usage.status.code(), Some(2));

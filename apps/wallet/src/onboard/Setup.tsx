@@ -6,21 +6,35 @@
  * never stored.
  */
 
-import { type Identity, loadIdentity } from "@dassie/wasm/web";
+import { isPhraseError, loadIdentity } from "@dassie/wasm/web";
 import type { JSX } from "@solidjs/web";
 import { createSignal, Match, Show, Switch } from "solid-js";
-import { checkPassphrase, submitSetup } from "../auth.ts";
+import { submitSetup } from "../auth.ts";
 import {
+  credentialFailure,
   IDENTITY_FAILED,
-  INVALID_PASSPHRASE,
+  NODE_CLOCK_UNKNOWN,
+  phraseNotMade,
+  realmName,
   setupFailure,
 } from "../messages.ts";
+import { namesWord, nodeClock, type Realm } from "../phrase.ts";
 import { Card, Spinner } from "../ui.tsx";
+import { PhraseEntry, PhraseGrid } from "./phrase.tsx";
+
+/** A phrase the wallet made, as shown to the owner. */
+interface Made {
+  /** The canonical phrase. */
+  readonly text: string;
+  readonly words: readonly string[];
+  /** The day it was made, `2026-02-19`. */
+  readonly date: string;
+}
 
 type Step =
   | { readonly name: "intro" }
-  | { readonly name: "generate"; readonly mnemonic: string }
-  | { readonly name: "verify"; readonly mnemonic: string }
+  | { readonly name: "generate"; readonly made: Made }
+  | { readonly name: "verify"; readonly made: Made }
   | { readonly name: "recover" }
   | {
     readonly name: "opening";
@@ -39,8 +53,11 @@ function stepIf<N extends Step["name"]>(
   return step.name === name ? step as Extract<Step, { name: N }> : undefined;
 }
 
-/** The setup wizard, for the setup token in the URL. */
-export function Setup(props: { token: string }): JSX.Element {
+/**
+ * The setup wizard, for the setup token in the URL, setting the node up in
+ * `realm`, the one it reports.
+ */
+export function Setup(props: { token: string; realm: Realm }): JSX.Element {
   const [step, setStep] = createSignal<Step>({ name: "intro" });
   // The key derivation module is needed from the first button on; loading
   // it now hides the delay. A failure surfaces when it is used.
@@ -49,21 +66,22 @@ export function Setup(props: { token: string }): JSX.Element {
   return (
     <Switch>
       <Match when={stepIf(step(), "intro")}>
-        <Intro go={go} />
+        <Intro realm={props.realm} go={go} />
       </Match>
       <Match when={stepIf(step(), "generate")}>
-        {(current) => <Generate mnemonic={current().mnemonic} go={go} />}
+        {(current) => <Generate made={current().made} go={go} />}
       </Match>
       <Match when={stepIf(step(), "verify")}>
-        {(current) => <Verify mnemonic={current().mnemonic} go={go} />}
+        {(current) => <Verify made={current().made} go={go} />}
       </Match>
       <Match when={stepIf(step(), "recover")}>
-        <Recover go={go} />
+        <Recover realm={props.realm} go={go} />
       </Match>
       <Match when={stepIf(step(), "opening")}>
         {(current) => (
           <Opening
             token={props.token}
+            realm={props.realm}
             phrase={current().phrase}
             back={current().back}
             go={go}
@@ -84,15 +102,45 @@ function ErrorText(props: { message: string | undefined }): JSX.Element {
   );
 }
 
-function Intro(props: { go: Go }): JSX.Element {
+/**
+ * A new phrase of `realm`, made now by this browser's clock, once that
+ * clock is within a day of the node's (spec/decisions/phrase-format.md);
+ * or why none was made.
+ */
+async function makePhrase(realm: Realm): Promise<Made | string> {
+  let identity;
+  try {
+    identity = await loadIdentity();
+  } catch {
+    return IDENTITY_FAILED;
+  }
+  const nodeNowMs = await nodeClock();
+  if (nodeNowMs === undefined) return NODE_CLOCK_UNKNOWN;
+  let made;
+  try {
+    made = identity.generatePhrase(realm, Date.now(), nodeNowMs);
+  } catch (error) {
+    if (isPhraseError(error)) return phraseNotMade(error);
+    throw error;
+  }
+  try {
+    return { text: made.text, words: made.words, date: made.createdDate };
+  } finally {
+    made.free();
+  }
+}
+
+function Intro(props: { realm: Realm; go: Go }): JSX.Element {
   const [error, setError] = createSignal<string>();
+  const [pending, setPending] = createSignal(false);
   const generate = async () => {
-    try {
-      const identity = await loadIdentity();
-      props.go({ name: "generate", mnemonic: identity.generateMnemonic() });
-    } catch {
-      setError(IDENTITY_FAILED);
-    }
+    if (pending()) return;
+    setError(undefined);
+    setPending(true);
+    const made = await makePhrase(props.realm).catch(() => IDENTITY_FAILED);
+    setPending(false);
+    if (typeof made === "string") setError(made);
+    else props.go({ name: "generate", made });
   };
   return (
     <Card title="Dassie Wallet">
@@ -100,12 +148,18 @@ function Intro(props: { go: Go }): JSX.Element {
         Welcome to Dassie Wallet. The first step is to create or recover a
         wallet.
       </p>
+      <Show when={props.realm === "live"}>
+        <p data-testid="setup-realm">
+          This node runs on {realmName(props.realm)}, with real money.
+        </p>
+      </Show>
       <ErrorText message={error()} />
       <div class="actions">
         <button
           type="button"
           class="primary"
           data-testid="generate-wallet"
+          disabled={pending()}
           onClick={generate}
         >
           Generate a new wallet
@@ -123,15 +177,22 @@ function Intro(props: { go: Go }): JSX.Element {
   );
 }
 
-function Generate(props: { mnemonic: string; go: Go }): JSX.Element {
+function Generate(props: { made: Made; go: Go }): JSX.Element {
   return (
     <Card title="Generate Wallet">
       <p>
-        This passphrase is your wallet. Write it down and keep it somewhere safe
-        and private. Anyone who knows it controls your node and its money, and
-        if you lose it, nobody can recover it for you.
+        These 20 words are your wallet. Write them down in order and keep them
+        somewhere safe and private. Anyone who knows them controls your node and
+        its money, and if you lose them, nobody can recover them for you.
       </p>
-      <p class="mnemonic" data-testid="mnemonic">{props.mnemonic}</p>
+      <p class="hint">
+        A metal plate made for 24 words holds them: it needs only the first four
+        letters of each word, shown in bold.
+      </p>
+      <PhraseGrid words={props.made.words} testid="new-phrase" />
+      <p class="phrase-date" data-testid="phrase-date">
+        Generated {props.made.date}
+      </p>
       <div class="actions">
         <button type="button" onClick={() => props.go({ name: "intro" })}>
           Back
@@ -140,9 +201,9 @@ function Generate(props: { mnemonic: string; go: Go }): JSX.Element {
           type="button"
           class="primary"
           data-testid="backed-up"
-          onClick={() => props.go({ name: "verify", mnemonic: props.mnemonic })}
+          onClick={() => props.go({ name: "verify", made: props.made })}
         >
-          Ok, I have backed up my passphrase
+          I have written it down
         </button>
       </div>
     </Card>
@@ -152,23 +213,32 @@ function Generate(props: { mnemonic: string; go: Go }): JSX.Element {
 /** A uniformly random index below `count`, from the platform's CSPRNG. */
 function randomIndex(count: number): number {
   const [value] = crypto.getRandomValues(new Uint32Array(1));
-  // 2^32 is not a multiple of 12, but the bias is 4 in 2^32: none worth
+  // 2^32 is not a multiple of 20, but the bias is 16 in 2^32: none worth
   // a rejection loop.
   return value % count;
 }
 
-function Verify(props: { mnemonic: string; go: Go }): JSX.Element {
-  const words = props.mnemonic.split(" ");
-  const index = randomIndex(words.length);
+function Verify(props: { made: Made; go: Go }): JSX.Element {
+  const index = randomIndex(props.made.words.length);
+  const word = props.made.words[index];
   const [answer, setAnswer] = createSignal("");
-  const correct = () => answer().trim().toLowerCase() === words[index];
+  const [correct, setCorrect] = createSignal(false);
+  const check = (typed: string) => {
+    setAnswer(typed);
+    // A word is matched by its first four letters, as a reading matches it,
+    // so an owner who wrote only those can answer with them.
+    loadIdentity().then(
+      (identity) => setCorrect(namesWord(identity, typed, word)),
+      () => setCorrect(false),
+    );
+  };
   const submit = (event: SubmitEvent) => {
     event.preventDefault();
     if (!correct()) return;
     props.go({
       name: "opening",
-      phrase: props.mnemonic,
-      back: { name: "verify", mnemonic: props.mnemonic },
+      phrase: props.made.text,
+      back: { name: "verify", made: props.made },
     });
   };
   return (
@@ -187,13 +257,12 @@ function Verify(props: { mnemonic: string; go: Go }): JSX.Element {
           autocapitalize="none"
           spellcheck={false}
           value={answer()}
-          onInput={(event) => setAnswer(event.currentTarget.value)}
+          onInput={(event) => check(event.currentTarget.value)}
         />
         <div class="actions">
           <button
             type="button"
-            onClick={() =>
-              props.go({ name: "generate", mnemonic: props.mnemonic })}
+            onClick={() => props.go({ name: "generate", made: props.made })}
           >
             Back
           </button>
@@ -211,64 +280,38 @@ function Verify(props: { mnemonic: string; go: Go }): JSX.Element {
   );
 }
 
-function Recover(props: { go: Go }): JSX.Element {
-  const [phrase, setPhrase] = createSignal("");
-  const [error, setError] = createSignal<string>();
-  const submit = async (event: SubmitEvent) => {
-    event.preventDefault();
-    const entered = phrase();
-    let identity: Identity;
-    try {
-      identity = await loadIdentity();
-    } catch {
-      setError(IDENTITY_FAILED);
-      return;
-    }
-    const normalized = checkPassphrase(identity, entered);
-    if (normalized === undefined) {
-      setError(INVALID_PASSPHRASE);
-      return;
-    }
-    props.go({
-      name: "opening",
-      phrase: normalized,
-      back: { name: "recover" },
-    });
-  };
+function Recover(props: { realm: Realm; go: Go }): JSX.Element {
   return (
     <Card title="Recover Wallet">
-      <form onSubmit={submit}>
-        <label for="recover-phrase">Passphrase</label>
-        <textarea
-          id="recover-phrase"
-          data-testid="recover-input"
-          rows={3}
-          autocomplete="off"
-          autocapitalize="none"
-          spellcheck={false}
-          placeholder="correct horse staple …"
-          value={phrase()}
-          onInput={(event) => {
-            setPhrase(event.currentTarget.value);
-            setError(undefined);
-          }}
-        />
-        <ErrorText message={error()} />
-        <div class="actions">
-          <button type="button" onClick={() => props.go({ name: "intro" })}>
+      <PhraseEntry
+        realm={props.realm}
+        labels={{
+          id: "recover-phrase",
+          input: "recover-input",
+          submit: "recover-submit",
+          error: "setup-error",
+          action: "Open Wallet",
+        }}
+        onPhrase={(phrase) => {
+          props.go({ name: "opening", phrase, back: { name: "recover" } });
+          return Promise.resolve(undefined);
+        }}
+        actions={
+          <button
+            type="button"
+            onClick={() => props.go({ name: "intro" })}
+          >
             Back
           </button>
-          <button type="submit" class="primary" data-testid="recover-submit">
-            Open Wallet
-          </button>
-        </div>
-      </form>
+        }
+      />
     </Card>
   );
 }
 
 function Opening(props: {
   token: string;
+  realm: Realm;
   phrase: string;
   back: Step;
   go: Go;
@@ -278,7 +321,7 @@ function Opening(props: {
   // when the step is created; "Back" leaves it, and a new attempt is a new
   // step.
   const back = props.back;
-  submitSetup(props.token, props.phrase).then(
+  submitSetup(props.token, props.phrase, props.realm).then(
     (outcome) => {
       if (outcome.ok) {
         // The setup URL's token is spent; the wallet lives at the root.
@@ -288,7 +331,7 @@ function Opening(props: {
       }
       setError(setupFailure(outcome));
     },
-    () => setError(IDENTITY_FAILED),
+    (error: unknown) => setError(credentialFailure(error, props.realm)),
   );
   return (
     <Card title="Opening Wallet">

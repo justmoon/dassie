@@ -25,15 +25,23 @@ initStream({ module: wasm("dassie_stream") });
 
 export {
   deriveNodeKey,
-  generateMnemonic,
+  generatePhrase,
   loginSecret,
-  mnemonicFromEntropy,
   nodeId,
-  normalizeMnemonic,
+  Phrase,
+  phraseFromSecret,
+  PhraseReading,
+  phraseWords,
   publicKey,
+  readPhrase,
   sign,
-  validateMnemonic,
 } from "./gen/web/dassie_identity.js";
+
+export {
+  isPhraseError,
+  type PhraseError,
+  type PhraseErrorCode,
+} from "./phrase_error.ts";
 
 export {
   decodeAmountTooLarge,

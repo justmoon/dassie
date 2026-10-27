@@ -71,7 +71,7 @@ The node that asks to peer extends the other 1.1 units of credit; the node that 
 | Path | What |
 |---|---|
 | `crates/dassie-oer` | Canonical X.696 OER, the subset the protocols use |
-| `crates/dassie-identity` | BIP-39 phrases, seed paths, node keys, node IDs |
+| `crates/dassie-identity` | Recovery phrases with their own error correction, seed paths, node keys, node IDs |
 | `crates/dassie-ilp` | ILPv4 packets, addresses, timestamps, ILDCP, BTP 2.0 |
 | `crates/dassie-stream` | STREAM as sans-IO connection and server state machines |
 | `crates/dassie-ledger` | The internal double-entry ledger and its transfer journal |
@@ -102,7 +102,7 @@ The node that asks to peer extends the other 1.1 units of credit; the node that 
 | `tests/interop` | STREAM interop with `ilp-protocol-stream`, natively and in WASM; WASM vectors; the browser test |
 | `tests/e2e` | End-to-end tests on real binaries: a fresh install through `dassie init` and browser setup, with Pebble as the ACME CA; a BTP client paying the node's STREAM receiver; the `two-nodes` and `six-nodes` scenarios; Open Payments, including a third party's full flow with consent in the wallet; XRPL settlement and cross-currency payments; the wallet's pages in a browser; `node --run dev` and its dashboard; the installer and the updater on Debian, Ubuntu, Fedora and CentOS, in containers; dassie.land and its STREAM toy in a browser, under the site's CSP |
 | `testdata/original` | Generator for the OER, ILP and STREAM golden vectors, run against the original |
-| `testdata/identity` | Generator for the identity golden vectors, every key a phrase derives, with libraries independent of Dassie's code |
+| `testdata/identity` | Generator for the identity golden vectors, phrases as read and every key a phrase derives, computed apart from Dassie's code |
 | `testdata/feed` | The rate feed's golden vectors, from `cargo run -p dassie-feed --example feed_vectors` |
 | `testdata/hub` | A settlement hub's golden vectors, from `cargo run -p dassie-hub --example hub_vectors` |
 | `testdata/xrpl` | Generator for the XRPL golden vectors, run against xrpl.js |

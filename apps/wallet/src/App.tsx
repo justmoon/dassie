@@ -23,6 +23,8 @@ import { Router } from "@dassie/ui/router";
 import { Toaster } from "@dassie/ui/toast";
 import { PageError } from "@dassie/ui/ui";
 import { Card, Spinner } from "./ui.tsx";
+import { realmOf } from "./phrase.ts";
+import { UNKNOWN_REALM } from "./messages.ts";
 
 // The setup and login screens, with the identity WASM, load only when
 // needed.
@@ -45,6 +47,14 @@ export default function App(): JSX.Element {
       setFailure(error instanceof Error ? error.message : String(error)),
   );
   const screen = () => decideScreen(basic(), failure(), location.pathname);
+  // The realm the node reports: a phrase of the other is refused at setup
+  // and at login (spec/decisions/phrase-format.md).
+  const realm = () => {
+    const state = basic();
+    return state && realmOf(state.ilpAllocationScheme);
+  };
+  const asksPhrase = () =>
+    screen().kind === "setup" || screen().kind === "login";
 
   return (
     <RpcContext value={client}>
@@ -74,11 +84,21 @@ export default function App(): JSX.Element {
               <Match when={screen().kind === "setup-info"}>
                 <SetupInfo />
               </Match>
-              <Match when={screen().kind === "setup"}>
-                <Setup token={(screen() as { token: string }).token} />
+              <Match when={asksPhrase() && realm() === undefined}>
+                <Card title="Unknown network">
+                  <p data-testid="unknown-realm">{UNKNOWN_REALM}</p>
+                </Card>
               </Match>
-              <Match when={screen().kind === "login"}>
-                <Login />
+              <Match when={screen().kind === "setup" && realm()}>
+                {(known) => (
+                  <Setup
+                    token={(screen() as { token: string }).token}
+                    realm={known()}
+                  />
+                )}
+              </Match>
+              <Match when={screen().kind === "login" && realm()}>
+                {(known) => <Login realm={known()} />}
               </Match>
               <Match when={screen().kind === "owner" && basic()}>
                 {(state) => <Owner basic={state()} />}

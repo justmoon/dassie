@@ -108,7 +108,8 @@ Commands:
                                                 server; repeatable
                       --scheme <id>[=<config>]  a settlement scheme, with
                                                 its JSON config; repeatable
-                      --realm test|live         the realm, fixed for good
+                      --realm test|live         the realm, fixed for good,
+                                                which the phrase must name
                                                 (default: test; live only
                                                 by the dev switch)
   pair              Print a code that pairs an owner app with the node, for

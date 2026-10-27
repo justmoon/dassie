@@ -453,15 +453,19 @@ fn node(root: &Fields<'_>, key: &str) -> Result<(NodeConfig, NodeParams), Config
 ///
 /// # Errors
 ///
-/// The file cannot be read, or holds no passphrase.
-pub fn wallet_from_file(path: &Path) -> Result<Wallet, String> {
-    let entropy = passphrase::node_key_from_file(path)?.xrpl_account_entropy(TESTNET.id, 0);
+/// The file cannot be read, or holds no passphrase of the test realm that
+/// reads as written by a clock that reads `now_ms`.
+pub fn wallet_from_file(path: &Path, now_ms: u64) -> Result<Wallet, String> {
+    // The market maker trades on the testnet only, so its phrases are the
+    // test realm's.
+    let key = passphrase::node_key_from_file(path, dassie_identity::Realm::Test, now_ms)?;
+    let entropy = key.xrpl_account_entropy(TESTNET.id, 0);
     Ok(Wallet::from_entropy(entropy.as_bytes()))
 }
 
 #[cfg(test)]
 mod tests {
-    use dassie_identity::Mnemonic;
+    use dassie_identity::{Created, Phrase, PhraseSecret, Realm};
     use serde_json::json;
 
     use super::*;
@@ -720,21 +724,27 @@ mod tests {
     fn the_wallet_is_the_nodes() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("phrase");
-        let phrase = "abandon abandon abandon abandon abandon abandon abandon abandon \
-                      abandon abandon abandon about";
-        std::fs::write(&path, format!("{phrase}\n")).unwrap();
-        let wallet = wallet_from_file(&path).unwrap();
+        let created = Created::from_hours(7_000).unwrap();
+        let now_ms = created.unix_ms();
+        let phrase = Phrase::new(Realm::Test, created, &PhraseSecret::from_bytes([3; 16]));
+        std::fs::write(&path, format!("{}\n", phrase.text().as_str())).unwrap();
+        let wallet = wallet_from_file(&path, now_ms).unwrap();
         // As the node derives it from its key.
-        let key = Mnemonic::parse(phrase).unwrap().to_seed().node_key();
+        let key = phrase.master_seed(Realm::Test).unwrap().node_key();
         let entropy = key.xrpl_account_entropy(TESTNET.id, 0);
         assert_eq!(
             wallet.account(),
             Wallet::from_entropy(entropy.as_bytes()).account()
         );
         std::fs::write(&path, "not a phrase").unwrap();
-        let problem = wallet_from_file(&path).err().unwrap();
+        let problem = wallet_from_file(&path, now_ms).err().unwrap();
         assert!(!problem.contains("not a phrase"), "{problem}");
         std::fs::write(&path, "a".repeat(4_096)).unwrap();
-        assert!(wallet_from_file(&path).is_err());
+        assert!(wallet_from_file(&path, now_ms).is_err());
+        // A live phrase is no market maker's.
+        let live = Phrase::new(Realm::Live, created, &PhraseSecret::from_bytes([3; 16]));
+        std::fs::write(&path, live.text().as_str()).unwrap();
+        let problem = wallet_from_file(&path, now_ms).err().unwrap();
+        assert!(problem.contains("live realm"), "{problem}");
     }
 }

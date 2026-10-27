@@ -3676,16 +3676,15 @@ rec {
             usesDefaultFeatures = false;
           }
           {
+            name = "hkdf";
+            packageId = "hkdf";
+            usesDefaultFeatures = false;
+          }
+          {
             name = "hmac";
             packageId = "hmac";
             usesDefaultFeatures = false;
             features = [ "zeroize" ];
-          }
-          {
-            name = "pbkdf2";
-            packageId = "pbkdf2";
-            usesDefaultFeatures = false;
-            features = [ "hmac" ];
           }
           {
             name = "rand_core";
@@ -8026,6 +8025,24 @@ rec {
           "std" = [ "alloc" ];
         };
         resolvedDefaultFeatures = [ "alloc" "default" "std" ];
+      };
+      "hkdf" = rec {
+        crateName = "hkdf";
+        version = "0.13.0";
+        edition = "2024";
+        sha256 = "061halz93gjbshffck2xzrrz9rmkch95rvwn5ipqd2y6433jdaja";
+        authors = [
+          "RustCrypto Developers"
+        ];
+        dependencies = [
+          {
+            name = "hmac";
+            packageId = "hmac";
+          }
+        ];
+        features = {
+          "kdf" = [ "dep:kdf" ];
+        };
       };
       "hmac" = rec {
         crateName = "hmac";
@@ -13712,47 +13729,6 @@ rec {
           "deadlock_detection" = [ "petgraph" "backtrace" ];
           "petgraph" = [ "dep:petgraph" ];
         };
-      };
-      "pbkdf2" = rec {
-        crateName = "pbkdf2";
-        version = "0.13.0";
-        edition = "2024";
-        sha256 = "0a867f3jikfwjfni9fhmrjhdb7qcjzjd917lk96m5gy5p3784b8i";
-        authors = [
-          "RustCrypto Developers"
-        ];
-        dependencies = [
-          {
-            name = "digest";
-            packageId = "digest 0.11.3";
-            features = [ "mac" ];
-          }
-          {
-            name = "hmac";
-            packageId = "hmac";
-            optional = true;
-            usesDefaultFeatures = false;
-          }
-        ];
-        devDependencies = [
-          {
-            name = "hmac";
-            packageId = "hmac";
-          }
-        ];
-        features = {
-          "alloc" = [ "mcf?/alloc" "password-hash?/alloc" ];
-          "default" = [ "hmac" ];
-          "getrandom" = [ "password-hash/getrandom" ];
-          "hmac" = [ "dep:hmac" ];
-          "kdf" = [ "sha2" "dep:kdf" ];
-          "mcf" = [ "sha2" "password-hash" "dep:mcf" ];
-          "password-hash" = [ "dep:password-hash" ];
-          "phc" = [ "password-hash/phc" "sha2" ];
-          "rand_core" = [ "password-hash/rand_core" ];
-          "sha2" = [ "hmac" "dep:sha2" ];
-        };
-        resolvedDefaultFeatures = [ "hmac" ];
       };
       "pem" = rec {
         crateName = "pem";
