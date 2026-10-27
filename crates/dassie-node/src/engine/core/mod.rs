@@ -549,12 +549,14 @@ impl Core {
         self.restore_waiting();
         let peers: Vec<dassie_identity::NodeId> = self.peer.peers().map(|(id, _)| *id).collect();
         for node in peers {
-            // A peer whose first method's scheme does not run, as one
-            // disabled or of the other realm, has no ledger to book on: it
-            // gets no endpoint, which the rest of the node does without.
-            // The peer protocol's first review drops that method, and the
-            // endpoint is made on the peering's next one, or ends a peering
-            // left with none (spec/areas/settlement.md#schemes-and-ledgers,
+            // A peer gets an endpoint with a slot for each method whose
+            // scheme runs ([`Self::wanted_slots`]). A method whose scheme
+            // does not, as one disabled or of the other realm, has no ledger
+            // to book on, and gets no slot; a peer with no method that has
+            // one gets no endpoint, which the rest of the node does
+            // without. The peer protocol's first review drops such a
+            // method, and ends a peering left with none
+            // (spec/areas/settlement.md#schemes-and-ledgers,
             // spec/decisions/settlement-methods.md). The original threw, and
             // stopped what served that peer.
             if let Err(error) = self.add_peer_endpoint(node) {
@@ -864,10 +866,17 @@ impl Core {
     }
 
     /// The ledger a payment to `destination` goes out on, and whether it
-    /// goes to one of the node's own endpoints.
-    pub fn route_of(&self, destination: &str) -> Option<(dassie_ledger::LedgerId, bool)> {
+    /// goes to one of the node's own endpoints: `ledger`, the one the owner
+    /// asks to pay from, if a first hop has a method available on it;
+    /// otherwise the first available method of the first hop
+    /// ([`first_hop`](dassie_connector::Connector::first_hop)).
+    pub fn route_of(
+        &self,
+        destination: &str,
+        ledger: Option<dassie_ledger::LedgerId>,
+    ) -> Option<(dassie_ledger::LedgerId, bool)> {
         self.connector
-            .first_hop(destination)
+            .first_hop(destination, ledger)
             .map(|(hop, ledger)| (ledger, !hop.is_peer()))
     }
 

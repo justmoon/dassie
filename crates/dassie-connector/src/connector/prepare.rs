@@ -316,17 +316,17 @@ impl Connector {
         // Unroutable, including anything below our own address that is no
         // endpoint's and our own address itself. A route whose hops have
         // no method available now is short of liquidity, which passes.
-        let (to, method) =
-            match self.next_hop(now_ms, prepare.destination, Some((source, in_ledger)), draw) {
-                Hop::To(to, method) => (to, method),
-                Hop::NoMethod => {
-                    return Err(refuse(
-                        ErrorCode::T04_INSUFFICIENT_LIQUIDITY,
-                        "no settlement method available",
-                    ));
-                }
-                Hop::None => return Err(refuse(ErrorCode::F02_UNREACHABLE, "no route found")),
-            };
+        let asker = (Some(source), Some(in_ledger));
+        let (to, method) = match self.next_hop(now_ms, prepare.destination, asker, Some(draw)) {
+            Hop::To(to, method) => (to, method),
+            Hop::NoMethod => {
+                return Err(refuse(
+                    ErrorCode::T04_INSUFFICIENT_LIQUIDITY,
+                    "no settlement method available",
+                ));
+            }
+            Hop::None => return Err(refuse(ErrorCode::F02_UNREACHABLE, "no route found")),
+        };
         let incoming_ms = prepare.expires_at.unix_ms;
         let latest_ms = incoming_ms.saturating_sub(config.message_window_ms);
         if latest_ms < now_ms.saturating_add(config.min_timeout_ms) {

@@ -762,6 +762,20 @@ impl Core {
         })
     }
 
+    /// The scheme over a hub on `ledger`, and `peer`'s name in it, for a
+    /// packet with `peer` in flight on its slot there: whether or not the
+    /// peering still lists the method, since a dropped method's packets
+    /// resolve on it, and one that timed out over a hub resolves as the hub
+    /// decided (spec/designs/settlement-hubs.md#4-peering-over-a-hub).
+    /// `None` if the method is not over a hub.
+    pub(super) fn packet_hub(&self, peer: &NodeId, ledger: LedgerId) -> Option<(Name, Name)> {
+        let (&scheme, _) = self
+            .schemes
+            .iter()
+            .find(|(_, active)| active.over_hub && active.scheme.ledger() == ledger)?;
+        Some((scheme, name(*peer)?))
+    }
+
     /// The settlement method our Prepare in flight to `peer` with
     /// `request_id` went on: the slot the connector chose for it.
     pub(super) fn forwarded_method(&self, peer: &NodeId, request_id: u32) -> Option<SchemeId> {
@@ -1078,9 +1092,14 @@ impl Core {
                 // fulfilled it does not bear its loss.
                 if definite && let Some(&endpoint) = self.peer_endpoints.get(&peer) {
                     // Over a hub, the scheme of the packet's method forgets
-                    // the commitment too.
-                    if let Some(method) = self.forwarded_method(&peer, request_id) {
-                        self.hub_rejected(&peer, method, request_id);
+                    // the commitment too, a dropped method's as well.
+                    let ledger = self
+                        .connector
+                        .forwarded_on(EndpointId::Peer(endpoint), request_id);
+                    if let Some((scheme, name)) =
+                        ledger.and_then(|ledger| self.packet_hub(&peer, ledger))
+                    {
+                        self.with_commitments(scheme, |c| c.on_answered(name, request_id));
                     }
                     self.connector.fail_forwarded(
                         self.now_ms,

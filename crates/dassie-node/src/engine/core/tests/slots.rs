@@ -315,3 +315,64 @@ fn weights_stay_per_peer_and_ledger() {
     assert_eq!(ended(&mut sim, 1).0, OutgoingState::Completed);
     assert!(earned(&sim, HUB) > 0, "no weight in the hub");
 }
+
+// A method dropped while a packet is in flight on it, and added again
+// before the packet resolves, takes its slot back with the packet, last, as
+// the peering then lists the method; every check of the endpoints holds
+// after each step. Node 2's messages to node 1 are lost, so once node 1
+// forwarded what node 0 sends node 2, it stays in flight, on node 0's
+// dollar slot for node 1 too.
+#[test]
+fn a_method_back_before_its_packets_resolve_takes_its_slot_back() {
+    let mut sim = line(55, false);
+    let (one, two) = (key(1).node_id(), key(2).node_id());
+    sim.cut.insert((2, 1));
+    let pending = |sim: &Sim, index: usize, to: NodeId| {
+        let core = sim.core(index);
+        let endpoint = EndpointId::Peer(core.peer_endpoints[&to]);
+        core.packets(None, 100_000).into_iter().any(|record| {
+            record.destination == Some(endpoint) && record.state == PacketState::Pending
+        })
+    };
+    let in_flight = |sim: &Sim| pending(sim, 0, one);
+    pay(&mut sim, (0, USD), (2, USD), 1_000_000, 1_000_000);
+    assert!(
+        sim.run_until_or(sim.now + 10_000, |sim| pending(sim, 1, two)),
+        "no packet in flight to node 2"
+    );
+    assert!(in_flight(&sim), "no packet in flight to node 1");
+    sim.step(0, |core| {
+        let now = core.now_ms();
+        assert!(core.peer.drop_method(now, &one, scheme_id("stub")));
+        core.after_peer();
+        let endpoint = EndpointId::Peer(core.peer_endpoints[&one]);
+        let waiting = core
+            .connector
+            .slots(endpoint)
+            .any(|slot| slot.ledger == USD && slot.removed);
+        assert!(waiting, "the dropped slot did not wait for its packet");
+    });
+    let methods = |sim: &Sim| {
+        sim.core(0)
+            .peer
+            .peering_of(&one)
+            .unwrap()
+            .schemes()
+            .collect::<Vec<_>>()
+    };
+    let back = |sim: &Sim| methods(sim).contains(&scheme_id("stub"));
+    assert!(
+        sim.run_until_or(sim.now + 30_000, back),
+        "the method did not come back"
+    );
+    assert!(
+        in_flight(&sim),
+        "the packet resolved before the method came back"
+    );
+    assert_eq!(methods(&sim), [scheme_id(STUB_TWO), scheme_id("stub")]);
+    assert_eq!(slots(sim.core(0), one), [HUB, USD]);
+    sim.cut.clear();
+    sim.run_until(sim.now + 120_000);
+    assert!(!in_flight(&sim), "the packet never resolved");
+    crate::sim::checks::check_hub_packets(&sim).unwrap();
+}

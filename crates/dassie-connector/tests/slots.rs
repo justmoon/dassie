@@ -248,14 +248,22 @@ fn only_available_methods_carry_packets() {
 }
 
 // The owner's own packets never convert: they take only methods on the
-// ledger they pay from, and a quote's first hop names the first available
+// ledger they pay from, and a quote's first hop names the first usable hop
+// with a method on the ledger asked for, or else the first available
 // method of the route's first usable hop.
 #[test]
 fn the_owners_packets_take_only_methods_on_their_ledger() {
     let mut h = harness(Config::DEFAULT);
-    assert_eq!(h.connector.first_hop("test.das.dfar.x"), Some((ONE, USD)));
+    let first = |h: &Harness, ledger| h.connector.first_hop("test.das.dfar.x", ledger);
+    assert_eq!(first(&h, None), Some((ONE, USD)));
+    assert_eq!(first(&h, Some(XRP)), Some((ONE, XRP)));
+    assert_eq!(first(&h, Some(HUB)), Some((ONE, USD)), "no hop on it");
+    h.connector.set_available(ONE, XRP, false);
+    assert_eq!(first(&h, Some(XRP)), Some((TWO, XRP)));
+    h.connector.set_available(ONE, XRP, true);
     h.connector.set_available(ONE, USD, false);
-    assert_eq!(h.connector.first_hop("test.das.dfar.x"), Some((ONE, XRP)));
+    assert_eq!(first(&h, None), Some((ONE, XRP)));
+    assert_eq!(first(&h, Some(USD)), Some((TWO, USD)));
     for request_id in 0..10 {
         h.draw = u64::from(request_id) << 60;
         let packet = prepare(FAR, 1_000, NOW + 20_000, [1; 32]);
@@ -315,6 +323,31 @@ fn a_slot_removed_waits_for_its_packets() {
     h.check();
     h.respond(NOW, ONE, sent, &fulfill([1; 32])).unwrap();
     assert!(h.connector.slots(ONE).any(|slot| slot.ledger == XRP));
+}
+
+// A slot taken up again comes last, as its method does when the peering
+// adds it again, and its packet in flight resolves on it.
+#[test]
+fn a_slot_taken_up_again_comes_last() {
+    let mut h = harness(Config::DEFAULT);
+    let ledgers = |h: &Harness| -> Vec<(LedgerId, bool)> {
+        h.connector
+            .slots(ONE)
+            .map(|slot| (slot.ledger, slot.removed))
+            .collect()
+    };
+    assert_eq!(ledgers(&h), [(USD, false), (XRP, false)]);
+    let (to, ledger, sent) = send(&mut h, (SOURCE, USD), 1, 1_000, 0).unwrap();
+    assert_eq!((to, ledger), (ONE, USD));
+    let usd = account(&h, ONE, USD);
+    assert!(h.connector.remove_slot(ONE, USD));
+    assert_eq!(ledgers(&h), [(USD, true), (XRP, false)]);
+    assert_eq!(h.connector.add_slot(ONE, USD, Some(usd)), Ok(()));
+    assert_eq!(ledgers(&h), [(XRP, false), (USD, false)]);
+    h.check();
+    let upstream = h.respond(NOW, ONE, sent, &fulfill([1; 32])).unwrap();
+    assert_eq!((upstream.to, upstream.ledger), (SOURCE, USD));
+    h.check();
 }
 
 // A packet in flight on a slot removed for good expires at its own

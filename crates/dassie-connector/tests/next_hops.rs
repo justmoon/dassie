@@ -259,7 +259,10 @@ fn a_draw_decides_alone() {
 fn the_owners_packets_keep_their_ledger() {
     let mut h = harness(Config::DEFAULT);
     route(&mut h, &[THREE, ONE, FOUR, TWO]);
-    assert_eq!(h.connector.first_hop("test.das.dfar.x"), Some((THREE, XRP)));
+    assert_eq!(
+        h.connector.first_hop("test.das.dfar.x", None),
+        Some((THREE, XRP))
+    );
     let hits = spread(&mut h, ALICE, 1_000, 100);
     assert_eq!(hits, BTreeMap::from([(ONE, 50), (TWO, 50)]));
     route(&mut h, &[THREE, FOUR]);

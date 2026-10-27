@@ -43,18 +43,19 @@ pub(crate) enum Hop {
 
 impl Connector {
     /// The next hop for `destination`, for a packet from `source` on its
-    /// slot on a ledger: below our own address only children (or none);
+    /// slot on `incoming`: below our own address only children (or none);
     /// beyond it, the longest whole-segment prefix in the route table, and
     /// one of its usable options, drawn with `draw`, so packets do not
-    /// bounce between peers. Without a source, for
-    /// [`first_hop`](Self::first_hop), the first usable option and its
-    /// first available method.
+    /// bounce between peers. Without a draw, for
+    /// [`first_hop`](Self::first_hop), the first usable option with a
+    /// method available on `incoming`, or else the first usable option and
+    /// its first available method.
     pub(crate) fn next_hop(
         &self,
         now_ms: u64,
         destination: Address<'_>,
-        source: Option<(EndpointId, LedgerId)>,
-        draw: u64,
+        (source, incoming): (Option<EndpointId>, Option<LedgerId>),
+        draw: Option<u64>,
     ) -> Hop {
         let Ok(own) = Address::parse(&self.own_address) else {
             return Hop::None;
@@ -66,7 +67,7 @@ impl Connector {
                 .endpoints
                 .route_child(destination)
                 .map_or(Hop::None, |child| {
-                    self.draw_hop(now_ms, &[Some(child)], source, false, draw)
+                    self.draw_hop(now_ms, &[Some(child)], (source, incoming), false, draw)
                 });
         }
         if let Some(below) = self.below_child_address(destination) {
@@ -74,11 +75,11 @@ impl Connector {
                 .endpoints
                 .route_child_below(&self.own_address, below)
                 .map_or(Hop::None, |child| {
-                    self.draw_hop(now_ms, &[Some(child)], source, false, draw)
+                    self.draw_hop(now_ms, &[Some(child)], (source, incoming), false, draw)
                 });
         }
         // A periphery node forwards nothing for a peer.
-        if self.periphery.is_some() && source.is_some_and(|(id, _)| id.is_peer()) {
+        if self.periphery.is_some() && source.is_some_and(EndpointId::is_peer) {
             return Hop::None;
         }
         let text = destination.as_str();
@@ -86,7 +87,7 @@ impl Connector {
         let mut no_method = false;
         while let Some(prefix) = text.get(..end) {
             if let Some(options) = self.routes.get(prefix) {
-                match self.draw_hop(now_ms, options, source, true, draw) {
+                match self.draw_hop(now_ms, options, (source, incoming), true, draw) {
                     hop @ Hop::To(..) => return hop,
                     Hop::NoMethod => no_method = true,
                     Hop::None => {}
@@ -100,21 +101,22 @@ impl Connector {
         if no_method { Hop::NoMethod } else { Hop::None }
     }
 
-    /// One of `options` for a packet from `source`, drawn with `draw`:
-    /// weighted among those with an available method on the packet's
-    /// incoming ledger, which it then takes; otherwise, for a peer's
-    /// packet, each as likely, its method left to the price table. The
-    /// owner's own packets with no option on their ledger take the first
-    /// usable one and its first available method, which refuses a packet
-    /// that moves money (`amounts`). With `exclude_source`, the source is
-    /// no option.
+    /// One of `options` for a packet from `source` on `incoming`, drawn
+    /// with `draw`: weighted among those with an available method on
+    /// `incoming`, which it then takes; otherwise, for a peer's packet,
+    /// each as likely, its method left to the price table. The owner's own
+    /// packets with no option on their ledger take the first usable one and
+    /// its first available method, which refuses a packet that moves money
+    /// (`amounts`). Without a draw, the first of those it would draw from,
+    /// in the order of `options`. With `exclude_source`, the source is no
+    /// option.
     fn draw_hop(
         &self,
         now_ms: u64,
         options: &[Option<EndpointId>],
-        source: Option<(EndpointId, LedgerId)>,
+        (source, incoming): (Option<EndpointId>, Option<LedgerId>),
         exclude_source: bool,
-        draw: u64,
+        draw: Option<u64>,
     ) -> Hop {
         let half_life_ms = self.config.earnings_half_life_ms;
         let mut reachable = false;
@@ -124,7 +126,7 @@ impl Connector {
         let mut any = [(EndpointId::Peer(0), 0); MAX_ROUTE_OPTIONS];
         let mut usable = 0;
         for hop in options.iter().flatten().copied() {
-            if exclude_source && source.is_some_and(|(id, _)| id == hop) {
+            if exclude_source && source == Some(hop) {
                 continue;
             }
             let Some(endpoint) = self.endpoints.get(hop).filter(|e| !e.draining) else {
@@ -135,7 +137,7 @@ impl Connector {
                 continue;
             };
             first = first.or(Some((hop, slot.ledger)));
-            if let Some(on) = source.and_then(|(_, incoming)| endpoint.usable_on(incoming))
+            if let Some(on) = incoming.and_then(|incoming| endpoint.usable_on(incoming))
                 && let Some(entry) = keeping.get_mut(kept)
             {
                 let (weight, _) = decayed(on.earned, on.earned_since_ms, now_ms, half_life_ms);
@@ -150,13 +152,17 @@ impl Connector {
         }
         let explore_ppm = self.config.explore_ppm;
         let chosen = |options: &[Weighted], ledger| {
-            choose(options, draw, explore_ppm).map_or(Hop::None, |hop| Hop::To(hop, ledger))
+            let hop = match draw {
+                Some(draw) => choose(options, draw, explore_ppm),
+                None => options.first().map(|(hop, _)| *hop),
+            };
+            hop.map_or(Hop::None, |hop| Hop::To(hop, ledger))
         };
-        match source {
-            Some((_, incoming)) if kept > 0 => {
+        match incoming {
+            Some(incoming) if kept > 0 => {
                 chosen(keeping.get(..kept).unwrap_or_default(), Some(incoming))
             }
-            Some((id, _)) if id.is_peer() && usable > 0 => {
+            _ if source.is_some_and(EndpointId::is_peer) && usable > 0 => {
                 chosen(any.get(..usable).unwrap_or_default(), None)
             }
             _ => match first {

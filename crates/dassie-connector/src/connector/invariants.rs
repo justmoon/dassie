@@ -5,7 +5,7 @@ use alloc::collections::BTreeMap;
 use dassie_ledger::{AccountId, Ledger, LedgerId, Reference};
 
 use super::Connector;
-use crate::endpoint::{EndpointId, MAX_SLOTS};
+use crate::endpoint::{EndpointId, MAX_HELD_SLOTS, MAX_SLOTS};
 
 /// What the packets in flight count on one slot: packets either way, the
 /// money from it, and the money to it with how many packets carry some.
@@ -24,7 +24,8 @@ impl Connector {
     /// - the deadline and incoming tables match the packets in flight;
     /// - each endpoint's count of packets in flight from it is right; each
     ///   has a slot per ledger at most, a child one, a peer at most
-    ///   [`MAX_SLOTS`]; each packet is on a slot of its source and of its
+    ///   [`MAX_SLOTS`] in use and [`MAX_HELD_SLOTS`] with those removed;
+    ///   each packet is on a slot of its source and of its
     ///   destination, and each slot's count of its packets in flight is
     ///   right, a removed slot having some; and each peer's money in flight
     ///   either way on each slot, within its limit
@@ -101,8 +102,16 @@ impl Connector {
                 "packets in flight from {id}"
             );
             assert!(endpoint.pending_from <= self.max_pending_from(*id));
-            let most = if id.is_peer() { MAX_SLOTS } else { 1 };
+            let (in_use, most) = if id.is_peer() {
+                (MAX_SLOTS, MAX_HELD_SLOTS)
+            } else {
+                (1, 1)
+            };
             assert!(endpoint.slots.len() <= most, "slots of {id} within bounds");
+            assert!(
+                endpoint.slots.iter().filter(|slot| !slot.removed).count() <= in_use,
+                "slots of {id} in use within bounds"
+            );
             for (index, slot) in endpoint.slots.iter().enumerate() {
                 assert!(
                     endpoint

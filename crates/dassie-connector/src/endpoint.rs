@@ -14,6 +14,13 @@ use dassie_ledger::{AccountId, LedgerId};
 /// (spec/areas/connector.md#addresses-and-endpoints).
 pub const MAX_SLOTS: usize = 16;
 
+/// Most slots a peer's endpoint holds, removed ones that wait for their
+/// packets included: a method dropped and another added in its place
+/// before the dropped one's packets resolve leaves a peering at
+/// [`MAX_SLOTS`] methods with more slots than that, each removed one gone
+/// within the longest hold time.
+pub const MAX_HELD_SLOTS: usize = 2 * MAX_SLOTS;
+
 /// Something the connector exchanges packets with.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum EndpointId {
@@ -73,7 +80,8 @@ pub enum SlotError {
     Unknown,
     /// It has a slot on that ledger.
     Duplicate,
-    /// It has [`MAX_SLOTS`] slots.
+    /// It has [`MAX_SLOTS`] slots in use, or [`MAX_HELD_SLOTS`] with the
+    /// removed ones that wait for their packets.
     Full,
 }
 
@@ -188,8 +196,10 @@ pub struct SlotView {
 pub(crate) struct Endpoint {
     /// Its ILP address: what ILDCP hands out, and the route to it.
     pub address: String,
-    /// Its settlement methods, in the order they were added: one for a
-    /// child, up to [`MAX_SLOTS`] for a peer, each on a ledger of its own.
+    /// Its settlement methods, in the order they were added, one taken up
+    /// again counting as added then: one for a child, up to [`MAX_SLOTS`]
+    /// in use for a peer, and [`MAX_HELD_SLOTS`] with those removed, each
+    /// on a ledger of its own.
     pub slots: alloc::vec::Vec<Slot>,
     /// The next outgoing request ID to try: unique per endpoint, whatever
     /// the slot.

@@ -104,12 +104,15 @@ impl Core {
     }
 
     /// A peer's connector endpoint, both ways round, with a slot per
-    /// method of its peering whose scheme is active, in order, each on the
+    /// method of its peering whose scheme is active, each on the
     /// peer's account on that method's ledger, over a hub as its scheme is
     /// (spec/decisions/settlement-methods.md): only a downlink nothing
     /// moved with yet has no account
     /// (spec/decisions/lazy-downlink-accounts.md). A slot of a method
-    /// dropped stays only while packets are in flight on it.
+    /// dropped stays only while packets are in flight on it. Compared by
+    /// ledger, not in order: a slot follows its method's place in the
+    /// peering only as far as the two were added at the same time, and a
+    /// scheme or an account that comes later adds its slot later.
     fn check_peer_endpoints(&self) {
         assert_eq!(self.peer_endpoints.len(), self.endpoint_peers.len());
         for (node, endpoint) in &self.peer_endpoints {
@@ -120,17 +123,19 @@ impl Core {
             );
             assert!(*endpoint < self.next_peer_endpoint);
             let id = dassie_connector::EndpointId::Peer(*endpoint);
-            let slots: Vec<_> = self
+            let mut slots: Vec<_> = self
                 .connector
                 .slots(id)
                 .filter(|slot| !slot.removed)
                 .map(|slot| (slot.ledger, slot.account, slot.hub))
                 .collect();
-            let wanted: Vec<_> = self
+            let mut wanted: Vec<_> = self
                 .wanted_slots(node)
                 .into_iter()
                 .map(|slot| (slot.ledger, slot.account, slot.hub))
                 .collect();
+            slots.sort_unstable_by_key(|(ledger, _, _)| *ledger);
+            wanted.sort_unstable_by_key(|(ledger, _, _)| *ledger);
             if self.peer.peering_of(node).is_some() {
                 assert_eq!(slots, wanted, "a peer's slots are its methods");
             }

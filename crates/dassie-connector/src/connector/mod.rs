@@ -18,7 +18,8 @@ use crate::PacketTransfers;
 use crate::cap::{CapError, CapState, CapUsage, CapView, SpendingCap};
 use crate::config::Config;
 use crate::endpoint::{
-    Endpoint, EndpointError, EndpointId, Endpoints, MAX_SLOTS, Slot, SlotError, SlotView,
+    Endpoint, EndpointError, EndpointId, Endpoints, MAX_HELD_SLOTS, MAX_SLOTS, Slot, SlotError,
+    SlotView,
 };
 use crate::trace::{PacketRecord, Trace, TraceEvent};
 
@@ -387,12 +388,14 @@ impl Connector {
     /// peering, on a ledger none of its slots is on
     /// (spec/decisions/settlement-methods.md). A slot on `ledger` that was
     /// removed and still waits for its packets is taken up again, with
-    /// them. It is available, and not over a hub, until the node says
+    /// them, and moves last, as a method added again comes last in its
+    /// peering. It is available, and not over a hub, until the node says
     /// otherwise.
     ///
     /// # Errors
     ///
-    /// No such peer, a slot on `ledger` already, or [`MAX_SLOTS`] of them.
+    /// No such peer, a slot on `ledger` already, [`MAX_SLOTS`] in use, or
+    /// [`MAX_HELD_SLOTS`] with the removed ones.
     ///
     /// # Panics
     ///
@@ -408,23 +411,27 @@ impl Connector {
             .get_mut(id)
             .filter(|_| id.is_peer())
             .ok_or(SlotError::Unknown)?;
-        if let Some(slot) = endpoint.slot_mut(ledger) {
-            if !slot.removed {
-                return Err(SlotError::Duplicate);
-            }
-            assert!(
-                slot.account.is_none() || account.is_none() || slot.account == account,
-                "a slot's account never changes"
-            );
-            slot.removed = false;
-            slot.available = true;
-            slot.account = slot.account.or(account);
-            return Ok(());
+        let at = endpoint.slots.iter().position(|slot| slot.ledger == ledger);
+        if at.is_some_and(|at| endpoint.slots.get(at).is_some_and(|slot| !slot.removed)) {
+            return Err(SlotError::Duplicate);
         }
-        if endpoint.slots.len() >= MAX_SLOTS {
+        let in_use = endpoint.slots.iter().filter(|slot| !slot.removed).count();
+        if in_use >= MAX_SLOTS || (at.is_none() && endpoint.slots.len() >= MAX_HELD_SLOTS) {
             return Err(SlotError::Full);
         }
-        endpoint.slots.push(Slot::new(ledger, account));
+        let Some(at) = at else {
+            endpoint.slots.push(Slot::new(ledger, account));
+            return Ok(());
+        };
+        let mut slot = endpoint.slots.remove(at);
+        assert!(
+            slot.account.is_none() || account.is_none() || slot.account == account,
+            "a slot's account never changes"
+        );
+        slot.removed = false;
+        slot.available = true;
+        slot.account = slot.account.or(account);
+        endpoint.slots.push(slot);
         Ok(())
     }
 
@@ -852,14 +859,20 @@ impl Connector {
     /// endpoints would go first, and the ledger of the slot it would take:
     /// what such a packet must be paid from, since the node's own endpoints
     /// never convert. Not drawn: the route's first usable hop, by the order
-    /// the routes list them, and its first available method, so a quote or
-    /// a payment picks its ledger once
-    /// (spec/decisions/weighted-next-hops.md); each of its packets then
-    /// draws among the hops with a method on that ledger.
+    /// the routes list them, with a method available on `ledger`, the one
+    /// the owner asks to pay from; with no such hop, or none asked for, the
+    /// first usable hop and its first available method. So a quote or a
+    /// payment picks its ledger once (spec/decisions/weighted-next-hops.md);
+    /// each of its packets then draws among the hops with a method on that
+    /// ledger.
     #[must_use]
-    pub fn first_hop(&self, destination: &str) -> Option<(EndpointId, LedgerId)> {
+    pub fn first_hop(
+        &self,
+        destination: &str,
+        ledger: Option<LedgerId>,
+    ) -> Option<(EndpointId, LedgerId)> {
         let address = Address::parse(destination).ok()?;
-        match self.next_hop(0, address, None, 0) {
+        match self.next_hop(0, address, (None, ledger), None) {
             hops::Hop::To(hop, Some(ledger)) => Some((hop, ledger)),
             hops::Hop::To(_, None) | hops::Hop::NoMethod | hops::Hop::None => None,
         }
