@@ -1,21 +1,22 @@
 /**
- * End to end (spec/areas/testing.md#end-to-end): mainnet's RLUSD scheme in
- * the live realm (spec/decisions/mainnet-schemes.md), on the fake ledger's
- * mainnet, never real money; XRP's is `mainnet_xrp_test.ts`'s. The nodes
- * are the real binary, built with debug assertions, set to the live realm
- * through the dev switch (`DASSIE_DEV_LIVE_REALM`) before they are claimed;
- * a release binary refuses that switch, which the release checks test.
+ * End to end (spec/areas/testing.md#end-to-end): mainnet's schemes in the
+ * live realm (spec/decisions/mainnet-schemes.md) as owner books, which
+ * peer with nobody (spec/areas/xrpl.md#owner-books), on the fake ledger's
+ * mainnet, never real money. The node is the real binary, built with debug
+ * assertions, set to the live realm through the dev switch
+ * (`DASSIE_DEV_LIVE_REALM`) before it is claimed; a release binary refuses
+ * that switch, which the release checks test.
  *
- * Mainnet has no faucet, so each node's account is funded by a deposit, as
- * its owner would fund it. On `rlusd-live-settlement`, a client of d1 pays
- * d2's receiver several times the credit, so d1 settles in RLUSD on the
- * ledger as it pays, at addresses under `g.`. Then RLUSD's pool is drained
- * below its floor of XRP, which is no price: once no reading has counted
- * for the staleness bound, each node pauses its RLUSD scheme, and the first
- * reading at a dollar runs it again. Then the pool is moved off its peg:
- * once the guard's hold has passed, which dev timers make seconds, each
- * node pauses the scheme and says why, and still books what arrives on its
- * line (spec/areas/xrpl.md#the-peg-guard). Running again after the recovery
+ * Mainnet has no faucet, so on `live-owner-books` the node's account is
+ * funded by a deposit, as its owner would fund it, and RLUSD's issuer
+ * mints it RLUSD. The XRP book books another deposit once, and still once
+ * after the node restarts. Then RLUSD's pool is drained below its floor of
+ * XRP, which is no price: once no reading has counted for the staleness
+ * bound, the node pauses its RLUSD book's conversions, and the first
+ * reading at a dollar runs them again. Then the pool is moved off its peg:
+ * once the guard's hold has passed, which dev timers make seconds, the
+ * node pauses them and says why, and still books what arrives on its line
+ * (spec/areas/xrpl.md#the-peg-guard). Running again after the recovery
  * hold, a minute on dev timers, is the guard's unit tests' and the
  * engine's (`crates/dassie-node/src/engine/core/tests.rs`).
  */
@@ -30,51 +31,43 @@ import {
   missingScenarioTools,
   SCENARIO_PORT_OFFSET,
 } from "./harness.ts";
-import {
-  assertLive,
-  CREDIT,
-  ledger,
-  pay,
-  peerAccounts,
-  settled,
-} from "./settling.ts";
+import { assertLive, ledger } from "./settling.ts";
 import {
   DEV_RATES,
+  MAINNET_DEPOSIT_DROPS,
   poolDrops,
   Scenario,
   type ScenarioNode,
 } from "@dassie/dev/scenario";
 
+const XRP_LEDGER = "xrpl-xrp+xrp";
 const RLUSD_LEDGER = "xrpl-rlusd+usd";
 /** RLUSD's issuer on mainnet, which the fake ledger's mainnet issues it at. */
 const ISSUER = "rMxCKbEDwqr76QuheSUMdEGf4B9xJ8m5De";
-/** 5 dollars: over four times what a peer extends, so d1 must settle. */
-const PAYMENT = 5_000_000_000n;
-/** What the scenario's issuer mints each node: 100 dollars. */
+/** What the scenario's issuer mints the node: 100 dollars. */
 const MINTED = 100_000_000_000n;
 /** A dollar, in the ledger's internal units. */
 const DOLLAR = 1_000_000_000n;
 /** The ledger's unit, a millionth of a dollar, in internal units. */
 const UNIT = 1_000n;
+/** Internal units in a drop: XRP's ledgers are kept at scale 9, a drop at
+ * scale 6. */
+const UNITS_PER_DROP = 1_000n;
+/** The deposit the XRP book is to book once: 5 XRP, in drops. */
+const DEPOSIT_DROPS = 5_000_000n;
 /** The scenario's pool: as many dollars of RLUSD, and XRP worth as much at
  * the dev rate, 200,000 XRP, twice RLUSD's floor. */
 const POOL_VALUE = "100000";
 const POOL_FEE = 500;
+/** Longer than the node's settlement interval with dev timings: a deposit
+ * booked twice would show within it. */
+const SETTLE_CHECK_MS = 5_000;
 /** Clear of the other files' ports (harness.ts). */
 const PORT_OFFSET = SCENARIO_PORT_OFFSET + 900;
 
 const missing = await missingScenarioTools();
 
-/** Starts scenario `id`, in a directory of its own. */
-function start(id: string): Promise<Scenario> {
-  return Scenario.temporary(id, {
-    dassie: DASSIE,
-    fakeLedger: FAKE_LEDGER,
-    portOffset: PORT_OFFSET,
-  });
-}
-
-/** What a node's account holds of RLUSD, as the ledger says, in the
+/** What the node's account holds of RLUSD, as the ledger says, in the
  * ledger's internal units: whole millionths, rounded down. */
 async function line(node: ScenarioNode) {
   const { externalAssets } = await node.rpc.call("listLedgers", {});
@@ -87,71 +80,116 @@ async function line(node: ScenarioNode) {
   return { holding, units: micros * UNIT };
 }
 
-/** Whether a node's books hold its RLUSD line. */
+/** Whether the node's RLUSD book holds its line. */
 async function inStep(node: ScenarioNode): Promise<boolean> {
   const view = await ledger(node, RLUSD_LEDGER);
   return view.onLedgerBalance === (await line(node)).units;
 }
 
-/** What every node's peg guard says. */
-async function guards(scenario: Scenario) {
-  return await Promise.all(
-    scenario.nodes.map(async (node) => (await ledger(node, RLUSD_LEDGER)).peg),
-  );
+/** What the node's two books hold, on the ledger and the owner's, with
+ * nothing on its way. */
+async function books(node: ScenarioNode) {
+  return await Promise.all([XRP_LEDGER, RLUSD_LEDGER].map(async (id) => {
+    const view = await ledger(node, id);
+    return [view.onLedgerBalance, view.ownerBalance, view.ownerPending];
+  }));
+}
+
+/** The deposits the node booked on the XRP book. */
+async function deposits(node: ScenarioNode): Promise<bigint[]> {
+  const { transfers } = await node.rpc.call("listTransfers", { limit: 1000 });
+  return transfers
+    .filter((transfer) =>
+      transfer.reference.case === "other" &&
+      transfer.reference.value === "deposit" &&
+      transfer.creditPath.startsWith(`${XRP_LEDGER}:`)
+    )
+    .map((transfer) => transfer.amount)
+    .sort((a, b) => a < b ? -1 : a > b ? 1 : 0);
 }
 
 test(
-  "rlusd-live-settlement settles in RLUSD on the fake mainnet, and pauses while RLUSD is off its peg",
+  "live-owner-books books XRP and RLUSD on the fake mainnet in owner books, and pauses RLUSD while it is off its peg",
   { skip: missing !== undefined },
   async () => {
-    const scenario = await start("rlusd-live-settlement");
+    const scenario = await Scenario.temporary("live-owner-books", {
+      dassie: DASSIE,
+      fakeLedger: FAKE_LEDGER,
+      portOffset: PORT_OFFSET,
+    });
     try {
+      const [node] = scenario.nodes;
       const funded = async () => {
-        for (const node of scenario.nodes) {
-          const view = await ledger(node, RLUSD_LEDGER);
+        for (const id of [XRP_LEDGER, RLUSD_LEDGER]) {
+          const view = await ledger(node, id);
           if (view.connection !== LedgerConnection.SYNCED) return false;
-          if (!(await inStep(node)) || view.ownerBalance < MINTED) {
-            return false;
-          }
         }
-        return true;
+        const rlusd = await ledger(node, RLUSD_LEDGER);
+        return (await ledger(node, XRP_LEDGER)).ownerBalance > 0n &&
+          (await inStep(node)) && rlusd.ownerBalance === MINTED;
       };
       await scenario.until("funded and minted", funded, 120_000);
-      await scenario.until("peered", () => scenario.converged(), 120_000);
-      const [d1, d2] = scenario.nodes;
-      for (const node of scenario.nodes) {
-        await assertLive(node, RLUSD_LEDGER);
-        // The line is to RLUSD's mainnet issuer, and the guard reads the
-        // pool at a dollar.
-        assertEquals((await line(node)).holding.issuer, ISSUER);
-        assertEquals((await ledger(node, RLUSD_LEDGER)).issuer, ISSUER);
-      }
-      const atPar = async () =>
-        (await guards(scenario)).every((peg) =>
-          peg?.paused === PegPause.UNSPECIFIED && peg.pricePpm === 1_000_000n
-        );
-      await scenario.until("read at a dollar", atPar, 60_000);
-      await scenario.until(
-        "paid in advance",
-        () => settled(scenario, RLUSD_LEDGER, inStep),
-        120_000,
+      await assertLive(node, RLUSD_LEDGER);
+      await assertLive(node, XRP_LEDGER);
+      // Mainnet has no faucet; both books share the node's one account.
+      assertEquals((await ledger(node, XRP_LEDGER)).faucet, false);
+      const { externalAssets } = await node.rpc.call("listLedgers", {});
+      assertEquals(externalAssets.map((asset) => asset.id), [
+        "xrpl-account/0",
+      ]);
+      // The line is to RLUSD's mainnet issuer.
+      assertEquals((await line(node)).holding.issuer, ISSUER);
+      assertEquals((await ledger(node, RLUSD_LEDGER)).issuer, ISSUER);
+      // Owner books peer with nobody.
+      assertEquals((await node.rpc.call("listPeers", {})).peers, []);
+      // The scenario's deposit, booked once: less the reserve the ledger
+      // holds back.
+      const first = await deposits(node);
+      assertEquals(first.length, 1, `deposits ${first}`);
+      assert(
+        first[0] > 0n && first[0] <= MAINNET_DEPOSIT_DROPS * UNITS_PER_DROP,
+        `${first[0]}`,
       );
 
-      const before = await ledger(d1, RLUSD_LEDGER);
-      const address = await pay(scenario, [d1, d2], RLUSD_LEDGER, PAYMENT);
-      assert(address.startsWith("g."), address);
+      // Another deposit, from outside: the XRP book takes it once, on the
+      // ledger and as the owner's, and still once after a restart.
+      const [[onLedger, owned]] = await books(node);
+      await scenario.deposit(externalAssets[0].address, DEPOSIT_DROPS);
+      const deposited = DEPOSIT_DROPS * UNITS_PER_DROP;
+      await scenario.until("the deposit booked", async () => {
+        const [[nowOnLedger, nowOwned, pending]] = await books(node);
+        return nowOnLedger === onLedger + deposited &&
+          nowOwned === owned + deposited && pending === 0n;
+      }, 60_000);
+      await new Promise((resolve) => setTimeout(resolve, SETTLE_CHECK_MS));
+      const kept = await books(node);
+      assertEquals(kept[0], [onLedger + deposited, owned + deposited, 0n]);
+      const { code, output } = (await node.stop())!;
+      assertEquals(code, 0, output);
+      await node.start();
+      await node.waitForEngine();
       await scenario.until(
-        "settled",
-        () => settled(scenario, RLUSD_LEDGER, inStep),
-        120_000,
+        "synced again",
+        async () =>
+          (await ledger(node, XRP_LEDGER)).connection ===
+            LedgerConnection.SYNCED,
+        60_000,
       );
-      const after = await ledger(d1, RLUSD_LEDGER);
-      assert(
-        after.onLedgerBalance < before.onLedgerBalance,
-        "d1 settled in RLUSD on the ledger",
+      await new Promise((resolve) => setTimeout(resolve, SETTLE_CHECK_MS));
+      assertEquals(await books(node), kept, "the books after a restart");
+      assertEquals(
+        await deposits(node),
+        [deposited, first[0]],
+        "each deposit booked once",
       );
-      const owes = (await peerAccounts(scenario, RLUSD_LEDGER)).get("d1>d2")!;
-      assert(owes <= CREDIT, `d1 still owes ${owes}`);
+
+      const guard = async () => (await ledger(node, RLUSD_LEDGER)).peg;
+      const atPar = async () => {
+        const peg = await guard();
+        return peg?.paused === PegPause.UNSPECIFIED &&
+          peg.pricePpm === 1_000_000n;
+      };
+      await scenario.until("read at a dollar", atPar, 60_000);
 
       const par = poolDrops(POOL_VALUE, DEV_RATES.XRP);
       const setPool = (drops: bigint) =>
@@ -167,36 +205,33 @@ test(
       // reading has counted for the staleness bound, the guard fails
       // closed. The first reading at a dollar again ends that.
       await setPool(par / 4n);
-      const stale = async () =>
-        (await guards(scenario)).every((peg) => peg?.paused === PegPause.STALE);
+      const stale = async () => (await guard())?.paused === PegPause.STALE;
       await scenario.until("paused, its price unread", stale, 60_000);
       await setPool(par);
       await scenario.until("running again once read", atPar, 60_000);
 
       // The pool prices RLUSD 5% under a dollar: once every reading has
-      // been off for the hold, each node pauses the scheme and says why.
+      // been off for the hold, the node pauses the book and says why.
       await setPool(par * 95n / 100n);
-      const offPeg = async () =>
-        (await guards(scenario)).every((peg) =>
-          peg?.paused === PegPause.OFF_PEG && peg.pricePpm === 950_000n
-        );
+      const offPeg = async () => {
+        const peg = await guard();
+        return peg?.paused === PegPause.OFF_PEG && peg.pricePpm === 950_000n;
+      };
       await scenario.until("paused off its peg", offPeg, 60_000);
 
       // What arrives on the line is still booked while paused.
-      const owned = (await ledger(d2, RLUSD_LEDGER)).ownerBalance;
-      const { address: d2Account } = (await d2.rpc.call("listLedgers", {}))
-        .externalAssets[0];
+      const before = (await ledger(node, RLUSD_LEDGER)).ownerBalance;
       await scenario.askIssuer({
         token: "RLUSD",
         action: "mint",
-        destination: d2Account,
+        destination: externalAssets[0].address,
         value: "1",
       });
       await scenario.until(
         "the deposit booked while paused",
         async () =>
-          (await ledger(d2, RLUSD_LEDGER)).ownerBalance === owned + DOLLAR &&
-          (await inStep(d2)),
+          (await ledger(node, RLUSD_LEDGER)).ownerBalance ===
+            before + DOLLAR && (await inStep(node)),
         60_000,
       );
       assert(await offPeg(), "still paused");

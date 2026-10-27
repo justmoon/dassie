@@ -5,6 +5,8 @@ A VM on GCP that runs `dassie market-maker` ([Rate feed](rate-feed.md#market-mak
 **Paths:** `apps/market-maker/`
 **Read with:** [Rate feed](rate-feed.md#market-maker), [Release](release.md), [Node](node.md), [Network](network.md#pinned-uplinks), [DSUSD keeper](dsusd-keeper.md#its-vm)
 
+**Parked until the market maker runs on hubs** ([Roadmap](../roadmap.md#hubs-only)): its two nodes settle directly, on the XRP Ledger, and peers settle only over hubs ([hubs-only](../decisions/hubs-only.md)), so the VM stays stopped meanwhile, and its scripts and units as they are. It comes back once its nodes are members of the XRP and DSUSD hubs. What follows is how it runs then.
+
 It is tooling ([engineering](../engineering.md#where-the-rules-bend)): shell scripts and systemd units in `vm/`, with no code of its own. The nodes and the market maker are the released `dassie` binary, so the VM runs what owners run.
 
 ## What runs

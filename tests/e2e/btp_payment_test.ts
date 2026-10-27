@@ -220,9 +220,12 @@ test("a BTP client pays the node's STREAM receiver, and the journal matches", {
     owner = new RpcClient({ url: "ipc", connect });
     await setUp(owner);
     await waitForLedger(owner);
+    // The stub with unlimited trust, which never settles: this test's
+    // subject is the payment, not settlement
+    // (spec/areas/settlement.md#the-stub-scheme).
     const added = await owner.call("addSettlementScheme", {
       id: "stub",
-      config: "",
+      config: JSON.stringify({ trust: "unlimited" }),
     });
     assertEquals(added.ledger?.ownerBalance, 100_000_000_000n);
     const token = await owner.call("createBtpToken", {
