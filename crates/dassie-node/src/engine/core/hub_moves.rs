@@ -1,22 +1,23 @@
-//! Making the moves between the owner book of the hub's asset (the node's
-//! XRPL testnet account, for the XRP hub) and its hub account that
-//! `hub_funding.rs` decides on, keeping the one on its way in the database,
-//! and the owner's view and moves (spec/areas/hubs.md#in-the-node).
+//! Making the moves between the owner book of each hub's asset (the node's
+//! XRPL testnet account, for the XRP hub) and the node's account in that
+//! hub that `hub_funding.rs` decides on, keeping the one on its way in the
+//! database, and the owner's view and moves (spec/areas/hubs.md#in-the-node).
+//! A node is in one hub per asset ([hubs-only](spec/decisions/hubs-only.md)):
+//! each hub's moves go on their own, under the scheme over it.
 
 use dassie_hub::member::{HubAccount, UNITS_PER_DROP};
 use dassie_ledger::{LedgerId, Name};
+use dassie_peer::MAX_OWN_HUBS;
 use dassie_settlement::{
     ExternalAsset, LedgerStatus, OwnerMemo, OwnerPayment, OwnerPaymentState, SchemeError, policy,
 };
 
-use super::hub_funding::{Direction, Held, Move, Planned, Standing};
+use super::hub_funding::{Direction, Funding, Held, Move, Planned, Standing};
 use super::{Core, EngineError};
 use crate::store::{HubFundingRow, HubMoveRow};
 
 /// The most XRP Ledger fee a deposit is sized to leave room for, in drops.
 const XRPL_FEE_DROPS: u64 = dassie_xrpl::account::MAX_FEE_DROPS;
-
-const HUB: Name = dassie_ledger::name!(dassie_hub::member::SCHEME_ID);
 
 /// The ledger of the owner book of what a hub on `hub` holds: the book of
 /// that asset on the hub's underlying ledger, which the hub's deposits
@@ -47,12 +48,14 @@ pub struct HubHold {
     pub amount: u64,
 }
 
-/// The node's hub account and its funding, as the owner sees them.
+/// The node's account in one hub and its funding, as the owner sees them.
 /// Amounts are in internal units.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct HubStatus {
     /// The hub's ID.
     pub hub_id: [u8; 32],
+    /// The scheme over the hub, which names its ledger and asset.
+    pub scheme: Name,
     /// Our account's number, once the hub has said it.
     pub account: Option<u32>,
     /// How the account stands with the hub.
@@ -97,7 +100,7 @@ const fn drops_up(units: u64) -> u64 {
 }
 
 /// A move as the database keeps it.
-fn row(funding: &super::hub_funding::Funding) -> HubFundingRow {
+fn row(funding: &Funding) -> HubFundingRow {
     HubFundingRow {
         paused_until_ms: funding.paused_until_ms,
         moving: funding.moving.map(|moving| HubMoveRow {
@@ -132,27 +135,97 @@ fn from_row(row: &HubMoveRow) -> Result<Move, String> {
     })
 }
 
+/// A hub's moves as the database keeps them, checked as of `now_ms`.
+fn restored(
+    now_ms: u64,
+    interval_ms: u64,
+    automatic: bool,
+    row: &HubFundingRow,
+) -> Result<Funding, String> {
+    let mut funding = Funding::new(now_ms, interval_ms);
+    funding.automatic = automatic;
+    funding.paused_until_ms = row.paused_until_ms;
+    funding.moving = row.moving.as_ref().map(from_row).transpose()?;
+    funding.given_up = row.given_up.map(|(deposit, drops)| {
+        let direction = if deposit {
+            Direction::Deposit
+        } else {
+            Direction::Withdraw
+        };
+        (direction, drops)
+    });
+    Ok(funding)
+}
+
+/// The hubs the node is in, each by the scheme over it.
 impl Core {
-    /// Restores the moves' state from the database.
+    /// The active schemes over a hub, in their order: at most
+    /// [`MAX_OWN_HUBS`], one per asset, each the node's account in a hub
+    /// once it has one.
+    pub(super) fn hub_schemes(&self) -> Vec<Name> {
+        self.schemes
+            .iter()
+            .filter(|(_, active)| active.over_hub)
+            .map(|(name, _)| *name)
+            .take(MAX_OWN_HUBS)
+            .collect()
+    }
+
+    /// Restores the moves of each hub the node is in from the database, or
+    /// from the batch where it changed them since, and forgets those of a
+    /// scheme no longer over a hub, which the database keeps. A hub's moves
+    /// are read once, when its scheme starts.
+    ///
+    /// # Errors
+    ///
+    /// The database failed, or holds what it may not.
     pub(super) fn load_funding(&mut self) -> Result<(), String> {
-        let (automatic, row) = self.store.hub_funding().map_err(|e| e.to_string())?;
-        self.funding.automatic = automatic;
-        self.funding.paused_until_ms = row.paused_until_ms;
-        self.funding.moving = row.moving.as_ref().map(from_row).transpose()?;
-        self.funding.given_up = row.given_up.map(|(deposit, drops)| {
-            let direction = if deposit {
-                Direction::Deposit
-            } else {
-                Direction::Withdraw
-            };
-            (direction, drops)
-        });
+        let hubs = self.hub_schemes();
+        self.funding.retain(|scheme, _| hubs.contains(scheme));
+        for scheme in hubs {
+            if self.funding.contains_key(&scheme) {
+                continue;
+            }
+            let (automatic, row) = self.store.hub_funding(scheme).map_err(|e| e.to_string())?;
+            let automatic = self
+                .batch
+                .hub_automatic
+                .get(&scheme)
+                .copied()
+                .unwrap_or(automatic);
+            let row = self.batch.hub_funding.get(&scheme).unwrap_or(&row);
+            let funding = restored(self.now_ms, self.settle.interval_ms, automatic, row)?;
+            self.funding.insert(scheme, funding);
+        }
+        assert!(self.funding.len() <= MAX_OWN_HUBS, "a funding per hub");
         Ok(())
     }
 
-    /// Keeps the moves' state with this batch.
-    fn keep_funding(&mut self) {
-        self.batch.hub_funding = Some(row(&self.funding));
+    /// [`load_funding`](Self::load_funding) in a step.
+    // A database that cannot be read leaves the core unable to tell a move
+    // on its way from none: it stops, as when a write fails, and restarts
+    // from the disk.
+    #[allow(clippy::panic)]
+    pub(super) fn follow_hubs(&mut self) {
+        if let Err(error) = self.load_funding() {
+            panic!("reading a hub's funding failed: {error}");
+        }
+    }
+
+    /// Keeps the moves' state of the hub of `scheme` with this batch.
+    fn keep_funding(&mut self, scheme: Name) {
+        if let Some(funding) = self.funding.get(&scheme) {
+            self.batch.hub_funding.insert(scheme, row(funding));
+        }
+    }
+
+    /// Whether a move between the hub of `scheme` and its owner book is on
+    /// its way: the scheme is not removed meanwhile, since the move is its
+    /// account's in that hub.
+    pub(super) fn hub_move_on_its_way(&self, scheme: Name) -> bool {
+        self.funding
+            .get(&scheme)
+            .is_some_and(|funding| funding.moving.is_some())
     }
 
     /// The scheme that books `ledger`, if one is active: a ledger has at
@@ -164,12 +237,12 @@ impl Core {
             .map(|(name, _)| *name)
     }
 
-    /// The owner book of the hub's asset, and its ledger: the active
-    /// scheme on that asset's ledger, whether the node peers on it or not
-    /// (spec/areas/settlement.md#owner-books). `None` while the hub scheme
-    /// or the book is not active.
-    fn owner_book(&self) -> Option<(Name, LedgerId)> {
-        let hub = self.schemes.get(&HUB)?.scheme.ledger();
+    /// The owner book of the asset of the hub of `scheme`, and its ledger:
+    /// the active scheme on that asset's ledger, whether the node peers on
+    /// it or not (spec/areas/settlement.md#owner-books). `None` while the
+    /// hub scheme or the book is not active.
+    fn owner_book(&self, scheme: Name) -> Option<(Name, LedgerId)> {
+        let hub = self.schemes.get(&scheme)?.scheme.ledger();
         let ledger = owner_book_ledger(hub)?;
         Some((self.book_on(ledger)?, ledger))
     }
@@ -180,9 +253,9 @@ impl Core {
         Some((self.book_on(FOUNDING_LEDGER)?, FOUNDING_LEDGER))
     }
 
-    /// The hub account, while its scheme runs.
-    fn hub_account(&self) -> Option<&HubAccount> {
-        let active = self.schemes.get(&HUB)?;
+    /// The node's account in the hub of `scheme`, while the scheme runs.
+    fn hub_account(&self, scheme: Name) -> Option<&HubAccount> {
+        let active = self.schemes.get(&scheme)?;
         if active.failed.is_some() {
             return None;
         }
@@ -191,24 +264,62 @@ impl Core {
         any.downcast_ref::<HubAccount>()
     }
 
-    /// The sequence the hub account learnt its next operation carries,
-    /// from the operations of its own it read and the states agreed, for a
-    /// simulation to tell whether it read those the hub applied. Not its
-    /// newest state's, which it asks for only every few seconds.
+    /// The node's account in the first of its hubs, while its scheme runs.
+    #[cfg(feature = "testing")]
+    fn first_hub_account(&self) -> Option<&HubAccount> {
+        self.hub_schemes()
+            .into_iter()
+            .find_map(|scheme| self.hub_account(scheme))
+    }
+
+    /// The scheme of the hub an owner's call names: `hub`, its ID, or none
+    /// while the node is in one hub only.
+    ///
+    /// # Errors
+    ///
+    /// No hub scheme runs, none has that ID, or the node is in several
+    /// and the call names none.
+    fn chosen_hub(&self, hub: Option<[u8; 32]>) -> Result<Name, EngineError> {
+        let running: Vec<(Name, [u8; 32])> = self
+            .hub_schemes()
+            .into_iter()
+            .filter_map(|scheme| Some((scheme, *self.hub_account(scheme)?.hub().0.as_bytes())))
+            .collect();
+        match (hub, running.as_slice()) {
+            (_, []) => Err(EngineError::Precondition(
+                "the settlement hub scheme is not running".into(),
+            )),
+            (None, [(scheme, _)]) => Ok(*scheme),
+            (None, _) => Err(EngineError::Invalid(
+                "the node is in several settlement hubs: name one".into(),
+            )),
+            (Some(id), running) => running
+                .iter()
+                .find(|(_, running)| *running == id)
+                .map(|(scheme, _)| *scheme)
+                .ok_or_else(|| EngineError::NotFound("the node is in no such hub".into())),
+        }
+    }
+
+    /// The sequence the account in the node's first hub learnt its next
+    /// operation carries, from the operations of its own it read and the
+    /// states agreed, for a simulation to tell whether it read those the
+    /// hub applied. Not its newest state's, which it asks for only every
+    /// few seconds.
     #[cfg(feature = "testing")]
     #[must_use]
     pub fn hub_sequence(&self) -> Option<u64> {
-        self.hub_account()?.sequence()
+        self.first_hub_account()?.sequence()
     }
 
-    /// How far the hub account read the hub, for a simulation to tell one
-    /// behind from one in step: the height through which it read every
-    /// operation that touched it, the height of the state it last heard of
-    /// itself, and whether it reads its state anew.
+    /// How far the account in the node's first hub read the hub, for a
+    /// simulation to tell one behind from one in step: the height through
+    /// which it read every operation that touched it, the height of the
+    /// state it last heard of itself, and whether it reads its state anew.
     #[cfg(feature = "testing")]
     #[must_use]
     pub fn hub_reading(&self) -> Option<(u64, Option<u64>, bool)> {
-        let account = self.hub_account()?;
+        let account = self.first_hub_account()?;
         Some((
             account.cursor(),
             account.view().map(|(height, _)| *height),
@@ -216,14 +327,19 @@ impl Core {
         ))
     }
 
-    /// The hub peerings: each peer's node and its account in the hub.
-    fn hub_peerings(&self, account: &HubAccount) -> Vec<(dassie_identity::NodeId, u32)> {
+    /// The peerings over the hub of `scheme`: each peer's node and its
+    /// account in the hub.
+    fn hub_peerings(
+        &self,
+        scheme: Name,
+        account: &HubAccount,
+    ) -> Vec<(dassie_identity::NodeId, u32)> {
         let hub = account.hub();
         self.peer
             .active_peers()
-            .filter(|(_, peering)| peering.scheme.as_str() == HUB.as_str())
+            .filter(|(_, peering)| peering.first().scheme.as_str() == scheme.as_str())
             .filter_map(|(node, peering)| {
-                let number = dassie_hub::member::peer_account(&peering.state, &hub)?;
+                let number = dassie_hub::member::peer_account(&peering.first().state, &hub)?;
                 Some((*node, number.0))
             })
             .collect()
@@ -281,16 +397,18 @@ impl Core {
             })
     }
 
-    /// What a move is decided from, while the hub scheme runs.
-    fn standing(&self) -> Option<Standing> {
-        let account = self.hub_account()?;
+    /// What a move of the hub of `scheme` is decided from, while the
+    /// scheme runs.
+    fn standing(&self, scheme: Name) -> Option<Standing> {
+        let account = self.hub_account(scheme)?;
+        let active = self.schemes.get(&scheme)?;
         let terms = account.terms();
         let fees = terms.fees;
-        let (floor, ceiling) = self.hub_limits(self.hub_peerings(account).len());
+        let (floor, ceiling) = self.hub_limits(self.hub_peerings(scheme, account).len());
         let (floor, ceiling) = (drops_up(floor), ceiling / UNITS_PER_DROP);
-        let unfunded = self
-            .assets
-            .get(&dassie_hub::member::FIRST)
+        let unfunded = active
+            .asset
+            .and_then(|asset| self.assets.get(&asset))
             .is_some_and(|asset| asset.asset.status() == LedgerStatus::Unfunded);
         Some(Standing {
             held: Self::held(account),
@@ -306,9 +424,11 @@ impl Core {
             ledger_fee: fees.ledger,
             withdrawal_fees: fees.operation.saturating_add(fees.ledger),
             least_deposit: drops_up(self.settle.max_packet),
-            xrpl: self.owner_book().and_then(|book| self.xrpl_spendable(book)),
-            hub_owner: self.owner_available(LedgerId::HubXrplTestnetXrp) / UNITS_PER_DROP,
-            paying: self.paying(),
+            xrpl: self
+                .owner_book(scheme)
+                .and_then(|book| self.xrpl_spendable(book)),
+            hub_owner: self.owner_available(active.scheme.ledger()) / UNITS_PER_DROP,
+            paying: self.paying(scheme),
         })
     }
 
@@ -329,56 +449,94 @@ impl Core {
         Some(funds.saturating_sub(XRPL_FEE_DROPS))
     }
 
-    /// What became of the payment of the move on its way, as the scheme of
-    /// the side it leaves says; unknown while that scheme does not run.
-    fn paying(&self) -> OwnerPaymentState {
-        let Some(moving) = self.funding.moving else {
+    /// What became of the payment of the move of the hub of `scheme` on
+    /// its way, as the scheme of the side it leaves says; unknown while
+    /// that scheme does not run.
+    fn paying(&self, scheme: Name) -> OwnerPaymentState {
+        let Some(moving) = self.funding.get(&scheme).and_then(|funding| funding.moving) else {
             return OwnerPaymentState::Unknown;
         };
-        let scheme = match moving.direction {
-            Direction::Deposit => match self.owner_book() {
+        let leaves = match moving.direction {
+            Direction::Deposit => match self.owner_book(scheme) {
                 Some((book, _)) => book,
                 None => return OwnerPaymentState::Unknown,
             },
-            Direction::Withdraw => HUB,
+            Direction::Withdraw => scheme,
         };
         self.schemes
-            .get(&scheme)
+            .get(&leaves)
             .filter(|active| active.failed.is_none())
             .map_or(OwnerPaymentState::Unknown, |active| {
                 active.scheme.owner_payment(moving.payment)
             })
     }
 
-    /// Follows the move on its way, and makes the next automatic one when
-    /// it is due, at each funding check.
+    /// Follows the move on its way of each hub, and makes the next
+    /// automatic one when it is due, at each of its funding checks.
     pub(super) fn fund_hub(&mut self) {
+        self.follow_hubs();
+        let hubs: Vec<Name> = self.funding.keys().copied().collect();
+        for scheme in hubs {
+            self.fund_one_hub(scheme);
+        }
+    }
+
+    /// [`fund_hub`](Self::fund_hub) for the hub of `scheme`.
+    fn fund_one_hub(&mut self, scheme: Name) {
         let now = self.now_ms;
-        if !self.funding.check_due(now) {
+        if !self
+            .funding
+            .get_mut(&scheme)
+            .is_some_and(|funding| funding.check_due(now))
+        {
             return;
         }
-        let Some(standing) = self.standing() else {
+        let Some(standing) = self.standing(scheme) else {
             return;
         };
-        if self.funding.follow(now, &standing) {
-            self.keep_funding();
+        let Some(funding) = self.funding.get_mut(&scheme) else {
+            return;
+        };
+        if funding.follow(now, &standing) {
+            self.keep_funding(scheme);
         }
-        if let Some(planned) = self.funding.due(now, &standing)
-            && self.make_move(planned, &standing).is_err()
+        let due = self
+            .funding
+            .get(&scheme)
+            .and_then(|funding| funding.due(now, &standing));
+        if let Some(planned) = due
+            && self.make_move(scheme, planned, &standing).is_err()
+            && let Some(funding) = self.funding.get_mut(&scheme)
         {
-            self.funding.failed(now);
+            funding.failed(now);
         }
     }
 
-    /// When the next funding check is, while the hub scheme runs.
+    /// When the next funding check is, the soonest of the hubs whose
+    /// scheme runs.
     pub(super) fn funding_deadline(&self) -> Option<u64> {
-        self.hub_account().map(|_| self.funding.at_ms)
+        self.funding
+            .iter()
+            .filter(|(scheme, _)| self.hub_account(**scheme).is_some())
+            .map(|(_, funding)| funding.at_ms)
+            .min()
     }
 
-    /// Makes `planned`: pays out of the side it leaves, and keeps it, with
-    /// its payment's ID, in the batch that keeps the payment.
-    fn make_move(&mut self, planned: Planned, standing: &Standing) -> Result<(), SchemeError> {
-        let (scheme, payment) = self.payment_for(planned, standing)?;
+    /// Makes `planned` for the hub of `scheme`: pays out of the side it
+    /// leaves, and keeps it, with its payment's ID, in the batch that keeps
+    /// the payment.
+    fn make_move(
+        &mut self,
+        scheme: Name,
+        planned: Planned,
+        standing: &Standing,
+    ) -> Result<(), SchemeError> {
+        // The hub's funding is there before anything is paid, so that no
+        // error can follow a payment gone out without its move recorded.
+        if !self.funding.contains_key(&scheme) {
+            return Err(SchemeError::Unavailable);
+        }
+        let (pays, payment) = self.payment_for(scheme, planned, standing)?;
         // The most its fees may cost: the XRP Ledger's fee, or the hub's
         // operation fee and ledger fee.
         let fee_drops = match planned.direction {
@@ -386,21 +544,28 @@ impl Core {
             Direction::Withdraw => standing.withdrawal_fees,
         };
         let fee = fee_drops.saturating_mul(UNITS_PER_DROP);
-        self.check_owner_payment(scheme, payment.amount, fee)?;
-        let id = self.pay_owner(scheme, &payment)?;
-        self.hold_owner_payment(scheme, id, payment.amount, fee);
-        self.funding.start(self.now_ms, planned, id);
-        self.keep_funding();
+        self.check_owner_payment(pays, payment.amount, fee)?;
+        let id = self.pay_owner(pays, &payment)?;
+        self.hold_owner_payment(pays, id, payment.amount, fee);
+        let now = self.now_ms;
+        let funding = self.funding.get_mut(&scheme);
+        assert!(funding.is_some(), "the hub's funding outlives its payment");
+        if let Some(funding) = funding {
+            funding.start(now, planned, id);
+        }
+        self.keep_funding(scheme);
         Ok(())
     }
 
-    /// The payment that makes `planned`, and the scheme that pays it.
+    /// The payment that makes `planned` for the hub of `scheme`, and the
+    /// scheme that pays it.
     fn payment_for(
         &self,
+        scheme: Name,
         planned: Planned,
         standing: &Standing,
     ) -> Result<(Name, OwnerPayment), SchemeError> {
-        let account = self.hub_account().ok_or(SchemeError::Unavailable)?;
+        let account = self.hub_account(scheme).ok_or(SchemeError::Unavailable)?;
         let amount = planned.drops.saturating_mul(UNITS_PER_DROP);
         Ok(match planned.direction {
             Direction::Deposit => {
@@ -421,7 +586,7 @@ impl Core {
                     memo,
                     amount,
                 };
-                let (book, _) = self.owner_book().ok_or(SchemeError::Unavailable)?;
+                let (book, _) = self.owner_book(scheme).ok_or(SchemeError::Unavailable)?;
                 (book, payment)
             }
             Direction::Withdraw => {
@@ -432,7 +597,7 @@ impl Core {
                     memo: None,
                     amount,
                 };
-                (HUB, payment)
+                (scheme, payment)
             }
         })
     }
@@ -500,11 +665,14 @@ impl Core {
         Ok(id)
     }
 
-    /// The rules of the hub the node is a member of, while its scheme
-    /// runs.
+    /// The rules of each hub the node is a member of, while its scheme
+    /// runs, in the order of the schemes.
     #[must_use]
-    pub fn hub_rules(&self) -> Option<dassie_hub::Rules> {
-        self.hub_account().map(|account| account.rules().clone())
+    pub fn hub_rules(&self) -> Vec<dassie_hub::Rules> {
+        self.hub_schemes()
+            .into_iter()
+            .filter_map(|scheme| Some(self.hub_account(scheme)?.rules().clone()))
+            .collect()
     }
 
     /// What became of the owner's payment `id` out of the XRPL testnet
@@ -521,12 +689,32 @@ impl Core {
     }
 }
 
-/// The owner's moves and view.
+/// The owner's moves and view. Each call names the hub by its ID, or none
+/// while the node is in one hub only.
 impl Core {
-    /// The node's hub account and its funding, while the hub scheme runs.
+    /// The node's account in each of its hubs and its funding, in the
+    /// order of the schemes over them, for those whose scheme runs.
+    #[must_use]
+    pub fn hub_statuses(&self) -> Vec<HubStatus> {
+        self.hub_schemes()
+            .into_iter()
+            .filter_map(|scheme| self.hub_status_of(scheme))
+            .collect()
+    }
+
+    /// The node's account in its first hub and its funding, while the
+    /// scheme over it runs: the hub of a node in one.
+    #[cfg(any(test, feature = "testing"))]
+    #[must_use]
     pub fn hub_status(&self) -> Option<HubStatus> {
-        let account = self.hub_account()?;
-        let peers = self.hub_peerings(account);
+        self.hub_statuses().into_iter().next()
+    }
+
+    /// The node's account in the hub of `scheme` and its funding, while
+    /// the scheme runs.
+    fn hub_status_of(&self, scheme: Name) -> Option<HubStatus> {
+        let account = self.hub_account(scheme)?;
+        let peers = self.hub_peerings(scheme, account);
         let (floor, ceiling) = self.hub_limits(peers.len());
         let number = account.number();
         let view = account.view().map(|(_, view)| *view);
@@ -548,8 +736,19 @@ impl Core {
             }
         }
         let now = self.now_ms;
+        // A scheme that started in this step has its moves read at the
+        // step's end: until then they are the defaults.
+        let starting;
+        let funding = match self.funding.get(&scheme) {
+            Some(funding) => funding,
+            None => {
+                starting = Funding::new(now, self.settle.interval_ms);
+                &starting
+            }
+        };
         Some(HubStatus {
             hub_id: *account.hub().0.as_bytes(),
+            scheme,
             account: number.map(|n| n.0),
             status: account.status(),
             balance: units(view.map_or(0, |v| v.balance)),
@@ -561,29 +760,48 @@ impl Core {
             taking,
             floor,
             ceiling,
-            automatic: self.funding.automatic,
-            paused_until_ms: (self.funding.paused_until_ms > now)
-                .then_some(self.funding.paused_until_ms),
-            moving: self.funding.moving,
-            late: self.funding.late(now),
-            given_up: self.funding.given_up,
+            automatic: funding.automatic,
+            paused_until_ms: (funding.paused_until_ms > now).then_some(funding.paused_until_ms),
+            moving: funding.moving,
+            late: funding.late(now),
+            given_up: funding.given_up,
             validators: account.answering(),
         })
     }
 
     /// The owner deposits `amount` (internal units, whole drops) from the
-    /// XRPL account into the hub, opening the account if the hub has none
-    /// for us. Pauses the automatic moves.
+    /// XRPL account into the node's first hub: [`hub_deposit_to`](Self::hub_deposit_to)
+    /// for a node in one hub.
     ///
     /// # Errors
     ///
-    /// No hub scheme, no XRP scheme synced, a move on its way, too little
-    /// to open the account, or more than the owner's funds there.
+    /// As [`hub_deposit_to`](Self::hub_deposit_to).
+    #[cfg(any(test, feature = "testing"))]
     pub fn hub_deposit(&mut self, amount: u64) -> Result<HubStatus, EngineError> {
-        let standing = self.owner_standing()?;
+        self.hub_deposit_to(None, amount)
+    }
+
+    /// The owner deposits `amount` (internal units, whole drops) from the
+    /// owner book of the hub's asset into the hub `hub` (its ID, or none
+    /// for the node's only hub), opening the account if the hub has none
+    /// for us. Pauses that hub's automatic moves.
+    ///
+    /// # Errors
+    ///
+    /// No such hub, no owner book synced, a move on its way, too little to
+    /// open the account, or more than the owner's funds there.
+    pub fn hub_deposit_to(
+        &mut self,
+        hub: Option<[u8; 32]>,
+        amount: u64,
+    ) -> Result<HubStatus, EngineError> {
+        let scheme = self.chosen_hub(hub)?;
+        let standing = self.owner_standing(scheme)?;
         let drops = amount / UNITS_PER_DROP;
         let spendable = standing.xrpl.ok_or_else(|| {
-            EngineError::Precondition("the XRP Ledger testnet scheme is not running synced".into())
+            EngineError::Precondition(
+                "the owner book of the hub's asset is not running synced".into(),
+            )
         })?;
         if drops == 0 {
             return Err(EngineError::Invalid(
@@ -610,18 +828,36 @@ impl Core {
                 ));
             }
         };
-        self.owner_move(Planned::deposit(drops, deposited, true), &standing)
+        self.owner_move(scheme, Planned::deposit(drops, deposited, true), &standing)
     }
 
     /// The owner withdraws `amount` (internal units, whole drops) from the
-    /// hub to the XRPL account. Pauses the automatic moves.
+    /// node's first hub: [`hub_withdraw_from`](Self::hub_withdraw_from) for
+    /// a node in one hub.
     ///
     /// # Errors
     ///
-    /// No hub account, a move on its way, less than the hub pays out, or
-    /// more than the account can spend with the fees.
+    /// As [`hub_withdraw_from`](Self::hub_withdraw_from).
+    #[cfg(any(test, feature = "testing"))]
     pub fn hub_withdraw(&mut self, amount: u64) -> Result<HubStatus, EngineError> {
-        let standing = self.owner_standing()?;
+        self.hub_withdraw_from(None, amount)
+    }
+
+    /// The owner withdraws `amount` (internal units, whole drops) from the
+    /// hub `hub` (its ID, or none for the node's only hub) to the XRPL
+    /// account. Pauses that hub's automatic moves.
+    ///
+    /// # Errors
+    ///
+    /// No such hub, no account in it, a move on its way, less than the hub
+    /// pays out, or more than the account can spend with the fees.
+    pub fn hub_withdraw_from(
+        &mut self,
+        hub: Option<[u8; 32]>,
+        amount: u64,
+    ) -> Result<HubStatus, EngineError> {
+        let scheme = self.chosen_hub(hub)?;
+        let standing = self.owner_standing(scheme)?;
         let held = standing.held.ok_or_else(|| {
             EngineError::Precondition("the node has no account in the hub yet".into())
         })?;
@@ -643,66 +879,92 @@ impl Core {
             ));
         }
         let planned = Planned::withdraw(drops, standing.ledger_fee, held.withdrawn, true);
-        self.owner_move(planned, &standing)
+        self.owner_move(scheme, planned, &standing)
     }
 
-    /// Turns the automatic moves on or off; the database keeps it.
+    /// Turns the automatic moves of the hub `hub` (its ID, or none for the
+    /// node's only hub) on or off; the database keeps it. Its status.
     ///
     /// # Errors
     ///
-    /// No hub scheme runs.
-    pub fn set_hub_automatic(&mut self, automatic: bool) -> Result<(), EngineError> {
-        if self.hub_account().is_none() {
-            return Err(EngineError::Precondition(
-                "the settlement hub scheme is not running".into(),
-            ));
+    /// No such hub.
+    pub fn set_hub_automatic(
+        &mut self,
+        hub: Option<[u8; 32]>,
+        automatic: bool,
+    ) -> Result<HubStatus, EngineError> {
+        let scheme = self.chosen_hub(hub)?;
+        self.follow_hubs();
+        let funding = self
+            .funding
+            .get_mut(&scheme)
+            .ok_or_else(|| EngineError::Internal("a hub without its funding".into()))?;
+        funding.automatic = automatic;
+        let acted = automatic && funding.given_up.is_some();
+        if acted {
+            funding.owner_acted();
         }
-        self.funding.automatic = automatic;
-        self.batch.hub_automatic = Some(automatic);
-        if automatic && self.funding.given_up.is_some() {
-            self.funding.owner_acted();
-            self.keep_funding();
+        self.batch.hub_automatic.insert(scheme, automatic);
+        if acted {
+            self.keep_funding(scheme);
         }
-        Ok(())
+        self.hub_status_of(scheme)
+            .ok_or_else(|| EngineError::Internal("the hub scheme vanished".into()))
     }
 
-    /// The owner gives up the move on its way, once it is late: the node
-    /// forgets it and books nothing. Each side books its half when it sees
-    /// it, so if the hub credits a given-up deposit later, or the XRPL
-    /// account sees a given-up withdrawal arrive, it is booked then, once.
-    /// The node's own moves wait until the owner turns them on again or
-    /// moves funds, so it never pays again by itself what may yet arrive.
+    /// The owner gives up the move on its way of the hub `hub` (its ID, or
+    /// none for the node's only hub), once it is late: the node forgets it
+    /// and books nothing. Each side books its half when it sees it, so if
+    /// the hub credits a given-up deposit later, or the XRPL account sees a
+    /// given-up withdrawal arrive, it is booked then, once. That hub's own
+    /// moves wait until the owner turns them on again or moves funds, so
+    /// the node never pays again by itself what may yet arrive.
     ///
     /// # Errors
     ///
-    /// No hub scheme runs, or no move is on its way, or it is not late.
-    pub fn hub_give_up(&mut self) -> Result<HubStatus, EngineError> {
-        let standing = self.standing().ok_or_else(|| {
-            EngineError::Precondition("the settlement hub scheme is not running".into())
-        })?;
-        if self.funding.follow(self.now_ms, &standing) {
-            self.keep_funding();
-        }
-        if self.funding.give_up(self.now_ms).is_none() {
+    /// No such hub, or no move is on its way, or it is not late.
+    pub fn hub_give_up(&mut self, hub: Option<[u8; 32]>) -> Result<HubStatus, EngineError> {
+        let scheme = self.chosen_hub(hub)?;
+        self.owner_standing_any(scheme)?;
+        let now = self.now_ms;
+        let given_up = self
+            .funding
+            .get_mut(&scheme)
+            .and_then(|funding| funding.give_up(now));
+        if given_up.is_none() {
             return Err(EngineError::Precondition(
                 "only a move that is late can be given up".into(),
             ));
         }
-        self.keep_funding();
-        self.hub_status()
+        self.keep_funding(scheme);
+        self.hub_status_of(scheme)
             .ok_or_else(|| EngineError::Internal("the hub scheme vanished".into()))
     }
 
-    /// What an owner's move is decided from: the move on its way followed
-    /// first, so one that is done no longer stands in the way.
-    fn owner_standing(&mut self) -> Result<Standing, EngineError> {
-        let standing = self.standing().ok_or_else(|| {
+    /// What an owner's move over the hub of `scheme` is decided from: the
+    /// move on its way followed first, so one that is done no longer
+    /// stands in the way.
+    fn owner_standing_any(&mut self, scheme: Name) -> Result<Standing, EngineError> {
+        self.follow_hubs();
+        let standing = self.standing(scheme).ok_or_else(|| {
             EngineError::Precondition("the settlement hub scheme is not running".into())
         })?;
-        if self.funding.follow(self.now_ms, &standing) {
-            self.keep_funding();
+        let now = self.now_ms;
+        let funding = self
+            .funding
+            .get_mut(&scheme)
+            .ok_or_else(|| EngineError::Internal("a hub without its funding".into()))?;
+        if funding.follow(now, &standing) {
+            self.keep_funding(scheme);
         }
-        if self.funding.moving.is_some() {
+        Ok(standing)
+    }
+
+    /// [`owner_standing_any`](Self::owner_standing_any), with no move on
+    /// its way: one at a time.
+    fn owner_standing(&mut self, scheme: Name) -> Result<Standing, EngineError> {
+        let standing = self.owner_standing_any(scheme)?;
+        if self.hub_move_on_its_way(scheme) {
             return Err(EngineError::Exhausted(
                 "a move between the hub and the XRP Ledger is on its way".into(),
             ));
@@ -712,17 +974,94 @@ impl Core {
 
     fn owner_move(
         &mut self,
+        scheme: Name,
         planned: Planned,
         standing: &Standing,
     ) -> Result<HubStatus, EngineError> {
-        self.make_move(planned, standing)
+        self.make_move(scheme, planned, standing)
             .map_err(|error| match error {
                 SchemeError::Unavailable => EngineError::Exhausted(
                     "the ledger cannot take the payment now; try again shortly".into(),
                 ),
                 other => EngineError::Invalid(other.to_string()),
             })?;
-        self.hub_status()
+        self.hub_status_of(scheme)
             .ok_or_else(|| EngineError::Internal("the hub scheme vanished".into()))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeMap;
+
+    use super::*;
+
+    fn standing(balance: u64) -> Standing {
+        Standing {
+            held: Some(Held {
+                balance,
+                exposure: balance,
+                deposited: 7,
+                withdrawn: 3,
+            }),
+            floor: 400_000,
+            ceiling: 10_000_000,
+            least_payout: 1_000_000,
+            least_deposit: 100_000,
+            xrpl: Some(100_000_000),
+            hub_owner: 100_000_000,
+            ..Standing::default()
+        }
+    }
+
+    // spec/areas/hubs.md#in-the-node: what the database keeps of a hub's
+    // moves restores them as they were.
+    #[test]
+    fn a_hubs_moves_restore_as_kept() {
+        let mut funding = Funding::new(0, 4_000);
+        funding.automatic = false;
+        let planned = Planned::deposit(5_000, 7, true);
+        funding.start(10, planned, Name::new("pay-1").unwrap());
+        funding.given_up = Some((Direction::Withdraw, 9));
+        let kept = row(&funding);
+        let back = restored(20, 4_000, false, &kept).unwrap();
+        assert!(!back.automatic);
+        assert_eq!(back.paused_until_ms, funding.paused_until_ms);
+        assert_eq!(back.moving, funding.moving);
+        assert_eq!(back.given_up, funding.given_up);
+        assert_eq!(row(&back), kept);
+    }
+
+    // spec/areas/hubs.md#in-the-node: a funding keeps its move on its way,
+    // its failure's backoff and the owner's pause in itself, so the core's
+    // funding of one hub holds back no other's. Only one scheme over a hub
+    // exists so far: that the core routes each hub's calls to its own
+    // funding is in its tests of the one hub.
+    #[test]
+    fn a_hubs_funding_holds_back_no_other() {
+        let xrp = Name::new("hub-xrpl-testnet-xrp").unwrap();
+        let dsusd = Name::new("hub-xrpl-testnet-dsusd").unwrap();
+        let mut fundings: BTreeMap<Name, Funding> = [xrp, dsusd]
+            .into_iter()
+            .map(|scheme| (scheme, Funding::new(0, 4_000)))
+            .collect();
+        let low = standing(100_000);
+        let planned = fundings[&xrp].due(1, &low).unwrap();
+        fundings
+            .get_mut(&xrp)
+            .unwrap()
+            .start(1, planned, Name::new("pay-1").unwrap());
+        assert_eq!(fundings[&xrp].due(2, &low), None, "one on its way");
+        assert!(fundings[&dsusd].due(2, &low).is_some(), "the other's own");
+        fundings.get_mut(&dsusd).unwrap().failed(2);
+        assert_eq!(fundings[&dsusd].due(3, &low), None, "backing off");
+        assert!(fundings[&xrp].moving.is_some());
+        let owner = Planned::withdraw(1_000_000, 100, 3, true);
+        fundings
+            .get_mut(&dsusd)
+            .unwrap()
+            .start(4, owner, Name::new("out-1").unwrap());
+        assert!(fundings[&dsusd].paused_until_ms > 4);
+        assert_eq!(fundings[&xrp].paused_until_ms, 0, "a pause is per hub");
     }
 }

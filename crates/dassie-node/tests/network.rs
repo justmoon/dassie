@@ -10,7 +10,17 @@
 //!
 //! The targeted tests below set up one situation each: a hop that crashes
 //! after posting, a late Fulfill, lying peers, a junior paying its senior
-//! in advance, credit growing with fees.
+//! in advance, credit growing with fees. A test whose subject is not
+//! settlement runs its nodes on the stub with unlimited trust
+//! (`Settling::Trusting`), so that no credit runs out and no request to
+//! settle or settlement shapes what it checks
+//! (spec/areas/testing.md#levels). A test of settlement over a hub runs
+//! on the stub with commitments, as `hub_path.rs` does. The tests of direct
+//! settlement, on the plain stub or the direct XRP Ledger schemes, say so:
+//! they go with it (spec/roadmap.md#hubs-only). A few that are not about
+//! settlement stay on the plain stub or the direct schemes until the
+//! node-stub simulation or the runs across currencies move off them, and
+//! say that instead.
 
 #![allow(
     clippy::unwrap_used,
@@ -38,6 +48,13 @@ use dassie_payments::amount::Amount;
 use dassie_payments::gnap::Limits;
 use dassie_settlement::{LedgerStatus, policy};
 
+/// `count` nodes on the stub with unlimited trust, the first a bootstrap
+/// node: for a test whose subject is not settlement.
+fn trusting(seed: u64, count: usize) -> Sim {
+    Sim::with(seed, count, 1, BTreeMap::new(), Settling::Trusting)
+}
+
+// On the plain stub until the node-stub simulation moves off it (spec/roadmap.md#hubs-only).
 #[test]
 fn simulated_networks_pay_across_restarts() {
     assert_passes(0, scripted::run);
@@ -45,6 +62,7 @@ fn simulated_networks_pay_across_restarts() {
 
 // The same runs, settling on the XRP Ledger testnet scheme against
 // the fake ledger.
+// Goes with the direct XRP Ledger schemes, once hub runs cover it (spec/roadmap.md#hubs-only).
 #[test]
 fn simulated_networks_settle_on_the_xrp_ledger() {
     assert_passes(0, scripted::run_xrpl);
@@ -57,6 +75,7 @@ fn simulated_networks_settle_on_the_xrp_ledger() {
 // and the network settles as before. Between them, the two seeds tell
 // every kind of lie: how long a lying server's connection lasts decides
 // which it gets to tell. The nodes catch what the verifier catches.
+// Goes with the direct XRP Ledger schemes, once hub runs cover it (spec/roadmap.md#hubs-only).
 #[test]
 fn simulated_networks_settle_through_lying_servers() {
     let seeds = [0, 3];
@@ -91,6 +110,7 @@ fn simulated_networks_settle_through_lying_servers() {
 // spec/decisions/mainnet-schemes.md: the same runs in the live realm, on
 // mainnet's scheme against the fake ledger's mainnet, funded by their
 // owners' deposits.
+// Goes with the direct XRP Ledger schemes, once hub runs cover it (spec/roadmap.md#hubs-only).
 #[test]
 fn simulated_networks_settle_on_mainnet_in_the_live_realm() {
     assert_passes(0, scripted::run_xrpl_live);
@@ -100,6 +120,7 @@ fn simulated_networks_settle_on_mainnet_in_the_live_realm() {
 // addresses under `g.`, settle real XRP on the fake ledger's mainnet, which
 // has no faucet: each owner's deposit is what the books start from. Node 1
 // pays node 0 past the credit node 0 extends, so it settles as it goes.
+// Goes with the direct XRP Ledger schemes, once hub runs cover it (spec/roadmap.md#hubs-only).
 #[test]
 fn two_live_nodes_settle_xrp_on_mainnet() {
     let mut sim = Sim::with(7, 2, 1, BTreeMap::new(), Settling::XrplLive);
@@ -135,6 +156,7 @@ fn two_live_nodes_settle_xrp_on_mainnet() {
     check(&sim).unwrap();
 }
 
+// Goes with the direct XRP Ledger schemes, once hub runs cover it (spec/roadmap.md#hubs-only).
 #[test]
 fn simulated_networks_pay_across_currencies() {
     assert_passes(0, scripted::run_across);
@@ -144,6 +166,7 @@ fn simulated_networks_pay_across_currencies() {
 // realm on the fake ledger's mainnet, with the issuer clawing back and
 // freezing while payments are under way; each node's books count what the
 // issuer did as its owner's deposits and withdrawals, and hold its line.
+// Goes with the direct XRP Ledger schemes, once hub runs cover it (spec/roadmap.md#hubs-only).
 #[test]
 fn simulated_networks_settle_in_rlusd_through_the_issuers_acts() {
     assert_passes(0, scripted::run_rlusd);
@@ -153,6 +176,7 @@ fn simulated_networks_settle_in_rlusd_through_the_issuers_acts() {
 // with both schemes on one mainnet account at the nodes that run both: no
 // sequence is taken twice, and every XRP fee is booked once, which the
 // books against the account show.
+// Goes with the direct XRP Ledger schemes, once hub runs cover it (spec/roadmap.md#hubs-only).
 #[test]
 fn simulated_networks_pay_across_rlusd_and_xrp() {
     assert_passes(0, scripted::run_xrp_rlusd);
@@ -160,6 +184,7 @@ fn simulated_networks_pay_across_rlusd_and_xrp() {
 
 // spec/areas/xrpl.md#dsusd: the same across DSUSD and XRP: the token scheme
 // in DSUSD, through the issuer's acts, on the account XRP settles from.
+// Goes with the direct XRP Ledger schemes, once hub runs cover it (spec/roadmap.md#hubs-only).
 #[test]
 fn simulated_networks_pay_across_dsusd_and_xrp() {
     assert_passes(0, scripted::run_xrp_dsusd);
@@ -170,12 +195,14 @@ fn simulated_networks_pay_across_dsusd_and_xrp() {
 // The peer's last answer names that settlement, which the node does not
 // count, so it waits the whole time before it tells the peer, as
 // spec/decisions/ending-a-peering.md lets it.
+// Goes with the direct XRP Ledger schemes, once hub runs cover it (spec/roadmap.md#hubs-only).
 #[test]
 fn a_peering_ended_after_its_last_settlement_was_booked_ends_after_the_wait() {
     let run = scripted::run_xrpl(7_000_002_237);
     assert!(!run.outcome.is_failure(), "{}", run.outcome);
 }
 
+// On the plain stub until the node-stub simulation moves off it (spec/roadmap.md#hubs-only).
 #[test]
 fn a_seed_replays_the_same_run() {
     let run = scripted::run(2);
@@ -188,7 +215,7 @@ fn a_seed_replays_the_same_run() {
 /// Fulfill is on its way. `before` is done to the network once the
 /// payment knows its rate, before any money moves.
 fn paying(seed: u64, before: impl FnOnce(&mut Sim)) -> Sim {
-    let mut sim = Sim::new(seed, 2, 1);
+    let mut sim = trusting(seed, 2);
     sim.loss_per_mille = 0;
     sim.run_until(START + 60_000);
     assert!(!sim.peers(0).is_empty(), "the nodes did not peer");
@@ -271,8 +298,8 @@ const ENDED_WITHIN_MS: u64 = 2 * Policies::DEFAULT.peer.depeer_wait_ms
 
 // spec/decisions/own-fulfills.md: a peering being ended waits only for the
 // packets in flight and its bounded waits for settlements, not for Fulfills
-// that cannot get through. A settlement the peer says is on its way cannot
-// get through either, and is waited for no longer than its bound.
+// that cannot get through. The peer's answer to the last request to settle
+// cannot get through either, and is waited for no longer than its bound.
 #[test]
 fn a_peering_ends_while_its_fulfills_cannot_arrive() {
     let mut sim = paying(73, |sim| {
@@ -291,21 +318,20 @@ fn a_peering_ends_while_its_fulfills_cannot_arrive() {
 // sender's for ten minutes, while the sender's reaches it, as behind an
 // asymmetric firewall. The client tries again after each packet expires. Were
 // each try fulfilled, the receiver's books would drift from the sender's by a
-// packet a try, until the receiver's node had no room left for the sender's:
-// here node 0, the junior, extends the default credit, and the books drifted
-// by six packets, as much as the credit lets a link survive. Once a Fulfill
-// of the receiver's node surely did not arrive, it takes no new Prepare from
-// the sender's, so the books drift by at most what was in flight, two and a
-// half of the largest packets (spec/decisions/packets-in-flight.md). Once the
-// cut is gone, its Rejects and heartbeats get through, and the payment
-// completes.
+// packet a try, with no end: on the stub with unlimited trust, no room runs
+// out to stop them. Once a Fulfill of the receiver's node surely did not
+// arrive, it takes no new Prepare from the sender's, so the books drift by
+// at most what was in flight, two and a half of the largest packets
+// (spec/decisions/packets-in-flight.md). Once the cut is gone, its Rejects
+// and heartbeats get through, and the payment completes.
 #[test]
 fn a_peer_that_cannot_hear_us_drifts_by_at_most_what_was_in_flight() {
-    let mut sim = Sim::new(76, 2, 1);
+    let mut sim = trusting(76, 2);
     sim.loss_per_mille = 0;
     sim.run_until(START + 60_000);
     assert!(!sim.peers(0).is_empty(), "the nodes did not peer");
-    // Three units: more than the credit, so only the rule bounds the drift.
+    // Three units, many packets: no credit runs out, so only the rule
+    // bounds the drift.
     sim.pay(1, 0, 3_000_000_000, None, None);
     let rate = |sim: &Sim| sim.payments[0].connection.exchange_rate().is_some();
     assert!(sim.run_until_or(sim.now + 30_000, rate), "no rate");
@@ -340,7 +366,7 @@ fn fulfills_to_a_node_that_just_started_still_arrive() {
         77,
         1,
         BTreeMap::new(),
-        Settling::Stub,
+        Settling::Trusting,
         Policies::DEFAULT.peer,
         &[5_000, 0],
     );
@@ -373,7 +399,7 @@ fn stopped(index: usize) -> impl Fn(&Sim) -> bool {
 // is back, the payment completes.
 #[test]
 fn a_receiver_whose_commit_fails_sends_no_fulfill() {
-    let mut sim = Sim::new(75, 2, 1);
+    let mut sim = trusting(75, 2);
     sim.loss_per_mille = 0;
     sim.run_until(START + 60_000);
     assert!(!sim.peers(0).is_empty(), "the nodes did not peer");
@@ -390,17 +416,17 @@ fn a_receiver_whose_commit_fails_sends_no_fulfill() {
     check(&sim).unwrap();
 }
 
-/// Two nodes, peered, the junior paying its senior three units: it settles
-/// on the way, and the commit after the next `skip` of `node`'s that
-/// holds a settlement fails, `node` picking it from the senior and the
-/// junior. It is back a few seconds after it stopped.
-fn settling(node: impl FnOnce(usize, usize) -> usize, skip: u32) -> (Sim, usize) {
-    let mut sim = Sim::new(3, 2, 1);
+/// Two nodes peered over the stub with commitments, each having funded its
+/// hold toward the other once asked, and node 0 paying node 1 three units:
+/// as its hold is taken, node 1 asks it to fund the hold again on the way,
+/// and the commit after the next `skip` of node `index`'s that holds a
+/// settlement fails. It is back a few seconds after it stopped.
+fn settling(index: usize, skip: u32) -> Sim {
+    let mut sim = Sim::with(3, 2, 1, BTreeMap::new(), Settling::StubHub(1));
     sim.loss_per_mille = 0;
     sim.run_until(START + 60_000);
-    let senior = usize::from(!sim.core(0).network().peers[0].peering.inbound);
-    let (junior, index) = (1 - senior, node(senior, 1 - senior));
-    sim.pay(junior, senior, 3_000_000_000, None, None);
+    assert!(!sim.peers(0).is_empty(), "the nodes did not peer");
+    sim.pay(0, 1, 3_000_000_000, None, None);
     sim.fail_commit(index, Aim::Settlement, skip);
     let failed = sim.run_until_or(sim.now + 120_000, stopped(index));
     assert!(failed, "no failure");
@@ -408,16 +434,17 @@ fn settling(node: impl FnOnce(usize, usize) -> usize, skip: u32) -> (Sim, usize)
     sim.run_until(sim.now + 5_000);
     sim.start(index);
     sim.run_until(sim.now + 180_000);
-    (sim, index)
+    sim
 }
 
-// spec/decisions/random-seed-simulations.md: the senior fails the commit that
-// books the junior's settlement. The junior's message gets the 503 of an
-// engine that stopped, and the junior sends it again once the senior is back:
-// it is booked once, and the payment completes.
+// spec/decisions/random-seed-simulations.md: the payee fails the commit that
+// books the payer's funding of its hold over the hub. The payer's message
+// gets the 503 of an engine that stopped, and the payer sends it again once
+// the payee is back: it is booked once, and the payment completes.
 #[test]
 fn a_settlement_whose_booking_failed_is_booked_when_sent_again() {
-    let (sim, senior) = settling(|senior, _| senior, 0);
+    let payee = 1;
+    let sim = settling(payee, 0);
     // Where `text` is first traced after line `from`.
     let after = |from: usize, text: &str| {
         from + sim.trace[from..]
@@ -425,10 +452,10 @@ fn a_settlement_whose_booking_failed_is_booked_when_sent_again() {
             .position(|line| line.contains(text))
             .unwrap_or_else(|| panic!("no {text:?}"))
     };
-    let failed = after(0, &format!(" {senior} failed a commit"));
-    let back = after(failed, &format!("start {senior}"));
-    // The junior's first settlement was paid in advance; its second is
-    // the one whose booking failed, delivered once the senior is back.
+    let failed = after(0, &format!(" {payee} failed a commit"));
+    let back = after(failed, &format!("start {payee}"));
+    // The payer's first funding was asked for as they peered; its second
+    // is the one whose booking failed, delivered once the payee is back.
     let delivered = after(back, "SettlementDelivered");
     assert!(sim.trace[delivered].contains("sequence: 2 }"));
     assert!(
@@ -440,17 +467,17 @@ fn a_settlement_whose_booking_failed_is_booked_when_sent_again() {
     check(&sim).unwrap();
 }
 
-// spec/decisions/random-seed-simulations.md: the junior fails the commit of
-// its settlement as it prepares it, and, the second time, once it executed
-// it: neither its transfer nor its message goes out from what never reached
-// the disk, and the books hold after its restart.
+// spec/decisions/random-seed-simulations.md: the payer fails the commit of
+// its funding of its hold as it prepares it, and, the second time, once it
+// executed it: neither its transfer nor its message goes out from what
+// never reached the disk, and the books hold after its restart.
 #[test]
 fn a_settlement_whose_commit_failed_leaves_the_books_holding() {
     for skip in [0, 1] {
-        let (sim, _) = settling(|_, junior| junior, skip);
-        // The second time, the commit before put the settlement's transfer
-        // on disk, pending, and the scheme reconciles it at the restart:
-        // the stub never moved what the lost commit said it did.
+        let sim = settling(0, skip);
+        // The second time, the commit before put the funding's transfer on
+        // disk, pending, and the scheme reconciles it at the restart: the
+        // stub never moved what the lost commit said it did.
         let reconciled = sim.trace.iter().any(|line| line.contains("Reconciling"));
         assert_eq!(reconciled, skip == 1, "skip {skip}");
         check(&sim).unwrap_or_else(|problem| panic!("skip {skip}: {problem}"));
@@ -463,7 +490,7 @@ fn a_settlement_whose_commit_failed_leaves_the_books_holding() {
 // books.
 #[test]
 fn a_ban_withdraws_the_peer_at_once_and_asks_nothing() {
-    let mut sim = Sim::new(74, 2, 1);
+    let mut sim = trusting(74, 2);
     sim.loss_per_mille = 0;
     sim.run_until(START + 60_000);
     let peer = key(1).node_id();
@@ -491,7 +518,7 @@ fn a_ban_withdraws_the_peer_at_once_and_asks_nothing() {
 // or its commit fails and the engine stops.
 #[test]
 fn outgoing_payments_refuse_what_their_rows_cannot_hold() {
-    let mut sim = Sim::new(80, 1, 1);
+    let mut sim = trusting(80, 1);
     sim.run_until(START + 1_000);
     let long = "g.x".repeat(400);
     let mut refusals = Vec::new();
@@ -528,7 +555,7 @@ fn outgoing_payments_refuse_what_their_rows_cannot_hold() {
 // after, since the receiver would tell each what both delivered.
 #[test]
 fn outgoing_payments_never_share_credentials() {
-    let mut sim = Sim::new(81, 1, 1);
+    let mut sim = trusting(81, 1);
     sim.run_until(START + 1_000);
     let ledger = sim.settling.ledger();
     let mut incoming = None;
@@ -601,7 +628,7 @@ fn outgoing_payments_never_share_credentials() {
 // receive limit, the same payment is made.
 #[test]
 fn a_grant_that_limits_only_what_is_received_pays_nothing() {
-    let mut sim = Sim::new(90, 1, 1);
+    let mut sim = trusting(90, 1);
     sim.run_until(START + 1_000);
     let ledger = sim.settling.ledger();
     let asset = ledger.asset();
@@ -666,7 +693,7 @@ fn a_grant_that_limits_only_what_is_received_pays_nothing() {
 // the path is back, the payment completes, before its ten minutes are up.
 #[test]
 fn a_payment_whose_money_stopped_tries_until_its_deadline() {
-    let mut sim = Sim::new(90, 2, 1);
+    let mut sim = trusting(90, 2);
     sim.loss_per_mille = 0;
     sim.run_until(START + 60_000);
     assert!(!sim.peers(0).is_empty(), "the nodes did not peer");
@@ -770,7 +797,7 @@ const RACED: u64 = 3 * Policies::DEFAULT.connector.max_packet_amount;
 /// or two. Returns the network, what the incoming payment received, and the
 /// outgoing payments.
 fn race_into_one_incoming_payment(seed: u64, amount: u64) -> (Sim, u64, Vec<OutgoingRow>) {
-    let mut sim = Sim::new(seed, 2, 1);
+    let mut sim = trusting(seed, 2);
     sim.run_until(START + 60_000);
     assert!(
         !sim.peers(0).is_empty(),
@@ -876,6 +903,7 @@ fn liar_owes(sim: &Sim) -> i128 {
 // it was given, and no more: past it, its packets are refused. It is not
 // banned for it, but it is withdrawn once its room stays short of a packet
 // past the grace (spec/decisions/peering-lifecycle.md), and stays peered.
+// Goes with direct settlement (spec/roadmap.md#hubs-only).
 #[test]
 fn a_peer_that_never_settles_costs_at_most_its_credit() {
     let seed = 0;
@@ -912,6 +940,7 @@ fn a_peer_that_never_settles_costs_at_most_its_credit() {
 // packet, settling nothing, for as long as a silent peer is kept, is ended
 // with reason 4: a link that stuck or drifted past what it survives is not
 // saved.
+// Goes with direct settlement (spec/roadmap.md#hubs-only).
 #[test]
 fn a_peer_short_of_room_for_a_day_is_ended() {
     // A simulated day.
@@ -939,6 +968,7 @@ fn a_peer_short_of_room_for_a_day_is_ended() {
 // vanishes, as a retiring node may, costs the peer it spent through no more
 // than that credit. That peer ends the peering once it stops answering, and
 // the rest of the network loses nothing.
+// Goes with direct settlement (spec/roadmap.md#hubs-only).
 #[test]
 fn a_peer_that_spends_its_credit_and_vanishes_costs_at_most_that_credit() {
     // The day a silent peer is kept, simulated.
@@ -984,6 +1014,7 @@ fn restart_without_ledger(sim: &mut Sim, index: usize) {
 // its ledger: it could not book what the peer pays, and would ask again.
 // Once the ledger is back, the node asks, and books what the peer pays as
 // its settlement.
+// Goes with the direct XRP Ledger schemes, once hub runs cover it (spec/roadmap.md#hubs-only).
 #[test]
 fn a_node_asks_no_one_to_settle_while_it_cannot_see_its_ledger() {
     // Node 0 cannot pay its senior in advance while its ledger is down, so
@@ -1031,6 +1062,7 @@ fn a_node_asks_no_one_to_settle_while_it_cannot_see_its_ledger() {
 // it cannot see its ledger: node 1 asks, and withdraws it once the grace is
 // over. Both stay peered. Once the ledger is back, node 0 pays in advance,
 // node 1 lists it again, and a payment goes through.
+// Goes with the direct XRP Ledger schemes, once hub runs cover it (spec/roadmap.md#hubs-only).
 #[test]
 fn a_peer_short_of_room_is_withdrawn_until_it_settles() {
     let mut sim = Sim::with(7, 2, 1, BTreeMap::new(), Settling::Xrpl);
@@ -1076,49 +1108,59 @@ fn a_peer_short_of_room_is_withdrawn_until_it_settles() {
 }
 
 // spec/decisions/peering-lifecycle.md: requests to settle that never arrived
-// withdraw no one. For over two request intervals, nothing the senior sends
-// reaches its junior, which is still heard from and pays in advance as soon
-// as it is asked: each request that fails to arrive is asked again at the
-// next check, not an interval later, so the junior is asked as soon as the
-// link is back, well within the grace.
+// withdraw no one. Over a hub, each node asks the other to fund its hold
+// toward it as they peer (spec/areas/hubs.md#in-the-node). For over two
+// request intervals, nothing node 1 sends reaches node 0, which is still
+// heard from and funds its hold as soon as it is asked: each request that
+// fails to arrive is asked again at the next check, not an interval later,
+// so node 0 is asked as soon as the link is back, well within the grace.
 #[test]
-fn requests_to_settle_that_never_arrived_withdraw_no_honest_junior() {
-    let mut sim = Sim::new(3, 2, 1);
+fn requests_to_settle_that_never_arrived_withdraw_no_honest_payer() {
+    let mut sim = Sim::with(3, 2, 1, BTreeMap::new(), Settling::StubHub(1));
     sim.loss_per_mille = 0;
     let peered = |sim: &Sim| !sim.peers(0).is_empty() && !sim.peers(1).is_empty();
     assert!(
         sim.run_until_or(START + 120_000, peered),
         "the nodes did not peer"
     );
-    // The senior is the node that accepted the request: its peering is
-    // inbound.
-    let senior = usize::from(!sim.core(0).network().peers[0].peering.inbound);
-    let junior = 1 - senior;
-    assert!(sim.core(senior).network().peers[0].peering.inbound);
-    let junior_id = key(junior).node_id();
+    let (payer, payee) = (0, 1);
+    let payer_id = key(payer).node_id();
+    // What the payer holds toward the payee, by its own stub.
+    let hold = |sim: &mut Sim| {
+        let payee_id = key(payee).node_id();
+        sim.nodes[payer]
+            .core
+            .as_mut()
+            .unwrap()
+            .hub_peers()
+            .into_iter()
+            .find(|hub| hub.peer.as_str() == payee_id.as_str())
+            .map_or(0, |hub| hub.holds.toward)
+    };
     let policies = Policies::DEFAULT;
     let cut_for = 2 * policies.settlement_request_every_ms + 6_000;
-    sim.cut.insert((senior, junior));
+    sim.cut.insert((payee, payer));
     let cut_at = sim.now;
     sim.run_until(cut_at + cut_for);
-    assert!(
-        sim.owes(senior, &junior_id) <= 0,
-        "the junior paid in advance while its senior could not reach it"
+    assert_eq!(
+        hold(&mut sim),
+        0,
+        "the payer funded its hold while the payee could not reach it"
     );
     sim.cut.clear();
     sim.run_until(cut_at + policies.peer.advertise_short_grace_ms + 60_000);
     let for_room: Vec<u64> = sim
         .withdrawn
         .iter()
-        .filter(|withdrawal| withdrawal.by == senior && withdrawal.peer == junior_id)
+        .filter(|withdrawal| withdrawal.by == payee && withdrawal.peer == payer_id)
         .map(|withdrawal| withdrawal.at - cut_at)
         .collect();
     assert!(
         for_room.is_empty(),
-        "the senior withdrew its junior for room, {for_room:?} ms after the cut"
+        "the payee withdrew the payer for room, {for_room:?} ms after the cut"
     );
-    assert!(sim.owes(senior, &junior_id) > 0, "not paid in advance");
-    assert!(sim.advertises(senior, &junior_id));
+    assert!(hold(&mut sim) > 0, "the payer funded no hold");
+    assert!(sim.advertises(payee, &payer_id));
 }
 
 // spec/decisions/earned-trust.md: the node whose peering request was
@@ -1127,6 +1169,7 @@ fn requests_to_settle_that_never_arrived_withdraw_no_honest_junior() {
 // the way to its trigger in advance, (1.1 - 0.15) / 2 = 0.475, before
 // anything flows. Then the junior pays through its senior, settling as it
 // goes.
+// Goes with direct settlement (spec/roadmap.md#hubs-only).
 #[test]
 fn a_junior_pays_its_senior_in_advance() {
     let mut sim = Sim::new(3, 2, 1);
@@ -1139,8 +1182,8 @@ fn a_junior_pays_its_senior_in_advance() {
         (1, 0)
     };
     assert!(!peering(&sim, junior).inbound, "both sides accepted");
-    assert_eq!(peering(&sim, senior).credit_out, 0);
-    assert_eq!(i128::from(peering(&sim, junior).credit_out), CREDIT);
+    assert_eq!(peering(&sim, senior).first().credit_out, 0);
+    assert_eq!(i128::from(peering(&sim, junior).first().credit_out), CREDIT);
     let (senior_id, junior_id) = (key(senior).node_id(), key(junior).node_id());
     assert_eq!(sim.owes(senior, &junior_id), 475_000_000, "paid in advance");
     assert_eq!(sim.owes(junior, &senior_id), -475_000_000);
@@ -1155,6 +1198,7 @@ fn a_junior_pays_its_senior_in_advance() {
 // Node 1 charges for what passes from node 0, on dollars, to node 2, on XRP:
 // the fees are booked on dollars, so they raise its credit to node 0, and not
 // to node 2.
+// Goes with direct settlement (spec/roadmap.md#hubs-only).
 #[test]
 fn credit_grows_with_the_fees_a_peer_earned() {
     let mut sim = Sim::with(9, 3, 2, BTreeMap::new(), Settling::Cross);
@@ -1206,6 +1250,7 @@ fn credit_grows_with_the_fees_a_peer_earned() {
 // node-xrp-rlusd a withdrawn route sent the packets through node 1 instead
 // of a hop that charged nothing. A client that never measured again waited
 // for ever.
+// On the direct schemes until runs across currencies go over hubs (spec/roadmap.md#hubs-only).
 #[test]
 fn a_payment_whose_path_got_dearer_measures_its_rate_again() {
     let mut sim = Sim::with(9, 3, 2, BTreeMap::new(), Settling::Cross);
@@ -1235,7 +1280,7 @@ fn a_payment_whose_path_got_dearer_measures_its_rate_again() {
 // A run that reports an error fails, whatever else it checks.
 #[test]
 fn an_error_event_fails_the_run() {
-    let mut sim = Sim::new(1, 2, 1);
+    let mut sim = trusting(1, 2);
     let node = key(1).node_id();
     sim.record(
         0,
@@ -1254,13 +1299,15 @@ fn an_error_event_fails_the_run() {
 // A peer asked to settle answers with what it has on its way
 // (spec/decisions/ending-a-peering.md): the settlement it makes, or one
 // already under way, which under the one-at-a-time rule is the whole answer.
-// Every amount a node is told is one its peer made to it.
+// Over a hub, that is what it funds its hold toward the asker with
+// (spec/areas/hubs.md#in-the-node), so the runs are over the stub with
+// commitments. Every amount a node is told is one its peer made to it.
 #[test]
 fn a_peer_asked_to_settle_tells_what_it_has_on_its_way() {
     let id = |index: usize| format!("{:?}", key(index).node_id());
     let mut told = 0;
     for seed in 0..6 {
-        let run = scripted::run(seed);
+        let run = scripted::run_stub_hub(seed);
         assert!(!run.outcome.is_failure(), "seed {seed}: {}", run.outcome);
         // (who settled, to whom, how much)
         let mut made = std::collections::BTreeSet::new();
@@ -1320,6 +1367,7 @@ fn a_peer_asked_to_settle_tells_what_it_has_on_its_way() {
 // the junior extends, and the junior's owner ends the peering. What the
 // senior settles is booked as its settlement. Which of the two asks first is
 // a race, and either way the junior saw its ledger late.
+// Goes with the direct XRP Ledger schemes, once hub runs cover it (spec/roadmap.md#hubs-only).
 #[test]
 fn a_node_peers_only_once_it_has_seen_its_ledger() {
     let mut sim = Sim::with(7, 2, 1, BTreeMap::new(), Settling::Xrpl);
@@ -1372,6 +1420,7 @@ fn a_node_peers_only_once_it_has_seen_its_ledger() {
 // down: the junior waits out its bound and ends the peering, and books the
 // settlement only once its ledger is back. The node simulation's drawn runs
 // reach this only now and then.
+// Goes with the direct XRP Ledger schemes, once hub runs cover it (spec/roadmap.md#hubs-only).
 #[test]
 fn a_settlement_that_lands_after_the_end_is_credited_once() {
     let mut sim = Sim::with(7, 2, 1, BTreeMap::new(), Settling::Xrpl);
@@ -1432,6 +1481,7 @@ fn a_settlement_that_lands_after_the_end_is_credited_once() {
 // and keeps the peerings it has: the first sync is kept with the scheme's
 // state, and what reaches the ledger meanwhile is read from where the scheme
 // left off once it is back.
+// Goes with the direct XRP Ledger schemes, once hub runs cover it (spec/roadmap.md#hubs-only).
 #[test]
 fn a_node_that_saw_its_ledger_once_peers_while_it_is_down() {
     let mut sim = Sim::with(7, 2, 1, BTreeMap::new(), Settling::Xrpl);
@@ -1460,6 +1510,7 @@ fn a_node_that_saw_its_ledger_once_peers_while_it_is_down() {
 // settle, and the junior withdraws it: the link is not saved
 // (spec/decisions/own-fulfills.md). A network that does not settle down
 // for that is a run the simulation rules out, not a failure.
+// Goes with direct settlement (spec/roadmap.md#hubs-only).
 #[test]
 fn a_link_crashes_drifted_past_what_it_survives_is_ruled_out() {
     let mut sim = Sim::new(78, 2, 1);
@@ -1514,7 +1565,7 @@ fn a_link_crashes_drifted_past_what_it_survives_is_ruled_out() {
 // more until it runs out of time.
 #[test]
 fn a_payment_short_by_less_than_its_tolerance_is_paid_in_full() {
-    let mut sim = Sim::new(76, 2, 1);
+    let mut sim = trusting(76, 2);
     sim.loss_per_mille = 0;
     sim.run_until(START + 60_000);
     assert!(!sim.peers(0).is_empty(), "the nodes did not peer");
@@ -1541,15 +1592,8 @@ fn a_payment_short_by_less_than_its_tolerance_is_paid_in_full() {
 // ways, and neither asks the other to settle, nor settles.
 #[test]
 fn on_unlimited_trust_nodes_pay_without_settling() {
-    let mut sim = Sim::with(7, 2, 1, BTreeMap::new(), Settling::Stub);
+    let mut sim = trusting(7, 2);
     sim.loss_per_mille = 0;
-    for index in 0..2 {
-        sim.step(index, |core| {
-            core.remove_scheme("stub").unwrap();
-            core.add_scheme("stub", r#"{"trust":"unlimited"}"#.into())
-                .unwrap();
-        });
-    }
     let (zero, one) = (key(0).node_id(), key(1).node_id());
     let peered = |sim: &Sim| sim.peers(0).contains(&one) && sim.peers(1).contains(&zero);
     assert!(
@@ -1558,7 +1602,7 @@ fn on_unlimited_trust_nodes_pay_without_settling() {
     );
     for index in 0..2 {
         for peer in sim.core(index).network().peers {
-            assert_eq!(peer.peering.credit_out, policy::UNLIMITED_CREDIT);
+            assert_eq!(peer.peering.first().credit_out, policy::UNLIMITED_CREDIT);
         }
     }
     let credit = Policies::DEFAULT.peer_credit;
@@ -1649,6 +1693,7 @@ fn settling_pair(settling: Settling) -> Sim {
 // its scheme finds the balance above its books, which nothing it read
 // explains, and reconciles. The run fails for safety under that check's
 // name, though no XRP was made or lost and the books match the account.
+// Goes with the direct XRP Ledger schemes, once hub runs cover it (spec/roadmap.md#hubs-only).
 #[test]
 fn an_unexplained_reconciliation_fails_the_run() {
     let mut sim = settling_pair(Settling::Xrpl);
@@ -1675,6 +1720,7 @@ fn an_unexplained_reconciliation_fails_the_run() {
 // fails, is made again, and the books hold. The drawn runs never reach
 // this: a link comes back within seconds, and the account sends what it
 // has in flight again, well within the transaction's last ledger.
+// Goes with the direct XRP Ledger schemes, once hub runs cover it (spec/roadmap.md#hubs-only).
 #[test]
 fn a_settlement_that_never_reached_the_ledger_is_proven_never_to_apply() {
     let mut sim = settling_pair(Settling::Xrpl);

@@ -7,6 +7,7 @@ mod gossip;
 mod inbound;
 mod lifecycle;
 mod membership;
+mod methods;
 mod names;
 mod peering;
 mod settle;
@@ -64,6 +65,13 @@ pub const MAX_SCHEMES: usize = 16;
 pub const MAX_OWN_HUBS: usize = 4;
 
 const _: () = assert!(MAX_OWN_HUBS <= crate::wire::MAX_HUBS);
+
+/// Most settlement methods a peering has: one per scheme, and a node peers
+/// on at most [`MAX_SCHEMES`], so what a peer can cost, summed over its
+/// methods, is bounded by them (spec/decisions/settlement-methods.md). A
+/// method stays while its scheme runs, though the node may no longer peer
+/// on it anew, so the bound is checked as each is added.
+pub const MAX_METHODS: usize = MAX_SCHEMES;
 
 /// What this node says about itself.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -181,6 +189,12 @@ pub(crate) enum Purpose {
     PeeringInfo,
     /// Asking a node to peer.
     PeeringRequest,
+    /// Asking a peer for its peering info on a scheme, to add a method.
+    MethodInfo,
+    /// Asking a peer to add a method.
+    MethodAdd,
+    /// Telling a peer we dropped a method, on this scheme.
+    MethodDrop(SchemeId),
     /// Checking that an inbound request's sender is reachable at its URL.
     Probe(Box<inbound::Probe>),
     /// An ILP Prepare, by its request ID.
@@ -287,6 +301,10 @@ pub struct PeerNode {
     /// Peers we are telling that we end the peering, and when to try
     /// next (`u64::MAX` while a message is in flight).
     pub(crate) telling: BTreeMap<NodeId, u64>,
+    /// Methods we dropped and are telling the peer of, and when to try
+    /// next (`u64::MAX` while a message is in flight): at most
+    /// [`MAX_METHODS`] per peering, gone with it.
+    pub(crate) dropping: BTreeMap<(NodeId, SchemeId), u64>,
     /// Peers our messages surely do not reach: an ILP packet of ours to
     /// each surely did not arrive, and nothing we sent it since was
     /// answered (spec/decisions/unreachable-peers.md). Only peers are kept,
@@ -378,6 +396,7 @@ impl PeerNode {
             banned: Vec::new(),
             unbanned: Vec::new(),
             telling: BTreeMap::new(),
+            dropping: BTreeMap::new(),
             unreached: BTreeSet::new(),
             told_not_peered: BTreeMap::new(),
             pinned: Vec::new(),
@@ -758,6 +777,9 @@ impl PeerNode {
             Purpose::Sweep(ids) => self.on_sweep(&ids, result),
             Purpose::PeeringInfo => self.on_peering_info(hooks, to, result),
             Purpose::PeeringRequest => self.on_peering_response(hooks, to, result),
+            Purpose::MethodInfo => self.on_method_info(hooks, to, result),
+            Purpose::MethodAdd => self.on_method_response(hooks, to, result),
+            Purpose::MethodDrop(scheme) => self.on_method_drop(to, scheme, &result),
             Purpose::Probe(probe) => self.on_probe(hooks, to, probe, result),
             Purpose::Prepare(request_id) => {
                 if let Err(problem) = result {
@@ -841,6 +863,7 @@ impl PeerNode {
         self.tend_names();
         self.send_names();
         self.seek_peers(hooks);
+        self.seek_methods(hooks);
         self.update_routes();
     }
 
@@ -863,11 +886,19 @@ impl PeerNode {
         candidates.into_iter().flatten().min()
     }
 
-    /// Sends an ILP packet to a peer.
+    /// Sends an ILP Prepare to a peer on the peering's first method, which
+    /// takes no commitment, in a `methodPacket`. Its Fulfill or Reject
+    /// comes back as any packet's does. A node that keeps one method per
+    /// peering sends every Prepare so, or with
+    /// [`send_hub_packet`](Self::send_hub_packet).
     ///
     /// # Errors
     ///
     /// The node is not a peer, or too much is in flight.
+    ///
+    /// # Panics
+    ///
+    /// If `packet` is not a Prepare: it is the node's own.
     pub fn send_packet(
         &mut self,
         now_ms: u64,
@@ -876,14 +907,13 @@ impl PeerNode {
         packet: &[u8],
         timeout_ms: u64,
     ) -> Result<(), SendError> {
-        let content = Content::InterledgerPacket { request_id, packet };
-        self.send_prepare(now_ms, peer, request_id, &content, timeout_ms)
+        let scheme = self.first_method(peer)?;
+        self.send_method_packet(now_ms, peer, scheme, request_id, packet, &[], timeout_ms)
     }
 
-    /// Sends an ILP Prepare to a peer over a settlement hub, with the
-    /// payer's commitment, in one message
-    /// (spec/designs/settlement-hubs.md#4-peering-over-a-hub). Its Fulfill
-    /// or Reject comes back as any packet's does.
+    /// Sends an ILP Prepare to a peer on the peering's first method, over
+    /// a settlement hub, with the payer's commitment, in one `methodPacket`
+    /// (spec/designs/settlement-hubs.md#4-peering-over-a-hub).
     ///
     /// # Errors
     ///
@@ -902,40 +932,70 @@ impl PeerNode {
         commitment: &[u8],
         timeout_ms: u64,
     ) -> Result<(), SendError> {
-        assert_eq!(
-            packet.first(),
-            Some(&inbound::PREPARE_TYPE),
-            "only a Prepare has a commitment"
-        );
-        assert!(
-            !commitment.is_empty() && commitment.len() <= MAX_COMMITMENT_BYTES,
-            "a commitment of a size the wire takes"
-        );
-        let content = Content::HubPacket {
-            request_id,
-            packet,
-            commitment,
-        };
-        self.send_prepare(now_ms, peer, request_id, &content, timeout_ms)
+        assert!(!commitment.is_empty(), "a commitment over a hub");
+        let scheme = self.first_method(peer)?;
+        self.send_method_packet(
+            now_ms, peer, scheme, request_id, packet, commitment, timeout_ms,
+        )
     }
 
-    /// Sends a Prepare, in `content`, to a peer.
-    fn send_prepare(
+    /// Sends an ILP Prepare to a peer on its method on `scheme`, in a
+    /// `methodPacket`: with the payer's commitment on a method over a hub,
+    /// and an empty one on any other
+    /// (spec/decisions/settlement-methods.md). Its Fulfill or Reject comes
+    /// back as any packet's does.
+    ///
+    /// # Errors
+    ///
+    /// The node is not a peer, the peering has no method on `scheme`, or
+    /// too much is in flight.
+    ///
+    /// # Panics
+    ///
+    /// If `packet` is not a Prepare, or `commitment` is longer than
+    /// [`MAX_COMMITMENT_BYTES`]: both are the node's own.
+    #[allow(clippy::too_many_arguments)]
+    pub fn send_method_packet(
         &mut self,
         now_ms: u64,
         peer: &NodeId,
+        scheme: SchemeId,
         request_id: u32,
-        content: &Content<'_>,
+        packet: &[u8],
+        commitment: &[u8],
         timeout_ms: u64,
     ) -> Result<(), SendError> {
+        assert_eq!(
+            packet.first(),
+            Some(&inbound::PREPARE_TYPE),
+            "only a Prepare travels on a method"
+        );
+        assert!(
+            commitment.len() <= MAX_COMMITMENT_BYTES,
+            "a commitment of a size the wire takes"
+        );
         self.advance(now_ms);
-        if self.peering_of(peer).is_none() {
-            return Err(SendError::NotPeered);
+        let peering = self.peering_of(peer).ok_or(SendError::NotPeered)?;
+        if !peering.has(scheme) {
+            return Err(SendError::NoMethod);
         }
+        let content = Content::MethodPacket {
+            request_id,
+            scheme,
+            packet,
+            commitment,
+        };
         let timeout = timeout_ms.min(self.config.request_timeout_ms);
-        self.send(*peer, content, Purpose::Prepare(request_id), timeout)
+        self.send(*peer, &content, Purpose::Prepare(request_id), timeout)
             .map(|_| ())
             .ok_or(SendError::Busy)
+    }
+
+    /// The scheme of the first method of our peering with `peer`.
+    fn first_method(&self, peer: &NodeId) -> Result<SchemeId, SendError> {
+        self.peering_of(peer)
+            .map(|peering| peering.first().scheme)
+            .ok_or(SendError::NotPeered)
     }
 
     /// Sends an ILP Fulfill or Reject to a peer, answering its Prepare
@@ -1144,6 +1204,8 @@ impl PeerNode {
 pub enum SendError {
     /// The node is not a peer.
     NotPeered,
+    /// The peering has no method on the scheme.
+    NoMethod,
     /// Too many requests are in flight.
     Busy,
 }

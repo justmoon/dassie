@@ -33,6 +33,12 @@ impl Ledger {
         if fee > signed.max_fee || fee > account.balance {
             return Outcome::Refused(Refusal::Fee);
         }
+        // A frozen hub takes only claims within the freeze's window; the
+        // rest waits for the thaw, paying nothing and using no sequence
+        // (spec/decisions/token-hubs.md).
+        if self.waits(&signed.operation) {
+            return Outcome::Refused(Refusal::Frozen);
+        }
         if let Some(account) = self.accounts.get_mut(&signed.account) {
             account.balance = account.balance.saturating_sub(fee);
             account.sequence = account.sequence.saturating_add(1);
@@ -350,7 +356,7 @@ impl Ledger {
     ) -> Result<Detail, Failure> {
         self.own_hold(from, hold)?;
         let at = self
-            .timestamp
+            .clock()
             .saturating_add(self.rules.terms.timers.hold_notice);
         if let Some(found) = self.holds.get_mut(&hold) {
             found.reduction = (amount > 0).then_some(Reduction { amount, at });

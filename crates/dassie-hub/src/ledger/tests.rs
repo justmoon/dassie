@@ -96,7 +96,10 @@ impl Hub {
         ))
     }
 
-    fn all_validators(&mut self, operation: impl Fn(usize) -> ValidatorOperation) -> Vec<Outcome> {
+    pub(crate) fn all_validators(
+        &mut self,
+        operation: impl Fn(usize) -> ValidatorOperation,
+    ) -> Vec<Outcome> {
         let ops = (0..self.validators.len())
             .map(|i| self.validator_op(i, operation(i)))
             .collect();
@@ -169,7 +172,7 @@ impl Hub {
     }
 }
 
-fn commitment(
+pub(crate) fn commitment(
     hold: HoldNumber,
     sequence: u64,
     amount: Amount,
@@ -351,7 +354,9 @@ fn the_holds_of_an_account_are_indexed() {
 }
 
 /// Alice holds 1 XRP for Bob.
-fn hold_for_bob(hub: &mut Hub) -> (AccountNumber, NodeKey, AccountNumber, NodeKey, HoldNumber) {
+pub(crate) fn hold_for_bob(
+    hub: &mut Hub,
+) -> (AccountNumber, NodeKey, AccountNumber, NodeKey, HoldNumber) {
     let (alice, alice_key) = hub.join(1, 10_000_000);
     let (bob, bob_key) = hub.join(2, 5_000_000);
     let outcome = hub.run(

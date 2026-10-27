@@ -20,17 +20,18 @@ use dassie_node::engine::NewIncoming;
 use dassie_node::node::Policies;
 use dassie_node::rpc::proto::{self, ErrorCode, request::Method, response};
 use support::btp_client::{BtpClient, pay_stream};
-use support::pair::{CA, bootstrap, key, peered, prepare, settle, until};
-use support::{Bound, START_MS, TestNode, set_up};
+use support::pair::{CA, bootstrap, key, peered, peered_downlink, prepare, settle, until};
+use support::{Bound, START_MS, STUB_UNLIMITED, TestNode, set_up};
 
-/// What the uplink's client pays the downlink: within the credit the
-/// downlink, as junior, extends its uplink, so nothing needs settling.
+/// What the uplink's client pays the downlink. The nodes run on the stub
+/// with unlimited trust, so nothing needs settling.
 const PAYMENT: u64 = 500_000_000;
 
 /// What the downlink pays back: it nets against what the uplink owes it.
 const BACK: u64 = 200_000_000;
 
-/// Sets a node up with the stub scheme and no hostname: a periphery node.
+/// Sets a node up with the stub with unlimited trust and no hostname: a
+/// periphery node.
 async fn prepare_periphery(node: &TestNode, key: &NodeKey) {
     set_up(node, key).await;
     node.engine_started().await;
@@ -40,7 +41,7 @@ async fn prepare_periphery(node: &TestNode, key: &NodeKey) {
         .call(Method::AddSettlementScheme(
             proto::AddSettlementSchemeRequest {
                 id: "stub".into(),
-                config: String::new(),
+                config: STUB_UNLIMITED.into(),
             },
         ))
         .await;
@@ -113,7 +114,7 @@ async fn a_periphery_node_is_paid_beneath_its_uplink() {
     prepare(&a, &key_a).await;
     prepare_periphery(&p, &key_p).await;
     until(&clock, async || {
-        peered(&a, &key_p).await && peered(&p, &key_a).await
+        peered_downlink(&a, &key_p).await && peered(&p, &key_a).await
     })
     .await;
     // The periphery node asked; its uplink lists it nowhere and has no
@@ -192,7 +193,7 @@ async fn a_periphery_node_peers_over_a_tunnel_where_udp_is_blocked() {
     prepare(&a, &key_a).await;
     prepare_periphery(&p, &key_p).await;
     until(&clock, async || {
-        peered(&a, &key_p).await && peered(&p, &key_a).await
+        peered_downlink(&a, &key_p).await && peered(&p, &key_a).await
     })
     .await;
     let (quic_a, quic_p) = (a.quic.as_ref().unwrap(), p.quic.as_ref().unwrap());
@@ -246,7 +247,7 @@ async fn a_pinned_periphery_node_asks_only_its_uplink() {
     prepare(&b, &key_b).await;
     prepare_periphery(&p, &key_p).await;
     until(&clock, async || {
-        peered(&a, &key_b).await && peered(&b, &key_p).await && peered(&p, &key_b).await
+        peered(&a, &key_b).await && peered_downlink(&b, &key_p).await && peered(&p, &key_b).await
     })
     .await;
     // Time to ask for a second uplink, as an unpinned node would: ten
@@ -298,8 +299,8 @@ async fn a_periphery_node_is_paid_beneath_the_uplink_it_names() {
         confirmed
             .iter()
             .all(|id| at_p.iter().any(|peer| &peer.node == id && peer.advertised))
-            && peered(&a, &key_p).await
-            && peered(&b, &key_p).await
+            && peered_downlink(&a, &key_p).await
+            && peered_downlink(&b, &key_p).await
     })
     .await;
     for (uplink, key_uplink) in [(&a, &key_a), (&b, &key_b)] {
@@ -407,10 +408,7 @@ async fn incoming(node: &TestNode) -> dassie_node::store::IncomingRow {
 
 /// What the packets between `node` and its peer `peer` moved net, by
 /// `node`'s own books: what it owes the peer for them, negative when the
-/// peer owes it. Settlements do not count: a senior extends its junior no
-/// credit and asks it to pay in advance at once
-/// (spec/decisions/earned-trust.md), at a time of its own, so what the
-/// node owes in all can move while a payment runs.
+/// peer owes it. Only packets count.
 async fn carried(node: &TestNode, peer: &NodeKey) -> i128 {
     let path = format!("stub+usd:assets/interledger/{}", peer.node_id());
     let mut owner = node.ipc().await;

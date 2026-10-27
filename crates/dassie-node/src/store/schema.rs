@@ -541,14 +541,16 @@ CREATE TABLE payment_settings (
 
 INSERT INTO payment_settings VALUES (1, NULL, NULL);
 
--- Settlement hubs (spec/areas/hubs.md#in-the-node): whether the node moves
--- funds between its XRPL account and its hub by itself; until when an
--- owner's move pauses that; the move on its way, with the counter value
--- that shows it done and its payment, so that a restart never pays it
--- twice; and the move the owner gave up, while it holds the node's own
--- moves back.
+-- Settlement hubs (spec/areas/hubs.md#in-the-node), each by the scheme
+-- over it, which names the hub's asset and ledger: whether the node moves
+-- funds between the owner book of the hub's asset and the hub by itself;
+-- until when an owner's move pauses that; the move on its way, with the
+-- counter value that shows it done and its payment, so that a restart never
+-- pays it twice; and the move the owner gave up, while it holds the node's
+-- own moves back. A hub without a row reads as one with nothing on its way
+-- and the node's own moves on.
 CREATE TABLE hub_funding (
-  id INTEGER PRIMARY KEY CHECK (id = 1),
+  scheme TEXT NOT NULL PRIMARY KEY CHECK (length(scheme) BETWEEN 1 AND 64),
   automatic INTEGER NOT NULL CHECK (automatic IN (0, 1)),
   paused_until_ms INTEGER NOT NULL CHECK (paused_until_ms >= 0),
   move_kind TEXT CHECK (move_kind IN ('deposit', 'withdraw')),
@@ -567,9 +569,7 @@ CREATE TABLE hub_funding (
     AND (move_kind IS NULL) = (move_by_owner IS NULL)
     AND (move_kind IS NULL) = (move_sent_ms IS NULL)
     AND (move_kind IS NOT NULL OR move_applied_ms IS NULL))
-) STRICT;
-
-INSERT INTO hub_funding (id, automatic, paused_until_ms) VALUES (1, 1, 0);
+) STRICT, WITHOUT ROWID;
 
 -- The settlement hubs the node validates
 -- (spec/areas/hubs.md#the-validator-in-the-node), each by its ID: its
@@ -1126,9 +1126,9 @@ pub const TABLES: &[Table] = &[
     },
     Table {
         name: "hub_funding",
-        without_rowid: false,
+        without_rowid: true,
         columns: &[
-            ("id", "INTEGER", false, true),
+            ("scheme", "TEXT", true, true),
             ("automatic", "INTEGER", true, false),
             ("paused_until_ms", "INTEGER", true, false),
             ("move_kind", "TEXT", false, false),

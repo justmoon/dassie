@@ -3,7 +3,7 @@
 use dassie_identity::NodeKey;
 use dassie_peer::wire::{SchemeId, TerminationReason};
 use dassie_peer::{
-    Channel, Closed, Outgoing, PeerBatch, Peering, Registration, Sources, StoredChannel,
+    Channel, Closed, Method, Outgoing, PeerBatch, Peering, Registration, Sources, StoredChannel,
     StoredClosed, StoredNode, Termination,
 };
 
@@ -24,14 +24,17 @@ fn node(seed: u8) -> StoredNode {
             network: Some(dassie_peer::Network([4, 10, 0, 0, 0, 0, 0])),
         }),
         peering: Some(Peering {
-            scheme: SchemeId::parse("stub").unwrap(),
-            state: vec![1, 2],
-            credit_out: 900,
+            methods: vec![Method {
+                scheme: SchemeId::parse("stub").unwrap(),
+                state: vec![1, 2],
+                credit_out: 900,
+                short_for_ms: 17,
+                short_reached_ms: 12,
+                short_checked_ms: None,
+            }],
             since_ms: 14,
             inbound: true,
             last_seen_ms: 15,
-            short_for_ms: 17,
-            short_reached_ms: 12,
             // Every other node is one we are ending, and have not told
             // (spec/decisions/ending-a-peering.md).
             depeering: seed

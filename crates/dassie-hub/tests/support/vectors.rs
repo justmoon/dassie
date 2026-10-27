@@ -14,8 +14,8 @@ use dassie_hub::escrow::{OPEN_MEMO_TYPE, ValidatorKeys, escrow_master, setup, wi
 use dassie_hub::founding::{GenesisCertificate, genesis_digest, starting_terms};
 use dassie_hub::ledger::{self, Ledger, results_root};
 use dassie_hub::operation::{
-    AccountNumber, Deposit, Destination, MemberOperation, Operation, SignedMemberOperation,
-    SignedValidatorOperation, ValidatorOperation,
+    AccountNumber, Clawback, Deposit, Destination, Issuer, MemberOperation, Operation,
+    SignedMemberOperation, SignedValidatorOperation, ValidatorOperation,
 };
 use dassie_hub::promise::{Claim, Commitment, HoldNumber, Signed};
 use dassie_hub::rules::{HUB_VERSION, Rules};
@@ -235,6 +235,17 @@ fn operations_vector(rules: &Rules) -> Value {
     );
     let member = Operation::Member(transfer.clone());
     let validator = Operation::Validator(deposit.clone());
+    let signed = |sequence, operation| {
+        Operation::Validator(SignedValidatorOperation::sign(
+            &hub,
+            ValidatorIndex::new(2).unwrap(),
+            sequence,
+            operation,
+            &validator_keys()[2].consensus,
+        ))
+    };
+    let issuer = signed(3, ValidatorOperation::AttestIssuer(FREEZE));
+    let clawback = signed(4, ValidatorOperation::AttestClawback(CLAWBACK));
     json!({
         "member": {
             "operation": hex(&member.to_vec()),
@@ -246,6 +257,106 @@ fn operations_vector(rules: &Rules) -> Value {
             "digest": hex(deposit.digest(&hub).as_bytes()),
             "hash": hex(validator.hash().as_bytes()),
         },
+        "issuer": {
+            "operation": hex(&issuer.to_vec()),
+            "hash": hex(issuer.hash().as_bytes()),
+        },
+        "clawback": {
+            "operation": hex(&clawback.to_vec()),
+            "hash": hex(clawback.hash().as_bytes()),
+        },
+    })
+}
+
+/// The issuer's freeze of the escrow's line, as validators attest it.
+const FREEZE: Issuer = Issuer {
+    ledger: 2_000,
+    frozen: true,
+    fee: false,
+};
+
+/// A clawback from the escrow, as validators attest it.
+const CLAWBACK: Clawback = Clawback {
+    transaction: Digest([0xcb; 32]),
+    ledger: 2_001,
+    amount: 1_000_000,
+};
+
+/// The rules of a DSUSD hub of the same sponsor and validators: a token
+/// hub, whose issuer may freeze and claw back.
+pub fn token_rules() -> Rules {
+    let sponsor = sponsor();
+    let escrow = escrow_master(&sponsor, NETWORK, &NONCE);
+    let mut terms = starting_terms(NONCE, sponsor.public_key(), NETWORK, escrow.account().0);
+    terms.asset = dassie_hub::rules::Asset::Token {
+        currency: dassie_xrpl::dsusd::CURRENCY,
+        issuer: dassie_xrpl::dsusd::ISSUER,
+    };
+    terms.fees.gas = dassie_hub::rules::LEAST_TOKEN_GAS_DROPS;
+    terms.fees.ledger = 0;
+    terms.fees.least_payout = 1;
+    let validators = validator_nodes()
+        .iter()
+        .zip(validator_keys())
+        .enumerate()
+        .map(|(index, (node, keys))| {
+            keys.accept(node, &terms, format!("v{}.example:443", index + 1))
+                .unwrap()
+        })
+        .collect();
+    Rules { terms, validators }
+}
+
+/// The states a token hub's ledger leaves after its escrow is checked,
+/// after a quorum attested a freeze, and after one attested a clawback
+/// during it: they pin how the frozen state and what was clawed back are
+/// in the state root.
+fn token_vector() -> Value {
+    let rules = token_rules();
+    let hub = rules.id();
+    let mut state = Ledger::genesis(rules.clone(), GENESIS_MS).unwrap();
+    let mut roots = Vec::new();
+    for (height, operation) in [
+        ValidatorOperation::AttestEscrow { sequence: 5 },
+        ValidatorOperation::AttestIssuer(FREEZE),
+        ValidatorOperation::AttestClawback(CLAWBACK),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let height = u64::try_from(height).unwrap() + 1;
+        let operations: Vec<Operation> = validator_keys()
+            .iter()
+            .take(3)
+            .enumerate()
+            .map(|(index, keys)| {
+                Operation::Validator(SignedValidatorOperation::sign(
+                    &hub,
+                    ValidatorIndex::new(index).unwrap(),
+                    height,
+                    operation.clone(),
+                    &keys.consensus,
+                ))
+            })
+            .collect();
+        state
+            .apply(&ledger::Block {
+                height,
+                timestamp: GENESIS_MS + 100 * height,
+                operations: &operations,
+                votes: &[],
+            })
+            .unwrap();
+        roots.push(hex(state.state_root().as_bytes()));
+    }
+    assert!(state.frozen().is_some(), "frozen");
+    assert_eq!(state.escrow().clawed_back, CLAWBACK.amount);
+    json!({
+        "rules": hex(&rules.to_vec()),
+        "hubId": hex(hub.0.as_bytes()),
+        "checked": roots[0],
+        "frozen": roots[1],
+        "clawedBack": roots[2],
     })
 }
 
@@ -395,5 +506,6 @@ pub fn all() -> Value {
         "promises": promises_vector(&rules),
         "block": block_vector(&rules),
         "escrow": escrow_vector(&rules),
+        "token": token_vector(),
     })
 }

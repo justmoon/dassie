@@ -659,7 +659,7 @@ async fn hub_status(node: &support::TestNode) -> Option<dassie_node::rpc::proto:
         .call(Method::GetHubStatus(proto::GetHubStatusRequest {}))
         .await
     {
-        Ok(response::Method::GetHubStatus(reply)) => reply.status,
+        Ok(response::Method::GetHubStatus(reply)) => reply.hubs.into_iter().next(),
         _ => None,
     }
 }

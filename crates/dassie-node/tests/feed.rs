@@ -34,7 +34,7 @@ use dassie_node::store::StoredCertificate;
 use dassie_node_core::certificate::CertificateSource;
 use support::pair::{CA, CERT, KEY, key, prepare_on_xrpl, until};
 use support::rates::{RatesServer, coinbase};
-use support::{Bound, START_MS, TestNode, send};
+use support::{Bound, START_MS, STUB_UNLIMITED, TestNode, send};
 use tokio::net::UdpSocket;
 
 const USD: &str = "stub+usd";
@@ -188,7 +188,7 @@ async fn core_node(server: &Server, rates: &RatesServer, owner: &NodeKey) -> Tes
     ipc.call(Method::AddSettlementScheme(
         proto::AddSettlementSchemeRequest {
             id: "stub".into(),
-            config: String::new(),
+            config: STUB_UNLIMITED.into(),
         },
     ))
     .await

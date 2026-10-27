@@ -88,9 +88,13 @@ pub enum Refusal {
     Sequence,
     /// The fee exceeds the most the signer pays, or its balance.
     Fee,
-    /// The operation is a validator's to make on another network, or a
-    /// vote the validator already cast.
+    /// The operation is a validator's to make on another network or in
+    /// another kind of hub, or a vote the validator already cast.
     NotAllowed,
+    /// The hub is frozen, and the operation waits for the thaw: a member's
+    /// operation other than a claim within the freeze's window
+    /// (spec/decisions/token-hubs.md). It can be sent again then.
+    Frozen,
 }
 
 impl Encode for Outcome {
@@ -145,12 +149,13 @@ const FAILURES: [Failure; 12] = [
     Failure::Destination,
 ];
 
-const REFUSALS: [Refusal; 5] = [
+const REFUSALS: [Refusal; 6] = [
     Refusal::Unknown,
     Refusal::Signature,
     Refusal::Sequence,
     Refusal::Fee,
     Refusal::NotAllowed,
+    Refusal::Frozen,
 ];
 
 impl Outcome {

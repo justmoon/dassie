@@ -1,6 +1,7 @@
 /**
  * What the end-to-end tests of mainnet's schemes in the live realm share
- * (`mainnet_test.ts`, `mainnet_xrp_test.ts`): a node's ledger, whether it
+ * (`mainnet_test.ts`, `mainnet_xrp_test.ts`), and of a settlement hub
+ * (`hub_test.ts`): a node's ledger, whether it
  * runs in the live realm, what it owes its peers by its own books, when
  * settling is over, and a payment from a BTP client of one node to
  * another's receiver.
@@ -135,13 +136,15 @@ export async function settled(
 
 /**
  * A client of `from` with a BTP token on ledger `id` pays `amount` to an
- * incoming payment of `to`'s, over STREAM; the ILP address it paid to.
+ * incoming payment of `to`'s on ledger `receive`, its default ledger if
+ * empty, over STREAM; the ILP address it paid to.
  */
 export async function pay(
   scenario: Scenario,
   [from, to]: [ScenarioNode, ScenarioNode],
   id: string,
   amount: bigint,
+  receive = "",
 ): Promise<string> {
   const token = await from.rpc.call("createBtpToken", {
     label: "e2e",
@@ -149,7 +152,7 @@ export async function pay(
   });
   const { payment: credentials } = await to.rpc.call(
     "createIncomingPayment",
-    {},
+    { ledger: receive },
   );
   assert(credentials);
   const server = token.url.replace(`@${from.hostname}:`, "@localhost:");

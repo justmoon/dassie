@@ -21,6 +21,12 @@
 //! - **After each final block** the pool drops what the block refused, and
 //!   what the new state makes impossible: a sequence behind, a fee the
 //!   account can no longer pay, an account gone or closing.
+//! - **A frozen hub's pool keeps only what it takes:** claims within the
+//!   freeze's window (spec/decisions/token-hubs.md). Another member's
+//!   operation waits for the thaw holding its account's sequence, which a
+//!   claim the payee must make before its commitments expire could then
+//!   not take; so the pool takes none, drops those it has once the hub
+//!   freezes, and the member sends them again after the thaw.
 
 use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::vec::Vec;
@@ -183,6 +189,7 @@ impl Mempool {
             && signed.max_fee >= ledger.terms().fees.operation
             && !account.closing
             && claim_fits
+            && !ledger.waits(&signed.operation)
             && signed.verifies(ledger.hub(), &account.key)
     }
 
@@ -433,6 +440,10 @@ impl Mempool {
         let fee = ledger.terms().fees.operation;
         for (number, queue) in &mut self.members {
             let account = ledger.account(*number).filter(|a| !a.closing);
+            queue.retain(|_, entry| match &entry.operation {
+                Operation::Member(signed) => !ledger.waits(&signed.operation),
+                Operation::Validator(_) => true,
+            });
             normalize(account, fee, queue, refused);
         }
         self.tidy();
@@ -669,6 +680,45 @@ pub(super) mod tests {
         let sequence = hub.ledger.account(number).unwrap().sequence;
         assert_eq!(hub.balance(number), fees * OP_FEE);
         (number, key, sequence)
+    }
+
+    // spec/decisions/token-hubs.md: a frozen hub's pool takes only claims
+    // within the freeze's window, and drops what waits once the hub
+    // freezes, so a claim never waits behind an operation that cannot
+    // apply until the thaw.
+    #[test]
+    fn a_frozen_hubs_pool_keeps_only_claims_within_the_window() {
+        let mut hub = Hub::with(|rules| {
+            rules.terms = crate::rules::tests::token_terms(rules.terms.clone());
+        });
+        let (number, key, sequence) = member(&mut hub, 1, 100);
+        let mut pool = Mempool::new(&hub.ledger);
+        assert!(pool.admit(
+            &hub.ledger,
+            signed(&hub, (number, &key), sequence, transfer())
+        ));
+        let freeze = ValidatorOperation::AttestIssuer(crate::operation::Issuer {
+            ledger: 10,
+            frozen: true,
+            fee: false,
+        });
+        let ops = (0..3)
+            .map(|i| hub.validator_op(i, freeze.clone()))
+            .collect();
+        hub.block(ops);
+        assert!(hub.ledger.frozen().is_some());
+        pool.prune(&hub.ledger, &BTreeSet::new());
+        assert!(pool.is_empty(), "what waits is dropped");
+        assert!(!pool.admit(
+            &hub.ledger,
+            signed(&hub, (number, &key), sequence, transfer())
+        ));
+        // The helper's claim expires at once, within any window.
+        assert!(pool.admit(
+            &hub.ledger,
+            signed(&hub, (number, &key), sequence, claim(1))
+        ));
+        pool.check_invariants();
     }
 
     #[test]

@@ -222,8 +222,8 @@ fn peer(view: &PeerView) -> proto::NetworkPeer {
     };
     proto::NetworkPeer {
         node: view.id.to_string(),
-        scheme: peering.scheme.to_string(),
-        credit_out: peering.credit_out,
+        scheme: peering.first().scheme.to_string(),
+        credit_out: peering.first().credit_out,
         since_unix_ms: convert::time(peering.since_ms),
         last_seen_unix_ms: convert::time(peering.last_seen_ms),
         inbound: peering.inbound,

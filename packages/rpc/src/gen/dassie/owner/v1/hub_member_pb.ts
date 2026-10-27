@@ -12,7 +12,7 @@ import type { Message, UnknownEnum } from "@bufbuild/protobuf";
  * Describes the file dassie/owner/v1/hub_member.proto.
  */
 export const file_dassie_owner_v1_hub_member: GenFile = /*@__PURE__*/
-  fileDesc("CiBkYXNzaWUvb3duZXIvdjEvaHViX21lbWJlci5wcm90bxIPZGFzc2llLm93bmVyLnYxIjgKB0h1YkhvbGQSDAoEcGVlchgBIAEoCRIPCgdhY2NvdW50GAIgASgNEg4KBmFtb3VudBgDIAEoBCKYAgoHSHViTW92ZRI1CglkaXJlY3Rpb24YASABKA4yIi5kYXNzaWUub3duZXIudjEuSHViTW92ZS5EaXJlY3Rpb24SDgoGYW1vdW50GAIgASgEEhAKCGJ5X293bmVyGAMgASgIEhcKD3NlbnRfYXRfdW5peF9tcxgEIAEoAxIfChJhcHBsaWVkX2F0X3VuaXhfbXMYBSABKANIAIgBARIMCgRsYXRlGAYgASgIIlUKCURpcmVjdGlvbhIZChVESVJFQ1RJT05fVU5TUEVDSUZJRUQQABIVChFESVJFQ1RJT05fREVQT1NJVBABEhYKEkRJUkVDVElPTl9XSVRIRFJBVxACQhUKE19hcHBsaWVkX2F0X3VuaXhfbXMimQQKCUh1YlN0YXR1cxIOCgZodWJfaWQYASABKAkSFAoHYWNjb3VudBgCIAEoDUgAiAEBEjUKCmNvbm5lY3Rpb24YAyABKA4yIS5kYXNzaWUub3duZXIudjEuTGVkZ2VyQ29ubmVjdGlvbhIPCgdiYWxhbmNlGAQgASgEEg8KB3Jlc2VydmUYBSABKAQSEQoJZGVwb3NpdGVkGAYgASgEEhEKCXdpdGhkcmF3bhgHIAEoBBIoCgZwYXlpbmcYCCADKAsyGC5kYXNzaWUub3duZXIudjEuSHViSG9sZBIoCgZ0YWtpbmcYCSADKAsyGC5kYXNzaWUub3duZXIudjEuSHViSG9sZBINCgVmbG9vchgKIAEoBBIPCgdjZWlsaW5nGAsgASgEEhEKCWF1dG9tYXRpYxgMIAEoCBIhChRwYXVzZWRfdW50aWxfdW5peF9tcxgNIAEoA0gBiAEBEigKBm1vdmluZxgOIAEoCzIYLmRhc3NpZS5vd25lci52MS5IdWJNb3ZlEhIKCnZhbGlkYXRvcnMYDyABKA0SHAoUdmFsaWRhdG9yc19hbnN3ZXJpbmcYECABKA0SKgoIZ2l2ZW5fdXAYESABKAsyGC5kYXNzaWUub3duZXIudjEuSHViTW92ZRIQCghyZXR1cm5lZBgSIAEoBEIKCghfYWNjb3VudEIXChVfcGF1c2VkX3VudGlsX3VuaXhfbXMiFQoTR2V0SHViU3RhdHVzUmVxdWVzdCJCChRHZXRIdWJTdGF0dXNSZXNwb25zZRIqCgZzdGF0dXMYASABKAsyGi5kYXNzaWUub3duZXIudjEuSHViU3RhdHVzIiMKEUh1YkRlcG9zaXRSZXF1ZXN0Eg4KBmFtb3VudBgBIAEoBCJAChJIdWJEZXBvc2l0UmVzcG9uc2USKgoGc3RhdHVzGAEgASgLMhouZGFzc2llLm93bmVyLnYxLkh1YlN0YXR1cyIkChJIdWJXaXRoZHJhd1JlcXVlc3QSDgoGYW1vdW50GAEgASgEIkEKE0h1YldpdGhkcmF3UmVzcG9uc2USKgoGc3RhdHVzGAEgASgLMhouZGFzc2llLm93bmVyLnYxLkh1YlN0YXR1cyIrChZTZXRIdWJBdXRvbWF0aWNSZXF1ZXN0EhEKCWF1dG9tYXRpYxgBIAEoCCJFChdTZXRIdWJBdXRvbWF0aWNSZXNwb25zZRIqCgZzdGF0dXMYASABKAsyGi5kYXNzaWUub3duZXIudjEuSHViU3RhdHVzIhIKEEh1YkdpdmVVcFJlcXVlc3QiPwoRSHViR2l2ZVVwUmVzcG9uc2USKgoGc3RhdHVzGAEgASgLMhouZGFzc2llLm93bmVyLnYxLkh1YlN0YXR1c2IGcHJvdG8z", [file_dassie_owner_v1_ledger]);
+  fileDesc("CiBkYXNzaWUvb3duZXIvdjEvaHViX21lbWJlci5wcm90bxIPZGFzc2llLm93bmVyLnYxIjgKB0h1YkhvbGQSDAoEcGVlchgBIAEoCRIPCgdhY2NvdW50GAIgASgNEg4KBmFtb3VudBgDIAEoBCKYAgoHSHViTW92ZRI1CglkaXJlY3Rpb24YASABKA4yIi5kYXNzaWUub3duZXIudjEuSHViTW92ZS5EaXJlY3Rpb24SDgoGYW1vdW50GAIgASgEEhAKCGJ5X293bmVyGAMgASgIEhcKD3NlbnRfYXRfdW5peF9tcxgEIAEoAxIfChJhcHBsaWVkX2F0X3VuaXhfbXMYBSABKANIAIgBARIMCgRsYXRlGAYgASgIIlUKCURpcmVjdGlvbhIZChVESVJFQ1RJT05fVU5TUEVDSUZJRUQQABIVChFESVJFQ1RJT05fREVQT1NJVBABEhYKEkRJUkVDVElPTl9XSVRIRFJBVxACQhUKE19hcHBsaWVkX2F0X3VuaXhfbXMiqQQKCUh1YlN0YXR1cxIOCgZodWJfaWQYASABKAkSFAoHYWNjb3VudBgCIAEoDUgAiAEBEjUKCmNvbm5lY3Rpb24YAyABKA4yIS5kYXNzaWUub3duZXIudjEuTGVkZ2VyQ29ubmVjdGlvbhIPCgdiYWxhbmNlGAQgASgEEg8KB3Jlc2VydmUYBSABKAQSEQoJZGVwb3NpdGVkGAYgASgEEhEKCXdpdGhkcmF3bhgHIAEoBBIoCgZwYXlpbmcYCCADKAsyGC5kYXNzaWUub3duZXIudjEuSHViSG9sZBIoCgZ0YWtpbmcYCSADKAsyGC5kYXNzaWUub3duZXIudjEuSHViSG9sZBINCgVmbG9vchgKIAEoBBIPCgdjZWlsaW5nGAsgASgEEhEKCWF1dG9tYXRpYxgMIAEoCBIhChRwYXVzZWRfdW50aWxfdW5peF9tcxgNIAEoA0gBiAEBEigKBm1vdmluZxgOIAEoCzIYLmRhc3NpZS5vd25lci52MS5IdWJNb3ZlEhIKCnZhbGlkYXRvcnMYDyABKA0SHAoUdmFsaWRhdG9yc19hbnN3ZXJpbmcYECABKA0SKgoIZ2l2ZW5fdXAYESABKAsyGC5kYXNzaWUub3duZXIudjEuSHViTW92ZRIQCghyZXR1cm5lZBgSIAEoBBIOCgZzY2hlbWUYEyABKAlCCgoIX2FjY291bnRCFwoVX3BhdXNlZF91bnRpbF91bml4X21zIhUKE0dldEh1YlN0YXR1c1JlcXVlc3QiQAoUR2V0SHViU3RhdHVzUmVzcG9uc2USKAoEaHVicxgBIAMoCzIaLmRhc3NpZS5vd25lci52MS5IdWJTdGF0dXMiMwoRSHViRGVwb3NpdFJlcXVlc3QSDgoGYW1vdW50GAEgASgEEg4KBmh1Yl9pZBgCIAEoCSJAChJIdWJEZXBvc2l0UmVzcG9uc2USKgoGc3RhdHVzGAEgASgLMhouZGFzc2llLm93bmVyLnYxLkh1YlN0YXR1cyI0ChJIdWJXaXRoZHJhd1JlcXVlc3QSDgoGYW1vdW50GAEgASgEEg4KBmh1Yl9pZBgCIAEoCSJBChNIdWJXaXRoZHJhd1Jlc3BvbnNlEioKBnN0YXR1cxgBIAEoCzIaLmRhc3NpZS5vd25lci52MS5IdWJTdGF0dXMiOwoWU2V0SHViQXV0b21hdGljUmVxdWVzdBIRCglhdXRvbWF0aWMYASABKAgSDgoGaHViX2lkGAIgASgJIkUKF1NldEh1YkF1dG9tYXRpY1Jlc3BvbnNlEioKBnN0YXR1cxgBIAEoCzIaLmRhc3NpZS5vd25lci52MS5IdWJTdGF0dXMiIgoQSHViR2l2ZVVwUmVxdWVzdBIOCgZodWJfaWQYASABKAkiPwoRSHViR2l2ZVVwUmVzcG9uc2USKgoGc3RhdHVzGAEgASgLMhouZGFzc2llLm93bmVyLnYxLkh1YlN0YXR1c2IGcHJvdG8z", [file_dassie_owner_v1_ledger]);
 
 /**
  * A hold of ours toward a peer, or a peer's toward us.
@@ -50,7 +50,8 @@ export const HubHoldSchema: GenMessage<HubHold> = /*@__PURE__*/
   messageDesc(file_dassie_owner_v1_hub_member, 0);
 
 /**
- * A move between the hub and the XRP Ledger account on its way. It is done
+ * A move between the hub and the owner book of its asset, on the node's XRP
+ * Ledger account, on its way. It is done
  * once the hub account's counters show it, and failed only once the side it
  * leaves says its payment moved nothing: until then no other move is made,
  * and it is never paid again.
@@ -116,14 +117,14 @@ export const HubMove_Direction = {
   UNSPECIFIED: 0,
 
   /**
-   * From the XRP Ledger account into the hub.
+   * From the owner book into the hub.
    *
    * @generated from enum value: DIRECTION_DEPOSIT = 1;
    */
   DEPOSIT: 1,
 
   /**
-   * From the hub to the XRP Ledger account.
+   * From the hub to the owner book.
    *
    * @generated from enum value: DIRECTION_WITHDRAW = 2;
    */
@@ -274,6 +275,14 @@ export type HubStatus = Message<"dassie.owner.v1.HubStatus"> & {
    * @generated from field: uint64 returned = 18;
    */
   returned: bigint;
+
+  /**
+   * The settlement scheme over the hub, which names its ledger and asset,
+   * such as `hub-xrpl-testnet-xrp`.
+   *
+   * @generated from field: string scheme = 19;
+   */
+  scheme: string;
 };
 
 /**
@@ -284,6 +293,9 @@ export const HubStatusSchema: GenMessage<HubStatus> = /*@__PURE__*/
   messageDesc(file_dassie_owner_v1_hub_member, 2);
 
 /**
+ * Every hub the node is in whose scheme runs, in the order of their
+ * schemes; none while none runs.
+ *
  * @generated from message dassie.owner.v1.GetHubStatusRequest
  */
 export type GetHubStatusRequest = Message<"dassie.owner.v1.GetHubStatusRequest"> & {
@@ -301,9 +313,9 @@ export const GetHubStatusRequestSchema: GenMessage<GetHubStatusRequest> = /*@__P
  */
 export type GetHubStatusResponse = Message<"dassie.owner.v1.GetHubStatusResponse"> & {
   /**
-   * @generated from field: dassie.owner.v1.HubStatus status = 1;
+   * @generated from field: repeated dassie.owner.v1.HubStatus hubs = 1;
    */
-  status?: HubStatus | undefined;
+  hubs: HubStatus[];
 };
 
 /**
@@ -314,13 +326,13 @@ export const GetHubStatusResponseSchema: GenMessage<GetHubStatusResponse> = /*@_
   messageDesc(file_dassie_owner_v1_hub_member, 4);
 
 /**
- * Deposits from the XRP Ledger account into the hub, opening the account if
- * the hub has none for the node yet. Pauses the automatic moves for a
- * while. RESOURCE_EXHAUSTED while a move is on its way; INVALID_ARGUMENT for
- * less than a drop, or less than opening the account takes;
- * FAILED_PRECONDITION before the hub said whether the account exists, while
- * the XRP Ledger testnet scheme does not run synced, or for more than the
- * owner's funds there with the fee.
+ * Deposits from the owner book of the hub's asset into the hub, opening the
+ * account if the hub has none for the node yet. Pauses the hub's automatic
+ * moves for a while. RESOURCE_EXHAUSTED while a move of the hub is on its
+ * way; INVALID_ARGUMENT for less than a drop, or less than opening the
+ * account takes; FAILED_PRECONDITION before the hub said whether the
+ * account exists, while the owner book does not run synced, or for more
+ * than the owner's funds there with the fee.
  *
  * @generated from message dassie.owner.v1.HubDepositRequest
  */
@@ -329,6 +341,15 @@ export type HubDepositRequest = Message<"dassie.owner.v1.HubDepositRequest"> & {
    * @generated from field: uint64 amount = 1;
    */
   amount: bigint;
+
+  /**
+   * The hub, by its ID as HubStatus.hub_id gives it; empty while the node
+   * is in one hub only. NOT_FOUND for a hub the node is not in,
+   * INVALID_ARGUMENT for none while it is in several.
+   *
+   * @generated from field: string hub_id = 2;
+   */
+  hubId: string;
 };
 
 /**
@@ -356,8 +377,10 @@ export const HubDepositResponseSchema: GenMessage<HubDepositResponse> = /*@__PUR
   messageDesc(file_dassie_owner_v1_hub_member, 6);
 
 /**
- * Withdraws from the hub to the XRP Ledger account. Pauses the automatic
- * moves for a while. RESOURCE_EXHAUSTED while a move is on its way;
+ * Withdraws from the hub to the owner book of its asset, on the node's XRP
+ * Ledger account. Pauses the hub's
+ * automatic moves for a while. RESOURCE_EXHAUSTED while a move of the hub is
+ * on its way;
  * INVALID_ARGUMENT for less than the hub pays out; FAILED_PRECONDITION
  * without an account in the hub, or for more than it can spend with the
  * fees.
@@ -369,6 +392,13 @@ export type HubWithdrawRequest = Message<"dassie.owner.v1.HubWithdrawRequest"> &
    * @generated from field: uint64 amount = 1;
    */
   amount: bigint;
+
+  /**
+   * The hub, as in HubDepositRequest.
+   *
+   * @generated from field: string hub_id = 2;
+   */
+  hubId: string;
 };
 
 /**
@@ -396,7 +426,8 @@ export const HubWithdrawResponseSchema: GenMessage<HubWithdrawResponse> = /*@__P
   messageDesc(file_dassie_owner_v1_hub_member, 8);
 
 /**
- * Turns the node's own moves on or off. The node keeps the choice.
+ * Turns the node's own moves to and from the hub on or off. The node keeps
+ * the choice, per hub.
  *
  * @generated from message dassie.owner.v1.SetHubAutomaticRequest
  */
@@ -405,6 +436,13 @@ export type SetHubAutomaticRequest = Message<"dassie.owner.v1.SetHubAutomaticReq
    * @generated from field: bool automatic = 1;
    */
   automatic: boolean;
+
+  /**
+   * The hub, as in HubDepositRequest.
+   *
+   * @generated from field: string hub_id = 2;
+   */
+  hubId: string;
 };
 
 /**
@@ -432,14 +470,20 @@ export const SetHubAutomaticResponseSchema: GenMessage<SetHubAutomaticResponse> 
   messageDesc(file_dassie_owner_v1_hub_member, 10);
 
 /**
- * Gives up the move on its way, once it is late: the node forgets it and
- * books nothing. Its own moves then wait until the owner turns them on again
- * or moves funds. FAILED_PRECONDITION when no move is on its way, or it is
+ * Gives up the hub's move on its way, once it is late: the node forgets it
+ * and books nothing. Its own moves of the hub then wait until the owner turns
+ * them on again or moves funds. FAILED_PRECONDITION when no move is on its way, or it is
  * not late.
  *
  * @generated from message dassie.owner.v1.HubGiveUpRequest
  */
 export type HubGiveUpRequest = Message<"dassie.owner.v1.HubGiveUpRequest"> & {
+  /**
+   * The hub, as in HubDepositRequest.
+   *
+   * @generated from field: string hub_id = 1;
+   */
+  hubId: string;
 };
 
 /**

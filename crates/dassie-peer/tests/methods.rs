@@ -1,0 +1,354 @@
+//! Settlement methods in the peer protocol
+//! (spec/decisions/settlement-methods.md,
+//! spec/areas/network.md#settlement-methods), on two simulated nodes that
+//! run two schemes: the methods a peering agrees, adds and drops, the
+//! Prepares that travel on each, and what a restart keeps.
+
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::indexing_slicing,
+    clippy::panic
+)]
+
+use dassie_identity::{NodeId, NodeKey};
+use dassie_kit::sim::SeededRng;
+use dassie_peer::sim::{Network, SECOND, START, STUB, StubHooks, key, scheme};
+use dassie_peer::wire::{Entry, Kind, NodeInfo, SchemeId, TerminationReason, sign_node_info};
+use dassie_peer::{
+    Config, Event, MAX_SCHEMES, Output, OwnInfo, PeerNode, SendError, Sources, Stored, StoredNode,
+};
+
+fn settle(network: &mut Network, ms: u64) {
+    let until = network.now + ms;
+    network.run_until(until);
+}
+
+/// The schemes of node `index`'s methods with `peer`, sorted: none if it
+/// holds no peering with it.
+fn methods(network: &Network, index: usize, peer: &NodeId) -> Vec<SchemeId> {
+    let mut schemes: Vec<SchemeId> = network
+        .node(index)
+        .peering_of(peer)
+        .map(|peering| peering.schemes().collect())
+        .unwrap_or_default();
+    schemes.sort_unstable();
+    schemes
+}
+
+/// Both schemes, sorted.
+fn two() -> Vec<SchemeId> {
+    vec![scheme(STUB), scheme(SECOND)]
+}
+
+/// Two nodes that run both schemes, peered, after a while to agree their
+/// methods.
+fn both(seed: u64) -> (Network, NodeId, NodeId) {
+    let mut network = Network::new(seed, 2, 1, Config::DEV);
+    for index in 0..2 {
+        network.set_running(index, scheme(SECOND), true);
+    }
+    let (a, b) = (*network.node(0).own(), *network.node(1).own());
+    wait(&mut network, |network| {
+        methods(network, 0, &b) == two() && methods(network, 1, &a) == two()
+    });
+    (network, a, b)
+}
+
+/// Runs the network for up to three minutes, until `done`.
+fn wait(network: &mut Network, done: impl Fn(&Network) -> bool) {
+    for _ in 0..60 {
+        if done(network) {
+            return;
+        }
+        settle(network, 3_000);
+    }
+    assert!(done(network), "never came to pass");
+}
+
+/// The node of the two that made the peering: the one that asks for its
+/// further methods.
+fn requester(network: &Network, b: &NodeId) -> usize {
+    usize::from(network.node(0).peering_of(b).unwrap().inbound)
+}
+
+/// The events of node `index` that `wanted` picks.
+fn events(network: &Network, index: usize, wanted: impl Fn(&Event) -> bool) -> usize {
+    network
+        .events
+        .iter()
+        .filter(|(at, event)| *at == index && wanted(event))
+        .count()
+}
+
+// A pair that runs two schemes peers on the first, and the node that asked
+// for the peering asks for the second as a further method; the other takes
+// it. The first is the one the peering was made on.
+#[test]
+fn a_pair_that_runs_two_schemes_settles_on_both() {
+    let (network, a, b) = both(71);
+    assert_eq!(methods(&network, 0, &b), two());
+    assert_eq!(methods(&network, 1, &a), two());
+    for (index, peer) in [(0, b), (1, a)] {
+        let peering = network.node(index).peering_of(&peer).unwrap();
+        assert_eq!(peering.first().scheme, scheme(STUB));
+    }
+    let asked = requester(&network, &b);
+    let added = |index, inbound| {
+        events(&network, index, |event| {
+            matches!(event, Event::MethodAdded { scheme: s, inbound: i, .. }
+                if *s == scheme(SECOND) && *i == inbound)
+        })
+    };
+    assert_eq!((added(asked, false), added(1 - asked, true)), (1, 1));
+    assert_eq!(network.node(asked).stats().methods_added, 1);
+}
+
+// Each Prepare travels on the method it is sent on, and arrives naming it;
+// none goes on a scheme the peering has no method on.
+#[test]
+fn prepares_travel_on_each_method() {
+    let (mut network, _, b) = both(72);
+    assert!(network.prepare(0, b, scheme(STUB)));
+    assert!(network.prepare(0, b, scheme(SECOND)));
+    settle(&mut network, 2_000);
+    assert_eq!(network.prepares_taken.get(&scheme(STUB)), Some(&1));
+    assert_eq!(network.prepares_taken.get(&scheme(SECOND)), Some(&1));
+    assert!(network.misplaced.is_empty(), "{:?}", network.misplaced);
+    let other = SchemeId::parse("other").unwrap();
+    let now = network.clock(0);
+    let sent = network
+        .node_mut(0)
+        .send_method_packet(now, &b, other, 9, &[12, 0], &[], 10_000);
+    assert_eq!(sent, Err(SendError::NoMethod));
+}
+
+// A node that stops running a scheme drops its method on it and tells the
+// peer, which drops it at once; the peering goes on, on the other, both
+// still advertising it. Once the node runs the scheme again, the method
+// comes back.
+#[test]
+fn a_method_dropped_leaves_the_peering() {
+    let (mut network, a, b) = both(73);
+    network.set_running(1, scheme(SECOND), false);
+    settle(&mut network, 5_000);
+    assert_eq!(methods(&network, 0, &b), [scheme(STUB)]);
+    assert_eq!(methods(&network, 1, &a), [scheme(STUB)]);
+    let dropped = |index, by_us| {
+        events(&network, index, |event| {
+            matches!(event, Event::MethodDropped { scheme: s, by_us: u, .. }
+                if *s == scheme(SECOND) && *u == by_us)
+        })
+    };
+    assert_eq!((dropped(1, true), dropped(0, false)), (1, 1));
+    assert!(network.node(0).is_advertised(&b) && network.node(1).is_advertised(&a));
+    network.set_running(1, scheme(SECOND), true);
+    wait(&mut network, |network| {
+        methods(network, 0, &b) == two() && methods(network, 1, &a) == two()
+    });
+}
+
+// A peering left with no method ends: the node that drops its last tells
+// the peer the peering is over, at once, without collecting.
+#[test]
+fn the_last_method_dropped_ends_the_peering() {
+    let (mut network, a, b) = both(74);
+    network.set_running(1, scheme(SECOND), false);
+    settle(&mut network, 5_000);
+    network.set_running(1, scheme(STUB), false);
+    wait(&mut network, |network| {
+        network.node(0).peering_of(&b).is_none() && network.node(1).peering_of(&a).is_none()
+    });
+    assert!(
+        events(&network, 1, |event| matches!(
+            event,
+            Event::Terminating { by_us: true, .. }
+        )) >= 1
+    );
+}
+
+// A node that takes no further method, as the node does while it keeps one
+// per peering, is not asked for one, and a request for one from a peer that
+// asks anyway is refused: the peering keeps the one it was made on, across
+// a restart too.
+#[test]
+fn a_node_that_takes_no_further_method_keeps_one() {
+    let mut network = Network::new(75, 2, 1, Config::DEV);
+    for index in 0..2 {
+        network.set_running(index, scheme(SECOND), true);
+        network.nodes[index].hooks.refuse_methods = true;
+    }
+    let (a, b) = (*network.node(0).own(), *network.node(1).own());
+    wait(&mut network, |network| {
+        network.node(0).is_advertised(&b) && network.node(1).is_advertised(&a)
+    });
+    // The responder alone refuses: the requester asks, and backs off.
+    let asked = requester(&network, &b);
+    network.nodes[asked].hooks.refuse_methods = false;
+    settle(&mut network, 60_000);
+    assert_eq!(methods(&network, 0, &b), [scheme(STUB)]);
+    assert_eq!(methods(&network, 1, &a), [scheme(STUB)]);
+    assert_eq!(
+        events(&network, asked, |event| matches!(
+            event,
+            Event::MethodAdded { .. }
+        )),
+        0
+    );
+    let asks = network
+        .trace
+        .iter()
+        .filter(|line| line.contains(&format!(" {asked} -> ")) && line.ends_with("MethodAdd"))
+        .count();
+    // Backing off: a few times, not at every heartbeat.
+    assert!((1..=6).contains(&asks), "asked {asks} times in a minute");
+    for index in 0..2 {
+        network.crash(index);
+        network.start(index);
+        network.node(index).check_invariants();
+    }
+    assert_eq!(methods(&network, 0, &b), [scheme(STUB)]);
+    assert_eq!(methods(&network, 1, &a), [scheme(STUB)]);
+}
+
+// A peering's methods are persisted with it: a node that restarts holds
+// them as before, and settles on each.
+#[test]
+fn methods_survive_a_restart() {
+    let (mut network, a, b) = both(76);
+    network.crash(0);
+    settle(&mut network, 5_000);
+    network.start(0);
+    assert_eq!(methods(&network, 0, &b), two());
+    settle(&mut network, 30_000);
+    assert_eq!(methods(&network, 0, &b), two());
+    assert_eq!(methods(&network, 1, &a), two());
+    assert!(network.prepare(0, b, scheme(SECOND)));
+    settle(&mut network, 2_000);
+    assert_eq!(network.prepares_taken.get(&scheme(SECOND)), Some(&1));
+}
+
+// A method only one side holds, as when the other's drop was lost with a
+// restart, is repaired by the first Prepare on it: refused, and its sender
+// told, as a node not peered is (spec/areas/network.md#one-sided-peerings).
+#[test]
+fn a_method_only_one_side_holds_is_repaired() {
+    let (mut network, _, b) = both(77);
+    let asked = requester(&network, &b);
+    let other = 1 - asked;
+    let ids = [*network.node(0).own(), *network.node(1).own()];
+    network.cut.insert((other, asked));
+    network.set_running(other, scheme(SECOND), false);
+    settle(&mut network, 500);
+    network.crash(other);
+    network.cut.clear();
+    network.start(other);
+    assert_eq!(methods(&network, asked, &ids[other]), two());
+    assert_eq!(methods(&network, other, &ids[asked]), [scheme(STUB)]);
+    assert!(network.prepare(asked, ids[other], scheme(SECOND)));
+    settle(&mut network, 5_000);
+    assert_eq!(methods(&network, asked, &ids[other]), [scheme(STUB)]);
+    assert!(network.node(asked).peering_of(&ids[other]).is_some());
+}
+
+// A link state that lists a scheme many times names one method on it: the
+// methods with a node come from our own schemes, each once, however often
+// its list repeats one, and a node seeking peers picks such a node and asks
+// it how it peers.
+#[test]
+fn a_scheme_listed_again_is_one_method() {
+    let mallory = NodeKey::from_bytes(&[91; 32]);
+    let entries = core::iter::repeat_n(Entry::Scheme(scheme(STUB)), MAX_SCHEMES + 1)
+        .chain(core::iter::repeat_n(
+            Entry::Scheme(scheme(SECOND)),
+            MAX_SCHEMES + 1,
+        ))
+        .collect();
+    let info = NodeInfo {
+        sequence: START,
+        url: "https://mallory.test",
+        alias: "",
+        public_key: *mallory.public_key().as_bytes(),
+        entries,
+    };
+    let stored = Stored {
+        nodes: vec![StoredNode {
+            id: mallory.node_id(),
+            link_state: Some(sign_node_info(&mallory, &info)),
+            sources: Sources::MAJORITY,
+            first_seen_ms: START,
+            registration: None,
+            peering: None,
+            termination: None,
+        }],
+        ..Stored::default()
+    };
+    let mut node = PeerNode::new(
+        Config::DEV,
+        key(0),
+        OwnInfo {
+            url: Some("https://n0.test".into()),
+            alias: String::new(),
+            feed_port: None,
+            hub: None,
+        },
+        Vec::new(),
+        stored,
+        Box::new(SeededRng::new(78)),
+        START,
+    );
+    node.set_schemes(START, vec![scheme(STUB), scheme(SECOND)]);
+    let view = node
+        .nodes()
+        .into_iter()
+        .find(|view| view.id == mallory.node_id())
+        .unwrap();
+    assert_eq!(view.schemes, [scheme(STUB), scheme(SECOND)]);
+    let mut hooks = StubHooks::default();
+    let mut asked = false;
+    let mut now = START;
+    for _ in 0..1_000 {
+        node.handle_timeout(now, &mut hooks);
+        while let Some(output) = node.poll_output() {
+            asked |= matches!(output, Output::Request(request)
+                if request.to == mallory.node_id() && request.kind == Kind::PeeringInfoRequest);
+        }
+        if asked {
+            break;
+        }
+        now = node.poll_timeout().unwrap_or(now + 1_000).max(now + 1);
+    }
+    assert!(asked, "never asked the node how it peers");
+    node.check_invariants();
+}
+
+// A peering being ended collects on its first method, in whose units the
+// peer says what it has on its way: one that loses that method, its scheme
+// no longer run, ends at once rather than collect on another.
+#[test]
+fn a_peering_being_ended_that_loses_its_first_method_ends() {
+    let (mut network, _, b) = both(79);
+    network.cut.insert((0, 1));
+    network.cut.insert((1, 0));
+    network.act(0, |node, now| {
+        assert!(node.terminate(now, &b, TerminationReason::Owner));
+    });
+    network.set_running(0, scheme(STUB), false);
+    settle(&mut network, 5_000);
+    let dropped = events(
+        &network,
+        0,
+        |event| matches!(event, Event::MethodDropped { scheme: s, .. } if *s == scheme(STUB)),
+    );
+    let told = events(&network, 0, |event| {
+        matches!(
+            event,
+            Event::Terminating {
+                by_us: true,
+                reason: TerminationReason::Owner,
+                ..
+            }
+        )
+    });
+    assert_eq!((dropped, told), (0, 1));
+}

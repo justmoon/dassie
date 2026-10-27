@@ -220,7 +220,7 @@ impl Core {
         let peers: Vec<(NodeId, SchemeId)> = self
             .peer
             .active_peers()
-            .map(|(id, peering)| (*id, peering.scheme))
+            .map(|(id, peering)| (*id, peering.first().scheme))
             .collect();
         for (node, scheme) in peers {
             // A downlink is in no link state, so withdrawing it would only
@@ -252,7 +252,7 @@ impl Core {
             } else {
                 Room::Enough
             };
-            self.peer.room(now, &node, room);
+            self.peer.room(now, &node, scheme, room);
         }
     }
 
@@ -384,7 +384,7 @@ impl Core {
         let peers: Vec<(NodeId, SchemeId)> = self
             .peer
             .active_peers()
-            .map(|(id, peering)| (*id, peering.scheme))
+            .map(|(id, peering)| (*id, peering.first().scheme))
             .collect();
         self.settle
             .asked
@@ -447,8 +447,8 @@ impl Core {
         let Some(state) = self
             .peer
             .peering_of(&node)
-            .filter(|peering| peering.scheme == scheme)
-            .map(|peering| peering.state.clone())
+            .filter(|peering| peering.first().scheme == scheme)
+            .map(|peering| peering.first().state.clone())
         else {
             return 0;
         };
@@ -1032,7 +1032,7 @@ impl Core {
         let state = self
             .peer
             .peering_of(&from)
-            .map(|peering| peering.state.clone())
+            .map(|peering| peering.first().state.clone())
             .unwrap_or_default();
         let mut effects = Vec::new();
         self.schemes

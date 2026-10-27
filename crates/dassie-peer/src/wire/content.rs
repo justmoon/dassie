@@ -14,11 +14,8 @@ use crate::names::{
     COMMITMENT_BYTES, Commitment, Name, SALT_BYTES, Salt, name_len, read_name, write_name,
 };
 
-/// The size of a `hubPacket`'s commitment: never empty, and bounded.
-const COMMITMENT_SIZE: Size = Size::range(1, MAX_COMMITMENT_BYTES);
-
 /// The size of a `methodPacket`'s commitment: empty on a method that is not
-/// over a hub, and bounded as a `hubPacket`'s.
+/// over a hub, and bounded.
 const METHOD_COMMITMENT_SIZE: Size = Size::range(0, MAX_COMMITMENT_BYTES);
 
 /// A peering request: the requester's signed link state and the scheme it
@@ -44,7 +41,9 @@ pub enum Content<'a> {
     PeeringRequest(PeeringRequest<'a>),
     /// `linkStateUpdate [1]`.
     LinkStateUpdate(SignedNodeInfo<'a>),
-    /// `interledgerPacket [2]`: an ILP packet, correlated by request ID.
+    /// `interledgerPacket [2]`: an ILP Fulfill or Reject, correlated by
+    /// request ID with the Prepare it answers. A Prepare travels in a
+    /// `methodPacket`, on the method it is for.
     InterledgerPacket {
         /// The request ID, scoped to the peering.
         request_id: u32,
@@ -85,20 +84,6 @@ pub enum Content<'a> {
         /// The scheme.
         scheme: SchemeId,
     },
-    /// `hubPacket [12]`: an ILP Prepare with the payer's commitment, on a
-    /// peering over a settlement hub
-    /// (spec/designs/settlement-hubs.md#4-peering-over-a-hub). Only a
-    /// Prepare travels in it; its Fulfill or Reject goes back as an
-    /// `interledgerPacket`.
-    HubPacket {
-        /// The request ID, scoped to the peering.
-        request_id: u32,
-        /// The ILP Prepare.
-        packet: &'a [u8],
-        /// The commitment, opaque to this crate: the hub's scheme reads
-        /// it. Never empty, at most [`MAX_COMMITMENT_BYTES`].
-        commitment: &'a [u8],
-    },
     /// `nameCommit [13]`: the sender commits to a name sealed, to be held
     /// by itself (spec/designs/names.md#3-registering). Its answer is a
     /// [`NameReceipt`](super::NameReceipt).
@@ -121,10 +106,10 @@ pub enum Content<'a> {
     NameListRequest,
     /// `methodPacket [18]`: an ILP Prepare on one settlement method of a
     /// peering, with the payer's commitment when the method is over a hub
-    /// (spec/decisions/settlement-methods.md). Only a Prepare travels in
-    /// it; its Fulfill or Reject goes back as an `interledgerPacket`, by
-    /// its request ID. Only to a node whose link state says it has methods
-    /// ([`EXTENSION_METHODS`](super::EXTENSION_METHODS)).
+    /// (spec/decisions/settlement-methods.md,
+    /// spec/designs/settlement-hubs.md#4-peering-over-a-hub). Every Prepare
+    /// between peers travels in one; its Fulfill or Reject goes back as an
+    /// `interledgerPacket`, by its request ID.
     MethodPacket {
         /// The request ID, scoped to the peering.
         request_id: u32,
@@ -132,8 +117,9 @@ pub enum Content<'a> {
         scheme: SchemeId,
         /// The ILP Prepare.
         packet: &'a [u8],
-        /// The commitment, opaque to this crate, as a `hubPacket`'s: empty
-        /// on a method not over a hub, at most [`MAX_COMMITMENT_BYTES`].
+        /// The commitment, opaque to this crate: the hub's scheme reads it.
+        /// Empty on a method not over a hub, at most
+        /// [`MAX_COMMITMENT_BYTES`].
         commitment: &'a [u8],
     },
     /// `methodAdd [19]`: the sender asks to add a method to the peering,
@@ -215,7 +201,6 @@ impl Content<'_> {
             Self::PeeringInfoRequest { .. } => Kind::PeeringInfoRequest,
             Self::PeeringTermination(_) => Kind::PeeringTermination,
             Self::SettlementRequest { .. } => Kind::SettlementRequest,
-            Self::HubPacket { .. } => Kind::HubPacket,
             Self::NameCommit(_) => Kind::NameCommit,
             Self::NameUnseal { .. } => Kind::NameUnseal,
             Self::NameRenew(_) => Kind::NameRenew,
@@ -250,9 +235,6 @@ impl Content<'_> {
             | Self::SettlementRequest { scheme }
             | Self::MethodDrop { scheme } => scheme.encoded_len(),
             Self::PeeringTermination(_) => 1,
-            Self::HubPacket {
-                packet, commitment, ..
-            } => 4 + size::prefixed(packet.len()) + size::prefixed(commitment.len()),
             Self::NameCommit(_) => COMMITMENT_BYTES,
             Self::NameUnseal { name, .. } => name_len(name) + SALT_BYTES,
             Self::NameRenew(name) => name_len(name),
@@ -312,15 +294,6 @@ impl Encode for Content<'_> {
             | Self::SettlementRequest { scheme }
             | Self::MethodDrop { scheme } => scheme.write(writer),
             Self::PeeringTermination(reason) => writer.write_u8(reason.code()),
-            Self::HubPacket {
-                request_id,
-                packet,
-                commitment,
-            } => {
-                writer.write_u32(*request_id);
-                writer.write_octets(packet, Size::ANY);
-                writer.write_octets(commitment, COMMITMENT_SIZE);
-            }
             Self::NameCommit(commitment) => writer.write_bytes(&commitment.0),
             Self::NameUnseal { name, salt } => {
                 write_name(writer, name);
@@ -380,11 +353,6 @@ impl<'a> Decode<'a> for Content<'a> {
             }
             Kind::SettlementRequest => Self::SettlementRequest {
                 scheme: SchemeId::read(reader)?,
-            },
-            Kind::HubPacket => Self::HubPacket {
-                request_id: reader.read_u32()?,
-                packet: reader.read_octets(Size::ANY)?,
-                commitment: reader.read_octets(COMMITMENT_SIZE)?,
             },
             Kind::NameCommit => Self::NameCommit(Commitment(read_fixed(reader)?)),
             Kind::NameUnseal => Self::NameUnseal {

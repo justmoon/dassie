@@ -250,6 +250,19 @@ export class ScenarioNode {
     for (const [asset, config] of Object.entries(assets)) {
       await owner.call("setAssetConfig", { asset, config });
     }
+    await this.addSchemes(schemes, configs);
+  }
+
+  /**
+   * Adds the settlement schemes in `schemes` the node does not have yet,
+   * each with its config in `configs`, if any, as its owner would; one it
+   * has keeps the config it was added with.
+   */
+  async addSchemes(
+    schemes: readonly string[],
+    configs: Readonly<Record<string, string>> = {},
+  ): Promise<void> {
+    const owner = this.rpc;
     const active = (await owner.call("getBasicState", {}))
       .activeSettlementSchemes;
     for (const scheme of schemes) {

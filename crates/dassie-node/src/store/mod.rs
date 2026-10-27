@@ -57,7 +57,7 @@ pub use gnap::{GrantCounts, GrantRow, GrantState, MAX_GRANTS, TokenRow};
 pub use hub_founding::{
     FoundingRecordRow, FoundingRow, MAX_FOUNDING_RECORDS, MAX_FOUNDINGS, MAX_PAYOUT_ROWS,
 };
-pub use hub_funding::{HubFundingRow, HubMoveRow};
+pub use hub_funding::{HubFunding, HubFundingRow, HubMoveRow};
 pub use hubs::{
     EscrowCursor, HubStep, KEPT_BOUNDARIES, KEPT_BUNDLES, KEPT_TIPS, MAX_HUB_BUNDLE_BYTES,
     MAX_HUB_CONSENSUS_BYTES, MAX_HUB_LEDGER_BYTES, StoredHub,

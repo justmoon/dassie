@@ -531,6 +531,7 @@ fn blocker(blocker: &RemovalBlocker) -> proto::LedgerRemovalBlocker {
         RemovalBlocker::Peers(count) => (Kind::Peers, count),
         RemovalBlocker::BtpTokens(count) => (Kind::BtpTokens, count),
         RemovalBlocker::OutgoingPayments(count) => (Kind::OutgoingPayments, count),
+        RemovalBlocker::HubMove => (Kind::HubMove, 1),
     };
     proto::LedgerRemovalBlocker {
         kind: kind.into(),

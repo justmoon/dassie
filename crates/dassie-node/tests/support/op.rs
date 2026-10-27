@@ -16,7 +16,7 @@ use hyper::{Request, StatusCode};
 use serde_json::{Value, json};
 
 use super::btp_client::{BtpClient, send_stream, send_stream_reported};
-use super::{Bound, Reply, START_MS, TestNode, send, set_up};
+use super::{Bound, Reply, START_MS, STUB_UNLIMITED, TestNode, send, set_up};
 
 pub const CA: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../testdata/tls/root.pem");
 pub const CERT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../testdata/tls/cert.pem");
@@ -104,7 +104,8 @@ pub fn default_name(key: &NodeKey) -> String {
     format!("{}.dassiepay.net", key.node_id())
 }
 
-/// Adds the stub ledger, with money in it, once the engine runs.
+/// Adds the stub ledger with unlimited trust, with money in it, once the
+/// engine runs.
 pub async fn add_stub(node: &TestNode) {
     node.engine_started().await;
     let mut owner = node.ipc().await;
@@ -112,7 +113,7 @@ pub async fn add_stub(node: &TestNode) {
         .call(Method::AddSettlementScheme(
             proto::AddSettlementSchemeRequest {
                 id: "stub".into(),
-                config: String::new(),
+                config: STUB_UNLIMITED.into(),
             },
         ))
         .await;

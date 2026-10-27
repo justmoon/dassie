@@ -12,8 +12,8 @@ use dassie_peer::names::{
 };
 use dassie_peer::wire::{Endpoint, SchemeId, TerminationReason};
 use dassie_peer::{
-    Channel, Closed, Depeering, Network, Outgoing, PeerBatch, Peering, Registration, Sources,
-    Stored, StoredChannel, StoredClosed, StoredNode, Termination,
+    Channel, Closed, Depeering, Method, Network, Outgoing, PeerBatch, Peering, Registration,
+    Sources, Stored, StoredChannel, StoredClosed, StoredNode, Termination,
 };
 use rusqlite::{Connection, Row, Transaction, params};
 
@@ -373,6 +373,10 @@ fn read_node(row: &Row<'_>) -> rusqlite::Result<Result<StoredNode, StoreError>> 
     }))
 }
 
+/// A stored peering: the store keeps one settlement method per peering,
+/// the one it was made on, until a table of methods holds more
+/// (spec/roadmap.md#settlement-methods), so a row is a peering with that
+/// one method.
 fn read_peering(row: &Row<'_>, scheme: &str) -> Result<Peering, StoreError> {
     let scheme = SchemeId::parse(scheme).ok_or(StoreError::Corrupt("scheme ID"))?;
     let short_for_ms = u64::try_from(row.get::<_, i64>(19)?)
@@ -381,15 +385,19 @@ fn read_peering(row: &Row<'_>, scheme: &str) -> Result<Peering, StoreError> {
         .ok()
         .filter(|reached| *reached <= short_for_ms)
         .ok_or(StoreError::Corrupt("time short of room while reached"))?;
-    Ok(Peering {
+    let method = Method {
         scheme,
         state: row.get(10)?,
         credit_out: from_sql_amount(row.get(11)?)?,
+        short_for_ms,
+        short_reached_ms,
+        short_checked_ms: None,
+    };
+    Ok(Peering {
+        methods: vec![method],
         since_ms: from_sql_time(row.get(12)?),
         inbound: row.get::<_, i64>(13)? != 0,
         last_seen_ms: from_sql_time(row.get(14)?),
-        short_for_ms,
-        short_reached_ms,
         depeering: match row.get::<_, Option<i64>>(20)? {
             Some(since) => {
                 let reason = u8::try_from(row.get::<_, i64>(21)?)
@@ -654,6 +662,9 @@ fn write_node(transaction: &Transaction<'_>, node: &StoredNode) -> Result<(), St
         transaction.execute_cached("DELETE FROM peers WHERE node = ?1", [node.id.as_str()])?;
         return Ok(());
     };
+    // The node keeps one method per peering, which a row holds.
+    assert_eq!(peering.methods.len(), 1, "a stored peering has one method");
+    let method = peering.first();
     transaction.execute_cached(
         "INSERT INTO peers (node, scheme, state, credit_out, since_ms,
            inbound, last_seen_ms, short_for_ms, depeering_since_ms, depeering_reason,
@@ -665,17 +676,17 @@ fn write_node(transaction: &Transaction<'_>, node: &StoredNode) -> Result<(), St
            depeering_since_ms = ?9, depeering_reason = ?10, short_reached_ms = ?11",
         params![
             node.id.as_str(),
-            peering.scheme.as_str(),
-            peering.state,
-            to_sql_amount(peering.credit_out)?,
+            method.scheme.as_str(),
+            method.state,
+            to_sql_amount(method.credit_out)?,
             to_sql_time(peering.since_ms),
             i64::from(peering.inbound),
             to_sql_time(peering.last_seen_ms),
-            i64::try_from(peering.short_for_ms)
+            i64::try_from(method.short_for_ms)
                 .map_err(|_| StoreError::Corrupt("time short of room"))?,
             peering.depeering.map(|d| to_sql_time(d.since_ms)),
             peering.depeering.map(|d| i64::from(d.reason.code())),
-            i64::try_from(peering.short_reached_ms)
+            i64::try_from(method.short_reached_ms)
                 .map_err(|_| StoreError::Corrupt("time short of room while reached"))?,
         ],
     )?;

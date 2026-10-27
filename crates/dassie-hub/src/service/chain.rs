@@ -73,16 +73,28 @@ impl FinalBlock {
 }
 
 /// The accounts `operation` touches on `before`, the state before its
-/// block.
+/// block, and the account a `pay` opened, by its `outcome`, so that the
+/// payee reads who paid it in (spec/designs/settlement-hubs.md#5-joining).
 fn accounts_touched(
     before: &Ledger,
     operation: &crate::operation::Operation,
+    outcome: Outcome,
 ) -> Vec<crate::operation::AccountNumber> {
     use crate::operation::{CloseTo, MemberOperation as M, Operation as O};
     let O::Member(signed) = operation else {
         return Vec::new();
     };
     let mut accounts = alloc::vec![signed.account];
+    if let (
+        M::Pay { .. },
+        Outcome::Applied {
+            detail: crate::ledger::Detail::Account(opened),
+            ..
+        },
+    ) = (&signed.operation, outcome)
+    {
+        accounts.push(opened);
+    }
     let hold = match &signed.operation {
         M::HoldFund { hold, .. }
         | M::HoldReduce { hold, .. }
@@ -380,7 +392,8 @@ impl Application for Chain {
             .payload
             .operations
             .iter()
-            .map(|operation| accounts_touched(&self.ledger, operation))
+            .zip(&executed.outcomes)
+            .map(|(operation, outcome)| accounts_touched(&self.ledger, operation, *outcome))
             .collect();
         self.ledger = executed.ledger;
         self.tip = *digest;
@@ -458,8 +471,32 @@ pub(super) mod tests {
             crate::operation::AccountNumber(1),
         ));
         let op = signed(&hub, (number, &key), sequence, close);
-        let touched = accounts_touched(&hub.ledger, &op);
+        let touched = accounts_touched(&hub.ledger, &op, Outcome::Refused(ledger::Refusal::Fee));
         assert!(touched.contains(&crate::operation::AccountNumber(1)));
+    }
+
+    // spec/designs/settlement-hubs.md#5-joining: the payee of a `pay` reads
+    // it, in the history of the account it opened.
+    #[test]
+    fn a_pay_touches_the_account_it_opened() {
+        let mut hub = Hub::new();
+        let (number, key, sequence) = member(&mut hub, 1, 10);
+        let pay = crate::operation::MemberOperation::Pay {
+            key: dassie_identity::NodeKey::from_bytes(&[77; 32]).public_key(),
+            amount: 5_000_000,
+        };
+        let op = signed(&hub, (number, &key), sequence, pay);
+        let opened = crate::operation::AccountNumber(9);
+        let applied = Outcome::Applied {
+            fee: 10,
+            detail: ledger::Detail::Account(opened),
+        };
+        assert!(accounts_touched(&hub.ledger, &op, applied).contains(&opened));
+        let failed = Outcome::Failed {
+            fee: 10,
+            reason: ledger::Failure::Exists,
+        };
+        assert_eq!(accounts_touched(&hub.ledger, &op, failed), [number]);
     }
 
     /// The next block on `chain`'s final state, with nothing in it, and

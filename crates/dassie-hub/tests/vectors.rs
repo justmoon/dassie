@@ -114,7 +114,7 @@ fn the_vectors_read_as_they_say() {
     later[1] = later[1].wrapping_add(1);
     assert!(Rules::decode(&mut Reader::new(&later)).is_err());
     // Operations and promises.
-    for kind in ["member", "validator"] {
+    for kind in ["member", "validator", "issuer", "clawback"] {
         let encoded = read(&vectors["operations"][kind]["operation"]);
         let mut reader = Reader::new(&encoded);
         let operation = Operation::decode(&mut reader).unwrap();
@@ -151,4 +151,16 @@ fn the_vectors_read_as_they_say() {
         dassie_hub::client::SignedStatement::decode_list(&read(&vectors["block"]["statements"]))
             .unwrap();
     assert!(statements.iter().all(|s| s.verifies(&rules.id(), &set)));
+    // The token hub whose states pin a freeze and a clawback is a token
+    // hub of its own ID.
+    let token_bytes = read(&vectors["token"]["rules"]);
+    let mut reader = Reader::new(&token_bytes);
+    let token = Rules::decode(&mut reader).unwrap();
+    reader.finish().unwrap();
+    assert_eq!(token.check(), Ok(()));
+    assert_ne!(token.terms.asset, dassie_hub::rules::Asset::Xrp);
+    assert_eq!(
+        token.id().0.as_bytes().to_vec(),
+        read(&vectors["token"]["hubId"])
+    );
 }

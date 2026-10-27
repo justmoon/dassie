@@ -298,12 +298,13 @@ fn script(sim: &mut Sim, rng: &mut SeededRng, setup: &Setup) -> Result<(), Outco
 fn over_hub(sim: &Sim) -> Result<(), Outcome> {
     for index in 0..sim.nodes.len() {
         for peer in sim.core(index).network().peers {
-            if peer.peering.scheme.as_str() != dassie_hub::member::SCHEME_ID {
+            if peer.peering.first().scheme.as_str() != dassie_hub::member::SCHEME_ID {
                 return Err(Outcome::liveness(
                     "over-hub",
                     format!(
                         "node {index} peers with {} over {:?}, not the hub",
-                        peer.id, peer.peering.scheme
+                        peer.id,
+                        peer.peering.first().scheme
                     ),
                 ));
             }
@@ -391,7 +392,7 @@ fn check_settled_with_honest(sim: &Sim, liar: Option<usize>) -> Result<(), Strin
             let Some(owed) = peer.owed.filter(|_| peer.termination.is_none()) else {
                 continue;
             };
-            let credit = peer.peering.credit_out;
+            let credit = peer.peering.first().credit_out;
             let position = u128::try_from(owed + i128::from(credit)).unwrap_or(0);
             if dassie_settlement::policy::ask(position, super::TRIGGER) {
                 return Err(format!(

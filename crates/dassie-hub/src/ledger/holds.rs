@@ -123,13 +123,15 @@ impl Ledger {
         paid
     }
 
-    /// Applies every reduction whose notice passed by this block's
-    /// timestamp. A hold reduced to nothing closes, and frees its reserve.
+    /// Applies every reduction whose notice passed by the hub's clock, which
+    /// stands still while the hub is frozen. A hold reduced to nothing
+    /// closes, and frees its reserve.
     pub(super) fn apply_reductions(&mut self) {
+        let clock = self.clock();
         let due: Vec<HoldNumber> = self
             .holds
             .iter()
-            .filter(|(_, hold)| hold.reduction.is_some_and(|r| r.at <= self.timestamp))
+            .filter(|(_, hold)| hold.reduction.is_some_and(|r| r.at <= clock))
             .map(|(number, _)| *number)
             .collect();
         for number in due {

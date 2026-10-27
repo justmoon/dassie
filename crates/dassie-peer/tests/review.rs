@@ -232,8 +232,8 @@ fn a_repeated_peering_request_keeps_the_peering() {
     assert_eq!(answer, PeeringResponse::Accepted);
     let after = network.node(0).peering_of(&node1).unwrap();
     assert_eq!(
-        (after.credit_out, after.inbound),
-        (before.credit_out, before.inbound)
+        (after.first().credit_out, after.inbound),
+        (before.first().credit_out, before.inbound)
     );
 }
 

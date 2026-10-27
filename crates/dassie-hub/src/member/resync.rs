@@ -13,7 +13,11 @@
 //!   counts in T from now on, since the hub overrules our books.
 //! - **Our settlement on its way** whose sequence was used: applied if the
 //!   hold shows its funds, cancelled otherwise; its fee, and anything else
-//!   unexplained, the account's state reconciles through suspense.
+//!   unexplained, the account's state reconciles through suspense. A `pay`
+//!   that would open a peer's account stays on its way until f + 1
+//!   validators say whether the hub has an account for its key, as of a
+//!   block it had executed by: applied if it has, failed if not. Never
+//!   cancelled on a guess: the node would pay the peer in again.
 //! - **Waiting packets** are decided by the block read anew as by any final
 //!   block: without a fulfillment once it is stamped at or after their
 //!   commitment's expiry, since a claim the account never read is not one
@@ -33,7 +37,7 @@ use dassie_settlement::{Effect, LossCause, ReconcileCause};
 use super::account::{HubAccount, Purpose};
 use super::mirror::HoldMirror;
 use super::payer::Loss;
-use super::scheme::HubScheme;
+use super::scheme::{HubScheme, UnreadPay};
 use super::{UNITS_PER_DROP, units};
 use crate::digest::Digest;
 use crate::operation::MemberOperation;
@@ -74,6 +78,13 @@ impl HubScheme {
             .map(|(number, hold)| (*number, hold))
             .collect();
         let funds = match unread {
+            Some((Purpose::Settle(settlement), MemberOperation::Pay { key, .. })) => {
+                if self.settling.contains_key(settlement) {
+                    self.unread_pays
+                        .insert(*settlement, UnreadPay { key: *key, height });
+                }
+                None
+            }
             Some((Purpose::Settle(settlement), operation)) => {
                 self.settled_unread(account, &before, *settlement, operation, effects)
             }

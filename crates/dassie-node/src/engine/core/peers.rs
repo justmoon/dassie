@@ -340,6 +340,13 @@ impl PeeringHooks for Hooks<'_> {
             .is_some_and(|active| active.over_hub)
     }
 
+    /// None yet: the node keeps one settlement method per peering, the one
+    /// it was made on, until its accounts, credit and persistence are kept
+    /// per method (spec/roadmap.md#settlement-methods).
+    fn wants_method(&self, _: NodeId, _: SchemeId) -> bool {
+        false
+    }
+
     fn drained(&self, peer: NodeId) -> bool {
         self.endpoints
             .get(&peer)
@@ -530,12 +537,16 @@ impl Core {
                     // The credit we extend now, which grows
                     // (spec/decisions/earned-trust.md); the peering keeps
                     // what it started with.
-                    if let Some(credit) = self.credit_out(view.id, peering.scheme) {
-                        peering.credit_out = credit;
+                    let scheme = peering.first().scheme;
+                    if let (Some(credit), Some(method)) = (
+                        self.credit_out(view.id, scheme),
+                        peering.methods.first_mut(),
+                    ) {
+                        method.credit_out = credit;
                     }
                     Some(PeerView {
                         id: view.id,
-                        owed: self.owed(view.id, peering.scheme),
+                        owed: self.owed(view.id, scheme),
                         peering,
                         termination: view.termination,
                         advertised: view.advertised,
@@ -600,6 +611,7 @@ impl Core {
                     packet,
                     commitment,
                     answer,
+                    ..
                 } => Inbound::Packet(
                     from,
                     request_id,
@@ -1013,7 +1025,7 @@ impl Core {
             return Ok(());
         }
         let peering = self.peer.peering_of(&node).ok_or("not peered")?;
-        let scheme = Name::new(peering.scheme.as_str()).map_err(|e| e.to_string())?;
+        let scheme = Name::new(peering.first().scheme.as_str()).map_err(|e| e.to_string())?;
         let ledger = self
             .schemes
             .get(&scheme)

@@ -67,7 +67,7 @@ pub async fn status(env: &Env) -> Result<(), String> {
             line("Relay", &relay);
         }
         line("Ledgers", &ledgers(&mut client).await);
-        if let Some(hub) = crate::hub::summary(&mut client).await {
+        for hub in crate::hub::summary(&mut client).await {
             line("Hub", &hub);
         }
         if let Some(feed) = feed(&node) {

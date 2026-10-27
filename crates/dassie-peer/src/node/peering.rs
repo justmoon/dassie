@@ -15,7 +15,8 @@ use super::{PeerNode, Problem, Purpose};
 use crate::hooks::{EntryPayment, PeeringHooks};
 use crate::io::{Event, Inbound, InboundId, Reply};
 use crate::table::{
-    Advertise, Entry, LinkState, Network, PeerState, Peering as PeeringState, Sources, backoff,
+    Advertise, Entry, LinkState, Method, Network, PeerState, Peering as PeeringState, Sources,
+    backoff,
 };
 use crate::wire::{
     Content, Endpoint, PeeringRequest, PeeringResponse, RefusalReason, SchemeId, SignedNodeInfo,
@@ -28,6 +29,19 @@ pub(crate) struct Peering {
     bridge_at_ms: u64,
     /// The node we are asking, if any: one attempt at a time.
     attempt: Option<NodeId>,
+    /// The method we are asking a peer for, if any: one at a time.
+    pub(crate) method_attempt: Option<MethodAttempt>,
+}
+
+/// Our request for a further method of a peering
+/// (spec/decisions/settlement-methods.md).
+pub(crate) struct MethodAttempt {
+    /// The peer asked.
+    pub node: NodeId,
+    /// The method's scheme.
+    pub scheme: SchemeId,
+    /// The peer's peering info on the scheme, once it gave it.
+    pub info: Option<Vec<u8>>,
 }
 
 impl Peering {
@@ -36,6 +50,7 @@ impl Peering {
             check_at_ms: now_ms,
             bridge_at_ms: now_ms,
             attempt: None,
+            method_attempt: None,
         }
     }
 
@@ -223,7 +238,7 @@ impl PeerNode {
             {
                 continue;
             }
-            let Some(scheme) = self.scheme_with(hooks, link) else {
+            let Some(&scheme) = self.methods_with(hooks, link).first() else {
                 continue;
             };
             let unreachable = !self.routes.contains_key(id);
@@ -245,29 +260,74 @@ impl PeerNode {
         best.get(index).map(|(_, id, scheme)| (*id, *scheme))
     }
 
-    /// The scheme to ask a node to peer on: over the settlement hub we
-    /// share with it, if it takes peers there, else the first of its
-    /// schemes we have that is not over a hub. A hub scheme without a shared hub would
-    /// leave each side without the other's account
-    /// (spec/designs/settlement-hubs.md#11-choosing-a-hub).
-    fn scheme_with(&self, hooks: &dyn PeeringHooks, link: &LinkState) -> Option<SchemeId> {
+    /// The schemes a peering with the node of `link` settles on, in order
+    /// (spec/decisions/settlement-methods.md): each hub both nodes are in and
+    /// take new peers over, then each other scheme both run that is not over
+    /// a hub. The first is the one to ask for a peering on, and each of the
+    /// others a further method of it. A hub scheme without a shared hub
+    /// would leave each side without the other's account
+    /// (spec/designs/settlement-hubs.md#11-choosing-a-hub). At most one per
+    /// scheme we peer on, so at most [`MAX_METHODS`](crate::MAX_METHODS).
+    pub(crate) fn methods_with(&self, hooks: &dyn PeeringHooks, link: &LinkState) -> Vec<SchemeId> {
+        // In the other node's order, as before hubs, each scheme once: the
+        // list is the other node's, which may repeat a scheme, so the bound
+        // comes from our own schemes.
+        let mut common: Vec<SchemeId> = Vec::with_capacity(self.schemes.len());
+        for scheme in &link.schemes {
+            if self.schemes.contains(scheme) && !common.contains(scheme) {
+                common.push(*scheme);
+            }
+        }
+        let mut methods = self.shared_hubs(hooks, link, common.iter().copied());
+        methods.extend(
+            common
+                .iter()
+                .copied()
+                .filter(|scheme| !hooks.uses_commitments(*scheme)),
+        );
+        assert!(methods.len() <= crate::MAX_METHODS, "a method per scheme");
+        methods
+    }
+
+    /// The hub schemes among `common` over a hub we share with the node of
+    /// `link`, both taking new peers over it. Where both list their hubs,
+    /// each scheme both list over the same hub; otherwise only the hub the
+    /// hub extension names, which is the list's first, over the first hub
+    /// scheme both run, as a node that reads no list sees it
+    /// (spec/areas/peer-protocol.md#link-states).
+    fn shared_hubs(
+        &self,
+        hooks: &dyn PeeringHooks,
+        link: &LinkState,
+        common: impl Iterator<Item = SchemeId>,
+    ) -> Vec<SchemeId> {
+        let mut over_hub = common.filter(|scheme| hooks.uses_commitments(*scheme));
+        if !self.own_hubs.is_empty() && !link.hubs.is_empty() {
+            let listed = |hubs: &[crate::wire::HubListing], scheme: SchemeId| {
+                hubs.iter()
+                    .find(|listing| listing.scheme == scheme)
+                    .map(|listing| listing.membership)
+            };
+            return over_hub
+                .filter(|scheme| {
+                    matches!(
+                        (listed(&self.own_hubs, *scheme), listed(&link.hubs, *scheme)),
+                        (Some(own), Some(theirs))
+                            if own.hub_id == theirs.hub_id && own.takes_peers && theirs.takes_peers
+                    )
+                })
+                .collect();
+        }
         let shared = matches!(
             (self.own_info.hub, link.hub),
             (Some(own), Some(theirs))
                 if own.hub_id == theirs.hub_id && own.takes_peers && theirs.takes_peers
         );
-        // In the other node's order, as before hubs.
-        let common = || {
-            link.schemes
-                .iter()
-                .copied()
-                .filter(|scheme| self.schemes.contains(scheme))
-        };
-        let over_hub = common().find(|scheme| hooks.uses_commitments(*scheme));
-        if shared && over_hub.is_some() {
-            return over_hub;
+        if shared {
+            over_hub.next().into_iter().collect()
+        } else {
+            Vec::new()
         }
-        common().find(|scheme| !hooks.uses_commitments(*scheme))
     }
 
     fn start_peering(&mut self, hooks: &mut dyn PeeringHooks, node: NodeId, scheme: SchemeId) {
@@ -456,25 +516,19 @@ impl PeerNode {
         let Some(entry) = self.table.get_mut(&node) else {
             return false;
         };
-        let since_ms = now;
         let fresh = true;
         entry.advertise = Advertise {
             on: true,
             on_since_ms: now,
             ..Advertise::default()
         };
-        entry.peer = PeerState::Peered(PeeringState {
-            scheme,
-            state: agreed.state,
-            credit_out: agreed.credit_out,
-            since_ms,
-            inbound,
-            last_seen_ms: now,
-            short_for_ms: 0,
-            short_reached_ms: 0,
-            depeering: None,
-        });
+        let first = Method::new(scheme, agreed.state, agreed.credit_out);
+        entry.peer = PeerState::Peered(PeeringState::new(first, now, inbound));
         entry.peering_failures = 0;
+        // Its further methods are asked for at once.
+        entry.method_at_ms = now;
+        entry.method_failures = 0;
+        entry.method_tried = None;
         self.dirty.insert(node);
         if fresh {
             // It just answered us, or we it after probing its URL: what an
@@ -536,7 +590,7 @@ impl PeerNode {
             .table
             .get(&sender)
             .and_then(Entry::active_peering)
-            .is_some_and(|peering| peering.scheme == request.scheme)
+            .is_some_and(|peering| peering.has(request.scheme))
         {
             return Inbound::Reply(ok(&PeeringResponse::Accepted.to_vec()));
         }
@@ -580,14 +634,14 @@ impl PeerNode {
         if self.is_periphery() || (downlink && !self.takes_downlinks()) {
             return Err(RefusalReason::Unspecified);
         }
-        // A repeat from a node peered with us on the scheme is answered with
-        // the stored peering, also on a scheme no longer peered on anew,
-        // such as one that stopped: the peerings made on it stay.
+        // A repeat from a node peered with us with a method on the scheme
+        // is answered with the stored peering, also on a scheme no longer
+        // peered on anew, such as one that stopped: the methods on it stay.
         let repeat = self
             .table
             .get(sender)
             .and_then(Entry::peering)
-            .is_some_and(|peering| peering.scheme == request.scheme);
+            .is_some_and(|peering| peering.has(request.scheme));
         if !repeat && (!self.schemes.contains(&request.scheme) || !hooks.speaks(request.scheme)) {
             return Err(RefusalReason::UnsupportedScheme);
         }
@@ -606,7 +660,7 @@ impl PeerNode {
             return Err(RefusalReason::Capacity);
         }
         if let Some(peering) = entry.peering() {
-            return if peering.scheme == request.scheme {
+            return if peering.has(request.scheme) {
                 Ok(())
             } else {
                 Err(RefusalReason::Unspecified)

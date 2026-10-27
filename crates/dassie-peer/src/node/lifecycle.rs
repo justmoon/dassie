@@ -79,7 +79,9 @@ impl PeerNode {
     /// (spec/decisions/ending-a-peering.md): once our own settlements to the
     /// peer are done, or we waited long enough, ask it to settle once; once
     /// what it said is on its way is booked, or we waited long enough, tell
-    /// it.
+    /// it. The request names the peering's first method, whose units the
+    /// answer is in: a node that keeps one method per peering collects all
+    /// it is owed so.
     fn advance_depeerings(&mut self, hooks: &dyn PeeringHooks) {
         let (now, wait) = (self.now_ms, self.config.depeer_wait_ms);
         let depeering: Vec<(NodeId, SchemeId, Depeering)> = self
@@ -87,7 +89,7 @@ impl PeerNode {
             .iter()
             .filter_map(|(id, entry)| {
                 let peering = entry.active_peering()?;
-                Some((*id, peering.scheme, peering.depeering?))
+                Some((*id, peering.first().scheme, peering.depeering?))
             })
             .collect();
         for (peer, scheme, depeering) in depeering {
@@ -386,6 +388,7 @@ impl PeerNode {
         for peer in telling {
             self.tell_termination(peer);
         }
+        self.tell_drops();
         let (now, timeout) = (self.now_ms, self.config.termination_timeout_ms);
         let done: Vec<NodeId> = self
             .table
@@ -429,13 +432,13 @@ impl PeerNode {
                             .saturating_add(config.peer_dead_ms)
                     };
                     let advertise = &entry.advertise;
-                    // Short of room: withdrawn once the grace is over, and
-                    // ended once it stays short, while it could be reached,
-                    // as long as a silent peer. The time short grows only
-                    // at checks, which come with an input: due at once when
-                    // one passed a limit.
-                    let stuck = peering.short_for_ms >= config.advertise_short_grace_ms;
-                    let ended = if !ending && peering.short_reached_ms >= config.peer_dead_ms {
+                    // Short of room: withdrawn once every method is short
+                    // past the grace, and ended once one stays short, while
+                    // it could be reached, as long as a silent peer. The
+                    // time short grows only at checks, which come with an
+                    // input: due at once when one passed a limit.
+                    let stuck = peering.withdrawn(config.advertise_short_grace_ms);
+                    let ended = if !ending && peering.short_for_good(config.peer_dead_ms) {
                         now
                     } else {
                         u64::MAX
@@ -493,6 +496,7 @@ impl PeerNode {
         let telling = self.telling.values().copied().filter(|at| *at != u64::MAX);
         peerings
             .chain(telling)
+            .chain(self.next_drop())
             .chain(self.next_channel_close())
             .min()
     }
@@ -540,10 +544,12 @@ impl PeerNode {
         }
     }
 
-    /// Terminates peers whose room in our books has been short of a packet,
-    /// without a settlement, for as long as a silent peer is kept: a link
-    /// that stuck, or drifted past what it survives, is not saved
-    /// (spec/decisions/peering-lifecycle.md). Only the time it could be
+    /// Terminates peers whose room in our books on a method has been short
+    /// of a packet, without a settlement, for as long as a silent peer is
+    /// kept: a link that stuck, or drifted past what it survives, is not
+    /// saved, and a method short for so long ends the peering
+    /// (spec/decisions/peering-lifecycle.md,
+    /// spec/decisions/settlement-methods.md). Only the time it could be
     /// reached counts: a peer our requests to settle surely never reached had
     /// no chance to settle, and is ended for its silence if it is also
     /// silent, never for room.
@@ -554,7 +560,7 @@ impl PeerNode {
             .iter()
             .filter(|(_, entry)| {
                 entry.active_peering().is_some_and(|peering| {
-                    peering.depeering.is_none() && peering.short_reached_ms >= dead
+                    peering.depeering.is_none() && peering.short_for_good(dead)
                 })
             })
             .map(|(id, _)| *id)
@@ -564,38 +570,49 @@ impl PeerNode {
         }
     }
 
-    /// Ends the peerings on a scheme the node does not run, as one disabled
+    /// Drops the methods on a scheme the node does not run, as one disabled
     /// or of the other realm, which the node starts without
-    /// (spec/areas/settlement.md#schemes-and-ledgers): no packet crosses
-    /// them, no settlement on them can be booked, and while one lasts the
-    /// pair cannot peer on a scheme it shares. So nothing is collected
-    /// first, as for a ban: the peer is told at once. A decision already
-    /// taken keeps its reason, so an end for the owner or for room keeps
-    /// its cooldown; otherwise the reason is unspecified, and the pair may
-    /// peer again after a backoff (spec/decisions/ending-a-peering.md).
-    /// Looked at with each review, which runs at least once a heartbeat
-    /// while the node has a peer, so at start too.
+    /// (spec/areas/settlement.md#schemes-and-ledgers), and ends a peering
+    /// that has no other: no packet crosses such a method, no settlement on
+    /// it can be booked, and while one lasts the pair cannot settle on a
+    /// scheme it shares. So nothing is collected first, as for a ban: the
+    /// peer is told at once (spec/decisions/settlement-methods.md). A
+    /// decision already taken to end the peering keeps its reason, so an
+    /// end for the owner or for room keeps its cooldown; otherwise the
+    /// reason is unspecified, and the pair may peer again after a backoff
+    /// (spec/decisions/ending-a-peering.md). Looked at with each review,
+    /// which runs at least once a heartbeat while the node has a peer, so
+    /// at start too.
     fn end_unrun(&mut self, hooks: &dyn PeeringHooks) {
-        let unrun: Vec<(NodeId, TerminationReason)> = self
-            .table
-            .iter()
-            .filter_map(|(id, entry)| {
-                let peering = entry.active_peering()?;
+        let mut ended: Vec<(NodeId, TerminationReason)> = Vec::new();
+        let mut dropped: Vec<(NodeId, SchemeId)> = Vec::new();
+        for (id, entry) in &self.table {
+            let Some(peering) = entry.active_peering() else {
+                continue;
+            };
+            let unrun = peering.schemes().filter(|scheme| !hooks.speaks(*scheme));
+            if peering.schemes().all(|scheme| !hooks.speaks(scheme)) {
                 let reason = peering
                     .depeering
                     .map_or(TerminationReason::Unspecified, |depeering| depeering.reason);
-                (!hooks.speaks(peering.scheme)).then_some((*id, reason))
-            })
-            .collect();
-        for (peer, reason) in unrun {
+                ended.push((*id, reason));
+            } else {
+                dropped.extend(unrun.map(|scheme| (*id, scheme)));
+            }
+        }
+        for (peer, reason) in ended {
             self.begin_termination(peer, reason, true);
+        }
+        for (peer, scheme) in dropped {
+            self.drop_method_now(peer, scheme);
         }
     }
 
     /// A peer is advertised while it is confirmed, has had room for a
-    /// packet within the grace, and is not held down; each withdrawal holds
-    /// it down longer, until it has been stable a while
-    /// (spec/decisions/peering-lifecycle.md).
+    /// packet within the grace on one of its methods at least, and is not
+    /// held down; each withdrawal holds it down longer, until it has been
+    /// stable a while (spec/decisions/peering-lifecycle.md,
+    /// spec/decisions/settlement-methods.md).
     fn update_advertised(&mut self) {
         let config = self.config;
         let now = self.now_ms;
@@ -604,7 +621,7 @@ impl PeerNode {
             let Some(peering) = entry.active_peering() else {
                 continue;
             };
-            let short = peering.short_for_ms >= config.advertise_short_grace_ms;
+            let short = peering.withdrawn(config.advertise_short_grace_ms);
             let live = peering.heard_within(now, config.peer_confirm_ms) && !self.bans.contains(id);
             let healthy = live && !short;
             let advertise = &mut entry.advertise;
@@ -682,6 +699,7 @@ impl PeerNode {
             self.channel_active.insert(peer, now);
         }
         self.telling.remove(&peer);
+        self.dropping.retain(|(node, _), _| *node != peer);
         self.unreached.remove(&peer);
         self.drop_peer_source(&peer);
         self.gossip.routes_dirty = true;

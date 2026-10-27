@@ -73,6 +73,7 @@ impl Ledger {
                 "an ended hub changes its rules"
             );
         }
+        self.check_issuer();
     }
 
     fn check_tables(&self) {
