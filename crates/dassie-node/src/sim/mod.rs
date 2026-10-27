@@ -10,8 +10,9 @@
 //!
 //! It checks what only the whole node can show: peerings and balances
 //! survive restarts, payments of several times the credit cross hops, so
-//! that every hop of a run that settles settles, an owner's termination ends a peering with nothing
-//! settled for its end (spec/decisions/ending-a-peering.md), and
+//! that every hop settles in a run that settles, an owner's termination
+//! ends a peering with nothing settled for its end
+//! (spec/decisions/ending-a-peering.md), and
 //! the stubs' "underlying ledger" neither makes nor loses money. One
 //! payment's token has a spending cap, which the journal must show it
 //! kept to.
@@ -47,8 +48,8 @@
 //! (spec/roadmap.md#hubs-only). Such a run settles over the plain stub, or
 //! over the XRP Ledger testnet scheme against a fake ledger in the same
 //! process: its connections lag, lose requests and drop, and the books
-//! must still match every node's
-//! account, less its reserve, with no XRP made or lost. A run in the live
+//! must still match every node's account, less its reserve, with no XRP
+//! made or lost. A run in the live
 //! realm settles over mainnet's schemes, `xrpl-xrp` and `xrpl-rlusd`, against
 //! the fake ledger's mainnet, which has no faucet: each node's owner
 //! deposits (spec/decisions/mainnet-schemes.md).

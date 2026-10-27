@@ -434,8 +434,9 @@ fn issuer_acts(sim: &mut Sim, rng: &mut SeededRng) {
     sim.issuer_freeze(freeze, false);
 }
 
-/// Payments of up to three times the credit, one with a capped token, and
-/// outgoing payments, to another node and to the node's own receiver.
+/// Payments of up to three times the default credit, one with a capped
+/// token, and outgoing payments, to another node and to the node's own
+/// receiver.
 fn pay(sim: &mut Sim, rng: &mut SeededRng) {
     let count = sim.nodes.len();
     for round in 0..3 {

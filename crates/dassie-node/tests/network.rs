@@ -10,14 +10,18 @@
 //!
 //! The node-stub runs, and the targeted tests below whose subject is not
 //! settlement (a hop that crashes after posting, a late Fulfill, payments
-//! racing into one incoming payment), run their nodes on the stub with unlimited trust
-//! (`Settling::Trusting`, which `Sim::new` gives), so that no credit runs
-//! out and no request to settle or settlement shapes what they check
-//! (spec/areas/testing.md#levels). A test of settlement over a hub runs on
-//! the stub with commitments, as `hub_path.rs` does. The tests of direct
-//! settlement (lying peers, a junior paying its senior in advance, credit
-//! growing with fees), on the plain stub (`Settling::Stub`) or the direct
-//! XRP Ledger schemes, say so: they go with it (spec/roadmap.md#hubs-only).
+//! racing into one incoming payment), run their nodes on the stub with
+//! unlimited trust (`Settling::Trusting`, which `Sim::new` gives), so that
+//! no credit runs out and no request to settle or settlement shapes what
+//! they check (spec/areas/testing.md#levels). A test of settlement over a
+//! hub runs on the stub with commitments, as `hub_path.rs` does. The tests
+//! of direct settlement (lying peers, a junior paying its senior in
+//! advance, credit growing with fees), on the plain stub (`Settling::Stub`)
+//! or the direct XRP Ledger schemes, say so: they go with it
+//! (spec/roadmap.md#hubs-only).
+//! So does a test whose subject is not settlement but that pays across
+//! currencies: it stays on the direct schemes until runs across currencies
+//! go over hubs.
 
 #![allow(
     clippy::unwrap_used,
@@ -48,7 +52,7 @@ use dassie_settlement::{LedgerStatus, policy};
 /// `count` nodes on the stub with unlimited trust, the first a bootstrap
 /// node: for a test whose subject is not settlement.
 fn trusting(seed: u64, count: usize) -> Sim {
-    Sim::with(seed, count, 1, BTreeMap::new(), Settling::Trusting)
+    Sim::new(seed, count, 1)
 }
 
 /// `count` nodes on the plain stub, which settles directly, the first a
