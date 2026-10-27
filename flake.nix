@@ -314,6 +314,7 @@
                 wasm-modules
                 ;
               inherit (release.packages) wallet;
+              e2e = rust.e2eBinaries release.packages.wallet;
             }
           );
         in

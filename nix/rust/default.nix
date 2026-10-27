@@ -307,6 +307,7 @@ let
             "examples"
           ]
       );
+      examples = lib.genAttrs (targetsIn name "examples") (target "examples");
       target =
         kind: file:
         let
@@ -352,7 +353,9 @@ let
         unit
       ]
       ++ map (target "tests") (targetsIn name "tests")
-      ++ map (target "examples") (targetsIn name "examples");
+      ++ lib.attrValues examples;
+      # Each example's own derivation, for what runs one alone (e2e).
+      passthru = { inherit examples; };
     };
 
   # A member's tree with its tests split (splitTests), each crate built by
@@ -534,9 +537,42 @@ let
     '
     touch $out
   '';
+  # The binaries the end-to-end tests run, as `node --run build:e2e` lays
+  # them out in target/e2e: the node with `wallet` built in, dassie-release
+  # for the release script's tests, and the fake XRP Ledger and the interop
+  # tests' STREAM peer, the examples the crates' tests build. From the
+  # crates' own derivations, so that an edit builds only the crates it
+  # reached, and copying them is all that is left to do here.
+  binaryOf =
+    name: features: build:
+    let
+      packageId = cargoNix.workspaceMembers.${name}.packageId;
+    in
+    (cargoNix.internal.builtRustCratesWithFeatures {
+      inherit packageId features;
+      runTests = false;
+      buildRustCrateForPkgsFunc = build;
+    }).crates.${packageId};
+  e2eBinaries =
+    wallet:
+    let
+      dassie = binaryOf "dassie-cli" [ "default" ] (
+        p: crate:
+        buildRustCrateForPkgs p (
+          crate // lib.optionalAttrs (crate.crateName == "dassie-node") { DASSIE_WALLET_DIST = wallet; }
+        )
+      );
+      release = binaryOf "dassie-release" [ "tool" ] buildRustCrateForPkgs;
+    in
+    pkgs.runCommand "dassie-e2e" { } ''
+      mkdir -p $out/examples
+      cp ${dassie}/bin/dassie ${release}/bin/dassie-release $out/
+      cp ${(testBinaries "dassie-node").examples.fake_ledger}/bin/fake_ledger $out/examples/
+      cp ${(testBinaries "dassie-stream").examples.interop_peer}/bin/interop_peer $out/examples/
+    '';
 in
 {
-  inherit testBinaries runTests;
+  inherit testBinaries runTests e2eBinaries;
 
   # After a change to Cargo.lock, a manifest or a crate's targets.
   generate = pkgs.writeShellApplication {
