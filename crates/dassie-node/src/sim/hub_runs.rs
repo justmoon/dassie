@@ -35,7 +35,7 @@ use super::hubbed::{
     moving, over_hub, paid, pay, routed, settle_down,
 };
 use super::scripted::{READY_WITHIN_MS, ended};
-use super::{HUB_STAKE_XRP, LEDGER_RECONNECT_MS, LONGEST_LIE_MS, Settling, Sim};
+use super::{HUB_STAKE_XRP, LEDGER_CLOSE_MS, LEDGER_RECONNECT_MS, LONGEST_LIE_MS, Settling, Sim};
 use crate::node::Policies;
 
 /// How long a server of [`run_lies`] lies to a member: the longest a drawn
@@ -301,7 +301,12 @@ fn stake(sim: &mut Sim) -> Result<(), Outcome> {
         ));
     }
     let units = HUB_STAKE_XRP * DROPS_PER_XRP * UNITS_PER_DROP;
-    for index in members(sim).collect::<Vec<_>>() {
+    // An owner whose node cannot take the move now, its ledger busy or its
+    // account not yet read again, tries again a ledger later, until the
+    // wait of a move is over.
+    let deadline = sim.now + JOINED_WITHIN_MS;
+    let mut staking: Vec<usize> = members(sim).collect();
+    while let Some(&index) = staking.first() {
         let mut moved = Ok(());
         sim.step(index, |core| {
             moved = core
@@ -309,12 +314,20 @@ fn stake(sim: &mut Sim) -> Result<(), Outcome> {
                 .and_then(|_| core.hub_deposit(units))
                 .map(|_| ());
         });
-        moved.map_err(|error| {
-            Outcome::liveness(
-                "staked",
-                format!("node {index}'s owner could not move its stake: {error:?}"),
-            )
-        })?;
+        match moved {
+            Ok(()) => {
+                staking.remove(0);
+            }
+            Err(_) if sim.now < deadline => {
+                sim.run_until(sim.now + LEDGER_CLOSE_MS);
+            }
+            Err(error) => {
+                return Err(Outcome::liveness(
+                    "staked",
+                    format!("node {index}'s owner could not move its stake: {error:?}"),
+                ));
+            }
+        }
     }
     sim.trace.push(format!(
         "{} the owners move {HUB_STAKE_XRP} XRP each into the hub",
