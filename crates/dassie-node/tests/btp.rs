@@ -12,7 +12,6 @@
 mod support;
 
 use std::collections::BTreeMap;
-use std::time::Duration;
 
 use dassie_identity::NodeKey;
 use dassie_ilp::btp::{self, Body, ProtocolData};
@@ -40,16 +39,8 @@ type Owner = RpcClient<Framed<UnixStream, LengthDelimitedCodec>>;
 
 async fn ready(node: &TestNode) -> Owner {
     set_up(node, &key()).await;
+    node.engine_started().await;
     let mut owner = node.ipc().await;
-    for _ in 0..200 {
-        let reply = owner
-            .call(Method::ListLedgers(proto::ListLedgersRequest {}))
-            .await;
-        if reply.is_ok() {
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(10)).await;
-    }
     let reply = owner
         .call(Method::AddSettlementScheme(
             proto::AddSettlementSchemeRequest {
@@ -264,19 +255,10 @@ async fn a_stream_client_pays_the_receiver_and_the_journal_matches() {
     drop(client);
     let (dir, clock) = node.stop().await;
     let node = TestNode::start_in(dir, clock, 2).await;
+    node.engine_started().await;
     let mut owner = node.ipc().await;
-    let mut restarted = None;
-    for _ in 0..200 {
-        if let Ok(response::Method::ListLedgers(list)) = owner
-            .call(Method::ListLedgers(proto::ListLedgersRequest {}))
-            .await
-        {
-            restarted = list.ledgers.into_iter().next();
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(10)).await;
-    }
-    assert_eq!(restarted, Some(ledger));
+    let restarted = ledgers(&mut owner).await;
+    assert_eq!(restarted, ledger);
     assert_eq!(journal(&mut owner).await, transfers);
     // The token still works.
     BtpClient::connect(&node, &secret).await.unwrap();

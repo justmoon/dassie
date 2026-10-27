@@ -32,21 +32,16 @@ async fn start(dir: tempfile::TempDir, clock: ManualClock) -> TestNode {
 }
 
 async fn ledgers(node: &TestNode) -> proto::ListLedgersResponse {
-    let mut owner = node.ipc().await;
-    for _ in 0..200 {
-        let reply = owner
-            .call(Method::ListLedgers(proto::ListLedgersRequest {}))
-            .await;
-        match reply {
-            Ok(response::Method::ListLedgers(list)) => return list,
-            // The engine is still starting.
-            Err(error) if error.code() == proto::ErrorCode::Unavailable => {
-                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-            }
-            other => panic!("{other:?}"),
-        }
+    node.engine_started().await;
+    let reply = node
+        .ipc()
+        .await
+        .call(Method::ListLedgers(proto::ListLedgersRequest {}))
+        .await;
+    match reply {
+        Ok(response::Method::ListLedgers(list)) => list,
+        other => panic!("{other:?}"),
     }
-    panic!("the engine did not start");
 }
 
 fn rate<'a>(list: &'a proto::ListLedgersResponse, code: &str) -> Option<&'a proto::ExchangeRate> {

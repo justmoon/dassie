@@ -40,9 +40,14 @@ use tokio::net::UdpSocket;
 const USD: &str = "stub+usd";
 const XRP: &str = "xrpl-testnet-xrp+xrp";
 
-/// How long a datagram that is coming takes at most, in real time.
-const ARRIVES: Duration = Duration::from_secs(5);
-/// How long to wait to be sure a datagram is not coming.
+/// How long a datagram that is coming may take: the node sends it as it
+/// reads a datagram or its clock moves, on no clock of its own, so only a
+/// hang ends the wait ([`support::HANG`]).
+const ARRIVES: Duration = support::HANG;
+/// How long to watch for a datagram that should not come: a check that
+/// nothing happens, which a slow machine can only make weaker. What the
+/// node sent before it read the datagram a test waits on is in the socket
+/// already, so a drain after that wait misses none of it.
 const QUIET: Duration = Duration::from_millis(400);
 
 async fn fake_ledger() -> Server {
@@ -223,6 +228,21 @@ async fn proven_subscribers_get_the_nodes_prices_until_they_lapse() {
             stats.refused_full.load(Ordering::Relaxed),
         )
     };
+    // Datagrams the node read: it reads them as they come, on no clock.
+    let received = || {
+        node_of(&node)
+            .feed()
+            .unwrap()
+            .stats()
+            .received
+            .load(Ordering::Relaxed)
+    };
+    let read = async |count: u64| {
+        support::eventually("the node read the datagrams", async || {
+            (received() >= count).then_some(())
+        })
+        .await;
+    };
     let id = owner.node_id();
     let now = || clock.now_ms();
 
@@ -259,7 +279,9 @@ async fn proven_subscribers_get_the_nodes_prices_until_they_lapse() {
     b.prove(now()).await;
     b.feed(now()).await;
     let mut c = Subscriber::new(node.feed, id).await;
+    let before = received();
     c.prove(now()).await;
+    read(before + 2).await;
     assert!(c.quiet(now()).await);
     assert_eq!(stats().1, 1);
 
@@ -303,8 +325,11 @@ async fn proven_subscribers_get_the_nodes_prices_until_they_lapse() {
     let lapse = START_MS + FEED_HEARTBEAT_MS + SUBSCRIPTION_TTL_MS;
     while now() < lapse + RENEW_INTERVAL_MS {
         clock.advance(RENEW_INTERVAL_MS);
+        let before = received();
         a.subscribe().await;
-        tokio::time::sleep(Duration::from_millis(50)).await;
+        // The node polls for the moved clock before it reads the renewal,
+        // so it has sent the feeds due then.
+        read(before + 1).await;
         // A refresh of its cookie, or a heartbeat: whatever comes.
         while a.next(QUIET, now()).await.is_some() {}
     }
@@ -358,7 +383,7 @@ async fn a_core_node_names_its_feed_port() {
     let clock = ManualClock::new(START_MS);
     let node = bound.start(clock.clone(), 62, Policies::DEV, &[]).await;
     support::set_up(&node, &owner).await;
-    until(&clock, async || node_of(&node).engine().is_some()).await;
+    node.engine_started().await;
     assert_eq!(discovery_of(&node).await.get("feedPort"), None);
     assert_eq!(node_of(&node).own_info().feed_port, None);
     let mut subscriber = Subscriber::new(node.feed, owner.node_id()).await;
