@@ -7,15 +7,32 @@
 //! hub by a deposit from its DSUSD book, and the members pay each other
 //! across hops over the hub.
 //!
-//! The escrow's XRP is brought below the least the hub's crate fixes, as
-//! the fees of a long life would bring it, and a member's withdrawal first
-//! tops it up from its XRP book, and goes only once that applied. Then
-//! someone sends the escrow XRP, as anyone may: it is gas, and credits no
-//! account. It also lifts the escrow above the reserve of its signer list
-//! and trust line, which the least gas does not cover and the payout set's
-//! change of signer list needs (spec/roadmap.md#token-hubs). Then the hub
-//! loses f + 1 validators and stalls, and its escrow pays out the final
-//! balances in DSUSD.
+//! The token's pool moves off its peg: the members' peg guards halt the
+//! conversions of the hub's ledger, and the members still pay each other
+//! over the hub, in the token as it is. The escrow's XRP is brought below
+//! the least the hub's crate fixes, as the fees of a long life would bring
+//! it, and a member's withdrawal first tops it up from its XRP book, and
+//! goes only once that applied. Then someone sends the escrow XRP, as
+//! anyone may: it is gas, and credits no account. The run keeps that gift
+//! for the payout at its end: the least gas does not cover the reserve of
+//! the escrow's signer list and trust line, which the payout set's change
+//! of signer list needs, so an escrow topped up only to it could not pay
+//! out (spec/roadmap.md#token-hubs).
+//!
+//! Then the issuer holds the escrow, a moment into a round of payments,
+//! by a seed's draw: it freezes the escrow's line, deep-freezes it, freezes
+//! its token for every holder, or charges a transfer fee. Once every
+//! member read the freeze from what the validators state of the issuer's
+//! hold, none sends a Prepare over the hub, a payment made meanwhile waits,
+//! and no account is in step, until the issuer lets go and every member
+//! read the thaw; then every payment completes. A payee refuses a
+//! commitment that expires further ahead than a connector holds a packet
+//! and the hub's precision. The hub then ends: in three runs of four the
+//! issuer claws back part of what the escrow holds, the hub shuts down,
+//! and its escrow pays the withdrawals already sequenced in full and each
+//! account its share of what is left, checked to the unit against the
+//! hub's books and the escrow; otherwise it loses f + 1 validators and
+//! stalls, and its escrow pays out the final balances in full.
 //!
 //! Each node is judged by its own books (spec/decisions/own-books.md),
 //! throughout: they hold what its schemes hold, its XRP and DSUSD books
@@ -28,19 +45,31 @@ use std::collections::BTreeMap;
 
 use dassie_hub::consensus::MAX_VIEW_TIMEOUT_MS;
 use dassie_hub::escrow::PayoutTransaction;
-use dassie_hub::member::{GAS_CHECK_LASTS_MS, LEAST_ESCROW_GAS_DROPS};
-use dassie_hub::rules::Asset;
+use dassie_hub::ledger::Phase;
+use dassie_hub::member::{DSUSD_SCHEME_ID, GAS_CHECK_LASTS_MS, LEAST_ESCROW_GAS_DROPS, member_key};
+use dassie_hub::promise::{Commitment, Signed};
+use dassie_hub::rules::{Asset, MAX_HOLD_MS};
+use dassie_ilp::ErrorCode;
 use dassie_kit::sim::{Outcome, Run, SeededRng};
+use dassie_oer::{Decode, Encode};
+use dassie_peer::InboundId;
+use dassie_peer::wire::{Content, SchemeId};
+use dassie_settlement::PegPause;
+use dassie_xrpl::DROPS_PER_XRP;
 use dassie_xrpl::amount::IssuedAsset;
 use dassie_xrpl::api;
-use dassie_xrpl::codec::Amount;
+use dassie_xrpl::codec::{Amount, TokenValue};
+use dassie_xrpl::peg::TRIP_HOLD_MS;
 
 use super::checks::{check_events, check_funded, check_held, check_incoming, first_failure};
 use super::hub::owed;
 use super::scripted::{READY_WITHIN_MS, ended};
-use super::{DSUSD, HUB_DSUSD, START, Settling, Sim, XRP, key, received, xrpl_account};
+use super::{
+    DSUSD, Delivery, HUB_DSUSD, POOL_TOKENS, START, Settling, Sim, XRP, key, received, xrpl_account,
+};
 use crate::engine::EngineError;
 use crate::engine::core::Direction;
+use crate::hub::escrow::ISSUER_CHECK_EVERY_MS;
 
 /// How long a move may be on its way before it is late
 /// (`CREDIT_WAIT_MS`, `engine/core/hub_funding.rs`).
@@ -87,12 +116,44 @@ struct Asked {
     asked_after: u32,
 }
 
+/// How the issuer holds the escrow in a run: each freezes the hub as a
+/// freeze does (spec/decisions/token-hubs.md).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Hold {
+    /// It freezes the escrow's line: the escrow pays only the issuer.
+    Line,
+    /// It deep-freezes the escrow's line: it neither pays nor receives.
+    Deep,
+    /// It freezes its token for every holder.
+    Global,
+    /// It charges a transfer fee, which the escrow's payments would pay.
+    Fee,
+}
+
+/// What the issuer charges while a run's [`Hold::Fee`] lasts, in
+/// billionths: 0.2% on every payment of its token between two holders.
+const TRANSFER_RATE: u32 = api::TRANSFER_RATE_PAR + 2_000_000;
+
+/// How a run ends its hub.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Ending {
+    /// The issuer claws back part of what the escrow holds: the hub shuts
+    /// down and pays out pro rata.
+    Clawback,
+    /// The hub loses f + 1 validators and stalls, and pays out in full.
+    Stall,
+}
+
 /// What a seed draws.
 struct Setup {
     validators: usize,
     members: usize,
     /// The member that withdraws once the escrow's XRP is low.
     withdrawer: usize,
+    /// How the issuer holds the escrow, from the freeze to the thaw.
+    hold: Hold,
+    /// How the hub ends.
+    ending: Ending,
 }
 
 fn setup(seed: u64) -> (SeededRng, Setup) {
@@ -100,12 +161,23 @@ fn setup(seed: u64) -> (SeededRng, Setup) {
     let validators = 4 + usize::try_from(rng.below(4)).unwrap();
     let members = 3 + usize::try_from(rng.below(2)).unwrap();
     let withdrawer = usize::try_from(rng.below(members as u64)).unwrap();
+    let hold =
+        [Hold::Line, Hold::Deep, Hold::Global, Hold::Fee][usize::try_from(rng.below(4)).unwrap()];
+    // A clawback in three runs of four: the stall's payout in full is the
+    // `hub` simulation's and `node-hub`'s too.
+    let ending = if rng.below(4) == 0 {
+        Ending::Stall
+    } else {
+        Ending::Clawback
+    };
     (
         rng,
         Setup {
             validators,
             members,
             withdrawer,
+            hold,
+            ending,
         },
     )
 }
@@ -115,8 +187,9 @@ fn setup(seed: u64) -> (SeededRng, Setup) {
 pub fn describe(seed: u64) -> String {
     let (_, setup) = setup(seed);
     format!(
-        "{} members, {} validators, node {} withdraws once the escrow's XRP is low",
-        setup.members, setup.validators, setup.withdrawer
+        "{} members, {} validators, node {} withdraws once the escrow's XRP is low, \
+         the issuer holds the escrow by {:?}, the hub ends by {:?}",
+        setup.members, setup.validators, setup.withdrawer, setup.hold, setup.ending
     )
 }
 
@@ -188,9 +261,8 @@ fn script(sim: &mut Sim, rng: &mut SeededRng, setup: &Setup) -> Result<(), Outco
     }
     over_hub(sim)?;
     pay(sim, rng);
-    sim.run_until_or(sim.now + PAID_WITHIN_MS, |sim| {
-        sim.payments.iter().all(|payment| payment.done)
-    });
+    sim.run_until_or(sim.now + PAID_WITHIN_MS, paid);
+    off_peg(sim, rng)?;
     let asked = withdraw_low(sim, setup)?;
     // The least gas a member tops the escrow up to is below the reserve
     // of the escrow's signer list and trust line, which the payout set's
@@ -200,7 +272,19 @@ fn script(sim: &mut Sim, rng: &mut SeededRng, setup: &Setup) -> Result<(), Outco
     settle(sim);
     check_topped_up(sim, setup.withdrawer, asked)?;
     check_calm(sim)?;
-    stall(sim, rng)
+    freeze(sim, rng, setup.hold)?;
+    refuse_far_ahead(sim)?;
+    settle(sim);
+    check_calm(sim)?;
+    match setup.ending {
+        Ending::Clawback => claw_back(sim, rng),
+        Ending::Stall => stall(sim, rng),
+    }
+}
+
+/// Whether every payment sent all it meant to.
+fn paid(sim: &Sim) -> bool {
+    sim.payments.iter().all(|payment| payment.done)
 }
 
 /// Every peering is over the DSUSD hub: the owner books peer with nobody.
@@ -219,6 +303,317 @@ fn over_hub(sim: &Sim) -> Result<(), Outcome> {
             }
         }
     }
+    Ok(())
+}
+
+/// How long the members' peg guards take to halt the conversions of the
+/// hub's ledger once the token's pool is off its peg: the guard's trip hold,
+/// and the minute in which every node learns the rates again and reads the
+/// pool once more.
+const OFF_PEG_WITHIN_MS: u64 = TRIP_HOLD_MS + 2 * crate::node::Policies::DEFAULT.rates_every_ms;
+
+/// The token's pool moves off its peg, 5% under a dollar: once each
+/// member's peg guard has held it off for its trip hold, the hub's ledger
+/// converts nothing, while the members still pay each other over the hub,
+/// in the token as it is (spec/decisions/token-hubs.md). Then the pool is
+/// back at a dollar; the guards resume after their recovery hold, which
+/// the run does not wait for: nothing in it converts.
+fn off_peg(sim: &mut Sim, rng: &mut SeededRng) -> Result<(), Outcome> {
+    let token = sim.token();
+    let tokens = TokenValue::from_units(POOL_TOKENS, 0).unwrap();
+    let par = 2 * POOL_TOKENS * DROPS_PER_XRP;
+    sim.ledger
+        .set_pool(token, par / 100 * 95, tokens, 300)
+        .unwrap();
+    sim.trace.push(format!(
+        "{} the token's pool moves 5% under a dollar",
+        sim.now
+    ));
+    let halted = |sim: &Sim| {
+        (0..sim.nodes.len()).all(|index| {
+            let core = sim.core(index);
+            let paused = core
+                .ledger_views()
+                .into_iter()
+                .find(|view| view.id == HUB_DSUSD)
+                .and_then(|view| view.peg)
+                .and_then(|peg| peg.paused);
+            paused == Some(PegPause::OffPeg) && core.price_table().halted(HUB_DSUSD)
+        })
+    };
+    if !sim.run_until_or(sim.now + OFF_PEG_WITHIN_MS, halted) {
+        return Err(Outcome::liveness(
+            "off-peg",
+            "the members' peg guards did not halt the hub's ledger in time",
+        ));
+    }
+    sim.count("conversions halted off the peg");
+    pay(sim, rng);
+    if !sim.run_until_or(sim.now + PAID_WITHIN_MS, paid) {
+        return Err(Outcome::liveness(
+            "off-peg",
+            format!(
+                "the members did not pay each other over the hub off its peg: {}",
+                standing(sim)
+            ),
+        ));
+    }
+    if !halted(sim) {
+        return Err(Outcome::safety(
+            "off-peg",
+            "a member's guard resumed while the pool was still off its peg",
+        ));
+    }
+    sim.count("members paid each other off the peg");
+    sim.ledger.set_pool(token, par, tokens, 300).unwrap();
+    sim.trace
+        .push(format!("{} the token's pool is back at a dollar", sim.now));
+    Ok(())
+}
+
+/// How long an act of the issuer takes to reach every member, at
+/// production timings: the ledger that applies it, two of the
+/// validators' proofs of the issuer's state (the first may be of the
+/// ledger before), and a minute for the block that takes the quorum's
+/// attestations to become final and for every member to read it.
+const KNOWN_WITHIN_MS: u64 = super::LEDGER_CLOSE_MS + 2 * ISSUER_CHECK_EVERY_MS + 60_000;
+
+/// The issuer holds the escrow as `hold` says, in the next ledger, or
+/// lets go of it.
+fn issuer_holds(sim: &mut Sim, hold: Hold, on: bool) {
+    let token = sim.token();
+    let escrow = sim.hub.as_deref().unwrap().escrow();
+    let ledger = &mut sim.ledger;
+    match hold {
+        Hold::Line => ledger.freeze(escrow, token, on),
+        Hold::Deep if on => ledger.deep_freeze(escrow, token, true),
+        // Lifted whole, the freeze with the deep freeze.
+        Hold::Deep => ledger.freeze(escrow, token, false),
+        Hold::Global => ledger.global_freeze(token.issuer, on),
+        Hold::Fee => ledger.set_transfer_rate(token.issuer, if on { TRANSFER_RATE } else { 0 }),
+    }
+    .unwrap();
+    sim.count(if on {
+        "issuer holds the escrow"
+    } else {
+        "issuer lets go of the escrow"
+    });
+    sim.trace.push(format!(
+        "{} the issuer {} the escrow by {hold:?}",
+        sim.now,
+        if on { "holds" } else { "lets go of" }
+    ));
+}
+
+/// Whether every member knows the hub frozen, or every one knows it not.
+fn all_know(sim: &Sim, frozen: bool) -> bool {
+    (0..sim.nodes.len()).all(|index| {
+        sim.core(index)
+            .hub_status()
+            .is_some_and(|status| status.frozen_since_ms.is_some() == frozen)
+    })
+}
+
+/// The issuer holds the escrow while the members pay each other, and lets
+/// go of it (spec/areas/hubs.md#a-frozen-hub). The members pay until the
+/// freeze, which comes a moment into a round of payments, so that packets
+/// are on their way, and fulfilled but not yet claimed on the hub, when it
+/// comes. Once every member read the freeze from what its validators state
+/// of the issuer's hold, none sends a Prepare over the hub, a payment made
+/// meanwhile does not cross it, and no account is in step for moves or
+/// packets, until the thaw. The hub's clock stands still while it lasts,
+/// longer than any commitment taken before it runs. After the thaw every
+/// payment completes, the ones the freeze held up and new ones; the
+/// checks that follow find each member's books whole, so the claims for
+/// packets they took before the freeze were paid.
+fn freeze(sim: &mut Sim, rng: &mut SeededRng, hold: Hold) -> Result<(), Outcome> {
+    pay(sim, rng);
+    sim.run_until(sim.now + rng.below(super::LEDGER_CLOSE_MS));
+    issuer_holds(sim, hold, true);
+    if !sim.run_until_or(sim.now + KNOWN_WITHIN_MS, |sim| all_know(sim, true)) {
+        return Err(Outcome::liveness(
+            "frozen",
+            format!(
+                "the members did not all learn the freeze in time: {}",
+                standing(sim)
+            ),
+        ));
+    }
+    let hub = sim.hub.as_deref().unwrap();
+    let ledger = hub
+        .ledger()
+        .ok_or_else(|| Outcome::liveness("frozen", "no honest validator runs"))?;
+    if ledger.frozen().is_none() || !ledger.issuer().holds() {
+        return Err(Outcome::safety(
+            "frozen",
+            "members took the hub as frozen where its validators have it running",
+        ));
+    }
+    sim.count("members learned the freeze");
+    let prepares = |sim: &Sim| sim.counts.get("prepares over a hub").copied().unwrap_or(0);
+    let before = prepares(sim);
+    // A payment across the hop while the freeze lasts: no path crosses
+    // the hub until the thaw.
+    let during = sim.payments.len();
+    let amount = 100_000_000 + rng.below(1_000_000_000);
+    sim.pay(0, 2, amount, None, None);
+    let lasts = 2 * sim.hub.as_deref().unwrap().rules.terms.timers.hold_notice;
+    if sim.run_until_or(sim.now + lasts, |sim| !all_know(sim, true)) {
+        return Err(Outcome::safety(
+            "frozen",
+            "a member took the hub as thawed while the issuer held it",
+        ));
+    }
+    let sent = prepares(sim) - before;
+    if sent > 0 {
+        return Err(Outcome::safety(
+            "frozen",
+            format!("members sent {sent} Prepares over the frozen hub"),
+        ));
+    }
+    if sim.payments.get(during).is_some_and(|payment| payment.done) {
+        return Err(Outcome::safety(
+            "frozen",
+            "a payment crossed the frozen hub",
+        ));
+    }
+    if let Some(index) = (0..sim.nodes.len()).find(|index| in_step(sim, *index)) {
+        return Err(Outcome::safety(
+            "frozen",
+            format!("node {index}'s hub account is in step for moves and packets while frozen"),
+        ));
+    }
+    sim.count("no packet crossed the frozen hub");
+    issuer_holds(sim, hold, false);
+    if !sim.run_until_or(sim.now + KNOWN_WITHIN_MS, |sim| all_know(sim, false)) {
+        return Err(Outcome::liveness(
+            "thawed",
+            format!(
+                "the members did not all learn the thaw in time: {}",
+                standing(sim)
+            ),
+        ));
+    }
+    sim.count("members learned the thaw");
+    pay(sim, rng);
+    if !sim.run_until_or(sim.now + PAID_WITHIN_MS, paid) {
+        return Err(Outcome::liveness(
+            "thawed",
+            format!(
+                "the members did not all pay each other after the thaw: {}",
+                standing(sim)
+            ),
+        ));
+    }
+    sim.count("members paid each other after the thaw");
+    Ok(())
+}
+
+/// The request ID of the Prepare [`refuse_far_ahead`] makes up: one no
+/// node sends, since each counts its own from zero.
+const FAR_AHEAD_REQUEST: u32 = u32::MAX - 7;
+
+/// A payee refuses a commitment that expires further ahead of its clock
+/// than a connector holds a packet and the hub's precision, and the
+/// Prepare with it, as one beyond its payer's credit (T04): a later one
+/// would stretch the window in which a frozen hub still pays claims
+/// (spec/areas/hubs.md#packets-promises-and-claims). Node 1, which peers
+/// with every other member, sends node 0 what no node of ours sends: a
+/// Prepare whose commitment, signed with its key in the hub on its hold
+/// toward node 0, holds in every other respect, and expires a second past
+/// that bound.
+fn refuse_far_ahead(sim: &mut Sim) -> Result<(), Outcome> {
+    let (payer, payee) = (1, 0);
+    let fail = |problem: String| Outcome::liveness("far-ahead", problem);
+    let hub = sim.hub.as_deref().unwrap();
+    let id = hub.id();
+    let margin = hub.rules.terms.timers.margin;
+    let ledger = hub
+        .ledger()
+        .ok_or_else(|| fail("no honest validator runs".into()))?;
+    let member = |index| member_key(&key(index), &id);
+    let account = |index| ledger.account_of(&member(index).public_key());
+    let (Some(from), Some(to)) = (account(payer), account(payee)) else {
+        return Err(fail("node 0 or node 1 has no account in the hub".into()));
+    };
+    let Some((hold, _)) = ledger
+        .holds()
+        .find(|(_, hold)| hold.payer == from && hold.payee == to)
+    else {
+        return Err(fail("node 1 has no hold toward node 0".into()));
+    };
+    let fulfillment = [7; 32];
+    let condition = dassie_ilp::condition_for(&fulfillment);
+    let ahead = MAX_HOLD_MS + dassie_hub::consensus::Config::DEFAULT.precision_ms;
+    let expiry = sim.local_now(payee) + ahead + 1_000;
+    let prepare = dassie_ilp::Prepare {
+        amount: dassie_hub::member::UNITS_PER_DROP,
+        expires_at: dassie_ilp::Timestamp {
+            unix_ms: expiry + margin,
+        },
+        execution_condition: condition,
+        destination: dassie_ilp::Address::parse("test.far-ahead").unwrap(),
+        data: &[],
+    };
+    let packet = prepare.to_vec();
+    let commitment = Signed::sign(
+        Commitment {
+            hold,
+            // Above any it took or was claimed through.
+            sequence: u64::MAX / 2,
+            amount: 1,
+            condition,
+            expiry,
+        },
+        &id,
+        &member(payer),
+    )
+    .to_vec();
+    let body = Content::MethodPacket {
+        request_id: FAR_AHEAD_REQUEST,
+        scheme: SchemeId::parse(DSUSD_SCHEME_ID).unwrap(),
+        packet: &packet,
+        commitment: &commitment,
+    }
+    .to_vec();
+    // Its answer goes to no one; the Reject goes to node 1, lost to none.
+    let loss = sim.loss_per_mille;
+    sim.loss_per_mille = 0;
+    let node = &mut sim.nodes[payee];
+    let inbound = InboundId(node.next_inbound);
+    node.next_inbound += 1;
+    let sender = key(payer).public_key();
+    sim.step(payee, |core| {
+        core.peer_inbound(inbound, sender, &body, None)
+    });
+    sim.loss_per_mille = loss;
+    let refused = sim.queue.values().any(|delivery| match delivery {
+        Delivery::Request { from, to, body, .. } if *from == payee && *to == payer => {
+            matches!(
+                Content::decode_exact(body),
+                Ok(Content::InterledgerPacket { request_id, packet })
+                    if request_id == FAR_AHEAD_REQUEST
+                        && matches!(
+                            dassie_ilp::Packet::decode_exact(packet),
+                            Ok(dassie_ilp::Packet::Reject(reject))
+                                if reject.code == ErrorCode::T04_INSUFFICIENT_LIQUIDITY
+                        )
+            )
+        }
+        _ => false,
+    });
+    if !refused {
+        return Err(Outcome::safety(
+            "far-ahead",
+            "node 0 took a commitment that expires past the longest a connector holds a packet",
+        ));
+    }
+    sim.count("commitments too far ahead refused");
+    sim.trace.push(format!(
+        "{} node 0 refuses node 1's commitment that expires {}ms ahead",
+        sim.now,
+        ahead + 1_000
+    ));
     Ok(())
 }
 
@@ -803,6 +1198,185 @@ fn check_payout(sim: &mut Sim) -> Result<(), String> {
         }
     }
     sim.count("DSUSD payouts checked");
+    Ok(())
+}
+
+/// The issuer claws back part of what the escrow holds, a quarter to a
+/// half: the hub shuts down at once, ends after its notice, and its
+/// validators sign the payout set of its last block, which pays the
+/// withdrawals already sequenced in full and each account its share of
+/// what the escrow holds beyond them (spec/decisions/token-hubs.md). The
+/// members' own moves are off first, so nothing is on its way into or out
+/// of the escrow. Each member's DSUSD book then holds its line.
+fn claw_back(sim: &mut Sim, rng: &mut SeededRng) -> Result<(), Outcome> {
+    for index in 0..sim.nodes.len() {
+        sim.step(index, |core| {
+            core.set_hub_automatic(None, false).unwrap();
+        });
+    }
+    let held = escrow_tokens(sim);
+    let part = held / 4 + rng.below(held / 4);
+    let token = sim.token();
+    let escrow = sim.hub.as_deref().unwrap().escrow();
+    let value = TokenValue::from_units(part, 6).unwrap();
+    sim.ledger.claw_back(escrow, token.amount(value)).unwrap();
+    sim.count("issuer clawbacks from the escrow");
+    sim.trace.push(format!(
+        "{} the issuer claws back {part} of the escrow's {held} millionths",
+        sim.now
+    ));
+    let notice = sim
+        .hub
+        .as_deref()
+        .unwrap()
+        .rules
+        .terms
+        .timers
+        .shutdown_notice;
+    let gathered = |sim: &Sim| sim.hub.as_deref().unwrap().payout.is_some();
+    if !sim.run_until_or(sim.now + KNOWN_WITHIN_MS + notice, gathered) {
+        return Err(Outcome::liveness(
+            "clawback",
+            "the hub did not end and sign its payout in time after the clawback",
+        ));
+    }
+    // Nothing of the set has gone to the ledger yet.
+    let before = escrow_tokens(sim);
+    let applied = |sim: &Sim| {
+        sim.hub
+            .as_deref()
+            .unwrap()
+            .payout
+            .as_ref()
+            .is_some_and(|payout| payout.escrow_after.is_some())
+    };
+    if !sim.run_until_or(sim.now + 10 * super::LEDGER_CLOSE_MS, applied) {
+        return Err(Outcome::liveness(
+            "payout",
+            "the payout set was not applied in time",
+        ));
+    }
+    check_pro_rata(sim, part, before).map_err(|problem| Outcome::safety("payout", problem))?;
+    sim.run_until(sim.now + CALM_MS);
+    for index in 0..sim.nodes.len() {
+        check_held(sim, index, DSUSD).map_err(|problem| Outcome::safety("paid-out", problem))?;
+        check_held(sim, index, XRP).map_err(|problem| Outcome::safety("paid-out", problem))?;
+    }
+    Ok(())
+}
+
+/// After a clawback of `part`, the escrow paid out what the hub's books and
+/// the escrow say, to the unit: the hub ended, counting `part` clawed back;
+/// the escrow held, before the set, what the hub owes less `part`; the set
+/// paid each withdrawal the hub had sequenced in full, and each account
+/// with somewhere to go and at least the least payout its share of what
+/// the escrow held beyond them, in proportion to what the hub owed it,
+/// worked out apart from the set and rounded down; every transaction of
+/// the set applied, and it paid out no more than the escrow held.
+fn check_pro_rata(sim: &mut Sim, part: u64, before: u64) -> Result<(), String> {
+    let hub = sim.hub.as_deref().unwrap();
+    let payout = hub.payout.as_ref().unwrap();
+    let ledger = &payout.ledger;
+    if ledger.phase() != Phase::Ended {
+        return Err(format!(
+            "the payout set is of a hub in {:?}",
+            ledger.phase()
+        ));
+    }
+    let escrow = ledger.escrow();
+    if escrow.clawed_back != part {
+        return Err(format!(
+            "the hub counts {} clawed back, where the issuer took {part}",
+            escrow.clawed_back
+        ));
+    }
+    if escrow.held() != before {
+        return Err(format!(
+            "the hub has the escrow holding {}, where it held {before}",
+            escrow.held()
+        ));
+    }
+    let terms = ledger.terms().clone();
+    let fees = terms.fees;
+    let sequenced: BTreeMap<dassie_xrpl::AccountId, u64> =
+        ledger
+            .withdrawals()
+            .fold(BTreeMap::new(), |mut sum, (_, withdrawal)| {
+                *sum.entry(dassie_xrpl::AccountId(withdrawal.to.account))
+                    .or_default() += withdrawal.amount;
+                sum
+            });
+    let out: u64 = ledger
+        .withdrawals()
+        .map(|(_, withdrawal)| withdrawal.amount + withdrawal.ledger_fee)
+        .sum();
+    let due = u128::from(ledger.supply() - out);
+    let have = u128::from(before - out).min(due);
+    let mut expected: BTreeMap<dassie_xrpl::AccountId, u64> = BTreeMap::new();
+    for (number, account) in ledger.accounts() {
+        let Some(disbursal) = account.disbursal else {
+            continue;
+        };
+        let share = u64::try_from(u128::from(owed(ledger, number)) * have / due).unwrap();
+        if share >= fees.least_payout {
+            *expected
+                .entry(dassie_xrpl::AccountId(disbursal.account))
+                .or_default() += share;
+        }
+    }
+    let hashes = payout.hashes.clone();
+    let transactions = payout.set.transactions.clone();
+    let mut paid: BTreeMap<dassie_xrpl::AccountId, u64> = BTreeMap::new();
+    let mut withdrawn: BTreeMap<dassie_xrpl::AccountId, u64> = BTreeMap::new();
+    for (hash, transaction) in hashes.iter().zip(&transactions) {
+        let record = transaction_record(sim, hash)
+            .ok_or_else(|| format!("{transaction:?} was never applied"))?;
+        if record.result != "tesSUCCESS" {
+            return Err(format!("{transaction:?} ended {}", record.result));
+        }
+        let (PayoutTransaction::Payout(payment) | PayoutTransaction::Withdrawal(payment)) =
+            transaction
+        else {
+            continue;
+        };
+        let named = terms
+            .hub_amount(&payment.amount)
+            .ok_or("a payment of something else than DSUSD")?;
+        let got = record
+            .delivered_token
+            .and_then(|token| terms.hub_amount(&Amount::Token(token)));
+        if got != Some(named) {
+            return Err(format!("a payment of {named} delivered {got:?}"));
+        }
+        let into = if matches!(transaction, PayoutTransaction::Payout(_)) {
+            &mut paid
+        } else {
+            &mut withdrawn
+        };
+        *into.entry(payment.destination).or_default() += named;
+    }
+    if withdrawn != sequenced {
+        return Err(format!(
+            "the escrow paid the sequenced withdrawals {withdrawn:?}, where they are {sequenced:?}"
+        ));
+    }
+    if paid != expected {
+        return Err(format!(
+            "the escrow paid out {paid:?}, where the shares of what it holds are {expected:?}"
+        ));
+    }
+    let total: u64 = paid.values().sum();
+    if total + out > before {
+        return Err(format!(
+            "the escrow paid out {total} and {out} of withdrawals, more than its {before}"
+        ));
+    }
+    for index in 0..sim.nodes.len() {
+        if !paid.contains_key(&xrpl_account(index)) {
+            return Err(format!("node {index} was paid nothing out"));
+        }
+    }
+    sim.count("pro rata payouts checked");
     Ok(())
 }
 

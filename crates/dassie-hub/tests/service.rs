@@ -450,8 +450,11 @@ fn issuer_heard(net: &mut Network, number: AccountNumber) -> Vec<(u64, Option<u6
         };
         // Each answer ends with the issuer's hold, then its final block.
         let kinds: Vec<&Statement> = list.iter().map(|s| &s.statement).collect();
-        let [.., Statement::Issuer { height, .. }, Statement::Final { height: last, .. }] =
-            kinds.as_slice()
+        let [
+            ..,
+            Statement::Issuer { height, .. },
+            Statement::Final { height: last, .. },
+        ] = kinds.as_slice()
         else {
             panic!("an answer that does not end with the issuer's hold: {kinds:?}");
         };
@@ -1163,7 +1166,11 @@ fn a_member_hears_of_a_freeze_and_the_thaw_in_its_answers() {
     assert!(stamp.is_some());
     let frozen = issuer_heard(&mut net, number);
     let (height, since, held) = *frozen.last().expect("the freeze agreed");
-    assert_eq!((since, held), (stamp, true), "frozen since the block's stamp");
+    assert_eq!(
+        (since, held),
+        (stamp, true),
+        "frozen since the block's stamp"
+    );
     assert!(height >= before.last().unwrap().0);
 
     attest_issuer(&mut net, 21, false);

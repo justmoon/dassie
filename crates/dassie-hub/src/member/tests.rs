@@ -1893,7 +1893,10 @@ fn an_account_holds_its_hubs_asset() {
         holdings[0].clone()
     };
     let xrp = held(&synced(&Hub::new()));
-    assert_eq!((xrp.code.as_str(), xrp.issuer.clone(), xrp.scale), ("XRP", None, 6));
+    assert_eq!(
+        (xrp.code.as_str(), xrp.issuer.clone(), xrp.scale),
+        ("XRP", None, 6)
+    );
     assert!(xrp.amount > 0 && !xrp.freeze.line);
 
     let mut hub = Hub::new();
@@ -1904,7 +1907,10 @@ fn an_account_holds_its_hubs_asset() {
     let token = held(&account);
     assert_eq!(token.code, dassie_xrpl::dsusd::CURRENCY.code());
     assert_eq!(token.issuer, Some(dassie_xrpl::dsusd::ISSUER.to_address()));
-    assert_eq!((token.scale, token.amount, token.reserve), (6, xrp.amount, xrp.reserve));
+    assert_eq!(
+        (token.scale, token.amount, token.reserve),
+        (6, xrp.amount, xrp.reserve)
+    );
     issuer_says(&hub, &mut account, 0..2, 6, Some(1_006));
     assert_eq!(held(&account).freeze, dassie_settlement::Freeze::default());
 }
