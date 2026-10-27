@@ -84,6 +84,7 @@ Activation books only the difference between the scheme's balance and the last c
 
 - **Peering again** keeps the trust account and its credit. A junior still extends at least the default line: a node that was the senior before, or that accepted a request only one side recorded, raises the account to it. Not when it once ended a peering with that node for want of room: then it keeps the lower credit, so a peer that never settled gets no new line by being asked again ([ended-for-room](../decisions/ended-for-room.md)).
 - **Nothing is announced.** The credit a node extends is its own business: no message of the peer protocol carries it ([Peer protocol](peer-protocol.md#versions)). More credit only means the creditor asks later.
+- **Per method.** A peering extends credit on each of its settlement methods, in that method's ledger's units, as on a peering's only one: the junior the default line on each, a method added later included, and an end for room keeps the lower credit on every method ([settlement-methods](../decisions/settlement-methods.md)). No budget spans methods, which would need exchange rates in the credit rules.
 
 **The least credit.** Asked at the asker's trigger, a debtor settles only if its own books leave it its trigger plus twice the least settlement ([below](#settling-on-request)). So a link survives drift of up to its credit less two triggers and twice the least settlement, and the node refuses to start with a default credit (or a senior credit other than 0) below that plus one crash's drift at the cap on money in flight (`policy::least_credit`). A link cut one way drifts no more than a crash: a node takes no new Prepare from a peer its messages surely do not reach, so its Fulfills that cannot arrive are only those in flight when the cut began ([unreachable-peers](../decisions/unreachable-peers.md)).
 
@@ -115,6 +116,8 @@ when asked, settle       (position − trigger) / 2, or nothing if that is less 
 
 Every threshold of a link is counted in its [largest packet](connector.md#the-largest-packet) `P`, not in the credit, which differs on each side and grows with earnings ([thresholds-in-packets](../decisions/thresholds-in-packets.md)). So even a senior that extends nothing asks while its junior still has room.
 
+**Each settlement method of a peering stands on its own:** its position is read from the peer's accounts on its own ledger, and its thresholds apply to it alone, so a peer short on one method is asked to settle on that one, whatever it holds on another ([settlement-methods](../decisions/settlement-methods.md)). Over a hub, the credit a method extends follows the holds on that method's hub.
+
 | Threshold | In `P` | Why |
 |---|---|---|
 | Trigger to ask | 1.5 | Below the cap on money in flight, so a busy peer can still have a packet refused (T04) while its settlement is on its way; a trigger at the cap left too little credit for one crash's drift. |
@@ -131,9 +134,9 @@ Amounts are rounded down to whole units of the scheme's ledger; what is less tha
 
 ## Asking a peer to settle
 
-At every settlement check the node asks each peer whose position has fallen to its trigger, naming only the scheme ([Peer protocol](peer-protocol.md)). Nothing about a request is kept: a restart looks again.
+At every settlement check the node asks each peer whose position on a settlement method has fallen to its trigger, naming only that method's scheme ([Peer protocol](peer-protocol.md)). Each method of a peering is asked on its own. Nothing about a request is kept: a restart looks again.
 
-- **It asks again** at the next check once its books show a settlement from that peer, not on the `settlement` message alone: on the XRP Ledger the message books nothing, so asking on it would make the peer pay twice. It also asks again at the next check after a 409, since our acceptance may not have reached the peer yet, and after a request that surely never reached the peer (not delivered, [Peer protocol](peer-protocol.md#outbound-requests)), which costs the peer nothing and must not use up its grace before it is withdrawn ([Network](network.md#advertised-peers)). Otherwise it asks at most once a minute, so a peer that does not answer, refuses (400, 401) or is overloaded (503) is not flooded.
+- **It asks again** on a method at the next check once its books show a settlement from that peer on it, not on the `settlement` message alone: on the XRP Ledger the message books nothing, so asking on it would make the peer pay twice. It also asks again at the next check after a 409, since our acceptance may not have reached the peer yet, and after a request that surely never reached the peer (not delivered, [Peer protocol](peer-protocol.md#outbound-requests)), which costs the peer nothing and must not use up its grace before it is withdrawn ([Network](network.md#advertised-peers)); either says so of the peering, so every method of it may be asked again. Otherwise it asks on a method at most once a minute, so a peer that does not answer, refuses (400, 401) or is overloaded (503) is not flooded.
 - **Only while its scheme is synced.** Until then, what the peer pays is not booked, and the node cannot tell whether it paid. An honest peer settles only when asked, and no peering is made before the scheme's first sync ([above](#the-scheme-interface)), so what a peer settles, asked routinely or by a node ending the peering, reaches the ledger after that sync booked what the account held as the owner's deposit, and is booked as the peer's settlement.
 - **Only while the peer's settlement can reach us** ([below](#when-peers-cannot-pay-us)).
 - With no credit extended, it asks at once, and asks again once what the peer paid in advance is down to the trigger.
@@ -143,8 +146,8 @@ At every settlement check the node asks each peer whose position has fallen to i
 
 A scheme's ledger can stop what peers pay us while the scheme still sees it: an issuer that froze our line deep, or froze its token for every holder, lets no peer's payment reach the line, and a peer's settlement would only fail and cost it a fee; one that charges a transfer fee leaves every peer on the scheme unable to settle, as none pays the fee ([issued-assets](../decisions/issued-assets.md)). A dollar token's scheme says the same while its peg guard pauses it: a peer asked to settle in a token off its peg would pay us at par ([XRPL](xrpl.md#the-peg-guard)). The scheme says so (`can_receive`) for as long as it lasts, which may be for good, and stays synced. Meanwhile:
 
-- **The node asks no peer on it to settle,** as while the scheme does not see its ledger.
-- **A peer's time short of room withdraws it but never ends it** ([Network](network.md#advertised-peers)). It grows as usual, so a peer short of room past the grace is withdrawn, since no settlement can restore its room while it lasts; but it does not count toward ending the peering for room, so no peer is ended for what it could not pay ([ended-for-room](../decisions/ended-for-room.md)). The grace stays, so our own packets toward a peer that dips below its room only briefly can restore it before it is withdrawn.
+- **The node asks no peer to settle on a method on it,** as while the scheme does not see its ledger. Its other methods are asked as usual.
+- **A method's time short of room withdraws it but never ends the peering** ([Network](network.md#advertised-peers)). It grows as usual, so a method short of room past the grace is withdrawn, since no settlement can restore its room while it lasts; but it does not count toward ending the peering for room, so no peer is ended for what it could not pay ([ended-for-room](../decisions/ended-for-room.md)). The grace stays, so our own packets toward a peer that dips below its room only briefly can restore it before it is withdrawn.
 - **The link state leaves the scheme out,** so no new peering is made on it ([Network](network.md#asking-and-answering)). This is a rule of its own: a scheme that only lost its ledger stays in the link state once it has synced.
 
 Peerings already made stay, and our own settlements on the scheme go on while the scheme can make them.
@@ -154,7 +157,7 @@ Peerings already made stay, and our own settlements on the scheme go on while th
 A request says that the debtor stands near the asker's trigger. The debtor settles half the way from where it stands to its own trigger, which lands near the middle of the two.
 
 - **It never pays itself into asking back:** settling lowers its own position, however far two nodes' books have drifted apart.
-- **One settlement at a time.** It settles nothing while a settlement to that peer is on its way (prepared, executing, pending in the ledger, or announced and not yet acknowledged): that one is the answer. Nor while a cancelled settlement holds it off ([below](#outgoing-settlements)).
+- **One settlement at a time.** It settles nothing on a method while a settlement to that peer is on its way on it (prepared, executing, pending in the ledger, or announced and not yet acknowledged): that one is the answer. Nor while a cancelled settlement on that method holds it off ([below](#outgoing-settlements)). The settlement channel is the pair's and carries one message at a time, so a settlement on another method waits for the channel, never for the method.
 - **The answer says what is on its way:** the settlement it makes now, or the one already under way, or nothing. So an asker can tell a settlement still coming from none ([ending-a-peering](../decisions/ending-a-peering.md)).
 - **A lying asker gets at most the credit the debtor extends to it.**
 - **A node never settles on its own,** not even at a peering's end.
@@ -172,7 +175,7 @@ The order makes a settlement reach the books exactly once, whatever crashes:
 3. **Book.** The node books the durable pending transfer and checkpoints the scheme. Nothing is booked between the check and this step, so the books always take it: a refusal here is a broken invariant, which stops the engine. So a prepared settlement is never discarded.
 4. **Execute,** only once that transfer is on disk. A restart in between hands the scheme its pending settlements to reconcile.
 5. **Finalize.** Only a settlement that executed is posted and announced to the peer, in one batch, after any earlier announcement to that peer arrived.
-6. **Cancel.** A cancelled settlement is voided, and the node backs off settling with that peer, exponentially; a settlement posted to the peer ends the backoff.
+6. **Cancel.** A cancelled settlement is voided, and the node backs off settling with that peer on that method, exponentially; a settlement posted to the peer on it ends the backoff. A method whose ledger keeps failing holds up no other.
 
 After a restart, settlements still pending in the journal are handed to their scheme when it activates, to post or void as its ledger says. One the scheme no longer holds is announced with a message it makes again from the ID.
 
