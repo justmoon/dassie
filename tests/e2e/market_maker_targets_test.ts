@@ -65,6 +65,9 @@ const PORT_OFFSET = 10_000;
 const PEER_ACCOUNTS = 8;
 
 const missing = await missingScenarioTools();
+/** Why the scenario cannot run: the market maker is parked until it runs
+ * on hubs (spec/roadmap.md#hubs-only). The test stays for when it does. */
+const parked = findScenario(SCENARIO)?.unavailable;
 
 /** Every node follows the ledger and is funded, and both core nodes have
  * fresh rates. */
@@ -109,7 +112,7 @@ async function peered(scenario: Scenario): Promise<boolean> {
 }
 
 test("a market maker trades through each of two core nodes", {
-  skip: missing !== undefined,
+  skip: parked ?? missing !== undefined,
 }, async () => {
   const scenario = await Scenario.temporary(SCENARIO, {
     dassie: DASSIE,

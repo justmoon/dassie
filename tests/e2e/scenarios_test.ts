@@ -1,8 +1,11 @@
 /**
  * End to end (spec/areas/testing.md#end-to-end): the `two-nodes` and
  * `six-nodes` scenarios converge and route payments across hops; restarts
- * keep peerings and balances. Each payment is several times the credit
- * peers extend, so it only gets through if every hop settles as it goes.
+ * keep peerings and balances. Their nodes run the stub with unlimited
+ * trust (spec/areas/settlement.md#the-stub-scheme): peers on it never run
+ * out of room and settle nothing, so each payment, several times the
+ * default credit line, gets through without a settlement, the stubs never
+ * move, and each node's books owe its peers what its owner spent.
  *
  * Every node is the real binary. Payments are the JavaScript reference
  * stack: `ilp-plugin-btp` connects to one node with a token it issued, and
@@ -24,15 +27,9 @@ import {
 import { BtpClient } from "./btp.ts";
 import { Scenario, type ScenarioNode } from "@dassie/dev/scenario";
 
-/** 5 USD: over four times what a peer extends, so every hop must settle. */
+/** 5 USD: over four times the default credit line, which the stub with
+ * unlimited trust goes far past. */
 const PAYMENT = 5_000_000_000n;
-/**
- * What a node extends to each peer: 1.1 USD
- * (spec/areas/settlement.md#credit).
- */
-const CREDIT = 1_100_000_000n;
-/** Every node's trigger: one and a half of the largest packets (spec/decisions/thresholds-in-packets.md). */
-const TRIGGER = 150_000_000n;
 const DEPOSIT = 100_000_000_000n;
 
 const missing = await missingScenarioTools();
@@ -48,12 +45,12 @@ async function trusting(scenario: Scenario): Promise<typeof WebSocket> {
 }
 
 /**
- * A client of `from` pays `PAYMENT` to the receiver of `to`, once settling
- * is quiet: every junior on the way has paid its senior in advance, which
- * extends it nothing until then (spec/decisions/earned-trust.md).
+ * A client of `from` pays `PAYMENT` to the receiver of `to`: on the stub
+ * with unlimited trust, every peer extends the other room at once, so
+ * nobody pays in advance.
  */
 async function pay(scenario: Scenario, from: ScenarioNode, to: ScenarioNode) {
-  await scenario.until("paid in advance", () => quiet(scenario));
+  await scenario.until("quiet", () => quiet(scenario));
   const token = await from.rpc.call("createBtpToken", {
     label: "e2e",
     ledger: "stub+usd",
@@ -144,35 +141,28 @@ function assertMirrored(accounts: Map<string, bigint>) {
 }
 
 /**
- * Whether settling has gone quiet: no settlement on its way anywhere, no
- * node's books showing a peer at its trigger (its room for the peer down
- * to one and a half of the largest packets,
- * spec/decisions/thresholds-in-packets.md), and every pair's books mirrored.
+ * Whether the network is quiet: no settlement on its way anywhere, no
+ * packet in flight, and every pair's books mirrored.
  */
 async function quiet(scenario: Scenario): Promise<boolean> {
   for (const node of scenario.nodes) {
     const { channels } = await node.rpc.call("listSettlementChannels", {});
     if (channels.some((channel) => channel.sending)) return false;
-    const { peers } = await node.rpc.call("listPeers", {});
-    if (
-      peers.some((peer) => peer.creditOut + peer.owed <= TRIGGER)
-    ) {
-      return false;
-    }
+    const [ledger] = (await node.rpc.call("listLedgers", {})).ledgers;
+    if (ledger.ownerPending !== 0n) return false;
   }
   return mirrored(await peerAccounts(scenario));
 }
 
 /**
- * The stubs' money is conserved, and moved by what was settled: what a
- * node's books say it owes its peers net is what its payments left
- * unsettled.
+ * Nothing was settled: every stub holds what it started with, and what a
+ * node's books say it owes its peers net is what its owner spent.
  */
-async function assertSettled(scenario: Scenario) {
+async function assertNothingSettled(scenario: Scenario) {
   const balances = await stubs(scenario);
-  let total = 0n;
-  for (const balance of balances.values()) total += balance;
-  assertEquals(total, DEPOSIT * BigInt(scenario.nodes.length), "the stubs");
+  for (const node of scenario.nodes) {
+    assertEquals(balances.get(node.name), DEPOSIT, `${node.name}'s stub`);
+  }
   const accounts = await peerAccounts(scenario);
   assertMirrored(accounts);
   const ownerBalances = await owners(scenario);
@@ -181,10 +171,8 @@ async function assertSettled(scenario: Scenario) {
     for (const [pair, net] of accounts) {
       if (pair.startsWith(`${node.name}>`)) owed += net;
     }
-    // What the owner spent net is what the stub paid plus what is owed.
     const spent = DEPOSIT - ownerBalances.get(node.name)!;
-    const paid = DEPOSIT - balances.get(node.name)!;
-    assertEquals(paid + owed, spent, `${node.name} settled what it spent`);
+    assertEquals(owed, spent, `${node.name} owes what it spent`);
   }
 }
 
@@ -227,7 +215,7 @@ async function run(
 }
 
 test(
-  "two-nodes: the nodes peer, pay each other by settling, keep it all across restarts, and part settling nothing",
+  "two-nodes: the nodes peer, pay each other settling nothing, keep it all across restarts, and part",
   { skip: missing !== undefined },
   async () => {
     await run("two-nodes", async (scenario) => {
@@ -238,29 +226,28 @@ test(
         new Map([["d1", ["d2"]], ["d2", ["d1"]]]),
       );
       await pay(scenario, d1, d2);
-      await scenario.until("settled", () => quiet(scenario));
+      await scenario.until("quiet", () => quiet(scenario));
       assertEquals(
         await owners(scenario),
         new Map([["d1", DEPOSIT - PAYMENT], ["d2", DEPOSIT + PAYMENT]]),
       );
-      await assertSettled(scenario);
+      await assertNothingSettled(scenario);
       await restartAll(scenario);
       await scenario.until(
         "routes after a restart",
         () => scenario.converged(),
       );
       await pay(scenario, d2, d1);
-      await scenario.until("settled back", () => quiet(scenario));
+      await scenario.until("quiet again", () => quiet(scenario));
       assertEquals(
         await owners(scenario),
         new Map([["d1", DEPOSIT], ["d2", DEPOSIT]]),
       );
-      await assertSettled(scenario);
-      // d1's owner ends the peering: d1 collects first, asking d2 to settle
-      // once more, then tells it, and it ends on both sides. d1 pays
-      // nothing (spec/decisions/ending-a-peering.md): what d1 owes can only
-      // have grown, what d2 owes only shrunk, by what d2 settled. They do not
-      // peer again at once.
+      await assertNothingSettled(scenario);
+      // d1's owner ends the peering: d1 asks d2 to settle once more, which
+      // on the stub with unlimited trust settles nothing, then tells it,
+      // and it ends on both sides (spec/decisions/ending-a-peering.md).
+      // Nothing moves, and they do not peer again at once.
       const before = await peerAccounts(scenario);
       await d1.rpc.call("terminatePeering", { node: d2.id });
       await scenario.until("parted", async () => {
@@ -268,14 +255,12 @@ test(
         return peerings.get("d1")!.length === 0 &&
           peerings.get("d2")!.length === 0 && await quiet(scenario);
       });
-      const after = await peerAccounts(scenario);
-      assert(after.get("d1>d2")! >= before.get("d1>d2")!, "d1 paid nothing");
-      assert(after.get("d2>d1")! <= before.get("d2>d1")!, "d2 owes no more");
+      assertEquals(await peerAccounts(scenario), before, "nothing moved");
       assertEquals(
         await owners(scenario),
         new Map([["d1", DEPOSIT], ["d2", DEPOSIT]]),
       );
-      await assertSettled(scenario);
+      await assertNothingSettled(scenario);
       await new Promise((resolve) => setTimeout(resolve, 5_000));
       assertEquals(
         await scenario.peerings(),
@@ -287,7 +272,7 @@ test(
 );
 
 test(
-  "six-nodes: the network converges and routes a payment across hops, settling each",
+  "six-nodes: the network converges and routes a payment across hops, settling nothing",
   { skip: missing !== undefined },
   async () => {
     await run("six-nodes", async (scenario) => {
@@ -301,7 +286,7 @@ test(
       )[0];
       assert(from && to, "every node is every other's peer");
       await pay(scenario, from, to);
-      await scenario.until("settled", () => quiet(scenario));
+      await scenario.until("quiet", () => quiet(scenario));
       const balances = await owners(scenario);
       for (const node of scenario.nodes) {
         const expected = node === from
@@ -311,14 +296,7 @@ test(
           : DEPOSIT;
         assertEquals(balances.get(node.name), expected, node.name);
       }
-      await assertSettled(scenario);
-      // The payer settled as it paid: it owes no peer more than the credit
-      // a junior extends. As a senior it also owes each of its juniors what
-      // that junior paid in advance, so this holds per peer, not summed.
-      for (const [pair, net] of await peerAccounts(scenario)) {
-        if (!pair.startsWith(`${from.name}>`)) continue;
-        assert(net <= CREDIT, `the payer still owes ${pair} ${net}`);
-      }
+      await assertNothingSettled(scenario);
       await restartAll(scenario);
     });
   },
