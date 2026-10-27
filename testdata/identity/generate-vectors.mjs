@@ -5,9 +5,9 @@
 // decision alone, with node:crypto's HKDF-SHA256 for the master seed;
 // @scure/bip39 for the English wordlist and for BIP-39 phrases a reader
 // refuses; @noble/hashes for the HMAC tree of seed paths and the node ID's
-// digest, @scure/base for its base32, @noble/curves for Ed25519 and
-// X25519, @scure/bip32 for a hub's payout key, and xrpl.js for the XRP
-// Ledger wallets.
+// digest, @scure/base for its base32, @noble/curves for Ed25519,
+// @scure/bip32 for a hub's payout key, and xrpl.js for the XRP Ledger
+// wallets.
 //
 // It writes, into crates/dassie-identity/tests/data/:
 //
@@ -21,8 +21,8 @@
 //   master seed, node key, public key, node ID, login secret, and the
 //   entropy and wallet of the node's first XRP Ledger account on the
 //   testnet and on mainnet;
-// - keys.json: two node keys with a signature and their X25519 keys, an
-//   X25519 shared secret, and the node ID's hash input;
+// - keys.json: two node keys with a signature, and the node ID's hash
+//   input;
 // - paths.json: every seed path below the node key, with its text and its
 //   secret, and for a hub's keys what the hub's rules name of them.
 //
@@ -47,7 +47,7 @@ const { HDKey } = require("@scure/bip32");
 const { base32nopad } = require("@scure/base");
 const { sha256 } = require("@noble/hashes/sha2.js");
 const { hmac } = require("@noble/hashes/hmac.js");
-const { ed25519, x25519 } = require("@noble/curves/ed25519.js");
+const { ed25519 } = require("@noble/curves/ed25519.js");
 const { Wallet, encodeSeed } = require("xrpl");
 
 const OUT = "crates/dassie-identity/tests/data";
@@ -481,22 +481,12 @@ const keys = [fill(1), fill(3)].map((seed) => {
     seed: hex(seed),
     publicKey: hex(publicKey),
     nodeId: nodeId(publicKey),
-    x25519Secret: hex(ed25519.utils.toMontgomerySecret(seed)),
-    x25519Public: hex(ed25519.utils.toMontgomery(publicKey)),
     message: hex(message),
     signature: hex(ed25519.sign(message, seed)),
   };
 });
-const sessionPrivate = fill(2);
-const peerPublic = ed25519.getPublicKey(fill(3));
 write("keys.json", {
   keys,
-  session: {
-    privateKey: hex(sessionPrivate),
-    publicKey: hex(x25519.getPublicKey(sessionPrivate)),
-    peerPublicKey: hex(peerPublic),
-    sharedSecret: hex(x25519.getSharedSecret(sessionPrivate, ed25519.utils.toMontgomery(peerPublic))),
-  },
   nodeIdHashInput: {
     oid: "1.3.6.1.4.1.54392.5.1399.2.1",
     publicKey: hex(ed25519.getPublicKey(fill(1))),
