@@ -51,6 +51,14 @@ CI runs tests on fixed seeds only, property tests included ([Testing](areas/test
 
 For the same reason no Rust test's outcome depends on how fast the machine is: a test over real sockets runs its protocol on a clock it moves by hand, and waits for progress, never for a span of real time ([Testing](areas/testing.md#over-real-sockets)).
 
+## CI rebuilds only what changed
+
+The flake's checks are kept by their inputs, so a check reruns only when something it reads changed, and a pull request waits only for what it touched.
+
+- **A derivation reads only what it needs.** Its source is the files it builds from, not the repository; a file only one check reads joins that check's source alone.
+- **Heavy work sits in the derivation with the fewest inputs.** A step that gathers pieces (a check, a bundle, a package) builds often, since it reads everything it gathers, so it only puts together what derivations upstream built; compiling, installing packages and building the apps happen upstream, in a derivation of their own if need be, which changes only when its own inputs do.
+- **The Rust workspace builds crate by crate,** so an edit compiles the crate edited and those built on it, and runs only their tests ([crate-by-crate-builds](decisions/crate-by-crate-builds.md)).
+
 ## TypeScript and packages
 
 - **Type-strippable TypeScript only.** Node runs the sources as they are, by stripping their types, and nothing is emitted. So the code uses only syntax that strips (no enums, no parameter properties: `erasableSyntaxOnly`) and imports with `.ts` extensions.
@@ -60,6 +68,7 @@ For the same reason no Rust test's outcome depends on how fast the machine is: a
 ## Decisions
 
 - [build-system](decisions/build-system.md): the Nix flake for CI and releases.
+- [crate-by-crate-builds](decisions/crate-by-crate-builds.md): CI builds and tests the Rust workspace crate by crate.
 - [tigerstyle](decisions/tigerstyle.md): pragmatic TigerStyle and deterministic simulation, and why determinism comes first.
 - [own-books](decisions/own-books.md): each node keeps its own books; why not reconcile.
 - [node-and-pnpm](decisions/node-and-pnpm.md): Node and pnpm rather than Deno or Bun.

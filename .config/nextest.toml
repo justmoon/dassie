@@ -1,9 +1,10 @@
-# cargo-nextest, which runs the workspace's tests in the Nix check
-# (flake.nix): every test in its own process, all of them at once, so that
-# the check takes as long as its build and its slowest test rather than the
-# sum of its test binaries. A local `cargo test` runs the same tests.
+# cargo-nextest, which runs each crate's tests in the Nix checks
+# (nix/rust, and desktop-test in flake.nix): every test in its own process,
+# all of them at once, so that a check takes as long as its build and its
+# slowest test rather than the sum of its test binaries. A local
+# `cargo test` runs the same tests.
 
-# The Nix check's profile (NEXTEST_PROFILE in flake.nix).
+# The Nix checks' profile (`--profile ci`).
 [profile.ci]
 # Every test runs, so that one run reports every failure.
 fail-fast = false
