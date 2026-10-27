@@ -83,12 +83,9 @@ pub enum Direction {
     Withdraw,
 }
 
-/// How long a check of a token hub's gas holds for the next withdrawal:
-/// the escrow's XRP falls only by the gas of each transaction it sends,
-/// which is a small part of [`LEAST_ESCROW_GAS_DROPS`], so a check a few
-/// minutes old still says enough; an owner who withdraws after it has the
-/// escrow checked again.
-pub const GAS_CHECK_LASTS_MS: u64 = 600_000;
+/// How long a check of a token hub's gas holds
+/// ([`dassie_hub::member::GAS_CHECK_LASTS_MS`]).
+pub const GAS_CHECK_LASTS_MS: u64 = dassie_hub::member::GAS_CHECK_LASTS_MS;
 
 /// The least XRP, in drops, a token hub's escrow holds before a member
 /// asks it for a withdrawal ([`dassie_hub::member::LEAST_ESCROW_GAS_DROPS`]).
@@ -216,7 +213,8 @@ pub enum Gas {
     /// The escrow's XRP asked for, to be proven at ledger `after` or later.
     Reading {
         /// The XRP Ledger's newest ledger the node had proven when it
-        /// asked.
+        /// asked: the read counts once proven at a later one, so it shows
+        /// the escrow as it was when the node asked, or later.
         after: u32,
     },
     /// The node's top-up of the escrow's XRP, on its way.
@@ -442,7 +440,7 @@ impl Funding {
 
     /// The next step of the check of a token hub's gas before a
     /// withdrawal, from what the XRP owner book's account proved of the
-    /// escrow: read its XRP, at the newest ledger proven or later, then
+    /// escrow: read its XRP, at a ledger after the newest proven, then
     /// send it the shortfall below [`LEAST_ESCROW_GAS_DROPS`], and wait
     /// until that applied. Its whole XRP counts, never a part of it kept
     /// for its reserve. A top-up that moved nothing fails: the funding
@@ -461,7 +459,7 @@ impl Funding {
                 None => GasNext::Wait,
             },
             Gas::Reading { after } => match seen.proven {
-                Some((drops, at)) if at >= after => {
+                Some((drops, at)) if at > after => {
                     let held = drops.unwrap_or(0);
                     if held >= LEAST_ESCROW_GAS_DROPS {
                         self.gas = Gas::Ready { at_ms: now_ms };
@@ -729,7 +727,7 @@ mod tests {
     }
 
     // spec/decisions/token-hubs.md: before a token hub's withdrawal, the
-    // escrow's XRP is read at the newest ledger proven or later; with
+    // escrow's XRP is read at a ledger after the newest proven when asked; with
     // enough, the withdrawal goes; short, the shortfall is topped up, and
     // the withdrawal waits for it to apply; a top-up that failed backs off.
     // A withdrawal started takes the check with it.
@@ -745,9 +743,9 @@ mod tests {
         seen.anchor = Some(10);
         assert_eq!(funding.gas_step(1, &seen), GasNext::Read);
         assert!(funding.gas_checking());
-        seen.proven = Some((Some(LEAST_ESCROW_GAS_DROPS * 5), 9));
-        assert_eq!(funding.gas_step(2, &seen), GasNext::Read, "read before");
-        seen.proven = Some((Some(LEAST_ESCROW_GAS_DROPS), 10));
+        seen.proven = Some((Some(LEAST_ESCROW_GAS_DROPS * 5), 10));
+        assert_eq!(funding.gas_step(2, &seen), GasNext::Read, "as of before");
+        seen.proven = Some((Some(LEAST_ESCROW_GAS_DROPS), 11));
         assert_eq!(funding.gas_step(3, &seen), GasNext::Ready);
         assert!(funding.gas_ready(3) && !funding.gas_ready(3 + GAS_CHECK_LASTS_MS));
         funding.start(4, Planned::withdraw(1_000_000, 0, 3, true), payment());
@@ -757,7 +755,7 @@ mod tests {
         // Short: topped up by the shortfall, ready once that applied.
         seen.anchor = Some(11);
         assert_eq!(funding.gas_step(5, &seen), GasNext::Read);
-        seen.proven = Some((Some(300_000), 11));
+        seen.proven = Some((Some(300_000), 12));
         assert_eq!(
             funding.gas_step(6, &seen),
             GasNext::TopUp(LEAST_ESCROW_GAS_DROPS - 300_000)
@@ -770,7 +768,7 @@ mod tests {
         // An escrow with no account is short of all of it; a top-up that
         // moved nothing backs off, the automatic moves with it.
         funding.gas = Gas::Unchecked;
-        seen.proven = Some((None, 11));
+        seen.proven = Some((None, 12));
         assert_eq!(funding.gas_step(9, &seen), GasNext::Read);
         assert_eq!(
             funding.gas_step(9, &seen),

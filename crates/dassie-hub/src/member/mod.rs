@@ -37,6 +37,14 @@ pub use scheme::{DSUSD_SCHEME_ID, HubScheme, SCHEME_ID, scheme_of};
 
 pub use crate::rules::LEAST_ESCROW_GAS_DROPS;
 
+/// How long a member's check that a token hub's escrow holds
+/// [`LEAST_ESCROW_GAS_DROPS`] holds for the withdrawal it was made for: long
+/// enough for an owner told to ask again shortly to do so, and short
+/// against what the escrow's XRP may lose meanwhile, which only the fees of
+/// its own transactions burn, each a small part of the least gas
+/// (spec/decisions/token-hubs.md).
+pub const GAS_CHECK_LASTS_MS: u64 = 60_000;
+
 /// The default hub of the XRP Ledger testnet, as the hex of its rules'
 /// encoding, kept like the default bootstrap node list
 /// (spec/designs/settlement-hubs.md#11-choosing-a-hub): founded by boot1

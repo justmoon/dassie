@@ -666,6 +666,8 @@ impl XrplAccount {
     /// # Panics
     ///
     /// With more than [`MAX_SCHEMES`] schemes.
+    // One line per field of the account, which it builds whole.
+    #[allow(clippy::too_many_lines)]
     pub fn new(
         id: AssetId,
         schemes: &[Name],

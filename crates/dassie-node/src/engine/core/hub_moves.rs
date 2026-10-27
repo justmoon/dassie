@@ -608,9 +608,11 @@ impl Core {
     /// Takes the next step of the check of the gas of the token hub of
     /// `scheme` before a withdrawal (spec/decisions/token-hubs.md): reads
     /// the escrow's XRP through the XRP owner book's account, and if it is
-    /// short pays the escrow the shortfall from the book, a payment without
-    /// a tag that credits no one in the hub. Returns whether the escrow has
-    /// its gas now. While the XRP book does not run, it waits.
+    /// short pays the escrow the shortfall from the book, a payment of XRP
+    /// that credits no one in the hub. Returns whether the escrow has
+    /// its gas now. While the XRP book does not run, it waits. The escrow
+    /// requires a destination tag on what it is paid, so the top-up names
+    /// the node's account in the hub, which XRP credits nothing.
     fn check_gas(&mut self, scheme: Name) -> bool {
         let now = self.now_ms;
         let Some(seen) = self.gas_seen(scheme) else {
@@ -633,7 +635,14 @@ impl Core {
                 false
             }
             GasNext::TopUp(drops) => {
-                let paid = self.pay_from_xrpl(&escrow.to_address(), drops);
+                // The escrow takes no payment without a tag: the account's
+                // own number names who paid it, and XRP credits no one in
+                // a token hub.
+                let tag = self
+                    .hub_account(scheme)
+                    .and_then(HubAccount::number)
+                    .map(|number| number.0);
+                let paid = self.pay_from_xrp_book(&escrow.to_address(), tag, drops);
                 if let Some(funding) = self.funding.get_mut(&scheme) {
                     match paid {
                         Ok(payment) => funding.topping_up(payment),
@@ -792,6 +801,16 @@ impl Core {
     /// cover it with its fee, or the scheme has an owner's payment on its
     /// way already.
     pub fn pay_from_xrpl(&mut self, destination: &str, drops: u64) -> Result<Name, EngineError> {
+        self.pay_from_xrp_book(destination, None, drops)
+    }
+
+    /// [`pay_from_xrpl`](Self::pay_from_xrpl) with destination tag `tag`.
+    fn pay_from_xrp_book(
+        &mut self,
+        destination: &str,
+        tag: Option<u32>,
+        drops: u64,
+    ) -> Result<Name, EngineError> {
         let not_running = || {
             EngineError::Precondition("the XRP Ledger testnet scheme is not running synced".into())
         };
@@ -806,7 +825,7 @@ impl Core {
         let amount = drops.saturating_mul(UNITS_PER_DROP);
         let payment = OwnerPayment {
             destination: destination.into(),
-            tag: None,
+            tag,
             memo: None,
             amount,
         };
