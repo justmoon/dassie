@@ -1083,78 +1083,10 @@ fn a_stopped_scheme_closes_its_connection() {
     assert_eq!(core.ledger_views()[0].status, LedgerStatus::Connecting);
 }
 
-// spec/decisions/earned-trust.md: a node that once accepted a peer's request
-// extended it nothing, on a trust account that stays when the peering ends.
-// Peering again on its own request, it is the junior, and extends at least
-// the default credit: it posts the difference, rather than keep the senior's
-// nothing.
-// Goes with direct settlement: the credit machinery (spec/roadmap.md#hubs-only).
-#[test]
-fn a_junior_extends_at_least_the_default_credit() {
-    use dassie_ledger::{AccountName, AccountPath, LedgerId, Name};
-    use dassie_peer::PeeringHooks;
-
-    let mut core = core(7);
-    core.add_scheme("stub", String::new()).unwrap();
-    let peer = NodeKey::from_bytes(&[9; 32]).node_id();
-    let name = Name::new(peer.as_str()).unwrap();
-    core.ledger
-        .open_peer(NOW, LedgerId::StubUsd, name, core.senior_credit)
-        .unwrap();
-    let scheme = dassie_peer::wire::SchemeId::parse("stub").unwrap();
-    let agreed = core
-        .with_peer(|_, hooks, _| hooks.finalize(NOW, peer, scheme, &[], false))
-        .unwrap();
-    assert_eq!(agreed.credit_out, Policies::DEFAULT.peer_credit);
-    let contra = core
-        .ledger
-        .find(&AccountPath::new(
-            LedgerId::StubUsd,
-            AccountName::ContraTrust(name),
-        ))
-        .unwrap();
-    let trust = dassie_settlement::policy::trust(core.ledger.account(contra).unwrap().balance());
-    assert_eq!(trust, Policies::DEFAULT.peer_credit);
-}
-
-// spec/decisions/ended-for-room.md: a peering we ended because the peer's
-// room stayed short is formed again later on our own request. We are the
-// junior now, but the peer gets no more credit than it had as our junior: the
-// default would be a new line for a peer that never settled.
-// Goes with direct settlement: the credit machinery (spec/roadmap.md#hubs-only).
-#[test]
-fn a_junior_keeps_the_lower_credit_of_a_peer_it_ended_for_room() {
-    use dassie_ledger::{AccountName, AccountPath, LedgerId, Name};
-    use dassie_peer::PeeringHooks;
-
-    let mut core = core(7);
-    core.add_scheme("stub", String::new()).unwrap();
-    let peer = NodeKey::from_bytes(&[9; 32]).node_id();
-    let name = Name::new(peer.as_str()).unwrap();
-    core.ledger
-        .open_peer(NOW, LedgerId::StubUsd, name, core.senior_credit)
-        .unwrap();
-    let scheme = dassie_peer::wire::SchemeId::parse("stub").unwrap();
-    let agreed = core
-        .with_peer(|_, hooks, _| hooks.finalize(NOW, peer, scheme, &[], true))
-        .unwrap();
-    assert_eq!(agreed.credit_out, core.senior_credit);
-    assert!(core.senior_credit < Policies::DEFAULT.peer_credit);
-    let contra = core
-        .ledger
-        .find(&AccountPath::new(
-            LedgerId::StubUsd,
-            AccountName::ContraTrust(name),
-        ))
-        .unwrap();
-    let trust = dassie_settlement::policy::trust(core.ledger.account(contra).unwrap().balance());
-    assert_eq!(trust, core.senior_credit);
-}
-
 // spec/areas/settlement.md#the-stub-scheme: on the stub with unlimited trust,
-// the senior and the junior alike extend the unlimited credit, and a trust
-// account from an earlier peering that holds less, even one ended for room,
-// is raised to it.
+// the node that accepts and the node that asked alike extend the unlimited
+// credit, and a trust account from an earlier peering that holds less is
+// raised to it.
 #[test]
 fn on_unlimited_trust_both_sides_extend_the_unlimited_credit() {
     use dassie_ledger::{AccountName, AccountPath, LedgerId, Name};
@@ -1178,12 +1110,12 @@ fn on_unlimited_trust_both_sides_extend_the_unlimited_credit() {
                 .balance(),
         )
     };
-    // As the senior, to a new peer, and to one we once extended less.
+    // Accepting, to a new peer, and to one we once extended less.
     let fresh = seeded_node(1);
     let known = seeded_node(2);
     let name = Name::new(known.as_str()).unwrap();
     core.ledger
-        .open_peer(NOW, LedgerId::StubUsd, name, core.senior_credit)
+        .open_peer(NOW, LedgerId::StubUsd, name, 0)
         .unwrap();
     for peer in [fresh, known] {
         let agreed = core
@@ -1192,14 +1124,14 @@ fn on_unlimited_trust_both_sides_extend_the_unlimited_credit() {
         assert_eq!(agreed.credit_out, UNLIMITED_CREDIT);
         assert_eq!(trust_of(&core, peer), UNLIMITED_CREDIT);
     }
-    // As the junior, to a peer we once ended for room.
+    // Asking, to a peer we once extended less.
     let ended = seeded_node(3);
     let name = Name::new(ended.as_str()).unwrap();
     core.ledger
-        .open_peer(NOW, LedgerId::StubUsd, name, core.senior_credit)
+        .open_peer(NOW, LedgerId::StubUsd, name, 0)
         .unwrap();
     let agreed = core
-        .with_peer(|_, hooks, _| hooks.finalize(NOW, ended, scheme, &info, true))
+        .with_peer(|_, hooks, _| hooks.finalize(NOW, ended, scheme, &info))
         .unwrap();
     assert_eq!(agreed.credit_out, UNLIMITED_CREDIT);
     assert_eq!(trust_of(&core, ended), UNLIMITED_CREDIT);
@@ -1212,7 +1144,7 @@ fn on_unlimited_trust_both_sides_extend_the_unlimited_credit() {
     );
     // A downlink's accounts open with it too, once value moves with it.
     assert_eq!(
-        super::downlinks::start_credit(&core.schemes, Name::new("stub").unwrap(), 0),
+        super::downlinks::start_credit(&core.schemes, Name::new("stub").unwrap()),
         UNLIMITED_CREDIT
     );
 }
@@ -1452,7 +1384,7 @@ fn downlinks_never_take_the_room_core_peers_need() {
     let scheme = dassie_peer::wire::SchemeId::parse("stub").unwrap();
     let last = NodeKey::from_bytes(&[2; 32]).node_id();
     let info = stub_info(&mut core);
-    core.with_peer(|_, hooks, _| hooks.finalize(NOW, last, scheme, &info, false))
+    core.with_peer(|_, hooks, _| hooks.finalize(NOW, last, scheme, &info))
         .unwrap();
     core.take_journal();
     assert_eq!(
@@ -2124,8 +2056,8 @@ fn downlink_request_on(downlink: &Arc<NodeKey>, now: u64, scheme: &str, data: &[
 }
 
 // spec/areas/network.md#advertised-peers: a downlink that owes nothing is
-// never short of room in our books, though we extend it nothing as its
-// senior: withdrawing it would only stop the payments to it that raise its
+// never short of room in our books, though we extend it nothing over the
+// hub: withdrawing it would only stop the payments to it that raise its
 // room.
 #[test]
 fn a_downlink_that_owes_nothing_is_never_short_of_room() {
@@ -4354,7 +4286,7 @@ fn a_stored_scheme_of_another_realm_keeps_what_is_pending_on_its_ledger() {
     // The books take a settlement to it as one over a hub: the credit we
     // extend it is raised first.
     let now = test.now_ms();
-    super::growth::raise_trust(&mut test.ledger, now, on, peer, 400).unwrap();
+    super::trust::raise_trust(&mut test.ledger, now, on, peer, 400).unwrap();
     let pending = TransferSpec {
         debit: test
             .account(on, AccountName::AssetsInterledger(peer))
@@ -4486,8 +4418,8 @@ fn hub_books(core: &mut Core, peer: dassie_identity::NodeId) -> (u64, u64, u64) 
 }
 
 // spec/areas/hubs.md#in-the-node: asked to settle over a hub, a payer funds
-// its hold toward the peer with what it would otherwise have paid, as a
-// junior that extends the default credit would, though it extends none:
+// its hold toward the peer with what it would otherwise have paid, as if it
+// extended the default credit, though it extends none:
 // the credit is raised by it first, so that the books take the settlement,
 // and once the settlement executed the credit is the hold it funded.
 #[test]

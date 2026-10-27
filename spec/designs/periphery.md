@@ -166,7 +166,7 @@ The first rule narrows a condition for real money, "an account's creation is a d
 
 **Ending a free receiver's peering** follows [ending-a-peering](../decisions/ending-a-peering.md):
 
-- **The uplink evicts** a free receiver that has received nothing and sent nothing for 30 days. Ending the peering, the uplink pays nothing, and it still asks the receiver to settle once. A receiver whose account exists by then, and holds more than the reserve, answers as any junior does, paying half the way to its own trigger. Either way it loses at most the credit it extends. Its row stays, and counts toward the rows' limit (§4), until the receiver peers again and is settled as usual, or nothing is owed.
+- **The uplink evicts** a free receiver that has received nothing and sent nothing for 30 days. Ending the peering, the uplink pays nothing, and it still asks the receiver to settle once. A receiver whose account exists by then, and holds more than the reserve, answers as any peer does, paying half the way to its own trigger. Either way it loses at most the credit it extends. Its row stays, and counts toward the rows' limit (§4), until the receiver peers again and is settled as usual, or nothing is owed.
 - **A free receiver that leaves** asks the uplink to settle once, as any node ending a peering does. Below the reserve, the uplink has nothing it can send yet, and the receiver stays owed.
 - **On the uplink,** free receivers take at most half of its downlinks. This is built ([Network](../areas/network.md#downlinks), [free-receivers-half](../decisions/free-receivers-half.md)): a downlink is a free receiver until the uplink's books take a settlement of at least one largest packet from it, and stays a paying one after. Once free receivers hold half of the downlinks' places, a new one is refused; one that paid is bounded by the downlinks' bound alone, and no downlink is ended or displaced for the rule. So keys made for nothing fill only the free half.
 
@@ -193,4 +193,4 @@ A browser node is a short-lived periphery node, for demos: it lets someone join 
 - **Choosing uplinks.** Which core nodes a periphery node picks by default, and whether the operator of a front door it uses counts.
 - **Front doors.** Whether anyone may run one, or only core nodes. Dassie-aware clients check signatures either way.
 - **A cold lookup** adds a round trip to a home node before the first stream. Caching and relays make it rare; whether that is enough is for measurement.
-- **Withdrawal for room without debt.** §4 exempts downlinks that owe nothing. A core junior that has spent what it paid in advance is in the same position: withdrawing it also stops the payments that would raise its room.
+- **Withdrawal for room without debt.** §4 exempts downlinks that owe nothing. A core peer that has spent what it paid in advance is in the same position: withdrawing it also stops the payments that would raise its room.

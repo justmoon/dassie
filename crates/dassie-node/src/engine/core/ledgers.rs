@@ -61,10 +61,14 @@ impl ActiveScheme {
         self.scheme.converts() && (self.failed.is_none() || self.scheme.peg().is_none())
     }
 
-    /// The credit the node extends at first to a peer on it, given the
-    /// `default` for the peer's role: nothing over a hub, whose hold is all
-    /// the credit there is; [`UNLIMITED_CREDIT`](dassie_settlement::policy::UNLIMITED_CREDIT)
-    /// with unlimited trust (spec/areas/settlement.md#the-stub-scheme).
+    /// The credit the node extends at first to a peer on it: nothing over a
+    /// hub, whose hold is all the credit there is;
+    /// [`UNLIMITED_CREDIT`](dassie_settlement::policy::UNLIMITED_CREDIT)
+    /// with unlimited trust (spec/areas/settlement.md#credit). A scheme
+    /// that settles directly extends `default`: the default credit from the
+    /// node that asked to peer, and nothing from the node that accepted or
+    /// to a downlink, which pay in advance. A branch that no scheme reaches
+    /// once none peers directly (spec/decisions/hubs-only.md).
     pub fn start_credit(&self, default: u64) -> u64 {
         if self.over_hub {
             0

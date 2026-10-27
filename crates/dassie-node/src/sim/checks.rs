@@ -279,17 +279,47 @@ fn drifted(sim: &mut Sim) -> Vec<Drifted> {
             else {
                 continue;
             };
-            let survives = (u128::from(credit_a) + u128::from(credit_b))
-                .saturating_sub(u128::from(policy::least_credit(MAX_PACKET, 0)));
+            let (short_a, short_b) = (policy::ask(room_a, TRIGGER), policy::ask(room_b, TRIGGER));
+            let survives = match (short_a, short_b) {
+                (true, false) => survives(sim, credit_a, b, credit_b),
+                (false, true) => survives(sim, credit_b, a, credit_a),
+                _ => survives(sim, credit_a, b, credit_b).min(survives(sim, credit_b, a, credit_a)),
+            };
             links.push(Drifted {
                 nodes: (a, b),
                 drift,
                 survives,
-                short: policy::ask(room_a, TRIGGER) || policy::ask(room_b, TRIGGER),
+                short: short_a || short_b,
             });
         }
     }
     links
+}
+
+/// How far a link survives drift when the side that extends `asker` asks
+/// node `payer`, which extends `credit`, to settle: asked at the asker's
+/// trigger, the payer settles only if its books leave it its own trigger
+/// plus twice the least settlement, and over a hub it answers as if it
+/// extended its default credit (spec/decisions/crash-drift.md).
+fn survives(sim: &Sim, asker: u64, payer: usize, credit: u64) -> u128 {
+    let over_hub = matches!(
+        sim.settling,
+        Settling::StubHub(_)
+            | Settling::HubDsusd(_)
+            | Settling::Hub(_)
+            | Settling::HubAcross(_)
+            | Settling::Hubs(_)
+    );
+    let answers = if over_hub {
+        sim.credits
+            .get(&payer)
+            .copied()
+            .unwrap_or(Policies::DEFAULT.peer_credit)
+    } else {
+        credit
+    };
+    let settles = 2 * u128::from(TRIGGER) + 2 * u128::from(policy::minimum(MAX_PACKET));
+    (u128::from(asker) + u128::from(answers)).saturating_sub(settles)
 }
 
 /// A link that crashes drifted past what it survives, stuck as the

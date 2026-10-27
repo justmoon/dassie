@@ -4,7 +4,7 @@
 
 ## Facts
 
-- A core node takes downlinks, up to `max_downlinks`. A downlink proves only that it holds its key: it is not registered, not probed, and pays nothing to peer; the uplink extends it no credit ([earned-trust](earned-trust.md)). A key costs nothing, and keeping a peering costs a heartbeat now and then. So anyone could make keys and hold every downlink place for as long as they kept heartbeating, and the node would refuse real periphery nodes for capacity.
+- A core node takes downlinks, up to `max_downlinks`. A downlink proves only that it holds its key: it is not registered, not probed, and pays nothing to peer; the uplink extends it no credit ([Settlement](../areas/settlement.md#credit)). A key costs nothing, and keeping a peering costs a heartbeat now and then. So anyone could make keys and hold every downlink place for as long as they kept heartbeating, and the node would refuse real periphery nodes for capacity.
 - A downlink's settlement channel holds one of those places until it closes, a silent peer's wait after its peering ended ([closing-channels](closing-channels.md)). Keys that peer and leave hold places too.
 - The design gives free receivers, downlinks that have not yet paid anything, at most half of an uplink's downlinks ([Periphery](../designs/periphery.md#8-free-receivers)).
 - A channel's `settled_in` moves with every settlement message the node applies. On the XRP Ledger and over a settlement hub the message books nothing: the ledger says what arrived ([Settlement](../areas/settlement.md#incoming-settlements)). Any message with well-formed data moves it, so it shows nothing about money. What the node's books took from a node as its incoming settlement does.
@@ -12,7 +12,7 @@
 
 ## Decision
 
-- **A free receiver is a downlink that never paid us:** the node's books never took a settlement of at least one largest packet from it, the least an honest node settles ([thresholds-in-packets](thresholds-in-packets.md)), on any ledger. The node marks the node's settlement channel when its books take one (`paid_us`), and the mark stays for good, open or closed, as the mark of an end for room does ([ended-for-room](ended-for-room.md)).
+- **A free receiver is a downlink that never paid us:** the node's books never took a settlement of at least one largest packet from it, the least an honest node settles ([thresholds-in-packets](thresholds-in-packets.md)), on any ledger. The node marks the node's settlement channel when its books take one (`paid_us`), and the mark stays for good, open or closed ([closing-channels](closing-channels.md)).
 - **Free receivers hold at most half of the downlinks' places** (`Config::max_free_downlinks`, half of `max_downlinks` rounded down). A place is an open channel with a downlink, so they count those peered with and those not long ago, as the downlinks' bound does. Once free receivers hold that many, a new downlink that never paid us is refused for capacity. One that paid us is bounded by `max_downlinks` alone.
 - **Only newcomers are refused.** A downlink whose channel is open as a downlink's holds its place already and gets in, and a repeated request is answered with the peering as it was made. Nothing is ever ended or displaced by the rule. A free receiver that pays holds a paying place from then on, and leaves its free one to another.
 - **A node that takes downlinks has room for a free receiver:** `max_downlinks` is zero or at least two (`Config::validate`).

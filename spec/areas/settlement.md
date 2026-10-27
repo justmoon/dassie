@@ -1,8 +1,8 @@
 # Settlement
 
-How a node moves money with its peers on an underlying ledger, and how its books learn about it: the settlement scheme interface, the external assets schemes settle through, the credit a node extends to each peer and how that grows, when it asks a peer to settle and how much it settles when asked, and how settlement messages are delivered exactly once.
+How a node moves money with its peers on an underlying ledger, and how its books learn about it: the settlement scheme interface, the external assets schemes settle through, the credit a node extends to each peer, when it asks a peer to settle and how much it settles when asked, and how settlement messages are delivered exactly once.
 
-**Paths:** `crates/dassie-settlement/`, `crates/dassie-node/src/engine/core/settlement.rs`, `crates/dassie-node/src/engine/core/growth.rs`, `crates/dassie-node/src/engine/core/ledgers.rs`, `crates/dassie-node/src/engine/core/schemes.rs`, `crates/dassie-node/src/engine/links.rs`, `crates/dassie-peer/src/node/settle.rs`, `crates/dassie-peer/src/channel.rs`
+**Paths:** `crates/dassie-settlement/`, `crates/dassie-node/src/engine/core/settlement.rs`, `crates/dassie-node/src/engine/core/trust.rs`, `crates/dassie-node/src/engine/core/ledgers.rs`, `crates/dassie-node/src/engine/core/schemes.rs`, `crates/dassie-node/src/engine/links.rs`, `crates/dassie-peer/src/node/settle.rs`, `crates/dassie-peer/src/channel.rs`
 **Read with:** [Ledger](ledger.md), [XRPL](xrpl.md), [Network](network.md), [Peer protocol](peer-protocol.md), [Connector](connector.md)
 
 Each node keeps its own books and decides from them alone: whether it takes a settlement, when it asks a peer to settle, how much it settles, and when it ends a peering. What a peer says is an input to these decisions, never trusted past the node's limits. However a peer behaves, and however far its books are from ours, **it costs us at most the credit we extend, plus what it has in flight** ([Connector](connector.md#money-in-flight-with-a-peer)). The node does not know the credit a peer extends to it, does not model the peer's books, and does not measure drift ([own-books](../decisions/own-books.md)).
@@ -76,29 +76,15 @@ Activation books only the difference between the scheme's balance and the last c
 
 ## Credit
 
-**Roles.** The **junior** is the node whose peering request was accepted, the **senior** the node that accepted it; when requests cross, the lower node ID's request wins, so the lower ID is the junior ([Network](network.md)). The node that asked to peer takes the risk at first ([earned-trust](../decisions/earned-trust.md)). A periphery node always asks, so it is always its uplinks' junior ([Network](network.md#periphery-nodes)).
+What a node lets a peer owe it. The node books it as `trust` transfers between the peer's `contra/trust` and `assets/interledger` accounts (`crates/dassie-node/src/engine/core/trust.rs`), and the trust account stays when a peering ends, so a later peering keeps it rather than post it twice.
 
-**Starting credit.** The junior extends the senior the default credit line; the senior extends the junior nothing. Asked to settle at once, the junior then pays in advance, and payments to the junior flow at once, within the credit it extends. Both are policies of the node (`Policies` in `crates/dassie-node/src/node/mod.rs`), not owner settings, and one value for every ledger ([roadmap](../roadmap.md#not-built-yet)). The stub with unlimited trust, for tests, extends far more ([below](#the-stub-scheme)).
-
-- **Peering again** keeps the trust account and its credit. A junior still extends at least the default line: a node that was the senior before, or that accepted a request only one side recorded, raises the account to it. Not when it once ended a peering with that node for want of room: then it keeps the lower credit, so a peer that never settled gets no new line by being asked again ([ended-for-room](../decisions/ended-for-room.md)).
+- **Over a hub, the credit is the hold.** The credit a node extends to a peer over a settlement hub is its own hold toward the peer and its settlements to the peer on their way: its money set aside, from which the peer is paid whether the node cooperates or not, all of the credit and nothing more ([below](#settlement-hubs), [hubs-only](../decisions/hubs-only.md)). It starts at nothing, whichever node asked to peer and for a downlink alike, and follows the hold from then on.
+- **The default credit sizes a request.** A payer over a hub asked to settle funds its hold with what it would have paid had it extended the default credit (`peer_credit` in `Policies`, `crates/dassie-node/src/node/mod.rs`), counting its hold as what it paid in advance: half the way from there down to its trigger ([below](#settling-on-request)). So the default credit sets how much one request funds a hold by, and with it the least a node keeps spendable in its hub ([below](#positions-and-thresholds)). It is a policy of the node, not an owner setting, and one value for every ledger ([roadmap](../roadmap.md#not-built-yet)). The node refuses to start with a default credit so small that a request to a payer with nothing held would fund less than the least settlement: such a request funds nothing, and its payee would ask for ever.
+- **With unlimited trust,** for tests, the stub extends every peer the unlimited credit instead ([below](#the-stub-scheme)).
 - **Nothing is announced.** The credit a node extends is its own business: no message of the peer protocol carries it ([Peer protocol](peer-protocol.md#versions)). More credit only means the creditor asks later.
-- **Per method.** A peering extends credit on each of its settlement methods, in that method's ledger's units, as on a peering's only one: the junior the default line on each, a method added later included, and an end for room keeps the lower credit on every method ([settlement-methods](../decisions/settlement-methods.md)). No budget spans methods, which would need exchange rates in the credit rules.
+- **Per method.** A peering extends credit on each of its settlement methods, in that method's ledger's units, as on a peering's only one: over each method's hub, the hold there, a method added later included ([settlement-methods](../decisions/settlement-methods.md)). No budget spans methods, which would need exchange rates in the credit rules.
 
-**The least credit.** Asked at the asker's trigger, a debtor settles only if its own books leave it its trigger plus twice the least settlement ([below](#settling-on-request)). So a link survives drift of up to its credit less two triggers and twice the least settlement, and the node refuses to start with a default credit (or a senior credit other than 0) below that plus one crash's drift at the cap on money in flight (`policy::least_credit`). A link cut one way drifts no more than a crash: a node takes no new Prepare from a peer its messages surely do not reach, so its Fulfills that cannot arrive are only those in flight when the cut began ([unreachable-peers](../decisions/unreachable-peers.md)).
-
-```
-least_credit = 2 · trigger + 2 · least settlement + max_in_flight = 3P + 2P + 2.5P = 7.5 P
-```
-
-The default clears it with room for about two crashes.
-
-**Growth.** Each side raises the credit it extends to the other by k = 10% of what it earned on packets that came in or went out through that peer (`policy::GROWTH_PPM`, `engine/core/growth.rs`).
-
-- **What counts** is our connector's fee ([Connector](connector.md#fees-and-spread)), toward each peer of the packet on the ledger the fee was booked on. A packet's fee counts toward both peers it passed, so k must stay at most 50% (asserted) for the credit a node hands out never to exceed what it earned. A packet that converts counts toward the peer it came from only, since counting it toward the other would need our exchange rates. What the conversion itself gains or loses, the spread and the curve's move from spot, is not booked per packet and does not count: it is the net of the FX accounts, and negative when the node pays above spot for an asset it lacks ([passive-rebalancing](../decisions/passive-rebalancing.md)).
-- **The cap.** A peer earns at most a hundred of the largest packets of credit. Credit above it, configured or from before, stays and never falls.
-- **Measured from the books.** What a peer earned is read from the journal's fee rows, never kept in counters, and the raise is an explicit `trust` transfer. Reading resumes after the last trust transfer, so a crash can forget fees not read yet, and credits none twice.
-- **Retirement is accepted.** A node that leaves can spend everything its peers trust it with and disappear; each peer loses at most k of what it earned through that node.
-- Fees default to 0, so trust grows only once an owner charges for passing payments on. Until then a junior keeps settling in advance.
+**What a link survives.** Asked at the asker's trigger, a debtor settles only if its own books leave it its trigger plus twice the least settlement ([below](#settling-on-request)). So a link survives drift of up to the credit the debtor counts as extending when it answers, plus the credit the asker extends, less two triggers and twice the least settlement. Over a hub the debtor counts the default credit, whatever its own hold, as above, so a hub link survives drift of up to the default credit plus the asker's hold, less the same. A payee over a hub also asks once the payer's hold toward it runs low, as its scheme reads it, while its books still show room; the payer answers that from its books too, so past the same bound it has nothing to settle then either. Past it, the creditor's room for its debtor stays at its trigger while the debtor's books leave it nothing to settle ([crash-drift](../decisions/crash-drift.md)). One crash drifts the books by at most the cap on money in flight ([Connector](connector.md#money-in-flight-with-a-peer)). A link cut one way drifts no more than a crash: a node takes no new Prepare from a peer its messages surely do not reach, so its Fulfills that cannot arrive are only those in flight when the cut began ([unreachable-peers](../decisions/unreachable-peers.md)).
 
 ## Positions and thresholds
 
@@ -112,7 +98,7 @@ ask the peer to settle   when position ≤ trigger
 when asked, settle       (position − trigger) / 2, or nothing if that is less than the least settlement
 ```
 
-Every threshold of a link is counted in its [largest packet](connector.md#the-largest-packet) `P`, not in the credit, which differs on each side and grows with earnings ([thresholds-in-packets](../decisions/thresholds-in-packets.md)). So even a senior that extends nothing asks while its junior still has room.
+Every threshold of a link is counted in its [largest packet](connector.md#the-largest-packet) `P`, not in the credit, which differs on each side and over a hub follows the holds ([thresholds-in-packets](../decisions/thresholds-in-packets.md)). So a node asks at the same point whatever credit it extends, none included.
 
 **Each settlement method of a peering stands on its own:** its position is read from the peer's accounts on its own ledger, and its thresholds apply to it alone, so a peer short on one method is asked to settle on that one, whatever it holds on another ([settlement-methods](../decisions/settlement-methods.md)). Over a hub, the credit a method extends follows the holds on that method's hub.
 
@@ -122,11 +108,10 @@ Every threshold of a link is counted in its [largest packet](connector.md#the-la
 | Least settlement | 1 | A peer that keeps asking cannot make us pay a ledger fee for every few drops. |
 | Money in flight with a peer, each way | 2.5 | [Connector](connector.md#money-in-flight-with-a-peer) |
 | Room below which a peer is no longer advertised, past a grace | 1 | [Network](network.md#advertised-peers) |
-| Least default credit | 7.5 | [Above](#credit) |
+| Least default credit | 3.5 | A request to a payer over a hub with nothing held funds at least the least settlement ([above](#credit)) |
 | What a payee over a hub lets claims add before it redeems | 2 | Each redeem costs the hub's fee; what is not taken is lost if the hub fails ([Settlement hubs](hubs.md#packets-promises-and-claims)) |
-| Most credit earned | 100 | [Above](#credit) |
-| What a node keeps spendable in its hub, per peering over it | 4.75, at least the least settlement, at most 50 in all | A payer over a hub asked to settle funds its hold as a junior that extends the default credit (11) would: at most half the way from it down to the trigger (1.5), 4.75 ([Settlement hubs](hubs.md#in-the-node)). Kept for every peering, so no settlement asked of us waits for a deposit. At most half the ceiling, so that floor and ceiling stay far apart: ten peerings are funded fully |
-| Most a node keeps in its hub, its holds and those toward it included | 100 | As much as the most credit a peer earns: a failing hub costs no more than a peer that earned all it could and left. Its own holds count, since each is the credit it extends over the hub, paid in advance. The midpoint then lies at least 25 from either bound, so a move carries many times its fees ([Settlement hubs](hubs.md#in-the-node)) |
+| What a node keeps spendable in its hub, per peering over it | 4.75, at least the least settlement, at most 50 in all | A payer over a hub asked to settle funds its hold as if it extended the default credit (11): at most half the way from it down to the trigger (1.5), 4.75 ([Settlement hubs](hubs.md#in-the-node)). Kept for every peering, so no settlement asked of us waits for a deposit. At most half the ceiling, so that floor and ceiling stay far apart: ten peerings are funded fully |
+| Most a node keeps in its hub, its holds and those toward it included | 100 | All that a failing hub can cost the node. Its own holds count, since each is the credit it extends over the hub, paid in advance. The midpoint then lies at least 25 from either bound, so a move carries many times its fees ([Settlement hubs](hubs.md#in-the-node)) |
 
 Amounts are rounded down to whole units of the scheme's ledger; what is less than a unit stays owed. Both rules are deliberately simple, to be tuned later (expected settlement latency, fees, volume on the link).
 
@@ -194,7 +179,7 @@ The node keeps a settlement channel with every node it has ever peered with (`cr
 
 **Open channels are bounded:** with core nodes under one bound, and with downlinks under their own ([Network](network.md#downlinks)). Once all of a kind are taken, peering with a new node of that kind is refused for capacity; nodes it holds an open channel with can still peer. So is peering with a node whose accounts would leave the ledger less room than the node's own accounts may need, since peers' accounts stay when their channels close ([closing-channels](../decisions/closing-channels.md)), or take more than its kind's share of what they leave: core peers and downlinks each have half, and accounts count as the kind they were opened as, for good, so however many downlinks come and go, the room for peering with core nodes stays ([account-budgets](../decisions/account-budgets.md)).
 
-**A channel left idle closes, to disk** ([closing-channels](../decisions/closing-channels.md)). Once it has been idle for as long as a silent peer is kept, with a node we neither peer with nor ask, with nothing on its way and nothing of the node pending in the books, every scheme the node has accounts with seeing its ledger, and no scheme still needing it (`keeps_channel`, as a settlement hub does for a hold with funds), it leaves memory and frees its place. Its balance does not matter: the node's accounts stay with what they show, for a later peering to settle. Its row stays on disk with its sequences and its marks: of an end for room, and of a settlement of at least one largest packet the node once paid us, which tells a free receiver from a downlink that paid ([free-receivers-half](../decisions/free-receivers-half.md)). So delivery stays exactly once:
+**A channel left idle closes, to disk** ([closing-channels](../decisions/closing-channels.md)). Once it has been idle for as long as a silent peer is kept, with a node we neither peer with nor ask, with nothing on its way and nothing of the node pending in the books, every scheme the node has accounts with seeing its ledger, and no scheme still needing it (`keeps_channel`, as a settlement hub does for a hold with funds), it leaves memory and frees its place. Its balance does not matter: the node's accounts stay with what they show, for a later peering to settle. Its row stays on disk with its sequences and whether the node once paid us a settlement of at least one largest packet, which tells a free receiver from a downlink that paid ([free-receivers-half](../decisions/free-receivers-half.md)). So delivery stays exactly once:
 
 - **A peering opens it again where it was,** so our next message follows the last one the peer applied.
 - **A settlement over it closed** is read against the sequence that stayed: applied once, and acknowledged again as a copy. The channel stays closed.
@@ -202,7 +187,7 @@ The node keeps a settlement channel with every node it has ever peered with (`cr
 
 ## Settlement hubs
 
-A peering over a [settlement hub](hubs.md#the-members-side) settles by funding the payer's hold toward the payee, which is all the credit the payee extends: it extends nothing beyond it, and the credit does not grow with earnings ([settlement-hubs](../decisions/settlement-hubs.md)). Settling stays [on request](#settling-on-request), so the node's rules for settling are the same:
+A peering over a [settlement hub](hubs.md#the-members-side) settles by funding the payer's hold toward the payee, which is all the credit the payee extends: it extends nothing beyond it ([settlement-hubs](../decisions/settlement-hubs.md)). Settling stays [on request](#settling-on-request), so the node's rules for settling are the same:
 
 - **Funding a hold is a settlement.** The payer books it as its outgoing settlement, finalized once agreed statements show the hold grew. The payee books it as an incoming settlement only then, from what the hub says, as the XRPL scheme books what its ledger reports: the settlement message books nothing.
 - **The payer's hold is its credit.** The credit the payer extends to the payee is its hold toward it and its settlements to it on their way ([Settlement hubs](hubs.md#in-the-node)): a `trust` transfer raises it before the funding's pending transfer is booked, so the books take a settlement the payer does not owe, and one back lowers it, Dr `assets/interledger/<peer>`, Cr `contra/trust/<peer>`, as the payee takes from the hold, never past what the peer may still owe us. Its settlement thus moves the payer's money into the hold without moving its room for the payee, and the payee's room for the payer grows by it.
@@ -222,13 +207,13 @@ A peer's settlement is believed as stated. Anyone peered over the stub can mint 
 
 **With unlimited trust,** for tests whose subject is not settlement (the peer protocol, routing, payments, the wallet, the RPC): given `{"trust": "unlimited"}`, the stub says so (`unlimited_trust`), and peers on it never run out of room, never ask each other to settle on their own account and never settle. It has no commitments and no state.
 
-- **Credit.** The node extends every peer on it the unlimited credit (`policy::UNLIMITED_CREDIT`), as senior and as junior alike, a downlink's accounts included; a trust account from an earlier peering that holds less is raised to it, even one ended for room. It never grows with earnings. It is still bounded: at most an eighth of what an account's counters hold, so a peer's account takes far more payments than any test makes before they would overflow.
+- **Credit.** The node extends every peer on it the unlimited credit (`policy::UNLIMITED_CREDIT`), whichever node asked to peer, a downlink's accounts included; a trust account from an earlier peering that holds less is raised to it. It is still bounded: at most an eighth of what an account's counters hold, so a peer's account takes far more payments than any test makes before they would overflow.
 - **No settlement.** The node never asks a peer on it to settle on its own account. The one request at a peering's end ([above](#settling-at-a-peerings-end)) still goes out, and is answered that nothing is on its way: the node settles nothing when asked, so the end collects nothing. The stub prepares no settlement, and refuses a peer's.
 - **Only with its own kind.** It writes a fixed marker as its peering info, request and response, and refuses a peer that does not write it: a node on it never peers with a stub that would ask it to settle, or wait for its settlements.
 
 ## Decisions
 
-- [owner-ledger](../decisions/owner-ledger.md): the default trust line becomes the junior's starting credit.
+- [owner-ledger](../decisions/owner-ledger.md): the default trust line becomes the default credit.
 - [real-money](../decisions/real-money.md): only test-realm ledgers activate.
 - [external-assets](../decisions/external-assets.md): what the node holds apart from how it settles, and the ledger authoritative for holdings.
 - [peering-lifecycle](../decisions/peering-lifecycle.md): channels kept after a peering, and their limit.
@@ -238,8 +223,8 @@ A peer's settlement is believed as stated. Anyone peered over the stub can mint 
 - [ending-a-peering](../decisions/ending-a-peering.md): nothing settled for a peering's end.
 - [synced-before-peering](../decisions/synced-before-peering.md): no peering on a scheme before its first sync.
 - [own-books](../decisions/own-books.md): each node decides from its own books, and the bound that holds whatever a peer does.
-- [earned-trust](../decisions/earned-trust.md): junior and senior, starting credit, growth from fees.
-- [ended-for-room](../decisions/ended-for-room.md): no credit back for a peer once ended for room.
+- [hubs-only](../decisions/hubs-only.md): peers settle only over hubs, so the credit is the hold, and nothing is extended beyond it.
+- [ended-for-room](../decisions/ended-for-room.md): a pair parted for room stays apart for the owner's cooldown.
 - [own-fulfills](../decisions/own-fulfills.md): the creditor asks, the debtor decides how much.
-- [packets-in-flight](../decisions/packets-in-flight.md), [thresholds-in-packets](../decisions/thresholds-in-packets.md): thresholds in the largest packet, and the least credit.
+- [packets-in-flight](../decisions/packets-in-flight.md), [thresholds-in-packets](../decisions/thresholds-in-packets.md): thresholds in the largest packet.
 - [unreachable-peers](../decisions/unreachable-peers.md): a link cut one way drifts no more than a crash.

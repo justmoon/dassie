@@ -386,14 +386,6 @@ pub enum SettlementEvent {
         /// What it stated.
         amount: u64,
     },
-    /// The fees a peer earned us raised the credit we extend to it
-    /// (spec/decisions/earned-trust.md).
-    CreditRaised {
-        /// The peer.
-        peer: Name,
-        /// The credit now.
-        credit: u64,
-    },
     /// The credit we extend to a peer over a hub followed the holds between
     /// us (spec/areas/hubs.md#in-the-node): it is `credit` now, and the
     /// holds call for `holds`. It falls short of them only while the peer
@@ -405,11 +397,6 @@ pub enum SettlementEvent {
         credit: u64,
         /// What the holds call for.
         holds: u64,
-    },
-    /// The fees peers earned us could not be read, or not credited.
-    EarningsNotRead {
-        /// Why.
-        error: EngineError,
     },
     /// The history an external asset read had a gap its server no longer
     /// had, beyond the history bound: what fell in it its schemes matched
@@ -546,9 +533,7 @@ const fn settlement_severity(event: &SettlementEvent) -> Severity {
                 Severity::Warn
             }
         }
-        // At every check, for every peer that earned us something.
-        SettlementEvent::CreditRaised { .. }
-        | SettlementEvent::SettlementBooked { .. } => Severity::Debug,
+        SettlementEvent::SettlementBooked { .. } => Severity::Debug,
         SettlementEvent::BalanceBooked { .. }
         | SettlementEvent::Settling { .. }
         | SettlementEvent::Reconciling { .. }
@@ -581,8 +566,7 @@ const fn settlement_severity(event: &SettlementEvent) -> Severity {
         | SettlementEvent::HistoryGap { .. }
         | SettlementEvent::SettlementUnproven { .. } => Severity::Warn,
         SettlementEvent::SchemeStopped { .. }
-        | SettlementEvent::AnnounceFailed { .. }
-        | SettlementEvent::EarningsNotRead { .. } => Severity::Error,
+        | SettlementEvent::AnnounceFailed { .. } => Severity::Error,
     }
 }
 

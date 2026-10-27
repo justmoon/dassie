@@ -32,8 +32,7 @@ Dassie works with test money only: the `live` realm is refused until the conditi
 | **Registration** | A node asking a bootstrap node to list it, renewed automatically. It is free for now ([roadmap](roadmap.md#registration-fees)). |
 | **Link state** | A node's signed self-description (URL, key, neighbors, settlement schemes), flooded through the network. Routing runs on link states. |
 | **Peer** | A node we have a peering with: a shared settlement scheme, ledger accounts, a credit line and a settlement channel. Packets travel only between peers. |
-| **Junior, senior** | The junior is the node whose peering request was accepted, the senior the node that accepted it. The junior extends credit at first, and the senior none ([earned-trust](decisions/earned-trust.md)). |
-| **Credit** | What a node lets a peer owe it. A node knows only the credit it extends, never the credit it is extended. Credit grows with the fees a peer earned the node ([Settlement](areas/settlement.md)). |
+| **Credit** | What a node lets a peer owe it. A node knows only the credit it extends, never the credit it is extended. Over a settlement hub it is the node's own hold toward the peer, all of it and nothing more ([Settlement](areas/settlement.md#credit)). |
 | **Largest packet** | The most one packet may carry on a ledger. A link's thresholds (in flight, the trigger to ask for settlement, the least settlement) are counted in it, never as a share of credit ([thresholds-in-packets](decisions/thresholds-in-packets.md)). |
 | **Settlement scheme** | A pluggable module that moves value on an underlying ledger ([Settlement](areas/settlement.md), [XRP Ledger](areas/xrpl.md)). |
 | **External asset** | Something the node holds outside its books, such as its account on the XRP Ledger testnet, which schemes settle through. The ledger, not the books, says what it holds ([Settlement](areas/settlement.md#external-assets)). |

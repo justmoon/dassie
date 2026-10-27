@@ -781,6 +781,77 @@ fn each_hubs_funding_is_kept_on_its_own() {
     assert!(!all[&dsusd].0);
 }
 
+// spec/areas/node.md#database, spec/decisions/ended-for-room.md: a
+// database written while a channel kept the mark of an end for room moves
+// forward through migration 4. The channel loads as it was without the
+// mark, a closed one stays closed, and the indexes only the credit's growth
+// read are gone.
+#[test]
+fn a_channel_stored_with_the_mark_of_an_end_for_room_loads_without_it() {
+    let temp = tempfile::tempdir().unwrap();
+    let open = dassie_identity::NodeKey::from_bytes(&[10; 32]);
+    let closed = dassie_identity::NodeKey::from_bytes(&[11; 32]);
+    {
+        let mut connection = Connection::open(temp.path().join(DATABASE_FILE)).unwrap();
+        schema::prepare(&mut connection, &schema::MIGRATIONS[..3]).unwrap();
+        let insert = |key: &dassie_identity::NodeKey, closed: u8| {
+            connection
+                .execute(
+                    "INSERT INTO settlement_channels (node, public_key, url, settled_in,
+                       settled_out, ended_for_room, closed, paid_us)
+                     VALUES (?1, ?2, 'https://e.example', 3, 4, 1, ?3, 1)",
+                    rusqlite::params![
+                        key.node_id().as_str(),
+                        key.public_key().as_bytes().to_vec(),
+                        closed
+                    ],
+                )
+                .unwrap();
+        };
+        insert(&open, 0);
+        insert(&closed, 1);
+    }
+    let store = Store::open(temp.path()).unwrap();
+    assert_eq!(
+        user_version(&temp.path().join(DATABASE_FILE)),
+        SCHEMA_VERSION
+    );
+    let stored = store.load_peer().unwrap();
+    let [channel] = stored.channels.as_slice() else {
+        panic!("{:?}", stored.channels)
+    };
+    assert_eq!(channel.node, open.node_id());
+    assert_eq!(
+        channel.channel,
+        dassie_peer::Channel {
+            key: open.public_key(),
+            endpoint: dassie_peer::wire::Endpoint::of_url("https://e.example"),
+            settled_in: 3,
+            settled_out: 4,
+            outbox: None,
+            paid_us: true,
+        }
+    );
+    assert_eq!(
+        store.closed_channel(&closed.node_id()).unwrap(),
+        Some(dassie_peer::Closed {
+            settled_in: 3,
+            settled_out: 4,
+            paid_us: true,
+        })
+    );
+    let indexes: i64 = store
+        .lock()
+        .query_row(
+            "SELECT count(*) FROM sqlite_schema WHERE type = 'index' AND name IN
+               ('ledger_transfers_by_packet', 'ledger_transfers_trust')",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(indexes, 0);
+}
+
 // spec/areas/node.md#database, spec/decisions/settlement-methods.md: a
 // database written before a peering's methods had a table of their own
 // moves forward through migration 2. Its peering loads as one method, on

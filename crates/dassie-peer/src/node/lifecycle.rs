@@ -51,15 +51,6 @@ impl PeerNode {
             None => {
                 peering.depeering = Some(Depeering::new(now, reason));
                 self.dirty.insert(peer);
-                // Remembered past this peering: a later one with it as our
-                // senior raises no credit for it (spec/areas/settlement.md#credit).
-                if reason == TerminationReason::ShortOfRoom
-                    && let Some(channel) = self.channels.get_mut(&peer)
-                    && !channel.ended_for_room
-                {
-                    channel.ended_for_room = true;
-                    self.channels_dirty.insert(peer);
-                }
                 self.event(Event::Depeering { peer, reason });
             }
             // Its owner's decision outranks one the node took for silence

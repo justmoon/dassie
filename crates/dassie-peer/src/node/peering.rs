@@ -427,8 +427,7 @@ impl PeerNode {
                     _ => Vec::new(),
                 };
                 let now = self.now_ms;
-                let ended_for_room = self.ended_for_room(&node, hooks);
-                match hooks.finalize(now, node, scheme, &info, ended_for_room) {
+                match hooks.finalize(now, node, scheme, &info) {
                     Ok(agreed) => {
                         if !self.become_peered(hooks, node, scheme, agreed, false) {
                             self.fail_attempt(node, "no room left");

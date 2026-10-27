@@ -144,14 +144,7 @@ impl PeeringHooks for StubHooks {
         })
     }
 
-    fn finalize(
-        &mut self,
-        _: u64,
-        _: NodeId,
-        _: SchemeId,
-        _: &[u8],
-        _: bool,
-    ) -> Result<Agreed, Declined> {
+    fn finalize(&mut self, _: u64, _: NodeId, _: SchemeId, _: &[u8]) -> Result<Agreed, Declined> {
         Ok(Agreed {
             state: Vec::new(),
             credit_out: CREDIT,
