@@ -49,6 +49,6 @@ pub use node_key::{
 pub use paths::{HubKey, MAX_SEGMENT_BYTES, NodeSecret, QuicEndpoint, Segment};
 pub use phrase::{
     Correction, Created, MAX_PHRASE_INPUT_BYTES, MAX_PHRASE_LENGTH, PHRASE_WORDS, Phrase,
-    PhraseSecret, PhraseText, Positions, Reading, Realm, Words,
+    PhraseSecret, PhraseText, Positions, Reading, Realm, Words, word_named,
 };
 pub use seed::{DerivedSecret, LoginSecret, MasterSeed};

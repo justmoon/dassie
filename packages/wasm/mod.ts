@@ -31,6 +31,7 @@ export {
   Phrase,
   phraseFromSecret,
   PhraseReading,
+  phraseWords,
   publicKey,
   readPhrase,
   sign,

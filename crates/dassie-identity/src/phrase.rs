@@ -286,6 +286,16 @@ impl fmt::Display for Positions {
     }
 }
 
+/// The word of the list that `typed` names, as [`Phrase::read`] reads
+/// each word: by its first four letters, or in full if it is shorter, in
+/// any ASCII case; `None` for a word not on the list, which a reading
+/// takes as an erasure. For a page that shows the owner what each typed
+/// word reads as before the phrase is read.
+#[must_use]
+pub fn word_named(typed: &str) -> Option<&'static str> {
+    wordlist::find(typed).map(wordlist::word)
+}
+
 secret_bytes!(
     /// A phrase's 128-bit secret: the key material of its master seed.
     PhraseSecret,
@@ -760,6 +770,18 @@ mod tests {
 
     /// A reader's clock past every phrase's creation time.
     const AFTER_EVERY_PHRASE: u64 = u64::MAX;
+
+    #[test]
+    fn words_are_named_as_a_reading_names_them() {
+        assert_eq!(word_named("abandon"), Some("abandon"));
+        assert_eq!(word_named("ABAN"), Some("abandon"));
+        assert_eq!(word_named("abanxyz"), Some("abandon"));
+        assert_eq!(word_named("act"), Some("act"));
+        assert_eq!(word_named("acti"), Some("action"));
+        assert_eq!(word_named("ac"), None);
+        assert_eq!(word_named("?"), None);
+        assert_eq!(word_named("zoo"), Some("zoo"));
+    }
 
     // The fields land where the table puts them: kind, then hour, then
     // secret, most significant first.

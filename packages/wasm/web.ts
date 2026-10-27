@@ -30,6 +30,7 @@ import init, {
   nodeId,
   type Phrase,
   type PhraseReading,
+  phraseWords,
   publicKey,
   readPhrase,
 } from "./gen/web/dassie_identity.js";
@@ -70,6 +71,14 @@ export interface Identity {
     unreadable?: Uint32Array,
   ): PhraseReading;
   /**
+   * What each word of `text` reads as, in order, as {@link readPhrase}
+   * splits and matches them: the word of the list it names by its first
+   * four letters, or `undefined` for a word not on the list. Throws a
+   * {@link PhraseError} (`tooLong`) beyond the longest input a reading
+   * looks at.
+   */
+  phraseWords(text: string): (string | undefined)[];
+  /**
    * The login secret of a node key: what setup and login send as proof.
    * Throws unless the key has 32 bytes.
    */
@@ -91,6 +100,7 @@ export function loadIdentity(): Promise<Identity> {
     (): Identity => ({
       generatePhrase,
       readPhrase,
+      phraseWords,
       loginSecret,
       publicKey,
       nodeId,

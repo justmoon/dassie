@@ -21,8 +21,8 @@ use rand_core::UnwrapErr;
 use wasm_bindgen::prelude::*;
 
 use dassie_identity::{
-    Created, Error, NodeId, NodeKey, PHRASE_WORDS, Phrase, PhraseSecret, PhraseText, Positions,
-    Reading, Realm, Words,
+    Created, Error, MAX_PHRASE_INPUT_BYTES, NodeId, NodeKey, PHRASE_WORDS, Phrase, PhraseSecret,
+    PhraseText, Positions, Reading, Realm, Words, word_named,
 };
 
 /// A day in milliseconds: how far apart the wallet's clock and the node's
@@ -386,6 +386,29 @@ pub fn read_phrase(
     }
     let reading = Phrase::read(text, marked, realm, now_ms).map_err(js)?;
     Ok(PhraseReading { reading })
+}
+
+/// What each word of `text` reads as, in order, split and matched as
+/// [`read_phrase`] splits and matches them: the word of the list it names,
+/// or `undefined` for a word not on the list, which a reading takes as
+/// unreadable. For the wallet to show the owner, while they type, how
+/// many words it reads and which it does not know.
+///
+/// # Errors
+///
+/// `tooLong` beyond the longest input a reading looks at.
+#[wasm_bindgen(
+    js_name = phraseWords,
+    unchecked_return_type = "(string | undefined)[]"
+)]
+pub fn phrase_words(text: &str) -> Result<Vec<JsValue>, JsValue> {
+    if text.len() > MAX_PHRASE_INPUT_BYTES {
+        return Err(js(Error::PhraseTooLong));
+    }
+    Ok(text
+        .split_whitespace()
+        .map(|typed| word_named(typed).map_or(JsValue::UNDEFINED, JsValue::from_str))
+        .collect())
 }
 
 /// The node key (Ed25519 seed) of a phrase of `realm` that reads as
