@@ -890,7 +890,17 @@ impl Core {
     }
 
     /// Applies a peer's settlement, once: refused with 400 if the books
-    /// cannot take it, which changes nothing.
+    /// cannot take it, which changes nothing, and the peer sends it again
+    /// until they can, as once a scheme that stopped runs again.
+    ///
+    /// One on a scheme the node does not run, as one its owner removed, is
+    /// acknowledged and books nothing (spec/areas/settlement.md#incoming-settlements):
+    /// it could never be booked, and the peer, which sends the pair's
+    /// settlements one at a time, would send it again for ever, the rest
+    /// of the channel waiting behind it. What it moved, if anything, stays
+    /// on the scheme's ledger, which the scheme reads when it runs again; a
+    /// removed scheme ran on until such a settlement had its time
+    /// ([`Core::removal_wait_ms`]).
     fn settlement_from(
         &mut self,
         from: NodeId,
@@ -900,6 +910,16 @@ impl Core {
         sequence: u64,
         reply: Reply,
     ) -> Reply {
+        let runs = Name::new(scheme.as_str()).is_ok_and(|name| self.schemes.contains_key(&name));
+        if !runs {
+            self.report(SettlementEvent::PeerSettlementUnbooked {
+                from,
+                scheme,
+                amount,
+            });
+            self.peer.settlement_applied(self.now_ms, &from, sequence);
+            return reply;
+        }
         match self.incoming_settlement(from, scheme, amount, data) {
             Ok(()) => {
                 self.peer.settlement_applied(self.now_ms, &from, sequence);
@@ -1371,11 +1391,12 @@ impl Core {
         }
     }
 
-    /// Takes a peer's endpoint away: at a peering's end, nothing is in
-    /// flight with it by now, since the peering ended only once drained;
-    /// at a method's drop, our Prepares to it are rejected at once (T01),
-    /// a Fulfill for one that comes later is dropped, and its Prepares to
-    /// us get no reply.
+    /// Takes a peer's endpoint away, at a peering's end: nothing is in
+    /// flight with it by now, since the peering ended only once drained.
+    /// Were anything left, our Prepares to it would be rejected at once
+    /// (T01), a Fulfill for one that comes later dropped, and its Prepares
+    /// to us get no reply. A method's drop takes only its slot away, whose
+    /// packets resolve on it ([`Self::sync_peer_slots`]).
     fn remove_peer_endpoint(&mut self, peer: &NodeId) {
         if let Some(endpoint) = self.peer_endpoints.remove(peer) {
             self.endpoint_peers.remove(&endpoint);

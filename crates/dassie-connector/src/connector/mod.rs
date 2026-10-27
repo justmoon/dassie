@@ -389,8 +389,9 @@ impl Connector {
     /// (spec/decisions/settlement-methods.md). A slot on `ledger` that was
     /// removed and still waits for its packets is taken up again, with
     /// them, and moves last, as a method added again comes last in its
-    /// peering. It is available, and not over a hub, until the node says
-    /// otherwise.
+    /// peering. A new slot is available, and not over a hub, until the node
+    /// says otherwise; one taken up again is available, and keeps whether
+    /// it is over a hub, which its packets in flight still need.
     ///
     /// # Errors
     ///

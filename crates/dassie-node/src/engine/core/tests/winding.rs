@@ -114,7 +114,9 @@ fn a_hub_both_nodes_join_is_added_to_their_peering() {
 // runs, and its method is wound down: the peer is asked to settle on it
 // once, and the method is dropped within its bound. What is left stays on
 // its accounts, the peering is kept on the other method, and the scheme
-// goes then.
+// runs on for the wait for what the peer may still settle on it, then
+// goes. Removing it again meanwhile succeeds, though a BTP token now uses
+// its ledger: the removal is under way.
 #[test]
 fn a_scheme_removed_winds_its_method_down_then_goes() {
     let mut sim = pair(52, true);
@@ -152,8 +154,21 @@ fn a_scheme_removed_winds_its_method_down_then_goes() {
         "not dropped in time"
     );
     collected_before_dropped(&sim, last.get());
+    let dropped = sim.now;
+    let wait = sim.core(0).removal_wait_ms();
+    let (mut token, mut again) = (None, Ok(()));
+    sim.step(0, |core| {
+        let ledger = LedgerId::HubXrplTestnetXrp.to_string();
+        token = Some(core.create_token("t".into(), &ledger, None).unwrap());
+        again = core.remove_scheme(STUB_TWO);
+    });
+    again.unwrap();
+    let token = token.unwrap().view.id;
+    sim.step(0, |core| core.revoke_token(token).unwrap());
+    sim.run_until(dropped + wait - 1_000);
+    assert!(runs_second(&sim, 0), "gone before its wait was over");
     assert!(
-        sim.run_until_or(sim.now + 10_000, |sim| !runs_second(sim, 0)),
+        sim.run_until_or(dropped + wait + 10_000, |sim| !runs_second(sim, 0)),
         "the scheme stayed"
     );
     assert!(
@@ -229,12 +244,63 @@ fn a_removal_carries_on_after_a_restart() {
         "the removal was forgotten"
     );
     assert!(second(&sim).is_some_and(|method| method.winding_down()));
+    let wait = sim.core(0).removal_wait_ms();
     assert!(
-        sim.run_until_or(start + WIND_BOUND_MS, |sim| !runs_second(sim, 0)),
+        sim.run_until_or(start + WIND_BOUND_MS + wait, |sim| !runs_second(sim, 0)),
         "the scheme stayed"
     );
     assert_eq!(methods(&sim, 0), ["stub"]);
     assert!(accounts_stay(&sim));
+}
+
+// spec/areas/settlement.md#incoming-settlements: a peer's settlement on a
+// scheme the node no longer runs, its owner having removed it, is
+// acknowledged and books nothing, so the pair's settlement channel, which
+// carries one at a time, goes on: the next settlement is taken.
+#[test]
+fn a_settlement_on_a_scheme_removed_does_not_hold_the_channel() {
+    let mut sim = pair(57, true);
+    let (zero, one) = (key(0).node_id(), key(1).node_id());
+    let mut removed = Ok(());
+    sim.step(0, |core| removed = core.remove_scheme(STUB_TWO));
+    removed.unwrap();
+    let wait = sim.core(0).removal_wait_ms();
+    let idle = |sim: &Sim| {
+        sim.core(1)
+            .peer
+            .channel(&zero)
+            .is_some_and(|channel| channel.outbox.is_none())
+    };
+    assert!(
+        sim.run_until_or(sim.now + WIND_BOUND_MS + wait + 10_000, |sim| {
+            !runs_second(sim, 0) && idle(sim)
+        }),
+        "the scheme stayed"
+    );
+    let settled_in = |sim: &Sim| sim.core(0).peer.channel(&one).unwrap().settled_in;
+    let before = settled_in(&sim);
+    // One the peer sent late, as one whose message got through only after
+    // the scheme went.
+    for sent in 1..=2 {
+        sim.step(1, |core| {
+            let now = core.now_ms();
+            core.peer
+                .send_settlement(now, &zero, scheme_id(STUB_TWO), 5, vec![0; 16])
+                .unwrap();
+            core.after_peer();
+        });
+        assert!(
+            sim.run_until_or(sim.now + 60_000, idle),
+            "the settlement is sent again and again"
+        );
+        assert_eq!(settled_in(&sim), before + sent);
+    }
+    assert!(
+        sim.trace
+            .iter()
+            .any(|line| line.contains(" 0 Settlement(PeerSettlementUnbooked {")),
+        "not reported"
+    );
 }
 
 // spec/decisions/settlement-methods.md: a method on a scheme that cannot

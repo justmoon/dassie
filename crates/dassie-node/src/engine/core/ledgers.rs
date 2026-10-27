@@ -1,5 +1,6 @@
 //! Settlement schemes and the ledgers they serve.
 
+use dassie_connector::EndpointId;
 use dassie_ledger::{
     AccountId, AccountName, AccountPath, LedgerId, Name, Realm, Reference, TransferSpec,
 };
@@ -37,9 +38,16 @@ pub(super) struct ActiveScheme {
     pub converts: bool,
     /// Since when its owner removes it, while its settlement methods are
     /// wound down: it is offered to no peer, and runs until each is
-    /// dropped, then goes ([`Core::finish_removals`]). Kept across a
-    /// restart, which carries the removal on.
+    /// dropped, the packets on their slots are resolved and what the peers
+    /// may still settle on it has had its time, then goes
+    /// ([`Core::finish_removals`]). Kept across a restart, which carries
+    /// the removal on.
     pub removing: Option<u64>,
+    /// While it is being removed, since when no method of a peering has
+    /// been on it: it runs for [`Core::removal_wait_ms`] after. Only in
+    /// memory: a restart counts the wait from the start, which only makes
+    /// it longer.
+    pub methods_gone_ms: Option<u64>,
 }
 
 impl ActiveScheme {
@@ -353,6 +361,7 @@ impl Core {
                 paused: None,
                 converts,
                 removing: None,
+                methods_gone_ms: None,
             },
         );
         if let Some(asset) = asset {
@@ -438,9 +447,12 @@ impl Core {
     /// on is not refused for them: it is offered to no peer from then on,
     /// each of their methods on it is wound down, collected once and
     /// dropped within a bounded time, and the scheme runs until then, and
-    /// then goes ([`finish_removals`](Self::finish_removals),
+    /// until the packets on their slots are resolved and what the peers
+    /// may still have settled on it has had its time, and then goes
+    /// ([`finish_removals`](Self::finish_removals),
     /// spec/decisions/settlement-methods.md). A peering left with no other
-    /// method ends.
+    /// method ends. Removing a scheme already being removed succeeds, and
+    /// changes nothing: the removal is under way.
     ///
     /// # Errors
     ///
@@ -460,10 +472,20 @@ impl Core {
             }
             None => return Err(EngineError::NotFound("the scheme is not active".into())),
         };
+        if self
+            .schemes
+            .get(&id)
+            .is_some_and(|active| active.removing.is_some())
+        {
+            return Ok(());
+        }
         if let Some(blocker) = self.removal_blockers(id, ledger).first() {
             return Err(EngineError::Precondition(blocker.message().into()));
         }
-        if self.methods_on(id) > 0 {
+        // Nothing of a peering's on it: it goes at once. A method dropped
+        // before, whose packets are still in flight on its slot, keeps it as
+        // a method does.
+        if self.methods_on(id) > 0 || self.packets_on(ledger) {
             let now = self.now_ms();
             if let Some(active) = self.schemes.get_mut(&id)
                 && active.removing.is_none()
@@ -516,12 +538,56 @@ impl Core {
         self.after_peer();
     }
 
+    /// Whether a packet is in flight on a peer's slot on `ledger`, either
+    /// way, its method dropped or not.
+    fn packets_on(&self, ledger: LedgerId) -> bool {
+        self.peer_endpoints.values().any(|id| {
+            self.connector
+                .slots(EndpointId::Peer(*id))
+                .any(|slot| slot.ledger == ledger && slot.pending > 0)
+        })
+    }
+
+    /// How long a scheme being removed still runs once no method of a
+    /// peering is on it (spec/decisions/settlement-methods.md), from the
+    /// rules that bound what can still come on it. A packet in flight on a
+    /// dropped method's slot then resolves within the longest a packet is
+    /// held, and its claim over a hub, in the reply to its Fulfill or on
+    /// the hub before its commitment expires, comes with it. A settlement
+    /// the peer had on its way when it heard of the drop reaches the
+    /// ledger and is announced within the wait for one, and its message,
+    /// if it did not get through, goes again within the longest wait
+    /// between tries.
+    pub(super) fn removal_wait_ms(&self) -> u64 {
+        let peer = self.peer.config();
+        self.connector
+            .config()
+            .max_hold_ms
+            .saturating_add(peer.depeer_wait_ms)
+            .saturating_add(peer.settlement_retry_max_ms)
+    }
+
+    /// When the next scheme being removed may go, once nothing else keeps
+    /// it.
+    pub(super) fn removals_deadline(&self) -> Option<u64> {
+        let wait = self.removal_wait_ms();
+        self.schemes
+            .values()
+            .filter(|active| active.removing.is_some())
+            .filter_map(|active| active.methods_gone_ms)
+            .map(|since| since.saturating_add(wait))
+            .min()
+    }
+
     /// Carries on the owner's removals of schemes: winds down each method
     /// on a scheme being removed that is not yet, as after a restart, and
-    /// removes a scheme no peering has a method on any more, once nothing
-    /// else keeps it (spec/decisions/settlement-methods.md). Looked at
-    /// after the peer node's timers, so a scheme goes in the step its last
-    /// method is dropped in.
+    /// removes a scheme no peering has a method on any more once the
+    /// packets on their slots are resolved, the wait for what peers may
+    /// still settle on it is over ([`removal_wait_ms`](Self::removal_wait_ms)),
+    /// and nothing else keeps it (spec/decisions/settlement-methods.md).
+    /// Until then it runs: it books what peers settle on it, and hears what
+    /// becomes of each packet of a dropped method, with its claims, either
+    /// way. Looked at after the peer node's timers.
     pub(super) fn finish_removals(&mut self) {
         let removing: Vec<(Name, LedgerId)> = self
             .schemes
@@ -529,12 +595,23 @@ impl Core {
             .filter(|(_, active)| active.removing.is_some())
             .map(|(id, active)| (*id, active.scheme.ledger()))
             .collect();
+        let (now, wait) = (self.now_ms, self.removal_wait_ms());
         for (id, ledger) in removing {
             if self.methods_on(id) > 0 {
                 self.wind_down_methods(id);
                 continue;
             }
-            if !self.removal_blockers(id, ledger).is_empty() {
+            let Some(since) = self
+                .schemes
+                .get_mut(&id)
+                .map(|active| *active.methods_gone_ms.get_or_insert(now))
+            else {
+                continue;
+            };
+            if now < since.saturating_add(wait)
+                || self.packets_on(ledger)
+                || !self.removal_blockers(id, ledger).is_empty()
+            {
                 continue;
             }
             self.drop_scheme(id, ledger);
@@ -975,9 +1052,9 @@ impl Core {
 
     /// The next local endpoint, skipping any in use: a number comes back
     /// only after 65 536 activations, long after anything for it is gone.
-    pub(super) fn free_local(&mut self) -> dassie_connector::EndpointId {
+    pub(super) fn free_local(&mut self) -> EndpointId {
         let taken = |n: u16| {
-            let endpoint = dassie_connector::EndpointId::Local(n);
+            let endpoint = EndpointId::Local(n);
             self.receivers
                 .values()
                 .any(|receiver| receiver.endpoint == endpoint)

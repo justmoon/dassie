@@ -166,6 +166,7 @@ impl Slot {
             hub: self.hub,
             available: self.available,
             removed: self.removed,
+            pending: self.pending,
             money_from: self.money_from,
             money_to: self.money_to,
         }
@@ -185,6 +186,8 @@ pub struct SlotView {
     pub available: bool,
     /// Whether it was removed, and waits for its packets in flight.
     pub removed: bool,
+    /// Its packets in flight, either way.
+    pub pending: usize,
     /// The money its packets in flight from the peer carry.
     pub money_from: u64,
     /// The money our packets in flight to the peer on it carry.

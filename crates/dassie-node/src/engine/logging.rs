@@ -431,6 +431,7 @@ fn settlement(severity: Severity, event: &SettlementEvent) {
         | SettlementEvent::PeerSettled { .. }
         | SettlementEvent::SettlementBooked { .. }
         | SettlementEvent::PeerSettlementRefused { .. }
+        | SettlementEvent::PeerSettlementUnbooked { .. }
         | SettlementEvent::PegPaused { .. }
         | SettlementEvent::PegResumed { .. }
         | SettlementEvent::CreditRaised { .. }
@@ -494,6 +495,13 @@ fn settlement_outcome(severity: Severity, event: &SettlementEvent) {
         }
         SettlementEvent::PeerSettlementRefused { from, error } => {
             emit!(severity, target: target::SETTLEMENT, %from, %error, "a settlement was refused");
+        }
+        SettlementEvent::PeerSettlementUnbooked {
+            from,
+            scheme,
+            amount,
+        } => {
+            emit!(severity, target: target::SETTLEMENT, %from, %scheme, amount, "a settlement on a scheme the node does not run was acknowledged, and booked nothing");
         }
         SettlementEvent::PegPaused { scheme, why } => {
             let why = why.message();

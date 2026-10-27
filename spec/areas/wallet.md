@@ -59,7 +59,7 @@ Every `Subscribe*` procedure delivers a value stream or a snapshot followed by t
 
 The pages are in `apps/wallet/src/pages/`, and their routes in `apps/wallet/src/layout/Shell.tsx`. The wallet holds no rule of the node's: it shows what the node reports and asks the node to act.
 
-- A ledger being removed shows that the node is settling up with its peers on it first, with how many methods are left, as the node reports it; peers that settle with a ledger do not block its removal ([Settlement](settlement.md#schemes-and-ledgers)).
+- A ledger being removed shows that the node is settling up with its peers on it first, with how many methods are left, as the node reports it, and then waits for what they may still send on it; peers that settle with a ledger do not block its removal ([Settlement](settlement.md#schemes-and-ledgers)).
 - A peer's details list each of its settlement methods in the order the pair agreed them, with what is owed to it on each and whether the method is being wound down or is short of room, as `ListPeers` reports them ([Network](network.md#settlement-methods)).
 - What blocks removing a ledger, the total in the display currency, whether a rate is stale, what a quote costs and how long it holds, and what a grant asks for all come from the node ([Ledger](ledger.md), [Connector](connector.md), [Payments](payments.md)).
 - The network page draws the routing table, not the peerings: an edge only where both ends list it, so a peer that is offline or does not list us back has no line. The layout is deterministic: a node starts where its ID puts it and keeps its place as the table changes.

@@ -522,3 +522,97 @@ fn a_dropped_methods_rejected_packet_is_released_over_its_hub() {
     );
     assert!(!answered.contains(&PacketState::Fulfilled));
 }
+
+/// Whether node `index` runs scheme `scheme`.
+fn runs(sim: &Sim, index: usize, scheme: &str) -> bool {
+    sim.core(index)
+        .schemes
+        .contains_key(&Name::new(scheme).unwrap())
+}
+
+/// What node `index`'s scheme `scheme` holds of the packets between it and
+/// node `peer`, if the scheme runs.
+fn held_if_run(
+    sim: &mut Sim,
+    index: usize,
+    peer: usize,
+    scheme: &str,
+) -> Option<dassie_settlement::Held> {
+    runs(sim, index, scheme).then(|| held(sim, index, peer, scheme))
+}
+
+// spec/decisions/settlement-methods.md, spec/areas/connector.md#settlement-method-slots:
+// the owner's removal of a scheme drops its methods, but the scheme runs on
+// while packets are in flight on their slots: what becomes of each is
+// heard over its hub, both ways. Node 1, in the middle, removes the stub
+// while node 0's payment to node 2 is in flight through it, and its two
+// methods on it are dropped at once, as when collecting them was quick.
+// Node 1's reply to node 2's Fulfill carries its claim, and node 0's claim
+// in its reply to node 1's Fulfill is taken. The scheme goes only once the
+// wait for what peers may still settle on it is over.
+#[test]
+fn a_scheme_removed_runs_until_its_dropped_methods_packets_are_claimed() {
+    let mut sim = line(57, false);
+    let (zero, one, two) = (key(0).node_id(), key(1).node_id(), key(2).node_id());
+    sim.cut.insert((2, 1));
+    pay(&mut sim, (0, USD), (2, USD), 1_000_000, 1_000_000);
+    assert!(
+        sim.run_until_or(sim.now + 10_000, |sim| pending(sim, 1, two)),
+        "no packet in flight to node 2"
+    );
+    assert!(pending(&sim, 0, one), "no packet in flight to node 1");
+    assert!(held(&mut sim, 1, 0, "stub").theirs > 0, "node 1 took none");
+    assert!(
+        held(&mut sim, 1, 2, "stub").ours > 0,
+        "node 1 committed none"
+    );
+    sim.step(1, |core| {
+        core.remove_scheme("stub").unwrap();
+        let now = core.now_ms();
+        for other in [zero, two] {
+            assert!(core.peer.drop_method(now, &other, scheme_id("stub")));
+        }
+        core.after_peer();
+    });
+    let dropped_ms = sim.now;
+    assert!(!has_method(&sim, 1, zero) && !has_method(&sim, 1, two));
+    assert!(runs(&sim, 1, "stub"), "gone while its slots held packets");
+    sim.cut.clear();
+    assert!(
+        sim.run_until_or(sim.now + 30_000, |sim| !pending(sim, 0, one)
+            && !pending(sim, 1, two)),
+        "the packets never resolved"
+    );
+    let endpoint = EndpointId::Peer(sim.core(0).peer_endpoints[&one]);
+    let fulfilled = sim
+        .core(0)
+        .packets(None, 100_000)
+        .into_iter()
+        .any(|record| {
+            record.destination == Some(endpoint) && record.state == PacketState::Fulfilled
+        });
+    assert!(fulfilled, "no packet fulfilled");
+    // Each claim follows its reply to a Fulfill, within a few seconds of the
+    // simulation's time: node 2 takes node 1's, node 1 node 0's.
+    let mut claimed = false;
+    for _ in 0..50 {
+        let ours = held_if_run(&mut sim, 1, 0, "stub");
+        let theirs = held(&mut sim, 2, 1, "stub");
+        claimed = ours.is_some_and(|held| held.unclaimed == 0 && held.theirs == 0)
+            && theirs.unclaimed == 0;
+        if claimed {
+            break;
+        }
+        sim.run_until(sim.now + 100);
+    }
+    assert!(claimed, "a fulfillment no claim covers was left");
+    assert_eq!(held(&mut sim, 1, 2, "stub").ours, 0, "node 1 kept a packet");
+    let wait = sim.core(1).removal_wait_ms();
+    sim.run_until(dropped_ms + wait - 1_000);
+    assert!(runs(&sim, 1, "stub"), "gone before its wait was over");
+    assert!(
+        sim.run_until_or(dropped_ms + wait + 10_000, |sim| !runs(sim, 1, "stub")),
+        "the scheme stayed"
+    );
+    crate::sim::checks::check_hub_packets(&sim).unwrap();
+}

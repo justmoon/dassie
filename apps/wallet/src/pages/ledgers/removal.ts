@@ -77,7 +77,8 @@ export function removalChecklist(
 
 /**
  * What the owner sees of a ledger being removed: how many peers the node
- * is still settling up with on it. Nothing for one not being removed.
+ * is still settling up with on it, and the wait after for what is still on
+ * its way. Nothing for one not being removed.
  */
 export function removingNotice(
   removingMethods: number | undefined,
@@ -88,9 +89,9 @@ export function removingNotice(
   return {
     title: "Being removed",
     text: removingMethods === 0
-      ? "Your node removes it as soon as nothing else uses it."
+      ? "Your node waits about an hour for what peers may still send on it, then removes it once nothing else uses it."
       : `Your node is settling up with ${
         plural(removingMethods, "peer", "peers")
-      } on it first, which takes a few minutes at most. Then it goes.`,
+      } on it first, which takes a few minutes at most. Then it waits about an hour for what they may still send on it, and it goes.`,
   };
 }

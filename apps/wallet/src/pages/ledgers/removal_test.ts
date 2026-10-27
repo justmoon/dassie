@@ -59,10 +59,10 @@ test("a ledger being removed settles up with its peers first", () => {
   assertEquals(removingNotice(undefined), undefined);
   assertEquals(
     removingNotice(2)?.text,
-    "Your node is settling up with 2 peers on it first, which takes a few minutes at most. Then it goes.",
+    "Your node is settling up with 2 peers on it first, which takes a few minutes at most. Then it waits about an hour for what they may still send on it, and it goes.",
   );
   assertEquals(
     removingNotice(0)?.text,
-    "Your node removes it as soon as nothing else uses it.",
+    "Your node waits about an hour for what peers may still send on it, then removes it once nothing else uses it.",
   );
 });

@@ -624,6 +624,7 @@ impl Core {
             self.outgoing_deadline(),
             self.probe_deadline(),
             self.schemes_deadline(),
+            self.removals_deadline(),
             self.funding_deadline(),
             self.work_left(),
         ]
