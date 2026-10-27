@@ -90,16 +90,45 @@ impl fmt::Display for DaemonError {
 
 impl std::error::Error for DaemonError {}
 
+/// The standalone runtime's TCP listeners.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum TcpPorts {
+    /// HTTP and HTTPS on the configured ports.
+    #[default]
+    Configured,
+    /// HTTP and HTTPS on these ports instead: for running unprivileged, and
+    /// for the development environment's many nodes.
+    These(Ports),
+    /// HTTPS alone, on this port, and no HTTP listener: for a node that
+    /// takes no certificate through ACME's http-01 and that no browser
+    /// reaches over plain HTTP, as the desktop app's
+    /// (spec/areas/desktop.md#sockets).
+    HttpsOnly(u16),
+}
+
+/// The standalone runtime's socket for the rate feed.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum FeedSocket {
+    /// The HTTPS listener's address at
+    /// [`DEFAULT_FEED_PORT`](crate::feed::DEFAULT_FEED_PORT).
+    #[default]
+    Default,
+    /// This address instead: for the development environment's many nodes
+    /// on one host.
+    At(SocketAddr),
+    /// None: for a node that never publishes a feed, as the desktop app's
+    /// periphery node (spec/areas/desktop.md#sockets).
+    Off,
+}
+
 /// How `dassie daemon` was asked to run.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct DaemonOptions {
     /// Force a runtime; otherwise systemd's is used when it passed sockets
     /// to this process.
     pub runtime: Option<Runtime>,
-    /// Ports for this run of the standalone runtime, instead of the
-    /// configured ones: for running unprivileged, and for the development
-    /// environment's many nodes.
-    pub ports: Option<Ports>,
+    /// The standalone runtime's TCP listeners.
+    pub ports: TcpPorts,
     /// The one address the standalone runtime listens on, instead of all:
     /// the development environment keeps its nodes, whose keys are public,
     /// on loopback.
@@ -109,11 +138,9 @@ pub struct DaemonOptions {
     /// its listeners on loopback still dials its relay and its uplinks from
     /// every address.
     pub quic: Option<SocketAddr>,
-    /// Where the standalone runtime binds the rate feed's UDP socket,
-    /// instead of the HTTPS listener's address at
-    /// [`DEFAULT_FEED_PORT`](crate::feed::DEFAULT_FEED_PORT): for the
-    /// development environment's many nodes on one host.
-    pub feed: Option<SocketAddr>,
+    /// Where the standalone runtime binds the rate feed's UDP socket, if
+    /// anywhere.
+    pub feed: FeedSocket,
 }
 
 /// Everything the daemon needs before the async runtime starts.
@@ -125,7 +152,8 @@ pub struct Prepared {
     pub store: Store,
     /// How the sockets came.
     pub runtime: Runtime,
-    http: TcpListener,
+    /// The HTTP listener, which a standalone node may go without.
+    http: Option<TcpListener>,
     https: TcpListener,
     ipc: UnixListener,
     /// The UDP socket for QUIC, the peer protocol's only transport.
@@ -167,14 +195,17 @@ impl Prepared {
                     tracing::warn!(target: target::DAEMON, socket = systemd::FEED_SOCKET, "systemd passed no UDP socket for the rate feed: the node publishes no feed");
                 }
                 let udp = (sockets.quic, sockets.feed);
-                (sockets.http, sockets.https, sockets.ipc, udp, None)
+                (Some(sockets.http), sockets.https, sockets.ipc, udp, None)
             }
             Runtime::Standalone => {
-                let ports = match options.ports {
-                    Some(ports) => ports,
-                    None => store.config().map_err(DaemonError::Store)?.ports,
+                let (http, https) = match options.ports {
+                    TcpPorts::Configured => {
+                        let ports = store.config().map_err(DaemonError::Store)?.ports;
+                        bind_ports(ports, options.listen)?
+                    }
+                    TcpPorts::These(ports) => bind_ports(ports, options.listen)?,
+                    TcpPorts::HttpsOnly(port) => (None, bind_tcp(port, options.listen)?),
                 };
-                let (http, https) = bind_ports(ports, options.listen)?;
                 let quic = match options.quic {
                     Some(address) => bind_quic(address)?,
                     None => {
@@ -185,10 +216,11 @@ impl Prepared {
                     }
                 };
                 let feed = match options.feed {
-                    Some(address) => bind_feed(address),
-                    None => https.local_addr().ok().and_then(|https| {
+                    FeedSocket::At(address) => bind_feed(address),
+                    FeedSocket::Default => https.local_addr().ok().and_then(|https| {
                         bind_feed(SocketAddr::new(https.ip(), crate::feed::DEFAULT_FEED_PORT))
                     }),
+                    FeedSocket::Off => None,
                 };
                 let path = standalone_ipc_path(&settings, env);
                 let (ipc, unpublished) = ipc::bind_unpublished(&path)
@@ -227,7 +259,7 @@ impl Prepared {
             settings,
             store,
             runtime: Runtime::Systemd,
-            http,
+            http: Some(http),
             https,
             ipc,
             quic,
@@ -282,21 +314,26 @@ fn standalone_ipc_path(settings: &Settings, env: &Env) -> PathBuf {
     })
 }
 
-/// Binds both ports on `listen`, or on every address: IPv6 and IPv4 where
-/// the system has IPv6, IPv4 only where it does not.
+/// Binds both ports on `listen`, or on every address.
 fn bind_ports(
     ports: Ports,
     listen: Option<IpAddr>,
-) -> Result<(TcpListener, TcpListener), DaemonError> {
-    let bind = |port: u16| {
-        match listen {
-            Some(address) => TcpListener::bind(SocketAddr::from((address, port))),
-            None => TcpListener::bind(SocketAddr::from((Ipv6Addr::UNSPECIFIED, port)))
-                .or_else(|_| TcpListener::bind(SocketAddr::from((Ipv4Addr::UNSPECIFIED, port)))),
-        }
-        .map_err(|error| DaemonError::Bind(format!("port {port}"), error))
-    };
-    Ok((bind(ports.http())?, bind(ports.https())?))
+) -> Result<(Option<TcpListener>, TcpListener), DaemonError> {
+    Ok((
+        Some(bind_tcp(ports.http(), listen)?),
+        bind_tcp(ports.https(), listen)?,
+    ))
+}
+
+/// Binds `port` on `listen`, or on every address: IPv6 and IPv4 where the
+/// system has IPv6, IPv4 only where it does not.
+fn bind_tcp(port: u16, listen: Option<IpAddr>) -> Result<TcpListener, DaemonError> {
+    match listen {
+        Some(address) => TcpListener::bind(SocketAddr::from((address, port))),
+        None => TcpListener::bind(SocketAddr::from((Ipv6Addr::UNSPECIFIED, port)))
+            .or_else(|_| TcpListener::bind(SocketAddr::from((Ipv4Addr::UNSPECIFIED, port)))),
+    }
+    .map_err(|error| DaemonError::Bind(format!("port {port}"), error))
 }
 
 /// The UDP socket for QUIC on `address`: the HTTPS listener's address and
@@ -449,12 +486,17 @@ struct NodeParts {
 /// is served yet.
 fn make_node(
     parts: NodeParts,
-    sockets: (TcpListener, TcpListener, UnixListener, UdpSocket),
+    sockets: (Option<TcpListener>, TcpListener, UnixListener, UdpSocket),
     extras: Extras,
 ) -> Result<(Arc<Node>, Listeners, Arc<rustls::ServerConfig>), DaemonError> {
     let (http, https, ipc, quic) = sockets;
     let listeners = adopt(http, https, ipc).map_err(|e| DaemonError::Bind("sockets".into(), e))?;
-    let http_port = listeners.0.local_addr().map_or(0, |address| address.port());
+    // 0 for none.
+    let http_port = listeners
+        .0
+        .as_ref()
+        .and_then(|http| http.local_addr().ok())
+        .map_or(0, |address| address.port());
     let https_port = listeners.1.local_addr().map_or(0, |address| address.port());
     let settings = &parts.settings;
     let policies = if settings.dev_timings {
@@ -494,7 +536,8 @@ fn make_node(
     if let Some(dir) = &settings.dev_wallet_dir {
         tracing::warn!(target: target::HTTP, dir = %dir.display(), "serving a development build of the wallet");
     }
-    let mut bound = vec![bound_ip(&listeners.0), bound_ip(&listeners.1)];
+    let mut bound: Vec<IpAddr> = listeners.0.iter().map(bound_ip).collect();
+    bound.push(bound_ip(&listeners.1));
     bound.extend(quic_ip);
     bound.extend(feed_ip);
     for flag in exposed_dev_flags(settings, &bound) {
@@ -644,18 +687,24 @@ fn peer_options(settings: &Settings) -> PeerOptions {
 }
 
 type Listeners = (
-    tokio::net::TcpListener,
+    Option<tokio::net::TcpListener>,
     tokio::net::TcpListener,
     tokio::net::UnixListener,
 );
 
-fn adopt(http: TcpListener, https: TcpListener, ipc: UnixListener) -> io::Result<Listeners> {
-    http.set_nonblocking(true)?;
-    https.set_nonblocking(true)?;
+fn adopt(
+    http: Option<TcpListener>,
+    https: TcpListener,
+    ipc: UnixListener,
+) -> io::Result<Listeners> {
+    let tcp = |listener: TcpListener| {
+        listener.set_nonblocking(true)?;
+        tokio::net::TcpListener::from_std(listener)
+    };
     ipc.set_nonblocking(true)?;
     Ok((
-        tokio::net::TcpListener::from_std(http)?,
-        tokio::net::TcpListener::from_std(https)?,
+        http.map(tcp).transpose()?,
+        tcp(https)?,
         tokio::net::UnixListener::from_std(ipc)?,
     ))
 }
@@ -671,18 +720,20 @@ fn start_services(
     // A listener cannot be cloned for a restart, so the accept loops share
     // theirs; they only return at shutdown anyway.
     let (http, https, ipc) = (
-        Arc::new(listeners.0),
+        listeners.0.map(Arc::new),
         Arc::new(listeners.1),
         Arc::new(listeners.2),
     );
     let spawn =
         |name, service| supervise(node, services, shutdown, name, BeforeUp::Restart, service);
-    spawn(
-        "http",
-        Box::new(move |node, shutdown| {
-            Box::pin(http::serve(node, Arc::clone(&http), None, shutdown))
-        }),
-    );
+    if let Some(http) = http {
+        spawn(
+            "http",
+            Box::new(move |node, shutdown| {
+                Box::pin(http::serve(node, Arc::clone(&http), None, shutdown))
+            }),
+        );
+    }
     spawn(
         "https",
         Box::new(move |node, shutdown| {
@@ -843,7 +894,8 @@ fn report_ready(node: &Node, notifier: Option<&Notifier>) {
 
 /// The line that says the node serves, and on what: the TCP ports, the
 /// QUIC endpoint's address, and the rate feed's, or `none` when the node
-/// has none (spec/areas/node.md#logging).
+/// has none, as the HTTP port of a node without an HTTP listener
+/// (spec/areas/node.md#logging).
 fn log_listening(
     runtime: Runtime,
     (http_port, https_port): (u16, u16),
@@ -854,7 +906,11 @@ fn log_listening(
         address.map_or_else(|| "none".to_owned(), |address| address.to_string())
     };
     let (quic, feed) = (named(quic), named(feed));
-    tracing::info!(target: target::DAEMON, version = crate::VERSION, ?runtime, http_port, https_port, %quic, %feed, "listening");
+    let http_port = match http_port {
+        0 => "none".to_owned(),
+        port => port.to_string(),
+    };
+    tracing::info!(target: target::DAEMON, version = crate::VERSION, ?runtime, %http_port, https_port, %quic, %feed, "listening");
 }
 
 #[cfg(test)]
@@ -958,6 +1014,12 @@ mod tests {
                 field("feed", "[::]:7768"),
             ]
         );
+        let lines =
+            crate::log::capture(|| log_listening(Runtime::Standalone, (0, 443), None, None));
+        assert!(
+            lines[0].fields.contains(&field("http_port", "none")),
+            "{lines:?}"
+        );
         assert_eq!(
             listening(Runtime::Standalone, None, None),
             [
@@ -995,14 +1057,32 @@ mod tests {
         let ports = free_ports();
         let options = DaemonOptions {
             runtime: Some(Runtime::Standalone),
-            ports: Some(ports),
+            ports: TcpPorts::These(ports),
             listen: Some(Ipv4Addr::LOCALHOST.into()),
             quic: None,
-            feed: Some(SocketAddr::from((Ipv4Addr::LOCALHOST, 0))),
+            feed: FeedSocket::At(SocketAddr::from((Ipv4Addr::LOCALHOST, 0))),
         };
         let prepared = prepare(dir.path(), options);
         let quic = prepared.quic.local_addr().unwrap();
         assert_eq!(quic, prepared.https.local_addr().unwrap());
+    }
+
+    // The desktop's node: HTTPS alone, and no feed (spec/areas/desktop.md#sockets).
+    #[test]
+    fn a_node_may_go_without_http_and_the_feed() {
+        let dir = tempfile::tempdir().unwrap();
+        let https = free_ports().https();
+        let options = DaemonOptions {
+            runtime: Some(Runtime::Standalone),
+            ports: TcpPorts::HttpsOnly(https),
+            listen: Some(Ipv4Addr::LOCALHOST.into()),
+            quic: None,
+            feed: FeedSocket::Off,
+        };
+        let prepared = prepare(dir.path(), options);
+        assert!(prepared.http.is_none());
+        assert_eq!(prepared.https.local_addr().unwrap().port(), https);
+        assert!(prepared.extras.feed.is_none());
     }
 
     #[test]
@@ -1010,10 +1090,10 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let options = DaemonOptions {
             runtime: Some(Runtime::Standalone),
-            ports: Some(free_ports()),
+            ports: TcpPorts::These(free_ports()),
             listen: Some(Ipv4Addr::LOCALHOST.into()),
             quic: None,
-            feed: Some(SocketAddr::from((Ipv4Addr::LOCALHOST, 0))),
+            feed: FeedSocket::At(SocketAddr::from((Ipv4Addr::LOCALHOST, 0))),
         };
         let prepared = prepare(dir.path(), options);
         let feed = prepared.extras.feed.as_ref().unwrap().local_addr().unwrap();
@@ -1030,10 +1110,10 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let options = DaemonOptions {
             runtime: Some(Runtime::Standalone),
-            ports: Some(free_ports()),
+            ports: TcpPorts::These(free_ports()),
             listen: Some(Ipv4Addr::LOCALHOST.into()),
             quic: None,
-            feed: Some(taken.local_addr().unwrap()),
+            feed: FeedSocket::At(taken.local_addr().unwrap()),
         };
         let prepared = prepare(dir.path(), options);
         assert!(prepared.extras.feed.is_none());
@@ -1053,10 +1133,10 @@ mod tests {
         ]);
         let options = DaemonOptions {
             runtime: Some(Runtime::Standalone),
-            ports: Some(free_ports()),
+            ports: TcpPorts::These(free_ports()),
             listen: Some(Ipv4Addr::LOCALHOST.into()),
             quic: Some(taken.local_addr().unwrap()),
-            feed: Some(SocketAddr::from((Ipv4Addr::LOCALHOST, 0))),
+            feed: FeedSocket::At(SocketAddr::from((Ipv4Addr::LOCALHOST, 0))),
         };
         let error = Prepared::new(&env, options).unwrap_err();
         assert!(
@@ -1070,10 +1150,10 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let options = DaemonOptions {
             runtime: Some(Runtime::Standalone),
-            ports: Some(free_ports()),
+            ports: TcpPorts::These(free_ports()),
             listen: Some(Ipv4Addr::LOCALHOST.into()),
             quic: Some(SocketAddr::from((Ipv4Addr::UNSPECIFIED, 0))),
-            feed: Some(SocketAddr::from((Ipv4Addr::LOCALHOST, 0))),
+            feed: FeedSocket::At(SocketAddr::from((Ipv4Addr::LOCALHOST, 0))),
         };
         let prepared = prepare(dir.path(), options);
         let quic = prepared.quic.local_addr().unwrap();

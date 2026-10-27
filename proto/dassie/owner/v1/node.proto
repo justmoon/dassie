@@ -42,7 +42,8 @@ message GetStatusResponse {
   Certificate certificate = 4;
   AcmeStatus acme = 5;
   // The ports the node listens on, which may differ from the configured
-  // ones under systemd.
+  // ones under systemd. The HTTP port is 0 for a node without an HTTP
+  // listener, as the desktop app's.
   uint32 http_port = 6;
   uint32 https_port = 7;
   // Whether the node runs as a periphery node

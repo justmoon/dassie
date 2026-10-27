@@ -1,10 +1,12 @@
 //! The owner's node, in this process (spec/areas/desktop.md#the-node).
 //!
 //! The daemon runs as `dassie daemon` runs it, on a runtime of its own on a
-//! thread of its own, so that it never shares Tauri's. Its listeners stay on
-//! loopback, where only this machine reaches the wallet; its QUIC socket
-//! listens on every address, since a periphery node dials its relay and
-//! uplinks and is never dialled.
+//! thread of its own, so that it never shares Tauri's. Its HTTPS listener
+//! stays on loopback, where only this machine reaches the wallet; its QUIC
+//! socket listens on every address, since a periphery node dials its relay
+//! and uplinks and is never dialled. It has no HTTP listener and no rate
+//! feed's socket: no CA asks it for an http-01 challenge, no browser reaches
+//! it over plain HTTP, and a periphery node publishes no feed.
 
 use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr, UdpSocket};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -12,11 +14,10 @@ use std::sync::{Arc, Weak};
 use std::thread::JoinHandle;
 
 use dassie_node::clock::{SystemClock, os_rng};
-use dassie_node::daemon::{self, DaemonOptions, Prepared};
+use dassie_node::daemon::{self, DaemonOptions, FeedSocket, Prepared, TcpPorts};
 use dassie_node::env::Env;
 use dassie_node::node::{Node, Policies, Runtime};
 use dassie_node::quic::relay::RelayLink;
-use dassie_node_core::config::Ports;
 use tauri::Url;
 use tokio_util::sync::CancellationToken;
 
@@ -58,22 +59,23 @@ impl Status {
     }
 }
 
-/// Starts the node on `ports`; `on_end` runs once it stops, with why if it
-/// failed. Returns once the node is made, or with why it could not start.
+/// Starts the node with its HTTPS listener on `https_port`; `on_end` runs
+/// once it stops, with why if it failed. Returns once the node is made, or
+/// with why it could not start.
 pub fn start(
     env: &Env,
-    ports: Ports,
+    https_port: u16,
     on_end: impl FnOnce(Option<String>) + Send + 'static,
 ) -> Result<RunningNode, String> {
     let options = DaemonOptions {
         runtime: Some(Runtime::Standalone),
-        ports: Some(ports),
+        ports: TcpPorts::HttpsOnly(https_port),
         listen: Some(Ipv4Addr::LOCALHOST.into()),
         quic: Some(quic_address()),
-        // A periphery node publishes no rate feed. A port the system picks
-        // on loopback never takes the one a node on this machine serves
-        // its feed at.
-        feed: Some(SocketAddr::from((Ipv4Addr::LOCALHOST, 0))),
+        // A periphery node publishes no rate feed, so it needs no socket
+        // for one, and leaves the feed's port to a node on this machine
+        // that serves there.
+        feed: FeedSocket::Off,
     };
     let (to, from) = tokio::sync::oneshot::channel();
     let prepared = Prepared::new(env, options)
@@ -105,7 +107,7 @@ pub fn start(
     };
     started.store(true, Ordering::Release);
     Ok(RunningNode {
-        https_port: ports.https(),
+        https_port,
         node,
         shutdown,
         thread: std::sync::Mutex::new(Some(thread)),
