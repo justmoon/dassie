@@ -70,6 +70,11 @@ pub struct StubHooks {
     /// Whether the stub scheme's peerings are over a hub: Prepares on them
     /// come with commitments.
     pub commitments: bool,
+    /// The schemes that would settle directly: neither over a hub nor of
+    /// unlimited trust, so never a method of a peering
+    /// (spec/decisions/hubs-only.md). Every other scheme not over a hub
+    /// trusts without limit, as the test stub with unlimited trust does.
+    pub direct: BTreeSet<SchemeId>,
     /// What the node replies to a Fulfill on a peering over a hub with, as
     /// a payer's claim.
     pub claim: Vec<u8>,
@@ -176,6 +181,10 @@ impl PeeringHooks for StubHooks {
 
     fn uses_commitments(&self, scheme: SchemeId) -> bool {
         self.commitments && scheme.as_str() == STUB
+    }
+
+    fn trusts_unlimited(&self, scheme: SchemeId) -> bool {
+        !self.uses_commitments(scheme) && !self.direct.contains(&scheme)
     }
 
     // The stub forwards no packets: what a peer's response answers is the
