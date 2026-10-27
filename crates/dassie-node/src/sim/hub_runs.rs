@@ -4,8 +4,9 @@
 //!
 //! - **`node-hub-lies`:** members peered over a hub whose XRP Ledger
 //!   servers lie to them, each kind of lie in turn, in rounds that give
-//!   every member one, while they pay, and their owners ask the faucet and
-//!   move funds into the hub; then a validator of the XRP Ledger rotates
+//!   every member one, while they pay and their owners ask the faucet, one
+//!   owner moves funds into the hub by hand and the other members' nodes
+//!   move theirs by themselves; then a validator of the XRP Ledger rotates
 //!   its key, a quorum of them is withheld and the publisher's list lapses
 //!   (spec/designs/xrpl-validation.md#11-the-fake-ledger-the-lying-server-and-the-simulation).
 //!   Each member's books hold to the fake ledger's truth and to the hub,
@@ -35,7 +36,7 @@ use super::hubbed::{
     moving, over_hub, paid, pay, routed, settle_down,
 };
 use super::scripted::{READY_WITHIN_MS, ended};
-use super::{HUB_STAKE_XRP, LEDGER_CLOSE_MS, LEDGER_RECONNECT_MS, LONGEST_LIE_MS, Settling, Sim};
+use super::{HUB, LEDGER_CLOSE_MS, LEDGER_RECONNECT_MS, LONGEST_LIE_MS, Settling, Sim};
 use crate::node::Policies;
 
 /// How long a server of [`run_lies`] lies to a member: the longest a drawn
@@ -52,6 +53,16 @@ const WITHHELD_MS: u64 = 4 * STALL_MS;
 /// (spec/designs/xrpl-validation.md#5-the-unl-from-its-publishers), so
 /// each holds it when it expires.
 const LAPSES_AFTER_MS: u64 = STALL_MS;
+
+/// What each member's owner moves into the hub in [`run_across`], in XRP:
+/// as much as each node's owner starts with on the hub's ledger in a run,
+/// [`Settling::deposit`], which the checks of its assets count from.
+pub const HUB_STAKE_XRP: u64 = 100;
+
+const _: () = assert!(
+    Settling::deposit(HUB) == HUB_STAKE_XRP as i128 * DROPS_PER_XRP as i128 * 1_000,
+    "a stake is what the checks count each owner started with in the hub"
+);
 
 /// The most an owner moves into the hub at once in [`run_lies`], in XRP:
 /// as much as a node keeps there at its ceiling.
@@ -99,8 +110,9 @@ fn hub_height(sim: &Sim) -> u64 {
 
 /// Node `index`'s owner moves `drops` from its XRP Ledger account into the
 /// hub, if its node takes the move now: not while its account is not in
-/// step with the ledger, nor while another move is on its way.
-fn move_in(sim: &mut Sim, index: usize, drops: u64) {
+/// step with the ledger, nor while another move is on its way. Whether it
+/// did.
+fn move_in(sim: &mut Sim, index: usize, drops: u64) -> bool {
     let mut moved = false;
     sim.step(index, |core| {
         moved = core.hub_deposit(drops * UNITS_PER_DROP).is_ok();
@@ -112,6 +124,24 @@ fn move_in(sim: &mut Sim, index: usize, drops: u64) {
             sim.now
         ));
     }
+    moved
+}
+
+/// Whether node `index`'s connection to the ledger is to a lying server:
+/// from when its honest one drops until the lie ends.
+fn lied_to(sim: &Sim, index: usize) -> bool {
+    sim.lying.get(&index).is_some_and(|connection| {
+        (sim.links.get(&index)).is_some_and(|link| link.connection == *connection)
+    })
+}
+
+/// Whether node `index` has a move of its own on its way, not one its
+/// owner asked for.
+fn moving_by_itself(sim: &Sim, index: usize) -> bool {
+    sim.core(index)
+        .hub_status()
+        .and_then(|status| status.moving)
+        .is_some_and(|moving| !moving.owner)
 }
 
 fn script_lies(sim: &mut Sim, rng: &mut SeededRng) -> Result<(), Outcome> {
@@ -127,6 +157,15 @@ fn script_lies(sim: &mut Sim, rng: &mut SeededRng) -> Result<(), Outcome> {
         let other = usize::try_from(rng.below(at as u64 + 1)).unwrap();
         order.swap(at, other);
     }
+    // One member's owner moves funds into the hub by hand. An owner's move
+    // pauses its node's own moves for longer than the run lasts
+    // (`OWNER_PAUSE_MS`), so the other members' nodes keep moving theirs by
+    // themselves, on what their lying servers tell them.
+    let mover = usize::try_from(rng.below(count as u64)).unwrap();
+    sim.trace.push(format!(
+        "{} the owner of {mover} moves funds by hand",
+        sim.now
+    ));
     // A round of lies: each member in turn, from one drawn, gets the next
     // kind, until every kind was told.
     let mut lies = order.into_iter();
@@ -138,16 +177,18 @@ fn script_lies(sim: &mut Sim, rng: &mut SeededRng) -> Result<(), Outcome> {
             .collect();
         let drops = (1 + rng.below(MOST_MOVED_XRP)) * DROPS_PER_XRP;
         for &(liar, lie) in &round {
-            // Its owner asks the faucet for more three times, and moves
-            // funds into the hub, as the member's connection drops, and
-            // again while the server lies: so the history the server gives
-            // on connecting, and its stream, have something to leave out,
-            // or to hint at in an old ledger, the member's own deposit to
-            // the escrow among it.
+            // Its owner asks the faucet for more three times as the
+            // member's connection drops, and the mover's owner moves funds
+            // into the hub: so the history the server gives on connecting,
+            // and its stream, have something to leave out, or to hint at in
+            // an old ledger, the member's own deposit to the escrow among
+            // it.
             for _ in 0..3 {
                 sim.fund(liar);
             }
-            move_in(sim, liar, drops);
+            if liar == mover {
+                move_in(sim, liar, drops);
+            }
             // Only the liar's pairs may be withdrawn meanwhile: it sees
             // nothing of its ledger until its next connection anchors.
             sim.outages.push((
@@ -157,12 +198,41 @@ fn script_lies(sim: &mut Sim, rng: &mut SeededRng) -> Result<(), Outcome> {
             ));
             sim.lie_to(liar, lie, LIE_MS);
         }
+        // The members pay each other while their servers lie, so that
+        // their holds in the hub, and so what their nodes move, change
+        // under the lies.
+        pay(sim, rng);
         sim.run_until(sim.now + STALL_MS / 2);
         for &(liar, _) in &round {
             sim.fund(liar);
-            move_in(sim, liar, drops);
         }
-        sim.run_until(sim.now + LIE_MS + STALL_MS / 2);
+        // While the servers lie, a ledger at a time: the mover's owner
+        // moves funds into the hub again once its node takes the move, and
+        // the others' nodes start moves of their own.
+        let end = sim.now + LIE_MS + STALL_MS / 2;
+        let mut owner_moved = false;
+        let mut was_moving: Vec<bool> = (0..count)
+            .map(|index| moving_by_itself(sim, index))
+            .collect();
+        while sim.now < end {
+            for &(liar, _) in &round {
+                if !lied_to(sim, liar) {
+                    continue;
+                }
+                if liar == mover {
+                    if !owner_moved && move_in(sim, liar, drops) {
+                        owner_moved = true;
+                        sim.count("owner moves while lied to");
+                    }
+                } else if moving_by_itself(sim, liar) && !was_moving[liar] {
+                    sim.count("own moves while lied to");
+                }
+            }
+            for (index, was) in was_moving.iter_mut().enumerate() {
+                *was = moving_by_itself(sim, index);
+            }
+            sim.run_until(end.min(sim.now + LEDGER_CLOSE_MS));
+        }
     }
     sim.end_lies();
     // A validator's new key: the members learn it from the server's
@@ -343,11 +413,13 @@ fn stake(sim: &mut Sim) -> Result<(), Outcome> {
 }
 
 /// Everything [`run_across`] checks once the network is calm: what a run
-/// across currencies checks, and on the hub what a run over one checks of
-/// the hub and its members' books.
+/// across currencies checks, that no honest peer was withdrawn for room,
+/// and on the hub what a run over one checks of the hub and its members'
+/// books.
 fn check_across_hubs(sim: &Sim) -> Result<(), Outcome> {
     first_failure([
         check_across(sim),
+        check_withdrawn(sim).map_err(|problem| Outcome::liveness("withdrawn", problem)),
         check_hub_validators(sim).map_err(|problem| Outcome::safety("hub-agreement", problem)),
         check_hub_packets(sim).map_err(|problem| Outcome::safety("hub-packets", problem)),
         check_hub_credit(sim).map_err(|problem| Outcome::safety("hub-credit", problem)),

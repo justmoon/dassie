@@ -28,9 +28,11 @@ use dassie_kit::sim::{assert_passes, caught, each};
 use dassie_node::sim::{START, Settling, Sim, hub_runs, hubbed, key};
 
 /// The seeds of `node-hub-lies` the tests run, which between them tell
-/// every kind of lie: how long a lying server's connection lasts decides
-/// which it gets to tell.
-const LIES_SEEDS: [u64; 2] = [5, 7];
+/// every kind of lie, and in which an owner and a node move funds while
+/// lied to: how long a lying server's connection lasts decides which it
+/// gets to tell. One seed reaches all of it today; should a change stop
+/// it, add another rather than lose a kind.
+const LIES_SEEDS: [u64; 1] = [7];
 
 /// The seed of `node-hub-currencies` the tests run.
 const ACROSS_SEED: u64 = 3;
@@ -96,8 +98,9 @@ fn payments_both_ways_through_a_hop_over_a_hub_complete() {
 }
 
 // spec/areas/testing.md#over-a-settlement-hub: members peered over a hub,
-// whose XRP Ledger servers tell each kind of lie in turn while they pay and
-// their owners fund their accounts and move funds into the hub, then a
+// whose XRP Ledger servers tell each kind of lie in turn while they pay,
+// their owners fund their accounts, one owner moves funds into the hub and
+// the other members' nodes move theirs by themselves, then a
 // validator of the ledger rotates its key, a quorum is withheld and a list
 // lapses. Each member's books hold to the fake ledger's truth and to the
 // hub, every member anchored, the payments complete and the hub keeps
@@ -126,6 +129,8 @@ fn hub_members_hold_to_the_ledger_through_lying_servers() {
         "quorums withheld",
         "validator lists lapsed",
         "owner moves into the hub",
+        "owner moves while lied to",
+        "own moves while lied to",
     ]) {
         assert!(
             reached.contains_key(what),

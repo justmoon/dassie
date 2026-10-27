@@ -250,9 +250,6 @@ const VALIDATION_SECRET: [u8; 32] = *b"dassie simulation validations ok";
 /// What the fake ledger's issuer mints each node on its token's ledger once
 /// its line exists, in millionths of a dollar: as much as the stub gives.
 pub const MINT_MICROS: u64 = 100_000_000;
-/// What each member's owner moves into the hub in a run across currencies
-/// over hubs, in XRP: as many as the stub gives dollars.
-pub const HUB_STAKE_XRP: u64 = 100;
 /// What a token's pool holds of it, in whole tokens: beside twice as many
 /// XRP, a dollar at [`RATES`], and deep enough for either network's floor.
 pub const POOL_TOKENS: u64 = 100_000;
@@ -351,9 +348,6 @@ impl Settling {
                 (FAUCET_DROPS as i128 - 1_000_000) * 1_000
             }
             LedgerId::XrplRlusdUsd | LedgerId::XrplTestnetDsusdUsd => MINT_MICROS as i128 * 1_000,
-            // In a run across currencies over hubs, what each member's
-            // owner moves into the hub, [`HUB_STAKE_XRP`].
-            LedgerId::HubXrplTestnetXrp => HUB_STAKE_XRP as i128 * DROPS_PER_XRP as i128 * 1_000,
             _ => 100_000_000_000,
         }
     }
@@ -1459,6 +1453,15 @@ impl Sim {
         let Some(core) = self.nodes[index].core.as_mut() else {
             return;
         };
+        // In a run across currencies over hubs, the peers over the real
+        // hub; the others are over the stub with commitments.
+        let over_real: BTreeSet<String> = match self.settling {
+            Settling::HubAcross(_) => (core.network().peers.into_iter())
+                .filter(|peer| peer.peering.first().scheme.as_str() == Settling::scheme(HUB).0)
+                .map(|peer| peer.id.as_str().to_owned())
+                .collect(),
+            _ => BTreeSet::new(),
+        };
         for peer in core.hub_peers() {
             let held = peer.held;
             if held.ours > peer.pending_to || held.theirs > peer.pending_from {
@@ -1482,9 +1485,10 @@ impl Sim {
             // the holds for a while, never below them
             // (spec/areas/hubs.md#in-the-node). The stub reports a take when
             // the books take it, so there the two are always one.
-            // Across the stub with commitments and a real hub, every peer
-            // is held to the real hub's bound.
-            let real = matches!(self.settling, Settling::Hub(_) | Settling::HubAcross(_));
+            // Across the stub with commitments and a real hub, each peer is
+            // held to the bound of what it is peered over.
+            let real =
+                matches!(self.settling, Settling::Hub(_)) || over_real.contains(peer.peer.as_str());
             if peer.peered
                 && let Some(credit) = peer.credit
                 && (credit < holds || credit > holds && !real)
