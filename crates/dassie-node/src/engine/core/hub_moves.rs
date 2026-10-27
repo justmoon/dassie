@@ -41,13 +41,21 @@ fn book_fee(ledger: LedgerId) -> u64 {
     }
 }
 
-/// `smallest` of the asset of `ledger`, in its smallest unit at scale 6,
-/// for the owner to read: `2.5 XRP`, `0.000001 USD`.
-fn in_asset(ledger: LedgerId, smallest: u64) -> String {
+/// `smallest` of the asset of the hub of `scheme`, in its smallest unit at
+/// scale 6, for the owner to read as the command line shows it: `2.5 XRP`,
+/// `0.000001 DSUSD`. The asset is the last word of the scheme's ID
+/// (spec/decisions/hub-scheme-names.md), where the ledger's books count
+/// DSUSD as `USD`.
+fn in_asset(scheme: Name, smallest: u64) -> String {
     let whole = smallest / 1_000_000;
     let fraction = format!("{:06}", smallest % 1_000_000);
     let fraction = fraction.trim_end_matches('0');
-    let code = ledger.asset().code;
+    let code = scheme
+        .as_str()
+        .rsplit('-')
+        .next()
+        .unwrap_or("XRP")
+        .to_ascii_uppercase();
     if fraction.is_empty() {
         format!("{whole} {code}")
     } else {
@@ -550,13 +558,15 @@ impl Core {
         let Some(planned) = due else {
             // A check of a token hub's gas the owner started goes on.
             if self.funding.get(&scheme).is_some_and(Funding::gas_checking) {
-                self.check_gas(scheme);
+                // Nothing to tell anyone: the XRP book not running holds
+                // it back until it runs.
+                let _ = self.check_gas(scheme);
             }
             return;
         };
         if planned.direction == Direction::Withdraw
             && self.token_hub(scheme)
-            && !self.check_gas(scheme)
+            && !matches!(self.check_gas(scheme), Ok(true))
         {
             return;
         }
@@ -590,7 +600,7 @@ impl Core {
         let escrow = dassie_xrpl::AccountId(self.hub_account(scheme)?.terms().escrow);
         let account = self.xrp_book_account()?;
         let topping_up = match self.funding.get(&scheme)?.gas {
-            Gas::ToppingUp { payment } => self.xrpl_owner_payment(payment),
+            Gas::ToppingUp { payment, .. } => self.xrpl_owner_payment(payment),
             _ => OwnerPaymentState::Unknown,
         };
         Some(GasSeen {
@@ -610,31 +620,46 @@ impl Core {
     /// the escrow's XRP through the XRP owner book's account, and if it is
     /// short pays the escrow the shortfall from the book, a payment of XRP
     /// that credits no one in the hub. Returns whether the escrow has
-    /// its gas now. While the XRP book does not run, it waits. The escrow
-    /// requires a destination tag on what it is paid, so the top-up names
-    /// the node's account in the hub, which XRP credits nothing.
-    fn check_gas(&mut self, scheme: Name) -> bool {
+    /// its gas now. The escrow requires a destination tag on what it is
+    /// paid, so the top-up names the node's account in the hub, which XRP
+    /// credits nothing. A top-up the XRP book cannot take now, as while
+    /// another of its payments is on its way, is asked again at the next
+    /// step, with no backoff; one refused otherwise backs the check off.
+    ///
+    /// # Errors
+    ///
+    /// The XRP owner book does not run in step with its ledger: the check
+    /// waits for it.
+    fn check_gas(&mut self, scheme: Name) -> Result<bool, EngineError> {
         let now = self.now_ms;
-        let Some(seen) = self.gas_seen(scheme) else {
-            return false;
-        };
         let Some(escrow) = self
             .hub_account(scheme)
             .map(|account| dassie_xrpl::AccountId(account.terms().escrow))
         else {
-            return false;
+            return Ok(false);
         };
+        let seen = self
+            .gas_seen(scheme)
+            .filter(|seen| seen.anchor.is_some())
+            .ok_or_else(|| {
+                EngineError::Precondition(
+                    "a token hub's escrow pays its fees in XRP, which the node reads and tops \
+                     up through its owner book of XRP on the XRP Ledger testnet \
+                     (xrpl-testnet-xrp): that book is not running synced"
+                        .into(),
+                )
+            })?;
         let Some(funding) = self.funding.get_mut(&scheme) else {
-            return false;
+            return Ok(false);
         };
-        match funding.gas_step(now, &seen) {
+        Ok(match funding.gas_step(now, &seen) {
             GasNext::Ready => true,
             GasNext::Wait => false,
             GasNext::Read => {
                 self.read_balance_of(escrow);
                 false
             }
-            GasNext::TopUp(drops) => {
+            GasNext::TopUp { drops, at } => {
                 // The escrow takes no payment without a tag: the account's
                 // own number names who paid it, and XRP credits no one in
                 // a token hub.
@@ -645,13 +670,15 @@ impl Core {
                 let paid = self.pay_from_xrp_book(&escrow.to_address(), tag, drops);
                 if let Some(funding) = self.funding.get_mut(&scheme) {
                     match paid {
-                        Ok(payment) => funding.topping_up(payment),
+                        Ok(payment) => funding.topping_up(payment, at),
+                        // Not now: the book's one owner payment is taken.
+                        Err(EngineError::Exhausted(_)) => {}
                         Err(_) => funding.gas_failed(now),
                     }
                 }
                 false
             }
-        }
+        })
     }
 
     /// Has the XRP owner book's account read the XRP of `account`, proven,
@@ -974,7 +1001,6 @@ impl Core {
     ) -> Result<HubStatus, EngineError> {
         let scheme = self.chosen_hub(hub)?;
         let standing = self.owner_standing(scheme)?;
-        let ledger = self.hub_ledger(scheme)?;
         let drops = amount / UNITS_PER_DROP;
         let spendable = standing.xrpl.ok_or_else(|| {
             EngineError::Precondition(
@@ -984,7 +1010,7 @@ impl Core {
         if drops == 0 {
             return Err(EngineError::Invalid(format!(
                 "the amount is less than {}, the least the hub counts",
-                in_asset(ledger, 1)
+                in_asset(scheme, 1)
             )));
         }
         if drops > spendable {
@@ -999,7 +1025,7 @@ impl Core {
             None if standing.unfunded => {
                 return Err(EngineError::Invalid(format!(
                     "opening the account takes at least {}",
-                    in_asset(ledger, standing.opening)
+                    in_asset(scheme, standing.opening)
                 )));
             }
             None => {
@@ -1045,12 +1071,11 @@ impl Core {
         let held = standing.held.ok_or_else(|| {
             EngineError::Precondition("the node has no account in the hub yet".into())
         })?;
-        let ledger = self.hub_ledger(scheme)?;
         let drops = amount / UNITS_PER_DROP;
         if drops < standing.least_payout {
             return Err(EngineError::Invalid(format!(
                 "the hub pays out at least {}",
-                in_asset(ledger, standing.least_payout)
+                in_asset(scheme, standing.least_payout)
             )));
         }
         if drops.saturating_add(standing.withdrawal_fees) > held.balance {
@@ -1063,23 +1088,25 @@ impl Core {
                 "more than the owner's funds in the hub: the rest is owed to peers".into(),
             ));
         }
-        if self.token_hub(scheme) && !self.check_gas(scheme) {
-            return Err(EngineError::Exhausted(
-                "the hub's escrow pays its fees in XRP: the node checks it holds enough, \
-                 and tops it up first if not; try again shortly"
+        if self.token_hub(scheme) && !self.check_gas(scheme)? {
+            let now = self.now_ms;
+            let backing_off = self
+                .funding
+                .get(&scheme)
+                .and_then(|funding| funding.gas_backing_off(now));
+            return Err(EngineError::Exhausted(match backing_off {
+                Some(until) => format!(
+                    "the hub's escrow pays its fees in XRP, and the node's top-up of it \
+                     failed: it checks again in {} s",
+                    until.saturating_sub(now).div_ceil(1_000)
+                ),
+                None => "the hub's escrow pays its fees in XRP: the node checks it holds \
+                         enough, and tops it up first if not; try again shortly"
                     .into(),
-            ));
+            }));
         }
         let planned = Planned::withdraw(drops, standing.ledger_fee, held.withdrawn, true);
         self.owner_move(scheme, planned, &standing)
-    }
-
-    /// The ledger of the scheme over a hub, while it runs.
-    fn hub_ledger(&self, scheme: Name) -> Result<LedgerId, EngineError> {
-        self.schemes
-            .get(&scheme)
-            .map(|active| active.scheme.ledger())
-            .ok_or_else(|| EngineError::Internal("the hub scheme vanished".into()))
     }
 
     /// Turns the automatic moves of the hub `hub` (its ID, or none for the
