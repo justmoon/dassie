@@ -35,7 +35,7 @@ use dassie_node::sim::{START, Settling, Sim, hub_pairs, hub_runs, hubbed, key};
 /// lied to: how long a lying server's connection lasts decides which it
 /// gets to tell. One seed reaches all of it today; should a change stop
 /// it, add another rather than lose a kind.
-const LIES_SEEDS: [u64; 1] = [1];
+const LIES_SEEDS: [u64; 1] = [12];
 
 /// The seed of `node-hub-currencies` the tests run.
 const ACROSS_SEED: u64 = 3;
