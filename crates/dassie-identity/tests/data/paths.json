@@ -61,6 +61,18 @@
       "secret": "faa47457fff08776a603441dc77324bbf4b412a62ae5a36e1ec230fd8c6879e1"
     },
     {
+      "name": "streamReceiver",
+      "ledger": "hub-xrpl-xrp+xrp",
+      "path": "node/stream-server/hub-xrpl-xrp+xrp",
+      "secret": "6110468a7bcfb2d11ab9ea1f20f129eebdc95d6b63fbf59464c3933fbd1a98f6"
+    },
+    {
+      "name": "streamReceiver",
+      "ledger": "hub-xrpl-rlusd+usd",
+      "path": "node/stream-server/hub-xrpl-rlusd+usd",
+      "secret": "b556ad63753cf1d576931ec989f9eab0ed39f7429758a64fd6b4cc9f7061df68"
+    },
+    {
       "name": "quicStatelessReset",
       "endpoint": "udp",
       "path": "node/quic/stateless-reset",

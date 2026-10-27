@@ -505,6 +505,8 @@ const LEDGERS = [
   "xrpl-testnet-dsusd+usd",
   "hub-xrpl-testnet-xrp+xrp",
   "hub-xrpl-testnet-dsusd+usd",
+  "hub-xrpl-xrp+xrp",
+  "hub-xrpl-rlusd+usd",
 ];
 const QUIC = [
   ["udp", "stateless-reset", "connection-ids"],

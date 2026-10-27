@@ -859,7 +859,10 @@ fn the_core_does_not_log() {
     for entry in std::fs::read_dir(&dir).unwrap() {
         let path = entry.unwrap().path();
         // The tests, and the directory of those in files of their own.
-        if path.file_name().is_some_and(|name| name == "tests.rs") || path.is_dir() {
+        if path
+            .file_name()
+            .is_some_and(|name| name == "tests.rs" || name == "tests")
+        {
             continue;
         }
         let text = std::fs::read_to_string(&path).unwrap();

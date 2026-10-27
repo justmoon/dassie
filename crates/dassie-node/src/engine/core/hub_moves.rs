@@ -96,7 +96,12 @@ pub(super) const fn gas_book_ledger(hub: LedgerId) -> Option<LedgerId> {
             owner_book_ledger(LedgerId::HubXrplTestnetXrp)
         }
         LedgerId::HubXrplXrp | LedgerId::HubXrplRlusdUsd => owner_book_ledger(LedgerId::HubXrplXrp),
-        _ => None,
+        LedgerId::StubUsd
+        | LedgerId::XrplTestnetXrp
+        | LedgerId::XrplXrp
+        | LedgerId::XrplTestnetRlusdUsd
+        | LedgerId::XrplRlusdUsd
+        | LedgerId::XrplTestnetDsusdUsd => None,
     }
 }
 

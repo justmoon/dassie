@@ -2,10 +2,11 @@
 //! sans-IO: a member's side of peering over a settlement hub, through its
 //! [`HubAccount`]. Its ID and ledger name the hub's underlying ledger and
 //! its asset (spec/decisions/hub-scheme-names.md), as the hub's rules give
-//! it ([`scheme_of`]): `hub-xrpl-testnet-xrp` for XRP, `hub-xrpl-testnet-dsusd`
-//! for DSUSD. Amounts are in the asset's smallest unit, drops of XRP or
-//! millionths of the token, which the books count alike
-//! ([`UNITS_PER_DROP`]).
+//! it ([`scheme_of`]): `hub-xrpl-testnet-xrp` for XRP and
+//! `hub-xrpl-testnet-dsusd` for DSUSD on the testnet, `hub-xrpl-xrp` for
+//! XRP and `hub-xrpl-rlusd` for RLUSD on mainnet. Amounts are in the
+//! asset's smallest unit, drops of XRP or millionths of the token, which
+//! the books count alike ([`UNITS_PER_DROP`]).
 //!
 //! - **Peering** exchanges the hub's ID and each side's account number and
 //!   key; a peer in another hub is refused.
