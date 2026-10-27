@@ -1110,6 +1110,45 @@ fn more_open_withdrawals_than_kept_each_go() {
     );
 }
 
+// In a burst of more withdrawals than are kept, the lowest go out at once,
+// as many as may be in flight, and the rest wait to be sent: no withdrawal
+// in flight makes room while a higher one waits, since that one would wait
+// on it for good were it lost. The highest, which none waits on, is
+// dropped instead, and the others each go.
+#[test]
+fn a_burst_drops_its_highest_and_keeps_those_in_flight() {
+    let mut setup = Setup::new();
+    setup.view.checked = true;
+    setup.connect();
+    setup.closes(2);
+    let count = MAX_QUEUED_SUBMITS + 1;
+    let first = setup.view.next_sequence;
+    let last = first + u32::try_from(count - 1).unwrap();
+    for offset in 0..count {
+        let sequence = first + u32::try_from(offset).unwrap();
+        setup.watcher.submit(withdrawal_blob(&setup, sequence));
+    }
+    let kept: Vec<Option<u32>> = setup
+        .watcher
+        .submits
+        .iter()
+        .map(|kept| kept.sequence)
+        .collect();
+    let expected: Vec<Option<u32>> = (first..last).map(Some).collect();
+    assert_eq!(kept, expected, "one in flight made room");
+    setup.run();
+    for _ in 0..count {
+        setup.tick(RESUBMIT_MS);
+    }
+    for sequence in first..last {
+        assert!(
+            times_sent(&setup, &withdrawal_blob(&setup, sequence)) >= 1,
+            "{sequence} never went"
+        );
+    }
+    assert_eq!(times_sent(&setup, &withdrawal_blob(&setup, last)), 0);
+}
+
 // spec/decisions/ledger-resets.md: a reset of the test network writes off
 // the old chain's withdrawals. What the escrow's signers signed for it is
 // not sent to the new chain, however long it stays.

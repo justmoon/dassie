@@ -488,7 +488,9 @@ impl PeerNode {
     /// The answer to our request to settle on a method we wind down: what
     /// the peer has on its way on it. A 409, from a peer that holds no
     /// peering, means nothing is; an answer it cannot read, or none, is
-    /// waited out.
+    /// waited out. One that comes while the method has not asked, as the
+    /// answer to a request of an earlier winding down, the method dropped
+    /// and added again since, is no answer to it, and counts for nothing.
     pub(super) fn on_wind_request(
         &mut self,
         peer: NodeId,
@@ -506,7 +508,9 @@ impl PeerNode {
             Err(Problem::Status(409)) => Some(0),
             _ => answered,
         };
-        if let Some(winding) = self.winding_mut(&peer, scheme) {
+        if let Some(winding) = self.winding_mut(&peer, scheme)
+            && winding.asked_ms.is_some()
+        {
             winding.promised = promised;
         }
     }
@@ -693,5 +697,52 @@ impl PeerNode {
             .copied()
             .filter(|at| *at != u64::MAX)
             .min()
+    }
+}
+
+#[cfg(all(test, feature = "sim"))]
+mod tests {
+    #![allow(clippy::unwrap_used)]
+
+    use crate::Config;
+    use crate::sim::{Network, SECOND, scheme};
+    use crate::wire::encode_settling;
+
+    // An answer to a request to settle that comes while the method being
+    // wound down has not asked, as one of an earlier winding down of it,
+    // since dropped and added again, is no answer to it: it promises
+    // nothing, so the method still asks, and waits for what the peer then
+    // says.
+    #[test]
+    fn an_answer_before_the_method_asked_promises_nothing() {
+        let mut network = Network::new(82, 2, 1, Config::DEV);
+        for index in 0..2 {
+            network.set_running(index, scheme(SECOND), true);
+        }
+        let b = *network.node(1).own();
+        let both = |network: &Network| {
+            network
+                .node(0)
+                .peering_of(&b)
+                .is_some_and(|peering| peering.methods.len() == 2)
+        };
+        for _ in 0..60 {
+            if both(&network) {
+                break;
+            }
+            network.run_until(network.now + 3_000);
+        }
+        assert!(both(&network), "never peered on both");
+        // Our own settlement on it is on its way, so it does not ask yet.
+        network.nodes[0].hooks.settling.insert(b);
+        network.act(0, |node, now| {
+            assert!(node.wind_down(now, &b, scheme(SECOND)));
+            node.on_wind_request(b, scheme(SECOND), &Ok(encode_settling(5)));
+            let method = node.peering_of(&b).unwrap().method(scheme(SECOND)).unwrap();
+            let winding = method.winding.unwrap();
+            assert_eq!(winding.asked_ms, None);
+            assert_eq!(winding.promised, None, "a stale answer promised");
+            node.check_invariants();
+        });
     }
 }

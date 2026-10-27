@@ -228,8 +228,10 @@ export type NetworkPeer = Message<"dassie.owner.v1.NetworkPeer"> & {
   node: string;
 
   /**
-   * The settlement scheme of the peering's first method, the one it was
-   * made on, for example "stub"; every method is in `methods`.
+   * The settlement scheme of the peering's first method, for example
+   * "stub": the one it was made on, until that is dropped, and then the
+   * one of the rest with the lowest scheme ID. Every method is in
+   * `methods`.
    *
    * @generated from field: string scheme = 2;
    */
@@ -305,8 +307,10 @@ export type NetworkPeer = Message<"dassie.owner.v1.NetworkPeer"> & {
   online: boolean;
 
   /**
-   * Its settlement methods, in the order the pair agreed them: one per
-   * settlement hub both nodes are in (spec/decisions/settlement-methods.md).
+   * Its settlement methods, one per settlement hub both nodes are in
+   * (spec/decisions/settlement-methods.md), in the order they were added,
+   * except that dropping the first sorts those left by scheme ID: the
+   * first is the one `scheme` names.
    *
    * @generated from field: repeated dassie.owner.v1.PeerMethod methods = 16;
    */

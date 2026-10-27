@@ -2163,3 +2163,90 @@ fn a_reduction_read_after_the_thaw_waits_as_the_hub_does() {
     assert_eq!(due(&after), due(&first));
     after.check_invariants();
 }
+
+/// A node that claims account 9 in its peering info, under a key not
+/// account 9's.
+fn impostor_state(hub: &Hub) -> Vec<u8> {
+    let mut state = Vec::new();
+    peering::Membership {
+        hub: hub.rules.id(),
+        account: AccountNumber(9),
+        key: NodeKey::from_bytes(&[8; 32]).public_key(),
+    }
+    .write(&mut state);
+    state
+}
+
+/// The peers `effects` book an incoming settlement from.
+fn settled_by(effects: &[dassie_settlement::Effect]) -> Vec<Name> {
+    effects
+        .iter()
+        .filter_map(|effect| match effect {
+            dassie_settlement::Effect::IncomingSettlement { peer, .. } => Some(*peer),
+            _ => None,
+        })
+        .collect()
+}
+
+// spec/designs/settlement-hubs.md#5-joining: a `pay` is the settlement of
+// the peer whose key signed it, not of one that only claims the payer's
+// account number: an impostor peered first, whose name sorts first, is
+// booked nothing.
+#[test]
+fn a_pay_is_booked_to_the_peer_whose_key_signed_it() {
+    let hub = Hub::new();
+    let (mut account, mut scheme) = without_an_account(&hub);
+    let (impostor, payer) = (Name::new("aaaa").unwrap(), Name::new("payer").unwrap());
+    scheme.on_peered(impostor, &impostor_state(&hub));
+    scheme.on_peered(payer, &payer_state(&hub));
+    let paid = minimum(&hub);
+    for v in 0..2 {
+        from(
+            &mut account,
+            v,
+            &hub.says(v, &[paid_in_statement(&hub, 9, paid)]),
+        );
+    }
+    let final_block = Statement::Final {
+        height: 9,
+        timestamp: 1_009,
+    };
+    for v in 0..3 {
+        let answer = [pay_statement(&hub, 7, paid), final_block.clone()];
+        from(&mut account, v, &hub.says(v, &answer));
+    }
+    let mut effects = Vec::new();
+    scheme.on_asset(0, &mut account, &mut effects);
+    assert_eq!(settled_by(&effects), [payer]);
+    scheme.check_invariants();
+}
+
+// A hold opened toward us is the settlement of the peer whose key signed
+// it, as a `pay` is: not of an impostor that claims the payer's account.
+#[test]
+fn a_hold_is_booked_to_the_peer_whose_key_signed_it() {
+    let hub = Hub::new();
+    let (mut account, mut scheme) = synced_scheme(&hub);
+    let (impostor, payer) = (Name::new("aaaa").unwrap(), Name::new("payer").unwrap());
+    scheme.on_peered(impostor, &impostor_state(&hub));
+    scheme.on_peered(payer, &payer_state(&hub));
+    let operation = MemberOperation::HoldOpen {
+        payee: AccountNumber(7),
+        amount: 100,
+    };
+    let hold = crate::promise::HoldNumber(1);
+    let read = [
+        executed_by_9(&hub, 1, 10, operation, crate::ledger::Detail::Hold(hold)),
+        Statement::Final {
+            height: 10,
+            timestamp: 1_010,
+        },
+    ];
+    for v in 0..3 {
+        say_all(&hub, &mut account, v, &read);
+    }
+    let mut effects = Vec::new();
+    scheme.on_asset(0, &mut account, &mut effects);
+    assert_eq!(settled_by(&effects), [payer]);
+    scheme.check_invariants();
+}

@@ -294,7 +294,7 @@
       "x": 636,
       "y": 240,
       "w": 167,
-      "desc": "Runs `dassie market-maker` on a small VM of its own, so that the testnet's core nodes are brought back toward balance. Its two periphery nodes, one in XRP and one in DSUSD, run beside it, each pinned to every core node it trades through. Parked until the market maker runs on hubs: its nodes settle directly, so the VM stays stopped meanwhile.",
+      "desc": "Runs `dassie market-maker` on a small VM of its own, so that the testnet's core nodes are brought back toward balance. Its two periphery nodes, one in XRP and one in DSUSD, run beside it, each pinned to every core node it trades through. The market maker is parked in the code until it runs on hubs, since its nodes settle directly.",
       "does": [
         "`provision.sh` makes the VM, a network that nothing reaches, and an account that can read only the two nodes' passphrases",
         "On its first boot, installs the newest release with `install.sh --no-service`, and at each boot the units from `main`",
@@ -1559,7 +1559,7 @@
             "node",
             "peer"
           ],
-          "text": "When the owner removes a hub's scheme, the node settles up on that method first: it takes no new packets there, asks the peer to settle once, then drops the method within a few minutes. The peering carries on over their other hubs."
+          "text": "When the owner removes a hub's scheme, the node settles up on that method first: it takes no new packets there, asks the peer to settle once, then drops the method within a few minutes. The scheme itself goes once the packets still in flight on that method have ended and what the peer may still have sent on it has had time to arrive. The peering carries on over their other hubs."
         }
       ]
     },

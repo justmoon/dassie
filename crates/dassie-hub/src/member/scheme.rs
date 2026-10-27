@@ -867,7 +867,11 @@ impl HubScheme {
         }
     }
 
-    /// Books an operation of another member's that touches us.
+    /// Books an operation of another member's that touches us. It is a
+    /// peer's only if signed by the key the peer gave us, not merely from
+    /// the account it claims: a node that claims another's account number
+    /// would otherwise have that member's `pay`, or hold, booked as its own
+    /// settlement.
     fn other(
         &mut self,
         operation: &SignedMemberOperation,
@@ -877,10 +881,13 @@ impl HubScheme {
         let Outcome::Applied { detail, .. } = outcome else {
             return;
         };
+        let hub = self.hub;
         let peer = self
             .peers
             .iter()
-            .find(|(_, peer)| peer.account == operation.account)
+            .find(|(_, peer)| {
+                peer.account == operation.account && operation.verifies(&hub, &peer.key)
+            })
             .map(|(name, _)| *name);
         match (&operation.operation, detail) {
             (MemberOperation::HoldOpen { payee, amount }, Detail::Hold(number))

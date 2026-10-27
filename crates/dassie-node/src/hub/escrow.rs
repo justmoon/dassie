@@ -648,21 +648,34 @@ impl Watcher {
             // A hub may have more withdrawals open than are kept: the one
             // of the highest sequence that went once already makes room,
             // and is not sent again. The escrow's sequences apply in order,
-            // so only those above it could wait on it, never one below.
+            // so only those above it could wait on it, never one below; so
+            // it makes room only while none kept above it waits to be sent,
+            // which would wait on it for good were it lost. Otherwise, as in
+            // a burst whose lowest are in flight and the rest wait, the
+            // highest not sent yet, this one or one kept, is dropped: none
+            // of the others waits on it.
+            let unsent = (self.submits.iter())
+                .filter(|kept| kept.sent_ms.is_none())
+                .map(|kept| kept.sequence)
+                .max();
             let sent = (self.submits.iter().enumerate())
-                .filter(|(_, kept)| kept.sent_ms.is_some())
+                .filter(|(_, kept)| kept.sent_ms.is_some() && Some(kept.sequence) > unsent)
                 .max_by_key(|(_, kept)| kept.sequence)
                 .map(|(index, _)| index);
-            match sent {
-                Some(index) => {
-                    self.submits.remove(index);
-                }
-                None => {
-                    self.out.push_back(Out::Problem(
-                        "too many escrow transactions wait for the XRPL server: one was dropped",
-                    ));
+            if let Some(index) = sent {
+                self.submits.remove(index);
+            } else {
+                self.out.push_back(Out::Problem(
+                    "too many escrow transactions wait for the XRPL server: one was dropped",
+                ));
+                let highest = (self.submits.iter().enumerate())
+                    .filter(|(_, kept)| kept.sent_ms.is_none() && kept.sequence > sequence)
+                    .max_by_key(|(_, kept)| kept.sequence)
+                    .map(|(index, _)| index);
+                let Some(index) = highest else {
                     return;
-                }
+                };
+                self.submits.remove(index);
             }
         }
         self.submits.push_back(Submit {

@@ -69,8 +69,10 @@ message ListNodesResponse {
 // A peering.
 message NetworkPeer {
   string node = 1;
-  // The settlement scheme of the peering's first method, the one it was
-  // made on, for example "stub"; every method is in `methods`.
+  // The settlement scheme of the peering's first method, for example
+  // "stub": the one it was made on, until that is dropped, and then the
+  // one of the rest with the lowest scheme ID. Every method is in
+  // `methods`.
   string scheme = 2;
   // The credit this node extends to the peer on that method, in the
   // scheme ledger's units.
@@ -97,8 +99,10 @@ message NetworkPeer {
   // is not advertised, so no route goes through it; the peering stays
   // until it has been silent for a day (spec/decisions/peering-lifecycle.md).
   bool online = 15;
-  // Its settlement methods, in the order the pair agreed them: one per
-  // settlement hub both nodes are in (spec/decisions/settlement-methods.md).
+  // Its settlement methods, one per settlement hub both nodes are in
+  // (spec/decisions/settlement-methods.md), in the order they were added,
+  // except that dropping the first sorts those left by scheme ID: the
+  // first is the one `scheme` names.
   repeated PeerMethod methods = 16;
 }
 
