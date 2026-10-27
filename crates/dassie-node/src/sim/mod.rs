@@ -96,6 +96,7 @@
 pub mod checks;
 pub mod hub;
 pub mod hub_runs;
+pub mod hub_token;
 pub mod hubbed;
 pub mod scripted;
 pub mod swarm;
@@ -219,6 +220,13 @@ pub enum Settling {
     XrpRlusd,
     /// As [`Self::XrpRlusd`], in DSUSD and XRP on the testnet.
     XrpDsusd,
+    /// A settlement hub of DSUSD of this many validators, run in the
+    /// simulation, whose escrow holds DSUSD on the fake ledger: each node
+    /// runs the owner books of XRP and DSUSD on its XRP Ledger testnet
+    /// account, peering on neither, funds its account in the hub from the
+    /// DSUSD book, which the fake ledger's issuer mints, and peers over the
+    /// hub (spec/decisions/token-hubs.md).
+    HubDsusd(usize),
     /// A settlement hub of this many validators, run in the simulation,
     /// whose escrow is on the fake ledger: each node funds its account in
     /// the hub from its XRP Ledger testnet account, and peers over the hub
@@ -244,6 +252,8 @@ pub const RLUSD: LedgerId = LedgerId::XrplRlusdUsd;
 pub const DSUSD: LedgerId = LedgerId::XrplTestnetDsusdUsd;
 /// XRP in a settlement hub on the XRP Ledger testnet.
 pub const HUB: LedgerId = LedgerId::HubXrplTestnetXrp;
+/// DSUSD in a settlement hub on the XRP Ledger testnet, in dollars.
+pub const HUB_DSUSD: LedgerId = LedgerId::HubXrplTestnetDsusdUsd;
 
 /// The config of the testnet's XRPL account, which its schemes settle
 /// through (spec/areas/settlement.md#external-assets).
@@ -272,6 +282,7 @@ impl Settling {
             Self::Xrpl => XRP,
             Self::XrplLive => LIVE_XRP,
             Self::Rlusd => RLUSD,
+            Self::HubDsusd(_) => HUB_DSUSD,
             Self::Hub(_) => HUB,
             Self::Cross | Self::XrpRlusd | Self::XrpDsusd => {
                 panic!("a run across currencies has two ledgers")
@@ -291,6 +302,7 @@ impl Settling {
             (Self::XrpRlusd, _) => &[RLUSD, LIVE_XRP],
             (Self::XrpDsusd, 0) => &[DSUSD],
             (Self::XrpDsusd, _) => &[DSUSD, XRP],
+            (Self::HubDsusd(_), _) => &[HUB_DSUSD],
             (Self::Hub(_), _) => &[HUB],
             (Self::HubAcross(_), 0) => &[USD],
             (Self::HubAcross(_), 2) => &[HUB],
@@ -313,7 +325,7 @@ impl Settling {
     pub const fn token(self) -> Option<(LedgerId, IssuedAsset)> {
         match self {
             Self::Rlusd | Self::XrpRlusd => Some((RLUSD, IssuedAsset::RLUSD)),
-            Self::XrpDsusd => Some((DSUSD, IssuedAsset::DSUSD)),
+            Self::XrpDsusd | Self::HubDsusd(_) => Some((DSUSD, IssuedAsset::DSUSD)),
             Self::Stub
             | Self::Trusting
             | Self::StubHub(_)
@@ -369,6 +381,7 @@ impl Settling {
             LedgerId::XrplXrp => ("xrpl-xrp", ""),
             LedgerId::XrplRlusdUsd => ("xrpl-rlusd", ""),
             LedgerId::XrplTestnetDsusdUsd => ("xrpl-testnet-dsusd", ""),
+            LedgerId::HubXrplTestnetDsusdUsd => (dassie_hub::member::DSUSD_SCHEME_ID, ""),
             LedgerId::HubXrplTestnetXrp => (dassie_hub::member::SCHEME_ID, ""),
             _ => ("stub", ""),
         }
@@ -378,11 +391,16 @@ impl Settling {
     /// with unlimited trust or with commitments in a run over it, or a
     /// hub's rules. In a run over a hub, a member's XRP Ledger testnet
     /// scheme is its owner's book, which funds its account in the hub and
-    /// peers with no one (spec/areas/xrpl.md#owner-books).
+    /// peers with no one (spec/areas/xrpl.md#owner-books); a DSUSD hub's
+    /// members peer on neither owner book.
     pub fn config(self, ledger: LedgerId) -> String {
         match self {
             Self::Trusting if ledger == USD => r#"{"trust":"unlimited"}"#.into(),
             Self::StubHub(limit) if ledger == USD => format!(r#"{{"commitments":{limit}}}"#),
+            Self::HubDsusd(validators) if ledger == HUB_DSUSD => {
+                hub::config_of(validators, hub_token::ASSET)
+            }
+            Self::HubDsusd(_) if ledger == XRP || ledger == DSUSD => r#"{"peers":false}"#.into(),
             Self::Hub(validators) if ledger == HUB => hub::config(validators),
             Self::HubAcross(validators) if ledger == HUB => hub::config(validators),
             Self::Hub(_) | Self::HubAcross(_) if ledger == XRP => r#"{"peers":false}"#.into(),
@@ -405,7 +423,7 @@ impl Settling {
         } else {
             XRPL_LIVE_CONFIG
         };
-        let uses = self.on_xrpl() || matches!(self, Self::Hub(_));
+        let uses = self.on_xrpl() || matches!(self, Self::HubDsusd(_) | Self::Hub(_));
         uses.then(|| {
             let config = dassie_xrpl::fake::with_publishers(config, network);
             (network.first().to_string(), config)
@@ -1007,9 +1025,11 @@ impl Sim {
             forgery_per_mille: 0,
             to_mint: (0..skews_ms.len())
                 .filter(|index| {
-                    settling
-                        .token()
-                        .is_some_and(|(ledger, _)| settling.ledgers(*index).contains(&ledger))
+                    // A DSUSD hub's members hold DSUSD in their owner book.
+                    matches!(settling, Settling::HubDsusd(_))
+                        || settling
+                            .token()
+                            .is_some_and(|(ledger, _)| settling.ledgers(*index).contains(&ledger))
                 })
                 .collect(),
             issued: BTreeMap::new(),
@@ -1075,7 +1095,7 @@ impl Sim {
                 fulfills: BTreeMap::new(),
             });
         }
-        if let Settling::Hub(validators) | Settling::HubAcross(validators) = settling {
+        if let Settling::HubDsusd(validators) | Settling::Hub(validators) | Settling::HubAcross(validators) = settling {
             sim.latency_ms = REGIONAL_LATENCY_MS;
             sim.found_hub(&vec![dassie_hub::sim::Role::Honest; validators]);
         }
@@ -1087,11 +1107,19 @@ impl Sim {
                 });
             }
             // A member of a hub funds its account there from its XRP Ledger
-            // testnet account, its owner's book, which peers with no one.
-            if settling.ledgers(index).contains(&HUB) {
+            // testnet account, its owner's book, which peers with no one; a
+            // DSUSD hub's from the DSUSD book on it, whose gas, and the
+            // escrow's, its XRP pays.
+            if matches!(settling, Settling::HubDsusd(_)) || settling.ledgers(index).contains(&HUB) {
                 let config = settling.config(XRP);
                 sim.step(index, |core| {
                     core.add_scheme("xrpl-testnet-xrp", config).unwrap();
+                });
+            }
+            if matches!(settling, Settling::HubDsusd(_)) {
+                let config = settling.config(DSUSD);
+                sim.step(index, |core| {
+                    core.add_scheme("xrpl-testnet-dsusd", config).unwrap();
                 });
             }
             for &ledger in settling.ledgers(index) {
@@ -1440,7 +1468,7 @@ impl Sim {
         }
         if matches!(
             self.settling,
-            Settling::StubHub(_) | Settling::Hub(_) | Settling::HubAcross(_)
+            Settling::StubHub(_) | Settling::HubDsusd(_) | Settling::Hub(_) | Settling::HubAcross(_)
         ) {
             self.watch_hub(index);
         }
@@ -1501,8 +1529,8 @@ impl Sim {
             // the books take it, so there the two are always one.
             // Across the stub with commitments and a real hub, each peer is
             // held to the bound of what it is peered over.
-            let real =
-                matches!(self.settling, Settling::Hub(_)) || over_real.contains(peer.peer.as_str());
+            let real = matches!(self.settling, Settling::HubDsusd(_) | Settling::Hub(_))
+                || over_real.contains(peer.peer.as_str());
             if peer.peered
                 && let Some(credit) = peer.credit
                 && (credit < holds || credit > holds && !real)

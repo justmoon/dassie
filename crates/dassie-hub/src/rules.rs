@@ -47,12 +47,15 @@ pub const TOKEN_DECIMALS: u8 = 6;
 /// asks for a withdrawal: the gas its transactions burn. The escrow's own
 /// XRP pays every fee of a token hub, never the token, and anyone may send
 /// it XRP, which is never a deposit; a member that finds the escrow's XRP
-/// balance below this is to top it up first (not built yet: this is what
-/// it will check against). The XRP Ledger lets an account
+/// balance, proven, below this tops it up by the shortfall first
+/// (spec/areas/hubs.md#in-the-node). The XRP Ledger lets an account
 /// burn its reserve for fees, so the whole balance counts, never what is
 /// above the reserve, and no arithmetic of reserves is needed. A token
-/// hub's gas ([`Fees::gas`]) is at most this, so the escrow can always pay
-/// the next transaction once it holds it.
+/// hub's gas ([`Fees::gas`]) is at most this, so the escrow can pay the
+/// fee of its next transaction once it holds it. It does not cover the
+/// reserve of the escrow's signer list and trust line, which a change of
+/// its signer list, such as the payout set's, must hold beyond its fee: an
+/// open point (spec/roadmap.md#token-hubs).
 pub const LEAST_ESCROW_GAS_DROPS: u64 = 1_000_000;
 
 /// The XRP Ledger's base fee in drops: what a transaction pays at least,

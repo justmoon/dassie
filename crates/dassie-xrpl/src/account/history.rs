@@ -56,7 +56,7 @@ use serde_json::Value;
 use super::anchors::{HISTORY, NO_PROOFS, REFUSED};
 use super::{
     Doubt, MAX_ACCOUNT_DROPS, MAX_IN_FLIGHT, MAX_LIST_ASKS, MAX_LISTS, MAX_SCHEMES, News, Phase,
-    Request, TOO_MUCH_XRP, XrplAccount,
+    ProvenBalance, Request, TOO_MUCH_XRP, XrplAccount,
 };
 use crate::amount::{IssuedAsset, TokenValue};
 use crate::anchor::{
@@ -388,6 +388,50 @@ impl XrplAccount {
             issuers.insert(issuer, settings);
         }
         Ok(issuers)
+    }
+
+    /// The XRP of each account whose balance was asked for that `proven`
+    /// holds, the whole balance, as of `anchor`.
+    fn read_balances(
+        &self,
+        anchor: Anchor,
+        proven: &ProvenState,
+    ) -> Result<Vec<(AccountId, ProvenBalance)>, Doubt> {
+        let mut balances = Vec::new();
+        for account in &self.balances_asked {
+            let drops = match proven.object(&records::account_key(*account)) {
+                None => continue,
+                Some(None) => None,
+                Some(Some(bytes)) => {
+                    let root = records::account_root(bytes).map_err(|_| Doubt::Unreadable)?;
+                    if root.account != *account {
+                        return Err(Doubt::Unreadable);
+                    }
+                    Some(root.balance)
+                }
+            };
+            let ledger_index = anchor.index;
+            balances.push((
+                *account,
+                ProvenBalance {
+                    drops,
+                    ledger_index,
+                },
+            ));
+        }
+        Ok(balances)
+    }
+
+    /// Keeps the balances a read proved, and asks for them no more. Past
+    /// [`MAX_SCHEMES`] accounts, the lowest one kept goes first.
+    pub(super) fn keep_balances(&mut self, balances: Vec<(AccountId, ProvenBalance)>) {
+        for (account, balance) in balances {
+            self.balances_asked.remove(&account);
+            if !self.balances.contains_key(&account) && self.balances.len() >= MAX_SCHEMES {
+                self.balances.pop_first();
+            }
+            self.balances.insert(account, balance);
+        }
     }
 
     /// What `proven` holds of each pool the schemes read: its `AMM`
@@ -853,6 +897,9 @@ impl XrplAccount {
         for issuer in &self.issuers_asked {
             push_new(&mut keys, records::account_key(*issuer));
         }
+        for account in &self.balances_asked {
+            push_new(&mut keys, records::account_key(*account));
+        }
         for (key, watch) in self.pools.iter().filter(|(_, watch)| watch.asked) {
             push_new(&mut keys, records::amm_key(key.issuer, key.currency));
             if let Some(account) = watch.account {
@@ -906,14 +953,16 @@ impl XrplAccount {
         };
         let read = (self.read_issuers(anchor, &proven)).and_then(|issuers| {
             let pools = self.read_pools(anchor, &proven)?;
-            Ok((issuers, pools))
+            let balances = self.read_balances(anchor, &proven)?;
+            Ok((issuers, pools, balances))
         });
-        let (issuers, pools) = match read {
+        let (issuers, pools, balances) = match read {
             Ok(read) => read,
             Err(doubt) => return self.doubted(doubt),
         };
         self.tell_issuers(&issuers, false);
         self.tell_pools(&pools);
+        self.keep_balances(balances);
         self.read_asked();
     }
 

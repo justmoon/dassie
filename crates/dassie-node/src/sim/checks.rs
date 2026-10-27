@@ -704,16 +704,23 @@ pub fn check_anchored(sim: &Sim) -> Result<(), String> {
     Ok(())
 }
 
+/// Whether node `index` books `ledger`: one it pays over, or an owner book
+/// a DSUSD hub's member funds its account in the hub from, and pays the
+/// escrow's gas from.
+fn books(sim: &Sim, index: usize, ledger: LedgerId) -> bool {
+    sim.settling.ledgers(index).contains(&ledger)
+        || matches!(sim.settling, Settling::HubDsusd(_)) && (ledger == XRP || ledger == DSUSD)
+}
+
 /// On the XRP Ledger, the faucet funded every node, and on a token the
 /// issuer minted to every node: an owner's books that match a deposit of
 /// nothing would pass the other checks.
 pub fn check_funded(sim: &Sim) -> Result<(), String> {
     // A node on either XRPL scheme has an account the faucet funds.
     let on_xrpl = |index: &usize| {
-        sim.settling
-            .ledgers(*index)
-            .iter()
-            .any(|ledger| [XRP, LIVE_XRP, RLUSD, DSUSD].contains(ledger))
+        [XRP, LIVE_XRP, RLUSD, DSUSD]
+            .into_iter()
+            .any(|ledger| books(sim, *index, ledger))
     };
     if let Some(index) = (0..sim.nodes.len())
         .filter(on_xrpl)
@@ -726,7 +733,7 @@ pub fn check_funded(sim: &Sim) -> Result<(), String> {
     };
     let minted = |index: &usize| sim.issued.get(index).is_some_and(|(minted, _)| *minted > 0);
     match (0..sim.nodes.len())
-        .filter(|index| sim.settling.ledgers(*index).contains(&token))
+        .filter(|index| books(sim, *index, token))
         .find(|index| !minted(index))
     {
         Some(index) => Err(format!("node {index} was never minted on {token}")),
@@ -741,8 +748,7 @@ pub fn check_pegged(sim: &Sim) -> Result<(), String> {
     let Some((token, _)) = sim.settling.token() else {
         return Ok(());
     };
-    for index in (0..sim.nodes.len()).filter(|index| sim.settling.ledgers(*index).contains(&token))
-    {
+    for index in (0..sim.nodes.len()).filter(|index| books(sim, *index, token)) {
         let peg = sim
             .core(index)
             .ledger_views()

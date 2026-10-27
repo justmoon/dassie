@@ -589,6 +589,25 @@ impl FakeLedger {
         }
     }
 
+    /// Moves `drops` of `from`'s XRP to genesis, as of the next ledger and
+    /// in no transaction: what the fees of a long life would have burnt,
+    /// so that a test brings an account low, such as a token hub's escrow
+    /// whose XRP pays its fees, without sending each transaction. No XRP
+    /// is made or lost.
+    pub fn take_unrecorded(&mut self, from: AccountId, drops: u64) {
+        assert_ne!(from, self.genesis, "to genesis");
+        assert!(
+            self.balance(from).is_some_and(|balance| balance >= drops),
+            "an account that holds the drops"
+        );
+        if let Some(account) = self.accounts.get_mut(&from) {
+            account.balance -= drops;
+        }
+        if let Some(genesis) = self.accounts.get_mut(&self.genesis) {
+            genesis.balance = genesis.balance.saturating_add(drops);
+        }
+    }
+
     /// A connection went away.
     pub fn disconnect(&mut self, connection: ConnectionId) {
         self.accounts_of.remove(&connection);
