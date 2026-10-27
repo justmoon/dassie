@@ -14,7 +14,13 @@ import { connect } from "node:tls";
 
 import { assert, assertEquals, assertMatch } from "@std/assert";
 import { Agent, fetch } from "undici";
-import { deriveNodeKey, generatePhrase, nodeId, publicKey } from "@dassie/wasm";
+import {
+  deriveNodeKey,
+  generatePhrase,
+  nodeId,
+  phraseFromSecret,
+  publicKey,
+} from "@dassie/wasm";
 import type { Page } from "puppeteer-core";
 import { click, text, type } from "./browser.ts";
 import {
@@ -37,6 +43,24 @@ import {
 
 const missing = await missingTools();
 if (missing) console.warn(`skipping the end-to-end tests: ${missing}`);
+
+/** d1's secret, its phrase in the test realm, and its node ID there
+ * (apps/dev/vanity.json). */
+const D1_SECRET = "ad6f2a1f40a4004a1660939aa11ca81a";
+const D1_PHRASE =
+  "advice abandon approve resource position trend piano across machine scorpion defy explain increase addict into uncle subject comic dolphin convince";
+const D1_ID = "zxta3c4pey7xot6x67dv3ck6ib6pqizbsmbpisa";
+
+/** Enters `phrase` to recover a wallet, which refuses it with `error`. */
+async function recover(
+  page: Page,
+  phrase: string,
+  error: RegExp,
+): Promise<void> {
+  await type(page, "recover-input", phrase);
+  await click(page, "recover-submit");
+  assertMatch(await text(page, "setup-error"), error);
+}
 
 function expectedNodeId(phrase: string): string {
   return nodeId(publicKey(deriveNodeKey(phrase, "test", Date.now())));
@@ -71,12 +95,15 @@ async function assertServedByPebble(): Promise<void> {
 /** Generates a wallet in the setup wizard; returns its phrase. */
 async function generateWallet(page: Page): Promise<string> {
   await click(page, "generate-wallet");
-  const phrase = await text(page, "mnemonic");
-  const words = phrase.split(/\s+/);
-  assertEquals(words.length, 12);
+  const phrase = (await text(page, "mnemonic")).replace(/\s+/g, " ");
+  const words = phrase.split(" ");
+  assertEquals(words.length, 20);
+  // A new phrase shows the date it records, by this machine's clock.
+  assertMatch(await text(page, "phrase-date"), /^Generated \d{4}-\d{2}-\d{2}$/);
   await click(page, "backed-up");
   const number = Number(await text(page, "verify-word-number"));
-  await type(page, "verify-input", words[number - 1]);
+  // A plate keeps four letters of a word, which name it, in any case.
+  await type(page, "verify-input", words[number - 1].slice(0, 4).toUpperCase());
   await click(page, "verify-submit");
   return phrase;
 }
@@ -221,18 +248,41 @@ test(
       );
       const page = await browser.newPage();
       await page.goto(setupUrl!, { waitUntil: "load" });
-      const phrase =
-        "pulp junk march life divorce celery flower bar one angry claw crush";
+      // d1's phrase in the test realm (apps/dev/vanity.json).
+      const phrase = D1_PHRASE.split(" ");
       await click(page, "recover-wallet");
-      await type(page, "recover-input", "not a passphrase");
-      await click(page, "recover-submit");
-      await text(page, "setup-error");
-      await type(page, "recover-input", phrase);
-      await click(page, "recover-submit");
-      assertEquals(
-        await text(page, "node-id"),
-        "272r4ccpkqycyl2uoslxjd3i2e5hhyvz4j2wxui",
+      await recover(page, "not a passphrase", /has 20 words, and this has 3/);
+      // A BIP-39 phrase, as Dassie made them before, is refused as that.
+      await recover(
+        page,
+        "pulp junk march life divorce celery flower bar one angry claw crush",
+        /12-word phrase/,
       );
+      // The same secret in the live realm is another node's phrase.
+      const live = phraseFromSecret(Uint8Array.fromHex(D1_SECRET), "live", 0);
+      await recover(page, live.text, /phrase for the live network/);
+      live.free();
+      // One word wrong and one unreadable: the wallet restores both, and
+      // shows them before it takes the phrase.
+      const damaged = [...phrase];
+      damaged[4] = phrase[4] === "zoo" ? "zone" : "zoo";
+      damaged[8] = "?";
+      await type(page, "recover-input", damaged.join(" "));
+      await click(page, "recover-submit");
+      await text(page, "phrase-correction");
+      assertEquals(
+        (await text(page, "corrected-phrase")).replace(/\s+/g, " ")
+          .replaceAll(", corrected", ""),
+        D1_PHRASE,
+      );
+      const marked = await page.evaluate(() =>
+        [...document.querySelectorAll(
+          '[data-testid="corrected-phrase"] li.changed',
+        )].map((word) => [...word.parentElement!.children].indexOf(word))
+      );
+      assertEquals(marked, [4, 8]);
+      await click(page, "correction-confirm");
+      assertEquals(await text(page, "node-id"), D1_ID);
     } finally {
       await browser.close();
       await stopAll([daemon]);

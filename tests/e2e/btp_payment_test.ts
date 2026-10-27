@@ -47,7 +47,7 @@ const HTTPS_PORT = 18845;
 /** Above the node's 0.1 USD packet limit, so the payment is split. */
 const PAYMENT = 250_000_000n;
 const PHRASE =
-  "pulp junk march life divorce celery flower bar one angry claw crush";
+  "advice abandon approve resource position trend piano across machine scorpion defy explain increase addict into uncle subject comic dolphin convince";
 
 /** The tests' root and its leaf for localhost, which the node serves. */
 const ROOT = await readFile(`${TLS_DIR}/root.pem`, "utf8");
@@ -108,7 +108,7 @@ async function setUp(owner: RpcClient) {
     method: "POST",
     dispatcher,
     headers: { "content-type": "application/json", origin },
-    body: JSON.stringify(setupRequest(token, key.toHex())),
+    body: JSON.stringify(setupRequest(token, key.toHex(), "test")),
   });
   assertEquals(response.status, 200, await response.text());
   await dispatcher.close();
