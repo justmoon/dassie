@@ -8,8 +8,8 @@
 //!   block up to it, mirrors the holds it pays into or takes from, and
 //!   submits the member's operations one at a time.
 //! - [`HubScheme`] is the settlement scheme on it, named by the hub's
-//!   asset (`hub-xrpl-testnet-xrp`, `hub-xrpl-testnet-dsusd`,
-//!   [`scheme_of`]): it peers with members of the same hub, settles by
+//!   network and asset (`hub-xrpl-testnet-xrp`, `hub-xrpl-testnet-dsusd`,
+//!   and on mainnet `hub-xrpl-xrp`, `hub-xrpl-rlusd`; [`scheme_of`]): it peers with members of the same hub, settles by
 //!   funding the hold toward a peer, and signs and checks the promises each
 //!   packet carries ([`Commitments`](dassie_settlement::Commitments)).
 //!
@@ -33,7 +33,9 @@ pub use account::{FIRST, HubAccount, News, Purpose};
 pub use mirror::HoldMirror;
 pub use payout::{Payouts, Taken};
 pub use peering::peer_account;
-pub use scheme::{DSUSD_SCHEME_ID, HubScheme, SCHEME_ID, scheme_of};
+pub use scheme::{
+    DSUSD_SCHEME_ID, HubScheme, MAINNET_SCHEME_ID, RLUSD_SCHEME_ID, SCHEME_ID, scheme_of,
+};
 
 pub use crate::rules::LEAST_ESCROW_GAS_DROPS;
 
@@ -77,22 +79,26 @@ pub const DEFAULT_TESTNET_HUB: Option<&str> = None;
 pub const DEFAULT_TESTNET_DSUSD_HUB: Option<&str> = None;
 
 /// The account a node's account in the hub of scheme `scheme` is, as an
-/// external asset: [`FIRST`] in its XRP hub, the next in its DSUSD hub. A
-/// node is in one hub per asset (spec/decisions/hubs-only.md), so the
-/// scheme names the account; its key is derived for the hub it is in
-/// ([`member_key`]), so the number is only its place among the node's
-/// accounts. `None` for a scheme that is no hub's.
+/// external asset: on the XRP Ledger testnet, [`FIRST`] in its XRP hub and
+/// the next in its DSUSD hub; on mainnet, a hub account of the live realm's
+/// kind, the first in its XRP hub and the next in its RLUSD hub, so that a
+/// mainnet account's ID says it holds real money. A node is in one hub per
+/// asset (spec/decisions/hubs-only.md), so the scheme names the account;
+/// its key is derived for the hub it is in ([`member_key`]), so the number
+/// is only its place among the node's accounts. `None` for a scheme that is
+/// no hub's.
 #[must_use]
 pub fn account_id(scheme: &str) -> Option<dassie_settlement::AssetId> {
-    let index = match scheme {
-        SCHEME_ID => FIRST.index,
-        DSUSD_SCHEME_ID => FIRST.index + 1,
+    use dassie_settlement::AssetKind;
+
+    let (kind, index) = match scheme {
+        SCHEME_ID => (FIRST.kind, FIRST.index),
+        DSUSD_SCHEME_ID => (FIRST.kind, FIRST.index + 1),
+        MAINNET_SCHEME_ID => (AssetKind::HubAccount, 0),
+        RLUSD_SCHEME_ID => (AssetKind::HubAccount, 1),
         _ => return None,
     };
-    Some(dassie_settlement::AssetId {
-        kind: FIRST.kind,
-        index,
-    })
+    Some(dassie_settlement::AssetId { kind, index })
 }
 
 use dassie_identity::{NodeKey, NodeSecret};

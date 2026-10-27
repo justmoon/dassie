@@ -474,7 +474,7 @@
         "Settles in a dollar token, DSUSD on the testnet or RLUSD on mainnet, on a trust line it sets up itself, booked in dollars by what reaches the line, the issuer's clawbacks included",
         "Pays a token scheme's fees in XRP: booked on the XRP ledger when the XRP scheme shares the account, off the books otherwise",
         "Stops settling while the issuer freezes the line, and stops asking peers to pay while the line cannot receive",
-        "Pauses a dollar token's scheme, and the node's conversions to and from its ledger, while the token's AMM pool, priced at the node's XRP rate, says it is off its dollar peg or cannot be read",
+        "Pauses a dollar token's scheme, and the node's conversions to and from its ledger and its settlement hub's, while the token's AMM pool, priced at the node's XRP rate, says it is off its dollar peg or cannot be read",
         "Never books the reserve, and catches up after a restart from what the account and each scheme keep, each in one versioned encoding that a reader of another version refuses",
         "Asks the testnet faucet when the account is new, or when the owner wants more test XRP; mainnet has none, so its account waits for the owner's deposit",
         "Reports what the account holds, as its anchor proves it, for the wallet: XRP and its reserve, and each line with its freezes",
@@ -495,7 +495,7 @@
       "does": [
         "The scheme interface, and when a scheme is active",
         "A scheme that pauses, as a dollar token's off its peg: it settles nothing, cannot be paid and converts nothing meanwhile, and says why",
-        "External assets: what the node holds outside its books, as the ledger says, apart from the schemes that settle through it, the documents they fetch through the node, such as validator lists, and what they wait for",
+        "External assets: what the node holds outside its books, as the ledger says, such as its accounts on the XRP Ledger and in settlement hubs, the testnet's and mainnet's kinds apart, apart from the schemes that settle through it, the documents they fetch through the node, such as validator lists, and what they wait for",
         "Gas: a holding one scheme spends and another settles in is spent only within the owner's funds",
         "The stub scheme, only in builds with debug assertions (dev, tests, simulations), never a release: 100 test USD, so everything works without a real ledger; with commitments, peerings over a settlement hub without a hub; with unlimited trust, peers that never settle, for tests not about settlement",
         "The settlement policy: when a creditor asks a peer to settle, and how much the debtor pays, counted in the largest packet; and the floor and the ceiling a node keeps its settlement hub account between",
@@ -628,7 +628,8 @@
         "Pending, committed and rolled-back transfers",
         "What each token spent, read from the journal, for spending caps",
         "The owner's group takes in what the node gains or loses",
-        "Property tests: no transfer breaks a limit, and balances always equal the journal"
+        "Property tests: no transfer breaks a limit, and balances always equal the journal",
+        "A closed list of ledgers, each named for its scheme and asset: each XRP Ledger network's XRP and dollar token, and each settlement hub's, the testnet's of test money and mainnet's of real money"
       ]
     },
     "node-core": {

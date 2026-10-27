@@ -80,23 +80,43 @@ pub const SCHEME_ID: &str = "hub-xrpl-testnet-xrp";
 /// The ID of the scheme over a hub of DSUSD on the XRP Ledger testnet.
 pub const DSUSD_SCHEME_ID: &str = "hub-xrpl-testnet-dsusd";
 
-/// The scheme over a hub of `terms`, and its ledger: XRP gives
-/// [`SCHEME_ID`], DSUSD [`DSUSD_SCHEME_ID`], both on the XRP Ledger
-/// testnet. `None` for any other asset or network, which no scheme runs:
-/// the IDs on mainnet are not built yet (spec/roadmap.md#mainnet-hubs).
+/// The ID of the scheme over a hub of XRP on the XRP Ledger mainnet: real
+/// money.
+pub const MAINNET_SCHEME_ID: &str = "hub-xrpl-xrp";
+
+/// The ID of the scheme over a hub of RLUSD on the XRP Ledger mainnet: real
+/// money.
+pub const RLUSD_SCHEME_ID: &str = "hub-xrpl-rlusd";
+
+/// The scheme over a hub of `terms`, and its ledger, named by the hub's
+/// network and asset (spec/decisions/hub-scheme-names.md): on the XRP
+/// Ledger testnet, XRP gives [`SCHEME_ID`] and DSUSD [`DSUSD_SCHEME_ID`];
+/// on mainnet, XRP gives [`MAINNET_SCHEME_ID`] and RLUSD
+/// [`RLUSD_SCHEME_ID`]. `None` for any other asset or network, which no
+/// scheme runs.
 #[must_use]
 pub fn scheme_of(terms: &Terms) -> Option<(&'static str, LedgerId)> {
-    if terms.network != TESTNET_NETWORK {
-        return None;
-    }
-    match terms.asset {
-        Asset::Xrp => Some((SCHEME_ID, LedgerId::HubXrplTestnetXrp)),
-        Asset::Token { currency, issuer }
-            if currency == dassie_xrpl::dsusd::CURRENCY && issuer == dassie_xrpl::dsusd::ISSUER =>
-        {
-            Some((DSUSD_SCHEME_ID, LedgerId::HubXrplTestnetDsusdUsd))
+    use dassie_xrpl::network::MAINNET;
+    let holds = |token: &dassie_xrpl::token::Token| {
+        terms.network == token.network.id
+            && terms.asset
+                == Asset::Token {
+                    currency: token.currency,
+                    issuer: token.issuer,
+                }
+    };
+    if terms.asset == Asset::Xrp {
+        match terms.network {
+            TESTNET_NETWORK => Some((SCHEME_ID, LedgerId::HubXrplTestnetXrp)),
+            network if network == MAINNET.id => Some((MAINNET_SCHEME_ID, LedgerId::HubXrplXrp)),
+            _ => None,
         }
-        Asset::Token { .. } => None,
+    } else if holds(&dassie_xrpl::dsusd::TOKEN) {
+        Some((DSUSD_SCHEME_ID, LedgerId::HubXrplTestnetDsusdUsd))
+    } else if holds(&dassie_xrpl::rlusd::TOKEN) {
+        Some((RLUSD_SCHEME_ID, LedgerId::HubXrplRlusdUsd))
+    } else {
+        None
     }
 }
 
@@ -1945,14 +1965,22 @@ mod tests {
             currency: dassie_xrpl::rlusd::CURRENCY,
             issuer: dassie_xrpl::rlusd::ISSUER,
         };
-        assert_eq!(scheme_of(&other), None, "no scheme over another token");
-        let mut mainnet = xrp.terms.clone();
-        mainnet.network = 0;
         assert_eq!(
-            scheme_of(&mainnet),
+            scheme_of(&other),
             None,
-            "mainnet's hub schemes are not built"
+            "no scheme over RLUSD on the testnet"
         );
+        // On mainnet, XRP and RLUSD name the live realm's schemes, and
+        // DSUSD, the testnet's token, none.
+        let mut mainnet = xrp.terms.clone();
+        mainnet.network = dassie_xrpl::network::MAINNET.id;
+        let xrpl_xrp = (MAINNET_SCHEME_ID, LedgerId::HubXrplXrp);
+        assert_eq!(scheme_of(&mainnet), Some(xrpl_xrp));
+        mainnet.asset = other.asset;
+        let xrpl_rlusd = (RLUSD_SCHEME_ID, LedgerId::HubXrplRlusdUsd);
+        assert_eq!(scheme_of(&mainnet), Some(xrpl_rlusd));
+        mainnet.asset = dsusd.terms.asset;
+        assert_eq!(scheme_of(&mainnet), None, "no scheme over DSUSD on mainnet");
         let other = with_terms(&xrp, other);
         assert!(matches!(
             scheme(other, DSUSD_SCHEME_ID),

@@ -1,7 +1,8 @@
 //! Making the moves between the owner book of each hub's asset (on the
-//! node's XRPL testnet account: `xrpl-testnet-xrp` for the XRP hub,
-//! `xrpl-testnet-dsusd` for the DSUSD hub) and the node's account in that
-//! hub that `hub_funding.rs` decides on, keeping the one on its way in the
+//! node's XRPL account on the hub's network: `xrpl-testnet-xrp` for the
+//! testnet's XRP hub, `xrpl-testnet-dsusd` for its DSUSD hub, `xrpl-xrp`
+//! and `xrpl-rlusd` for mainnet's) and the node's account in that hub that
+//! `hub_funding.rs` decides on, keeping the one on its way in the
 //! database, and the owner's view and moves (spec/areas/hubs.md#in-the-node).
 //! A node is in one hub per asset ([hubs-only](spec/decisions/hubs-only.md)):
 //! each hub's moves go on their own, under the scheme over it. Amounts
@@ -9,7 +10,8 @@
 //! of a token, which the books count alike (`UNITS_PER_DROP`); the XRP
 //! Ledger's fee is XRP the account pays, never taken out of a token's move.
 //! Before a token hub's withdrawal, the escrow's gas is checked, and topped
-//! up from the XRP owner book if short (spec/decisions/token-hubs.md).
+//! up from the XRP owner book of the hub's network if short
+//! (spec/decisions/token-hubs.md).
 
 use dassie_hub::member::{HubAccount, UNITS_PER_DROP};
 use dassie_ledger::{LedgerId, Name};
@@ -65,13 +67,35 @@ fn in_asset(scheme: Name, smallest: u64) -> String {
 
 /// The ledger of the owner book of what a hub on `hub` holds: the book of
 /// that asset on the hub's underlying ledger, which the hub's deposits
-/// leave and its withdrawals reach (spec/areas/hubs.md#in-the-node). XRP
-/// on the testnet for the XRP hub, DSUSD for the DSUSD hub. `None` for a
-/// ledger that is no hub's.
+/// leave and its withdrawals reach (spec/areas/hubs.md#in-the-node). On
+/// the testnet, XRP for the XRP hub and DSUSD for the DSUSD hub; on
+/// mainnet, XRP for the XRP hub and RLUSD for the RLUSD hub, each of the
+/// hub's realm. `None` for a ledger that is no hub's.
 pub(super) const fn owner_book_ledger(hub: LedgerId) -> Option<LedgerId> {
     match hub {
         LedgerId::HubXrplTestnetXrp => Some(LedgerId::XrplTestnetXrp),
         LedgerId::HubXrplTestnetDsusdUsd => Some(LedgerId::XrplTestnetDsusdUsd),
+        LedgerId::HubXrplXrp => Some(LedgerId::XrplXrp),
+        LedgerId::HubXrplRlusdUsd => Some(LedgerId::XrplRlusdUsd),
+        LedgerId::StubUsd
+        | LedgerId::XrplTestnetXrp
+        | LedgerId::XrplXrp
+        | LedgerId::XrplTestnetRlusdUsd
+        | LedgerId::XrplRlusdUsd
+        | LedgerId::XrplTestnetDsusdUsd => None,
+    }
+}
+
+/// The ledger of the XRP owner book on the network of a hub on `hub`: the
+/// owner book of its network's XRP hub. A token hub's escrow pays the XRP
+/// Ledger's fees in XRP, which the node reads and tops up from it
+/// (spec/decisions/token-hubs.md). `None` for a ledger that is no hub's.
+pub(super) const fn gas_book_ledger(hub: LedgerId) -> Option<LedgerId> {
+    match hub {
+        LedgerId::HubXrplTestnetXrp | LedgerId::HubXrplTestnetDsusdUsd => {
+            owner_book_ledger(LedgerId::HubXrplTestnetXrp)
+        }
+        LedgerId::HubXrplXrp | LedgerId::HubXrplRlusdUsd => owner_book_ledger(LedgerId::HubXrplXrp),
         _ => None,
     }
 }
@@ -297,6 +321,16 @@ impl Core {
     /// its ledger: `None` while none is active.
     fn founding_book(&self) -> Option<(Name, LedgerId)> {
         Some((self.book_on(FOUNDING_LEDGER)?, FOUNDING_LEDGER))
+    }
+
+    /// The XRP owner book on the network of the hub of `scheme`, and its
+    /// ledger ([`gas_book_ledger`]): where a token hub's escrow's gas is
+    /// read and paid from. `None` while the hub scheme or the book is not
+    /// active.
+    fn gas_book(&self, scheme: Name) -> Option<(Name, LedgerId)> {
+        let hub = self.schemes.get(&scheme)?.scheme.ledger();
+        let ledger = gas_book_ledger(hub)?;
+        Some((self.book_on(ledger)?, ledger))
     }
 
     /// The node's account in the hub of `scheme`, while the scheme runs.
@@ -591,10 +625,11 @@ impl Core {
             .is_some_and(|account| account.terms().asset != dassie_hub::rules::Asset::Xrp)
     }
 
-    /// The XRPL account of the XRP owner book, while it runs: where the
-    /// escrow's gas is read and paid from.
-    fn xrp_book_account(&self) -> Option<&XrplAccount> {
-        let (book, _) = self.founding_book()?;
+    /// The XRPL account of the XRP owner book on the network of the hub of
+    /// `scheme`, while it runs: where the escrow's gas is read and paid
+    /// from.
+    fn xrp_book_account(&self, scheme: Name) -> Option<&XrplAccount> {
+        let (book, _) = self.gas_book(scheme)?;
         let active = self.schemes.get(&book).filter(|a| a.failed.is_none())?;
         let asset = self.assets.get(&active.asset?)?;
         let any: &dyn core::any::Any = asset.asset.as_ref();
@@ -605,9 +640,9 @@ impl Core {
     /// from: the escrow's XRP as the XRP owner book's account proved it.
     fn gas_seen(&self, scheme: Name) -> Option<GasSeen> {
         let escrow = dassie_xrpl::AccountId(self.hub_account(scheme)?.terms().escrow);
-        let account = self.xrp_book_account()?;
+        let account = self.xrp_book_account(scheme)?;
         let topping_up = match self.funding.get(&scheme)?.gas {
-            Gas::ToppingUp { payment, .. } => self.xrpl_owner_payment(payment),
+            Gas::ToppingUp { payment, .. } => self.book_payment(self.gas_book(scheme), payment),
             _ => OwnerPaymentState::Unknown,
         };
         Some(GasSeen {
@@ -651,8 +686,8 @@ impl Core {
             .ok_or_else(|| {
                 EngineError::Precondition(
                     "a token hub's escrow pays its fees in XRP, which the node reads and tops \
-                     up through its owner book of XRP on the XRP Ledger testnet \
-                     (xrpl-testnet-xrp): that book is not running synced"
+                     up through its owner book of XRP on the hub's network (xrpl-testnet-xrp \
+                     or xrpl-xrp): that book is not running synced"
                         .into(),
                 )
             })?;
@@ -663,7 +698,7 @@ impl Core {
             GasNext::Ready => true,
             GasNext::Wait => false,
             GasNext::Read => {
-                self.read_balance_of(escrow);
+                self.read_balance_of(scheme, escrow);
                 false
             }
             GasNext::TopUp { drops, at } => {
@@ -674,7 +709,8 @@ impl Core {
                     .hub_account(scheme)
                     .and_then(HubAccount::number)
                     .map(|number| number.0);
-                let paid = self.pay_from_xrp_book(&escrow.to_address(), tag, drops);
+                let book = self.gas_book(scheme);
+                let paid = self.pay_from_xrp_book(book, &escrow.to_address(), tag, drops);
                 if let Some(funding) = self.funding.get_mut(&scheme) {
                     match paid {
                         Ok(payment) => funding.topping_up(payment, at),
@@ -688,10 +724,11 @@ impl Core {
         })
     }
 
-    /// Has the XRP owner book's account read the XRP of `account`, proven,
-    /// and sends what it asks of its ledger.
-    fn read_balance_of(&mut self, account: dassie_xrpl::AccountId) {
-        let Some((book, _)) = self.founding_book() else {
+    /// Has the account of the XRP owner book on the network of the hub of
+    /// `scheme` read the XRP of `account`, proven, and sends what it asks
+    /// of its ledger.
+    fn read_balance_of(&mut self, scheme: Name, account: dassie_xrpl::AccountId) {
+        let Some((book, _)) = self.gas_book(scheme) else {
             return;
         };
         let Some(asset) = self.schemes.get(&book).and_then(|active| active.asset) else {
@@ -789,7 +826,9 @@ impl Core {
                 (book, payment)
             }
             Direction::Withdraw => {
-                let own = super::schemes::own_xrpl_account(&self.key)?;
+                let network =
+                    super::schemes::hub_network(account.terms()).ok_or(SchemeError::Unavailable)?;
+                let own = super::schemes::own_xrpl_account(&self.key, network);
                 let payment = OwnerPayment {
                     destination: own.to_address(),
                     tag: None,
@@ -835,20 +874,27 @@ impl Core {
     /// cover it with its fee, or the scheme has an owner's payment on its
     /// way already.
     pub fn pay_from_xrpl(&mut self, destination: &str, drops: u64) -> Result<Name, EngineError> {
-        self.pay_from_xrp_book(destination, None, drops)
+        let book = self.founding_book();
+        self.pay_from_xrp_book(book, destination, None, drops)
     }
 
-    /// [`pay_from_xrpl`](Self::pay_from_xrpl) with destination tag `tag`.
+    /// [`pay_from_xrpl`](Self::pay_from_xrpl) through the XRP owner book
+    /// `book`, the testnet's or mainnet's, with destination tag `tag`.
     fn pay_from_xrp_book(
         &mut self,
+        book: Option<(Name, LedgerId)>,
         destination: &str,
         tag: Option<u32>,
         drops: u64,
     ) -> Result<Name, EngineError> {
-        let not_running = || {
-            EngineError::Precondition("the XRP Ledger testnet scheme is not running synced".into())
-        };
-        let book = self.founding_book().ok_or_else(not_running)?;
+        let not_running =
+            || EngineError::Precondition("the XRP Ledger scheme is not running synced".into());
+        let book = book.ok_or_else(not_running)?;
+        assert_eq!(
+            book.1.asset().code,
+            "XRP",
+            "only an XRP book pays an escrow's XRP"
+        );
         let spendable = self.book_spendable(book).ok_or_else(not_running)?;
         let (book, _) = book;
         if drops == 0 || drops > spendable {
@@ -889,8 +935,13 @@ impl Core {
     /// it does not run.
     #[must_use]
     pub fn xrpl_owner_payment(&self, id: Name) -> OwnerPaymentState {
-        self.founding_book()
-            .and_then(|(book, _)| self.schemes.get(&book))
+        self.book_payment(self.founding_book(), id)
+    }
+
+    /// What became of the owner's payment `id` out of the owner book
+    /// `book`, as it says; unknown while it does not run.
+    fn book_payment(&self, book: Option<(Name, LedgerId)>, id: Name) -> OwnerPaymentState {
+        book.and_then(|(book, _)| self.schemes.get(&book))
             .filter(|active| active.failed.is_none())
             .map_or(OwnerPaymentState::Unknown, |active| {
                 active.scheme.owner_payment(id)

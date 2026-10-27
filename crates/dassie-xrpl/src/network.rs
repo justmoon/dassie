@@ -83,7 +83,7 @@ impl Network {
         match kind {
             AssetKind::XrplTestnetAccount => Some(&TESTNET),
             AssetKind::XrplAccount => Some(&MAINNET),
-            AssetKind::HubTestnetAccount => None,
+            AssetKind::HubTestnetAccount | AssetKind::HubAccount => None,
         }
     }
 
@@ -131,6 +131,7 @@ mod tests {
         assert!(TESTNET.resets() && TESTNET.faucet.is_some());
         assert!(!MAINNET.resets() && MAINNET.faucet.is_none());
         assert_eq!(Network::of(AssetKind::HubTestnetAccount), None);
+        assert_eq!(Network::of(AssetKind::HubAccount), None);
     }
 
     // The network's XRP scheme books on its realm's ledger of XRP, whose

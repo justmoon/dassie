@@ -278,7 +278,7 @@ export type HubStatus = Message<"dassie.owner.v1.HubStatus"> & {
 
   /**
    * The settlement scheme over the hub, which names its ledger and asset,
-   * such as `hub-xrpl-testnet-xrp`.
+   * such as `hub-xrpl-testnet-xrp`, or `hub-xrpl-rlusd` on mainnet.
    *
    * @generated from field: string scheme = 19;
    */
