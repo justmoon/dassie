@@ -51,8 +51,8 @@ fn harness(config: Config) -> Harness {
     h.add_peer(5, "dsource", TRUST, 0);
     h.add_peer_on(XRP, 3, "dthree", TRUST, 0);
     h.add_peer_on(XRP, 4, "dfour", TRUST, 0);
-    h.rates.set("USD", 10u128.pow(RATE_PRECISION));
-    h.rates.set("XRP", 2 * 10u128.pow(RATE_PRECISION));
+    h.rates.set_at("USD", 10u128.pow(RATE_PRECISION), NOW);
+    h.rates.set_at("XRP", 2 * 10u128.pow(RATE_PRECISION), NOW);
     h.pricing.charges = FEE;
     h
 }
