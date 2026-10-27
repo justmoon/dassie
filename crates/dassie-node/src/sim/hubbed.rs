@@ -28,12 +28,13 @@ use dassie_kit::sim::{Outcome, Run, SeededRng};
 
 use super::checks::{check_events, check_incoming, first_failure};
 use super::hub::{MemberLie, terms};
+// The checks moved to `hub_checks`, still reachable here, where the runs
+// beside this one found them.
 pub use super::hub_checks::joined;
-use super::hub_checks::{
-    check_escrow, check_hub_books, check_hub_validators, check_in_step, check_moved, check_owners,
-    check_payout, check_settled_with_honest, hub_standing, in_step, moving,
+pub(super) use super::hub_checks::{
+    check_escrow, check_hub_books, check_hub_validators, check_in_step, check_losses, check_moved,
+    check_owners, check_payout, check_settled_with_honest, hub_standing, in_step, members, moving,
 };
-pub(super) use super::hub_checks::{check_losses, members};
 use super::scripted::{READY_WITHIN_MS, ended};
 use super::{START, Settling, Sim, key, received};
 use crate::store::OutgoingState;
