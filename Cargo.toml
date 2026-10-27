@@ -86,11 +86,11 @@ strip = true
 [profile.e2e]
 inherits = "dev"
 
-# The Nix checks that build with Cargo (flake.nix: the desktop app's, and
-# the dependencies of the crane builds): the test profile's settings, under
-# a name that does not put `cargo check` and clippy in test mode, which
-# would lint only cfg(test) code. nix/rust builds the other crates with the
-# same checks on (spec/decisions/crate-by-crate-builds.md).
+# The desktop app's Nix check (nix/desktop.nix), which builds with Cargo:
+# the test profile's settings, under a name that does not put `cargo check`
+# and clippy in test mode, which would lint only cfg(test) code. nix/rust
+# builds the other crates with the same checks on
+# (spec/decisions/crate-by-crate-builds.md).
 [profile.ci]
 inherits = "test"
 
@@ -107,9 +107,3 @@ inherits = "test"
 inherits = "release"
 lto = false
 codegen-units = 16
-
-# The desktop app's check (flake.nix): the install tests' profile, so the
-# check compiles the code the package ships, with debug assertions off, but
-# without fat LTO's link, which the package alone pays.
-[profile.desktop-check]
-inherits = "install-test"

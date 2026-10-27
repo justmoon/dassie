@@ -117,12 +117,11 @@
           # The workspace crate by crate, with its checks (nix/rust).
           rust = import ./nix/rust { inherit pkgs toolchain craneLib; };
 
-          # The desktop app's tests (desktop-test), the one check crane
-          # builds with Cargo's test settings, build with the ci profile
-          # (Cargo.toml), as a local `cargo test` does. crane's default,
-          # release, gives every test binary fat LTO and one codegen unit,
-          # which took the tests minutes to link. The release builds use
-          # release (nix/release.nix).
+          # What the flake's own crane builds share: the workspace, and the
+          # ci profile (Cargo.toml) rather than crane's default, release,
+          # whose fat LTO and one codegen unit take minutes to link. The
+          # release builds use release (nix/release.nix), the desktop app
+          # its own settings (nix/desktop.nix).
           common = {
             inherit src;
             pname = "dassie";
@@ -283,22 +282,22 @@
           # The package builds in release; its check, below, in
           # desktop-check.
           desktopIn =
-            profile:
+            check:
             import ./nix/desktop.nix {
               inherit
                 lib
                 pkgs
                 craneLib
                 src
-                profile
+                check
                 ;
               inherit (release.packages) wallet;
             };
           desktop-app = lib.optionalAttrs (system == "x86_64-linux") {
-            desktop = desktopIn "release";
+            desktop = desktopIn false;
           };
           desktop-check = lib.optionalAttrs (system == "x86_64-linux") {
-            desktop = desktopIn "desktop-check";
+            desktop = desktopIn true;
           };
 
           # The TypeScript side's checks (nix/ts.nix), on x86_64-linux too,
@@ -369,40 +368,13 @@
           # Each crate's tests and clippy, crate by crate (nix/rust): an edit
           # builds the crates it reaches again, and runs their tests alone.
           // rust.checks
-          // {
-            # The desktop app's clippy and tests, with Cargo, as nix/rust
-            # builds every other crate apart: Tauri's build scripts pass
-            # their dependents what buildRustCrate cannot.
-            desktop-test = craneLib.mkCargoDerivation (
-              common
-              // {
-                src = lib.fileset.toSource {
-                  root = ./.;
-                  fileset = lib.fileset.unions [
-                    (lib.fileset.fromSource src)
-                    ./.config/nextest.toml
-                  ];
-                };
-                pname = "dassie-desktop-test";
-                inherit cargoArtifacts;
-                nativeBuildInputs = common.nativeBuildInputs ++ [ pkgs.cargo-nextest ];
-                buildPhaseCargoCommand = ''
-                  cargoWithProfile clippy --locked -p dassie-desktop --all-targets -- -D warnings
-                  cargo nextest run --cargo-profile ci --profile ci --locked -p dassie-desktop
-                '';
-                doInstallCargoArtifacts = false;
-                installPhaseCommand = "touch $out";
-              }
-            );
-          }
           // (release.checks or { })
           // (ts.checks or { })
-          # The packaged app builds and is wrapped, which clippy and the
-          # tests do not show. It builds the package's code in the release
-          # profile's settings but for fat LTO (desktop-check, Cargo.toml):
-          # optimizing the whole app as one unit took it minutes on every
-          # change to the node, and how well the app is optimized is not
-          # what it checks.
+          # The desktop app with Cargo, as nix/rust builds every other crate
+          # apart, since Tauri's build scripts pass their dependents what
+          # buildRustCrate cannot: clippy, its tests, and the packaged app
+          # built and wrapped, which they do not show, on one build of the
+          # workspace's crates (nix/desktop.nix).
           // desktop-check;
 
           # The simulation campaign's VMs (scripts/sim-campaign.ts): CI's
