@@ -132,9 +132,10 @@ pub fn write(writer: &mut Writer<'_>, arcs: &[u64]) {
 }
 
 /// The complete encoding (length determinant and content) of an object
-/// identifier, computed at compile time for constants:
+/// identifier, computed at compile time for constants (the golden vectors'
+/// test, `tests/vectors.rs`, holds Dassie's own to it):
 ///
-/// ```
+/// ```ignore
 /// const DASSIE: [u8; 12] = dassie_oer::oid::encode(&[1, 3, 6, 1, 4, 1, 54392, 5, 1399]);
 /// assert_eq!(DASSIE[0], 11);
 /// ```

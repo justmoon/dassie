@@ -114,6 +114,9 @@
           # compiles their -sys crates, so they are in `common`.
           desktop = import ./nix/desktop-libs.nix { inherit pkgs; };
 
+          # The workspace crate by crate, with its checks (nix/rust).
+          rust = import ./nix/rust { inherit pkgs toolchain craneLib; };
+
           # The checks build with the ci profile (Cargo.toml), as a local
           # `cargo test` does. crane's default, release, gives every test
           # binary fat LTO and one codegen unit, which took the tests minutes
@@ -236,6 +239,9 @@
         {
           packages = {
             inherit wasm-modules wasm-bindgen release-tool;
+            # After a change to Cargo.lock, a manifest or a crate's targets:
+            # `nix run .#cargo-nix` writes nix/rust/Cargo.nix again.
+            cargo-nix = rust.generate;
           }
           # `nix build` alone makes the static `dassie` with the wallet
           # built in, where the release builds are made.
@@ -249,13 +255,6 @@
               inherit src;
               inherit (common) pname version;
             };
-            cargo-clippy = craneLib.cargoClippy (
-              common
-              // {
-                inherit cargoArtifacts;
-                cargoClippyExtraArgs = "--all-targets -- -D warnings";
-              }
-            );
             cargo-clippy-wasm = craneLib.cargoClippy (
               common
               // {
@@ -264,35 +263,6 @@
                 CARGO_BUILD_TARGET = "wasm32-unknown-unknown";
                 cargoExtraArgs = "--locked --features identity,stream -p dassie-wasm";
                 cargoClippyExtraArgs = "-- -D warnings";
-              }
-            );
-            # The workspace's tests, with cargo-nextest: each test in its own
-            # process and all at once, so that the check takes its build and
-            # its slowest test, not every test binary one after another. Its
-            # ci profile (.config/nextest.toml, which joins this check's
-            # source alone) runs every test, retries none and stops a hang.
-            # nextest runs no doc tests, so `cargo test --doc` runs them
-            # after. systemd-socket-activate, for dassie-cli's process tests,
-            # which skip without it. The test key, for its update tests.
-            # Nothing builds on the check, so it keeps no target directory.
-            cargo-test = craneLib.cargoNextest (
-              common
-              // {
-                src = lib.fileset.toSource {
-                  root = ./.;
-                  fileset = lib.fileset.unions [
-                    (lib.fileset.fromSource src)
-                    ./.config/nextest.toml
-                  ];
-                };
-                inherit cargoArtifacts;
-                nativeCheckInputs = [ pkgs.systemd ];
-                NEXTEST_PROFILE = "ci";
-                cargoNextestExtraArgs = "--features dassie-cli/test-key";
-                postCheck = ''
-                  cargoWithProfile test --doc --locked --features dassie-cli/test-key
-                '';
-                doInstallCargoArtifacts = false;
               }
             );
             # The dependencies' licenses and sources, and wildcard
@@ -312,6 +282,35 @@
               inherit (common) pname version;
             };
             inherit wasm-modules;
+          }
+          # Each crate's tests and clippy, crate by crate (nix/rust): an edit
+          # builds the crates it reaches again, and runs their tests alone.
+          // rust.checks
+          // {
+            # The desktop app's clippy and tests, with Cargo, as nix/rust
+            # builds every other crate apart: Tauri's build scripts pass
+            # their dependents what buildRustCrate cannot.
+            desktop-test = craneLib.mkCargoDerivation (
+              common
+              // {
+                src = lib.fileset.toSource {
+                  root = ./.;
+                  fileset = lib.fileset.unions [
+                    (lib.fileset.fromSource src)
+                    ./.config/nextest.toml
+                  ];
+                };
+                pname = "dassie-desktop-test";
+                inherit cargoArtifacts;
+                nativeBuildInputs = common.nativeBuildInputs ++ [ pkgs.cargo-nextest ];
+                buildPhaseCargoCommand = ''
+                  cargoWithProfile clippy --locked -p dassie-desktop --all-targets -- -D warnings
+                  cargo nextest run --cargo-profile ci --profile ci --locked -p dassie-desktop
+                '';
+                doInstallCargoArtifacts = false;
+                installPhaseCommand = "touch $out";
+              }
+            );
           }
           // (release.checks or { })
           // (ts.checks or { })

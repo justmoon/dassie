@@ -34,7 +34,6 @@
 //!
 //! The layout is this file's alone: a change of what the engine persists
 //! changes it here, with nothing to migrate but a host's stored bytes.
-//! ```
 
 use alloc::vec::Vec;
 
