@@ -689,7 +689,7 @@ fn the_queue_is_bounded_and_waits_for_the_account() {
             &hub.says(v, &[hub.account_statement(5, true)]),
         );
     }
-    for n in 0..account::MAX_QUEUED {
+    for n in 0..account::MAX_QUEUED_WITHOUT_DEADLINE {
         let id = Name::new(&alloc::format!("s{n}")).unwrap();
         account
             .prepare(id, fund(u64::try_from(n).unwrap()))
@@ -1498,8 +1498,14 @@ fn a_freeze_is_read_from_what_f_plus_one_sign() {
 
 /// A claim on hold 2 for one commitment expiring at `expiry`.
 fn claim_expiring(expiry: crate::rules::Millis) -> MemberOperation {
+    claim_on(2, expiry)
+}
+
+/// A claim on hold `hold` for one commitment expiring at `expiry`.
+fn claim_on(hold: u64, expiry: crate::rules::Millis) -> MemberOperation {
+    let hold = crate::promise::HoldNumber(hold);
     let commitment = crate::promise::Commitment {
-        hold: crate::promise::HoldNumber(2),
+        hold,
         sequence: 1,
         amount: 5,
         condition: [3; 32],
@@ -1511,12 +1517,26 @@ fn claim_expiring(expiry: crate::rules::Millis) -> MemberOperation {
         &NodeKey::from_bytes(&[9; 32]),
     );
     MemberOperation::Claim {
-        hold: crate::promise::HoldNumber(2),
+        hold,
         fulfilled: alloc::vec![crate::promise::Fulfilled {
             commitment: signed,
             fulfillment: [4; 32],
         }],
     }
+}
+
+/// A redeem on hold `hold`.
+fn redeem_on(hold: u64) -> MemberOperation {
+    let claim = crate::promise::Claim {
+        hold: crate::promise::HoldNumber(hold),
+        total: 5,
+        through: 1,
+    };
+    MemberOperation::Redeem(crate::promise::Signed::sign(
+        claim,
+        &Hub::new().rules.id(),
+        &NodeKey::from_bytes(&[9; 32]),
+    ))
 }
 
 /// A synced account whose settlement `s`, a `hold-fund`, is on its way
@@ -1657,4 +1677,205 @@ fn the_freeze_is_kept_across_a_restart() {
     assert_eq!(restored.frozen(), Some(1_006));
     assert!(restored.escrow_held());
     assert_eq!(restored.state(), account.state());
+}
+
+// The account reckons what a frozen hub takes as its ledger does, for
+// every kind of operation, and for claims within the window and past it.
+#[test]
+fn the_account_waits_for_what_the_ledger_does() {
+    let mut token = crate::ledger::tests::Hub::with(|rules| {
+        rules.terms = crate::rules::tests::token_terms(rules.terms.clone());
+    });
+    let destination = Destination {
+        account: [5; 20],
+        tag: None,
+    };
+    let hold = crate::promise::HoldNumber(2);
+    let operations = |end: crate::rules::Millis| {
+        alloc::vec![
+            MemberOperation::Transfer {
+                to: AccountNumber(9),
+                amount: 5,
+            },
+            MemberOperation::Pay {
+                key: NodeKey::from_bytes(&[8; 32]).public_key(),
+                amount: 5,
+            },
+            MemberOperation::SetDisbursal(destination),
+            MemberOperation::HoldOpen {
+                payee: AccountNumber(9),
+                amount: 5,
+            },
+            MemberOperation::HoldFund { hold, amount: 5 },
+            MemberOperation::HoldReduce { hold, amount: 5 },
+            MemberOperation::HoldRelease { hold },
+            redeem_on(2),
+            claim_on(2, end),
+            claim_on(2, end + 1),
+            MemberOperation::Withdraw {
+                amount: 5,
+                to: destination,
+            },
+        ]
+    };
+    for operation in &operations(1_000) {
+        assert!(!token.ledger.waits(operation));
+        assert!(!account::waits(None, operation));
+    }
+    token.all_validators(|_| {
+        crate::operation::ValidatorOperation::AttestIssuer(crate::operation::Issuer {
+            ledger: 5,
+            frozen: true,
+            fee: false,
+        })
+    });
+    let window = token.ledger.freeze_window_end();
+    let end = window.unwrap();
+    let mut waiting = 0;
+    for operation in &operations(end) {
+        let waits = token.ledger.waits(operation);
+        assert_eq!(account::waits(window, operation), waits, "{operation:?}");
+        waiting += usize::from(waits);
+    }
+    assert_eq!(
+        waiting,
+        operations(end).len() - 1,
+        "all but the claim within"
+    );
+}
+
+// spec/decisions/token-hubs.md: a claim sent before the account knew of
+// the freeze, holding a commitment past its window, goes back to the
+// scheme once it can no longer apply before the thaw: when the hub
+// refuses it for the freeze, or once the account read every block up to
+// the one it knows the freeze as of. Its sequence was not used, so the
+// claim the scheme makes of what the window holds goes with it.
+#[test]
+fn a_claim_sent_before_the_freeze_was_known_goes_back() {
+    let hub = Hub::new();
+    let hold = crate::promise::HoldNumber(2);
+    let claimed = |account: &mut HubAccount| {
+        let claim = claim_expiring(u64::MAX / 2);
+        account.submit(Purpose::Claim(hold), claim).unwrap();
+        let sent = submitted(account);
+        assert_eq!(sent.len(), 4);
+        assert_eq!(sent[0].sequence, 3);
+        sent[0].clone()
+    };
+    let final_block = |height: u64| Statement::Final {
+        height,
+        timestamp: 1_000 + height,
+    };
+
+    // The hub refuses it for the freeze.
+    let mut account = synced(&hub);
+    let sent = claimed(&mut account);
+    issuer_says(&hub, &mut account, 0..2, 8, Some(1_006));
+    assert!(account.was_sent(Purpose::Claim(hold)), "it may still apply");
+    let refused = Statement::Executed {
+        height: 6,
+        timestamp: 1_006,
+        index: 0,
+        operation: Operation::Member(sent),
+        outcome: Outcome::Refused(crate::ledger::Refusal::Frozen),
+    };
+    for v in 0..3 {
+        let answer = hub.says(v, &[refused.clone(), final_block(6)]);
+        from(&mut account, v, &answer);
+    }
+    assert_eq!(account.cursor(), 6);
+    assert!(!account.has(Purpose::Claim(hold)));
+    assert!(account.news().contains(&News::Dropped {
+        purpose: Purpose::Claim(hold),
+    }));
+    account.check_invariants();
+
+    // The validators dropped it: no block up to the freeze's took it.
+    let mut account = synced(&hub);
+    claimed(&mut account);
+    issuer_says(&hub, &mut account, 0..2, 6, Some(1_006));
+    assert!(account.was_sent(Purpose::Claim(hold)), "not read up to it");
+    for v in 0..3 {
+        from(&mut account, v, &hub.says(v, &[final_block(6)]));
+    }
+    assert_eq!(account.cursor(), 6);
+    assert!(!account.has(Purpose::Claim(hold)));
+    assert!(account.news().contains(&News::Dropped {
+        purpose: Purpose::Claim(hold),
+    }));
+    // What the window holds goes with the sequence it did not use.
+    let within = claim_expiring(account.freeze_window_end().unwrap());
+    account
+        .submit(Purpose::Claim(hold), within.clone())
+        .unwrap();
+    let sent = submitted(&mut account);
+    assert_eq!(sent.len(), 4);
+    assert_eq!((sent[0].sequence, &sent[0].operation), (3, &within));
+    account.check_invariants();
+}
+
+// spec/decisions/token-hubs.md: a frozen hub takes no redeem, and those
+// that waited at the freeze go back to the scheme, so redeems on more
+// holds than the queue has room for never keep out the claims it still
+// pays. Settlements never take more than their share of the queue.
+#[test]
+fn a_frozen_hub_keeps_the_queue_for_claims() {
+    let hub = Hub::new();
+    let number = |n: usize| u64::try_from(n).unwrap();
+    let mut account = synced(&hub);
+    for hold in (0..account::MAX_QUEUED).map(|n| number(n) + 10) {
+        let purpose = Purpose::Redeem(crate::promise::HoldNumber(hold));
+        account.submit(purpose, redeem_on(hold)).unwrap();
+    }
+    let claim = Purpose::Claim(crate::promise::HoldNumber(2));
+    assert_eq!(
+        account.submit(claim, claim_on(2, 1)),
+        Err(SchemeError::Unavailable),
+        "full"
+    );
+    assert_eq!(submitted(&mut account).len(), 4, "one on its way");
+    issuer_says(&hub, &mut account, 0..2, 6, Some(1_006));
+    assert_eq!(account.queue.len(), 1, "only the one on its way is kept");
+    let dropped = account
+        .news()
+        .iter()
+        .filter(|news| {
+            matches!(
+                news,
+                News::Dropped {
+                    purpose: Purpose::Redeem(_)
+                }
+            )
+        })
+        .count();
+    assert_eq!(dropped, account::MAX_QUEUED - 1);
+    let redeem = Purpose::Redeem(crate::promise::HoldNumber(99));
+    assert_eq!(
+        account.submit(redeem, redeem_on(99)),
+        Err(SchemeError::Unavailable),
+        "no redeem while frozen"
+    );
+    let end = account.freeze_window_end().unwrap();
+    for hold in (0..account::MAX_QUEUED - 1).map(|n| number(n) + 100) {
+        let purpose = Purpose::Claim(crate::promise::HoldNumber(hold));
+        account.submit(purpose, claim_on(hold, end)).unwrap();
+    }
+    account.check_invariants();
+
+    // Settlements take at most their share of the queue, frozen or not.
+    let mut account = synced(&hub);
+    let fund = |n: usize| MemberOperation::HoldFund {
+        hold: crate::promise::HoldNumber(number(n)),
+        amount: 1,
+    };
+    for n in 0..account::MAX_QUEUED_WITHOUT_DEADLINE {
+        let id = Name::new(&alloc::format!("s{n}")).unwrap();
+        account.prepare(id, fund(n)).unwrap();
+    }
+    assert_eq!(
+        account.prepare(Name::new("full").unwrap(), fund(99)),
+        Err(SchemeError::Unavailable)
+    );
+    account.submit(claim, claim_on(2, 1)).unwrap();
+    account.check_invariants();
 }
