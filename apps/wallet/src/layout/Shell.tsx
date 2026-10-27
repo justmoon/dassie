@@ -33,6 +33,9 @@ const Register = lazy(() => import("../pages/network/Register.tsx"), {
 const Names = lazy(() => import("../pages/network/Names.tsx"), {
   export: "Names",
 });
+const Hubs = lazy(() => import("../pages/hubs/Hubs.tsx"), {
+  export: "Hubs",
+});
 const Settings = lazy(() => import("../pages/settings/Settings.tsx"), {
   export: "Settings",
 });
@@ -64,6 +67,7 @@ const ROUTES = [
   { path: "/ledgers/create", component: CreateLedger },
   { path: "/ledgers/delete/:scheme", component: DeleteLedger },
   { path: "/ledgers", component: Ledgers },
+  { path: "/hubs", component: Hubs },
   { path: "/assets", component: Assets },
   { path: "/receive", component: Receive },
   { path: "/send", component: Send },

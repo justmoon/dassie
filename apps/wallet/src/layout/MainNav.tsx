@@ -51,6 +51,7 @@ export function MainNav(): JSX.Element {
         <Link href="/network" testid="nav-network">Network</Link>
         <Link href="/names" testid="nav-names">Names</Link>
         <Link href="/ledgers" testid="nav-ledgers">Ledgers</Link>
+        <Link href="/hubs" testid="nav-hubs">Hubs</Link>
         <Link href="/assets" testid="nav-assets">Assets</Link>
         <div class="menu">
           <button

@@ -59,6 +59,13 @@ export function removalChecklist(
         } still being sent`,
         state: "invalid",
       });
+    } else if (blocker.kind === Kind.HUB_MOVE) {
+      items.push({
+        id: "hub-move",
+        label:
+          "Funds are on their way between its settlement hub and the ledger that funds it; wait for them, or give the move up on the Hubs page once it is late",
+        state: "invalid",
+      });
     } else if (blocker.kind !== Kind.PEERS) {
       items.push({
         id: `other-${blocker.kind}`,

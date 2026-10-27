@@ -39,3 +39,15 @@ test("the checklist shows what blocks the removal", () => {
     "1 BTP token uses its ledger; revoke it first",
   );
 });
+
+test("a move of the ledger's hub on its way blocks the removal", () => {
+  const items = removalChecklist([blocker(Kind.HUB_MOVE, 1)]);
+  assertEquals(items.map((item) => [item.id, item.state]), [
+    ["peers", "valid"],
+    ["hub-move", "invalid"],
+  ]);
+  assertEquals(
+    items[1].label,
+    "Funds are on their way between its settlement hub and the ledger that funds it; wait for them, or give the move up on the Hubs page once it is late",
+  );
+});
