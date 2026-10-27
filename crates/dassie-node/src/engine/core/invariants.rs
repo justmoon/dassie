@@ -70,6 +70,18 @@ impl Core {
             self.settle.announce.iter().all(known),
             "announces what is settling"
         );
+        // Kept per method: requests for a method of a peering at the last
+        // check, and backoffs while the channel with the peer is open.
+        let config = self.peer.config();
+        let methods = dassie_peer::MAX_METHODS;
+        assert!(
+            self.settle.asked.len() <= (config.max_core_peers() + config.max_downlinks) * methods,
+            "a request to settle per method of a peering"
+        );
+        assert!(
+            self.settle.backoff.len() <= (config.max_channels + config.max_downlinks) * methods,
+            "a backoff per method of an open channel"
+        );
     }
 
     /// A settlement's transfer is pending, as it was booked: posting or
