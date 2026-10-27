@@ -15,7 +15,6 @@
 - **One grammar for scheme IDs:** `<ledger>-<network>-<asset>`, the network left out on mainnet, and `hub-` before it for a settlement hub's scheme. The XRP schemes become `xrpl-testnet-xrp` and `xrpl-xrp`, with their ledgers, `xrpl-testnet-xrp+xrp` and `xrpl-xrp+xrp`, so a hub scheme's ID is `hub-` before the ID of the owner's book it sits on.
 - **The memo type is the scheme's ID:** `https://dassie.land/settlement/<scheme ID>/v1`, for every scheme on the XRP Ledger. A token scheme whose memo type changed kept its ID, so it changed only with a new version of the peer protocol, which a node that wrote the old memo type does not speak: the two never peer, and neither reads the other's settlements wrong ([Peer protocol](../areas/peer-protocol.md#versions)).
 - **A wallet address names its ledger for people,** by its asset: `/pay/xrp`, `/pay/dsusd`, `/pay/rlusd`, `/pay/usd` for the stub, and `/pay/hub-xrp` for a hub's, unique within a realm, which is all a node runs (`LedgerId::wallet_name`). The slug stays plumbing: the receiver's and payer's addresses, and the receiver's seed path until the identity work keys it by something stable.
-- **Renamed by a migration** (`store/schema.rs`), as [hub-scheme-names](hub-scheme-names.md)'s rename was: the schemes, their books and peerings, and every stored wallet address, with the grants and payments that name them.
 
 ## Accepted
 

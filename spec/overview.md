@@ -110,7 +110,7 @@ Not frozen, on purpose: a node does not talk to the original implementation's no
 ## Decisions
 
 - [rust-and-typescript](decisions/rust-and-typescript.md): the node is Rust, the browser Solid, the tooling TypeScript.
-- [peer-protocol-v1](decisions/peer-protocol-v1.md), [database-continuity](decisions/database-continuity.md): no v0 peer protocol, no v0 databases.
+- [peer-protocol-v1](decisions/peer-protocol-v1.md), [database-continuity](decisions/database-continuity.md): no v0 peer protocol, and no v0 or early-testnet databases.
 - [protocol-upgrades](decisions/protocol-upgrades.md): a peer-protocol version is an ALPN name, and a release speaks the one before too.
 - [real-money](decisions/real-money.md): no real money yet.
 - [bootstrap-network](decisions/bootstrap-network.md): the testnet's bootstrap nodes.
