@@ -107,9 +107,10 @@ pub const MAX_AGAIN: u8 = 4;
 /// we keep to attest again once there is room and the issuer no longer
 /// holds the escrow: a freeze credits no deposit, so our share of the
 /// pending table fills and every later deposit fails `Full` until the
-/// thaw. Past it, the newest is not kept: every honest validator drops
-/// the same ones, and since the watcher has passed them, they are
-/// credited to no one.
+/// thaw. Past it, the newest is not kept here, and is not lost: the host's
+/// watcher passes no deposit until the ledger recorded its attestation,
+/// and attests it again itself after the thaw, or reads it again after a
+/// restart (spec/areas/hubs.md#the-validators-service).
 pub const MAX_WAITING_DEPOSITS: usize = 1024;
 
 /// One of our own operations, until a block takes it.
@@ -209,6 +210,9 @@ pub struct Validator {
     /// The height of the last block whose payout set we signed: never a
     /// lower one after it.
     payout_height: Option<u64>,
+    /// The newest state of the issuer's hold our host proved on the escrow's
+    /// ledger ([`Validator::prove_issuer`]).
+    proven_issuer: Option<crate::operation::Issuer>,
     /// When a stalled validator next passes its last final block on.
     pass_tip_at: Millis,
     /// The payout set we signed, for members that ask.
@@ -274,6 +278,7 @@ impl Validator {
             submitted: BTreeMap::new(),
             waiting_deposits: VecDeque::new(),
             payout_height: None,
+            proven_issuer: None,
             pass_tip_at: 0,
             payout: None,
             actions: VecDeque::new(),
@@ -349,6 +354,7 @@ impl Validator {
             submitted: BTreeMap::new(),
             waiting_deposits: VecDeque::new(),
             payout_height: None,
+            proven_issuer: None,
             pass_tip_at: 0,
             payout: None,
             actions: VecDeque::new(),
@@ -840,8 +846,10 @@ impl Validator {
         // block it learns of. None while the issuer holds a token hub's
         // escrow as of that block (spec/decisions/token-hubs.md): its
         // Payments would fail on the frozen line, each using its sequence
-        // and paying nothing. Only a later block can show the thaw.
-        let held = self.chain.ledger.issuer().holds();
+        // and paying nothing. A later block shows the thaw, or, once the
+        // hub stopped and makes no more, what our host proved of the
+        // escrow's line ([`Self::prove_issuer`]).
+        let held = self.holds_escrow();
         let phase = self.chain.ledger.phase();
         let ended = phase == Phase::Ended || self.engine.is_stalled();
         let height = self.chain.ledger.height();
@@ -987,6 +995,31 @@ impl Validator {
                 self.submitted.insert(sequence, ());
                 self.actions.push_back(Action::Submit(signed.blob));
             }
+        }
+    }
+
+    /// Takes a state of the issuer's hold on a token hub's escrow that our
+    /// host proved on the escrow's ledger, and signs the payout set if it
+    /// was waiting for the thaw: a hub that stopped while the issuer held
+    /// it makes no block that could show the thaw
+    /// (spec/areas/hubs.md#payout-bundles). Only the newest counts.
+    pub fn prove_issuer(&mut self, now: Millis, issuer: crate::operation::Issuer) {
+        if self
+            .proven_issuer
+            .is_none_or(|newest| newest.ledger < issuer.ledger)
+        {
+            self.proven_issuer = Some(issuer);
+            self.after(now);
+        }
+    }
+
+    /// Whether the issuer holds the escrow, for signing a payout set: as of
+    /// our last final block, or as of a later state our host proved.
+    fn holds_escrow(&self) -> bool {
+        let ledger = *self.chain.ledger.issuer();
+        match self.proven_issuer {
+            Some(proven) if proven.ledger > ledger.ledger => proven.holds(),
+            _ => ledger.holds(),
         }
     }
 

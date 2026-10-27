@@ -275,6 +275,9 @@ pub struct HubTask {
     last_fetch: Option<tokio::time::Instant>,
     /// Attestations the validator's pool had no room for, to attest again.
     retried: std::collections::VecDeque<ValidatorOperation>,
+    /// Escrow transactions the XRPL connection had no room for yet, in
+    /// order: at most [`ESCROW_QUEUE`].
+    unsent: std::collections::VecDeque<Vec<u8>>,
 }
 
 impl std::fmt::Debug for HubTask {
@@ -331,6 +334,7 @@ impl HubTask {
             fetching: Arc::default(),
             last_fetch: None,
             retried: std::collections::VecDeque::new(),
+            unsent: std::collections::VecDeque::new(),
         };
         let links = EscrowLinks {
             attest,
@@ -399,7 +403,21 @@ impl HubTask {
                 }
                 Input::Attest(operation) => self.attest(operation, shutdown).await?,
             }
+            self.hand_over();
             self.publish();
+        }
+    }
+
+    /// Hands the XRPL connection the escrow transactions waiting for it, in
+    /// order, while it has room.
+    fn hand_over(&mut self) {
+        while let Some(blob) = self.unsent.pop_front() {
+            if let Err(error) = self.submits.try_send(blob) {
+                if let mpsc::error::TrySendError::Full(blob) = error {
+                    self.unsent.push_front(blob);
+                }
+                return;
+            }
         }
     }
 
@@ -487,11 +505,17 @@ impl HubTask {
         if let Some(finalized) = effects.behind {
             self.fetch(finalized, shutdown);
         }
+        // Each goes once the connection has room; past the bound the newest
+        // is dropped. The escrow's sequences apply in order, so only those
+        // signed after it could wait on it, never one that came before.
         for blob in effects.submits {
-            if self.submits.try_send(blob).is_err() {
+            if self.unsent.len() >= ESCROW_QUEUE {
                 tracing::warn!(target: target::HUB, "the XRPL connection is not keeping up: an escrow transaction was dropped");
+                continue;
             }
+            self.unsent.push_back(blob);
         }
+        self.hand_over();
     }
 
     /// Sends `message` to `peer`, unless it could not be reached lately or
