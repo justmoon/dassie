@@ -150,14 +150,20 @@ export function hubConfig(rules: string): string {
  * The validator file of a node that validates the hubs `sponsor` founds,
  * following their escrows on the XRP Ledger testnet at `xrpl`
  * (spec/areas/hubs.md#the-validator-in-the-node): it lists no hub, since
- * the sponsor founds them with the node.
+ * the sponsor founds them with the node. It proves the escrows' ledgers
+ * under the UNL of `publishers`, the fake ledger's, where given.
  */
-export function validatorFile(sponsor: string, xrpl: string): string {
+export function validatorFile(
+  sponsor: string,
+  xrpl: string,
+  publishers: Record<string, unknown> | null = null,
+): string {
   return JSON.stringify({
     sponsors: [sponsor],
     hubs: [],
     xrpl,
     network: "testnet",
+    ...publishers,
   });
 }
 

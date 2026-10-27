@@ -485,6 +485,7 @@ impl Driver {
                 .collect(),
             signer_list: escrow.signer_list,
             written_off_at: ledger.written_off_at(),
+            issuer: *ledger.issuer(),
         }
     }
 
@@ -558,10 +559,22 @@ mod tests {
         drivers: Vec<Driver>,
         queue: VecDeque<(usize, usize, Vec<u8>)>,
         now: Millis,
+        /// Escrow transactions each step handed the XRPL connection, by
+        /// validator.
+        submits: Vec<(usize, Vec<u8>)>,
+        /// Whether escrow signatures between validators wait in `held`.
+        hold_shares: bool,
+        held: Vec<(usize, usize, Vec<u8>)>,
     }
 
     impl Net {
         fn new() -> Self {
+            Self::with_terms(|_| {})
+        }
+
+        /// A network of a hub whose terms `adjust` changes, each validator
+        /// accepting them.
+        fn with_terms(adjust: impl FnOnce(&mut dassie_hub::rules::Terms)) -> Self {
             let nodes: Vec<NodeKey> = (1..=4).map(|i| NodeKey::from_bytes(&[i; 32])).collect();
             let endpoints: Vec<(NodeKey, String)> = nodes
                 .iter()
@@ -573,7 +586,15 @@ mod tests {
                     )
                 })
                 .collect();
-            let rules = rules(&NodeKey::from_bytes(&[100; 32]), &endpoints);
+            let mut rules = rules(&NodeKey::from_bytes(&[100; 32]), &endpoints);
+            adjust(&mut rules.terms);
+            let terms = rules.terms.clone();
+            for ((node, endpoint), acceptance) in endpoints.iter().zip(&mut rules.validators) {
+                *acceptance = ValidatorKeys::derive(node, terms.network, &terms.nonce)
+                    .unwrap()
+                    .accept(node, &terms, endpoint.clone())
+                    .unwrap();
+            }
             let dirs: Vec<tempfile::TempDir> =
                 (0..4).map(|_| tempfile::tempdir().unwrap()).collect();
             let mut net = Self {
@@ -583,6 +604,9 @@ mod tests {
                 drivers: Vec::new(),
                 queue: VecDeque::new(),
                 now: START,
+                submits: Vec::new(),
+                hold_shares: false,
+                held: Vec::new(),
             };
             net.open();
             net
@@ -608,9 +632,17 @@ mod tests {
 
         fn deliver(&mut self, from: usize, step: Step) {
             step.write.apply(self.drivers[from].store()).unwrap();
+            for blob in step.effects.submits {
+                self.submits.push((from, blob));
+            }
             for (peer, message) in step.effects.sends {
                 let to = self.index_of(&peer.node);
-                self.queue.push_back((to, from, message));
+                let share = matches!(Message::decode_exact(&message), Ok(Message::Share { .. }));
+                if self.hold_shares && share {
+                    self.held.push((to, from, message));
+                } else {
+                    self.queue.push_back((to, from, message));
+                }
             }
         }
 
@@ -682,5 +714,133 @@ mod tests {
             .map(|d| d.validator().ledger().state_root())
             .collect();
         assert!(roots.windows(2).all(|w| w[0] == w[1]));
+    }
+
+    /// Every validator attests `operation`.
+    fn attest_all(net: &mut Net, operation: &ValidatorOperation) {
+        for i in 0..net.drivers.len() {
+            let (step, taken) = net.drivers[i].attest(net.now, operation.clone()).unwrap();
+            assert!(taken);
+            net.deliver(i, step);
+        }
+    }
+
+    /// A member's operation, sent to every validator.
+    fn submit(net: &mut Net, operation: &dassie_hub::operation::Operation) {
+        let bytes = Message::Operation(operation.clone()).to_vec();
+        for i in 0..net.drivers.len() {
+            let step = net.drivers[i]
+                .handle(net.now, PeerId(100), None, &bytes)
+                .unwrap();
+            net.deliver(i, step);
+        }
+    }
+
+    /// A DSUSD hub with a member's withdrawal sequenced, whose validators'
+    /// signatures of it wait in `held`.
+    fn token_hub_withdrawing() -> Net {
+        use dassie_hub::digest::Digest;
+        use dassie_hub::operation::{
+            Deposit, Destination, MemberOperation, Operation, SignedMemberOperation,
+        };
+
+        let mut net = Net::with_terms(|terms| {
+            terms.asset = dassie_hub::rules::Asset::Token {
+                currency: dassie_xrpl::dsusd::CURRENCY,
+                issuer: dassie_xrpl::dsusd::ISSUER,
+            };
+            terms.fees.gas = dassie_hub::rules::LEAST_TOKEN_GAS_DROPS;
+            terms.fees.ledger = 0;
+            terms.fees.least_payout = 1;
+        });
+        attest_all(&mut net, &ValidatorOperation::AttestEscrow { sequence: 5 });
+        net.run(1_000);
+        let member = NodeKey::from_bytes(&[31; 32]);
+        let deposit = Deposit {
+            transaction: Digest([1; 32]),
+            ledger: 10,
+            amount: 50_000_000,
+            sender: [3; 20],
+            tag: 0,
+            key: Some(member.public_key()),
+        };
+        attest_all(&mut net, &ValidatorOperation::AttestDeposit(deposit));
+        net.run(1_000);
+        let ledger = net.drivers[0].validator().ledger();
+        let (hub, number) = (
+            *ledger.hub(),
+            ledger.account_of(&member.public_key()).unwrap(),
+        );
+        let to = Destination {
+            account: [9; 20],
+            tag: None,
+        };
+        // The validators' signatures of the withdrawal reach no other
+        // before the freeze.
+        net.hold_shares = true;
+        for (sequence, operation) in [
+            (0, MemberOperation::SetDisbursal(to)),
+            (
+                1,
+                MemberOperation::Withdraw {
+                    amount: 5_000_000,
+                    to,
+                },
+            ),
+        ] {
+            let signed =
+                SignedMemberOperation::sign(&hub, number, sequence, 10, operation, &member);
+            submit(&mut net, &Operation::Member(signed));
+            net.run(1_000);
+        }
+        net
+    }
+
+    // spec/decisions/token-hubs.md: no escrow transaction goes to the XRPL
+    // connection while the issuer holds a token hub's escrow, a
+    // withdrawal whose signatures were made before the freeze included,
+    // and it goes once the hub thaws.
+    #[test]
+    fn nothing_goes_to_a_frozen_escrow_until_the_thaw() {
+        use dassie_hub::operation::Issuer;
+        use dassie_xrpl::codec::{Payment, Transact};
+
+        let mut net = token_hub_withdrawing();
+        assert_eq!(net.drivers[0].validator().ledger().withdrawals().count(), 1);
+        assert!(net.submits.is_empty(), "no quorum of signatures yet");
+
+        // A quorum attests the freeze, and the signatures arrive during it.
+        let issuer = |ledger, frozen| {
+            ValidatorOperation::AttestIssuer(Issuer {
+                ledger,
+                frozen,
+                fee: false,
+            })
+        };
+        attest_all(&mut net, &issuer(20, true));
+        net.run(1_000);
+        assert!(
+            net.drivers
+                .iter()
+                .all(|d| d.validator().ledger().issuer().holds())
+        );
+        net.hold_shares = false;
+        let held = std::mem::take(&mut net.held);
+        net.queue.extend(held);
+        net.run(1_000);
+        assert!(net.submits.is_empty(), "nothing submitted while frozen");
+
+        // The thaw: each validator hands the connection the withdrawal.
+        attest_all(&mut net, &issuer(21, false));
+        net.run(1_000);
+        assert!(
+            net.drivers
+                .iter()
+                .all(|d| !d.validator().ledger().issuer().holds())
+        );
+        assert_eq!(net.submits.len(), 4, "{:?}", net.submits.len());
+        for (_, blob) in &net.submits {
+            assert!(Payment::decode(blob).unwrap().signatures_valid());
+        }
     }
 }

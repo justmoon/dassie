@@ -31,12 +31,13 @@ pub struct Sim {
 /// Every simulation the runner knows. A weight counts runs, not time: a
 /// run that takes a millisecond costs a campaign almost nothing, so the
 /// time goes to the simulations whose runs take seconds, and most of it to
-/// the `node` simulation.
-pub static SIMS: [Sim; 17] = [
+/// the `node` simulation. A slice, so that adding one changes no length.
+pub static SIMS: &[Sim] = &[
     Sim {
         name: "node",
         about: "whole nodes' engine cores, with a network, faults and payments drawn per seed, \
-                through chaos, then healed",
+                through chaos, then healed, on the stub with unlimited trust or with \
+                commitments",
         describe: dassie_node::sim::swarm::describe,
         run: dassie_node::sim::swarm::run,
         // The most, and most of the time: it runs the node whole, and each
@@ -45,7 +46,8 @@ pub static SIMS: [Sim; 17] = [
     },
     Sim {
         name: "node-stub",
-        about: "whole nodes' engine cores paying, crashing and settling over the stub, as scripted",
+        about: "whole nodes' engine cores paying and crashing over the stub with unlimited \
+                trust, as scripted",
         describe: dassie_node::sim::scripted::describe,
         run: dassie_node::sim::scripted::run,
         // A script: its seeds vary the detail, not the situation.
@@ -68,6 +70,37 @@ pub static SIMS: [Sim; 17] = [
         run: dassie_node::sim::hubbed::run,
         // A script, its runs among the longest: a hub's validators make a
         // block every tenth of a second.
+        weight: 5,
+    },
+    Sim {
+        name: "node-hub-lies",
+        about: "the same with every validator honest, its members' XRP Ledger servers telling \
+                each kind of lie in turn, while the ledger's validators rotate a key, withhold \
+                a quorum and let a list lapse",
+        describe: dassie_node::sim::hub_runs::describe_lies,
+        run: dassie_node::sim::hub_runs::run_lies,
+        // A script over a hub, as long as `node-hub`'s runs: the only runs
+        // of lying servers once the direct schemes go.
+        weight: 5,
+    },
+    Sim {
+        name: "node-hub-currencies",
+        about: "across dollars over the stub with commitments and XRP in a hub, through nodes \
+                on both that convert, one of them charging",
+        describe: dassie_node::sim::hub_runs::describe_across,
+        run: dassie_node::sim::hub_runs::run_across,
+        // A script over a hub, as long as `node-hub`'s runs: the only runs
+        // across currencies over hubs.
+        weight: 5,
+    },
+    Sim {
+        name: "node-hub-dsusd",
+        about: "whole nodes' engine cores peered over a settlement hub of DSUSD, funding it from \
+                their DSUSD owner books, the escrow's XRP sent to it as gas and topped up before \
+                a withdrawal, until the hub stalls and its escrow pays out in DSUSD",
+        describe: dassie_node::sim::hub_token::describe,
+        run: dassie_node::sim::hub_token::run,
+        // A script as long as node-hub's.
         weight: 5,
     },
     Sim {

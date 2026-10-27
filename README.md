@@ -135,7 +135,7 @@ node --run test:e2e           # WASM vectors, STREAM interop, browser, end to en
 
 `node --run ci` runs all the Node steps in order, building what they need first. If you change `proto/`, run `node --run gen` in `packages/rpc`; a test fails until the generated code matches.
 
-The XRPL end-to-end tests run against the node's fake ledger. To run them against the real testnet, by hand, set `DASSIE_XRPL_TESTNET=1`.
+The XRPL end-to-end tests run against the node's fake ledger only; those on the hub scenario found a settlement hub of their own on every run, which must stay off the public testnet.
 
 The updater's tests need the test key built in: `cargo test -p dassie-cli --features test-key` (the Nix check does this). The install tests run the installer and the updater on four distributions in Docker. They need privileged containers and mkcert:
 

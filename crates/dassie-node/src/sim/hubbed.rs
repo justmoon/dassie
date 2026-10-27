@@ -27,15 +27,16 @@ use super::checks::{check_events, check_held, check_incoming, first_failure};
 use super::hub::{MemberLie, owed, terms};
 use super::scripted::{READY_WITHIN_MS, ended};
 use super::{HUB, START, Settling, Sim, XRP, key, received, xrpl_account};
+use crate::store::OutgoingState;
 
 /// How long the members may take to join the hub: as long as a move into
 /// it may take before it is late (`CREDIT_WAIT_MS`,
 /// `engine/core/hub_funding.rs`).
-const JOINED_WITHIN_MS: u64 = 600_000;
+pub(super) const JOINED_WITHIN_MS: u64 = 600_000;
 
 /// How long the payments may take, after the validator's restart, at
 /// production timings.
-const PAID_WITHIN_MS: u64 = 10 * 60_000;
+pub(super) const PAID_WITHIN_MS: u64 = 10 * 60_000;
 
 /// How long the network is left calm before the books are checked: no
 /// payment, no move, nothing on its way.
@@ -196,7 +197,7 @@ fn hub_standing(sim: &Sim) -> String {
 /// Whether every member has its account in the hub, in step with it.
 #[must_use]
 pub fn joined(sim: &Sim) -> bool {
-    (0..sim.nodes.len()).all(|index| {
+    members(sim).all(|index| {
         sim.nodes[index]
             .core
             .as_ref()
@@ -209,7 +210,7 @@ pub fn joined(sim: &Sim) -> bool {
 
 /// Whether the network is ready for payments: every node has a peer and a
 /// route to every other node.
-fn routed(sim: &Sim) -> bool {
+pub(super) fn routed(sim: &Sim) -> bool {
     let count = sim.nodes.len();
     (0..count).all(|index| {
         let network = sim.core(index).network();
@@ -224,9 +225,17 @@ fn routed(sim: &Sim) -> bool {
     })
 }
 
-/// Whether every payment has finished.
-fn paid(sim: &Sim) -> bool {
+/// Whether every payment has finished, and every outgoing payment ended
+/// one way or the other.
+pub(super) fn paid(sim: &Sim) -> bool {
     sim.payments.iter().all(|payment| payment.done)
+        && sim.outgoing.iter().all(|&(from, _, _, outgoing)| {
+            sim.nodes[from]
+                .store
+                .outgoing_payment(outgoing)
+                .unwrap()
+                .is_some_and(|row| row.state != OutgoingState::Sending)
+        })
 }
 
 fn script(sim: &mut Sim, rng: &mut SeededRng, setup: &Setup) -> Result<(), Outcome> {
@@ -235,26 +244,7 @@ fn script(sim: &mut Sim, rng: &mut SeededRng, setup: &Setup) -> Result<(), Outco
     }
     sim.trace
         .push(format!("{} the validators are {:?}", sim.now, setup.roles));
-    if !sim.run_until_or(START + JOINED_WITHIN_MS, joined) {
-        return Err(Outcome::liveness(
-            "joined",
-            format!(
-                "the members did not all join the hub in time: {}",
-                hub_standing(sim)
-            ),
-        ));
-    }
-    // Nodes 0 and 2 never peer, so what one pays the other crosses a hop.
-    sim.step(0, |core| core.ban_node(key(2).node_id()).unwrap());
-    sim.step(2, |core| core.ban_node(key(0).node_id()).unwrap());
-    sim.join_network(1);
-    if !sim.run_until_or(sim.now + READY_WITHIN_MS, routed) {
-        return Err(Outcome::liveness(
-            "ready",
-            "the network was not ready in time",
-        ));
-    }
-    over_hub(sim)?;
+    form(sim)?;
     if let Some(lie) = setup.liar {
         sim.set_liar(1, lie);
     }
@@ -266,26 +256,7 @@ fn script(sim: &mut Sim, rng: &mut SeededRng, setup: &Setup) -> Result<(), Outco
         sim.start_validator(validator);
     }
     sim.run_until_or(sim.now + PAID_WITHIN_MS, paid);
-    sim.run_until(sim.now + CALM_MS);
-    // Each account reads what touched it a few blocks after the hub
-    // finalized it, a node moves funds into or out of the hub as its
-    // floor and ceiling call for, and a peer short of room settles once
-    // asked: the books are checked once all of that is done.
-    let liar = setup.liar.map(|_| 1);
-    let settled = |sim: &Sim| {
-        (0..sim.nodes.len())
-            .filter(|index| Some(*index) != liar)
-            .all(|index| !moving(sim, index))
-            && (0..sim.nodes.len())
-                .filter(|index| Some(*index) != liar)
-                .all(|index| in_step(sim, index))
-            && check_settled_with_honest(sim, liar).is_ok()
-    };
-    sim.run_until_or(sim.now + SETTLED_WITHIN_MS, settled);
-    // The last settlement may have executed a block before the accounts
-    // read it: a while of quiet, then the accounts read the hub again.
-    sim.run_until(sim.now + CALM_MS);
-    sim.run_until_or(sim.now + CALM_MS, settled);
+    settle_down(sim, setup.liar.map(|_| 1));
     check_calm(sim, setup.liar.map(|lie| (1, lie)))?;
     match setup.ending {
         Ending::Stall => stall(sim, rng),
@@ -293,30 +264,93 @@ fn script(sim: &mut Sim, rng: &mut SeededRng, setup: &Setup) -> Result<(), Outco
     }
 }
 
-/// Every peering is over the hub: both peers are members, and take peers
-/// there (spec/designs/settlement-hubs.md#11-choosing-a-hub).
-fn over_hub(sim: &Sim) -> Result<(), Outcome> {
+/// The members join the hub, then the network, from node 0, so that they
+/// peer over the hub. Nodes 0 and 2 never peer, so what one pays the other
+/// crosses a hop.
+pub(super) fn form(sim: &mut Sim) -> Result<(), Outcome> {
+    join_hub(sim)?;
+    sim.step(0, |core| core.ban_node(key(2).node_id()).unwrap());
+    sim.step(2, |core| core.ban_node(key(0).node_id()).unwrap());
+    sim.join_network(1);
+    if !sim.run_until_or(sim.now + READY_WITHIN_MS, routed) {
+        return Err(Outcome::liveness(
+            "ready",
+            "the network was not ready in time",
+        ));
+    }
+    over_hub(sim)
+}
+
+/// The members join the hub by deposit, each within the wait of a move.
+pub(super) fn join_hub(sim: &mut Sim) -> Result<(), Outcome> {
+    if sim.run_until_or(START + JOINED_WITHIN_MS, joined) {
+        return Ok(());
+    }
+    Err(Outcome::liveness(
+        "joined",
+        format!(
+            "the members did not all join the hub in time: {}",
+            hub_standing(sim)
+        ),
+    ))
+}
+
+/// Every peering is over the hub, or in a run across currencies over the
+/// stub with commitments, a ledger both peers have: never over the XRP
+/// Ledger account the members fund their hub accounts from, which is the
+/// owner's alone (spec/designs/settlement-hubs.md#11-choosing-a-hub).
+pub(super) fn over_hub(sim: &Sim) -> Result<(), Outcome> {
     for index in 0..sim.nodes.len() {
         for peer in sim.core(index).network().peers {
-            if peer.peering.first().scheme.as_str() != dassie_hub::member::SCHEME_ID {
-                return Err(Outcome::liveness(
-                    "over-hub",
-                    format!(
-                        "node {index} peers with {} over {:?}, not the hub",
-                        peer.id,
-                        peer.peering.first().scheme
-                    ),
-                ));
+            for method in &peer.peering.methods {
+                let scheme = method.scheme;
+                let ours = (sim.settling.ledgers(index).iter())
+                    .any(|ledger| Settling::scheme(*ledger).0 == scheme.as_str());
+                if !ours {
+                    return Err(Outcome::liveness(
+                        "over-hub",
+                        format!(
+                            "node {index} peers with {} over {scheme:?}, not the hub",
+                            peer.id,
+                        ),
+                    ));
+                }
             }
         }
     }
     Ok(())
 }
 
+/// The network settles down: each member's account reads what touched it
+/// a few blocks after the hub finalized it, a member moves funds into or
+/// out of the hub as its floor and ceiling call for, and a peer short of
+/// room settles once asked; the books are checked once all of that is
+/// done. A liar's moves and reading are its own.
+pub(super) fn settle_down(sim: &mut Sim, liar: Option<usize>) {
+    sim.run_until(sim.now + CALM_MS);
+    let settled = |sim: &Sim| {
+        members(sim)
+            .filter(|index| Some(*index) != liar)
+            .all(|index| !moving(sim, index) && in_step(sim, index))
+            && check_settled_with_honest(sim, liar).is_ok()
+    };
+    sim.run_until_or(sim.now + SETTLED_WITHIN_MS, settled);
+    // The last settlement may have executed a block before the accounts
+    // read it: a while of quiet, then the accounts read the hub again.
+    sim.run_until(sim.now + CALM_MS);
+    sim.run_until_or(sim.now + CALM_MS, settled);
+}
+
+/// The nodes in the hub: in a run across currencies, those with its
+/// ledger.
+pub(super) fn members(sim: &Sim) -> impl Iterator<Item = usize> + '_ {
+    (0..sim.nodes.len()).filter(|index| sim.settling.ledgers(*index).contains(&HUB))
+}
+
 /// Payments across the hop between nodes 0 and 2, both ways, and one
 /// between two nodes drawn: each of up to some times what a hold holds,
 /// so that the holds are funded again and again.
-fn pay(sim: &mut Sim, rng: &mut SeededRng) {
+pub(super) fn pay(sim: &mut Sim, rng: &mut SeededRng) {
     let count = sim.nodes.len();
     let amount = |rng: &mut SeededRng| 100_000_000 + rng.below(3_300_000_000);
     let there = amount(rng);
@@ -336,7 +370,7 @@ fn pay(sim: &mut Sim, rng: &mut SeededRng) {
 /// cover may stop the payments that cross it: of those, only what must
 /// never happen is checked. A payer that sends no claims stops nothing,
 /// since its payees claim on the hub (spec/designs/settlement-hubs.md#4-peering-over-a-hub).
-fn check_calm(sim: &Sim, liar: Option<(usize, MemberLie)>) -> Result<(), Outcome> {
+pub(super) fn check_calm(sim: &Sim, liar: Option<(usize, MemberLie)>) -> Result<(), Outcome> {
     let stops = liar.is_some_and(|(_, lie)| lie != MemberLie::NoClaims);
     let incoming = sim
         .payments
@@ -380,7 +414,7 @@ fn check_calm(sim: &Sim, liar: Option<(usize, MemberLie)>) -> Result<(), Outcome
 }
 
 /// Once the network is calm, no honest node's books show an honest peer
-/// still at its ask point: asked, the peer settled
+/// still at its ask point on any method: asked, the peer settled
 /// (spec/areas/settlement.md#asking-a-peer-to-settle). A liar's settling is
 /// its own.
 fn check_settled_with_honest(sim: &Sim, liar: Option<usize>) -> Result<(), String> {
@@ -389,16 +423,22 @@ fn check_settled_with_honest(sim: &Sim, liar: Option<usize>) -> Result<(), Strin
             if liar.is_some_and(|liar| key(liar).node_id() == peer.id) {
                 continue;
             }
-            let Some(owed) = peer.owed.filter(|_| peer.termination.is_none()) else {
+            if peer.termination.is_some() {
                 continue;
-            };
-            let credit = peer.peering.first().credit_out;
-            let position = u128::try_from(owed + i128::from(credit)).unwrap_or(0);
-            if dassie_settlement::policy::ask(position, super::TRIGGER) {
-                return Err(format!(
-                    "node {index}'s room for {} is {position} of {credit}: it never settled",
-                    peer.id
-                ));
+            }
+            for (method, owed) in peer.peering.methods.iter().zip(&peer.owed_by_method) {
+                let Some(owed) = *owed else {
+                    continue;
+                };
+                let credit = method.credit_out;
+                let position = u128::try_from(owed + i128::from(credit)).unwrap_or(0);
+                if dassie_settlement::policy::ask(position, super::TRIGGER) {
+                    return Err(format!(
+                        "node {index}'s room for {} on {} is {position} of {credit}: it never \
+                         settled",
+                        peer.id, method.scheme,
+                    ));
+                }
             }
         }
     }
@@ -408,7 +448,7 @@ fn check_settled_with_honest(sim: &Sim, liar: Option<usize>) -> Result<(), Strin
 /// The validators broke nothing: their invariants held after every step,
 /// no two honest ones finalized different states at one height, and no
 /// evidence named an honest one.
-fn check_hub_validators(sim: &Sim) -> Result<(), String> {
+pub(super) fn check_hub_validators(sim: &Sim) -> Result<(), String> {
     match sim.hub.as_deref().unwrap().breaches.as_slice() {
         [] => Ok(()),
         breaches => Err(breaches.join("; ")),
@@ -422,17 +462,16 @@ fn check_hub_validators(sim: &Sim) -> Result<(), String> {
 /// claim (spec/designs/settlement-hubs.md#13-how-it-fits-the-node). By its
 /// own books: its losses as it booked them, its holds as its scheme read
 /// them.
-fn check_losses(sim: &Sim) -> Result<(), String> {
-    for ((index, peer), lost) in &sim.hub_losses {
-        let (toward, from) = sim
-            .hub_most_held
-            .get(&(*index, peer.clone()))
-            .copied()
-            .unwrap_or((0, 0));
+pub(super) fn check_losses(sim: &Sim) -> Result<(), String> {
+    // Per method: each hub the two share holds its own holds, in its own
+    // asset.
+    for (method, lost) in &sim.hub_losses {
+        let (toward, from) = sim.hub_most_held.get(method).copied().unwrap_or((0, 0));
         if *lost > toward.saturating_add(from) {
+            let (index, peer, scheme) = method;
             return Err(format!(
-                "node {index} lost {lost} on {peer}, more than its hold toward it ({toward}) \
-                 and its hold toward it ({from}) held"
+                "node {index} lost {lost} on {peer} over {scheme}, more than its hold toward \
+                 it ({toward}) and its hold toward it ({from}) held"
             ));
         }
     }
@@ -449,10 +488,10 @@ fn check_losses(sim: &Sim) -> Result<(), String> {
 /// block, it has read every operation of its own the hub applied; only a
 /// liar's claims, held back to just before their commitments expire, may
 /// land after, and its books are checked once it read them.
-fn check_hub_books(sim: &Sim, liar: Option<usize>) -> Result<(), String> {
+pub(super) fn check_hub_books(sim: &Sim, liar: Option<usize>) -> Result<(), String> {
     let hub = sim.hub.as_deref().unwrap();
     let ledger = hub.ledger().ok_or("no honest validator runs")?;
-    for index in 0..sim.nodes.len() {
+    for index in members(sim) {
         check_held(sim, index, XRP)?;
         let booked = check_held(sim, index, HUB)?;
         // One still reading the hub is behind it: [`check_in_step`] says.
@@ -502,7 +541,7 @@ fn check_hub_books(sim: &Sim, liar: Option<usize>) -> Result<(), String> {
 
 /// Whether node `index` has a move of its funds into or out of the hub on
 /// its way.
-fn moving(sim: &Sim, index: usize) -> bool {
+pub(super) fn moving(sim: &Sim, index: usize) -> bool {
     sim.core(index)
         .hub_status()
         .is_some_and(|status| status.moving.is_some())
@@ -518,8 +557,8 @@ fn in_step(sim: &Sim, index: usize) -> bool {
 /// Once the network is calm, every honest member's hub account is in step
 /// with the hub: it read what touched it up to a recent final block. A
 /// liar's is its own affair.
-fn check_in_step(sim: &Sim, liar: Option<usize>) -> Result<(), String> {
-    let behind = (0..sim.nodes.len())
+pub(super) fn check_in_step(sim: &Sim, liar: Option<usize>) -> Result<(), String> {
+    let behind = members(sim)
         .filter(|index| Some(*index) != liar)
         .find(|index| !in_step(sim, *index));
     match behind {
@@ -536,8 +575,8 @@ fn check_in_step(sim: &Sim, liar: Option<usize>) -> Result<(), String> {
 /// (`CREDIT_WAIT_MS`). A liar's moves are its own affair: one that makes
 /// operations of its own account behind its node's back holds up its
 /// node's.
-fn check_moved(sim: &Sim, liar: Option<usize>) -> Result<(), String> {
-    let moves = (0..sim.nodes.len())
+pub(super) fn check_moved(sim: &Sim, liar: Option<usize>) -> Result<(), String> {
+    let moves = members(sim)
         .filter(|index| Some(*index) != liar)
         .find(|index| moving(sim, *index));
     match moves {

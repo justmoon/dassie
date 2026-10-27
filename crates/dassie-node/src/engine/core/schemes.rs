@@ -56,7 +56,30 @@ pub const SCHEMES: &[SchemeInfo] = &[
         name: "XRP in a settlement hub on the XRP Ledger Testnet",
         ledger: LedgerId::HubXrplTestnetXrp,
     },
+    SchemeInfo {
+        id: dassie_hub::member::DSUSD_SCHEME_ID,
+        name: "DSUSD in a settlement hub on the XRP Ledger Testnet",
+        ledger: LedgerId::HubXrplTestnetDsusdUsd,
+    },
 ];
+
+/// The schemes over a settlement hub, one per asset
+/// (spec/decisions/hub-scheme-names.md).
+const HUB_SCHEMES: [&str; 2] = [
+    dassie_hub::member::SCHEME_ID,
+    dassie_hub::member::DSUSD_SCHEME_ID,
+];
+
+/// The default hub of scheme `id`, if it is a hub's: the hex of the rules
+/// built in, or `None` while none is
+/// (spec/designs/settlement-hubs.md#11-choosing-a-hub).
+fn default_hub(id: &str) -> Option<Option<&'static str>> {
+    match id {
+        dassie_hub::member::SCHEME_ID => Some(dassie_hub::member::DEFAULT_TESTNET_HUB),
+        dassie_hub::member::DSUSD_SCHEME_ID => Some(dassie_hub::member::DEFAULT_TESTNET_DSUSD_HUB),
+        _ => None,
+    }
+}
 
 /// The schemes the node no longer runs: test RLUSD, for which DSUSD stands
 /// in on the testnet (spec/decisions/issued-assets.md). None is in
@@ -99,15 +122,14 @@ fn not_run_in(id: &str, stub_runs: bool) -> Option<&'static str> {
 /// Whether the scheme `info` is offered to the owner of a node of `realm`
 /// to add: only one this build runs ([`not_run`]), of the node's realm, which is the only realm it runs
 /// (spec/decisions/mainnet-schemes.md), and a settlement hub's only once
-/// the node knows a hub to join without being told one, so the wallet never
-/// offers what it cannot add with nothing to fill in. One added with a
-/// config of its own is listed as any active scheme.
+/// the node knows a hub of its asset to join without being told one, so the
+/// wallet never offers what it cannot add with nothing to fill in. One
+/// added with a config of its own is listed as any active scheme.
 #[must_use]
 pub fn offered(info: &SchemeInfo, realm: Realm) -> bool {
     not_run(info.id).is_none()
         && info.ledger.realm() == realm
-        && (info.id != dassie_hub::member::SCHEME_ID
-            || dassie_hub::member::DEFAULT_TESTNET_HUB.is_some())
+        && default_hub(info.id).is_none_or(|hub| hub.is_some())
 }
 
 /// The external asset scheme `id` settles through, if any, and the config
@@ -116,14 +138,15 @@ pub fn offered(info: &SchemeInfo, realm: Realm) -> bool {
 /// through the node's first XRPL account on it, so one address holds the
 /// XRP of one and the gas of the others (spec/areas/xrpl.md#the-account):
 /// the testnet's, or mainnet's for `xrpl-xrp` and `xrpl-rlusd`. Disabled test
-/// RLUSD's is the testnet's.
+/// RLUSD's is the testnet's. A hub's scheme settles through the node's
+/// account in that hub, one per asset (`dassie_hub::member::account_id`).
 fn asset_of(id: &str) -> Option<AssetId> {
     #[cfg(test)]
     if id == super::tests::WITNESS {
         return Some(dassie_xrpl::account::FIRST);
     }
-    if id == dassie_hub::member::SCHEME_ID {
-        return Some(dassie_hub::member::FIRST);
+    if let Some(account) = dassie_hub::member::account_id(id) {
+        return Some(account);
     }
     if [
         dassie_xrpl::scheme::MAINNET_SCHEME_ID,
@@ -142,12 +165,14 @@ fn asset_of(id: &str) -> Option<AssetId> {
     .then_some(dassie_xrpl::account::FIRST)
 }
 
-/// The rules of the hub a hub scheme's config names: the hex of their
-/// encoding as `{"rules": "…"}`, or nothing for the default hub of the
-/// testnet (spec/designs/settlement-hubs.md#11-choosing-a-hub).
-fn hub_rules(config: &str) -> Result<dassie_hub::Rules, SchemeError> {
+/// The rules of the hub the config of hub scheme `id` names: the hex of
+/// their encoding as `{"rules": "…"}`, or nothing for the scheme's default
+/// hub of the testnet (spec/designs/settlement-hubs.md#11-choosing-a-hub).
+fn hub_rules(id: &str, config: &str) -> Result<dassie_hub::Rules, SchemeError> {
     let hex = if config.trim().is_empty() {
-        dassie_hub::member::DEFAULT_TESTNET_HUB.ok_or(SchemeError::InvalidConfig)?
+        default_hub(id)
+            .flatten()
+            .ok_or(SchemeError::InvalidConfig)?
     } else {
         let value: serde_json::Value =
             serde_json::from_str(config).map_err(|_| SchemeError::InvalidConfig)?;
@@ -168,22 +193,28 @@ fn decode_rules(hex: &str) -> Result<dassie_hub::Rules, SchemeError> {
     Ok(rules)
 }
 
-/// The node's hub account in the hub of `config`: its key derived at
+/// The node's hub account `id` in the hub of `config`: its key derived at
 /// `node/hub/member/<hub ID>/account`, paying out at the hub's end to the node's
-/// own XRPL testnet account. A hub whose legs between members do not fit
-/// in the connector's message window is not joined: it is too far apart
-/// for a peering over it (spec/designs/settlement-hubs.md#4-peering-over-a-hub).
-/// Nor is a token hub: this scheme funds its account in XRP, which a token
-/// hub's escrow takes as gas, never as a deposit
-/// (spec/areas/hubs.md#the-escrow).
+/// own XRPL testnet account, which holds the owner book of each hub's
+/// asset. The account is the one of a hub scheme
+/// (`dassie_hub::member::account_id`), and the hub's asset must name that
+/// scheme (spec/decisions/hub-scheme-names.md): rules of a DSUSD hub given
+/// to `hub-xrpl-testnet-xrp`, or the other way round, are an invalid
+/// config. A hub whose legs between members do not fit in the connector's
+/// message window is not joined: it is too far apart for a peering over it
+/// (spec/designs/settlement-hubs.md#4-peering-over-a-hub).
 fn create_hub_account(
     id: AssetId,
     config: &str,
     state: &[u8],
     (key, window_ms): (&NodeKey, u64),
 ) -> Result<Box<dyn ExternalAsset>, SchemeError> {
-    let rules = hub_rules(config)?;
-    if rules.terms.asset != dassie_hub::rules::Asset::Xrp {
+    let scheme = HUB_SCHEMES
+        .into_iter()
+        .find(|scheme| dassie_hub::member::account_id(scheme) == Some(id))
+        .ok_or(SchemeError::UnknownScheme)?;
+    let rules = hub_rules(scheme, config)?;
+    if dassie_hub::member::scheme_of(&rules.terms).map(|(named, _)| named) != Some(scheme) {
         return Err(SchemeError::InvalidConfig);
     }
     let timers = &rules.terms.timers;
@@ -195,8 +226,7 @@ fn create_hub_account(
         account: own_xrpl_account(key)?.0,
         tag: None,
     };
-    let scheme =
-        Name::new(dassie_hub::member::SCHEME_ID).map_err(|_| SchemeError::InvalidConfig)?;
+    let scheme = Name::new(scheme).map_err(|_| SchemeError::InvalidConfig)?;
     Ok(Box::new(dassie_hub::member::HubAccount::new(
         id,
         rules,
@@ -207,8 +237,8 @@ fn create_hub_account(
     )?))
 }
 
-/// The node's first XRPL testnet account: where its hub account pays out,
-/// and where it withdraws to.
+/// The node's first XRPL testnet account: where its hub accounts pay out,
+/// and where it withdraws to, holding the owner book of each hub's asset.
 pub(super) fn own_xrpl_account(key: &NodeKey) -> Result<dassie_xrpl::AccountId, SchemeError> {
     let entropy = key.xrpl_account_entropy(dassie_xrpl::network::TESTNET.id, 0);
     Ok(dassie_xrpl::Wallet::from_entropy(entropy.as_bytes()).account())
@@ -287,7 +317,7 @@ fn create_asset(
                 state,
             )?))
         }
-        (AssetKind::HubTestnetAccount, 0) => {
+        (AssetKind::HubTestnetAccount, _) => {
             create_hub_account(id, config, state, (key, window_ms))
         }
         _ => Err(SchemeError::UnknownScheme),
@@ -302,6 +332,32 @@ pub(super) fn check_validations_with(asset: &mut dyn ExternalAsset, secret: [u8;
     if let Some(account) = any.downcast_mut::<XrplAccount>() {
         account.check_validations_with(dassie_xrpl::fake::KeyedSignatures::new(secret));
     }
+}
+
+/// Makes the hub scheme `id` on its account in the hub, `asset`.
+///
+/// # Errors
+///
+/// If `asset` is no hub account, or one made for another scheme, or the
+/// scheme refuses its state.
+fn create_hub_scheme(
+    id: &str,
+    asset: Option<&dyn ExternalAsset>,
+    max_packet: u64,
+    balance: Option<u64>,
+    state: &[u8],
+) -> Result<Box<dyn SettlementScheme>, SchemeError> {
+    let any: Option<&dyn core::any::Any> = asset.map(|asset| asset as _);
+    let account = any
+        .and_then(|asset| asset.downcast_ref::<dassie_hub::member::HubAccount>())
+        .ok_or(SchemeError::InvalidConfig)?;
+    let scheme = dassie_hub::member::HubScheme::new(account, max_packet, balance, state)?;
+    // The account was made for this scheme, from rules whose asset names
+    // it.
+    if scheme.id().as_str() != id {
+        return Err(SchemeError::InvalidConfig);
+    }
+    Ok(Box::new(scheme))
 }
 
 /// Makes the scheme `id` with its config, what the books last kept for it,
@@ -374,14 +430,8 @@ fn create(
             }
             Ok(Box::new(scheme))
         }
-        dassie_hub::member::SCHEME_ID => {
-            let any: Option<&dyn core::any::Any> = asset.map(|asset| asset as _);
-            let account = any
-                .and_then(|asset| asset.downcast_ref::<dassie_hub::member::HubAccount>())
-                .ok_or(SchemeError::InvalidConfig)?;
-            Ok(Box::new(dassie_hub::member::HubScheme::new(
-                account, max_packet, balance, state,
-            )?))
+        dassie_hub::member::SCHEME_ID | dassie_hub::member::DSUSD_SCHEME_ID => {
+            create_hub_scheme(id, asset, max_packet, balance, state)
         }
         #[cfg(test)]
         super::tests::WITNESS => Ok(Box::new(super::tests::Witness)),
@@ -389,6 +439,8 @@ fn create(
         super::tests::DSUSD_HUB => Ok(Box::new(super::tests::HubStandIn::DSUSD)),
         #[cfg(test)]
         super::tests::XRP_HUB => Ok(Box::new(super::tests::HubStandIn::XRP)),
+        #[cfg(test)]
+        super::tests::STUB_TWO => super::tests::StubTwo::boxed(config, balance, state),
         _ => Err(SchemeError::UnknownScheme),
     }
 }
@@ -1265,37 +1317,118 @@ mod tests {
         assert_eq!(event.severity(), super::super::Severity::Warn);
     }
 
-    // spec/areas/hubs.md#the-escrow: the hub scheme funds its account in
-    // XRP, so it joins an XRP hub and never a token hub, whose escrow takes
-    // XRP as gas.
-    #[test]
-    fn the_hub_scheme_joins_no_token_hub() {
+    /// The config of a DSUSD hub: the rules of the tests' XRP hub, holding
+    /// DSUSD, as its validators accept them again.
+    fn dsusd_hub_config() -> String {
+        use dassie_hub::escrow::ValidatorKeys;
+        use dassie_hub::ledger::TESTNET_NETWORK;
         use dassie_hub::rules::{Asset, LEAST_TOKEN_GAS_DROPS};
         use dassie_oer::Encode;
 
-        let key = NodeKey::from_bytes(&[7; 32]);
-        let id = dassie_hub::member::FIRST;
-        let window = u64::MAX;
         let xrp = super::super::tests::hub_config(600, 300);
-        assert!(create_hub_account(id, &xrp, &[], (&key, window)).is_ok());
-        let mut rules = hub_rules(&xrp).unwrap();
+        let mut rules = hub_rules(dassie_hub::member::SCHEME_ID, &xrp).unwrap();
         rules.terms.asset = Asset::Token {
             currency: dassie_xrpl::dsusd::CURRENCY,
             issuer: dassie_xrpl::dsusd::ISSUER,
         };
         rules.terms.fees.gas = LEAST_TOKEN_GAS_DROPS;
         rules.terms.fees.ledger = 0;
+        let terms = rules.terms.clone();
+        for (index, acceptance) in rules.validators.iter_mut().enumerate() {
+            let node = NodeKey::from_bytes(&[u8::try_from(index + 1).unwrap(); 32]);
+            let endpoint = acceptance.endpoint.clone();
+            *acceptance = ValidatorKeys::derive(&node, TESTNET_NETWORK, &terms.nonce)
+                .unwrap()
+                .accept(&node, &terms, endpoint)
+                .unwrap();
+        }
+        rules.check().unwrap();
         let hex: String = rules
             .to_vec()
             .iter()
             .map(|byte| format!("{byte:02x}"))
             .collect();
-        let config = serde_json::json!({ "rules": hex }).to_string();
-        assert_eq!(hub_rules(&config).unwrap(), rules, "the rules decode");
+        serde_json::json!({ "rules": hex }).to_string()
+    }
+
+    // spec/decisions/hub-scheme-names.md: each hub scheme settles through
+    // an account of its own, and joins only a hub whose asset names it:
+    // rules of a DSUSD hub given to the XRP hub's scheme, or the other way
+    // round, are an invalid config. The DSUSD hub's scheme books on its own
+    // ledger.
+    #[test]
+    fn each_hub_scheme_joins_only_a_hub_of_its_asset() {
+        use dassie_hub::member::{DSUSD_SCHEME_ID, SCHEME_ID};
+
+        let key = NodeKey::from_bytes(&[7; 32]);
+        let window = u64::MAX;
+        let xrp = super::super::tests::hub_config(600, 300);
+        let dsusd = dsusd_hub_config();
+        let xrp_account = asset_of(SCHEME_ID).unwrap();
+        let dsusd_account = asset_of(DSUSD_SCHEME_ID).unwrap();
+        assert_eq!(xrp_account, dassie_hub::member::FIRST);
+        assert_ne!(xrp_account, dsusd_account, "an account per hub");
+        assert_eq!(
+            schemes_on(dsusd_account),
+            [Name::new(DSUSD_SCHEME_ID).unwrap()]
+        );
+        assert!(create_hub_account(xrp_account, &xrp, &[], (&key, window)).is_ok());
+        let made = create_hub_account(dsusd_account, &dsusd, &[], (&key, window)).unwrap();
+        for (account, config) in [(xrp_account, &dsusd), (dsusd_account, &xrp)] {
+            assert!(matches!(
+                create_hub_account(account, config, &[], (&key, window)),
+                Err(SchemeError::InvalidConfig)
+            ));
+        }
+        if dassie_hub::member::DEFAULT_TESTNET_DSUSD_HUB.is_none() {
+            assert!(matches!(
+                create_hub_account(dsusd_account, "", &[], (&key, window)),
+                Err(SchemeError::InvalidConfig)
+            ));
+        }
+        let further = AssetId {
+            kind: AssetKind::HubTestnetAccount,
+            index: 2,
+        };
         assert!(matches!(
-            create_hub_account(id, &config, &[], (&key, window)),
+            create_hub_account(further, &xrp, &[], (&key, window)),
+            Err(SchemeError::UnknownScheme)
+        ));
+        let scheme = create(
+            DSUSD_SCHEME_ID,
+            &dsusd,
+            None,
+            &key,
+            Some(made.as_ref()),
+            1_000_000,
+            dassie_xrpl::peg::Timings::DEFAULT,
+        )
+        .unwrap();
+        assert_eq!(scheme.ledger(), LedgerId::HubXrplTestnetDsusdUsd);
+        assert_eq!(scheme.asset(), Some(dsusd_account));
+        assert!(matches!(
+            create(
+                SCHEME_ID,
+                &dsusd,
+                None,
+                &key,
+                Some(made.as_ref()),
+                1_000_000,
+                dassie_xrpl::peg::Timings::DEFAULT,
+            ),
             Err(SchemeError::InvalidConfig)
         ));
+        // Offered only with a default hub of its asset built in.
+        let info = SCHEMES
+            .iter()
+            .find(|info| info.id == DSUSD_SCHEME_ID)
+            .unwrap();
+        assert_eq!(info.ledger, LedgerId::HubXrplTestnetDsusdUsd);
+        assert_eq!(
+            offered(info, Realm::Test),
+            dassie_hub::member::DEFAULT_TESTNET_DSUSD_HUB.is_some()
+        );
+        assert!(!offered(info, Realm::Live));
     }
 
     // A node offers only its realm's schemes.

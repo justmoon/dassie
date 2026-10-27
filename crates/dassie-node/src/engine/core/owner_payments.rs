@@ -101,6 +101,15 @@ impl Core {
             .map(|transfer| transfer.id)
     }
 
+    /// Whether `scheme` has a payment of the owner's held, on its way: the
+    /// hold outlives a restart, and is resolved only once the scheme says
+    /// what became of the payment.
+    pub(super) fn owner_payment_held(&self, scheme: Name) -> bool {
+        self.ledger.pending_transfers().any(|transfer| {
+            matches!(transfer.reference, Reference::OwnerPayment { scheme: held, .. } if held == scheme)
+        })
+    }
+
     /// `scheme`'s payment `id` is no longer on its way: its hold is posted
     /// if it applied, and voided otherwise; its fee hold is voided, as the
     /// scheme books the fee. A hold the books do not have pending was

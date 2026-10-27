@@ -33,7 +33,9 @@ use crate::escrow::{
     PayoutBundle, PayoutSet, ValidatorKeys, payout_set, sign_payout_set, withdrawal_payment,
 };
 use crate::ledger::{Ledger, Phase};
-use crate::operation::{AccountNumber, Operation, SignedValidatorOperation, ValidatorOperation};
+use crate::operation::{
+    AccountNumber, Deposit, Operation, SignedValidatorOperation, ValidatorOperation,
+};
 use crate::rules::{HubId, Millis, Rules, RulesError};
 use crate::validators::ValidatorIndex;
 use payload::Payload;
@@ -64,11 +66,32 @@ pub const EXECUTED_OVERHEAD: usize = 1 + 8 + 8 + 4 + (1 + 8 + 1 + 8);
 pub const MAX_BLOCK_STATEMENT_BYTES: usize =
     crate::consensus::MAX_PAYLOAD_BYTES + payload::MAX_OPERATIONS * EXECUTED_OVERHEAD;
 
+/// The encoded size of [`Statement::Final`]: its tag, height and
+/// timestamp.
+pub const FINAL_STATEMENT_BYTES: usize = 1 + 8 + 8;
+
+/// The encoded size of [`Statement::Issuer`] at its longest: its tag,
+/// height, timestamp, the freeze's stamp if any, and whether the issuer
+/// holds the escrow.
+pub const ISSUER_STATEMENT_BYTES: usize = 1 + 8 + 8 + (1 + 8) + 1;
+
+/// How many statements end every answer to `Since` that is not
+/// `Trimmed`: a token hub's issuer's hold and the final block it covers.
+pub const SINCE_TAIL: usize = 2;
+
+/// Room for what ends an answer to `Since`: the issuer's hold and the
+/// final block.
+const SINCE_TAIL_BYTES: usize = 64;
+
+const _: () = assert!(SINCE_TAIL_BYTES >= FINAL_STATEMENT_BYTES + ISSUER_STATEMENT_BYTES);
+
 /// The most bytes of statements an honest answer to `Since` carries, over
 /// however many messages it spans: up to [`MAX_ANSWER_BYTES`] of them, or
-/// its first block whole if that is more, and the final block it covers.
-/// What a member's tally must hold of one validator's answer.
-pub const MAX_SINCE_ANSWER_BYTES: usize = MAX_ANSWER_BYTES + MAX_BLOCK_STATEMENT_BYTES + 64;
+/// its first block whole if that is more, the issuer's hold of a token
+/// hub, and the final block it covers. What a member's tally must hold of
+/// one validator's answer.
+pub const MAX_SINCE_ANSWER_BYTES: usize =
+    MAX_ANSWER_BYTES + MAX_BLOCK_STATEMENT_BYTES + SINCE_TAIL_BYTES;
 
 const _: () = assert!(MAX_SINCE_ANSWER_BYTES >= MAX_ANSWER_BYTES + MAX_BLOCK_STATEMENT_BYTES);
 
@@ -79,6 +102,15 @@ pub const MAX_OWN: usize = VALIDATOR_WINDOW;
 /// How many times one of our operations that a later one of ours passed
 /// before any block took it is attested again.
 pub const MAX_AGAIN: u8 = 4;
+
+/// The most of our attestations of deposits that failed for want of room
+/// we keep to attest again once there is room and the issuer no longer
+/// holds the escrow: a freeze credits no deposit, so our share of the
+/// pending table fills and every later deposit fails `Full` until the
+/// thaw. Past it, the newest is not kept: every honest validator drops
+/// the same ones, and since the watcher has passed them, they are
+/// credited to no one.
+pub const MAX_WAITING_DEPOSITS: usize = 1024;
 
 /// One of our own operations, until a block takes it.
 #[derive(Clone, Debug)]
@@ -169,6 +201,11 @@ pub struct Validator {
     /// signer's place in the rules.
     shares: BTreeMap<u32, BTreeMap<usize, Signer>>,
     signed: BTreeMap<u32, ()>,
+    /// The withdrawals whose quorum of signatures we submitted.
+    submitted: BTreeMap<u32, ()>,
+    /// Our attestations of deposits that failed for want of room, oldest
+    /// first, to attest again ([`MAX_WAITING_DEPOSITS`]).
+    waiting_deposits: VecDeque<Deposit>,
     /// The height of the last block whose payout set we signed: never a
     /// lower one after it.
     payout_height: Option<u64>,
@@ -234,6 +271,8 @@ impl Validator {
             complete_from: 1,
             shares: BTreeMap::new(),
             signed: BTreeMap::new(),
+            submitted: BTreeMap::new(),
+            waiting_deposits: VecDeque::new(),
             payout_height: None,
             pass_tip_at: 0,
             payout: None,
@@ -307,6 +346,8 @@ impl Validator {
             complete_from,
             shares: BTreeMap::new(),
             signed: BTreeMap::new(),
+            submitted: BTreeMap::new(),
+            waiting_deposits: VecDeque::new(),
             payout_height: None,
             pass_tip_at: 0,
             payout: None,
@@ -556,7 +597,69 @@ impl Validator {
             if let Operation::Validator(signed) = operation
                 && *outcome != crate::ledger::Outcome::Refused(crate::ledger::Refusal::Sequence)
             {
+                let ours = self.own.iter().any(|own| own.signed == *signed);
                 self.own.retain(|own| own.signed != *signed);
+                if ours {
+                    self.keep_if_full(&signed.operation, outcome);
+                }
+            }
+        }
+    }
+
+    /// Keeps our attestation of a deposit that failed for want of room to
+    /// attest again ([`Self::attest_waiting`]). Of our attestations, only
+    /// these does a freeze make fail: the hub credits no deposit while
+    /// frozen, so our share of the pending table fills. Its other
+    /// attestations, of withdrawals' outcomes among them, are recorded and
+    /// wait in the ledger for the thaw (spec/decisions/token-hubs.md).
+    fn keep_if_full(&mut self, operation: &ValidatorOperation, outcome: &crate::ledger::Outcome) {
+        let full = matches!(
+            outcome,
+            crate::ledger::Outcome::Failed {
+                reason: crate::ledger::Failure::Full,
+                ..
+            }
+        );
+        if let ValidatorOperation::AttestDeposit(deposit) = operation
+            && full
+            && self.waiting_deposits.len() < MAX_WAITING_DEPOSITS
+            && !self.waiting_deposits.contains(deposit)
+        {
+            self.waiting_deposits.push_back(*deposit);
+        }
+    }
+
+    /// Attests again, oldest first, the deposits whose attestations failed
+    /// for want of room, as many as our share of the pending table has
+    /// room for beside those of ours still on their way: none while the
+    /// issuer holds the escrow, since the hub credits no deposit until the
+    /// thaw and the room would only fill again.
+    fn attest_waiting(&mut self, now: Millis) {
+        if self.waiting_deposits.is_empty() || self.chain.ledger.issuer().holds() {
+            return;
+        }
+        let Some(index) = self.index() else {
+            self.waiting_deposits.clear();
+            return;
+        };
+        let on_the_way = self
+            .own
+            .iter()
+            .filter(|own| matches!(own.signed.operation, ValidatorOperation::AttestDeposit(_)))
+            .count();
+        let room = self
+            .chain
+            .ledger
+            .deposit_room(index)
+            .saturating_sub(on_the_way);
+        for _ in 0..room {
+            let Some(deposit) = self.waiting_deposits.pop_front() else {
+                break;
+            };
+            if !self.pass_on(now, ValidatorOperation::AttestDeposit(deposit), 0) {
+                // Our pool has no room: it goes again after the next block.
+                self.waiting_deposits.push_front(deposit);
+                break;
             }
         }
     }
@@ -626,13 +729,19 @@ impl Validator {
         self.send_statements(from, statements);
     }
 
-    /// What was executed that touches `account` from `height` on, and the
-    /// newest final block, as far as they fit in one answer.
+    /// What was executed that touches `account` from `height` on, a token
+    /// hub's issuer's hold as of the newest final block, and the newest
+    /// final block, as far as they fit in one answer. Members read a freeze
+    /// from the issuer's hold as they read everything else, from what f + 1
+    /// validators sign alike (spec/areas/hubs.md#a-frozen-hub). It is as of
+    /// the newest block even when the answer stops before it: the hold is
+    /// known only as it is now.
     fn since(&self, account: AccountNumber, from: u64) -> Vec<Statement> {
         let tip = Statement::Final {
             height: self.chain.ledger.height(),
             timestamp: self.chain.ledger.timestamp(),
         };
+        let issuer = Statement::issuer(&self.chain.ledger);
         // What we no longer keep, we cannot vouch for: the member reads its
         // state anew (spec/areas/hubs.md#the-validators-service).
         if from < self.complete_from {
@@ -654,6 +763,7 @@ impl Validator {
                 || bytes.saturating_add(block_bytes) > MAX_ANSWER_BYTES;
             bytes = bytes.saturating_add(block_bytes);
             if long && !statements.is_empty() {
+                statements.extend(issuer);
                 statements.push(Statement::Final {
                     height: block.height.saturating_sub(1),
                     timestamp: block.timestamp.saturating_sub(1),
@@ -662,6 +772,7 @@ impl Validator {
             }
             statements.extend(of_block);
         }
+        statements.extend(issuer);
         statements.push(tip);
         statements
     }
@@ -715,6 +826,7 @@ impl Validator {
         self.batches.push(self.engine.take_batch());
         self.take_finals();
         self.attest_passed(now);
+        self.attest_waiting(now);
         self.sign_withdrawals();
         // Once ended or stalled, we sign the payout set of our last final
         // block, and again whenever we learn of a later one, never of an
@@ -722,7 +834,11 @@ impl Validator {
         // one only once the hub stopped there too, its block older than the
         // stall: a hub that carries on without a validator that stalled
         // alone never has it sign a set, each a bundle written, at every
-        // block it learns of.
+        // block it learns of. None while the issuer holds a token hub's
+        // escrow as of that block (spec/decisions/token-hubs.md): its
+        // Payments would fail on the frozen line, each using its sequence
+        // and paying nothing. Only a later block can show the thaw.
+        let held = self.chain.ledger.issuer().holds();
         let phase = self.chain.ledger.phase();
         let ended = phase == Phase::Ended || self.engine.is_stalled();
         let height = self.chain.ledger.height();
@@ -731,7 +847,7 @@ impl Validator {
         let due = self
             .payout_height
             .is_none_or(|signed| signed < height && stopped);
-        if ended && due {
+        if ended && due && !held {
             self.sign_payout();
         }
         self.chain.check_invariants();
@@ -786,13 +902,19 @@ impl Validator {
     }
 
     /// Signs each withdrawal the log gave a sequence, once, and shares the
-    /// signature with the other validators.
+    /// signature with the other validators; submits each a quorum signed.
+    /// While the issuer holds a token hub's escrow, it signs and submits
+    /// nothing (spec/decisions/token-hubs.md): a withdrawal fails on a
+    /// frozen line, and fails at a cost, its sequence used. Shares of
+    /// others still count, and once the issuer lets go it signs what is
+    /// left and submits what has a quorum.
     fn sign_withdrawals(&mut self) {
+        let held = self.chain.ledger.issuer().holds();
         let unsigned: Vec<(u32, dassie_xrpl::codec::Payment)> = self
             .chain
             .ledger
             .withdrawals()
-            .filter(|(sequence, _)| !self.signed.contains_key(sequence))
+            .filter(|(sequence, _)| !held && !self.signed.contains_key(sequence))
             .map(|(sequence, w)| {
                 (
                     sequence,
@@ -811,13 +933,18 @@ impl Validator {
         let open: Vec<u32> = self.chain.ledger.withdrawals().map(|(s, _)| s).collect();
         self.signed.retain(|sequence, ()| open.contains(sequence));
         self.shares.retain(|sequence, _| open.contains(sequence));
+        self.submitted
+            .retain(|sequence, ()| open.contains(sequence));
+        if !held {
+            self.submit_signed();
+        }
     }
 
-    /// Gathers signatures of withdrawal `sequence`; with a quorum, the
-    /// transaction is submitted. Only a signature by the escrow key of a
-    /// validator of the set in force counts, one per validator: anyone can
-    /// sign the payment with keys of their own, and the XRP Ledger would
-    /// refuse a transaction with such signers.
+    /// Gathers signatures of withdrawal `sequence`, until a quorum. Only a
+    /// signature by the escrow key of a validator of the set in force
+    /// counts, one per validator: anyone can sign the payment with keys of
+    /// their own, and the XRP Ledger would refuse a transaction with such
+    /// signers.
     fn take_share(&mut self, sequence: u32, signer: Signer) {
         let ledger = &self.chain.ledger;
         let Some((_, withdrawal)) = ledger.withdrawals().find(|(s, _)| *s == sequence) else {
@@ -839,10 +966,24 @@ impl Validator {
             return;
         }
         shares.insert(index, signer);
-        if shares.len() == quorum
-            && let Ok(signed) = payment.with_signers(shares.values().copied().collect())
-        {
-            self.actions.push_back(Action::Submit(signed.blob));
+    }
+
+    /// Submits, once each, every withdrawal a quorum signed.
+    fn submit_signed(&mut self) {
+        let ledger = &self.chain.ledger;
+        let quorum = ledger.validators().quorum();
+        for (sequence, withdrawal) in ledger.withdrawals() {
+            let Some(shares) = self.shares.get(&sequence) else {
+                continue;
+            };
+            if shares.len() < quorum || self.submitted.contains_key(&sequence) {
+                continue;
+            }
+            let payment = withdrawal_payment(ledger.rules(), sequence, withdrawal);
+            if let Ok(signed) = payment.with_signers(shares.values().copied().collect()) {
+                self.submitted.insert(sequence, ());
+                self.actions.push_back(Action::Submit(signed.blob));
+            }
         }
     }
 
@@ -871,6 +1012,10 @@ impl Validator {
             "history bytes out of step"
         );
         assert!(self.own.len() <= MAX_OWN, "our operations over their bound");
+        assert!(
+            self.waiting_deposits.len() <= MAX_WAITING_DEPOSITS,
+            "deposits waiting for room over their bound"
+        );
     }
 }
 
@@ -1117,6 +1262,63 @@ mod tests {
         v.check_invariants();
     }
 
+    // A token hub's answers to `Since` end with the issuer's hold as of the
+    // newest block, then the final block, whether the answer runs to the
+    // tip or stops before a block; an XRP hub's carry none
+    // (spec/areas/hubs.md#a-frozen-hub).
+    #[test]
+    fn a_token_hubs_answers_carry_the_issuers_hold() {
+        use crate::operation::Issuer;
+        let tail = |statements: &[Statement]| -> Vec<Statement> {
+            statements[statements.len().saturating_sub(2)..].to_vec()
+        };
+        let mut xrp = validator();
+        xrp.history.push_back(block_of(2, 1));
+        let statements = xrp.since(AccountNumber(6), 1);
+        assert!(
+            !statements
+                .iter()
+                .any(|s| matches!(s, Statement::Issuer { .. })),
+            "none over an XRP hub"
+        );
+
+        let mut v = validator();
+        let ledger = &mut v.chain.ledger;
+        ledger.rules.terms = crate::rules::tests::token_terms(ledger.rules.terms.clone());
+        ledger.issuer = Issuer {
+            ledger: 5,
+            frozen: true,
+            fee: false,
+        };
+        ledger.frozen = Some(7);
+        let height = v.chain.ledger.height();
+        let timestamp = v.chain.ledger.timestamp();
+        let hold = Statement::Issuer {
+            height,
+            timestamp,
+            frozen: Some(7),
+            held: true,
+        };
+        assert_eq!(hold.encoded_len(), ISSUER_STATEMENT_BYTES);
+        let last = Statement::Final { height, timestamp };
+        assert_eq!(last.encoded_len(), FINAL_STATEMENT_BYTES);
+
+        v.history.push_back(block_of(2, 1));
+        let statements = v.since(AccountNumber(6), 1);
+        assert_eq!(tail(&statements), [hold.clone(), last]);
+
+        // Stopped before a block: the final block is the one before it, the
+        // hold still as of the newest.
+        v.history.push_back(block_of(3, MAX_ANSWER));
+        let statements = v.since(AccountNumber(6), 1);
+        let ends = tail(&statements);
+        assert_eq!(ends[0], hold);
+        assert!(matches!(ends[1], Statement::Final { height: 2, .. }));
+        let bytes: usize = statements.iter().map(Encode::encoded_len).sum();
+        assert!(bytes <= MAX_SINCE_ANSWER_BYTES);
+        assert!(statements.len() <= MAX_ANSWER + SINCE_TAIL);
+    }
+
     #[test]
     fn a_final_block_the_ledger_cannot_follow_stops_the_validator() {
         use crate::consensus::Application;
@@ -1134,6 +1336,103 @@ mod tests {
             payout,
             "it signs the payout set of the last block it executed"
         );
+    }
+
+    // spec/decisions/token-hubs.md: an ended token hub whose last state
+    // has the issuer holding its escrow signs no payout set: its Payments
+    // would fail on the frozen line. A later state that lets go of it is
+    // signed.
+    #[test]
+    fn an_ended_hub_the_issuer_holds_signs_no_payout_set() {
+        use crate::operation::Issuer;
+        let mut v = validator();
+        let ledger = &mut v.chain.ledger;
+        ledger.rules.terms = crate::rules::tests::token_terms(ledger.rules.terms.clone());
+        ledger.phase = Phase::Ended;
+        ledger.issuer = Issuer {
+            ledger: 5,
+            frozen: false,
+            fee: true,
+        };
+        let payouts = |v: &mut Validator| {
+            let mut count = 0;
+            while let Some(action) = v.poll() {
+                count += usize::from(matches!(action, Action::Payout(..)));
+            }
+            count
+        };
+        v.tick(2_000);
+        assert_eq!(payouts(&mut v), 0, "none while held");
+        v.chain.ledger.issuer = Issuer {
+            ledger: 6,
+            frozen: false,
+            fee: false,
+        };
+        v.tick(2_001);
+        assert_eq!(payouts(&mut v), 1, "signed once let go");
+    }
+
+    // Our attestation of a deposit that failed for want of room waits, and
+    // goes again once the issuer lets go and there is room; one that
+    // failed otherwise, or that was not ours, does not.
+    #[test]
+    fn only_our_deposits_that_found_no_room_wait() {
+        let mut v = validator();
+        let index = v.index().unwrap();
+        let deposit = |byte| Deposit {
+            transaction: Digest([byte; 32]),
+            ledger: 10,
+            amount: 50_000_000,
+            sender: [3; 20],
+            tag: 0,
+            key: None,
+        };
+        let full = Outcome::Failed {
+            fee: 0,
+            reason: crate::ledger::Failure::Full,
+        };
+        let stale = Outcome::Failed {
+            fee: 0,
+            reason: crate::ledger::Failure::Stale,
+        };
+        let (_, mut keys) = crate::rules::tests::rules(4);
+        let mut operations = Vec::new();
+        for (byte, sequence) in [(1u8, 7u64), (2, 8)] {
+            let signed = SignedValidatorOperation::sign(
+                &v.hub,
+                index,
+                sequence,
+                ValidatorOperation::AttestDeposit(deposit(byte)),
+                &keys[0],
+            );
+            v.own.push_back(Own {
+                signed: signed.clone(),
+                again: 0,
+            });
+            operations.push(Operation::Validator(signed));
+        }
+        let other = SignedValidatorOperation::sign(
+            &v.hub,
+            ValidatorIndex::new(1).unwrap(),
+            9,
+            ValidatorOperation::AttestDeposit(deposit(3)),
+            &keys.remove(1),
+        );
+        operations.push(Operation::Validator(other));
+        let block = FinalBlock {
+            height: 2,
+            timestamp: 20,
+            digest: Digest([2; 32]),
+            operations,
+            outcomes: alloc::vec![full, stale, full],
+            touched: alloc::vec![Vec::new(); 3],
+        };
+        v.settle_own(&block);
+        assert!(v.own.is_empty());
+        assert_eq!(v.waiting_deposits, [deposit(1)]);
+        v.attest_waiting(2_000);
+        assert!(v.waiting_deposits.is_empty(), "attested again");
+        assert_eq!(v.own.len(), 1);
     }
 
     #[test]

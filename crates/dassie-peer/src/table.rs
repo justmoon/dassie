@@ -368,8 +368,9 @@ impl Peering {
         self.last_seen_ms.saturating_add(window_ms) >= now_ms
     }
 
-    /// Its first method: the one it was made on, while that lasts. A node
-    /// that keeps one method per peering reads it here.
+    /// Its first method: the one it was made on, while that lasts, then
+    /// the one [`remove`](Self::remove) makes first; the one a peering
+    /// being ended collects on.
     ///
     /// # Panics
     ///
@@ -383,6 +384,19 @@ impl Peering {
             panic!("a peering has a method");
         };
         first
+    }
+
+    /// Takes out its method on `scheme`. If that was the first, the one of
+    /// the rest on the lowest scheme ID becomes the first: both sides of
+    /// the peering pick it alike, whatever order each added the rest in,
+    /// as when one side's acceptance of a method was lost and it was asked
+    /// for again after another.
+    pub fn remove(&mut self, scheme: SchemeId) {
+        let first = self.methods.first().is_some_and(|m| m.scheme == scheme);
+        self.methods.retain(|method| method.scheme != scheme);
+        if first {
+            self.methods.sort_unstable_by_key(|method| method.scheme);
+        }
     }
 
     /// Its method on `scheme`, if it has one.
@@ -763,6 +777,33 @@ pub fn backoff(min_ms: u64, max_ms: u64, failures: u32) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // spec/areas/network.md#settlement-methods: a peering that loses its
+    // first method takes the rest's lowest scheme ID as its new first, so
+    // both sides carry packets on the same one, whatever order each added
+    // the rest in.
+    #[test]
+    fn a_peering_s_new_first_method_is_the_same_on_both_sides() {
+        let method = |id: &str| Method::new(SchemeId::parse(id).unwrap(), Vec::new(), 0);
+        let peered = |order: [&str; 3]| {
+            let mut peering = Peering::new(method(order[0]), 0, false);
+            peering
+                .methods
+                .extend(order[1..].iter().map(|id| method(id)));
+            peering
+        };
+        let id = |id| SchemeId::parse(id).unwrap();
+        let mut other = peered(["xx", "zz", "yy"]);
+        other.remove(id("yy"));
+        assert_eq!(other.first().scheme, id("xx"), "the first stays");
+        let mut a = peered(["xx", "zz", "yy"]);
+        let mut b = peered(["xx", "yy", "zz"]);
+        for peering in [&mut a, &mut b] {
+            peering.remove(id("xx"));
+            assert_eq!(peering.first().scheme, id("yy"));
+        }
+        assert_eq!(a, b);
+    }
 
     #[test]
     fn buckets_refill_over_time() {

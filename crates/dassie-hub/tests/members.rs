@@ -9,6 +9,12 @@
 //!
 //! After every step the ledger, every account and every scheme check their
 //! invariants, and each member's books hold what its scheme says it holds.
+//!
+//! A token hub's validators also attest its issuer's freezes and thaws, as
+//! a quorum's `AttestIssuer` (spec/decisions/token-hubs.md), and answer
+//! with the issuer's hold on the escrow: members pay each other until a
+//! freeze, take no packet over it while it lasts, still claim what they
+//! took before it, and carry on after the thaw.
 
 #![allow(
     clippy::unwrap_used,
@@ -23,14 +29,14 @@ use std::sync::Arc;
 
 use dassie_hub::client::{MAX_STATEMENTS, Request, SignedStatement, Statement};
 use dassie_hub::escrow::{ValidatorKeys, escrow_master};
-use dassie_hub::ledger::{Block, Detail, Outcome, TESTNET_NETWORK};
+use dassie_hub::ledger::{Block, Detail, Outcome, Refusal, TESTNET_NETWORK};
 use dassie_hub::member::{FIRST, HubAccount, HubScheme, SCHEME_ID, units};
 use dassie_hub::operation::{
-    AccountNumber, Deposit, Destination, MemberOperation, Operation, SignedMemberOperation,
+    AccountNumber, Deposit, Destination, Issuer, MemberOperation, Operation, SignedMemberOperation,
     SignedValidatorOperation, ValidatorOperation,
 };
 use dassie_hub::promise::{Commitment, Fulfilled, HoldNumber, Signed};
-use dassie_hub::rules::{Fees, Limits, Rules, Terms, Timers};
+use dassie_hub::rules::{Asset, Fees, LEAST_TOKEN_GAS_DROPS, Limits, Rules, Terms, Timers};
 use dassie_hub::service::wire::Message;
 use dassie_hub::validators::{Signers, ValidatorIndex};
 use dassie_hub::{Digest, Ledger, Millis};
@@ -59,18 +65,25 @@ const HOLD_RESERVE: u64 = 200_000;
 const ACCOUNT_RESERVE: u64 = 2_000_000;
 const MARGIN: Millis = 600;
 
-fn terms(sponsor: &NodeKey, escrow: [u8; 20]) -> Terms {
+/// A token hub's asset: DSUSD.
+const DSUSD: Asset = Asset::Token {
+    currency: dassie_xrpl::dsusd::CURRENCY,
+    issuer: dassie_xrpl::dsusd::ISSUER,
+};
+
+fn terms(sponsor: &NodeKey, escrow: [u8; 20], asset: Asset) -> Terms {
+    let token = asset != Asset::Xrp;
     Terms {
         version: dassie_hub::rules::HUB_VERSION,
         nonce: NONCE,
         sponsor: sponsor.public_key(),
         network: 1,
         escrow,
-        asset: dassie_hub::rules::Asset::Xrp,
+        asset,
         fees: Fees {
             operation: FEE,
-            ledger: 100,
-            gas: 0,
+            ledger: if token { 0 } else { 100 },
+            gas: if token { LEAST_TOKEN_GAS_DROPS } else { 0 },
             reserve_share_ppm: 100_000,
             account_reserve: ACCOUNT_RESERVE,
             hold_reserve: HOLD_RESERVE,
@@ -138,14 +151,16 @@ struct Validators {
     deposits: u32,
     /// The lowest height whose operations the validators still keep.
     complete_from: u64,
+    /// The XRP Ledger ledger of the issuer's last hold a quorum attested.
+    issuer_ledger: u32,
 }
 
 impl Validators {
-    /// The sponsor's hub, with its escrow attested.
-    fn found(faults: [Fault; 4]) -> Self {
+    /// The sponsor's hub of `asset`, with its escrow attested.
+    fn found(faults: [Fault; 4], asset: Asset) -> Self {
         let sponsor = NodeKey::from_bytes(&[100; 32]);
         let master = escrow_master(&sponsor, TESTNET_NETWORK, &NONCE);
-        let terms = terms(&sponsor, master.account().0);
+        let terms = terms(&sponsor, master.account().0, asset);
         let nodes: Vec<NodeKey> = (1..=4).map(|i| NodeKey::from_bytes(&[i; 32])).collect();
         let keys: Vec<ValidatorKeys> = nodes
             .iter()
@@ -173,6 +188,7 @@ impl Validators {
             sequence: 0,
             deposits: 0,
             complete_from: 1,
+            issuer_ledger: 0,
         };
         hub.attest(&ValidatorOperation::AttestEscrow { sequence: 10 });
         hub.block(START + 1);
@@ -227,6 +243,17 @@ impl Validators {
         self.attest(&ValidatorOperation::AttestDeposit(deposit));
     }
 
+    /// The issuer freezes the escrow's line, or thaws it, as a quorum
+    /// attests it in the next block.
+    fn freeze(&mut self, frozen: bool) {
+        self.issuer_ledger += 1;
+        self.attest(&ValidatorOperation::AttestIssuer(Issuer {
+            ledger: 2_000 + self.issuer_ledger,
+            frozen,
+            fee: false,
+        }));
+    }
+
     /// The escrow's payment of withdrawal `sequence` delivered, or failed.
     fn settle_withdrawal(&mut self, sequence: u32, delivered: bool) {
         self.attest(&ValidatorOperation::AttestWithdrawal {
@@ -276,6 +303,7 @@ impl Validators {
             votes: &votes,
         };
         let outcomes = self.ledger.apply(&block).unwrap();
+        self.ledger.check_invariants();
         self.stamps.insert(height, timestamp);
         for ((index, operation), outcome) in (0u32..).zip(operations).zip(outcomes) {
             if let (
@@ -289,7 +317,11 @@ impl Validators {
             {
                 self.parties.insert(hold, (signed.account, payee));
             }
-            self.executed.insert(operation.hash());
+            // One a frozen hub refused used no sequence: it may come again
+            // after the thaw, and apply then.
+            if outcome.used_sequence() {
+                self.executed.insert(operation.hash());
+            }
             self.log.push(Entry {
                 height,
                 timestamp,
@@ -365,11 +397,22 @@ impl Validators {
                 outcome: entry.outcome,
             });
         }
+        // A token hub's issuer's hold, as of the newest block.
+        statements.extend(Statement::issuer(&self.ledger));
         statements.push(Statement::Final {
             height: covered,
             timestamp: self.stamps[&covered],
         });
         statements
+    }
+
+    /// How many times `operation` came to a block.
+    fn times_in_blocks(&self, operation: &SignedMemberOperation) -> usize {
+        let hash = Operation::Member(operation.clone()).hash();
+        self.log
+            .iter()
+            .filter(|entry| entry.operation.hash() == hash)
+            .count()
     }
 
     /// Validator `index`'s answer to `request`, if any.
@@ -435,6 +478,22 @@ fn lie(statement: Statement) -> Option<Statement> {
             })
         }
         Statement::Executed { .. } => None,
+        // That the hub froze when it did not, or the other way around.
+        Statement::Issuer {
+            height,
+            timestamp,
+            frozen,
+            held,
+        } => Some(Statement::Issuer {
+            height,
+            timestamp,
+            frozen: if frozen.is_some() {
+                None
+            } else {
+                Some(timestamp)
+            },
+            held: !held,
+        }),
         other => Some(other),
     }
 }
@@ -565,10 +624,15 @@ fn scheme_name() -> Name {
 
 impl World {
     fn new(faults: [Fault; 4]) -> Self {
+        Self::of(faults, Asset::Xrp)
+    }
+
+    /// A hub of `asset`.
+    fn of(faults: [Fault; 4], asset: Asset) -> Self {
         Self {
             now: START + 10,
             next_block: START + 10 + BLOCK_MS,
-            validators: Validators::found(faults),
+            validators: Validators::found(faults, asset),
             members: Vec::new(),
             rng: SeededRng::new(1),
         }
@@ -934,7 +998,34 @@ impl World {
     /// Two members with 100 XRP each in the hub, `a` peered with `b` and
     /// a hold of `hold` XRP toward `b`.
     fn pair(faults: [Fault; 4], hold: u64) -> (Self, usize, usize) {
-        let mut world = Self::new(faults);
+        Self::pair_in(Self::new(faults), hold)
+    }
+
+    /// [`pair`](Self::pair), in a DSUSD hub: amounts in millionths of a
+    /// dollar, as the hub counts them.
+    fn token_pair(faults: [Fault; 4], hold: u64) -> (Self, usize, usize) {
+        Self::pair_in(Self::of(faults, DSUSD), hold)
+    }
+
+    /// Whether members `who` know the hub frozen, and say its method is
+    /// unavailable, exactly while it is.
+    fn see_the_freeze(&self, who: &[usize]) {
+        let frozen = self.validators.ledger.frozen();
+        for i in who {
+            let account = &self.members[*i].account;
+            let name = self.members[*i].name;
+            assert_eq!(account.frozen(), frozen, "{name} knows the freeze");
+            assert_eq!(account.escrow_held(), frozen.is_some());
+            let status = if frozen.is_some() {
+                LedgerStatus::Syncing
+            } else {
+                LedgerStatus::Synced
+            };
+            assert_eq!(account.status(), status);
+        }
+    }
+
+    fn pair_in(mut world: Self, hold: u64) -> (Self, usize, usize) {
         let a = world.join("alice", 31, 100);
         let b = world.join("bob", 32, 100);
         world.run(3_000);
@@ -2204,6 +2295,219 @@ fn a_failed_pay_is_not_tried_again_at_once() {
     world.run(3_000);
     assert!(world.has_account(c));
     for i in [a, c] {
+        assert_eq!(world.members[i].scheme.balance(), world.truth(i));
+    }
+}
+
+// spec/decisions/token-hubs.md: a frozen hub's method is unavailable from
+// the freeze's block until the thaw: no commitment is signed or taken and
+// nothing is settled over it, and the peering carries on after the thaw.
+// One lying validator neither freezes the hub nor thaws it.
+#[test]
+fn a_frozen_hubs_method_is_unavailable_until_the_thaw() {
+    let faults = [Fault::Honest, Fault::Liar, Fault::Honest, Fault::Honest];
+    let (mut world, a, b) = World::token_pair(faults, 2);
+    let (name_a, name_b) = (world.members[a].name, world.members[b].name);
+    world.see_the_freeze(&[a, b]);
+    world.prepare((a, b), 1, P, 10_000).unwrap();
+    world.fulfill((a, b), 1, true, true);
+    // A commitment signed before the freeze, checked after it.
+    let late = promised(2, P, world.now + 10_000);
+    let mut commitment = Vec::new();
+    world.members[a]
+        .scheme
+        .commitments()
+        .unwrap()
+        .commit(world.now, name_b, 2, late, &mut commitment)
+        .unwrap();
+    world.validators.freeze(true);
+    world.run(1_000);
+    assert!(world.validators.ledger.frozen().is_some());
+    world.see_the_freeze(&[a, b]);
+    assert_eq!(
+        world.prepare((a, b), 3, P, 10_000),
+        Err(SchemeError::Unavailable),
+        "no commitment signed"
+    );
+    let now = world.now;
+    assert_eq!(
+        world.members[b]
+            .scheme
+            .commitments()
+            .unwrap()
+            .check_commitment(now, name_a, 2, late, &commitment),
+        Err(SchemeError::Unavailable),
+        "none taken"
+    );
+    world.members[a]
+        .scheme
+        .commitments()
+        .unwrap()
+        .on_answered(name_b, 2);
+    assert_eq!(
+        world.settle(a, b, units(XRP)),
+        Err(SchemeError::Unavailable),
+        "nothing settled"
+    );
+    world.validators.freeze(false);
+    world.run(1_000);
+    world.see_the_freeze(&[a, b]);
+    for request_id in 4..=6 {
+        world.prepare((a, b), request_id, P, 10_000).unwrap();
+        world.fulfill((a, b), request_id, true, true);
+    }
+    world.settle(a, b, units(XRP)).unwrap();
+    world.run(2_000);
+    let hold = world.hold(a, b).unwrap();
+    let ledger_hold = world.validators.ledger.hold(hold).unwrap();
+    assert_eq!(ledger_hold.total, 4 * P / 1_000, "redeemed after the thaw");
+    for i in [a, b] {
+        assert_eq!(world.members[i].scheme.balance(), world.truth(i));
+        assert_eq!(world.members[i].books.suspense, 0);
+        assert!(world.members[i].books.losses.is_empty());
+    }
+}
+
+// An operation a frozen hub refused waits for the thaw: it is not counted
+// as failed or sent again while the hub is frozen, and applies once after
+// it.
+#[test]
+fn an_operation_refused_while_frozen_goes_again_after_the_thaw_and_applies_once() {
+    let (mut world, a, b) = World::token_pair([Fault::Honest; 4], 2);
+    let hold = world.hold(a, b).unwrap();
+    // The freeze takes effect in the block that takes the settlement, which
+    // the payer sent before it knew.
+    world.validators.freeze(true);
+    let settlement = world.settle(a, b, units(XRP)).unwrap();
+    world.run(5_000);
+    let refused: Vec<SignedMemberOperation> = world
+        .validators
+        .log
+        .iter()
+        .filter(|entry| entry.outcome == Outcome::Refused(Refusal::Frozen))
+        .filter_map(|entry| match &entry.operation {
+            Operation::Member(signed) => Some(signed.clone()),
+            Operation::Validator(_) => None,
+        })
+        .collect();
+    assert_eq!(refused.len(), 1, "refused once, and not sent again");
+    let refused = &refused[0];
+    let books = &world.members[a].books;
+    assert!(books.pending.contains_key(&settlement), "never failed");
+    assert!(books.cancelled.is_empty() && books.finalized.len() == 1);
+    assert!(
+        world.members[a]
+            .account
+            .has(dassie_hub::member::Purpose::Settle(settlement))
+    );
+    world.validators.freeze(false);
+    world.run(3_000);
+    assert_eq!(world.validators.times_in_blocks(refused), 2, "applied once");
+    let books = &world.members[a].books;
+    assert!(books.finalized.contains(&settlement));
+    assert!(books.pending.is_empty() && books.cancelled.is_empty());
+    assert_eq!(world.validators.ledger.hold(hold).unwrap().amount, 3 * XRP);
+    for i in [a, b] {
+        assert_eq!(world.members[i].scheme.balance(), world.truth(i));
+        assert_eq!(world.members[i].books.suspense, 0);
+    }
+}
+
+// spec/decisions/token-hubs.md: a frozen hub still pays claims for the
+// packets a payee took before the freeze, whose payer's claims do not come.
+#[test]
+fn claims_for_packets_taken_before_the_freeze_go_on() {
+    let (mut world, a, b) = World::token_pair([Fault::Honest; 4], 2);
+    let hold = world.hold(a, b).unwrap();
+    let before = world.balance(b);
+    for request_id in 1..=3 {
+        world.prepare((a, b), request_id, P, 10_000).unwrap();
+        world.fulfill((a, b), request_id, true, false);
+    }
+    world.validators.freeze(true);
+    world.run(3_000);
+    assert!(world.validators.ledger.frozen().is_some());
+    let ledger_hold = world.validators.ledger.hold(hold).unwrap();
+    assert_eq!(ledger_hold.claimed.len(), 3, "claimed while frozen");
+    let claim_fees = world.members[b].books.lost(LossCause::ClaimFee);
+    assert_eq!(
+        world.balance(b),
+        before + 3 * P / 1_000 - claim_fees / 1_000
+    );
+    for i in [a, b] {
+        assert_eq!(world.members[i].scheme.balance(), world.truth(i));
+        assert_eq!(world.members[i].books.suspense, 0);
+    }
+    assert!(world.members[a].books.losses.is_empty());
+}
+
+// A hold's reduction pending at a freeze waits for the thaw, as its notice
+// does, and the payee redeems before it: it loses nothing it had not
+// redeemed.
+#[test]
+fn a_reduction_pending_at_a_freeze_takes_nothing_the_payee_is_owed() {
+    let (mut world, a, b) = World::token_pair([Fault::Honest; 4], 2);
+    let hold = world.hold(a, b).unwrap();
+    // One packet: its claim is below the threshold to redeem.
+    world.prepare((a, b), 1, P, 10_000).unwrap();
+    world.fulfill((a, b), 1, true, true);
+    world.run(1_000);
+    assert_eq!(world.validators.ledger.hold(hold).unwrap().total, 0);
+    // The payer takes it all back, and the issuer freezes in that block.
+    world.raw(
+        a,
+        MemberOperation::HoldReduce {
+            hold,
+            amount: 2 * XRP,
+        },
+    );
+    world.validators.freeze(true);
+    let notice = world.validators.ledger.terms().timers.hold_notice;
+    world.run(notice + 1_000);
+    let ledger_hold = world.validators.ledger.hold(hold).unwrap();
+    assert_eq!(ledger_hold.amount, 2 * XRP, "nothing reduced while frozen");
+    assert_eq!(ledger_hold.total, 0, "the redeem waits for the thaw");
+    let mirror = world.members[b].account.hold(hold).unwrap();
+    assert_eq!(mirror.amount, 2 * XRP, "nor in the payee's records");
+    world.validators.freeze(false);
+    world.run(1_000);
+    let ledger_hold = world.validators.ledger.hold(hold).unwrap();
+    assert_eq!(ledger_hold.total, P / 1_000, "redeemed after the thaw");
+    assert!(ledger_hold.reduction.is_some(), "before the reduction");
+    for i in [a, b] {
+        let mirror = world.members[i].account.hold(hold).unwrap();
+        assert!(mirror.reduction.is_some(), "its notice moved by the freeze");
+    }
+    world.run(notice + 5_000);
+    assert!(world.validators.ledger.hold(hold).is_none(), "reduced");
+    for i in [a, b] {
+        assert!(world.members[i].account.hold(hold).is_none());
+        assert_eq!(world.members[i].scheme.balance(), world.truth(i));
+        assert!(world.members[i].books.losses.is_empty());
+    }
+}
+
+// spec/decisions/token-hubs.md: a payee refuses a commitment, and its
+// Prepare, that expires further ahead of its clock than a connector holds
+// a packet and the precision: over any hub.
+#[test]
+fn a_commitment_past_the_bound_is_refused() {
+    let (mut world, a, b) = World::pair([Fault::Honest; 4], 2);
+    let name_b = world.members[b].name;
+    let ahead = dassie_hub::rules::MAX_HOLD_MS + MARGIN;
+    world.prepare((a, b), 1, P, ahead).unwrap();
+    assert_eq!(
+        world.prepare((a, b), 2, P, ahead + 10_000),
+        Err(SchemeError::InvalidData)
+    );
+    world.members[a]
+        .scheme
+        .commitments()
+        .unwrap()
+        .on_answered(name_b, 2);
+    world.fulfill((a, b), 1, true, true);
+    world.run(1_000);
+    for i in [a, b] {
         assert_eq!(world.members[i].scheme.balance(), world.truth(i));
     }
 }

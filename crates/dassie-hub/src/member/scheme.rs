@@ -1,6 +1,11 @@
-//! The `hub-xrpl-testnet-xrp` settlement scheme (spec/areas/hubs.md#the-members-side),
+//! A hub's settlement scheme (spec/areas/hubs.md#the-members-side),
 //! sans-IO: a member's side of peering over a settlement hub, through its
-//! [`HubAccount`].
+//! [`HubAccount`]. Its ID and ledger name the hub's underlying ledger and
+//! its asset (spec/decisions/hub-scheme-names.md), as the hub's rules give
+//! it ([`scheme_of`]): `hub-xrpl-testnet-xrp` for XRP, `hub-xrpl-testnet-dsusd`
+//! for DSUSD. Amounts are in the asset's smallest unit, drops of XRP or
+//! millionths of the token, which the books count alike
+//! ([`UNITS_PER_DROP`]).
 //!
 //! - **Peering** exchanges the hub's ID and each side's account number and
 //!   key; a peer in another hub is refused.
@@ -63,13 +68,37 @@ use super::peering::{Membership, NONE};
 use super::{UNITS_PER_DROP, digest_name, units};
 use crate::client::AccountView;
 use crate::digest::Digest;
+use crate::ledger::TESTNET_NETWORK;
 use crate::ledger::{Detail, Outcome};
 use crate::operation::{AccountNumber, MemberOperation, Operation, SignedMemberOperation};
 use crate::promise::{Claim, Commitment, HoldNumber, Signed};
-use crate::rules::{Amount, HubId, Terms};
+use crate::rules::{Amount, Asset, HubId, Terms};
 
-/// The scheme's ID.
+/// The ID of the scheme over a hub of XRP on the XRP Ledger testnet.
 pub const SCHEME_ID: &str = "hub-xrpl-testnet-xrp";
+
+/// The ID of the scheme over a hub of DSUSD on the XRP Ledger testnet.
+pub const DSUSD_SCHEME_ID: &str = "hub-xrpl-testnet-dsusd";
+
+/// The scheme over a hub of `terms`, and its ledger: XRP gives
+/// [`SCHEME_ID`], DSUSD [`DSUSD_SCHEME_ID`], both on the XRP Ledger
+/// testnet. `None` for any other asset or network, which no scheme runs:
+/// the IDs on mainnet are not built yet (spec/roadmap.md#mainnet-hubs).
+#[must_use]
+pub fn scheme_of(terms: &Terms) -> Option<(&'static str, LedgerId)> {
+    if terms.network != TESTNET_NETWORK {
+        return None;
+    }
+    match terms.asset {
+        Asset::Xrp => Some((SCHEME_ID, LedgerId::HubXrplTestnetXrp)),
+        Asset::Token { currency, issuer }
+            if currency == dassie_xrpl::dsusd::CURRENCY && issuer == dassie_xrpl::dsusd::ISSUER =>
+        {
+            Some((DSUSD_SCHEME_ID, LedgerId::HubXrplTestnetDsusdUsd))
+        }
+        Asset::Token { .. } => None,
+    }
+}
 
 /// Most peers over the hub.
 pub const MAX_PEERS: usize = 256;
@@ -151,8 +180,13 @@ pub(super) struct UnreadPay {
     pub(super) height: u64,
 }
 
-/// The `hub-xrpl-testnet-xrp` scheme.
+/// The scheme over one hub.
 pub struct HubScheme {
+    /// Its ID and ledger, which the hub's asset gives ([`scheme_of`]).
+    id: Name,
+    ledger: LedgerId,
+    /// The account it settles through.
+    asset: AssetId,
     pub(super) hub: HubId,
     pub(super) key: Arc<NodeKey>,
     pub(super) terms: Terms,
@@ -247,15 +281,20 @@ impl HubScheme {
     ///
     /// # Errors
     ///
-    /// If the state is not one the scheme wrote, or is not in step with
-    /// the account's.
+    /// If the hub holds an asset no scheme runs over ([`scheme_of`]), or the
+    /// state is not one the scheme wrote, or is not in step with the
+    /// account's.
     pub fn new(
         account: &HubAccount,
         max_packet: u64,
         checkpoint: Option<u64>,
         state: &[u8],
     ) -> Result<Self, SchemeError> {
+        let (id, ledger) = scheme_of(account.terms()).ok_or(SchemeError::InvalidConfig)?;
         let mut scheme = Self {
+            id: Name::new(id).map_err(|_| SchemeError::InvalidConfig)?,
+            ledger,
+            asset: ExternalAsset::id(account),
             hub: account.hub(),
             key: account.signer(),
             terms: account.terms().clone(),
@@ -956,6 +995,9 @@ impl HubScheme {
     /// Takes in what the account mirrors of each peer's holds.
     fn refresh(&mut self, account: &HubAccount) {
         self.account = account.number();
+        // A frozen hub's method is unavailable until the thaw
+        // (spec/decisions/token-hubs.md): each hold's records know it.
+        let window = account.freeze_window_end();
         let snapshot = |hold: Option<HoldNumber>| {
             hold.and_then(|hold| account.hold(hold))
                 .map_or_else(Snapshot::default, |mirror| Snapshot {
@@ -963,6 +1005,7 @@ impl HubScheme {
                     taken: mirror.taken(),
                     through: mirror.through,
                     reduction: mirror.reduction,
+                    window,
                 })
         };
         let mut paying: Amount = 0;
@@ -1048,7 +1091,12 @@ impl HubScheme {
     }
 
     /// Redeems a peer's newest claim once what it adds reaches the
-    /// threshold: each redeem costs a fee.
+    /// threshold, each redeem costing a fee; or at once when a reduction of
+    /// the hold waiting for its notice would leave less than it adds, which
+    /// we would lose unless we redeem before
+    /// (spec/designs/settlement-hubs.md#4-peering-over-a-hub). While the
+    /// hub is frozen the redeem waits for the thaw, and so does the
+    /// reduction's notice.
     fn redeem(&mut self, account: &mut HubAccount) {
         let threshold = redeem_threshold(self.max_packet);
         for peer in self.peers.values() {
@@ -1066,7 +1114,10 @@ impl HubScheme {
                 .total
                 .saturating_sub(mirror.total)
                 .saturating_sub(mirror.claimed_through(claim.value.through));
-            if units(adds) >= threshold {
+            let reducing = mirror
+                .reduction
+                .is_some_and(|(amount, _)| mirror.amount.saturating_sub(amount) < adds);
+            if units(adds) >= threshold || reducing {
                 let _ = account.submit(Purpose::Redeem(hold), MemberOperation::Redeem(claim));
             }
         }
@@ -1216,15 +1267,15 @@ impl HubScheme {
 
 impl SettlementScheme for HubScheme {
     fn id(&self) -> Name {
-        dassie_ledger::name!(SCHEME_ID)
+        self.id
     }
 
     fn ledger(&self) -> LedgerId {
-        LedgerId::HubXrplTestnetXrp
+        self.ledger
     }
 
     fn asset(&self) -> Option<AssetId> {
-        Some(super::account::FIRST)
+        Some(self.asset)
     }
 
     fn balance(&self) -> u64 {
@@ -1661,12 +1712,12 @@ impl Commitments for HubScheme {
         commitment: &[u8],
     ) -> Result<(), SchemeError> {
         self.now_ms = self.now_ms.max(now_ms);
-        let (hub, margin) = (self.hub, self.margin());
+        let (hub, margin, now) = (self.hub, self.margin(), self.now_ms);
         let signed = decode_exact(commitment, Signed::<Commitment>::decode)?;
         let peer = self.peer(peer).ok_or(SchemeError::InvalidData)?;
         let key = peer.key;
         peer.payee
-            .check(request_id, promised, signed, (&hub, &key, margin))
+            .check(request_id, promised, signed, (&hub, &key, margin, now))
     }
 
     fn on_fulfilled(&mut self, now_ms: u64, peer: Name, request_id: u32, fulfillment: [u8; 32]) {
@@ -1819,4 +1870,94 @@ fn decode_exact<T>(
     let value = decode(&mut reader).map_err(|_| SchemeError::InvalidData)?;
     reader.finish().map_err(|_| SchemeError::InvalidData)?;
     Ok(value)
+}
+
+#[cfg(test)]
+mod tests {
+    use alloc::sync::Arc;
+
+    use dassie_identity::NodeKey;
+    use dassie_settlement::SettlementScheme;
+
+    use super::*;
+    use crate::operation::Destination;
+    use crate::rules::Rules;
+    use crate::rules::tests::{rules, token_terms};
+
+    /// `rules` with `terms`, each acceptance signed again.
+    fn with_terms(rules: &Rules, terms: Terms) -> Rules {
+        let validators = rules
+            .validators
+            .iter()
+            .enumerate()
+            .map(|(index, acceptance)| {
+                let seed = u8::try_from(index + 1).unwrap();
+                acceptance
+                    .clone()
+                    .sign(&NodeKey::from_bytes(&[seed; 32]), &terms)
+            })
+            .collect();
+        Rules { terms, validators }
+    }
+
+    fn scheme(rules: Rules, id: &str) -> Result<HubScheme, SchemeError> {
+        let account = HubAccount::new(
+            super::super::account_id(id).unwrap(),
+            rules,
+            Arc::new(NodeKey::from_bytes(&[42; 32])),
+            Destination {
+                account: [5; 20],
+                tag: None,
+            },
+            Name::new(id).unwrap(),
+            &[],
+        )?;
+        HubScheme::new(&account, 1_000_000, None, &[])
+    }
+
+    // spec/decisions/hub-scheme-names.md: the hub's asset names its scheme
+    // and its ledger, and the scheme settles through the account it was
+    // made with; an asset no scheme runs over is refused.
+    #[test]
+    fn a_hubs_asset_names_its_scheme_and_ledger() {
+        let (xrp, _) = rules(4);
+        let made = scheme(xrp.clone(), SCHEME_ID).unwrap();
+        assert_eq!(made.id().as_str(), SCHEME_ID);
+        assert_eq!(made.ledger(), LedgerId::HubXrplTestnetXrp);
+        assert_eq!(made.asset(), super::super::account_id(SCHEME_ID));
+        assert_eq!(made.unit(), UNITS_PER_DROP);
+
+        let dsusd = with_terms(&xrp, token_terms(xrp.terms.clone()));
+        dsusd.check().unwrap();
+        let made = scheme(dsusd.clone(), DSUSD_SCHEME_ID).unwrap();
+        assert_eq!(made.id().as_str(), DSUSD_SCHEME_ID);
+        assert_eq!(made.ledger(), LedgerId::HubXrplTestnetDsusdUsd);
+        assert_eq!(made.asset(), super::super::account_id(DSUSD_SCHEME_ID));
+        assert_eq!(made.unit(), UNITS_PER_DROP, "a millionth is a drop's units");
+        assert_ne!(
+            super::super::account_id(SCHEME_ID),
+            super::super::account_id(DSUSD_SCHEME_ID),
+            "an account per hub"
+        );
+
+        let mut other = dsusd.terms.clone();
+        other.asset = Asset::Token {
+            currency: dassie_xrpl::rlusd::CURRENCY,
+            issuer: dassie_xrpl::rlusd::ISSUER,
+        };
+        assert_eq!(scheme_of(&other), None, "no scheme over another token");
+        let mut mainnet = xrp.terms.clone();
+        mainnet.network = 0;
+        assert_eq!(
+            scheme_of(&mainnet),
+            None,
+            "mainnet's hub schemes are not built"
+        );
+        let other = with_terms(&xrp, other);
+        assert!(matches!(
+            scheme(other, DSUSD_SCHEME_ID),
+            Err(SchemeError::InvalidConfig)
+        ));
+        assert_eq!(super::super::account_id("xrpl-testnet-xrp"), None);
+    }
 }

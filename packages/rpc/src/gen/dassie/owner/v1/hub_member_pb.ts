@@ -329,10 +329,11 @@ export const GetHubStatusResponseSchema: GenMessage<GetHubStatusResponse> = /*@_
  * Deposits from the owner book of the hub's asset into the hub, opening the
  * account if the hub has none for the node yet. Pauses the hub's automatic
  * moves for a while. RESOURCE_EXHAUSTED while a move of the hub is on its
- * way; INVALID_ARGUMENT for less than a drop, or less than opening the
- * account takes; FAILED_PRECONDITION before the hub said whether the
- * account exists, while the owner book does not run synced, or for more
- * than the owner's funds there with the fee.
+ * way; INVALID_ARGUMENT for less than the hub asset's smallest unit, or
+ * less than opening the account takes; FAILED_PRECONDITION before the hub
+ * said whether the account exists, while the hub is unavailable (frozen,
+ * or its scheme not in step with it), while the owner book does not run
+ * synced, or for more than the owner's funds there with the fee.
  *
  * @generated from message dassie.owner.v1.HubDepositRequest
  */
@@ -380,10 +381,10 @@ export const HubDepositResponseSchema: GenMessage<HubDepositResponse> = /*@__PUR
  * Withdraws from the hub to the owner book of its asset, on the node's XRP
  * Ledger account. Pauses the hub's
  * automatic moves for a while. RESOURCE_EXHAUSTED while a move of the hub is
- * on its way;
- * INVALID_ARGUMENT for less than the hub pays out; FAILED_PRECONDITION
- * without an account in the hub, or for more than it can spend with the
- * fees.
+ * on its way, or while the node checks, or tops up, a token hub's escrow's
+ * XRP; INVALID_ARGUMENT for less than the hub pays out; FAILED_PRECONDITION
+ * without an account in the hub, while the hub is unavailable, or for more
+ * than it can spend with the fees.
  *
  * @generated from message dassie.owner.v1.HubWithdrawRequest
  */

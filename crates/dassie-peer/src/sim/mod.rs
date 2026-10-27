@@ -82,8 +82,8 @@ pub struct StubHooks {
     pub unrun: bool,
     /// The schemes the node no longer runs, of the two.
     pub unrun_schemes: BTreeSet<SchemeId>,
-    /// Whether the node refuses every further method of a peering, as the
-    /// node does while it keeps one method per peering.
+    /// Whether the node refuses every further method of a peering, as a
+    /// node does whose accounts for one do not fit.
     pub refuse_methods: bool,
     /// Whether the stub scheme takes entry payments
     /// (spec/decisions/pay-to-enter.md).
@@ -175,7 +175,7 @@ impl PeeringHooks for StubHooks {
         self.commitments && scheme.as_str() == STUB
     }
 
-    fn wants_method(&self, _: NodeId, _: SchemeId) -> bool {
+    fn wants_method(&self, _: NodeId, _: bool, _: SchemeId) -> bool {
         !self.refuse_methods
     }
 

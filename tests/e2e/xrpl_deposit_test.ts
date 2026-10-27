@@ -1,16 +1,22 @@
 /**
  * End to end (spec/areas/testing.md#end-to-end): the wallet's Receive page
- * on an XRP Ledger testnet node (spec/areas/wallet.md#pages). The
- * `xrpl-settlement` scenario runs on the node's fake ledger; a headless
- * browser signed in to `d1` finds the node's deposit address, and asks the
- * faucet for test XRP. The faucet made the account a moment ago, and it is
- * asked at most once a minute, so the node says so and asks nothing
+ * on a settlement hub's member, for its owner book of XRP on the XRP
+ * Ledger testnet (spec/areas/wallet.md#pages). The `hub` scenario runs on
+ * the node's fake ledger, and once its hub is founded a node added to it
+ * joins as a member; a headless browser signed in to that member finds
+ * its deposit address, and asks the faucet for test XRP. The faucet made
+ * the account a moment ago, as the member started, and it is asked at
+ * most once a minute, so the node says so and asks nothing
  * (spec/areas/xrpl.md#deposits-and-withdrawals): the button reaches the
- * node, and the page tells why. Asking again after the minute, and booking
- * what the faucet sends, is the node's tests' (`tests/xrpl.rs`), on a
- * hand-moved clock. Set
- * `DASSIE_XRPL_TESTNET=1` to run it against the testnet instead, by hand,
- * and `DASSIE_E2E_SCREENSHOTS` to a directory for pictures of the page.
+ * node, and the page tells why. The added member, rather than one the
+ * scenario starts with, since founding the hub may take longer than that
+ * minute. Asking again after the minute, and booking what the faucet
+ * sends, is the node's tests' (`tests/xrpl.rs`), on a hand-moved clock.
+ *
+ * The scenario runs only on the fake ledger: each run founds a hub of its
+ * own, whose escrow and validators must stay off the public testnet, so
+ * this test has no switch to it. Set `DASSIE_E2E_SCREENSHOTS` to a
+ * directory for pictures of the page.
  */
 
 import { test } from "node:test";
@@ -19,8 +25,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import process from "node:process";
 import { assert, assertEquals, assertMatch } from "@std/assert";
-import { LedgerConnection } from "@dassie/rpc/proto";
-import { Scenario, type ScenarioNode } from "@dassie/dev/scenario";
+import { HUB_OWNER_BOOK, Scenario } from "@dassie/dev/scenario";
 import type { Page } from "puppeteer-core";
 import { click, count, signIn, text, until } from "./browser.ts";
 import {
@@ -31,11 +36,23 @@ import {
   SCENARIO_PORT_OFFSET,
   startBrowser,
 } from "./harness.ts";
+import {
+  fundedInOwnerBook,
+  HUB_OWNER_LEDGER,
+  HUB_WITHIN_MS,
+  ledger,
+} from "./settling.ts";
 
-const LEDGER = "xrpl-testnet-xrp+xrp";
+const LEDGER = HUB_OWNER_LEDGER;
 const PORT_OFFSET = SCENARIO_PORT_OFFSET + 800;
 /** The faucet is asked at most once a minute, the account's making included. */
 const FAUCET_PACE_MS = 60_000;
+/**
+ * How long before that minute is over the test clicks the faucet's button
+ * at the latest: the click reaches the node a moment later, and must find
+ * the minute not yet passed.
+ */
+const FAUCET_MARGIN_MS = 15_000;
 
 async function missingTools(): Promise<string | undefined> {
   const missing = await missingScenarioTools();
@@ -48,7 +65,6 @@ async function missingTools(): Promise<string | undefined> {
 }
 
 const missing = await missingTools();
-const testnet = process.env.DASSIE_XRPL_TESTNET === "1";
 const screenshots = process.env.DASSIE_E2E_SCREENSHOTS;
 
 /** Keeps a picture of the whole page, if pictures are asked for. */
@@ -61,43 +77,35 @@ async function picture(page: Page, name: string): Promise<void> {
   );
 }
 
-/** A node's XRPL ledger, as its owner sees it. */
-async function ledger(node: ScenarioNode) {
-  const { ledgers } = await node.rpc.call("listLedgers", {});
-  const found = ledgers.find((l) => l.id === LEDGER);
-  assert(found, `${node.name} has no ${LEDGER}`);
-  return found;
-}
-
 test(
-  "the Receive page shows the XRP deposit address and asks the faucet",
+  "the Receive page shows a hub member's XRP deposit address and asks the faucet",
   { skip: missing !== undefined },
   async () => {
-    // The node asks the faucet for the account once it starts, so a minute
-    // from now it would ask again.
-    const started = Date.now();
-    const scenario = await Scenario.temporary("xrpl-settlement", {
+    const scenario = await Scenario.temporary("hub", {
       dassie: DASSIE,
-      fakeLedger: testnet ? undefined : FAKE_LEDGER,
+      fakeLedger: FAKE_LEDGER,
       portOffset: PORT_OFFSET,
     });
     const dir = await mkdtemp(join(tmpdir(), "dassie-xrpl-deposit-"));
     const browser = await startBrowser(dir);
     try {
-      const [d1] = scenario.nodes;
-      await scenario.until("funded", async () => {
-        const view = await ledger(d1);
-        return view.connection === LedgerConnection.SYNCED &&
-          view.ownerBalance > 0n;
-      }, 120_000);
-      const funded = await ledger(d1);
+      // The member asks the faucet for the account once it starts, so a
+      // minute from now it would ask again.
+      const started = Date.now();
+      const member = await scenario.addNode();
+      await scenario.until(
+        "funded",
+        () => fundedInOwnerBook(member),
+        HUB_WITHIN_MS,
+      );
+      const funded = await ledger(member, LEDGER);
       assert(funded.faucet, "the testnet has a faucet");
 
       const page = await browser.newPage();
       const errors: string[] = [];
       page.on("pageerror", (error) => errors.push(String(error)));
-      await signIn(page, d1);
-      await page.goto(`${d1.url}/receive?tab=xrpl-testnet-xrp`, {
+      await signIn(page, member);
+      await page.goto(`${member.url}/receive?tab=${HUB_OWNER_BOOK}`, {
         waitUntil: "load",
       });
       assertEquals(
@@ -121,8 +129,8 @@ test(
       // The faucet made the account a moment ago: it is asked again only a
       // minute on, and the page says why.
       assert(
-        Date.now() - started < FAUCET_PACE_MS,
-        "a minute passed before the page was ready: the node would ask the faucet again",
+        Date.now() - started < FAUCET_PACE_MS - FAUCET_MARGIN_MS,
+        "nearly a minute passed before the page was ready: the node might ask the faucet again",
       );
       await click(page, "faucet");
       await until(
@@ -132,11 +140,10 @@ test(
         (body) => body.includes("the faucet was asked less than a minute ago"),
       );
       await picture(page, "receive-xrp-faucet");
-      // Nothing came from the faucet. The owner's funds may still have paid
-      // a fee meanwhile: the scenario's two nodes peer over XRP, and the
-      // junior's advance settlement goes out whenever the peering is made,
-      // before or after `funded` was read.
-      const after = (await ledger(d1)).ownerBalance;
+      // Nothing came from the faucet. The owner's funds may still have
+      // fallen meanwhile: the member opens its account in the hub by a
+      // deposit from this book, before or after `funded` was read.
+      const after = (await ledger(member, LEDGER)).ownerBalance;
       assert(
         after <= funded.ownerBalance,
         `the owner's funds grew from ${funded.ownerBalance} to ${after}`,

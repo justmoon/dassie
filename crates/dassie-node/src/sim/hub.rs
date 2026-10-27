@@ -44,7 +44,8 @@ use dassie_oer::{Decode, Encode};
 use dassie_xrpl::AccountId;
 use dassie_xrpl::api;
 use dassie_xrpl::codec::{Signer, Transact};
-use dassie_xrpl::fake::FEE_BASE;
+use dassie_xrpl::fake::{FEE_BASE, KeyedSignatures, LIST_SITE};
+use dassie_xrpl::validator_list::UnlConfig;
 
 use super::{Delivery, Sim};
 use crate::engine::LedgerEvent;
@@ -114,23 +115,37 @@ const ABSENCE_MS: Millis = 86_400_000;
 /// longest outage (`consensus/config.rs`).
 #[must_use]
 pub fn terms(validators: usize) -> Terms {
+    terms_of(validators, dassie_hub::rules::Asset::Xrp)
+}
+
+/// [`terms`] of a hub of `asset`: a token hub's charge no ledger fee and
+/// name the least gas in its place, which the escrow pays in XRP
+/// (spec/decisions/token-hubs.md), and count in millionths of the token
+/// what an XRP hub counts in drops.
+#[must_use]
+pub fn terms_of(validators: usize, asset: dassie_hub::rules::Asset) -> Terms {
     let sponsor = sponsor();
     let escrow = escrow_master(&sponsor, TESTNET_NETWORK, &NONCE).account().0;
     let faults = u64::try_from(validators - 1).unwrap() / 3;
     let config = Config::DEFAULT;
     let margin = config.margin_ms(faults);
     let window = Policies::DEFAULT.connector.message_window_ms;
+    let token = asset != dassie_hub::rules::Asset::Xrp;
     Terms {
         version: dassie_hub::rules::HUB_VERSION,
         nonce: NONCE,
         sponsor: sponsor.public_key(),
         network: 1,
         escrow,
-        asset: dassie_hub::rules::Asset::Xrp,
+        asset,
         fees: Fees {
             operation: 10,
-            ledger: 100,
-            gas: 0,
+            ledger: if token { 0 } else { 100 },
+            gas: if token {
+                dassie_hub::rules::LEAST_TOKEN_GAS_DROPS
+            } else {
+                0
+            },
             reserve_share_ppm: 100_000,
             account_reserve: 2_000_000,
             hold_reserve: 200_000,
@@ -165,7 +180,13 @@ pub fn terms(validators: usize) -> Terms {
 /// The rules of the simulated hub with `validators` validators.
 #[must_use]
 pub fn rules(validators: usize) -> Rules {
-    let terms = terms(validators);
+    rules_of(validators, dassie_hub::rules::Asset::Xrp)
+}
+
+/// [`rules`] of a hub of `asset`.
+#[must_use]
+pub fn rules_of(validators: usize, asset: dassie_hub::rules::Asset) -> Rules {
+    let terms = terms_of(validators, asset);
     let acceptances = (0..validators)
         .map(|index| {
             let node = validator_key(index);
@@ -186,7 +207,13 @@ pub fn rules(validators: usize) -> Rules {
 /// The scheme config a member gives the hub's scheme: its rules.
 #[must_use]
 pub fn config(validators: usize) -> String {
-    let hex: String = rules(validators)
+    config_of(validators, dassie_hub::rules::Asset::Xrp)
+}
+
+/// [`config`] of a hub of `asset`.
+#[must_use]
+pub fn config_of(validators: usize, asset: dassie_hub::rules::Asset) -> String {
+    let hex: String = rules_of(validators, asset)
         .to_vec()
         .iter()
         .map(|byte| format!("{byte:02x}"))
@@ -208,6 +235,8 @@ pub struct HubValidator {
     view: Option<EscrowView>,
     /// Its connection to the fake ledger.
     link: Option<u64>,
+    /// The lie each of its connections to the fake ledger tells, if any.
+    lie: Option<dassie_xrpl::fake::Lie>,
     /// How far its clock is off the network's.
     pub skew_ms: i64,
     /// What it does.
@@ -420,7 +449,10 @@ impl Sim {
     /// the precision.
     pub(super) fn found_hub(&mut self, roles: &[Role]) {
         let count = roles.len();
-        let rules = rules(count);
+        let rules = match self.settling {
+            super::Settling::HubDsusd(_) => rules_of(count, super::hub_token::ASSET),
+            _ => rules(count),
+        };
         let master = escrow_master(&sponsor(), TESTNET_NETWORK, &NONCE);
         let escrow = master.account();
         self.ledger.fund(escrow);
@@ -447,6 +479,7 @@ impl Sim {
                 watcher: None,
                 view: None,
                 link: None,
+                lie: None,
                 skew_ms,
                 role,
                 retried: VecDeque::new(),
@@ -515,7 +548,22 @@ impl Sim {
         )
         .unwrap();
         let cursor = validator.store.hub_escrow(rules.id().0.as_bytes()).unwrap();
-        let watcher = Watcher::new(AccountId(rules.terms.escrow), rules.terms.network, cursor);
+        // It trusts the fake's publisher, and checks the validations as the
+        // simulation signs them.
+        let unl = UnlConfig::for_network(rules.terms.network)
+            .and_then(|own| own.with_override(&self.ledger.publishers(LIST_SITE)))
+            .unwrap();
+        let signatures = Box::new(KeyedSignatures::new(super::VALIDATION_SECRET));
+        let watcher = Watcher::new(
+            AccountId(rules.terms.escrow),
+            rules.terms.network,
+            cursor,
+            unl,
+            signatures,
+        );
+        self.ledger
+            .set_lie(connection, self.hub().validators[index].lie);
+        let validator = &mut self.hub_mut().validators[index];
         validator.view = Some(driver.escrow_view());
         validator.driver = Some(driver);
         validator.watcher = Some(watcher);
@@ -1212,6 +1260,18 @@ impl Sim {
                     self.trace
                         .push(format!("{} validator {index}: {problem}", self.now));
                 }
+                // The fake's publisher serves its list at once.
+                Out::Fetch(url) => {
+                    let now = self.validator_now(index);
+                    let body = self.ledger.fetch(&url);
+                    if let Some(watcher) = self.hub_mut().validators[index].watcher.as_mut() {
+                        watcher.fetched(now, &url, body.as_deref());
+                    }
+                }
+                Out::Reconnect => self.reconnect_validator(index),
+            }
+            if let Some(watcher) = self.hub().validators[index].watcher.as_ref() {
+                watcher.check_invariants();
             }
         }
     }
@@ -1260,7 +1320,7 @@ impl Sim {
             return;
         };
         match message {
-            None => watcher.connected(),
+            None => watcher.connected(now),
             Some(bytes) => {
                 let view = driver.escrow_view();
                 watcher.message(now, &bytes, &view);
@@ -1797,5 +1857,56 @@ impl Sim {
             bytes: message,
         };
         self.validator_step(endpoint, input, ReplyTo::Nobody);
+    }
+}
+
+/// Validators' connections to the fake ledger.
+impl Sim {
+    /// Validator `index`'s watcher drops its connection to the fake ledger
+    /// and makes another, as its node does when its verifier asks.
+    fn reconnect_validator(&mut self, index: usize) {
+        self.next_connection += 1;
+        let connection = self.next_connection;
+        let lie = self.hub().validators[index].lie;
+        let validator = &mut self.hub_mut().validators[index];
+        let Some(watcher) = validator.watcher.as_mut() else {
+            return;
+        };
+        watcher.disconnected();
+        let old = validator.link.replace(connection);
+        let generation = validator.generation;
+        if let Some(old) = old {
+            self.ledger.disconnect(old);
+        }
+        self.ledger.set_lie(connection, lie);
+        self.count("validator reconnects");
+        let delay = self.latency();
+        self.schedule(
+            delay,
+            Delivery::ValidatorLedgerEvent {
+                validator: index,
+                generation,
+                connection,
+                message: None,
+            },
+        );
+    }
+
+    /// Validator `index`'s server tells `lie` on every connection from now
+    /// on, or none: the one it has drops, and the next lies
+    /// (spec/designs/xrpl-validation.md#11-the-fake-ledger-the-lying-server-and-the-simulation).
+    /// As [`Sim::lie_to`] makes a member's server lie, but for as long as
+    /// it is told, so a validator's verifier meets the lie again on every
+    /// connection it makes.
+    pub fn lie_to_validator(&mut self, index: usize, lie: Option<dassie_xrpl::fake::Lie>) {
+        self.hub_mut().validators[index].lie = lie;
+        self.count("lying validator servers");
+        self.trace.push(format!(
+            "{} validator {index}'s XRPL server lies: {lie:?}",
+            self.now
+        ));
+        if self.hub().validators[index].watcher.is_some() {
+            self.reconnect_validator(index);
+        }
     }
 }

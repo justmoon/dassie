@@ -50,6 +50,50 @@
   color-scheme: light;
 }
 
+/*
+ * Kopje, Dassie's visual identity (apps/website/brand/index.html), for a
+ * part of a page that already draws in it: the tokens above, taken from
+ * Kopje's palette, light and dusk. Daylight surfaces, Warm Stone rules,
+ * Ink text, Ember for action, and Violet Crystal for value alone, in the
+ * value cube (`ValueCube`), never text or a button. Kopje's fonts are the
+ * website's; here each falls back to the system's.
+ */
+.kopje {
+  --surface: light-dark(#fbf6ee, #2a221d);
+  --surface-2: light-dark(#e6d8c1, #332922);
+  --text: light-dark(#2b2420, #f0e5d3);
+  --muted: light-dark(#5e524a, #b8aa97);
+  --line: light-dark(#cdb89a, #5e4e42);
+  --accent: light-dark(#a94e2a, #e58a57);
+  --accent-text: #fbf6ee;
+  --ember: #a94e2a;
+  --font: "Figtree", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --mono: "DM Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  color: var(--text);
+  font-family: var(--font);
+}
+
+/* Ember fills a button in light and dusk alike: Daylight on Ember reads at
+   5.1:1 in both. */
+.kopje button.primary,
+.kopje a.button.primary {
+  color: var(--accent-text);
+  background: var(--ember);
+  border-color: var(--ember);
+}
+
+/* DM Mono sets amounts, so their digits line up. */
+.kopje .amount {
+  font-family: var(--mono);
+}
+
+/* Kopje's value cube (`ValueCube`), beside a balance. */
+.value-cube {
+  flex: none;
+  width: 24px;
+  height: 24px;
+}
+
 *,
 *::before,
 *::after {

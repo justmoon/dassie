@@ -191,7 +191,7 @@ fn is_hub_line(terms: &Terms, line: &TrustLine) -> bool {
 /// with no quality that would skew what a withdrawal delivers or a deposit
 /// adds, is the reading's: a line with one is not among the lines read
 /// ([`AccountObjects::lines`]).
-fn is_escrow_line(terms: &Terms, line: &TrustLine) -> bool {
+pub(crate) fn is_escrow_line(terms: &Terms, line: &TrustLine) -> bool {
     is_hub_line(terms, line)
         && line.view(AccountId(terms.escrow)).is_some_and(|view| {
             view.ours.no_ripple
@@ -204,6 +204,8 @@ fn is_escrow_line(terms: &Terms, line: &TrustLine) -> bool {
 /// Why an escrow is not one the validators take.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum EscrowFault {
+    /// It has no account, as a validated ledger shows it.
+    NoAccount,
     /// What was read is not as of a validated ledger, or the objects were
     /// read as of an earlier ledger than the settings.
     NotValidated,
@@ -221,6 +223,9 @@ pub enum EscrowFault {
     /// It owns other objects, or more than one page of them: for a token
     /// hub, anything but its signer list and its one line to the issuer.
     Objects,
+    /// A token hub's issuer has no account, or charges a fee on transfers
+    /// between holders: a transfer rate other than par.
+    Issuer,
 }
 
 /// The validators' check of the escrow before the first block, and after a

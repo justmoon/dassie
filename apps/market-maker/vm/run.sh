@@ -5,7 +5,8 @@
 #
 # 1. Sets each node up from its phrase with `dassie setup`, which claims a
 #    fresh node, checks that one set up before is the phrase's, and adds
-#    the node's one settlement scheme if it is missing.
+#    the node's one settlement scheme if it is missing. Neither joins a
+#    settlement hub (`--no-hub`): each settles on its one scheme alone.
 # 2. Writes the market maker's config (crates/dassie-cli/src/market_maker/
 #    config.rs) beside the phrases, from the settings startup.sh wrote
 #    from the instance metadata (MM_*, in /etc/dassie-mm/settings.env).
@@ -22,7 +23,7 @@ dsusd_issuer=rURgPoYNN7tGqBzGXFeCLmKYgpSjYgJP6M
 # setup <node> <scheme>
 setup() {
   DASSIE_IPC_SOCKET_PATH="/run/dassie-mm-$1/dassie.sock" \
-    "$dassie" setup --passphrase-file "$dir/$1.phrase" --scheme "$2"
+    "$dassie" setup --passphrase-file "$dir/$1.phrase" --scheme "$2" --no-hub
 }
 
 setup xrp xrpl-testnet

@@ -52,6 +52,8 @@ fn promised(packet: &[u8]) -> Option<Promised> {
 pub struct HubPeer {
     /// The peer.
     pub peer: Name,
+    /// The hub scheme of the method this is of.
+    pub scheme: Name,
     /// What the scheme holds of the packets between us, if it counts them.
     pub held: dassie_settlement::Held,
     /// The connector's packets to the peer, in flight or waiting for the
@@ -113,13 +115,16 @@ fn listings(memberships: impl IntoIterator<Item = (Name, Membership)>) -> Vec<Hu
 }
 
 impl Core {
-    /// The scheme and the peer's name, if the peering with `node` is over a
-    /// hub: its scheme signs promises per packet. A peering being ended
-    /// counts too, since its packets still resolve
+    /// The scheme and the peer's name, if the peering with `node` has a
+    /// method on `scheme` and it is over a hub: its scheme signs promises
+    /// per packet (spec/decisions/settlement-methods.md). A peering being
+    /// ended counts too, since its packets still resolve
     /// (spec/decisions/ending-a-peering.md), and so does one whose scheme
     /// stopped: its packets are then refused, never let through unchecked.
-    pub(super) fn hub_peering(&self, node: &NodeId) -> Option<(Name, Name)> {
-        let scheme = self.peer.peering_of(node)?.first().scheme;
+    pub(super) fn hub_peering(&self, node: &NodeId, scheme: SchemeId) -> Option<(Name, Name)> {
+        if !self.peer.peering_of(node)?.has(scheme) {
+            return None;
+        }
         let scheme = Name::new(scheme.as_str()).ok()?;
         let over_hub = self.schemes.get(&scheme)?.over_hub;
         over_hub
@@ -175,7 +180,7 @@ impl Core {
             let mut peers: std::collections::BTreeSet<Name> =
                 held.iter().map(|(peer, _)| *peer).collect();
             for (node, peering) in self.peer.peers() {
-                if peering.first().scheme.as_str() == scheme.as_str()
+                if peering.schemes().any(|of| of.as_str() == scheme.as_str())
                     && let Ok(name) = Name::new(node.as_str())
                 {
                     peers.insert(name);
@@ -199,6 +204,7 @@ impl Core {
                 let books = self.hub_books(scheme, node);
                 out.push(HubPeer {
                     peer,
+                    scheme,
                     held: held
                         .iter()
                         .find(|(name, _)| *name == peer)
@@ -248,13 +254,16 @@ impl Core {
         if !self.schemes.values().any(|active| active.over_hub) {
             return;
         }
+        // Each method over a hub of each peering: the credit and the holds
+        // are the method's, on its own ledger.
         let peerings: Vec<(Name, NodeId)> = self
             .peer
             .peers()
-            .filter_map(|(node, peering)| {
-                let scheme = Name::new(peering.first().scheme.as_str()).ok()?;
+            .flat_map(|(node, peering)| peering.schemes().map(move |scheme| (*node, scheme)))
+            .filter_map(|(node, scheme)| {
+                let scheme = Name::new(scheme.as_str()).ok()?;
                 let active = self.schemes.get(&scheme)?;
-                (active.over_hub && active.failed.is_none()).then_some((scheme, *node))
+                (active.over_hub && active.failed.is_none()).then_some((scheme, node))
             })
             .collect();
         for (scheme, node) in peerings {
@@ -340,20 +349,22 @@ impl Core {
         active.scheme.commitments().map(f)
     }
 
-    /// As the payer: signs the commitment for our Prepare to a peer over a
-    /// hub and sends both. `None` if the peer is not over a hub. A packet the
-    /// scheme will not commit to, as when the hold has no room, is refused
-    /// for liquidity; one committed to that could not be sent is forgotten
-    /// by the scheme at once, as nothing reached the peer.
+    /// As the payer: signs the commitment for our Prepare to a peer on its
+    /// method on `method`, over a hub, and sends both. `None` if the method
+    /// is not over a hub. A packet the scheme will not commit to, as when
+    /// the hold has no room, is refused for liquidity, and never moved to
+    /// another method (spec/decisions/settlement-methods.md); one committed
+    /// to that could not be sent is forgotten by the scheme at once, as
+    /// nothing reached the peer.
     pub(super) fn send_over_hub(
         &mut self,
         now: u64,
-        node: &NodeId,
+        (node, method): (&NodeId, SchemeId),
         request_id: u32,
         packet: &[u8],
         timeout_ms: u64,
     ) -> Option<HubSent> {
-        let (scheme, peer) = self.hub_peering(node)?;
+        let (scheme, peer) = self.hub_peering(node, method)?;
         let Some(promise) = promised(packet) else {
             return Some(HubSent::Refused);
         };
@@ -366,9 +377,15 @@ impl Core {
         if !committed || commitment.is_empty() {
             return Some(HubSent::Refused);
         }
-        let sent =
-            self.peer
-                .send_hub_packet(now, node, request_id, packet, &commitment, timeout_ms);
+        let sent = self.peer.send_method_packet(
+            now,
+            node,
+            method,
+            request_id,
+            packet,
+            &commitment,
+            timeout_ms,
+        );
         if sent.is_err() {
             self.with_commitments(scheme, |c| c.on_answered(peer, request_id));
             return Some(HubSent::Unreachable);
@@ -376,17 +393,17 @@ impl Core {
         Some(HubSent::Sent)
     }
 
-    /// As the payee: tells the scheme what became of a peer's Prepare we
-    /// answered: a fulfillment it keeps until a claim covers it, or a
-    /// release.
+    /// As the payee: tells the scheme of `method` what became of a peer's
+    /// Prepare on it we answered: a fulfillment it keeps until a claim
+    /// covers it, or a release.
     pub(super) fn answered_over_hub(
         &mut self,
         now: u64,
-        node: &NodeId,
+        (node, method): (&NodeId, SchemeId),
         request_id: u32,
         packet: &[u8],
     ) {
-        let Some((scheme, peer)) = self.hub_peering(node) else {
+        let Some((scheme, peer)) = self.hub_peering(node, method) else {
             return;
         };
         match Response::decode_exact(packet) {
@@ -403,8 +420,10 @@ impl Core {
         }
     }
 
-    /// As the payee: checks a peer's commitment for its Prepare before we
-    /// forward it. A packet the commitment does not cover is rejected at
+    /// As the payee: checks a peer's commitment for its Prepare on its
+    /// method on `method` before we forward it; one on a method that is not
+    /// over a hub needs none. A packet the commitment does not cover is
+    /// rejected at
     /// once, as one beyond a peer's credit is (T04). So is one that came
     /// without a commitment, which the peer protocol hands on for the node
     /// to judge: the node does not yet take Prepares on what a peer with no
@@ -413,19 +432,21 @@ impl Core {
         &mut self,
         now: u64,
         node: &NodeId,
+        method: SchemeId,
         request_id: u32,
         packet: &[u8],
         commitment: Option<&[u8]>,
     ) -> bool {
-        let Some((scheme, peer)) = self.hub_peering(node) else {
+        let Some((scheme, peer)) = self.hub_peering(node, method) else {
             return true;
         };
         // A Prepare that does not decode is the connector's to answer.
         let Some(promise) = promised(packet) else {
             return true;
         };
+        let refused = "the hold does not cover the packet";
         let Some(commitment) = commitment else {
-            self.reject_hub_prepare(now, node, request_id);
+            self.refuse_prepare(now, node, request_id, refused);
             return false;
         };
         let accepted = self
@@ -434,16 +455,24 @@ impl Core {
             })
             .is_some_and(|result| result.is_ok());
         if !accepted {
-            self.reject_hub_prepare(now, node, request_id);
+            self.refuse_prepare(now, node, request_id, refused);
         }
         accepted
     }
 
-    fn reject_hub_prepare(&mut self, now: u64, node: &NodeId, request_id: u32) {
+    /// Rejects a peer's Prepare before the connector sees it, for want of
+    /// room on its method (T04), saying `message`.
+    pub(super) fn refuse_prepare(
+        &mut self,
+        now: u64,
+        node: &NodeId,
+        request_id: u32,
+        message: &str,
+    ) {
         let reject = dassie_ilp::Reject {
             code: ErrorCode::T04_INSUFFICIENT_LIQUIDITY,
             triggered_by: Address::parse(self.connector.own_address()).ok(),
-            message: "the hold does not cover the packet",
+            message,
             data: &[],
         };
         let length = dassie_oer::Encode::encode(&reject, &mut self.scratch);
@@ -452,17 +481,18 @@ impl Core {
     }
 
     /// As the payer: the claim that goes in our reply to a peer's Fulfill
-    /// of our Prepare `request_id`; `taken` says whether our books took the
-    /// Fulfill.
+    /// of our Prepare `request_id`, which went on its method on `method`;
+    /// `taken` says whether our books took the Fulfill.
     pub(super) fn hub_claim(
         &mut self,
         now: u64,
         node: &NodeId,
+        method: SchemeId,
         request_id: u32,
         taken: bool,
     ) -> Vec<u8> {
         let mut claim = Vec::new();
-        if let Some((scheme, peer)) = self.hub_peering(node) {
+        if let Some((scheme, peer)) = self.hub_peering(node, method) {
             self.with_commitments(scheme, |c| {
                 c.claim(now, peer, request_id, taken, &mut claim)
             });
@@ -474,23 +504,26 @@ impl Core {
         claim
     }
 
-    /// As the payer: a peer rejected our Prepare `request_id`, or it never
-    /// reached the peer: what the scheme kept for it is forgotten.
-    pub(super) fn hub_rejected(&mut self, node: &NodeId, request_id: u32) {
-        if let Some((scheme, peer)) = self.hub_peering(node) {
+    /// As the payer: a peer rejected our Prepare `request_id` on its method
+    /// on `method`, or it never reached the peer: what the scheme kept for
+    /// it is forgotten.
+    pub(super) fn hub_rejected(&mut self, node: &NodeId, method: SchemeId, request_id: u32) {
+        if let Some((scheme, peer)) = self.hub_peering(node, method) {
             self.with_commitments(scheme, |c| c.on_answered(peer, request_id));
         }
     }
 
-    /// As the payee: the claim a peer sent in its reply to our Fulfill.
+    /// As the payee: the claim a peer sent in its reply to our Fulfill of
+    /// its Prepare on its method on `method`.
     pub(super) fn hub_claim_received(
         &mut self,
         now: u64,
         node: &NodeId,
+        method: SchemeId,
         request_id: u32,
         claim: &[u8],
     ) {
-        if let Some((scheme, peer)) = self.hub_peering(node) {
+        if let Some((scheme, peer)) = self.hub_peering(node, method) {
             self.with_commitments(scheme, |c| c.on_claim(now, peer, request_id, claim));
         }
     }
@@ -524,7 +557,11 @@ impl Core {
         let Some(node) = self.endpoint_peers.get(&endpoint).copied() else {
             return;
         };
-        if let Some((scheme, peer)) = self.hub_peering(&node) {
+        // Our packets to it take its endpoint's method.
+        let Some(method) = self.packet_method(&node) else {
+            return;
+        };
+        if let Some((scheme, peer)) = self.hub_peering(&node, method) {
             self.with_commitments(scheme, |c| {
                 c.on_hub_wait(now, peer, wait.request_id, wait.condition, wait.backstop_ms);
             });
@@ -545,10 +582,11 @@ impl Core {
         }
     }
 
-    /// As the payee: a Prepare whose commitment we took never reached the
-    /// connector, so nothing will answer it: the scheme lets it go.
-    pub(super) fn hub_prepare_dropped(&mut self, node: &NodeId, request_id: u32) {
-        if let Some((scheme, peer)) = self.hub_peering(node) {
+    /// As the payee: a Prepare on the method on `method` whose commitment
+    /// we took never reached the connector, so nothing will answer it: the
+    /// scheme lets it go.
+    pub(super) fn hub_prepare_dropped(&mut self, node: &NodeId, method: SchemeId, request_id: u32) {
+        if let Some((scheme, peer)) = self.hub_peering(node, method) {
             self.with_commitments(scheme, |c| c.on_released(peer, request_id));
         }
     }

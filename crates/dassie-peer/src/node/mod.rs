@@ -888,9 +888,9 @@ impl PeerNode {
 
     /// Sends an ILP Prepare to a peer on the peering's first method, which
     /// takes no commitment, in a `methodPacket`. Its Fulfill or Reject
-    /// comes back as any packet's does. A node that keeps one method per
-    /// peering sends every Prepare so, or with
-    /// [`send_hub_packet`](Self::send_hub_packet).
+    /// comes back as any packet's does. A Prepare on another method, or
+    /// with a commitment, goes with
+    /// [`send_method_packet`](Self::send_method_packet).
     ///
     /// # Errors
     ///

@@ -214,21 +214,28 @@ pub fn outgoing_flows(sim: &Sim) -> impl Iterator<Item = Flow> + '_ {
 }
 
 /// Once the network is calm, no node's books show an honest peer still at
-/// its ask point: asked, the peer settled (spec/decisions/own-fulfills.md,
+/// its ask point on any method: asked, the peer settled
+/// (spec/decisions/own-fulfills.md,
 /// spec/areas/settlement.md#asking-a-peer-to-settle).
 pub fn check_settled(sim: &Sim) -> Result<(), String> {
     for index in 0..sim.nodes.len() {
         for peer in sim.core(index).network().peers {
-            let Some(owed) = peer.owed.filter(|_| peer.termination.is_none()) else {
+            if peer.termination.is_some() {
                 continue;
-            };
-            let credit = peer.peering.first().credit_out;
-            let position = u128::try_from(owed + i128::from(credit)).unwrap();
-            if policy::ask(position, TRIGGER) {
-                return Err(format!(
-                    "node {index}'s room for {} is {position} of {credit}: it never settled",
-                    peer.id
-                ));
+            }
+            for (method, owed) in peer.peering.methods.iter().zip(&peer.owed_by_method) {
+                let Some(owed) = *owed else {
+                    continue;
+                };
+                let credit = method.credit_out;
+                let position = u128::try_from(owed + i128::from(credit)).unwrap();
+                if policy::ask(position, TRIGGER) {
+                    return Err(format!(
+                        "node {index}'s room for {} on {} is {position} of {credit}: it never \
+                         settled",
+                        peer.id, method.scheme,
+                    ));
+                }
             }
         }
     }
@@ -297,8 +304,8 @@ pub fn drifted_past(sim: &mut Sim) -> Option<String> {
         .map(|link| link.describe())
 }
 
-/// The credit node `index` extends node `other`, and its room for it, while
-/// they are peered.
+/// The credit node `index` extends node `other` on the method their
+/// packets take, and its room for it there, while they are peered.
 fn room(sim: &Sim, index: usize, other: usize) -> Option<(u64, u128)> {
     let id = key(other).node_id();
     let peer = sim.nodes[index]
@@ -309,7 +316,7 @@ fn room(sim: &Sim, index: usize, other: usize) -> Option<(u64, u128)> {
         .into_iter()
         .find(|peer| peer.id == id)?;
     let owed = peer.owed?;
-    let credit = peer.peering.first().credit_out;
+    let credit = peer.peering.method(peer.carried)?.credit_out;
     Some((
         credit,
         u128::try_from(owed + i128::from(credit)).unwrap_or(0),
@@ -704,16 +711,23 @@ pub fn check_anchored(sim: &Sim) -> Result<(), String> {
     Ok(())
 }
 
+/// Whether node `index` books `ledger`: one it pays over, or an owner book
+/// a DSUSD hub's member funds its account in the hub from, and pays the
+/// escrow's gas from.
+fn books(sim: &Sim, index: usize, ledger: LedgerId) -> bool {
+    sim.settling.ledgers(index).contains(&ledger)
+        || matches!(sim.settling, Settling::HubDsusd(_)) && (ledger == XRP || ledger == DSUSD)
+}
+
 /// On the XRP Ledger, the faucet funded every node, and on a token the
 /// issuer minted to every node: an owner's books that match a deposit of
 /// nothing would pass the other checks.
 pub fn check_funded(sim: &Sim) -> Result<(), String> {
     // A node on either XRPL scheme has an account the faucet funds.
     let on_xrpl = |index: &usize| {
-        sim.settling
-            .ledgers(*index)
-            .iter()
-            .any(|ledger| [XRP, LIVE_XRP, RLUSD, DSUSD].contains(ledger))
+        [XRP, LIVE_XRP, RLUSD, DSUSD]
+            .into_iter()
+            .any(|ledger| books(sim, *index, ledger))
     };
     if let Some(index) = (0..sim.nodes.len())
         .filter(on_xrpl)
@@ -726,7 +740,7 @@ pub fn check_funded(sim: &Sim) -> Result<(), String> {
     };
     let minted = |index: &usize| sim.issued.get(index).is_some_and(|(minted, _)| *minted > 0);
     match (0..sim.nodes.len())
-        .filter(|index| sim.settling.ledgers(*index).contains(&token))
+        .filter(|index| books(sim, *index, token))
         .find(|index| !minted(index))
     {
         Some(index) => Err(format!("node {index} was never minted on {token}")),
@@ -741,8 +755,7 @@ pub fn check_pegged(sim: &Sim) -> Result<(), String> {
     let Some((token, _)) = sim.settling.token() else {
         return Ok(());
     };
-    for index in (0..sim.nodes.len()).filter(|index| sim.settling.ledgers(*index).contains(&token))
-    {
+    for index in (0..sim.nodes.len()).filter(|index| books(sim, *index, token)) {
         let peg = sim
             .core(index)
             .ledger_views()
@@ -830,13 +843,21 @@ fn check_fake_ledger(sim: &Sim) -> Result<(), String> {
 
 /// Each node books in settlement what its scheme holds, on the XRP Ledger
 /// exactly its account's balance less the reserve, on a token exactly its
-/// line, and the underlying ledger neither made nor lost money.
+/// line, and the underlying ledger neither made nor lost money. On the stub
+/// with unlimited trust nothing settles, so each node's stub holds what it
+/// started with.
 pub fn check_ledgers(sim: &Sim) -> Result<(), String> {
     let count = sim.nodes.len();
     let ledger = sim.settling.ledger();
     let mut stubs = 0i128;
     for index in 0..count {
-        stubs += check_held(sim, index, ledger)?;
+        let held = check_held(sim, index, ledger)?;
+        if sim.settling == Settling::Trusting && held != Settling::deposit(USD) {
+            return Err(format!(
+                "node {index}'s stub holds {held} on unlimited trust, which never settles"
+            ));
+        }
+        stubs += held;
     }
     if sim.settling.on_stub() {
         let total = Settling::deposit(USD) * i128::try_from(count).unwrap();
@@ -934,6 +955,7 @@ fn check_assets(sim: &Sim) -> Result<(), String> {
     let ledgers: &[LedgerId] = match sim.settling {
         Settling::XrpRlusd => &[RLUSD, LIVE_XRP],
         Settling::XrpDsusd => &[DSUSD, XRP],
+        Settling::HubAcross(_) => &[USD, super::HUB],
         _ => &[USD, XRP],
     };
     for &ledger in ledgers {

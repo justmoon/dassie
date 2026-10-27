@@ -171,7 +171,16 @@ impl OpensAccounts for PacketOpening<'_> {
             .peer
             .peering_of(&node)
             .filter(|_| self.peer.is_downlink(&node))?;
-        let scheme = Name::new(peering.first().scheme.as_str()).ok()?;
+        // The credit its method on `on` starts with: the scheme's that
+        // serves that ledger.
+        let scheme = peering
+            .schemes()
+            .filter_map(|scheme| Name::new(scheme.as_str()).ok())
+            .find(|scheme| {
+                self.schemes
+                    .get(scheme)
+                    .is_some_and(|active| active.scheme.ledger() == on)
+            })?;
         let start = start_credit(self.schemes, scheme, self.senior_credit);
         let opened = self.opening.open(now_ms, ledger, node, on, start)?;
         self.last = opened.new.then_some((node, opened));
@@ -287,9 +296,10 @@ impl Core {
         let Some(opened) = opening.open(self.now_ms, &mut self.ledger, node, on, start) else {
             return false;
         };
-        // Its packets book on them from now on, if it peers on this ledger.
-        let peered_here = self.peer.peering_of(&node).is_some_and(|peering| {
-            Name::new(peering.first().scheme.as_str()).is_ok_and(|peered| {
+        // Its packets book on them from now on, if they take a method on
+        // this ledger: its endpoint's.
+        let peered_here = self.endpoint_methods.get(&node).is_some_and(|method| {
+            Name::new(method.as_str()).is_ok_and(|peered| {
                 self.schemes
                     .get(&peered)
                     .is_some_and(|active| active.scheme.ledger() == on)

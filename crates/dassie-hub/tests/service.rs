@@ -93,6 +93,11 @@ struct Network {
     /// Whether shares to validator 0 wait in `held` until released.
     hold_shares: bool,
     held: Vec<(PeerId, Vec<u8>)>,
+    /// Whether shares to every validator wait in `held_all` until released.
+    hold_every_share: bool,
+    held_all: Vec<(usize, PeerId, Vec<u8>)>,
+    /// How many escrow signatures of withdrawals each validator shared.
+    shares_sent: Vec<usize>,
     payouts: usize,
     /// A validator cut off from the others: nothing reaches it or leaves it.
     cut: Option<usize>,
@@ -115,8 +120,14 @@ struct Network {
 
 impl Network {
     fn new() -> Self {
+        Self::with_terms(|_| {})
+    }
+
+    /// A network of a hub whose terms `adjust` changes.
+    fn with_terms(adjust: impl FnOnce(&mut Terms)) -> Self {
         let sponsor = NodeKey::from_bytes(&[100; 32]);
-        let terms = terms(&sponsor);
+        let mut terms = terms(&sponsor);
+        adjust(&mut terms);
         let nodes: Vec<NodeKey> = (1..=4).map(|i| NodeKey::from_bytes(&[i; 32])).collect();
         let acceptances: Vec<Acceptance> = nodes
             .iter()
@@ -160,6 +171,9 @@ impl Network {
             submitted: Vec::new(),
             hold_shares: false,
             held: Vec::new(),
+            hold_every_share: false,
+            held_all: Vec::new(),
+            shares_sent: vec![0; 4],
             payouts: 0,
             cut: None,
             behind: Vec::new(),
@@ -177,8 +191,10 @@ impl Network {
             let sender = PeerId(u64::try_from(from).unwrap());
             match action {
                 Action::Validators(bytes) => {
-                    if matches!(Message::decode_exact(&bytes), Ok(Message::Operation(_))) {
-                        self.operations[from] += 1;
+                    match Message::decode_exact(&bytes) {
+                        Ok(Message::Operation(_)) => self.operations[from] += 1,
+                        Ok(Message::Share { .. }) => self.shares_sent[from] += 1,
+                        _ => {}
                     }
                     for to in (0..self.validators.len()).filter(|to| *to != from) {
                         self.queue.push_back((to, sender, bytes.clone()));
@@ -268,6 +284,10 @@ impl Network {
                 let share = matches!(Message::decode_exact(&bytes), Ok(Message::Share { .. }));
                 if self.hold_shares && to == 0 && share {
                     self.held.push((from, bytes));
+                    continue;
+                }
+                if self.hold_every_share && share {
+                    self.held_all.push((to, from, bytes));
                     continue;
                 }
                 let node = self.nodes.get(usize::try_from(from.0).unwrap()).copied();
@@ -1049,4 +1069,254 @@ fn what_a_host_did_not_write_together_does_not_resume() {
         Validator::resume(stranger, stored, ledger, net.now).err(),
         Some(ResumeError::NotAValidator)
     );
+}
+
+/// `terms` as a DSUSD hub's: the token, no ledger fee but the least gas in
+/// its place, and a least payout of a millionth.
+fn token(terms: &mut Terms) {
+    terms.asset = dassie_hub::rules::Asset::Token {
+        currency: dassie_xrpl::dsusd::CURRENCY,
+        issuer: dassie_xrpl::dsusd::ISSUER,
+    };
+    terms.fees.gas = dassie_hub::rules::LEAST_TOKEN_GAS_DROPS;
+    terms.fees.ledger = 0;
+    terms.fees.least_payout = 1;
+}
+
+/// The issuer's hold on the escrow as of `ledger`: frozen or not.
+fn issuer(ledger: u32, frozen: bool) -> ValidatorOperation {
+    ValidatorOperation::AttestIssuer(dassie_hub::operation::Issuer {
+        ledger,
+        frozen,
+        fee: false,
+    })
+}
+
+/// A quorum of the validators (every one) attests that the issuer froze
+/// the escrow's line, or thawed it, and the hub runs until it is final.
+fn attest_issuer(net: &mut Network, ledger: u32, frozen: bool) {
+    net.attest_all(&issuer(ledger, frozen));
+    net.run(1_000);
+    for validator in &net.validators {
+        assert_eq!(validator.ledger().issuer().holds(), frozen);
+        assert_eq!(validator.ledger().frozen().is_some(), frozen);
+    }
+}
+
+/// The issuer's hold each validator's answer to `Since` ends with, before
+/// its final block.
+fn issuer_told(net: &mut Network, account: AccountNumber) -> Vec<Statement> {
+    net.member.clear();
+    net.request(&Request::Since { account, from: 1 });
+    assert_eq!(net.member.len(), 4, "each answers in one message");
+    net.member
+        .iter()
+        .map(|bytes| {
+            let Ok(Message::Statements(list)) = Message::decode_exact(bytes) else {
+                panic!("not statements");
+            };
+            let [.., issuer, last] = list.as_slice() else {
+                panic!("too short");
+            };
+            assert!(matches!(last.statement, Statement::Final { .. }));
+            issuer.statement.clone()
+        })
+        .collect()
+}
+
+// spec/areas/hubs.md#a-frozen-hub: a token hub's validators state the
+// issuer's hold in every answer to `Since`, so members read a freeze and
+// its thaw from what f + 1 of them sign alike.
+#[test]
+fn a_token_hubs_validators_tell_members_of_a_freeze() {
+    let mut net = Network::with_terms(token);
+    let (number, _) = member(&mut net, 31);
+    for told in issuer_told(&mut net, number) {
+        assert!(matches!(
+            told,
+            Statement::Issuer {
+                frozen: None,
+                held: false,
+                ..
+            }
+        ));
+    }
+    attest_issuer(&mut net, 20, true);
+    let frozen = net.validators[0].ledger().frozen();
+    let told = issuer_told(&mut net, number);
+    assert!(told.iter().all(|t| *t == told[0]), "all alike");
+    assert!(matches!(
+        told[0],
+        Statement::Issuer { frozen: f, held: true, .. } if f == frozen && f.is_some()
+    ));
+    attest_issuer(&mut net, 21, false);
+    for told in issuer_told(&mut net, number) {
+        assert!(matches!(
+            told,
+            Statement::Issuer {
+                frozen: None,
+                held: false,
+                ..
+            }
+        ));
+    }
+}
+
+// spec/decisions/token-hubs.md: while the issuer holds a token hub's
+// escrow, no validator signs a withdrawal or submits one a quorum signed,
+// shares signed before the freeze included: its Payment would fail on the
+// frozen line and use the escrow's sequence. After the thaw each signs
+// what it had not, and the withdrawal goes to the XRP Ledger.
+#[test]
+fn a_frozen_token_hub_signs_and_submits_no_withdrawal_until_the_thaw() {
+    let mut net = Network::with_terms(token);
+    let (number, key) = member(&mut net, 31);
+    let hub = *net.validators[0].ledger().hub();
+    let withdraw = MemberOperation::Withdraw {
+        amount: 5_000_000,
+        to: Destination {
+            account: [9; 20],
+            tag: None,
+        },
+    };
+    let op = Operation::Member(SignedMemberOperation::sign(
+        &hub, number, 1, 10, withdraw, &key,
+    ));
+    // Each validator signs the withdrawal it sequenced, but its share
+    // reaches no other before the freeze.
+    net.hold_every_share = true;
+    net.request(&Request::Submit(op));
+    net.run(1_000);
+    assert_eq!(net.validators[0].ledger().withdrawals().count(), 1);
+    assert_eq!(net.shares_sent, [1; 4], "each signed it once");
+    attest_issuer(&mut net, 20, true);
+
+    // The shares arrive during the freeze, and validator 3 forgets its own
+    // in a restart: nothing is submitted, and nothing signed again.
+    net.restart(3);
+    for (to, from, bytes) in std::mem::take(&mut net.held_all) {
+        net.queue.push_back((to, from, bytes));
+    }
+    net.hold_every_share = false;
+    net.run(2_000);
+    assert!(net.submitted.is_empty(), "nothing submitted while frozen");
+    assert_eq!(net.shares_sent, [1; 4], "nothing signed while frozen");
+
+    // The thaw: validator 3 signs again, and the withdrawal goes out.
+    attest_issuer(&mut net, 21, false);
+    assert_eq!(net.shares_sent, [1, 1, 1, 2]);
+    assert!(!net.submitted.is_empty(), "submitted after the thaw");
+    use dassie_xrpl::codec::{Payment, Transact};
+    for (_, blob) in &net.submitted {
+        assert!(Payment::decode(blob).unwrap().signatures_valid());
+    }
+    let mut who: Vec<usize> = net.submitted.iter().map(|(from, _)| *from).collect();
+    who.sort_unstable();
+    who.dedup();
+    assert_eq!(who.len(), net.submitted.len(), "each submits it once");
+}
+
+// spec/decisions/token-hubs.md: a stall while the issuer holds the escrow
+// pays out after the thaw. Validators that stall together at a frozen
+// block sign no payout set; one that stalled alone at a frozen block signs
+// none until it learns of a block that thawed the hub.
+#[test]
+fn a_stall_while_frozen_signs_no_payout_set_until_a_thaw() {
+    let stall = Network::with_terms(token).rules.terms.timers.stall;
+
+    // The whole hub stalls while frozen.
+    let mut net = Network::with_terms(token);
+    member(&mut net, 31);
+    attest_issuer(&mut net, 20, true);
+    net.no_finality = true;
+    net.now += stall + 1;
+    net.run(1_000);
+    assert!(net.validators.iter().all(|v| v.engine().is_stalled()));
+    assert!(net.payout_heights.is_empty(), "no set while frozen");
+
+    // Validator 3 stalls alone while frozen; the others thaw the hub.
+    let mut net = Network::with_terms(token);
+    member(&mut net, 31);
+    attest_issuer(&mut net, 20, true);
+    net.cut = Some(3);
+    net.run(1_000);
+    let later = net.now + stall + 1;
+    net.validators[3].tick(later);
+    net.collect(3);
+    assert!(net.validators[3].engine().is_stalled());
+    assert!(net.payout_heights.is_empty(), "no set while frozen");
+    for i in 0..3 {
+        net.validators[i].attest(net.now, issuer(21, false));
+        net.collect(i);
+    }
+    net.run(1_000);
+    assert!(!net.validators[0].ledger().issuer().holds());
+    assert!(net.validators[3].ledger().issuer().holds());
+    assert!(net.payout_heights.is_empty());
+    net.cut = None;
+    net.run(5_000);
+    assert!(
+        !net.validators[3].ledger().issuer().holds(),
+        "it learns of the thaw"
+    );
+    let signed: Vec<u64> = net
+        .payout_heights
+        .iter()
+        .filter(|(v, _)| *v == 3)
+        .map(|(_, height)| *height)
+        .collect();
+    assert_eq!(signed.len(), 1, "one set, of a thawed block: {signed:?}");
+    assert_eq!(net.payout_heights.len(), 1, "the others carry on");
+}
+
+// spec/areas/hubs.md#the-validators-service: a freeze credits no deposit,
+// so each validator's share of the pending table fills and the deposits
+// after it fail for want of room. Each validator attests them again after
+// the thaw, and every deposit is credited once.
+#[test]
+fn deposits_a_freeze_left_without_room_are_credited_once_after_the_thaw() {
+    let mut net = Network::with_terms(token);
+    net.attest_all(&ValidatorOperation::AttestEscrow { sequence: 5 });
+    net.run(1_000);
+    attest_issuer(&mut net, 20, true);
+    let share = usize::try_from(net.rules.terms.limits.pending_deposits).unwrap() / 4;
+    let count = share + 6;
+    let amount = 50_000_000;
+    let keys: Vec<NodeKey> = (0..count)
+        .map(|i| NodeKey::from_bytes(&[u8::try_from(i).unwrap() + 40; 32]))
+        .collect();
+    for (i, key) in keys.iter().enumerate() {
+        let deposit = Deposit {
+            transaction: Digest([u8::try_from(i).unwrap() + 40; 32]),
+            ledger: 30,
+            amount,
+            sender: [3; 20],
+            tag: 0,
+            key: Some(key.public_key()),
+        };
+        net.attest_all(&ValidatorOperation::AttestDeposit(deposit));
+        net.run(200);
+    }
+    net.run(1_000);
+    let ledger = net.validators[0].ledger();
+    assert_eq!(ledger.supply(), 0, "nothing credited while frozen");
+    assert_eq!(
+        ledger.deposit_room(dassie_hub::validators::ValidatorIndex::new(0).unwrap()),
+        0,
+        "the share is full"
+    );
+
+    attest_issuer(&mut net, 21, false);
+    net.run(2_000);
+    for validator in &net.validators {
+        let ledger = validator.ledger();
+        for key in &keys {
+            assert!(ledger.account_of(&key.public_key()).is_some());
+        }
+        assert_eq!(
+            ledger.supply(),
+            amount * u64::try_from(count).unwrap(),
+            "each credited once"
+        );
+    }
 }

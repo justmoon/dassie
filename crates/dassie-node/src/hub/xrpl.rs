@@ -1,6 +1,9 @@
 //! A hub's escrow on the validator's own XRPL server: one WebSocket per
 //! hub, carrying out what its [`Watcher`] decides, and made again when it
-//! drops, backing off from 1 s to 60 s.
+//! drops or the watcher's verifier asks for a new one, backing off from
+//! 1 s to 60 s. The watcher's proof requests go on the same WebSocket; the
+//! validator list publishers' sites it fetches over HTTPS with the node's
+//! client, as an XRPL account's lists are fetched.
 //!
 //! `wss://` connects with the node's TLS trust; `ws://` only where private
 //! addresses are allowed (dev and tests). Names resolve as for the node's
@@ -12,8 +15,11 @@ use std::time::Duration;
 use dassie_hub::HubId;
 use dassie_hub::operation::ValidatorOperation;
 use dassie_xrpl::AccountId;
+use dassie_xrpl::unl::Secp256k1Signatures;
+use dassie_xrpl::validator_list::{MAX_LIST_BYTES, UnlConfig};
 use futures_util::{SinkExt, StreamExt};
 use tokio::io::{AsyncRead, AsyncWrite};
+use tokio::sync::mpsc;
 use tokio_tungstenite::WebSocketStream;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_util::sync::CancellationToken;
@@ -23,7 +29,7 @@ use super::escrow::{Out, Watcher};
 use super::service::EscrowLinks;
 use crate::clock::{Clock, clock_moved};
 use crate::log::target;
-use crate::outbound::{OutboundClient, WebSocket};
+use crate::outbound::{OutboundClient, WebRequest, WebSocket};
 use crate::store::Store;
 
 /// Most bytes in one message from the server.
@@ -38,6 +44,17 @@ const MAX_WAITING_ATTESTATIONS: usize = 256;
 /// How often the watcher's timers are looked at on the system clock; a
 /// clock moved by hand has them looked at whenever it moves.
 const TICK: Duration = Duration::from_secs(1);
+
+/// How long a fetch of a validator list may take: well within the time the
+/// verifier gives it ([`dassie_xrpl::lists::FETCH_TIMEOUT_MS`]), so its
+/// answer still counts.
+const FETCH_TIMEOUT_MS: u64 = dassie_xrpl::lists::FETCH_TIMEOUT_MS / 2;
+
+/// The most fetches whose answers wait for the watcher: one per publisher.
+const MAX_FETCHED: usize = dassie_xrpl::validator_list::MAX_PUBLISHERS;
+
+/// A fetch's site and the body that came, if one did.
+type Fetched = (String, Option<Vec<u8>>);
 
 /// Follows one hub's escrow until shutdown.
 pub struct Follow {
@@ -55,6 +72,9 @@ pub struct Follow {
     pub links: EscrowLinks,
     /// Attestations the validator's queue had no room for yet, in order.
     pub retry: std::collections::VecDeque<(ValidatorOperation, Option<[u8; 32]>)>,
+    /// The validator list publishers whose UNL the escrow's ledgers are
+    /// proven under.
+    pub unl: UnlConfig,
 }
 
 impl Follow {
@@ -69,7 +89,14 @@ impl Follow {
                 None
             }
         };
-        let mut watcher = Watcher::new(escrow, rules.terms.network, cursor);
+        let mut watcher = Watcher::new(
+            escrow,
+            rules.terms.network,
+            cursor,
+            self.unl.clone(),
+            Box::new(Secp256k1Signatures),
+        );
+        let (fetches, mut fetched) = mpsc::channel(MAX_FETCHED);
         let mut backoff = BACKOFF_MIN;
         loop {
             let connected = tokio::select! {
@@ -82,8 +109,9 @@ impl Follow {
                 Ok(socket) => {
                     backoff = BACKOFF_MIN;
                     tracing::info!(target: target::HUB, hub = %hex(self.hub.0.as_bytes()), url = %self.url, "following the hub's escrow");
-                    watcher.connected();
-                    self.serve(socket, &mut watcher, &shutdown).await;
+                    watcher.connected(self.clock.now_ms());
+                    self.serve(socket, &mut watcher, &fetches, &mut fetched, &shutdown)
+                        .await;
                     watcher.disconnected();
                     self.links.connected.send_replace(false);
                 }
@@ -124,6 +152,8 @@ impl Follow {
         &mut self,
         mut socket: WebSocketStream<S>,
         watcher: &mut Watcher,
+        fetches: &mpsc::Sender<Fetched>,
+        fetched: &mut mpsc::Receiver<Fetched>,
         shutdown: &CancellationToken,
     ) where
         S: AsyncRead + AsyncWrite + Unpin,
@@ -132,7 +162,8 @@ impl Follow {
         let mut tick = tokio::time::interval(TICK);
         let mut moves = clock.subscribe();
         loop {
-            if !self.flush(&mut socket, watcher).await {
+            if !self.flush(&mut socket, watcher, fetches).await {
+                let _ = socket.close(None).await;
                 return;
             }
             tokio::select! {
@@ -156,6 +187,9 @@ impl Follow {
                     Some(blob) => watcher.submit(blob),
                     None => return,
                 },
+                Some((url, body)) = fetched.recv() => {
+                    watcher.fetched(clock.now_ms(), &url, body.as_deref());
+                }
                 _ = tick.tick() => {
                     let view = self.links.view.borrow().clone();
                     watcher.tick(clock.now_ms(), &view);
@@ -190,20 +224,31 @@ impl Follow {
         }
     }
 
-    /// Carries out what the watcher decided; false once the socket failed.
-    async fn flush<S>(&mut self, socket: &mut WebSocketStream<S>, watcher: &mut Watcher) -> bool
+    /// Carries out what the watcher decided; false once the socket failed
+    /// or the watcher asked for a new connection.
+    async fn flush<S>(
+        &mut self,
+        socket: &mut WebSocketStream<S>,
+        watcher: &mut Watcher,
+        fetches: &mpsc::Sender<Fetched>,
+    ) -> bool
     where
         S: AsyncRead + AsyncWrite + Unpin,
     {
         self.hand_over(watcher);
+        // Once the connection is to end, or failed, what was to go on it is
+        // dropped, and so is a further request to end it, but the rest is
+        // carried out now, not on the next connection.
+        let mut alive = true;
         while let Some(out) = watcher.poll() {
             match out {
+                Out::Send(_) | Out::Reconnect if !alive => {}
                 Out::Send(bytes) => {
                     let text = String::from_utf8_lossy(&bytes).into_owned();
-                    if socket.send(Message::text(text)).await.is_err() {
-                        return false;
-                    }
+                    alive = socket.send(Message::text(text)).await.is_ok();
                 }
+                Out::Fetch(url) => fetch(self.client.clone(), fetches.clone(), url),
+                Out::Reconnect => alive = false,
                 Out::Attest(operation, transaction) => {
                     // Past the bound the oldest goes: its transaction is
                     // never taken, so the cursor stays before it, and a
@@ -226,9 +271,45 @@ impl Follow {
                 }
             }
         }
-        self.links.connected.send_replace(watcher.following());
-        true
+        if alive {
+            self.links.connected.send_replace(watcher.following());
+        }
+        alive
     }
+}
+
+/// Fetches a validator list publisher's site by an HTTPS GET, and hands
+/// what came to the watcher: the body of a successful answer, or nothing.
+/// A redirect is no answer: the client follows none.
+fn fetch(client: Option<OutboundClient>, fetched: mpsc::Sender<Fetched>, url: String) {
+    tokio::spawn(async move {
+        let body = match client {
+            Some(client) => {
+                let request = WebRequest {
+                    method: http::Method::GET,
+                    url: url.clone(),
+                    headers: Vec::new(),
+                    body: None,
+                    timeout_ms: FETCH_TIMEOUT_MS,
+                    max_response_bytes: MAX_LIST_BYTES,
+                };
+                match client.web(request).await {
+                    Ok(response) if (200..300).contains(&response.status) => Some(response.body),
+                    Ok(response) => {
+                        tracing::warn!(target: target::HUB, %url, status = response.status, "a validator list fetch was refused");
+                        None
+                    }
+                    Err(error) => {
+                        tracing::warn!(target: target::HUB, %url, ?error, "a validator list fetch failed");
+                        None
+                    }
+                }
+            }
+            None => None,
+        };
+        // A watcher gone, or one with fetches enough waiting, needs no more.
+        let _ = fetched.try_send((url, body));
+    });
 }
 
 /// A WebSocket to `url`, as the node connects to its ledgers.

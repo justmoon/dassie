@@ -8,19 +8,20 @@
 //! `node-xrpl-lies`, `node-xrpl-live`, `node-currencies`, `node-rlusd` and
 //! `node-xrp-rlusd`.
 //!
-//! The targeted tests below set up one situation each: a hop that crashes
-//! after posting, a late Fulfill, lying peers, a junior paying its senior
-//! in advance, credit growing with fees. A test whose subject is not
-//! settlement runs its nodes on the stub with unlimited trust
-//! (`Settling::Trusting`), so that no credit runs out and no request to
-//! settle or settlement shapes what it checks
-//! (spec/areas/testing.md#levels). A test of settlement over a hub runs
-//! on the stub with commitments, as `hub_path.rs` does. The tests of direct
-//! settlement, on the plain stub or the direct XRP Ledger schemes, say so:
-//! they go with it (spec/roadmap.md#hubs-only). A few that are not about
-//! settlement stay on the plain stub or the direct schemes until the
-//! node-stub simulation or the runs across currencies move off them, and
-//! say that instead.
+//! The node-stub runs, and the targeted tests below whose subject is not
+//! settlement (a hop that crashes after posting, a late Fulfill, payments
+//! racing into one incoming payment), run their nodes on the stub with
+//! unlimited trust (`Settling::Trusting`, which `Sim::new` gives), so that
+//! no credit runs out and no request to settle or settlement shapes what
+//! they check (spec/areas/testing.md#levels). A test of settlement over a
+//! hub runs on the stub with commitments, as `hub_path.rs` does. The tests
+//! of direct settlement (lying peers, a junior paying its senior in
+//! advance, credit growing with fees), on the plain stub (`Settling::Stub`)
+//! or the direct XRP Ledger schemes, say so: they go with it
+//! (spec/roadmap.md#hubs-only).
+//! So does a test whose subject is not settlement but that pays across
+//! currencies: it stays on the direct schemes until runs across currencies
+//! go over hubs.
 
 #![allow(
     clippy::unwrap_used,
@@ -51,10 +52,16 @@ use dassie_settlement::{LedgerStatus, policy};
 /// `count` nodes on the stub with unlimited trust, the first a bootstrap
 /// node: for a test whose subject is not settlement.
 fn trusting(seed: u64, count: usize) -> Sim {
-    Sim::with(seed, count, 1, BTreeMap::new(), Settling::Trusting)
+    Sim::new(seed, count, 1)
 }
 
-// On the plain stub until the node-stub simulation moves off it (spec/roadmap.md#hubs-only).
+/// `count` nodes on the plain stub, which settles directly, the first a
+/// bootstrap node: for a test of direct settlement, which goes with it
+/// (spec/roadmap.md#hubs-only).
+fn direct(seed: u64, count: usize) -> Sim {
+    Sim::with(seed, count, 1, BTreeMap::new(), Settling::Stub)
+}
+
 #[test]
 fn simulated_networks_pay_across_restarts() {
     assert_passes(0, scripted::run);
@@ -202,7 +209,6 @@ fn a_peering_ended_after_its_last_settlement_was_booked_ends_after_the_wait() {
     assert!(!run.outcome.is_failure(), "{}", run.outcome);
 }
 
-// On the plain stub until the node-stub simulation moves off it (spec/roadmap.md#hubs-only).
 #[test]
 fn a_seed_replays_the_same_run() {
     let run = scripted::run(2);
@@ -871,7 +877,7 @@ fn race_into_one_incoming_payment(seed: u64, amount: u64) -> (Sim, u64, Vec<Outg
 /// Three nodes where the liar, node 1, reaches node 2 only through node
 /// 0: node 2 bans it before they can peer. Node 1 then lies.
 fn liar_network(seed: u64, lie: Lie) -> Sim {
-    let mut sim = Sim::new(seed, 3, 1);
+    let mut sim = direct(seed, 3);
     sim.loss_per_mille = 0;
     sim.step(2, |core| core.ban_node(key(1).node_id()).unwrap());
     sim.run_until(START + 60_000);
@@ -1172,7 +1178,7 @@ fn requests_to_settle_that_never_arrived_withdraw_no_honest_payer() {
 // Goes with direct settlement (spec/roadmap.md#hubs-only).
 #[test]
 fn a_junior_pays_its_senior_in_advance() {
-    let mut sim = Sim::new(3, 2, 1);
+    let mut sim = direct(3, 2);
     sim.loss_per_mille = 0;
     sim.run_until(START + 60_000);
     let peering = |sim: &Sim, index: usize| sim.core(index).network().peers[0].peering.clone();
@@ -1513,7 +1519,7 @@ fn a_node_that_saw_its_ledger_once_peers_while_it_is_down() {
 // Goes with direct settlement (spec/roadmap.md#hubs-only).
 #[test]
 fn a_link_crashes_drifted_past_what_it_survives_is_ruled_out() {
-    let mut sim = Sim::new(78, 2, 1);
+    let mut sim = direct(78, 2);
     sim.loss_per_mille = 0;
     sim.run_until(START + 60_000);
     assert!(!sim.peers(0).is_empty(), "the nodes did not peer");

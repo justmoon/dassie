@@ -4,10 +4,16 @@
 //! and the claims we make on the hub when its own do not come.
 //!
 //! - **A commitment holds** when the payer's account key signed it, for its
-//!   hold toward us, for exactly what the Prepare says, and the hold covers
-//!   it beyond what we have not taken and what is still in flight. Past
-//!   [`MAX_MISSING`] packets its claims left uncovered, we take no more of
-//!   its Prepares.
+//!   hold toward us, for exactly what the Prepare says, expiring no more
+//!   than the longest a connector holds a packet and the hub's precision
+//!   ahead of our clock, and the hold covers it beyond what we have not
+//!   taken and what is still in flight. Past [`MAX_MISSING`] packets its
+//!   claims left uncovered, we take no more of its Prepares, and none while
+//!   the hub is frozen.
+//! - **While the hub is frozen** it pays only claims of commitments that
+//!   expire within the freeze's window, which the bound on expiries keeps
+//!   every packet we took up to M after the freeze's stamp within: those
+//!   are the ones we claim then (spec/decisions/token-hubs.md).
 //! - **A claim holds** when it is signed, for that hold, only grows, covers
 //!   no packet still in flight, and its T is what we fulfilled up to its W
 //!   by our own record, in internal units rounded down to drops. A packet
@@ -28,8 +34,9 @@ use dassie_settlement::{Promised, SchemeError};
 
 use super::payer::Snapshot;
 use super::{UNITS_PER_DROP, drops_covering};
+use crate::consensus::Config;
 use crate::promise::{Claim, Commitment, Fulfilled, HoldNumber, Signed};
-use crate::rules::{Amount, HubId, Millis};
+use crate::rules::{Amount, HubId, MAX_HOLD_MS, Millis};
 
 /// The most packets a payer's claims may leave uncovered before we take
 /// no more of its Prepares (spec/designs/settlement-hubs.md#4-peering-over-a-hub):
@@ -37,6 +44,19 @@ use crate::rules::{Amount, HubId, Millis};
 pub const MAX_MISSING: usize = 1_024;
 /// Most of its packets in flight through us at once.
 pub(super) const MAX_IN_FLIGHT: usize = 1_024;
+
+/// The furthest ahead of our clock a commitment we take may expire: the
+/// longest a connector holds a packet, and the hub's precision. An honest
+/// payer's fits, its Prepare sent at most [`MAX_HOLD_MS`] ahead and the
+/// commitment expiring M before it; a later one would stretch the window
+/// in which a frozen hub still pays claims (spec/decisions/token-hubs.md).
+pub(super) const MAX_EXPIRY_AHEAD_MS: Millis = MAX_HOLD_MS + Config::DEFAULT.precision_ms;
+
+/// Whether a commitment expiring at `expiry` may be claimed while the hub
+/// is frozen with its window ending at `window`, or is not frozen.
+fn claimable(window: Option<Millis>, expiry: Millis) -> bool {
+    window.is_none_or(|end| expiry <= end)
+}
 
 /// Where our claim on the hub for a packet stands.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -173,15 +193,17 @@ impl Payee {
     ///
     /// # Errors
     ///
-    /// [`SchemeError::InvalidData`] for a commitment that does not hold;
-    /// [`SchemeError::Unavailable`] while the hold cannot cover it, or the
-    /// payer's claims left too many packets uncovered.
+    /// [`SchemeError::InvalidData`] for a commitment that does not hold,
+    /// one expiring more than [`MAX_EXPIRY_AHEAD_MS`] after `now_ms`
+    /// among them; [`SchemeError::Unavailable`] while the hold cannot cover
+    /// it, the payer's claims left too many packets uncovered, or the hub
+    /// is frozen.
     pub(super) fn check(
         &mut self,
         request_id: u32,
         promised: Promised,
         signed: Signed<Commitment>,
-        (hub, payer, margin): (&HubId, &PublicKey, Millis),
+        (hub, payer, margin, now_ms): (&HubId, &PublicKey, Millis, u64),
     ) -> Result<(), SchemeError> {
         let commitment = signed.value;
         let expiry = promised.expires_at_ms.checked_sub(margin);
@@ -190,6 +212,7 @@ impl Payee {
             && commitment.amount == drops_covering(promised.amount)
             && commitment.condition == promised.condition
             && Some(commitment.expiry) == expiry
+            && commitment.expiry <= now_ms.saturating_add(MAX_EXPIRY_AHEAD_MS)
             && commitment.sequence > self.through()
             && commitment.sequence > self.snapshot.through
             && !self.taken.contains_key(&commitment.sequence)
@@ -199,7 +222,8 @@ impl Payee {
             return Err(SchemeError::InvalidData);
         }
         let full = self.missing() >= MAX_MISSING || self.in_flight() >= MAX_IN_FLIGHT;
-        if full || self.room(commitment.expiry) < commitment.amount {
+        let frozen = self.snapshot.window.is_some();
+        if full || frozen || self.room(commitment.expiry) < commitment.amount {
             return Err(SchemeError::Unavailable);
         }
         self.taken.insert(
@@ -305,7 +329,9 @@ impl Payee {
     /// The packets to claim on the hub now, in sequence order: what we
     /// fulfilled, no claim covers and no claim of ours is on its way for,
     /// whose payer's claim is late at `now_ms`. At most `limit`; one that
-    /// was in a claim that failed goes alone.
+    /// was in a claim that failed goes alone. While the hub is frozen, only
+    /// those it pays then: whose commitment expires within the freeze's
+    /// window; the others wait for the thaw, if they last until it.
     pub(super) fn due(
         &self,
         now_ms: u64,
@@ -317,7 +343,9 @@ impl Payee {
             .values()
             .filter_map(|taken| {
                 let done = taken.done?;
-                if done.claiming != Claiming::No || taken.commitment.value.expiry <= now_ms {
+                let expiry = taken.commitment.value.expiry;
+                let open = expiry > now_ms && claimable(self.snapshot.window, expiry);
+                if done.claiming != Claiming::No || !open {
                     return None;
                 }
                 let fulfilled = Fulfilled {
@@ -361,7 +389,9 @@ impl Payee {
             .values()
             .filter_map(|taken| {
                 let done = taken.done?;
-                (done.claiming == Claiming::No && taken.commitment.value.expiry > now_ms)
+                let expiry = taken.commitment.value.expiry;
+                let open = expiry > now_ms && claimable(self.snapshot.window, expiry);
+                (done.claiming == Claiming::No && open)
                     .then(|| deadline(taken, &done, allowance, margin))
             })
             .min()
@@ -483,7 +513,7 @@ mod tests {
             request_id,
             promised,
             signed,
-            (&hub(), &key().public_key(), MARGIN),
+            (&hub(), &key().public_key(), MARGIN, 0),
         )
     }
 
@@ -505,7 +535,7 @@ mod tests {
     fn a_commitment_must_match_its_prepare() {
         let mut payee = payee(1_000);
         let promised = promised(1_000, 1);
-        let context = (&hub(), &key().public_key(), MARGIN);
+        let context = (&hub(), &key().public_key(), MARGIN, 0);
         let mut wrong = commitment(1, promised);
         wrong.value.expiry += 1;
         assert_eq!(
@@ -541,6 +571,51 @@ mod tests {
             Err(SchemeError::InvalidData),
             "a sequence once"
         );
+        payee.check_invariants();
+    }
+
+    // spec/decisions/token-hubs.md: a commitment that expires further ahead
+    // of our clock than a connector holds a packet, and the precision, is
+    // refused with its Prepare: it would stretch a frozen hub's window.
+    #[test]
+    fn a_commitment_past_the_bound_is_refused() {
+        let mut payee = payee(1_000);
+        let promised = Promised {
+            expires_at_ms: 1_000_000,
+            ..promised(1_000, 1)
+        };
+        let expiry = promised.expires_at_ms - MARGIN;
+        let (hub, payer) = (hub(), key().public_key());
+        let context = |now| (&hub, &payer, MARGIN, now);
+        let early = expiry - MAX_EXPIRY_AHEAD_MS - 1;
+        assert_eq!(
+            payee.check(1, promised, commitment(1, promised), context(early)),
+            Err(SchemeError::InvalidData)
+        );
+        let now = expiry - MAX_EXPIRY_AHEAD_MS;
+        payee
+            .check(1, promised, commitment(1, promised), context(now))
+            .unwrap();
+        payee.check_invariants();
+    }
+
+    // While the hub is frozen we take no packet over it, and claim only what
+    // it pays then: commitments that expire within the freeze's window.
+    #[test]
+    fn a_frozen_hub_takes_nothing_and_pays_claims_within_its_window() {
+        let mut payee = payee(1_000);
+        take(&mut payee, 1, 1, 1_000).unwrap();
+        payee.fulfilled(0, 1, [1; 32]);
+        let timing = (ALLOWANCE, MARGIN);
+        // The commitment expires at 9 500.
+        payee.snapshot.window = Some(9_499);
+        assert_eq!(take(&mut payee, 2, 2, 1_000), Err(SchemeError::Unavailable));
+        assert!(payee.due(1_000, timing, 8).is_empty(), "past the window");
+        assert_eq!(payee.next_due(0, timing), None);
+        payee.snapshot.window = Some(9_500);
+        assert_eq!(payee.due(1_000, timing, 8).len(), 1, "within it");
+        payee.snapshot.window = None;
+        take(&mut payee, 2, 2, 1_000).unwrap();
         payee.check_invariants();
     }
 

@@ -780,3 +780,82 @@ fn each_hubs_funding_is_kept_on_its_own() {
     assert_eq!(all[&dsusd].1.given_up, Some((true, 5)));
     assert!(!all[&dsusd].0);
 }
+
+// spec/areas/node.md#database, spec/decisions/settlement-methods.md: a
+// database written before a peering's methods had a table of their own
+// moves forward through migration 2. Its peering loads as one method, on
+// the scheme it was made on, with its state, credit and time short of
+// room; what is the pair's stays, the termination being told included, and
+// nothing of it cascades away while `peers` is rebuilt.
+#[test]
+fn a_peering_stored_before_methods_loads_as_its_one_method() {
+    let temp = tempfile::tempdir().unwrap();
+    let node = dassie_identity::NodeKey::from_bytes(&[9; 32]).node_id();
+    {
+        let mut connection = Connection::open(temp.path().join(DATABASE_FILE)).unwrap();
+        connection
+            .pragma_update(None, "foreign_keys", "ON")
+            .unwrap();
+        schema::prepare(&mut connection, &schema::MIGRATIONS[..1]).unwrap();
+        connection
+            .execute_batch(&format!(
+                "INSERT INTO peer_nodes (id, link_state, sources, first_seen_ms)
+                   VALUES ('{node}', NULL, 1, 10);
+                 INSERT INTO peers (node, scheme, state, credit_out, since_ms, inbound,
+                   last_seen_ms, short_for_ms, depeering_since_ms, depeering_reason,
+                   short_reached_ms)
+                   VALUES ('{node}', 'stub', x'0102', 900, 14, 1, 15, 17, 18, 4, 12);
+                 INSERT INTO peer_terminations (node, since_ms, reason, by_us, acknowledged)
+                   VALUES ('{node}', 20, 1, 1, 0);"
+            ))
+            .unwrap();
+    }
+    let store = Store::open(temp.path()).unwrap();
+    assert_eq!(
+        user_version(&temp.path().join(DATABASE_FILE)),
+        SCHEMA_VERSION
+    );
+    let stored = store.load_peer().unwrap();
+    let [loaded] = stored.nodes.as_slice() else {
+        panic!("{:?}", stored.nodes)
+    };
+    let peering = loaded.peering.as_ref().unwrap();
+    assert_eq!(
+        peering.methods,
+        [dassie_peer::Method {
+            scheme: dassie_peer::wire::SchemeId::parse("stub").unwrap(),
+            state: vec![1, 2],
+            credit_out: 900,
+            short_for_ms: 17,
+            short_reached_ms: 12,
+            short_checked_ms: None,
+        }]
+    );
+    assert_eq!(
+        (peering.since_ms, peering.inbound, peering.last_seen_ms),
+        (14, true, 15)
+    );
+    assert_eq!(peering.depeering.map(|d| d.since_ms), Some(18));
+    let termination = loaded.termination.unwrap();
+    assert_eq!((termination.since_ms, termination.by_us), (20, true));
+    // The peering's row still holds its termination's and its method's:
+    // removing the node takes all three.
+    store
+        .commit_ledger(&LedgerBatch {
+            peer: dassie_peer::PeerBatch {
+                removed: vec![node],
+                ..dassie_peer::PeerBatch::default()
+            },
+            ..LedgerBatch::default()
+        })
+        .unwrap();
+    for table in ["peers", "peer_methods", "peer_terminations"] {
+        let rows: i64 = store
+            .lock()
+            .query_row(&format!("SELECT count(*) FROM {table}"), [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(rows, 0, "{table}");
+    }
+}

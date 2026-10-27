@@ -8,8 +8,8 @@
 //! - `dassie hub` shows the node's account in each settlement hub it is in,
 //!   and moves the owner's funds between one and the node's XRP Ledger
 //!   account;
-//!   `dassie hub found` founds a hub, and `dassie hub payout` shows its
-//!   payout bundles.
+//!   `dassie hub found` founds a hub, and `dassie hub payout` shows the
+//!   payout bundles of one.
 //! - `dassie setup` sets the node up from its owner's passphrase, without
 //!   a browser, and adds settlement schemes.
 //! - `dassie update` installs a newer release from the mirror.
@@ -71,10 +71,14 @@ Commands:
   setup-url         Print the link that completes setup in a browser.
   hub [status]      Show the node's account in each settlement hub it is
                     in, and the floor and ceiling the node keeps it between.
-  hub deposit <XRP> Move XRP from the node's XRP Ledger account into the
-                    hub, opening the account there if it has none.
-  hub withdraw <XRP>
-                    Move XRP from the hub to the node's XRP Ledger account.
+  hub deposit <amount>
+                    Move the hub's asset, XRP or DSUSD, from the node's XRP
+                    Ledger account into the hub, opening the account there
+                    if it has none.
+  hub withdraw <amount>
+                    Move the hub's asset from the hub to the node's XRP
+                    Ledger account; from a DSUSD hub, once the node checked
+                    its escrow has the XRP it pays fees with.
                     Either move pauses the node's own moves for an hour.
   hub auto on|off   Let the node move funds to and from the hub by itself,
                     or not.
@@ -97,13 +101,19 @@ Commands:
   hub foundings     Show each hub the node founds: which validators
                     accepted, signed and run it, and its escrow.
   hub drop <nonce>  Drop a founding.
-  hub payout        Show the payout bundles kept of the node's hub, and
-                    once a quorum signed one set, its transactions to
-                    submit.
+  hub payout        Show the payout bundles kept of a hub, and once a
+                    quorum signed one set, its transactions to submit.
+                      --hub <hub ID>            the hub, as `hub status`
+                                                shows it (or the ID alone);
+                                                needed only while the node
+                                                is in several
   setup             Set the node up from its owner's passphrase, on the
                     node's own host, without a browser, set the config of
-                    the accounts it is given, and add the settlement
-                    schemes it lacks. Running it again changes nothing; it
+                    the accounts it is given, add the settlement
+                    schemes it lacks, and join the realm's default
+                    settlement hub if this build has one: the owner book
+                    it funds from, peering with nobody, then the hub's
+                    scheme. Running it again changes nothing; it
                     exits 3, changing nothing, if the node is another
                     passphrase's.
                       --passphrase-file <file>  the passphrase, alone
@@ -117,6 +127,7 @@ Commands:
                                                 which the phrase must name
                                                 (default: test; live only
                                                 by the dev switch)
+                      --no-hub                  join no settlement hub
   pair              Print a code that pairs an owner app with the node, for
                     the next five minutes.
   update           Update Dassie to the newest release, once its signature
