@@ -614,6 +614,17 @@ impl Core {
         (self.connector.stats(), *self.peer.stats())
     }
 
+    /// What `peer` earned us as a next hop on its method on `ledger`, as of
+    /// `at_ms`: its weight in drawing next hops among those with a method on
+    /// that ledger (spec/areas/connector.md#routing), for a simulation to
+    /// read. None without a slot there.
+    #[cfg(any(test, feature = "testing"))]
+    #[must_use]
+    pub fn next_hop_weight(&self, peer: &NodeId, ledger: LedgerId, at_ms: u64) -> Option<u64> {
+        let endpoint = EndpointId::Peer(*self.peer_endpoints.get(peer)?);
+        self.connector.earnings(endpoint, ledger, at_ms)
+    }
+
     /// The network as the owner sees it.
     pub fn network(&self) -> NetworkView {
         NetworkView {
