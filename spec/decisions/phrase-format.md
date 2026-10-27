@@ -31,7 +31,7 @@
 2. **Length.** Only 20 words are read. 12, 15, 18, 21 or 24 words are a BIP-39 phrase, another wallet's or a Dassie phrase from before this format, and are refused as that. Any other count is not a phrase.
 3. **Correction.** The code restores the phrase within at most 2 errors at places not known and 2 × errors + erasures ≤ 5, so one check word is always left to catch a mistake, among the words read too. Beyond that it is refused as too damaged. Twenty random words of the list pass as a phrase about once in 3 × 10¹² when none is marked; correcting three unknown errors would let one in 2.4 × 10⁸ through.
 4. **Kind.** Kind 0 is not a phrase; an unassigned kind is refused as made by a newer Dassie. A phrase whose kind names another realm than the reader expects is refused as a phrase of that realm, at setup and at login. These come before any correction is shown, so an owner never confirms a phrase that is refused next.
-5. **Time.** The creation time is never a reason to refuse: a phrase is the owner's only backup, and a clock that ran ahead when it was made must not lock them out. A creation time after the reader's clock is shown to the owner with the phrase, as a sign that one of the two clocks is wrong.
+5. **Time.** A creation time more than a day after the reader's clock is refused, and the refusal names the date the phrase gives and says a phrase cannot be made in the future. The generator's check keeps a clock that ran ahead from writing such a date, so it means the reader's clock is behind, or the words are not the owner's phrase, and the date tells the owner which.
 6. **Never silently.** A phrase that needed correcting is shown, with the words that change marked, and taken only once the owner confirms it. A reader with no one to confirm, `dassie setup` and the market maker, refuses a phrase that needs correcting and names the positions of the words, never the words.
 
 **The master seed** is HKDF-SHA256 with the secret as its key material, `dassie phrase` as its salt and the realm, `test` or `live`, as its info, 64 bytes long. The derivation takes the realm its caller expects, and refuses a phrase whose kind names another, so no caller can skip the check. Everything below the master seed stays as it is. The realm enters, not the kind, so a later layout can carry the same secret to the same node; the creation time does not enter at all.
@@ -39,6 +39,7 @@
 ## Accepted
 
 - **The frozen derivation chain changes, once, before the first release.** From here on it is frozen again, with this format at its top. Every phrase made before is refused, and its node cannot be reached from a new phrase. The testnet's reset absorbs it: every machine that keeps a phrase, the bootstrap nodes and the market maker's included, gets a new one. An owner of the original keeps their keys through the original's release, at tag `original`, which derives them from their BIP-39 phrase as it always did, and sets a new node up with a new phrase ([database-continuity](database-continuity.md)).
+- **A reader whose clock is behind refuses a phrase until its clock is set right,** with the phrase's date in the refusal, so the owner sees why. Showing the date and taking the phrase anyway would let a wrong phrase through on a check that is meant to stop it.
 - **One check word is kept back while words are marked unreadable,** so a phrase with five unreadable words is the most the code restores, not six.
 - **20 words where BIP-39 needs 12 for the same 128-bit secret.** The eight more carry the kind, the creation time and the correction, and 20 still fits every plate made for 24.
 - **Not a BIP-39 phrase,** so BIP-39 tools cannot check it. They could not use it either.
@@ -48,7 +49,6 @@
 ## Rejected
 
 - *BIP-39 as it is:* no realm, no version, four bits of check in twelve words, and no correction.
-- *Refusing a phrase whose creation time is ahead of the reader's clock:* a phrase made by a clock that ran ahead would be refused by every correct reader until that hour passed.
 - *Carrying the BIP-39 reading along for the original's owners:* a second derivation at the top of the chain, kept for good, for owners whose keys the original's release already derives.
 - *Grinding a tag into a BIP-39 phrase,* drawing secrets until a hash of the phrase starts with the realm's tag: it spends the secret's own bits to say what a field says for free.
 - *Folding the realm into the code,* as bech32 folds its prefix into its checksum: in a code that corrects, the unwritten symbol spends a word of the distance, so a phrase three errors from its own realm's could be three from another's too.
