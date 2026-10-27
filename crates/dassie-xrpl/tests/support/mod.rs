@@ -1,8 +1,9 @@
 //! The node's first XRPL testnet account and the `xrpl-testnet-xrp` scheme on
-//! it, wired together as the node wires them: after each input to the
-//! account, the scheme is told what it learnt, and what both ask is handed
-//! back in order. It speaks the interface the scheme had when it owned its
-//! account, so the tests of what the scheme books read as they always did.
+//! it, the owner's book of its XRP, wired together as the node wires them:
+//! after each input to the account, the scheme is told what it learnt, and
+//! what both ask is handed back in order. It speaks the interface the
+//! scheme had when it owned its account, so the tests of what the scheme
+//! books read as they always did.
 //!
 //! Its state is the one the scheme wrote then: a single JSON object of the
 //! account's and the scheme's fields, which it encodes into what each
@@ -10,11 +11,10 @@
 
 #![allow(dead_code, clippy::unwrap_used, clippy::panic)]
 
-use dassie_kit::sim::SeededRng;
 use dassie_ledger::Name;
 use dassie_settlement::{
-    AssetEffect, ExternalAsset, LedgerInput, LedgerStatus, PreparedSettlement, ReconcileCause,
-    SchemeError, SettlementScheme,
+    AssetEffect, ExternalAsset, LedgerInput, LedgerStatus, ReconcileCause, SchemeError,
+    SettlementScheme,
 };
 use dassie_xrpl::AccountId;
 use dassie_xrpl::account::{self, Config, XrplAccount};
@@ -23,14 +23,6 @@ use serde_json::{Map, Value};
 /// What the scheme and its account ask, in the order they ask it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Effect {
-    IncomingSettlement {
-        peer: Name,
-        amount: u64,
-        id: Option<Name>,
-    },
-    Finalize {
-        settlement: Name,
-    },
     Cancel {
         settlement: Name,
     },
@@ -70,10 +62,9 @@ impl From<dassie_settlement::Effect> for Effect {
     fn from(effect: dassie_settlement::Effect) -> Self {
         use dassie_settlement::Effect as E;
         match effect {
-            E::IncomingSettlement { peer, amount, id } => {
-                Self::IncomingSettlement { peer, amount, id }
+            E::IncomingSettlement { .. } | E::Finalize { .. } => {
+                panic!("an owner book books no settlements")
             }
-            E::Finalize { settlement } => Self::Finalize { settlement },
             E::Cancel { settlement } => Self::Cancel { settlement },
             E::Deposit { amount } => Self::Deposit { amount },
             E::Withdrawal { amount } => Self::Withdrawal { amount },
@@ -116,7 +107,6 @@ impl XrplScheme {
     pub fn new(
         config: &str,
         entropy: &[u8; 32],
-        node: Name,
         checkpoint: Option<u64>,
         state: &[u8],
     ) -> Result<Self, SchemeError> {
@@ -125,7 +115,7 @@ impl XrplScheme {
         // It trusts the fake ledger's validators.
         let config = dassie_xrpl::fake::with_publishers(config, &dassie_xrpl::network::TESTNET);
         let account = XrplAccount::new(account::FIRST, &schemes, &config, entropy, &account_state)?;
-        let scheme = dassie_xrpl::XrplScheme::new(&account, node, checkpoint, &scheme_state)?;
+        let scheme = dassie_xrpl::XrplScheme::new(&account, checkpoint, &scheme_state)?;
         let mut both = Self { account, scheme };
         let mut effects = Vec::new();
         both.tell(0, &mut effects);
@@ -203,78 +193,8 @@ impl XrplScheme {
         asked
     }
 
-    pub fn peering_info(&self, out: &mut Vec<u8>) {
-        self.scheme.peering_info(out);
-    }
-
-    pub fn create_peering_request(
-        &mut self,
-        peer: Name,
-        info: &[u8],
-        out: &mut Vec<u8>,
-    ) -> Result<(), SchemeError> {
-        self.scheme.create_peering_request(peer, info, out)
-    }
-
-    pub fn accept_peering_request(
-        &mut self,
-        peer: Name,
-        data: &[u8],
-    ) -> Result<Vec<u8>, SchemeError> {
-        self.scheme.accept_peering_request(peer, data)
-    }
-
-    pub fn finalize_peering_request(
-        &mut self,
-        peer: Name,
-        info: &[u8],
-    ) -> Result<Vec<u8>, SchemeError> {
-        self.scheme.finalize_peering_request(peer, info)
-    }
-
-    pub fn on_peered(&mut self, peer: Name, state: &[u8]) {
-        self.scheme.on_peered(peer, state);
-    }
-
-    pub fn on_closed(&mut self, peer: Name) {
-        self.scheme.on_closed(peer);
-    }
-
-    pub fn take_entries_from(&mut self, minimum: u64) {
-        self.scheme.take_entries_from(minimum);
-    }
-
-    pub fn entries_held(&self) -> u64 {
-        self.scheme.entries_held()
-    }
-
-    pub fn entry(&self, peer: Name, data: &[u8]) -> dassie_settlement::EntryPayment {
-        self.scheme.entry(peer, data)
-    }
-
-    pub fn take_entry(&mut self, peer: Name, effects: &mut Vec<Effect>) {
-        let mut booked = Vec::new();
-        self.scheme.take_entry(peer, &mut booked);
-        effects.extend(booked.into_iter().map(Effect::from));
-    }
-
-    pub fn prepare_settlement(
-        &mut self,
-        rng: &mut SeededRng,
-        peer: Name,
-        amount: u64,
-        state: &[u8],
-    ) -> Result<PreparedSettlement, SchemeError> {
-        self.scheme
-            .prepare_settlement(rng, Some(&mut self.account), peer, amount, state)
-    }
-
-    pub fn execute_settlement(&mut self, settlement: Name, effects: &mut Vec<Effect>) {
-        let mut booked = Vec::new();
-        self.scheme
-            .execute_settlement(Some(&mut self.account), settlement, &mut booked);
-        effects.extend(booked.into_iter().map(Effect::from));
-        self.drain(effects);
+    pub fn peers(&self) -> bool {
+        self.scheme.peers()
     }
 
     pub fn pay_owner(
@@ -291,33 +211,12 @@ impl XrplScheme {
         self.scheme.owner_payment(id)
     }
 
-    pub fn discard_settlement(&mut self, settlement: Name) {
-        self.scheme
-            .discard_settlement(Some(&mut self.account), settlement);
-    }
-
     pub fn reconcile(&mut self, pending: &[(Name, u64)], effects: &mut Vec<Effect>) {
         let mut booked = Vec::new();
         self.scheme
             .reconcile(Some(&mut self.account), pending, &mut booked);
         effects.extend(booked.into_iter().map(Effect::from));
         self.drain(effects);
-    }
-
-    pub fn handle_settlement(
-        &mut self,
-        peer: Name,
-        amount: u64,
-        data: &[u8],
-        peer_state: &[u8],
-        effects: &mut Vec<Effect>,
-    ) -> Result<(), SchemeError> {
-        let mut booked = Vec::new();
-        let handled = self
-            .scheme
-            .handle_settlement(peer, amount, data, peer_state, &mut booked);
-        effects.extend(booked.into_iter().map(Effect::from));
-        handled
     }
 
     /// The joined state.
@@ -337,8 +236,8 @@ impl XrplScheme {
     }
 }
 
-/// The joined state, split into what the account and the scheme write
-/// (version 1, spec/areas/xrpl.md#state-and-restarts). A JSON object of
+/// The joined state, split into what the account (version 1) and the scheme
+/// (version 2) write (spec/areas/xrpl.md#state-and-restarts). A JSON object of
 /// their fields, as the tests write and change it, is encoded as each
 /// writes its own, with what a test leaves out as a fresh account or
 /// scheme has it; anything else is taken as the two states joined
@@ -380,8 +279,8 @@ fn join(account: &[u8], scheme: &[u8]) -> Vec<u8> {
 struct Out(Vec<u8>);
 
 impl Out {
-    fn new() -> Self {
-        Self(vec![1])
+    fn new(version: u8) -> Self {
+        Self(vec![version])
     }
 
     fn u8(&mut self, value: u8) {
@@ -493,7 +392,7 @@ fn kind(entry: &Value, out: &mut Out) -> Option<bool> {
 }
 
 fn encode_account(state: &Map<String, Value>) -> Option<Vec<u8>> {
-    let mut out = Out::new();
+    let mut out = Out::new(1);
     out.u32(small(state.get("sequence"))?);
     out.u64(number(state.get("write_offs")).unwrap_or(0));
     let in_flight = state.get("in_flight")?.as_array()?;
@@ -609,7 +508,7 @@ fn decode_account(state: &[u8]) -> Map<String, Value> {
 }
 
 fn encode_scheme(state: &Map<String, Value>) -> Option<Vec<u8>> {
-    let mut out = Out::new();
+    let mut out = Out::new(2);
     match state.get("cursor") {
         None | Some(Value::Null) => out.bool(false),
         Some(cursor) => {
@@ -619,31 +518,6 @@ fn encode_scheme(state: &Map<String, Value>) -> Option<Vec<u8>> {
         }
     }
     out.u64(number(state.get("write_offs")).unwrap_or(0));
-    let peers = match state.get("peers") {
-        None => &Map::new(),
-        Some(peers) => peers.as_object()?,
-    };
-    out.u32(u32::try_from(peers.len()).ok()?);
-    for (peer, address) in peers {
-        out.name(peer);
-        out.bytes(&AccountId::parse(address.as_str()?)?.0);
-    }
-    let recovering = list(state, "recovering")?;
-    let unread = list(state, "unread")?;
-    out.u32(u32::try_from(recovering.len()).ok()?);
-    for entry in recovering {
-        out.bytes(&hash(Some(entry))?);
-        out.bool(unread.contains(entry));
-    }
-    let entries = list(state, "entries")?;
-    out.u32(u32::try_from(entries.len()).ok()?);
-    for entry in entries {
-        out.name(entry.get(0)?.as_str()?);
-        out.bytes(&AccountId::parse(entry.get(1)?.as_str()?)?.0);
-        out.u64(number(entry.get(2))?);
-        out.bytes(&hash(entry.get(3))?);
-        out.u32(small(entry.get(4))?);
-    }
     match state.get("owner_payment") {
         None | Some(Value::Null) => out.bool(false),
         Some(payment) => {
@@ -666,7 +540,7 @@ fn encode_scheme(state: &Map<String, Value>) -> Option<Vec<u8>> {
 fn decode_scheme(state: &[u8]) -> Map<String, Value> {
     let mut input = In(state);
     let mut joined = Map::new();
-    assert_eq!(input.u8(), Some(1), "version 1");
+    assert_eq!(input.u8(), Some(2), "version 2");
     let mut read = || -> Option<()> {
         let cursor = if input.bool()? {
             serde_json::json!([input.u32()?, input.u32()?])
@@ -675,33 +549,6 @@ fn decode_scheme(state: &[u8]) -> Map<String, Value> {
         };
         joined.insert("cursor".into(), cursor);
         joined.insert("write_offs".into(), input.u64()?.into());
-        let mut peers = Map::new();
-        for _ in 0..input.u32()? {
-            let peer = input.name()?;
-            let address = AccountId(input.take(20)?.try_into().ok()?);
-            peers.insert(peer, address.to_address().into());
-        }
-        joined.insert("peers".into(), peers.into());
-        let (mut recovering, mut unread) = (Vec::new(), Vec::new());
-        for _ in 0..input.u32()? {
-            let hash = input.hex(32)?;
-            if input.bool()? {
-                unread.push(hash.clone());
-            }
-            recovering.push(hash);
-        }
-        joined.insert("recovering".into(), recovering.into());
-        joined.insert("unread".into(), unread.into());
-        let mut entries = Vec::new();
-        for _ in 0..input.u32()? {
-            let node = input.name()?;
-            let from = AccountId(input.take(20)?.try_into().ok()?).to_address();
-            let amount = input.u64()?;
-            let hash = input.hex(32)?;
-            let until = input.u32()?;
-            entries.push(serde_json::json!([node, from, amount, hash, until]));
-        }
-        joined.insert("entries".into(), entries.into());
         let payment = if input.bool()? {
             serde_json::json!([input.hex(32)?, input.u64()?])
         } else {

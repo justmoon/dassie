@@ -427,7 +427,7 @@ impl Verifier {
     /// anchor, then the UNL (spec/areas/xrpl.md#state-and-restarts).
     #[must_use]
     pub fn state(&self) -> Vec<u8> {
-        let mut out = kept::Out::state();
+        let mut out = kept::Out::state(kept::ACCOUNT_VERSION);
         out.option(self.anchor.as_ref(), |out, anchor| anchor.write(out));
         self.unl.write(&mut out);
         out.0
@@ -444,7 +444,7 @@ impl Verifier {
         state: &[u8],
         now_ms: u64,
     ) -> Option<Self> {
-        let mut input = kept::In::state(state)?;
+        let mut input = kept::In::state(state, kept::ACCOUNT_VERSION)?;
         let anchor = input.option(KeptAnchor::read)?;
         let unl = Unl::read(config.clone(), &mut input, now_ms)?;
         input.finish()?;

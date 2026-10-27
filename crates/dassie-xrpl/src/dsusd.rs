@@ -1,6 +1,7 @@
 //! The `xrpl-testnet-dsusd` settlement scheme (spec/areas/xrpl.md#dsusd):
-//! the [token scheme](crate::token) in DSUSD, Dassie's own testnet dollar
-//! token, on the account's trust line to DSUSD's issuer, booked on
+//! the [token scheme](crate::token) of DSUSD, Dassie's own testnet dollar
+//! token, an owner book that peers with no one, on the account's trust line
+//! to DSUSD's issuer, booked on
 //! `xrpl-testnet-dsusd+usd`. An owner gets DSUSD by buying it with XRP on
 //! the testnet's XRP/DSUSD AMM pool; the node buys none.
 
@@ -17,11 +18,6 @@ pub use crate::token::UNITS_PER_MICRO;
 
 /// The scheme's ID.
 pub const SCHEME_ID: &str = "xrpl-testnet-dsusd";
-/// The memo that marks a settlement in DSUSD on the testnet: its own, so a
-/// Payment is never read as a settlement of another XRPL scheme. A
-/// contract between peers, as the other XRPL schemes' are
-/// (spec/areas/xrpl.md#the-payment-it-signs).
-pub const MEMO_TYPE: &[u8] = b"https://dassie.land/settlement/xrpl-testnet-dsusd/v1";
 /// DSUSD's issuer on the XRPL testnet, `rURgPoYNN7tGqBzGXFeCLmKYgpSjYgJP6M`.
 pub const ISSUER: AccountId = AccountId([
     0x7D, 0x54, 0x40, 0x1D, 0x33, 0xC3, 0xA8, 0xED, 0x1C, 0x9D, 0x61, 0xE2, 0x3D, 0x5D, 0x51, 0xA7,
@@ -31,10 +27,9 @@ pub const ISSUER: AccountId = AccountId([
 pub const CURRENCY: Currency = Currency([
     0x44, 0x53, 0x55, 0x53, 0x44, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 ]);
-/// DSUSD, as the token scheme settles in it.
+/// DSUSD, as the token scheme books it.
 pub const TOKEN: Token = Token {
     scheme: dassie_ledger::name!(SCHEME_ID),
-    memo_type: MEMO_TYPE,
     issuer: ISSUER,
     currency: CURRENCY,
     ledger: LedgerId::XrplTestnetDsusdUsd,
@@ -48,7 +43,7 @@ pub const TOKEN: Token = Token {
 pub const PEG: Peg = Peg {
     min_pool_drops: 100 * DROPS_PER_XRP,
 };
-/// The line the scheme settles on.
+/// The line the scheme books.
 pub const LINE: IssuedAsset = TOKEN.line();
 
 /// DSUSD, as a type.
@@ -82,22 +77,20 @@ mod tests {
     }
 
     // spec/decisions/mainnet-schemes.md: every XRPL scheme, on either
-    // network, disabled test RLUSD included, has an ID, a memo type and a
-    // ledger of its own, so a Payment is never taken for a settlement of
-    // another, nor test money booked with real; each books on a ledger of
-    // its network's realm whose slug is its ID; and no two settle in one
+    // network, disabled test RLUSD included, has an ID and a ledger of its
+    // own, so test money is never booked with real; each books on a ledger
+    // of its network's realm whose slug is its ID; and no two book one
     // asset on one network, nor two tokens on one issuer's line. Each ID
-    // names the ledger, the network but mainnet, and the asset, and its
-    // memo type is that ID's (spec/decisions/scheme-names.md).
+    // names the ledger, the network but mainnet, and the asset
+    // (spec/decisions/scheme-names.md).
     #[test]
-    fn no_two_xrpl_schemes_share_a_memo_type_an_issuer_or_a_ledger() {
+    fn no_two_xrpl_schemes_share_an_issuer_or_a_ledger() {
         use crate::network::Network;
         use crate::rlusd;
-        use crate::scheme::{MAINNET_XRP, SETTLEMENT_MEMO_TYPES, TESTNET_XRP, Xrp};
+        use crate::scheme::{MAINNET_XRP, TESTNET_XRP, Xrp};
 
         struct Scheme {
             name: dassie_ledger::Name,
-            memo_type: &'static [u8],
             ledger: LedgerId,
             network: &'static Network,
             /// The token's line, or `None` for the network's XRP.
@@ -105,14 +98,12 @@ mod tests {
         }
         let xrp = |xrp: Xrp| Scheme {
             name: xrp.scheme,
-            memo_type: xrp.memo_type,
             ledger: xrp.ledger,
             network: xrp.network,
             line: None,
         };
         let token = |token: Token| Scheme {
             name: token.scheme,
-            memo_type: token.memo_type,
             ledger: token.ledger,
             network: token.network,
             line: Some(token.line()),
@@ -135,23 +126,16 @@ mod tests {
             };
             let asset = id.rsplit('-').next().unwrap_or_default();
             assert_eq!(id, alloc::format!("xrpl-{network}{asset}"), "the grammar");
-            let memo = alloc::format!("https://dassie.land/settlement/{id}/v1");
-            assert_eq!(scheme.memo_type, memo.as_bytes(), "{id}");
-            assert!(
-                SETTLEMENT_MEMO_TYPES.contains(&scheme.memo_type),
-                "{id}: an owner's payment may carry its memo type"
-            );
             if scheme.line.is_some() {
                 assert_eq!(scheme.ledger.asset().code, "USD", "{id}");
             }
             for other in schemes.iter().skip(index + 1) {
                 let pair = (id, other.name.as_str());
                 assert_ne!(scheme.name, other.name);
-                assert_ne!(scheme.memo_type, other.memo_type, "{pair:?}");
                 assert_ne!(scheme.ledger, other.ledger, "{pair:?}");
                 assert!(
                     scheme.network != other.network || scheme.line != other.line,
-                    "{pair:?} settle in one asset on one network"
+                    "{pair:?} book one asset on one network"
                 );
                 if let (Some(line), Some(other_line)) = (scheme.line, other.line) {
                     assert_ne!(line, other_line, "{pair:?}");
