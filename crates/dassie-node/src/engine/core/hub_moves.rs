@@ -381,11 +381,16 @@ impl Core {
         account: &HubAccount,
     ) -> Vec<(dassie_identity::NodeId, u32)> {
         let hub = account.hub();
+        let Some(scheme) = dassie_peer::wire::SchemeId::parse(scheme.as_str()) else {
+            return Vec::new();
+        };
+        // Every peering with a method over the hub, whichever of its
+        // methods comes first (spec/areas/network.md#settlement-methods).
         self.peer
             .active_peers()
-            .filter(|(_, peering)| peering.first().scheme.as_str() == scheme.as_str())
             .filter_map(|(node, peering)| {
-                let number = dassie_hub::member::peer_account(&peering.first().state, &hub)?;
+                let method = peering.method(scheme)?;
+                let number = dassie_hub::member::peer_account(&method.state, &hub)?;
                 Some((*node, number.0))
             })
             .collect()
@@ -456,9 +461,11 @@ impl Core {
             .asset
             .and_then(|asset| self.assets.get(&asset))
             .is_some_and(|asset| asset.asset.status() == LedgerStatus::Unfunded);
-        // A hub whose scheme is not in step with it, as a frozen token hub's
-        // is not, is unavailable: nothing moves into or out of it.
-        let unavailable = active.scheme.status() != LedgerStatus::Synced;
+        // A hub whose scheme is not in step with it, or a token hub its
+        // validators say is frozen, is unavailable: nothing moves into or
+        // out of it (spec/areas/hubs.md#a-frozen-hub).
+        let unavailable =
+            active.scheme.status() != LedgerStatus::Synced || account.frozen().is_some();
         Some(Standing {
             held: Self::held(account),
             unfunded,
@@ -1189,8 +1196,8 @@ impl Core {
 
     /// [`owner_standing_any`](Self::owner_standing_any), with no move on
     /// its way, one at a time, and the hub available: nothing moves into
-    /// or out of a hub its scheme is not in step with, as a frozen token
-    /// hub's is not.
+    /// or out of a hub its scheme is not in step with, or a frozen token
+    /// hub.
     fn owner_standing(&mut self, scheme: Name) -> Result<Standing, EngineError> {
         let standing = self.owner_standing_any(scheme)?;
         if self.hub_move_on_its_way(scheme) {
@@ -1200,7 +1207,7 @@ impl Core {
         }
         if standing.unavailable {
             return Err(EngineError::Precondition(
-                "the hub is unavailable: its scheme is not in step with it".into(),
+                "the hub is unavailable: frozen, or its scheme is not in step with it".into(),
             ));
         }
         Ok(standing)

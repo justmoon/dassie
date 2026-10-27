@@ -64,6 +64,20 @@ impl Ledger {
         table.checked_div(self.validators.len()).unwrap_or(0)
     }
 
+    /// How many more deposits validator `index` can attest now without
+    /// finding the pending table full: what is left of its share, and of
+    /// the table. A validator whose attestations failed for want of room,
+    /// as while the hub is frozen and credits none, attests them again
+    /// once there is (spec/areas/hubs.md#the-validators-service).
+    #[must_use]
+    pub fn deposit_room(&self, index: ValidatorIndex) -> usize {
+        let table = usize::try_from(self.rules.terms.limits.pending_deposits).unwrap_or(usize::MAX);
+        let share = self
+            .deposit_share()
+            .saturating_sub(self.attested_pending(index));
+        share.min(table.saturating_sub(self.pending_deposits.len()))
+    }
+
     /// How many pending deposits validator `index` attested.
     fn attested_pending(&self, index: ValidatorIndex) -> usize {
         self.pending_deposits
