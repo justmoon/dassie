@@ -1085,7 +1085,6 @@ name = "dassie-identity"
 version = "0.2.9"
 dependencies = [
  "curve25519-dalek",
- "dassie-base64url",
  "dassie-oer",
  "ed25519-dalek",
  "ed25519-zebra",

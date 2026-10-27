@@ -3666,10 +3666,6 @@ rec {
             features = [ "zeroize" ];
           }
           {
-            name = "dassie-base64url";
-            packageId = "dassie-base64url";
-          }
-          {
             name = "dassie-oer";
             packageId = "dassie-oer";
             usesDefaultFeatures = false;
