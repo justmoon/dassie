@@ -53,6 +53,9 @@ const UNIT = 1_000n;
 /** Internal units in a drop: XRP's ledgers are kept at scale 9, a drop at
  * scale 6. */
 const UNITS_PER_DROP = 1_000n;
+/** The fake ledger's base reserve, which the account's first deposit
+ * leaves on the ledger: 1 XRP, in drops. */
+const BASE_RESERVE_DROPS = 1_000_000n;
 /** The deposit the XRP book is to book once: 5 XRP, in drops. */
 const DEPOSIT_DROPS = 5_000_000n;
 /** The scenario's pool: as many dollars of RLUSD, and XRP worth as much at
@@ -142,13 +145,13 @@ test(
       assertEquals((await ledger(node, RLUSD_LEDGER)).issuer, ISSUER);
       // Owner books peer with nobody.
       assertEquals((await node.rpc.call("listPeers", {})).peers, []);
-      // The scenario's deposit, booked once: less the reserve the ledger
-      // holds back.
+      // The scenario's deposit, booked once: less the base reserve the
+      // ledger holds back.
       const first = await deposits(node);
-      assertEquals(first.length, 1, `deposits ${first}`);
-      assert(
-        first[0] > 0n && first[0] <= MAINNET_DEPOSIT_DROPS * UNITS_PER_DROP,
-        `${first[0]}`,
+      assertEquals(
+        first,
+        [(MAINNET_DEPOSIT_DROPS - BASE_RESERVE_DROPS) * UNITS_PER_DROP],
+        "the scenario's deposit",
       );
 
       // Another deposit, from outside: the XRP book takes it once, on the

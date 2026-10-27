@@ -13,8 +13,9 @@
  * peer with nobody. d1 pays an incoming payment of d3's on the hub's
  * ledger: the quote measures the path's rate, d1 pays from its dollars, d2
  * converts them, and d3 receives XRP over the hub. d2's fees grow; d2
- * settles with d3 over the hub, and d1 and d2 settle nothing; after all
- * three restart, the books are as they were. The validators keep running
+ * settles with d3 over the hub, its hold toward d3 growing, and d3's
+ * owner gets what arrived, less the fees of d3's own moves; d1 and d2
+ * settle nothing; after all three restart, the books are as they were. The validators keep running
  * meanwhile, so the hub does too.
  */
 
@@ -33,6 +34,7 @@ import {
   HUB_WITHIN_MS,
   hubBooks,
   ledger,
+  ownerFunds,
   peerAccounts,
   peersOverHub,
   settledOverHub,
@@ -209,8 +211,15 @@ test(
         `${quote.debitAmount}`,
       );
 
+      // The members' joins are over, so what d3's owner has and d2's hold
+      // toward it change only by the payment from here.
+      await scenario.until(
+        "joined and quiet",
+        () => settledOverHub(scenario),
+        HUB_WITHIN_MS,
+      );
       const holdBefore = await holdToward(d2, d3);
-      const d3HubBefore = (await ledger(d3, HUB_LEDGER)).onLedgerBalance;
+      const d3Before = await ownerFunds(d3);
       const usdBefore = (await ledger(d1, USD)).ownerBalance;
       const feesBefore = await balance(d2, `${USD}:revenue/fees`);
       const { payment } = await d1.rpc.call("sendPayment", {
@@ -270,17 +279,19 @@ test(
         () => settledOverHub(scenario),
         HUB_WITHIN_MS,
       );
-      // Over the hub: d2's hold toward d3 grew, and d3's book of the hub
-      // holds what it grew by, which never passes what d3 received.
+      // Over the hub: d2's hold toward d3 grew, by no more than d3
+      // received, and d3's owner got what arrived, less the fees of d3's
+      // own moves; settledOverHub found d3's book of the hub holding its
+      // account there and d2's hold toward it.
       const moved = await holdToward(d2, d3) - holdBefore;
       assert(
         moved > 0n && moved <= incoming.receivedAmount,
         `d2's hold toward d3 grew by ${moved}`,
       );
-      assertEquals(
-        (await ledger(d3, HUB_LEDGER)).onLedgerBalance - d3HubBefore,
-        moved,
-        "d3's book of the hub",
+      const got = await ownerFunds(d3) - d3Before;
+      assert(
+        got > 0n && got <= incoming.receivedAmount,
+        `d3's owner got ${got}`,
       );
       const stub = await stubBooks(scenario);
       const accounts = await owed(scenario);
