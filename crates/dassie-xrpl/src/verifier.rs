@@ -363,6 +363,8 @@ pub struct Verifier {
     failed: bool,
     doubts: BTreeMap<Doubt, u64>,
     counted: Proofs,
+    /// The objects whose threads a proven transaction is read for.
+    threaded: Vec<[u8; 32]>,
     now_ms: u64,
     out: VecDeque<Out>,
 }
@@ -415,6 +417,7 @@ impl Verifier {
             failed: false,
             doubts: BTreeMap::new(),
             counted: Proofs::default(),
+            threaded: Vec::new(),
             now_ms: 0,
             out: VecDeque::new(),
         }
@@ -453,6 +456,17 @@ impl Verifier {
         verifier.anchor = anchor;
         verifier.now_ms = now_ms;
         Some(verifier)
+    }
+
+    /// Reads each transaction it proves from now on for the transaction
+    /// before it that changed each object of `keys`, at most
+    /// [`MAX_PROOF_KEYS`] ([`records::Decoded::threads`](crate::records::Decoded)),
+    /// so that its holder walks those objects' history back from their
+    /// proven state, as the account walks its own
+    /// (spec/areas/xrpl.md#following-the-account).
+    pub fn thread(&mut self, keys: Vec<[u8; 32]>) {
+        assert!(keys.len() <= MAX_PROOF_KEYS, "one state proof's worth");
+        self.threaded = keys;
     }
 
     /// Counted up whenever what [`Self::state`] keeps changes, so that its
@@ -1334,7 +1348,7 @@ impl Verifier {
         else {
             return;
         };
-        let proven = match prove_transaction(proof, &blobs, &hash, &[]) {
+        let proven = match prove_transaction(proof, &blobs, &hash, &self.threaded) {
             Ok(proven) => proven,
             Err(error) => return self.doubted(Doubt::of(error)),
         };
