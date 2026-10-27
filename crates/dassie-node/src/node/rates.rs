@@ -20,9 +20,10 @@ const SOURCE_TIMEOUT_MS: u64 = 10_000;
 impl Node {
     /// Fetches rates while the node runs: at once when the engine starts
     /// or the owner changes the sources, and every
-    /// [`rates_every_ms`](super::Policies::rates_every_ms) of the node's
-    /// clock otherwise. A clock moved by hand wakes it, so a test reaches
-    /// the next fetch by moving it rather than by waiting in real time.
+    /// [`rates_every_ms`](super::Policies::rates_every_ms) otherwise: of
+    /// real time on the system clock, and of the node's clock on one moved
+    /// by hand, whose moves wake it, so a test reaches the next fetch by
+    /// moving its clock rather than by waiting in real time.
     pub async fn run_rates(self: Arc<Self>, shutdown: CancellationToken) {
         let mut engines = self.engine.subscribe();
         let mut moves = self.clock.subscribe();
@@ -30,22 +31,24 @@ impl Node {
             if let Some(engine) = self.engine() {
                 self.fetch_rates(&engine).await;
             }
-            let every_ms = self.policies.rates_every_ms;
-            let mut next_ms = self.now_ms().saturating_add(every_ms);
+            let next_ms = self.now_ms().saturating_add(self.policies.rates_every_ms);
             loop {
-                // A deadline more than an interval away means the wall
-                // clock stepped back. The rates kept before the step are
-                // stamped in its future and so not fresh, so the next fetch
-                // comes at most an interval on, as it would on real time.
-                let now_ms = self.now_ms();
-                next_ms = next_ms.min(now_ms.saturating_add(every_ms));
-                let wait_ms = next_ms.saturating_sub(now_ms);
+                let wait_ms = next_ms.saturating_sub(self.now_ms());
                 if wait_ms == 0 {
                     break;
                 }
                 tokio::select! {
                     () = shutdown.cancelled() => return,
-                    () = tokio::time::sleep(Duration::from_millis(wait_ms)) => {}
+                    // A clock no one moves by hand is the system clock, which
+                    // may step back, and then the rates kept before the step
+                    // are stamped in its future and not fresh. So on it the
+                    // interval's real end is the deadline, and a step never
+                    // puts off the next fetch.
+                    () = tokio::time::sleep(Duration::from_millis(wait_ms)) => {
+                        if moves.is_none() {
+                            break;
+                        }
+                    }
                     () = clock_moved(&mut moves) => {}
                     () = self.rates_wake.notified() => break,
                     changed = engines.changed() => {
