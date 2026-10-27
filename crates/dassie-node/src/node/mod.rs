@@ -222,6 +222,8 @@ pub struct NodeOptions {
     pub policies: Policies,
     /// The peer protocol's settings.
     pub peer: PeerOptions,
+    /// The wallet the node serves, which the binary embeds.
+    pub wallet: crate::http::assets::Wallet,
     /// A development build of the wallet to serve instead of the embedded
     /// one.
     pub dev_wallet_dir: Option<PathBuf>,
@@ -428,6 +430,7 @@ pub struct Node {
     services: Arc<crate::supervisor::Registry>,
     logs: Arc<crate::log::LogRing>,
     live_streams: Arc<Semaphore>,
+    wallet: crate::http::assets::Wallet,
     dev_wallet_dir: Option<PathBuf>,
     open_payments: crate::open_payments::State,
     /// Wakes the rate fetcher.
@@ -483,6 +486,21 @@ fn setup_token(
     Ok(token)
 }
 
+/// The ACME client, made at once where a test CA's root is given: one that
+/// cannot be read is a mistake in the environment, so the node refuses to
+/// start rather than fail the first order. Otherwise it is made at the
+/// first order.
+fn acme_with(
+    ca_file: Option<&std::path::Path>,
+) -> Result<std::sync::OnceLock<Result<AcmeClient, String>>, NodeError> {
+    let acme = std::sync::OnceLock::new();
+    if ca_file.is_some() {
+        let client = AcmeClient::new(ca_file).map_err(|e| NodeError::Acme(e.to_string()))?;
+        let _ = acme.set(Ok(client));
+    }
+    Ok(acme)
+}
+
 impl Node {
     /// Loads the node from its database, making a self-signed certificate if
     /// the stored one won't do.
@@ -497,6 +515,7 @@ impl Node {
             acme_ca_file,
             policies,
             peer,
+            wallet,
             dev_wallet_dir,
             public_names,
             live_realm,
@@ -506,14 +525,7 @@ impl Node {
         let config = store.config()?;
         let node_key = store.node_key()?.map(Arc::new);
         let certificate = certificates::initial(&store, config.hostname.as_ref(), now_ms)?;
-        let acme = std::sync::OnceLock::new();
-        if acme_ca_file.is_some() {
-            // A test CA's root that cannot be read is a mistake in the
-            // environment: refuse to start, rather than fail the first order.
-            let client = AcmeClient::new(acme_ca_file.as_deref())
-                .map_err(|e| NodeError::Acme(e.to_string()))?;
-            let _ = acme.set(Ok(client));
-        }
+        let acme = acme_with(acme_ca_file.as_deref())?;
         let setup_token = setup_token(&store, node_key.is_some(), rng.as_mut())?;
         Ok(Arc::new(Self {
             store: Arc::new(store),
@@ -548,6 +560,7 @@ impl Node {
             peer,
             logs: crate::log::ring(),
             live_streams: Arc::new(Semaphore::new(MAX_LIVE_STREAMS)),
+            wallet,
             dev_wallet_dir,
             open_payments: crate::open_payments::State::new(public_names),
             rates_wake: Notify::new(),
@@ -904,6 +917,12 @@ impl Node {
     #[must_use]
     pub fn live_stream_permit(&self) -> Option<OwnedSemaphorePermit> {
         Arc::clone(&self.live_streams).try_acquire_owned().ok()
+    }
+
+    /// The wallet the node serves, unless it serves a development build.
+    #[must_use]
+    pub const fn wallet(&self) -> crate::http::assets::Wallet {
+        self.wallet
     }
 
     /// The development build of the wallet, if it serves one.

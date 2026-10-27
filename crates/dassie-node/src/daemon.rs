@@ -170,6 +170,9 @@ pub struct Prepared {
 struct Extras {
     /// The UDP socket for the rate feed, where there is one.
     feed: Option<UdpSocket>,
+    /// The wallet the node serves: the placeholder, unless the binary
+    /// hands it the one it embeds.
+    wallet: crate::http::assets::Wallet,
     /// For tests: where the QUIC endpoint goes once it is made.
     hand_out: Option<tokio::sync::oneshot::Sender<Arc<crate::quic::Quic>>>,
     /// Where the node goes once it is made, held weakly so the daemon still
@@ -239,8 +242,7 @@ impl Prepared {
             quic,
             extras: Extras {
                 feed,
-                hand_out: None,
-                node_out: None,
+                ..Extras::default()
             },
             ipc_socket,
             notifier,
@@ -286,6 +288,14 @@ impl Prepared {
         to: tokio::sync::oneshot::Sender<std::sync::Weak<Node>>,
     ) -> Self {
         self.extras.node_out = Some(to);
+        self
+    }
+
+    /// The wallet the node serves, which the binary embeds
+    /// (`dassie-wallet-assets`).
+    #[must_use]
+    pub const fn with_wallet(mut self, wallet: crate::http::assets::Wallet) -> Self {
+        self.extras.wallet = wallet;
         self
     }
 
@@ -521,6 +531,7 @@ fn make_node(
         acme_ca_file: settings.acme_ca_file.clone(),
         policies,
         peer: peer_options(settings),
+        wallet: extras.wallet,
         dev_wallet_dir: settings.dev_wallet_dir.clone(),
         public_names: settings.public_names.clone(),
         live_realm: settings.live_realm,

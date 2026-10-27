@@ -40,6 +40,8 @@ let
       (root + "/testdata/tls")
     ];
     dassie-release = [ (root + "/testdata/release") ];
+    # The node's table of media types, which its build script shares.
+    dassie-wallet-assets = [ (root + "/crates/dassie-node/src/http/mime.rs") ];
   };
   testExtraFiles = {
     dassie-feed = [ (root + "/testdata/feed") ];
@@ -414,7 +416,10 @@ let
   # tests, which skip without it.
   # The members with no tests, whose run passes with none; any other
   # member's fails, so that tests that are no longer found fail the check.
-  withoutTests = [ "dassie-wasm" ];
+  withoutTests = [
+    "dassie-wallet-assets"
+    "dassie-wasm"
+  ];
   runTests =
     name:
     let
@@ -559,7 +564,8 @@ let
       dassie = binaryOf "dassie-cli" [ "default" ] (
         p: crate:
         buildRustCrateForPkgs p (
-          crate // lib.optionalAttrs (crate.crateName == "dassie-node") { DASSIE_WALLET_DIST = wallet; }
+          crate
+          // lib.optionalAttrs (crate.crateName == "dassie-wallet-assets") { DASSIE_WALLET_DIST = wallet; }
         )
       );
       release = binaryOf "dassie-release" [ "tool" ] buildRustCrateForPkgs;

@@ -340,7 +340,7 @@
       "sub": "node",
       "x": 20,
       "y": 522,
-      "w": 184,
+      "w": 160,
       "desc": "The binary a server runs, with the wallet built in. Everything a node owner runs is a subcommand of it, and so are a front door and a market maker.",
       "does": [
         "`dassie daemon`: standalone, or socket-activated by systemd",
@@ -359,9 +359,9 @@
       "path": "crates/dassie-node",
       "label": "the daemon: IO, TLS, RPC, the engine",
       "sub": "node",
-      "x": 214,
+      "x": 190,
       "y": 522,
-      "w": 378,
+      "w": 250,
       "desc": "The only part that does IO. It wires the sans-IO cores below to sockets, the database and the clock. Every service is a supervised task that restarts with backoff if it fails.",
       "does": [
         "The database and its migrations, HTTPS and IPC listeners, TLS and ACME, the owner's login",
@@ -387,14 +387,28 @@
         "Simulated as a network of real engine cores, in tests and by `dassie-sim`: each seed draws its nodes, faults and payments, runs them through chaos, then heals the network, which must settle down; on the fake XRP Ledger, a node's connection may come back to a server that lies, and every node's books must still hold to what the ledger really did"
       ]
     },
+    "wallet-assets": {
+      "name": "dassie-wallet-assets",
+      "path": "crates/dassie-wallet-assets",
+      "label": "the wallet, built in",
+      "sub": "node",
+      "x": 450,
+      "y": 522,
+      "w": 206,
+      "desc": "The wallet's built files, embedded at build time, which the dassie binary and the desktop app hand the daemon to serve. A crate of its own, so that a change to the wallet rebuilds this table and relinks the binaries, rather than compiling the node again.",
+      "does": [
+        "Each file with its media type, an ETag from its content and, where it pays, a gzip copy",
+        "Only the wallet `DASSIE_WALLET_DIST` names; without it, the node's placeholder page, so building Dassie needs no Node.js"
+      ]
+    },
     "desktop": {
       "name": "dassie-desktop",
       "path": "crates/dassie-desktop",
       "label": "the node in a window",
       "sub": "node",
-      "x": 602,
+      "x": 666,
       "y": 522,
-      "w": 184,
+      "w": 160,
       "desc": "The desktop app for Linux: the owner's node runs inside it as a periphery node, with no public IP or hostname, and its wallet opens in a window. A tray icon keeps the node running after the window closes.",
       "does": [
         "Runs the daemon in its own process, with HTTPS on loopback and QUIC on every address, so it dials its relay and uplinks, and no HTTP listener or rate feed socket, which a periphery node on loopback never uses",
@@ -409,9 +423,9 @@
       "path": "resources",
       "label": "installer & updater",
       "sub": "node",
-      "x": 796,
+      "x": 836,
       "y": 522,
-      "w": 184,
+      "w": 148,
       "desc": "How Dassie ships: Nix builds static binaries for x64 and arm64 with the wallet inside, CI signs and publishes them to get.dassie.land, and systemd runs the node and updates it every day. On NixOS, a flake from the mirror runs the same binary.",
       "does": [
         "Static musl binaries, deterministic bundles and the mirror tree, built by Nix",
@@ -1016,6 +1030,24 @@
       "t": "node-core",
       "k": "uses",
       "h": true
+    },
+    {
+      "f": "cli",
+      "t": "wallet-assets",
+      "k": "uses",
+      "h": true
+    },
+    {
+      "f": "desktop",
+      "t": "wallet-assets",
+      "k": "uses",
+      "h": true
+    },
+    {
+      "f": "wallet-assets",
+      "t": "node",
+      "k": "uses",
+      "h": false
     },
     {
       "f": "node",

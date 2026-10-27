@@ -17,6 +17,7 @@ path = "src/main.rs"
 [dependencies]
 dassie-node = { path = "../dassie-node" }
 dassie-node-core = { path = "../dassie-node-core" }
+dassie-wallet-assets = { path = "../dassie-wallet-assets" }
 rustix = { version = "1.1.5", features = ["fs", "process"] }
 tauri = { version = "2.12.5", features = ["tray-icon", "image-png"] }
 tauri-plugin-opener = "2.7.2"

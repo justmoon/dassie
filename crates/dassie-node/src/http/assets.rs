@@ -1,4 +1,7 @@
-//! The wallet, embedded in the binary at build time.
+//! The wallet, embedded in the binary at build time by
+//! `dassie-wallet-assets`, which the CLI and the desktop app link and hand
+//! the daemon ([`Wallet`]), so that a change to the wallet compiles that
+//! crate again rather than the node.
 //!
 //! The original read files from disk on every request, knew five MIME types
 //! (so fonts, SVG and source maps came back as HTML), sent no caching
@@ -37,27 +40,75 @@ pub struct Asset {
     pub gzip: Option<&'static [u8]>,
 }
 
-include!(concat!(env!("OUT_DIR"), "/wallet_assets.rs"));
+/// The wallet a node serves: its files, sorted by path, and whether they
+/// are a built wallet rather than the placeholder.
+#[derive(Clone, Copy)]
+pub struct Wallet {
+    assets: &'static [Asset],
+    built: bool,
+}
+
+impl Wallet {
+    /// A page saying the binary has no wallet, for a binary built without
+    /// one, so that `cargo build` and `cargo test` need no Node.js.
+    pub const PLACEHOLDER: Self = Self {
+        assets: &[Asset {
+            path: "/index.html",
+            content_type: "text/html; charset=utf-8",
+            etag: concat!("\"placeholder-", env!("CARGO_PKG_VERSION"), "\""),
+            body: b"<!doctype html>\n<meta charset=\"utf-8\">\n<title>Dassie</title>\n\
+                <p>This Dassie binary was built without its wallet. Build the wallet \
+                (<code>node --run build:wallet</code>) and rebuild with \
+                <code>DASSIE_WALLET_DIST</code> pointing at it.</p>\n",
+            gzip: None,
+        }],
+        built: false,
+    };
+
+    /// A built wallet's files, sorted by path.
+    #[must_use]
+    pub const fn built(assets: &'static [Asset]) -> Self {
+        Self {
+            assets,
+            built: true,
+        }
+    }
+
+    /// Whether this is a built wallet rather than the placeholder.
+    #[must_use]
+    pub const fn is_built(self) -> bool {
+        self.built
+    }
+
+    fn find(self, path: &str) -> Option<&'static Asset> {
+        self.assets.iter().find(|asset| asset.path == path)
+    }
+}
+
+impl Default for Wallet {
+    fn default() -> Self {
+        Self::PLACEHOLDER
+    }
+}
+
+impl std::fmt::Debug for Wallet {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Wallet")
+            .field("files", &self.assets.len())
+            .field("built", &self.built)
+            .finish()
+    }
+}
 
 /// The directory of Vite's content-hashed files.
 const HASHED_PREFIX: &str = "/assets/";
 
-/// Whether the binary carries a built wallet, rather than the placeholder.
-#[must_use]
-pub const fn wallet_built() -> bool {
-    WALLET_BUILT
-}
-
-fn find(path: &str) -> Option<&'static Asset> {
-    ASSETS.iter().find(|asset| asset.path == path)
-}
-
-/// Answers `GET` or `HEAD` for `path`.
-pub fn serve(method: &Method, path: &str, headers: &HeaderMap) -> Response<Body> {
-    let asset = match find(path) {
+/// Answers `GET` or `HEAD` for `path` from `wallet`.
+pub fn serve(wallet: Wallet, method: &Method, path: &str, headers: &HeaderMap) -> Response<Body> {
+    let asset = match wallet.find(path) {
         Some(asset) => asset,
         None if path.starts_with(HASHED_PREFIX) => return response::not_found(),
-        None => match find("/index.html") {
+        None => match wallet.find("/index.html") {
             Some(index) => index,
             None => return response::not_found(),
         },
@@ -234,7 +285,12 @@ mod tests {
 
     #[test]
     fn index_with_head_caching_and_etag() {
-        let response = serve(&Method::HEAD, "/some/route", &headers(&[]));
+        let response = serve(
+            Wallet::PLACEHOLDER,
+            &Method::HEAD,
+            "/some/route",
+            &headers(&[]),
+        );
         assert_eq!(response.status(), StatusCode::OK);
         let etag = response
             .headers()
@@ -251,7 +307,7 @@ mod tests {
         let mut conditional = HeaderMap::new();
         conditional.insert(header::IF_NONE_MATCH, HeaderValue::from_str(&etag).unwrap());
         assert_eq!(
-            serve(&Method::GET, "/", &conditional).status(),
+            serve(Wallet::PLACEHOLDER, &Method::GET, "/", &conditional).status(),
             StatusCode::NOT_MODIFIED
         );
     }
@@ -302,7 +358,13 @@ mod tests {
     #[test]
     fn missing_hashed_files_are_not_the_index() {
         assert_eq!(
-            serve(&Method::GET, "/assets/missing.js", &headers(&[])).status(),
+            serve(
+                Wallet::PLACEHOLDER,
+                &Method::GET,
+                "/assets/missing.js",
+                &headers(&[])
+            )
+            .status(),
             StatusCode::NOT_FOUND
         );
     }

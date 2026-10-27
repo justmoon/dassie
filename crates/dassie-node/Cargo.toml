@@ -112,9 +112,6 @@ tracing-subscriber = { version = "0.3.23", default-features = false, features = 
 [build-dependencies]
 prost-build = "0.14.4"
 protox = "0.9.1"
-# Precompresses the embedded wallet.
-flate2 = "1"
-sha2 = "0.11"
 
 [dev-dependencies]
 dassie-node = { path = ".", features = ["testing"] }

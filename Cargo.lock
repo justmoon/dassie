@@ -987,6 +987,7 @@ dependencies = [
  "dassie-node",
  "dassie-node-core",
  "dassie-release",
+ "dassie-wallet-assets",
  "dassie-xrpl",
  "flate2",
  "futures-util",
@@ -1030,6 +1031,7 @@ version = "0.2.9"
 dependencies = [
  "dassie-node",
  "dassie-node-core",
+ "dassie-wallet-assets",
  "rustix",
  "tauri",
  "tauri-build",
@@ -1145,7 +1147,6 @@ dependencies = [
  "dassie-settlement",
  "dassie-stream",
  "dassie-xrpl",
- "flate2",
  "futures-util",
  "getrandom 0.4.3",
  "http",
@@ -1287,6 +1288,15 @@ dependencies = [
  "proptest",
  "rand_core",
  "serde_json",
+ "sha2 0.11.1",
+]
+
+[[package]]
+name = "dassie-wallet-assets"
+version = "0.2.9"
+dependencies = [
+ "dassie-node",
+ "flate2",
  "sha2 0.11.1",
 ]
 

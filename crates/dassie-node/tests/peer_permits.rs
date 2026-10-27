@@ -26,6 +26,7 @@ fn node() -> Arc<Node> {
         acme_ca_file: None,
         policies: Policies::DEFAULT,
         peer: PeerOptions::default(),
+        wallet: dassie_node::http::assets::Wallet::PLACEHOLDER,
         dev_wallet_dir: None,
         public_names: Vec::new(),
         live_realm: dassie_node_core::config::LiveRealm::Refused,

@@ -339,7 +339,7 @@ async fn route_https(
         (&Method::GET | &Method::HEAD, discovery::PATH) => discovery::serve(node),
         (&Method::GET | &Method::HEAD, path) => match node.dev_wallet_dir() {
             Some(root) => assets::serve_dir(root, &method, path, request.headers()).await,
-            None => assets::serve(&method, path, request.headers()),
+            None => assets::serve(node.wallet(), &method, path, request.headers()),
         },
         _ => {
             let mut response = response::text(StatusCode::METHOD_NOT_ALLOWED, "Method Not Allowed");

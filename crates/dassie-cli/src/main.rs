@@ -36,7 +36,7 @@ use dassie_node::daemon::{self, DaemonOptions, FeedSocket, Prepared, TcpPorts};
 use dassie_node::env::{Env, Settings};
 use dassie_node::node::{Policies, Runtime};
 use dassie_node::store::Store;
-use dassie_node::{http, log, tls};
+use dassie_node::{log, tls};
 use dassie_node_core::certificate;
 use dassie_node_core::config::Ports;
 use lexopt::prelude::*;
@@ -312,7 +312,7 @@ fn daemon(options: DaemonOptions) -> ExitCode {
     // Before the runtime, so that taking systemd's sockets happens while
     // this is the only thread (see dassie_node::systemd).
     let prepared = match Prepared::new(&env, options) {
-        Ok(prepared) => prepared,
+        Ok(prepared) => prepared.with_wallet(dassie_wallet_assets::WALLET),
         Err(error) => {
             tracing::error!(target: log::target::DAEMON, %error, "could not start");
             return ExitCode::from(START_FAILED);
@@ -454,7 +454,7 @@ fn check_tls() -> Result<(), String> {
 }
 
 fn check_wallet() -> Result<(), String> {
-    if http::assets::wallet_built() {
+    if dassie_wallet_assets::WALLET.is_built() {
         Ok(())
     } else {
         Err("this binary was built without the wallet (DASSIE_WALLET_DIST was not set)".into())
