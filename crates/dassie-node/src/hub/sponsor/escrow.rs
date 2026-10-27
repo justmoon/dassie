@@ -5,6 +5,13 @@
 //! the hub's nonce, the master key disabled last. What to do next is
 //! `dassie_hub::escrow::setup_step`'s to say, from what the ledger shows;
 //! this carries it out, over a WebSocket of its own to the XRPL server.
+//!
+//! A token hub's issuer cannot stop it: the payment that funds the escrow
+//! is in XRP, and the signer list, `RequireDest`, the line to the issuer
+//! and disabling the master key move no token, so a freeze, a global
+//! freeze or a transfer fee lets each through. A hub founded while the
+//! issuer holds its escrow starts frozen once the validators attest it
+//! (spec/decisions/token-hubs.md).
 
 use std::sync::Arc;
 use std::time::Duration;
