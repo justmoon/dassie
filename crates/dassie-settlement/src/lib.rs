@@ -45,4 +45,4 @@ pub use scheme::{
     OwnerPayment, OwnerPaymentState, PaymentFailure, PegPause, PegView, PreparedSettlement,
     ReconcileCause, SchemeError, SchemeInfo, SettlementScheme,
 };
-pub use stub::{STUB_INITIAL_BALANCE, Stub};
+pub use stub::{MAX_STUB_COMMITMENTS, STUB_INITIAL_BALANCE, Stub};

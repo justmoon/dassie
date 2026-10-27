@@ -95,6 +95,7 @@
 
 pub mod checks;
 pub mod hub;
+pub mod hub_runs;
 pub mod hubbed;
 pub mod scripted;
 pub mod swarm;
@@ -114,6 +115,7 @@ use dassie_oer::Decode;
 use dassie_payments::amount::paid_in_full;
 use dassie_peer::wire::SchemeId;
 use dassie_peer::{Bootstrap, Failure, InboundId, OwnInfo, RequestId, Response};
+use dassie_settlement::MAX_STUB_COMMITMENTS;
 use dassie_settlement::policy;
 use dassie_stream::{AssetDetails, BUFFER_LENGTH, Config, Connection, Policy, Role};
 use dassie_xrpl::DROPS_PER_XRP;
@@ -222,6 +224,11 @@ pub enum Settling {
     /// the hub from its XRP Ledger testnet account, and peers over the hub
     /// (spec/areas/hubs.md#in-the-node).
     Hub(usize),
+    /// Across currencies over hubs: node 0 in dollars over the stub with
+    /// commitments, the packet path of a hub without one, node 2 in a
+    /// settlement hub of this many validators, as [`Self::Hub`], nodes 1
+    /// and 3 on both (spec/areas/testing.md#over-a-settlement-hub).
+    HubAcross(usize),
 }
 
 /// The stub ledger, in dollars.
@@ -269,6 +276,7 @@ impl Settling {
             Self::Cross | Self::XrpRlusd | Self::XrpDsusd => {
                 panic!("a run across currencies has two ledgers")
             }
+            Self::HubAcross(_) => panic!("a run across currencies has two ledgers"),
         }
     }
 
@@ -284,6 +292,9 @@ impl Settling {
             (Self::XrpDsusd, 0) => &[DSUSD],
             (Self::XrpDsusd, _) => &[DSUSD, XRP],
             (Self::Hub(_), _) => &[HUB],
+            (Self::HubAcross(_), 0) => &[USD],
+            (Self::HubAcross(_), 2) => &[HUB],
+            (Self::HubAcross(_), _) => &[USD, HUB],
         }
     }
 
@@ -309,7 +320,8 @@ impl Settling {
             | Self::Xrpl
             | Self::XrplLive
             | Self::Cross
-            | Self::Hub(_) => None,
+            | Self::Hub(_)
+            | Self::HubAcross(_) => None,
         }
     }
 
@@ -332,7 +344,10 @@ impl Settling {
 
     /// Whether it runs across currencies, checked by [`checks::check_across`].
     pub const fn across(self) -> bool {
-        matches!(self, Self::Cross | Self::XrpRlusd | Self::XrpDsusd)
+        matches!(
+            self,
+            Self::Cross | Self::XrpRlusd | Self::XrpDsusd | Self::HubAcross(_)
+        )
     }
 
     /// What each node's owner starts with on `ledger`: the stub's balance,
@@ -369,7 +384,13 @@ impl Settling {
             Self::Trusting if ledger == USD => r#"{"trust":"unlimited"}"#.into(),
             Self::StubHub(limit) if ledger == USD => format!(r#"{{"commitments":{limit}}}"#),
             Self::Hub(validators) if ledger == HUB => hub::config(validators),
-            Self::Hub(_) if ledger == XRP => r#"{"peers":false}"#.into(),
+            Self::HubAcross(validators) if ledger == HUB => hub::config(validators),
+            Self::Hub(_) | Self::HubAcross(_) if ledger == XRP => r#"{"peers":false}"#.into(),
+            // As many packets in flight as the stub takes: a hub bounds its
+            // packets by their holds alone.
+            Self::HubAcross(_) if ledger == USD => {
+                format!(r#"{{"commitments":{MAX_STUB_COMMITMENTS}}}"#)
+            }
             _ => Self::scheme(ledger).1.into(),
         }
     }
@@ -1054,7 +1075,7 @@ impl Sim {
                 fulfills: BTreeMap::new(),
             });
         }
-        if let Settling::Hub(validators) = settling {
+        if let Settling::Hub(validators) | Settling::HubAcross(validators) = settling {
             sim.latency_ms = REGIONAL_LATENCY_MS;
             sim.found_hub(&vec![dassie_hub::sim::Role::Honest; validators]);
         }
@@ -1067,7 +1088,7 @@ impl Sim {
             }
             // A member of a hub funds its account there from its XRP Ledger
             // testnet account, its owner's book, which peers with no one.
-            if matches!(settling, Settling::Hub(_)) {
+            if settling.ledgers(index).contains(&HUB) {
                 let config = settling.config(XRP);
                 sim.step(index, |core| {
                     core.add_scheme("xrpl-testnet-xrp", config).unwrap();
@@ -1417,7 +1438,10 @@ impl Sim {
         if self.settling.across() {
             self.watch_prices(index);
         }
-        if matches!(self.settling, Settling::StubHub(_) | Settling::Hub(_)) {
+        if matches!(
+            self.settling,
+            Settling::StubHub(_) | Settling::Hub(_) | Settling::HubAcross(_)
+        ) {
             self.watch_hub(index);
         }
         if self.settling.on_xrpl() {
@@ -1443,6 +1467,15 @@ impl Sim {
         let Some(core) = self.nodes[index].core.as_mut() else {
             return;
         };
+        // In a run across currencies over hubs, the peers over the real
+        // hub; the others are over the stub with commitments.
+        let over_real: BTreeSet<String> = match self.settling {
+            Settling::HubAcross(_) => (core.network().peers.into_iter())
+                .filter(|peer| peer.peering.first().scheme.as_str() == Settling::scheme(HUB).0)
+                .map(|peer| peer.id.as_str().to_owned())
+                .collect(),
+            _ => BTreeSet::new(),
+        };
         for peer in core.hub_peers() {
             let held = peer.held;
             if held.ours > peer.pending_to || held.theirs > peer.pending_from {
@@ -1466,7 +1499,10 @@ impl Sim {
             // the holds for a while, never below them
             // (spec/areas/hubs.md#in-the-node). The stub reports a take when
             // the books take it, so there the two are always one.
-            let real = matches!(self.settling, Settling::Hub(_));
+            // Across the stub with commitments and a real hub, each peer is
+            // held to the bound of what it is peered over.
+            let real =
+                matches!(self.settling, Settling::Hub(_)) || over_real.contains(peer.peer.as_str());
             if peer.peered
                 && let Some(credit) = peer.credit
                 && (credit < holds || credit > holds && !real)

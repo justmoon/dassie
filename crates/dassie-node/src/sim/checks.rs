@@ -942,6 +942,7 @@ fn check_assets(sim: &Sim) -> Result<(), String> {
     let ledgers: &[LedgerId] = match sim.settling {
         Settling::XrpRlusd => &[RLUSD, LIVE_XRP],
         Settling::XrpDsusd => &[DSUSD, XRP],
+        Settling::HubAcross(_) => &[USD, super::HUB],
         _ => &[USD, XRP],
     };
     for &ledger in ledgers {
