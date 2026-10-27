@@ -124,7 +124,7 @@ pub async fn dispatch(
     let reply = match method {
         Method::GetBasicState(_) | Method::ClaimPairing(_) => unreachable!("answered above"),
         Method::StartPairing(_) => start_pairing(node, caller).await?,
-        Method::GetStatus(_) => response::Method::GetStatus(status(node)),
+        Method::GetStatus(_) => response::Method::GetStatus(status(node).await),
         Method::GetConfig(_) => response::Method::GetConfig(get_config(node)),
         Method::GetSetupUrl(_) => {
             let url = node
@@ -408,9 +408,23 @@ fn basic_state(node: &Node, caller: Caller) -> proto::GetBasicStateResponse {
     }
 }
 
-fn status(node: &Node) -> proto::GetStatusResponse {
+/// How long status waits for the engine's counters. A stuck engine is when
+/// an owner asks for status most, so it answers without them past this.
+const COUNTERS_READ_MS: u64 = 1_000;
+
+async fn status(node: &Node) -> proto::GetStatusResponse {
     let (has_account, next_check_ms, last_error) = node.renewal_status();
     let (http_port, https_port) = node.ports();
+    let counters = match node.engine() {
+        Some(engine) => tokio::time::timeout(
+            std::time::Duration::from_millis(COUNTERS_READ_MS),
+            engine.counters(),
+        )
+        .await
+        .ok()
+        .and_then(Result::ok),
+        None => None,
+    };
     proto::GetStatusResponse {
         version: crate::VERSION.into(),
         runtime: convert::runtime(node.runtime()).into(),
@@ -448,6 +462,52 @@ fn status(node: &Node) -> proto::GetStatusResponse {
         feed: feed_status(node),
         validating: node.hubs().statuses().iter().map(hub_status).collect(),
         founding: super::founding::foundings(node),
+        packets: counters.map(|(packets, _)| packet_counters(&packets)),
+        peer_protocol: counters.map(|(_, peer)| peer_counters(&peer)),
+    }
+}
+
+/// The connector's counters (spec/areas/node.md#the-dassie-command).
+const fn packet_counters(stats: &dassie_connector::Stats) -> proto::PacketCounters {
+    proto::PacketCounters {
+        prepares: stats.prepares,
+        forwarded: stats.forwarded,
+        answered: stats.answered,
+        fulfilled: stats.fulfilled,
+        rejected: stats.rejected,
+        expired: stats.expired,
+        wrong_fulfillments: stats.wrong_fulfillments,
+        unexpected_responses: stats.unexpected_responses,
+        duplicates: stats.duplicates,
+    }
+}
+
+/// The peer protocol's counters (spec/areas/node.md#the-dassie-command).
+const fn peer_counters(stats: &dassie_peer::Stats) -> proto::PeerCounters {
+    proto::PeerCounters {
+        requests_sent: stats.requests_sent,
+        requests_failed: stats.requests_failed,
+        requests_dropped: stats.requests_dropped,
+        inbound_refused: stats.inbound_refused,
+        link_states_accepted: stats.link_states_accepted,
+        link_states_dropped: stats.link_states_dropped,
+        peerings: stats.peerings,
+        terminations: stats.terminations,
+        answers_dropped: stats.answers_dropped,
+        settlements_delivered: stats.settlements_delivered,
+        settlements_applied: stats.settlements_applied,
+        settlements_duplicate: stats.settlements_duplicate,
+        settlements_requested: stats.settlements_requested,
+        channels_closed: stats.channels_closed,
+        commitments_logged: stats.commitments_logged,
+        commitments_lapsed: stats.commitments_lapsed,
+        names_granted: stats.names_granted,
+        names_renewed: stats.names_renewed,
+        names_freed: stats.names_freed,
+        names_released: stats.names_released,
+        registrations_started: stats.registrations_started,
+        registrations_abandoned: stats.registrations_abandoned,
+        renewals_sent: stats.renewals_sent,
     }
 }
 

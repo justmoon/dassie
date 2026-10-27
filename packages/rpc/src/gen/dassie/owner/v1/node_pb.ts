@@ -14,7 +14,7 @@ import type { Message, UnknownEnum } from "@bufbuild/protobuf";
  * Describes the file dassie/owner/v1/node.proto.
  */
 export const file_dassie_owner_v1_node: GenFile = /*@__PURE__*/
-  fileDesc("ChpkYXNzaWUvb3duZXIvdjEvbm9kZS5wcm90bxIPZGFzc2llLm93bmVyLnYxIhYKFEdldEJhc2ljU3RhdGVSZXF1ZXN0IrgBChVHZXRCYXNpY1N0YXRlUmVzcG9uc2USKQoFc3RhdGUYASABKA4yGi5kYXNzaWUub3duZXIudjEuTm9kZVN0YXRlEg8KB25vZGVfaWQYAiABKAkSEAoIaG9zdG5hbWUYAyABKAkSHQoVaWxwX2FsbG9jYXRpb25fc2NoZW1lGAQgASgJEg8KB3ZlcnNpb24YBSABKAkSIQoZYWN0aXZlX3NldHRsZW1lbnRfc2NoZW1lcxgGIAMoCSISChBHZXRTdGF0dXNSZXF1ZXN0ItsDChFHZXRTdGF0dXNSZXNwb25zZRIPCgd2ZXJzaW9uGAEgASgJEikKB3J1bnRpbWUYAiABKA4yGC5kYXNzaWUub3duZXIudjEuUnVudGltZRIaChJzdGFydGVkX2F0X3VuaXhfbXMYAyABKAMSMQoLY2VydGlmaWNhdGUYBCABKAsyHC5kYXNzaWUub3duZXIudjEuQ2VydGlmaWNhdGUSKQoEYWNtZRgFIAEoCzIbLmRhc3NpZS5vd25lci52MS5BY21lU3RhdHVzEhEKCWh0dHBfcG9ydBgGIAEoDRISCgpodHRwc19wb3J0GAcgASgNEhEKCXBlcmlwaGVyeRgIIAEoCBIrCgVyZWxheRgJIAEoCzIcLmRhc3NpZS5vd25lci52MS5DaG9zZW5SZWxheRIdChVvcGVuX3BheW1lbnRzX29yaWdpbnMYCiADKAkSJwoEZmVlZBgLIAEoCzIZLmRhc3NpZS5vd25lci52MS5SYXRlRmVlZBIxCgp2YWxpZGF0aW5nGAwgAygLMh0uZGFzc2llLm93bmVyLnYxLkh1YlZhbGlkYXRvchIuCghmb3VuZGluZxgNIAMoCzIcLmRhc3NpZS5vd25lci52MS5IdWJGb3VuZGluZyLeAQoMSHViVmFsaWRhdG9yEgsKA2h1YhgBIAEoCRINCgVpbmRleBgCIAEoDRISCgp2YWxpZGF0b3JzGAMgASgNEg4KBmhlaWdodBgEIAEoBBIVCg1maW5hbF91bml4X21zGAUgASgDEgwKBHZpZXcYBiABKAQSKAoFcGhhc2UYByABKA4yGS5kYXNzaWUub3duZXIudjEuSHViUGhhc2USDwoHc3RhbGxlZBgIIAEoCBIWCg5lc2Nyb3dfY2hlY2tlZBgJIAEoCBIWCg54cnBsX2Nvbm5lY3RlZBgKIAEoCCKiAgoIUmF0ZUZlZWQSDwoHc2VydmluZxgBIAEoCBIPCgdhZGRyZXNzGAIgASgJEhMKC3N1YnNjcmliZXJzGAMgASgNEhEKCXB1Ymxpc2hlZBgEIAEoBBIMCgRzZW50GAUgASgEEhMKC3NlbmRfZmFpbGVkGAYgASgEEg4KBnVuc2VudBgHIAEoBBIQCghyZWNlaXZlZBgIIAEoBBISCgpjaGFsbGVuZ2VkGAkgASgEEhIKCnN1YnNjcmliZWQYCiABKAQSDwoHcmVuZXdlZBgLIAEoBBIUCgxyZWZ1c2VkX2Z1bGwYDCABKAQSFgoOcmVmdXNlZF9jbGllbnQYDSABKAQSDwoHaWdub3JlZBgOIAEoBBIPCgdleHBpcmVkGA8gASgEInEKC0Nob3NlblJlbGF5EgwKBG5vZGUYASABKAkSCwoDdXJsGAIgASgJEhEKCWNvbm5lY3RlZBgDIAEoCBI0Cgpjb25uZWN0aW9uGAQgASgOMiAuZGFzc2llLm93bmVyLnYxLlJlbGF5Q29ubmVjdGlvbiJRCgpBY21lU3RhdHVzEhMKC2hhc19hY2NvdW50GAEgASgIEhoKEm5leHRfY2hlY2tfdW5peF9tcxgCIAEoAxISCgpsYXN0X2Vycm9yGAMgASgJKn0KCU5vZGVTdGF0ZRIaChZOT0RFX1NUQVRFX1VOU1BFQ0lGSUVEEAASHAoYTk9ERV9TVEFURV9VTklOSVRJQUxJWkVEEAESGAoUTk9ERV9TVEFURV9BTk9OWU1PVVMQAhIcChhOT0RFX1NUQVRFX0FVVEhFTlRJQ0FURUQQAypuCghIdWJQaGFzZRIZChVIVUJfUEhBU0VfVU5TUEVDSUZJRUQQABIVChFIVUJfUEhBU0VfUlVOTklORxABEhsKF0hVQl9QSEFTRV9TSFVUVElOR19ET1dOEAISEwoPSFVCX1BIQVNFX0VOREVEEAMqlgEKD1JlbGF5Q29ubmVjdGlvbhIgChxSRUxBWV9DT05ORUNUSU9OX1VOU1BFQ0lGSUVEEAASHgoaUkVMQVlfQ09OTkVDVElPTl9DT05ORUNURUQQARIfChtSRUxBWV9DT05ORUNUSU9OX0NPTk5FQ1RJTkcQAhIgChxSRUxBWV9DT05ORUNUSU9OX1VOUkVBQ0hBQkxFEAMqTwoHUnVudGltZRIXChNSVU5USU1FX1VOU1BFQ0lGSUVEEAASFgoSUlVOVElNRV9TVEFOREFMT05FEAESEwoPUlVOVElNRV9TWVNURU1EEAJiBnByb3RvMw", [file_dassie_owner_v1_hub_founding, file_dassie_owner_v1_tls]);
+  fileDesc("ChpkYXNzaWUvb3duZXIvdjEvbm9kZS5wcm90bxIPZGFzc2llLm93bmVyLnYxIhYKFEdldEJhc2ljU3RhdGVSZXF1ZXN0IrgBChVHZXRCYXNpY1N0YXRlUmVzcG9uc2USKQoFc3RhdGUYASABKA4yGi5kYXNzaWUub3duZXIudjEuTm9kZVN0YXRlEg8KB25vZGVfaWQYAiABKAkSEAoIaG9zdG5hbWUYAyABKAkSHQoVaWxwX2FsbG9jYXRpb25fc2NoZW1lGAQgASgJEg8KB3ZlcnNpb24YBSABKAkSIQoZYWN0aXZlX3NldHRsZW1lbnRfc2NoZW1lcxgGIAMoCSISChBHZXRTdGF0dXNSZXF1ZXN0IsMEChFHZXRTdGF0dXNSZXNwb25zZRIPCgd2ZXJzaW9uGAEgASgJEikKB3J1bnRpbWUYAiABKA4yGC5kYXNzaWUub3duZXIudjEuUnVudGltZRIaChJzdGFydGVkX2F0X3VuaXhfbXMYAyABKAMSMQoLY2VydGlmaWNhdGUYBCABKAsyHC5kYXNzaWUub3duZXIudjEuQ2VydGlmaWNhdGUSKQoEYWNtZRgFIAEoCzIbLmRhc3NpZS5vd25lci52MS5BY21lU3RhdHVzEhEKCWh0dHBfcG9ydBgGIAEoDRISCgpodHRwc19wb3J0GAcgASgNEhEKCXBlcmlwaGVyeRgIIAEoCBIrCgVyZWxheRgJIAEoCzIcLmRhc3NpZS5vd25lci52MS5DaG9zZW5SZWxheRIdChVvcGVuX3BheW1lbnRzX29yaWdpbnMYCiADKAkSJwoEZmVlZBgLIAEoCzIZLmRhc3NpZS5vd25lci52MS5SYXRlRmVlZBIxCgp2YWxpZGF0aW5nGAwgAygLMh0uZGFzc2llLm93bmVyLnYxLkh1YlZhbGlkYXRvchIuCghmb3VuZGluZxgNIAMoCzIcLmRhc3NpZS5vd25lci52MS5IdWJGb3VuZGluZxIwCgdwYWNrZXRzGA4gASgLMh8uZGFzc2llLm93bmVyLnYxLlBhY2tldENvdW50ZXJzEjQKDXBlZXJfcHJvdG9jb2wYDyABKAsyHS5kYXNzaWUub3duZXIudjEuUGVlckNvdW50ZXJzIssBCg5QYWNrZXRDb3VudGVycxIQCghwcmVwYXJlcxgBIAEoBBIRCglmb3J3YXJkZWQYAiABKAQSEAoIYW5zd2VyZWQYAyABKAQSEQoJZnVsZmlsbGVkGAQgASgEEhAKCHJlamVjdGVkGAUgASgEEg8KB2V4cGlyZWQYBiABKAQSGgoSd3JvbmdfZnVsZmlsbG1lbnRzGAcgASgEEhwKFHVuZXhwZWN0ZWRfcmVzcG9uc2VzGAggASgEEhIKCmR1cGxpY2F0ZXMYCSABKAQi6gQKDFBlZXJDb3VudGVycxIVCg1yZXF1ZXN0c19zZW50GAEgASgEEhcKD3JlcXVlc3RzX2ZhaWxlZBgCIAEoBBIYChByZXF1ZXN0c19kcm9wcGVkGAMgASgEEhcKD2luYm91bmRfcmVmdXNlZBgEIAEoBBIcChRsaW5rX3N0YXRlc19hY2NlcHRlZBgFIAEoBBIbChNsaW5rX3N0YXRlc19kcm9wcGVkGAYgASgEEhAKCHBlZXJpbmdzGAcgASgEEhQKDHRlcm1pbmF0aW9ucxgIIAEoBBIXCg9hbnN3ZXJzX2Ryb3BwZWQYCSABKAQSHQoVc2V0dGxlbWVudHNfZGVsaXZlcmVkGAogASgEEhsKE3NldHRsZW1lbnRzX2FwcGxpZWQYCyABKAQSHQoVc2V0dGxlbWVudHNfZHVwbGljYXRlGAwgASgEEh0KFXNldHRsZW1lbnRzX3JlcXVlc3RlZBgNIAEoBBIXCg9jaGFubmVsc19jbG9zZWQYDiABKAQSGgoSY29tbWl0bWVudHNfbG9nZ2VkGA8gASgEEhoKEmNvbW1pdG1lbnRzX2xhcHNlZBgQIAEoBBIVCg1uYW1lc19ncmFudGVkGBEgASgEEhUKDW5hbWVzX3JlbmV3ZWQYEiABKAQSEwoLbmFtZXNfZnJlZWQYEyABKAQSFgoObmFtZXNfcmVsZWFzZWQYFCABKAQSHQoVcmVnaXN0cmF0aW9uc19zdGFydGVkGBUgASgEEh8KF3JlZ2lzdHJhdGlvbnNfYWJhbmRvbmVkGBYgASgEEhUKDXJlbmV3YWxzX3NlbnQYFyABKAQi3gEKDEh1YlZhbGlkYXRvchILCgNodWIYASABKAkSDQoFaW5kZXgYAiABKA0SEgoKdmFsaWRhdG9ycxgDIAEoDRIOCgZoZWlnaHQYBCABKAQSFQoNZmluYWxfdW5peF9tcxgFIAEoAxIMCgR2aWV3GAYgASgEEigKBXBoYXNlGAcgASgOMhkuZGFzc2llLm93bmVyLnYxLkh1YlBoYXNlEg8KB3N0YWxsZWQYCCABKAgSFgoOZXNjcm93X2NoZWNrZWQYCSABKAgSFgoOeHJwbF9jb25uZWN0ZWQYCiABKAgiogIKCFJhdGVGZWVkEg8KB3NlcnZpbmcYASABKAgSDwoHYWRkcmVzcxgCIAEoCRITCgtzdWJzY3JpYmVycxgDIAEoDRIRCglwdWJsaXNoZWQYBCABKAQSDAoEc2VudBgFIAEoBBITCgtzZW5kX2ZhaWxlZBgGIAEoBBIOCgZ1bnNlbnQYByABKAQSEAoIcmVjZWl2ZWQYCCABKAQSEgoKY2hhbGxlbmdlZBgJIAEoBBISCgpzdWJzY3JpYmVkGAogASgEEg8KB3JlbmV3ZWQYCyABKAQSFAoMcmVmdXNlZF9mdWxsGAwgASgEEhYKDnJlZnVzZWRfY2xpZW50GA0gASgEEg8KB2lnbm9yZWQYDiABKAQSDwoHZXhwaXJlZBgPIAEoBCJxCgtDaG9zZW5SZWxheRIMCgRub2RlGAEgASgJEgsKA3VybBgCIAEoCRIRCgljb25uZWN0ZWQYAyABKAgSNAoKY29ubmVjdGlvbhgEIAEoDjIgLmRhc3NpZS5vd25lci52MS5SZWxheUNvbm5lY3Rpb24iUQoKQWNtZVN0YXR1cxITCgtoYXNfYWNjb3VudBgBIAEoCBIaChJuZXh0X2NoZWNrX3VuaXhfbXMYAiABKAMSEgoKbGFzdF9lcnJvchgDIAEoCSp9CglOb2RlU3RhdGUSGgoWTk9ERV9TVEFURV9VTlNQRUNJRklFRBAAEhwKGE5PREVfU1RBVEVfVU5JTklUSUFMSVpFRBABEhgKFE5PREVfU1RBVEVfQU5PTllNT1VTEAISHAoYTk9ERV9TVEFURV9BVVRIRU5USUNBVEVEEAMqbgoISHViUGhhc2USGQoVSFVCX1BIQVNFX1VOU1BFQ0lGSUVEEAASFQoRSFVCX1BIQVNFX1JVTk5JTkcQARIbChdIVUJfUEhBU0VfU0hVVFRJTkdfRE9XThACEhMKD0hVQl9QSEFTRV9FTkRFRBADKpYBCg9SZWxheUNvbm5lY3Rpb24SIAocUkVMQVlfQ09OTkVDVElPTl9VTlNQRUNJRklFRBAAEh4KGlJFTEFZX0NPTk5FQ1RJT05fQ09OTkVDVEVEEAESHwobUkVMQVlfQ09OTkVDVElPTl9DT05ORUNUSU5HEAISIAocUkVMQVlfQ09OTkVDVElPTl9VTlJFQUNIQUJMRRADKk8KB1J1bnRpbWUSFwoTUlVOVElNRV9VTlNQRUNJRklFRBAAEhYKElJVTlRJTUVfU1RBTkRBTE9ORRABEhMKD1JVTlRJTUVfU1lTVEVNRBACYgZwcm90bzM", [file_dassie_owner_v1_hub_founding, file_dassie_owner_v1_tls]);
 
 /**
  * @generated from message dassie.owner.v1.GetBasicStateRequest
@@ -191,6 +191,23 @@ export type GetStatusResponse = Message<"dassie.owner.v1.GetStatusResponse"> & {
    * @generated from field: repeated dassie.owner.v1.HubFounding founding = 13;
    */
   founding: HubFounding[];
+
+  /**
+   * What the connector counted since the engine started
+   * (spec/areas/node.md#the-dassie-command); unset while the engine is
+   * down.
+   *
+   * @generated from field: dassie.owner.v1.PacketCounters packets = 14;
+   */
+  packets?: PacketCounters | undefined;
+
+  /**
+   * What the peer protocol counted since the engine started; unset while
+   * the engine is down.
+   *
+   * @generated from field: dassie.owner.v1.PeerCounters peer_protocol = 15;
+   */
+  peerProtocol?: PeerCounters | undefined;
 };
 
 /**
@@ -199,6 +216,253 @@ export type GetStatusResponse = Message<"dassie.owner.v1.GetStatusResponse"> & {
  */
 export const GetStatusResponseSchema: GenMessage<GetStatusResponse> = /*@__PURE__*/
   messageDesc(file_dassie_owner_v1_node, 3);
+
+/**
+ * The connector's counters: what came of the Prepares it took. Read in one
+ * step of the engine, so they agree with each other; each only grows while
+ * the engine runs, and starts again at zero when it restarts.
+ *
+ * @generated from message dassie.owner.v1.PacketCounters
+ */
+export type PacketCounters = Message<"dassie.owner.v1.PacketCounters"> & {
+  /**
+   * Prepares taken.
+   *
+   * @generated from field: uint64 prepares = 1;
+   */
+  prepares: bigint;
+
+  /**
+   * Prepares forwarded.
+   *
+   * @generated from field: uint64 forwarded = 2;
+   */
+  forwarded: bigint;
+
+  /**
+   * Prepares answered at once: ILDCP, or a reject.
+   *
+   * @generated from field: uint64 answered = 3;
+   */
+  answered: bigint;
+
+  /**
+   * Forwarded packets fulfilled.
+   *
+   * @generated from field: uint64 fulfilled = 4;
+   */
+  fulfilled: bigint;
+
+  /**
+   * Forwarded packets rejected downstream.
+   *
+   * @generated from field: uint64 rejected = 5;
+   */
+  rejected: bigint;
+
+  /**
+   * Forwarded packets that expired, or whose next hop went away.
+   *
+   * @generated from field: uint64 expired = 6;
+   */
+  expired: bigint;
+
+  /**
+   * Fulfillments that did not match the condition.
+   *
+   * @generated from field: uint64 wrong_fulfillments = 7;
+   */
+  wrongFulfillments: bigint;
+
+  /**
+   * Responses for no packet in flight: late, duplicate or bogus.
+   *
+   * @generated from field: uint64 unexpected_responses = 8;
+   */
+  unexpectedResponses: bigint;
+
+  /**
+   * Prepares that reused a request ID in flight.
+   *
+   * @generated from field: uint64 duplicates = 9;
+   */
+  duplicates: bigint;
+};
+
+/**
+ * Describes the message dassie.owner.v1.PacketCounters.
+ * Use `create(PacketCountersSchema)` to create a new message.
+ */
+export const PacketCountersSchema: GenMessage<PacketCounters> = /*@__PURE__*/
+  messageDesc(file_dassie_owner_v1_node, 4);
+
+/**
+ * The peer protocol's counters, read as the connector's are.
+ *
+ * @generated from message dassie.owner.v1.PeerCounters
+ */
+export type PeerCounters = Message<"dassie.owner.v1.PeerCounters"> & {
+  /**
+   * Requests sent.
+   *
+   * @generated from field: uint64 requests_sent = 1;
+   */
+  requestsSent: bigint;
+
+  /**
+   * Requests that failed or got an error.
+   *
+   * @generated from field: uint64 requests_failed = 2;
+   */
+  requestsFailed: bigint;
+
+  /**
+   * Requests dropped because too many were in flight.
+   *
+   * @generated from field: uint64 requests_dropped = 3;
+   */
+  requestsDropped: bigint;
+
+  /**
+   * Inbound requests refused, by any status.
+   *
+   * @generated from field: uint64 inbound_refused = 4;
+   */
+  inboundRefused: bigint;
+
+  /**
+   * Link states accepted.
+   *
+   * @generated from field: uint64 link_states_accepted = 5;
+   */
+  linkStatesAccepted: bigint;
+
+  /**
+   * Link states dropped as old, unknown, invalid or too frequent.
+   *
+   * @generated from field: uint64 link_states_dropped = 6;
+   */
+  linkStatesDropped: bigint;
+
+  /**
+   * Peerings begun.
+   *
+   * @generated from field: uint64 peerings = 7;
+   */
+  peerings: bigint;
+
+  /**
+   * Peerings ended.
+   *
+   * @generated from field: uint64 terminations = 8;
+   */
+  terminations: bigint;
+
+  /**
+   * ILP responses given up on: refused, out of time, or no room to retry.
+   *
+   * @generated from field: uint64 answers_dropped = 9;
+   */
+  answersDropped: bigint;
+
+  /**
+   * Settlement messages the peer acknowledged.
+   *
+   * @generated from field: uint64 settlements_delivered = 10;
+   */
+  settlementsDelivered: bigint;
+
+  /**
+   * Settlement messages applied from peers.
+   *
+   * @generated from field: uint64 settlements_applied = 11;
+   */
+  settlementsApplied: bigint;
+
+  /**
+   * Settlement messages that arrived again and were not applied twice.
+   *
+   * @generated from field: uint64 settlements_duplicate = 12;
+   */
+  settlementsDuplicate: bigint;
+
+  /**
+   * Settlement requests sent.
+   *
+   * @generated from field: uint64 settlements_requested = 13;
+   */
+  settlementsRequested: bigint;
+
+  /**
+   * Settlement channels closed.
+   *
+   * @generated from field: uint64 channels_closed = 14;
+   */
+  channelsClosed: bigint;
+
+  /**
+   * As a registrar of names: commitments logged, and those that lapsed
+   * unsealed.
+   *
+   * @generated from field: uint64 commitments_logged = 15;
+   */
+  commitmentsLogged: bigint;
+
+  /**
+   * @generated from field: uint64 commitments_lapsed = 16;
+   */
+  commitmentsLapsed: bigint;
+
+  /**
+   * As a registrar: names granted, renewed, freed after their grace period,
+   * and released for a split.
+   *
+   * @generated from field: uint64 names_granted = 17;
+   */
+  namesGranted: bigint;
+
+  /**
+   * @generated from field: uint64 names_renewed = 18;
+   */
+  namesRenewed: bigint;
+
+  /**
+   * @generated from field: uint64 names_freed = 19;
+   */
+  namesFreed: bigint;
+
+  /**
+   * @generated from field: uint64 names_released = 20;
+   */
+  namesReleased: bigint;
+
+  /**
+   * Registrations of the node's own names started, and abandoned short of
+   * a receipt.
+   *
+   * @generated from field: uint64 registrations_started = 21;
+   */
+  registrationsStarted: bigint;
+
+  /**
+   * @generated from field: uint64 registrations_abandoned = 22;
+   */
+  registrationsAbandoned: bigint;
+
+  /**
+   * Renewals of the node's own names sent.
+   *
+   * @generated from field: uint64 renewals_sent = 23;
+   */
+  renewalsSent: bigint;
+};
+
+/**
+ * Describes the message dassie.owner.v1.PeerCounters.
+ * Use `create(PeerCountersSchema)` to create a new message.
+ */
+export const PeerCountersSchema: GenMessage<PeerCounters> = /*@__PURE__*/
+  messageDesc(file_dassie_owner_v1_node, 5);
 
 /**
  * How the node's validator of one settlement hub stands.
@@ -283,7 +547,7 @@ export type HubValidator = Message<"dassie.owner.v1.HubValidator"> & {
  * Use `create(HubValidatorSchema)` to create a new message.
  */
 export const HubValidatorSchema: GenMessage<HubValidator> = /*@__PURE__*/
-  messageDesc(file_dassie_owner_v1_node, 4);
+  messageDesc(file_dassie_owner_v1_node, 6);
 
 /**
  * What the rate feed does: whether it serves, where, and its counters since
@@ -409,7 +673,7 @@ export type RateFeed = Message<"dassie.owner.v1.RateFeed"> & {
  * Use `create(RateFeedSchema)` to create a new message.
  */
 export const RateFeedSchema: GenMessage<RateFeed> = /*@__PURE__*/
-  messageDesc(file_dassie_owner_v1_node, 5);
+  messageDesc(file_dassie_owner_v1_node, 7);
 
 /**
  * @generated from message dassie.owner.v1.ChosenRelay
@@ -447,7 +711,7 @@ export type ChosenRelay = Message<"dassie.owner.v1.ChosenRelay"> & {
  * Use `create(ChosenRelaySchema)` to create a new message.
  */
 export const ChosenRelaySchema: GenMessage<ChosenRelay> = /*@__PURE__*/
-  messageDesc(file_dassie_owner_v1_node, 6);
+  messageDesc(file_dassie_owner_v1_node, 8);
 
 /**
  * @generated from message dassie.owner.v1.AcmeStatus
@@ -480,7 +744,7 @@ export type AcmeStatus = Message<"dassie.owner.v1.AcmeStatus"> & {
  * Use `create(AcmeStatusSchema)` to create a new message.
  */
 export const AcmeStatusSchema: GenMessage<AcmeStatus> = /*@__PURE__*/
-  messageDesc(file_dassie_owner_v1_node, 7);
+  messageDesc(file_dassie_owner_v1_node, 9);
 
 /**
  * @generated from enum dassie.owner.v1.NodeState

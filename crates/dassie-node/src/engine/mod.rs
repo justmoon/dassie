@@ -307,6 +307,14 @@ impl Engine {
             .await;
     }
 
+    /// What the connector and the peer protocol counted since the engine
+    /// started.
+    pub async fn counters(
+        &self,
+    ) -> Result<(dassie_connector::Stats, dassie_peer::Stats), EngineError> {
+        self.call(|core| Ok(core.counters())).await
+    }
+
     /// The network: the node table, peers and registrations.
     pub async fn network(&self) -> Result<NetworkView, EngineError> {
         self.call(|core| Ok(core.network())).await
