@@ -662,7 +662,7 @@ fn peerings(sim: &Sim) -> BTreeSet<(usize, NodeId)> {
 fn first_ledger(sim: &Sim) -> Result<LedgerId, Outcome> {
     let firsts: BTreeSet<String> = (0..sim.nodes.len())
         .flat_map(|index| sim.core(index).network().peers)
-        .map(|peer| peer.carried.as_str().to_owned())
+        .map(|peer| peer.peering.first().scheme.as_str().to_owned())
         .collect();
     match firsts.iter().collect::<Vec<_>>().as_slice() {
         [first] if first.as_str() == Settling::scheme(HUB).0 => Ok(HUB),

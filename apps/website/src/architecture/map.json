@@ -571,14 +571,15 @@
       "desc": "The Interledger connector. A packet comes in from an endpoint; the connector picks a route, reserves the amount in the ledger, and settles the outcome when the answer comes back.",
       "does": [
         "Endpoints: BTP clients, the local STREAM receiver, ILDCP",
-        "Peers and the route table, with each packet's next hop drawn at random among a route's first hops on the ledger it came in on, weighted by the fees each earned the node, and a share of the draws even, so no one node can stop a payment",
+        "One endpoint per peer, with a slot for each settlement method of the peering: its ledger and account, its money in flight, and whether it is over a hub and available",
+        "Peers and the route table, with each packet's next hop drawn at random among a route's first hops with a method on the ledger it came in on, weighted by the fees each earned the node on that ledger, and a share of the draws even, so no one node can stop a payment; a packet goes on that method, or, where no hop has one, on the drawn hop's method with the best rate, and never moves to another method for room",
         "Downlinks at child addresses below the node's own; a periphery node's addresses beneath its uplinks, forwarding nothing",
-        "A cap on money in flight with each peer, which bounds what a crash loses, and no new packets from a peer it cannot answer",
+        "A cap on money in flight on each method of a peer, which bounds what a crash loses, and no new packets from a peer it cannot answer",
         "Exchange between currencies, with fees and a spread, at a rate moved from spot by what the owner holds on each ledger once the packet and those in flight have moved it, so that payments bring a skewed node back toward balance and no round trip gains, and nothing to or from a ledger whose scheme is paused",
         "The same pricing on every ledger with a currency, a settlement hub's as much as one settled directly, and, for a packet that cannot keep its ledger, a ranking of the ledgers it could convert to by what it gets there relative to spot",
         "A spending cap per BTP token",
         "A packet trace for the debug pages",
-        "Waiting for a settlement hub's decision before rejecting a packet to a peer over the hub"
+        "Waiting for a settlement hub's decision before rejecting a packet that went to a peer on a method over the hub"
       ]
     },
     "release-crate": {
@@ -1493,7 +1494,7 @@
             "stream",
             "connector"
           ],
-          "text": "STREAM sends the money in packets, which the connector routes across peers."
+          "text": "STREAM sends the money in packets, which the connector routes across peers, each packet on a settlement method of the ledger the payment is made in where the next peer has one."
         },
         {
           "ids": [

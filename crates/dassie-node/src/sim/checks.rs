@@ -305,8 +305,8 @@ pub fn drifted_past(sim: &mut Sim) -> Option<String> {
         .map(|link| link.describe())
 }
 
-/// The credit node `index` extends node `other` on the method their
-/// packets take, and its room for it there, while they are peered.
+/// The credit node `index` extends node `other` on their peering's first
+/// method, and its room for it there, while they are peered.
 fn room(sim: &Sim, index: usize, other: usize) -> Option<(u64, u128)> {
     let id = key(other).node_id();
     let peer = sim.nodes[index]
@@ -317,7 +317,7 @@ fn room(sim: &Sim, index: usize, other: usize) -> Option<(u64, u128)> {
         .into_iter()
         .find(|peer| peer.id == id)?;
     let owed = peer.owed?;
-    let credit = peer.peering.method(peer.carried)?.credit_out;
+    let credit = peer.peering.first().credit_out;
     Some((
         credit,
         u128::try_from(owed + i128::from(credit)).unwrap_or(0),

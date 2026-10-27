@@ -154,7 +154,7 @@ impl Connector {
                 .map(|id| id.and_then(|id| ledger.pending(id).copied())),
         });
         if posted.is_some() {
-            self.earn(now_ms, from, entry.earns);
+            self.earn(now_ms, from, entry.out_ledger, entry.earns);
         }
         let upstream = self.resolve(now_ms, &entry, &resolution, ledger, out);
         Responded::Resolved { upstream, posted }
@@ -216,11 +216,12 @@ impl Connector {
             .remove(&(entry.expires_at_ms, destination, request_id));
         entry.awaiting_hub = true;
         entry.expires_at_ms = backstop_ms;
-        let condition = entry.condition;
+        let (condition, ledger) = (entry.condition, entry.out_ledger);
         self.deadlines
             .insert((backstop_ms, destination, request_id));
         self.queue_hub_wait(HubWait {
             destination,
+            ledger,
             request_id,
             condition,
             backstop_ms,
@@ -306,7 +307,8 @@ impl Connector {
         }
     }
 
-    /// Removes a packet from flight.
+    /// Removes a packet from flight. A slot removed while the packet was in
+    /// flight goes with the last of its packets.
     fn take(&mut self, destination: EndpointId, request_id: u32) -> Option<Pending> {
         let entry = self.pending.remove(&(destination, request_id))?;
         self.deadlines
@@ -316,16 +318,28 @@ impl Connector {
                 .remove(&(entry.source, entry.source_request_id));
             if let Some(source) = self.endpoints.get_mut(entry.source) {
                 source.pending_from -= 1;
-                if entry.source.is_peer() {
-                    source.money_from -= entry.amount_in;
+                if let Some(slot) = source.slot_mut(entry.in_ledger) {
+                    slot.pending -= 1;
+                    if entry.source.is_peer() {
+                        slot.money_from -= entry.amount_in;
+                    }
                 }
+                source
+                    .slots
+                    .retain(|slot| !slot.removed || slot.pending > 0);
             }
         }
-        // A peer's ID is never reused, so a peer of that ID is this one.
-        if let Some(to) = self.endpoints.get_mut(destination)
-            && destination.is_peer()
-        {
-            to.money_to -= entry.amount_out;
+        // A peer's ID is never reused, so a peer of that ID is this one, and
+        // its slot on the ledger is the one the packet went on, removed
+        // or not.
+        if let Some(to) = self.endpoints.get_mut(destination) {
+            if let Some(slot) = to.slot_mut(entry.out_ledger) {
+                slot.pending -= 1;
+                if destination.is_peer() {
+                    slot.money_to -= entry.amount_out;
+                }
+            }
+            to.slots.retain(|slot| !slot.removed || slot.pending > 0);
         }
         Some(entry)
     }
@@ -385,6 +399,7 @@ impl Connector {
         });
         (!entry.source_gone).then_some(Upstream {
             to: entry.source,
+            ledger: entry.in_ledger,
             request_id: entry.source_request_id,
             length,
         })

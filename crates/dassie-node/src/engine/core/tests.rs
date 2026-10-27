@@ -13,6 +13,8 @@ use super::{Core, CoreParts, Outbound, Output};
 use crate::node::Policies;
 use crate::store::Store;
 
+mod slots;
+
 const NOW: u64 = 1_800_000_000_000;
 
 /// The stub with unlimited trust, for the tests whose subject is not
@@ -6406,8 +6408,10 @@ fn a_pair_that_shares_two_hubs_keeps_each_method_apart() {
                 "node {index} on {ledger:?}"
             );
         }
-        // Its packets take the method its endpoint was made on.
-        assert_eq!(core.packet_method(&other), Some(scheme_id("stub")));
+        // Its endpoint has a slot per method, on each method's ledger.
+        let endpoint = dassie_connector::EndpointId::Peer(core.peer_endpoints[&other]);
+        let ledgers: Vec<LedgerId> = core.connector.slots(endpoint).map(|s| s.ledger).collect();
+        assert_eq!(ledgers, [LedgerId::StubUsd, LedgerId::HubXrplTestnetXrp]);
     }
     // Each asks the other on each method, whose room starts empty, its
     // first check on both, each on its own, and each funds its hold on
@@ -6524,10 +6528,11 @@ fn a_method_short_of_room_answers_t04_and_never_moves_the_packet() {
 }
 
 // spec/decisions/settlement-methods.md: node 1 sends a Prepare on the
-// second method, which node 0's connector does not carry yet: refused for
-// want of room on it (T04), and its commitment never looked at.
+// second method without a commitment. It is checked as any Prepare on a
+// method over a hub, and refused for want of room on it (T04), with no
+// commitment to look at.
 #[test]
-fn a_prepare_on_a_method_not_carried_yet_answers_t04() {
+fn a_prepare_on_the_second_method_without_a_commitment_answers_t04() {
     use dassie_oer::Decode;
     use dassie_peer::wire::{Content, Kind};
 
@@ -6570,21 +6575,18 @@ fn a_prepare_on_a_method_not_carried_yet_answers_t04() {
         });
         assert!(refused, "{:?}", core.outputs_peer);
     });
-    assert_eq!(
-        stub_two_packets(),
-        0,
-        "the Prepare's commitment was looked at"
-    );
+    assert_eq!(stub_two_packets(), 0, "a commitment was looked at");
 }
 
 // spec/decisions/settlement-methods.md: node 0 drops the method the pair's
-// endpoints were made on. Node 1 drops it on being told, and both make the
-// peer's endpoint anew on the peering's new first method: it stays peered,
-// and a payment's packets go on that method, with every check of the books
-// and the endpoints holding after each step. (The two share the stub's hub
-// still, so they add its method again, after the other.)
+// peering was made on. Node 1 drops it on being told, and the slot of each
+// one's endpoint for it goes, while the endpoint stays with its other
+// method's: it stays peered, with every check of the books and the
+// endpoints holding after each step. The two share the stub's hub still, so
+// they add its method again, after the other, with a slot of its own, and
+// a payment's packets in dollars go on it.
 #[test]
-fn a_peering_that_loses_its_endpoints_method_carries_packets_on_the_next() {
+fn a_dropped_method_takes_its_slot_and_brings_it_back() {
     use crate::sim::checks::check_hub_packets;
 
     let mut sim = two_hub_pair(45, false);
@@ -6598,30 +6600,43 @@ fn a_peering_that_loses_its_endpoints_method_carries_packets_on_the_next() {
         assert!(core.peer.drop_method(now, &one, scheme_id("stub")));
         core.after_peer();
     });
-    let moved = |sim: &crate::sim::Sim| {
-        (0..2).all(|index| {
-            let other = crate::sim::key(1 - index).node_id();
-            sim.core(index).packet_method(&other) == Some(scheme_id(STUB_TWO))
-                && sim.core(index).peer_endpoints.contains_key(&other)
-        })
+    let ledgers = |sim: &crate::sim::Sim, index: usize| {
+        let other = crate::sim::key(1 - index).node_id();
+        let core = sim.core(index);
+        let endpoint = dassie_connector::EndpointId::Peer(core.peer_endpoints[&other]);
+        core.connector
+            .slots(endpoint)
+            .filter(|slot| !slot.removed)
+            .map(|slot| slot.ledger)
+            .collect::<Vec<_>>()
     };
+    let hub = dassie_ledger::LedgerId::HubXrplTestnetXrp;
+    let moved = |sim: &crate::sim::Sim| (0..2).all(|index| ledgers(sim, index) == [hub]);
     assert!(
         sim.run_until_or(sim.now + 120_000, moved),
-        "the endpoints stayed on the dropped method"
+        "the dropped method kept its slot"
     );
     for index in 0..2 {
         let other = crate::sim::key(1 - index).node_id();
         let peering = sim.core(index).peer.peering_of(&other).unwrap();
         assert_eq!(peering.first().scheme, scheme_id(STUB_TWO), "node {index}");
     }
-    // A payment's packets go on the second method: node 0 commits to its
-    // first Prepare there, and node 1 checks the commitment.
+    // The stub's method comes back, after the other, with its slot.
+    let usd = dassie_ledger::LedgerId::StubUsd;
+    let back = |sim: &crate::sim::Sim| (0..2).all(|index| ledgers(sim, index) == [hub, usd]);
+    assert!(
+        sim.run_until_or(sim.now + 600_000, back),
+        "the stub's method did not come back with its slot"
+    );
+    // A payment in dollars goes on it, not on the hub's method.
     let before = stub_two_packets();
     assert!(sim.pay(0, 1, 1_000_000, None, None));
-    let carried = |_: &crate::sim::Sim| stub_two_packets() >= before + 2;
-    assert!(
-        sim.run_until_or(sim.now + 120_000, carried),
-        "no packet went on the remaining method"
+    let paid = |sim: &crate::sim::Sim| crate::sim::received(sim, &sim.payments[0]) == 1_000_000;
+    assert!(sim.run_until_or(sim.now + 300_000, paid), "not paid");
+    assert_eq!(
+        stub_two_packets(),
+        before,
+        "a dollar packet went on the hub"
     );
     sim.run_until(sim.now + 60_000);
     check_hub_packets(&sim).unwrap();

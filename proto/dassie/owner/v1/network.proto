@@ -69,8 +69,8 @@ message ListNodesResponse {
 // A peering.
 message NetworkPeer {
   string node = 1;
-  // The settlement scheme of the method this node's packets with the peer
-  // take, for example "stub"; every method is in `methods`.
+  // The settlement scheme of the peering's first method, the one it was
+  // made on, for example "stub"; every method is in `methods`.
   string scheme = 2;
   // The credit this node extends to the peer on that method, in the
   // scheme ledger's units.
@@ -90,9 +90,8 @@ message NetworkPeer {
   // Whether this node lists the peer as a neighbor in its link state, so
   // others route through it: it is confirmed, and not held down.
   bool advertised = 11;
-  // What this node owes the peer net on the method its packets with the
-  // peer take, in that scheme ledger's units: negative when the peer owes
-  // this node.
+  // What this node owes the peer net on the peering's first method, in
+  // that scheme ledger's units: negative when the peer owes this node.
   int64 owed = 12;
   // Whether the peer was heard from within the last 60 s. An offline peer
   // is not advertised, so no route goes through it; the peering stays

@@ -557,11 +557,8 @@ impl Core {
         let Some(node) = self.endpoint_peers.get(&endpoint).copied() else {
             return;
         };
-        // Our packets to it take its endpoint's method.
-        let Some(method) = self.packet_method(&node) else {
-            return;
-        };
-        if let Some((scheme, peer)) = self.hub_peering(&node, method) {
+        // The method the packet went on, dropped since or not.
+        if let Some((scheme, peer)) = self.packet_hub(&node, wait.ledger) {
             self.with_commitments(scheme, |c| {
                 c.on_hub_wait(now, peer, wait.request_id, wait.condition, wait.backstop_ms);
             });

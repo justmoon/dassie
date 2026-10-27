@@ -220,13 +220,13 @@ fn peer(view: &PeerView) -> proto::NetworkPeer {
         Some(ending) => ("terminating", reason(ending)),
         None => ("peered", ""),
     };
-    // The method our packets take, whose credit `owed` is measured
+    // The peering's first method, whose credit `owed` is measured
     // against; `methods` lists every one.
-    let carried = peering.method(view.carried).unwrap_or(peering.first());
+    let first = peering.first();
     proto::NetworkPeer {
         node: view.id.to_string(),
-        scheme: carried.scheme.to_string(),
-        credit_out: carried.credit_out,
+        scheme: first.scheme.to_string(),
+        credit_out: first.credit_out,
         since_unix_ms: convert::time(peering.since_ms),
         last_seen_unix_ms: convert::time(peering.last_seen_ms),
         inbound: peering.inbound,
@@ -235,7 +235,7 @@ fn peer(view: &PeerView) -> proto::NetworkPeer {
         advertised: view.advertised,
         online: view.online,
         owed: view.owed.map_or(0, saturate),
-        // Every method, the carried one included: `scheme` and `credit_out`
+        // Every method, the first included: `scheme` and `credit_out`
         // stay as they are, as the contract is additive
         // (spec/decisions/rpc-contract.md).
         methods: (peering.methods.iter())
