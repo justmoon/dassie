@@ -399,6 +399,12 @@ pub struct HubAccount {
     waiting_view: Option<(u64, AccountView)>,
     unfunded: bool,
     heard: bool,
+    /// It was in step with the hub ([`Self::is_synced`]) since it started,
+    /// and has neither started over nor read its state anew since: what it
+    /// has not read is only the newest blocks it heard of
+    /// ([`Self::keeps_up`]). Not kept with the books: after a restart it
+    /// catches up first.
+    kept_up: bool,
     /// The validators no longer keep what touched the account since its
     /// cursor: it reads its state anew.
     resync: bool,
@@ -490,6 +496,7 @@ impl HubAccount {
             waiting_view: None,
             unfunded: false,
             heard: false,
+            kept_up: false,
             resync: false,
             trimmed_since: None,
             resync_holds: None,
@@ -640,6 +647,18 @@ impl HubAccount {
         self.failed.is_none()
             && self.number.is_some()
             && self.view.is_some_and(|(height, _)| height <= self.cursor)
+    }
+
+    /// Whether the account keeps up with the hub: it was in step with it
+    /// since it started ([`Self::is_synced`]), and since then only lags in
+    /// reading the newest blocks it heard of, never having fallen so far
+    /// behind that it started over or read its state anew. The node's
+    /// packets may go over the hub meanwhile, unless it is frozen
+    /// (spec/decisions/settlement-methods.md); nothing moves into or out of
+    /// it until the account is in step.
+    #[must_use]
+    pub const fn keeps_up(&self) -> bool {
+        self.failed.is_none() && self.kept_up && !self.resync
     }
 
     /// What the operations waiting or on their way take from the balance,
@@ -1118,6 +1137,7 @@ impl HubAccount {
             }
         }
         self.advance();
+        self.kept_up = !self.resync && (self.kept_up || self.is_synced());
         self.drop_waiting_claims();
         self.pump();
     }
@@ -1137,6 +1157,7 @@ impl HubAccount {
     /// Forgets everything read above the cursor, to read it again: no
     /// validator covers anything past the cursor until it answered anew.
     fn start_over(&mut self) {
+        self.kept_up = false;
         self.buffer.clear();
         self.agreement = agreement(self.hub, &self.set, &self.rules.terms);
         let cursor = self.cursor;

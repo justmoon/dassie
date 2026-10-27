@@ -579,6 +579,45 @@ fn the_account_is_known_once_f_plus_one_agree() {
     account.check_invariants();
 }
 
+// spec/decisions/settlement-methods.md: an account that was in step only
+// lags in reading the newest block it heard of, and keeps up: its method
+// stays available, though it is not in step for moves; one that has not
+// been in step since it started does not keep up.
+#[test]
+fn an_account_lagging_in_reading_keeps_up() {
+    let hub = Hub::new();
+    assert!(!hub.account().keeps_up(), "not before it was in step");
+    let mut account = synced(&hub);
+    assert!(account.keeps_up());
+    for v in 0..2 {
+        from(
+            &mut account,
+            v,
+            &hub.says(v, &[hub.account_statement(20, true)]),
+        );
+    }
+    assert!(
+        !account.is_synced(),
+        "told of the block at 20, read up to 5"
+    );
+    assert_eq!(account.status(), LedgerStatus::Syncing);
+    assert!(account.keeps_up());
+    let final_block = Statement::Final {
+        height: 20,
+        timestamp: 2_000,
+    };
+    for v in 0..3 {
+        from(
+            &mut account,
+            v,
+            &hub.says(v, core::slice::from_ref(&final_block)),
+        );
+    }
+    assert!(account.is_synced());
+    assert!(account.keeps_up());
+    account.check_invariants();
+}
+
 // An operation is read only once a quorum covered its block, each from
 // its own endpoint: a validator's word on what it covered, passed on by
 // another, counts for nothing.

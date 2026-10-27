@@ -857,6 +857,12 @@ impl Core {
     /// has none of, sees its hub all the same toward a peer with one: that
     /// peer pays us in, and meanwhile we spend what it owes us through it,
     /// the books alone bounding it (spec/designs/settlement-hubs.md#5-joining).
+    ///
+    /// A hub scheme whose account only lags in reading the newest blocks it
+    /// heard of sees its hub too, unless the hub is frozen: the account is
+    /// behind the validators for a moment after nearly every block, and a
+    /// packet would otherwise leave its ledger now and then for another
+    /// method.
     pub(super) fn method_available(&self, peer: &NodeId, scheme: SchemeId) -> bool {
         let Some(method) = self
             .peer
@@ -865,9 +871,9 @@ impl Core {
         else {
             return false;
         };
-        let Some(active) = Name::new(scheme.as_str())
+        let Some((id, active)) = Name::new(scheme.as_str())
             .ok()
-            .and_then(|name| self.schemes.get(&name))
+            .and_then(|id| Some((id, self.schemes.get(&id)?)))
         else {
             return false;
         };
@@ -878,6 +884,13 @@ impl Core {
                     && name(*peer)
                         .and_then(|peer| active.scheme.peer_hub_account(peer))
                         .is_some()
+            }
+            LedgerStatus::Syncing => {
+                active.over_hub
+                    && active.scheme.status() == LedgerStatus::Synced
+                    && self
+                        .hub_account(id)
+                        .is_some_and(|account| account.keeps_up() && account.frozen().is_none())
             }
             _ => false,
         };
