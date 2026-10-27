@@ -70,7 +70,11 @@ fn the_link_state_is_pinned_and_verifies() {
 fn every_message_is_pinned() {
     let pinned = table(&file()["messages"]);
     assert_eq!(pinned, vectors::messages());
-    assert_eq!(pinned.len(), inputs::KINDS - 1, "one per kind, but tag 5");
+    assert_eq!(
+        pinned.len(),
+        inputs::KINDS - vectors::RESERVED.len() + 1,
+        "one per kind, but the reserved tags, and a methodPacket without commitment"
+    );
     for bytes in pinned.values() {
         let content = Content::decode_exact(bytes).unwrap();
         assert_eq!(content.to_vec(), *bytes);

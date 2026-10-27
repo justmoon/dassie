@@ -544,10 +544,10 @@
         "Peering on its own, and routing, keeping a few first hops per node, picked by a hash only the node itself can compute",
         "Periphery nodes without a URL and with no neighbors in their link state, which peer only with core nodes as their downlinks, and only with those their owner pinned when it pinned any, as many as a market maker trades through",
         "Downlinks that never paid the node take at most half of its places for downlinks, so keys made for nothing cannot keep out those that pay; a newcomer that paid on the ledger before it asked gets in past them, and one that has not is told to pay",
-        "Advertising only peers that are alive and not stuck short of room, never ending one for room it could not pay",
-        "Delivering settlements and requests to settle, ending peerings, at once on a scheme the node no longer runs, bans",
+        "Advertising only peers that are alive and not stuck short of room on every method, never ending one for room it could not pay",
+        "Delivering settlements and requests to settle, ending peerings, dropping a method on a scheme the node no longer runs and ending a peering left with none, bans",
         "Settlement channels that close once idle, kept on disk so a late settlement still counts once",
-        "Over a settlement hub, each Prepare with the payer's commitment, and the payer's claim in its reply to a Fulfill",
+        "Settlement methods: a peering settles on every hub both nodes are in, each a method it agrees, adds and drops, and every Prepare travels on one, over a hub with the payer's commitment, the payer's claim coming back in the reply to its Fulfill",
         "Names people can say, at the bootstrap nodes as registrars: a log of sealed commitments, each name granted to the earliest one unsealed once every earlier window has closed, renewed by its holder, and a name list served as the node list is",
         "Every node takes as a name's holder the node that more than two thirds of the registrars list, so one registrar that shows nodes different lists cannot give a name two holders, and keeps what it had while too few lists are fresh; a registrar releases a name that the others' lists show split",
         "A registrant for the node's own names: the registration and its salt on disk before its sealed commitment goes to every registrar at once, the name unsealed only with every receipt and while the window allows, and renewed before it expires, in a registrar's grace period too"

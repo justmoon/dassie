@@ -89,12 +89,13 @@ pub fn mutate(bytes: &[u8], mutations: &[Mutation]) -> Vec<u8> {
     bytes
 }
 
-/// How many tags of content there are: 0 to 20, of which 5 is reserved.
+/// How many tags of content there are: 0 to 20, of which 5 and 12 are
+/// reserved.
 pub const KINDS: usize = 21;
 
 /// A valid encoding of the content with CHOICE tag `tag`, carrying the
-/// link state `info` where it has one; for the reserved tag 5, bytes that
-/// would be one if it were not.
+/// link state `info` where it has one; for the reserved tags 5 and 12,
+/// bytes that would be one if they were not.
 pub fn content(tag: usize, info: &[u8]) -> Vec<u8> {
     let stub = SchemeId::parse("stub").unwrap();
     let info = SignedNodeInfo::decode_exact(info).unwrap();
@@ -105,10 +106,11 @@ pub fn content(tag: usize, info: &[u8]) -> Vec<u8> {
             data: &[1, 2, 3],
         }),
         1 => Content::LinkStateUpdate(info),
-        // A Prepare, so that the node reads it as one.
+        // A Fulfill, so that the node reads it as one: a Prepare travels
+        // on a method.
         2 => Content::InterledgerPacket {
             request_id: 42,
-            packet: &[12, 0x10, 0, 0, 0, 0, 0, 0, 0, 1],
+            packet: &[13, 0x10, 0, 0, 0, 0, 0, 0, 0, 1],
         },
         3 => Content::LinkStateRequest(
             core::iter::once(info.node_id)
@@ -129,11 +131,13 @@ pub fn content(tag: usize, info: &[u8]) -> Vec<u8> {
         9 => Content::PeeringInfoRequest { scheme: stub },
         10 => Content::PeeringTermination(TerminationReason::Owner),
         11 => Content::SettlementRequest { scheme: stub },
-        12 => Content::HubPacket {
-            request_id: 42,
-            packet: &[12, 0x10, 0, 0, 0, 0, 0, 0, 0, 1],
-            commitment: &[0xc0; 96],
-        },
+        // Tag 12 is reserved, as `hubPacket` was: a Prepare and a
+        // commitment, which every node refuses.
+        12 => {
+            let mut bytes = vec![0x8c, 0, 0, 0, 42, 10, 12, 0x10, 0, 0, 0, 0, 0, 0, 0, 1, 96];
+            bytes.extend([0xc0; 96]);
+            return bytes;
+        }
         13 => Content::NameCommit(Commitment([0xc1; 32])),
         // The longest name, so that a mutation can shorten it.
         14 => Content::NameUnseal {

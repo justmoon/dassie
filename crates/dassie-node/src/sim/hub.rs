@@ -1633,8 +1633,10 @@ impl Sim {
             return false;
         };
         let withheld = match content {
-            Content::HubPacket { commitment, .. }
-                if to == liar.node && liar.lie == MemberLie::ClaimsTwice =>
+            Content::MethodPacket { commitment, .. }
+                if to == liar.node
+                    && liar.lie == MemberLie::ClaimsTwice
+                    && !commitment.is_empty() =>
             {
                 let mut reader = dassie_oer::Reader::new(commitment);
                 if let Ok(signed) = Signed::<Commitment>::decode(&mut reader)

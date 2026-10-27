@@ -63,21 +63,23 @@ pub struct Response {
 pub struct SettlementAnswer(pub(crate) NodeId);
 
 /// The acknowledgement of an ILP packet from a peer, still to be given what
-/// it carries on a Fulfill: on a peering over a hub, the payer's claim
-/// (spec/designs/settlement-hubs.md#4-peering-over-a-hub).
+/// it carries on a Fulfill: on a peering with a method over a hub, the
+/// payer's claim (spec/designs/settlement-hubs.md#4-peering-over-a-hub).
 #[derive(Debug, PartialEq, Eq)]
 pub struct PacketAnswer {
     /// The peer it answers.
     pub(crate) peer: NodeId,
     /// Whether the packet is a Fulfill.
     pub(crate) fulfill: bool,
-    /// Whether the packet came on a peering whose scheme uses commitments.
+    /// Whether the packet came on a method that uses commitments, or, for a
+    /// Fulfill or Reject, which travel on none, on a peering with such a
+    /// method.
     pub(crate) hub: bool,
 }
 
 impl PacketAnswer {
     /// Whether the reply may carry a claim: the packet is a Fulfill on a
-    /// peering over a hub.
+    /// peering with a method over a hub.
     #[must_use]
     pub const fn takes_claim(&self) -> bool {
         self.fulfill && self.hub
@@ -126,9 +128,13 @@ pub enum Inbound<'a> {
         request_id: u32,
         /// The ILP packet.
         packet: &'a [u8],
-        /// The commitment that came with a Prepare on a peering over a
-        /// hub, for its scheme; `None` on any other peering, and with a
-        /// Fulfill or Reject.
+        /// The method a Prepare came on, by its scheme
+        /// (spec/decisions/settlement-methods.md); `None` with a Fulfill or
+        /// Reject, which answers its Prepare by request ID.
+        scheme: Option<SchemeId>,
+        /// The commitment that came with a Prepare on a method over a hub,
+        /// for its scheme; `None` on any other method, and with a Fulfill
+        /// or Reject.
         commitment: Option<&'a [u8]>,
         /// The acknowledgement, once the node knows the claim it carries on
         /// a Fulfill over a hub. It says nothing of what the node does with
@@ -193,6 +199,27 @@ pub enum Event {
         /// Whether the peer asked.
         inbound: bool,
     },
+    /// A further settlement method was added to a peering
+    /// (spec/decisions/settlement-methods.md).
+    MethodAdded {
+        /// The peer.
+        peer: NodeId,
+        /// Its scheme.
+        scheme: SchemeId,
+        /// Whether the peer asked.
+        inbound: bool,
+    },
+    /// A settlement method was dropped from a peering that keeps another:
+    /// nothing more is settled or sent on it, and what its accounts show
+    /// stays owed (spec/decisions/settlement-methods.md).
+    MethodDropped {
+        /// The peer.
+        peer: NodeId,
+        /// Its scheme.
+        scheme: SchemeId,
+        /// Whether we dropped it; otherwise the peer told us it did.
+        by_us: bool,
+    },
     /// The routes changed.
     RoutesChanged,
     /// A node joined the table.
@@ -213,8 +240,8 @@ pub enum Event {
         /// Whether it surely did not arrive.
         definite: bool,
     },
-    /// A peer answered a Fulfill of ours with a claim: on a peering over a
-    /// hub, the payer's, for the hub's scheme to read
+    /// A peer answered a Fulfill of ours with a claim: on a peering with a
+    /// method over a hub, the payer's, for the hub's scheme to read
     /// (spec/designs/settlement-hubs.md#4-peering-over-a-hub). An empty
     /// reply, or one longer than
     /// [`MAX_CLAIM_BYTES`](crate::wire::MAX_CLAIM_BYTES), gives none.
@@ -468,6 +495,11 @@ pub struct Stats {
     pub link_states_dropped: u64,
     /// Peerings begun.
     pub peerings: u64,
+    /// Further settlement methods added to peerings, either side asking.
+    pub methods_added: u64,
+    /// Settlement methods dropped from peerings that kept another, either
+    /// side dropping.
+    pub methods_dropped: u64,
     /// ILP responses given up on: refused, out of time, or no room to
     /// retry.
     pub answers_dropped: u64,

@@ -52,7 +52,7 @@ fn two_nodes_register_peer_and_route() {
     assert!(a.majority().contains(b.own()), "registered, so on the list");
     assert!(b.registration_status()[0].listed);
     let peering = a.peering_of(b.own()).unwrap();
-    assert_eq!(peering.credit_out, dassie_peer::sim::CREDIT);
+    assert_eq!(peering.first().credit_out, dassie_peer::sim::CREDIT);
     let views = a.nodes();
     let view = |id: &dassie_identity::NodeId| views.iter().find(|view| view.id == *id).unwrap();
     let (own, peer) = (view(a.own()), view(b.own()));
@@ -138,12 +138,12 @@ fn packets_need_a_peering() {
     let now = network.clock(0);
     network
         .node_mut(0)
-        .send_packet(now, &peer, 5, &[9], 10_000)
+        .send_packet(now, &peer, 5, &[12, 0], 10_000)
         .unwrap();
     assert!(
         network
             .node_mut(0)
-            .send_packet(now, &stranger.node_id(), 5, &[9], 10_000)
+            .send_packet(now, &stranger.node_id(), 5, &[12, 0], 10_000)
             .is_err()
     );
 }
@@ -402,10 +402,17 @@ fn a_request_is_the_proved_senders_alone() {
     let copier = forger();
     let stub = SchemeId::parse("stub").unwrap();
     let copies = [
-        Content::InterledgerPacket {
+        Content::MethodPacket {
             request_id: 3,
+            scheme: stub,
             packet: &[12, 1, 0],
+            commitment: &[],
         },
+        Content::MethodAdd {
+            scheme: stub,
+            data: &[],
+        },
+        Content::MethodDrop { scheme: stub },
         Content::InterledgerPacket {
             request_id: 3,
             packet: &[13, 1, 0],
@@ -654,7 +661,6 @@ fn a_member_of_several_hubs_lists_them_in_its_link_state() {
     assert!(state.verify().is_ok());
     assert_eq!(state.info.hubs(), hubs);
     assert_eq!(state.info.hub(), Some(hubs[0].membership));
-    assert!(!state.info.has_methods());
 
     // Another hub through the own info: named alone, without a list.
     let mut node = with_feed(&own, &boot, None);
@@ -682,34 +688,6 @@ fn a_member_of_several_hubs_lists_them_in_its_link_state() {
     let state = own_link_state(node);
     let state = SignedNodeInfo::decode_exact(&state).unwrap();
     assert_eq!((state.info.hubs(), state.info.hub()), (Vec::new(), None));
-}
-
-// spec/areas/peer-protocol.md#versions: settlement methods are not built
-// yet, so a node refuses their messages with 400, as a node that does not
-// know their tags does: not acted upon.
-#[test]
-fn method_messages_are_refused_until_methods_are_built() {
-    let mut network = Network::new(2, 2, 1, Config::DEV);
-    settle(&mut network, 30_000);
-    let stub = SchemeId::parse("stub").unwrap();
-    let sender = key(0);
-    let contents = [
-        Content::MethodPacket {
-            request_id: 1,
-            scheme: stub,
-            packet: &[12, 0x10, 0, 0, 0, 0, 0, 0, 0, 1],
-            commitment: &[],
-        },
-        Content::MethodAdd {
-            scheme: stub,
-            data: &[],
-        },
-        Content::MethodDrop { scheme: stub },
-    ];
-    for content in &contents {
-        let body = request(&sender, content);
-        assert_eq!(network.inbound(1, &body).status, 400, "{content:?}");
-    }
 }
 
 // A feed is at the URL's host: a node without a URL, a periphery node,

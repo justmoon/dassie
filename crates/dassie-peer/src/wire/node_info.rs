@@ -347,24 +347,6 @@ impl NodeInfo<'_> {
             .unwrap_or_default()
     }
 
-    /// Whether it has settlement methods
-    /// (spec/decisions/settlement-methods.md), and so takes `methodPacket`,
-    /// `methodAdd` and `methodDrop`: its first methods extension has an
-    /// empty value. One with a value breaks the extension's rule, and says
-    /// nothing.
-    #[must_use]
-    pub fn has_methods(&self) -> bool {
-        self.entries
-            .iter()
-            .find_map(|entry| match entry {
-                Entry::Extension { kind, value } if *kind == super::EXTENSION_METHODS => {
-                    Some(*value)
-                }
-                _ => None,
-            })
-            .is_some_and(<[u8]>::is_empty)
-    }
-
     fn has_extension(&self, wanted: u16) -> bool {
         self.entries
             .iter()

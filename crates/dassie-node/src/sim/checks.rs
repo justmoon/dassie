@@ -222,7 +222,7 @@ pub fn check_settled(sim: &Sim) -> Result<(), String> {
             let Some(owed) = peer.owed.filter(|_| peer.termination.is_none()) else {
                 continue;
             };
-            let credit = peer.peering.credit_out;
+            let credit = peer.peering.first().credit_out;
             let position = u128::try_from(owed + i128::from(credit)).unwrap();
             if policy::ask(position, TRIGGER) {
                 return Err(format!(
@@ -309,7 +309,7 @@ fn room(sim: &Sim, index: usize, other: usize) -> Option<(u64, u128)> {
         .into_iter()
         .find(|peer| peer.id == id)?;
     let owed = peer.owed?;
-    let credit = peer.peering.credit_out;
+    let credit = peer.peering.first().credit_out;
     Some((
         credit,
         u128::try_from(owed + i128::from(credit)).unwrap_or(0),

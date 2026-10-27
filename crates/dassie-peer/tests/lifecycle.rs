@@ -531,9 +531,11 @@ fn a_peering_being_ended_takes_no_new_prepares() {
         node.terminate(now, &b, TerminationReason::Owner);
     });
     let mut sender = Sender::new(&key(1));
-    let private = Content::InterledgerPacket {
+    let private = Content::MethodPacket {
         request_id: 3,
+        scheme: stub(),
         packet: &[12, 1, 0],
+        commitment: &[],
     };
     let body = sender.request(&network, 0, &private);
     assert_eq!(network.inbound(0, &body).status, 200);
@@ -545,9 +547,11 @@ fn a_peering_being_ended_takes_no_new_prepares() {
             .iter()
             .any(|view| view.termination.is_some())
     );
-    let prepare = Content::InterledgerPacket {
+    let prepare = Content::MethodPacket {
         request_id: 1,
+        scheme: stub(),
         packet: &[12, 1, 0],
+        commitment: &[],
     };
     let body = sender.request(&network, 0, &prepare);
     assert_eq!(network.inbound(0, &body).status, 409);
@@ -640,10 +644,10 @@ const SHORT: Room = Room::Short { most_ms: 2_000 };
 fn report(network: &mut Network, peer: &NodeId, room: Room, ms: u64) {
     let end = network.now + ms;
     while network.now < end {
-        network.act(0, |node, now| node.room(now, peer, room));
+        network.act(0, |node, now| node.room(now, peer, stub(), room));
         settle(network, 1_000);
     }
-    network.act(0, |node, now| node.room(now, peer, room));
+    network.act(0, |node, now| node.room(now, peer, stub(), room));
 }
 
 // A peer that is both silent and short of room when it is withdrawn is
@@ -678,7 +682,7 @@ fn a_silent_peer_short_of_room_is_withdrawn_for_its_silence() {
     let mut check = due - config.advertise_short_grace_ms;
     while check <= due {
         network.run_until(to_network(check));
-        network.act(0, |node, now| node.room(now, &b, SHORT));
+        network.act(0, |node, now| node.room(now, &b, stub(), SHORT));
         check += 1_000;
     }
     network.run_until(to_network(due) + 1_000);
@@ -755,7 +759,7 @@ fn report_asking(network: &mut Network, peer: &NodeId, ms: u64) {
     let end = network.now + ms;
     while network.now < end {
         network.act(0, |node, now| {
-            node.room(now, peer, SHORT);
+            node.room(now, peer, stub(), SHORT);
             // Too much in flight, or a peering being ended, asks nothing.
             let _ = node.request_settlement(now, peer, stub());
         });
@@ -807,12 +811,12 @@ fn a_peer_out_of_reach_is_not_ended_for_room() {
     );
     let peering = network.node(0).peering_of(&b).unwrap();
     assert!(peering.depeering.is_none(), "ended");
-    assert!(peering.short_for_ms >= CONFIG.peer_dead_ms);
+    assert!(peering.first().short_for_ms >= CONFIG.peer_dead_ms);
     // Up to one check before the first failed request came back.
     assert!(
-        peering.short_reached_ms <= 1_000,
+        peering.first().short_reached_ms <= 1_000,
         "{}",
-        peering.short_reached_ms
+        peering.first().short_reached_ms
     );
     assert!(!network.node(0).is_advertised(&b), "still advertised");
     assert!(
@@ -865,7 +869,7 @@ fn a_peer_that_refuses_to_settle_is_ended_for_room() {
 fn a_restart_keeps_the_time_short_and_counts_no_downtime() {
     let (mut network, _, b) = peered(48);
     report(&mut network, &b, SHORT, 5_000);
-    let short = |network: &Network| network.node(0).peering_of(&b).unwrap().short_for_ms;
+    let short = |network: &Network| network.node(0).peering_of(&b).unwrap().first().short_for_ms;
     assert_eq!(short(&network), 5_000);
     // Down for far longer than the grace, and less than the peer takes
     // to end a silent peering.
@@ -873,7 +877,7 @@ fn a_restart_keeps_the_time_short_and_counts_no_downtime() {
     settle(&mut network, 90_000);
     network.start(0);
     assert_eq!(short(&network), 5_000, "not kept");
-    network.act(0, |node, now| node.room(now, &b, SHORT));
+    network.act(0, |node, now| node.room(now, &b, stub(), SHORT));
     assert_eq!(short(&network), 5_000, "the downtime counted");
     report(&mut network, &b, SHORT, 2_000);
     assert_eq!(short(&network), 7_000);
@@ -885,12 +889,12 @@ fn a_restart_keeps_the_time_short_and_counts_no_downtime() {
 #[test]
 fn a_stall_counts_little_as_time_short() {
     let (mut network, _, b) = peered(50);
-    let short = |network: &Network| network.node(0).peering_of(&b).unwrap().short_for_ms;
+    let short = |network: &Network| network.node(0).peering_of(&b).unwrap().first().short_for_ms;
     report(&mut network, &b, SHORT, 3_000);
     assert_eq!(short(&network), 3_000);
     // No check for a minute, then one.
     settle(&mut network, 60_000);
-    network.act(0, |node, now| node.room(now, &b, SHORT));
+    network.act(0, |node, now| node.room(now, &b, stub(), SHORT));
     assert_eq!(short(&network), 5_000, "the stall counted in full");
     assert!(network.node(0).is_advertised(&b), "withdrawn for a stall");
 }
@@ -901,7 +905,7 @@ fn a_stall_counts_little_as_time_short() {
 #[test]
 fn an_outage_of_the_ledger_pauses_the_time_short() {
     let (mut network, _, b) = peered(49);
-    let short = |network: &Network| network.node(0).peering_of(&b).unwrap().short_for_ms;
+    let short = |network: &Network| network.node(0).peering_of(&b).unwrap().first().short_for_ms;
     report(&mut network, &b, SHORT, 3_000);
     assert_eq!(short(&network), 3_000);
     report(&mut network, &b, Room::Unjudged, 60_000);
@@ -910,7 +914,7 @@ fn an_outage_of_the_ledger_pauses_the_time_short() {
         network.node(0).is_advertised(&b),
         "withdrawn during the outage"
     );
-    network.act(0, |node, now| node.room(now, &b, SHORT));
+    network.act(0, |node, now| node.room(now, &b, stub(), SHORT));
     assert_eq!(short(&network), 3_000);
     report(&mut network, &b, SHORT, 2_000);
     assert_eq!(short(&network), 5_000);
@@ -928,7 +932,10 @@ fn a_peer_that_cannot_pay_us_is_withdrawn_but_never_ended_for_room() {
     let frozen = Room::ShortUnpayable { most_ms: 2_000 };
     let peering = |network: &Network| {
         let peering = network.node(0).peering_of(&b).unwrap();
-        (peering.short_for_ms, peering.short_reached_ms)
+        (
+            peering.first().short_for_ms,
+            peering.first().short_reached_ms,
+        )
     };
     report(&mut network, &b, SHORT, 3_000);
     assert_eq!(peering(&network), (3_000, 3_000));
@@ -976,9 +983,11 @@ fn a_fulfill_is_taken_only_while_peered() {
     assert!(network.node(1).peering_of(&a).is_none());
     let body = sender.request(&network, 0, &fulfill);
     assert_eq!(network.inbound(0, &body).status, 409);
-    let prepare = Content::InterledgerPacket {
+    let prepare = Content::MethodPacket {
         request_id: 7,
+        scheme: stub(),
         packet: &[12, 1, 0],
+        commitment: &[],
     };
     let body = sender.request(&network, 0, &prepare);
     assert_eq!(network.inbound(0, &body).status, 409);
@@ -1136,9 +1145,11 @@ fn a_one_sided_peering_asking_to_settle_is_repaired() {
 #[test]
 fn a_one_sided_peering_sending_a_prepare_is_repaired() {
     let (mut network, b, _) = ended_on_one_side(53);
-    let prepare = Content::InterledgerPacket {
+    let prepare = Content::MethodPacket {
         request_id: 7,
+        scheme: stub(),
         packet: &[12, 1, 0],
+        commitment: &[],
     };
     let body = Sender::new(&key(2)).request(&network, 1, &prepare);
     assert_eq!(network.inbound(1, &body).status, 409);

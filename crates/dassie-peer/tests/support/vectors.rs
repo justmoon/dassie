@@ -61,18 +61,31 @@ fn name_of(content: &Content<'_>) -> String {
     core::iter::once(first).chain(chars).collect()
 }
 
+/// The tags no message has: 5, and 12, which `hubPacket` had.
+pub const RESERVED: [usize; 2] = [5, 12];
+
 /// Every message of the protocol, by name: one of each kind, as the
-/// never-panics properties send them, carrying [`link_state`].
+/// never-panics properties send them, carrying [`link_state`]; and a
+/// `methodPacket` on a method not over a hub, with no commitment, beside
+/// the one over a hub.
 #[must_use]
 pub fn messages() -> BTreeMap<String, Vec<u8>> {
     let state = link_state();
-    (0..KINDS)
-        .filter(|tag| *tag != 5)
+    let mut messages: BTreeMap<String, Vec<u8>> = (0..KINDS)
+        .filter(|tag| !RESERVED.contains(tag))
         .map(|tag| {
             let bytes = content(tag, &state);
             (name_of(&Content::decode_exact(&bytes).unwrap()), bytes)
         })
-        .collect()
+        .collect();
+    let without = Content::MethodPacket {
+        request_id: 43,
+        scheme: SchemeId::parse("stub").unwrap(),
+        packet: &[12, 0x10, 0, 0, 0, 0, 0, 0, 0, 2],
+        commitment: &[],
+    };
+    messages.insert("methodPacketWithoutCommitment".to_owned(), without.to_vec());
+    messages
 }
 
 /// Every kind of answer, by name.

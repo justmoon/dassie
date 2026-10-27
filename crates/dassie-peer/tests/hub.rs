@@ -1,7 +1,8 @@
 //! Peering over a settlement hub, as the peer protocol carries it
 //! (spec/areas/peer-protocol.md#message-set,
-//! spec/designs/settlement-hubs.md#4-peering-over-a-hub): Prepares with
-//! their commitments, and the payer's claim after the verdict on a Fulfill.
+//! spec/designs/settlement-hubs.md#4-peering-over-a-hub): Prepares on a
+//! method over a hub with their commitments, and the payer's claim after
+//! the verdict on a Fulfill.
 
 #![allow(
     clippy::unwrap_used,
@@ -13,7 +14,7 @@
 use std::sync::Arc;
 
 use dassie_identity::{NodeId, NodeKey};
-use dassie_peer::sim::{Arriving, Network, key, url};
+use dassie_peer::sim::{Arriving, Network, STUB, key, scheme, url};
 use dassie_peer::wire::{Content, HubMembership};
 use dassie_peer::{Config, Event, Inbound, InboundId, OwnInfo, Reply};
 
@@ -66,14 +67,27 @@ impl Sender {
     }
 }
 
+/// A packet on the stub method, with a commitment.
 fn hub_packet(packet: &[u8]) -> Content<'_> {
-    Content::HubPacket {
+    Content::MethodPacket {
         request_id: 6,
+        scheme: scheme(STUB),
         packet,
         commitment: COMMITMENT,
     }
 }
 
+/// A packet on the stub method, without a commitment.
+fn bare_packet(packet: &[u8]) -> Content<'_> {
+    Content::MethodPacket {
+        request_id: 6,
+        scheme: scheme(STUB),
+        packet,
+        commitment: &[],
+    }
+}
+
+/// A packet outside any method, as Fulfills and Rejects travel.
 fn plain_packet(packet: &[u8]) -> Content<'_> {
     Content::InterledgerPacket {
         request_id: 6,
@@ -126,10 +140,12 @@ fn a_prepare_over_a_hub_comes_with_its_commitment() {
             from,
             request_id,
             packet,
+            scheme: method,
             commitment,
             answer,
         } => {
             assert_eq!((from, request_id, packet), (key(1).node_id(), 6, PREPARE));
+            assert_eq!(method, Some(scheme(STUB)));
             assert_eq!(commitment, Some(COMMITMENT));
             assert!(!answer.takes_claim());
             answer.reply(&[])
@@ -141,21 +157,24 @@ fn a_prepare_over_a_hub_comes_with_its_commitment() {
 
 // spec/areas/peer-protocol.md#message-set: a Prepare with a commitment is
 // refused as an unpeered Prepare is (409), from a node not peered and on a
-// peering not over a hub; and a Prepare without one where the peering is
-// over a hub. Only a Prepare carries a commitment.
+// method not over a hub; and a Prepare without one where the method is
+// over a hub. Only a Prepare travels on a method, and a Prepare only on
+// one.
 #[test]
 fn a_commitment_comes_exactly_with_prepares_over_a_hub() {
     let (mut network, _, _) = peered(62, false);
     let mut sender = Sender::new(&key(1));
     let request = sender.request(&network, 0, &hub_packet(PREPARE));
     assert_eq!(network.inbound(0, &request).status, 409);
-    let request = sender.request(&network, 0, &plain_packet(PREPARE));
+    let request = sender.request(&network, 0, &bare_packet(PREPARE));
     assert_eq!(network.inbound(0, &request).status, 200);
+    let request = sender.request(&network, 0, &plain_packet(PREPARE));
+    assert_eq!(network.inbound(0, &request).status, 400);
 
     for node in &mut network.nodes {
         node.hooks.commitments = true;
     }
-    let request = sender.request(&network, 0, &plain_packet(PREPARE));
+    let request = sender.request(&network, 0, &bare_packet(PREPARE));
     assert_eq!(network.inbound(0, &request).status, 409);
     let request = sender.request(&network, 0, &hub_packet(FULFILL));
     assert_eq!(network.inbound(0, &request).status, 400);

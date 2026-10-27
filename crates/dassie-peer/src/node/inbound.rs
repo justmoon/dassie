@@ -104,13 +104,20 @@ impl PeerNode {
         self.saw(&accepted.sender);
         match content {
             Content::InterledgerPacket { request_id, packet } => {
-                self.packet_request(hooks, accepted, request_id, packet, None)
+                self.response_request(hooks, accepted, request_id, packet)
             }
-            Content::HubPacket {
+            Content::MethodPacket {
                 request_id,
+                scheme,
                 packet,
                 commitment,
-            } => self.packet_request(hooks, accepted, request_id, packet, Some(commitment)),
+            } => self.prepare_request(hooks, accepted, request_id, scheme, packet, commitment),
+            Content::MethodAdd { scheme, data } => {
+                Inbound::Reply(self.method_add_request(hooks, &accepted, scheme, data))
+            }
+            Content::MethodDrop { scheme } => {
+                Inbound::Reply(self.method_drop_request(&accepted, scheme))
+            }
             Content::Registration(info) => self.registration_request(accepted, &info, id, network),
             Content::PeeringRequest(_) => self.peering_request(hooks, accepted, body, id, network),
             Content::Settlement {
@@ -130,13 +137,6 @@ impl PeerNode {
                 Inbound::Reply(self.name_unseal(&accepted, name, &salt))
             }
             Content::NameRenew(name) => Inbound::Reply(self.name_renew(&accepted, name)),
-            // Settlement methods are not built yet: refused, not acted
-            // upon, as by a node that does not know their tags. Our link
-            // state does not say we have them, so no node sends them
-            // (spec/areas/peer-protocol.md#versions).
-            Content::MethodPacket { .. }
-            | Content::MethodAdd { .. }
-            | Content::MethodDrop { .. } => refuse(400, "no settlement methods"),
             other => Inbound::Reply(self.answer(hooks, &accepted, other)),
         }
     }
@@ -144,14 +144,14 @@ impl PeerNode {
     /// A peer's request that we settle on `scheme`
     /// (spec/decisions/own-fulfills.md).
     fn settle_on_request(&mut self, accepted: Accepted, scheme: SchemeId) -> Inbound<'static> {
-        // Only an active peering on that scheme is settled on request;
-        // nothing is settled for one being ended
+        // Only an active peering with a method on that scheme is settled on
+        // request; nothing is settled for one being ended
         // (spec/decisions/ending-a-peering.md).
         let peering = self
             .table
             .get(&accepted.sender)
             .and_then(Entry::active_peering);
-        if peering.is_none_or(|peering| peering.scheme != scheme) {
+        if peering.is_none_or(|peering| !peering.has(scheme)) {
             self.notice_one_sided(accepted.sender);
             return refuse(409, "not peered on that scheme");
         }
@@ -167,53 +167,95 @@ impl PeerNode {
         }
     }
 
-    /// An ILP packet. A Prepare needs a peering that is not ending, and
-    /// comes with a commitment exactly when the peering's scheme uses them
-    /// (spec/designs/settlement-hubs.md#4-peering-over-a-hub). A Fulfill or
-    /// Reject needs a peering, ending or not: one ends only once nothing is
-    /// in flight with the peer, so a response from a node not peered
-    /// answers nothing we wait for.
-    fn packet_request<'a>(
+    /// An ILP Fulfill or Reject, in an `interledgerPacket`: it needs a
+    /// peering, ending or not, since one ends only once nothing is in flight
+    /// with the peer, so a response from a node not peered answers nothing
+    /// we wait for. A Prepare travels only in a `methodPacket`, so one here
+    /// is malformed (spec/areas/peer-protocol.md#message-set).
+    fn response_request<'a>(
         &mut self,
         hooks: &dyn PeeringHooks,
         accepted: Accepted,
         request_id: u32,
         packet: &'a [u8],
-        commitment: Option<&'a [u8]>,
     ) -> Inbound<'a> {
-        let prepare = packet.first() == Some(&PREPARE_TYPE);
-        if commitment.is_some() && !prepare {
-            return refuse(400, "only a Prepare comes with a commitment");
+        if packet.first() == Some(&PREPARE_TYPE) {
+            return refuse(400, "a Prepare travels in a methodPacket");
+        }
+        let Some(peering) = self.peering_of(&accepted.sender) else {
+            return refuse(409, "not peered");
+        };
+        // A Fulfill names no method: its reply may carry a claim on a
+        // peering with one over a hub, and the node knows which its Prepare
+        // went on.
+        let hub = peering
+            .schemes()
+            .any(|scheme| hooks.uses_commitments(scheme));
+        Inbound::Packet {
+            from: accepted.sender,
+            request_id,
+            packet,
+            scheme: None,
+            commitment: None,
+            answer: PacketAnswer {
+                peer: accepted.sender,
+                fulfill: packet.first() == Some(&FULFILL_TYPE),
+                hub,
+            },
+        }
+    }
+
+    /// An ILP Prepare on a method of our peering, in a `methodPacket`: it
+    /// needs a peering that is not ending, with a method on `scheme`, and
+    /// comes with a commitment exactly when the method's scheme uses them
+    /// (spec/decisions/settlement-methods.md,
+    /// spec/designs/settlement-hubs.md#4-peering-over-a-hub). Each refusal
+    /// is a 409, as for a Prepare from a node not peered: the sender reads
+    /// it as not acted upon, and rejects the packet at once.
+    fn prepare_request<'a>(
+        &mut self,
+        hooks: &dyn PeeringHooks,
+        accepted: Accepted,
+        request_id: u32,
+        scheme: SchemeId,
+        packet: &'a [u8],
+        commitment: &'a [u8],
+    ) -> Inbound<'a> {
+        if packet.first() != Some(&PREPARE_TYPE) {
+            return refuse(400, "only a Prepare travels in a methodPacket");
         }
         let entry = self.table.get(&accepted.sender);
-        let peering = entry.and_then(Entry::peering);
-        let hub = peering.is_some_and(|peering| hooks.uses_commitments(peering.scheme));
-        if prepare {
-            if peering.is_none() {
-                self.notice_one_sided(accepted.sender);
-                return refuse(409, "not peered");
-            }
-            // Refused as unpeered Prepares are: the sender reads 409 as
-            // not acted upon, and rejects the packet at once.
-            if commitment.is_some() != hub {
-                return refuse(409, commitment_refusal(hub));
-            }
-            // A peering being ended takes no new Prepares: refused here,
-            // they leave nothing to answer, so the drain can finish.
-            if entry.is_some_and(|entry| entry.termination().is_some()) {
-                return refuse(409, "the peering is ending");
-            }
-        } else if peering.is_none() {
+        let Some(peering) = entry.and_then(Entry::peering) else {
+            self.notice_one_sided(accepted.sender);
             return refuse(409, "not peered");
+        };
+        if !peering.has(scheme) {
+            // Its side of the method is left over, as when our drop of it
+            // was lost with a restart: it is told, as a node not peered is
+            // (spec/areas/network.md#one-sided-peerings).
+            if entry.is_some_and(|entry| entry.active_peering().is_some()) {
+                self.queue_drop(accepted.sender, scheme);
+            }
+            return refuse(409, "no method on that scheme");
+        }
+        let hub = hooks.uses_commitments(scheme);
+        if commitment.is_empty() == hub {
+            return refuse(409, commitment_refusal(hub));
+        }
+        // A peering being ended takes no new Prepares: refused here, they
+        // leave nothing to answer, so the drain can finish.
+        if entry.is_some_and(|entry| entry.termination().is_some()) {
+            return refuse(409, "the peering is ending");
         }
         Inbound::Packet {
             from: accepted.sender,
             request_id,
             packet,
-            commitment,
+            scheme: Some(scheme),
+            commitment: hub.then_some(commitment),
             answer: PacketAnswer {
                 peer: accepted.sender,
-                fulfill: packet.first() == Some(&FULFILL_TYPE),
+                fulfill: false,
                 hub,
             },
         }
@@ -292,7 +334,6 @@ impl PeerNode {
                 ok(&encode_octets(&info))
             }
             Content::InterledgerPacket { .. }
-            | Content::HubPacket { .. }
             | Content::Registration(_)
             | Content::PeeringRequest(_)
             | Content::Settlement { .. }
@@ -585,13 +626,14 @@ impl SettlementAnswer {
 }
 
 impl PacketAnswer {
-    /// The acknowledgement: empty, but for a Fulfill on a peering over a
-    /// hub, whose carries `claim`, the payer's.
+    /// The acknowledgement: empty, but for a Fulfill on a peering with a
+    /// method over a hub, whose carries `claim`, the payer's.
     ///
     /// # Panics
     ///
     /// If `claim` is not empty where it cannot go, on a packet other than a
-    /// Fulfill on a peering over a hub ([`takes_claim`](Self::takes_claim)),
+    /// Fulfill on a peering with a method over a hub
+    /// ([`takes_claim`](Self::takes_claim)),
     /// or is longer than [`MAX_CLAIM_BYTES`]: the claim is the node's own.
     #[must_use]
     pub fn reply(self, claim: &[u8]) -> Reply {
@@ -605,12 +647,12 @@ impl PacketAnswer {
 }
 
 /// Why a Prepare is refused for its commitment: missing where the
-/// peering's scheme uses them, or there where it does not.
+/// method's scheme uses them, or there where it does not.
 const fn commitment_refusal(hub: bool) -> &'static str {
     if hub {
         "a Prepare over a hub needs its commitment"
     } else {
-        "the peering takes no commitments"
+        "the method takes no commitments"
     }
 }
 
