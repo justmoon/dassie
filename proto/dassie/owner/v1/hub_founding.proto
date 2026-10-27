@@ -71,10 +71,11 @@ message HubFounding {
 
 // Founds a hub with these validators, all of which must accept. The terms
 // are the starting ones but for what `terms` sets, as JSON
-// (`{"fees":{...},"limits":{...},"timers":{...}}`). INVALID_ARGUMENT for
-// fewer than 4 or more than 16 validators, one named twice, or terms that
-// do not check; FAILED_PRECONDITION before setup, or while the node keeps
-// as many foundings as it does.
+// (`{"asset":{...},"fees":{...},"limits":{...},"timers":{...}}`); a hub
+// holds XRP unless `asset` names a token by its `currency` and `issuer`.
+// INVALID_ARGUMENT for fewer than 4 or more than 16 validators, one named
+// twice, or terms that do not check; FAILED_PRECONDITION before setup, or
+// while the node keeps as many foundings as it does.
 message FoundHubRequest {
   repeated HubFoundingInvite validators = 1;
   string terms = 2;

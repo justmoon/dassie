@@ -8,8 +8,22 @@
 //!
 //! Fields left out keep their starting value; a field the terms have not
 //! is refused, so a typo never founds a hub on a value nobody chose.
+//!
+//! The hub holds XRP unless `asset` names a token, by its currency code
+//! as the XRP Ledger writes it (three characters, or 40 hex digits) and
+//! its issuer's address, such as DSUSD's:
+//!
+//! ```json
+//! { "asset": { "currency": "4453555344000000000000000000000000000000", "issuer": "rURgPoYNN7tGqBzGXFeCLmKYgpSjYgJP6M" } }
+//! ```
+//!
+//! A token hub's escrow pays its fees in XRP, so two of its starting
+//! values differ: no ledger fee, and the least gas
+//! ([`LEAST_TOKEN_GAS_DROPS`]) in its place (spec/decisions/token-hubs.md).
 
-use dassie_hub::rules::Terms;
+use dassie_hub::rules::{Asset, LEAST_TOKEN_GAS_DROPS, Terms};
+use dassie_xrpl::AccountId;
+use dassie_xrpl::amount::Currency;
 use serde::Deserialize;
 
 /// The largest JSON of terms read.
@@ -18,9 +32,32 @@ pub const MAX_TERMS_JSON_BYTES: usize = 8 * 1024;
 #[derive(Deserialize, Default)]
 #[serde(deny_unknown_fields)]
 struct Overrides {
+    asset: Option<Token>,
     fees: Option<Fees>,
     limits: Option<Limits>,
     timers: Option<Timers>,
+}
+
+/// The token a hub holds, as the XRP Ledger writes it.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Token {
+    currency: String,
+    issuer: String,
+}
+
+impl Token {
+    fn asset(&self) -> Result<Asset, String> {
+        let currency = Currency::parse(&self.currency).ok_or_else(|| {
+            format!(
+                "the currency {:?} is no token's code: three characters or 40 hex digits",
+                self.currency
+            )
+        })?;
+        let issuer = AccountId::parse(&self.issuer)
+            .ok_or_else(|| format!("the issuer {:?} is no XRP Ledger address", self.issuer))?;
+        Ok(Asset::Token { currency, issuer })
+    }
 }
 
 #[derive(Deserialize, Default)]
@@ -28,6 +65,7 @@ struct Overrides {
 struct Fees {
     operation: Option<u64>,
     ledger: Option<u64>,
+    gas: Option<u64>,
     reserve_share_ppm: Option<u32>,
     account_reserve: Option<u64>,
     hold_reserve: Option<u64>,
@@ -70,12 +108,13 @@ fn set<T>(field: &mut T, value: Option<T>) {
     }
 }
 
-/// `base` with what `json` sets, checked.
+/// `base` with what `json` sets, checked: with a token hub's starting
+/// fees first, if it names a token.
 ///
 /// # Errors
 ///
 /// What is wrong, for people: JSON that does not read, a field the terms
-/// have not, or terms that do not check.
+/// have not, a token that is none, or terms that do not check.
 pub fn terms(mut base: Terms, json: &str) -> Result<Terms, String> {
     if json.len() > MAX_TERMS_JSON_BYTES {
         return Err(format!(
@@ -87,10 +126,16 @@ pub fn terms(mut base: Terms, json: &str) -> Result<Terms, String> {
     } else {
         serde_json::from_str(json).map_err(|error| format!("the terms do not read: {error}"))?
     };
+    if let Some(token) = &overrides.asset {
+        base.asset = token.asset()?;
+        base.fees.ledger = 0;
+        base.fees.gas = LEAST_TOKEN_GAS_DROPS;
+    }
     let fees = overrides.fees.unwrap_or_default();
     let f = &mut base.fees;
     set(&mut f.operation, fees.operation);
     set(&mut f.ledger, fees.ledger);
+    set(&mut f.gas, fees.gas);
     set(&mut f.reserve_share_ppm, fees.reserve_share_ppm);
     set(&mut f.account_reserve, fees.account_reserve);
     set(&mut f.hold_reserve, fees.hold_reserve);
@@ -166,5 +211,47 @@ mod tests {
                 .contains("check")
         );
         assert!(terms(base(), "[").is_err());
+    }
+
+    const DSUSD: &str = r#"{"currency":"4453555344000000000000000000000000000000","issuer":"rURgPoYNN7tGqBzGXFeCLmKYgpSjYgJP6M"}"#;
+
+    // A token hub's terms name the token, and start with no ledger fee and
+    // the least gas in its place, which the owner may raise.
+    #[test]
+    fn a_token_hub_starts_with_gas_and_no_ledger_fee() {
+        let token = terms(base(), &format!(r#"{{"asset":{DSUSD}}}"#)).unwrap();
+        assert_eq!(
+            token.asset,
+            Asset::Token {
+                currency: dassie_xrpl::dsusd::CURRENCY,
+                issuer: dassie_xrpl::dsusd::ISSUER,
+            }
+        );
+        assert_eq!(token.fees.ledger, 0);
+        assert_eq!(token.fees.gas, LEAST_TOKEN_GAS_DROPS);
+        assert_eq!(token.limits, base().limits);
+        let more = terms(
+            base(),
+            &format!(
+                r#"{{"asset":{DSUSD},"fees":{{"gas":{}}}}}"#,
+                LEAST_TOKEN_GAS_DROPS + 1
+            ),
+        )
+        .unwrap();
+        assert_eq!(more.fees.gas, LEAST_TOKEN_GAS_DROPS + 1);
+        // Gas in an XRP hub, or a ledger fee in a token hub, does not check.
+        assert!(terms(base(), r#"{"fees":{"gas":200}}"#).is_err());
+        let ledger_fee = format!(r#"{{"asset":{DSUSD},"fees":{{"ledger":340}}}}"#);
+        assert!(terms(base(), &ledger_fee).is_err());
+        // XRP is no token, an issuer is an address, and a typo is refused.
+        for asset in [
+            r#"{"currency":"XRP","issuer":"rURgPoYNN7tGqBzGXFeCLmKYgpSjYgJP6M"}"#,
+            r#"{"currency":"DSUSD","issuer":"rURgPoYNN7tGqBzGXFeCLmKYgpSjYgJP6M"}"#,
+            r#"{"currency":"USD","issuer":"nobody"}"#,
+            r#"{"currency":"USD","isuer":"rURgPoYNN7tGqBzGXFeCLmKYgpSjYgJP6M"}"#,
+        ] {
+            let json = format!(r#"{{"asset":{asset}}}"#);
+            assert!(terms(base(), &json).is_err(), "{asset}");
+        }
     }
 }

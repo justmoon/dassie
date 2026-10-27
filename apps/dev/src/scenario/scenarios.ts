@@ -62,6 +62,12 @@ export interface ScenarioDef {
    * ledger has it, so such a scenario needs it.
    */
   readonly hub?: HubDef;
+  /**
+   * Several settlement hubs on the fake ledger, in place of `hub`: each
+   * founded and joined as `hub` is, of XRP or of `token`, one per asset,
+   * with the scheme of its asset (`hubs.ts`).
+   */
+  readonly hubs?: readonly (HubDef & { readonly token?: IssuedToken })[];
 }
 
 /**
@@ -328,6 +334,49 @@ export const SCENARIOS: readonly ScenarioDef[] = [
     hub: { validators: [0, 1, 2, 3], sponsor: 0, members: [4, 5] },
   },
   {
+    id: "two-hubs",
+    name: "XRP and DSUSD Hubs",
+    description:
+      "Four nodes validate an XRP hub and a DSUSD hub that the first of them founds on the fake ledger, beside its XRP/DSUSD pool at the dev rate; one member joins the XRP hub alone, one the DSUSD hub alone, and two join both, peer over both and convert between them, each funding its accounts from its own XRP and DSUSD",
+    schemes: [
+      [HUB_OWNER_BOOK],
+      [],
+      [],
+      [],
+      [HUB_OWNER_BOOK, HUB_SCHEME],
+      [
+        HUB_OWNER_BOOK,
+        HUB_SCHEME,
+        "xrpl-testnet-dsusd",
+        "hub-xrpl-testnet-dsusd",
+      ],
+      [
+        HUB_OWNER_BOOK,
+        HUB_SCHEME,
+        "xrpl-testnet-dsusd",
+        "hub-xrpl-testnet-dsusd",
+      ],
+      [HUB_OWNER_BOOK, "xrpl-testnet-dsusd", "hub-xrpl-testnet-dsusd"],
+    ],
+    addedSchemes: [HUB_OWNER_BOOK, HUB_SCHEME],
+    bootstrap: [5, 6],
+    configs: {
+      [HUB_OWNER_BOOK]: JSON.stringify({ peers: false }),
+      "xrpl-testnet-dsusd": JSON.stringify({ peers: false }),
+    },
+    mint: { token: "DSUSD", value: "100" },
+    pool: { token: "DSUSD", value: "50000", tradingFee: 500 },
+    hubs: [
+      { validators: [0, 1, 2, 3], sponsor: 0, members: [4, 5, 6] },
+      {
+        validators: [0, 1, 2, 3],
+        sponsor: 0,
+        members: [5, 6, 7],
+        token: "DSUSD",
+      },
+    ],
+  },
+  {
     id: "one-node",
     name: "One Node",
     description:
@@ -371,7 +420,7 @@ export function startsFresh(def: ScenarioDef): string | undefined {
   if (live(def)) {
     return "runs on a new fake mainnet, which never resets";
   }
-  if (def.hub !== undefined) {
+  if (def.hub !== undefined || def.hubs !== undefined) {
     return "founds its hub on a new fake ledger, since its escrow stays on the old one";
   }
   return undefined;
@@ -597,7 +646,7 @@ export function unavailable(
   if (def.pool !== undefined && !fakeLedger) {
     return `needs --xrpl fake: only the fake ledger's issuer makes a pool of ${def.pool.token}`;
   }
-  if (def.hub !== undefined && !fakeLedger) {
+  if ((def.hub !== undefined || def.hubs !== undefined) && !fakeLedger) {
     return "needs --xrpl fake: each run founds a hub of its own, whose escrow stays off the public testnet";
   }
   return undefined;
