@@ -41,6 +41,22 @@
 //!   its sequence. A settlement is sent only once the node executed it.
 //!   A new account sets its disbursal address before anything else, as the
 //!   hub requires.
+//! - **A frozen hub** (spec/decisions/token-hubs.md). The account reads a
+//!   token hub's freeze from what f + 1 validators sign of the issuer's
+//!   hold ([`Statement::Issuer`]), the newest it agreed. While frozen, the
+//!   hub takes no operation but claims whose commitments all expire within
+//!   the freeze's window, and its validators drop what waits: the account
+//!   keeps such an operation, refused or dropped, never counts it as
+//!   failed, and sends it again after the thaw. A claim the hub takes goes
+//!   meanwhile, beside an operation on its way that waits, with the same
+//!   sequence, so that at most one of them ever applies. A claim past the
+//!   window, and a redeem not yet sent, go back to the scheme, so the
+//!   queue keeps its room for the claims the hub still pays. It takes no
+//!   new settlement, withdrawal or redeem, and says it is not synced, so
+//!   the hub's method is unavailable until the thaw.
+//! - **Room for deadlines.** What has no deadline takes at most
+//!   [`MAX_QUEUED_WITHOUT_DEADLINE`] of the queue, so claims and redeems
+//!   always find room.
 //!
 //! What it sends a validator, and takes from one, is the hub's own wire
 //! message (`service::wire::Message`): a `Request`, and the `Statements`
@@ -65,6 +81,7 @@ use dassie_settlement::{
 
 use super::mirror::HoldMirror;
 use crate::client::{AccountView, Agreement, MAX_STATEMENTS, Request, Statement};
+use crate::consensus::Config;
 use crate::service::MAX_ANSWER;
 
 use crate::ledger::{Detail, Outcome, Refusal};
@@ -72,7 +89,7 @@ use crate::operation::{
     AccountNumber, Destination, MemberOperation, Operation, SignedMemberOperation,
 };
 use crate::promise::{HoldNumber, Promise, Signed};
-use crate::rules::{Amount, HubId, Millis, Rules, Terms};
+use crate::rules::{Amount, HubId, MAX_HOLD_MS, Millis, Rules, Terms};
 use crate::validators::{MAX_VALIDATORS, ValidatorSet};
 
 /// The node's first hub account: in the default hub of the XRP Ledger
@@ -84,6 +101,10 @@ pub const FIRST: AssetId = AssetId {
 
 /// Most operations waiting to be sent, or on their way.
 pub const MAX_QUEUED: usize = 16;
+/// Most of them without a deadline: settlements, the owner's withdrawal
+/// and the disbursal address. The rest of the queue is kept for claims and
+/// redeems, which must go before their deadlines, frozen hub or not.
+pub const MAX_QUEUED_WITHOUT_DEADLINE: usize = MAX_QUEUED / 2;
 /// Most holds mirrored: those it pays into, and those toward it, which
 /// anyone can open, each for a hold reserve.
 pub const MAX_HOLDS: usize = 1_024;
@@ -275,6 +296,48 @@ pub(super) struct Executed {
     pub(super) outcome: Outcome,
 }
 
+/// What f + 1 validators last agreed of the issuer's hold on a token
+/// hub's escrow ([`Statement::Issuer`]), and the block it is as of.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct IssuerState {
+    pub(super) height: u64,
+    /// The block's stamp.
+    pub(super) timestamp: Millis,
+    /// The stamp of the block from which the hub is frozen.
+    pub(super) frozen: Option<Millis>,
+    /// Whether the issuer holds the escrow.
+    pub(super) held: bool,
+}
+
+/// The last expiry a commitment claimed on a hub frozen since the block
+/// stamped `since` may have, as the hub's ledger reckons it
+/// ([`Ledger::freeze_window_end`](crate::ledger::Ledger::freeze_window_end)):
+/// the margin M, the longest a connector holds a packet and the precision
+/// after the freeze's stamp.
+#[must_use]
+pub fn freeze_window_end(terms: &Terms, since: Millis) -> Millis {
+    since
+        .saturating_add(terms.timers.margin)
+        .saturating_add(MAX_HOLD_MS)
+        .saturating_add(Config::DEFAULT.precision_ms)
+}
+
+/// Whether the hub takes `operation` only after its thaw, while frozen
+/// with the window ending at `window`: every operation but a claim whose
+/// commitments all expire within it, as
+/// [`Ledger::waits`](crate::ledger::Ledger::waits) has it.
+pub(super) fn waits(window: Option<Millis>, operation: &MemberOperation) -> bool {
+    let Some(end) = window else {
+        return false;
+    };
+    match operation {
+        MemberOperation::Claim { fulfilled, .. } => fulfilled
+            .iter()
+            .any(|item| item.commitment.value.expiry > end),
+        _ => true,
+    }
+}
+
 /// An operation of ours, waiting or on its way.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct Queued {
@@ -316,6 +379,9 @@ pub struct HubAccount {
     stale_sequence: Option<u64>,
     /// Our `set-disbursal` was applied, whatever the account last said.
     disbursal_set: bool,
+    /// The issuer's hold on a token hub's escrow, as last agreed; kept
+    /// with the books, so a restart during a freeze knows it.
+    pub(super) issuer: Option<IssuerState>,
     view: Option<(u64, AccountView)>,
     /// An agreed state of the account above the cursor, told once read up
     /// to it.
@@ -407,6 +473,7 @@ impl HubAccount {
             sequence: None,
             stale_sequence: None,
             disbursal_set: false,
+            issuer: None,
             view: None,
             waiting_view: None,
             unfunded: false,
@@ -511,6 +578,32 @@ impl HubAccount {
         self.cursor
     }
 
+    /// The stamp of the block from which the hub is frozen, as f + 1
+    /// validators last said (spec/decisions/token-hubs.md): its method is
+    /// unavailable until the thaw. Never for an XRP hub.
+    #[must_use]
+    pub fn frozen(&self) -> Option<Millis> {
+        self.issuer.and_then(|issuer| issuer.frozen)
+    }
+
+    /// Whether the issuer holds the hub's escrow, as f + 1 validators last
+    /// said: frozen, or charging a transfer fee. A hub that ended while
+    /// held is not frozen, but its escrow pays out only once released.
+    #[must_use]
+    pub fn escrow_held(&self) -> bool {
+        self.issuer.is_some_and(|issuer| issuer.held)
+    }
+
+    /// While the hub is frozen, the last expiry a claim on it may carry:
+    /// what the scheme claims then, and what the payee's bound on the
+    /// commitments it takes keeps every packet it took before the freeze
+    /// within (spec/decisions/token-hubs.md).
+    #[must_use]
+    pub fn freeze_window_end(&self) -> Option<Millis> {
+        self.frozen()
+            .map(|since| freeze_window_end(&self.rules.terms, since))
+    }
+
     /// A hold it pays into or takes from.
     #[must_use]
     pub fn hold(&self, number: HoldNumber) -> Option<&HoldMirror> {
@@ -578,8 +671,9 @@ impl HubAccount {
     ///
     /// # Errors
     ///
-    /// [`SchemeError::Unavailable`] while the queue is full or the account
-    /// is not synced; [`SchemeError::InvalidData`] for a settlement it has.
+    /// [`SchemeError::Unavailable`] while the queue has no room for it, the
+    /// account is not synced or the hub is frozen; [`SchemeError::InvalidData`] for
+    /// a settlement it has.
     pub fn prepare(
         &mut self,
         settlement: Name,
@@ -595,7 +689,8 @@ impl HubAccount {
     /// # Errors
     ///
     /// [`SchemeError::Unavailable`] while the queue is full or the account
-    /// is not synced, or one for `purpose` is on its way.
+    /// is not synced, or one for `purpose` is on its way; a withdrawal or a
+    /// redeem also while the hub is frozen.
     pub fn submit(
         &mut self,
         purpose: Purpose,
@@ -620,6 +715,26 @@ impl HubAccount {
         ready: bool,
     ) -> Result<(), SchemeError> {
         if !self.is_synced() || self.queue.len() >= MAX_QUEUED {
+            return Err(SchemeError::Unavailable);
+        }
+        let without_deadline = self
+            .queue
+            .iter()
+            .filter(|q| !operation_has_deadline(&q.operation))
+            .count();
+        if !operation_has_deadline(&operation) && without_deadline >= MAX_QUEUED_WITHOUT_DEADLINE {
+            return Err(SchemeError::Unavailable);
+        }
+        // A frozen hub moves nothing until the thaw: no settlement,
+        // withdrawal or redeem is taken on to wait for it, so the queue
+        // keeps its room for the claims it still pays. A redeem is made
+        // again after the thaw, and the reduction's notice waits with it.
+        if self.frozen().is_some()
+            && matches!(
+                purpose,
+                Purpose::Settle(_) | Purpose::Withdraw | Purpose::Redeem(_)
+            )
+        {
             return Err(SchemeError::Unavailable);
         }
         if self.has(purpose) {
@@ -789,33 +904,69 @@ impl HubAccount {
         }
     }
 
-    /// Sends the next operation, or the one on its way again.
+    /// Sends the next operation, or those on their way again.
     fn pump(&mut self) {
         if self.stopped || self.failed.is_some() || !self.is_synced() {
             return;
         }
         self.ensure_disbursal();
+        let window = self.freeze_window_end();
         let now = self.now_ms;
-        if let Some(queued) = self.queue.iter_mut().find(|q| q.sent.is_some()) {
+        let on_way = self
+            .queue
+            .iter()
+            .find_map(|q| q.sent.as_ref().map(|(signed, _)| signed.sequence));
+        let Some(sequence) = on_way else {
+            if let (Some(sequence), None) = (self.sequence, self.stale_sequence) {
+                self.send_next(sequence, window);
+            }
+            return;
+        };
+        self.resend(now, window);
+        // While all that is on its way waits for the thaw, a claim the
+        // frozen hub takes goes beside it, with its sequence: whichever
+        // applies first uses it, and the others can then never apply.
+        let goes = self
+            .queue
+            .iter()
+            .any(|q| q.sent.is_some() && !waits(window, &q.operation));
+        if window.is_some() && !goes && self.stale_sequence.is_none() {
+            self.send_next(sequence, window);
+        }
+    }
+
+    /// Sends again what is on its way and the hub takes now, once it has
+    /// waited [`RESUBMIT_MS`]: what waits for a thaw goes again after it.
+    fn resend(&mut self, now: u64, window: Option<Millis>) {
+        let mut again = Vec::new();
+        for queued in &mut self.queue {
+            if waits(window, &queued.operation) {
+                continue;
+            }
             if let Some((signed, sent_ms)) = &mut queued.sent
                 && now >= sent_ms.saturating_add(RESUBMIT_MS)
             {
                 *sent_ms = now;
-                let request = Request::Submit(Operation::Member(signed.clone()));
-                self.ask(&request);
+                again.push(signed.clone());
             }
-            return;
         }
-        let (Some(sequence), Some(account), None) =
-            (self.sequence, self.number, self.stale_sequence)
-        else {
+        for signed in again {
+            self.ask(&Request::Submit(Operation::Member(signed)));
+        }
+    }
+
+    /// Signs the next operation that may go with `sequence`, and sends it.
+    fn send_next(&mut self, sequence: u64, window: Option<Millis>) {
+        let Some(account) = self.number else {
             return;
         };
         let needs_disbursal = !self.has_disbursal();
-        let next = self
-            .queue
-            .iter_mut()
-            .find(|q| q.ready && (!needs_disbursal || q.purpose == Purpose::Disbursal));
+        let next = self.queue.iter_mut().find(|q| {
+            q.sent.is_none()
+                && q.ready
+                && (!needs_disbursal || q.purpose == Purpose::Disbursal)
+                && !waits(window, &q.operation)
+        });
         let Some(queued) = next else {
             return;
         };
@@ -827,8 +978,42 @@ impl HubAccount {
             queued.operation.clone(),
             &self.key,
         );
-        queued.sent = Some((signed.clone(), now));
+        queued.sent = Some((signed.clone(), self.now_ms));
         self.ask(&Request::Submit(Operation::Member(signed)));
+    }
+
+    /// While the hub is frozen, a claim that it would not take in the
+    /// freeze's window goes back to the scheme, which claims again what the
+    /// window holds: one claim per hold at a time, so one that waits would
+    /// keep the others from going. One on its way goes back once the
+    /// account read every block up to the one it knows the freeze as of:
+    /// it did not apply there, and no block after it takes it until the
+    /// thaw. Its sequence is unused, so whatever is signed with it next
+    /// applies at most once beside it. A redeem not yet sent goes back too,
+    /// so that the queue keeps its room for claims: the scheme makes it
+    /// again after the thaw. Only as the account takes an input of its own,
+    /// so the scheme is told with what else it learnt.
+    fn drop_waiting_claims(&mut self) {
+        let window = self.freeze_window_end();
+        let Some(known) = self.issuer.filter(|_| window.is_some()) else {
+            return;
+        };
+        let read = self.cursor >= known.height;
+        let mut dropped = Vec::new();
+        self.queue.retain(|q| {
+            let drop = match q.purpose {
+                Purpose::Claim(_) => (q.sent.is_none() || read) && waits(window, &q.operation),
+                Purpose::Redeem(_) => q.sent.is_none(),
+                _ => false,
+            };
+            if drop {
+                dropped.push(q.purpose);
+            }
+            !drop
+        });
+        for purpose in dropped {
+            self.push_news(News::Dropped { purpose });
+        }
     }
 
     /// Whether the account has its disbursal address: as last agreed, or
@@ -860,6 +1045,23 @@ impl HubAccount {
             sent: None,
         });
     }
+}
+
+/// Whether what is on its way is one operation, or, beside one that waits
+/// for a thaw, claims a frozen hub takes: all with one sequence, and at most
+/// one of them not a claim.
+pub(super) fn on_their_way_hold(queue: &VecDeque<Queued>) -> bool {
+    let mut sequences = queue
+        .iter()
+        .filter_map(|q| q.sent.as_ref().map(|(signed, _)| signed.sequence));
+    let one_sequence = sequences
+        .next()
+        .is_none_or(|first| sequences.all(|sequence| sequence == first));
+    let others = queue
+        .iter()
+        .filter(|q| q.sent.is_some() && !matches!(q.purpose, Purpose::Claim(_)))
+        .count();
+    one_sequence && others <= 1
 }
 
 /// Whether an operation has a deadline: a redeem or a claim.
@@ -904,6 +1106,7 @@ impl HubAccount {
             }
         }
         self.advance();
+        self.drop_waiting_claims();
         self.pump();
     }
 
@@ -1011,7 +1214,60 @@ impl HubAccount {
                     self.finals.pop_first();
                 }
             }
+            issuer @ Statement::Issuer { .. } => self.issuer_agreed(&issuer),
             _ => {}
+        }
+    }
+
+    /// A state of the issuer's hold f + 1 validators agree on: one of them
+    /// is honest, so the hub was in it after that block. Only the newest
+    /// counts.
+    ///
+    /// A freeze that ended moves the deadline of every reduction it
+    /// mirrors that had not passed at the freeze back by the freeze's
+    /// length, as the hub's thaw does: from the freeze's stamp to the
+    /// thaw's, which the account knows only as no later than the block it
+    /// learnt of the thaw at, or of the next freeze. So a reduction never
+    /// applies here before it does in the hub, and a hold's records never
+    /// close early; one that was due during a freeze the account missed
+    /// whole applies early.
+    fn issuer_agreed(&mut self, statement: &Statement) {
+        let Statement::Issuer {
+            height,
+            timestamp,
+            frozen,
+            held,
+        } = *statement
+        else {
+            return;
+        };
+        let state = IssuerState {
+            height,
+            timestamp,
+            frozen,
+            held,
+        };
+        if self
+            .issuer
+            .is_some_and(|known| known.height >= state.height)
+        {
+            return;
+        }
+        let before = self.issuer.replace(state);
+        let Some(since) = before.and_then(|before| before.frozen) else {
+            return;
+        };
+        if state.frozen == Some(since) {
+            return;
+        }
+        let until = state.frozen.unwrap_or(state.timestamp);
+        let length = until.saturating_sub(since);
+        for mirror in self.holds.values_mut() {
+            if let Some((_, at)) = mirror.reduction.as_mut()
+                && *at > since
+            {
+                *at = at.saturating_add(length);
+            }
         }
     }
 
@@ -1160,8 +1416,13 @@ impl HubAccount {
         self.push_news(News::Final { height, timestamp });
     }
 
-    /// Applies the reductions due by a block stamped `timestamp`.
+    /// Applies the reductions due by a block stamped `timestamp`, by the
+    /// hub's clock: while the hub is frozen, it stands at the freeze's
+    /// stamp.
     fn apply_due(&mut self, height: u64, timestamp: Millis) {
+        let timestamp = self
+            .frozen()
+            .map_or(timestamp, |since| timestamp.min(since));
         let numbers: Vec<HoldNumber> = self.holds.keys().copied().collect();
         for hold in numbers {
             let Some(mirror) = self.holds.get_mut(&hold) else {
@@ -1219,11 +1480,37 @@ impl HubAccount {
         if outcome.used_sequence() {
             let next = operation.sequence.saturating_add(1);
             self.sequence = Some(self.sequence.unwrap_or(0).max(next));
+            // What else of ours went with that sequence, or an earlier
+            // one, can never apply now: it is signed again with the next.
+            for queued in &mut self.queue {
+                if queued.sent.as_ref().is_some_and(|(sent, _)| {
+                    sent.sequence <= operation.sequence && sent != operation
+                }) {
+                    queued.sent = None;
+                }
+            }
         }
         let position = self
             .queue
             .iter()
             .position(|q| q.sent.as_ref().is_some_and(|(sent, _)| sent == operation))?;
+        // A frozen hub took it in a block all the same and refused it: it
+        // waits for the thaw, kept as it is on its way, and is sent again
+        // then. Never a failure: it used no sequence. A claim the account
+        // knows waits goes back to the scheme, which claims again what the
+        // freeze's window holds (`drop_waiting_claims`).
+        if outcome == Outcome::Refused(Refusal::Frozen) {
+            let window = self.freeze_window_end();
+            let back = self.queue.get(position).is_some_and(|q| {
+                matches!(q.purpose, Purpose::Claim(_)) && waits(window, &q.operation)
+            });
+            if back && let Some(queued) = self.queue.remove(position) {
+                self.push_news(News::Dropped {
+                    purpose: queued.purpose,
+                });
+            }
+            return None;
+        }
         if outcome == Outcome::Refused(Refusal::Sequence) {
             // Signed again with the sequence the hub says.
             if let Some(queued) = self.queue.get_mut(position) {
@@ -1422,14 +1709,28 @@ impl HubAccount {
     }
 
     /// The operation of ours on its way whose sequence the account has used
-    /// by now: it executed while its history was not read.
+    /// by now: it executed while its history was not read. Of several on
+    /// their way with that sequence, a claim beside one that waited for a
+    /// thaw, the one that is not a claim: the state read anew shows whether
+    /// it applied, and the claim, sent again, fails at worst. The others
+    /// can never apply now, and are signed again.
     fn take_unread(&mut self, sequence: u64) -> Option<(Purpose, MemberOperation)> {
-        let position = self.queue.iter().position(|q| {
+        let used = |q: &Queued| {
             q.sent
                 .as_ref()
                 .is_some_and(|(signed, _)| signed.sequence < sequence)
-        })?;
+        };
+        let position = self
+            .queue
+            .iter()
+            .position(|q| used(q) && !matches!(q.purpose, Purpose::Claim(_)))
+            .or_else(|| self.queue.iter().position(used))?;
         let queued = self.queue.remove(position)?;
+        for other in &mut self.queue {
+            if used(other) {
+                other.sent = None;
+            }
+        }
         if queued.purpose == Purpose::Disbursal {
             self.disbursal_set = true;
         }
@@ -1473,8 +1774,14 @@ impl ExternalAsset for HubAccount {
         if let Some(why) = self.failed {
             return LedgerStatus::Failed(why);
         }
-        if self.is_synced() {
+        // A frozen hub's method is unavailable until the thaw
+        // (spec/decisions/token-hubs.md): the account follows the hub all
+        // the same, but the node moves nothing into it and takes no packet
+        // over it meanwhile.
+        if self.is_synced() && self.frozen().is_none() {
             LedgerStatus::Synced
+        } else if self.is_synced() {
+            LedgerStatus::Syncing
         } else if self.unfunded {
             LedgerStatus::Unfunded
         } else if self.heard {
@@ -1506,13 +1813,17 @@ impl ExternalAsset for HubAccount {
         }
         // An operation on its way is sent again only once the account is
         // in step with the hub (`pump`): until then it is not due, or a
-        // restored one, sent at 0, would wake the host over and over.
+        // restored one, sent at 0, would wake the host over and over. One
+        // that waits for a thaw is not due before it.
+        let window = self.freeze_window_end();
         let resend = self
             .queue
             .iter()
-            .find_map(|q| q.sent.as_ref())
+            .filter(|q| !waits(window, &q.operation))
+            .filter_map(|q| q.sent.as_ref())
             .filter(|_| self.is_synced())
-            .map(|(_, sent)| sent.saturating_add(RESUBMIT_MS));
+            .map(|(_, sent)| sent.saturating_add(RESUBMIT_MS))
+            .min();
         [
             Some(self.next_poll_ms),
             resend,
@@ -1533,6 +1844,7 @@ impl ExternalAsset for HubAccount {
             self.wake_ms = None;
         }
         self.check_stuck();
+        self.drop_waiting_claims();
         if self.now_ms >= self.next_poll_ms {
             self.poll();
         }
@@ -1595,8 +1907,8 @@ impl ExternalAsset for HubAccount {
         assert_eq!(self.covered.len(), self.set.len());
         assert_eq!(self.dirty.len(), self.set.len());
         assert!(
-            self.queue.iter().filter(|q| q.sent.is_some()).count() <= 1,
-            "one operation on its way at a time"
+            on_their_way_hold(&self.queue),
+            "one operation on its way at a time, or claims beside it"
         );
         assert!(
             self.buffer.keys().all(|(height, _)| *height > self.cursor),

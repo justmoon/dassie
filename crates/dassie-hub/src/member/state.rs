@@ -2,10 +2,12 @@
 //! with fixed-width integers, as the hub's own messages are. Each starts
 //! with a version byte.
 //!
-//! - **The account** keeps its number, its cursor, the holds it mirrors and
-//!   the operations waiting or on their way: one on its way is signed again
+//! - **The account** keeps its number, its cursor, the holds it mirrors,
+//!   the operations waiting or on their way, and the issuer's hold on a
+//!   token hub's escrow as last agreed: one on its way is signed again
 //!   alike (Ed25519 signs deterministically), so its outcome is still known
-//!   as ours.
+//!   as ours. Its version 1 had no issuer's hold, and is read as knowing
+//!   none.
 //! - **The scheme** keeps its peers and the records of their holds: the next
 //!   sequence, W and T of our claims and the packets the hub may still pay,
 //!   and what we fulfilled that no claim of the payer's covers, and its
@@ -21,7 +23,7 @@ use dassie_ledger::Name;
 use dassie_oer::{Encode, Reader};
 use dassie_settlement::{OwnerPaymentState, PaymentFailure};
 
-use super::account::{HubAccount, Purpose, Queued};
+use super::account::{HubAccount, IssuerState, Purpose, Queued};
 use super::mirror::HoldMirror;
 use super::payee::{Claiming, Done, Payee, Taken};
 use super::payer::{Packet, PaidOnHub, Payer, State};
@@ -31,7 +33,8 @@ use crate::digest::Digest;
 use crate::operation::{AccountNumber, MemberOperation, SignedMemberOperation};
 use crate::promise::{Claim, Commitment, HoldNumber, Signed};
 
-const VERSION: u8 = 1;
+/// The account's state's version: 2 keeps the issuer's hold.
+const VERSION: u8 = 2;
 /// The scheme's state's version: 2 keeps its unread `pay`s.
 const SCHEME_VERSION: u8 = 2;
 
@@ -167,6 +170,12 @@ pub(super) fn account_state(account: &HubAccount) -> Vec<u8> {
         });
         out.encoded(&queued.operation);
     }
+    out.option(account.issuer.as_ref(), |out, issuer| {
+        out.u64(issuer.height);
+        out.u64(issuer.timestamp);
+        out.option(issuer.frozen.as_ref(), |out, since| out.u64(*since));
+        out.bool(issuer.held);
+    });
     out.0
 }
 
@@ -237,7 +246,8 @@ fn read_purpose(reader: &mut Reader<'_>) -> Option<Purpose> {
 /// Restores the account's state, refusing one it did not write.
 pub(super) fn restore_account(account: &mut HubAccount, state: &[u8]) -> Option<()> {
     let mut reader = Reader::new(state);
-    if reader.read_u8().ok()? != VERSION {
+    let version = reader.read_u8().ok()?;
+    if version != 1 && version != VERSION {
         return None;
     }
     account.number = read_option(&mut reader, |r| Some(AccountNumber(r.read_u32().ok()?)))?;
@@ -260,11 +270,21 @@ pub(super) fn restore_account(account: &mut HubAccount, state: &[u8]) -> Option<
         }
         account.queue.push_back(entry);
     }
+    if version >= 2 {
+        account.issuer = read_option(&mut reader, |r| {
+            Some(IssuerState {
+                height: r.read_u64().ok()?,
+                timestamp: r.read_u64().ok()?,
+                frozen: read_option(r, |r| r.read_u64().ok())?,
+                held: r.read_bool().ok()?,
+            })
+        })?;
+    }
     reader.finish().ok()?;
-    let sent = account.queue.iter().filter(|q| q.sent.is_some()).count();
     let bounded = account.strangers.len() <= super::account::MAX_STRANGER_HOLDS
         && account.holds.len().saturating_sub(account.strangers.len()) <= super::account::MAX_HOLDS;
-    (sent <= 1 && bounded && account.last_touch <= account.cursor).then_some(())
+    let on_their_way = super::account::on_their_way_hold(&account.queue);
+    (on_their_way && bounded && account.last_touch <= account.cursor).then_some(())
 }
 
 fn read_queued(account: &HubAccount, reader: &mut Reader<'_>) -> Option<Queued> {

@@ -995,6 +995,9 @@ impl HubScheme {
     /// Takes in what the account mirrors of each peer's holds.
     fn refresh(&mut self, account: &HubAccount) {
         self.account = account.number();
+        // A frozen hub's method is unavailable until the thaw
+        // (spec/decisions/token-hubs.md): each hold's records know it.
+        let window = account.freeze_window_end();
         let snapshot = |hold: Option<HoldNumber>| {
             hold.and_then(|hold| account.hold(hold))
                 .map_or_else(Snapshot::default, |mirror| Snapshot {
@@ -1002,6 +1005,7 @@ impl HubScheme {
                     taken: mirror.taken(),
                     through: mirror.through,
                     reduction: mirror.reduction,
+                    window,
                 })
         };
         let mut paying: Amount = 0;
@@ -1087,7 +1091,12 @@ impl HubScheme {
     }
 
     /// Redeems a peer's newest claim once what it adds reaches the
-    /// threshold: each redeem costs a fee.
+    /// threshold, each redeem costing a fee; or at once when a reduction of
+    /// the hold waiting for its notice would leave less than it adds, which
+    /// we would lose unless we redeem before
+    /// (spec/designs/settlement-hubs.md#4-peering-over-a-hub). While the
+    /// hub is frozen the redeem waits for the thaw, and so does the
+    /// reduction's notice.
     fn redeem(&mut self, account: &mut HubAccount) {
         let threshold = redeem_threshold(self.max_packet);
         for peer in self.peers.values() {
@@ -1105,7 +1114,10 @@ impl HubScheme {
                 .total
                 .saturating_sub(mirror.total)
                 .saturating_sub(mirror.claimed_through(claim.value.through));
-            if units(adds) >= threshold {
+            let reducing = mirror
+                .reduction
+                .is_some_and(|(amount, _)| mirror.amount.saturating_sub(amount) < adds);
+            if units(adds) >= threshold || reducing {
                 let _ = account.submit(Purpose::Redeem(hold), MemberOperation::Redeem(claim));
             }
         }
@@ -1700,12 +1712,12 @@ impl Commitments for HubScheme {
         commitment: &[u8],
     ) -> Result<(), SchemeError> {
         self.now_ms = self.now_ms.max(now_ms);
-        let (hub, margin) = (self.hub, self.margin());
+        let (hub, margin, now) = (self.hub, self.margin(), self.now_ms);
         let signed = decode_exact(commitment, Signed::<Commitment>::decode)?;
         let peer = self.peer(peer).ok_or(SchemeError::InvalidData)?;
         let key = peer.key;
         peer.payee
-            .check(request_id, promised, signed, (&hub, &key, margin))
+            .check(request_id, promised, signed, (&hub, &key, margin, now))
     }
 
     fn on_fulfilled(&mut self, now_ms: u64, peer: Name, request_id: u32, fulfillment: [u8; 32]) {
