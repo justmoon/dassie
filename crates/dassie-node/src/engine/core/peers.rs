@@ -1102,8 +1102,12 @@ impl Core {
     /// connector has a slot per method, a peer's packets take its
     /// endpoint's method (spec/decisions/settlement-methods.md), so a
     /// peering that loses that method carries packets on its new first
-    /// one, never on none. What was in flight on the dropped method
-    /// expires, as at any endpoint's removal.
+    /// one, never on none: the rest's lowest scheme ID, which the peer
+    /// picks alike. What was in flight on the dropped method goes as at
+    /// any endpoint's removal: our Prepares to the peer are rejected at
+    /// once (T01), so a Fulfill the peer sends for one later finds nothing
+    /// to answer and is dropped, and the peer's Prepares to us get no
+    /// reply, and expire on its side.
     fn renew_peer_endpoint(&mut self, peer: NodeId) {
         let Some(first) = self.peer.peering_of(&peer).map(|p| p.first().scheme) else {
             return;
@@ -1141,7 +1145,9 @@ impl Core {
 
     /// Takes a peer's endpoint away: at a peering's end, nothing is in
     /// flight with it by now, since the peering ended only once drained;
-    /// at a method's drop, what is in flight expires.
+    /// at a method's drop, our Prepares to it are rejected at once (T01),
+    /// a Fulfill for one that comes later is dropped, and its Prepares to
+    /// us get no reply.
     fn remove_peer_endpoint(&mut self, peer: &NodeId) {
         if let Some(endpoint) = self.peer_endpoints.remove(peer) {
             self.endpoint_peers.remove(&endpoint);

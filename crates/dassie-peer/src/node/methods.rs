@@ -381,7 +381,7 @@ impl PeerNode {
             return;
         };
         assert!(peering.methods.len() > 1, "a peering keeps a method");
-        peering.methods.retain(|method| method.scheme != scheme);
+        peering.remove(scheme);
         self.dirty.insert(node);
         self.stats.methods_dropped += 1;
         self.event(Event::MethodDropped {
