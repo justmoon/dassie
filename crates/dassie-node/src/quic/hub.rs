@@ -12,7 +12,7 @@ use std::time::Duration;
 use dassie_identity::NodeId;
 use quinn::Connection;
 
-use super::{ANSWER_TIMEOUT, On, Quic, StreamKind, keys, no_room, read_in_order};
+use super::{ANSWER_TIMEOUT, On, Quic, StreamKind, no_room, read_in_order};
 use dassie_hub::founding::{FoundingAnswer, Refusal};
 use dassie_oer::Encode;
 
@@ -213,7 +213,7 @@ impl On {
             let _ = send.reset(0u32.into());
             let _ = recv.stop(0u32.into());
         };
-        let Some(from) = keys::peer_key(&self.connection) else {
+        let Some(from) = self.proved else {
             reset(&mut send, &mut recv);
             return;
         };
@@ -256,7 +256,7 @@ impl On {
             let _ = send.reset(0u32.into());
             let _ = recv.stop(0u32.into());
         };
-        let Some(from) = keys::peer_key(&self.connection) else {
+        let Some(from) = self.proved else {
             reset(&mut send, &mut recv);
             return;
         };
@@ -294,7 +294,7 @@ impl On {
             let _ = send.reset(0u32.into());
             let _ = recv.stop(0u32.into());
         };
-        let Some(from) = keys::peer_key(&self.connection) else {
+        let Some(from) = self.proved else {
             reset(&mut send, &mut recv);
             return;
         };

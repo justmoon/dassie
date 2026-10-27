@@ -1212,6 +1212,10 @@ impl Quic {
         shutdown: &CancellationToken,
     ) {
         let streams = TaskTracker::new();
+        // The key the handshake proved, read once: it is the connection's
+        // for its whole life, and reading it takes parsing the certificate
+        // and decompressing the key.
+        let proved = keys::peer_key(connection);
         loop {
             let stream = tokio::select! {
                 stream = connection.accept_bi() => stream,
@@ -1223,6 +1227,7 @@ impl Quic {
             let on = On {
                 quic: Arc::clone(self),
                 connection: connection.clone(),
+                proved,
                 client,
                 handler: Arc::clone(handler),
                 shutdown: shutdown.clone(),
@@ -1238,6 +1243,9 @@ impl Quic {
 struct On {
     quic: Arc<Quic>,
     connection: Connection,
+    /// The node key the connection's handshake proved: every client proves
+    /// one, so `None` only for a connection that never gets this far.
+    proved: Option<PublicKey>,
     client: IpAddr,
     handler: Arc<dyn Handler>,
     shutdown: CancellationToken,
@@ -1273,7 +1281,7 @@ impl On {
     /// proves one in every handshake, so a connection without one never
     /// gets this far, and its stream is reset.
     async fn answer(self, mut send: quinn::SendStream, mut recv: quinn::RecvStream) {
-        let Some(from) = keys::peer_key(&self.connection) else {
+        let Some(from) = self.proved else {
             let _ = send.reset(0u32.into());
             let _ = recv.stop(0u32.into());
             return;
