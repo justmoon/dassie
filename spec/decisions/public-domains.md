@@ -1,6 +1,6 @@
 # Payment names live under dassiepay.net, the testnet's under test.dassiepay.net, memo types and the mirror under dassie.land
 
-**Areas:** [Payments](../areas/payments.md#the-nodes-names), [HTTP](../areas/http.md#front-doors), [XRPL](../areas/xrpl.md), [Release](../areas/release.md#the-mirror), [Network](../areas/network.md), [Overview](../overview.md#frozen-surfaces).
+**Areas:** [Payments](../areas/payments.md#the-nodes-names), [HTTP](../areas/http.md#front-doors), [XRPL](../areas/xrpl.md), [Release](../areas/release.md#the-mirror), [Network](../areas/network.md), [Identity](../areas/identity.md), [Overview](../overview.md#frozen-surfaces).
 
 ## Facts
 
