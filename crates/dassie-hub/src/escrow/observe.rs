@@ -155,7 +155,7 @@ fn proven<'a>(state: &'a ProvenState, key: &[u8; 32]) -> Result<Option<&'a [u8]>
     state.object(key).ok_or(EscrowFault::NotValidated)
 }
 
-/// The validators' check of the escrow ([`check_escrow`]) from a state
+/// The validators' check of the escrow ([`check_escrow`](super::check_escrow)) from a state
 /// proof of [`escrow_keys`] at one validated ledger: the account root with
 /// its master key disabled, no regular key and `RequireDest`, the signer
 /// list exactly the rules', for a token hub its line to the issuer as the
