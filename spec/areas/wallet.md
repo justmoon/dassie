@@ -52,7 +52,7 @@ Every `Subscribe*` procedure delivers a value stream or a snapshot followed by t
 - A stream stays open while its component is shown and ends when the page is left.
 - A stream that ends or fails is subscribed again after a jittered backoff; each attempt starts with a fresh snapshot, so a missed delta can never leave a store wrong. Errors that cannot heal by retrying (unauthenticated, not found, invalid, unimplemented) are final.
 - Pages show when a view is not live, rather than showing stale data as current.
-- Until a stream carries them ([roadmap](../roadmap.md#several-hubs-per-node)), the node's status and its hubs are asked for again every few seconds while they are shown, one request at a time: a stopgap, since live data comes from streams ([rpc-contract](../decisions/rpc-contract.md)). A failed ask keeps what is known, and the Hubs page says it is not current.
+- Until a stream carries them ([roadmap](../roadmap.md#not-built-yet)), the node's status and its hubs are asked for again every few seconds while they are shown, one request at a time: a stopgap, since live data comes from streams ([rpc-contract](../decisions/rpc-contract.md)). A failed ask keeps what is known, and the Hubs page says it is not current.
 - The node's ledgers, with the external assets they settle through, and its node table are shared by every page while the owner is signed in (`packages/ui/src/node-data.ts`). The external assets come with the ledgers' stream, so a page never shows a ledger and its asset from two moments.
 
 ## Pages
