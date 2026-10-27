@@ -2,7 +2,7 @@
 
 use std::fmt;
 
-use dassie_node_core::config::{Alias, ConfigError, Hostname, NodeConfig, Ports, Realm};
+use dassie_node_core::config::{Alias, ConfigError, Hostname, NodeConfig, Ports};
 
 use super::{Node, NodeError, Runtime, lock};
 use crate::store::StoreError;
@@ -82,18 +82,6 @@ impl Node {
             self.refresh_certificate()?;
             self.wake_renewal();
         }
-        Ok(config)
-    }
-
-    /// Sets the realm; `live` is refused (spec/decisions/real-money.md),
-    /// but by the dev switch (spec/decisions/mainnet-schemes.md). It takes
-    /// effect when the engine starts again.
-    pub fn set_realm(&self, realm: Realm) -> Result<NodeConfig, SettingsError> {
-        let realm = realm.check_settable(self.live_realm())?;
-        let (config, _) = self.change_config(|config| {
-            config.realm = realm;
-            Ok(true)
-        })?;
         Ok(config)
     }
 

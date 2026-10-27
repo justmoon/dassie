@@ -202,13 +202,6 @@ async fn protected_calls_fail_with_a_code() {
         }))
         .await;
     assert_eq!(error.unwrap_err().code(), proto::ErrorCode::InvalidArgument);
-    let live = proto::SetRealmRequest {
-        realm: proto::Realm::Live.into(),
-    };
-    assert_eq!(
-        owner.call(Method::SetRealm(live)).await.unwrap_err().code(),
-        proto::ErrorCode::FailedPrecondition
-    );
     let unknown = proto::ClientMessage {
         call_id: 9,
         kind: Some(proto::client_message::Kind::Request(proto::Request {
@@ -704,28 +697,69 @@ async fn an_engine_that_fails_at_every_start_ends_the_daemon_unready() {
     assert_eq!(notifications(&notify), ["STOPPING=1"]);
 }
 
+/// Sets `node` up with `key` in `realm`; the answer's status.
+async fn set_up_in(node: &TestNode, realm: &str) -> StatusCode {
+    let token = node.setup_token().await;
+    let body = setup_body_in(&token, &key(), realm);
+    send(node.https, true, post_json(node, "/api/setup", &body))
+        .await
+        .status
+}
+
+/// The realm `node` says it runs.
+async fn realm_of(node: &TestNode) -> i32 {
+    let reply = node
+        .ipc()
+        .await
+        .call(Method::GetConfig(proto::GetConfigRequest {}))
+        .await;
+    let Ok(response::Method::GetConfig(reply)) = reply else {
+        panic!("{reply:?}")
+    };
+    reply.config.unwrap().realm
+}
+
+// spec/decisions/mainnet-schemes.md: the realm is fixed at setup, `test`
+// unless the setup asks for another, and an unknown one is refused.
+#[tokio::test]
+async fn the_realm_is_fixed_at_setup() {
+    let node = TestNode::start().await;
+    assert_eq!(set_up_in(&node, "main").await, StatusCode::BAD_REQUEST);
+    assert_eq!(
+        set_up_in(&node, "live").await,
+        StatusCode::BAD_REQUEST,
+        "live, without the dev switch"
+    );
+    assert_eq!(
+        node.ipc()
+            .await
+            .call(Method::GetBasicState(proto::GetBasicStateRequest {}))
+            .await
+            .map(|reply| match reply {
+                response::Method::GetBasicState(basic) => basic.state,
+                _ => panic!("{reply:?}"),
+            })
+            .unwrap(),
+        i32::from(proto::NodeState::Uninitialized),
+        "a refused setup sets nothing up"
+    );
+    set_up(&node, &key()).await;
+    assert_eq!(realm_of(&node).await, i32::from(proto::Realm::Test));
+    node.stop().await;
+}
+
 // spec/decisions/mainnet-schemes.md: `live` is refused where it is set and
 // where the node starts, but by the dev switch, which the tests, built with
-// debug assertions, honour. A node the owner set to it by the switch runs
-// in it again with the switch, and without it does not start.
+// debug assertions, honour. A node set up in it by the switch runs in it
+// again with the switch, and without it does not start.
 #[tokio::test]
 async fn the_live_realm_runs_only_by_the_dev_switch() {
     const SWITCH: [(&str, &str); 1] = [("DASSIE_DEV_LIVE_REALM", "1")];
     let node = Bound::new()
         .start(ManualClock::new(START_MS), 1, Policies::DEFAULT, &SWITCH)
         .await;
-    set_up(&node, &key()).await;
-    let live = proto::SetRealmRequest {
-        realm: proto::Realm::Live.into(),
-    };
-    let reply = node.ipc().await.call(Method::SetRealm(live)).await;
-    let Ok(response::Method::SetRealm(reply)) = reply else {
-        panic!("{reply:?}")
-    };
-    assert_eq!(
-        reply.config.map(|config| config.realm),
-        Some(proto::Realm::Live.into())
-    );
+    assert_eq!(set_up_in(&node, "live").await, StatusCode::OK);
+    assert_eq!(realm_of(&node).await, i32::from(proto::Realm::Live));
     let (dir, clock) = node.stop().await;
     let node = Bound::bind_in(dir)
         .start(clock, 2, Policies::DEFAULT, &SWITCH)

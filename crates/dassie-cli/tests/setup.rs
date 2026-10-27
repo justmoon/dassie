@@ -105,7 +105,7 @@ fn setup_claims_a_node_once_and_refuses_another_passphrase() {
     let text = describe(&first);
     assert!(first.status.success(), "{text}");
     assert!(
-        text.contains(&format!("Set the node up as {id}.")),
+        text.contains(&format!("Set the node up as {id}, in the test realm.")),
         "{text}"
     );
     assert!(text.contains("The node's engine is running."), "{text}");
@@ -115,6 +115,18 @@ fn setup_claims_a_node_once_and_refuses_another_passphrase() {
     assert!(again.status.success(), "{text}");
     assert!(
         text.contains(&format!("The node is set up already as {id}.")),
+        "{text}"
+    );
+
+    // The realm is fixed at setup.
+    let live = dassie(
+        &["setup", "--passphrase-file", &owner, "--realm", "live"],
+        &ipc,
+    );
+    let text = describe(&live);
+    assert_eq!(live.status.code(), Some(1), "{text}");
+    assert!(
+        text.contains("The node runs the test realm, not live"),
         "{text}"
     );
 

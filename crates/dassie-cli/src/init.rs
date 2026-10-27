@@ -69,17 +69,6 @@ pub async fn run(env: &Env, options: Options) -> Result<(), Stopped> {
             message: "Could not read the configuration".into(),
         }));
     };
-    shown(cliclack::note(
-        "Realm",
-        "Setting realm to 'test'. This preview supports the test network only.",
-    ))?;
-    call(
-        &mut client,
-        Method::SetRealm(proto::SetRealmRequest {
-            realm: proto::Realm::Test.into(),
-        }),
-    )
-    .await?;
     let current = config
         .config
         .map(|config| config.hostname)

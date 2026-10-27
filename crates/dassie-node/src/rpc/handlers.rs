@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use dassie_node_core::config::{DirectoryUrl, Realm};
+use dassie_node_core::config::DirectoryUrl;
 use dassie_node_core::session::SessionId;
 use tokio::sync::mpsc;
 
@@ -137,17 +137,6 @@ pub async fn dispatch(
                 .set_hostname(&request.hostname)
                 .map_err(settings_error)?;
             response::Method::SetHostname(proto::SetHostnameResponse {
-                config: Some(convert::config(&config)),
-            })
-        }
-        Method::SetRealm(request) => {
-            let realm = match proto::Realm::try_from(request.realm) {
-                Ok(proto::Realm::Test) => Realm::Test,
-                Ok(proto::Realm::Live) => Realm::Live,
-                _ => return Err(RpcError::invalid("unknown realm")),
-            };
-            let config = node.set_realm(realm).map_err(settings_error)?;
-            response::Method::SetRealm(proto::SetRealmResponse {
                 config: Some(convert::config(&config)),
             })
         }

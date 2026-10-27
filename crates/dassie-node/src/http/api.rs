@@ -12,6 +12,7 @@ use std::time::Duration;
 
 use bytes::Bytes;
 use dassie_kit::ClientKey;
+use dassie_node_core::config::Realm;
 use dassie_node_core::origin;
 use dassie_node_core::session;
 use dassie_node_core::setup::{SetupError, SetupRequest};
@@ -35,6 +36,9 @@ struct SetupBody {
     setup_authorization_token: String,
     raw_dassie_key_hex: String,
     login_authorization_signature: String,
+    /// `test` or `live`; `test` if absent. Fixed for good once set up.
+    #[serde(default)]
+    realm: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -126,12 +130,16 @@ pub async fn setup(node: &Node, peer: SocketAddr, request: Request<Incoming>) ->
         Ok(body) => body,
         Err(refusal) => return refusal.into_response(),
     };
+    let realm = match body.realm.as_deref().map(Realm::parse).transpose() {
+        Ok(realm) => realm.unwrap_or_default(),
+        Err(error) => return response::text(StatusCode::BAD_REQUEST, error.to_string()),
+    };
     let setup = SetupRequest {
         setup_authorization_token: &body.setup_authorization_token,
         raw_dassie_key_hex: &body.raw_dassie_key_hex,
         login_authorization_signature: &body.login_authorization_signature,
     };
-    signed_in(node.setup(&setup, ClientKey::from_ip(peer.ip()), &user_agent))
+    signed_in(node.setup(&setup, realm, ClientKey::from_ip(peer.ip()), &user_agent))
 }
 
 /// `POST /api/login`.
@@ -164,6 +172,7 @@ fn signed_in(result: Result<NewSession, AuthError>) -> Response<Body> {
             StatusCode::BAD_REQUEST,
             SetupError::MalformedKey.to_string(),
         ),
+        Err(AuthError::Realm(error)) => response::text(StatusCode::BAD_REQUEST, error.to_string()),
         Err(AuthError::RateLimited(retry_after_ms)) => {
             let mut response = response::text(
                 StatusCode::TOO_MANY_REQUESTS,

@@ -213,7 +213,11 @@ fn running_node(
 ) -> (Arc<Node>, tokio::task::JoinHandle<()>) {
     let store = Store::open_in_memory().unwrap();
     store
-        .set_node_key_once(&NodeKey::from_bytes(&KEY), 1_800_000_000_000)
+        .set_node_key_once(
+            &NodeKey::from_bytes(&KEY),
+            dassie_node_core::config::Realm::Test,
+            1_800_000_000_000,
+        )
         .unwrap();
     let node = node_on(store);
     node.set_hostname(HOSTNAME).unwrap();
@@ -596,8 +600,6 @@ fn bare() -> BoxedStrategy<Method> {
 fn settings() -> BoxedStrategy<Method> {
     prop_oneof![
         hostname().prop_map(|hostname| Method::SetHostname(proto::SetHostnameRequest { hostname })),
-        prop_oneof![Just(0), Just(1), Just(2), any::<i32>()]
-            .prop_map(|realm| Method::SetRealm(proto::SetRealmRequest { realm })),
         (small(), small()).prop_map(|(http_port, https_port)| {
             Method::SetPorts(proto::SetPortsRequest {
                 http_port,

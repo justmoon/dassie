@@ -80,8 +80,10 @@ message ClientMessage {
 message Cancel {}
 
 message Request {
-  // 70 was CreateStreamCredentials, which incoming payments replaced.
-  reserved 70;
+  // 13 was SetRealm: the realm is fixed at setup, with the node key
+  // (spec/decisions/mainnet-schemes.md). 70 was CreateStreamCredentials,
+  // which incoming payments replaced.
+  reserved 13, 70;
 
   oneof method {
     // Public: the only method an unauthenticated socket may call.
@@ -91,7 +93,6 @@ message Request {
     GetConfigRequest get_config = 10;
     GetSetupUrlRequest get_setup_url = 11;
     SetHostnameRequest set_hostname = 12;
-    SetRealmRequest set_realm = 13;
     SetPortsRequest set_ports = 14;
     SetAliasRequest set_alias = 15;
 
@@ -222,7 +223,7 @@ message ServerMessage {
 }
 
 message Response {
-  reserved 70;
+  reserved 13, 70;
 
   oneof method {
     GetBasicStateResponse get_basic_state = 1;
@@ -231,7 +232,6 @@ message Response {
     GetConfigResponse get_config = 10;
     GetSetupUrlResponse get_setup_url = 11;
     SetHostnameResponse set_hostname = 12;
-    SetRealmResponse set_realm = 13;
     SetPortsResponse set_ports = 14;
     SetAliasResponse set_alias = 15;
 

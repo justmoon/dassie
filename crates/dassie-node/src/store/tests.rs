@@ -346,7 +346,7 @@ fn the_setup_token_lasts_until_setup() {
     assert_eq!(store.setup_token().unwrap(), Some([3; 32]));
     assert!(
         store
-            .set_node_key_once(&NodeKey::from_bytes(&[1; 32]), 5)
+            .set_node_key_once(&NodeKey::from_bytes(&[1; 32]), Realm::Test, 5)
             .unwrap()
     );
     assert_eq!(store.setup_token().unwrap(), None);
@@ -391,12 +391,12 @@ fn the_node_key_is_set_once() {
     assert!(store.node_key().unwrap().is_none());
     assert!(
         store
-            .set_node_key_once(&NodeKey::from_bytes(&[1; 32]), 5)
+            .set_node_key_once(&NodeKey::from_bytes(&[1; 32]), Realm::Test, 5)
             .unwrap()
     );
     assert!(
         !store
-            .set_node_key_once(&NodeKey::from_bytes(&[2; 32]), 6)
+            .set_node_key_once(&NodeKey::from_bytes(&[2; 32]), Realm::Test, 6)
             .unwrap()
     );
     assert_eq!(
@@ -667,7 +667,7 @@ fn completed_payments_keep_what_their_connections_received_for_a_while() {
 fn the_inspector_never_reads_secrets() {
     let store = Store::open_in_memory().unwrap();
     store
-        .set_node_key_once(&NodeKey::from_bytes(&[1; 32]), 5)
+        .set_node_key_once(&NodeKey::from_bytes(&[1; 32]), Realm::Test, 5)
         .unwrap();
     let certificate = StoredCertificate {
         source: CertificateSource::Manual,

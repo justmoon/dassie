@@ -19,7 +19,7 @@ import { assertEquals } from "@std/assert";
 import { mkdir, readFile, rm } from "node:fs/promises";
 import { RpcClient } from "@dassie/rpc";
 import { ipcConnector } from "@dassie/rpc/ipc";
-import { NodeState, Realm } from "@dassie/rpc/proto";
+import { NodeState } from "@dassie/rpc/proto";
 import { Agent, fetch } from "undici";
 import { nodeCertificate } from "../certs.ts";
 import { dataDir, type Layout, socketPath } from "../paths.ts";
@@ -199,9 +199,8 @@ export class ScenarioNode {
    * Sets the node up as its owner would, sets the config of each external
    * asset in `assets`, and adds the settlement schemes in `schemes` it does
    * not have yet, each with its config in `configs`, if any; its exchange
-   * rates come from `rates`, if given. A node of the
-   * `live` realm is set to it before it is claimed, so its engine starts in
-   * it; the node takes that only by its dev switch
+   * rates come from `rates`, if given. The node is claimed in `realm`,
+   * which is fixed then; the node takes `live` only by its dev switch
    * (spec/decisions/mainnet-schemes.md). On a node set up before, it checks
    * the node is this one and leaves the rest as it is.
    */
@@ -229,10 +228,7 @@ export class ScenarioNode {
     }
     const basic = await owner.call("getBasicState", {});
     if (basic.state === NodeState.UNINITIALIZED) {
-      if (realm === "live") {
-        await owner.call("setRealm", { realm: Realm.LIVE });
-      }
-      await this.#claim();
+      await this.#claim(realm);
       await this.waitForEngine();
       await owner.call("setAlias", { alias: this.name });
     } else {
@@ -264,8 +260,11 @@ export class ScenarioNode {
     }
   }
 
-  /** Completes setup over HTTPS with the node's key, as the wallet does. */
-  async #claim(): Promise<void> {
+  /**
+   * Completes setup over HTTPS with the node's key, as the wallet does, in
+   * `realm`.
+   */
+  async #claim(realm: "test" | "live"): Promise<void> {
     const { url } = await this.rpc.call("getSetupUrl", {});
     const token = url.split("/setup/")[1];
     const agent = new Agent({
@@ -283,6 +282,7 @@ export class ScenarioNode {
           setupAuthorizationToken: token,
           rawDassieKeyHex: this.key.toHex(),
           loginAuthorizationSignature: this.identity.loginProofHex,
+          realm,
         }),
       });
       const text = await response.text();

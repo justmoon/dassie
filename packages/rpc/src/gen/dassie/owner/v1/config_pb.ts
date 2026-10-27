@@ -10,7 +10,7 @@ import type { Message, UnknownEnum } from "@bufbuild/protobuf";
  * Describes the file dassie/owner/v1/config.proto.
  */
 export const file_dassie_owner_v1_config: GenFile = /*@__PURE__*/
-  fileDesc("ChxkYXNzaWUvb3duZXIvdjEvY29uZmlnLnByb3RvEg9kYXNzaWUub3duZXIudjEilwEKCk5vZGVDb25maWcSJQoFcmVhbG0YASABKA4yFi5kYXNzaWUub3duZXIudjEuUmVhbG0SEAoIaG9zdG5hbWUYAiABKAkSEQoJaHR0cF9wb3J0GAMgASgNEhIKCmh0dHBzX3BvcnQYBCABKA0SDQoFYWxpYXMYBSABKAkSGgoSYWNtZV9kaXJlY3RvcnlfdXJsGAYgASgJIhIKEEdldENvbmZpZ1JlcXVlc3QifQoRR2V0Q29uZmlnUmVzcG9uc2USKwoGY29uZmlnGAEgASgLMhsuZGFzc2llLm93bmVyLnYxLk5vZGVDb25maWcSGQoRaGFzX25vZGVfaWRlbnRpdHkYAiABKAgSDwoHbm9kZV9pZBgDIAEoCRIPCgdoYXNfdGxzGAQgASgIIhQKEkdldFNldHVwVXJsUmVxdWVzdCIiChNHZXRTZXR1cFVybFJlc3BvbnNlEgsKA3VybBgBIAEoCSImChJTZXRIb3N0bmFtZVJlcXVlc3QSEAoIaG9zdG5hbWUYASABKAkiQgoTU2V0SG9zdG5hbWVSZXNwb25zZRIrCgZjb25maWcYASABKAsyGy5kYXNzaWUub3duZXIudjEuTm9kZUNvbmZpZyI4Cg9TZXRSZWFsbVJlcXVlc3QSJQoFcmVhbG0YASABKA4yFi5kYXNzaWUub3duZXIudjEuUmVhbG0iPwoQU2V0UmVhbG1SZXNwb25zZRIrCgZjb25maWcYASABKAsyGy5kYXNzaWUub3duZXIudjEuTm9kZUNvbmZpZyI4Cg9TZXRQb3J0c1JlcXVlc3QSEQoJaHR0cF9wb3J0GAEgASgNEhIKCmh0dHBzX3BvcnQYAiABKA0iWQoQU2V0UG9ydHNSZXNwb25zZRIrCgZjb25maWcYASABKAsyGy5kYXNzaWUub3duZXIudjEuTm9kZUNvbmZpZxIYChByZXN0YXJ0X3JlcXVpcmVkGAIgASgIIiAKD1NldEFsaWFzUmVxdWVzdBINCgVhbGlhcxgBIAEoCSI/ChBTZXRBbGlhc1Jlc3BvbnNlEisKBmNvbmZpZxgBIAEoCzIbLmRhc3NpZS5vd25lci52MS5Ob2RlQ29uZmlnKj4KBVJlYWxtEhUKEVJFQUxNX1VOU1BFQ0lGSUVEEAASDgoKUkVBTE1fVEVTVBABEg4KClJFQUxNX0xJVkUQAmIGcHJvdG8z");
+  fileDesc("ChxkYXNzaWUvb3duZXIvdjEvY29uZmlnLnByb3RvEg9kYXNzaWUub3duZXIudjEilwEKCk5vZGVDb25maWcSJQoFcmVhbG0YASABKA4yFi5kYXNzaWUub3duZXIudjEuUmVhbG0SEAoIaG9zdG5hbWUYAiABKAkSEQoJaHR0cF9wb3J0GAMgASgNEhIKCmh0dHBzX3BvcnQYBCABKA0SDQoFYWxpYXMYBSABKAkSGgoSYWNtZV9kaXJlY3RvcnlfdXJsGAYgASgJIhIKEEdldENvbmZpZ1JlcXVlc3QifQoRR2V0Q29uZmlnUmVzcG9uc2USKwoGY29uZmlnGAEgASgLMhsuZGFzc2llLm93bmVyLnYxLk5vZGVDb25maWcSGQoRaGFzX25vZGVfaWRlbnRpdHkYAiABKAgSDwoHbm9kZV9pZBgDIAEoCRIPCgdoYXNfdGxzGAQgASgIIhQKEkdldFNldHVwVXJsUmVxdWVzdCIiChNHZXRTZXR1cFVybFJlc3BvbnNlEgsKA3VybBgBIAEoCSImChJTZXRIb3N0bmFtZVJlcXVlc3QSEAoIaG9zdG5hbWUYASABKAkiQgoTU2V0SG9zdG5hbWVSZXNwb25zZRIrCgZjb25maWcYASABKAsyGy5kYXNzaWUub3duZXIudjEuTm9kZUNvbmZpZyI4Cg9TZXRQb3J0c1JlcXVlc3QSEQoJaHR0cF9wb3J0GAEgASgNEhIKCmh0dHBzX3BvcnQYAiABKA0iWQoQU2V0UG9ydHNSZXNwb25zZRIrCgZjb25maWcYASABKAsyGy5kYXNzaWUub3duZXIudjEuTm9kZUNvbmZpZxIYChByZXN0YXJ0X3JlcXVpcmVkGAIgASgIIiAKD1NldEFsaWFzUmVxdWVzdBINCgVhbGlhcxgBIAEoCSI/ChBTZXRBbGlhc1Jlc3BvbnNlEisKBmNvbmZpZxgBIAEoCzIbLmRhc3NpZS5vd25lci52MS5Ob2RlQ29uZmlnKj4KBVJlYWxtEhUKEVJFQUxNX1VOU1BFQ0lGSUVEEAASDgoKUkVBTE1fVEVTVBABEg4KClJFQUxNX0xJVkUQAmIGcHJvdG8z");
 
 /**
  * @generated from message dassie.owner.v1.NodeConfig
@@ -182,45 +182,6 @@ export const SetHostnameResponseSchema: GenMessage<SetHostnameResponse> = /*@__P
   messageDesc(file_dassie_owner_v1_config, 6);
 
 /**
- * FAILED_PRECONDITION for REALM_LIVE (spec/decisions/real-money.md), but
- * on a node the dev switch lets run it, which only a build with debug
- * assertions honours (spec/decisions/mainnet-schemes.md). It takes effect
- * when the engine starts again.
- *
- * @generated from message dassie.owner.v1.SetRealmRequest
- */
-export type SetRealmRequest = Message<"dassie.owner.v1.SetRealmRequest"> & {
-  /**
-   * @generated from field: dassie.owner.v1.Realm realm = 1;
-   */
-  realm: Realm;
-};
-
-/**
- * Describes the message dassie.owner.v1.SetRealmRequest.
- * Use `create(SetRealmRequestSchema)` to create a new message.
- */
-export const SetRealmRequestSchema: GenMessage<SetRealmRequest> = /*@__PURE__*/
-  messageDesc(file_dassie_owner_v1_config, 7);
-
-/**
- * @generated from message dassie.owner.v1.SetRealmResponse
- */
-export type SetRealmResponse = Message<"dassie.owner.v1.SetRealmResponse"> & {
-  /**
-   * @generated from field: dassie.owner.v1.NodeConfig config = 1;
-   */
-  config?: NodeConfig | undefined;
-};
-
-/**
- * Describes the message dassie.owner.v1.SetRealmResponse.
- * Use `create(SetRealmResponseSchema)` to create a new message.
- */
-export const SetRealmResponseSchema: GenMessage<SetRealmResponse> = /*@__PURE__*/
-  messageDesc(file_dassie_owner_v1_config, 8);
-
-/**
  * Both ports in 1..65535 and different from each other.
  *
  * @generated from message dassie.owner.v1.SetPortsRequest
@@ -242,7 +203,7 @@ export type SetPortsRequest = Message<"dassie.owner.v1.SetPortsRequest"> & {
  * Use `create(SetPortsRequestSchema)` to create a new message.
  */
 export const SetPortsRequestSchema: GenMessage<SetPortsRequest> = /*@__PURE__*/
-  messageDesc(file_dassie_owner_v1_config, 9);
+  messageDesc(file_dassie_owner_v1_config, 7);
 
 /**
  * @generated from message dassie.owner.v1.SetPortsResponse
@@ -266,7 +227,7 @@ export type SetPortsResponse = Message<"dassie.owner.v1.SetPortsResponse"> & {
  * Use `create(SetPortsResponseSchema)` to create a new message.
  */
 export const SetPortsResponseSchema: GenMessage<SetPortsResponse> = /*@__PURE__*/
-  messageDesc(file_dassie_owner_v1_config, 10);
+  messageDesc(file_dassie_owner_v1_config, 8);
 
 /**
  * At most 64 bytes of UTF-8, without control characters.
@@ -285,7 +246,7 @@ export type SetAliasRequest = Message<"dassie.owner.v1.SetAliasRequest"> & {
  * Use `create(SetAliasRequestSchema)` to create a new message.
  */
 export const SetAliasRequestSchema: GenMessage<SetAliasRequest> = /*@__PURE__*/
-  messageDesc(file_dassie_owner_v1_config, 11);
+  messageDesc(file_dassie_owner_v1_config, 9);
 
 /**
  * @generated from message dassie.owner.v1.SetAliasResponse
@@ -302,7 +263,7 @@ export type SetAliasResponse = Message<"dassie.owner.v1.SetAliasResponse"> & {
  * Use `create(SetAliasResponseSchema)` to create a new message.
  */
 export const SetAliasResponseSchema: GenMessage<SetAliasResponse> = /*@__PURE__*/
-  messageDesc(file_dassie_owner_v1_config, 12);
+  messageDesc(file_dassie_owner_v1_config, 10);
 
 /**
  * @generated from enum dassie.owner.v1.Realm
