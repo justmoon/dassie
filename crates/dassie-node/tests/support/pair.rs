@@ -116,7 +116,10 @@ async fn add_scheme(node: &TestNode, scheme: &str, config: &str) {
             },
         ))
         .await;
-    assert!(added.is_ok(), "the {scheme} scheme did not start: {added:?}");
+    assert!(
+        added.is_ok(),
+        "the {scheme} scheme did not start: {added:?}"
+    );
 }
 
 /// The node's ledger accounts' paths, once its engine runs.
@@ -135,7 +138,6 @@ pub async fn accounts(node: &TestNode) -> Vec<String> {
         .map(|account| account.path)
         .collect()
 }
-
 
 /// Moves the shared clock on in small steps, giving the daemons real time
 /// to talk, until `done` holds.

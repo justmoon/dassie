@@ -193,8 +193,8 @@ pub async fn pay_stream(
     shared_secret: &[u8],
     amount: u64,
 ) {
-    let sent = send_stream(clock, client, destination, shared_secret, amount, 10_000).await;
-    assert_eq!(sent, amount, "the payment did not finish");
+    let idle = std::time::Duration::ZERO;
+    pay_stream_waiting(clock, client, destination, shared_secret, amount, idle).await;
 }
 
 /// As [`pay_stream`], waiting `idle` of real time whenever nothing is in
@@ -207,7 +207,7 @@ pub async fn pay_stream_waiting(
     amount: u64,
     idle: std::time::Duration,
 ) {
-    let sent = send(
+    let outcome = send(
         clock,
         client,
         destination,
@@ -216,9 +216,12 @@ pub async fn pay_stream_waiting(
         10_000,
         idle,
     )
-    .await
-    .0;
-    assert_eq!(sent, amount, "the payment did not finish");
+    .await;
+    assert!(
+        !outcome.unmeasured,
+        "the payment did not start: the exchange rate to {destination} could not be measured"
+    );
+    assert_eq!(outcome.sent, amount, "the payment did not finish");
 }
 
 /// Sends up to `amount` over STREAM for at most `rounds` rounds, and
@@ -231,18 +234,9 @@ pub async fn send_stream(
     amount: u64,
     rounds: usize,
 ) -> u64 {
-    let idle = std::time::Duration::ZERO;
-    send(
-        clock,
-        client,
-        destination,
-        shared_secret,
-        amount,
-        rounds,
-        idle,
-    )
-    .await
-    .0
+    send_stream_reported(clock, client, destination, shared_secret, amount, rounds)
+        .await
+        .0
 }
 
 /// As [`send_stream`], returning also what the receiver says its stream
@@ -256,7 +250,7 @@ pub async fn send_stream_reported(
     rounds: usize,
 ) -> (u64, u64) {
     let idle = std::time::Duration::ZERO;
-    send(
+    let outcome = send(
         clock,
         client,
         destination,
@@ -265,11 +259,21 @@ pub async fn send_stream_reported(
         rounds,
         idle,
     )
-    .await
+    .await;
+    (outcome.sent, outcome.received)
 }
 
-/// Sends, and returns what was sent and what the receiver says its stream
-/// received.
+/// How a STREAM payment ended.
+struct Sent {
+    /// What the receiver took.
+    sent: u64,
+    /// What the receiver says its stream received.
+    received: u64,
+    /// Whether it ended because the exchange rate could not be measured.
+    unmeasured: bool,
+}
+
+/// Sends, and returns how it ended.
 async fn send(
     clock: &ManualClock,
     client: &mut BtpClient,
@@ -278,7 +282,7 @@ async fn send(
     amount: u64,
     rounds: usize,
     idle: std::time::Duration,
-) -> (u64, u64) {
+) -> Sent {
     let (own, ..) = client.ildcp(clock.now_ms()).await;
     let mut connection = Connection::new(&Config {
         role: Role::Client,
@@ -296,12 +300,13 @@ async fn send(
     let mut buffer = vec![0u8; BUFFER_LENGTH];
     let mut in_flight: BTreeMap<u32, u64> = BTreeMap::new();
     let mut stream = None;
-    let sent = |connection: &Connection, stream: Option<u64>| {
+    let ended = |connection: &Connection, stream: Option<u64>, unmeasured: bool| {
         let stream = stream.and_then(|id| connection.stream(id));
-        (
-            stream.map_or(0, |s| s.total_sent()),
-            stream.map_or(0, |s| s.remote_received()),
-        )
+        Sent {
+            sent: stream.map_or(0, |s| s.total_sent()),
+            received: stream.map_or(0, |s| s.remote_received()),
+            unmeasured,
+        }
     };
     for _ in 0..rounds {
         let now = Timestamp::from_unix_ms(clock.now_ms());
@@ -314,9 +319,8 @@ async fn send(
         // through its rounds while the daemons' clock runs on.
         while let Some(event) = connection.poll_event() {
             if matches!(event, Event::ExchangeRateMeasurementFailed) && stream.is_none() {
-                eprintln!("the exchange rate to {destination} could not be measured");
                 connection.close(now, ErrorCode::NO_ERROR);
-                return sent(&connection, stream);
+                return ended(&connection, stream, true);
             }
         }
         if stream.is_none() && connection.exchange_rate().is_some() {
@@ -324,9 +328,9 @@ async fn send(
             connection.set_send_max(id, amount).unwrap();
             stream = Some(id);
         }
-        if sent(&connection, stream).0 == amount || connection.is_closed() {
+        if ended(&connection, stream, false).sent == amount || connection.is_closed() {
             connection.close(now, ErrorCode::NO_ERROR);
-            return sent(&connection, stream);
+            return ended(&connection, stream, false);
         }
         if in_flight.is_empty() {
             clock.advance(100);
@@ -344,5 +348,5 @@ async fn send(
             client.send(reply.request_id, &buffer[..length], true).await;
         }
     }
-    sent(&connection, stream)
+    ended(&connection, stream, false)
 }
