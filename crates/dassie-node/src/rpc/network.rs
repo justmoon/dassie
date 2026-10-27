@@ -220,10 +220,14 @@ fn peer(view: &PeerView) -> proto::NetworkPeer {
         Some(ending) => ("terminating", reason(ending)),
         None => ("peered", ""),
     };
+    // The method our packets take, whose credit `owed` is measured
+    // against; the peering's further methods are not reported yet
+    // (spec/roadmap.md#settlement-methods).
+    let carried = peering.method(view.carried).unwrap_or(peering.first());
     proto::NetworkPeer {
         node: view.id.to_string(),
-        scheme: peering.first().scheme.to_string(),
-        credit_out: peering.first().credit_out,
+        scheme: carried.scheme.to_string(),
+        credit_out: carried.credit_out,
         since_unix_ms: convert::time(peering.since_ms),
         last_seen_unix_ms: convert::time(peering.last_seen_ms),
         inbound: peering.inbound,

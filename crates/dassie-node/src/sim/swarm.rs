@@ -317,9 +317,10 @@ const fn over_hub(settling: Settling) -> bool {
 /// How often a run over a hub draws a lying server for a member's owner's
 /// book and a new key for a validator of the fake XRP Ledger, each off in a
 /// third of the seeds; never on the stub. A hub's own validators keep their
-/// honest servers: what they attest of the escrow is not yet proven
-/// (spec/roadmap.md#mainnet-hubs). Their own generator, so that they draw
-/// nothing else's.
+/// honest servers here: lying servers under validators are covered by the
+/// `hub_proofs` tests (spec/areas/testing.md#over-a-settlement-hub), and
+/// are not drawn here yet. Their own generator, so that they draw nothing
+/// else's.
 fn proof_faults(seed: u64, settling: Settling) -> (u64, u64) {
     if !over_hub(settling) {
         return (0, 0);

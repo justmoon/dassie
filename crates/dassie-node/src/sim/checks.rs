@@ -214,21 +214,28 @@ pub fn outgoing_flows(sim: &Sim) -> impl Iterator<Item = Flow> + '_ {
 }
 
 /// Once the network is calm, no node's books show an honest peer still at
-/// its ask point: asked, the peer settled (spec/decisions/own-fulfills.md,
+/// its ask point on any method: asked, the peer settled
+/// (spec/decisions/own-fulfills.md,
 /// spec/areas/settlement.md#asking-a-peer-to-settle).
 pub fn check_settled(sim: &Sim) -> Result<(), String> {
     for index in 0..sim.nodes.len() {
         for peer in sim.core(index).network().peers {
-            let Some(owed) = peer.owed.filter(|_| peer.termination.is_none()) else {
+            if peer.termination.is_some() {
                 continue;
-            };
-            let credit = peer.peering.first().credit_out;
-            let position = u128::try_from(owed + i128::from(credit)).unwrap();
-            if policy::ask(position, TRIGGER) {
-                return Err(format!(
-                    "node {index}'s room for {} is {position} of {credit}: it never settled",
-                    peer.id
-                ));
+            }
+            for (method, owed) in peer.peering.methods.iter().zip(&peer.owed_by_method) {
+                let Some(owed) = *owed else {
+                    continue;
+                };
+                let credit = method.credit_out;
+                let position = u128::try_from(owed + i128::from(credit)).unwrap();
+                if policy::ask(position, TRIGGER) {
+                    return Err(format!(
+                        "node {index}'s room for {} on {} is {position} of {credit}: it never \
+                         settled",
+                        peer.id, method.scheme,
+                    ));
+                }
             }
         }
     }
@@ -297,8 +304,8 @@ pub fn drifted_past(sim: &mut Sim) -> Option<String> {
         .map(|link| link.describe())
 }
 
-/// The credit node `index` extends node `other`, and its room for it, while
-/// they are peered.
+/// The credit node `index` extends node `other` on the method their
+/// packets take, and its room for it there, while they are peered.
 fn room(sim: &Sim, index: usize, other: usize) -> Option<(u64, u128)> {
     let id = key(other).node_id();
     let peer = sim.nodes[index]
@@ -309,7 +316,7 @@ fn room(sim: &Sim, index: usize, other: usize) -> Option<(u64, u128)> {
         .into_iter()
         .find(|peer| peer.id == id)?;
     let owed = peer.owed?;
-    let credit = peer.peering.first().credit_out;
+    let credit = peer.peering.method(peer.carried)?.credit_out;
     Some((
         credit,
         u128::try_from(owed + i128::from(credit)).unwrap_or(0),

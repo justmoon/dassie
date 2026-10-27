@@ -939,11 +939,12 @@ pub struct Sim {
     /// validator.
     answering: Option<(usize, u64, String, u64, usize)>,
     /// What each node booked as lost on each peer over a hub
-    /// (`SettlementEvent::PeerLoss`), by node and peer.
-    pub hub_losses: BTreeMap<(usize, String), u64>,
+    /// (`SettlementEvent::PeerLoss`), by node, peer and hub scheme.
+    pub hub_losses: BTreeMap<(usize, String, String), u64>,
     /// The most each node's hold toward each peer over a hub held, and the
-    /// most the peer's hold toward it held, as its scheme read them.
-    pub hub_most_held: BTreeMap<(usize, String), (u64, u64)>,
+    /// most the peer's hold toward it held, as its scheme read them, by
+    /// node, peer and hub scheme.
+    pub hub_most_held: BTreeMap<(usize, String, String), (u64, u64)>,
 }
 
 // Every run, whatever it checks besides, ends without an error event: a
@@ -1501,15 +1502,6 @@ impl Sim {
         let Some(core) = self.nodes[index].core.as_mut() else {
             return;
         };
-        // In a run across currencies over hubs, the peers over the real
-        // hub; the others are over the stub with commitments.
-        let over_real: BTreeSet<String> = match self.settling {
-            Settling::HubAcross(_) => (core.network().peers.into_iter())
-                .filter(|peer| peer.peering.first().scheme.as_str() == Settling::scheme(HUB).0)
-                .map(|peer| peer.id.as_str().to_owned())
-                .collect(),
-            _ => BTreeSet::new(),
-        };
         for peer in core.hub_peers() {
             let held = peer.held;
             if held.ours > peer.pending_to || held.theirs > peer.pending_from {
@@ -1522,7 +1514,7 @@ impl Sim {
             }
             let most = self
                 .hub_most_held
-                .entry((index, peer.peer.to_string()))
+                .entry((index, peer.peer.to_string(), peer.scheme.to_string()))
                 .or_default();
             most.0 = most.0.max(peer.holds.toward);
             most.1 = most.1.max(peer.holds.from);
@@ -1533,10 +1525,11 @@ impl Sim {
             // the holds for a while, never below them
             // (spec/areas/hubs.md#in-the-node). The stub reports a take when
             // the books take it, so there the two are always one.
-            // Across the stub with commitments and a real hub, each peer is
-            // held to the bound of what it is peered over.
+            // Across the stub with commitments and a real hub, each method
+            // is held to the bound of its scheme.
             let real = matches!(self.settling, Settling::HubDsusd(_) | Settling::Hub(_))
-                || over_real.contains(peer.peer.as_str());
+                || matches!(self.settling, Settling::HubAcross(_))
+                    && peer.scheme.as_str() == Settling::scheme(HUB).0;
             if peer.peered
                 && let Some(credit) = peer.credit
                 && (credit < holds || credit > holds && !real)
@@ -1683,11 +1676,17 @@ impl Sim {
         ) {
             self.count("settlements taken");
         }
-        if let Event::Settlement(SettlementEvent::PeerLoss { peer, amount, .. }) = event {
+        if let Event::Settlement(SettlementEvent::PeerLoss {
+            scheme,
+            peer,
+            amount,
+            ..
+        }) = event
+        {
             self.count("losses booked over a hub");
             *self
                 .hub_losses
-                .entry((index, peer.to_string()))
+                .entry((index, peer.to_string(), scheme.to_string()))
                 .or_default() += *amount;
         }
         if let Event::PeerNode(dassie_peer::Event::Depeering { reason, .. }) = event {
