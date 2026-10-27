@@ -1793,7 +1793,7 @@
     {
       "t": "Golden vectors",
       "p": "Byte-exact fixtures from other implementations: Dassie's first, TypeScript one, `xrpl.js`, and for every key a node derives from its phrase, a generator apart from Dassie's code. They pin the wire formats and key derivations. What has no other implementation, the peer protocol's current version, a settlement hub's protocol and the rate feed, is pinned against change by generators of its own.",
-      "ev": "testdata/original · testdata/identity · testdata/xrpl · testdata/hub · testdata/feed · tests/vectors.rs"
+      "ev": "testdata/original · testdata/identity · testdata/xrpl · testdata/hub · testdata/feed · dassie-peer/tests/data · tests/vectors.rs"
     },
     {
       "t": "Property tests",
