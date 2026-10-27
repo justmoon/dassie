@@ -220,6 +220,13 @@ Settling with real money on the XRP Ledger's mainnet, in XRP and in RLUSD ([main
 - **Left to build:** a live node that takes none of the test network's defaults, its bootstrap nodes and its relay.
 - **Done when:** live-realm nodes against the mainnet fake settle in XRP and in RLUSD at addresses under `g.`, over the mainnet hubs once peers settle only over hubs ([Mainnet hubs](#mainnet-hubs)); a test-realm node never activates a mainnet scheme, nor a live-realm node a testnet one; no node activates test RLUSD; a release binary refuses the dev switch; a pool moved off its peg pauses the token's scheme and its conversions, those of the token's hub ledger included, once the guard's hold has passed, on mainnet RLUSD and on testnet DSUSD, and they resume after recovery, with nothing converted at par meanwhile, while what arrives is still booked; the guard pauses the scheme when its reading is stale.
 
+### Open rate sources
+
+A node's default rate sources are exchanges whose terms license their market data for personal or internal use, and a node converts for its owner's fees. [open-rate-sources](decisions/open-rate-sources.md) replaces them with sources whose terms allow that use: XRP's rate from mainnet's XRP/RLUSD and XRP/USDC pools, proven at validated ledgers, with Band's XRP/USD beside them; the fiat currencies' from four central banks. DSUSD's keeper takes its target from mainnet's XRP/RLUSD pool.
+
+- **Left to build:** following mainnet's validated ledgers for prices on a node of either realm, with no key; the pools as sources, with their floor and window; Band's source, once Band has said in writing that nodes may use it; Norges Bank's, the Bank of Canada's and the Czech National Bank's sources beside the ECB's; a guard's rate without its token's own pool; the new defaults, for new nodes and for nodes upgraded with the sources they started with; the sources named in the wallet; the keeper's target.
+- **Done when:** a new node's sources are only these; XRP's rate follows mainnet's pools, and a pool pushed for less than the window leaves it unmoved; a test node signs nothing on mainnet; a dollar token's pool moved off the market trips its guard although that pool is one of XRP's sources; the fiat currencies' rates come from the four banks, each dropped once older than its calendar allows; the wallet names the sources; and the keeper holds DSUSD's pool at mainnet's XRP/RLUSD price.
+
 ### Kopje across Dassie
 
 The brand page holds Dassie's visual identity, Kopje ([visual-identity](decisions/visual-identity.md)), and dassie.land draws in it; the wallet and the desktop app do not yet.

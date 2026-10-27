@@ -1,0 +1,45 @@
+# A node takes its rates only from sources whose terms allow its use: XRP's from the XRP Ledger's pools, the fiat currencies' from central banks
+
+**Areas:** [Connector](../areas/connector.md#exchange-rates), [XRPL](../areas/xrpl.md#the-peg-guard), [DSUSD keeper](../areas/dsusd-keeper.md#the-price), [Wallet](../areas/wallet.md). Not built yet ([roadmap](../roadmap.md#open-rate-sources)).
+
+## Facts
+
+- **One rate moves money: XRP's.** Every ledger a node runs is in XRP or in a dollar token booked as `USD` at par ([issued-assets](issued-assets.md), [mainnet-schemes](mainnet-schemes.md)). XRP's rate also prices each dollar token for its peg guard. The other currencies a node keeps rates for only show the owner totals ([Connector](../areas/connector.md#exchange-rates)).
+- **A node converts for a fee at its rates,** run by an owner who is not the project. Each owner is the user of whatever the node fetches, and the use is commercial.
+- **Exchanges' market data is licensed for personal or internal use only.** Coinbase's terms forbid passing the data or anything derived from it to a third party, and deriving fair-value prices or valuations for settlement from it; Bitstamp's forbid collecting or distributing its prices; Kraken's let its content be used only for the user's own benefit and sell market data separately. The other large exchanges' terms read the same, and some say outright that they cover their public endpoints too.
+- **Paid feeds sell redistribution only by contract.** A subscription to a feed such as Pyth Pro licenses the subscriber's own use and display, but no machine-readable feed to third parties, no use by anyone but its employees, and nothing that competes with the feed. Rights to pass prices on to other parties' nodes are negotiated, at thousands a month.
+- **On-chain oracles' terms** are silent (Band), unclear about use off the chain they publish on (Chainlink), or restrict use (DIA, API3, Chronicle, and Pyth, which also needs a paid key).
+- **The XRP Ledger's state carries no terms,** and a validated ledger is signed by a quorum of the UNL. The node already proves a pool's balances at a validated ledger, against its network's proof server, for the peg guard ([verified-ledgers](verified-ledgers.md), [XRPL](../areas/xrpl.md#the-peg-guard)).
+- **Mainnet's XRP pools price XRP in dollar tokens.** XRP/RLUSD is the deepest of them and trades about its whole depth a day, and its price follows the exchanges' closely; XRP/USDC is shallower. A pool can be pushed off the market for little, and arbitrage brings it back within a few ledgers. The testnet's pools hold test money, at no market price except DSUSD's, which its keeper holds at the market ([dsusd](dsusd.md)).
+- **Central banks publish daily reference rates.** The ECB's, Norges Bank's, the Bank of Canada's and the Czech National Bank's terms allow commercial use and reuse, if the bank is named as the source; each fixes its own rates from the market, at its own time of day, and together they cover every fiat currency a node keeps. The Bank of England, the Swiss National Bank and the Bank of Japan forbid commercial use of their exchange rates, or exclude them from their licence.
+
+## Decision
+
+- **A new node's sources are only ones whose terms allow a node to fetch them and convert by them, for a fee.** An owner may still list any source, and its terms are then the owner's to keep.
+- **XRP's rate comes from mainnet's XRP pools.** The node reads mainnet's XRP/RLUSD and XRP/USDC pools, each proven at a validated ledger as the peg guard reads its pool, whatever the node's realm, and takes Band's XRP/USD as a third source, off the ledger. A pool's price counts only while the pool holds at least a floor of XRP, and is the median of its readings over a short window, so a pool pushed for a ledger or two moves nothing. The pools are read more often than the minute the other sources are asked.
+- **The pools are read, never traded or signed for.** The node follows mainnet's validated ledgers for its prices with no key, so a test node signs nothing on mainnet and runs no mainnet scheme: a ledger still runs only in its node's realm ([mainnet-schemes](mainnet-schemes.md)).
+- **A dollar token's guard never prices it by its own pool.** The guard reads the token's price as its pool's ratio times XRP's rate. If that rate counted the same pool, the pool would cancel out of the product, and a token off its peg would look pegged. So the rate the guard multiplies by leaves out the guarded token's pool, and the remaining sources must then agree, or the guard has no reading and fails closed ([issued-assets](issued-assets.md)).
+- **The fiat currencies' rates come from four central banks:** the ECB, Norges Bank, the Bank of Canada and the Czech National Bank, each crossed to the dollar through its own base currency. Each is taken only while its newest day is no older than its calendar allows, as the ECB's is.
+- **A currency whose only sources are daily is never a ledger's asset.** Daily rates are good enough for totals and nothing else. A ledger in another currency brings sources that follow its market within minutes.
+- **The wallet names the sources,** as the central banks' terms ask, where it shows a rate or a total.
+- **DSUSD's keeper takes its target from mainnet's XRP/RLUSD pool,** in place of an exchange's ticker, whose terms forbid what the keeper does: it publishes the price on the testnet's pool.
+
+## Accepted
+
+- **XRP's rate is in mainnet's dollar tokens, not in dollars.** A de-peg of RLUSD moves one source, which the median drops; a de-peg of RLUSD and USDC together moves XRP's rate with them. A node holds those tokens at par anyway, so that is where its conversions lose too.
+- **Pushed pools.** A pool held off the market for the whole window, against every arbitrageur, moves XRP's rate within what the other two sources say; both pools held off together move it. Holding a pool off costs what arbitrage takes from it every ledger.
+- **Band's terms are silent,** neither granting nor refusing. Band is asked for a written statement that nodes may use its prices; without one, it is left out, and XRP's rate rests on the two pools, which must then agree.
+- **A test node follows mainnet's ledgers too:** mainnet's validator lists, its validations and its proof server, for prices alone. The project's mainnet proof server serves every test node's readings.
+- **The order books are not read.** Proving a book's best offers needs proofs of every better quality's absence, which no one has built; the pools are proven as they are.
+- **Fiat totals lag the market** by up to a day, and by several over a holiday. With four daily sources fixed at different hours, the middle two may disagree on a day the market moved, and a total is then shown no more until they agree again.
+- **Attribution.** The wallet carries a line naming the central banks, and Band's if it says so.
+
+## Rejected
+
+- *Exchanges' tickers, asked by each node,* as now: their terms license personal or internal use, and a node converts for its owner's fees.
+- *A relay of the project's own, of exchanges' data or of a paid feed's:* both forbid passing their data on to third parties without a contract, and a relay is one point every node would trust for its rates. A validated ledger is signed already, and needs no relay.
+- *A paid feed with redistribution rights* (Pyth Pro or a data vendor): thousands a month and a contract, for a price the ledger gives for nothing, and keys the project would have to hand out, against a node's zero configuration. It becomes worth asking for once a ledger moves money in a currency without an open market.
+- *Other on-chain oracles:* their terms restrict use, or ask a fee of anyone who reads them, and Chainlink's would bring another chain's client into the node for terms that may not allow it.
+- *Stablecoin pools for the other fiat currencies:* only euro coins trade deeply enough, and each coin carries its own bias from its currency. Totals need no better than the central banks' rates.
+- *A price oracle object on the XRP Ledger as a source:* the object proves only that its publisher said it, and the ones published update every several minutes or less often.
+- *The testnet's pools for XRP's rate:* they hold test money, and DSUSD's tracks the market only because its keeper reads it elsewhere.
