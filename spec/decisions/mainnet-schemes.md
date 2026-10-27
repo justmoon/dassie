@@ -30,7 +30,7 @@
 - **A dev switch that turns on the live realm,** guarded only by the build profile. Without it, the first time a binary ran a mainnet scheme would be with real money.
 - **A live node starts alone** until a mainnet bootstrap node list exists, unless its owner names one.
 - **An owner who wants the other realm sets up a new node,** with a phrase of that realm: a phrase names its realm, and each realm's node and accounts on the ledgers are its own ([phrase-format](phrase-format.md)). A node keeps the rules for a scheme of the other realm stored in its database, which a realm fixed at setup no longer produces: it starts without it and tells the owner, and its peerings end ([Settlement](../areas/settlement.md#schemes-and-ledgers)).
-- **RLUSD's issuer is a counterparty** on mainnet as on the testnet ([issued-assets](issued-assets.md)), there with real money; the peg guard bounds what a de-peg costs at the boundaries.
+- **RLUSD's issuer is a counterparty** on mainnet as on the testnet ([issued-assets](issued-assets.md)), there with real money; the peg guard bounds what a de-peg costs at the boundaries, until [open-rate-sources](open-rate-sources.md) turns it off (not built).
 
 ## Rejected
 

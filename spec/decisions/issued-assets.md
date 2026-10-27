@@ -1,6 +1,6 @@
 # An issued asset's issuer is the owner's counterparty, and a dollar token pauses off its peg
 
-**Areas:** [XRPL](../areas/xrpl.md#rlusd), [Settlement](../areas/settlement.md#when-peers-cannot-pay-us), [Connector](../areas/connector.md#inventory-pricing). Built in the token scheme, with test RLUSD disabled, and the peg guard, which reads its pool proven at the account's anchor ([XRPL](../areas/xrpl.md#the-peg-guard)) and is not yet shown in the wallet ([roadmap](../roadmap.md#mainnet-schemes)), and that halts its hub's ledger, which no scheme books yet ([roadmap](../roadmap.md#token-hubs)); transfer fees ([roadmap](../roadmap.md#not-built-yet)) are not.
+**Areas:** [XRPL](../areas/xrpl.md#rlusd), [Settlement](../areas/settlement.md#when-peers-cannot-pay-us), [Connector](../areas/connector.md#inventory-pricing). Built in the token scheme, with test RLUSD disabled, and the peg guard, which reads its pool proven at the account's anchor ([XRPL](../areas/xrpl.md#the-peg-guard)) and is not yet shown in the wallet ([roadmap](../roadmap.md#mainnet-schemes)), and that halts its hub's ledger, which no scheme books yet ([roadmap](../roadmap.md#token-hubs)); transfer fees ([roadmap](../roadmap.md#not-built-yet)) are not. [open-rate-sources](open-rate-sources.md) turns the guard off once XRP's rate comes from mainnet's XRP/RLUSD pool, until a dollar token has a price of its own (not built).
 
 ## Facts
 
