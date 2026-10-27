@@ -143,7 +143,8 @@ test("a live scenario runs mainnet's schemes on the fake ledger's mainnet only",
       assertEquals(token === "RLUSD", live(def), def.id);
     }
     assertEquals(ledgerNetwork(def), live(def) ? "mainnet" : "testnet");
-    assertEquals(resumes(def), !live(def) && def.hub === undefined, def.id);
+    const hubs = def.hub !== undefined || def.hubs !== undefined;
+    assertEquals(resumes(def), !live(def) && !hubs, def.id);
   }
   const rlusd = findScenario("rlusd-live-settlement")!;
   assertEquals(TOKEN_SCHEMES.RLUSD, "xrpl-rlusd");
@@ -212,7 +213,7 @@ test("the hub scenario: four validators, a sponsor among them, two members", () 
   // No other scenario has a hub, and no node of one runs the hub's
   // scheme, whose config only a founding gives.
   for (const other of SCENARIOS) {
-    if (other.hub !== undefined) continue;
+    if (other.hub !== undefined || other.hubs !== undefined) continue;
     assertEquals(
       [...other.schemes, other.addedSchemes].flat().includes(HUB_SCHEME),
       false,
@@ -325,4 +326,38 @@ test("a hub's nodes are checked before the scenario starts", () => {
     invalid({ ...base, periphery: [{ node: 9, uplinks: [0] }] }),
     "no node 9",
   );
+});
+
+// spec/areas/dev.md#scenarios: the two-hubs scenario's four validators run
+// an XRP hub and a DSUSD hub the first of them founds; one member is in
+// each alone and two in both, and the DSUSD hub's token is the one the fake
+// ledger mints them and prices in its pool. It starts from scratch, as
+// every hub scenario does.
+test("the two-hubs scenario: an XRP hub, a DSUSD hub, two members in both", async () => {
+  const { hubScheme, hubsOf, invalidHubs, joins, validatesAny } = await import(
+    "./hubs.ts"
+  );
+  const def = findScenario("two-hubs")!;
+  assertEquals(invalid(def), undefined);
+  assertEquals(invalidHubs(def), undefined);
+  const [xrp, dsusd] = hubsOf(def);
+  assertEquals([xrp, dsusd].map(hubScheme), [
+    HUB_SCHEME,
+    "hub-xrpl-testnet-dsusd",
+  ]);
+  assertEquals(
+    def.schemes.map((_, index) => validatesAny(def, index)),
+    [true, true, true, true, false, false, false, false],
+  );
+  const members = (hub: typeof xrp) =>
+    def.schemes.flatMap((_, index) => joins(def, hub, index) ? [index] : []);
+  assertEquals(members(xrp), [4, 5, 6]);
+  assertEquals(members(dsusd), [5, 6, 7]);
+  assertEquals(def.mint?.token, "DSUSD");
+  assertEquals(def.pool?.token, "DSUSD");
+  // An added node joins the XRP hub alone.
+  assertEquals(joins(def, xrp, def.schemes.length), true);
+  assertEquals(joins(def, dsusd, def.schemes.length), false);
+  assertEquals(resumes(def), false);
+  assertEquals(unavailable(def, false)?.startsWith("needs --xrpl fake"), true);
 });

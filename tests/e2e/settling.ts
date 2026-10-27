@@ -1,11 +1,12 @@
 /**
  * What the end-to-end tests of mainnet's schemes in the live realm share
  * (`mainnet_test.ts`, `mainnet_xrp_test.ts`), and of the `hub` scenario's
- * settlement hub (`hub_test.ts`, `xrpl_test.ts`, `xrpl_deposit_test.ts`):
- * a node's ledger, whether it runs in the live realm, what it owes its
- * peers by its own books, when settling is over, directly or over the hub,
- * how the hub's members join it, and a payment from a BTP client of one
- * node to another's receiver.
+ * settlement hub (`hub_test.ts`, `xrpl_test.ts`, `xrpl_deposit_test.ts`),
+ * and of the `two-hubs` scenario's hubs of XRP and DSUSD
+ * (`hubs_cross_test.ts`): a node's ledger, whether it runs in the live
+ * realm, what it owes its peers by its own books, when settling is over,
+ * directly or over the hubs, how the hubs' members join them, and a
+ * payment from a BTP client of one node to another's receiver.
  */
 
 import { assert, assertEquals } from "@std/assert";
@@ -20,7 +21,14 @@ import {
   HUB_LEDGER,
   HUB_OWNER_BOOK,
   HUB_SCHEME,
+  hubLedger,
+  hubOwnerBook,
+  hubOwnerLedger,
+  hubScheme,
+  hubsOf,
+  joins,
   type Scenario,
+  type ScenarioHub,
   type ScenarioNode,
 } from "@dassie/dev/scenario";
 
@@ -371,6 +379,243 @@ export async function joinedHub(scenario: Scenario): Promise<void> {
   await scenario.until(
     "in step",
     () => settledOverHub(scenario),
+    HUB_WITHIN_MS,
+  );
+}
+
+// Over several hubs, as the `two-hubs` scenario has them
+// (`hubs_cross_test.ts`): each hub's members, whether a node is funded in
+// a hub, what its accounts in its hubs hold, and when settling over all
+// of them is over.
+
+/** The members of `hub`, one of `scenario`'s hubs, among its running
+ * nodes: those it names, and nodes added later that join it. */
+export function hubMembers(
+  scenario: Scenario,
+  hub: ScenarioHub,
+): ScenarioNode[] {
+  return scenario.nodes.filter((node) => joins(scenario.def, hub, node.index));
+}
+
+/** The hubs of `scenario` that `node` is a member of. */
+export function hubsOfNode(
+  scenario: Scenario,
+  node: ScenarioNode,
+): ScenarioHub[] {
+  return hubsOf(scenario.def).filter((hub) =>
+    joins(scenario.def, hub, node.index)
+  );
+}
+
+/** The hub of `scenario` whose scheme is `scheme`. */
+export function hubOf(scenario: Scenario, scheme: string): ScenarioHub {
+  const hub = hubsOf(scenario.def).find((hub) => hubScheme(hub) === scheme);
+  assert(hub, `the scenario has no hub of ${scheme}`);
+  return hub;
+}
+
+/** Whether `node` follows `hub` and has an account in it with funds. */
+export async function fundedInEach(
+  node: ScenarioNode,
+  hubs: readonly ScenarioHub[],
+): Promise<boolean> {
+  for (const hub of hubs) {
+    const view = await ledger(node, hubLedger(hub));
+    if (view.connection !== LedgerConnection.SYNCED) return false;
+    if (view.ownerBalance <= 0n) return false;
+  }
+  return true;
+}
+
+/** `node`'s account in `hub`, as its owner sees it. */
+export async function hubStatus(node: ScenarioNode, hub: ScenarioHub) {
+  const { hubs } = await node.rpc.call("getHubStatus", {});
+  const status = hubs.find((status) => status.scheme === hubScheme(hub));
+  assert(status, `${node.name} is in no hub of ${hubScheme(hub)}`);
+  return status;
+}
+
+/**
+ * What the external asset that `node`'s scheme `scheme` settles through
+ * holds of `code`, or of its one asset if `code` is empty, less what the
+ * ledger holds back, in the units of the scheme's ledger, at scale 9.
+ */
+async function heldIn(
+  node: ScenarioNode,
+  scheme: string,
+  code: string,
+): Promise<bigint> {
+  const { externalAssets } = await node.rpc.call("listLedgers", {});
+  const asset = externalAssets.find((asset) =>
+    asset.settlementSchemes.includes(scheme)
+  );
+  assert(asset, `${node.name} has no account for ${scheme}`);
+  const holding = code === ""
+    ? (asset.holdings.length === 1 ? asset.holdings[0] : undefined)
+    : asset.holdings.find((holding) => holding.assetCode === code);
+  assert(holding, `${node.name} shows no ${code || "one asset"} for ${scheme}`);
+  assert(holding.assetScale <= 9, `${scheme} at ${holding.assetScale}`);
+  const scale = 10n ** BigInt(9 - holding.assetScale);
+  return (holding.amount - holding.reserve) * scale;
+}
+
+/**
+ * Whether `node` of `scenario` is quiet over all its hubs and its books
+ * add up, each by its own books alone
+ * (spec/areas/testing.md#each-node-judged-by-its-own-books): every ledger
+ * synced, nothing on its way, no packet in flight; each owner book
+ * holding what its XRP Ledger account holds of its asset; and each hub's
+ * book what its account in the hub holds and its peers' holds toward it,
+ * as the hub's log shows them to the node, since it booked their
+ * settlements as they funded them.
+ */
+async function inStepOverHubs(
+  scenario: Scenario,
+  node: ScenarioNode,
+): Promise<boolean> {
+  const { channels } = await node.rpc.call("listSettlementChannels", {});
+  if (channels.some((channel) => channel.sending)) return false;
+  const expected: [string, () => Promise<bigint>][] = [
+    [HUB_OWNER_LEDGER, () => heldIn(node, HUB_OWNER_BOOK, "XRP")],
+  ];
+  for (const hub of hubsOfNode(scenario, node)) {
+    const book = hubOwnerBook(hub);
+    if (book !== HUB_OWNER_BOOK) {
+      const code = hub.token ?? "XRP";
+      expected.push([hubOwnerLedger(hub), () => heldIn(node, book, code)]);
+    }
+    expected.push([hubLedger(hub), async () => {
+      const { taking } = await hubStatus(node, hub);
+      const holds = taking.reduce((sum, hold) => sum + hold.amount, 0n);
+      return await heldIn(node, hubScheme(hub), "") + holds;
+    }]);
+  }
+  for (const [id, held] of expected) {
+    const view = await ledger(node, id);
+    if (view.connection !== LedgerConnection.SYNCED) return false;
+    if (view.ownerPending !== 0n) return false;
+    if (view.onLedgerBalance !== await held()) return false;
+  }
+  return true;
+}
+
+/** What a member's books hold of each of its hubs and owner books, and
+ * what its owner has on each, by ledger. */
+export async function booksOverHubs(
+  scenario: Scenario,
+  node: ScenarioNode,
+): Promise<Record<string, [bigint, bigint]>> {
+  const ids = new Set([HUB_OWNER_LEDGER]);
+  for (const hub of hubsOfNode(scenario, node)) {
+    ids.add(hubOwnerLedger(hub));
+    ids.add(hubLedger(hub));
+  }
+  const books: Record<string, [bigint, bigint]> = {};
+  for (const id of [...ids].sort()) {
+    const view = await ledger(node, id);
+    books[id] = [view.onLedgerBalance, view.ownerBalance];
+  }
+  return books;
+}
+
+/**
+ * Settling over every hub of `scenario` is over: every member in step,
+ * and still in step with the same books once a settlement interval has
+ * passed.
+ */
+export async function settledOverHubs(scenario: Scenario): Promise<boolean> {
+  const nodes = scenario.nodes.filter((node) =>
+    hubsOfNode(scenario, node).length > 0
+  );
+  const books = async () =>
+    JSON.stringify(
+      await Promise.all(nodes.map((node) => booksOverHubs(scenario, node))),
+      text,
+    );
+  for (const node of nodes) {
+    if (!(await inStepOverHubs(scenario, node))) return false;
+  }
+  const first = await books();
+  await new Promise((resolve) => setTimeout(resolve, SETTLE_CHECK_MS));
+  for (const node of nodes) {
+    if (!(await inStepOverHubs(scenario, node))) return false;
+  }
+  return await books() === first;
+}
+
+/** Whether `node` peers with `peer`, over any method. */
+export async function peersWith(
+  node: ScenarioNode,
+  peer: ScenarioNode,
+): Promise<boolean> {
+  const { peers } = await node.rpc.call("listPeers", {});
+  return peers.some((p) => p.node === peer.id && p.state === "peered");
+}
+
+/**
+ * The ledgers on which `node` keeps a peer account for `peer`: one for
+ * each method of their peering, a hub's ledger each.
+ */
+export async function peerLedgers(
+  node: ScenarioNode,
+  peer: ScenarioNode,
+): Promise<string[]> {
+  const { accounts } = await node.rpc.call("listAccounts", {});
+  const suffix = `:assets/interledger/${peer.id}`;
+  const ids = accounts
+    .filter((account) => account.path.endsWith(suffix))
+    .map((account) => account.path.slice(0, -suffix.length));
+  return [...new Set(ids)].sort();
+}
+
+/**
+ * Waits until the members of `scenario`'s hubs, which the scenario founded
+ * as it started, joined them: each opened its account in each of its hubs
+ * by a deposit from its owner book of the hub's asset, by itself
+ * (spec/areas/hubs.md#in-the-node); every two members of a hub peer, with
+ * a peer account on the ledger of each hub both are in, a method each, and
+ * on no other; no member peers but over a hub; and settling is over.
+ */
+export async function joinedHubs(scenario: Scenario): Promise<void> {
+  const hubs = hubsOf(scenario.def);
+  const ledgersOf = (node: ScenarioNode) =>
+    hubsOfNode(scenario, node).map(hubLedger).sort();
+  const members = scenario.nodes.filter((node) => ledgersOf(node).length > 0);
+  await scenario.until("members funded in their hubs", async () => {
+    for (const node of members) {
+      if (!(await fundedInEach(node, hubsOfNode(scenario, node)))) {
+        return false;
+      }
+    }
+    return true;
+  }, HUB_WITHIN_MS);
+  const pairs: [ScenarioNode, ScenarioNode, string[]][] = [];
+  for (const node of members) {
+    for (const peer of members) {
+      const shared = ledgersOf(node).filter((id) =>
+        ledgersOf(peer).includes(id)
+      );
+      if (peer !== node && shared.length > 0) pairs.push([node, peer, shared]);
+    }
+  }
+  await scenario.until("peered over every hub both are in", async () => {
+    for (const [node, peer, shared] of pairs) {
+      if (!(await peersWith(node, peer))) return false;
+      const on = await peerLedgers(node, peer);
+      if (on.join() !== shared.join()) return false;
+    }
+    return true;
+  }, HUB_WITHIN_MS);
+  const schemes = hubs.map(hubScheme);
+  for (const node of members) {
+    const { peers } = await node.rpc.call("listPeers", {});
+    for (const peer of peers) {
+      assert(schemes.includes(peer.scheme), `${node.name}: ${peer.scheme}`);
+    }
+  }
+  await scenario.until(
+    "in step over every hub",
+    () => settledOverHubs(scenario),
     HUB_WITHIN_MS,
   );
 }

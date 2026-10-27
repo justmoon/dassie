@@ -27,13 +27,22 @@ import { identity, loadTable, type Realm, type Table } from "../vanity.ts";
 import { until } from "../wait.ts";
 import { type NodeEnvironment, ScenarioNode } from "./node.ts";
 import {
+  hubScheme,
+  hubSchemes,
+  hubsOf,
+  hubTerms,
+  invalidHubs,
+  joins,
+  type ScenarioHub,
+  sponsors,
+  validatesAny,
+} from "./hubs.ts";
+import {
   findScenario,
   HUB_OWNER_BOOK,
-  HUB_SCHEME,
   hubConfig,
   invalid,
   type IssuedToken,
-  joinsHub,
   ledgerNetwork,
   live,
   MAINNET_DEPOSIT_DROPS,
@@ -44,12 +53,21 @@ import {
   type ScenarioDef,
   settlesOnXrpl,
   unavailable,
-  validates,
   validatorFile,
   XRPL_SCHEMES,
 } from "./scenarios.ts";
 
 export { ScenarioNode } from "./node.ts";
+export {
+  hubLedger,
+  hubOwnerBook,
+  hubOwnerLedger,
+  hubScheme,
+  hubsOf,
+  joins,
+  type ScenarioHub,
+  TOKEN_HUBS,
+} from "./hubs.ts";
 export {
   DEFAULT_SCENARIO,
   findScenario,
@@ -206,7 +224,7 @@ export class Scenario {
     const def = findScenario(id);
     if (!def) throw new Error(`no scenario ${id}`);
     const why = unavailable(def, options.fakeLedger !== undefined) ??
-      invalid(def);
+      invalid(def) ?? invalidHubs(def);
     if (why) throw new Error(`${id}: ${why}`);
     const ca = await caFile(options.layout.tls, options.layout.caRoot);
     const environment: NodeEnvironment = {
@@ -262,7 +280,7 @@ export class Scenario {
       for (let index = 0; index < def.schemes.length; index++) {
         await scenario.#startNode(index);
       }
-      await scenario.#foundHub();
+      await scenario.#foundHubs();
       // Mainnet has no faucet: each account is funded as an owner funds
       // it, before its token's line can exist.
       await Promise.all(scenario.nodes.map((node) => scenario.#fund(node)));
@@ -314,14 +332,15 @@ export class Scenario {
   }
 
   /**
-   * The schemes node `index` can be set up with now: all it runs, but the
-   * hub's while the hub is not founded, since its config is the founded
+   * The schemes node `index` can be set up with now: all it runs, but a
+   * hub's while that hub is not founded, since its config is the founded
    * hub's rules.
    */
   #schemesNow(index: number): readonly string[] {
-    const schemes = this.#schemes(index);
-    if (this.#configs[HUB_SCHEME] !== undefined) return schemes;
-    return schemes.filter((scheme) => scheme !== HUB_SCHEME);
+    const hubs = hubSchemes(this.def);
+    return this.#schemes(index).filter((scheme) =>
+      !hubs.includes(scheme) || this.#configs[scheme] !== undefined
+    );
   }
 
   /** Where node `index`'s validator file is. */
@@ -332,46 +351,79 @@ export class Scenario {
 
   /**
    * Writes the validator file of node `index`, on every start, as its
-   * owner would: it validates the hubs the scenario's sponsor founds, and
+   * owner would: it validates the hubs the scenario's sponsors found, and
    * follows their escrows on the fake ledger, whose URL is the same every
    * run.
    */
   async #writeValidatorFile(index: number): Promise<void> {
-    const hub = this.def.hub;
-    if (hub === undefined || !this.ledger) {
+    const ids = sponsors(this.def).map((sponsor) =>
+      identity(this.#table, sponsor).id
+    );
+    if (ids.length === 0 || !this.ledger) {
       throw new Error("a validator needs the scenario's hub and fake ledger");
     }
     const file = this.#validatorFile(index);
     const name = identity(this.#table, index).name;
     await mkdir(dataDir(this.options.layout, name), { recursive: true });
-    const sponsor = identity(this.#table, hub.sponsor).id;
-    await writeFile(
-      file,
-      validatorFile(sponsor, this.ledger.url, this.ledger.publishers),
-    );
+    const content = JSON.parse(
+      validatorFile(ids[0], this.ledger.url, this.ledger.publishers),
+    ) as Record<string, unknown>;
+    await writeFile(file, JSON.stringify({ ...content, sponsors: ids }));
+  }
+
+  /** The running node `index` of a hub. */
+  #hubNode(index: number): ScenarioNode {
+    const node = this.nodes.find((node) => node.index === index);
+    if (!node) throw new Error(`node ${index} of a hub is not running`);
+    return node;
   }
 
   /**
-   * Founds the scenario's hub once its nodes run, as the sponsor's owner
-   * would (spec/areas/hubs.md#founding-a-hub): with every validator, once
-   * the sponsor's owner book of XRP, which funds the escrow, shows XRP.
-   * Then each member joins it with its rules. The dev environment starts a
-   * hub scenario from scratch on every run (`startsFresh`), since its
-   * escrow stays on the earlier run's fake ledger; should the sponsor keep
-   * a founding all the same, it is taken as it is, and members that joined
-   * keep their scheme, so nothing is founded twice.
+   * Founds the scenario's hubs once its nodes run, as each sponsor's owner
+   * would (spec/areas/hubs.md#founding-a-hub): each with its validators and
+   * the terms of its asset, once the sponsor's owner book of XRP, which
+   * funds every escrow, shows XRP; the hubs of one sponsor at once, as
+   * nothing makes one wait for another. Then each member joins its hubs
+   * with their rules. The dev environment starts a hub scenario from
+   * scratch on every run (`startsFresh`), since its escrows stay on the
+   * earlier run's fake ledger; should a sponsor keep foundings all the
+   * same, they are taken as they are, in the order they were made, for its
+   * hubs in the order the scenario names them, and members that joined
+   * keep their schemes, so nothing is founded twice.
    */
-  async #foundHub(): Promise<void> {
-    const hub = this.def.hub;
-    if (hub === undefined) return;
-    const byIndex = (index: number) => {
-      const node = this.nodes.find((node) => node.index === index);
-      if (!node) throw new Error(`node ${index} of the hub is not running`);
-      return node;
-    };
-    const sponsor = byIndex(hub.sponsor);
-    const { foundings } = await sponsor.rpc.call("listHubFoundings", {});
-    if (foundings.length === 0) {
+  async #foundHubs(): Promise<void> {
+    const hubs = hubsOf(this.def);
+    if (hubs.length === 0) return;
+    const founded = await Promise.all(
+      sponsors(this.def).map((sponsor) =>
+        this.#found(
+          sponsor,
+          hubs.filter((hub) => hub.sponsor === sponsor),
+        )
+      ),
+    );
+    for (const [hub, rules] of founded.flat()) {
+      this.#configs[hubScheme(hub)] = hubConfig(rules);
+    }
+    for (const node of this.nodes) {
+      if (!hubs.some((hub) => joins(this.def, hub, node.index))) continue;
+      await node.addSchemes(this.#schemes(node.index), this.#configs);
+    }
+  }
+
+  /**
+   * Has node `index` found `hubs`, those it sponsors, or takes the
+   * foundings it keeps for them; each hub with its rules once founded.
+   */
+  async #found(
+    index: number,
+    hubs: readonly ScenarioHub[],
+  ): Promise<[ScenarioHub, string][]> {
+    const sponsor = this.#hubNode(index);
+    const kept = (await sponsor.rpc.call("listHubFoundings", {})).foundings
+      .toSorted((a, b) => Number(a.startedUnixMs - b.startedUnixMs))
+      .map((founding) => founding.nonce);
+    if (kept.length < hubs.length) {
       await until(`${sponsor.name}'s XRP`, async () => {
         const { ledgers } = await sponsor.rpc.call("listLedgers", {});
         const book = ledgers.find((ledger) =>
@@ -380,45 +432,69 @@ export class Scenario {
         return book?.connection === LedgerConnection.SYNCED &&
           book.ownerBalance > 0n;
       }, SPONSOR_FUNDED_WITHIN_MS);
-      const validators = hub.validators.map(byIndex).map((node) => ({
-        node: node.id,
-        endpoint: `${node.hostname}:${node.httpsPort}`,
-      }));
-      await sponsor.rpc.call("foundHub", {
+    }
+    const nonces: string[] = [];
+    for (const [i, hub] of hubs.entries()) {
+      if (i < kept.length) {
+        nonces.push(kept[i]);
+        continue;
+      }
+      const validators = hub.validators
+        .map((validator) => this.#hubNode(validator))
+        .map((node) => ({
+          node: node.id,
+          endpoint: `${node.hostname}:${node.httpsPort}`,
+        }));
+      const { founding } = await sponsor.rpc.call("foundHub", {
         validators,
-        terms: "",
+        terms: hubTerms(hub),
         xrplServer: "",
       });
+      if (!founding) throw new Error(`${sponsor.name} started no founding`);
+      nonces.push(founding.nonce);
     }
+    return await Promise.all(
+      hubs.map(async (hub, i): Promise<[ScenarioHub, string]> => [
+        hub,
+        await this.#founded(sponsor, nonces[i], hubScheme(hub)),
+      ]),
+    );
+  }
+
+  /** The rules of `sponsor`'s founding `nonce`, once it is founded. */
+  async #founded(
+    sponsor: ScenarioNode,
+    nonce: string,
+    scheme: string,
+  ): Promise<string> {
     let rules = "";
     // Where the founding stands, and what holds it up, as the sponsor last
     // said: the error if it is never founded.
     let where = "no founding";
     try {
-      await until("the hub founded", async () => {
+      await until(`the hub of ${scheme} founded`, async () => {
         const { foundings } = await sponsor.rpc.call("listHubFoundings", {});
-        const [founding] = foundings;
+        const founding = foundings.find((founding) => founding.nonce === nonce);
         if (founding !== undefined) {
           const problem = founding.problem === ""
             ? ""
             : `: ${founding.problem}`;
           where = `stage ${founding.stage}${problem}`;
+          if (founding.stage === HubFoundingStage.FOUNDED) {
+            rules = founding.rules;
+          }
         }
-        rules = foundings.find((founding) =>
-          founding.stage === HubFoundingStage.FOUNDED
-        )?.rules ?? "";
         return rules !== "";
       }, FOUNDED_WITHIN_MS);
     } catch (error) {
-      throw new Error(`${sponsor.name} founded no hub (${where})`, {
-        cause: error,
-      });
+      throw new Error(
+        `${sponsor.name} founded no hub of ${scheme} (${where})`,
+        {
+          cause: error,
+        },
+      );
     }
-    this.#configs[HUB_SCHEME] = hubConfig(rules);
-    for (const node of this.nodes) {
-      if (!joinsHub(this.def, node.index)) continue;
-      await node.addSchemes(this.#schemes(node.index), this.#configs);
-    }
+    return rules;
   }
 
   /** Whether node `index` is minted the scenario's token. */
@@ -443,7 +519,7 @@ export class Scenario {
         .map((uplink) => identity(this.#table, uplink, this.#realm).id)
         .join(",");
     }
-    if (validates(this.def, index)) {
+    if (validatesAny(this.def, index)) {
       env.DASSIE_VALIDATOR_CONFIG = this.#validatorFile(index);
     }
     return env;
@@ -461,7 +537,9 @@ export class Scenario {
     const report = this.options.onNode ?? (() => {});
     try {
       report(node, "starting");
-      if (validates(this.def, index)) await this.#writeValidatorFile(index);
+      if (validatesAny(this.def, index)) {
+        await this.#writeValidatorFile(index);
+      }
       await node.start();
       report(node, "setting-up");
       await node.setUp(
