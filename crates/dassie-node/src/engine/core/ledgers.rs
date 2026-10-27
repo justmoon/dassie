@@ -479,8 +479,14 @@ impl Core {
         let ledger = match self.schemes.get(&id) {
             Some(active) => active.scheme.ledger(),
             // Stored but left out at start: it opened nothing, so only its
-            // stored config goes.
-            None if self.unusable.remove(&id) => {
+            // stored config goes, unless the database shows a move of its
+            // hub on its way.
+            None if self.unusable.contains(&id) => {
+                if self.stored_hub_move_on_its_way(id)? {
+                    let blocker = RemovalBlocker::HubMove;
+                    return Err(EngineError::Precondition(blocker.message().into()));
+                }
+                self.unusable.remove(&id);
                 self.batch.schemes_removed.push(id);
                 return Ok(());
             }

@@ -246,16 +246,24 @@ fn restored(
 
 /// The hubs the node is in, each by the scheme over it.
 impl Core {
-    /// The active schemes over a hub, in their order: at most
-    /// [`MAX_OWN_HUBS`], one per asset, each the node's account in a hub
-    /// once it has one.
+    /// The active schemes over a hub, in their order: those on a hub's
+    /// ledger, each the node's account in a hub once it has one. The stub
+    /// with commitments, which stands in for a member in tests and
+    /// simulations, is in no hub. A ledger has at most one active scheme
+    /// (spec/areas/settlement.md#schemes-and-ledgers), and there is a
+    /// hub's ledger per asset a hub may hold, so there are at most
+    /// [`MAX_OWN_HUBS`].
     pub(super) fn hub_schemes(&self) -> Vec<Name> {
-        self.schemes
+        let hubs: Vec<Name> = self
+            .schemes
             .iter()
-            .filter(|(_, active)| active.over_hub)
+            .filter(|(_, active)| {
+                active.over_hub && owner_book_ledger(active.scheme.ledger()).is_some()
+            })
             .map(|(name, _)| *name)
-            .take(MAX_OWN_HUBS)
-            .collect()
+            .collect();
+        assert!(hubs.len() <= MAX_OWN_HUBS, "a scheme per hub's ledger");
+        hubs
     }
 
     /// Restores the moves of each hub the node is in from the database, or
@@ -313,6 +321,26 @@ impl Core {
         self.funding
             .get(&scheme)
             .is_some_and(|funding| funding.moving.is_some())
+    }
+
+    /// Whether the database shows a move between the hub of `scheme`, a
+    /// stored scheme left out at start, and its owner book on its way: the
+    /// scheme is not removed then, as an active one is not
+    /// ([`hub_move_on_its_way`](Self::hub_move_on_its_way)), so the move is
+    /// not forgotten, and goes on once the owner adds the scheme again.
+    ///
+    /// # Errors
+    ///
+    /// The database failed, or holds what it may not.
+    pub(super) fn stored_hub_move_on_its_way(&self, scheme: Name) -> Result<bool, EngineError> {
+        if let Some(row) = self.batch.hub_funding.get(&scheme) {
+            return Ok(row.moving.is_some());
+        }
+        let (_, row) = self
+            .store
+            .hub_funding(scheme)
+            .map_err(|e| EngineError::Internal(e.to_string()))?;
+        Ok(row.moving.is_some())
     }
 
     /// The scheme that books `ledger`, if one is active: a ledger has at
