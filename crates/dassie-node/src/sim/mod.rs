@@ -1095,7 +1095,10 @@ impl Sim {
                 fulfills: BTreeMap::new(),
             });
         }
-        if let Settling::HubDsusd(validators) | Settling::Hub(validators) | Settling::HubAcross(validators) = settling {
+        if let Settling::HubDsusd(validators)
+        | Settling::Hub(validators)
+        | Settling::HubAcross(validators) = settling
+        {
             sim.latency_ms = REGIONAL_LATENCY_MS;
             sim.found_hub(&vec![dassie_hub::sim::Role::Honest; validators]);
         }
@@ -1468,7 +1471,10 @@ impl Sim {
         }
         if matches!(
             self.settling,
-            Settling::StubHub(_) | Settling::HubDsusd(_) | Settling::Hub(_) | Settling::HubAcross(_)
+            Settling::StubHub(_)
+                | Settling::HubDsusd(_)
+                | Settling::Hub(_)
+                | Settling::HubAcross(_)
         ) {
             self.watch_hub(index);
         }

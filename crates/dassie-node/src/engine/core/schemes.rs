@@ -334,6 +334,32 @@ pub(super) fn check_validations_with(asset: &mut dyn ExternalAsset, secret: [u8;
     }
 }
 
+/// Makes the hub scheme `id` on its account in the hub, `asset`.
+///
+/// # Errors
+///
+/// If `asset` is no hub account, or one made for another scheme, or the
+/// scheme refuses its state.
+fn create_hub_scheme(
+    id: &str,
+    asset: Option<&dyn ExternalAsset>,
+    max_packet: u64,
+    balance: Option<u64>,
+    state: &[u8],
+) -> Result<Box<dyn SettlementScheme>, SchemeError> {
+    let any: Option<&dyn core::any::Any> = asset.map(|asset| asset as _);
+    let account = any
+        .and_then(|asset| asset.downcast_ref::<dassie_hub::member::HubAccount>())
+        .ok_or(SchemeError::InvalidConfig)?;
+    let scheme = dassie_hub::member::HubScheme::new(account, max_packet, balance, state)?;
+    // The account was made for this scheme, from rules whose asset names
+    // it.
+    if scheme.id().as_str() != id {
+        return Err(SchemeError::InvalidConfig);
+    }
+    Ok(Box::new(scheme))
+}
+
 /// Makes the scheme `id` with its config, what the books last kept for it,
 /// and the asset it settles through; a dollar token's peg guard runs on
 /// `peg`. The original's RPC dropped every key of the config, and it
@@ -405,17 +431,7 @@ fn create(
             Ok(Box::new(scheme))
         }
         dassie_hub::member::SCHEME_ID | dassie_hub::member::DSUSD_SCHEME_ID => {
-            let any: Option<&dyn core::any::Any> = asset.map(|asset| asset as _);
-            let account = any
-                .and_then(|asset| asset.downcast_ref::<dassie_hub::member::HubAccount>())
-                .ok_or(SchemeError::InvalidConfig)?;
-            let scheme = dassie_hub::member::HubScheme::new(account, max_packet, balance, state)?;
-            // The account was made for this scheme, from rules whose asset
-            // names it.
-            if scheme.id().as_str() != id {
-                return Err(SchemeError::InvalidConfig);
-            }
-            Ok(Box::new(scheme))
+            create_hub_scheme(id, asset, max_packet, balance, state)
         }
         #[cfg(test)]
         super::tests::WITNESS => Ok(Box::new(super::tests::Witness)),
