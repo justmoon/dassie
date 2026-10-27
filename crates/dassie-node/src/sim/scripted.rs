@@ -28,8 +28,7 @@ pub(super) const READY_WITHIN_MS: u64 = 10 * 60_000;
 pub(super) const PAID_WITHIN_MS: u64 = 10 * 60_000;
 
 /// Whether the network is ready for payments: every node has a peer and a
-/// route to every other node, and none waits for a peer to settle: where
-/// peers settle directly, a junior has paid its senior in advance.
+/// route to every other node, and none waits for a peer to settle.
 pub(super) fn ready(sim: &Sim) -> bool {
     let count = sim.nodes.len();
     let routed = (0..count).all(|index| {

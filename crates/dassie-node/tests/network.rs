@@ -1070,6 +1070,59 @@ fn a_peer_asked_to_settle_tells_what_it_has_on_its_way() {
     assert!(told > 0, "no peer answered with an amount on its way");
 }
 
+// spec/decisions/crash-drift.md: over a pretend hub, the payer crashes again
+// and again while it pays the payee, each time with Fulfills on their way
+// to it, until the books drifted past what the link survives: the default
+// credit the payer answers with, less two triggers and twice the least
+// settlement, since over a hub the payee extends nothing of its own. The payee's room for the payer stays
+// short while the payer's books leave it nothing to settle, and the payee
+// withdraws it: the link is not saved (spec/decisions/own-fulfills.md). A
+// network that does not settle down for that is a run the simulation rules
+// out, not a failure.
+#[test]
+fn a_link_crashes_drifted_past_what_it_survives_is_ruled_out() {
+    let mut sim = Sim::with(78, 2, 1, BTreeMap::new(), Settling::StubHub(4));
+    sim.loss_per_mille = 0;
+    let peered = |sim: &Sim| !sim.peers(0).is_empty() && !sim.peers(1).is_empty();
+    assert!(
+        sim.run_until_or(START + 600_000, peered),
+        "the nodes did not peer"
+    );
+    let (payer, payee) = (0, 1);
+    // The payee extends nothing of its own over a hub, so the link
+    // survives less than the default credit.
+    let credit = u128::from(Policies::DEFAULT.peer_credit);
+    // The payee's receiver took money: it posted a packet, and its Fulfill
+    // is on its way.
+    let took = |sim: &Sim| sim.payments.last().is_some_and(|p| received(sim, p) > 0);
+    for _ in 0..60 {
+        if sim.drift(payer, payee).crashes > credit {
+            break;
+        }
+        sim.pay(payer, payee, 3_000_000_000, None, None);
+        if sim.run_until_or(sim.now + 30_000, took) {
+            sim.crash(payer);
+            sim.run_until(sim.now + 2_000);
+            sim.start(payer);
+        }
+        sim.run_until(sim.now + 30_000);
+    }
+    let drift = sim.drift(payer, payee);
+    assert!(drift.crashes > credit, "{drift:?}");
+    sim.run_until(sim.now + 600_000);
+    let withdrawn = key(payer).node_id();
+    assert!(
+        sim.withdrawn
+            .iter()
+            .any(|withdrawal| withdrawal.by == payee && withdrawal.peer == withdrawn),
+        "the payee did not withdraw the payer"
+    );
+    match dassie_node::sim::checks::not_settled_down(&mut sim, 600, "stuck") {
+        Outcome::Unsupported(finding) => assert_eq!(finding.at, "drifted-past-what-it-survives"),
+        outcome => panic!("{outcome}"),
+    }
+}
+
 // spec/decisions/paid-within-a-tolerance.md: a payment whose last packet
 // would carry less than its tolerance is paid in full by the packets
 // before it. Its incoming payment completes that much short, its outgoing
@@ -1100,8 +1153,8 @@ fn a_payment_short_by_less_than_its_tolerance_is_paid_in_full() {
 }
 
 // spec/areas/settlement.md#the-stub-scheme: two nodes on the stub with
-// unlimited trust each extend the other the unlimited credit, whichever is
-// the junior. They pay each other dozens of times the default credit, both
+// unlimited trust each extend the other the unlimited credit, whichever
+// asked for the peering. They pay each other dozens of times the default credit, both
 // ways, and neither asks the other to settle, nor settles.
 #[test]
 fn on_unlimited_trust_nodes_pay_without_settling() {
@@ -1342,9 +1395,9 @@ fn a_node_that_saw_its_hub_once_peers_while_it_is_down() {
 
 // spec/decisions/ending-a-peering.md: a settlement that lands after the
 // peering ended is credited to the peer's account, once. Over a hub, the
-// junior's owner ends the peering, and the senior answers the last request
-// with a settlement on its way. The junior's links to its hub drop then,
-// and stay down: the junior waits out its bound and ends the peering, and
+// payee's owner ends the peering, and the payer answers the last request
+// with a settlement on its way. The payee's links to its hub drop then,
+// and stay down: the payee waits out its bound and ends the peering, and
 // books the settlement only once it reads its hub again. The node
 // simulation's drawn runs reach this only now and then.
 #[test]
@@ -1356,19 +1409,20 @@ fn a_settlement_over_a_hub_that_lands_after_the_end_is_credited_once() {
         sim.run_until_or(sim.now + 10 * 60_000, peered),
         "the nodes did not peer"
     );
-    let junior = usize::from(sim.core(0).network().peers[0].peering.inbound);
-    let senior = 1 - junior;
-    let senior_id = key(senior).node_id();
-    sim.pay(senior, junior, 3_000_000_000, None, None);
+    // The node that asked for the peering is paid.
+    let payee = usize::from(sim.core(0).network().peers[0].peering.inbound);
+    let payer = 1 - payee;
+    let payer_id = key(payer).node_id();
+    sim.pay(payer, payee, 3_000_000_000, None, None);
     sim.run_until(sim.now + 60_000);
     assert!(
-        -sim.owes(junior, &senior_id) > 0,
-        "the senior owes the junior nothing"
+        -sim.owes(payee, &payer_id) > 0,
+        "the payer owes the payee nothing"
     );
     let mark = sim.trace.len();
-    sim.step(junior, |core| core.terminate_peering(senior_id).unwrap());
+    sim.step(payee, |core| core.terminate_peering(payer_id).unwrap());
     let answered =
-        format!(" {junior} PeerNode(SettlementRequestAnswered {{ peer: {senior_id:?}, settling: ");
+        format!(" {payee} PeerNode(SettlementRequestAnswered {{ peer: {payer_id:?}, settling: ");
     let found = |sim: &Sim, from: usize, text: &str| {
         sim.trace[from..]
             .iter()
@@ -1378,16 +1432,16 @@ fn a_settlement_over_a_hub_that_lands_after_the_end_is_credited_once() {
     assert!(
         sim.run_until_or(sim.now + 60_000, |sim| found(sim, mark, &answered)
             .is_some()),
-        "the senior answered the last request with nothing on its way"
+        "the payer answered the last request with nothing on its way"
     );
-    sim.ledger_down.insert(junior);
-    let ended = format!(" {junior} PeerNode(PeeringEnded {{ peer: {senior_id:?}");
+    sim.ledger_down.insert(payee);
+    let ended = format!(" {payee} PeerNode(PeeringEnded {{ peer: {payer_id:?}");
     assert!(
         sim.run_until_or(sim.now + 600_000, |sim| found(sim, mark, &ended).is_some()),
         "the peering did not end"
     );
     let end = found(&sim, mark, &ended).unwrap();
-    let booked = format!(" {junior} Settlement(SettlementBooked {{ from: {senior_id:?}");
+    let booked = format!(" {payee} Settlement(SettlementBooked {{ from: {payer_id:?}");
     assert!(
         found(&sim, mark, &booked).is_none(),
         "booked before the end"

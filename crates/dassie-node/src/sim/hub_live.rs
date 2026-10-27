@@ -62,6 +62,7 @@ use super::checks::{
     check_hub_packets, check_incoming, check_true, check_withdrawn, first_failure,
 };
 use super::hub::{PREPARES_OVER_LIVE_XRP, PREPARES_OVER_RLUSD};
+use super::hub_checks::check_settled_with_honest;
 use super::hubbed::{check_hub_validators, check_losses, over_hub, paid, pay, routed};
 use super::scripted::{READY_WITHIN_MS, ended};
 use super::{
@@ -462,13 +463,14 @@ fn off_peg(sim: &mut Sim, rng: &mut SeededRng) -> Result<(), Outcome> {
     Ok(())
 }
 
-/// The network calms down: every move done and every account in step with
-/// the hub. Whether every peer that was asked to settle did is left
-/// unchecked here, as in `node-hub-dsusd`; `node-hub-lies` checks it.
+/// The network calms down: every move done, every account in step with
+/// the hub, and every peer that was asked to settle settled.
 fn settle(sim: &mut Sim) {
     sim.run_until(sim.now + CALM_MS);
-    let settled =
-        |sim: &Sim| (0..sim.nodes.len()).all(|index| !moving(sim, index) && in_step(sim, index));
+    let settled = |sim: &Sim| {
+        (0..sim.nodes.len()).all(|index| !moving(sim, index) && in_step(sim, index))
+            && check_settled_with_honest(sim, None).is_ok()
+    };
     sim.run_until_or(sim.now + SETTLED_WITHIN_MS, settled);
     // The last settlement may have executed a block before the accounts
     // read it: a while of quiet, then the accounts read the hub again.
@@ -547,6 +549,8 @@ fn check_calm(sim: &Sim, hub: LiveHub) -> Result<(), Outcome> {
                     ))
                 }),
             check_finished(sim).map_err(|problem| Outcome::liveness("finished", problem)),
+            check_settled_with_honest(sim, None)
+                .map_err(|problem| Outcome::liveness("settled", problem)),
         ]
         .into_iter()
         .chain(incoming)

@@ -306,14 +306,8 @@ fn drifted(sim: &mut Sim) -> Vec<Drifted> {
 /// plus twice the least settlement, and over a hub it answers as if it
 /// extended its default credit (spec/decisions/crash-drift.md).
 fn survives(sim: &Sim, asker: u64, payer: usize, credit: u64) -> u128 {
-    let over_hub = matches!(
-        sim.settling,
-        Settling::StubHub(_)
-            | Settling::HubDsusd(_)
-            | Settling::Hub(_)
-            | Settling::HubAcross(_)
-            | Settling::Hubs(_)
-    );
+    let over_hub =
+        matches!(sim.settling, Settling::StubHub(_)) || sim.settling.hub_validators().is_some();
     let answers = if over_hub {
         sim.credits
             .get(&payer)

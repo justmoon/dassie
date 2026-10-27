@@ -42,24 +42,22 @@
 //! with commitments, `Settling::StubHub`, or a hub run in the simulation,
 //! `Settling::Hub` (spec/areas/testing.md#levels).
 //!
-//! The XRP Ledger's schemes settle directly when they peer: only the
-//! targeted tests of direct settlement still run on them, and go with it
-//! (spec/roadmap.md#hubs-only). Such a test settles over the XRP Ledger
-//! testnet scheme against a fake ledger in the same
-//! process: its connections lag, lose requests and drop, and the books
-//! must still match every node's account, less its reserve, with no XRP
-//! made or lost. One in the live realm settles over mainnet's `xrpl-xrp`
-//! against the fake ledger's mainnet, which has no faucet: each node's
-//! owner deposits (spec/decisions/mainnet-schemes.md).
+//! The XRP Ledger's schemes appear only as owner books, which peer with
+//! no one (spec/areas/xrpl.md#owner-books): in the runs of owner books
+//! below, and as what funds a hub run in the simulation, against a fake
+//! ledger in the same process whose connections lag, lose requests and
+//! drop. In the live realm, `Settling::HubLive` and `Settling::HubRlusd`,
+//! the fake ledger's mainnet has no faucet: each node's owner deposits
+//! (spec/decisions/mainnet-schemes.md).
 //!
-//! Runs across currencies give some nodes dollars, some XRP and
-//! some both, at a fixed snapshot of rates, one charging a fee and a
-//! spread: BTP clients pay receivers in the other currency, through the
-//! nodes that convert, which price what they convert by their inventory
-//! (spec/decisions/passive-rebalancing.md). No ledger makes or loses any
-//! asset, and after every step no node's price is above spot by more than
-//! its curve allows, takes anything out of a ledger it holds nothing on, or
-//! is better than at what its owner has posted alone.
+//! Runs across currencies, `Settling::HubAcross` and `Settling::Hubs`, hold
+//! dollars in the DSUSD hub and XRP in the XRP hub, at the run's rates, one
+//! node charging a fee and a spread: BTP clients pay receivers in the other
+//! currency, through the nodes that convert, which price what they convert
+//! by their inventory (spec/decisions/passive-rebalancing.md). No ledger
+//! makes or loses any asset, and after every step no node's price is above
+//! spot by more than its curve allows, takes anything out of a ledger it
+//! holds nothing on, or is better than at what its owner has posted alone.
 //!
 //! Runs of owner books, `Settling::OwnerBooks` and
 //! `Settling::OwnerBooksLive`, keep each node's owner's books of XRP and
@@ -75,9 +73,8 @@
 //! nodes learn every minute, so its peg guard reads it throughout
 //! (spec/decisions/issued-assets.md).
 //!
-//! A node that never settles, or spends the credit it was given and
-//! vanishes, costs its peer no more than that credit
-//! (spec/decisions/own-fulfills.md).
+//! A payer that never funds its hold in the hub costs its peer no more
+//! than the hold, and is ended for room (spec/decisions/own-fulfills.md).
 //!
 //! A node's commit can be made to fail, the one fault injected at the
 //! store (spec/decisions/random-seed-simulations.md): its core stops without
