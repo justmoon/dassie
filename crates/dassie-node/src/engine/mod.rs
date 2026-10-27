@@ -476,8 +476,9 @@ impl Engine {
             .await
     }
 
-    /// Pays `drops` from the XRPL testnet account to `destination`: the
-    /// payment that creates the escrow of a hub the node founds. Its ID.
+    /// Pays `drops` from the XRPL account of the node's realm to
+    /// `destination`: the payment that creates the escrow of a hub the node
+    /// founds. Its ID.
     pub async fn pay_from_xrpl(
         &self,
         destination: String,
@@ -496,8 +497,8 @@ impl Engine {
         self.call(|core| Ok(core.hub_rules())).await
     }
 
-    /// What became of the owner's payment `id` out of the XRPL testnet
-    /// account.
+    /// What became of the owner's payment `id` out of the XRPL account of
+    /// the node's realm.
     pub async fn xrpl_owner_payment(
         &self,
         id: String,

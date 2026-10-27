@@ -5,7 +5,10 @@
 //! the owner's file.
 //!
 //! Only a node whose owner named a file in `DASSIE_VALIDATOR_CONFIG` takes
-//! part, for the sponsors it lists; every other node refuses.
+//! part, for the sponsors it lists; every other node refuses. A validator
+//! takes its network from that file ([`ValidatorConfig::network`]), and
+//! accepts only terms on it; a sponsor founds on the network of its realm,
+//! the testnet's or mainnet's ([`super::sponsor::founding_network`]).
 
 use std::sync::Arc;
 
@@ -26,12 +29,6 @@ use crate::store::{FoundingRecordRow, Store, StoreError};
 /// The most founding requests a node decides at once: each is small, and
 /// only a listed sponsor's take more than a lookup.
 pub const MAX_FOUNDING_REQUESTS: usize = 4;
-
-/// The network of the XRP Ledger testnet, the only one a node founds hubs
-/// on as a sponsor: it funds the escrow from its testnet XRP
-/// (spec/areas/hubs.md#founding-a-hub). A validator takes its network from
-/// its owner's file ([`ValidatorConfig::network`]).
-pub const TESTNET_NETWORK: u32 = dassie_hub::ledger::TESTNET_NETWORK;
 
 /// Whether a founding request from a node may be read, decided by the key
 /// its connection proved before anything of the request is read.

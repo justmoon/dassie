@@ -1,5 +1,6 @@
 //! Founding hubs as a sponsor (spec/areas/hubs.md#founding-a-hub): the
-//! owner proposes terms and picks validators ([`found`]); the node asks
+//! owner proposes terms and picks validators ([`found`]), on the XRP
+//! Ledger network of the node's realm ([`founding_network`]); the node asks
 //! each validator over the hub's founding stream, as
 //! `dassie_hub::founding::Sponsor` says, persisting the founding after
 //! every answer that changed it; once a quorum runs the hub, it sets up
@@ -27,7 +28,6 @@ use tokio_util::task::TaskTracker;
 
 use super::HubClient;
 use super::driver::hex;
-use super::founding::TESTNET_NETWORK;
 use crate::clock::clock_moved;
 use crate::log::target;
 use crate::node::Node;
@@ -39,9 +39,9 @@ use crate::store::{FoundingRow, StoreError};
 /// the fees of the hub's own transactions (at least [`least_funding`]).
 pub const ESCROW_FUNDING_DROPS: u64 = 2_000_000;
 
-/// The XRP Ledger testnet's reserve for each object an account owns, in
-/// drops: the escrow's signer list is one, and a token hub's trust line
-/// another.
+/// The XRP Ledger's reserve for each object an account owns, in drops,
+/// the testnet's and mainnet's alike: the escrow's signer list is one, and
+/// a token hub's trust line another.
 pub const LEDGER_OWNER_RESERVE: u64 = 200_000;
 
 /// The least that funds the escrow of a hub of `terms`, in drops: the XRP
@@ -156,10 +156,32 @@ pub struct FoundingStatus {
     pub created_ms: u64,
 }
 
-/// Refuses terms no node would join: a node peers over a hub only when its
-/// margin and allowance fit the connector's message window, so the escrow
-/// would fund a hub nobody uses.
+/// The XRP Ledger network a node of `realm` founds hubs on, whose XRP
+/// funds their escrows: the testnet in the test realm, mainnet in the live
+/// realm, which runs only where it may (spec/decisions/real-money.md).
+#[must_use]
+pub const fn founding_network(
+    realm: dassie_node_core::config::Realm,
+) -> &'static dassie_xrpl::network::Network {
+    match realm {
+        dassie_node_core::config::Realm::Test => &dassie_xrpl::network::TESTNET,
+        dassie_node_core::config::Realm::Live => &dassie_xrpl::network::MAINNET,
+    }
+}
+
+/// Refuses terms no node would join: a hub whose network and asset name no
+/// hub scheme (spec/decisions/hub-scheme-names.md), as a token other than
+/// DSUSD on the testnet or RLUSD on mainnet; or one whose margin and
+/// allowance do not fit the connector's message window, which a node
+/// peers over a hub only within. The escrow would fund a hub nobody uses.
 fn joinable(terms: &dassie_hub::rules::Terms, validators: usize) -> Result<(), FoundError> {
+    if dassie_hub::member::scheme_of(terms).is_none() {
+        return Err(FoundError::Invalid(
+            "no settlement scheme joins a hub of this asset on this network: XRP, or the \
+             testnet's DSUSD, or mainnet's RLUSD"
+                .into(),
+        ));
+    }
     let window_ms = dassie_connector::Config::DEFAULT.message_window_ms;
     let (margin, allowance) = (terms.timers.margin, terms.timers.allowance);
     if margin.saturating_add(allowance) > window_ms {
@@ -187,11 +209,14 @@ pub fn found(node: &Node, request: FoundRequest) -> Result<FoundingStatus, Found
         rng.fill_bytes(&mut nonce);
         nonce
     });
-    let master = dassie_hub::escrow::escrow_master(&key, TESTNET_NETWORK, &nonce);
+    // Keys at the path that names the network
+    // (spec/decisions/hub-keys-by-network.md).
+    let network = founding_network(node.config().realm);
+    let master = dassie_hub::escrow::escrow_master(&key, network.id, &nonce);
     let base = dassie_hub::founding::starting_terms(
         nonce,
         key.public_key(),
-        TESTNET_NETWORK,
+        network.id,
         master.account().0,
     );
     let mut terms = terms::terms(base, &request.terms).map_err(FoundError::Invalid)?;
@@ -219,7 +244,7 @@ pub fn found(node: &Node, request: FoundRequest) -> Result<FoundingStatus, Found
                 "the XRPL server is no WebSocket URL".into(),
             ));
         }
-        None => xrpl_server(node),
+        None => xrpl_server(node, network),
     };
     let now = node.now_ms();
     let row = FoundingRow {
@@ -248,26 +273,23 @@ pub fn found(node: &Node, request: FoundRequest) -> Result<FoundingStatus, Found
     status_of(&row).map_err(|error| FoundError::Precondition(error.to_string()))
 }
 
-/// The XRPL server of the node's testnet account, whose XRP funds the
-/// escrow: the owner's config of it, or the testnet's server.
-fn xrpl_server(node: &Node) -> String {
+/// The XRPL server of the node's account on `network`, whose XRP funds
+/// the escrow: the owner's config of it, or the network's server.
+fn xrpl_server(node: &Node, network: &dassie_xrpl::network::Network) -> String {
     let configs = node.store_handle().asset_configs().unwrap_or_default();
-    testnet_xrp_server(&configs)
+    account_server(&configs, network)
 }
 
-/// The XRPL server that the owner's config of the node's testnet account,
-/// among `configs`, names, or the testnet's
+/// The XRPL server that the owner's config of the node's account on
+/// `network`, among `configs`, names, or the network's
 /// (spec/areas/settlement.md#external-assets).
-fn testnet_xrp_server(configs: &[(String, String)]) -> String {
-    let account = dassie_xrpl::account::FIRST.to_string();
+fn account_server(configs: &[(String, String)], network: &dassie_xrpl::network::Network) -> String {
+    let account = network.first().to_string();
     configs
         .iter()
         .find(|(asset, _)| *asset == account)
-        .and_then(|(_, config)| dassie_xrpl::account::Config::parse(config).ok())
-        .map_or_else(
-            || dassie_xrpl::account::DEFAULT_SERVER.into(),
-            |config| config.server,
-        )
+        .and_then(|(_, config)| dassie_xrpl::account::Config::parse_on(config, network).ok())
+        .map_or_else(|| network.server.into(), |config| config.server)
 }
 
 /// Drops the founding of `nonce`: the node asks nothing more for it, and
@@ -566,25 +588,80 @@ impl Founding {
 
 #[cfg(test)]
 mod tests {
+    use dassie_node_core::config::Realm;
+    use dassie_xrpl::network::{MAINNET, TESTNET};
+
     // spec/areas/settlement.md#external-assets: the escrow is funded over
-    // the server the owner's config of the testnet account names, whichever
-    // schemes run on it.
+    // the server the owner's config of the account on the hub's network
+    // names, whichever schemes run on it; the other network's config
+    // counts for nothing.
     #[test]
     fn the_escrow_goes_over_the_accounts_server() {
-        let account = |config: &str| ("xrpl-testnet-account/0".to_string(), config.to_string());
-        let configs = [account(r#"{"faucet":null,"server":"ws://ledger.test"}"#)];
-        assert_eq!(super::testnet_xrp_server(&configs), "ws://ledger.test");
-        let mainnet = [(
+        let testnet = (
+            "xrpl-testnet-account/0".to_string(),
+            r#"{"faucet":null,"server":"ws://ledger.test"}"#.to_string(),
+        );
+        let mainnet = (
             "xrpl-account/0".to_string(),
             r#"{"server":"ws://a"}"#.to_string(),
-        )];
+        );
+        let both = [testnet.clone(), mainnet.clone()];
+        assert_eq!(super::account_server(&both, &TESTNET), "ws://ledger.test");
+        assert_eq!(super::account_server(&both, &MAINNET), "ws://a");
         assert_eq!(
-            super::testnet_xrp_server(&mainnet),
+            super::account_server(&[mainnet], &TESTNET),
             dassie_xrpl::account::DEFAULT_SERVER
         );
-        assert_eq!(
-            super::testnet_xrp_server(&[]),
-            dassie_xrpl::account::DEFAULT_SERVER
-        );
+        assert_eq!(super::account_server(&[testnet], &MAINNET), MAINNET.server);
+        assert_eq!(super::account_server(&[], &MAINNET), MAINNET.server);
+    }
+
+    // spec/areas/hubs.md#founding-a-hub: a node founds hubs on its realm's
+    // network: the testnet in the test realm, mainnet in the live realm.
+    #[test]
+    fn a_node_founds_on_its_realms_network() {
+        assert_eq!(super::founding_network(Realm::Test), &TESTNET);
+        assert_eq!(super::founding_network(Realm::Live), &MAINNET);
+    }
+
+    // spec/decisions/hub-scheme-names.md: a hub no scheme joins is not
+    // founded: a token other than the network's dollar token.
+    #[test]
+    fn a_hub_no_scheme_joins_is_not_founded() {
+        use dassie_hub::rules::Asset;
+
+        let key = dassie_identity::NodeKey::from_bytes(&[3; 32]);
+        let terms = |network: &dassie_xrpl::network::Network, asset| {
+            let mut terms = dassie_hub::founding::starting_terms(
+                [1; 32],
+                key.public_key(),
+                network.id,
+                [2; 20],
+            );
+            terms.asset = asset;
+            terms
+        };
+        let dsusd = Asset::Token {
+            currency: dassie_xrpl::dsusd::CURRENCY,
+            issuer: dassie_xrpl::dsusd::ISSUER,
+        };
+        let rlusd = Asset::Token {
+            currency: dassie_xrpl::rlusd::CURRENCY,
+            issuer: dassie_xrpl::rlusd::ISSUER,
+        };
+        for (network, asset) in [
+            (&TESTNET, Asset::Xrp),
+            (&TESTNET, dsusd),
+            (&MAINNET, Asset::Xrp),
+            (&MAINNET, rlusd),
+        ] {
+            assert_eq!(super::joinable(&terms(network, asset), 4), Ok(()));
+        }
+        for (network, asset) in [(&TESTNET, rlusd), (&MAINNET, dsusd)] {
+            assert!(matches!(
+                super::joinable(&terms(network, asset), 4),
+                Err(super::FoundError::Invalid(why)) if why.contains("no settlement scheme")
+            ));
+        }
     }
 }
