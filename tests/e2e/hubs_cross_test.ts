@@ -63,6 +63,7 @@ test(
       const both = inXrp.filter((node) => inDsusd.includes(node));
       const [payer] = inXrp.filter((node) => !both.includes(node));
       const [payee] = inDsusd.filter((node) => !both.includes(node));
+      const members = [...new Set([...inXrp, ...inDsusd])];
       assertEquals(both.length, 2, "two members in both hubs");
       assert(payer && payee, "a member in each hub alone");
       await joinedHubs(scenario);
@@ -84,7 +85,7 @@ test(
       assertEquals(await peerLedgers(payer, payee), [], "no hub in common");
 
       const before = await Promise.all(
-        scenario.nodes.map((node) => booksOverHubs(scenario, node)),
+        members.map((node) => booksOverHubs(scenario, node)),
       );
       const address = await pay(
         scenario,
@@ -97,13 +98,15 @@ test(
       const incoming = payments.find((p) => p.destinationAccount === address);
       assert(incoming, "no incoming payment");
       assertEquals(incoming.ledger, dsusdLedger);
-      // XRP at the dev rate, in dollars: a member of both converts it, and
-      // the connectors keep their fees and spread, a few percent at most.
+      // XRP at the dev rate, in dollars: a member of both converts it at a
+      // rate its inventory moves from spot, either way, by at most the
+      // curve's largest `k`, 10% (spec/decisions/passive-rebalancing.md),
+      // and the connectors keep their fees and spread.
       const dollars = PAYMENT * 1_000_000n /
         BigInt(Math.round(Number(DEV_RATES.XRP) * 1_000_000));
       const received = incoming.receivedAmount;
       assert(
-        received > dollars * 95n / 100n && received <= dollars,
+        received > dollars * 85n / 100n && received < dollars * 110n / 100n,
         `${received} arrived of ${dollars} sent`,
       );
       await scenario.until(
@@ -119,7 +122,7 @@ test(
       // those of its own; and the members of both hold more XRP and fewer
       // dollars, as they took the one and paid the other.
       const after = await Promise.all(
-        scenario.nodes.map((node) => booksOverHubs(scenario, node)),
+        members.map((node) => booksOverHubs(scenario, node)),
       );
       const XRP_BOOKS = [xrpLedger, "xrpl-testnet-xrp+xrp"];
       const DOLLAR_BOOKS = [dsusdLedger, "xrpl-testnet-dsusd+usd"];
@@ -128,7 +131,7 @@ test(
         ids: readonly string[],
         column: 0 | 1,
       ) => {
-        const index = scenario.nodes.indexOf(node);
+        const index = members.indexOf(node);
         let sum = 0n;
         for (const id of ids) {
           sum += (after[index][id]?.[column] ?? 0n) -

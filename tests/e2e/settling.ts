@@ -454,9 +454,14 @@ async function heldIn(
     ? (asset.holdings.length === 1 ? asset.holdings[0] : undefined)
     : asset.holdings.find((holding) => holding.assetCode === code);
   assert(holding, `${node.name} shows no ${code || "one asset"} for ${scheme}`);
-  assert(holding.assetScale <= 9, `${scheme} at ${holding.assetScale}`);
-  const scale = 10n ** BigInt(9 - holding.assetScale);
-  return (holding.amount - holding.reserve) * scale;
+  // The books count whole drops of XRP or millionths of a token: a line
+  // shows a token at a finer scale.
+  const held = holding.amount - holding.reserve;
+  const scale = BigInt(holding.assetScale);
+  const micros = scale >= 6n
+    ? held / 10n ** (scale - 6n)
+    : held * 10n ** (6n - scale);
+  return micros * UNITS_PER_DROP;
 }
 
 /**
