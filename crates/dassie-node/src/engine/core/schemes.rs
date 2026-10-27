@@ -423,6 +423,8 @@ fn create(
         super::tests::DSUSD_HUB => Ok(Box::new(super::tests::HubStandIn::DSUSD)),
         #[cfg(test)]
         super::tests::XRP_HUB => Ok(Box::new(super::tests::HubStandIn::XRP)),
+        #[cfg(test)]
+        super::tests::STUB_TWO => super::tests::StubTwo::boxed(config, balance, state),
         _ => Err(SchemeError::UnknownScheme),
     }
 }

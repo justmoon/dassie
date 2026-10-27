@@ -348,6 +348,11 @@ pub struct Core {
     /// Peers' connector endpoints, both ways.
     peer_endpoints: BTreeMap<dassie_identity::NodeId, u64>,
     endpoint_peers: BTreeMap<u64, dassie_identity::NodeId>,
+    /// The settlement method each peer's endpoint carries packets on: the
+    /// one of the endpoint's ledger, the peering's first when the endpoint
+    /// was made. Until the connector has a slot per method, every packet
+    /// with a peer takes it (spec/decisions/settlement-methods.md).
+    endpoint_methods: BTreeMap<dassie_identity::NodeId, dassie_peer::wire::SchemeId>,
     next_peer_endpoint: u64,
     /// The realm: `test` or `g` in nodes' addresses, and the realm of the
     /// only ledgers the node runs.
@@ -510,6 +515,7 @@ impl Core {
             },
             peer_endpoints: BTreeMap::new(),
             endpoint_peers: BTreeMap::new(),
+            endpoint_methods: BTreeMap::new(),
             next_peer_endpoint: 0,
             realm: parts.realm,
             live: parts.live,
@@ -547,33 +553,19 @@ impl Core {
         self.update_peer_schemes();
         self.restore_waiting();
         let peers: Vec<dassie_identity::NodeId> = self.peer.peers().map(|(id, _)| *id).collect();
-        let active: std::collections::BTreeSet<dassie_identity::NodeId> =
-            self.peer.active_peers().map(|(id, _)| *id).collect();
         for node in peers {
-            // A peer whose scheme does not run, as one disabled or of the
-            // other realm, has no ledger to book on: it gets no endpoint,
-            // which the rest of the node does without, and the peer
-            // protocol's first review ends the peering
-            // (spec/areas/settlement.md#schemes-and-ledgers). The original
-            // threw, and stopped what served that peer.
+            // A peer whose first method's scheme does not run, as one
+            // disabled or of the other realm, has no ledger to book on: it
+            // gets no endpoint, which the rest of the node does without.
+            // The peer protocol's first review drops that method, and the
+            // endpoint is made on the peering's next one, or ends a peering
+            // left with none (spec/areas/settlement.md#schemes-and-ledgers,
+            // spec/decisions/settlement-methods.md). The original threw, and
+            // stopped what served that peer.
             if let Err(error) = self.add_peer_endpoint(node) {
                 self.report(PeerEvent::NoEndpoint { node, error });
             }
-            // One being ended stays drained; one we end privately still
-            // refuses the peer's Prepares
-            // (spec/decisions/ending-a-peering.md).
-            let depeering = self
-                .peer
-                .peering_of(&node)
-                .is_some_and(|peering| peering.depeering.is_some());
-            if let Some(&endpoint) = self.peer_endpoints.get(&node) {
-                let endpoint = dassie_connector::EndpointId::Peer(endpoint);
-                if !active.contains(&node) {
-                    self.connector.set_draining(endpoint, true);
-                } else if depeering {
-                    self.connector.set_refusing(endpoint, true);
-                }
-            }
+            self.mark_peer_endpoint(&node);
         }
         self.reconcile_settlements(None);
         self.reconcile_owner_payments();

@@ -368,8 +368,8 @@ impl Peering {
         self.last_seen_ms.saturating_add(window_ms) >= now_ms
     }
 
-    /// Its first method: the one it was made on, while that lasts. A node
-    /// that keeps one method per peering reads it here.
+    /// Its first method: the one it was made on, while that lasts, and
+    /// the one a peering being ended collects on.
     ///
     /// # Panics
     ///

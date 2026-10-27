@@ -122,8 +122,10 @@ pub trait PeeringHooks {
     /// the node that made the peering, and whether it takes the peer's
     /// request for one. A method it takes opens its accounts as a
     /// peering's first does, through [`accept`](Self::accept) or
-    /// [`finalize`](Self::finalize).
-    fn wants_method(&self, peer: NodeId, scheme: SchemeId) -> bool;
+    /// [`finalize`](Self::finalize). `downlink` says the peer is our
+    /// downlink, whose accounts take the downlinks' room, never the core
+    /// peers' (spec/decisions/account-budgets.md).
+    fn wants_method(&self, peer: NodeId, downlink: bool, scheme: SchemeId) -> bool;
 
     /// Whether nothing is in flight with `peer` any more: no packet waits
     /// for its response, in either direction. A terminating peering ends

@@ -4,7 +4,10 @@
 //! the way to its own trigger when a peer asks it. A settlement is prepared,
 //! booked as a durable pending transfer, executed once that is on disk, and
 //! announced to the peer once it executed. Incoming settlements are booked
-//! before the scheme sees them.
+//! before the scheme sees them. Each settlement method of a peering does
+//! all of it on its own ledger: its own position, credit, requests and
+//! backoff, while the settlement channel, one message at a time, is the
+//! pair's (spec/decisions/settlement-methods.md).
 
 use std::collections::BTreeMap;
 
@@ -56,15 +59,17 @@ pub(super) struct Settlements {
     pub credit_cap: u64,
     /// Where reading the fees peers earned us stands.
     pub growth: super::growth::Growth,
-    /// When each peer was last asked to settle, until it settles.
-    pub asked: BTreeMap<NodeId, u64>,
+    /// When each peer was last asked to settle on each method, until it
+    /// settles on it (spec/decisions/settlement-methods.md).
+    pub asked: BTreeMap<(NodeId, SchemeId), u64>,
     /// Our settlements prepared and not yet final, by scheme and ID.
     pub settling: BTreeMap<(Name, Name), Settling>,
     /// Settlements to execute once their pending transfers are on disk.
     pub to_execute: Vec<(Name, Name)>,
-    /// Peers not settled with before a time, after cancelled settlements,
-    /// and how many in a row.
-    pub backoff: BTreeMap<NodeId, (u64, u32)>,
+    /// Peers not settled with on a method before a time, after cancelled
+    /// settlements on it, and how many in a row: a method whose ledger
+    /// cannot pay holds up no other.
+    pub backoff: BTreeMap<(NodeId, SchemeId), (u64, u32)>,
     /// Settlements that executed while an earlier one to the same peer was
     /// still being announced: posted and announced once that one arrives.
     pub announce: Vec<(Name, Name)>,
@@ -214,14 +219,11 @@ impl Core {
     /// starts again. While our requests to settle surely never reach the
     /// peer, or no settlement from it can reach us, the peer protocol counts
     /// the time toward withdrawing it, not toward ending the peering for
-    /// room.
+    /// room. Each method of a peering is judged on its own, on its own
+    /// ledger (spec/decisions/settlement-methods.md).
     fn report_room(&mut self) {
         let now = self.now_ms;
-        let peers: Vec<(NodeId, SchemeId)> = self
-            .peer
-            .active_peers()
-            .map(|(id, peering)| (*id, peering.first().scheme))
-            .collect();
+        let peers = self.methods_of_active_peers();
         for (node, scheme) in peers {
             // A downlink is in no link state, so withdrawing it would only
             // stop the payments to it that raise its room: one that owes
@@ -381,14 +383,8 @@ impl Core {
     fn ask_peers(&mut self) {
         let now = self.now_ms;
         let every = self.settle.request_every_ms;
-        let peers: Vec<(NodeId, SchemeId)> = self
-            .peer
-            .active_peers()
-            .map(|(id, peering)| (*id, peering.first().scheme))
-            .collect();
-        self.settle
-            .asked
-            .retain(|node, _| peers.iter().any(|(peer, _)| peer == node));
+        let peers = self.methods_of_active_peers();
+        self.settle.asked.retain(|key, _| peers.contains(key));
         for (node, scheme) in peers {
             // Nor while its settlement cannot reach us: it would only fail,
             // and cost the peer a fee. Nor ever with unlimited trust.
@@ -398,7 +394,7 @@ impl Core {
             let due = self
                 .settle
                 .asked
-                .get(&node)
+                .get(&(node, scheme))
                 .is_none_or(|at| at.saturating_add(every) <= now);
             let close = self
                 .position(node, scheme)
@@ -407,10 +403,19 @@ impl Core {
                     .hub_room(node, scheme)
                     .is_some_and(|room| policy::ask(u128::from(room), self.settle.trigger));
             if due && close && self.peer.request_settlement(now, &node, scheme).is_ok() {
-                self.settle.asked.insert(node, now);
+                self.settle.asked.insert((node, scheme), now);
             }
         }
         self.after_peer();
+    }
+
+    /// Each method of each active peering, by peer and then in the order
+    /// the pair agreed them: at most [`dassie_peer::MAX_METHODS`] a peer.
+    fn methods_of_active_peers(&self) -> Vec<(NodeId, SchemeId)> {
+        self.peer
+            .active_peers()
+            .flat_map(|(id, peering)| peering.schemes().map(move |scheme| (*id, scheme)))
+            .collect()
     }
 
     /// What `node`'s hold toward us over the hub of `scheme` has room for,
@@ -441,14 +446,16 @@ impl Core {
             return 0;
         }
         let under_way = self.settling_to(&node, scheme);
-        if under_way > 0 || !self.can_settle(&node) {
+        if under_way > 0 || !self.can_settle(&node, scheme) {
             return under_way;
         }
+        // Only on a method of the peering, with what its scheme keeps for
+        // the peer on it.
         let Some(state) = self
             .peer
             .peering_of(&node)
-            .filter(|peering| peering.first().scheme == scheme)
-            .map(|peering| peering.first().state.clone())
+            .and_then(|peering| peering.method(scheme))
+            .map(|method| method.state.clone())
         else {
             return 0;
         };
@@ -545,32 +552,36 @@ impl Core {
         amount - amount % unit
     }
 
-    /// Whether nothing is on its way to `node`: no message, no settlement
-    /// of ours in progress or still pending from before a restart; that we
-    /// hold a channel with it; and that no cancelled settlement holds it
-    /// off.
-    fn can_settle(&self, node: &NodeId) -> bool {
+    /// Whether we may settle with `node` on its method on `scheme` now: we
+    /// hold a channel with it, and no message of ours is on its way over
+    /// it, the channel being the pair's; and on that method no settlement
+    /// of ours is in progress or still pending from before a restart, and
+    /// no cancelled one holds it off (spec/decisions/settlement-methods.md).
+    pub(super) fn can_settle(&self, node: &NodeId, scheme: SchemeId) -> bool {
+        let on = |of: &Name| of.as_str() == scheme.as_str();
         self.peer.channel(node).is_some()
             && !self.peer.settling(node)
             && !self
                 .settle
                 .settling
-                .values()
-                .any(|settling| settling.peer == *node)
-            && !self.pending_settlement_to(node)
+                .iter()
+                .any(|((of, _), settling)| settling.peer == *node && on(of))
+            && !self.pending_settlement_to(node, scheme)
             && self
                 .settle
                 .backoff
-                .get(node)
+                .get(&(*node, scheme))
                 .is_none_or(|(until, _)| *until <= self.now_ms)
     }
 
-    /// Whether a settlement transfer to `node` is pending in the ledger,
-    /// on any scheme.
-    fn pending_settlement_to(&self, node: &NodeId) -> bool {
-        self.ledger
-            .pending_transfers()
-            .any(|transfer| self.settles_to(transfer, node))
+    /// Whether a settlement transfer to `node` on `scheme` is pending in
+    /// the ledger.
+    fn pending_settlement_to(&self, node: &NodeId, scheme: SchemeId) -> bool {
+        self.ledger.pending_transfers().any(|transfer| {
+            matches!(transfer.reference, Reference::Settlement { scheme: of, .. }
+                if of.as_str() == scheme.as_str())
+                && self.settles_to(transfer, node)
+        })
     }
 
     /// Whether `transfer` is a settlement of ours to `node`.
@@ -910,10 +921,10 @@ impl Core {
         if let Err(error) = self.ledger.post(self.now_ms, settling.transfer) {
             panic!("a settlement's transfer could not be posted: {error}");
         }
-        self.settle.backoff.remove(&settling.peer);
         let Some(scheme_id) = SchemeId::parse(scheme.as_str()) else {
             return;
         };
+        self.settle.backoff.remove(&(settling.peer, scheme_id));
         let peer = settling.peer;
         // A bare notice states no amount: the peer's ledger says what
         // arrived.
@@ -939,7 +950,7 @@ impl Core {
     }
 
     /// Our settlement failed for good: its transfer is voided, and the
-    /// peer is not settled with again for a while.
+    /// peer is not settled with again on that method for a while.
     // Panics only on a broken invariant: a settling transfer is pending.
     #[allow(clippy::panic)]
     pub(super) fn settlement_cancelled(&mut self, scheme: Name, id: Name) {
@@ -953,19 +964,16 @@ impl Core {
             panic!("a settlement's transfer could not be voided: {error}");
         }
         let now = self.now_ms;
-        let (_, failures) = self
-            .settle
-            .backoff
-            .get(&settling.peer)
-            .copied()
-            .unwrap_or((0, 0));
-        let wait = CANCEL_BACKOFF_MIN_MS
-            .saturating_mul(1u64.checked_shl(failures.min(32)).unwrap_or(u64::MAX))
-            .min(CANCEL_BACKOFF_MAX_MS);
-        self.settle.backoff.insert(
-            settling.peer,
-            (now.saturating_add(wait), failures.saturating_add(1)),
-        );
+        if let Some(scheme_id) = SchemeId::parse(scheme.as_str()) {
+            let key = (settling.peer, scheme_id);
+            let (_, failures) = self.settle.backoff.get(&key).copied().unwrap_or((0, 0));
+            let wait = CANCEL_BACKOFF_MIN_MS
+                .saturating_mul(1u64.checked_shl(failures.min(32)).unwrap_or(u64::MAX))
+                .min(CANCEL_BACKOFF_MAX_MS);
+            self.settle
+                .backoff
+                .insert(key, (now.saturating_add(wait), failures.saturating_add(1)));
+        }
         self.report(SettlementEvent::Failed {
             peer: settling.peer,
             amount: settling.amount,
@@ -1029,10 +1037,18 @@ impl Core {
                 None => return Err(refused("no accounts on that scheme's ledger")),
             }
         }
+        // What the scheme keeps for the peer on its method on this scheme;
+        // none from a peer without one, as a channel outlives its peering.
         let state = self
             .peer
             .peering_of(&from)
-            .map(|peering| peering.first().state.clone())
+            .and_then(|peering| {
+                peering
+                    .methods
+                    .iter()
+                    .find(|method| method.scheme.as_str() == scheme.as_str())
+            })
+            .map(|method| method.state.clone())
             .unwrap_or_default();
         let mut effects = Vec::new();
         self.schemes

@@ -73,7 +73,8 @@ impl PeerNode {
         if let Some(entry) = self.table.get_mut(&node) {
             entry.method_tried = Some(scheme);
         }
-        if !hooks.speaks(scheme) || !hooks.wants_method(node, scheme) {
+        let downlink = self.is_downlink(&node);
+        if !hooks.speaks(scheme) || !hooks.wants_method(node, downlink, scheme) {
             self.method_failed(node);
             return;
         }
@@ -291,7 +292,7 @@ impl PeerNode {
                 .is_some_and(|link| self.methods_with(hooks, link).contains(&scheme))
         {
             Some(RefusalReason::UnsupportedScheme)
-        } else if !hooks.wants_method(sender, scheme) {
+        } else if !hooks.wants_method(sender, self.is_downlink(&sender), scheme) {
             Some(RefusalReason::SchemeRefused)
         } else {
             None
