@@ -17,9 +17,9 @@
 
 use dassie_hub::escrow::{
     EscrowFault, EscrowSeen, OPEN_MEMO_TYPE, PayoutBundle, PayoutError, PayoutTransaction,
-    SetupStep, ValidatorKeys, assemble, check_escrow, check_proven_escrow, deposit_of, escrow_keys,
-    escrow_master, outcome_of, payout_set, setup, setup_step, sign_payout_set, signer_list_set,
-    withdrawal_outcome, withdrawal_payment,
+    SetupStep, ValidatorKeys, assemble, check_escrow, check_escrow_line, check_proven_escrow,
+    deposit_of, escrow_keys, escrow_master, outcome_of, payout_set, setup, setup_step,
+    sign_payout_set, signer_list_set, withdrawal_outcome, withdrawal_payment,
 };
 use dassie_hub::ledger::Failure;
 use dassie_hub::ledger::TESTNET_NETWORK;
@@ -741,6 +741,66 @@ fn the_check_from_proofs_counts_what_the_escrow_owns() {
     assert_eq!(
         check_proven_escrow(&rules, &proven),
         Err(EscrowFault::Objects)
+    );
+}
+
+/// `line`, a `RippleState` in rippled's binary form, with the `UInt32`
+/// fields `qualities` added, all in canonical order.
+fn with_qualities(line: &[u8], qualities: &[(u8, u32)]) -> Vec<u8> {
+    use dassie_xrpl::binary::{FieldId, Fields, Type, write_field};
+    let mut fields: Vec<(FieldId, Vec<u8>)> = Fields::new(line)
+        .map(|field| {
+            let field = field.unwrap();
+            (field.id, field.value.to_vec())
+        })
+        .collect();
+    for (code, quality) in qualities {
+        fields.push((
+            FieldId::new(Type::UInt32, *code),
+            quality.to_be_bytes().to_vec(),
+        ));
+    }
+    fields.sort_by_key(|(id, _)| *id);
+    let mut out = Vec::new();
+    for (id, value) in fields {
+        write_field(&mut out, id, &value);
+    }
+    out
+}
+
+// spec/areas/hubs.md#the-escrow: a token hub's escrow line is at par on
+// both sides. A quality on either side, which its master key could set
+// before the setup disables it, would skew what withdrawals deliver and
+// deposits add, so the validators' check from proofs refuses it as the
+// check from JSON does.
+#[test]
+fn the_check_from_proofs_takes_the_escrow_line_only_at_par() {
+    let mut hub = Hub::found_with(dsusd_terms);
+    let terms = hub.rules.terms.clone();
+    let proven = proven_escrow(&mut hub.xrpl, &terms);
+    let line = proven.object(&escrow_keys(&terms)[2]).unwrap().unwrap();
+    assert_eq!(with_qualities(line, &[]), line);
+    assert_eq!(check_escrow_line(&terms, line), Ok(()));
+    // HighQualityIn, HighQualityOut, LowQualityIn and LowQualityOut, as
+    // rippled numbers a line's fields.
+    for code in 16..=19 {
+        for par in [0, 1_000_000_000] {
+            let line = with_qualities(line, &[(code, par)]);
+            assert_eq!(check_escrow_line(&terms, &line), Ok(()), "{code} {par}");
+        }
+        for off in [1, 999_999_999, 1_000_000_001, u32::MAX] {
+            let line = with_qualities(line, &[(code, off)]);
+            assert_eq!(
+                check_escrow_line(&terms, &line),
+                Err(EscrowFault::TrustLine),
+                "{code} {off}"
+            );
+        }
+    }
+    let both = with_qualities(line, &[(16, 1_000_000_000), (19, 1_100_000_000)]);
+    assert_eq!(
+        check_escrow_line(&terms, &both),
+        Err(EscrowFault::TrustLine)
     );
 }
 

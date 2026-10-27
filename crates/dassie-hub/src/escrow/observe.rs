@@ -194,10 +194,7 @@ pub fn check_proven_escrow(rules: &Rules, state: &ProvenState) -> Result<u32, Es
     if let Asset::Token { currency, issuer } = terms.asset {
         let line =
             proven(state, &line_key(escrow, issuer, currency))?.ok_or(EscrowFault::TrustLine)?;
-        let (read, _) = ripple_state(line).map_err(|_| EscrowFault::TrustLine)?;
-        if !at_par(line) || !is_escrow_line(terms, &read) {
-            return Err(EscrowFault::TrustLine);
-        }
+        check_escrow_line(terms, line)?;
         owned = 2;
     }
     if root.owner_count != owned {
@@ -206,14 +203,51 @@ pub fn check_proven_escrow(rules: &Rules, state: &ProvenState) -> Result<u32, Es
     Ok(root.sequence)
 }
 
+/// A trust line's qualities, as rippled's binary form names its
+/// `UInt32` fields: what each side values what it takes (`QualityIn`) and
+/// pays (`QualityOut`) at, in billionths. A `TrustSet`'s own `QualityIn`
+/// and `QualityOut` (20 and 21) are never in a line.
+const HIGH_QUALITY_IN: FieldId = FieldId::new(Type::UInt32, 16);
+const HIGH_QUALITY_OUT: FieldId = FieldId::new(Type::UInt32, 17);
+const LOW_QUALITY_IN: FieldId = FieldId::new(Type::UInt32, 18);
+const LOW_QUALITY_OUT: FieldId = FieldId::new(Type::UInt32, 19);
+const QUALITIES: [FieldId; 4] = [
+    HIGH_QUALITY_IN,
+    HIGH_QUALITY_OUT,
+    LOW_QUALITY_IN,
+    LOW_QUALITY_OUT,
+];
+
+/// A quality at par: a billion billionths. Zero, or none, is par too.
+const QUALITY_PAR: u32 = 1_000_000_000;
+
+/// The validators' check of a token hub's escrow line to its issuer, from
+/// the `RippleState` a state proof holds, in rippled's binary form: as the
+/// setup makes it ([`check_escrow`](super::check_escrow) reads the same
+/// from JSON), and at par on both sides, with no quality that would skew
+/// what a withdrawal delivers or a deposit adds.
+///
+/// # Errors
+///
+/// [`EscrowFault::TrustLine`]: it does not read, is not the line the setup
+/// makes, or values something off par.
+pub fn check_escrow_line(terms: &Terms, object: &[u8]) -> Result<(), EscrowFault> {
+    let (read, _) = ripple_state(object).map_err(|_| EscrowFault::TrustLine)?;
+    if at_par(object) && is_escrow_line(terms, &read) {
+        Ok(())
+    } else {
+        Err(EscrowFault::TrustLine)
+    }
+}
+
 /// Whether a `RippleState` in rippled's binary form values what it pays and
-/// takes at par on both sides: no quality, or one of zero or a billion.
+/// takes at par on both sides: no quality, or one of zero or
+/// [`QUALITY_PAR`].
 fn at_par(object: &[u8]) -> bool {
-    const PAR: u32 = 1_000_000_000;
-    let qualities = [20, 21, 22, 23].map(|code| FieldId::new(Type::UInt32, code));
     Fields::new(object).all(|field| {
         field.is_ok_and(|field| {
-            !qualities.contains(&field.id) || field.uint32().is_ok_and(|q| q == 0 || q == PAR)
+            !QUALITIES.contains(&field.id)
+                || field.uint32().is_ok_and(|q| q == 0 || q == QUALITY_PAR)
         })
     })
 }
