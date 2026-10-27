@@ -215,15 +215,15 @@ pub fn check_proven_escrow(rules: &Rules, state: &ProvenState) -> Result<u32, Es
 /// `UInt32` fields: what each side values what it takes (`QualityIn`) and
 /// pays (`QualityOut`) at, in billionths. A `TrustSet`'s own `QualityIn`
 /// and `QualityOut` (20 and 21) are never in a line.
-const HIGH_QUALITY_IN: FieldId = FieldId::new(Type::UInt32, 16);
-const HIGH_QUALITY_OUT: FieldId = FieldId::new(Type::UInt32, 17);
-const LOW_QUALITY_IN: FieldId = FieldId::new(Type::UInt32, 18);
-const LOW_QUALITY_OUT: FieldId = FieldId::new(Type::UInt32, 19);
+const LOW_QUALITY_IN: FieldId = FieldId::new(Type::UInt32, 16);
+const LOW_QUALITY_OUT: FieldId = FieldId::new(Type::UInt32, 17);
+const HIGH_QUALITY_IN: FieldId = FieldId::new(Type::UInt32, 18);
+const HIGH_QUALITY_OUT: FieldId = FieldId::new(Type::UInt32, 19);
 const QUALITIES: [FieldId; 4] = [
-    HIGH_QUALITY_IN,
-    HIGH_QUALITY_OUT,
     LOW_QUALITY_IN,
     LOW_QUALITY_OUT,
+    HIGH_QUALITY_IN,
+    HIGH_QUALITY_OUT,
 ];
 
 /// A quality at par: a billion billionths. Zero, or none, is par too.
