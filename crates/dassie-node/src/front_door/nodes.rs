@@ -22,6 +22,7 @@ use hyper_util::rt::TokioIo;
 use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 
+use crate::clock::{Clock, interval_passed};
 use crate::http::response::Body;
 use crate::log::target;
 use crate::node::lock;
@@ -43,8 +44,10 @@ const IDLE_FOR: Duration = Duration::from_secs(5);
 const OPEN_TIMEOUT: Duration = Duration::from_secs(15);
 
 /// Most time a request waits for one of its node's streams to come free,
-/// when all are in use, before it is answered 503.
-const WAIT_FOR_STREAM: Duration = Duration::from_secs(2);
+/// when all are in use, before it is answered 503, in ms of the front
+/// door's clock: of real time on the system clock, and of the clock on one
+/// moved by hand, whose moves wake it.
+const WAIT_FOR_STREAM_MS: u64 = 2_000;
 
 /// Time for a node to answer a request in full.
 const ANSWER_TIMEOUT: Duration = Duration::from_secs(30);
@@ -74,6 +77,8 @@ pub type Answer = (hyper::http::response::Parts, Bytes);
 /// The streams to every node.
 pub struct Nodes {
     quic: Arc<Quic>,
+    /// The front door's clock, on which a request waits for a stream.
+    clock: Arc<dyn Clock>,
     table: Mutex<Table>,
     /// Woken whenever a lease ends, for requests that wait for a stream.
     freed: tokio::sync::Notify,
@@ -180,11 +185,13 @@ impl Table {
 }
 
 impl Nodes {
-    /// Streams over `quic`'s connections, closed at `shutdown`.
+    /// Streams over `quic`'s connections, closed at `shutdown`; a request
+    /// waits for one on `clock`.
     #[must_use]
-    pub fn new(quic: Arc<Quic>, shutdown: CancellationToken) -> Self {
+    pub fn new(quic: Arc<Quic>, clock: Arc<dyn Clock>, shutdown: CancellationToken) -> Self {
         Self {
             quic,
+            clock,
             table: Mutex::new(Table::default()),
             freed: tokio::sync::Notify::new(),
             shutdown,
@@ -231,9 +238,14 @@ impl Nodes {
     }
 
     /// A place for one more request to `node`, with an idle stream if one
-    /// is left, waiting at most [`WAIT_FOR_STREAM`] for one to come free.
+    /// is left, waiting at most [`WAIT_FOR_STREAM_MS`] for one to come free.
     async fn lease(self: &Arc<Self>, node: NodeId) -> Result<Lease, Missed> {
-        let deadline = tokio::time::Instant::now() + WAIT_FOR_STREAM;
+        let mut moves = self.clock.subscribe();
+        let deadline_ms = self.clock.now_ms().saturating_add(WAIT_FOR_STREAM_MS);
+        // One wait across the loop's turns, so that on the system clock it
+        // ends the interval's real time after the request came.
+        let expired = interval_passed(&*self.clock, &mut moves, deadline_ms);
+        let mut expired = std::pin::pin!(expired);
         loop {
             // Registered before the table is looked at, so that a lease
             // ending in between still wakes this request.
@@ -247,8 +259,9 @@ impl Nodes {
                     sender,
                 });
             }
-            if tokio::time::timeout_at(deadline, freed).await.is_err() {
-                return Err(Missed::Busy);
+            tokio::select! {
+                () = expired.as_mut() => return Err(Missed::Busy),
+                () = freed => {}
             }
         }
     }

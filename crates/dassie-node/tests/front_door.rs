@@ -37,7 +37,8 @@ use dassie_node::node::Policies;
 use dassie_node::outbound::Resolver;
 use dassie_node::peer_server::Answer;
 use dassie_node::quic::relay::{KeepWhile, Purpose, RelayError, ServedStream};
-use dassie_node::quic::{Body, Handler, Quic, tunnel};
+use dassie_node::quic::tunnel::{self, TunnelBounds};
+use dassie_node::quic::{Body, Handler, Quic};
 use dassie_node::rpc::proto::{self, request::Method, response};
 use dassie_node_core::connections::ConnectionLimits;
 use dassie_payments::httpsig;
@@ -48,7 +49,8 @@ use rcgen::{BasicConstraints, CertificateParams, IsCa, Issuer, KeyPair};
 use rustls::pki_types::{CertificateDer, ServerName};
 use serde_json::{Value, json};
 use support::op::{CA, Client, add_stub, signed_under};
-use support::{Bound, Reply, START_MS, TestNode, https_and_quic, pair, set_up};
+use support::{Bound, HANG, Reply, START_MS, TestNode, eventually, https_and_quic, pair, set_up};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::watch;
 use tokio_rustls::TlsConnector;
 use tokio_rustls::client::TlsStream;
@@ -68,7 +70,8 @@ struct Door {
     url: String,
     roots: Arc<rustls::RootCertStore>,
     /// The front door's clock, for its rate limits: polls move it on, so
-    /// that they do not use up a client's allowance.
+    /// that they do not use up a client's allowance. Some tests share it
+    /// with their nodes, and then a poll moves them on too.
     clock: ManualClock,
     _dir: tempfile::TempDir,
     /// Where its URL leads over UDP when that drops everything.
@@ -125,27 +128,43 @@ impl Door {
         registrars: Registrars,
         clock: ManualClock,
     ) -> Self {
-        Self::start_on(shutdown, registrars, clock, Listening::apart()).await
+        let listening = Listening::apart();
+        Self::start_on(
+            shutdown,
+            registrars,
+            clock,
+            listening,
+            TunnelBounds::DEFAULT,
+        )
+        .await
     }
 
     /// A front door that reads no registrar's names, at a URL whose UDP
-    /// drops everything.
-    async fn start_udp_blocked(shutdown: &CancellationToken) -> Self {
+    /// drops everything, whose tunnels have `bounds`.
+    async fn start_udp_blocked(shutdown: &CancellationToken, bounds: TunnelBounds) -> Self {
         let registrars = Registrars {
             nodes: Vec::new(),
             config: dassie_peer::Config::DEV,
         };
         let clock = ManualClock::new(START_MS);
-        Self::start_on(shutdown, registrars, clock, Listening::udp_blocked()).await
+        Self::start_on(
+            shutdown,
+            registrars,
+            clock,
+            Listening::udp_blocked(),
+            bounds,
+        )
+        .await
     }
 
     /// A front door on `listening` that reads the names `registrars` list,
-    /// on `clock`.
+    /// on `clock`, whose tunnels have `bounds`.
     async fn start_on(
         shutdown: &CancellationToken,
         registrars: Registrars,
         clock: ManualClock,
         listening: Listening,
+        bounds: TunnelBounds,
     ) -> Self {
         let Listening {
             https,
@@ -166,6 +185,7 @@ impl Door {
             relay_url: url.clone(),
             registrars,
             allow_private: true,
+            tunnel_bounds: bounds,
         };
         let sockets = Sockets { https, quic };
         let time = (
@@ -193,7 +213,9 @@ impl Door {
 
     /// A fresh TLS connection, checking the front door's certificate for
     /// `name`; none if the front door closes it, as it does a client's
-    /// past its share of connections.
+    /// past its share of connections. It does so on arrival, and the
+    /// handshake fails at once, and one it takes completes: the timeout is
+    /// a hang's guard ([`HANG`]), never what decides.
     async fn try_tls(&self, name: &str) -> Option<TlsStream<tokio::net::TcpStream>> {
         let config = rustls::ClientConfig::builder_with_provider(dassie_node::tls::provider())
             .with_safe_default_protocol_versions()
@@ -203,27 +225,24 @@ impl Door {
         let stream = tokio::net::TcpStream::connect(self.https).await.ok()?;
         let server = ServerName::try_from(name.to_string()).unwrap();
         let connect = TlsConnector::from(Arc::new(config)).connect(server, stream);
-        tokio::time::timeout(Duration::from_secs(2), connect)
+        tokio::time::timeout(HANG, connect)
             .await
-            .ok()?
+            .expect("a TLS handshake hung")
             .ok()
     }
 
     /// Opens a tunnel for QUIC at `/quic` on the relay's host; the status
-    /// of a refusal. The place of the connection upgraded before may take
-    /// a moment to come back.
+    /// of a refusal. The place of the connection upgraded before comes back
+    /// once the front door has seen it go, which the IO layer does in its
+    /// own time, so this tries for one until a hang ([`HANG`]).
     async fn tunnel(
         &self,
     ) -> Result<WebSocketStream<TlsStream<tokio::net::TcpStream>>, StatusCode> {
-        let mut stream = None;
-        for _ in 0..50 {
-            stream = self.try_tls(&format!("relay.{DOMAIN}")).await;
-            if stream.is_some() {
-                break;
-            }
-            tokio::time::sleep(Duration::from_millis(20)).await;
-        }
-        let stream = stream.expect("no place for an HTTPS connection");
+        let relay = format!("relay.{DOMAIN}");
+        let stream = eventually("a place for an HTTPS connection", async || {
+            self.try_tls(&relay).await
+        })
+        .await;
         let mut request = format!("wss://{}{}", self.relay_host(), tunnel::PATH)
             .into_client_request()
             .unwrap();
@@ -267,15 +286,38 @@ impl Door {
     }
 
     /// Waits until the node `name` names answers through the front door.
+    /// Its connection to the front door is the IO layer's, made in real
+    /// time (a QUIC handshake, and the backoff between tries), so this
+    /// waits for it until a hang ([`HANG`]).
     async fn until_reached(&self, name: &str) {
-        for _ in 0..500 {
-            if self.get(name, "/.well-known/pay").await.status != StatusCode::SERVICE_UNAVAILABLE {
-                return;
+        eventually("the node connecting to the front door", async || {
+            let status = self.get(name, "/.well-known/pay").await.status;
+            if status != StatusCode::SERVICE_UNAVAILABLE {
+                return Some(());
             }
             self.clock.advance(1_000);
-            tokio::time::sleep(Duration::from_millis(20)).await;
-        }
-        panic!("the node never connected to the front door");
+            tokio::time::sleep(Duration::from_millis(10)).await;
+            None
+        })
+        .await;
+    }
+
+    /// Waits until the front door has seen a node that stopped go: a
+    /// request for `path` under `name` gives what `gone` looks for. The
+    /// node's connection closes as the IO layer closes it, in real time,
+    /// so this waits until a hang ([`HANG`]); each try moves the front
+    /// door's clock on, as [`until_reached`](Self::until_reached) does.
+    async fn until_gone(&self, name: &str, path: &str, gone: impl Fn(&Reply) -> bool) -> Reply {
+        eventually("the front door seeing the node go", async || {
+            let reply = self.get(name, path).await;
+            if gone(&reply) {
+                return Some(reply);
+            }
+            self.clock.advance(1_000);
+            tokio::time::sleep(Duration::from_millis(40)).await;
+            None
+        })
+        .await
     }
 }
 
@@ -485,7 +527,7 @@ fn tunnel_handshake(host: &str, subprotocol: bool) -> Request<Full<Bytes>> {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_node_whose_udp_is_blocked_keeps_its_front_door_over_a_tunnel() {
     let shutdown = CancellationToken::new();
-    let door = Door::start_udp_blocked(&shutdown).await;
+    let door = Door::start_udp_blocked(&shutdown, TunnelBounds::DEFAULT).await;
     let (node, key) = node_behind(&door, 70).await;
     let name = name_of(&key.node_id());
     door.until_reached(&name).await;
@@ -544,7 +586,14 @@ async fn a_node_whose_udp_is_blocked_keeps_its_front_door_over_a_tunnel() {
 #[tokio::test(flavor = "multi_thread")]
 async fn tunnels_at_the_front_door_hold_the_places_of_their_connections() {
     let shutdown = CancellationToken::new();
-    let door = Door::start_udp_blocked(&shutdown).await;
+    // Bounds as long as a hang ([`HANG`]), so that each tunnel holds its
+    // place until the test ends it. They are real time, and that a tunnel
+    // without a connection ends by them is `tests/tunnel.rs`'s to check.
+    let held = TunnelBounds {
+        first_packet: HANG,
+        connect: HANG,
+    };
+    let door = Door::start_udp_blocked(&shutdown, held).await;
     let (mut browsers, body) = tunnel_handshake(door.relay_host(), true).into_parts();
     let origin = "https://page.example".parse().unwrap();
     browsers.headers.insert("origin", origin);
@@ -563,17 +612,13 @@ async fn tunnels_at_the_front_door_hold_the_places_of_their_connections() {
         door.tunnel().await.err(),
         Some(StatusCode::SERVICE_UNAVAILABLE)
     );
-    // A tunnel that ends gives its place back.
+    // A tunnel its client ends gives its place back, once the front door
+    // has seen it go, in the IO layer's own time.
     drop(tunnels.pop());
-    let mut again = Err(StatusCode::SERVICE_UNAVAILABLE);
-    for _ in 0..50 {
-        again = door.tunnel().await;
-        if again.is_ok() {
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(20)).await;
-    }
-    assert!(again.is_ok(), "{:?}", again.err());
+    eventually("a tunnel's place coming back", async || {
+        door.tunnel().await.ok()
+    })
+    .await;
     drop(tunnels);
     shutdown.cancel();
 }
@@ -676,17 +721,10 @@ async fn the_front_door_serves_only_its_names_and_open_payments() {
     assert!(reply.header("signature").is_none());
     // Once the node stops, it cannot be reached either.
     node.stop().await;
-    let mut gone = false;
-    for _ in 0..200 {
-        let status = door.get(&name, "/.well-known/pay").await.status;
-        if status == StatusCode::SERVICE_UNAVAILABLE {
-            gone = true;
-            break;
-        }
-        door.clock.advance(1_000);
-        tokio::time::sleep(Duration::from_millis(50)).await;
-    }
-    assert!(gone, "the front door still reaches a node that stopped");
+    door.until_gone(&name, "/.well-known/pay", |reply| {
+        reply.status == StatusCode::SERVICE_UNAVAILABLE
+    })
+    .await;
     shutdown.cancel();
 }
 
@@ -771,18 +809,10 @@ async fn the_root_of_a_name_is_a_page_the_front_door_writes() {
     page_of(&door.get(&name_of(&other), "/").await, &other, false);
     // And so does one that stopped, once the front door has seen it go.
     node.stop().await;
-    let mut gone = false;
-    for _ in 0..200 {
-        let reply = door.get(&name, "/").await;
-        if reply.text().contains("Not connected") {
-            page_of(&reply, &id, false);
-            gone = true;
-            break;
-        }
-        door.clock.advance(1_000);
-        tokio::time::sleep(Duration::from_millis(50)).await;
-    }
-    assert!(gone, "the page still says a node that stopped is connected");
+    let reply = door
+        .until_gone(&name, "/", |reply| reply.text().contains("Not connected"))
+        .await;
+    page_of(&reply, &id, false);
     shutdown.cancel();
 }
 
@@ -1023,10 +1053,91 @@ fn signed_by(
     httpsig::check_node_response(&request, &answer, &reply.body, Some(node), now_s)
 }
 
+/// Moves `clock` on 100 ms at a time, giving the front door real time to
+/// work between moves, until `answer` is in: for a request the front door
+/// holds until its clock passes a deadline. Gives up after a number of
+/// steps of the clock, far past the 2 s it waits for a stream.
+async fn until_answered(clock: &ManualClock, answer: impl Future<Output = Reply>) -> Reply {
+    let mut answer = std::pin::pin!(answer);
+    for _ in 0..1_000 {
+        tokio::select! {
+            reply = answer.as_mut() => return reply,
+            () = tokio::time::sleep(Duration::from_millis(10)) => {}
+        }
+        clock.advance(100);
+    }
+    panic!("no answer in 100 s of the front door's clock");
+}
+
+/// Sends a GET of `path` under `name` to the front door over a fresh
+/// connection, in full, and returns the connection, to read the answer
+/// from.
+async fn sent(door: &Door, name: &str, path: &str) -> TlsStream<tokio::net::TcpStream> {
+    let mut stream = door.try_tls(name).await.unwrap();
+    let head = format!("GET {path} HTTP/1.1\r\nhost: {name}\r\nconnection: close\r\n\r\n");
+    stream.write_all(head.as_bytes()).await.unwrap();
+    stream.flush().await.unwrap();
+    stream
+}
+
+/// The status line of the answer on `stream`. It comes as the IO layer
+/// carries it, so this waits until a hang ([`HANG`]).
+async fn status_line(stream: &mut TlsStream<tokio::net::TcpStream>) -> String {
+    let read = async {
+        let mut head = Vec::new();
+        let mut buffer = [0; 256];
+        while !head.windows(2).any(|pair| pair == b"\r\n") {
+            let read = stream.read(&mut buffer).await.unwrap();
+            assert_ne!(read, 0, "the connection closed without an answer");
+            head.extend_from_slice(&buffer[..read]);
+        }
+        let end = head.windows(2).position(|pair| pair == b"\r\n").unwrap();
+        String::from_utf8_lossy(&head[..end]).into_owned()
+    };
+    tokio::time::timeout(HANG, read).await.expect("no answer")
+}
+
 /// A node that serves whatever the path asks for on a relayed stream:
 /// a page, a JSON answer with a cookie, or one over the front door's
 /// bound. A real node never does; the front door must not pass it on.
-struct Misbehaving;
+#[derive(Default)]
+struct Misbehaving {
+    held: Arc<Held>,
+}
+
+/// The requests for `/pay/held` a misbehaving node holds: the first
+/// [`STREAMS_PER_NODE`] wait until the test lets them go, each on a stream
+/// of its own; any after them are answered at once.
+#[derive(Default)]
+struct Held {
+    /// How many came.
+    came: watch::Sender<usize>,
+    go: CancellationToken,
+}
+
+impl Held {
+    async fn hold(&self) {
+        let mut came = 0;
+        self.came.send_modify(|count| {
+            *count += 1;
+            came = *count;
+        });
+        if came <= STREAMS_PER_NODE {
+            self.go.cancelled().await;
+        }
+    }
+
+    /// Waits until the node holds all it holds. They reach it as the IO
+    /// layer carries them, in its own time, so until a hang ([`HANG`]).
+    async fn until_all_held(&self) {
+        let mut came = self.came.subscribe();
+        let all = came.wait_for(|count| *count >= STREAMS_PER_NODE);
+        tokio::time::timeout(HANG, all)
+            .await
+            .expect("the requests never reached the node")
+            .unwrap();
+    }
+}
 
 impl Handler for Misbehaving {
     fn client(&self, address: IpAddr) -> Option<ClientKey> {
@@ -1065,8 +1176,10 @@ impl Handler for Misbehaving {
         stream: ServedStream,
         _shutdown: CancellationToken,
     ) -> Pin<Box<dyn Future<Output = ()> + Send + 'a>> {
+        let held = Arc::clone(&self.held);
         Box::pin(async move {
-            let service = hyper::service::service_fn(misbehave);
+            let service =
+                hyper::service::service_fn(move |request| misbehave(request, Arc::clone(&held)));
             let _ = hyper::server::conn::http1::Builder::new()
                 .serve_connection(TokioIo::new(stream), service)
                 .await;
@@ -1076,10 +1189,11 @@ impl Handler for Misbehaving {
 
 /// What a misbehaving node answers, by path: a page, a page behind a
 /// JSON type, a redirect, an answer over the front door's bound, a sign-in
-/// dialog, a slow answer, or JSON with its own lax policy; and a cookie
-/// with each.
+/// dialog, an answer it holds ([`Held`]), or JSON with its own lax policy;
+/// and a cookie with each.
 async fn misbehave(
     request: Request<hyper::body::Incoming>,
+    held: Arc<Held>,
 ) -> Result<Response<Full<Bytes>>, std::convert::Infallible> {
     let page = || Bytes::from_static(b"<script>steal()</script>");
     let builder = Response::builder().header("set-cookie", "session=stolen");
@@ -1106,8 +1220,8 @@ async fn misbehave(
             .header("content-type", "application/json")
             .body(Bytes::from(vec![b' '; 1024 * 1024])),
         path => {
-            if path == "/pay/slow" {
-                tokio::time::sleep(Duration::from_millis(300)).await;
+            if path == "/pay/held" {
+                held.hold().await;
             }
             builder
                 .header("content-type", "application/json; charset=utf-8")
@@ -1133,7 +1247,9 @@ async fn the_front_door_passes_back_only_json_without_cookies() {
     let id = key.node_id();
     let (_identity, keys) = watch::channel(Some(key));
     let quic = Arc::new(Quic::new(UdpSocket::bind("127.0.0.1:0").unwrap(), keys, true).unwrap());
-    tokio::spawn(Arc::clone(&quic).serve(Arc::new(Misbehaving), shutdown.clone()));
+    let node = Arc::new(Misbehaving::default());
+    let held = Arc::clone(&node.held);
+    tokio::spawn(Arc::clone(&quic).serve(node, shutdown.clone()));
     let resolver = Resolver::new(true);
     tokio::spawn(Arc::clone(&quic).keep_relay(
         door.id,
@@ -1181,17 +1297,45 @@ async fn the_front_door_passes_back_only_json_without_cookies() {
         assert_eq!(reply.status, StatusCode::BAD_GATEWAY, "{path}");
         assert_eq!(json_of(&reply)["error"]["code"], "bad_gateway");
     }
-    // More requests at once than the node has streams wait for one.
-    let parallel = (0..STREAMS_PER_NODE + 2).map(|_| door.get(&name, "/pay/slow"));
-    for reply in futures_util::future::join_all(parallel).await {
+    // More requests at once than the node has streams wait for one, on
+    // the front door's clock. The node holds the first, one on each stream
+    // it has, and the test waits for that.
+    let first = (0..STREAMS_PER_NODE).map(|_| door.get(&name, "/pay/held"));
+    let more = async {
+        held.until_all_held().await;
+        // One that finds every stream busy is answered 503 once the front
+        // door's clock passed its time for a stream to come free.
+        let busy = until_answered(&door.clock, door.get(&name, "/pay/held")).await;
+        assert_eq!(busy.status, StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(json_of(&busy)["error"]["description"], "the node is busy");
+        // Two more are sent, and then the first let go. The front door's
+        // clock stands still from here on, so the two wait for a stream
+        // however long their way takes, and get one.
+        let mut more = Vec::new();
+        for _ in 0..2 {
+            more.push(sent(&door, &name, "/pay/held").await);
+        }
+        held.go.cancel();
+        let mut statuses = Vec::new();
+        for stream in &mut more {
+            statuses.push(status_line(stream).await);
+        }
+        statuses
+    };
+    let (first, more) =
+        futures_util::future::join(futures_util::future::join_all(first), more).await;
+    for reply in &first {
         assert_eq!(reply.status, StatusCode::OK, "{}", reply.text());
+    }
+    for status in more {
+        assert!(status.starts_with("HTTP/1.1 200 "), "{status}");
     }
     // The front door carries no relay requests: it is no node's relay but
     // its own.
     let (_other, other_keys) = watch::channel(Some(Arc::new(NodeKey::from_bytes(&[66; 32]))));
     let client =
         Arc::new(Quic::new(UdpSocket::bind("127.0.0.1:0").unwrap(), other_keys, true).unwrap());
-    tokio::spawn(Arc::clone(&client).serve(Arc::new(Misbehaving), shutdown.clone()));
+    tokio::spawn(Arc::clone(&client).serve(Arc::new(Misbehaving::default()), shutdown.clone()));
     let relayed = client
         .open_relayed((door.id, &door.url), id, Purpose::Payments, &resolver)
         .await;

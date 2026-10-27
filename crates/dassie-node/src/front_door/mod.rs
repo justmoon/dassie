@@ -47,6 +47,7 @@ use crate::clock::{Clock, SharedRng};
 use crate::log::target;
 use crate::outbound::Resolver;
 use crate::quic::Quic;
+use crate::quic::tunnel::TunnelBounds;
 use crate::tls::{self, CertificateSlot};
 
 /// Why a front door could not start.
@@ -78,6 +79,9 @@ pub struct Parts {
     /// Whether registrars may be at private addresses, such as `localhost`
     /// in dev and tests (`DASSIE_PEER_ALLOW_PRIVATE=1`).
     pub allow_private: bool,
+    /// How long a tunnel taken may hold its place among the QUIC
+    /// connections being set up: [`TunnelBounds::DEFAULT`] but in tests.
+    pub tunnel_bounds: TunnelBounds,
 }
 
 /// Its sockets, bound already.
@@ -117,7 +121,8 @@ pub async fn serve(
     let key = Arc::new(parts.key);
     let (_identity, keys) = watch::channel(Some(Arc::clone(&key)));
     let quic = Quic::new(sockets.quic, keys, parts.allow_private)
-        .map_err(|error| StartError(format!("the QUIC endpoint cannot start: {error}")))?;
+        .map_err(|error| StartError(format!("the QUIC endpoint cannot start: {error}")))?
+        .with_tunnel_bounds(parts.tunnel_bounds);
     let quic = Arc::new(quic);
     let resolver = Resolver::new(parts.allow_private);
     sockets
@@ -135,7 +140,11 @@ pub async fn serve(
         Arc::clone(&clock),
         rng,
     );
-    let nodes = Arc::new(nodes::Nodes::new(Arc::clone(&quic), shutdown.clone()));
+    let nodes = Arc::new(nodes::Nodes::new(
+        Arc::clone(&quic),
+        Arc::clone(&clock),
+        shutdown.clone(),
+    ));
     let door = Arc::new(https::Door::new(
         &domain,
         (relay, Arc::clone(&quic)),
@@ -212,6 +221,7 @@ pub async fn run(
         relay_url,
         registrars: settings.registrars(),
         allow_private: settings.peer_allow_private,
+        tunnel_bounds: TunnelBounds::DEFAULT,
     };
     serve(parts, Sockets { https, quic }, (clock, rng), shutdown).await
 }

@@ -575,6 +575,15 @@ impl Quic {
         self
     }
 
+    /// The tunnels it takes hold their places among the connections being
+    /// set up within `bounds` ([`tunnel::TunnelBounds`]): the production
+    /// ones unless a test sets them longer.
+    #[must_use]
+    pub const fn with_tunnel_bounds(mut self, bounds: tunnel::TunnelBounds) -> Self {
+        self.tunnels.set_bounds(bounds);
+        self
+    }
+
     /// Whether the node is a periphery node, for the connections it dials
     /// from now on: they keep themselves alive, as its connections to its
     /// uplinks must, and where UDP does not get through they go over a

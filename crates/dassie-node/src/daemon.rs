@@ -578,7 +578,8 @@ fn attach_quic(
     );
     let quic = crate::quic::Quic::new(socket, node.identity(), node.allows_private_peers())
         .map_err(|e| DaemonError::Bind(format!("QUIC on {address}"), e))?
-        .with_tunnel_proxy(settings.tunnel_proxy.clone());
+        .with_tunnel_proxy(settings.tunnel_proxy.clone())
+        .with_tunnel_bounds(node.policies().tunnel_bounds);
     for problem in &settings.tunnel_proxy_problems {
         tracing::warn!(target: target::PEER, "{problem}");
     }

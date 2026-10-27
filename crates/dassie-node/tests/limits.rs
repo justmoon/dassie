@@ -37,7 +37,10 @@ fn key() -> NodeKey {
     NodeKey::from_bytes(&[7; 32])
 }
 
-/// The close code the socket gets next, skipping other messages.
+/// The close code the socket gets next, skipping other messages. What
+/// closes it is the IO layer's own, on real time (an idle socket's or a
+/// lifetime's timer, the grace an ending session's calls get), so this
+/// waits for it until a hang ([`HANG`]), which no loaded machine reaches.
 async fn close_code(socket: &mut Socket) -> Option<u16> {
     let wait = async {
         loop {
@@ -48,7 +51,7 @@ async fn close_code(socket: &mut Socket) -> Option<u16> {
             }
         }
     };
-    tokio::time::timeout(Duration::from_secs(10), wait)
+    tokio::time::timeout(HANG, wait)
         .await
         .expect("the socket stayed open")
 }
@@ -68,15 +71,7 @@ async fn websockets_are_capped() {
     assert!(refused.contains("503"), "{refused}");
     drop(first);
     // The place comes back once the socket is gone.
-    let mut again = Err(String::new());
-    for _ in 0..50 {
-        again = websocket(&node, None, &node.origin()).await;
-        if again.is_ok() {
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(20)).await;
-    }
-    assert!(again.is_ok(), "{again:?}");
+    websocket_eventually(&node).await;
     node.stop().await;
 }
 
@@ -110,7 +105,9 @@ async fn slow_bodies_time_out() {
     );
     stream.write_all(head.as_bytes()).await.unwrap();
     let mut reply = vec![0; 64];
-    let read = tokio::time::timeout(Duration::from_secs(5), stream.read(&mut reply))
+    // The body's timeout is the IO layer's, on real time: this waits for
+    // the answer it gives until a hang.
+    let read = tokio::time::timeout(HANG, stream.read(&mut reply))
         .await
         .unwrap()
         .unwrap();
@@ -176,17 +173,14 @@ async fn revoking_your_own_session_answers_first() {
     node.stop().await;
 }
 
-/// Opens `/rpc` until it opens, as a place may take a moment to come back.
-async fn websocket_eventually(node: &TestNode, cookie: Option<&str>) -> Result<Socket, String> {
-    let mut opened = Err(String::new());
-    for _ in 0..50 {
-        opened = websocket(node, cookie, &node.origin()).await;
-        if opened.is_ok() {
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(20)).await;
-    }
-    opened
+/// Opens `/rpc` without a session once it opens: the place of a socket
+/// that closed comes back once the node has seen it go, which the IO layer
+/// does in its own time, so this tries until a hang ([`HANG`]).
+async fn websocket_eventually(node: &TestNode) -> Socket {
+    eventually("a socket's place coming back", async || {
+        websocket(node, None, &node.origin()).await.ok()
+    })
+    .await
 }
 
 // Anyone can open a socket without a session, browser or not; one client
@@ -237,13 +231,14 @@ async fn anonymous_sockets_leave_room_for_sessions() {
         .unwrap_err();
     assert!(refused.contains("503"), "{refused}");
     drop(first);
-    let again = websocket_eventually(&node, None).await;
-    assert!(again.is_ok(), "{again:?}");
+    websocket_eventually(&node).await;
     node.stop().await;
 }
 
 /// Asks for the basic state every 100 ms until the socket closes, and
-/// returns its close code.
+/// returns its close code. The lifetime that closes it is the IO layer's
+/// own, on real time, so this waits for it until a hang ([`HANG`]); the
+/// pause between calls only keeps the asking from being a flood.
 async fn ask_until_closed(socket: &mut Socket) -> Option<u16> {
     let ask = async {
         for call_id in 1.. {
@@ -271,7 +266,7 @@ async fn ask_until_closed(socket: &mut Socket) -> Option<u16> {
         }
         None
     };
-    tokio::time::timeout(Duration::from_secs(10), ask)
+    tokio::time::timeout(HANG, ask)
         .await
         .expect("the socket stayed open")
 }
@@ -298,29 +293,35 @@ async fn anonymous_sockets_close_after_their_lifetime() {
     node.stop().await;
 }
 
-/// Whether the node holds `stream` open: a short read neither ends nor
-/// fails, as the node waits for a TLS handshake.
-async fn is_held(stream: &mut TcpStream) -> bool {
+/// Checks that the node closes `stream` without a word, as it does a
+/// connection past the client's share on arrival. It does so at once, so
+/// the wait is a hang's guard ([`HANG`]); a connection held instead stays
+/// open until the TLS handshake's timeout, and fails the test.
+async fn is_refused(stream: &mut TcpStream, what: &str) {
     let mut buffer = [0; 16];
-    tokio::time::timeout(Duration::from_millis(300), stream.read(&mut buffer))
+    let read = tokio::time::timeout(HANG, stream.read(&mut buffer))
         .await
-        .is_err()
+        .unwrap_or_else(|_| panic!("{what} was held"));
+    assert!(matches!(read, Ok(0) | Err(_)), "{what}: {read:?}");
 }
 
-/// A raw connection to `address` that the node holds; the place of a
-/// connection that just closed may take a moment to come back.
-async fn held(address: SocketAddr) -> TcpStream {
-    for _ in 0..50 {
-        let mut stream = TcpStream::connect(address).await.unwrap();
-        if is_held(&mut stream).await {
-            return stream;
-        }
-        tokio::time::sleep(Duration::from_millis(20)).await;
+/// Whether the node still serves `stream`: it answers a request on it.
+async fn is_served(stream: &mut TlsStream<TcpStream>, node: &TestNode) -> bool {
+    let request = format!("HEAD / HTTP/1.1\r\nHost: {}\r\n\r\n", node.host());
+    if stream.write_all(request.as_bytes()).await.is_err() {
+        return false;
     }
-    panic!("the node held no connection");
+    let mut reply = [0; 9];
+    let read = tokio::time::timeout(HANG, stream.read_exact(&mut reply))
+        .await
+        .expect("no answer");
+    read.is_ok() && &reply == b"HTTP/1.1 "
 }
 
-/// A TLS connection to `address`, if the node completes the handshake.
+/// A TLS connection to `address`, if the node completes the handshake. A
+/// connection past the client's share is closed on arrival, and fails its
+/// handshake at once, and one the node takes completes it: the timeout is
+/// a hang's guard ([`HANG`]), never what decides.
 async fn try_tls(address: SocketAddr) -> Option<TlsStream<TcpStream>> {
     let config = rustls::ClientConfig::builder_with_provider(tls::provider())
         .with_safe_default_protocol_versions()
@@ -331,10 +332,20 @@ async fn try_tls(address: SocketAddr) -> Option<TlsStream<TcpStream>> {
     let stream = TcpStream::connect(address).await.ok()?;
     let name = ServerName::try_from("localhost").unwrap();
     let connect = TlsConnector::from(Arc::new(config)).connect(name, stream);
-    tokio::time::timeout(Duration::from_secs(2), connect)
+    tokio::time::timeout(HANG, connect)
         .await
-        .ok()?
+        .expect("a TLS handshake hung")
         .ok()
+}
+
+/// A TLS connection the node takes: the place of a connection that just
+/// closed comes back once the node has seen it go, which the IO layer does
+/// in its own time, so this tries until a hang ([`HANG`]).
+async fn tls_eventually(address: SocketAddr) -> TlsStream<TcpStream> {
+    eventually("a place for an HTTPS connection", async || {
+        try_tls(address).await
+    })
+    .await
 }
 
 // One address cannot take all of a listener's connections, by holding them
@@ -346,24 +357,16 @@ async fn connections_are_capped_per_client() {
         ..Policies::DEFAULT
     })
     .await;
-    let first = held(node.https).await;
-    let second = held(node.https).await;
+    // Two raw connections that never start their handshake: nothing else
+    // is open, so the node takes both, and it takes connections in the
+    // order they came. So the third finds both places held, and is closed:
+    // had the node not held one of the first two, it would hold the third.
+    let first = TcpStream::connect(node.https).await.unwrap();
+    let second = TcpStream::connect(node.https).await.unwrap();
     let mut third = TcpStream::connect(node.https).await.unwrap();
-    let mut buffer = [0; 16];
-    let read = tokio::time::timeout(Duration::from_secs(5), third.read(&mut buffer))
-        .await
-        .expect("the third connection was held");
-    assert!(matches!(read, Ok(0) | Err(_)), "{read:?}");
+    is_refused(&mut third, "the third connection").await;
     drop(first);
-    let mut again = None;
-    for _ in 0..50 {
-        again = try_tls(node.https).await;
-        if again.is_some() {
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(20)).await;
-    }
-    assert!(again.is_some(), "no place came back");
+    tls_eventually(node.https).await;
     // Handshakes in progress hold up shutdown until they time out.
     drop(second);
     node.stop().await;
@@ -381,12 +384,12 @@ async fn loopback_is_not_counted_where_private_peers_are_allowed() {
     let node = Bound::new()
         .start(ManualClock::new(START_MS), 1, policies, &env)
         .await;
+    // Each completes its handshake while those before it are open: past a
+    // share of one, the node would have closed the second on arrival.
     let mut streams = Vec::new();
     for _ in 0..3 {
-        streams.push(TcpStream::connect(node.https).await.unwrap());
-    }
-    for stream in &mut streams {
-        assert!(is_held(stream).await, "a loopback connection was closed");
+        let stream = try_tls(node.https).await;
+        streams.push(stream.expect("a loopback connection was closed"));
     }
     drop(streams);
     node.stop().await;
@@ -407,15 +410,7 @@ enum Asks {
 /// of a refusal. The place of the connection upgraded before may take a
 /// moment to come back.
 async fn tunnel(node: &TestNode, asks: Asks) -> Result<Socket, u16> {
-    let mut stream = None;
-    for _ in 0..50 {
-        stream = try_tls(node.https).await;
-        if stream.is_some() {
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(20)).await;
-    }
-    let stream = stream.expect("no place for an HTTPS connection");
+    let stream = tls_eventually(node.https).await;
     let mut request = format!("wss://{}{}", node.host(), tunnel::PATH)
         .into_client_request()
         .unwrap();
@@ -435,18 +430,27 @@ async fn tunnel(node: &TestNode, asks: Asks) -> Result<Socket, u16> {
     }
 }
 
+/// Bounds for tunnels a test holds open to count their places: as long as
+/// a hang ([`HANG`]), so that a tunnel holds its place until the test ends
+/// it. They are real time, and that a tunnel without a connection ends by
+/// them is `tests/tunnel.rs`'s to check.
+const HELD: tunnel::TunnelBounds = tunnel::TunnelBounds {
+    first_packet: HANG,
+    connect: HANG,
+};
+
 // spec/decisions/quic-over-websocket.md: a tunnel leaves the HTTPS
 // listener's places once upgraded, and holds one among the QUIC connections
 // being set up, by its client address, as a connection over UDP from there
 // would: past the client's share of those, a tunnel is refused with 503,
 // though HTTPS has room, and the client keeps its share of HTTPS beside
 // it. A request without the tunnel's subprotocol is refused; and a tunnel
-// whose connection proves no key, here none at all, ends within the time
-// to connect, giving its place back.
+// that ends, here as its client closes it, gives its place back.
 #[tokio::test]
 async fn tunnels_hold_places_among_the_quic_connections_being_set_up() {
     let node = TestNode::start_with(Policies {
         http_connections_per_client: 1,
+        tunnel_bounds: HELD,
         ..Policies::DEFAULT
     })
     .await;
@@ -458,21 +462,20 @@ async fn tunnels_hold_places_among_the_quic_connections_being_set_up() {
     // has room.
     assert_eq!(tunnel(&node, Asks::AsANode).await.err(), Some(503));
     // The client holds its share of HTTPS connections beside its tunnel,
-    // and no more.
-    let mut first = held(node.https).await;
+    // and no more: the node took the first, so it has the second closed.
+    let mut first = tls_eventually(node.https).await;
     let mut second = TcpStream::connect(node.https).await.unwrap();
-    let mut buffer = [0; 16];
-    let read = tokio::time::timeout(Duration::from_secs(5), second.read(&mut buffer))
-        .await
-        .expect("a second connection was held");
-    assert!(matches!(read, Ok(0) | Err(_)), "{read:?}");
-    assert!(is_held(&mut first).await);
+    is_refused(&mut second, "a second connection").await;
+    assert!(is_served(&mut first, &node).await);
     drop(first);
     assert_eq!(
         tunnel(&node, Asks::WithoutSubprotocol).await.err(),
         Some(400)
     );
-    // Within the time to connect, and the time to close it.
+    assert_eq!(quic.places().unwrap().setting_up, 1);
+    // The client closes its tunnel; the node closes its side, and the
+    // tunnel leaves, giving its place back.
+    socket.close(None).await.unwrap();
     let ending = async {
         while let Some(Ok(message)) = socket.next().await {
             if message.is_close() {
@@ -480,9 +483,9 @@ async fn tunnels_hold_places_among_the_quic_connections_being_set_up() {
             }
         }
     };
-    tokio::time::timeout(Duration::from_secs(8), ending)
+    tokio::time::timeout(HANG, ending)
         .await
-        .expect("a tunnel that carries no connection stayed open");
+        .expect("the node did not close the tunnel");
     until_none_open(&quic).await;
     assert_eq!(quic.places().unwrap().setting_up, 0);
     drop(socket);
@@ -497,7 +500,11 @@ async fn tunnels_hold_places_among_the_quic_connections_being_set_up() {
 // hold them.
 #[tokio::test]
 async fn a_browser_gets_no_tunnel() {
-    let node = TestNode::start_with(Policies::DEFAULT).await;
+    let node = TestNode::start_with(Policies {
+        tunnel_bounds: HELD,
+        ..Policies::DEFAULT
+    })
+    .await;
     let quic = node.quic.clone().unwrap();
     assert_eq!(tunnel(&node, Asks::AsABrowser).await.err(), Some(403));
     assert_eq!(quic.open_tunnels(), 0);
@@ -507,13 +514,11 @@ async fn a_browser_gets_no_tunnel() {
     node.stop().await;
 }
 
-/// Waits a little for the node's tunnels to be gone.
+/// Waits for the node's tunnels to be gone: they leave once they closed,
+/// which takes the IO layer's own time, so until a hang ([`HANG`]).
 async fn until_none_open(quic: &dassie_node::quic::Quic) {
-    for _ in 0..100 {
-        if quic.open_tunnels() == 0 {
-            return;
-        }
-        tokio::time::sleep(Duration::from_millis(10)).await;
-    }
-    panic!("tunnels still open");
+    eventually("the tunnels to be gone", async || {
+        (quic.open_tunnels() == 0).then_some(())
+    })
+    .await;
 }
