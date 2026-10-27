@@ -436,6 +436,87 @@ async fn a_sponsor_founds_a_hub_with_four_validator_daemons() {
     }
 }
 
+// spec/areas/hubs.md#founding-a-hub: a hub of DSUSD is founded as one of
+// XRP is, its terms naming the token; its escrow is funded in XRP from the
+// sponsor's account, and its setup makes the trust line to DSUSD's issuer
+// beside the signer list, before the master key goes; a quorum checks it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+async fn a_sponsor_founds_a_dsusd_hub() {
+    let net = Net::start(|_| {}).await;
+    let invites = net.invites();
+    let mut owner = net.sponsor.ipc().await;
+    let asset = serde_json::json!({
+        "currency": dassie_xrpl::dsusd::CURRENCY.to_string(),
+        "issuer": dassie_xrpl::dsusd::ISSUER.to_address(),
+    });
+    // Too little for the account, its signer list and its line, and the
+    // fees of four setup transactions at the hub's gas.
+    let least = dassie_hub::rules::LEDGER_BASE_RESERVE
+        + 2 * dassie_node::hub::sponsor::LEDGER_OWNER_RESERVE
+        + 4 * dassie_hub::rules::LEAST_TOKEN_GAS_DROPS;
+    let refused = owner
+        .call(Method::FoundHub(proto::FoundHubRequest {
+            validators: invites.clone(),
+            terms: serde_json::json!({ "asset": asset }).to_string(),
+            escrow_funding_drops: Some(least - 1),
+            xrpl_server: String::new(),
+        }))
+        .await;
+    assert_eq!(
+        refused.unwrap_err().code(),
+        proto::ErrorCode::InvalidArgument,
+        "too little to create the escrow with its line"
+    );
+    let found = owner
+        .call(Method::FoundHub(proto::FoundHubRequest {
+            validators: invites,
+            terms: serde_json::json!({ "asset": asset }).to_string(),
+            escrow_funding_drops: None,
+            xrpl_server: String::new(),
+        }))
+        .await;
+    assert!(
+        matches!(found, Ok(response::Method::FoundHub(_))),
+        "{found:?}"
+    );
+    until(&net.clock, 250, async || {
+        founding(&net.sponsor).await.stage() == proto::HubFoundingStage::Founded
+    })
+    .await;
+    let founded = founding(&net.sponsor).await;
+    assert!(
+        founded.escrow_funded && founded.escrow_set_up,
+        "{founded:?}"
+    );
+    let bytes = dassie_xrpl::from_hex(&founded.rules).unwrap();
+    let mut reader = dassie_oer::Reader::new(&bytes);
+    let rules = dassie_hub::Rules::decode(&mut reader).unwrap();
+    reader.finish().unwrap();
+    assert_eq!(
+        rules.terms.asset,
+        dassie_hub::rules::Asset::Token {
+            currency: dassie_xrpl::dsusd::CURRENCY,
+            issuer: dassie_xrpl::dsusd::ISSUER,
+        }
+    );
+    assert_eq!(
+        rules.terms.fees.gas,
+        dassie_hub::rules::LEAST_TOKEN_GAS_DROPS
+    );
+    until(&net.clock, 250, async || {
+        let mut checked = 0;
+        for node in &net.validators {
+            checked += usize::from(validating(node).await.iter().all(|h| h.escrow_checked));
+        }
+        checked == net.validators.len()
+    })
+    .await;
+    // Its signer list and its line to the issuer: two objects.
+    let escrow = dassie_xrpl::AccountId::parse(&founded.escrow).unwrap();
+    assert_eq!(net.xrpl.ledger().owner_count(escrow), Some(2));
+    net.stop().await;
+}
+
 /// A QUIC endpoint that only dials: a node of `key`'s, as a stranger or a
 /// sponsor would found from.
 struct Dialer;

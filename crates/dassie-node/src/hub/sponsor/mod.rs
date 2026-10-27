@@ -40,18 +40,25 @@ use crate::store::{FoundingRow, StoreError};
 pub const ESCROW_FUNDING_DROPS: u64 = 2_000_000;
 
 /// The XRP Ledger testnet's reserve for each object an account owns, in
-/// drops: the escrow's signer list is one.
+/// drops: the escrow's signer list is one, and a token hub's trust line
+/// another.
 pub const LEDGER_OWNER_RESERVE: u64 = 200_000;
 
 /// The least that funds the escrow of a hub of `terms`, in drops: the XRP
 /// Ledger's reserves for the account and its signer list, and the fees of
-/// its three setup transactions. Less, and the payment that should create
-/// it fails, or the setup cannot be paid.
+/// its three setup transactions; a token hub's also the reserve of its
+/// trust line and the fee of the `TrustSet` that makes it, at its gas.
+/// Less, and the payment that should create it fails, or the setup cannot
+/// be paid.
 #[must_use]
 pub fn least_funding(terms: &dassie_hub::rules::Terms) -> u64 {
+    let (objects, transactions) = match terms.asset {
+        dassie_hub::rules::Asset::Xrp => (1, 3),
+        dassie_hub::rules::Asset::Token { .. } => (2, 4),
+    };
     dassie_hub::rules::LEDGER_BASE_RESERVE
-        .saturating_add(LEDGER_OWNER_RESERVE)
-        .saturating_add(terms.fees.ledger.saturating_mul(3))
+        .saturating_add(LEDGER_OWNER_RESERVE.saturating_mul(objects))
+        .saturating_add(terms.transaction_fee().saturating_mul(transactions))
 }
 
 /// The longest one request to a validator takes.
