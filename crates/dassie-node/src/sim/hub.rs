@@ -124,6 +124,7 @@ pub fn terms(validators: usize) -> Terms {
     let margin = config.margin_ms(faults);
     let window = Policies::DEFAULT.connector.message_window_ms;
     Terms {
+        version: dassie_hub::rules::HUB_VERSION,
         nonce: NONCE,
         sponsor: sponsor.public_key(),
         network: 1,
@@ -158,10 +159,8 @@ pub fn terms(validators: usize) -> Terms {
             reconfigure_notice: 120_000,
             absence: ABSENCE_MS,
             stall: MIN_STALL_MS,
-            precision: config.precision_ms,
             margin,
             allowance: window - margin,
-            view_timeout: config.leader_timeout_ms,
         },
     }
 }

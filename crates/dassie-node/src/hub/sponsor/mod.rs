@@ -148,6 +148,23 @@ pub struct FoundingStatus {
     pub created_ms: u64,
 }
 
+/// Refuses terms no node would join: a node peers over a hub only when its
+/// margin and allowance fit the connector's message window, so the escrow
+/// would fund a hub nobody uses.
+fn joinable(terms: &dassie_hub::rules::Terms, validators: usize) -> Result<(), FoundError> {
+    let window_ms = dassie_connector::Config::DEFAULT.message_window_ms;
+    let (margin, allowance) = (terms.timers.margin, terms.timers.allowance);
+    if margin.saturating_add(allowance) > window_ms {
+        return Err(FoundError::Invalid(format!(
+            "the margin of {margin} ms that {validators} validators need, with the \
+             allowance of {allowance} ms, exceeds the {window_ms} ms nodes leave for a \
+             hub, so no node would join it: found it with fewer validators or a smaller \
+             allowance"
+        )));
+    }
+    Ok(())
+}
+
 /// Starts founding a hub with the validators and terms the owner asked for.
 ///
 /// # Errors
@@ -170,7 +187,12 @@ pub fn found(node: &Node, request: FoundRequest) -> Result<FoundingStatus, Found
         TESTNET_NETWORK,
         master.account().0,
     );
-    let terms = terms::terms(base, &request.terms).map_err(FoundError::Invalid)?;
+    let mut terms = terms::terms(base, &request.terms).map_err(FoundError::Invalid)?;
+    // The margin covers finality with as many validators faulty as these
+    // tolerate, or no validator would sign the genesis of these rules.
+    let least_margin = dassie_hub::rules::least_margin_ms(request.validators.len());
+    terms.timers.margin = terms.timers.margin.max(least_margin);
+    joinable(&terms, request.validators.len())?;
     let funding_drops = request.funding_drops.unwrap_or(ESCROW_FUNDING_DROPS);
     let least = least_funding(&terms);
     if funding_drops < least {

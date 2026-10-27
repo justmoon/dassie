@@ -162,8 +162,30 @@ pub struct PreparedSettlement {
     pub message: Vec<u8>,
 }
 
-/// The most bytes of the memo an [`OwnerPayment`] carries.
+/// The most bytes of the memo an [`OwnerPayment`] carries: of its type,
+/// and of its data.
 pub const MAX_OWNER_MEMO_BYTES: usize = 64;
+
+/// The memo an [`OwnerPayment`] carries, on a ledger that has memos: its
+/// type, which says who reads it and how, and its data. Whoever asks for
+/// the payment names the type: the reader on the other side, such as a
+/// settlement hub's validators reading the key of the account a deposit
+/// opens, is theirs, not the scheme's.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct OwnerMemo {
+    /// Its type, at most [`MAX_OWNER_MEMO_BYTES`].
+    pub memo_type: Vec<u8>,
+    /// Its data, at most [`MAX_OWNER_MEMO_BYTES`].
+    pub data: Vec<u8>,
+}
+
+impl OwnerMemo {
+    /// Whether its type and data are within [`MAX_OWNER_MEMO_BYTES`].
+    #[must_use]
+    pub const fn fits(&self) -> bool {
+        self.memo_type.len() <= MAX_OWNER_MEMO_BYTES && self.data.len() <= MAX_OWNER_MEMO_BYTES
+    }
+}
 
 /// A payment of the owner's funds out of a scheme's account, to an address
 /// its ledger pays: how the node moves the owner's funds between two of
@@ -177,8 +199,8 @@ pub struct OwnerPayment {
     pub destination: String,
     /// The destination tag, on a ledger that has them.
     pub tag: Option<u32>,
-    /// One memo's data, at most [`MAX_OWNER_MEMO_BYTES`].
-    pub memo: Option<Vec<u8>>,
+    /// One memo, of the type its reader expects.
+    pub memo: Option<OwnerMemo>,
     /// How much, in internal units: whole units of the ledger.
     pub amount: u64,
 }

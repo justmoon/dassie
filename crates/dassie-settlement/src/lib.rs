@@ -41,8 +41,8 @@ pub use asset::{
 };
 pub use commitments::{Commitments, Decided, Held, HoldsWith, Membership, Promised};
 pub use scheme::{
-    DollarRate, Effect, EntryPayment, LedgerStatus, LossCause, MAX_OWNER_MEMO_BYTES, OwnerPayment,
-    OwnerPaymentState, PaymentFailure, PegPause, PegView, PreparedSettlement, ReconcileCause,
-    SchemeError, SchemeInfo, SettlementScheme,
+    DollarRate, Effect, EntryPayment, LedgerStatus, LossCause, MAX_OWNER_MEMO_BYTES, OwnerMemo,
+    OwnerPayment, OwnerPaymentState, PaymentFailure, PegPause, PegView, PreparedSettlement,
+    ReconcileCause, SchemeError, SchemeInfo, SettlementScheme,
 };
 pub use stub::{STUB_INITIAL_BALANCE, Stub};

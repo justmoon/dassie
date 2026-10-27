@@ -454,6 +454,7 @@ mod tests {
         let from = v.sponsor.public_key();
         let policy = v.policy();
         let terms_at = |nonce: u8| Terms {
+            version: crate::rules::HUB_VERSION,
             nonce: [nonce; 32],
             ..terms(&v.sponsor)
         };

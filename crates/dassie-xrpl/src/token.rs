@@ -1018,7 +1018,8 @@ impl<T: IssuedToken> SettlementScheme for TokenScheme<T> {
     }
 
     /// A Payment of whole millionths of the token, without paths and never
-    /// partial, with the tag and one memo of [`OWNER_MEMO_TYPE`] if given,
+    /// partial, with the tag and the memo if given
+    /// ([`owner_memos`](crate::scheme::owner_memos)),
     /// executed at once, as the XRP scheme pays one
     /// (spec/areas/xrpl.md#deposits-and-withdrawals). `Unavailable` while
     /// the line or the issuer would stop a settlement (the peg guard aside:
@@ -1026,8 +1027,6 @@ impl<T: IssuedToken> SettlementScheme for TokenScheme<T> {
     /// cannot sign it now. Its fee is gas, on the books of the network's
     /// XRP scheme if that runs on the account, so nothing on this ledger
     /// is held for it.
-    ///
-    /// [`OWNER_MEMO_TYPE`]: crate::scheme::OWNER_MEMO_TYPE
     fn pay_owner(
         &mut self,
         asset: Option<&mut dyn ExternalAsset>,

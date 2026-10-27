@@ -1675,14 +1675,17 @@ fn submitted_hash(world: &World, index: usize) -> String {
 // as it books any payment from an address no peer gave. One at a time.
 #[test]
 fn the_owner_pays_out_of_the_account() {
-    use dassie_settlement::{OwnerPayment, OwnerPaymentState};
+    use dassie_settlement::{OwnerMemo, OwnerPayment, OwnerPaymentState};
 
     let (mut world, _, _) = funded_pair();
     let to = world.account(1);
     let payment = OwnerPayment {
         destination: to.to_address(),
         tag: Some(42),
-        memo: Some(vec![7; 32]),
+        memo: Some(OwnerMemo {
+            memo_type: b"https://example.com/memo".to_vec(),
+            data: vec![7; 32],
+        }),
         amount: 3_000_000_999,
     };
     let mut effects = Vec::new();
@@ -1717,7 +1720,7 @@ fn the_owner_pays_out_of_the_account() {
     assert_eq!(record.delivered, Some(3_000_000));
     assert_eq!(
         record.memo,
-        Some((dassie_xrpl::scheme::OWNER_MEMO_TYPE.to_vec(), vec![7; 32]))
+        Some((b"https://example.com/memo".to_vec(), vec![7; 32]))
     );
 }
 
@@ -1775,19 +1778,48 @@ fn the_owners_payment_outlives_a_restart() {
     assert_eq!(a.suspense, 0);
 }
 
+// spec/areas/xrpl.md#deposits-and-withdrawals: an owner's payment carries
+// the memo type its reader expects, but never a settlement's, which a peer
+// would take for a settlement.
+#[test]
+fn an_owners_payment_never_carries_a_settlements_memo_type() {
+    use dassie_settlement::{OwnerMemo, OwnerPayment};
+
+    let (mut world, _, _) = funded_pair();
+    let to = world.account(1);
+    for memo_type in dassie_xrpl::scheme::SETTLEMENT_MEMO_TYPES {
+        let payment = OwnerPayment {
+            destination: to.to_address(),
+            tag: None,
+            memo: Some(OwnerMemo {
+                memo_type: memo_type.to_vec(),
+                data: b"node1".to_vec(),
+            }),
+            amount: 1_000_000,
+        };
+        assert_eq!(
+            world.pay_owner(0, &payment, &mut Vec::new()),
+            Err(SchemeError::InvalidData)
+        );
+    }
+}
+
 // An owner's payment the ledger refuses costs its fee and nothing else; one
 // to the account itself, of nothing, or with too long a memo is refused
 // before anything is signed.
 #[test]
 fn a_failed_owner_payment_costs_only_its_fee() {
-    use dassie_settlement::{OwnerPayment, OwnerPaymentState, PaymentFailure};
+    use dassie_settlement::{OwnerMemo, OwnerPayment, OwnerPaymentState, PaymentFailure};
 
     let (mut world, _, _) = funded_pair();
     let nobody = dassie_xrpl::Wallet::from_seed([77; 16]).account();
     let payment = |destination: AccountId, amount: u64, memo: usize| OwnerPayment {
         destination: destination.to_address(),
         tag: None,
-        memo: (memo > 0).then(|| vec![1; memo]),
+        memo: (memo > 0).then(|| OwnerMemo {
+            memo_type: b"type".to_vec(),
+            data: vec![1; memo],
+        }),
         amount,
     };
     let own = world.account(0);

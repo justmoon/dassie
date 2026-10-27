@@ -39,12 +39,6 @@ use crate::validators::ValidatorIndex;
 use payload::Payload;
 use wire::Message;
 
-/// The most members one validator pushes statements to.
-pub const MAX_SUBSCRIBERS: usize = 1024;
-
-/// The most members one validator pushes one account's statements to.
-pub const MAX_SUBSCRIBERS_PER_ACCOUNT: usize = 4;
-
 /// The most final blocks with operations a validator keeps to answer
 /// `Since`; blocks without any take no room.
 pub const KEPT_BLOCKS: usize = 4096;
@@ -165,8 +159,6 @@ pub struct Validator {
     engine: Engine,
     chain: Chain,
     sequence: u64,
-    /// Who gets pushes for which account, oldest first.
-    subscribers: VecDeque<(PeerId, AccountNumber)>,
     history: VecDeque<FinalBlock>,
     /// What the blocks in `history` hold, in bytes.
     history_bytes: usize,
@@ -237,7 +229,6 @@ impl Validator {
             engine,
             chain: Chain::new(ledger, tip),
             sequence: now,
-            subscribers: VecDeque::new(),
             history: VecDeque::new(),
             history_bytes: 0,
             complete_from: 1,
@@ -292,12 +283,6 @@ impl Validator {
         if !in_set {
             return Err(ResumeError::NotAValidator);
         }
-        // A change of validators the engine took in already is not
-        // reported to it again.
-        let reported = ledger
-            .scheduled_change()
-            .map(|(from, _)| from)
-            .filter(|from| stored.epochs.iter().any(|epoch| epoch.from_height == *from));
         let hub = *ledger.hub();
         let consensus_key = Arc::new(NodeKey::from_bytes(keys.consensus.as_bytes()));
         let engine = Engine::new(Config::DEFAULT, hub.0, consensus_key.clone(), stored, now);
@@ -315,9 +300,8 @@ impl Validator {
             consensus_key,
             keys,
             engine,
-            chain: Chain::resumed(ledger, tip, reported),
+            chain: Chain::new(ledger, tip),
             sequence: sequence.max(now),
-            subscribers: VecDeque::new(),
             history: VecDeque::new(),
             history_bytes: 0,
             complete_from,
@@ -369,10 +353,10 @@ impl Validator {
         }
         let change = ledger.scheduled_change();
         self.engine
-            .jump(now, finalized, change.clone())
+            .jump(now, finalized, change)
             .map_err(|_| CatchUpError::Refused)?;
         let tip = *self.engine.tip_digest();
-        self.chain = Chain::resumed(ledger, tip, change.map(|(from, _)| from));
+        self.chain = Chain::new(ledger, tip);
         // The blocks skipped never pass through `settle_own`: what of ours
         // they executed is at or below our last sequence in the state, and
         // done. Signed again, it would only take our pool's room.
@@ -611,7 +595,6 @@ impl Validator {
                 return;
             }
             Request::Account(key) => vec_of(Statement::account(&self.chain.ledger, key)),
-            Request::Hold(number) => vec_of(Statement::hold(&self.chain.ledger, number)),
             // The account and its holds as of one block, for a member that
             // reads its state anew (spec/areas/hubs.md#the-members-side).
             Request::Holds(account) => {
@@ -628,10 +611,7 @@ impl Validator {
             Request::Since {
                 account,
                 from: height,
-            } => {
-                self.subscribe(from, account);
-                self.since(account, height)
-            }
+            } => self.since(account, height),
             // The payout set we signed, a page at a time, to anyone: its
             // signatures prove themselves. Nothing until we signed one.
             Request::Payout { from: first } => {
@@ -644,24 +624,6 @@ impl Validator {
             }
         };
         self.send_statements(from, statements);
-    }
-
-    /// Pushes to `peer` what touches `account` from now on, in place of
-    /// what it subscribed to before. The oldest subscription goes when the
-    /// account, or the validator, has too many: anyone may subscribe to any
-    /// account, and members reconnect, so none may lock others out.
-    fn subscribe(&mut self, peer: PeerId, account: AccountNumber) {
-        self.subscribers.retain(|(p, _)| *p != peer);
-        let of_account = self.subscribers.iter().filter(|(_, a)| *a == account);
-        if of_account.count() >= MAX_SUBSCRIBERS_PER_ACCOUNT
-            && let Some(oldest) = self.subscribers.iter().position(|(_, a)| *a == account)
-        {
-            self.subscribers.remove(oldest);
-        }
-        if self.subscribers.len() >= MAX_SUBSCRIBERS {
-            self.subscribers.pop_front();
-        }
-        self.subscribers.push_back((peer, account));
     }
 
     /// What was executed that touches `account` from `height` on, and the
@@ -775,8 +737,8 @@ impl Validator {
         self.chain.check_invariants();
     }
 
-    /// Publishes the blocks that became final, and keeps those with
-    /// operations to answer `Since`.
+    /// Settles our operations the blocks that became final took, and keeps
+    /// those with operations to answer `Since`.
     fn take_finals(&mut self) {
         // Blocks the chain could not hold until now are not in our
         // history: we no longer vouch for what happened there.
@@ -785,7 +747,6 @@ impl Validator {
         }
         while let Some(block) = self.chain.finals.pop_front() {
             self.settle_own(&block);
-            self.publish(&block);
             if !block.operations.is_empty() {
                 self.keep_history(block);
             }
@@ -822,23 +783,6 @@ impl Validator {
             Recipient::Validator(key) => Action::Validator(*key, message),
             Recipient::Peer(peer) => Action::Peer(peer, message),
         });
-    }
-
-    /// Pushes to each subscriber what the block did to its account.
-    ///
-    /// A push is early notice only: it carries no `Final`, since a push that
-    /// is lost would make the validator vouch for blocks it never sent. A
-    /// member learns what is covered from answers to `Since`, which list
-    /// everything up to the `Final` they end with
-    /// (spec/areas/hubs.md#the-validators-service).
-    fn publish(&mut self, block: &FinalBlock) {
-        let subscribers: Vec<(PeerId, AccountNumber)> = self.subscribers.iter().copied().collect();
-        for (peer, account) in subscribers {
-            let statements: Vec<Statement> = touching(block, account).collect();
-            if !statements.is_empty() {
-                self.send_statements(peer, statements);
-            }
-        }
     }
 
     /// Signs each withdrawal the log gave a sequence, once, and shares the
@@ -917,14 +861,6 @@ impl Validator {
     pub fn check_invariants(&self) {
         self.engine.check_invariants();
         self.chain.check_invariants();
-        assert!(
-            self.subscribers.len() <= MAX_SUBSCRIBERS
-                && self.subscribers.iter().all(|(_, account)| {
-                    let of_account = self.subscribers.iter().filter(|(_, a)| a == account);
-                    of_account.count() <= MAX_SUBSCRIBERS_PER_ACCOUNT
-                }),
-            "subscribers over their bound"
-        );
         assert!(
             self.history.len() <= KEPT_BLOCKS && self.history_bytes <= KEPT_BYTES,
             "history over its bound"
@@ -1157,36 +1093,27 @@ mod tests {
         assert!(matches!(statements.last(), Some(Statement::Final { .. })));
     }
 
+    // Nothing is pushed: a member that asked hears of a later block only
+    // once it asks again (spec/areas/hubs.md#the-validators-service).
     #[test]
-    fn a_push_carries_no_final() {
+    fn a_member_hears_only_what_it_asks() {
         let mut v = validator();
         let member = PeerId(100);
-        v.subscribe(member, AccountNumber(6));
-        v.publish(&block_of(2, 1));
+        let since = Request::Since {
+            account: AccountNumber(6),
+            from: 1,
+        };
+        v.answer(member, since.clone());
+        assert_eq!(sent(&mut v, member).len(), 1, "it answers");
+        v.chain.finals.push_back(block_of(2, 1));
+        v.take_finals();
+        assert!(sent(&mut v, member).is_empty(), "nothing unasked");
+        v.answer(member, since);
         let statements: Vec<Statement> = sent(&mut v, member).into_iter().flatten().collect();
-        assert_eq!(statements.len(), 1);
-        assert!(matches!(statements[0], Statement::Executed { .. }));
-    }
-
-    #[test]
-    fn new_subscribers_push_out_the_oldest() {
-        let mut v = validator();
-        // Many reconnects to one account, and many accounts.
-        for peer in 0..10 {
-            v.subscribe(PeerId(peer), AccountNumber(6));
-        }
-        for peer in 10..2_000 {
-            v.subscribe(PeerId(peer), AccountNumber(u32::try_from(peer).unwrap()));
-        }
-        v.check_invariants();
-        let latecomer = PeerId(5_000);
-        v.subscribe(latecomer, AccountNumber(6));
-        v.publish(&block_of(2, 1));
-        assert_eq!(
-            sent(&mut v, latecomer).len(),
-            1,
-            "the latecomer gets pushes"
-        );
+        assert!(matches!(
+            statements[0],
+            Statement::Executed { height: 2, .. }
+        ));
         v.check_invariants();
     }
 

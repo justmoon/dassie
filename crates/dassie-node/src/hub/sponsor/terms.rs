@@ -59,10 +59,8 @@ struct Timers {
     reconfigure_notice: Option<u64>,
     absence: Option<u64>,
     stall: Option<u64>,
-    precision: Option<u64>,
     margin: Option<u64>,
     allowance: Option<u64>,
-    view_timeout: Option<u64>,
 }
 
 /// Sets `field` to `value`, if there is one.
@@ -127,10 +125,8 @@ fn set_timers(base: &mut Terms, timers: Timers) {
     set(&mut t.reconfigure_notice, timers.reconfigure_notice);
     set(&mut t.absence, timers.absence);
     set(&mut t.stall, timers.stall);
-    set(&mut t.precision, timers.precision);
     set(&mut t.margin, timers.margin);
     set(&mut t.allowance, timers.allowance);
-    set(&mut t.view_timeout, timers.view_timeout);
 }
 
 #[cfg(test)]

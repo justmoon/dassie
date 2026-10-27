@@ -28,7 +28,7 @@ use crate::promise::HoldNumber;
 use crate::rules::{Amount, HubId, Millis};
 use crate::validators::{Signers, ValidatorIndex, ValidatorSet};
 
-/// The most statements one answer or push carries.
+/// The most statements one message of an answer carries.
 pub const MAX_STATEMENTS: usize = 64;
 
 /// The most holds one [`Statement::Holds`] lists: one page of them.
@@ -124,15 +124,6 @@ pub enum Statement {
         /// The lowest height still kept in full.
         below: u64,
     },
-    /// Hold `number` after the block at `height`, if it exists.
-    Hold {
-        /// The block's height.
-        height: u64,
-        /// The hold asked about.
-        number: HoldNumber,
-        /// The hold, if it exists.
-        hold: Option<HoldView>,
-    },
     /// Page `page` of `pages` of every hold `account` pays into or takes
     /// from after the block at `height`, stamped `timestamp`, in order of
     /// their numbers, [`MAX_HOLDS_LISTED`] to a page: the pages together
@@ -174,14 +165,12 @@ pub enum Request {
     Submit(Operation),
     /// The account of this key.
     Account(PublicKey),
-    /// This hold.
-    Hold(HoldNumber),
     /// The account of this number, and every hold it pays into or takes
     /// from, as of one block.
     Holds(AccountNumber),
     /// What was executed that touches `account`, from the block at `from`
-    /// on, and the newest final block. Asked again and again by a member
-    /// a validator cannot reach, and kept open by one it can.
+    /// on, and the newest final block. A member asks it again and again:
+    /// a validator tells a member nothing it did not ask for.
     Since {
         /// The account.
         account: AccountNumber,
@@ -251,16 +240,6 @@ impl Statement {
         }
     }
 
-    /// What `ledger` says of hold `number`.
-    #[must_use]
-    pub fn hold(ledger: &Ledger, number: HoldNumber) -> Self {
-        Self::Hold {
-            height: ledger.height(),
-            number,
-            hold: ledger.hold(number).map(HoldView::of),
-        }
-    }
-
     /// What `ledger` says of the holds of `account`: every one, over as
     /// many pages as they take.
     #[must_use]
@@ -300,7 +279,6 @@ impl Statement {
             | Self::Final { height, .. }
             | Self::Account { height, .. }
             | Self::Trimmed { height, .. }
-            | Self::Hold { height, .. }
             | Self::Holds { height, .. } => *height,
         }
     }
@@ -684,7 +662,6 @@ impl Encode for Statement {
                 Self::Account { account, .. } => {
                     32 + 1 + account.map_or(0, |(_, view)| 4 + view.encoded_len())
                 }
-                Self::Hold { hold, .. } => 8 + 1 + hold.map_or(0, |view| view.encoded_len()),
                 Self::Holds { holds, .. } => {
                     8 + 4
                         + 2
@@ -734,22 +711,9 @@ impl Encode for Statement {
                 }
             }
             Self::Trimmed { height, below } => {
-                writer.write_u8(4);
-                writer.write_u64(*height);
-                writer.write_u64(*below);
-            }
-            Self::Hold {
-                height,
-                number,
-                hold,
-            } => {
                 writer.write_u8(3);
                 writer.write_u64(*height);
-                writer.write_u64(number.0);
-                writer.write_bool(hold.is_some());
-                if let Some(view) = hold {
-                    view.encode_to(writer);
-                }
+                writer.write_u64(*below);
             }
             Self::Holds { .. } => self.encode_holds(writer),
         }
@@ -769,7 +733,7 @@ impl Statement {
         else {
             return;
         };
-        writer.write_u8(5);
+        writer.write_u8(4);
         writer.write_u64(*height);
         writer.write_u64(*timestamp);
         writer.write_u32(account.0);
@@ -839,24 +803,11 @@ impl Statement {
                     account,
                 }
             }
-            3 => {
-                let number = HoldNumber(reader.read_u64()?);
-                let hold = if reader.read_bool()? {
-                    Some(HoldView::decode(reader)?)
-                } else {
-                    None
-                };
-                Self::Hold {
-                    height,
-                    number,
-                    hold,
-                }
-            }
-            4 => Self::Trimmed {
+            3 => Self::Trimmed {
                 height,
                 below: reader.read_u64()?,
             },
-            5 => Self::decode_holds(reader, height)?,
+            4 => Self::decode_holds(reader, height)?,
             other => return Err(HubDecodeError::UnknownChoice(u64::from(other))),
         })
     }
@@ -886,7 +837,7 @@ impl SignedStatement {
         })
     }
 
-    /// Encodes a list of signed statements, as an answer or a push.
+    /// Encodes a list of signed statements, as one message of an answer.
     #[must_use]
     pub fn encode_list(statements: &[Self]) -> Vec<u8> {
         let length = size::quantity(statements.len())
@@ -918,7 +869,6 @@ impl Encode for Request {
         1 + match self {
             Self::Submit(operation) => operation.encoded_len(),
             Self::Account(_) => 32,
-            Self::Hold(_) => 8,
             Self::Holds(_) => 4,
             Self::Since { .. } => 4 + 8,
             Self::Payout { .. } => 4,
@@ -935,21 +885,17 @@ impl Encode for Request {
                 writer.write_u8(1);
                 write_key(writer, key);
             }
-            Self::Hold(number) => {
-                writer.write_u8(2);
-                writer.write_u64(number.0);
-            }
             Self::Since { account, from } => {
-                writer.write_u8(3);
+                writer.write_u8(2);
                 writer.write_u32(account.0);
                 writer.write_u64(*from);
             }
             Self::Holds(account) => {
-                writer.write_u8(4);
+                writer.write_u8(3);
                 writer.write_u32(account.0);
             }
             Self::Payout { from } => {
-                writer.write_u8(5);
+                writer.write_u8(4);
                 writer.write_u32(*from);
             }
         }
@@ -963,13 +909,12 @@ impl Request {
         let request = match reader.read_u8()? {
             0 => Self::Submit(Operation::decode(&mut reader)?),
             1 => Self::Account(read_key(&mut reader)?),
-            2 => Self::Hold(HoldNumber(reader.read_u64()?)),
-            3 => Self::Since {
+            2 => Self::Since {
                 account: AccountNumber(reader.read_u32()?),
                 from: reader.read_u64()?,
             },
-            4 => Self::Holds(AccountNumber(reader.read_u32()?)),
-            5 => Self::Payout {
+            3 => Self::Holds(AccountNumber(reader.read_u32()?)),
+            4 => Self::Payout {
                 from: reader.read_u32()?,
             },
             other => return Err(HubDecodeError::UnknownChoice(u64::from(other))),
@@ -1176,18 +1121,6 @@ mod tests {
                 key,
                 account: None,
             },
-            Statement::Hold {
-                height: 8,
-                number: HoldNumber(9),
-                hold: Some(HoldView {
-                    payer: AccountNumber(1),
-                    payee: AccountNumber(2),
-                    amount: 10,
-                    reduction: Some((3, 4)),
-                    total: 11,
-                    through: 12,
-                }),
-            },
             Statement::Executed {
                 height: 13,
                 timestamp: 14,
@@ -1275,7 +1208,16 @@ mod tests {
                 account: AccountNumber(2),
                 page: 1,
                 pages: 2,
-                holds: alloc::vec![(HoldNumber(9), view), (HoldNumber(10), view)],
+                holds: alloc::vec![
+                    (HoldNumber(9), view),
+                    (
+                        HoldNumber(10),
+                        HoldView {
+                            reduction: Some((3, 4)),
+                            ..view
+                        },
+                    ),
+                ],
             },
             Statement::Trimmed {
                 height: 8,
@@ -1294,7 +1236,7 @@ mod tests {
         let key = NodeKey::from_bytes(&[9; 32]).public_key();
         for request in [
             Request::Account(key),
-            Request::Hold(HoldNumber(3)),
+            Request::Payout { from: 3 },
             Request::Holds(AccountNumber(5)),
             Request::Since {
                 account: AccountNumber(2),

@@ -104,33 +104,24 @@ pub trait Application {
     /// engine's.
     fn finalized(&mut self, block: &Block, digest: &Digest);
 
-    /// The change of validators the block just [`finalized`](Self::finalized)
-    /// scheduled, if any: the height the new set takes over at, and the set
-    /// (spec/designs/settlement-hubs.md#8-changing-the-validators). The
-    /// engine asks after every finalized block and takes the change in
-    /// before it finalizes the next. The height must be at least two above
-    /// the block; a larger notice only makes it less likely that blocks
-    /// near the boundary are notarized before the change is final, which
-    /// [`scheduled_change`](Self::scheduled_change) covers.
-    /// [`Engine::reconfigure`](super::Engine::reconfigure) does the same for
-    /// a host that learns of a change otherwise.
-    fn reconfiguration(&mut self) -> Option<(u64, ValidatorSet)> {
-        None
-    }
-
     /// The change of validators scheduled and not yet made in the state
     /// after block `after`, if any: the height its set takes over at, and
-    /// the set. `after` is the last finalized block, or a block the
-    /// application found valid ([`verify`](Self::verify)) and still holds
-    /// the state after ([`holds`](Self::holds)): the engine asks about no
-    /// other, so `None` always means no change is pending, never that the
-    /// state is unknown. `after` need not be final: the boundary is a property of the chain being
-    /// extended, so that no block of the old set at or above it, and only
-    /// repeats of the block before it, are notarized on that chain, whatever
-    /// a validator has finalized (spec/decisions/epoch-handover.md). It must
-    /// agree with [`reconfiguration`](Self::reconfiguration) once the
-    /// scheduling block is final. An application that never changes
-    /// validators keeps the default.
+    /// the set (spec/designs/settlement-hubs.md#8-changing-the-validators).
+    /// `after` is the last finalized block, or a block the application
+    /// found valid ([`verify`](Self::verify)) and still holds the state
+    /// after ([`holds`](Self::holds)): the engine asks about no other, so
+    /// `None` always means no change is pending, never that the state is
+    /// unknown.
+    ///
+    /// The engine asks about every block it finalizes, right after
+    /// [`finalized`](Self::finalized), and takes the change in before it
+    /// finalizes the next; it takes a change it knows again without effect.
+    /// It also asks about blocks that are not final: the boundary is a
+    /// property of the chain being extended, so that no block of the old
+    /// set at or above it, and only repeats of the block before it, are
+    /// notarized on that chain, whatever a validator has finalized
+    /// (spec/decisions/epoch-handover.md). An application that never
+    /// changes validators keeps the default.
     fn scheduled_change(&mut self, after: &Digest) -> Option<(u64, ValidatorSet)> {
         let _ = after;
         None

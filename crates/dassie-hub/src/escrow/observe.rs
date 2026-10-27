@@ -11,6 +11,11 @@ use crate::digest::Digest;
 use crate::operation::Deposit;
 use crate::rules::Terms;
 
+/// The memo type of a deposit that opens an account: its data is the new
+/// account's key, 32 bytes. Wallets outside Dassie write it too, so it is
+/// pinned by `testdata/hub/vectors.json` (spec/areas/hubs.md#the-escrow).
+pub const OPEN_MEMO_TYPE: &[u8] = b"https://dassie.land/hub/open/v1";
+
 /// What `record` delivered, of whatever asset.
 fn delivered(record: &TxRecord) -> Option<Amount> {
     record
@@ -26,8 +31,11 @@ fn delivered(record: &TxRecord) -> Option<Amount> {
 /// that is the hub's token, of its issuer, in whole millionths, rounded
 /// down; XRP sent to a token hub's escrow is gas for its transactions,
 /// never a deposit, and nothing is attested of it. For tag 0, the new
-/// account's key is the memo, as 32 bytes; anything else attests no key,
-/// and the hub pays the deposit back.
+/// account's key is the first memo's data, as 32 bytes, under
+/// [`OPEN_MEMO_TYPE`]; anything else attests no key, and the hub pays the
+/// deposit back. A memo of any other type is never read as a key, however
+/// its data reads: about half of all 32-byte strings decode as a point,
+/// and an account would open under a key nobody holds.
 #[must_use]
 pub fn deposit_of(record: &TxRecord, terms: &Terms) -> Option<Deposit> {
     let escrow = AccountId(terms.escrow);
@@ -46,7 +54,7 @@ pub fn deposit_of(record: &TxRecord, terms: &Terms) -> Option<Deposit> {
     let key = record
         .memo
         .as_ref()
-        .filter(|_| tag == 0)
+        .filter(|(memo_type, _)| tag == 0 && memo_type.as_slice() == OPEN_MEMO_TYPE)
         .and_then(|(_, data)| <[u8; 32]>::try_from(data.as_slice()).ok())
         .and_then(|bytes| dassie_identity::PublicKey::from_bytes(&bytes).ok())
         .filter(|key| !key.is_weak());

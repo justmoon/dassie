@@ -36,6 +36,7 @@ const MEMBER: PeerId = PeerId(100);
 
 fn terms(sponsor: &NodeKey) -> Terms {
     Terms {
+        version: dassie_hub::rules::HUB_VERSION,
         nonce: NONCE,
         sponsor: sponsor.public_key(),
         network: 1,
@@ -73,10 +74,8 @@ fn terms(sponsor: &NodeKey) -> Terms {
             reconfigure_notice: 120_000,
             absence: 86_400_000,
             stall: 3_600_000,
-            precision: 100,
-            margin: 500,
+            margin: 600,
             allowance: 300,
-            view_timeout: 200,
         },
     }
 }
@@ -341,7 +340,7 @@ fn validators_agree_and_tell_the_member() {
         .unwrap();
     assert_eq!(number, AccountNumber(5));
 
-    // Alice subscribes and sets her disbursal address.
+    // Alice asks what touches her account, and sets her disbursal address.
     net.request(&Request::Since {
         account: number,
         from: 1,

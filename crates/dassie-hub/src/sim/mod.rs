@@ -148,8 +148,6 @@ pub struct SimApp {
     /// The changes learned from the chain, by the height of the block that
     /// scheduled them, or of the state loaded that named them.
     pub learned: BTreeMap<u64, (u64, ValidatorSet)>,
-    /// The change the last finalized block scheduled, for the engine.
-    scheduled: Option<(u64, ValidatorSet)>,
     /// The state after each block it found valid or finalized, final or
     /// not: its height, and the change scheduled and not yet made.
     states: BTreeMap<Digest, (u64, Option<(u64, ValidatorSet)>)>,
@@ -334,15 +332,10 @@ impl Application for SimApp {
         self.finalized.insert(block.height, *digest);
         let operation = operation_of(&block.payload);
         if let Some(change) = decode_change(operation) {
-            self.learned.insert(block.height, change.clone());
-            self.scheduled = Some(change);
+            self.learned.insert(block.height, change);
         }
         let state = self.state_after(block.height);
         self.keep_state(*digest, block.height, state);
-    }
-
-    fn reconfiguration(&mut self) -> Option<(u64, ValidatorSet)> {
-        self.scheduled.take()
     }
 
     fn scheduled_change(&mut self, after: &Digest) -> Option<(u64, ValidatorSet)> {

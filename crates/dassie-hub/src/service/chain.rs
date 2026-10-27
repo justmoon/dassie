@@ -119,8 +119,6 @@ pub struct Chain {
     heights: BTreeMap<Digest, u64>,
     pub(super) mempool: Mempool,
     pub(super) finals: VecDeque<FinalBlock>,
-    /// The change of validators reported to consensus, by its height.
-    reported: Option<u64>,
     /// A block was final that does not decode or execute as certified.
     halted: bool,
     /// The highest final block dropped before the service took it.
@@ -142,19 +140,9 @@ impl Chain {
             heights,
             mempool,
             finals: VecDeque::new(),
-            reported: None,
             halted: false,
             lost: None,
         }
-    }
-
-    /// The chain of `ledger`, taken at the final block `tip` from a peer,
-    /// whose change of validators at `reported` the engine already took in.
-    #[must_use]
-    pub fn resumed(ledger: Ledger, tip: Digest, reported: Option<u64>) -> Self {
-        let mut chain = Self::new(ledger, tip);
-        chain.reported = reported;
-        chain
     }
 
     /// The state a block on `parent` builds on.
@@ -285,15 +273,6 @@ impl Chain {
 }
 
 impl Application for Chain {
-    fn reconfiguration(&mut self) -> Option<(u64, crate::validators::ValidatorSet)> {
-        let (from, set) = self.ledger.scheduled_change()?;
-        if self.reported == Some(from) {
-            return None;
-        }
-        self.reported = Some(from);
-        Some((from, set))
-    }
-
     fn holds(&mut self, block: &Digest) -> bool {
         // The final state always; others while kept. One let go of is
         // verified again by the engine from the nearest state held.
@@ -305,7 +284,7 @@ impl Application for Chain {
         after: &Digest,
     ) -> Option<(u64, crate::validators::ValidatorSet)> {
         // The state after `after` names the change once its notice passed,
-        // as the final state does once that block is final
+        // final or not; the engine asks about every final block too
         // (spec/decisions/epoch-handover.md).
         self.base(after)?.scheduled_change()
     }
@@ -563,7 +542,6 @@ pub(super) mod tests {
         let (from, set) = change.clone().expect("the chain names the change");
         assert_eq!(from, height + 2);
         assert_eq!(Some(set), rules.validator_set());
-        assert_eq!(chain.reconfiguration(), None, "not final yet");
         // Asking again about the same block gives the same answer.
         assert!(chain.verify(&context, &executed.payload.to_vec()));
         assert_eq!(chain.scheduled_change(&Digest([2; 32])), change);
@@ -578,7 +556,6 @@ pub(super) mod tests {
             payload: executed.payload.to_vec(),
         };
         chain.finalized(&block, &Digest([2; 32]));
-        assert_eq!(chain.reconfiguration(), change);
         assert_eq!(chain.scheduled_change(&Digest([2; 32])), change);
     }
 

@@ -1285,8 +1285,9 @@ mod tests {
         let key = NodeKey::from_bytes(&[7; 32]);
         let id = dassie_hub::member::FIRST;
         let window = u64::MAX;
-        assert!(create_hub_account(id, "", &[], (&key, window)).is_ok());
-        let mut rules = hub_rules("").unwrap();
+        let xrp = super::super::tests::hub_config(600, 300);
+        assert!(create_hub_account(id, &xrp, &[], (&key, window)).is_ok());
+        let mut rules = hub_rules(&xrp).unwrap();
         rules.terms.asset = Asset::Token {
             currency: dassie_xrpl::dsusd::CURRENCY,
             issuer: dassie_xrpl::dsusd::ISSUER,

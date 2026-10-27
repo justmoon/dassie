@@ -106,10 +106,12 @@ impl Epochs {
     }
 
     /// Takes in a new set from `from_height`, with `finalized_height` final.
+    /// For tests, which hand the engine a change of their own.
     ///
     /// # Errors
     ///
     /// Another change is waiting, or the height is too close.
+    #[cfg(any(test, feature = "sim"))]
     pub fn reconfigure(
         &mut self,
         from_height: u64,
@@ -122,10 +124,12 @@ impl Epochs {
         self.push(from_height, set)
     }
 
-    /// Takes in a change named by the state after block `height`, which a
-    /// host loaded and checked: its set takes over at `from_height`, at
-    /// least the next height. A change already known is taken again
-    /// without effect.
+    /// Takes in a change named by the state after block `height`, a block
+    /// the engine finalized or one whose state a host loaded and checked:
+    /// its set takes over at `from_height`, at least the next height.
+    /// Whether it was new: a change already known is taken again without
+    /// effect, as the state after every block until the change is made
+    /// names it.
     ///
     /// # Errors
     ///
@@ -135,17 +139,17 @@ impl Epochs {
         from_height: u64,
         set: ValidatorSet,
         height: u64,
-    ) -> Result<(), ReconfigureError> {
+    ) -> Result<bool, ReconfigureError> {
         let known = self
             .iter()
             .any(|epoch| epoch.from_height == from_height && epoch.set == set);
         if known {
-            return Ok(());
+            return Ok(false);
         }
         if from_height <= height {
             return Err(ReconfigureError::TooLate);
         }
-        self.push(from_height, set)
+        self.push(from_height, set).map(|()| true)
     }
 
     fn push(&mut self, from_height: u64, set: ValidatorSet) -> Result<(), ReconfigureError> {
@@ -215,6 +219,13 @@ mod tests {
         epochs.reconfigure(10, new.clone(), 3).unwrap();
         assert_eq!(
             epochs.reconfigure(12, new.clone(), 3),
+            Err(ReconfigureError::Pending)
+        );
+        // Every final block until the change is made names it again.
+        assert_eq!(epochs.take_in(10, new.clone(), 4), Ok(false));
+        assert_eq!(epochs.take_in(10, new.clone(), 9), Ok(false));
+        assert_eq!(
+            epochs.take_in(11, new.clone(), 4),
             Err(ReconfigureError::Pending)
         );
         assert_eq!(epochs.boundary(0), Some(10));

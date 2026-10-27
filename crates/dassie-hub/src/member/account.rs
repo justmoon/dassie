@@ -97,8 +97,8 @@ const MAX_FINALS: usize = 64;
 
 /// Most agreed operations held until a quorum covered their height: two
 /// of the longest answers a validator gives under `terms`, which carries up
-/// to `MAX_ANSWER` statements and always one block whole, so one answer and
-/// the pushes beside it always fit.
+/// to `MAX_ANSWER` statements and always one block whole, so an answer and
+/// the next, asked while the first is on its way, always fit.
 pub(super) fn max_buffered(terms: &Terms) -> usize {
     MAX_ANSWER
         .saturating_add(usize::from(terms.limits.block_operations))
