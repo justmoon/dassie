@@ -10,7 +10,7 @@
 - **Owners keep phrases on metal.** Cryptosteel and plates like it store four letters of each word, which identify a word of the BIP-39 English list, since all 2048 differ in their first four letters (a shorter word in full). They hold 24 words. A plate gets bent and scratched: a word may be lost, at a place the owner knows.
 - **Nothing reads a Dassie phrase but Dassie.** Every key derives through Dassie's own tree of seed paths, so no other BIP-39 wallet finds the owner's funds from the phrase; BIP-39's encoding buys only its wordlist.
 - **Ed25519 offers about 128 bits of security,** so a longer secret protects the node key no better.
-- **The derivation chain is a frozen surface** ([overview](../overview.md#frozen-surfaces)), because owners outside a release depend on it. Today only testnet nodes and the original's owners do: the original never ran in production, and the live realm is refused, so no rewrite node holds real money.
+- **The derivation chain is a frozen surface** ([overview](../overview.md#frozen-surfaces)), because owners outside a release depend on it. Today only testnet nodes do: the original was a development prototype that nobody ran, and the live realm is refused, so no node holds real money.
 - **A phrase is made by a clock that may be wrong.** The wallet makes it in the owner's browser, whose clock can run ahead or behind.
 
 ## Decision
@@ -38,7 +38,7 @@
 
 ## Accepted
 
-- **The frozen derivation chain changes, once, before the first release.** From here on it is frozen again, with this format at its top. Every phrase made before is refused, and its node cannot be reached from a new phrase. The testnet's reset absorbs it: every machine that keeps a phrase, the bootstrap nodes and the market maker's included, gets a new one. An owner of the original keeps their keys through the original's release, at tag `original`, which derives them from their BIP-39 phrase as it always did, and sets a new node up with a new phrase ([database-continuity](database-continuity.md)).
+- **The frozen derivation chain changes, once, before the first release.** From here on it is frozen again, with this format at its top. Every phrase made before is refused, and its node cannot be reached from a new phrase. The testnet's reset absorbs it: every machine that keeps a phrase, the bootstrap nodes and the market maker's included, gets a new one.
 - **A reader whose clock is behind refuses a phrase until its clock is set right,** with the phrase's date in the refusal, so the owner sees why. Showing the date and taking the phrase anyway would let a wrong phrase through on a check that is meant to stop it.
 - **One check word is kept back while words are marked unreadable,** so a phrase with five unreadable words is the most the code restores, not six.
 - **20 words where BIP-39 needs 12 for the same 128-bit secret.** The eight more carry the kind, the creation time and the correction, and 20 still fits every plate made for 24.
@@ -49,7 +49,6 @@
 ## Rejected
 
 - *BIP-39 as it is:* no realm, no version, four bits of check in twelve words, and no correction.
-- *Carrying the BIP-39 reading along for the original's owners:* a second derivation at the top of the chain, kept for good, for owners whose keys the original's release already derives.
 - *Grinding a tag into a BIP-39 phrase,* drawing secrets until a hash of the phrase starts with the realm's tag: it spends the secret's own bits to say what a field says for free.
 - *Folding the realm into the code,* as bech32 folds its prefix into its checksum: in a code that corrects, the unwritten symbol spends a word of the distance, so a phrase three errors from its own realm's could be three from another's too.
 - *A version and a realm in two fields:* one kind names each layout and realm that exists, so a layout need not exist in both realms, and no combination means nothing.
