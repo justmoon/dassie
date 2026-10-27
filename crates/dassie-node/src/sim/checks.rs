@@ -712,12 +712,11 @@ pub fn check_anchored(sim: &Sim) -> Result<(), String> {
     Ok(())
 }
 
-/// Whether node `index` books `ledger`: one it pays over, an owner book of
-/// a run of them, or an owner book a DSUSD hub's member funds its account
-/// in the hub from, and pays the escrow's gas from.
+/// Whether node `index` books `ledger`: one it pays over, or one of its
+/// owner books, in a run of them or one a hub's member funds its account in
+/// the hub from, and pays the escrow's gas from.
 fn books(sim: &Sim, index: usize, ledger: LedgerId) -> bool {
     sim.settling.books(index, ledger)
-        || matches!(sim.settling, Settling::HubDsusd(_)) && (ledger == XRP || ledger == DSUSD)
 }
 
 /// On the XRP Ledger, the faucet funded every node, and on a token the
@@ -916,7 +915,13 @@ pub fn check_across(sim: &Sim) -> Result<(), Outcome> {
 /// Fulfill to a crash.
 fn check_received_across(sim: &Sim) -> Result<(), String> {
     for payment in &sim.payments {
-        let into = *sim.settling.ledgers(payment.to).last().unwrap();
+        let into = sim.nodes[payment.to]
+            .store
+            .incoming_payment(payment.incoming)
+            .unwrap()
+            .map_or(*sim.settling.ledgers(payment.to).last().unwrap(), |row| {
+                row.ledger
+            });
         let (got, sent) = (
             u128::from(received(sim, payment)),
             u128::from(sent(payment)),
@@ -957,7 +962,7 @@ fn check_prices(sim: &Sim) -> Result<(), String> {
 fn check_assets(sim: &Sim) -> Result<(), String> {
     let count = sim.nodes.len();
     let ledgers: &[LedgerId] = match sim.settling {
-        Settling::HubAcross(_) => &[USD, super::HUB],
+        Settling::HubAcross(_) | Settling::Hubs(_) => &[super::HUB_DSUSD, super::HUB],
         _ => &[USD, XRP],
     };
     for &ledger in ledgers {

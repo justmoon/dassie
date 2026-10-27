@@ -332,7 +332,7 @@ fn deposited(sim: &Sim, index: usize, ledger: LedgerId) -> i128 {
 fn check_owner_books(sim: &Sim, owners: &PaidOut) -> Result<(), Outcome> {
     let books = || {
         for index in 0..sim.nodes.len() {
-            for &ledger in sim.settling.owner_books() {
+            for &ledger in sim.settling.owner_books(index) {
                 check_held(sim, index, ledger)?;
                 let owner = sim
                     .balances_on(index, ledger)

@@ -12,8 +12,11 @@
 //!
 //! The `node-hub-lies` and `node-hub-currencies` runs
 //! (`dassie_node::sim::hub_runs`) put lying XRP Ledger servers under a hub's
-//! members, and payments across dollars and XRP in a hub; these tests run
-//! them on fixed seeds, and `dassie-sim` on any.
+//! members and validators, and payments across dollars in the DSUSD hub and
+//! XRP in the XRP hub; the `node-hubs` run (`dassie_node::sim::hub_pairs`)
+//! has every node in both hubs, each pair peered over both, until one hub
+//! fails and the other carries on. These tests run them on fixed seeds, and
+//! `dassie-sim` on any.
 
 #![allow(
     clippy::unwrap_used,
@@ -25,17 +28,20 @@
 use std::collections::BTreeMap;
 
 use dassie_kit::sim::{assert_passes, caught, each};
-use dassie_node::sim::{START, Settling, Sim, hub_runs, hubbed, key};
+use dassie_node::sim::{START, Settling, Sim, hub_pairs, hub_runs, hubbed, key};
 
 /// The seeds of `node-hub-lies` the tests run, which between them tell
 /// every kind of lie, and in which an owner and a node move funds while
 /// lied to: how long a lying server's connection lasts decides which it
 /// gets to tell. One seed reaches all of it today; should a change stop
 /// it, add another rather than lose a kind.
-const LIES_SEEDS: [u64; 1] = [7];
+const LIES_SEEDS: [u64; 1] = [1];
 
 /// The seed of `node-hub-currencies` the tests run.
 const ACROSS_SEED: u64 = 3;
+
+/// The seed of `node-hubs` the tests run.
+const PAIRS_SEED: u64 = 0;
 
 // spec/areas/hubs.md#in-the-node: a node opens its account in the hub by a
 // deposit from its XRP Ledger testnet account, which the validators see on
@@ -100,13 +106,14 @@ fn payments_both_ways_through_a_hop_over_a_hub_complete() {
 // spec/areas/testing.md#over-a-settlement-hub: members peered over a hub,
 // whose XRP Ledger servers tell each kind of lie in turn while they pay,
 // their owners fund their accounts, one owner moves funds into the hub and
-// the other members' nodes move theirs by themselves, then a
-// validator of the ledger rotates its key, a quorum is withheld and a list
-// lapses. Each member's books hold to the fake ledger's truth and to the
-// hub, every member anchored, the payments complete and the hub keeps
-// running. Between them, the seeds tell every kind of lie, and the members
-// catch what the verifier catches: so a change that quietly bypasses it
-// fails.
+// the other members' nodes move theirs by themselves, and some of the hub's
+// validators' servers lie in each round too, then a validator of the
+// ledger rotates its key, a quorum is withheld and a list lapses. Each
+// member's books hold to the fake ledger's truth and to the hub, the
+// validators attest nothing false, every member anchored, the payments
+// complete and the hub keeps running. Between them, the seeds tell every
+// kind of lie, to members and to validators, and the members catch what
+// the verifier catches: so a change that quietly bypasses it fails.
 #[test]
 fn hub_members_hold_to_the_ledger_through_lying_servers() {
     let mut reached: BTreeMap<&str, u64> = BTreeMap::new();
@@ -131,6 +138,7 @@ fn hub_members_hold_to_the_ledger_through_lying_servers() {
         "owner moves into the hub",
         "owner moves while lied to",
         "own moves while lied to",
+        "validator servers lying in a round",
     ]) {
         assert!(
             reached.contains_key(what),
@@ -139,12 +147,26 @@ fn hub_members_hold_to_the_ledger_through_lying_servers() {
     }
 }
 
-// spec/areas/testing.md#over-a-settlement-hub: across dollars over the stub
-// with commitments and XRP in a hub, through nodes on both that convert and
-// price by their inventory, one of them charging: what arrives is what was
-// sent at the rates, less the fees, an outgoing payment crosses, and the
-// hub and its members' books hold.
+// spec/areas/testing.md#over-a-settlement-hub: across dollars in the DSUSD
+// hub and XRP in the XRP hub, through nodes in both that convert and price
+// by their inventory, one of them charging: what arrives is what was sent
+// at the rates, less the fees, an outgoing payment crosses, and each hub
+// and its members' books hold.
 #[test]
 fn hub_members_pay_across_currencies() {
     assert_passes(ACROSS_SEED, hub_runs::run_across);
+}
+
+// spec/areas/testing.md#over-a-settlement-hub,
+// spec/decisions/settlement-methods.md: nodes in an XRP hub and a DSUSD hub
+// fund each from the owner book of its asset, each pair peers over both,
+// and they pay in XRP and in dollars; each hub and each member's books in
+// it hold, and what a peer cost on each method is bounded by the holds on
+// its hub. Then the hub of the method packets do not take stalls and pays
+// out exactly the final balances, while the other carries every payment
+// after it and every peering is kept. Packets take one method until the
+// connector picks one per packet.
+#[test]
+fn nodes_in_two_hubs_peer_over_both_and_survive_one_failing() {
+    assert_passes(PAIRS_SEED, hub_pairs::run);
 }
