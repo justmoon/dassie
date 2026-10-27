@@ -86,13 +86,21 @@ strip = true
 [profile.e2e]
 inherits = "dev"
 
-# The Nix checks that build with Cargo (flake.nix: the desktop app's, and
-# the dependencies of the crane builds): the test profile's settings, under
+# The flake's crane builds (flake.nix): the test profile's settings, under
 # a name that does not put `cargo check` and clippy in test mode, which
-# would lint only cfg(test) code. nix/rust builds the other crates with the
-# same checks on (spec/decisions/crate-by-crate-builds.md).
+# would lint only cfg(test) code. nix/rust builds the crates with the same
+# checks on (spec/decisions/crate-by-crate-builds.md).
 [profile.ci]
 inherits = "test"
+
+# The desktop app's check (nix/desktop.nix): ci's code, but with debug
+# assertions off, as the package builds it, since Tauri compiles other code
+# with them. Clippy, the app's tests and its package share the one build;
+# release's fat LTO, which made the check minutes slower, is not what it
+# checks.
+[profile.desktop-check]
+inherits = "ci"
+debug-assertions = false
 
 # The simulation runner, dassie-sim
 # (spec/decisions/random-seed-simulations.md): the test profile's code, so
@@ -107,9 +115,3 @@ inherits = "test"
 inherits = "release"
 lto = false
 codegen-units = 16
-
-# The desktop app's check (flake.nix): the install tests' profile, so the
-# check compiles the code the package ships, with debug assertions off, but
-# without fat LTO's link, which the package alone pays.
-[profile.desktop-check]
-inherits = "install-test"

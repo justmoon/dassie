@@ -6,27 +6,42 @@
 # AppIndicator library is loaded at run time, so the wrapper puts it on the
 # library path.
 #
-# `profile` is Cargo's: the package builds in release, as owners install
-# it; the flake's check builds the same code in a cheaper profile.
+# The package builds in release, as owners install it. With `check`, the
+# flake's check builds it in the desktop-check profile (Cargo.toml), with
+# debug assertions off as in release, so that it compiles the code the
+# package ships, Tauri's included, and first runs clippy and the app's tests
+# on the same build, so that the crates compile once for all three.
 {
   lib,
   pkgs,
   craneLib,
   src,
   wallet,
-  profile ? "release",
+  check ? false,
 }:
 let
   desktopLibs = import ./desktop-libs.nix { inherit pkgs; };
   version = (lib.importTOML ../Cargo.toml).workspace.package.version;
   common = {
-    inherit src version;
+    inherit version;
+    src =
+      if check then
+        lib.fileset.toSource {
+          root = ../.;
+          fileset = lib.fileset.unions [
+            (lib.fileset.fromSource src)
+            ../.config/nextest.toml
+          ];
+        }
+      else
+        src;
     pname = "dassie-desktop";
     strictDeps = true;
     cargoExtraArgs = "--locked -p dassie-desktop";
-    CARGO_PROFILE = profile;
+    CARGO_PROFILE = if check then "desktop-check" else "release";
     doCheck = false;
-    nativeBuildInputs = desktopLibs.nativeBuildInputs ++ [ pkgs.wrapGAppsHook3 ];
+    nativeBuildInputs =
+      desktopLibs.nativeBuildInputs ++ [ pkgs.wrapGAppsHook3 ] ++ lib.optional check pkgs.cargo-nextest;
     buildInputs = desktopLibs.buildInputs ++ [
       pkgs.glib-networking
       pkgs.gsettings-desktop-schemas
@@ -39,6 +54,11 @@ craneLib.buildPackage (
     cargoArtifacts = craneLib.buildDepsOnly common;
     DASSIE_WALLET_DIST = wallet;
     DASSIE_BUILD_VERSION = version;
+    preBuild = lib.optionalString check ''
+      cargoWithProfile clippy --locked -p dassie-desktop --all-targets -- -D warnings
+      cargo nextest run --cargo-profile desktop-check --profile ci --locked -p dassie-desktop \
+        --color never --show-progress none
+    '';
     preFixup = ''
       gappsWrapperArgs+=(--prefix LD_LIBRARY_PATH : ${lib.makeLibraryPath [ pkgs.libayatana-appindicator ]})
     '';

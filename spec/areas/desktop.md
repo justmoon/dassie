@@ -47,7 +47,7 @@ A second launch shows the first one's window and starts nothing. Beneath that, [
 
 ## The package
 
-`nix/desktop.nix` builds the app in Cargo's release profile, as owners build it with `nix run .#desktop`, and wraps it with its GIO modules, schemas, desktop file and icons. Every PR's check builds the same code with debug assertions off, but without fat LTO, which made the check minutes slower on every change to the node and is not what it checks: that the app links with the wallet built in and is wrapped. The release workflow builds the package itself, so that each tag's app is known to build as owners get it.
+`nix/desktop.nix` builds the app in Cargo's release profile, as owners build it with `nix run .#desktop`, and wraps it with its GIO modules, schemas, desktop file and icons. Every PR's check builds the same code with debug assertions off, as the package does, since Tauri compiles other code with them, but without fat LTO, which made the check minutes slower on every change to the node and is not what it checks: that the app links with the wallet built in and is wrapped. Clippy and the app's tests run on the same build, so the crates compile once. The release workflow builds the package itself, so that each tag's app is known to build as owners get it.
 
 ## Decisions
 

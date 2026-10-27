@@ -21,7 +21,7 @@ let
   # Every member but the desktop app, whose Tauri dependencies' build
   # scripts hand their dependents metadata under names with a colon in them,
   # which buildRustCrate passes on as shell variables and bash refuses: the
-  # flake checks it with Cargo (desktop-test).
+  # flake checks it with Cargo (nix/desktop.nix).
   members = lib.remove "dassie-desktop" (map (lib.removePrefix "crates/") workspace.members);
 
   # What a member reads from outside its directory: its library, binaries
