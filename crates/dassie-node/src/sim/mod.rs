@@ -902,7 +902,7 @@ pub struct Sim {
     /// ([`Sim::watch_hub`]).
     pub hub_credit_off: Vec<String>,
     /// Nodes whose connections to the XRP Ledger and to their hubs carry
-    /// nothing.
+    /// nothing, what was on its way included.
     pub ledger_down: BTreeSet<usize>,
     /// Each node's connection to a lying server, while it has one.
     lying: BTreeMap<usize, u64>,

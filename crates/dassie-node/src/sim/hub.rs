@@ -1250,7 +1250,10 @@ impl Sim {
         }
         let place = net.spec.place;
         let endpoint = validator_id(place, endpoint);
-        if let Some(at) = self.late_claim(place, member, &message) {
+        // A member whose ledger is down reaches its hub no more than the
+        // XRP Ledger: what it sends is lost, as below.
+        let down = self.ledger_down.contains(&member);
+        if !down && let Some(at) = self.late_claim(place, member, &message) {
             self.count("claims held back");
             self.schedule(
                 at - self.now,
@@ -1273,11 +1276,8 @@ impl Sim {
         *slots += 1;
         self.count("member exchanges");
         let generation = self.nodes[member].generation;
-        // A member whose ledger is down reaches its hub no more than the
-        // XRP Ledger: its exchanges time out, as a lost one does.
-        if self.rng.next_u64() % 1000 < self.loss_per_mille
-            || self.apart.contains(&member)
-            || self.ledger_down.contains(&member)
+        // Its exchanges time out, as a lost one does.
+        if self.rng.next_u64() % 1000 < self.loss_per_mille || self.apart.contains(&member) || down
         {
             self.schedule(
                 EXCHANGE_TIMEOUT_MS,
@@ -1310,6 +1310,14 @@ impl Sim {
         endpoint: usize,
         message: Vec<u8>,
     ) {
+        // Its ledger went down while the request was on its way.
+        if self.ledger_down.contains(&member) {
+            self.schedule(
+                EXCHANGE_TIMEOUT_MS,
+                Delivery::HubExchangeEnd { member, endpoint },
+            );
+            return;
+        }
         let up = self.validator(endpoint).driver.is_some();
         if up {
             self.answering = Some((member, generation, asset, epoch, endpoint));
@@ -1364,7 +1372,7 @@ impl Sim {
         endpoint: usize,
         message: Vec<u8>,
     ) {
-        if self.nodes[member].generation != generation {
+        if self.nodes[member].generation != generation || self.ledger_down.contains(&member) {
             return;
         }
         let event = LedgerEvent::From {
@@ -2131,7 +2139,7 @@ impl Sim {
     /// A member's submission reaches a validator outside its account's
     /// exchanges: it is answered by no one.
     pub(super) fn hub_submit(&mut self, member: usize, endpoint: usize, message: Vec<u8>) {
-        if self.validator(endpoint).driver.is_none() {
+        if self.validator(endpoint).driver.is_none() || self.ledger_down.contains(&member) {
             return;
         }
         let input = Input::Message {

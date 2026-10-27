@@ -1416,3 +1416,152 @@ fn an_owners_payment_that_never_reached_the_ledger_is_proven_never_to_apply() {
     );
     check(&sim).unwrap();
 }
+
+/// Two members of a hub of four validators, on no network yet, with node
+/// 0's links to the XRP Ledger and to its hub down from its first start, if
+/// `blind`, and node 1 in the hub: what a node new to the hub is told
+/// before it peers.
+fn hub_pair(seed: u64, blind: bool) -> Sim {
+    let mut sim = Sim::with(seed, 2, 0, BTreeMap::new(), Settling::Hub(4));
+    sim.loss_per_mille = 0;
+    if blind {
+        sim.ledger_down.insert(0);
+    }
+    assert!(
+        sim.run_until_or(START + 600_000, |sim| joined_hub(sim, 1)
+            && (blind || joined_hub(sim, 0))),
+        "the nodes did not join the hub"
+    );
+    sim
+}
+
+/// Node `index`'s account in its hub, as the node sees it.
+fn hub_seen(sim: &Sim, index: usize) -> LedgerStatus {
+    sim.core(index)
+        .hub_status()
+        .map_or(LedgerStatus::Connecting, |status| status.status)
+}
+
+// spec/decisions/synced-before-peering.md: a node peers over a hub only once
+// it has seen the hub's ledger. Node 0's links to the XRP Ledger and to its
+// hub are down from its first start, so it never heard what the hub holds
+// for it: it neither lists the hub's scheme nor accepts node 1's request on
+// it. Once its links are back, the hub tells it that it holds nothing for
+// it, which is a sync, and the two peer: node 0 joins by being paid.
+#[test]
+fn a_node_peers_over_a_hub_only_once_it_has_seen_its_ledger() {
+    let mut sim = hub_pair(7, true);
+    sim.join_network(1);
+    let (zero, one) = (key(0).node_id(), key(1).node_id());
+    sim.run_until(sim.now + 5 * 60_000);
+    assert_eq!(hub_seen(&sim, 0), LedgerStatus::Connecting);
+    assert!(sim.peers(0).is_empty(), "node 0 peered blind");
+    assert!(!sim.peers(1).contains(&zero), "node 1 peered with it");
+    sim.ledger_down.clear();
+    let peered = |sim: &Sim| sim.peers(0).contains(&one) && sim.peers(1).contains(&zero);
+    assert!(
+        sim.run_until_or(sim.now + 10 * 60_000, peered),
+        "the nodes did not peer once node 0 saw its hub's ledger"
+    );
+    check_ledgers(&sim).unwrap();
+    assert!(sim.unexplained.is_empty(), "{:?}", sim.unexplained);
+}
+
+// spec/decisions/synced-before-peering.md: having seen its hub's ledger
+// once, a node peers over the hub after a restart while its links to the
+// XRP Ledger and to the hub are down, and keeps the peerings it has: the
+// first sync is kept with the scheme's state, and what the hub did
+// meanwhile is read from where the scheme left off once they are back.
+#[test]
+fn a_node_that_saw_its_hub_once_peers_while_it_is_down() {
+    let mut sim = hub_pair(7, false);
+    sim.crash(0);
+    sim.ledger_down.insert(0);
+    sim.start(0);
+    sim.join_network(1);
+    assert_ne!(hub_seen(&sim, 0), LedgerStatus::Synced, "it heard its hub");
+    let one = key(1).node_id();
+    let peered = |sim: &Sim| sim.peers(0).contains(&one);
+    assert!(
+        sim.run_until_or(sim.now + 5 * 60_000, peered),
+        "the nodes did not peer"
+    );
+    sim.crash(0);
+    sim.start(0);
+    sim.run_until(sim.now + 60_000);
+    assert!(sim.peers(0).contains(&one), "the peering did not survive");
+    sim.ledger_down.clear();
+    assert!(
+        sim.run_until_or(sim.now + 120_000, |sim| joined_hub(sim, 0)),
+        "node 0 did not read its hub again"
+    );
+    check_ledgers(&sim).unwrap();
+    assert!(sim.unexplained.is_empty(), "{:?}", sim.unexplained);
+}
+
+// spec/decisions/ending-a-peering.md: a settlement that lands after the
+// peering ended is credited to the peer's account, once. Over a hub, the
+// junior's owner ends the peering, and the senior answers the last request
+// with a settlement on its way. The junior's links to its hub drop then,
+// and stay down: the junior waits out its bound and ends the peering, and
+// books the settlement only once it reads its hub again. The node
+// simulation's drawn runs reach this only now and then.
+#[test]
+fn a_settlement_over_a_hub_that_lands_after_the_end_is_credited_once() {
+    let mut sim = hub_pair(7, false);
+    sim.join_network(1);
+    let peered = |sim: &Sim| !sim.peers(0).is_empty() && !sim.peers(1).is_empty();
+    assert!(
+        sim.run_until_or(sim.now + 10 * 60_000, peered),
+        "the nodes did not peer"
+    );
+    let junior = usize::from(sim.core(0).network().peers[0].peering.inbound);
+    let senior = 1 - junior;
+    let senior_id = key(senior).node_id();
+    sim.pay(senior, junior, 3_000_000_000, None, None);
+    sim.run_until(sim.now + 60_000);
+    assert!(
+        -sim.owes(junior, &senior_id) > 0,
+        "the senior owes the junior nothing"
+    );
+    let mark = sim.trace.len();
+    sim.step(junior, |core| core.terminate_peering(senior_id).unwrap());
+    let answered =
+        format!(" {junior} PeerNode(SettlementRequestAnswered {{ peer: {senior_id:?}, settling: ");
+    let found = |sim: &Sim, from: usize, text: &str| {
+        sim.trace[from..]
+            .iter()
+            .position(|line| line.contains(text))
+            .map(|at| from + at)
+    };
+    assert!(
+        sim.run_until_or(sim.now + 60_000, |sim| found(sim, mark, &answered)
+            .is_some()),
+        "the senior answered the last request with nothing on its way"
+    );
+    sim.ledger_down.insert(junior);
+    let ended = format!(" {junior} PeerNode(PeeringEnded {{ peer: {senior_id:?}");
+    assert!(
+        sim.run_until_or(sim.now + 600_000, |sim| found(sim, mark, &ended).is_some()),
+        "the peering did not end"
+    );
+    let end = found(&sim, mark, &ended).unwrap();
+    let booked = format!(" {junior} Settlement(SettlementBooked {{ from: {senior_id:?}");
+    assert!(
+        found(&sim, mark, &booked).is_none(),
+        "booked before the end"
+    );
+    sim.ledger_down.clear();
+    sim.run_until(sim.now + 120_000);
+    assert!(
+        found(&sim, end, &booked).is_some(),
+        "the settlement was not booked after the end"
+    );
+    let times = sim.trace[mark..]
+        .iter()
+        .filter(|line| line.contains(&booked))
+        .count();
+    assert_eq!(times, 1, "booked more than once");
+    check_ledgers(&sim).unwrap();
+    assert!(sim.unexplained.is_empty(), "{:?}", sim.unexplained);
+}
