@@ -41,7 +41,7 @@ use super::checks::{
     not_settled_down,
 };
 use super::hub_checks::waiting;
-use super::hubbed::{JOINED_WITHIN_MS, join_hub};
+use super::hubbed::{JOINED_WITHIN_MS, join_hub, over_hub as peered_over_hub};
 use super::scripted::{
     PAID_WITHIN_MS, READY_WITHIN_MS, collected_before_telling, ended, ready,
     settled_nothing_once_ending, trace_ms, until_peered,
@@ -514,7 +514,7 @@ pub fn run(seed: u64) -> Run {
         ));
         return ended(sim, late);
     }
-    if hub && let Err(off) = super::hubbed::over_hub(&sim) {
+    if hub && let Err(off) = peered_over_hub(&sim) {
         return ended(sim, Err(off));
     }
     sim.trace.push(format!("{} ready", sim.now));
@@ -765,9 +765,12 @@ fn pay(sim: &mut Sim, options: &Options, rng: &mut SeededRng, left: &mut (u64, u
             Err(_) if !up(sim, from) || !up(sim, to) => {}
             Err(refusal) => {
                 left.1 -= 1;
-                // Refused rightly only while the owner's pool holds less
-                // than the payment: on the XRP Ledger, before the faucet's
-                // funding is booked. Any other refusal fails the run.
+                // Refused rightly only while the owner's pool on the ledger
+                // the payer spends from holds less than the payment: on the
+                // XRP Ledger, before the faucet's funding is booked; over a
+                // hub, the member's book in the hub, whatever its owner
+                // still holds on the XRP Ledger. Any other refusal fails
+                // the run.
                 let pool = (sim.balances_on(from, sim.settling.ledger()))
                     .get("equity/owner")
                     .copied()
@@ -1122,6 +1125,12 @@ fn heal(
         return Err(not_settled_down(sim, HEAL_MS / 1_000, &what));
     }
     check(sim)?;
+    // The owners' ends and bans in the chaos made pairs peer anew: over a
+    // hub, those peerings too go over it, never over an owner's XRP
+    // Ledger account.
+    if over_hub(options.settling) {
+        peered_over_hub(sim)?;
+    }
     for end in ends.iter().filter(|end| !end.ban) {
         // A ban of the peer while the node collects tells it at once.
         let banned = ends

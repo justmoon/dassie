@@ -220,7 +220,7 @@ pub fn outgoing_flows(sim: &Sim) -> impl Iterator<Item = Flow> + '_ {
 /// spec/areas/settlement.md#asking-a-peer-to-settle). Over a hub of XRP,
 /// as the runs over a hub check it.
 pub fn check_settled(sim: &Sim) -> Result<(), String> {
-    if over_hub(sim) {
+    if is_hub_run(sim) {
         return super::hub_checks::check_settled_with_honest(sim, None);
     }
     for index in 0..sim.nodes.len() {
@@ -665,7 +665,7 @@ fn check_outgoing_payment(
 /// Whether the run is over one hub of XRP run in the simulation, whose
 /// members fund their accounts in it from their XRP Ledger accounts: its
 /// books are the hub's to check.
-fn over_hub(sim: &Sim) -> bool {
+fn is_hub_run(sim: &Sim) -> bool {
     matches!(sim.settling, Settling::Hub(_))
 }
 
@@ -676,7 +676,7 @@ fn over_hub(sim: &Sim) -> bool {
 /// XRP, as the runs over a hub check them, in the hub and on the XRP Ledger
 /// account each member funds its hub account from.
 pub fn check_books(sim: &Sim) -> Result<(), Outcome> {
-    if over_hub(sim) {
+    if is_hub_run(sim) {
         return super::hub_checks::check_books(sim);
     }
     first_failure([
