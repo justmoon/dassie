@@ -2,6 +2,15 @@
 //! which targets each is peered with, and a trade from one through a
 //! target to the other (spec/areas/rate-feed.md#market-maker).
 //!
+//! Each node is a member of the settlement hub of its asset, and holds the
+//! asset in two places: its account in the hub, on the hub's ledger, which
+//! its trades pay from and are paid on, and the owner book of the asset on
+//! its XRP Ledger account, which funds the hub and which its rebalances
+//! spend from. The node moves funds between the two by itself, between the
+//! hub's floor and ceiling (spec/areas/hubs.md#in-the-node), so what it
+//! holds is both: a move between them counts where the ledger it leaves
+//! still has it, and nowhere while it is on neither.
+//!
 //! A trade asks the receiving node for an incoming payment beneath the
 //! target, so that the payment reaches it through that target and no
 //! other, quotes paying
@@ -36,23 +45,42 @@ pub const LEDGER_SCALE: u32 = 9;
 pub struct Node {
     /// Which.
     pub side: Side,
-    /// The ledger it runs.
+    /// The ledger of its hub, which it trades on.
     pub ledger: String,
+    /// The ledger of the owner book that funds the hub.
+    pub owner_book: String,
     socket: PathBuf,
     client: Option<Client>,
 }
 
-/// What `ListLedgers` says of a node's ledger.
+/// What a node says of its asset: `ListLedgers` of its hub's ledger and
+/// its owner book.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LedgerState {
-    /// Its asset's code.
+    /// The asset's code, as both ledgers name it.
     pub asset_code: String,
     /// What the node holds.
     pub holding: Holding,
-    /// Its XRPL account's address.
+    /// The owner book's XRPL account's address.
     pub deposit_address: String,
-    /// Who issues what it settles in, for a token; empty for XRP.
+    /// Who issues what the owner book holds, for a token; empty for XRP.
     pub issuer: String,
+}
+
+/// What the node's ledgers say, as [`holding`] reads them: the hub's
+/// ledger and the owner book, each from `ListLedgers`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Views {
+    /// The owner's funds on the hub's ledger.
+    pub hub_owner: i64,
+    /// The owner's funds in the owner book.
+    pub book_owner: i64,
+    /// Of those, what is held for payments on their way out of the book,
+    /// such as a deposit into the hub.
+    pub book_pending: u64,
+    /// What the book's account holds, as the books have it, less what the
+    /// ledger holds back.
+    pub book_on_ledger: u64,
 }
 
 /// How a trade ended.
@@ -76,13 +104,15 @@ pub enum TradeOutcome {
 }
 
 impl Node {
-    /// The node of `side` at `socket`, running `ledger`; it connects at
+    /// The node of `side` at `socket`, trading on its hub's ledger
+    /// `ledger`, funded from the owner book `owner_book`; it connects at
     /// the first call.
     #[must_use]
-    pub const fn new(side: Side, socket: PathBuf, ledger: String) -> Self {
+    pub const fn new(side: Side, socket: PathBuf, ledger: String, owner_book: String) -> Self {
         Self {
             side,
             ledger,
+            owner_book,
             socket,
             client: None,
         }
@@ -135,11 +165,12 @@ impl Node {
         })
     }
 
-    /// What the node holds on its ledger.
+    /// What the node holds of its asset, in its hub and its owner book.
     ///
     /// # Errors
     ///
-    /// The call failed, or the node does not run the ledger.
+    /// A call failed, the node does not run either ledger, or they count
+    /// another asset or at another scale.
     pub async fn ledger_state(&mut self) -> Result<LedgerState, String> {
         let response::Method::ListLedgers(list) = self
             .call(Method::ListLedgers(proto::ListLedgersRequest {}))
@@ -147,25 +178,43 @@ impl Node {
         else {
             return Err("ListLedgers answered out of turn".into());
         };
-        let ledger = list
-            .ledgers
-            .into_iter()
-            .find(|ledger| ledger.id == self.ledger)
-            .ok_or_else(|| format!("the {} node runs no {}", self.side.name(), self.ledger))?;
-        if ledger.asset_scale != LEDGER_SCALE {
-            return Err(format!(
-                "{} counts at scale {}",
-                ledger.id, ledger.asset_scale
-            ));
+        let find = |id: &str| {
+            list.ledgers
+                .iter()
+                .find(|ledger| ledger.id == id)
+                .ok_or_else(|| format!("the {} node runs no {id}", self.side.name()))
+        };
+        let (hub, book) = (find(&self.ledger)?, find(&self.owner_book)?);
+        for ledger in [hub, book] {
+            if ledger.asset_scale != LEDGER_SCALE {
+                return Err(format!(
+                    "{} counts at scale {}",
+                    ledger.id, ledger.asset_scale
+                ));
+            }
         }
+        // A hub's ledger reports no issuer today; one that does must name
+        // the book's.
+        let issuers_differ = !hub.issuer.is_empty() && hub.issuer != book.issuer;
+        if hub.asset_code != book.asset_code || issuers_differ {
+            return Err(format!("{} and {} hold different assets", hub.id, book.id));
+        }
+        let (asset_code, deposit_address, issuer) = (
+            book.asset_code.clone(),
+            book.deposit_address.clone(),
+            book.issuer.clone(),
+        );
+        let views = Views {
+            hub_owner: hub.owner_balance,
+            book_owner: book.owner_balance,
+            book_pending: book.owner_pending,
+            book_on_ledger: book.on_ledger_balance,
+        };
         Ok(LedgerState {
-            asset_code: ledger.asset_code,
-            holding: Holding {
-                books: u64::try_from(ledger.owner_balance.max(0)).unwrap_or(0),
-                on_ledger: ledger.on_ledger_balance,
-            },
-            deposit_address: ledger.deposit_address,
-            issuer: ledger.issuer,
+            asset_code,
+            holding: holding(&views),
+            deposit_address,
+            issuer,
         })
     }
 
@@ -191,6 +240,33 @@ impl Node {
             .filter_map(|peer| NodeId::parse(&peer.node).ok())
             .collect())
     }
+}
+
+/// What a node holds of its asset, from what its ledgers say: its funds
+/// in the hub and in the owner book, none below zero; of that, what the
+/// owner book's account may spend now: what it holds, at most the owner's
+/// funds there less what payments on their way out of it hold. A move
+/// between hub and book counts on the ledger it leaves until that ledger
+/// books it out, and on the other once that one books it in: a deposit is
+/// held in the book until the XRP Ledger applies it and credited by the
+/// hub some seconds later, and a withdrawal stays on the hub's ledger
+/// until the hub executes it and reaches the book when the account sees
+/// it arrive. Between, the holding reads short of the move, never above:
+/// the two ledgers book on their own schedules, and counting a move in
+/// flight from either side could count it twice.
+#[must_use]
+pub fn holding(views: &Views) -> Holding {
+    let positive = |balance: i64| u64::try_from(balance.max(0)).unwrap_or(0);
+    let book = positive(views.book_owner);
+    let total = positive(views.hub_owner).saturating_add(book);
+    let on_ledger = views
+        .book_on_ledger
+        .min(book.saturating_sub(views.book_pending));
+    assert!(
+        on_ledger <= total,
+        "the account's share is part of the whole"
+    );
+    Holding { total, on_ledger }
 }
 
 /// Carries out `trade` from `from` through `target` to `to`, checking its
@@ -332,5 +408,74 @@ async fn follow(from: &mut Node, id: &str) -> Result<(String, u64), String> {
             Ok(last)
         }
         Ok(result) => from.settle(result).map(|_| last),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const ONE: i64 = 1_000_000_000;
+
+    /// A node with `hub` in its hub and `book` in its owner book, all of
+    /// the book in its account, and nothing on its way.
+    const fn views(hub: i64, book: i64) -> Views {
+        Views {
+            hub_owner: hub,
+            book_owner: book,
+            book_pending: 0,
+            book_on_ledger: book.unsigned_abs(),
+        }
+    }
+
+    const fn units(whole: i64) -> u64 {
+        (whole * ONE).unsigned_abs()
+    }
+
+    #[test]
+    fn a_node_holds_its_hub_and_its_book() {
+        let held = holding(&views(5 * ONE, 95 * ONE));
+        assert_eq!(held.total, units(100));
+        // A rebalance spends only from the book's account.
+        assert_eq!(held.on_ledger, units(95));
+    }
+
+    #[test]
+    fn a_deposit_on_its_way_never_counts_twice() {
+        // Held in the book until the XRP Ledger applied it: still the
+        // owner's there, but not the account's to spend.
+        let mut leaving = views(5 * ONE, 95 * ONE);
+        leaving.book_pending = units(10);
+        assert_eq!(holding(&leaving).total, units(100));
+        assert_eq!(holding(&leaving).on_ledger, units(85));
+        // Applied: out of the book, not credited by the hub yet, so on
+        // neither ledger, and the holding reads short of it.
+        let applied = views(5 * ONE, 85 * ONE);
+        assert_eq!(holding(&applied).total, units(90));
+        assert_eq!(holding(&applied).on_ledger, units(85));
+        // Credited: in the hub, once.
+        let credited = views(15 * ONE, 85 * ONE);
+        assert_eq!(holding(&credited).total, units(100));
+        assert_eq!(holding(&credited).on_ledger, units(85));
+    }
+
+    #[test]
+    fn the_account_spends_at_most_the_owners_funds() {
+        // The account holds more than the books give the owner, or less.
+        let mut more = views(0, 10 * ONE);
+        more.book_on_ledger = units(12);
+        assert_eq!(holding(&more).on_ledger, units(10));
+        let mut less = views(0, 10 * ONE);
+        less.book_on_ledger = units(4);
+        assert_eq!(holding(&less).on_ledger, units(4));
+    }
+
+    #[test]
+    fn nothing_counts_below_zero_or_overflows() {
+        let held = holding(&views(-ONE, -2 * ONE));
+        assert_eq!(held.total, 0);
+        assert_eq!(held.on_ledger, 0);
+        let most = holding(&views(i64::MAX, i64::MAX));
+        assert_eq!(most.total, i64::MAX.unsigned_abs() * 2);
     }
 }

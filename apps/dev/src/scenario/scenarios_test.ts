@@ -3,6 +3,7 @@ import { assert, assertEquals, assertThrows } from "@std/assert";
 import { DEV_RATES } from "../rates.ts";
 import {
   dataShape,
+  DSUSD_HUB_SCHEME,
   findScenario,
   HUB_OWNER_BOOK,
   HUB_SCHEME,
@@ -12,7 +13,6 @@ import {
   joinsHub,
   ledgerNetwork,
   live,
-  MARKET_MAKER_PARKED,
   MAX_NODES,
   micros,
   minted,
@@ -70,54 +70,77 @@ test("every scenario's periphery nodes are pinned to its core nodes", () => {
   );
 });
 
-// spec/areas/dev.md#scenarios: the market maker is parked until it runs on
-// hubs, so its scenarios cannot run, even with the fake ledger, and say
-// why; their layout stays as it was, for when it does.
-test("the market maker's scenario: a core node and two pinned to it, parked", () => {
-  const def = findScenario("market-maker")!;
-  assertEquals(invalid(def), undefined);
-  assertEquals(peripheryOf(def, 0), undefined);
-  assertEquals(peripheryOf(def, 1)?.uplinks, [0]);
-  assertEquals(peripheryOf(def, 2)?.uplinks, [0]);
-  // Only the nodes that run DSUSD's scheme are minted it.
-  assertEquals(def.schemes.map((schemes) => minted(def, schemes)), [
-    true,
-    false,
-    true,
+// spec/areas/dev.md#scenarios: the market maker on hubs. Four validators
+// found an XRP hub and a DSUSD hub; the core nodes, its targets, join both,
+// and its two periphery nodes, pinned to every target, one each: the XRP
+// node the XRP hub, the DSUSD node the DSUSD hub, each with the owner
+// books its hub needs. Only the fake ledger has the hubs, the mint and the
+// pool.
+async function marketMakerHubs(
+  def: ScenarioDef,
+  cores: readonly number[],
+  [xrpNode, dsusdNode]: readonly [number, number],
+): Promise<void> {
+  const { hubScheme, hubsOf, invalidHubs, joins, validatesAny } = await import(
+    "./hubs.ts"
+  );
+  assertEquals(invalid(def), undefined, def.id);
+  assertEquals(invalidHubs(def), undefined, def.id);
+  const [xrp, dsusd] = hubsOf(def);
+  assertEquals([xrp, dsusd].map(hubScheme), [HUB_SCHEME, DSUSD_HUB_SCHEME]);
+  const validators = [0, 1, 2, 3];
+  for (const hub of [xrp, dsusd]) {
+    assertEquals(hub.validators, validators);
+    assertEquals(hub.sponsor, 0);
+  }
+  assertEquals(
+    def.schemes.map((_, index) => validatesAny(def, index)),
+    def.schemes.map((_, index) => validators.includes(index)),
+  );
+  const members = (hub: typeof xrp) =>
+    def.schemes.flatMap((_, index) => joins(def, hub, index) ? [index] : []);
+  assertEquals(members(xrp), [...cores, xrpNode]);
+  assertEquals(members(dsusd), [...cores, dsusdNode]);
+  // The targets are the bootstrap nodes, and core nodes; the market
+  // maker's two are periphery nodes pinned to every one of them.
+  assertEquals(def.bootstrap, cores);
+  for (const core of cores) assertEquals(peripheryOf(def, core), undefined);
+  assertEquals(peripheryOf(def, xrpNode)?.uplinks, cores);
+  assertEquals(peripheryOf(def, dsusdNode)?.uplinks, cores);
+  assertEquals(def.schemes[xrpNode], [HUB_OWNER_BOOK, HUB_SCHEME]);
+  assertEquals(def.schemes[dsusdNode], [
+    HUB_OWNER_BOOK,
+    TOKEN_SCHEMES.DSUSD,
+    DSUSD_HUB_SCHEME,
   ]);
-  assertEquals(minted(def, def.addedSchemes), true);
-  assertEquals(unavailable(def, false), MARKET_MAKER_PARKED);
-  assertEquals(unavailable(def, true), MARKET_MAKER_PARKED);
-  // Unparked, it needs the fake ledger's issuer and pool.
-  const unparked = { ...def, unavailable: undefined };
+  // Only the nodes in the DSUSD hub are minted DSUSD, from which they fund
+  // it.
   assertEquals(
-    unavailable(unparked, false),
-    "needs --xrpl fake: only the fake ledger's issuer mints DSUSD on demand",
+    def.schemes.map((schemes) => minted(def, schemes)),
+    def.schemes.map((_, index) => joins(def, dsusd, index)),
   );
+  // An added node joins both hubs, as a core node does.
+  assertEquals(joins(def, xrp, def.schemes.length), true);
+  assertEquals(joins(def, dsusd, def.schemes.length), true);
+  assertEquals(minted(def, def.addedSchemes), true);
+  assertEquals(def.pool?.token, "DSUSD");
+  assertEquals(resumes(def), false);
   assertEquals(
-    unavailable({ ...unparked, mint: undefined }, false)?.includes("pool"),
+    unavailable(def, false)?.startsWith("needs the fake ledger"),
     true,
   );
-  assertEquals(unavailable(unparked, true), undefined);
+  assertEquals(unavailable(def, true), undefined);
+}
+
+test("the market maker's scenario: a core node in both hubs, a node in each pinned to it", async () => {
+  await marketMakerHubs(findScenario("market-maker")!, [4], [5, 6]);
 });
 
-test("the market maker's scenario with two targets: both nodes pinned to both, parked", () => {
-  const def = findScenario("market-maker-two-targets")!;
-  assertEquals(invalid(def), undefined);
-  assertEquals(peripheryOf(def, 0), undefined);
-  assertEquals(peripheryOf(def, 1), undefined);
-  assertEquals(peripheryOf(def, 2)?.uplinks, [0, 1]);
-  assertEquals(peripheryOf(def, 3)?.uplinks, [0, 1]);
-  assertEquals(def.schemes.map((schemes) => minted(def, schemes)), [
-    true,
-    true,
-    false,
-    true,
-  ]);
-  assertEquals(unavailable(def, true), MARKET_MAKER_PARKED);
-  assertEquals(
-    unavailable({ ...def, unavailable: undefined }, true),
-    undefined,
+test("the market maker's scenario with two targets: both nodes pinned to both", async () => {
+  await marketMakerHubs(
+    findScenario("market-maker-two-targets")!,
+    [4, 5],
+    [6, 7],
   );
 });
 
@@ -133,20 +156,14 @@ test("no scenario that runs settles directly", () => {
   assertEquals(JSON.parse(UNLIMITED_STUB), { trust: "unlimited" });
   assertEquals(JSON.parse(OWNER_BOOK), { peers: false });
   for (const def of SCENARIOS) {
-    if (def.unavailable !== undefined) continue;
     for (const schemes of [...def.schemes, def.addedSchemes]) {
       for (const scheme of schemes) {
         assertEquals(settlesNot(def, scheme), true, `${def.id} ${scheme}`);
       }
     }
+    // Each runs, on the fake ledger.
+    assertEquals(unavailable(def, true), undefined, def.id);
   }
-  // Only the market maker's are parked.
-  assertEquals(
-    SCENARIOS.filter((def) => def.unavailable !== undefined).map((def) =>
-      def.id
-    ),
-    ["market-maker", "market-maker-two-targets"],
-  );
   const ids = SCENARIOS.map((def) => def.id);
   assertEquals(new Set(ids).size, ids.length, "an ID twice");
 });
@@ -203,12 +220,12 @@ test("a live scenario runs mainnet's schemes on the fake ledger's mainnet only",
   ]);
   assertEquals(
     unavailable(books, false),
-    "needs --xrpl fake: the live realm runs only against the fake ledger's mainnet, never with real money",
+    "needs the fake ledger: the live realm runs only against the fake ledger's mainnet, never with real money",
   );
   assertEquals(unavailable(books, true), undefined);
   assertEquals(
     unavailable({ ...books, mint: undefined, pool: undefined }, false),
-    "needs --xrpl fake: the live realm runs only against the fake ledger's mainnet, never with real money",
+    "needs the fake ledger: the live realm runs only against the fake ledger's mainnet, never with real money",
   );
 });
 
@@ -223,7 +240,7 @@ test("the DSUSD owner book: minted, beside its pool, on the fake ledger only", (
   assertEquals(resumes(def), true);
   assertEquals(
     unavailable(def, false),
-    "needs --xrpl fake: only the fake ledger's issuer mints DSUSD on demand",
+    "needs the fake ledger: only the fake ledger's issuer mints DSUSD on demand",
   );
   assertEquals(unavailable(def, true), undefined);
 });
@@ -273,7 +290,7 @@ test("cross-currency: the unlimited stub, a hub, and a node in both", () => {
   assertEquals(resumes(def), false);
   assertEquals(
     unavailable(def, false),
-    "needs --xrpl fake: each run founds a hub of its own, whose escrow stays off the public testnet",
+    "needs the fake ledger: each run founds a hub of its own, whose escrow stays off the public testnet",
   );
   assertEquals(unavailable(def, true), undefined);
 });
@@ -324,7 +341,7 @@ test("the hub scenario: four validators, a sponsor among them, two members", () 
   assertEquals(startsFresh(findScenario("two-nodes")!), undefined);
   assertEquals(
     unavailable(def, false),
-    "needs --xrpl fake: each run founds a hub of its own, whose escrow stays off the public testnet",
+    "needs the fake ledger: each run founds a hub of its own, whose escrow stays off the public testnet",
   );
   assertEquals(unavailable(def, true), undefined);
   // No node of a scenario without a hub runs the hub's scheme, whose
@@ -504,5 +521,8 @@ test("the two-hubs scenario: an XRP hub, a DSUSD hub, two members in both", asyn
   assertEquals(joins(def, xrp, def.schemes.length), true);
   assertEquals(joins(def, dsusd, def.schemes.length), false);
   assertEquals(resumes(def), false);
-  assertEquals(unavailable(def, false)?.startsWith("needs --xrpl fake"), true);
+  assertEquals(
+    unavailable(def, false)?.startsWith("needs the fake ledger"),
+    true,
+  );
 });

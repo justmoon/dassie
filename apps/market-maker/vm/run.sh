@@ -5,8 +5,16 @@
 #
 # 1. Sets each node up from its phrase with `dassie setup`, which claims a
 #    fresh node, checks that one set up before is the phrase's, and adds
-#    the node's one settlement scheme if it is missing. Neither joins a
-#    settlement hub (`--no-hub`): each settles on its one scheme alone.
+#    the schemes it names that are missing: each node joins the testnet's
+#    default hub of its asset, the XRP node the XRP hub and the DSUSD node
+#    the DSUSD hub, with the owner books it funds the hub from, which peer
+#    with nobody: XRP's, and DSUSD's on the DSUSD node, whose XRP book pays
+#    its hub's gas (spec/areas/hubs.md#in-the-node). `--no-hub`: the
+#    DSUSD node joins no XRP hub, and neither joins a hub it does not name.
+#    A hub's scheme names no rules, so it takes the default hub of its
+#    asset, which runs only once its rules are built into the release
+#    (spec/areas/market-maker-vm.md). It changes no scheme a node already
+#    runs, so a node with a database from before hubs starts afresh.
 # 2. Writes the market maker's config (crates/dassie-cli/src/market_maker/
 #    config.rs) beside the phrases, from the settings startup.sh wrote
 #    from the instance metadata (MM_*, in /etc/dassie-mm/settings.env).
@@ -20,14 +28,24 @@ dassie=/opt/dassie/current/bin/dassie
 xrpl_server=wss://s.altnet.rippletest.net:51233
 dsusd_issuer=rURgPoYNN7tGqBzGXFeCLmKYgpSjYgJP6M
 
-# setup <node> <scheme>
+# An XRP Ledger scheme's config as an owner book, which peers with nobody.
+book='{"peers":false}'
+
+# setup <node> <dassie setup's flags>…
 setup() {
-  DASSIE_IPC_SOCKET_PATH="/run/dassie-mm-$1/dassie.sock" \
-    "$dassie" setup --passphrase-file "$dir/$1.phrase" --scheme "$2" --no-hub
+  node=$1
+  shift
+  DASSIE_IPC_SOCKET_PATH="/run/dassie-mm-$node/dassie.sock" \
+    "$dassie" setup --passphrase-file "$dir/$node.phrase" --no-hub "$@"
 }
 
-setup xrp xrpl-testnet
-setup dsusd xrpl-testnet-dsusd
+setup xrp \
+  --scheme "xrpl-testnet-xrp=$book" \
+  --scheme hub-xrpl-testnet-xrp
+setup dsusd \
+  --scheme "xrpl-testnet-xrp=$book" \
+  --scheme "xrpl-testnet-dsusd=$book" \
+  --scheme hub-xrpl-testnet-dsusd
 
 umask 077
 jq -n \
@@ -48,14 +66,16 @@ jq -n \
     xrpl: { server: $server, token: { currency: "DSUSD", issuer: $issuer } },
     xrp: {
       socket: "/run/dassie-mm-xrp/dassie.sock",
-      ledger: "xrpl-testnet+xrp",
+      ledger: "hub-xrpl-testnet-xrp+xrp",
+      ownerBook: "xrpl-testnet-xrp+xrp",
       passphraseFile: "\($dir)/xrp.phrase",
       tradeSize: $xrpTradeSize,
       band: { low: $xrpLow, high: $xrpHigh }
     },
     token: {
       socket: "/run/dassie-mm-dsusd/dassie.sock",
-      ledger: "xrpl-testnet-dsusd+usd",
+      ledger: "hub-xrpl-testnet-dsusd+usd",
+      ownerBook: "xrpl-testnet-dsusd+usd",
       passphraseFile: "\($dir)/dsusd.phrase",
       tradeSize: $dsusdTradeSize,
       band: { low: $dsusdLow, high: $dsusdHigh }
