@@ -387,6 +387,17 @@ impl Watcher {
             .is_some_and(|(_, at)| self.now_ms.saturating_sub(at) <= ANCHOR_FRESH_MS)
     }
 
+    /// Whether `state` is as of the newest anchor, or later, and that
+    /// anchor fresh: a state proven at an older anchor, asked before a new
+    /// connection anchored anew and answered after, is not judged as the
+    /// newest ledger.
+    fn current(&self, state: &ProvenState) -> bool {
+        self.fresh()
+            && self
+                .anchor()
+                .is_some_and(|anchor| state.header.sequence >= anchor.index)
+    }
+
     /// Its verifier, to read what it proved and the lies it caught.
     #[must_use]
     pub const fn verifier(&self) -> &Verifier {
@@ -475,7 +486,9 @@ impl Watcher {
         self.drain_verifier();
     }
 
-    /// The connection is gone.
+    /// The connection is gone. What it decided for the host stays to be
+    /// carried out, but for what was to be sent on the connection and a
+    /// request to end it.
     pub fn disconnected(&mut self) {
         self.forget_connection();
         self.phase = Phase::Disconnected;
@@ -483,6 +496,11 @@ impl Watcher {
         // The verifier asks everything anew on the next connection: its
         // asks on this one are forgotten with it.
         let _ = self.verifier.take_out();
+        // What was to go on this connection, or to end it, goes with it:
+        // the next one is asked anew, and is not ended for this one's
+        // sake.
+        self.out
+            .retain(|out| !matches!(out, Out::Send(_) | Out::Reconnect));
     }
 
     /// What was asked on the connection, and what its server hinted at, is
@@ -933,10 +951,13 @@ impl Watcher {
     }
 
     /// The escrow's setup, proven at an anchor: its next sequence attested
-    /// once it passes the check, if the anchor is fresh.
+    /// once it passes the check, if it is as of the newest anchor and that
+    /// anchor is fresh.
     fn escrow_state(&mut self, state: &ProvenState) {
         let checked = match self.view.as_ref() {
-            Some(view) if !view.checked && self.fresh() => check_proven_escrow(&view.rules, state),
+            Some(view) if !view.checked && self.current(state) => {
+                check_proven_escrow(&view.rules, state)
+            }
             _ => return,
         };
         match checked {
@@ -955,11 +976,12 @@ impl Watcher {
     }
 
     /// The issuer's hold on a token hub's escrow, proven at an anchor:
-    /// attested if the anchor is fresh and it differs from the hub's, as
-    /// of a later ledger, and was not attested already.
+    /// attested if it is as of the newest anchor, that anchor fresh, and it
+    /// differs from the hub's, as of a later ledger, and was not attested
+    /// already.
     fn issuer_state(&mut self, state: &ProvenState) {
         let (proven, hub) = match self.view.as_ref() {
-            Some(view) if self.fresh() => (issuer_of(&view.rules.terms, state), view.issuer),
+            Some(view) if self.current(state) => (issuer_of(&view.rules.terms, state), view.issuer),
             _ => return,
         };
         let Some(proven) = proven else {

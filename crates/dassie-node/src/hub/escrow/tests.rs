@@ -648,6 +648,45 @@ fn an_old_anchor_judges_nothing() {
     assert_eq!(setup.issuer_states(), [(false, false)]);
 }
 
+// What was to go on a connection, or to end it, goes with it: the next
+// connection is neither sent the old one's requests nor ended for its
+// sake. What it decided for the host stays.
+#[test]
+fn a_connection_gone_takes_what_was_to_go_on_it() {
+    let mut setup = Setup::new();
+    setup.watcher.connected(setup.now);
+    // Not following yet: submits wait, and one past the bound is a
+    // problem for the log.
+    for i in 0..=MAX_QUEUED_SUBMITS {
+        setup.watcher.submit(vec![u8::try_from(i % 256).unwrap()]);
+    }
+    setup.watcher.disconnected();
+    let mut left = Vec::new();
+    while let Some(out) = setup.watcher.poll() {
+        left.push(out);
+    }
+    assert!(
+        left.iter()
+            .all(|out| !matches!(out, Out::Send(_) | Out::Reconnect)),
+        "{left:?}"
+    );
+    assert_eq!(
+        left.iter()
+            .filter(|out| matches!(out, Out::Problem(_)))
+            .count(),
+        1
+    );
+
+    // The next connection follows the escrow as any.
+    setup.connect();
+    setup.closes(2);
+    assert!(setup.watcher.following());
+    assert!(any(&setup.attested, |op| matches!(
+        op,
+        ValidatorOperation::AttestEscrow { .. }
+    )));
+}
+
 /// A token hub's escrow through every act of its issuer: a deposit, XRP
 /// sent as gas, a freeze, a deep freeze and a global freeze of it, each
 /// lifted, a transfer fee set and removed, and a clawback; each act a few

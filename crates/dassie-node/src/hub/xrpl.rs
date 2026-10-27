@@ -224,7 +224,8 @@ impl Follow {
         }
     }
 
-    /// Carries out what the watcher decided; false once the socket failed.
+    /// Carries out what the watcher decided; false once the socket failed
+    /// or the watcher asked for a new connection.
     async fn flush<S>(
         &mut self,
         socket: &mut WebSocketStream<S>,
@@ -235,16 +236,19 @@ impl Follow {
         S: AsyncRead + AsyncWrite + Unpin,
     {
         self.hand_over(watcher);
+        // Once the connection is to end, or failed, what was to go on it is
+        // dropped, and so is a further request to end it, but the rest is
+        // carried out now, not on the next connection.
+        let mut alive = true;
         while let Some(out) = watcher.poll() {
             match out {
+                Out::Send(_) | Out::Reconnect if !alive => {}
                 Out::Send(bytes) => {
                     let text = String::from_utf8_lossy(&bytes).into_owned();
-                    if socket.send(Message::text(text)).await.is_err() {
-                        return false;
-                    }
+                    alive = socket.send(Message::text(text)).await.is_ok();
                 }
                 Out::Fetch(url) => fetch(self.client.clone(), fetches.clone(), url),
-                Out::Reconnect => return false,
+                Out::Reconnect => alive = false,
                 Out::Attest(operation, transaction) => {
                     // Past the bound the oldest goes: its transaction is
                     // never taken, so the cursor stays before it, and a
@@ -267,8 +271,10 @@ impl Follow {
                 }
             }
         }
-        self.links.connected.send_replace(watcher.following());
-        true
+        if alive {
+            self.links.connected.send_replace(watcher.following());
+        }
+        alive
     }
 }
 
