@@ -610,6 +610,9 @@ impl Core {
             Gas::ToppingUp { payment, .. } => self.xrpl_owner_payment(payment),
             _ => OwnerPaymentState::Unknown,
         };
+        let book_held = self
+            .founding_book()
+            .is_some_and(|(book, _)| self.owner_payment_held(book));
         Some(GasSeen {
             anchor: account
                 .anchor()
@@ -619,6 +622,7 @@ impl Core {
                 .proven_balance(&escrow)
                 .map(|proven| (proven.drops, proven.ledger_index)),
             topping_up,
+            book_held,
         })
     }
 
@@ -629,9 +633,12 @@ impl Core {
     /// that credits no one in the hub. Returns whether the escrow has
     /// its gas now. The escrow requires a destination tag on what it is
     /// paid, so the top-up names the node's account in the hub, which XRP
-    /// credits nothing. A top-up the XRP book cannot take now, as while
-    /// another of its payments is on its way, is asked again at the next
-    /// step, with no backoff; one refused otherwise backs the check off.
+    /// credits nothing. A short read while the XRP book has another
+    /// payment on its way, which may be a top-up from before a restart the
+    /// read does not show yet, waits for the book to be free, and the
+    /// escrow is read again then. A top-up the XRP book still cannot take
+    /// now is decided again from a read proven at a later ledger, with no
+    /// backoff; one refused otherwise backs the check off.
     ///
     /// # Errors
     ///
@@ -675,13 +682,17 @@ impl Core {
                     .and_then(HubAccount::number)
                     .map(|number| number.0);
                 let paid = self.pay_from_xrp_book(&escrow.to_address(), tag, drops);
+                let refused = matches!(paid, Err(EngineError::Exhausted(_)));
                 if let Some(funding) = self.funding.get_mut(&scheme) {
                     match paid {
                         Ok(payment) => funding.topping_up(payment, at),
-                        // Not now: the book's one owner payment is taken.
-                        Err(EngineError::Exhausted(_)) => {}
+                        // Not now: decided again from a later read.
+                        Err(EngineError::Exhausted(_)) => funding.top_up_refused(at),
                         Err(_) => funding.gas_failed(now),
                     }
+                }
+                if refused {
+                    self.read_balance_of(escrow);
                 }
                 false
             }
