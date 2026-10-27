@@ -4115,6 +4115,12 @@ rec {
             usesDefaultFeatures = false;
           }
           {
+            name = "serde";
+            packageId = "serde";
+            usesDefaultFeatures = false;
+            features = [ "alloc" "derive" ];
+          }
+          {
             name = "sha2";
             packageId = "sha2 0.11.1";
             usesDefaultFeatures = false;
@@ -4134,6 +4140,10 @@ rec {
           {
             name = "proptest";
             packageId = "proptest";
+          }
+          {
+            name = "serde_json";
+            packageId = "serde_json";
           }
         ];
 
