@@ -1,8 +1,9 @@
 //! `dassie market-maker` (spec/areas/rate-feed.md#market-maker): watches
 //! the feeds of one or more core nodes, its targets, trades through the
-//! one that pays best with two nodes of its own when its rates and an AMM
-//! pool on the XRP Ledger leave a margin, and moves its own funds back on
-//! the ledger.
+//! one that pays best with two nodes of its own, each a member of the
+//! settlement hub of its asset, when its rates and an AMM pool on the XRP
+//! Ledger leave a margin, and moves its own funds back on the ledger, from
+//! the owner book that funds one node's hub to the other's.
 //!
 //! - [`config`]: the config file, checked whole before anything connects;
 //! - [`target`]: who each target is, from its discovery document;
@@ -194,8 +195,9 @@ impl Wallets {
 }
 
 impl MarketMaker {
-    /// Derives the keys, checks that each node runs its ledger on the
-    /// account they open, and starts following each target: a target that
+    /// Derives the keys, checks that each node runs its owner book on the
+    /// account they open, and its hub's ledger in the same asset, and
+    /// starts following each target: a target that
     /// does not answer yet is asked again, while the others trade.
     async fn start(
         config: Config,
@@ -211,11 +213,13 @@ impl MarketMaker {
             Side::Xrp,
             config.xrp.socket.clone(),
             config.xrp.ledger.clone(),
+            config.xrp.owner_book.clone(),
         );
         let mut token = Node::new(
             Side::Token,
             config.token_node.socket.clone(),
             config.token_node.ledger.clone(),
+            config.token_node.owner_book.clone(),
         );
         check_node(&mut xrp, wallets.xrp.account(), &config.token).await?;
         check_node(&mut token, wallets.token.account(), &config.token).await?;
@@ -503,24 +507,25 @@ impl MarketMaker {
     }
 }
 
-/// Checks that `node` runs its ledger on the account `account`, the one
-/// its passphrase opens, so a rebalance pays from and to the nodes'
+/// Checks that `node` runs its owner book on the account `account`, the
+/// one its passphrase opens, so a rebalance pays from and to the nodes'
 /// accounts: the XRP node's in XRP, and the token node's in the pool's
-/// token, of the issuer its ledger settles in, so what a rebalance
-/// delivers to it is booked on that ledger.
+/// token, of the issuer its book holds, so what a rebalance delivers to it
+/// is booked there. Its hub's ledger holds the same asset
+/// ([`Node::ledger_state`]), and the node funds the hub from that book.
 async fn check_node(
     node: &mut Node,
     account: AccountId,
     token: &IssuedAsset,
 ) -> Result<(), String> {
     let state = node.ledger_state().await?;
-    check_ledger(node.side, &node.ledger, &state, account, token)?;
+    check_ledger(node.side, &node.owner_book, &state, account, token)?;
     tracing::info!(target: TARGET, side = node.side.name(), socket = %node.socket().display(), "node ready");
     Ok(())
 }
 
 /// What [`check_node`] checks of what the node of `side` says of its
-/// ledger `ledger`.
+/// owner book `ledger`.
 fn check_ledger(
     side: Side,
     ledger: &str,
@@ -561,7 +566,7 @@ mod tests {
         let state = |asset: &str, issuer: String| LedgerState {
             asset_code: asset.into(),
             holding: Holding {
-                books: 0,
+                total: 0,
                 on_ledger: 0,
             },
             deposit_address: account.to_address(),
