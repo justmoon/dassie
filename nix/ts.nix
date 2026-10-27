@@ -1,8 +1,8 @@
 # The TypeScript side's checks (spec/decisions/build-system.md): what
 # `node --run ci` runs, in the build sandbox, offline. The npm and JSR
 # packages come from the lockfile (nix/pnpm.nix), dprint's plugins from the
-# checksums dprint.json pins them with, and the binaries the tests run are
-# built here with crane, as `node --run build:e2e` builds them.
+# checksums dprint.json pins them with, and the binaries the tests run
+# (`e2e`) crate by crate (nix/rust), where `node --run build:e2e` puts them.
 #
 # Four checks, so that a change reruns only what reads it:
 # - ts-check: fmt, lint, the type check and `buf lint` of the contracts
@@ -25,6 +25,7 @@
   toolchain,
   wasm-modules,
   wallet,
+  e2e,
 }:
 let
   pnpm = import ./pnpm.nix { inherit lib pkgs; };
@@ -64,34 +65,6 @@ let
     };
   dprintOffline = pkgs.writeText "dprint.json" (
     builtins.replaceStrings dprintPlugins (map (p: "${dprintPlugin p}") dprintPlugins) dprintJson
-  );
-
-  # The binaries the tests run, where `node --run build:e2e` puts them: the
-  # node with the wallet built in, the fake XRP Ledger, dassie-release for
-  # the release script's tests, and the interop tests' STREAM peer.
-  e2eCommon = common // {
-    pname = "dassie-e2e";
-    CARGO_PROFILE = "e2e";
-    doCheck = false;
-  };
-  e2e = craneLib.mkCargoDerivation (
-    e2eCommon
-    // {
-      cargoArtifacts = craneLib.buildDepsOnly e2eCommon;
-      DASSIE_WALLET_DIST = wallet;
-      buildPhaseCargoCommand = ''
-        cargo build --locked --profile e2e -p dassie-cli
-        cargo build --locked --profile e2e -p dassie-node --features testing --example fake_ledger
-        cargo build --locked --profile e2e -p dassie-release --features tool
-        cargo build --locked --profile e2e -p dassie-stream --example interop_peer
-      '';
-      doInstallCargoArtifacts = false;
-      installPhaseCommand = ''
-        mkdir -p $out/examples
-        cp target/e2e/dassie target/e2e/dassie-release $out/
-        cp target/e2e/examples/fake_ledger target/e2e/examples/interop_peer $out/examples/
-      '';
-    }
   );
 
   # dassie.land (spec/areas/website.md), as `node --run build:website`
