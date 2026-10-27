@@ -96,8 +96,8 @@
 
 pub mod checks;
 pub mod hub;
-pub mod hub_live;
 pub mod hub_checks;
+pub mod hub_live;
 pub mod hub_pairs;
 pub mod hub_routes;
 pub mod hub_runs;

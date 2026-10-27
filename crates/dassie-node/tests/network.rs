@@ -36,8 +36,8 @@ use dassie_node::sim::checks::{
     check, check_across, check_books, check_events, check_ledgers, drifted_past,
 };
 use dassie_node::sim::{
-    CHARGES, CREDIT, LEDGER_CLOSE_MS, START, Settling, Sim, USD, hub_pairs, key, owner_books,
-    received, scripted, sent, xrpl_account,
+    CHARGES, LEDGER_CLOSE_MS, START, Settling, Sim, USD, hub_pairs, key, owner_books, received,
+    scripted, sent, xrpl_account,
 };
 use dassie_node::store::{Aim, ForeignAmount, OutgoingRow, OutgoingState, PaymentId, PeerSettings};
 use dassie_payments::amount::Amount;

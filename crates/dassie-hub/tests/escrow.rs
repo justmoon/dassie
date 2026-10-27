@@ -1016,8 +1016,7 @@ impl Node {
         .unwrap();
         xrpl.fund(account.account());
         xrpl.close();
-        let node = dassie_ledger::Name::new("dnode").unwrap();
-        let scheme = dassie_xrpl::XrplScheme::new(&account, node, None, &[]).unwrap();
+        let scheme = dassie_xrpl::XrplScheme::new(&account, None, &[]).unwrap();
         account.on_ledger(xrpl.now_ms(), LedgerInput::Connected);
         let mut node = Self {
             account,
