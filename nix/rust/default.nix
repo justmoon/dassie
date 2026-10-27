@@ -194,10 +194,24 @@ let
       }/crates/${name}"
     else
       "${clippyConfig}";
+  # buildRustCrate compiles a build script with plain `rustc` whatever
+  # useClippy says: this `rustc`, ahead of the toolchain's on the path,
+  # hands a build script to clippy-driver, so that build.rs is linted as
+  # `cargo clippy` lints it.
+  clippyBuildScripts = pkgs.writeShellScriptBin "rustc" ''
+    case " $* " in
+      *" --crate-name build_script_build "*) exec ${toolchain}/bin/clippy-driver "$@" ;;
+    esac
+    exec ${toolchain}/bin/rustc "$@"
+  '';
   buildWithClippy =
     p: crate:
     let
       member = crate.memberName or crate.crateName;
+      denyWarnings = [
+        "-D"
+        "warnings"
+      ];
     in
     buildRustCrateForPkgs p (
       crate
@@ -206,10 +220,11 @@ let
         clippy = toolchain;
         capLints = "forbid";
         CLIPPY_CONF_DIR = clippyConfigOf member;
-        extraRustcOpts = (crate.extraRustcOpts or [ ]) ++ [
-          "-D"
-          "warnings"
-        ];
+        extraRustcOpts = (crate.extraRustcOpts or [ ]) ++ denyWarnings;
+        extraRustcOptsForBuildRs = (crate.extraRustcOptsForBuildRs or [ ]) ++ denyWarnings;
+        preConfigure = (crate.preConfigure or "") + ''
+          export PATH=${clippyBuildScripts}/bin:$PATH
+        '';
       }
     );
 
@@ -394,11 +409,15 @@ let
   # the member's source, with the property tests' fixed seed
   # (.cargo/config.toml). systemd-socket-activate for dassie-cli's process
   # tests, which skip without it.
+  # The members with no tests, whose run passes with none; any other
+  # member's fails, so that tests that are no longer found fail the check.
+  withoutTests = [ "dassie-wasm" ];
   runTests =
     name:
     let
       binaries = testBinaries name;
       underscored = lib.replaceStrings [ "-" ] [ "_" ] name;
+      triple = pkgs.stdenv.hostPlatform.rust.rustcTarget;
     in
     pkgs.runCommand "crate-test-${name}"
       {
@@ -427,20 +446,21 @@ let
             *) jq -n --arg path "$binary" --arg pkg "$package" --arg base "$base" \
                 '{("${name}::" + $base): {"binary-id": ("${name}::" + $base), "binary-name": $base, "package-id": $pkg, "kind": "test", "binary-path": $path, "build-platform": "target"}}' ;;
           esac
-        done | jq -s --arg target "$NIX_BUILD_TOP/target" '{
+        done | jq -s --arg target "$NIX_BUILD_TOP/target" --arg triple "${triple}" '{
           "rust-build-meta": {
             "target-directory": $target, "build-directory": $target,
             "base-output-directories": ["ci"], "non-test-binaries": {},
             "build-script-out-dirs": {}, "build-script-info": {}, "linked-paths": [],
-            "platforms": {"host": {"platform": {"triple": "x86_64-unknown-linux-gnu", "target-features": "unknown"}, "libdir": {"status": "unavailable", "reason": "not-in-archive"}}, "targets": []},
-            "target-platforms": [{"triple": "x86_64-unknown-linux-gnu", "target-features": "unknown"}],
+            "platforms": {"host": {"platform": {"triple": $triple, "target-features": "unknown"}, "libdir": {"status": "unavailable", "reason": "not-in-archive"}}, "targets": []},
+            "target-platforms": [{"triple": $triple, "target-features": "unknown"}],
             "target-platform": null
           },
           "rust-binaries": (add // {})
         }' > binaries.json
         export HOME=$TMPDIR RUST_BACKTRACE=1
         cargo-nextest nextest run --profile ci --config-file ${root + "/.config/nextest.toml"} \
-          --no-tests=pass --color never --show-progress none \
+          --no-tests=${if lib.elem name withoutTests then "pass" else "fail"} \
+          --color never --show-progress none \
           --binaries-metadata binaries.json --cargo-metadata ${cargoMetadata} \
           --workspace-remap "$NIX_BUILD_TOP/source"
         touch $out
@@ -481,6 +501,39 @@ let
         fi
         touch $out
       '';
+  # buildRustCrate runs no doc tests, so no doc example is one: a fence in
+  # a doc comment names a language other than Rust (`text`, `json`) or is
+  # `ignore`d, and what an example shows is tested in the crate's tests.
+  rustSources = lib.fileset.toSource {
+    inherit root;
+    fileset = lib.fileset.fileFilter (file: file.hasExt "rs") (root + "/crates");
+  };
+  docExamples = pkgs.runCommand "doc-examples" { } ''
+    cd ${rustSources}
+    find crates -name '*.rs' | sort | xargs awk '
+      FNR == 1 { open = 0 }
+      /^[[:space:]]*\/\/[\/!][[:space:]]*```/ {
+        if (open) { open = 0; next }
+        open = 1
+        tag = $0
+        sub(/.*```[[:space:]]*/, "", tag)
+        sub(/[[:space:]]+$/, "", tag)
+        n = split(tag, words, ",")
+        test = tag == ""
+        ignored = 0
+        for (i = 1; i <= n; i++) {
+          if (words[i] ~ /^(rust|no_run|should_panic|compile_fail|edition[0-9]+)$/) test = 1
+          if (words[i] == "ignore") ignored = 1
+        }
+        if (test && !ignored) {
+          printf "%s:%d: a doc test, which CI never runs: test it in the crate\x27s tests, and mark the example `ignore`\n", FILENAME, FNR
+          found = 1
+        }
+      }
+      END { exit found }
+    '
+    touch $out
+  '';
 in
 {
   inherit testBinaries runTests;
@@ -503,5 +556,6 @@ in
     }) (lib.genAttrs members (_: null))
     // {
       cargo-nix-current = cargoNixCurrent;
+      doc-examples = docExamples;
     };
 }

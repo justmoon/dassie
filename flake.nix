@@ -117,10 +117,12 @@
           # The workspace crate by crate, with its checks (nix/rust).
           rust = import ./nix/rust { inherit pkgs toolchain craneLib; };
 
-          # The checks build with the ci profile (Cargo.toml), as a local
-          # `cargo test` does. crane's default, release, gives every test
-          # binary fat LTO and one codegen unit, which took the tests minutes
-          # to link. The release builds use release (nix/release.nix).
+          # The desktop app's tests (desktop-test), the one check crane
+          # builds with Cargo's test settings, build with the ci profile
+          # (Cargo.toml), as a local `cargo test` does. crane's default,
+          # release, gives every test binary fat LTO and one codegen unit,
+          # which took the tests minutes to link. The release builds use
+          # release (nix/release.nix).
           common = {
             inherit src;
             pname = "dassie";
