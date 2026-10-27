@@ -211,8 +211,10 @@ fn brief(status: &proto::HubStatus) -> String {
 
 fn standing(status: &proto::HubStatus) -> &'static str {
     // A frozen hub's account follows it all the same, but is not in step
-    // for moves or packets (spec/areas/hubs.md#a-frozen-hub).
-    if status.frozen_since_unix_ms.is_some() {
+    // for moves or packets (spec/areas/hubs.md#a-frozen-hub). One it
+    // cannot follow says so all the same.
+    let failed = status.connection == i32::from(proto::LedgerConnection::Failed);
+    if status.frozen_since_unix_ms.is_some() && !failed {
         return "frozen by its token's issuer";
     }
     match proto::LedgerConnection::try_from(status.connection) {
@@ -287,7 +289,9 @@ fn show(status: &proto::HubStatus, now_ms: i64) {
 fn issuer_text(status: &proto::HubStatus) -> Option<String> {
     match (status.frozen_since_unix_ms, status.escrow_held) {
         (Some(since), _) => Some(format!(
-            "frozen since {}: no packet goes over the hub, and nothing moves into or out of              it until the issuer lets go; claims the hub still pays go, and what waits goes              after the thaw",
+            "frozen since {}: no packet goes over the hub, and nothing moves into or out of \
+             it until the issuer lets go; claims the hub still pays go, and what waits goes \
+             after the thaw",
             date(since)
         )),
         (None, true) => {
@@ -492,10 +496,12 @@ mod tests {
         status.frozen_since_unix_ms = Some(60_000);
         status.escrow_held = true;
         assert!(brief(&status).contains("frozen by its token's issuer"));
-        assert!(
-            issuer_text(&status)
-                .is_some_and(|text| text.starts_with("frozen since 1970-01-01 00:01 UTC"))
-        );
+        let frozen = issuer_text(&status).unwrap();
+        assert!(frozen.starts_with("frozen since 1970-01-01 00:01 UTC"));
+        assert!(!frozen.contains("  "), "{frozen}");
+        status.connection = proto::LedgerConnection::Failed.into();
+        assert!(brief(&status).contains("failed"));
+        status.connection = proto::LedgerConnection::Syncing.into();
         status.frozen_since_unix_ms = None;
         assert!(issuer_text(&status).is_some_and(|text| text.contains("pays out nothing")));
         assert!(brief(&status).contains("catching up"));

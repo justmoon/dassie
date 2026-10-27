@@ -385,6 +385,13 @@ pub struct HubAccount {
     /// The issuer's hold on a token hub's escrow, as last agreed; kept
     /// with the books, so a restart during a freeze knows it.
     pub(super) issuer: Option<IssuerState>,
+    /// The last freeze the account learnt ended: its stamp, and the stamp
+    /// of the block the account learnt the thaw at, no earlier than the
+    /// thaw's. A reduction applied before it and read only after the thaw
+    /// moves by its length as one mirrored then did. Not kept with the
+    /// books: one read after a restart applies early, as one due during a
+    /// freeze the account missed whole.
+    thawed: Option<(Millis, Millis)>,
     view: Option<(u64, AccountView)>,
     /// An agreed state of the account above the cursor, told once read up
     /// to it.
@@ -477,6 +484,7 @@ impl HubAccount {
             stale_sequence: None,
             disbursal_set: false,
             issuer: None,
+            thawed: None,
             view: None,
             waiting_view: None,
             unfunded: false,
@@ -1233,7 +1241,10 @@ impl HubAccount {
     /// learnt of the thaw at, or of the next freeze. So a reduction never
     /// applies here before it does in the hub, and a hold's records never
     /// close early; one that was due during a freeze the account missed
-    /// whole applies early.
+    /// whole applies early. The validators state the issuer's hold as of
+    /// their tip, so the account may learn of a freeze, and of its thaw,
+    /// before it read a reduction applied before the freeze: that one
+    /// moves by the freeze's length once read ([`Self::mirror`]).
     fn issuer_agreed(&mut self, statement: &Statement) {
         let Statement::Issuer {
             height,
@@ -1265,6 +1276,7 @@ impl HubAccount {
         }
         let until = state.frozen.unwrap_or(state.timestamp);
         let length = until.saturating_sub(since);
+        self.thawed = Some((since, until));
         for mirror in self.holds.values_mut() {
             if let Some((_, at)) = mirror.reduction.as_mut()
                 && *at > since
@@ -1566,6 +1578,16 @@ impl HubAccount {
             MemberOperation::HoldReduce { hold, amount } => {
                 if let Some(mirror) = self.holds.get_mut(hold) {
                     mirror.reduce(*amount, timestamp, notice);
+                    // Applied before a freeze the account already learnt
+                    // ended, and pending at it: the thaw moved it in the
+                    // hub ([`Self::issuer_agreed`]).
+                    if let Some((since, until)) = self.thawed
+                        && timestamp < since
+                        && let Some((_, at)) = mirror.reduction.as_mut()
+                        && *at > since
+                    {
+                        *at = at.saturating_add(until.saturating_sub(since));
+                    }
                 }
             }
             MemberOperation::HoldRelease { hold } => self.drop_hold(*hold),

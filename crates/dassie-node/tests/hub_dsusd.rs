@@ -24,8 +24,10 @@ use dassie_node::sim::hub_token;
 // each other over it while the token was off its peg, which halted the
 // conversions of its ledger; XRP sent to the escrow credited no one, and a
 // withdrawal topped up the escrow's gas first; the members learned of the
-// issuer's freeze, sent no packet over the hub while it lasted, and paid
-// each other again after the thaw; a commitment too far ahead was refused;
+// issuer's freeze, sent no packet over the hub while it lasted, kept the
+// claims for packets they took before it, which the frozen hub paid, lost
+// nothing on a peer but the fees of their own claims, and paid each other
+// again after the thaw; a commitment too far ahead was refused;
 // and after the issuer clawed back from the escrow, the hub paid out pro
 // rata, to the unit.
 #[test]
@@ -47,6 +49,7 @@ fn a_dsusd_hub_runs_from_joining_through_a_freeze_to_its_payout_after_a_clawback
         "escrow gas topped up before a withdrawal",
         "members learned the freeze",
         "no packet crossed the frozen hub",
+        "claims the frozen hub paid",
         "members learned the thaw",
         "members paid each other after the thaw",
         "commitments too far ahead refused",

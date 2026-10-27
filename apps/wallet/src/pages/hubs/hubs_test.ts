@@ -64,10 +64,18 @@ test("a hub its token's issuer froze says so, and since when", () => {
     escrowHeld: true,
     connection: LedgerConnection.SYNCING,
   };
-  assertMatch(hubIssuerText(frozen, NOW)!, /froze the hub's escrow 2 min ago/);
+  assertMatch(
+    hubIssuerText(frozen, NOW)!,
+    /holds the hub's escrow, which froze the hub 2 min ago/,
+  );
   assertMatch(hubIssuerText(frozen, NOW)!, /no payment crosses this hub/);
   // Its account follows the hub all the same: not "reading".
   assertEquals(hubStandingText(frozen), undefined);
+  // One the node cannot follow says so all the same.
+  assertMatch(
+    hubStandingText({ ...frozen, connection: LedgerConnection.FAILED })!,
+    /cannot follow/,
+  );
   assertMatch(
     hubStandingText({ connection: LedgerConnection.SYNCING })!,
     /Reading/,

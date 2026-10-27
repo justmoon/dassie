@@ -26,9 +26,12 @@
 //! member read the freeze from what the validators state of the issuer's
 //! hold, none sends a Prepare over the hub, a payment made meanwhile waits,
 //! and no account is in step, until the issuer lets go and every member
-//! read the thaw; then every payment completes. A payee refuses a
+//! read the thaw; meanwhile only claims within the freeze's window take
+//! from the holds. Then every payment completes, and no member booked a
+//! loss on a peer but the fees of its own claims. A payee refuses a
 //! commitment that expires further ahead than a connector holds a packet
-//! and the hub's precision. The hub then ends: in three runs of four the
+//! and the hub's precision, and its payer pays it as before. The hub then
+//! ends: in three runs of four the
 //! issuer claws back part of what the escrow holds, the hub shuts down,
 //! and its escrow pays the withdrawals already sequenced in full and each
 //! account its share of what is left, checked to the unit against the
@@ -281,7 +284,8 @@ fn script(sim: &mut Sim, rng: &mut SeededRng, setup: &Setup) -> Result<(), Outco
     match setup.ending {
         Ending::Clawback => claw_back(sim, rng),
         Ending::Stall => stall(sim, rng),
-    }
+    }?;
+    check_no_losses(sim, "paid-out")
 }
 
 /// Whether every payment sent all it meant to.
@@ -416,6 +420,49 @@ fn all_know(sim: &Sim, frozen: bool) -> bool {
     })
 }
 
+/// What each hold of the honest validators' ledger holds, by its number.
+fn hold_amounts(sim: &Sim) -> BTreeMap<u64, u64> {
+    sim.hub
+        .as_deref()
+        .and_then(super::hub::HubNet::ledger)
+        .map(|ledger| {
+            ledger
+                .holds()
+                .map(|(number, hold)| (number.0, hold.amount))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Whether the honest validators' ledger has the hub frozen.
+fn hub_frozen(sim: &Sim) -> bool {
+    sim.hub
+        .as_deref()
+        .and_then(super::hub::HubNet::ledger)
+        .is_some_and(|ledger| ledger.frozen().is_some())
+}
+
+/// No member booked a loss on a peer over the hub but the hub's fee for a
+/// claim it made there itself, when its peer's own claim was late
+/// (`LossCause::ClaimFee`): the hub paid no peer for a packet the member
+/// had rejected or forgotten, as it never does between honest members, a
+/// freeze or not (spec/areas/hubs.md#a-frozen-hub). The run counts what
+/// each booked (`Sim::hub_losses`) but not why, which its trace of each
+/// node's events says.
+fn check_no_losses(sim: &Sim, phase: &'static str) -> Result<(), Outcome> {
+    let lost = sim
+        .trace
+        .iter()
+        .find(|line| line.contains("Settlement(PeerLoss {") && !line.contains("cause: ClaimFee"));
+    match lost {
+        None => Ok(()),
+        Some(line) => Err(Outcome::safety(
+            phase,
+            format!("a member lost more than a claim's fee over the hub: {line}"),
+        )),
+    }
+}
+
 /// The issuer holds the escrow while the members pay each other, and lets
 /// go of it (spec/areas/hubs.md#a-frozen-hub). The members pay until the
 /// freeze, which comes a moment into a round of payments, so that packets
@@ -424,14 +471,31 @@ fn all_know(sim: &Sim, frozen: bool) -> bool {
 /// of the issuer's hold, none sends a Prepare over the hub, a payment made
 /// meanwhile does not cross it, and no account is in step for moves or
 /// packets, until the thaw. The hub's clock stands still while it lasts,
-/// longer than any commitment taken before it runs. After the thaw every
-/// payment completes, the ones the freeze held up and new ones; the
-/// checks that follow find each member's books whole, so the claims for
-/// packets they took before the freeze were paid.
+/// longer than any commitment taken before it runs.
+///
+/// The members keep the claims for packets they took before the freeze.
+/// While the hub is frozen, nothing but a claim for commitments within the
+/// freeze's window takes from a hold (no reduction falls due, and nothing
+/// else applies), so what the holds lost between the freeze's block and
+/// the thaw is what the frozen hub paid on such claims, counted when it
+/// paid any, and no hold grew or opened meanwhile. After the thaw every
+/// payment completes, the ones the freeze held up and new ones; no member
+/// booked a loss on a peer over the hub but the fee of a claim it made
+/// there ([`check_no_losses`]), and the checks of the calm network that
+/// follow find each member's books whole.
 fn freeze(sim: &mut Sim, rng: &mut SeededRng, hold: Hold) -> Result<(), Outcome> {
     pay(sim, rng);
     sim.run_until(sim.now + rng.below(super::LEDGER_CLOSE_MS));
     issuer_holds(sim, hold, true);
+    // What the holds held at the freeze's block: the first state of the
+    // honest validators' ledger that has the hub frozen.
+    if !sim.run_until_or(sim.now + KNOWN_WITHIN_MS, hub_frozen) {
+        return Err(Outcome::liveness(
+            "frozen",
+            "the validators did not freeze the hub in time",
+        ));
+    }
+    let at_freeze = hold_amounts(sim);
     if !sim.run_until_or(sim.now + KNOWN_WITHIN_MS, |sim| all_know(sim, true)) {
         return Err(Outcome::liveness(
             "frozen",
@@ -486,6 +550,37 @@ fn freeze(sim: &mut Sim, rng: &mut SeededRng, hold: Hold) -> Result<(), Outcome>
         ));
     }
     sim.count("no packet crossed the frozen hub");
+    if !hub_frozen(sim) {
+        return Err(Outcome::safety(
+            "frozen",
+            "the validators thawed the hub while the issuer held it",
+        ));
+    }
+    let now = hold_amounts(sim);
+    let mut claimed = 0;
+    for (number, before) in &at_freeze {
+        let after = now.get(number).copied().unwrap_or(0);
+        if after > *before {
+            return Err(Outcome::safety(
+                "frozen",
+                format!("hold {number} was funded while the hub was frozen"),
+            ));
+        }
+        claimed += before - after;
+    }
+    if now.keys().any(|number| !at_freeze.contains_key(number)) {
+        return Err(Outcome::safety(
+            "frozen",
+            "a hold was opened while the hub was frozen",
+        ));
+    }
+    if claimed > 0 {
+        sim.count("claims the frozen hub paid");
+        sim.trace.push(format!(
+            "{} the frozen hub paid {claimed} on claims within its window",
+            sim.now
+        ));
+    }
     issuer_holds(sim, hold, false);
     if !sim.run_until_or(sim.now + KNOWN_WITHIN_MS, |sim| all_know(sim, false)) {
         return Err(Outcome::liveness(
@@ -508,7 +603,7 @@ fn freeze(sim: &mut Sim, rng: &mut SeededRng, hold: Hold) -> Result<(), Outcome>
         ));
     }
     sim.count("members paid each other after the thaw");
-    Ok(())
+    check_no_losses(sim, "thawed")
 }
 
 /// The request ID of the Prepare [`refuse_far_ahead`] makes up: one no
@@ -616,8 +711,20 @@ fn refuse_far_ahead(sim: &mut Sim) -> Result<(), Outcome> {
         sim.now,
         ahead + 1_000
     ));
+    // What node 0 refused leaves node 1's commitments to it as they were:
+    // node 1 pays it as before.
+    sim.pay(payer, payee, FAR_AHEAD_THEN_PAID, None, None);
+    if !sim.run_until_or(sim.now + PAID_WITHIN_MS, paid) {
+        return Err(fail(format!(
+            "node 1 did not pay node 0 after its refusal: {}",
+            standing(sim)
+        )));
+    }
     Ok(())
 }
+
+/// What node 1 pays node 0 after [`refuse_far_ahead`]'s refusal: a dollar.
+const FAR_AHEAD_THEN_PAID: u64 = 1_000_000_000;
 
 /// Payments across the hop between nodes 0 and 2, both ways, and one
 /// between two nodes drawn: each of up to a few dollars, several times what
@@ -893,6 +1000,7 @@ fn check_calm(sim: &Sim) -> Result<(), Outcome> {
     first_failure(
         [
             check_events(sim).map_err(|problem| Outcome::safety("events", problem)),
+            check_no_losses(sim, "hub-losses"),
             check_validators(sim).map_err(|problem| Outcome::safety("hub-agreement", problem)),
             super::checks::check_hub_packets(sim)
                 .map_err(|problem| Outcome::safety("hub-packets", problem)),
@@ -1271,9 +1379,10 @@ fn claw_back(sim: &mut Sim, rng: &mut SeededRng) -> Result<(), Outcome> {
 /// the escrow say, to the unit: the hub ended, counting `part` clawed back;
 /// the escrow held, before the set, what the hub owes less `part`; the set
 /// paid each withdrawal the hub had sequenced in full, and each account
-/// with somewhere to go and at least the least payout its share of what
-/// the escrow held beyond them, in proportion to what the hub owed it,
-/// worked out apart from the set and rounded down; every transaction of
+/// with somewhere to go its share of what the escrow held beyond them, in
+/// proportion to what the hub owed it, worked out apart from the set and
+/// rounded down, less the underlying ledger's fee, if that leaves at
+/// least the least payout; every transaction of
 /// the set applied, and it paid out no more than the escrow held.
 fn check_pro_rata(sim: &mut Sim, part: u64, before: u64) -> Result<(), String> {
     let hub = sim.hub.as_deref().unwrap();
@@ -1320,10 +1429,15 @@ fn check_pro_rata(sim: &mut Sim, part: u64, before: u64) -> Result<(), String> {
             continue;
         };
         let share = u64::try_from(u128::from(owed(ledger, number)) * have / due).unwrap();
-        if share >= fees.least_payout {
+        // The escrow pays the underlying ledger's fee of each payout out of
+        // the share it pays.
+        let Some(amount) = share.checked_sub(fees.ledger) else {
+            continue;
+        };
+        if amount >= fees.least_payout {
             *expected
                 .entry(dassie_xrpl::AccountId(disbursal.account))
-                .or_default() += share;
+                .or_default() += amount;
         }
     }
     let hashes = payout.hashes.clone();

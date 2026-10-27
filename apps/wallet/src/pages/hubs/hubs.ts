@@ -72,7 +72,7 @@ export function hubIssuerText(
   nowMs: number,
 ): string | undefined {
   if (status.frozenSinceUnixMs !== undefined) {
-    return `The issuer of this hub's token froze the hub's escrow ${
+    return `The issuer of this hub's token holds the hub's escrow, which froze the hub ${
       relativeTime(status.frozenSinceUnixMs, nowMs)
     }. Until it lets go, no payment crosses this hub and nothing moves into or out of it. Your node still claims what peers owe it for payments it passed on before the freeze, and the rest waits for the thaw.`;
   }
@@ -84,12 +84,18 @@ export function hubIssuerText(
 
 /** How the node's account stands with the hub, for people, with the
  * issuer's freeze first: a frozen hub's account follows the hub all the
- * same, but takes on nothing until the thaw. Nothing while it is up to
- * date. */
+ * same, but takes on nothing until the thaw, which the freeze's own text
+ * says. One the node cannot follow says so all the same. Nothing while it
+ * is up to date. */
 export function hubStandingText(
   status: Pick<HubStatus, "connection" | "frozenSinceUnixMs">,
 ): string | undefined {
-  if (status.frozenSinceUnixMs !== undefined) return undefined;
+  if (
+    status.frozenSinceUnixMs !== undefined &&
+    status.connection !== LedgerConnection.FAILED
+  ) {
+    return undefined;
+  }
   return hubConnectionText(status.connection);
 }
 
