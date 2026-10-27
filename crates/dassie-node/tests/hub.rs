@@ -6,8 +6,10 @@
 //! restarts goes on from what it stored; and a node that validates no such
 //! hub says so.
 
-// The validators run over real sockets, so on the system's clock: their
-// timers are the production ones (spec/areas/testing.md).
+// The validators run over real sockets, on the system's clock, or on one
+// the test moves where waiting on real time would make the outcome depend
+// on how busy the machine is: their timers are the production ones either
+// way (spec/areas/testing.md).
 #![allow(
     clippy::disallowed_types,
     clippy::unwrap_used,
@@ -32,9 +34,9 @@ use dassie_hub::service::wire::Message;
 use dassie_hub::{HubId, Millis};
 use dassie_identity::{NodeKey, PublicKey};
 use dassie_kit::ClientKey;
-use dassie_node::clock::{Clock, SystemClock};
+use dassie_node::clock::{Clock, ManualClock, SystemClock};
 use dassie_node::hub::driver::Driver;
-use dassie_node::hub::service::{EscrowLinks, HubTask};
+use dassie_node::hub::service::{BACKOFF_MAX, EscrowLinks, HubTask, SEND_TIMEOUT};
 use dassie_node::hub::transport::{HubPermit, MAX_MEMBER_MESSAGE_BYTES, Route, StateReply};
 use dassie_node::hub::{HubAccess, HubAnswer, HubClient, HubExchangeError, Hubs, Sender};
 use dassie_node::outbound::Resolver;
@@ -220,10 +222,14 @@ struct Running {
 }
 
 fn start(node: &Node, rules: &Rules, genesis: Millis) -> Running {
-    let now = SystemClock.now_ms();
+    start_on(node, rules, genesis, Arc::new(SystemClock))
+}
+
+/// [`start`], on `clock`.
+fn start_on(node: &Node, rules: &Rules, genesis: Millis, clock: Arc<dyn Clock>) -> Running {
+    let now = clock.now_ms();
     let driver = Driver::open(Arc::clone(&node.store), rules, genesis, &node.key, now).unwrap();
     let client = HubClient::new(Some(Arc::clone(&node.quic)), client());
-    let clock: Arc<dyn Clock> = Arc::new(SystemClock);
     let (task, links) = HubTask::new(driver, client, Arc::clone(&node.hubs), clock);
     let stop = CancellationToken::new();
     let stop_ = stop.clone();
@@ -245,6 +251,40 @@ async fn until(what: &str, mut done: impl FnMut() -> bool) {
             return;
         }
         tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    panic!("not done in time: {what}");
+}
+
+/// How far the validators' clock moves at a time when the test moves it: a
+/// quarter of a block interval, so that each of a view's waits spans several
+/// polls, and a message, which crosses loopback within one, arrives within
+/// them as on a working hub. One that is late on a busy machine costs its
+/// view, which the hub skips and goes on from, as any hub does.
+const STEP_MS: u64 = dassie_hub::consensus::Config::DEFAULT.block_interval_ms / 4;
+
+/// The least real time between two steps, for the exchanges over the
+/// sockets, which are real work.
+const POLL_MS: u64 = 10;
+
+/// The most steps a wait takes: 100 s of the hub's time, hundreds of blocks
+/// however many views fail, and at least 40 s of real time, which is longer
+/// than the others leave a validator that was away alone before they send to
+/// it again ([`BACKOFF_MAX`]), and their exchange with it.
+const STEPS: u64 = 4_000;
+
+const _: () = assert!(
+    STEPS * POLL_MS / 1_000 > BACKOFF_MAX.as_secs() + SEND_TIMEOUT.as_secs(),
+    "a wait outlasts the others' backoff from a validator that comes back"
+);
+
+/// Moves `clock` a step at a time until `done`, [`STEPS`] steps at most.
+async fn until_moved(clock: &ManualClock, what: &str, mut done: impl FnMut() -> bool) {
+    for _ in 0..STEPS {
+        if done() {
+            return;
+        }
+        clock.advance(STEP_MS);
+        tokio::time::sleep(Duration::from_millis(POLL_MS)).await;
     }
     panic!("not done in time: {what}");
 }
@@ -478,15 +518,18 @@ async fn a_member_node_hears_its_validators_through_its_engine() {
 // spec/areas/hubs.md#the-validator-in-the-node: a validator that was away
 // longer than its peers keep blocks fetches the state after a block they
 // name from one of them, on the hub's state stream, takes it, and
-// finalizes again with them.
+// finalizes again with them. Its blocks come as fast as the test moves the
+// validators' clock, not at the pace of real time.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_validator_far_behind_catches_up_from_a_peers_state() {
     let shutdown = CancellationToken::new();
     let nodes: Vec<Node> = (1..=4).map(|seed| node(seed, &shutdown)).collect();
     let rules = rules(&nodes);
-    let genesis = SystemClock.now_ms();
-    let mut running: Vec<Running> = nodes.iter().map(|n| start(n, &rules, genesis)).collect();
-    until("blocks become final", || {
+    let clock = ManualClock::new(support::START_MS);
+    let genesis = clock.now_ms();
+    let start = |node: &Node| start_on(node, &rules, genesis, Arc::new(clock.clone()));
+    let mut running: Vec<Running> = nodes.iter().map(start).collect();
+    until_moved(&clock, "blocks become final", || {
         nodes.iter().all(|n| height(n) >= 5)
     })
     .await;
@@ -494,17 +537,25 @@ async fn a_validator_far_behind_catches_up_from_a_peers_state() {
     let away = running.remove(3);
     away.stop.cancel();
     away.task.await.unwrap();
-    let at = height(&nodes[3]);
+    // Where it stopped, as it stored it: its status went with its task.
+    let at = nodes[3]
+        .store
+        .hub(rules.id().0.as_bytes())
+        .unwrap()
+        .unwrap()
+        .height;
+    assert!(at >= 5);
     // Each keeps its last RETAINED_BLOCKS final blocks: past this, the
     // block after `at` is gone from every one of them.
     let past = at + u64::try_from(dassie_hub::consensus::RETAINED_BLOCKS).unwrap();
-    until("the others finalize past what they keep", || {
+    until_moved(&clock, "the others finalize past what they keep", || {
         (0..3).all(|i| height(&nodes[i]) > past)
     })
     .await;
 
-    running.push(start(&nodes[3], &rules, genesis));
-    until("it catches up through a peer's state", || {
+    // The others hear of it once their backoff from it ends, on real time.
+    running.push(start(&nodes[3]));
+    until_moved(&clock, "it catches up through a peer's state", || {
         nodes[3]
             .hubs
             .statuses()
@@ -514,7 +565,10 @@ async fn a_validator_far_behind_catches_up_from_a_peers_state() {
     .await;
     let caught = height(&nodes[3]);
     assert!(caught > past, "it took a state from after it left");
-    until("it finalizes again", || height(&nodes[3]) > caught + 5).await;
+    until_moved(&clock, "it finalizes again", || {
+        height(&nodes[3]) > caught + 5
+    })
+    .await;
 
     shutdown.cancel();
     for validator in running {
