@@ -70,22 +70,18 @@ pub async fn prepare_on_xrpl(node: &TestNode, key: &NodeKey, scheme: &str, accou
 }
 
 /// Sets the owner's config of the node's external asset `asset`, once the
-/// engine takes it.
+/// engine runs.
 pub async fn set_asset_config(node: &TestNode, asset: &str, config: &str) {
-    let mut owner = node.ipc().await;
-    for _ in 0..200 {
-        let set = owner
-            .call(Method::SetAssetConfig(proto::SetAssetConfigRequest {
-                asset: asset.into(),
-                config: config.into(),
-            }))
-            .await;
-        if set.is_ok() {
-            return;
-        }
-        tokio::time::sleep(Duration::from_millis(10)).await;
-    }
-    panic!("the config of {asset} was not set");
+    node.engine_started().await;
+    let set = node
+        .ipc()
+        .await
+        .call(Method::SetAssetConfig(proto::SetAssetConfigRequest {
+            asset: asset.into(),
+            config: config.into(),
+        }))
+        .await;
+    assert!(set.is_ok(), "the config of {asset} was not set: {set:?}");
 }
 
 /// Sets a node up as a peer: owner, hostname and certificate.
@@ -107,49 +103,40 @@ async fn prepare_base(node: &TestNode, key: &NodeKey) {
     assert!(certificate.is_ok(), "{certificate:?}");
 }
 
-/// Adds settlement scheme `scheme` with `config`, once the engine takes it.
+/// Adds settlement scheme `scheme` with `config`, once the engine runs.
 async fn add_scheme(node: &TestNode, scheme: &str, config: &str) {
-    let mut owner = node.ipc().await;
-    for _ in 0..200 {
-        let added = owner
-            .call(Method::AddSettlementScheme(
-                proto::AddSettlementSchemeRequest {
-                    id: scheme.into(),
-                    config: config.into(),
-                },
-            ))
-            .await;
-        if added.is_ok() {
-            return;
-        }
-        tokio::time::sleep(Duration::from_millis(10)).await;
-    }
-    panic!("the {scheme} scheme did not start");
+    node.engine_started().await;
+    let added = node
+        .ipc()
+        .await
+        .call(Method::AddSettlementScheme(
+            proto::AddSettlementSchemeRequest {
+                id: scheme.into(),
+                config: config.into(),
+            },
+        ))
+        .await;
+    assert!(
+        added.is_ok(),
+        "the {scheme} scheme did not start: {added:?}"
+    );
 }
 
-/// The node's ledger accounts' paths.
+/// The node's ledger accounts' paths, once its engine runs.
 pub async fn accounts(node: &TestNode) -> Vec<String> {
-    let mut owner = node.ipc().await;
-    for _ in 0..200 {
-        let reply = owner
-            .call(Method::ListAccounts(proto::ListAccountsRequest {}))
-            .await;
-        match reply {
-            Ok(response::Method::ListAccounts(list)) => {
-                return list
-                    .accounts
-                    .into_iter()
-                    .map(|account| account.path)
-                    .collect();
-            }
-            // The engine is still starting.
-            Err(error) if error.code() == proto::ErrorCode::Unavailable => {
-                tokio::time::sleep(Duration::from_millis(10)).await;
-            }
-            other => panic!("{other:?}"),
-        }
-    }
-    panic!("the engine did not start");
+    node.engine_started().await;
+    let reply = node
+        .ipc()
+        .await
+        .call(Method::ListAccounts(proto::ListAccountsRequest {}))
+        .await;
+    let Ok(response::Method::ListAccounts(list)) = reply else {
+        panic!("{reply:?}")
+    };
+    list.accounts
+        .into_iter()
+        .map(|account| account.path)
+        .collect()
 }
 
 /// Moves the shared clock on in small steps, giving the daemons real time

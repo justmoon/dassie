@@ -10,6 +10,7 @@ use tokio_util::sync::CancellationToken;
 
 use super::{Node, NodeError, lock};
 use crate::acme::{AcmeError, OrderContext, Step};
+use crate::clock::clock_moved;
 
 /// The longest an order may take, all requests included.
 const ORDER_LIMIT: std::time::Duration = std::time::Duration::from_secs(600);
@@ -325,8 +326,10 @@ impl Node {
     }
 
     /// Checks hourly whether to renew, and renews (spec/areas/http.md#acme),
-    /// until `cancel` fires.
+    /// until `cancel` fires. A check is due on the node's clock, whose moves
+    /// wake it when it is moved by hand.
     pub async fn run_renewal(self: Arc<Self>, cancel: CancellationToken) {
+        let mut moves = self.clock.subscribe();
         loop {
             let decision = self.poll_renewal();
             let until_ms = match decision {
@@ -341,6 +344,7 @@ impl Node {
                 () = cancel.cancelled() => return,
                 () = self.renewal_wake.notified() => {}
                 () = tokio::time::sleep(wait) => {}
+                () = clock_moved(&mut moves) => {}
             }
         }
     }

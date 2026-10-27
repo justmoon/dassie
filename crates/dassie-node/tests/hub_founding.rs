@@ -49,24 +49,20 @@ async fn prepare(node: &TestNode, key: &NodeKey) {
     assert!(certificate.is_ok(), "{certificate:?}");
 }
 
-/// Adds settlement scheme `id` with `config`, once the engine takes it.
+/// Adds settlement scheme `id` with `config`, once the engine runs.
 async fn add_scheme(node: &TestNode, id: &str, config: &str) {
-    let mut owner = node.ipc().await;
-    for _ in 0..200 {
-        let reply = owner
-            .call(Method::AddSettlementScheme(
-                proto::AddSettlementSchemeRequest {
-                    id: id.into(),
-                    config: config.into(),
-                },
-            ))
-            .await;
-        if let Ok(response::Method::AddSettlementScheme(_)) = reply {
-            return;
-        }
-        tokio::time::sleep(Duration::from_millis(10)).await;
-    }
-    panic!("{id} is not added");
+    node.engine_started().await;
+    let added = node
+        .ipc()
+        .await
+        .call(Method::AddSettlementScheme(
+            proto::AddSettlementSchemeRequest {
+                id: id.into(),
+                config: config.into(),
+            },
+        ))
+        .await;
+    assert!(added.is_ok(), "{id} is not added: {added:?}");
 }
 
 async fn ledgers(node: &TestNode) -> Vec<proto::Ledger> {
@@ -455,8 +451,11 @@ async fn found_as(
     let terms = dassie_hub::founding::starting_terms([3; 32], key.public_key(), 1, [4; 20]);
     let request = dassie_hub::founding::FoundingRequest::Propose(terms).to_vec();
     let (node, endpoint) = (to.0.node_id(), to.1.host());
+    // The connection's timeout is real time, so it only guards against a
+    // hang: a short one could end an exchange as unreachable on a busy
+    // machine, which every check here fails.
     let answer = quic
-        .hub_founding_exchange(node, &endpoint, &request, &client, Duration::from_secs(5))
+        .hub_founding_exchange(node, &endpoint, &request, &client, support::HANG)
         .await;
     drop(identity);
     answer
@@ -611,8 +610,12 @@ async fn a_funding_too_little_for_the_escrow_is_paid_once() {
 }
 
 /// Runs the clock until the sponsor's escrow setup has read `escrow` from
-/// the ledger again, then a while longer: whatever it does after reading,
-/// such as paying, has reached the ledger by then.
+/// the ledger again, and so decided whether to fund it, then a few steps
+/// longer, for a payment it made to reach the ledger. Its callers check
+/// that none did: nothing else follows a read that stops there, so there
+/// is nothing to wait for, and these steps only give a wrong payment the
+/// time to show. A slow machine can only let one go unseen, never fail
+/// the test.
 async fn looked_again(net: &Net, escrow: dassie_xrpl::AccountId) {
     let reads = net.xrpl.ledger().reads_of(escrow);
     until(&net.clock, 250, async || {

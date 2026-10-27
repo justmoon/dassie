@@ -21,6 +21,12 @@ const DASSIE: &str = env!("CARGO_BIN_EXE_dassie");
 /// at once.
 const PORTS: [&str; 2] = ["18310", "18311"];
 
+/// How long a daemon may take to start before it is called a hang: a
+/// process starting is real time by nature, and a loaded machine starts it
+/// several times slower, so this is far past any start, a hang's guard
+/// rather than what decides the test (spec/areas/testing.md#levels).
+const HANG: Duration = Duration::from_secs(60);
+
 fn describe(output: &Output) -> String {
     format!(
         "{}\n{}{}",
@@ -45,7 +51,7 @@ fn start(state: &Path, ipc: &Path) -> Child {
         .stderr(Stdio::piped())
         .spawn()
         .unwrap();
-    let deadline = Instant::now() + Duration::from_secs(10);
+    let deadline = Instant::now() + HANG;
     while !ipc.exists() {
         let exited = child.try_wait().unwrap().is_some();
         if exited || Instant::now() > deadline {

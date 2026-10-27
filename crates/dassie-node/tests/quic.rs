@@ -16,7 +16,9 @@ use dassie_kit::ClientKey;
 use dassie_node::outbound::Resolver;
 use dassie_node::peer_server::{Answer, BodyError};
 use dassie_node::quic::places::{Classes, Counts, Peerings};
-use dassie_node::quic::{Body, Handler, Quic, send_peer};
+use dassie_node::quic::{
+    BACKOFF_MIN, Body, CONNECT_TIMEOUT, Handler, IDLE_TIMEOUT, Quic, send_peer,
+};
 use dassie_node_core::connections::ConnectionLimits;
 use dassie_peer::wire::{Kind, MAX_MESSAGE_BYTES};
 use dassie_peer::{Failure, Request, RequestId};
@@ -356,15 +358,17 @@ async fn a_node_out_of_reach_is_not_dialled_again_for_a_while() {
     let started = tokio::time::Instant::now();
     let result = a.quic.send(&request, &client).await;
     assert_eq!(result, Err(Failure::NotDelivered));
-    // Within its time, give or take a loaded machine's slack.
-    assert!(started.elapsed() < std::time::Duration::from_millis(4_000));
+    // Within its time, which is shorter than the time to connect: past
+    // that, the dial would not have given up with the request.
+    assert!(started.elapsed() < CONNECT_TIMEOUT);
     assert!(a.quic.backing_off(&target));
+    // Dialled again, it would take the request's time once more.
     let again = tokio::time::Instant::now();
     assert_eq!(
         a.quic.send(&request, &client).await,
         Err(Failure::NotDelivered)
     );
-    assert!(again.elapsed() < std::time::Duration::from_millis(500));
+    assert!(again.elapsed() < std::time::Duration::from_millis(request.timeout_ms));
     shutdown.cancel();
 }
 
@@ -444,15 +448,17 @@ fn counts(core: usize, downlinks: usize, others: usize) -> Counts {
     }
 }
 
-/// Waits, a few seconds at most, until `done`.
+/// Waits until `done`, which the endpoint reaches on its own, on real time
+/// as QUIC's own timers run: in a moment, or once a backoff of its is over.
+/// The limit only tells a hang: twice the idle timeout, the longest of the
+/// timers any wait here depends on, which no machine is slow enough to
+/// reach.
 async fn until(mut done: impl FnMut() -> bool) {
-    for _ in 0..500 {
-        if done() {
-            return;
-        }
+    let deadline = tokio::time::Instant::now() + 2 * IDLE_TIMEOUT;
+    while !done() {
+        assert!(tokio::time::Instant::now() < deadline, "not done in time");
         tokio::time::sleep(std::time::Duration::from_millis(10)).await;
     }
-    panic!("not done in time");
 }
 
 /// Sends `from` a request to `to`, and says whether it was answered.
@@ -545,11 +551,14 @@ async fn a_stranger_without_room_backs_off() {
     assert!(late.quic.backing_off(&server.id));
     assert_eq!(server.quic.places(), Some(counts(0, 0, ANYONE)));
     // Refused again once the first wait is over, it waits twice as long:
-    // the handshake the server let through ends no backoff.
+    // the handshake the server let through ends no backoff. Refused after
+    // it asked, it still waits half way between the first wait and the
+    // second, however long the refusal took to come.
     until(|| !late.quic.backing_off(&server.id)).await;
+    let asked = tokio::time::Instant::now();
     let result = late.quic.send(&hello, &client()).await;
     assert_eq!(result, Err(Failure::NotDelivered));
-    tokio::time::sleep(std::time::Duration::from_millis(1_500)).await;
+    tokio::time::sleep_until(asked + BACKOFF_MIN * 3 / 2).await;
     assert!(late.quic.backing_off(&server.id), "the wait did not double");
     drop(classes);
     shutdown.cancel();
@@ -623,11 +632,11 @@ async fn a_peer_back_from_a_crash_ends_our_old_connection_at_once() {
     crashed.cancel();
     drop(b);
     // a asks on the connection it kept, and hears at once that it is gone,
-    // well within the request's time.
+    // within the request's time, which it would otherwise wait out.
     let started = tokio::time::Instant::now();
     let lost = a.quic.send(&hello, &client).await;
     assert!(
-        started.elapsed() < std::time::Duration::from_millis(2_000),
+        started.elapsed() < std::time::Duration::from_millis(hello.timeout_ms),
         "the old connection was not reset: {lost:?} after {:?}",
         started.elapsed(),
     );

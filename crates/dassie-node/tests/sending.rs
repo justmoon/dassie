@@ -17,7 +17,6 @@ mod support;
 use std::convert::Infallible;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
 
 use bytes::Bytes;
 use dassie_node::clock::ManualClock;
@@ -214,8 +213,10 @@ async fn the_owner_sends_to_a_payment_pointer_on_a_peer() {
     assert_eq!(done.sent_amount, AMOUNT);
     assert_eq!(done.recipient_pointer, pointer);
     assert!(done.client.is_empty());
+    // The node sent each change as it made it, on no clock: only a hang
+    // ends the wait for one.
     let last = loop {
-        let message = tokio::time::timeout(Duration::from_secs(5), stream.receive())
+        let message = tokio::time::timeout(support::HANG, stream.receive())
             .await
             .expect("no item")
             .expect("closed");

@@ -28,6 +28,7 @@ use tokio_util::task::TaskTracker;
 use super::HubClient;
 use super::driver::hex;
 use super::founding::TESTNET_NETWORK;
+use crate::clock::clock_moved;
 use crate::log::target;
 use crate::node::Node;
 use crate::store::{FoundingRow, StoreError};
@@ -56,8 +57,8 @@ pub fn least_funding(terms: &dassie_hub::rules::Terms) -> u64 {
 /// The longest one request to a validator takes.
 const EXCHANGE_TIMEOUT: Duration = Duration::from_secs(10);
 
-/// The longest a founding waits before it looks at its clock again: the
-/// clock may jump, as a test's does.
+/// The longest a founding waits before it looks at the system clock again,
+/// which may jump; a clock moved by hand wakes it when it moves.
 const MAX_WAIT: Duration = Duration::from_millis(500);
 
 /// The hubs the node founds: what wakes the service when the owner starts
@@ -412,6 +413,7 @@ impl Founding {
         let mut setting_up = false;
         let asks = TaskTracker::new();
         let clock = self.node.clock();
+        let mut moves = clock.subscribe();
         loop {
             let now = clock.now_ms();
             for (index, request) in self.sponsor.due(now) {
@@ -437,6 +439,7 @@ impl Founding {
                 }
                 Some(event) = escrow.recv() => self.escrow(event),
                 () = tokio::time::sleep(wait) => true,
+                () = clock_moved(&mut moves) => true,
             };
             if !kept {
                 break;

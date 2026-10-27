@@ -13,8 +13,6 @@
 
 mod support;
 
-use std::time::Duration;
-
 use dassie_identity::NodeKey;
 use dassie_ledger::LedgerId;
 use dassie_node::clock::ManualClock;
@@ -35,22 +33,18 @@ const BACK: u64 = 200_000_000;
 /// Sets a node up with the stub scheme and no hostname: a periphery node.
 async fn prepare_periphery(node: &TestNode, key: &NodeKey) {
     set_up(node, key).await;
-    let mut owner = node.ipc().await;
-    for _ in 0..200 {
-        let added = owner
-            .call(Method::AddSettlementScheme(
-                proto::AddSettlementSchemeRequest {
-                    id: "stub".into(),
-                    config: String::new(),
-                },
-            ))
-            .await;
-        if added.is_ok() {
-            return;
-        }
-        tokio::time::sleep(Duration::from_millis(10)).await;
-    }
-    panic!("the stub scheme did not start");
+    node.engine_started().await;
+    let added = node
+        .ipc()
+        .await
+        .call(Method::AddSettlementScheme(
+            proto::AddSettlementSchemeRequest {
+                id: "stub".into(),
+                config: String::new(),
+            },
+        ))
+        .await;
+    assert!(added.is_ok(), "the stub scheme did not start: {added:?}");
 }
 
 async fn peers(node: &TestNode) -> Vec<proto::NetworkPeer> {
@@ -255,7 +249,9 @@ async fn a_pinned_periphery_node_asks_only_its_uplink() {
         peered(&a, &key_b).await && peered(&b, &key_p).await && peered(&p, &key_b).await
     })
     .await;
-    // Time to ask for a second uplink, as an unpinned node would.
+    // Time to ask for a second uplink, as an unpinned node would: ten
+    // seconds of their time, a check that nothing happens, which a slow
+    // machine only weakens.
     settle(&clock).await;
     settle(&clock).await;
     let at_p = peers(&p).await;
@@ -382,15 +378,13 @@ async fn holds_a_downlinks_place(uplink: &TestNode, downlink: &NodeKey) {
             .downlinks
             .contains(&downlink.node_id())
     );
+    // The connection moves to its place as the endpoint hears of the
+    // peering, which no clock paces: only a hang ends the wait.
     let quic = uplink.quic.as_ref().unwrap();
-    let mut places = quic.places().unwrap();
-    for _ in 0..500 {
-        if places.downlinks == 1 {
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(10)).await;
-        places = quic.places().unwrap();
-    }
+    let places = support::eventually("a downlink's place", async || {
+        quic.places().filter(|places| places.downlinks == 1)
+    })
+    .await;
     assert_eq!((places.core, places.downlinks), (0, 1), "{places:?}");
 }
 

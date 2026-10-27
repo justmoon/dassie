@@ -29,12 +29,16 @@ use dassie_node::owner_app::{self, Channel, Route};
 use dassie_node::peer_server::Answer;
 use dassie_node::quic::relay::RelayError;
 use dassie_node::quic::{Body, Handler, Quic};
-use dassie_node::rpc::proto::{self, ErrorCode, request::Method, response};
+use dassie_node::rpc::proto::{
+    self, ErrorCode, client_message, request::Method, response, server_message,
+};
 use dassie_node::store::MAX_DEVICES;
 use dassie_node_core::connections::ConnectionLimits;
 use futures_util::{SinkExt, StreamExt};
 use support::op::CA;
-use support::{Bound, RpcClient, START_MS, TestNode, Transport, set_up, websocket};
+use support::{
+    Bound, HANG, RpcClient, START_MS, TestNode, Transport, eventually, set_up, websocket,
+};
 use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;
 
@@ -235,21 +239,19 @@ async fn a_device_pairs_through_the_relay_the_node_keeps() {
     .await;
     let (quic, _) = device(61, &shutdown);
     let route = Route::Relay(relay_key.node_id(), &relay_url);
-    let mut channel = None;
-    for _ in 0..500 {
+    // The node connects to its relay as the IO layer does, in real time (a
+    // QUIC handshake, and the backoff between tries), so this waits for it
+    // until a hang.
+    let channel = eventually("the node reaching its relay", async || {
         match owner_app::connect(&quic, id, route, &resolver()).await {
-            Ok(opened) => {
-                channel = Some(opened);
-                break;
-            }
+            Ok(opened) => Some(opened),
             // The node has not connected to its relay yet.
-            Err(RelayError::UnknownDestination) => {
-                tokio::time::sleep(Duration::from_millis(20)).await;
-            }
+            Err(RelayError::UnknownDestination) => None,
             Err(error) => panic!("{error:?}"),
         }
-    }
-    let mut app = RpcClient::new(channel.expect("the node never reached its relay"));
+    })
+    .await;
+    let mut app = RpcClient::new(channel);
     let (_, secret) = start_pairing(&node).await;
     claim(&mut app, &secret, "Laptop").await.unwrap();
     assert_eq!(devices(&mut app).await.len(), 1);
@@ -351,7 +353,9 @@ async fn revoking_a_device_closes_its_connection() {
         }))
         .await
         .unwrap();
-    let closed = tokio::time::timeout(Duration::from_secs(5), app.receive()).await;
+    // The revocation closes it at once, as the IO layer carries it: the
+    // wait is a hang's guard.
+    let closed = tokio::time::timeout(HANG, app.receive()).await;
     assert!(
         matches!(closed, Ok(None)),
         "the connection stayed open: {closed:?}"
@@ -427,21 +431,74 @@ async fn a_device_not_paired_cannot_hold_its_stream_for_ever() {
     let (node, id) = node_with(policies, &[]).await;
     let (quic, _) = device(65, &shutdown);
     // Not paired: the stream ends after the lifetime, whatever it sends.
+    // The lifetime is the connection's own, on real time, so the wait is a
+    // hang's guard; and a slow machine may let it pass before the answer.
     let mut app = connect_direct(&quic, &node, id).await;
-    assert_eq!(app.state().await, proto::NodeState::Anonymous);
-    let closed = tokio::time::timeout(Duration::from_secs(5), app.receive()).await;
-    assert!(
-        matches!(closed, Ok(None)),
-        "the stream stayed open: {closed:?}"
-    );
+    app.send_raw(request(
+        1,
+        Method::GetBasicState(proto::GetBasicStateRequest {}),
+    ))
+    .await;
+    let ended = tokio::time::timeout(HANG, async {
+        while let Some(message) = app.receive().await {
+            let Ok(response::Method::GetBasicState(state)) = answer(message) else {
+                panic!("not the basic state");
+            };
+            assert_eq!(state.state(), proto::NodeState::Anonymous);
+        }
+    })
+    .await;
+    assert!(ended.is_ok(), "the stream stayed open");
 
     // Paired within it, the app connects again, and keeps that stream. The
-    // pairing starts first, so that the claim alone races the lifetime.
-    let (_, secret) = start_pairing(&node).await;
+    // pairing starts first, so that the claim alone races the lifetime: a
+    // claim a slow machine let the lifetime overtake proves nothing, and is
+    // made again on a new pairing, until a hang.
+    eventually("a claim within the lifetime", async || {
+        let (_, secret) = start_pairing(&node).await;
+        let mut app = connect_direct(&quic, &node, id).await;
+        let claim = proto::ClaimPairingRequest {
+            secret,
+            name: "Phone".into(),
+        };
+        app.send_raw(request(1, Method::ClaimPairing(claim))).await;
+        match app.receive().await {
+            Some(message) => {
+                let claimed = answer(message);
+                assert!(
+                    matches!(claimed, Ok(response::Method::ClaimPairing(_))),
+                    "{claimed:?}"
+                );
+                Some(())
+            }
+            // The stream ended first; the claim may have been made still.
+            None => (!devices(&mut node.ipc().await).await.is_empty()).then_some(()),
+        }
+    })
+    .await;
     let mut app = connect_direct(&quic, &node, id).await;
-    claim(&mut app, &secret, "Phone").await.unwrap();
-    let mut app = connect_direct(&quic, &node, id).await;
+    // Longer than the lifetime: what does not happen, which a slow machine
+    // can only watch for longer.
     tokio::time::sleep(Duration::from_millis(900)).await;
     assert_eq!(app.state().await, proto::NodeState::Authenticated);
     shutdown.cancel();
+}
+
+/// A request for `method` under `call_id`.
+fn request(call_id: u32, method: Method) -> proto::ClientMessage {
+    proto::ClientMessage {
+        call_id,
+        kind: Some(client_message::Kind::Request(proto::Request {
+            method: Some(method),
+        })),
+    }
+}
+
+/// The response `message` carries, or its error.
+fn answer(message: proto::ServerMessage) -> Result<response::Method, proto::Error> {
+    match message.kind {
+        Some(server_message::Kind::Response(response)) => Ok(response.method.unwrap()),
+        Some(server_message::Kind::Error(error)) => Err(error),
+        other => panic!("{other:?}"),
+    }
 }

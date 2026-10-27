@@ -108,6 +108,41 @@ async fn check_network(node: &TestNode, own: &NodeKey, other: &NodeKey) {
     assert!(status.bootstrap[0].listed);
 }
 
+/// Whether `node` has what [`check_network`] checks, once the other's
+/// link state reached it: a route to the other, which it knows as a peer
+/// with a majority, and its registration with A listed.
+async fn knows(node: &TestNode, other: &NodeKey) -> bool {
+    let mut owner = node.ipc().await;
+    let Ok(response::Method::ListRoutes(routes)) = owner
+        .call(Method::ListRoutes(proto::ListRoutesRequest {}))
+        .await
+    else {
+        return false;
+    };
+    let prefix = format!("test.das.{}", other.node_id());
+    let Ok(response::Method::ListNodes(nodes)) = owner
+        .call(Method::ListNodes(proto::ListNodesRequest {}))
+        .await
+    else {
+        return false;
+    };
+    let Ok(response::Method::GetRegistrationStatus(status)) = owner
+        .call(Method::GetRegistrationStatus(
+            proto::GetRegistrationStatusRequest {},
+        ))
+        .await
+    else {
+        return false;
+    };
+    let other = other.node_id().to_string();
+    routes.routes.iter().any(|route| route.prefix == prefix)
+        && nodes
+            .nodes
+            .iter()
+            .any(|node| node.id == other && node.peer && node.majority)
+        && status.bootstrap.iter().any(|bootstrap| bootstrap.listed)
+}
+
 /// The node's peerings.
 async fn peers(node: &TestNode) -> Vec<proto::NetworkPeer> {
     let Ok(response::Method::ListPeers(peers)) = node
@@ -180,7 +215,10 @@ async fn two_daemons_peer_and_keep_their_peering() {
     })
     .await;
     // Both link states name the other, so each has a route to the other.
-    settle(&clock).await;
+    until(&clock, async || {
+        knows(&a, &key_b).await && knows(&b, &key_a).await
+    })
+    .await;
     check_network(&a, &key_a, &key_b).await;
     check_network(&b, &key_b, &key_a).await;
     // Both take QUIC, so they peered over it: each asked the other and
@@ -234,11 +272,14 @@ async fn two_daemons_peer_and_keep_their_peering() {
     let left = i128::from(PAYMENT) - i128::from(moved);
     assert_eq!(owes(&a, &key_b).await, left);
     assert!(left <= i128::from(CREDIT), "A owes {left}");
-    // Restarted, B still has its peering and its accounts: nothing to redo.
+    // Restarted, on its own ports as a node does, B still has its peering
+    // and its accounts: nothing to redo.
+    let ports_b = b.ports();
     let at_b = owes(&b, &key_a).await;
     let (dir, clock_b) = b.stop().await;
     assert_eq!(clock_b.now_ms(), clock.now_ms());
-    let b = Bound::bind_in(dir)
+    let b = Bound::bind_again(dir, ports_b)
+        .await
         .start(clock.clone(), 3, Policies::DEV, &env)
         .await;
     assert!(peered(&b, &key_a).await);
@@ -265,7 +306,9 @@ async fn two_daemons_peer_and_keep_their_peering() {
     .await;
     assert!(owes(&a, &key_b).await >= owed);
     assert_eq!(stub_balance(&a).await + stub_balance(&b).await, 2 * DEPOSIT);
-    // And they do not peer again straight away.
+    // And they do not peer again straight away: not in ten seconds of
+    // their time, a check that nothing happens, which a slow machine only
+    // weakens.
     settle(&clock).await;
     settle(&clock).await;
     assert!(peers(&a).await.is_empty() && peers(&b).await.is_empty());

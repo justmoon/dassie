@@ -123,6 +123,9 @@ pub struct Policies {
     pub peg: dassie_xrpl::peg::Timings,
     /// The rate feed's subscriber table (spec/areas/rate-feed.md#the-table).
     pub feed: dassie_feed::Limits,
+    /// How long a tunnel taken may hold its place among the QUIC
+    /// connections being set up (spec/areas/peer-protocol.md#quic-over-websocket).
+    pub tunnel_bounds: crate::quic::tunnel::TunnelBounds,
 }
 
 impl Policies {
@@ -170,6 +173,7 @@ impl Policies {
         rates_every_ms: 60_000,
         peg: dassie_xrpl::peg::Timings::DEFAULT,
         feed: dassie_feed::Limits::DEFAULT,
+        tunnel_bounds: crate::quic::tunnel::TunnelBounds::DEFAULT,
     };
 
     /// The production values with the peer protocol's dev timers, and the

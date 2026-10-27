@@ -19,6 +19,12 @@ use std::time::{Duration, Instant};
 
 const DASSIE: &str = env!("CARGO_BIN_EXE_dassie");
 
+/// How long a daemon may take to start or stop before it is called a hang:
+/// a process starting is real time by nature, and a loaded machine starts
+/// it several times slower, so this is far past any start, a hang's guard
+/// rather than what decides the test (spec/areas/testing.md#levels).
+const HANG: Duration = Duration::from_secs(60);
+
 fn have_socket_activate() -> bool {
     let found = Command::new("systemd-socket-activate")
         .arg("--version")
@@ -30,16 +36,17 @@ fn have_socket_activate() -> bool {
     found
 }
 
-/// The next datagram on `socket`, as text, waiting at most 10 s. If none
-/// comes, fails with what `child` printed.
+/// The next datagram on `socket`, as text, waiting at most [`HANG`]. If
+/// none comes, fails with what `child` printed.
 fn receive(socket: &UnixDatagram, child: &mut Option<Child>) -> String {
-    socket
-        .set_read_timeout(Some(Duration::from_secs(10)))
-        .unwrap();
+    socket.set_read_timeout(Some(HANG)).unwrap();
     let mut buffer = [0; 256];
     match socket.recv(&mut buffer) {
         Ok(length) => String::from_utf8_lossy(&buffer[..length]).into_owned(),
-        Err(error) => panic!("no notification within 10 s ({error}):\n{}", fail(child)),
+        Err(error) => panic!(
+            "no notification within {HANG:?} ({error}):\n{}",
+            fail(child)
+        ),
     }
 }
 
@@ -69,10 +76,10 @@ fn terminate(pid: u32) {
     assert!(status.success());
 }
 
-/// Waits for `path` to appear; if it does not, fails with what `child`
-/// printed.
+/// Waits for `path` to appear, until a hang ([`HANG`]); if it does not, or
+/// `child` ends first, fails with what `child` printed.
 fn wait_for(path: &Path, child: &mut Option<Child>) {
-    let deadline = Instant::now() + Duration::from_secs(10);
+    let deadline = Instant::now() + HANG;
     while !path.exists() {
         let exited = child
             .as_mut()

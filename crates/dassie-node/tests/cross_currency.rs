@@ -20,7 +20,7 @@ use dassie_node::rpc::proto::{self, request::Method, response};
 use dassie_node::store::StoredCertificate;
 use dassie_node_core::certificate::CertificateSource;
 use support::TestNode;
-use support::pair::{CERT, KEY, Pair, until};
+use support::pair::{CERT, KEY, Pair, until, until_by};
 use support::rates::{RatesServer, coinbase};
 
 const XRP_LEDGER: &str = "xrpl-testnet-xrp+xrp";
@@ -219,17 +219,29 @@ async fn dollars_arrive_as_xrp() {
             .any(|rate| rate.asset_code == "XRP" && rate.stale)
     })
     .await;
-    // The hour passed at once: the peers find each other again first.
+    // The hour passed at once: the peers find each other again first. A
+    // has heard from B since, and has a route to it.
+    let prefix = format!("test.das.{}", pair.key_b.node_id());
+    let peer_b = pair.key_b.node_id().to_string();
     until(&pair.clock, async || {
-        let Ok(response::Method::ListRoutes(list)) = a
-            .ipc()
-            .await
+        let mut owner_a = a.ipc().await;
+        let Ok(response::Method::ListRoutes(list)) = owner_a
             .call(Method::ListRoutes(proto::ListRoutesRequest {}))
             .await
         else {
             return false;
         };
-        !list.routes.is_empty()
+        let Ok(response::Method::ListPeers(peers)) = owner_a
+            .call(Method::ListPeers(proto::ListPeersRequest {}))
+            .await
+        else {
+            return false;
+        };
+        list.routes.iter().any(|route| route.prefix == prefix)
+            && peers
+                .peers
+                .iter()
+                .any(|peer| peer.node == peer_b && peer.online)
     })
     .await;
     let seen = packets(b).await.last().and_then(|packet| packet.trace);
@@ -248,11 +260,11 @@ async fn dollars_arrive_as_xrp() {
                 .await
         })
     };
-    // The probe's timers run on the nodes' clock.
-    while !quoting.is_finished() {
-        pair.clock.advance(500);
-        tokio::time::sleep(Duration::from_millis(20)).await;
-    }
+    // The probe's timers run on the nodes' clock: its volleys back off for
+    // a second and a half in all. Steps of 100 ms leave the daemons real
+    // time to keep hearing each other well within a peer's 60 s of
+    // silence, after which its route would go.
+    until_by(&pair.clock, 100, async || quoting.is_finished()).await;
     let refused = quoting.await.unwrap().unwrap_err();
     assert_eq!(refused.code(), proto::ErrorCode::Unavailable, "{refused:?}");
     let probes = packets_after(b, seen).await;

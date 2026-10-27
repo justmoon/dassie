@@ -3,6 +3,7 @@
 
 use std::convert::Infallible;
 use std::net::SocketAddr;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use bytes::Bytes;
@@ -26,6 +27,8 @@ type Answer = Arc<Mutex<(u16, String)>>;
 pub struct RatesServer {
     pub address: SocketAddr,
     answer: Answer,
+    /// The requests it answered.
+    asked: Arc<AtomicUsize>,
     cancel: CancellationToken,
 }
 
@@ -53,8 +56,9 @@ impl RatesServer {
         let slot = Arc::new(tls::CertificateSlot::new(tls::load(&certificate).unwrap()));
         let acceptor = tokio_rustls::TlsAcceptor::from(tls::server_config(slot).unwrap());
         let answer: Answer = Arc::new(Mutex::new((200, body)));
+        let asked = Arc::new(AtomicUsize::new(0));
         let cancel = CancellationToken::new();
-        let (served, stop) = (Arc::clone(&answer), cancel.clone());
+        let (served, counted, stop) = (Arc::clone(&answer), Arc::clone(&asked), cancel.clone());
         tokio::spawn(async move {
             loop {
                 let accepted = tokio::select! {
@@ -63,12 +67,19 @@ impl RatesServer {
                 };
                 let Ok((stream, _)) = accepted else { continue };
                 let (acceptor, served) = (acceptor.clone(), Arc::clone(&served));
+                let counted = Arc::clone(&counted);
                 tokio::spawn(async move {
                     let Ok(tls) = acceptor.accept(stream).await else {
                         return;
                     };
                     let service = service_fn(move |_| {
-                        let (status, body) = served.lock().unwrap().clone();
+                        // Counted under the answer's lock, so a request
+                        // counted after `answer` returned took its answer.
+                        let (status, body) = {
+                            let answer = served.lock().unwrap();
+                            counted.fetch_add(1, Ordering::SeqCst);
+                            answer.clone()
+                        };
                         let mut response = Response::new(Full::new(Bytes::from(body)));
                         *response.status_mut() = StatusCode::from_u16(status).unwrap();
                         async move { Ok::<_, Infallible>(response) }
@@ -82,6 +93,7 @@ impl RatesServer {
         Self {
             address,
             answer,
+            asked,
             cancel,
         }
     }
@@ -94,6 +106,13 @@ impl RatesServer {
     /// Answers this from now on.
     pub fn answer(&self, status: u16, body: String) {
         *self.answer.lock().unwrap() = (status, body);
+    }
+
+    /// How many requests it answered. Each is counted with the answer it
+    /// took, so those counted after [`answer`](Self::answer) returned got
+    /// the new answer.
+    pub fn asked(&self) -> usize {
+        self.asked.load(Ordering::SeqCst)
     }
 }
 

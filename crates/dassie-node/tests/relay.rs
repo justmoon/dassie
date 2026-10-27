@@ -183,23 +183,48 @@ fn keep_while(destination: &Side, relay: &Side, keep: KeepWhile, shutdown: &Canc
     ));
 }
 
+/// How long a wait here may take before the test calls it a hang. The
+/// endpoints run on real time, as QUIC's own timers do, so the tests wait
+/// for them in real time; but what a test waits for comes within a dial,
+/// a backoff of a second or an idle timeout of a second or two on any
+/// machine, and a slow one never reaches this.
+const HANG: Duration = Duration::from_secs(60);
+
+/// Tries `attempt` until it gives something, a hang aside.
+async fn eventually<T>(mut attempt: impl AsyncFnMut() -> Option<T>) -> T {
+    let deadline = tokio::time::Instant::now() + HANG;
+    loop {
+        if let Some(done) = attempt().await {
+            return done;
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "not within {HANG:?}"
+        );
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+}
+
+/// Waits until `done`, a hang aside.
+async fn until(mut done: impl FnMut() -> bool) {
+    eventually(async || done().then_some(())).await;
+}
+
 /// Opens a relayed stream from `from` to `to` through `relay`, waiting
 /// while the relay does not hold `to`'s connection yet.
 async fn reach(from: &Side, relay: &Side, to: NodeId, purpose: Purpose) -> RelayedStream {
-    for _ in 0..500 {
+    eventually(async || {
         match from
             .quic
             .open_relayed(relay.relay(), to, purpose, &client())
             .await
         {
-            Ok(stream) => return stream,
-            Err(RelayError::UnknownDestination) => {
-                tokio::time::sleep(Duration::from_millis(20)).await;
-            }
+            Ok(stream) => Some(stream),
+            Err(RelayError::UnknownDestination) => None,
             Err(error) => panic!("{error}"),
         }
-    }
-    panic!("the relay never held the destination's connection");
+    })
+    .await
 }
 
 async fn echo(stream: &mut RelayedStream, message: &[u8]) -> Vec<u8> {
@@ -278,19 +303,15 @@ async fn the_default_relay_is_kept_only_while_the_node_has_no_hostname() {
     assert_eq!(reported, Some((relay.id, relay.url.clone(), connected)));
     config.send_replace(named);
     assert_eq!(destination.quic.chosen_relay(), None);
-    let mut closed = false;
-    for _ in 0..250 {
+    // The node closes it: the relay no longer holds it.
+    eventually(async || {
         let result = from
             .quic
             .open_relayed(relay.relay(), destination.id, Purpose::Payments, &client())
             .await;
-        if result.err() == Some(RelayError::UnknownDestination) {
-            closed = true;
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(20)).await;
-    }
-    assert!(closed, "the node kept the default relay with a hostname");
+        (result.err() == Some(RelayError::UnknownDestination)).then_some(())
+    })
+    .await;
     shutdown.cancel();
 }
 
@@ -371,22 +392,19 @@ async fn a_relay_carries_a_bounded_number_of_streams_to_one_node() {
     ended.shutdown().await.unwrap();
     let _ = ended.read_to_end(&mut Vec::new()).await;
     drop(ended);
-    let mut freed = None;
-    for _ in 0..200 {
+    let mut freed = eventually(async || {
         match late
             .quic
             .open_relayed(relay.relay(), destination.id, Purpose::Payments, &client())
             .await
         {
-            Ok(stream) => {
-                freed = Some(stream);
-                break;
-            }
-            Err(RelayError::Busy) => tokio::time::sleep(Duration::from_millis(20)).await,
+            Ok(stream) => Some(stream),
+            Err(RelayError::Busy) => None,
             Err(error) => panic!("{error}"),
         }
-    }
-    assert_eq!(echo(&mut freed.unwrap(), b"pong").await, b"pong");
+    })
+    .await;
+    assert_eq!(echo(&mut freed, b"pong").await, b"pong");
     shutdown.cancel();
 }
 
@@ -419,7 +437,9 @@ async fn a_relay_reaches_its_node_beside_other_connections(relay_is_lower: bool)
     let mut stream = reach(&from, &relay, node.id, Purpose::Payments).await;
     assert_eq!(echo(&mut stream, b"one").await, b"one");
     drop(stream);
-    tokio::time::sleep(idle * 2).await;
+    // The first one closes once idle; the kept one stays.
+    until(|| node.quic.relay_link() == RelayLink::Connected && node.quic.open_connections() == 1)
+        .await;
     send(&node, &relay).await;
     // Each also takes another connection from the other's key, as when one
     // dials the other while it holds no open connection; they go idle too.
@@ -427,8 +447,16 @@ async fn a_relay_reaches_its_node_beside_other_connections(relay_is_lower: bool)
     let (_, relay_twin) = make(relay_seed);
     send(&node_twin, &relay).await;
     send(&relay_twin, &node).await;
-    tokio::time::sleep(idle * 2).await;
-    // Only the kept connection is left, and the relay holds it.
+    // Only the kept connection is left, on both sides: the others, the
+    // client's to the relay too, went idle.
+    until(|| {
+        node_twin.quic.open_connections() == 0
+            && relay_twin.quic.open_connections() == 0
+            && node.quic.open_connections() == 1
+            && relay.quic.open_connections() == 1
+    })
+    .await;
+    // The relay holds it.
     let reached = from
         .quic
         .open_relayed(relay.relay(), node.id, Purpose::Payments, &client())
@@ -454,10 +482,10 @@ async fn a_node_does_not_choose_itself_as_its_relay() {
     let shutdown = CancellationToken::new();
     let node = side(1, &shutdown);
     keep(&node, &node, &shutdown);
-    tokio::time::sleep(Duration::from_millis(300)).await;
+    // It will never connect: that is a fault from the start, which it
+    // reports once it has decided not to dial.
+    until(|| node.quic.relay_link() == RelayLink::Unreachable).await;
     assert_eq!(node.quic.open_connections(), 0);
-    // It will never connect: that is a fault from the start.
-    assert_eq!(node.quic.relay_link(), RelayLink::Unreachable);
     shutdown.cancel();
 }
 
@@ -554,25 +582,13 @@ async fn a_node_waits_for_its_key_and_reconnects_to_its_relay() {
         tokio::task::yield_now().await;
     }
     // Meanwhile the node is connecting, which is no fault yet.
-    for _ in 0..500 {
-        if destination.quic.relay_link() != RelayLink::Connected {
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(20)).await;
-    }
+    until(|| destination.quic.relay_link() != RelayLink::Connected).await;
     assert_eq!(destination.quic.relay_link(), RelayLink::Connecting);
     let url = relay.url.clone();
     drop(relay);
     let relay_shutdown = CancellationToken::new();
-    let mut socket = None;
-    for _ in 0..200 {
-        if let Ok(bound) = UdpSocket::bind(address) {
-            socket = Some(bound);
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(10)).await;
-    }
-    let relay = side_on(1, socket.expect("the port stayed taken"), &relay_shutdown);
+    let socket = eventually(async || UdpSocket::bind(address).ok()).await;
+    let relay = side_on(1, socket, &relay_shutdown);
     assert_eq!(relay.url, url);
     let mut stream = reach(&from, &relay, destination.id, Purpose::Payments).await;
     assert_eq!(echo(&mut stream, b"two").await, b"two");
@@ -675,21 +691,16 @@ async fn a_relayed_payments_stream_serves_only_open_payments() {
         .await
         .unwrap();
     // A ledger, for a wallet address: the stub, once the engine takes it.
-    let mut added = false;
-    for _ in 0..200 {
+    eventually(async || {
         let adding = owner.call(Method::AddSettlementScheme(
             proto::AddSettlementSchemeRequest {
                 id: "stub".into(),
                 config: String::new(),
             },
         ));
-        if adding.await.is_ok() {
-            added = true;
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(10)).await;
-    }
-    assert!(added, "the stub scheme did not start");
+        adding.await.ok()
+    })
+    .await;
     let stream = reach(&from, &relay, key.node_id(), Purpose::Payments).await;
     let (mut sender, connection) = hyper::client::conn::http1::handshake(TokioIo::new(stream))
         .await
@@ -753,6 +764,8 @@ async fn an_uplink_reaches_its_downlink_and_relays_to_it() {
     let (uplink, downlink, from) = (short(1), short(2), side(3, &shutdown));
     downlink.quic.set_periphery(true);
     send(&downlink, &uplink).await;
+    // Three idle timeouts, through which only its keep-alives, three to an
+    // idle timeout as in production, keep it open.
     tokio::time::sleep(idle * 3).await;
     let response = uplink.quic.send_held(&to_periphery(&downlink)).await;
     assert!(response.is_ok(), "kept alive: {response:?}");
@@ -770,7 +783,7 @@ async fn an_uplink_reaches_its_downlink_and_relays_to_it() {
     // without a URL is out of reach.
     let (core, other) = (short(4), short(5));
     send(&other, &core).await;
-    tokio::time::sleep(idle * 3).await;
+    until(|| core.quic.open_connections() == 0).await;
     let response = core.quic.send_held(&to_periphery(&other)).await;
     assert_eq!(response.err(), Some(dassie_peer::Failure::NotDelivered));
     shutdown.cancel();

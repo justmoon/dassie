@@ -414,8 +414,10 @@ async fn a_client_revoking_its_grant_updates_the_owners_view() {
             })),
         })
         .await;
+    // The node sends each change as it makes it, on no clock: only a hang
+    // ends the wait for one.
     let mut listed = async || {
-        let message = tokio::time::timeout(Duration::from_secs(5), owner.receive())
+        let message = tokio::time::timeout(support::HANG, owner.receive())
             .await
             .expect("no item")
             .expect("closed");
@@ -1299,8 +1301,11 @@ async fn the_owner_sees_the_span_and_receiver_of_a_request() {
     });
     let (_, id) = local.rsplit_once('/').unwrap();
     let late = format!("https://127.0.0.1:{port}/incoming-payments/{id}");
+    // The lookup's bound is the IO's, in real time; what says it ended the
+    // read, and not the client's timeouts, is its error. The guard is a
+    // hang's.
     let asked = asked_limits(&node, &client, &late, None);
-    let limits = tokio::time::timeout(Duration::from_secs(8), asked)
+    let limits = tokio::time::timeout(support::HANG, asked)
         .await
         .expect("the lookup is bounded");
     let read = limits.receiver_payment.unwrap();

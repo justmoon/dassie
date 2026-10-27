@@ -10,9 +10,10 @@
     clippy::indexing_slicing
 )]
 
+mod support;
+
 use std::convert::Infallible;
 use std::sync::{Arc, LazyLock};
-use std::time::Duration;
 
 use bytes::Bytes;
 use dassie_identity::NodeKey;
@@ -30,6 +31,7 @@ use dassie_payments::pointer::Recipient;
 use futures_util::StreamExt;
 use proptest::prelude::*;
 use prost::Message;
+use support::HANG;
 use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;
 
@@ -105,7 +107,8 @@ proptest! {
 // waited for room in it: the connection hung for ever, deaf to shutdown.
 #[test]
 fn a_flood_of_refused_calls_ends_the_connection() {
-    // Paused time: the send timeout passes as soon as nothing else can run.
+    // Paused time: the send timeout passes as soon as nothing else can run,
+    // and so does the guard below, which is no real time either.
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .start_paused(true)
@@ -198,9 +201,6 @@ const HOSTNAME: &str = "node.example";
 /// Its key.
 const KEY: [u8; 32] = [1; 32];
 
-/// How long the calls of one case may take to answer.
-const ANSWER_TIMEOUT: Duration = Duration::from_secs(20);
-
 /// Hosts the outbound client refuses before any IO: IP literals that are not
 /// public.
 const PRIVATE_HOSTS: [&str; 4] = ["127.0.0.1", "[::1]", "10.0.0.1:8443", "[fd00::1]:443"];
@@ -221,12 +221,16 @@ fn running_node(
         shutdown.clone(),
     ));
     runtime.block_on(async {
-        let engine = loop {
-            if let Some(engine) = node.engine() {
-                break engine;
-            }
-            tokio::time::sleep(Duration::from_millis(1)).await;
-        };
+        // Starting it is work that no clock paces: this waits for it until
+        // a hang.
+        let mut engines = node.engines();
+        let started = engines.wait_for(Option::is_some);
+        let engine = tokio::time::timeout(HANG, started)
+            .await
+            .expect("the engine did not start")
+            .expect("the engine is gone")
+            .clone()
+            .unwrap();
         engine
             .add_scheme("stub".into(), String::new())
             .await
@@ -263,9 +267,12 @@ fn serve_owner(
         sent.send_modify(|messages| messages.push(message));
         Ok::<_, Infallible>(sent)
     });
+    // The calls answer as their handlers run, which no clock paces: the
+    // wait is a hang's guard, and the case fails on what is left
+    // unanswered.
     let done = async move {
         let all = seen.wait_for(|messages| answered(&expected, messages));
-        let _ = tokio::time::timeout(ANSWER_TIMEOUT, all).await;
+        let _ = tokio::time::timeout(HANG, all).await;
     };
     let tail = futures_util::stream::once(done).filter_map(|()| async { None });
     let incoming = futures_util::stream::iter(frames).chain(tail);

@@ -12,7 +12,6 @@
 mod support;
 
 use std::os::unix::net::UnixDatagram;
-use std::time::Duration;
 
 use bytes::Bytes;
 use dassie_identity::NodeKey;
@@ -624,17 +623,16 @@ fn notifications(socket: &UnixDatagram) -> Vec<String> {
 }
 
 /// Waits for `expected` on the notification socket, skipping the others.
+/// The daemon sends it as it starts, which no clock paces, so this waits
+/// until a hang ([`HANG`]).
 async fn until_notified(socket: &UnixDatagram, expected: &str) {
-    for _ in 0..500 {
-        if notifications(socket)
+    eventually(expected, async || {
+        notifications(socket)
             .iter()
             .any(|message| message == expected)
-        {
-            return;
-        }
-        tokio::time::sleep(Duration::from_millis(10)).await;
-    }
-    panic!("no {expected}");
+            .then_some(())
+    })
+    .await;
 }
 
 // spec/areas/node.md#readiness: a node waiting for its owner is ready at
@@ -732,6 +730,7 @@ async fn the_live_realm_runs_only_by_the_dev_switch() {
     let node = Bound::bind_in(dir)
         .start(clock, 2, Policies::DEFAULT, &SWITCH)
         .await;
+    node.engine_started().await;
     let ledgers = node
         .ipc()
         .await

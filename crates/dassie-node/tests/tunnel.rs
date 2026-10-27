@@ -44,7 +44,9 @@ use dassie_node::peer_server::Answer;
 use dassie_node::quic::places::{Classes, Peerings};
 use dassie_node::quic::proxy::{NoProxy, Proxy};
 use dassie_node::quic::relay::{Purpose, ServedStream};
-use dassie_node::quic::{Body, Handler, Quic, tunnel};
+use dassie_node::quic::{
+    Body, CONNECT_TIMEOUT, Handler, IDLE_TIMEOUT, Quic, TUNNEL_HEAD_START, tunnel,
+};
 use dassie_node_core::connections::ConnectionLimits;
 use dassie_peer::wire::Kind;
 use dassie_peer::{Failure, Request as PeerRequest, RequestId};
@@ -349,11 +351,18 @@ async fn send(from: &Side, to: NodeId, url: &str) -> Result<Vec<u8>, Failure> {
     Ok(response.body)
 }
 
-/// Waits up to `within` for `done`.
-async fn until(within: Duration, mut done: impl FnMut() -> bool) {
-    let deadline = Instant::now() + within;
+/// How long a wait here may take before the test calls it a hang: twice
+/// the idle timeout, the longest of the timers any wait here depends on. Tunnels and QUIC
+/// connections run on real time, as QUIC's own timers do, so the tests
+/// wait for them in real time; but what a test waits for comes in a moment
+/// on any machine, and a slow one never reaches this.
+const HANG: Duration = Duration::from_secs(2 * IDLE_TIMEOUT.as_secs());
+
+/// Waits for `done`, a hang aside.
+async fn until(mut done: impl FnMut() -> bool) {
+    let deadline = Instant::now() + HANG;
     while !done() {
-        assert!(Instant::now() < deadline, "not within {within:?}");
+        assert!(Instant::now() < deadline, "not within {HANG:?}");
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
 }
@@ -370,13 +379,10 @@ async fn a_periphery_node_reaches_its_uplink_over_a_tunnel_where_udp_is_blocked(
     let body = send(&downlink, uplink.side.id, &uplink.url).await.unwrap();
     assert_eq!(body, b"hello");
     // UDP had its head start first.
-    assert!(started.elapsed() >= Duration::from_secs(1));
+    assert!(started.elapsed() >= TUNNEL_HEAD_START);
     assert_eq!(uplink.accepted.load(Ordering::SeqCst), 1);
     assert_eq!(downlink.quic.open_tunnels(), 1);
-    until(Duration::from_secs(1), || {
-        uplink.side.quic.open_tunnels() == 1
-    })
-    .await;
+    until(|| uplink.side.quic.open_tunnels() == 1).await;
     // The uplink reaches it on the connection it opened.
     let response = uplink.side.quic.send_held(&to_periphery(&downlink)).await;
     assert_eq!(response.unwrap().body, b"hello");
@@ -401,15 +407,14 @@ async fn a_periphery_node_reaches_its_uplink_over_a_tunnel_where_udp_is_blocked(
 }
 
 // Where UDP gets through, its handshake wins well within the head start,
-// and no tunnel is dialled.
+// and no tunnel is dialled. A handshake on loopback takes a few
+// milliseconds, beside the production head start of a second.
 #[tokio::test]
 async fn where_udp_gets_through_the_race_keeps_it() {
     let shutdown = CancellationToken::new();
     let uplink = uplink(1, Udp::Open, ROOMY, &shutdown);
     let downlink = periphery(2, &shutdown);
-    let started = Instant::now();
     send(&downlink, uplink.side.id, &uplink.url).await.unwrap();
-    assert!(started.elapsed() < Duration::from_secs(1));
     let response = uplink.side.quic.send_held(&to_periphery(&downlink)).await;
     assert!(response.is_ok(), "{response:?}");
     assert_eq!(uplink.accepted.load(Ordering::SeqCst), 0);
@@ -470,15 +475,12 @@ async fn no_room_reaches_a_periphery_node_over_its_tunnel() {
     assert_eq!(uplink.accepted.load(Ordering::SeqCst), 1);
     // Refused once its handshake was done, not a dial that failed, which
     // would have waited out the time to connect, UDP's being dropped.
-    assert!(started.elapsed() < Duration::from_secs(4));
+    assert!(started.elapsed() < CONNECT_TIMEOUT);
     // Only `NO_ROOM` backs off: a connection lost with its tunnel would
     // have been dialled again.
     assert!(downlink.quic.backing_off(&uplink.side.id));
     // Its tunnel ended with the connection.
-    until(Duration::from_secs(2), || {
-        downlink.quic.open_tunnels() == 0 && uplink.side.quic.open_tunnels() == 0
-    })
-    .await;
+    until(|| downlink.quic.open_tunnels() == 0 && uplink.side.quic.open_tunnels() == 0).await;
     shutdown.cancel();
 }
 
@@ -519,22 +521,25 @@ async fn a_tunnel_that_ends_closes_its_connection_at_once() {
     let (url, _blackhole, carrying) = proxy(tunnel_address);
     let downlink = periphery(2, &shutdown);
     send(&downlink, uplink.side.id, &url).await.unwrap();
-    until(Duration::from_secs(1), || {
-        uplink.side.quic.places().unwrap().others == 1
-    })
-    .await;
+    until(|| uplink.side.quic.places().unwrap().others == 1).await;
     assert_eq!(downlink.quic.open_tunnels(), 1);
     let broken = Instant::now();
     for carried in carrying.lock().unwrap().drain(..) {
         carried.abort();
     }
-    until(Duration::from_secs(2), || {
+    until(|| {
         uplink.side.quic.places().unwrap().others == 0
             && uplink.side.quic.open_tunnels() == 0
             && downlink.quic.open_tunnels() == 0
     })
     .await;
-    assert!(broken.elapsed() < Duration::from_secs(2));
+    // Well before the idle timeout, which would close it otherwise: nothing
+    // gets through a tunnel that broke, keep-alives included. QUIC counts
+    // that timeout from the last packet a side received, which came just
+    // before the tunnel broke, so the idle close would come a little short
+    // of an idle timeout after `broken`; half of it rules that out with
+    // room on both sides.
+    assert!(broken.elapsed() < IDLE_TIMEOUT / 2);
     let response = uplink.side.quic.send_held(&to_periphery(&downlink)).await;
     assert_eq!(response.err(), Some(Failure::NotDelivered));
     // The next request dials again.
@@ -572,7 +577,7 @@ async fn raw_tunnel(quic: &Quic, peer: SocketAddr) -> WebSocketStream<DuplexStre
     let config = Some(tunnel::websocket_config());
     let served = WebSocketStream::from_raw_socket(theirs, Role::Server, config).await;
     let ws = WebSocketStream::from_raw_socket(ours, Role::Client, config).await;
-    until(Duration::from_secs(1), || quic.is_serving()).await;
+    until(|| quic.is_serving()).await;
     quic.serve_tunnel(served, peer, quic.tunnel_slot(peer.ip()).unwrap());
     ws
 }
@@ -592,11 +597,12 @@ async fn a_tunnel_without_a_connection_ends_after_the_time_to_connect() {
     assert_eq!(quic.places().unwrap().setting_up, 1);
     ws.send(Message::binary(vec![0; 64])).await.unwrap();
     let ended = async { while let Some(Ok(_)) = ws.next().await {} };
-    tokio::time::timeout(Duration::from_secs(8), ended)
+    // Nothing else would end it.
+    tokio::time::timeout(HANG, ended)
         .await
         .expect("a tunnel without a connection stayed open");
-    assert!(started.elapsed() >= Duration::from_millis(4_500));
-    until(Duration::from_secs(1), || quic.open_tunnels() == 0).await;
+    assert!(started.elapsed() >= CONNECT_TIMEOUT - Duration::from_millis(500));
+    until(|| quic.open_tunnels() == 0).await;
     assert_eq!(quic.places().unwrap().setting_up, 0);
     shutdown.cancel();
 }
@@ -613,12 +619,16 @@ async fn a_tunnel_that_carries_no_packet_ends_sooner() {
     let mut ws = raw_tunnel(quic, "127.0.0.1:40000".parse().unwrap()).await;
     assert_eq!(quic.places().unwrap().setting_up, 1);
     let ended = async { while let Some(Ok(_)) = ws.next().await {} };
-    tokio::time::timeout(Duration::from_secs(4), ended)
+    // Half way between the two timers: the tunnel's own deadline starts a
+    // moment after this one, so the time to connect itself would leave the
+    // two to race.
+    let between = (tunnel::FIRST_PACKET_TIMEOUT + CONNECT_TIMEOUT) / 2;
+    tokio::time::timeout(between, ended)
         .await
-        .expect("a tunnel without a packet stayed open");
+        .expect("a tunnel without a packet stayed open as long as one without a connection");
     let elapsed = started.elapsed();
     assert!(elapsed >= tunnel::FIRST_PACKET_TIMEOUT - Duration::from_millis(100));
-    until(Duration::from_secs(1), || quic.open_tunnels() == 0).await;
+    until(|| quic.open_tunnels() == 0).await;
     assert_eq!(quic.places().unwrap().setting_up, 0);
     shutdown.cancel();
 }
@@ -822,11 +832,13 @@ async fn a_proxy_that_never_answers_is_a_failed_dial_in_time() {
         }
     });
     let downlink = periphery_behind(2, address, "", &shutdown);
-    let request = request(uplink.side.id, &uplink.url, 3_000);
+    let request = request(uplink.side.id, &uplink.url, 2_000);
     let started = Instant::now();
     let response = downlink.quic.send(&request, &client()).await;
     assert_eq!(response.err(), Some(Failure::NotDelivered));
-    assert!(started.elapsed() < Duration::from_secs(4));
+    // Held at most the time to connect, here the request's shorter time:
+    // were the proxy's silence to hold the dial, it would never end.
+    assert!(started.elapsed() < CONNECT_TIMEOUT);
     assert_eq!(held.lock().unwrap().len(), 1);
     assert_eq!(uplink.accepted.load(Ordering::SeqCst), 0);
     assert_eq!(downlink.quic.open_tunnels(), 0);

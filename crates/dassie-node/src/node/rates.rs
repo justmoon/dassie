@@ -3,11 +3,11 @@
 //! handed to the engine.
 
 use std::sync::Arc;
-use std::time::Duration;
 
 use tokio_util::sync::CancellationToken;
 
 use super::Node;
+use crate::clock::interval_passed;
 use crate::log::target;
 use crate::outbound::WebRequest;
 use crate::rates::{self, Answer, BASE, MAX_RESPONSE_BYTES, RateSource};
@@ -19,17 +19,21 @@ const SOURCE_TIMEOUT_MS: u64 = 10_000;
 impl Node {
     /// Fetches rates while the node runs: at once when the engine starts
     /// or the owner changes the sources, and every
-    /// [`rates_every_ms`](super::Policies::rates_every_ms) otherwise.
+    /// [`rates_every_ms`](super::Policies::rates_every_ms) otherwise: of
+    /// real time on the system clock, and of the node's clock on one moved
+    /// by hand, whose moves wake it, so a test reaches the next fetch by
+    /// moving its clock rather than by waiting in real time.
     pub async fn run_rates(self: Arc<Self>, shutdown: CancellationToken) {
         let mut engines = self.engine.subscribe();
+        let mut moves = self.clock.subscribe();
         loop {
             if let Some(engine) = self.engine() {
                 self.fetch_rates(&engine).await;
             }
-            let every = Duration::from_millis(self.policies.rates_every_ms);
+            let every_ms = self.policies.rates_every_ms;
             tokio::select! {
                 () = shutdown.cancelled() => return,
-                () = tokio::time::sleep(every) => {}
+                () = interval_passed(&*self.clock, &mut moves, every_ms) => {}
                 () = self.rates_wake.notified() => {}
                 changed = engines.changed() => {
                     if changed.is_err() {

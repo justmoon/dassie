@@ -121,6 +121,31 @@ const CLOSE_TIMEOUT: Duration = Duration::from_secs(1);
 /// [`CONNECT_TIMEOUT`].
 pub const FIRST_PACKET_TIMEOUT: Duration = Duration::from_secs(2);
 
+/// How long a tunnel taken may hold its place among the connections being
+/// set up without what it is for, from its upgrade: a first packet, and
+/// its connection's proved key.
+///
+/// These bound a QUIC handshake carried over the tunnel, which runs in real
+/// time, as quinn's own timers do, so they are real time too: on a clock a
+/// test moves faster than real time, they would cut a handshake that a busy
+/// machine is still making. A test that holds tunnels open to count their
+/// places sets them longer than it waits instead.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TunnelBounds {
+    /// Time to carry a first packet: [`FIRST_PACKET_TIMEOUT`].
+    pub first_packet: Duration,
+    /// Time for its connection to prove a key: [`CONNECT_TIMEOUT`].
+    pub connect: Duration,
+}
+
+impl TunnelBounds {
+    /// The production bounds.
+    pub const DEFAULT: Self = Self {
+        first_packet: FIRST_PACKET_TIMEOUT,
+        connect: CONNECT_TIMEOUT,
+    };
+}
+
 /// The bytes of a packet's WebSocket frame, with the largest header a frame
 /// may have.
 const FRAME_BYTES: usize = DATAGRAM_BYTES as usize + 14;
@@ -194,6 +219,8 @@ pub(super) struct Tunnels {
     tasks: TaskTracker,
     /// Ends every tunnel, once the endpoint is closed.
     stop: CancellationToken,
+    /// How long a tunnel taken may hold its place without what it is for.
+    bounds: TunnelBounds,
 }
 
 impl Tunnels {
@@ -220,6 +247,7 @@ impl Tunnels {
             proxy_warnings: Warnings::default(),
             tasks: TaskTracker::new(),
             stop: CancellationToken::new(),
+            bounds: TunnelBounds::DEFAULT,
         })
     }
 
@@ -227,6 +255,11 @@ impl Tunnels {
     /// it does not bypass.
     pub(super) fn set_proxy(&mut self, proxy: Option<Proxy>) {
         self.proxy = proxy;
+    }
+
+    /// The tunnels it takes from now on hold their places within `bounds`.
+    pub(super) const fn set_bounds(&mut self, bounds: TunnelBounds) {
+        self.bounds = bounds;
     }
 
     /// The endpoint over the tunnels.
@@ -290,7 +323,7 @@ impl Tunnels {
             ws,
             (address, id, queue),
             ends,
-            Some(CONNECT_TIMEOUT),
+            Some(self.bounds),
             self.stop.clone(),
         );
         self.tasks.spawn(carried);
@@ -551,16 +584,16 @@ pub(super) async fn tunnel_ended(inside: Option<&Inside>) {
 
 /// Carries packets between `ws` and the socket, where the tunnel `id` is at
 /// `address` with `queue`, until the WebSocket ends or breaks, the
-/// connection inside is done, none proved a key on it `within` (when
-/// given; nor any packet came within [`FIRST_PACKET_TIMEOUT`]), the socket
-/// drops it, or `stop`. Then sends what is queued, closes the WebSocket,
-/// and only then leaves the socket.
+/// connection inside is done, none proved a key on it or no packet came
+/// `within` its bounds (when given, for a tunnel taken), the socket drops
+/// it, or `stop`. Then sends what is queued, closes the WebSocket, and only
+/// then leaves the socket.
 async fn carry<S>(
     socket: Arc<TunnelSocket>,
     ws: WebSocketStream<S>,
     (address, id, mut queue): (SocketAddrV6, u64, mpsc::Receiver<Bytes>),
     ends: Ends,
-    within: Option<Duration>,
+    within: Option<TunnelBounds>,
     stop: CancellationToken,
 ) where
     S: AsyncRead + AsyncWrite + Unpin,
@@ -603,10 +636,10 @@ async fn carry<S>(
             tokio::time::sleep(CLOSE_LINGER).await;
         };
         let unsettled = async {
-            if let Some(within) = within {
-                let deadline = tokio::time::Instant::now() + within;
+            if let Some(bounds) = within {
+                let deadline = tokio::time::Instant::now() + bounds.connect;
                 tokio::select! {
-                    () = tokio::time::sleep(FIRST_PACKET_TIMEOUT.min(within)) => return,
+                    () = tokio::time::sleep(bounds.first_packet.min(bounds.connect)) => return,
                     () = carried_one.cancelled() => {}
                 }
                 tokio::select! {
