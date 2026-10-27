@@ -11,8 +11,9 @@
 //!   accepted, signed and run the hub, and whether its escrow is set up
 //!   and checked; once fixed, the rules a member's scheme takes.
 //! - `dassie hub drop <nonce>` drops a founding.
-//! - `dassie hub payout` shows the payout bundles kept of the node's hub,
-//!   and, once a quorum's sign one set, its transactions to submit.
+//! - `dassie hub payout [<hub ID>]` shows the payout bundles kept of the
+//!   hub of that ID, or of the node's only hub, and, once a quorum's sign
+//!   one set, its transactions to submit.
 
 use dassie_node::env::Env;
 use dassie_node::rpc::proto::{self, request::Method, response};
@@ -42,8 +43,9 @@ pub enum Command {
     List,
     /// Drop the founding of this nonce.
     Drop(String),
-    /// Show the payout bundles.
-    Payout,
+    /// Show the payout bundles of the hub of this ID, in lowercase hex, or
+    /// of the node's only hub when empty.
+    Payout(String),
 }
 
 /// Reads the arguments of `word`, one of `found`, `foundings`, `drop` and
@@ -55,7 +57,11 @@ pub enum Command {
 pub fn args(word: &str, parser: &mut lexopt::Parser) -> Result<Command, lexopt::Error> {
     let command = match word {
         "foundings" => Command::List,
-        "payout" => Command::Payout,
+        "payout" => Command::Payout(match parser.next()? {
+            Some(Value(hub)) => hub_id(&hub.string()?)?,
+            Some(other) => return Err(other.unexpected()),
+            None => String::new(),
+        }),
         "drop" => Command::Drop(parser.value()?.string()?),
         "found" => return found_args(parser),
         other => return Err(format!("unknown hub command {other:?}").into()),
@@ -121,7 +127,7 @@ pub async fn run(env: &Env, command: Command) -> Result<(), String> {
         }),
         Command::List => Method::ListHubFoundings(proto::ListHubFoundingsRequest {}),
         Command::Drop(nonce) => Method::DropHubFounding(proto::DropHubFoundingRequest { nonce }),
-        Command::Payout => Method::GetHubPayout(proto::GetHubPayoutRequest {}),
+        Command::Payout(hub_id) => Method::GetHubPayout(proto::GetHubPayoutRequest { hub_id }),
     };
     let mut client = Client::connect(env).await.map_err(|error| error.message)?;
     match client.call(method).await {
@@ -143,6 +149,18 @@ pub async fn run(env: &Env, command: Command) -> Result<(), String> {
         other => return Err(unexpected(other)),
     }
     Ok(())
+}
+
+/// A hub's ID, as `dassie hub status` shows it: 64 hex digits, in
+/// lowercase.
+fn hub_id(text: &str) -> Result<String, String> {
+    let hex = text.len() == 64 && text.bytes().all(|byte| byte.is_ascii_hexdigit());
+    if !hex {
+        return Err(format!(
+            "{text:?} is not a hub's ID, the 64 hex digits `dassie hub status` shows"
+        ));
+    }
+    Ok(text.to_ascii_lowercase())
 }
 
 /// The terms in the file at `path`.
@@ -322,7 +340,15 @@ mod tests {
         assert!(parse(&["found", "dA@v:1", "--testnet-defaults"]).is_err());
         assert_eq!(parse(&["foundings"]).unwrap(), Command::List);
         assert_eq!(parse(&["drop", "ab"]).unwrap(), Command::Drop("ab".into()));
-        assert_eq!(parse(&["payout"]).unwrap(), Command::Payout);
+        assert_eq!(parse(&["payout"]).unwrap(), Command::Payout(String::new()));
+        // A hub by its ID, as `dassie hub status` shows it.
+        let hub = "AB".repeat(32);
+        assert_eq!(
+            parse(&["payout", &hub]).unwrap(),
+            Command::Payout("ab".repeat(32))
+        );
         assert!(parse(&["payout", "x"]).is_err());
+        assert!(parse(&["payout", &hub, &hub]).is_err());
+        assert!(parse(&["payout", "--hub", &hub]).is_err());
     }
 }

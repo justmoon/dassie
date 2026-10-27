@@ -104,12 +104,17 @@ fn following(node: &Node, rules: Vec<Rules>, mut kept: Vec<Payouts>) -> Vec<Payo
 
 /// What the database keeps of the hub's payout bundles, checked again.
 fn restored(node: &Node, rules: Rules) -> Payouts {
-    let hub = rules.id();
-    let mut payouts = Payouts::new(rules);
     let rows = node
         .store_handle()
-        .hub_payouts(hub.0.as_bytes())
+        .hub_payouts(rules.id().0.as_bytes())
         .unwrap_or_default();
+    restored_from(rules, rows)
+}
+
+/// The hub's payout bundles in `rows`, as the database keeps them, checked
+/// again.
+fn restored_from(rules: Rules, rows: Vec<(u8, u64, Vec<u8>)>) -> Payouts {
+    let mut payouts = Payouts::new(rules);
     for (index, _, bytes) in rows {
         let restored = PayoutBundle::decode_exact(&bytes)
             .ok()
@@ -243,20 +248,36 @@ pub struct PayoutStatus {
     pub ready: Option<(u64, Vec<Vec<u8>>)>,
 }
 
-/// What the node holds of the payout of the first hub it is a member of:
-/// the one hub of a node in one.
+/// Why [`payout`] has no payout to show.
+#[derive(Debug)]
+pub enum PayoutError {
+    /// No hub scheme runs.
+    NoHub,
+    /// The node is in several hubs, and the call named none.
+    Unnamed,
+    /// The node is in no hub of that ID.
+    NotFound,
+    /// The database failed.
+    Store(StoreError),
+}
+
+/// What the node holds of the payout of the hub `hub` names by its ID, or
+/// of its only hub when it names none.
 ///
 /// # Errors
 ///
-/// The database failed. `Ok(None)` when no hub scheme runs.
-pub async fn payout(node: &Node) -> Result<Option<PayoutStatus>, StoreError> {
-    let Some(rules) = hub_rules(node).await.into_iter().next() else {
-        return Ok(None);
-    };
+/// No hub scheme runs, the node is in several hubs and `hub` names none,
+/// or in none of that ID; or the database failed.
+pub async fn payout(node: &Node, hub: Option<[u8; 32]>) -> Result<PayoutStatus, PayoutError> {
+    let rules = chosen(hub_rules(node).await, hub)?;
     let hub = rules.id();
     let quorum = usize::try_from(dassie_hub::escrow::signer_quorum(&rules)).unwrap_or(usize::MAX);
-    let payouts = restored(node, rules);
-    Ok(Some(PayoutStatus {
+    let rows = node
+        .store_handle()
+        .hub_payouts(hub.0.as_bytes())
+        .map_err(PayoutError::Store)?;
+    let payouts = restored_from(rules, rows);
+    Ok(PayoutStatus {
         hub,
         bundles: payouts
             .kept()
@@ -264,5 +285,61 @@ pub async fn payout(node: &Node) -> Result<Option<PayoutStatus>, StoreError> {
             .collect(),
         quorum,
         ready: payouts.assembled(),
-    }))
+    })
+}
+
+/// The rules of the hub `hub` names among `running`, the rules of each hub
+/// the node is in: the only one when it names none.
+fn chosen(running: Vec<Rules>, hub: Option<[u8; 32]>) -> Result<Rules, PayoutError> {
+    match (hub, running.len()) {
+        (_, 0) => Err(PayoutError::NoHub),
+        (None, 1) => running.into_iter().next().ok_or(PayoutError::NoHub),
+        (None, _) => Err(PayoutError::Unnamed),
+        (Some(id), _) => running
+            .into_iter()
+            .find(|rules| *rules.id().0.as_bytes() == id)
+            .ok_or(PayoutError::NotFound),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use dassie_identity::NodeKey;
+
+    use super::*;
+    use crate::hub::config::tests::rules;
+
+    /// A hub of one validator, sponsored by the key of `sponsor`'s bytes:
+    /// each sponsor's hub has an ID of its own.
+    fn hub(sponsor: u8) -> Rules {
+        let validator = (NodeKey::from_bytes(&[1; 32]), "v.example:443".into());
+        rules(&NodeKey::from_bytes(&[sponsor; 32]), &[validator])
+    }
+
+    // The owner names the hub whose payout to show by its ID, or none while
+    // the node is in one hub only (proto/dassie/owner/v1/hub_founding.proto).
+    #[test]
+    fn a_payout_is_of_the_hub_named_or_the_only_one() {
+        let (first, second) = (hub(100), hub(101));
+        let id = |rules: &Rules| *rules.id().0.as_bytes();
+        assert_ne!(id(&first), id(&second));
+        assert!(matches!(chosen(Vec::new(), None), Err(PayoutError::NoHub)));
+        assert!(matches!(
+            chosen(Vec::new(), Some(id(&first))),
+            Err(PayoutError::NoHub)
+        ));
+        let only = chosen(vec![first.clone()], None).unwrap();
+        assert_eq!(id(&only), id(&first));
+        let both = || vec![first.clone(), second.clone()];
+        assert!(matches!(chosen(both(), None), Err(PayoutError::Unnamed)));
+        assert_eq!(id(&chosen(both(), Some(id(&second))).unwrap()), id(&second));
+        assert!(matches!(
+            chosen(both(), Some([0; 32])),
+            Err(PayoutError::NotFound)
+        ));
+        assert!(matches!(
+            chosen(vec![first.clone()], Some(id(&second))),
+            Err(PayoutError::NotFound)
+        ));
+    }
 }

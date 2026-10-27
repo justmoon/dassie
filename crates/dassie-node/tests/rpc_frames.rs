@@ -726,7 +726,7 @@ fn hub() -> BoxedStrategy<Method> {
         field(&["", "00", "x; DROP TABLE x"])
             .prop_map(|nonce| { Method::DropHubFounding(proto::DropHubFoundingRequest { nonce }) }),
         Just(Method::ListHubFoundings(proto::ListHubFoundingsRequest {})),
-        Just(Method::GetHubPayout(proto::GetHubPayoutRequest {})),
+        hub_id().prop_map(|hub_id| Method::GetHubPayout(proto::GetHubPayoutRequest { hub_id })),
     ]
     .boxed()
 }
