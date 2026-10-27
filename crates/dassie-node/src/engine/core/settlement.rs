@@ -556,7 +556,8 @@ impl Core {
     /// itself (spec/decisions/hubs-only.md). All of it, not the minimum
     /// alone: once the peer has its account, what we owed it beyond the
     /// `pay` no claim could ever cover, since its packets came without
-    /// promises.
+    /// promises; so the scheme pays it only once our account can spend all
+    /// of it, and answers not now before.
     fn pay_in_amount(&self, at: &Position, minimum: u64) -> u64 {
         let position = i128::try_from(at.position).unwrap_or(i128::MAX);
         let owed = u64::try_from(position - i128::from(at.credit_out)).unwrap_or(0);

@@ -1141,7 +1141,11 @@ fn script_paid_in(sim: &mut Sim, rng: &mut SeededRng) -> Result<(), Outcome> {
 }
 
 /// [`NEWCOMER`]'s account in the hub was opened by its payer's `pay`, at
-/// the minimum, never by a deposit, and has its disbursal address.
+/// the minimum, never by a deposit, has its disbursal address and made
+/// operations besides. That setting it came first is not read from the
+/// hub, which keeps no history here: the hub fails every other operation of
+/// a member's account without one (`Failure::NoDisbursal`), and the
+/// member's account sends none before it.
 fn check_paid_in(sim: &Sim) -> Result<(), String> {
     let hub = sim.hub.as_deref().unwrap();
     let ledger = hub.ledger().ok_or("no honest validator runs")?;
@@ -1158,6 +1162,13 @@ fn check_paid_in(sim: &Sim) -> Result<(), String> {
     }
     if account.disbursal.is_none() {
         return Err(format!("node {NEWCOMER} has no disbursal address"));
+    }
+    // Its disbursal address, and the hold it paid back over.
+    if account.sequence < 2 {
+        return Err(format!(
+            "node {NEWCOMER} made {} operations in the hub",
+            account.sequence
+        ));
     }
     Ok(())
 }

@@ -105,8 +105,9 @@ fn check_settlements(core: &mut Core, at: u64) {
 
 // spec/designs/settlement-hubs.md#5-joining: a payer over a hub pays a peer
 // without an account in once it owes it the hub's minimum for a new
-// account, never before, and that much; it extends the peer nothing but
-// that `pay` on its way, and asks it nothing, since it can pay nothing.
+// account, never before, and then with all it owes it; it extends the peer
+// no credit, not even for that `pay` on its way, and asks it nothing, since
+// it can pay nothing.
 // Once the `pay` executed, it is booked as our settlement, and the peering
 // is one over the hub as any.
 #[test]

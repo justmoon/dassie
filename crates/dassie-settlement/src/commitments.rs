@@ -74,9 +74,10 @@ pub struct Membership {
     pub hub: [u8; 32],
     /// Our account number in it, or [`Membership::NO_ACCOUNT`] while we
     /// have none yet and are to join by being paid
-    /// (spec/designs/settlement-hubs.md#5-joining). A scheme that numbers
-    /// no accounts, as the stub, says [`Membership::NO_ACCOUNT`] too:
-    /// whether packets with a peer carry promises is
+    /// (spec/designs/settlement-hubs.md#5-joining). Two members that both
+    /// say none do not peer over the hub, since neither could pay the other
+    /// in, so a scheme that numbers no accounts, as the stub, names one all
+    /// the same. Whether packets with a peer carry promises is
     /// [`Commitments::commits_with`]'s to say, not this number's.
     pub account: u32,
 }

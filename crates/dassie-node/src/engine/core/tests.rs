@@ -857,7 +857,10 @@ fn the_core_does_not_log() {
     for entry in std::fs::read_dir(&dir).unwrap() {
         let path = entry.unwrap().path();
         // The tests, in `tests.rs` and its folder, may read what they like.
-        if path.is_dir() || path.file_name().is_some_and(|name| name == "tests.rs") {
+        if path
+            .file_name()
+            .is_some_and(|name| name == "tests.rs" || name == "tests")
+        {
             continue;
         }
         let text = std::fs::read_to_string(&path).unwrap();
@@ -2999,7 +3002,9 @@ impl dassie_settlement::Commitments for StubTwo {
     fn membership(&self) -> Option<dassie_settlement::Membership> {
         Some(dassie_settlement::Membership {
             hub: STUB_TWO_HUB,
-            account: 0,
+            // An account, as the stub's: two members without one do not
+            // peer over their hub.
+            account: 1,
         })
     }
 

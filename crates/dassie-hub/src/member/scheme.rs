@@ -1199,9 +1199,11 @@ impl HubScheme {
     /// A settlement to `peer`, which has no account in the hub yet: a
     /// `pay` of `drops` to the key it gave, which opens its account with
     /// them (spec/designs/settlement-hubs.md#5-joining). At least the hub's
-    /// minimum for a new account, never less, and at most what our account
-    /// can spend; one at a time, so it is paid in once, and not for
-    /// [`PAY_AGAIN_MS`] after one failed.
+    /// minimum for a new account, never less, and only once our account
+    /// can spend all of it: what we owe the peer beyond a `pay` no claim
+    /// could ever cover, since its packets came without promises. One at a
+    /// time, so it is paid in once, and not for [`PAY_AGAIN_MS`] after one
+    /// failed.
     fn prepare_pay_in(
         &mut self,
         rng: &mut dyn CryptoRng,
@@ -1223,8 +1225,7 @@ impl HubScheme {
             .spendable_balance(account)
             .saturating_sub(account.committed())
             .saturating_sub(self.kept_for_fees());
-        let drops = drops.min(spendable);
-        if drops < minimum {
+        if drops > spendable {
             return Err(SchemeError::Unavailable);
         }
         let operation = MemberOperation::Pay {
