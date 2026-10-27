@@ -12,8 +12,6 @@
 
 mod support;
 
-use std::time::Duration;
-
 use dassie_identity::NodeKey;
 use dassie_node::log::LogFilter;
 use dassie_node::rpc::proto::{
@@ -32,16 +30,8 @@ fn key() -> NodeKey {
 /// Sets the node up, waits for its ledger and activates the stub.
 async fn ready(node: &TestNode) -> Owner {
     set_up(node, &key()).await;
+    node.engine_started().await;
     let mut owner = node.ipc().await;
-    for _ in 0..200 {
-        let reply = owner
-            .call(Method::ListLedgers(proto::ListLedgersRequest {}))
-            .await;
-        if reply.is_ok() {
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(10)).await;
-    }
     owner
         .call(Method::AddSettlementScheme(
             proto::AddSettlementSchemeRequest {
@@ -66,11 +56,13 @@ async fn subscribe(client: &mut Owner, call_id: u32, method: Method) {
         .await;
 }
 
-/// The next message on the connection, within 5 s.
+/// The next message on the connection. The node sends it as it handles
+/// what came before, which no clock paces, so this waits for it until a
+/// hang ([`HANG`]).
 async fn next(client: &mut Owner) -> proto::ServerMessage {
-    tokio::time::timeout(Duration::from_secs(5), client.receive())
+    tokio::time::timeout(HANG, client.receive())
         .await
-        .expect("no message within 5 s")
+        .expect("no message")
         .expect("the connection closed")
 }
 
@@ -291,19 +283,15 @@ async fn token_caps_are_kept() {
     assert_eq!(invalid.code(), proto::ErrorCode::InvalidArgument);
     let (dir, clock) = node.stop().await;
     let node = TestNode::start_in(dir, clock, 2).await;
+    node.engine_started().await;
     let mut owner = node.ipc().await;
-    let mut tokens = None;
-    for _ in 0..200 {
-        if let Ok(response::Method::ListBtpTokens(list)) = owner
-            .call(Method::ListBtpTokens(proto::ListBtpTokensRequest {}))
-            .await
-        {
-            tokens = Some(list);
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(10)).await;
-    }
-    assert_eq!(tokens.unwrap().tokens[0].cap, Some(cap));
+    let reply = owner
+        .call(Method::ListBtpTokens(proto::ListBtpTokensRequest {}))
+        .await;
+    let Ok(response::Method::ListBtpTokens(tokens)) = reply else {
+        panic!("{reply:?}")
+    };
+    assert_eq!(tokens.tokens[0].cap, Some(cap));
 }
 
 #[tokio::test]
