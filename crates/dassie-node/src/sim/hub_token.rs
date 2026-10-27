@@ -19,8 +19,9 @@
 //! of signer list needs, so an escrow topped up only to it could not pay
 //! out (spec/roadmap.md#token-hubs).
 //!
-//! Then the issuer holds the escrow, a moment into a round of payments,
-//! by a seed's draw: it freezes the escrow's line, deep-freezes it, freezes
+//! Before the escrow's XRP falls, the issuer holds the escrow, a moment
+//! into a round of payments, by a seed's draw: it freezes the escrow's
+//! line, deep-freezes it, freezes
 //! its token for every holder, or charges a transfer fee. Once every
 //! member read the freeze from what the validators state of the issuer's
 //! hold, none sends a Prepare over the hub, a payment made meanwhile waits,
@@ -263,6 +264,11 @@ fn script(sim: &mut Sim, rng: &mut SeededRng, setup: &Setup) -> Result<(), Outco
     pay(sim, rng);
     sim.run_until_or(sim.now + PAID_WITHIN_MS, paid);
     off_peg(sim, rng)?;
+    // The freeze comes before the owner's moves, which pause the node's own
+    // for longer than the run (`OWNER_PAUSE_MS`): a member that pays after
+    // them could not fund its holds again.
+    freeze(sim, rng, setup.hold)?;
+    refuse_far_ahead(sim)?;
     let asked = withdraw_low(sim, setup)?;
     // The least gas a member tops the escrow up to is below the reserve
     // of the escrow's signer list and trust line, which the payout set's
@@ -271,10 +277,6 @@ fn script(sim: &mut Sim, rng: &mut SeededRng, setup: &Setup) -> Result<(), Outco
     gift(sim, setup);
     settle(sim);
     check_topped_up(sim, setup.withdrawer, asked)?;
-    check_calm(sim)?;
-    freeze(sim, rng, setup.hold)?;
-    refuse_far_ahead(sim)?;
-    settle(sim);
     check_calm(sim)?;
     match setup.ending {
         Ending::Clawback => claw_back(sim, rng),
