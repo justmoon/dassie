@@ -143,6 +143,27 @@ pub enum Statement {
         /// Its holds on this page.
         holds: Vec<(HoldNumber, HoldView)>,
     },
+    /// The issuer's hold on a token hub's escrow after the block at
+    /// `height`, stamped `timestamp` (spec/decisions/token-hubs.md): since
+    /// which block's stamp the hub is frozen, if it is
+    /// ([`Ledger::frozen`]), and whether the state a quorum attested holds
+    /// the escrow ([`Issuer::holds`]). What a member reads the freeze from:
+    /// while frozen, its hub's method is unavailable, its operations but
+    /// claims wait for the thaw, and the hub's clock stands still
+    /// (spec/areas/hubs.md#the-members-side).
+    ///
+    /// [`Issuer::holds`]: crate::operation::Issuer::holds
+    Issuer {
+        /// The block's height.
+        height: u64,
+        /// Its timestamp.
+        timestamp: Millis,
+        /// The stamp of the block from which the hub is frozen.
+        frozen: Option<Millis>,
+        /// Whether the issuer holds the escrow: a freeze or a transfer
+        /// fee.
+        held: bool,
+    },
 }
 
 /// A statement with the validator's signature.
@@ -271,6 +292,21 @@ impl Statement {
             .collect()
     }
 
+    /// What `ledger` says of its issuer's hold on the escrow, if it is a
+    /// token hub's: an XRP hub has no issuer, and is never frozen.
+    #[must_use]
+    pub fn issuer(ledger: &Ledger) -> Option<Self> {
+        if matches!(ledger.terms().asset, crate::rules::Asset::Xrp) {
+            return None;
+        }
+        Some(Self::Issuer {
+            height: ledger.height(),
+            timestamp: ledger.timestamp(),
+            frozen: ledger.frozen(),
+            held: ledger.issuer().holds(),
+        })
+    }
+
     /// The height it is as of.
     #[must_use]
     pub const fn height(&self) -> u64 {
@@ -279,7 +315,8 @@ impl Statement {
             | Self::Final { height, .. }
             | Self::Account { height, .. }
             | Self::Trimmed { height, .. }
-            | Self::Holds { height, .. } => *height,
+            | Self::Holds { height, .. }
+            | Self::Issuer { height, .. } => *height,
         }
     }
 }
@@ -659,6 +696,7 @@ impl Encode for Statement {
                     operation, outcome, ..
                 } => 8 + 4 + operation.encoded_len() + outcome.encoded_len(),
                 Self::Final { .. } | Self::Trimmed { .. } => 8,
+                Self::Issuer { .. } => 8 + 1 + 8 + 1,
                 Self::Account { account, .. } => {
                     32 + 1 + account.map_or(0, |(_, view)| 4 + view.encoded_len())
                 }
@@ -716,6 +754,19 @@ impl Encode for Statement {
                 writer.write_u64(*below);
             }
             Self::Holds { .. } => self.encode_holds(writer),
+            Self::Issuer {
+                height,
+                timestamp,
+                frozen,
+                held,
+            } => {
+                writer.write_u8(5);
+                writer.write_u64(*height);
+                writer.write_u64(*timestamp);
+                writer.write_bool(frozen.is_some());
+                writer.write_u64(frozen.unwrap_or(0));
+                writer.write_bool(*held);
+            }
         }
     }
 }
@@ -808,6 +859,20 @@ impl Statement {
                 below: reader.read_u64()?,
             },
             4 => Self::decode_holds(reader, height)?,
+            5 => {
+                let timestamp = reader.read_u64()?;
+                let is_frozen = reader.read_bool()?;
+                let since = reader.read_u64()?;
+                if !is_frozen && since != 0 {
+                    return Err(HubDecodeError::Invalid("freeze without presence"));
+                }
+                Self::Issuer {
+                    height,
+                    timestamp,
+                    frozen: is_frozen.then_some(since),
+                    held: reader.read_bool()?,
+                }
+            }
             other => return Err(HubDecodeError::UnknownChoice(u64::from(other))),
         })
     }
@@ -1231,6 +1296,66 @@ mod tests {
         assert_eq!(SignedStatement::decode_list(&bytes).unwrap(), signed);
     }
 
+    // What a member reads a token hub's freeze from: only a token hub's
+    // validators say it, and a freeze is said with its stamp alone.
+    #[test]
+    fn the_issuers_hold_round_trips() {
+        let hub = HubId(Digest([1; 32]));
+        let (_, keys) = set();
+        let signed: Vec<SignedStatement> = [
+            Statement::Issuer {
+                height: 8,
+                timestamp: 9,
+                frozen: Some(7),
+                held: true,
+            },
+            Statement::Issuer {
+                height: 9,
+                timestamp: 10,
+                frozen: None,
+                held: true,
+            },
+        ]
+        .into_iter()
+        .map(|s| SignedStatement::sign(&hub, ValidatorIndex::new(1).unwrap(), s, &keys[1]))
+        .collect();
+        let bytes = SignedStatement::encode_list(&signed);
+        assert_eq!(SignedStatement::decode_list(&bytes).unwrap(), signed);
+        for statement in &signed {
+            assert_eq!(
+                statement.statement.encoded_len(),
+                statement.statement.to_vec().len()
+            );
+        }
+        // A stamp without the presence that says there is one.
+        let mut bytes = Statement::Issuer {
+            height: 9,
+            timestamp: 10,
+            frozen: None,
+            held: false,
+        }
+        .to_vec();
+        bytes[1 + 8 + 8 + 1 + 7] = 1;
+        assert!(Statement::decode(&mut Reader::new(&bytes)).is_err());
+        let xrp = crate::ledger::tests::Hub::new();
+        assert_eq!(
+            Statement::issuer(&xrp.ledger),
+            None,
+            "an XRP hub has no issuer"
+        );
+        let token = crate::ledger::tests::Hub::with(|rules| {
+            rules.terms = crate::rules::tests::token_terms(rules.terms.clone());
+        });
+        let ledger = &token.ledger;
+        let unheld = Statement::Issuer {
+            height: ledger.height(),
+            timestamp: ledger.timestamp(),
+            frozen: None,
+            held: false,
+        };
+        assert_eq!(Statement::issuer(ledger), Some(unheld));
+    }
+
     #[test]
     fn requests_and_outcomes_round_trip() {
         let key = NodeKey::from_bytes(&[9; 32]).public_key();
@@ -1266,6 +1391,7 @@ mod tests {
             Refusal::Sequence,
             Refusal::Fee,
             Refusal::NotAllowed,
+            Refusal::Frozen,
         ];
         let outcomes = failures
             .into_iter()
