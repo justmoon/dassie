@@ -168,7 +168,6 @@ async fn core_node(server: &Server, rates: &RatesServer, owner: &NodeKey) -> Tes
         ("DASSIE_PEER_ALLOW_PRIVATE", "1"),
     ];
     let policies = Policies {
-        rates_every_ms: 50,
         feed: Limits {
             max_subscribers: 2,
             ..Limits::DEFAULT

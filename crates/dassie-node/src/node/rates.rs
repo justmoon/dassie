@@ -8,6 +8,7 @@ use std::time::Duration;
 use tokio_util::sync::CancellationToken;
 
 use super::Node;
+use crate::clock::clock_moved;
 use crate::log::target;
 use crate::outbound::WebRequest;
 use crate::rates::{self, Answer, BASE, MAX_RESPONSE_BYTES, RateSource};
@@ -19,21 +20,32 @@ const SOURCE_TIMEOUT_MS: u64 = 10_000;
 impl Node {
     /// Fetches rates while the node runs: at once when the engine starts
     /// or the owner changes the sources, and every
-    /// [`rates_every_ms`](super::Policies::rates_every_ms) otherwise.
+    /// [`rates_every_ms`](super::Policies::rates_every_ms) of the node's
+    /// clock otherwise. A clock moved by hand wakes it, so a test reaches
+    /// the next fetch by moving it rather than by waiting in real time.
     pub async fn run_rates(self: Arc<Self>, shutdown: CancellationToken) {
         let mut engines = self.engine.subscribe();
+        let mut moves = self.clock.subscribe();
         loop {
             if let Some(engine) = self.engine() {
                 self.fetch_rates(&engine).await;
             }
-            let every = Duration::from_millis(self.policies.rates_every_ms);
-            tokio::select! {
-                () = shutdown.cancelled() => return,
-                () = tokio::time::sleep(every) => {}
-                () = self.rates_wake.notified() => {}
-                changed = engines.changed() => {
-                    if changed.is_err() {
-                        return;
+            let next_ms = self.now_ms().saturating_add(self.policies.rates_every_ms);
+            loop {
+                let wait_ms = next_ms.saturating_sub(self.now_ms());
+                if wait_ms == 0 {
+                    break;
+                }
+                tokio::select! {
+                    () = shutdown.cancelled() => return,
+                    () = tokio::time::sleep(Duration::from_millis(wait_ms)) => {}
+                    () = clock_moved(&mut moves) => {}
+                    () = self.rates_wake.notified() => break,
+                    changed = engines.changed() => {
+                        if changed.is_err() {
+                            return;
+                        }
+                        break;
                     }
                 }
             }
