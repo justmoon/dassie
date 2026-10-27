@@ -301,8 +301,10 @@ pub(super) fn join_hub(sim: &mut Sim) -> Result<(), Outcome> {
 /// owner's alone (spec/designs/settlement-hubs.md#11-choosing-a-hub).
 pub(super) fn over_hub(sim: &Sim) -> Result<(), Outcome> {
     for index in 0..sim.nodes.len() {
-        for peer in sim.core(index).network().peers {
-            let scheme = peer.peering.first().scheme;
+        let methods: Vec<_> = (sim.core(index).network().peers.iter())
+            .flat_map(|peer| peer.peering.schemes().map(|scheme| (peer.id, scheme)))
+            .collect();
+        for (peer, scheme) in methods {
             let ours = (sim.settling.ledgers(index).iter())
                 .any(|ledger| Settling::scheme(*ledger).0 == scheme.as_str());
             if !ours {
@@ -310,7 +312,7 @@ pub(super) fn over_hub(sim: &Sim) -> Result<(), Outcome> {
                     "over-hub",
                     format!(
                         "node {index} peers with {} over {scheme:?}, not the hub",
-                        peer.id,
+                        peer,
                     ),
                 ));
             }
@@ -421,16 +423,18 @@ fn check_settled_with_honest(sim: &Sim, liar: Option<usize>) -> Result<(), Strin
             if liar.is_some_and(|liar| key(liar).node_id() == peer.id) {
                 continue;
             }
-            let Some(owed) = peer.owed.filter(|_| peer.termination.is_none()) else {
+            if peer.owed.is_none() || peer.termination.is_some() {
                 continue;
-            };
-            let credit = peer.peering.first().credit_out;
-            let position = u128::try_from(owed + i128::from(credit)).unwrap_or(0);
-            if dassie_settlement::policy::ask(position, super::TRIGGER) {
-                return Err(format!(
-                    "node {index}'s room for {} is {position} of {credit}: it never settled",
-                    peer.id
-                ));
+            }
+            let rooms = super::checks::method_rooms(sim, index, &peer.id, &peer.peering);
+            for (scheme, position, credit) in rooms {
+                if dassie_settlement::policy::ask(position, super::TRIGGER) {
+                    return Err(format!(
+                        "node {index}'s room for {} on {scheme:?} is {position} of {credit}: it \
+                         never settled",
+                        peer.id
+                    ));
+                }
             }
         }
     }

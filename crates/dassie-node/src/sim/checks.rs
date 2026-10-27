@@ -213,22 +213,62 @@ pub fn outgoing_flows(sim: &Sim) -> impl Iterator<Item = Flow> + '_ {
         })
 }
 
+/// Node `index`'s room for `peer` on each method of `peering`, from its
+/// books on the method's ledger as its core reads them
+/// (`engine/core/settlement.rs`): what the peer may still send it before it
+/// is owed nothing, and the credit it extends on the method, each in its
+/// own ledger's units (spec/decisions/settlement-methods.md). A method with
+/// no accounts yet stands at nothing.
+pub fn method_rooms(
+    sim: &Sim,
+    index: usize,
+    peer: &dassie_identity::NodeId,
+    peering: &dassie_peer::Peering,
+) -> Vec<(dassie_peer::wire::SchemeId, u128, u64)> {
+    use dassie_ledger::{AccountName, AccountPath, Name};
+    let core = sim.core(index);
+    let (views, accounts) = (core.ledger_views(), core.account_list());
+    let Ok(name) = Name::new(peer.as_str()) else {
+        return Vec::new();
+    };
+    peering
+        .methods
+        .iter()
+        .map(|method| {
+            let ledger = views
+                .iter()
+                .find(|view| view.scheme == method.scheme.as_str())
+                .map(|view| view.id);
+            let position = ledger.map_or(0, |ledger| {
+                let path = AccountPath::new(ledger, AccountName::AssetsInterledger(name));
+                accounts
+                    .iter()
+                    .find(|(_, account)| *account.path() == path)
+                    .map_or(0, |(_, account)| policy::position(account.balance()))
+            });
+            (method.scheme, position, method.credit_out)
+        })
+        .collect()
+}
+
 /// Once the network is calm, no node's books show an honest peer still at
-/// its ask point: asked, the peer settled (spec/decisions/own-fulfills.md,
+/// its ask point on any method of their peering: asked, the peer settled
+/// (spec/decisions/own-fulfills.md,
 /// spec/areas/settlement.md#asking-a-peer-to-settle).
 pub fn check_settled(sim: &Sim) -> Result<(), String> {
     for index in 0..sim.nodes.len() {
         for peer in sim.core(index).network().peers {
-            let Some(owed) = peer.owed.filter(|_| peer.termination.is_none()) else {
+            if peer.owed.is_none() || peer.termination.is_some() {
                 continue;
-            };
-            let credit = peer.peering.first().credit_out;
-            let position = u128::try_from(owed + i128::from(credit)).unwrap();
-            if policy::ask(position, TRIGGER) {
-                return Err(format!(
-                    "node {index}'s room for {} is {position} of {credit}: it never settled",
-                    peer.id
-                ));
+            }
+            for (scheme, position, credit) in method_rooms(sim, index, &peer.id, &peer.peering) {
+                if policy::ask(position, TRIGGER) {
+                    return Err(format!(
+                        "node {index}'s room for {} on {scheme:?} is {position} of {credit}: it \
+                         never settled",
+                        peer.id
+                    ));
+                }
             }
         }
     }
@@ -297,8 +337,9 @@ pub fn drifted_past(sim: &mut Sim) -> Option<String> {
         .map(|link| link.describe())
 }
 
-/// The credit node `index` extends node `other`, and its room for it, while
-/// they are peered.
+/// The credit node `index` extends node `other`, summed over the methods
+/// of their peering, and its least room for it on any of them, while they
+/// are peered.
 fn room(sim: &Sim, index: usize, other: usize) -> Option<(u64, u128)> {
     let id = key(other).node_id();
     let peer = sim.nodes[index]
@@ -308,12 +349,13 @@ fn room(sim: &Sim, index: usize, other: usize) -> Option<(u64, u128)> {
         .peers
         .into_iter()
         .find(|peer| peer.id == id)?;
-    let owed = peer.owed?;
-    let credit = peer.peering.first().credit_out;
-    Some((
-        credit,
-        u128::try_from(owed + i128::from(credit)).unwrap_or(0),
-    ))
+    peer.owed?;
+    let rooms = method_rooms(sim, index, &peer.id, &peer.peering);
+    let credit = rooms
+        .iter()
+        .fold(0u64, |sum, (_, _, credit)| sum.saturating_add(*credit));
+    let least = rooms.iter().map(|(_, room, _)| *room).min()?;
+    Some((credit, least))
 }
 
 /// What a healed network that did not settle down within `seconds` found
@@ -905,7 +947,13 @@ pub fn check_across(sim: &Sim) -> Result<(), Outcome> {
 /// Fulfill to a crash.
 fn check_received_across(sim: &Sim) -> Result<(), String> {
     for payment in &sim.payments {
-        let into = *sim.settling.ledgers(payment.to).last().unwrap();
+        let into = sim.nodes[payment.to]
+            .store
+            .incoming_payment(payment.incoming)
+            .unwrap()
+            .map_or(*sim.settling.ledgers(payment.to).last().unwrap(), |row| {
+                row.ledger
+            });
         let (got, sent) = (
             u128::from(received(sim, payment)),
             u128::from(sent(payment)),
@@ -948,7 +996,7 @@ fn check_assets(sim: &Sim) -> Result<(), String> {
     let ledgers: &[LedgerId] = match sim.settling {
         Settling::XrpRlusd => &[RLUSD, LIVE_XRP],
         Settling::XrpDsusd => &[DSUSD, XRP],
-        Settling::HubAcross(_) => &[USD, super::HUB],
+        Settling::HubAcross(_) | Settling::Hubs(_) => &[super::HUB_DSUSD, super::HUB],
         _ => &[USD, XRP],
     };
     for &ledger in ledgers {
