@@ -217,8 +217,12 @@ pub fn outgoing_flows(sim: &Sim) -> impl Iterator<Item = Flow> + '_ {
 /// Once the network is calm, no node's books show an honest peer still at
 /// its ask point on any method: asked, the peer settled
 /// (spec/decisions/own-fulfills.md,
-/// spec/areas/settlement.md#asking-a-peer-to-settle).
+/// spec/areas/settlement.md#asking-a-peer-to-settle). Over a hub of XRP,
+/// as the runs over a hub check it.
 pub fn check_settled(sim: &Sim) -> Result<(), String> {
+    if over_hub(sim) {
+        return super::hub_checks::check_settled_with_honest(sim, None);
+    }
     for index in 0..sim.nodes.len() {
         for peer in sim.core(index).network().peers {
             if peer.termination.is_some() {
@@ -658,11 +662,23 @@ fn check_outgoing_payment(
     Ok(())
 }
 
+/// Whether the run is over one hub of XRP run in the simulation, whose
+/// members fund their accounts in it from their XRP Ledger accounts: its
+/// books are the hub's to check.
+fn over_hub(sim: &Sim) -> bool {
+    matches!(sim.settling, Settling::Hub(_))
+}
+
 /// Each node's books, on their own: they hold what its scheme holds, and
 /// it settled what it owed. The underlying ledgers neither made nor lost
 /// money. No check compares two nodes' books, or adds them up: each keeps
-/// its own, and they may drift (spec/decisions/own-books.md).
+/// its own, and they may drift (spec/decisions/own-books.md). Over a hub of
+/// XRP, as the runs over a hub check them, in the hub and on the XRP Ledger
+/// account each member funds its hub account from.
 pub fn check_books(sim: &Sim) -> Result<(), Outcome> {
+    if over_hub(sim) {
+        return super::hub_checks::check_books(sim);
+    }
     first_failure([
         check_owner_books(sim).map_err(|problem| Outcome::safety("owner-books", problem)),
         check_ledgers(sim).map_err(|problem| Outcome::safety("ledgers", problem)),

@@ -97,6 +97,7 @@
 
 pub mod checks;
 pub mod hub;
+pub mod hub_checks;
 pub mod hub_pairs;
 pub mod hub_runs;
 pub mod hub_token;
