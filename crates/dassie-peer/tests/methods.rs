@@ -104,6 +104,84 @@ fn a_pair_that_runs_two_schemes_settles_on_both() {
     assert_eq!(network.node(asked).stats().methods_added, 1);
 }
 
+/// Two nodes that run both schemes, where each of `direct` would settle
+/// directly: it is neither over a hub nor of unlimited trust.
+fn with_direct(seed: u64, direct: &[&str]) -> (Network, NodeId, NodeId) {
+    let mut network = Network::new(seed, 2, 1, Config::DEV);
+    for index in 0..2 {
+        network.set_running(index, scheme(SECOND), true);
+        let hooks = &mut network.nodes[index].hooks;
+        hooks.direct.extend(direct.iter().map(|id| scheme(id)));
+    }
+    let (a, b) = (*network.node(0).own(), *network.node(1).own());
+    (network, a, b)
+}
+
+// spec/decisions/hubs-only.md: a scheme both run that is neither over a hub
+// nor of unlimited trust would settle directly, so it never becomes a
+// method: the pair peers on the scheme that trusts without limit, and
+// never asks for the other.
+#[test]
+fn a_scheme_that_would_settle_directly_is_never_a_method() {
+    let (mut network, a, b) = with_direct(74, &[SECOND]);
+    wait(&mut network, |network| {
+        methods(network, 0, &b) == [scheme(STUB)] && methods(network, 1, &a) == [scheme(STUB)]
+    });
+    settle(&mut network, 120_000);
+    assert_eq!(methods(&network, 0, &b), [scheme(STUB)]);
+    assert_eq!(methods(&network, 1, &a), [scheme(STUB)]);
+    for index in 0..2 {
+        let added = events(&network, index, |event| {
+            matches!(event, Event::MethodAdded { .. })
+        });
+        assert_eq!(added, 0, "node {index} added a direct method");
+    }
+}
+
+// spec/decisions/hubs-only.md: a pair whose only common schemes would settle
+// directly shares no method, so it never peers.
+#[test]
+fn a_pair_that_could_only_settle_directly_never_peers() {
+    let (mut network, a, b) = with_direct(75, &[STUB, SECOND]);
+    settle(&mut network, 180_000);
+    for (index, other) in [(0, b), (1, a)] {
+        let known = events(&network, index, |event| *event == Event::NodeAdded(other));
+        assert!(known > 0, "node {index} never learned of the other");
+        assert!(network.node(index).peering_of(&other).is_none());
+        let peered = events(&network, index, |event| {
+            matches!(event, Event::Peered { .. })
+        });
+        assert_eq!(peered, 0, "node {index} peered");
+    }
+}
+
+// spec/decisions/hubs-only.md: a node refuses a peering asked on a scheme
+// that would settle directly for it, though the node that asks takes the
+// scheme for one of unlimited trust: the asker is refused again and again,
+// and the pair never peers.
+#[test]
+fn a_peering_asked_on_a_scheme_that_would_settle_directly_is_refused() {
+    let mut network = Network::new(78, 2, 1, Config::DEV);
+    network.nodes[1].hooks.direct.insert(scheme(STUB));
+    let (a, b) = (*network.node(0).own(), *network.node(1).own());
+    settle(&mut network, 180_000);
+    let known = events(&network, 1, |event| *event == Event::NodeAdded(a));
+    assert!(known > 0, "node 1 never learned of node 0");
+    let refused = events(
+        &network,
+        0,
+        |event| matches!(event, Event::PeeringFailed { node, reason: "refused" } if *node == b),
+    );
+    assert!(refused > 1, "node 0 was refused {refused} times");
+    for (index, other) in [(0, b), (1, a)] {
+        assert!(network.node(index).peering_of(&other).is_none());
+        let peered = events(&network, index, |event| {
+            matches!(event, Event::Peered { .. })
+        });
+        assert_eq!(peered, 0, "node {index} peered");
+    }
+}
+
 // Each Prepare travels on the method it is sent on, and arrives naming it;
 // none goes on a scheme the peering has no method on.
 #[test]

@@ -13,13 +13,11 @@
 //! racing into one incoming payment), run their nodes on the stub with
 //! unlimited trust (`Settling::Trusting`, which `Sim::new` gives), so that
 //! no credit runs out and no request to settle or settlement shapes what
-//! they check (spec/areas/testing.md#levels). A test of settlement over a
-//! hub runs on the stub with commitments, as `hub_path.rs` does, or over
-//! hubs run in the simulation, as one that needs a hub's ledger out of
-//! reach or two currencies does. The tests of direct settlement (lying
-//! peers, a junior paying its senior in advance), on the plain stub
-//! (`Settling::Stub`), say so: they go with it (spec/roadmap.md#hubs-only).
-//! The XRP Ledger's own runs keep owner books (`Settling::OwnerBooks`).
+//! they check (spec/areas/testing.md#levels). A test of settlement runs over
+//! a hub: on the stub with commitments (`Settling::StubHub`), as
+//! `hub_path.rs` does, or on hubs in the simulation. No test here settles
+//! directly (spec/decisions/hubs-only.md). The XRP Ledger's own runs keep
+//! owner books (`Settling::OwnerBooks`).
 
 #![allow(
     clippy::unwrap_used,
@@ -35,7 +33,7 @@ use dassie_ledger::LedgerId;
 use dassie_node::engine::{EngineError, EngineEvent, Lie, NewIncoming, NewOutgoing};
 use dassie_node::node::Policies;
 use dassie_node::sim::checks::{
-    check, check_across, check_books, check_events, check_ledgers, drifted_past, not_settled_down,
+    check, check_across, check_books, check_events, check_ledgers, drifted_past,
 };
 use dassie_node::sim::{
     CHARGES, CREDIT, LEDGER_CLOSE_MS, START, Settling, Sim, USD, hub_pairs, key, owner_books,
@@ -50,13 +48,6 @@ use dassie_settlement::{LedgerStatus, OwnerPaymentState, policy};
 /// node: for a test whose subject is not settlement.
 fn trusting(seed: u64, count: usize) -> Sim {
     Sim::new(seed, count, 1)
-}
-
-/// `count` nodes on the plain stub, which settles directly, the first a
-/// bootstrap node: for a test of direct settlement, which goes with it
-/// (spec/roadmap.md#hubs-only).
-fn direct(seed: u64, count: usize) -> Sim {
-    Sim::with(seed, count, 1, BTreeMap::new(), Settling::Stub)
 }
 
 #[test]
@@ -772,10 +763,11 @@ fn race_into_one_incoming_payment(seed: u64, amount: u64) -> (Sim, u64, Vec<Outg
     (sim, received, rows)
 }
 
-/// Three nodes where the liar, node 1, reaches node 2 only through node
-/// 0: node 2 bans it before they can peer. Node 1 then lies.
+/// Three nodes over the stub with commitments where the liar, node 1,
+/// reaches node 2 only through node 0: node 2 bans it before they can
+/// peer. Node 1 then lies.
 fn liar_network(seed: u64, lie: Lie) -> Sim {
-    let mut sim = direct(seed, 3);
+    let mut sim = Sim::with(seed, 3, 1, BTreeMap::new(), Settling::StubHub(1));
     sim.loss_per_mille = 0;
     sim.step(2, |core| core.ban_node(key(1).node_id()).unwrap());
     sim.run_until(START + 60_000);
@@ -793,107 +785,41 @@ fn liar_network(seed: u64, lie: Lie) -> Sim {
     sim
 }
 
-/// What a liar tries to pay: far more than the credit both ways, so the
-/// exposure bound is put to the test.
-const LIAR_PAYS: u64 = 10_000_000_000;
-
-/// What node 1 owes node 0, by node 0's books.
-fn liar_owes(sim: &Sim) -> i128 {
-    let position = sim.balances(0)[&format!("assets/interledger/{}", key(1).node_id())];
-    CREDIT - position
-}
-
-// spec/decisions/own-fulfills.md: a peer that never settles uses the credit
-// it was given, and no more: past it, its packets are refused. It is not
-// banned for it, but it is withdrawn once its room stays short of a packet
-// past the grace (spec/decisions/peering-lifecycle.md), and stays peered.
-// Goes with direct settlement (spec/roadmap.md#hubs-only).
+// spec/decisions/peering-lifecycle.md: a payer over a hub that never funds
+// its hold toward us spends what is in it, and is then short of room for a
+// packet: past the grace it is withdrawn, and once its room has stayed
+// short, settling nothing, for as long as a silent peer is kept, the
+// peering is ended with reason 4. A link that stuck is not saved, and
+// nobody is banned for it.
 #[test]
-fn a_peer_that_never_settles_costs_at_most_its_credit() {
-    let seed = 0;
-    let mut sim = liar_network(seed, Lie::NeverSettle);
-    sim.pay(1, 0, LIAR_PAYS, None, None);
-    let spent = |sim: &Sim| liar_owes(sim) > CREDIT * 9 / 10;
-    assert!(
-        sim.run_until_or(sim.now + 120_000, spent),
-        "seed {seed}: it never spent its credit"
-    );
-    sim.run_until(sim.now + 10 * 60_000);
-    let owed = liar_owes(&sim);
-    assert!(owed <= CREDIT, "seed {seed}: it owes {owed}");
-    assert!(
-        !sim.payments[0].done,
-        "seed {seed}: it paid past its credit"
-    );
-    let liar = key(1).node_id();
-    assert!(sim.core(0).network().bans.is_empty(), "seed {seed}");
-    assert!(sim.peers(0).contains(&liar), "seed {seed}");
-    assert!(
-        !sim.advertises(0, &liar),
-        "seed {seed}: node 0 still advertises it"
-    );
-    assert!(
-        sim.withdrawn
-            .iter()
-            .any(|withdrawal| withdrawal.by == 0 && withdrawal.peer == liar),
-        "seed {seed}: node 0 did not withdraw it for room"
-    );
-}
-
-// spec/decisions/peering-lifecycle.md: a peer whose room stays short of a
-// packet, settling nothing, for as long as a silent peer is kept, is ended
-// with reason 4: a link that stuck or drifted past what it survives is not
-// saved.
-// Goes with direct settlement (spec/roadmap.md#hubs-only).
-#[test]
-fn a_peer_short_of_room_for_a_day_is_ended() {
+fn a_payer_that_never_funds_its_hold_is_ended_for_room() {
     // A simulated day.
     let seed = 0;
     let mut sim = liar_network(seed, Lie::NeverSettle);
-    sim.pay(1, 0, LIAR_PAYS, None, None);
-    let spent = |sim: &Sim| liar_owes(sim) > CREDIT * 9 / 10;
-    assert!(
-        sim.run_until_or(sim.now + 120_000, spent),
-        "seed {seed}: it never spent its credit"
-    );
-    let peer = Policies::DEFAULT.peer;
-    sim.run_until(sim.now + peer.advertise_short_grace_ms + peer.peer_dead_ms + 10 * 60_000);
+    // Far more than any hold.
+    sim.pay(1, 0, 10_000_000_000, None, None);
     let liar = key(1).node_id();
+    let peer = Policies::DEFAULT.peer;
+    let withdrawn = |sim: &Sim| {
+        sim.withdrawn
+            .iter()
+            .any(|withdrawal| withdrawal.by == 0 && withdrawal.peer == liar)
+    };
+    assert!(
+        sim.run_until_or(
+            sim.now + peer.advertise_short_grace_ms + 10 * 60_000,
+            withdrawn
+        ),
+        "seed {seed}: node 0 did not withdraw it for room"
+    );
+    assert!(!sim.payments[0].done, "seed {seed}: it paid past its hold");
+    sim.run_until(sim.now + peer.peer_dead_ms + 10 * 60_000);
     let ended = format!(" 0 PeerNode(Terminating {{ peer: {liar:?}, reason: ShortOfRoom");
     assert!(
         sim.trace.iter().any(|line| line.contains(&ended)),
         "seed {seed}: node 0 did not end the peering for room"
     );
     assert!(sim.core(0).network().bans.is_empty(), "seed {seed}");
-    assert!(liar_owes(&sim) <= CREDIT, "seed {seed}");
-}
-
-// spec/decisions/own-books.md: a peer that spends the credit it was given and
-// vanishes, as a retiring node may, costs the peer it spent through no more
-// than that credit. That peer ends the peering once it stops answering, and
-// the rest of the network loses nothing.
-// Goes with direct settlement (spec/roadmap.md#hubs-only).
-#[test]
-fn a_peer_that_spends_its_credit_and_vanishes_costs_at_most_that_credit() {
-    // The day a silent peer is kept, simulated.
-    let seed = 0;
-    let mut sim = liar_network(seed, Lie::NeverSettle);
-    sim.pay(1, 2, LIAR_PAYS, None, None);
-    assert!(
-        sim.run_until_or(sim.now + 120_000, |sim| liar_owes(sim) > CREDIT * 9 / 10),
-        "seed {seed}: it never spent its credit"
-    );
-    sim.crash(1);
-    // A peer not heard from for a day is ended.
-    let dead = Policies::DEFAULT.peer.peer_dead_ms;
-    sim.run_until(sim.now + dead + 10 * 60_000);
-    assert!(
-        !sim.peers(0).contains(&key(1).node_id()),
-        "seed {seed}: node 0 still peers with it"
-    );
-    let owed = liar_owes(&sim);
-    assert!(owed <= CREDIT, "seed {seed}: it left owing {owed}");
-    assert!(sim.peers(0).contains(&key(2).node_id()), "seed {seed}");
 }
 
 // spec/decisions/peering-lifecycle.md: requests to settle that never arrived
@@ -1011,36 +937,6 @@ fn a_peer_short_of_room_over_a_hub_is_withdrawn_until_it_funds_its_hold() {
         sim.run_until_or(sim.now + 10 * 60_000, |sim| sim.payments[0].done),
         "the payment did not finish"
     );
-}
-
-// spec/decisions/earned-trust.md: the node whose peering request was
-// accepted, the junior, extends its senior the default credit; the senior
-// extends it nothing. So the senior asks at once, and the junior pays half
-// the way to its trigger in advance, (1.1 - 0.15) / 2 = 0.475, before
-// anything flows. Then the junior pays through its senior, settling as it
-// goes.
-// Goes with direct settlement (spec/roadmap.md#hubs-only).
-#[test]
-fn a_junior_pays_its_senior_in_advance() {
-    let mut sim = direct(3, 2);
-    sim.loss_per_mille = 0;
-    sim.run_until(START + 60_000);
-    let peering = |sim: &Sim, index: usize| sim.core(index).network().peers[0].peering.clone();
-    let (senior, junior) = if peering(&sim, 0).inbound {
-        (0, 1)
-    } else {
-        (1, 0)
-    };
-    assert!(!peering(&sim, junior).inbound, "both sides accepted");
-    assert_eq!(peering(&sim, senior).first().credit_out, 0);
-    assert_eq!(i128::from(peering(&sim, junior).first().credit_out), CREDIT);
-    let (senior_id, junior_id) = (key(senior).node_id(), key(junior).node_id());
-    assert_eq!(sim.owes(senior, &junior_id), 475_000_000, "paid in advance");
-    assert_eq!(sim.owes(junior, &senior_id), -475_000_000);
-    sim.pay(junior, senior, 3_000_000_000, None, None);
-    sim.run_until(sim.now + 180_000);
-    assert!(sim.payments[0].done, "the payment did not finish");
-    check(&sim).unwrap();
 }
 
 // A path that gets dearer mid-payment stops a client's money, and the
@@ -1172,61 +1068,6 @@ fn a_peer_asked_to_settle_tells_what_it_has_on_its_way() {
         }
     }
     assert!(told > 0, "no peer answered with an amount on its way");
-}
-
-// spec/decisions/crash-drift.md: the senior crashes again and again while
-// it pays its junior, each time with Fulfills on their way to it, until the
-// books drifted past what the link survives: the credit the junior extends,
-// less two triggers and twice the least settlement. The junior's room for
-// the senior stays short while the senior's books leave it nothing to
-// settle, and the junior withdraws it: the link is not saved
-// (spec/decisions/own-fulfills.md). A network that does not settle down
-// for that is a run the simulation rules out, not a failure.
-// Goes with direct settlement (spec/roadmap.md#hubs-only).
-#[test]
-fn a_link_crashes_drifted_past_what_it_survives_is_ruled_out() {
-    let mut sim = direct(78, 2);
-    sim.loss_per_mille = 0;
-    sim.run_until(START + 60_000);
-    assert!(!sim.peers(0).is_empty(), "the nodes did not peer");
-    let senior = usize::from(!sim.core(0).network().peers[0].peering.inbound);
-    let junior = 1 - senior;
-    let packet = u128::from(Policies::DEFAULT.connector.max_packet_amount);
-    let survives = u128::try_from(CREDIT).unwrap() - 5 * packet;
-    // The junior's receiver took money: it posted a packet, and its Fulfill
-    // is on its way.
-    let took = |sim: &Sim| sim.payments.last().is_some_and(|p| received(sim, p) > 0);
-    for _ in 0..30 {
-        if sim.drift(senior, junior).crashes > survives {
-            break;
-        }
-        sim.pay(senior, junior, 3_000_000_000, None, None);
-        if sim.run_until_or(sim.now + 30_000, took) {
-            sim.crash(senior);
-            sim.run_until(sim.now + 2_000);
-            sim.start(senior);
-        }
-        sim.run_until(sim.now + 30_000);
-    }
-    assert!(
-        sim.drift(senior, junior).crashes > survives,
-        "{:?}",
-        sim.drift(senior, junior)
-    );
-    sim.run_until(sim.now + 600_000);
-    let withdrawn = key(senior).node_id();
-    assert!(
-        sim.withdrawn
-            .iter()
-            .any(|withdrawal| withdrawal.by == junior && withdrawal.peer == withdrawn),
-        "the junior did not withdraw the senior"
-    );
-    let drift = sim.drift(senior, junior);
-    assert_eq!(drift.crashes + drift.others, books_drift(&sim));
-    match not_settled_down(&mut sim, 600, "stuck") {
-        Outcome::Unsupported(finding) => assert_eq!(finding.at, "drifted-past-what-it-survives"),
-        outcome => panic!("{outcome}"),
-    }
 }
 
 // spec/decisions/paid-within-a-tolerance.md: a payment whose last packet

@@ -329,6 +329,15 @@ impl PeeringHooks for Hooks<'_> {
             .is_some_and(|active| active.over_hub)
     }
 
+    /// Only the stub with unlimited trust's peers trust each other without
+    /// limit (spec/areas/settlement.md#the-stub-scheme).
+    fn trusts_unlimited(&self, scheme: SchemeId) -> bool {
+        Name::new(scheme.as_str())
+            .ok()
+            .and_then(|name| self.schemes.get(&name))
+            .is_some_and(|active| active.unlimited)
+    }
+
     fn forwarded_over_hub(&self, peer: NodeId, request_id: u32) -> bool {
         self.endpoints
             .get(&peer)

@@ -4,6 +4,8 @@
 //! funds by funding the payer's hold as it goes, keep their peering, holds
 //! and balances across a restart, and end the peering
 //! (spec/areas/settlement.md#the-stub-scheme, spec/areas/hubs.md#in-the-node).
+//! Two methods over two hubs, kept across restarts and wound down when the
+//! owner removes a scheme, are the core tests' (`engine::core::tests::winding`).
 
 #![allow(
     clippy::unwrap_used,

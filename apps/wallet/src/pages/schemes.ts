@@ -17,7 +17,7 @@ const NAMES: Record<string, string> = {
 
 const DESCRIPTIONS: Record<string, string> = {
   stub:
-    "Test dollars without an underlying ledger, for development and tests: a peer's settlement is believed as stated, so it never holds anything real. Only development builds offer it.",
+    "Test dollars without an underlying ledger, for development and tests: its peers trust each other without limit and never settle, so it never holds anything real. Only development builds offer it.",
   "xrpl-xrp":
     "Holds your XRP on the XRP Ledger mainnet: real money. Your settlement hubs are funded from here; it settles with no peer itself. There is no faucet: send XRP to the account to fund it. The ledger holds back a reserve.",
   "xrpl-rlusd":

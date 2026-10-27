@@ -92,6 +92,14 @@ pub trait PeeringHooks {
     /// node, not the peer protocol, decides what it takes without one.
     fn uses_commitments(&self, scheme: SchemeId) -> bool;
 
+    /// Whether peers on `scheme` trust each other without limit: they never
+    /// ask each other to settle and never settle, as on the test stub with
+    /// unlimited trust (spec/areas/settlement.md#the-stub-scheme). Beside
+    /// the hubs two nodes share, only such a scheme becomes a method of
+    /// their peering: no method settles directly
+    /// (spec/decisions/hubs-only.md).
+    fn trusts_unlimited(&self, scheme: SchemeId) -> bool;
+
     /// Whether our Prepare in flight to `peer` with `request_id` went on a
     /// method over a settlement hub, whether or not the peering still has
     /// that method: a dropped method's packets resolve on it

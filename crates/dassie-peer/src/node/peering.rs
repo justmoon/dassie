@@ -262,10 +262,13 @@ impl PeerNode {
 
     /// The schemes a peering with the node of `link` settles on, in order
     /// (spec/decisions/settlement-methods.md): each hub both nodes are in and
-    /// take new peers over, then each other scheme both run that is not over
-    /// a hub. The first is the one to ask for a peering on, and each of the
-    /// others a further method of it. A hub scheme without a shared hub
-    /// would leave each side without the other's account
+    /// take new peers over, then each other scheme both run whose peers
+    /// trust each other without limit, the test stub's. A scheme that is
+    /// neither over a hub nor of unlimited trust would settle directly, so
+    /// it is never a method (spec/decisions/hubs-only.md). The first is the
+    /// one to ask for a peering on, and each of the others a further method
+    /// of it. A hub scheme without a shared hub would leave each side
+    /// without the other's account
     /// (spec/designs/settlement-hubs.md#11-choosing-a-hub). At most one per
     /// scheme we peer on, so at most [`MAX_METHODS`](crate::MAX_METHODS).
     pub(crate) fn methods_with(&self, hooks: &dyn PeeringHooks, link: &LinkState) -> Vec<SchemeId> {
@@ -280,10 +283,9 @@ impl PeerNode {
         }
         let mut methods = self.shared_hubs(hooks, link, common.iter().copied());
         methods.extend(
-            common
-                .iter()
-                .copied()
-                .filter(|scheme| !hooks.uses_commitments(*scheme)),
+            common.iter().copied().filter(|scheme| {
+                !hooks.uses_commitments(*scheme) && hooks.trusts_unlimited(*scheme)
+            }),
         );
         assert!(methods.len() <= crate::MAX_METHODS, "a method per scheme");
         methods
@@ -643,6 +645,16 @@ impl PeerNode {
             .and_then(Entry::peering)
             .is_some_and(|peering| peering.has(request.scheme));
         if !repeat && (!self.schemes.contains(&request.scheme) || !hooks.speaks(request.scheme)) {
+            return Err(RefusalReason::UnsupportedScheme);
+        }
+        // A scheme neither over a hub nor of unlimited trust would settle
+        // directly, so a peering is never made on it, whoever asks
+        // (spec/decisions/hubs-only.md), as it is never one we ask on
+        // ([`Self::methods_with`]).
+        if !repeat
+            && !hooks.uses_commitments(request.scheme)
+            && !hooks.trusts_unlimited(request.scheme)
+        {
             return Err(RefusalReason::UnsupportedScheme);
         }
         // A downlink is in no node list: it enters the table by asking.

@@ -42,11 +42,10 @@
 //! with commitments, `Settling::StubHub`, or a hub run in the simulation,
 //! `Settling::Hub` (spec/areas/testing.md#levels).
 //!
-//! The plain stub, `Settling::Stub`, settles directly, as do the XRP
-//! Ledger's schemes when they peer: only the targeted tests of direct
-//! settlement still run on them, and go with it
-//! (spec/roadmap.md#hubs-only). Such a test settles over the plain stub, or
-//! over the XRP Ledger testnet scheme against a fake ledger in the same
+//! The XRP Ledger's schemes settle directly when they peer: only the
+//! targeted tests of direct settlement still run on them, and go with it
+//! (spec/roadmap.md#hubs-only). Such a test settles over the XRP Ledger
+//! testnet scheme against a fake ledger in the same
 //! process: its connections lag, lose requests and drop, and the books
 //! must still match every node's account, less its reserve, with no XRP
 //! made or lost. One in the live realm settles over mainnet's `xrpl-xrp`
@@ -194,10 +193,6 @@ const fn anyone_may_send(kind: dassie_peer::wire::Kind) -> bool {
 /// What a run settles over.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Settling {
-    /// The plain stub scheme, in dollars, which settles directly: for the
-    /// tests of direct settlement, which go with it
-    /// (spec/roadmap.md#hubs-only).
-    Stub,
     /// The stub scheme with unlimited trust, in dollars: peers extend each
     /// other the unlimited credit and never settle, for runs whose subject
     /// is not settlement (spec/areas/settlement.md#the-stub-scheme).
@@ -279,7 +274,7 @@ impl Settling {
     /// The ledger a run of one ledger settles over.
     pub fn ledger(self) -> LedgerId {
         match self {
-            Self::Stub | Self::Trusting | Self::StubHub(_) | Self::OwnerBooks => USD,
+            Self::Trusting | Self::StubHub(_) | Self::OwnerBooks => USD,
             // No run pays over it: its nodes do not peer.
             Self::OwnerBooksLive => LIVE_XRP,
             Self::HubDsusd(_) => HUB_DSUSD,
@@ -292,7 +287,7 @@ impl Settling {
     /// pays from first.
     pub fn ledgers(self, index: usize) -> &'static [LedgerId] {
         match (self, index % 4) {
-            (Self::Stub | Self::Trusting | Self::StubHub(_) | Self::OwnerBooks, _) => &[USD],
+            (Self::Trusting | Self::StubHub(_) | Self::OwnerBooks, _) => &[USD],
             (Self::OwnerBooksLive, _) => &[],
             (Self::HubDsusd(_), _) => &[HUB_DSUSD],
             (Self::Hub(_), _) => &[HUB],
@@ -316,7 +311,7 @@ impl Settling {
 
     /// Whether its nodes settle on the stub alone.
     pub const fn on_stub(self) -> bool {
-        matches!(self, Self::Stub | Self::Trusting | Self::StubHub(_))
+        matches!(self, Self::Trusting | Self::StubHub(_))
     }
 
     /// The ledger of the token some of its nodes settle in, and the token,
@@ -327,7 +322,7 @@ impl Settling {
             Self::OwnerBooks | Self::HubDsusd(_) | Self::HubAcross(_) | Self::Hubs(_) => {
                 Some((DSUSD, IssuedAsset::DSUSD))
             }
-            Self::Stub | Self::Trusting | Self::StubHub(_) | Self::Hub(_) => None,
+            Self::Trusting | Self::StubHub(_) | Self::Hub(_) => None,
         }
     }
 
