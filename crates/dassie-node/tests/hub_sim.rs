@@ -14,8 +14,8 @@
 //! (`dassie_node::sim::hub_runs`) put lying XRP Ledger servers under a hub's
 //! members and validators, and payments across dollars in the DSUSD hub and
 //! XRP in the XRP hub; the `node-hubs` run (`dassie_node::sim::hub_pairs`)
-//! has every node in both hubs, each pair peered over both, until one hub
-//! fails and the other carries on. These tests run them on fixed seeds, and
+//! has every node in both hubs, each pair peered over both, until an owner
+//! removes one hub's scheme, that hub fails and the other carries on. These tests run them on fixed seeds, and
 //! `dassie-sim` on any.
 
 #![allow(
@@ -162,9 +162,11 @@ fn hub_members_pay_across_currencies() {
 // fund each from the owner book of its asset, each pair peers over both,
 // and they pay in XRP and in dollars, each method carrying packets; each
 // hub and each member's books in it hold, and what a peer cost on each
-// method is bounded by the holds on its hub. Then the hub of the method the
-// peerings were not made on stalls and pays out exactly the final balances,
-// while the other carries every payment after it and every peering is kept.
+// method is bounded by the holds on its hub. Then an owner removes one hub's
+// scheme, whose methods wind down while the peerings carry on over the
+// other, and that hub stalls and pays out exactly the final balances, its
+// members' schemes over it no longer receiving, while the other carries
+// every payment after it and every peering is kept.
 #[test]
 fn nodes_in_two_hubs_peer_over_both_and_survive_one_failing() {
     assert_passes(PAIRS_SEED, hub_pairs::run);
