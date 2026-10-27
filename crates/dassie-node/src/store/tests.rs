@@ -87,7 +87,7 @@ fn refuses_a_v0_database() {
     drop(connection);
     let error = Store::open(temp.path()).unwrap_err();
     assert!(matches!(error, StoreError::V0Database));
-    assert!(error.to_string().contains("passphrase"));
+    assert!(error.to_string().contains("new node"));
 }
 
 #[test]

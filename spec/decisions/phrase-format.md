@@ -1,6 +1,6 @@
 # A phrase says its realm and when it was made, and corrects its own errors
 
-**Areas:** [Identity](../areas/identity.md#derivation-chain), [HTTP](../areas/http.md#setup), [Node](../areas/node.md#the-dassie-command), [Wallet](../areas/wallet.md#key-derivation), [overview](../overview.md#frozen-surfaces). Not built yet ([roadmap](../roadmap.md#smaller-open-points)).
+**Areas:** [Identity](../areas/identity.md#derivation-chain), [HTTP](../areas/http.md#setup), [Node](../areas/node.md#the-dassie-command), [Wallet](../areas/wallet.md#key-derivation), [overview](../overview.md#frozen-surfaces).
 
 ## Facts
 

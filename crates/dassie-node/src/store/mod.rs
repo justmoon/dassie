@@ -138,8 +138,8 @@ impl fmt::Display for StoreError {
             Self::Io(error) => write!(f, "data directory: {error}"),
             Self::V0Database => f.write_str(
                 "this is a database of Dassie v0, which this version cannot read; \
-                 move it away and set the node up again with your passphrase: \
-                 the node ID and ledger accounts follow from it",
+                 move it away and set up a new node with a new phrase, since \
+                 this version reads no phrase v0 made",
             ),
             Self::ForeignDatabase(id) => {
                 write!(
