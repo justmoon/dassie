@@ -96,8 +96,8 @@ pub static SIMS: &[Sim] = &[
     Sim {
         name: "node-hubs",
         about: "whole nodes' engine cores in an XRP hub and a DSUSD hub, each pair peered over \
-                both, paying in XRP and in dollars, each over its own hub, until the hub of the \
-                method the peerings were not made on stalls and pays out while the other \
+                both, paying in XRP and in dollars, each over its own hub, until an owner \
+                removes one hub's scheme and that hub stalls and pays out while the other \
                 carries on",
         describe: dassie_node::sim::hub_pairs::describe,
         run: dassie_node::sim::hub_pairs::run,
