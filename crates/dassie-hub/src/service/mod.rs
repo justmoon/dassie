@@ -86,7 +86,9 @@ pub const MAX_AGAIN: u8 = 4;
 /// we keep to attest again once there is room and the issuer no longer
 /// holds the escrow: a freeze credits no deposit, so our share of the
 /// pending table fills and every later deposit fails `Full` until the
-/// thaw. Past it, the newest is not kept.
+/// thaw. Past it, the newest is not kept: every honest validator drops
+/// the same ones, and since the watcher has passed them, they are
+/// credited to no one.
 pub const MAX_WAITING_DEPOSITS: usize = 1024;
 
 /// One of our own operations, until a block takes it.
