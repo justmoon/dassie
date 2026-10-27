@@ -132,7 +132,15 @@ test(
         (body) => body.includes("the faucet was asked less than a minute ago"),
       );
       await picture(page, "receive-xrp-faucet");
-      assertEquals((await ledger(d1)).ownerBalance, funded.ownerBalance);
+      // Nothing came from the faucet. The owner's funds may still have paid
+      // a fee meanwhile: the scenario's two nodes peer over XRP, and the
+      // junior's advance settlement goes out whenever the peering is made,
+      // before or after `funded` was read.
+      const after = (await ledger(d1)).ownerBalance;
+      assert(
+        after <= funded.ownerBalance,
+        `the owner's funds grew from ${funded.ownerBalance} to ${after}`,
+      );
       assertEquals(errors, []);
     } finally {
       await browser.close();
