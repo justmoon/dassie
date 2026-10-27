@@ -206,13 +206,6 @@ pub enum Settling {
     /// flight per peer each way: the packet path over a settlement hub,
     /// without a hub (spec/areas/settlement.md#the-stub-scheme).
     StubHub(usize),
-    /// The XRP Ledger testnet scheme, against the fake ledger.
-    Xrpl,
-    /// The XRP Ledger mainnet scheme, `xrpl-xrp`, in the live realm, against
-    /// the fake ledger's mainnet.
-    XrplLive,
-    /// Node 0 on the stub, 2 on the XRP Ledger, 1 and 3 on both.
-    Cross,
     /// The owner books of XRP and DSUSD on each node's XRP Ledger testnet
     /// account, against the fake ledger and its issuer, peering on neither,
     /// while the nodes peer and pay over the stub with unlimited trust
@@ -287,13 +280,10 @@ impl Settling {
     pub fn ledger(self) -> LedgerId {
         match self {
             Self::Stub | Self::Trusting | Self::StubHub(_) | Self::OwnerBooks => USD,
-            Self::Xrpl => XRP,
-            Self::XrplLive => LIVE_XRP,
             // No run pays over it: its nodes do not peer.
             Self::OwnerBooksLive => LIVE_XRP,
             Self::HubDsusd(_) => HUB_DSUSD,
             Self::Hub(_) => HUB,
-            Self::Cross => panic!("a run across currencies has two ledgers"),
             Self::HubAcross(_) | Self::Hubs(_) => panic!("a run over two hubs has two ledgers"),
         }
     }
@@ -302,11 +292,7 @@ impl Settling {
     /// pays from first.
     pub fn ledgers(self, index: usize) -> &'static [LedgerId] {
         match (self, index % 4) {
-            (Self::Stub | Self::Trusting | Self::StubHub(_) | Self::OwnerBooks, _)
-            | (Self::Cross, 0) => &[USD],
-            (Self::Xrpl, _) | (Self::Cross, 2) => &[XRP],
-            (Self::XrplLive, _) => &[LIVE_XRP],
-            (Self::Cross, _) => &[USD, XRP],
+            (Self::Stub | Self::Trusting | Self::StubHub(_) | Self::OwnerBooks, _) => &[USD],
             (Self::OwnerBooksLive, _) => &[],
             (Self::HubDsusd(_), _) => &[HUB_DSUSD],
             (Self::Hub(_), _) => &[HUB],
@@ -341,20 +327,14 @@ impl Settling {
             Self::OwnerBooks | Self::HubDsusd(_) | Self::HubAcross(_) | Self::Hubs(_) => {
                 Some((DSUSD, IssuedAsset::DSUSD))
             }
-            Self::Stub
-            | Self::Trusting
-            | Self::StubHub(_)
-            | Self::Xrpl
-            | Self::XrplLive
-            | Self::Cross
-            | Self::Hub(_) => None,
+            Self::Stub | Self::Trusting | Self::StubHub(_) | Self::Hub(_) => None,
         }
     }
 
     /// The XRP Ledger network its nodes settle on, if they do.
     pub const fn network(self) -> &'static Network {
         match self {
-            Self::XrplLive | Self::OwnerBooksLive => &MAINNET,
+            Self::OwnerBooksLive => &MAINNET,
             _ => &TESTNET,
         }
     }
@@ -370,7 +350,7 @@ impl Settling {
 
     /// Whether it runs across currencies, checked by [`checks::check_across`].
     pub const fn across(self) -> bool {
-        matches!(self, Self::Cross | Self::HubAcross(_) | Self::Hubs(_))
+        matches!(self, Self::HubAcross(_) | Self::Hubs(_))
     }
 
     /// What each node's owner starts with on `ledger`: the stub's balance,
@@ -921,7 +901,8 @@ pub struct Sim {
     /// Credit over the stub with commitments apart from the holds
     /// ([`Sim::watch_hub`]).
     pub hub_credit_off: Vec<String>,
-    /// Nodes whose connection to the ledger carries nothing.
+    /// Nodes whose connections to the XRP Ledger and to their hubs carry
+    /// nothing, what was on its way included.
     pub ledger_down: BTreeSet<usize>,
     /// Each node's connection to a lying server, while it has one.
     lying: BTreeMap<usize, u64>,

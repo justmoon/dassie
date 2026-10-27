@@ -91,7 +91,7 @@ fn payment(vector: &Value) -> (Wallet, Payment) {
     (wallet, payment)
 }
 
-// Settlement Payments (spec/areas/xrpl.md#the-payment-it-signs), field for
+// Payments (spec/areas/xrpl.md#the-payment-it-signs), field for
 // field and byte for byte as xrpl.js signs them, with the original's memo.
 #[test]
 fn payments_sign_and_hash_as_xrpl_js_does() {

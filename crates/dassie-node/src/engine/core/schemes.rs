@@ -415,7 +415,6 @@ fn create(
     id: &str,
     config: &str,
     checkpoint: Option<&Checkpoint>,
-    key: &NodeKey,
     asset: Option<&dyn ExternalAsset>,
     max_packet: u64,
     peg: dassie_xrpl::peg::Timings,
@@ -426,51 +425,35 @@ fn create(
         any.and_then(|asset| asset.downcast_ref::<XrplAccount>())
             .ok_or(SchemeError::InvalidConfig)
     };
-    let node = || Name::new(key.node_id().as_str()).map_err(|_| SchemeError::InvalidData);
     let state = checkpoint.map_or(&[][..], |c| c.state.as_slice());
-    // What a node new to us pays to enter: one largest packet, the least it
-    // settles (spec/decisions/pay-to-enter.md). An owner book, which peers
-    // with nobody, takes none: a payment naming a node is a deposit there.
-    let entry = dassie_settlement::policy::minimum(max_packet);
-    let peers = || dassie_xrpl::scheme::SchemeConfig::parse(config).map(|config| config.peers);
+    // Every XRPL scheme is an owner book: its config may still say
+    // `peers`, which is read and has no effect
+    // (spec/areas/xrpl.md#owner-books).
+    let owner_book = || dassie_xrpl::scheme::SchemeConfig::parse(config).map(|_| ());
     match id {
         "stub" => Ok(Box::new(Stub::new(config, balance, state)?)),
         dassie_xrpl::scheme::SCHEME_ID => {
-            let mut scheme = XrplScheme::new(account()?, node()?, balance, state)?;
-            let peers = peers()?;
-            scheme.set_peers(peers);
-            if peers {
-                scheme.take_entries_from(entry);
-            }
-            Ok(Box::new(scheme))
+            owner_book()?;
+            Ok(Box::new(XrplScheme::new(account()?, balance, state)?))
         }
         dassie_xrpl::scheme::MAINNET_SCHEME_ID => {
-            let mut scheme = XrplMainnetScheme::new(account()?, node()?, balance, state)?;
-            let peers = peers()?;
-            scheme.set_peers(peers);
-            if peers {
-                scheme.take_entries_from(entry);
-            }
-            Ok(Box::new(scheme))
+            owner_book()?;
+            Ok(Box::new(XrplMainnetScheme::new(
+                account()?,
+                balance,
+                state,
+            )?))
         }
         dassie_xrpl::rlusd::SCHEME_ID => {
-            let mut scheme = RlusdScheme::new(account()?, node()?, balance, state)?;
+            owner_book()?;
+            let mut scheme = RlusdScheme::new(account()?, balance, state)?;
             scheme.set_peg_timings(peg);
-            let peers = peers()?;
-            scheme.set_peers(peers);
-            if peers {
-                scheme.take_entries_from(entry);
-            }
             Ok(Box::new(scheme))
         }
         dassie_xrpl::dsusd::SCHEME_ID => {
-            let mut scheme = DsusdScheme::new(account()?, node()?, balance, state)?;
+            owner_book()?;
+            let mut scheme = DsusdScheme::new(account()?, balance, state)?;
             scheme.set_peg_timings(peg);
-            let peers = peers()?;
-            scheme.set_peers(peers);
-            if peers {
-                scheme.take_entries_from(entry);
-            }
             Ok(Box::new(scheme))
         }
         id if HUB_SCHEMES.contains(&id) => create_hub_scheme(id, asset, max_packet, balance, state),
@@ -621,7 +604,6 @@ impl Core {
                 id.as_str(),
                 config,
                 checkpoint,
-                &self.key,
                 None,
                 self.settle.max_packet,
                 self.settle.peg,
@@ -664,7 +646,6 @@ impl Core {
                 id.as_str(),
                 config,
                 checkpoint,
-                &self.key,
                 Some(active.asset.as_ref()),
                 self.settle.max_packet,
                 self.settle.peg,
@@ -1453,7 +1434,6 @@ mod tests {
             DSUSD_SCHEME_ID,
             &dsusd,
             None,
-            &key,
             Some(made.as_ref()),
             1_000_000,
             dassie_xrpl::peg::Timings::DEFAULT,
@@ -1466,7 +1446,6 @@ mod tests {
                 SCHEME_ID,
                 &dsusd,
                 None,
-                &key,
                 Some(made.as_ref()),
                 1_000_000,
                 dassie_xrpl::peg::Timings::DEFAULT,
@@ -1533,7 +1512,6 @@ mod tests {
                 id,
                 config,
                 None,
-                &key,
                 Some(made.as_ref()),
                 1_000_000,
                 dassie_xrpl::peg::Timings::DEFAULT,
@@ -1605,7 +1583,6 @@ mod tests {
                 id,
                 "",
                 None,
-                &key,
                 Some(asset.as_ref()),
                 0,
                 dassie_xrpl::peg::Timings::DEFAULT

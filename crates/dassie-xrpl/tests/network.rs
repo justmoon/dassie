@@ -232,30 +232,29 @@ fn a_config_names_the_validator_list_publishers() {
 // testnet's XRP scheme refuses the mainnet's account.
 #[test]
 fn a_scheme_refuses_an_account_of_another_network() {
-    let node = dassie_ledger::name!("node");
     let mainnet = account_on(&MAINNET, "").unwrap();
     assert_eq!(
-        XrplScheme::new(&mainnet, node, None, &[]).err(),
+        XrplScheme::new(&mainnet, None, &[]).err(),
         Some(SchemeError::InvalidConfig)
     );
     assert_eq!(
-        dassie_xrpl::DsusdScheme::new(&mainnet, node, None, &[]).err(),
+        dassie_xrpl::DsusdScheme::new(&mainnet, None, &[]).err(),
         Some(SchemeError::InvalidConfig)
     );
     let testnet = account_on(&TESTNET, "").unwrap();
-    assert!(XrplScheme::new(&testnet, node, None, &[]).is_ok());
+    assert!(XrplScheme::new(&testnet, None, &[]).is_ok());
     // Mainnet's XRP scheme the other way round.
     assert_eq!(
-        XrplMainnetScheme::new(&testnet, node, None, &[]).err(),
+        XrplMainnetScheme::new(&testnet, None, &[]).err(),
         Some(SchemeError::InvalidConfig)
     );
-    assert!(XrplMainnetScheme::new(&mainnet, node, None, &[]).is_ok());
+    assert!(XrplMainnetScheme::new(&mainnet, None, &[]).is_ok());
     // And mainnet's RLUSD scheme.
     assert_eq!(
-        dassie_xrpl::RlusdScheme::new(&testnet, node, None, &[]).err(),
+        dassie_xrpl::RlusdScheme::new(&testnet, None, &[]).err(),
         Some(SchemeError::InvalidConfig)
     );
-    assert!(dassie_xrpl::RlusdScheme::new(&mainnet, node, None, &[]).is_ok());
+    assert!(dassie_xrpl::RlusdScheme::new(&mainnet, None, &[]).is_ok());
     // An asset of no XRPL network is no account.
     let hub = dassie_settlement::AssetId {
         kind: dassie_settlement::AssetKind::HubTestnetAccount,

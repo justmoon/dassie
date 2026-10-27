@@ -1553,7 +1553,9 @@ mod tests {
         let scheme = dassie_ledger::name!(crate::scheme::SCHEME_ID);
         let mut account = synced_account(scheme);
         let to = Wallet::from_entropy(&[2; 32]).account();
-        let hash = account.sign_payment(scheme, to, 1_000, Vec::new()).unwrap();
+        let hash = account
+            .sign_payment_to(scheme, (to, None), 1_000, Vec::new())
+            .unwrap();
         assert!(account.execute(scheme, hash));
         anchor(&mut account);
         // Past its last ledger, with the account's sequence past its own:

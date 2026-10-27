@@ -1,90 +1,43 @@
-//! What every scheme on an XRPL account does alike, whatever it settles in
-//! (spec/areas/xrpl.md#following-the-account): the XRP scheme
+//! What every scheme on an XRPL account does alike, whatever holding it
+//! books (spec/areas/xrpl.md#following-the-account): the XRP scheme
 //! ([`crate::XrpScheme`]) and the token scheme ([`crate::TokenScheme`])
 //! each embed one [`Follower`], and add only what their holding needs: the
 //! XRP and its reserve, or the line, its issuer and the peg guard.
 //!
 //! A follower keeps what the books hold of the holding, its cursor into the
-//! account's transactions, the peers' addresses, the settlements a restart
-//! left to look up, the count of write-offs it last saw, the entry payments
-//! it holds and the owner's payment, and it writes and reads all of them as
-//! the scheme's state. Each part of a scheme's state is defined here once,
-//! so the two schemes cannot drift apart.
+//! account's transactions, the count of write-offs it last saw and the
+//! owner's payment, and it writes and reads all of them as the scheme's
+//! state. Each part of a scheme's state is defined here once, so the two
+//! schemes cannot drift apart. Every XRPL scheme is an owner book: it peers
+//! with no one, and settles with no one (spec/areas/xrpl.md#owner-books).
 
-use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::vec::Vec;
 
 use dassie_ledger::{MAX_TOTAL, Name};
 use dassie_settlement::{
-    Effect, EntryPayment, ExternalAsset, OwnerPayment, OwnerPaymentState, PaymentFailure,
-    ReconcileCause, SchemeError,
+    Effect, OwnerPayment, OwnerPaymentState, PaymentFailure, ReconcileCause, SchemeError,
 };
 
-use crate::account::{News, Resumed, XrplAccount};
+use crate::account::{News, XrplAccount};
 use crate::api::TxRecord;
 use crate::codec::Memo;
-use crate::entry::Entries;
 use crate::from_hex;
-use crate::kept::{In, Out};
+use crate::kept::{In, Out, PEERING_SCHEME_VERSION, SCHEME_VERSION};
 use crate::keys::AccountId;
-use crate::scheme::{account_of, owner_memos};
+use crate::scheme::owner_memos;
 
-/// Most peers whose addresses are kept: at least the node's settlement
-/// channels open, with core nodes and with downlinks, so every node it
-/// holds a channel with keeps its own; an address goes when its channel
-/// closes. A table keyed by account, rather than this state,
-/// is to hold them (spec/roadmap.md#periphery).
-pub const MAX_PEERS: usize = 1536;
-/// Most settlements of ours whose outcome is looked for after a restart.
-pub(crate) const MAX_RECOVERING: usize = 64;
-/// The longest a settlement's outcome goes unasked after a restart, in
-/// ledgers: about a quarter of an hour on the testnet. One that no history
-/// holds is never found, and is asked less often the longer it is not.
-pub(crate) const MAX_RECOVER_WAIT_LEDGERS: u32 = 256;
-
-/// A settlement of ours a restart left pending, though the account no
-/// longer has it in flight: its outcome is looked up by its hash. Only the
-/// hash, and whether it is unread, are kept with the books; a restart asks
-/// at once.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct Recovering {
-    pub(crate) hash: [u8; 32],
-    /// What the books hold pending for it, in internal units: what we
-    /// signed, as the node hands it at each reconcile. A settlement never
-    /// read is booked by it, never by what a server says it delivered.
-    pub(crate) amount: Option<u64>,
-    /// Whether the scheme never read it: it validated while the scheme was
-    /// not on the account, and the history no longer reached back to it
-    /// once it was ([`News::Unread`]). What it did is in the balance the
-    /// scheme synced to, booked through suspense; otherwise, the scheme
-    /// read it before a restart, and booked it then.
-    pub(crate) unread: bool,
-    /// The validated ledger from which it may be asked again.
-    pub(crate) ask_at: u32,
-    /// How many ledgers the next lookup waits for the one after it: it
-    /// doubles with each, up to [`MAX_RECOVER_WAIT_LEDGERS`].
-    pub(crate) wait: u32,
-}
-
-impl Recovering {
-    pub(crate) const fn new(hash: [u8; 32]) -> Self {
-        Self {
-            hash,
-            amount: None,
-            unread: false,
-            ask_at: 0,
-            wait: 1,
-        }
-    }
-}
+/// Most peers' addresses a state written while the schemes peered holds.
+const PEERING_MAX_PEERS: usize = 1536;
+/// Most settlements looked up after a restart such a state holds.
+const PEERING_MAX_RECOVERING: usize = 64;
+/// Most entry payments such a state holds.
+const PEERING_MAX_ENTRIES: usize = 256;
 
 /// What a scheme on an XRPL account keeps of the account, alike for every
 /// holding.
 pub(crate) struct Follower {
-    /// The account it settles from.
+    /// The account whose holding it books.
     pub(crate) account: AccountId,
-    /// Our node's ID, as our memos carry it.
-    pub(crate) node: Name,
     /// What the books hold of the holding, in internal units.
     pub(crate) booked: u64,
     /// The most an owner's payment pays, in the holding's whole units
@@ -94,80 +47,47 @@ pub(crate) struct Follower {
     /// Where it read the account's transactions to, as (ledger, index):
     /// set by its first sync, dropped only with the account.
     pub(crate) cursor: Option<(u32, u32)>,
-    /// Peers' addresses, with when each was learnt: past [`MAX_PEERS`], the
-    /// longest known goes.
-    peers: BTreeMap<Name, (AccountId, u64)>,
-    /// The peer table's revision, counted up on each address learnt and
-    /// each forgotten: the order addresses were learnt in, and part of
-    /// [`fingerprint`](Self::fingerprint), so that the node keeps every
-    /// change to the table. Not kept: a restore learns the addresses
-    /// anew, and it counts up from there.
-    peers_revision: u64,
-    pub(crate) recovering: Vec<Recovering>,
     /// How many times the account was written off, as the scheme last saw
     /// it ([`XrplAccount::write_offs`]).
     pub(crate) write_offs: u64,
-    /// What nodes not yet peered paid us to enter, off the books
-    /// (spec/decisions/pay-to-enter.md).
-    pub(crate) entries: Entries,
     /// The owner's payment on its way: its hash, and the whole units it
     /// pays.
     pub(crate) owner_payment: Option<([u8; 32], u64)>,
     /// The owner's last payment that is no longer on its way, and what
     /// became of it, kept with the books so a restart still answers for it.
     pub(crate) owner_outcome: Option<([u8; 32], OwnerPaymentState)>,
+    /// What a state written while the schemes peered held of entry
+    /// payments, in internal units: in the account, and never on the books.
+    /// It is the owner's deposit, as a hold that ran out was, booked the
+    /// first time the scheme is told of the account, as it starts and
+    /// before its state is written ([`Self::book_entries`]); never written
+    /// again.
+    pub(crate) entries: u64,
     // Learnt from the account, as it told the scheme.
     /// The account's newest validated ledger.
     pub(crate) validated: u32,
-    /// Whether the node peers on it: an owner book does not. From its
-    /// config, never kept with the books.
-    pub(crate) peering: bool,
 }
 
 impl Follower {
-    /// A follower of `account` for node `node`, whose books last
-    /// checkpointed `checkpoint`, and whose owner's payments pay at most
+    /// A follower of `account`, whose books last checkpointed
+    /// `checkpoint`, and whose owner's payments pay at most
     /// `max_owner_units`.
     pub(crate) fn new(
         account: &XrplAccount,
-        node: Name,
         checkpoint: Option<u64>,
         max_owner_units: u64,
     ) -> Self {
         Self {
             account: account.account(),
-            node,
             booked: checkpoint.unwrap_or(0),
             max_owner_units,
             cursor: None,
-            peers: BTreeMap::new(),
-            peers_revision: 0,
-            recovering: Vec::new(),
             write_offs: 0,
-            entries: Entries::default(),
             owner_payment: None,
             owner_outcome: None,
+            entries: 0,
             validated: 0,
-            peering: true,
         }
-    }
-
-    /// Whether what it restored fits `account`: a settlement is looked up
-    /// only when the account has it neither in flight nor as never sent,
-    /// and it never has it so again.
-    ///
-    /// # Errors
-    ///
-    /// [`SchemeError::InvalidData`] for a state the two never wrote.
-    pub(crate) fn fits(&self, account: &XrplAccount) -> Result<(), SchemeError> {
-        if self
-            .recovering
-            .iter()
-            .any(|r| account.holds_transaction(&r.hash))
-        {
-            return Err(SchemeError::InvalidData);
-        }
-        Ok(())
     }
 
     /// Whether the books hold anything of the account.
@@ -192,34 +112,51 @@ impl Follower {
         missed
     }
 
+    /// Books what a state written while the schemes peered held of entry
+    /// payments as the owner's deposit, once, the first time the scheme is
+    /// told of the account, which the node does as it makes the scheme,
+    /// before it writes its state: the account holds them, and the books
+    /// hold them from now on, as they would have once their hold ran out.
+    /// Returns whether it booked any. The scheme calls it before it takes
+    /// the news, after a write-off it missed, which took them with the
+    /// account, so the books match the account as it is; a write-off the
+    /// account tells later takes them as a loss with the rest.
+    pub(crate) fn book_entries(&mut self, effects: &mut Vec<Effect>) -> bool {
+        let amount = core::mem::take(&mut self.entries);
+        if amount == 0 || self.cursor.is_none() {
+            return false;
+        }
+        effects.push(Effect::Deposit { amount });
+        self.booked = self.booked.saturating_add(amount).min(MAX_TOTAL);
+        true
+    }
+
     /// After the news of an input was told: an owner's payment the account
-    /// keeps no more, and told nothing of, was lost with its state, and what
-    /// it did is in the holding; one it keeps for the scheme, validated
-    /// while the scheme was away, it tells again. Then the account is told
-    /// where the scheme is.
+    /// gave up while the scheme was away can never apply, and is cancelled;
+    /// one it keeps no more, and told nothing of, was lost with its state,
+    /// and what it did is in the holding; one it keeps for the scheme,
+    /// validated while the scheme was away, it tells again. Then the
+    /// account is told where the scheme is.
     pub(crate) fn caught_up(
         &mut self,
         account: &mut XrplAccount,
         scheme: Name,
         effects: &mut Vec<Effect>,
     ) {
-        if let Some((hash, _)) = self.owner_payment
-            && !account.keeps_transaction(&hash)
-        {
-            self.owner_done(OwnerPaymentState::Unknown, effects);
+        if let Some((hash, _)) = self.owner_payment {
+            if account.take_never_sent(scheme, hash) {
+                self.owner_done(OwnerPaymentState::Cancelled, effects);
+            } else if !account.keeps_transaction(&hash) {
+                self.owner_done(OwnerPaymentState::Unknown, effects);
+            }
         }
         account.follow(scheme, self.cursor, self.holds_anything());
     }
 
     /// The account is gone: what the books held is a loss through suspense,
-    /// the entry payments went with it, and the cursor, on a chain gone,
-    /// is dropped. What is looked for is asked again on a new chain.
-    pub(crate) fn written_off(&mut self, restarted: bool, effects: &mut Vec<Effect>) {
-        if restarted {
-            for recovering in &mut self.recovering {
-                recovering.ask_at = 0;
-            }
-        }
+    /// and the cursor, on a chain gone, is dropped. Entry payments a state
+    /// written while the schemes peered held went with the account.
+    pub(crate) fn written_off(&mut self, effects: &mut Vec<Effect>) {
         if self.booked > 0 {
             effects.push(Effect::Reconcile {
                 amount: self.booked,
@@ -228,7 +165,7 @@ impl Follower {
             });
             self.booked = 0;
         }
-        self.entries.clear();
+        self.entries = 0;
         self.cursor = None;
     }
 
@@ -261,6 +198,53 @@ impl Follower {
                 cause: ReconcileCause::Unexplained,
             });
         }
+    }
+}
+
+/// Settlements the node still holds pending after a restart, signed by
+/// `scheme` before the XRPL schemes stopped peering, on `account`. One whose
+/// Payment the account will still tell the scheme of, executed and in
+/// flight or kept for it, stays pending until it does ([`settled`]): it may
+/// still apply, and cancelling one that applied would pay the peer twice,
+/// over a hub as well. Any other is cancelled: one signed and never
+/// executed, which was never submitted and is given up now, one the account
+/// gave up as never sent, and one it does not know, whose outcome was lost
+/// with its state and is in the balance the next sync matches.
+pub(crate) fn reconcile_pending(
+    mut account: Option<&mut XrplAccount>,
+    scheme: Name,
+    pending: &[(Name, u64)],
+    effects: &mut Vec<Effect>,
+) {
+    for (settlement, _) in pending {
+        let waits = match (name_hash(*settlement), account.as_deref_mut()) {
+            (Some(hash), Some(account)) => {
+                account.discard(scheme, hash);
+                !account.take_never_sent(scheme, hash) && account.keeps_transaction(&hash)
+            }
+            _ => false,
+        };
+        if !waits {
+            effects.push(Effect::Cancel {
+                settlement: *settlement,
+            });
+        }
+    }
+}
+
+/// One of the scheme's own Payments the ledger validated that is not the
+/// owner's: a settlement signed before the XRPL schemes stopped peering,
+/// which the node holds pending ([`reconcile_pending`]). Posted if it
+/// applied, voided if not. Returns what it took from the books: `paid`, in
+/// internal units, if it applied.
+pub(crate) fn settled(record: &TxRecord, paid: u64, effects: &mut Vec<Effect>) -> u64 {
+    let settlement = hash_name(&record.hash);
+    if record.succeeded() {
+        effects.push(Effect::Finalize { settlement });
+        paid
+    } else {
+        effects.push(Effect::Cancel { settlement });
+        0
     }
 }
 
@@ -305,8 +289,8 @@ impl Follower {
     }
 
     /// Where `payment` goes and the memo it carries, if the scheme may sign
-    /// one now: one at a time, never to the account itself, with a memo of
-    /// the type its reader expects, never a settlement's ([`owner_memos`]).
+    /// one now: one at a time, never to the account itself, with the memo
+    /// it is given, if it fits ([`owner_memos`]).
     ///
     /// # Errors
     ///
@@ -349,309 +333,6 @@ impl Follower {
     }
 }
 
-/// Settlements of ours, as the account signs, resumes and looks them up.
-impl Follower {
-    /// Submits settlement `settlement` of `scheme`, which the node keeps
-    /// with the books: one signed and then lost, or never sent, can never
-    /// apply, and is cancelled.
-    pub(crate) fn execute(
-        asset: Option<&mut dyn ExternalAsset>,
-        scheme: Name,
-        settlement: Name,
-        effects: &mut Vec<Effect>,
-    ) {
-        let account = asset.and_then(account_of);
-        assert!(
-            account.is_some(),
-            "the scheme settles through an XRPL account"
-        );
-        if let (Some(account), Some(hash)) = (account, name_hash(settlement))
-            && account.execute(scheme, hash)
-        {
-            return;
-        }
-        effects.push(Effect::Cancel { settlement });
-    }
-
-    /// Drops settlement `settlement` of `scheme`, never executed.
-    pub(crate) fn discard(asset: Option<&mut dyn ExternalAsset>, scheme: Name, settlement: Name) {
-        if let (Some(account), Some(hash)) = (asset.and_then(account_of), name_hash(settlement)) {
-            account.discard(scheme, hash);
-        }
-    }
-
-    /// Every settlement the node holds pending is `scheme`'s. One in flight
-    /// is submitted again; one never sent is cancelled; one settled before
-    /// the node could post it (its posting waited for an earlier
-    /// announcement) is looked for by its hash, and posted or voided by
-    /// what the ledger says.
-    pub(crate) fn reconcile(
-        &mut self,
-        asset: Option<&mut dyn ExternalAsset>,
-        scheme: Name,
-        pending: &[(Name, u64)],
-        effects: &mut Vec<Effect>,
-    ) {
-        let account = asset.and_then(account_of);
-        assert!(
-            account.is_some(),
-            "the scheme settles through an XRPL account"
-        );
-        let Some(account) = account else {
-            return;
-        };
-        for (id, amount) in pending {
-            let Some(hash) = name_hash(*id) else {
-                continue;
-            };
-            match account.resume(scheme, hash) {
-                Resumed::InFlight => {}
-                Resumed::NeverSent => effects.push(Effect::Cancel { settlement: *id }),
-                Resumed::Unknown => self.recover(hash, *amount),
-            }
-        }
-    }
-
-    /// Looks up settlement `hash`, pending in the books for `amount`, unless
-    /// it is already, or [`MAX_RECOVERING`] are: one restored from the
-    /// state is told its amount.
-    fn recover(&mut self, hash: [u8; 32], amount: u64) {
-        assert!(
-            amount <= MAX_TOTAL,
-            "the books hold at most a total pending"
-        );
-        if let Some(known) = self.recovering.iter_mut().find(|r| r.hash == hash) {
-            known.amount = Some(amount);
-        } else if self.recovering.len() < MAX_RECOVERING {
-            let mut new = Recovering::new(hash);
-            new.amount = Some(amount);
-            self.recovering.push(new);
-        }
-    }
-
-    /// A settlement of ours that validated while the scheme was not on the
-    /// account, and that it did not read again: it is booked as one never
-    /// read once found. One not looked up (past [`MAX_RECOVERING`]) stays
-    /// pending, as any is.
-    pub(crate) fn unread(&mut self, hash: [u8; 32]) {
-        if let Some(recovering) = self.recovering.iter_mut().find(|r| r.hash == hash) {
-            recovering.unread = true;
-        }
-    }
-
-    /// Settlement `hash` is no longer looked up: the ledger showed it.
-    pub(crate) fn resolved(&mut self, hash: &[u8; 32]) {
-        self.recovering.retain(|r| r.hash != *hash);
-    }
-
-    /// The settlement looked up as `hash`, found, out of those looked up.
-    pub(crate) fn found(&mut self, hash: &[u8; 32]) -> Option<Recovering> {
-        let position = self.recovering.iter().position(|r| r.hash == *hash)?;
-        Some(self.recovering.remove(position))
-    }
-
-    /// Asks for the outcome of a restart's settlements not asked for yet,
-    /// as many at a time as the account looks up. Each is asked again only
-    /// once its wait is over, and waits twice as long after each lookup,
-    /// so one never found is not asked at every ledger.
-    /// Only once `synced`: what the scheme did not read again, the account
-    /// tells with the sync, before any lookup can be answered.
-    pub(crate) fn ask_recover(&mut self, account: &mut XrplAccount, synced: bool) {
-        if !synced {
-            return;
-        }
-        let validated = self.validated;
-        for recovering in &mut self.recovering {
-            if !account.can_look_up() {
-                return;
-            }
-            if validated >= recovering.ask_at && !account.is_looking_up(&recovering.hash) {
-                recovering.ask_at = validated.saturating_add(recovering.wait);
-                recovering.wait = recovering
-                    .wait
-                    .saturating_mul(2)
-                    .min(MAX_RECOVER_WAIT_LEDGERS);
-                account.look_up(recovering.hash);
-            }
-        }
-    }
-}
-
-/// Peers, their settlements to us, and what nodes not yet peered paid.
-impl Follower {
-    /// The node a successful Payment to us names in a memo of `memo_type`,
-    /// other than ours: whoever sent it. What it delivered, the scheme
-    /// checks.
-    pub(crate) fn named_by(&self, record: &TxRecord, memo_type: &[u8]) -> Option<Name> {
-        if !(record.succeeded() && record.is_payment && record.destination == Some(self.account)) {
-            return None;
-        }
-        let (kind, data) = record.memo.as_ref()?;
-        if kind.as_slice() != memo_type {
-            return None;
-        }
-        let node = Name::new(core::str::from_utf8(data).ok()?).ok()?;
-        (node != self.node).then_some(node)
-    }
-
-    /// Whether `record`, which names `peer`, came from the peer's known
-    /// address: then it is the peer's settlement.
-    pub(crate) fn sent_by_peer(&self, record: &TxRecord, peer: Name) -> bool {
-        self.peers.get(&peer).map(|(address, _)| *address) == Some(record.account)
-    }
-
-    /// Holds `record`, which names `node` and delivered `amount` in
-    /// internal units, as an entry payment, if the table takes it
-    /// (spec/decisions/pay-to-enter.md). Returns whether it does.
-    pub(crate) fn hold_entry(&mut self, record: &TxRecord, node: Name, amount: u64) -> bool {
-        // Its hold starts when the scheme reads it, as after a restart,
-        // so its node has the whole of it to ask.
-        let read = self.validated.max(record.ledger_index);
-        self.entries
-            .hold(node, record.account, amount, record.hash, read)
-    }
-
-    /// Books the entry payments whose hold is over as the owner's deposits.
-    /// Returns whether any was: what fees or a reserve took meanwhile came
-    /// out of what was held, and the scheme matches the books to what is
-    /// left, the shortfall through suspense.
-    pub(crate) fn expire_entries(&mut self, effects: &mut Vec<Effect>) -> bool {
-        if self.cursor.is_none() {
-            return false;
-        }
-        let expired = self.entries.expire(self.validated);
-        if expired.is_empty() {
-            return false;
-        }
-        for entry in expired {
-            effects.push(Effect::Deposit {
-                amount: entry.amount,
-            });
-            self.booked = self.booked.saturating_add(entry.amount);
-        }
-        true
-    }
-
-    /// Books what it held from `peer`, from the address it peered with, as
-    /// its settlements: the books hold it from now on. The peer is credited
-    /// what it paid; what the account no longer holds of it, spent on fees
-    /// or held back by a reserve meanwhile, is a shortfall the scheme then
-    /// matches through suspense.
-    pub(crate) fn take_entry(&mut self, peer: Name, effects: &mut Vec<Effect>) {
-        let Some((address, _)) = self.peers.get(&peer).copied() else {
-            return;
-        };
-        for entry in self.entries.take(peer, address) {
-            effects.push(Effect::IncomingSettlement {
-                peer,
-                amount: entry.amount,
-                id: Some(hash_name(&entry.hash)),
-            });
-            self.booked = self.booked.saturating_add(entry.amount);
-        }
-    }
-
-    /// Whether one is held from `peer`, from the address its request names.
-    pub(crate) fn entry(&self, peer: Name, data: &[u8]) -> EntryPayment {
-        self.entries.entry(peer, parse_address(data).ok())
-    }
-
-    /// Keeps a peer's address; past [`MAX_PEERS`], the one learnt longest
-    /// ago goes. Only peerings made are learnt, each with a settlement
-    /// channel, whose address goes when the channel closes, and a node has
-    /// at most [`MAX_PEERS`] channels open: no peer's address goes for
-    /// another's.
-    pub(crate) fn learn(&mut self, peer: Name, address: AccountId) {
-        if !self.peers.contains_key(&peer)
-            && self.peers.len() >= MAX_PEERS
-            && let Some(oldest) = self
-                .peers
-                .iter()
-                .min_by_key(|(_, (_, learnt))| *learnt)
-                .map(|(name, _)| *name)
-        {
-            self.peers.remove(&oldest);
-        }
-        self.peers_revision = self.peers_revision.wrapping_add(1);
-        self.peers.insert(peer, (address, self.peers_revision));
-    }
-
-    /// Where `peer` settles to, as its state says: learnt if it is not
-    /// what the table holds.
-    pub(crate) fn destination(
-        &mut self,
-        peer: Name,
-        peer_state: &[u8],
-    ) -> Result<AccountId, SchemeError> {
-        let destination = parse_address(peer_state)?;
-        if self.peers.get(&peer).map(|(address, _)| *address) != Some(destination) {
-            self.learn(peer, destination);
-        }
-        Ok(destination)
-    }
-
-    /// Peering info: our address.
-    pub(crate) fn peering_info(&self, out: &mut Vec<u8>) {
-        address_bytes(self.account, out);
-    }
-
-    /// The responder's address, checked now and learnt once the peering is
-    /// made ([`Self::on_peered`]); the original ignored it.
-    pub(crate) fn create_peering_request(
-        &self,
-        peering_info: &[u8],
-        out: &mut Vec<u8>,
-    ) -> Result<(), SchemeError> {
-        if !self.peering {
-            return Err(SchemeError::Unsupported);
-        }
-        parse_address(peering_info)?;
-        address_bytes(self.account, out);
-        Ok(())
-    }
-
-    pub(crate) fn accept_peering_request(&self, data: &[u8]) -> Result<Vec<u8>, SchemeError> {
-        if !self.peering {
-            return Err(SchemeError::Unsupported);
-        }
-        parse_address(data)?;
-        Ok(data.to_vec())
-    }
-
-    pub(crate) fn finalize_peering_request(
-        &self,
-        peering_info: &[u8],
-    ) -> Result<Vec<u8>, SchemeError> {
-        if !self.peering {
-            return Err(SchemeError::Unsupported);
-        }
-        parse_address(peering_info)?;
-        Ok(peering_info.to_vec())
-    }
-
-    /// The state is the peer's address, as accept or finalize returned it:
-    /// learnt only now, so attempts never take a peer's place.
-    pub(crate) fn on_peered(&mut self, peer: Name, state: &[u8]) {
-        let address = parse_address(state);
-        assert!(address.is_ok(), "a peer state the scheme did not return");
-        if let Ok(address) = address {
-            self.learn(peer, address);
-        }
-    }
-
-    /// A Payment from its address is no settlement any more: it was
-    /// followed past every one the peer made before the close, and is the
-    /// owner's deposit if one comes (spec/decisions/closing-channels.md),
-    /// once held as an entry payment if it is one.
-    pub(crate) fn on_closed(&mut self, peer: Name) {
-        // A new revision, or the node would not keep that the address
-        // went, and a restart would bring it back.
-        if self.peers.remove(&peer).is_some() {
-            self.peers_revision = self.peers_revision.wrapping_add(1);
-        }
-    }
-}
-
 /// What is kept with the books.
 impl Follower {
     /// A number that changes whenever what [`Self::write`] keeps does,
@@ -665,11 +346,6 @@ impl Follower {
         };
         let (ledger, index) = self.cursor.unwrap_or((u32::MAX, u32::MAX));
         add(u64::from(ledger) << 32 | u64::from(index));
-        add(self.peers_revision);
-        for Recovering { hash, unread, .. } in &self.recovering {
-            add(u64::from(hash[0]) << 8 | u64::from(hash[1]) | u64::from(*unread) << 16);
-        }
-        add(self.recovering.len() as u64);
         add(self.write_offs);
         add(extra);
         if let Some((hash, units)) = self.owner_payment {
@@ -680,35 +356,21 @@ impl Follower {
             add(u64::from(hash[0]) << 8 | u64::from(hash[1]));
             add(u64::from(outcome_code(outcome)));
         }
-        self.entries.fingerprint(&mut add);
+        add(self.entries);
         mix
     }
 
     /// Writes what it keeps, in this order: the cursor, the count of
-    /// write-offs, the peers' addresses in the order they were learnt, the
-    /// settlements looked up with whether each is unread, the entry
-    /// payments held, the owner's payment on its way and what became of
-    /// the last (spec/areas/xrpl.md#state-and-restarts). The scheme writes
-    /// the version before it, and what it keeps of its own after it.
+    /// write-offs, the owner's payment on its way and what became of the
+    /// last (spec/areas/xrpl.md#state-and-restarts). The scheme writes the
+    /// version before it, [`SCHEME_VERSION`], and what it keeps of its own
+    /// after it.
     pub(crate) fn write(&self, out: &mut Out) {
         out.option(self.cursor, |out, (ledger, index)| {
             out.u32(ledger);
             out.u32(index);
         });
         out.u64(self.write_offs);
-        let mut peers: Vec<_> = self.peers.iter().collect();
-        peers.sort_by_key(|(_, (_, learnt))| *learnt);
-        out.count(peers.len());
-        for (peer, (address, _)) in peers {
-            out.name(*peer);
-            out.account(*address);
-        }
-        out.count(self.recovering.len());
-        for recovering in &self.recovering {
-            out.bytes(&recovering.hash);
-            out.bool(recovering.unread);
-        }
-        self.entries.write(out);
         out.option(self.owner_payment, |out, (hash, units)| {
             out.bytes(&hash);
             out.u64(units);
@@ -719,35 +381,27 @@ impl Follower {
         });
     }
 
-    /// Reads back what [`Self::write`] wrote. `None` for a state no
-    /// follower writes: more than it keeps, a peer or a settlement twice,
-    /// entry payments before the first sync, an owner's payment of nothing
-    /// or of more than the books hold, or an outcome it never writes.
-    pub(crate) fn read(&mut self, input: &mut In<'_>) -> Option<()> {
+    /// Reads back what [`Self::write`] wrote, in a state of `version`:
+    /// [`SCHEME_VERSION`], or [`PEERING_SCHEME_VERSION`], written while the
+    /// schemes peered, which held more after the count of write-offs
+    /// ([`read_peering`]): the entry payments in it are booked as the
+    /// owner's deposit ([`Self::book_entries`]), and the rest is dropped.
+    /// `None` for a state no follower writes: more than it keeps, entry
+    /// payments before the first sync, an owner's payment of nothing or of
+    /// more than the books hold, or an outcome it never writes.
+    pub(crate) fn read(&mut self, input: &mut In<'_>, version: u8) -> Option<()> {
+        let peering = match version {
+            SCHEME_VERSION => false,
+            PEERING_SCHEME_VERSION => true,
+            _ => return None,
+        };
         self.cursor = input.option(|input| Some((input.u32()?, input.u32()?)))?;
         self.write_offs = input.u64()?;
-        // A name is at least two bytes, and an address twenty.
-        let peers = input.count(22, MAX_PEERS)?;
-        for _ in 0..peers {
-            let (peer, address) = (input.name()?, input.account()?);
-            if self.peers.contains_key(&peer) {
+        if peering {
+            self.entries = read_peering(input)?;
+            if self.cursor.is_none() && self.entries > 0 {
                 return None;
             }
-            self.learn(peer, address);
-        }
-        let recovering = input.count(33, MAX_RECOVERING)?;
-        for _ in 0..recovering {
-            let hash = input.array::<32>()?;
-            if self.recovering.iter().any(|r| r.hash == hash) {
-                return None;
-            }
-            let mut kept = Recovering::new(hash);
-            kept.unread = input.bool()?;
-            self.recovering.push(kept);
-        }
-        self.entries.read(input)?;
-        if self.cursor.is_none() && self.entries.total() > 0 {
-            return None;
         }
         self.owner_payment = input.option(|input| {
             let hash = input.array::<32>()?;
@@ -763,12 +417,6 @@ impl Follower {
 
     /// Asserts what holds after every change.
     pub(crate) fn check_invariants(&self) {
-        assert!(self.peers.len() <= MAX_PEERS);
-        self.entries.check_invariants();
-        assert!(
-            self.cursor.is_some() || self.entries.total() == 0,
-            "entry payments are read past the first sync"
-        );
         assert!(
             self.owner_payment
                 .is_none_or(|(_, units)| (1..=self.max_owner_units).contains(&units)),
@@ -779,22 +427,54 @@ impl Follower {
                 .is_none_or(|(_, outcome)| outcome != OwnerPaymentState::InFlight),
             "the last owner's payment done is no longer on its way"
         );
-        assert!(self.recovering.len() <= MAX_RECOVERING);
-        let mut seen = BTreeSet::new();
+        assert!(self.entries <= MAX_TOTAL, "the books could take them");
         assert!(
-            self.recovering.iter().all(|r| seen.insert(r.hash)),
-            "each settlement looked up once"
+            self.cursor.is_some() || self.entries == 0,
+            "entry payments are read past the first sync"
         );
-        for recovering in &self.recovering {
-            assert!((1..=MAX_RECOVER_WAIT_LEDGERS).contains(&recovering.wait));
-            assert!(recovering.amount.is_none_or(|amount| amount <= MAX_TOTAL));
-            assert!(
-                recovering.ask_at <= self.validated.saturating_add(MAX_RECOVER_WAIT_LEDGERS),
-                "a lookup waits at most its longest wait"
-            );
-        }
         assert!(self.booked <= MAX_TOTAL, "the books hold at most a total");
     }
+}
+
+/// Reads what a state written while the schemes peered held between the
+/// count of write-offs and the owner's payment: the peers' addresses, each
+/// a name and an account; the settlements looked up after a restart, each
+/// a hash and whether it was unread; and the entry payments held, each its
+/// node, the account it came from, its amount, its hash and the ledger its
+/// hold ran to. Returns what the entry payments add up to, in internal
+/// units; `None` for more than such a state held, an entry payment of
+/// nothing or twice, or more than the books could take.
+fn read_peering(input: &mut In<'_>) -> Option<u64> {
+    // A name is at least two bytes, and an account twenty.
+    let peers = input.count(22, PEERING_MAX_PEERS)?;
+    for _ in 0..peers {
+        input.name()?;
+        input.account()?;
+    }
+    let recovering = input.count(33, PEERING_MAX_RECOVERING)?;
+    for _ in 0..recovering {
+        input.array::<32>()?;
+        input.bool()?;
+    }
+    // A name is at least two bytes, the rest 64.
+    let held = input.count(66, PEERING_MAX_ENTRIES)?;
+    let mut hashes = Vec::with_capacity(held);
+    let mut total: u64 = 0;
+    for _ in 0..held {
+        input.name()?;
+        input.account()?;
+        let amount = input.u64().filter(|amount| *amount > 0)?;
+        let hash = input.array::<32>()?;
+        input.u32()?;
+        if hashes.contains(&hash) {
+            return None;
+        }
+        hashes.push(hash);
+        total = total
+            .checked_add(amount)
+            .filter(|total| *total <= MAX_TOTAL)?;
+    }
+    Some(total)
 }
 
 /// The XRP Ledger's result of a payment to an account that does not exist,
@@ -849,19 +529,4 @@ pub(crate) fn hash_name(hash: &[u8; 32]) -> Name {
 /// A settlement ID as the transaction hash it is, if it is one.
 pub(crate) fn name_hash(settlement: Name) -> Option<[u8; 32]> {
     from_hex(settlement.as_str())?.try_into().ok()
-}
-
-/// Peering info, a peering request's data and a peer's state: the
-/// address's 20-byte account ID, as the ledger writes it
-/// (spec/areas/xrpl.md#the-payment-it-signs).
-pub(crate) fn address_bytes(account: AccountId, out: &mut Vec<u8>) {
-    out.clear();
-    out.extend_from_slice(&account.0);
-}
-
-/// The account ID of [`address_bytes`]: exactly 20 bytes.
-pub(crate) fn parse_address(bytes: &[u8]) -> Result<AccountId, SchemeError> {
-    <[u8; 20]>::try_from(bytes)
-        .map(AccountId)
-        .map_err(|_| SchemeError::InvalidData)
 }

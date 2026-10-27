@@ -10,8 +10,8 @@ use dassie_ilp::ErrorCode;
 use dassie_ledger::{AccountName, AccountPath, Ledger, LedgerId, Name};
 use dassie_peer::wire::{RefusalReason, SchemeId, TerminationReason};
 use dassie_peer::{
-    Agreed, BanError, Declined, EntryPayment, Event, InboundId, NameEvent, Output as PeerOutput,
-    PacketAnswer, PeeringHooks, Reply,
+    Agreed, BanError, Declined, Event, InboundId, NameEvent, Output as PeerOutput, PacketAnswer,
+    PeeringHooks, Reply,
 };
 
 use super::downlinks::Downlinks;
@@ -322,37 +322,6 @@ impl PeeringHooks for Hooks<'_> {
         let active = self.scheme(scheme).ok_or(Declined)?;
         active.scheme.on_peered(peer_name, &state);
         Ok(Agreed { state, credit_out })
-    }
-
-    /// What the scheme holds that `node` paid us to enter: none on a scheme
-    /// that is not running (spec/decisions/pay-to-enter.md).
-    fn entry(&self, node: NodeId, scheme: SchemeId, data: &[u8]) -> EntryPayment {
-        let Some(peer) = name(node) else {
-            return EntryPayment::NotTaken;
-        };
-        let Some(active) = Name::new(scheme.as_str())
-            .ok()
-            .and_then(|scheme| self.schemes.get(&scheme))
-            .filter(|active| active.failed.is_none())
-        else {
-            return EntryPayment::NotTaken;
-        };
-        // Its accounts, which its payment opens as it peers, must fit the
-        // downlinks' share beside those opened and kept, or it is refused
-        // for capacity before it is told to pay, and never let in on a
-        // payment the peering would then refuse
-        // (spec/decisions/account-budgets.md,
-        // spec/decisions/lazy-downlink-accounts.md).
-        if !has_accounts(self.ledger, active.scheme.ledger(), peer)
-            && !self.downlinks.fit(self.ledger.config().max_accounts, &node)
-        {
-            return EntryPayment::NotTaken;
-        }
-        match active.scheme.entry(peer, data) {
-            dassie_settlement::EntryPayment::NotTaken => EntryPayment::NotTaken,
-            dassie_settlement::EntryPayment::Missing => EntryPayment::Missing,
-            dassie_settlement::EntryPayment::Held => EntryPayment::Held,
-        }
     }
 
     /// A peering over a hub carries a commitment with each Prepare and a
@@ -1099,31 +1068,11 @@ impl Core {
         self.take_journal();
     }
 
-    /// Books what `node`, just peered on `scheme`, paid us to enter as its
-    /// settlement, in the batch that keeps the peering: it marks the node
-    /// as one that paid us, as any settlement of a largest packet does
-    /// (spec/decisions/pay-to-enter.md).
-    fn take_entry(&mut self, node: NodeId, scheme: SchemeId) {
-        let (Some(peer), Ok(scheme)) = (name(node), Name::new(scheme.as_str())) else {
-            return;
-        };
-        let Some(active) = self.schemes.get_mut(&scheme).filter(|a| a.failed.is_none()) else {
-            return;
-        };
-        let mut effects = Vec::new();
-        active.scheme.take_entry(peer, &mut effects);
-        if effects.is_empty() {
-            return;
-        }
-        let ledger = active.scheme.ledger();
-        self.scheme_effects(scheme, ledger, &effects);
-    }
-
     pub(super) fn peer_event(&mut self, event: Event) {
         self.changes.network = true;
         self.report(event.clone());
         match event {
-            Event::Peered { node, scheme, .. } => {
+            Event::Peered { node, .. } => {
                 self.peerings_changed = true;
                 // A downlink's channel opened: room is kept for its
                 // accounts until value moves with it.
@@ -1132,7 +1081,6 @@ impl Core {
                     self.report(PeerEvent::NoEndpoint { node, error });
                 }
                 self.update_routes();
-                self.take_entry(node, scheme);
             }
             Event::RoutesChanged => self.update_routes(),
             // The claim for a Fulfill of ours, of a Prepare the peer sent on

@@ -1,9 +1,12 @@
-//! Two daemons settling on the XRP Ledger testnet scheme, over a real
-//! WebSocket to the fake ledger and its faucet over HTTPS: funded by
-//! the faucet, they peer, pay several times the credit, so they settle on
-//! the ledger, and after both restart the books still match each account,
-//! less its reserve. A deposit from outside is booked once. A server that
-//! lies, or serves no proofs, and a quorum withheld get nothing booked.
+//! A daemon keeping its owner's books on the XRP Ledger testnet schemes,
+//! which peer with no one (spec/areas/xrpl.md#owner-books), over a real
+//! WebSocket to the fake ledger and its faucet over HTTPS: funded by the
+//! faucet, and after a restart, its books match the account, less its
+//! reserve. A deposit from outside is booked once. A server that lies, or
+//! serves no proofs, and a quorum withheld get nothing booked. A new fake
+//! ledger is a testnet reset, the owner asks the faucet for more, the fake
+//! issuer mints and claws back, and the DSUSD book holds its line across a
+//! restart.
 
 #![allow(
     clippy::unwrap_used,
@@ -28,18 +31,12 @@ use dassie_node_core::certificate::CertificateSource;
 use dassie_xrpl::fake::Lie;
 use dassie_xrpl::network::TESTNET;
 use dassie_xrpl::{AccountId, Wallet};
-use support::btp_client::{BtpClient, pay_stream_waiting};
-use support::pair::{
-    CA, CERT, KEY, bootstrap, key, peered_on, prepare_on_xrpl, settle, until, until_by,
-};
+use support::pair::{CA, CERT, KEY, bootstrap, key, prepare_on_xrpl, settle, until, until_by};
 use support::{Bound, START_MS, TestNode};
 
 const LEDGER: &str = "xrpl-testnet-xrp+xrp";
 /// What the faucet gives, less the reserve, in internal units.
 const FUNDED: i64 = 999_000_000_000;
-/// 5 XRP: over four times the credit, so it only gets through if A
-/// settles with B as it goes.
-const PAYMENT: u64 = 5_000_000_000;
 
 /// A fake ledger whose ledgers close on `clock`, the daemons'.
 async fn fake_ledger(clock: &ManualClock) -> Server {
@@ -167,148 +164,33 @@ async fn in_step(node: &TestNode, key: &NodeKey, server: &Server) -> bool {
         && ledger.on_ledger_balance == drops * 1_000 - ledger.reserve
 }
 
-/// Whether `node` has a route to `other`: their link states reached each
-/// other.
-async fn routes_to(node: &TestNode, other: &NodeKey) -> bool {
-    let Ok(response::Method::ListRoutes(list)) = node
-        .ipc()
-        .await
-        .call(Method::ListRoutes(proto::ListRoutesRequest {}))
-        .await
-    else {
-        return false;
-    };
-    let prefix = format!("test.das.{}", other.node_id());
-    list.routes.iter().any(|route| route.prefix == prefix)
-}
-
-/// The peering `node` has with `other`.
-async fn peering(node: &TestNode, other: &NodeKey) -> Option<proto::NetworkPeer> {
-    let Ok(response::Method::ListPeers(list)) = node
-        .ipc()
-        .await
-        .call(Method::ListPeers(proto::ListPeersRequest {}))
-        .await
-    else {
-        return None;
-    };
-    let other = other.node_id().to_string();
-    list.peers.into_iter().find(|peer| peer.node == other)
-}
-
-/// Whether A can send B something: as the senior, on the credit B
-/// extends it; as the junior, once B has what A paid in advance, which
-/// B asks of it at once (spec/decisions/earned-trust.md).
-async fn can_send(a: &TestNode, key_a: &NodeKey, b: &TestNode, key_b: &NodeKey) -> bool {
-    let Some(at_a) = peering(a, key_b).await else {
-        return false;
-    };
-    at_a.inbound || peering(b, key_a).await.is_some_and(|at_b| at_b.owed > 0)
-}
-
-/// Whether neither node has a settlement on its way, unacknowledged.
-async fn quiet(a: &TestNode, b: &TestNode) -> bool {
-    for node in [a, b] {
-        let Ok(response::Method::ListSettlementChannels(list)) = node
-            .ipc()
-            .await
-            .call(Method::ListSettlementChannels(
-                proto::ListSettlementChannelsRequest {},
-            ))
-            .await
-        else {
-            return false;
-        };
-        if list.channels.iter().any(|channel| channel.sending) {
-            return false;
-        }
-    }
-    true
-}
-
-// The scheme's config, which names its server and faucet, reaches it
-// through the RPC and again after a restart.
+// The account's config, which names its server and faucet, reaches it
+// through the RPC and again after a restart. The faucet funds the account:
+// a deposit of all but the reserve. What reaches the account while the
+// daemon is down is booked once it is back, once.
 #[tokio::test(flavor = "multi_thread")]
-async fn two_daemons_settle_on_the_xrp_ledger_across_restarts() {
+async fn the_xrp_book_holds_across_a_restart() {
     let clock = ManualClock::new(START_MS);
     let server = fake_ledger(&clock).await;
     let config = config_of(&server);
-    let (key_a, key_b) = (key(31), key(32));
-    let (bound_a, bound_b) = (Bound::new(), Bound::new());
-    let nodes = bootstrap(&key_a, bound_a.https_port());
+    let key_a = key(31);
+    let bound = Bound::new();
+    let nodes = bootstrap(&key_a, bound.https_port());
     let env = [
         ("DASSIE_BOOTSTRAP_NODES", nodes.as_str()),
         ("DASSIE_EXTRA_CA_FILE", CA),
         ("DASSIE_PEER_ALLOW_PRIVATE", "1"),
     ];
-    let a = bound_a.start(clock.clone(), 1, Policies::DEV, &env).await;
-    let b = bound_b.start(clock.clone(), 2, Policies::DEV, &env).await;
+    let a = bound.start(clock.clone(), 1, Policies::DEV, &env).await;
     prepare_on_xrpl(&a, &key_a, "xrpl-testnet-xrp", &config).await;
-    prepare_on_xrpl(&b, &key_b, "xrpl-testnet-xrp", &config).await;
-    // The faucet funds both: a deposit of all but the reserve.
-    until(&clock, async || {
-        in_step(&a, &key_a, &server).await && in_step(&b, &key_b, &server).await
-    })
-    .await;
+    until(&clock, async || in_step(&a, &key_a, &server).await).await;
     let ledger = ledger_of(&a).await.unwrap();
     assert_eq!(ledger.owner_balance, FUNDED);
     assert_eq!(ledger.deposit_address, account_of(&key_a).to_address());
     assert_eq!(ledger.reserve, 1_000_000_000);
-    until(&clock, async || {
-        peered_on(&a, &key_b, LEDGER).await && peered_on(&b, &key_a, LEDGER).await
-    })
-    .await;
-    // Each link state reached the other, so A has a route to B's
-    // receiver, and A can send B something: the client's rate probe gives
-    // up on a peer that refuses it everything for now.
-    until(&clock, async || {
-        routes_to(&a, &key_b).await
-            && routes_to(&b, &key_a).await
-            && can_send(&a, &key_a, &b, &key_b).await
-    })
-    .await;
 
-    // A client of A pays B's receiver beyond the credit: A settles on the
-    // ledger as it goes.
-    let Ok(response::Method::CreateBtpToken(token)) = a
-        .ipc()
-        .await
-        .call(Method::CreateBtpToken(proto::CreateBtpTokenRequest {
-            label: "wallet".into(),
-            ledger: LEDGER.into(),
-            cap: None,
-        }))
-        .await
-    else {
-        panic!("no token")
-    };
-    let credentials = b.ipc().await.incoming_payment(None).await;
-    let mut client = BtpClient::connect(&a, &token.secret).await.unwrap();
-    pay_stream_waiting(
-        &clock,
-        &mut client,
-        &credentials.destination_account,
-        &credentials.shared_secret,
-        PAYMENT,
-        Duration::from_millis(5),
-    )
-    .await;
-    until(&clock, async || {
-        in_step(&a, &key_a, &server).await && in_step(&b, &key_b, &server).await
-    })
-    .await;
-    let settled = server.ledger().balance(account_of(&key_b)).unwrap() * 1_000 - 1_000_000_000_000;
-    assert!(settled >= PAYMENT - 1_100_000_000, "settled {settled}");
-    let owner_a = ledger_of(&a).await.unwrap().owner_balance;
-    let owner_b = ledger_of(&b).await.unwrap().owner_balance;
-    let fees_before = (fees(&a).await, fees(&b).await);
-
-    // Both restart, on their own ports as a node does, so that each reaches
-    // the other where it knows it: they connect again, catch up, and book
-    // nothing twice.
-    let (ports_a, ports_b) = (a.ports(), b.ports());
-    let (dir_a, _) = a.stop().await;
-    let (dir_b, _) = b.stop().await;
+    let ports = a.ports();
+    let (dir, _) = a.stop().await;
     // Meanwhile, someone sends A 3 XRP, and a ledger closes with it.
     let held = server.ledger().balance(account_of(&key_a)).unwrap();
     server.ledger().deposit(account_of(&key_a), 3_000_000);
@@ -316,40 +198,23 @@ async fn two_daemons_settle_on_the_xrp_ledger_across_restarts() {
         server.ledger().balance(account_of(&key_a)) == Some(held + 3_000_000)
     })
     .await;
-    let a = Bound::bind_again(dir_a, ports_a)
+    let a = Bound::bind_again(dir, ports)
         .await
         .start(clock.clone(), 3, Policies::DEV, &env)
         .await;
-    let b = Bound::bind_again(dir_b, ports_b)
-        .await
-        .start(clock.clone(), 4, Policies::DEV, &env)
-        .await;
-    // Caught up, with no settlement on its way to move the books under
-    // what follows.
-    until(&clock, async || {
-        in_step(&a, &key_a, &server).await
-            && in_step(&b, &key_b, &server).await
-            && quiet(&a, &b).await
-    })
-    .await;
+    until(&clock, async || in_step(&a, &key_a, &server).await).await;
     // A later read of the ledger books nothing twice in a few seconds more
-    // of their time: a check that nothing happens, which a slow machine
-    // only weakens. Then wait out any settlement that started meanwhile.
+    // of its time: a check that nothing happens, which a slow machine only
+    // weakens.
     settle(&clock).await;
-    until(&clock, async || quiet(&a, &b).await).await;
-    // The deposit is booked once; the owners' funds moved only by it, and
-    // by the fees of settlements made since.
+    assert!(in_step(&a, &key_a, &server).await);
     assert_eq!(deposits(&a).await, [FUNDED as u64, 3_000_000_000]);
-    assert_eq!(deposits(&b).await, [FUNDED as u64]);
-    let fees_a = fees(&a).await - fees_before.0;
-    let fees_b = fees(&b).await - fees_before.1;
+    assert_eq!(fees(&a).await, 0);
     assert_eq!(
         ledger_of(&a).await.unwrap().owner_balance,
-        owner_a + 3_000_000_000 - fees_a
+        FUNDED + 3_000_000_000
     );
-    assert_eq!(ledger_of(&b).await.unwrap().owner_balance, owner_b - fees_b);
     a.stop().await;
-    b.stop().await;
     server.stop();
 }
 
@@ -367,39 +232,28 @@ async fn books(node: &TestNode) -> (u64, i64) {
     (ledger.on_ledger_balance, ledger.owner_balance)
 }
 
-// spec/designs/xrpl-validation.md#1-the-rule: the daemons prove what they
-// book against the fake ledger's validators. A server that lies, or serves
-// no proofs, or a quorum withheld, gets nothing booked: each daemon waits,
+// spec/designs/xrpl-validation.md#1-the-rule: the daemon proves what it
+// books against the fake ledger's validators. A server that lies, or serves
+// no proofs, or a quorum withheld, gets nothing booked: the daemon waits,
 // and says why, while what really happened meanwhile, a deposit, waits with
 // it. Once its server is honest and its validators sign again, it books the
-// deposit once, and settles as before.
+// deposit once.
 #[tokio::test(flavor = "multi_thread")]
-async fn a_lying_server_gets_nothing_booked_and_settling_resumes() {
+async fn a_lying_server_gets_nothing_booked() {
     let clock = ManualClock::new(START_MS);
     let server = fake_ledger(&clock).await;
     let config = config_of(&server);
-    let (key_a, key_b) = (key(33), key(34));
-    let (bound_a, bound_b) = (Bound::new(), Bound::new());
-    let nodes = bootstrap(&key_a, bound_a.https_port());
+    let key_a = key(33);
+    let bound = Bound::new();
+    let nodes = bootstrap(&key_a, bound.https_port());
     let env = [
         ("DASSIE_BOOTSTRAP_NODES", nodes.as_str()),
         ("DASSIE_EXTRA_CA_FILE", CA),
         ("DASSIE_PEER_ALLOW_PRIVATE", "1"),
     ];
-    let a = bound_a.start(clock.clone(), 1, Policies::DEV, &env).await;
-    let b = bound_b.start(clock.clone(), 2, Policies::DEV, &env).await;
+    let a = bound.start(clock.clone(), 1, Policies::DEV, &env).await;
     prepare_on_xrpl(&a, &key_a, "xrpl-testnet-xrp", &config).await;
-    prepare_on_xrpl(&b, &key_b, "xrpl-testnet-xrp", &config).await;
-    let both_in_step =
-        async || in_step(&a, &key_a, &server).await && in_step(&b, &key_b, &server).await;
-    until(&clock, both_in_step).await;
-    until(&clock, async || {
-        peered_on(&a, &key_b, LEDGER).await && peered_on(&b, &key_a, LEDGER).await
-    })
-    .await;
-    // Nothing on its way between them that would move the books kept
-    // below.
-    until(&clock, async || both_in_step().await && quiet(&a, &b).await).await;
+    until(&clock, async || in_step(&a, &key_a, &server).await).await;
 
     let reasons = [
         (
@@ -416,7 +270,7 @@ async fn a_lying_server_gets_nothing_booked_and_settling_resumes() {
         ),
     ];
     for (lie, why) in reasons {
-        let kept = (books(&a).await, books(&b).await);
+        let kept = books(&a).await;
         match lie {
             Some(lie) => server.ledger().set_lie_for_all(Some(lie)),
             // Two of the five validators sign nothing: four make a quorum.
@@ -428,59 +282,25 @@ async fn a_lying_server_gets_nothing_booked_and_settling_resumes() {
         }
         // Someone sends A 3 XRP meanwhile.
         server.ledger().deposit(account_of(&key_a), 3_000_000);
-        until(&clock, async || {
-            problem(&a).await == why && problem(&b).await == why
-        })
-        .await;
-        // Nor do they book the deposit in a few seconds more of their time:
+        until(&clock, async || problem(&a).await == why).await;
+        // Nor does it book the deposit in a few seconds more of its time:
         // a check that nothing happens, which a slow machine only weakens.
         settle(&clock).await;
-        assert_eq!((books(&a).await, books(&b).await), kept, "{why}");
+        assert_eq!(books(&a).await, kept, "{why}");
         server.ledger().set_lie_for_all(None);
         for validator in [1, 2] {
             server.ledger().withhold_validator(validator, false);
         }
         // The verifier connects anew once its stall is over, half a minute
         // on its clock.
-        until_by(&clock, 1_000, both_in_step).await;
+        until_by(&clock, 1_000, async || in_step(&a, &key_a, &server).await).await;
         assert_eq!(problem(&a).await, "");
     }
     assert_eq!(
         deposits(&a).await,
         [FUNDED as u64, 3_000_000_000, 3_000_000_000, 3_000_000_000]
     );
-    assert_eq!(deposits(&b).await, [FUNDED as u64]);
-
-    // A pays B beyond the credit: it settles on the ledger as before.
-    let before = server.ledger().balance(account_of(&key_b)).unwrap();
-    let Ok(response::Method::CreateBtpToken(token)) = a
-        .ipc()
-        .await
-        .call(Method::CreateBtpToken(proto::CreateBtpTokenRequest {
-            label: "wallet".into(),
-            ledger: LEDGER.into(),
-            cap: None,
-        }))
-        .await
-    else {
-        panic!("no token")
-    };
-    let credentials = b.ipc().await.incoming_payment(None).await;
-    let mut client = BtpClient::connect(&a, &token.secret).await.unwrap();
-    pay_stream_waiting(
-        &clock,
-        &mut client,
-        &credentials.destination_account,
-        &credentials.shared_secret,
-        PAYMENT,
-        Duration::from_millis(5),
-    )
-    .await;
-    until(&clock, both_in_step).await;
-    let settled = (server.ledger().balance(account_of(&key_b)).unwrap() - before) * 1_000;
-    assert!(settled >= PAYMENT - 1_100_000_000, "settled {settled}");
     a.stop().await;
-    b.stop().await;
     server.stop();
 }
 
@@ -745,45 +565,41 @@ async fn dsusd_in_step(node: &TestNode, key: &NodeKey, server: &Server) -> bool 
         && dsusd_held(key, server).is_some_and(|held| ledger.on_ledger_balance == held)
 }
 
-// spec/areas/xrpl.md#dsusd: two daemons on `xrpl-testnet-dsusd` alone, over
-// the fake ledger: the faucet gives them XRP for gas, each sets its line,
-// the issuer mints test DSUSD to A, and A pays B several times the credit,
-// so it settles in DSUSD as it goes. After both restart, the books still
-// hold each line, and nothing is booked twice.
+// spec/areas/xrpl.md#dsusd: a daemon on `xrpl-testnet-dsusd` alone, over the
+// fake ledger: the faucet gives it XRP for gas, it sets its line, and the
+// issuer mints it test DSUSD, its owner's deposit. The owner sees what the
+// account holds as the ledger says. After a restart, the book still holds
+// the line, and nothing is booked twice.
 #[tokio::test(flavor = "multi_thread")]
-async fn two_daemons_settle_dsusd_across_restarts() {
+async fn the_dsusd_book_holds_across_a_restart() {
     use dassie_xrpl::amount::IssuedAsset;
     use dassie_xrpl::codec::TokenValue;
 
     let clock = ManualClock::new(START_MS);
     let server = fake_ledger(&clock).await;
     let config = config_of(&server);
-    let (key_a, key_b) = (key(37), key(38));
-    let (bound_a, bound_b) = (Bound::new(), Bound::new());
-    let nodes = bootstrap(&key_a, bound_a.https_port());
+    let key_a = key(37);
+    let bound = Bound::new();
+    let nodes = bootstrap(&key_a, bound.https_port());
     let env = [
         ("DASSIE_BOOTSTRAP_NODES", nodes.as_str()),
         ("DASSIE_EXTRA_CA_FILE", CA),
         ("DASSIE_PEER_ALLOW_PRIVATE", "1"),
     ];
-    // The daemons have no rate source and the ledger no DSUSD pool, so
+    // The daemon has no rate source and the ledger no DSUSD pool, so
     // DSUSD's peg guard never reads a price: on production timings it
-    // pauses the scheme only after ten minutes, longer than this test's
-    // clock runs, where on dev timers it would after ten seconds. What the
-    // guard does is tested in `on_dev_timers_the_peg_guard_trips_in_seconds`
-    // and the end-to-end tests.
+    // halts the token's conversions only after ten minutes, longer than
+    // this test's clock runs, where on dev timers it would after ten
+    // seconds. What the guard does is tested in
+    // `on_dev_timers_the_peg_guard_trips_in_seconds` and the end-to-end
+    // tests.
     let policies = Policies {
         peg: dassie_xrpl::peg::Timings::DEFAULT,
         ..Policies::DEV
     };
-    let a = bound_a.start(clock.clone(), 1, policies, &env).await;
-    let b = bound_b.start(clock.clone(), 2, policies, &env).await;
+    let a = bound.start(clock.clone(), 1, policies, &env).await;
     prepare_on_xrpl(&a, &key_a, "xrpl-testnet-dsusd", &config).await;
-    prepare_on_xrpl(&b, &key_b, "xrpl-testnet-dsusd", &config).await;
-    until(&clock, async || {
-        dsusd_in_step(&a, &key_a, &server).await && dsusd_in_step(&b, &key_b, &server).await
-    })
-    .await;
+    until(&clock, async || dsusd_in_step(&a, &key_a, &server).await).await;
     // No XRP ledger: the gas is off the books.
     assert!(ledger_of(&a).await.is_none());
     server
@@ -800,53 +616,7 @@ async fn two_daemons_settle_dsusd_across_restarts() {
                 .is_some_and(|ledger| ledger.owner_balance == 20_000_000_000)
     })
     .await;
-    until(&clock, async || {
-        peered_on(&a, &key_b, DSUSD_LEDGER).await && peered_on(&b, &key_a, DSUSD_LEDGER).await
-    })
-    .await;
-    // Each link state reached the other, so A has a route to B's
-    // receiver, and A can send B something: the client's rate probe gives
-    // up on a peer that refuses it everything for now.
-    until(&clock, async || {
-        routes_to(&a, &key_b).await
-            && routes_to(&b, &key_a).await
-            && can_send(&a, &key_a, &b, &key_b).await
-    })
-    .await;
-
-    let Ok(response::Method::CreateBtpToken(token)) = a
-        .ipc()
-        .await
-        .call(Method::CreateBtpToken(proto::CreateBtpTokenRequest {
-            label: "wallet".into(),
-            ledger: DSUSD_LEDGER.into(),
-            cap: None,
-        }))
-        .await
-    else {
-        panic!("no token")
-    };
-    let credentials = b.ipc().await.incoming_payment(None).await;
-    let mut client = BtpClient::connect(&a, &token.secret).await.unwrap();
-    // 5 dollars: over four times the credit.
-    pay_stream_waiting(
-        &clock,
-        &mut client,
-        &credentials.destination_account,
-        &credentials.shared_secret,
-        PAYMENT,
-        Duration::from_millis(5),
-    )
-    .await;
-    until(&clock, async || {
-        dsusd_in_step(&a, &key_a, &server).await && dsusd_in_step(&b, &key_b, &server).await
-    })
-    .await;
-    let settled = dsusd_held(&key_b, &server).unwrap();
-    assert!(settled >= PAYMENT - 1_100_000_000, "settled {settled}");
-    let owner_a = ledger_named(&a, DSUSD_LEDGER).await.unwrap().owner_balance;
-    let owner_b = ledger_named(&b, DSUSD_LEDGER).await.unwrap().owner_balance;
-    // The fees were gas: no fee on the DSUSD ledger.
+    // The TrustSet's fee was gas: no fee on the DSUSD ledger.
     assert_eq!(fees(&a).await, 0);
     // The owner sees what the account holds as the ledger says: its XRP,
     // with the reserve its line raises, and its DSUSD in millionths.
@@ -882,43 +652,23 @@ async fn two_daemons_settle_dsusd_across_restarts() {
         dsusd_held(&key_a, &server)
     );
 
-    // Both restart, on their own ports as a node does, so that each reaches
-    // the other where it knows it.
-    let (ports_a, ports_b) = (a.ports(), b.ports());
-    let (dir_a, _) = a.stop().await;
-    let (dir_b, _) = b.stop().await;
-    let a = Bound::bind_again(dir_a, ports_a)
+    // It restarts, on its own ports as a node does.
+    let ports = a.ports();
+    let (dir, _) = a.stop().await;
+    let a = Bound::bind_again(dir, ports)
         .await
         .start(clock.clone(), 3, policies, &env)
         .await;
-    let b = Bound::bind_again(dir_b, ports_b)
-        .await
-        .start(clock.clone(), 4, policies, &env)
-        .await;
-    // Caught up, with no settlement on its way to move the books under
-    // what follows.
-    until(&clock, async || {
-        dsusd_in_step(&a, &key_a, &server).await
-            && dsusd_in_step(&b, &key_b, &server).await
-            && quiet(&a, &b).await
-    })
-    .await;
+    until(&clock, async || dsusd_in_step(&a, &key_a, &server).await).await;
     // A later read of the ledger books nothing twice in a few seconds more
-    // of their time: a check that nothing happens, which a slow machine
-    // only weakens. Then wait out any settlement that started meanwhile.
+    // of its time: a check that nothing happens, which a slow machine only
+    // weakens.
     settle(&clock).await;
-    until(&clock, async || quiet(&a, &b).await).await;
     assert_eq!(deposits(&a).await, [20_000_000_000]);
-    assert!(deposits(&b).await.is_empty());
     assert_eq!(
         ledger_named(&a, DSUSD_LEDGER).await.unwrap().owner_balance,
-        owner_a
-    );
-    assert_eq!(
-        ledger_named(&b, DSUSD_LEDGER).await.unwrap().owner_balance,
-        owner_b
+        20_000_000_000
     );
     a.stop().await;
-    b.stop().await;
     server.stop();
 }
