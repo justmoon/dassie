@@ -690,7 +690,11 @@ impl PeerNode {
     /// peering and its channel, under their own bound, apart from the core
     /// peering slots (spec/areas/network.md#downlinks); and, if it never
     /// paid us, among the free receivers.
-    fn downlink_room(&self, hooks: &dyn PeeringHooks, sender: &NodeId) -> Result<(), RefusalReason> {
+    fn downlink_room(
+        &self,
+        hooks: &dyn PeeringHooks,
+        sender: &NodeId,
+    ) -> Result<(), RefusalReason> {
         let peered = self.peers().filter(|(id, _)| self.is_downlink(id)).count();
         let placed = self.is_downlink(sender) || self.downlinks() < self.config.max_downlinks;
         if peered >= self.config.max_downlinks || !placed || !self.channel_room_for(sender, true) {

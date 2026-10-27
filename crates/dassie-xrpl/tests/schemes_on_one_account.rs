@@ -282,7 +282,11 @@ fn synced() -> (Shared, AccountId) {
 /// With `short_history`, the server's account history (`account_tx`) no
 /// longer reaches back to the payment when it does: a hint the account
 /// does not need.
-fn stopped_while_paying(drop_submits: bool, meanwhile: usize, short_history: bool) -> (Shared, Name) {
+fn stopped_while_paying(
+    drop_submits: bool,
+    meanwhile: usize,
+    short_history: bool,
+) -> (Shared, Name) {
     let (mut shared, theirs) = synced();
     shared.drop_submits = drop_submits;
     let id = shared.pay_owner(theirs);

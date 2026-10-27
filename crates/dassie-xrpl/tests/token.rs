@@ -214,11 +214,9 @@ impl Node {
         effects.clear();
         let (balance, state) = kept;
         if ledger == XRP {
-            self.xrp =
-                Some(XrplScheme::new(&self.account, Some(*balance), state).unwrap());
+            self.xrp = Some(XrplScheme::new(&self.account, Some(*balance), state).unwrap());
         } else {
-            self.dsusd =
-                Some(DsusdScheme::new(&self.account, Some(*balance), state).unwrap());
+            self.dsusd = Some(DsusdScheme::new(&self.account, Some(*balance), state).unwrap());
         }
         self.away[ledger] = true;
         self.account.detach(scheme_name(ledger), Detach::Stopped);
@@ -656,12 +654,10 @@ impl World {
         node.away = [false; 2];
         node.account = new_account(node.seed, &account_state);
         if let Some((balance, state)) = &schemes[XRP] {
-            node.xrp =
-                Some(XrplScheme::new(&node.account, Some(*balance), state).unwrap());
+            node.xrp = Some(XrplScheme::new(&node.account, Some(*balance), state).unwrap());
         }
         if let Some((balance, state)) = &schemes[USD] {
-            node.dsusd =
-                Some(DsusdScheme::new(&node.account, Some(*balance), state).unwrap());
+            node.dsusd = Some(DsusdScheme::new(&node.account, Some(*balance), state).unwrap());
         }
         self.tell(index);
         self.connect(index);
@@ -1129,7 +1125,10 @@ fn both_xrpl_schemes_share_one_account() {
     for ledger in [XRP, USD] {
         let paid = &world.nodes[0].books[ledger].paid;
         assert_eq!(paid.len(), 4);
-        assert!(paid.iter().all(|(id, applied)| *applied && ids.contains(id)));
+        assert!(
+            paid.iter()
+                .all(|(id, applied)| *applied && ids.contains(id))
+        );
     }
 }
 

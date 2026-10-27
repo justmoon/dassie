@@ -395,9 +395,7 @@ impl World {
             amount,
         };
         let scheme = node.schemes[index].as_deref_mut().unwrap();
-        let id = scheme
-            .pay_owner(Some(&mut node.account), &payment)
-            .unwrap();
+        let id = scheme.pay_owner(Some(&mut node.account), &payment).unwrap();
         let unit = scheme.unit();
         node.books[index]
             .owner_holds

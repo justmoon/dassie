@@ -1275,8 +1275,8 @@ fn kept_state() -> impl Strategy<Value = Vec<u8>> {
         prop::option::of(any::<bool>()),
     );
     let cursor = prop::option::of((0u32..32, prop_oneof![Just(u32::MAX), 0u32..8]));
-    (cursor, 1u32..64, prop::collection::vec(in_flight, 0..4))
-        .prop_map(|(cursor, first, in_flight)| {
+    (cursor, 1u32..64, prop::collection::vec(in_flight, 0..4)).prop_map(
+        |(cursor, first, in_flight)| {
             let in_flight: Vec<Value> = in_flight
                 .iter()
                 .zip(first..)
@@ -1299,7 +1299,8 @@ fn kept_state() -> impl Strategy<Value = Vec<u8>> {
             })
             .to_string()
             .into_bytes()
-        })
+        },
+    )
 }
 
 /// Drops as a JSON number, as the state keeps them.

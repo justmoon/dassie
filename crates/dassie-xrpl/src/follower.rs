@@ -436,7 +436,9 @@ fn read_peering(input: &mut In<'_>) -> Option<u64> {
             return None;
         }
         hashes.push(hash);
-        total = total.checked_add(amount).filter(|total| *total <= MAX_TOTAL)?;
+        total = total
+            .checked_add(amount)
+            .filter(|total| *total <= MAX_TOTAL)?;
     }
     Some(total)
 }
@@ -494,4 +496,3 @@ pub(crate) fn hash_name(hash: &[u8; 32]) -> Name {
 pub(crate) fn name_hash(settlement: Name) -> Option<[u8; 32]> {
     from_hex(settlement.as_str())?.try_into().ok()
 }
-

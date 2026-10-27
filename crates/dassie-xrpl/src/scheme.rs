@@ -816,7 +816,11 @@ mod tests {
     #[test]
     fn a_config_may_say_only_whether_the_scheme_peers() {
         for accepted in ["", "  ", r#"{"peers": false}"#, r#"{"peers": true}"#, "{}"] {
-            assert_eq!(SchemeConfig::parse(accepted), Ok(SchemeConfig), "{accepted}");
+            assert_eq!(
+                SchemeConfig::parse(accepted),
+                Ok(SchemeConfig),
+                "{accepted}"
+            );
         }
         for refused in [
             r#"{"peers": 0}"#,

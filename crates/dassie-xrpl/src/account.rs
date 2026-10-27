@@ -2616,9 +2616,15 @@ mod tests {
         account.balance = Some(1_000_000_000);
         account.validated = 10;
         let to = Wallet::from_entropy(&[2; 32]).account();
-        let first = account.sign_payment_to(a, (to, None), 1_000, Vec::new()).unwrap();
-        let second = account.sign_payment_to(b, (to, None), 1_000, Vec::new()).unwrap();
-        let third = account.sign_payment_to(a, (to, None), 1_000, Vec::new()).unwrap();
+        let first = account
+            .sign_payment_to(a, (to, None), 1_000, Vec::new())
+            .unwrap();
+        let second = account
+            .sign_payment_to(b, (to, None), 1_000, Vec::new())
+            .unwrap();
+        let third = account
+            .sign_payment_to(a, (to, None), 1_000, Vec::new())
+            .unwrap();
         let sequences: Vec<u32> = account.in_flight.iter().map(|t| t.sequence).collect();
         assert_eq!(sequences, [5, 6, 7]);
         assert!(account.execute(b, second));
@@ -2631,7 +2637,10 @@ mod tests {
         assert!(account.holds_transaction(&second), "in flight");
         assert!(account.holds_transaction(&first), "never sent");
         assert!(!account.execute(a, third), "never sent, never executed");
-        assert!(!account.holds_transaction(&third), "forgotten once executed");
+        assert!(
+            !account.holds_transaction(&third),
+            "forgotten once executed"
+        );
         account.check_invariants();
     }
 
@@ -2696,9 +2705,13 @@ mod tests {
         let (a, b) = (dassie_ledger::name!("a"), dassie_ledger::name!("b"));
         let mut account = synced_account(&[a, b]);
         let to = Wallet::from_entropy(&[2; 32]).account();
-        let first = account.sign_payment_to(a, (to, None), 1_000, Vec::new()).unwrap();
+        let first = account
+            .sign_payment_to(a, (to, None), 1_000, Vec::new())
+            .unwrap();
         assert!(account.execute(a, first));
-        account.sign_payment_to(b, (to, None), 1_000, Vec::new()).unwrap();
+        account
+            .sign_payment_to(b, (to, None), 1_000, Vec::new())
+            .unwrap();
         let in_flight = account.state();
         // Past its last ledger, b's, never executed, is never sent.
         account.validated = 11 + LEDGER_WINDOW;
@@ -2912,10 +2925,14 @@ mod tests {
         let refused = |hex: &str| crate::XrplScheme::new(&account, None, &bytes(hex)).is_err();
         assert!(!refused(PEERING_STATE));
         let entry = |hash: u8| {
-            alloc::format!("05 6E6F646532 {} 0000000077359400 {} 00000400", "03".repeat(20), {
-                let byte = alloc::format!("{hash:02X}");
-                byte.repeat(32)
-            })
+            alloc::format!(
+                "05 6E6F646532 {} 0000000077359400 {} 00000400",
+                "03".repeat(20),
+                {
+                    let byte = alloc::format!("{hash:02X}");
+                    byte.repeat(32)
+                }
+            )
         };
         let state = |cursor: &str, entries: &[u8]| {
             let mut hex = alloc::format!("01 {cursor} 0000000000000000 00000000 00000000");
@@ -2943,7 +2960,9 @@ mod tests {
         let id = dassie_ledger::name!(crate::scheme::SCHEME_ID);
         let mut account = synced_account(&[id]);
         let to = Wallet::from_entropy(&[2; 32]).account();
-        let hash = account.sign_payment_to(id, (to, None), 1_000, Vec::new()).unwrap();
+        let hash = account
+            .sign_payment_to(id, (to, None), 1_000, Vec::new())
+            .unwrap();
         assert!(account.execute(id, hash));
         let mut scheme = crate::XrplScheme::new(&account, None, &[]).unwrap();
         let mut effects = Vec::new();
