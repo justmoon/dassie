@@ -115,38 +115,37 @@ test(
         HUB_WITHIN_MS,
       );
 
-      // Each node's books show it, a hub and the owner book of its asset
-      // taken together, as the node moves funds between them by itself:
-      // the payer's owner paid what was sent in XRP, and the fees of its
-      // moves and operations; the payee's got dollars, what arrived less
-      // those of its own; and the members of both, taken together, hold
-      // more XRP and fewer dollars, as whichever of them the payment
-      // crossed took the one and paid the other.
+      // Each node's books show it, in what its owner has, a hub and the
+      // owner book of its asset taken together, as the node moves funds
+      // between them by itself: the payer's owner paid what was sent in
+      // XRP, and the fees of its moves and operations; the payee's got
+      // dollars, what arrived less those of its own; and the owners of the
+      // members of both, taken together, have more XRP and fewer dollars,
+      // as whichever of them the payment crossed took the one and paid
+      // the other. What their accounts hold need not move: the payment may
+      // take no more from a member's holds toward the payee than they held
+      // before it, and a payee asks for more only once they run low.
       const after = await Promise.all(
         members.map((node) => booksOverHubs(scenario, node)),
       );
       const XRP_BOOKS = [xrpLedger, "xrpl-testnet-xrp+xrp"];
       const DOLLAR_BOOKS = [dsusdLedger, "xrpl-testnet-dsusd+usd"];
-      const moved = (
-        node: typeof payer,
-        ids: readonly string[],
-        column: 0 | 1,
-      ) => {
+      // What the owner of `node` has on the books `ids`, after less before.
+      const moved = (node: typeof payer, ids: readonly string[]) => {
         const index = members.indexOf(node);
         let sum = 0n;
         for (const id of ids) {
-          sum += (after[index][id]?.[column] ?? 0n) -
-            (before[index][id]?.[column] ?? 0n);
+          sum += (after[index][id]?.[1] ?? 0n) - (before[index][id]?.[1] ?? 0n);
         }
         return sum;
       };
-      const spent = -moved(payer, XRP_BOOKS, 1);
+      const spent = -moved(payer, XRP_BOOKS);
       assert(spent >= PAYMENT, `the payer's owner spent ${spent}`);
-      const got = moved(payee, DOLLAR_BOOKS, 1);
+      const got = moved(payee, DOLLAR_BOOKS);
       assert(got > 0n && got <= received, `the payee's owner got ${got}`);
-      const tookXrp = both.reduce((sum, m) => sum + moved(m, XRP_BOOKS, 0), 0n);
+      const tookXrp = both.reduce((sum, m) => sum + moved(m, XRP_BOOKS), 0n);
       const paidDollars = -both.reduce(
-        (sum, m) => sum + moved(m, DOLLAR_BOOKS, 0),
+        (sum, m) => sum + moved(m, DOLLAR_BOOKS),
         0n,
       );
       assert(tookXrp > 0n, `the members of both took ${tookXrp} in XRP`);

@@ -579,7 +579,15 @@ export async function peerLedgers(
  * by a deposit from its owner book of the hub's asset, by itself
  * (spec/areas/hubs.md#in-the-node); every two members of a hub peer, with
  * a peer account on the ledger of each hub both are in, a method each, and
- * on no other; no member peers but over a hub; and settling is over.
+ * on no other; no member peers but over a hub; each holds funds toward the
+ * other in each of those hubs, so that either can pay the other over it;
+ * and settling is over.
+ *
+ * A member may peer before its own deposit opened its account, with a
+ * peer that has one. That peer learns of the account by asking the hub,
+ * at most a minute later (`LOOK_UP_EVERY_MS` in dassie-hub's member), and
+ * until then neither asks the other to fund a hold: the member could send
+ * nothing over the hub, and a payment from it would fail.
  */
 export async function joinedHubs(scenario: Scenario): Promise<void> {
   const hubs = hubsOf(scenario.def);
@@ -618,6 +626,19 @@ export async function joinedHubs(scenario: Scenario): Promise<void> {
       assert(schemes.includes(peer.scheme), `${node.name}: ${peer.scheme}`);
     }
   }
+  await scenario.until("holds toward every peer over each hub", async () => {
+    for (const [node, peer] of pairs) {
+      for (const hub of hubsOfNode(scenario, node)) {
+        if (!hubsOfNode(scenario, peer).includes(hub)) continue;
+        const { paying } = await hubStatus(node, hub);
+        const holds = paying.some((hold) =>
+          hold.peer === peer.id && hold.amount > 0n
+        );
+        if (!holds) return false;
+      }
+    }
+    return true;
+  }, HUB_WITHIN_MS);
   await scenario.until(
     "in step over every hub",
     () => settledOverHubs(scenario),
