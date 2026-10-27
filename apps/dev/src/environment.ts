@@ -97,7 +97,7 @@ const PHASES: Record<NodePhase, NodeState> = {
 export class Environment {
   readonly hub: ControlHub;
   readonly #table = loadTable();
-  /** Each dev node's ID, with its short name. */
+  /** Each dev node's ID, in either realm, with its short name. */
   readonly #names = names(this.#table);
   readonly #logs = new LogRing();
   readonly #peerings = new Map<string, string[]>();
@@ -106,7 +106,7 @@ export class Environment {
   /** Nodes whose process runs, from the moment it is spawned. */
   readonly #live = new Map<string, ScenarioNode>();
   /** Identities derived so far: deriving one takes a while. */
-  readonly #identities = new Map<number, Identity>();
+  readonly #identities = new Map<string, Identity>();
   #scenarioId = DEFAULT_SCENARIO;
   #scenario?: Scenario;
   #added = 0;
@@ -160,11 +160,17 @@ export class Environment {
     return unavailable(def, this.options.fakeLedger !== undefined);
   }
 
+  /**
+   * Node `index`'s identity in the realm of the scenario chosen: its
+   * phrase names the realm, so a secret is another node in each.
+   */
   #identity(index: number): Identity {
-    let found = this.#identities.get(index);
+    const realm = findScenario(this.#scenarioId)?.realm ?? "test";
+    const key = `${realm}:${index}`;
+    let found = this.#identities.get(key);
     if (!found) {
-      found = identity(this.#table, index);
-      this.#identities.set(index, found);
+      found = identity(this.#table, index, realm);
+      this.#identities.set(key, found);
     }
     return found;
   }

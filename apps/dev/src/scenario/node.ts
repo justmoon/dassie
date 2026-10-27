@@ -200,16 +200,16 @@ export class ScenarioNode {
    * Sets the node up as its owner would, sets the config of each external
    * asset in `assets`, and adds the settlement schemes in `schemes` it does
    * not have yet, each with its config in `configs`, if any; its exchange
-   * rates come from `rates`, if given. The node is claimed in `realm`,
-   * which is fixed then; the node takes `live` only by its dev switch
-   * (spec/decisions/mainnet-schemes.md). On a node set up before, it checks
-   * the node is this one and leaves the rest as it is.
+   * rates come from `rates`, if given. The node is claimed in the realm
+   * its identity's phrase names, which is fixed then; the node takes `live`
+   * only by its dev switch (spec/decisions/mainnet-schemes.md). On a node
+   * set up before, it checks the node is this one and leaves the rest as
+   * it is.
    */
   async setUp(
     schemes: readonly string[],
     configs: Readonly<Record<string, string>> = {},
     rates?: string,
-    realm: "test" | "live" = "test",
     assets: Readonly<Record<string, string>> = {},
   ): Promise<void> {
     const owner = this.rpc;
@@ -229,7 +229,7 @@ export class ScenarioNode {
     }
     const basic = await owner.call("getBasicState", {});
     if (basic.state === NodeState.UNINITIALIZED) {
-      await this.#claim(realm);
+      await this.#claim();
       await this.waitForEngine();
       await owner.call("setAlias", { alias: this.name });
     } else {
@@ -263,9 +263,10 @@ export class ScenarioNode {
 
   /**
    * Completes setup over HTTPS with the node's key, as the wallet does, in
-   * `realm`.
+   * the realm its phrase names.
    */
-  async #claim(realm: "test" | "live"): Promise<void> {
+  async #claim(): Promise<void> {
+    const { realm } = this.identity;
     const { url } = await this.rpc.call("getSetupUrl", {});
     const token = url.split("/setup/")[1];
     const agent = new Agent({

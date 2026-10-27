@@ -22,7 +22,7 @@ import {
 import { type Layout, layout as defaultLayout } from "../paths.ts";
 import { DEV_RATES, type RateServer, startRates } from "../rates.ts";
 import type { Stream } from "../process.ts";
-import { identity, loadTable, type Table } from "../vanity.ts";
+import { identity, loadTable, type Realm, type Table } from "../vanity.ts";
 import { until } from "../wait.ts";
 import { type NodeEnvironment, ScenarioNode } from "./node.ts";
 import {
@@ -254,12 +254,20 @@ export class Scenario {
     return this.#environment.caFile;
   }
 
+  /**
+   * The realm the scenario's nodes run in, which their phrases name: a
+   * secret of the table is another node in each realm.
+   */
+  get #realm(): Realm {
+    return this.def.realm ?? "test";
+  }
+
   /** The bootstrap nodes, as `DASSIE_BOOTSTRAP_NODES` names them. */
   #bootstrapNodes(): string {
     return JSON.stringify(
       this.def.bootstrap.map((index) => {
         const node = new ScenarioNode(
-          identity(this.#table, index),
+          identity(this.#table, index, this.#realm),
           this.#environment,
         );
         return node.bootstrapEntry();
@@ -292,7 +300,7 @@ export class Scenario {
     const periphery = peripheryOf(this.def, index);
     if (periphery !== undefined) {
       env.DASSIE_UPLINKS = periphery.uplinks
-        .map((uplink) => identity(this.#table, uplink).id)
+        .map((uplink) => identity(this.#table, uplink, this.#realm).id)
         .join(",");
     }
     return env;
@@ -301,7 +309,7 @@ export class Scenario {
   async #startNode(index: number): Promise<ScenarioNode> {
     if (index >= MAX_NODES) throw new Error(`at most ${MAX_NODES} nodes`);
     const node = new ScenarioNode(
-      identity(this.#table, index),
+      identity(this.#table, index, this.#realm),
       this.#environment,
       this.#nodeEnv(index),
       peripheryOf(this.def, index) !== undefined,
@@ -316,7 +324,6 @@ export class Scenario {
         this.#schemes(index),
         this.#configs,
         this.rates?.url,
-        this.def.realm ?? "test",
         this.#assets,
       );
     } catch (error) {
