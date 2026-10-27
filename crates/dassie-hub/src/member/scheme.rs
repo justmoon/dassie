@@ -24,11 +24,23 @@
 //!   the scheme books their growth as the owner's deposits and withdrawals
 //!   ([`SettlementScheme::pay_owner`] submits a withdrawal).
 //!
-//! Joining a hub by being paid is not built yet, and
+//! - **Joining by being paid** (spec/designs/settlement-hubs.md#5-joining).
+//!   A scheme whose key the hub has no account for runs all the same, once
+//!   f + 1 validators agree there is none: it holds nothing, presents its
+//!   key with no account at peering, and peers with members that have
+//!   one. With such a peer no packet carries promises
+//!   ([`Commitments::commits_with`]), and a settlement to it is a `pay` of
+//!   at least the hub's minimum for a new account to its key, which opens
+//!   its account: the payer's outgoing settlement once the hub executed
+//!   it, and the payee's incoming one once its account reads the `pay`,
+//!   in order, from where the hub last said it had none. Its account then
+//!   sets its disbursal address first, and the peering goes on as any
+//!   other.
+//!
 //! [`deposit`](SettlementScheme::deposit) is unsupported: the owner
 //! deposits from the underlying ledger.
 
-use alloc::collections::{BTreeMap, VecDeque};
+use alloc::collections::{BTreeMap, BTreeSet, VecDeque};
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::any::Any;
@@ -47,11 +59,11 @@ use rand_core::CryptoRng;
 use super::account::{HubAccount, News, Purpose};
 use super::payee::{Claiming, Payee};
 use super::payer::{Loss, Payer, Snapshot};
-use super::peering::Membership;
+use super::peering::{Membership, NONE};
 use super::{UNITS_PER_DROP, digest_name, units};
 use crate::client::AccountView;
 use crate::digest::Digest;
-use crate::ledger::{Detail, Outcome};
+use crate::ledger::{Detail, Failure, Outcome};
 use crate::operation::{AccountNumber, MemberOperation, Operation, SignedMemberOperation};
 use crate::promise::{Claim, Commitment, HoldNumber, Signed};
 use crate::rules::{Amount, HubId, Terms};
@@ -74,6 +86,7 @@ const MAX_DECIDED: usize = MAX_PEERS * super::payer::MAX_PACKETS;
 /// A peer over the hub.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct Peer {
+    /// Its account, or [`NONE`] until the hub has one for its key.
     pub(super) account: AccountNumber,
     pub(super) key: PublicKey,
     /// Our hold toward it.
@@ -92,6 +105,16 @@ impl Peer {
         let theirs = (self.payee.hold.is_some() && self.payee.snapshot.amount > 0)
             || self.payee.has_unclaimed();
         ours || theirs
+    }
+
+    /// Whether it presents itself as the member `membership` names: by its
+    /// key, and its account unless one of the two was made before the hub
+    /// had one for the key, which never names another account.
+    fn is(&self, membership: &Membership) -> bool {
+        self.key == membership.key
+            && (self.account == membership.account
+                || self.account == NONE
+                || membership.account == NONE)
     }
 }
 
@@ -135,6 +158,9 @@ pub struct HubScheme {
     /// shown yet: that much of its growth is booked already.
     pub(super) booked_ahead: Amount,
     strangers: BTreeMap<HoldNumber, SignedMemberOperation>,
+    /// Peers without an account in our records whose account to ask the
+    /// hub for: our `pay` to them failed, as the hub has one for their key.
+    look_ups: BTreeSet<Name>,
     losses: VecDeque<(Name, Loss)>,
     decided: VecDeque<Decided>,
     now_ms: u64,
@@ -220,6 +246,7 @@ impl HubScheme {
             withdrawals_made: 0,
             booked_ahead: 0,
             strangers: BTreeMap::new(),
+            look_ups: BTreeSet::new(),
             losses: VecDeque::new(),
             decided: VecDeque::new(),
             now_ms: 0,
@@ -293,19 +320,27 @@ impl HubScheme {
                 self.resynced(account, *height, before, unread.as_ref(), effects);
             }
             // The hub confirms the key a peer gave us, for a hold toward us
-            // whose operations we never read.
+            // whose operations we never read; or names the account of a
+            // peer that had none when it peered, which a deposit opened.
             News::Member {
                 key,
                 account: Some(number),
             } => {
                 for peer in self.peers.values_mut() {
+                    if peer.key == *key && peer.account == NONE {
+                        peer.account = *number;
+                    }
                     if peer.key == *key && peer.account == *number {
                         peer.payee.key_confirmed = true;
                     }
                 }
             }
             News::Member { account: None, .. } => {}
-            News::Reduced { .. } | News::Unfunded => {}
+            // The hub has no account for our key: we hold nothing in it,
+            // and run, to be paid in by a peer
+            // (spec/designs/settlement-hubs.md#5-joining).
+            News::Unfunded => self.synced = true,
+            News::Reduced { .. } => {}
         }
     }
 
@@ -334,7 +369,10 @@ impl HubScheme {
 
     /// Makes the books hold what the account and the holds toward us from
     /// our peers held as of a block: on the first sync, the owner's
-    /// deposit; after, the owner's deposits and withdrawals since the last
+    /// deposit; on the first state of an account opened since the hub said
+    /// it had none, what deposits credited it as the owner's, never more,
+    /// and its reserve as the reserve's; after, the owner's deposits and
+    /// withdrawals since the last
     /// state, by how far the account's counters grew, and the rest
     /// reconciled through suspense, as the reserve's when the account
     /// reserve changed.
@@ -346,7 +384,18 @@ impl HubScheme {
     ) {
         self.account = account.number();
         let target = units(view.balance.saturating_add(self.toward_us(account)));
-        if self.synced {
+        // Opened since the hub said it had no account for our key: only
+        // what deposits credited it is the owner's, and what a peer's `pay`
+        // brought was booked as its settlement when the account read it.
+        let opened = self.synced && self.counters.is_none();
+        if opened {
+            let deposits = units(view.deposited.saturating_add(view.returned));
+            let added = target.saturating_sub(self.booked).min(deposits);
+            if added > 0 {
+                effects.push(Effect::Deposit { amount: added });
+                self.booked = self.booked.saturating_add(added);
+            }
+        } else if self.synced {
             self.book_moves(view, effects);
         } else {
             self.synced = true;
@@ -363,9 +412,13 @@ impl HubScheme {
             withdrawn.max(view.withdrawn),
             returned.max(view.returned),
         ));
+        // An account opened since locked its reserve from what opened it:
+        // nothing else it holds less than what was booked of it for.
         let reserve_moved = self
             .account_reserve
-            .is_some_and(|reserve| reserve != view.reserve);
+            .map_or(opened && target < self.booked, |reserve| {
+                reserve != view.reserve
+            });
         self.account_reserve = Some(view.reserve);
         if target != self.booked {
             effects.push(Effect::Reconcile {
@@ -466,7 +519,12 @@ impl HubScheme {
         let id = operation_hash(operation);
         match purpose {
             Purpose::Settle(settlement) => {
-                self.settled(settlement, operation, applied, detail, effects)
+                if let (Outcome::Failed { reason, .. }, MemberOperation::Pay { .. }) =
+                    (outcome, &operation.operation)
+                {
+                    self.not_paid_in(settlement, reason);
+                }
+                self.settled(settlement, operation, applied, detail, effects);
             }
             Purpose::Claim(hold) => {
                 self.claimed_on_hub(hold, operation, applied);
@@ -524,6 +582,22 @@ impl HubScheme {
             .map(|(name, _)| *name)
     }
 
+    /// Our `pay` for `settlement` failed: if the hub has an account for the
+    /// peer's key already, as a deposit opened it, we ask which, and the
+    /// next settlement funds a hold toward it.
+    fn not_paid_in(&mut self, settlement: Name, reason: Failure) {
+        let Some(settling) = self.settling.get(&settlement) else {
+            return;
+        };
+        let keyless = self
+            .peers
+            .get(&settling.peer)
+            .is_some_and(|peer| peer.account == NONE);
+        if reason == Failure::Exists && keyless {
+            self.look_ups.insert(settling.peer);
+        }
+    }
+
     /// One of our settlements applied, or failed.
     fn settled(
         &mut self,
@@ -542,6 +616,16 @@ impl HubScheme {
         }
         effects.push(Effect::Finalize { settlement });
         self.booked = self.booked.saturating_sub(units(settling.drops));
+        // Our `pay` opened the peer's account: the peering goes on over it.
+        if let (MemberOperation::Pay { key, .. }, Detail::Account(number)) =
+            (&operation.operation, detail)
+            && let Some(peer) = self.peers.get_mut(&settling.peer)
+            && peer.key == *key
+            && peer.account == NONE
+        {
+            peer.account = number;
+            peer.payee.key_confirmed = true;
+        }
         if let (MemberOperation::HoldOpen { .. }, Detail::Hold(number)) =
             (&operation.operation, detail)
         {
@@ -646,6 +730,21 @@ impl HubScheme {
             (MemberOperation::HoldFund { hold, amount }, _) => {
                 if let Some(name) = peer.filter(|name| self.payer_of(*hold) == Some(*name)) {
                     self.hold_toward_us(name, *hold, operation, *amount, effects);
+                }
+            }
+            // A peer paid us into the hub: its settlement, reserve and all.
+            // Anyone else's `pay` is reconciled with the account's state.
+            (MemberOperation::Pay { key, amount }, Detail::Account(number))
+                if *key == self.key.public_key() && Some(number) == self.account =>
+            {
+                if let Some(name) = peer {
+                    let amount = units(*amount);
+                    effects.push(Effect::IncomingSettlement {
+                        peer: name,
+                        amount,
+                        id: Some(digest_name(&operation_hash(operation))),
+                    });
+                    self.booked = self.booked.saturating_add(amount);
                 }
             }
             (MemberOperation::Claim { hold, fulfilled }, Detail::Paid(paid)) => {
@@ -902,16 +1001,91 @@ impl HubScheme {
     /// that came back with another account would leave behind what we
     /// fulfilled and never claimed; with another key, it would have us
     /// take promises the hub refuses.
+    ///
+    /// Two members without an account do not peer: neither could pay the
+    /// other in.
     fn may_peer(&self, peer: Name, membership: &Membership) -> Result<(), SchemeError> {
+        if !self.can_pay_in(membership) {
+            return Err(SchemeError::Unavailable);
+        }
         match self.peers.get(&peer) {
-            Some(known)
-                if (known.account != membership.account || known.key != membership.key)
-                    && known.unresolved() =>
-            {
+            Some(known) if !known.is(membership) && known.unresolved() => {
                 Err(SchemeError::Unavailable)
             }
             _ => Ok(()),
         }
+    }
+
+    /// A settlement to `peer`, which has no account in the hub yet: a
+    /// `pay` of `drops` to the key it gave, which opens its account with
+    /// them (spec/designs/settlement-hubs.md#5-joining). At least the hub's
+    /// minimum for a new account, never less, and at most what our account
+    /// can spend; one at a time, so it is paid in once.
+    fn prepare_pay_in(
+        &mut self,
+        rng: &mut dyn CryptoRng,
+        account: &mut HubAccount,
+        peer: Name,
+        drops: Amount,
+        membership: &Membership,
+        opening: bool,
+    ) -> Result<PreparedSettlement, SchemeError> {
+        let minimum = self.terms.new_account_minimum();
+        if opening || drops < minimum {
+            return Err(SchemeError::Unavailable);
+        }
+        let spendable = self
+            .spendable_balance(account)
+            .saturating_sub(account.committed())
+            .saturating_sub(self.terms.fees.operation);
+        let drops = drops.min(spendable);
+        if drops < minimum {
+            return Err(SchemeError::Unavailable);
+        }
+        let operation = MemberOperation::Pay {
+            key: membership.key,
+            amount: drops,
+        };
+        self.queue_settlement(rng, account, peer, drops, operation)
+    }
+
+    /// Queues `operation`, our settlement of `drops` to `peer`, to send
+    /// once the node executed it.
+    fn queue_settlement(
+        &mut self,
+        rng: &mut dyn CryptoRng,
+        account: &mut HubAccount,
+        peer: Name,
+        drops: Amount,
+        operation: MemberOperation,
+    ) -> Result<PreparedSettlement, SchemeError> {
+        let mut bytes = [0u8; 16];
+        rng.fill_bytes(&mut bytes);
+        let id = Name::hex(&bytes, false);
+        account.prepare(id, operation)?;
+        self.settling.insert(id, Settling { peer, drops });
+        Ok(PreparedSettlement {
+            id,
+            amount: drops * UNITS_PER_DROP,
+            message: bytes.to_vec(),
+        })
+    }
+
+    /// Whether one of us has an account: the other can be paid in.
+    fn can_pay_in(&self, membership: &Membership) -> bool {
+        self.account.is_some() || membership.account != NONE
+    }
+
+    /// The account of `peer`, as the scheme knows it: the one it gave at
+    /// peering, or, if it had none then, the one the hub opened for its key
+    /// since. None for a peer without one, and for one the scheme does not
+    /// know.
+    #[must_use]
+    pub fn peer_account(&self, peer: Name) -> Option<AccountNumber> {
+        self.peers
+            .get(&peer)
+            .map(|peer| peer.account)
+            .filter(|number| *number != NONE)
     }
 }
 
@@ -971,12 +1145,25 @@ impl SettlementScheme for HubScheme {
             return;
         };
         assert_eq!(account.hub(), self.hub, "the scheme's own hub");
+        // An account learnt since may read what opened it before its state
+        // is told: a peer's `pay`, or a hold opened toward it.
+        self.account = account.number();
         let news = account.news().to_vec();
         for item in &news {
             self.tell(account, item, effects);
         }
         // Holds toward us are followed from our peers only.
-        account.follow(self.peers.values().map(|peer| peer.account));
+        account.follow(
+            self.peers
+                .values()
+                .map(|peer| peer.account)
+                .filter(|number| *number != NONE),
+        );
+        for name in core::mem::take(&mut self.look_ups) {
+            if let Some(peer) = self.peers.get(&name).filter(|peer| peer.account == NONE) {
+                account.look_up(peer.key);
+            }
+        }
         if !account.has(Purpose::Withdraw) {
             // Not queued, and not told: only the counters can say.
             self.withdrawal_done(OwnerPaymentState::Unknown, effects);
@@ -992,12 +1179,14 @@ impl SettlementScheme for HubScheme {
         self.cursor = account.cursor();
     }
 
+    /// Our membership: with our account, or, once f + 1 validators agree
+    /// the hub has none for our key, with none, to be paid in.
     fn peering_info(&self, out: &mut Vec<u8>) {
         out.clear();
-        if let Some(account) = self.account {
+        if self.synced || self.account.is_some() {
             Membership {
                 hub: self.hub,
-                account,
+                account: self.account.unwrap_or(NONE),
                 key: self.key.public_key(),
             }
             .write(out);
@@ -1010,9 +1199,10 @@ impl SettlementScheme for HubScheme {
         peering_info: &[u8],
         out: &mut Vec<u8>,
     ) -> Result<(), SchemeError> {
-        Membership::read(peering_info, &self.hub)?;
+        let membership = Membership::read(peering_info, &self.hub)?;
         self.peering_info(out);
-        if out.is_empty() {
+        if out.is_empty() || !self.can_pay_in(&membership) {
+            out.clear();
             return Err(SchemeError::Unavailable);
         }
         Ok(())
@@ -1044,9 +1234,13 @@ impl SettlementScheme for HubScheme {
             return;
         };
         if let Some(known) = self.peers.get_mut(&peer) {
-            if known.account == membership.account && known.key == membership.key {
+            if known.is(&membership) {
                 // Peered again as before: its holds stay, and so do our
-                // records of them.
+                // records of them. An account it has now that it had not
+                // then is the one the hub opened for its key.
+                if known.account == NONE {
+                    known.account = membership.account;
+                }
                 return;
             }
             if known.unresolved() {
@@ -1090,7 +1284,8 @@ impl SettlementScheme for HubScheme {
 
     /// Funds the hold toward `peer` by whole drops of `amount`, opening it
     /// on the first settlement. Unavailable while the hold is being opened,
-    /// or the balance cannot pay it.
+    /// or the balance cannot pay it. A peer without an account is paid in
+    /// instead, with at least the hub's minimum for a new account.
     fn prepare_settlement(
         &mut self,
         rng: &mut dyn CryptoRng,
@@ -1099,13 +1294,21 @@ impl SettlementScheme for HubScheme {
         amount: u64,
         peer_state: &[u8],
     ) -> Result<PreparedSettlement, SchemeError> {
-        let membership = Membership::read(peer_state, &self.hub)?;
+        let mut membership = Membership::read(peer_state, &self.hub)?;
+        // What we learnt since it peered: the account the hub opened for
+        // its key.
+        if let Some(known) = self.peers.get(&peer).filter(|known| known.is(&membership)) {
+            membership.account = known.account;
+        }
         let account = asset.and_then(account_of).ok_or(SchemeError::Unavailable)?;
         let drops = amount / UNITS_PER_DROP;
         if drops == 0 || self.settling.len() >= MAX_SETTLING {
             return Err(SchemeError::Unavailable);
         }
         let opening = self.settling.values().any(|s| s.peer == peer);
+        if membership.account == NONE {
+            return self.prepare_pay_in(rng, account, peer, drops, &membership, opening);
+        }
         let hold = self.peers.get(&peer).and_then(|p| p.payer.hold);
         // Opening a hold locks its reserve besides what it holds.
         let reserve = match hold {
@@ -1134,16 +1337,7 @@ impl SettlementScheme for HubScheme {
                 amount: drops,
             },
         };
-        let mut bytes = [0u8; 16];
-        rng.fill_bytes(&mut bytes);
-        let id = Name::hex(&bytes, false);
-        account.prepare(id, operation)?;
-        self.settling.insert(id, Settling { peer, drops });
-        Ok(PreparedSettlement {
-            id,
-            amount: drops * UNITS_PER_DROP,
-            message: bytes.to_vec(),
-        })
+        self.queue_settlement(rng, account, peer, drops, operation)
     }
 
     fn discard_settlement(&mut self, asset: Option<&mut dyn ExternalAsset>, settlement: Name) {
@@ -1299,11 +1493,12 @@ impl SettlementScheme for HubScheme {
                 .all(|s| self.peers.contains_key(&s.peer) || s.drops > 0),
             "a settlement moves whole drops"
         );
-        if self.synced {
-            assert!(self.account.is_some(), "a synced scheme knows its account");
+        assert!(self.look_ups.len() <= MAX_PEERS);
+        if self.counters.is_some() {
+            assert!(self.synced, "the owner's moves count from the first sync");
             assert!(
-                self.counters.is_some(),
-                "a synced scheme counts the owner's moves from its first sync"
+                self.account.is_some(),
+                "the owner's moves count in an account"
             );
         }
     }
@@ -1457,12 +1652,30 @@ impl Commitments for HubScheme {
         Some(units(room))
     }
 
-    /// The hub, and our account in it once it has its number.
+    /// The hub, and our account in it once it has its number; none, to be
+    /// paid in, once f + 1 validators agree the hub has none for our key.
     fn membership(&self) -> Option<dassie_settlement::Membership> {
+        if !self.synced && self.account.is_none() {
+            return None;
+        }
         Some(dassie_settlement::Membership {
             hub: *self.hub.0.as_bytes(),
-            account: self.account?.0,
+            account: self.account.unwrap_or(NONE).0,
         })
+    }
+
+    /// Not while either of us has no account: the payer has no hold to
+    /// promise from.
+    fn commits_with(&self, peer: Name) -> bool {
+        let keyless = self.peers.get(&peer).is_some_and(|p| p.account == NONE);
+        self.account.is_some() && !keyless
+    }
+
+    /// The hub's minimum for a new account, for a peer without one, while
+    /// we have one to pay it in from.
+    fn opening_minimum(&self, peer: Name) -> Option<u64> {
+        let keyless = self.peers.get(&peer)?.account == NONE;
+        (keyless && self.account.is_some()).then(|| units(self.terms.new_account_minimum()))
     }
 }
 

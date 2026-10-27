@@ -22,6 +22,10 @@
 //!   reductions that took effect, and the newest final block up to which it
 //!   read everything, which is what a payer waits for before it rejects a
 //!   packet whose commitment expired.
+//! - **Before it has an account.** It asks for the account of its key
+//!   until f + 1 agree the hub has one, and reads as far as they agree it
+//!   had none: what opened it after is read in order from there, a peer's
+//!   `pay` among it (spec/designs/settlement-hubs.md#5-joining).
 //! - **What it mirrors:** the holds it pays into, and those toward it from
 //!   the peers its scheme follows ([`HoldMirror`]), from the operations on
 //!   them; holds others open toward it in a small pool of their own.
@@ -170,7 +174,8 @@ type HoldPages = ((u64, Millis), u16, BTreeMap<u16, HoldList>);
 /// of it once it executed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Purpose {
-    /// A settlement: a `hold-open` or `hold-fund` toward a peer.
+    /// A settlement: a `hold-open` or `hold-fund` toward a peer, or the
+    /// `pay` that opens the account of a peer that has none.
     Settle(Name),
     /// A `redeem` on a hold toward the account.
     Redeem(HoldNumber),
@@ -541,7 +546,8 @@ impl HubAccount {
                     MemberOperation::HoldOpen { amount, .. } => {
                         amount.saturating_add(fees.hold_reserve)
                     }
-                    MemberOperation::HoldFund { amount, .. } => amount,
+                    MemberOperation::HoldFund { amount, .. }
+                    | MemberOperation::Pay { amount, .. } => amount,
                     MemberOperation::Withdraw { amount, .. } => amount.saturating_add(fees.ledger),
                     _ => 0,
                 };
@@ -828,8 +834,15 @@ impl HubAccount {
 
     /// Queues setting the disbursal address of an account without one,
     /// first: the hub takes nothing else from it before.
+    ///
+    /// Only by a state of the account as of everything it read: after a
+    /// restart, one the validators agree on as of an older block may not
+    /// show the address it set since, which is not set again.
     fn ensure_disbursal(&mut self) {
         if self.has_disbursal() || self.has(Purpose::Disbursal) {
+            return;
+        }
+        if self.view.is_none_or(|(at, _)| at < self.last_touch) {
             return;
         }
         if self.queue.len() >= MAX_QUEUED {
@@ -992,13 +1005,29 @@ impl HubAccount {
     /// The account's state as agreed at `height`.
     fn account_agreed(&mut self, height: u64, account: Option<(AccountNumber, AccountView)>) {
         let Some((number, view)) = account else {
-            if self.number.is_none() && !self.unfunded {
-                self.unfunded = true;
-                self.push_news(News::Unfunded);
+            if self.number.is_none() {
+                // Nothing touched an account that did not exist: read up to
+                // there, so a `pay` that opens it later is read in order.
+                self.cursor = self.cursor.max(height);
+                if !self.unfunded {
+                    self.unfunded = true;
+                    self.push_news(News::Unfunded);
+                }
             }
             return;
         };
         match self.number {
+            // The hub said it had no account for the key as of the cursor:
+            // what opened it since is read in order from there, a peer's
+            // `pay` among it, so the scheme knows who paid it in
+            // (spec/designs/settlement-hubs.md#5-joining). Its state as of
+            // `height` is told once read up to it.
+            None if self.cursor > 0 && self.cursor < height => {
+                self.number = Some(number);
+                self.unfunded = false;
+                // It asks at once what it has to read.
+                self.next_poll_ms = self.now_ms;
+            }
             None => {
                 self.number = Some(number);
                 self.unfunded = false;
@@ -1049,7 +1078,7 @@ impl HubAccount {
     }
 
     /// Whether an operation touches the account: its own, or one on a hold
-    /// it mirrors, or a hold opened toward it.
+    /// it mirrors, or a hold opened toward it, or the `pay` that opened it.
     fn touches(&self, operation: &SignedMemberOperation) -> bool {
         let Some(number) = self.number else {
             return false;
@@ -1060,6 +1089,7 @@ impl HubAccount {
         match &operation.operation {
             MemberOperation::HoldOpen { payee, .. } => *payee == number,
             MemberOperation::Transfer { to, .. } => *to == number,
+            MemberOperation::Pay { key, .. } => *key == self.key.public_key(),
             MemberOperation::HoldFund { hold, .. }
             | MemberOperation::HoldReduce { hold, .. }
             | MemberOperation::HoldRelease { hold }

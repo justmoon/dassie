@@ -50,10 +50,10 @@ A ledger kept by n = 3f + 1 validators and backed by an escrow on the XRP Ledger
 
 ### Joining by being paid
 
-A node with no account in a hub is paid into it by a peer, which opens its account with `pay`, as [the design](designs/settlement-hubs.md#5-joining) has it, so a node need not deposit before it can peer ([hubs-only](decisions/hubs-only.md)). Today a node joins a hub only by its own deposit ([Settlement hubs](areas/hubs.md#in-the-node)).
+A node with no account in a hub is paid into it by a peer, which opens its account with `pay`, as [the design](designs/settlement-hubs.md#5-joining) has it, so a node need not deposit before it can peer ([hubs-only](decisions/hubs-only.md)). Today a node joins a hub only by its own deposit ([Settlement hubs](areas/hubs.md#in-the-node)); the member's side of being paid in is built ([Settlement hubs](areas/hubs.md#the-members-side)).
 
 - **Parts that can be built side by side:**
-  - the member's side in `dassie-hub`: a membership with no account yet, which learns its account by its key once a peer's `pay` opened it, and sets its disbursal address before any other operation;
+  - the member's side in `dassie-hub`: a membership with no account yet, which learns its account by its key once a peer's `pay` opened it, and sets its disbursal address before any other operation ([built](areas/hubs.md#the-members-side));
   - the node: a peering over a hub with a peer that has no account in it yet, whichever of them asked to peer, whose packets go without commitments, on what the paying peer owes the new member, until that reaches the hub's minimum for a new account; then the paying peer's `pay` of that minimum, never before, booked as a settlement on both sides. The new member spends only what it is owed, through the same peer.
 - **Done when:** in the `node-hub` simulation, a node with no account in the hub peers with a member, is paid into the hub without depositing once its peer owes it the hub's minimum for a new account, and not before, sets its disbursal address first, and pays and is paid over the hub from then on; the `pay` is booked once on each side, across crashes; and a node that cycles fresh keys through a member costs that member nothing.
 

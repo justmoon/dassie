@@ -72,8 +72,19 @@ pub struct HoldsWith {
 pub struct Membership {
     /// The hub's ID.
     pub hub: [u8; 32],
-    /// Our account number in it.
+    /// Our account number in it, or [`Membership::NO_ACCOUNT`] while we
+    /// have none yet and are to join by being paid
+    /// (spec/designs/settlement-hubs.md#5-joining). A scheme that numbers
+    /// no accounts, as the stub, says [`Membership::NO_ACCOUNT`] too:
+    /// whether packets with a peer carry promises is
+    /// [`Commitments::commits_with`]'s to say, not this number's.
     pub account: u32,
+}
+
+impl Membership {
+    /// The account number of a member that has none yet: a hub counts its
+    /// accounts from 1, and never gives out 0.
+    pub const NO_ACCOUNT: u32 = 0;
 }
 
 /// The side of a scheme that signs and takes promises per packet.
@@ -177,10 +188,33 @@ pub trait Commitments {
         None
     }
 
-    /// The hub we are a member of, once we have an account in it: what
-    /// our link state names, so that peers in the same hub peer with us
-    /// over it. None, by default.
+    /// The hub we are a member of: what our link state names, so that
+    /// peers in the same hub peer with us over it. Its account is
+    /// [`Membership::NO_ACCOUNT`] while the hub has none for our key, which
+    /// a peer's payment opens (spec/designs/settlement-hubs.md#5-joining).
+    /// None, by default.
     fn membership(&self) -> Option<Membership> {
+        None
+    }
+
+    /// Whether packets with `peer` carry commitments and claims. Not while
+    /// either of us has no account in the hub: the payer has no hold to
+    /// promise from, so the payee takes its packets on what the payer owes
+    /// it, and the payer extends it nothing, until the payer pays it in
+    /// (spec/designs/settlement-hubs.md#5-joining). True, by default.
+    fn commits_with(&self, peer: Name) -> bool {
+        let _ = peer;
+        true
+    }
+
+    /// As the payer: while `peer` has no account in the hub and we have
+    /// one, the least a settlement to it must be, in internal units: the
+    /// hub's minimum for a new account, which the settlement pays it into
+    /// the hub with. The node settles with such a peer only once it owes it
+    /// that much, never before, and the scheme refuses less. None, by
+    /// default, and for a peer with an account.
+    fn opening_minimum(&self, peer: Name) -> Option<u64> {
+        let _ = peer;
         None
     }
 
