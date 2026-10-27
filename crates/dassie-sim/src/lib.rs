@@ -36,7 +36,8 @@ pub static SIMS: [Sim; 17] = [
     Sim {
         name: "node",
         about: "whole nodes' engine cores, with a network, faults and payments drawn per seed, \
-                through chaos, then healed",
+                through chaos, then healed, on the stub with unlimited trust or with \
+                commitments",
         describe: dassie_node::sim::swarm::describe,
         run: dassie_node::sim::swarm::run,
         // The most, and most of the time: it runs the node whole, and each
@@ -45,7 +46,8 @@ pub static SIMS: [Sim; 17] = [
     },
     Sim {
         name: "node-stub",
-        about: "whole nodes' engine cores paying, crashing and settling over the stub, as scripted",
+        about: "whole nodes' engine cores paying and crashing over the stub with unlimited \
+                trust, as scripted",
         describe: dassie_node::sim::scripted::describe,
         run: dassie_node::sim::scripted::run,
         // A script: its seeds vary the detail, not the situation.
