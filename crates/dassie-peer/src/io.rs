@@ -133,8 +133,9 @@ pub enum Inbound<'a> {
         /// Reject, which answers its Prepare by request ID.
         scheme: Option<SchemeId>,
         /// The commitment that came with a Prepare on a method over a hub,
-        /// for its scheme; `None` on any other method, and with a Fulfill
-        /// or Reject.
+        /// for its scheme; `None` for one that came without
+        /// (spec/designs/settlement-hubs.md#5-joining), on any other
+        /// method, and with a Fulfill or Reject.
         commitment: Option<&'a [u8]>,
         /// The acknowledgement, once the node knows the claim it carries on
         /// a Fulfill over a hub. It says nothing of what the node does with

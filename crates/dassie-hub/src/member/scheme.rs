@@ -1781,15 +1781,17 @@ impl Commitments for HubScheme {
         Some(units(room))
     }
 
-    /// The hub, and our account in it once it has its number; none, to be
-    /// paid in, once f + 1 validators agree the hub has none for our key.
+    /// The hub, and our account in it once it has its number. None before,
+    /// also while the hub has no account for our key: the node does not yet
+    /// carry packets on a peering without promises
+    /// (spec/roadmap.md#joining-by-being-paid), so a member to be paid in
+    /// is not advertised, and peers keep peering with it on any other
+    /// scheme. Its peering info presents it with no account all the same.
     fn membership(&self) -> Option<dassie_settlement::Membership> {
-        if !self.synced && self.account.is_none() {
-            return None;
-        }
+        let account = self.account?;
         Some(dassie_settlement::Membership {
             hub: *self.hub.0.as_bytes(),
-            account: self.account.unwrap_or(NONE).0,
+            account: account.0,
         })
     }
 

@@ -1810,11 +1810,9 @@ fn a_newcomer_is_paid_in_at_the_minimum_and_not_before() {
     assert_eq!(member.account.status(), LedgerStatus::Unfunded);
     assert!(member.scheme.has_synced(), "it runs without a deposit");
     assert_eq!(member.scheme.balance(), 0);
-    let membership = member.scheme.commitments().unwrap().membership();
-    assert_eq!(
-        membership.map(|m| m.account),
-        Some(dassie_settlement::Membership::NO_ACCOUNT)
-    );
+    // Not advertised until the node carries packets without promises
+    // (spec/roadmap.md#joining-by-being-paid).
+    assert_eq!(member.scheme.commitments().unwrap().membership(), None);
     world.peer(a, c);
     assert!(!world.commits_with(a, c));
     assert!(!world.commits_with(c, a));

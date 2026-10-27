@@ -129,8 +129,9 @@ impl Core {
 
     /// The settlement hubs we are a member of, as our link state lists them
     /// (spec/designs/settlement-hubs.md#11-choosing-a-hub): one per scheme
-    /// over a hub that runs and has an account in it, as the scheme reports
-    /// it (`Commitments::membership`), in the order of the schemes.
+    /// over a hub that runs and reports a membership
+    /// (`Commitments::membership`), which a hub scheme does once its
+    /// account has its number, in the order of the schemes.
     pub(super) fn hub_listings(&mut self) -> Vec<HubListing> {
         let hubs: Vec<Name> = self
             .schemes
@@ -404,7 +405,10 @@ impl Core {
 
     /// As the payee: checks a peer's commitment for its Prepare before we
     /// forward it. A packet the commitment does not cover is rejected at
-    /// once, as one beyond a peer's credit is (T04).
+    /// once, as one beyond a peer's credit is (T04). So is one that came
+    /// without a commitment, which the peer protocol hands on for the node
+    /// to judge: the node does not yet take Prepares on what a peer with no
+    /// account in the hub is owed (spec/roadmap.md#joining-by-being-paid).
     pub(super) fn check_hub_prepare(
         &mut self,
         now: u64,

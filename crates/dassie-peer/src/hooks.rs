@@ -110,8 +110,10 @@ pub trait PeeringHooks {
     /// on them comes with the payer's commitment, in its `methodPacket`,
     /// and the reply to a Fulfill may carry the payer's claim
     /// (spec/designs/settlement-hubs.md#4-peering-over-a-hub). A Prepare
-    /// without a commitment is refused on such a method, and one with a
-    /// commitment on any other.
+    /// with a commitment is refused on any other method. On one over a hub
+    /// a Prepare may come without one, while a side of the peering has no
+    /// account in the hub (spec/designs/settlement-hubs.md#5-joining): the
+    /// node, not the peer protocol, decides what it takes without one.
     fn uses_commitments(&self, scheme: SchemeId) -> bool;
 
     /// Whether the node takes a further settlement method on `scheme` with

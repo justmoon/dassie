@@ -8,7 +8,7 @@ What is not built yet: the open areas of work, the gaps between the spec's contr
 
 ### Hubs only
 
-Peers settle only over settlement hubs, and direct settlement leaves the code ([hubs-only](decisions/hubs-only.md)). Today every scheme on the XRP Ledger peers directly, through the credit machinery ([Settlement](areas/settlement.md#credit)); the plain stub that most tests and simulations run on settles directly through it too; and dev, the end-to-end tests and the wallet have no hub.
+Peers settle only over settlement hubs, and direct settlement leaves the code ([hubs-only](decisions/hubs-only.md)). Today every scheme on the XRP Ledger peers directly, through the credit machinery ([Settlement](areas/settlement.md#credit)); the plain stub, which the simulations' own runs, a few tests across currencies and the tests of direct settlement still run on, settles directly through it too; and the wallet has no view of the node's hubs.
 
 - **Parts that can be built side by side:**
   - the owner's books: each scheme on the XRP Ledger, in XRP, DSUSD and RLUSD, runs as the owner's book of its asset and peers with no one; a scheme says whether it peers; a token scheme pays the owner's funds out as the XRP scheme does; and a hub's funding takes from and pays to the owner's book of the hub's asset;
@@ -54,7 +54,7 @@ A node with no account in a hub is paid into it by a peer, which opens its accou
 
 - **Parts that can be built side by side:**
   - the member's side in `dassie-hub`: a membership with no account yet, which learns its account by its key once a peer's `pay` opened it, and sets its disbursal address before any other operation ([built](areas/hubs.md#the-members-side));
-  - the node: a peering over a hub with a peer that has no account in it yet, whichever of them asked to peer, whose packets go without commitments, on what the paying peer owes the new member, until that reaches the hub's minimum for a new account; then the paying peer's `pay` of that minimum, never before, booked as a settlement on both sides. The new member spends only what it is owed, through the same peer.
+  - the node: a peering over a hub with a peer that has no account in it yet, whichever of them asked to peer, whose packets go without commitments (which the peer protocol already carries, [Peer protocol](areas/peer-protocol.md#message-set)), on what the paying peer owes the new member, until that reaches the hub's minimum for a new account; then the paying peer's `pay` of that minimum, never before, booked as a settlement on both sides. The new member spends only what it is owed, through the same peer. Only then does a member without an account report its membership, so the node advertises the hub, and the node's moves read a peer's account through its scheme (`HubScheme::peer_account`), not the peering info it gave.
 - **Done when:** in the `node-hub` simulation, a node with no account in the hub peers with a member, is paid into the hub without depositing once its peer owes it the hub's minimum for a new account, and not before, sets its disbursal address first, and pays and is paid over the hub from then on; the `pay` is booked once on each side, across crashes; and a node that cycles fresh keys through a member costs that member nothing.
 
 ### Token hubs

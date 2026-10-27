@@ -189,10 +189,11 @@ pub trait Commitments {
     }
 
     /// The hub we are a member of: what our link state names, so that
-    /// peers in the same hub peer with us over it. Its account is
-    /// [`Membership::NO_ACCOUNT`] while the hub has none for our key, which
-    /// a peer's payment opens (spec/designs/settlement-hubs.md#5-joining).
-    /// None, by default.
+    /// peers in the same hub peer with us over it. A member the hub has no
+    /// account for yet, to be paid in by a peer
+    /// (spec/designs/settlement-hubs.md#5-joining), says None until the
+    /// node carries packets on a peering without promises
+    /// (spec/roadmap.md#joining-by-being-paid). None, by default.
     fn membership(&self) -> Option<Membership> {
         None
     }
@@ -210,7 +211,10 @@ pub trait Commitments {
     /// answer for the Prepares it sends. A Prepare that comes without a
     /// commitment its receiver expected is taken as one without, on what
     /// its sender owes the receiver; one with a commitment its receiver
-    /// did not expect, as if it had none.
+    /// did not expect, as if it had none. The peer protocol hands either
+    /// on, on a method over a hub (spec/areas/peer-protocol.md#message-set);
+    /// the node's part is not built yet
+    /// (spec/roadmap.md#joining-by-being-paid).
     fn commits_with(&self, peer: Name) -> bool {
         let _ = peer;
         true

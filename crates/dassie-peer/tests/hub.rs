@@ -157,11 +157,10 @@ fn a_prepare_over_a_hub_comes_with_its_commitment() {
 
 // spec/areas/peer-protocol.md#message-set: a Prepare with a commitment is
 // refused as an unpeered Prepare is (409), from a node not peered and on a
-// method not over a hub; and a Prepare without one where the method is
-// over a hub. Only a Prepare travels on a method, and a Prepare only on
-// one.
+// method not over a hub. Only a Prepare travels on a method, and a Prepare
+// only on one.
 #[test]
-fn a_commitment_comes_exactly_with_prepares_over_a_hub() {
+fn a_commitment_comes_only_with_prepares_over_a_hub() {
     let (mut network, _, _) = peered(62, false);
     let mut sender = Sender::new(&key(1));
     let request = sender.request(&network, 0, &hub_packet(PREPARE));
@@ -174,8 +173,6 @@ fn a_commitment_comes_exactly_with_prepares_over_a_hub() {
     for node in &mut network.nodes {
         node.hooks.commitments = true;
     }
-    let request = sender.request(&network, 0, &bare_packet(PREPARE));
-    assert_eq!(network.inbound(0, &request).status, 409);
     let request = sender.request(&network, 0, &hub_packet(FULFILL));
     assert_eq!(network.inbound(0, &request).status, 400);
     let request = sender.request(&network, 0, &hub_packet(PREPARE));
@@ -184,6 +181,31 @@ fn a_commitment_comes_exactly_with_prepares_over_a_hub() {
     let mut stranger = Sender::new(&key(7));
     let request = stranger.request(&network, 0, &hub_packet(PREPARE));
     assert_eq!(network.inbound(0, &request).status, 409);
+}
+
+// spec/designs/settlement-hubs.md#5-joining: on a method over a hub, a
+// Prepare without a commitment, as one to or from a peer with no account
+// in the hub yet goes, reaches the node with none, for its scheme to judge.
+#[test]
+fn a_prepare_over_a_hub_may_come_without_a_commitment() {
+    let (mut network, _, _) = peered(65, true);
+    let mut sender = Sender::new(&key(1));
+    let request = sender.request(&network, 0, &bare_packet(PREPARE));
+    let reply = handle(&mut network, 0, &request, |inbound| match inbound {
+        Inbound::Packet {
+            scheme: method,
+            commitment,
+            answer,
+            ..
+        } => {
+            assert_eq!(method, Some(scheme(STUB)));
+            assert_eq!(commitment, None);
+            assert!(!answer.takes_claim());
+            answer.reply(&[])
+        }
+        other => panic!("not a packet: {other:?}"),
+    });
+    assert!(body(&reply).is_empty());
 }
 
 // The reply to a Fulfill over a hub carries the payer's claim; on any other

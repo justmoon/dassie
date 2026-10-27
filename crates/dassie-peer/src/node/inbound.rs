@@ -207,11 +207,16 @@ impl PeerNode {
 
     /// An ILP Prepare on a method of our peering, in a `methodPacket`: it
     /// needs a peering that is not ending, with a method on `scheme`, and
-    /// comes with a commitment exactly when the method's scheme uses them
+    /// comes with no commitment unless the method's scheme uses them
     /// (spec/decisions/settlement-methods.md,
-    /// spec/designs/settlement-hubs.md#4-peering-over-a-hub). Each refusal
-    /// is a 409, as for a Prepare from a node not peered: the sender reads
-    /// it as not acted upon, and rejects the packet at once.
+    /// spec/designs/settlement-hubs.md#4-peering-over-a-hub). On a method
+    /// over a hub it may come without one, as between a member and a peer
+    /// with no account in the hub yet
+    /// (spec/designs/settlement-hubs.md#5-joining): whether the two promise
+    /// is the node's to judge, by its scheme, so the commitment is handed
+    /// on only when there is one. Each refusal is a 409, as for a Prepare
+    /// from a node not peered: the sender reads it as not acted upon, and
+    /// rejects the packet at once.
     fn prepare_request<'a>(
         &mut self,
         hooks: &dyn PeeringHooks,
@@ -239,8 +244,8 @@ impl PeerNode {
             return refuse(409, "no method on that scheme");
         }
         let hub = hooks.uses_commitments(scheme);
-        if commitment.is_empty() == hub {
-            return refuse(409, commitment_refusal(hub));
+        if !hub && !commitment.is_empty() {
+            return refuse(409, "the method takes no commitments");
         }
         // A peering being ended takes no new Prepares: refused here, they
         // leave nothing to answer, so the drain can finish.
@@ -252,7 +257,7 @@ impl PeerNode {
             request_id,
             packet,
             scheme: Some(scheme),
-            commitment: hub.then_some(commitment),
+            commitment: (hub && !commitment.is_empty()).then_some(commitment),
             answer: PacketAnswer {
                 peer: accepted.sender,
                 fulfill: false,
@@ -643,16 +648,6 @@ impl PacketAnswer {
         );
         assert!(claim.len() <= MAX_CLAIM_BYTES, "a claim too long");
         ok(claim)
-    }
-}
-
-/// Why a Prepare is refused for its commitment: missing where the
-/// method's scheme uses them, or there where it does not.
-const fn commitment_refusal(hub: bool) -> &'static str {
-    if hub {
-        "a Prepare over a hub needs its commitment"
-    } else {
-        "the method takes no commitments"
     }
 }
 
