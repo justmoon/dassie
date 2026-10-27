@@ -6653,3 +6653,4 @@ fn a_dropped_method_takes_its_slot_and_brings_it_back() {
 mod winding;
 
 mod joining;
+mod unavailable;
