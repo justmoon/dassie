@@ -311,8 +311,11 @@ impl PeerNode {
     /// A peer dropped a method of our peering (`methodDrop`), after
     /// collecting on it: we drop it at once, and settle nothing more on it
     /// (spec/decisions/settlement-methods.md). A method we do not have is
-    /// dropped already. A peering it leaves with none ends; one being ended
-    /// keeps its last until it is over.
+    /// dropped already; if we are asking the peer for one on that scheme,
+    /// the peer took it and dropped it before its acceptance reached us,
+    /// so our request ends there, and an acceptance that still arrives adds
+    /// nothing. A peering it leaves with none ends; one being ended keeps
+    /// its last until it is over.
     pub(super) fn method_drop_request(&mut self, accepted: &Accepted, scheme: SchemeId) -> Reply {
         let sender = accepted.sender;
         let Some(peering) = self.peering_of(&sender) else {
@@ -320,6 +323,9 @@ impl PeerNode {
             return Reply::refuse(409, "not peered");
         };
         if !peering.has(scheme) {
+            if self.method_asking(&sender) == Some(scheme) {
+                self.method_failed(sender);
+            }
             return ok(&[]);
         }
         if peering.methods.len() > 1 && !peering.collecting_on(scheme) {
