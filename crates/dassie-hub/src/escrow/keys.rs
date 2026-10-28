@@ -11,7 +11,7 @@
 
 use alloc::string::String;
 
-use dassie_identity::{HubKey, NodeKey, NodeSecret, Signature};
+use dassie_identity::{HubKey, IdentityKey, NodeKey, NodeSecret, Signature};
 use dassie_xrpl::Wallet;
 
 use super::bip32::{ExtendedPrivate, ExtendedPublic};
@@ -54,11 +54,16 @@ impl ValidatorKeys {
     /// The validator's acceptance of `terms`, reachable at `endpoint`,
     /// signed by `node`.
     #[must_use]
-    pub fn accept(&self, node: &NodeKey, terms: &Terms, endpoint: String) -> Option<Acceptance> {
+    pub fn accept(
+        &self,
+        node: &IdentityKey,
+        terms: &Terms,
+        endpoint: String,
+    ) -> Option<Acceptance> {
         let ExtendedPublic { key, chain } = self.payout.public()?;
         Some(
             Acceptance {
-                node: node.public_key(),
+                node: node.identity(),
                 consensus: self.consensus.public_key(),
                 escrow: *self.escrow.public_key().as_bytes(),
                 payout: key,
@@ -133,8 +138,8 @@ mod tests {
 
     #[test]
     fn an_acceptance_verifies() {
-        let node = NodeKey::from_bytes(&[1; 32]);
-        let terms = terms(&NodeKey::from_bytes(&[9; 32]));
+        let node = IdentityKey::from_bytes(&[1; 32]);
+        let terms = terms(crate::rules::tests::node_key(9));
         let keys = ValidatorKeys::derive(&node, terms.network, &terms.nonce).unwrap();
         let acceptance = keys.accept(&node, &terms, "v1.example:443".into()).unwrap();
         assert!(acceptance.verifies(&terms.digest(), &terms.nonce));

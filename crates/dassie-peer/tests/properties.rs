@@ -10,7 +10,7 @@ mod support;
 
 use std::sync::Arc;
 
-use dassie_identity::{NodeId, NodeKey};
+use dassie_identity::{IdentityKey, NodeId};
 use dassie_oer::Decode;
 use dassie_peer::sim::{Arriving, Network, forger, key, url};
 use dassie_peer::wire::{
@@ -49,12 +49,12 @@ fn body() -> impl Strategy<Value = Body> {
 /// A node sending requests to node 0, over a connection that proves its
 /// key.
 struct Sender {
-    key: Arc<NodeKey>,
+    key: Arc<IdentityKey>,
     url: String,
 }
 
 impl Sender {
-    const fn new(key: Arc<NodeKey>, url: String) -> Self {
+    const fn new(key: Arc<IdentityKey>, url: String) -> Self {
         Self { key, url }
     }
 
@@ -65,6 +65,7 @@ impl Sender {
             url: &self.url,
             alias: "",
             public_key: *self.key.public_key().as_bytes(),
+            slh_dsa_public_key: *self.key.identity().slh_dsa().as_bytes(),
             entries: vec![Entry::Neighbor(key(0).node_id()), Entry::Scheme(stub())],
         };
         sign_node_info(&self.key, &info)
@@ -108,7 +109,7 @@ proptest! {
         let mut network = Network::new(1, 2, 1, Config::DEV);
         settle(&mut network, 30_000);
         prop_assert!(network.node(0).peering_of(&key(1).node_id()).is_some());
-        let stranger = Arc::new(NodeKey::from_bytes(&[90; 32]));
+        let stranger = Arc::new(IdentityKey::from_bytes(&[90; 32]));
         let senders = [
             Sender::new(key(1), url(1)),
             Sender::new(stranger, "https://stranger.test".to_owned()),

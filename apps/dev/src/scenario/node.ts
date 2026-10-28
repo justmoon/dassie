@@ -116,14 +116,18 @@ export class ScenarioNode {
   }
 
   /** Its entry in `DASSIE_BOOTSTRAP_NODES`. */
-  bootstrapEntry(): { id: string; url: string; publicKey: string } {
+  bootstrapEntry(): {
+    id: string;
+    url: string;
+    publicKey: string;
+    slhDsaPublicKey: string;
+  } {
+    const base64url = { alphabet: "base64url", omitPadding: true } as const;
     return {
       id: this.id,
       url: this.url,
-      publicKey: this.identity.publicKey.toBase64({
-        alphabet: "base64url",
-        omitPadding: true,
-      }),
+      publicKey: this.identity.publicKey.toBase64(base64url),
+      slhDsaPublicKey: this.identity.slhDsaPublicKey.toBase64(base64url),
     };
   }
 

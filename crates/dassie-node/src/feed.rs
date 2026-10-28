@@ -25,7 +25,7 @@ use dassie_feed::{
     CookieSecret, Decision, FEED_MIN_INTERVAL_MS, Feed, Ledger, Limits, MAX_DATAGRAM_BYTES,
     MAX_LEDGERS, Poll, Rate, Refused, Schedule, SubscriberTable,
 };
-use dassie_identity::NodeKey;
+use dassie_identity::{IdentityKey, NodeKey};
 use dassie_ledger::LedgerId;
 use tokio::net::UdpSocket;
 use tokio::sync::watch;
@@ -517,7 +517,7 @@ impl Service {
 
     /// The node key, while the node serves a feed: it has a URL, at whose
     /// host subscribers find it, and a key to sign with.
-    fn serving_key(&self) -> Option<Arc<NodeKey>> {
+    fn serving_key(&self) -> Option<Arc<IdentityKey>> {
         self.node.node_key().filter(|_| serving(&self.node))
     }
 
@@ -553,7 +553,7 @@ impl Service {
     /// be fetched, then publishes if a feed is due, and keeps the schedule.
     /// A node that does not serve never asks the engine; the table is
     /// fetched once it does.
-    async fn step(&mut self, key: Option<&NodeKey>) {
+    async fn step(&mut self, key: Option<&IdentityKey>) {
         let Some(key) = key else {
             self.next_poll_ms = None;
             return;

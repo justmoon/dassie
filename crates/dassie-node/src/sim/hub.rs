@@ -48,7 +48,7 @@ use dassie_hub::service::wire::Message as HubMessage;
 use dassie_hub::sim::Role;
 use dassie_hub::validators::ValidatorIndex;
 use dassie_hub::{Digest, Millis};
-use dassie_identity::{NodeKey, PublicKey};
+use dassie_identity::{IdentityKey, NodeIdentity};
 use dassie_ledger::LedgerId;
 use dassie_oer::{Decode, Encode};
 use dassie_xrpl::AccountId;
@@ -81,8 +81,8 @@ pub const MAX_VALIDATORS: usize = 16;
 
 /// The sponsor's node key.
 #[must_use]
-pub fn sponsor() -> NodeKey {
-    NodeKey::from_bytes(&[100; 32])
+pub fn sponsor() -> Arc<IdentityKey> {
+    super::key_of(100)
 }
 
 /// What a hub of a run is: its place among the run's hubs, which tells its
@@ -170,15 +170,15 @@ pub fn spec_of(settling: Settling, ledger: LedgerId) -> Option<HubSpec> {
 /// Validator `index`'s node key in the run's first hub, the same in every
 /// run.
 #[must_use]
-pub fn validator_key(index: usize) -> NodeKey {
+pub fn validator_key(index: usize) -> Arc<IdentityKey> {
     validator_key_in(0, index)
 }
 
 /// Validator `index`'s node key in the hub at `place`.
 #[must_use]
-pub fn validator_key_in(place: usize, index: usize) -> NodeKey {
+pub fn validator_key_in(place: usize, index: usize) -> Arc<IdentityKey> {
     assert!(place < MAX_HUBS && index < MAX_VALIDATORS);
-    NodeKey::from_bytes(&[u8::try_from(200 + place * MAX_VALIDATORS + index).unwrap(); 32])
+    super::key_of(u8::try_from(200 + place * MAX_VALIDATORS + index).unwrap())
 }
 
 /// Where validator `index` of the run's first hub is reached.
@@ -278,7 +278,7 @@ pub fn terms_in(spec: &HubSpec, validators: usize) -> Terms {
     Terms {
         version: dassie_hub::rules::HUB_VERSION,
         nonce: spec.nonce,
-        sponsor: sponsor.public_key(),
+        sponsor: sponsor.identity(),
         network: spec.network,
         escrow,
         asset: spec.asset,
@@ -384,7 +384,7 @@ pub fn config_in(spec: &HubSpec, validators: usize) -> String {
 /// its driver and its watcher of the escrow.
 pub struct HubValidator {
     /// Its node key.
-    pub node: Arc<NodeKey>,
+    pub node: Arc<IdentityKey>,
     /// Its database.
     pub store: Arc<Store>,
     /// Its validator, while it runs.
@@ -591,7 +591,7 @@ enum Input {
     Tick,
     Message {
         from: PeerId,
-        node: Option<PublicKey>,
+        node: Option<NodeIdentity>,
         bytes: Vec<u8>,
     },
     Attest(ValidatorOperation),
@@ -656,7 +656,7 @@ impl Sim {
                 .unwrap()
                 - half;
             validators.push(HubValidator {
-                node: Arc::new(validator_key_in(spec.place, index)),
+                node: validator_key_in(spec.place, index),
                 store: Arc::new(Store::open_in_memory().unwrap()),
                 driver: None,
                 watcher: None,
@@ -1243,7 +1243,7 @@ impl Sim {
         message: Vec<u8>,
         reply: bool,
     ) {
-        let node = self.validator(from).node.public_key();
+        let node = self.validator(from).node.identity();
         let input = Input::Message {
             from: PeerId(u64::try_from(split(from).1).unwrap()),
             node: Some(node),

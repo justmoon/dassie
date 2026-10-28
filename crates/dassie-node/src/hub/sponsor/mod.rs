@@ -19,7 +19,7 @@ use std::time::Duration;
 
 use dassie_hub::HubId;
 use dassie_hub::founding::{FoundingAnswer, FoundingRequest, Refusal, Sponsor, Stage};
-use dassie_identity::{NodeId, NodeKey};
+use dassie_identity::{IdentityKey, NodeId};
 use dassie_oer::{Decode, Encode};
 use dassie_xrpl::AccountId;
 use tokio::sync::{mpsc, watch};
@@ -213,12 +213,8 @@ pub fn found(node: &Node, request: FoundRequest) -> Result<FoundingStatus, Found
     // (spec/decisions/hub-keys-by-network.md).
     let network = founding_network(node.config().realm);
     let master = dassie_hub::escrow::escrow_master(&key, network.id, &nonce);
-    let base = dassie_hub::founding::starting_terms(
-        nonce,
-        key.public_key(),
-        network.id,
-        master.account().0,
-    );
+    let base =
+        dassie_hub::founding::starting_terms(nonce, key.identity(), network.id, master.account().0);
     let mut terms = terms::terms(base, &request.terms).map_err(FoundError::Invalid)?;
     // The margin covers finality with as many validators faulty as these
     // tolerate, or no validator would sign the genesis of these rules.
@@ -426,7 +422,7 @@ async fn foundings(node: Arc<Node>, shutdown: CancellationToken) {
 /// One founding at work.
 struct Founding {
     node: Arc<Node>,
-    key: Arc<NodeKey>,
+    key: Arc<IdentityKey>,
     client: HubClient,
     row: FoundingRow,
     sponsor: Sponsor,
@@ -630,14 +626,10 @@ mod tests {
     fn a_hub_no_scheme_joins_is_not_founded() {
         use dassie_hub::rules::Asset;
 
-        let key = dassie_identity::NodeKey::from_bytes(&[3; 32]);
+        let key = dassie_identity::IdentityKey::from_bytes(&[3; 32]);
         let terms = |network: &dassie_xrpl::network::Network, asset| {
-            let mut terms = dassie_hub::founding::starting_terms(
-                [1; 32],
-                key.public_key(),
-                network.id,
-                [2; 20],
-            );
+            let mut terms =
+                dassie_hub::founding::starting_terms([1; 32], key.identity(), network.id, [2; 20]);
             terms.asset = asset;
             terms
         };

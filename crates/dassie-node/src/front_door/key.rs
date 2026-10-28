@@ -7,7 +7,7 @@ use std::os::unix::fs::OpenOptionsExt as _;
 use std::path::Path;
 
 use base64::Engine as _;
-use dassie_identity::NodeKey;
+use dassie_identity::{IdentityKey, NodeKey};
 use rustls::pki_types::PrivateKeyDer;
 use rustls::pki_types::pem::PemObject;
 
@@ -84,17 +84,24 @@ pub fn read_or_make(path: &Path) -> Result<NodeKey, String> {
 /// The `DASSIE_RELAY` entry that names a front door with `key` at `url`,
 /// as a periphery node takes it (spec/areas/node.md#a-chosen-relay).
 #[must_use]
-pub fn relay_entry(key: &NodeKey, url: &str) -> String {
-    let public = key.public_key();
-    let mut encoded = [0u8; 43];
-    let length = dassie_base64url::encode(public.as_bytes(), &mut encoded);
-    let encoded = std::str::from_utf8(encoded.get(..length).unwrap_or_default()).unwrap_or("");
+pub fn relay_entry(key: &IdentityKey, url: &str) -> String {
+    let identity = key.identity();
     serde_json::json!({
         "id": key.node_id().as_str(),
         "url": url,
-        "publicKey": encoded,
+        "publicKey": base64url(identity.key().as_bytes()),
+        "slhDsaPublicKey": base64url(identity.slh_dsa().as_bytes()),
     })
     .to_string()
+}
+
+/// A key's 32 bytes in base64url.
+fn base64url(key: &[u8; 32]) -> String {
+    let mut encoded = [0u8; 43];
+    let length = dassie_base64url::encode(key, &mut encoded);
+    std::str::from_utf8(encoded.get(..length).unwrap_or_default())
+        .unwrap_or("")
+        .to_owned()
 }
 
 #[cfg(test)]
@@ -106,14 +113,14 @@ mod tests {
 
     #[test]
     fn a_key_reads_as_seed_pem_or_der() {
-        let key = NodeKey::from_bytes(&[7; 32]);
+        let key = IdentityKey::from_bytes(&[7; 32]);
         let der = key.to_pkcs8_der();
         let pem = format!(
             "-----BEGIN PRIVATE KEY-----\n{}\n-----END PRIVATE KEY-----\n",
             base64::engine::general_purpose::STANDARD.encode(der.as_bytes())
         );
         for bytes in [&[7u8; 32][..], der.as_bytes(), pem.as_bytes()] {
-            assert_eq!(parse(bytes).unwrap().node_id(), key.node_id());
+            assert_eq!(parse(bytes).unwrap().public_key(), key.public_key());
         }
         assert!(parse(&[7; 31]).is_none());
         assert!(parse(b"-----BEGIN CERTIFICATE-----\n-----END CERTIFICATE-----\n").is_none());
@@ -128,13 +135,13 @@ mod tests {
             &std::fs::metadata(&path).unwrap().permissions(),
         );
         assert_eq!(mode & 0o777, 0o600);
-        assert_eq!(read_or_make(&path).unwrap().node_id(), made.node_id());
-        assert_eq!(read(&path).unwrap().node_id(), made.node_id());
+        assert_eq!(read_or_make(&path).unwrap().public_key(), made.public_key());
+        assert_eq!(read(&path).unwrap().public_key(), made.public_key());
     }
 
     #[test]
     fn the_relay_entry_is_one_a_node_takes() {
-        let key = NodeKey::from_bytes(&[8; 32]);
+        let key = IdentityKey::from_bytes(&[8; 32]);
         let entry = relay_entry(&key, "https://relay.dassiepay.net");
         let env = Env::from_pairs([
             ("DASSIE_STATE_DIRECTORY", "/tmp/unused"),

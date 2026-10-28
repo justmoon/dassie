@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use dassie_identity::NodeKey;
+use dassie_identity::IdentityKey;
 use dassie_ilp::{Timestamp, ildcp};
 use dassie_kit::sim::SeededRng;
 use dassie_node_core::config::Realm;
@@ -84,7 +84,7 @@ fn core_with(
 ) -> Result<Core, String> {
     let parts = CoreParts {
         store,
-        key: Arc::new(NodeKey::from_bytes(&[7; 32])),
+        key: Arc::new(IdentityKey::from_bytes(&[7; 32])),
         realm,
         live,
         policies,
@@ -431,7 +431,7 @@ fn a_refused_batch_read_again_is_never_booked_twice() {
     const SCHEME: &str = "xrpl-testnet-xrp";
     const XRP: u64 = 1_000_000;
     let config = r#"{"server":"ws://ledger.test","faucet":null}"#;
-    let entropy = NodeKey::from_bytes(&[7; 32]).xrpl_account_entropy(TESTNET.id, 0);
+    let entropy = IdentityKey::from_bytes(&[7; 32]).xrpl_account_entropy(TESTNET.id, 0);
     let account = Wallet::from_entropy(entropy.as_bytes()).account();
     let mut ledger = fake_ledger(false);
     ledger.fund(account);
@@ -506,7 +506,7 @@ fn a_reserve_change_is_reconciled_as_information() {
 
     const SCHEME: &str = "xrpl-testnet-xrp";
     let config = r#"{"server":"ws://ledger.test","faucet":null}"#;
-    let entropy = NodeKey::from_bytes(&[7; 32]).xrpl_account_entropy(TESTNET.id, 0);
+    let entropy = IdentityKey::from_bytes(&[7; 32]).xrpl_account_entropy(TESTNET.id, 0);
     let account = dassie_xrpl::Wallet::from_entropy(entropy.as_bytes()).account();
     let mut ledger = fake_ledger(false);
     ledger.fund(account);
@@ -1285,8 +1285,8 @@ fn a_settlement_of_a_largest_packet_marks_its_payer() {
     use dassie_settlement::Effect;
 
     let store = Arc::new(Store::open_in_memory().unwrap());
-    let paying = NodeKey::from_bytes(&[11; 32]);
-    let short = NodeKey::from_bytes(&[12; 32]);
+    let paying = IdentityKey::from_bytes(&[11; 32]);
+    let short = IdentityKey::from_bytes(&[12; 32]);
     let channels = [&paying, &short].map(|key| StoredChannel {
         node: key.node_id(),
         channel: Channel::new(key.public_key(), None),
@@ -1314,7 +1314,7 @@ fn a_settlement_of_a_largest_packet_marks_its_payer() {
     core.apply_effects(Name::new("stub").unwrap(), LedgerId::StubUsd, &effects)
         .unwrap();
     assert_eq!(core.downlinks.opened.len(), 2, "opened as downlinks'");
-    let paid = |core: &Core, key: &NodeKey| core.peer.channel(&key.node_id()).unwrap().paid_us;
+    let paid = |core: &Core, key: &IdentityKey| core.peer.channel(&key.node_id()).unwrap().paid_us;
     assert!(paid(&core, &paying));
     assert!(!paid(&core, &short));
     core.flush();
@@ -1342,7 +1342,7 @@ fn peers_accounts_leave_room_for_the_nodes_own() {
     });
     let mut downlinks = super::downlinks::Downlinks::default();
     for (seed, downlink) in [(1, false), (2, true), (3, false), (4, true)] {
-        let node = NodeKey::from_bytes(&[seed; 32]).node_id();
+        let node = IdentityKey::from_bytes(&[seed; 32]).node_id();
         let name = Name::new(node.as_str()).unwrap();
         if downlink {
             assert!(downlinks.fit(max_accounts, &node));
@@ -1352,7 +1352,7 @@ fn peers_accounts_leave_room_for_the_nodes_own() {
         }
         ledger.open_peer(NOW, LedgerId::StubUsd, name, 1).unwrap();
     }
-    let next = NodeKey::from_bytes(&[5; 32]).node_id();
+    let next = IdentityKey::from_bytes(&[5; 32]).node_id();
     assert!(
         !super::peers::room_for_core_peer(&ledger, &downlinks.opened)
             && !downlinks.fit(max_accounts, &next),
@@ -1378,7 +1378,7 @@ fn peers_accounts_leave_room_for_the_nodes_own() {
 fn seeded_node(seed: u32) -> dassie_identity::NodeId {
     let mut bytes = [1; 32];
     bytes[..4].copy_from_slice(&seed.to_be_bytes());
-    NodeKey::from_bytes(&bytes).node_id()
+    IdentityKey::from_bytes(&bytes).node_id()
 }
 
 /// Accepts a peering request from [`seeded_node`] `seed` on the stub, with
@@ -1453,7 +1453,7 @@ fn downlinks_never_take_the_room_core_peers_need() {
         accept_on_stub(&mut core, seed, false).unwrap();
     }
     let scheme = dassie_peer::wire::SchemeId::parse("stub").unwrap();
-    let last = NodeKey::from_bytes(&[2; 32]).node_id();
+    let last = IdentityKey::from_bytes(&[2; 32]).node_id();
     let info = stub_info(&mut core);
     core.with_peer(|_, hooks, _| hooks.finalize(NOW, last, scheme, &info))
         .unwrap();
@@ -1478,11 +1478,11 @@ fn the_downlinks_accounts_are_known_after_a_restart() {
     let dir = tempfile::tempdir().unwrap();
     let store = Arc::new(Store::open(dir.path()).unwrap());
     let (mut core, opened) = stub_core_with_downlink_on(Arc::clone(&store), TRUSTING);
-    let waiting = Arc::new(NodeKey::from_bytes(&[12; 32]));
+    let waiting = Arc::new(IdentityKey::from_bytes(&[12; 32]));
     let at = NOW + 2_000;
     core.begin_step(at);
     let body = stub_downlink_request(&mut core, &waiting, at);
-    core.peer_inbound(dassie_peer::InboundId(2), waiting.public_key(), &body, None);
+    core.peer_inbound(dassie_peer::InboundId(2), waiting.identity(), &body, None);
     let mut outputs = Vec::new();
     core.finish_step(&mut outputs);
     assert_eq!(
@@ -1720,7 +1720,7 @@ fn the_books_hold_a_channel_open_while_anything_of_it_is_pending() {
 
     let mut core = core(7);
     add_stub(&mut core, COMMITTING);
-    let peer = NodeKey::from_bytes(&[9; 32]).node_id();
+    let peer = IdentityKey::from_bytes(&[9; 32]).node_id();
     let name = Name::new(peer.as_str()).unwrap();
     core.ledger
         .open_peer(NOW, LedgerId::StubUsd, name, core.peer_credit)
@@ -2085,19 +2085,24 @@ fn a_replaced_connection_is_forgotten_across_a_restart() {
 
 /// A periphery node's peering request on the stub with commitments, which
 /// writes no peering info, from `downlink`, at `now`.
-fn downlink_request(downlink: &Arc<NodeKey>, now: u64) -> Vec<u8> {
+fn downlink_request(downlink: &Arc<IdentityKey>, now: u64) -> Vec<u8> {
     downlink_request_on(downlink, now, "stub", &[])
 }
 
 /// A periphery node's peering request to `core`, from `downlink`, at `now`,
 /// on `core`'s stub, with the peering info the stub writes.
-fn stub_downlink_request(core: &mut Core, downlink: &Arc<NodeKey>, now: u64) -> Vec<u8> {
+fn stub_downlink_request(core: &mut Core, downlink: &Arc<IdentityKey>, now: u64) -> Vec<u8> {
     let info = stub_info(core);
     downlink_request_on(downlink, now, "stub", &info)
 }
 
 /// A peering request from `downlink` on `scheme`, with the scheme's `data`.
-fn downlink_request_on(downlink: &Arc<NodeKey>, now: u64, scheme: &str, data: &[u8]) -> Vec<u8> {
+fn downlink_request_on(
+    downlink: &Arc<IdentityKey>,
+    now: u64,
+    scheme: &str,
+    data: &[u8],
+) -> Vec<u8> {
     use dassie_oer::Decode;
     use dassie_peer::wire::{
         Content, EXTENSION_PERIPHERY, Entry, NodeInfo, PeeringRequest, SchemeId, SignedNodeInfo,
@@ -2109,6 +2114,7 @@ fn downlink_request_on(downlink: &Arc<NodeKey>, now: u64, scheme: &str, data: &[
         url: "",
         alias: "",
         public_key: *downlink.public_key().as_bytes(),
+        slh_dsa_public_key: *downlink.identity().slh_dsa().as_bytes(),
         entries: vec![
             Entry::Scheme(stub),
             Entry::Extension {
@@ -2138,16 +2144,11 @@ fn a_downlink_that_owes_nothing_is_never_short_of_room() {
     add_stub(&mut core, COMMITTING);
     let mut outputs = Vec::new();
     core.finish_step(&mut outputs);
-    let downlink = Arc::new(NodeKey::from_bytes(&[11; 32]));
+    let downlink = Arc::new(IdentityKey::from_bytes(&[11; 32]));
     let at = NOW + 1_000;
     core.begin_step(at);
     let body = stub_downlink_request(&mut core, &downlink, at);
-    core.peer_inbound(
-        dassie_peer::InboundId(1),
-        downlink.public_key(),
-        &body,
-        None,
-    );
+    core.peer_inbound(dassie_peer::InboundId(1), downlink.identity(), &body, None);
     core.finish_step(&mut outputs);
     let id = downlink.node_id();
     assert!(core.peer.is_downlink(&id) && core.peer.peering_of(&id).is_some());
@@ -2164,7 +2165,7 @@ fn a_downlink_that_owes_nothing_is_never_short_of_room() {
 /// `data`, at `at`: why it refused, if it did.
 fn asks_as_downlink(
     core: &mut Core,
-    downlink: &Arc<NodeKey>,
+    downlink: &Arc<IdentityKey>,
     at: u64,
     (scheme, data): (&str, &[u8]),
 ) -> Option<dassie_peer::wire::RefusalReason> {
@@ -2173,12 +2174,7 @@ fn asks_as_downlink(
 
     core.begin_step(at);
     let body = downlink_request_on(downlink, at, scheme, data);
-    core.peer_inbound(
-        dassie_peer::InboundId(at),
-        downlink.public_key(),
-        &body,
-        None,
-    );
+    core.peer_inbound(dassie_peer::InboundId(at), downlink.identity(), &body, None);
     let mut outputs = Vec::new();
     core.finish_step(&mut outputs);
     let reply = outputs
@@ -2797,7 +2793,7 @@ const SHARED_CONFIG: &str = r#"{"server":"ws://ledger.test","faucet":null}"#;
 /// The ledger with the node's first XRPL testnet account funded, and the
 /// account's address.
 fn funded_ledger() -> (dassie_xrpl::fake::FakeLedger, dassie_xrpl::AccountId) {
-    let entropy = NodeKey::from_bytes(&[7; 32]).xrpl_account_entropy(TESTNET.id, 0);
+    let entropy = IdentityKey::from_bytes(&[7; 32]).xrpl_account_entropy(TESTNET.id, 0);
     let account = dassie_xrpl::Wallet::from_entropy(entropy.as_bytes()).account();
     let mut ledger = fake_ledger(false);
     ledger.fund(account);
@@ -2963,7 +2959,7 @@ fn rlusd_beside_xrp_on_one_account() {
     use dassie_xrpl::fake::{FAUCET_DROPS, FEE_BASE, RESERVE_BASE, RESERVE_INC};
 
     let config = r#"{"server":"ws://ledger.test"}"#;
-    let entropy = NodeKey::from_bytes(&[7; 32]).xrpl_account_entropy(MAINNET.id, 0);
+    let entropy = IdentityKey::from_bytes(&[7; 32]).xrpl_account_entropy(MAINNET.id, 0);
     let address = Wallet::from_entropy(entropy.as_bytes()).account();
     let mut ledger = fake_ledger(true);
     // Mainnet has no faucet: the owner deposits.
@@ -3082,7 +3078,7 @@ fn dsusd_beside_xrp_and_no_test_rlusd() {
     use dassie_xrpl::fake::{FAUCET_DROPS, FEE_BASE, RESERVE_BASE, RESERVE_INC};
 
     let config = r#"{"server":"ws://ledger.test","faucet":null}"#;
-    let entropy = NodeKey::from_bytes(&[7; 32]).xrpl_account_entropy(TESTNET.id, 0);
+    let entropy = IdentityKey::from_bytes(&[7; 32]).xrpl_account_entropy(TESTNET.id, 0);
     let address = Wallet::from_entropy(entropy.as_bytes()).account();
     let mut ledger = fake_ledger(false);
     ledger.fund(address);
@@ -3174,7 +3170,7 @@ fn rlusd_off_its_peg_converts_nothing() {
     use super::events::{Event, SettlementEvent};
 
     let config = r#"{"server":"ws://ledger.test"}"#;
-    let entropy = NodeKey::from_bytes(&[7; 32]).xrpl_account_entropy(MAINNET.id, 0);
+    let entropy = IdentityKey::from_bytes(&[7; 32]).xrpl_account_entropy(MAINNET.id, 0);
     let address = Wallet::from_entropy(entropy.as_bytes()).account();
     let mut ledger = fake_ledger(true);
     ledger.deposit(address, FAUCET_DROPS);
@@ -3322,7 +3318,7 @@ fn on_dev_timers_the_peg_guard_trips_in_seconds() {
     use dassie_xrpl::{DROPS_PER_XRP, Wallet};
 
     let config = r#"{"server":"ws://ledger.test"}"#;
-    let entropy = NodeKey::from_bytes(&[7; 32]).xrpl_account_entropy(MAINNET.id, 0);
+    let entropy = IdentityKey::from_bytes(&[7; 32]).xrpl_account_entropy(MAINNET.id, 0);
     let address = Wallet::from_entropy(entropy.as_bytes()).account();
     let mut ledger = fake_ledger(true);
     ledger.deposit(address, FAUCET_DROPS);
@@ -3398,7 +3394,7 @@ fn a_hub_ledger_converts_only_while_its_books_guard_runs() {
     use dassie_xrpl::{DROPS_PER_XRP, Wallet};
 
     let config = r#"{"server":"ws://ledger.test","faucet":null}"#;
-    let entropy = NodeKey::from_bytes(&[7; 32]).xrpl_account_entropy(TESTNET.id, 0);
+    let entropy = IdentityKey::from_bytes(&[7; 32]).xrpl_account_entropy(TESTNET.id, 0);
     let address = Wallet::from_entropy(entropy.as_bytes()).account();
     let mut ledger = fake_ledger(false);
     ledger.fund(address);
@@ -3524,7 +3520,7 @@ fn core_taking_downlinks(
     Core::start(
         CoreParts {
             store,
-            key: Arc::new(NodeKey::from_bytes(&[7; 32])),
+            key: Arc::new(IdentityKey::from_bytes(&[7; 32])),
             realm,
             live,
             policies: Policies::DEFAULT,
@@ -3560,7 +3556,7 @@ fn rlusd_core_on(store: Arc<Store>, ledger: &mut dassie_xrpl::fake::FakeLedger, 
     use dassie_xrpl::fake::FAUCET_DROPS;
 
     let address = Wallet::from_entropy(
-        NodeKey::from_bytes(&[7; 32])
+        IdentityKey::from_bytes(&[7; 32])
             .xrpl_account_entropy(MAINNET.id, 0)
             .as_bytes(),
     )
@@ -3609,7 +3605,7 @@ fn a_core_node_refuses_an_uplink() {
     let mut core = core(12);
     add_stub(&mut core, TRUSTING);
     assert!(!core.peer.is_periphery());
-    let uplink = NodeKey::from_bytes(&[11; 32]).node_id();
+    let uplink = IdentityKey::from_bytes(&[11; 32]).node_id();
     let refused = core.create_incoming_payment(new_incoming(None, Some(uplink)));
     assert!(
         matches!(refused, Err(super::EngineError::Precondition(_))),
@@ -3631,7 +3627,7 @@ fn a_periphery_node_refuses_an_uplink_it_has_not() {
     let mut core = Core::start(
         CoreParts {
             store: Arc::new(Store::open_in_memory().unwrap()),
-            key: Arc::new(NodeKey::from_bytes(&[7; 32])),
+            key: Arc::new(IdentityKey::from_bytes(&[7; 32])),
             realm: Realm::Test,
             live: dassie_node_core::config::LiveRealm::Refused,
             policies: Policies::DEFAULT,
@@ -3656,7 +3652,7 @@ fn a_periphery_node_refuses_an_uplink_it_has_not() {
     let unpaid = core
         .create_incoming_payment(new_incoming(Some("client"), None))
         .unwrap();
-    let unknown = NodeKey::from_bytes(&[11; 32]).node_id();
+    let unknown = IdentityKey::from_bytes(&[11; 32]).node_id();
     let refused = core.create_incoming_payment(new_incoming(Some("client"), Some(unknown)));
     let Err(super::EngineError::Precondition(message)) = refused else {
         panic!("{refused:?}");
@@ -3764,15 +3760,15 @@ fn hub_rules(margin: u64, allowance: u64) -> dassie_hub::Rules {
     use dassie_hub::escrow::{ValidatorKeys, escrow_master};
     use dassie_hub::ledger::TESTNET_NETWORK;
     use dassie_hub::rules::{Fees, Limits, Rules, Terms, Timers};
-    use dassie_identity::NodeKey;
+    use dassie_identity::IdentityKey;
 
     let nonce = HUB_NONCE;
-    let sponsor = NodeKey::from_bytes(&[100; 32]);
+    let sponsor = IdentityKey::from_bytes(&[100; 32]);
     let master = escrow_master(&sponsor, TESTNET_NETWORK, &nonce);
     let terms = Terms {
         version: dassie_hub::rules::HUB_VERSION,
         nonce,
-        sponsor: sponsor.public_key(),
+        sponsor: sponsor.identity(),
         network: 1,
         escrow: master.account().0,
         asset: dassie_hub::rules::Asset::Xrp,
@@ -3811,7 +3807,7 @@ fn hub_rules(margin: u64, allowance: u64) -> dassie_hub::Rules {
     };
     let validators = (1..=4u8)
         .map(|i| {
-            let node = NodeKey::from_bytes(&[i; 32]);
+            let node = IdentityKey::from_bytes(&[i; 32]);
             ValidatorKeys::derive(&node, TESTNET_NETWORK, &nonce)
                 .unwrap()
                 .accept(&node, &terms, format!("v{i}.example:443"))
@@ -4261,16 +4257,11 @@ fn stub_core_with_downlink_on(store: Arc<Store>, config: &str) -> (Core, dassie_
     let refused = dassie_node_core::config::LiveRealm::Refused;
     let mut core = core_taking_downlinks(store, Realm::Test, refused, NOW);
     add_stub(&mut core, config);
-    let downlink = Arc::new(NodeKey::from_bytes(&[11; 32]));
+    let downlink = Arc::new(IdentityKey::from_bytes(&[11; 32]));
     let at = NOW + 1_000;
     core.begin_step(at);
     let body = stub_downlink_request(&mut core, &downlink, at);
-    core.peer_inbound(
-        dassie_peer::InboundId(1),
-        downlink.public_key(),
-        &body,
-        None,
-    );
+    core.peer_inbound(dassie_peer::InboundId(1), downlink.identity(), &body, None);
     let mut outputs = Vec::new();
     core.finish_step(&mut outputs);
     let id = downlink.node_id();
@@ -4542,7 +4533,7 @@ fn hub_core_with_downlink(seed: u64) -> (Core, dassie_identity::NodeId) {
     let mut core = Core::start(
         CoreParts {
             store,
-            key: Arc::new(NodeKey::from_bytes(&[7; 32])),
+            key: Arc::new(IdentityKey::from_bytes(&[7; 32])),
             realm: Realm::Test,
             live: dassie_node_core::config::LiveRealm::Refused,
             policies: Policies::DEFAULT,
@@ -4564,16 +4555,11 @@ fn hub_core_with_downlink(seed: u64) -> (Core, dassie_identity::NodeId) {
         .unwrap();
     let mut outputs = Vec::new();
     core.finish_step(&mut outputs);
-    let downlink = Arc::new(NodeKey::from_bytes(&[11; 32]));
+    let downlink = Arc::new(IdentityKey::from_bytes(&[11; 32]));
     let at = NOW + 1_000;
     core.begin_step(at);
     let body = downlink_request(&downlink, at);
-    core.peer_inbound(
-        dassie_peer::InboundId(1),
-        downlink.public_key(),
-        &body,
-        None,
-    );
+    core.peer_inbound(dassie_peer::InboundId(1), downlink.identity(), &body, None);
     core.finish_step(&mut outputs);
     let id = downlink.node_id();
     assert!(core.peer.peering_of(&id).is_some());
@@ -4790,14 +4776,14 @@ fn over_a_hub_a_payee_asks_by_the_room_of_the_hold_toward_it() {
 // moves many hub peerings' holds never finds the journal full.
 #[test]
 fn the_credit_over_a_hub_is_kept_in_step_on_a_full_journal() {
-    use dassie_identity::NodeKey;
+    use dassie_identity::IdentityKey;
     use dassie_ledger::{AccountName, LedgerId, Name, Reference, TransferError, TransferSpec};
 
     let mut core = core(9);
     core.add_scheme("stub", r#"{"commitments": 4}"#.into())
         .unwrap();
     let stub = Name::new("stub").unwrap();
-    let node = NodeKey::from_bytes(&[7; 32]).node_id();
+    let node = IdentityKey::from_bytes(&[7; 32]).node_id();
     let peer = Name::new(node.as_str()).unwrap();
     // We extend it 1000, and it owes us 500, with no hold between us: the
     // credit goes down to what it owes.
@@ -4855,14 +4841,15 @@ impl Validators {
         let rules = hub_rules(600, 300);
         let keys = (1..=4u8)
             .map(|i| {
-                let node = NodeKey::from_bytes(&[i; 32]);
+                let node = IdentityKey::from_bytes(&[i; 32]);
                 dassie_hub::escrow::ValidatorKeys::derive(&node, rules.terms.network, &HUB_NONCE)
                     .unwrap()
                     .consensus
             })
             .collect();
-        let member = dassie_hub::member::member_key(&NodeKey::from_bytes(&[7; 32]), &rules.id())
-            .public_key();
+        let member =
+            dassie_hub::member::member_key(&IdentityKey::from_bytes(&[7; 32]), &rules.id())
+                .public_key();
         Self {
             rules,
             keys,
@@ -4964,7 +4951,8 @@ impl Validators {
         use dassie_hub::promise::HoldNumber;
 
         self.height += 1;
-        let key = dassie_hub::member::member_key(&NodeKey::from_bytes(&[7; 32]), &self.rules.id());
+        let key =
+            dassie_hub::member::member_key(&IdentityKey::from_bytes(&[7; 32]), &self.rules.id());
         let fees = self.rules.terms.fees;
         let operation = SignedMemberOperation::sign(
             &self.rules.id(),
@@ -5055,7 +5043,7 @@ fn wait_and_close(
 /// Terms of an XRP hub whose escrow is `escrow`: all a validator reads a
 /// deposit to it by.
 fn xrp_hub_terms(escrow: dassie_xrpl::AccountId) -> dassie_hub::rules::Terms {
-    let sponsor = dassie_identity::NodeKey::from_bytes(&[100; 32]).public_key();
+    let sponsor = dassie_identity::IdentityKey::from_bytes(&[100; 32]).identity();
     dassie_hub::founding::starting_terms([0; 32], sponsor, 1, escrow.0)
 }
 
@@ -5817,7 +5805,7 @@ fn an_owner_book_funds_the_hub_and_never_peers() {
 
     // A downlink that asks to peer on it is refused, as on a scheme the
     // node does not run.
-    let downlink = Arc::new(NodeKey::from_bytes(&[11; 32]));
+    let downlink = Arc::new(IdentityKey::from_bytes(&[11; 32]));
     let theirs = dassie_xrpl::Wallet::from_entropy(&[11; 32]).account();
     let asked = asks_as_downlink(
         &mut core,
@@ -5877,7 +5865,7 @@ fn an_owner_book_funds_the_hub_and_never_peers() {
 /// step.
 fn tells_link_state(
     core: &mut Core,
-    other: &Arc<NodeKey>,
+    other: &Arc<IdentityKey>,
     (url, scheme): (&str, &str),
     at: u64,
 ) -> Vec<Output> {
@@ -5890,13 +5878,14 @@ fn tells_link_state(
         url,
         alias: "",
         public_key: *other.public_key().as_bytes(),
+        slh_dsa_public_key: *other.identity().slh_dsa().as_bytes(),
         entries: vec![Entry::Scheme(scheme)],
     };
     let state = sign_node_info(other, &info);
     let content = Content::LinkStateUpdate(SignedNodeInfo::decode_exact(&state).unwrap());
     let body = content.to_vec();
     core.begin_step(at);
-    core.peer_inbound(dassie_peer::InboundId(1), other.public_key(), &body, None);
+    core.peer_inbound(dassie_peer::InboundId(1), other.identity(), &body, None);
     let mut outputs = Vec::new();
     core.finish_step(&mut outputs);
     let held = core
@@ -5918,12 +5907,12 @@ fn asks_a_core_node_to_peer_on(
     use dassie_peer::wire::Kind;
 
     let (mut ledger, _) = funded_ledger();
-    let other = Arc::new(NodeKey::from_bytes(&[21; 32]));
+    let other = Arc::new(IdentityKey::from_bytes(&[21; 32]));
     let url = "https://other.test";
     let mut core = Core::start(
         CoreParts {
             store: Arc::new(Store::open_in_memory().unwrap()),
-            key: Arc::new(NodeKey::from_bytes(&[7; 32])),
+            key: Arc::new(IdentityKey::from_bytes(&[7; 32])),
             realm: Realm::Test,
             live: dassie_node_core::config::LiveRealm::Refused,
             policies: Policies::DEFAULT,
@@ -6009,7 +5998,7 @@ fn a_settlement_message_on_an_owner_book_is_applied_and_books_nothing() {
 
     let store = Arc::new(Store::open_in_memory().unwrap());
     let (mut core, id) = stub_core_with_downlink_on(store, TRUSTING);
-    let downlink = Arc::new(NodeKey::from_bytes(&[11; 32]));
+    let downlink = Arc::new(IdentityKey::from_bytes(&[11; 32]));
     assert_eq!(downlink.node_id(), id);
     add_xrpl(&mut core, "xrpl-testnet-xrp", SHARED_CONFIG).unwrap();
     let xrpl = dassie_ledger::Name::new("xrpl-testnet-xrp").unwrap();
@@ -6025,12 +6014,7 @@ fn a_settlement_message_on_an_owner_book_is_applied_and_books_nothing() {
             sequence,
         }
         .to_vec();
-        core.peer_inbound(
-            dassie_peer::InboundId(at),
-            downlink.public_key(),
-            &body,
-            None,
-        );
+        core.peer_inbound(dassie_peer::InboundId(at), downlink.identity(), &body, None);
         let mut outputs = Vec::new();
         core.finish_step(&mut outputs);
         let reply = outputs
@@ -6079,7 +6063,7 @@ fn a_notice_over_a_hub_is_taken_whatever_the_books_say() {
 
     let store = Arc::new(Store::open_in_memory().unwrap());
     let (mut core, id) = stub_core_with_downlink_on(store, TRUSTING);
-    let downlink = Arc::new(NodeKey::from_bytes(&[11; 32]));
+    let downlink = Arc::new(IdentityKey::from_bytes(&[11; 32]));
     assert_eq!(downlink.node_id(), id);
     let hub = dassie_hub::member::SCHEME_ID;
     core.add_scheme(hub, hub_config(600, 300)).unwrap();
@@ -6102,12 +6086,7 @@ fn a_notice_over_a_hub_is_taken_whatever_the_books_say() {
             sequence,
         }
         .to_vec();
-        core.peer_inbound(
-            dassie_peer::InboundId(at),
-            downlink.public_key(),
-            &body,
-            None,
-        );
+        core.peer_inbound(dassie_peer::InboundId(at), downlink.identity(), &body, None);
         let mut outputs = Vec::new();
         core.finish_step(&mut outputs);
         let reply = outputs
@@ -6191,10 +6170,10 @@ fn a_registration_is_on_disk_before_its_commitment_leaves() {
     use dassie_peer::wire::Kind;
 
     let store = Arc::new(Store::open_in_memory().unwrap());
-    let registrar = NodeKey::from_bytes(&[8; 32]);
+    let registrar = IdentityKey::from_bytes(&[8; 32]);
     let parts = |bootstrap: Vec<dassie_peer::Bootstrap>| CoreParts {
         store: Arc::clone(&store),
-        key: Arc::new(NodeKey::from_bytes(&[7; 32])),
+        key: Arc::new(IdentityKey::from_bytes(&[7; 32])),
         realm: Realm::Test,
         live: dassie_node_core::config::LiveRealm::Refused,
         policies: Policies::DEFAULT,
@@ -6256,8 +6235,8 @@ fn a_live_realm_node_takes_no_part_in_names() {
     use super::names::NAMES_OFF;
     use crate::engine::EngineError;
 
-    let own = NodeKey::from_bytes(&[7; 32]);
-    let other = NodeKey::from_bytes(&[8; 32]);
+    let own = IdentityKey::from_bytes(&[7; 32]);
+    let other = IdentityKey::from_bytes(&[8; 32]);
     let bootstrap = [&own, &other]
         .into_iter()
         .map(|key| dassie_peer::Bootstrap {
@@ -6551,7 +6530,7 @@ fn a_prepare_on_the_second_method_without_a_commitment_answers_t04() {
         commitment: &[],
     }
     .to_vec();
-    let from = crate::sim::key(1).public_key();
+    let from = crate::sim::key(1).identity();
     sim.step(0, |core| {
         core.peer_inbound(dassie_peer::InboundId(9_999), from, &body, None);
         let t04 = |packet: &[u8]| {

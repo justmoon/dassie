@@ -6,7 +6,7 @@
 
 use std::time::Duration;
 
-use dassie_identity::NodeKey;
+use dassie_identity::IdentityKey;
 use dassie_node::clock::ManualClock;
 use dassie_node::node::Policies;
 use dassie_node::rpc::proto::{self, request::Method, response};
@@ -35,43 +35,39 @@ pub fn xrpl_config(server: &dassie_node::fake_ledger::Server) -> String {
     config.to_string()
 }
 
-pub fn key(seed: u8) -> NodeKey {
-    NodeKey::from_bytes(&[seed; 32])
+pub fn key(seed: u8) -> IdentityKey {
+    IdentityKey::from_bytes(&[seed; 32])
 }
 
 /// `DASSIE_BOOTSTRAP_NODES` naming `node` at `port`.
-pub fn bootstrap(node: &NodeKey, port: u16) -> String {
-    let mut encoded = [0u8; 43];
-    let length = dassie_base64url::encode(node.public_key().as_bytes(), &mut encoded);
-    let public = std::str::from_utf8(&encoded[..length]).unwrap();
-    format!(
-        r#"[{{"id":"{}","url":"https://localhost:{port}","publicKey":"{public}"}}]"#,
-        node.node_id()
-    )
+pub fn bootstrap(node: &IdentityKey, port: u16) -> String {
+    let entry =
+        dassie_node::front_door::key::relay_entry(node, &format!("https://localhost:{port}"));
+    format!("[{entry}]")
 }
 
 /// Sets a node up as a peer: owner, hostname, certificate, and the stub
 /// with unlimited trust, for a test whose subject is not settlement.
-pub async fn prepare(node: &TestNode, key: &NodeKey) {
+pub async fn prepare(node: &TestNode, key: &IdentityKey) {
     prepare_with(node, key, "stub", STUB_UNLIMITED).await;
 }
 
 /// Sets a node up as a peer on the stub with commitments, holding at most
 /// `limit` packets in flight per peer each way: for a test of settlement,
 /// whose settlements fund holds as a hub member's do.
-pub async fn prepare_settling(node: &TestNode, key: &NodeKey, limit: usize) {
+pub async fn prepare_settling(node: &TestNode, key: &IdentityKey, limit: usize) {
     prepare_with(node, key, "stub", &stub_with_commitments(limit)).await;
 }
 
 /// Sets a node up as a peer, settling with `scheme` set up with `config`.
-pub async fn prepare_with(node: &TestNode, key: &NodeKey, scheme: &str, config: &str) {
+pub async fn prepare_with(node: &TestNode, key: &IdentityKey, scheme: &str, config: &str) {
     prepare_base(node, key).await;
     add_scheme(node, scheme, config).await;
 }
 
 /// Sets a node up as a peer, settling with the XRPL scheme `scheme`
 /// through its testnet account, whose config is `account`.
-pub async fn prepare_on_xrpl(node: &TestNode, key: &NodeKey, scheme: &str, account: &str) {
+pub async fn prepare_on_xrpl(node: &TestNode, key: &IdentityKey, scheme: &str, account: &str) {
     prepare_base(node, key).await;
     set_asset_config(node, XRPL_ACCOUNT, account).await;
     add_scheme(node, scheme, "").await;
@@ -93,7 +89,7 @@ pub async fn set_asset_config(node: &TestNode, asset: &str, config: &str) {
 }
 
 /// Sets a node up as a peer: owner, hostname and certificate.
-async fn prepare_base(node: &TestNode, key: &NodeKey) {
+async fn prepare_base(node: &TestNode, key: &IdentityKey) {
     set_up(node, key).await;
     let mut owner = node.ipc().await;
     let hostname = owner
@@ -176,7 +172,7 @@ pub async fn settle(clock: &ManualClock) {
 
 /// Whether `a` holds accounts for `b` on the stub's ledger: a core peer's
 /// open as its peering is made.
-pub async fn peered(a: &TestNode, b: &NodeKey) -> bool {
+pub async fn peered(a: &TestNode, b: &IdentityKey) -> bool {
     peered_on(a, b, "stub+usd").await
 }
 
@@ -184,7 +180,7 @@ pub async fn peered(a: &TestNode, b: &NodeKey) -> bool {
 /// accounts for a downlink open only once value moves with it, which on the
 /// stub with unlimited trust is its first packet, as nothing settles
 /// (spec/decisions/lazy-downlink-accounts.md).
-pub async fn peered_downlink(uplink: &TestNode, downlink: &NodeKey) -> bool {
+pub async fn peered_downlink(uplink: &TestNode, downlink: &IdentityKey) -> bool {
     let reply = uplink
         .ipc()
         .await
@@ -200,7 +196,7 @@ pub async fn peered_downlink(uplink: &TestNode, downlink: &NodeKey) -> bool {
 }
 
 /// Whether `a` holds accounts for `b` on `ledger`.
-pub async fn peered_on(a: &TestNode, b: &NodeKey, ledger: &str) -> bool {
+pub async fn peered_on(a: &TestNode, b: &IdentityKey, ledger: &str) -> bool {
     let path = format!("{ledger}:assets/interledger/{}", b.node_id());
     accounts(a).await.contains(&path)
 }
@@ -210,8 +206,8 @@ pub async fn peered_on(a: &TestNode, b: &NodeKey, ledger: &str) -> bool {
 pub struct Pair {
     pub a: TestNode,
     pub b: TestNode,
-    pub key_a: NodeKey,
-    pub key_b: NodeKey,
+    pub key_a: IdentityKey,
+    pub key_b: IdentityKey,
     pub clock: ManualClock,
 }
 

@@ -18,7 +18,7 @@ use std::time::Duration;
 use dassie_feed::{
     FeedReceiver, MAX_DATAGRAM_BYTES, RENEW_INTERVAL_MS, Received, Rejected, SUBSCRIBE_BYTES,
 };
-use dassie_identity::NodeId;
+use dassie_identity::NodeIdentity;
 use dassie_node::clock::Clock;
 use tokio::net::UdpSocket;
 use tokio::sync::watch;
@@ -102,15 +102,15 @@ pub struct FeedClient {
 }
 
 impl FeedClient {
-    /// A subscription to the feed of the node with `node_id` and
-    /// `public_key`, at `target`; it subscribes first at `now_ms`. The
-    /// caller has checked that the ID is the key's.
+    /// A subscription to the feed of the node of identity `node`, at
+    /// `target`; it subscribes first at `now_ms`. The caller has checked
+    /// that the node's ID is its keys'.
     #[must_use]
-    pub fn new(target: SocketAddr, node_id: NodeId, public_key: [u8; 32], now_ms: u64) -> Self {
+    pub fn new(target: SocketAddr, node: NodeIdentity, now_ms: u64) -> Self {
         Self {
             target,
-            public_key,
-            receiver: FeedReceiver::new(node_id),
+            public_key: *node.key().as_bytes(),
+            receiver: FeedReceiver::new(node),
             latest: None,
             next_subscribe_ms: now_ms,
         }
@@ -149,8 +149,8 @@ impl FeedClient {
                 Event::Challenge
             }
             Ok(Received::Feed(feed)) => {
-                // The receiver took it from the node subscribed to, whose
-                // ID is the key's hash, so the key is the target's.
+                // The receiver took it from the node subscribed to, by its
+                // key, so the key is the target's.
                 assert!(
                     feed.public_key == self.public_key,
                     "a feed of the target's ID is signed by its key"
@@ -247,6 +247,15 @@ mod tests {
         NodeKey::from_bytes(&[3; 32])
     }
 
+    /// An identity of `public_key`'s: the feed is checked against its key
+    /// alone, so any SLH-DSA key will do, without generating one.
+    fn identity(public_key: &dassie_identity::PublicKey) -> NodeIdentity {
+        NodeIdentity::new(
+            *public_key,
+            dassie_identity::SlhDsaPublicKey::from_bytes([3; 32]),
+        )
+    }
+
     /// A feed of `key`'s made at `sequence_ms`, valid for a minute.
     fn feed(key: &NodeKey, sequence_ms: u64, rate: u64) -> Feed<'static> {
         Feed {
@@ -286,7 +295,7 @@ mod tests {
 
     fn client(target: SocketAddr) -> FeedClient {
         let public_key = key().public_key();
-        FeedClient::new(target, public_key.node_id(), *public_key.as_bytes(), NOW_MS)
+        FeedClient::new(target, identity(&public_key), NOW_MS)
     }
 
     const TARGET_ADDRESS: SocketAddr = SocketAddr::new(
@@ -477,8 +486,7 @@ mod tests {
         let public_key = key.public_key();
         let client = FeedClient::new(
             server.socket.local_addr().unwrap(),
-            public_key.node_id(),
-            *public_key.as_bytes(),
+            identity(&public_key),
             NOW_MS,
         );
         let socket = UdpSocket::bind("127.0.0.1:0").await.unwrap();

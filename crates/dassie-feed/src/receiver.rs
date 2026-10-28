@@ -7,7 +7,7 @@
 //! yet expired, so a replayed or delayed datagram never sets rates back.
 //! The caller takes datagrams only from the node's address.
 
-use dassie_identity::NodeId;
+use dassie_identity::NodeIdentity;
 use dassie_kit::MINUTE_MS;
 
 use crate::cookie::Cookie;
@@ -34,7 +34,7 @@ pub enum Rejected {
     NotForUs,
     /// Its key or signature does not verify.
     Invalid(InvalidFeed),
-    /// It is another node's feed: its key's node ID is not the one
+    /// It is another node's feed: its key is not the key of the node
     /// subscribed to.
     OtherNode,
     /// Its sequence is not after the last feed taken.
@@ -46,17 +46,21 @@ pub enum Rejected {
 /// A subscription to one node's feed.
 #[derive(Clone, Debug)]
 pub struct FeedReceiver {
-    node_id: NodeId,
+    node: NodeIdentity,
     cookie: Option<Cookie>,
     last_sequence_ms: Option<u64>,
 }
 
 impl FeedReceiver {
-    /// A subscription to the feed of `node_id`, which has no cookie yet.
+    /// A subscription to the feed of `node`, which has no cookie yet. The
+    /// caller has `node`'s identity, both its keys, from where it learned
+    /// of the feed, so it knows its ID is the node's
+    /// (spec/areas/rate-feed.md#signing); a feed carries only the key that
+    /// signs it.
     #[must_use]
-    pub const fn new(node_id: NodeId) -> Self {
+    pub const fn new(node: NodeIdentity) -> Self {
         Self {
-            node_id,
+            node,
             cookie: None,
             last_sequence_ms: None,
         }
@@ -92,9 +96,8 @@ impl FeedReceiver {
             Message::Subscribe(_) => return Err(Rejected::NotForUs),
             Message::Feed(signed) => signed,
         };
-        // The key's node ID first, which costs a hash, so another node's
-        // feed costs no signature check.
-        if NodeId::from_public_key(&signed.feed.public_key) != self.node_id {
+        // The key first, so another node's feed costs no signature check.
+        if signed.feed.public_key != *self.node.key().as_bytes() {
             return Err(Rejected::OtherNode);
         }
         signed.verify().map_err(Rejected::Invalid)?;

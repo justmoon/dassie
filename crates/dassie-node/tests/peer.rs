@@ -19,7 +19,7 @@ mod support;
 
 use std::sync::atomic::Ordering;
 
-use dassie_identity::NodeKey;
+use dassie_identity::IdentityKey;
 use dassie_node::clock::{Clock, ManualClock};
 use dassie_node::node::Policies;
 use dassie_node::rpc::proto::{self, request::Method, response};
@@ -47,7 +47,7 @@ const DEPOSIT: u64 = 100_000_000_000;
 const CREDIT: u64 = Policies::DEV.peer_credit;
 
 /// The net credit of `node`'s account `account` for its peer `peer`.
-async fn net_of(node: &TestNode, account: &str, peer: &NodeKey) -> i128 {
+async fn net_of(node: &TestNode, account: &str, peer: &IdentityKey) -> i128 {
     let path = format!("stub+usd:{account}/{}", peer.node_id());
     let reply = node
         .ipc()
@@ -63,13 +63,13 @@ async fn net_of(node: &TestNode, account: &str, peer: &NodeKey) -> i128 {
 
 /// What `node` owes its peer `peer` net, by its own books: its position
 /// less the credit it extends; negative when the peer owes it.
-async fn owes(node: &TestNode, peer: &NodeKey) -> i128 {
+async fn owes(node: &TestNode, peer: &IdentityKey) -> i128 {
     net_of(node, "assets/interledger", peer).await + net_of(node, "contra/trust", peer).await
 }
 
 /// What the network methods say of a pair: one peer, one route, the
 /// other node known with its URL, and the registration with A.
-async fn check_network(node: &TestNode, own: &NodeKey, other: &NodeKey) {
+async fn check_network(node: &TestNode, own: &IdentityKey, other: &IdentityKey) {
     let mut owner = node.ipc().await;
     let Ok(response::Method::ListPeers(peers)) = owner
         .call(Method::ListPeers(proto::ListPeersRequest {}))
@@ -121,7 +121,7 @@ async fn check_network(node: &TestNode, own: &NodeKey, other: &NodeKey) {
 /// Whether `node` has what [`check_network`] checks, once the other's
 /// link state reached it: a route to the other, which it knows as a peer
 /// with a majority, and its registration with A listed.
-async fn knows(node: &TestNode, other: &NodeKey) -> bool {
+async fn knows(node: &TestNode, other: &IdentityKey) -> bool {
     let mut owner = node.ipc().await;
     let Ok(response::Method::ListRoutes(routes)) = owner
         .call(Method::ListRoutes(proto::ListRoutesRequest {}))
@@ -235,8 +235,8 @@ async fn steady(
     clock: &ManualClock,
     a: &TestNode,
     b: &TestNode,
-    key_a: &NodeKey,
-    key_b: &NodeKey,
+    key_a: &IdentityKey,
+    key_b: &IdentityKey,
 ) -> Holds {
     let mut last = None;
     until(clock, async || {
@@ -276,7 +276,7 @@ fn funded(holds: Holds, paid: u64) {
 
 /// Whether settling between A and B is quiet: nothing on its way either
 /// way, and their books mirror each other.
-async fn quiet(a: &TestNode, b: &TestNode, key_a: &NodeKey, key_b: &NodeKey) -> bool {
+async fn quiet(a: &TestNode, b: &TestNode, key_a: &IdentityKey, key_b: &IdentityKey) -> bool {
     for node in [a, b] {
         let Ok(response::Method::ListSettlementChannels(channels)) = node
             .ipc()

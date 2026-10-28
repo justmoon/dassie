@@ -15,7 +15,7 @@ mod support;
 
 use std::collections::BTreeMap;
 
-use dassie_identity::{NodeId, NodeKey, PublicKey, Signature};
+use dassie_identity::{IdentityKey, NodeId, PublicKey, Signature};
 use dassie_oer::{Decode, Encode};
 use dassie_peer::names::{Commitment, MAX_NAME_BYTES, Name, Salt};
 use dassie_peer::wire::{
@@ -83,12 +83,16 @@ fn with_v1_ids(v0: &[u8]) -> Vec<u8> {
     bytes
 }
 
-fn node_a() -> NodeKey {
-    NodeKey::from_bytes(&[1; 32])
+/// Node A's key, made once: its SLH-DSA key takes a key generation.
+fn node_a() -> &'static IdentityKey {
+    static KEY: std::sync::OnceLock<IdentityKey> = std::sync::OnceLock::new();
+    KEY.get_or_init(|| IdentityKey::from_bytes(&[1; 32]))
 }
 
-fn node_b() -> NodeKey {
-    NodeKey::from_bytes(&[3; 32])
+/// Node B's key, made once.
+fn node_b() -> &'static IdentityKey {
+    static KEY: std::sync::OnceLock<IdentityKey> = std::sync::OnceLock::new();
+    KEY.get_or_init(|| IdentityKey::from_bytes(&[3; 32]))
 }
 
 fn stub() -> SchemeId {
@@ -102,25 +106,40 @@ fn info_a() -> NodeInfo<'static> {
         url: "https://a.example",
         alias: "Node A",
         public_key: *node_a().public_key().as_bytes(),
+        slh_dsa_public_key: *node_a().identity().slh_dsa().as_bytes(),
         entries: vec![Entry::Neighbor(node_b().node_id()), Entry::Scheme(stub())],
     }
 }
 
 // The node-info layout is v0's, with each node ID as its 24 bytes, but
-// without the node's own ID, which derives from the key sent beside it,
-// under a new OID, so that an info signed under another layout cannot pass
-// as a link state of this one.
+// without the node's own ID, which derives from the keys sent instead, and
+// with the SLH-DSA key's 32 bytes after the Ed25519 key, under a new OID,
+// so that an info signed under another layout cannot pass as a link state
+// of this one.
 #[test]
 fn node_info_is_the_v0_layout_without_the_id() {
     assert!(NodeInfo::decode_exact(&vector("nodeInfo")).is_err());
     let v0 = with_v1_ids(&vector("nodeInfo"));
     let v1 = info_a().to_vec();
     let id = node_a().node_id().to_bytes();
+    let key = node_a().public_key();
+    let slh_dsa = node_a().identity().slh_dsa();
     assert_eq!(v0[13], 0x02);
-    assert_eq!(v1[13], 0x05);
+    assert_eq!(v1[13], 0x06);
     assert_eq!(v1[..13], v0[..13]);
     assert_eq!(v0[14..14 + id.len()], id[..]);
-    assert_eq!(v1[14..], v0[14 + id.len()..]);
+    // v0 after its ID, up to the end of the key, then the SLH-DSA key, then
+    // the rest of v0.
+    let after_id = &v0[14 + id.len()..];
+    let key_end = after_id
+        .windows(32)
+        .position(|window| window == key.as_bytes())
+        .unwrap()
+        + 32;
+    let mut expected = after_id[..key_end].to_vec();
+    expected.extend(slh_dsa.as_bytes());
+    expected.extend(&after_id[key_end..]);
+    assert_eq!(v1[14..], expected[..]);
     assert!(NodeInfo::decode_exact(&v0).is_err());
 }
 
@@ -138,11 +157,11 @@ fn the_v0_signature_verifies() {
 
 #[test]
 fn signed_node_info_round_trips_and_verifies() {
-    let bytes = sign_node_info(&node_a(), &info_a());
+    let bytes = sign_node_info(node_a(), &info_a());
     let signed = SignedNodeInfo::decode_exact(&bytes).unwrap();
     assert_eq!(signed.bytes, &bytes[..]);
     assert_eq!(signed.info, info_a());
-    assert_eq!(signed.verify().unwrap(), node_a().public_key());
+    assert_eq!(signed.verify().unwrap(), node_a().identity());
     assert_eq!(signed.node_id, node_a().node_id());
     assert_eq!(signed.info.node_id(), node_a().node_id());
     assert_eq!(
@@ -154,14 +173,14 @@ fn signed_node_info_round_trips_and_verifies() {
 
 #[test]
 fn a_link_state_must_be_its_nodes_and_well_formed() {
-    let check = |info: NodeInfo<'_>, key: &NodeKey| {
+    let check = |info: NodeInfo<'_>, key: &IdentityKey| {
         let bytes = sign_node_info(key, &info);
         SignedNodeInfo::decode_exact(&bytes).unwrap().verify()
     };
     let mut path = info_a();
     path.url = "https://a.example/peer";
-    assert_eq!(check(path, &node_a()), Err(InvalidNodeInfo::Url));
-    assert_eq!(check(info_a(), &node_b()), Err(InvalidNodeInfo::Signature));
+    assert_eq!(check(path, node_a()), Err(InvalidNodeInfo::Url));
+    assert_eq!(check(info_a(), node_b()), Err(InvalidNodeInfo::Signature));
 }
 
 // Under ZIP-215, R of small order and s = 0 verify any message under a key
@@ -263,7 +282,7 @@ fn v1_encodings_are_pinned() {
 
 #[test]
 fn peering_requests_round_trip() {
-    let info = sign_node_info(&node_a(), &info_a());
+    let info = sign_node_info(node_a(), &info_a());
     let request = Content::PeeringRequest(PeeringRequest {
         scheme: stub(),
         node_info: SignedNodeInfo::decode_exact(&info).unwrap(),
@@ -285,7 +304,7 @@ fn link_state_requests_and_answers_are_bounded() {
     assert!(Content::decode_exact(&request.to_vec()).is_err());
     let request = Content::LinkStateRequest(ids[..16].to_vec());
     assert_eq!(Content::decode_exact(&request.to_vec()).unwrap(), request);
-    let info = sign_node_info(&node_a(), &info_a());
+    let info = sign_node_info(node_a(), &info_a());
     let answer = LinkStateResponse(vec![
         None,
         Some(SignedNodeInfo::decode_exact(&info).unwrap()),
@@ -370,7 +389,7 @@ fn signed_full() -> Vec<u8> {
         kind: 1,
         value: &[7; 40],
     });
-    sign_node_info(&node_a(), &info)
+    sign_node_info(node_a(), &info)
 }
 
 /// Decodes content as the node does, and checks a link state it carries.
@@ -572,7 +591,7 @@ proptest! {
         signature in proptest::collection::vec(any::<u8>(), 64),
     ) {
         let node_id = if own_id {
-            NodeId::from_public_key(&public_key)
+            NodeId::from_keys(&public_key, node_a().identity().slh_dsa().as_bytes())
         } else {
             node_b().node_id()
         };
@@ -636,7 +655,7 @@ fn with_extensions(extensions: &[(u16, &[u8])]) -> Vec<u8> {
             .iter()
             .map(|(kind, value)| Entry::Extension { kind: *kind, value }),
     );
-    sign_node_info(&node_a(), &info)
+    sign_node_info(node_a(), &info)
 }
 
 // spec/areas/peer-protocol.md#link-states: extension type 5 names the hub a
@@ -714,11 +733,11 @@ fn largest_hub_list(schemes: &[SchemeId]) -> HubList {
 #[test]
 fn the_largest_own_link_state_fits_its_bound() {
     let neighbors = dassie_peer::Config::DEFAULT.max_peers;
-    let key = NodeKey::from_bytes(&[7; 32]);
+    let key = IdentityKey::from_bytes(&[7; 32]);
     let url = "a".repeat(MAX_URL_BYTES);
     let alias = "\u{e9}".repeat(dassie_peer::wire::MAX_ALIAS_BYTES / 2);
     let ids: Vec<NodeId> = (0..neighbors)
-        .map(|n| NodeKey::from_bytes(&[u8::try_from(n).unwrap() + 8; 32]).node_id())
+        .map(|n| IdentityKey::from_bytes(&[u8::try_from(n).unwrap() + 8; 32]).node_id())
         .collect();
     let schemes: Vec<SchemeId> = (0..dassie_peer::MAX_SCHEMES)
         .map(|n| {
@@ -741,6 +760,7 @@ fn the_largest_own_link_state_fits_its_bound() {
         url: &url,
         alias: &alias,
         public_key: *key.public_key().as_bytes(),
+        slh_dsa_public_key: *key.identity().slh_dsa().as_bytes(),
         entries: ids
             .iter()
             .map(|id| Entry::Neighbor(*id))
@@ -877,7 +897,7 @@ fn a_commitment_is_pinned() {
     let commitment = Commitment::seal(&name("alice"), &node_a().node_id(), &Salt([7; 32]));
     assert_eq!(
         to_hex(&commitment.0),
-        "0c9c7898d6b92066ef609ab7754369c0f0a29ab2546fe841e334f572b3351352"
+        "e457d804a7887a42f744b011e446be17b9b22f821857838939620fa1c9ebf06d"
     );
     assert_eq!(
         to_hex(dassie_peer::names::COMMITMENT_OID.as_slice()),
@@ -898,7 +918,7 @@ fn name_answers_are_pinned_and_bounded() {
         "00000000000000070000018bcfe56800"
     );
     assert_eq!(NameReceipt::decode_exact(&receipt.to_vec()), Ok(receipt));
-    let id = |key: NodeKey| to_hex(&key.node_id().to_bytes());
+    let id = |key: &IdentityKey| to_hex(&key.node_id().to_bytes());
     let bytes = name_list().to_vec();
     assert_eq!(
         to_hex(&bytes),

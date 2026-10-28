@@ -188,13 +188,13 @@ mod tests {
 
     use base64::Engine;
     use base64::engine::general_purpose::STANDARD;
-    use dassie_identity::NodeKey;
+    use dassie_identity::IdentityKey;
     use sha2::{Digest, Sha256};
 
     use super::*;
 
     fn node() -> NodeId {
-        NodeKey::from_bytes(&[5; 32]).node_id()
+        IdentityKey::from_bytes(&[5; 32]).node_id()
     }
 
     #[test]

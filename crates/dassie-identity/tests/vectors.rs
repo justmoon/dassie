@@ -18,8 +18,9 @@ mod support;
 use std::collections::BTreeMap;
 
 use dassie_identity::{
-    Created, Error, HubKey, NodeId, NodeKey, NodeSecret, Phrase, PhraseSecret, Positions,
-    PublicKey, QuicEndpoint, Reading, Realm, Segment, Signature,
+    Created, Error, HubKey, NodeId, NodeIdentity, NodeKey, NodeSecret, Phrase, PhraseSecret,
+    Positions, PublicKey, QuicEndpoint, Reading, Realm, Segment, Signature, SlhDsaPublicKey,
+    SlhDsaSeed,
 };
 use serde_json::Value;
 use support::{hex, hex_array, str_field, to_hex, vectors};
@@ -92,8 +93,17 @@ fn derivation_chain() {
         assert_eq!(to_hex(node_key.as_bytes()), str_field(entry, "nodeKey"));
         let public_key = node_key.public_key();
         assert_eq!(to_hex(public_key.as_bytes()), str_field(entry, "publicKey"));
-        assert_eq!(node_key.node_id().as_str(), str_field(entry, "nodeId"));
-        assert_eq!(public_key.node_id().as_str(), str_field(entry, "nodeId"));
+        let identity = node_key.identity();
+        assert_eq!(
+            to_hex(identity.slh_dsa().as_bytes()),
+            str_field(entry, "slhDsaPublicKey")
+        );
+        assert_eq!(identity.node_id().as_str(), str_field(entry, "nodeId"));
+        let received = NodeIdentity::new(
+            public_key,
+            SlhDsaPublicKey::from_bytes(hex_array(str_field(entry, "slhDsaPublicKey"))),
+        );
+        assert_eq!(received.node_id().as_str(), str_field(entry, "nodeId"));
 
         let login = node_key.login_secret();
         assert_eq!(to_hex(login.as_bytes()), str_field(entry, "loginSecret"));
@@ -342,6 +352,12 @@ fn secret_of<'a>(entry: &'a Value, nonce: &'a mut [u8; 32]) -> NodeSecret<'a> {
         "quicStatelessReset" => NodeSecret::QuicStatelessReset(quic()),
         "quicConnectionIds" => NodeSecret::QuicConnectionIds(quic()),
         "routing" => NodeSecret::Routing,
+        "slhDsa" => NodeSecret::SlhDsa(match str_field(entry, "seed") {
+            "sk-seed" => SlhDsaSeed::SkSeed,
+            "sk-prf" => SlhDsaSeed::SkPrf,
+            "pk-seed" => SlhDsaSeed::PkSeed,
+            other => panic!("SLH-DSA seed {other}"),
+        }),
         "hub" => {
             *nonce = hex_array(str_field(entry, "nonce"));
             NodeSecret::Hub {
@@ -388,11 +404,16 @@ fn every_path_below_the_node_key() {
         );
     }
     // One name per variant of `NodeSecret`.
-    assert_eq!(names.len(), 9);
+    assert_eq!(names.len(), 10);
     let login = entries.iter().find(|entry| entry["name"] == "login");
     assert_eq!(
         to_hex(key.login_secret().as_bytes()),
         str_field(login.unwrap(), "secret")
+    );
+    // The SLH-DSA key of the seeds at its paths.
+    assert_eq!(
+        to_hex(key.slh_dsa_public_key().as_bytes()),
+        str_field(&vectors, "slhDsaPublicKey")
     );
 }
 
@@ -423,13 +444,20 @@ fn keys() {
         let key = NodeKey::from_bytes(&hex_array(str_field(entry, "seed")));
         let public_key = key.public_key();
         assert_eq!(to_hex(public_key.as_bytes()), str_field(entry, "publicKey"));
-        assert_eq!(key.node_id().as_str(), str_field(entry, "nodeId"));
-        let id = NodeId::from_public_key(public_key.as_bytes());
+        let slh_dsa: [u8; 32] = hex_array(str_field(entry, "slhDsaPublicKey"));
+        assert_eq!(key.slh_dsa_public_key().as_bytes(), &slh_dsa);
+        assert_eq!(
+            key.identity().node_id().as_str(),
+            str_field(entry, "nodeId")
+        );
+        let id = NodeId::from_keys(public_key.as_bytes(), &slh_dsa);
         assert_eq!(NodeId::parse(str_field(entry, "nodeId")), Ok(id));
         assert_eq!(
-            PublicKey::from_bytes(public_key.as_bytes())
-                .unwrap()
-                .node_id(),
+            NodeIdentity::new(
+                PublicKey::from_bytes(public_key.as_bytes()).unwrap(),
+                SlhDsaPublicKey::from_bytes(slh_dsa)
+            )
+            .node_id(),
             id
         );
 
@@ -446,12 +474,17 @@ fn keys() {
 fn node_id_hash_input() {
     let vectors = vectors("keys.json");
     let input = &vectors["nodeIdHashInput"];
-    assert_eq!(str_field(input, "oid"), "1.3.6.1.4.1.54392.5.1399.2.1");
+    assert_eq!(str_field(input, "oid"), "1.3.6.1.4.1.54392.5.1399.2.2");
     let key: [u8; 32] = hex_array(str_field(input, "publicKey"));
-    let expected = format!("{}20{}", str_field(input, "encoded"), to_hex(&key));
-    assert_eq!(to_hex(&NodeId::hash_input(&key)), expected);
+    let slh_dsa: [u8; 32] = hex_array(str_field(input, "slhDsaPublicKey"));
+    let expected = str_field(input, "encoded");
+    assert_eq!(to_hex(&NodeId::hash_input(&key, &slh_dsa)), expected);
     assert_eq!(
         expected,
-        format!("0d2b0601040183a878058a77020120{}", to_hex(&key))
+        format!(
+            "0d2b0601040183a878058a77020220{}20{}",
+            to_hex(&key),
+            to_hex(&slh_dsa)
+        )
     );
 }

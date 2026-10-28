@@ -19,7 +19,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use bytes::Bytes;
-use dassie_identity::{NodeId, NodeKey};
+use dassie_identity::{IdentityKey, NodeId};
 use dassie_kit::ClientKey;
 use dassie_node::clock::ManualClock;
 use dassie_node::front_door::key;
@@ -71,7 +71,7 @@ impl Handler for Relay {
     fn answer<'a>(
         &'a self,
         _client: IpAddr,
-        _from: dassie_identity::PublicKey,
+        _from: dassie_identity::NodeIdentity,
         _body: Body<'a>,
     ) -> Pin<Box<dyn Future<Output = Answer> + Send + 'a>> {
         Box::pin(async {
@@ -89,10 +89,11 @@ fn endpoint(
     seed: u8,
     handler: Option<Arc<dyn Handler>>,
     shutdown: &CancellationToken,
-) -> (Arc<Quic>, NodeKey, String) {
-    let key = NodeKey::from_bytes(&[seed; 32]);
+) -> (Arc<Quic>, IdentityKey, String) {
+    let key = IdentityKey::from_bytes(&[seed; 32]);
     // The endpoint keeps the last key its sender held.
-    let (_identity, receiver) = watch::channel(Some(Arc::new(NodeKey::from_bytes(&[seed; 32]))));
+    let (_identity, receiver) =
+        watch::channel(Some(Arc::new(IdentityKey::from_bytes(&[seed; 32]))));
     let quic =
         Arc::new(Quic::new(UdpSocket::bind("127.0.0.1:0").unwrap(), receiver, true).unwrap());
     let url = format!("https://{}", quic.local_addr().unwrap());
@@ -123,7 +124,7 @@ async fn node_with(policies: Policies, env: &[(&str, &str)]) -> (TestNode, NodeI
     let node = Bound::new()
         .start(ManualClock::new(START_MS), 5, policies, env)
         .await;
-    let key = NodeKey::from_bytes(&[50; 32]);
+    let key = IdentityKey::from_bytes(&[50; 32]);
     set_up(&node, &key).await;
     (node, key.node_id())
 }
@@ -403,7 +404,7 @@ async fn only_the_owner_on_this_machine_starts_a_pairing() {
         ),
         ErrorCode::FailedPrecondition
     );
-    let cookie = set_up(&node, &NodeKey::from_bytes(&[50; 32])).await;
+    let cookie = set_up(&node, &IdentityKey::from_bytes(&[50; 32])).await;
     // A browser on loopback may; the tests have no other address to come
     // from, so the rule for others is the handlers' unit test.
     let socket = websocket(&node, Some(&cookie), &node.origin())

@@ -10,7 +10,7 @@
     clippy::panic
 )]
 
-use dassie_identity::{NodeId, NodeKey};
+use dassie_identity::{IdentityKey, NodeId};
 use dassie_peer::sim::{Arriving, Network, key};
 use dassie_peer::wire::{Content, SchemeId, TerminationReason};
 use dassie_peer::{Closed, Config, Event};
@@ -67,7 +67,7 @@ fn closed(network: &Network, index: usize, peer: &NodeId) -> usize {
 }
 
 /// A settlement message from `from`'s node, sent by hand.
-fn settlement(from: &NodeKey, amount: u64, sequence: u64) -> Arriving {
+fn settlement(from: &IdentityKey, amount: u64, sequence: u64) -> Arriving {
     let content = Content::Settlement {
         scheme: stub(),
         amount,

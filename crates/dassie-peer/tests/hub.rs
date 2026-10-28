@@ -13,7 +13,7 @@
 
 use std::sync::Arc;
 
-use dassie_identity::{NodeId, NodeKey};
+use dassie_identity::{IdentityKey, NodeId};
 use dassie_peer::sim::{Arriving, Network, SECOND, STUB, key, scheme, url};
 use dassie_peer::wire::{Content, HubMembership, SchemeId};
 use dassie_peer::{Config, Event, Inbound, InboundId, OwnInfo, Reply};
@@ -55,10 +55,10 @@ fn peered(seed: u64, hub: bool) -> (Network, NodeId, NodeId) {
 }
 
 /// Messages from a node, over a connection that proves its key.
-struct Sender(Arc<NodeKey>);
+struct Sender(Arc<IdentityKey>);
 
 impl Sender {
-    fn new(key: &Arc<NodeKey>) -> Self {
+    fn new(key: &Arc<IdentityKey>) -> Self {
         Self(Arc::clone(key))
     }
 

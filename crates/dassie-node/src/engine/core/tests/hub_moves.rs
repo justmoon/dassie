@@ -8,7 +8,7 @@ use std::sync::Arc;
 use dassie_hub::Rules;
 use dassie_hub::member::{DSUSD_SCHEME_ID, MAINNET_SCHEME_ID, RLUSD_SCHEME_ID, SCHEME_ID};
 use dassie_hub::rules::{Asset, Millis};
-use dassie_identity::{NodeKey, PublicKey};
+use dassie_identity::{IdentityKey, PublicKey};
 use dassie_ledger::{LedgerId, Name};
 use dassie_node_core::config::{LiveRealm, Realm};
 use dassie_settlement::{AssetId, AssetKind, LedgerStatus};
@@ -23,7 +23,7 @@ use super::{NOW, Policies, Store};
 /// The node's first XRPL account on `network`, where its accounts in that
 /// network's hubs pay out.
 fn own_account(network: &dassie_xrpl::Network) -> dassie_xrpl::AccountId {
-    let entropy = NodeKey::from_bytes(&[7; 32]).xrpl_account_entropy(network.id, 0);
+    let entropy = IdentityKey::from_bytes(&[7; 32]).xrpl_account_entropy(network.id, 0);
     dassie_xrpl::Wallet::from_entropy(entropy.as_bytes()).account()
 }
 
@@ -32,7 +32,7 @@ fn own_account(network: &dassie_xrpl::Network) -> dassie_xrpl::AccountId {
 /// consensus key for that network.
 struct Hub {
     rules: Rules,
-    keys: Vec<NodeKey>,
+    keys: Vec<dassie_identity::NodeKey>,
     /// The node's key in the hub.
     member: PublicKey,
     /// The node's account in the hub, as an external asset.
@@ -48,7 +48,7 @@ impl Hub {
 
         let mut rules = super::hub_rules(600, 300);
         let nonce = super::HUB_NONCE;
-        let sponsor = NodeKey::from_bytes(&[100; 32]);
+        let sponsor = IdentityKey::from_bytes(&[100; 32]);
         rules.terms.network = network;
         rules.terms.asset = asset;
         rules.terms.escrow = escrow_master(&sponsor, network, &nonce).account().0;
@@ -59,7 +59,7 @@ impl Hub {
         let terms = rules.terms.clone();
         let mut keys = Vec::new();
         for (index, acceptance) in rules.validators.iter_mut().enumerate() {
-            let node = NodeKey::from_bytes(&[u8::try_from(index + 1).unwrap(); 32]);
+            let node = IdentityKey::from_bytes(&[u8::try_from(index + 1).unwrap(); 32]);
             let derive = || ValidatorKeys::derive(&node, network, &nonce).unwrap();
             keys.push(derive().consensus);
             let endpoint = acceptance.endpoint.clone();
@@ -68,8 +68,9 @@ impl Hub {
         rules.check().unwrap();
         let named = dassie_hub::member::scheme_of(&rules.terms).map(|(id, _)| id);
         assert_eq!(named, Some(scheme), "the hub's network and asset name it");
-        let member = dassie_hub::member::member_key(&NodeKey::from_bytes(&[7; 32]), &rules.id())
-            .public_key();
+        let member =
+            dassie_hub::member::member_key(&IdentityKey::from_bytes(&[7; 32]), &rules.id())
+                .public_key();
         Self {
             rules,
             keys,

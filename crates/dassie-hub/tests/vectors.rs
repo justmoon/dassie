@@ -70,7 +70,11 @@ fn the_opening_deposit_names_its_key() {
         changes: Vec::new(),
         lines: Vec::new(),
     };
-    let sponsor = vectors::member_key().public_key();
+    // Any sponsor: the deposit reads only the terms' escrow and asset.
+    let sponsor = dassie_identity::NodeIdentity::new(
+        vectors::member_key().public_key(),
+        dassie_identity::SlhDsaPublicKey::from_bytes([0; 32]),
+    );
     let terms = starting_terms([0; 32], sponsor, 1, payment.destination.0);
     let deposit = deposit_of(&record, &terms).unwrap();
     assert_eq!(deposit.tag, 0);

@@ -18,7 +18,7 @@ use std::time::Duration;
 use dassie_hub::HubId;
 use dassie_hub::consensus::Finalized;
 use dassie_hub::operation::ValidatorOperation;
-use dassie_identity::{NodeId, NodeKey};
+use dassie_identity::{IdentityKey, NodeId};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore, mpsc, watch};
 use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
@@ -136,7 +136,7 @@ fn hubs(node: &Node, config: &ValidatorConfig) -> Vec<HubConfig> {
 }
 
 /// The node's key, once it has one; `None` at shutdown.
-async fn identity(node: &Node, shutdown: &CancellationToken) -> Option<Arc<NodeKey>> {
+async fn identity(node: &Node, shutdown: &CancellationToken) -> Option<Arc<IdentityKey>> {
     let mut identity = node.identity();
     tokio::select! {
         () = shutdown.cancelled() => None,
@@ -148,7 +148,7 @@ async fn identity(node: &Node, shutdown: &CancellationToken) -> Option<Arc<NodeK
 /// if its store fails: whether it started, or `Err` if the database failed.
 fn start(
     node: &Arc<Node>,
-    key: &NodeKey,
+    key: &IdentityKey,
     hub: &HubConfig,
     unl: &dassie_xrpl::validator_list::UnlConfig,
     client: &HubClient,
@@ -686,7 +686,7 @@ fn backing_off(backoffs: &Backoffs, node: &NodeId) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use dassie_identity::PublicKey;
+    use dassie_identity::NodeIdentity;
 
     // A validator that answered busy is up: it is tried again shortly, and
     // a burst of busy answers never backs off from it for longer.
@@ -716,7 +716,7 @@ mod tests {
         assert_eq!(after_failure(&busy, wait), (BUSY_RETRY, BACKOFF_MAX));
     }
 
-    fn from(sender: PublicKey, proved: Option<PublicKey>) -> Inbound {
+    fn from(sender: NodeIdentity, proved: Option<NodeIdentity>) -> Inbound {
         Inbound {
             from: Sender(sender).peer(),
             node: proved,
@@ -731,8 +731,8 @@ mod tests {
     // failure.
     #[test]
     fn hearing_from_a_validator_ends_the_wait_for_it_alone() {
-        let peer = NodeKey::from_bytes(&[1; 32]).public_key();
-        let other = NodeKey::from_bytes(&[2; 32]).public_key();
+        let peer = IdentityKey::from_bytes(&[1; 32]).identity();
+        let other = IdentityKey::from_bytes(&[2; 32]).identity();
         let backoffs = Backoffs::default();
         {
             let mut held = backoffs.lock().unwrap();

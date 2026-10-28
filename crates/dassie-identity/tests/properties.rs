@@ -461,8 +461,8 @@ proptest! {
     }
 
     #[test]
-    fn computed_node_ids_are_valid(key: [u8; 32]) {
-        let id = NodeId::from_public_key(&key);
+    fn computed_node_ids_are_valid(key: [u8; 32], slh_dsa: [u8; 32]) {
+        let id = NodeId::from_keys(&key, &slh_dsa);
         prop_assert_eq!(NodeId::parse(id.as_str()), Ok(id));
     }
 

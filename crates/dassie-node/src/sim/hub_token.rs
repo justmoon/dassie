@@ -666,7 +666,7 @@ fn refuse_far_ahead(sim: &mut Sim) -> Result<(), Outcome> {
     let node = &mut sim.nodes[payee];
     let inbound = InboundId(node.next_inbound);
     node.next_inbound += 1;
-    let sender = key(payer).public_key();
+    let sender = key(payer).identity();
     sim.step(payee, |core| {
         core.peer_inbound(inbound, sender, &body, None)
     });

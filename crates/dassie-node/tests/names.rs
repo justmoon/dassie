@@ -20,7 +20,7 @@ use std::time::Duration;
 
 use bytes::Bytes;
 
-use dassie_identity::{NodeId, NodeKey};
+use dassie_identity::{IdentityKey, NodeId};
 use dassie_node::clock::{Clock, ManualClock};
 use dassie_node::node::Policies;
 use dassie_node::open_payments::client::{self, ClientError};
@@ -39,7 +39,7 @@ use support::{Bound, START_MS, TestNode, set_up};
 const NONCE: &str = "names-nonce";
 
 /// `DASSIE_BOOTSTRAP_NODES` naming every one of `nodes` at its port.
-fn bootstrap_list(nodes: &[(&NodeKey, u16)]) -> String {
+fn bootstrap_list(nodes: &[(&IdentityKey, u16)]) -> String {
     let entries: Vec<String> = nodes
         .iter()
         .map(|(key, port)| {

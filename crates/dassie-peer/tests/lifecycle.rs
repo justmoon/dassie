@@ -12,7 +12,7 @@
 
 use std::sync::Arc;
 
-use dassie_identity::{NodeId, NodeKey};
+use dassie_identity::{IdentityKey, NodeId};
 use dassie_oer::Decode;
 use dassie_peer::sim::{Arriving, Network, STUB, key, scheme, url};
 use dassie_peer::wire::{
@@ -67,10 +67,10 @@ fn ended(network: &Network, index: usize, peer: &NodeId) -> usize {
 
 /// Messages from a node, in one session of its own.
 /// Messages from a node, over a connection that proves its key.
-struct Sender(Arc<NodeKey>);
+struct Sender(Arc<IdentityKey>);
 
 impl Sender {
-    fn new(key: &Arc<NodeKey>) -> Self {
+    fn new(key: &Arc<IdentityKey>) -> Self {
         Self(Arc::clone(key))
     }
 
@@ -79,12 +79,18 @@ impl Sender {
     }
 }
 
-fn peering_request(network: &Network, from: &Arc<NodeKey>, index: usize, to: usize) -> Arriving {
+fn peering_request(
+    network: &Network,
+    from: &Arc<IdentityKey>,
+    index: usize,
+    to: usize,
+) -> Arriving {
     let info = NodeInfo {
         sequence: network.clock(to),
         url: &url(index),
         alias: "",
         public_key: *from.public_key().as_bytes(),
+        slh_dsa_public_key: *from.identity().slh_dsa().as_bytes(),
         entries: vec![Entry::Scheme(stub())],
     };
     let signed = sign_node_info(from, &info);

@@ -60,6 +60,29 @@ pub enum QuicEndpoint {
     Tunnel,
 }
 
+/// One of the three seeds of the node's SLH-DSA key, which FIPS 205's key
+/// generation from seeds (`slh_keygen_internal`) takes
+/// (spec/decisions/post-quantum-node-id.md).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SlhDsaSeed {
+    /// `SK.seed`, which the key's one-time and few-time keys derive from.
+    SkSeed,
+    /// `SK.prf`, which randomizes the message digest of a signature.
+    SkPrf,
+    /// `PK.seed`, the public half of the public key.
+    PkSeed,
+}
+
+impl SlhDsaSeed {
+    const fn name(self) -> &'static str {
+        match self {
+            Self::SkSeed => "sk-seed",
+            Self::SkPrf => "sk-prf",
+            Self::PkSeed => "pk-seed",
+        }
+    }
+}
+
 /// A key a node makes for a settlement hub
 /// (spec/areas/hubs.md#the-escrow).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -106,6 +129,11 @@ pub enum NodeSecret<'a> {
     /// `node/quic/connection-ids` and `node/quic/tunnel-connection-ids`:
     /// the key an endpoint makes and knows its connection IDs with.
     QuicConnectionIds(QuicEndpoint),
+    /// `node/slh-dsa-sha2-128s/<seed>`: a seed of the node's SLH-DSA key
+    /// (SLH-DSA-SHA2-128s), which the node ID commits to beside the node
+    /// key (spec/decisions/post-quantum-node-id.md). Named for its
+    /// parameter set, so that no seed serves two.
+    SlhDsa(SlhDsaSeed),
     /// `node/routing`: the key that ranks first hops for routing's cut, so
     /// that no other node can tell which it keeps
     /// (spec/decisions/weighted-next-hops.md).
@@ -148,7 +176,8 @@ impl NodeSecret<'_> {
     /// Whether the path may never change, because something outside the
     /// release depends on its secret (spec/overview.md#frozen-surfaces):
     /// funds on a ledger or in a hub, a key other wallets know the node by,
-    /// or credentials the node handed out. The login is not: the wallet,
+    /// the SLH-DSA key its node ID commits to, or credentials the node
+    /// handed out. The login is not: the wallet,
     /// `dassie setup` and the node that checks the proof ship together. Nor
     /// are the QUIC keys: a changed one only makes peers wait out the idle
     /// timeout once. Nor is the route key: a changed one only keeps other
@@ -160,6 +189,7 @@ impl NodeSecret<'_> {
             | Self::StreamReceiver { .. }
             | Self::Hub { .. }
             | Self::HubMember { .. }
+            | Self::SlhDsa(_)
             | Self::XrplAccount { .. } => true,
             Self::Login
             | Self::QuicStatelessReset(_)
@@ -183,6 +213,7 @@ impl NodeSecret<'_> {
             Self::QuicConnectionIds(QuicEndpoint::Udp) => f(&["quic", "connection-ids"]),
             Self::QuicConnectionIds(QuicEndpoint::Tunnel) => f(&["quic", "tunnel-connection-ids"]),
             Self::Routing => f(&["routing"]),
+            Self::SlhDsa(seed) => f(&["slh-dsa-sha2-128s", seed.name()]),
             Self::Hub {
                 network,
                 nonce,
@@ -337,6 +368,9 @@ mod tests {
             NodeSecret::QuicConnectionIds(QuicEndpoint::Udp),
             NodeSecret::QuicConnectionIds(QuicEndpoint::Tunnel),
             NodeSecret::Routing,
+            NodeSecret::SlhDsa(SlhDsaSeed::SkSeed),
+            NodeSecret::SlhDsa(SlhDsaSeed::SkPrf),
+            NodeSecret::SlhDsa(SlhDsaSeed::PkSeed),
             NodeSecret::HubMember { hub: &[2; 32] },
             NodeSecret::XrplAccount {
                 network: 1,

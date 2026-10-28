@@ -22,8 +22,14 @@ pub const EARLY_TESTNET_APPLICATION_ID: i32 = 0x7DA5_E2C9;
 
 /// The migrations, in order. Migration `n` (1-based) brings `user_version`
 /// to `n`. Never edit one that has shipped; add another.
-pub(super) const MIGRATIONS: &[&str] =
-    &[BASELINE, MIGRATION_2, MIGRATION_3, MIGRATION_4, MIGRATION_5];
+pub(super) const MIGRATIONS: &[&str] = &[
+    BASELINE,
+    MIGRATION_2,
+    MIGRATION_3,
+    MIGRATION_4,
+    MIGRATION_5,
+    MIGRATION_6,
+];
 
 /// The schema version this code writes: the number of migrations.
 pub const SCHEMA_VERSION: i64 = version_of(MIGRATIONS);
@@ -721,6 +727,27 @@ DROP INDEX ledger_transfers_trust;
 const MIGRATION_5: &str = "
 ALTER TABLE hub_escrow ADD COLUMN verifier BLOB
   CHECK (verifier IS NULL OR length(verifier) <= 262144);
+";
+
+/// Migration 6: a validator's record of a founding names its sponsor by
+/// its identity, its Ed25519 key and its SLH-DSA key, as hub rules now do
+/// (spec/decisions/post-quantum-node-id.md). A record kept before names
+/// the Ed25519 key alone, with rules in the layout before, which no longer
+/// decode, so it is dropped with the table its length check is part of.
+const MIGRATION_6: &str = "
+DROP TABLE hub_founding_records;
+
+CREATE TABLE hub_founding_records (
+  nonce BLOB PRIMARY KEY CHECK (length(nonce) = 32),
+  sponsor BLOB NOT NULL CHECK (length(sponsor) = 64),
+  terms BLOB NOT NULL CHECK (length(terms) = 32),
+  accepted_at_ms INTEGER NOT NULL CHECK (accepted_at_ms >= 0),
+  rules BLOB CHECK (length(rules) BETWEEN 1 AND 65536),
+  genesis_ms INTEGER CHECK (genesis_ms >= 0),
+  running INTEGER NOT NULL CHECK (running IN (0, 1)),
+  CHECK ((rules IS NULL) = (genesis_ms IS NULL)),
+  CHECK (running = 0 OR rules IS NOT NULL)
+) STRICT, WITHOUT ROWID;
 ";
 
 /// Columns that hold secrets: the database inspector never reads them.

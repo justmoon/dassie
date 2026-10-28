@@ -225,8 +225,8 @@ pub(super) struct HubSend {
     pub hub: dassie_hub::HubId,
     /// The validator's place in the hub's rules.
     pub endpoint: usize,
-    /// The validator's node key, which the connection is pinned to.
-    pub node: dassie_identity::PublicKey,
+    /// The validator's identity, whose node ID the connection is pinned to.
+    pub node: dassie_identity::NodeIdentity,
     /// Where it is reached: `host:port`.
     pub address: String,
     /// The message.

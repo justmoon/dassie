@@ -14,8 +14,8 @@ import {
 
 const ENTRY_D1: Entry = [
   "ad6f2a1f40a4004a1660939aa11ca81a",
-  "zxta3c4pey7xot6x67dv3ck6ib6pqizbsmbpisa",
-  "mcnkxhmsjl7t7c5brk3b4xnyc7p7wgzb5fqr3ta",
+  "4lhg2yuwje6ai2ly6suw42foizfxpkbrigaowiy",
+  "mlxq6rukr7si7vwe32j7m4d5gkxlctpkq6pyhgy",
 ];
 
 /** d1's phrase in the test realm. */

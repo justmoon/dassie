@@ -177,14 +177,14 @@ fn set_timers(base: &mut Terms, timers: Timers) {
 #[cfg(test)]
 mod tests {
     use dassie_hub::founding::starting_terms;
-    use dassie_identity::NodeKey;
+    use dassie_identity::IdentityKey;
 
     use super::*;
 
     fn base() -> Terms {
         starting_terms(
             [1; 32],
-            NodeKey::from_bytes(&[2; 32]).public_key(),
+            IdentityKey::from_bytes(&[2; 32]).identity(),
             1,
             [3; 20],
         )

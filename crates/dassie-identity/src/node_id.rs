@@ -1,10 +1,12 @@
 //! Node IDs: the short, self-certifying name of a node
 //! (spec/areas/identity.md#node-id).
 //!
-//! An ID is the first 24 bytes of a SHA-256 of the node's public key. Its
-//! text is those bytes in lowercase base32 (RFC 4648, no padding): 39
-//! characters that are at once an ILP address segment, a DNS label and what
-//! the owner reads, in either case. On the wire it is the 24 bytes.
+//! An ID is the first 24 bytes of a SHA-256 of the node's two public keys:
+//! its Ed25519 key and its SLH-DSA key
+//! (spec/decisions/post-quantum-node-id.md). Its text is those bytes in
+//! lowercase base32 (RFC 4648, no padding): 39 characters that are at once
+//! an ILP address segment, a DNS label and what the owner reads, in either
+//! case. On the wire it is the 24 bytes.
 
 use core::fmt;
 
@@ -12,14 +14,17 @@ use dassie_oer::{Decode, DecodeError, DecodeErrorKind, Encode, Reader, Size, Wri
 use sha2::{Digest, Sha256};
 
 use crate::error::Error;
+use crate::slh_dsa::SLH_DSA_PUBLIC_KEY_BYTES;
 
-/// The `dassieNodeFingerprintV1Id` object identifier, which versions the
-/// fingerprint (spec/areas/identity.md#object-identifiers).
-const FINGERPRINT_V1_OID: [u8; 14] = oid::encode(&[1, 3, 6, 1, 4, 1, 54392, 5, 1399, 2, 1]);
+/// The `dassieNodeFingerprintV2Id` object identifier, which versions the
+/// fingerprint (spec/areas/identity.md#object-identifiers). The V1 OID,
+/// `.2.1`, hashed the Ed25519 key alone.
+const FINGERPRINT_V2_OID: [u8; 14] = oid::encode(&[1, 3, 6, 1, 4, 1, 54392, 5, 1399, 2, 2]);
 
-/// Length of the fingerprint input for a 32-byte key: the OID, a one-byte
-/// length determinant and the key.
-pub const HASH_INPUT_LENGTH: usize = FINGERPRINT_V1_OID.len() + 1 + 32;
+/// Length of the fingerprint input: the OID, then each key with a one-byte
+/// length determinant ahead of it.
+pub const HASH_INPUT_LENGTH: usize =
+    FINGERPRINT_V2_OID.len() + 1 + 32 + 1 + SLH_DSA_PUBLIC_KEY_BYTES;
 
 /// Digest bytes a node ID keeps: what it is on the wire.
 pub const NODE_ID_BYTES: usize = 24;
@@ -40,26 +45,32 @@ pub struct NodeId {
 }
 
 impl NodeId {
-    /// The node ID of an Ed25519 public key: the first [`NODE_ID_BYTES`]
-    /// of `SHA-256(input)`, where `input` is [`hash_input`](Self::hash_input).
+    /// The node ID of a node's Ed25519 public key and SLH-DSA public key:
+    /// the first [`NODE_ID_BYTES`] of `SHA-256(input)`, where `input` is
+    /// [`hash_input`](Self::hash_input). A [`NodeIdentity`](crate::NodeIdentity)
+    /// holds the two and its ID.
     #[must_use]
-    pub fn from_public_key(public_key: &[u8; 32]) -> Self {
-        let digest = Sha256::digest(Self::hash_input(public_key));
+    pub fn from_keys(public_key: &[u8; 32], slh_dsa: &[u8; SLH_DSA_PUBLIC_KEY_BYTES]) -> Self {
+        let digest = Sha256::digest(Self::hash_input(public_key, slh_dsa));
         let mut bytes = [0u8; NODE_ID_BYTES];
         bytes.copy_from_slice(digest.get(..NODE_ID_BYTES).unwrap_or(&[0; NODE_ID_BYTES]));
         Self::from_bytes(&bytes)
     }
 
     /// The fingerprint input: the canonical OER of
-    /// `SEQUENCE { versionPrefix OBJECT IDENTIFIER, nodePublicKey OCTET STRING }`
-    /// with the V1 fingerprint OID, which is
-    /// `0d 2b0601040183a878058a770201 20 <key>`.
+    /// `SEQUENCE { versionPrefix OBJECT IDENTIFIER, nodePublicKey OCTET STRING,
+    /// slhDsaPublicKey OCTET STRING }` with the V2 fingerprint OID, which is
+    /// `0d 2b0601040183a878058a770202 20 <key> 20 <SLH-DSA key>`.
     #[must_use]
-    pub fn hash_input(public_key: &[u8; 32]) -> [u8; HASH_INPUT_LENGTH] {
+    pub fn hash_input(
+        public_key: &[u8; 32],
+        slh_dsa: &[u8; SLH_DSA_PUBLIC_KEY_BYTES],
+    ) -> [u8; HASH_INPUT_LENGTH] {
         let mut input = [0u8; HASH_INPUT_LENGTH];
         let mut writer = Writer::new(&mut input);
-        writer.write_bytes(&FINGERPRINT_V1_OID);
+        writer.write_bytes(&FINGERPRINT_V2_OID);
         writer.write_octets(public_key, Size::ANY);
+        writer.write_octets(slh_dsa, Size::ANY);
         assert!(
             writer.position() == HASH_INPUT_LENGTH,
             "fingerprint input length"
@@ -122,8 +133,8 @@ impl NodeId {
 
     /// Parses a node ID's text, in either case, since DNS ignores case.
     ///
-    /// Whether the ID belongs to a key is a separate question, answered by
-    /// comparing it with [`from_public_key`](Self::from_public_key).
+    /// Whether the ID belongs to a node's keys is a separate question,
+    /// answered by comparing it with [`from_keys`](Self::from_keys).
     ///
     /// # Errors
     ///
@@ -230,12 +241,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_oid_constant_matches_spec_3() {
+    fn the_oid_constant_is_the_v2_fingerprint() {
         let expected = [
-            0x0d, 0x2b, 0x06, 0x01, 0x04, 0x01, 0x83, 0xa8, 0x78, 0x05, 0x8a, 0x77, 0x02, 0x01,
+            0x0d, 0x2b, 0x06, 0x01, 0x04, 0x01, 0x83, 0xa8, 0x78, 0x05, 0x8a, 0x77, 0x02, 0x02,
         ];
-        assert_eq!(FINGERPRINT_V1_OID, expected);
-        assert_eq!(HASH_INPUT_LENGTH, 47);
+        assert_eq!(FINGERPRINT_V2_OID, expected);
+        assert_eq!(HASH_INPUT_LENGTH, 80);
     }
 
     /// Bytes and their text, computed apart with Python's base64 module:

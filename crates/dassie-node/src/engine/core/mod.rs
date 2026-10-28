@@ -42,7 +42,7 @@ use dassie_connector::{
     Config as ConnectorConfig, Connector, Holding, Inventory, PacketRecord, PriceTable, Rates,
     TraceEvent,
 };
-use dassie_identity::NodeKey;
+use dassie_identity::IdentityKey;
 use dassie_ilp::MAX_PACKET_LENGTH;
 use dassie_ledger::{Account, AccountId, AccountName, Ledger, Name, TraceId};
 use dassie_node_core::config::{LiveRealm, Realm};
@@ -214,8 +214,9 @@ pub enum Output {
         hub: dassie_hub::HubId,
         /// The validator's place in the hub's rules.
         endpoint: usize,
-        /// The validator's node key, which the connection is pinned to.
-        node: Box<dassie_identity::PublicKey>,
+        /// The validator's identity, whose node ID the connection is pinned
+        /// to.
+        node: Box<dassie_identity::NodeIdentity>,
         /// Where it is reached: `host:port`.
         address: String,
         /// The message.
@@ -268,7 +269,7 @@ pub struct CoreParts {
     /// The database it restores from and persists to.
     pub store: Arc<Store>,
     /// The node's key.
-    pub key: Arc<NodeKey>,
+    pub key: Arc<IdentityKey>,
     /// The realm: the node's address, and the only ledgers it runs.
     pub realm: Realm,
     /// Whether it may be the live realm: by the dev switch only
@@ -294,7 +295,7 @@ pub struct Core {
     rng: Box<dyn SharedRng>,
     /// The time of the current step.
     now_ms: u64,
-    key: Arc<NodeKey>,
+    key: Arc<IdentityKey>,
     ledger: Ledger,
     connector: Connector,
     /// The exchange rates, and what the connector converts at.
@@ -1072,7 +1073,7 @@ pub const MAX_LOCAL_ENDPOINTS: usize = 8;
 /// pinned to `uplinks` while it runs as a periphery node.
 fn new_peer(
     store: &Store,
-    key: &Arc<NodeKey>,
+    key: &Arc<IdentityKey>,
     config: dassie_peer::Config,
     (own_info, bootstrap, uplinks): (
         dassie_peer::OwnInfo,
@@ -1146,7 +1147,7 @@ pub const fn ledger_realm(realm: Realm) -> dassie_ledger::Realm {
 /// The connector, at the node's address, with this boot's epoch.
 fn new_connector(
     store: &Store,
-    key: &NodeKey,
+    key: &IdentityKey,
     realm: Realm,
     policies: &Policies,
 ) -> Result<Connector, String> {

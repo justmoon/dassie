@@ -22,7 +22,7 @@ use dassie_hub::rules::{HUB_VERSION, Rules};
 use dassie_hub::service::genesis_block;
 use dassie_hub::service::payload::Payload;
 use dassie_hub::{Digest, Millis, ValidatorIndex};
-use dassie_identity::NodeKey;
+use dassie_identity::{IdentityKey, NodeKey};
 use dassie_oer::Encode;
 use dassie_xrpl::codec::{Amount, Memo, Payment, Signing, Transact};
 use dassie_xrpl::{AccountId, Wallet, hex_upper};
@@ -33,9 +33,9 @@ pub fn hex(bytes: &[u8]) -> String {
     hex_upper(bytes).to_lowercase()
 }
 
-/// The node key of the seed `byte` repeated.
-fn key(byte: u8) -> NodeKey {
-    NodeKey::from_bytes(&[byte; 32])
+/// The node key of the seed `byte` repeated, with its identity.
+fn key(byte: u8) -> IdentityKey {
+    IdentityKey::from_bytes(&[byte; 32])
 }
 
 /// The key of the account a deposit opens: the node key of the seed 0 to
@@ -67,12 +67,12 @@ const NETWORK: u32 = 1;
 pub const GENESIS_MS: Millis = 1_800_000_000_000;
 
 /// The sponsor's node key.
-fn sponsor() -> NodeKey {
+fn sponsor() -> IdentityKey {
     key(0x20)
 }
 
 /// The node keys of the four validators.
-fn validator_nodes() -> Vec<NodeKey> {
+fn validator_nodes() -> Vec<IdentityKey> {
     (0x21..=0x24).map(key).collect()
 }
 
@@ -90,7 +90,7 @@ pub fn validator_keys() -> Vec<ValidatorKeys> {
 pub fn rules() -> Rules {
     let sponsor = sponsor();
     let escrow = escrow_master(&sponsor, NETWORK, &NONCE);
-    let terms = starting_terms(NONCE, sponsor.public_key(), NETWORK, escrow.account().0);
+    let terms = starting_terms(NONCE, sponsor.identity(), NETWORK, escrow.account().0);
     let validators = validator_nodes()
         .iter()
         .zip(validator_keys())
@@ -287,7 +287,7 @@ const CLAWBACK: Clawback = Clawback {
 pub fn token_rules() -> Rules {
     let sponsor = sponsor();
     let escrow = escrow_master(&sponsor, NETWORK, &NONCE);
-    let mut terms = starting_terms(NONCE, sponsor.public_key(), NETWORK, escrow.account().0);
+    let mut terms = starting_terms(NONCE, sponsor.identity(), NETWORK, escrow.account().0);
     terms.asset = dassie_hub::rules::Asset::Token {
         currency: dassie_xrpl::dsusd::CURRENCY,
         issuer: dassie_xrpl::dsusd::ISSUER,

@@ -21,7 +21,7 @@
 
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
-use dassie_identity::NodeId;
+use dassie_identity::{NodeId, NodeIdentity, SLH_DSA_PUBLIC_KEY_BYTES};
 use ed25519_dalek::{Signer as _, SigningKey, VerifyingKey};
 use sha2::{Digest as _, Sha256, Sha512};
 use subtle::ConstantTimeEq as _;
@@ -242,9 +242,34 @@ fn response_components(request: &Request<'_>, has_body: bool) -> Vec<Item> {
     items
 }
 
+/// Bytes of a node's `keyid` once decoded: its Ed25519 key, which signs,
+/// then its SLH-DSA key, which with it hashes to the node's ID.
+const NODE_KEYID_BYTES: usize = 32 + SLH_DSA_PUBLIC_KEY_BYTES;
+
+/// Characters of a node's `keyid`: [`NODE_KEYID_BYTES`] in base64url.
+const NODE_KEYID_LENGTH: usize = 86;
+
+/// The `keyid` of a node's response signatures: its Ed25519 key and its
+/// SLH-DSA key, in base64url, so that a client can check the two against
+/// the node's ID (spec/areas/payments.md#signed-responses).
+#[must_use]
+pub fn node_keyid(identity: &NodeIdentity) -> String {
+    let mut bytes = [0u8; NODE_KEYID_BYTES];
+    let (ed25519, slh_dsa) = bytes.split_at_mut(32);
+    ed25519.copy_from_slice(identity.key().as_bytes());
+    slh_dsa.copy_from_slice(identity.slh_dsa().as_bytes());
+    let mut text = [0u8; NODE_KEYID_LENGTH];
+    let length = dassie_base64url::encode(&bytes, &mut text);
+    text.get(..length)
+        .and_then(|text| core::str::from_utf8(text).ok())
+        .unwrap_or_default()
+        .to_string()
+}
+
 /// Signs a response to `request` as a node does, under [`LABEL`] with
 /// `tag="dassie"` and `alg="ed25519"`. `signer` signs with the node key,
-/// which never leaves it; `keyid` is the node's public key, base64url.
+/// which never leaves it; `keyid` is the node's identity, as
+/// [`node_keyid`] writes it.
 ///
 /// A response with a body must carry its `Content-Digest`
 /// ([`content_digest`]) among its fields.
@@ -507,17 +532,19 @@ impl ResponseSignature {
 pub enum NodeResponseError {
     /// The request's host names no node ID, and no node ID was given.
     UnknownNode,
-    /// The signature's `keyid` is not an Ed25519 public key.
+    /// The signature's `keyid` is not a node's two keys, or its Ed25519
+    /// key is no key.
     Key,
-    /// The key is not the node's: it does not hash to the expected ID.
+    /// The keys are not the node's: they do not hash to the expected ID.
     OtherNode,
     /// The signature was not found, or does not verify.
     Signature(SignatureError),
 }
 
 /// Checks that a response came from the node a Dassie-aware client meant
-/// to reach (spec/areas/payments.md#signed-responses): that its signature's
-/// key hashes to that node's ID, and that the signature verifies.
+/// to reach (spec/areas/payments.md#signed-responses): that the two keys
+/// its signature names hash to that node's ID, and that the signature
+/// verifies under the Ed25519 one.
 ///
 /// The node is `node_id` when the caller knows it, as from an owner's
 /// domain's TXT record; otherwise the one whose ID is the first label of
@@ -545,16 +572,21 @@ pub fn check_node_response(
     };
     let signature = ResponseSignature::find(request, response, body, now_s)
         .map_err(NodeResponseError::Signature)?;
-    let mut key = [0u8; 32];
-    if dassie_base64url::decoded_len(signature.keyid().len()) != Some(key.len()) {
+    let mut keys = [0u8; NODE_KEYID_BYTES];
+    if dassie_base64url::decoded_len(signature.keyid().len()) != Some(keys.len()) {
         return Err(NodeResponseError::Key);
     }
-    dassie_base64url::decode(signature.keyid().as_bytes(), &mut key)
+    dassie_base64url::decode(signature.keyid().as_bytes(), &mut keys)
         .map_err(|_| NodeResponseError::Key)?;
-    if NodeId::from_public_key(&key) != expected {
+    let (key, slh_dsa) = keys
+        .split_first_chunk::<32>()
+        .ok_or(NodeResponseError::Key)?;
+    let slh_dsa: &[u8; SLH_DSA_PUBLIC_KEY_BYTES] =
+        slh_dsa.try_into().map_err(|_| NodeResponseError::Key)?;
+    if NodeId::from_keys(key, slh_dsa) != expected {
         return Err(NodeResponseError::OtherNode);
     }
-    let key = VerifyingKey::from_bytes(&key).map_err(|_| NodeResponseError::Key)?;
+    let key = VerifyingKey::from_bytes(key).map_err(|_| NodeResponseError::Key)?;
     if key.is_weak() {
         return Err(NodeResponseError::Key);
     }
@@ -862,12 +894,14 @@ mod tests {
     /// A node's key, its `keyid`, and its ID.
     fn node() -> (SigningKey, String, String) {
         let key = SigningKey::from_bytes(&[9; 32]);
-        let public = key.verifying_key().to_bytes();
-        let mut keyid = [0u8; 43];
-        let length = dassie_base64url::encode(&public, &mut keyid);
-        let keyid = String::from(core::str::from_utf8(&keyid[..length]).unwrap());
-        let id = NodeId::from_public_key(&public);
-        (key, keyid, id.as_str().to_string())
+        let public = dassie_identity::PublicKey::from_bytes(&key.verifying_key().to_bytes());
+        // Any 32 bytes are an SLH-DSA key: no key generation needed.
+        let identity = NodeIdentity::new(
+            public.unwrap(),
+            dassie_identity::SlhDsaPublicKey::from_bytes([7; 32]),
+        );
+        let keyid = node_keyid(&identity);
+        (key, keyid, identity.node_id().as_str().to_string())
     }
 
     const BODY: &[u8] = br#"{"id":"https://x/pay"}"#;
@@ -1094,7 +1128,7 @@ mod tests {
     fn a_client_refuses_another_nodes_key() {
         let (_, keyid, label) = node();
         // Another node's ID: the key does not hash to it.
-        let other = NodeId::from_public_key(&[1; 32]);
+        let other = NodeId::from_keys(&[1; 32], &[7; 32]);
         let name = format!("{}.dassiepay.net", other.as_str());
         let target = format!("https://{name}/pay");
         let request = Request {

@@ -11,7 +11,7 @@
 
 use std::sync::Arc;
 
-use dassie_identity::NodeKey;
+use dassie_identity::IdentityKey;
 use dassie_kit::sim::SeededRng;
 use dassie_oer::{Decode, Encode};
 use dassie_peer::sim::{Arriving, Network, START, endpoint, forger, key, url};
@@ -27,16 +27,17 @@ fn settle(network: &mut Network, ms: u64) {
 }
 
 /// A request from the node of `from`, whose key its connection proved.
-fn request(from: &NodeKey, content: &Content<'_>) -> Arriving {
+fn request(from: &IdentityKey, content: &Content<'_>) -> Arriving {
     Arriving::new(from, content)
 }
 
-fn link_state(key: &NodeKey, sequence: u64, url: &str) -> Vec<u8> {
+fn link_state(key: &IdentityKey, sequence: u64, url: &str) -> Vec<u8> {
     let info = NodeInfo {
         sequence,
         url,
         alias: "",
         public_key: *key.public_key().as_bytes(),
+        slh_dsa_public_key: *key.identity().slh_dsa().as_bytes(),
         entries: vec![Entry::Scheme(SchemeId::parse("stub").unwrap())],
     };
     sign_node_info(key, &info)
@@ -110,7 +111,7 @@ fn a_newcomer_learns_the_only_bootstrap_nodes_link_state() {
 fn peering_requests_carry_the_senders_own_link_state() {
     let mut network = Network::new(2, 2, 1, Config::DEV);
     settle(&mut network, 30_000);
-    let mallory = Arc::new(NodeKey::from_bytes(&[77; 32]));
+    let mallory = Arc::new(IdentityKey::from_bytes(&[77; 32]));
     let victim = key(1);
     let state = link_state(&victim, network.clock(0), &url(1));
     let content = Content::PeeringRequest(PeeringRequest {
@@ -127,7 +128,7 @@ fn peering_requests_carry_the_senders_own_link_state() {
 fn packets_need_a_peering() {
     let mut network = Network::new(3, 2, 1, Config::DEV);
     settle(&mut network, 30_000);
-    let stranger = Arc::new(NodeKey::from_bytes(&[78; 32]));
+    let stranger = Arc::new(IdentityKey::from_bytes(&[78; 32]));
     let packet = Content::InterledgerPacket {
         request_id: 1,
         packet: &[1, 2, 3],
@@ -157,7 +158,7 @@ fn only_a_registrar_takes_name_messages() {
     let mut network = Network::new(2, 2, 1, Config::DEV);
     assert!(network.node(0).registrar().is_some() && network.node(1).registrar().is_none());
     settle(&mut network, 30_000);
-    let stranger = Arc::new(NodeKey::from_bytes(&[79; 32]));
+    let stranger = Arc::new(IdentityKey::from_bytes(&[79; 32]));
     let alice = Name::parse("alice").unwrap();
     let contents = [
         Content::NameCommit(Commitment([1; 32])),
@@ -296,7 +297,7 @@ fn link_states_from_the_future_are_refused() {
 fn unknown_nodes_cannot_peer() {
     let mut network = Network::new(7, 2, 1, Config::DEV);
     settle(&mut network, 30_000);
-    let stranger = Arc::new(NodeKey::from_bytes(&[79; 32]));
+    let stranger = Arc::new(IdentityKey::from_bytes(&[79; 32]));
     let state = link_state(&stranger, network.clock(0), "https://stranger.test");
     let content = Content::PeeringRequest(PeeringRequest {
         scheme: SchemeId::parse("stub").unwrap(),
@@ -377,7 +378,7 @@ fn the_owner_registers_now() {
 }
 
 /// A registration of `from` at `url` with bootstrap node 0.
-fn registration(network: &Network, from: &NodeKey, url: &str) -> Arriving {
+fn registration(network: &Network, from: &IdentityKey, url: &str) -> Arriving {
     let state = link_state(from, network.clock(0), url);
     let info = SignedNodeInfo::decode_exact(&state).unwrap();
     request(from, &Content::Registration(info))
@@ -431,7 +432,7 @@ fn a_request_is_the_proved_senders_alone() {
         assert_eq!(network.inbound(0, &copy).status, 409, "{content:?}");
     }
     let copy = Arriving {
-        from: copier.public_key(),
+        from: copier.identity(),
         body: renewal.body.clone(),
     };
     assert_eq!(network.inbound(0, &copy).status, 400, "not its own state");
@@ -441,7 +442,7 @@ fn a_request_is_the_proved_senders_alone() {
 }
 
 /// A core node, with `boot` as its bootstrap node.
-fn core_node(own: &Arc<NodeKey>, boot: &NodeKey) -> PeerNode {
+fn core_node(own: &Arc<IdentityKey>, boot: &IdentityKey) -> PeerNode {
     PeerNode::new(
         Config::DEV,
         Arc::clone(own),
@@ -521,7 +522,7 @@ fn own_link_state(mut node: PeerNode) -> Vec<u8> {
 }
 
 /// A core node at `url(0)` whose rate feed is at `feed_port`, if any.
-fn with_feed(own: &Arc<NodeKey>, boot: &NodeKey, feed_port: Option<u16>) -> PeerNode {
+fn with_feed(own: &Arc<IdentityKey>, boot: &IdentityKey, feed_port: Option<u16>) -> PeerNode {
     PeerNode::new(
         Config::DEV,
         Arc::clone(own),
@@ -711,13 +712,14 @@ fn only_a_node_with_a_url_names_a_feed_port() {
 
 /// A signed link state of `key` at `url(0)` with a feed extension of
 /// `value`.
-fn feed_link_state(key: &NodeKey, value: &[u8]) -> Vec<u8> {
+fn feed_link_state(key: &IdentityKey, value: &[u8]) -> Vec<u8> {
     let url = url(0);
     let info = NodeInfo {
         sequence: START,
         url: &url,
         alias: "",
         public_key: *key.public_key().as_bytes(),
+        slh_dsa_public_key: *key.identity().slh_dsa().as_bytes(),
         entries: vec![Entry::Extension {
             kind: dassie_peer::wire::EXTENSION_FEED,
             value,

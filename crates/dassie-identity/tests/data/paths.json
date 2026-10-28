@@ -1,6 +1,7 @@
 {
   "generator": "testdata/identity/generate-vectors.mjs",
   "nodeKey": "0101010101010101010101010101010101010101010101010101010101010101",
+  "slhDsaPublicKey": "9e78240b60bc37001f6adfd059f4c9f501b5b34b057a501015d28bac64a0bcf3",
   "paths": [
     {
       "name": "login",
@@ -100,6 +101,24 @@
       "name": "routing",
       "path": "node/routing",
       "secret": "d766df2ecf1f06c6f7863f1ea0f66f449b45a3a4e911f01eed29a89f5b653d2f"
+    },
+    {
+      "name": "slhDsa",
+      "seed": "sk-seed",
+      "path": "node/slh-dsa-sha2-128s/sk-seed",
+      "secret": "d4d4e018639a52c48d7e089e126b0381d1a6fff75e8a0898da851c7899c4ab5d"
+    },
+    {
+      "name": "slhDsa",
+      "seed": "sk-prf",
+      "path": "node/slh-dsa-sha2-128s/sk-prf",
+      "secret": "04257b9351710e2b802e1c73e4c9ac7b45e44a2de1e2c2b4e1b7b9eba283dd8e"
+    },
+    {
+      "name": "slhDsa",
+      "seed": "pk-seed",
+      "path": "node/slh-dsa-sha2-128s/pk-seed",
+      "secret": "9e78240b60bc37001f6adfd059f4c9f55acf552f46e0a7d56e178c4eb9d3eeb6"
     },
     {
       "name": "hub",

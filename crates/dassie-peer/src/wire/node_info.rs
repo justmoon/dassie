@@ -2,7 +2,9 @@
 
 use alloc::vec::Vec;
 
-use dassie_identity::{NodeId, NodeKey, PublicKey, Signature};
+use dassie_identity::{
+    NodeId, NodeIdentity, NodeKey, PublicKey, SLH_DSA_PUBLIC_KEY_BYTES, Signature, SlhDsaPublicKey,
+};
 use dassie_oer::{
     Alphabet, Decode, DecodeError, DecodeErrorKind, Encode, Reader, Size, Writer, size,
 };
@@ -229,7 +231,7 @@ impl<'a> Decode<'a> for HubList {
 }
 
 /// `PeerNodeInfo`: what a node says about itself. Its ID is not sent: it
-/// derives from its key ([`NodeInfo::node_id`]).
+/// derives from its two keys ([`NodeInfo::node_id`]).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct NodeInfo<'a> {
     /// Its sequence number, a timestamp in ms that only goes up.
@@ -238,8 +240,11 @@ pub struct NodeInfo<'a> {
     pub url: &'a str,
     /// A name for people, unverified.
     pub alias: &'a str,
-    /// Its Ed25519 public key, from which its ID derives.
+    /// Its Ed25519 public key, which signs the link state.
     pub public_key: [u8; 32],
+    /// Its SLH-DSA public key, which signs nothing yet, and from which its
+    /// ID derives with the Ed25519 key (spec/areas/identity.md#node-id).
+    pub slh_dsa_public_key: [u8; SLH_DSA_PUBLIC_KEY_BYTES],
     /// Its neighbors, schemes and extensions.
     pub entries: Vec<Entry<'a>>,
 }
@@ -262,6 +267,7 @@ pub const fn max_node_info_bytes(
         + size::prefixed(MAX_URL_BYTES)
         + size::prefixed(MAX_ALIAS_BYTES)
         + size::prefixed(32)
+        + SLH_DSA_PUBLIC_KEY_BYTES
         + size::quantity(entries);
     let neighbor = size::tag(0) + dassie_identity::NODE_ID_BYTES;
     let scheme = size::tag(0) + size::prefixed(super::MAX_SCHEME_ID);
@@ -276,10 +282,10 @@ pub const fn max_node_info_bytes(
 }
 
 impl NodeInfo<'_> {
-    /// Its ID, the one its key derives.
+    /// Its ID, the one its two keys derive.
     #[must_use]
     pub fn node_id(&self) -> NodeId {
-        NodeId::from_public_key(&self.public_key)
+        NodeId::from_keys(&self.public_key, &self.slh_dsa_public_key)
     }
 
     /// The neighbors it advertises.
@@ -367,6 +373,7 @@ impl Encode for NodeInfo<'_> {
             + size::prefixed(self.url.len())
             + size::prefixed(self.alias.len())
             + size::prefixed(32)
+            + SLH_DSA_PUBLIC_KEY_BYTES
             + size::quantity(self.entries.len())
             + self.entries.iter().map(Encode::encoded_len).sum::<usize>()
     }
@@ -377,6 +384,7 @@ impl Encode for NodeInfo<'_> {
         writer.write_ascii(self.url, Size::range(0, MAX_URL_BYTES), Alphabet::VISIBLE);
         writer.write_utf8(self.alias, Size::range(0, MAX_ALIAS_BYTES));
         writer.write_octets(&self.public_key, Size::exact(32));
+        SlhDsaPublicKey::from_bytes(self.slh_dsa_public_key).encode_to(writer);
         writer.write_quantity(self.entries.len());
         for entry in &self.entries {
             entry.encode_to(writer);
@@ -395,6 +403,7 @@ impl<'a> Decode<'a> for NodeInfo<'a> {
         let key = reader.read_octets(Size::exact(32))?;
         let mut public_key = [0u8; 32];
         public_key.copy_from_slice(key);
+        let slh_dsa_public_key = *SlhDsaPublicKey::decode(reader)?.as_bytes();
         let count = reader.read_quantity(MAX_ENTRIES)?;
         let mut entries = Vec::with_capacity(count);
         for _ in 0..count {
@@ -405,6 +414,7 @@ impl<'a> Decode<'a> for NodeInfo<'a> {
             url,
             alias,
             public_key,
+            slh_dsa_public_key,
             entries,
         })
     }
@@ -444,12 +454,13 @@ impl SignedNodeInfo<'_> {
     /// A periphery node's link state has no URL, and every other one a
     /// valid one: a URL with the periphery extension would be taken for a
     /// downlink's and dialled, never probed.
-    /// Returns the key.
+    /// Returns the node's identity, its two keys, whose ID is
+    /// [`Self::node_id`].
     ///
     /// # Errors
     ///
     /// The first check that fails.
-    pub fn verify(&self) -> Result<PublicKey, InvalidNodeInfo> {
+    pub fn verify(&self) -> Result<NodeIdentity, InvalidNodeInfo> {
         let url = &self.info.url;
         let valid = if self.info.is_periphery() {
             url.is_empty()
@@ -466,7 +477,11 @@ impl SignedNodeInfo<'_> {
         }
         key.verify(self.signed, &Signature::from_bytes(self.signature))
             .map_err(|_| InvalidNodeInfo::Signature)?;
-        Ok(key)
+        let identity = NodeIdentity::new(
+            key,
+            SlhDsaPublicKey::from_bytes(self.info.slh_dsa_public_key),
+        );
+        Ok(identity)
     }
 }
 

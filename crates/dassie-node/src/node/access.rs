@@ -3,6 +3,7 @@
 use std::fmt;
 use std::sync::Arc;
 
+use dassie_identity::IdentityKey;
 use dassie_kit::ClientKey;
 use dassie_node_core::config::{ConfigError, Realm};
 use dassie_node_core::session::{
@@ -104,6 +105,8 @@ impl Node {
             config.realm = realm;
             self.config.send_replace(config);
         }
+        // Its SLH-DSA key, once, for the ID (spec/areas/identity.md#node-id).
+        let key = IdentityKey::new(key);
         tracing::info!(target: target::AUTH, node_id = %key.node_id(), "node identity set up");
         self.node_key.send_replace(Some(Arc::new(key)));
         self.new_session(user_agent)

@@ -907,8 +907,8 @@ mod tests {
         let client = ClientKey::from_ip([192, 0, 2, 1].into());
         let other = ClientKey::from_ip([192, 0, 2, 2].into());
         let (a, b) = (
-            dassie_identity::NodeKey::from_bytes(&[1; 32]).node_id(),
-            dassie_identity::NodeKey::from_bytes(&[2; 32]).node_id(),
+            dassie_identity::IdentityKey::from_bytes(&[1; 32]).node_id(),
+            dassie_identity::IdentityKey::from_bytes(&[2; 32]).node_id(),
         );
         assert_eq!(per_node(client, &a), per_node(client, &a));
         assert_ne!(per_node(client, &a), per_node(client, &b));

@@ -587,7 +587,7 @@ fn obtain_error(error: ObtainError) -> RpcError {
 
 #[cfg(test)]
 mod tests {
-    use dassie_identity::NodeKey;
+    use dassie_identity::IdentityKey;
 
     use super::*;
 
@@ -604,7 +604,7 @@ mod tests {
             session: None,
             loopback: false,
         }));
-        let device = NodeKey::from_bytes(&[1; 32]).node_id();
+        let device = IdentityKey::from_bytes(&[1; 32]).node_id();
         assert!(!may_start_pairing(Caller::Device(device)));
     }
 }

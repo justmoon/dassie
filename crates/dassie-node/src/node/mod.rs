@@ -17,7 +17,7 @@ use std::net::IpAddr;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
-use dassie_identity::NodeKey;
+use dassie_identity::IdentityKey;
 use dassie_kit::ClientKey;
 use dassie_node_core::acme::{ChallengeTokens, Renewal, RenewalPolicy};
 use dassie_node_core::config::NodeConfig;
@@ -394,7 +394,7 @@ pub struct Node {
     /// Held across each read, change and write of the configuration, so
     /// that concurrent changes cannot undo each other.
     config_writer: Mutex<()>,
-    node_key: watch::Sender<Option<Arc<NodeKey>>>,
+    node_key: watch::Sender<Option<Arc<IdentityKey>>>,
     engine: watch::Sender<Option<Engine>>,
     btp_connections: Arc<Semaphore>,
     btp_auth_limiter: Mutex<RateLimiter>,
@@ -456,8 +456,14 @@ impl std::fmt::Debug for Node {
 
 /// The rate limiter's key for the node of `key`: the first half of its
 /// public key, which two nodes share only by chance.
-fn key_client(key: &dassie_identity::PublicKey) -> ClientKey {
-    ClientKey::from_bytes(key.as_bytes().first_chunk().copied().unwrap_or_default())
+fn key_client(key: &dassie_identity::NodeIdentity) -> ClientKey {
+    ClientKey::from_bytes(
+        key.key()
+            .as_bytes()
+            .first_chunk()
+            .copied()
+            .unwrap_or_default(),
+    )
 }
 
 /// Locks a mutex, carrying on past a panic of another holder: none of the
@@ -524,7 +530,8 @@ impl Node {
         let peer = PeerSide::new(peer)?;
         let now_ms = clock.now_ms();
         let config = store.config()?;
-        let node_key = store.node_key()?.map(Arc::new);
+        // With its identity, whose SLH-DSA key takes a key generation once.
+        let node_key = store.node_key()?.map(|key| Arc::new(IdentityKey::new(key)));
         let certificate = certificates::initial(&store, config.hostname.as_ref(), now_ms)?;
         let acme = acme_with(acme_ca_file.as_deref())?;
         let setup_token = setup_token(&store, node_key.is_some(), rng.as_mut())?;
@@ -676,7 +683,7 @@ impl Node {
     /// Whether the node of `key` may send another failing peer request
     /// now.
     #[must_use]
-    pub fn peer_limited(&self, key: &dassie_identity::PublicKey) -> bool {
+    pub fn peer_limited(&self, key: &dassie_identity::NodeIdentity) -> bool {
         let now = self.now_ms();
         lock(&self.peer.limiter).peek(key_client(key), now).is_err()
     }
@@ -686,7 +693,7 @@ impl Node {
     /// cost another behind the same address. A node that makes new keys
     /// to escape it needs a connection for each, which takes a place by its
     /// address (spec/areas/peer-protocol.md#transport).
-    pub fn peer_charge(&self, key: &dassie_identity::PublicKey) {
+    pub fn peer_charge(&self, key: &dassie_identity::NodeIdentity) {
         let now = self.now_ms();
         let _ = lock(&self.peer.limiter).check(key_client(key), now);
     }
@@ -792,13 +799,13 @@ impl Node {
 
     /// The node key, once set up.
     #[must_use]
-    pub fn node_key(&self) -> Option<Arc<NodeKey>> {
+    pub fn node_key(&self) -> Option<Arc<IdentityKey>> {
         self.node_key.borrow().clone()
     }
 
     /// The node key as it changes: `None` until setup.
     #[must_use]
-    pub fn identity(&self) -> watch::Receiver<Option<Arc<NodeKey>>> {
+    pub fn identity(&self) -> watch::Receiver<Option<Arc<IdentityKey>>> {
         self.node_key.subscribe()
     }
 

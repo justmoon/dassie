@@ -587,7 +587,7 @@ impl PeerNode {
         }
         self.process_link_state(&request.node_info, None, Retransmit::Never);
         if let Some(entry) = self.table.get_mut(&sender) {
-            entry.key.get_or_insert(key);
+            entry.key.get_or_insert(key.key());
         }
         // A repeat, after an answer that got lost: the stored peering, as
         // it is (spec/decisions/peering-lifecycle.md).

@@ -172,15 +172,13 @@ impl Answered {
             status: parts.status.as_u16(),
             fields: &fields,
         };
-        let public = key.public_key();
-        let mut keyid = [0u8; 43];
-        let keyid_length = dassie_base64url::encode(public.as_bytes(), &mut keyid);
-        let keyid = std::str::from_utf8(keyid.get(..keyid_length).unwrap_or_default());
-        let signed = keyid.ok().and_then(|keyid| {
-            let sign = |base: &[u8]| *key.sign(base).as_bytes();
-            let created_s = node.now_ms() / 1_000;
-            httpsig::sign_response(&request, &answer, has_body, sign, keyid, created_s).ok()
-        });
+        // The keyid names both keys, so a client checks them against the
+        // node's ID (spec/areas/payments.md#signed-responses).
+        let keyid = httpsig::node_keyid(&key.identity());
+        let sign = |base: &[u8]| *key.sign(base).as_bytes();
+        let created_s = node.now_ms() / 1_000;
+        let signed =
+            httpsig::sign_response(&request, &answer, has_body, sign, &keyid, created_s).ok();
         let headers = [
             (header::HeaderName::from_static("content-digest"), digest),
             (

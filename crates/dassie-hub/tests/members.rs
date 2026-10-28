@@ -40,7 +40,7 @@ use dassie_hub::rules::{Asset, Fees, LEAST_TOKEN_GAS_DROPS, Limits, Rules, Terms
 use dassie_hub::service::wire::Message;
 use dassie_hub::validators::{Signers, ValidatorIndex};
 use dassie_hub::{Digest, Ledger, Millis};
-use dassie_identity::{NodeKey, PublicKey};
+use dassie_identity::{IdentityKey, NodeKey, PublicKey};
 use dassie_kit::sim::SeededRng;
 use dassie_ledger::Name;
 use dassie_oer::{Encode, Reader};
@@ -71,12 +71,12 @@ const DSUSD: Asset = Asset::Token {
     issuer: dassie_xrpl::dsusd::ISSUER,
 };
 
-fn terms(sponsor: &NodeKey, escrow: [u8; 20], asset: Asset) -> Terms {
+fn terms(sponsor: &IdentityKey, escrow: [u8; 20], asset: Asset) -> Terms {
     let token = asset != Asset::Xrp;
     Terms {
         version: dassie_hub::rules::HUB_VERSION,
         nonce: NONCE,
-        sponsor: sponsor.public_key(),
+        sponsor: sponsor.identity(),
         network: 1,
         escrow,
         asset,
@@ -158,10 +158,10 @@ struct Validators {
 impl Validators {
     /// The sponsor's hub of `asset`, with its escrow attested.
     fn found(faults: [Fault; 4], asset: Asset) -> Self {
-        let sponsor = NodeKey::from_bytes(&[100; 32]);
+        let sponsor = IdentityKey::from_bytes(&[100; 32]);
         let master = escrow_master(&sponsor, TESTNET_NETWORK, &NONCE);
         let terms = terms(&sponsor, master.account().0, asset);
-        let nodes: Vec<NodeKey> = (1..=4).map(|i| NodeKey::from_bytes(&[i; 32])).collect();
+        let nodes: Vec<IdentityKey> = (1..=4).map(|i| IdentityKey::from_bytes(&[i; 32])).collect();
         let keys: Vec<ValidatorKeys> = nodes
             .iter()
             .map(|node| ValidatorKeys::derive(node, TESTNET_NETWORK, &NONCE).unwrap())

@@ -13,7 +13,7 @@ mod support;
 
 use std::collections::BTreeMap;
 
-use dassie_identity::NodeKey;
+use dassie_identity::IdentityKey;
 use dassie_ilp::btp::{self, Body, ProtocolData};
 use dassie_ilp::{Address, Prepare, Response, Timestamp};
 use dassie_node::clock::Clock;
@@ -30,8 +30,8 @@ use tokio_util::codec::{Framed, LengthDelimitedCodec};
 
 const PAYMENT: u64 = 250_000_000;
 
-fn key() -> NodeKey {
-    NodeKey::from_bytes(&[9; 32])
+fn key() -> IdentityKey {
+    IdentityKey::from_bytes(&[9; 32])
 }
 
 /// Sets the node up and waits for its ledger, then activates the stub.

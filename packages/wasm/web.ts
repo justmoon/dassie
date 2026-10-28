@@ -33,6 +33,7 @@ import init, {
   phraseWords,
   publicKey,
   readPhrase,
+  slhDsaPublicKey,
 } from "./gen/web/dassie_identity.js";
 
 export {
@@ -85,8 +86,17 @@ export interface Identity {
   loginSecret(nodeKey: Uint8Array): Uint8Array;
   /** The Ed25519 public key of a node key. Throws unless it has 32 bytes. */
   publicKey(nodeKey: Uint8Array): Uint8Array;
-  /** The node ID of an Ed25519 public key. Throws unless it has 32 bytes. */
-  nodeId(publicKey: Uint8Array): string;
+  /**
+   * The SLH-DSA public key of a node key, which its node ID commits to.
+   * Generating it takes a while, so compute it once. Throws unless the key
+   * has 32 bytes.
+   */
+  slhDsaPublicKey(nodeKey: Uint8Array): Uint8Array;
+  /**
+   * The node ID of a node's Ed25519 public key and SLH-DSA public key.
+   * Throws unless each has 32 bytes.
+   */
+  nodeId(publicKey: Uint8Array, slhDsaPublicKey: Uint8Array): string;
 }
 
 let loading: Promise<Identity> | undefined;
@@ -103,6 +113,7 @@ export function loadIdentity(): Promise<Identity> {
       phraseWords,
       loginSecret,
       publicKey,
+      slhDsaPublicKey,
       nodeId,
     }),
     (error: unknown) => {

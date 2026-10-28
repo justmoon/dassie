@@ -32,7 +32,7 @@ const DAY_MS: u64 = 24 * 60 * 60 * 1_000;
 
 /// The node as its own client, named by its wallet address: grants that
 /// need the owner want a client with one.
-fn own_client(node: &TestNode, key: &dassie_identity::NodeKey) -> Client {
+fn own_client(node: &TestNode, key: &dassie_identity::IdentityKey) -> Client {
     let own = ClientKey::derive(key).unwrap();
     Client {
         key: own.signing_key().clone(),

@@ -7,7 +7,7 @@
 use std::net::IpAddr;
 use std::sync::Arc;
 
-use dassie_identity::{NodeId, NodeKey};
+use dassie_identity::{IdentityKey, NodeId};
 use dassie_oer::Decode;
 use dassie_peer::Reply;
 use dassie_peer::names::{Commitment, Name, Salt};
@@ -16,13 +16,13 @@ use dassie_peer::wire::{Content, NameReceipt};
 
 /// A registrant: a key of its own.
 pub struct Registrant {
-    key: Arc<NodeKey>,
+    key: Arc<IdentityKey>,
 }
 
 impl Registrant {
     pub fn new(seed: u8) -> Self {
         Self {
-            key: Arc::new(NodeKey::from_bytes(&[seed; 32])),
+            key: Arc::new(IdentityKey::from_bytes(&[seed; 32])),
         }
     }
 

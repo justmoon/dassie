@@ -205,7 +205,7 @@ fn a_phrase_of_the_other_realm_is_refused_before_correction() {
     let live_key = live.master_seed(Realm::Live).unwrap().node_key();
     let test_key = test.master_seed(Realm::Test).unwrap().node_key();
     assert_eq!(live.secret().as_bytes(), test.secret().as_bytes());
-    assert_ne!(live_key.node_id(), test_key.node_id());
+    assert_ne!(live_key.identity().node_id(), test_key.identity().node_id());
 }
 
 /// A phrase made more than a day after the reader's clock is refused, and

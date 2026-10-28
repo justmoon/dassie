@@ -427,7 +427,7 @@ fn a_prepare_on_a_method_wound_down_answers_t04() {
         commitment: &[],
     }
     .to_vec();
-    let from = key(1).public_key();
+    let from = key(1).identity();
     sim.step(0, |core| {
         let now = core.now_ms();
         assert!(core.peer.wind_down(now, &one, scheme_id("stub")));

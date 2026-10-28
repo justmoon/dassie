@@ -705,7 +705,7 @@ mod tests {
     use alloc::format;
     use alloc::vec::Vec;
 
-    use dassie_identity::{NodeId, NodeKey};
+    use dassie_identity::NodeId;
 
     use super::super::MAX_EVENTS;
     use crate::config::Rate;
@@ -720,10 +720,10 @@ mod tests {
     /// The `index`th commitment's committer: each sends as many
     /// commitments as one node may have logged.
     fn committer(index: usize, per_node: usize) -> NodeId {
-        let mut seed = [9; 32];
+        let mut seed = [9; 24];
         let [high, low] = u16::try_from(index / per_node).unwrap().to_be_bytes();
         (seed[0], seed[1]) = (high, low);
-        NodeKey::from_bytes(&seed).node_id()
+        NodeId::from_bytes(&seed)
     }
 
     // A step of the registrar's timer that decides more commitments than

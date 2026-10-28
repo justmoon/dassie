@@ -25,7 +25,8 @@ try {
   await initStream({ module_or_path: "./dassie_stream_bg.wasm" });
 
   const phrase = "advice abandon approve resource position trend piano across machine scorpion defy explain increase addict into uncle subject comic dolphin convince";
-  const nodeId = identity.nodeId(identity.publicKey(identity.deriveNodeKey(phrase, "test", Date.now())));
+  const key = identity.deriveNodeKey(phrase, "test", Date.now());
+  const nodeId = identity.nodeId(identity.publicKey(key), identity.slhDsaPublicKey(key));
 
   const secret = new Uint8Array(32);
   crypto.getRandomValues(secret);
@@ -108,7 +109,7 @@ test("the web build works in a browser", async () => {
       (globalThis as unknown as { __result: Record<string, string> }).__result
     );
     assertEquals(result, {
-      nodeId: "zxta3c4pey7xot6x67dv3ck6ib6pqizbsmbpisa",
+      nodeId: "4lhg2yuwje6ai2ly6suw42foizfxpkbrigaowiy",
       sent: "250000",
     });
   } finally {

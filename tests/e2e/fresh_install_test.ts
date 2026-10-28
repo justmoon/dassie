@@ -20,6 +20,7 @@ import {
   nodeId,
   phraseFromSecret,
   publicKey,
+  slhDsaPublicKey,
 } from "@dassie/wasm";
 import type { Page } from "puppeteer-core";
 import { click, text, type } from "./browser.ts";
@@ -49,7 +50,7 @@ if (missing) console.warn(`skipping the end-to-end tests: ${missing}`);
 const D1_SECRET = "ad6f2a1f40a4004a1660939aa11ca81a";
 const D1_PHRASE =
   "advice abandon approve resource position trend piano across machine scorpion defy explain increase addict into uncle subject comic dolphin convince";
-const D1_ID = "zxta3c4pey7xot6x67dv3ck6ib6pqizbsmbpisa";
+const D1_ID = "4lhg2yuwje6ai2ly6suw42foizfxpkbrigaowiy";
 
 /** Enters `phrase` to recover a wallet, which refuses it with `error`. */
 async function recover(
@@ -63,7 +64,8 @@ async function recover(
 }
 
 function expectedNodeId(phrase: string): string {
-  return nodeId(publicKey(deriveNodeKey(phrase, "test", Date.now())));
+  const key = deriveNodeKey(phrase, "test", Date.now());
+  return nodeId(publicKey(key), slhDsaPublicKey(key));
 }
 
 /** The certificate Pebble issues chains to the root Pebble generated. */

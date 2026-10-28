@@ -27,18 +27,18 @@ use dassie_hub::rules::{Acceptance, Fees, Limits, Rules, Terms, Timers};
 use dassie_hub::service::payload::Payload;
 use dassie_hub::service::wire::Message;
 use dassie_hub::service::{Action, ResumeError, Validator, genesis_block};
-use dassie_identity::{NodeKey, PublicKey};
+use dassie_identity::{IdentityKey, NodeIdentity, NodeKey, SlhDsaPublicKey};
 use dassie_oer::{Decode, Encode};
 
 const NONCE: [u8; 32] = [7; 32];
 const START: u64 = 1_700_000_000_000;
 const MEMBER: PeerId = PeerId(100);
 
-fn terms(sponsor: &NodeKey) -> Terms {
+fn terms(sponsor: &IdentityKey) -> Terms {
     Terms {
         version: dassie_hub::rules::HUB_VERSION,
         nonce: NONCE,
-        sponsor: sponsor.public_key(),
+        sponsor: sponsor.identity(),
         network: 1,
         escrow: escrow_master(sponsor, TESTNET_NETWORK, &NONCE).account().0,
         asset: dassie_hub::rules::Asset::Xrp,
@@ -83,7 +83,7 @@ struct Network {
     /// state after its last final block.
     stored: Vec<(Stored, Vec<u8>)>,
     node_keys: Vec<NodeKey>,
-    nodes: Vec<dassie_identity::PublicKey>,
+    nodes: Vec<NodeIdentity>,
     /// Each validator's consensus key, by its place in the network.
     consensus: Vec<dassie_identity::PublicKey>,
     rules: Rules,
@@ -125,10 +125,10 @@ impl Network {
 
     /// A network of a hub whose terms `adjust` changes.
     fn with_terms(adjust: impl FnOnce(&mut Terms)) -> Self {
-        let sponsor = NodeKey::from_bytes(&[100; 32]);
+        let sponsor = IdentityKey::from_bytes(&[100; 32]);
         let mut terms = terms(&sponsor);
         adjust(&mut terms);
-        let nodes: Vec<NodeKey> = (1..=4).map(|i| NodeKey::from_bytes(&[i; 32])).collect();
+        let nodes: Vec<IdentityKey> = (1..=4).map(|i| IdentityKey::from_bytes(&[i; 32])).collect();
         let acceptances: Vec<Acceptance> = nodes
             .iter()
             .enumerate()
@@ -163,7 +163,7 @@ impl Network {
                 .iter()
                 .map(|n| NodeKey::from_bytes(n.as_bytes()))
                 .collect(),
-            nodes: nodes.iter().map(NodeKey::public_key).collect(),
+            nodes: nodes.iter().map(IdentityKey::identity).collect(),
             consensus: rules.validators.iter().map(|a| a.consensus).collect(),
             rules,
             queue: VecDeque::new(),
@@ -786,7 +786,7 @@ fn a_withdrawal_is_signed_by_a_quorum_and_the_hub_pays_out_at_its_end() {
 }
 
 /// How many messages validator 0 sends back to `from` for `bytes`.
-fn answers(net: &mut Network, from: PeerId, node: Option<&PublicKey>, bytes: &[u8]) -> usize {
+fn answers(net: &mut Network, from: PeerId, node: Option<&NodeIdentity>, bytes: &[u8]) -> usize {
     net.validators[0].handle(net.now, from, node, bytes);
     let mut count = 0;
     while let Some(action) = net.validators[0].poll() {
@@ -808,7 +808,10 @@ fn only_validators_are_served_catch_up() {
         view: 1,
     });
     let bytes = Message::Consensus(fetch.to_vec()).to_vec();
-    let stranger = NodeKey::from_bytes(&[99; 32]).public_key();
+    let stranger = NodeIdentity::new(
+        NodeKey::from_bytes(&[99; 32]).public_key(),
+        SlhDsaPublicKey::from_bytes([99; 32]),
+    );
     assert_eq!(answers(&mut net, MEMBER, None, &bytes), 0);
     assert_eq!(answers(&mut net, MEMBER, Some(&stranger), &bytes), 0);
     let validator = net.nodes[1];

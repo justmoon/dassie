@@ -723,7 +723,7 @@ fn peer_options(settings: &Settings) -> PeerOptions {
             .map(|node| dassie_peer::Bootstrap {
                 id: node.id,
                 endpoint: node.endpoint.clone(),
-                key: node.public_key,
+                key: node.identity.key(),
             })
             .collect(),
         ca_file: settings.extra_ca_file.clone(),

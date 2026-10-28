@@ -37,7 +37,7 @@ const AMOUNT: u64 = 400;
 
 /// The peer.
 fn peer() -> NodeId {
-    NodeKey::from_bytes(&[3; 32]).node_id()
+    NodeKey::from_bytes(&[3; 32]).identity().node_id()
 }
 
 /// A database holding our settlement channel with [`peer`], with our
@@ -54,7 +54,7 @@ fn store_with_channel(busy: Option<&str>) -> Arc<Store> {
         attempts: 0,
     });
     let channel = StoredChannel {
-        node: key.node_id(),
+        node: key.identity().node_id(),
         channel: Channel {
             key: key.public_key(),
             endpoint: Endpoint::of_url("https://peer.test"),

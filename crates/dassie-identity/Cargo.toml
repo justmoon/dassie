@@ -25,6 +25,11 @@ hmac = { version = "0.13", default-features = false, features = ["zeroize"] }
 # injects the generator, so the crate never touches the OS RNG.
 rand_core = { version = "0.10", default-features = false }
 sha2 = { version = "0.11", default-features = false, features = ["zeroize"] }
+# The node's SLH-DSA key (FIPS 205), which the node ID commits to
+# (spec/decisions/post-quantum-node-id.md). Pinned exactly: a release
+# candidate, whose key generation the FIPS 205 known-answer vectors in
+# tests/slh_dsa.rs pin. Without `alloc`; `zeroize` wipes its seeds on drop.
+slh-dsa = { version = "=0.2.0-rc.5", default-features = false, features = ["zeroize"] }
 subtle = { version = "2.6", default-features = false }
 zeroize = { version = "1.9", default-features = false }
 

@@ -474,13 +474,27 @@ pub fn public_key(node_key: &[u8]) -> Result<Vec<u8>, JsError> {
     Ok(node_key_from(node_key)?.public_key().as_bytes().to_vec())
 }
 
-/// The node ID of an Ed25519 public key.
+/// The SLH-DSA public key of a node key, which its node ID commits to
+/// (spec/areas/identity.md#node-id). Generating it takes a while: a page
+/// computes it once.
+#[wasm_bindgen(js_name = slhDsaPublicKey)]
+pub fn slh_dsa_public_key(node_key: &[u8]) -> Result<Vec<u8>, JsError> {
+    Ok(node_key_from(node_key)?
+        .slh_dsa_public_key()
+        .as_bytes()
+        .to_vec())
+}
+
+/// The node ID of a node's Ed25519 public key and SLH-DSA public key.
 #[wasm_bindgen(js_name = nodeId)]
-pub fn node_id(public_key: &[u8]) -> Result<String, JsError> {
+pub fn node_id(public_key: &[u8], slh_dsa_public_key: &[u8]) -> Result<String, JsError> {
     let key: &[u8; 32] = public_key
         .try_into()
         .map_err(|_| JsError::new("a public key has 32 bytes"))?;
-    Ok(String::from(NodeId::from_public_key(key).as_str()))
+    let slh_dsa: &[u8; 32] = slh_dsa_public_key
+        .try_into()
+        .map_err(|_| JsError::new("an SLH-DSA public key has 32 bytes"))?;
+    Ok(String::from(NodeId::from_keys(key, slh_dsa).as_str()))
 }
 
 /// Signs `message` with a node key.

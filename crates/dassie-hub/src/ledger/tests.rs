@@ -908,7 +908,7 @@ fn reconfigure_takes_effect_after_its_notice() {
         let seed = u8::try_from(i + 1).unwrap();
         *acceptance = acceptance
             .clone()
-            .sign(&NodeKey::from_bytes(&[seed; 32]), &terms);
+            .sign(crate::rules::tests::node_key(seed), &terms);
     }
     let ops: Vec<Operation> = (0..3)
         .map(|i| hub.validator_op(i, ValidatorOperation::Reconfigure(rules.clone())))
@@ -948,7 +948,7 @@ pub(crate) fn resigned(mut rules: Rules, change: impl FnOnce(&mut Rules)) -> Rul
         let seed = u8::try_from(i + 1).unwrap();
         *acceptance = acceptance
             .clone()
-            .sign(&NodeKey::from_bytes(&[seed; 32]), &terms);
+            .sign(crate::rules::tests::node_key(seed), &terms);
     }
     rules
 }
@@ -1114,8 +1114,8 @@ fn reset_votes_count_validators_whatever_ledger_each_saw() {
 
 #[test]
 fn terms_that_would_trap_the_ledger_are_refused() {
-    let sponsor = NodeKey::from_bytes(&[1; 32]);
-    let base = crate::rules::tests::terms(&sponsor);
+    let sponsor = crate::rules::tests::node_key(1);
+    let base = crate::rules::tests::terms(sponsor);
     let changes: [fn(&mut crate::rules::Terms); 9] = [
         // Blocks or claims a follower could not decode.
         |t| t.limits.block_operations = 4097,

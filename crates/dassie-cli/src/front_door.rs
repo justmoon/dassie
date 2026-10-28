@@ -116,6 +116,7 @@ fn make(settings: &Settings) -> ExitCode {
     };
     match key::read_or_make(path) {
         Ok(key) => {
+            let key = dassie_identity::IdentityKey::new(key);
             println!("{}", key::relay_entry(&key, &settings.relay_url()));
             ExitCode::SUCCESS
         }

@@ -1,6 +1,6 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing)]
 
-use dassie_identity::NodeKey;
+use dassie_identity::IdentityKey;
 use dassie_peer::wire::{SchemeId, TerminationReason};
 use dassie_peer::{
     Channel, Closed, Method, Outgoing, PeerBatch, Peering, Registration, Sources, StoredChannel,
@@ -12,7 +12,7 @@ use crate::store::{BtpTokenRow, LedgerBatch};
 
 fn node(seed: u8) -> StoredNode {
     StoredNode {
-        id: NodeKey::from_bytes(&[seed; 32]).node_id(),
+        id: IdentityKey::from_bytes(&[seed; 32]).node_id(),
         link_state: Some(vec![seed; 40]),
         sources: Sources::from_bits(Sources::MAJORITY.bits() | Sources::PEER.bits()),
         first_seen_ms: 10,
@@ -250,7 +250,7 @@ fn terminations_channels_and_bans_round_trip() {
         by_us: true,
         acknowledged: false,
     });
-    let key = NodeKey::from_bytes(&[3; 32]);
+    let key = IdentityKey::from_bytes(&[3; 32]);
     let channel = StoredChannel {
         node: key.node_id(),
         channel: Channel {
@@ -316,7 +316,7 @@ fn terminations_channels_and_bans_round_trip() {
 #[test]
 fn a_closed_channel_stays_on_disk() {
     let store = Store::open_in_memory().unwrap();
-    let key = NodeKey::from_bytes(&[4; 32]);
+    let key = IdentityKey::from_bytes(&[4; 32]);
     let open = StoredChannel {
         node: key.node_id(),
         channel: Channel {
@@ -393,7 +393,7 @@ fn closing_a_channel_without_its_row_is_refused() {
     let batch = LedgerBatch {
         peer: PeerBatch {
             closed: vec![StoredClosed {
-                node: NodeKey::from_bytes(&[5; 32]).node_id(),
+                node: IdentityKey::from_bytes(&[5; 32]).node_id(),
                 closed: Closed::NEW,
             }],
             ..PeerBatch::default()
@@ -405,7 +405,7 @@ fn closing_a_channel_without_its_row_is_refused() {
 
 fn logged(seed: u8, position: u64, unsealed: bool) -> dassie_peer::names::Logged {
     use dassie_peer::names::{Commitment, Logged, Name, Unsealing};
-    let holder = NodeKey::from_bytes(&[seed; 32]).node_id();
+    let holder = IdentityKey::from_bytes(&[seed; 32]).node_id();
     Logged {
         commitment: Commitment([seed; 32]),
         position,
@@ -426,7 +426,7 @@ fn logged(seed: u8, position: u64, unsealed: bool) -> dassie_peer::names::Logged
 fn granted(name: &str, freed_ms: Option<u64>) -> dassie_peer::names::Granted {
     dassie_peer::names::Granted {
         name: dassie_peer::names::Name::parse(name).unwrap(),
-        holder: NodeKey::from_bytes(&[9; 32]).node_id(),
+        holder: IdentityKey::from_bytes(&[9; 32]).node_id(),
         granted_ms: 3_000,
         expires_ms: 4_000,
         freed_ms,
@@ -486,7 +486,7 @@ fn the_holders_round_trip() {
     assert!(store.load_peer().unwrap().holders.is_empty());
     let held = |name: &str, seed: u8| HeldName {
         name: Name::parse(name).unwrap(),
-        holder: NodeKey::from_bytes(&[seed; 32]).node_id(),
+        holder: IdentityKey::from_bytes(&[seed; 32]).node_id(),
         expires_ms: 4_000 + u64::from(seed),
     };
     let (alice, bob) = (held("alice", 1), held("bob", 2));

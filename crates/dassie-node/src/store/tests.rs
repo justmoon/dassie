@@ -681,7 +681,7 @@ fn clients_quotes_do_not_crowd_out_the_owners() {
 fn devices_are_kept_up_to_their_bound() {
     let store = Store::open_in_memory().unwrap();
     let device = |seed: u8, paired_at_ms: u64| DeviceRow {
-        id: dassie_identity::NodeKey::from_bytes(&[seed; 32]).node_id(),
+        id: dassie_identity::NodeId::from_bytes(&[seed; 24]),
         name: format!("device {seed}"),
         paired_at_ms,
         last_seen_at_ms: paired_at_ms,
@@ -789,12 +789,12 @@ fn each_hubs_funding_is_kept_on_its_own() {
 #[test]
 fn a_channel_stored_with_the_mark_of_an_end_for_room_loads_without_it() {
     let temp = tempfile::tempdir().unwrap();
-    let open = dassie_identity::NodeKey::from_bytes(&[10; 32]);
-    let closed = dassie_identity::NodeKey::from_bytes(&[11; 32]);
+    let open = dassie_identity::IdentityKey::from_bytes(&[10; 32]);
+    let closed = dassie_identity::IdentityKey::from_bytes(&[11; 32]);
     {
         let mut connection = Connection::open(temp.path().join(DATABASE_FILE)).unwrap();
         schema::prepare(&mut connection, &schema::MIGRATIONS[..3]).unwrap();
-        let insert = |key: &dassie_identity::NodeKey, closed: u8| {
+        let insert = |key: &dassie_identity::IdentityKey, closed: u8| {
             connection
                 .execute(
                     "INSERT INTO settlement_channels (node, public_key, url, settled_in,
@@ -902,7 +902,7 @@ fn an_escrow_cursor_stored_before_the_verifier_was_kept_loads_without_it() {
 #[test]
 fn a_peering_stored_before_methods_loads_as_its_one_method() {
     let temp = tempfile::tempdir().unwrap();
-    let node = dassie_identity::NodeKey::from_bytes(&[9; 32]).node_id();
+    let node = dassie_identity::NodeId::from_bytes(&[9; 24]);
     {
         let mut connection = Connection::open(temp.path().join(DATABASE_FILE)).unwrap();
         connection

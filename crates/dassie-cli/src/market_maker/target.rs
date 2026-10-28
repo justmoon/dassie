@@ -11,7 +11,7 @@ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::sync::Arc;
 use std::time::Duration;
 
-use dassie_identity::{NodeId, PublicKey};
+use dassie_identity::{NodeId, NodeIdentity, PublicKey, SlhDsaPublicKey};
 use dassie_node::clock::Clock;
 use dassie_node::outbound::{OutboundClient, WebRequest};
 use serde_json::Value;
@@ -40,8 +40,8 @@ const DISCOVERY_PATH: &str = "/.well-known/dassie/node";
 pub struct TargetInfo {
     /// Its node ID.
     pub node_id: NodeId,
-    /// Its public key, of which the ID is the hash.
-    pub public_key: [u8; 32],
+    /// Its identity, its two keys, of which the ID is the hash.
+    pub identity: NodeIdentity,
     /// Its feed's UDP port, if it names one.
     pub feed_port: Option<u16>,
 }
@@ -80,7 +80,7 @@ pub async fn follow(
         target: TARGET, url = %target.url, node = %info.node_id, feed = %address,
         "following a target's feed"
     );
-    let client = FeedClient::new(address, info.node_id, info.public_key, clock.now_ms());
+    let client = FeedClient::new(address, info.identity, clock.now_ms());
     found.send_replace(Some(info));
     feed::run(socket, client, clock, feeds, cancel).await;
 }
@@ -142,7 +142,7 @@ pub async fn fetch(client: &OutboundClient, url: &str) -> Result<TargetInfo, Str
     parse_discovery(&response.body).map_err(|problem| format!("{discovery_url}: {problem}"))
 }
 
-/// Reads a discovery document: the node's ID and key, the ID the key's and
+/// Reads a discovery document: the node's ID and keys, the ID the keys' and
 /// the key not weak, and its feed's port, if it names one.
 ///
 /// # Errors
@@ -155,22 +155,15 @@ pub fn parse_discovery(body: &[u8]) -> Result<TargetInfo, String> {
         .and_then(Value::as_str)
         .and_then(|id| NodeId::parse(id).ok())
         .ok_or("no node ID")?;
-    let encoded = node
-        .get("publicKey")
-        .and_then(Value::as_str)
-        .ok_or("no public key")?;
-    let mut public_key = [0u8; 32];
-    let length = dassie_base64url::decode(encoded.as_bytes(), &mut public_key)
-        .map_err(|_| "a public key that is not base64url")?;
-    if length != public_key.len() {
-        return Err("a public key that is not 32 bytes".into());
-    }
+    let public_key = key_field(&node, "publicKey")?;
     let key = PublicKey::from_bytes(&public_key).map_err(|_| "a public key that is no point")?;
     if key.is_weak() {
         return Err("a weak public key".into());
     }
-    if key.node_id() != id {
-        return Err("a node ID that is not its key's".into());
+    let slh_dsa = SlhDsaPublicKey::from_bytes(key_field(&node, "slhDsaPublicKey")?);
+    let identity = NodeIdentity::new(key, slh_dsa);
+    if identity.node_id() != id {
+        return Err("a node ID that is not its keys'".into());
     }
     let feed_port = match node.get("feedPort") {
         None | Some(Value::Null) => None,
@@ -183,9 +176,24 @@ pub fn parse_discovery(body: &[u8]) -> Result<TargetInfo, String> {
     };
     Ok(TargetInfo {
         node_id: id,
-        public_key,
+        identity,
         feed_port,
     })
+}
+
+/// The 32 bytes of the key in base64url at `field`.
+fn key_field(node: &Value, field: &str) -> Result<[u8; 32], String> {
+    let encoded = node
+        .get(field)
+        .and_then(Value::as_str)
+        .ok_or_else(|| format!("no {field}"))?;
+    let mut key = [0u8; 32];
+    if dassie_base64url::decoded_len(encoded.len()) != Some(key.len()) {
+        return Err(format!("a {field} that is not 32 bytes"));
+    }
+    dassie_base64url::decode(encoded.as_bytes(), &mut key)
+        .map_err(|_| format!("a {field} that is not base64url"))?;
+    Ok(key)
 }
 
 #[cfg(test)]
@@ -201,8 +209,15 @@ mod tests {
         String::from_utf8(text[..length].to_vec()).unwrap()
     }
 
+    /// The SLH-DSA key the documents name: any 32 bytes are one.
+    const SLH_DSA: [u8; 32] = [5; 32];
+
     fn document(id: &str, key: &[u8; 32], port: Option<Value>) -> Vec<u8> {
-        let mut node = json!({ "id": id, "publicKey": encode(key) });
+        let mut node = json!({
+            "id": id,
+            "publicKey": encode(key),
+            "slhDsaPublicKey": encode(&SLH_DSA),
+        });
         if let Some(port) = port {
             node["feedPort"] = port;
         }
@@ -212,17 +227,27 @@ mod tests {
     #[test]
     fn the_id_must_be_the_keys() {
         let key = NodeKey::from_bytes(&[1; 32]).public_key();
-        let id = key.node_id();
+        let id = NodeId::from_keys(key.as_bytes(), &SLH_DSA);
         let info =
             parse_discovery(&document(id.as_str(), key.as_bytes(), Some(json!(7768)))).unwrap();
         assert_eq!(info.node_id, id);
-        assert_eq!(&info.public_key, key.as_bytes());
+        assert_eq!(info.identity.key(), key);
+        assert_eq!(info.identity.slh_dsa().as_bytes(), &SLH_DSA);
         assert_eq!(info.feed_port, Some(7768));
         let without = parse_discovery(&document(id.as_str(), key.as_bytes(), None)).unwrap();
         assert_eq!(without.feed_port, None);
 
-        let other = NodeKey::from_bytes(&[2; 32]).public_key().node_id();
+        // The ID of the Ed25519 key with another SLH-DSA key is another
+        // node's.
+        let other = NodeId::from_keys(key.as_bytes(), &[6; 32]);
         assert!(parse_discovery(&document(other.as_str(), key.as_bytes(), None)).is_err());
+        let mut without_slh_dsa: Value =
+            serde_json::from_slice(&document(id.as_str(), key.as_bytes(), None)).unwrap();
+        without_slh_dsa
+            .as_object_mut()
+            .unwrap()
+            .remove("slhDsaPublicKey");
+        assert!(parse_discovery(without_slh_dsa.to_string().as_bytes()).is_err());
         assert!(parse_discovery(&document(id.as_str(), key.as_bytes(), Some(json!(0)))).is_err());
         assert!(parse_discovery(&document(id.as_str(), key.as_bytes(), Some(json!("x")))).is_err());
         assert!(parse_discovery(b"{}").is_err());
@@ -230,7 +255,7 @@ mod tests {
         // A weak key (the identity point) is refused, whatever its ID.
         let mut weak = [0u8; 32];
         weak[0] = 1;
-        let weak_id = NodeId::from_public_key(&weak);
+        let weak_id = NodeId::from_keys(&weak, &SLH_DSA);
         assert!(parse_discovery(&document(weak_id.as_str(), &weak, None)).is_err());
     }
 }

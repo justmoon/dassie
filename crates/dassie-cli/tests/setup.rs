@@ -98,7 +98,7 @@ fn phrase_file_in(realm: Realm, dir: &Path, name: &str, byte: u8) -> (String, St
     let path = dir.join(name);
     std::fs::write(&path, format!("{}\n", phrase.text().as_str())).unwrap();
     let key = phrase.master_seed(realm).unwrap().node_key();
-    let id = key.node_id().as_str().to_owned();
+    let id = key.identity().node_id().as_str().to_owned();
     (path.to_str().unwrap().to_owned(), id)
 }
 

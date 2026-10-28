@@ -157,7 +157,7 @@ mod tests {
         std::fs::write(&path, format!("  {}\n\n", phrase.text().as_str())).unwrap();
         let key = node_key_from_file(&path, Realm::Test, now_ms()).unwrap();
         let expected = phrase.master_seed(Realm::Test).unwrap().node_key();
-        assert_eq!(key.node_id(), expected.node_id());
+        assert_eq!(key.public_key(), expected.public_key());
         let message = node_key_from_file(&path, Realm::Live, now_ms())
             .err()
             .unwrap();
@@ -180,7 +180,7 @@ mod tests {
             let (read, key) = own_realm_key_from_file(&path, now_ms()).unwrap();
             assert_eq!(read, realm);
             let expected = phrase.master_seed(realm).unwrap().node_key();
-            assert_eq!(key.node_id(), expected.node_id());
+            assert_eq!(key.public_key(), expected.public_key());
             // A damaged phrase of either realm is refused as damaged.
             let mut words: Vec<&str> = phrase.words().collect();
             words[4] = "?";

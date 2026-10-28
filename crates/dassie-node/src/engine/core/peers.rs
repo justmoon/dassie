@@ -692,7 +692,7 @@ impl Core {
     pub fn peer_inbound(
         &mut self,
         inbound: InboundId,
-        from: dassie_identity::PublicKey,
+        from: dassie_identity::NodeIdentity,
         body: &[u8],
         source: Option<std::net::IpAddr>,
     ) {

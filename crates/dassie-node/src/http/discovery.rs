@@ -19,10 +19,13 @@ pub const PATH: &str = "/.well-known/dassie/node";
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct Discovery {
-    /// The node ID: the hash of `public_key`.
+    /// The node ID: the hash of `public_key` and `slh_dsa_public_key`.
     id: String,
     /// The node key's public half, in base64url.
     public_key: String,
+    /// The node's SLH-DSA public key, in base64url
+    /// (spec/areas/identity.md#node-id).
+    slh_dsa_public_key: String,
     /// The UDP port of its rate feed, at the host it was fetched from, on
     /// a core node that has one (spec/areas/rate-feed.md#finding-a-feed).
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -41,10 +44,11 @@ pub fn serve(node: &Node) -> hyper::Response<Body> {
     let Some(key) = node.node_key() else {
         return response::not_found();
     };
-    let public_key = key.public_key();
+    let identity = key.identity();
     let document = Discovery {
-        id: public_key.node_id().to_string(),
-        public_key: encode(public_key.as_bytes()),
+        id: identity.node_id().to_string(),
+        public_key: encode(identity.key().as_bytes()),
+        slh_dsa_public_key: encode(identity.slh_dsa().as_bytes()),
         feed_port: node.own_info().checked().feed_port,
     };
     let body = serde_json::to_string(&document).unwrap_or_default();

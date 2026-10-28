@@ -631,14 +631,14 @@ pub type Tokens = Mutex<TokenCache>;
 mod tests {
     #![allow(clippy::unwrap_used, clippy::indexing_slicing)]
 
-    use dassie_identity::NodeKey;
+    use dassie_identity::IdentityKey;
     use dassie_payments::uri::MAX_URI_BYTES;
 
     use super::*;
 
     /// A node's signed answer to a GET of `target` with `nonce`, as the
     /// node signs it under the name it answers to.
-    fn answer(key: &NodeKey, target: &str, nonce: &str, body: &[u8]) -> WebResponse {
+    fn answer(key: &IdentityKey, target: &str, nonce: &str, body: &[u8]) -> WebResponse {
         let digest = httpsig::content_digest(body);
         let fields = [(httpsig::NONCE_FIELD, nonce)];
         let request = httpsig::Request {
@@ -650,11 +650,9 @@ mod tests {
             status: 200,
             fields: &[("content-digest", &digest)],
         };
-        let mut keyid = [0u8; 43];
-        let length = dassie_base64url::encode(key.public_key().as_bytes(), &mut keyid);
-        let keyid = std::str::from_utf8(&keyid[..length]).unwrap();
+        let keyid = httpsig::node_keyid(&key.identity());
         let sign = |base: &[u8]| *key.sign(base).as_bytes();
-        let signed = httpsig::sign_response(&request, &answer, true, sign, keyid, 1_000).unwrap();
+        let signed = httpsig::sign_response(&request, &answer, true, sign, &keyid, 1_000).unwrap();
         WebResponse {
             status: 200,
             media_type: Some("application/json".into()),
@@ -669,7 +667,7 @@ mod tests {
 
     #[test]
     fn reads_hosts_at_the_default_front_door() {
-        let id = NodeKey::from_bytes(&[3; 32]).node_id();
+        let id = IdentityKey::from_bytes(&[3; 32]).node_id();
         let alice = Name::parse("alice").unwrap();
         for (url, host) in [
             (
@@ -748,9 +746,9 @@ mod tests {
     #[test]
     fn takes_only_the_signers_answer_to_this_request() {
         const URL: &str = "https://alice.dassiepay.net/.well-known/pay";
-        let key = NodeKey::from_bytes(&[4; 32]);
+        let key = IdentityKey::from_bytes(&[4; 32]);
         let id = key.node_id();
-        let other = NodeKey::from_bytes(&[5; 32]).node_id();
+        let other = IdentityKey::from_bytes(&[5; 32]).node_id();
         let body = br#"{"id":"https://alice.dassiepay.net/.well-known/pay"}"#;
         let signed = answer(&key, URL, "n1", body);
         let get = http::Method::GET;

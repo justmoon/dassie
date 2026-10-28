@@ -2001,7 +2001,7 @@ mod tests {
                 let seed = u8::try_from(index + 1).unwrap();
                 acceptance
                     .clone()
-                    .sign(&NodeKey::from_bytes(&[seed; 32]), &terms)
+                    .sign(crate::rules::tests::node_key(seed), &terms)
             })
             .collect();
         Rules { terms, validators }
