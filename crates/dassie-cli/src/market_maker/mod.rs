@@ -160,7 +160,7 @@ struct Current {
     node: NodeId,
     /// Its URL.
     url: String,
-    /// Its rates between the two nodes' ledgers.
+    /// Its rates between the two nodes' methods, their hubs.
     rates: Rates,
 }
 
@@ -227,18 +227,8 @@ impl MarketMaker {
             xrp: config::wallet_from_file(&config.xrp.passphrase_file, now_ms)?,
             token: config::wallet_from_file(&config.token_node.passphrase_file, now_ms)?,
         };
-        let mut xrp = Node::new(
-            Side::Xrp,
-            config.xrp.socket.clone(),
-            config.xrp.ledger.clone(),
-            config.xrp.owner_book.clone(),
-        );
-        let mut token = Node::new(
-            Side::Token,
-            config.token_node.socket.clone(),
-            config.token_node.ledger.clone(),
-            config.token_node.owner_book.clone(),
-        );
+        let mut xrp = Node::new(Side::Xrp, &config.xrp);
+        let mut token = Node::new(Side::Token, &config.token_node);
         check_node(&mut xrp, wallets.xrp.account(), &config.token).await?;
         check_node(&mut token, wallets.token.account(), &config.token).await?;
         let client = OutboundClient::new(config.ca_file.as_deref(), config.allow_private)?;
@@ -476,8 +466,8 @@ impl MarketMaker {
                 url: following.url.clone(),
                 rates: Rates {
                     fee_ppm: feed.fee_ppm,
-                    xrp_to_token_e15: feed.rate(&self.xrp.ledger, &self.token.ledger),
-                    token_to_xrp_e15: feed.rate(&self.token.ledger, &self.xrp.ledger),
+                    xrp_to_token_e15: feed.rate(&self.xrp.method, &self.token.method),
+                    token_to_xrp_e15: feed.rate(&self.token.method, &self.xrp.method),
                 },
             });
         }

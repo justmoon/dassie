@@ -141,14 +141,15 @@ impl Params {
 pub struct Rates {
     /// Its fee, in parts per million of what comes in.
     pub fee_ppm: u32,
-    /// From the XRP ledger to the token's, × 10^15, if it converts.
+    /// From the XRP hub's method to the token hub's, × 10^15, in their
+    /// ledgers' units, if it converts.
     pub xrp_to_token_e15: Option<u64>,
-    /// From the token's ledger to XRP's.
+    /// From the token hub's method to the XRP hub's.
     pub token_to_xrp_e15: Option<u64>,
 }
 
 impl Rates {
-    /// The rate from `side`'s ledger to the other's.
+    /// The rate from `side`'s method to the other's.
     #[must_use]
     pub const fn from(&self, side: Side) -> Option<u64> {
         match side {
@@ -286,7 +287,7 @@ pub enum Hold {
     /// No target with a current feed is a confirmed uplink of both nodes
     /// yet.
     Unpeered,
-    /// No feed names a rate between the two ledgers.
+    /// No feed names a rate between the two methods.
     NoRate,
     /// No node may send: each is at the bottom of its band.
     Bands,

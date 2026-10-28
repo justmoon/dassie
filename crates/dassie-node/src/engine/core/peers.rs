@@ -1102,8 +1102,13 @@ impl Core {
             .into_iter()
             .filter_map(|name| Some((name, self.offering(name)?)))
             .collect();
+        let offers = super::hubs::offers(offerings);
+        // The rate feed names the schemes of the offers: a change in them is
+        // a change in what a feed says (spec/areas/rate-feed.md#what-it-publishes).
+        let schemes = offers.iter().map(|offer| offer.scheme);
+        self.changes.prices |= !schemes.eq(self.peer.offers().iter().map(|offer| offer.scheme));
         let now = self.now_ms;
-        self.peer.set_offers(now, super::hubs::offers(offerings));
+        self.peer.set_offers(now, offers);
         self.follow_hubs();
     }
 

@@ -31,6 +31,7 @@ use std::time::Duration;
 use dassie_identity::NodeId;
 use dassie_node::rpc::proto::{self, request::Method, response, stream_item};
 
+use super::config::NodeConfig;
 use super::strategy::{Holding, Params, Pool, Side, Trade, check_quote};
 use crate::client::Client;
 
@@ -50,6 +51,8 @@ pub struct Node {
     pub side: Side,
     /// The ledger of its hub, which it trades on.
     pub ledger: String,
+    /// The settlement method of its hub, as a target's feed names it.
+    pub method: String,
     /// The ledger of the owner book that funds the hub.
     pub owner_book: String,
     /// The settlement scheme over its hub, as its hub's ledger last named
@@ -110,17 +113,18 @@ pub enum TradeOutcome {
 }
 
 impl Node {
-    /// The node of `side` at `socket`, trading on its hub's ledger
-    /// `ledger`, funded from the owner book `owner_book`; it connects at
-    /// the first call.
+    /// The node `config` names, of `side`: it trades on its hub's ledger,
+    /// which a target's feed names by its method, and is funded from its
+    /// owner book; it connects at the first call.
     #[must_use]
-    pub const fn new(side: Side, socket: PathBuf, ledger: String, owner_book: String) -> Self {
+    pub fn new(side: Side, config: &NodeConfig) -> Self {
         Self {
             side,
-            ledger,
-            owner_book,
+            ledger: config.ledger.clone(),
+            method: config.method.clone(),
+            owner_book: config.owner_book.clone(),
             hub_scheme: String::new(),
-            socket,
+            socket: config.socket.clone(),
             client: None,
         }
     }

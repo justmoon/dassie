@@ -16,7 +16,7 @@ use dassie_feed::{
     CookieSecret, Decision, FeedReceiver, InvalidFeed, Limits, Received, Rejected, SubscriberTable,
     WireError, encode_challenge, encode_subscribe, sign_feed,
 };
-use support::{key, other_key, two_ledger_feed};
+use support::{key, other_key, two_method_feed};
 
 #[test]
 fn a_subscriber_and_a_table_agree() {
@@ -44,7 +44,7 @@ fn a_subscriber_and_a_table_agree() {
 fn only_newer_verified_unexpired_feeds_of_its_node_are_taken() {
     let key = key();
     let mut receiver = FeedReceiver::new(key.identity());
-    let feed = two_ledger_feed();
+    let feed = two_method_feed();
     let now = feed.sequence_ms;
     let datagram = sign_feed(&key, &feed).unwrap();
 
@@ -56,7 +56,7 @@ fn only_newer_verified_unexpired_feeds_of_its_node_are_taken() {
     // The same feed again, replayed, is old.
     assert_eq!(receiver.receive(&datagram, now), Err(Rejected::Old));
 
-    let mut newer = two_ledger_feed();
+    let mut newer = two_method_feed();
     newer.sequence_ms += 1;
     let newer = sign_feed(&key, &newer).unwrap();
     assert_eq!(
@@ -70,14 +70,14 @@ fn only_newer_verified_unexpired_feeds_of_its_node_are_taken() {
 
     // Another node's feed, though it verifies, is not this subscription's.
     let other = other_key();
-    let mut theirs = two_ledger_feed();
+    let mut theirs = two_method_feed();
     theirs.public_key = *other.public_key().as_bytes();
     theirs.sequence_ms += 10;
     let theirs = sign_feed(&other, &theirs).unwrap();
     assert_eq!(receiver.receive(&theirs, now), Err(Rejected::OtherNode));
 
     let mut forged = sign_feed(&key, &{
-        let mut feed = two_ledger_feed();
+        let mut feed = two_method_feed();
         feed.sequence_ms += 20;
         feed
     })

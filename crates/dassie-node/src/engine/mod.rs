@@ -133,8 +133,20 @@ pub struct Versions {
     pub network: u64,
     /// Open Payments resources.
     pub payments: u64,
-    /// The price table, which the rate feed publishes.
+    /// What the rate feed publishes: the price table, or the settlement
+    /// methods the node offers its peers.
     pub prices: u64,
+}
+
+/// What the rate feed says, from one commit of the engine
+/// (spec/areas/rate-feed.md#what-it-publishes).
+#[derive(Clone, Debug)]
+pub struct FeedSource {
+    /// What the connector converts transit at.
+    pub table: dassie_connector::PriceTable,
+    /// The settlement methods the node offers its peers, each with its
+    /// scheme's ledger, each once.
+    pub methods: Vec<(dassie_peer::wire::SchemeId, dassie_ledger::LedgerId)>,
 }
 
 /// A handle to the running engine. Cheap to clone; stale once its
@@ -419,6 +431,19 @@ impl Engine {
     /// as of the engine's last commit (spec/decisions/passive-rebalancing.md).
     pub async fn price_table(&self) -> Result<dassie_connector::PriceTable, EngineError> {
         self.call(|core| Ok(*core.price_table())).await
+    }
+
+    /// What the rate feed says, as of the engine's last commit: the price
+    /// table, and the settlement methods the node offers its peers, each
+    /// with its ledger (spec/areas/rate-feed.md#what-it-publishes).
+    pub async fn feed_source(&self) -> Result<FeedSource, EngineError> {
+        self.call(|core| {
+            Ok(FeedSource {
+                table: *core.price_table(),
+                methods: core.feed_methods(),
+            })
+        })
+        .await
     }
 
     /// Measures what the path from `ledger`'s payer to the receiver at
