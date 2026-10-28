@@ -792,17 +792,26 @@ pub fn check_pegged(sim: &Sim) -> Result<(), String> {
     Ok(())
 }
 
-/// No settlement is still on its way.
+/// No settlement is still on its way: none in a channel's outbox, and
+/// none whose message waits to go behind another, the settlements
+/// [`on_its_way`] counts.
 pub fn check_delivered(sim: &Sim) -> Result<(), String> {
     for index in 0..sim.nodes.len() {
-        let network = sim.core(index).network();
-        if let Some((peer, _)) = network
+        let core = sim.core(index);
+        if let Some((peer, _)) = core
+            .network()
             .channels
             .iter()
             .find(|(_, channel)| channel.outbox.is_some())
         {
             return Err(format!(
                 "node {index}'s settlement to {peer} is still on its way"
+            ));
+        }
+        if let Some((peer, scheme, _)) = core.waiting_notices().first() {
+            return Err(format!(
+                "node {index}'s settlement to {peer} on {} waits to go",
+                scheme.as_str()
             ));
         }
     }
