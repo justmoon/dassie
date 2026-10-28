@@ -29,6 +29,8 @@ export const TLS_DIR = `${root}testdata/tls`;
 export const PEBBLE_API_ROOT = `${TLS_DIR}/root.pem`;
 /** Pebble's ACME directory. */
 export const PEBBLE_DIRECTORY = "https://localhost:14000/dir";
+/** The root Pebble issues certificates under, from its management API. */
+export const PEBBLE_ISSUING_ROOT = "https://localhost:15000/roots/0";
 /**
  * `DASSIE_BOOTSTRAP_NODES` for a daemon under test: none, so that it stays
  * off the public testnet the default list names.
@@ -183,10 +185,34 @@ export const BTP_HTTP_PORT = 18882;
 export const BTP_HTTPS_PORT = 18845;
 
 /**
+ * `--feed-listen` for a standalone daemon under test: its snapshot socket
+ * on loopback, at a port from the system. By default it binds 7768 on
+ * every address, which two daemons, or a node on the same machine, cannot
+ * share.
+ */
+export const ANY_FEED_PORT = "127.0.0.1:0";
+
+/** The ports the standalone runtime's node listens on (`fresh_install_test.ts`). */
+export const STANDALONE_HTTP_PORT = 18880;
+export const STANDALONE_HTTPS_PORT = 18843;
+
+/**
+ * The dev environment's proxy and dashboard under `dev_test.ts`: its own
+ * (443 and 10100, `apps/dev/main.ts`) moved by the file's offset.
+ */
+export const DEV_PROXY_PORT = 443 + PORT_OFFSETS["dev_test.ts"];
+export const DEV_DASHBOARD_PORT = 10_100 + PORT_OFFSETS["dev_test.ts"];
+
+/**
  * The ports test files take beside their offsets' (TCP, or UDP for QUIC
  * and DNS): Pebble's directory, management, http-01 and tls-alpn-01 ports
- * and its DNS stand-in's, the fresh install's node, the BTP test's node,
- * and the dev environment's proxy and dashboard under `dev_test.ts`.
+ * and its DNS stand-in's, the fresh install's node, the standalone
+ * runtime's, the BTP test's node, and the dev environment's proxy and
+ * dashboard under `dev_test.ts`. Every port a test file names comes from
+ * here or from {@linkcode PORT_OFFSETS}, which `ports_test.ts` checks; a
+ * server that nothing needs to know the port of in advance listens on
+ * port 0 instead, and gets one from the system's ephemeral range, which no
+ * port here reaches.
  */
 export const FIXED_PORTS:
   readonly (readonly [string, "tcp" | "udp", number])[] = [
@@ -199,11 +225,14 @@ export const FIXED_PORTS:
     ["pebble dns", "tcp", 18755],
     ["fresh install", "tcp", HTTPS_PORT],
     ["fresh install", "udp", HTTPS_PORT],
+    ["standalone runtime", "tcp", STANDALONE_HTTP_PORT],
+    ["standalone runtime", "tcp", STANDALONE_HTTPS_PORT],
+    ["standalone runtime", "udp", STANDALONE_HTTPS_PORT],
     ["btp_payment_test.ts", "tcp", BTP_HTTP_PORT],
     ["btp_payment_test.ts", "tcp", BTP_HTTPS_PORT],
     ["btp_payment_test.ts", "udp", BTP_HTTPS_PORT],
-    ["dev_test.ts", "tcp", 443 + PORT_OFFSETS["dev_test.ts"]],
-    ["dev_test.ts", "tcp", 10_100 + PORT_OFFSETS["dev_test.ts"]],
+    ["dev_test.ts", "tcp", DEV_PROXY_PORT],
+    ["dev_test.ts", "tcp", DEV_DASHBOARD_PORT],
   ];
 
 /**

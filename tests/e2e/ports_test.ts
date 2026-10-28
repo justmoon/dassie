@@ -82,3 +82,54 @@ test("every file that starts a scenario has an offset of its own", async () => {
     );
   }
 });
+
+/**
+ * How a port is spelled outside the table: in an address or URL, as an
+ * option or a constant, or as a flag. A port a file named this way would
+ * escape the check above.
+ */
+const PORT_LITERALS = [
+  /(?:localhost|127\.0\.0\.1|\[::1?\]):\d/,
+  /\bport:\s*[1-9]/i,
+  /PORT\w*\s*=\s*\d/,
+  /"--[\w-]*(?:port|listen)",\s*"[^"]*\d/,
+  /waitForPort\(\d/,
+];
+
+// Every port a file names comes from harness.ts, so that the checks above
+// cover it; a server that nothing needs to know the port of in advance
+// listens on port 0, in the system's range, above every port here.
+test("no test file names a port of its own", async () => {
+  for (const dir of ["./", "../interop/"]) {
+    const url = new URL(dir, import.meta.url);
+    for (const file of await readdir(url)) {
+      if (!file.endsWith(".ts")) continue;
+      if (file === "harness.ts" || file === "ports_test.ts") continue;
+      const text = await readFile(new URL(file, url), "utf8");
+      for (const pattern of PORT_LITERALS) {
+        const found = text.match(pattern);
+        assert(
+          found === null,
+          `${dir}${file} names a port of its own (${
+            found?.[0]
+          }): take it from harness.ts`,
+        );
+      }
+      // A standalone daemon binds its snapshot socket at 7768 on every
+      // address unless told otherwise.
+      if (text.includes('"--https-port"')) {
+        assert(
+          text.includes('"--feed-listen"'),
+          `${dir}${file} starts a daemon without --feed-listen`,
+        );
+      }
+      // Pebble's ports and the activated daemon's are one file's alone.
+      if (file !== "fresh_install_test.ts") {
+        assert(
+          !/startPebble\(|startActivated\(/.test(text),
+          `${dir}${file} starts Pebble or an activated daemon, whose ports are fresh_install_test.ts's`,
+        );
+      }
+    }
+  }
+});

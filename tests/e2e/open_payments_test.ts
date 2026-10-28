@@ -30,7 +30,6 @@ import { BtpClient } from "./btp.ts";
 
 /** Ports of their own, beside the other suites'. */
 const PORT_OFFSET = PORT_OFFSETS["open_payments_test.ts"];
-const CLIENT_PORT = 18_960;
 /** Above the node's 0.1 USD packet limit, so it takes several packets. */
 const AMOUNT = 250_000_000n;
 
@@ -57,9 +56,11 @@ async function serveClient(scenario: Scenario, jwk: object) {
     ["localhost"],
     layout.caRoot,
   );
-  const origin = `https://localhost:${CLIENT_PORT}`;
+  // At a port from the system: it is known once the server listens, before
+  // anything asks it.
+  let origin = "";
   const server = await serve({
-    port: CLIENT_PORT,
+    port: 0,
     hostname: "127.0.0.1",
     cert: tls.certificatePem,
     key: tls.keyPem,
@@ -77,6 +78,7 @@ async function serveClient(scenario: Scenario, jwk: object) {
     }
     return new Response("Not Found", { status: 404 });
   });
+  origin = `https://localhost:${server.addr.port}`;
   return { server, walletAddress: `${origin}/client` };
 }
 

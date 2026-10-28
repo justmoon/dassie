@@ -31,6 +31,7 @@ import {
 import { deriveNodeKey } from "@dassie/wasm";
 
 import {
+  ANY_FEED_PORT,
   BTP_HTTP_PORT,
   BTP_HTTPS_PORT,
   DASSIE,
@@ -72,6 +73,8 @@ function startDaemon(dir: string): Process {
     `${HTTP_PORT}`,
     "--https-port",
     `${HTTPS_PORT}`,
+    "--feed-listen",
+    ANY_FEED_PORT,
   ], {
     env: {
       DASSIE_STATE_DIRECTORY: `${dir}/state`,
