@@ -169,7 +169,7 @@ A node's default rate sources are exchanges whose terms license their market dat
 A core node's holdings drift, and only market makers bring them back. [peer-swaps](decisions/peer-swaps.md) lets a node swap with its peers over two settlement methods of a peering: a Prepare to `peer.swap.<scheme ID>` that the peer converts and sends back on the method it names, priced by snapshots of the peer's quotes, which ladders say how far a swap can go.
 
 - **Left to build:**
-  - the snapshot in `dassie-feed`, as feed version 2: quotes per method with their ladders, tags of the schemes' IDs, the grid in the header, and its encoding, with vectors; a padded request answered with the cached snapshot, in place of the subscription, the cookies and the subscriber table;
+  - the snapshot in `dassie-feed`, as feed version 2, or 3 if a release carries version 2 first ([the decision](decisions/peer-swaps.md#decision)): quotes per method with their ladders, tags of the schemes' IDs, the grid in the header, and its encoding, with vectors and constant assertions that the most methods and the grid fit one datagram; a padded request answered with the cached snapshot, in place of the subscription, the cookies and the subscriber table;
   - the snapshot in the node: the quotes and ladders from the price table, the clamp that keeps a pair's product within the curve's cap, and the promise checked by a property test against the curve at many skews and sizes;
   - the subscription and the snapshot as messages of the peer protocol's version 2;
   - `peer.swap` in the connector: a peer's swap converted and sent back on the method it names, before routing, with its errors; and the node's own swaps coming back, fulfilled from their data;
