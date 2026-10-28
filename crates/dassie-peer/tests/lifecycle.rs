@@ -268,6 +268,13 @@ fn an_owner_ends_a_peering() {
             )
     });
     assert!(by_them, "the other side learns why");
+    // Each keeps the other away for the cooldown, and says until when.
+    for (index, peer) in [(0, b), (1, a)] {
+        assert!(
+            refused_until(&network, index, &peer).is_some_and(|until| until > network.clock(index)),
+            "node {index} shows its cooldown"
+        );
+    }
     // A settlement after the end is still credited.
     assert!(network.settle(0, b, 9));
     settle(&mut network, 5_000);
@@ -754,6 +761,15 @@ fn a_peer_ended_for_room_is_not_peered_again_within_the_cooldown() {
         settle(&mut network, 1_000);
     }
     assert!(network.node(0).peering_of(&b).is_some(), "peered again");
+    assert_eq!(refused_until(&network, 0, &b), None, "the cooldown is over");
+}
+
+/// When node `index`'s cooldown toward `peer` ends, as its node table shows
+/// it; none while none holds.
+fn refused_until(network: &Network, index: usize, peer: &NodeId) -> Option<u64> {
+    let views = network.node(index).nodes();
+    let view = views.iter().find(|view| view.id == *peer)?;
+    view.refused_until_ms
 }
 
 /// Node 0 checks `peer` every second for `ms`, as its settlement checks do
