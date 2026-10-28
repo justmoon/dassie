@@ -2,7 +2,8 @@
  * Activity: the incoming and outgoing payments, newest first, as they
  * receive and send money (spec/decisions/open-payments.md). Outgoing payments
  * are the owner's Sends and those of apps the owner approved; each leads to
- * its own page.
+ * its own page. Each row is Kopje's, as home lists the last few
+ * (`Recent.tsx`).
  */
 
 import type { JSX } from "@solidjs/web";
@@ -26,8 +27,10 @@ import {
   description,
   incomingState,
   newestFirst,
+  shownReceived,
 } from "./incoming.ts";
 import { destinationLabel } from "./send.ts";
+import { TxAvatar } from "./Recent.tsx";
 
 /** How many incoming payments the page follows. */
 const LIMIT = 100;
@@ -47,24 +50,26 @@ export function Activity(): JSX.Element {
   return (
     <div class="page-wide stack">
       <PageTitle>Activity</PageTitle>
-      <Card title="Incoming Payments" testid="page-activity">
-        <LiveNote status={live.status()} />
-        <Show
-          when={payments().length > 0}
-          fallback={
-            <p class="muted" data-testid="activity-empty">
-              No incoming payments yet. Request one under Receive.
-            </p>
-          }
-        >
-          <ul class="activity">
-            <For each={payments()} keyed={(payment) => payment.id}>
-              {(payment) => <Row payment={payment()} now={now()} />}
-            </For>
-          </ul>
-        </Show>
-      </Card>
-      <OutgoingPayments />
+      <div class="grid-2">
+        <Card title="Incoming payments" testid="page-activity">
+          <LiveNote status={live.status()} />
+          <Show
+            when={payments().length > 0}
+            fallback={
+              <p class="muted" data-testid="activity-empty">
+                No incoming payments yet. Request one under Receive.
+              </p>
+            }
+          >
+            <ul class="tx-list tx-list-full">
+              <For each={payments()} keyed={(payment) => payment.id}>
+                {(payment) => <Row payment={payment()} now={now()} />}
+              </For>
+            </ul>
+          </Show>
+        </Card>
+        <OutgoingPayments />
+      </div>
     </div>
   );
 }
@@ -86,7 +91,7 @@ function OutgoingPayments(): JSX.Element {
         : 1
     );
   return (
-    <Card title="Outgoing Payments" testid="outgoing-payments">
+    <Card title="Outgoing payments" testid="outgoing-payments">
       <LiveNote status={live.status()} />
       <Show
         when={payments().length > 0}
@@ -96,7 +101,7 @@ function OutgoingPayments(): JSX.Element {
           </p>
         }
       >
-        <ul class="activity">
+        <ul class="tx-list tx-list-full">
           <For each={payments()} keyed={(payment) => payment.id}>
             {(payment) => <OutgoingRow payment={payment()} />}
           </For>
@@ -116,35 +121,75 @@ function OutgoingRow(props: { payment: OutgoingPayment }): JSX.Element {
       : "plain";
   return (
     <li
+      class="tx"
       data-testid={`outgoing-${props.payment.id}`}
       data-state={props.payment.state}
     >
-      <div class="activity-head">
-        <Link
-          href={`/payments/${props.payment.id}`}
-          testid="outgoing-link"
-        >
-          <strong>To {destinationLabel(props.payment)}</strong>
-        </Link>
-        <Badge tone={tone()} testid="outgoing-state">
-          {props.payment.state}
-        </Badge>
+      <TxAvatar direction="out" />
+      <div class="tx-main">
+        <p class="tx-name">
+          <Link
+            href={`/payments/${props.payment.id}`}
+            testid="outgoing-link"
+          >
+            To {destinationLabel(props.payment)}
+          </Link>{" "}
+          <Badge tone={tone()} testid="outgoing-state">
+            {props.payment.state}
+          </Badge>
+        </p>
+        <p class="tx-detail">
+          Sent by {clientLabel(props.payment.client)},{" "}
+          {dateTime(props.payment.createdAtUnixMs)}
+        </p>
       </div>
-      <p>
-        <Amount
-          value={props.payment.sentAmount}
-          currency={currency()}
-          testid="outgoing-sent"
-        />
-        {" of "}
-        <Amount value={props.payment.debitAmount} currency={currency()} />
-      </p>
-      <p class="muted">
-        Sent by {clientLabel(props.payment.client)},{" "}
-        {dateTime(props.payment.createdAtUnixMs)}
+      <p class="tx-amount">
+        <Show
+          when={props.payment.fixedDebit}
+          fallback={
+            <>
+              <Show when={props.payment.receiveAmount}>
+                {(amount) => (
+                  <Amount
+                    value={amount().value}
+                    currency={ledgerCurrency(amount())}
+                    testid="outgoing-receive"
+                  />
+                )}
+              </Show>
+              {/* One that failed after spending says what left. */}
+              <Show
+                when={props.payment.state === "failed" &&
+                  props.payment.sentAmount > 0n}
+              >
+                {", paid "}
+                <Amount
+                  value={props.payment.sentAmount}
+                  currency={currency()}
+                  testid="outgoing-sent"
+                />
+                {" of "}
+                <Amount
+                  value={props.payment.debitAmount}
+                  currency={currency()}
+                />
+              </Show>
+            </>
+          }
+        >
+          <Amount
+            value={props.payment.sentAmount}
+            currency={currency()}
+            testid="outgoing-sent"
+          />
+          <Show when={props.payment.state !== "completed"}>
+            {" of "}
+            <Amount value={props.payment.debitAmount} currency={currency()} />
+          </Show>
+        </Show>
       </p>
       <Show when={props.payment.failure !== ""}>
-        <p class="muted" data-testid="outgoing-failure">
+        <p class="tx-more muted" data-testid="outgoing-failure">
           {props.payment.failure}
         </p>
       </Show>
@@ -166,29 +211,41 @@ function Row(props: { payment: IncomingPayment; now: number }): JSX.Element {
     }
   };
   return (
-    <li data-testid={`incoming-${props.payment.id}`} data-state={state()}>
-      <div class="activity-head">
-        <strong>
-          {description(props.payment.metadataJson) ?? "Incoming payment"}
-        </strong>
-        <Badge
-          tone={state() === "completed"
-            ? "good"
-            : state() === "expired"
-            ? "bad"
-            : "plain"}
-          testid="incoming-state"
-        >
-          {state()}
-        </Badge>
+    <li
+      class="tx"
+      data-testid={`incoming-${props.payment.id}`}
+      data-state={state()}
+    >
+      <TxAvatar direction="in" />
+      <div class="tx-main">
+        <p class="tx-name">
+          {description(props.payment.metadataJson) ?? "Incoming payment"}{" "}
+          <Badge
+            tone={state() === "completed"
+              ? "good"
+              : state() === "expired"
+              ? "bad"
+              : "plain"}
+            testid="incoming-state"
+          >
+            {state()}
+          </Badge>
+        </p>
+        <p class="tx-detail">
+          Requested by {clientLabel(props.payment.client)},{" "}
+          {dateTime(props.payment.createdAtUnixMs)}
+        </p>
       </div>
-      <p>
+      <p class="tx-amount tx-in">
         <Amount
-          value={props.payment.receivedAmount}
+          value={shownReceived(props.payment)}
           currency={currency()}
           testid="incoming-received"
         />
-        <Show when={props.payment.incomingAmount !== undefined}>
+        <Show
+          when={!props.payment.paidInFull &&
+            props.payment.incomingAmount !== undefined}
+        >
           {" of "}
           <Amount
             value={props.payment.incomingAmount ?? 0n}
@@ -196,22 +253,20 @@ function Row(props: { payment: IncomingPayment; now: number }): JSX.Element {
           />
         </Show>
       </p>
-      <p class="muted">
-        Requested by {clientLabel(props.payment.client)},{" "}
-        {dateTime(props.payment.createdAtUnixMs)}
-      </p>
-      <Show when={state() === "open"}>
-        <ConfirmButton
-          label="Complete"
-          title="Complete this payment?"
-          confirm="Complete"
-          onConfirm={complete}
-          testid="incoming-complete"
-        >
-          <p>It takes no more money, whatever it was asked for.</p>
-        </ConfirmButton>
-      </Show>
-      <ErrorText message={error()} />
+      <div class="tx-more">
+        <Show when={state() === "open"}>
+          <ConfirmButton
+            label="Complete"
+            title="Complete this payment?"
+            confirm="Complete"
+            onConfirm={complete}
+            testid="incoming-complete"
+          >
+            <p>It takes no more money, whatever it was asked for.</p>
+          </ConfirmButton>
+        </Show>
+        <ErrorText message={error()} />
+      </div>
     </li>
   );
 }

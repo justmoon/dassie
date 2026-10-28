@@ -1,6 +1,7 @@
 /**
- * One outgoing payment, live (spec/decisions/open-payments.md): how much
- * it sent of what it debits, until it completes or fails. The owner's Send
+ * One outgoing payment, live (spec/decisions/open-payments.md). It leads
+ * with the amount the payment fixed: what the receiver gets, or what it
+ * sends of what it debits. The other amount follows. The owner's Send
  * leads here; so does each outgoing payment in Activity.
  */
 
@@ -13,7 +14,7 @@ import { createLiveValue } from "@dassie/ui/live";
 import { Link, type RouteProps } from "@dassie/ui/router";
 import { Badge, Card, LiveNote, PageTitle } from "@dassie/ui/ui";
 import { clientLabel } from "./incoming.ts";
-import { destinationLabel, progress, stateText } from "./send.ts";
+import { destinationLabel, paymentProgress, stateText } from "./send.ts";
 
 export function PaymentStatus(props: RouteProps): JSX.Element {
   const live = createLiveValue(
@@ -22,14 +23,16 @@ export function PaymentStatus(props: RouteProps): JSX.Element {
     (item) => item,
   );
   return (
-    <div class="page page-narrow stack" data-testid="page-payment">
+    <div class="page-narrow stack" data-testid="page-payment">
       <PageTitle>Payment</PageTitle>
       <LiveNote status={live.status()} />
       <Show when={live.value()}>
         {(payment) => <Status payment={payment()} />}
       </Show>
       <p>
-        <Link href="/payments" testid="payment-activity">All activity</Link>
+        <Link href="/payments" class="button" testid="payment-activity">
+          All activity
+        </Link>
       </p>
     </div>
   );
@@ -43,7 +46,35 @@ function Status(props: { payment: OutgoingPayment }): JSX.Element {
       : props.payment.state === "failed"
       ? "bad"
       : "plain";
+  const completed = () => props.payment.state === "completed";
   const receive = () => props.payment.receiveAmount;
+  // What it sent so far, and of the most it may take until it is done.
+  const sent = (size?: "lg") => (
+    <>
+      <Amount
+        value={props.payment.sentAmount}
+        currency={currency()}
+        size={size}
+        testid="payment-sent"
+      />
+      <Show when={!completed()}>
+        {" of "}
+        <Amount value={props.payment.debitAmount} currency={currency()} />
+      </Show>
+    </>
+  );
+  const received = (size?: "lg") => (
+    <Show when={receive()}>
+      {(amount) => (
+        <Amount
+          value={amount().value}
+          currency={ledgerCurrency(amount())}
+          size={size}
+          testid="payment-receive"
+        />
+      )}
+    </Show>
+  );
   return (
     <Card title={`To ${destinationLabel(props.payment)}`}>
       <div
@@ -56,19 +87,15 @@ function Status(props: { payment: OutgoingPayment }): JSX.Element {
             {stateText(props.payment.state)}
           </Badge>
         </p>
-        <p>
-          <Amount
-            value={props.payment.sentAmount}
-            currency={currency()}
-            size="lg"
-            testid="payment-sent"
-          />
-          {" of "}
-          <Amount value={props.payment.debitAmount} currency={currency()} />
+        <p class="payment-lead">
+          <Show when={props.payment.fixedDebit} fallback={received("lg")}>
+            {sent("lg")}
+          </Show>
         </p>
         <progress
+          class="payment-progress"
           max="1000"
-          value={progress(props.payment.sentAmount, props.payment.debitAmount)}
+          value={paymentProgress(props.payment)}
           aria-label="Sent so far"
         />
         <Show when={props.payment.failure !== ""}>
@@ -76,19 +103,23 @@ function Status(props: { payment: OutgoingPayment }): JSX.Element {
             {props.payment.failure}
           </p>
         </Show>
-        <dl class="facts">
-          <dt>They receive</dt>
-          <dd>
-            <Show when={receive()}>
-              {(amount) => (
-                <Amount
-                  value={amount().value}
-                  currency={ledgerCurrency(amount())}
-                  testid="payment-receive"
-                />
-              )}
-            </Show>
-          </dd>
+        <dl class="facts rows">
+          <Show
+            when={props.payment.fixedDebit}
+            fallback={
+              <>
+                <dt>
+                  {props.payment.state === "sending"
+                    ? "Sent so far"
+                    : "You paid"}
+                </dt>
+                <dd>{sent()}</dd>
+              </>
+            }
+          >
+            <dt>They receive</dt>
+            <dd>{received()}</dd>
+          </Show>
           <dt>Recipient</dt>
           <dd data-testid="payment-recipient">
             {destinationLabel(props.payment)}
@@ -115,7 +146,7 @@ function Status(props: { payment: OutgoingPayment }): JSX.Element {
               class="button"
               testid="payment-send-again"
             >
-              Send Again
+              Send again
             </Link>
           </div>
         </Show>

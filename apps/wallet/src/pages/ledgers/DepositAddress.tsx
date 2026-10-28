@@ -28,8 +28,8 @@ export function DepositAddress(props: {
         testid={`${props.testid}-qr-${props.ledger.id}`}
       />
       <div>
-        <p>Deposit address</p>
-        <p>
+        <p class="deposit-label">Deposit address</p>
+        <p class="deposit-address">
           <code data-testid={`${props.testid}-address-${props.ledger.id}`}>
             {props.address}
           </code>{" "}

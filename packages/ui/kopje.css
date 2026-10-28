@@ -1,0 +1,89 @@
+/*
+ * Kopje, Dassie's visual identity (apps/website/brand/index.html), as
+ * everything of Dassie's that people see shares it: the fonts, served as
+ * files of the page's own origin, and the palette, light and dusk. The
+ * shared components (ui.css), dassie.land (apps/website/src/kopje.css)
+ * and the brand page all start from it.
+ *
+ * Every color is written once, for light and for dusk, with
+ * `light-dark()`: a page follows the system, and `data-theme` on the root
+ * picks one.
+ */
+
+@font-face {
+  font-family: "Fraunces";
+  font-style: normal;
+  font-weight: 300 800;
+  font-display: swap;
+  src: url("./kopje/fonts/fraunces.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Fraunces";
+  font-style: italic;
+  font-weight: 300 800;
+  font-display: swap;
+  src: url("./kopje/fonts/fraunces-italic.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Figtree";
+  font-style: normal;
+  font-weight: 400 800;
+  font-display: swap;
+  src: url("./kopje/fonts/figtree.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Figtree";
+  font-style: italic;
+  font-weight: 400 600;
+  font-display: swap;
+  src: url("./kopje/fonts/figtree-italic.woff2") format("woff2");
+}
+@font-face {
+  font-family: "DM Mono";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("./kopje/fonts/dm-mono-400.woff2") format("woff2");
+}
+@font-face {
+  font-family: "DM Mono";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("./kopje/fonts/dm-mono-500.woff2") format("woff2");
+}
+
+/* Light, then dusk: after sunset the ground is night and text is sand. */
+:root {
+  color-scheme: light dark;
+  --sand: light-dark(#EFE3CF, #1E1814); /* Sandstone: the page */
+  --day: light-dark(#FBF6EE, #2A221D); /* Daylight: surfaces, cards */
+  --stone: light-dark(#CDB89A, #5E4E42); /* Warm Stone: stones, rules */
+  --stone-2: light-dark(#DCCBAF, #46392F); /* tint of Warm Stone */
+  --stone-3: light-dark(#E6D8C1, #332922); /* lighter tint */
+  --sun: #F4A259; /* Sunrise Apricot: the sun, warmth */
+  --sun-2: #F8C08A; /* light sun tint */
+  --ember: #A94E2A; /* Ember: action, as a fill (5.1:1 with Daylight) */
+  --ember-text: light-dark(#A94E2A, #E58A57); /* Ember as text and links */
+  --terra: #7A3B22; /* Terracotta: earth, for grounds and cards; never a rock, never text */
+  --violet: #A85FE0; /* Violet Crystal: value, the cube only */
+  --ink: light-dark(#2B2420, #F0E5D3); /* Ink: text */
+  --ink-2: light-dark(#5E524A, #B8AA97); /* muted text */
+  --night: light-dark(#2B2420, #120E0C); /* ink surfaces: terminal, footer */
+  --silhouette: light-dark(#2B2420, #120E0C); /* drawn ink, darker than the night at dusk */
+
+  --display: "Fraunces", Georgia, serif;
+  --sans: "Figtree", system-ui, sans-serif;
+  --mono: "DM Mono", ui-monospace, monospace;
+
+  --pebble: 28px; /* the radius of a stone container */
+  --wrap: 1200px;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+}

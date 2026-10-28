@@ -67,8 +67,8 @@ function Removal(props: { scheme: string }): JSX.Element {
   };
   return (
     <div class="page-narrow">
-      <PageTitle>Removing Ledger {schemeName(props.scheme)}</PageTitle>
-      <Card testid="page-delete-ledger">
+      <PageTitle>Removing ledger {schemeName(props.scheme)}</PageTitle>
+      <Card testid="page-delete-ledger" class="ledger-removal">
         <Alert title="Possibility to lose funds" tone="danger">
           Removing a ledger stops your node from using it. What the books hold
           on it stays, and comes back when you add the ledger again, but your
@@ -116,7 +116,7 @@ function Removal(props: { scheme: string }): JSX.Element {
               removing() !== undefined || pending()}
             onClick={remove}
           >
-            Remove Ledger Account
+            Remove ledger account
           </button>
         </div>
         <ErrorText message={error()} testid="delete-error" />

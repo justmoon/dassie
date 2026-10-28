@@ -369,6 +369,7 @@ fn node(view: &NodeView) -> proto::NetworkNode {
         banned: view.banned,
         peering: None,
         core: view.core,
+        free_core: view.free_core.map(u32::from),
     }
 }
 
@@ -419,6 +420,8 @@ fn peer(view: &PeerView) -> proto::NetworkPeer {
                 room_packets: promotion.room_packets,
                 paid_us: promotion.paid_us,
                 clock_skew_ms: promotion.skew_ms,
+                url_answered: promotion.url_answered,
+                https_answered: promotion.https_answered,
             }),
     }
 }
@@ -433,6 +436,8 @@ const fn promotion_check(check: dassie_peer::PromotionCheck) -> &'static str {
         PromotionCheck::Room => "room",
         PromotionCheck::Settled => "settled",
         PromotionCheck::Clock => "clock",
+        PromotionCheck::Url => "url",
+        PromotionCheck::Https => "https",
         PromotionCheck::NotBanned => "not-banned",
     }
 }

@@ -199,6 +199,8 @@ message Request {
     HubWithdrawRequest hub_withdraw = 132;
     SetHubAutomaticRequest set_hub_automatic = 133;
     HubGiveUpRequest hub_give_up = 134;
+    // Streaming.
+    SubscribeHubEventsRequest subscribe_hub_events = 143;
 
     // Founding a settlement hub (hub_founding.proto).
     FoundHubRequest found_hub = 135;
@@ -332,6 +334,7 @@ message StreamItem {
     OutgoingPaymentEvent subscribe_outgoing_payments = 78;
     PacketEvent subscribe_packets = 83;
     TransferEvent subscribe_transfers = 84;
+    HubEvent subscribe_hub_events = 143;
     NodeTableEvent subscribe_nodes = 100;
     // The routes, whole, each time they change.
     ListRoutesResponse subscribe_routes = 101;

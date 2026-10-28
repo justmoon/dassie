@@ -1034,7 +1034,7 @@ mod tests {
 
     fn sent(amount: u64) -> Sent {
         Sent {
-            peer: dassie_identity::IdentityKey::from_bytes(&[1; 32]).node_id(),
+            peer: dassie_identity::TableKeygen::identity_key(&[1; 32]).node_id(),
             pay_on: LedgerId::StubUsd,
             back_on: LedgerId::HubXrplTestnetXrp,
             amount,

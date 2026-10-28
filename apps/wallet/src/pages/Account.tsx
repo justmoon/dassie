@@ -1,9 +1,15 @@
 /**
- * Home (spec/areas/wallet.md#pages): the payment pointer, and the owner's
- * balance in each asset in its own currency, as it changes, its settlement
- * hub's and its own account's together
- * (spec/decisions/one-balance-per-asset.md), with the total in the display
- * currency (spec/decisions/owner-ledger.md) while the rates allow.
+ * Home (spec/areas/wallet.md#pages): the owner's balance, the total in the
+ * display currency (spec/decisions/owner-ledger.md) while the rates allow
+ * and below it each asset in its own currency, as it changes, its
+ * settlement hub's and its own account's together
+ * (spec/decisions/one-balance-per-asset.md); Send and Receive; the last few
+ * payments; and the payment pointer.
+ *
+ * It is the top of the wallet in Kopje's brand page
+ * (apps/website/brand/index.html, "Node wallet"): the balance on a
+ * Terracotta card with the veld's grass along its foot, the brand page's
+ * own drawing, checked against it (`drawings_test.ts`).
  */
 
 import type { JSX } from "@solidjs/web";
@@ -16,29 +22,68 @@ import {
   FrontDoorNote,
   useWalletAddresses,
 } from "./payments/WalletAddresses.tsx";
+import { ReceiveIcon, SendIcon } from "./payments/icons.tsx";
+import { Recent } from "./payments/Recent.tsx";
 import { Card, LiveNote, PageTitle } from "@dassie/ui/ui";
 
+const GRASS = new URL("./balance-grass.svg", import.meta.url).href;
+
 export function Account(): JSX.Element {
+  return (
+    <div class="page-wide home">
+      <PageTitle>Dashboard</PageTitle>
+      <Balance />
+      <div class="home-actions">
+        <Link href="/send" class="button primary" testid="send-button">
+          <SendIcon />
+          Send
+        </Link>
+        <Link href="/receive" class="button" testid="receive-button">
+          <ReceiveIcon />
+          Receive
+        </Link>
+      </div>
+      <Recent />
+      <PaymentPointer />
+    </div>
+  );
+}
+
+/** The balance card: the total, big, and each asset below it. Without a
+ * total, each asset's balance is the big number. */
+function Balance(): JSX.Element {
   const data = useNodeData();
   return (
-    <div class="page-wide stack">
-      <PageTitle>Dashboard</PageTitle>
-      <PaymentPointer />
-      <Card title="Balance" testid="page-account">
+    <section class="balance-card" data-testid="page-account">
+      <div>
+        <h2 class="overline">Balance</h2>
         <LiveNote status={data.ledgersStatus()} />
+        <Show when={data.total()}>
+          {(total) => (
+            <p class="balance-total">
+              <Amount
+                value={total().amount}
+                currency={ledgerCurrency(total())}
+                testid="balance-total"
+              />
+            </p>
+          )}
+        </Show>
         <ul class="balances">
           <For each={data.balances()} keyed={(balance) => balance.name}>
             {(balance) => (
               <li>
-                <span class="muted">{assetLabel(balance().name)}</span>
+                <span class="balance-asset">
+                  {assetLabel(balance().name)}
+                </span>
                 <Amount
                   value={balance().ownerBalance}
                   currency={ledgerCurrency(balance())}
-                  size="lg"
+                  size={data.total() ? "md" : "lg"}
                   testid={`balance-${balance().name}`}
                 />
                 <Show when={balance().ownerPending > 0n}>
-                  <span class="muted">
+                  <span class="balance-note">
                     (<Amount
                       value={balance().ownerPending}
                       currency={ledgerCurrency(balance())}
@@ -50,28 +95,9 @@ export function Account(): JSX.Element {
             )}
           </For>
         </ul>
-        <Show when={data.total()}>
-          {(total) => (
-            <p class="muted">
-              In all:{" "}
-              <Amount
-                value={total().amount}
-                currency={ledgerCurrency(total())}
-                testid="balance-total"
-              />
-            </p>
-          )}
-        </Show>
-        <div class="actions">
-          <Link href="/send" class="button primary" testid="send-button">
-            Send
-          </Link>
-          <Link href="/receive" class="button primary" testid="receive-button">
-            Receive
-          </Link>
-        </div>
-      </Card>
-    </div>
+      </div>
+      <img class="drawn" src={GRASS} alt="" />
+    </section>
   );
 }
 
@@ -83,7 +109,7 @@ export function PaymentPointer(props: { testid?: string }): JSX.Element {
     state.addresses()?.find((address) => address.isDefault)?.paymentPointer ??
       (data.hostname ? `$${data.hostname}` : "???");
   return (
-    <Card title="Payment Pointer">
+    <Card title="Payment pointer" class="home-pointer">
       <p class="pointer" data-testid={props.testid ?? "payment-pointer"}>
         {pointer()}
       </p>

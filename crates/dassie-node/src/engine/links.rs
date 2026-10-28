@@ -25,7 +25,7 @@ use tokio_util::sync::CancellationToken;
 
 use super::{Command, LedgerEvent};
 use crate::log::target;
-use crate::outbound::{OutboundClient, WebRequest, WebSocket};
+use crate::outbound::{OutboundClient, WebError, WebRequest, WebSocket};
 
 /// Most bytes in one message from a ledger: the longest answer an XRPL
 /// account reads, a proof server's proofs and validations
@@ -213,6 +213,67 @@ pub(super) fn fetch(client: Option<OutboundClient>, commands: mpsc::Sender<Comma
         tracing::debug!(target: target::SETTLEMENT, %asset, %url, fetched = body.is_some(), "fetched");
         report(&commands, asset, epoch, LedgerEvent::Fetched { url, body }).await;
     });
+}
+
+/// Most time a check of a downlink's URL over HTTPS takes: no longer than
+/// its check over QUIC, whose bucket bounds both.
+const HTTPS_CHECK_TIMEOUT_MS: u64 = 5_000;
+
+/// Most checks of downlinks' URLs over HTTPS in flight at once: a few, of
+/// the outbound client's places, so that they never take the room ledger
+/// fetches, hubs, rate sources and Open Payments need. One past them is
+/// left for the next time.
+pub(super) const MAX_HTTPS_CHECKS: usize = 4;
+
+/// The longest discovery document a check takes.
+const DISCOVERY_MAX_BYTES: usize = 4_096;
+
+/// Checks that `node` answers at `url` over HTTPS, with a certificate a
+/// public authority issued, the client's roots: its discovery document
+/// (spec/areas/http.md#the-nodes-discovery-document) must name it. Tells
+/// the core how it went (spec/decisions/promotion-to-core.md), holding
+/// `place`, one of [`MAX_HTTPS_CHECKS`], until then. A failure on our side,
+/// the client too busy, says nothing of the node, and is not told.
+pub(super) fn check_https(
+    client: OutboundClient,
+    place: OwnedSemaphorePermit,
+    commands: mpsc::Sender<Command>,
+    (node, url): (dassie_identity::NodeId, String),
+) {
+    tokio::spawn(async move {
+        let request = WebRequest {
+            method: http::Method::GET,
+            url: format!("{url}{}", crate::http::discovery::PATH),
+            headers: Vec::new(),
+            body: None,
+            timeout_ms: HTTPS_CHECK_TIMEOUT_MS,
+            max_response_bytes: DISCOVERY_MAX_BYTES,
+        };
+        let answered = match client.web(request).await {
+            Ok(response) => response.status == 200 && names(&response.body, &node),
+            Err(WebError::Busy) => {
+                drop(place);
+                return;
+            }
+            Err(WebError::Refused | WebError::Failed(_) | WebError::TooLarge) => false,
+        };
+        drop(place);
+        tracing::debug!(target: target::PEER, %node, %url, answered, "checked a downlink's URL over HTTPS");
+        let call = Command::Call(Box::new(move |core| {
+            core.https_checked(&node, &url, answered);
+            Box::new(|| {})
+        }));
+        let _ = commands.send(call).await;
+    });
+}
+
+/// Whether `body`, a discovery document, names `node`.
+fn names(body: &[u8], node: &dassie_identity::NodeId) -> bool {
+    #[derive(serde::Deserialize)]
+    struct Discovery {
+        id: String,
+    }
+    serde_json::from_slice::<Discovery>(body).is_ok_and(|document| document.id == node.as_str())
 }
 
 /// A message for one validator of a settlement hub.
@@ -447,6 +508,18 @@ mod tests {
     use tokio_util::sync::CancellationToken;
 
     use super::{MAX_HELD_BYTES, MAX_LEDGER_MESSAGE, Task};
+
+    // spec/decisions/promotion-to-core.md: a discovery document passes a
+    // check only if it names the node checked.
+    #[test]
+    fn a_discovery_document_must_name_the_node() {
+        let node = dassie_identity::TableKeygen::identity_key(&[1; 32]).node_id();
+        let other = dassie_identity::TableKeygen::identity_key(&[2; 32]).node_id();
+        let document = |id: &dassie_identity::NodeId| format!(r#"{{"id":"{id}","publicKey":"x"}}"#);
+        assert!(super::names(document(&node).as_bytes(), &node));
+        assert!(!super::names(document(&other).as_bytes(), &node));
+        assert!(!super::names(b"not json", &node));
+    }
 
     /// Each of the flood's messages.
     const FLOOD_MESSAGE: usize = 1 << 20;

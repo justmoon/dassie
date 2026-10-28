@@ -42,6 +42,7 @@ mod reed_solomon;
 mod secret;
 mod seed;
 mod slh_dsa;
+mod test_keys;
 mod wordlist;
 
 pub use error::Error;
@@ -56,5 +57,7 @@ pub use phrase::{
 };
 pub use seed::{DerivedSecret, LoginSecret, MasterSeed};
 pub use slh_dsa::{
-    IdentityKey, NodeIdentity, SLH_DSA_PUBLIC_KEY_BYTES, SLH_DSA_SEED_BYTES, SlhDsaPublicKey,
+    Fips205Keygen, IdentityKey, NodeIdentity, SLH_DSA_PUBLIC_KEY_BYTES, SLH_DSA_SEED_BYTES,
+    SlhDsaKeygen, SlhDsaPublicKey,
 };
+pub use test_keys::TableKeygen;

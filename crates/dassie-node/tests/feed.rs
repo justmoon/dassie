@@ -29,7 +29,7 @@ use dassie_node::node::{Node, Policies};
 use dassie_node::rpc::proto::{self, request::Method};
 use dassie_node::store::StoredCertificate;
 use dassie_node_core::certificate::CertificateSource;
-use support::pair::{CA, CERT, KEY, key, prepare_on_xrpl, until};
+use support::pair::{ca_file, cert_file, key, key_file, prepare_on_xrpl, until};
 use support::rates::{RatesServer, coinbase};
 use support::{Bound, START_MS, STUB_UNLIMITED, TestNode, send};
 use tokio::net::UdpSocket;
@@ -56,8 +56,8 @@ async fn fake_ledger() -> Server {
             "127.0.0.1:0".parse().unwrap(),
             StoredCertificate {
                 source: CertificateSource::Manual,
-                chain_pem: std::fs::read_to_string(CERT).unwrap(),
-                key_pem: std::fs::read_to_string(KEY).unwrap(),
+                chain_pem: std::fs::read_to_string(cert_file()).unwrap(),
+                key_pem: std::fs::read_to_string(key_file()).unwrap(),
             },
         )),
         close_every: Duration::from_millis(100),
@@ -127,7 +127,7 @@ impl Asker {
 async fn core_node(server: &Server, rates: &RatesServer, owner: &IdentityKey) -> TestNode {
     let bound = Bound::new();
     let env = [
-        ("DASSIE_EXTRA_CA_FILE", CA),
+        ("DASSIE_EXTRA_CA_FILE", ca_file()),
         ("DASSIE_PEER_ALLOW_PRIVATE", "1"),
     ];
     let policies = Policies {

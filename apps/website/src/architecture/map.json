@@ -99,14 +99,14 @@
       "x": 20,
       "y": 48,
       "w": 180,
-      "desc": "The web app the node's owner runs it from, built into the dassie binary. The owner's 20-word phrase is checked and turned into keys right in the browser, and never sent to the node.",
+      "desc": "The web app the node's owner runs it from, built into the dassie binary and drawn in Kopje, light and at dusk. The owner's 20-word phrase is checked and turned into keys right in the browser, and never sent to the node.",
       "does": [
         "Setup and login: a new phrase shown numbered as a metal plate holds it, and a phrase typed by its first four letters, with any correction shown word by word for the owner to confirm",
         "One balance per asset, a settlement hub's and the owner's own account's together, sending in an asset and receiving, payment status and activity, and the ledgers each balance is on",
         "Deposit pages like an exchange's, one per asset: the address of the owner's own account as a QR code, what to send, and the reserve, never a settlement hub's escrow; a button for testnet XRP from the faucet, and none on mainnet, which has no faucet; for a dollar token, DSUSD on the testnet or RLUSD on mainnet, both the token and the XRP its fees need, at the same address, and that DSUSD is bought with XRP on the testnet's pool",
         "A dollar token's ledger shows its peg guard: the token's last price on its pool, and while the node pauses it, why: off its peg, or its price unread",
         "A page of what the node holds outside its books, as the ledger reports it: its XRP and reserve, its token lines, and whether an issuer froze one",
-        "A page of each settlement hub the node is in, drawn in Kopje: its balance, the holds toward each peer and from it, the move on its way, depositing and withdrawing, a token hub's withdrawal sent again by itself while the node checks the escrow's fees, since when a token's issuer froze the hub, and the hub's payout once it ended or stalled",
+        "A page of each settlement hub the node is in: its balance, the holds toward each peer and from it, the move on its way, depositing and withdrawing, a token hub's withdrawal sent again by itself while the node checks the escrow's fees, since when a token's issuer froze the hub, and the hub's payout once it ended or stalled",
         "Wallet addresses for Open Payments, one per asset, and payment requests",
         "In Settings, the peer settings: fees, whether the node offers swaps and swaps with its peers, and a periphery node's targets per asset; on the network page, what the node's swaps did",
         "The consent page for apps, the apps it has let in, and their grants",
@@ -159,12 +159,13 @@
       "x": 20,
       "y": 144,
       "w": 150,
-      "desc": "The building blocks the wallet, the dev dashboard and the STREAM toy share.",
+      "desc": "The building blocks the wallet, the dev dashboard and the website share, drawn in Kopje.",
       "does": [
         "Amounts in any currency",
         "A log viewer with filters",
         "The network graph and its layout",
-        "Debug pages, the router and the theme, and Kopje's palette for a page that draws in it",
+        "Kopje's fonts, palette and lockup, and every component drawn in them",
+        "Debug pages, the router and the theme",
         "Live data: RPC snapshots and changes, turned into Solid signals and stores"
       ]
     },
@@ -319,7 +320,7 @@
       "does": [
         "Config, TLS, certificates and sessions",
         "Ledgers, with a dollar token's peg guard, BTP tokens, payments and debug data",
-        "The node's account in each settlement hub it is in, and since when a token's issuer froze the hub, and the owner's moves into it and out of it, naming the hub by the settlement scheme over it",
+        "The node's account in each settlement hub it is in, and since when a token's issuer froze the hub, and the owner's moves into it and out of it, naming the hub by the settlement scheme over it; a live stream of what the account reads of each hub, and of the commitments and claims of packets over it",
         "Founding a settlement hub as its sponsor, and the payout bundles the node keeps of each of its hubs",
         "Nodes, peers, routes, settlements and bans; every settlement method of a peering, each with its credit, what is owed, and whether it is withdrawn or being wound down, and for a ledger being removed how many methods are left to wind down",
         "The peer settings, with swapping and a periphery node's swap targets, what the node's swaps did, and a swap with a peer the owner asks for, which answers with what moved",
@@ -557,7 +558,9 @@
         "Link states that carry both keys a node ID commits to, Ed25519 and SLH-DSA, offer each settlement scheme a node takes peers on with what the scheme says of itself, such as the hub a scheme settles over and the node's account there, and say whether a node is a periphery node and where a core node answers requests for its snapshot",
         "Peering on its own, and routing, keeping a few first hops per node, picked by a hash only the node itself can compute",
         "The core, which every node computes alike from the signed data: it starts from the bootstrap nodes and takes in every registered node that two core nodes peer with, shown to the owner",
-        "Where each downlink with a URL stands toward its promotion: its registration, good standing, answered heartbeats, room in the node's books, settlement and clock, shown to the owner",
+        "Where each downlink with a URL stands toward its promotion: its registration, good standing, answered heartbeats, room in the node's books, settlement, clock, and whether it answers at its URL over QUIC and over HTTPS with a publicly issued certificate, which the node checks itself, shown to the owner",
+        "Bootstrap nodes check the URL of each node registered with them, and end the registration of one whose URL keeps failing, so a node that went away loses its place in the network",
+        "Core nodes say in their link states how many more core peers they take, so that a node seeking to be promoted can ask uplinks that can promote it",
         "Periphery nodes without a URL and with no neighbors in their link state, which peer only with core nodes as their downlinks, and only with those their owner pinned when it pinned any, as many as a market maker trades through; a peer that turns core or periphery stays peered, its peering changing kind in place",
         "Downlinks that never paid the node take at most half of its places for downlinks, so keys made for nothing cannot keep out those that pay",
         "Advertising only peers that are alive and not stuck short of room, or being wound down, on every method, never ending one for room it could not pay",
@@ -592,7 +595,7 @@
         "Quotes for peers that swap with the node: a bid and an ask per settlement method, each with a ladder of how far a swap goes before its price falls by each drop of a grid, made from the price table so that they never promise more than the curve gives",
         "What a swap is worth to the node itself: the rate its own curve gives, after the swap's own move and without the spread it charges its peers, toward its equal targets or toward targets the owner sets",
         "A spending cap per BTP token",
-        "A packet trace for the debug pages",
+        "A packet trace for the debug pages, whose records name the packet's condition, the same on every hop, so a packet's hops on several nodes join up",
         "Waiting for a settlement hub's decision before rejecting a packet that went to a peer on a method over the hub"
       ]
     },
@@ -1822,6 +1825,17 @@
     }
   ],
   "releases": [
+    {
+      "version": "0.3.2",
+      "date": "2026-10-28",
+      "changes": [
+        "The wallet draws in Kopje, Dassie's visual identity, on every screen, light and at dusk. Home opens on the balance, with Send and Receive below it and the last few payments beside it.",
+        "A payment shows the amount it fixed. A request paid in full shows its amount, even when what arrived is up to a ten-thousandth of a unit off. A payment of what the receiver gets leads with that amount, and what it cost follows.",
+        "Two nodes keep one QUIC connection between them, and both keep the same one. A new connection replaces the one they have only once a request has gone through it, and the old one closes after its last requests. Update every node in your network together: while some still run an older release, a request in flight can fail once when a connection is replaced. A node is listed and peered only if its URL answers over QUIC, since checks now dial it anew: a node with a hostname but UDP port 443 closed drops off the list once the bootstrap nodes run 0.3.2.",
+        "An uplink checks a downlink that asks to be promoted to the core: how long it has been in good standing, its heartbeats, its clock, the room and settlement between them, and that it answers at its URL over QUIC and over HTTPS with a publicly issued certificate. The owner RPC shows each check, but nothing promotes a node by them yet. Core nodes say in their link state how many more core peers they take.",
+        "For tools that watch a network: the owner RPC's packet trace names each packet's condition, its ledgers and the nodes on either side, so its hops can be joined across nodes, and `SubscribeHubEvents` streams what a member sees of its hubs."
+      ]
+    },
     {
       "version": "0.3.1",
       "date": "2026-10-28",

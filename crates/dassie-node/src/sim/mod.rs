@@ -186,7 +186,8 @@ pub(crate) fn key_of(seed: u8) -> Arc<IdentityKey> {
     static KEYS: [std::sync::OnceLock<Arc<IdentityKey>>; 256] =
         [const { std::sync::OnceLock::new() }; 256];
     Arc::clone(
-        KEYS[usize::from(seed)].get_or_init(|| Arc::new(IdentityKey::from_bytes(&[seed; 32]))),
+        KEYS[usize::from(seed)]
+            .get_or_init(|| Arc::new(dassie_identity::TableKeygen::identity_key(&[seed; 32]))),
     )
 }
 
@@ -713,6 +714,14 @@ enum Delivery {
         generation: u64,
         epoch: u64,
         event: LedgerEvent,
+    },
+    /// How a node's check of a downlink's URL over HTTPS went.
+    HttpsChecked {
+        to: usize,
+        generation: u64,
+        node: dassie_identity::NodeId,
+        url: String,
+        answered: bool,
     },
     /// A member's hub account asks a hub's validator.
     HubRequest {
@@ -1929,7 +1938,7 @@ impl Sim {
             }
             Output::Btp { link, message } => self.deliver_to_client(index, link, message),
             Output::Event(event) => self.record(index, &event),
-            Output::Trace(_) | Output::ProbeDone { .. } => {}
+            Output::Trace(_) | Output::Hub(_) | Output::ProbeDone { .. } => {}
             Output::SwapDone { id, report } => self.swaps_done.push((index, id, report)),
             Output::LedgerConnect { epoch, .. } => self.ledger_connect(index, epoch),
             Output::LedgerClose { epoch, .. } => {
@@ -2003,6 +2012,28 @@ impl Sim {
                         generation,
                         epoch,
                         event: LedgerEvent::Funded(true),
+                    },
+                );
+            }
+            // A node answers at its own URL while it runs, with its own ID:
+            // every node's certificate is good here.
+            Output::CheckHttps { node, url } => {
+                self.count("URLs checked over HTTPS");
+                let answered = (0..self.nodes.len()).any(|i| {
+                    crate::sim::url(i) == url
+                        && key(i).node_id() == node
+                        && self.nodes[i].core.is_some()
+                });
+                let generation = self.nodes[index].generation;
+                let delay = self.latency();
+                self.schedule(
+                    delay,
+                    Delivery::HttpsChecked {
+                        to: index,
+                        generation,
+                        node,
+                        url,
+                        answered,
                     },
                 );
             }
@@ -2407,6 +2438,17 @@ impl Sim {
                 if self.nodes[to].generation == generation {
                     let asset = self.xrpl_asset();
                     self.step(to, |core| core.ledger_event(&asset, epoch, &event));
+                }
+            }
+            Delivery::HttpsChecked {
+                to,
+                generation,
+                node,
+                url,
+                answered,
+            } => {
+                if self.nodes[to].generation == generation {
+                    self.step(to, |core| core.https_checked(&node, &url, answered));
                 }
             }
             Delivery::HubRequest {

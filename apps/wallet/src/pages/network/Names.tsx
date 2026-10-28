@@ -35,7 +35,7 @@ export function Names(): JSX.Element {
     (item) => item,
   );
   return (
-    <div class="page-narrow">
+    <div class="page-narrow stack">
       <PageTitle>Names</PageTitle>
       <LiveNote status={status.status()} />
       <Show when={status.value()}>
@@ -127,7 +127,7 @@ function RegisterName(): JSX.Element {
 /** The names the node registers or holds. */
 function NameList(props: { names: NamesStatus }): JSX.Element {
   return (
-    <Card title="Your Names" testid="names">
+    <Card title="Your names" testid="names">
       <Show when={props.names.frozen}>
         <Alert title="The registrars' lists are not current" tone="warning">
           Too few of the registrars' lists are fresh: your node keeps the
@@ -175,10 +175,12 @@ function NameEntry(props: { name: OwnName; node: string }): JSX.Element {
   const holder = () => props.name.holder;
   return (
     <li data-testid={`name-${props.name.name}`}>
-      <strong>{props.name.name}</strong>{" "}
-      <Badge tone={state().tone} testid={`name-state-${props.name.name}`}>
-        {state().text}
-      </Badge>
+      <div class="name-head">
+        <strong class="name-title">{props.name.name}</strong>{" "}
+        <Badge tone={state().tone} testid={`name-state-${props.name.name}`}>
+          {state().text}
+        </Badge>
+      </div>
       <Show when={nameHint(props.name.state)}>
         {(hint) => <p class="muted">{hint()}</p>}
       </Show>

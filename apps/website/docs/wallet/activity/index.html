@@ -33,10 +33,12 @@
       <h2 id="balances">Your balances</h2>
       <p>
         The <strong>Dashboard</strong> is the first page after you log in. Its
-        Balance card lists what you have of each asset, such as XRP or
+        balance card lists what you have of each asset, such as XRP or
         DSUSD, in its own currency: what is in your settlement hub and on
         your own account together, since your node moves money between the
-        two by itself. The numbers update as payments move.
+        two by itself. The numbers update as payments move. Beside it,
+        <strong>Recent</strong> shows your last few payments, with a link
+        to all your activity.
       </p>
       <ul>
         <li>
@@ -46,8 +48,8 @@
           payments finish, usually within seconds.
         </li>
         <li>
-          <strong>In all.</strong> Below the list, the wallet adds your
-          assets up in one currency. You choose that currency in
+          <strong>In all.</strong> At the top of the card, in large figures,
+          the wallet adds your assets up in one currency. You choose that currency in
           <a href="/docs/wallet/rates/">Exchange-rate settings</a>. The total
           shows only while every rate it needs is fresh: with one missing or
           stale, there is no total rather than a wrong one.
@@ -93,7 +95,11 @@
         </li>
         <li>
           what has arrived, and of how much, if it asked for a set amount,
-          such as <em>$ 4.20 of $ 10.00</em>;
+          such as <em>$ 4.20 of $ 10.00</em>. Once it is paid in full it
+          shows the amount alone, <em>$ 10.00</em>, even if what arrived is
+          up to a ten-thousandth of a unit under or over: no payer can hit an
+          amount to the last digit (see
+          <a href="/docs/wallet/send/#follow-the-payment">Follow the payment</a>);
         </li>
         <li>
           who requested it: <em>You</em>, an app by its address, or
@@ -136,8 +142,14 @@
         Outgoing payments are the ones you sent with
         <a href="/docs/wallet/send/">Send</a>, and the ones apps you approved
         sent for you (see <a href="/docs/wallet/grants/">Connect apps</a>).
-        Each row shows who it went to, what it has sent of the most it may
-        take from you, such as <em>$ 9.80 of $ 10.00</em>, and who sent it.
+        Each row shows who it went to, who sent it, and the amount the
+        payment fixed. For a payment of what they receive, that is what they
+        receive, in their currency, and if it failed after money left, what
+        it cost you of the most it may take, such as
+        <em>XRP 25.00, paid $ 12.00 of $ 33.32</em>. For a payment of what
+        you send, it is
+        what it has sent of the most it may take from you, such as
+        <em>$ 9.80 of $ 10.00</em>, and once it is sent, what it sent.
       </p>
       <div class="table-wrap">
         <table>
@@ -166,7 +178,7 @@
       <p>
         Select the recipient to open the payment's own page. It follows the
         payment live until it completes or fails, and shows what the receiver
-        gets, when it started and when it finished.
+        gets, what it cost you, when it started and when it finished.
       </p>
       <p>
         If a list says <em>Reconnecting</em> or <em>Not available</em>, the
@@ -180,7 +192,7 @@
         accounts outside it: your account on the XRP Ledger testnet, and your
         account in each settlement hub you are in. Open
         <strong>Assets</strong> in the top menu to see them, on a page called
-        External Assets.
+        External assets.
       </p>
       <p>
         Each card is one account. The XRP Ledger account is called

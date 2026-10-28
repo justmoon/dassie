@@ -32,7 +32,7 @@ fn elsewhere(index: u8) -> IpAddr {
 fn made_up(index: u32) -> Arc<IdentityKey> {
     let mut seed = [0xa5u8; 32];
     seed[..4].copy_from_slice(&index.to_be_bytes());
-    Arc::new(IdentityKey::from_bytes(&seed))
+    Arc::new(dassie_identity::TableKeygen::identity_key(&seed))
 }
 
 /// A registration with node `to` from `from`, whose link state names `url`.
@@ -102,7 +102,9 @@ fn failing_probes_from_one_network_starve_no_real_registration() {
         settle(&mut network, config.probe_rate.refill_ms);
         attacker.send(&mut network, 1);
         // A real node, each second a new one from its own network.
-        let node = Arc::new(IdentityKey::from_bytes(&[200 + round; 32]));
+        let node = Arc::new(dassie_identity::TableKeygen::identity_key(
+            &[200 + round; 32],
+        ));
         let url = format!("https://real-{round}.test");
         let body = registration(&network, &node, &url, 0);
         let reply = network.inbound_from(0, &body, Some(elsewhere(round)));
@@ -132,7 +134,9 @@ fn mapped_ipv4_requesters_are_told_apart_by_their_network() {
     let mut attacker = Attacker::at(mapped(ATTACKER));
     attacker.send(&mut network, config.probe_rate.burst);
     for round in 0..4_u8 {
-        let node = Arc::new(IdentityKey::from_bytes(&[210 + round; 32]));
+        let node = Arc::new(dassie_identity::TableKeygen::identity_key(
+            &[210 + round; 32],
+        ));
         let url = format!("https://mapped-{round}.test");
         let body = registration(&network, &node, &url, 0);
         let reply = network.inbound_from(0, &body, Some(mapped(elsewhere(round))));
@@ -165,7 +169,7 @@ fn failing_registrations_from_one_network_spend_only_its_share() {
     // The probes fail; the share stays spent until it refills.
     settle(&mut network, 6_000);
     assert_eq!(attacker.send(&mut network, 1)[0].0, 429);
-    let newcomer = Arc::new(IdentityKey::from_bytes(&[202; 32]));
+    let newcomer = Arc::new(dassie_identity::TableKeygen::identity_key(&[202; 32]));
     let body = registration(&network, &newcomer, "https://newcomer.test", 0);
     let reply = network.inbound_from(0, &body, Some(elsewhere(1)));
     assert_eq!(reply.status, 0, "the newcomer's URL is probed");

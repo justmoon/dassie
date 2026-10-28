@@ -251,6 +251,18 @@ impl NodeInfo<'_> {
         (port != 0).then_some(port)
     }
 
+    /// How many more core peers it takes, if it says: the first free-core
+    /// extension's, when that is a count. One of another length says
+    /// nothing; it is still kept and forwarded, as the signature covers it.
+    #[must_use]
+    pub fn free_core(&self) -> Option<u16> {
+        let value = self.entries.iter().find_map(|entry| match entry {
+            Entry::Extension { kind, value } if *kind == super::EXTENSION_FREE_CORE => Some(*value),
+            _ => None,
+        })?;
+        Some(u16::from_be_bytes(*<&[u8; 2]>::try_from(value).ok()?))
+    }
+
     fn has_extension(&self, wanted: u16) -> bool {
         self.entries
             .iter()

@@ -38,6 +38,9 @@ message NetworkNode {
   // In the core, as the signed data defines it
   // (spec/decisions/promotion-to-core.md).
   bool core = 18;
+  // How many more core peers it takes, as its link state says, if it says:
+  // a core node does (spec/decisions/promotion-to-core.md).
+  optional uint32 free_core = 19;
 }
 
 enum PeerState {
@@ -106,7 +109,8 @@ message NetworkPeer {
 // sees it (spec/decisions/promotion-to-core.md).
 message Promotion {
   // The checks it does not pass yet: "registered", "standing",
-  // "heartbeats", "room", "settled", "clock" or "not-banned".
+  // "heartbeats", "room", "settled", "clock", "url", "https" or
+  // "not-banned".
   repeated string pending = 1;
   // How long it has been in good standing without a break, in ms.
   uint64 standing_ms = 2;
@@ -121,6 +125,13 @@ message Promotion {
   // How far its clock is ahead of ours, negative behind, as its link
   // states show; unset until one came straight from it.
   optional sint64 clock_skew_ms = 7;
+  // Whether it answered at its URL, with its own link state, the last
+  // time we checked; unset before the first check.
+  optional bool url_answered = 8;
+  // Whether it answered at its URL over HTTPS, with a certificate a public
+  // authority issued and its own node ID, the last time we checked; unset
+  // before the first check.
+  optional bool https_answered = 9;
 }
 
 // A settlement method of a peering: a scheme the pair settles on, with its

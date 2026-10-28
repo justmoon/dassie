@@ -21,8 +21,8 @@ use rand_core::UnwrapErr;
 use wasm_bindgen::prelude::*;
 
 use dassie_identity::{
-    Created, Error, MAX_PHRASE_INPUT_BYTES, NodeId, NodeKey, PHRASE_WORDS, Phrase, PhraseSecret,
-    PhraseText, Positions, Reading, Realm, Words, word_named,
+    Created, Error, Fips205Keygen, MAX_PHRASE_INPUT_BYTES, NodeId, NodeKey, PHRASE_WORDS, Phrase,
+    PhraseSecret, PhraseText, Positions, Reading, Realm, Words, word_named,
 };
 
 /// A day in milliseconds: how far apart the wallet's clock and the node's
@@ -480,7 +480,7 @@ pub fn public_key(node_key: &[u8]) -> Result<Vec<u8>, JsError> {
 #[wasm_bindgen(js_name = slhDsaPublicKey)]
 pub fn slh_dsa_public_key(node_key: &[u8]) -> Result<Vec<u8>, JsError> {
     Ok(node_key_from(node_key)?
-        .slh_dsa_public_key()
+        .slh_dsa_public_key(&Fips205Keygen)
         .as_bytes()
         .to_vec())
 }

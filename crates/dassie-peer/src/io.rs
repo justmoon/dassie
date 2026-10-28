@@ -35,6 +35,11 @@ pub struct Request {
     pub body: Vec<u8>,
     /// How long it may take.
     pub timeout_ms: u64,
+    /// Whether it goes on a connection of its own, dialled at `endpoint`,
+    /// never the one kept for the node, nor kept after: what shows that the
+    /// node answers at that endpoint, rather than over a connection it
+    /// opened to us (spec/decisions/promotion-to-core.md).
+    pub fresh: bool,
 }
 
 /// Why a request got no response.
@@ -313,6 +318,16 @@ pub enum Event {
     /// The core changed, as this node computes it
     /// (spec/decisions/promotion-to-core.md).
     CoreChanged,
+    /// Check that `peer`, a downlink asking to be promoted, answers at
+    /// `url` over HTTPS, with a certificate a public authority issued: the
+    /// node tells [`PeerNode::https_checked`](crate::PeerNode::https_checked)
+    /// how it went (spec/decisions/promotion-to-core.md).
+    CheckHttps {
+        /// The downlink.
+        peer: NodeId,
+        /// Its URL.
+        url: alloc::string::String,
+    },
     /// A peer's kind changed in place, as its status did: it became our
     /// downlink, or a core peer. Its peering, methods and channel stay
     /// (spec/decisions/promotion-to-core.md).

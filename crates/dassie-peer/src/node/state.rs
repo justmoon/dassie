@@ -59,6 +59,9 @@ pub struct NodeView {
     /// Whether it is in the core, as the signed data defines it
     /// (spec/decisions/promotion-to-core.md).
     pub core: bool,
+    /// How many more core peers it takes, as its link state says, if it
+    /// says (spec/decisions/promotion-to-core.md).
+    pub free_core: Option<u16>,
     /// Whether it is listed as our neighbor.
     pub advertised: bool,
     /// Whether our peer was heard from within the confirm window: unless
@@ -439,6 +442,7 @@ impl PeerNode {
                 peering: entry.peering().cloned(),
                 termination: entry.termination().copied(),
                 core: self.core.contains(id),
+                free_core: entry.link.as_ref().and_then(|link| link.free_core),
                 advertised: !entry.is_downlink()
                     && entry.active_peering().is_some()
                     && entry.advertise.on,
@@ -476,20 +480,31 @@ impl PeerNode {
     /// Expires registrations and removes nodes nobody needs.
     pub(super) fn maintain(&mut self) {
         let now = self.now_ms;
+        let failing = self.config.registration_failing_ms;
+        // A registration ends once it lapses, or once the node's URL has
+        // failed our checks for longer than becoming core takes, so that a
+        // node that went away loses its place in the majority
+        // (spec/decisions/promotion-to-core.md).
         let expired: Vec<NodeId> = self
             .table
             .iter()
             .filter(|(_, entry)| {
+                let gone = entry
+                    .url
+                    .failing_since_ms
+                    .is_some_and(|since| since.saturating_add(failing) <= now);
                 entry
                     .registration
                     .as_ref()
-                    .is_some_and(|r| r.expires_ms <= now)
+                    .is_some_and(|r| r.expires_ms <= now || gone)
             })
             .map(|(id, _)| *id)
             .collect();
         for id in expired {
             if let Some(entry) = self.table.get_mut(&id) {
                 entry.registration = None;
+                // What ended it says nothing of a registration to come.
+                entry.url = crate::table::UrlCheck::NEW;
             }
             self.drop_source(&id, Sources::REGISTERED);
             self.lists.served_changed = true;
@@ -513,11 +528,21 @@ impl PeerNode {
 
     /// When [`maintain`](Self::maintain) next has something to do.
     pub(super) fn next_maintenance(&self) -> Option<u64> {
-        let grace = self.config.removal_grace_ms;
+        let (grace, failing) = (
+            self.config.removal_grace_ms,
+            self.config.registration_failing_ms,
+        );
         self.table
             .values()
             .filter_map(|entry| {
-                let expiry = entry.registration.as_ref().map(|r| r.expires_ms);
+                let gone = entry
+                    .url
+                    .failing_since_ms
+                    .map(|since| since.saturating_add(failing));
+                let expiry = entry
+                    .registration
+                    .as_ref()
+                    .map(|r| gone.map_or(r.expires_ms, |gone| gone.min(r.expires_ms)));
                 let removal = entry
                     .orphaned_ms
                     .filter(|_| entry.sources.is_empty())
@@ -683,6 +708,7 @@ impl PeerNode {
             "no route to ourselves"
         );
         self.check_core();
+        self.check_url_checks();
         for route in self.routes.values() {
             assert!(
                 !route.first_hops.is_empty() && route.first_hops.len() <= routing::MAX_FIRST_HOPS,

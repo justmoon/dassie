@@ -361,7 +361,8 @@ impl Bound {
         let (node_out, node_handed) = tokio::sync::oneshot::channel();
         let mut prepared = Prepared::from_parts(settings, store, (http, https), ipc, quic)
             .handing_out(hand_out)
-            .handing_out_node(node_out);
+            .handing_out_node(node_out)
+            .with_keygen(Arc::new(dassie_identity::TableKeygen));
         if with_feed {
             prepared = prepared.with_feed(feed);
         }
@@ -874,4 +875,20 @@ impl<T: Transport> RpcClient<T> {
             other => panic!("{other:?}"),
         }
     }
+}
+
+/// The package's directory, as cargo and nextest name it to a test they
+/// run, never `env!`'s from when the test compiled: a build is reused in
+/// other checkouts of the repository, whose files are their own.
+#[allow(clippy::disallowed_methods, clippy::expect_used)] // What the test runner says, not configuration.
+pub fn manifest_dir() -> PathBuf {
+    PathBuf::from(
+        std::env::var_os("CARGO_MANIFEST_DIR")
+            .expect("cargo and nextest name the package's directory"),
+    )
+}
+
+/// `path` under the repository's testdata/.
+pub fn testdata(path: &str) -> String {
+    format!("{}/../../testdata/{path}", manifest_dir().display())
 }

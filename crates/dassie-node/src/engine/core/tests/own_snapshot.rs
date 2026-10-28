@@ -17,7 +17,7 @@ const STUB_ID: &str = "stub";
 const HUB_ID: &str = "hub-xrpl-testnet-xrp";
 
 fn key() -> Arc<IdentityKey> {
-    Arc::new(IdentityKey::from_bytes(&[7; 32]))
+    Arc::new(dassie_identity::TableKeygen::identity_key(&[7; 32]))
 }
 
 fn scheme(id: &str) -> SchemeId {

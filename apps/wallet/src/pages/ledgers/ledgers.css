@@ -1,0 +1,171 @@
+/*
+ * Ledgers, deposits and their QR codes. Receive shows the deposits, and
+ * Assets and Devices show addresses and QR codes too.
+ */
+
+/* Ledgers */
+.ledger-head {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px 16px;
+}
+
+.ledger-head h2 {
+  margin: 0;
+}
+
+.ledger-head a.button {
+  padding: 5px 14px;
+  font-size: 14px;
+}
+
+/* The ledger's part of the balance, marked by the value cube. */
+.ledger-balance {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin: 16px 0 8px;
+}
+
+.ledger-balance > .amount {
+  min-width: 0;
+}
+
+/* Exchange rates, a line each. */
+.rate-list {
+  margin: 0 0 12px;
+  padding: 0;
+  list-style: none;
+}
+
+.rate-list li {
+  padding: 8px 0;
+  border-top: 1px solid var(--line);
+}
+
+.rate-list li:first-child {
+  border-top: 0;
+}
+
+.rate {
+  font-family: var(--mono);
+  font-size: 15px;
+}
+
+/* A deposit address with its QR code; the code stays black on white,
+   which readers need, in either theme. Beside it on a wide screen, below
+   it on a phone, the address wraps anywhere. */
+.deposit {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px 24px;
+  align-items: center;
+}
+
+.deposit > div {
+  flex: 1 1 220px;
+  min-width: 0;
+}
+
+.deposit code {
+  font-size: 15px;
+  word-break: break-all;
+}
+
+.qr {
+  flex: none;
+  max-width: 100%;
+  height: auto;
+  border-radius: 10px;
+}
+
+p.deposit-label {
+  margin: 0 0 6px;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+p.deposit-address {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+
+/* The testnet faucet, a stone of its own. */
+.faucet {
+  padding: 16px 20px;
+  background: var(--stone-3);
+  border-radius: 20px;
+}
+
+.faucet h3 {
+  margin: 0 0 4px;
+}
+
+.faucet p {
+  margin: 0;
+}
+
+.faucet .actions {
+  margin-top: 0;
+}
+
+/* The ledgers to choose from. */
+.choices {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.choice {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px 16px;
+  padding: 16px 0;
+  border-top: 1px solid var(--line);
+}
+
+.choice:first-child {
+  padding-top: 4px;
+  border-top: 0;
+}
+
+.choice > div {
+  flex: 1 1 220px;
+}
+
+.choice h2 {
+  margin: 0 0 4px;
+  font-size: 1.15rem;
+}
+
+.choice p {
+  margin: 0;
+}
+
+/* The first ledger: the lockup above the choice. */
+.onboarding > .brand {
+  margin-bottom: 24px;
+}
+
+/* Removing a ledger: its confirmation is typed as a command is. */
+.ledger-removal input {
+  font-family: var(--mono);
+}
+
+/* Phones: a long balance wraps, rather than leaving its card. */
+@media (max-width: 720px) {
+  .ledger-balance .amount-lg {
+    font-size: 1.6rem;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+}

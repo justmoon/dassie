@@ -1,33 +1,42 @@
 /*
- * The shared stylesheet of the wallet and the dev dashboard: theme tokens,
- * and the rules of the components in this package. Both pages run under a
- * CSP that allows styles from their own origin only (`style-src 'self'`),
- * so every rule lives in a file the bundle links, never in a style
- * attribute. The theme follows the system, or the owner's choice as
- * `data-theme` on the root; every color is written once, for both,
- * with `light-dark()`.
+ * The shared stylesheet of the wallet, the dev dashboard and the website's
+ * shared components, in Kopje, Dassie's visual identity
+ * (apps/website/brand/index.html): its fonts and palette (kopje.css), the
+ * components' tokens taken from them, and the components' rules. The pages
+ * run under a CSP that allows styles from their own origin only
+ * (`style-src 'self'`), so every rule lives in a file the bundle links,
+ * never in a style attribute. The theme follows the system, or the owner's
+ * choice as `data-theme` on the root; every color is written once, for
+ * light and dusk, with `light-dark()`.
+ *
+ * Sandstone grounds, Daylight surfaces, Warm Stone rules, Ink text, Ember
+ * for action and for nothing else, and Violet Crystal for value alone, in
+ * the value cube (`ValueCube`), never text or a button.
  */
 
+@import "./kopje.css";
+
 :root {
-  color-scheme: light dark;
-  --bg: light-dark(#f4f4f5, #09090b);
-  --surface: light-dark(#ffffff, #18181b);
-  --surface-2: light-dark(#f4f4f5, #27272a);
-  --text: light-dark(#18181b, #f4f4f5);
-  --muted: light-dark(#52525b, #a1a1aa);
-  --line: light-dark(#d4d4d8, #3f3f46);
-  --accent: light-dark(#1d4ed8, #60a5fa);
-  --accent-text: light-dark(#ffffff, #09090b);
-  --danger: light-dark(#b91c1c, #f87171);
-  --danger-bg: light-dark(#fef2f2, #2a1215);
-  --success: light-dark(#15803d, #4ade80);
-  --success-bg: light-dark(#f0fdf4, #0f2a19);
-  --warning-bg: light-dark(#fff7ed, #2a1a0e);
-  --warning-line: light-dark(#ea580c, #fb923c);
-  --radius: 8px;
-  --font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  --mono: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
-  /* Adobe Spectrum's categorical palette. */
+  --bg: var(--sand);
+  --surface: var(--day);
+  --surface-2: var(--stone-3);
+  --text: var(--ink);
+  --muted: var(--ink-2);
+  --line: var(--stone-2);
+  --accent: var(--ember-text);
+  --accent-text: #FBF6EE;
+  --success: light-dark(#4F7A34, #9CC98C);
+  --success-bg: light-dark(#EEF2E2, #1F2A19);
+  --danger: light-dark(#B3261E, #F08A7E);
+  --danger-bg: light-dark(#F8E3DA, #34201B);
+  --warning-bg: light-dark(#FBEBD6, #33251A);
+  --warning-line: var(--sun);
+  /* Shade, at 24%: shadows and what lies under a dialog, never a color. */
+  --shade: rgb(58 51 70 / 0.24);
+  --radius: 14px;
+  --font: var(--sans);
+  /* Adobe Spectrum's categorical palette, for graphs and logs, where many
+     things must tell apart. */
   --palette-0: #0fb5ae;
   --palette-1: #4046ca;
   --palette-2: #f68511;
@@ -42,49 +51,34 @@
   --palette-11: #bce931;
 }
 
-:root[data-theme="dark"] {
-  color-scheme: dark;
+/* The lockup (`Lockup`): the mark's rock stands on the wordmark's
+   baseline. */
+.lockup {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 8px;
+  color: var(--ink);
+  font: 620 26px/1 var(--display);
+  font-variation-settings: "SOFT" 100, "WONK" 0, "opsz" 72;
+  letter-spacing: -0.035em;
 }
 
-:root[data-theme="light"] {
-  color-scheme: light;
+.lockup img {
+  width: 31px;
+  height: 30px;
+  margin-bottom: 1px;
 }
 
-/*
- * Kopje, Dassie's visual identity (apps/website/brand/index.html), for a
- * part of a page that already draws in it: the tokens above, taken from
- * Kopje's palette, light and dusk. Daylight surfaces, Warm Stone rules,
- * Ink text, Ember for action, and Violet Crystal for value alone, in the
- * value cube (`ValueCube`), never text or a button. Kopje's fonts are the
- * website's; here each falls back to the system's.
- */
-.kopje {
-  --surface: light-dark(#fbf6ee, #2a221d);
-  --surface-2: light-dark(#e6d8c1, #332922);
-  --text: light-dark(#2b2420, #f0e5d3);
-  --muted: light-dark(#5e524a, #b8aa97);
-  --line: light-dark(#cdb89a, #5e4e42);
-  --accent: light-dark(#a94e2a, #e58a57);
-  --accent-text: #fbf6ee;
-  --ember: #a94e2a;
-  --font: "Figtree", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  --mono: "DM Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
-  color: var(--text);
-  font-family: var(--font);
+.lockup .wordmark {
+  line-height: 0.78;
 }
 
-/* Ember fills a button in light and dusk alike: Daylight on Ember reads at
-   5.1:1 in both. */
-.kopje button.primary,
-.kopje a.button.primary {
-  color: var(--accent-text);
-  background: var(--ember);
-  border-color: var(--ember);
-}
-
-/* DM Mono sets amounts, so their digits line up. */
-.kopje .amount {
-  font-family: var(--mono);
+/* What the lockup names, as "Wallet", in the text's own type. */
+.lockup-suffix {
+  font: 600 13px/1 var(--sans);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
 }
 
 /* Kopje's value cube (`ValueCube`), beside a balance. */
@@ -109,14 +103,24 @@ body {
 body {
   background: var(--bg);
   color: var(--text);
-  font: 16px/1.5 var(--font);
+  font: 16px/1.55 var(--font);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Fraunces for headings, soft and never wonky: SOFT 100, WONK 0. */
+h1,
+h2,
+h3 {
+  font-family: var(--display);
+  font-variation-settings: "SOFT" 100, "WONK" 0;
+  font-weight: 560;
+  letter-spacing: -0.015em;
 }
 
 h1 {
   margin: 0 0 16px;
-  font-size: 1.6rem;
-  line-height: 1.25;
-  letter-spacing: -0.015em;
+  font-size: 2rem;
+  line-height: 1.15;
 }
 
 h1:focus {
@@ -125,16 +129,17 @@ h1:focus {
 
 h2 {
   margin: 0 0 12px;
-  font-size: 1.15rem;
+  font-size: 1.3rem;
 }
 
 h3 {
   margin: 12px 0 8px;
-  font-size: 1rem;
+  font-size: 1.08rem;
 }
 
 a {
   color: var(--accent);
+  text-underline-offset: 3px;
 }
 
 code {
@@ -156,17 +161,18 @@ code {
   white-space: nowrap;
 }
 
+/* A card is a stone: Daylight on Sandstone, rounded, without an outline. */
 .card {
   width: 100%;
   padding: 24px;
   background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border: 0;
+  border-radius: 26px;
 }
 
 .card h1 {
   margin: 0 0 12px;
-  font-size: 1.5rem;
+  font-size: 1.6rem;
 }
 
 .card p {
@@ -174,14 +180,14 @@ code {
 }
 
 .subnav a {
-  padding: 6px 10px;
+  padding: 6px 14px;
   color: var(--text);
   text-decoration: none;
-  border-radius: var(--radius);
+  border-radius: 999px;
 }
 
 .subnav a[aria-current="page"] {
-  background: var(--surface-2);
+  background: var(--stone-2);
   font-weight: 600;
 }
 
@@ -278,9 +284,14 @@ select {
   padding: 9px 12px;
   font: inherit;
   color: inherit;
-  background: var(--bg);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
+  background: var(--day);
+  border: 1px solid var(--stone);
+  border-radius: 12px;
+}
+
+input[type="radio"],
+input[type="checkbox"] {
+  accent-color: var(--ember);
 }
 
 input[type="radio"] {
@@ -308,8 +319,9 @@ input:focus-visible,
 textarea:focus-visible,
 select:focus-visible,
 button:focus-visible,
-a:focus-visible {
-  outline: 2px solid var(--accent);
+a:focus-visible,
+[tabindex]:not(h1):focus-visible {
+  outline: 2px solid var(--ember-text);
   outline-offset: 2px;
 }
 
@@ -322,25 +334,38 @@ a:focus-visible {
   margin-top: 8px;
 }
 
+/* Buttons are pebbles: Ember for the one action, an ink outline for the
+   rest. Daylight on Ember reads at 5.1:1, in light and dusk alike. */
 button,
 a.button {
   display: inline-block;
-  padding: 9px 16px;
+  padding: 9px 19px;
   font: inherit;
+  font-size: 15px;
   font-weight: 600;
   color: var(--text);
   text-decoration: none;
   background: transparent;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border: 1.5px solid var(--ink);
+  border-radius: 999px;
   cursor: pointer;
+}
+
+button:hover:not(:disabled),
+a.button:hover {
+  background: var(--stone-3);
 }
 
 button.primary,
 a.button.primary {
-  color: var(--accent-text);
-  background: var(--accent);
-  border-color: var(--accent);
+  color: #FBF6EE;
+  background: var(--ember);
+  border-color: var(--ember);
+}
+
+button.primary:hover:not(:disabled),
+a.button.primary:hover {
+  background: #93421F;
 }
 
 button.danger,
@@ -353,6 +378,11 @@ button.link {
   padding: 2px 6px;
   color: var(--accent);
   border-color: transparent;
+}
+
+button.link:hover:not(:disabled) {
+  background: transparent;
+  text-decoration: underline;
 }
 
 button:disabled {
@@ -372,8 +402,9 @@ button:disabled {
   flex-direction: column;
   gap: 4px;
   margin-bottom: 16px;
-  padding: 12px 14px;
-  border: 1px solid var(--line);
+  padding: 12px 16px;
+  background: var(--day);
+  border: 1px solid var(--stone);
   border-radius: var(--radius);
 }
 
@@ -390,10 +421,11 @@ button:disabled {
 
 .badge {
   display: inline-block;
-  padding: 1px 8px;
-  font-size: 0.8rem;
+  padding: 1px 10px;
+  font-size: 13px;
   font-weight: 600;
-  border: 1px solid var(--line);
+  background: var(--stone-3);
+  border: 1px solid var(--stone-2);
   border-radius: 999px;
 }
 
@@ -415,7 +447,10 @@ button:disabled {
 }
 
 .facts dt {
-  font-size: 0.875rem;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
   color: var(--muted);
 }
 
@@ -435,8 +470,8 @@ button:disabled {
 .spinner {
   width: 18px;
   height: 18px;
-  border: 2px solid var(--line);
-  border-top-color: var(--accent);
+  border: 2px solid var(--stone-2);
+  border-top-color: var(--sun);
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
 }
@@ -452,16 +487,18 @@ button:disabled {
   font-size: 0.875rem;
 }
 
-/* Amounts: the digits beyond cents are muted
-   (spec/areas/wallet.md#amounts-and-currencies). */
+/* Amounts, in DM Mono so their digits line up; the digits beyond cents
+   are muted (spec/areas/wallet.md#amounts-and-currencies). */
 .amount {
+  font-family: var(--mono);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
 
 .amount-lg {
   font-size: 2rem;
-  font-weight: 700;
+  font-weight: 500;
+  letter-spacing: -0.01em;
 }
 
 .amount-extra {
@@ -490,35 +527,46 @@ button:disabled {
 }
 
 /* Tabs */
+/* Tabs: pebbles on a stone, the chosen one lifted to Daylight. */
 [role="tablist"] {
-  display: flex;
+  display: inline-flex;
+  flex-wrap: wrap;
   gap: 4px;
   margin-bottom: 16px;
-  border-bottom: 1px solid var(--line);
+  padding: 4px;
+  background: var(--stone-2);
+  border-radius: 999px;
 }
 
 [role="tab"] {
+  padding: 7px 16px;
+  color: var(--muted);
   border: none;
-  border-bottom: 2px solid transparent;
-  border-radius: 0;
+}
+
+[role="tab"]:hover:not(:disabled) {
+  color: var(--text);
+  background: transparent;
 }
 
 [role="tab"][aria-selected="true"] {
-  border-bottom-color: var(--accent);
+  color: var(--text);
+  background: var(--day);
 }
 
 /* Dialogs and notices */
 dialog {
   max-width: min(560px, calc(100vw - 32px));
-  padding: 24px;
+  padding: 28px;
   color: var(--text);
   background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border: 0;
+  border-radius: 26px;
+  box-shadow: 0 30px 60px -20px var(--shade);
 }
 
 dialog::backdrop {
-  background: rgb(0 0 0 / 0.5);
+  background: rgb(43 36 32 / 0.45);
 }
 
 .toasts {
@@ -536,10 +584,11 @@ dialog::backdrop {
   display: flex;
   align-items: start;
   gap: 8px;
-  padding: 10px 14px;
+  padding: 12px 16px;
   background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border: 1px solid var(--stone-2);
+  border-radius: 18px;
+  box-shadow: 0 20px 40px -20px var(--shade);
 }
 
 .toast p {
@@ -600,7 +649,6 @@ th {
 .cells,
 .sessions,
 .tokens,
-.bootstrap-list,
 .node-group ul {
   margin: 0;
   padding: 0;
@@ -608,8 +656,7 @@ th {
 }
 
 .sessions li,
-.tokens li,
-.bootstrap-list li {
+.tokens li {
   padding: 12px 0;
   border-bottom: 1px solid var(--line);
 }
@@ -654,7 +701,7 @@ meter {
 }
 
 .graph-link.active {
-  stroke: var(--accent);
+  stroke: var(--sun);
   stroke-width: 3;
   transition: none;
 }
@@ -814,11 +861,13 @@ meter {
   text-overflow: ellipsis;
 }
 
+/* Commands are set in the terminal's ink, in both themes. */
 pre {
   overflow-x: auto;
-  padding: 8px;
-  background: var(--surface-2);
-  border-radius: var(--radius);
+  padding: 12px 16px;
+  color: #EFE3CF;
+  background: var(--night);
+  border-radius: 18px;
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -131,12 +131,13 @@ fn side_with(
     idle: Option<Duration>,
     shutdown: &CancellationToken,
 ) -> Side {
-    let key = Arc::new(IdentityKey::from_bytes(&[seed; 32]));
+    let key = Arc::new(dassie_identity::TableKeygen::identity_key(&[seed; 32]));
     let id = key.node_id();
     let (identity, receiver) = watch::channel(Some(key));
     let mut quic = Quic::new(socket, receiver, true).unwrap();
     if let Some(idle) = idle {
-        quic = quic.with_idle_timeout(idle).unwrap();
+        // A connection that lost its place drains as briefly as one idles.
+        quic = quic.with_idle_timeout(idle).unwrap().with_drain(idle);
     }
     let quic = Arc::new(quic);
     let address = quic.local_addr().unwrap();
@@ -159,6 +160,7 @@ async fn send(from: &Side, to: &Side) {
         kind: Kind::LinkStateRequest,
         body: b"hello".to_vec(),
         timeout_ms: 5_000,
+        fresh: false,
     };
     let response = from.quic.send(&request, &client()).await;
     assert!(response.is_ok(), "{response:?}");
@@ -329,7 +331,7 @@ async fn a_relay_refuses_a_node_it_holds_no_connection_to() {
         .open_relayed(relay.relay(), destination.id, Purpose::Payments, &client())
         .await;
     assert_eq!(result.err(), Some(RelayError::UnknownDestination));
-    let nobody = IdentityKey::from_bytes(&[9; 32]).node_id();
+    let nobody = dassie_identity::TableKeygen::identity_key(&[9; 32]).node_id();
     let result = from
         .quic
         .open_relayed(relay.relay(), nobody, Purpose::Payments, &client())
@@ -412,8 +414,11 @@ async fn a_relay_carries_a_bounded_number_of_streams_to_one_node() {
 }
 
 /// Connections to the relay come and go beside the one the node keeps
-/// open, both ways and whichever node ID is lower: the relay reaches the
-/// node all along, over the kept one once the others are gone.
+/// open, both ways and whichever node ID is lower: whichever survives,
+/// the relay reaches the node once the others are gone, a newer connection
+/// the node opened, or one the lower ID opened, taking the place once
+/// verified, and the node keeping one to its relay again if it lost its own
+/// (spec/decisions/verified-connections.md).
 async fn a_relay_reaches_its_node_beside_other_connections(relay_is_lower: bool) {
     let shutdown = CancellationToken::new();
     let idle = Duration::from_secs(1);
@@ -450,23 +455,21 @@ async fn a_relay_reaches_its_node_beside_other_connections(relay_is_lower: bool)
     let (_, relay_twin) = make(relay_seed);
     send(&node_twin, &relay).await;
     send(&relay_twin, &node).await;
-    // Only the kept connection is left, on both sides: the others, the
-    // client's to the relay too, went idle.
+    // The twins' connections go idle, and whichever lost its place closed
+    // after the drain: no connection is kept in case another fails. The
+    // node keeps one to its relay all the same, dialling again if it lost
+    // its own, and the relay reaches it over it.
     until(|| {
         node_twin.quic.open_connections() == 0
             && relay_twin.quic.open_connections() == 0
+            && node.quic.relay_link() == RelayLink::Connected
             && node.quic.open_connections() == 1
-            && relay.quic.open_connections() == 1
     })
     .await;
-    // The relay holds it.
-    let reached = from
-        .quic
-        .open_relayed(relay.relay(), node.id, Purpose::Payments, &client())
-        .await;
-    let mut stream = reached.expect("the relay lost the node's kept connection");
+    let mut stream = reach(&from, &relay, node.id, Purpose::Payments).await;
     assert_eq!(echo(&mut stream, b"two").await, b"two");
-    // The node holds it too, and sends over it rather than dialling again.
+    drop(stream);
+    // The node sends to the relay over it rather than dialling again.
     send(&node, &relay).await;
     assert_eq!(node.quic.open_connections(), 1);
     shutdown.cancel();
@@ -499,7 +502,7 @@ async fn a_node_does_not_choose_itself_as_its_relay() {
 async fn a_relay_out_of_reach_reads_as_unreachable_once_its_dials_slow_down() {
     let shutdown = CancellationToken::new();
     let node = side(1, &shutdown);
-    let relay = IdentityKey::from_bytes(&[2; 32]).node_id();
+    let relay = dassie_identity::TableKeygen::identity_key(&[2; 32]).node_id();
     // An IPv6 address, which an endpoint on IPv4 cannot reach: each dial
     // fails at once.
     tokio::spawn(Arc::clone(&node.quic).keep_relay(
@@ -522,14 +525,14 @@ async fn a_relay_out_of_reach_reads_as_unreachable_once_its_dials_slow_down() {
 async fn a_relay_out_of_reach_is_not_backed_off_from_for_peer_requests() {
     let shutdown = CancellationToken::new();
     let from = side(1, &shutdown);
-    let relay = IdentityKey::from_bytes(&[2; 32]).node_id();
+    let relay = dassie_identity::TableKeygen::identity_key(&[2; 32]).node_id();
     // An IPv6 address, which an endpoint on IPv4 cannot reach: the dial
     // fails at once.
     let result = from
         .quic
         .open_relayed(
             (relay, &Endpoint::parse("[::1]:9").unwrap()),
-            IdentityKey::from_bytes(&[3; 32]).node_id(),
+            dassie_identity::TableKeygen::identity_key(&[3; 32]).node_id(),
             Purpose::Payments,
             &client(),
         )
@@ -549,7 +552,9 @@ async fn a_client_must_reach_the_node_it_asked_for() {
     // fails the client's TLS: here, the destination swaps its key.
     destination
         .identity
-        .send_replace(Some(Arc::new(IdentityKey::from_bytes(&[4; 32]))));
+        .send_replace(Some(Arc::new(dassie_identity::TableKeygen::identity_key(
+            &[4; 32],
+        ))));
     let result = from
         .quic
         .open_relayed(relay.relay(), destination.id, Purpose::Payments, &client())
@@ -674,13 +679,13 @@ fn signed_by(
 async fn a_relayed_payments_stream_serves_only_open_payments() {
     let shutdown = CancellationToken::new();
     let (relay, from) = (side(1, &shutdown), side(3, &shutdown));
-    let key = IdentityKey::from_bytes(&[31; 32]);
+    let key = dassie_identity::TableKeygen::identity_key(&[31; 32]);
     let entry = support::pair::bootstrap(&relay_key(1), 0)
         .trim_start_matches('[')
         .trim_end_matches(']')
         .replace("https://localhost:0", &relay.url);
     let env = [
-        ("DASSIE_EXTRA_CA_FILE", support::op::CA),
+        ("DASSIE_EXTRA_CA_FILE", support::op::ca_file()),
         ("DASSIE_PEER_ALLOW_PRIVATE", "1"),
         ("DASSIE_RELAY", entry.as_str()),
     ];
@@ -738,7 +743,7 @@ async fn a_relayed_payments_stream_serves_only_open_payments() {
 }
 
 fn relay_key(seed: u8) -> IdentityKey {
-    IdentityKey::from_bytes(&[seed; 32])
+    dassie_identity::TableKeygen::identity_key(&[seed; 32])
 }
 
 /// A request to `to` as to a periphery node: without a URL.
@@ -750,6 +755,7 @@ fn to_periphery(to: &Side) -> PeerRequest {
         kind: Kind::LinkStateRequest,
         body: b"hello".to_vec(),
         timeout_ms: 5_000,
+        fresh: false,
     }
 }
 

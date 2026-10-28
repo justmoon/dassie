@@ -3,10 +3,18 @@
 //! moves between it and the owner book of the hub's asset
 //! (spec/areas/hubs.md#in-the-node).
 
-use super::handlers::Reply;
-use super::proto::{self, request::Method, response};
+use dassie_hub::ledger::Outcome;
+use dassie_hub::member::Purpose;
+use tokio::sync::broadcast::error::RecvError;
+
+use super::handlers::{Items, Reply};
+use super::live::KEEPALIVE;
+use super::proto::{self, request::Method, response, stream_item};
 use super::{RpcError, convert};
-use crate::engine::{Direction, Engine, HubHold, HubStatus};
+use crate::engine::{
+    Direction, Engine, EngineError, HubAccountState, HubEvent, HubEventKind, HubHold, HubMoveEvent,
+    HubOperation, HubPromise, HubStatus, HubStreamEvent, MoveStage, Role,
+};
 
 /// Whether `method` is one of the hub member's.
 pub(super) const fn is_hub(method: &Method) -> bool {
@@ -123,5 +131,214 @@ fn hold(hold: &HubHold) -> proto::HubHold {
         peer: hold.peer.map(|node| node.to_string()).unwrap_or_default(),
         account: hold.account,
         amount: hold.amount,
+    }
+}
+
+/// Streams what the node sees of its hubs until the call ends or the
+/// engine stops, as `subscribe_packets` streams the packet trace.
+pub(super) async fn subscribe_events(engine: &Engine, items: &Items) -> Result<Reply, RpcError> {
+    let mut events = engine.subscribe_hub_events()?;
+    let mut lost = 0u64;
+    let lagged = |count: u64| {
+        stream_item::Method::SubscribeHubEvents(proto::HubEvent {
+            scheme: String::new(),
+            observed_at_unix_ms: 0,
+            event: Some(proto::hub_event::Event::Lagged(count)),
+        })
+    };
+    // An empty `lagged` says the stream is live, at once and then at least
+    // every minute (spec/areas/rpc.md#live-streams).
+    items.send_wait(lagged(0)).await?;
+    loop {
+        let event = tokio::select! {
+            () = engine.generation().cancelled() => {
+                return Err(RpcError::unavailable(EngineError::Unavailable));
+            }
+            () = tokio::time::sleep(KEEPALIVE) => {
+                items.try_send(lagged(0));
+                continue;
+            }
+            event = events.recv() => event,
+        };
+        let item = match event {
+            Ok(HubStreamEvent::Event(event)) => hub_event(&event),
+            Ok(HubStreamEvent::Lagged(dropped)) | Err(RecvError::Lagged(dropped)) => {
+                lost += dropped;
+                continue;
+            }
+            Err(RecvError::Closed) => return Err(RpcError::unavailable(EngineError::Unavailable)),
+        };
+        // Whatever was lost, here or on the way, is told before the next
+        // event, once there is room to say so.
+        if lost > 0 {
+            if !items.try_send(lagged(lost)) {
+                lost += 1;
+                continue;
+            }
+            lost = 0;
+        }
+        if !items.try_send(stream_item::Method::SubscribeHubEvents(item)) {
+            lost += 1;
+        }
+    }
+}
+
+/// Why we submitted an operation, as the contract spells it.
+fn purpose(purpose: Purpose) -> String {
+    match purpose {
+        Purpose::Settle(id) => format!("settle:{id}"),
+        Purpose::Redeem(hold) => format!("redeem:{}", hold.0),
+        Purpose::Claim(hold) => format!("claim:{}", hold.0),
+        Purpose::Dispute(hold) => format!("dispute:{}", hold.0),
+        Purpose::Disbursal => "disbursal".into(),
+        Purpose::Withdraw => "withdraw".into(),
+    }
+}
+
+fn role(role: Role) -> i32 {
+    match role {
+        Role::Payer => proto::HubRole::Payer,
+        Role::Payee => proto::HubRole::Payee,
+    }
+    .into()
+}
+
+fn commitment(promise: &HubPromise) -> proto::HubCommitment {
+    proto::HubCommitment {
+        role: role(promise.role),
+        peer: promise.peer.to_string(),
+        hold: promise.hold,
+        sequence: promise.sequence,
+        amount: promise.amount,
+        condition: promise.condition.to_vec(),
+        expiry_unix_ms: convert::time(promise.expiry_ms),
+    }
+}
+
+fn claim(promise: &HubPromise) -> proto::HubClaim {
+    proto::HubClaim {
+        role: role(promise.role),
+        peer: promise.peer.to_string(),
+        hold: promise.hold,
+        total: promise.amount,
+        through: promise.sequence,
+    }
+}
+
+/// An outcome as the contract spells it: what became of it, why, and its
+/// fee.
+fn outcome(outcome: Outcome) -> (String, String, u64) {
+    match outcome {
+        Outcome::Applied { fee, .. } => ("applied".into(), String::new(), fee),
+        Outcome::Failed { fee, reason } => ("failed".into(), format!("{reason:?}"), fee),
+        Outcome::Refused(reason) => ("refused".into(), format!("{reason:?}"), 0),
+    }
+}
+
+fn hub_operation(operation: &HubOperation) -> proto::HubOperation {
+    let (outcome, reason, fee) = outcome(operation.outcome);
+    proto::HubOperation {
+        height: operation.height,
+        timestamp_unix_ms: convert::time(operation.timestamp_ms),
+        kind: operation.kind.into(),
+        signer: operation.signer,
+        sequence: operation.sequence,
+        hold: operation.hold.unwrap_or(0),
+        peer_account: operation.peer_account.unwrap_or(0),
+        amount: operation.amount,
+        outcome,
+        reason,
+        fee,
+        purpose: operation.ours.map(purpose).unwrap_or_default(),
+    }
+}
+
+const fn account_state(state: &HubAccountState) -> proto::HubAccountState {
+    proto::HubAccountState {
+        height: state.height,
+        number: match state.number {
+            Some(number) => number,
+            None => 0,
+        },
+        balance: state.balance,
+        reserve: state.reserve,
+        sequence: state.sequence,
+        deposited: state.deposited,
+        withdrawn: state.withdrawn,
+        returned: state.returned,
+        closing: state.closing,
+    }
+}
+
+fn move_event(moved: &HubMoveEvent) -> proto::HubMoveEvent {
+    let stage = match moved.stage {
+        MoveStage::Started => proto::hub_move_event::Stage::Started,
+        MoveStage::Done => proto::hub_move_event::Stage::Done,
+        MoveStage::Failed => proto::hub_move_event::Stage::Failed,
+        MoveStage::Late => proto::hub_move_event::Stage::Late,
+        MoveStage::GivenUp => proto::hub_move_event::Stage::GivenUp,
+    };
+    proto::HubMoveEvent {
+        stage: stage.into(),
+        direction: direction_of(moved.direction).into(),
+        amount: moved.amount,
+        payment: moved.payment.to_string(),
+        by_owner: moved.owner,
+    }
+}
+
+/// What the node saw of a hub, as the contract has it.
+pub(super) fn hub_event(event: &HubEvent) -> proto::HubEvent {
+    use proto::hub_event::Event;
+    let kind = match &event.kind {
+        HubEventKind::Block {
+            height,
+            timestamp_ms,
+        } => Event::Block(proto::HubBlock {
+            height: *height,
+            timestamp_unix_ms: convert::time(*timestamp_ms),
+        }),
+        HubEventKind::Operation(operation) => Event::Operation(hub_operation(operation)),
+        HubEventKind::Account(state) => Event::Account(account_state(state)),
+        HubEventKind::Unfunded => Event::Unfunded(proto::HubUnfunded {}),
+        HubEventKind::Reduced { hold, amount } => Event::Reduced(proto::HubHoldReduced {
+            hold: *hold,
+            amount: *amount,
+        }),
+        HubEventKind::ClaimsPaid {
+            hold,
+            count,
+            first,
+            last,
+            unlisted,
+        } => Event::ClaimsPaid(proto::HubClaimsPaid {
+            hold: *hold,
+            count: *count,
+            first_sequence: *first,
+            last_sequence: *last,
+            unlisted: *unlisted,
+        }),
+        HubEventKind::Resynced {
+            height,
+            timestamp_ms,
+            holds_before,
+            unread,
+        } => Event::Resynced(proto::HubResynced {
+            height: *height,
+            timestamp_unix_ms: convert::time(*timestamp_ms),
+            holds_before: *holds_before,
+            unread: unread.map(purpose).unwrap_or_default(),
+        }),
+        HubEventKind::Dropped(dropped) => Event::Dropped(proto::HubDropped {
+            purpose: purpose(*dropped),
+        }),
+        HubEventKind::Commitment(promise) => Event::Commitment(commitment(promise)),
+        HubEventKind::Claim(promise) => Event::Claim(claim(promise)),
+        HubEventKind::Move(moved) => Event::Move(move_event(moved)),
+    };
+    proto::HubEvent {
+        scheme: event.scheme.to_string(),
+        observed_at_unix_ms: convert::time(event.observed_at_ms),
+        event: Some(kind),
     }
 }

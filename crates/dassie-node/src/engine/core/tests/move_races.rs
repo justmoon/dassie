@@ -13,7 +13,7 @@ use dassie_hub::ledger::{Detail, Failure, Outcome};
 use dassie_hub::member::SCHEME_ID;
 use dassie_hub::operation::{AccountNumber, MemberOperation, Operation, SignedMemberOperation};
 use dassie_hub::promise::HoldNumber;
-use dassie_identity::{IdentityKey, NodeId};
+use dassie_identity::NodeId;
 use dassie_settlement::policy;
 use dassie_xrpl::UNITS_PER_DROP;
 use dassie_xrpl::fake::FakeLedger;
@@ -64,7 +64,7 @@ fn hub_with_peer(
     hub.account(&mut core, balance, opening);
     wait_and_close(&mut core, ledger, 1_000);
 
-    let downlink = Arc::new(IdentityKey::from_bytes(&[11; 32]));
+    let downlink = Arc::new(dassie_identity::TableKeygen::identity_key(&[11; 32]));
     let mut membership = hub.rules.id().0.as_bytes().to_vec();
     membership.extend_from_slice(&PEER_ACCOUNT.to_be_bytes());
     membership.extend_from_slice(peer_key(&hub).as_bytes());
@@ -82,8 +82,11 @@ fn hub_with_peer(
 
 /// The downlink's key in the hub.
 fn peer_key(hub: &Validators) -> dassie_identity::PublicKey {
-    dassie_hub::member::member_key(&IdentityKey::from_bytes(&[PEER_SEED; 32]), &hub.rules.id())
-        .public_key()
+    dassie_hub::member::member_key(
+        &dassie_identity::TableKeygen::identity_key(&[PEER_SEED; 32]),
+        &hub.rules.id(),
+    )
+    .public_key()
 }
 
 /// The operations the node submitted to the validators, each once.
@@ -143,7 +146,7 @@ fn executed_without_a_state(
     }];
     if let Some(amount) = toward_us {
         let key = dassie_hub::member::member_key(
-            &IdentityKey::from_bytes(&[PEER_SEED; 32]),
+            &dassie_identity::TableKeygen::identity_key(&[PEER_SEED; 32]),
             &hub.rules.id(),
         );
         let theirs = SignedMemberOperation::sign(

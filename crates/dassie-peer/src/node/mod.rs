@@ -261,6 +261,9 @@ pub(crate) enum Purpose {
     MethodDrop(SchemeId),
     /// Checking that an inbound request's sender is reachable at its URL.
     Probe(Box<inbound::Probe>),
+    /// Checking that a downlink asking to be promoted answers at its URL
+    /// with its link state at this sequence or later.
+    UrlCheck(u64),
     /// An ILP Prepare, by its request ID.
     Prepare(u32),
     /// An ILP Reject, by the request ID of the Prepare it answers, kept to
@@ -346,6 +349,12 @@ pub struct PeerNode {
     /// Probes in flight: the node and the host probed.
     pub(crate) probing: Vec<(NodeId, Endpoint)>,
     pub(crate) probes: Bucket,
+    /// Our checks of candidates' URLs (spec/decisions/promotion-to-core.md),
+    /// apart from the probes inbound requests wait on, so that they never
+    /// take those probes' room: their bucket, and those in flight, by node
+    /// and host.
+    pub(crate) url_checks: Bucket,
+    pub(crate) url_checking: Vec<(NodeId, Endpoint)>,
     /// Each network's share of the probes, spent by those that fail.
     pub(crate) network_probes: NetworkBuckets,
     pub(crate) outputs: VecDeque<Output>,
@@ -463,6 +472,8 @@ impl PeerNode {
             answers: Vec::new(),
             probing: Vec::new(),
             probes: Bucket::full(config.probe_rate, now_ms),
+            url_checks: Bucket::full(promotion::url_check_rate(&config), now_ms),
+            url_checking: Vec::new(),
             network_probes: NetworkBuckets::new(config.max_probe_networks),
             outputs: VecDeque::new(),
             events: VecDeque::new(),
@@ -719,6 +730,11 @@ impl PeerNode {
             self.stats.requests_dropped += 1;
             return None;
         }
+        // A probe for a registration or a peering, or a URL check, dials
+        // the URL itself: the connection the node opened to us would answer
+        // as well, and prove nothing of the URL
+        // (spec/areas/network.md#registration).
+        let fresh = matches!(purpose, Purpose::UrlCheck(_) | Purpose::Probe(_));
         let body = content.to_vec();
         let id = RequestId(self.next_request);
         self.next_request += 1;
@@ -741,6 +757,7 @@ impl PeerNode {
             kind: content.kind(),
             body,
             timeout_ms,
+            fresh,
         }));
         self.stats.requests_sent += 1;
         Some(id)
@@ -765,10 +782,15 @@ impl PeerNode {
             Ok(response) => Err(Problem::Status(response.status)),
             Err(failure) => Err(Problem::Failed(failure)),
         };
-        self.note_reach(outstanding.to, &outstanding.purpose, &checked);
+        // A URL check reaches a downlink other than over its connection,
+        // the only way we reach it: its answer says nothing of the peering.
+        let url_check = matches!(outstanding.purpose, Purpose::UrlCheck(_));
+        if !url_check {
+            self.note_reach(outstanding.to, &outstanding.purpose, &checked);
+        }
         if checked.is_err() {
             self.stats.requests_failed += 1;
-        } else {
+        } else if !url_check {
             self.settlement_reachable(&outstanding.to);
             if self.peering_of(&outstanding.to).is_some() {
                 self.saw(&outstanding.to);
@@ -888,6 +910,7 @@ impl PeerNode {
             Purpose::MethodAdd => self.on_method_response(hooks, to, result),
             Purpose::MethodDrop(scheme) => self.on_method_drop(to, scheme, &result),
             Purpose::Probe(probe) => self.on_probe(hooks, to, probe, result),
+            Purpose::UrlCheck(sequence) => self.on_url_check(to, sequence, result),
             Purpose::Prepare(request_id) => {
                 if let Err(problem) = result {
                     let status = match problem {
@@ -980,6 +1003,7 @@ impl PeerNode {
         self.tend_names();
         self.send_names();
         self.seek_peers(hooks);
+        self.check_urls();
         self.seek_methods(hooks);
         self.tend_snapshots(hooks);
         self.update_routes();

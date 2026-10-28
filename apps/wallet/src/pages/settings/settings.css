@@ -1,0 +1,132 @@
+/*
+ * Settings: the theme, devices, API keys, rates and swaps.
+ */
+
+/* A section within a card: a small label, as Kopje sets them. */
+.settings .theme-choice legend,
+.settings .create-token h3 {
+  margin: 0 0 10px;
+  color: var(--muted);
+  font: 600 12px/1.3 var(--sans);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+/* The theme as a row of pebbles, the chosen one on stone. */
+.radios.theme-choice label {
+  display: inline-flex;
+  margin: 0 8px 8px 0;
+  padding: 7px 16px 7px 12px;
+  border: 1.5px solid var(--stone);
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.radios.theme-choice label:has(input:checked) {
+  font-weight: 600;
+  background: var(--stone-2);
+  border-color: var(--stone-2);
+}
+
+/* Sessions and devices: what each is on the left, revoking it on the
+   right. */
+.settings .sessions li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 2px 16px;
+  overflow-wrap: anywhere;
+}
+
+.settings .sessions li > div {
+  grid-column: 1;
+}
+
+.settings .sessions li > button {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+}
+
+/* The pairing code: black on white, which readers need, with a quiet
+   margin of white around it, in either theme. */
+.pairing {
+  margin-top: 16px;
+}
+
+.pairing .qr {
+  padding: 10px;
+  background: #fff;
+  border-radius: 14px;
+}
+
+/* API keys */
+.token-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+}
+
+.token-head .muted {
+  font-family: var(--mono);
+  font-size: 0.875rem;
+}
+
+/* The share of a cap used: a bar of Sunrise on stone. */
+.tokens meter {
+  height: 8px;
+  vertical-align: middle;
+  background: var(--stone-2);
+  border: 0;
+  border-radius: 999px;
+  appearance: none;
+}
+
+.tokens meter::-webkit-meter-bar {
+  height: 8px;
+  background: var(--stone-2);
+  border: 0;
+  border-radius: 999px;
+}
+
+.tokens meter::-webkit-meter-optimum-value {
+  background: var(--sun);
+  border-radius: 999px;
+}
+
+.tokens meter::-moz-meter-bar {
+  background: var(--sun);
+  border-radius: 999px;
+}
+
+/* An open cap editor takes the row of its own. */
+.tokens .cap-editor {
+  flex-basis: 100%;
+}
+
+.create-token {
+  margin-top: 20px;
+}
+
+/* Rate sources, each with its way out. */
+.rate-sources {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.rate-sources li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+  padding: 8px 0;
+  overflow-wrap: anywhere;
+  border-bottom: 1px solid var(--line);
+}
+
+.rate-sources button {
+  padding: 4px 14px;
+  font-size: 14px;
+}

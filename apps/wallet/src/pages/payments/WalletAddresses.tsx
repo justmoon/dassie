@@ -141,13 +141,13 @@ export function WalletAddresses(): JSX.Element {
                   <Badge tone="good" testid="default-address">default</Badge>
                 </Show>
               </div>
-              <p class="pointer boxed">
-                <span data-testid="receive-pointer">
+              <p class="copy-line">
+                <span class="pointer" data-testid="receive-pointer">
                   {address().paymentPointer}
                 </span>{" "}
                 <CopyButton text={address().paymentPointer} />
               </p>
-              <p class="muted">
+              <p class="copy-line muted">
                 <code>{address().url}</code> <CopyButton text={address().url} />
               </p>
               <Show when={!address().isDefault}>

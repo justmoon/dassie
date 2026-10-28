@@ -8,7 +8,7 @@
 
 import { isPhraseError, loadIdentity } from "@dassie/wasm/web";
 import type { JSX } from "@solidjs/web";
-import { createSignal, Match, Show, Switch } from "solid-js";
+import { createSignal, For, Match, Show, Switch } from "solid-js";
 import { submitSetup } from "../auth.ts";
 import {
   credentialFailure,
@@ -89,6 +89,34 @@ export function Setup(props: { token: string; realm: Realm }): JSX.Element {
         )}
       </Match>
     </Switch>
+  );
+}
+
+/** The steps of each way through setup, as the hop trail names them. */
+const MADE_STEPS = ["Your words", "Check", "Open"] as const;
+const RECOVERED_STEPS = ["Your words", "Open"] as const;
+
+/**
+ * Where the owner is in setup, as Kopje's hop trail: a node for each step,
+ * joined by faint dotted hops, the steps done and the current one lit.
+ */
+function Hops(props: {
+  steps: readonly string[];
+  current: number;
+}): JSX.Element {
+  return (
+    <ol class="hops" aria-label="Setup steps">
+      <For each={props.steps}>
+        {(step, index) => (
+          <li
+            class={index() < props.current ? "done" : undefined}
+            aria-current={index() === props.current ? "step" : undefined}
+          >
+            {step}
+          </li>
+        )}
+      </For>
+    </ol>
   );
 }
 
@@ -179,7 +207,8 @@ function Intro(props: { realm: Realm; go: Go }): JSX.Element {
 
 function Generate(props: { made: Made; go: Go }): JSX.Element {
   return (
-    <Card title="Generate Wallet">
+    <Card title="Generate wallet">
+      <Hops steps={MADE_STEPS} current={0} />
       <p>
         These 20 words are your wallet. Write them down in order and keep them
         somewhere safe and private. Anyone who knows them controls your node and
@@ -242,7 +271,8 @@ function Verify(props: { made: Made; go: Go }): JSX.Element {
     });
   };
   return (
-    <Card title="Verify Passphrase">
+    <Card title="Verify passphrase">
+      <Hops steps={MADE_STEPS} current={1} />
       <form onSubmit={submit}>
         <label for="verify-word">
           Please enter word #<span data-testid="verify-word-number">
@@ -282,7 +312,8 @@ function Verify(props: { made: Made; go: Go }): JSX.Element {
 
 function Recover(props: { realm: Realm; go: Go }): JSX.Element {
   return (
-    <Card title="Recover Wallet">
+    <Card title="Recover wallet">
+      <Hops steps={RECOVERED_STEPS} current={0} />
       <PhraseEntry
         realm={props.realm}
         labels={{
@@ -290,7 +321,7 @@ function Recover(props: { realm: Realm; go: Go }): JSX.Element {
           input: "recover-input",
           submit: "recover-submit",
           error: "setup-error",
-          action: "Open Wallet",
+          action: "Open wallet",
         }}
         onPhrase={(phrase) => {
           props.go({ name: "opening", phrase, back: { name: "recover" } });
@@ -334,7 +365,11 @@ function Opening(props: {
     (error: unknown) => setError(credentialFailure(error, props.realm)),
   );
   return (
-    <Card title="Opening Wallet">
+    <Card title="Opening wallet">
+      <Hops
+        steps={back.name === "recover" ? RECOVERED_STEPS : MADE_STEPS}
+        current={back.name === "recover" ? 1 : 2}
+      />
       <Show
         when={error()}
         fallback={<Spinner label="Setting up your node…" />}

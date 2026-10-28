@@ -606,19 +606,7 @@ impl PeerNode {
         let probe = *probe;
         self.deferred = self.deferred.saturating_sub(1);
         self.probing.retain(|(id, _)| *id != node);
-        let reachable = result.ok().is_some_and(|body| {
-            LinkStateResponse::decode_exact(&body).is_ok_and(|response| {
-                response
-                    .0
-                    .first()
-                    .and_then(Option::as_ref)
-                    .is_some_and(|signed| {
-                        signed.node_id == node
-                            && signed.info.sequence >= probe.sequence
-                            && signed.verify().is_ok()
-                    })
-            })
-        });
+        let reachable = answers_as(node, probe.sequence, result);
         if reachable && let Some(network) = probe.network {
             let share = self.config.probe_rate_per_network;
             self.network_probes.give_back(network, share, self.now_ms);
@@ -667,10 +655,19 @@ impl PeerNode {
         if let Processed::Invalid(_) = self.process_link_state(info, None, Retransmit::Never) {
             return Reply::refuse(400, "invalid link state");
         }
-        let now = self.now_ms;
+        let (now, bucket) = (self.now_ms, self.standing_bucket_ms());
         let expires_ms = now.saturating_add(self.config.registration_ttl_ms);
         if let Some(entry) = self.table.get_mut(&sender) {
             entry.key.get_or_insert(key);
+            // A registration probed anew counts its URL's failures from
+            // now: only failures while registered end it. Its URL was just
+            // probed, so it is checked again a bucket later.
+            if entry.registration.is_none() {
+                entry.url = crate::table::UrlCheck {
+                    check_at_ms: now.saturating_add(bucket),
+                    ..crate::table::UrlCheck::NEW
+                };
+            }
             let registered_ms = entry.registration.as_ref().map_or(now, |r| r.registered_ms);
             entry.registration = Some(Registration {
                 registered_ms,
@@ -727,4 +724,23 @@ pub(crate) fn ok(body: &[u8]) -> Reply {
 
 fn refuse(status: u16, reason: &str) -> Inbound<'static> {
     Inbound::Reply(Reply::refuse(status, reason))
+}
+
+/// Whether `result`, the answer to a `linkStateRequest` for `node` at its
+/// URL, is the node's own link state, verified, at `sequence` or later:
+/// what shows that the URL serves the node's key.
+pub(super) fn answers_as(node: NodeId, sequence: u64, result: Result<Vec<u8>, Problem>) -> bool {
+    result.ok().is_some_and(|body| {
+        LinkStateResponse::decode_exact(&body).is_ok_and(|response| {
+            response
+                .0
+                .first()
+                .and_then(Option::as_ref)
+                .is_some_and(|signed| {
+                    signed.node_id == node
+                        && signed.info.sequence >= sequence
+                        && signed.verify().is_ok()
+                })
+        })
+    })
 }

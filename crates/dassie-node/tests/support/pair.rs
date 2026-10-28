@@ -4,6 +4,8 @@
 
 #![allow(clippy::panic)]
 
+use std::sync::LazyLock;
+
 use std::time::Duration;
 
 use dassie_identity::IdentityKey;
@@ -13,9 +15,20 @@ use dassie_node::rpc::proto::{self, request::Method, response};
 
 use super::{Bound, START_MS, STUB_UNLIMITED, TestNode, set_up, stub_with_commitments};
 
-pub const CA: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../testdata/tls/root.pem");
-pub const CERT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../testdata/tls/cert.pem");
-pub const KEY: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../testdata/tls/key.pem");
+use super::testdata;
+
+pub fn ca_file() -> &'static str {
+    static PATH: LazyLock<String> = LazyLock::new(|| testdata("tls/root.pem"));
+    &PATH
+}
+pub fn cert_file() -> &'static str {
+    static PATH: LazyLock<String> = LazyLock::new(|| testdata("tls/cert.pem"));
+    &PATH
+}
+pub fn key_file() -> &'static str {
+    static PATH: LazyLock<String> = LazyLock::new(|| testdata("tls/key.pem"));
+    &PATH
+}
 
 /// The node's XRPL testnet account, as external assets are named.
 pub const XRPL_ACCOUNT: &str = "xrpl-testnet-account/0";
@@ -36,7 +49,7 @@ pub fn xrpl_config(server: &dassie_node::fake_ledger::Server) -> String {
 }
 
 pub fn key(seed: u8) -> IdentityKey {
-    IdentityKey::from_bytes(&[seed; 32])
+    dassie_identity::TableKeygen::identity_key(&[seed; 32])
 }
 
 /// `DASSIE_BOOTSTRAP_NODES` naming `node` at `port`.
@@ -111,8 +124,8 @@ async fn prepare_base(node: &TestNode, key: &IdentityKey) {
     assert!(hostname.is_ok(), "{hostname:?}");
     let certificate = owner
         .call(Method::SetCertificate(proto::SetCertificateRequest {
-            certificate_chain_pem: std::fs::read_to_string(CERT).unwrap(),
-            private_key_pem: std::fs::read_to_string(KEY).unwrap(),
+            certificate_chain_pem: std::fs::read_to_string(cert_file()).unwrap(),
+            private_key_pem: std::fs::read_to_string(key_file()).unwrap(),
         }))
         .await;
     assert!(certificate.is_ok(), "{certificate:?}");
@@ -229,7 +242,7 @@ impl Pair {
         let nodes = bootstrap(&key_a, bound_a.https_port());
         let env = [
             ("DASSIE_BOOTSTRAP_NODES", nodes.as_str()),
-            ("DASSIE_EXTRA_CA_FILE", CA),
+            ("DASSIE_EXTRA_CA_FILE", ca_file()),
             ("DASSIE_PEER_ALLOW_PRIVATE", "1"),
         ];
         let clock = ManualClock::new(START_MS);

@@ -222,6 +222,11 @@ test("every page of the wallet works against two nodes", {
           () => attribute(page, "payment", "data-state"),
           (state) => state === "completed",
         );
+        // It fixed what d2 gets, so it leads with that.
+        assertEquals(
+          await attribute(page, "payment-receive", "data-value"),
+          "1500000000",
+        );
         assertEquals(
           await attribute(page, "payment-sent", "data-value"),
           "1500000000",
@@ -243,6 +248,7 @@ test("every page of the wallet works against two nodes", {
         );
         const received = await sent();
         assertEquals(received?.receivedAmount, 1_500_000_000n);
+        assertEquals(received?.paidInFull, true);
         assertEquals(await balance(d1), before1 - 1_500_000_000n);
         await scenario.until(
           "d2's balance moves",

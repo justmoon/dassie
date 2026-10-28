@@ -31,7 +31,7 @@ use tokio_util::codec::{Framed, LengthDelimitedCodec};
 const PAYMENT: u64 = 250_000_000;
 
 fn key() -> IdentityKey {
-    IdentityKey::from_bytes(&[9; 32])
+    dassie_identity::TableKeygen::identity_key(&[9; 32])
 }
 
 /// Sets the node up and waits for its ledger, then activates the stub.
@@ -232,6 +232,22 @@ async fn a_stream_client_pays_the_receiver_and_the_journal_matches() {
         packets.iter().any(|p| p.reject_code == "F08"),
         "probes above the maximum packet amount get F08"
     );
+    // Each record joins its hops by its condition and names its ledgers; a
+    // BTP client is no peer, so it names no node.
+    for packet in packets
+        .iter()
+        .filter(|p| p.state() == proto::PacketState::Fulfilled)
+    {
+        assert_eq!(packet.condition.len(), 32, "{packet:?}");
+        // ILDCP is answered here, routed nowhere.
+        assert!(!packet.ledger_in.is_empty(), "{packet:?}");
+        assert_eq!(
+            packet.ledger_out.is_empty(),
+            packet.destination.is_empty(),
+            "{packet:?}"
+        );
+        assert!(packet.source_node.is_empty() && packet.destination_node.is_empty());
+    }
     let transfers = journal(&mut owner).await;
     assert_eq!(
         check_journal_matches_trace(&transfers, &packets, token_id),

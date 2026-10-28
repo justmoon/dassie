@@ -26,7 +26,6 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::Duration;
 
-use dassie_connector::{PacketRecord, TraceEvent};
 use dassie_ledger::{Account, AccountId, TraceId};
 use tokio::sync::{broadcast, mpsc, oneshot, watch};
 use tokio_util::sync::CancellationToken;
@@ -35,12 +34,13 @@ use tokio_util::sync::CancellationToken;
 pub use self::core::HubPeer;
 pub use self::core::{
     AssetView, BalanceView, BtpEvent, BtpSession, Changes, Core, CoreParts, CreatedOutgoing,
-    Direction, EngineError, EngineEvent, Event, HubHold, HubStatus, IncomingPolicy, LedgerEvent,
-    LedgerView, Lie, Measured, Move, NamesView, NetworkView, NewIncoming, NewOutgoing, NewSwap,
-    NewToken, NoSnapshots, Outbound, Output, OwnSnapshots, OwnerSwap, PaymentEvent, PeerEvent,
-    PeerSnapshotView, PeerView, Prober, Quoting, RemovalBlocker, SCHEMES, SettlementEvent,
-    Severity, SnapshotSource, SwapEnd, SwapOutcome, SwapReport, SwapSent, SwapStats, TokenView,
-    ledger_realm, ledger_slug, offered,
+    Direction, EngineError, EngineEvent, Event, HubAccountState, HubEvent, HubEventKind, HubHold,
+    HubMoveEvent, HubOperation, HubPromise, HubStatus, HubStreamEvent, IncomingPolicy, LedgerEvent,
+    LedgerView, Lie, Measured, Move, MoveStage, NamesView, NetworkView, NewIncoming, NewOutgoing,
+    NewSwap, NewToken, NoSnapshots, Outbound, Output, OwnSnapshots, OwnerSwap, PacketEvent,
+    PaymentEvent, PeerEvent, PeerSnapshotView, PeerView, Prober, Quoting, RemovalBlocker, Role,
+    SCHEMES, SettlementEvent, Severity, SnapshotSource, SwapEnd, SwapOutcome, SwapReport, SwapSent,
+    SwapStats, TokenView, TracedPacket, ledger_realm, ledger_slug, offered,
 };
 
 use crate::clock::clock_moved;
@@ -58,6 +58,12 @@ const MAX_PACKET_SUBSCRIBERS: usize = 16;
 
 /// Packet events a subscriber may fall behind by.
 const PACKET_EVENTS: usize = 1024;
+
+/// Most live subscribers to the hub events.
+const MAX_HUB_SUBSCRIBERS: usize = 16;
+
+/// Hub events a subscriber may fall behind by.
+const HUB_EVENTS: usize = 1024;
 
 /// What to tell a caller once its batch is persisted.
 type Reply = Box<dyn FnOnce() + Send>;
@@ -149,8 +155,36 @@ pub struct Versions {
 pub struct Engine {
     commands: mpsc::Sender<Command>,
     generation: CancellationToken,
-    packets: broadcast::Sender<TraceEvent>,
+    broadcasts: Broadcasts,
     versions: watch::Receiver<Versions>,
+}
+
+/// Where the engine's events go to their live subscribers, each a bounded
+/// broadcast: one that falls behind misses events, and is told so.
+#[derive(Clone, Debug)]
+struct Broadcasts {
+    packets: broadcast::Sender<PacketEvent>,
+    hubs: broadcast::Sender<HubStreamEvent>,
+}
+
+impl Broadcasts {
+    fn new() -> Self {
+        Self {
+            packets: broadcast::Sender::new(PACKET_EVENTS),
+            hubs: broadcast::Sender::new(HUB_EVENTS),
+        }
+    }
+
+    /// Sends `output` to its subscribers if it is theirs; hands it back
+    /// otherwise.
+    fn take(&self, output: Output) -> Option<Output> {
+        match output {
+            Output::Trace(event) => drop(self.packets.send(event)),
+            Output::Hub(event) => drop(self.hubs.send(event)),
+            other => return Some(other),
+        }
+        None
+    }
 }
 
 impl Engine {
@@ -617,8 +651,9 @@ impl Engine {
         &self,
         after: Option<TraceId>,
         limit: usize,
-    ) -> Result<Vec<PacketRecord>, EngineError> {
-        self.call(move |core| Ok(core.packets(after, limit))).await
+    ) -> Result<Vec<TracedPacket>, EngineError> {
+        self.call(move |core| Ok(core.traced_packets(after, limit)))
+            .await
     }
 
     /// The packets from now on, as the trace records them.
@@ -626,11 +661,28 @@ impl Engine {
     /// # Errors
     ///
     /// [`EngineError::Exhausted`] when too many are subscribed.
-    pub fn subscribe_packets(&self) -> Result<broadcast::Receiver<TraceEvent>, EngineError> {
-        if self.packets.receiver_count() >= MAX_PACKET_SUBSCRIBERS {
+    pub fn subscribe_packets(&self) -> Result<broadcast::Receiver<PacketEvent>, EngineError> {
+        let packets = &self.broadcasts.packets;
+        if packets.receiver_count() >= MAX_PACKET_SUBSCRIBERS {
             return Err(EngineError::Exhausted("too many packet subscribers".into()));
         }
-        Ok(self.packets.subscribe())
+        Ok(packets.subscribe())
+    }
+
+    /// What the node sees of its settlement hubs from now on. The engine
+    /// makes these events only while someone listens, from its next step.
+    ///
+    /// # Errors
+    ///
+    /// [`EngineError::Exhausted`] when too many are subscribed.
+    pub fn subscribe_hub_events(&self) -> Result<broadcast::Receiver<HubStreamEvent>, EngineError> {
+        let hubs = &self.broadcasts.hubs;
+        if hubs.receiver_count() >= MAX_HUB_SUBSCRIBERS {
+            return Err(EngineError::Exhausted(
+                "too many hub event subscribers".into(),
+            ));
+        }
+        Ok(hubs.subscribe())
     }
 
     /// Opens a BTP connection for the client with `token`.
@@ -757,12 +809,12 @@ pub async fn run(node: Arc<Node>, shutdown: CancellationToken) {
     core.set_snapshot_source(Box::new(OwnSnapshots::new(key)));
     let (commands, receiver) = mpsc::channel(QUEUE);
     let generation = CancellationToken::new();
-    let packets = broadcast::Sender::new(PACKET_EVENTS);
+    let broadcasts = Broadcasts::new();
     let (versions, versions_receiver) = watch::channel(Versions::default());
     let engine = Engine {
         commands: commands.clone(),
         generation: generation.clone(),
-        packets: packets.clone(),
+        broadcasts: broadcasts.clone(),
         versions: versions_receiver,
     };
     let _published = Published::new(&node, engine, generation.clone());
@@ -773,7 +825,7 @@ pub async fn run(node: Arc<Node>, shutdown: CancellationToken) {
         generation,
         ledgers: links::Links::default(),
         links: BTreeMap::new(),
-        packets,
+        broadcasts,
         outputs: Vec::new(),
         replies: Vec::new(),
         commands,
@@ -784,6 +836,7 @@ pub async fn run(node: Arc<Node>, shutdown: CancellationToken) {
         swap_replies: BTreeMap::new(),
         next_swap: 0,
         versions,
+        https_checks: Arc::new(tokio::sync::Semaphore::new(links::MAX_HTTPS_CHECKS)),
     };
     driver.run(receiver, config, &shutdown).await;
     // Without an engine, the node has no snapshot to answer with.
@@ -801,7 +854,7 @@ struct Driver<'a> {
     ledgers: links::Links,
     /// Where each BTP connection's messages go.
     links: BTreeMap<u64, mpsc::Sender<Outbound>>,
-    packets: broadcast::Sender<TraceEvent>,
+    broadcasts: Broadcasts,
     outputs: Vec<Output>,
     replies: Vec<Reply>,
     /// For the results of peer requests, which come back as commands.
@@ -817,9 +870,32 @@ struct Driver<'a> {
     next_swap: u64,
     /// What changed, counted, for live views.
     versions: watch::Sender<Versions>,
+    /// The places of downlinks' URL checks over HTTPS in flight, apart
+    /// from those the node's other fetches need
+    /// ([`links::MAX_HTTPS_CHECKS`]).
+    https_checks: Arc<tokio::sync::Semaphore>,
 }
 
 impl Driver<'_> {
+    /// Checks a downlink's URL over HTTPS, in one of the checks' own few
+    /// places: past them, the check is left for the next time, so it never
+    /// takes the room of the node's other fetches.
+    fn check_https(&self, node: dassie_identity::NodeId, url: String) {
+        let client = self.node.outbound().cloned();
+        let place = Arc::clone(&self.https_checks).try_acquire_owned().ok();
+        if let (Some(client), Some(place)) = (client, place) {
+            links::check_https(client, place, self.commands.clone(), (node, url));
+        }
+    }
+
+    /// Starts a step of the core, with the hub events on while anyone
+    /// listens to them.
+    fn begin_step(&mut self) {
+        let listened = self.broadcasts.hubs.receiver_count() > 0;
+        self.core.set_hub_events(listened);
+        self.core.begin_step(self.node.now_ms());
+    }
+
     async fn run(
         &mut self,
         mut receiver: mpsc::Receiver<Command>,
@@ -848,7 +924,7 @@ impl Driver<'_> {
                 () = shutdown.cancelled() => break,
                 command = receiver.recv() => {
                     let Some(command) = command else { break };
-                    self.core.begin_step(self.node.now_ms());
+                    self.begin_step();
                     self.handle(command);
                     for _ in 1..BATCH {
                         match receiver.try_recv() {
@@ -857,13 +933,13 @@ impl Driver<'_> {
                         }
                     }
                 }
-                () = sleep => self.core.begin_step(self.node.now_ms()),
-                () = clock_moved(&mut wake) => self.core.begin_step(self.node.now_ms()),
+                () = sleep => self.begin_step(),
+                () = clock_moved(&mut wake) => self.begin_step(),
                 changed = config.changed() => {
                     if changed.is_err() {
                         break;
                     }
-                    self.core.begin_step(self.node.now_ms());
+                    self.begin_step();
                     self.core.set_own_info(own_info(self.node));
                 }
             }
@@ -1016,15 +1092,15 @@ impl Driver<'_> {
     fn dispatch(&mut self) -> Vec<u64> {
         let mut failed = Vec::new();
         for output in std::mem::take(&mut self.outputs) {
+            let Some(output) = self.broadcasts.take(output) else {
+                continue;
+            };
             let (link, message) = match output {
                 Output::Event(event) => {
                     logging::log(&event);
                     continue;
                 }
-                Output::Trace(event) => {
-                    let _ = self.packets.send(event);
-                    continue;
-                }
+                Output::Trace(_) | Output::Hub(_) => continue,
                 Output::PeerRequest(request) => {
                     self.send_peer_request(request);
                     continue;
@@ -1054,6 +1130,10 @@ impl Driver<'_> {
                 | Output::Fund { .. }
                 | Output::Fetch { .. } => {
                     self.ledger_output(output);
+                    continue;
+                }
+                Output::CheckHttps { node, url } => {
+                    self.check_https(node, url);
                     continue;
                 }
                 Output::Btp { link, message } => (link, message),

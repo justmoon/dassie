@@ -22,7 +22,7 @@ import { RpcContext } from "@dassie/ui/rpc";
 import { Router } from "@dassie/ui/router";
 import { Toaster } from "@dassie/ui/toast";
 import { PageError } from "@dassie/ui/ui";
-import { Card, Spinner } from "./ui.tsx";
+import { Card, Waiting } from "./ui.tsx";
 import { realmOf } from "./phrase.ts";
 import { UNKNOWN_REALM } from "./messages.ts";
 
@@ -64,7 +64,7 @@ export default function App(): JSX.Element {
             <PageError error={error()} reset={reset} />
           )}
         >
-          <Loading fallback={<Spinner label="Loading…" />}>
+          <Loading fallback={<Waiting label="Loading…" />}>
             <Switch
               fallback={
                 <Card title="Unexpected node state">
@@ -76,7 +76,7 @@ export default function App(): JSX.Element {
               }
             >
               <Match when={screen().kind === "loading"}>
-                <Spinner label="Connecting to your node…" />
+                <Waiting label="Connecting to your node…" />
               </Match>
               <Match when={screen().kind === "unreachable"}>
                 <Unreachable message={failure() ?? ""} />
@@ -134,7 +134,7 @@ function Owner(props: { basic: GetBasicStateResponse }): JSX.Element {
             </Card>
           </Match>
           <Match when={screen() === "loading"}>
-            <Spinner label="Loading your ledgers…" />
+            <Waiting label="Loading your ledgers…" />
           </Match>
           <Match when={screen() === "onboarding"}>
             <Onboarding />
@@ -172,9 +172,10 @@ function SetupInfo(): JSX.Element {
   return (
     <Card title="Dassie Wallet" testid="setup-info">
       <p>
-        This Dassie node is ready for setup. Please visit its setup URL: on the
-        server, <code>sudo dassie setup-url</code> prints it.
+        This Dassie node is ready for setup. Please visit its setup URL, which
+        this command prints on the server:
       </p>
+      <pre><code>sudo dassie setup-url</code></pre>
     </Card>
   );
 }

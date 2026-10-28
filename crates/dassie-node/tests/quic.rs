@@ -175,7 +175,7 @@ fn side(seed: u8, shutdown: &CancellationToken) -> Side {
 
 fn side_with(seed: u8, shutdown: &CancellationToken, handler: Arc<dyn Handler>) -> Side {
     let socket = UdpSocket::bind("127.0.0.1:0").unwrap();
-    let key = Arc::new(IdentityKey::from_bytes(&[seed; 32]));
+    let key = Arc::new(dassie_identity::TableKeygen::identity_key(&[seed; 32]));
     let id = key.node_id();
     let (identity, receiver) = watch::channel(Some(key));
     let quic = Arc::new(Quic::new(socket, receiver, true).unwrap());
@@ -203,6 +203,7 @@ fn request(to: &Side, body: Vec<u8>) -> Request {
         kind: Kind::LinkStateRequest,
         body,
         timeout_ms: 5_000,
+        fresh: false,
     }
 }
 
@@ -226,7 +227,7 @@ async fn a_request_gets_its_answer() {
 async fn a_server_with_another_key_is_not_reached() {
     let shutdown = CancellationToken::new();
     let (a, b) = (side(1, &shutdown), side(2, &shutdown));
-    let impostor = IdentityKey::from_bytes(&[3; 32]).node_id();
+    let impostor = dassie_identity::TableKeygen::identity_key(&[3; 32]).node_id();
     let mut wrong = request(&b, b"hello".to_vec());
     wrong.to = impostor;
     let result = a.quic.send(&wrong, &client()).await;
@@ -349,7 +350,7 @@ async fn a_node_out_of_reach_is_not_dialled_again_for_a_while() {
     let a = side(1, &shutdown);
     let silent = UdpSocket::bind("127.0.0.1:0").unwrap();
     let port = silent.local_addr().unwrap().port();
-    let target = IdentityKey::from_bytes(&[9; 32]).node_id();
+    let target = dassie_identity::TableKeygen::identity_key(&[9; 32]).node_id();
     let request = Request {
         id: RequestId(7),
         to: target,
@@ -357,6 +358,7 @@ async fn a_node_out_of_reach_is_not_dialled_again_for_a_while() {
         kind: Kind::LinkStateRequest,
         body: b"probe".to_vec(),
         timeout_ms: 2_000,
+        fresh: false,
     };
     let client = client();
     let started = tokio::time::Instant::now();
@@ -647,5 +649,156 @@ async fn a_peer_back_from_a_crash_ends_our_old_connection_at_once() {
     let response = a.quic.send(&hello, &client).await.unwrap();
     assert_eq!(response.body, b"hello");
     assert_eq!(back.quic.stats().answered.load(Ordering::Relaxed), 1);
+    shutdown.cancel();
+}
+
+// spec/decisions/promotion-to-core.md: a fresh request is dialled at its
+// endpoint on a connection of its own, never the one the node opened to us.
+// b holds the connection a opened: a request to a at an endpoint nothing
+// serves still reaches a over it, but a fresh one is not delivered; a fresh
+// one at a's own endpoint is answered, and a is still reached after it, on
+// whichever of the two connections both keep.
+#[tokio::test]
+async fn a_fresh_request_dials_its_endpoint() {
+    let shutdown = CancellationToken::new();
+    let (a, b) = (side(1, &shutdown), side(2, &shutdown));
+    let client = client();
+    a.quic
+        .send(&request(&b, b"open".to_vec()), &client)
+        .await
+        .unwrap();
+    let nowhere = Endpoint::parse("127.0.0.1:9").unwrap();
+    let held = Request {
+        endpoint: Some(nowhere.clone()),
+        ..request(&a, b"held".to_vec())
+    };
+    let response = send_peer(Some(Arc::clone(&b.quic)), &client, held)
+        .await
+        .unwrap();
+    assert_eq!(response.body, b"held", "over the connection a opened");
+    let fresh = Request {
+        endpoint: Some(nowhere),
+        fresh: true,
+        timeout_ms: 200,
+        ..request(&a, b"fresh".to_vec())
+    };
+    let result = send_peer(Some(Arc::clone(&b.quic)), &client, fresh).await;
+    assert!(result.is_err(), "nothing serves there: {result:?}");
+    let fresh = Request {
+        fresh: true,
+        ..request(&a, b"at a".to_vec())
+    };
+    let response = send_peer(Some(Arc::clone(&b.quic)), &client, fresh)
+        .await
+        .unwrap();
+    assert_eq!(response.body, b"at a");
+    // A connection is kept for a, whichever survived: a request at an
+    // endpoint nothing serves reaches a over it.
+    let held = Request {
+        endpoint: Some(Endpoint::parse("127.0.0.1:9").unwrap()),
+        ..request(&a, b"still".to_vec())
+    };
+    let response = send_peer(Some(Arc::clone(&b.quic)), &client, held)
+        .await
+        .unwrap();
+    assert_eq!(response.body, b"still");
+    shutdown.cancel();
+}
+
+// Review of #681: the node a fresh request goes to may keep its connection
+// as its own to us, as it may any we dial, in place of the one it opened:
+// its requests to us on it are answered, before and after ours is. Both
+// ways round, as which of two crossed connections a node keeps follows
+// their IDs.
+#[tokio::test]
+async fn the_far_side_of_a_fresh_request_still_reaches_us() {
+    let shutdown = CancellationToken::new();
+    let client = client();
+    for (down, up) in [(1, 2), (2, 1)] {
+        let (down, up) = (side(down + 10, &shutdown), side(up + 10, &shutdown));
+        // The downlink opened its connection to its uplink.
+        down.quic
+            .send(&request(&up, b"open".to_vec()), &client)
+            .await
+            .unwrap();
+        let fresh = Request {
+            fresh: true,
+            ..request(&down, b"check".to_vec())
+        };
+        let response = send_peer(Some(Arc::clone(&up.quic)), &client, fresh)
+            .await
+            .unwrap();
+        assert_eq!(response.body, b"check");
+        for n in 0..3u8 {
+            let response = down
+                .quic
+                .send(&request(&up, vec![n]), &client)
+                .await
+                .unwrap();
+            assert_eq!(
+                response.body,
+                vec![n],
+                "the downlink still reaches its uplink"
+            );
+        }
+    }
+    shutdown.cancel();
+}
+
+// Review of #688: whichever node holds its own dial, and whichever has the
+// lower ID, a fresh request leaves both on the same connection, and the far
+// side's requests keep going across it: the kept one stays if the lower ID
+// opened it, and the fresh one, which the far side took at once, replaces
+// it any other way.
+#[tokio::test]
+async fn both_keep_one_connection_across_a_fresh_request() {
+    let shutdown = CancellationToken::new();
+    let client = client();
+    for (checker, checked) in [(21, 22), (22, 21)] {
+        for checker_dialled in [true, false] {
+            let (up, down) = (side(checker, &shutdown), side(checked, &shutdown));
+            if checker_dialled {
+                up.quic
+                    .send(&request(&down, b"open".to_vec()), &client)
+                    .await
+                    .unwrap();
+            } else {
+                down.quic
+                    .send(&request(&up, b"open".to_vec()), &client)
+                    .await
+                    .unwrap();
+            }
+            let fresh = Request {
+                fresh: true,
+                ..request(&down, b"check".to_vec())
+            };
+            let response = send_peer(Some(Arc::clone(&up.quic)), &client, fresh)
+                .await
+                .unwrap();
+            assert_eq!(response.body, b"check");
+            for n in 0..3u8 {
+                let response = down
+                    .quic
+                    .send(&request(&up, vec![n]), &client)
+                    .await
+                    .unwrap();
+                assert_eq!(
+                    response.body,
+                    vec![n],
+                    "the checked node reaches the checker"
+                );
+                let response = up
+                    .quic
+                    .send(&request(&down, vec![n]), &client)
+                    .await
+                    .unwrap();
+                assert_eq!(
+                    response.body,
+                    vec![n],
+                    "the checker reaches the checked node"
+                );
+            }
+        }
+    }
     shutdown.cancel();
 }

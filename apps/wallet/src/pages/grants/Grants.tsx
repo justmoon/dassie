@@ -27,7 +27,7 @@ export function Grants(): JSX.Element {
   );
   return (
     <div class="page-wide stack">
-      <PageTitle>Connected Apps</PageTitle>
+      <PageTitle>Connected apps</PageTitle>
       <Card testid="page-grants">
         <LiveNote status={live.status()} />
         <Show
@@ -38,7 +38,7 @@ export function Grants(): JSX.Element {
             </p>
           }
         >
-          <ul class="activity">
+          <ul class="grants">
             <For each={live.value() ?? []} keyed={(grant) => grant.id}>
               {(grant) => <Row grant={grant()} />}
             </For>
@@ -62,7 +62,7 @@ function Row(props: { grant: Grant }): JSX.Element {
   };
   return (
     <li data-testid={`grant-${props.grant.id}`}>
-      <div class="activity-head">
+      <div class="grant-head">
         <strong>
           {clientName(props.grant.client, props.grant.clientName)}
         </strong>
@@ -71,7 +71,7 @@ function Row(props: { grant: Grant }): JSX.Element {
           {dateTime(props.grant.decidedAtUnixMs ?? props.grant.createdAtUnixMs)}
         </span>
       </div>
-      <ul>
+      <ul class="grant-access">
         <For each={props.grant.access}>
           {(access) => (
             <li>

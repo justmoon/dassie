@@ -17,13 +17,13 @@ mod support;
 use dassie_node::clock::ManualClock;
 use dassie_node::node::Policies;
 use dassie_node::rpc::proto::{self, request::Method, response};
-use support::pair::{CA, key, prepare, until, until_by};
+use support::pair::{ca_file, key, prepare, until, until_by};
 use support::rates::{RatesServer, coinbase};
 use support::{Bound, START_MS, TestNode};
 
 async fn start(dir: tempfile::TempDir, clock: ManualClock) -> TestNode {
     let env = [
-        ("DASSIE_EXTRA_CA_FILE", CA),
+        ("DASSIE_EXTRA_CA_FILE", ca_file()),
         ("DASSIE_PEER_ALLOW_PRIVATE", "1"),
     ];
     Bound::bind_in(dir)

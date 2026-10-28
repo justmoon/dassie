@@ -877,6 +877,7 @@ impl Core {
     /// synced for the first time can be peered on from now
     /// (spec/decisions/synced-before-peering.md).
     fn asset_heard(&mut self, asset: AssetId) {
+        self.tap_hub_news(asset);
         for scheme in self.live_schemes_on(asset) {
             self.tell_scheme(scheme, asset);
         }
@@ -1357,7 +1358,6 @@ impl Core {
 #[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
-    use dassie_identity::IdentityKey;
 
     // spec/decisions/mainnet-schemes.md: each XRPL scheme settles through
     // the first account on its own network, whose keys are at that
@@ -1367,7 +1367,7 @@ mod tests {
     #[test]
     fn each_xrpl_scheme_settles_through_its_networks_account() {
         use dassie_xrpl::network::{MAINNET, Network, TESTNET};
-        let key = IdentityKey::from_bytes(&[7; 32]);
+        let key = dassie_identity::TableKeygen::identity_key(&[7; 32]);
         for network in [&TESTNET, &MAINNET] {
             let asset = create_asset(network.first(), "", &[], (&key, 0)).unwrap();
             let any: &dyn core::any::Any = asset.as_ref();
@@ -1481,7 +1481,8 @@ mod tests {
         }
         let terms = rules.terms.clone();
         for (index, acceptance) in rules.validators.iter_mut().enumerate() {
-            let node = IdentityKey::from_bytes(&[u8::try_from(index + 1).unwrap(); 32]);
+            let node =
+                dassie_identity::TableKeygen::identity_key(&[u8::try_from(index + 1).unwrap(); 32]);
             let endpoint = acceptance.endpoint.clone();
             *acceptance = ValidatorKeys::derive(&node, network, &terms.nonce)
                 .unwrap()
@@ -1507,7 +1508,7 @@ mod tests {
     fn each_hub_scheme_joins_only_a_hub_of_its_asset() {
         use dassie_hub::member::{DSUSD_SCHEME_ID, SCHEME_ID};
 
-        let key = IdentityKey::from_bytes(&[7; 32]);
+        let key = dassie_identity::TableKeygen::identity_key(&[7; 32]);
         let window = u64::MAX;
         let xrp = super::super::tests::hub_config(600, 300);
         let dsusd = dsusd_hub_config();
@@ -1587,7 +1588,7 @@ mod tests {
         use dassie_hub::rules::Asset;
         use dassie_xrpl::network::MAINNET;
 
-        let key = IdentityKey::from_bytes(&[7; 32]);
+        let key = dassie_identity::TableKeygen::identity_key(&[7; 32]);
         let window = u64::MAX;
         let rlusd = Asset::Token {
             currency: dassie_xrpl::rlusd::CURRENCY,
@@ -1667,7 +1668,7 @@ mod tests {
         let rlusd = rules_of(hub_config_on(MAINNET.id, rlusd));
         let built_in: DefaultHubs = [None, None, Some(xrp), Some(rlusd)];
         let none: DefaultHubs = [None; HUB_SCHEMES.len()];
-        let key = IdentityKey::from_bytes(&[7; 32]);
+        let key = dassie_identity::TableKeygen::identity_key(&[7; 32]);
         let window = u64::MAX;
         for (id, hex) in [(MAINNET_SCHEME_ID, xrp), (RLUSD_SCHEME_ID, rlusd)] {
             let info = SCHEMES.iter().find(|info| info.id == id).unwrap();
@@ -1760,7 +1761,7 @@ mod tests {
         for disabled in DISABLED {
             assert!(SCHEMES.iter().all(|info| info.id != *disabled));
         }
-        let key = IdentityKey::from_bytes(&[7; 32]);
+        let key = dassie_identity::TableKeygen::identity_key(&[7; 32]);
         let asset = create_asset(dassie_xrpl::account::FIRST, "", &[], (&key, 0)).unwrap();
         assert!(matches!(
             create(

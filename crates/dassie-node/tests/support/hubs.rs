@@ -38,7 +38,7 @@ use dassie_xrpl::codec::TokenValue;
 use dassie_xrpl::network::{MAINNET, Network};
 
 use super::btp_client::{BtpClient, pay_stream};
-use super::pair::{CA, CERT, KEY, bootstrap_all, set_asset_config};
+use super::pair::{bootstrap_all, ca_file, cert_file, key_file, set_asset_config};
 use super::{
     Bound, PausedClock, START_MS, STUB_UNLIMITED, TestNode, post_json, send, set_up, setup_body_in,
 };
@@ -172,7 +172,7 @@ fn hex(rules: &Rules) -> String {
 /// The key of the sponsor whose hubs the validators run: no daemon, since
 /// the hubs are not founded here.
 fn sponsor() -> IdentityKey {
-    IdentityKey::from_bytes(&[70; 32])
+    dassie_identity::TableKeygen::identity_key(&[70; 32])
 }
 
 /// The seeds of the validators' keys.
@@ -191,7 +191,7 @@ const MAINNET_DEPOSIT_DROPS: u64 = 1_000_000_000;
 pub fn env_on(network: &Network) -> Vec<(&'static str, String)> {
     let mut env = vec![
         ("DASSIE_PEER_ALLOW_PRIVATE", "1".to_string()),
-        ("DASSIE_EXTRA_CA_FILE", CA.to_string()),
+        ("DASSIE_EXTRA_CA_FILE", ca_file().to_string()),
     ];
     if network.realm == dassie_ledger::Realm::Live {
         env.push(("DASSIE_DEV_LIVE_REALM", "1".to_string()));
@@ -228,8 +228,8 @@ async fn fake_ledger(network: &'static Network, clock: PausedClock) -> Server {
             "127.0.0.1:0".parse().unwrap(),
             dassie_node::store::StoredCertificate {
                 source: dassie_node_core::certificate::CertificateSource::Manual,
-                chain_pem: std::fs::read_to_string(CERT).unwrap(),
-                key_pem: std::fs::read_to_string(KEY).unwrap(),
+                chain_pem: std::fs::read_to_string(cert_file()).unwrap(),
+                key_pem: std::fs::read_to_string(key_file()).unwrap(),
             },
         )),
         close_every: Duration::from_secs(1),
@@ -248,7 +248,7 @@ impl HubNet {
         let xrpl = fake_ledger(network, clock).await;
         let bound: Vec<Bound> = VALIDATORS.map(|_| Bound::new()).collect();
         let keys: Vec<IdentityKey> = VALIDATORS
-            .map(|seed| IdentityKey::from_bytes(&[seed; 32]))
+            .map(|seed| dassie_identity::TableKeygen::identity_key(&[seed; 32]))
             .collect();
         let hubs: Vec<Hub> = assets
             .iter()
@@ -503,12 +503,12 @@ impl HubNet {
             .iter()
             .zip(&bound)
             .map(|(joining, bound)| {
-                let key = IdentityKey::from_bytes(&[joining.seed; 32]);
+                let key = dassie_identity::TableKeygen::identity_key(&[joining.seed; 32]);
                 (key, bound.https_port())
             })
             .collect();
         named.extend(also.iter().map(|member| {
-            let key = IdentityKey::from_bytes(&[member.seed; 32]);
+            let key = dassie_identity::TableKeygen::identity_key(&[member.seed; 32]);
             (key, member.node.https.port())
         }));
         let nodes = bootstrap_all(&named);
@@ -516,7 +516,7 @@ impl HubNet {
         env.push(("DASSIE_BOOTSTRAP_NODES", nodes));
         let mut started = Vec::new();
         for (joining, bound) in members.iter().zip(bound) {
-            let key = IdentityKey::from_bytes(&[joining.seed; 32]);
+            let key = dassie_identity::TableKeygen::identity_key(&[joining.seed; 32]);
             let pairs: Vec<(&str, &str)> = env.iter().map(|(k, v)| (*k, v.as_str())).collect();
             let node = bound
                 .start_paused(self.clock, u64::from(joining.seed), POLICIES, &pairs)
@@ -559,8 +559,8 @@ impl HubNet {
         assert!(hostname.is_ok(), "{hostname:?}");
         let certificate = owner
             .call(Method::SetCertificate(proto::SetCertificateRequest {
-                certificate_chain_pem: std::fs::read_to_string(CERT).unwrap(),
-                private_key_pem: std::fs::read_to_string(KEY).unwrap(),
+                certificate_chain_pem: std::fs::read_to_string(cert_file()).unwrap(),
+                private_key_pem: std::fs::read_to_string(key_file()).unwrap(),
             }))
             .await;
         assert!(certificate.is_ok(), "{certificate:?}");

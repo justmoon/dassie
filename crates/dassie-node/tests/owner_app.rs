@@ -36,7 +36,7 @@ use dassie_node::store::MAX_DEVICES;
 use dassie_node_core::connections::ConnectionLimits;
 use dassie_peer::wire::Endpoint;
 use futures_util::{SinkExt, StreamExt};
-use support::op::CA;
+use support::op::ca_file;
 use support::{
     Bound, HANG, RpcClient, START_MS, TestNode, Transport, eventually, set_up, websocket,
 };
@@ -90,10 +90,11 @@ fn endpoint(
     handler: Option<Arc<dyn Handler>>,
     shutdown: &CancellationToken,
 ) -> (Arc<Quic>, IdentityKey, String) {
-    let key = IdentityKey::from_bytes(&[seed; 32]);
+    let key = dassie_identity::TableKeygen::identity_key(&[seed; 32]);
     // The endpoint keeps the last key its sender held.
-    let (_identity, receiver) =
-        watch::channel(Some(Arc::new(IdentityKey::from_bytes(&[seed; 32]))));
+    let (_identity, receiver) = watch::channel(Some(Arc::new(
+        dassie_identity::TableKeygen::identity_key(&[seed; 32]),
+    )));
     let quic =
         Arc::new(Quic::new(UdpSocket::bind("127.0.0.1:0").unwrap(), receiver, true).unwrap());
     let url = format!("https://{}", quic.local_addr().unwrap());
@@ -124,7 +125,7 @@ async fn node_with(policies: Policies, env: &[(&str, &str)]) -> (TestNode, NodeI
     let node = Bound::new()
         .start(ManualClock::new(START_MS), 5, policies, env)
         .await;
-    let key = IdentityKey::from_bytes(&[50; 32]);
+    let key = dassie_identity::TableKeygen::identity_key(&[50; 32]);
     set_up(&node, &key).await;
     (node, key.node_id())
 }
@@ -235,7 +236,7 @@ async fn a_device_pairs_through_the_relay_the_node_keeps() {
     // The test CA: the node's outbound client needs roots, and a build sandbox
     // has no system ones.
     let (node, id) = node(&[
-        ("DASSIE_EXTRA_CA_FILE", CA),
+        ("DASSIE_EXTRA_CA_FILE", ca_file()),
         ("DASSIE_PEER_ALLOW_PRIVATE", "1"),
         ("DASSIE_RELAY", entry.as_str()),
     ])
@@ -404,7 +405,11 @@ async fn only_the_owner_on_this_machine_starts_a_pairing() {
         ),
         ErrorCode::FailedPrecondition
     );
-    let cookie = set_up(&node, &IdentityKey::from_bytes(&[50; 32])).await;
+    let cookie = set_up(
+        &node,
+        &dassie_identity::TableKeygen::identity_key(&[50; 32]),
+    )
+    .await;
     // A browser on loopback may; the tests have no other address to come
     // from, so the rule for others is the handlers' unit test.
     let socket = websocket(&node, Some(&cookie), &node.origin())

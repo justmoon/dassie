@@ -1,0 +1,475 @@
+/*
+ * Home, Activity, Send, Receive, a payment's page and External Assets, as
+ * the brand page's wallet draws them (apps/website/brand/index.html, "Node
+ * wallet"): the balance on Terracotta, payments in rows with a pebble each,
+ * and amounts in DM Mono.
+ */
+
+/* A small label above what it names. */
+.overline {
+  margin: 0;
+  font: 600 13px/1.3 var(--sans);
+  font-variation-settings: normal;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+}
+
+/* Home: the balance, Send and Receive, and the payment pointer beside the
+   last few payments; one column on phones, the payments right under the
+   buttons. */
+.home {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-rows: auto auto auto auto 1fr;
+  grid-template-areas:
+    "title title"
+    "balance recent"
+    "actions recent"
+    "pointer recent"
+    ". recent";
+  gap: 16px 32px;
+  align-items: start;
+}
+
+.home > h1 {
+  grid-area: title;
+  margin: 0;
+}
+
+.home .balance-card {
+  grid-area: balance;
+}
+
+.home-actions {
+  grid-area: actions;
+}
+
+/* On Daylight, as every list of small links and amounts is: Ember and
+   the green of money in read at AA there, and not on Sandstone. */
+.home-recent {
+  grid-area: recent;
+  align-self: start;
+  padding: 20px 24px;
+  background: var(--surface);
+  border-radius: 26px;
+}
+
+.home .home-pointer {
+  grid-area: pointer;
+}
+
+/* The balance card: Terracotta under a rim of Sunrise, Daylight text, and
+   the veld's grass along its foot. The card keeps its colors at dusk; its
+   text clears the grass, which grows with the card's width, by a padding
+   that grows with it too. */
+.balance-card {
+  position: relative;
+  overflow: hidden;
+  padding: 22px 24px calc(15% + 12px);
+  color: #FBF6EE;
+  background: var(--terra);
+  border-radius: 30px;
+}
+
+.balance-card::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  border-radius: inherit;
+  box-shadow: inset 0 2.5px 0 var(--sun);
+  pointer-events: none;
+}
+
+.balance-card > div {
+  position: relative;
+  z-index: 1;
+}
+
+.balance-card img.drawn {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  height: auto;
+}
+
+.balance-card .overline,
+.balance-card .live-note {
+  color: #F2C9A4;
+}
+
+/* The total: big, in Fraunces, its currency small in DM Mono before it. */
+.balance-total {
+  margin: 8px 0 0;
+  font-size: clamp(2.5rem, 11vw, 3.4rem);
+  line-height: 1.05;
+}
+
+.balance-total .amount,
+.balance-card .amount-lg {
+  font-family: var(--display);
+  font-weight: 600;
+  font-variation-settings: "SOFT" 100, "WONK" 0;
+  letter-spacing: -0.02em;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.balance-card .amount-lg {
+  font-size: 2.2rem;
+  line-height: 1.1;
+}
+
+.balance-total .amount-symbol,
+.balance-card .amount-lg .amount-symbol {
+  margin-right: 0.15em;
+  font: 500 15px var(--mono);
+  letter-spacing: 0;
+  vertical-align: 0.9em;
+}
+
+.balance-card .amount-extra {
+  color: #EBCFB9;
+  font-size: 0.45em;
+}
+
+.balance-card .balances {
+  gap: 4px;
+  margin: 12px 0 0;
+}
+
+.balance-card .balances li {
+  gap: 4px 10px;
+}
+
+.balance-card .balances .amount-md {
+  font-size: 15px;
+}
+
+.balance-card .balances .amount-md .amount-extra {
+  font-size: 0.8em;
+}
+
+.balance-asset,
+.balance-note {
+  color: #EBCFB9;
+  font-size: 13px;
+}
+
+.balance-asset {
+  min-width: 3.5em;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+}
+
+/* Send and Receive: two pebbles of a size, Send in Ember. */
+.home-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 10px;
+}
+
+.home-actions .button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 13px 14px;
+}
+
+.glyph {
+  flex: none;
+  width: 18px;
+  height: 18px;
+}
+
+/* A section's label, with a link to all of it on the right. */
+.section-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 4px;
+}
+
+.section-head a {
+  font-size: 14px;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+/* Payments, one row each: a pebble, whom it was with and when, and the
+   amount on the right, money in in green. */
+.tx-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.tx {
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr) auto;
+  gap: 0 12px;
+  align-items: center;
+  padding: 10px 0;
+  border-top: 1px solid var(--stone-2);
+}
+
+.tx:first-child {
+  border-top: 0;
+}
+
+.tx p {
+  margin: 0;
+}
+
+.tx-av {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  color: var(--ink);
+  background: var(--sand);
+  border-radius: 50%;
+}
+
+.tx-av-out,
+.card .tx-av-out {
+  background: light-dark(#F6E3CB, var(--stone-2));
+}
+
+.tx-av .value-cube,
+.tx-av .glyph {
+  width: 18px;
+  height: 18px;
+}
+
+.tx-name {
+  font-weight: 600;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+
+.tx-name a {
+  text-decoration: none;
+}
+
+.tx-name .badge {
+  margin-left: 4px;
+  vertical-align: 1px;
+}
+
+.tx-detail {
+  color: var(--muted);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.tx-amount {
+  font-family: var(--mono);
+  font-size: 14px;
+  text-align: right;
+}
+
+.tx-in {
+  color: var(--success);
+}
+
+/* What a row has besides: a button, a failure, an error. */
+.tx-more {
+  grid-column: 2 / -1;
+}
+
+.tx-more > * {
+  margin-top: 8px;
+}
+
+/* Balances outside the balance card. */
+.balances {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 0 0 8px;
+  padding: 0;
+  list-style: none;
+}
+
+.balances li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 12px;
+}
+
+/* Payment pointers and wallet addresses, in DM Mono. */
+.pointer {
+  margin: 0 0 8px;
+  font-family: var(--mono);
+  font-size: 1.25rem;
+  overflow-wrap: anywhere;
+}
+
+.copy-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  margin: 0;
+}
+
+.copy-line .pointer {
+  margin: 0;
+  min-width: 0;
+}
+
+.copy-line code {
+  min-width: 0;
+}
+
+.copy-line button {
+  padding: 4px 12px;
+  font-size: 13px;
+}
+
+/* Wallet addresses: one stone each, Sandstone in the Daylight card. */
+.addresses {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.addresses li {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 14px 16px;
+  background: var(--sand);
+  border-radius: 18px;
+}
+
+.address-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+}
+
+/* A request for a payment, under the addresses. */
+.request-payment {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 20px;
+  border-top: 1px solid var(--line);
+}
+
+.request-payment h3 {
+  margin: 0 0 4px;
+}
+
+.request-created summary {
+  color: var(--accent);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.request-created details[open] summary {
+  margin-bottom: 8px;
+}
+
+/* Facts as rows: the label left, the value right, a rule between. */
+.facts.rows {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  margin: 0;
+}
+
+.facts.rows dt,
+.facts.rows dd {
+  margin: 0;
+  padding: 10px 0;
+  border-top: 1px solid var(--line);
+}
+
+.facts.rows dt:first-of-type,
+.facts.rows dd:first-of-type {
+  border-top: 0;
+}
+
+.facts.rows dt {
+  padding-right: 16px;
+}
+
+.facts.rows dd {
+  text-align: right;
+}
+
+/* A payment's page: the amount it fixed, and a bar of Sunrise that fills
+   as it goes. */
+.payment-lead {
+  margin: 0;
+}
+
+.payment-progress {
+  width: 100%;
+  height: 8px;
+  appearance: none;
+  background: var(--stone-2);
+  border: 0;
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.payment-progress::-webkit-progress-bar {
+  background: var(--stone-2);
+}
+
+.payment-progress::-webkit-progress-value {
+  background: var(--sun);
+}
+
+.payment-progress::-moz-progress-bar {
+  background: var(--sun);
+}
+
+/* External assets: the address, a stone with its QR code. */
+.external-asset .deposit {
+  margin-bottom: 16px;
+  padding: 14px 16px;
+  background: var(--sand);
+  border-radius: 18px;
+}
+
+.external-asset .deposit p {
+  margin: 0 0 4px;
+}
+
+/* Phones: home in one column, and Activity's long amounts under the name. */
+@media (max-width: 720px) {
+  .home {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: none;
+    grid-template-areas:
+      "title"
+      "balance"
+      "actions"
+      "recent"
+      "pointer";
+  }
+}
+
+@media (max-width: 560px) {
+  .tx-list-full .tx-amount {
+    grid-column: 2 / -1;
+    margin-top: 4px;
+    text-align: left;
+  }
+}

@@ -1012,7 +1012,8 @@ impl Core {
 
     /// The room `node` has in our books on `scheme`, in the largest
     /// packets: what it may still owe us there, our own position for it
-    /// (spec/decisions/promotion-to-core.md). None without accounts.
+    /// (spec/decisions/promotion-to-core.md). Zero without accounts there,
+    /// or on a scheme the node does not run.
     pub(super) fn room_packets(&self, node: NodeId, scheme: SchemeId) -> u64 {
         self.position(node, scheme).map_or(0, |at| {
             let packets = at.position / u128::from(self.settle.max_packet.max(1));

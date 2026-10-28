@@ -120,7 +120,7 @@ fn a_newcomer_learns_the_only_bootstrap_nodes_link_state() {
 fn peering_requests_carry_the_senders_own_link_state() {
     let mut network = Network::new(2, 2, 1, Config::DEV);
     settle(&mut network, 30_000);
-    let mallory = Arc::new(IdentityKey::from_bytes(&[77; 32]));
+    let mallory = Arc::new(dassie_identity::TableKeygen::identity_key(&[77; 32]));
     let victim = key(1);
     let state = link_state(&victim, network.clock(0), &url(1));
     let content = Content::PeeringRequest(PeeringRequest {
@@ -137,7 +137,7 @@ fn peering_requests_carry_the_senders_own_link_state() {
 fn packets_need_a_peering() {
     let mut network = Network::new(3, 2, 1, Config::DEV);
     settle(&mut network, 30_000);
-    let stranger = Arc::new(IdentityKey::from_bytes(&[78; 32]));
+    let stranger = Arc::new(dassie_identity::TableKeygen::identity_key(&[78; 32]));
     let packet = Content::InterledgerPacket {
         request_id: 1,
         packet: &[1, 2, 3],
@@ -167,7 +167,7 @@ fn only_a_registrar_takes_name_messages() {
     let mut network = Network::new(2, 2, 1, Config::DEV);
     assert!(network.node(0).registrar().is_some() && network.node(1).registrar().is_none());
     settle(&mut network, 30_000);
-    let stranger = Arc::new(IdentityKey::from_bytes(&[79; 32]));
+    let stranger = Arc::new(dassie_identity::TableKeygen::identity_key(&[79; 32]));
     let alice = Name::parse("alice").unwrap();
     let contents = [
         Content::NameCommit(Commitment([1; 32])),
@@ -305,7 +305,7 @@ fn link_states_from_the_future_are_refused() {
 fn unknown_nodes_cannot_peer() {
     let mut network = Network::new(7, 2, 1, Config::DEV);
     settle(&mut network, 30_000);
-    let stranger = Arc::new(IdentityKey::from_bytes(&[79; 32]));
+    let stranger = Arc::new(dassie_identity::TableKeygen::identity_key(&[79; 32]));
     let state = link_state(&stranger, network.clock(0), "https://stranger.test");
     let content = Content::PeeringRequest(PeeringRequest {
         scheme: SchemeId::parse("stub").unwrap(),
@@ -501,12 +501,13 @@ fn bootstrap_nodes_are_asked_at_once() {
                     .info
                     .entries
                     .iter()
-                    .any(|entry| matches!(entry, dassie_peer::wire::Entry::Extension { .. })),
+                    .filter(|entry| matches!(entry, dassie_peer::wire::Entry::Extension { .. }))
+                    .count(),
             ),
             _ => None,
         })
         .unwrap();
-    assert!(!ours, "no extension");
+    assert_eq!(ours, 1, "the free core relationships alone");
     let to_boot: Vec<_> = before.iter().filter(|r| r.to == boot.node_id()).collect();
     assert!(!to_boot.is_empty());
     assert!(
@@ -612,12 +613,17 @@ fn a_node_offers_its_schemes_in_its_link_state() {
     );
     assert!(state.info.settlement[1].details.is_empty());
     assert_eq!(state.info.feed_port(), Some(7768));
-    assert_eq!(state.info.entries.len(), 1, "the feed port alone");
+    assert_eq!(
+        state.info.entries.len(),
+        2,
+        "the feed port, and the free core relationships"
+    );
 
     let bytes = own_link_state(with_feed(&own, &boot, None));
     let state = SignedNodeInfo::decode_exact(&bytes).unwrap();
     assert!(state.info.settlement.is_empty());
-    assert!(state.info.entries.is_empty());
+    assert_eq!(state.info.feed_port(), None);
+    assert_eq!(state.info.entries.len(), 1, "the free core relationships");
 }
 
 // A node's own list offers no scheme twice, no hub twice, and at most
@@ -723,4 +729,94 @@ fn the_feed_extension_round_trips_and_a_bad_one_names_no_port() {
         assert_eq!(state.bytes, &bytes[..]);
         assert_eq!(state.info.to_vec(), state.signed);
     }
+}
+
+// spec/areas/network.md#registration: a bootstrap node probes a registrant's
+// URL on a connection of its own, dialled there, never one the registrant
+// opened to it, which would answer as well and prove nothing of the URL.
+#[test]
+fn a_registrations_probe_dials_the_url() {
+    let (boot, registrant) = (key(0), key(2));
+    let mut hooks = dassie_peer::sim::StubHooks::default();
+    let mut node = PeerNode::new(
+        Config::DEV,
+        Arc::clone(&boot),
+        OwnInfo {
+            url: Some(url(0)),
+            alias: String::new(),
+            feed_port: None,
+        },
+        vec![dassie_peer::Bootstrap {
+            id: boot.node_id(),
+            endpoint: endpoint(0),
+            key: boot.public_key(),
+        }],
+        Stored::default(),
+        Box::new(SeededRng::new(1)),
+        START,
+    );
+    node.handle_timeout(START, &mut hooks);
+    let _ = sent(&mut node);
+    let state = link_state(&registrant, START, &url(2));
+    let body = Content::Registration(SignedNodeInfo::decode_exact(&state).unwrap()).to_vec();
+    let inbound = node.handle_inbound(
+        START,
+        &mut hooks,
+        dassie_peer::InboundId(1),
+        registrant.identity(),
+        &body,
+        None,
+    );
+    assert!(
+        matches!(inbound, dassie_peer::Inbound::Deferred),
+        "it waits on a probe"
+    );
+    let probe = sent(&mut node)
+        .into_iter()
+        .find(|request| request.to == registrant.node_id())
+        .expect("a probe");
+    assert_eq!(probe.endpoint, Some(endpoint(2)));
+    assert!(probe.fresh, "on a connection of its own");
+}
+
+// spec/decisions/promotion-to-core.md: a bootstrap node checks the URL of
+// each node registered with it, and ends a registration whose URL has failed
+// its checks for longer than becoming core takes, though the node renews it:
+// a node that went away loses its place in the majority. One whose URL
+// answers stays registered.
+#[test]
+fn a_registration_whose_url_fails_ends() {
+    let mut network = Network::new(41, 3, 1, Config::DEV);
+    settle(&mut network, 120_000);
+    let registered = |network: &Network, index: usize| {
+        let id = *network.node(index).own();
+        network
+            .node(0)
+            .nodes()
+            .into_iter()
+            .find(|view| view.id == id)
+            .and_then(|view| view.registered_until_ms)
+            .is_some()
+    };
+    assert!(registered(&network, 1) && registered(&network, 2));
+    // Nothing the bootstrap node sends reaches node 2 now, its URL checks
+    // among them; node 2's renewals still reach it.
+    network.cut_one_way.insert((0, 2));
+    let failing = Config::DEV.registration_failing_ms;
+    let bucket = Config::DEV.promotion_standing_ms / dassie_peer::STANDING_BUCKETS;
+    settle(&mut network, failing / 2);
+    assert!(registered(&network, 2), "not failing for long enough yet");
+    settle(&mut network, failing + 2 * bucket);
+    assert!(!registered(&network, 2), "its registration ended");
+    assert!(registered(&network, 1), "one whose URL answers stays");
+    // Its URL answers again: it registers again, and stays registered,
+    // its failures before counting no more.
+    network.cut_one_way.clear();
+    let start = network.now;
+    while !registered(&network, 2) {
+        settle(&mut network, 10_000);
+        assert!(network.now < start + 10 * failing, "it registers again");
+    }
+    settle(&mut network, failing + 2 * bucket);
+    assert!(registered(&network, 2), "and stays registered");
 }

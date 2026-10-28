@@ -191,10 +191,12 @@ impl Hub {
     /// escrow: an XRP hub's, or a token hub's.
     fn found_with(terms: fn(&IdentityKey, AccountId) -> Terms) -> Self {
         let mut xrpl = FakeLedger::new();
-        let sponsor = IdentityKey::from_bytes(&[100; 32]);
+        let sponsor = dassie_identity::TableKeygen::identity_key(&[100; 32]);
         let master = escrow_master(&sponsor, TESTNET_NETWORK, &NONCE);
         let terms = terms(&sponsor, master.account());
-        let nodes: Vec<IdentityKey> = (1..=4).map(|i| IdentityKey::from_bytes(&[i; 32])).collect();
+        let nodes: Vec<IdentityKey> = (1..=4)
+            .map(|i| dassie_identity::TableKeygen::identity_key(&[i; 32]))
+            .collect();
         let validators: Vec<ValidatorKeys> = nodes
             .iter()
             .map(|node| ValidatorKeys::derive(node, TESTNET_NETWORK, &NONCE).unwrap())
@@ -344,7 +346,7 @@ fn a_hub_from_founding_to_payout() {
     let alice = Wallet::from_seed([31; 16]);
     hub.xrpl.fund(alice.account());
     hub.xrpl.close();
-    let alice_key = IdentityKey::from_bytes(&[32; 32]);
+    let alice_key = dassie_identity::TableKeygen::identity_key(&[32; 32]);
     let number = deposit(&mut hub, &alice, &alice_key, 50_000_000);
     let to = Destination {
         account: alice.account().0,
@@ -490,7 +492,7 @@ fn a_payout_set_keeps_withdrawals_still_out_in_sequence() {
     let alice = Wallet::from_seed([31; 16]);
     hub.xrpl.fund(alice.account());
     hub.xrpl.close();
-    let alice_key = IdentityKey::from_bytes(&[32; 32]);
+    let alice_key = dassie_identity::TableKeygen::identity_key(&[32; 32]);
     let number = deposit(&mut hub, &alice, &alice_key, 50_000_000);
     let to = Destination {
         account: alice.account().0,
@@ -543,7 +545,7 @@ impl Hub {
 #[test]
 fn a_change_of_validators_reaches_the_escrows_signer_list() {
     let mut hub = Hub::found();
-    let newcomer = IdentityKey::from_bytes(&[9; 32]);
+    let newcomer = dassie_identity::TableKeygen::identity_key(&[9; 32]);
     let keys = ValidatorKeys::derive(&newcomer, TESTNET_NETWORK, &NONCE).unwrap();
     let mut rules = hub.rules.clone();
     rules.validators[3] = keys
@@ -698,10 +700,12 @@ fn the_check_from_proofs_counts_what_the_escrow_owns() {
     // An escrow whose master key made a line of its own before the setup
     // owns one object more than the setup leaves it.
     let mut xrpl = FakeLedger::new();
-    let sponsor = IdentityKey::from_bytes(&[101; 32]);
+    let sponsor = dassie_identity::TableKeygen::identity_key(&[101; 32]);
     let master = escrow_master(&sponsor, TESTNET_NETWORK, &NONCE);
     let hub_terms = terms(&sponsor, master.account());
-    let nodes: Vec<IdentityKey> = (1..=4).map(|i| IdentityKey::from_bytes(&[i; 32])).collect();
+    let nodes: Vec<IdentityKey> = (1..=4)
+        .map(|i| dassie_identity::TableKeygen::identity_key(&[i; 32]))
+        .collect();
     let acceptances: Vec<Acceptance> = nodes
         .iter()
         .enumerate()
@@ -832,7 +836,7 @@ fn only_what_reaches_the_escrow_is_a_deposit() {
     let alice = Wallet::from_seed([31; 16]);
     hub.xrpl.fund(alice.account());
     hub.xrpl.close();
-    let alice_key = IdentityKey::from_bytes(&[32; 32]);
+    let alice_key = dassie_identity::TableKeygen::identity_key(&[32; 32]);
     deposit(&mut hub, &alice, &alice_key, 50_000_000);
     let escrow = hub.escrow();
     let terms = hub.rules.terms.clone();
@@ -889,7 +893,7 @@ fn the_escrow_and_the_zero_account_are_no_destinations() {
     let alice = Wallet::from_seed([31; 16]);
     hub.xrpl.fund(alice.account());
     hub.xrpl.close();
-    let alice_key = IdentityKey::from_bytes(&[32; 32]);
+    let alice_key = dassie_identity::TableKeygen::identity_key(&[32; 32]);
     let number = deposit(&mut hub, &alice, &alice_key, 50_000_000);
     let refused = Outcome::Failed {
         fee: 10,
@@ -928,7 +932,7 @@ fn a_withdrawals_outcome_is_its_own_payment() {
     let alice = Wallet::from_seed([31; 16]);
     hub.xrpl.fund(alice.account());
     hub.xrpl.close();
-    let alice_key = IdentityKey::from_bytes(&[32; 32]);
+    let alice_key = dassie_identity::TableKeygen::identity_key(&[32; 32]);
     let number = deposit(&mut hub, &alice, &alice_key, 50_000_000);
     let to = Destination {
         account: alice.account().0,
@@ -1148,7 +1152,7 @@ fn a_node_moves_its_funds_into_the_hub_and_out() {
     let mut node = Node::new(&mut hub.xrpl);
     let funded = node.owner;
     assert!(funded > 0);
-    let member = IdentityKey::from_bytes(&[62; 32]);
+    let member = dassie_identity::TableKeygen::identity_key(&[62; 32]);
     let escrow = hub.escrow();
     let memo = dassie_settlement::OwnerMemo {
         memo_type: OPEN_MEMO_TYPE.to_vec(),
@@ -1214,10 +1218,12 @@ fn a_node_moves_its_funds_into_the_hub_and_out() {
 #[test]
 fn the_sponsor_sets_up_what_is_missing() {
     let mut xrpl = FakeLedger::new();
-    let sponsor = IdentityKey::from_bytes(&[100; 32]);
+    let sponsor = dassie_identity::TableKeygen::identity_key(&[100; 32]);
     let master = escrow_master(&sponsor, TESTNET_NETWORK, &NONCE);
     let terms = terms(&sponsor, master.account());
-    let nodes: Vec<IdentityKey> = (1..=4).map(|i| IdentityKey::from_bytes(&[i; 32])).collect();
+    let nodes: Vec<IdentityKey> = (1..=4)
+        .map(|i| dassie_identity::TableKeygen::identity_key(&[i; 32]))
+        .collect();
     let validators = nodes
         .iter()
         .enumerate()
@@ -1279,7 +1285,7 @@ fn members_keep_only_payout_sets_their_validators_signed() {
     let alice = Wallet::from_seed([31; 16]);
     hub.xrpl.fund(alice.account());
     hub.xrpl.close();
-    let alice_key = IdentityKey::from_bytes(&[32; 32]);
+    let alice_key = dassie_identity::TableKeygen::identity_key(&[32; 32]);
     let number = deposit(&mut hub, &alice, &alice_key, 50_000_000);
     let to = Destination {
         account: alice.account().0,
@@ -1451,7 +1457,7 @@ fn a_dsusd_hub_takes_deposits_and_pays_withdrawals_in_dsusd() {
 
     // A deposit of DSUSD, with tag 0 and the key: a new account.
     let alice = hub.dsusd_holder(31);
-    let alice_key = IdentityKey::from_bytes(&[32; 32]);
+    let alice_key = dassie_identity::TableKeygen::identity_key(&[32; 32]);
     let hash = hub.pay_escrow(&alice, Some(&alice_key), 0, dsusd("50.0000005"));
     let deposit = deposit_of(&record(&mut hub.xrpl, &hash), &hub.rules.terms).unwrap();
     assert_eq!(deposit.amount, 50_000_000, "whole millionths, rounded down");
@@ -1542,7 +1548,7 @@ fn a_dsusd_hubs_payout_set_pays_dsusd() {
     let mut hub = Hub::found_with(dsusd_terms);
     let escrow = hub.escrow();
     let alice = hub.dsusd_holder(31);
-    let alice_key = IdentityKey::from_bytes(&[32; 32]);
+    let alice_key = dassie_identity::TableKeygen::identity_key(&[32; 32]);
     let hash = hub.pay_escrow(&alice, Some(&alice_key), 0, dsusd("40"));
     let deposit = deposit_of(&record(&mut hub.xrpl, &hash), &hub.rules.terms).unwrap();
     hub.attest(|_| ValidatorOperation::AttestDeposit(deposit));
@@ -1681,7 +1687,10 @@ fn the_check_takes_a_token_escrow_with_its_one_line() {
     assert_eq!(check(&unread), Err(Objects), "a line that did not read");
     // The same escrow is not an XRP hub's: it owns a line.
     let mut xrp = hub.rules.clone();
-    xrp.terms = terms(&IdentityKey::from_bytes(&[100; 32]), hub.escrow());
+    xrp.terms = terms(
+        &dassie_identity::TableKeygen::identity_key(&[100; 32]),
+        hub.escrow(),
+    );
     assert_eq!(check_escrow(&xrp, &settings, &objects), Err(Objects));
 }
 
@@ -1691,10 +1700,12 @@ fn the_check_takes_a_token_escrow_with_its_one_line() {
 #[test]
 fn the_sponsor_sets_up_a_token_escrows_line() {
     let mut xrpl = FakeLedger::new();
-    let sponsor = IdentityKey::from_bytes(&[100; 32]);
+    let sponsor = dassie_identity::TableKeygen::identity_key(&[100; 32]);
     let master = escrow_master(&sponsor, TESTNET_NETWORK, &NONCE);
     let terms = dsusd_terms(&sponsor, master.account());
-    let nodes: Vec<IdentityKey> = (1..=4).map(|i| IdentityKey::from_bytes(&[i; 32])).collect();
+    let nodes: Vec<IdentityKey> = (1..=4)
+        .map(|i| dassie_identity::TableKeygen::identity_key(&[i; 32]))
+        .collect();
     let validators = nodes
         .iter()
         .enumerate()

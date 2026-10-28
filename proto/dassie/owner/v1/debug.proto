@@ -115,6 +115,19 @@ message Packet {
   string reject_code = 10;
   // The IDs of its transfers.
   repeated uint64 transfers = 11;
+  // The Prepare's execution condition, 32 bytes: a hash already, and the
+  // same on every hop, so a packet's records on several nodes are joined
+  // by it. Empty for a packet refused before it decoded.
+  bytes condition = 12;
+  // The ledgers it came in on and went out on, as the journal's paths name
+  // them, for example "hub-xrpl-testnet-xrp+xrp"; empty where unknown, as
+  // `ledger_out` for a packet that was not routed.
+  string ledger_in = 13;
+  string ledger_out = 14;
+  // The node ID of the peer it came from, or went to; empty for an endpoint
+  // that is not a peer's, or a peering the node no longer has.
+  string source_node = 15;
+  string destination_node = 16;
 }
 
 message ListPacketsRequest {

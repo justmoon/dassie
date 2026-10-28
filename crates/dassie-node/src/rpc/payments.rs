@@ -245,6 +245,11 @@ pub fn incoming(urls: &Urls, row: &IncomingRow) -> proto::IncomingPayment {
         completed_at_unix_ms: row.completed_at_ms.map(convert::time),
         destination_account: row.ilp_address.clone(),
         shared_secret: row.shared_secret.to_vec(),
+        paid_in_full: dassie_payments::amount::paid_in_full(
+            row.incoming_amount,
+            row.received_amount,
+            asset.scale,
+        ),
     }
 }
 
@@ -282,6 +287,7 @@ pub fn outgoing(urls: &Urls, row: &OutgoingRow) -> proto::OutgoingPayment {
             .as_deref()
             .and_then(dassie_payments::pointer::payment_pointer)
             .unwrap_or_default(),
+        fixed_debit: row.fixed_debit,
     }
 }
 

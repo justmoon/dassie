@@ -166,6 +166,9 @@ pub struct LinkState {
     /// Whether it is a periphery node's, without a URL: it never floods,
     /// and is reached only over the connection the node opened.
     pub periphery: bool,
+    /// How many more core peers the node takes, if it says
+    /// (spec/decisions/promotion-to-core.md).
+    pub free_core: Option<u16>,
     /// Copies of this sequence received, for suppressing the flood.
     pub copies: u8,
     /// When to forward it, if it is to be.
@@ -189,6 +192,7 @@ impl LinkState {
             neighbors,
             offers: first_of_each(&signed.info.settlement),
             periphery: signed.info.is_periphery(),
+            free_core: signed.info.free_core(),
             copies: 1,
             retransmit_at_ms: None,
             from: None,
@@ -628,7 +632,9 @@ pub struct Standing {
     /// When the newest bucket began.
     pub bucket_ms: u64,
     /// How far its clock was ahead of ours, negative behind, as the newest
-    /// sequence of its link state that came straight from it showed.
+    /// sequence of its link state that came straight from it showed, as an
+    /// update of one we held: one we see first may be up to a reissue old.
+    /// Kept across its peerings: it is the node's clock, not theirs.
     pub skew_ms: Option<i64>,
 }
 
@@ -686,6 +692,50 @@ impl Standing {
                 sent: all.sent.saturating_add(beats.sent),
                 answered: all.answered.saturating_add(beats.answered),
             })
+    }
+}
+
+/// What we found of a node's URL when we checked it
+/// (spec/decisions/promotion-to-core.md): over QUIC, dialled anew, and over
+/// HTTPS, with a certificate a public authority issued. In memory only: a
+/// restart checks again.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct UrlCheck {
+    /// When we next check it.
+    pub check_at_ms: u64,
+    /// Whether it answered over QUIC the last time we checked.
+    pub quic: Option<bool>,
+    /// Whether it answered over HTTPS the last time we checked.
+    pub https: Option<bool>,
+    /// Since when it has failed a check without passing both since.
+    pub failing_since_ms: Option<u64>,
+}
+
+impl UrlCheck {
+    /// Never checked.
+    pub const NEW: Self = Self {
+        check_at_ms: 0,
+        quic: None,
+        https: None,
+        failing_since_ms: None,
+    };
+
+    /// Whether it answered both ways the last time we checked.
+    #[must_use]
+    pub const fn passes(&self) -> bool {
+        matches!((self.quic, self.https), (Some(true), Some(true)))
+    }
+
+    /// Takes in what a check found at `now_ms`: failing since the first
+    /// failure, until it answers over QUIC with nothing failing. An HTTPS
+    /// check we could not make, its client busy or missing, says nothing
+    /// either way.
+    pub fn settle(&mut self, now_ms: u64) {
+        if self.quic == Some(false) || self.https == Some(false) {
+            self.failing_since_ms.get_or_insert(now_ms);
+        } else if self.quic == Some(true) {
+            self.failing_since_ms = None;
+        }
     }
 }
 
@@ -803,6 +853,10 @@ pub struct Entry {
     /// What an uplink watches of a peer to promote it
     /// (spec/decisions/promotion-to-core.md): reset with each peering.
     pub standing: Standing,
+    /// What we found of its URL when we checked it, as an uplink of a
+    /// downlink asking to be promoted, or as the bootstrap node it is
+    /// registered with: anew with each URL.
+    pub url: UrlCheck,
     /// Until when its peering requests are refused: an owner ended our
     /// peering with it.
     pub refuse_until_ms: u64,
@@ -837,7 +891,28 @@ impl Entry {
                 settle_unreached: false,
             },
             standing: Standing::NEW,
+            url: UrlCheck::NEW,
             refuse_until_ms: 0,
+        }
+    }
+
+    /// What a new link state, `new`, in place of the one it holds, tells of
+    /// its node for its promotion (spec/decisions/promotion-to-core.md).
+    /// Straight from its subject (`direct`), a new sequence of a link state
+    /// we held shows its clock, which issued it a moment ago and sent it on
+    /// at once; one we see first may be up to a reissue old. A new URL is
+    /// checked anew: the old one's answer says nothing of it.
+    pub fn watch_link(&mut self, new: &LinkState, direct: bool, now_ms: u64) {
+        let Some(old) = &self.link else {
+            return;
+        };
+        if direct {
+            let sequence = i64::try_from(new.sequence).unwrap_or(i64::MAX);
+            let now = i64::try_from(now_ms).unwrap_or(i64::MAX);
+            self.standing.skew_ms = Some(sequence.saturating_sub(now));
+        }
+        if old.endpoint != new.endpoint {
+            self.url = UrlCheck::NEW;
         }
     }
 

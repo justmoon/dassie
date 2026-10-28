@@ -77,7 +77,7 @@ export function Devices(): JSX.Element {
       </Show>
       <Show when={pairing()}>
         {(started) => (
-          <div class="deposit" data-testid="pairing">
+          <div class="deposit pairing" data-testid="pairing">
             <Qr
               text={started().code}
               label="Pairing code"

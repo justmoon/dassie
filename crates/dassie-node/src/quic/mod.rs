@@ -65,6 +65,7 @@ use self::places::{Counts, Peerings, Places};
 use self::relay::{Purpose, Relaying, ServedStream};
 use self::tunnel::{Inside, Tunnels};
 use crate::log::target;
+use crate::node::lock;
 use crate::outbound::Resolver;
 use crate::peer_server::{Answer, BodyError};
 use crate::slots::ClientSlot;
@@ -84,6 +85,11 @@ pub const VERSIONS: [&[u8]; 1] = [b"dassie/2"];
 fn alpn(versions: &[&[u8]]) -> Vec<Vec<u8>> {
     versions.iter().map(|version| version.to_vec()).collect()
 }
+
+/// How long a connection a fresh request's replaced stays open for the
+/// requests already on it (`Quic::send_fresh`): as long as a peer request
+/// waits for its answer, the peer protocol's `request_timeout_ms`.
+pub const DRAIN: Duration = Duration::from_secs(30);
 
 /// Most time to set up a connection, within a request's own time.
 pub const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
@@ -346,6 +352,9 @@ pub async fn send_peer(
         return Err(Failure::NotDelivered);
     };
     let _slot = quic.bounds.hold(&request, quic.allow_private)?;
+    if request.fresh {
+        return quic.send_fresh(&request, resolver).await;
+    }
     // A periphery node has no endpoint: it is reached only over the
     // connection it opened to us, never dialled.
     if request.endpoint.is_none() {
@@ -358,49 +367,124 @@ pub async fn send_peer(
     quic.send(&request, resolver).await
 }
 
-/// A connection to a node, and who opened it.
+/// A connection to a node, who opened it, and when we took it in.
 #[derive(Clone, Debug)]
 struct Link {
     connection: Connection,
     /// Whether we dialled it.
     ours: bool,
+    /// Its place in the order we took connections in: the higher, the
+    /// newer.
+    order: u64,
 }
 
 impl Link {
     fn is_open(&self) -> bool {
         self.connection.close_reason().is_none()
     }
+
+    /// Whether this link survives `other`, both to one node, `lower` if we
+    /// have the lower node ID (spec/decisions/verified-connections.md): the
+    /// one the lower node ID opened, and of two the same node opened, the
+    /// newer. Both nodes judge alike, so they keep the same one.
+    fn survives(&self, other: &Self, lower: bool) -> bool {
+        survives((self.ours, self.order), (other.ours, other.order), lower)
+    }
 }
 
-/// Holds `link`, which did not get `place` or lost it to another, ready to
-/// take it: whenever the link there closes while this one is open, this
-/// one takes its place. Returns once it does, or once `link` closes. Each
-/// connection stands by at most once at a time, since one in the place does
-/// not, so the waits are bounded as the connections are.
-async fn stand_by(place: &tokio::sync::Mutex<Option<Link>>, link: Link) {
-    loop {
-        let kept = {
+/// Whether a connection, which we dialled if `ours`, taken in at `order`,
+/// survives `other`, likewise, `lower` if we have the lower node ID
+/// ([`Link::survives`]).
+const fn survives((ours, order): (bool, u64), other: (bool, u64), lower: bool) -> bool {
+    if ours == other.0 {
+        order > other.1
+    } else {
+        ours == lower
+    }
+}
+
+/// Closes `connection`, which lost its place, once the requests already on
+/// it are done, at most `drain` later ([`DRAIN`]): no connection is kept in
+/// case another fails (spec/decisions/verified-connections.md).
+fn retire(connection: Connection, drain: Duration) {
+    tokio::spawn(async move {
+        tokio::select! {
+            () = tokio::time::sleep(drain) => connection.close(0u32.into(), b""),
+            _ = connection.closed() => {}
+        }
+    });
+}
+
+/// Most rounds [`adopt`] judges the rule in: each ends with the place
+/// taken, or with the link held there changed or failing its probe.
+const ADOPT_ROUNDS: usize = 4;
+
+/// Takes `link`, verified, into the place of `peer`'s connection, `lower`
+/// if we have the lower node ID: unless the link held there survives it by
+/// the rule ([`Link::survives`]) and still answers, it replaces that one,
+/// which is retired; otherwise it is retired itself, each closing `drain`
+/// later at most. The rule is judged under the place's lock, and judged
+/// again if what is held changed while the one held was probed. Returns
+/// whether it holds the place.
+async fn adopt(
+    place: &tokio::sync::Mutex<Option<Link>>,
+    link: Link,
+    (peer, lower, drain): (NodeId, bool, Duration),
+) -> bool {
+    let id = link.connection.stable_id();
+    for _ in 0..ADOPT_ROUNDS {
+        let probed = {
             let mut held = place.lock().await;
-            match held.as_ref() {
-                Some(kept) if kept.is_open() => {
-                    if kept.connection.stable_id() == link.connection.stable_id() {
-                        return;
+            let winner = held.as_ref().filter(|kept| {
+                kept.is_open() && kept.connection.stable_id() != id && kept.survives(&link, lower)
+            });
+            match winner {
+                Some(kept) => kept.connection.clone(),
+                None => {
+                    let replaced = held.replace(link);
+                    drop(held);
+                    if let Some(old) =
+                        replaced.filter(|old| old.is_open() && old.connection.stable_id() != id)
+                    {
+                        retire(old.connection, drain);
                     }
-                    kept.connection.clone()
-                }
-                _ => {
-                    if link.is_open() {
-                        *held = Some(link);
-                    }
-                    return;
+                    return true;
                 }
             }
         };
-        tokio::select! {
-            _ = kept.closed() => {}
-            _ = link.connection.closed() => return,
+        // A connection whose other end crashed and came back reads as open
+        // until something is sent on it, and is reset then: the rule keeps
+        // the one held only if it still answers.
+        let alive = answers(&probed, peer).await;
+        let mut held = place.lock().await;
+        let unchanged = held
+            .as_ref()
+            .is_some_and(|kept| kept.connection.stable_id() == probed.stable_id());
+        if !unchanged {
+            continue;
         }
+        if alive {
+            drop(held);
+            retire(link.connection, drain);
+            return false;
+        }
+        // It fails: it gives up the place, and what is on it still drains.
+        *held = None;
+        drop(held);
+        retire(probed, drain);
     }
+    retire(link.connection, drain);
+    false
+}
+
+/// Whether `connection` to `peer` answers a request now, its link state,
+/// within the time to connect: what verifies a connection.
+async fn answers(connection: &Connection, peer: NodeId) -> bool {
+    let body =
+        dassie_oer::Encode::to_vec(&dassie_peer::wire::Content::LinkStateRequest(vec![peer]));
+    tokio::time::timeout(CONNECT_TIMEOUT, exchange(connection, &body))
+        .await
+        .is_ok_and(|answer| answer.is_ok())
 }
 
 /// Why [`Quic::connection`] has no connection to give.
@@ -463,6 +547,16 @@ pub struct Quic {
     tunnels: Tunnels,
     keys: Arc<Keys>,
     links: Mutex<BTreeMap<NodeId, Place>>,
+    /// How long a connection that lost its place stays open for the
+    /// requests on it ([`DRAIN`]).
+    drain: Duration,
+    /// The order of the next connection taken in ([`Link::order`]).
+    order: AtomicU64,
+    /// Connections others opened to us, while another to the same node is
+    /// held: each is told once a request on it was answered, verified, and
+    /// so may take the place (spec/decisions/verified-connections.md). By
+    /// connection; at most one per connection, gone with it.
+    unverified: Mutex<BTreeMap<usize, tokio::sync::oneshot::Sender<()>>>,
     /// The nodes peer requests do not dial for now ([`Backoff`]).
     backoff: Mutex<BTreeMap<NodeId, Backoff>>,
     serving: Mutex<Option<Serving>>,
@@ -521,6 +615,9 @@ impl Quic {
             tunnels,
             keys,
             links: Mutex::new(BTreeMap::new()),
+            drain: DRAIN,
+            order: AtomicU64::new(0),
+            unverified: Mutex::new(BTreeMap::new()),
             backoff: Mutex::new(BTreeMap::new()),
             serving: Mutex::new(None),
             relaying: Relaying::new(),
@@ -548,6 +645,15 @@ impl Quic {
         self.tunnels.endpoint().set_server_config(Some(server));
         self.idle = idle;
         Ok(self)
+    }
+
+    /// A connection that lost its place stays open `drain` for the requests
+    /// on it, rather than [`DRAIN`]: for tests, which run on real time.
+    #[doc(hidden)]
+    #[must_use]
+    pub const fn with_drain(mut self, drain: Duration) -> Self {
+        self.drain = drain;
+        self
     }
 
     /// The tunnels the node dials go through `proxy`, for the hosts it does
@@ -745,6 +851,69 @@ impl Quic {
             .remove(node);
     }
 
+    /// Sends `request` on a connection dialled anew at its endpoint, never
+    /// the one kept for the node: what shows that the node answers at that
+    /// endpoint, where a connection it opened to us would answer as well
+    /// (spec/areas/peer-protocol.md#quic). We answer on it as on any
+    /// connection we dial, since the node may keep it as its own to us. If
+    /// the dial fails, or the request goes unanswered, nothing changes: the
+    /// connection kept for the node stays, and the new one closes. Once it
+    /// is answered, verified both ways, one of the two survives, the one the
+    /// node keeps too, and the other closes: the new one at once, which the
+    /// node never switched to, or the kept one, which the node switched from
+    /// as the new one arrived, once what was on it then is done, at most
+    /// [`DRAIN`] later. It ends no backoff and starts none.
+    ///
+    /// # Errors
+    ///
+    /// [`Failure::NotDelivered`] without our key, an endpoint, a place or a
+    /// connection; [`Failure::Unknown`] past the request's time.
+    pub async fn send_fresh(
+        self: &Arc<Self>,
+        request: &Request,
+        resolver: &Resolver,
+    ) -> Result<Response, Failure> {
+        let deadline =
+            tokio::time::Instant::now() + Duration::from_millis(request.timeout_ms.max(1));
+        let (Some(_), Some(endpoint), Some(place)) = (
+            self.keys.current(),
+            request.endpoint.as_ref(),
+            self.place(request.to),
+        ) else {
+            return Err(Failure::NotDelivered);
+        };
+        let left = deadline.saturating_duration_since(tokio::time::Instant::now());
+        let periphery = self.periphery.load(Ordering::Relaxed);
+        let Some(connection) = self
+            .dial(
+                (request.to, endpoint),
+                resolver,
+                CONNECT_TIMEOUT.min(left),
+                periphery,
+            )
+            .await
+        else {
+            return Err(Failure::NotDelivered);
+        };
+        // Ordered at its dial, as the node orders it at its handshake.
+        let link = self.link(connection.clone(), true);
+        self.answer_on(&connection);
+        let result = tokio::time::timeout_at(deadline, exchange(&connection, &request.body))
+            .await
+            .unwrap_or(Err(Failure::Unknown));
+        if result.is_err() {
+            connection.close(0u32.into(), b"");
+            return result;
+        }
+        // Verified: it takes the place by the rule both nodes judge alike,
+        // which the node judges too, once it answered the request on it.
+        // Judged apart, so that the result keeps the request's deadline.
+        let lower = self.keys.current().is_some_and(|(own, _)| own < request.to);
+        let judged = (request.to, lower, self.drain);
+        tokio::spawn(async move { adopt(&place, link, judged).await });
+        result
+    }
+
     /// Sends `request` and reads its response within the request's time,
     /// making a connection if there is none.
     ///
@@ -879,10 +1048,7 @@ impl Quic {
             });
         };
         self.answer_on(&connection);
-        *held = Some(Link {
-            connection: connection.clone(),
-            ours: true,
-        });
+        *held = Some(self.link(connection.clone(), true));
         Ok(connection)
     }
 
@@ -996,15 +1162,18 @@ impl Quic {
         None
     }
 
-    /// Keeps a connection a node opened to us, for our requests to it too:
-    /// unless we hold one already that the lower node ID opened. It waits
-    /// for a dial of ours to the same node, so that crossed dials end with
-    /// both nodes using the same connection. Whichever of the two is not
-    /// kept, the new one or the one it replaced, stands by ([`stand_by`]),
-    /// so that a node that keeps its connection to us open (one that chose
-    /// us as its relay, say) stays reachable whatever other connections
-    /// come and go.
-    async fn keep_inbound(&self, peer: NodeId, connection: Connection) {
+    /// Keeps a connection a node opened to us, for our requests to it too
+    /// (spec/decisions/verified-connections.md): at once if we hold none to
+    /// it that is open, also once the one held closes while it waits;
+    /// otherwise only once it is verified, a request on it answered, which
+    /// `verified` tells, and then by the rule both nodes judge alike
+    /// ([`Link::survives`]). The one that loses is retired.
+    async fn keep_inbound(
+        &self,
+        peer: NodeId,
+        connection: Connection,
+        verified: tokio::sync::oneshot::Receiver<()>,
+    ) {
         let Some((own, _)) = self.keys.current() else {
             return;
         };
@@ -1012,22 +1181,55 @@ impl Quic {
         let Some(place) = self.place(peer) else {
             return;
         };
-        let preferred = |link: &Link| link.ours == (own < peer);
-        let link = Link {
-            connection,
-            ours: false,
-        };
-        let waiting = {
-            let mut held = place.lock().await;
-            match held.as_ref() {
-                Some(kept) if kept.is_open() && preferred(kept) => link,
-                _ => match held.replace(link) {
-                    Some(replaced) if replaced.is_open() => replaced,
-                    _ => return,
-                },
+        let link = self.link(connection, false);
+        let mut verified = verified;
+        loop {
+            // With none held that is open, it is the first, and taken at
+            // once; also once the one held closes while it waits.
+            let kept = {
+                let mut held = place.lock().await;
+                match held.as_ref().filter(|kept| kept.is_open()) {
+                    None => {
+                        *held = Some(link);
+                        return;
+                    }
+                    Some(kept) => kept.connection.clone(),
+                }
+            };
+            tokio::select! {
+                Ok(()) = &mut verified => {
+                    adopt(&place, link, (peer, own < peer, self.drain)).await;
+                    return;
+                }
+                _ = kept.closed() => {}
+                _ = link.connection.closed() => return,
             }
-        };
-        stand_by(&place, waiting).await;
+        }
+    }
+
+    /// `connection`, which we dialled if `ours`, taken in now.
+    fn link(&self, connection: Connection, ours: bool) -> Link {
+        Link {
+            connection,
+            ours,
+            order: self.order.fetch_add(1, Ordering::Relaxed),
+        }
+    }
+
+    /// What tells once a request on `connection`, one a node opened to us,
+    /// is answered ([`verified`](Self::verified)).
+    fn awaiting_verification(&self, connection: &Connection) -> tokio::sync::oneshot::Receiver<()> {
+        let (sender, receiver) = tokio::sync::oneshot::channel();
+        lock(&self.unverified).insert(connection.stable_id(), sender);
+        receiver
+    }
+
+    /// A request on `connection` was answered: it carried one both ways, so
+    /// it is verified, which whoever waits on it is told.
+    fn verified(&self, connection: &Connection) {
+        if let Some(sender) = lock(&self.unverified).remove(&connection.stable_id()) {
+            let _ = sender.send(());
+        }
     }
 
     /// Answers the requests the other node sends on a connection we made,
@@ -1182,8 +1384,10 @@ impl Quic {
             inside.settled();
         }
         if let Some(peer) = keys::peer_node(&connection) {
+            // Told once a request on it is answered, before any is.
+            let verified = self.awaiting_verification(&connection);
             let (quic, connection) = (Arc::clone(&self), connection.clone());
-            tokio::spawn(async move { quic.keep_inbound(peer, connection).await });
+            tokio::spawn(async move { quic.keep_inbound(peer, connection, verified).await });
         }
         let Serving {
             handler,
@@ -1200,6 +1404,7 @@ impl Quic {
                 connection.close(0u32.into(), b"tunnel closed");
             }
         }
+        lock(&self.unverified).remove(&connection.stable_id());
         // Its tunnel lasts as long as it does: at shutdown, until the
         // endpoint closes it, so that the close goes down the tunnel, and
         // until then it carries what is sent on it, as over UDP.
@@ -1314,6 +1519,7 @@ impl On {
         match tokio::time::timeout(ANSWER_TIMEOUT, send.write_all(&bytes)).await {
             Ok(Ok(())) if send.finish().is_ok() => {
                 self.quic.stats.answered.fetch_add(1, Ordering::Relaxed);
+                self.quic.verified(&self.connection);
             }
             Ok(_) => {}
             Err(_) => {
@@ -1488,6 +1694,27 @@ fn client_offering(
 mod tests {
     use super::*;
 
+    // spec/decisions/verified-connections.md: of two connections, the one
+    // the lower node ID opened survives, and of two the same node opened,
+    // the newer; both nodes judge alike, each seeing who opened which from
+    // its own side.
+    #[test]
+    fn both_nodes_keep_the_same_connection() {
+        // Ours (opened by us) against theirs, each from its own side.
+        for lower in [true, false] {
+            let (ours, theirs) = ((true, 1), (false, 2));
+            let we_keep_ours = survives(ours, theirs, lower);
+            // They see ours as theirs, and have the other order of IDs.
+            let they_keep_ours = !survives((true, 7), (false, 3), !lower);
+            assert_eq!(we_keep_ours, lower, "the lower ID's dial");
+            assert_eq!(we_keep_ours, they_keep_ours, "the same one on both sides");
+        }
+        // Two the same node opened: the newer, whichever side looks.
+        assert!(survives((true, 5), (true, 4), true));
+        assert!(!survives((true, 4), (true, 5), false));
+        assert!(survives((false, 9), (false, 2), true));
+    }
+
     /// The generator of connection IDs `endpoint` of the node with `key`
     /// has.
     fn generator(key: &IdentityKey, endpoint: QuicEndpoint) -> ids::SignedIds {
@@ -1504,8 +1731,8 @@ mod tests {
     fn connection_ids_are_known_after_a_restart_and_only_there() {
         use quinn_proto::ConnectionIdGenerator;
         let (key, other) = (
-            IdentityKey::from_bytes(&[1; 32]),
-            IdentityKey::from_bytes(&[2; 32]),
+            dassie_identity::TableKeygen::identity_key(&[1; 32]),
+            dassie_identity::TableKeygen::identity_key(&[2; 32]),
         );
         let mut before = generator(&key, QuicEndpoint::Udp);
         let ids: Vec<_> = (0..64).map(|_| before.generate_cid()).collect();
@@ -1609,7 +1836,7 @@ mod tests {
     #[tokio::test]
     async fn a_request_sent_again_before_it_is_read_is_answered() {
         let shutdown = CancellationToken::new();
-        let key = Arc::new(IdentityKey::from_bytes(&[1; 32]));
+        let key = Arc::new(dassie_identity::TableKeygen::identity_key(&[1; 32]));
         let server_id = key.node_id();
         let (_server_key, receiver) = watch::channel(Some(key));
         let socket = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
@@ -1618,8 +1845,9 @@ mod tests {
         let armed = Arc::new(AtomicBool::new(false));
         let relay = delaying(server.local_addr().unwrap(), Arc::clone(&armed));
 
-        let (_client_key, receiver) =
-            watch::channel(Some(Arc::new(IdentityKey::from_bytes(&[2; 32]))));
+        let (_client_key, receiver) = watch::channel(Some(Arc::new(
+            dassie_identity::TableKeygen::identity_key(&[2; 32]),
+        )));
         let keys = Arc::new(Keys::new(receiver));
         // Datagrams of the initial size only, so that only the request's
         // reach the relay's threshold.
@@ -1659,7 +1887,7 @@ mod tests {
     // (spec/areas/peer-protocol.md#outbound-requests).
     #[tokio::test]
     async fn an_answer_too_short_for_a_status_is_an_unknown_outcome() {
-        let key = Arc::new(IdentityKey::from_bytes(&[1; 32]));
+        let key = Arc::new(dassie_identity::TableKeygen::identity_key(&[1; 32]));
         let server_id = key.node_id();
         let (_server_key, receiver) = watch::channel(Some(key));
         let keys = Arc::new(Keys::new(receiver));
@@ -1682,8 +1910,9 @@ mod tests {
             connection.closed().await;
         });
 
-        let (_client_key, receiver) =
-            watch::channel(Some(Arc::new(IdentityKey::from_bytes(&[2; 32]))));
+        let (_client_key, receiver) = watch::channel(Some(Arc::new(
+            dassie_identity::TableKeygen::identity_key(&[2; 32]),
+        )));
         let keys = Arc::new(Keys::new(receiver));
         let config = client_config(&keys, server_id, transport_config(IDLE_TIMEOUT)).unwrap();
         let socket = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
@@ -1705,8 +1934,9 @@ mod tests {
     /// The version a client offering `versions` speaks with `server`, or
     /// `None` if it fails the handshake.
     async fn speaks(server: &Quic, server_id: NodeId, versions: &[&[u8]]) -> Option<Vec<u8>> {
-        let (_client_key, receiver) =
-            watch::channel(Some(Arc::new(IdentityKey::from_bytes(&[2; 32]))));
+        let (_client_key, receiver) = watch::channel(Some(Arc::new(
+            dassie_identity::TableKeygen::identity_key(&[2; 32]),
+        )));
         let keys = Arc::new(Keys::new(receiver));
         let config =
             client_offering(&keys, server_id, transport_config(IDLE_TIMEOUT), versions).unwrap();
@@ -1751,7 +1981,7 @@ mod tests {
     /// An endpoint on loopback with the key of `seed`, its node's ID, and
     /// what holds its key.
     fn endpoint_of(seed: u8) -> (Arc<Quic>, NodeId, watch::Sender<Option<Arc<IdentityKey>>>) {
-        let key = Arc::new(IdentityKey::from_bytes(&[seed; 32]));
+        let key = Arc::new(dassie_identity::TableKeygen::identity_key(&[seed; 32]));
         let id = key.node_id();
         let (identity, receiver) = watch::channel(Some(key));
         let socket = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();

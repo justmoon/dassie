@@ -8,11 +8,17 @@ use std::process::{Command, Stdio};
 
 use serde_json::Value;
 
-const DASSIE_SIM: &str = env!("CARGO_BIN_EXE_dassie-sim");
+/// The binary, as cargo and nextest name it to a test they run, never
+/// `env!`'s from when the test compiled: a build is reused in other
+/// checkouts of the repository.
+#[allow(clippy::disallowed_methods, clippy::expect_used)] // What the test runner says, not configuration.
+fn dassie_sim() -> String {
+    std::env::var("CARGO_BIN_EXE_dassie-sim").expect("cargo and nextest name the binary")
+}
 
 /// The record `dassie-sim record` prints for `sim` and `seed`.
 fn record(sim: &str, seed: &str) -> Value {
-    let output = Command::new(DASSIE_SIM)
+    let output = Command::new(dassie_sim())
         .args(["record", sim, seed])
         .output()
         .unwrap();
@@ -39,7 +45,7 @@ fn a_run_whose_campaign_has_ended_does_not_start() {
     // The campaign it names is not its parent: its parent has ended, and
     // it was handed to another.
     let other = (std::process::id() + 1).to_string();
-    let output = Command::new(DASSIE_SIM)
+    let output = Command::new(dassie_sim())
         .args(["record", "tripwire", "7001"])
         .env("DASSIE_SIM_CAMPAIGN", other)
         .output()
@@ -80,7 +86,7 @@ fn state(pid: u32) -> Option<(char, u32)> {
 fn a_campaigns_runs_die_when_it_is_killed() {
     use std::time::{Duration, Instant};
 
-    let mut campaign = Command::new(DASSIE_SIM)
+    let mut campaign = Command::new(dassie_sim())
         .args([
             "campaign",
             "--minutes",

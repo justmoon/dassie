@@ -24,7 +24,7 @@ use tokio_util::codec::{Framed, LengthDelimitedCodec};
 type Owner = RpcClient<Framed<UnixStream, LengthDelimitedCodec>>;
 
 fn key() -> IdentityKey {
-    IdentityKey::from_bytes(&[11; 32])
+    dassie_identity::TableKeygen::identity_key(&[11; 32])
 }
 
 /// Sets the node up, waits for its ledger and activates the stub.
@@ -165,6 +165,26 @@ async fn streams_start_with_what_is_and_follow_changes() {
     }
 }
 
+// The hub events stream says at once that it is live, before any hub has
+// anything to tell, as the packet trace's does.
+#[tokio::test]
+async fn the_hub_events_stream_starts_live() {
+    let node = TestNode::start().await;
+    let _owner = ready(&node).await;
+    let mut streams = node.ipc().await;
+    subscribe(
+        &mut streams,
+        1,
+        Method::SubscribeHubEvents(proto::SubscribeHubEventsRequest {}),
+    )
+    .await;
+    let stream_item::Method::SubscribeHubEvents(first) = item(&mut streams, 1).await else {
+        panic!("not hub events");
+    };
+    assert_eq!(first.event, Some(proto::hub_event::Event::Lagged(0)));
+    assert!(first.scheme.is_empty());
+}
+
 #[tokio::test]
 async fn the_log_stream_shows_the_nodes_lines() {
     dassie_node::log::init(LogFilter::default());
@@ -240,7 +260,9 @@ async fn the_inspectors_show_the_node_without_its_secrets() {
             .all(|s| s.state() == proto::ServiceState::Running)
     );
     assert!(services.cells.iter().any(|cell| cell.name == "ledger"));
-    let stranger = IdentityKey::from_bytes(&[12; 32]).node_id().to_string();
+    let stranger = dassie_identity::TableKeygen::identity_key(&[12; 32])
+        .node_id()
+        .to_string();
     let refused = owner
         .call(Method::RegisterWithBootstrap(
             proto::RegisterWithBootstrapRequest { node: stranger },

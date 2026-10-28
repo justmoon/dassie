@@ -27,7 +27,7 @@ use support::*;
 use tokio_tungstenite::tungstenite::Message;
 
 fn key() -> IdentityKey {
-    IdentityKey::from_bytes(&[7; 32])
+    dassie_identity::TableKeygen::identity_key(&[7; 32])
 }
 
 #[tokio::test]
@@ -61,7 +61,7 @@ async fn setup_then_login_then_logout() {
         post_json(
             &node,
             "/api/login",
-            &login_body(&IdentityKey::from_bytes(&[8; 32])),
+            &login_body(&dassie_identity::TableKeygen::identity_key(&[8; 32])),
         ),
     )
     .await;
@@ -273,7 +273,7 @@ async fn foreign_origins_and_bad_bodies_are_refused() {
 async fn login_attempts_are_limited() {
     let node = TestNode::start().await;
     set_up(&node, &key()).await;
-    let wrong = login_body(&IdentityKey::from_bytes(&[9; 32]));
+    let wrong = login_body(&dassie_identity::TableKeygen::identity_key(&[9; 32]));
     let mut statuses = vec![];
     for _ in 0..5 {
         statuses.push(

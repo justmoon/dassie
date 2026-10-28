@@ -39,7 +39,7 @@ use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
 
 use super::keys::{self, AnyNodeKey, Keys, PinnedServer, Present};
-use super::{CONNECT_TIMEOUT, Handler, Link, MAX_STREAMS, On, Quic, StreamKind, no_room, stand_by};
+use super::{CONNECT_TIMEOUT, Handler, MAX_STREAMS, On, Quic, StreamKind, adopt, no_room};
 use crate::log::target;
 use crate::node::lock;
 use crate::outbound::Resolver;
@@ -746,17 +746,48 @@ impl Quic {
     }
 
     /// Answers on the connection to the chosen relay, and uses it for
-    /// requests to the relay too: at once, unless another is open, and
-    /// otherwise once that one closes ([`stand_by`]). Returns once the
-    /// connection closes.
+    /// requests to the relay too (spec/decisions/verified-connections.md).
+    /// It verifies it with a request of its own, the relay's link state, so
+    /// that the relay adopts it too: at once, if we hold no other open, and
+    /// otherwise then, by the rule both nodes judge alike. One the relay
+    /// does not answer closes, and the node dials again. If the relay keeps
+    /// another connection with us by the rule, one it opened, it reaches us
+    /// over that one: ours closes, and the relay counts as held while that
+    /// one lasts. Returns once the connection the relay reaches us over
+    /// closes.
     async fn hold_relay(self: &Arc<Self>, relay: NodeId, connection: &Connection) {
         self.answer_on(connection);
-        if let Some(place) = self.place(relay) {
-            let link = Link {
-                connection: connection.clone(),
-                ours: true,
-            };
-            stand_by(&place, link).await;
+        let Some(place) = self.place(relay) else {
+            let _ = connection.closed().await;
+            return;
+        };
+        let link = self.link(connection.clone(), true);
+        let free = {
+            let mut held = place.lock().await;
+            let free = held.as_ref().is_none_or(|kept| !kept.is_open());
+            if free {
+                *held = Some(link.clone());
+            }
+            free
+        };
+        if !super::answers(connection, relay).await {
+            connection.close(0u32.into(), b"unverified");
+            return;
+        }
+        if !free {
+            let lower = self.keys.current().is_some_and(|(own, _)| own < relay);
+            if !adopt(&place, link, (relay, lower, self.drain)).await {
+                connection.close(0u32.into(), b"");
+                let survivor = place
+                    .lock()
+                    .await
+                    .as_ref()
+                    .map(|kept| kept.connection.clone());
+                if let Some(survivor) = survivor {
+                    let _ = survivor.closed().await;
+                }
+                return;
+            }
         }
         let _ = connection.closed().await;
     }
@@ -1163,12 +1194,11 @@ fn server_tls(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use dassie_identity::IdentityKey;
     use dassie_oer::Encode;
 
     #[test]
     fn node_ids_are_written_as_the_peer_protocol_writes_them() {
-        let id = IdentityKey::from_bytes(&[1; 32]).node_id();
+        let id = dassie_identity::TableKeygen::identity_key(&[1; 32]).node_id();
         let mut ours = Vec::new();
         write_node_id(&mut ours, &id);
         assert_eq!(ours, id.to_vec());
@@ -1228,7 +1258,7 @@ mod tests {
     #[test]
     fn a_destination_has_a_bounded_share() {
         let relaying = Relaying::new();
-        let node = IdentityKey::from_bytes(&[2; 32]).node_id();
+        let node = dassie_identity::TableKeygen::identity_key(&[2; 32]).node_id();
         let held: Vec<_> = (0..MAX_RELAYED_PER_DESTINATION)
             .map(|_| relaying.to_destination(node, None).unwrap())
             .collect();
@@ -1242,8 +1272,8 @@ mod tests {
     fn one_client_address_takes_only_its_share_of_a_destination() {
         let relaying = Relaying::new();
         let (node, other) = (
-            IdentityKey::from_bytes(&[2; 32]).node_id(),
-            IdentityKey::from_bytes(&[3; 32]).node_id(),
+            dassie_identity::TableKeygen::identity_key(&[2; 32]).node_id(),
+            dassie_identity::TableKeygen::identity_key(&[3; 32]).node_id(),
         );
         let client = |last: u8| Some(ClientKey::from_ip(IpAddr::from([192, 0, 2, last])));
         let mut held: Vec<_> = (0..MAX_RELAYED_PER_CLIENT_TO_DESTINATION)

@@ -35,7 +35,7 @@ export function Faucet(props: {
     setPending(false);
   };
   return (
-    <section class="stack">
+    <section class="faucet stack">
       <div>
         <h3>Testnet faucet</h3>
         <p class="muted">

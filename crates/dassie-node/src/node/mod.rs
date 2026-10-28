@@ -17,7 +17,7 @@ use std::net::IpAddr;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
-use dassie_identity::IdentityKey;
+use dassie_identity::{IdentityKey, SlhDsaKeygen};
 use dassie_kit::ClientKey;
 use dassie_node_core::acme::{ChallengeTokens, Renewal, RenewalPolicy};
 use dassie_node_core::config::NodeConfig;
@@ -229,6 +229,11 @@ pub struct NodeOptions {
     /// Whether the live realm may be set and run: by the dev switch only
     /// (spec/decisions/mainnet-schemes.md).
     pub live_realm: dassie_node_core::config::LiveRealm,
+    /// How the node's SLH-DSA key is made from its node key: the real key
+    /// generation, [`Fips205Keygen`](dassie_identity::Fips205Keygen), but
+    /// in a test, which passes the table of its keys
+    /// (spec/areas/testing.md#slh-dsa-keys-in-tests).
+    pub keygen: Arc<dyn SlhDsaKeygen>,
 }
 
 /// The peer protocol's settings, from the environment.
@@ -405,6 +410,8 @@ pub struct Node {
     /// that concurrent changes cannot undo each other.
     config_writer: Mutex<()>,
     node_key: watch::Sender<Option<Arc<IdentityKey>>>,
+    /// How the node's SLH-DSA key is made, at its start and at setup.
+    keygen: Arc<dyn SlhDsaKeygen>,
     engine: watch::Sender<Option<Engine>>,
     btp_connections: Arc<Semaphore>,
     btp_auth_limiter: Mutex<RateLimiter>,
@@ -537,12 +544,15 @@ impl Node {
             dev_wallet_dir,
             public_names,
             live_realm,
+            keygen,
         } = options;
         let peer = PeerSide::new(peer)?;
         let now_ms = clock.now_ms();
         let config = store.config()?;
         // With its identity, whose SLH-DSA key takes a key generation once.
-        let node_key = store.node_key()?.map(|key| Arc::new(IdentityKey::new(key)));
+        let node_key = store
+            .node_key()?
+            .map(|key| Arc::new(IdentityKey::with_keygen(key, keygen.as_ref())));
         let certificate = certificates::initial(&store, config.hostname.as_ref(), now_ms)?;
         let acme = acme_with(acme_ca_file.as_deref())?;
         let setup_token = setup_token(&store, node_key.is_some(), rng.as_mut())?;
@@ -589,6 +599,7 @@ impl Node {
             founding: std::sync::OnceLock::new(),
             sponsoring: crate::hub::sponsor::Sponsoring::default(),
             live_realm,
+            keygen,
         }))
     }
 
