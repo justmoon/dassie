@@ -8,6 +8,7 @@
  */
 
 import {
+  ErrorCode,
   type GetHubPayoutResponse,
   type HubMove,
   HubMove_Direction as Direction,
@@ -170,6 +171,69 @@ export function durationText(ms: number): string {
   if (seconds < 3_600) return `${Math.ceil(seconds / 60)} min`;
   if (seconds < 86_400) return `${Math.ceil(seconds / 3_600)} h`;
   return `${Math.ceil(seconds / 86_400)} d`;
+}
+
+/** How long the page waits before it sends a withdrawal again while the
+ * node checks a token hub's escrow's XRP: a few seconds, about the time a
+ * ledger takes to close, so a top-up has applied after a few tries
+ * (spec/areas/hubs.md#in-the-node). */
+export const GAS_RETRY_MS = 5_000;
+
+/** How many times the page sends a withdrawal again for that, at most:
+ * about half a minute in all. */
+export const GAS_RETRIES = 6;
+
+/** What the page says while it waits to send a withdrawal again. */
+export const GAS_CHECK_TEXT =
+  "This hub's escrow pays the XRP Ledger's fees in XRP. Your node is checking that it holds enough, and tops it up first if not. Your withdrawal goes again by itself in a few seconds.";
+
+/** What the page says once it stopped sending a withdrawal again. */
+export const GAS_GAVE_UP_TEXT =
+  "Your node is still checking that this hub's escrow can pay its fees. Try your withdrawal again in a minute.";
+
+/** A failed call, as the page reads it: the contract's error code, if the
+ * node answered with one, and its message. */
+export interface CallFailure {
+  code?: ErrorCode;
+  message: string;
+}
+
+/**
+ * Whether a refused withdrawal is the node's check of a token hub's
+ * escrow's XRP, which ends by itself in a few seconds: RESOURCE_EXHAUSTED,
+ * with the node's word that it checks the escrow and to try again shortly
+ * (`hub_withdraw_from` in `crates/dassie-node/src/engine/core/hub_moves.rs`,
+ * whose tests pin the words). A top-up that failed, which the node checks
+ * again only after a backoff of a minute or more, is not, nor is a move
+ * on its way.
+ */
+export function isGasCheck(failure: CallFailure): boolean {
+  return failure.code === ErrorCode.RESOURCE_EXHAUSTED &&
+    failure.message.includes("escrow pays its fees") &&
+    failure.message.includes("try again shortly");
+}
+
+/** What the page does after a withdrawal failed, sent again `retries`
+ * times already. */
+export type WithdrawalNext =
+  /** Sends it again after `afterMs`. */
+  | { kind: "retry"; afterMs: number }
+  /** Stops, and shows `text`. */
+  | { kind: "stop"; text: string };
+
+/**
+ * After a withdrawal failed with `failure`: while the node checks a token
+ * hub's escrow's XRP, send it again in a few seconds, at most
+ * {@linkcode GAS_RETRIES} times; stop at any other failure, with the
+ * node's own words.
+ */
+export function afterWithdrawalFailed(
+  failure: CallFailure,
+  retries: number,
+): WithdrawalNext {
+  if (!isGasCheck(failure)) return { kind: "stop", text: failure.message };
+  if (retries >= GAS_RETRIES) return { kind: "stop", text: GAS_GAVE_UP_TEXT };
+  return { kind: "retry", afterMs: GAS_RETRY_MS };
 }
 
 /** A hold toward a peer or from one, as the page lists it. */

@@ -42,6 +42,9 @@ pub(crate) struct MethodAttempt {
     pub scheme: SchemeId,
     /// The peer's peering info on the scheme, once it gave it.
     pub info: Option<Vec<u8>>,
+    /// Whether the peer dropped a method on the scheme while we asked: its
+    /// answer, when it comes, ends the request and adds nothing.
+    pub dropped: bool,
 }
 
 impl Peering {

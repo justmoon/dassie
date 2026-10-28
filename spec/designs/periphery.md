@@ -146,28 +146,19 @@ They are to be proposed to the Interledger Foundation. Until they are adopted, t
 
 ## 8. Free receivers
 
-A new user can receive payments without paying anything up front. A free receiver is an ordinary periphery node that peers with one uplink and has not yet paid anything.
+A new user can receive payments without paying anything up front. A free receiver is an ordinary periphery node that peers with one uplink over the uplink's hub and has no account in it yet. Peers settle only over hubs, and a node joins a hub by being paid into it by a member it peers with ([hubs-only](../decisions/hubs-only.md), [Settlement hubs](../areas/hubs.md#the-members-side), [design](settlement-hubs.md#5-joining)).
 
-**Superseded in part.** Peers settle only over hubs ([hubs-only](../decisions/hubs-only.md)), so a free receiver is paid into its uplink's hub: the uplink's `pay` opens its hub account once the uplink owes it the hub's minimum for a new account ([Settlement hubs](../areas/hubs.md#the-members-side)). The direct settlement on the XRP Ledger below, the credit it extends as a junior, the first settlement that creates its XRPL account and the XRPL scheme's two rules for it, are superseded and not to be built. The rest of this section, spending by netting, its limits, ending its peering and the free half of the downlinks, still holds, read with the hub in place of the XRP Ledger.
-
-- **No advance payment.** As junior, it extends the uplink a credit of 5 XRP, and the uplink extends it nothing ([Settlement](../areas/settlement.md#credit)). The uplink asks it to settle at once, as any senior asks its junior. Without an account on the ledger, its scheme cannot settle (`Unavailable`), so it pays nothing. Once it has been paid more than the uplink's trigger, the uplink stops asking. The node does not warn its owner about this, since it is expected.
+- **No advance payment.** Its hub scheme runs without an account, and it peers over the hub with its uplink, a member with one. Neither promises the other anything while it has none: the uplink extends it no credit, and asks it nothing, since it can owe nothing. It extends the uplink the credit to owe it the hub's minimum for a new account and its trigger besides.
 - **Spending by netting.** What it received is what the uplink owes it. Sending through the same uplink lowers that debt, and touches no ledger. It can spend from its first payment.
-- **The first settlement creates its account.** It asks the uplink to settle once the uplink owes it nearly its credit: 4.85 of 5 XRP at the default largest packet of 0.1 XRP. The uplink settles half the way to its own trigger, 2.35 XRP ([Positions and thresholds](../areas/settlement.md#positions-and-thresholds)), more than the base reserve of 1 XRP. That Payment creates the receiver's account, and the reserve comes out of the receiver's own money. Nothing asks the owner to act.
-- **The uplink risks nothing.** It extends no credit, so the receiver can spend only what it was paid. It pays only the ledger's fee for the settlement.
-- **The receiver risks its credit.** It can lose up to 5 XRP if its uplink disappears. The wallet says so: "*uplink* holds up to 5 XRP for you".
-- **Limits.** It has one uplink, and so one address, until it has funds to peer elsewhere, and it cannot change uplinks without being settled first.
-
-**The XRPL scheme** needs two rules for this ([XRP Ledger](../areas/xrpl.md#following-the-account)):
-
-- **An account that does not exist yet** is synced with a balance of zero: its first activation happens before the account exists, so the Payment that creates it is booked as what it is, the uplink's settlement, by its memo and sender, not as a deposit. The reserve then goes through `equity/suspense`, as a balance below the reserve already does. A free receiver's scheme asks no faucet.
-- **A settlement to an account that does not exist** is at least the base reserve plus one largest packet, or the scheme is `Unavailable` for that peer. The ledger refuses a smaller Payment that would create an account with a `tec` result, which still costs the fee, and the settlement would be tried again and again.
-
-The first rule narrows a condition for real money, "an account's creation is a deposit" ([Real money](../roadmap.md#real-money), [XRP Ledger](../areas/xrpl.md#real-money)): it holds for every creation but one made by a peer's settlement, and its wording changes when this is built.
+- **Its hub account opens once it is owed enough.** It asks the uplink to settle once the uplink owes it the hub's minimum for a new account. The uplink pays it in with all it owes it, by a `pay` to the key it gave, once that is at least the minimum and its own account can spend all of it. The `pay` opens the receiver's account, whose reserve comes out of the receiver's own money, and the peering goes on as any over the hub. Nothing asks the owner to act.
+- **The uplink risks nothing.** It extends no credit, so the receiver can spend only what it was paid, and it pays in only what it owes: keys cycled through it cost it nothing.
+- **The receiver risks the credit it extends.** Until it is paid in, it can lose up to the hub's minimum for a new account and its trigger if its uplink disappears. The wallet is to say so, naming the uplink and what it holds for the receiver.
+- **Limits.** It has one uplink, and so one address, until it has funds to peer elsewhere, and it cannot change uplinks without being paid in first.
 
 **Ending a free receiver's peering** follows [ending-a-peering](../decisions/ending-a-peering.md):
 
-- **The uplink evicts** a free receiver that has received nothing and sent nothing for 30 days. Ending the peering, the uplink pays nothing, and it still asks the receiver to settle once. A receiver whose account exists by then, and holds more than the reserve, answers as any peer does, paying half the way to its own trigger. Either way it loses at most the credit it extends. Its row stays, and counts toward the rows' limit (§4), until the receiver peers again and is settled as usual, or nothing is owed.
-- **A free receiver that leaves** asks the uplink to settle once, as any node ending a peering does. Below the reserve, the uplink has nothing it can send yet, and the receiver stays owed.
+- **The uplink evicts** a free receiver that has received nothing and sent nothing for 30 days. Ending the peering, the uplink asks it nothing, since it owes nothing, and pays it in as asked once what it owes reaches the hub's minimum for a new account; below that, the receiver stays owed, and either way loses at most the credit it extends. Its row stays, and counts toward the rows' limit (§4), until the receiver peers again and is paid in, or nothing is owed.
+- **A free receiver that leaves** asks the uplink to settle once, as any node ending a peering does. Below the hub's minimum for a new account, the uplink cannot pay it in yet, and the receiver stays owed.
 - **On the uplink,** free receivers take at most half of its downlinks. This is built ([Network](../areas/network.md#downlinks), [free-receivers-half](../decisions/free-receivers-half.md)): a downlink is a free receiver until the uplink's books take a settlement of at least one largest packet from it, and stays a paying one after. Once free receivers hold half of the downlinks' places, a new one is refused; one that paid is bounded by the downlinks' bound alone, and no downlink is ended or displaced for the rule. So keys made for nothing fill only the free half.
 
 ## 9. Browser nodes
@@ -183,10 +174,10 @@ A browser node is a short-lived periphery node, for demos: it lets someone join 
 - **`dassie-node`**: its QUIC endpoint, QUIC over a WebSocket, relayed streams, signed Open Payments answers and front doors, which serve the WebSocket too, are built.
 - **`dassie-peer`** gains the downlink table, the `periphery` extension, records, home nodes and lookups, and the transport's link-state extension.
 - **`dassie-connector`** routes beneath a downlink's child address, and a periphery node's STREAM receiver takes its child addresses.
-- **The XRPL scheme** was to gain the two rules of §8, which [hubs-only](../decisions/hubs-only.md) supersedes: a free receiver is paid into its uplink's hub instead ([Settlement hubs](../areas/hubs.md#the-members-side)).
+- **The hub schemes** pay a free receiver into its uplink's hub as they pay in any member without an account (§8, [Settlement hubs](../areas/hubs.md#the-members-side)).
 - **The RPC contract** (`proto/dassie/owner/v1`) gains pairing and devices.
 - **The apps** paired with a node are a desktop app and a mobile app, both over the RPC contract. The [desktop app](../areas/desktop.md) that runs its own node is built.
-- **The simulations** ([Testing](../areas/testing.md#the-simulations)) run periphery nodes that lose their uplinks, relays and home nodes that withhold, ground core keys that capture home slots, free receivers paid into their uplink's hub (their first settlement creating their XRPL account is superseded by [hubs-only](../decisions/hubs-only.md)), free receivers evicted while owed, and downlinks over the limits.
+- **The simulations** ([Testing](../areas/testing.md#the-simulations)) run periphery nodes that lose their uplinks, relays and home nodes that withhold, ground core keys that capture home slots, free receivers paid into their uplink's hub, free receivers evicted while owed, and downlinks over the limits.
 
 ## 11. Open questions
 

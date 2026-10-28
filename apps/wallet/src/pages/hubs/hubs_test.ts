@@ -2,6 +2,7 @@ import { test } from "node:test";
 import { assertEquals, assertMatch } from "@std/assert";
 import { create } from "@bufbuild/protobuf";
 import {
+  ErrorCode,
   GetHubPayoutResponseSchema,
   HubHoldSchema,
   HubMove_Direction as Direction,
@@ -12,8 +13,12 @@ import {
 } from "@dassie/rpc/proto";
 import { currencyOf } from "@dassie/ui/currency";
 import {
+  afterWithdrawalFailed,
   automaticText,
   durationText,
+  GAS_GAVE_UP_TEXT,
+  GAS_RETRIES,
+  GAS_RETRY_MS,
   givenUpText,
   holdRows,
   holdsTotal,
@@ -21,6 +26,7 @@ import {
   hubCurrency,
   hubIssuerText,
   hubStandingText,
+  isGasCheck,
   moveText,
   payoutState,
   payoutText,
@@ -214,4 +220,54 @@ test("an action's answer replaces its hub only", () => {
     withHub([a, b], changed).map((hub) => [hub.hubId, hub.balance]),
     [["aa", 1n], ["bb", 5n]],
   );
+});
+
+/** The node's words while it checks a token hub's escrow's XRP, as
+ * `hub_withdraw_from` says them. */
+const CHECKING =
+  "the hub's escrow pays its fees in XRP: the node checks it holds enough, and tops it up first if not; try again shortly";
+
+test("a withdrawal is sent again while the node checks the escrow's XRP", () => {
+  const checking = { code: ErrorCode.RESOURCE_EXHAUSTED, message: CHECKING };
+  assertEquals(isGasCheck(checking), true);
+  for (let retries = 0; retries < GAS_RETRIES; retries += 1) {
+    assertEquals(afterWithdrawalFailed(checking, retries), {
+      kind: "retry",
+      afterMs: GAS_RETRY_MS,
+    });
+  }
+  // A bounded number of times.
+  assertEquals(afterWithdrawalFailed(checking, GAS_RETRIES), {
+    kind: "stop",
+    text: GAS_GAVE_UP_TEXT,
+  });
+});
+
+test("any other failure of a withdrawal stops it", () => {
+  const others = [
+    // A top-up that failed: the node checks again only after its backoff.
+    {
+      code: ErrorCode.RESOURCE_EXHAUSTED,
+      message:
+        "the hub's escrow pays its fees in XRP, and the node's top-up of it failed: it checks again in 60 s",
+    },
+    {
+      code: ErrorCode.RESOURCE_EXHAUSTED,
+      message: "a move between the hub and the XRP Ledger is on its way",
+    },
+    // The same words with another code, or none.
+    { code: ErrorCode.FAILED_PRECONDITION, message: CHECKING },
+    { message: CHECKING },
+    {
+      code: ErrorCode.FAILED_PRECONDITION,
+      message: "more than the hub account can spend, with the fees",
+    },
+  ];
+  for (const failure of others) {
+    assertEquals(isGasCheck(failure), false, failure.message);
+    assertEquals(afterWithdrawalFailed(failure, 0), {
+      kind: "stop",
+      text: failure.message,
+    });
+  }
 });

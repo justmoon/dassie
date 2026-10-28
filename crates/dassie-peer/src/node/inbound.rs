@@ -150,14 +150,22 @@ impl PeerNode {
         let peering = self
             .table
             .get(&accepted.sender)
-            .and_then(Entry::active_peering);
-        if peering.is_none_or(|peering| !peering.has(scheme)) {
+            .and_then(Entry::active_peering)
+            .map(|peering| (peering.has(scheme), peering.depeering.is_some()));
+        let Some((has, ending)) = peering else {
             self.notice_one_sided(accepted.sender);
+            return refuse(409, "not peered on that scheme");
+        };
+        if !has {
+            // Its side of the method is left over, as when our drop of it
+            // was lost with a restart: it is told, as for a Prepare on it
+            // (spec/areas/network.md#one-sided-peerings).
+            self.queue_drop(accepted.sender, scheme);
             return refuse(409, "not peered on that scheme");
         }
         // Nor for one we are ending, which the peer does not know yet: it
         // is answered as a request that settles nothing.
-        if peering.is_some_and(|peering| peering.depeering.is_some()) {
+        if ending {
             return Inbound::Reply(ok(&encode_settling(0)));
         }
         Inbound::SettlementRequest {
