@@ -13,7 +13,7 @@
 
 - **Kopje.** The ledgers are solid rocks; the nodes are nimble dassies living on them, hopping from rock to rock. Everything lies low and wide, lit from behind by a low sun. The brand page, `apps/website/brand/`, holds the identity, its rules and its applications, and is its only source.
 - **The mark, Perch:** a dassie sitting on a faceted rock in front of the sun. The rock is ink like the dassie, parted from it by a rim of light; below 48 px the Silhouette, dassie and rock as one shape in the sun's circle, takes its place.
-- **Type and color:** Fraunces for display and the wordmark, Figtree for text, DM Mono for data, served by the site itself. Sandstone grounds, Sunrise light, Terracotta for the kopjes in scenes, Ember for action, Ink for text, and violet only for value: the cube.
+- **Type and color:** Fraunces for display and the wordmark, Figtree for text, DM Mono for data, served by the site itself. Sandstone grounds, Sunrise light, Terracotta for the kopjes in scenes (granite once [granite-rocks](granite-rocks.md) is drawn), Ember for action, Ink for text, and violet only for value: the cube.
 - **The line:** "Any currency. Any ledger. Anyone." It says payments, says what is different, and ends on people. The tagline beside it is "Banks build up. We build out."
 - **Words** in plain American English.
 - **Dark mode is dusk:** what is ink melts into the night and only rims of light stay. Product surfaces switch; specimens and printed things keep their colors.

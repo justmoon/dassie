@@ -172,10 +172,10 @@ A node's default rate sources are exchanges whose terms license their market dat
 
 ### Kopje across Dassie
 
-The brand page holds Dassie's visual identity, Kopje ([visual-identity](decisions/visual-identity.md)), and dassie.land draws in it; the wallet and the desktop app do not yet.
+The brand page holds Dassie's visual identity, Kopje ([visual-identity](decisions/visual-identity.md)), and dassie.land draws in it; the wallet and the desktop app do not yet. Its rocks are still Terracotta mounds, which read as droppings; [granite-rocks](decisions/granite-rocks.md) makes them granite, drawn by a generator a test holds to the rules.
 
-- **Parts that can be built side by side:** the wallet, in its light theme and dusk; the desktop app's icons and tray.
-- **Done when:** every screen of the wallet and the desktop app draws in Kopje's palette, type and mark, light and dark.
+- **Parts that can be built side by side:** the wallet, in its light theme and dusk; the desktop app's icons and tray; the rock generator and its test, and every drawing with rocks drawn again from it.
+- **Done when:** every screen of the wallet and the desktop app draws in Kopje's palette, type and mark, light and dark; and every rock on dassie.land and the brand page comes from the generator, whose test passes.
 
 ## Not built yet
 
