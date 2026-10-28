@@ -1,13 +1,16 @@
 /**
  * What the end-to-end tests of mainnet's schemes in the live realm share
- * (`mainnet_test.ts`), and of the `hub` scenario's
- * settlement hub (`hub_test.ts`, `xrpl_test.ts`, `xrpl_deposit_test.ts`),
- * and of the `two-hubs` scenario's hubs of XRP and DSUSD
- * (`hubs_cross_test.ts`) and the `live-hub` scenario's of XRP and RLUSD on
- * mainnet (`live_hub_test.ts`): a node's ledger, whether it runs in the live
- * realm, what it owes its peers by its own books, when settling is over,
- * over the hubs, how the hubs' members join them, and a
- * payment from a BTP client of one node to another's receiver.
+ * (`mainnet_test.ts`), and of the scenarios' settlement hubs
+ * (`cross_currency_test.ts`, `live_hub_test.ts`, `xrpl_deposit_test.ts`,
+ * and the market maker's and peer swaps' over hubs of XRP and DSUSD): a
+ * node's ledger, whether it runs in the live realm, how the hubs' members
+ * join them, when settling over them is over, and a payment from a BTP
+ * client of one node to another's receiver.
+ *
+ * Settling is over when the nodes say so, never after a span of time: no
+ * settlement message on its way to a peer, and no settling under way over
+ * any hub (`HubStatus.settling`), with every book in step with its account
+ * (spec/areas/testing.md#end-to-end).
  */
 
 import { assert, assertEquals } from "@std/assert";
@@ -33,14 +36,6 @@ import {
   type ScenarioNode,
   xrpOwnerBook,
 } from "@dassie/dev/scenario";
-
-/** Every node's trigger: one and a half of the largest packets
- * (spec/decisions/thresholds-in-packets.md). */
-export const TRIGGER = 150_000_000n;
-/** What a node extends to each peer. */
-export const CREDIT = 1_100_000_000n;
-/** Longer than a node's settlement interval with dev timings. */
-const SETTLE_CHECK_MS = 5_000;
 
 /** Node `node`'s ledger `id`, as its owner sees it. */
 export async function ledger(node: ScenarioNode, id: string) {
@@ -73,84 +68,6 @@ export async function assertLive(
   assert(
     payment?.destinationAccount.startsWith("g."),
     payment?.destinationAccount,
-  );
-}
-
-/**
- * What each node owes each peer net on ledger `id`, by its own books, by
- * `node>peer`: its peer account less the credit it extends, negative when
- * the peer owes it.
- */
-export async function peerAccounts(
-  scenario: Scenario,
-  id: string,
-): Promise<Map<string, bigint>> {
-  const byId = new Map(scenario.nodes.map((node) => [node.id, node.name]));
-  const accounts = new Map<string, bigint>();
-  for (const node of scenario.nodes) {
-    const list = await node.rpc.call("listAccounts", {});
-    for (const account of list.accounts) {
-      for (const kind of ["assets/interledger", "contra/trust"]) {
-        const prefix = `${id}:${kind}/`;
-        if (!account.path.startsWith(prefix)) continue;
-        const key = `${node.name}>${
-          byId.get(account.path.slice(prefix.length))
-        }`;
-        const net = account.creditsPosted - account.debitsPosted;
-        accounts.set(key, (accounts.get(key) ?? 0n) + net);
-      }
-    }
-  }
-  return accounts;
-}
-
-/**
- * Settling on ledger `id` went quiet: nothing on its way, every node synced
- * and, by `inStep`, in step with its account, and no node's books showing
- * a peer at its trigger.
- */
-async function quiet(
-  scenario: Scenario,
-  id: string,
-  inStep: (node: ScenarioNode) => Promise<boolean>,
-): Promise<boolean> {
-  for (const node of scenario.nodes) {
-    const { channels } = await node.rpc.call("listSettlementChannels", {});
-    if (channels.some((channel) => channel.sending)) return false;
-    const view = await ledger(node, id);
-    if (view.connection !== LedgerConnection.SYNCED) return false;
-    if (!(await inStep(node))) return false;
-    const { peers } = await node.rpc.call("listPeers", {});
-    const atTrigger = peers.some((peer) =>
-      peer.methods.some((method) =>
-        method.scheme === view.settlementScheme &&
-        method.creditOut + method.owed <= TRIGGER
-      )
-    );
-    if (atTrigger) return false;
-  }
-  return (await peerAccounts(scenario, id)).size > 0;
-}
-
-/**
- * Settling on ledger `id` is over: quiet, and still quiet with the same
- * books once a settlement interval has passed.
- */
-export async function settled(
-  scenario: Scenario,
-  id: string,
-  inStep: (node: ScenarioNode) => Promise<boolean> = () =>
-    Promise.resolve(true),
-): Promise<boolean> {
-  if (!(await quiet(scenario, id, inStep))) return false;
-  const views = () => Promise.all(scenario.nodes.map((n) => ledger(n, id)));
-  const first = await views();
-  await new Promise((resolve) => setTimeout(resolve, SETTLE_CHECK_MS));
-  if (!(await quiet(scenario, id, inStep))) return false;
-  const second = await views();
-  return first.every((view, index) =>
-    view.onLedgerBalance === second[index].onLedgerBalance &&
-    view.ownerBalance === second[index].ownerBalance
   );
 }
 
@@ -201,135 +118,21 @@ export async function pay(
   return credentials.destinationAccount;
 }
 
-/** The hub's members' owner book of XRP, from which they fund the hub. */
+/** The `hub` scenario's members' owner book of XRP, from which they fund
+ * the hub. */
 export const HUB_OWNER_LEDGER = `${HUB_OWNER_BOOK}+xrp`;
 /**
  * How long the hub's members may take to open their accounts, peer over
  * it, or settle: each move and operation waits for a validated ledger and
- * a final block, and a member reads the hub again after a restart.
+ * a final block, and a member reads the hub again after a restart. A
+ * hang's guard, not what decides a test.
  */
 export const HUB_WITHIN_MS = 180_000;
 /** Internal units in a drop: XRP's ledgers are kept at scale 9, a drop at
  * scale 6. */
-export const UNITS_PER_DROP = 1_000n;
+const UNITS_PER_DROP = 1_000n;
 
-/** The members of the scenario's hub. */
-export function members(scenario: Scenario): ScenarioNode[] {
-  const hub = scenario.def.hub;
-  assert(hub, "the scenario has no hub");
-  return scenario.nodes.filter((node) => hub.members.includes(node.index));
-}
-
-/**
- * What `node`'s account that its scheme `scheme` settles through holds of
- * XRP, as its ledger last said, less what the ledger holds back, in
- * internal units.
- */
-async function held(node: ScenarioNode, scheme: string): Promise<bigint> {
-  const { externalAssets } = await node.rpc.call("listLedgers", {});
-  const asset = externalAssets.find((asset) =>
-    asset.settlementSchemes.includes(scheme)
-  );
-  const holding = asset?.holdings.find((h) => h.assetCode === "XRP");
-  assert(holding, `${node.name} shows no XRP held for ${scheme}`);
-  assertEquals(holding.assetScale, 6);
-  return (holding.amount - holding.reserve) * UNITS_PER_DROP;
-}
-
-/**
- * What `node` extends each of its peers over the hub, by peer ID: its hold
- * toward the peer, once none of its settlements to the peer is on its way
- * (spec/areas/hubs.md#in-the-node).
- */
-async function holds(node: ScenarioNode): Promise<Map<string, bigint>> {
-  const { peers } = await node.rpc.call("listPeers", {});
-  return new Map(
-    peers.flatMap((peer) =>
-      peer.methods
-        .filter((method) => method.scheme === HUB_SCHEME)
-        .map((method) => [peer.node, method.creditOut] as const)
-    ),
-  );
-}
-
-/** What a member's books hold of the hub and of its owner book, and what
- * its owner has on each. */
-export async function hubBooks(node: ScenarioNode) {
-  const [hub, owner] = await Promise.all([
-    ledger(node, HUB_LEDGER),
-    ledger(node, HUB_OWNER_LEDGER),
-  ]);
-  return {
-    hub: [hub.onLedgerBalance, hub.ownerBalance],
-    owner: [owner.onLedgerBalance, owner.ownerBalance],
-  };
-}
-
-/** What a member's owner has on both ledgers. */
-export async function ownerFunds(node: ScenarioNode): Promise<bigint> {
-  const { hub, owner } = await hubBooks(node);
-  return hub[1] + owner[1];
-}
-
-/**
- * Whether member `node` of `scenario` is quiet and its books add up: both
- * ledgers synced, nothing on its way, no packet in flight; its book of XRP
- * holding what its XRP Ledger account holds, and its book of the hub what
- * its account in the hub holds and its peers' holds toward it, which it
- * booked as their settlements as they funded them, each less what its
- * ledger holds back (spec/areas/testing.md#each-node-judged-by-its-own-books).
- * A peer's hold toward it is read from the peer, as the credit the peer
- * extends it. That credit is the hold and the peer's settlements on their
- * way, so it is the hold only once the peer is quiet too: the check holds
- * once every member is, which {@linkcode settledOverHub} asks of each in
- * turn and again a settlement interval later.
- */
-async function inStep(
-  scenario: Scenario,
-  node: ScenarioNode,
-): Promise<boolean> {
-  const { channels } = await node.rpc.call("listSettlementChannels", {});
-  if (channels.some((channel) => channel.sending)) return false;
-  const own = await holds(node);
-  let theirs = 0n;
-  for (const peer of members(scenario)) {
-    if (own.has(peer.id)) theirs += (await holds(peer)).get(node.id) ?? 0n;
-  }
-  const expected = [
-    [HUB_LEDGER, HUB_SCHEME, theirs],
-    [HUB_OWNER_LEDGER, HUB_OWNER_BOOK, 0n],
-  ] as const;
-  for (const [id, scheme, peerHolds] of expected) {
-    const view = await ledger(node, id);
-    if (view.connection !== LedgerConnection.SYNCED) return false;
-    if (view.ownerPending !== 0n) return false;
-    if (view.onLedgerBalance !== await held(node, scheme) + peerHolds) {
-      return false;
-    }
-  }
-  return true;
-}
-
-/**
- * Settling over the hub is over: every member in step, and still in step
- * with the same books once a settlement interval has passed.
- */
-export async function settledOverHub(scenario: Scenario): Promise<boolean> {
-  const nodes = members(scenario);
-  for (const node of nodes) if (!(await inStep(scenario, node))) return false;
-  const first = JSON.stringify(await Promise.all(nodes.map(hubBooks)), text);
-  await new Promise((resolve) => setTimeout(resolve, SETTLE_CHECK_MS));
-  for (const node of nodes) if (!(await inStep(scenario, node))) return false;
-  const second = JSON.stringify(await Promise.all(nodes.map(hubBooks)), text);
-  return second === first;
-}
-
-/** JSON of bigints, as text. */
-function text(_key: string, value: unknown) {
-  return typeof value === "bigint" ? `${value}` : value;
-}
-
-/** Whether `node` peers with `peer` over the hub. */
+/** Whether `node` peers with `peer` over the scenario's one hub. */
 export async function peersOverHub(
   node: ScenarioNode,
   peer: ScenarioNode,
@@ -348,55 +151,16 @@ export async function fundedInOwnerBook(node: ScenarioNode): Promise<boolean> {
   return view.connection === LedgerConnection.SYNCED && view.ownerBalance > 0n;
 }
 
-/** Whether `node` follows the hub and has an account in it with funds. */
+/** Whether `node` follows the scenario's one hub and has an account in it
+ * with funds. */
 export async function fundedInHub(node: ScenarioNode): Promise<boolean> {
   const view = await ledger(node, HUB_LEDGER);
   return view.connection === LedgerConnection.SYNCED && view.ownerBalance > 0n;
 }
 
-/** Asserts that `node` peers over the hub alone: its owner book peers with
- * nobody. */
-export async function assertPeersOverHubAlone(
-  node: ScenarioNode,
-): Promise<void> {
-  const { peers } = await node.rpc.call("listPeers", {});
-  for (const peer of peers) {
-    for (const method of peer.methods) assertEquals(method.scheme, HUB_SCHEME);
-  }
-}
-
-/**
- * Waits until the members of `scenario`'s hub, which the scenario founded
- * as it started, joined it: each opened its account in the hub by a
- * deposit from its owner book, by itself (spec/areas/hubs.md#in-the-node),
- * every two of them peer over the hub alone, and settling is over.
- */
-export async function joinedHub(scenario: Scenario): Promise<void> {
-  const nodes = members(scenario);
-  await scenario.until("members funded in the hub", async () => {
-    for (const node of nodes) if (!(await fundedInHub(node))) return false;
-    return true;
-  }, HUB_WITHIN_MS);
-  await scenario.until("peered over the hub", async () => {
-    for (const node of nodes) {
-      for (const peer of nodes) {
-        if (peer !== node && !(await peersOverHub(node, peer))) return false;
-      }
-    }
-    return true;
-  }, HUB_WITHIN_MS);
-  for (const node of nodes) await assertPeersOverHubAlone(node);
-  await scenario.until(
-    "in step",
-    () => settledOverHub(scenario),
-    HUB_WITHIN_MS,
-  );
-}
-
-// Over several hubs, as the `two-hubs` scenario has them
-// (`hubs_cross_test.ts`): each hub's members, whether a node is funded in
-// a hub, what its accounts in its hubs hold, and when settling over all
-// of them is over.
+// Over the scenario's hubs, one or several: each hub's members, whether a
+// node is funded in a hub, what its accounts in its hubs hold, and when
+// settling over all of them is over.
 
 /** The members of `hub`, one of `scenario`'s hubs, among its running
  * nodes: those it names, and nodes added later that join it. */
@@ -446,6 +210,22 @@ export async function hubStatus(node: ScenarioNode, hub: ScenarioHub) {
 }
 
 /**
+ * Whether `node` says nothing is on its way: no settlement message to a
+ * peer unacknowledged, and no settling under way over any of its hubs
+ * (`HubStatus.settling`), which covers a move between a hub and its owner
+ * book, on its way or due, a check or top-up of a token hub's escrow, an
+ * operation on its way to the hub, a packet not yet settled by its
+ * promises, a settlement of its own not yet final, and a peer's request to
+ * settle it has yet to fund.
+ */
+async function nothingOnItsWay(node: ScenarioNode): Promise<boolean> {
+  const { channels } = await node.rpc.call("listSettlementChannels", {});
+  if (channels.some((channel) => channel.sending)) return false;
+  const { hubs } = await node.rpc.call("getHubStatus", {});
+  return hubs.every((hub) => hub.moving === undefined && !hub.settling);
+}
+
+/**
  * What the external asset that `node`'s scheme `scheme` settles through
  * holds of `code`, or of its one asset if `code` is empty, less what the
  * ledger holds back, in the units of the scheme's ledger, at scale 9.
@@ -477,19 +257,18 @@ async function heldIn(
 /**
  * Whether `node` of `scenario` is quiet over all its hubs and its books
  * add up, each by its own books alone
- * (spec/areas/testing.md#each-node-judged-by-its-own-books): every ledger
- * synced, nothing on its way, no packet in flight; each owner book
- * holding what its XRP Ledger account holds of its asset; and each hub's
- * book what its account in the hub holds and its peers' holds toward it,
- * as the hub's log shows them to the node, since it booked their
- * settlements as they funded them.
+ * (spec/areas/testing.md#each-node-judged-by-its-own-books): nothing on
+ * its way, as the node says; every ledger synced, with nothing the owner
+ * has pending; each owner book holding what its XRP Ledger account holds
+ * of its asset; and each hub's book what its account in the hub holds and
+ * its peers' holds toward it, as the hub's log shows them to the node,
+ * since it booked their settlements as they funded them.
  */
 async function inStepOverHubs(
   scenario: Scenario,
   node: ScenarioNode,
 ): Promise<boolean> {
-  const { channels } = await node.rpc.call("listSettlementChannels", {});
-  if (channels.some((channel) => channel.sending)) return false;
+  if (!(await nothingOnItsWay(node))) return false;
   const xrpBook = xrpOwnerBook(scenario.def);
   const expected: [string, () => Promise<bigint>][] = [
     [`${xrpBook}+xrp`, () => heldIn(node, xrpBook, "XRP")],
@@ -534,10 +313,16 @@ export async function booksOverHubs(
   return books;
 }
 
+/** JSON of bigints, as text. */
+function text(_key: string, value: unknown) {
+  return typeof value === "bigint" ? `${value}` : value;
+}
+
 /**
  * Settling over every hub of `scenario` is over: every member in step,
- * and still in step with the same books once a settlement interval has
- * passed.
+ * with nothing on its way, as each says; and so again once all were read,
+ * with the same books, so that nothing one member started while the
+ * others were read slips by.
  */
 export async function settledOverHubs(scenario: Scenario): Promise<boolean> {
   const nodes = scenario.nodes.filter((node) =>
@@ -552,7 +337,6 @@ export async function settledOverHubs(scenario: Scenario): Promise<boolean> {
     if (!(await inStepOverHubs(scenario, node))) return false;
   }
   const first = await books();
-  await new Promise((resolve) => setTimeout(resolve, SETTLE_CHECK_MS));
   for (const node of nodes) {
     if (!(await inStepOverHubs(scenario, node))) return false;
   }
@@ -589,10 +373,9 @@ export async function peerLedgers(
  * as it started, joined them: each opened its account in each of its hubs
  * by a deposit from its owner book of the hub's asset, by itself
  * (spec/areas/hubs.md#in-the-node); every two members of a hub peer, with
- * a peer account on the ledger of each hub both are in, a method each, and
- * on no other; no member peers but over a hub; each holds funds toward the
- * other in each of those hubs, so that either can pay the other over it;
- * and settling is over.
+ * a peer account on the ledger of each hub both are in; no member peers
+ * but over a hub; each holds funds toward the other in each of those hubs,
+ * so that either can pay the other over it; and settling is over.
  *
  * A member may peer before its own deposit opened its account, with a
  * peer that has one. That peer learns of the account by asking the hub,
