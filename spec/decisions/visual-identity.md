@@ -23,6 +23,7 @@
 - The drawings are heavy: grass is drawn blade by blade, a few megabytes of SVG in all. They are files beside the page, so the page itself stays short enough to read; the dark mode recolors only the drawings inline in it.
 - The mark's rock is ink rather than terracotta. Brown read as something else to people who saw the mark; ink costs the mark its third color, and the kopjes in scenes are granite ([granite-rocks](granite-rocks.md)).
 - In dark mode the drawings have little contrast by design: silhouettes against the night, carried by their rims of light.
+- Terracotta is one color, the darkest of the earths Kopje once used, so that a card of earth stands apart from Ember, which is action, and carries Daylight text at any size. The balance card and the veld grass are darker for it, and the grass reads there by the sunlit edges of its blades.
 - The wallet and the desktop app keep their look until they take Kopje ([roadmap](../roadmap.md#kopje-across-dassie)).
 
 ## Rejected
@@ -31,4 +32,5 @@
 - *Constellation,* every node a star in a dusk sky: it shows the network best, but a night sky with glowing nodes sits close to the look of crypto projects that Dassie must not have.
 - *Field Notes,* an expedition's log book: it holds the long effort and the fun of building, but it is about the builders' journey rather than what someone using Dassie gets, and its paper and ink are weak on a wallet's screens.
 - *Neighbourhood Press,* a street's own newsletter in bright off-register inks: lively and communal, but a zine reads as casual where Dassie has to be trusted with money, and does not carry over to a wallet.
+- *A lighter Terracotta:* a clay one sits between Ember and Sunrise and carries small Daylight text too faintly, and a middle one is as light as Ember, so a card of earth and the button on it are told apart only by hue.
 - *"Low and wide" as the line:* it described the look, not the product; on a tote it said nothing about payments.

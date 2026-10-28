@@ -1400,7 +1400,7 @@ section.sec {
   margin: 10px 14px 0;
   border-radius: 30px;
   padding: 22px 22px 0;
-  background: #9A5736;
+  background: var(--terra);
   color: var(--day);
   position: relative;
   overflow: hidden;
