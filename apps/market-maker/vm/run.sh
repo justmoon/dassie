@@ -43,10 +43,23 @@ DASSIE_IPC_SOCKET_PATH=$socket "$dassie" setup \
 # middle (spec/areas/market-maker-vm.md#settings). Set at every start, so a
 # node set up before takes it too. Here rather than in the metadata's
 # settings, since the bands' defaults rest on it, and this script comes
-# from main at every boot.
+# from main at every boot, while the binary is the installed release: a
+# release from before the target could be set knows no `hub target`, and
+# keeps a hub's old ceiling of 10 anyway, so the market maker runs on it.
+# Any other failure stops it, as it would rebalance from empty books.
 hub_target=10
 for hub in hub-xrpl-testnet-xrp hub-xrpl-testnet-dsusd; do
-  DASSIE_IPC_SOCKET_PATH=$socket "$dassie" hub target "$hub" "$hub_target"
+  if ! out=$(DASSIE_IPC_SOCKET_PATH=$socket "$dassie" hub target "$hub" "$hub_target" 2>&1); then
+    case $out in
+      *'unknown hub command "target"'*)
+        echo "Note: this release sets no hub target; $hub keeps its own." >&2
+        ;;
+      *)
+        echo "$out" >&2
+        exit 1
+        ;;
+    esac
+  fi
 done
 
 umask 077

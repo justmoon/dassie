@@ -133,8 +133,11 @@ pub const fn hub_limits(target: u64) -> (u64, u64) {
 /// takes at most what [`requested_amount`] gives at that credit, and never
 /// less than the least settlement. At most half a [`hub_step`] of the hub's
 /// `target`, the default [`hub_target`] or the owner's, so that a
-/// withdrawal down to it still carries many packets' worth. Its holds
-/// toward peers count toward the target, so without it a node whose holds
+/// withdrawal down to it still carries many packets' worth. At a target
+/// the owner set below ninety-five packets, half a step is less than one
+/// request at the default credit takes, 4.75 packets, so one request may
+/// spend it all: the owner's choice. Its holds toward peers count toward
+/// the target, so without it a node whose holds
 /// alone reach the target could withdraw what it can spend and never
 /// deposit again (spec/decisions/generous-hub-target.md).
 #[must_use]
