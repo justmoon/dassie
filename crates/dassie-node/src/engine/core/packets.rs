@@ -202,7 +202,8 @@ impl Core {
 
     /// The ledger of the scheme of settlement method `method`, if the node
     /// runs it.
-    pub(super) fn method_ledger(&self, method: SchemeId) -> Option<LedgerId> {
+    #[must_use]
+    pub fn method_ledger(&self, method: SchemeId) -> Option<LedgerId> {
         let name = dassie_ledger::Name::new(method.as_str()).ok()?;
         self.schemes.get(&name).map(|active| active.scheme.ledger())
     }

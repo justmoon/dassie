@@ -12,7 +12,10 @@ use super::ledger::{permit, source};
 use super::live::{self, Follow};
 use super::proto::{self, request::Method, response, stream_item};
 use super::{RpcError, convert};
-use crate::engine::{Engine, NetworkView, PeerView};
+use dassie_connector::Targets;
+use dassie_ledger::LedgerId;
+
+use crate::engine::{Engine, NetworkView, OwnerSwap, PeerView, SwapEnd, SwapStats};
 use crate::node::Node;
 use crate::store::PeerSettings;
 
@@ -81,18 +84,38 @@ pub async fn dispatch(
             engine.unban_node(node_id(&request.node)?).await?;
             response::Method::UnbanNode(proto::UnbanNodeResponse {})
         }
+        Method::GetPeerSettings(_)
+        | Method::SetPeerSettings(_)
+        | Method::GetSwapStatus(_)
+        | Method::SwapWithPeer(_) => peer_settings_and_swaps(engine, method).await?,
+        other => view(&engine.network().await?, other),
+    };
+    Ok(Reply::Unary(reply))
+}
+
+/// The owner's peer settings, and the node's swaps with its peers.
+// The dispatch sends only these methods here.
+#[allow(clippy::unreachable)]
+async fn peer_settings_and_swaps(
+    engine: &Engine,
+    method: Method,
+) -> Result<response::Method, RpcError> {
+    Ok(match method {
         Method::GetPeerSettings(_) => {
             response::Method::GetPeerSettings(proto::GetPeerSettingsResponse {
                 settings: Some(peer_settings(engine.peer_settings().await?)),
             })
         }
         Method::SetPeerSettings(request) => set_peer_settings(engine, request).await?,
-        other => view(&engine.network().await?, other),
-    };
-    Ok(Reply::Unary(reply))
+        Method::GetSwapStatus(_) => {
+            response::Method::GetSwapStatus(swap_status(engine.swap_stats().await?))
+        }
+        Method::SwapWithPeer(request) => swap_with_peer(engine, request).await?,
+        _ => unreachable!("not a method of the peer settings or swaps"),
+    })
 }
 
-/// Changes the owner's peer settings, and answers with them.
+/// Changes the owner's peer settings, all of them, and answers with them.
 async fn set_peer_settings(
     engine: &Engine,
     request: proto::SetPeerSettingsRequest,
@@ -100,15 +123,26 @@ async fn set_peer_settings(
     let settings = request
         .settings
         .ok_or_else(|| RpcError::invalid("settings are required"))?;
-    // The contract does not carry the swap settings yet: they stay as they
-    // are.
-    let current = engine.peer_settings().await?;
+    let targets: Vec<(LedgerId, u32)> = settings
+        .swap_targets
+        .iter()
+        .map(|target| {
+            let ledger = LedgerId::parse(&target.ledger)
+                .ok_or_else(|| RpcError::invalid("a swap target names no ledger"))?;
+            Ok((ledger, target.target_ppm))
+        })
+        .collect::<Result<_, RpcError>>()?;
+    let swap_targets = Targets::new(&targets).ok_or_else(|| {
+        RpcError::invalid("swap targets name each asset once, with a share from 1 to 1 000 000 ppm")
+    })?;
     engine
         .set_peer_settings(PeerSettings {
             connector_fee_ppm: settings.connector_fee_ppm,
             fx_spread_ppm: settings.fx_spread_ppm,
             rebalance_ppm: settings.rebalance_ppm,
-            ..current
+            offer_swaps: settings.offer_swaps,
+            swapping: settings.swapping,
+            swap_targets,
         })
         .await?;
     Ok(response::Method::SetPeerSettings(
@@ -116,6 +150,82 @@ async fn set_peer_settings(
             settings: Some(peer_settings(engine.peer_settings().await?)),
         },
     ))
+}
+
+/// Swaps with a peer for the owner, and answers with what moved.
+async fn swap_with_peer(
+    engine: &Engine,
+    request: proto::SwapWithPeerRequest,
+) -> Result<response::Method, RpcError> {
+    let peer = node_id(&request.node)?;
+    // A rate of 0, as one left out reads, would take whatever the peer's
+    // snapshot says.
+    if request.rate_numerator == 0 || request.rate_denominator == 0 {
+        return Err(RpcError::invalid(
+            "a rate is required, and neither of its parts is 0",
+        ));
+    }
+    let ledger = async |scheme: &str| {
+        engine
+            .method_ledger(scheme.to_owned())
+            .await?
+            .ok_or_else(|| RpcError::not_found("no such scheme runs"))
+    };
+    let (pay_on, back_on) = (
+        ledger(&request.pay_on).await?,
+        ledger(&request.back_on).await?,
+    );
+    let report = engine
+        .swap(OwnerSwap {
+            peer,
+            pay_on,
+            back_on,
+            amount: request.amount,
+            rate: (request.rate_numerator, request.rate_denominator),
+        })
+        .await?;
+    let ended = match report.ended {
+        SwapEnd::Done => proto::SwapEnd::Done,
+        SwapEnd::Exhausted => proto::SwapEnd::Exhausted,
+        SwapEnd::Refused => proto::SwapEnd::Refused,
+        SwapEnd::TimedOut => proto::SwapEnd::TimedOut,
+    };
+    Ok(response::Method::SwapWithPeer(
+        proto::SwapWithPeerResponse {
+            paid: report.paid,
+            received: report.received,
+            fulfilled: report.fulfilled,
+            rejected: report.rejected,
+            ended: ended.into(),
+        },
+    ))
+}
+
+/// What the swap service did, as the contract says it.
+fn swap_status(stats: SwapStats) -> proto::GetSwapStatusResponse {
+    proto::GetSwapStatusResponse {
+        by_itself: stats.by_itself,
+        peers: stats.peers,
+        in_flight: stats.in_flight,
+        sent: stats.sent,
+        fulfilled: stats.fulfilled,
+        rejected: stats.rejected,
+        paid_though_rejected: stats.paid_though_rejected,
+        backoffs: stats.backoffs,
+        refused: stats.refused,
+        below_minimum: stats.below_minimum,
+        too_large: stats.too_large,
+        dropped: stats.dropped,
+        moved: stats
+            .moved
+            .iter()
+            .map(|(ledger, &(paid, received))| proto::SwapsMoved {
+                ledger: ledger.as_str().to_owned(),
+                paid,
+                received,
+            })
+            .collect(),
+    }
 }
 
 /// The methods that only read the network.
@@ -252,11 +362,21 @@ fn saturate(owed: i128) -> i64 {
     i64::try_from(owed).unwrap_or(if owed < 0 { i64::MIN } else { i64::MAX })
 }
 
-const fn peer_settings(settings: PeerSettings) -> proto::PeerSettings {
+fn peer_settings(settings: PeerSettings) -> proto::PeerSettings {
     proto::PeerSettings {
         connector_fee_ppm: settings.connector_fee_ppm,
         fx_spread_ppm: settings.fx_spread_ppm,
         rebalance_ppm: settings.rebalance_ppm,
+        offer_swaps: settings.offer_swaps,
+        swapping: settings.swapping,
+        swap_targets: settings
+            .swap_targets
+            .iter()
+            .map(|(ledger, target_ppm)| proto::SwapTarget {
+                ledger: ledger.as_str().to_owned(),
+                target_ppm,
+            })
+            .collect(),
     }
 }
 

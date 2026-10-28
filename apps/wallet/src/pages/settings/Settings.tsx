@@ -1,8 +1,9 @@
 /**
  * Settings (spec/areas/wallet.md#pages): the wallet, the node's version and
  * logging out, the theme, the node's alias, where received funds are kept,
- * what transit is charged, exchange rates and the display currency, the
- * owner's sessions and paired devices, and the BTP tokens with their caps.
+ * what transit is charged and the node's swaps with its peers, exchange
+ * rates and the display currency, the owner's sessions and paired devices,
+ * and the BTP tokens with their caps.
  */
 
 import type { JSX } from "@solidjs/web";
@@ -28,6 +29,8 @@ import { Devices } from "./Devices.tsx";
 import { Funds } from "./Funds.tsx";
 import { RateSettings } from "./RateSettings.tsx";
 import { chargeText, parseCharge } from "./rates.ts";
+import { assetLedgers, targetsFrom, targetText } from "./swaps.ts";
+import { useStatus } from "../../status.ts";
 
 export function Settings(): JSX.Element {
   return (
@@ -183,11 +186,15 @@ function NodeSettings(): JSX.Element {
 }
 
 /** What passing a packet from one peer to another is charged
- * (spec/decisions/exchange-rates.md), and how far the owner's inventory
- * moves what it converts at (spec/decisions/passive-rebalancing.md). */
+ * (spec/decisions/exchange-rates.md), how far the owner's inventory moves
+ * what it converts at (spec/decisions/passive-rebalancing.md), and the
+ * node's swaps with its peers, with a periphery node's targets
+ * (spec/decisions/peer-swaps.md). */
 function PeerSettings(): JSX.Element {
   const client = useClient();
   const toast = useToast();
+  const data = useNodeData();
+  const status = useStatus();
   const id = createUniqueId();
   const [version, setVersion] = createSignal(0);
   const settings = createMemo(async () => {
@@ -197,6 +204,9 @@ function PeerSettings(): JSX.Element {
   const [fee, setFee] = createSignal<string>();
   const [spread, setSpread] = createSignal<string>();
   const [rebalance, setRebalance] = createSignal<string>();
+  const [offer, setOffer] = createSignal<boolean>();
+  const [swapping, setSwapping] = createSignal<boolean>();
+  const [typed, setTyped] = createSignal<Record<string, string>>({});
   const [error, setError] = createSignal<string>();
   const shownFee = () =>
     fee() ?? (settings() ? chargeText(settings()!.connectorFeePpm) : "");
@@ -205,6 +215,17 @@ function PeerSettings(): JSX.Element {
   const shownRebalance = () =>
     rebalance() ??
       (settings() ? chargeText(settings()!.rebalancePpm) : "");
+  const shownOffer = () => offer() ?? settings()?.offerSwaps ?? true;
+  const shownSwapping = () => swapping() ?? settings()?.swapping ?? true;
+  const periphery = () => status()?.periphery === true;
+  const assets = () =>
+    assetLedgers((data.ledgers() ?? []).map((ledger) => ledger.id));
+  const shownTarget = (ledger: string) => {
+    const own = typed()[ledger];
+    if (own !== undefined) return own;
+    const kept = settings()?.swapTargets.find((t) => t.ledger === ledger);
+    return kept ? targetText(kept.targetPpm) : "";
+  };
   const save = async (event: SubmitEvent) => {
     event.preventDefault();
     setError(undefined);
@@ -220,18 +241,35 @@ function PeerSettings(): JSX.Element {
       setError("A fee, a spread or a rebalancing is at most 10%.");
       return;
     }
+    // A core node keeps the targets it has: only a periphery node aims for
+    // them.
+    const targets = periphery()
+      ? targetsFrom(assets().map((ledger) => [ledger, shownTarget(ledger)]))
+      : { targets: settings()?.swapTargets ?? [] };
+    if ("invalid" in targets) {
+      setError(
+        `The target for ${targets.invalid} is more than 0 and at most 100%.`,
+      );
+      return;
+    }
     try {
       await client.call("setPeerSettings", {
         settings: {
           connectorFeePpm: feePpm,
           fxSpreadPpm: spreadPpm,
           rebalancePpm,
+          offerSwaps: shownOffer(),
+          swapping: shownSwapping(),
+          swapTargets: targets.targets,
         },
       });
       toast({ title: "Peer settings saved" });
       setFee(undefined);
       setSpread(undefined);
       setRebalance(undefined);
+      setOffer(undefined);
+      setSwapping(undefined);
+      setTyped({});
       setVersion((n) => n + 1);
     } catch (failure) {
       setError(describe(failure));
@@ -279,6 +317,62 @@ function PeerSettings(): JSX.Element {
             onInput={(event) => setRebalance(event.currentTarget.value)}
           />
         </Field>
+        <Show when={!periphery()}>
+          <Field
+            label="Swaps for peers"
+            for={`${id}-offer`}
+            hint="Whether peers may swap one currency for another with you, at the rates above."
+          >
+            <select
+              id={`${id}-offer`}
+              data-testid="offer-swaps-input"
+              onChange={(event) => setOffer(event.currentTarget.value === "on")}
+            >
+              <option value="on" selected={shownOffer()}>Offered</option>
+              <option value="off" selected={!shownOffer()}>Not offered</option>
+            </select>
+          </Field>
+        </Show>
+        <Field
+          label="Swapping with peers"
+          for={`${id}-swapping`}
+          hint={periphery()
+            ? "Whether your node reads its uplinks' quotes, to swap toward the targets below and when you ask."
+            : "Whether your node swaps with its peers by itself, toward an even split of what it holds, when their quotes beat its costs."}
+        >
+          <select
+            id={`${id}-swapping`}
+            data-testid="swapping-input"
+            onChange={(event) =>
+              setSwapping(event.currentTarget.value === "on")}
+          >
+            <option value="on" selected={shownSwapping()}>On</option>
+            <option value="off" selected={!shownSwapping()}>Off</option>
+          </select>
+        </Field>
+        <Show when={periphery()}>
+          <p class="muted">
+            Targets (% of what you hold in the currencies with one): your node
+            swaps by itself only toward targets you set. Leave all empty to swap
+            only when you ask.
+          </p>
+          <For each={assets()}>
+            {(ledger) => (
+              <Field label={ledger} for={`${id}-target-${ledger}`}>
+                <input
+                  id={`${id}-target-${ledger}`}
+                  data-testid={`swap-target-${ledger}`}
+                  inputmode="decimal"
+                  value={shownTarget(ledger)}
+                  onInput={(event) => {
+                    const text = event.currentTarget.value;
+                    setTyped((all) => ({ ...all, [ledger]: text }));
+                  }}
+                />
+              </Field>
+            )}
+          </For>
+        </Show>
         <div class="actions">
           <button
             type="submit"

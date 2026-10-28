@@ -385,6 +385,13 @@ fn small() -> BoxedStrategy<u32> {
 
 const LEDGERS: &[&str] = &["stub+usd", "xrpl-testnet-xrp+xrp", "xrpl-xrp+xrp", "stub"];
 
+const SCHEMES: &[&str] = &[
+    "stub",
+    "hub-xrpl-testnet-xrp",
+    "xrpl-testnet-xrp",
+    "stub+usd",
+];
+
 /// The IDs of payments, quotes and grants, UUIDs.
 fn payment_id() -> BoxedStrategy<String> {
     prop_oneof![
@@ -590,6 +597,7 @@ fn bare() -> BoxedStrategy<Method> {
         Method::SubscribeGrants(proto::SubscribeGrantsRequest {}),
         Method::SubscribeNames(proto::SubscribeNamesRequest {}),
         Method::GetPeerSettings(proto::GetPeerSettingsRequest {}),
+        Method::GetSwapStatus(proto::GetSwapStatusRequest {}),
         Method::GetRateSources(proto::GetRateSourcesRequest {}),
     ])
     .boxed()
@@ -838,17 +846,6 @@ fn sending() -> BoxedStrategy<Method> {
         node_id().prop_map(|node| Method::UnbanNode(proto::UnbanNodeRequest { node })),
         field(NAMES).prop_map(|name| Method::RegisterName(proto::RegisterNameRequest { name })),
         field(NAMES).prop_map(|name| Method::RenewName(proto::RenewNameRequest { name })),
-        proptest::option::of((small(), small(), small())).prop_map(|settings| {
-            Method::SetPeerSettings(proto::SetPeerSettingsRequest {
-                settings: settings.map(|(connector_fee_ppm, fx_spread_ppm, rebalance_ppm)| {
-                    proto::PeerSettings {
-                        connector_fee_ppm,
-                        fx_spread_ppm,
-                        rebalance_ppm,
-                    }
-                }),
-            })
-        }),
         rate_sources.prop_map(|sources| {
             Method::SetRateSources(proto::SetRateSourcesRequest {
                 sources: sources
@@ -867,7 +864,15 @@ fn sending() -> BoxedStrategy<Method> {
 /// Any method but those that start network IO, with near-valid or
 /// arbitrary fields.
 fn method() -> BoxedStrategy<Method> {
-    prop_oneof![bare(), settings(), ledgers(), payments(), sending()].boxed()
+    prop_oneof![
+        bare(),
+        settings(),
+        ledgers(),
+        payments(),
+        sending(),
+        peer_settings_and_swaps()
+    ]
+    .boxed()
 }
 
 proptest! {
@@ -892,4 +897,52 @@ proptest! {
         // The engine ran to the end, without a panic.
         runtime.block_on(engine).unwrap();
     }
+}
+
+/// The owner's peer settings, and a swap with a peer.
+fn peer_settings_and_swaps() -> BoxedStrategy<Method> {
+    let set = proptest::option::of((
+        (small(), small(), small()),
+        (any::<bool>(), any::<bool>()),
+        proptest::collection::vec((field(LEDGERS), small()), 0..4),
+    ))
+    .prop_map(|settings| {
+        Method::SetPeerSettings(proto::SetPeerSettingsRequest {
+            settings: settings.map(|(charges, (offer_swaps, swapping), targets)| {
+                let (connector_fee_ppm, fx_spread_ppm, rebalance_ppm) = charges;
+                proto::PeerSettings {
+                    connector_fee_ppm,
+                    fx_spread_ppm,
+                    rebalance_ppm,
+                    offer_swaps,
+                    swapping,
+                    swap_targets: targets
+                        .into_iter()
+                        .map(|(ledger, target_ppm)| proto::SwapTarget { ledger, target_ppm })
+                        .collect(),
+                }
+            }),
+        })
+    });
+    let swap = (
+        node_id(),
+        field(SCHEMES),
+        field(SCHEMES),
+        number(),
+        number(),
+        number(),
+    )
+        .prop_map(
+            |(node, pay_on, back_on, amount, rate_numerator, rate_denominator)| {
+                Method::SwapWithPeer(proto::SwapWithPeerRequest {
+                    node,
+                    pay_on,
+                    back_on,
+                    amount,
+                    rate_numerator,
+                    rate_denominator,
+                })
+            },
+        );
+    prop_oneof![set, swap].boxed()
 }

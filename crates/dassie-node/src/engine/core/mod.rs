@@ -30,6 +30,7 @@ mod probes;
 mod schemes;
 mod settlement;
 mod snapshots;
+mod swapping;
 mod swaps;
 mod tokens;
 mod trust;
@@ -60,6 +61,14 @@ pub use hub_funding::{Direction, Move};
 #[cfg(feature = "testing")]
 pub(crate) use hub_moves::owner_book_ledger;
 pub use hub_moves::{HubHold, HubStatus};
+
+/// The owner book a settlement hub's ledger counts with, as one holding of
+/// its asset, or `None` for a ledger that is no hub's: every other ledger
+/// is an asset of its own (spec/areas/connector.md#inventory-pricing).
+#[must_use]
+pub const fn owner_book_of(ledger: dassie_ledger::LedgerId) -> Option<dassie_ledger::LedgerId> {
+    hub_moves::owner_book_ledger(ledger)
+}
 #[cfg(feature = "testing")]
 pub use hubs::HubPeer;
 pub use incoming::{IncomingPolicy, NewIncoming};
@@ -75,8 +84,13 @@ pub use probes::{
 pub use schemes::{AssetView, LedgerEvent, SCHEMES, offered};
 pub use settlement::Lie;
 pub use snapshots::{NoSnapshots, Quoting, SnapshotSource};
+pub use swapping::{
+    MAX_OWNER_SWAPS, MAX_SWAP_PEERS, OWNER_SWAP_MS, OwnerSwap, PACKETS_PER_PEER, SWAP_TIMEOUT_MS,
+    SwapEnd, SwapReport, SwapStats,
+};
 pub use swaps::{
-    MAX_SWAP_OUTCOMES, NewSwap, SWAP_DATA_LENGTH, SWAP_DATA_VERSION, SwapOutcome, SwapSent,
+    MAX_SWAP_OUTCOMES, MAX_SWAPS_IN_FLIGHT, NewSwap, SWAP_DATA_LENGTH, SWAP_DATA_VERSION,
+    SwapOutcome, SwapSent,
 };
 pub use tokens::{BtpSession, NewToken, TokenView, token_hash};
 
@@ -183,6 +197,14 @@ pub enum Output {
         id: u64,
         /// What it measured.
         measured: Option<Measured>,
+    },
+    /// A swap the owner asked for is done: what it moved, and why it
+    /// ended ([`Core::start_owner_swap`]).
+    SwapDone {
+        /// The swap.
+        id: u64,
+        /// What it moved.
+        report: SwapReport,
     },
     /// Open an external asset's connection to its ledger, numbered
     /// `epoch`; what comes over it is fed back with the same epoch.
@@ -387,6 +409,9 @@ pub struct Core {
     spending: payers::Spending,
     /// The node's own swaps with its peers.
     swaps: swaps::Swaps,
+    /// The swap service: with whom, how much and when the node swaps, and
+    /// the swaps its owner asks for.
+    swapping: swapping::Swapping,
     /// The owner's peer settings.
     peer_settings: PeerSettings,
     /// When the invariants are swept.
@@ -542,6 +567,7 @@ impl Core {
             ledger_stats: dassie_ledger::Stats::default(),
             spending: payers::Spending::default(),
             swaps: swaps::Swaps::default(),
+            swapping: swapping::Swapping::default(),
             peer_settings: PeerSettings::DEFAULT,
             sweeps: Sweeps::DUE,
             events: Events::new(),
@@ -653,6 +679,7 @@ impl Core {
             self.removals_deadline(),
             self.funding_deadline(),
             self.snapshot_deadline(),
+            self.swap_deadline(),
             self.work_left(),
         ]
         .into_iter()
@@ -680,6 +707,7 @@ impl Core {
     fn finish_round(&mut self, out: &mut Vec<Output>) -> bool {
         self.peer_timers();
         self.publish_snapshot();
+        self.run_swaps();
         self.scheme_timers();
         let checked_at = self.settle.at_ms;
         self.settlement_timers();

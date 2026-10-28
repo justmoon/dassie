@@ -37,6 +37,7 @@ import { useToast } from "@dassie/ui/toast";
 import { Badge, Card, ConfirmButton, LiveNote, PageTitle } from "@dassie/ui/ui";
 import { useStatus } from "../../status.ts";
 import { feedView } from "./feed.ts";
+import { swapsView } from "./swaps.ts";
 import {
   NO_UPLINKS,
   relayState,
@@ -185,6 +186,7 @@ function OwnNode(
           </>
         )}
       </Show>
+      <Swaps periphery={false} />
       <h3>Snapshot</h3>
       <Show when={props.status} fallback={<p class="muted">Asking…</p>}>
         {(status) => {
@@ -256,7 +258,39 @@ function PeripheryNode(props: {
           </Badge>
         </p>
       </Show>
+      <Swaps periphery />
     </Card>
+  );
+}
+
+/**
+ * The node's swaps with its peers (spec/areas/connector.md#the-swap-service):
+ * whether it swaps by itself, and what moved, asked again as the clock ticks.
+ */
+function Swaps(props: { periphery: boolean }): JSX.Element {
+  const client = useClient();
+  const now = useNow();
+  const status = createMemo(async () => {
+    now();
+    return await client.call("getSwapStatus", {});
+  });
+  const view = () => swapsView(status(), props.periphery);
+  return (
+    <>
+      <h3>Swaps</h3>
+      <Show when={view()} fallback={<p class="muted">Asking…</p>}>
+        {(swaps) => (
+          <div data-testid="swaps">
+            <p>
+              <Badge tone={swaps().tone}>{swaps().badge}</Badge> {swaps().text}
+            </p>
+            <For each={swaps().details}>
+              {(detail) => <p class="muted">{detail}</p>}
+            </For>
+          </div>
+        )}
+      </Show>
+    </>
   );
 }
 

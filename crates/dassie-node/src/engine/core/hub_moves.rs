@@ -503,6 +503,54 @@ impl Core {
             .collect()
     }
 
+    /// What a swap paid on `ledger` costs the node, in parts per million
+    /// of what it pays, rounded up (spec/decisions/peer-swaps.md): over a
+    /// hub, the hub's fee on an operation per least settlement, since the
+    /// payer pays the gas of the settlements that follow, and the XRP
+    /// Ledger's fee on a deposit from the owner book that refills the hub,
+    /// over what the node moves between the floor and the ceiling. All of
+    /// it from the hub's rules and the node's own settings, which no
+    /// message carries. Nothing on a method over no hub; `None` while the
+    /// scheme has stopped, or a token hub's deposit fee, which is XRP, has
+    /// no rate in the token.
+    pub(super) fn swap_costs_ppm(&self, ledger: LedgerId) -> Option<u32> {
+        let (&scheme, active) = self
+            .schemes
+            .iter()
+            .find(|(_, active)| active.scheme.ledger() == ledger)?;
+        if active.failed.is_some() {
+            return None;
+        }
+        // The stub with commitments peers as over a hub, without one: no
+        // rules, no fees.
+        let Some(account) = self.hub_account(scheme).filter(|_| active.over_hub) else {
+            return Some(0);
+        };
+        let fees = account.terms().fees;
+        let million = 1_000_000u128;
+        let per = |cost: u64, over: u64| -> Option<u128> {
+            let over = u128::from(over);
+            (over > 0).then(|| (u128::from(cost) * million).div_ceil(over))
+        };
+        let max_packet = self.settle.max_packet;
+        let gas = fees.operation.saturating_mul(UNITS_PER_DROP);
+        let gas_ppm = per(gas, policy::minimum(max_packet))?;
+        let (floor, ceiling) = self.hub_limits(self.hub_peerings(scheme).len());
+        let deposit = XRPL_FEE_DROPS.saturating_mul(UNITS_PER_DROP);
+        let deposit = if ledger.asset().code == "XRP" {
+            deposit
+        } else {
+            let book = gas_book_ledger(ledger)?;
+            let max_age = self.connector.config().max_rate_age_ms;
+            let table = &self.prices.table;
+            table
+                .convert_at_spot(book, ledger, deposit, self.now_ms(), max_age)
+                .ok()?
+        };
+        let move_ppm = per(deposit, ceiling.saturating_sub(floor))?;
+        u32::try_from(gas_ppm.saturating_add(move_ppm)).ok()
+    }
+
     /// The floor and the ceiling, in internal units, for `peerings`.
     fn hub_limits(&self, peerings: usize) -> (u64, u64) {
         let max_packet = self.settle.max_packet;

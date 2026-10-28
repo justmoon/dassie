@@ -37,9 +37,9 @@ pub use self::core::{
     AssetView, BtpEvent, BtpSession, Changes, Core, CoreParts, CreatedOutgoing, Direction,
     EngineError, EngineEvent, Event, HubHold, HubStatus, IncomingPolicy, LedgerEvent, LedgerView,
     Lie, Measured, Move, NamesView, NetworkView, NewIncoming, NewOutgoing, NewSwap, NewToken,
-    NoSnapshots, Outbound, Output, OwnSnapshots, PaymentEvent, PeerEvent, PeerView, Prober,
-    Quoting, RemovalBlocker, SCHEMES, SettlementEvent, Severity, SnapshotSource, SwapOutcome,
-    SwapSent, TokenView, ledger_realm, ledger_slug, offered,
+    NoSnapshots, Outbound, Output, OwnSnapshots, OwnerSwap, PaymentEvent, PeerEvent, PeerView,
+    Prober, Quoting, RemovalBlocker, SCHEMES, SettlementEvent, Severity, SnapshotSource, SwapEnd,
+    SwapOutcome, SwapReport, SwapSent, SwapStats, TokenView, ledger_realm, ledger_slug, offered,
 };
 
 use crate::clock::clock_moved;
@@ -103,6 +103,11 @@ enum Command {
         by: Prober,
         reply: oneshot::Sender<ProbeResult>,
     },
+    /// A swap the owner asks for; the reply comes once it is done.
+    Swap {
+        swap: OwnerSwap,
+        reply: oneshot::Sender<Result<SwapReport, EngineError>>,
+    },
     /// Run this on the core.
     Call(Call),
 }
@@ -119,6 +124,7 @@ impl std::fmt::Debug for Command {
             Self::PeerInbound { .. } => f.write_str("PeerInbound"),
             Self::PeerResponse { id, .. } => write!(f, "PeerResponse({id:?})"),
             Self::Probe { .. } => f.write_str("Probe"),
+            Self::Swap { .. } => f.write_str("Swap"),
             Self::Call(_) => f.write_str("Call"),
         }
     }
@@ -453,6 +459,43 @@ impl Engine {
         }
     }
 
+    /// Swaps for the owner with a peer, from one method to another, up to
+    /// an amount, at a least rate, as the node's own swaps are sent
+    /// (spec/areas/connector.md#the-swap-service): what moved, once it is
+    /// done.
+    pub async fn swap(&self, swap: OwnerSwap) -> Result<SwapReport, EngineError> {
+        let (reply, receiver) = oneshot::channel();
+        self.commands
+            .send(Command::Swap { swap, reply })
+            .await
+            .map_err(|_| EngineError::Unavailable)?;
+        // The core ends a swap after its time and what it has in flight
+        // after theirs; this waits a little longer, for the step that says
+        // so.
+        let wait = self::core::OWNER_SWAP_MS + 2 * self::core::SWAP_TIMEOUT_MS + 2_000;
+        match tokio::time::timeout(Duration::from_millis(wait), receiver).await {
+            Ok(Ok(result)) => result,
+            Ok(Err(_)) | Err(_) => Err(EngineError::Unavailable),
+        }
+    }
+
+    /// The ledger of the active scheme `scheme`.
+    pub async fn method_ledger(
+        &self,
+        scheme: String,
+    ) -> Result<Option<dassie_ledger::LedgerId>, EngineError> {
+        self.call(move |core| {
+            Ok(dassie_peer::wire::SchemeId::parse(&scheme)
+                .and_then(|method| core.method_ledger(method)))
+        })
+        .await
+    }
+
+    /// What the swap service did since the node started.
+    pub async fn swap_stats(&self) -> Result<SwapStats, EngineError> {
+        self.call(|core| Ok(core.swap_stats())).await
+    }
+
     /// The owner's peer settings.
     pub async fn peer_settings(&self) -> Result<crate::store::PeerSettings, EngineError> {
         self.call(|core| Ok(core.peer_settings())).await
@@ -741,6 +784,8 @@ pub async fn run(node: Arc<Node>, shutdown: CancellationToken) {
         next_inbound: 0,
         probe_replies: BTreeMap::new(),
         next_probe: 0,
+        swap_replies: BTreeMap::new(),
+        next_swap: 0,
         versions,
     };
     driver.run(receiver, config, &shutdown).await;
@@ -770,6 +815,9 @@ struct Driver<'a> {
     /// Probes waiting for their result.
     probe_replies: BTreeMap<u64, oneshot::Sender<ProbeResult>>,
     next_probe: u64,
+    /// The owner's swaps waiting for their report.
+    swap_replies: BTreeMap<u64, oneshot::Sender<Result<SwapReport, EngineError>>>,
+    next_swap: u64,
     /// What changed, counted, for live views.
     versions: watch::Sender<Versions>,
 }
@@ -823,6 +871,25 @@ impl Driver<'_> {
                 }
             }
             self.finish();
+        }
+    }
+
+    /// Starts a swap the owner asks for; `reply` hears what it moved once
+    /// it is done, or why it did not start once the step is persisted.
+    fn start_swap(
+        &mut self,
+        swap: OwnerSwap,
+        reply: oneshot::Sender<Result<SwapReport, EngineError>>,
+    ) {
+        let id = self.next_swap;
+        self.next_swap += 1;
+        match self.core.start_owner_swap(id, swap) {
+            Ok(()) => {
+                self.swap_replies.insert(id, reply);
+            }
+            Err(error) => self.replies.push(Box::new(move || {
+                let _ = reply.send(Err(error));
+            })),
         }
     }
 
@@ -886,6 +953,7 @@ impl Driver<'_> {
                     })),
                 }
             }
+            Command::Swap { swap, reply } => self.start_swap(swap, reply),
             Command::Call(call) => {
                 let reply = call(&mut self.core);
                 self.replies.push(reply);
@@ -898,6 +966,14 @@ impl Driver<'_> {
     /// callers hear back. A client that does not read, or whose task is
     /// gone, is disconnected, which is another step.
     fn finish(&mut self) {
+        // An owner's swap whose caller went away sends no more.
+        self.swap_replies.retain(|&id, reply| {
+            let gone = reply.is_closed();
+            if gone {
+                self.core.stop_owner_swap(id);
+            }
+            !gone
+        });
         loop {
             self.core.finish_step(&mut self.outputs);
             let failed = self.dispatch();
@@ -965,6 +1041,12 @@ impl Driver<'_> {
                 Output::ProbeDone { id, measured } => {
                     if let Some(sender) = self.probe_replies.remove(&id) {
                         let _ = sender.send(Ok(measured));
+                    }
+                    continue;
+                }
+                Output::SwapDone { id, report } => {
+                    if let Some(sender) = self.swap_replies.remove(&id) {
+                        let _ = sender.send(Ok(report));
                     }
                     continue;
                 }

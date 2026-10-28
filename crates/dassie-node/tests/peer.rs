@@ -462,6 +462,9 @@ async fn the_peer_settings_are_the_owners() {
                 connector_fee_ppm,
                 fx_spread_ppm,
                 rebalance_ppm,
+                offer_swaps: true,
+                swapping: true,
+                swap_targets: Vec::new(),
             }),
         })
     };
@@ -487,5 +490,65 @@ async fn the_peer_settings_are_the_owners() {
         );
     }
     assert_eq!(settings().await, (1_000, 2_000, 30_000));
+    // The swap settings, and a periphery node's targets, by asset
+    // (spec/decisions/peer-swaps.md); a hub's ledger is no asset.
+    let swaps = |swap_targets| {
+        Method::SetPeerSettings(proto::SetPeerSettingsRequest {
+            settings: Some(proto::PeerSettings {
+                connector_fee_ppm: 1_000,
+                fx_spread_ppm: 2_000,
+                rebalance_ppm: 30_000,
+                offer_swaps: false,
+                swapping: true,
+                swap_targets,
+            }),
+        })
+    };
+    let target = |ledger: &str, target_ppm| proto::SwapTarget {
+        ledger: ledger.to_owned(),
+        target_ppm,
+    };
+    let targets = vec![
+        target("stub+usd", 400_000),
+        target("xrpl-testnet-xrp+xrp", 600_000),
+    ];
+    let Ok(response::Method::SetPeerSettings(reply)) = owner.call(swaps(targets.clone())).await
+    else {
+        panic!("refused");
+    };
+    let kept = reply.settings.unwrap();
+    assert!(!kept.offer_swaps && kept.swapping);
+    assert_eq!(kept.swap_targets, targets);
+    for refused in [
+        vec![target("hub-xrpl-testnet-xrp+xrp", 1)],
+        vec![target("stub+usd", 1), target("stub+usd", 2)],
+        vec![target("stub+usd", 0)],
+        vec![target("nothing", 1)],
+    ] {
+        assert!(owner.call(swaps(refused)).await.is_err());
+    }
+    let Ok(response::Method::GetSwapStatus(status)) = owner
+        .call(Method::GetSwapStatus(proto::GetSwapStatusRequest {}))
+        .await
+    else {
+        panic!("no swap status");
+    };
+    assert_eq!((status.sent, status.in_flight), (0, 0));
+    // A swap needs a rate: one left out reads as 0, and is refused before
+    // anything else is looked at.
+    let free = |rate_numerator, rate_denominator| {
+        Method::SwapWithPeer(proto::SwapWithPeerRequest {
+            node: key(1).node_id().as_str().to_owned(),
+            pay_on: "stub".to_owned(),
+            back_on: "stub-two".to_owned(),
+            amount: 1_000,
+            rate_numerator,
+            rate_denominator,
+        })
+    };
+    for (numerator, denominator) in [(0, 1), (1, 0), (0, 0)] {
+        let refused = owner.call(free(numerator, denominator)).await.unwrap_err();
+        assert_eq!(refused.code(), proto::ErrorCode::InvalidArgument);
+    }
     node.stop().await;
 }

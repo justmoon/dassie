@@ -108,6 +108,7 @@
         "A page of what the node holds outside its books, as the ledger reports it: its XRP and reserve, its token lines, and whether an issuer froze one",
         "A page of each settlement hub the node is in, drawn in Kopje: its balance, the holds toward each peer and from it, the move on its way, depositing and withdrawing, a token hub's withdrawal sent again by itself while the node checks the escrow's fees, since when a token's issuer froze the hub, and the hub's payout once it ended or stalled",
         "Wallet addresses for Open Payments, one per asset, and payment requests; in Settings, where the node keeps what it receives in each asset: in its settlement hub, or on the owner's own account",
+        "In Settings, the peer settings: fees, whether the node offers swaps and swaps with its peers, and a periphery node's targets per asset; on the network page, what the node's swaps did",
         "The consent page for apps, the apps it has let in, and their grants",
         "The network as the node routes over it, its peers online and offline, bans, and the node's settings; a peer's details list each settlement method with what is owed on it, and a ledger being removed says the node is settling up with its peers first",
         "Names for the node: registering one, how it stands with each registrar, and renewing it",
@@ -319,6 +320,7 @@
         "The node's account in each settlement hub it is in, and since when a token's issuer froze the hub, and the owner's moves into it and out of it, naming the hub by the settlement scheme over it",
         "Founding a settlement hub as its sponsor, and the payout bundles the node keeps of each of its hubs",
         "Nodes, peers, routes, settlements and bans; every settlement method of a peering, each with its credit, what is owed, and whether it is withdrawn or being wound down, and for a ledger being removed how many methods are left to wind down",
+        "The peer settings, with swapping and a periphery node's swap targets, what the node's swaps did, and a swap with a peer the owner asks for, which answers with what moved",
         "The owner's names: registering and renewing them, and how each stands with each registrar",
         "Wallet addresses, payments, grants and Send, to a wallet, a payment request or STREAM credentials",
         "`Subscribe*` streams: a snapshot, then changes, at most 4 a second",
@@ -384,6 +386,7 @@
         "Open Payments over HTTPS and relayed streams: a wallet address per asset, which books what arrives on the asset's settlement hub, where it arrives, incoming payments, the GNAP authorization server, quotes and outgoing payments, each answer signed with the node key and written under the name the request came through; as a client at `dassiepay.net`, and when it fetches a client's key set there, the node takes only answers signed by the node whose ID the host names, or by a name's holder in its own view",
         "Exchange rates, fetched from several sources, the fee and spread on what passes between peers, and the price table rebuilt from them and the owner's funds whenever either changes",
         "A core node's snapshot, while its owner lets it offer swaps: the connector's quotes and ladders for the settlement methods its peers pay it on, not its owner books, made by the engine at most once a second while they change and a heartbeat otherwise, signed and cached, pushed to the peers subscribed to it, and sent over UDP to anyone whose request is padded to its size, within a budget, with the port in the node's discovery document and its link state, and its counters in the owner's status rather than the log",
+        "Swaps with its peers: a core node swaps by itself while the quotes a peer's snapshot promises, valued at its own curve, beat its own costs of hub fees and moves, a periphery node only toward targets its owner sets; each packet within a step of the quotes, backing off when a peer is short of room and stopping when it refuses; and swaps the owner asks of a peer, at a rate, with what moved counted for the owner",
         "Credit to each peer over a settlement hub: the node's own hold toward the peer, kept in step as the hold is funded and taken from, and nothing beyond it",
         "Settlement methods: a peering's accounts, credit, requests to settle and their backoff, and the credit over each hub kept per method, each on its own ledger, and every method stored with its peering; a further method is taken while its accounts fit; each packet takes a method by structure, the one of the ledger it came in on where the hop has it, so a method short of room answers T04 and never passes the packet to another; the owner's removal of a scheme that peers settle on is not refused but winds their methods on it down, the scheme running until each is dropped, across a restart too, and the owner sees every method of each peering",
         "Peerings over a settlement hub: the node offers the scheme over every hub it is a member of, one per asset, in its link state, with the hub and its account there, and peers over it with members of the same hub, sends a commitment with each Prepare and a claim with each reply to a Fulfill, and books what a peering cost beyond its hold as a loss on the peer; a node with no account in its hub is paid into it by a member it peers with: their packets go without promises until then, the books alone taking them, and the member pays it in with all it owes once that reaches the hub's minimum for a new account, never before",
@@ -583,6 +586,7 @@
         "Exchange between currencies, with fees and a spread, at a rate moved from spot by what the owner holds of each asset, a hub's ledger counted with the owner book that funds it, once the packet and those in flight have moved it, so that payments bring a skewed node back toward balance and no round trip gains, and nothing to or from a ledger whose scheme is paused",
         "The same pricing on every ledger with a currency, a settlement hub's as much as an owner book's, and, for a packet that cannot keep its ledger, a ranking of the ledgers it could convert to by what it gets there relative to spot",
         "Quotes for peers that swap with the node: a bid and an ask per settlement method, each with a ladder of how far a swap goes before its price falls by each drop of a grid, made from the price table so that they never promise more than the curve gives",
+        "What a swap is worth to the node itself: the rate its own curve gives, after the swap's own move and without the spread it charges its peers, toward its equal targets or toward targets the owner sets",
         "A spending cap per BTP token",
         "A packet trace for the debug pages",
         "Waiting for a settlement hub's decision before rejecting a packet that went to a peer on a method over the hub"
@@ -706,7 +710,7 @@
         "The snapshot: a node's quotes per settlement method, by a tag of its scheme, each with a ladder of how far it holds, in numbers with one encoding each, signed by the node key, within one packet",
         "The padded request anyone may send for one, answered within a budget per second, so a forged address gets no more than it sent",
         "When to make one: soon after the quotes change, but never too often, and a heartbeat otherwise",
-        "A reader's side: verifies each snapshot under the node's key and keeps only newer ones, and prices the least a swap, and each of its packets, gets by it"
+        "A reader's side: verifies each snapshot under the node's key and keeps only newer ones, and prices the least a swap, and each of its packets, gets by it, and where each step of a swap's walk ends"
       ]
     },
     "identity": {

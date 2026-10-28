@@ -593,7 +593,9 @@ impl Core {
     pub fn set_peer_settings(&mut self, settings: PeerSettings) -> Result<(), EngineError> {
         if !settings.is_valid() {
             return Err(EngineError::Invalid(
-                "the fee, the spread and the rebalancing must be at most 100 000 ppm".into(),
+                "the fee, the spread and the rebalancing must be at most 100 000 ppm, and a swap \
+                 target names an asset, not a hub's ledger"
+                    .into(),
             ));
         }
         self.peer_settings = settings;

@@ -196,6 +196,69 @@ impl Holding {
 /// What the owner holds on each of a table's ledgers, in the table's order.
 pub type Holdings = [Holding; MAX_PRICED_LEDGERS];
 
+/// Targets the owner sets per asset, in place of the curve's equal ones:
+/// what a periphery node's own swaps aim for
+/// (spec/decisions/peer-swaps.md). Each names an asset as the table does,
+/// by a ledger ([`LedgerPrice::asset`]), once, with a share in parts per
+/// million, more than nothing. The shares are weights: each counts against
+/// their sum over the assets the table prices, so they need not add up to
+/// a million.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Targets {
+    targets: [Option<(LedgerId, u32)>; MAX_PRICED_LEDGERS],
+}
+
+impl Targets {
+    /// No targets.
+    pub const NONE: Self = Self {
+        targets: [None; MAX_PRICED_LEDGERS],
+    };
+
+    /// The targets `entries` names, or `None` if they are more than a table
+    /// prices, name an asset twice, or give one a share of nothing or more
+    /// than a million.
+    #[must_use]
+    pub fn new(entries: &[(LedgerId, u32)]) -> Option<Self> {
+        if entries.len() > MAX_PRICED_LEDGERS {
+            return None;
+        }
+        let mut targets = Self::NONE;
+        for (index, &(asset, ppm)) in entries.iter().enumerate() {
+            let twice = entries
+                .get(..index)
+                .unwrap_or_default()
+                .iter()
+                .any(|(other, _)| *other == asset);
+            if twice || ppm == 0 || u128::from(ppm) > MILLION {
+                return None;
+            }
+            if let Some(slot) = targets.targets.get_mut(index) {
+                *slot = Some((asset, ppm));
+            }
+        }
+        Some(targets)
+    }
+
+    /// Whether there are none.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.targets.iter().all(Option::is_none)
+    }
+
+    /// Every target: the asset and its share, in parts per million.
+    pub fn iter(&self) -> impl Iterator<Item = (LedgerId, u32)> + '_ {
+        self.targets.iter().flatten().copied()
+    }
+
+    /// The share `asset` is set, if it has one.
+    #[must_use]
+    pub fn get(&self, asset: LedgerId) -> Option<u32> {
+        self.iter()
+            .find(|(target, _)| *target == asset)
+            .map(|(_, ppm)| ppm)
+    }
+}
+
 /// A ledger to price, with the owner's group on it and what that holds.
 /// Which asset it counts toward is [`PriceTable::build_by_asset`]'s to say.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -624,6 +687,45 @@ impl PriceTable {
         self.rate_at(from, to, holdings, u128::from(amount_in), u128::from(net))
     }
 
+    /// What the owner's own curve counts a unit of `from` worth in units of
+    /// `to`, out per in times 10^15, once `amount_in` came in on `from` and
+    /// what `net` of it is worth at spot went out on `to`, with the owner
+    /// holding `holdings`: the rate [`Self::rate`] gives a peer's packet
+    /// from `from` to `to`, at the same worst state the packets in flight
+    /// can leave and after the same move, but without the spread, which
+    /// the node charges its peers and not itself. With `targets`, the curve
+    /// aims for them in place of its equal targets: both assets need one,
+    /// and the shares are of the assets that have one. A node's own swap is
+    /// worth making while what it gets, valued so, clears what it pays and
+    /// its costs (spec/decisions/peer-swaps.md). Freshness is not checked.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::rate`]; and [`PriceError::NoRate`] when `targets` leave
+    /// out either asset.
+    pub fn value_rate(
+        &self,
+        from: LedgerId,
+        to: LedgerId,
+        amount_in: u64,
+        net: u64,
+        holdings: &Holdings,
+        targets: Option<&Targets>,
+    ) -> Result<u64, PriceError> {
+        let index = |ledger| {
+            self.ledgers()
+                .position(|entry| entry.ledger == ledger)
+                .ok_or(PriceError::Stale)
+        };
+        let (from, to) = (index(from)?, index(to)?);
+        let curve = Curve {
+            spread_ppm: 0,
+            targets,
+        };
+        let moved = (u128::from(amount_in), u128::from(net));
+        self.rate_on(from, to, holdings, moved, curve)
+    }
+
     /// [`Self::rate`], by the ledgers' places in the table.
     fn rate_at(
         &self,
@@ -633,6 +735,24 @@ impl PriceTable {
         amount_in: u128,
         net: u128,
     ) -> Result<u64, PriceError> {
+        let curve = Curve {
+            spread_ppm: self.pricing.charges.spread_ppm,
+            targets: None,
+        };
+        self.rate_on(from, to, holdings, (amount_in, net), curve)
+    }
+
+    /// The curve's rate from the ledger at `from` to the one at `to`, after
+    /// `moved`, what came in and what of it goes out, on `curve`.
+    fn rate_on(
+        &self,
+        from: usize,
+        to: usize,
+        holdings: &Holdings,
+        moved: (u128, u128),
+        curve: Curve<'_>,
+    ) -> Result<u64, PriceError> {
+        let (amount_in, net) = moved;
         let entries = &self.ledgers;
         let (Some(Some(entry_in)), Some(Some(entry_out))) = (entries.get(from), entries.get(to))
         else {
@@ -641,15 +761,22 @@ impl PriceTable {
         if from == to {
             return Err(PriceError::NoRate);
         }
+        assert!(u128::from(curve.spread_ppm) < MILLION, "a checked spread");
         // A pair whose rate at target, spot less the spread, rounds to
         // nothing or does not fit has no rate, whatever the owner holds.
-        let spread = (MILLION - u128::from(self.pricing.charges.spread_ppm)) * 10u128.pow(12);
+        let spread = (MILLION - u128::from(curve.spread_ppm)) * 10u128.pow(12);
         if spot_times(entry_in, entry_out, spread).is_none_or(|at_target| at_target == 0) {
             return Err(PriceError::NoRate);
         }
         // What the packet takes out, at spot, in the common base.
         let taken = value_of(net, entry_in);
         let (asset_in, asset_out) = (entry_in.asset, entry_out.asset);
+        // The owner's targets, if any: both assets need one, and only the
+        // assets with one count toward the total.
+        let counts = |asset| curve.counts(asset);
+        if !(counts(asset_in) && counts(asset_out)) {
+            return Err(PriceError::NoRate);
+        }
         let mut total = 0u128;
         let (mut value_in, mut value_out, mut left_out) = (0u128, 0u128, 0u128);
         for (index, (entry, holding)) in entries.iter().flatten().zip(holdings).enumerate() {
@@ -669,7 +796,9 @@ impl PriceTable {
             };
             // At most 16 values of at most MAX_VALUE each, of which each
             // asset's are a part.
-            total = total.saturating_add(value);
+            if counts(entry.asset) {
+                total = total.saturating_add(value);
+            }
             if entry.asset == asset_in {
                 value_in = value_in.saturating_add(value);
             } else if entry.asset == asset_out {
@@ -689,7 +818,7 @@ impl PriceTable {
             let (numerator, denominator) = factor(
                 share(value_in, total),
                 share(value_out, total),
-                self.assets,
+                self.aims(curve.targets, asset_in, asset_out),
                 self.pricing,
             )
             .ok_or(PriceError::NoFunds)?;
@@ -771,6 +900,33 @@ impl PriceTable {
         };
         crate::fx::convert_at(from_rate, to_rate, from_asset, to_asset, amount)
             .ok_or(PriceError::TooLarge)
+    }
+
+    /// What the curve aims for on a pair: its own targets, `1/n` each; or
+    /// the targets of `asset_in` and `asset_out` among the owner's, as
+    /// shares of their sum over the assets the table prices, rounded down.
+    fn aims(&self, targets: Option<&Targets>, asset_in: LedgerId, asset_out: LedgerId) -> Aims {
+        let Some(targets) = targets else {
+            return Aims {
+                target_in: SHARE_ONE,
+                target_out: SHARE_ONE,
+                per: u128::try_from(self.assets).unwrap_or(u128::MAX),
+            };
+        };
+        let sum: u128 = targets
+            .iter()
+            .filter(|(asset, _)| self.ledgers().any(|entry| entry.asset == *asset))
+            .map(|(_, ppm)| u128::from(ppm))
+            .sum();
+        let aim = |asset| {
+            let ppm = u128::from(targets.get(asset).unwrap_or(0));
+            mul_div(ppm, SHARE_ONE, sum).map_or(0, |share| share.min(SHARE_ONE))
+        };
+        Aims {
+            target_in: aim(asset_in),
+            target_out: aim(asset_out),
+            per: 1,
+        }
     }
 
     /// Of `candidates`, the ledger a packet from `from` goes out on, and
@@ -901,10 +1057,37 @@ fn share(value: u128, total: u128) -> u128 {
     mul_div(value, SHARE_ONE, total).map_or(0, |share| share.min(SHARE_ONE))
 }
 
+/// What the curve aims for on a pair: each asset's target, in shares, per
+/// `per`. The curve's own targets are `1/n` for `n` assets, a whole share
+/// per `n`; an owner's are shares of their own, per one.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Aims {
+    target_in: u128,
+    target_out: u128,
+    per: u128,
+}
+
+/// What a rate is taken on: the spread, and the owner's targets in place
+/// of the curve's own.
+#[derive(Clone, Copy, Debug)]
+struct Curve<'a> {
+    spread_ppm: u32,
+    targets: Option<&'a Targets>,
+}
+
+impl Curve<'_> {
+    /// Whether `asset` counts toward the total: every asset on the
+    /// curve's own targets, only those with one on the owner's.
+    fn counts(&self, asset: LedgerId) -> bool {
+        self.targets
+            .is_none_or(|targets| targets.get(asset).is_some())
+    }
+}
+
 /// The curve's `w_in / w_out`, as a fraction, capped at `1 + k`; `None`
-/// when the owner holds nothing on the way out. Of `count` assets, each
-/// with a target of `1/count`, these hold `share_in` and `share_out`.
-fn factor(share_in: u128, share_out: u128, count: usize, pricing: Pricing) -> Option<(u128, u128)> {
+/// when the owner holds nothing on the way out. The two assets hold
+/// `share_in` and `share_out`, and aim for `aims`.
+fn factor(share_in: u128, share_out: u128, aims: Aims, pricing: Pricing) -> Option<(u128, u128)> {
     if share_out == 0 {
         return None;
     }
@@ -913,13 +1096,18 @@ fn factor(share_in: u128, share_out: u128, count: usize, pricing: Pricing) -> Op
     if share_in == 0 {
         return Some(cap);
     }
-    let count = u128::try_from(count).unwrap_or(u128::MAX);
-    assert!(share_in <= SHARE_ONE && share_out <= SHARE_ONE && count <= 16);
-    // `10^6 · n · s · w = (10^6 − k) · n · s + k`, for an asset of share `s`,
-    // in shares.
-    let weight = |share: u128| (MILLION - k) * count * share + k * SHARE_ONE;
-    let numerator = weight(share_in) * share_out;
-    let denominator = share_in * weight(share_out);
+    let Aims {
+        target_in,
+        target_out,
+        per,
+    } = aims;
+    assert!(share_in <= SHARE_ONE && share_out <= SHARE_ONE && per <= 16);
+    assert!(target_in <= SHARE_ONE && target_out <= SHARE_ONE);
+    // `10^6 · p · s · w = (10^6 − k) · p · s + k · t`, for an asset of share
+    // `s` and target `t / p`, in shares.
+    let weight = |share: u128, target: u128| (MILLION - k) * per * share + k * target;
+    let numerator = weight(share_in, target_in) * share_out;
+    let denominator = share_in * weight(share_out, target_out);
     if numerator * MILLION > denominator * (MILLION + k) {
         Some(cap)
     } else {
@@ -1314,12 +1502,71 @@ mod tests {
     /// The curve's `w_in / w_out` for shares from `values`, capped.
     fn exact_factor(values: &[u128], from: usize, to: usize, k: u32) -> Option<(u128, u128)> {
         let total = values.iter().sum();
+        let aims = Aims {
+            target_in: SHARE_ONE,
+            target_out: SHARE_ONE,
+            per: u128::try_from(values.len()).unwrap(),
+        };
         factor(
             share(values[from], total),
             share(values[to], total),
-            values.len(),
+            aims,
             pricing(k, 0),
         )
+    }
+
+    // The owner's own valuation is the curve without the spread, after the
+    // same move a peer's packet makes; with targets of the owner's, the
+    // curve aims for them, among the assets that have one.
+    #[test]
+    fn the_owners_valuation_is_the_curve_without_the_spread() {
+        let (usd, xrp) = (USD, XRP);
+        let k = pricing(50_000, 2_000);
+        // At target: spot, with no spread.
+        let even = build(&[held(usd, 100 * DOLLAR), held(xrp, 200 * DOLLAR)], k);
+        let at_spot = 500_000_000_000_000;
+        let holdings = even.holdings();
+        assert_eq!(
+            even.value_rate(usd, xrp, 0, 0, &holdings, None),
+            Ok(2 * RATE_ONE_E15)
+        );
+        assert_eq!(
+            even.value_rate(xrp, usd, 0, 0, &holdings, None),
+            Ok(at_spot)
+        );
+        assert!(even.rate(xrp, usd, 0, 0, &holdings).unwrap() < at_spot);
+        // A move counts against it, as against a peer's packet.
+        let tenth = 20 * DOLLAR;
+        let moved = even.value_rate(xrp, usd, tenth, tenth, &holdings, None);
+        assert!(moved.unwrap() < at_spot);
+        // Short of dollars: dollars are worth more than spot.
+        let skewed = build(&[held(usd, 50 * DOLLAR), held(xrp, 200 * DOLLAR)], k);
+        let holdings = skewed.holdings();
+        assert!(skewed.value_rate(usd, xrp, 0, 0, &holdings, None).unwrap() > 2 * RATE_ONE_E15);
+        // An owner who aims for a third in dollars holds them at target.
+        let third = Targets::new(&[(usd, 1), (xrp, 2)]).unwrap();
+        assert_eq!(
+            skewed.value_rate(usd, xrp, 0, 0, &holdings, Some(&third)),
+            Ok(2 * RATE_ONE_E15)
+        );
+        // Without a target on one of the assets, there is no value.
+        let one = Targets::new(&[(usd, 1)]).unwrap();
+        assert_eq!(
+            skewed.value_rate(usd, xrp, 0, 0, &holdings, Some(&one)),
+            Err(PriceError::NoRate)
+        );
+    }
+
+    #[test]
+    fn targets_name_each_asset_once_with_a_share() {
+        let (usd, xrp) = (USD, XRP);
+        assert!(Targets::new(&[]).unwrap().is_empty());
+        let targets = Targets::new(&[(usd, 400_000), (xrp, 600_000)]).unwrap();
+        assert_eq!(targets.get(xrp), Some(600_000));
+        assert_eq!(targets.get(LedgerId::XrplTestnetRlusdUsd), None);
+        assert_eq!(Targets::new(&[(usd, 1), (usd, 2)]), None);
+        assert_eq!(Targets::new(&[(usd, 0)]), None);
+        assert_eq!(Targets::new(&[(usd, 1_000_001)]), None);
     }
 
     #[test]

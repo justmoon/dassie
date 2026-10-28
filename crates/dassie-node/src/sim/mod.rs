@@ -1031,6 +1031,9 @@ pub struct Sim {
     /// account swept beyond the ceiling
     /// (spec/areas/payments.md#where-received-money-is-kept).
     pub swept: BTreeSet<(usize, String, u64)>,
+    /// The swaps each node's owner asked for that are done, by node:
+    /// their IDs and what they moved.
+    pub swaps_done: Vec<(usize, u64, crate::engine::core::SwapReport)>,
 }
 
 // Every run, whatever it checks besides, ends without an error event: a
@@ -1164,6 +1167,7 @@ impl Sim {
             hub_losses: BTreeMap::new(),
             hub_most_held: BTreeMap::new(),
             swept: BTreeSet::new(),
+            swaps_done: Vec::new(),
         };
         // The token's pool, at a dollar at the run's rates.
         if let Some((_, token)) = settling.token() {
@@ -1937,6 +1941,7 @@ impl Sim {
             Output::Btp { link, message } => self.deliver_to_client(index, link, message),
             Output::Event(event) => self.record(index, &event),
             Output::Trace(_) | Output::ProbeDone { .. } => {}
+            Output::SwapDone { id, report } => self.swaps_done.push((index, id, report)),
             Output::LedgerConnect { epoch, .. } => self.ledger_connect(index, epoch),
             Output::LedgerClose { epoch, .. } => {
                 if self

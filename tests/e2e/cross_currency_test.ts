@@ -167,11 +167,17 @@ test(
         }
       }
       assert(!peers.some((peer) => peer.node === d1.id), "d1 peers with d3");
+      // SetPeerSettings sets every setting: the swap settings stay as they
+      // are.
+      const { settings: kept } = await d2.rpc.call("getPeerSettings", {});
       await d2.rpc.call("setPeerSettings", {
         settings: {
           connectorFeePpm: FEE_PPM,
           fxSpreadPpm: SPREAD_PPM,
           rebalancePpm: REBALANCE_PPM,
+          offerSwaps: kept?.offerSwaps ?? true,
+          swapping: kept?.swapping ?? true,
+          swapTargets: kept?.swapTargets ?? [],
         },
       });
 

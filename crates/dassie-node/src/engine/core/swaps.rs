@@ -11,16 +11,21 @@
 //! peer never reads the data; a peer that changed it, or sent the swap back
 //! on another method, gets nothing for it.
 //!
-//! What to swap, with whom and when is the swap service's; it is not built
-//! yet ([roadmap](spec/roadmap.md#peer-swaps)). This is what it sends with
-//! ([`Core::send_swap`]) and hears back from ([`Core::poll_swap_outcome`]).
+//! What to swap, with whom and when is the swap service's (`swapping.rs`).
+//! This is what it sends with ([`Core::send_swap`]) and hears back from
+//! ([`Core::poll_swap_outcome`]). An outcome says what the swap endpoint
+//! fulfilled on the way back, too: a peer that let the outgoing leg expire
+//! after the node fulfilled the return leg has paid the node, though the
+//! swap reads as rejected. For that alone the node keeps each swap it sent
+//! until its outcome, at most [`MAX_SWAPS_IN_FLIGHT`] of them.
 
-use std::collections::VecDeque;
+use std::collections::{BTreeMap, VecDeque};
 
 use dassie_connector::{EndpointId, Forwarded, OpensNone, Outcome};
 use dassie_identity::NodeId;
 use dassie_ilp::{
-    Address, ErrorCode, Fulfill, Prepare, Reject, Response, Timestamp, condition_for,
+    Address, AmountTooLarge, ErrorCode, Fulfill, Prepare, Reject, Response, Timestamp,
+    condition_for,
 };
 use dassie_ledger::{AccountName, LedgerId, OwnerSub};
 use dassie_oer::{Decode, Encode};
@@ -46,6 +51,11 @@ const NONCE_LENGTH: usize = 16;
 /// Most outcomes of the node's swaps kept until the swap service takes
 /// them; past it, the oldest go.
 pub const MAX_SWAP_OUTCOMES: usize = 1_024;
+
+/// Most of the node's swaps in flight at once: each is kept until its
+/// outcome, to say what came back. A swap past it is refused before it is
+/// sent.
+pub const MAX_SWAPS_IN_FLIGHT: usize = 64;
 
 /// The owner's account a ledger's swap endpoint pays from and is paid into.
 fn swap_account() -> AccountName {
@@ -96,19 +106,51 @@ pub struct SwapOutcome {
     /// peer, or this node's swap endpoint on the way back. T04 and T05 say
     /// to back off and try again.
     pub result: Result<(), ErrorCode>,
+    /// What the node's swap endpoint fulfilled on the way back, on the
+    /// ledger the swap named, if it came back: what the node was paid,
+    /// whatever became of the outgoing leg. A peer that took the return
+    /// leg's fulfillment and let the outgoing leg expire paid the node
+    /// this, though the swap reads as rejected.
+    pub came_back: Option<u64>,
+    /// With F08, the amounts the reject named: the swap scales by them.
+    pub too_large: Option<AmountTooLarge>,
+}
+
+/// One of the node's swaps in flight: what its outcome says.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct InFlight {
+    ledger: LedgerId,
+    back_on: LedgerId,
+    condition: [u8; 32],
+    came_back: Option<u64>,
 }
 
 /// The node's swaps: the secret their fulfillments derive from, the next
-/// request ID, and the outcomes the swap service has yet to take.
+/// request ID, the swaps in flight, and the outcomes the swap service has
+/// yet to take.
 #[derive(Default)]
 pub(super) struct Swaps {
     /// Drawn with the node's first swap, held in memory only: a swap in
     /// flight at a restart is lost as any packet in flight is.
     secret: Option<[u8; 32]>,
     next_request: u32,
+    /// By request ID, at most [`MAX_SWAPS_IN_FLIGHT`].
+    in_flight: BTreeMap<u32, InFlight>,
     outcomes: VecDeque<SwapOutcome>,
     /// Outcomes dropped for want of room.
     dropped: u64,
+}
+
+impl Swaps {
+    /// Outcomes dropped for want of room since the node started.
+    pub(super) const fn dropped(&self) -> u64 {
+        self.dropped
+    }
+
+    /// How many of the node's swaps are in flight.
+    pub(super) fn in_flight(&self) -> usize {
+        self.in_flight.len()
+    }
 }
 
 /// What the node's swaps carry, decoded.
@@ -208,9 +250,13 @@ impl Core {
     ///
     /// # Errors
     ///
-    /// No swap endpoint on `pay_on`, or the node is not peered with `peer`.
+    /// No swap endpoint on `pay_on`, the node is not peered with `peer`, or
+    /// [`MAX_SWAPS_IN_FLIGHT`] are in flight.
     pub fn send_swap(&mut self, swap: NewSwap) -> Result<SwapSent, EngineError> {
         let now = self.now_ms();
+        if self.swaps.in_flight.len() >= MAX_SWAPS_IN_FLIGHT {
+            return Err(EngineError::Exhausted("too many swaps in flight".into()));
+        }
         let source = self
             .connector
             .swap_endpoint(swap.pay_on)
@@ -220,23 +266,10 @@ impl Core {
             .get(&swap.peer)
             .map(|endpoint| EndpointId::Peer(*endpoint))
             .ok_or_else(|| EngineError::NotFound("no such peer".into()))?;
+        let (data, condition) = self.swap_data(swap);
         let destination = format!("peer.swap.{}", ledger_slug(swap.back_on));
         let destination = Address::parse(&destination)
             .map_err(|_| EngineError::Internal("a swap's address".into()))?;
-        let rng = &mut self.rng;
-        let secret = *self.swaps.secret.get_or_insert_with(|| {
-            let mut secret = [0; 32];
-            rng.fill_bytes(&mut secret);
-            secret
-        });
-        let mut nonce = [0; NONCE_LENGTH];
-        self.rng.fill_bytes(&mut nonce);
-        let data = SwapData {
-            minimum: swap.minimum,
-            nonce,
-        }
-        .encode();
-        let condition = condition_for(&fulfillment(&secret, swap.back_on, &data));
         let packet = Prepare {
             amount: swap.amount,
             expires_at: Timestamp::from_unix_ms(now.saturating_add(swap.timeout_ms)),
@@ -247,6 +280,15 @@ impl Core {
         .to_vec();
         let request_id = self.swaps.next_request;
         self.swaps.next_request = request_id.wrapping_add(1);
+        // A request ID comes back only after 2^32 swaps, long after its
+        // swap resolved.
+        let sent = InFlight {
+            ledger: swap.pay_on,
+            back_on: swap.back_on,
+            condition,
+            came_back: None,
+        };
+        assert!(self.swaps.in_flight.insert(request_id, sent).is_none());
         let outcome = self.connector.send_swap(
             now,
             (source, request_id),
@@ -261,12 +303,13 @@ impl Core {
             Outcome::Forward(forwarded) => self.forward_out(now, forwarded),
             Outcome::Respond(length) => {
                 let response = self.out.get(..length).unwrap_or_default();
-                let result = result_of(response);
-                self.swap_outcome(request_id, swap.pay_on, result);
+                let (result, too_large) = result_of(response);
+                self.swap_outcome(request_id, swap.pay_on, result, too_large);
             }
-            // A request ID comes back only after 2^32 swaps, long after its
-            // swap resolved; the source is the swap endpoint just found.
+            // The request ID is new, as above; the source is the swap
+            // endpoint just found.
             Outcome::Duplicate | Outcome::UnknownSource => {
+                self.swaps.in_flight.remove(&request_id);
                 return Err(EngineError::Internal("a swap's request ID".into()));
             }
         }
@@ -277,12 +320,56 @@ impl Core {
         })
     }
 
+    /// The data of a new swap, with a nonce of its own, and the condition
+    /// it derives: the node's secret is drawn with its first swap.
+    fn swap_data(&mut self, swap: NewSwap) -> ([u8; SWAP_DATA_LENGTH], [u8; 32]) {
+        let rng = &mut self.rng;
+        let secret = *self.swaps.secret.get_or_insert_with(|| {
+            let mut secret = [0; 32];
+            rng.fill_bytes(&mut secret);
+            secret
+        });
+        let mut nonce = [0; NONCE_LENGTH];
+        self.rng.fill_bytes(&mut nonce);
+        let data = SwapData {
+            minimum: swap.minimum,
+            nonce,
+        }
+        .encode();
+        let condition = condition_for(&fulfillment(&secret, swap.back_on, &data));
+        (data, condition)
+    }
+
     /// The next outcome of the node's swaps, oldest first.
     pub fn poll_swap_outcome(&mut self) -> Option<SwapOutcome> {
         self.swaps.outcomes.pop_front()
     }
 
-    fn swap_outcome(&mut self, request_id: u32, ledger: LedgerId, result: Result<(), ErrorCode>) {
+    /// Takes the outcomes of the swaps `ours` names, oldest first, and
+    /// leaves the others for [`poll_swap_outcome`](Self::poll_swap_outcome).
+    pub(super) fn take_swap_outcomes(&mut self, ours: impl Fn(u32) -> bool) -> Vec<SwapOutcome> {
+        let (taken, left): (VecDeque<SwapOutcome>, VecDeque<SwapOutcome>) = self
+            .swaps
+            .outcomes
+            .drain(..)
+            .partition(|outcome| ours(outcome.request_id));
+        self.swaps.outcomes = left;
+        taken.into()
+    }
+
+    /// The outcome of the swap sent with `request_id` on `ledger`.
+    fn swap_outcome(
+        &mut self,
+        request_id: u32,
+        ledger: LedgerId,
+        result: Result<(), ErrorCode>,
+        too_large: Option<AmountTooLarge>,
+    ) {
+        let came_back = self
+            .swaps
+            .in_flight
+            .remove(&request_id)
+            .and_then(|sent| sent.came_back);
         if self.swaps.outcomes.len() >= MAX_SWAP_OUTCOMES {
             self.swaps.outcomes.pop_front();
             self.swaps.dropped = self.swaps.dropped.saturating_add(1);
@@ -291,14 +378,33 @@ impl Core {
             request_id,
             ledger,
             result,
+            came_back,
+            too_large,
         });
     }
 
     /// The answer to one of the node's swaps, come back to its swap
     /// endpoint on `ledger`: its outcome.
     pub(super) fn swap_answered(&mut self, ledger: LedgerId, request_id: u32, length: usize) {
-        let result = result_of(self.up.get(..length).unwrap_or_default());
-        self.swap_outcome(request_id, ledger, result);
+        let (result, too_large) = result_of(self.up.get(..length).unwrap_or_default());
+        self.swap_outcome(request_id, ledger, result, too_large);
+    }
+
+    /// Gives up on the swaps in flight from a swap endpoint that is gone,
+    /// with its scheme: the connector took their packets with it, so no
+    /// answer comes. Each has its outcome, as one that timed out.
+    pub(super) fn orphaned_swaps(&mut self) {
+        let gone: Vec<(u32, LedgerId)> = self
+            .swaps
+            .in_flight
+            .iter()
+            .filter(|(_, sent)| self.connector.swap_endpoint(sent.ledger).is_none())
+            .map(|(&request_id, sent)| (request_id, sent.ledger))
+            .collect();
+        for (request_id, ledger) in gone {
+            let timed_out = Err(ErrorCode::R00_TRANSFER_TIMED_OUT);
+            self.swap_outcome(request_id, ledger, timed_out, None);
+        }
     }
 
     /// One of the node's own swaps come back to its swap endpoint on
@@ -312,11 +418,25 @@ impl Core {
             .and_then(|prepare| {
                 let named = dassie_connector::swap_scheme(prepare.destination);
                 if named == Some(ledger_slug(ledger)) {
-                    decide(self.swaps.secret.as_ref(), ledger, &prepare)
+                    let fulfillment = decide(self.swaps.secret.as_ref(), ledger, &prepare)?;
+                    Ok((fulfillment, prepare.execution_condition, prepare.amount))
                 } else {
                     Err(ErrorCode::F02_UNREACHABLE)
                 }
             });
+        // What the node is paid, for the outcome of the swap it was: the
+        // swap's own, by its condition, which is the node's alone.
+        let decided = decided.map(|(fulfillment, condition, amount)| {
+            let sent = self
+                .swaps
+                .in_flight
+                .values_mut()
+                .find(|sent| sent.back_on == ledger && sent.condition == condition);
+            if let Some(sent) = sent {
+                sent.came_back = Some(sent.came_back.unwrap_or(0).saturating_add(amount));
+            }
+            fulfillment
+        });
         let length = match decided {
             Ok(fulfillment) => Fulfill {
                 fulfillment,
@@ -343,9 +463,10 @@ impl Core {
     }
 
     /// The swap endpoints are those of the active schemes' ledgers, and
-    /// the outcomes kept within their bound.
+    /// the swaps in flight and the outcomes kept within their bounds.
     pub(super) fn check_swaps(&self) {
         assert!(self.swaps.outcomes.len() <= MAX_SWAP_OUTCOMES);
+        assert!(self.swaps.in_flight.len() <= MAX_SWAPS_IN_FLIGHT);
         for active in self.schemes.values() {
             let ledger = active.scheme.ledger();
             let endpoint = self.connector.swap_endpoint(ledger);
@@ -359,13 +480,13 @@ impl Core {
     }
 }
 
-/// Fulfilled, or the code of the Reject; a response that does not decode
-/// is as an internal error's.
-fn result_of(response: &[u8]) -> Result<(), ErrorCode> {
+/// Fulfilled, or the code of the Reject and, for F08, the amounts it
+/// names; a response that does not decode is as an internal error's.
+fn result_of(response: &[u8]) -> (Result<(), ErrorCode>, Option<AmountTooLarge>) {
     match Response::decode_exact(response) {
-        Ok(Response::Fulfill(_)) => Ok(()),
-        Ok(Response::Reject(reject)) => Err(reject.code),
-        Err(_) => Err(ErrorCode::T00_INTERNAL_ERROR),
+        Ok(Response::Fulfill(_)) => (Ok(()), None),
+        Ok(Response::Reject(reject)) => (Err(reject.code), AmountTooLarge::from_reject(&reject)),
+        Err(_) => (Err(ErrorCode::T00_INTERNAL_ERROR), None),
     }
 }
 

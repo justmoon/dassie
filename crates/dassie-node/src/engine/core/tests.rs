@@ -810,6 +810,8 @@ fn peer_settings_are_checked_and_kept() {
         rebalance_ppm: 30_000,
         offer_swaps: false,
         swapping: false,
+        swap_targets: dassie_connector::Targets::new(&[(dassie_ledger::LedgerId::StubUsd, 1)])
+            .unwrap(),
     };
     core.set_peer_settings(settings).unwrap();
     core.flush();
@@ -3536,6 +3538,30 @@ fn a_hub_ledger_converts_only_while_its_books_guard_runs() {
         book(&core).last
     );
     assert!(priced(&core, xrp_hub));
+}
+
+/// A periphery node, without a URL, on `store`, started at [`NOW`].
+fn periphery_core(store: Arc<Store>) -> Core {
+    Core::start(
+        CoreParts {
+            store,
+            key: Arc::new(IdentityKey::from_bytes(&[7; 32])),
+            realm: Realm::Test,
+            live: dassie_node_core::config::LiveRealm::Refused,
+            policies: Policies::DEFAULT,
+            rng: Box::new(SeededRng::new(13)),
+            peer_rng: Box::new(SeededRng::new(14)),
+            own_info: dassie_peer::OwnInfo {
+                url: None,
+                alias: String::new(),
+                feed_port: None,
+            },
+            bootstrap: Vec::new(),
+            uplinks: Vec::new(),
+        },
+        NOW,
+    )
+    .unwrap()
 }
 
 /// A core node at `https://core.test`, which takes downlinks, on `store`,
@@ -6727,3 +6753,7 @@ mod held_settlements;
 
 // The node's own swaps with a peer over two methods of their peering.
 mod swaps;
+
+// The swap service: with whom, how much and when the node swaps, and the
+// swaps its owner asks for.
+mod swapping;
