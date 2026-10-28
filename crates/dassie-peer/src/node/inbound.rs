@@ -606,19 +606,7 @@ impl PeerNode {
         let probe = *probe;
         self.deferred = self.deferred.saturating_sub(1);
         self.probing.retain(|(id, _)| *id != node);
-        let reachable = result.ok().is_some_and(|body| {
-            LinkStateResponse::decode_exact(&body).is_ok_and(|response| {
-                response
-                    .0
-                    .first()
-                    .and_then(Option::as_ref)
-                    .is_some_and(|signed| {
-                        signed.node_id == node
-                            && signed.info.sequence >= probe.sequence
-                            && signed.verify().is_ok()
-                    })
-            })
-        });
+        let reachable = answers_as(node, probe.sequence, result);
         if reachable && let Some(network) = probe.network {
             let share = self.config.probe_rate_per_network;
             self.network_probes.give_back(network, share, self.now_ms);
@@ -727,4 +715,23 @@ pub(crate) fn ok(body: &[u8]) -> Reply {
 
 fn refuse(status: u16, reason: &str) -> Inbound<'static> {
     Inbound::Reply(Reply::refuse(status, reason))
+}
+
+/// Whether `result`, the answer to a `linkStateRequest` for `node` at its
+/// URL, is the node's own link state, verified, at `sequence` or later:
+/// what shows that the URL serves the node's key.
+pub(super) fn answers_as(node: NodeId, sequence: u64, result: Result<Vec<u8>, Problem>) -> bool {
+    result.ok().is_some_and(|body| {
+        LinkStateResponse::decode_exact(&body).is_ok_and(|response| {
+            response
+                .0
+                .first()
+                .and_then(Option::as_ref)
+                .is_some_and(|signed| {
+                    signed.node_id == node
+                        && signed.info.sequence >= sequence
+                        && signed.verify().is_ok()
+                })
+        })
+    })
 }

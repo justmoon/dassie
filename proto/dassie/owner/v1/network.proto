@@ -106,7 +106,7 @@ message NetworkPeer {
 // sees it (spec/decisions/promotion-to-core.md).
 message Promotion {
   // The checks it does not pass yet: "registered", "standing",
-  // "heartbeats", "room", "settled", "clock" or "not-banned".
+  // "heartbeats", "room", "settled", "clock", "url" or "not-banned".
   repeated string pending = 1;
   // How long it has been in good standing without a break, in ms.
   uint64 standing_ms = 2;
@@ -121,6 +121,9 @@ message Promotion {
   // How far its clock is ahead of ours, negative behind, as its link
   // states show; unset until one came straight from it.
   optional sint64 clock_skew_ms = 7;
+  // Whether it answered at its URL, with its own link state, the last
+  // time we checked; unset before the first check.
+  optional bool url_answered = 8;
 }
 
 // A settlement method of a peering: a scheme the pair settles on, with its

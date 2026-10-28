@@ -100,14 +100,15 @@ Nothing acts on it yet: a node with a URL is still a core node, and one without 
 
 ### Promotion
 
-An uplink promotes its downlink, advertising it as a neighbor, once the downlink passes the checks of [promotion-to-core](../decisions/promotion-to-core.md). Asking is having a URL: a downlink whose link state has one is a candidate, and nothing else in its link state says it wants to be core. What the uplink holds of each check is built, in `crates/dassie-peer/src/node/promotion.rs`, and the owner sees it for each candidate among its peers ([RPC](rpc.md)); nothing acts on it yet, and whether the downlink answers at its URL is not checked yet ([roadmap](../roadmap.md#periphery)).
+An uplink promotes its downlink, advertising it as a neighbor, once the downlink passes the checks of [promotion-to-core](../decisions/promotion-to-core.md). Asking is having a URL: a downlink whose link state has one is a candidate, and nothing else in its link state says it wants to be core. What the uplink holds of each check is built, in `crates/dassie-peer/src/node/promotion.rs`, and the owner sees it for each candidate among its peers ([RPC](rpc.md)); nothing acts on it yet, and its URL is checked over QUIC only, not yet over HTTPS with a publicly issued certificate ([roadmap](../roadmap.md#periphery)).
 
 - **Registered:** on the majority of the bootstrap nodes' lists, which probed its URL.
 - **Good standing** for `promotion_standing_ms` without a break: healthy as the advertise flag sees it ([Advertised peers](#advertised-peers)), heard from, not banned, with a method available. It starts again with each peering, and after a restart.
-- **Heartbeats:** of ours to it over that time, at least `promotion_heartbeat_percent` answered, counted in a few buckets that together span it. One that cannot go out counts as unanswered.
+- **Heartbeats:** of ours to it over that time, more than `promotion_heartbeat_percent` answered, counted in a few buckets that together span it. Only those that went out count, since our own bound on requests says nothing of the peer; one the connection then fails to carry counts as unanswered, since a downlink we cannot reach is in no standing.
 - **Room:** at least `PROMOTION_ROOM_PACKETS` of the largest packets in our books on a method of its peering: what it may still owe us there, our own position for it, the only side a node knows ([own-fulfills](../decisions/own-fulfills.md)).
 - **Settled:** it paid us a settlement of at least one largest packet, the mark its channel keeps for good ([free-receivers-half](../decisions/free-receivers-half.md)).
-- **Clock:** its clock within `max_future_ms` of ours, either way, as the newest sequence of its link state that came straight from it shows, a link state being issued with the clock that signs it.
+- **Clock:** its clock within `max_future_ms` of ours, either way, as the newest sequence of its link state that came straight from it shows, a link state being issued with the clock that signs it and sent on at once. Only an update of a link state we held counts: one we see first may be up to a reissue old. It is the node's clock, so it stays across its peerings.
+- **URL:** it answered at its URL the last time we checked, once per bucket of its standing: a `linkStateRequest` for it at its URL, on a connection pinned to its key, which must return its own link state at the sequence we hold or later, as a registration's probe does ([Registration](#registration)). Each check spends a token of the probe bucket, and none goes twice at once to a node or host.
 - **Not banned.**
 
 ## Names

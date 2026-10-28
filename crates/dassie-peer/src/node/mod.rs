@@ -261,6 +261,9 @@ pub(crate) enum Purpose {
     MethodDrop(SchemeId),
     /// Checking that an inbound request's sender is reachable at its URL.
     Probe(Box<inbound::Probe>),
+    /// Checking that a downlink asking to be promoted answers at its URL
+    /// with its link state at this sequence or later.
+    UrlCheck(u64),
     /// An ILP Prepare, by its request ID.
     Prepare(u32),
     /// An ILP Reject, by the request ID of the Prepare it answers, kept to
@@ -888,6 +891,7 @@ impl PeerNode {
             Purpose::MethodAdd => self.on_method_response(hooks, to, result),
             Purpose::MethodDrop(scheme) => self.on_method_drop(to, scheme, &result),
             Purpose::Probe(probe) => self.on_probe(hooks, to, probe, result),
+            Purpose::UrlCheck(sequence) => self.on_url_check(to, sequence, result),
             Purpose::Prepare(request_id) => {
                 if let Err(problem) = result {
                     let status = match problem {
@@ -980,6 +984,7 @@ impl PeerNode {
         self.tend_names();
         self.send_names();
         self.seek_peers(hooks);
+        self.check_candidate_urls();
         self.seek_methods(hooks);
         self.tend_snapshots(hooks);
         self.update_routes();
