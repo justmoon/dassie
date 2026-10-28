@@ -321,7 +321,7 @@
       "does": [
         "Config, TLS, certificates and sessions",
         "Ledgers, with a dollar token's peg guard, BTP tokens, payments and debug data",
-        "The node's account in each settlement hub it is in, and since when a token's issuer froze the hub, and the owner's moves into it and out of it, naming the hub by the settlement scheme over it",
+        "The node's account in each settlement hub it is in, and since when a token's issuer froze the hub, and the owner's moves into it and out of it, naming the hub by the settlement scheme over it; a live stream of what the account reads of each hub, and of the commitments and claims of packets over it",
         "Founding a settlement hub as its sponsor, and the payout bundles the node keeps of each of its hubs",
         "Nodes, peers, routes, settlements and bans; every settlement method of a peering, each with its credit, what is owed, and whether it is withdrawn or being wound down, and for a ledger being removed how many methods are left to wind down",
         "The peer settings, with swapping and a periphery node's swap targets, what the node's swaps did, and a swap with a peer the owner asks for, which answers with what moved",
@@ -594,7 +594,7 @@
         "Quotes for peers that swap with the node: a bid and an ask per settlement method, each with a ladder of how far a swap goes before its price falls by each drop of a grid, made from the price table so that they never promise more than the curve gives",
         "What a swap is worth to the node itself: the rate its own curve gives, after the swap's own move and without the spread it charges its peers, toward its equal targets or toward targets the owner sets",
         "A spending cap per BTP token",
-        "A packet trace for the debug pages",
+        "A packet trace for the debug pages, whose records name the packet's condition, the same on every hop, so a packet's hops on several nodes join up",
         "Waiting for a settlement hub's decision before rejecting a packet that went to a peer on a method over the hub"
       ]
     },

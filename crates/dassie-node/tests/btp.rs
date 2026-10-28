@@ -232,6 +232,16 @@ async fn a_stream_client_pays_the_receiver_and_the_journal_matches() {
         packets.iter().any(|p| p.reject_code == "F08"),
         "probes above the maximum packet amount get F08"
     );
+    // Each record joins its hops by its condition and names its ledgers; a
+    // BTP client is no peer, so it names no node.
+    for packet in packets
+        .iter()
+        .filter(|p| p.state() == proto::PacketState::Fulfilled)
+    {
+        assert_eq!(packet.condition.len(), 32, "{packet:?}");
+        assert!(!packet.ledger_in.is_empty() && !packet.ledger_out.is_empty());
+        assert!(packet.source_node.is_empty() && packet.destination_node.is_empty());
+    }
     let transfers = journal(&mut owner).await;
     assert_eq!(
         check_journal_matches_trace(&transfers, &packets, token_id),
