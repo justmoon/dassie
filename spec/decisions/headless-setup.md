@@ -14,6 +14,7 @@
 ## Decision
 
 - **`dassie setup --passphrase-file <file>` sets a node up from its owner's phrase, on the node's own host.** It derives the node key as the wallet does, reads the setup token over the IPC socket, and posts them to the node's own `/api/setup` on loopback, at the HTTPS port the daemon reports. So the node checks it exactly as it checks the wallet, and the phrase never reaches the node: only the key does, as from a browser.
+- **The realm is the phrase's.** A phrase names its realm ([phrase-format](phrase-format.md)), so `dassie setup` derives the key in it and names it in the request, and takes no flag for it. The node checks it as it checks the wallet's, so a node that may not run the live realm refuses a live phrase, and one set up in the other realm refuses it too.
 - **It pins the certificate the daemon names,** by the SHA-256 of its leaf, and requires the handshake to be signed by that certificate's key. A listener at a loopback address that cannot do that is passed over and sent nothing. Only the node, or whoever can read its database and so the node key too, can answer as the node.
 - **It is idempotent,** so a unit can run it at every start: a node set up with this phrase is left as it is, a node set up with another is refused with a code of its own and left untouched, an external asset's config it is given is set only if it differs, and of the settlement schemes it is given it adds only those that are not active.
 - **The phrase is read once from a bounded file and wiped as soon as the key is derived,** and no output or error names it.
@@ -29,5 +30,6 @@
 - *A setup call over the IPC socket:* it would be a second path to the same state change, with its own checks, races and tests, beside one that already holds them. The socket's access is the owner's, but the HTTP route is the one the wallet proves every day.
 - *Accepting whatever certificate answers on loopback at the node's port:* safe only while the node holds every loopback address at that port. Another user who binds the address the node leaves free would be sent the node key and the login proof.
 - *Taking the certificate to pin from the node's data directory:* reading it needs the node's user, and the status already reads the certificate the node serves.
+- *A `--realm` flag:* the phrase says its realm, so a flag could only agree with it or have the phrase refused, and every provisioning script would have to name, in a second place, what the phrase already says.
 - *Driving the wallet in a headless browser:* a browser on every node host, to type a phrase that is already in a file, for the same request.
 - *Sending the phrase, or the master seed, to the node:* the node would then hold secrets it never needs, which derive keys outside `node/` ([Identity](../areas/identity.md#seed-paths)).
