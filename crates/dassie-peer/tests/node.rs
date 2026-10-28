@@ -724,3 +724,51 @@ fn the_feed_extension_round_trips_and_a_bad_one_names_no_port() {
         assert_eq!(state.info.to_vec(), state.signed);
     }
 }
+
+// spec/areas/network.md#registration: a bootstrap node probes a registrant's
+// URL on a connection of its own, dialled there, never one the registrant
+// opened to it, which would answer as well and prove nothing of the URL.
+#[test]
+fn a_registrations_probe_dials_the_url() {
+    let (boot, registrant) = (key(0), key(2));
+    let mut hooks = dassie_peer::sim::StubHooks::default();
+    let mut node = PeerNode::new(
+        Config::DEV,
+        Arc::clone(&boot),
+        OwnInfo {
+            url: Some(url(0)),
+            alias: String::new(),
+            feed_port: None,
+        },
+        vec![dassie_peer::Bootstrap {
+            id: boot.node_id(),
+            endpoint: endpoint(0),
+            key: boot.public_key(),
+        }],
+        Stored::default(),
+        Box::new(SeededRng::new(1)),
+        START,
+    );
+    node.handle_timeout(START, &mut hooks);
+    let _ = sent(&mut node);
+    let state = link_state(&registrant, START, &url(2));
+    let body = Content::Registration(SignedNodeInfo::decode_exact(&state).unwrap()).to_vec();
+    let inbound = node.handle_inbound(
+        START,
+        &mut hooks,
+        dassie_peer::InboundId(1),
+        registrant.identity(),
+        &body,
+        None,
+    );
+    assert!(
+        matches!(inbound, dassie_peer::Inbound::Deferred),
+        "it waits on a probe"
+    );
+    let probe = sent(&mut node)
+        .into_iter()
+        .find(|request| request.to == registrant.node_id())
+        .expect("a probe");
+    assert_eq!(probe.endpoint, Some(endpoint(2)));
+    assert!(probe.fresh, "on a connection of its own");
+}

@@ -656,8 +656,8 @@ async fn a_peer_back_from_a_crash_ends_our_old_connection_at_once() {
 // endpoint on a connection of its own, never the one the node opened to us.
 // b holds the connection a opened: a request to a at an endpoint nothing
 // serves still reaches a over it, but a fresh one is not delivered; a fresh
-// one at a's own endpoint is answered, on a connection b neither keeps nor
-// puts in place of the one a opened.
+// one at a's own endpoint is answered, and a is still reached after it, on
+// whichever of the two connections both keep.
 #[tokio::test]
 async fn a_fresh_request_dials_its_endpoint() {
     let shutdown = CancellationToken::new();
@@ -692,8 +692,8 @@ async fn a_fresh_request_dials_its_endpoint() {
         .await
         .unwrap();
     assert_eq!(response.body, b"at a");
-    // The connection kept for a is still the one a opened, not the fresh
-    // one: a request at an endpoint nothing serves reaches a over it.
+    // A connection is kept for a, whichever survived: a request at an
+    // endpoint nothing serves reaches a over it.
     let held = Request {
         endpoint: Some(Endpoint::parse("127.0.0.1:9").unwrap()),
         ..request(&a, b"still".to_vec())
@@ -740,6 +740,64 @@ async fn the_far_side_of_a_fresh_request_still_reaches_us() {
                 vec![n],
                 "the downlink still reaches its uplink"
             );
+        }
+    }
+    shutdown.cancel();
+}
+
+// Review of #688: whichever node holds its own dial, and whichever has the
+// lower ID, a fresh request leaves both on the same connection, and the far
+// side's requests keep going across it: the kept one stays if the lower ID
+// opened it, and the fresh one, which the far side took at once, replaces
+// it any other way.
+#[tokio::test]
+async fn both_keep_one_connection_across_a_fresh_request() {
+    let shutdown = CancellationToken::new();
+    let client = client();
+    for (checker, checked) in [(21, 22), (22, 21)] {
+        for checker_dialled in [true, false] {
+            let (up, down) = (side(checker, &shutdown), side(checked, &shutdown));
+            if checker_dialled {
+                up.quic
+                    .send(&request(&down, b"open".to_vec()), &client)
+                    .await
+                    .unwrap();
+            } else {
+                down.quic
+                    .send(&request(&up, b"open".to_vec()), &client)
+                    .await
+                    .unwrap();
+            }
+            let fresh = Request {
+                fresh: true,
+                ..request(&down, b"check".to_vec())
+            };
+            let response = send_peer(Some(Arc::clone(&up.quic)), &client, fresh)
+                .await
+                .unwrap();
+            assert_eq!(response.body, b"check");
+            for n in 0..3u8 {
+                let response = down
+                    .quic
+                    .send(&request(&up, vec![n]), &client)
+                    .await
+                    .unwrap();
+                assert_eq!(
+                    response.body,
+                    vec![n],
+                    "the checked node reaches the checker"
+                );
+                let response = up
+                    .quic
+                    .send(&request(&down, vec![n]), &client)
+                    .await
+                    .unwrap();
+                assert_eq!(
+                    response.body,
+                    vec![n],
+                    "the checker reaches the checked node"
+                );
+            }
         }
     }
     shutdown.cancel();

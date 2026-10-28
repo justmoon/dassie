@@ -730,9 +730,11 @@ impl PeerNode {
             self.stats.requests_dropped += 1;
             return None;
         }
-        // A URL check dials the URL itself: the connection the node opened
-        // to us would answer as well, and prove nothing of the URL.
-        let fresh = matches!(purpose, Purpose::UrlCheck(_));
+        // A probe for a registration or a peering, or a URL check, dials
+        // the URL itself: the connection the node opened to us would answer
+        // as well, and prove nothing of the URL
+        // (spec/areas/network.md#registration).
+        let fresh = matches!(purpose, Purpose::UrlCheck(_) | Purpose::Probe(_));
         let body = content.to_vec();
         let id = RequestId(self.next_request);
         self.next_request += 1;
