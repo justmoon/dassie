@@ -1,27 +1,26 @@
 /**
- * End to end (spec/areas/testing.md#end-to-end): the `cross-currency`
- * scenario pays across assets and reconciles across restarts, settling
- * nothing directly. d1 has dollars on the stub with unlimited trust, which
- * never settles; d3 has XRP in the scenario's settlement hub, which four
- * validators found on the fake ledger; and d2 has both, peering with d1 on
- * the stub and with d3 over the hub alone. d2 charges a fee and a spread
- * on what it passes between them, at spot (its rebalancing curve off, so
- * that what the hub holds of its value does not move the price). The
- * rates are the scenario's own.
+ * End to end (spec/areas/testing.md#end-to-end): a smoke test of a
+ * settlement hub on the shipped binary, on the `cross-currency` scenario.
+ * Four validators, each given its hub by the validator file the scenario
+ * writes (`DASSIE_VALIDATOR_CONFIG`), run the hub their sponsor founds
+ * through its owner's RPC on the fake ledger; d2 and d3 join it from their
+ * owner books of XRP and peer over it, d1 and d2 peer on the stub with
+ * unlimited trust. A client of d1's, the JS STREAM sender over BTP, pays
+ * dollars to a receiver of d3's on the hub's ledger: d2 converts them, and
+ * funds its hold toward d3 over the hub as d3 asks, so XRP arrives.
  *
- * d2 and d3 join the hub by a deposit from their owner books of XRP, which
- * peer with nobody. d1 pays an incoming payment of d3's on the hub's
- * ledger: the quote measures the path's rate, d1 pays from its dollars, d2
- * converts them, and d3 receives XRP over the hub. d2's fees grow; d2
- * settles with d3 over the hub, funding its hold toward d3 as d3 asks, and d3's
- * owner gets what arrived, less the fees of d3's own moves; d1 and d2
- * settle nothing; after all three restart, the books are as they were. The validators keep running
- * meanwhile, so the hub does too.
+ * That is all: what the members do over the hub is the daemon tests'
+ * (spec/areas/testing.md#members-of-settlement-hubs-on-paused-time),
+ * which check it on paused time. `hub_members.rs` checks a member's wallet
+ * address, a payment over a hub, the books, a restart and a node added
+ * later; `hub_owner_books.rs` the owner books and the moves between them
+ * and the hub; `hub_cross.rs` dollars on the stub arriving as XRP over a
+ * hub, with the converting node's fee, the holds and a restart, and a
+ * payment from one hub to another; `hub_founding.rs` the founding.
  */
 
 import { test } from "node:test";
 import { assert, assertEquals } from "@std/assert";
-import { LedgerConnection, type SendQuote } from "@dassie/rpc/proto";
 
 import {
   DASSIE,
@@ -29,48 +28,18 @@ import {
   missingScenarioTools,
   PORT_OFFSETS,
 } from "./harness.ts";
+import { fundedInHub, HUB_WITHIN_MS, pay, peersOverHub } from "./settling.ts";
 import {
-  fundedInHub,
-  HUB_WITHIN_MS,
-  hubBooks,
-  ledger,
-  ownerFunds,
-  peerAccounts,
-  peersOverHub,
-  settledOverHub,
-} from "./settling.ts";
-import {
+  DEV_RATES,
   HUB_LEDGER,
-  HUB_SCHEME,
   Scenario,
   type ScenarioNode,
 } from "@dassie/dev/scenario";
 
 const USD = "stub+usd";
-/** A drop of XRP in the books' units, the least the hub moves. */
-const UNITS_PER_DROP = 1_000n;
-/** What a payee lets its payer's claims add before it redeems them: two
- * of the largest packets, at 0.1 XRP (`policy::redeem_threshold`). */
-const REDEEM_THRESHOLD = 200_000_000n;
-/** What the stub holds when it starts: 100 dollars. */
-const STUB_START = 100_000_000_000n;
-/** 2 XRP: twenty of the largest packets, so d2 funds its hold toward d3
- * over the hub as it pays. */
-const RECEIVE = 2_000_000_000n;
-/**
- * How far from 2 XRP d3's incoming payment may land and be paid in full: a
- * ten-thousandth of an XRP, at scale 9
- * (spec/decisions/paid-within-a-tolerance.md). The hops round down on
- * every packet, and packets in flight together race: when one that leaves
- * d3 short by less than this lands before the last, d3 completes the
- * payment there and refuses the last.
- */
-const TOLERANCE = 100_000n;
-/** d2's fee, 1%, and spread, 0.5%; its curve off, so it converts at spot
- * less them. */
-const FEE_PPM = 10_000;
-const SPREAD_PPM = 5_000;
-const REBALANCE_PPM = 0;
+/** A dollar at the ledger's scale of 9: two XRP at the dev rate, twenty
+ * of the largest packets, so d2 funds its hold toward d3 as it pays. */
+const PAYMENT = 1_000_000_000n;
 const PORT_OFFSET = PORT_OFFSETS["cross_currency_test.ts"];
 
 const missing = await missingScenarioTools();
@@ -88,8 +57,9 @@ async function peersOnStub(
 }
 
 /**
- * d2 and d3 joined the hub and peer over it, d1 and d2 peer on the stub,
- * and d2 has a fresh rate for XRP.
+ * d2 and d3 joined the hub and peer over it, d2 holds funds toward d3
+ * there, d1 and d2 peer on the stub, d1 routes to d3, and d2 has a fresh
+ * rate for XRP.
  */
 async function ready(scenario: Scenario): Promise<boolean> {
   const [d1, d2, d3] = scenario.nodes;
@@ -100,60 +70,22 @@ async function ready(scenario: Scenario): Promise<boolean> {
   if (!(await peersOverHub(d2, d3)) || !(await peersOverHub(d3, d2))) {
     return false;
   }
+  // d1 routes to d3, through d2: until then STREAM's probe of the rate
+  // finds no path.
+  const { routes } = await d1.rpc.call("listRoutes", {});
+  if (!routes.some((route) => route.node === d3.id)) return false;
+  const { hubs } = await d2.rpc.call("getHubStatus", {});
+  const holds = hubs.some((hub) =>
+    hub.paying.some((hold) => hold.peer === d3.id && hold.amount > 0n)
+  );
   const { rates } = await d2.rpc.call("listLedgers", {});
-  return rates.some((rate) => rate.assetCode === "XRP" && !rate.stale);
-}
-
-/** What `node` holds for `peer` over the hub: the credit it extends the
- * peer there (spec/areas/hubs.md#in-the-node). */
-async function holdToward(
-  node: ScenarioNode,
-  peer: ScenarioNode,
-): Promise<bigint> {
-  const { peers } = await node.rpc.call("listPeers", {});
-  const found = peers
-    .find((entry) => entry.node === peer.id)
-    ?.methods.find((method) => method.scheme === HUB_SCHEME);
-  assert(found, `${node.name} does not peer with ${peer.name} over the hub`);
-  return found.creditOut;
-}
-
-/** A node's balance in one of its accounts, by path. */
-async function balance(node: ScenarioNode, path: string): Promise<bigint> {
-  const { accounts } = await node.rpc.call("listAccounts", {});
-  const account = accounts.find((entry) => entry.path === path);
-  return account ? account.creditsPosted - account.debitsPosted : 0n;
-}
-
-/**
- * What the stub's ledger holds of d1 and of d2, on the ledger and the
- * owner's, with nothing in flight: the stub with unlimited trust never
- * settles, so on the ledger each holds what it started with.
- */
-async function stubBooks(scenario: Scenario) {
-  const [d1, d2] = scenario.nodes;
-  return await Promise.all([d1, d2].map(async (node) => {
-    const view = await ledger(node, USD);
-    assertEquals(view.connection, LedgerConnection.SYNCED, node.name);
-    assertEquals(view.onLedgerBalance, STUB_START, `${node.name} settled`);
-    return [view.onLedgerBalance, view.ownerBalance, view.ownerPending];
-  }));
-}
-
-/** What d1, d2 and d3 owe each other, by their own books, on the stub and
- * over the hub. */
-async function owed(scenario: Scenario) {
-  return {
-    stub: await peerAccounts(scenario, USD),
-    hub: await peerAccounts(scenario, HUB_LEDGER),
-  };
+  return holds &&
+    rates.some((rate) => rate.assetCode === "XRP" && !rate.stale);
 }
 
 test(
-  "cross-currency pays across assets over a hub, and reconciles across restarts",
-  {
-    skip: missing !== undefined,
-  },
+  "cross-currency founds a hub, and a STREAM client pays dollars across it as XRP",
+  { skip: missing !== undefined },
   async () => {
     const scenario = await Scenario.temporary("cross-currency", {
       dassie: DASSIE,
@@ -161,204 +93,26 @@ test(
       portOffset: PORT_OFFSET,
     });
     try {
-      const [d1, d2, d3] = scenario.nodes;
-      await scenario.until("joined and peered", () => ready(scenario), 240_000);
-      // d1 and d3 share no scheme, so they never peer; d3 peers over the hub
-      // alone.
-      const { peers } = await d3.rpc.call("listPeers", {});
-      for (const peer of peers) {
-        for (const method of peer.methods) {
-          assertEquals(method.scheme, HUB_SCHEME);
-        }
-      }
-      assert(!peers.some((peer) => peer.node === d1.id), "d1 peers with d3");
-      // SetPeerSettings sets every setting: the swap settings stay as they
-      // are.
-      const { settings: kept } = await d2.rpc.call("getPeerSettings", {});
-      await d2.rpc.call("setPeerSettings", {
-        settings: {
-          connectorFeePpm: FEE_PPM,
-          fxSpreadPpm: SPREAD_PPM,
-          rebalancePpm: REBALANCE_PPM,
-          offerSwaps: kept?.offerSwaps ?? true,
-          swapping: kept?.swapping ?? true,
-          swapTargets: kept?.swapTargets ?? [],
-        },
-      });
-
-      // d1 quotes 2 XRP to d3's incoming payment on the hub's ledger, once
-      // d3 is routed to.
-      const { payment: receiver } = await d3.rpc.call("createIncomingPayment", {
-        ledger: HUB_LEDGER,
-        incomingAmount: RECEIVE,
-        description: "e2e across",
-      });
-      assert(receiver);
-      assertEquals(receiver.ledger, HUB_LEDGER);
-      const quoted: { value?: SendQuote } = {};
-      await scenario.until("d1 quotes d3", async () => {
-        try {
-          quoted.value = (await d1.rpc.call("quoteSend", {
-            recipient: "",
-            credentials: {
-              destinationAccount: receiver.destinationAccount,
-              sharedSecret: receiver.sharedSecret,
-              assetCode: receiver.assetCode,
-              assetScale: receiver.assetScale,
-            },
-            ledger: "",
-            amount: { case: "receiveAmount", value: RECEIVE },
-          })).quote;
-          return true;
-        } catch {
-          return false;
-        }
-      }, 120_000);
-      const quote = quoted.value;
-      assert(quote);
-      assertEquals(quote.ledger, USD);
-      assertEquals(quote.receiveAmount?.assetCode, "XRP");
-      assertEquals(quote.receiveAmount?.value, RECEIVE);
-      // 2 XRP are a dollar at spot; less d2's 1% and 0.5%, and STREAM's 1%:
-      // a little over 1.025 dollars.
-      assert(
-        quote.debitAmount > 1_020_000_000n &&
-          quote.debitAmount < 1_030_000_000n,
-        `${quote.debitAmount}`,
-      );
-
-      // The members' joins are over, so what d3's owner has and d2's hold
-      // toward it change only by the payment from here.
+      const [d1, , d3] = scenario.nodes;
       await scenario.until(
-        "joined and quiet",
-        () => settledOverHub(scenario),
+        "joined and peered",
+        () => ready(scenario),
         HUB_WITHIN_MS,
       );
-      const holdBefore = await holdToward(d2, d3);
-      const hubBefore = (await owed(scenario)).hub;
-      const d3Before = await ownerFunds(d3);
-      const usdBefore = (await ledger(d1, USD)).ownerBalance;
-      const feesBefore = await balance(d2, `${USD}:revenue/fees`);
-      const { payment } = await d1.rpc.call("sendPayment", {
-        quoteId: quote.id,
-      });
-      assert(payment);
-      await scenario.until("the payment completes", async () => {
-        const { payments } = await d1.rpc.call("listOutgoingPayments", {});
-        const found = payments.find((entry) => entry.id === payment.id);
-        assert(found?.state !== "failed", found?.failure);
-        return found?.state === "completed";
-      }, 240_000);
-      const { payments } = await d1.rpc.call("listOutgoingPayments", {});
-      const sent = payments.find((entry) => entry.id === payment.id)!;
-      // d3 counted each packet received as it posted it, before its Fulfill
-      // went back (spec/decisions/own-fulfills.md).
-      const arrived = async () => {
-        const { payments: received } = await d3.rpc.call(
-          "listIncomingPayments",
-          {},
-        );
-        return received.find((entry) => entry.id === receiver.id);
-      };
-      await scenario.until(
-        "d3 has it all",
-        async () => (await arrived())?.completedAtUnixMs !== undefined,
-      );
-      const incoming = await arrived();
-      assert(incoming, "d3 has the payment");
-      // All of it, within the tolerance: d3 completed it, so it counts it
-      // paid in full.
-      assert(
-        incoming.receivedAmount >= RECEIVE - TOLERANCE &&
-          incoming.receivedAmount <= RECEIVE + TOLERANCE,
-        `${incoming.receivedAmount}`,
-      );
-      assertEquals(incoming.assetCode, "XRP");
+      const address = await pay(scenario, [d1, d3], USD, PAYMENT, HUB_LEDGER);
+      const { payments } = await d3.rpc.call("listIncomingPayments", {});
+      const incoming = payments.find((p) => p.destinationAccount === address);
+      assert(incoming, "no incoming payment");
       assertEquals(incoming.ledger, HUB_LEDGER);
-      // d1 paid in dollars; d2 kept its fee in dollars.
-      assertEquals(
-        (await ledger(d1, USD)).ownerBalance,
-        usdBefore - sent.sentAmount,
-      );
-      // 1% of what passed, less under a unit a packet, as each rounds
-      // down.
-      const fees = (await balance(d2, `${USD}:revenue/fees`)) - feesBefore;
-      const due = sent.sentAmount * BigInt(FEE_PPM) / 1_000_000n;
+      assertEquals(incoming.assetCode, "XRP");
+      // Dollars at the dev rate, in XRP, moved by d2's inventory curve by
+      // at most 10% either way, less its fee and spread.
+      const xrp = PAYMENT * BigInt(DEV_RATES.XRP);
+      const received = incoming.receivedAmount;
       assert(
-        fees <= due && fees > due - 1_000n,
-        `fees ${fees} on ${sent.sentAmount}`,
+        received > xrp * 85n / 100n && received < xrp * 110n / 100n,
+        `${received} arrived of ${xrp} sent`,
       );
-
-      // d2 settles with d3 over the hub; d1 and d2 settle nothing on the
-      // stub, and their books mirror each other.
-      await scenario.until(
-        "settled over the hub",
-        () => settledOverHub(scenario),
-        HUB_WITHIN_MS,
-      );
-      // Over the hub: d2 funded its hold toward d3 as d3 asked, and d3 was
-      // paid from the hold for what arrived. Each side's books of the
-      // other moved by the packets less d2's fundings, and the two agree,
-      // since d2 counts what it funded as d3 does, from the hub
-      // (spec/areas/settlement.md#settlement-hubs). The hold lost what d2
-      // funded less what d3 redeemed: what arrived, in whole drops, since
-      // a claim's total is the packets' rounded down to drops and these are
-      // the first packets on it, but for the claims d3 has not redeemed,
-      // which it lets add up to less than its threshold before it pays the
-      // hub's fee to redeem them (spec/designs/settlement-hubs.md#4-peering-over-a-hub).
-      // How far the hold moves in all depends on how much of it d2 funded
-      // before the payment, which a request d2 could not fund in full at
-      // joining tops up once it can
-      // (spec/decisions/settle-when-funds-arrive.md). settledOverHub found
-      // d3's book of the hub holding its account there and d2's hold
-      // toward it.
-      const hubAfter = (await owed(scenario)).hub;
-      const change = (pair: string) =>
-        hubAfter.get(pair)! - (hubBefore.get(pair) ?? 0n);
-      assertEquals(change("d2>d3"), -change("d3>d2"), "the books agree");
-      const funded = change("d3>d2") + incoming.receivedAmount;
-      assert(funded > 0n, `d2 funded ${funded}`);
-      const claimed = incoming.receivedAmount -
-        incoming.receivedAmount % UNITS_PER_DROP;
-      const redeemed = funded - (await holdToward(d2, d3) - holdBefore);
-      assert(
-        redeemed <= claimed && claimed - redeemed < REDEEM_THRESHOLD,
-        `d3 redeemed ${redeemed} of ${claimed} claimed, d2 funding ${funded}`,
-      );
-      const got = await ownerFunds(d3) - d3Before;
-      assert(
-        got > 0n && got <= incoming.receivedAmount,
-        `d3's owner got ${got}`,
-      );
-      const stub = await stubBooks(scenario);
-      const accounts = await owed(scenario);
-      const d1Owes = accounts.stub.get("d1>d2");
-      assert(d1Owes !== undefined, "d1 has no account of d2");
-      assertEquals(accounts.stub.get("d2>d1"), -d1Owes, "the stub's books");
-      assertEquals(d1Owes, sent.sentAmount, "d1 owes d2 what it sent");
-
-      // Restarted, all three catch up and book nothing twice.
-      const hub = await Promise.all([d2, d3].map(hubBooks));
-      for (const node of [d1, d2, d3]) {
-        const { code, output } = (await node.stop())!;
-        assertEquals(code, 0, output);
-      }
-      for (const node of [d1, d2, d3]) {
-        await node.start();
-        await node.waitForEngine();
-      }
-      await scenario.until(
-        "caught up",
-        () => settledOverHub(scenario),
-        HUB_WITHIN_MS,
-      );
-      assertEquals(
-        await Promise.all([d2, d3].map(hubBooks)),
-        hub,
-        "the hub's books after a restart",
-      );
-      assertEquals(await stubBooks(scenario), stub, "the stub after a restart");
-      assertEquals(await owed(scenario), accounts, "peer accounts");
     } finally {
       const failures = await scenario.stop();
       assertEquals(failures, [], failures.join("\n"));

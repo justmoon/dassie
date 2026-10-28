@@ -733,8 +733,8 @@ impl HubNet {
     /// Whether `member` is quiet and its books add up, by its own books
     /// alone (spec/areas/testing.md#each-node-judged-by-its-own-books):
     /// every ledger synced, nothing on its way to a peer, no move between a
-    /// hub and its owner book on its way, and nothing the
-    /// owner has pending; each owner book holding what its XRP Ledger
+    /// hub and its owner book on its way, no settling over a hub under way
+    /// (`HubStatus.settling`), and nothing the owner has pending; each owner book holding what its XRP Ledger
     /// account holds of its asset, less the reserve; and each hub's book
     /// what its account in the hub holds and its peers' holds toward it, as
     /// the hub's log shows them to it, since it booked their settlements as
@@ -747,8 +747,13 @@ impl HubNet {
         let list = list_ledgers(node).await;
         let statuses = hub_statuses(node).await;
         // A move between a hub and its owner book has left the one side's
-        // books and not yet reached the other's.
-        if statuses.iter().any(|status| status.moving.is_some()) {
+        // books and not yet reached the other's; and settling over a hub
+        // under way, as the node reports it, which the end-to-end tests
+        // wait on alone.
+        if statuses
+            .iter()
+            .any(|status| status.moving.is_some() || status.settling)
+        {
             return false;
         }
         for id in self.ledgers_of(member) {

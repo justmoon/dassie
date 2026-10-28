@@ -51,7 +51,7 @@ const missingHub = missing ?? await missingScenarioTools();
 /**
  * How long the hub's members may take to open their accounts and peer over
  * it, and a deposit to reach it: each move and operation waits for a
- * validated ledger and a final block, as in hub_test.ts.
+ * validated ledger and a final block, as in settling.ts.
  */
 const HUB_WITHIN_MS = 180_000;
 
@@ -599,8 +599,7 @@ async function hubOf(node: ScenarioNode) {
 }
 
 // The Hubs page (spec/areas/wallet.md#pages) on a member of the `hub`
-// scenario, once the members peered over the hub, as hub_test.ts waits for
-// it: it shows the hub with its balance and the holds toward the other
+// scenario, once the members peered over the hub: it shows the hub with its balance and the holds toward the other
 // member, as the node reports them, a deposit made on the page reaches the
 // hub, and the page turns the node's own moves, off for the deposit, on
 // again.

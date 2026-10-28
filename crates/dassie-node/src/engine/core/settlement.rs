@@ -496,6 +496,18 @@ impl Core {
     /// (spec/decisions/ending-a-peering.md), is booked as its settlement.
     fn ask(&mut self, node: NodeId, scheme: SchemeId) {
         let now = self.now_ms;
+        if self.would_ask(node, scheme) && self.peer.request_settlement(now, &node, scheme).is_ok()
+        {
+            self.settle.asked.insert((node, scheme), now);
+        }
+    }
+
+    /// Whether [`ask`](Self::ask) would ask `node` to settle on `scheme`
+    /// now: due, as our books or the peer's hold toward us find it close,
+    /// and not held back. Also what tells the owner that a request is due
+    /// at the next check ([`requests_pending`](Self::requests_pending)).
+    fn would_ask(&mut self, node: NodeId, scheme: SchemeId) -> bool {
+        let now = self.now_ms;
         let every = self.settle.request_every_ms;
         let due = self
             .settle
@@ -503,7 +515,7 @@ impl Core {
             .get(&(node, scheme))
             .is_none_or(|at| at.saturating_add(every) <= now);
         if !due {
-            return;
+            return false;
         }
         // While one of us has no account in the hub, there are no holds:
         // a peer we are to pay in cannot settle, and the one that pays
@@ -517,18 +529,25 @@ impl Core {
             || self.unlimited(scheme)
             || matches!(joining, Some(super::hubs::Joining::Paying(_)))
         {
-            return;
+            return false;
         }
-        let close = self
-            .position(node, scheme)
+        self.position(node, scheme)
             .is_some_and(|at| policy::ask(at.position, self.settle.trigger))
             || joining.is_none()
                 && self
                     .hub_room(node, scheme)
-                    .is_some_and(|room| policy::ask(u128::from(room), self.settle.trigger));
-        if close && self.peer.request_settlement(now, &node, scheme).is_ok() {
-            self.settle.asked.insert((node, scheme), now);
-        }
+                    .is_some_and(|room| policy::ask(u128::from(room), self.settle.trigger))
+    }
+
+    /// Whether a request of ours to settle on `scheme` is pending with a
+    /// peer: on its way and not yet answered, or due at the next check of
+    /// what peers owe us, which asks it (`HubStatus::settling`). One that a peer
+    /// answers by funding shows on its side from then on.
+    pub(super) fn requests_pending(&mut self, scheme: Name) -> bool {
+        self.methods_of_active_peers()
+            .into_iter()
+            .filter(|(_, method)| method.as_str() == scheme.as_str())
+            .any(|(node, method)| self.peer.asking(&node, method) || self.would_ask(node, method))
     }
 
     /// Each method of each active peering, by peer and then in the order

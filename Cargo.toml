@@ -88,10 +88,13 @@ opt-level = "s"
 panic = "abort"
 strip = true
 
-# The binary the end-to-end tests run (tests/e2e): debug-fast to build, with
-# the same checks as release.
+# The binaries the end-to-end tests run (tests/e2e), as `node --run build:e2e`
+# builds them: the test profile's code, as CI builds them (nix/rust), with
+# its checks and debug assertions on, the dependencies at opt-level 3 and the
+# workspace's crates at 1. Unoptimized, a validator spent a core on its own
+# work, and four of them beside the members made the hub tests flake.
 [profile.e2e]
-inherits = "dev"
+inherits = "test"
 
 # The flake's crane builds (flake.nix): the test profile's settings, under
 # a name that does not put `cargo check` and clippy in test mode, which
