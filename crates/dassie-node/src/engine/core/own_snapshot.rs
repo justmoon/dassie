@@ -27,8 +27,8 @@ use dassie_peer::wire::SchemeId;
 use super::snapshots::{Quoting, SnapshotSource};
 
 // A grid is exactly what a snapshot carries, and every method a node can
-// price fits in one: it prices at most `MAX_PRICED_LEDGERS` ledgers, and
-// quotes at most one method on each.
+// offer fits in one: it lists at most one method per ledger of its realm,
+// and a realm has at most `MAX_PRICED_LEDGERS` ledgers.
 const _: () = assert!(GRID_LEVELS == LEVELS);
 const _: () = assert!(grid_is_valid(&DEFAULT_GRID_PPM));
 const _: () = assert!(dassie_connector::pricing::MAX_PRICED_LEDGERS <= MAX_SNAPSHOT_METHODS);
@@ -56,61 +56,79 @@ pub struct Content {
     /// In ascending order of their tags.
     methods: Vec<MethodQuotes>,
     /// Until when the table's rates hold: a snapshot made later quotes
-    /// nothing.
+    /// every method closed.
     valid_until_ms: u64,
+}
+
+/// A method the node offers, as a snapshot lists it.
+#[derive(Clone, Copy, Debug)]
+struct Listed {
+    tag: MethodTag,
+    ledger: LedgerId,
+    /// The asset it counts toward, if the table prices its ledger.
+    asset: Option<LedgerId>,
 }
 
 impl Content {
     /// What `quoting` says at `now_ms` on `grid`: each method the node
-    /// offers whose ledger the table prices, by its tag, with its bid and
-    /// ask and their ladders. A method on a ledger the table does not
-    /// price, as one without a fresh rate or a dollar token's hub off its
-    /// peg, is left out, as is every ledger no method is on, such as an
-    /// owner book's. So are two methods whose tags collide, or two on one
-    /// asset, which a bid over an ask cannot price
-    /// (spec/decisions/peer-swaps.md#accepted): neither is quoted.
+    /// offers, by its tag. One whose ledger the table prices has its bid
+    /// and ask and their ladders, as the connector quotes them; one whose
+    /// ledger it does not price, for want of a fresh rate or a dollar
+    /// token's hub off its peg, is listed with both sides closed, so that a
+    /// reader tells a method the node offers but does not convert on now
+    /// from one it does not offer. A ledger no method is on, such as an
+    /// owner book's, is not listed. Two methods whose tags collide, or two
+    /// the table prices as one asset, which a bid over an ask cannot price
+    /// (spec/decisions/peer-swaps.md#accepted), are neither listed.
     #[must_use]
     pub fn of(quoting: &Quoting<'_>, grid: &[u32; GRID_LEVELS], now_ms: u64) -> Self {
         let table = quoting.table;
-        let mut priced: Vec<(MethodTag, LedgerId, LedgerId)> = quoting
+        let mut offered: Vec<Listed> = quoting
             .methods
             .iter()
-            .filter_map(|(scheme, ledger)| {
-                let entry = table.ledger(*ledger)?;
-                Some((tag_of(*scheme), *ledger, entry.asset))
+            .map(|(scheme, ledger)| Listed {
+                tag: tag_of(*scheme),
+                ledger: *ledger,
+                asset: table.ledger(*ledger).map(|entry| entry.asset),
             })
             .collect();
-        priced.sort_unstable_by_key(|(tag, ..)| *tag);
-        let alone: Vec<(MethodTag, LedgerId)> = priced
+        offered.sort_unstable_by_key(|method| method.tag);
+        let clashes = |a: &Listed, b: &Listed| {
+            a.tag == b.tag || a.ledger == b.ledger || (a.asset.is_some() && a.asset == b.asset)
+        };
+        let listed: Vec<Listed> = offered
             .iter()
             .enumerate()
-            .filter(|(index, (tag, ledger, asset))| {
-                !priced
+            .filter(|(index, method)| {
+                !offered
                     .iter()
                     .enumerate()
-                    .any(|(other, (o_tag, o_ledger, o_asset))| {
-                        other != *index && (o_tag == tag || o_ledger == ledger || o_asset == asset)
-                    })
+                    .any(|(other, them)| other != *index && clashes(method, them))
             })
-            .map(|(_, (tag, ledger, _))| (*tag, *ledger))
+            .map(|(_, method)| *method)
             .collect();
-        let ledgers: Vec<LedgerId> = alone.iter().map(|(_, ledger)| *ledger).collect();
+        let priced: Vec<LedgerId> = listed
+            .iter()
+            .filter(|method| method.asset.is_some())
+            .map(|method| method.ledger)
+            .collect();
         let quotes = table.quotes(
-            &ledgers,
+            &priced,
             &table.holdings(),
             grid,
             now_ms,
             quoting.max_rate_age_ms,
         );
-        let methods: Vec<MethodQuotes> = alone
+        let methods: Vec<MethodQuotes> = listed
             .iter()
-            .zip(quotes.iter())
-            .map(|((tag, ledger), quote)| {
-                assert!(quote.ledger == *ledger, "quotes in the order asked");
+            .map(|method| {
+                let Some(quote) = quotes.get(method.ledger) else {
+                    return closed(method.tag);
+                };
                 let (bid, bid_ladder) = side(&quote.bid, false);
                 let (ask, ask_ladder) = side(&quote.ask, true);
                 MethodQuotes {
-                    tag: *tag,
+                    tag: method.tag,
                     bid,
                     ask,
                     bid_ladder,
@@ -118,7 +136,13 @@ impl Content {
                 }
             })
             .collect();
-        assert!(methods.len() == alone.len() && methods.len() <= MAX_SNAPSHOT_METHODS);
+        assert!(methods.len() == listed.len() && methods.len() <= MAX_SNAPSHOT_METHODS);
+        assert!(
+            methods
+                .windows(2)
+                .all(|pair| matches!(pair, [a, b] if a.tag < b.tag)),
+            "in ascending order of their tags, each once"
+        );
         Self {
             methods,
             valid_until_ms: table.valid_until_ms(),
@@ -127,8 +151,8 @@ impl Content {
 
     /// The snapshot of this content made at `sequence_ms`, valid until
     /// `valid_until_ms` or until the table's rates age out, whichever is
-    /// first. Rates that aged out by `sequence_ms` are not said: it quotes
-    /// no method then.
+    /// first. Rates that aged out by `sequence_ms` are not said: every
+    /// method is listed closed then.
     fn snapshot(&self, grid_bp: [u16; LEVELS], sequence_ms: u64, valid_until_ms: u64) -> Snapshot {
         let fresh = self.valid_until_ms > sequence_ms;
         Snapshot {
@@ -142,9 +166,24 @@ impl Content {
             methods: if fresh {
                 self.methods.clone()
             } else {
-                Vec::new()
+                self.methods
+                    .iter()
+                    .map(|method| closed(method.tag))
+                    .collect()
             },
         }
+    }
+}
+
+/// A method listed with both sides closed: the node offers it, but
+/// converts nothing on it now.
+const fn closed(tag: MethodTag) -> MethodQuotes {
+    MethodQuotes {
+        tag,
+        bid: Quote::ZERO,
+        ask: Quote::ZERO,
+        bid_ladder: Ladder::ZERO,
+        ask_ladder: Ladder::ZERO,
     }
 }
 

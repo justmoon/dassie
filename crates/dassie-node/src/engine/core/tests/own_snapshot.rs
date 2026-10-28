@@ -146,11 +146,13 @@ fn a_snapshot_quotes_the_offered_methods_as_the_table_does() {
     assert!(out > 0 && u128::from(out) <= table_out, "{out} {table_out}");
 }
 
-// An owner book, which no peer can pay the node on, is not quoted, though
-// the table prices it; nor is a method on a ledger the table does not
-// price, as one without a fresh rate.
+// spec/areas/rate-feed.md#what-it-publishes: an owner book, which no peer
+// can pay the node on, is not listed, though the table prices it; a method
+// the node offers on a ledger the table does not price, as one without a
+// fresh rate or a dollar token's hub off its peg, is listed with both sides
+// closed, so a reader tells it from one the node does not offer.
 #[test]
-fn only_offered_methods_the_table_prices_are_quoted() {
+fn an_offered_method_the_table_does_not_price_is_listed_closed() {
     let inventories = [
         held(HUB, 20_000_000_000),
         held(BOOK, 30_000_000_000),
@@ -160,11 +162,28 @@ fn only_offered_methods_the_table_prices_are_quoted() {
     assert!(table.ledger(BOOK).is_some());
     let mut offered = methods();
     let dsusd = LedgerId::HubXrplTestnetDsusdUsd;
+    let dsusd_id = "hub-xrpl-testnet-dsusd";
     assert!(table.ledger(dsusd).is_none());
-    offered.push((scheme("hub-xrpl-testnet-dsusd"), dsusd));
-    let content = Content::of(&quoting(&table, &offered), &DEFAULT_GRID_PPM, NOW);
-    let tags: Vec<MethodTag> = content.methods.iter().map(|method| method.tag).collect();
-    assert_eq!(tags, both_tags());
+    offered.push((scheme(dsusd_id), dsusd));
+    let mut own = OwnSnapshots::new(key());
+    let bytes = own.current(NOW, &quoting(&table, &offered)).unwrap();
+    let snapshot = read(&bytes, NOW);
+    let mut expected = both_tags();
+    expected.push(method_tag(dsusd_id));
+    expected.sort_unstable();
+    assert_eq!(tags(&snapshot), expected);
+    assert!(snapshot.method(method_tag("xrpl-testnet-xrp")).is_none());
+    let closed = snapshot.method(method_tag(dsusd_id)).unwrap();
+    assert_eq!((closed.bid, closed.ask), (Quote::ZERO, Quote::ZERO));
+    assert_eq!(
+        (closed.bid_ladder, closed.ask_ladder),
+        (Ladder::ZERO, Ladder::ZERO)
+    );
+    // The others are quoted as ever, and nothing swaps into or out of it.
+    let (stub, hub) = (method_tag(STUB_ID), method_tag(HUB_ID));
+    assert!(snapshot.swap_out(stub, hub, 1_000).is_some());
+    assert_eq!(snapshot.swap_out(stub, method_tag(dsusd_id), 0), None);
+    assert_eq!(snapshot.swap_out(method_tag(dsusd_id), hub, 0), None);
 }
 
 // spec/decisions/peer-swaps.md#accepted: two methods on one asset, which a
@@ -254,7 +273,8 @@ fn a_snapshot_ends_with_the_tables_rates() {
     let snapshot = read(&bytes, NOW);
     assert_eq!(snapshot.valid_until_ms, ends_ms);
     assert_eq!(snapshot.methods.len(), 2);
-    // Past it, the bytes are none; the heartbeat after says nothing.
+    // Past it, the bytes are none; the heartbeat after lists every method
+    // closed.
     assert!(own.current(ends_ms, &quoting(&table, &methods)).is_none());
     let later = NOW + FEED_HEARTBEAT_MS;
     let bytes = own.current(later, &quoting(&table, &methods)).unwrap();
@@ -262,6 +282,13 @@ fn a_snapshot_ends_with_the_tables_rates() {
     else {
         panic!("a snapshot");
     };
-    assert!(signed.snapshot.methods.is_empty());
+    assert_eq!(tags(&signed.snapshot), both_tags());
+    assert!(
+        signed
+            .snapshot
+            .methods
+            .iter()
+            .all(|method| method.bid.is_zero() && method.ask.is_zero())
+    );
     assert_eq!(signed.snapshot.valid_until_ms, later + FEED_VALIDITY_MS);
 }
