@@ -21,7 +21,9 @@
 //! - **Packets.** Each stays within one step of the ladders
 //!   (`Snapshot::step_end`) and at most the largest packet, or the most an
 //!   F08 named, and its minimum is what the snapshot promises it
-//!   (`Snapshot::packet_out`), since a packet is priced at its last unit.
+//!   (`Snapshot::packet_out`), since a packet is priced at its last unit;
+//!   an owner's, never less than its size at the owner's rate, rounded
+//!   up.
 //!   At most [`PACKETS_PER_PEER`] are in flight with a peer, within the cap
 //!   on money in flight with it, and at most
 //!   [`MAX_SWAPS_IN_FLIGHT`](super::MAX_SWAPS_IN_FLIGHT) in all.
@@ -371,6 +373,31 @@ fn at_rate(amount: u64, rate_e15: u64) -> u128 {
     let (whole, part) = (u128::from(amount) / one, u128::from(amount) % one);
     // Each product below 2^64 · 2^64 / 10^15 and 10^15 · 2^64.
     whole * u128::from(rate_e15) + part * u128::from(rate_e15) / one
+}
+
+/// The minimum of an owner's packet of `size` that the peer's snapshot
+/// promises `promised`, at the owner's `rate` (`numerator / denominator`),
+/// or `None` when the promise falls short of the rate.
+///
+/// The snapshot rounds its promise down, and the owner's least,
+/// `ceil(size × rate)`, rounds up, so at exactly the rate promised the two
+/// can differ by a unit: the promise clears when it is no less than
+/// `floor(size × rate)`, the owner's least rounded as the promise is. The
+/// minimum is the larger of the two, so the node never takes less than its
+/// owner asked; the peer's own price, which the snapshot bounds from
+/// below, makes up the unit.
+fn owner_minimum(size: u64, promised: u64, (numerator, denominator): (u64, u64)) -> Option<u64> {
+    assert!(denominator > 0, "an owner's rate is over something");
+    // Below 2^128.
+    let worth = u128::from(size) * u128::from(numerator);
+    let denominator = u128::from(denominator);
+    let (floor, least) = (worth / denominator, worth.div_ceil(denominator));
+    if u128::from(promised) < floor {
+        return None;
+    }
+    let minimum = u64::try_from(least.max(u128::from(promised))).ok()?;
+    assert!(u128::from(minimum) >= least && minimum >= promised);
+    Some(minimum)
 }
 
 impl Core {
@@ -926,26 +953,17 @@ impl Core {
             .min(self.settle.max_packet)
             .min(peer.largest.get(&pair).copied().unwrap_or(u64::MAX))
             .min(left);
-        let minimum = snapshot
+        let promised = snapshot
             .packet_out(from, to, start, size)
-            .filter(|&minimum| size > 0 && minimum > 0)
+            .filter(|&promised| size > 0 && promised > 0)
             .ok_or(Drive::Exhausted)?;
-        let clears = match gate {
-            Gate::Own { costs_ppm, targets } => {
-                self.clears(pair, size, minimum, costs_ppm, targets.as_ref())
-            }
-            Gate::Owner {
-                rate: (numerator, denominator),
-                ..
-            } => {
-                let least =
-                    (u128::from(size) * u128::from(numerator)).div_ceil(u128::from(denominator));
-                u128::from(minimum) >= least
-            }
+        let minimum = match gate {
+            Gate::Own { costs_ppm, targets } => self
+                .clears(pair, size, promised, costs_ppm, targets.as_ref())
+                .then_some(promised),
+            Gate::Owner { rate, .. } => owner_minimum(size, promised, rate),
         };
-        if !clears {
-            return Err(Drive::Exhausted);
-        }
+        let minimum = minimum.ok_or(Drive::Exhausted)?;
         Ok(NewSwap {
             peer: node,
             pay_on,
@@ -1099,6 +1117,35 @@ mod tests {
         paid.came_back = Some(19);
         hear(&mut peer, &paid, 10);
         assert_eq!(peer.used(pair), 20);
+    }
+
+    // An owner's packet clears while its promise, rounded down, is no less
+    // than its size at the owner's rate rounded down too, and asks at
+    // least that size at the rate rounded up: at exactly the rate promised
+    // it goes, a unit above the promise.
+    #[test]
+    fn an_owner_packet_asks_its_size_at_the_rate_rounded_up() {
+        // Three at 1.9 is 5.7.
+        assert_eq!(owner_minimum(3, 5, (19, 10)), Some(6));
+        assert_eq!(owner_minimum(3, 6, (19, 10)), Some(6));
+        assert_eq!(owner_minimum(3, 7, (19, 10)), Some(7));
+        assert_eq!(owner_minimum(3, 4, (19, 10)), None);
+        // Ten at 1.9 is 19, exactly.
+        assert_eq!(owner_minimum(10, 19, (19, 10)), Some(19));
+        assert_eq!(owner_minimum(10, 18, (19, 10)), None);
+        // At the bounds.
+        assert_eq!(owner_minimum(u64::MAX, u64::MAX, (1, 1)), Some(u64::MAX));
+        assert_eq!(owner_minimum(u64::MAX, u64::MAX, (2, 1)), None);
+        assert_eq!(
+            owner_minimum(u64::MAX, u64::MAX - 1, (u64::MAX, u64::MAX)),
+            None
+        );
+        let rate = (u64::MAX, u64::MAX - 1);
+        assert_eq!(owner_minimum(u64::MAX - 1, u64::MAX, rate), Some(u64::MAX));
+        // One whose least, rounded up, is a unit above the most a minimum
+        // holds is none: at 6/5, the largest minimum and three fifths.
+        let size = u64::try_from((5 * u128::from(u64::MAX) + 3) / 6).unwrap();
+        assert_eq!(owner_minimum(size, u64::MAX, (6, 5)), None);
     }
 
     #[test]
