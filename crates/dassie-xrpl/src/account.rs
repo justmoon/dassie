@@ -1336,23 +1336,6 @@ impl XrplAccount {
         true
     }
 
-    /// Forgets `scheme`'s transaction `hash`, signed and never executed:
-    /// the node could not book it. Its sequence is free again, if it was
-    /// the last one given.
-    pub fn discard(&mut self, scheme: Name, hash: [u8; 32]) {
-        let Some(position) = self
-            .in_flight
-            .iter()
-            .position(|t| t.hash == hash && t.scheme == scheme && !t.executed)
-        else {
-            return;
-        };
-        let transaction = self.in_flight.remove(position);
-        if transaction.sequence.saturating_add(1) == self.sequence {
-            self.sequence = transaction.sequence;
-        }
-    }
-
     /// Forgets `scheme`'s transaction `hash` as never sent, if the account
     /// remembers it so: it can never apply. Returns whether it did. How a
     /// scheme learns that the owner's payment it still has on its way was

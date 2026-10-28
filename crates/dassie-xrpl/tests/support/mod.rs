@@ -23,14 +23,6 @@ use serde_json::{Map, Value};
 /// What the scheme and its account ask, in the order they ask it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Effect {
-    /// A settlement signed before the XRPL schemes stopped peering, which
-    /// the node holds pending: posted.
-    Finalize {
-        settlement: Name,
-    },
-    Cancel {
-        settlement: Name,
-    },
     Deposit {
         amount: u64,
     },
@@ -67,9 +59,9 @@ impl From<dassie_settlement::Effect> for Effect {
     fn from(effect: dassie_settlement::Effect) -> Self {
         use dassie_settlement::Effect as E;
         match effect {
-            E::IncomingSettlement { .. } => panic!("an owner book books no settlements"),
-            E::Finalize { settlement } => Self::Finalize { settlement },
-            E::Cancel { settlement } => Self::Cancel { settlement },
+            E::IncomingSettlement { .. } | E::Finalize { .. } | E::Cancel { .. } => {
+                panic!("an owner book settles nothing")
+            }
             E::Deposit { amount } => Self::Deposit { amount },
             E::Withdrawal { amount } => Self::Withdrawal { amount },
             E::OwnerPaid { id, applied } => Self::OwnerPaid { id, applied },
@@ -223,14 +215,6 @@ impl XrplScheme {
 
     pub fn owner_payment(&self, id: Name) -> dassie_settlement::OwnerPaymentState {
         self.scheme.owner_payment(id)
-    }
-
-    pub fn reconcile(&mut self, pending: &[(Name, u64)], effects: &mut Vec<Effect>) {
-        let mut booked = Vec::new();
-        self.scheme
-            .reconcile(Some(&mut self.account), pending, &mut booked);
-        effects.extend(booked.into_iter().map(Effect::from));
-        self.drain(effects);
     }
 
     /// The joined state.

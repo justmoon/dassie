@@ -165,57 +165,13 @@ impl Follower {
     }
 }
 
-/// Settlements the node still holds pending after a restart, signed by
-/// `scheme` before the XRPL schemes stopped peering, on `account`. One whose
-/// Payment the account will still tell the scheme of, executed and in
-/// flight or kept for it, stays pending until it does ([`settled`]): it may
-/// still apply, and cancelling one that applied would pay the peer twice,
-/// over a hub as well. Any other is cancelled: one signed and never
-/// executed, which was never submitted and is given up now, one the account
-/// gave up as never sent, and one it does not know. That last may have
-/// applied: one the scheme finalized while the node held its posting back
-/// behind an earlier message to the peer, and the node restarted first, is
-/// one the account no longer keeps. Cancelled, its transfer is voided
-/// although its Payment left the account, and the books hold more than the
-/// account. No scheme here signs a settlement any more, so only the
-/// database of a build from while the XRPL schemes peered can hold one;
-/// no release wrote one, and the store refuses the databases releases
-/// wrote then (spec/areas/node.md#database), so nothing looks it up.
-pub(crate) fn reconcile_pending(
-    mut account: Option<&mut XrplAccount>,
-    scheme: Name,
-    pending: &[(Name, u64)],
-    effects: &mut Vec<Effect>,
-) {
+/// Settlements the node holds pending at activation: an owner book
+/// prepares none, so any it is handed can never apply, and is cancelled.
+pub(crate) fn cancel_pending(pending: &[(Name, u64)], effects: &mut Vec<Effect>) {
     for (settlement, _) in pending {
-        let waits = match (name_hash(*settlement), account.as_deref_mut()) {
-            (Some(hash), Some(account)) => {
-                account.discard(scheme, hash);
-                !account.take_never_sent(scheme, hash) && account.keeps_transaction(&hash)
-            }
-            _ => false,
-        };
-        if !waits {
-            effects.push(Effect::Cancel {
-                settlement: *settlement,
-            });
-        }
-    }
-}
-
-/// One of the scheme's own Payments the ledger validated that is not the
-/// owner's: a settlement signed before the XRPL schemes stopped peering,
-/// which the node holds pending ([`reconcile_pending`]). Posted if it
-/// applied, voided if not. Returns what it took from the books: `paid`, in
-/// internal units, if it applied.
-pub(crate) fn settled(record: &TxRecord, paid: u64, effects: &mut Vec<Effect>) -> u64 {
-    let settlement = hash_name(&record.hash);
-    if record.succeeded() {
-        effects.push(Effect::Finalize { settlement });
-        paid
-    } else {
-        effects.push(Effect::Cancel { settlement });
-        0
+        effects.push(Effect::Cancel {
+            settlement: *settlement,
+        });
     }
 }
 
