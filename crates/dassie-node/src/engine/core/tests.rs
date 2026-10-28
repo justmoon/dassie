@@ -5918,6 +5918,20 @@ fn an_owner_book_funds_the_hub_and_never_peers() {
             .any(|scheme| scheme.as_str() == "xrpl-testnet-xrp")
     };
     assert!(!listed(&core), "an owner book is never in the link state");
+    // The owner sees which ledgers a payment can start on: the hub's, never
+    // the owner book's, so Send offers no ledger without a route.
+    let peers: Vec<(String, bool)> = core
+        .ledger_views()
+        .iter()
+        .map(|view| (view.id.as_str().to_string(), view.peers))
+        .collect();
+    assert_eq!(
+        peers,
+        [
+            ("xrpl-testnet-xrp+xrp".to_string(), false),
+            ("hub-xrpl-testnet-xrp+xrp".to_string(), true),
+        ]
+    );
 
     // A downlink that asks to peer on it is refused, as on a scheme the
     // node does not run.

@@ -137,6 +137,9 @@ pub struct LedgerView {
     pub issuer: Option<String>,
     /// Whether the node can ask a faucet for test money on its asset.
     pub faucet: bool,
+    /// Whether its scheme peers, so that a payment can start on it; an
+    /// owner book never does (spec/decisions/hubs-only.md).
+    pub peers: bool,
     /// How the scheme stands with its ledger.
     pub status: LedgerStatus,
     /// What its asset waits for, if something keeps it from going on, such
@@ -1261,6 +1264,7 @@ impl Core {
             deposit_tag,
             issuer: active.scheme.issuer(),
             faucet: asset.is_some_and(|asset| asset.asset.has_faucet()),
+            peers: active.scheme.peers(),
             status: match active.failed {
                 Some(_) => LedgerStatus::Failed(
                     "the books could not take what the ledger said; restart the node",

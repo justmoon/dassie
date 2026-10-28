@@ -57,6 +57,10 @@ message Ledger {
   // which a deposit with it is credited to (spec/areas/hubs.md#the-escrow).
   // Absent where no tag is needed.
   optional uint32 deposit_tag = 18;
+  // Whether its scheme peers, so that a payment can start on it: a
+  // settlement hub's ledger or the stub's. An owner book on an underlying
+  // ledger never does; it funds a hub (spec/decisions/hubs-only.md).
+  bool peers = 19;
 }
 
 // A dollar token's peg guard: whether it pauses the scheme, and the token's

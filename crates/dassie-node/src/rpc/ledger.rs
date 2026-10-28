@@ -443,6 +443,7 @@ pub(super) fn ledger(view: &LedgerView) -> proto::Ledger {
         connection_problem: problem(view.status, view.waiting),
         peg: view.peg.map(peg),
         removing_methods: view.removing,
+        peers: view.peers,
     }
 }
 

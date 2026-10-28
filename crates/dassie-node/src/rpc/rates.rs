@@ -175,6 +175,7 @@ mod tests {
             deposit_tag: None,
             issuer: None,
             faucet: false,
+            peers: false,
             status: LedgerStatus::Synced,
             waiting: None,
             peg: None,

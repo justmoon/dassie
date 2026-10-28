@@ -13,7 +13,7 @@ import { createSignal, createUniqueId, For, onCleanup, Show } from "solid-js";
 import { Amount, ledgerCurrency } from "@dassie/ui/amount";
 import { amountText, parseAmount, parseFailureText } from "@dassie/ui/currency";
 import { useNodeData } from "@dassie/ui/node-data";
-import { useRouter, useSearchParam } from "@dassie/ui/router";
+import { Link, useRouter, useSearchParam } from "@dassie/ui/router";
 import { describe, useClient } from "@dassie/ui/rpc";
 import { Card, ErrorText, Field, PageTitle } from "@dassie/ui/ui";
 import {
@@ -50,10 +50,12 @@ export function Send(): JSX.Element {
   const ticker = setInterval(() => setNow(Date.now()), 1_000);
   onCleanup(() => clearInterval(ticker));
 
-  // The ledger that pays: the one chosen, else one in the recipient's
-  // asset, else the default, `$host`'s. The node pays from the ledger the
-  // route starts on, and says so if it is another.
-  const ledgers = () => data.ledgers() ?? [];
+  // The ledgers a payment can start on, those whose scheme peers: never an
+  // owner book, which only funds a hub (spec/decisions/hubs-only.md). The
+  // one that pays: the one chosen, else one in the recipient's asset, else
+  // the default, `$host`'s. The node pays from the ledger the route starts
+  // on, and says so if it is another.
+  const ledgers = () => (data.ledgers() ?? []).filter((entry) => entry.peers);
   const chosen = () => {
     const all = ledgers();
     const same = all.find((entry) =>
@@ -249,7 +251,8 @@ export function Send(): JSX.Element {
                 when={ledgers().length > 0}
                 fallback={
                   <p class="error" role="alert">
-                    You have no ledger to pay from.
+                    You have no ledger to pay from. Payments go through a
+                    settlement hub: <Link href="/ledgers/create">add one</Link>.
                   </p>
                 }
               >

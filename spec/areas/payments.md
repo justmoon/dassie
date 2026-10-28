@@ -146,6 +146,7 @@ The owner reaches all of this over RPC ([rpc.md](rpc.md)), without a grant, thro
 
 ### The owner's Send
 
+- **It pays from a ledger a route can start on,** one whose scheme peers, as the node reports each ledger: never an owner book, which only funds a hub ([hubs-only](../decisions/hubs-only.md)), so Send offers none.
 - **The recipient** is a payment pointer, a wallet address URL, a **payment request** (an incoming payment's URL, as Receive hands out), here or on another node, or **STREAM credentials** ([below](#paying-stream-credentials)).
 - **A payment request speaks only for its own wallet:** one here for one of this node's wallet addresses, one elsewhere only for a wallet whose resource server is where the request is, never one elsewhere for this node's. Otherwise a request could name anyone, the owner too, and be paid as them.
 - **Text from other wallets** (public names, descriptions) loses control and direction-changing characters, so it cannot read as something else beside the payment pointer.
