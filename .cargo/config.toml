@@ -8,9 +8,10 @@
 PROPTEST_RNG_SEED = "0"
 # The bundled SQLite (rusqlite's `bundled`) without its memory statistics.
 # Keeping them takes one lock for the whole process on every allocation SQLite
-# makes, so databases on several threads wait for one another: simulations
-# run side by side, each node with a database of its own, ran many times
-# slower than one alone. Nothing reads the statistics, and SQLite recommends
+# makes, so databases on several threads wait for one another, as do those of
+# several nodes in one process, each with a database of its own: a test's
+# in-process daemons, or `cargo test`'s tests run side by side on threads.
+# Nothing reads the statistics, and SQLite recommends
 # turning them off. Set here, so that tests, CI and releases build the same
 # SQLite.
 LIBSQLITE3_FLAGS = "-DSQLITE_DEFAULT_MEMSTATUS=0"

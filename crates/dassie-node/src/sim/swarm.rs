@@ -437,9 +437,10 @@ impl fmt::Display for Over {
 /// book and a new key for a validator of the fake XRP Ledger, each off in a
 /// third of the seeds; never on the stub. A hub's own validators keep their
 /// honest servers here: lying servers under validators are covered by the
-/// `hub_proofs` tests (spec/areas/testing.md#over-a-settlement-hub), and
-/// are not drawn here yet. Their own generator, so that they draw nothing
-/// else's.
+/// `node-hub-lies` run ([`hub_runs`](super::hub_runs),
+/// spec/areas/testing.md#over-a-settlement-hub) and the escrow watcher's
+/// `a_lying_server_makes_it_attest_nothing_false` test, and are not drawn
+/// here yet. Their own generator, so that they draw nothing else's.
 fn proof_faults(seed: u64, settling: Settling) -> (u64, u64) {
     if !over_hub(settling) {
         return (0, 0);

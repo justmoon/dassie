@@ -5,8 +5,10 @@
 //! behind that crate's `sim` feature (`testing` for `dassie-node`), and is
 //! a function from a seed to a [`Run`]: the same seed
 //! gives the same run, byte for byte (spec/decisions/tigerstyle.md). No test
-//! runs one: a case a run found becomes a targeted test of its own. This
-//! crate runs them on any seed:
+//! runs a simulation, except this runner's own tests: they run the tripwire,
+//! and `a_campaigns_runs_die_when_it_is_killed` starts `node` runs only to
+//! check that they die with their campaign. A case a run found becomes a
+//! targeted test of its own. This crate runs them on any seed:
 //! one to replay a failure, a range to search for one, a commit's, or random
 //! ones for as long as a campaign lasts, as TigerBeetle's VOPR does.
 
