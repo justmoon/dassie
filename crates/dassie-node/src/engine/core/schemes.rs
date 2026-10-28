@@ -957,6 +957,19 @@ impl Core {
             })
     }
 
+    /// What the owner has posted on `ledger`, with what packets in flight
+    /// hold of it: [`owner_available`](Self::owner_available) before the
+    /// pending debits come off.
+    pub(super) fn owner_posted(&self, ledger: LedgerId) -> u64 {
+        self.account(ledger, AccountName::EquityOwner)
+            .ok()
+            .and_then(|owner| self.ledger.group_balance(owner))
+            .map_or(0, |balance| {
+                let posted = balance.credits_posted.saturating_sub(balance.debits_posted);
+                u64::try_from(posted).unwrap_or(u64::MAX)
+            })
+    }
+
     /// Carries out what `asset` asks of its ledger, in order: a message
     /// after a reconnection goes on the new connection. All or none with
     /// what its schemes booked: once the books refused what the last scheme

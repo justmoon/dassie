@@ -205,6 +205,13 @@
         </li>
       </ul>
       <p>
+        A payment larger than what the hub holds still goes. Your node first
+        moves the difference into the hub from your own account, with enough
+        to bring the hub back to halfway, and the payment starts once the
+        hub credits it, a few seconds later. It counts what payments still
+        have to send as already gone, so it never withdraws what they need.
+      </p>
+      <p>
         You can move money yourself too, in the wallet's Hubs page or with
         <code>dassie hub</code>. A move of yours pauses your node's own moves
         for a while, so it does not undo yours. A move that is late, sent

@@ -276,9 +276,10 @@
         </li>
         <li>
           <strong>The node checks the funds too.</strong> What the owner has
-          free on that ledger must cover the payment and what the payments
-          still sending there have left to send. Otherwise it is refused with
-          <code>400 invalid_request</code>.
+          free on that ledger, with what the node can move into its hub from
+          the owner's own account, must cover the payment and what the
+          payments still sending there have left to send. Otherwise it is
+          refused with <code>400 invalid_request</code>.
         </li>
       </ul>
       <p class="why">
@@ -290,9 +291,10 @@
       <p>
         A wallet address books on the ledger its asset arrives on: on the
         testnet, the node's account in a settlement hub. So a grant to pay
-        from <code>/pay/xrp</code> spends what the node holds in its XRP hub:
-        its float, since the node moves what is beyond it to the owner's own
-        XRP Ledger account.
+        from <code>/pay/xrp</code> spends from the node's XRP hub. The hub
+        keeps only a float, and the rest is on the owner's own XRP Ledger
+        account; a payment larger than the float waits a few seconds while
+        the node moves the difference into the hub.
       </p>
       <p>
         <a href="/docs/concepts/hubs/">Settlement hubs</a> and

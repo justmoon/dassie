@@ -30,10 +30,9 @@ A ledger kept by n = 3f + 1 validators and backed by an escrow on the XRP Ledger
 
 ### One balance per asset
 
-The owner holds one balance per asset, and the node manages the hub's part of it like a hold ([one-balance-per-asset](decisions/one-balance-per-asset.md)). The float, the sweep beyond the ceiling and deposits on the owner's own account are built.
+The owner holds one balance per asset, and the node manages the hub's part of it like a hold ([one-balance-per-asset](decisions/one-balance-per-asset.md)). The float, the sweep beyond the ceiling, deposits on the owner's own account and a payment's deposit on demand are built.
 
 - **What is left:**
-  - a payment's deposit on demand: the funds check counts the whole asset, and a payment the hub account does not cover waits while the node deposits the shortfall from the owner book, within its deadline;
   - one balance per asset: the node reports what the owner book, the hub account and a move on its way hold together, and the wallet's dashboard, its Send, which pays in an asset, and `dassie status` show that.
 - **Done when:** an owner sees one balance per asset, and Send pays any amount it covers.
 

@@ -58,6 +58,12 @@ const RECONNECT_MIN_MS: u64 = 1_000;
 /// within about a minute, at no more than the STREAM bound's packets per
 /// connection.
 const STOPPED_WAIT_MAX_MS: u64 = 60_000;
+/// How long a payment waits before it looks again whether its ledger
+/// covers it, while the node moves funds into a settlement hub for it
+/// (spec/decisions/one-balance-per-asset.md).
+const FUNDS_WAIT_MS: u64 = 1_000;
+/// Why a payment that ran out of time while it waited for its funds failed.
+const FUNDS_SHORT: &str = "the funds on its ledger did not cover it in time";
 /// Most packets to the node's own receiver waiting, and handled per step.
 const MAX_LOCAL_QUEUE: usize = 1_024;
 const LOCAL_PER_STEP: usize = 256;
@@ -81,6 +87,11 @@ pub(super) struct Spending {
     pub local_queue: VecDeque<(Forwarded, Vec<u8>)>,
     /// Whether a connection had more to send than a poll takes.
     pub sends_left: bool,
+}
+
+/// What a payment is still to send.
+fn remaining(row: &OutgoingRow) -> u128 {
+    u128::from(row.debit_amount - row.sent_amount)
 }
 
 /// Where the answer to a payer's packet is.
@@ -380,8 +391,6 @@ impl Core {
         })
     }
 
-    /// Whether the owner's funds on `ledger` cover `debit` on top of what
-    /// unfinished payments are still to send.
     /// Whether `new` may be made, before its grant is asked: an active
     /// ledger, amounts, room, a quote and credentials not used yet, and
     /// the funds.
@@ -407,6 +416,10 @@ impl Core {
         self.check_funds(new.ledger, new.debit_amount)
     }
 
+    /// Whether the owner's funds cover `debit` on `ledger` on top of what
+    /// unfinished payments are still to send: on a settlement hub's ledger,
+    /// with what the node can move into the hub from the owner book
+    /// (spec/decisions/one-balance-per-asset.md).
     fn check_funds(&self, ledger: LedgerId, debit: u64) -> Result<(), EngineError> {
         let root = self.account(ledger, AccountName::EquityOwner)?;
         let balance = self
@@ -416,14 +429,9 @@ impl Core {
         let available = balance
             .credits_posted
             .saturating_sub(balance.debits_posted)
-            .saturating_sub(balance.debits_pending);
-        let promised: u128 = self
-            .spending
-            .outgoing
-            .values()
-            .filter(|payment| payment.row.ledger == ledger)
-            .map(|payment| u128::from(payment.row.debit_amount - payment.row.sent_amount))
-            .sum();
+            .saturating_sub(balance.debits_pending)
+            .saturating_add(self.hub_refill(ledger));
+        let promised = self.promised_on(ledger);
         if available < promised + u128::from(debit) {
             return Err(EngineError::Precondition(
                 "the funds do not cover the payment".into(),
@@ -554,19 +562,65 @@ impl Core {
     /// Starts waiting payments while there is room, sends what their
     /// connections have to send, and ends those that are done.
     pub(super) fn pump_outgoing(&mut self, now: u64) {
-        while self
+        let mut sending = self
             .spending
             .outgoing
             .values()
             .filter(|p| p.connection.is_some())
-            .count()
-            < MAX_SENDING
-        {
+            .count();
+        // What the payments sending are still to send, by ledger, kept as
+        // payments start, so each one's check is one lookup.
+        let mut left: BTreeMap<LedgerId, u128> = BTreeMap::new();
+        for payment in self.spending.outgoing.values() {
+            if payment.connection.is_some() {
+                *left.entry(payment.row.ledger).or_default() += remaining(&payment.row);
+            }
+        }
+        let mut short = Vec::new();
+        while sending < MAX_SENDING {
             let Some(&(at, id)) = self.spending.waiting.first().filter(|(at, _)| *at <= now) else {
                 break;
             };
             self.spending.waiting.remove(&(at, id));
+            let Some((ledger, its)) = self
+                .spending
+                .outgoing
+                .get(&id)
+                .map(|payment| (payment.row.ledger, remaining(&payment.row)))
+            else {
+                continue;
+            };
+            if !self.covered(ledger, left.get(&ledger).copied().unwrap_or(0) + its) {
+                short.push(id);
+                continue;
+            }
+            if let Some(payment) = self.spending.outgoing.get_mut(&id)
+                && payment.reconnects.last_stop.as_deref() == Some(FUNDS_SHORT)
+            {
+                payment.reconnects.last_stop = None;
+            }
             self.connect(id, now);
+            if self
+                .spending
+                .outgoing
+                .get(&id)
+                .is_some_and(|p| p.connection.is_some())
+            {
+                sending += 1;
+                *left.entry(ledger).or_default() += its;
+            }
+        }
+        // A payment its hub cannot cover yet waits while the node moves
+        // funds in for it, and looks again a while later.
+        for id in short {
+            if let Some(payment) = self.spending.outgoing.get_mut(&id) {
+                payment.start_at_ms = now.saturating_add(FUNDS_WAIT_MS);
+                payment
+                    .reconnects
+                    .last_stop
+                    .get_or_insert_with(|| FUNDS_SHORT.into());
+                self.spending.waiting.insert((payment.start_at_ms, id));
+            }
         }
         let active: Vec<PaymentId> = self
             .spending
@@ -579,6 +633,46 @@ impl Core {
             self.transmit_outgoing(id, now);
             self.settle_outgoing(id, now);
         }
+    }
+
+    /// What the owner's unfinished payments on `ledger` are still to send.
+    pub(super) fn promised_on(&self, ledger: LedgerId) -> u128 {
+        self.spending
+            .outgoing
+            .values()
+            .filter(|payment| payment.row.ledger == ledger)
+            .map(|payment| remaining(&payment.row))
+            .sum()
+    }
+
+    /// Whether a payment may start on `ledger`, where it and the payments
+    /// sending there are still to send `needed`: on a settlement hub's
+    /// ledger, once what the owner has posted there covers it, so that its
+    /// packets do not fail while the node moves funds in for it; on any
+    /// other ledger, at once, its funds checked when it was made. Posted,
+    /// not less what is pending, since the packets in flight are part of
+    /// what the payments sending are still to send.
+    fn covered(&self, ledger: LedgerId, needed: u128) -> bool {
+        if super::owner_book_ledger(ledger).is_none() {
+            return true;
+        }
+        let Some(balance) = self
+            .account(ledger, AccountName::EquityOwner)
+            .ok()
+            .and_then(|root| self.ledger.group_balance(root))
+        else {
+            return true;
+        };
+        balance.credits_posted.saturating_sub(balance.debits_posted) >= needed
+    }
+
+    /// Whether payment `id` is sending, on a connection of its own.
+    #[cfg(test)]
+    pub(super) fn is_sending(&self, id: PaymentId) -> bool {
+        self.spending
+            .outgoing
+            .get(&id)
+            .is_some_and(|payment| payment.connection.is_some())
     }
 
     /// Opens a payment's connection, sending what is left of it.

@@ -28,6 +28,12 @@ use super::hub_funding::{
 use super::{Core, EngineError};
 use crate::store::{HubFundingRow, HubMoveRow};
 
+/// How lately a hub must have made progress for the node to deposit into it
+/// for the owner's payments: a few minutes, well within the hour a stall
+/// takes to be judged on the founding terms, and many times the message
+/// window, so a hub that goes on always has.
+const PAYMENTS_NEED_PROGRESS_MS: u64 = 5 * 60 * 1_000;
+
 /// The most XRP Ledger fee a payment out of an owner book is sized to leave
 /// room for, in drops: XRP the account pays, from the XRP book.
 const XRPL_FEE_DROPS: u64 = dassie_xrpl::account::MAX_FEE_DROPS;
@@ -661,6 +667,17 @@ impl Core {
                 .owner_book(scheme)
                 .and_then(|book| self.book_spendable(book)),
             hub_owner: self.owner_available(active.scheme.ledger()) / UNITS_PER_DROP,
+            hub_posted: self.owner_posted(active.scheme.ledger()) / UNITS_PER_DROP,
+            // A hub that shut down, stalled or has not made progress
+            // lately takes no deposit for the owner's payments: they wait
+            // out their deadlines.
+            promised: if self.takes_deposits_for_payments(scheme) {
+                drops_up(
+                    u64::try_from(self.promised_on(active.scheme.ledger())).unwrap_or(u64::MAX),
+                )
+            } else {
+                0
+            },
             paying: self.paying(scheme),
         })
     }
@@ -681,6 +698,59 @@ impl Core {
         }
         let funds = self.owner_available(ledger) / UNITS_PER_DROP;
         Some(funds.saturating_sub(book_fee(ledger)))
+    }
+
+    /// What the owner book can still move into the hub that books `ledger`
+    /// for the owner's payments, in the ledger's units: what the book can
+    /// spend, and a deposit on its way as the prices count it, held on the
+    /// book or gone from it and not yet booked in the hub
+    /// ([`moves_on_their_way`](Self::moves_on_their_way)), while the node
+    /// moves funds by itself and the hub can take them; nothing otherwise,
+    /// as for a frozen, stalled or shut-down hub, nor for a ledger that is
+    /// no hub's (spec/decisions/one-balance-per-asset.md).
+    pub(super) fn hub_refill(&self, ledger: LedgerId) -> u128 {
+        let Some(scheme) = self
+            .book_on(ledger)
+            .filter(|_| owner_book_ledger(ledger).is_some())
+        else {
+            return 0;
+        };
+        let Some(funding) = self.funding.get(&scheme) else {
+            return 0;
+        };
+        let available = self
+            .hub_account(scheme)
+            .is_some_and(|account| account.frozen().is_none())
+            && self.takes_deposits_for_payments(scheme);
+        if !funding.automatic || funding.given_up.is_some() || !available {
+            return 0;
+        }
+        let Some(book) = self.owner_book(scheme) else {
+            return 0;
+        };
+        let spendable = self.book_spendable(book).unwrap_or(0);
+        let on_its_way: u128 = self
+            .moves_on_their_way()
+            .into_iter()
+            .filter(|(leaves, _)| *leaves == book.1)
+            .map(|(_, moving)| moving.held.saturating_add(moving.gone))
+            .fold(0, u128::saturating_add);
+        (u128::from(spendable) * u128::from(UNITS_PER_DROP)).saturating_add(on_its_way)
+    }
+
+    /// Whether the hub of `scheme` takes a deposit for the owner's
+    /// payments: one that has not shut down or stalled, and made progress
+    /// lately ([`PAYMENTS_NEED_PROGRESS_MS`]). A deposit into a hub that
+    /// stopped is never credited, and its payout set, of the last final
+    /// block, never pays it back, so no more than the floor's refill goes
+    /// in until the hub shows it goes on.
+    fn takes_deposits_for_payments(&self, scheme: Name) -> bool {
+        self.schemes
+            .get(&scheme)
+            .is_some_and(|active| active.scheme.can_receive())
+            && self
+                .hub_account(scheme)
+                .is_some_and(|account| account.progressing(PAYMENTS_NEED_PROGRESS_MS))
     }
 
     /// What became of the payment of the move of the hub of `scheme` on

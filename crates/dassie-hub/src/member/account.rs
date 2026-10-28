@@ -189,6 +189,12 @@ pub const STUCK_MS: u64 = 5 * 60_000;
 /// How often it asks for its own state, against which the scheme checks
 /// its books.
 pub const ACCOUNT_EVERY_MS: u64 = 2_000;
+/// The longest gap since the account last heard a validator name its tip
+/// after which a higher one still counts as a rise it heard: a few missed
+/// polls. A higher height heard after a longer gap, as when a node slept or
+/// lost its network, may be where the hub stopped while the account was
+/// not listening ([`HubAccount::progressing`]).
+pub const RISE_HEARD_WITHIN_MS: u64 = 15 * ACCOUNT_EVERY_MS;
 /// Most keys looked up at once.
 pub const MAX_LOOKUPS: usize = 16;
 /// Most recent states of the account kept, to match the holds read anew
@@ -342,6 +348,11 @@ struct Tip {
     height: u64,
     first_ms: u64,
     last_ms: u64,
+    /// Whether the account heard the validator name a lower block shortly
+    /// before it ([`RISE_HEARD_WITHIN_MS`]): the hub went on as it
+    /// listened. The first tip a validator names after a start, or after a
+    /// gap, may be one it named for an hour.
+    rose: bool,
 }
 
 /// The last expiry a commitment claimed on a hub frozen since the block
@@ -744,6 +755,24 @@ impl HubAccount {
             }
         }
         stuck >= self.set.one_honest() && moving < self.set.one_honest()
+    }
+
+    /// Whether the hub made progress lately: f + 1 of its validators, one
+    /// of them honest, named a higher final block than the one the account
+    /// heard them name shortly before, within `within_ms` of now. A hub
+    /// that has stopped is not, long before it is judged
+    /// [stalled](Self::stalled), so the node can tell whether money it puts
+    /// in now would be credited; nor is one the account only started to
+    /// hear, or hears again after a gap, whose tips may be an hour old.
+    #[must_use]
+    pub fn progressing(&self, within_ms: u64) -> bool {
+        let lately = self
+            .tips
+            .iter()
+            .flatten()
+            .filter(|tip| tip.rose && self.now_ms.saturating_sub(tip.first_ms) < within_ms)
+            .count();
+        lately >= self.set.one_honest()
     }
 
     /// Whether the account keeps up with the hub: it was in step with it
@@ -1280,6 +1309,9 @@ impl HubAccount {
                     height,
                     first_ms: now,
                     last_ms: now,
+                    rose: tip.is_some_and(|before| {
+                        now.saturating_sub(before.last_ms) <= RISE_HEARD_WITHIN_MS
+                    }),
                 });
             }
         }
