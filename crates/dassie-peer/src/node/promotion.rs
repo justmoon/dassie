@@ -139,8 +139,8 @@ impl PeerNode {
                 .is_some_and(|channel| channel.paid_us),
             skew_ms: entry.standing.skew_ms,
             banned: self.bans.contains(peer),
-            url_answered: entry.standing.url_answered,
-            https_answered: entry.standing.https_answered,
+            url_answered: entry.url.quic,
+            https_answered: entry.url.https,
         })
     }
 
@@ -148,22 +148,25 @@ impl PeerNode {
     /// bucket of its standing: a `linkStateRequest` for it at its URL, on a
     /// connection pinned to its key, which must return its own link state
     /// at the sequence we hold or later, as a probe for a registration does
-    /// (spec/areas/network.md#registration). Only a candidate that paid us
-    /// is checked: a settlement of at least one largest packet, which keys
-    /// made for nothing never pay, so a node's free downlinks cost it no
-    /// checks. The checks have a bucket of their own, sized for every
-    /// downlink the node may have, apart from the probes inbound requests
-    /// wait on, so they never take those probes' room, and none goes twice
-    /// at once to a node or host.
-    pub(super) fn check_candidate_urls(&mut self) {
+    /// (spec/areas/network.md#registration), and over HTTPS by the node.
+    /// Checked are a candidate that paid us, a settlement of at least one
+    /// largest packet, which keys made for nothing never pay, so a node's
+    /// free downlinks cost it no checks; and, on a bootstrap node, every
+    /// node registered with it, whose registration a URL that fails for
+    /// long enough ends ([`maintain`](Self::maintain)). The checks have a
+    /// bucket of their own, sized for every downlink and registration the
+    /// node may have, apart from the probes inbound requests wait on, so
+    /// they never take those probes' room, and none goes twice at once to a
+    /// node or host.
+    pub(super) fn check_urls(&mut self) {
         let now = self.now_ms;
         let due: Vec<(NodeId, Endpoint, u64)> = self
             .table
             .iter()
             .filter(|(id, entry)| {
-                is_candidate(entry)
-                    && entry.standing.url_check_at_ms <= now
-                    && self.channels.get(id).is_some_and(|channel| channel.paid_us)
+                let candidate = is_candidate(entry)
+                    && self.channels.get(id).is_some_and(|channel| channel.paid_us);
+                entry.url.check_at_ms <= now && (candidate || entry.registration.is_some())
             })
             .filter_map(|(id, entry)| {
                 let link = entry.link.as_ref()?;
@@ -195,7 +198,7 @@ impl PeerNode {
                 return;
             }
             if let Some(entry) = self.table.get_mut(&node) {
-                entry.standing.url_check_at_ms = now.saturating_add(bucket);
+                entry.url.check_at_ms = now.saturating_add(bucket);
             }
             // And over HTTPS, by the node, under the same bucket.
             let url = self
@@ -225,7 +228,8 @@ impl PeerNode {
             .and_then(|link| link.endpoint.as_ref())
             .is_some_and(|endpoint| endpoint.url() == url);
         if current {
-            entry.standing.https_answered = Some(answered);
+            entry.url.https = Some(answered);
+            entry.url.settle(self.now_ms);
         }
     }
 
@@ -247,21 +251,26 @@ impl PeerNode {
     ) {
         self.url_checking.retain(|(id, _)| *id != node);
         let answered = super::inbound::answers_as(node, sequence, result);
+        let now = self.now_ms;
         if let Some(entry) = self.table.get_mut(&node) {
-            entry.standing.url_answered = Some(answered);
+            entry.url.quic = Some(answered);
+            entry.url.settle(now);
         }
     }
 }
 
-/// The rate of our checks of candidates' URLs: as many as the node may
-/// have downlinks, once per bucket of their standing, in bursts as large as
-/// the probes'.
+/// The rate of our checks of nodes' URLs: as many as the node may have
+/// downlinks and registrations, once per bucket of a downlink's standing,
+/// in bursts as large as the probes'.
 pub(super) fn url_check_rate(config: &Config) -> crate::config::Rate {
     let bucket_ms = config.promotion_standing_ms / crate::table::STANDING_BUCKETS;
+    let checked = config
+        .max_downlinks
+        .saturating_add(config.max_registrations)
+        .max(1);
     crate::config::Rate {
         burst: config.probe_rate.burst,
-        refill_ms: (bucket_ms / u64::try_from(config.max_downlinks.max(1)).unwrap_or(u64::MAX))
-            .max(1),
+        refill_ms: (bucket_ms / u64::try_from(checked).unwrap_or(u64::MAX)).max(1),
     }
 }
 

@@ -49,5 +49,5 @@ pub use node::{
 pub use persist::{PeerBatch, Stored, StoredChannel, StoredClosed, StoredNode};
 pub use table::{
     Advertise, Beats, Depeering, Method, Network, Offered, Peering, Registration, Room,
-    STANDING_BUCKETS, Sources, Standing, Termination, Winding,
+    STANDING_BUCKETS, Sources, Standing, Termination, UrlCheck, Winding,
 };

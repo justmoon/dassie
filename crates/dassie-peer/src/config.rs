@@ -137,6 +137,11 @@ pub struct Config {
     /// [`promotion_standing_ms`](Self::promotion_standing_ms), in percent,
     /// to be promoted.
     pub promotion_heartbeat_percent: u32,
+    /// How long a node registered with this bootstrap node may fail the
+    /// checks of its URL, over QUIC or HTTPS, before its registration ends:
+    /// longer than becoming core takes, so that a node that went away loses
+    /// its place in the majority (spec/decisions/promotion-to-core.md).
+    pub registration_failing_ms: u64,
     /// A peer whose room in our books stays short of a packet for this
     /// long, without settling, is withdrawn. Two requests to settle may be
     /// lost, each costing the node's interval between requests, and the
@@ -249,6 +254,9 @@ impl Config {
         advertise_stable_ms: 3_600_000,
         promotion_standing_ms: 3_600_000,
         promotion_heartbeat_percent: 90,
+        // Twice the standing a promotion asks, which becoming core takes at
+        // least, with registration's spread well within it.
+        registration_failing_ms: 7_200_000,
         // Requests to settle every minute, each with 30 s to be answered.
         advertise_short_grace_ms: 180_000,
         termination_timeout_ms: 120_000,
@@ -284,6 +292,8 @@ impl Config {
         advertise_stable_ms: 300_000,
         // An hour, as the advertise flags' is, scaled alike.
         promotion_standing_ms: 300_000,
+        // Twice the standing, as in production.
+        registration_failing_ms: 600_000,
         // Requests to settle every 5 s in dev; a request's timeout is
         // still 30 s.
         advertise_short_grace_ms: 70_000,
@@ -388,6 +398,10 @@ impl Config {
             self.promotion_heartbeat_percent <= 100
                 && self.promotion_standing_ms >= crate::table::STANDING_BUCKETS,
             "a percentage, and a standing that buckets split"
+        );
+        assert!(
+            self.registration_failing_ms > self.promotion_standing_ms,
+            "a registration outlasts the time becoming core takes"
         );
         assert!(
             self.advertise_hold_min_ms <= self.advertise_hold_max_ms

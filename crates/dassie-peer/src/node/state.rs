@@ -480,14 +480,23 @@ impl PeerNode {
     /// Expires registrations and removes nodes nobody needs.
     pub(super) fn maintain(&mut self) {
         let now = self.now_ms;
+        let failing = self.config.registration_failing_ms;
+        // A registration ends once it lapses, or once the node's URL has
+        // failed our checks for longer than becoming core takes, so that a
+        // node that went away loses its place in the majority
+        // (spec/decisions/promotion-to-core.md).
         let expired: Vec<NodeId> = self
             .table
             .iter()
             .filter(|(_, entry)| {
+                let gone = entry
+                    .url
+                    .failing_since_ms
+                    .is_some_and(|since| since.saturating_add(failing) <= now);
                 entry
                     .registration
                     .as_ref()
-                    .is_some_and(|r| r.expires_ms <= now)
+                    .is_some_and(|r| r.expires_ms <= now || gone)
             })
             .map(|(id, _)| *id)
             .collect();
@@ -517,11 +526,21 @@ impl PeerNode {
 
     /// When [`maintain`](Self::maintain) next has something to do.
     pub(super) fn next_maintenance(&self) -> Option<u64> {
-        let grace = self.config.removal_grace_ms;
+        let (grace, failing) = (
+            self.config.removal_grace_ms,
+            self.config.registration_failing_ms,
+        );
         self.table
             .values()
             .filter_map(|entry| {
-                let expiry = entry.registration.as_ref().map(|r| r.expires_ms);
+                let gone = entry
+                    .url
+                    .failing_since_ms
+                    .map(|since| since.saturating_add(failing));
+                let expiry = entry
+                    .registration
+                    .as_ref()
+                    .map(|r| gone.map_or(r.expires_ms, |gone| gone.min(r.expires_ms)));
                 let removal = entry
                     .orphaned_ms
                     .filter(|_| entry.sources.is_empty())

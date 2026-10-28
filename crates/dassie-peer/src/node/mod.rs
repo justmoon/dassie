@@ -1003,7 +1003,7 @@ impl PeerNode {
         self.tend_names();
         self.send_names();
         self.seek_peers(hooks);
-        self.check_candidate_urls();
+        self.check_urls();
         self.seek_methods(hooks);
         self.tend_snapshots(hooks);
         self.update_routes();

@@ -778,3 +778,35 @@ fn a_registrations_probe_dials_the_url() {
     assert_eq!(probe.endpoint, Some(endpoint(2)));
     assert!(probe.fresh, "on a connection of its own");
 }
+
+// spec/decisions/promotion-to-core.md: a bootstrap node checks the URL of
+// each node registered with it, and ends a registration whose URL has failed
+// its checks for longer than becoming core takes, though the node renews it:
+// a node that went away loses its place in the majority. One whose URL
+// answers stays registered.
+#[test]
+fn a_registration_whose_url_fails_ends() {
+    let mut network = Network::new(41, 3, 1, Config::DEV);
+    settle(&mut network, 120_000);
+    let registered = |network: &Network, index: usize| {
+        let id = *network.node(index).own();
+        network
+            .node(0)
+            .nodes()
+            .into_iter()
+            .find(|view| view.id == id)
+            .and_then(|view| view.registered_until_ms)
+            .is_some()
+    };
+    assert!(registered(&network, 1) && registered(&network, 2));
+    // Nothing the bootstrap node sends reaches node 2 now, its URL checks
+    // among them; node 2's renewals still reach it.
+    network.cut_one_way.insert((0, 2));
+    let failing = Config::DEV.registration_failing_ms;
+    let bucket = Config::DEV.promotion_standing_ms / dassie_peer::STANDING_BUCKETS;
+    settle(&mut network, failing / 2);
+    assert!(registered(&network, 2), "not failing for long enough yet");
+    settle(&mut network, failing + 2 * bucket);
+    assert!(!registered(&network, 2), "its registration ended");
+    assert!(registered(&network, 1), "one whose URL answers stays");
+}
