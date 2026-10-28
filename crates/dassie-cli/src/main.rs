@@ -18,13 +18,10 @@
 //! - `dassie market-maker` trades through a core node with two nodes of
 //!   its own, from the node's snapshot.
 
-mod client;
 mod founding;
 mod front_door;
 mod hub;
 mod init;
-mod market_maker;
-mod passphrase;
 mod setup;
 mod status;
 mod update;
@@ -32,6 +29,9 @@ mod update;
 use std::process::ExitCode;
 use std::sync::Arc;
 
+// The library's, under the names the commands use.
+use dassie_cli::signals::{listen_for_signals, stop_on_signal};
+use dassie_cli::{client, market_maker, passphrase};
 use dassie_node::clock::{SystemClock, os_rng};
 use dassie_node::daemon::{self, DaemonOptions, FeedSocket, Prepared, TcpPorts};
 use dassie_node::env::{Env, Settings};
@@ -377,25 +377,6 @@ fn daemon(options: DaemonOptions) -> ExitCode {
             ExitCode::from(START_FAILED)
         }
     }
-}
-
-type Signals = (tokio::signal::unix::Signal, tokio::signal::unix::Signal);
-
-/// SIGTERM and SIGINT, handled from now on.
-fn listen_for_signals() -> Option<Signals> {
-    use tokio::signal::unix::{SignalKind, signal};
-    let terminate = signal(SignalKind::terminate()).ok()?;
-    let interrupt = signal(SignalKind::interrupt()).ok()?;
-    Some((terminate, interrupt))
-}
-
-async fn stop_on_signal(signals: Signals, shutdown: CancellationToken) {
-    let (mut terminate, mut interrupt) = signals;
-    tokio::select! {
-        _ = terminate.recv() => {}
-        _ = interrupt.recv() => {}
-    }
-    shutdown.cancel();
 }
 
 fn init(options: init::Options) -> ExitCode {

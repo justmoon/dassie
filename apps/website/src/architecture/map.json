@@ -253,8 +253,8 @@
         "Payments across currencies: dollars on the stub with unlimited trust, converted by a node in both and paid in XRP over a settlement hub, which the converter settles over; and across two hubs, of XRP and of DSUSD: a payment from a member of the XRP hub alone to a receiver in DSUSD of a member of the DSUSD hub alone, through a member of both that converts",
         "Mainnet's schemes in the live realm, by the dev switch, on the fake ledger's mainnet: a node holds XRP and RLUSD in owner books on one account, at addresses under `g.`, and books a deposit once, across a restart too; RLUSD pauses while its pool gives no price and runs again once it reads one, and pauses while the pool prices it off its peg, still booking what arrives",
         "Mainnet hubs in the live realm: an XRP hub and an RLUSD hub founded on the fake ledger's mainnet, and their members paying each other over both",
-        "Passive rebalancing end to end, over an XRP hub and a DSUSD hub: a market maker of one node swaps through a core node short of dollars and back through the fake ledger's pool, which moves the node toward balance and earns the market maker, and a swap at what a snapshot promises gets no less; with two such core nodes, it trades through each and moves each toward balance",
-        "Peer swaps: two core nodes skewed opposite ways swap with each other until neither gains, and each ends closer to an even split",
+        "`dassie market-maker` over an XRP hub and a DSUSD hub, pinned to one core node short of dollars or to two: it starts from its config file, reads its node over the IPC socket and makes a trade; what its trades do to the core nodes and to its own value is tested beside daemons on paused time, in `dassie-cli/tests`",
+        "Peer swaps: two core nodes skewed opposite ways swap with each other by themselves; that they swap until neither gains, each ending closer to an even split, is tested beside daemons on paused time, in `dassie-node/tests`",
         "The wallet, the dev dashboard and dassie.land in a browser",
         "The installer and the updater on Debian, Ubuntu, Fedora and CentOS, in containers"
       ]

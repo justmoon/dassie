@@ -100,8 +100,9 @@ pub struct SwapDone {
     pub paid: u64,
     /// What came back, of the other asset.
     pub received: u64,
-    /// Its packets fulfilled and rejected.
+    /// Its packets fulfilled.
     pub fulfilled: u64,
+    /// Its packets rejected.
     pub rejected: u64,
     /// Why it ended, as the node names it.
     pub ended: proto::SwapEnd,

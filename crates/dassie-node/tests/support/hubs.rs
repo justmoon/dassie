@@ -447,28 +447,54 @@ pub async fn validating(node: &TestNode) -> Vec<proto::HubValidator> {
 }
 
 /// A node to start beside the hubs: the seed of its key and of its RNG,
-/// the hubs it joins, and whether it has dollars on the stub with
-/// unlimited trust too (spec/areas/settlement.md#the-stub-scheme).
+/// the hubs it joins, whether it has dollars on the stub with unlimited
+/// trust too (spec/areas/settlement.md#the-stub-scheme), what the issuer
+/// sends it for a dollar hub, and the members it is pinned to as a
+/// periphery node, if any (spec/areas/network.md#pinned-uplinks).
 #[derive(Clone, Copy, Debug)]
 pub struct Joining {
     pub seed: u8,
     pub hubs: &'static [HubAsset],
     pub stub: bool,
+    /// The network's dollars the issuer sends it for a dollar hub.
+    pub dollars: &'static str,
+    /// The seeds of the core members it is pinned to; none for a core
+    /// node.
+    pub uplinks: &'static [u8],
 }
 
 impl Joining {
-    /// A member of `hubs`.
+    /// A core member of `hubs`, sent a hundred dollars for a dollar hub.
     pub const fn of(seed: u8, hubs: &'static [HubAsset]) -> Self {
         Self {
             seed,
             hubs,
             stub: false,
+            dollars: "100",
+            uplinks: &[],
         }
     }
 
     /// With the stub too.
     pub const fn with_stub(self) -> Self {
         Self { stub: true, ..self }
+    }
+
+    /// Sent `dollars` for a dollar hub rather than a hundred.
+    pub const fn with_dollars(self, dollars: &'static str) -> Self {
+        Self { dollars, ..self }
+    }
+
+    /// A periphery node, set up without a hostname and pinned to the core
+    /// members of seeds `uplinks`, started before it or beside it
+    /// (`DASSIE_UPLINKS`): no bootstrap node lists it.
+    pub const fn pinned_to(self, uplinks: &'static [u8]) -> Self {
+        Self { uplinks, ..self }
+    }
+
+    /// Whether it is a periphery node.
+    pub const fn periphery(&self) -> bool {
+        !self.uplinks.is_empty()
     }
 }
 
@@ -485,6 +511,8 @@ pub struct Member {
     pub assets: Vec<HubAsset>,
     /// Whether it has the stub too.
     pub stub: bool,
+    /// Whether it is a periphery node ([`Joining::pinned_to`]).
+    pub periphery: bool,
     /// What it was started with, to start it again.
     env: Vec<(&'static str, String)>,
 }
@@ -502,21 +530,38 @@ impl HubNet {
         let mut named: Vec<(IdentityKey, u16)> = members
             .iter()
             .zip(&bound)
+            .filter(|(joining, _)| !joining.periphery())
             .map(|(joining, bound)| {
                 let key = dassie_identity::TableKeygen::identity_key(&[joining.seed; 32]);
                 (key, bound.https_port())
             })
             .collect();
-        named.extend(also.iter().map(|member| {
-            let key = dassie_identity::TableKeygen::identity_key(&[member.seed; 32]);
-            (key, member.node.https.port())
-        }));
+        named.extend(
+            also.iter()
+                .filter(|member| !member.periphery)
+                .map(|member| {
+                    let key = dassie_identity::TableKeygen::identity_key(&[member.seed; 32]);
+                    (key, member.node.https.port())
+                }),
+        );
         let nodes = bootstrap_all(&named);
-        let mut env = env_on(self.network);
-        env.push(("DASSIE_BOOTSTRAP_NODES", nodes));
         let mut started = Vec::new();
         for (joining, bound) in members.iter().zip(bound) {
             let key = dassie_identity::TableKeygen::identity_key(&[joining.seed; 32]);
+            let mut env = env_on(self.network);
+            env.push(("DASSIE_BOOTSTRAP_NODES", nodes.clone()));
+            if joining.periphery() {
+                let uplinks: Vec<String> = joining
+                    .uplinks
+                    .iter()
+                    .map(|seed| {
+                        dassie_identity::TableKeygen::identity_key(&[*seed; 32])
+                            .node_id()
+                            .to_string()
+                    })
+                    .collect();
+                env.push(("DASSIE_UPLINKS", uplinks.join(",")));
+            }
             let pairs: Vec<(&str, &str)> = env.iter().map(|(k, v)| (*k, v.as_str())).collect();
             let node = bound
                 .start_paused(self.clock, u64::from(joining.seed), POLICIES, &pairs)
@@ -527,9 +572,10 @@ impl HubNet {
                 seed: joining.seed,
                 assets: joining.hubs.to_vec(),
                 stub: joining.stub,
-                env: env.clone(),
+                periphery: joining.periphery(),
+                env,
             };
-            self.join(&member).await;
+            self.join(&member, joining.dollars).await;
             started.push(member);
         }
         for member in &started {
@@ -541,29 +587,32 @@ impl HubNet {
         started
     }
 
-    /// Sets `member` up as a peer, with the stub if it has it, and has it
-    /// join its hubs: an owner book of each hub's asset on its one XRP
-    /// Ledger account, funded by the faucet on the testnet and by the
-    /// owner's deposit on mainnet, a hundred of the network's dollars from
-    /// its issuer for a dollar hub, and each hub's scheme, which opens its
-    /// account in the hub by a deposit by itself.
-    async fn join(&self, member: &Member) {
+    /// Sets `member` up as a peer, at a hostname unless it is a periphery
+    /// node, with the stub if it has it, and has it join its hubs: an owner
+    /// book of each hub's asset on its one XRP Ledger account, funded by
+    /// the faucet on the testnet and by the owner's deposit on mainnet,
+    /// `dollars` of the network's dollars from its issuer for a dollar hub,
+    /// and each hub's scheme, which opens its account in the hub by a
+    /// deposit by itself.
+    async fn join(&self, member: &Member, dollars: &str) {
         let node = &member.node;
         set_up_in(node, &member.key, self.network).await;
-        let mut owner = node.ipc().await;
-        let hostname = owner
-            .call(Method::SetHostname(proto::SetHostnameRequest {
-                hostname: "localhost".into(),
-            }))
-            .await;
-        assert!(hostname.is_ok(), "{hostname:?}");
-        let certificate = owner
-            .call(Method::SetCertificate(proto::SetCertificateRequest {
-                certificate_chain_pem: std::fs::read_to_string(cert_file()).unwrap(),
-                private_key_pem: std::fs::read_to_string(key_file()).unwrap(),
-            }))
-            .await;
-        assert!(certificate.is_ok(), "{certificate:?}");
+        if !member.periphery {
+            let mut owner = node.ipc().await;
+            let hostname = owner
+                .call(Method::SetHostname(proto::SetHostnameRequest {
+                    hostname: "localhost".into(),
+                }))
+                .await;
+            assert!(hostname.is_ok(), "{hostname:?}");
+            let certificate = owner
+                .call(Method::SetCertificate(proto::SetCertificateRequest {
+                    certificate_chain_pem: std::fs::read_to_string(cert_file()).unwrap(),
+                    private_key_pem: std::fs::read_to_string(key_file()).unwrap(),
+                }))
+                .await;
+            assert!(certificate.is_ok(), "{certificate:?}");
+        }
         if member.stub {
             add_scheme(node, "stub", STUB_UNLIMITED).await;
         }
@@ -590,7 +639,7 @@ impl HubNet {
             self.xrpl.ledger().deposit(account, MAINNET_DEPOSIT_DROPS);
         }
         if member.assets.contains(&HubAsset::Dollar) {
-            // Once its line is set, the issuer sends it a hundred dollars.
+            // Once its line is set, the issuer sends it its dollars.
             let (currency, issuer) = dollar(self.network);
             until("the member's line", async || {
                 self.xrpl.ledger().line(account, issuer, currency).is_some()
@@ -599,7 +648,7 @@ impl HubNet {
             let token = IssuedAsset { currency, issuer };
             self.xrpl
                 .ledger()
-                .issue(account, token.amount(TokenValue::parse("100").unwrap()))
+                .issue(account, token.amount(TokenValue::parse(dollars).unwrap()))
                 .unwrap();
         }
         for asset in &member.assets {
@@ -631,6 +680,7 @@ impl HubNet {
             seed,
             assets,
             stub,
+            periphery,
             env,
         } = member;
         let ports = node.ports();
@@ -647,6 +697,7 @@ impl HubNet {
             seed,
             assets,
             stub,
+            periphery,
             env,
         }
     }

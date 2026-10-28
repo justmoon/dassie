@@ -70,7 +70,20 @@ dassie-release = { path = "../dassie-release" }
 tempfile = "3"
 # The fake XRP Ledger the market maker's XRPL side is tested against.
 dassie-node = { path = "../dassie-node", features = ["testing"] }
-tokio = { version = "1.53.2", features = ["io-util"] }
+# Paused time, which the market maker's tests run on.
+tokio = { version = "1.53.2", features = ["io-util", "test-util"] }
+# What the daemon tests' support, which the market maker's tests share
+# from dassie-node's tests (tests/market_maker.rs), is built on.
+dassie-hub = { path = "../dassie-hub" }
+dassie-ilp = { path = "../dassie-ilp" }
+dassie-kit = { path = "../dassie-kit", features = ["sim"] }
+dassie-ledger = { path = "../dassie-ledger" }
+dassie-oer = { path = "../dassie-oer" }
+dassie-payments = { path = "../dassie-payments" }
+dassie-stream = { path = "../dassie-stream" }
+base64 = "0.22.1"
+hyper = { version = "1.12.0", features = ["client", "http1"] }
+tokio-tungstenite = { version = "0.30.0", default-features = false, features = ["connect", "handshake"] }
 dassie-release = { path = "../dassie-release", features = ["testing"] }
 # The mirror the update tests serve, over TLS with testdata/tls's
 # certificate.

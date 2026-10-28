@@ -14,7 +14,11 @@
 //!
 //! The loop decides once a tick, from the current snapshots, the pool and
 //! the node's holdings, and logs one line per decision. Every wait is
-//! bounded, and a tick does at most one thing.
+//! bounded, and a tick does at most one thing. Its ticks and waits are
+//! tokio's timers, and what it decides by reads the [`Clock`] it is given:
+//! the command runs on the system clock and real time, and the tests run
+//! the loop beside daemons on tokio's paused time, with a clock that reads
+//! it (spec/areas/testing.md#the-market-maker-and-peer-swaps-on-paused-time).
 
 pub mod config;
 pub mod node;
@@ -96,12 +100,13 @@ pub fn run(options: &Options) -> ExitCode {
     };
     let result = runtime.block_on(async {
         let shutdown = CancellationToken::new();
-        let Some(signals) = crate::listen_for_signals() else {
+        let Some(signals) = crate::signals::listen_for_signals() else {
             return Err("no signal handlers".to_owned());
         };
-        tokio::spawn(crate::stop_on_signal(signals, shutdown.clone()));
+        tokio::spawn(crate::signals::stop_on_signal(signals, shutdown.clone()));
         let clock: Arc<dyn Clock> = Arc::new(SystemClock);
-        let mut maker = MarketMaker::start(config, Arc::clone(&clock)).await?;
+        let wallet = config::wallet_from_file(&config.passphrase_file, clock.now_ms())?;
+        let mut maker = MarketMaker::start(config, wallet, clock).await?;
         maker.run(&shutdown).await;
         Ok(())
     });
@@ -115,7 +120,7 @@ pub fn run(options: &Options) -> ExitCode {
 }
 
 /// A running market maker.
-struct MarketMaker {
+pub struct MarketMaker {
     config: Config,
     clock: Arc<dyn Clock>,
     xrpl: Xrpl,
@@ -162,11 +167,20 @@ impl Unbooked {
 }
 
 impl MarketMaker {
-    /// Derives the keys, checks that the node runs both owner books on the
-    /// account they open and each hub's ledger in its book's asset, and
-    /// that it reads its peers' snapshots.
-    async fn start(config: Config, clock: Arc<dyn Clock>) -> Result<Self, String> {
-        let wallet = config::wallet_from_file(&config.passphrase_file, clock.now_ms())?;
+    /// The market maker `config` describes, with its node's XRPL account's
+    /// keys, `wallet`, deciding by `clock`. Checks that the node runs both
+    /// owner books on the account `wallet` opens and each hub's ledger in
+    /// its book's asset, that it reads its peers' snapshots, and that the
+    /// XRPL server is on the testnet.
+    ///
+    /// # Errors
+    ///
+    /// The node or the server cannot be reached, or a check fails.
+    pub async fn start(
+        config: Config,
+        wallet: Wallet,
+        clock: Arc<dyn Clock>,
+    ) -> Result<Self, String> {
         let mut node = Node::new(&config);
         check_node(&mut node, wallet.account(), &config.token).await?;
         let client = OutboundClient::new(config.ca_file.as_deref(), config.allow_private)?;
@@ -188,7 +202,9 @@ impl MarketMaker {
         })
     }
 
-    async fn run(&mut self, shutdown: &CancellationToken) {
+    /// Decides once a tick, a full tick after the last decision ended, until
+    /// `shutdown`.
+    pub async fn run(&mut self, shutdown: &CancellationToken) {
         let mut ticks = tokio::time::interval(TICK);
         ticks.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         loop {

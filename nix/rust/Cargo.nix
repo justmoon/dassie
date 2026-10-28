@@ -3183,6 +3183,7 @@ rec {
           }
         ];
         src = lib.cleanSourceWith { filter = sourceFilter;  src = ../../crates/dassie-cli; };
+        libName = "dassie_cli";
         dependencies = [
           {
             name = "bytes";
@@ -3322,9 +3323,38 @@ rec {
         ];
         devDependencies = [
           {
+            name = "base64";
+            packageId = "base64 0.22.1";
+          }
+          {
+            name = "dassie-hub";
+            packageId = "dassie-hub";
+          }
+          {
+            name = "dassie-ilp";
+            packageId = "dassie-ilp";
+          }
+          {
+            name = "dassie-kit";
+            packageId = "dassie-kit";
+            features = [ "sim" ];
+          }
+          {
+            name = "dassie-ledger";
+            packageId = "dassie-ledger";
+          }
+          {
             name = "dassie-node";
             packageId = "dassie-node";
             features = [ "testing" ];
+          }
+          {
+            name = "dassie-oer";
+            packageId = "dassie-oer";
+          }
+          {
+            name = "dassie-payments";
+            packageId = "dassie-payments";
           }
           {
             name = "dassie-release";
@@ -3332,8 +3362,17 @@ rec {
             features = [ "testing" ];
           }
           {
+            name = "dassie-stream";
+            packageId = "dassie-stream";
+          }
+          {
             name = "flate2";
             packageId = "flate2";
+          }
+          {
+            name = "hyper";
+            packageId = "hyper";
+            features = [ "client" "http1" ];
           }
           {
             name = "rustls";
@@ -3353,13 +3392,19 @@ rec {
           {
             name = "tokio";
             packageId = "tokio";
-            features = [ "io-util" ];
+            features = [ "io-util" "test-util" ];
           }
           {
             name = "tokio-rustls";
             packageId = "tokio-rustls";
             usesDefaultFeatures = false;
             features = [ "ring" "tls12" ];
+          }
+          {
+            name = "tokio-tungstenite";
+            packageId = "tokio-tungstenite";
+            usesDefaultFeatures = false;
+            features = [ "connect" "handshake" ];
           }
         ];
         features = {

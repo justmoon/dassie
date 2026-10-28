@@ -979,14 +979,22 @@ dependencies = [
 name = "dassie-cli"
 version = "0.3.3"
 dependencies = [
+ "base64 0.22.1",
  "bytes",
  "cliclack",
  "dassie-base64url",
  "dassie-feed",
+ "dassie-hub",
  "dassie-identity",
+ "dassie-ilp",
+ "dassie-kit",
+ "dassie-ledger",
  "dassie-node",
  "dassie-node-core",
+ "dassie-oer",
+ "dassie-payments",
  "dassie-release",
+ "dassie-stream",
  "dassie-wallet-assets",
  "dassie-xrpl",
  "flate2",
