@@ -167,6 +167,14 @@ pub struct BalanceView {
     pub owner_balance: i128,
     /// What packets in flight hold of it.
     pub owner_pending: u128,
+    /// What a new payment in it may spend now, from
+    /// [`pays_from`](Self::pays_from): what the owner has there, and what
+    /// the node can move into its hub, less what unfinished payments are
+    /// still to send.
+    pub spendable: u128,
+    /// Why that is less than the balance, where the owner book does not
+    /// count toward it, for the owner to read.
+    pub spendable_held: Option<&'static str>,
 }
 
 /// What keeps a scheme from being removed, with how many. Peerings that
@@ -1257,6 +1265,8 @@ impl Core {
                         pays_from: None,
                         owner_balance: 0,
                         owner_pending: 0,
+                        spendable: 0,
+                        spendable_held: None,
                     });
                     balances.len() - 1
                 }
@@ -1282,6 +1292,9 @@ impl Core {
                 balance.pays_from = Some(view.id);
             }
         }
+        // A deposit into the hub is the owner's still, on its way: once gone
+        // from the book it counts toward the balance, and while the book
+        // holds it, it is no packet in flight.
         for (ledger, on_its_way) in self.moves_on_their_way() {
             if let Some(balance) = balances
                 .iter_mut()
@@ -1289,6 +1302,15 @@ impl Core {
             {
                 let gone = i128::try_from(on_its_way.gone).unwrap_or(i128::MAX);
                 balance.owner_balance = balance.owner_balance.saturating_add(gone);
+                balance.owner_pending = balance.owner_pending.saturating_sub(on_its_way.held);
+            }
+        }
+        for balance in &mut balances {
+            if let Some(ledger) = balance.pays_from {
+                balance.spendable = u128::from(self.owner_available(ledger))
+                    .saturating_add(self.hub_refill(ledger))
+                    .saturating_sub(self.promised_on(ledger));
+                balance.spendable_held = self.refill_withheld(ledger);
             }
         }
         balances

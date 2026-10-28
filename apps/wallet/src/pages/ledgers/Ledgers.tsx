@@ -57,7 +57,7 @@ export function Ledgers(): JSX.Element {
                     value={balance().ownerBalance}
                     currency={ledgerCurrency(balance())}
                   />{" "}
-                  in all. Your node moves funds between its ledgers by itself.
+                  in all.
                 </p>
               )}
             </Show>

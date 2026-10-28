@@ -88,7 +88,7 @@
             </tr>
             <tr>
               <td>From</td>
-              <td>The ledger the payment comes out of.</td>
+              <td>The asset the payment comes out of.</td>
             </tr>
             <tr>
               <td>You send</td>
@@ -138,8 +138,13 @@
         <dt id="funds">The funds do not cover the payment</dt>
         <dd>
           <p>
-            Your node refuses it before it starts. What you have free on the
-            ledger must cover this payment and every unfinished one from it.
+            Your node refuses it before it starts. What you have of the asset
+            must cover this payment and every unfinished one from it: what is
+            in its hub, and what your node can move in from your own
+            account. When your node's own moves are off, or the hub takes no
+            deposits now, only what is in the hub counts, and the message,
+            like <strong>You can pay … now</strong> under your balance, says
+            why and what you can do.
           </p>
         </dd>
         <dt id="takes-no-more">The receiver takes no more</dt>

@@ -168,7 +168,8 @@ message AssetBalance {
   uint32 asset_scale = 3;
   // What the owner has of it. May be negative after a ledger lost money.
   int64 owner_balance = 4;
-  // Of that, what packets in flight hold.
+  // Of that, what packets in flight hold. A deposit into the hub on its
+  // way is not one.
   uint64 owner_pending = 5;
   // Its ledgers, by ID.
   repeated string ledgers = 6;
@@ -178,6 +179,15 @@ message AssetBalance {
   string pays_from = 7;
   // The realm its money belongs to: TEST money has no value.
   Realm realm = 8;
+  // What a new payment in it may spend now: what the owner has on
+  // pays_from and what the node can move into its hub from the owner
+  // book, less what unfinished payments are still to send. Less than the
+  // balance where the owner book does not count, as spendable_held says.
+  uint64 spendable = 9;
+  // Why the owner book does not count toward spendable now, for the
+  // owner to read, with what to do: the node's own moves are off, or the
+  // hub takes no deposits. Empty while it counts.
+  string spendable_held = 10;
 }
 
 // Something the node holds outside its books, which settlement schemes

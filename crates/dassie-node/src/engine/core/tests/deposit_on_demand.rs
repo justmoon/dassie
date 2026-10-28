@@ -31,6 +31,18 @@ fn in_hub(core: &Core) -> u64 {
     u64::try_from(view.owner_balance).unwrap()
 }
 
+/// What a new payment in XRP may spend now, and why the owner book does
+/// not count toward it, if it does not.
+fn spendable(core: &Core) -> (u128, Option<&'static str>) {
+    let views = core.ledger_views();
+    let balance = core
+        .balance_views(&views)
+        .into_iter()
+        .find(|balance| balance.name == "xrp")
+        .unwrap();
+    (balance.spendable, balance.spendable_held)
+}
+
 /// A payment of `debit` from the hub's ledger to the node's own receiver
 /// there.
 fn pay_self(core: &mut Core, debit: u64) -> Result<PaymentId, EngineError> {
@@ -95,11 +107,17 @@ fn a_payment_beyond_the_hub_waits_for_its_deposit() {
         "{refused:?}"
     );
     let debit = in_hub(&core) + extra;
-    // With the node's own moves off, the hub alone pays.
+    // With the node's own moves off, the hub alone pays: the owner sees
+    // what may be spent now and why, and a refusal says so too.
+    let (_, whole) = spendable(&core);
+    assert_eq!(whole, None, "the book counts");
     core.set_hub_automatic(SCHEME_ID, false).unwrap();
+    let (now, held) = spendable(&core);
+    assert_eq!(now, u128::from(in_hub(&core)));
+    assert!(held.is_some_and(|why| why.contains("moves into the hub are off")));
     let refused = pay_self(&mut core, debit);
     assert!(
-        matches!(refused, Err(EngineError::Precondition(_))),
+        matches!(&refused, Err(EngineError::Precondition(why)) if why.contains("moves into the hub are off")),
         "{refused:?}"
     );
     core.set_hub_automatic(SCHEME_ID, true).unwrap();

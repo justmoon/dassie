@@ -172,6 +172,8 @@ mod tests {
             pays_from: Some(id),
             owner_balance,
             owner_pending: 0,
+            spendable: 0,
+            spendable_held: None,
         }
     }
 

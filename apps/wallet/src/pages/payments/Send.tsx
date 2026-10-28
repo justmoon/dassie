@@ -288,14 +288,41 @@ export function Send(): JSX.Element {
                 </Show>
                 <Show when={chosen()}>
                   {(entry) => (
-                    <p class="muted">
-                      You have{" "}
-                      <Amount
-                        value={entry().ownerBalance}
-                        currency={ledgerCurrency(entry())}
-                        testid="send-balance"
-                      />.
-                    </p>
+                    <>
+                      <p class="muted">
+                        You have{" "}
+                        <Amount
+                          value={entry().ownerBalance}
+                          currency={ledgerCurrency(entry())}
+                          testid="send-balance"
+                        />.
+                      </p>
+                      {
+                        /* What the node pays now, where less: payments under
+                          way, or the owner book not counting, which the
+                          node says why. */
+                      }
+                      <Show
+                        when={entry().ownerBalance > 0n &&
+                          entry().spendable < entry().ownerBalance}
+                      >
+                        <p class="muted" data-testid="send-spendable">
+                          You can pay{" "}
+                          <Amount
+                            value={entry().spendable}
+                            currency={ledgerCurrency(entry())}
+                          />{" "}
+                          now
+                          <Show when={entry().spendableHeld} fallback=".">
+                            {(why) => (
+                              <>
+                                : only what is in the hub counts, since {why()}.
+                              </>
+                            )}
+                          </Show>
+                        </p>
+                      </Show>
+                    </>
                   )}
                 </Show>
                 <fieldset class="radios">

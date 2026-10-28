@@ -465,6 +465,8 @@ pub(super) fn balance(view: &BalanceView) -> proto::AssetBalance {
             .map(|ledger| ledger.as_str().to_string())
             .unwrap_or_default(),
         realm: realm(first.map_or(dassie_ledger::Realm::Test, |ledger| ledger.realm())).into(),
+        spendable: u64::try_from(view.spendable).unwrap_or(u64::MAX),
+        spendable_held: view.spendable_held.unwrap_or_default().into(),
     }
 }
 
