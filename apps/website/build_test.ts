@@ -2,29 +2,51 @@
 //
 // - the CSP in headers.json: no inline script or style, no script, style or
 //   image from elsewhere (links to elsewhere are fine);
-// - every page has the shared header and footer;
+// - every page has the shared header and footer, and every page under
+//   /docs/ the docs layout;
+// - the docs are indexed for search, without Pagefind's own interfaces;
 // - the website workflow publishes on a change to anything the site is
 //   built from: its `paths` name every crate and package it is built from.
 //
 // The checks of the pages run only once `node --run build:website` has run.
+// docs_test.ts checks the docs' pages themselves, without a build.
 
 import { test } from "node:test";
 import { assert, assertEquals } from "@std/assert";
 import { execFile } from "node:child_process";
 import { readdir, readFile } from "node:fs/promises";
 import { exists, scripts } from "@dassie/ui/testing/csp";
-import { PAGES } from "./src/layout.ts";
+import { inDocs } from "./src/docs.ts";
+import { EARLY_DAYS, NAV, sitePaths } from "./src/layout.ts";
 
 const root = new URL("../../", import.meta.url).pathname;
 const dist = new URL("dist", import.meta.url).pathname;
 const built = await exists(`${dist}/index.html`);
 
+/** Every HTML file under `dir`, by its path from it. */
+async function htmlFiles(dir: string, prefix = ""): Promise<string[]> {
+  const found: string[] = [];
+  for (const entry of await readdir(dir, { withFileTypes: true })) {
+    const path = `${prefix}/${entry.name}`;
+    if (entry.isDirectory()) {
+      found.push(...await htmlFiles(`${dir}/${entry.name}`, path));
+    } else if (entry.name.endsWith(".html")) found.push(path);
+  }
+  return found;
+}
+
 test(
   "the pages have no inline script or style, and load nothing from elsewhere",
   { skip: !built },
   async () => {
-    for (const { path } of PAGES) {
-      const html = await readFile(`${dist}${path}index.html`, "utf8");
+    const files = await htmlFiles(dist);
+    assertEquals(
+      files.toSorted(),
+      sitePaths().map((path) => `${path}index.html`).toSorted(),
+      "dist/ holds a page the site doesn't list, or misses one",
+    );
+    for (const path of files) {
+      const html = await readFile(`${dist}${path}`, "utf8");
       assert(
         !/<script(?![^>]*\bsrc=)[^>]*>/.test(html),
         `${path}: inline script`,
@@ -46,21 +68,56 @@ test(
 );
 
 test(
-  "every page has the header and footer, and the navigation marks it current when it lists it",
+  "every page has the header and footer, and the header marks it current when it links it",
   { skip: !built },
   async () => {
-    for (const { path, nav } of PAGES) {
+    const linked = new Set([
+      "/",
+      ...NAV.map((page) => page.path),
+      EARLY_DAYS.path,
+    ]);
+    for (const path of sitePaths()) {
       const html = await readFile(`${dist}${path}index.html`, "utf8");
-      assert(html.includes('<header class="site-header">'), path);
+      const header = html.match(
+        /<header class="site-header">[\s\S]*?<\/header>/,
+      )
+        ?.[0];
+      assert(header, `${path}: no header`);
       assert(html.includes('<footer class="site-footer">'), path);
       assert(!html.includes("<!-- header -->"), path);
+      assert(!html.includes("<!-- footer -->"), path);
+      const isLinked = linked.has(path);
       assertEquals(
-        html.match(/aria-current="page"/g)?.length ?? 0,
-        nav ? 1 : 0,
+        header.match(/aria-current="page"/g)?.length ?? 0,
+        isLinked ? 1 : 0,
         path,
       );
-      assertEquals(html.includes(`href="${path}"`), nav, path);
+      assertEquals(header.includes(`href="${path}"`), isLinked, path);
+      // The header links the brand page nowhere: AGENTS.md and the docs'
+      // Project section do.
+      assert(!header.includes('href="/brand/"'), path);
     }
+  },
+);
+
+test(
+  "every page under /docs/ is in the docs layout, and the docs are indexed for search",
+  { skip: !built },
+  async () => {
+    for (const path of sitePaths().filter(inDocs)) {
+      const html = await readFile(`${dist}${path}index.html`, "utf8");
+      assert(html.includes('<div class="docs-layout'), path);
+      assert(html.includes('<nav class="docs-nav"'), path);
+      assert(!/<main class="docs">/.test(html), path);
+      assert(!/<!-- (releases|newest-release|sections) -->/.test(html), path);
+    }
+    const index = await readdir(`${dist}/pagefind`);
+    assert(index.includes("pagefind.js"), index.join());
+    assert(index.includes("pagefind-entry.json"), index.join());
+    assert(
+      !index.some((name) => /ui|highlight/.test(name)),
+      `Pagefind's own interfaces: ${index.join()}`,
+    );
   },
 );
 

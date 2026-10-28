@@ -119,15 +119,16 @@ done < "$work/headers"
 run "$@"
 
 # The URL map: dassie.land to the backend, www.dassie.land redirected to
-# it, and each page's path without its slash redirected to the path with
-# it (the bucket would send it to <page>/index.html instead). The pages
-# are those of apps/website/src/layout.ts; check.sh fails a page without
-# its rule. The map is changed as a whole, from what it is now, and the
-# script's own entries replaced: run it again, or this part alone, after
-# adding a page.
+# it, each page's path without its slash redirected to the path with it
+# (the bucket would send it to <page>/index.html instead), and the old
+# paths of pages that moved, with their slash and without, redirected to
+# the new ones. The pages and the moves are those of the site's own lists
+# (apps/website/src/routes.ts prints them); check.sh fails a page the
+# header links to without its rule, and a move without its redirect. The
+# map is changed as a whole, from what it is now, and the script's own
+# entries replaced: run it again, or this part alone, after adding a page.
 backend="https://www.googleapis.com/compute/v1/projects/$project/global/backendBuckets/$bucket"
-grep -oE 'path: "/[^"]+/"' "$here/../../apps/website/src/layout.ts" \
-  | sed -E 's/^path: "(.*)\/"$/\1/' | jq -R . | jq -s . > "$work/pages.json"
+node "$here/../../apps/website/src/routes.ts" > "$work/routes.json"
 if [ "$apply" = 1 ]; then
   gcloud compute url-maps describe "$url_map" --project="$project" \
     --format=json > "$work/url-map.json"
@@ -135,8 +136,10 @@ else
   echo '{"hostRules": [], "pathMatchers": []}' > "$work/url-map.json"
 fi
 jq --arg domain "$domain" --arg backend "$backend" \
-  --slurpfile pages "$work/pages.json" '
+  --slurpfile routes "$work/routes.json" '
   ["dassie-land", "www-dassie-land"] as $ours
+  | ($routes[0].pages | map(rtrimstr("/"))) as $pages
+  | $routes[0].moved as $moved
   | del(.id, .kind, .selfLink, .creationTimestamp)
   | .hostRules = [.hostRules[] | select(.pathMatcher | IN($ours[]) | not)]
   | .pathMatchers = [.pathMatchers[] | select(.name | IN($ours[]) | not)]
@@ -146,11 +149,20 @@ jq --arg domain "$domain" --arg backend "$backend" \
     ]
   | .pathMatchers += [
       {name: "dassie-land", defaultService: $backend,
-        routeRules: [$pages[0] | to_entries[] | {
-          priority: (.key + 1),
-          matchRules: [{fullPathMatch: .value}],
-          urlRedirect: {pathRedirect: (.value + "/"),
-            redirectResponseCode: "PERMANENT_REDIRECT", stripQuery: false}}]},
+        routeRules: (
+          [$pages[] | {
+            matchRules: [{fullPathMatch: .}],
+            urlRedirect: {pathRedirect: (. + "/"),
+              redirectResponseCode: "PERMANENT_REDIRECT", stripQuery: false}}]
+          + [$moved[] | {
+            matchRules: [
+              {fullPathMatch: (.from | rtrimstr("/"))},
+              {fullPathMatch: .from},
+              {fullPathMatch: (.from + "index.html")}
+            ],
+            urlRedirect: {pathRedirect: .to,
+              redirectResponseCode: "PERMANENT_REDIRECT", stripQuery: false}}]
+          | to_entries | map({priority: (.key + 1)} + .value))},
       {name: "www-dassie-land", defaultUrlRedirect: {
         hostRedirect: $domain, httpsRedirect: true,
         redirectResponseCode: "PERMANENT_REDIRECT", stripQuery: false}}

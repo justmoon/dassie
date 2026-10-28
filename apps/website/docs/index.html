@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <meta
+      name="description"
+      content="Dassie's docs: what it is, how to run a node and use its wallet, how to build on it, and how it is built."
+    />
+    <title>Docs · Dassie</title>
+    <link rel="icon" href="/brand/dassie-mark-small.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/src/site.css" />
+  </head>
+  <body>
+    <!-- header -->
+    <main class="docs">
+      <h1>Dassie docs</h1>
+      <p class="lede">
+        How Dassie works, how to run a node and use its wallet, how to build
+        an app on it, and how it is built. Pick the door that fits you, or
+        search.
+      </p>
+
+      <aside class="early">
+        <p>
+          <strong>Early days.</strong> Dassie is early: few people run nodes
+          so far, and there is one ledger to settle on. It takes test money
+          only: a node refuses the live realm, so no real money moves through
+          it.
+          <a href="/docs/start/early-days/">How far along it is</a>
+        </p>
+      </aside>
+
+      <form class="search-form" role="search" action="/docs/search/" method="get">
+        <label for="docs-home-q">Search the docs</label>
+        <div class="search-row">
+          <input
+            id="docs-home-q"
+            type="search"
+            name="q"
+            placeholder="dassie status, hubs, recovery phrase…"
+          />
+          <button type="submit">Search</button>
+        </div>
+      </form>
+
+      <section class="doors" aria-labelledby="doors">
+        <h2 id="doors">Where do you start?</h2>
+        <ul>
+          <li class="door">
+            <p class="door-who">New to Dassie</p>
+            <p class="door-ask">What is this, and should I care?</p>
+            <a class="door-go" href="/docs/start/what-is-dassie/">What is Dassie?</a>
+            <p class="door-then">
+              Then <a href="/docs/concepts/payments/">How a payment travels</a>,
+              <a href="/docs/concepts/hubs/">Settlement hubs</a> and
+              <a href="/docs/start/pick-your-setup/">Pick your setup</a>.
+            </p>
+          </li>
+          <li class="door">
+            <p class="door-who">Owner</p>
+            <p class="door-ask">You have a node. How do you pay and get paid?</p>
+            <a class="door-go" href="/docs/wallet/setup/">Set up your wallet</a>
+            <p class="door-then">
+              Then <a href="/docs/wallet/backup/">Back up your phrase</a>,
+              <a href="/docs/wallet/hubs/">Your hubs</a> and
+              <a href="/docs/wallet/send/">Send money</a>.
+            </p>
+          </li>
+          <li class="door">
+            <p class="door-who">Operator</p>
+            <p class="door-ask">
+              You have a server. How do you run a node and keep it healthy?
+            </p>
+            <a class="door-go" href="/docs/node/requirements/">Requirements</a>
+            <p class="door-then">
+              Then <a href="/docs/start/quick-start/">Quick Start</a>,
+              <a href="/docs/node/status/">Check on your node</a> and
+              <a href="/docs/node/updates/">Updates and rollback</a>.
+            </p>
+          </li>
+          <li class="door">
+            <p class="door-who">Developer</p>
+            <p class="door-ask">
+              How does your app send and take payments through a node?
+            </p>
+            <a class="door-go" href="/docs/build/overview/">Integration overview</a>
+            <p class="door-then">
+              Then
+              <a href="/docs/build/open-payments/">Accept payments with Open Payments</a>,
+              <a href="/docs/build/signed-responses/">Signed responses and names</a>
+              and <a href="/docs/build/errors/">Error codes</a>.
+            </p>
+          </li>
+          <li class="door">
+            <p class="door-who">Contributor</p>
+            <p class="door-ask">How is Dassie built, and why this way?</p>
+            <a class="door-go" href="/architecture/">Architecture</a>
+            <p class="door-then">
+              Then <a href="/docs/project/spec/">Specification</a>,
+              <a href="/docs/project/decisions/">Design decisions</a>,
+              <a href="/docs/build/dev-network/">Local dev network</a> and
+              <a href="/docs/project/contributing/">Contributing</a>.
+            </p>
+          </li>
+        </ul>
+      </section>
+
+      <!-- newest-release -->
+
+      <section aria-labelledby="sections">
+        <h2 id="sections">Every section</h2>
+        <!-- sections -->
+      </section>
+    </main>
+    <!-- footer -->
+  </body>
+</html>

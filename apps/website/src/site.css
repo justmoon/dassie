@@ -471,13 +471,9 @@ pre code {
   }
 }
 
-/* Guides */
-.doc {
-  max-width: 800px;
-}
-
 /* Every page but the home page opens with its title. */
-.site-main > h1 {
+.site-main > h1,
+.docs-article > h1 {
   margin: 28px 0 18px;
   font-size: clamp(2.25rem, 6vw, 3.25rem);
   font-weight: 600;
@@ -486,13 +482,739 @@ pre code {
   font-variation-settings: "SOFT" 100, "WONK" 1;
 }
 
-.doc h2 {
-  margin: 44px 0 10px;
-  font-size: 1.6rem;
+/* Read by screen readers, not shown. */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
-.doc li {
+/* ---------- Docs: the layout around every page under /docs/ ----------
+ * src/docs-layout.ts writes it: the page in the middle, the sidebar on
+ * the left, "On this page" on the right where there is room. On a phone
+ * the sidebar follows the page, and the Menu link at the top leads to
+ * it. */
+.docs-layout {
+  display: grid;
+  grid-template-columns: 236px minmax(0, 1fr);
+  grid-template-areas: "nav main";
+  gap: 48px;
+  max-width: 1320px;
+  margin: 0 auto;
+  padding: 8px 32px 64px;
+}
+
+/* The header and footer line up with the docs' wider layout. */
+body:has(> .docs-layout) .site-header,
+body:has(> .docs-layout) .site-footer p {
+  max-width: 1320px;
+}
+
+.docs-layout.has-toc {
+  grid-template-columns: 236px minmax(0, 1fr) 200px;
+  grid-template-areas: "nav main toc";
+}
+
+.docs-main {
+  grid-area: main;
+  min-width: 0;
+}
+
+.docs-nav,
+.docs-toc {
+  position: sticky;
+  top: 16px;
+  align-self: start;
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
+  font-size: 15px;
+  line-height: 1.45;
+}
+
+.docs-nav {
+  grid-area: nav;
+  padding: 16px 4px 16px 0;
+}
+
+.docs-toc {
+  grid-area: toc;
+  padding-top: 64px;
+}
+
+/* The sidebar */
+.docs-nav a {
+  display: block;
+  padding: 5px 10px;
+  color: var(--ink);
+  text-decoration: none;
+  border-radius: 10px;
+}
+
+.docs-nav a:hover {
+  background: var(--stone-3);
+}
+
+.docs-nav a[aria-current="page"] {
+  font-weight: 650;
+  background: var(--stone-3);
+  box-shadow: inset 3px 0 0 var(--sun);
+}
+
+.docs-nav .docs-search {
+  margin-bottom: 12px;
+}
+
+.docs-nav .docs-search input {
+  width: 100%;
+  padding: 8px 14px;
+  font-size: 15px;
+  border-radius: 999px;
+}
+
+.docs-nav-home {
+  margin-bottom: 6px;
+  font-weight: 600;
+}
+
+.docs-nav-section summary {
+  padding: 6px 10px;
+  font-weight: 650;
+  cursor: pointer;
+  border-radius: 10px;
+}
+
+.docs-nav-section summary:hover {
+  background: var(--stone-3);
+}
+
+.docs-nav-section ul {
+  margin: 2px 0 10px 14px;
+  padding: 0 0 0 6px;
+  list-style: none;
+  border-left: 1.5px solid var(--stone-2);
+}
+
+/* Breadcrumbs, and the Menu link that leads to the sidebar on a phone. */
+.docs-top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+  min-height: 34px;
+  margin-top: 16px;
+}
+
+.breadcrumbs ol {
+  display: flex;
+  flex-wrap: wrap;
+  margin: 0;
+  padding: 0;
+  font-size: 14px;
+  color: var(--ink-2);
+  list-style: none;
+}
+
+.breadcrumbs li + li::before {
+  content: "›";
+  margin: 0 8px;
+  color: var(--stone);
+}
+
+.breadcrumbs a {
+  color: var(--ink-2);
+}
+
+.docs-menu-link {
+  display: none;
+  margin-left: auto;
+  padding: 5px 14px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink);
+  text-decoration: none;
+  border: 1.5px solid var(--ink);
+  border-radius: 999px;
+}
+
+/* On this page */
+.docs-toc-title {
+  margin: 0 0 8px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+}
+
+.docs-toc ol,
+.docs-toc-inline ol {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.docs-toc li {
+  margin-bottom: 6px;
+}
+
+.docs-toc a {
+  color: var(--ink-2);
+  text-decoration: none;
+}
+
+.docs-toc a:hover {
+  color: var(--ink);
+  text-decoration: underline;
+}
+
+.docs-toc-inline {
+  display: none;
+  margin: 0 0 24px;
+  padding: 12px 18px;
+  font-size: 15px;
+  background: var(--day);
+  border-radius: 18px;
+}
+
+.docs-toc-inline summary {
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.docs-toc-inline ol {
+  margin-top: 8px;
+}
+
+.docs-toc-inline li {
   margin-bottom: 4px;
+}
+
+/* Previous and next, in sidebar order. */
+.docs-pager {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  max-width: 72ch;
+  margin-top: 56px;
+  padding-top: 22px;
+  /* The rim of light on the ink horizon. */
+  background: linear-gradient(var(--sun) 0 2px, var(--night) 2px 4px) top / 100% 4px no-repeat;
+}
+
+.docs-pager a {
+  display: grid;
+  gap: 2px;
+  padding: 14px 18px;
+  color: var(--ink);
+  text-decoration: none;
+  font-weight: 600;
+  background: var(--day);
+  border-radius: 18px;
+}
+
+.docs-pager a:hover {
+  background: var(--stone-3);
+}
+
+.docs-pager a span {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink-2);
+}
+
+.docs-pager .next {
+  grid-column: 2;
+  text-align: right;
+}
+
+/* ---------- Docs: what a page holds ---------- */
+.docs-article {
+  max-width: 72ch;
+}
+
+.docs-article h2 {
+  margin: 44px 0 10px;
+  font-size: 1.6rem;
+  line-height: 1.2;
+}
+
+.docs-article h3 {
+  margin: 30px 0 8px;
+  font-size: 1.25rem;
+  line-height: 1.25;
+}
+
+.docs-article :is(h2, h3, h4, dt)[id] {
+  scroll-margin-top: 16px;
+}
+
+.docs-article li {
+  margin-bottom: 4px;
+}
+
+.docs-article .lede {
+  margin: 0 0 22px;
+  font-size: 1.1875rem;
+  line-height: 1.55;
+  color: var(--ink-2);
+}
+
+.docs-article img {
+  max-width: 100%;
+  height: auto;
+}
+
+/* Early days: how far along Dassie is, in the light of the rising sun. */
+.docs-article .early {
+  margin: 0 0 24px;
+  padding: 14px 20px;
+  color: #2B2420;
+  background: linear-gradient(180deg, var(--sun-2), var(--sun));
+  border-radius: 18px;
+}
+
+.docs-article .early p {
+  margin: 0;
+}
+
+.docs-article .early a {
+  color: #2B2420;
+  font-weight: 600;
+}
+
+/* A note on the side, and a warning where something can go wrong. */
+.docs-article :is(.note, .warning) {
+  margin: 0 0 22px;
+  padding: 12px 18px;
+  border-left: 4px solid var(--stone);
+  border-radius: 0 14px 14px 0;
+  background: var(--day);
+}
+
+.docs-article .warning {
+  border-left-color: var(--ember-text);
+  background: var(--danger-bg);
+}
+
+.docs-article :is(.note, .warning) > :last-child {
+  margin-bottom: 0;
+}
+
+.docs-article :is(.note, .warning) > :first-child {
+  margin-top: 0;
+}
+
+/* Why it works this way: a link to the spec or a decision on GitHub. */
+.docs-article .why {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0 0 22px;
+  font-size: 0.9375rem;
+  color: var(--ink-2);
+}
+
+.docs-article .why::before {
+  content: "";
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--sun);
+  box-shadow: 0 0 0 3px rgb(244 162 89 / 0.3);
+  transform: translateY(-1px);
+}
+
+.docs-article .why a {
+  font-weight: 600;
+}
+
+/* Not there yet: something planned, with a link to What's next. */
+.docs-article .not-yet {
+  padding-left: 14px;
+  color: var(--ink-2);
+  border-left: 3px dashed var(--stone);
+}
+
+/* Commands in a terminal: the prompt and comments are not copied. */
+.docs-article pre .prompt {
+  margin-right: 10px;
+  color: var(--sun);
+  user-select: none;
+}
+
+.docs-article pre .comment {
+  color: #9E928A;
+  user-select: none;
+}
+
+.docs-article pre .output {
+  color: #CDBFAA;
+}
+
+/* A file's content, under its path. */
+.docs-article .file {
+  margin: 0 0 20px;
+}
+
+.docs-article .file figcaption {
+  margin: 0 0 6px;
+  font-family: var(--mono);
+  font-size: 0.8125rem;
+  color: var(--ink-2);
+}
+
+.docs-article .file pre {
+  margin: 0;
+}
+
+kbd {
+  padding: 1px 6px;
+  font-family: var(--mono);
+  font-size: 0.85em;
+  background: var(--day);
+  border: 1px solid var(--stone);
+  border-bottom-width: 2px;
+  border-radius: 6px;
+}
+
+/* Tables scroll on their own on a narrow screen. */
+.docs-article .table-wrap {
+  margin: 0 0 22px;
+  overflow-x: auto;
+  border: 1px solid var(--stone-2);
+  border-radius: 14px;
+}
+
+.docs-article table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9375rem;
+  line-height: 1.5;
+}
+
+.docs-article :is(th, td) {
+  padding: 9px 14px;
+  text-align: left;
+  vertical-align: top;
+  border-bottom: 1px solid var(--stone-2);
+}
+
+.docs-article th {
+  font-weight: 650;
+  background: var(--stone-3);
+}
+
+.docs-article tr:last-child td {
+  border-bottom: 0;
+}
+
+/* Steps, numbered on stones. */
+.docs-article ol.steps {
+  padding: 0;
+  list-style: none;
+  counter-reset: step;
+}
+
+.docs-article ol.steps > li {
+  position: relative;
+  margin-bottom: 18px;
+  padding-left: 44px;
+}
+
+.docs-article ol.steps > li::before {
+  counter-increment: step;
+  content: counter(step);
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  font-weight: 700;
+  font-size: 0.9375rem;
+  color: var(--ink);
+  background: var(--stone-2);
+  border-radius: 50%;
+}
+
+/* A reference: each entry by its name, which is its anchor. */
+.docs-article dl.ref {
+  margin: 0 0 22px;
+  border-top: 1px solid var(--stone-2);
+}
+
+.docs-article dl.ref dt {
+  padding-top: 16px;
+  font-family: var(--mono);
+  font-weight: 500;
+}
+
+.docs-article dl.ref dt code {
+  padding: 0;
+  font-size: 1rem;
+  background: none;
+}
+
+.docs-article dl.ref dd {
+  margin: 4px 0 0;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--stone-2);
+}
+
+.docs-article dl.ref dd > :first-child {
+  margin-top: 0;
+}
+
+.docs-article dl.ref dd > :last-child {
+  margin-bottom: 0;
+}
+
+.docs-article .release-date {
+  margin: -6px 0 8px;
+  color: var(--ink-2);
+}
+
+/* A section's index: its pages, each with what it is about. */
+.docs-article .section-pages,
+.docs-article .docs-sections {
+  display: grid;
+  gap: 14px;
+  padding: 0;
+  list-style: none;
+}
+
+.docs-article .docs-sections {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
+}
+
+.docs-article :is(.section-pages, .docs-sections) li {
+  margin: 0;
+  padding: 16px 20px;
+  background: var(--day);
+  border-radius: 18px;
+}
+
+.docs-article :is(.section-pages, .docs-sections) a {
+  font-family: var(--display);
+  font-variation-settings: "SOFT" 100, "WONK" 0;
+  font-size: 1.1875rem;
+  font-weight: 560;
+}
+
+.docs-article :is(.section-pages, .docs-sections) p {
+  margin: 4px 0 0;
+  font-size: 0.9375rem;
+  color: var(--ink-2);
+}
+
+/* The docs home: a door for each reader. */
+.docs-article .doors ul {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 250px), 1fr));
+  gap: 14px;
+  padding: 0;
+  list-style: none;
+}
+
+.docs-article .door {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 20px 22px;
+  background: var(--day);
+  border-radius: 22px;
+}
+
+.docs-article .door p {
+  margin: 0;
+}
+
+.docs-article .door-who {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+}
+
+.docs-article .door-ask {
+  font-family: var(--display);
+  font-variation-settings: "SOFT" 100, "WONK" 0;
+  font-size: 1.25rem;
+  font-weight: 560;
+  line-height: 1.25;
+}
+
+.docs-article .door-go {
+  align-self: flex-start;
+  margin: 6px 0 2px;
+  padding: 7px 16px;
+  font-size: 15px;
+  font-weight: 600;
+  color: #FBF6EE;
+  text-decoration: none;
+  background: var(--ember);
+  border-radius: 999px;
+}
+
+.docs-article .door-go:hover {
+  filter: brightness(1.08);
+}
+
+.docs-article .door-then {
+  font-size: 0.875rem;
+  color: var(--ink-2);
+}
+
+.docs-article .newest-release {
+  margin-top: 44px;
+}
+
+.docs-article .newest-release-version {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 14px;
+  margin: 0 0 6px;
+}
+
+.docs-article .newest-release-version a {
+  font-family: var(--mono);
+  font-size: 1.125rem;
+  font-weight: 500;
+}
+
+.docs-article .newest-release-version time {
+  color: var(--ink-2);
+}
+
+/* Search: a box on every docs page, and the search page's results. */
+.search-form {
+  margin: 0 0 20px;
+}
+
+.search-form label {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink-2);
+}
+
+.search-row {
+  display: flex;
+  gap: 8px;
+}
+
+.search-row input {
+  flex: 1;
+  min-width: 0;
+  padding: 10px 16px;
+  font-size: 16px;
+  border-radius: 999px;
+}
+
+.search-status:empty {
+  display: none;
+}
+
+.search-status {
+  color: var(--ink-2);
+}
+
+.search-results {
+  display: grid;
+  gap: 20px;
+  padding: 0;
+  list-style: none;
+}
+
+.search-results li {
+  margin: 0;
+}
+
+.search-results a {
+  font-family: var(--display);
+  font-variation-settings: "SOFT" 100, "WONK" 0;
+  font-size: 1.1875rem;
+  font-weight: 560;
+}
+
+.search-section {
+  margin-left: 10px;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+
+.search-results p {
+  margin: 4px 0 0;
+  font-size: 0.9375rem;
+  color: var(--ink-2);
+}
+
+mark {
+  padding: 0 2px;
+  color: #2B2420;
+  background: var(--sun-2);
+  border-radius: 3px;
+}
+
+/* Where "On this page" has no column of its own, it opens above the
+ * page's first section. */
+@media (max-width: 1180px) {
+  .docs-layout.has-toc {
+    grid-template-columns: 236px minmax(0, 1fr);
+    grid-template-areas: "nav main";
+  }
+
+  .docs-toc {
+    display: none;
+  }
+
+  .docs-toc-inline {
+    display: block;
+  }
+}
+
+/* On a phone, the page comes first and the sidebar after it. */
+@media (max-width: 860px) {
+  .docs-layout,
+  .docs-layout.has-toc {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: "main" "nav";
+    gap: 32px;
+    padding: 0 16px 40px;
+  }
+
+  .docs-nav {
+    position: static;
+    max-height: none;
+    padding: 20px 0 0;
+    border-top: 1.5px solid var(--stone-2);
+  }
+
+  .docs-menu-link {
+    display: inline-block;
+  }
+
+  .docs-pager {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .docs-pager .next {
+    grid-column: 1;
+  }
+
+  .docs-article > h1 {
+    margin-top: 18px;
+  }
 }
 
 /* The STREAM toy */

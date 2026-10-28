@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="description" content="Search Dassie's docs." />
+    <title>Search · Dassie</title>
+    <link rel="icon" href="/brand/dassie-mark-small.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/src/site.css" />
+    <script type="module" src="/src/search.ts"></script>
+  </head>
+  <body>
+    <!-- header -->
+    <main class="docs">
+      <h1>Search</h1>
+      <form class="search-form" role="search" action="/docs/search/" method="get">
+        <label for="search-q">Search the docs</label>
+        <div class="search-row">
+          <input
+            id="search-q"
+            type="search"
+            name="q"
+            autocomplete="off"
+            data-testid="search-q"
+          />
+          <button type="submit">Search</button>
+        </div>
+      </form>
+      <p class="search-status" role="status" data-testid="search-status"></p>
+      <ol class="search-results" data-testid="search-results"></ol>
+      <noscript>
+        <p>
+          Search runs in your browser, and needs JavaScript. The
+          <a href="/docs/">docs home</a> lists every section.
+        </p>
+      </noscript>
+    </main>
+    <!-- footer -->
+  </body>
+</html>

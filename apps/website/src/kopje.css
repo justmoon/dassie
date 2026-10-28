@@ -119,6 +119,7 @@
 .site-header nav {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 4px;
 }
 .site-header nav a {
@@ -129,12 +130,37 @@
   font-size: 15px;
   font-weight: 500;
 }
+/* The page itself, or the part of the site it is in. */
 .site-header nav a:hover,
-.site-header nav a[aria-current="page"] {
+.site-header nav a[aria-current] {
   background: var(--stone-3);
 }
 .site-header nav a[aria-current="page"] {
   font-weight: 650;
+}
+/* Early days: a tag with the sun just above the horizon. */
+.site-header nav a.tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 6px;
+  padding: 5px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: .04em;
+  background: var(--stone-3);
+}
+.site-header nav a.tag::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--sun);
+  box-shadow: 0 0 0 3px rgb(244 162 89 / 0.3);
+}
+.site-header nav a.tag:hover,
+.site-header nav a.tag[aria-current] {
+  background: var(--stone-2);
 }
 
 /* The footer: the kopje against the sun, then the night. */
@@ -165,7 +191,17 @@
 
 @media (max-width: 760px) {
   .site-header {
-    padding: 14px 20px;
+    padding: 14px 16px;
+  }
+  .site-header nav {
+    margin: 0 -8px;
+  }
+  .site-header nav a {
+    padding: 6px 8px;
+  }
+  .site-header nav a.tag {
+    margin-left: 4px;
+    padding: 5px 10px;
   }
   .site-footer p {
     padding: 0;
