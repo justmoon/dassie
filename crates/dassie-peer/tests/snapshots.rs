@@ -136,6 +136,50 @@ fn at_most_one_push_is_in_flight_per_subscriber() {
     assert_eq!(network.node(0).snapshot_of(&b), Some(&[4; 100][..]));
 }
 
+// A peer that unsubscribes and subscribes again, over and over, while a
+// push to it is unanswered, is sent no second one: the push in flight
+// stands for the one a subscription sends at once, so one peer never fills
+// the node's requests in flight. Once it is answered, pushes go again.
+#[test]
+fn subscribing_again_sends_no_second_push_while_one_is_in_flight() {
+    let (mut network, a, b) = pair(89, [true, true], true);
+    wait(&mut network, |network| {
+        network.node(0).subscribed_to(&b) && network.node(1).subscribed_to(&a)
+    });
+    network.act(1, |node, _| {
+        node.set_snapshot(Some(snapshot(5)));
+    });
+    let before = network.node(1).stats().requests_sent;
+    // Nothing is delivered while the requests are handed in directly, so
+    // the first push stays unanswered.
+    for subscribe in [true, false, true, false, true] {
+        let content = Content::Subscription { subscribe };
+        let reply = network.inbound(1, &Arriving::new(&key(0), &content));
+        assert_eq!(subscription(&reply), SubscriptionResponse::Accepted);
+        network.node(1).check_invariants();
+    }
+    assert_eq!(
+        network.node(1).stats().requests_sent,
+        before + 1,
+        "one push"
+    );
+    network.act(1, |node, now| node.push_snapshot(now));
+    assert_eq!(
+        network.node(1).stats().requests_sent,
+        before + 1,
+        "still one"
+    );
+    settle(&mut network, 1_000);
+    assert_eq!(network.node(0).snapshot_of(&b), Some(&[5; 100][..]));
+    let answered = network.node(1).stats().requests_sent;
+    network.act(1, |node, now| node.push_snapshot(now));
+    assert_eq!(
+        network.node(1).stats().requests_sent,
+        answered + 1,
+        "answered"
+    );
+}
+
 // A peering on one method has nothing to swap between: neither side
 // subscribes, and a node that does not swap subscribes to nobody.
 #[test]

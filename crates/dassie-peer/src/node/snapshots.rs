@@ -12,7 +12,7 @@
 //! [`SUBSCRIPTION_SILENCE_MS`] subscribes again, which the publisher takes
 //! as often as it comes.
 
-use alloc::collections::BTreeMap;
+use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 
@@ -51,10 +51,15 @@ pub const SUBSCRIPTION_REFUSED_MS: u64 = 600_000;
 pub(crate) struct Snapshots {
     /// Our current snapshot, which a new subscriber is sent at once.
     own: Option<Arc<[u8]>>,
-    /// The peers subscribed to our snapshots, each with whether a push to
-    /// it is in flight: at most one is, so the pushes in flight are
-    /// bounded by the subscribers.
-    subscribers: BTreeMap<NodeId, bool>,
+    /// The peers subscribed to our snapshots.
+    subscribers: BTreeSet<NodeId>,
+    /// The peers a push of ours to is in flight: at most one each. Kept
+    /// apart from the subscribers, and cleared only by the push's answer
+    /// or its expiry, so that a peer that unsubscribes and subscribes
+    /// again, or a peering that ends and begins again, never has a second
+    /// one sent while the first is out: each is a request in flight, so
+    /// they are as many as those.
+    pushing: BTreeSet<NodeId>,
     /// Our subscriptions to peers' snapshots: at most one per active
     /// peering with a core node.
     subscriptions: BTreeMap<NodeId, Subscription>,
@@ -121,7 +126,7 @@ impl PeerNode {
     /// again: the next snapshot supersedes a lost one.
     pub fn push_snapshot(&mut self, now_ms: u64) {
         self.advance(now_ms);
-        let subscribers: Vec<NodeId> = self.snapshots.subscribers.keys().copied().collect();
+        let subscribers: Vec<NodeId> = self.snapshots.subscribers.iter().copied().collect();
         for subscriber in subscribers {
             self.push_to(subscriber);
         }
@@ -135,7 +140,7 @@ impl PeerNode {
 
     /// The peers subscribed to our snapshots.
     pub fn subscribers(&self) -> impl Iterator<Item = &NodeId> {
-        self.snapshots.subscribers.keys()
+        self.snapshots.subscribers.iter()
     }
 
     /// Whether we hold a subscription to `peer`'s snapshots that it
@@ -173,7 +178,9 @@ impl PeerNode {
         let Some(own) = self.snapshots.own.clone() else {
             return;
         };
-        if self.snapshots.subscribers.get(&subscriber) != Some(&false) {
+        if !self.snapshots.subscribers.contains(&subscriber)
+            || self.snapshots.pushing.contains(&subscriber)
+        {
             return;
         }
         let timeout = self.config.poll_timeout_ms;
@@ -182,7 +189,7 @@ impl PeerNode {
             .send(subscriber, &content, Purpose::Snapshot, timeout)
             .is_some()
         {
-            self.snapshots.subscribers.insert(subscriber, true);
+            self.snapshots.pushing.insert(subscriber);
         }
     }
 
@@ -216,7 +223,9 @@ impl PeerNode {
             let refused = SubscriptionResponse::Refused(RefusalReason::NoSwaps);
             return ok(&refused.to_vec());
         }
-        self.snapshots.subscribers.entry(sender).or_insert(false);
+        // A push still in flight to it, from before it last unsubscribed,
+        // stands for the one it is sent at once.
+        self.snapshots.subscribers.insert(sender);
         self.push_to(sender);
         ok(&SubscriptionResponse::Accepted.to_vec())
     }
@@ -293,10 +302,9 @@ impl PeerNode {
     /// snapshots, not peered or not subscribed, and it is a subscriber no
     /// more. Nothing else changes anything.
     pub(super) fn on_snapshot_pushed(&mut self, peer: NodeId, result: &Result<Vec<u8>, Problem>) {
+        self.snapshots.pushing.remove(&peer);
         if matches!(result, Err(Problem::Status(409))) {
             self.snapshots.subscribers.remove(&peer);
-        } else if let Some(pushing) = self.snapshots.subscribers.get_mut(&peer) {
-            *pushing = false;
         }
     }
 
@@ -388,7 +396,7 @@ impl PeerNode {
     pub(super) fn check_snapshots(&self) {
         let snapshots = &self.snapshots;
         assert!(
-            snapshots.subscribers.keys().all(|peer| {
+            snapshots.subscribers.iter().all(|peer| {
                 self.table
                     .get(peer)
                     .and_then(Entry::active_peering)
@@ -408,6 +416,12 @@ impl PeerNode {
         assert!(
             snapshots.subscribers.len() <= peerings && snapshots.subscriptions.len() <= peerings,
             "subscriptions within the peerings"
+        );
+        // Each push in flight is a request in flight, which the bound on
+        // requests holds.
+        assert!(
+            snapshots.pushing.len() <= self.requests.len(),
+            "a request per push in flight"
         );
         assert!(
             snapshots
