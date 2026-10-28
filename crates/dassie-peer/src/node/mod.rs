@@ -150,10 +150,14 @@ pub(crate) enum Problem {
 }
 
 impl Problem {
-    /// Whether the request surely had no effect at the other end.
+    /// Whether the request surely had no effect at the other end: it
+    /// never left, or its answer says it was not acted upon
+    /// ([`not_acted_upon`](crate::io::not_acted_upon)). An answer too
+    /// short for a status is no answer: the transport says
+    /// [`Failure::Unknown`].
     pub(crate) const fn is_definite(self) -> bool {
         match self {
-            Self::Status(status) => matches!(status, 400 | 409 | 503),
+            Self::Status(status) => crate::io::not_acted_upon(status),
             Self::Failed(failure) => matches!(failure, Failure::NotDelivered),
             Self::Invalid => false,
         }
@@ -786,10 +790,15 @@ impl PeerNode {
             Purpose::Probe(probe) => self.on_probe(hooks, to, probe, result),
             Purpose::Prepare(request_id) => {
                 if let Err(problem) = result {
+                    let status = match problem {
+                        Problem::Status(status) => Some(status),
+                        Problem::Failed(_) | Problem::Invalid => None,
+                    };
                     self.event(Event::PacketFailed {
                         peer: to,
                         request_id,
                         definite: problem.is_definite(),
+                        status,
                     });
                 }
             }
@@ -1212,4 +1221,36 @@ pub enum SendError {
     NoMethod,
     /// Too many requests are in flight.
     Busy,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // spec/areas/peer-protocol.md#statuses: the statuses that say a request
+    // was not acted upon, the peer node's refusals and the transport's
+    // alike, let the sender take it as undelivered; nothing else does.
+    #[test]
+    fn only_statuses_that_say_nothing_was_done_are_definite() {
+        let definite = |status| Problem::Status(status).is_definite();
+        // The peer node's refusals (`inbound.rs`).
+        for status in [400, 409, 429, 503] {
+            assert!(definite(status), "{status}");
+        }
+        // The transport's, before the peer node sees the body
+        // (`crates/dassie-node/src/peer_server.rs`), and a front door's.
+        for status in [400, 404, 408, 413, 429, 503] {
+            assert!(definite(status), "{status}");
+        }
+        // 200 was acted upon; a status the protocol does not give, or a
+        // gateway's, may have been.
+        for status in [0, 200, 201, 204, 401, 403, 500, 502, 504, u16::MAX] {
+            assert!(!definite(status), "{status}");
+        }
+        assert!(Problem::Failed(Failure::NotDelivered).is_definite());
+        // An answer cut short, or one that does not decode, may follow a
+        // request that was acted upon.
+        assert!(!Problem::Failed(Failure::Unknown).is_definite());
+        assert!(!Problem::Invalid.is_definite());
+    }
 }

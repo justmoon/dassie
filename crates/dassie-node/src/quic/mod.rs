@@ -1367,12 +1367,10 @@ async fn exchange(connection: &Connection, body: &[u8]) -> Result<Response, Fail
     let bytes = read_in_order(&mut recv, MAX_RESPONSE_BYTES)
         .await
         .map_err(|_| Failure::Unknown)?;
+    // An answer too short to hold a status was cut short: the request may
+    // have been acted upon, so it says no more than a reset would.
     let Some((status, body)) = bytes.split_first_chunk::<STATUS_BYTES>() else {
-        // Not a peer's answer: an error, which no status says arrived.
-        return Ok(Response {
-            status: 502,
-            body: Vec::new(),
-        });
+        return Err(Failure::Unknown);
     };
     Ok(Response {
         status: u16::from_be_bytes(*status),
@@ -1647,6 +1645,54 @@ mod tests {
         assert_eq!(status, 200_u16.to_be_bytes());
         assert_eq!(answered, body);
         shutdown.cancel();
+    }
+
+    // An answer that ends before its status is cut short, not a status: the
+    // request may have been acted upon, so it is an unknown outcome, never
+    // one a sender may take as undelivered
+    // (spec/areas/peer-protocol.md#outbound-requests).
+    #[tokio::test]
+    async fn an_answer_too_short_for_a_status_is_an_unknown_outcome() {
+        let key = Arc::new(NodeKey::from_bytes(&[1; 32]));
+        let server_id = key.node_id();
+        let (_server_key, receiver) = watch::channel(Some(key));
+        let keys = Arc::new(Keys::new(receiver));
+        let config = server_config(&keys, IDLE_TIMEOUT).unwrap();
+        let socket = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+        let runtime = quinn::default_runtime().unwrap();
+        let server =
+            Endpoint::new(EndpointConfig::default(), Some(config), socket, runtime).unwrap();
+        let address = server.local_addr().unwrap();
+        // Answers the first stream with nothing and the second with one
+        // byte of a status, each then ended.
+        tokio::spawn(async move {
+            let connection = server.accept().await.unwrap().await.unwrap();
+            for answer in [&[][..], &[2][..]] {
+                let (mut send, mut recv) = connection.accept_bi().await.unwrap();
+                read_in_order(&mut recv, 4096).await.unwrap();
+                send.write_all(answer).await.unwrap();
+                send.finish().unwrap();
+            }
+            connection.closed().await;
+        });
+
+        let (_client_key, receiver) = watch::channel(Some(Arc::new(NodeKey::from_bytes(&[2; 32]))));
+        let keys = Arc::new(Keys::new(receiver));
+        let config = client_config(&keys, server_id, transport_config(IDLE_TIMEOUT)).unwrap();
+        let socket = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+        let runtime = quinn::default_runtime().unwrap();
+        let client = Endpoint::new(EndpointConfig::default(), None, socket, runtime).unwrap();
+        let connection = client
+            .connect_with(config, address, "dassie")
+            .unwrap()
+            .await
+            .unwrap();
+        for _ in 0..2 {
+            let result = tokio::time::timeout(Duration::from_secs(5), exchange(&connection, b"x"))
+                .await
+                .expect("no answer");
+            assert_eq!(result, Err(Failure::Unknown));
+        }
     }
 
     /// The version a client offering `versions` speaks with `server`, or

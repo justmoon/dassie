@@ -96,7 +96,14 @@ How validators and members of a [settlement hub](hubs.md#the-validator-in-the-no
 
 ### Statuses
 
-The status is part of the protocol, and senders depend on one property of it: **400, 409 and 503 mean the message was not acted upon.** Only these, or a request that surely never left, let a sender treat a message as undelivered: the connector rejects a Prepare at once with T01 on them, and leaves every other failure to expiry ([Connector](connector.md#responses-and-expiry)). A peering refusal is therefore a 200 with `refused`, since the responder did act on the request. The statuses and their causes are in `crates/dassie-peer/src/node/inbound.rs`.
+The status is part of the protocol, and senders depend on one property of it: **400, 404, 408, 409, 413, 429 and 503 mean the message was not acted upon.** Only these, or a request that surely never left, let a sender treat a message as undelivered: the connector rejects a Prepare at once on them, with T05 on a 429 and T01 on the rest, and leaves every other failure to expiry ([Connector](connector.md#responses-and-expiry)). A peering refusal is therefore a 200 with `refused`, since the responder did act on the request.
+
+- **The peer node's refusals** are 400, 409, and 429 or 503 for a rate or a table that is full, each before it changes anything; their causes are in `crates/dassie-peer/src/node/inbound.rs`.
+- **The transport's** come before the peer node sees the body ([Transport](#transport)): 429 while the sender's failed requests are over their rate, 503 with no place among the requests waiting, and 413, 408 or 400 for a body too large, too slow or broken. They are what a node under load answers most, so a sender that waited them out would hold what its Prepares carry until they expire.
+- **A 503 also answers a request whose engine stopped** before what it changed was on disk: the engine restarts from its last good commit, without it ([Node](node.md#the-engine)).
+- **A front door** answers every peer request 404, since it handles none ([HTTP](http.md#front-doors)).
+
+Every other status may follow a request that was acted upon. A node never answers one of the set after acting, and a status joins the set only if no node, of any release, gives it after acting. An answer that ends before its two bytes of status is no status: it was cut short, and its request's outcome is unknown ([Outbound requests](#outbound-requests)). The set is `not_acted_upon` in `crates/dassie-peer/src/io.rs`.
 
 ## Encoding
 
@@ -168,7 +175,7 @@ The node's outbound connections are peer requests over QUIC, and, to servers tha
 - Private, loopback, link-local and similar addresses are refused, both as IP literals and after DNS resolution (`crates/dassie-node-core/src/address.rs`). An IPv6 literal is read as the HTTP client reads it, and one the guard cannot read counts as private, so the guard and the client cannot disagree. `DASSIE_PEER_ALLOW_PRIVATE` lifts this for dev and tests.
 - In-flight requests are bounded in total and each way apart. Peer requests are bounded per node, by its ID (`crates/dassie-node/src/quic/bounds.rs`), so nodes behind one host, or periphery nodes without a URL, each get a share; requests to other servers are bounded per host. Neither kind takes the other's places, so a burst of Open Payments cannot stall the peer protocol. ILP packets do not count, so their responses always get through.
 - Every WebSocket URL is read by the same rules as an `https` one (`OutboundClient::websocket`): `wss://`, or `ws://` only where private addresses are allowed, with a host, no user info, and a port that is a number other than 0.
-- **Failures** are of two kinds: *not delivered* (refused before sending, or the connection failed) and *unknown* (a timeout after sending, or a broken response). Only the first, or a status that means not acted upon ([Statuses](#statuses)), says a request surely had no effect.
+- **Failures** are of two kinds: *not delivered* (refused before sending, or the connection failed) and *unknown* (a timeout after sending, a broken response, or one too short to hold a status). Only the first, or a status that means not acted upon ([Statuses](#statuses)), says a request surely had no effect.
 
 ## Test vectors
 

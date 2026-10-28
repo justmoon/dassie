@@ -43,7 +43,8 @@ pub enum Failure {
     /// It surely did not reach the node: refused before sending, or the
     /// connection failed.
     NotDelivered,
-    /// It may have reached the node: a timeout after sending, or a reset.
+    /// It may have reached the node: a timeout after sending, a reset, or
+    /// an answer too short to hold a status.
     Unknown,
 }
 
@@ -55,6 +56,29 @@ pub struct Response {
     pub status: u16,
     /// The body.
     pub body: Vec<u8>,
+}
+
+/// Whether a request answered with `status` was surely not acted upon, so
+/// that its sender may take it as undelivered
+/// (spec/areas/peer-protocol.md#statuses). Each of these says the request
+/// changed nothing at the node that answered:
+///
+/// - The peer node's refusals: 400 and 409, and 429 and 503 for a rate or
+///   a table that is full.
+/// - The transport's, before the peer node sees the body
+///   (`crates/dassie-node/src/peer_server.rs`): 429 while the sender's
+///   failed requests are over their rate, 503 with no place among the
+///   requests waiting, 413 for a body too large, 408 for one too slow and
+///   400 for one broken.
+/// - 503 too when the engine stopped before what the request changed was
+///   on disk: its restart takes it back
+///   (spec/areas/node.md#the-engine).
+/// - 404 from a front door, which handles no peer request.
+///
+/// Every other status, and 200 above all, may mean it was acted upon.
+#[must_use]
+pub const fn not_acted_upon(status: u16) -> bool {
+    matches!(status, 400 | 404 | 408 | 409 | 413 | 429 | 503)
 }
 
 /// The answer to a peer's settlement request, still to be given the amount
@@ -241,14 +265,17 @@ pub enum Event {
     /// We are registered with a bootstrap node.
     RegisteredWith(NodeId),
     /// A packet we sent to a peer did not get through. If `definite`, it
-    /// surely did not reach the peer; otherwise it may have.
+    /// surely did not reach the peer, or the peer did not act on it;
+    /// otherwise it may have.
     PacketFailed {
         /// The peer.
         peer: NodeId,
         /// The ILP request ID.
         request_id: u32,
-        /// Whether it surely did not arrive.
+        /// Whether it surely did not arrive, or was not acted upon.
         definite: bool,
+        /// The status the peer answered with, if it answered one.
+        status: Option<u16>,
     },
     /// A peer answered a Fulfill of ours with a claim: on a peering with a
     /// method over a hub, the payer's, for the hub's scheme to read
