@@ -18,7 +18,12 @@ import { test } from "node:test";
 import { assert, assertEquals } from "@std/assert";
 import { DEV_RATES, Scenario, type ScenarioNode } from "@dassie/dev/scenario";
 
-import { DASSIE, FAKE_LEDGER, missingScenarioTools } from "./harness.ts";
+import {
+  DASSIE,
+  FAKE_LEDGER,
+  missingScenarioTools,
+  PORT_OFFSETS,
+} from "./harness.ts";
 import {
   DSUSD,
   DSUSD_METHOD,
@@ -55,12 +60,8 @@ const SPREAD_PPM = 5_000;
 const QUIET_PPM = 2_000n;
 /** How long they may take to swap until neither gains. */
 const RUN_MS = 300_000;
-/**
- * Clear of every other file's ports, as harness.ts lays them out: at 20000
- * this file's nodes take 24001 up, 25001 up on TCP and UDP and 26001 up on
- * UDP, and its fake ledger and rate server 30200, 30201 and 30210 on TCP.
- */
-const PORT_OFFSET = 20_000;
+/** Clear of every other file's ports (`PORT_OFFSETS`, which ports_test.ts checks). */
+const PORT_OFFSET = PORT_OFFSETS["peer_swaps_test.ts"];
 
 const missing = await missingScenarioTools();
 

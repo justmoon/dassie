@@ -30,19 +30,17 @@ import {
   FAKE_LEDGER,
   missingScenarioTools,
   missingTools,
-  SCENARIO_PORT_OFFSET,
+  PORT_OFFSETS,
   startBrowser,
 } from "./harness.ts";
 import { HUB_SCHEME, Scenario, type ScenarioNode } from "@dassie/dev/scenario";
 
 /**
  * The tests here run one after another, each scenario stopped before the
- * next starts, so they share one offset. The `hub` scenario's six nodes
- * take 18701 up, 19701 up and 20701 up, and its fake ledger and rate
- * server 24900, 24901 and 24910, clear of the other files' (see
- * market_maker_targets_test.ts).
+ * next starts, so they share one offset, clear of the other files' ports
+ * (`PORT_OFFSETS`, which ports_test.ts checks).
  */
-const PORT_OFFSET = SCENARIO_PORT_OFFSET + 700;
+const PORT_OFFSET = PORT_OFFSETS["wallet_test.ts"];
 
 const missing = await missingTools();
 if (missing) console.warn(`skipping the wallet tests: ${missing}`);

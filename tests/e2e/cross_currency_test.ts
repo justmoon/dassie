@@ -27,7 +27,7 @@ import {
   DASSIE,
   FAKE_LEDGER,
   missingScenarioTools,
-  SCENARIO_PORT_OFFSET,
+  PORT_OFFSETS,
 } from "./harness.ts";
 import {
   fundedInHub,
@@ -66,7 +66,7 @@ const TOLERANCE = 100_000n;
 const FEE_PPM = 10_000;
 const SPREAD_PPM = 5_000;
 const REBALANCE_PPM = 0;
-const PORT_OFFSET = SCENARIO_PORT_OFFSET + 500;
+const PORT_OFFSET = PORT_OFFSETS["cross_currency_test.ts"];
 
 const missing = await missingScenarioTools();
 

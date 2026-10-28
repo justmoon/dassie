@@ -57,7 +57,12 @@ import {
   XRPL_SCHEMES,
 } from "./scenarios.ts";
 
-export { ScenarioNode } from "./node.ts";
+export {
+  FEED_PORT_BASE,
+  HTTP_PORT_BASE,
+  HTTPS_PORT_BASE,
+  ScenarioNode,
+} from "./node.ts";
 export {
   hubLedger,
   hubOwnerBook,
@@ -97,6 +102,7 @@ export {
 export { type Layout, layout, socketPath } from "../paths.ts";
 export { caFile, certificate } from "../certs.ts";
 export {
+  FAKE_LEDGER_PORT,
   fakeLedgerBinary,
   type IssuerRequest,
   type XrplNetwork,

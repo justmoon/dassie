@@ -26,7 +26,7 @@ import {
   DASSIE,
   FAKE_LEDGER,
   missingScenarioTools,
-  SCENARIO_PORT_OFFSET,
+  PORT_OFFSETS,
 } from "./harness.ts";
 import {
   fundedInOwnerBook,
@@ -52,7 +52,7 @@ const MAX_PACKET = 100_000_000n;
  * what it still owes unfunded.
  */
 const BEYOND_FLOOR = 10n * MAX_PACKET;
-const PORT_OFFSET = SCENARIO_PORT_OFFSET + 600;
+const PORT_OFFSET = PORT_OFFSETS["xrpl_test.ts"];
 
 const missing = await missingScenarioTools();
 

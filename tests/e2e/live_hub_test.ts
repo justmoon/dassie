@@ -23,7 +23,12 @@ import { test } from "node:test";
 import { assert, assertEquals } from "@std/assert";
 import { Realm } from "@dassie/rpc/proto";
 
-import { DASSIE, FAKE_LEDGER, missingScenarioTools } from "./harness.ts";
+import {
+  DASSIE,
+  FAKE_LEDGER,
+  missingScenarioTools,
+  PORT_OFFSETS,
+} from "./harness.ts";
 import {
   booksOverHubs,
   HUB_WITHIN_MS,
@@ -42,14 +47,8 @@ import { hubLedger, Scenario } from "@dassie/dev/scenario";
 const XRP_PAYMENT = 2_000_000_000n;
 /** 1 RLUSD, at the ledger's scale of 9. */
 const RLUSD_PAYMENT = 1_000_000_000n;
-/**
- * Clear of every other file's ports, which run beside these, as
- * market_maker_targets_test.ts lays them out: at 3000 this file's nodes
- * take 7001 up and 8001 up on TCP, 8001 up for QUIC and 9001 up for their
- * feeds on UDP, and its fake ledger and rate server 13200, 13201 and
- * 13210 on TCP.
- */
-const PORT_OFFSET = 3_000;
+/** Clear of every other file's ports (`PORT_OFFSETS`, which ports_test.ts checks). */
+const PORT_OFFSET = PORT_OFFSETS["live_hub_test.ts"];
 
 const missing = await missingScenarioTools();
 

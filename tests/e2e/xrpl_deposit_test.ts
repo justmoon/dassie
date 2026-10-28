@@ -35,7 +35,7 @@ import {
   FAKE_LEDGER,
   findChrome,
   missingScenarioTools,
-  SCENARIO_PORT_OFFSET,
+  PORT_OFFSETS,
   startBrowser,
 } from "./harness.ts";
 import {
@@ -46,7 +46,7 @@ import {
 } from "./settling.ts";
 
 const LEDGER = HUB_OWNER_LEDGER;
-const PORT_OFFSET = SCENARIO_PORT_OFFSET + 800;
+const PORT_OFFSET = PORT_OFFSETS["xrpl_deposit_test.ts"];
 /** The faucet is asked at most once a minute, the account's making included. */
 const FAUCET_PACE_MS = 60_000;
 /**

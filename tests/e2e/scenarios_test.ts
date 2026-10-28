@@ -19,11 +19,7 @@ import { readFile } from "node:fs/promises";
 import WebSocket from "#ws";
 import { createConnection } from "ilp-protocol-stream";
 
-import {
-  DASSIE,
-  missingScenarioTools,
-  SCENARIO_PORT_OFFSET,
-} from "./harness.ts";
+import { DASSIE, missingScenarioTools, PORT_OFFSETS } from "./harness.ts";
 import { BtpClient } from "./btp.ts";
 import { Scenario, type ScenarioNode } from "@dassie/dev/scenario";
 
@@ -202,7 +198,7 @@ async function run(
 ) {
   const scenario = await Scenario.temporary(name, {
     dassie: DASSIE,
-    portOffset: SCENARIO_PORT_OFFSET,
+    portOffset: PORT_OFFSETS["scenarios_test.ts"],
   });
   let passed = false;
   try {

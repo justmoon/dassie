@@ -35,7 +35,7 @@ import {
   DASSIE,
   FAKE_LEDGER,
   missingScenarioTools,
-  SCENARIO_PORT_OFFSET,
+  PORT_OFFSETS,
 } from "./harness.ts";
 import {
   dollars,
@@ -78,7 +78,7 @@ const XRP_BAND = 3n * UNIT;
  * every 10 s, and a swap waits on settlement over both hubs with d1.
  */
 const RUN_MS = 300_000;
-const PORT_OFFSET = SCENARIO_PORT_OFFSET + 100;
+const PORT_OFFSET = PORT_OFFSETS["market_maker_test.ts"];
 
 /**
  * What the reader swaps: a quarter of the largest packet of DSUSD, one

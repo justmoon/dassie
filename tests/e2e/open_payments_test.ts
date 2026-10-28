@@ -25,15 +25,11 @@ import {
 import { serve } from "@dassie/dev/serve";
 import { certificate, Scenario } from "@dassie/dev/scenario";
 
-import {
-  DASSIE,
-  missingScenarioTools,
-  SCENARIO_PORT_OFFSET,
-} from "./harness.ts";
+import { DASSIE, missingScenarioTools, PORT_OFFSETS } from "./harness.ts";
 import { BtpClient } from "./btp.ts";
 
 /** Ports of their own, beside the other suites'. */
-const PORT_OFFSET = SCENARIO_PORT_OFFSET + 300;
+const PORT_OFFSET = PORT_OFFSETS["open_payments_test.ts"];
 const CLIENT_PORT = 18_960;
 /** Above the node's 0.1 USD packet limit, so it takes several packets. */
 const AMOUNT = 250_000_000n;
