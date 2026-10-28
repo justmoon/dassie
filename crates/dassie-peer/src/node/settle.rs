@@ -523,11 +523,14 @@ impl PeerNode {
 
     /// Asks `peer` to settle on `scheme`, once: the node asks again later
     /// if it still has to (spec/decisions/own-fulfills.md). The peer decides
-    /// how much.
+    /// how much. Never while a request on that method is in flight: however
+    /// often the node finds the peer short, at most one request per method
+    /// is outstanding (spec/decisions/settle-at-the-trigger.md).
     ///
     /// # Errors
     ///
-    /// The node is not a peer, or too much is in flight.
+    /// The node is not a peer, a request on the method is in flight, or too
+    /// much is in flight.
     pub fn request_settlement(
         &mut self,
         now_ms: u64,
@@ -545,12 +548,25 @@ impl PeerNode {
         {
             return Err(SendError::NotPeered);
         }
+        if self.asking(peer, scheme) {
+            return Err(SendError::Asking);
+        }
         let content = Content::SettlementRequest { scheme };
         let timeout = self.config.request_timeout_ms;
-        self.send(*peer, &content, Purpose::SettlementRequest, timeout)
+        self.send(*peer, &content, Purpose::SettlementRequest(scheme), timeout)
             .map(|_| ())
             .ok_or(SendError::Busy)?;
         self.stats.settlements_requested += 1;
         Ok(())
+    }
+
+    /// Whether a request of ours to `peer` to settle on `scheme` is in
+    /// flight: until it is answered, refused, or it times out.
+    #[must_use]
+    pub fn asking(&self, peer: &NodeId, scheme: SchemeId) -> bool {
+        self.requests.values().any(|request| {
+            request.to == *peer
+                && matches!(request.purpose, Purpose::SettlementRequest(of) if of == scheme)
+        })
     }
 }

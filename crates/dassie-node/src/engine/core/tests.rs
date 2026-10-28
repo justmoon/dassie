@@ -6747,6 +6747,9 @@ mod joining;
 mod refusals;
 mod unavailable;
 
+// Asking a peer to settle as soon as its room falls to the trigger.
+mod asking;
+
 // Our settlements on two methods of a peering, behind each other's
 // messages on its one channel.
 mod held_settlements;

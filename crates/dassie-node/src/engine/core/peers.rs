@@ -833,6 +833,12 @@ impl Core {
             self.forwarded_ledger(&from, request_id)
         };
         let taken = self.peer_packet(from, scheme, request_id, &packet);
+        // A Prepare taken lowers our room for the peer on its method: asked
+        // at once if that took it to the trigger
+        // (spec/decisions/settle-at-the-trigger.md).
+        if is_prepare && let Some(scheme) = scheme {
+            self.room_fell(from, scheme);
+        }
         let Some(ledger) = forwarded else {
             return answer.reply(&[]);
         };
