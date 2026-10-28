@@ -351,13 +351,13 @@
       "does": [
         "`dassie daemon`: standalone, or socket-activated by systemd",
         "`dassie init`: the domain name and the certificate, then a URL to finish setup in the browser",
-        "`dassie status`, which also says whether a core node's rate feed reaches anyone and lists each peer's settlement methods with their credit and what is owed, `dassie setup-url` to print that URL again, and `dassie pair` for a code that pairs an owner app",
+        "`dassie status`, which also says whether a core node answers requests for its snapshot and lists each peer's settlement methods with their credit and what is owed, `dassie setup-url` to print that URL again, and `dassie pair` for a code that pairs an owner app",
         "`dassie setup`: sets a node up without a browser, from its owner's passphrase in a file on the node's host, sets each XRP Ledger account's own config (`--asset`, its server and faucet), and adds the settlement schemes it lacks, then joins the settlement hubs `--hub <scheme>` names, each the default hub of its asset, or none with `--hub none`; without it, the default XRP hub on the testnet and none in the live realm, since on mainnet a node joins a hub only once its owner turns hubs on; with `--keep-funds` it sets where the node keeps what it receives; run again, it changes nothing, and it refuses a node that is another passphrase's",
         "`dassie hub`: shows the node's account in each settlement hub it is in, and since when a token's issuer froze one, moves the owner's funds between one and the owner book of its asset on the node's XRP Ledger account, turns the node's own moves on or off, and gives up a move the hub has not shown for long; `dassie hub found` founds a hub with validators the owner picks, on the XRP Ledger network of the node's realm, and `dassie hub payout` shows the payout bundles kept of a hub and, once a quorum signed one set, its transactions to submit",
         "`dassie update`: fetches, verifies and switches to a newer release, and goes back if it does not start",
         "`dassie verify-install`, which also names the release key",
         "`dassie front-door`: runs a front door, which is no node, and serves names by reading the bootstrap nodes' name lists itself (`DASSIE_BOOTSTRAP_NODES`); `--make-key` makes its key and prints the entry a node names it by",
-        "`dassie market-maker`: watches the signed rate feeds of one or more core nodes and, with two nodes of its own that each keep an uplink to every one of them, pays through the core node whose rates leave the widest margin against an AMM pool on the XRP Ledger, after a quote confirms it; then swaps its funds back through the pool with a `SendMax` that bounds the price"
+        "`dassie market-maker`: asks one or more core nodes for their signed snapshots and, with two nodes of its own that each keep an uplink to every one of them, pays through the core node whose snapshot says the widest margin against an AMM pool on the XRP Ledger, after a quote confirms it; then swaps its funds back through the pool with a `SendMax` that bounds the price"
       ]
     },
     "node": {
@@ -378,12 +378,12 @@
         "QUIC connections held apart by who opened them, as the key each proved says: core peers, downlinks and everyone else each have room of their own, so many downlinks never crowd out the links that carry the network",
         "Relayed streams: any QUIC node relays for the nodes connected to it, with TLS end to end, so a node without a public address that keeps a connection to a relay is still reached for Open Payments and by the owner's paired apps; a node without a hostname keeps one to the relay `DASSIE_RELAY` names; the `dassiepay.net` front door is the default again once the testnet's reset builds in its new entry",
         "Front doors: a server with a key of its own and a wildcard certificate that takes Open Payments requests for `<node ID>.<domain>` and passes them to the node the ID names, or for `<name>.<domain>` to the name's holder, which it takes from the registrars' name lists as every node does, over relayed streams it opens on the connection the node keeps to it; it returns only the node's signed JSON, under a policy that lets nothing run, and never a node's page or a cookie; at the root of a name it shows a short static page of its own, saying what the name is and whether the node is connected; on its relay host it takes QUIC over a WebSocket at `/quic` too, so a node whose UDP is blocked keeps it as its relay",
-        "RPC with live streams, the log ring, the database inspector, and a discovery document at `/.well-known/dassie/node` that names the node's ID, key and feed port",
+        "RPC with live streams, the log ring, the database inspector, and a discovery document at `/.well-known/dassie/node` that names the node's ID, keys and, while it answers, the port for its snapshot",
         "The owner's names, registered and renewed through the peer node, and how each stands with each registrar, streamed to the wallet; once the node holds a name, it accepts and signs Open Payments requests under `<name>.dassiepay.net` too, and under `<name>.<domain>` at any other front door its owner names it at, which front doors pass on to it, and stops when it no longer holds it",
         "Owner apps paired by the owner on the node's own machine: each proves a device key on a relayed stream and calls the RPC as the owner until it is revoked",
         "Open Payments over HTTPS and relayed streams: a wallet address per asset, which books what arrives on the asset's settlement hub, where it arrives, incoming payments, the GNAP authorization server, quotes and outgoing payments, each answer signed with the node key and written under the name the request came through; as a client at `dassiepay.net`, and when it fetches a client's key set there, the node takes only answers signed by the node whose ID the host names, or by a name's holder in its own view",
         "Exchange rates, fetched from several sources, the fee and spread on what passes between peers, and the price table rebuilt from them and the owner's funds whenever either changes",
-        "A core node's rate feed: what its price table converts at between the settlement methods its peers pay it on, not its owner books, signed once and sent over UDP to every subscriber that proved its address, at most once a second while it changes, with the feed's port in the node's discovery document and its link state, and its counters in the owner's status rather than the log",
+        "A core node's snapshot, while its owner lets it offer swaps: the connector's quotes and ladders for the settlement methods its peers pay it on, not its owner books, made by the engine at most once a second while they change and a heartbeat otherwise, signed and cached, pushed to the peers subscribed to it, and sent over UDP to anyone whose request is padded to its size, within a budget, with the port in the node's discovery document and its link state, and its counters in the owner's status rather than the log",
         "Credit to each peer over a settlement hub: the node's own hold toward the peer, kept in step as the hold is funded and taken from, and nothing beyond it",
         "Settlement methods: a peering's accounts, credit, requests to settle and their backoff, and the credit over each hub kept per method, each on its own ledger, and every method stored with its peering; a further method is taken while its accounts fit; each packet takes a method by structure, the one of the ledger it came in on where the hop has it, so a method short of room answers T04 and never passes the packet to another; the owner's removal of a scheme that peers settle on is not refused but winds their methods on it down, the scheme running until each is dropped, across a restart too, and the owner sees every method of each peering",
         "Peerings over a settlement hub: the node offers the scheme over every hub it is a member of, one per asset, in its link state, with the hub and its account there, and peers over it with members of the same hub, sends a commitment with each Prepare and a claim with each reply to a Fulfill, and books what a peering cost beyond its hold as a loss on the peer; a node with no account in its hub is paid into it by a member it peers with: their packets go without promises until then, the books alone taking them, and the member pays it in with all it owes once that reaches the hub's minimum for a new account, never before",
@@ -418,7 +418,7 @@
       "w": 160,
       "desc": "The desktop app for Linux: the owner's node runs inside it as a periphery node, with no public IP or hostname, and its wallet opens in a window. A tray icon keeps the node running after the window closes.",
       "does": [
-        "Runs the daemon in its own process, with HTTPS on loopback and QUIC on every address, so it dials its relay and uplinks, and no HTTP listener or rate feed socket, which a periphery node on loopback never uses",
+        "Runs the daemon in its own process, with HTTPS on loopback and QUIC on every address, so it dials its relay and uplinks, and no HTTP listener or snapshot socket, which a periphery node on loopback never uses",
         "Loads the wallet from the node's own `https://localhost` origin, and trusts exactly the certificate its node serves there",
         "Opens links to public pages in the browser, and loads nothing else",
         "Starts at login in the tray, unless its owner turns that off",
@@ -549,7 +549,7 @@
       "does": [
         "The wire format and message authentication",
         "The node table, link-state flooding, membership by majority and registration",
-        "Link states that carry both keys a node ID commits to, Ed25519 and SLH-DSA, offer each settlement scheme a node takes peers on with what the scheme says of itself, such as the hub a scheme settles over and the node's account there, and say whether a node is a periphery node and where a core node's rate feed is",
+        "Link states that carry both keys a node ID commits to, Ed25519 and SLH-DSA, offer each settlement scheme a node takes peers on with what the scheme says of itself, such as the hub a scheme settles over and the node's account there, and say whether a node is a periphery node and where a core node answers requests for its snapshot",
         "Peering on its own, and routing, keeping a few first hops per node, picked by a hash only the node itself can compute",
         "Periphery nodes without a URL and with no neighbors in their link state, which peer only with core nodes as their downlinks, and only with those their owner pinned when it pinned any, as many as a market maker trades through",
         "Downlinks that never paid the node take at most half of its places for downlinks, so keys made for nothing cannot keep out those that pay",
@@ -696,19 +696,17 @@
     "feed": {
       "name": "dassie-feed",
       "path": "crates/dassie-feed",
-      "label": "the signed rate feed",
+      "label": "signed snapshots of quotes",
       "sub": "protocols",
       "x": 214,
       "y": 844,
       "w": 184,
-      "desc": "The public feed in which a core node says what it converts at between the settlement methods its peers pay it on, so that market makers can trade through it. A feed is one signed UDP datagram, made once and sent to every subscriber.",
+      "desc": "The snapshot in which a core node says what it swaps at, per settlement method its peers pay it on, so that its peers and market makers can swap through it. A snapshot is one signed UDP datagram, made once and cached.",
       "does": [
-        "The datagrams: subscribe, challenge and the signed feed, which names each settlement method with its largest packet and a rate for each pair, each within one packet",
-        "Cookies that prove a subscriber receives at its address, so a forged address never gets a feed",
-        "A subscriber table bounded in all and per client",
-        "When to publish: soon after the rates change, but never too often, and a heartbeat otherwise",
-        "A subscriber's side: verifies each feed and keeps only newer ones",
-        "Snapshots, which replace the feed but no node serves yet: a node's quotes per settlement method, each with a ladder of how far it holds, signed; the padded request anyone may send for one, answered within a budget; and the least a swap, and each of its packets, gets by a snapshot"
+        "The snapshot: a node's quotes per settlement method, by a tag of its scheme, each with a ladder of how far it holds, in numbers with one encoding each, signed by the node key, within one packet",
+        "The padded request anyone may send for one, answered within a budget per second, so a forged address gets no more than it sent",
+        "When to make one: soon after the quotes change, but never too often, and a heartbeat otherwise",
+        "A reader's side: verifies each snapshot under the node's key and keeps only newer ones, and prices the least a swap, and each of its packets, gets by it"
       ]
     },
     "identity": {
@@ -1699,7 +1697,7 @@
             "node",
             "feed"
           ],
-          "text": "It publishes those rates as one signed UDP datagram, sent to every subscriber that proved its address with a cookie."
+          "text": "It quotes those prices per settlement method in a snapshot, one signed UDP datagram, which it pushes to its peers and answers any padded request with."
         },
         {
           "ids": [
@@ -1707,7 +1705,7 @@
             "feed",
             "xrpl"
           ],
-          "text": "`dassie market-maker` verifies the feed against the node's key from its discovery document, as it does for each core node it trades through, and reads the XRP Ledger's AMM pool with `amm_info`. This node pays more for dollars than the pool and the others do, by more than the market maker's margin."
+          "text": "`dassie market-maker` asks for the snapshot and verifies it against the node's key from its discovery document, as it does for each core node it trades through, and reads the XRP Ledger's AMM pool with `amm_info`. This node pays more for dollars than the pool and the others do, by more than the market maker's margin."
         },
         {
           "ids": [
@@ -1796,7 +1794,7 @@
     },
     {
       "t": "Golden vectors",
-      "p": "Byte-exact fixtures from other implementations: Dassie's first, TypeScript one, `xrpl.js`, and for every key a node derives from its phrase, a generator apart from Dassie's code. They pin the wire formats and key derivations. What has no other implementation, the peer protocol's current version, a settlement hub's protocol and the rate feed, is pinned against change by generators of its own.",
+      "p": "Byte-exact fixtures from other implementations: Dassie's first, TypeScript one, `xrpl.js`, and for every key a node derives from its phrase, a generator apart from Dassie's code. They pin the wire formats and key derivations. What has no other implementation, the peer protocol's current version, a settlement hub's protocol and the snapshot, is pinned against change by generators of its own.",
       "ev": "testdata/original · testdata/identity · testdata/xrpl · testdata/hub · testdata/feed · dassie-peer/tests/data · tests/vectors.rs"
     },
     {

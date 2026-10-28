@@ -23,7 +23,7 @@
   - **The QUIC certificate** carries it in an extension of its own, `…1399.1.7`, an OCTET STRING of its 32 bytes. The handshake proves the Ed25519 key, and the ID binds the SLH-DSA key to it: a certificate that names another SLH-DSA key names another node. So the identity a connection proved is what the peer protocol, places, relays, the hub's streams and paired devices take a sender by.
   - **Hub rules** name the sponsor and each validator by both keys, which an acceptance signs, so that a member dials a validator by the ID its rules give. The layout moves within hub protocol version 1, which no release carries yet, so its vectors move under it ([Settlement hubs](../areas/hubs.md#golden-vectors)).
   - **Signed responses** name both keys in their `keyid` ([Payments](../areas/payments.md#signed-responses)), configured bootstrap nodes and relays name both beside their ID, as do the discovery document and the list of mainnet validators.
-  - **A rate feed** names only the Ed25519 key that signs it: its subscriber already has the node's identity from where it learned of the feed, checked against the ID, and compares the key ([Rate feed](../areas/rate-feed.md#signing)).
+  - **A snapshot** names no key: its reader already has the node's identity from the peering or from where it learned of the node, checked against the ID, and verifies under its Ed25519 key ([Rate feed](../areas/rate-feed.md#signing)).
 - **Nothing signs with the SLH-DSA key.** Ed25519 signs everything, as before.
 
 ### Later: proving continuity

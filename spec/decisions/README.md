@@ -23,7 +23,6 @@ Each file records one choice between real alternatives: the facts that forced it
 | [epoch-handover](epoch-handover.md) | Each validator set runs an epoch of its own, and a repeat finalizes an epoch's last block | hubs, designs/settlement-hubs |
 | [exchange-rates](exchange-rates.md) | Exchange rates, fees and spread | connector |
 | [external-assets](external-assets.md) | External assets apart from settlement schemes | settlement, xrpl, ledger, wallet |
-| [feed-by-method](feed-by-method.md) | A rate feed names the settlement methods a node's peers pay it on | rate-feed, connector |
 | [finality-after-any-outage](finality-after-any-outage.md) | A hub finalizes again after any outage, in bounded memory | hubs |
 | [free-receivers-half](free-receivers-half.md) | Free receivers take at most half of the downlinks' places, and a downlink is free until its first settlement | network, settlement, designs/periphery |
 | [full-or-stopped-short](full-or-stopped-short.md) | A receiver says whether it is full or stopped short | payments, stream |
@@ -53,10 +52,10 @@ Each file records one choice between real alternatives: the facts that forced it
 | [owners-share](owners-share.md) | Strangers never take the owner's share of a pool | payments, stream |
 | [packets-in-flight](packets-in-flight.md) | Money in flight with a peer stays within a few packets | connector, settlement |
 | [paid-within-a-tolerance](paid-within-a-tolerance.md) | A payment within a tolerance of its amount is paid in full | payments, stream |
-| [passive-rebalancing](passive-rebalancing.md) | Nodes rebalance passively: inventory pricing, a rate feed and market makers | connector, rate-feed, settlement |
+| [passive-rebalancing](passive-rebalancing.md) | Nodes rebalance passively: inventory pricing, published prices and market makers | connector, rate-feed, settlement |
 | [path-failures-retried](path-failures-retried.md) | A sender sends money again after a too-low rate or a node's final error, until failures without progress stop it | stream, payments |
 | [peer-protocol-v1](peer-protocol-v1.md) | Peer protocol: v0 or v1 | peer-protocol, identity |
-| [peer-swaps](peer-swaps.md) | Nodes swap assets with their peers, priced by snapshots of ladders per asset (not built) | connector, rate-feed, peer-protocol, network, market-maker-vm |
+| [peer-swaps](peer-swaps.md) | Nodes swap assets with their peers, priced by snapshots of ladders per asset (the node's own swaps and the one-node market maker not built) | connector, rate-feed, peer-protocol, network, market-maker-vm |
 | [peering-lifecycle](peering-lifecycle.md) | Peering lifecycle and liveness | network |
 | [periphery-lists-no-neighbors](periphery-lists-no-neighbors.md) | A periphery node's link state lists no neighbors, so it may keep many uplinks | network, peer-protocol, connector |
 | [phrase-format](phrase-format.md) | A phrase says its realm and when it was made, and corrects its own errors | identity, http, node, wallet, overview |

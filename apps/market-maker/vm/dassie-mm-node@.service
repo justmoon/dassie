@@ -7,9 +7,9 @@
 # It runs standalone and binds its own ports, from /etc/dassie-mm/%i.env,
 # on every address: QUIC binds the HTTPS listener's address, and must reach
 # the targets. Nothing reaches them from outside, since the VM's network has
-# no firewall rule. Its rate feed's socket is on loopback, at a port of the
-# system's choosing: a periphery node publishes no feed, and the two must
-# not both take 7768.
+# no firewall rule. Its snapshot socket is on loopback, at a port of the
+# system's choosing: a periphery node answers no request for a snapshot,
+# and the two must not both take 7768.
 [Unit]
 Description=Dassie market maker's %i node
 Documentation=https://dassie.land

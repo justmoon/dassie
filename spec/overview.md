@@ -92,7 +92,7 @@ Most of Dassie may change freely: the UI ↔ node RPC and the HTTP API ship with
 - **The Interledger wire formats:** ILPv4, ILDCP, BTP 2.0, STREAM and Open Payments ([Testing](areas/testing.md#interop)).
 - **The peer protocol and what a settlement on a ledger means,** within a protocol version, which a release speaks beside the one before for a release cycle ([Peer protocol](areas/peer-protocol.md#versions), [protocol-upgrades](decisions/protocol-upgrades.md), [XRP Ledger](areas/xrpl.md)).
 - **A settlement hub's protocol,** within its version, and the deposit that opens an account ([hub-protocol-version](decisions/hub-protocol-version.md), [Settlement hubs](areas/hubs.md#golden-vectors)).
-- **The rate feed's wire format,** within its version ([Rate feed](areas/rate-feed.md#wire-format)).
+- **The snapshot's wire format,** within its version, once a release carries it ([Rate feed](areas/rate-feed.md#wire-format)).
 - **The release mirror's layout and the install layout** ([Release](areas/release.md#the-mirror), [install layout](areas/release.md#install-layout)).
 - **The public domains:** `dassiepay.net` and `test.dassiepay.net`, `dassie.land`'s memo types, `get.dassie.land` and `sh.dassie.land` ([public-domains](decisions/public-domains.md)).
 
