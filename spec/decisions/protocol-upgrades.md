@@ -14,7 +14,7 @@
 
 **The version is the connection's ALPN, offered and accepted as a list.**
 
-- **`dassie/N` names the layouts of every message on the connection.** No message carries a version: a request is its content. A change to any layout pinned by the golden vectors is a new name.
+- **`dassie/N` names the layouts of every message on the connection.** No message carries a version: a request is its content. A change to any layout pinned by the golden vectors is a new name, once a release speaks the version: until then no node outside `main` speaks it, so its layouts still move under its name.
 - **A node offers and accepts the versions it speaks, newest first,** and the two speak the newest they share: the server's first that the client offered. A node sharing none fails the handshake, before a message is read, so no node ever takes another's bytes for its own layouts.
 - **N and N-1.** A release that brings version N speaks N-1 too, for one release cycle, so that a node updated and one not yet updated still talk while the network updates. The release after drops N-1. While both are spoken, every message is read and written by the version of its connection.
 - **Version 2 is spoken alone.** `dassie/1` is not kept as its N-1: those releases name their version in a byte of every message as well, and differ from version 2 in more than its layouts, in how a sender is proved above all ([peer-protocol-v1](peer-protocol-v1.md)). Their nodes fail the handshake with version 2's, and the testnet moves to version 2 together.

@@ -549,7 +549,7 @@
       "does": [
         "The wire format and message authentication",
         "The node table, link-state flooding, membership by majority and registration",
-        "Link states that say whether a node is a periphery node, where a core node's rate feed is, and which settlement hubs a node is in, each with the scheme it settles on there",
+        "Link states that carry both keys a node ID commits to, Ed25519 and SLH-DSA, and say whether a node is a periphery node, where a core node's rate feed is, and which settlement hubs a node is in, each with the scheme it settles on there",
         "Peering on its own, and routing, keeping a few first hops per node, picked by a hash only the node itself can compute",
         "Periphery nodes without a URL and with no neighbors in their link state, which peer only with core nodes as their downlinks, and only with those their owner pinned when it pinned any, as many as a market maker trades through",
         "Downlinks that never paid the node take at most half of its places for downlinks, so keys made for nothing cannot keep out those that pay",
@@ -717,9 +717,9 @@
       "w": 184,
       "desc": "Turns the owner's 20-word phrase into everything that identifies a node. The phrase names its realm and corrects a few wrong or unreadable words, never without the owner's say. The same phrase always gives the same node.",
       "does": [
-        "Phrases of 20 words with a realm, a creation time and Reed–Solomon check words, and every secret below the node key as one typed path: the login, ledger accounts, a hub's keys, STREAM receivers, QUIC keys",
-        "The Ed25519 node key, node ID and login secret",
-        "The node ID: 39 characters of base32, the same in ILP addresses, DNS names and the wallet, and 24 bytes on the wire",
+        "Phrases of 20 words with a realm, a creation time and Reed–Solomon check words, and every secret below the node key as one typed path: the login, ledger accounts, a hub's keys, STREAM receivers, QUIC keys, the SLH-DSA key's seeds",
+        "The Ed25519 node key, which signs, an SLH-DSA key (FIPS 205) that signs nothing yet, so that a node can prove who it is once Ed25519 falls, and the login secret",
+        "The node ID, a hash of both public keys: 39 characters of base32, the same in ILP addresses, DNS names and the wallet, and 24 bytes on the wire",
         "Signature checks under the ZIP-215 rules",
         "Builds to WebAssembly"
       ]

@@ -54,13 +54,13 @@ The network's members are the nodes that a majority of the bootstrap nodes list.
 
 ### Bootstrap nodes
 
-- The bootstrap node list is `DASSIE_BOOTSTRAP_NODES` (format and validation in `crates/dassie-node/src/env.rs`). A bad entry stops the node at startup, as does a node listed twice, which would vote twice. The default is the public testnet's four nodes ([bootstrap-network](../decisions/bootstrap-network.md)); tests and the dev environment set their own, so they stay off the testnet. An empty list makes a node run alone.
-- Bootstrap nodes are always in the table, with their configured key.
+- The bootstrap node list is `DASSIE_BOOTSTRAP_NODES` (format and validation in `crates/dassie-node/src/env.rs`). An entry names a node by its ID, its URL and its two keys, the Ed25519 key and the SLH-DSA key the ID commits to, and is checked against them ([Identity](identity.md#node-id)). A bad entry stops the node at startup, as does a node listed twice, which would vote twice. The default is the public testnet's four nodes ([bootstrap-network](../decisions/bootstrap-network.md)), empty until the testnet's reset gives them identities of the node IDs that commit to the SLH-DSA key ([post-quantum-node-id](../decisions/post-quantum-node-id.md)); tests and the dev environment set their own, so they stay off the testnet. An empty list makes a node run alone.
+- Bootstrap nodes are always in the table, with their configured Ed25519 key.
 - A node takes registrations only when it is one of its own bootstrap nodes, so each bootstrap node lists itself in its own configuration.
 
 ### Node lists and the majority
 
-- A node polls each bootstrap node for its list's hash, and downloads the list when the hash changed. A list is accepted only on a connection pinned to the bootstrap node's configured key ([Peer protocol](peer-protocol.md#message-set)).
+- A node polls each bootstrap node for its list's hash, and downloads the list when the hash changed. A list is accepted only on a connection pinned to the bootstrap node's configured ID ([Peer protocol](peer-protocol.md#message-set)).
 - A bootstrap node serves its unexpired registrations and itself. It lists itself and registers with the other bootstrap nodes like any node. It does not serve the majority back, which would keep a node listed forever once it had made it.
 - A node is in the majority when strictly more than half of the *configured* bootstrap nodes list it, not of those that answer, so silencing bootstrap nodes cannot shrink the quorum. A list not fetched for a long time no longer votes.
 - **Membership freeze.** Majority nodes are added to the table, and lose their place only while more than half of the configured lists are fresh. Otherwise membership freezes, so bootstrap nodes going offline, or a node cut off from them, do not empty every table in the network. The majority set is persisted.

@@ -30,7 +30,7 @@ Whoever can open the socket is the owner, and every call on it is the owner's: i
 
 ### Paired devices
 
-An owner app is paired with the node through a device key, an Ed25519 key it makes itself, and then calls the node as the owner ([the design](../designs/periphery.md#6-owner-apps); [device-pairing](../decisions/device-pairing.md)).
+An owner app is paired with the node through a device key, an Ed25519 key it makes itself, which it presents as a node does, with the SLH-DSA key it derives from it, so that the device is known by the node ID of the two ([Identity](identity.md#node-id)), and then calls the node as the owner ([the design](../designs/periphery.md#6-owner-apps); [device-pairing](../decisions/device-pairing.md)).
 
 - **The app reaches the node on a relayed stream with purpose `owner`** ([Peer protocol](peer-protocol.md#relayed-streams)), through a relay the node keeps a connection to or by dialling the node's QUIC endpoint directly. The stream's TLS is pinned to the node's key and proves the device key, so a relay reads and forges nothing. Messages are framed as on the IPC socket. The wallet, `/api/*` and `/rpc` are still never relayed: an app proves a key rather than carrying a browser's cookie.
 - **Only the owner on the node's own machine starts a pairing:** over the IPC socket (`dassie pair`), or in a browser that reached the node from a loopback address. A session's cookie used from anywhere else cannot turn itself into a device's lasting access, which would survive revoking every session. A paired device cannot start one either.

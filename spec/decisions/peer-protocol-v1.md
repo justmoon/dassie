@@ -18,7 +18,7 @@ A new protocol version, v1, that keeps v0's message set, less `settlementMessage
 
 `settlementMessage`, v0's channel for a scheme's own messages to its counterpart, is not kept: no scheme sends one, since a scheme's peers meet on its ledger, and a message the node only passes on is attack surface for nothing. Its tag stays reserved, so no other message ever takes it. A scheme that needs a message of its own gets one in the protocol, with its rules.
 
-A post-quantum path stays open: link-state extension type 1 is kept for a key. Signatures and node IDs stay Ed25519, since the passphrase-to-node-ID chain is fixed. Confidentiality against "harvest now, decrypt later" belongs to TLS.
+A post-quantum path stays open: the node ID commits to an SLH-DSA key beside the Ed25519 key, which a node can prove its identity with once Ed25519 falls, and link-state extension type 1 is kept for the signing key that proof is to vouch for ([post-quantum-node-id](post-quantum-node-id.md)). Confidentiality against "harvest now, decrypt later" belongs to TLS.
 
 ## Accepted
 

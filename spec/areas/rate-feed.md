@@ -34,7 +34,7 @@ Every datagram fits in `MAX_DATAGRAM_BYTES`, which one packet carries on any pat
 
 A feed is signed by the node key (Ed25519) over its own bytes, which start with the OID `…1399.3.1` ([Identity](identity.md#object-identifiers)), so a feed's signature never passes for a link state's or anything else the node signs.
 
-A subscriber verifies by ZIP-215 over exactly the bytes received ([Identity](identity.md#node-key)), refuses a weak key, and refuses a feed whose key's node ID is not the node it subscribed to. The feed carries no node ID of its own: one beside the key would only be one more field every reader must check against it. It then takes a feed only if its sequence is after the last one it took and it has not expired, so a replayed or delayed datagram never sets rates back.
+A subscriber verifies by ZIP-215 over exactly the bytes received ([Identity](identity.md#node-key)), refuses a weak key, and refuses a feed whose key is not the Ed25519 key of the node it subscribed to. It subscribes knowing the node's identity, both keys checked against its ID, from where it learned of the feed, a link state or the discovery document, so the feed carries only the key that signs it: a node ID, or the SLH-DSA key the ID commits to, beside it would only be one more field every reader must check ([post-quantum-node-id](../decisions/post-quantum-node-id.md)). It then takes a feed only if its sequence is after the last one it took and it has not expired, so a replayed or delayed datagram never sets rates back.
 
 A feed is public, signed but not encrypted: it says nothing the node's packets would not.
 
