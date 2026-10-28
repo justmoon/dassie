@@ -89,6 +89,19 @@ pub const CHECKS: [&[u8]; 1] = [b"dassie/2+check"];
 
 const _: () = assert!(CHECKS.len() == VERSIONS.len(), "a check for each version");
 
+/// What a fresh request offers: the checks, then the versions themselves,
+/// so that a node of the release before, which knows no check, still
+/// answers, as `spec/decisions/protocol-upgrades.md` keeps a version and
+/// the one before it talking. Such a node may keep the connection, as it
+/// may any we dial, until we close it. A node that knows the checks picks
+/// one, by its own order.
+const FRESH: [&[u8]; 2] = [CHECKS[0], VERSIONS[0]];
+
+const _: () = assert!(
+    CHECKS.len() == 1 && VERSIONS.len() == 1,
+    "FRESH names them all"
+);
+
 /// Whether `connection` is a check of our URL: one that speaks a version of
 /// [`CHECKS`].
 fn is_check(connection: &Connection) -> bool {
@@ -773,7 +786,9 @@ impl Quic {
     /// connection it opened to us would answer as well
     /// (spec/decisions/promotion-to-core.md). It speaks a check's version
     /// ([`CHECKS`]), so the node answers on it but never keeps it as its
-    /// connection to us, and nothing of the node's goes over it. It ends no
+    /// connection to us, and nothing of the node's goes over it; with a
+    /// node of the release before, which knows no check, the version
+    /// itself ([`FRESH`]). It ends no
     /// backoff and starts none: it says nothing of the connection we keep
     /// with the node.
     ///
@@ -798,7 +813,7 @@ impl Quic {
                 (request.to, endpoint),
                 resolver,
                 CONNECT_TIMEOUT.min(left),
-                (periphery, &CHECKS),
+                (periphery, &FRESH),
             )
             .await
         else {
@@ -1492,13 +1507,26 @@ fn transport_config(idle: Duration) -> TransportConfig {
 }
 
 fn server_config(keys: &Arc<Keys>, idle: Duration) -> Result<quinn::ServerConfig, String> {
+    // Checks first: the server picks by its own order, so a check that
+    // offers a version too speaks the check with a node that knows it.
+    let mut speaks = CHECKS.to_vec();
+    speaks.extend(VERSIONS);
+    server_speaking(keys, idle, &speaks)
+}
+
+/// The server's configuration, speaking `versions`, in its order of
+/// preference.
+fn server_speaking(
+    keys: &Arc<Keys>,
+    idle: Duration,
+    versions: &[&[u8]],
+) -> Result<quinn::ServerConfig, String> {
     let mut config = rustls::ServerConfig::builder_with_provider(tls::provider())
         .with_protocol_versions(&[&rustls::version::TLS13])
         .map_err(|e| e.to_string())?
         .with_client_cert_verifier(Arc::new(AnyNodeKey::new()))
         .with_cert_resolver(Arc::new(Present(Arc::clone(keys))));
-    config.alpn_protocols = alpn(&VERSIONS);
-    config.alpn_protocols.extend(alpn(&CHECKS));
+    config.alpn_protocols = alpn(versions);
     let crypto = QuicServerConfig::try_from(config).map_err(|e| e.to_string())?;
     let mut config = quinn::ServerConfig::with_crypto(Arc::new(crypto));
     config.transport_config(Arc::new(transport_config(idle)));
@@ -1779,6 +1807,15 @@ mod tests {
     /// The version a client offering `versions` speaks with `server`, or
     /// `None` if it fails the handshake.
     async fn speaks(server: &Quic, server_id: NodeId, versions: &[&[u8]]) -> Option<Vec<u8>> {
+        speaks_at(server.local_addr().unwrap(), server_id, versions).await
+    }
+
+    /// The same, with a server at `address`.
+    async fn speaks_at(
+        address: SocketAddr,
+        server_id: NodeId,
+        versions: &[&[u8]],
+    ) -> Option<Vec<u8>> {
         let (_client_key, receiver) =
             watch::channel(Some(Arc::new(IdentityKey::from_bytes(&[2; 32]))));
         let keys = Arc::new(Keys::new(receiver));
@@ -1787,9 +1824,7 @@ mod tests {
         let socket = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
         let runtime = quinn::default_runtime().unwrap();
         let client = Endpoint::new(EndpointConfig::default(), None, socket, runtime).unwrap();
-        let connecting = client
-            .connect_with(config, server.local_addr().unwrap(), "dassie")
-            .unwrap();
+        let connecting = client.connect_with(config, address, "dassie").unwrap();
         let connection = tokio::time::timeout(Duration::from_secs(5), connecting)
             .await
             .expect("no handshake")
@@ -1819,6 +1854,48 @@ mod tests {
             Some(newest.to_vec())
         );
         assert_eq!(speaks(&server, server_id, &[b"dassie/1"]).await, None);
+        shutdown.cancel();
+    }
+
+    // spec/decisions/protocol-upgrades.md: a fresh request offers the check,
+    // then the version itself. A node that knows the checks speaks the check,
+    // and so never keeps the connection; one of the release before, which
+    // knows none, speaks the version, and still answers a probe.
+    #[tokio::test]
+    async fn a_fresh_request_speaks_a_check_or_the_version_before() {
+        let shutdown = CancellationToken::new();
+        let (server, server_id, _server_key) = endpoint_of(1);
+        tokio::spawn(Arc::clone(&server).serve(Arc::new(Echo), shutdown.clone()));
+        assert_eq!(
+            speaks(&server, server_id, &FRESH).await,
+            Some(CHECKS[0].to_vec())
+        );
+        assert_eq!(
+            speaks(&server, server_id, &VERSIONS).await,
+            Some(VERSIONS[0].to_vec()),
+            "a request that is not fresh speaks the version"
+        );
+        // A node of the release before: it speaks the versions alone.
+        let key = Arc::new(IdentityKey::from_bytes(&[3; 32]));
+        let old_id = key.node_id();
+        let (_old_key, receiver) = watch::channel(Some(key));
+        let keys = Arc::new(Keys::new(receiver));
+        let config = server_speaking(&keys, IDLE_TIMEOUT, &VERSIONS).unwrap();
+        let socket = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+        let runtime = quinn::default_runtime().unwrap();
+        let old = Endpoint::new(EndpointConfig::default(), Some(config), socket, runtime).unwrap();
+        let address = old.local_addr().unwrap();
+        tokio::spawn(async move {
+            while let Some(incoming) = old.accept().await {
+                if let Ok(connecting) = incoming.accept() {
+                    let _ = connecting.await;
+                }
+            }
+        });
+        assert_eq!(
+            speaks_at(address, old_id, &FRESH).await,
+            Some(VERSIONS[0].to_vec())
+        );
         shutdown.cancel();
     }
 
