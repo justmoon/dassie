@@ -297,6 +297,21 @@ proptest! {
             pair.levels(start + amount).map(|levels| pair.out(levels, amount))
         };
         prop_assert_eq!(snapshot.packet_out(a, b, start, amount), expected);
+        // A packet up to the end of its first unit's step is within the
+        // levels of that unit, and gets their rate.
+        if let Some(end) = snapshot.step_end(a, b, start) {
+            prop_assert!(end > start);
+            let first = pair.levels(start + 1);
+            prop_assert!(first.is_some());
+            prop_assert_eq!(pair.levels(end), first);
+            prop_assert_eq!(
+                snapshot.packet_out(a, b, start, end - start),
+                first.map(|levels| pair.out(levels, end - start))
+            );
+        } else {
+            let next = start.checked_add(1).and_then(|unit| pair.levels(unit));
+            prop_assert!(next.is_none());
+        }
         if let (Some(one), Some(walked)) = (
             snapshot.packet_out(a, b, 0, amount),
             snapshot.swap_out(a, b, amount),

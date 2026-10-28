@@ -444,6 +444,24 @@ fn a_packet_is_promised_the_rate_of_its_last_unit() {
     assert_eq!(snapshot.packet_out(from, from, 0, 1), None);
 }
 
+// A packet up to the end of the step its first unit is in gets that step's
+// rate on all of it.
+#[test]
+fn a_step_ends_where_a_level_of_either_ladder_does() {
+    let one = Quote::floor(1, 1);
+    let snapshot = pair(one, one, 1_000);
+    let (from, to) = (method_tag(DSUSD), method_tag(XRP));
+    assert_eq!(snapshot.step_end(from, to, 0), Some(1_000));
+    assert_eq!(snapshot.step_end(from, to, 999), Some(1_000));
+    assert_eq!(snapshot.step_end(from, to, 1_000), Some(2_000));
+    assert_eq!(snapshot.packet_out(from, to, 1_000, 1_000), Some(995));
+    // At or beyond the ladders' last amount, or not a pair: none.
+    let last = 1_000 << (LEVELS - 1);
+    assert_eq!(snapshot.step_end(from, to, last - 1), Some(last));
+    assert_eq!(snapshot.step_end(from, to, last), None);
+    assert_eq!(snapshot.step_end(from, from, 0), None);
+}
+
 #[test]
 fn swaps_follow_bid_over_ask() {
     // A unit in is worth 2.49, a unit out costs 2.51 / 1000: about 992

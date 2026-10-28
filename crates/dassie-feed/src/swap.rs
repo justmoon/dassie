@@ -104,6 +104,22 @@ impl Snapshot {
         Some(StepRate::new(walk.bid, walk.ask, keep_in, keep_out).out_floor(amount))
     }
 
+    /// Where the step of the walk from the method tagged `from` to the one
+    /// tagged `to` that the next unit after `start` falls in ends, in what
+    /// has come in on `from`: a packet from `start` up to it stays within
+    /// one level of both ladders, and gets that step's rate on all of it
+    /// ([`packet_out`](Self::packet_out)). `None` when the snapshot does
+    /// not price the pair, or `start` is at or beyond what the ladders
+    /// cover.
+    #[must_use]
+    pub fn step_end(&self, from: MethodTag, to: MethodTag, start: u64) -> Option<u64> {
+        let walk = Walk::new(self, from, to)?;
+        let top = |tops: &[u64; LEVELS]| tops.iter().copied().find(|&top| top > start);
+        let end = top(&walk.bid_amounts)?.min(top(&walk.ask_tops)?);
+        assert!(end > start, "a step ends after it starts");
+        Some(end)
+    }
+
     /// The largest swap from the method tagged `from` to the one tagged
     /// `to` whose every unit still gets at least `threshold`, at the lower
     /// bound the ladders give, and the least it gets out; or `None` when
