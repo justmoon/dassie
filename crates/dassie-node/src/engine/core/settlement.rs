@@ -200,16 +200,6 @@ impl Core {
             .any(|transfer| matches!(transfer.reference, Reference::Settlement { .. }))
     }
 
-    /// Whether a notice of one of our settlements, posted already, waits
-    /// behind an earlier message to its peer, for a simulation to aim a
-    /// crash at: a moment a restart must not undo the settlement in
-    /// (spec/areas/settlement.md#outgoing-settlements).
-    #[cfg(feature = "testing")]
-    #[must_use]
-    pub fn notices_waiting(&self) -> bool {
-        !self.settle.notices.is_empty()
-    }
-
     /// Whether the books hold a settlement of ours to `node` not yet final,
     /// for a simulation to aim a fault at.
     #[cfg(feature = "testing")]
@@ -1100,8 +1090,12 @@ impl Core {
     }
 
     /// Sends the notices whose peers' channels are free, each the first
-    /// waiting for its peer; the others wait on, in order.
+    /// waiting for its peer, with this step's outputs; the others wait on,
+    /// in order.
     fn send_notices(&mut self) {
+        if self.settle.notices.is_empty() {
+            return;
+        }
         for notice in std::mem::take(&mut self.settle.notices) {
             if self.peer.settling(&notice.peer) || self.waiting_notices_to(&notice.peer) {
                 self.settle.notices.push(notice);
@@ -1109,6 +1103,7 @@ impl Core {
                 self.send_notice(notice, 0);
             }
         }
+        self.after_peer();
     }
 
     /// Sends `notice`, stating `amount`, over its peer's channel, which is

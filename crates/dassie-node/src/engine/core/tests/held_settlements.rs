@@ -1,214 +1,290 @@
-//! Our settlements on two methods of one peering, which share its
-//! settlement channel, one message at a time
+//! Our settlements on several methods with one peer, which share the
+//! pair's settlement channel, one message at a time
 //! (spec/areas/settlement.md#outgoing-settlements): one that executes while
-//! a message on another method is still on its way to the peer. On a pair
-//! that shares three pretend hubs, the stub's and those of the second and
-//! third stubs, whose messages book nothing, as a hub's do, or book what
-//! they state, as the stub's.
+//! a message on another method is still on its way to the peer. On one
+//! engine core whose channel with the peer is in its database, running the
+//! stub with commitments, whose messages book what they state, and the
+//! second and third stubs, which pretend to be two more hubs and here send
+//! bare notices that book nothing, as hubs' do.
 
-use std::collections::BTreeMap;
+use std::sync::Arc;
 
-use dassie_ledger::LedgerId;
+use dassie_identity::{NodeId, NodeKey};
+use dassie_ledger::{AccountName, AccountPath, LedgerId, Name, Reference, TransferSpec};
+use dassie_peer::wire::{Endpoint, Kind};
+use dassie_peer::{Channel, Outgoing, PeerBatch, Response, StoredChannel};
 
-use super::{STUB_THREE, STUB_TWO, scheme_id, stub_two_bare};
-use crate::sim::checks::{check_held, check_hub_credit};
-use crate::sim::{START, Settling, Sim, key};
+use super::super::Core;
+use super::super::settlement::Settling;
+use super::{NOW, STUB_THREE, STUB_TWO, StubTwo, add_stub, core_on, scheme_id, stub_two_bare};
+use crate::engine::Output;
+use crate::node::Policies;
+use crate::store::{LedgerBatch, Store};
 
-/// The ledgers of the second and third stubs, in that order.
-const LEDGERS: [LedgerId; 2] = [
-    LedgerId::HubXrplTestnetXrp,
-    LedgerId::HubXrplTestnetDsusdUsd,
-];
+/// The config of each stub with commitments here.
+const COMMITMENTS: &str = r#"{"commitments":4}"#;
 
-/// Two nodes that share three pretend hubs, the stub's and the second and
-/// third stubs', whose messages book nothing if `bare`. Node 0 is held off
-/// from settling with node 1 on every method, so that only the test
-/// settles for it. Runs until each peers with the other on all three, then
-/// a minute more, so that what node 1 settles has settled.
-fn pair(seed: u64, bare: bool) -> Sim {
-    stub_two_bare(bare);
-    let mut sim = Sim::with(seed, 2, 1, BTreeMap::new(), Settling::StubHub(4));
-    sim.loss_per_mille = 0;
-    for index in 0..2 {
-        sim.step(index, |core| {
-            for scheme in [STUB_TWO, STUB_THREE] {
-                core.add_scheme(scheme, r#"{"commitments":4}"#.into())
-                    .unwrap();
-            }
-        });
-    }
-    let one = key(1).node_id();
-    sim.step(0, |core| {
-        for scheme in ["stub", STUB_TWO, STUB_THREE] {
-            core.settle
-                .backoff
-                .insert((one, scheme_id(scheme)), (u64::MAX, 1));
-        }
+/// What each settlement here moves.
+const AMOUNT: u64 = 400;
+
+/// The peer.
+fn peer() -> NodeId {
+    NodeKey::from_bytes(&[3; 32]).node_id()
+}
+
+/// A database holding our settlement channel with [`peer`], with our
+/// message on the method on `busy` on its way, the first we sent it, if
+/// one is named.
+fn store_with_channel(busy: Option<&str>) -> Arc<Store> {
+    let store = Arc::new(Store::open_in_memory().unwrap());
+    let key = NodeKey::from_bytes(&[3; 32]);
+    let outbox = busy.map(|scheme| Outgoing {
+        sequence: 1,
+        scheme: scheme_id(scheme),
+        amount: 0,
+        data: Vec::new(),
+        attempts: 0,
     });
-    let all = |sim: &Sim| {
-        (0..2).all(|index| {
-            sim.core(index)
-                .peer
-                .peering_of(&key(1 - index).node_id())
-                .is_some_and(|peering| peering.methods.len() == 3)
-        })
+    let channel = StoredChannel {
+        node: key.node_id(),
+        channel: Channel {
+            key: key.public_key(),
+            endpoint: Endpoint::of_url("https://peer.test"),
+            settled_in: 0,
+            settled_out: u64::from(busy.is_some()),
+            outbox,
+            paid_us: false,
+        },
     };
-    assert!(
-        sim.run_until_or(START + 600_000, all),
-        "the pair did not peer over three hubs"
+    let batch = LedgerBatch {
+        peer: PeerBatch {
+            channels: vec![channel],
+            ..PeerBatch::default()
+        },
+        ..LedgerBatch::default()
+    };
+    store.commit_ledger(&batch).unwrap();
+    store
+}
+
+/// A core on `store` that runs the stub with commitments and the second
+/// and third stubs.
+fn node(store: &Arc<Store>, seed: u64) -> Core {
+    let mut core = core_on(Arc::clone(store), seed);
+    add_stub(&mut core, COMMITMENTS);
+    for scheme in [STUB_TWO, STUB_THREE] {
+        core.add_scheme(scheme, COMMITMENTS.into()).unwrap();
+    }
+    core.flush();
+    core
+}
+
+/// The ledger of `scheme`.
+fn ledger_of(scheme: &str) -> LedgerId {
+    StubTwo::of(scheme).map_or(LedgerId::StubUsd, |(ledger, _)| ledger)
+}
+
+/// Our settlement of [`AMOUNT`] to [`peer`] on `scheme`, prepared by the
+/// scheme and booked pending, to execute in the next step, as the node
+/// makes one when the peer asks it to settle.
+fn settle(core: &mut Core, scheme: &str) {
+    let ledger = ledger_of(scheme);
+    let name = Name::new(peer().as_str()).unwrap();
+    let path = AccountPath::new(ledger, AccountName::AssetsInterledger(name));
+    let interledger = match core.ledger.find(&path) {
+        Some(account) => account,
+        None => core.ledger.open_peer(NOW, ledger, name, 1_000).unwrap().0,
+    };
+    let settlement = core.account(ledger, AccountName::AssetsSettlement).unwrap();
+    let scheme = Name::new(scheme).unwrap();
+    let prepared = {
+        let Core { schemes, rng, .. } = &mut *core;
+        schemes
+            .get_mut(&scheme)
+            .unwrap()
+            .scheme
+            .prepare_settlement(rng.as_mut(), None, name, AMOUNT, &[])
+            .unwrap()
+    };
+    assert_eq!(prepared.amount, AMOUNT);
+    let spec = TransferSpec {
+        debit: interledger,
+        credit: settlement,
+        amount: AMOUNT,
+        pending: true,
+        reference: Reference::Settlement {
+            scheme,
+            id: prepared.id,
+        },
+    };
+    let transfer = core.ledger.create(NOW, &spec).unwrap();
+    core.settle.settling.insert(
+        (scheme, prepared.id),
+        Settling {
+            peer: peer(),
+            transfer,
+            amount: AMOUNT,
+            message: prepared.message,
+        },
     );
-    sim.run_until(sim.now + 60_000);
-    sim
+    core.settle.to_execute.push((scheme, prepared.id));
+    core.flush();
 }
 
-/// What node 0's books hold in settlement on each of [`LEDGERS`], which is
-/// what its scheme there holds.
-fn held(sim: &Sim) -> [i128; 2] {
-    LEDGERS.map(|ledger| check_held(sim, 0, ledger).unwrap())
+/// What the books hold in settlement on `scheme`'s ledger, and what the
+/// scheme holds: the two are one once nothing of it is on its way.
+fn held(core: &Core, scheme: &str) -> (i128, u64) {
+    let ledger = ledger_of(scheme);
+    let account = core
+        .ledger
+        .find(&AccountPath::new(ledger, AccountName::AssetsSettlement))
+        .unwrap();
+    let booked = -core.ledger.account(account).unwrap().balance().net_credit();
+    let view = core
+        .ledger_views()
+        .into_iter()
+        .find(|view| view.id == ledger)
+        .unwrap();
+    (booked, view.on_ledger_balance)
 }
 
-/// Node 1 goes down, and node 0, asked as it were, settles with it on the
-/// second and third stubs in one step, before either executes: the first
-/// to execute is announced, and not acknowledged while node 1 is down, so
-/// the other executes behind that message. Returns what each answer said
-/// was on its way, in the order of [`LEDGERS`].
-fn settle_on_both(sim: &mut Sim) -> [u64; 2] {
-    let one = key(1).node_id();
-    assert!(!sim.core(0).settlements_in_flight());
-    assert!(!sim.core(0).peer.settling(&one));
-    sim.crash(1);
-    let mut settled = [0; 2];
-    sim.step(0, |core| {
-        for (at, scheme) in [STUB_TWO, STUB_THREE].into_iter().enumerate() {
-            core.settle.backoff.remove(&(one, scheme_id(scheme)));
-            settled[at] = core.settlement_requested(one, scheme_id(scheme));
+/// Runs a step at `now`, and answers our settlement message to the peer
+/// that went in it, if one did, as the peer would once it applied it.
+/// Returns that message's scheme and sequence.
+fn step_and_acknowledge(core: &mut Core, now: u64) -> Option<(String, u64)> {
+    let mut outputs = Vec::new();
+    core.begin_step(now);
+    core.finish_step(&mut outputs);
+    let id = outputs.into_iter().find_map(|output| match output {
+        Output::PeerRequest(request)
+            if request.to == peer() && request.kind == Kind::Settlement =>
+        {
+            Some(request.id)
         }
-    });
-    sim.run_until(sim.now + 10_000);
-    assert!(
-        sim.core(0).peer.settling(&one),
-        "the first settlement's message was not left on its way"
+        _ => None,
+    })?;
+    let went = on_its_way(core);
+    core.begin_step(now);
+    core.peer_response(
+        id,
+        Ok(Response {
+            status: 200,
+            body: Vec::new(),
+        }),
     );
-    settled
+    core.finish_step(&mut Vec::new());
+    assert_eq!(on_its_way(core), None, "not acknowledged");
+    went
+}
+
+/// The scheme of our message on its way to the peer, and its sequence.
+fn on_its_way(core: &Core) -> Option<(String, u64)> {
+    let outbox = core.peer.channel(&peer())?.outbox.as_ref()?;
+    Some((outbox.scheme.to_string(), outbox.sequence))
 }
 
 // spec/areas/settlement.md#outgoing-settlements,
-// spec/areas/hubs.md#in-the-node: a node in two hubs settles with a peer
-// over both at once, and the second executes while the first's notice is
-// still on its way. Its hub paid, and the scheme forgot it as it finalized
-// it: it is posted then, and only its notice waits. A restart before that
-// notice went finds nothing of it pending, which the scheme, having
-// forgotten it, would cancel though it was paid: the books hold, on each
-// hub's ledger, what its scheme holds, both settlements booked.
+// spec/areas/hubs.md#in-the-node: a node in two hubs has a notice on one
+// hub's method on its way to the peer, unacknowledged, when its settlement
+// over the other hub executes, and its scheme forgets it as it finalizes
+// it. The settlement is posted then, and only its notice waits. A restart
+// before that notice went finds nothing of it pending, which the scheme,
+// having forgotten it, would cancel though it was paid: the books hold
+// what the scheme holds, the settlement booked, and the message on its way
+// is still the one before.
 #[test]
-fn a_settlement_executed_behind_another_message_survives_a_restart() {
-    let mut sim = pair(81, true);
-    let before = held(&sim);
-    let settled = settle_on_both(&mut sim);
-    assert!(settled.iter().all(|amount| *amount > 0), "{settled:?}");
-    assert_eq!(sim.core(0).settle.notices.len(), 1, "no notice waits");
-    sim.crash(0);
-    sim.start(0);
-    sim.run_until(sim.now + 10_000);
-    assert!(
-        !sim.core(0).settlements_in_flight(),
-        "a settlement still pending"
-    );
-    let after = held(&sim);
-    for at in 0..2 {
-        assert_eq!(
-            before[at] - after[at],
-            i128::from(settled[at]),
-            "on {}",
-            LEDGERS[at]
-        );
-    }
-    // Node 1 back, what is on its way arrives, and the channel is free.
-    let (zero, one) = (key(0).node_id(), key(1).node_id());
-    sim.start(1);
-    assert!(
-        sim.run_until_or(sim.now + 120_000, |sim| !sim.core(0).peer.settling(&one)),
-        "the message on its way never arrived"
-    );
-    let sent = sim.core(0).peer.channel(&one).unwrap().settled_out;
-    assert_eq!(sim.core(1).peer.channel(&zero).unwrap().settled_in, sent);
-    check_hub_credit(&sim).unwrap();
-}
-
-// spec/areas/settlement.md#outgoing-settlements: the settlement that
-// executed behind another message is booked at once, and its notice goes
-// once that message arrived, after it: the peer applies both, in order.
-#[test]
-fn a_notice_behind_another_message_follows_it_in_order() {
-    let mut sim = pair(82, true);
-    let before = held(&sim);
-    let (zero, one) = (key(0).node_id(), key(1).node_id());
-    let first = sim.core(0).peer.channel(&one).unwrap().settled_out + 1;
-    let settled = settle_on_both(&mut sim);
-    assert!(settled.iter().all(|amount| *amount > 0), "{settled:?}");
-    assert_eq!(sim.core(0).settle.notices.len(), 1, "no notice waits");
-    // Node 0 settles nothing more meanwhile.
-    sim.step(0, |core| {
-        for scheme in [STUB_TWO, STUB_THREE] {
-            core.settle
-                .backoff
-                .insert((one, scheme_id(scheme)), (u64::MAX, 1));
-        }
-    });
-    assert!(
-        !sim.core(0).settlements_in_flight(),
-        "a settlement waits for the channel"
-    );
-    let after = held(&sim);
-    for at in 0..2 {
-        assert_eq!(before[at] - after[at], i128::from(settled[at]));
-    }
-    assert_eq!(sim.core(0).peer.channel(&one).unwrap().settled_out, first);
-    sim.start(1);
-    let both = |sim: &Sim| {
-        !sim.core(0).peer.settling(&one)
-            && sim
-                .core(1)
-                .peer
-                .channel(&zero)
-                .is_some_and(|channel| channel.settled_in == first + 1)
+fn a_settlement_finalized_behind_another_message_survives_a_restart() {
+    stub_two_bare(true);
+    let store = store_with_channel(Some(STUB_TWO));
+    let before = {
+        let mut core = node(&store, 5);
+        assert!(core.peer.settling(&peer()));
+        let before = held(&core, STUB_THREE);
+        assert_eq!(before.0, i128::from(before.1));
+        settle(&mut core, STUB_THREE);
+        core.begin_step(NOW + 1);
+        core.finish_step(&mut Vec::new());
+        assert_eq!(held(&core, STUB_THREE).1, before.1 - AMOUNT, "not paid");
+        before
     };
-    assert!(
-        sim.run_until_or(sim.now + 120_000, both),
-        "the notice that waited did not follow"
-    );
+    // The crash: what is not on disk is gone.
+    let core = core_on(Arc::clone(&store), 6);
+    assert_eq!(core.ledger.pending_transfers().count(), 0);
+    let after = held(&core, STUB_THREE);
+    assert_eq!(after.1, before.1 - AMOUNT, "the scheme forgot it paid");
     assert_eq!(
-        sim.core(0).peer.channel(&one).unwrap().settled_out,
-        first + 1
+        after.0,
+        i128::from(after.1),
+        "the books cancelled a settlement the scheme paid"
     );
-    check_hub_credit(&sim).unwrap();
+    assert_eq!(on_its_way(&core), Some((STUB_TWO.into(), 1)));
 }
 
-// spec/areas/settlement.md#outgoing-settlements: on schemes whose messages
+// spec/areas/settlement.md#outgoing-settlements: two settlements, over two
+// hubs, execute behind a message on a third method still on its way: both
+// are booked at once, and their notices follow it in the order they
+// executed, one at a time, each once the one before it was acknowledged.
+#[test]
+fn notices_behind_another_message_follow_it_in_order() {
+    stub_two_bare(true);
+    let store = store_with_channel(Some("stub"));
+    let mut core = node(&store, 7);
+    settle(&mut core, STUB_TWO);
+    settle(&mut core, STUB_THREE);
+    let interval = Policies::DEFAULT.settlement_interval_ms;
+    let mut now = NOW + 1;
+    assert_eq!(
+        step_and_acknowledge(&mut core, now),
+        Some(("stub".into(), 1)),
+        "the message on its way did not go"
+    );
+    assert_eq!(core.ledger.pending_transfers().count(), 0, "not booked");
+    for scheme in [STUB_TWO, STUB_THREE] {
+        let (booked, holds) = held(&core, scheme);
+        assert_eq!(booked, i128::from(holds), "on {scheme}");
+    }
+    let mut sent = Vec::new();
+    while !core.settle.notices.is_empty() {
+        assert!(sent.len() < 2, "a notice went twice");
+        now += interval;
+        let went = step_and_acknowledge(&mut core, now);
+        assert!(went.is_some(), "a notice did not go");
+        sent.extend(went);
+    }
+    assert_eq!(sent, [(STUB_TWO.into(), 2), (STUB_THREE.into(), 3)]);
+}
+
+// spec/areas/settlement.md#outgoing-settlements: on a scheme whose messages
 // book what they state, a settlement is posted with its message, in one
-// batch. So the node settles on one with a peer only while nothing else of
-// ours to it is pending or on its way, and on no other method meanwhile:
-// its message always finds the channel free, and none executed is ever
-// held back, for a restart to hand back to a scheme that forgot it.
+// batch, so the message must find the channel free. The node settles on
+// such a scheme with a peer only while no settlement of ours to it is
+// pending on any method, and on no other method with it until that one is
+// posted. A settlement on a scheme whose messages book nothing holds up
+// only such a one: over the other hubs, settling goes on.
 #[test]
 fn a_settlement_whose_message_books_waits_for_the_channel() {
-    let mut sim = pair(83, false);
-    let before = held(&sim);
-    let settled = settle_on_both(&mut sim);
-    assert!(settled[0] > 0, "{settled:?}");
-    assert_eq!(settled[1], 0, "settled on another method beside it");
-    sim.crash(0);
-    sim.start(0);
-    sim.run_until(sim.now + 10_000);
-    assert!(!sim.core(0).settlements_in_flight());
-    let after = held(&sim);
-    assert_eq!(before[0] - after[0], i128::from(settled[0]));
-    assert_eq!(before[1], after[1]);
-    let one = key(1).node_id();
-    sim.step(0, |core| {
-        assert!(
-            !core.can_settle(&one, scheme_id(STUB_THREE)),
-            "settles while a message is on its way"
-        );
-    });
+    stub_two_bare(true);
+    let (stub, two, three) = (
+        scheme_id("stub"),
+        scheme_id(STUB_TWO),
+        scheme_id(STUB_THREE),
+    );
+    let mut core = node(&store_with_channel(None), 9);
+    assert!(
+        [stub, two, three]
+            .iter()
+            .all(|on| core.can_settle(&peer(), *on))
+    );
+    settle(&mut core, "stub");
+    assert!(
+        [two, three].iter().all(|on| !core.can_settle(&peer(), *on)),
+        "settles beside a settlement whose message books"
+    );
+    let mut core = node(&store_with_channel(None), 10);
+    settle(&mut core, STUB_THREE);
+    assert!(
+        !core.can_settle(&peer(), stub),
+        "settles where the message books beside another settlement"
+    );
+    assert!(core.can_settle(&peer(), two), "one hub held up another");
 }
