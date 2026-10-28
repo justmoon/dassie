@@ -1081,13 +1081,10 @@ impl Network {
         ));
         let generation = self.nodes[from].generation;
         // A periphery node is reached by its ID, over the connection it
-        // opened, never at a URL; nothing else is without an endpoint.
+        // opened, never at a URL; so is a downlink with a URL, which opened
+        // one too. Nothing else is without an endpoint.
         let to = match &request.endpoint {
-            None => self
-                .periphery
-                .iter()
-                .copied()
-                .find(|index| key(*index).node_id() == request.to),
+            None => (0..self.nodes.len()).find(|index| key(*index).node_id() == request.to),
             Some(endpoint) => self
                 .by_endpoint
                 .get(endpoint)

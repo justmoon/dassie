@@ -98,6 +98,18 @@ Every node computes the core from what it holds, as [promotion-to-core](../decis
 
 Nothing acts on it yet: a node with a URL is still a core node, and one without a periphery node ([Periphery nodes](#periphery-nodes), [roadmap](../roadmap.md#periphery)).
 
+### Promotion
+
+An uplink promotes its downlink, advertising it as a neighbor, once the downlink passes the checks of [promotion-to-core](../decisions/promotion-to-core.md). Asking is having a URL: a downlink whose link state has one is a candidate, and nothing else in its link state says it wants to be core. What the uplink holds of each check is built, in `crates/dassie-peer/src/node/promotion.rs`, and the owner sees it for each candidate among its peers ([RPC](rpc.md)); nothing acts on it yet, and whether the downlink answers at its URL is not checked yet ([roadmap](../roadmap.md#periphery)).
+
+- **Registered:** on the majority of the bootstrap nodes' lists, which probed its URL.
+- **Good standing** for `promotion_standing_ms` without a break: healthy as the advertise flag sees it ([Advertised peers](#advertised-peers)), heard from, not banned, with a method available. It starts again with each peering, and after a restart.
+- **Heartbeats:** of ours to it over that time, at least `promotion_heartbeat_percent` answered, counted in a few buckets that together span it. One that cannot go out counts as unanswered.
+- **Room:** at least `PROMOTION_ROOM_PACKETS` of the largest packets in our books on a method of its peering: what it may still owe us there, our own position for it, the only side a node knows ([own-fulfills](../decisions/own-fulfills.md)).
+- **Settled:** it paid us a settlement of at least one largest packet, the mark its channel keeps for good ([free-receivers-half](../decisions/free-receivers-half.md)).
+- **Clock:** its clock within `max_future_ms` of ours, either way, as the newest sequence of its link state that came straight from it shows, a link state being issued with the clock that signs it.
+- **Not banned.**
+
 ## Names
 
 A node's owner can register a name for the node's ID, held by the bootstrap nodes as its registrars ([the design](../designs/names.md), [names-by-earliest-commitment](../decisions/names-by-earliest-commitment.md)); the messages are in [Peer protocol](peer-protocol.md#names). The registrar's side is built, releasing a split included: the rule in `crates/dassie-peer/src/names/registrar.rs`, who may ask what in `crates/dassie-peer/src/node/names.rs`. So is every node's view of who holds a name, in `crates/dassie-peer/src/names/holders.rs`, which needs nothing of the peer node, so that a front door keeps one too and serves a name for its holder ([HTTP](http.md#front-doors)); and the registrant, which registers names for its node and renews them, in `crates/dassie-peer/src/names/registrant.rs`. A node answers Open Payments under the names it holds, and its client takes an answer under a name only from the name's holder ([Payments](payments.md#the-nodes-names)). Fees are not built ([roadmap](../roadmap.md#names)). Names work only once every bootstrap node runs a release that has them: an older one refuses their messages with 400 ([Peer protocol](peer-protocol.md#versions)), and a registration is abandoned while any registrar refuses, so the bootstrap nodes are upgraded first.

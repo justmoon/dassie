@@ -10,6 +10,7 @@ mod membership;
 mod methods;
 mod names;
 mod peering;
+mod promotion;
 mod settle;
 mod snapshots;
 mod state;
@@ -37,6 +38,7 @@ use crate::wire::{
 
 pub use lifecycle::BanError;
 pub use membership::{RegisterError, RegistrationStatus};
+pub use promotion::{PROMOTION_ROOM_PACKETS, Promotion, PromotionCheck};
 pub use snapshots::{
     SUBSCRIPTION_CHECK_MS, SUBSCRIPTION_REFUSED_MS, SUBSCRIPTION_RETRY_MS, SUBSCRIPTION_SILENCE_MS,
 };
@@ -222,8 +224,11 @@ impl Problem {
 /// What a request of ours was for.
 #[derive(Clone, Debug)]
 pub(crate) enum Purpose {
-    /// Flooding, heartbeats, pushes: nothing to do with the answer.
+    /// Flooding, pushes: nothing to do with the answer.
     Gossip,
+    /// A heartbeat to a peer: its answer counts toward its standing
+    /// (spec/decisions/promotion-to-core.md).
+    Heartbeat,
     /// A node-list hash poll.
     HashPoll,
     /// A node-list download.
@@ -825,6 +830,14 @@ impl PeerNode {
     ) {
         match purpose {
             Purpose::Gossip => {}
+            Purpose::Heartbeat => {
+                if result.is_ok() {
+                    let (now, bucket) = (self.now_ms, self.standing_bucket_ms());
+                    if let Some(entry) = self.table.get_mut(&to) {
+                        entry.standing.answered(now, bucket);
+                    }
+                }
+            }
             Purpose::SettlementRequest(_) => {
                 // Until another request comes back, the time the peer
                 // stays short counts toward ending the peering only if this
@@ -1329,6 +1342,11 @@ impl PeerNode {
     /// a core node.
     pub(crate) const fn is_core_node(&self, _node: &NodeId, has_url: bool) -> bool {
         has_url
+    }
+
+    /// How long each bucket a peer's heartbeats are counted in lasts.
+    pub(crate) const fn standing_bucket_ms(&self) -> u64 {
+        self.config.promotion_standing_ms / crate::table::STANDING_BUCKETS
     }
 
     /// Whether this node takes downlinks: a core node with room for any.

@@ -264,6 +264,13 @@ impl PeerNode {
         let before =
             (entry.peering().is_some()).then(|| entry.link.as_ref().map(|old| old.offers.clone()));
         entry.key = Some(key.key());
+        // Straight from its subject, a new sequence shows its clock, which
+        // issued it a moment ago (spec/decisions/promotion-to-core.md).
+        if from == Some(id) {
+            let sequence = i64::try_from(signed.info.sequence).unwrap_or(i64::MAX);
+            let now = i64::try_from(now).unwrap_or(i64::MAX);
+            entry.standing.skew_ms = Some(sequence.saturating_sub(now));
+        }
         entry.link = Some(link);
         entry.refresh_failures = 0;
         self.dirty.insert(id);
@@ -553,10 +560,15 @@ impl PeerNode {
             return;
         };
         let timeout = self.config.request_timeout_ms;
+        // One that cannot go out, the peer not reached, counts as unanswered.
+        let (now, bucket) = (self.now_ms, self.standing_bucket_ms());
+        if let Some(entry) = self.table.get_mut(&peer) {
+            entry.standing.sent(now, bucket);
+        }
         self.send(
             peer,
             &Content::LinkStateUpdate(signed),
-            Purpose::Gossip,
+            Purpose::Heartbeat,
             timeout,
         );
     }

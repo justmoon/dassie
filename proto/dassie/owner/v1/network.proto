@@ -96,6 +96,31 @@ message NetworkPeer {
   // except that dropping the first sorts those left by scheme ID. The
   // first is the one the peering was made on, until that is dropped.
   repeated PeerMethod methods = 16;
+  // Where a downlink with a URL, which asks to be promoted by having one,
+  // stands toward its promotion (spec/decisions/promotion-to-core.md);
+  // unset for any other peer. Shown, not acted on yet.
+  Promotion promotion = 17;
+}
+
+// Where a downlink stands toward its promotion to a core peer, as its uplink
+// sees it (spec/decisions/promotion-to-core.md).
+message Promotion {
+  // The checks it does not pass yet: "registered", "standing",
+  // "heartbeats", "room", "settled", "clock" or "not-banned".
+  repeated string pending = 1;
+  // How long it has been in good standing without a break, in ms.
+  uint64 standing_ms = 2;
+  // Our heartbeats to it over the standing a promotion asks, and those it
+  // answered.
+  uint32 heartbeats_sent = 3;
+  uint32 heartbeats_answered = 4;
+  // Its most room in our books on a method, in the largest packets.
+  uint64 room_packets = 5;
+  // Whether it ever paid us a settlement of at least one largest packet.
+  bool paid_us = 6;
+  // How far its clock is ahead of ours, negative behind, as its link
+  // states show; unset until one came straight from it.
+  optional sint64 clock_skew_ms = 7;
 }
 
 // A settlement method of a peering: a scheme the pair settles on, with its

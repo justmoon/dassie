@@ -405,6 +405,35 @@ fn peer(view: &PeerView) -> proto::NetworkPeer {
                 winding_down: method.winding_down(),
             })
             .collect(),
+        promotion: view
+            .promotion
+            .as_ref()
+            .map(|(promotion, pending)| proto::Promotion {
+                pending: pending
+                    .iter()
+                    .map(|check| promotion_check(*check).into())
+                    .collect(),
+                standing_ms: promotion.standing_ms,
+                heartbeats_sent: promotion.heartbeats.sent,
+                heartbeats_answered: promotion.heartbeats.answered,
+                room_packets: promotion.room_packets,
+                paid_us: promotion.paid_us,
+                clock_skew_ms: promotion.skew_ms,
+            }),
+    }
+}
+
+/// A promotion's check as the owner's RPC names it.
+const fn promotion_check(check: dassie_peer::PromotionCheck) -> &'static str {
+    use dassie_peer::PromotionCheck;
+    match check {
+        PromotionCheck::Registered => "registered",
+        PromotionCheck::Standing => "standing",
+        PromotionCheck::Heartbeats => "heartbeats",
+        PromotionCheck::Room => "room",
+        PromotionCheck::Settled => "settled",
+        PromotionCheck::Clock => "clock",
+        PromotionCheck::NotBanned => "not-banned",
     }
 }
 

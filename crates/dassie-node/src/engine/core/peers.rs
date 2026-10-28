@@ -583,6 +583,10 @@ pub struct PeerView {
     /// Whether each of the peering's methods is withdrawn for room, in the
     /// peering's order.
     pub withdrawn_by_method: Vec<bool>,
+    /// Where it stands toward its promotion, if it is a downlink with a
+    /// URL, and the checks it does not pass yet
+    /// (spec/decisions/promotion-to-core.md).
+    pub promotion: Option<(dassie_peer::Promotion, Vec<dassie_peer::PromotionCheck>)>,
 }
 
 /// The network as the owner sees it.
@@ -705,8 +709,14 @@ impl Core {
                     let withdrawn_by_method = (peering.methods.iter())
                         .map(|method| method.withdrawn(grace))
                         .collect();
+                    let config = self.peer.config();
+                    let promotion = self
+                        .peer
+                        .promotion(&view.id, |scheme| self.room_packets(view.id, scheme))
+                        .map(|promotion| (promotion, promotion.pending(config)));
                     Some(PeerView {
                         id: view.id,
+                        promotion,
                         owed: self.owed(view.id, first),
                         owed_by_method,
                         withdrawn_by_method,

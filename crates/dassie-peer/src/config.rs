@@ -129,6 +129,14 @@ pub struct Config {
     pub advertise_hold_max_ms: u64,
     /// Advertised this long without a break, a peer's flaps are forgotten.
     pub advertise_stable_ms: u64,
+    /// How long a downlink must have been in good standing, without a
+    /// break, to be promoted; its heartbeats are counted over as long
+    /// (spec/decisions/promotion-to-core.md).
+    pub promotion_standing_ms: u64,
+    /// The share of our heartbeats to a downlink it must have answered over
+    /// [`promotion_standing_ms`](Self::promotion_standing_ms), in percent,
+    /// to be promoted.
+    pub promotion_heartbeat_percent: u32,
     /// A peer whose room in our books stays short of a packet for this
     /// long, without settling, is withdrawn. Two requests to settle may be
     /// lost, each costing the node's interval between requests, and the
@@ -239,6 +247,8 @@ impl Config {
         advertise_hold_min_ms: 30_000,
         advertise_hold_max_ms: 3_600_000,
         advertise_stable_ms: 3_600_000,
+        promotion_standing_ms: 3_600_000,
+        promotion_heartbeat_percent: 90,
         // Requests to settle every minute, each with 30 s to be answered.
         advertise_short_grace_ms: 180_000,
         termination_timeout_ms: 120_000,
@@ -272,6 +282,8 @@ impl Config {
         advertise_hold_min_ms: 5_000,
         advertise_hold_max_ms: 60_000,
         advertise_stable_ms: 300_000,
+        // An hour, as the advertise flags' is, scaled alike.
+        promotion_standing_ms: 300_000,
         // Requests to settle every 5 s in dev; a request's timeout is
         // still 30 s.
         advertise_short_grace_ms: 70_000,
@@ -372,6 +384,11 @@ impl Config {
             "a network's probes are a share of all"
         );
         assert!(self.indirect_refresh_percent <= 100, "a percentage");
+        assert!(
+            self.promotion_heartbeat_percent <= 100
+                && self.promotion_standing_ms >= crate::table::STANDING_BUCKETS,
+            "a percentage, and a standing that buckets split"
+        );
         assert!(
             self.advertise_hold_min_ms <= self.advertise_hold_max_ms
                 && self.settlement_retry_min_ms <= self.settlement_retry_max_ms,
