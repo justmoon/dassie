@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <meta
+      name="description"
+      content="Make a pairing code for an owner app, in the wallet or with dassie pair, and revoke a paired device."
+    />
+    <title>Paired devices · Dassie</title>
+    <link rel="icon" href="/brand/dassie-mark-small.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/src/site.css" />
+  </head>
+  <body>
+    <!-- header -->
+    <main class="docs">
+      <h1>Paired devices</h1>
+      <p class="lede">
+        An owner app on another device, such as your phone, can reach your
+        node and act for you once you pair it. Your node is ready for that
+        today; the apps are still to come.
+      </p>
+
+      <aside class="early">
+        <p>
+          <strong>Early days.</strong> Dassie takes test money only: a node
+          refuses the live realm.
+          <a href="/docs/start/early-days/">How far along it is</a>
+        </p>
+      </aside>
+
+      <p class="not-yet">
+        The owner apps themselves, such as a mobile app or a remote mode of
+        the desktop app, are not there yet, so there is nothing to pair with
+        today. <a href="/docs/project/roadmap/">What's next</a>
+      </p>
+
+      <h2 id="how-pairing-works">How pairing works</h2>
+      <p>
+        An owner app makes a key of its own, on its device. You give it a
+        pairing code from your node. The app uses the code once to introduce
+        its key, and from then on your node knows the device by that key and
+        lets it call your node as you. The app reaches your node even when it
+        has no public address, through the node's relay or its peers, and
+        nothing in between can read or change what it sends.
+      </p>
+      <p>
+        Only you, on the node's own machine, can start a pairing. A wallet
+        session opened from somewhere else cannot turn itself into a lasting
+        device, and a paired device cannot pair another.
+      </p>
+      <p class="why">
+        <a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/device-pairing.md">Why it works this way</a>:
+        pairing only from the node's own machine.
+      </p>
+
+      <h2 id="pairing-codes">Get a pairing code</h2>
+      <p>There are two ways, both on the node's own machine.</p>
+      <h3>In the wallet</h3>
+      <p>
+        This works when your browser reaches the node on its own machine,
+        as the <a href="/docs/desktop/">desktop app</a>'s window does.
+      </p>
+      <ol class="steps">
+        <li>
+          Open <strong>Settings</strong>, and find the
+          <strong>Paired devices</strong> card.
+        </li>
+        <li>Select <strong>Pair a device</strong>.</li>
+        <li>
+          Scan the QR code in the app, or select <strong>Copy code</strong>
+          and paste it there. The card says until when it works.
+        </li>
+      </ol>
+      <p>
+        In a wallet opened from another machine, such as your laptop's
+        browser on your server's wallet, the card shows your node's refusal
+        instead, which points you to <code>dassie pair</code>.
+      </p>
+      <h3>On a server</h3>
+      <p>Run this on the server:</p>
+      <pre><code><span class="prompt">$</span>dassie pair
+<span class="output">dassie-pair:…?v=1&amp;secret=…</span></code></pre>
+      <p>
+        It prints the code, a <code>dassie-pair:</code> link, for you to enter
+        in the app. Your user must be in the group <code>dassie-users</code>,
+        as the installer sets up, or use <code>sudo</code>. See
+        <a href="/docs/reference/cli/">The dassie command</a>.
+      </p>
+      <h3>Either way</h3>
+      <ul>
+        <li>A code works once, for five minutes.</li>
+        <li>
+          A new code replaces the old one. <strong>New code</strong> in the
+          wallet, or <code>dassie pair</code> again, makes one.
+        </li>
+        <li>A restart of your node forgets a code that was not used.</li>
+        <li>
+          Your node keeps up to 32 devices. With a full list, it refuses a
+          new one rather than dropping one you paired: revoke one first.
+        </li>
+      </ul>
+      <aside class="warning">
+        <p>
+          <strong>Careful.</strong> Whoever enters the code first gets a
+          device that acts as you. Give it only to your own app, and do not
+          paste it anywhere else.
+        </p>
+      </aside>
+
+      <h2 id="removing-a-device">Remove a device</h2>
+      <p>
+        The <strong>Paired devices</strong> card lists each device by the name
+        its app gave, with when you paired it and when your node last saw it.
+      </p>
+      <ol class="steps">
+        <li>Find the device, and select <strong>Revoke</strong>.</li>
+        <li>Confirm with <strong>Revoke it</strong>.</li>
+      </ol>
+      <p>
+        The app loses access at once: your node closes its connections. To use
+        it again, pair it again. Revoke a device you lost, or no longer use.
+      </p>
+      <p>
+        Building an owner app? See
+        <a href="/docs/build/owner-apps/">Owner apps</a>, and
+        <a href="https://github.com/justmoon/dassie/blob/main/spec/areas/rpc.md#paired-devices">paired devices in the spec</a>.
+      </p>
+    </main>
+    <!-- footer -->
+  </body>
+</html>

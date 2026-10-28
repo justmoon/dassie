@@ -1,0 +1,262 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <meta
+      name="description"
+      content="Your account in each settlement hub: deposits, withdrawals, what the node moves on its own, and what you and your peers hold for each other."
+    />
+    <title>Your hubs · Dassie</title>
+    <link rel="icon" href="/brand/dassie-mark-small.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/src/site.css" />
+  </head>
+  <body>
+    <!-- header -->
+    <main class="docs">
+      <h1>Your hubs</h1>
+      <p class="lede">
+        Your node settles with its peers through settlement hubs: small ledgers
+        that a few validators keep together, backed by an escrow on the XRP
+        Ledger. The <strong>Hubs</strong> page shows your account in each hub,
+        and moves money between it and your own account.
+      </p>
+
+      <aside class="early">
+        <p>
+          <strong>Early days.</strong> Dassie takes test money only: a node
+          refuses the live realm.
+          <a href="/docs/start/early-days/">How far along it is</a>
+        </p>
+      </aside>
+
+      <p>
+        <a href="/docs/concepts/hubs/">Settlement hubs</a> explains what a hub
+        is and why peers settle only through them. This page is about using
+        yours.
+      </p>
+
+      <h2 id="joining-a-hub">Joining a hub</h2>
+      <p>
+        A node is in at most one hub per asset. It joins a hub when you add
+        the hub's ledger on <strong>Ledgers</strong>, such as
+        <strong>XRP in a settlement hub on the XRP Ledger Testnet</strong>
+        (<code>hub-xrpl-testnet-xrp</code>), and stays in that hub for as long
+        as you keep the ledger. A hub needs the ledger it is funded from: for
+        the XRP hub, <strong>XRP Ledger Testnet</strong>, so add and
+        <a href="/docs/wallet/ledgers/">fund that one</a> first.
+      </p>
+      <p>
+        You need no money in the hub to start. A peer that already has an
+        account there pays your node in, once it owes your node enough to open
+        an account. Or deposit yourself, as below: your first deposit opens the
+        account.
+      </p>
+      <p>
+        The wallet offers a hub's ledger only while your release has a default
+        hub of its asset built in. <code>dassie setup --hub</code> likewise
+        joins only default hubs: the XRP hub unless you name others, or none
+        with <code>--hub none</code>. To join another hub, give its scheme
+        that hub's rules as its config, after the ledger it is funded from:
+      </p>
+      <pre><code><span class="prompt">$</span>sudo dassie setup --passphrase-file &lt;file&gt; --scheme xrpl-testnet-xrp --scheme 'hub-xrpl-testnet-xrp={"rules": "&lt;hex&gt;"}'</code></pre>
+      <p>
+        <code>dassie setup</code> reads your recovery phrase from that file;
+        <a href="/docs/node/headless/#joining-a-hub">Joining a hub</a> walks
+        through it. The hub's founder has the rules.
+        <a href="/docs/services/found-a-hub/#members">Found a hub</a> says
+        where they come from, and the
+        <a href="/docs/reference/cli/#dassie-setup">command reference</a>
+        lists every option of <code>dassie setup</code>.
+      </p>
+      <p class="not-yet">
+        The testnet's default hubs are not there yet, so the wallet offers no
+        hub today and the Hubs page says your node is in none.
+        <a href="/docs/project/roadmap/#public-testnet">What's next</a>
+      </p>
+
+      <h2 id="what-the-page-shows">What the page shows</h2>
+      <p>
+        Each hub has a card, named by its ledger. The wallet asks your node
+        for its hubs every few seconds while the page is open, and says
+        "Not current" when it could not.
+      </p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>On the card</th>
+              <th>What it means</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Validators answering</td>
+              <td>How many of the hub's validators your node hears from now.</td>
+            </tr>
+            <tr>
+              <td>Hub and your account</td>
+              <td>The hub's ID, and your account's number in it once it has one.</td>
+            </tr>
+            <tr>
+              <td>Yours to spend in the hub</td>
+              <td>Your balance there.</td>
+            </tr>
+            <tr>
+              <td>Held back as the account's reserve</td>
+              <td>What the hub keeps for the account itself. You cannot spend it.</td>
+            </tr>
+            <tr>
+              <td>Deposited, all told; Withdrawn, with ledger fees</td>
+              <td>Everything that went in and came out of the account.</td>
+            </tr>
+            <tr>
+              <td>Kept above, or Kept between</td>
+              <td>The floor, and the ceiling when there is one: see below.</td>
+            </tr>
+            <tr>
+              <td>You hold for your peers; Your peers hold for you</td>
+              <td>The holds, peer by peer, with their total.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        Amounts are in the asset of the hub's ledger: XRP for an XRP hub,
+        dollars for a DSUSD hub.
+      </p>
+
+      <h2 id="holds-floor-and-ceiling">Holds, floor and ceiling</h2>
+      <p>
+        <strong>A hold</strong> is money set aside in the hub for one peer.
+        What you hold for a peer is the credit you give it: the hub pays the
+        peer from that hold, even if your node goes quiet. What a peer holds
+        for you works the same way round: it is what that peer can spend
+        through your node, and your node is paid from it. Holds start at
+        nothing, and grow when a peer asks to be settled with.
+      </p>
+      <p>
+        <strong>The floor</strong> is what your node keeps spendable in the
+        hub, so that it can fund a hold at once when a peer asks. Below it,
+        the node deposits from your own account on the XRP Ledger.
+      </p>
+      <p>
+        <strong>The ceiling</strong> bounds what your node puts into the
+        hub: its own deposits never take the account past it. It also
+        matters if you keep what you receive on your own account, which you
+        choose under <strong>Received Funds</strong> in
+        <strong>Settings</strong>. Then the node withdraws what goes beyond
+        the ceiling to your own account. By default what you receive stays
+        in the hub, where it arrives, and the node withdraws nothing by
+        itself.
+      </p>
+      <p class="not-yet">
+        Setting the floor and the ceiling yourself is not there yet: the node
+        works them out.
+        <a href="/docs/project/roadmap/">What's next</a>
+      </p>
+
+      <h2 id="deposit-and-withdraw">Deposit and withdraw</h2>
+      <p>
+        A deposit moves money from your own ledger of the hub's asset into the
+        hub; a withdrawal moves it back. For the XRP hub, that is your
+        <strong>XRP Ledger Testnet</strong> account.
+      </p>
+      <ol class="steps">
+        <li>Under <strong>Moving funds</strong>, type the amount.</li>
+        <li>
+          Choose <strong>Deposit</strong> or <strong>Withdraw</strong>.
+          Pressing <kbd>Enter</kbd> moves nothing, so you always pick the way.
+        </li>
+        <li>
+          The card shows the move on its way. It is done once the hub's
+          validators agree on it.
+        </li>
+      </ol>
+      <p>
+        Your node makes one move at a time per hub. A move of yours pauses the
+        node's own moves for an hour, so that they don't undo it.
+      </p>
+      <p>
+        A withdrawal from a token hub, such as a DSUSD hub, can take a moment
+        longer. The hub's escrow pays the XRP Ledger's fees in XRP, so your
+        node first checks that it holds enough and tops it up from your XRP if
+        not. The page says so and sends the withdrawal again by itself every
+        few seconds, for about half a minute. Choose
+        <strong>Don't send it again</strong> to stop it.
+      </p>
+
+      <h2 id="automatic-moves">Let your node move funds</h2>
+      <p>
+        Your node keeps each hub account above its floor by itself, and, if
+        you keep what you receive on your own account, below its ceiling. The
+        card says which it does now. To move everything yourself, choose
+        <strong>Stop your node's own moves</strong>; choose
+        <strong>Let your node move funds by itself</strong> to turn them back
+        on. Your node remembers the choice.
+      </p>
+
+      <h2 id="a-late-move">A late move</h2>
+      <p>
+        A move that is still on its way ten minutes after the XRP Ledger
+        applied it, or after it was sent, is late, and the card marks it. The
+        hub may not be crediting or paying it. Your node waits, and never pays
+        it again by itself.
+      </p>
+      <p>
+        If you are sure it will not arrive, choose
+        <strong>Give up this move</strong> and confirm. Your node forgets the
+        move and books nothing. If the hub shows it later anyway, the node
+        books it then, once. Until you move funds yourself or turn its own
+        moves back on, your node moves nothing by itself in that hub.
+      </p>
+      <p>
+        While a move is on its way, you cannot remove the hub's ledger. Wait
+        for the move, or give it up once it is late.
+      </p>
+
+      <h2 id="frozen-or-ended">A frozen or ended hub</h2>
+      <p>
+        The issuer of a token, such as DSUSD, can freeze a hub that holds it.
+        The card then says since when. Until the issuer lets go, no payment
+        crosses the hub and nothing moves into or out of it; your node still
+        claims what peers owe it for payments from before the freeze. A
+        deposit to the hub is credited at the thaw.
+      </p>
+      <p>
+        If a hub stalls or ends, its validators sign a payout to every member.
+        The card shows how many have signed. Once enough have, it lists the
+        transactions that pay you out on the XRP Ledger, with
+        <strong>Copy the transactions</strong>. Anyone may submit them, in
+        order, if the validators do not.
+      </p>
+
+      <h2 id="on-the-command-line">On the command line</h2>
+      <p>
+        <code>dassie hub</code> does the same from the node's own machine, as
+        a member of the group <code>dassie-users</code> or with
+        <code>sudo</code>. Each command below but <code>status</code> names its hub
+        first, by the scheme over it, as <code>status</code> shows it:
+      </p>
+      <pre><code><span class="prompt">$</span>dassie hub status
+<span class="prompt">$</span>dassie hub deposit hub-xrpl-testnet-xrp 2.5
+<span class="prompt">$</span>dassie hub withdraw hub-xrpl-testnet-xrp 1
+<span class="prompt">$</span>dassie hub auto hub-xrpl-testnet-xrp off
+<span class="prompt">$</span>dassie hub give-up hub-xrpl-testnet-xrp
+<span class="prompt">$</span>dassie hub payout hub-xrpl-testnet-xrp</code></pre>
+      <p>
+        Amounts are in the hub's asset. <code>dassie status</code> gives each
+        hub a line too. The
+        <a href="/docs/reference/cli/#dassie-hub">command reference</a> lists
+        every option, and <a href="/docs/services/found-a-hub/">Found a hub</a>
+        covers <code>dassie hub found</code>.
+      </p>
+      <p class="why">
+        <a href="https://github.com/justmoon/dassie/blob/main/spec/areas/hubs.md#in-the-node">Why it works this way</a>:
+        how the node funds its hubs, and why it never pays a move twice.
+      </p>
+    </main>
+    <!-- footer -->
+  </body>
+</html>

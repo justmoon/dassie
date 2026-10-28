@@ -1,0 +1,215 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <meta
+      name="description"
+      content="Add a ledger to your wallet, put test money on it from the faucet or another wallet, and remove one you no longer use."
+    />
+    <title>Add and fund a ledger · Dassie</title>
+    <link rel="icon" href="/brand/dassie-mark-small.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/src/site.css" />
+  </head>
+  <body>
+    <!-- header -->
+    <main class="docs">
+      <h1>Add and fund a ledger</h1>
+      <p class="lede">
+        A ledger is where your node keeps your money in one asset, on its
+        account on the XRP Ledger testnet. You add it in the wallet,
+        put test money on it, and remove it when you are done with it.
+      </p>
+
+      <aside class="early">
+        <p>
+          <strong>Early days.</strong> Dassie takes test money only: a node
+          refuses the live realm.
+          <a href="/docs/start/early-days/">How far along it is</a>
+        </p>
+      </aside>
+
+      <h2 id="add-a-ledger">Add a ledger</h2>
+      <ol class="steps">
+        <li>Open <strong>Ledgers</strong> and choose <strong>+ Add Ledger</strong>.</li>
+        <li>
+          Under <strong>Choose a Ledger Type</strong>, choose
+          <strong>Select →</strong> next to the one you want. A ledger you
+          have already shows
+          <strong>Active</strong>.
+        </li>
+      </ol>
+      <p>Your node offers the ledgers of the testnet:</p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Ledger</th>
+              <th>What it holds</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>XRP Ledger Testnet</td>
+              <td>
+                Test XRP on your node's testnet account. The testnet's faucet
+                funds it for free.
+              </td>
+            </tr>
+            <tr>
+              <td>DSUSD on the XRP Ledger Testnet</td>
+              <td>
+                DSUSD, Dassie's test dollar token, on the same account. The
+                account pays its fees in XRP.
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        Each ledger funds the settlement hub of its asset, and peers with no
+        one itself: your node settles with peers only through
+        <a href="/docs/wallet/hubs/">hubs</a>. The
+        <a href="/docs/reference/schemes/">settlement schemes</a> reference
+        lists every ledger a node can run.
+      </p>
+
+      <h2 id="reading-a-ledger">Reading a ledger</h2>
+      <p>
+        <strong>Ledgers</strong> shows a card for each ledger: your balance
+        on it, and below it what the account holds on the XRP Ledger itself.
+        While the node is connecting or catching up with the ledger, the card
+        says so. It also shows the account's deposit address, and what the XRP
+        Ledger holds back on it as a reserve, which is never spent and not in
+        your balance.
+      </p>
+      <p>
+        <strong>Assets</strong> shows the account itself: what it holds of each
+        asset as the XRP Ledger reports it, and which ledgers settle through it.
+        <a href="/docs/wallet/activity/">Activity and assets</a> says more.
+      </p>
+
+      <h2 id="fund-with-test-xrp">Fund it with test XRP</h2>
+      <p>
+        A new account does not exist on the XRP Ledger until it receives
+        enough XRP for its reserve. Until then, the card says "The account does
+        not exist yet", and your node asks the testnet faucet for XRP by
+        itself. Usually that is all it takes.
+      </p>
+      <p>To ask for more, or to send test XRP from another wallet:</p>
+      <ol class="steps">
+        <li>
+          On the ledger's card, choose <strong>Receive</strong>. The page opens
+          on the ledger's tab.
+        </li>
+        <li>
+          Choose <strong>Get test XRP</strong> to ask the faucet, once a minute
+          at most. The XRP shows up once the ledger validates it.
+        </li>
+        <li>
+          Or send test XRP from another testnet wallet to the deposit address,
+          shown as text and as a QR code. It needs no destination tag: the
+          address is your node's alone.
+        </li>
+      </ol>
+      <aside class="warning">
+        <p>
+          <strong>Careful.</strong> Send only test XRP, on the XRP Ledger
+          testnet. Never send real XRP to this address: your node does not
+          follow the live XRP Ledger.
+        </p>
+      </aside>
+
+      <h2 id="fund-with-dsusd">Fund it with DSUSD</h2>
+      <p>
+        DSUSD lives on the same account as your test XRP, on a trust line to
+        Dassie's DSUSD issuer that your node sets up itself. The account pays
+        its fees and the trust line's reserve in XRP, so it needs XRP first.
+      </p>
+      <ol class="steps">
+        <li>
+          Add <strong>DSUSD on the XRP Ledger Testnet</strong>, and choose
+          <strong>Receive</strong> on its card.
+        </li>
+        <li>
+          If the account does not exist yet, choose <strong>Get test XRP</strong>
+          for its fees. DSUSD cannot arrive before the account and its trust
+          line exist, and the page says when the line is there.
+        </li>
+        <li>
+          DSUSD has no faucet. Buy it with test XRP on the testnet's XRP/DSUSD
+          pool, from any XRP Ledger wallet: a payment to your deposit address
+          whose amount is DSUSD, paid for with XRP, swaps through the pool and
+          arrives as DSUSD.
+        </li>
+      </ol>
+      <p>
+        The tab shows the issuer's address, what the trust line holds, and how
+        much XRP the account has for fees. Send only DSUSD of that issuer, and
+        test XRP: other tokens may be lost.
+      </p>
+      <p>
+        Your node watches DSUSD's price on its pool, and stops converting it
+        while the price is off a dollar.
+        <a href="/docs/wallet/peg-guard/">Dollar tokens and the peg guard</a>
+        explains what that pause does.
+      </p>
+
+      <h2 id="remove-a-ledger">Remove a ledger</h2>
+      <ol class="steps">
+        <li>On the ledger's card on <strong>Ledgers</strong>, choose the remove button.</li>
+        <li>
+          Read the checklist. These keep a ledger in use, and must go first:
+          BTP tokens that use it, ended peerings still to be settled on it,
+          payments from it still being sent, and money on its way between it
+          and its settlement hub.
+        </li>
+        <li>
+          Type the confirmation the page asks for, such as
+          <code>DELETE XRPL-TESTNET-XRP</code>, and choose
+          <strong>Remove Ledger Account</strong>.
+        </li>
+      </ol>
+      <p>
+        A hub's ledger first settles up with the peers that settle on it, which
+        takes a few minutes at most, then waits about an hour for what they
+        may still send, and goes. The card says "Being removed" meanwhile.
+      </p>
+      <p>
+        The page warns of a possibility to lose funds: removing a ledger stops
+        your node from using it, and while the ledger is gone your node does
+        not settle on it. What your books hold on it stays, and comes back
+        when you add the ledger again. The money on the XRP Ledger stays on your account, whose keys
+        come from your <a href="/docs/wallet/backup/">recovery phrase</a>.
+      </p>
+
+      <h2 id="when-it-fails">When something is wrong</h2>
+      <ul>
+        <li>
+          <strong>"Connecting to the ledger: waiting, as …"</strong> names what
+          your node waits for, such as a list of validators it has none of
+          yet. It usually clears by itself.
+        </li>
+        <li>
+          <strong>"Something is wrong with the ledger"</strong> names the
+          problem. Check that your node reaches the internet, and look at
+          <code>dassie status</code>.
+        </li>
+        <li>
+          <strong>The faucet refuses.</strong> It gives once a minute at most,
+          and the testnet's faucet is sometimes down. Try again later, or send
+          test XRP from another wallet.
+        </li>
+      </ul>
+      <p class="why">
+        <a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/external-assets.md">Why it works this way</a>:
+        why the wallet shows what the XRP Ledger reports, and not what the books
+        add up to.
+        <a href="/docs/concepts/ledgers/">Ledgers, books and realms</a>
+        explains it in plain words.
+      </p>
+    </main>
+    <!-- footer -->
+  </body>
+</html>

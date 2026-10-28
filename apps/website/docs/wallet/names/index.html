@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <meta
+      name="description"
+      content="Register a name people can say for your node, see how it stands with each registrar, and keep it."
+    />
+    <title>Choose a name · Dassie</title>
+    <link rel="icon" href="/brand/dassie-mark-small.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/src/site.css" />
+  </head>
+  <body>
+    <!-- header -->
+    <main class="docs">
+      <h1>Choose a name</h1>
+      <p class="lede">
+        Your node's ID is 39 characters long. A name is a short one, such as
+        <code>alice</code>, that the network holds for your node, so people can
+        pay you at <code>$alice.dassiepay.net</code>.
+      </p>
+
+      <aside class="early">
+        <p>
+          <strong>Early days.</strong> Dassie takes test money only: a node
+          refuses the live realm.
+          <a href="/docs/start/early-days/">How far along it is</a>
+        </p>
+      </aside>
+
+      <h2 id="what-a-name-is-for">What a name is for</h2>
+      <p>
+        A name helps a node without a domain name of its own, such as the
+        <a href="/docs/desktop/">desktop app</a>. Such a node is reached through
+        Dassie's front door, at <code>&lt;node ID&gt;.dassiepay.net</code>,
+        and the names it holds reach it there too, at
+        <code>&lt;name&gt;.dassiepay.net</code>.
+        <a href="/docs/wallet/receive/#without-a-domain">Your name without a
+        domain</a> explains how the front door reaches your node.
+      </p>
+      <p>
+        A node with its own domain answers only under that domain, so a name
+        adds nothing to it.
+      </p>
+      <p>
+        The network's bootstrap nodes keep the names, as its registrars. A
+        name is yours when enough of them list it for your node, and nobody
+        else can take it from you while you keep it.
+      </p>
+      <p>
+        Names run on the testnet only, where they are free, and may be reset
+        at any time.
+      </p>
+      <p class="not-yet">
+        Registration fees are not there yet, and names come to the live
+        network only with them.
+        <a href="/docs/project/roadmap/">What's next</a>
+      </p>
+
+      <h2 id="register-a-name">Register a name</h2>
+      <ol class="steps">
+        <li>Open <strong>Names</strong>.</li>
+        <li>
+          Under <strong>Register a Name</strong>, type the name and choose
+          <strong>Register</strong>.
+        </li>
+        <li>
+          Wait about an hour. The name shows under
+          <strong>Your Names</strong> while the registrars handle it, and says
+          <strong>yours</strong> once they grant it.
+        </li>
+      </ol>
+      <p>A name has:</p>
+      <ul>
+        <li>3 to 32 characters: lowercase letters, digits and hyphens;</li>
+        <li>no hyphen at its start or end, and no two hyphens in its third and fourth places;</li>
+        <li>
+          none of the reserved words, such as <code>admin</code>,
+          <code>dassie</code>, <code>pay</code> or <code>wallet</code>.
+        </li>
+      </ul>
+      <p>
+        Your node checks the name and says why it refuses one. It also refuses
+        a name someone already holds. One node holds a few names at most,
+        counting those on their way.
+      </p>
+
+      <h2 id="how-it-goes">How a registration goes</h2>
+      <p>
+        So that nobody can see the name you want and take it first, your node
+        commits to it sealed at every registrar, and tells them the name only
+        once each has logged the commitment. Whoever committed first gets the
+        name, once every registrar's window for it has closed. The badge on
+        each name says where it stands:
+      </p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Badge</th>
+              <th>What it means</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>committing</td>
+              <td>Your node is committing to the name, sealed, at every registrar.</td>
+            </tr>
+            <tr>
+              <td>unsealing, or waiting for the registrars</td>
+              <td>
+                Every registrar logged the commitment, and knows the name now.
+                It is yours once their windows close, unless someone committed
+                to it before you.
+              </td>
+            </tr>
+            <tr>
+              <td>yours</td>
+              <td>Your node holds the name.</td>
+            </tr>
+            <tr>
+              <td>renewing late</td>
+              <td>
+                Too few registrars list it now. Your node renews it at the
+                others while they keep it for you.
+              </td>
+            </tr>
+            <tr>
+              <td>taken by another node</td>
+              <td>Someone committed to it before you did.</td>
+            </tr>
+            <tr>
+              <td>split between nodes</td>
+              <td>
+                Someone committed to it at about the same time, and the
+                registrars disagree. Nobody holds it until they release it;
+                then you can register it again.
+              </td>
+            </tr>
+            <tr>
+              <td>not granted, or not every registrar answered</td>
+              <td>
+                The registration ended without the name. Choose
+                <strong>Register again</strong>.
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        A registrar that is down or refuses stops a registration before any
+        registrar learns the name. Your node then gives up, and you can try
+        again later.
+      </p>
+
+      <h2 id="each-registrar">Each registrar's view</h2>
+      <p>
+        Under each name, the page lists every registrar by its node ID, with
+        what it did:
+      </p>
+      <ul>
+        <li><strong>logged the commitment</strong>, then <strong>took the unsealing</strong>: it has your registration;</li>
+        <li><strong>lists it for you</strong>, with the expiry it gives;</li>
+        <li><strong>lists another node</strong>: it gives the name to someone else;</li>
+        <li><strong>busy, asking again</strong> or <strong>full, asking again</strong>: your node tries again by itself;</li>
+        <li><strong>refused</strong>: it will not take this registration;</li>
+        <li><strong>its list is not current</strong>: your node has not read its list lately.</li>
+      </ul>
+      <p>
+        When too few of the registrars' lists are current, the page warns that
+        they are not, and your node keeps the holders it last knew, so a
+        registrar that goes down does not take your name away.
+      </p>
+      <p>
+        A node with no bootstrap nodes has no registrars, and registers names
+        only once
+        <a href="/docs/reference/environment/#DASSIE_BOOTSTRAP_NODES"><code>DASSIE_BOOTSTRAP_NODES</code></a>
+        names some.
+      </p>
+
+      <h2 id="keeping-it">Keeping your name</h2>
+      <p>
+        A name is held for a year at a time. Your node renews it by itself in
+        the last month before it expires, and keeps renewing for as long as it
+        runs. If it was offline too long, the name stays yours alone for a
+        month after it expired, and your node renews it when it is back.
+      </p>
+      <p>
+        <strong>Renew now</strong> asks at once. A registrar renews a name only
+        once its expiry is near, so earlier it answers with the expiry the name
+        has.
+      </p>
+      <p>
+        Your names belong to your node ID, which comes from your recovery
+        phrase. A node you bring back with the same phrase holds them again:
+        see <a href="/docs/wallet/backup/">Back up your phrase</a>.
+      </p>
+      <p class="why">
+        <a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/names-by-earliest-commitment.md">Why it works this way</a>:
+        why the earliest commitment wins, and why every registrar must log it.
+        <a href="/docs/concepts/names/">Names and addresses</a> explains it in
+        plain words.
+      </p>
+    </main>
+    <!-- footer -->
+  </body>
+</html>

@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <meta
+      name="description"
+      content="Let someone pay you: share your payment pointer or a payment request, or deposit on the XRP Ledger testnet."
+    />
+    <title>Receive money · Dassie</title>
+    <link rel="icon" href="/brand/dassie-mark-small.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/src/site.css" />
+  </head>
+  <body>
+    <!-- header -->
+    <main class="docs">
+      <h1>Receive money</h1>
+      <p class="lede">
+        Other wallets pay you at your node's addresses, through Open Payments.
+        Share an address, or ask for a set amount with a payment request.
+      </p>
+
+      <aside class="early">
+        <p>
+          <strong>Early days.</strong> Dassie takes test money only: a node
+          refuses the live realm.
+          <a href="/docs/start/early-days/">How far along it is</a>
+        </p>
+      </aside>
+
+      <h2 id="your-addresses">Your addresses</h2>
+      <p>
+        Choose <strong>Receive</strong> on the Dashboard. The
+        <strong>Open Payments</strong> tab lists your node's wallet addresses:
+        one for each asset you have a ledger for. Each shows two forms of the
+        same address, a short payment pointer and a URL, each with a copy
+        button, and the ledger what arrives there is booked on.
+      </p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Payment pointer</th>
+              <th>URL</th>
+              <th>Pays in</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>$pay.example.com</code></td>
+              <td><code>https://pay.example.com/.well-known/pay</code></td>
+              <td>XRP, the default</td>
+            </tr>
+            <tr>
+              <td><code>$pay.example.com/pay/dsusd</code></td>
+              <td><code>https://pay.example.com/pay/dsusd</code></td>
+              <td>DSUSD</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        The short one, your node's name alone, pays in the asset marked
+        <strong>default</strong>: the first of your ledgers, until you choose
+        another with its <strong>Make … pay in</strong> button. The Dashboard
+        shows it as your payment pointer. The default asset is also reachable
+        at its own <code>/pay/&lt;asset&gt;</code> form, such as
+        <code>$pay.example.com/pay/xrp</code>. An address names an asset, never a
+        ledger or a hub, so where you keep the money can change and the address
+        stays the same.
+      </p>
+      <p>
+        Payments from other nodes reach yours through its peers, and your node
+        has peers only in a <a href="/docs/wallet/hubs/">settlement hub</a>.
+      </p>
+
+      <h2 id="without-a-domain">Your name without a domain</h2>
+      <p>
+        A node without a domain name of its own, such as the
+        <a href="/docs/desktop/">desktop app</a>, is named at Dassie's front
+        door: <code>$&lt;node ID&gt;.dassiepay.net</code>, where the node ID is
+        your node's 39 characters. The front door passes payments on to your
+        node over the connection your node keeps to it. A name you
+        <a href="/docs/wallet/names/">register</a> reaches your node the same
+        way, at <code>$&lt;name&gt;.dassiepay.net</code>.
+      </p>
+      <p>
+        Above your addresses, and under your payment pointer on the Dashboard,
+        the wallet says whether your node is connected to the front door now. When it says "This address may reach no one",
+        payments to that address fail until it is fixed:
+      </p>
+      <ul>
+        <li>
+          <strong>It is not connected now.</strong> Check that your node can
+          reach <code>relay.dassiepay.net</code> on port 443, over UDP or,
+          where UDP is blocked, over TCP. Right after a start
+          it says "It is connecting now" for a moment, which is fine.
+        </li>
+        <li>
+          <strong>Your node keeps another relay,</strong> or none, because
+          <a href="/docs/reference/environment/#DASSIE_RELAY"><code>DASSIE_RELAY</code></a>
+          names another or is empty. Then the front door cannot reach your
+          node: don't hand this address out.
+        </li>
+      </ul>
+      <p>
+        Either way, a domain name of your own avoids the front door:
+        <a href="/docs/concepts/core-and-periphery/">Core and periphery</a>
+        explains the difference.
+      </p>
+
+      <h2 id="payment-requests">Ask for a payment</h2>
+      <p>
+        A payment request asks for a set amount, or any amount, with a note on
+        what it is for. Whoever pays it sees that note.
+      </p>
+      <ol class="steps">
+        <li>
+          On the <strong>Open Payments</strong> tab, under
+          <strong>Request a Payment</strong>, pick the asset if you have more
+          than one.
+        </li>
+        <li>
+          Type the amount, or leave it empty to take any amount. Add what it is
+          for, if you like.
+        </li>
+        <li>
+          Choose <strong>Create Request</strong>, and share the link it shows
+          with whoever pays you. Any Open Payments wallet can pay it, Dassie's
+          <a href="/docs/wallet/send/">Send</a> among them.
+        </li>
+      </ol>
+      <p>
+        Under <strong>STREAM credentials</strong>, the request also has a
+        destination address and a shared secret, for a sender that speaks
+        STREAM directly rather than Open Payments. Share those only with the
+        one sender. The request shows in your
+        <a href="/docs/wallet/activity/">activity</a>, with what it received.
+      </p>
+
+      <h2 id="deposits">Deposits on the XRP Ledger</h2>
+      <p>
+        Beside <strong>Open Payments</strong>, Receive has a tab for each asset,
+        with where to send it on the XRP Ledger testnet:
+      </p>
+      <ul>
+        <li>
+          <strong>Your own account,</strong> with its address and the faucet.
+          <a href="/docs/wallet/ledgers/">Add and fund a ledger</a> goes
+          through it.
+        </li>
+        <li>
+          <strong>Your account in a settlement hub,</strong> when you keep what
+          you receive in that asset in the hub, the default, and your account
+          there has its number. The tab then shows the hub's escrow address
+          and a destination tag.
+        </li>
+      </ul>
+      <aside class="warning">
+        <p>
+          <strong>Careful.</strong> A deposit to a hub's escrow must carry
+          your destination tag, always. The escrow refuses a payment without
+          one, and a payment with another tag is credited to someone else's
+          account.
+        </p>
+      </aside>
+
+      <h2 id="where-it-is-kept">Where the money stays</h2>
+      <p>
+        What other nodes pay you arrives in your settlement hub of its asset,
+        and stays there by default, ready to spend. For each asset a hub
+        holds, <strong>Received Funds</strong> in <strong>Settings</strong> lets
+        you keep it on your own account instead:
+        then your node keeps a float in the hub and moves the rest to your
+        account. <a href="/docs/wallet/hubs/#holds-floor-and-ceiling">Your
+        hubs</a> explains the float.
+      </p>
+      <p class="why">
+        <a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/one-address-per-asset.md">Why it works this way</a>:
+        one address per asset, and deposits that follow where you keep your
+        money.
+      </p>
+    </main>
+    <!-- footer -->
+  </body>
+</html>

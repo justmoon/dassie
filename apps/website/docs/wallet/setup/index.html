@@ -1,0 +1,240 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <meta
+      name="description"
+      content="Open the setup link, make a recovery phrase or bring yours, and choose your first ledger."
+    />
+    <title>Set up your wallet · Dassie</title>
+    <link rel="icon" href="/brand/dassie-mark-small.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/src/site.css" />
+  </head>
+  <body>
+    <!-- header -->
+    <main class="docs">
+      <h1>Set up your wallet</h1>
+      <p class="lede">
+        A new node waits for its owner. You claim it once, in your browser,
+        with a recovery phrase: a new one the wallet makes for you, or one you
+        already have. Then you choose the first ledger it keeps your money on.
+      </p>
+
+      <aside class="early">
+        <p>
+          <strong>Early days.</strong> Dassie takes test money only: a node
+          refuses the live realm.
+          <a href="/docs/start/early-days/">How far along it is</a>
+        </p>
+      </aside>
+
+      <h2 id="open-the-setup-page">Open the setup page</h2>
+      <p>
+        The <a href="/docs/desktop/install/">desktop app</a> opens the setup
+        page by itself the first time it starts. On a server, print the setup
+        link:
+      </p>
+      <pre><code><span class="prompt">$</span>sudo dassie setup-url</code></pre>
+      <p>
+        <code>dassie init</code> prints the same link when it finishes. The link
+        holds a token, and whoever opens it first claims the node, so keep it
+        to yourself until you have used it. It stays the same until setup is
+        done, also when the node restarts.
+      </p>
+      <p>
+        Until your node has a domain name, the link names
+        <code>localhost</code>, so it opens only on the server itself. To open
+        it from your own computer, forward a port over SSH, and open the link
+        with <code>localhost:8443</code> in place of its host and port:
+      </p>
+      <pre><code><span class="prompt">$</span>ssh -L 8443:localhost:443 you@your-server</code></pre>
+      <p>
+        Your browser then warns you about the certificate: the node made it
+        itself, since no certificate authority vouches for
+        <code>localhost</code>. That is expected here.
+      </p>
+      <p>
+        If you open the node's address without the link, the wallet says the
+        node is ready for setup and tells you to run
+        <code>sudo dassie setup-url</code>.
+      </p>
+
+      <h2 id="a-new-phrase">Make a new phrase</h2>
+      <p>
+        Your recovery phrase is your wallet. It is 20 words, and every key your
+        node has comes from it. Nobody can make it again for you.
+      </p>
+      <ol class="steps">
+        <li>Choose <strong>Generate a new wallet</strong>.</li>
+        <li>
+          Write the 20 words down in order, with their numbers. The first four
+          letters of each word, shown in bold, are enough: a metal plate made
+          for 24 words holds them. Under the words, the wallet shows the day
+          the phrase was made.
+        </li>
+        <li>Choose <strong>I have written it down</strong>.</li>
+        <li>
+          The wallet asks for one of the words by its number. Type it, or its
+          first four letters, and choose <strong>Verify</strong>.
+        </li>
+        <li>
+          The wallet sets your node up. Once it is done, it opens on the choice
+          of your first ledger.
+        </li>
+      </ol>
+      <p>
+        The phrase never leaves your browser. The wallet works out your node's
+        key from it and sends the node only that key. Read
+        <a href="/docs/wallet/backup/">Back up your phrase</a> before you put
+        anything on the node.
+      </p>
+
+      <h2 id="your-own-phrase">Or bring your own phrase</h2>
+      <p>
+        To bring back a node you had before, use its phrase. Its node ID comes
+        back with it, and so does everything the phrase holds the keys to.
+      </p>
+      <ol class="steps">
+        <li>Choose <strong>Recover an existing wallet</strong>.</li>
+        <li>
+          Type your 20 words in order. The first four letters of each are
+          enough. As you type, the wallet shows each word as it reads it, and
+          flags a word that is not on the list.
+        </li>
+        <li>
+          For a word you cannot read, type <kbd>?</kbd> in its place, or tap
+          the word to mark it unreadable.
+        </li>
+        <li>
+          Choose <strong>Open Wallet</strong>. If the wallet had to restore a
+          word, it shows the phrase with the restored words marked. Compare
+          them with your copy, and choose <strong>Use these words</strong>.
+        </li>
+      </ol>
+      <p>
+        <a href="/docs/wallet/backup/#bring-your-node-back">Bring your node back</a>
+        says what comes back with a phrase, and what you set up again.
+      </p>
+
+      <h2 id="first-ledger">Choose your first ledger</h2>
+      <p>
+        A ledger is where your node keeps your money in one asset. Until you
+        add one, the wallet shows only <strong>Choose a Ledger Type</strong>,
+        with the node ID you are signed in to. A note at the top says that you
+        are on the Dassie test network, and that none of the choices use real
+        money.
+      </p>
+      <ol class="steps">
+        <li>
+          Pick <strong>XRP Ledger Testnet Settlement</strong> to start. It
+          holds test XRP on the XRP Ledger testnet, which its faucet hands out
+          for free. <strong>DSUSD on the XRP Ledger Testnet Settlement</strong>
+          holds Dassie's test dollar token, and takes a little more to fund.
+        </li>
+        <li>
+          Choose <strong>Select →</strong> next to it. The node adds the
+          ledger, and the wallet opens on your ledgers.
+        </li>
+      </ol>
+      <p>
+        The node starts on test XRP right away: while its account on the
+        testnet does not exist yet, it asks the faucet itself.
+        <a href="/docs/wallet/ledgers/">Add and fund a ledger</a> shows how to
+        follow that, and how to add more.
+      </p>
+      <p>
+        Peers settle with each other through settlement hubs, and a hub is a
+        ledger you choose the same way. The list offers a hub only while your
+        release has a default hub of its asset built in.
+      </p>
+      <p class="not-yet">
+        The testnet's default hub is not there yet, so the list offers no hub
+        today, and your node peers with no one until it joins one.
+        <a href="/docs/project/roadmap/#public-testnet">What's next</a>
+      </p>
+
+      <h2 id="without-a-browser">Without a browser</h2>
+      <p>
+        A node that nobody sets up in a browser, such as a market maker's, can
+        be set up on its own host with <code>dassie setup</code>, from a phrase
+        in a file. It does what the wallet does and sends the node only the
+        key.
+        <a href="/docs/node/headless/">Headless setup</a> walks through it, and
+        the <a href="/docs/reference/cli/#dassie-setup">command reference</a>
+        lists its options.
+      </p>
+
+      <h2 id="when-it-fails">When a step fails</h2>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>The wallet says</th>
+              <th>What to do</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>This device's clock and your node's are more than a day apart.</td>
+              <td>
+                A phrase records when it was made, so the wallet makes one only
+                while your computer's clock and the node's agree. Set the wrong
+                one right, and try again.
+              </td>
+            </tr>
+            <tr>
+              <td>That is a 12-word phrase (or 24).</td>
+              <td>
+                That is another wallet's phrase, or one from an earlier version
+                of Dassie. A Dassie phrase has 20 words, and older ones can no
+                longer be read.
+              </td>
+            </tr>
+            <tr>
+              <td>Too many words are wrong or unreadable.</td>
+              <td>
+                Check each word against your copy. Mark a word you cannot read
+                rather than guess it.
+                <a href="/docs/wallet/backup/#a-wrong-word">How much the phrase
+                corrects</a>
+              </td>
+            </tr>
+            <tr>
+              <td>This phrase says it was made on a later date.</td>
+              <td>
+                Your computer's clock is behind, the words are not your phrase,
+                or the clock of the computer that made it was ahead. In that
+                last case, set this clock past the date it names.
+              </td>
+            </tr>
+            <tr>
+              <td>The node could not be reached.</td>
+              <td>
+                Check that the node runs (<code>dassie status</code>) and that
+                you can reach its address, then choose <strong>Back</strong>
+                and try again.
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        If the wallet cannot ask your node for its state at all, it opens on
+        <strong>Cannot reach your node</strong> instead of a setup step. Make
+        the same checks, then choose <strong>Try again</strong>.
+      </p>
+      <p>
+        Once a node is set up, its setup link no longer works: the wallet asks
+        for the phrase to sign in instead. Setup happens once, and a node never
+        changes its phrase.
+      </p>
+      <p class="why">
+        <a href="https://github.com/justmoon/dassie/blob/main/spec/areas/http.md#setup">Why it works this way</a>:
+        how the token guards a new node, and why only the key reaches it.
+      </p>
+    </main>
+    <!-- footer -->
+  </body>
+</html>

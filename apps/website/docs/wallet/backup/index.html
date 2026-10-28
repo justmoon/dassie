@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <meta
+      name="description"
+      content="Write your recovery phrase down, keep it safe, and bring your node back with it."
+    />
+    <title>Back up your phrase · Dassie</title>
+    <link rel="icon" href="/brand/dassie-mark-small.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/src/site.css" />
+  </head>
+  <body>
+    <!-- header -->
+    <main class="docs">
+      <h1>Back up your phrase</h1>
+      <p class="lede">
+        Your 20 words are your node. They sign you in to your wallet, and they
+        bring your node and its money back on another machine. Keep them well,
+        and keep them to yourself.
+      </p>
+
+      <aside class="early">
+        <p>
+          <strong>Early days.</strong> Dassie takes test money only: a node
+          refuses the live realm.
+          <a href="/docs/start/early-days/">How far along it is</a>
+        </p>
+      </aside>
+
+      <h2 id="what-to-keep">What to keep</h2>
+      <p>
+        Keep the 20 words, in order, with their numbers. That is all: every
+        key your node has comes from them, and the node keeps no copy. Nobody,
+        the Dassie project included, can make them again for you.
+      </p>
+      <ul>
+        <li>
+          <strong>The first four letters are enough.</strong> No two words on
+          the list share them. The wallet shows them in bold, and a metal
+          backup plate made for 24 words holds all 20.
+        </li>
+        <li>
+          <strong>The date is not part of it.</strong> The wallet shows the
+          day the phrase was made, and the phrase records it too, so you need
+          not write it down.
+        </li>
+        <li>
+          <strong>It is not a BIP-39 phrase,</strong> though its words come
+          from the same list. Other wallets cannot read it, and Dassie does not
+          take their 12- or 24-word phrases.
+        </li>
+      </ul>
+
+      <h2 id="where-to-keep-it">Where to keep it</h2>
+      <p>
+        Anyone who knows the words controls your node and everything it holds.
+        Write them on paper or stamp them on metal, and keep that somewhere
+        safe and private, away from the computer the node runs on. A second
+        copy in another place protects you from a fire or a flood.
+      </p>
+      <aside class="warning">
+        <p>
+          <strong>Careful.</strong> Don't keep the phrase in a photo, an email,
+          a chat or a file that syncs to the cloud. Don't type it into any page
+          but your own node's wallet. Nobody who helps you with Dassie needs
+          it, and nobody should ask for it.
+        </p>
+      </aside>
+      <p>
+        One exception is a node set up without a browser, with
+        <code>dassie setup</code>: it reads the phrase from a file on the
+        node's own host, so that file needs the same care.
+        <a href="/docs/node/headless/">Headless setup</a> says how to keep it.
+      </p>
+
+      <h2 id="signing-in">Signing in with it</h2>
+      <p>
+        The wallet asks for your phrase whenever a browser has no session with
+        your node: a new browser, a new device, or after you log out. It reads
+        the words as setup does, so the first four letters of each are enough,
+        and the phrase never leaves your browser. A wrong phrase gets
+        "That passphrase does not belong to this node."
+      </p>
+      <p>
+        An owner app on your phone needs no phrase: you
+        <a href="/docs/wallet/devices/">pair it</a> with a code instead.
+      </p>
+
+      <h2 id="bring-your-node-back">Bring your node back</h2>
+      <p>
+        On a new machine, install Dassie, open its setup page, and choose
+        <strong>Recover an existing wallet</strong>, as in
+        <a href="/docs/wallet/setup/#your-own-phrase">Set up your wallet</a>.
+        Your node comes back with the same node ID.
+      </p>
+      <aside class="warning">
+        <p>
+          <strong>Careful.</strong> Stop the old node first, if it still runs.
+          Two nodes with one phrase are one node in two places, and the
+          network cannot tell them apart.
+        </p>
+      </aside>
+      <h3 id="what-comes-back">What comes back</h3>
+      <ul>
+        <li>The node ID, so peers and registrars know your node again, and the names it holds.</li>
+        <li>
+          Its accounts on the XRP Ledger and in settlement hubs, and what they
+          hold: once you add their ledgers again, the node finds them.
+        </li>
+        <li>The key other wallets know your node by, when it pays them through Open Payments.</li>
+      </ul>
+      <h3 id="what-does-not">What you set up again</h3>
+      <p>
+        Everything else lives in the node's database, not in the phrase: the
+        ledgers you added, your peers, your payment history, connected apps,
+        API keys, paired devices and settings. Add your ledgers again first.
+        To keep all of it, move the database with the node instead:
+        <a href="/docs/node/backup/">Back up and move a node</a> says how.
+      </p>
+
+      <h2 id="a-wrong-word">When a word is wrong</h2>
+      <p>
+        Six of the 20 words are there to check the others, so the phrase can
+        put itself right. It restores up to:
+      </p>
+      <ul>
+        <li>five words you mark as unreadable,</li>
+        <li>one wrong word and up to three unreadable ones, or</li>
+        <li>two wrong words and one unreadable one.</li>
+      </ul>
+      <p>
+        When a word on your plate is bent or smudged, type <kbd>?</kbd> in its
+        place, or tap it to mark it. That is worth more than a guess: the
+        wallet knows where an unreadable word is, but has to find a wrong one.
+      </p>
+      <p>
+        The wallet never uses a restored phrase quietly. It shows you all 20
+        words with the ones it changed marked, and uses them only once you
+        choose <strong>Use these words</strong>. If your copy was wrong, fix
+        it then. <code>dassie setup</code> has no one to ask, so it refuses a
+        phrase that needs a correction, and names the positions of the words.
+      </p>
+
+      <h2 id="one-network">One phrase, one network</h2>
+      <p>
+        A phrase names the network it belongs to. Yours is a testnet phrase,
+        and it opens only testnet nodes. A phrase for the live network would be
+        a different phrase, and it would make a different node.
+      </p>
+      <p>
+        A phrase also records when it was made. A device whose clock is more
+        than a day behind that refuses it, and says the date it found: set the
+        clock right, and try again.
+      </p>
+      <p class="why">
+        <a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/phrase-format.md">Why it works this way</a>:
+        the phrase's format, its corrections and its network.
+        <a href="/docs/concepts/phrase/">Your recovery phrase</a> explains it in
+        plain words.
+      </p>
+    </main>
+    <!-- footer -->
+  </body>
+</html>

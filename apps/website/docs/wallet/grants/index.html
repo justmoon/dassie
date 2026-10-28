@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <meta
+      name="description"
+      content="Approve an app's request to pay through your node, read what it may spend, and revoke its access."
+    />
+    <title>Connect apps · Dassie</title>
+    <link rel="icon" href="/brand/dassie-mark-small.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/src/site.css" />
+  </head>
+  <body>
+    <!-- header -->
+    <main class="docs">
+      <h1>Connect apps</h1>
+      <p class="lede">
+        Apps that speak Open Payments can ask your node for access, for
+        example to send payments for you up to a limit. You read each request
+        in your wallet, approve or deny it, and can take access back at any
+        time.
+      </p>
+
+      <aside class="early">
+        <p>
+          <strong>Early days.</strong> Dassie takes test money only: a node
+          refuses the live realm.
+          <a href="/docs/start/early-days/">How far along it is</a>
+        </p>
+      </aside>
+
+      <h2 id="what-needs-you">Which requests need you</h2>
+      <p>
+        An app asks your node for a grant: a set of things it may do, each
+        with its limits. Your node asks you only when a grant could move your
+        money or show more than the app's own payments:
+      </p>
+      <ul>
+        <li>sending payments from your wallet;</li>
+        <li>seeing all payments or quotes, not only the app's own;</li>
+        <li>learning that a wallet address is yours.</li>
+      </ul>
+      <p>
+        Requesting a payment to you, or asking what a payment would cost,
+        moves nothing. Your node grants those at once, without asking, and
+        they do not show under Connected Apps.
+      </p>
+      <p>
+        An app that asks for anything that needs you must name itself by its
+        own wallet address. An app known only by its key is refused, so you
+        always see who asks.
+      </p>
+
+      <h2 id="the-consent-screen">The consent screen</h2>
+      <ol class="steps">
+        <li>
+          <strong>The app sends you to your wallet.</strong> Your browser
+          opens a page on your node, titled <em>An App Asks for Access</em>.
+          If you are not logged in, the wallet asks for your recovery phrase
+          first, then shows the request.
+        </li>
+        <li>
+          <strong>Read who asks.</strong> The app's name, if it gives one,
+          with its wallet address in brackets. Check the address: the name is
+          only what the app calls itself.
+        </li>
+        <li>
+          <strong>Read what it asks for.</strong> Each item is a line, such as
+          <em>Request payments in your USD wallet</em>. An item that sends
+          payments shows four facts, described below.
+        </li>
+        <li>
+          <strong>Approve or deny.</strong> If the app asked for it, the
+          wallet then sends you back to the app; otherwise it says you can
+          close the page. Either way, the app learns your answer from your
+          node. If you
+          approved, the page names Connected Apps, where you can revoke it.
+        </li>
+      </ol>
+      <p>
+        A request waits ten minutes for your answer. After that, or once it
+        has been answered, the page says it is no longer waiting: start again
+        from the app.
+      </p>
+
+      <h2 id="spending-caps">What an app may send</h2>
+      <p>
+        For an item that sends payments, the consent screen says each side as
+        far as it is known, and never guesses:
+      </p>
+      <dl>
+        <dt><strong>You send</strong></dt>
+        <dd>
+          <p>
+            The most it may take from your wallet, such as
+            <em>Up to $ 10.00 a day from your USD wallet, fees and currency
+            exchange included</em>. This is firm: every fee and every
+            conversion on the way comes out of it. If the app sets no limit,
+            it says <em>Any amount</em>. Read that twice.
+          </p>
+        </dd>
+        <dt><strong>They receive</strong></dt>
+        <dd>
+          <p>
+            What arrives at the other end. If the app also caps that, it says
+            so. Otherwise it depends on the path, which only a quote measures,
+            so the screen says it depends. If the app names one payment
+            request to pay, your node reads it while you look, and shows its
+            currency and what it still asks for.
+          </p>
+        </dd>
+        <dt><strong>To</strong></dt>
+        <dd>
+          <p>
+            <em>Anyone the app chooses</em>, or one payment request on
+            another node, with how long it stays open.
+          </p>
+        </dd>
+        <dt><strong>Lasts</strong></dt>
+        <dd>
+          <p>
+            How often the limit renews, if it does, and until when. A limit
+            without an interval is a total for all payments, not renewed,
+            until you revoke access.
+          </p>
+        </dd>
+      </dl>
+      <p>
+        If the app caps what the receiver gets in a different currency than
+        the payment request it names, a warning says
+        <em>The limit doesn't match the payment request</em>: every payment it
+        tries will be refused. You can still approve, but the app will not be
+        able to pay.
+      </p>
+      <p>
+        Your node refuses some requests before you see them: a limit on what
+        is delivered with no limit on what you send, and a sending limit in a
+        different currency than the wallet it sends from. No payment could
+        keep to either.
+      </p>
+      <p class="why">
+        <a href="https://github.com/justmoon/dassie/blob/main/spec/areas/payments.md#the-owners-consent">Why it works this way</a>:
+        what the consent screen says, and which grants need you.
+      </p>
+
+      <h2 id="connected-apps">See what apps may do</h2>
+      <p>
+        Open <strong>Connected Apps</strong> in the top menu. Each app you
+        approved is listed by name, with the date you approved it, and each
+        thing it may do on a line, such as
+        <em>Send payments of up to $ 10.00 a day from your USD wallet</em>.
+        Next to a limit is what it has used in the current period, such as
+        <em>$ 3.50 of $ 10.00 spent this period</em>.
+      </p>
+      <p>
+        The payments an app sends show under Activity, marked with who sent
+        them. See <a href="/docs/wallet/activity/">Activity and assets</a>.
+      </p>
+
+      <h2 id="revoking">Revoke access</h2>
+      <ol class="steps">
+        <li>Open <strong>Connected Apps</strong>.</li>
+        <li>Find the app, and select <strong>Revoke</strong>.</li>
+        <li>Confirm with <strong>Revoke</strong>.</li>
+      </ol>
+      <p>
+        The app can do nothing more for you from then on. Payments it already
+        made stay made.
+      </p>
+      <aside class="note">
+        <p>
+          Building an app that asks for grants? See
+          <a href="/docs/build/grants/">Grants and limits</a>.
+        </p>
+      </aside>
+    </main>
+    <!-- footer -->
+  </body>
+</html>

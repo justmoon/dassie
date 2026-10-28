@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <meta
+      name="description"
+      content="Set the fee, spread and rebalancing your node charges on what it converts for peers, choose where its rates come from, and pick the currency of your total."
+    />
+    <title>Exchange-rate settings · Dassie</title>
+    <link rel="icon" href="/brand/dassie-mark-small.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/src/site.css" />
+  </head>
+  <body>
+    <!-- header -->
+    <main class="docs">
+      <h1>Exchange-rate settings</h1>
+      <p class="lede">
+        When a payment passes through your node from one currency to another,
+        your node converts it. You decide what it keeps for that, and where it
+        learns the rates. Both live in Settings.
+      </p>
+
+      <aside class="early">
+        <p>
+          <strong>Early days.</strong> Dassie takes test money only: a node
+          refuses the live realm.
+          <a href="/docs/start/early-days/">How far along it is</a>
+        </p>
+      </aside>
+
+      <h2 id="spread">Fee, spread and rebalancing</h2>
+      <p>
+        Open <strong>Settings</strong>, and find the <strong>Peers</strong>
+        card. Its three numbers apply only to what passes through your node
+        from one peer to another. Your own payments, and payments to you, are
+        never charged.
+      </p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Setting</th>
+              <th>What it does</th>
+              <th>New node</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>Fee</strong></td>
+              <td>
+                A share of everything that passes through, converted or not.
+                It is rounded down, so a packet too small to carry a fee
+                passes free.
+              </td>
+              <td>0%</td>
+            </tr>
+            <tr>
+              <td><strong>Spread</strong></td>
+              <td>
+                A share of what your node converts from one currency to
+                another, kept as the difference between the market rate and
+                the rate it gives.
+              </td>
+              <td>0%</td>
+            </tr>
+            <tr>
+              <td><strong>Rebalancing</strong></td>
+              <td>
+                How strongly your holdings move the rate. Bringing in what
+                your node is short of gets up to this much better than the
+                market rate. Taking it out gets worse, with no cap: at the
+                default 5%, holdings split 25/75 already cost about 6% for
+                taking out the scarce one, and more the further out of
+                balance they are. 0 converts at the market rate.
+              </td>
+              <td>5%</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <ol class="steps">
+        <li>
+          Type each as a percentage, such as <code>0.3</code> for 0.3%. Each
+          is at most 10%, with up to four decimals.
+        </li>
+        <li>
+          Select <strong>Save</strong>. The new numbers apply to the next
+          packets your node handles.
+        </li>
+      </ol>
+      <p>
+        Rebalancing is how your node keeps its holdings in balance without
+        trading. When it holds less XRP than it would like, it gives a
+        slightly better rate to payments that bring XRP in, and a worse one to
+        payments that take XRP out. Over time, what flows through brings your
+        holdings back toward an even share of each asset.
+      </p>
+      <p>
+        Dassie is early, and few nodes route payments yet, so there is no
+        going rate for a fee or a spread. A new node charges neither. If you
+        set them, start low and watch what passes through.
+      </p>
+      <p class="why">
+        <a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/passive-rebalancing.md">Why it works this way</a>:
+        pricing by inventory instead of trading.
+      </p>
+
+      <h2 id="where-rates-come-from">Where rates come from</h2>
+      <p>
+        Your node needs a rate for each currency it converts between, and for
+        the currency you see your total in. It asks its sources about once a
+        minute, and takes each currency's rate as the median of the sources
+        that answered, once more than half of them did. One wrong source
+        cannot move a rate past what the others say.
+      </p>
+      <p>A new node starts with four sources. All are free and need no key:</p>
+      <ul>
+        <li><strong>Coinbase</strong>, which covers every currency;</li>
+        <li><strong>Kraken</strong>, the last trade on its markets;</li>
+        <li><strong>Bitstamp</strong>, which covers XRP;</li>
+        <li>
+          <strong>European Central Bank</strong>, its daily reference rates
+          for the government currencies.
+        </li>
+      </ul>
+      <p>
+        So three sources cover every currency. DSUSD needs no rate: your node
+        books it as a dollar, as long as the
+        <a href="/docs/wallet/peg-guard/">peg guard</a> lets it.
+      </p>
+
+      <h3>Change the sources</h3>
+      <ol class="steps">
+        <li>
+          In <strong>Settings</strong>, find the
+          <strong>Exchange Rates</strong> card. It lists your sources.
+        </li>
+        <li>
+          To add one, choose it under <strong>Add a source</strong> and select
+          <strong>Add</strong>. A Coinbase source can take a
+          <strong>URL</strong>: leave it empty for Coinbase's own, or enter
+          an <code>https://</code> server that answers in Coinbase's format.
+        </li>
+        <li>To drop one, select <strong>Remove</strong> next to it.</li>
+        <li>Select <strong>Save</strong>. Nothing changes until you do.</li>
+      </ol>
+      <p>Your node keeps at most eight sources.</p>
+      <aside class="warning">
+        <p>
+          <strong>Careful.</strong> Without a source, rates go stale, and
+          payments across currencies stop. A currency only two of your sources
+          cover gets a rate only while both answer and agree. One that only a
+          single source covers takes whatever that source says.
+        </p>
+      </aside>
+
+      <h3>Check the rates</h3>
+      <p>
+        Open <strong>Ledgers</strong>. The Exchange Rates card at the bottom
+        lists what one dollar buys in each of your currencies, with its age,
+        such as:
+      </p>
+      <pre><code><span class="output">1 USD = 1.8656 XRP (2 minutes ago)</span></code></pre>
+      <p>
+        A rate older than an hour is <em>stale</em>, and payments that need
+        it are refused until a source answers again. Your node keeps its last
+        rates across restarts, so it converts again right after one.
+      </p>
+      <p>
+        A core node also publishes the rates it converts at for peers in its
+        rate feed. See
+        <a href="/docs/wallet/network/">Network and peers</a>.
+      </p>
+      <p class="not-yet">
+        The exchanges license their data for personal or internal use only.
+        Rate sources whose terms allow a node's use are not there yet.
+        <a href="/docs/project/roadmap/">What's next</a>
+      </p>
+      <p class="why">
+        <a href="https://github.com/justmoon/dassie/blob/main/spec/decisions/exchange-rates.md">Why it works this way</a>:
+        the median of several sources, and the fee and spread.
+      </p>
+
+      <h2 id="display-currency">The currency of your total</h2>
+      <p>
+        In the same card, <strong>Show totals in</strong> picks the currency
+        the Dashboard adds your ledgers up in: USD, XRP, EUR, GBP, JPY, CHF,
+        CAD or AUD. Choose <strong>No total</strong> to hide it. It applies
+        at once. See <a href="/docs/wallet/activity/">Activity and assets</a>
+        for how the total reads.
+      </p>
+    </main>
+    <!-- footer -->
+  </body>
+</html>
