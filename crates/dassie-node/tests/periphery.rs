@@ -20,7 +20,7 @@ use dassie_node::engine::NewIncoming;
 use dassie_node::node::Policies;
 use dassie_node::rpc::proto::{self, ErrorCode, request::Method, response};
 use support::btp_client::{BtpClient, pay_stream};
-use support::pair::{CA, bootstrap, key, peered, peered_downlink, prepare, settle, until};
+use support::pair::{bootstrap, ca_file, key, peered, peered_downlink, prepare, settle, until};
 use support::{Bound, START_MS, STUB_UNLIMITED, TestNode, set_up};
 
 /// What the uplink's client pays the downlink. The nodes run on the stub
@@ -105,7 +105,7 @@ async fn a_periphery_node_is_paid_beneath_its_uplink() {
     let nodes = bootstrap(&key_a, bound_a.https_port());
     let env = [
         ("DASSIE_BOOTSTRAP_NODES", nodes.as_str()),
-        ("DASSIE_EXTRA_CA_FILE", CA),
+        ("DASSIE_EXTRA_CA_FILE", ca_file()),
         ("DASSIE_PEER_ALLOW_PRIVATE", "1"),
     ];
     let clock = ManualClock::new(START_MS);
@@ -184,7 +184,7 @@ async fn a_periphery_node_peers_over_a_tunnel_where_udp_is_blocked() {
     let nodes = bootstrap(&key_a, bound_a.https_port());
     let env = [
         ("DASSIE_BOOTSTRAP_NODES", nodes.as_str()),
-        ("DASSIE_EXTRA_CA_FILE", CA),
+        ("DASSIE_EXTRA_CA_FILE", ca_file()),
         ("DASSIE_PEER_ALLOW_PRIVATE", "1"),
     ];
     let clock = ManualClock::new(START_MS);
@@ -233,7 +233,7 @@ async fn a_pinned_periphery_node_asks_only_its_uplink() {
     let nodes = bootstrap(&key_a, bound_a.https_port());
     let env = [
         ("DASSIE_BOOTSTRAP_NODES", nodes.as_str()),
-        ("DASSIE_EXTRA_CA_FILE", CA),
+        ("DASSIE_EXTRA_CA_FILE", ca_file()),
         ("DASSIE_PEER_ALLOW_PRIVATE", "1"),
     ];
     let pinned = key_b.node_id().to_string();
@@ -279,7 +279,7 @@ async fn a_periphery_node_is_paid_beneath_the_uplink_it_names() {
     let nodes = bootstrap(&key_a, bound_a.https_port());
     let env = [
         ("DASSIE_BOOTSTRAP_NODES", nodes.as_str()),
-        ("DASSIE_EXTRA_CA_FILE", CA),
+        ("DASSIE_EXTRA_CA_FILE", ca_file()),
         ("DASSIE_PEER_ALLOW_PRIVATE", "1"),
     ];
     let pinned = format!("{},{}", key_a.node_id(), key_b.node_id());

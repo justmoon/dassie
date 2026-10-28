@@ -27,7 +27,7 @@ pub fn to_hex(bytes: &[u8]) -> String {
 
 /// Loads a vector file from `tests/data`.
 pub fn vectors(name: &str) -> Value {
-    let path = format!("{}/tests/data/{name}", env!("CARGO_MANIFEST_DIR"));
+    let path = format!("{}/tests/data/{name}", manifest_dir());
     let text = std::fs::read_to_string(&path).expect("vector file");
     let value: Value = serde_json::from_str(&text).expect("vector JSON");
     assert_eq!(
@@ -45,3 +45,11 @@ pub fn str_field<'a>(value: &'a Value, key: &str) -> &'a str {
 }
 
 pub mod arbitrary;
+
+/// The package's directory, as cargo and nextest name it to a test they
+/// run, never `env!`'s from when the test compiled: a build is reused in
+/// other checkouts of the repository, whose files are their own.
+#[allow(clippy::disallowed_methods, clippy::expect_used)] // What the test runner says, not configuration.
+fn manifest_dir() -> String {
+    std::env::var("CARGO_MANIFEST_DIR").expect("cargo and nextest name the package's directory")
+}

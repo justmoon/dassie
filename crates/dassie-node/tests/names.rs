@@ -33,7 +33,7 @@ use http_body_util::Full;
 use hyper::{Request, StatusCode};
 use serde_json::json;
 use support::op::{add_stub, body, get_under};
-use support::pair::{CA, bootstrap, key, prepare};
+use support::pair::{bootstrap, ca_file, key, prepare};
 use support::{Bound, START_MS, TestNode, set_up};
 
 const NONCE: &str = "names-nonce";
@@ -152,7 +152,7 @@ async fn start(seeds: [u8; 4], periphery: u8) -> (Vec<TestNode>, TestNode, Manua
     );
     let env = [
         ("DASSIE_BOOTSTRAP_NODES", nodes.as_str()),
-        ("DASSIE_EXTRA_CA_FILE", CA),
+        ("DASSIE_EXTRA_CA_FILE", ca_file()),
         ("DASSIE_PEER_ALLOW_PRIVATE", "1"),
     ];
     let clock = ManualClock::new(START_MS);

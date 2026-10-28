@@ -916,7 +916,7 @@ fn sweeps_follow_the_engine_clock() {
 // macros under the core's `deny`, so its sources are read for them.
 #[test]
 fn the_core_does_not_log() {
-    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/engine/core");
+    let dir = std::path::Path::new(&manifest_dir()).join("src/engine/core");
     let mut read = 0;
     for entry in std::fs::read_dir(&dir).unwrap() {
         let path = entry.unwrap().path();
@@ -7159,3 +7159,11 @@ mod deposit_on_demand;
 // The moves between a hub and its owner book while the hub account's own
 // operations race them.
 mod move_races;
+
+/// The package's directory, as cargo and nextest name it to a test they
+/// run, never `env!`'s from when the test compiled: a build is reused in
+/// other checkouts of the repository, whose files are their own.
+#[allow(clippy::disallowed_methods, clippy::expect_used)] // What the test runner says, not configuration.
+fn manifest_dir() -> String {
+    std::env::var("CARGO_MANIFEST_DIR").expect("cargo and nextest name the package's directory")
+}

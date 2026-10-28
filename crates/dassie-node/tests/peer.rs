@@ -24,7 +24,7 @@ use dassie_node::clock::{Clock, ManualClock};
 use dassie_node::node::Policies;
 use dassie_node::rpc::proto::{self, request::Method, response};
 use support::btp_client::{BtpClient, pay_stream};
-use support::pair::{CA, bootstrap, key, peered, prepare, prepare_settling, settle, until};
+use support::pair::{bootstrap, ca_file, key, peered, prepare, prepare_settling, settle, until};
 use support::{Bound, START_MS, TestNode};
 
 /// 5 USD: over four times the credit a payer over a hub funds its hold as
@@ -307,7 +307,7 @@ async fn two_daemons_peer_and_keep_their_peering() {
     let nodes = bootstrap(&key_a, bound_a.https_port());
     let env = [
         ("DASSIE_BOOTSTRAP_NODES", nodes.as_str()),
-        ("DASSIE_EXTRA_CA_FILE", CA),
+        ("DASSIE_EXTRA_CA_FILE", ca_file()),
         ("DASSIE_PEER_ALLOW_PRIVATE", "1"),
     ];
     let clock = ManualClock::new(START_MS);

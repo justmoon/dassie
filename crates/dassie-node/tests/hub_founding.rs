@@ -25,7 +25,7 @@ use dassie_node::fake_ledger::{Options, Server};
 use dassie_node::node::Policies;
 use dassie_node::rpc::proto::{self, request::Method, response};
 use dassie_xrpl::network::{MAINNET, Network, TESTNET};
-use support::pair::{CA, CERT, KEY};
+use support::pair::{ca_file, cert_file, key_file};
 use support::{Bound, START_MS, TestNode, post_json, send, set_up, setup_body_in};
 
 mod support;
@@ -50,8 +50,8 @@ async fn prepare(node: &TestNode, key: &IdentityKey, network: &Network) {
     assert!(hostname.is_ok(), "{hostname:?}");
     let certificate = owner
         .call(Method::SetCertificate(proto::SetCertificateRequest {
-            certificate_chain_pem: std::fs::read_to_string(CERT).unwrap(),
-            private_key_pem: std::fs::read_to_string(KEY).unwrap(),
+            certificate_chain_pem: std::fs::read_to_string(cert_file()).unwrap(),
+            private_key_pem: std::fs::read_to_string(key_file()).unwrap(),
         }))
         .await;
     assert!(certificate.is_ok(), "{certificate:?}");
@@ -157,7 +157,7 @@ const MAINNET_DEPOSIT_DROPS: u64 = 100_000_000;
 fn env_on(network: &Network) -> Vec<(&'static str, &'static str)> {
     let mut env = vec![
         ("DASSIE_PEER_ALLOW_PRIVATE", "1"),
-        ("DASSIE_EXTRA_CA_FILE", CA),
+        ("DASSIE_EXTRA_CA_FILE", ca_file()),
     ];
     if network.realm == dassie_ledger::Realm::Live {
         env.push(("DASSIE_DEV_LIVE_REALM", "1"));
@@ -194,8 +194,8 @@ impl Net {
                 "127.0.0.1:0".parse().unwrap(),
                 dassie_node::store::StoredCertificate {
                     source: dassie_node_core::certificate::CertificateSource::Manual,
-                    chain_pem: std::fs::read_to_string(CERT).unwrap(),
-                    key_pem: std::fs::read_to_string(KEY).unwrap(),
+                    chain_pem: std::fs::read_to_string(cert_file()).unwrap(),
+                    key_pem: std::fs::read_to_string(key_file()).unwrap(),
                 },
             )),
             close_every: Duration::from_millis(100),
@@ -798,11 +798,11 @@ async fn a_strangers_founding_stream_is_reset_unread() {
     let file = validator_file(files.path(), &sponsor, (&TESTNET, "ws://127.0.0.1:1"), None);
     let env = [
         ("DASSIE_PEER_ALLOW_PRIVATE", "1"),
-        ("DASSIE_EXTRA_CA_FILE", CA),
+        ("DASSIE_EXTRA_CA_FILE", ca_file()),
     ];
     let validator_env = [
         ("DASSIE_PEER_ALLOW_PRIVATE", "1"),
-        ("DASSIE_EXTRA_CA_FILE", CA),
+        ("DASSIE_EXTRA_CA_FILE", ca_file()),
         ("DASSIE_VALIDATOR_CONFIG", file.as_str()),
     ];
     let (validator_key, plain_key) = (

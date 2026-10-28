@@ -48,7 +48,7 @@ use hyper_util::rt::TokioIo;
 use rcgen::{BasicConstraints, CertificateParams, IsCa, Issuer, KeyPair};
 use rustls::pki_types::{CertificateDer, ServerName};
 use serde_json::{Value, json};
-use support::op::{CA, Client, add_stub, signed_under};
+use support::op::{Client, add_stub, ca_file, signed_under};
 use support::{Bound, HANG, Reply, START_MS, TestNode, eventually, https_and_quic, pair, set_up};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::watch;
@@ -356,7 +356,7 @@ fn name_of(id: &NodeId) -> String {
 async fn node_behind(door: &Door, seed: u8) -> (TestNode, IdentityKey) {
     let key = IdentityKey::from_bytes(&[seed; 32]);
     let env = [
-        ("DASSIE_EXTRA_CA_FILE", CA),
+        ("DASSIE_EXTRA_CA_FILE", ca_file()),
         ("DASSIE_PEER_ALLOW_PRIVATE", "1"),
         ("DASSIE_RELAY", door.entry.as_str()),
     ];
@@ -454,7 +454,7 @@ async fn a_periphery_node_with_an_uplink_is_reached_through_its_front_door() {
     let nodes = pair::bootstrap(&key_a, bound_a.https_port());
     let core = [
         ("DASSIE_BOOTSTRAP_NODES", nodes.as_str()),
-        ("DASSIE_EXTRA_CA_FILE", CA),
+        ("DASSIE_EXTRA_CA_FILE", ca_file()),
         ("DASSIE_PEER_ALLOW_PRIVATE", "1"),
     ];
     let mut periphery = core.to_vec();
@@ -914,7 +914,7 @@ async fn a_name_reaches_its_holder_through_the_front_door() {
     let (bounds, keys, nodes) = registrars([71, 72, 73, 74]);
     let env = [
         ("DASSIE_BOOTSTRAP_NODES", nodes.as_str()),
-        ("DASSIE_EXTRA_CA_FILE", CA),
+        ("DASSIE_EXTRA_CA_FILE", ca_file()),
         ("DASSIE_PEER_ALLOW_PRIVATE", "1"),
     ];
     // The front door reads the registrars as every node is configured with

@@ -18,7 +18,7 @@ use hyper_util::rt::TokioIo;
 use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
 
-use super::pair::{CERT, KEY};
+use super::pair::{cert_file, key_file};
 
 /// What the source answers: a status and a body.
 type Answer = Arc<Mutex<(u16, String)>>;
@@ -50,8 +50,8 @@ impl RatesServer {
         let address = listener.local_addr().unwrap();
         let certificate = StoredCertificate {
             source: CertificateSource::Manual,
-            chain_pem: std::fs::read_to_string(CERT).unwrap(),
-            key_pem: std::fs::read_to_string(KEY).unwrap(),
+            chain_pem: std::fs::read_to_string(cert_file()).unwrap(),
+            key_pem: std::fs::read_to_string(key_file()).unwrap(),
         };
         let slot = Arc::new(tls::CertificateSlot::new(tls::load(&certificate).unwrap()));
         let acceptor = tokio_rustls::TlsAcceptor::from(tls::server_config(slot).unwrap());

@@ -17,7 +17,13 @@ use std::path::Path;
 use std::process::{Child, Command, Output, Stdio};
 use std::time::{Duration, Instant};
 
-const DASSIE: &str = env!("CARGO_BIN_EXE_dassie");
+/// The binary, as cargo and nextest name it to a test they run, never
+/// `env!`'s from when the test compiled: a build is reused in other
+/// checkouts of the repository.
+#[allow(clippy::disallowed_methods, clippy::expect_used)] // What the test runner says, not configuration.
+fn binary() -> String {
+    std::env::var("CARGO_BIN_EXE_dassie").expect("cargo and nextest name the binary")
+}
 
 /// How long a daemon may take to start or stop before it is called a hang:
 /// a process starting is real time by nature, and a loaded machine starts
@@ -130,7 +136,7 @@ fn socket_activated_daemon_reports_ready_and_stopping() {
             "--setenv=DASSIE_BOOTSTRAP_NODES=[]",
             "--setenv=DASSIE_RELAY=",
         ])
-        .args([DASSIE, "daemon"])
+        .args([binary().as_str(), "daemon"])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
@@ -151,7 +157,7 @@ fn socket_activated_daemon_reports_ready_and_stopping() {
 }
 
 fn run(args: &[&str], env: &[(&str, &str)]) -> Output {
-    Command::new(DASSIE)
+    Command::new(binary())
         .args(args)
         .env_clear()
         .envs(env.iter().copied())
@@ -197,7 +203,7 @@ fn the_standalone_daemon_cleans_up_its_socket() {
     let dir = tempfile::tempdir().unwrap();
     let ipc = dir.path().join("ipc.sock");
     let state = dir.path().join("state");
-    let child = Command::new(DASSIE)
+    let child = Command::new(binary())
         .args(["daemon", "--http-port", "18290", "--https-port", "18291"])
         .env_clear()
         .env("DASSIE_STATE_DIRECTORY", &state)
@@ -237,7 +243,7 @@ fn the_standalone_daemon_listens_where_it_is_told() {
     use std::net::{SocketAddr, TcpStream};
     let dir = tempfile::tempdir().unwrap();
     let ipc = dir.path().join("ipc.sock");
-    let child = Command::new(DASSIE)
+    let child = Command::new(binary())
         .args(["daemon", "--http-port", "18296", "--https-port", "18297"])
         .args(["--listen", "127.0.0.1"])
         .env_clear()
@@ -290,7 +296,7 @@ fn verify_install_checks_the_database_and_tls() {
 /// relay, so it dials nothing outside), with its socket at `ipc`, and
 /// waits until it answers.
 fn start_standalone(state: &Path, ipc: &Path, ports: [&str; 2]) -> Option<Child> {
-    let child = Command::new(DASSIE)
+    let child = Command::new(binary())
         .args(["daemon", "--http-port", ports[0], "--https-port", ports[1]])
         .args(["--listen", "127.0.0.1"])
         .env_clear()

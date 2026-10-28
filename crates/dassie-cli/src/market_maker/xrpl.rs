@@ -361,7 +361,17 @@ mod tests {
     use super::super::strategy::{Side, to_amount};
     use super::*;
 
-    const PEBBLE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../testdata/tls");
+    /// The package's directory, as cargo and nextest name it to a test they
+    /// run, never `env!`'s from when the test compiled: a build is reused in
+    /// other checkouts of the repository, whose files are their own.
+    #[allow(clippy::disallowed_methods, clippy::expect_used)] // What the test runner says, not configuration.
+    fn manifest_dir() -> String {
+        std::env::var("CARGO_MANIFEST_DIR").expect("cargo and nextest name the package's directory")
+    }
+
+    fn pebble() -> String {
+        format!("{}/../../testdata/tls", manifest_dir())
+    }
 
     fn dsusd() -> IssuedAsset {
         IssuedAsset {
@@ -378,8 +388,8 @@ mod tests {
                 ([127, 0, 0, 1], 0).into(),
                 StoredCertificate {
                     source: CertificateSource::Manual,
-                    chain_pem: std::fs::read_to_string(format!("{PEBBLE}/cert.pem")).unwrap(),
-                    key_pem: std::fs::read_to_string(format!("{PEBBLE}/key.pem")).unwrap(),
+                    chain_pem: std::fs::read_to_string(format!("{}/cert.pem", pebble())).unwrap(),
+                    key_pem: std::fs::read_to_string(format!("{}/key.pem", pebble())).unwrap(),
                 },
             )),
             close_every: Duration::from_millis(100),
@@ -390,7 +400,7 @@ mod tests {
 
     fn client() -> OutboundClient {
         OutboundClient::new(
-            Some(std::path::Path::new(&format!("{PEBBLE}/root.pem"))),
+            Some(std::path::Path::new(&format!("{}/root.pem", pebble()))),
             true,
         )
         .unwrap()

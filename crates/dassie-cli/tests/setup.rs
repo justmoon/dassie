@@ -17,7 +17,13 @@ use std::time::{Duration, Instant};
 
 use dassie_identity::{Created, Phrase, PhraseSecret, Realm};
 
-const DASSIE: &str = env!("CARGO_BIN_EXE_dassie");
+/// The binary, as cargo and nextest name it to a test they run, never
+/// `env!`'s from when the test compiled: a build is reused in other
+/// checkouts of the repository.
+#[allow(clippy::disallowed_methods, clippy::expect_used)] // What the test runner says, not configuration.
+fn binary() -> String {
+    std::env::var("CARGO_BIN_EXE_dassie").expect("cargo and nextest name the binary")
+}
 /// Ports no other test of this crate uses, since the tests of a crate run
 /// at once.
 const PORTS: [&str; 2] = ["18310", "18311"];
@@ -40,7 +46,7 @@ fn describe(output: &Output) -> String {
 /// A standalone daemon on `state`, alone: no bootstrap nodes and no relay,
 /// so it dials nothing outside, with its socket at `ipc`, once it answers.
 fn start(state: &Path, ipc: &Path) -> Child {
-    let mut child = Command::new(DASSIE)
+    let mut child = Command::new(binary())
         .args(["daemon", "--http-port", PORTS[0], "--https-port", PORTS[1]])
         .args(["--listen", "127.0.0.1", "--feed-listen", "127.0.0.1:0"])
         .env_clear()
@@ -77,7 +83,7 @@ fn stop(child: Child) -> Output {
 }
 
 fn dassie(args: &[&str], ipc: &Path) -> Output {
-    Command::new(DASSIE)
+    Command::new(binary())
         .args(args)
         .env_clear()
         .env("DASSIE_IPC_SOCKET_PATH", ipc)

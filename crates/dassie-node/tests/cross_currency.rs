@@ -20,7 +20,7 @@ use dassie_node::rpc::proto::{self, request::Method, response};
 use dassie_node::store::StoredCertificate;
 use dassie_node_core::certificate::CertificateSource;
 use support::TestNode;
-use support::pair::{CERT, KEY, Pair, until, until_by};
+use support::pair::{Pair, cert_file, key_file, until, until_by};
 use support::rates::{RatesServer, coinbase};
 
 const XRP_LEDGER: &str = "xrpl-testnet-xrp+xrp";
@@ -35,8 +35,8 @@ async fn fake_ledger() -> Server {
             "127.0.0.1:0".parse().unwrap(),
             StoredCertificate {
                 source: CertificateSource::Manual,
-                chain_pem: std::fs::read_to_string(CERT).unwrap(),
-                key_pem: std::fs::read_to_string(KEY).unwrap(),
+                chain_pem: std::fs::read_to_string(cert_file()).unwrap(),
+                key_pem: std::fs::read_to_string(key_file()).unwrap(),
             },
         )),
         close_every: Duration::from_millis(100),
