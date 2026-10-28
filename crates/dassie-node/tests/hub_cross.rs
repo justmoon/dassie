@@ -175,6 +175,8 @@ const RECEIVE: u64 = 2_000_000_000;
 /// be paid in full: a ten-thousandth of an XRP
 /// (spec/decisions/paid-within-a-tolerance.md).
 const TOLERANCE: u64 = 100_000;
+/// The largest packet, in internal units: 0.1 XRP.
+const MAX_PACKET: u64 = 100_000_000;
 /// The converting node's fee, 1%, and spread, 0.5%; its curve off, so it
 /// converts at spot less them.
 const FEE_PPM: u32 = 10_000;
@@ -212,9 +214,11 @@ async fn hold_toward(node: &TestNode, peer: &dassie_identity::IdentityKey, schem
 // the quote measures the path's rate, spot less d2's fee and spread and
 // STREAM's slippage, from d1's dollars. d1 pays it; d2 converts and keeps
 // its fee in dollars; d3 receives XRP over the hub, all of it within the
-// tolerance. d2 settles with d3 over the hub, its hold toward d3 growing
-// by no more than d3 received, and d3's owner gets what arrived, less the
-// fees of d3's own moves; the stub settles nothing, and d1 owes d2 what it
+// tolerance. d2 settles with d3 over the hub, funding its hold toward d3
+// as d3 asks: both sides' books of each other move alike, and the hold
+// loses what d2 funded less what d3 redeemed, which is what arrived in
+// whole drops but for the claims below d3's redeem threshold. d3's owner
+// gets what arrived, less the fees of d3's own moves; the stub settles nothing, and d1 owes d2 what it
 // sent. All three restarted, their books are as they were.
 #[tokio::test(start_paused = true)]
 async fn dollars_on_the_stub_arrive_as_xrp_over_a_hub() {
@@ -331,6 +335,7 @@ async fn dollars_on_the_stub_arrive_as_xrp_over_a_hub() {
     let fees_path = format!("{STUB_LEDGER}:revenue/fees");
     let fees_before = balance(&d2.node, &fees_path).await;
     let hold_before = hold_toward(&d2.node, &d3.key, hub.scheme).await;
+    let hub_before = peer_accounts(&[d2, d3], &hub.ledger).await;
     let Ok(response::Method::SendPayment(sent)) = d1
         .node
         .ipc()
@@ -391,10 +396,35 @@ async fn dollars_on_the_stub_arrive_as_xrp_over_a_hub() {
 
     // d2 settles with d3 over the hub; the stub settles nothing.
     let after = net.claimed(&[d1, d2, d3]).await;
-    let grown = hold_toward(&d2.node, &d3.key, hub.scheme).await - hold_before;
+    // Over the hub: d2 funded its hold toward d3 as d3 asked, and d3 was
+    // paid from the hold for what arrived. Each side's books of the other
+    // moved by the packets less d2's fundings, and the two agree, since d2
+    // counts what it funded as d3 does, from the hub
+    // (spec/areas/settlement.md#settlement-hubs). The hold lost what d2
+    // funded less what d3 redeemed or claimed: what arrived, in whole
+    // drops, since a claim's total is the packets' rounded down to drops
+    // and these are the first packets on it, but for the claims d3 has not
+    // redeemed, which it lets add up to less than its threshold before it
+    // pays the hub's fee to redeem them
+    // (spec/designs/settlement-hubs.md#4-peering-over-a-hub). How far the
+    // hold moves in all depends on how much of it d2 funded before the
+    // payment (spec/decisions/settle-when-funds-arrive.md).
+    let hub_after = peer_accounts(&[d2, d3], &hub.ledger).await;
+    let change = |pair: (u8, u8)| {
+        hub_after.get(&pair).copied().unwrap_or(0) - hub_before.get(&pair).copied().unwrap_or(0)
+    };
+    assert_eq!(change((95, 96)), -change((96, 95)), "the books agree");
+    let received = i128::from(arrived.received_amount);
+    let funded = change((96, 95)) + received;
+    assert!(funded > 0, "d2 funded {funded}");
+    let claimed = received - received % i128::from(dassie_xrpl::UNITS_PER_DROP);
+    let hold_moved =
+        i128::from(hold_toward(&d2.node, &d3.key, hub.scheme).await) - i128::from(hold_before);
+    let redeemed = funded - hold_moved;
+    let threshold = i128::from(dassie_settlement::policy::redeem_threshold(MAX_PACKET));
     assert!(
-        grown > 0 && grown <= arrived.received_amount,
-        "d2's hold toward d3 grew by {grown}"
+        redeemed <= claimed && claimed - redeemed < threshold,
+        "d3 redeemed {redeemed} of {claimed} claimed, d2 funding {funded}"
     );
     let owner = HubAsset::Xrp.owner_ledger(&TESTNET);
     let got = moved(&before[2], &after[2], &[&hub.ledger, &owner]);
