@@ -104,9 +104,6 @@ impl From<AssetEffect> for Effect {
 pub struct XrplScheme {
     pub account: XrplAccount,
     pub scheme: dassie_xrpl::XrplScheme,
-    /// What the scheme booked as the node made it: entry payments a state
-    /// written while the schemes peered held, as the owner's deposit.
-    pub started: Vec<Effect>,
 }
 
 impl XrplScheme {
@@ -123,20 +120,11 @@ impl XrplScheme {
         let config = dassie_xrpl::fake::with_publishers(config, &dassie_xrpl::network::TESTNET);
         let account = XrplAccount::new(account::FIRST, &schemes, &config, entropy, &account_state)?;
         let scheme = dassie_xrpl::XrplScheme::new(&account, checkpoint, &scheme_state)?;
-        let mut both = Self {
-            account,
-            scheme,
-            started: Vec::new(),
-        };
+        let mut both = Self { account, scheme };
+        // Told of the account as the node makes it, which books nothing.
         let mut effects = Vec::new();
         both.tell(0, &mut effects);
-        assert!(
-            effects
-                .iter()
-                .all(|effect| matches!(effect, Effect::Deposit { .. })),
-            "{effects:?}"
-        );
-        both.started = effects;
+        assert!(effects.is_empty(), "{effects:?}");
         Ok(both)
     }
 

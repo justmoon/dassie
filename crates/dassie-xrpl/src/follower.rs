@@ -22,16 +22,9 @@ use crate::account::{News, XrplAccount};
 use crate::api::TxRecord;
 use crate::codec::Memo;
 use crate::from_hex;
-use crate::kept::{In, Out, PEERING_SCHEME_VERSION, SCHEME_VERSION};
+use crate::kept::{In, Out};
 use crate::keys::AccountId;
 use crate::scheme::owner_memos;
-
-/// Most peers' addresses a state written while the schemes peered holds.
-const PEERING_MAX_PEERS: usize = 1536;
-/// Most settlements looked up after a restart such a state holds.
-const PEERING_MAX_RECOVERING: usize = 64;
-/// Most entry payments such a state holds.
-const PEERING_MAX_ENTRIES: usize = 256;
 
 /// What a scheme on an XRPL account keeps of the account, alike for every
 /// holding.
@@ -56,13 +49,6 @@ pub(crate) struct Follower {
     /// The owner's last payment that is no longer on its way, and what
     /// became of it, kept with the books so a restart still answers for it.
     pub(crate) owner_outcome: Option<([u8; 32], OwnerPaymentState)>,
-    /// What a state written while the schemes peered held of entry
-    /// payments, in internal units: in the account, and never on the books.
-    /// It is the owner's deposit, as a hold that ran out was, booked the
-    /// first time the scheme is told of the account, as it starts and
-    /// before its state is written ([`Self::book_entries`]); never written
-    /// again.
-    pub(crate) entries: u64,
     // Learnt from the account, as it told the scheme.
     /// The account's newest validated ledger.
     pub(crate) validated: u32,
@@ -85,7 +71,6 @@ impl Follower {
             write_offs: 0,
             owner_payment: None,
             owner_outcome: None,
-            entries: 0,
             validated: 0,
         }
     }
@@ -112,25 +97,6 @@ impl Follower {
         missed
     }
 
-    /// Books what a state written while the schemes peered held of entry
-    /// payments as the owner's deposit, once, the first time the scheme is
-    /// told of the account, which the node does as it makes the scheme,
-    /// before it writes its state: the account holds them, and the books
-    /// hold them from now on, as they would have once their hold ran out.
-    /// Returns whether it booked any. The scheme calls it before it takes
-    /// the news, after a write-off it missed, which took them with the
-    /// account, so the books match the account as it is; a write-off the
-    /// account tells later takes them as a loss with the rest.
-    pub(crate) fn book_entries(&mut self, effects: &mut Vec<Effect>) -> bool {
-        let amount = core::mem::take(&mut self.entries);
-        if amount == 0 || self.cursor.is_none() {
-            return false;
-        }
-        effects.push(Effect::Deposit { amount });
-        self.booked = self.booked.saturating_add(amount).min(MAX_TOTAL);
-        true
-    }
-
     /// After the news of an input was told: an owner's payment the account
     /// gave up while the scheme was away can never apply, and is cancelled;
     /// one it keeps no more, and told nothing of, was lost with its state,
@@ -154,8 +120,7 @@ impl Follower {
     }
 
     /// The account is gone: what the books held is a loss through suspense,
-    /// and the cursor, on a chain gone, is dropped. Entry payments a state
-    /// written while the schemes peered held went with the account.
+    /// and the cursor, on a chain gone, is dropped.
     pub(crate) fn written_off(&mut self, effects: &mut Vec<Effect>) {
         if self.booked > 0 {
             effects.push(Effect::Reconcile {
@@ -165,7 +130,6 @@ impl Follower {
             });
             self.booked = 0;
         }
-        self.entries = 0;
         self.cursor = None;
     }
 
@@ -363,15 +327,14 @@ impl Follower {
             add(u64::from(hash[0]) << 8 | u64::from(hash[1]));
             add(u64::from(outcome_code(outcome)));
         }
-        add(self.entries);
         mix
     }
 
     /// Writes what it keeps, in this order: the cursor, the count of
     /// write-offs, the owner's payment on its way and what became of the
     /// last (spec/areas/xrpl.md#state-and-restarts). The scheme writes the
-    /// version before it, [`SCHEME_VERSION`], and what it keeps of its own
-    /// after it.
+    /// version before it, [`crate::kept::SCHEME_VERSION`], and what it
+    /// keeps of its own after it.
     pub(crate) fn write(&self, out: &mut Out) {
         out.option(self.cursor, |out, (ledger, index)| {
             out.u32(ledger);
@@ -388,28 +351,13 @@ impl Follower {
         });
     }
 
-    /// Reads back what [`Self::write`] wrote, in a state of `version`:
-    /// [`SCHEME_VERSION`], or [`PEERING_SCHEME_VERSION`], written while the
-    /// schemes peered, which held more after the count of write-offs
-    /// ([`read_peering`]): the entry payments in it are booked as the
-    /// owner's deposit ([`Self::book_entries`]), and the rest is dropped.
-    /// `None` for a state no follower writes: more than it keeps, entry
-    /// payments before the first sync, an owner's payment of nothing or of
-    /// more than the books hold, or an outcome it never writes.
-    pub(crate) fn read(&mut self, input: &mut In<'_>, version: u8) -> Option<()> {
-        let peering = match version {
-            SCHEME_VERSION => false,
-            PEERING_SCHEME_VERSION => true,
-            _ => return None,
-        };
+    /// Reads back what [`Self::write`] wrote, after the version. `None` for
+    /// a state no follower writes: more than it keeps, an owner's payment
+    /// of nothing or of more than the books hold, or an outcome it never
+    /// writes.
+    pub(crate) fn read(&mut self, input: &mut In<'_>) -> Option<()> {
         self.cursor = input.option(|input| Some((input.u32()?, input.u32()?)))?;
         self.write_offs = input.u64()?;
-        if peering {
-            self.entries = read_peering(input)?;
-            if self.cursor.is_none() && self.entries > 0 {
-                return None;
-            }
-        }
         self.owner_payment = input.option(|input| {
             let hash = input.array::<32>()?;
             let units = input.u64()?;
@@ -434,54 +382,8 @@ impl Follower {
                 .is_none_or(|(_, outcome)| outcome != OwnerPaymentState::InFlight),
             "the last owner's payment done is no longer on its way"
         );
-        assert!(self.entries <= MAX_TOTAL, "the books could take them");
-        assert!(
-            self.cursor.is_some() || self.entries == 0,
-            "entry payments are read past the first sync"
-        );
         assert!(self.booked <= MAX_TOTAL, "the books hold at most a total");
     }
-}
-
-/// Reads what a state written while the schemes peered held between the
-/// count of write-offs and the owner's payment: the peers' addresses, each
-/// a name and an account; the settlements looked up after a restart, each
-/// a hash and whether it was unread; and the entry payments held, each its
-/// node, the account it came from, its amount, its hash and the ledger its
-/// hold ran to. Returns what the entry payments add up to, in internal
-/// units; `None` for more than such a state held, an entry payment of
-/// nothing or twice, or more than the books could take.
-fn read_peering(input: &mut In<'_>) -> Option<u64> {
-    // A name is at least two bytes, and an account twenty.
-    let peers = input.count(22, PEERING_MAX_PEERS)?;
-    for _ in 0..peers {
-        input.name()?;
-        input.account()?;
-    }
-    let recovering = input.count(33, PEERING_MAX_RECOVERING)?;
-    for _ in 0..recovering {
-        input.array::<32>()?;
-        input.bool()?;
-    }
-    // A name is at least two bytes, the rest 64.
-    let held = input.count(66, PEERING_MAX_ENTRIES)?;
-    let mut hashes = Vec::with_capacity(held);
-    let mut total: u64 = 0;
-    for _ in 0..held {
-        input.name()?;
-        input.account()?;
-        let amount = input.u64().filter(|amount| *amount > 0)?;
-        let hash = input.array::<32>()?;
-        input.u32()?;
-        if hashes.contains(&hash) {
-            return None;
-        }
-        hashes.push(hash);
-        total = total
-            .checked_add(amount)
-            .filter(|total| *total <= MAX_TOTAL)?;
-    }
-    Some(total)
 }
 
 /// The XRP Ledger's result of a payment to an account that does not exist,

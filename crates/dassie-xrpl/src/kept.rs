@@ -7,10 +7,10 @@
 //! state has one encoding: no field is optional to a reader, an option is
 //! a presence byte (`00` or `FF`), a list is its count (four bytes) and
 //! its entries, and a state with bytes left over is refused. A new layout
-//! is a new version. A reader reads the version it writes, and an older
-//! one only where it says so: a scheme reads the state it wrote while it
-//! peered, and keeps of it what an owner book needs
-//! (spec/areas/xrpl.md#state-and-restarts).
+//! is a new version. A reader reads only the version it writes, the only
+//! one a release since the testnet's reset wrote
+//! (spec/areas/xrpl.md#state-and-restarts,
+//! spec/decisions/database-continuity.md).
 
 use alloc::vec::Vec;
 
@@ -18,17 +18,12 @@ use dassie_ledger::Name;
 use dassie_oer::Reader;
 
 use crate::amount::TokenValue;
-use crate::keys::AccountId;
 
 /// The version of the account's state, and of a verifier's, which is written
 /// as the account's is.
 pub(crate) const ACCOUNT_VERSION: u8 = 1;
 /// The version of a scheme's state, the owner book's.
 pub(crate) const SCHEME_VERSION: u8 = 2;
-/// The version of a scheme's state while the XRPL schemes peered: it
-/// held the peers' addresses, the settlements a restart left to look up
-/// and the entry payments held. Read, never written.
-pub(crate) const PEERING_SCHEME_VERSION: u8 = 1;
 
 /// Bytes being written.
 pub(crate) struct Out(pub(crate) Vec<u8>);
@@ -107,15 +102,8 @@ pub(crate) struct In<'a>(pub(crate) Reader<'a>);
 impl<'a> In<'a> {
     /// A state of `version`: `None` for any other.
     pub(crate) fn state(state: &'a [u8], version: u8) -> Option<Self> {
-        let (input, read) = Self::versioned(state)?;
-        (read == version).then_some(input)
-    }
-
-    /// A state of any version, and its version.
-    pub(crate) fn versioned(state: &'a [u8]) -> Option<(Self, u8)> {
         let mut input = Self(Reader::new(state));
-        let version = input.u8()?;
-        Some((input, version))
+        (input.u8()? == version).then_some(input)
     }
 
     /// Whether every byte was read.
@@ -161,10 +149,6 @@ impl<'a> In<'a> {
         let length = usize::from(self.u8()?);
         let text = self.0.read_bytes(length).ok()?;
         Name::new(core::str::from_utf8(text).ok()?).ok()
-    }
-
-    pub(crate) fn account(&mut self) -> Option<AccountId> {
-        Some(AccountId(self.array()?))
     }
 
     pub(crate) fn token(&mut self) -> Option<TokenValue> {

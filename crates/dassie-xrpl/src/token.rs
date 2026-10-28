@@ -172,8 +172,7 @@ pub struct TokenScheme<T: IssuedToken> {
 
 impl<T: IssuedToken> TokenScheme<T> {
     /// The scheme that books the line of `account`, with what the books
-    /// last checkpointed and the state they kept: of this version, or of
-    /// the one the scheme wrote while it peered
+    /// last checkpointed and the state they kept, of this version
     /// (spec/areas/xrpl.md#state-and-restarts).
     ///
     /// # Errors
@@ -593,13 +592,12 @@ fn paid(ours: &Ours) -> u64 {
 /// What is kept with the books: what every scheme on the account keeps,
 /// and the peg guard.
 impl<T: IssuedToken> TokenScheme<T> {
-    /// Reads back what [`SettlementScheme::state`] wrote, of this version
-    /// or of the one the scheme wrote while it peered: what every scheme on
-    /// the account keeps, then the peg guard, for a token that has one, and
-    /// every byte of it.
+    /// Reads back what [`SettlementScheme::state`] wrote, of this version:
+    /// what every scheme on the account keeps, then the peg guard, for a
+    /// token that has one, and every byte of it.
     fn restore(&mut self, state: &[u8]) -> Option<()> {
-        let (mut input, version) = In::versioned(state)?;
-        self.f.read(&mut input, version)?;
+        let mut input = In::state(state, SCHEME_VERSION)?;
+        self.f.read(&mut input)?;
         if let Some(peg) = T::TOKEN.peg {
             self.guard = Some(Guard::read(peg, &mut input)?);
         }
@@ -725,7 +723,6 @@ impl<T: IssuedToken> SettlementScheme for TokenScheme<T> {
         if self.f.catch_up(account, &news) {
             self.written_off(effects);
         }
-        self.f.book_entries(effects);
         for item in &news {
             self.tell(now_ms, account, item, effects);
         }

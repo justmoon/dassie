@@ -419,10 +419,8 @@ impl World {
     /// the node kept.
     fn restore(&mut self, index: usize, (state, checkpoint): (Vec<u8>, u64)) {
         let seed = u8::try_from(index + 1).unwrap();
-        let mut scheme = XrplScheme::new("", &entropy(seed), Some(checkpoint), &state).unwrap();
-        let started = std::mem::take(&mut scheme.started);
-        self.nodes[index].scheme = scheme;
-        self.apply(index, started);
+        self.nodes[index].scheme =
+            XrplScheme::new("", &entropy(seed), Some(checkpoint), &state).unwrap();
     }
 
     /// What became of node `index`'s owner's payment `id`.
@@ -1017,80 +1015,6 @@ fn a_settlement_never_executed_is_cancelled_at_the_restart() {
     let next = world.pay(0, 1, 1_000_000_000);
     world.close();
     assert_eq!(world.owner_payment(0, next), OwnerPaymentState::Applied);
-}
-
-/// What node 1 paid node 0 to enter, in internal units: 0.1 XRP.
-const ENTRY_PAID: u64 = 100_000_000;
-
-/// Node 0's scheme state, as the scheme wrote it while the XRPL schemes
-/// peered (version 1), in a world of three nodes once node 2 had peered
-/// with it and node 1 had paid it [`ENTRY_PAID`] to enter, validated at
-/// ledger 5000003, index 0, and held off its books.
-const PEERING_STATE: [&str; 17] = [
-    // The version.
-    "01",
-    // The cursor: present, at ledger 5000003, index 0.
-    "FF",
-    "004C4B43",
-    "00000000",
-    // The count of write-offs.
-    "0000000000000001",
-    // The peers' addresses: node2's.
-    "00000001",
-    "056E6F646532",
-    "F59A8039C40BF1A6ADF7CEC4374C6449CBD0F114",
-    // The settlements looked up after a restart: none.
-    "00000000",
-    // The entry payments held: node1's, from its account, of
-    // ENTRY_PAID, its hash and the ledger its hold ran to.
-    "00000001",
-    "056E6F646531",
-    "12EF6422DC22833EF13442F83E89FB113C01A65A",
-    "0000000005F5E100",
-    "C0C37ED66D6059BCB2DAABF06E40DC2CBFECFC708B62EA7CBDD7C97D9FC28C77",
-    "004C4EC7",
-    // No owner's payment on its way, and none done.
-    "00",
-    "00",
-];
-
-// spec/areas/xrpl.md#state-and-restarts: a scheme reads the state it wrote
-// while it peered. It drops the peers' addresses, and books the entry
-// payments it held as the owner's deposit, once, as it did with a hold
-// that ran out: the books then match the account, nothing booked twice
-// and nothing lost, and the state it writes is the owner book's.
-#[test]
-fn a_state_written_while_peering_books_its_entry_payments_as_a_deposit() {
-    let mut world = World::new(3);
-    world.closes(2);
-    let account_state = world.nodes[0].scheme.account.state();
-    world.disconnect(0);
-    // The payment node 0 held, made again at the same place in the ledger.
-    let id = world.pay(1, 0, ENTRY_PAID);
-    world.close();
-    let record = validated(&mut world, id.as_str());
-    assert_eq!((record.ledger_index, record.index), (0x004C_4B43, 0));
-    let scheme_state = dassie_xrpl::from_hex(&PEERING_STATE.concat()).unwrap();
-    let state = support::join_bytes(&account_state, &scheme_state);
-    world.restore(0, (state, FUNDED));
-    world.connect(0);
-    world.closes(2);
-    let books = &world.nodes[0].books;
-    assert_eq!(books.owner, i128::from(FUNDED + ENTRY_PAID));
-    assert_eq!(books.settlement, i128::from(FUNDED + ENTRY_PAID));
-    assert!(books.reconciled.is_empty(), "{:?}", books.reconciled);
-    assert_eq!(world.nodes[0].scheme.balance(), FUNDED + ENTRY_PAID);
-    let written = dassie_settlement::SettlementScheme::state(&world.nodes[0].scheme.scheme);
-    assert_eq!(written[0], 2, "the owner book's");
-    // A restart from what it writes now books nothing again.
-    let kept = world.kept(0);
-    world.disconnect(0);
-    world.restore(0, kept);
-    world.connect(0);
-    world.closes(2);
-    let books = &world.nodes[0].books;
-    assert_eq!(books.owner, i128::from(FUNDED + ENTRY_PAID));
-    assert!(books.reconciled.is_empty(), "{:?}", books.reconciled);
 }
 
 // spec/decisions/tigerstyle.md: a server that reports more XRP for the

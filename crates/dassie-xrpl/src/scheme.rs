@@ -214,8 +214,7 @@ pub struct XrpScheme<N: NativeXrp> {
 
 impl<N: NativeXrp> XrpScheme<N> {
     /// The scheme that books `account`, with what the books last
-    /// checkpointed and the state they kept: of this version, or of the
-    /// one the scheme wrote while it peered
+    /// checkpointed and the state they kept, of this version
     /// (spec/areas/xrpl.md#state-and-restarts).
     ///
     /// # Errors
@@ -245,11 +244,8 @@ impl<N: NativeXrp> XrpScheme<N> {
             xrp: PhantomData,
         };
         if !state.is_empty() {
-            let (mut input, version) = In::versioned(state).ok_or(SchemeError::InvalidData)?;
-            scheme
-                .f
-                .read(&mut input, version)
-                .ok_or(SchemeError::InvalidData)?;
+            let mut input = In::state(state, SCHEME_VERSION).ok_or(SchemeError::InvalidData)?;
+            scheme.f.read(&mut input).ok_or(SchemeError::InvalidData)?;
             input.finish().ok_or(SchemeError::InvalidData)?;
         }
         Ok(scheme)
@@ -620,7 +616,6 @@ impl<N: NativeXrp> SettlementScheme for XrpScheme<N> {
         if self.f.catch_up(account, &news) {
             self.written_off(effects);
         }
-        self.f.book_entries(effects);
         // The reserve the books are matched to is the one the account had
         // when it last told something: a reserve it read meanwhile, before
         // it is synced again, is matched when it is.
