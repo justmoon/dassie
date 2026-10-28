@@ -21,7 +21,7 @@
 ## Accepted
 
 - The drawings are heavy: grass is drawn blade by blade, a few megabytes of SVG in all. They are files beside the page, so the page itself stays short enough to read; the dark mode recolors only the drawings inline in it.
-- The mark's rock is ink rather than terracotta. Brown read as something else to people who saw the mark; ink costs the mark its third color, and Terracotta stays for the kopjes in scenes.
+- The mark's rock is ink rather than terracotta. Brown read as something else to people who saw the mark; ink costs the mark its third color, and Terracotta stays for the kopjes in scenes, until [granite-rocks](granite-rocks.md) is drawn.
 - In dark mode the drawings have little contrast by design: silhouettes against the night, carried by their rims of light.
 - The wallet and the desktop app keep their look until they take Kopje ([roadmap](../roadmap.md#kopje-across-dassie)).
 
