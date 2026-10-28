@@ -66,7 +66,10 @@ use dassie_xrpl::peg::TRIP_HOLD_MS;
 
 use super::checks::{check_events, check_funded, check_held, check_incoming, first_failure};
 use super::hub::owed;
-use super::hub_checks::{check_each, escrow_holds, hub_standing, idle_in, in_step_in, joined};
+use super::hub_checks::{
+    check_each, check_payout, escrow_holds, escrow_transactions, hub_standing, idle_in, in_step_in,
+    joined, transaction_record,
+};
 use super::scripted::{READY_WITHIN_MS, ended};
 use super::{
     DSUSD, Delivery, HUB_DSUSD, POOL_TOKENS, START, Settling, Sim, XRP, key, xrpl_account,
@@ -766,7 +769,7 @@ fn withdraw_low(sim: &mut Sim, setup: &Setup) -> Result<Asked, Outcome> {
     let units = dassie_hub::member::UNITS_PER_DROP;
     let low = LEAST_ESCROW_GAS_DROPS / 2;
     let read = |problem| Outcome::safety("gas", problem);
-    let fell_after = last_ledger(&escrow_transactions(sim, escrow, 1, u32::MAX).map_err(read)?);
+    let fell_after = last_ledger(&escrow_transactions(sim, 0, 1, u32::MAX).map_err(read)?);
     let held = sim.ledger.balance(escrow).unwrap_or(0);
     sim.ledger.take_unrecorded(escrow, held.saturating_sub(low));
     sim.trace
@@ -835,7 +838,7 @@ fn withdraw_low(sim: &mut Sim, setup: &Setup) -> Result<Asked, Outcome> {
     // The node took the withdrawal only once the escrow had its gas back:
     // the members' top-ups since it fell, which applied before, make up
     // its shortfall. The withdrawer's own is only what others' left short.
-    let records = escrow_transactions(sim, escrow, 1, u32::MAX).map_err(read)?;
+    let records = escrow_transactions(sim, 0, 1, u32::MAX).map_err(read)?;
     let asked_after = last_ledger(&records);
     let topped = topped_up(sim, &records, fell_after);
     let short = LEAST_ESCROW_GAS_DROPS - low;
@@ -894,7 +897,7 @@ fn topped_up(sim: &Sim, records: &[api::TxRecord], after: u32) -> u64 {
 /// ([`withdraw_low`]): its first payment to the node after then, in DSUSD.
 fn check_topped_up(sim: &mut Sim, index: usize, asked: Asked) -> Result<(), Outcome> {
     let escrow = sim.hub.as_deref().unwrap().escrow();
-    let records = escrow_transactions(sim, escrow, 1, u32::MAX)
+    let records = escrow_transactions(sim, 0, 1, u32::MAX)
         .map_err(|problem| Outcome::safety("gas", problem))?;
     let to = xrpl_account(index);
     let Some(paid) = records
@@ -1028,7 +1031,7 @@ fn stall(sim: &mut Sim, rng: &mut SeededRng) -> Result<(), Outcome> {
             "the payout set was not applied in time",
         ));
     }
-    check_payout(sim).map_err(|problem| Outcome::safety("payout", problem))?;
+    check_payout(sim, 0).map_err(|problem| Outcome::safety("payout", problem))?;
     // Each member's DSUSD book reads what the payout paid it as its
     // owner's deposit, and holds its line.
     sim.run_until(sim.now + CALM_MS);
@@ -1036,65 +1039,6 @@ fn stall(sim: &mut Sim, rng: &mut SeededRng) -> Result<(), Outcome> {
         check_held(sim, index, DSUSD).map_err(|problem| Outcome::safety("paid-out", problem))?;
         check_held(sim, index, XRP).map_err(|problem| Outcome::safety("paid-out", problem))?;
     }
-    Ok(())
-}
-
-/// The escrow paid out exactly the final balances of the block the set is
-/// of, in DSUSD: each account with somewhere to go and at least the least
-/// payout received what the hub owed it, worked out apart from the set, and
-/// every transaction of the set applied.
-fn check_payout(sim: &mut Sim) -> Result<(), String> {
-    let hub = sim.hub.as_deref().unwrap();
-    let payout = hub.payout.as_ref().unwrap();
-    let ledger = &payout.ledger;
-    let fees = ledger.terms().fees;
-    let terms = ledger.terms().clone();
-    let hashes = payout.hashes.clone();
-    let transactions = payout.set.transactions.clone();
-    let mut expected: BTreeMap<dassie_xrpl::AccountId, u64> = BTreeMap::new();
-    for (number, account) in ledger.accounts() {
-        let Some(disbursal) = account.disbursal else {
-            continue;
-        };
-        let total = owed(ledger, number);
-        if total >= fees.least_payout {
-            expected.insert(dassie_xrpl::AccountId(disbursal.account), total);
-        }
-    }
-    let mut delivered: BTreeMap<dassie_xrpl::AccountId, u64> = BTreeMap::new();
-    for (hash, transaction) in hashes.iter().zip(&transactions) {
-        let record = transaction_record(sim, hash)
-            .ok_or_else(|| format!("{transaction:?} was never applied"))?;
-        if record.result != "tesSUCCESS" {
-            return Err(format!("{transaction:?} ended {}", record.result));
-        }
-        if let PayoutTransaction::Payout(payment) = transaction {
-            let Amount::Token(_) = payment.amount else {
-                return Err("a payout of something else than DSUSD".into());
-            };
-            let named = terms
-                .hub_amount(&payment.amount)
-                .ok_or("a payout of another token")?;
-            let got = record
-                .delivered_token
-                .and_then(|token| terms.hub_amount(&Amount::Token(token)));
-            if got != Some(named) {
-                return Err(format!("a payout of {named} delivered {got:?}"));
-            }
-            *delivered.entry(payment.destination).or_default() += named;
-        }
-    }
-    if delivered != expected {
-        return Err(format!(
-            "the escrow paid out {delivered:?}, where the final balances are {expected:?}"
-        ));
-    }
-    for index in 0..sim.nodes.len() {
-        if !delivered.contains_key(&xrpl_account(index)) {
-            return Err(format!("node {index} was paid nothing out"));
-        }
-    }
-    sim.count("DSUSD payouts checked");
     Ok(())
 }
 
@@ -1233,7 +1177,7 @@ fn check_pro_rata(sim: &mut Sim, part: u64, before: u64) -> Result<(), String> {
     let mut paid: BTreeMap<dassie_xrpl::AccountId, u64> = BTreeMap::new();
     let mut withdrawn: BTreeMap<dassie_xrpl::AccountId, u64> = BTreeMap::new();
     for (hash, transaction) in hashes.iter().zip(&transactions) {
-        let record = transaction_record(sim, hash)
+        let record = transaction_record(sim, 0, hash)
             .ok_or_else(|| format!("{transaction:?} was never applied"))?;
         if record.result != "tesSUCCESS" {
             return Err(format!("{transaction:?} ended {}", record.result));
@@ -1282,42 +1226,4 @@ fn check_pro_rata(sim: &mut Sim, part: u64, before: u64) -> Result<(), String> {
     }
     sim.count("pro rata payouts checked");
     Ok(())
-}
-
-/// The escrow's transactions in ledgers `first` to `last`.
-fn escrow_transactions(
-    sim: &mut Sim,
-    escrow: dassie_xrpl::AccountId,
-    first: u32,
-    last: u32,
-) -> Result<Vec<api::TxRecord>, String> {
-    let connection = sim.hub.as_deref().unwrap().submitter();
-    let mut records = Vec::new();
-    let mut marker = None;
-    loop {
-        let request = api::account_tx(8, escrow, first, last, marker.as_ref());
-        let reply = sim.ledger.request(connection, &request);
-        let api::Message::Response { outcome, .. } = api::parse(&reply) else {
-            return Err("the fake ledger did not answer".into());
-        };
-        let page = outcome
-            .ok()
-            .and_then(|result| api::account_tx_result(&result))
-            .ok_or("the escrow's transactions do not read")?;
-        records.extend(page.transactions);
-        match page.marker {
-            Some(next) => marker = Some(next),
-            None => return Ok(records),
-        }
-    }
-}
-
-/// The fake ledger's record of the transaction `hash`, if it applied.
-fn transaction_record(sim: &mut Sim, hash: &[u8; 32]) -> Option<api::TxRecord> {
-    let connection = sim.hub.as_deref().unwrap().submitter();
-    let reply = sim.ledger.request(connection, &api::tx_anywhere(9, hash));
-    let api::Message::Response { outcome, .. } = api::parse(&reply) else {
-        return None;
-    };
-    api::tx_result(&outcome.ok()?)
 }

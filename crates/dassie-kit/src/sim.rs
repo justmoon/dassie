@@ -1,5 +1,5 @@
 //! A seeded RNG for tests and simulations, and what the simulations
-//! share: how a run ended, and running seeds
+//! share: how a run ended, and catching where a run panicked
 //! (spec/decisions/random-seed-simulations.md).
 
 use alloc::borrow::ToOwned;
@@ -11,10 +11,8 @@ use alloc::vec::Vec;
 use core::cell::Cell;
 use core::convert::Infallible;
 use core::fmt;
-use core::num::NonZero;
-use std::panic::{AssertUnwindSafe, catch_unwind, resume_unwind};
-use std::sync::{Mutex, Once, PoisonError};
-use std::thread;
+use std::panic::{AssertUnwindSafe, catch_unwind};
+use std::sync::Once;
 
 use rand_core::{TryCryptoRng, TryRng};
 
@@ -281,55 +279,6 @@ fn stable_file(file: &str) -> &str {
     file.get(directory..).unwrap_or(file)
 }
 
-/// Runs `seed`, and fails naming it if the run found a bug.
-pub fn assert_passes(seed: u64, run: impl FnOnce(u64) -> Run) {
-    let outcome = caught(|| run(seed)).outcome;
-    assert!(!outcome.is_failure(), "seed {seed}: {outcome}");
-}
-
-/// What `run` gives for each seed, in the order of `seeds`, made at once
-/// on as many threads as the machine runs, and never more than there are
-/// seeds. Each thread takes the next seed left until none is. A run is
-/// driven from the one thread that makes it and draws everything from its
-/// seed, so it is the run it would be alone; which thread makes it, and
-/// when, changes nothing. A panic that `run` does not catch, such as a
-/// failed assertion that names its seed, fails the test, as it would on the
-/// test's own thread.
-///
-/// # Panics
-///
-/// If `run` panics.
-pub fn each<T: Send>(seeds: &[u64], run: impl Fn(u64) -> T + Sync) -> Vec<T> {
-    let most = thread::available_parallelism().map_or(1, NonZero::get);
-    let threads = most.min(seeds.len());
-    let left = Mutex::new(seeds.iter().copied().enumerate());
-    // The lock is held only to take a seed, never while running one.
-    let next = || left.lock().unwrap_or_else(PoisonError::into_inner).next();
-    let mut runs: Vec<(usize, T)> = thread::scope(|scope| {
-        let workers: Vec<_> = (0..threads)
-            .map(|_| {
-                scope.spawn(|| {
-                    let mut runs = Vec::new();
-                    while let Some((index, seed)) = next() {
-                        runs.push((index, run(seed)));
-                    }
-                    runs
-                })
-            })
-            .collect();
-        workers
-            .into_iter()
-            .flat_map(|worker| worker.join().unwrap_or_else(|panic| resume_unwind(panic)))
-            .collect()
-    });
-    runs.sort_by_key(|(index, _)| *index);
-    assert!(
-        runs.iter().map(|(index, _)| *index).eq(0..seeds.len()),
-        "each seed runs once"
-    );
-    runs.into_iter().map(|(_, run)| run).collect()
-}
-
 #[cfg(test)]
 mod tests {
     use alloc::format;
@@ -404,7 +353,6 @@ mod tests {
         assert!(!Outcome::unsupported("quorum", "no quorum").is_failure());
         assert!(Outcome::safety("books", "").is_failure());
         assert!(Outcome::liveness("settled", "").is_failure());
-        assert_passes(3, |_| ended(Outcome::unsupported("never", "never")));
     }
 
     #[test]

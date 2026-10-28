@@ -27,26 +27,23 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use dassie_hub::consensus::MAX_VIEW_TIMEOUT_MS;
-use dassie_hub::escrow::PayoutTransaction;
 use dassie_hub::rules::Asset;
 use dassie_identity::NodeId;
 use dassie_kit::sim::{Outcome, Run, SeededRng};
 use dassie_ledger::LedgerId;
-use dassie_xrpl::api;
-use dassie_xrpl::codec::Amount;
 use dassie_xrpl::{DROPS_PER_XRP, UNITS_PER_DROP};
 
 use super::checks::{
     check_across, check_events, check_hub_credit, check_hub_packets, check_settled, first_failure,
 };
-use super::hub::{PREPARES_OVER_DSUSD, PREPARES_OVER_XRP, owed};
+use super::hub::{PREPARES_OVER_DSUSD, PREPARES_OVER_XRP};
 use super::hub_checks::{
-    check_each, check_losses, hub_standing, idle_in, joined as joined_all, ledger_of, members_of,
-    moving_in, places,
+    check_each, check_losses, check_payout, hub_standing, idle_in, joined as joined_all, ledger_of,
+    members_of, moving_in, places,
 };
 use super::hubbed::{paid, routed};
 use super::scripted::{READY_WITHIN_MS, ended};
-use super::{HUB, HUB_DSUSD, MINT_MICROS, START, Settling, Sim, key, xrpl_account};
+use super::{HUB, HUB_DSUSD, MINT_MICROS, START, Settling, Sim, key};
 
 /// How long a move into a hub may be on its way before it is late
 /// (`CREDIT_WAIT_MS`, `engine/core/hub_funding.rs`).
@@ -726,79 +723,4 @@ fn stall(sim: &mut Sim, rng: &mut SeededRng, place: usize) -> Result<(), Outcome
         ));
     }
     check_payout(sim, place).map_err(|problem| Outcome::safety("payout", problem))
-}
-
-/// The escrow of the hub at `place` paid out exactly the final balances of
-/// the block its set is of, in the hub's asset: each account with
-/// somewhere to go and enough to pay out received its balance, reserves and
-/// the holds it paid into, less the ledger's fee where the hub charges one,
-/// as the design says, worked out apart from the set; and every transaction
-/// of the set applied.
-fn check_payout(sim: &mut Sim, place: usize) -> Result<(), String> {
-    let hub = sim.hub_at(place);
-    let payout = hub.payout.as_ref().unwrap();
-    let ledger = &payout.ledger;
-    let terms = ledger.terms().clone();
-    let fees = terms.fees;
-    let mut expected: BTreeMap<dassie_xrpl::AccountId, u64> = BTreeMap::new();
-    for (number, account) in ledger.accounts() {
-        let Some(disbursal) = account.disbursal else {
-            continue;
-        };
-        let total = owed(ledger, number);
-        if total >= fees.ledger && total - fees.ledger >= fees.least_payout {
-            expected.insert(
-                dassie_xrpl::AccountId(disbursal.account),
-                total - fees.ledger,
-            );
-        }
-    }
-    let transactions: Vec<([u8; 32], PayoutTransaction)> = payout
-        .hashes
-        .iter()
-        .copied()
-        .zip(payout.set.transactions.iter().cloned())
-        .collect();
-    let connection = hub.submitter();
-    let mut delivered: BTreeMap<dassie_xrpl::AccountId, u64> = BTreeMap::new();
-    for (hash, transaction) in &transactions {
-        let reply = sim.ledger.request(connection, &api::tx_anywhere(9, hash));
-        let record = match api::parse(&reply) {
-            api::Message::Response { outcome, .. } => {
-                outcome.ok().and_then(|result| api::tx_result(&result))
-            }
-            _ => None,
-        }
-        .ok_or_else(|| format!("{transaction:?} was never applied"))?;
-        if record.result != "tesSUCCESS" {
-            return Err(format!("{transaction:?} ended {}", record.result));
-        }
-        if let PayoutTransaction::Payout(payment) = transaction {
-            let named = terms
-                .hub_amount(&payment.amount)
-                .ok_or("a payout of something else than the hub's asset")?;
-            let got = match payment.amount {
-                Amount::Xrp(_) => record.delivered,
-                Amount::Token(_) => record
-                    .delivered_token
-                    .and_then(|token| terms.hub_amount(&Amount::Token(token))),
-            };
-            if got != Some(named) {
-                return Err(format!("a payout of {named} delivered {got:?}"));
-            }
-            *delivered.entry(payment.destination).or_default() += named;
-        }
-    }
-    if delivered != expected {
-        return Err(format!(
-            "the escrow paid out {delivered:?}, where the final balances are {expected:?}"
-        ));
-    }
-    for index in members_of(sim, place) {
-        if !delivered.contains_key(&xrpl_account(index)) {
-            return Err(format!("node {index} was paid nothing out"));
-        }
-    }
-    sim.count("payouts checked");
-    Ok(())
 }

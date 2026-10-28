@@ -437,7 +437,7 @@ fn stall(sim: &mut Sim, rng: &mut SeededRng) -> Result<(), Outcome> {
             "the payout set was not applied in time",
         ));
     }
-    check_payout(sim).map_err(|problem| Outcome::safety("payout", problem))
+    check_payout(sim, 0).map_err(|problem| Outcome::safety("payout", problem))
 }
 
 /// f + 1 validators, the faulty ones among them, collude: the first of
