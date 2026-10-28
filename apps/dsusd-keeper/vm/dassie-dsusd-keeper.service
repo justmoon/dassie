@@ -28,6 +28,15 @@ TimeoutStartSec=5min
 # minutes on the e2-micro, so this leaves it room. A keeper that fails
 # shows as a failed unit, and the timer starts it again all the same.
 RuntimeMaxSec=2h
+# After a start or a keeper that did not end in success, however it
+# failed (the fetch, the secrets, the toolchain, a seed refused, a crash,
+# the bound above), the unit waits five minutes before it is inactive, and
+# so before the timer starts it again: a start that fails at once is not
+# repeated every few seconds, and a new keeper's first window starts after
+# the last one's ended. A keeper that ended after its life is started again
+# at once. The stop's timeout covers the wait.
+ExecStopPost=/bin/sh -c '[ "$SERVICE_RESULT" = success ] || sleep 300'
+TimeoutStopSec=6min
 # The keeper's lines, on the serial console too, which needs no SSH.
 StandardOutput=journal+console
 StandardError=journal+console

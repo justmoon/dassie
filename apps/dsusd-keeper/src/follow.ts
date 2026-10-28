@@ -84,13 +84,12 @@ export class Schedule {
     return Math.floor(elapsed / WINDOW_MS);
   }
 
-  /** When the process ends: after its life, or, once it failed, at the
-   * end of the window it failed in. It never ends within a window, so the
-   * next process's first window never shares time with one of this one's,
-   * and a keeper that fails again and again spends no more for it. */
-  endAt(nowMs: number, failed: boolean): number {
-    const windows = failed ? this.windowOf(nowMs) + 1 : WINDOWS_PER_LIFE;
-    return this.#startMs + windows * WINDOW_MS;
+  /** When the process ends, after its life. One that fails ends at once,
+   * and systemd waits longer than a window before it starts another
+   * (vm/dassie-dsusd-keeper.service), so no two processes' windows share
+   * time, and a keeper that fails again and again spends no more for it. */
+  endAt(): number {
+    return this.#startMs + WINDOWS_PER_LIFE * WINDOW_MS;
   }
 }
 

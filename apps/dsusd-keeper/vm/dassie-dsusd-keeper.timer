@@ -1,7 +1,7 @@
 # Starts the DSUSD keeper (dassie-dsusd-keeper.service) whenever it is not
 # running: at boot, and a few seconds after each of its processes ended,
-# after its hour or a failure, so that it follows the pool all the time
-# from the newest `main`.
+# after its hour or, once the service waited out its five minutes, a
+# failure, so that it follows the pool all the time from the newest `main`.
 [Unit]
 Description=Dassie DSUSD keeper, started again whenever it ended
 

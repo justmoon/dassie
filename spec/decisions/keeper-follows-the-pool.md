@@ -14,7 +14,7 @@
 
 - **The keeper follows the pool.** It subscribes to the validated transactions that touch the pool's account, and runs at once after one sent by any account but the keeper's and the issuer's. Without one, it runs once a minute, for the market's moves. Several trades in one ledger ask for one run.
 - **A budget per window of time.** What a run every five minutes could spend, faucet requests, DSUSD minted and withdrawals, a window of five minutes may spend now, across its runs. So following spends no more than the timer did, however many runs the trades ask for.
-- **A process lives an hour,** and systemd starts it again a few seconds after it ended, from the newest `main`, as each run did before. A process that fails ends at the end of the window it failed in, never within it, so a keeper that fails again and again spends no more than one that follows.
+- **A process lives an hour,** and systemd starts it again a few seconds after it ended, from the newest `main`, as each run did before. After a start or a process that failed, however it failed, systemd waits five minutes, longer than a window, before it starts the keeper again, as the timer did, so a keeper that fails again and again spends no more than one that follows, and a start that fails at once is not repeated every few seconds.
 - **A connection lost is made again,** with a new subscription, and a run catches up on what touched the pool meanwhile.
 
 ## Accepted
@@ -22,6 +22,7 @@
 - **The pool is off the market for a few ledgers after each trade:** the keeper hears of a trade once its ledger is validated, and mints and deposits in two transactions, each waiting for its own ledger. On the testnet, a trade was repriced four ledgers later, about fifteen seconds, against the ten minutes the guard waits.
 - **A trade still pays its own slippage.** Following brings the pool back after a trade, not during it: buying 50 DSUSD at once from a pool this deep costs a few percent above the market. A deeper pool is a setting of the keeper's, apart from this.
 - **A run per ledger while trades come every ledger,** each with a ticker request and a read of the ledger: a few requests every few seconds, on a testnet with little trading.
+- **Two budgets can go out seconds apart,** at a window's boundary: a run just before it spends the rest of its window's, and one just after it starts on a full one, where the timer kept runs five minutes apart. Over any stretch of time, the keeper spends no more than a budget per window and one more.
 - **A few seconds without a keeper each hour,** and longer when the start fetches a new toolchain, while systemd starts it again.
 
 ## Rejected
@@ -30,4 +31,5 @@
 - *Polling the pool every ledger:* a read every few seconds whether or not anything traded, where the ledger says when something did.
 - *Leaving reconnecting to xrpl.js:* it connects again by itself, but without the subscription, and the keeper would follow nothing without knowing.
 - *Holding DSUSD ready between runs,* to save the mint's ledger: the keeper would hold DSUSD that neither the pool nor a buyer does, which [dsusd](dsusd.md) keeps to the pool and its buyers, to save one ledger of a few.
+- *Waiting out the window in the process after a failure:* it covers only the failures the process catches, not a start that fails before the keeper runs, a crash or a process killed for its memory.
 - *A budget per run:* with a run per ledger, a misread ticker or pool could cost each run's budget again every few seconds.

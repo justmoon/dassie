@@ -249,7 +249,7 @@ async function follow(): Promise<number> {
         runs = 0;
         steps = 0;
       }
-      const end = schedule.endAt(now, false);
+      const end = schedule.endAt();
       if (now >= end) return 0;
 
       if (ledger === null || lost) {
@@ -307,14 +307,9 @@ async function follow(): Promise<number> {
       }
     }
   } catch (error) {
-    // Something the loop does not expect: the process ends, at the end of
-    // this window, which no pool event cuts short, and systemd starts it
-    // again.
-    const failedAt = Date.now();
+    // Something the loop does not expect: the process ends, and systemd
+    // waits longer than a window before it starts another (vm/).
     say(`failed: ${message(error)}; ${keeper.who}`);
-    await new Promise((resolve) =>
-      setTimeout(resolve, schedule.endAt(failedAt, true) - failedAt)
-    );
     return 1;
   } finally {
     if (ledger !== null) await closeQuietly(ledger);
@@ -382,11 +377,11 @@ const { values } = parseArgs({
   options: { once: { type: "boolean" }, "dry-run": { type: "boolean" } },
 });
 const single = values.once === true || values["dry-run"] === true;
-// A bound on the whole process: a run's timeout, or its life and the
-// window a failure waits out, and a minute for closing.
+// A bound on the whole process: a run's timeout, or its life, the run
+// that may still be going at its end, and a minute for closing.
 const boundMs = single
   ? RUN_TIMEOUT_MS
-  : (WINDOWS_PER_LIFE + 1) * WINDOW_MS + 60_000;
+  : WINDOWS_PER_LIFE * WINDOW_MS + RUN_TIMEOUT_MS + 60_000;
 const watchdog = setTimeout(() => {
   say(`no end after ${boundMs} ms`);
   process.exit(1);

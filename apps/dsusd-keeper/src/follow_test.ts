@@ -91,17 +91,9 @@ test("a run that outlasts its window spends that window's budget only", () => {
   assertEquals(schedule.start(START + WINDOW_MS + 1)?.budget, BUDGET);
 });
 
-test("a process ends after its life, or at the end of the window it failed in", () => {
+test("a process ends after its life", () => {
   const schedule = new Schedule(START);
-  assertEquals(
-    schedule.endAt(START + 1, false),
-    START + WINDOWS_PER_LIFE * WINDOW_MS,
-  );
-  assertEquals(schedule.endAt(START, true), START + WINDOW_MS);
-  assertEquals(
-    schedule.endAt(START + 2 * WINDOW_MS + 7, true),
-    START + 3 * WINDOW_MS,
-  );
+  assertEquals(schedule.endAt(), START + WINDOWS_PER_LIFE * WINDOW_MS);
   assertEquals(schedule.windowOf(START - 5), 0);
 });
 
