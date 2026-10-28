@@ -1001,6 +1001,10 @@ struct End {
     /// Whether the owner banned the peer, rather than only ending the
     /// peering.
     ban: bool,
+    /// The peering's first method when the owner acted: what the node asks
+    /// on a last time, and what the peer says it has on its way is in its
+    /// units (spec/decisions/ending-a-peering.md).
+    method: dassie_peer::wire::SchemeId,
 }
 
 /// An owner ends one of its running node's peerings, or bans the peer,
@@ -1034,6 +1038,14 @@ fn owner_ends(sim: &mut Sim, rng: &mut SeededRng, ends: &mut Vec<End>, ban: bool
         return;
     };
     let id = key(peer).node_id();
+    let method = network
+        .peers
+        .iter()
+        .find(|view| view.id == id)
+        .map(|view| view.peering.first().scheme);
+    let Some(method) = method else {
+        return;
+    };
     let what = if ban { "bans" } else { "ends its peering with" };
     sim.trace
         .push(format!("{} {by}'s owner {what} {peer}", sim.now));
@@ -1055,6 +1067,7 @@ fn owner_ends(sim: &mut Sim, rng: &mut SeededRng, ends: &mut Vec<End>, ban: bool
         by,
         peer,
         ban,
+        method,
     });
 }
 
@@ -1207,20 +1220,16 @@ fn heal(
     if over_hub(options.settling) {
         peered_over_hub(sim)?;
     }
-    // Over two hubs, this check and the drift a heal that did not settle
-    // down is excused for ([`not_settled_down`]) are weaker than the books:
-    // what a node said it had on its way is in its peering's first
-    // method's units, while a settlement booked does not say on which
-    // method it came, so the bookings of both count toward it; and the
-    // credit and room of a link are its first method's alone. Telling the
-    // methods apart needs the ledger in the booking's event.
+    // Over two hubs, what a node said it had on its way is in its
+    // peering's first method's units, and only what was booked on that
+    // method counts toward it.
     for end in ends.iter().filter(|end| !end.ban) {
         // A ban of the peer while the node collects tells it at once.
         let banned = ends
             .iter()
             .find(|ban| ban.ban && ban.mark > end.mark && (ban.by, ban.peer) == (end.by, end.peer))
             .map_or(sim.trace.len(), |ban| ban.mark);
-        collected_before_telling(sim, end.mark, banned, end.by, end.peer)?;
+        collected_before_telling(sim, end.mark, banned, (end.by, end.peer), end.method)?;
     }
     match sim.refused.first() {
         Some(refused) => Err(Outcome::liveness("refused", refused.clone())),
@@ -1334,6 +1343,7 @@ fn check_end(sim: &Sim, end: &End) -> Result<(), Outcome> {
         by,
         peer,
         ban,
+        ..
     } = end;
     let decided = if ban { "Terminating" } else { "Depeering" };
     settled_nothing_once_ending(sim, mark, by, peer, decided)?;
@@ -1419,6 +1429,7 @@ fn count_ends(sim: &mut Sim, ends: &[End]) {
         by,
         peer,
         ban,
+        ..
     } in ends
     {
         let lines = &sim.trace[mark..];

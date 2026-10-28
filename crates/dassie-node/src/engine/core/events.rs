@@ -377,6 +377,9 @@ pub enum SettlementEvent {
     SettlementBooked {
         /// The peer.
         from: NodeId,
+        /// The method it came on: the scheme whose ledger booked it, in
+        /// whose units `amount` is (spec/decisions/settlement-methods.md).
+        scheme: dassie_peer::wire::SchemeId,
         /// How much.
         amount: u64,
     },

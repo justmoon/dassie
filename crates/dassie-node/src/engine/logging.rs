@@ -439,13 +439,13 @@ fn settlement(severity: Severity, event: &SettlementEvent) {
         | SettlementEvent::MessageWaits { .. }
         | SettlementEvent::UnknownCancelled { .. }
         | SettlementEvent::Failed { .. }
-        | SettlementEvent::PeerSettled { .. }
-        | SettlementEvent::SettlementBooked { .. }
-        | SettlementEvent::PeerSettlementRefused { .. }
-        | SettlementEvent::PeerSettlementUnbooked { .. }
         | SettlementEvent::PegPaused { .. }
         | SettlementEvent::PegResumed { .. }
         | SettlementEvent::HubCredit { .. } => settlement_outcome(severity, event),
+        SettlementEvent::PeerSettled { .. }
+        | SettlementEvent::SettlementBooked { .. }
+        | SettlementEvent::PeerSettlementRefused { .. }
+        | SettlementEvent::PeerSettlementUnbooked { .. } => settled_by_peers(severity, event),
         SettlementEvent::HistoryGap { .. } | SettlementEvent::SettlementUnproven { .. } => {
             unproven(severity, event);
         }
@@ -499,26 +499,6 @@ fn settlement_outcome(severity: Severity, event: &SettlementEvent) {
         SettlementEvent::Failed { peer, amount } => {
             emit!(severity, target: target::SETTLEMENT, %peer, amount, "a settlement failed");
         }
-        SettlementEvent::PeerSettled { from, amount } => {
-            emit!(severity, target: target::SETTLEMENT, %from, amount, "a peer settled");
-        }
-        SettlementEvent::SettlementBooked { from, amount } => {
-            emit!(severity, target: target::SETTLEMENT, %from, amount, "a peer's settlement is booked");
-        }
-        SettlementEvent::PeerSettlementRefused {
-            from,
-            scheme,
-            error,
-        } => {
-            emit!(severity, target: target::SETTLEMENT, %from, %scheme, %error, "a settlement was refused");
-        }
-        SettlementEvent::PeerSettlementUnbooked {
-            from,
-            scheme,
-            amount,
-        } => {
-            emit!(severity, target: target::SETTLEMENT, %from, %scheme, amount, "a settlement on a scheme the node does not run was acknowledged, and booked nothing");
-        }
         SettlementEvent::PegPaused { scheme, why } => {
             let why = why.message();
             emit!(severity, target: target::SETTLEMENT, %scheme, why, "the scheme is paused: it settles nothing, and its ledger converts nothing");
@@ -550,7 +530,44 @@ fn settlement_outcome(severity: Severity, event: &SettlementEvent) {
         | SettlementEvent::SchemeUnavailable { .. }
         | SettlementEvent::PrepareFailed { .. }
         | SettlementEvent::HistoryGap { .. }
-        | SettlementEvent::SettlementUnproven { .. } => {}
+        | SettlementEvent::SettlementUnproven { .. }
+        // Logged by `settled_by_peers`.
+        | SettlementEvent::PeerSettled { .. }
+        | SettlementEvent::SettlementBooked { .. }
+        | SettlementEvent::PeerSettlementRefused { .. }
+        | SettlementEvent::PeerSettlementUnbooked { .. } => {}
+    }
+}
+
+/// What became of peers' settlements.
+fn settled_by_peers(severity: Severity, event: &SettlementEvent) {
+    match event {
+        SettlementEvent::PeerSettled { from, amount } => {
+            emit!(severity, target: target::SETTLEMENT, %from, amount, "a peer settled");
+        }
+        SettlementEvent::SettlementBooked {
+            from,
+            scheme,
+            amount,
+        } => {
+            emit!(severity, target: target::SETTLEMENT, %from, %scheme, amount, "a peer's settlement is booked");
+        }
+        SettlementEvent::PeerSettlementRefused {
+            from,
+            scheme,
+            error,
+        } => {
+            emit!(severity, target: target::SETTLEMENT, %from, %scheme, %error, "a settlement was refused");
+        }
+        SettlementEvent::PeerSettlementUnbooked {
+            from,
+            scheme,
+            amount,
+        } => {
+            emit!(severity, target: target::SETTLEMENT, %from, %scheme, amount, "a settlement on a scheme the node does not run was acknowledged, and booked nothing");
+        }
+        // Logged by `settlement` or `settlement_outcome`.
+        _ => {}
     }
 }
 
