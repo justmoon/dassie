@@ -1273,19 +1273,6 @@ fn promoted_beyond_the_bootstrap_nodes() -> Network {
         assert!(network.now < start + 120_000, "it peers with the first");
     }
     pays_for_promotion(&mut network, promoted[1], &[0, promoted[0]]);
-    // A new link state of its own, which shows its clock to its new uplink:
-    // one it issued before they peered does not.
-    let second = promoted[1];
-    network.act(second, |node, now| {
-        node.set_own_info(
-            now,
-            dassie_peer::OwnInfo {
-                url: Some(dassie_peer::sim::url(second)),
-                alias: "promoted".into(),
-                feed_port: None,
-            },
-        );
-    });
     settle(&mut network, Config::DEV.promotion_standing_ms);
     until_core(&mut network, id(promoted[1]), 5, 120_000);
     let start = network.now;
