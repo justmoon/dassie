@@ -1,6 +1,6 @@
 # A hub may hold an issued token; its issuer's freeze pauses it, a clawback ends it, and its fees are paid in XRP anyone may send
 
-**Areas:** [Settlement hubs](../designs/settlement-hubs.md#6-deposits-and-withdrawals), [XRPL](../areas/xrpl.md#tokens), [Settlement](../areas/settlement.md). Not built yet ([roadmap](../roadmap.md#token-hubs)).
+**Areas:** [Settlement hubs](../designs/settlement-hubs.md#6-deposits-and-withdrawals), [XRPL](../areas/xrpl.md#tokens), [Settlement](../areas/settlement.md). Built ([Settlement hubs](../areas/hubs.md), [A frozen hub](../areas/hubs.md#a-frozen-hub)), but for a payer's hold reduction pending at a freeze in a member's node, a least gas that also covers the escrow's reserve, and the testnet's DSUSD hub, which its operators found ([roadmap](../roadmap.md#token-hubs)).
 
 ## Facts
 

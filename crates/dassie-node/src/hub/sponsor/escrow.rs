@@ -12,7 +12,7 @@
 //! freeze or a transfer fee lets each through. A hub founded while the
 //! issuer freezes its escrow's line starts frozen once the validators
 //! attest it. A transfer fee is for the validators' check of the escrow
-//! to refuse, not for founding (spec/roadmap.md#token-hubs,
+//! to refuse, not for founding (spec/areas/hubs.md#what-validators-attest,
 //! spec/decisions/token-hubs.md).
 
 use std::sync::Arc;

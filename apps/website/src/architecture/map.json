@@ -1,6 +1,6 @@
 {
   "intro": [
-    "Dassie is one Rust binary that runs a payment node, plus the web apps and tools around it. The binary finds other nodes, routes Interledger payments through them, keeps its books and settles with its peers on a real ledger.",
+    "Dassie is one Rust binary that runs a payment node, plus the web apps and tools around it. The binary finds other nodes, routes Interledger payments through them, keeps its books and settles with its peers over settlement hubs backed by a real ledger.",
     "Almost all of its logic lives in sans-IO crates: state machines that take inputs and the time, and return outputs. Only one crate, dassie-node, touches sockets, the disk and the clock. That is what lets a whole network of nodes run in one test process, the same way every time."
   ],
   "subsystems": [
@@ -353,7 +353,7 @@
         "`dassie init`: the domain name and the certificate, then a URL to finish setup in the browser",
         "`dassie status`, which also says whether a core node's rate feed reaches anyone and lists each peer's settlement methods with their credit and what is owed, `dassie setup-url` to print that URL again, and `dassie pair` for a code that pairs an owner app",
         "`dassie setup`: sets a node up without a browser, from its owner's passphrase in a file on the node's host, sets each XRP Ledger account's own config (`--asset`, its server and faucet), and adds the settlement schemes it lacks, then joins the realm's default settlement hub when the build has one: on the testnet unless `--no-hub`, and in the live realm only with `--hub`, since on mainnet a node joins a hub only once its owner turns hubs on; run again, it changes nothing, and it refuses a node that is another passphrase's",
-        "`dassie hub`: shows the node's account in each settlement hub it is in, and since when a token's issuer froze one, moves the owner's funds between one and the node's XRP Ledger account, turns the node's own moves on or off, and gives up a move the hub has not shown for long; `dassie hub found` founds a hub with validators the owner picks, on the XRP Ledger network of the node's realm, and `dassie hub payout` shows the payout bundles kept of a hub and, once a quorum signed one set, its transactions to submit",
+        "`dassie hub`: shows the node's account in each settlement hub it is in, and since when a token's issuer froze one, moves the owner's funds between one and the owner book of its asset on the node's XRP Ledger account, turns the node's own moves on or off, and gives up a move the hub has not shown for long; `dassie hub found` founds a hub with validators the owner picks, on the XRP Ledger network of the node's realm, and `dassie hub payout` shows the payout bundles kept of a hub and, once a quorum signed one set, its transactions to submit",
         "`dassie update`: fetches, verifies and switches to a newer release, and goes back if it does not start",
         "`dassie verify-install`, which also names the release key",
         "`dassie front-door`: runs a front door, which is no node, and serves names by reading the bootstrap nodes' name lists itself (`DASSIE_BOOTSTRAP_NODES`); `--make-key` makes its key and prints the entry a node names it by",
@@ -446,7 +446,7 @@
     "xrpl": {
       "name": "dassie-xrpl",
       "path": "crates/dassie-xrpl",
-      "label": "XRP Ledger settlement",
+      "label": "XRP Ledger books",
       "sub": "money",
       "x": 20,
       "y": 672,
@@ -545,7 +545,7 @@
       "x": 408,
       "y": 672,
       "w": 184,
-      "desc": "Peer protocol v1: how Dassie nodes find each other, peer and stay in sync.",
+      "desc": "The peer protocol, spoken over QUIC: how Dassie nodes find each other, peer and stay in sync.",
       "does": [
         "The wire format and message authentication",
         "The node table, link-state flooding, membership by majority and registration",
@@ -555,7 +555,7 @@
         "Downlinks that never paid the node take at most half of its places for downlinks, so keys made for nothing cannot keep out those that pay",
         "Advertising only peers that are alive and not stuck short of room, or being wound down, on every method, never ending one for room it could not pay",
         "Delivering settlements and requests to settle, ending peerings, bans",
-        "Winding a settlement method down as a peering ends, on that method alone: no new packets from the peer on it, the peer asked to settle on it once, each step bounded, then the method dropped and the peer told, what is left staying owed; a method whose scheme the node no longer runs, or would settle directly on, as one a peering stored from when the XRP Ledger's schemes peered still has, or that has not been able to receive for as long as a silent peer is kept, is dropped at once; a peering left with no method ends",
+        "Winding a settlement method down as a peering ends, on that method alone: no new packets from the peer on it, the peer asked to settle on it once, each step bounded, then the method dropped and the peer told, what is left staying owed; a method whose scheme the node no longer runs, or would settle directly on, neither over a hub nor of unlimited trust, or that has not been able to receive for as long as a silent peer is kept, is dropped at once; a peering left with no method ends",
         "Settlement channels that close once idle, kept on disk so a late settlement still counts once",
         "Settlement methods: a peering can hold a method for every hub both nodes are in, each agreed, added and dropped on its own, and every Prepare travels on one, over a hub with the payer's commitment, the payer's claim coming back in the reply to its Fulfill",
         "Names people can say, at the bootstrap nodes as registrars: a log of sealed commitments, each name granted to the earliest one unsealed once every earlier window has closed, renewed by its holder, and a name list served as the node list is",
@@ -1536,7 +1536,7 @@
           "ids": [
             "connector"
           ],
-          "text": "Link state gives every node a route table, so packets are forwarded hop by hop across peers."
+          "text": "Link state gives every node a route table, so packets are forwarded hop by hop across peers. Each packet's next hop is drawn among a route's first hops, weighted by the fees each earned the node, so no one node can stop a payment."
         },
         {
           "ids": [
@@ -1547,9 +1547,10 @@
         {
           "ids": [
             "settlement",
+            "hub",
             "xrpl"
           ],
-          "text": "Each hub two peers share is a settlement method of their peering, with its own credit on its own ledger. Once a peer comes close to the credit a node extends to it on a method, the node asks it to settle on that method, and the peer funds its hold toward the node in that hub, such as the XRP or DSUSD hub on the XRP Ledger testnet, from its owner's book there."
+          "text": "Each hub two peers share is a settlement method of their peering, with its own credit on its own ledger, and a packet keeps the ledger it came in on where it can. Once a peer comes close to the credit a node extends to it on a method, the node asks it to settle on that method, and the peer funds its hold toward the node in that hub, such as the XRP or DSUSD hub on the XRP Ledger testnet, from its account there, which it tops up from its owner's book of the hub's asset."
         },
         {
           "ids": [
@@ -1791,8 +1792,8 @@
     },
     {
       "t": "Golden vectors",
-      "p": "Byte-exact fixtures from other implementations: Dassie's first, TypeScript one, `xrpl.js`, and for every key a node derives from its phrase, a generator apart from Dassie's code. They pin the wire formats and key derivations.",
-      "ev": "testdata/original · testdata/identity · testdata/xrpl · tests/vectors.rs"
+      "p": "Byte-exact fixtures from other implementations: Dassie's first, TypeScript one, `xrpl.js`, and for every key a node derives from its phrase, a generator apart from Dassie's code. They pin the wire formats and key derivations. What has no other implementation, the peer protocol's current version, a settlement hub's protocol and the rate feed, is pinned against change by generators of its own.",
+      "ev": "testdata/original · testdata/identity · testdata/xrpl · testdata/hub · testdata/feed · dassie-peer/tests/data · tests/vectors.rs"
     },
     {
       "t": "Property tests",

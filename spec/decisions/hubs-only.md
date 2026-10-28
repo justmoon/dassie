@@ -1,6 +1,6 @@
 # Peers settle only over settlement hubs
 
-**Areas:** [Settlement hubs](../designs/settlement-hubs.md#11-choosing-a-hub), [Settlement](../areas/settlement.md), [Network](../areas/network.md#peering), [XRPL](../areas/xrpl.md), [Testing](../areas/testing.md). Built, but for what the [roadmap](../roadmap.md#hubs-only) still lists.
+**Areas:** [Settlement hubs](../designs/settlement-hubs.md#11-choosing-a-hub), [Settlement](../areas/settlement.md), [Network](../areas/network.md#peering), [XRPL](../areas/xrpl.md), [Testing](../areas/testing.md). Built; several hubs of one asset per node wait on the [roadmap](../roadmap.md#settlement-hubs).
 
 ## Facts
 
