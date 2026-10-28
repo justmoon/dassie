@@ -9,7 +9,6 @@ use dassie_identity::NodeId;
 use dassie_peer::Config;
 use dassie_peer::sim::{Network, key};
 
-
 fn settle(network: &mut Network, ms: u64) {
     let until = network.now + ms;
     network.run_until(until);

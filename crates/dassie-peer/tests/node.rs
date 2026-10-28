@@ -501,12 +501,13 @@ fn bootstrap_nodes_are_asked_at_once() {
                     .info
                     .entries
                     .iter()
-                    .any(|entry| matches!(entry, dassie_peer::wire::Entry::Extension { .. })),
+                    .filter(|entry| matches!(entry, dassie_peer::wire::Entry::Extension { .. }))
+                    .count(),
             ),
             _ => None,
         })
         .unwrap();
-    assert!(!ours, "no extension");
+    assert_eq!(ours, 1, "the free core relationships alone");
     let to_boot: Vec<_> = before.iter().filter(|r| r.to == boot.node_id()).collect();
     assert!(!to_boot.is_empty());
     assert!(
@@ -612,12 +613,17 @@ fn a_node_offers_its_schemes_in_its_link_state() {
     );
     assert!(state.info.settlement[1].details.is_empty());
     assert_eq!(state.info.feed_port(), Some(7768));
-    assert_eq!(state.info.entries.len(), 1, "the feed port alone");
+    assert_eq!(
+        state.info.entries.len(),
+        2,
+        "the feed port, and the free core relationships"
+    );
 
     let bytes = own_link_state(with_feed(&own, &boot, None));
     let state = SignedNodeInfo::decode_exact(&bytes).unwrap();
     assert!(state.info.settlement.is_empty());
-    assert!(state.info.entries.is_empty());
+    assert_eq!(state.info.feed_port(), None);
+    assert_eq!(state.info.entries.len(), 1, "the free core relationships");
 }
 
 // A node's own list offers no scheme twice, no hub twice, and at most
