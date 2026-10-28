@@ -335,14 +335,18 @@ impl PriceTable {
     }
 
     /// What the owner holds of `asset`, every asset if `None`, valued at
-    /// spot ledger by ledger as the curve values them.
+    /// spot ledger by ledger as the curve values them, the owner's own
+    /// moves on their way counted ([`LedgerPrice::counting_moves`]).
     fn extremes(&self, holdings: &Holdings, asset: Option<LedgerId>) -> Extremes {
         self.ledgers()
             .zip(holdings)
             .filter(|(entry, _)| asset.is_none_or(|asset| entry.asset == asset))
-            .fold(Extremes::default(), |sum, (entry, holding)| Extremes {
-                most: sum.most.saturating_add(value_of(holding.most(), entry)),
-                least: sum.least.saturating_add(value_of(holding.least(), entry)),
+            .fold(Extremes::default(), |sum, (entry, holding)| {
+                let whole = entry.counting_moves(holding);
+                Extremes {
+                    most: sum.most.saturating_add(value_of(whole.most(), entry)),
+                    least: sum.least.saturating_add(value_of(whole.least(), entry)),
+                }
             })
     }
 

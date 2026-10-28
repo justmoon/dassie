@@ -1086,7 +1086,11 @@ impl Core {
             if amount >= self.settle.minimum {
                 self.with_peer(|peer, hooks, now| peer.paid_by(now, hooks, &node));
             }
-            self.report(SettlementEvent::SettlementBooked { from: node, amount });
+            self.report(SettlementEvent::SettlementBooked {
+                from: node,
+                scheme: method,
+                amount,
+            });
         }
     }
 

@@ -12,6 +12,7 @@ use dassie_settlement::policy;
 
 use dassie_identity::NodeId;
 use dassie_ledger::LedgerId;
+use dassie_peer::wire::SchemeId;
 
 use super::{
     DSUSD, Drift, LIVE_XRP, Payment, RLUSD, START, Settling, Sim, TRIGGER, USD, Withdrawal, XRP,
@@ -248,10 +249,12 @@ pub fn check_settled(sim: &Sim) -> Result<(), String> {
     Ok(())
 }
 
-/// A link whose books drifted, by what the simulation saw: its two nodes,
-/// how far, and how far it survives.
+/// A link whose books drifted on one method of its peering, by what the
+/// simulation saw: its two nodes, the method, how far, and how far it
+/// survives, all in that method's ledger's units.
 struct Drifted {
     nodes: (usize, usize),
+    method: SchemeId,
     drift: Drift,
     survives: u128,
     /// Whether one side's room for the other is at its trigger.
@@ -262,43 +265,67 @@ impl Drifted {
     fn describe(&self) -> String {
         let (a, b) = self.nodes;
         format!(
-            "crashes drifted the books of nodes {a} and {b} apart by {}, and other lost \
+            "crashes drifted the books of nodes {a} and {b} apart on {} by {}, and other lost \
              Fulfills by {}; their credit survives {}",
-            self.drift.crashes, self.drift.others, self.survives
+            self.method, self.drift.crashes, self.drift.others, self.survives
         )
     }
 }
 
-/// Every pair of peered nodes whose books drifted at all.
+/// Every method of a pair of peered nodes on which their books drifted at
+/// all: each method's drift, credit and room are in its own ledger's
+/// units, so over two hubs one method's never counts against another's.
 fn drifted(sim: &mut Sim) -> Vec<Drifted> {
     let count = sim.nodes.len();
     let mut links = Vec::new();
     for a in 0..count {
         for b in a + 1..count {
-            let drift = sim.drift(a, b);
-            if drift == Drift::default() {
-                continue;
+            for method in methods(sim, a, b) {
+                let drift = sim.drift_on(a, b, method);
+                if drift != Drift::default()
+                    && let Some(link) = drifted_on(sim, (a, b), method, drift)
+                {
+                    links.push(link);
+                }
             }
-            let (Some((credit_a, room_a)), Some((credit_b, room_b))) =
-                (room(sim, a, b), room(sim, b, a))
-            else {
-                continue;
-            };
-            let (short_a, short_b) = (policy::ask(room_a, TRIGGER), policy::ask(room_b, TRIGGER));
-            let survives = match (short_a, short_b) {
-                (true, false) => survives(sim, credit_a, b, credit_b),
-                (false, true) => survives(sim, credit_b, a, credit_a),
-                _ => survives(sim, credit_a, b, credit_b).min(survives(sim, credit_b, a, credit_a)),
-            };
-            links.push(Drifted {
-                nodes: (a, b),
-                drift,
-                survives,
-                short: short_a || short_b,
-            });
         }
     }
     links
+}
+
+/// The methods of node `index`'s peering with node `other`, while they are
+/// peered.
+fn methods(sim: &Sim, index: usize, other: usize) -> Vec<SchemeId> {
+    peer_view(sim, index, other).map_or_else(Vec::new, |peer| {
+        (peer.peering.methods.iter())
+            .map(|method| method.scheme)
+            .collect()
+    })
+}
+
+/// The link of nodes `a` and `b` on `method`, drifted by `drift`, while
+/// both are peered on it.
+fn drifted_on(
+    sim: &Sim,
+    (a, b): (usize, usize),
+    method: SchemeId,
+    drift: Drift,
+) -> Option<Drifted> {
+    let ((credit_a, room_a), (credit_b, room_b)) =
+        (room(sim, a, b, method)?, room(sim, b, a, method)?);
+    let (short_a, short_b) = (policy::ask(room_a, TRIGGER), policy::ask(room_b, TRIGGER));
+    let survives = match (short_a, short_b) {
+        (true, false) => survives(sim, credit_a, b, credit_b),
+        (false, true) => survives(sim, credit_b, a, credit_a),
+        _ => survives(sim, credit_a, b, credit_b).min(survives(sim, credit_b, a, credit_a)),
+    };
+    Some(Drifted {
+        nodes: (a, b),
+        method,
+        drift,
+        survives,
+        short: short_a || short_b,
+    })
 }
 
 /// How far a link survives drift when the side that extends `asker` asks
@@ -334,19 +361,26 @@ pub fn drifted_past(sim: &mut Sim) -> Option<String> {
         .map(|link| link.describe())
 }
 
-/// The credit node `index` extends node `other` on their peering's first
-/// method, and its room for it there, while they are peered.
-fn room(sim: &Sim, index: usize, other: usize) -> Option<(u64, u128)> {
+/// Node `index`'s view of its peering with node `other`, while it runs and
+/// they are peered.
+fn peer_view(sim: &Sim, index: usize, other: usize) -> Option<crate::engine::PeerView> {
     let id = key(other).node_id();
-    let peer = sim.nodes[index]
+    sim.nodes[index]
         .core
         .as_ref()?
         .network()
         .peers
         .into_iter()
-        .find(|peer| peer.id == id)?;
-    let owed = peer.owed?;
-    let credit = peer.peering.first().credit_out;
+        .find(|peer| peer.id == id)
+}
+
+/// The credit node `index` extends node `other` on `method` of their
+/// peering, and its room for it there, while they are peered on it.
+fn room(sim: &Sim, index: usize, other: usize, method: SchemeId) -> Option<(u64, u128)> {
+    let peer = peer_view(sim, index, other)?;
+    let at = (peer.peering.methods.iter()).position(|m| m.scheme == method)?;
+    let owed = (*peer.owed_by_method.get(at)?)?;
+    let credit = peer.peering.methods.get(at)?.credit_out;
     Some((
         credit,
         u128::try_from(owed + i128::from(credit)).unwrap_or(0),

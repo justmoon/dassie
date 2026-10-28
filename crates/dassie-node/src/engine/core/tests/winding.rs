@@ -218,10 +218,12 @@ fn collected_before_dropped(sim: &Sim, winding: Option<dassie_peer::Winding>) {
     let between = &sim.trace[winding..dropped];
     let count = |what: &str| between.iter().filter(|line| line.contains(what)).count();
     assert_eq!(count(" 0 PeerNode(SettlementRequestAnswered {"), 1);
-    assert!(
-        count(" 0 Settlement(SettlementBooked {") >= 1,
-        "nothing collected"
+    let booked = format!(
+        " 0 Settlement(SettlementBooked {{ from: {:?}, scheme: {:?}, ",
+        sim.core(1).network().own,
+        scheme_id(STUB_TWO)
     );
+    assert!(count(&booked) >= 1, "nothing collected on it");
 }
 
 // A removal carries on across a restart: the node starts with the scheme

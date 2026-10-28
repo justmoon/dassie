@@ -1745,6 +1745,10 @@ impl SettlementScheme for HubScheme {
         self.peer_account(peer).map(|number| number.0)
     }
 
+    fn deposits_booked(&self) -> Option<u64> {
+        self.counters.map(|(deposited, _, _)| deposited)
+    }
+
     fn check_invariants(&self) {
         assert!(self.peers.len() <= MAX_PEERS);
         assert!(self.settling.len() <= MAX_SETTLING);

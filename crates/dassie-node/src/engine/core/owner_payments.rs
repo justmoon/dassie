@@ -94,7 +94,7 @@ impl Core {
 
     /// The hold of `scheme`'s payment `id`, if the books still have it
     /// pending.
-    fn owner_payment_hold(&self, scheme: Name, id: Name) -> Option<TransferId> {
+    pub(super) fn owner_payment_hold(&self, scheme: Name, id: Name) -> Option<TransferId> {
         self.ledger
             .pending_transfers()
             .find(|transfer| transfer.reference == Reference::OwnerPayment { scheme, id })

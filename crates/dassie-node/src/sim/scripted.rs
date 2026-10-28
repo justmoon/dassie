@@ -267,6 +267,9 @@ fn terminate(sim: &mut Sim, rng: &mut SeededRng) -> Result<(), Outcome> {
     let Some(peer) = sim.peers(ender).into_iter().next() else {
         return Ok(());
     };
+    // What the peer says it has on its way, the node's last request asks
+    // on the peering's first method, in its units.
+    let method = first_method(sim, ender, &peer);
     sim.trace
         .push(format!("{} {ender} terminates {peer}", sim.now));
     let mark = sim.trace.len();
@@ -291,11 +294,28 @@ fn terminate(sim: &mut Sim, rng: &mut SeededRng) -> Result<(), Outcome> {
     // from when it is told.
     settled_nothing_once_ending(sim, mark, ender, other, "Depeering")?;
     settled_nothing_once_ending(sim, mark, other, ender, "Terminating")?;
-    collected_before_telling(sim, mark, sim.trace.len(), ender, other)
+    collected_before_telling(sim, mark, sim.trace.len(), (ender, other), method)
+}
+
+/// The first method of node `index`'s peering with `peer`, which it asks
+/// on a last time as it ends the peering (spec/decisions/ending-a-peering.md).
+///
+/// # Panics
+///
+/// If the node does not run, or is not peered with `peer`.
+pub(super) fn first_method(
+    sim: &Sim,
+    index: usize,
+    peer: &dassie_identity::NodeId,
+) -> dassie_peer::wire::SchemeId {
+    let network = sim.core(index).network();
+    let peering = network.peers.iter().find(|view| view.id == *peer);
+    peering.expect("a peering").peering.first().scheme
 }
 
 /// What node `with` said it had on its way, when node `index`, ending their
-/// peering, asked it a last time, was booked before `index` told it, unless
+/// peering, asked it a last time on `method`, the peering's first, was
+/// booked on that method before `index` told it, unless
 /// `index` waited the whole time for it first
 /// (spec/decisions/ending-a-peering.md): between honest nodes, no settlement
 /// crosses the end. Booked, not announced: on the XRP Ledger the ledger may
@@ -305,13 +325,14 @@ fn terminate(sim: &mut Sim, rng: &mut SeededRng) -> Result<(), Outcome> {
 /// answers the other as one ending does, and either may tell the other
 /// without waiting for what was on its way, which is then credited once after
 /// the end. One whose owner bans the peer from `until` on also tells it at
-/// once.
+/// once. What `with` settled on another method is in another ledger's
+/// units, and counts nothing toward it.
 pub(super) fn collected_before_telling(
     sim: &Sim,
     mark: usize,
     until: usize,
-    index: usize,
-    with: usize,
+    (index, with): (usize, usize),
+    method: dassie_peer::wire::SchemeId,
 ) -> Result<(), Outcome> {
     let peer = format!("{:?}", key(with).node_id());
     let trace = &sim.trace;
@@ -367,7 +388,9 @@ pub(super) fn collected_before_telling(
     {
         return Ok(());
     }
-    let booking = format!(" {index} Settlement(SettlementBooked {{ from: {peer}, amount: ");
+    let booking = format!(
+        " {index} Settlement(SettlementBooked {{ from: {peer}, scheme: {method:?}, amount: "
+    );
     // Counted from the decision, or from when `with` started the settlement
     // it named, if earlier: the settlement may be booked before the answer
     // that names it, and even before the decision.

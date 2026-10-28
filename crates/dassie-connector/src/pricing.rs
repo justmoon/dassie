@@ -272,6 +272,21 @@ pub struct Inventory {
     pub holding: Holding,
 }
 
+/// What the owner's own move out of a ledger into another of the same
+/// asset, such as a deposit from an owner book into a settlement hub,
+/// carries while it is on its way, as the ledger it leaves no longer shows
+/// it: the curve counts it toward the asset all the same, so that the
+/// asset does not read short by it (spec/decisions/passive-rebalancing.md).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct OnItsWay {
+    /// Held on the ledger it leaves, a pending debit until its payment
+    /// applies: still posted there, but left out of what the owner holds
+    /// at the least, which counts the move as a packet in flight.
+    pub held: u128,
+    /// Gone from the ledger it leaves, and not yet on the one it goes to.
+    pub gone: u128,
+}
+
 /// A ledger the table prices: its spot rate, and what the owner holds on it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct LedgerPrice {
@@ -291,6 +306,24 @@ pub struct LedgerPrice {
     pub as_of_ms: u64,
     /// What the owner's group held on it when the table was built.
     pub holding: Holding,
+    /// What the owner's own move out of it carries on its way
+    /// ([`PriceTable::count_on_its_way`]).
+    pub on_its_way: OnItsWay,
+}
+
+impl LedgerPrice {
+    /// `holding` on this ledger with what the owner's own move out of it
+    /// carries on its way counted, as if it had not left: what the curve
+    /// values the asset by. What a packet can take out of the ledger is
+    /// what `holding` itself shows.
+    #[must_use]
+    pub const fn counting_moves(&self, holding: &Holding) -> Holding {
+        Holding {
+            posted: holding.posted.saturating_add(self.on_its_way.gone),
+            debits_pending: holding.debits_pending.saturating_sub(self.on_its_way.held),
+            credits_pending: holding.credits_pending,
+        }
+    }
 }
 
 /// What the node gives, on transit from one peer to another, for a unit
@@ -510,6 +543,7 @@ impl PriceTable {
                     rate,
                     as_of_ms,
                     holding: inventory.holding,
+                    on_its_way: OnItsWay::default(),
                 });
                 count += 1;
                 table.assets += usize::from(new);
@@ -518,6 +552,32 @@ impl PriceTable {
         assert!(table.assets <= count && count <= MAX_PRICED_LEDGERS);
         table.price_pairs();
         table
+    }
+
+    /// Counts what the owner's own move out of `ledger` into another ledger
+    /// of its asset carries on its way toward the asset, at both ends of
+    /// the curve, in every price from now on: while a move between a
+    /// settlement hub and the owner book that funds it is on its way, the
+    /// asset reads as it would without the move, so that the node neither
+    /// pays the bonus for what the move carries nor charges for it going
+    /// out (spec/decisions/passive-rebalancing.md). What a packet can take
+    /// out of `ledger` stays what the owner holds there. Returns whether
+    /// the table prices `ledger`: one it leaves out counts nothing.
+    pub fn count_on_its_way(&mut self, ledger: LedgerId, moving: OnItsWay) -> bool {
+        let Some(entry) = self
+            .ledgers
+            .iter_mut()
+            .flatten()
+            .find(|e| e.ledger == ledger)
+        else {
+            return false;
+        };
+        entry.on_its_way = OnItsWay {
+            held: entry.on_its_way.held.saturating_add(moving.held),
+            gone: entry.on_its_way.gone.saturating_add(moving.gone),
+        };
+        self.price_pairs();
+        true
     }
 
     /// Fills the price of every ordered pair of the table's ledgers: the
@@ -781,18 +841,21 @@ impl PriceTable {
         let (mut value_in, mut value_out, mut left_out) = (0u128, 0u128, 0u128);
         for (index, (entry, holding)) in entries.iter().flatten().zip(holdings).enumerate() {
             // Each ledger of the asset in at its most, each of the asset out
-            // at its least, and the packet's own move on its two ledgers.
+            // at its least, and the packet's own move on its two ledgers;
+            // the owner's own moves on their way counted toward their
+            // asset, though no packet can take them out yet.
+            let whole = entry.counting_moves(holding);
             let value = if index == from {
-                value_of(holding.most().saturating_add(amount_in), entry)
+                value_of(whole.most().saturating_add(amount_in), entry)
             } else if index == to {
                 left_out = value_of(holding.least(), entry).saturating_sub(taken);
-                left_out
+                value_of(whole.least(), entry).saturating_sub(taken)
             } else if entry.asset == asset_in {
-                value_of(holding.most(), entry)
+                value_of(whole.most(), entry)
             } else if entry.asset == asset_out {
-                value_of(holding.least(), entry)
+                value_of(whole.least(), entry)
             } else {
-                value_of(holding.posted, entry)
+                value_of(whole.posted, entry)
             };
             // At most 16 values of at most MAX_VALUE each, of which each
             // asset's are a part.
@@ -1767,6 +1830,83 @@ mod tests {
         deposit[2].credits_pending = u128::from(40 * DOLLAR);
         assert!(table.rate(HUB, USD, 0, 0, &deposit).unwrap() < into);
         assert!(table.rate(USD, HUB, 0, 0, &deposit).unwrap() < out_of);
+    }
+
+    // spec/decisions/passive-rebalancing.md: the owner's own move from the
+    // book into the hub counts toward XRP while it is on its way, held on
+    // the book or gone from it and not yet in the hub, so every price,
+    // the table's and a packet's at the holdings now, is what it would be
+    // without the move. Yet no packet takes out of the book what the book
+    // no longer holds.
+    #[test]
+    fn a_move_on_its_way_counts_toward_its_asset_and_pays_nothing_out() {
+        let k = pricing(50_000, 0);
+        let without = whole(
+            &[
+                held(USD, 100 * DOLLAR),
+                held(XRP, 150 * DOLLAR),
+                held(HUB, 50 * DOLLAR),
+            ],
+            k,
+        );
+        let moving = u128::from(40 * DOLLAR);
+        let mut on_book = held(XRP, 150 * DOLLAR);
+        on_book.holding.debits_pending = moving;
+        let gone = held(XRP, 110 * DOLLAR);
+        for (book, on_its_way) in [
+            (
+                on_book,
+                OnItsWay {
+                    held: moving,
+                    gone: 0,
+                },
+            ),
+            (
+                gone,
+                OnItsWay {
+                    held: 0,
+                    gone: moving,
+                },
+            ),
+        ] {
+            let mut table = whole(&[held(USD, 100 * DOLLAR), book, held(HUB, 50 * DOLLAR)], k);
+            let short: Vec<Price> = table.prices().copied().collect();
+            assert!(table.count_on_its_way(XRP, on_its_way));
+            let counted: Vec<Price> = table.prices().copied().collect();
+            assert_ne!(counted, short, "{on_its_way:?}");
+            assert_eq!(
+                counted,
+                without.prices().copied().collect::<Vec<_>>(),
+                "{on_its_way:?}"
+            );
+            let holdings = table.holdings();
+            for (from, to) in [(USD, HUB), (HUB, USD), (USD, XRP), (XRP, USD)] {
+                assert_eq!(
+                    table.rate(from, to, 0, 0, &holdings),
+                    without.rate(from, to, 0, 0, &without.holdings()),
+                    "{from} {to} {on_its_way:?}"
+                );
+            }
+        }
+        // Nothing left on the book: its asset counts the move, but nothing
+        // goes out on it.
+        let mut table = whole(
+            &[
+                held(USD, 100 * DOLLAR),
+                held(XRP, 0),
+                held(HUB, 50 * DOLLAR),
+            ],
+            k,
+        );
+        let all = OnItsWay {
+            held: 0,
+            gone: u128::from(150 * DOLLAR),
+        };
+        assert!(table.count_on_its_way(XRP, all));
+        assert!(table.price(USD, XRP).is_none());
+        assert_eq!(rate(&table, HUB, USD), rate(&without, HUB, USD));
+        // A ledger the table does not price counts nothing.
+        assert!(!table.count_on_its_way(RLUSD, all));
     }
 
     // The bounds hold with every ledger of a realm priced, its hubs

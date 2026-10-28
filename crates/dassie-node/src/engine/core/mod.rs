@@ -880,6 +880,12 @@ impl Core {
             self.now_ms,
             self.connector.config().max_rate_age_ms,
         );
+        // And while the node's own move between a hub and that book is on
+        // its way, what it carries counts toward the asset, so that the
+        // asset reads as it would without the move.
+        for (ledger, moving) in self.moves_on_their_way() {
+            table.count_on_its_way(ledger, moving);
+        }
         // Nor does it convert at spot into the owner's own endpoints, which
         // in the same currency needs no rate.
         for active in self

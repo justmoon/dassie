@@ -685,6 +685,17 @@ pub trait SettlementScheme: Send {
         None
     }
 
+    /// Over a settlement hub: what deposits had credited the node's own
+    /// account in the hub as of the last state its books took, in the hub
+    /// asset's smallest unit, the hub's `deposited` counter as the books
+    /// booked it. It is kept with the books, and grows only as they book a
+    /// deposit, so a deposit whose counter it has not reached is not on
+    /// the scheme's ledger. None before the books took a state of the
+    /// account, and by default.
+    fn deposits_booked(&self) -> Option<u64> {
+        None
+    }
+
     /// Whether peers on the scheme trust each other without limit, as the
     /// stub with unlimited trust's do, for tests whose subject is not
     /// settlement (spec/areas/settlement.md#the-stub-scheme). The node then

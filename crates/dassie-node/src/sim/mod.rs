@@ -644,6 +644,15 @@ fn ilp_packet(body: &[u8]) -> Option<(u32, dassie_ilp::Packet<'_>)> {
     Some((request_id, dassie_ilp::Packet::decode_exact(packet).ok()?))
 }
 
+/// The method a Prepare comes on: the scheme its `methodPacket` names, in
+/// whose units its amount is. `None` for any other message.
+fn packet_method(body: &[u8]) -> Option<dassie_peer::wire::SchemeId> {
+    match dassie_peer::wire::Content::decode_exact(body).ok()? {
+        dassie_peer::wire::Content::MethodPacket { scheme, .. } => Some(scheme),
+        _ => None,
+    }
+}
+
 /// Whether a peer message is a Prepare over a settlement hub: on a method
 /// that carries the payer's commitment.
 fn hub_prepare(body: &[u8]) -> bool {
@@ -809,6 +818,8 @@ type PacketKey = (usize, usize, u32, [u8; 32]);
 /// (spec/decisions/crash-drift.md).
 struct Sent {
     amount: u64,
+    /// The method it came on, in whose units `amount` is.
+    method: Option<dassie_peer::wire::SchemeId>,
     /// Its expiry, on the sender's clock.
     expires_at_ms: u64,
     /// The sender's generation when it sent it: a sender that restarted
@@ -1008,8 +1019,9 @@ pub struct Sim {
     /// and the request's ID, until their result arrives: a refusal loses
     /// it.
     fulfills_sent: BTreeMap<(usize, u64, RequestId), PacketKey>,
-    /// How far each pair of nodes' books drifted, the lower index first.
-    drift: BTreeMap<(usize, usize), Drift>,
+    /// How far each pair of nodes' books drifted on each method, the lower
+    /// index first: each method's in its own ledger's units.
+    drift: BTreeMap<(usize, usize, Option<dassie_peer::wire::SchemeId>), Drift>,
     /// The settlement hub of a run over one, with its validators: the
     /// first of a run over two.
     pub hub: Option<Box<hub::HubNet>>,
@@ -2510,6 +2522,7 @@ impl Sim {
                 let at = taken_by.max(sent_by).max(self.now) + 1;
                 let sent = Sent {
                     amount: prepare.amount,
+                    method: packet_method(body),
                     expires_at_ms,
                     generation: self.nodes[from].generation,
                     fulfilled: false,
@@ -2582,7 +2595,8 @@ impl Sim {
             // crashed answering it, goes with its Prepare.
             self.fulfills_sent.retain(|_, sent| *sent != key);
             let (from, to, ..) = key;
-            let drift = self.drift.entry((from.min(to), from.max(to))).or_default();
+            let pair = (from.min(to), from.max(to), sent.method);
+            let drift = self.drift.entry(pair).or_default();
             let amount = u128::from(sent.amount);
             let (how, why) = match sent.lost {
                 Some(Lost::SenderCrash | Lost::PeerCrash) => {
@@ -2609,11 +2623,25 @@ impl Sim {
     /// How far the books of nodes `a` and `b` drifted, by what really
     /// happened: the Fulfills one booked and the other never did
     /// (spec/decisions/crash-drift.md). It counts only what surely drifted,
-    /// so it may fall short of the drift, and never exceeds it.
+    /// so it may fall short of the drift, and never exceeds it. Summed
+    /// over the methods of their peering, which over two hubs are in two
+    /// ledgers' units: [`drift_on`](Self::drift_on) tells them apart.
     pub fn drift(&mut self, a: usize, b: usize) -> Drift {
         self.finalise_sent();
+        let pair = (a.min(b), a.max(b));
+        let mut total = Drift::default();
+        for (_, drift) in (self.drift.iter()).filter(|((x, y, _), _)| (*x, *y) == pair) {
+            total.crashes += drift.crashes;
+            total.others += drift.others;
+        }
+        total
+    }
+
+    /// [`drift`](Self::drift) on `method` alone, in its ledger's units.
+    pub fn drift_on(&mut self, a: usize, b: usize, method: dassie_peer::wire::SchemeId) -> Drift {
+        self.finalise_sent();
         self.drift
-            .get(&(a.min(b), a.max(b)))
+            .get(&(a.min(b), a.max(b), Some(method)))
             .copied()
             .unwrap_or_default()
     }
