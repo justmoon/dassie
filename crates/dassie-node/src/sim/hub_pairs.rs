@@ -176,8 +176,9 @@ pub(super) fn stake(sim: &mut Sim) -> Result<(), Outcome> {
 }
 
 /// The network settles down: each member's account in each hub reads what
-/// touched it, its moves are done, and a peer short of room on a method
-/// settles once asked; the books are checked once all of that is done.
+/// touched it, its moves are done, its owner books book what the XRP
+/// Ledger applied, and a peer short of room on a method settles once
+/// asked; the books are checked once all of that is done ([`idle_in`]).
 /// Only the hubs at `places` are waited for: one that stalled reads nothing
 /// new.
 pub(super) fn settle_down_in(sim: &mut Sim, places: &[usize]) {

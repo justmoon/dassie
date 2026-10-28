@@ -266,9 +266,11 @@ pub(super) fn over_hub(sim: &Sim) -> Result<(), Outcome> {
 
 /// The network settles down: each member's account reads what touched it
 /// a few blocks after the hub finalized it, a member moves funds into or
-/// out of the hub as its floor and ceiling call for, and a peer short of
-/// room settles once asked; the books are checked once all of that is
-/// done. A liar's moves and reading are its own.
+/// out of the hub as its floor and ceiling call for, each member's owner
+/// books book what the XRP Ledger applied, and a peer short of room
+/// settles once asked; the books are checked once all of that is done
+/// ([`idle_in`]). A liar's moves and reading are its own; its owner books
+/// are not.
 pub(super) fn settle_down(sim: &mut Sim, liar: Option<usize>) {
     sim.run_until(sim.now + CALM_MS);
     let all = places(sim);

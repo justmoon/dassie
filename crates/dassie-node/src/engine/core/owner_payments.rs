@@ -110,6 +110,21 @@ impl Core {
         })
     }
 
+    /// Whether the books hold a payment of the owner's out of `ledger` on
+    /// its way: until its scheme says what became of it, the books and the
+    /// account may differ, so a simulation judges neither.
+    #[cfg(feature = "testing")]
+    #[must_use]
+    pub fn owner_payments_in_flight(&self, ledger: LedgerId) -> bool {
+        let Ok(settlement) = self.account(ledger, AccountName::AssetsSettlement) else {
+            return false;
+        };
+        self.ledger.pending_transfers().any(|transfer| {
+            transfer.credit == settlement
+                && matches!(transfer.reference, Reference::OwnerPayment { .. })
+        })
+    }
+
     /// `scheme`'s payment `id` is no longer on its way: its hold is posted
     /// if it applied, and voided otherwise; its fee hold is voided, as the
     /// scheme books the fee. A hold the books do not have pending was
