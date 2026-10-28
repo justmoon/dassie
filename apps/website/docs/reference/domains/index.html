@@ -82,11 +82,12 @@
             <tr>
               <td>
                 <code>boot1.dassie.xyz</code> to
-                <code>boot4.dassie.xyz</code>
+                <code>boot5.dassie.xyz</code>
               </td>
               <td>
-                The testnet's bootstrap nodes, built into the release. They
-                also keep the testnet's XRP and DSUSD hubs
+                The testnet's bootstrap nodes, built into the release.
+                <code>boot1</code> to <code>boot4</code> also keep the
+                testnet's XRP and DSUSD hubs
               </td>
               <td>With a release</td>
             </tr>
@@ -258,9 +259,9 @@
         named in the release, the bootstrap nodes and the relay with their
         keys, and nothing outside a release stores them. So a release can
         move them, and nodes follow when they update. A new testnet node
-        finds the network through the four bootstrap nodes, and
-        <code>dassie setup</code> joins the testnet's XRP hub, which they
-        keep, unless you name other hubs or none. A node without a hostname
+        finds the network through the five bootstrap nodes, and
+        <code>dassie setup</code> joins the testnet's XRP hub, which four of
+        them keep, unless you name other hubs or none. A node without a hostname
         keeps the front door at <code>relay.dassiepay.net</code> as its
         relay.
       </p>
