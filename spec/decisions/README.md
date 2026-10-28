@@ -83,6 +83,7 @@ Each file records one choice between real alternatives: the facts that forced it
 | [scheme-names](scheme-names.md) | A scheme's ID names its ledger, network and asset, and a wallet address names the asset alone | settlement, xrpl, ledger, payments, identity |
 | [secrets-at-rest](secrets-at-rest.md) | Secrets at rest | node, http |
 | [settle-at-the-trigger](settle-at-the-trigger.md) | A node asks a peer to settle as soon as its room falls to the trigger | settlement, peer-protocol, hubs |
+| [settle-by-request-rate](settle-by-request-rate.md) | A payer over a hub sizes its fundings by how often it is asked | settlement, hubs |
 | [settle-when-funds-arrive](settle-when-funds-arrive.md) | A payer funds a request it could not fund as soon as it can | settlement, hubs |
 | [settlement-hubs](settlement-hubs.md) | Settlement hubs (design, partly built) | designs/settlement-hubs |
 | [settlement-methods](settlement-methods.md) | A peering settles over every hub both nodes are in, and a packet keeps its ledger where it can | network, settlement, connector, peer-protocol |
