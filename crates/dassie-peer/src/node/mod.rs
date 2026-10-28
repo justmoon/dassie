@@ -669,7 +669,10 @@ impl PeerNode {
         if let Some(entry) = self.table.get(node)
             && let (Some(key), Some(link)) = (entry.key, entry.link.as_ref())
         {
-            return Some((key, link.endpoint.clone()));
+            // A periphery node is reached only over the connection it
+            // opened, whether or not its link state has a URL.
+            let core = self.is_core_node(node, link.endpoint.is_some());
+            return Some((key, link.endpoint.clone().filter(|_| core)));
         }
         self.bootstrap
             .iter()
@@ -1295,15 +1298,35 @@ impl PeerNode {
 
     /// Whether this node runs as a periphery node: it peers only with core
     /// nodes, as their downlink, and never forwards
-    /// (spec/areas/network.md#periphery-nodes).
+    /// (spec/areas/network.md#periphery-nodes). Every node that is not a
+    /// core node is one (spec/decisions/promotion-to-core.md); for now, a
+    /// node with a URL is a core node.
     #[must_use]
     pub const fn is_periphery(&self) -> bool {
         self.own_info.is_periphery()
     }
 
+    /// Whether this node has a URL, which its link state carries: what
+    /// lets it register and its link state flood, whether or not it is a
+    /// core node (spec/decisions/promotion-to-core.md).
+    #[must_use]
+    pub const fn has_url(&self) -> bool {
+        self.own_info.url.is_some()
+    }
+
+    /// Whether `node`, whose link state has a URL if `has_url`, is a core
+    /// node, which we peer with as a core peer, ask to peer and reach at
+    /// its URL; any other is a periphery node, our downlink if peered,
+    /// reached only over the connection it opened
+    /// (spec/decisions/promotion-to-core.md). For now, a node with a URL is
+    /// a core node.
+    pub(crate) const fn is_core_node(&self, _node: &NodeId, has_url: bool) -> bool {
+        has_url
+    }
+
     /// Whether this node takes downlinks: a core node with room for any.
     pub(crate) const fn takes_downlinks(&self) -> bool {
-        self.own_info.url.is_some() && self.config.max_downlinks > 0
+        !self.is_periphery() && self.config.max_downlinks > 0
     }
 
     /// The downlinks in the table.

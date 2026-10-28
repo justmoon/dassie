@@ -218,6 +218,7 @@ impl PeerNode {
             return Processed::Old;
         }
         let (now, rate) = (self.now_ms, self.config.link_state_rate);
+        let core = self.is_core_node(&id, !signed.info.is_periphery());
         let Some(entry) = self.table.get_mut(&id) else {
             self.stats.link_states_dropped += 1;
             return Processed::Dropped;
@@ -264,7 +265,7 @@ impl PeerNode {
         // the other kind now, with another address and other bounds: the
         // peering made as the old kind ends, and it may ask anew
         // (spec/areas/network.md#downlinks).
-        let switched = entry.peering().is_some() && entry.is_downlink() != link.periphery;
+        let switched = entry.peering().is_some() && entry.is_downlink() == core;
         // What a peer offered before, to tell an account it names anew.
         let before =
             (entry.peering().is_some()).then(|| entry.link.as_ref().map(|old| old.offers.clone()));
@@ -327,8 +328,8 @@ impl PeerNode {
     /// hour regardless, never faster than the debounce. The
     /// sequence is persisted with it.
     pub(super) fn issue_own(&mut self) {
-        // A periphery node's has no URL, and says so with its extension.
-        let periphery = self.is_periphery();
+        // A node without a URL says so with the periphery extension.
+        let periphery = !self.has_url();
         let Some(url) = self
             .own_info
             .url
@@ -459,8 +460,9 @@ impl PeerNode {
     /// Bootstrap nodes get our new link state directly, so they can answer
     /// refreshes for it; others get it by flooding.
     fn push_to_bootstrap(&mut self, bytes: &[u8]) {
-        // A periphery node's goes only to its uplinks.
-        if self.is_periphery() {
+        // A node without a URL registers nowhere: its goes only to its
+        // uplinks.
+        if !self.has_url() {
             return;
         }
         let Ok(signed) = SignedNodeInfo::decode_exact(bytes) else {
