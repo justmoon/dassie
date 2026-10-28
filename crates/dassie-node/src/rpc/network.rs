@@ -15,7 +15,9 @@ use super::{RpcError, convert};
 use dassie_connector::Targets;
 use dassie_ledger::LedgerId;
 
-use crate::engine::{Engine, NetworkView, OwnerSwap, PeerView, SwapEnd, SwapStats};
+use crate::engine::{
+    Engine, NetworkView, OwnerSwap, PeerSnapshotView, PeerView, SwapEnd, SwapStats,
+};
 use crate::node::Node;
 use crate::store::PeerSettings;
 
@@ -87,7 +89,8 @@ pub async fn dispatch(
         Method::GetPeerSettings(_)
         | Method::SetPeerSettings(_)
         | Method::GetSwapStatus(_)
-        | Method::SwapWithPeer(_) => peer_settings_and_swaps(engine, method).await?,
+        | Method::SwapWithPeer(_)
+        | Method::ListPeerSnapshots(_) => peer_settings_and_swaps(engine, method).await?,
         other => view(&engine.network().await?, other),
     };
     Ok(Reply::Unary(reply))
@@ -111,6 +114,16 @@ async fn peer_settings_and_swaps(
             response::Method::GetSwapStatus(swap_status(engine.swap_stats().await?))
         }
         Method::SwapWithPeer(request) => swap_with_peer(engine, request).await?,
+        Method::ListPeerSnapshots(_) => {
+            response::Method::ListPeerSnapshots(proto::ListPeerSnapshotsResponse {
+                snapshots: engine
+                    .peer_snapshots()
+                    .await?
+                    .iter()
+                    .map(peer_snapshot)
+                    .collect(),
+            })
+        }
         _ => unreachable!("not a method of the peer settings or swaps"),
     })
 }
@@ -201,12 +214,47 @@ async fn swap_with_peer(
     ))
 }
 
+/// A peer's snapshot, as the contract says it.
+fn peer_snapshot(view: &PeerSnapshotView) -> proto::PeerSnapshot {
+    let snapshot = &view.snapshot;
+    assert_eq!(
+        snapshot.methods.len(),
+        view.schemes.len(),
+        "a scheme per method"
+    );
+    proto::PeerSnapshot {
+        node: view.peer.to_string(),
+        sequence: snapshot.sequence_ms,
+        valid_until_unix_ms: convert::time(snapshot.valid_until_ms),
+        grid_bp: snapshot
+            .grid_bp
+            .iter()
+            .map(|&drop| u32::from(drop))
+            .collect(),
+        methods: snapshot
+            .methods
+            .iter()
+            .zip(&view.schemes)
+            .map(|(method, scheme)| proto::SnapshotMethod {
+                tag: method.tag.to_vec(),
+                scheme: scheme.clone().unwrap_or_default(),
+                bid: method.bid.to_bits(),
+                ask: method.ask.to_bits(),
+                bid_ladder: method.bid_ladder.amounts().to_vec(),
+                ask_ladder: method.ask_ladder.amounts().to_vec(),
+            })
+            .collect(),
+    }
+}
+
 /// What the swap service did, as the contract says it.
 fn swap_status(stats: SwapStats) -> proto::GetSwapStatusResponse {
     proto::GetSwapStatusResponse {
         by_itself: stats.by_itself,
         peers: stats.peers,
         in_flight: stats.in_flight,
+        backing_off: stats.backing_off,
+        waiting_for_snapshot: stats.waiting_for_snapshot,
         sent: stats.sent,
         fulfilled: stats.fulfilled,
         rejected: stats.rejected,

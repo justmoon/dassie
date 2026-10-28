@@ -27,7 +27,7 @@ import {
   DASSIE,
   FAKE_LEDGER,
   missingScenarioTools,
-  SCENARIO_PORT_OFFSET,
+  PORT_OFFSETS,
 } from "./harness.ts";
 import {
   DEV_RATES,
@@ -51,7 +51,7 @@ const UNIT = 1_000n;
  * the dev rate. */
 const POOL_VALUE = "50000";
 const POOL_FEE = 500;
-const PORT_OFFSET = SCENARIO_PORT_OFFSET + 200;
+const PORT_OFFSET = PORT_OFFSETS["dsusd_test.ts"];
 
 const missing = await missingScenarioTools();
 

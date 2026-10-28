@@ -5,7 +5,7 @@
 ## Facts
 
 - Setting a node up takes its owner's passphrase: the node key derives from it, and the node takes it, with the setup token, at `POST /api/setup` ([HTTP](../areas/http.md#setup)). The wallet does that in the browser, so that the phrase never leaves it.
-- Some owners keep the phrase on the node's host anyway. The market maker's two nodes are set up by a VM that nobody logs in to, and the market maker already reads each node's phrase from a file to sign its swaps ([Rate feed](../areas/rate-feed.md#market-maker)). A headless node set up by a script is the same case. For them a browser adds a person to a step that is meant to run unattended.
+- Some owners keep the phrase on the node's host anyway. The market maker's node is set up by a VM that nobody logs in to, and the market maker already reads the node's phrase from a file to sign its rebalances ([Rate feed](../areas/rate-feed.md#market-maker)). A headless node set up by a script is the same case. For them a browser adds a person to a step that is meant to run unattended.
 - The setup route checks the token and the key's form, and stores the key in the same write that deletes the token, so of two setups at once only one wins. A second way to set a node up would need all of that again.
 - A node with no hostname serves a self-signed certificate that names `localhost`. No CA can vouch for it, and anyone can make one that names `localhost`.
 - The node does not always hold every loopback address at its HTTPS port. A node that listens on one address (`--listen`), or on IPv6 alone where the host keeps IPv6 sockets apart from IPv4, leaves the other loopback address free at that port, and any user of the host can bind it.

@@ -110,6 +110,10 @@ fn skewed_nodes_swap_toward_their_targets() {
         for index in 0..2 {
             assert_eq!(stats(&sim, index).sent, sent[index], "seed {seed}");
             assert_eq!(stats(&sim, index).in_flight, 0);
+            // Nothing pending: it backs off from no peer and waits for no
+            // snapshot, so its quiet is its decision, as the owner sees.
+            assert_eq!(stats(&sim, index).backing_off, 0, "seed {seed}");
+            assert_eq!(stats(&sim, index).waiting_for_snapshot, 0, "seed {seed}");
             let other = key(1 - index).node_id();
             let now = sim
                 .core(index)
@@ -126,6 +130,45 @@ fn skewed_nodes_swap_toward_their_targets() {
         }
         crate::sim::checks::check_hub_packets(&sim).unwrap();
     }
+}
+
+// spec/areas/rate-feed.md#market-maker: the owner reads the snapshots the
+// service reads (`ListPeerSnapshots`), decoded, each method named by the
+// scheme the node runs whose tag it is, as a reader that swaps through
+// the node prices them.
+#[test]
+fn the_owner_reads_the_peers_snapshots_by_scheme() {
+    let mut sim = skewed(SEEDS[0]);
+    let both = |sim: &Sim| {
+        (0..2).all(|index| {
+            let other = key(1 - index).node_id();
+            sim.core(index).peer_snapshot(&other).is_some()
+        })
+    };
+    assert!(sim.run_until_or(sim.now + 60_000, both));
+    let views = sim.core(0).peer_snapshot_views();
+    assert_eq!(views.len(), 1);
+    let view = &views[0];
+    assert_eq!(view.peer, key(1).node_id());
+    let read = sim.core(0).peer_snapshot(&view.peer);
+    assert_eq!(Some(&view.snapshot), read.as_ref());
+    assert_eq!(view.schemes.len(), view.snapshot.methods.len());
+    for (method, scheme) in view.snapshot.methods.iter().zip(&view.schemes) {
+        let scheme = scheme.as_deref().expect("a scheme the node runs");
+        assert_eq!(dassie_feed::method_tag(scheme), method.tag);
+    }
+    let schemes: BTreeSet<&str> = view.schemes.iter().flatten().map(String::as_str).collect();
+    assert_eq!(schemes, BTreeSet::from(["stub", STUB_TWO]));
+    // A node that does not swap reads none, and lists none.
+    sim.step(0, |core| {
+        let settings = PeerSettings {
+            swapping: false,
+            ..core.peer_settings()
+        };
+        core.set_peer_settings(settings).unwrap();
+    });
+    sim.run_until(sim.now + 10_000);
+    assert!(sim.core(0).peer_snapshot_views().is_empty());
 }
 
 // A node whose owner turned swapping off swaps nothing by itself and reads
@@ -229,6 +272,14 @@ fn a_rate_limited_swap_backs_off() {
         }
         let backed = stats(&sim, 0).backoffs + stats(&sim, 1).backoffs;
         assert!(backed >= 3, "seed {seed}");
+        // The owner sees whom it backs off from now; once the backoff ends
+        // it looks again, and the peers take the swaps.
+        let backing = |sim: &Sim| stats(sim, 0).backing_off + stats(sim, 1).backing_off > 0;
+        assert!(sim.run_until_or(sim.now + 10_000, backing), "seed {seed}");
+        sim.transport_refusals.clear();
+        let fulfilled = stats(&sim, 0).fulfilled + stats(&sim, 1).fulfilled;
+        sim.run_until(sim.now + 60_000);
+        assert!(stats(&sim, 0).fulfilled + stats(&sim, 1).fulfilled > fulfilled);
     }
 }
 
@@ -251,6 +302,8 @@ fn a_refused_swap_waits_for_the_next_snapshot() {
         sim.run_until(sim.now + 5_000);
         let (sent, refusals) = (stats(&sim, 0).sent, stats(&sim, 0).refused);
         assert_eq!(stats(&sim, 0).in_flight, 0);
+        // The owner sees that it waits for the peer's next snapshot.
+        assert_eq!(stats(&sim, 0).waiting_for_snapshot, 1, "seed {seed}");
         sim.run_until(sim.now + 30_000);
         assert_eq!(stats(&sim, 0).sent, sent, "seed {seed}: asked again");
         assert_eq!(stats(&sim, 0).refused, refusals, "seed {seed}");

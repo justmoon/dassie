@@ -1,20 +1,20 @@
 /**
- * What the market maker's end-to-end tests share
- * (spec/areas/rate-feed.md#market-maker): the scenario's nodes, reading
- * what they hold across their hubs and owner books, the fake ledger's
- * pool, and writing the market maker's config. A scenario founds an XRP
- * hub and a DSUSD hub; its core nodes, the targets, join both, with XRP
- * and DSUSD, and the market maker's two periphery nodes, pinned to every
- * core node, join one each: one with XRP, one with DSUSD.
+ * What the end-to-end tests of swaps and the market maker share
+ * (spec/areas/rate-feed.md#market-maker, spec/decisions/peer-swaps.md):
+ * the scenario's nodes, reading what they hold across their hubs and
+ * owner books, the peers' snapshots a node holds and what they promise,
+ * the fake ledger's pool, and writing the market maker's config. A
+ * scenario founds an XRP hub and a DSUSD hub; its core nodes, the
+ * targets, join both, with XRP and DSUSD, and so does the market maker's
+ * one periphery node, pinned to every core node.
  *
  * @module
  */
 
 import { assert } from "@std/assert";
-import { readFile, writeFile } from "node:fs/promises";
+import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { Agent, fetch } from "undici";
-import { FundsKept } from "@dassie/rpc/proto";
+import { FundsKept, type PeerSnapshot } from "@dassie/rpc/proto";
 import {
   hubLedger,
   hubOwnerLedger,
@@ -25,9 +25,13 @@ import {
 } from "@dassie/dev/scenario";
 
 /** The ledgers of the XRP hub and of the DSUSD hub, which the market
- * maker trades on and the core nodes convert between. */
+ * maker swaps between and the core nodes convert between. */
 export const XRP_HUB = "hub-xrpl-testnet-xrp+xrp";
 export const DSUSD_HUB = "hub-xrpl-testnet-dsusd+usd";
+/** Their settlement methods, by the schemes over the hubs: what a
+ * snapshot quotes and a swap names. */
+export const XRP_METHOD = "hub-xrpl-testnet-xrp";
+export const DSUSD_METHOD = "hub-xrpl-testnet-dsusd";
 /** The owner books that fund them, on each node's XRP Ledger account. */
 export const XRP_BOOK = "xrpl-testnet-xrp+xrp";
 export const DSUSD_BOOK = "xrpl-testnet-dsusd+usd";
@@ -41,8 +45,15 @@ export const ISSUER = "rURgPoYNN7tGqBzGXFeCLmKYgpSjYgJP6M";
 const DSUSD_CURRENCY = "4453555344000000000000000000000000000000";
 /** A whole XRP or dollar in the books' units, which count at scale 9. */
 export const UNIT = 1_000_000_000n;
-/** What the market maker sends through a core node in one trade: 2 dollars. */
+/** The largest packet, in the books' units: a tenth of a unit. */
+export const LARGEST_PACKET = 100_000_000n;
+/** What the market maker pays through a core node in one trade: 2 dollars. */
 export const TRADE = 2n * UNIT;
+/**
+ * How long a swap the owner asks for may take: the node sends for a minute
+ * at most, then waits for what it has in flight (`SwapWithPeer`).
+ */
+export const SWAP_TIMEOUT_MS = 180_000;
 /**
  * The least gain a trade must make: 1%. A core node holds about a
  * twentieth of its value in DSUSD, so its curve takes DSUSD in at up to its
@@ -53,12 +64,12 @@ const MARGIN_PPM = 10_000;
 /** How far the pool's price may move against a swap: 1%. */
 const SLIPPAGE_PPM = 10_000;
 /**
- * The XRP node's band around what it holds at the start, unless a test
- * names another: above it, after two trades, the market maker swaps its XRP
- * back into DSUSD through the pool.
+ * The band of the market maker's XRP around what it holds at the start,
+ * unless a test names another: above it, after two trades, the market
+ * maker swaps its XRP back into DSUSD through the pool.
  */
 const XRP_BAND = 6n * UNIT;
-/** The DSUSD node's band, in dollars: room for every trade a run makes. */
+/** The band of its DSUSD, in dollars: room for every trade a run makes. */
 const DSUSD_LOW = 5n * UNIT;
 const DSUSD_HIGH = 40n * UNIT;
 /** How long the fake ledger may take to answer `amm_info`. */
@@ -68,33 +79,29 @@ const AMM_INFO_TIMEOUT_MS = 10_000;
 export interface MarketMakerNodes {
   /** The core nodes, its targets, members of both hubs. */
   readonly cores: ScenarioNode[];
-  /** The market maker's node in the XRP hub. */
-  readonly xrpNode: ScenarioNode;
-  /** The market maker's node in the DSUSD hub. */
-  readonly dsusdNode: ScenarioNode;
+  /** The market maker's node, a periphery node in both hubs. */
+  readonly makerNode: ScenarioNode;
 }
 
-/** The scenario's core nodes and the market maker's two, by the hubs each
- * joins: the cores both, the market maker's one each. */
+/** The scenario's core nodes and the market maker's node: the members of
+ * both hubs, the periphery node among them the market maker's. */
 export function marketMakerNodes(scenario: Scenario): MarketMakerNodes {
   const [xrpHub, dsusdHub] = hubsOf(scenario.def);
   assert(xrpHub && dsusdHub, "the scenario has no XRP and DSUSD hubs");
-  const inXrp = (node: ScenarioNode) => joins(scenario.def, xrpHub, node.index);
-  const inDsusd = (node: ScenarioNode) =>
-    joins(scenario.def, dsusdHub, node.index);
-  const cores = scenario.nodes.filter((node) => inXrp(node) && inDsusd(node));
-  const xrpNode = scenario.nodes.find((node) => inXrp(node) && !inDsusd(node));
-  const dsusdNode = scenario.nodes.find((node) =>
-    inDsusd(node) && !inXrp(node)
+  const inBoth = scenario.nodes.filter((node) =>
+    joins(scenario.def, xrpHub, node.index) &&
+    joins(scenario.def, dsusdHub, node.index)
   );
-  assert(cores.length > 0 && xrpNode && dsusdNode, "the market maker's nodes");
+  const cores = inBoth.filter((node) => !node.periphery);
+  const makers = inBoth.filter((node) => node.periphery);
+  assert(cores.length > 0 && makers.length === 1, "the market maker's nodes");
   assert(
     hubLedger(xrpHub) === XRP_HUB && hubLedger(dsusdHub) === DSUSD_HUB &&
       hubOwnerLedger(xrpHub) === XRP_BOOK &&
       hubOwnerLedger(dsusdHub) === DSUSD_BOOK,
     "the hubs' ledgers",
   );
-  return { cores, xrpNode, dsusdNode };
+  return { cores, makerNode: makers[0]! };
 }
 
 /** A node's ledger, as its owner sees it. */
@@ -123,27 +130,6 @@ export async function held(
   return (await owner(node, hub)) + (await owner(node, book));
 }
 
-/**
- * The port `node`'s discovery document names for its snapshot, if it names one.
- */
-export async function feedPort(
-  scenario: Scenario,
-  node: ScenarioNode,
-): Promise<number | undefined> {
-  const agent = new Agent({
-    connect: { ca: await readFile(scenario.caFile, "utf8") },
-  });
-  try {
-    const response = await fetch(`${node.localUrl}/.well-known/dassie/node`, {
-      dispatcher: agent,
-    });
-    const document = await response.json() as { feedPort?: number };
-    return document.feedPort;
-  } finally {
-    await agent.close();
-  }
-}
-
 /** Whether `node` has fresh rates for XRP and dollars, which its snapshot
  * prices its hubs' ledgers at. */
 export async function freshRates(node: ScenarioNode): Promise<boolean> {
@@ -151,6 +137,106 @@ export async function freshRates(node: ScenarioNode): Promise<boolean> {
   return ["XRP", "USD"].every((code) =>
     rates.some((rate) => rate.assetCode === code && !rate.stale)
   );
+}
+
+/**
+ * The snapshot of `of` that `node` holds, if any, with both hubs' methods
+ * named by the schemes `node` runs (`ListPeerSnapshots`).
+ */
+export async function peerSnapshot(
+  node: ScenarioNode,
+  of: ScenarioNode,
+): Promise<PeerSnapshot | undefined> {
+  const { snapshots } = await node.rpc.call("listPeerSnapshots", {});
+  const snapshot = snapshots.find((listed) => listed.node === of.id);
+  const schemes = snapshot?.methods.map((method) => method.scheme) ?? [];
+  const both = [XRP_METHOD, DSUSD_METHOD].every((scheme) =>
+    schemes.includes(scheme)
+  );
+  return both ? snapshot : undefined;
+}
+
+/** A quote's word: a mantissa in its low 24 bits and an exponent in its
+ * top 8, worth `mantissa · 2^(exponent − 150)`. */
+function quote(word: number): { mantissa: bigint; exponent: number } {
+  return { mantissa: BigInt(word & 0xff_ffff), exponent: (word >>> 24) - 150 };
+}
+
+/** `numerator · 2^shift / denominator`, rounded down. */
+function shifted(numerator: bigint, denominator: bigint, shift: number) {
+  return shift >= 0
+    ? (numerator << BigInt(shift)) / denominator
+    : numerator / (denominator << BigInt(-shift));
+}
+
+/**
+ * The least a swap of `amount`, sent as one packet from the snapshot's
+ * state, gets on the method `to` for `amount` on the method `from`, as the
+ * snapshot promises it (spec/areas/rate-feed.md#reading-a-snapshot): the
+ * rate of the step the packet's last unit falls in, `from`'s bid less that
+ * level's drop, times one less the drop of `to`'s ask level, over `to`'s
+ * ask, rounded down. `undefined` when the snapshot does not price the pair
+ * or the packet is beyond what its ladders cover. Written apart from the
+ * node's reader, so that a test checks what came back against the
+ * snapshot itself.
+ */
+export function promised(
+  snapshot: PeerSnapshot,
+  from: string,
+  to: string,
+  amount: bigint,
+): bigint | undefined {
+  const of = (scheme: string) =>
+    snapshot.methods.find((method) => method.scheme === scheme);
+  const [paid, got] = [of(from), of(to)];
+  if (!paid || !got || paid.bid === 0 || got.ask === 0) return undefined;
+  const [bid, ask] = [quote(paid.bid), quote(got.ask)];
+  // The ask ladder counts what goes out; what comes in reaches each of its
+  // levels at the top-of-book price.
+  const askTops = got.askLadder.map((level) =>
+    shifted(level * ask.mantissa, bid.mantissa, ask.exponent - bid.exponent)
+  );
+  const levelIn = paid.bidLadder.findIndex((top) => amount <= top);
+  const levelOut = askTops.findIndex((top) => amount <= top);
+  if (levelIn < 0 || levelOut < 0) return undefined;
+  const keep = (level: number) => 10_000n - BigInt(snapshot.gridBp[level]!);
+  return shifted(
+    amount * bid.mantissa * keep(levelIn) * keep(levelOut),
+    ask.mantissa * 100_000_000n,
+    bid.exponent - ask.exponent,
+  );
+}
+
+/**
+ * What node A gains, in parts per million, by a vanishingly small swap with
+ * node B that pays on `pay` and is paid back on `back`: B's bid on `pay`
+ * over its ask on `back` (B's snapshot `theirs`), valued at A's own quotes,
+ * its bid on `back` over its bid on `pay` (A's snapshot `ours`), less one.
+ * A swaps while it clears A's costs (spec/decisions/peer-swaps.md): at the
+ * top of the book, with no fee or spread, this is what A weighs them
+ * against. `undefined` when a snapshot does not price the pair.
+ */
+export function gainPpm(
+  ours: PeerSnapshot,
+  theirs: PeerSnapshot,
+  pay: string,
+  back: string,
+): bigint | undefined {
+  const of = (snapshot: PeerSnapshot, scheme: string) =>
+    snapshot.methods.find((method) => method.scheme === scheme);
+  const words = [
+    of(theirs, pay)?.bid,
+    of(ours, back)?.bid,
+    of(theirs, back)?.ask,
+    of(ours, pay)?.bid,
+  ];
+  if (words.some((word) => !word)) return undefined;
+  const [up1, up2, down1, down2] = words.map((word) => quote(word!));
+  return shifted(
+    up1!.mantissa * up2!.mantissa * 1_000_000n,
+    down1!.mantissa * down2!.mantissa,
+    up1!.exponent + up2!.exponent - down1!.exponent - down2!.exponent,
+  ) - 1_000_000n;
 }
 
 /** A decimal, such as `"49995.5"` or `"1e-3"`, at `scale` decimals,
@@ -213,23 +299,15 @@ export async function pool(scenario: Scenario): Promise<Pool> {
   }
 }
 
-/** What the market maker holds, in the books' units: XRP in its XRP
- * node's hub and owner book and in its DSUSD node's owner book of XRP,
- * which pays that node's gas, and DSUSD in its DSUSD node's hub and owner
- * book. */
+/** What a node holds, in the books' units: XRP and DSUSD, each in its hub
+ * and its owner book. */
 export interface Holdings {
   readonly xrp: bigint;
   readonly dsusd: bigint;
 }
 
-export async function holdings(
-  xrpNode: ScenarioNode,
-  dsusdNode: ScenarioNode,
-): Promise<Holdings> {
-  return {
-    xrp: (await held(xrpNode, XRP)) + (await owner(dsusdNode, XRP_BOOK)),
-    dsusd: await held(dsusdNode, DSUSD),
-  };
+export async function holdings(node: ScenarioNode): Promise<Holdings> {
+  return { xrp: await held(node, XRP), dsusd: await held(node, DSUSD) };
 }
 
 /** `held`'s value in dollars at `pool`'s price, times what the pool holds
@@ -245,44 +323,39 @@ export function dollars(scaled: bigint, at: Pool): string {
 }
 
 /**
- * Writes the market maker's config, and its nodes' passphrases beside it,
- * into `dir`: the `targets` to trade through, its two nodes, each with its
- * hub's ledger and the owner book that funds it, and the pool on the fake
- * ledger. The XRP node's band is `xrpBand` around what it holds now, in
- * its hub and its book. Returns the config's path.
+ * Writes the market maker's config, and its node's passphrase beside it,
+ * into `dir`: its node, with each asset's hub ledger and the owner book
+ * that funds it, and the pool on the fake ledger. Its targets are its
+ * node's peers. The band of its XRP is `xrpBand` around what the node
+ * holds now, in its hub and its book. Returns the config's path.
  */
 export async function writeConfig(
   scenario: Scenario,
   dir: string,
-  targets: string[],
-  xrpNode: ScenarioNode,
-  dsusdNode: ScenarioNode,
+  node: ScenarioNode,
   xrpBand = XRP_BAND,
 ): Promise<string> {
-  for (const node of [xrpNode, dsusdNode]) {
-    const file = join(dir, `${node.name}.phrase`);
-    await writeFile(file, `${node.identity.phrase}\n`, { mode: 0o600 });
-    // Its rebalances spend from the owner book, so what a node is paid
-    // must reach the book: its owner keeps it on the own account, which
-    // the hub's funding sweeps beyond the ceiling, as the VM's setup does
-    // with `--keep-funds account` (spec/areas/rate-feed.md#bands).
-    await node.rpc.call("setFundsKept", {
-      name: "",
-      fundsKept: FundsKept.OWN_ACCOUNT,
-    });
-  }
-  const xrpHeld = await held(xrpNode, XRP);
+  const phrase = join(dir, `${node.name}.phrase`);
+  await writeFile(phrase, `${node.identity.phrase}\n`, { mode: 0o600 });
+  // Its rebalances spend from the owner books, so what the node is paid
+  // must reach them: its owner keeps it on the own account, which each
+  // hub's funding sweeps beyond the ceiling, as the VM's setup does with
+  // `--keep-funds account` (spec/areas/rate-feed.md#bands).
+  await node.rpc.call("setFundsKept", {
+    name: "",
+    fundsKept: FundsKept.OWN_ACCOUNT,
+  });
+  const xrpHeld = await held(node, XRP);
   const config = {
-    targets,
+    socket: node.socket,
+    passphraseFile: phrase,
     xrpl: {
       server: scenario.ledger!.url,
       token: { currency: "DSUSD", issuer: ISSUER },
     },
     xrp: {
-      socket: xrpNode.socket,
       ledger: XRP_HUB,
       ownerBook: XRP_BOOK,
-      passphraseFile: join(dir, `${xrpNode.name}.phrase`),
       tradeSize: Number(TRADE),
       band: {
         low: Number(xrpHeld - xrpBand),
@@ -290,15 +363,16 @@ export async function writeConfig(
       },
     },
     token: {
-      socket: dsusdNode.socket,
       ledger: DSUSD_HUB,
       ownerBook: DSUSD_BOOK,
-      passphraseFile: join(dir, `${dsusdNode.name}.phrase`),
       tradeSize: Number(TRADE),
       band: { low: Number(DSUSD_LOW), high: Number(DSUSD_HIGH) },
     },
     marginPpm: MARGIN_PPM,
     slippagePpm: SLIPPAGE_PPM,
+    // The dev CA, as the scenario's nodes trust it
+    // (`DASSIE_EXTRA_CA_FILE`): a host such as CI's build sandbox has no
+    // roots of its own, though the fake ledger is on `ws://`.
     caFile: scenario.caFile,
     allowPrivate: true,
   };

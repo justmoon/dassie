@@ -29,7 +29,7 @@ import {
   DASSIE,
   FAKE_LEDGER,
   missingScenarioTools,
-  SCENARIO_PORT_OFFSET,
+  PORT_OFFSETS,
 } from "./harness.ts";
 import { assertLive, ledger } from "./settling.ts";
 import {
@@ -66,7 +66,7 @@ const POOL_FEE = 500;
  * booked twice would show within it. */
 const SETTLE_CHECK_MS = 5_000;
 /** Clear of the other files' ports (harness.ts). */
-const PORT_OFFSET = SCENARIO_PORT_OFFSET + 900;
+const PORT_OFFSET = PORT_OFFSETS["mainnet_test.ts"];
 
 const missing = await missingScenarioTools();
 

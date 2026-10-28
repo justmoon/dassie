@@ -1,9 +1,9 @@
 # Updates Dassie on the market maker's VM (spec/areas/market-maker-vm.md)
-# when dassie-mm-update.timer says so: `dassie update --unit` for both
-# nodes, which restarts them and the market maker on the new version, or
-# goes back to the old one if a node does not come up (update.sh).
+# when dassie-mm-update.timer says so: `dassie update --unit` for the
+# node, which restarts it and the market maker on the new version, or goes
+# back to the old one if the node does not come up (update.sh).
 #
-# It runs as root: it writes /opt/dassie, puts back the nodes' databases in
+# It runs as root: it writes /opt/dassie, puts back the node's database in
 # /var/lib/dassie-mm if a rollback must, and restarts the units.
 [Unit]
 Description=Dassie market maker's updater

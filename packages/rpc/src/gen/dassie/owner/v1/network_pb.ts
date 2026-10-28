@@ -10,7 +10,7 @@ import type { Message, UnknownEnum } from "@bufbuild/protobuf";
  * Describes the file dassie/owner/v1/network.proto.
  */
 export const file_dassie_owner_v1_network: GenFile = /*@__PURE__*/
-  fileDesc("Ch1kYXNzaWUvb3duZXIvdjEvbmV0d29yay5wcm90bxIPZGFzc2llLm93bmVyLnYxIpcDCgtOZXR3b3JrTm9kZRIKCgJpZBgBIAEoCRILCgN1cmwYAiABKAkSDQoFYWxpYXMYAyABKAkSEAoIc2VxdWVuY2UYBCABKAQSDwoHaXNfc2VsZhgFIAEoCBIRCglib290c3RyYXAYBiABKAgSEAoIbWFqb3JpdHkYByABKAgSEgoKcmVnaXN0ZXJlZBgIIAEoCBIMCgRwZWVyGAkgASgIEiAKGHJlZ2lzdGVyZWRfdW50aWxfdW5peF9tcxgKIAEoAxISCgpmaXJzdF9ob3BzGAsgAygJEhEKCW5laWdoYm9ycxgMIAMoCRIaChJzZXR0bGVtZW50X3NjaGVtZXMYDSADKAkSFQoIZGlzdGFuY2UYDiABKA1IAIgBARIuCgpwZWVyX3N0YXRlGA8gASgOMhouZGFzc2llLm93bmVyLnYxLlBlZXJTdGF0ZRIOCgZiYW5uZWQYECABKAgSLQoHcGVlcmluZxgRIAEoCzIcLmRhc3NpZS5vd25lci52MS5OZXR3b3JrUGVlckILCglfZGlzdGFuY2UiFwoVU3Vic2NyaWJlTm9kZXNSZXF1ZXN0ImAKDk5vZGVUYWJsZUV2ZW50Eg0KBXJlc2V0GAEgASgIEi4KCHVwc2VydGVkGAIgAygLMhwuZGFzc2llLm93bmVyLnYxLk5ldHdvcmtOb2RlEg8KB3JlbW92ZWQYAyADKAkiEgoQTGlzdE5vZGVzUmVxdWVzdCJAChFMaXN0Tm9kZXNSZXNwb25zZRIrCgVub2RlcxgBIAMoCzIcLmRhc3NpZS5vd25lci52MS5OZXR3b3JrTm9kZSLbAQoLTmV0d29ya1BlZXISDAoEbm9kZRgBIAEoCRIVCg1zaW5jZV91bml4X21zGAYgASgDEhkKEWxhc3Rfc2Vlbl91bml4X21zGAcgASgDEg8KB2luYm91bmQYCCABKAgSDQoFc3RhdGUYCSABKAkSGgoSdGVybWluYXRpb25fcmVhc29uGAogASgJEhIKCmFkdmVydGlzZWQYCyABKAgSDgoGb25saW5lGA8gASgIEiwKB21ldGhvZHMYECADKAsyGy5kYXNzaWUub3duZXIudjEuUGVlck1ldGhvZCJnCgpQZWVyTWV0aG9kEg4KBnNjaGVtZRgBIAEoCRISCgpjcmVkaXRfb3V0GAIgASgEEgwKBG93ZWQYAyABKAMSEQoJd2l0aGRyYXduGAQgASgIEhQKDHdpbmRpbmdfZG93bhgFIAEoCCISChBMaXN0UGVlcnNSZXF1ZXN0IkAKEUxpc3RQZWVyc1Jlc3BvbnNlEisKBXBlZXJzGAEgAygLMhwuZGFzc2llLm93bmVyLnYxLk5ldHdvcmtQZWVyIlIKDE5ldHdvcmtSb3V0ZRIMCgRub2RlGAEgASgJEg4KBnByZWZpeBgCIAEoCRISCgpmaXJzdF9ob3BzGAMgAygJEhAKCGRpc3RhbmNlGAQgASgNIj4KCkxvY2FsUm91dGUSDgoGcHJlZml4GAEgASgJEhAKCGVuZHBvaW50GAIgASgJEg4KBmxlZGdlchgDIAEoCSITChFMaXN0Um91dGVzUmVxdWVzdCJ2ChJMaXN0Um91dGVzUmVzcG9uc2USLQoGcm91dGVzGAEgAygLMh0uZGFzc2llLm93bmVyLnYxLk5ldHdvcmtSb3V0ZRIxCgxsb2NhbF9yb3V0ZXMYAiADKAsyGy5kYXNzaWUub3duZXIudjEuTG9jYWxSb3V0ZSIYChZTdWJzY3JpYmVSb3V0ZXNSZXF1ZXN0ImwKD0Jvb3RzdHJhcFN0YXR1cxIMCgRub2RlGAEgASgJEg4KBmxpc3RlZBgCIAEoCBIdChVyZWdpc3RlcmVkX2F0X3VuaXhfbXMYAyABKAMSHAoUbGlzdF9mZXRjaGVkX3VuaXhfbXMYBCABKAMiHgocR2V0UmVnaXN0cmF0aW9uU3RhdHVzUmVxdWVzdCJyCh1HZXRSZWdpc3RyYXRpb25TdGF0dXNSZXNwb25zZRIMCgRub2RlGAEgASgJEjMKCWJvb3RzdHJhcBgCIAMoCzIgLmRhc3NpZS5vd25lci52MS5Cb290c3RyYXBTdGF0dXMSDgoGbWVtYmVyGAMgASgIIh4KHFN1YnNjcmliZVJlZ2lzdHJhdGlvblJlcXVlc3QiLAocUmVnaXN0ZXJXaXRoQm9vdHN0cmFwUmVxdWVzdBIMCgRub2RlGAEgASgJIh8KHVJlZ2lzdGVyV2l0aEJvb3RzdHJhcFJlc3BvbnNlIicKF1Rlcm1pbmF0ZVBlZXJpbmdSZXF1ZXN0EgwKBG5vZGUYASABKAkiGgoYVGVybWluYXRlUGVlcmluZ1Jlc3BvbnNlIh4KDkJhbk5vZGVSZXF1ZXN0EgwKBG5vZGUYASABKAkiEQoPQmFuTm9kZVJlc3BvbnNlIiAKEFVuYmFuTm9kZVJlcXVlc3QSDAoEbm9kZRgBIAEoCSITChFVbmJhbk5vZGVSZXNwb25zZSIRCg9MaXN0QmFuc1JlcXVlc3QiIQoQTGlzdEJhbnNSZXNwb25zZRINCgVub2RlcxgBIAMoCSKxAQoMUGVlclNldHRpbmdzEhkKEWNvbm5lY3Rvcl9mZWVfcHBtGAIgASgNEhUKDWZ4X3NwcmVhZF9wcG0YAyABKA0SFQoNcmViYWxhbmNlX3BwbRgEIAEoDRITCgtvZmZlcl9zd2FwcxgFIAEoCBIQCghzd2FwcGluZxgGIAEoCBIxCgxzd2FwX3RhcmdldHMYByADKAsyGy5kYXNzaWUub3duZXIudjEuU3dhcFRhcmdldCIwCgpTd2FwVGFyZ2V0Eg4KBmxlZGdlchgBIAEoCRISCgp0YXJnZXRfcHBtGAIgASgNIhgKFkdldFBlZXJTZXR0aW5nc1JlcXVlc3QiSgoXR2V0UGVlclNldHRpbmdzUmVzcG9uc2USLwoIc2V0dGluZ3MYASABKAsyHS5kYXNzaWUub3duZXIudjEuUGVlclNldHRpbmdzIkkKFlNldFBlZXJTZXR0aW5nc1JlcXVlc3QSLwoIc2V0dGluZ3MYASABKAsyHS5kYXNzaWUub3duZXIudjEuUGVlclNldHRpbmdzIkoKF1NldFBlZXJTZXR0aW5nc1Jlc3BvbnNlEi8KCHNldHRpbmdzGAEgASgLMh0uZGFzc2llLm93bmVyLnYxLlBlZXJTZXR0aW5ncyI8CgpTd2Fwc01vdmVkEg4KBmxlZGdlchgBIAEoCRIMCgRwYWlkGAIgASgEEhAKCHJlY2VpdmVkGAMgASgEIhYKFEdldFN3YXBTdGF0dXNSZXF1ZXN0IqcCChVHZXRTd2FwU3RhdHVzUmVzcG9uc2USEQoJYnlfaXRzZWxmGAEgASgIEg0KBXBlZXJzGAIgASgEEhEKCWluX2ZsaWdodBgDIAEoBBIMCgRzZW50GAQgASgEEhEKCWZ1bGZpbGxlZBgFIAEoBBIQCghyZWplY3RlZBgGIAEoBBIcChRwYWlkX3Rob3VnaF9yZWplY3RlZBgHIAEoBBIQCghiYWNrb2ZmcxgIIAEoBBIPCgdyZWZ1c2VkGAkgASgEEhUKDWJlbG93X21pbmltdW0YCiABKAQSEQoJdG9vX2xhcmdlGAsgASgEEg8KB2Ryb3BwZWQYDCABKAQSKgoFbW92ZWQYDSADKAsyGy5kYXNzaWUub3duZXIudjEuU3dhcHNNb3ZlZCKGAQoTU3dhcFdpdGhQZWVyUmVxdWVzdBIMCgRub2RlGAEgASgJEg4KBnBheV9vbhgCIAEoCRIPCgdiYWNrX29uGAMgASgJEg4KBmFtb3VudBgEIAEoBBIWCg5yYXRlX251bWVyYXRvchgFIAEoBBIYChByYXRlX2Rlbm9taW5hdG9yGAYgASgEIoQBChRTd2FwV2l0aFBlZXJSZXNwb25zZRIMCgRwYWlkGAEgASgEEhAKCHJlY2VpdmVkGAIgASgEEhEKCWZ1bGZpbGxlZBgDIAEoBBIQCghyZWplY3RlZBgEIAEoBBInCgVlbmRlZBgFIAEoDjIYLmRhc3NpZS5vd25lci52MS5Td2FwRW5kIo0BChFTZXR0bGVtZW50Q2hhbm5lbBIMCgRub2RlGAEgASgJEhIKCnNldHRsZWRfaW4YAiABKAQSEwoLc2V0dGxlZF9vdXQYAyABKAQSDwoHc2VuZGluZxgEIAEoCBIWCg5zZW5kaW5nX2Ftb3VudBgFIAEoBBIYChBzZW5kaW5nX2F0dGVtcHRzGAYgASgNIh8KHUxpc3RTZXR0bGVtZW50Q2hhbm5lbHNSZXF1ZXN0IlYKHkxpc3RTZXR0bGVtZW50Q2hhbm5lbHNSZXNwb25zZRI0CghjaGFubmVscxgBIAMoCzIiLmRhc3NpZS5vd25lci52MS5TZXR0bGVtZW50Q2hhbm5lbCqKAQoJUGVlclN0YXRlEhoKFlBFRVJfU1RBVEVfVU5TUEVDSUZJRUQQABITCg9QRUVSX1NUQVRFX05PTkUQARIZChVQRUVSX1NUQVRFX1JFUVVFU1RJTkcQAhIVChFQRUVSX1NUQVRFX1BFRVJFRBADEhoKFlBFRVJfU1RBVEVfVEVSTUlOQVRJTkcQBCp8CgdTd2FwRW5kEhgKFFNXQVBfRU5EX1VOU1BFQ0lGSUVEEAASEQoNU1dBUF9FTkRfRE9ORRABEhYKElNXQVBfRU5EX0VYSEFVU1RFRBACEhQKEFNXQVBfRU5EX1JFRlVTRUQQAxIWChJTV0FQX0VORF9USU1FRF9PVVQQBGIGcHJvdG8z");
+  fileDesc("Ch1kYXNzaWUvb3duZXIvdjEvbmV0d29yay5wcm90bxIPZGFzc2llLm93bmVyLnYxIpcDCgtOZXR3b3JrTm9kZRIKCgJpZBgBIAEoCRILCgN1cmwYAiABKAkSDQoFYWxpYXMYAyABKAkSEAoIc2VxdWVuY2UYBCABKAQSDwoHaXNfc2VsZhgFIAEoCBIRCglib290c3RyYXAYBiABKAgSEAoIbWFqb3JpdHkYByABKAgSEgoKcmVnaXN0ZXJlZBgIIAEoCBIMCgRwZWVyGAkgASgIEiAKGHJlZ2lzdGVyZWRfdW50aWxfdW5peF9tcxgKIAEoAxISCgpmaXJzdF9ob3BzGAsgAygJEhEKCW5laWdoYm9ycxgMIAMoCRIaChJzZXR0bGVtZW50X3NjaGVtZXMYDSADKAkSFQoIZGlzdGFuY2UYDiABKA1IAIgBARIuCgpwZWVyX3N0YXRlGA8gASgOMhouZGFzc2llLm93bmVyLnYxLlBlZXJTdGF0ZRIOCgZiYW5uZWQYECABKAgSLQoHcGVlcmluZxgRIAEoCzIcLmRhc3NpZS5vd25lci52MS5OZXR3b3JrUGVlckILCglfZGlzdGFuY2UiFwoVU3Vic2NyaWJlTm9kZXNSZXF1ZXN0ImAKDk5vZGVUYWJsZUV2ZW50Eg0KBXJlc2V0GAEgASgIEi4KCHVwc2VydGVkGAIgAygLMhwuZGFzc2llLm93bmVyLnYxLk5ldHdvcmtOb2RlEg8KB3JlbW92ZWQYAyADKAkiEgoQTGlzdE5vZGVzUmVxdWVzdCJAChFMaXN0Tm9kZXNSZXNwb25zZRIrCgVub2RlcxgBIAMoCzIcLmRhc3NpZS5vd25lci52MS5OZXR3b3JrTm9kZSLbAQoLTmV0d29ya1BlZXISDAoEbm9kZRgBIAEoCRIVCg1zaW5jZV91bml4X21zGAYgASgDEhkKEWxhc3Rfc2Vlbl91bml4X21zGAcgASgDEg8KB2luYm91bmQYCCABKAgSDQoFc3RhdGUYCSABKAkSGgoSdGVybWluYXRpb25fcmVhc29uGAogASgJEhIKCmFkdmVydGlzZWQYCyABKAgSDgoGb25saW5lGA8gASgIEiwKB21ldGhvZHMYECADKAsyGy5kYXNzaWUub3duZXIudjEuUGVlck1ldGhvZCJnCgpQZWVyTWV0aG9kEg4KBnNjaGVtZRgBIAEoCRISCgpjcmVkaXRfb3V0GAIgASgEEgwKBG93ZWQYAyABKAMSEQoJd2l0aGRyYXduGAQgASgIEhQKDHdpbmRpbmdfZG93bhgFIAEoCCISChBMaXN0UGVlcnNSZXF1ZXN0IkAKEUxpc3RQZWVyc1Jlc3BvbnNlEisKBXBlZXJzGAEgAygLMhwuZGFzc2llLm93bmVyLnYxLk5ldHdvcmtQZWVyIlIKDE5ldHdvcmtSb3V0ZRIMCgRub2RlGAEgASgJEg4KBnByZWZpeBgCIAEoCRISCgpmaXJzdF9ob3BzGAMgAygJEhAKCGRpc3RhbmNlGAQgASgNIj4KCkxvY2FsUm91dGUSDgoGcHJlZml4GAEgASgJEhAKCGVuZHBvaW50GAIgASgJEg4KBmxlZGdlchgDIAEoCSITChFMaXN0Um91dGVzUmVxdWVzdCJ2ChJMaXN0Um91dGVzUmVzcG9uc2USLQoGcm91dGVzGAEgAygLMh0uZGFzc2llLm93bmVyLnYxLk5ldHdvcmtSb3V0ZRIxCgxsb2NhbF9yb3V0ZXMYAiADKAsyGy5kYXNzaWUub3duZXIudjEuTG9jYWxSb3V0ZSIYChZTdWJzY3JpYmVSb3V0ZXNSZXF1ZXN0ImwKD0Jvb3RzdHJhcFN0YXR1cxIMCgRub2RlGAEgASgJEg4KBmxpc3RlZBgCIAEoCBIdChVyZWdpc3RlcmVkX2F0X3VuaXhfbXMYAyABKAMSHAoUbGlzdF9mZXRjaGVkX3VuaXhfbXMYBCABKAMiHgocR2V0UmVnaXN0cmF0aW9uU3RhdHVzUmVxdWVzdCJyCh1HZXRSZWdpc3RyYXRpb25TdGF0dXNSZXNwb25zZRIMCgRub2RlGAEgASgJEjMKCWJvb3RzdHJhcBgCIAMoCzIgLmRhc3NpZS5vd25lci52MS5Cb290c3RyYXBTdGF0dXMSDgoGbWVtYmVyGAMgASgIIh4KHFN1YnNjcmliZVJlZ2lzdHJhdGlvblJlcXVlc3QiLAocUmVnaXN0ZXJXaXRoQm9vdHN0cmFwUmVxdWVzdBIMCgRub2RlGAEgASgJIh8KHVJlZ2lzdGVyV2l0aEJvb3RzdHJhcFJlc3BvbnNlIicKF1Rlcm1pbmF0ZVBlZXJpbmdSZXF1ZXN0EgwKBG5vZGUYASABKAkiGgoYVGVybWluYXRlUGVlcmluZ1Jlc3BvbnNlIh4KDkJhbk5vZGVSZXF1ZXN0EgwKBG5vZGUYASABKAkiEQoPQmFuTm9kZVJlc3BvbnNlIiAKEFVuYmFuTm9kZVJlcXVlc3QSDAoEbm9kZRgBIAEoCSITChFVbmJhbk5vZGVSZXNwb25zZSIRCg9MaXN0QmFuc1JlcXVlc3QiIQoQTGlzdEJhbnNSZXNwb25zZRINCgVub2RlcxgBIAMoCSKxAQoMUGVlclNldHRpbmdzEhkKEWNvbm5lY3Rvcl9mZWVfcHBtGAIgASgNEhUKDWZ4X3NwcmVhZF9wcG0YAyABKA0SFQoNcmViYWxhbmNlX3BwbRgEIAEoDRITCgtvZmZlcl9zd2FwcxgFIAEoCBIQCghzd2FwcGluZxgGIAEoCBIxCgxzd2FwX3RhcmdldHMYByADKAsyGy5kYXNzaWUub3duZXIudjEuU3dhcFRhcmdldCIwCgpTd2FwVGFyZ2V0Eg4KBmxlZGdlchgBIAEoCRISCgp0YXJnZXRfcHBtGAIgASgNIhgKFkdldFBlZXJTZXR0aW5nc1JlcXVlc3QiSgoXR2V0UGVlclNldHRpbmdzUmVzcG9uc2USLwoIc2V0dGluZ3MYASABKAsyHS5kYXNzaWUub3duZXIudjEuUGVlclNldHRpbmdzIkkKFlNldFBlZXJTZXR0aW5nc1JlcXVlc3QSLwoIc2V0dGluZ3MYASABKAsyHS5kYXNzaWUub3duZXIudjEuUGVlclNldHRpbmdzIkoKF1NldFBlZXJTZXR0aW5nc1Jlc3BvbnNlEi8KCHNldHRpbmdzGAEgASgLMh0uZGFzc2llLm93bmVyLnYxLlBlZXJTZXR0aW5ncyI8CgpTd2Fwc01vdmVkEg4KBmxlZGdlchgBIAEoCRIMCgRwYWlkGAIgASgEEhAKCHJlY2VpdmVkGAMgASgEIhYKFEdldFN3YXBTdGF0dXNSZXF1ZXN0ItoCChVHZXRTd2FwU3RhdHVzUmVzcG9uc2USEQoJYnlfaXRzZWxmGAEgASgIEg0KBXBlZXJzGAIgASgEEhEKCWluX2ZsaWdodBgDIAEoBBIMCgRzZW50GAQgASgEEhEKCWZ1bGZpbGxlZBgFIAEoBBIQCghyZWplY3RlZBgGIAEoBBIcChRwYWlkX3Rob3VnaF9yZWplY3RlZBgHIAEoBBIQCghiYWNrb2ZmcxgIIAEoBBIPCgdyZWZ1c2VkGAkgASgEEhUKDWJlbG93X21pbmltdW0YCiABKAQSEQoJdG9vX2xhcmdlGAsgASgEEg8KB2Ryb3BwZWQYDCABKAQSKgoFbW92ZWQYDSADKAsyGy5kYXNzaWUub3duZXIudjEuU3dhcHNNb3ZlZBITCgtiYWNraW5nX29mZhgOIAEoBBIcChR3YWl0aW5nX2Zvcl9zbmFwc2hvdBgPIAEoBCKGAQoTU3dhcFdpdGhQZWVyUmVxdWVzdBIMCgRub2RlGAEgASgJEg4KBnBheV9vbhgCIAEoCRIPCgdiYWNrX29uGAMgASgJEg4KBmFtb3VudBgEIAEoBBIWCg5yYXRlX251bWVyYXRvchgFIAEoBBIYChByYXRlX2Rlbm9taW5hdG9yGAYgASgEIoQBChRTd2FwV2l0aFBlZXJSZXNwb25zZRIMCgRwYWlkGAEgASgEEhAKCHJlY2VpdmVkGAIgASgEEhEKCWZ1bGZpbGxlZBgDIAEoBBIQCghyZWplY3RlZBgEIAEoBBInCgVlbmRlZBgFIAEoDjIYLmRhc3NpZS5vd25lci52MS5Td2FwRW5kIhoKGExpc3RQZWVyU25hcHNob3RzUmVxdWVzdCJNChlMaXN0UGVlclNuYXBzaG90c1Jlc3BvbnNlEjAKCXNuYXBzaG90cxgBIAMoCzIdLmRhc3NpZS5vd25lci52MS5QZWVyU25hcHNob3QijgEKDFBlZXJTbmFwc2hvdBIMCgRub2RlGAEgASgJEhAKCHNlcXVlbmNlGAIgASgEEhsKE3ZhbGlkX3VudGlsX3VuaXhfbXMYAyABKAMSDwoHZ3JpZF9icBgEIAMoDRIwCgdtZXRob2RzGAUgAygLMh8uZGFzc2llLm93bmVyLnYxLlNuYXBzaG90TWV0aG9kIm8KDlNuYXBzaG90TWV0aG9kEgsKA3RhZxgBIAEoDBIOCgZzY2hlbWUYAiABKAkSCwoDYmlkGAMgASgNEgsKA2FzaxgEIAEoDRISCgpiaWRfbGFkZGVyGAUgAygEEhIKCmFza19sYWRkZXIYBiADKAQijQEKEVNldHRsZW1lbnRDaGFubmVsEgwKBG5vZGUYASABKAkSEgoKc2V0dGxlZF9pbhgCIAEoBBITCgtzZXR0bGVkX291dBgDIAEoBBIPCgdzZW5kaW5nGAQgASgIEhYKDnNlbmRpbmdfYW1vdW50GAUgASgEEhgKEHNlbmRpbmdfYXR0ZW1wdHMYBiABKA0iHwodTGlzdFNldHRsZW1lbnRDaGFubmVsc1JlcXVlc3QiVgoeTGlzdFNldHRsZW1lbnRDaGFubmVsc1Jlc3BvbnNlEjQKCGNoYW5uZWxzGAEgAygLMiIuZGFzc2llLm93bmVyLnYxLlNldHRsZW1lbnRDaGFubmVsKooBCglQZWVyU3RhdGUSGgoWUEVFUl9TVEFURV9VTlNQRUNJRklFRBAAEhMKD1BFRVJfU1RBVEVfTk9ORRABEhkKFVBFRVJfU1RBVEVfUkVRVUVTVElORxACEhUKEVBFRVJfU1RBVEVfUEVFUkVEEAMSGgoWUEVFUl9TVEFURV9URVJNSU5BVElORxAEKnwKB1N3YXBFbmQSGAoUU1dBUF9FTkRfVU5TUEVDSUZJRUQQABIRCg1TV0FQX0VORF9ET05FEAESFgoSU1dBUF9FTkRfRVhIQVVTVEVEEAISFAoQU1dBUF9FTkRfUkVGVVNFRBADEhYKElNXQVBfRU5EX1RJTUVEX09VVBAEYgZwcm90bzM");
 
 /**
  * A node in the node table (spec/areas/network.md#node-table): what its link
@@ -1095,6 +1095,22 @@ export type GetSwapStatusResponse = Message<"dassie.owner.v1.GetSwapStatusRespon
    * @generated from field: repeated dassie.owner.v1.SwapsMoved moved = 13;
    */
   moved: SwapsMoved[];
+
+  /**
+   * Peers it backs off from now: it sends them nothing until the backoff
+   * ends, and then looks at them again.
+   *
+   * @generated from field: uint64 backing_off = 14;
+   */
+  backingOff: bigint;
+
+  /**
+   * Peers it sends nothing until their snapshot changes, since they
+   * refused a swap or one came back below its minimum.
+   *
+   * @generated from field: uint64 waiting_for_snapshot = 15;
+   */
+  waitingForSnapshot: bigint;
 };
 
 /**
@@ -1212,6 +1228,159 @@ export const SwapWithPeerResponseSchema: GenMessage<SwapWithPeerResponse> = /*@_
   messageDesc(file_dassie_owner_v1_network, 38);
 
 /**
+ * The peers' snapshots the node's swaps are priced by, decoded
+ * (spec/areas/network.md#snapshot-subscriptions): each peer's latest while
+ * it counts, the first 64 by node ID, as the swap service reads them. The
+ * node subscribes to them only while swapping is on. A reader such as
+ * `dassie market-maker` swaps through its node by them
+ * (spec/areas/rate-feed.md#market-maker).
+ *
+ * @generated from message dassie.owner.v1.ListPeerSnapshotsRequest
+ */
+export type ListPeerSnapshotsRequest = Message<"dassie.owner.v1.ListPeerSnapshotsRequest"> & {
+};
+
+/**
+ * Describes the message dassie.owner.v1.ListPeerSnapshotsRequest.
+ * Use `create(ListPeerSnapshotsRequestSchema)` to create a new message.
+ */
+export const ListPeerSnapshotsRequestSchema: GenMessage<ListPeerSnapshotsRequest> = /*@__PURE__*/
+  messageDesc(file_dassie_owner_v1_network, 39);
+
+/**
+ * @generated from message dassie.owner.v1.ListPeerSnapshotsResponse
+ */
+export type ListPeerSnapshotsResponse = Message<"dassie.owner.v1.ListPeerSnapshotsResponse"> & {
+  /**
+   * By node ID.
+   *
+   * @generated from field: repeated dassie.owner.v1.PeerSnapshot snapshots = 1;
+   */
+  snapshots: PeerSnapshot[];
+};
+
+/**
+ * Describes the message dassie.owner.v1.ListPeerSnapshotsResponse.
+ * Use `create(ListPeerSnapshotsResponseSchema)` to create a new message.
+ */
+export const ListPeerSnapshotsResponseSchema: GenMessage<ListPeerSnapshotsResponse> = /*@__PURE__*/
+  messageDesc(file_dassie_owner_v1_network, 40);
+
+/**
+ * A peer's quotes at one moment
+ * (spec/areas/rate-feed.md#what-a-snapshot-says), verified under its key
+ * when the node took it.
+ *
+ * @generated from message dassie.owner.v1.PeerSnapshot
+ */
+export type PeerSnapshot = Message<"dassie.owner.v1.PeerSnapshot"> & {
+  /**
+   * The peer, by node ID.
+   *
+   * @generated from field: string node = 1;
+   */
+  node: string;
+
+  /**
+   * When the peer made it, in milliseconds of its clock: each of its
+   * snapshots has a larger one.
+   *
+   * @generated from field: uint64 sequence = 2;
+   */
+  sequence: bigint;
+
+  /**
+   * When it stops counting.
+   *
+   * @generated from field: int64 valid_until_unix_ms = 3;
+   */
+  validUntilUnixMs: bigint;
+
+  /**
+   * The drops each ladder's amounts are for, in basis points: eight,
+   * strictly ascending, each below 10 000.
+   *
+   * @generated from field: repeated uint32 grid_bp = 4;
+   */
+  gridBp: number[];
+
+  /**
+   * In ascending order of their tags.
+   *
+   * @generated from field: repeated dassie.owner.v1.SnapshotMethod methods = 5;
+   */
+  methods: SnapshotMethod[];
+};
+
+/**
+ * Describes the message dassie.owner.v1.PeerSnapshot.
+ * Use `create(PeerSnapshotSchema)` to create a new message.
+ */
+export const PeerSnapshotSchema: GenMessage<PeerSnapshot> = /*@__PURE__*/
+  messageDesc(file_dassie_owner_v1_network, 41);
+
+/**
+ * What a peer quotes for one settlement method.
+ *
+ * @generated from message dassie.owner.v1.SnapshotMethod
+ */
+export type SnapshotMethod = Message<"dassie.owner.v1.SnapshotMethod"> & {
+  /**
+   * Its tag: a truncated hash of its scheme's ID, four bytes.
+   *
+   * @generated from field: bytes tag = 1;
+   */
+  tag: Uint8Array;
+
+  /**
+   * The scheme the node runs whose ID has that tag, for example
+   * "hub-xrpl-testnet-xrp"; empty when it runs none.
+   *
+   * @generated from field: string scheme = 2;
+   */
+  scheme: string;
+
+  /**
+   * The least the peer gives, in its virtual unit, for a unit of the
+   * method's ledger that comes in (bid), and the most it asks for a unit
+   * that goes out (ask), each the word of the snapshot's 32-bit float: a
+   * mantissa m in its low 24 bits and an exponent e in its top 8, worth
+   * m * 2^(e - 150). 0 closes the side.
+   *
+   * @generated from field: uint32 bid = 3;
+   */
+  bid: number;
+
+  /**
+   * @generated from field: uint32 ask = 4;
+   */
+  ask: number;
+
+  /**
+   * For each drop of the grid, the most that can come in on the method
+   * with its last unit still given at least the bid less the drop, and the
+   * most that can go out with its last unit still asked at most the ask
+   * over one less the drop, in the units of the method's ledger: eight
+   * each, never decreasing, all 0 on a closed side.
+   *
+   * @generated from field: repeated uint64 bid_ladder = 5;
+   */
+  bidLadder: bigint[];
+
+  /**
+   * @generated from field: repeated uint64 ask_ladder = 6;
+   */
+  askLadder: bigint[];
+};
+
+/**
+ * Describes the message dassie.owner.v1.SnapshotMethod.
+ * Use `create(SnapshotMethodSchema)` to create a new message.
+ */
+export const SnapshotMethodSchema: GenMessage<SnapshotMethod> = /*@__PURE__*/
+  messageDesc(file_dassie_owner_v1_network, 42);
+
+/**
  * Settlement with one node, both ways
  * (spec/areas/settlement.md#settlement-channels): kept from the first peering
  * on, so a settlement arrives exactly once even after the peering ended.
@@ -1265,7 +1434,7 @@ export type SettlementChannel = Message<"dassie.owner.v1.SettlementChannel"> & {
  * Use `create(SettlementChannelSchema)` to create a new message.
  */
 export const SettlementChannelSchema: GenMessage<SettlementChannel> = /*@__PURE__*/
-  messageDesc(file_dassie_owner_v1_network, 39);
+  messageDesc(file_dassie_owner_v1_network, 43);
 
 /**
  * @generated from message dassie.owner.v1.ListSettlementChannelsRequest
@@ -1278,7 +1447,7 @@ export type ListSettlementChannelsRequest = Message<"dassie.owner.v1.ListSettlem
  * Use `create(ListSettlementChannelsRequestSchema)` to create a new message.
  */
 export const ListSettlementChannelsRequestSchema: GenMessage<ListSettlementChannelsRequest> = /*@__PURE__*/
-  messageDesc(file_dassie_owner_v1_network, 40);
+  messageDesc(file_dassie_owner_v1_network, 44);
 
 /**
  * @generated from message dassie.owner.v1.ListSettlementChannelsResponse
@@ -1297,7 +1466,7 @@ export type ListSettlementChannelsResponse = Message<"dassie.owner.v1.ListSettle
  * Use `create(ListSettlementChannelsResponseSchema)` to create a new message.
  */
 export const ListSettlementChannelsResponseSchema: GenMessage<ListSettlementChannelsResponse> = /*@__PURE__*/
-  messageDesc(file_dassie_owner_v1_network, 41);
+  messageDesc(file_dassie_owner_v1_network, 45);
 
 /**
  * @generated from enum dassie.owner.v1.PeerState

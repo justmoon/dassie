@@ -30,7 +30,7 @@
 - **What is left when a method is dropped stays owed,** as at a peering's end: at most the credit extended on that method, until a later method on its scheme settles it.
 - **Greedy.** Keeping the ledger at one hop can force a conversion later that another path would have avoided: a node does not know the ledgers past its peers.
 - **A method withdrawn for room changes the rate** of the packets it carried, once, as a route change does now. A STREAM sender whose minimum the new rate misses sees F99.
-- **Market makers keep two nodes.** The connector never sends a packet back to the peer it came from, and the owner's own endpoints never convert ([owner-ledger](owner-ledger.md)).
+- **A packet does not come back on another method of its peering.** The connector never sends a packet back to the peer it came from, and the owner's own endpoints never convert ([owner-ledger](owner-ledger.md)): a node swaps with a peer only by a swap of its own, which is never routed ([peer-swaps](peer-swaps.md)).
 
 ## Rejected
 

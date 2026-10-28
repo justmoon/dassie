@@ -23,14 +23,14 @@ import { ipcConnector } from "@dassie/rpc/ipc";
 import { ChildProcess, type Exit, STOP_GRACE_MS } from "@dassie/dev/process";
 import { layout, socketPath } from "@dassie/dev/scenario";
 import { attribute, click, count, text, until } from "./browser.ts";
-import { DASSIE, missingTools, startBrowser } from "./harness.ts";
+import { DASSIE, missingTools, PORT_OFFSETS, startBrowser } from "./harness.ts";
 
 const missing = await missingTools();
 if (missing) console.warn(`skipping the dev environment tests: ${missing}`);
 
 const ROOT = new URL("../../", import.meta.url).pathname;
 /** Away from the dev environment's own ports and the other tests'. */
-const OFFSET = 16_000;
+const OFFSET = PORT_OFFSETS["dev_test.ts"];
 const PROXY = 443 + OFFSET;
 const DASHBOARD = 10_100 + OFFSET;
 const httpsPort = (index: number) => 5_001 + index + OFFSET;

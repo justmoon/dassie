@@ -37,9 +37,10 @@ pub use self::core::{
     AssetView, BtpEvent, BtpSession, Changes, Core, CoreParts, CreatedOutgoing, Direction,
     EngineError, EngineEvent, Event, HubHold, HubStatus, IncomingPolicy, LedgerEvent, LedgerView,
     Lie, Measured, Move, NamesView, NetworkView, NewIncoming, NewOutgoing, NewSwap, NewToken,
-    NoSnapshots, Outbound, Output, OwnSnapshots, OwnerSwap, PaymentEvent, PeerEvent, PeerView,
-    Prober, Quoting, RemovalBlocker, SCHEMES, SettlementEvent, Severity, SnapshotSource, SwapEnd,
-    SwapOutcome, SwapReport, SwapSent, SwapStats, TokenView, ledger_realm, ledger_slug, offered,
+    NoSnapshots, Outbound, Output, OwnSnapshots, OwnerSwap, PaymentEvent, PeerEvent,
+    PeerSnapshotView, PeerView, Prober, Quoting, RemovalBlocker, SCHEMES, SettlementEvent,
+    Severity, SnapshotSource, SwapEnd, SwapOutcome, SwapReport, SwapSent, SwapStats, TokenView,
+    ledger_realm, ledger_slug, offered,
 };
 
 use crate::clock::clock_moved;
@@ -489,6 +490,12 @@ impl Engine {
                 .and_then(|method| core.method_ledger(method)))
         })
         .await
+    }
+
+    /// The peers' snapshots the swap service reads, decoded
+    /// ([`Core::peer_snapshot_views`]).
+    pub async fn peer_snapshots(&self) -> Result<Vec<PeerSnapshotView>, EngineError> {
+        self.call(|core| Ok(core.peer_snapshot_views())).await
     }
 
     /// What the swap service did since the node started.

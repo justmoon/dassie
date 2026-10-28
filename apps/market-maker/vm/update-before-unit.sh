@@ -8,7 +8,7 @@
 # install (spec/areas/release.md#dassie-update), but restarts nothing
 # (--no-restart): the units it brings go to a scratch directory, since the
 # VM runs units of its own, not dassie.service. Once it installed a
-# version, this restarts both nodes and then the market maker. If a node
+# version, this restarts the node and then the market maker. If the node
 # does not come up, it points `current` back at the version it named
 # before, records the rollback in last-update as the updater does, so
 # that the next update passes over that version until the mirror offers
@@ -21,7 +21,6 @@ set -eu
 
 base=/opt/dassie
 units="${STATE_DIRECTORY:?"run this from dassie-mm-update.service"}/units"
-nodes="dassie-mm-node@xrp.service dassie-mm-node@dsusd.service"
 
 mkdir -p "$units"
 before=$(readlink "$base/current")
@@ -32,23 +31,22 @@ if [ "$outcome" != updated ] || [ "$after" = "$before" ]; then
   exit 0
 fi
 
-# Restarts both nodes, which must report readiness in time, and then the
-# market maker, which stops first so that it does not restart with each
+# Restarts the node, which must report readiness in time, and then the
+# market maker, which stops first so that it does not restart with the
 # node. A market maker that does not start is no reason to go back:
 # systemd starts it again, and its journal says why.
 restart() {
   systemctl stop dassie-mm.service
-  # shellcheck disable=SC2086 # the unit names are words
-  systemctl restart $nodes || return 1
+  systemctl restart dassie-mm-node.service || return 1
   systemctl start dassie-mm.service ||
     echo "Note: dassie-mm.service did not start; systemd tries again" >&2
 }
 
-echo "Restarting the nodes and the market maker on dassie $after"
+echo "Restarting the node and the market maker on dassie $after"
 if restart; then
   exit 0
 fi
-problem="a node did not start on dassie $after"
+problem="the node did not start on dassie $after"
 echo "Error: $problem; going back to dassie $before" >&2
 
 # As install.sh and the updater switch it: one rename, under their lock.
@@ -79,6 +77,6 @@ sync
 exec 9<&-
 
 if ! restart; then
-  echo "Error: dassie $before does not start again either; see journalctl -u 'dassie-mm-node@*'" >&2
+  echo "Error: dassie $before does not start again either; see journalctl -u dassie-mm-node" >&2
 fi
 exit 1

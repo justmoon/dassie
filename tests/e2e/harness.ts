@@ -144,14 +144,67 @@ export async function missingTools(): Promise<string | undefined> {
 /**
  * The ports of the scenarios' nodes are moved by this much, away from the
  * dev environment's (d1 has 18001 and 19001). Test files run in parallel,
- * so each one that starts a scenario adds its own hundred: scenarios +0,
- * market maker +100, DSUSD +200, open payments +300, third party +400, cross currency +500,
- * xrpl +600, wallet +700, xrpl deposit +800, mainnet +900. Files whose
- * scenarios take more ports, each laid out in its own file, are moved by an
- * offset of their own instead: live hub 3000, two hubs 5000, hub 7000,
- * market maker with two targets 10000.
+ * so each one that starts a scenario adds its own hundred
+ * ({@linkcode PORT_OFFSETS}).
  */
 export const SCENARIO_PORT_OFFSET = 14_000;
+
+/**
+ * Each test file's port offset, which moves the ports of the scenario or
+ * dev environment it starts: its nodes' HTTP (`4000+N`), HTTPS and QUIC
+ * (`5000+N`) and snapshot (`6000+N`) ports, and its fake ledger's, faucet's
+ * and rate server's (`10200`, `10201` and `10210`). Test files run in
+ * parallel, so no two may share a port: `ports_test.ts` checks it, with the
+ * ports the files take beside these ({@linkcode FIXED_PORTS}). Those
+ * that start one of the smaller scenarios take a hundred each above
+ * {@linkcode SCENARIO_PORT_OFFSET}; the others, an offset of their own.
+ */
+export const PORT_OFFSETS = {
+  "scenarios_test.ts": SCENARIO_PORT_OFFSET,
+  "market_maker_test.ts": SCENARIO_PORT_OFFSET + 100,
+  "dsusd_test.ts": SCENARIO_PORT_OFFSET + 200,
+  "open_payments_test.ts": SCENARIO_PORT_OFFSET + 300,
+  "third_party_test.ts": SCENARIO_PORT_OFFSET + 400,
+  "cross_currency_test.ts": SCENARIO_PORT_OFFSET + 500,
+  "xrpl_test.ts": SCENARIO_PORT_OFFSET + 600,
+  "wallet_test.ts": SCENARIO_PORT_OFFSET + 700,
+  "xrpl_deposit_test.ts": SCENARIO_PORT_OFFSET + 800,
+  "mainnet_test.ts": SCENARIO_PORT_OFFSET + 900,
+  "live_hub_test.ts": 3_000,
+  "hubs_cross_test.ts": 5_000,
+  "hub_test.ts": 7_000,
+  "market_maker_targets_test.ts": 10_000,
+  "dev_test.ts": 16_000,
+  "peer_swaps_test.ts": 22_000,
+} as const;
+
+/** The ports the BTP payment test's node listens on. */
+export const BTP_HTTP_PORT = 18882;
+export const BTP_HTTPS_PORT = 18845;
+
+/**
+ * The ports test files take beside their offsets' (TCP, or UDP for QUIC
+ * and DNS): Pebble's directory, management, http-01 and tls-alpn-01 ports
+ * and its DNS stand-in's, the fresh install's node, the BTP test's node,
+ * and the dev environment's proxy and dashboard under `dev_test.ts`.
+ */
+export const FIXED_PORTS:
+  readonly (readonly [string, "tcp" | "udp", number])[] = [
+    ["pebble", "tcp", 14000],
+    ["pebble", "tcp", 15000],
+    ["pebble", "tcp", HTTP_PORT],
+    ["pebble", "tcp", 18781],
+    ["pebble dns", "tcp", 18753],
+    ["pebble dns", "udp", 18753],
+    ["pebble dns", "tcp", 18755],
+    ["fresh install", "tcp", HTTPS_PORT],
+    ["fresh install", "udp", HTTPS_PORT],
+    ["btp_payment_test.ts", "tcp", BTP_HTTP_PORT],
+    ["btp_payment_test.ts", "tcp", BTP_HTTPS_PORT],
+    ["btp_payment_test.ts", "udp", BTP_HTTPS_PORT],
+    ["dev_test.ts", "tcp", 443 + PORT_OFFSETS["dev_test.ts"]],
+    ["dev_test.ts", "tcp", 10_100 + PORT_OFFSETS["dev_test.ts"]],
+  ];
 
 /**
  * Why the scenario tests cannot run here, if they cannot: they need the

@@ -34,15 +34,10 @@ import {
 import { serve } from "@dassie/dev/serve";
 import { certificate, Scenario } from "@dassie/dev/scenario";
 import { click, signIn, text, until } from "./browser.ts";
-import {
-  DASSIE,
-  missingTools,
-  SCENARIO_PORT_OFFSET,
-  startBrowser,
-} from "./harness.ts";
+import { DASSIE, missingTools, PORT_OFFSETS, startBrowser } from "./harness.ts";
 
 /** Ports of their own, beside the other suites'. */
-const PORT_OFFSET = SCENARIO_PORT_OFFSET + 400;
+const PORT_OFFSET = PORT_OFFSETS["third_party_test.ts"];
 const CLIENT_PORT = 18_961;
 /** Several packets, within the credit the nodes extend each other. */
 const AMOUNT = 250_000_000n;

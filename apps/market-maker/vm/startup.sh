@@ -5,7 +5,7 @@
 # idempotent.
 #
 # 1. Installs curl, Git, jq and minisign, and makes the system user
-#    dassie-mm, which the nodes and the market maker run as.
+#    dassie-mm, which the node and the market maker run as.
 # 2. Clones the repository, or brings it to the newest `main`: the units
 #    and the scripts they run come from there.
 # 3. Installs the newest release, if there is no install yet, with the
@@ -14,9 +14,9 @@
 #    keeps current, without dassie.service on ports 80 and 443, which this
 #    VM does not run.
 # 4. Writes the settings from the instance metadata, and the targets' node
-#    IDs, which pin both nodes to every target.
-# 5. Installs the units, and (re)starts both nodes, the market maker and
-#    the daily update.
+#    IDs, which pin the node to every target.
+# 5. Installs the units, and (re)starts the node, the market maker and the
+#    daily update.
 #
 # A change to this script reaches the VM only through its metadata
 # (`gcloud compute instances add-metadata dassie-mm --zone=us-east1-b
@@ -102,24 +102,24 @@ number() {
   printf '%s' "$value"
 }
 
-# The defaults are starting points. Amounts are in the nodes' ledger units,
-# a billionth of an XRP or a dollar, and a band is about what a node holds
-# of its asset in its hub and its owner book together. Each band's middle
-# is above the most a node keeps in its hub, a hundred of the largest
-# packets, so what a rebalance spends above it is in the owner book, which
-# the rebalance spends from. The XRP band's top, 80 XRP, is below
-# the faucet's grant of 100 XRP (about 99 after the reserve), so the first
-# rebalance buys DSUSD into the DSUSD node: up to the DSUSD band's top of
-# 40, which costs about 32 XRP at the testnet pool's 0.76 XRP a DSUSD.
-# That leaves about 67 XRP, below the top with room for several trades
-# (and still below it at a DSUSD of half an XRP, 20 XRP for 40). So the
-# two bands together hold the whole grant, and neither node is left above
-# its band with the other full, where a rebalance has nowhere to go.
+# The defaults are starting points. Amounts are in the node's ledger units,
+# a billionth of an XRP or a dollar, and a band is about what the node
+# holds of an asset in its hub and its owner book together. Each band's
+# middle is above the most the node keeps in a hub, a hundred of the
+# largest packets, so what a rebalance spends above it is in the owner
+# book, which the rebalance spends from. The XRP band's top, 80 XRP, is
+# below the faucet's grant of 100 XRP (about 99 after the reserve), so the
+# first rebalance buys DSUSD: up to the DSUSD band's top of 40, which costs
+# about 32 XRP at the testnet pool's 0.76 XRP a DSUSD. That leaves about 67
+# XRP, below the top with room for several trades (and still below it at a
+# DSUSD of half an XRP, 20 XRP for 40). So the two bands together hold the
+# whole grant, and neither asset is left above its band with the other
+# full, where a rebalance has nowhere to go.
 #
-# The targets, the core nodes to trade through: the metadata's mm-targets,
-# URLs separated by commas, or else boot1–boot3 (boot4 runs no DSUSD
-# scheme). At most as many as a node pins (MAX_TARGETS in
-# crates/dassie-cli/src/market_maker/config.rs), each once.
+# The targets, the core nodes to trade through, which the node pins as its
+# uplinks: the metadata's mm-targets, URLs separated by commas, or else
+# boot1–boot3 (boot4 runs no DSUSD scheme). At most as many as a node pins
+# (MAX_UPLINKS in crates/dassie-node/src/env.rs), each once.
 max_targets=128
 source=mm-targets
 listed=$(setting "$source" "https://boot1.dassie.xyz,https://boot2.dassie.xyz,https://boot3.dassie.xyz")
@@ -162,7 +162,6 @@ slippage_ppm=$(number mm-slippage-ppm 10000)
 umask 022
 mkdir -p "$config"
 cat > "$config/settings.env.new" <<EOF
-MM_TARGETS=$targets
 MM_XRP_TRADE_SIZE=$xrp_trade_size
 MM_XRP_BAND_LOW=$xrp_band_low
 MM_XRP_BAND_HIGH=$xrp_band_high
@@ -174,13 +173,12 @@ MM_SLIPPAGE_PPM=$slippage_ppm
 EOF
 mv -f "$config/settings.env.new" "$config/settings.env"
 
-# The targets' node IDs, which both nodes pin as their uplinks: what each
-# target's discovery document, /.well-known/dassie/node, names, which is
-# where the market maker reads its ID and key too. A target that does not
-# answer keeps the ID read for it before
-# ($config/target-ids, a URL and its ID per line); one never read is left
-# out until a boot reads it, since the nodes would not start without
-# their IDs. Two URLs of one node pin it once.
+# The targets' node IDs, which the node pins as its uplinks: what each
+# target's discovery document, /.well-known/dassie/node, names. A target
+# that does not answer keeps the ID read for it before ($config/target-ids,
+# a URL and its ID per line); one never read is left out until a boot
+# reads it, since the node would not start without its IDs. Two URLs of
+# one node pin it once.
 uplinks=""
 : > "$config/target-ids.new"
 IFS=,
@@ -195,7 +193,7 @@ for target in $targets; do
     fi
   fi
   if [ -z "$uplink" ]; then
-    echo "Note: no node ID for $target: neither node pins it until a boot reads it" >&2
+    echo "Note: no node ID for $target: the node pins it once a boot reads it" >&2
     continue
   fi
   case "$uplink" in
@@ -218,13 +216,17 @@ mv -f "$config/target-ids.new" "$config/target-ids"
 printf 'DASSIE_UPLINKS=%s\n' "$uplinks" > "$config/uplink.env.new"
 mv -f "$config/uplink.env.new" "$config/uplink.env"
 
-for node in xrp dsusd; do
-  install -m 644 "$vm/$node.env" "$config/$node.env"
-done
+install -m 644 "$vm/node.env" "$config/node.env"
 
 # --- The units ------------------------------------------------------------------
 
-for unit in dassie-mm-node@.service dassie-mm.service dassie-mm-update.service dassie-mm-update.timer; do
+# A VM set up for a node per asset has their template unit and its
+# instances' settings: the instances stop, and the files go, so nothing
+# starts them again. Their databases stay in /var/lib/dassie-mm for the
+# operator.
+systemctl stop 'dassie-mm-node@*.service' 2> /dev/null || true
+rm -f /etc/systemd/system/dassie-mm-node@.service "$config/xrp.env" "$config/dsusd.env"
+for unit in dassie-mm-node.service dassie-mm.service dassie-mm-update.service dassie-mm-update.timer; do
   install -m 644 "$vm/$unit" "/etc/systemd/system/$unit"
 done
 systemctl daemon-reload
@@ -239,11 +241,11 @@ for wait in chrony-wait.service systemd-time-wait-sync.service; do
   fi
 done
 systemctl restart dassie-mm-update.timer
-# The market maker stops first, so that it does not restart with each node;
-# then both nodes start on the units and settings just written, and it
-# after them. A node that does not start keeps restarting, and the market
+# The market maker stops first, so that it does not restart with the node;
+# then the node starts on the units and settings just written, and it after
+# the node. A node that does not start keeps restarting, and the market
 # maker waits for it, trying again every RestartSec.
 systemctl stop dassie-mm.service
-systemctl restart dassie-mm-node@xrp.service dassie-mm-node@dsusd.service ||
-  echo "Note: a node did not start; see journalctl -u 'dassie-mm-node@*'" >&2
+systemctl restart dassie-mm-node.service ||
+  echo "Note: the node did not start; see journalctl -u dassie-mm-node" >&2
 systemctl start dassie-mm.service

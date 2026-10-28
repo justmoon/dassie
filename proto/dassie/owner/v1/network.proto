@@ -322,6 +322,12 @@ message GetSwapStatusResponse {
   uint64 dropped = 12;
   // By ledger.
   repeated SwapsMoved moved = 13;
+  // Peers it backs off from now: it sends them nothing until the backoff
+  // ends, and then looks at them again.
+  uint64 backing_off = 14;
+  // Peers it sends nothing until their snapshot changes, since they
+  // refused a swap or one came back below its minimum.
+  uint64 waiting_for_snapshot = 15;
 }
 
 // Swaps with a peer for the owner, as the node's own swaps go: from one
@@ -371,6 +377,60 @@ message SwapWithPeerResponse {
   uint64 fulfilled = 3;
   uint64 rejected = 4;
   SwapEnd ended = 5;
+}
+
+// The peers' snapshots the node's swaps are priced by, decoded
+// (spec/areas/network.md#snapshot-subscriptions): each peer's latest while
+// it counts, the first 64 by node ID, as the swap service reads them. The
+// node subscribes to them only while swapping is on. A reader such as
+// `dassie market-maker` swaps through its node by them
+// (spec/areas/rate-feed.md#market-maker).
+message ListPeerSnapshotsRequest {}
+
+message ListPeerSnapshotsResponse {
+  // By node ID.
+  repeated PeerSnapshot snapshots = 1;
+}
+
+// A peer's quotes at one moment
+// (spec/areas/rate-feed.md#what-a-snapshot-says), verified under its key
+// when the node took it.
+message PeerSnapshot {
+  // The peer, by node ID.
+  string node = 1;
+  // When the peer made it, in milliseconds of its clock: each of its
+  // snapshots has a larger one.
+  uint64 sequence = 2;
+  // When it stops counting.
+  int64 valid_until_unix_ms = 3;
+  // The drops each ladder's amounts are for, in basis points: eight,
+  // strictly ascending, each below 10 000.
+  repeated uint32 grid_bp = 4;
+  // In ascending order of their tags.
+  repeated SnapshotMethod methods = 5;
+}
+
+// What a peer quotes for one settlement method.
+message SnapshotMethod {
+  // Its tag: a truncated hash of its scheme's ID, four bytes.
+  bytes tag = 1;
+  // The scheme the node runs whose ID has that tag, for example
+  // "hub-xrpl-testnet-xrp"; empty when it runs none.
+  string scheme = 2;
+  // The least the peer gives, in its virtual unit, for a unit of the
+  // method's ledger that comes in (bid), and the most it asks for a unit
+  // that goes out (ask), each the word of the snapshot's 32-bit float: a
+  // mantissa m in its low 24 bits and an exponent e in its top 8, worth
+  // m * 2^(e - 150). 0 closes the side.
+  uint32 bid = 3;
+  uint32 ask = 4;
+  // For each drop of the grid, the most that can come in on the method
+  // with its last unit still given at least the bid less the drop, and the
+  // most that can go out with its last unit still asked at most the ask
+  // over one less the drop, in the units of the method's ledger: eight
+  // each, never decreasing, all 0 on a closed side.
+  repeated uint64 bid_ladder = 5;
+  repeated uint64 ask_ladder = 6;
 }
 
 // Settlement with one node, both ways

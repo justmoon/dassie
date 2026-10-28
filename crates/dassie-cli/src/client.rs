@@ -188,44 +188,6 @@ impl Client {
             }
         }
     }
-
-    /// Calls a streaming method until `on_item` returns a value, then
-    /// cancels the call; `None` if the stream ended first. The caller
-    /// bounds how long it waits.
-    pub async fn stream_until<T>(
-        &mut self,
-        method: request::Method,
-        mut on_item: impl FnMut(stream_item::Method) -> Option<T>,
-    ) -> Result<Option<T>, CallError> {
-        let call_id = self.send(method).await?;
-        loop {
-            match self.receive(call_id).await? {
-                server_message::Kind::Item(proto::StreamItem { method: Some(item) }) => {
-                    if let Some(found) = on_item(item) {
-                        self.cancel(call_id).await?;
-                        return Ok(Some(found));
-                    }
-                }
-                server_message::Kind::End(_) => return Ok(None),
-                server_message::Kind::Error(error) => return Err(node_error(error)),
-                _ => return Err(CallError::transport("The daemon answered out of turn")),
-            }
-        }
-    }
-
-    /// Ends call `call_id` early.
-    async fn cancel(&mut self, call_id: u32) -> Result<(), CallError> {
-        let message = proto::ClientMessage {
-            call_id,
-            kind: Some(client_message::Kind::Cancel(proto::Cancel {})),
-        };
-        self.framed
-            .send(Bytes::from(message.encode_to_vec()))
-            .await
-            .map_err(|error| {
-                CallError::transport(format!("Lost the connection to the daemon: {error}"))
-            })
-    }
 }
 
 fn node_error(error: proto::Error) -> CallError {

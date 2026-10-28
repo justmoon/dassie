@@ -18,7 +18,12 @@
 import { test } from "node:test";
 import { assert, assertEquals } from "@std/assert";
 
-import { DASSIE, FAKE_LEDGER, missingScenarioTools } from "./harness.ts";
+import {
+  DASSIE,
+  FAKE_LEDGER,
+  missingScenarioTools,
+  PORT_OFFSETS,
+} from "./harness.ts";
 import {
   assertPeersOverHubAlone,
   fundedInHub,
@@ -39,14 +44,8 @@ import { HUB_LEDGER, HUB_SCHEME, Scenario } from "@dassie/dev/scenario";
 /** 2 XRP: twenty of the largest packets, so the payer funds its hold
  * toward the payee over the hub as it pays. */
 const PAYMENT = 2_000_000_000n;
-/**
- * Clear of every other file's ports, which run beside these, as
- * market_maker_targets_test.ts lays them out: at 7000 this file's nodes
- * take 11001 up and 12001 up on TCP, 12001 up for QUIC and 13001 up for
- * their feeds on UDP, and its fake ledger and rate server 17200, 17201 and
- * 17210 on TCP.
- */
-const PORT_OFFSET = 7_000;
+/** Clear of every other file's ports (`PORT_OFFSETS`, which ports_test.ts checks). */
+const PORT_OFFSET = PORT_OFFSETS["hub_test.ts"];
 
 const missing = await missingScenarioTools();
 

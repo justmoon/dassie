@@ -31,6 +31,8 @@ import {
 import { deriveNodeKey } from "@dassie/wasm";
 
 import {
+  BTP_HTTP_PORT,
+  BTP_HTTPS_PORT,
   DASSIE,
   missingBinary,
   NO_BOOTSTRAP_NODES,
@@ -42,8 +44,8 @@ import {
 } from "./harness.ts";
 import { BtpClient } from "./btp.ts";
 
-const HTTP_PORT = 18882;
-const HTTPS_PORT = 18845;
+const HTTP_PORT = BTP_HTTP_PORT;
+const HTTPS_PORT = BTP_HTTPS_PORT;
 /** Above the node's 0.1 USD packet limit, so the payment is split. */
 const PAYMENT = 250_000_000n;
 const PHRASE =

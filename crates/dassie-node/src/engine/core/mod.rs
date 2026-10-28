@@ -83,7 +83,7 @@ pub use probes::{
 };
 pub use schemes::{AssetView, LedgerEvent, SCHEMES, offered};
 pub use settlement::Lie;
-pub use snapshots::{NoSnapshots, Quoting, SnapshotSource};
+pub use snapshots::{NoSnapshots, PeerSnapshotView, Quoting, SnapshotSource};
 pub use swapping::{
     MAX_OWNER_SWAPS, MAX_SWAP_PEERS, OWNER_SWAP_MS, OwnerSwap, PACKETS_PER_PEER, SWAP_TIMEOUT_MS,
     SwapEnd, SwapReport, SwapStats,
