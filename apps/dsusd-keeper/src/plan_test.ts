@@ -28,8 +28,9 @@ import type { Decimal } from "./units.ts";
 
 const XRP = 1_000_000n;
 const DSUSD = 1_000_000n;
-/** What the testnet faucet hands out per request. */
-const FAUCET_DROPS = 100n * XRP;
+/** What the testnet faucet hands out per request, as the keeper asks it
+ * (`FAUCET_XRP` in ledger.ts). */
+const FAUCET_DROPS = 1_000n * XRP;
 /** AMMCreate's fee: one owner reserve. */
 const AMM_CREATE_FEE_DROPS = 200_000n;
 const PRICE = 2_500_000n;
