@@ -403,51 +403,78 @@ const fn survives((ours, order): (bool, u64), other: (bool, u64), lower: bool) -
     }
 }
 
-/// Closes `link`, which lost its place, once the requests already on it
-/// are done, at most `drain` later ([`DRAIN`]): no connection is kept in
+/// Closes `connection`, which lost its place, once the requests already on
+/// it are done, at most `drain` later ([`DRAIN`]): no connection is kept in
 /// case another fails (spec/decisions/verified-connections.md).
-fn retire(link: Link, drain: Duration) {
+fn retire(connection: Connection, drain: Duration) {
     tokio::spawn(async move {
         tokio::select! {
-            () = tokio::time::sleep(drain) => link.connection.close(0u32.into(), b""),
-            _ = link.connection.closed() => {}
+            () = tokio::time::sleep(drain) => connection.close(0u32.into(), b""),
+            _ = connection.closed() => {}
         }
     });
 }
+
+/// Most rounds [`adopt`] judges the rule in: each ends with the place
+/// taken, or with the link held there changed or failing its probe.
+const ADOPT_ROUNDS: usize = 4;
 
 /// Takes `link`, verified, into the place of `peer`'s connection, `lower`
 /// if we have the lower node ID: unless the link held there survives it by
 /// the rule ([`Link::survives`]) and still answers, it replaces that one,
 /// which is retired; otherwise it is retired itself, each closing `drain`
-/// later at most. Returns whether it holds the place.
+/// later at most. The rule is judged under the place's lock, and judged
+/// again if what is held changed while the one held was probed. Returns
+/// whether it holds the place.
 async fn adopt(
     place: &tokio::sync::Mutex<Option<Link>>,
     link: Link,
     (peer, lower, drain): (NodeId, bool, Duration),
 ) -> bool {
     let id = link.connection.stable_id();
-    let kept = place.lock().await.as_ref().and_then(|kept| {
-        let wins =
-            kept.is_open() && kept.connection.stable_id() != id && kept.survives(&link, lower);
-        wins.then(|| kept.connection.clone())
-    });
-    if let Some(kept) = kept {
+    for _ in 0..ADOPT_ROUNDS {
+        let probed = {
+            let mut held = place.lock().await;
+            let winner = held.as_ref().filter(|kept| {
+                kept.is_open() && kept.connection.stable_id() != id && kept.survives(&link, lower)
+            });
+            match winner {
+                Some(kept) => kept.connection.clone(),
+                None => {
+                    let replaced = held.replace(link);
+                    drop(held);
+                    if let Some(old) =
+                        replaced.filter(|old| old.is_open() && old.connection.stable_id() != id)
+                    {
+                        retire(old.connection, drain);
+                    }
+                    return true;
+                }
+            }
+        };
         // A connection whose other end crashed and came back reads as open
         // until something is sent on it, and is reset then: the rule keeps
         // the one held only if it still answers.
-        if answers(&kept, peer).await {
-            retire(link, drain);
+        let alive = answers(&probed, peer).await;
+        let mut held = place.lock().await;
+        let unchanged = held
+            .as_ref()
+            .is_some_and(|kept| kept.connection.stable_id() == probed.stable_id());
+        if !unchanged {
+            continue;
+        }
+        if alive {
+            drop(held);
+            retire(link.connection, drain);
             return false;
         }
-        kept.close(0u32.into(), b"");
+        // It fails: it gives up the place, and what is on it still drains.
+        *held = None;
+        drop(held);
+        retire(probed, drain);
     }
-    let mut held = place.lock().await;
-    let replaced = held.replace(link);
-    drop(held);
-    if let Some(old) = replaced.filter(|old| old.is_open() && old.connection.stable_id() != id) {
-        retire(old, drain);
-    }
-    true
+    retire(link.connection, drain);
+    false
 }
 
 /// Whether `connection` to `peer` answers a request now, its link state,
@@ -880,8 +907,10 @@ impl Quic {
         }
         // Verified: it takes the place by the rule both nodes judge alike,
         // which the node judges too, once it answered the request on it.
+        // Judged apart, so that the result keeps the request's deadline.
         let lower = self.keys.current().is_some_and(|(own, _)| own < request.to);
-        adopt(&place, link, (request.to, lower, self.drain)).await;
+        let judged = (request.to, lower, self.drain);
+        tokio::spawn(async move { adopt(&place, link, judged).await });
         result
     }
 
