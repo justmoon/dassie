@@ -636,6 +636,9 @@ pub struct Standing {
     pub url_check_at_ms: u64,
     /// Whether it answered at its URL the last time we checked.
     pub url_answered: Option<bool>,
+    /// Whether it answered at its URL over HTTPS, with a certificate a
+    /// public authority issued, the last time we checked.
+    pub https_answered: Option<bool>,
 }
 
 const _: () = assert!(STANDING_BUCKETS == 6, "the buckets' array");
@@ -652,6 +655,7 @@ impl Standing {
         skew_ms: None,
         url_check_at_ms: 0,
         url_answered: None,
+        https_answered: None,
     };
 
     /// The newest bucket at `now_ms`, of buckets `bucket_ms` long: older
@@ -866,6 +870,7 @@ impl Entry {
         }
         if old.endpoint != new.endpoint {
             self.standing.url_answered = None;
+            self.standing.https_answered = None;
             self.standing.url_check_at_ms = 0;
         }
     }

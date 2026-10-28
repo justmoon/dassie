@@ -1091,6 +1091,18 @@ fn an_uplink_watches_its_downlink_for_promotion() {
     room.set(PROMOTION_ROOM_PACKETS);
     network.act_with_hooks(uplink, |peer, hooks, now| peer.paid_by(now, hooks, &node));
     settle(&mut network, Config::DEV.promotion_standing_ms);
+    // The node checks its URL over HTTPS, as the uplink asked: what it
+    // found comes back for that URL only.
+    let url = dassie_peer::sim::url(turning);
+    let asked = promotion(&network).expect("a candidate still");
+    assert_eq!(asked.https_answered, None, "not yet answered");
+    network.act(uplink, |peer, now| {
+        peer.https_checked(now, &node, "https://elsewhere.test", true);
+    });
+    assert_eq!(promotion(&network).unwrap().https_answered, None);
+    network.act(uplink, |peer, now| {
+        peer.https_checked(now, &node, &url, true)
+    });
     let later = promotion(&network).expect("a candidate still");
     assert_eq!(
         later.pending(&Config::DEV),

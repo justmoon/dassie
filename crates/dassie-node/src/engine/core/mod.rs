@@ -264,6 +264,16 @@ pub enum Output {
         /// What to post.
         body: Vec<u8>,
     },
+    /// Check that a downlink asking to be promoted answers at its URL over
+    /// HTTPS, with a certificate a public authority issued: a GET of its
+    /// discovery document, which must name it. How it went comes back as
+    /// [`Core::https_checked`] (spec/decisions/promotion-to-core.md).
+    CheckHttps {
+        /// The downlink.
+        node: dassie_identity::NodeId,
+        /// Its URL.
+        url: String,
+    },
     /// Fetch a document for an asset, such as a validator list: an HTTPS
     /// GET that follows no redirect, whose body comes back as
     /// [`LedgerEvent::Fetched`].

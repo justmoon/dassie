@@ -1134,6 +1134,16 @@ impl Core {
         self.peer.peering_of(node).is_some()
     }
 
+    /// How a check of a downlink's URL over HTTPS went, which
+    /// [`Output::CheckHttps`] asked for: it answered at `url` with a
+    /// publicly issued certificate and its own node ID, if `answered`.
+    pub fn https_checked(&mut self, node: &NodeId, url: &str, answered: bool) {
+        let now = self.now_ms;
+        self.peer.https_checked(now, node, url, answered);
+        self.changes.network = true;
+        self.after_peer();
+    }
+
     /// The result of one of our peer requests.
     pub fn peer_response(
         &mut self,
@@ -1371,6 +1381,12 @@ impl Core {
             // (spec/areas/payments.md#the-nodes-names).
             Event::Name(NameEvent::HoldersChanged { .. }) => {
                 self.held_names_changed = true;
+            }
+            // A downlink's URL, checked over HTTPS by the node's client
+            // (spec/decisions/promotion-to-core.md).
+            Event::CheckHttps { peer, url } => {
+                self.outputs_peer
+                    .push(Output::CheckHttps { node: peer, url });
             }
             other => self.lifecycle_event(other),
         }

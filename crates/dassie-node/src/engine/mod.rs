@@ -1056,6 +1056,11 @@ impl Driver<'_> {
                     self.ledger_output(output);
                     continue;
                 }
+                Output::CheckHttps { node, url } => {
+                    let client = self.node.outbound().cloned();
+                    links::check_https(client, self.commands.clone(), node, url);
+                    continue;
+                }
                 Output::Btp { link, message } => (link, message),
             };
             let closing = message == Outbound::Close;

@@ -318,6 +318,16 @@ pub enum Event {
     /// The core changed, as this node computes it
     /// (spec/decisions/promotion-to-core.md).
     CoreChanged,
+    /// Check that `peer`, a downlink asking to be promoted, answers at
+    /// `url` over HTTPS, with a certificate a public authority issued: the
+    /// node tells [`PeerNode::https_checked`](crate::PeerNode::https_checked)
+    /// how it went (spec/decisions/promotion-to-core.md).
+    CheckHttps {
+        /// The downlink.
+        peer: NodeId,
+        /// Its URL.
+        url: alloc::string::String,
+    },
     /// A peer's kind changed in place, as its status did: it became our
     /// downlink, or a core peer. Its peering, methods and channel stay
     /// (spec/decisions/promotion-to-core.md).
