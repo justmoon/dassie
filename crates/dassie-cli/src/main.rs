@@ -113,7 +113,9 @@ Commands:
                                                 needed only while the node
                                                 is in several
   setup             Set the node up from its owner's passphrase, on the
-                    node's own host, without a browser, set the config of
+                    node's own host, without a browser, in the realm the
+                    phrase names, fixed for good (live only by the dev
+                    switch), set the config of
                     the accounts it is given, add the settlement
                     schemes it lacks, and join the realm's default
                     settlement hub if this build has one: the owner book
@@ -129,10 +131,6 @@ Commands:
                                                 server; repeatable
                       --scheme <id>[=<config>]  a settlement scheme, with
                                                 its JSON config; repeatable
-                      --realm test|live         the realm, fixed for good,
-                                                which the phrase must name
-                                                (default: test; live only
-                                                by the dev switch)
                       --no-hub                  join no settlement hub
                       --hub                     join the default hub in
                                                 the live realm too
