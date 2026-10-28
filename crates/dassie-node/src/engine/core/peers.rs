@@ -1134,13 +1134,22 @@ impl Core {
         self.peer.peering_of(node).is_some()
     }
 
-    /// How a check of a downlink's URL over HTTPS went, which
+    /// How a check of a node's URL over HTTPS went, which
     /// [`Output::CheckHttps`] asked for: it answered at `url` with a
     /// publicly issued certificate and its own node ID, if `answered`.
     pub fn https_checked(&mut self, node: &NodeId, url: &str, answered: bool) {
         let now = self.now_ms;
         self.peer.https_checked(now, node, url, answered);
         self.changes.network = true;
+        self.after_peer();
+    }
+
+    /// A check of `node`'s URL over HTTPS, which [`Output::CheckHttps`]
+    /// asked for, that the engine could not make: no place or client for
+    /// it. It says nothing of the node.
+    pub fn https_unchecked(&mut self, node: &NodeId, url: &str) {
+        let now = self.now_ms;
+        self.peer.https_unchecked(now, node, url);
         self.after_peer();
     }
 

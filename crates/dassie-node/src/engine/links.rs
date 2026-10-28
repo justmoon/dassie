@@ -215,14 +215,14 @@ pub(super) fn fetch(client: Option<OutboundClient>, commands: mpsc::Sender<Comma
     });
 }
 
-/// Most time a check of a downlink's URL over HTTPS takes: no longer than
-/// its check over QUIC, whose bucket bounds both.
+/// Most time a check of a node's URL over HTTPS takes, a downlink's or a
+/// registrant's: no longer than its check over QUIC.
 const HTTPS_CHECK_TIMEOUT_MS: u64 = 5_000;
 
-/// Most checks of downlinks' URLs over HTTPS in flight at once: a few, of
-/// the outbound client's places, so that they never take the room ledger
-/// fetches, hubs, rate sources and Open Payments need. One past them is
-/// left for the next time.
+/// Most checks of nodes' URLs over HTTPS in flight at once, downlinks' and
+/// registrants': a few, of the outbound client's places, so that they never
+/// take the room ledger fetches, hubs, rate sources and Open Payments need.
+/// One past them is not made, and the core is told so.
 pub(super) const MAX_HTTPS_CHECKS: usize = 4;
 
 /// The longest discovery document a check takes.
@@ -233,7 +233,8 @@ const DISCOVERY_MAX_BYTES: usize = 4_096;
 /// (spec/areas/http.md#the-nodes-discovery-document) must name it. Tells
 /// the core how it went (spec/decisions/promotion-to-core.md), holding
 /// `place`, one of [`MAX_HTTPS_CHECKS`], until then. A failure on our side,
-/// the client too busy, says nothing of the node, and is not told.
+/// the client too busy, says nothing of the node: the core is told the
+/// check was not made ([`https_unchecked`]).
 pub(super) fn check_https(
     client: OutboundClient,
     place: OwnedSemaphorePermit,
@@ -253,18 +254,27 @@ pub(super) fn check_https(
             Ok(response) => response.status == 200 && names(&response.body, &node),
             Err(WebError::Busy) => {
                 drop(place);
+                let _ = commands.send(https_unchecked(node, url)).await;
                 return;
             }
             Err(WebError::Refused | WebError::Failed(_) | WebError::TooLarge) => false,
         };
         drop(place);
-        tracing::debug!(target: target::PEER, %node, %url, answered, "checked a downlink's URL over HTTPS");
+        tracing::debug!(target: target::PEER, %node, %url, answered, "checked a node's URL over HTTPS");
         let call = Command::Call(Box::new(move |core| {
             core.https_checked(&node, &url, answered);
             Box::new(|| {})
         }));
         let _ = commands.send(call).await;
     });
+}
+
+/// Tells the core that the check of `node`'s URL over HTTPS was not made.
+pub(super) fn https_unchecked(node: dassie_identity::NodeId, url: String) -> Command {
+    Command::Call(Box::new(move |core| {
+        core.https_unchecked(&node, &url);
+        Box::new(|| {})
+    }))
 }
 
 /// Whether `body`, a discovery document, names `node`.

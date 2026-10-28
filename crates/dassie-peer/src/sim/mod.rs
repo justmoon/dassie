@@ -381,13 +381,14 @@ enum Delivery {
         body: Vec<u8>,
     },
     /// The outcome of `to`'s check of `peer`'s URL over HTTPS, which its
-    /// node's client makes (spec/areas/network.md#promotion).
+    /// node's client makes (spec/areas/network.md#promotion): none if it
+    /// was not made.
     HttpsChecked {
         to: usize,
         generation: u64,
         peer: NodeId,
         url: String,
-        answered: bool,
+        answered: Option<bool>,
     },
     /// A request's outcome arriving back at `to`.
     Result {
@@ -543,6 +544,9 @@ pub struct Network {
     /// The nodes whose checks over HTTPS never come back, as when their
     /// client has no place for one.
     pub https_silent: BTreeSet<usize>,
+    /// The nodes that make no check over HTTPS, and say so, as when their
+    /// client has no place for one.
+    pub https_unmade: BTreeSet<usize>,
     /// What each bootstrap node does as a registrar of names: as the
     /// protocol says, unless set here.
     pub roles: BTreeMap<usize, Role>,
@@ -661,6 +665,7 @@ impl Network {
             pinned: BTreeMap::new(),
             https_fails: BTreeSet::new(),
             https_silent: BTreeSet::new(),
+            https_unmade: BTreeSet::new(),
             roles: BTreeMap::new(),
             adversary: None,
             tipped: BTreeMap::new(),
@@ -773,6 +778,7 @@ impl Network {
                     && crate::wire::Endpoint::of_url(&self::url(at))
                         .is_some_and(|ours| ours.url() == *url)
             });
+            let answered = (!self.https_unmade.contains(&index)).then_some(answered);
             let delay = self.latency();
             let delivery = Delivery::HttpsChecked {
                 to: index,
@@ -1239,7 +1245,10 @@ impl Network {
                 }
                 let now = self.local_now(to);
                 if let Some(node) = self.nodes[to].node.as_mut() {
-                    node.https_checked(now, &peer, &url, answered);
+                    match answered {
+                        Some(answered) => node.https_checked(now, &peer, &url, answered),
+                        None => node.https_unchecked(now, &peer, &url),
+                    }
                     self.drain(to);
                 }
             }

@@ -82,8 +82,10 @@
           bootstrap node by itself when it starts, and renews before its
           registration runs out a day later. Before it lists a new node, a
           bootstrap node asks that node for its own link state at the URL it
-          gave, over a connection tied to its key. That proves the URL
-          really serves that node.
+          gave, over a QUIC connection tied to its key, and fetches its
+          discovery document there over HTTPS, which needs a certificate a
+          public authority issued. That proves the URL really serves that
+          node, both ways.
         </li>
         <li>
           <strong>The majority.</strong> Nodes check the bootstrap nodes'

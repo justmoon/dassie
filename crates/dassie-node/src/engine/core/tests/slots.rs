@@ -252,7 +252,7 @@ fn a_pair_on_two_methods_carries_packets_on_both_without_converting() {
 // method over the other hub, which has room.
 #[test]
 fn a_method_short_of_room_answers_t04_and_moves_no_packet() {
-    let mut sim = line(53, false);
+    let mut sim = line(52, false);
     let two = key(2).node_id();
     // Spent, as a node whose settlements on it keep failing: the hold has
     // no room left, and is never funded again.

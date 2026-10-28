@@ -236,6 +236,15 @@ impl PeerNode {
         }
     }
 
+    /// A check of `peer`'s URL over HTTPS, which [`Event::CheckHttps`]
+    /// asked for, that the node could not make: it had no place or client
+    /// for it. It says nothing of the node; a registration waiting on it is
+    /// refused at once, for now, rather than when its wait runs out.
+    pub fn https_unchecked(&mut self, now_ms: u64, peer: &NodeId, url: &str) {
+        self.advance(now_ms);
+        self.refuse_unchecked_registration(peer, url);
+    }
+
     /// The checks of candidates' URLs in flight: each a request in flight,
     /// so bounded as those are.
     pub(super) fn check_url_checks(&self) {

@@ -898,14 +898,17 @@ struct Driver<'a> {
 }
 
 impl Driver<'_> {
-    /// Checks a downlink's URL over HTTPS, in one of the checks' own few
-    /// places: past them, the check is left for the next time, so it never
-    /// takes the room of the node's other fetches.
+    /// Checks a node's URL over HTTPS, a downlink's or a registrant's, in
+    /// one of the checks' own few places: past them, the check is not made,
+    /// so it never takes the room of the node's other fetches, and the core
+    /// is told so, which says nothing of the node.
     fn check_https(&self, node: dassie_identity::NodeId, url: String) {
         let client = self.node.outbound().cloned();
         let place = Arc::clone(&self.https_checks).try_acquire_owned().ok();
         if let (Some(client), Some(place)) = (client, place) {
             links::check_https(client, place, self.commands.clone(), (node, url));
+        } else {
+            let _ = self.commands.try_send(links::https_unchecked(node, url));
         }
     }
 

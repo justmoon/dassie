@@ -664,8 +664,8 @@ impl PeerNode {
         );
         self.check_requests_to_settle();
         assert!(
-            self.deferred <= self.config.max_deferred,
-            "deferred within bounds"
+            self.deferred <= self.config.max_deferred && self.registering.len() <= self.deferred,
+            "deferred within bounds, registrations waiting on HTTPS among them"
         );
         assert!(
             self.network_probes.len() <= self.config.max_probe_networks,

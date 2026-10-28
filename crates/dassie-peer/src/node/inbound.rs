@@ -547,14 +547,20 @@ impl PeerNode {
             return refuse(503, "busy");
         }
         let url = endpoint.url();
+        // A registration waiting on its check over HTTPS is no fault of a
+        // request of the same node's, as its peering request at start: it
+        // is busy, which costs its key nothing.
+        if self
+            .registering
+            .iter()
+            .any(|(probe, checked, _)| probe.accepted.sender == node || *checked == url)
+        {
+            return refuse(503, "its URL is being checked over HTTPS");
+        }
         if self
             .probing
             .iter()
             .any(|(id, probed)| *id == node || *probed == endpoint)
-            || self
-                .registering
-                .iter()
-                .any(|(probe, checked, _)| probe.accepted.sender == node || *checked == url)
         {
             return refuse(429, "a probe of that node or host is in flight");
         }
@@ -625,7 +631,8 @@ impl PeerNode {
                 match url {
                     // It answers over QUIC: over HTTPS too, with a certificate
                     // a public authority issued, before it is registered.
-                    Some(url) if reachable && self.deferred < self.config.max_deferred => {
+                    // It took a deferred place before, freed above.
+                    Some(url) if reachable => {
                         let until = self.now_ms.saturating_add(2 * self.config.poll_timeout_ms);
                         self.deferred += 1;
                         self.event(Event::CheckHttps {
@@ -635,7 +642,6 @@ impl PeerNode {
                         self.registering.push((Box::new(probe), url, until));
                         return;
                     }
-                    Some(_) if reachable => Reply::refuse(503, "busy"),
                     _ => Reply::refuse(409, "not reachable at its URL"),
                 }
             }
@@ -691,6 +697,24 @@ impl PeerNode {
             reply,
         });
         true
+    }
+
+    /// Refuses, for now, the registration of `node` waiting on the check of
+    /// `url` over HTTPS that the node could not make.
+    pub(super) fn refuse_unchecked_registration(&mut self, node: &NodeId, url: &str) {
+        let Some(at) = self
+            .registering
+            .iter()
+            .position(|(probe, checked, _)| probe.accepted.sender == *node && checked == url)
+        else {
+            return;
+        };
+        let (probe, _, _) = self.registering.swap_remove(at);
+        self.deferred = self.deferred.saturating_sub(1);
+        self.outputs.push_back(Output::Reply {
+            inbound: probe.inbound,
+            reply: Reply::refuse(503, "its URL could not be checked over HTTPS now"),
+        });
     }
 
     /// Refuses the registrations whose check over HTTPS never came back in

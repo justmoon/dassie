@@ -885,3 +885,33 @@ fn a_registration_whose_https_check_never_returns_is_refused_for_now() {
         );
     }
 }
+
+// spec/areas/network.md#registration: a check over HTTPS the bootstrap node
+// could not make refuses the registration at once, for now, and the node
+// is registered once checks are made again.
+#[test]
+fn a_registration_whose_https_check_is_not_made_is_refused_for_now() {
+    let mut network = Network::new(45, 2, 1, Config::DEV);
+    network.https_unmade.insert(0);
+    settle(&mut network, 60_000);
+    let id = *network.node(1).own();
+    let registered = |network: &Network| {
+        network
+            .node(0)
+            .nodes()
+            .into_iter()
+            .find(|view| view.id == id)
+            .and_then(|view| view.registered_until_ms)
+            .is_some()
+    };
+    assert!(!registered(&network), "not checked, not registered");
+    network.https_unmade.clear();
+    let start = network.now;
+    while !registered(&network) {
+        settle(&mut network, 10_000);
+        assert!(
+            network.now < start + 2 * Config::DEV.max_backoff_ms,
+            "registered once checked"
+        );
+    }
+}
