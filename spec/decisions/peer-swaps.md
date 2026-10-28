@@ -1,0 +1,61 @@
+# Nodes swap assets with their peers, priced by snapshots of ladders per asset
+
+**Areas:** [Connector](../areas/connector.md#routing), [Rate feed](../areas/rate-feed.md), [Peer protocol](../areas/peer-protocol.md), [Network](../areas/network.md#settlement-methods), [Market maker VM](../areas/market-maker-vm.md). Not built yet ([roadmap](../roadmap.md#peer-swaps)). Once built, it replaces [feed-by-method](feed-by-method.md), and the market makers' two nodes and "the node itself never trades" of [passive-rebalancing](passive-rebalancing.md).
+
+## Facts
+
+- A core node that converts drifts, and its curve pays whoever brings back what it lacks ([passive-rebalancing](passive-rebalancing.md)). Only market makers act on that: each runs two periphery nodes pinned to the core nodes it trades through, and pays one through a target to the other.
+- A peering has a settlement method on every hub both nodes are in, each on a ledger of its own ([settlement-methods](settlement-methods.md)). Two peers in hubs of two assets can pay each other in either within one peering.
+- The connector never sends a packet back to the peer it came from, and keeps a packet's ledger where it can ([Connector](../areas/connector.md#routing)). A packet from A to itself through B neither comes back nor converts.
+- ILP reserves addresses under `peer.` for the link they are sent on: they are never routed. Dassie uses none.
+- A Prepare holds the room it travels in, on every method it crosses, until it resolves. Learning a price by sending a packet costs both peers that room.
+- A pair's price at a node is spot times the curve's ratio of the two assets' weights, so the price of every pair follows from what the node quotes per asset. The curve caps that ratio, so the bonus is bounded on the pair, not per asset. Another curve could bound or couple assets otherwise.
+- A feed's rates are per pair, so they grow with the square of the methods it names, and each says only what a vanishingly small packet gets, not how fast the price falls with size. Its subscribers share one bounded table with anyone on the internet, which refuses newcomers when full.
+- In a hub, the payer signs a settlement and pays its gas. Version 2 of the peer protocol and version 2 of the feed are not released.
+
+## Decision
+
+- **A swap is a Prepare to `peer.swap.<scheme ID>`.** A sends it to B on one method of their peering. B takes any destination under `peer.` itself, before routing: `peer.swap.<scheme>` names the method to send it back on, and any other gets F02. B converts it as transit, by its curve, fee and spread, and sends it back to A on the named method with its destination, condition and data unchanged and its expiry one message window earlier. A takes a `peer.swap.<scheme>` that comes on the method it names as one of its own swaps coming back, and fulfills it only if the condition is its own and the amount meets its minimum. A swap is never routed, so the routing rules stay as they are.
+- **B never reads the data.** It is A's: A may derive the fulfillment from it, as STREAM does, so it keeps no table of swaps in flight; if B changed it, A could not fulfill. B forwards a swap whenever its own checks pass, and A rejects what it does not want.
+- **Two owner settings, both on by default: offering swaps and swapping.** Only a core node offers swaps, to every peer, downlinks included: a periphery node forwards nothing. A core node swaps by itself toward its curve's targets. A periphery node has no drift, and what its owner holds is the owner's choice, so it swaps by itself only toward targets its owner sets, none by default. Any node swaps when its owner asks, as a market maker does.
+- **A swaps when it gains.** A swaps with B while B's quotes, valued at A's own curve, clear one plus A's costs of the swap: the gas of its settlements on the method it pays on, per least settlement, and its moves between the hub and the owner book that funds it ([Settlement hubs](../areas/hubs.md#in-the-node)). A computes them alone; no message carries them. B's costs are in B's price.
+- **No room is set aside for swaps.** A swap backs off on T04 and T05 as any sender does. The caps on money in flight are per peer, method and direction, so swaps fill only the link between A and B.
+- **A node publishes snapshots, not a feed.** A snapshot is the node's quotes at one moment, signed by its node key, made at most once per change and cached.
+  - **Peers subscribe over the peer protocol.** A subscriber gets every snapshot the node makes, on the feed's schedule: at most once per interval while quotes change, a heartbeat otherwise. A node that offers no swaps refuses. A subscription ends with the peering.
+  - **Anyone else asks once over UDP.** A request padded to at least the largest snapshot gets the cached snapshot, and nothing else: no cookie, no subscriber table, nothing kept per address, and a budget on answers per second. A market maker uses it to choose whom to peer with.
+- **Quotes per method; a pair's price is a product.** Per method the node offers whose ledger it prices: a tag of the scheme's ID (a truncated hash; a reader can use only methods whose schemes it runs, so it knows their IDs), and a bid and an ask in the node's virtual accounting unit per unit of the method's ledger, fee and spread folded in. A reader prices a swap from one method to another as the one's bid over the other's ask. **The promise is only that this never says more than the node gives,** at any size the ladders cover. How the node keeps it is its own: ours clamps its bid at the cap its curve puts on any pair. The format carries no cap, no spot and no parameter of any curve.
+- **Each quote has a ladder.** For each of the drops of the grid in the snapshot's header, the most that can come in (bid) or go out (ask) on the method with its last unit still getting at least the quote less the drop. The first amount is a 16-bit float, each later one an 8-bit step up from the one before, every amount rounded down. A side the node does not convert, for want of a fresh rate or a dollar token off its peg, has a quote of zero.
+- **Ladders count each asset whole,** the hub's ledger with the owner book that funds it, as the curve does: they say how much is worth swapping, not how much the hub can pay out now. A swap the hub cannot fund gets T04, as any packet does, while the node refills its hub.
+- **Errors at B, as for transit:** F02 when it offers no swaps, the scheme is not a method of the peering, or it is on the ledger the swap came on; F08 above its largest packet, with the most that passes; T04 when the method is unavailable or short of funds; T05 at the cap on money in flight; T00 without a fresh rate. Which code A rejects with is A's.
+- **Both versions 2 are redefined in place:** the peer protocol's, with the subscription and the snapshot, and the feed's, with the snapshot, signed under its OID. Neither is released.
+- **A market maker is one node,** a periphery node with an uplink to each target over two methods. `dassie market-maker` reads the snapshots its node is sent and swaps through a target when its market and the quotes differ.
+
+## Accepted
+
+- **A node trades on its own,** where [passive-rebalancing](passive-rebalancing.md) left trading to its peers. It does so only through its peerings, at a price its peer's curve sets, with no new keys or venues.
+- **Swaps spread drift; they do not remove it.** Where the network's flow runs one way, every node drifts alike, and new inventory still comes only from market makers and owners. Swaps let one market maker reach every node through the nodes it trades with.
+- **Readers swap less than they could.** The promise lets a node understate: our clamp is exact for two assets and understates pairs whose other side is not the node's most plentiful asset; an 8-bit step is up to one step low. A model of the curve against many skews and sizes showed 8-bit steps within one point of 16-bit floats after three rounds, the rest taken at the next snapshot.
+- **The grid's finest step bounds the smallest gain a reader sees.** A swap whose margin is below it shows nothing worth taking. The grid is in the header, so it changes without a new version.
+- **A swap below A's minimum holds B's room on the method back for a round trip,** since B does not read A's minimum.
+- **Swaps fill a link that payments use.** A peer's swaps can make its own payments over that link wait (T05), and while in flight make B's prices for other packets worse, never better, as any packet in flight does ([passive-rebalancing](passive-rebalancing.md#accepted)).
+- **A snapshot shows a node's skew and roughly its scale** to its peers and to anyone who asks.
+- **Tags can collide.** A node never offers two methods whose IDs share a tag.
+- **A spoofed request reflects one to one:** the node sends the victim no more than the spoofer sent it.
+- **Two methods of one holding,** once a node may be in several hubs of an asset, must price at spot less the charges, which a bid over an ask cannot say. That needs which holding each method is in: a new version then.
+
+## Rejected
+
+- *Learning prices by sending swaps:* every probe holds room on both peers for a round trip.
+- *Peers subscribing to the UDP feed:* they share a table with strangers who can fill it, and prove their address by a cookie the peering already proves.
+- *A swap message of its own:* a standard Prepare under `peer.` carries it, and a swap is an ordinary packet to everything that counts packets.
+- *An address beneath A routed back to it* (`<A>.swap.<scheme>`): routing would need an exception for packets addressed back to their source, and every node would parse a convention in addresses.
+- *B reading A's minimum from the data:* it would standardize and freeze a format that is A's to choose.
+- *Rates per pair:* they grow with the square of the methods, and say nothing of size.
+- *Publishing the curve's inputs* (its parameter, the holdings and their targets): exact, but it makes the curve part of the format, and shows every holding.
+- *A polynomial for the price:* valid only over the range it was fitted on, not monotone, and unable to state hard limits.
+- *A cap and a spot per method in the format:* the cap on a pair is our curve's, not every curve's.
+- *Ladders capped at what the hub holds:* a few largest packets of depth, for a node that holds far more and refills its hub as it drains.
+- *Room set aside for swaps:* a packet in flight cannot be taken back for a payment, and swaps only fill their own link.
+- *A fixed grid in the format:* tuning it would take a new version.
+- *Every node swapping toward the curve's default targets:* it would move a periphery owner's holdings unasked.
+- *Settling one method's debt in another's asset:* rejected in [settlement-methods](settlement-methods.md#rejected); a swap converts at the curve, per packet.
