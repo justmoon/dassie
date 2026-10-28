@@ -105,10 +105,19 @@ fn a_payment_beyond_the_hub_waits_for_its_deposit() {
     assert_eq!(made[1].amount, floor.midpoint(ceiling) + promised - balance);
     assert!(made[1].amount > ceiling, "past the ceiling");
 
+    // Once the hub booked the deposit, it counts there alone, not again
+    // as on its way.
     hub.account(
         &mut core,
         balance + made[1].amount,
         opening + made[1].amount,
+    );
+    let spendable = core.owner_available(LedgerId::XrplTestnetXrp) / UNITS_PER_DROP;
+    let fee = dassie_xrpl::account::MAX_FEE_DROPS;
+    assert_eq!(
+        core.hub_refill(LedgerId::HubXrplTestnetXrp),
+        u128::from(spendable.saturating_sub(fee)) * u128::from(UNITS_PER_DROP),
+        "a deposit the hub booked counts once"
     );
     for _ in 0..4 {
         wait_and_close(&mut core, &mut ledger, 1_000);
@@ -116,4 +125,39 @@ fn a_payment_beyond_the_hub_waits_for_its_deposit() {
     let row = core.store.outgoing_payment(id).unwrap().unwrap();
     assert_eq!(row.state, OutgoingState::Completed, "{row:?}");
     assert_eq!(row.sent_amount, debit);
+}
+
+// A hub that shut down takes nothing more: the owner book no longer counts
+// toward a payment over it, and a payment made before draws no deposit
+// into its escrow, which would credit nothing.
+#[test]
+fn a_shut_down_hub_draws_no_deposit_for_payments() {
+    let (mut ledger, _) = funded_ledger();
+    let mut core = funding_core(&mut ledger);
+    let mut hub = Validators::new();
+    let escrow = hub.escrow();
+    hub.no_account(&mut core);
+    wait_and_close(&mut core, &mut ledger, 1_000);
+    let opening = deposits(&mut ledger, escrow)[0].amount;
+    let p = Policies::DEFAULT.connector.max_packet_amount;
+    let floor = policy::hub_floor(p, Policies::DEFAULT.peer_credit, 0) / UNITS_PER_DROP;
+    let ceiling = policy::hub_ceiling(p) / UNITS_PER_DROP;
+    let balance = floor.midpoint(ceiling);
+    hub.account(&mut core, balance, opening);
+    wait_and_close(&mut core, &mut ledger, 4_000);
+
+    let debit = in_hub(&core) + 2 * ceiling * UNITS_PER_DROP;
+    let id = pay_self(&mut core, debit).unwrap();
+    hub.shutting_down(&mut core, balance, opening);
+    assert_eq!(core.hub_refill(LedgerId::HubXrplTestnetXrp), 0);
+    let refused = pay_self(&mut core, debit);
+    assert!(
+        matches!(refused, Err(EngineError::Precondition(_))),
+        "{refused:?}"
+    );
+    for _ in 0..3 {
+        wait_and_close(&mut core, &mut ledger, 4_000);
+    }
+    assert_eq!(deposits(&mut ledger, escrow).len(), 1, "no deposit");
+    assert!(!core.is_sending(id), "it waits out its deadline");
 }

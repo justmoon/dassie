@@ -5072,25 +5072,44 @@ impl Validators {
         self.hold_opened(core, (7, 5, 9), amount, balance, deposited);
     }
 
+    /// The hub fails the node's hold of `amount` toward account 9 as
+    /// shutting down: the hub is ending, and takes nothing more.
+    fn shutting_down(&mut self, core: &mut Core, balance: u64, deposited: u64) {
+        self.hold_executed(core, (7, 5, 9), (1_000, false), balance, deposited);
+    }
+
     /// Account 9, a stranger the node does not peer with, opened a hold of
     /// `amount` toward the node's account 5, which holds `balance`.
     fn stranger_hold(&mut self, core: &mut Core, amount: u64, balance: u64, deposited: u64) {
         self.hold_opened(core, (8, 9, 5), amount, balance, deposited);
     }
 
-    /// The account of the key from `seed`, `payer`, opened a hold of
-    /// `amount` toward `payee`, in a new final block, after which the
-    /// node's account 5 holds `balance`.
+    /// [`hold_executed`](Self::hold_executed), applied.
     fn hold_opened(
         &mut self,
         core: &mut Core,
-        (seed, payer, payee): (u8, u32, u32),
+        accounts: (u8, u32, u32),
         amount: u64,
         balance: u64,
         deposited: u64,
     ) {
+        self.hold_executed(core, accounts, (amount, true), balance, deposited);
+    }
+
+    /// The account of the key from `seed`, `payer`, asked to open a hold
+    /// of `amount` toward `payee`, which the hub applied, or failed as
+    /// shutting down, in a new final block, after which the node's account
+    /// 5 holds `balance`.
+    fn hold_executed(
+        &mut self,
+        core: &mut Core,
+        (seed, payer, payee): (u8, u32, u32),
+        (amount, applied): (u64, bool),
+        balance: u64,
+        deposited: u64,
+    ) {
         use dassie_hub::client::{AccountView, Statement};
-        use dassie_hub::ledger::{Detail, Outcome};
+        use dassie_hub::ledger::{Detail, Failure, Outcome};
         use dassie_hub::operation::{
             AccountNumber, MemberOperation, Operation, SignedMemberOperation,
         };
@@ -5128,9 +5147,16 @@ impl Validators {
                 timestamp: NOW + self.height,
                 index: 0,
                 operation: Operation::Member(operation),
-                outcome: Outcome::Applied {
-                    fee: fees.operation,
-                    detail: Detail::Hold(HoldNumber(1)),
+                outcome: if applied {
+                    Outcome::Applied {
+                        fee: fees.operation,
+                        detail: Detail::Hold(HoldNumber(1)),
+                    }
+                } else {
+                    Outcome::Failed {
+                        fee: fees.operation,
+                        reason: Failure::ShuttingDown,
+                    }
                 },
             },
             Statement::Account {

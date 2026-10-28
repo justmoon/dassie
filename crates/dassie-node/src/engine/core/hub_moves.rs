@@ -661,9 +661,15 @@ impl Core {
                 .owner_book(scheme)
                 .and_then(|book| self.book_spendable(book)),
             hub_owner: self.owner_available(active.scheme.ledger()) / UNITS_PER_DROP,
-            promised: drops_up(
-                u64::try_from(self.promised_on(active.scheme.ledger())).unwrap_or(u64::MAX),
-            ),
+            // A hub that shut down or stalled takes no deposit for the
+            // owner's payments: they wait out their deadlines.
+            promised: if active.scheme.can_receive() {
+                drops_up(
+                    u64::try_from(self.promised_on(active.scheme.ledger())).unwrap_or(u64::MAX),
+                )
+            } else {
+                0
+            },
             paying: self.paying(scheme),
         })
     }
@@ -688,9 +694,12 @@ impl Core {
 
     /// What the owner book can still move into the hub that books `ledger`
     /// for the owner's payments, in the ledger's units: what the book can
-    /// spend, and a deposit on its way, while the node moves funds by
-    /// itself and the hub is available; nothing otherwise, nor for a ledger
-    /// that is no hub's (spec/decisions/one-balance-per-asset.md).
+    /// spend, and a deposit on its way as the prices count it, held on the
+    /// book or gone from it and not yet booked in the hub
+    /// ([`moves_on_their_way`](Self::moves_on_their_way)), while the node
+    /// moves funds by itself and the hub can take them; nothing otherwise,
+    /// as for a frozen, stalled or shut-down hub, nor for a ledger that is
+    /// no hub's (spec/decisions/one-balance-per-asset.md).
     pub(super) fn hub_refill(&self, ledger: LedgerId) -> u128 {
         let Some(scheme) = self
             .book_on(ledger)
@@ -703,19 +712,31 @@ impl Core {
         };
         let available = self
             .hub_account(scheme)
-            .is_some_and(|account| account.frozen().is_none());
+            .is_some_and(|account| account.frozen().is_none())
+            && self.receives(scheme);
         if !funding.automatic || funding.given_up.is_some() || !available {
             return 0;
         }
-        let book = self
-            .owner_book(scheme)
-            .and_then(|book| self.book_spendable(book))
-            .unwrap_or(0);
-        let moving = funding
-            .moving
-            .filter(|moving| moving.direction == Direction::Deposit)
-            .map_or(0, |moving| moving.drops);
-        u128::from(book.saturating_add(moving)) * u128::from(UNITS_PER_DROP)
+        let Some(book) = self.owner_book(scheme) else {
+            return 0;
+        };
+        let spendable = self.book_spendable(book).unwrap_or(0);
+        let on_its_way: u128 = self
+            .moves_on_their_way()
+            .into_iter()
+            .filter(|(leaves, _)| *leaves == book.1)
+            .map(|(_, moving)| moving.held.saturating_add(moving.gone))
+            .fold(0, u128::saturating_add);
+        (u128::from(spendable) * u128::from(UNITS_PER_DROP)).saturating_add(on_its_way)
+    }
+
+    /// Whether the hub of `scheme` still takes what is paid into it: not
+    /// once it shut down or stalled, when a deposit sized by the owner's
+    /// payments would only sit in an escrow that credits nothing more.
+    fn receives(&self, scheme: Name) -> bool {
+        self.schemes
+            .get(&scheme)
+            .is_some_and(|active| active.scheme.can_receive())
     }
 
     /// What became of the payment of the move of the hub of `scheme` on

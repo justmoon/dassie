@@ -411,15 +411,19 @@ impl Funding {
     /// from it already: a deposit brings the rest back to the midpoint,
     /// past the ceiling by what they need, and a withdrawal takes nothing
     /// they need (spec/decisions/one-balance-per-asset.md). Payments the
-    /// hub account cannot cover are not held back by the owner's pause.
+    /// owner's funds in the hub cannot cover are not held back by the
+    /// owner's pause, but then the deposit fills no more than the floor
+    /// and what they need, so it undoes nothing the owner moved.
     pub fn due(&self, now_ms: u64, standing: &Standing) -> Option<Planned> {
         let promised = standing.promised;
-        let short = standing.held.is_some_and(|held| promised > held.balance);
+        // What the payments need beyond the owner's funds in the hub.
+        let deficit = promised.saturating_sub(standing.hub_owner);
+        let paused = now_ms < self.paused_until_ms;
         let waiting = self.moving.is_some()
             || standing.unavailable
             || self.given_up.is_some()
             || !self.automatic
-            || (now_ms < self.paused_until_ms && !short)
+            || (paused && deficit == 0)
             || now_ms < self.not_before_ms;
         if waiting {
             return None;
@@ -428,18 +432,27 @@ impl Funding {
             return opening(standing);
         };
         let middle = standing.floor.midpoint(standing.ceiling);
-        if held.balance < standing.floor.saturating_add(promised) {
-            let drops = middle
+        if held.balance < standing.floor.saturating_add(promised) || deficit > 0 {
+            let target = if paused { standing.floor } else { middle };
+            let room = standing
+                .ceiling
+                .saturating_add(promised)
+                .saturating_sub(held.exposure)
+                .max(deficit);
+            let drops = target
                 .saturating_add(promised)
                 .saturating_sub(held.balance)
-                .min(
-                    standing
-                        .ceiling
-                        .saturating_add(promised)
-                        .saturating_sub(held.exposure),
-                )
+                .max(deficit)
+                .min(room)
                 .min(standing.xrpl?);
-            return (drops >= standing.least_deposit)
+            // A deposit is worth its fees from a largest packet on, but
+            // one a payment waits for goes however small.
+            let least = if deficit > 0 {
+                deficit.min(standing.least_deposit)
+            } else {
+                standing.least_deposit
+            };
+            return (drops > 0 && drops >= least)
                 .then(|| Planned::deposit(drops, held.deposited, false));
         }
         if held.exposure > standing.ceiling.saturating_add(promised) {
@@ -665,48 +678,56 @@ mod tests {
 
     // spec/decisions/one-balance-per-asset.md: what unfinished payments are
     // still to pay out of the hub counts as gone. A payment beyond the
-    // balance deposits the shortfall and the float, past the ceiling by
-    // what it needs, even while the owner's last move pauses the node's
-    // own; and nothing a payment needs is withdrawn.
+    // owner's funds in the hub deposits the shortfall and the float, past
+    // the ceiling by what it needs, though the hub account holds more for
+    // peers; while the owner's last move pauses the node's own, only up to
+    // the floor and what it needs. Nothing a payment needs is withdrawn.
     #[test]
     fn payments_draw_a_deposit_and_hold_back_a_withdrawal() {
         let mut funding = Funding::new(0, 4_000);
         let middle = 5_200_000;
-        let paying = |balance, exposure, promised| Standing {
+        let paying = |(balance, exposure), promised, hub_owner| Standing {
             promised,
+            hub_owner,
             ..standing(balance, exposure)
         };
         let deposit = funding
-            .due(1, &paying(3_000_000, 5_000_000, 20_000_000))
+            .due(1, &paying((3_000_000, 5_000_000), 20_000_000, 3_000_000))
             .unwrap();
         assert_eq!(deposit.direction, Direction::Deposit);
         assert_eq!(deposit.drops, middle + 20_000_000 - 3_000_000);
         assert_eq!(
-            funding.due(1, &paying(3_000_000, 5_000_000, 2_000_000)),
+            funding.due(1, &paying((3_000_000, 5_000_000), 2_000_000, 3_000_000)),
             None,
             "the rest is above the floor"
         );
+        let owed_to_peers = funding
+            .due(1, &paying((9_000_000, 9_500_000), 5_000_000, 2_000_000))
+            .unwrap();
+        assert_eq!(owed_to_peers.drops, 3_000_000, "what the payment lacks");
         assert_eq!(
-            funding.due(1, &paying(12_000_000, 14_000_000, 8_000_000)),
+            funding.due(1, &paying((12_000_000, 14_000_000), 8_000_000, 12_000_000)),
             None,
             "what a payment needs stays"
         );
         let high = funding
-            .due(1, &paying(16_000_000, 18_000_000, 2_000_000))
+            .due(1, &paying((16_000_000, 18_000_000), 2_000_000, 16_000_000))
             .unwrap();
         assert_eq!(high.direction, Direction::Withdraw);
         assert_eq!(high.drops, 18_000_000 - 2_000_000 - middle);
 
         funding.paused_until_ms = 1_000;
         assert_eq!(
-            funding.due(1, &paying(3_000_000, 5_000_000, 2_000_000)),
+            funding.due(1, &paying((3_000_000, 5_000_000), 2_000_000, 3_000_000)),
             None
         );
-        assert!(
-            funding
-                .due(1, &paying(3_000_000, 5_000_000, 4_000_000))
-                .is_some(),
-            "a payment the hub cannot cover is not held back"
+        let paused = funding
+            .due(1, &paying((3_000_000, 5_000_000), 4_000_000, 3_000_000))
+            .unwrap();
+        assert_eq!(
+            paused.drops,
+            400_000 + 4_000_000 - 3_000_000,
+            "to the floor"
         );
     }
 
