@@ -655,14 +655,18 @@ impl PeerNode {
         if let Processed::Invalid(_) = self.process_link_state(info, None, Retransmit::Never) {
             return Reply::refuse(400, "invalid link state");
         }
-        let now = self.now_ms;
+        let (now, bucket) = (self.now_ms, self.standing_bucket_ms());
         let expires_ms = now.saturating_add(self.config.registration_ttl_ms);
         if let Some(entry) = self.table.get_mut(&sender) {
             entry.key.get_or_insert(key);
             // A registration probed anew counts its URL's failures from
-            // now: only failures while registered end it.
+            // now: only failures while registered end it. Its URL was just
+            // probed, so it is checked again a bucket later.
             if entry.registration.is_none() {
-                entry.url = crate::table::UrlCheck::NEW;
+                entry.url = crate::table::UrlCheck {
+                    check_at_ms: now.saturating_add(bucket),
+                    ..crate::table::UrlCheck::NEW
+                };
             }
             let registered_ms = entry.registration.as_ref().map_or(now, |r| r.registered_ms);
             entry.registration = Some(Registration {
