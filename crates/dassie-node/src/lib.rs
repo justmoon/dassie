@@ -31,6 +31,7 @@ pub const VERSION: &str = match option_env!("DASSIE_BUILD_VERSION") {
 };
 pub mod daemon;
 pub mod engine;
+pub mod event_log;
 #[cfg(feature = "testing")]
 pub mod fake_ledger;
 pub mod feed;

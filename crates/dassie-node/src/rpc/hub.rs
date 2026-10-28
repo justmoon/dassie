@@ -286,8 +286,9 @@ fn move_event(moved: &HubMoveEvent) -> proto::HubMoveEvent {
     }
 }
 
-/// What the node saw of a hub, as the contract has it.
-pub(super) fn hub_event(event: &HubEvent) -> proto::HubEvent {
+/// What the node saw of a hub, as the contract has it: `SubscribeHubEvents`
+/// streams it, and the event log writes it (`crate::event_log`).
+pub(crate) fn hub_event(event: &HubEvent) -> proto::HubEvent {
     use proto::hub_event::Event;
     let kind = match &event.kind {
         HubEventKind::Block {
