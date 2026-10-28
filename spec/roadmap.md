@@ -195,7 +195,7 @@ The `live` realm is refused, so the XRP Ledger mainnet's scheme, `xrpl-xrp`, run
 - releases are signed ([Release](areas/release.md));
 - the node checks the XRP Ledger's validators itself, on both networks ([Checking XRP Ledger validators](#checking-xrp-ledger-validators));
 - a public proof server runs for each network, named in the node's defaults ([Proof servers](#proof-servers));
-- mainnet schemes in XRP and RLUSD, with memo types of their own and the realm gate ([Mainnet schemes](#mainnet-schemes));
+- mainnet schemes in XRP and RLUSD, and the realm gate ([Mainnet schemes](#mainnet-schemes));
 - settlement hubs on mainnet: a default mainnet hub for `hub-xrpl-xrp` and for `hub-xrpl-rlusd`, founded by the project's validators ([Mainnet hubs](#mainnet-hubs));
 - there has been an external review;
 - a mainnet bootstrap node list exists.

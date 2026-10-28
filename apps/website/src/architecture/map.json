@@ -744,12 +744,12 @@
     "base64url": {
       "name": "dassie-base64url",
       "path": "crates/dassie-base64url",
-      "label": "strict base64url for IDs and tokens",
+      "label": "strict base64url for keys and tokens",
       "sub": "protocols",
       "x": 796,
       "y": 844,
       "w": 184,
-      "desc": "The text encoding of node IDs, the node's tokens and STREAM's connection tokens. It accepts only the canonical form, so an ID or a token cannot be written two ways.",
+      "desc": "The text encoding of nodes' public keys, the node's tokens and STREAM's connection tokens. It accepts only the canonical form, so a key or a token cannot be written two ways.",
       "does": [
         "Unpadded base64url (RFC 4648 §5), without allocating",
         "Rejects padding, other alphabets and stray bits",

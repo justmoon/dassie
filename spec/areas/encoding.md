@@ -33,7 +33,7 @@ Decoding never allocates and never panics, whatever the input ([tigerstyle](../d
 
 ## Base64url
 
-Node IDs, the tokens the node hands out and the connection tokens STREAM puts in ILP addresses are unpadded base64url (RFC 4648 §5), in `dassie-base64url`. It is not OER and stays out of `dassie-oer`; it is a crate of its own so that STREAM and identity share one implementation without STREAM depending on the node's identity. Like OER here it is canonical only: no padding, no whitespace, and the unused low bits of the last character must be zero, so each byte string has one accepted encoding and a token or ID cannot be written two ways. Decoding takes untrusted input, so an output too short is an error value, never a panic.
+Nodes' public keys, as discovery documents, bootstrap lists and signatures' key IDs give them, the tokens the node hands out and the connection tokens STREAM puts in ILP addresses are unpadded base64url (RFC 4648 §5), in `dassie-base64url`. Node IDs are not: they are base32, so that one form serves DNS too ([Identity](identity.md#node-id)). It is not OER and stays out of `dassie-oer`; it is a crate of its own so that STREAM and the node share one implementation without STREAM depending on the node. Like OER here it is canonical only: no padding, no whitespace, and the unused low bits of the last character must be zero, so each byte string has one accepted encoding and a token or key cannot be written two ways. Decoding takes untrusted input, so an output too short is an error value, never a panic.
 
 ## What pins the encoding
 
