@@ -263,8 +263,9 @@ pub(crate) enum Purpose {
     Response(Box<Answer>),
     /// A settlement message, by its sequence.
     Settlement(u64),
-    /// Asking a peer to settle.
-    SettlementRequest,
+    /// Asking a peer to settle on the method on this scheme: at most one
+    /// in flight per peer and method.
+    SettlementRequest(SchemeId),
     /// Asking a peer to settle a last time, before we tell it we end the
     /// peering (spec/decisions/ending-a-peering.md).
     FinalRequest,
@@ -778,7 +779,7 @@ impl PeerNode {
     ) {
         match purpose {
             Purpose::Gossip => {}
-            Purpose::SettlementRequest => {
+            Purpose::SettlementRequest(_) => {
                 // Until another request comes back, the time the peer
                 // stays short counts toward ending the peering only if this
                 // one may have reached it
@@ -1294,6 +1295,9 @@ pub enum SendError {
     NoMethod,
     /// Too many requests are in flight.
     Busy,
+    /// A request to settle on the method is in flight already: it is the
+    /// one the peer answers (spec/areas/settlement.md#asking-a-peer-to-settle).
+    Asking,
 }
 
 #[cfg(test)]

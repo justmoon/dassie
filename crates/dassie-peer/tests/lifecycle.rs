@@ -1035,6 +1035,41 @@ fn a_settlement_request_reaches_the_peer_only() {
     assert_eq!(network.inbound(0, &body).status, 409);
 }
 
+// spec/decisions/settle-at-the-trigger.md: a node asks as soon as a
+// peer's room falls to its trigger, so it may find the peer short many
+// times while its request is on its way. It sends one request per method
+// at most until that one is answered, refused or given up; then it may
+// ask again.
+#[test]
+fn one_settlement_request_per_method_is_in_flight() {
+    let (mut network, a, b) = peered(52);
+    // Node 0 never hears, so the request stays in flight until it times
+    // out.
+    network.cut.insert((1, 0));
+    network.act(1, |node, now| {
+        node.request_settlement(now, &a, stub()).unwrap();
+        for _ in 0..10 {
+            assert_eq!(
+                node.request_settlement(now, &a, stub()),
+                Err(SendError::Asking)
+            );
+        }
+        assert!(node.asking(&a, stub()));
+        assert!(!node.asking(&a, SchemeId::parse("other").unwrap()));
+        assert_eq!(node.stats().settlements_requested, 1);
+        node.check_invariants();
+    });
+    settle(&mut network, CONFIG.request_timeout_ms + 1_000);
+    network.cut.clear();
+    network.act(1, |node, now| {
+        assert!(!node.asking(&a, stub()), "the request was given up");
+        node.request_settlement(now, &a, stub()).unwrap();
+    });
+    settle(&mut network, 1_000);
+    assert_eq!(network.settlement_requests, [(0, b)]);
+    network.act(1, |node, _| assert!(!node.asking(&a, stub()), "answered"));
+}
+
 // A request to settle that the peer refuses for not being peered with us,
 // as when it has not yet taken in our acceptance, is reported: the node
 // may ask again at once rather than a minute later. Here node 0 ends the

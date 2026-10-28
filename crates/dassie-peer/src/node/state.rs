@@ -564,6 +564,21 @@ impl PeerNode {
         }
     }
 
+    /// However often the node finds a peer short, one request to settle per
+    /// peer and method is in flight at most
+    /// (spec/decisions/settle-at-the-trigger.md).
+    fn check_requests_to_settle(&self) {
+        let mut asking = alloc::collections::BTreeSet::new();
+        for request in self.requests.values() {
+            if let super::Purpose::SettlementRequest(scheme) = request.purpose {
+                assert!(
+                    asking.insert((request.to, scheme)),
+                    "one request to settle per method in flight"
+                );
+            }
+        }
+    }
+
     /// Checks the node's invariants (spec/decisions/tigerstyle.md): bounds,
     /// ourselves in the table, and peers that are what the table says.
     ///
@@ -586,6 +601,7 @@ impl PeerNode {
             self.deadlines.len(),
             "a deadline per request"
         );
+        self.check_requests_to_settle();
         assert!(
             self.deferred <= self.config.max_deferred,
             "deferred within bounds"

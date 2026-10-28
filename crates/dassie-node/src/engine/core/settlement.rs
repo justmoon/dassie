@@ -408,11 +408,47 @@ impl Core {
         any
     }
 
-    /// Asks each peer that is close to the credit we extend to settle:
-    /// again at the next check once our books show a settlement from it,
-    /// and otherwise at most once per [`Settlements::request_every_ms`],
-    /// for a peer that does not answer. Only our own books decide; the peer
-    /// decides how much (spec/decisions/own-fulfills.md).
+    /// Asks each peer that is close to the credit we extend to settle, at
+    /// the settlement check: the backstop to asking at the trigger
+    /// ([`Self::room_fell`]), for a peer whose room fell without a Prepare
+    /// of its, as when it takes from our own hold toward it, or that was
+    /// not due to be asked when it fell
+    /// (spec/decisions/settle-at-the-trigger.md).
+    fn ask_peers(&mut self) {
+        let peers = self.methods_of_active_peers();
+        self.settle.asked.retain(|key, _| peers.contains(key));
+        for (node, scheme) in peers {
+            self.ask(node, scheme);
+        }
+        self.after_peer();
+    }
+
+    /// A Prepare from `node` on its method on `scheme` came, which lowers
+    /// our room for the peer there: asked at once if it fell to the
+    /// trigger, rather than at the next check, so that the peer funds its
+    /// hold while it still has room to send
+    /// (spec/decisions/settle-at-the-trigger.md). Only on a method the
+    /// check asks on.
+    pub(super) fn room_fell(&mut self, node: NodeId, scheme: SchemeId) {
+        let asks = self
+            .peer
+            .peering_of(&node)
+            .and_then(|peering| peering.method(scheme))
+            .is_some_and(|method| !method.winding_down())
+            && !self.settles_directly(scheme);
+        if asks {
+            self.ask(node, scheme);
+        }
+    }
+
+    /// Asks `node` to settle on its method on `scheme` if it is close to
+    /// the credit we extend there: again once our books show a settlement
+    /// from it on that method, and otherwise at most once per
+    /// [`Settlements::request_every_ms`], for a peer that does not answer.
+    /// Never while a request on the method is in flight, which the peer
+    /// protocol refuses: however many Prepares find the peer short, one
+    /// request per method is outstanding at most. Only our own books
+    /// decide; the peer decides how much (spec/decisions/own-fulfills.md).
     ///
     /// A peer is asked only while our scheme sees its ledger: until then,
     /// what the peer pays is not booked, and it would be asked again. A
@@ -421,43 +457,41 @@ impl Core {
     /// account held as the owner's deposit, so what a peer settles when
     /// asked, here or by a node ending the peering
     /// (spec/decisions/ending-a-peering.md), is booked as its settlement.
-    fn ask_peers(&mut self) {
+    fn ask(&mut self, node: NodeId, scheme: SchemeId) {
         let now = self.now_ms;
         let every = self.settle.request_every_ms;
-        let peers = self.methods_of_active_peers();
-        self.settle.asked.retain(|key, _| peers.contains(key));
-        for (node, scheme) in peers {
-            // While one of us has no account in the hub, there are no holds:
-            // a peer we are to pay in cannot settle, and the one that pays
-            // us in is asked by the books alone
-            // (spec/designs/settlement-hubs.md#5-joining).
-            let joining = self.joining_on(&node, scheme);
-            // Nor while its settlement cannot reach us: it would only fail,
-            // and cost the peer a fee. Nor ever with unlimited trust.
-            if !self.sees_ledger_joining(scheme, joining)
-                || !self.can_receive(scheme)
-                || self.unlimited(scheme)
-                || matches!(joining, Some(super::hubs::Joining::Paying(_)))
-            {
-                continue;
-            }
-            let due = self
-                .settle
-                .asked
-                .get(&(node, scheme))
-                .is_none_or(|at| at.saturating_add(every) <= now);
-            let close = self
-                .position(node, scheme)
-                .is_some_and(|at| policy::ask(at.position, self.settle.trigger))
-                || joining.is_none()
-                    && self
-                        .hub_room(node, scheme)
-                        .is_some_and(|room| policy::ask(u128::from(room), self.settle.trigger));
-            if due && close && self.peer.request_settlement(now, &node, scheme).is_ok() {
-                self.settle.asked.insert((node, scheme), now);
-            }
+        let due = self
+            .settle
+            .asked
+            .get(&(node, scheme))
+            .is_none_or(|at| at.saturating_add(every) <= now);
+        if !due {
+            return;
         }
-        self.after_peer();
+        // While one of us has no account in the hub, there are no holds:
+        // a peer we are to pay in cannot settle, and the one that pays
+        // us in is asked by the books alone
+        // (spec/designs/settlement-hubs.md#5-joining).
+        let joining = self.joining_on(&node, scheme);
+        // Nor while its settlement cannot reach us: it would only fail,
+        // and cost the peer a fee. Nor ever with unlimited trust.
+        if !self.sees_ledger_joining(scheme, joining)
+            || !self.can_receive(scheme)
+            || self.unlimited(scheme)
+            || matches!(joining, Some(super::hubs::Joining::Paying(_)))
+        {
+            return;
+        }
+        let close = self
+            .position(node, scheme)
+            .is_some_and(|at| policy::ask(at.position, self.settle.trigger))
+            || joining.is_none()
+                && self
+                    .hub_room(node, scheme)
+                    .is_some_and(|room| policy::ask(u128::from(room), self.settle.trigger));
+        if close && self.peer.request_settlement(now, &node, scheme).is_ok() {
+            self.settle.asked.insert((node, scheme), now);
+        }
     }
 
     /// Each method of each active peering, by peer and then in the order
@@ -472,22 +506,28 @@ impl Core {
     /// on it, so a request would only fail, and its room would end the
     /// peering, its hub methods too, until the peer protocol drops it.
     fn methods_of_active_peers(&self) -> Vec<(NodeId, SchemeId)> {
-        let direct = |scheme: SchemeId| {
-            Name::new(scheme.as_str())
-                .ok()
-                .and_then(|name| self.schemes.get(&name))
-                .is_some_and(super::ledgers::ActiveScheme::settles_directly)
-        };
         self.peer
             .active_peers()
             .flat_map(|(id, peering)| {
                 peering
                     .methods
                     .iter()
-                    .filter(move |method| !method.winding_down() && !direct(method.scheme))
+                    .filter(move |method| {
+                        !method.winding_down() && !self.settles_directly(method.scheme)
+                    })
                     .map(move |method| (*id, method.scheme))
             })
             .collect()
+    }
+
+    /// Whether `scheme` would settle directly, as an owner book a peering
+    /// stored from when the XRPL schemes peered may still have a method on
+    /// (spec/areas/settlement.md#owner-books): nothing is asked on it.
+    fn settles_directly(&self, scheme: SchemeId) -> bool {
+        Name::new(scheme.as_str())
+            .ok()
+            .and_then(|name| self.schemes.get(&name))
+            .is_some_and(super::ledgers::ActiveScheme::settles_directly)
     }
 
     /// What `node`'s hold toward us over the hub of `scheme` has room for,
