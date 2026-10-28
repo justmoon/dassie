@@ -64,7 +64,7 @@ export function RequestPayment(): JSX.Element {
   return (
     <div class="stack">
       <form class="request-payment" onSubmit={create}>
-        <h3>Request a Payment</h3>
+        <h3>Request a payment</h3>
         <Show when={(addresses.addresses()?.length ?? 0) > 1}>
           <Field label="Asset" for={`${id}-ledger`}>
             <select
@@ -115,7 +115,7 @@ export function RequestPayment(): JSX.Element {
             data-testid="request-create"
             disabled={pending()}
           >
-            Create Request
+            Create request
           </button>
         </div>
         <ErrorText message={error()} />
@@ -131,7 +131,7 @@ export function RequestPayment(): JSX.Element {
 function Created(props: { payment: IncomingPayment }): JSX.Element {
   const currency = () => ledgerCurrency(props.payment);
   return (
-    <div class="stack" data-testid="request-created">
+    <div class="stack request-created" data-testid="request-created">
       <p>
         Share this link with whoever pays you
         <Show when={props.payment.incomingAmount !== undefined}>
@@ -143,7 +143,7 @@ function Created(props: { payment: IncomingPayment }): JSX.Element {
         </Show>
         :
       </p>
-      <p class="boxed">
+      <p class="copy-line boxed">
         <code data-testid="request-url">{props.payment.url}</code>{" "}
         <CopyButton text={props.payment.url} />
       </p>
