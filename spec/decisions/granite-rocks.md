@@ -1,6 +1,6 @@
-# Kopje's rocks are granite: gray blocks with hard edges, stacked, bigger than the dassies, and the brand page says why (not drawn yet)
+# Kopje's rocks are granite: gray blocks with hard edges, stacked, bigger than the dassies, and the brand page says why
 
-**Areas:** [Website](../areas/website.md). Not drawn yet ([roadmap](../roadmap.md#kopje-across-dassie)): on `main`, the scenes' rocks are Terracotta, as [visual-identity](visual-identity.md) has them.
+**Areas:** [Website](../areas/website.md).
 
 ## Facts
 
@@ -13,7 +13,7 @@
 
 **A rock in Kopje is granite: gray, faceted, stacked, and large beside a dassie. The brand page states these rules and why, and every rock is drawn to them, by hand but for the node circles'.**
 
-- **Gray, not brown.** A rock's faces are grays: their chroma stays below a bound that the brand page sets, so they read as stone whatever their hue leans to. The face turned away from the sun is a step darker than the face toward the viewer, and far kopjes are paler and cooler than near ones.
+- **Gray, not brown.** A rock's faces are grays: their chroma stays below a bound that the brand page sets, so they read as stone whatever their hue leans to. Lit from behind, a block is lightest at its ends, where the light wraps around it, and its shade, a step darker, is one shape, as a cartoon draws it: under the sun, a band low on the face whose top follows the block's own top edge, flat across the middle and falling away toward the ends, a little uneven; to the sun's side, the shade climbs the end away from the sun as a darker face, nearly to its top, the band thins toward the end facing the sun, and only that end keeps its light. Far kopjes are paler and cooler than near ones, and lit the same way in closer steps, as haze leaves distant rock; only a node circle's small rock, too small for it, is one tone.
 - **Terracotta is earth, never a rock.** It keeps its place for grounds, bands and cards, such as the balance card and the veld grass, and for nothing that stands on the horizon as a closed shape.
 - **Flat faces, hard corners, joints.** A rock's outline is straight lines whose corners are cut short, never rounded; tops are flat or tilted slabs, never domes. Each rock shows its joints: a crack across a face, or the line of shade where one block rests on another.
 - **Lit from behind, as a low sun lights rock.** The rim is the granite lit by the sun: Sunrise mixed with the rock's gray, which the brand page names, never lighter than the sun and always a solid color, so it stands apart from the disc behind it. Its width carries the light: widest near the sun and thin far from it; widest on an edge facing the sun and a hairline on one facing away; on tops and upper corners, tapering down the sides; and never on an edge facing down. Every edge that is not covered and does not face down is lit, so a block that rests on another lies behind the lower block's top edge, and that edge is lit at the upper block's sides and tapers to a point as the light pokes in, further near the sun, leaving the middle, where the block behind blocks the most light, dark. A line of shade lies at the foot of the block resting on another.
@@ -42,6 +42,10 @@
 - *Shrink the wide scene for a phone:* at a third of its size the dassies are a few pixels high and the kopjes pebbles, which is the misreading this decision is about.
 - *A sun beside the main kopje, or off its axis:* the lookout stands clear on the sky, but the sun then lights a corner of the scene rather than the kopje it is about, and the scene no longer has the mark's picture of a dassie on its rock in front of the sun.
 - *A sun whose edge meets the lookout's head, as the Terracotta scenes have it:* a tangent reads as the two touching, and neither stands apart.
+- *A face turned from the sun, a step darker, always on the same side:* with the sun behind, a rock left of it would be dark on the side that faces the sun.
+- *One end lighter and the other darker on a block under the sun:* there the light from behind wraps around both ends alike, and it is the middle of the face, turned to the viewer, that gets the least.
+- *The same band of shade along the bottom of every block, wherever it stands:* a block off to the sun's side is shaded most on its far end, which the light from behind does not reach, and a band there says the light comes from above.
+- *An even band of shade along the bottom, or a shade that rises to a point:* a band is as dark at the ends as in the middle, and a point, clean or uneven, draws a shape the boulder does not have; a shade that follows the block's top says what the rock is.
 - *Ink rocks, as the mark's:* the mark has one dassie and one rock, parted by a rim of light. A scene's many ink dassies on ink rocks melt into one dark band, and the scene no longer shows ledgers apart from the nodes on them.
 - *Red sandstone mesas, flat-topped and layered:* strata read clearly as rock, but they are red, and a mesa is tall where Kopje lies low; kopjes are granite.
 - *One seeded generator in `packages/ui` draws every rock, and a test holds it to the rules:* it would keep a later drawing from bringing the brown or the mound back, but it is code to keep, and it binds every scene to what the generator can draw. The drawings with rocks are few, and the rules on the page are enough to draw them by.

@@ -996,6 +996,24 @@ section.sec {
 .rules b {
   color: var(--ink);
 }
+.rock-note {
+  max-width: 72ch;
+  margin: 14px 0 0;
+  color: var(--ink-2);
+}
+/* The rocks' swatches. */
+.x-granite {
+  background: #62646B !important;
+  color: #FBF6EE !important;
+}
+.x-granite-shade {
+  background: #4F5158 !important;
+  color: #FBF6EE !important;
+}
+.x-sunlit {
+  background: #C88F5E !important;
+  color: #2B2420 !important;
+}
 
 /* ---------- voice ---------- */
 .voice {
@@ -2581,6 +2599,31 @@ html[data-theme="dark"] svg use[color="#2B2420"]:not(:is(.tile, .card-stage, .me
 html[data-theme="dark"] svg rect[fill="#2B2420"]:not(:is(.tile, .card-stage, .merch, .release-stage, .frame) *) {
   fill: #6A4B38;
 }
+/* Granite goes darker than the night, as ink does, its faces a step apart so a kopje still shows its blocks; its rims of Sunlit Granite stay. */
+html[data-theme="dark"] svg [fill="#62646B"]:not(:is(.tile, .card-stage, .merch, .release-stage, .frame) *) {
+  fill: #171311;
+}
+html[data-theme="dark"] svg [fill="#4F5158"]:not(:is(.tile, .card-stage, .merch, .release-stage, .frame) *) {
+  fill: #0E0B09;
+}
+html[data-theme="dark"] svg [fill="#90929A"]:not(:is(.tile, .card-stage, .merch, .release-stage, .frame) *) {
+  fill: #241F1C;
+}
+html[data-theme="dark"] svg [fill="#6E7078"]:not(:is(.tile, .card-stage, .merch, .release-stage, .frame) *) {
+  fill: #13100E;
+}
+html[data-theme="dark"] svg [fill="#74767D"]:not(:is(.tile, .card-stage, .merch, .release-stage, .frame) *) {
+  fill: #221D1A;
+}
+html[data-theme="dark"] svg [fill="#80828A"]:not(:is(.tile, .card-stage, .merch, .release-stage, .frame) *) {
+  fill: #1A1613;
+}
+html[data-theme="dark"] svg [stroke="#3F4147"]:not(:is(.tile, .card-stage, .merch, .release-stage, .frame) *) {
+  stroke: #050403;
+}
+html[data-theme="dark"] svg [fill="#3F4147"]:not(:is(.tile, .card-stage, .merch, .release-stage, .frame) *) {
+  fill: #050403;
+}
 html[data-theme="dark"] svg text[fill="#5E524A"] {
   fill: var(--ink-2);
 }
@@ -2792,7 +2835,7 @@ html[data-theme="dark"] .close-card.watch li {
 }
 .x-7964434 {
   width: 2% !important;
-  background: #7A3B22 !important;
+  background: #62646B !important;
 }
 .x-7ecbcd2 {
   display: flex !important;

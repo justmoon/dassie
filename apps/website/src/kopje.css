@@ -64,7 +64,7 @@
   --sun-2: #F8C08A; /* light sun tint */
   --ember: #A94E2A; /* Ember: action, as a fill (5.1:1 with Daylight) */
   --ember-text: light-dark(#A94E2A, #E58A57); /* Ember as text and links */
-  --terra: #C8643B; /* Terracotta: decorative stone only, never text */
+  --terra: #C8643B; /* Terracotta: earth, for grounds and cards; never a rock, never text */
   --violet: #A85FE0; /* Violet Crystal: value, the cube only */
   --ink: light-dark(#2B2420, #F0E5D3); /* Ink: text */
   --ink-2: light-dark(#5E524A, #B8AA97); /* muted text */

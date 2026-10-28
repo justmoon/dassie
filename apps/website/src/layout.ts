@@ -83,16 +83,25 @@ export function header(path: string): string {
     </header>`;
 }
 
-/** The footer: a kopje against the sun, then the night. */
+/** The footer: a kopje against the sun, then the night. A phone gets a
+ * composition of its own rather than the wide one shrunk. */
 export function footer(): string {
   return `<div class="foot-scene">
-      <img
-        src="/brand/img/footer-kopje.svg"
-        alt="A kopje against the sun, standing in veld grass; one dassie climbs the big rock's face, one keeps lookout on top, a pair sits on the left rock and one sleeps on the right"
-        width="1200"
-        height="197"
-        loading="lazy"
-      />
+      <picture>
+        <source
+          media="(max-width: 600px)"
+          srcset="/brand/img/footer-kopje-narrow.svg"
+          width="480"
+          height="197"
+        />
+        <img
+          src="/brand/img/footer-kopje.svg"
+          alt="A kopje of granite blocks against the sun, in veld grass; one dassie climbs its slab, one keeps lookout on top inside the sun, and one sleeps on the next rock; on a wide screen, a pair sits on a kopje to the left"
+          width="1200"
+          height="197"
+          loading="lazy"
+        />
+      </picture>
     </div>
     <footer class="site-footer">
       <p>
