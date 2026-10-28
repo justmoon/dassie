@@ -24,7 +24,7 @@ use dassie_settlement::{
     AssetEffect, DollarRate, Effect, ExternalAsset, LedgerInput, LedgerStatus, OwnerPayment,
     PegPause, SettlementScheme,
 };
-use dassie_xrpl::account::XrplAccount;
+use dassie_xrpl::account::{MAX_SETTLING_MS, XrplAccount};
 use dassie_xrpl::amount::IssuedAsset;
 use dassie_xrpl::codec::{Amount, Memo, Payment, Signing, TokenValue, Transact};
 use dassie_xrpl::fake::{FAUCET_DROPS, FEE_BASE, FakeLedger, Lie, RESERVE_BASE, RESERVE_INC};
@@ -308,8 +308,16 @@ impl World {
     }
 
     /// Closes a ledger, delivers the streams, and checks every node's books
-    /// against the ledger.
+    /// against the ledger. A settlement through every account is near
+    /// throughout, so that each anchors on every ledger, as these tests of
+    /// what is booked need (spec/designs/xrpl-validation.md#6-the-account-on-proofs).
     fn close(&mut self) {
+        for index in 0..self.nodes.len() {
+            self.nodes[index]
+                .account
+                .settling(self.now + MAX_SETTLING_MS);
+            self.tell(index);
+        }
         self.now += 4_000;
         let close_time = dassie_xrpl::unl::ledger_seconds(self.now);
         for (connection, message) in self.ledger.close_at(close_time) {

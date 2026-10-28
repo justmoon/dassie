@@ -474,6 +474,44 @@ fn a_live_hub_is_funded_from_the_live_book() {
     );
 }
 
+// spec/areas/hubs.md#in-the-node, spec/designs/xrpl-validation.md#6-the-account-on-proofs:
+// an owner book's account that waited for nothing anchors on demand, so
+// its anchor is stale, and it signs from no stale anchor. The deposit the
+// floor calls for has it anchor anew first, and goes at the next check:
+// the wait is no failure, which would hold the deposit back a backoff.
+#[test]
+fn a_deposit_from_an_idle_book_waits_for_a_fresh_anchor_not_a_backoff() {
+    let mut ledger = super::fake_ledger(true);
+    let own = own_account(&MAINNET);
+    ledger.deposit(own, dassie_xrpl::fake::FAUCET_DROPS);
+    ledger.close();
+    let store = Arc::new(Store::open_in_memory().unwrap());
+    let mut core = super::core_taking_downlinks(store, Realm::Live, LiveRealm::DevSwitch, NOW);
+    super::add_xrpl(&mut core, "xrpl-xrp", r#"{"server":"ws://ledger.test"}"#).unwrap();
+    super::follow_xrpl(&mut core, &mut ledger);
+    let mut hub = Hub::new(MAINNET_SCHEME_ID, MAINNET.id, Asset::Xrp);
+    core.add_scheme(MAINNET_SCHEME_ID, hub.config()).unwrap();
+    super::follow_xrpl(&mut core, &mut ledger);
+    let anchored = |core: &Core| {
+        let account = core.xrpl_accounts().next().unwrap();
+        account.anchor().unwrap().index
+    };
+    // A minute of ledgers, none of which the account anchors on.
+    for _ in 0..15 {
+        core.begin_step(core.now_ms() + 4_000);
+        super::close_xrpl(&mut core, &mut ledger);
+    }
+    let idle = anchored(&core);
+    assert!(idle + 10 < ledger.ledger(), "idle at {idle}");
+
+    hub.no_account(&mut core);
+    super::wait_and_close(&mut core, &mut ledger, 1_000);
+    assert!(anchored(&core) > idle, "anchored anew");
+    let made = super::deposits(&mut ledger, hub.escrow());
+    assert_eq!(made.len(), 1, "{made:?}");
+    assert_eq!((made[0].tag, made[0].sender), (0, own.0));
+}
+
 // spec/decisions/hub-scheme-names.md, spec/areas/xrpl.md#the-peg-guard: a
 // member scheme on a mainnet hub of RLUSD, made from its rules, books on
 // `hub-xrpl-rlusd+usd` through an account of its own, `hub-xrpl-rlusd`;

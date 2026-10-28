@@ -37,6 +37,14 @@ const PAYMENTS_NEED_PROGRESS_MS: u64 = 5 * 60 * 1_000;
 /// The most XRP Ledger fee a payment out of an owner book is sized to leave
 /// room for, in drops: XRP the account pays, from the XRP book.
 const XRPL_FEE_DROPS: u64 = dassie_xrpl::account::MAX_FEE_DROPS;
+/// How long the owner book's account reads every ledger after the node
+/// last told it a move is near: the node tells it again at every check
+/// while a withdrawal to it is due or on its way, so this only needs to
+/// outlast the moment from the hub executing the withdrawal to the XRP
+/// Ledger applying the escrow's payment, which its validators submit
+/// within a block or so. Past it, the account sees the payment by its
+/// hint, or at the latest by its heartbeat.
+const NEAR_MS: u64 = 120_000;
 
 /// The fee a payment out of the owner book on `ledger` holds back of the
 /// owner's funds there, in the book asset's smallest unit: the XRP Ledger's
@@ -868,6 +876,16 @@ impl Core {
             .funding
             .get(&scheme)
             .and_then(|funding| funding.due(now, &standing));
+        // A withdrawal on its way, or due, arrives on the owner book's
+        // account: it reads every ledger meanwhile, so it books the
+        // withdrawal as soon as the XRP Ledger applies it.
+        let withdrawing = |direction| direction == Direction::Withdraw;
+        let moving = self.funding.get(&scheme).and_then(|f| f.moving);
+        if moving.is_some_and(|m| withdrawing(m.direction))
+            || due.is_some_and(|planned| withdrawing(planned.direction))
+        {
+            self.settling_on(self.owner_book(scheme));
+        }
         let Some(planned) = due else {
             // A check of a token hub's gas the owner started goes on.
             if self.funding.get(&scheme).is_some_and(Funding::gas_checking) {
@@ -881,6 +899,13 @@ impl Core {
             && self.token_hub(scheme)
             && !matches!(self.check_gas(scheme), Ok(true))
         {
+            return;
+        }
+        // A deposit pays out of the owner book's account, which signs only
+        // from a fresh view of its ledger: one that has none yet reads its
+        // ledger anew, and the deposit waits for the next check, which is
+        // no failure.
+        if planned.direction == Direction::Deposit && !self.settling_on(self.owner_book(scheme)) {
             return;
         }
         // One the side it leaves cannot take now backs off only the moves
@@ -1007,6 +1032,28 @@ impl Core {
                 false
             }
         })
+    }
+
+    /// Tells the account of the owner book `book` that a settlement through
+    /// it is near, for [`NEAR_MS`], and sends what it asks of its ledger:
+    /// whether it can sign now
+    /// (spec/designs/xrpl-validation.md#6-the-account-on-proofs). Not
+    /// while the book does not run.
+    fn settling_on(&mut self, book: Option<(Name, LedgerId)>) -> bool {
+        let Some(asset) = book
+            .and_then(|(book, _)| self.schemes.get(&book))
+            .filter(|active| active.failed.is_none())
+            .and_then(|active| active.asset)
+        else {
+            return false;
+        };
+        let until = self.now_ms.saturating_add(NEAR_MS);
+        let Some(active) = self.assets.get_mut(&asset) else {
+            return false;
+        };
+        let ready = active.asset.settling(until);
+        self.carry_out(asset);
+        ready
     }
 
     /// Has the account of the XRP owner book on the network of the hub of

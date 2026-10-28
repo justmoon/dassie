@@ -76,7 +76,8 @@ use crate::validator_list::{MAX_PUBLISHERS, UnlConfig};
 
 use anchors::Round;
 pub use anchors::{
-    Doubt, FETCH_TIMEOUT_MS, LIST_REFRESH_MS, LIST_RETRY_MS, MAX_MANIFEST_ASKS, STALL_MS,
+    Doubt, FETCH_TIMEOUT_MS, FRESH_ANCHOR_MS, HEARTBEAT_MS, LIST_REFRESH_MS, LIST_RETRY_MS,
+    MAX_MANIFEST_ASKS, MAX_SETTLING_MS, PAYING_MS, STALL_MS,
 };
 pub use history::{
     HISTORY_BOUND, MAX_PROOFS, MAX_PROVING, MAX_UNSAVED_TRIES, MAX_WALKED, UNSAVED_RETRY_MS,
@@ -549,6 +550,25 @@ pub struct XrplAccount {
     fetches: crate::lists::ListFetches,
     /// The anchoring round in flight.
     round: Option<Round>,
+    /// How often an anchoring round was asked for since the account was
+    /// made: by a hint, a read or a payment that needs a fresh anchor, or
+    /// the heartbeat ([`anchors`]). One is wanted until a round that
+    /// started after the last asking took an anchor.
+    wants: u64,
+    /// The askings the round in flight answers: `wants` as it started.
+    round_wants: u64,
+    /// The askings the newest anchor answered.
+    served: u64,
+    /// When the account last took an anchor, or connected: the heartbeat
+    /// counts from then.
+    anchored_ms: u64,
+    /// When the account took its newest anchor, since it was made: its
+    /// anchor is fresh for [`FRESH_ANCHOR_MS`] from then.
+    taken_ms: Option<u64>,
+    /// Until when a settlement through the account is expected or about
+    /// to be made: the account anchors on every ledger until then, or
+    /// until money from elsewhere is proven to arrive; 0 while none is.
+    settling_until_ms: u64,
     /// Until when the account waits after a server refused a proof, before
     /// it connects anew; 0 while it does not.
     stalled_until_ms: u64,
@@ -682,6 +702,12 @@ impl XrplAccount {
             fetches: crate::lists::ListFetches::new(config.unl.publishers.len()),
             config,
             round: None,
+            wants: 0,
+            round_wants: 0,
+            served: 0,
+            anchored_ms: 0,
+            taken_ms: None,
+            settling_until_ms: 0,
             stalled_until_ms: 0,
             waiting: None,
             doubts: BTreeMap::new(),
@@ -1020,8 +1046,31 @@ impl XrplAccount {
         gas.saturating_add(in_flight) <= funds
     }
 
+    /// Whether the newest anchor is fresh: taken at most
+    /// [`FRESH_ANCHOR_MS`] ago, by the node's clock.
+    fn anchor_fresh(&self) -> bool {
+        self.taken_ms
+            .is_some_and(|taken| taken.saturating_add(FRESH_ANCHOR_MS) >= self.now_ms)
+    }
+
+    /// A transaction a scheme asked to sign was refused: not now. A scheme
+    /// that decided to pay while the anchor was stale gets a round at once,
+    /// and the account anchors on every ledger for [`PAYING_MS`], so that
+    /// the scheme asked again signs from a fresh anchor.
+    fn refused(&mut self) -> SchemeError {
+        if self.is_synced() && !self.anchor_fresh() {
+            self.settle_until(self.now_ms.saturating_add(PAYING_MS));
+            self.want_fresh();
+        }
+        SchemeError::Unavailable
+    }
+
     /// Whether `scheme` may sign a transaction now that pays `drops` of
-    /// XRP and `fee`, and may take `reserve` more.
+    /// XRP and `fee`, and may take `reserve` more: only from a fresh anchor
+    /// ([`FRESH_ANCHOR_MS`]), so that its last ledger is never already
+    /// past. A payment asked from a stale one is refused
+    /// ([`refused`](Self::refused)), and asked again once the round it
+    /// starts took a fresh one.
     fn can_sign(&self, scheme: Name, drops: u64, fee: u64, reserve: u64) -> bool {
         let xrp = self.network.xrp_scheme;
         let gas = if scheme == xrp {
@@ -1037,6 +1086,7 @@ impl XrplAccount {
         // in flight.
         let reading = self.parked.iter().any(|p| p.scheme == scheme) || self.told_own(scheme);
         self.is_synced()
+            && self.anchor_fresh()
             && !reading
             && self.sequence < u32::MAX
             && self.in_flight.len() < MAX_IN_FLIGHT
@@ -1054,8 +1104,9 @@ impl XrplAccount {
     ///
     /// # Errors
     ///
-    /// [`SchemeError::Unavailable`] unless the account is synced and knows
-    /// its sequence, has room for another transaction in flight, the amount
+    /// [`SchemeError::Unavailable`] unless the account is synced from a
+    /// fresh anchor and knows its sequence, has room for another
+    /// transaction in flight, the amount
     /// is at least a drop, the network fee is at most [`MAX_FEE_DROPS`],
     /// and the amount and the fee fit above the reserve after what is in
     /// flight.
@@ -1068,7 +1119,7 @@ impl XrplAccount {
     ) -> Result<[u8; 32], SchemeError> {
         let fee = self.fee();
         if drops == 0 || !self.can_sign(scheme, drops, fee, 0) {
-            return Err(SchemeError::Unavailable);
+            return Err(self.refused());
         }
         let payment = Payment {
             account: self.account(),
@@ -1117,7 +1168,7 @@ impl XrplAccount {
             || !self.line_holds(scheme, &amount)
             || !self.can_sign(scheme, 0, fee, 0)
         {
-            return Err(SchemeError::Unavailable);
+            return Err(self.refused());
         }
         let payment = Payment {
             account: self.account(),
@@ -1200,7 +1251,7 @@ impl XrplAccount {
             .is_some_and(|view| view.ours.reserve);
         let reserve = if holds_reserve { 0 } else { self.reserve_inc };
         if !limit.is_valid() || !self.can_sign(scheme, 0, fee, reserve) {
-            return Err(SchemeError::Unavailable);
+            return Err(self.refused());
         }
         let trust_set = TrustSet {
             account,
@@ -1425,6 +1476,7 @@ impl XrplAccount {
     fn connected(&mut self) {
         self.disconnected();
         self.heard_ms = self.now_ms;
+        self.anchored_ms = self.now_ms;
         self.phase = Phase::Starting {
             subscribed: false,
             state: false,
@@ -1649,13 +1701,21 @@ impl XrplAccount {
     }
 
     /// A ledger closed, as the stream says: a hint, which moves nothing the
-    /// account takes as validated, and may start an anchoring round, whose
-    /// anchor does ([`anchor_on_hint`](Self::anchor_on_hint)). Its fee is
-    /// the server's word, which the account offers up to its ceiling; the
-    /// reserve is proven at the anchor.
+    /// account takes as validated, and starts an anchoring round, whose
+    /// anchor does, while the account is hot or a round is wanted
+    /// ([`anchor_on_hint`](Self::anchor_on_hint)). Its fee is the server's
+    /// word, which the account offers up to its ceiling; the reserve is
+    /// proven at the anchor.
     fn ledger_closed(&mut self, closed: LedgerClosed) {
         self.fee_base = closed.fee_base;
-        self.anchor_on_hint();
+        // A reserve other than the anchor's, as the stream names it, is a
+        // hint that it changed: a round proves it.
+        let known = self.reserve_base > 0 || self.reserve_inc > 0;
+        let named = (closed.reserve_base, closed.reserve_inc);
+        if known && named != (self.reserve_base, self.reserve_inc) {
+            self.want_anchor();
+        }
+        self.anchor_on_hint(closed.ledger_index);
     }
 
     /// Our transactions past their last ledger, as of the anchor. One the
@@ -1858,6 +1918,15 @@ impl XrplAccount {
                 if let Some(change) = record.line(account, key.issuer, key.currency) {
                     *state = Some(change.after().copied());
                 }
+            }
+            // Money from elsewhere arrived: what was expected is credited,
+            // and the account goes back to anchoring on demand.
+            if record.account != account
+                && record.is_payment
+                && record.destination == Some(account)
+                && record.result == "tesSUCCESS"
+            {
+                self.settling_until_ms = 0;
             }
         }
         let ours = self.ours(record.hash);
@@ -2360,8 +2429,12 @@ impl ExternalAsset for XrplAccount {
                 self.heard_ms = self.now_ms;
                 self.message(bytes);
             }
-            // The next anchor proves whether the account exists.
-            LedgerInput::Funded(_) => self.funding = false,
+            // The next anchor, which the faucet's answer asks for, proves
+            // whether the account exists, and what it sent.
+            LedgerInput::Funded(_) => {
+                self.funding = false;
+                self.want_anchor();
+            }
             LedgerInput::Fetched { url, body } => self.fetched(url, body),
             // It names no endpoints: nothing comes from one.
             LedgerInput::From { .. } => {}
@@ -2391,6 +2464,7 @@ impl ExternalAsset for XrplAccount {
             silence,
             stall,
             unsaved,
+            self.heartbeat_deadline(),
             self.lists_deadline(),
         ]
         .into_iter()
@@ -2424,6 +2498,7 @@ impl ExternalAsset for XrplAccount {
         if self.phase == Phase::Unfunded {
             self.fund();
         }
+        self.heartbeat();
     }
 
     fn has_faucet(&self) -> bool {
@@ -2442,7 +2517,27 @@ impl ExternalAsset for XrplAccount {
             return Err(SchemeError::Unavailable);
         }
         self.fund();
+        // What it sends is expected: the account follows every ledger
+        // until it arrives.
+        self.settle_until(self.now_ms.saturating_add(PAYING_MS));
         Ok(())
+    }
+
+    /// A settlement through the account is expected or about to be made
+    /// until `until_ms` (spec/designs/xrpl-validation.md#6-the-account-on-proofs):
+    /// it anchors on every ledger until then, at most [`MAX_SETTLING_MS`]
+    /// from now, or until money from elsewhere is proven to arrive. It can
+    /// sign now only from a fresh anchor; from a stale one, a round starts
+    /// at once, and it is asked again.
+    fn settling(&mut self, until_ms: u64) -> bool {
+        self.settle_until(until_ms);
+        if self.is_synced() && self.anchor_fresh() {
+            return true;
+        }
+        if self.is_synced() {
+            self.want_fresh();
+        }
+        false
     }
 
     fn told(&mut self) {
@@ -2532,6 +2627,7 @@ impl ExternalAsset for XrplAccount {
         assert!(self.news.len() <= MAX_NEWS);
         assert!(self.effects.len() <= MAX_EFFECTS);
         assert!(self.next_id >= 1, "request IDs start at 1");
+        self.check_anchoring();
         self.fetches.check_invariants(&self.config.unl);
         assert_eq!(self.unl.config(), &self.config.unl, "the config's UNL");
         if let Some(kept) = &self.anchor {
@@ -2558,6 +2654,24 @@ mod tests {
 
     /// A validated ledger's index, as a test's newest.
     const NEWEST: u32 = 5_000_000;
+
+    /// Anchors `account` at ledger `index`, which closed just now by its
+    /// clock: it may sign from it.
+    pub(super) fn fresh_anchor(account: &mut XrplAccount, index: u32) {
+        let close_time = 800_000_000;
+        account.anchor = Some(KeptAnchor::of(
+            Anchor {
+                index,
+                close_time,
+                hash: [3; 32],
+            },
+            None,
+        ));
+        account.validated = index;
+        account.now_ms = account.now_ms.max(crate::unl::unix_ms(close_time));
+        account.anchored_ms = account.now_ms;
+        account.taken_ms = Some(account.now_ms);
+    }
 
     fn ledger(index: u32, close_time: u32, hash: u8) -> Anchor {
         Anchor {
@@ -2618,7 +2732,7 @@ mod tests {
         account.at = Some((10, u32::MAX));
         account.sequence = 5;
         account.balance = Some(1_000_000_000);
-        account.validated = 10;
+        fresh_anchor(&mut account, 10);
         let to = Wallet::from_entropy(&[2; 32]).account();
         let first = account
             .sign_payment_to(a, (to, None), 1_000, Vec::new())
@@ -2690,14 +2804,15 @@ mod tests {
         }
     }
 
-    /// An account `schemes` book, synced at ledger 10.
+    /// An account `schemes` book, synced at ledger 10, its anchor there
+    /// and fresh.
     fn synced_account(schemes: &[Name]) -> XrplAccount {
         let mut account = XrplAccount::new(FIRST, schemes, "", &[1; 32], &[]).unwrap();
         account.phase = Phase::Synced;
         account.at = Some((10, u32::MAX));
         account.sequence = 5;
         account.balance = Some(1_000_000_000);
-        account.validated = 10;
+        fresh_anchor(&mut account, 10);
         account
     }
 
@@ -2971,6 +3086,12 @@ mod tests {
             .sign_payment_to(id, (to, None), 1_000, Vec::new())
             .unwrap();
         assert!(account.execute(id, hash));
+        // Signed from a fresh anchor; the state is then written as by an
+        // account made at its clock's start, as the one restored from it.
+        account.anchor = None;
+        account.now_ms = 0;
+        account.anchored_ms = 0;
+        account.taken_ms = None;
         let mut scheme = crate::XrplScheme::new(&account, None, &[]).unwrap();
         let mut effects = Vec::new();
         scheme.on_asset(0, &mut account, &mut effects);
