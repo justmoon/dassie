@@ -54,9 +54,9 @@ use dassie_xrpl::{DROPS_PER_XRP, UNITS_PER_DROP};
 
 use super::checks::{check_across, check_events, first_failure};
 use super::hub::{PREPARES_OVER_DSUSD, PREPARES_OVER_XRP};
+use super::hub_checks::{ledger_of, status_in};
 use super::hub_pairs::{
-    HUB_STAKE_XRP, JOINED_WITHIN_MS, check_hubs, join_hubs, ledger_of, settle_down_in, stake,
-    status_in,
+    HUB_STAKE_XRP, JOINED_WITHIN_MS, check_hubs, join_hubs, settle_down_in, stake,
 };
 use super::hubbed::{paid, routed};
 use super::scripted::{READY_WITHIN_MS, ended};

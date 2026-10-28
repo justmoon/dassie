@@ -28,12 +28,9 @@ use dassie_kit::sim::{Outcome, Run, SeededRng};
 
 use super::checks::{check_events, check_incoming, first_failure};
 use super::hub::{MemberLie, terms};
-// Whether the members joined, still reachable here, where the tests found
-// it.
-pub use super::hub_checks::joined;
 use super::hub_checks::{
     check_each, check_losses, check_payout, check_settled_with_honest, check_validators_in,
-    hub_standing, idle_in, places,
+    hub_standing, idle_in, joined, places,
 };
 use super::scripted::{READY_WITHIN_MS, ended};
 use super::{START, Settling, Sim, key, received};

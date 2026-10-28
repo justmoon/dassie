@@ -66,7 +66,7 @@ use dassie_xrpl::peg::TRIP_HOLD_MS;
 
 use super::checks::{check_events, check_funded, check_held, check_incoming, first_failure};
 use super::hub::owed;
-use super::hub_checks::{check_each, escrow_holds, hub_standing, idle_in, in_step_in};
+use super::hub_checks::{check_each, escrow_holds, hub_standing, idle_in, in_step_in, joined};
 use super::scripted::{READY_WITHIN_MS, ended};
 use super::{
     DSUSD, Delivery, HUB_DSUSD, POOL_TOKENS, START, Settling, Sim, XRP, key, xrpl_account,
@@ -210,10 +210,6 @@ pub fn run(seed: u64) -> Run {
     let result = script(&mut sim, &mut rng, &setup);
     ended(sim, result)
 }
-
-// Whether every member joined the hub, still reachable here, where the
-// tests found it.
-pub use super::hub_checks::joined;
 
 /// Whether every node has a peer and a route to every other node.
 fn routed(sim: &Sim) -> bool {

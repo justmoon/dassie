@@ -40,7 +40,10 @@ use super::checks::{
     check_across, check_events, check_hub_credit, check_hub_packets, check_settled, first_failure,
 };
 use super::hub::{PREPARES_OVER_DSUSD, PREPARES_OVER_XRP, owed};
-use super::hub_checks::{check_each, check_losses, hub_standing, idle_in, moving_in, places};
+use super::hub_checks::{
+    check_each, check_losses, hub_standing, idle_in, joined as joined_all, ledger_of, members_of,
+    moving_in, places,
+};
 use super::hubbed::{paid, routed};
 use super::scripted::{READY_WITHIN_MS, ended};
 use super::{HUB, HUB_DSUSD, MINT_MICROS, START, Settling, Sim, key, xrpl_account};
@@ -77,10 +80,6 @@ pub(super) const HUB_STAKE_MICROS: u64 = MINT_MICROS / 2;
 
 /// What each member's owner moves into the XRP hub as its stake, in XRP.
 pub(super) const HUB_STAKE_XRP: u64 = super::hub_runs::HUB_STAKE_XRP;
-
-// What a run over two hubs shares with every run over hubs, still
-// reachable here, where the runs beside this one and the tests found it.
-pub use super::hub_checks::{joined as joined_all, ledger_of, members_of, status_in};
 
 /// The members join each hub, each from the owner book of its asset,
 /// within the wait of a move.
