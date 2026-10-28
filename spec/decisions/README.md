@@ -55,7 +55,7 @@ Each file records one choice between real alternatives: the facts that forced it
 | [passive-rebalancing](passive-rebalancing.md) | Nodes rebalance passively: inventory pricing, published prices and market makers | connector, rate-feed, settlement |
 | [path-failures-retried](path-failures-retried.md) | A sender sends money again after a too-low rate or a node's final error, until failures without progress stop it | stream, payments |
 | [peer-protocol-v1](peer-protocol-v1.md) | Peer protocol: v0 or v1 | peer-protocol, identity |
-| [peer-swaps](peer-swaps.md) | Nodes swap assets with their peers, priced by snapshots of ladders per asset (the node's own swaps and the one-node market maker not built) | connector, rate-feed, peer-protocol, network, market-maker-vm |
+| [peer-swaps](peer-swaps.md) | Nodes swap assets with their peers, priced by snapshots of ladders per asset | connector, rate-feed, peer-protocol, network, market-maker-vm |
 | [peering-lifecycle](peering-lifecycle.md) | Peering lifecycle and liveness | network |
 | [periphery-lists-no-neighbors](periphery-lists-no-neighbors.md) | A periphery node's link state lists no neighbors, so it may keep many uplinks | network, peer-protocol, connector |
 | [phrase-format](phrase-format.md) | A phrase says its realm and when it was made, and corrects its own errors | identity, http, node, wallet, overview |

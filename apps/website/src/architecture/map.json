@@ -250,7 +250,8 @@
         "Payments across currencies: dollars on the stub with unlimited trust, converted by a node in both and paid in XRP over a settlement hub, which the converter settles over; and across two hubs, of XRP and of DSUSD: a payment from a member of the XRP hub alone to a receiver in DSUSD of a member of the DSUSD hub alone, through a member of both that converts",
         "Mainnet's schemes in the live realm, by the dev switch, on the fake ledger's mainnet: a node holds XRP and RLUSD in owner books on one account, at addresses under `g.`, and books a deposit once, across a restart too; RLUSD pauses while its pool gives no price and runs again once it reads one, and pauses while the pool prices it off its peg, still booking what arrives",
         "Mainnet hubs in the live realm: an XRP hub and an RLUSD hub founded on the fake ledger's mainnet, and their members paying each other over both",
-        "Passive rebalancing end to end, over an XRP hub and a DSUSD hub: a market maker trades through a core node short of dollars and swaps back through the fake ledger's pool, which moves the node toward balance and earns the market maker; with two such core nodes, it trades through each and moves each toward balance",
+        "Passive rebalancing end to end, over an XRP hub and a DSUSD hub: a market maker of one node swaps through a core node short of dollars and back through the fake ledger's pool, which moves the node toward balance and earns the market maker, and a swap at what a snapshot promises gets no less; with two such core nodes, it trades through each and moves each toward balance",
+        "Peer swaps: two core nodes skewed opposite ways swap with each other until neither gains, and each ends closer to an even split",
         "The wallet, the dev dashboard and dassie.land in a browser",
         "The installer and the updater on Debian, Ubuntu, Fedora and CentOS, in containers"
       ]
@@ -296,12 +297,12 @@
       "x": 636,
       "y": 240,
       "w": 167,
-      "desc": "Runs `dassie market-maker` on a small VM of its own, so that the testnet's core nodes are brought back toward balance. Its two periphery nodes run beside it, one a member of the testnet's XRP hub and one of its DSUSD hub, each pinned to every core node it trades through. It runs once the testnet's default hubs are built into a release.",
+      "desc": "Runs `dassie market-maker` on a small VM of its own, so that the testnet's core nodes are brought back toward balance. Its periphery node runs beside it, a member of the testnet's XRP hub and of its DSUSD hub, pinned to every core node it trades through. It runs once the testnet's default hubs are built into a release.",
       "does": [
-        "`provision.sh` makes the VM, a network that nothing reaches, and an account that can read only the two nodes' passphrases",
+        "`provision.sh` makes the VM, a network that nothing reaches, and an account that can read only the node's passphrase",
         "On its first boot, installs the newest release with `install.sh --no-service`, and at each boot the units from `main`",
-        "Sets each node up from its passphrase with `dassie setup`, joining the default hub of its asset with the owner books that fund it, then runs the market maker; the passphrases sit in files in memory only while it runs",
-        "Updates every day with `dassie update --unit`, which restarts the nodes on the new version and goes back if one does not start",
+        "Sets the node up from its passphrase with `dassie setup`, joining the default hub of each asset with the owner books that fund them, then runs the market maker; the passphrase sits in a file in memory only while it runs",
+        "Updates every day with `dassie update --unit`, which restarts the node on the new version and goes back if it does not start",
         "Logs to the serial console, so it is watched without SSH"
       ]
     },
@@ -359,7 +360,7 @@
         "`dassie update`: fetches, verifies and switches to a newer release, and goes back if it does not start",
         "`dassie verify-install`, which also names the release key",
         "`dassie front-door`: runs a front door, which is no node, and serves names by reading the bootstrap nodes' name lists itself (`DASSIE_BOOTSTRAP_NODES`); `--make-key` makes its key and prints the entry a node names it by",
-        "`dassie market-maker`: asks one or more core nodes for their signed snapshots and, with two nodes of its own that each keep an uplink to every one of them, pays through the core node whose snapshot says the widest margin against an AMM pool on the XRP Ledger, after a quote confirms it; then swaps its funds back through the pool with a `SendMax` that bounds the price"
+        "`dassie market-maker`: with one periphery node of its own in two hubs, pinned to one or more core nodes, reads the snapshots its node is pushed and swaps through the core node whose snapshot says the widest margin against an AMM pool on the XRP Ledger, asking its node for no less than the margin's rate; then swaps its funds back through the pool with a `SendMax` that bounds the price"
       ]
     },
     "node": {
@@ -1701,38 +1702,38 @@
             "node",
             "feed"
           ],
-          "text": "It quotes those prices per settlement method in a snapshot, one signed UDP datagram, which it pushes to its peers and answers any padded request with."
+          "text": "It quotes those prices per settlement method in a snapshot, one signed datagram, which it pushes to its peers over the peer protocol and answers any padded UDP request with."
         },
         {
           "ids": [
-            "cli",
+            "peer",
             "feed",
+            "cli",
             "xrpl"
           ],
-          "text": "`dassie market-maker` asks for the snapshot and verifies it against the node's key from its discovery document, as it does for each core node it trades through, and reads the XRP Ledger's AMM pool with `amm_info`. This node pays more for dollars than the pool and the others do, by more than the market maker's margin."
+          "text": "The market maker's periphery node, in both hubs and pinned to every core node it trades through, is pushed each one's snapshot and verifies it under the node's key. `dassie market-maker` reads them from its node, and reads the XRP Ledger's AMM pool with `amm_info`. This node pays more for dollars than the pool and the others do, by more than the market maker's margin."
         },
         {
           "ids": [
             "proto-owner",
-            "payments"
+            "node"
           ],
-          "text": "The market maker runs two periphery nodes, one in each hub, each pinned to every core node it trades through and peered with it over the hub they share. Over their IPC sockets, one creates an incoming payment on its hub's ledger beneath this core node, and the other quotes paying it a fixed amount from its own hub, and pays only if the quote still clears the margin."
+          "text": "Over its node's IPC socket, the market maker asks for a swap with the core node, from the dollar hub's method to the XRP hub's, at no less per unit than what still clears its margin on the pool. Its node sends each packet only while the snapshot promises that rate, and takes it back only if it brings what the snapshot promised."
         },
         {
           "ids": [
-            "stream",
             "connector",
             "settlement",
             "hub"
           ],
-          "text": "STREAM carries the dollars to the core node over the dollar hub, which converts them to XRP at its curve's rate and passes them on over the XRP hub. Each pair of nodes settles over the hub it shares, and each node moves funds between its hub and its owner book by itself."
+          "text": "Each swap goes to the core node as a Prepare to `peer.swap` over the dollar hub; the core node converts it at its curve's rate and sends it back over the XRP hub. The two settle over both hubs, and each moves funds between its hubs and its owner books by itself."
         },
         {
           "ids": [
             "cli",
             "xrpl"
           ],
-          "text": "Once the XRP node holds more than its band, in its hub and its owner book together, the market maker swaps the surplus back into dollars through the pool: one Payment from that node's owner book's account to the other's, whose `SendMax` bounds the price. The core node now holds more dollars than before, and the market maker more value."
+          "text": "Once the market maker holds more XRP than its band, in its hub and its owner book together, it swaps the surplus back into dollars through the pool: one Payment from its node's account to itself, whose `SendMax` bounds the price. The core node now holds more dollars than before, and the market maker more value."
         }
       ]
     },
