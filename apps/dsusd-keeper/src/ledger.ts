@@ -98,12 +98,14 @@ export class Ledger {
   }
 
   /** Has the server stream the validated transactions that touch
-   * `account`; one it streams already is not asked again. A testnet reset
-   * makes the pool anew, at another account, which a run then follows. */
-  async follow(account: string): Promise<void> {
-    if (this.#followed === account) return;
+   * `account`; one it streams already is not asked again. Whether it
+   * subscribed now. A testnet reset makes the pool anew, at another
+   * account, which a run then follows. */
+  async follow(account: string): Promise<boolean> {
+    if (this.#followed === account) return false;
     await this.#client.request({ command: "subscribe", accounts: [account] });
     this.#followed = account;
+    return true;
   }
 
   /** The state the plan works from, as of the newest validated ledger. */

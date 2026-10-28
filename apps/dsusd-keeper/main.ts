@@ -294,7 +294,9 @@ async function follow(): Promise<number> {
       const pool = ledger.poolAccount;
       if (pool !== null && !lost) {
         try {
-          await ledger.follow(pool);
+          // A trade between the run's read and a new subscription would go
+          // unheard, so a new one asks for a run that reads after it.
+          if (await ledger.follow(pool)) schedule.catchUp();
         } catch (error) {
           troubled(
             `follow: ${message(error)}`,
@@ -306,10 +308,13 @@ async function follow(): Promise<number> {
     }
   } catch (error) {
     // Something the loop does not expect: the process ends, at the end of
-    // this window, and systemd starts it again.
+    // this window, which no pool event cuts short, and systemd starts it
+    // again.
     const failedAt = Date.now();
     say(`failed: ${message(error)}; ${keeper.who}`);
-    await sleep(schedule.endAt(failedAt, true) - failedAt);
+    await new Promise((resolve) =>
+      setTimeout(resolve, schedule.endAt(failedAt, true) - failedAt)
+    );
     return 1;
   } finally {
     if (ledger !== null) await closeQuietly(ledger);
