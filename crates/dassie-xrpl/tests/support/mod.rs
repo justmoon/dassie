@@ -23,14 +23,6 @@ use serde_json::{Map, Value};
 /// What the scheme and its account ask, in the order they ask it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Effect {
-    /// A settlement signed before the XRPL schemes stopped peering, which
-    /// the node holds pending: posted.
-    Finalize {
-        settlement: Name,
-    },
-    Cancel {
-        settlement: Name,
-    },
     Deposit {
         amount: u64,
     },
@@ -67,9 +59,9 @@ impl From<dassie_settlement::Effect> for Effect {
     fn from(effect: dassie_settlement::Effect) -> Self {
         use dassie_settlement::Effect as E;
         match effect {
-            E::IncomingSettlement { .. } => panic!("an owner book books no settlements"),
-            E::Finalize { settlement } => Self::Finalize { settlement },
-            E::Cancel { settlement } => Self::Cancel { settlement },
+            E::IncomingSettlement { .. } | E::Finalize { .. } | E::Cancel { .. } => {
+                panic!("an owner book settles nothing")
+            }
             E::Deposit { amount } => Self::Deposit { amount },
             E::Withdrawal { amount } => Self::Withdrawal { amount },
             E::OwnerPaid { id, applied } => Self::OwnerPaid { id, applied },
@@ -104,9 +96,6 @@ impl From<AssetEffect> for Effect {
 pub struct XrplScheme {
     pub account: XrplAccount,
     pub scheme: dassie_xrpl::XrplScheme,
-    /// What the scheme booked as the node made it: entry payments a state
-    /// written while the schemes peered held, as the owner's deposit.
-    pub started: Vec<Effect>,
 }
 
 impl XrplScheme {
@@ -123,20 +112,11 @@ impl XrplScheme {
         let config = dassie_xrpl::fake::with_publishers(config, &dassie_xrpl::network::TESTNET);
         let account = XrplAccount::new(account::FIRST, &schemes, &config, entropy, &account_state)?;
         let scheme = dassie_xrpl::XrplScheme::new(&account, checkpoint, &scheme_state)?;
-        let mut both = Self {
-            account,
-            scheme,
-            started: Vec::new(),
-        };
+        let mut both = Self { account, scheme };
+        // Told of the account as the node makes it, which books nothing.
         let mut effects = Vec::new();
         both.tell(0, &mut effects);
-        assert!(
-            effects
-                .iter()
-                .all(|effect| matches!(effect, Effect::Deposit { .. })),
-            "{effects:?}"
-        );
-        both.started = effects;
+        assert!(effects.is_empty(), "{effects:?}");
         Ok(both)
     }
 
@@ -235,14 +215,6 @@ impl XrplScheme {
 
     pub fn owner_payment(&self, id: Name) -> dassie_settlement::OwnerPaymentState {
         self.scheme.owner_payment(id)
-    }
-
-    pub fn reconcile(&mut self, pending: &[(Name, u64)], effects: &mut Vec<Effect>) {
-        let mut booked = Vec::new();
-        self.scheme
-            .reconcile(Some(&mut self.account), pending, &mut booked);
-        effects.extend(booked.into_iter().map(Effect::from));
-        self.drain(effects);
     }
 
     /// The joined state.

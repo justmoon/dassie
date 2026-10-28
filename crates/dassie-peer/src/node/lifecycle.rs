@@ -753,9 +753,11 @@ impl PeerNode {
     /// Drops the methods on a scheme the node does not run, as one disabled
     /// or of the other realm, which the node starts without
     /// (spec/areas/settlement.md#schemes-and-ledgers), and those on a scheme
-    /// that would settle directly, as one a peering stored from when the
-    /// XRP Ledger's schemes peered still has (spec/decisions/hubs-only.md),
-    /// and ends a peering that has no other: no packet crosses such a
+    /// that would settle directly, which no method may be: a method is only
+    /// over a hub or of unlimited trust (spec/decisions/hubs-only.md), and
+    /// direct settlement would be switched on in
+    /// [`PeeringHooks::settles_directly`]. It ends a peering that has no
+    /// other: no packet crosses such a
     /// method, no settlement on it can be booked, and while one lasts the
     /// pair cannot settle on a scheme it shares. So nothing is collected
     /// first, as for a ban: the

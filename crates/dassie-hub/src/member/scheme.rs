@@ -1463,7 +1463,6 @@ impl HubScheme {
         Ok(PreparedSettlement {
             id,
             amount: drops * UNITS_PER_DROP,
-            message: Vec::new(),
         })
     }
 

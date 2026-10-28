@@ -1320,8 +1320,7 @@ struct Run {
     now: u64,
     /// Requests sent and not yet answered: ID, and the hash it names.
     sent: Vec<(u64, Option<[u8; 32]>)>,
-    /// Hashes the scheme knows: its transactions, and the settlements a
-    /// restart left pending.
+    /// Hashes the scheme knows: its transactions.
     hashes: Vec<[u8; 32]>,
     /// The network's ledger: one more each step.
     ledger: u64,
@@ -1870,21 +1869,12 @@ proptest! {
             1 => state_value(2).prop_map(|state| state.to_string().into_bytes()),
         ],
         checkpoint in prop::option::of(0..=MAX_TOTAL),
-        recovering in prop::collection::vec(any::<[u8; 32]>(), 0..3),
         steps in prop::collection::vec(step(), 1..120),
     ) {
         let scheme = XrplScheme::new("", &ENTROPY, checkpoint, &state)
             .or_else(|_| XrplScheme::new("", &ENTROPY, checkpoint, &[]))
             .unwrap();
         let mut run = Run::new(scheme);
-        // Settlements a restart left pending, from before the XRPL schemes
-        // stopped peering: cancelled.
-        let pending: Vec<(Name, u64)> =
-            recovering.iter().map(|hash| (Name::hex(hash, true), 1)).collect();
-        let mut effects = Vec::new();
-        run.scheme.reconcile(&pending, &mut effects);
-        run.hashes.extend(recovering);
-        run.apply(effects);
         run.input(LedgerInput::Connected);
         for step in &steps {
             run.step(step);

@@ -21,11 +21,11 @@
 //!   gone with the node's own: one of ours counts as given up, one of the
 //!   peer's as never taken. It keeps too whether the hub is shutting down,
 //!   as an operation that failed for it said, since a hub never runs again
-//!   after. Its version 1 had no unread `pay`s, and is read as having none;
-//!   its versions 1 and 2 had no shutdown, and are read as knowing of none.
-//!   Its version 4 keeps the peer's releases of our packets and the claims
-//!   of them we dispute, and the commitments we released; versions before
-//!   it are read as having none.
+//!   after. Its version 4 keeps the peer's releases of our packets and the
+//!   claims of them we dispute, and the commitments we released; version 3
+//!   is read as having none. Versions before 3, which no release since the
+//!   testnet's reset wrote, are refused
+//!   (spec/decisions/database-continuity.md).
 
 use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
@@ -50,9 +50,11 @@ use crate::rules::HubId;
 const VERSION: u8 = 4;
 /// The oldest account's state's version it reads.
 const OLDEST_VERSION: u8 = 3;
-/// The scheme's state's version: 2 keeps its unread `pay`s, 3 whether the
-/// hub is shutting down, 4 releases and disputes.
+/// The scheme's state's version: 4 keeps releases and disputes.
 const SCHEME_VERSION: u8 = 4;
+/// The oldest scheme's state's version it reads: 3 keeps its unread `pay`s
+/// and whether the hub is shutting down.
+const OLDEST_SCHEME_VERSION: u8 = 3;
 
 /// Bytes being written.
 struct Out(Vec<u8>);
@@ -607,7 +609,7 @@ fn read_payee(reader: &mut Reader<'_>, version: u8) -> Option<Payee> {
 pub(super) fn restore_scheme(scheme: &mut HubScheme, state: &[u8]) -> Option<()> {
     let mut reader = Reader::new(state);
     let version = reader.read_u8().ok()?;
-    if !(1..=SCHEME_VERSION).contains(&version) {
+    if !(OLDEST_SCHEME_VERSION..=SCHEME_VERSION).contains(&version) {
         return None;
     }
     scheme.synced = reader.read_bool().ok()?;
@@ -662,12 +664,8 @@ pub(super) fn restore_scheme(scheme: &mut HubScheme, state: &[u8]) -> Option<()>
         (number <= scheme.withdrawals_made).then_some((number, outcome))
     })?;
     scheme.booked_ahead = reader.read_u64().ok()?;
-    if version >= 2 {
-        read_unread_pays(scheme, &mut reader)?;
-    }
-    if version >= 3 {
-        scheme.shut_down = reader.read_bool().ok()?;
-    }
+    read_unread_pays(scheme, &mut reader)?;
+    scheme.shut_down = reader.read_bool().ok()?;
     reader.finish().ok()?;
     Some(())
 }

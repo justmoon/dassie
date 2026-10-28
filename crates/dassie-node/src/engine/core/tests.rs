@@ -1212,12 +1212,14 @@ fn on_unlimited_trust_both_sides_extend_the_unlimited_credit() {
     );
 }
 
-// spec/areas/settlement.md#the-stub-scheme: a peering stored from when the
-// stub without a config settled kept a finite credit; the stub without a
-// config is the one with unlimited trust now, so its start raises every
-// peer's credit on its ledger to the unlimited credit, and none runs short.
+// spec/areas/settlement.md#the-stub-scheme: the stub books one ledger with
+// commitments or without. A peer's accounts kept from an earlier peering
+// over the stub with commitments hold the credit its hold gave, here none;
+// the stub with unlimited trust, added in its place, raises every peer's
+// credit on its ledger to the unlimited credit as it starts, so none runs
+// short.
 #[test]
-fn a_stored_peering_on_the_stub_without_a_config_takes_the_unlimited_credit() {
+fn the_stub_with_unlimited_trust_raises_a_kept_credit_to_the_unlimited_one() {
     use dassie_ledger::{AccountName, AccountPath, LedgerId, Name};
     use dassie_settlement::policy::{UNLIMITED_CREDIT, position, trust};
 
@@ -1225,16 +1227,16 @@ fn a_stored_peering_on_the_stub_without_a_config_takes_the_unlimited_credit() {
     let on = |name| AccountPath::new(LedgerId::StubUsd, name);
     for config in ["", "{}"] {
         let store = Arc::new(Store::open_in_memory().unwrap());
-        {
-            let mut core = core_on(Arc::clone(&store), 5);
-            add_stub(&mut core, config);
-            // As a peering stored then: a finite credit.
-            core.ledger
-                .open_peer(NOW, LedgerId::StubUsd, peer, 1_000)
-                .unwrap();
-            core.flush();
-        }
-        let core = core_on(Arc::clone(&store), 6);
+        let mut core = core_on(Arc::clone(&store), 5);
+        add_stub(&mut core, r#"{"commitments": 4}"#);
+        // As a peering over its pretend hub left them: no credit.
+        core.ledger
+            .open_peer(NOW, LedgerId::StubUsd, peer, 0)
+            .unwrap();
+        core.flush();
+        core.remove_scheme("stub").unwrap();
+        core.flush();
+        add_stub(&mut core, config);
         let balance = |name| {
             core.ledger
                 .account(core.ledger.find(&on(name)).unwrap())
@@ -6717,8 +6719,8 @@ fn an_owner_book_is_never_asked_for() {
 }
 
 // spec/areas/xrpl.md#owner-books: a settlement message on an XRPL scheme,
-// as one a channel kept from when the scheme peered, is acknowledged as a
-// bare notice: it books nothing, and the channel moves on to the next.
+// an owner book, books nothing, and is acknowledged as a bare notice so the
+// channel moves on to the next.
 // What it states is reported as nothing either.
 #[test]
 fn a_settlement_message_on_an_owner_book_is_applied_and_books_nothing() {

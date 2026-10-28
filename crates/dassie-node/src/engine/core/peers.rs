@@ -984,11 +984,11 @@ impl Core {
     /// (spec/decisions/settlement-methods.md): the scheme runs, settles
     /// over a hub or trusts without limit, sees its ledger and can receive
     /// a peer's settlement, and the method is not withdrawn for room. A
-    /// method that would settle directly, as one on an owner book that a
-    /// peering stored from when the XRPL schemes peered still has, carries
-    /// nothing until the peer protocol drops it
-    /// (spec/areas/settlement.md#owner-books). Which method a packet takes depends on this and
-    /// its incoming ledger, never on the room each has.
+    /// method is only over a hub or of unlimited trust: one that would
+    /// settle directly, as one on an owner book, carries nothing until the
+    /// peer protocol drops it (spec/areas/settlement.md#owner-books). Which
+    /// method a packet takes depends on this and its incoming ledger, never
+    /// on the room each has.
     ///
     /// A hub scheme without an account of its own, which the hub agrees it
     /// has none of, sees its hub all the same toward a peer with one: that

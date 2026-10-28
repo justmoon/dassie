@@ -146,17 +146,6 @@ impl PeerNode {
             }
         }
         self.dirty.clear();
-        // Peerings from before channels existed get one now. None of them
-        // is closed: a channel closes only once its peering is over, in
-        // the batch that writes the peering's end or after it.
-        let unchanneled: Vec<NodeId> = self
-            .peers()
-            .map(|(id, _)| *id)
-            .filter(|id| !self.channels.contains_key(id))
-            .collect();
-        for id in unchanneled {
-            self.open_channel_from(id, None);
-        }
         // Our status from what we stored, so that a core node does not
         // take itself for a periphery node until its routes are computed.
         self.recompute_core();

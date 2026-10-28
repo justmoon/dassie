@@ -1,0 +1,5 @@
+
+CREATE TABLE swap_targets (
+  asset TEXT NOT NULL PRIMARY KEY CHECK (length(asset) BETWEEN 1 AND 64),
+  target_ppm INTEGER NOT NULL CHECK (target_ppm BETWEEN 1 AND 1000000)
+) STRICT, WITHOUT ROWID;

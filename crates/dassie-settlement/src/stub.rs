@@ -681,11 +681,7 @@ impl SettlementScheme for Stub {
         }
         let id = random_id(rng);
         self.prepared.insert(id, (peer, amount));
-        Ok(PreparedSettlement {
-            id,
-            amount,
-            message: Vec::new(),
-        })
+        Ok(PreparedSettlement { id, amount })
     }
 
     /// With commitments, what it holds and no prepared settlement takes,

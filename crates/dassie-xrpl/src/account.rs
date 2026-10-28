@@ -1336,23 +1336,6 @@ impl XrplAccount {
         true
     }
 
-    /// Forgets `scheme`'s transaction `hash`, signed and never executed:
-    /// the node could not book it. Its sequence is free again, if it was
-    /// the last one given.
-    pub fn discard(&mut self, scheme: Name, hash: [u8; 32]) {
-        let Some(position) = self
-            .in_flight
-            .iter()
-            .position(|t| t.hash == hash && t.scheme == scheme && !t.executed)
-        else {
-            return;
-        };
-        let transaction = self.in_flight.remove(position);
-        if transaction.sequence.saturating_add(1) == self.sequence {
-            self.sequence = transaction.sequence;
-        }
-    }
-
     /// Forgets `scheme`'s transaction `hash` as never sent, if the account
     /// remembers it so: it can never apply. Returns whether it did. How a
     /// scheme learns that the owner's payment it still has on its way was
@@ -2960,126 +2943,6 @@ mod tests {
         account.check_invariants();
     }
 
-    /// A scheme's state as the XRPL schemes wrote it while they peered,
-    /// with the books synced at ledger 100: a peer's address, a settlement
-    /// looked up after a restart, an entry payment of 2 XRP held, no
-    /// owner's payment on its way, and the last one applied. Written by
-    /// that code, and read back by it byte for byte.
-    const PEERING_STATE: &str = "01 FF 00000064 00000002 0000000000000000
-        00000001 05 6E6F646531 0101010101010101010101010101010101010101
-        00000001 0202020202020202020202020202020202020202020202020202020202020202 00
-        00000001 05 6E6F646532 0303030303030303030303030303030303030303 0000000077359400
-            0404040404040404040404040404040404040404040404040404040404040404 00000400
-        00
-        FF 0505050505050505050505050505050505050505050505050505050505050505 01";
-
-    fn bytes(hex: &str) -> Vec<u8> {
-        crate::from_hex(&hex.split_whitespace().collect::<alloc::string::String>()).unwrap()
-    }
-
-    // spec/areas/xrpl.md#state-and-restarts: a scheme reads the state it
-    // wrote while the XRPL schemes peered. The peers' addresses and the
-    // settlements it looked up go; the entry payments it held are the
-    // owner's deposit, booked once, as a hold that ran out was, so the
-    // books hold what the account does; and it writes its own version from
-    // then on, which reads back as it was. The XRP scheme and a token
-    // scheme, whose peg guard follows, read it alike.
-    #[test]
-    fn a_state_written_while_the_schemes_peered_is_read() {
-        use dassie_settlement::{Effect, OwnerPaymentState, SettlementScheme};
-
-        let (xrp, dsusd) = (
-            dassie_ledger::name!(crate::scheme::SCHEME_ID),
-            dassie_ledger::name!(crate::dsusd::SCHEME_ID),
-        );
-        let mut account = synced_account(&[xrp, dsusd]);
-        let old = bytes(PEERING_STATE);
-        let checkpoint = 9_000_000_000;
-        let mut scheme = crate::XrplScheme::new(&account, Some(checkpoint), &old).unwrap();
-        scheme.check_invariants();
-        assert_eq!(scheme.balance(), checkpoint);
-        let owner = Name::hex(&[5; 32], true);
-        assert_eq!(scheme.owner_payment(owner), OwnerPaymentState::Applied);
-        // Booked the first time the scheme is told of the account, as the
-        // node makes it, though the account has nothing new to tell.
-        assert!(account.news.is_empty());
-        let mut effects = Vec::new();
-        scheme.on_asset(0, &mut account, &mut effects);
-        assert_eq!(
-            effects.first(),
-            Some(&Effect::Deposit {
-                amount: 2_000_000_000
-            })
-        );
-        assert_eq!(scheme.balance(), checkpoint + 2_000_000_000);
-        scheme.check_invariants();
-        let kept = scheme.state();
-        assert_eq!(
-            kept,
-            bytes(
-                "02 FF 00000064 00000002 0000000000000000 00
-                 FF 0505050505050505050505050505050505050505050505050505050505050505 01"
-            )
-        );
-        let mut again = crate::XrplScheme::new(&account, Some(scheme.balance()), &kept).unwrap();
-        assert_eq!(again.state(), kept);
-        let mut effects = Vec::new();
-        again.on_asset(0, &mut account, &mut effects);
-        assert!(
-            !effects.iter().any(|e| matches!(e, Effect::Deposit { .. })),
-            "booked once: {effects:?}"
-        );
-        // A token scheme's state holds its peg guard after it.
-        let mut old_token = old.clone();
-        old_token.extend_from_slice(&[0, 0, 0, 0]);
-        let mut token = crate::DsusdScheme::new(&account, Some(checkpoint), &old_token).unwrap();
-        let mut effects = Vec::new();
-        token.on_asset(0, &mut account, &mut effects);
-        assert_eq!(
-            effects.first(),
-            Some(&Effect::Deposit {
-                amount: 2_000_000_000
-            })
-        );
-        assert!(token.state().starts_with(&kept), "the guard after it");
-        token.check_invariants();
-    }
-
-    // A state of the old version is read whole, as one of the new is: an
-    // entry payment twice, or held before the first sync, or more than the
-    // state held, is a state the scheme never wrote.
-    #[test]
-    fn a_state_written_while_the_schemes_peered_is_checked() {
-        let id = dassie_ledger::name!(crate::scheme::SCHEME_ID);
-        let account = synced_account(&[id]);
-        let refused = |hex: &str| crate::XrplScheme::new(&account, None, &bytes(hex)).is_err();
-        assert!(!refused(PEERING_STATE));
-        let entry = |hash: u8| {
-            alloc::format!(
-                "05 6E6F646532 {} 0000000077359400 {} 00000400",
-                "03".repeat(20),
-                {
-                    let byte = alloc::format!("{hash:02X}");
-                    byte.repeat(32)
-                }
-            )
-        };
-        let state = |cursor: &str, entries: &[u8]| {
-            let mut hex = alloc::format!("01 {cursor} 0000000000000000 00000000 00000000");
-            hex.push_str(&alloc::format!(" {:08X}", entries.len()));
-            for hash in entries {
-                hex.push(' ');
-                hex.push_str(&entry(*hash));
-            }
-            hex.push_str(" 00 00");
-            hex
-        };
-        assert!(!refused(&state("FF 00000064 00000002", &[4, 5])));
-        assert!(refused(&state("FF 00000064 00000002", &[4, 4])), "twice");
-        assert!(refused(&state("00", &[4])), "before the first sync");
-        assert!(!refused(&state("00", &[])));
-    }
-
     // spec/areas/xrpl.md#state-and-restarts: a state is read whole, of its
     // version: one cut short anywhere, with a byte more, or of a version
     // it never wrote is refused, the account's and a scheme's alike.
@@ -3124,5 +2987,10 @@ mod tests {
             other[0] = 3;
             assert!(refused(&other));
         }
+        // The scheme's state of the version before, written while the XRPL
+        // schemes peered: no database the node opens keeps one.
+        let mut older = scheme_kept.clone();
+        older[0] = 1;
+        assert!(crate::XrplScheme::new(&restored, None, &older).is_err());
     }
 }

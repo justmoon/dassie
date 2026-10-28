@@ -141,7 +141,6 @@ fn settle_to(core: &mut Core, scheme: &str, to: NodeId, now: u64) {
             peer: to,
             transfer,
             amount: AMOUNT,
-            message: prepared.message,
         },
     );
     core.settle.to_execute.push((scheme, prepared.id));

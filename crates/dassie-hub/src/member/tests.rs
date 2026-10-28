@@ -1041,7 +1041,6 @@ fn a_settlement_spends_only_what_the_books_hold() {
         )
         .unwrap();
     assert_eq!(prepared.amount, spendable, "spent what it said it could");
-    assert!(prepared.message.is_empty(), "a bare notice carries no data");
     scheme.check_invariants();
 }
 
@@ -1523,20 +1522,33 @@ fn an_unread_pay_waits_for_the_hub_across_a_restart() {
     scheme.check_invariants();
 }
 
-// The scheme's state of version 1, from before unread `pay`s were kept,
-// reads as one with none.
+// spec/decisions/database-continuity.md: the scheme's state of version 3,
+// which a release since the testnet's reset wrote, reads as one with no
+// releases or disputes; one of an older version, which none wrote, is
+// refused.
 #[test]
-fn a_scheme_state_of_version_1_reads_with_no_unread_pays() {
+fn a_scheme_state_is_read_in_the_versions_a_release_wrote() {
     let hub = Hub::new();
     let (account, scheme) = synced_scheme(&hub);
     let state = scheme.state();
     assert_eq!(state.first(), Some(&4));
+    let restored = HubScheme::new(&account, 100_000_000, Some(scheme.balance()), &state).unwrap();
+    assert_eq!(restored.state(), state);
+    // With no peers, version 3 wrote what version 4 writes.
+    let mut v3 = state.clone();
+    v3[0] = 3;
+    let restored = HubScheme::new(&account, 100_000_000, Some(scheme.balance()), &v3).unwrap();
+    assert_eq!(restored.state(), state);
     let (body, rest) = state.split_at(state.len() - 5);
     assert_eq!(rest, [0; 5], "no unread pays, no shutdown");
-    let mut old = body.to_vec();
-    old[0] = 1;
-    let restored = HubScheme::new(&account, 100_000_000, Some(scheme.balance()), &old).unwrap();
-    assert_eq!(restored.state(), state);
+    for (version, layout) in [(1, body), (2, &state[..state.len() - 1])] {
+        let mut old = layout.to_vec();
+        old[0] = version;
+        assert!(
+            HubScheme::new(&account, 100_000_000, Some(scheme.balance()), &old).is_err(),
+            "version {version}"
+        );
+    }
 }
 
 /// What validators `who` say of the issuer's hold after the block at
@@ -2616,10 +2628,4 @@ fn a_hub_shutting_down_cannot_receive() {
     let restarted = HubScheme::new(&account, 100_000_000, Some(scheme.balance()), &state).unwrap();
     assert_eq!(restarted.state(), state, "the scheme's state round-trips");
     assert!(!restarted.can_receive(), "a restart forgot the shutdown");
-    // A state of the version before, which kept no shutdown, reads as
-    // knowing of none.
-    let mut before = state[..state.len() - 1].to_vec();
-    before[0] = 2;
-    let older = HubScheme::new(&account, 100_000_000, Some(scheme.balance()), &before).unwrap();
-    assert!(older.can_receive());
 }

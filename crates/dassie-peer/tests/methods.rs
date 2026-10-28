@@ -184,11 +184,12 @@ fn a_peering_asked_on_a_scheme_that_would_settle_directly_is_refused() {
     }
 }
 
-// spec/decisions/hubs-only.md: a stored peering may have a method on a
-// scheme that would settle directly, as one from when the XRP Ledger's
-// schemes peered: the node drops it at its next review, without collecting,
-// and tells the peer, which drops it at once; the peering goes on, on the
-// other. One left with only such methods ends at once.
+// spec/decisions/hubs-only.md: a method is only over a hub or of unlimited
+// trust. One on a scheme that would settle directly, as the scheme of a
+// method the pair agreed becomes here, is dropped at the node's next
+// review, without collecting, and the peer is told, which drops it at once;
+// the peering goes on, on the other. One left with only such methods ends
+// at once.
 #[test]
 fn a_method_that_would_settle_directly_is_dropped_and_the_peering_kept() {
     let (mut network, a, b) = both(79);

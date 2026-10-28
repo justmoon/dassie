@@ -523,17 +523,6 @@ fn a_settlement_out_of_order_is_refused() {
     assert_eq!(channel.settled_in, 0);
 }
 
-// Found in review: a peering stored without a settlement channel had
-// none, so settling with it could not be announced.
-#[test]
-fn peerings_from_before_channels_get_one() {
-    let (mut network, _, b) = peered(46);
-    network.crash(0);
-    network.nodes[0].stored_channels.clear();
-    network.start(0);
-    assert!(network.node(0).channel(&b).is_some());
-}
-
 // Found in review: a peer that kept sending Prepares while its peering
 // was ending kept it from ever ending. They are refused at the protocol,
 // once the peer is told. Before, while the node collects

@@ -4,8 +4,10 @@
 //! An application ID marks the file as Dassie's, `user_version` counts the
 //! migrations run, each in a transaction, every table is STRICT, and a check
 //! at every open finds each table as the code expects it, an extra column
-//! being an error too. The first migration is the whole schema, and the
-//! early testnet's databases are refused
+//! being an error too. The first migration, the baseline, is the whole
+//! schema as the first release under this ID wrote it, at that release's
+//! version, so every release's database opens, a later one's migrating on
+//! from there; the early testnet's are refused
 //! (spec/decisions/database-continuity.md).
 
 use rusqlite::{Connection, OptionalExtension, Transaction};
@@ -20,37 +22,34 @@ pub const APPLICATION_ID: i32 = 0x5DA5_FE32;
 /// continue: they are refused (spec/decisions/database-continuity.md).
 pub const EARLY_TESTNET_APPLICATION_ID: i32 = 0x7DA5_E2C9;
 
-/// The migrations, in order. Migration `n` (1-based) brings `user_version`
-/// to `n`. Never edit one that has shipped; add another.
-pub(super) const MIGRATIONS: &[&str] = &[
-    BASELINE,
-    MIGRATION_2,
-    MIGRATION_3,
-    MIGRATION_4,
-    MIGRATION_5,
-    MIGRATION_6,
-    MIGRATION_7,
-    MIGRATION_8,
-    MIGRATION_9,
-    MIGRATION_10,
-    MIGRATION_11,
-];
+/// The schema version the baseline makes: the one Dassie 0.3.0 wrote,
+/// through the nine migrations it ran, so that its databases open as they
+/// are, and later releases' migrate from it.
+pub(super) const BASELINE_VERSION: i64 = 9;
 
-/// The schema version this code writes: the number of migrations.
+/// The migrations, in order: the baseline, which brings a new database to
+/// [`BASELINE_VERSION`], and each after it one version further. Never edit
+/// one that has shipped; add another.
+pub(super) const MIGRATIONS: &[&str] = &[BASELINE, MIGRATION_10, MIGRATION_11];
+
+/// The schema version this code writes.
 pub const SCHEMA_VERSION: i64 = version_of(MIGRATIONS);
 
 /// The schema version `migrations` bring a database to.
 // A handful of migrations: the length never comes near `i64::MAX`.
 #[allow(clippy::cast_possible_wrap)]
 const fn version_of(migrations: &[&str]) -> i64 {
-    migrations.len() as i64
+    BASELINE_VERSION - 1 + migrations.len() as i64
 }
 
-/// Migration 1: the whole schema, with the rows a new node starts with.
-/// Each table's purpose is in the area doc that the comment before it
-/// names (spec/areas/node.md#persistence for what must survive a restart).
+/// The baseline: the whole schema, with the rows a new node starts with,
+/// as Dassie 0.3.0 left it, at [`BASELINE_VERSION`]. Each table's purpose is
+/// in the area doc that the comment before it names
+/// (spec/areas/node.md#persistence for what must survive a restart).
 /// Amounts are integers in their ledger's units, and times milliseconds
-/// since the epoch.
+/// since the epoch. `store/testdata/v0.3.4/` keeps the migrations the
+/// releases ran, the first nine of which it folds, and a test holds it to
+/// them (`schema_tests.rs`).
 const BASELINE: &str = "
 -- The node (spec/areas/node.md#configuration): its configuration, key,
 -- TLS certificate and ACME accounts, the owner's sessions, paired devices
@@ -155,21 +154,18 @@ CREATE INDEX ledger_transfers_by_credit ON ledger_transfers (credit, state);
 CREATE INDEX ledger_transfers_pending ON ledger_transfers (state) WHERE state = 'pending';
 CREATE INDEX ledger_transfers_by_debit_sequence ON ledger_transfers (debit, sequence);
 CREATE INDEX ledger_transfers_by_credit_sequence ON ledger_transfers (credit, sequence);
--- A fee's packet is found by its reference, and where to start reading fees
--- by the last trust transfer: for credit that grew from fees, which
--- MIGRATION_4 drops with these two indexes.
-CREATE INDEX ledger_transfers_by_packet ON ledger_transfers (packet_epoch, packet_sequence)
-  WHERE packet_epoch IS NOT NULL;
-CREATE INDEX ledger_transfers_trust ON ledger_transfers (sequence) WHERE reference = 'trust';
 
 -- Settlement schemes and external assets (spec/areas/settlement.md): each
--- scheme's config and checkpoint, written in the batch it explains, and
--- each external asset's state and the owner's config of it
+-- scheme's config, since when its owner is removing it, if they are, while
+-- its methods are wound down (spec/decisions/settlement-methods.md), and
+-- its checkpoint, written in the batch it explains; and each external
+-- asset's state and the owner's config of it
 -- (spec/areas/settlement.md#external-assets).
 CREATE TABLE settlement_schemes (
   id TEXT PRIMARY KEY,
   config TEXT NOT NULL,
-  activated_at_ms INTEGER NOT NULL
+  activated_at_ms INTEGER NOT NULL,
+  removing_since_ms INTEGER CHECK (removing_since_ms IS NULL OR removing_since_ms >= 0)
 ) STRICT, WITHOUT ROWID;
 
 CREATE TABLE settlement_checkpoints (
@@ -214,16 +210,26 @@ CREATE TABLE btp_tokens (
 ) STRICT;
 
 -- Fees, spread and rebalancing (spec/decisions/exchange-rates.md,
--- spec/decisions/passive-rebalancing.md), the sources of exchange rates,
--- and the last rates fetched, each with when it was.
+-- spec/decisions/passive-rebalancing.md), whether the node offers swaps to
+-- its peers and swaps with them, and the targets a periphery node's own
+-- swaps aim for, per asset, by the ledger its holding counts toward
+-- (spec/decisions/peer-swaps.md); the sources of exchange rates, and the
+-- last rates fetched, each with when it was.
 CREATE TABLE peer_settings (
   id INTEGER PRIMARY KEY CHECK (id = 1),
   connector_fee_ppm INTEGER NOT NULL DEFAULT 0 CHECK (connector_fee_ppm BETWEEN 0 AND 100000),
   fx_spread_ppm INTEGER NOT NULL DEFAULT 0 CHECK (fx_spread_ppm BETWEEN 0 AND 100000),
-  rebalance_ppm INTEGER NOT NULL DEFAULT 50000 CHECK (rebalance_ppm BETWEEN 0 AND 100000)
+  rebalance_ppm INTEGER NOT NULL DEFAULT 50000 CHECK (rebalance_ppm BETWEEN 0 AND 100000),
+  offer_swaps INTEGER NOT NULL DEFAULT 1 CHECK (offer_swaps IN (0, 1)),
+  swapping INTEGER NOT NULL DEFAULT 1 CHECK (swapping IN (0, 1))
 ) STRICT;
 
-INSERT INTO peer_settings VALUES (1, 0, 0, 50000);
+INSERT INTO peer_settings VALUES (1, 0, 0, 50000, 1, 1);
+
+CREATE TABLE swap_targets (
+  asset TEXT NOT NULL PRIMARY KEY CHECK (length(asset) BETWEEN 1 AND 64),
+  target_ppm INTEGER NOT NULL CHECK (target_ppm BETWEEN 1 AND 1000000)
+) STRICT, WITHOUT ROWID;
 
 CREATE TABLE rate_sources (
   position INTEGER PRIMARY KEY CHECK (position BETWEEN 0 AND 7),
@@ -276,26 +282,37 @@ CREATE TABLE peer_bans (
 ) STRICT, WITHOUT ROWID;
 
 -- Peerings and settlement (spec/areas/settlement.md): our peering with a
--- node, a peering being ended, the settlement channels, which outlive
--- peerings, and the peers' accounts opened for downlinks
+-- node; its settlement methods, a row each (spec/decisions/settlement-methods.md),
+-- in the order the pair agreed them, with the scheme's state for the peer,
+-- the credit we extend on it, how long the peer's room on it has been short
+-- of a packet, settling nothing, and how much of that it could be reached
+-- (spec/decisions/peering-lifecycle.md), and since when we wind it down, if
+-- we do; a peering being ended; the settlement channels, which outlive
+-- peerings; and the peers' accounts opened for downlinks
 -- (spec/decisions/account-budgets.md).
 CREATE TABLE peers (
   node TEXT PRIMARY KEY REFERENCES peer_nodes (id) ON DELETE CASCADE,
-  scheme TEXT NOT NULL,
-  state BLOB NOT NULL,
-  credit_out INTEGER NOT NULL CHECK (credit_out >= 0),
   since_ms INTEGER NOT NULL,
   inbound INTEGER NOT NULL CHECK (inbound IN (0, 1)),
   last_seen_ms INTEGER NOT NULL,
-  -- How long the peer's room has been short of a packet, settling nothing,
-  -- and how much of that it could be reached
-  -- (spec/decisions/peering-lifecycle.md).
-  short_for_ms INTEGER NOT NULL DEFAULT 0,
   -- A peering we are ending, while we collect first and have not told the
   -- peer (spec/decisions/ending-a-peering.md).
   depeering_since_ms INTEGER,
-  depeering_reason INTEGER CHECK (depeering_reason IS NULL OR depeering_reason BETWEEN 0 AND 255),
-  short_reached_ms INTEGER NOT NULL DEFAULT 0
+  depeering_reason INTEGER CHECK (depeering_reason IS NULL OR depeering_reason BETWEEN 0 AND 255)
+) STRICT, WITHOUT ROWID;
+
+CREATE TABLE peer_methods (
+  node TEXT NOT NULL REFERENCES peers (node) ON DELETE CASCADE,
+  scheme TEXT NOT NULL CHECK (length(scheme) BETWEEN 2 AND 64),
+  position INTEGER NOT NULL CHECK (position BETWEEN 0 AND 15),
+  state BLOB NOT NULL,
+  credit_out INTEGER NOT NULL CHECK (credit_out >= 0),
+  short_for_ms INTEGER NOT NULL CHECK (short_for_ms >= 0),
+  short_reached_ms INTEGER NOT NULL
+    CHECK (short_reached_ms BETWEEN 0 AND short_for_ms),
+  winding_since_ms INTEGER CHECK (winding_since_ms IS NULL OR winding_since_ms >= 0),
+  PRIMARY KEY (node, scheme),
+  UNIQUE (node, position)
 ) STRICT, WITHOUT ROWID;
 
 CREATE TABLE peer_terminations (
@@ -319,9 +336,6 @@ CREATE TABLE settlement_channels (
   outbox_amount INTEGER CHECK (outbox_amount IS NULL OR outbox_amount >= 0),
   outbox_data BLOB,
   outbox_attempts INTEGER CHECK (outbox_attempts IS NULL OR outbox_attempts >= 0),
-  -- Whether we once ended a peering with the node for want of room
-  -- (spec/decisions/ended-for-room.md).
-  ended_for_room INTEGER NOT NULL DEFAULT 0 CHECK (ended_for_room IN (0, 1)),
   -- An idle channel closes, its row kept (spec/decisions/closing-channels.md);
   -- only one with nothing on its way.
   closed INTEGER NOT NULL DEFAULT 0
@@ -396,7 +410,7 @@ CREATE TABLE name_registrations (
 -- connections received; GNAP grants and their access tokens, by hash
 -- (spec/decisions/secrets-at-rest.md); quotes; outgoing payments, written
 -- with the journal rows that move their money; what each grant spent per
--- window of its interval; and which ledger `$host` names.
+-- window of its interval; and which wallet address `$host` names.
 CREATE TABLE incoming_payments (
   id BLOB PRIMARY KEY CHECK (length(id) = 16),
   ledger TEXT NOT NULL,
@@ -546,13 +560,23 @@ CREATE TABLE grant_spend (
 
 CREATE TABLE payment_settings (
   id INTEGER PRIMARY KEY CHECK (id = 1),
-  -- The ledger `$host` names; NULL for the lowest active one.
-  default_ledger TEXT,
+  -- The wallet address `$host` names, by its name, the asset's
+  -- (spec/areas/payments.md#wallet-addresses); NULL for the first active
+  -- one.
+  default_address TEXT,
   -- The currency totals are shown in.
   display_currency TEXT CHECK (display_currency IS NULL OR length(display_currency) BETWEEN 1 AND 8)
 ) STRICT;
 
 INSERT INTO payment_settings VALUES (1, NULL, NULL);
+
+-- Where the node kept what it received of each asset over Interledger, in
+-- the asset's settlement hub or on the owner's own account, as the owner
+-- chose: an asset without a row kept it in the hub. Migration 10 drops it.
+CREATE TABLE funds_kept (
+  asset TEXT NOT NULL PRIMARY KEY CHECK (length(asset) BETWEEN 1 AND 16),
+  kept TEXT NOT NULL CHECK (kept IN ('hub', 'own'))
+) STRICT, WITHOUT ROWID;
 
 -- Settlement hubs (spec/areas/hubs.md#in-the-node), each by the scheme
 -- over it, which names the hub's asset and ledger: whether the node moves
@@ -589,8 +613,10 @@ CREATE TABLE hub_funding (
 -- consensus state, the states after its recent final blocks and after the
 -- last blocks of recent epochs, how far it followed the escrow on the XRP
 -- Ledger and the newest ledger it saw there
--- (spec/decisions/ledger-resets.md), and the payout bundles it signed. The
--- states are the hub crate's encodings (`store/hubs.rs` has the bounds).
+-- (spec/decisions/ledger-resets.md), with its verifier's state
+-- (spec/areas/xrpl.md#state-and-restarts), NULL until the watcher first
+-- writes it, and the payout bundles it signed. The states are the hub
+-- crate's encodings (`store/hubs.rs` has the bounds).
 CREATE TABLE hub_consensus (
   hub BLOB PRIMARY KEY CHECK (length(hub) = 32),
   updated_at_ms INTEGER NOT NULL,
@@ -610,7 +636,8 @@ CREATE TABLE hub_escrow (
   hub BLOB PRIMARY KEY CHECK (length(hub) = 32),
   newest_ledger INTEGER NOT NULL CHECK (newest_ledger BETWEEN 0 AND 4294967295),
   newest_close_time INTEGER NOT NULL CHECK (newest_close_time >= 0),
-  scanned_to INTEGER NOT NULL CHECK (scanned_to BETWEEN 0 AND 4294967295)
+  scanned_to INTEGER NOT NULL CHECK (scanned_to BETWEEN 0 AND 4294967295),
+  verifier BLOB CHECK (verifier IS NULL OR length(verifier) <= 262144)
 ) STRICT, WITHOUT ROWID;
 
 CREATE TABLE hub_bundles (
@@ -629,7 +656,7 @@ CREATE TABLE hub_bundles (
 -- newest of each.
 CREATE TABLE hub_founding_records (
   nonce BLOB PRIMARY KEY CHECK (length(nonce) = 32),
-  sponsor BLOB NOT NULL CHECK (length(sponsor) = 32),
+  sponsor BLOB NOT NULL CHECK (length(sponsor) = 64),
   terms BLOB NOT NULL CHECK (length(terms) = 32),
   accepted_at_ms INTEGER NOT NULL CHECK (accepted_at_ms >= 0),
   rules BLOB CHECK (length(rules) BETWEEN 1 AND 65536),
@@ -658,154 +685,6 @@ CREATE TABLE hub_payouts (
   received_at_ms INTEGER NOT NULL CHECK (received_at_ms >= 0),
   bundle BLOB NOT NULL CHECK (length(bundle) BETWEEN 1 AND 16777216),
   PRIMARY KEY (hub, validator)
-) STRICT, WITHOUT ROWID;
-";
-
-/// Migration 2: a peering's settlement methods, a row each
-/// (spec/decisions/settlement-methods.md): its scheme, its place in the
-/// order the pair agreed them, the scheme's state for the peer, the credit
-/// we extend on it, and how long the peer's room on it has been short. A
-/// stored peering's one method moves out of its `peers` row, which keeps
-/// what is the pair's. `ALTER TABLE ... DROP COLUMN` rebuilds `peers` in
-/// place, so `peer_terminations` keeps its reference, and nothing cascades.
-const MIGRATION_2: &str = "
-CREATE TABLE peer_methods (
-  node TEXT NOT NULL REFERENCES peers (node) ON DELETE CASCADE,
-  scheme TEXT NOT NULL CHECK (length(scheme) BETWEEN 2 AND 64),
-  position INTEGER NOT NULL CHECK (position BETWEEN 0 AND 15),
-  state BLOB NOT NULL,
-  credit_out INTEGER NOT NULL CHECK (credit_out >= 0),
-  short_for_ms INTEGER NOT NULL CHECK (short_for_ms >= 0),
-  short_reached_ms INTEGER NOT NULL
-    CHECK (short_reached_ms BETWEEN 0 AND short_for_ms),
-  PRIMARY KEY (node, scheme),
-  UNIQUE (node, position)
-) STRICT, WITHOUT ROWID;
-
-INSERT INTO peer_methods (node, scheme, position, state, credit_out, short_for_ms,
-  short_reached_ms)
-SELECT node, scheme, 0, state, credit_out, short_for_ms, short_reached_ms FROM peers;
-
-ALTER TABLE peers DROP COLUMN scheme;
-ALTER TABLE peers DROP COLUMN state;
-ALTER TABLE peers DROP COLUMN credit_out;
-ALTER TABLE peers DROP COLUMN short_for_ms;
-ALTER TABLE peers DROP COLUMN short_reached_ms;
-";
-
-/// Migration 3: winding settlement methods down
-/// (spec/decisions/settlement-methods.md). A method the node decided to
-/// drop, and collects on first, keeps since when; a scheme its owner
-/// removes keeps since when, and runs until its methods are dropped. Both
-/// carry on across a restart.
-const MIGRATION_3: &str = "
-ALTER TABLE peer_methods ADD COLUMN winding_since_ms INTEGER
-  CHECK (winding_since_ms IS NULL OR winding_since_ms >= 0);
-
-ALTER TABLE settlement_schemes ADD COLUMN removing_since_ms INTEGER
-  CHECK (removing_since_ms IS NULL OR removing_since_ms >= 0);
-";
-
-/// Migration 4: what only settling directly needed goes
-/// (spec/decisions/hubs-only.md). A settlement channel no longer keeps
-/// whether we once ended a peering for want of room: over a hub the hold is
-/// all the credit there is, so the mark withholds nothing, and the cooldown
-/// after such an end is never persisted
-/// (spec/decisions/ended-for-room.md). The indexes that found the fees a
-/// peer earned us, and where to start reading them, go with the credit
-/// that grew from them. The column's own CHECK names only it, so SQLite
-/// drops it in place.
-const MIGRATION_4: &str = "
-ALTER TABLE settlement_channels DROP COLUMN ended_for_room;
-
-DROP INDEX ledger_transfers_by_packet;
-DROP INDEX ledger_transfers_trust;
-";
-
-/// Migration 5: a hub's validator keeps its verifier's state with how far
-/// it followed the escrow (spec/areas/hubs.md#the-validator-in-the-node):
-/// the hub's network, then the verifier's UNL lists and manifests, whether
-/// it is UNL-blocked, and its anchor, as the verifier writes them
-/// (spec/areas/xrpl.md#state-and-restarts), so that a restart neither
-/// lifts a block nor takes an older anchor as current. It is bounded as an
-/// XRPL account's state is, and NULL until the watcher first writes it.
-const MIGRATION_5: &str = "
-ALTER TABLE hub_escrow ADD COLUMN verifier BLOB
-  CHECK (verifier IS NULL OR length(verifier) <= 262144);
-";
-
-/// Migration 6: a validator's record of a founding names its sponsor by
-/// its identity, its Ed25519 key and its SLH-DSA key, as hub rules now do
-/// (spec/decisions/post-quantum-node-id.md). A record kept before names
-/// the Ed25519 key alone, with rules in the layout before, which no longer
-/// decode, so it is dropped with the table its length check is part of. A
-/// sponsor's foundings kept before hold terms in that layout too, which no
-/// longer decode either, so they go as well.
-const MIGRATION_6: &str = "
-DELETE FROM hub_foundings;
-
-DROP TABLE hub_founding_records;
-
-CREATE TABLE hub_founding_records (
-  nonce BLOB PRIMARY KEY CHECK (length(nonce) = 32),
-  sponsor BLOB NOT NULL CHECK (length(sponsor) = 64),
-  terms BLOB NOT NULL CHECK (length(terms) = 32),
-  accepted_at_ms INTEGER NOT NULL CHECK (accepted_at_ms >= 0),
-  rules BLOB CHECK (length(rules) BETWEEN 1 AND 65536),
-  genesis_ms INTEGER CHECK (genesis_ms >= 0),
-  running INTEGER NOT NULL CHECK (running IN (0, 1)),
-  CHECK ((rules IS NULL) = (genesis_ms IS NULL)),
-  CHECK (running = 0 OR rules IS NOT NULL)
-) STRICT, WITHOUT ROWID;
-";
-
-/// Migration 7: a wallet address per asset
-/// (spec/areas/payments.md#wallet-addresses). The default names the asset
-/// of a wallet address, its name, no longer a ledger: a ledger kept as the
-/// default becomes its asset's name, which a hub's ledger shares with the
-/// owner book of its asset. Where the node keeps what it receives of each
-/// asset over Interledger, in the asset's settlement hub or on the owner's
-/// own account, is a row per asset the owner chose for; an asset without
-/// one keeps it in the hub.
-const MIGRATION_7: &str = "
-ALTER TABLE payment_settings RENAME COLUMN default_ledger TO default_address;
-
-UPDATE payment_settings SET default_address = CASE default_address
-  WHEN 'stub+usd' THEN 'usd'
-  WHEN 'xrpl-testnet-xrp+xrp' THEN 'xrp'
-  WHEN 'xrpl-xrp+xrp' THEN 'xrp'
-  WHEN 'hub-xrpl-testnet-xrp+xrp' THEN 'xrp'
-  WHEN 'hub-xrpl-xrp+xrp' THEN 'xrp'
-  WHEN 'xrpl-testnet-rlusd+usd' THEN 'rlusd'
-  WHEN 'xrpl-rlusd+usd' THEN 'rlusd'
-  WHEN 'hub-xrpl-rlusd+usd' THEN 'rlusd'
-  WHEN 'xrpl-testnet-dsusd+usd' THEN 'dsusd'
-  WHEN 'hub-xrpl-testnet-dsusd+usd' THEN 'dsusd'
-  ELSE NULL END;
-
-CREATE TABLE funds_kept (
-  asset TEXT NOT NULL PRIMARY KEY CHECK (length(asset) BETWEEN 1 AND 16),
-  kept TEXT NOT NULL CHECK (kept IN ('hub', 'own'))
-) STRICT, WITHOUT ROWID;
-";
-
-/// Migration 8: whether the node offers swaps to its peers, and swaps
-/// with them (spec/decisions/peer-swaps.md): both on, as for a new node.
-const MIGRATION_8: &str = "
-ALTER TABLE peer_settings ADD COLUMN offer_swaps INTEGER NOT NULL DEFAULT 1
-  CHECK (offer_swaps IN (0, 1));
-
-ALTER TABLE peer_settings ADD COLUMN swapping INTEGER NOT NULL DEFAULT 1
-  CHECK (swapping IN (0, 1));
-";
-
-/// Migration 9: the targets a periphery node's own swaps aim for, per
-/// asset, by the ledger its holding counts toward
-/// (spec/decisions/peer-swaps.md): none, as for a new node.
-const MIGRATION_9: &str = "
-CREATE TABLE swap_targets (
-  asset TEXT NOT NULL PRIMARY KEY CHECK (length(asset) BETWEEN 1 AND 64),
-  target_ppm INTEGER NOT NULL CHECK (target_ppm BETWEEN 1 AND 1000000)
 ) STRICT, WITHOUT ROWID;
 ";
 
@@ -1449,7 +1328,8 @@ pub fn prepare(connection: &mut Connection, migrations: &[&str]) -> Result<(), S
 }
 
 /// The schema version of a Dassie database that `migrations` will migrate,
-/// if it is one: neither new, nor current, nor too new, nor foreign.
+/// if it is one: neither new, nor current, nor too new, nor older than the
+/// baseline, nor foreign.
 pub fn pending_migration(
     connection: &Connection,
     migrations: &[&str],
@@ -1457,14 +1337,16 @@ pub fn pending_migration(
     let application_id: i32 =
         connection.pragma_query_value(None, "application_id", |row| row.get(0))?;
     let version: i64 = connection.pragma_query_value(None, "user_version", |row| row.get(0))?;
-    Ok(
-        (application_id == APPLICATION_ID && version > 0 && version < version_of(migrations))
-            .then_some(version),
-    )
+    Ok((application_id == APPLICATION_ID
+        && version >= BASELINE_VERSION
+        && version < version_of(migrations))
+    .then_some(version))
 }
 
 /// Runs those of `migrations` the database has not run, each in its own
-/// transaction.
+/// transaction: all of them on a new one, and none of them twice. One of a
+/// version before the baseline's, which no release wrote, is refused: no
+/// migration here takes it there.
 fn migrate(connection: &mut Connection, migrations: &[&str]) -> Result<(), StoreError> {
     let current: i64 = connection.pragma_query_value(None, "user_version", |row| row.get(0))?;
     let known = version_of(migrations);
@@ -1474,12 +1356,22 @@ fn migrate(connection: &mut Connection, migrations: &[&str]) -> Result<(), Store
             known,
         });
     }
+    if current > 0 && current < BASELINE_VERSION {
+        return Err(StoreError::TooOld { found: current });
+    }
+    let done = if current == 0 {
+        0
+    } else {
+        current - BASELINE_VERSION + 1
+    };
     for (index, sql) in migrations
         .iter()
         .enumerate()
-        .skip(usize::try_from(current).unwrap_or(0))
+        .skip(usize::try_from(done).unwrap_or(0))
     {
-        let version = i64::try_from(index).unwrap_or(i64::MAX).saturating_add(1);
+        let version = i64::try_from(index)
+            .unwrap_or(i64::MAX)
+            .saturating_add(BASELINE_VERSION);
         let transaction = connection.transaction()?;
         transaction.execute_batch(sql)?;
         transaction.pragma_update(None, "user_version", version)?;

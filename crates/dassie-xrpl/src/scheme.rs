@@ -46,7 +46,7 @@ use crate::UNITS_PER_DROP;
 use crate::account::{MAX_ACCOUNT_DROPS, News, Ours, XrplAccount};
 use crate::api::{AccountInfo, TxRecord};
 use crate::codec::Memo;
-use crate::follower::{Follower, failure_of, hash_name, narrow, reconcile_pending, settled};
+use crate::follower::{Follower, cancel_pending, failure_of, hash_name, narrow};
 use crate::kept::{In, Out, SCHEME_VERSION};
 use crate::keys::AccountId;
 use crate::network::{self, Network};
@@ -214,8 +214,7 @@ pub struct XrpScheme<N: NativeXrp> {
 
 impl<N: NativeXrp> XrpScheme<N> {
     /// The scheme that books `account`, with what the books last
-    /// checkpointed and the state they kept: of this version, or of the
-    /// one the scheme wrote while it peered
+    /// checkpointed and the state they kept, of this version
     /// (spec/areas/xrpl.md#state-and-restarts).
     ///
     /// # Errors
@@ -245,11 +244,8 @@ impl<N: NativeXrp> XrpScheme<N> {
             xrp: PhantomData,
         };
         if !state.is_empty() {
-            let (mut input, version) = In::versioned(state).ok_or(SchemeError::InvalidData)?;
-            scheme
-                .f
-                .read(&mut input, version)
-                .ok_or(SchemeError::InvalidData)?;
+            let mut input = In::state(state, SCHEME_VERSION).ok_or(SchemeError::InvalidData)?;
+            scheme.f.read(&mut input).ok_or(SchemeError::InvalidData)?;
             input.finish().ok_or(SchemeError::InvalidData)?;
         }
         Ok(scheme)
@@ -291,12 +287,6 @@ impl<N: NativeXrp> XrpScheme<N> {
             {
                 self.f.owner_done(OwnerPaymentState::Cancelled, effects);
             }
-            // A settlement signed before the XRPL schemes stopped peering.
-            News::Cancelled { scheme, hash, .. } if *scheme == id => {
-                effects.push(Effect::Cancel {
-                    settlement: hash_name(hash),
-                });
-            }
             News::Cancelled { .. } => {}
             News::WrittenOff { .. } => self.written_off(effects),
             News::LedgerClosed { reserve_changed } => {
@@ -307,15 +297,6 @@ impl<N: NativeXrp> XrpScheme<N> {
             // What became of it is in the balance the sync matched.
             News::Unread { hash, .. } if self.f.is_owner_payment(hash) => {
                 self.f.owner_done(OwnerPaymentState::Unknown, effects);
-            }
-            // A settlement signed before the XRPL schemes stopped peering,
-            // read nowhere: voided, as the owner's payment is.
-            News::Unread { hash, ours }
-                if ours.scheme == id && ours.settles && !self.f.was_owner_payment(hash) =>
-            {
-                effects.push(Effect::Cancel {
-                    settlement: hash_name(hash),
-                });
             }
             News::Unread { .. }
             | News::Found { .. }
@@ -382,11 +363,7 @@ impl<N: NativeXrp> XrpScheme<N> {
     /// booked it, when the ledger validated it. Before its first sync, a
     /// scheme books no other: the sync books what the account holds then
     /// as the owner's, which a scheme that joins an account other schemes
-    /// read from earlier is told after their history. One of its own that
-    /// is no owner's payment, a settlement signed before the XRPL schemes
-    /// stopped peering, is posted or voided as the settlement the node
-    /// holds pending, as the owner's payment is, wherever the ledger shows
-    /// it.
+    /// read from earlier is told after their history.
     fn transaction(
         &mut self,
         record: &TxRecord,
@@ -449,22 +426,16 @@ impl<N: NativeXrp> XrpScheme<N> {
     }
 
     /// Books one of our transactions the ledger validated: the owner's
-    /// payment on its way, the owner's last one read again, or a settlement
-    /// signed before the XRPL schemes stopped peering, with its fee. Returns
-    /// what the books then hold.
+    /// payment on its way, or the owner's last one read again. Returns what
+    /// the books then hold, or `None` for any other, which is booked as any
+    /// transaction is, by what it did to the balance.
     fn ours(&mut self, record: &TxRecord, ours: Ours, effects: &mut Vec<Effect>) -> Option<i128> {
         if self.f.is_owner_payment(&record.hash) {
             Some(self.owner_paid(record, effects))
         } else if self.f.was_owner_payment(&record.hash) {
             Some(self.owner_read_again(record, ours.drops, effects))
         } else {
-            let paid = settled(record, units(ours.drops), effects);
-            let fee = units(record.fee);
-            effects.push(Effect::Fee {
-                amount: fee,
-                id: hash_name(&record.hash),
-            });
-            Some(i128::from(self.f.booked) - i128::from(paid) - i128::from(fee))
+            None
         }
     }
 
@@ -620,7 +591,6 @@ impl<N: NativeXrp> SettlementScheme for XrpScheme<N> {
         if self.f.catch_up(account, &news) {
             self.written_off(effects);
         }
-        self.f.book_entries(effects);
         // The reserve the books are matched to is the one the account had
         // when it last told something: a reserve it read meanwhile, before
         // it is synced again, is matched when it is.
@@ -639,7 +609,8 @@ impl<N: NativeXrp> SettlementScheme for XrpScheme<N> {
         pending: &[(Name, u64)],
         effects: &mut Vec<Effect>,
     ) {
-        reconcile_pending(asset.and_then(account_of), self.id(), pending, effects);
+        let _ = asset;
+        cancel_pending(pending, effects);
     }
 
     /// A `settlement` message on it is a bare notice and books nothing:
@@ -648,10 +619,9 @@ impl<N: NativeXrp> SettlementScheme for XrpScheme<N> {
         false
     }
 
-    /// Acknowledged, booking nothing: one a peering stored from when the
-    /// scheme peered left in a channel. Refused, the peer would send it
-    /// again for ever, and the channel, which carries one settlement at a
-    /// time, would never carry another (spec/areas/xrpl.md#owner-books).
+    /// Acknowledged, booking nothing: a message on an owner book books
+    /// nothing, and is acknowledged so the channel, which carries one
+    /// settlement at a time, moves on (spec/areas/xrpl.md#owner-books).
     fn handle_settlement(
         &mut self,
         _peer: Name,
@@ -822,7 +792,7 @@ mod tests {
     // says it peers with no one, gives no peering info, refuses every step
     // of a peering and every settlement of its own as unsupported, takes a
     // peer's settlement message as a bare notice that books nothing, and
-    // cancels any settlement a restart left pending.
+    // cancels any settlement it is handed as pending, as it has none.
     #[test]
     fn an_xrp_scheme_peers_with_no_one() {
         fn refuses<N: NativeXrp>() {

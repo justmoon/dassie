@@ -63,10 +63,10 @@ impl ActiveScheme {
 
     /// Whether a method on it would settle directly: it is neither over a
     /// hub nor of unlimited trust, as every XRPL scheme, an owner book. A
-    /// peering stored from when the XRPL schemes peered may still have a
-    /// method on one: it carries no packet, its peer is asked for nothing
-    /// on it, and the peer protocol drops it at its next review
-    /// (spec/areas/settlement.md#owner-books).
+    /// method is only over a hub or of unlimited trust: one on such a
+    /// scheme carries no packet, its peer is asked for nothing on it, and
+    /// the peer protocol drops it at its next review. Direct settlement
+    /// would be switched on here (spec/areas/settlement.md#owner-books).
     pub fn settles_directly(&self) -> bool {
         !self.over_hub && !self.unlimited
     }
@@ -399,8 +399,7 @@ impl Core {
         );
         // One neither over a hub nor of unlimited trust would settle
         // directly: it is an owner book, which peers with nobody and whose
-        // settlement messages, as a channel from when the XRPL schemes
-        // peered may still carry, book nothing (spec/decisions/hubs-only.md).
+        // settlement messages book nothing (spec/decisions/hubs-only.md).
         // So no peer's accounts open on it, for a peering, a method or a
         // downlink's settlement ([`ActiveScheme::start_credit`]).
         assert!(
@@ -453,10 +452,11 @@ impl Core {
     }
 
     /// Raises every peer's credit on `ledger`, a scheme's with unlimited
-    /// trust, to the unlimited credit: a peering stored from when the stub
-    /// without a config settled, and kept a finite credit, would otherwise
-    /// run short, as a new one never does
-    /// (spec/areas/settlement.md#the-stub-scheme).
+    /// trust, to the unlimited credit. The stub books one ledger with
+    /// commitments or without: a peer's accounts kept from an earlier
+    /// peering over the stub with commitments hold the credit its hold
+    /// gave, which a peering takes again, and would run short, as a new one
+    /// never does (spec/areas/settlement.md#the-stub-scheme).
     // Panics only on a broken invariant: a peer's trust account has its
     // `assets/interledger` beside it, which takes any credit up to the
     // unlimited one.
