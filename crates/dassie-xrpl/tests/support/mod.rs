@@ -214,6 +214,15 @@ impl XrplScheme {
         self.scheme.peers()
     }
 
+    /// Tells the account a settlement through it is near until
+    /// `until_ms`, as the node does before it pays out of it and while
+    /// money it asked for may arrive: whether it can sign now.
+    pub fn settling(&mut self, until_ms: u64, effects: &mut Vec<Effect>) -> bool {
+        let ready = self.account.settling(until_ms);
+        self.drain(effects);
+        ready
+    }
+
     pub fn pay_owner(
         &mut self,
         payment: &dassie_settlement::OwnerPayment,

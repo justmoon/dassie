@@ -65,6 +65,16 @@ const MAX_HUB_SUBSCRIBERS: usize = 16;
 /// Hub events a subscriber may fall behind by.
 const HUB_EVENTS: usize = 1024;
 
+/// How long a payment out of an XRP Ledger owner book waits for an idle
+/// book's account to read its ledger anew before it signs: a round is one
+/// or two round trips to its server, so this is several rounds, and still
+/// short for an owner who waits on the answer. Past it the server is not
+/// answering, and the owner is told so.
+const FRESH_WAIT_MS: u64 = 10_000;
+
+/// How often that wait looks whether the account can sign.
+const FRESH_LOOK_MS: u64 = 100;
+
 /// What to tell a caller once its batch is persisted.
 type Reply = Box<dyn FnOnce() + Send>;
 
@@ -212,6 +222,35 @@ impl Engine {
             .await
             .map_err(|_| EngineError::Unavailable)?;
         result.await.map_err(|_| EngineError::Unavailable)?
+    }
+
+    /// Waits, at most [`FRESH_WAIT_MS`], until the XRP Ledger owner book a
+    /// payment leaves can sign it, as `ready` asks the core: an idle book's
+    /// account reads its ledger anew before it signs, which takes a round,
+    /// one or two round trips to its server, and the owner's or the
+    /// sponsor's payment then goes on the first try
+    /// (spec/designs/xrpl-validation.md#6-the-account-on-proofs).
+    ///
+    /// # Errors
+    ///
+    /// [`EngineError::Exhausted`] when the account did not read its ledger
+    /// anew in time, as from a server that does not answer.
+    async fn fresh_book(
+        &self,
+        ready: impl Fn(&mut Core) -> bool + Clone + Send + 'static,
+    ) -> Result<(), EngineError> {
+        for _ in 0..FRESH_WAIT_MS / FRESH_LOOK_MS {
+            let ready = ready.clone();
+            if self.call(move |core| Ok(ready(core))).await? {
+                return Ok(());
+            }
+            tokio::time::sleep(Duration::from_millis(FRESH_LOOK_MS)).await;
+        }
+        Err(EngineError::Exhausted(
+            "the XRP Ledger account did not read its ledger anew in time to sign; \
+             its server may not be answering: try again"
+                .into(),
+        ))
     }
 
     /// The ledgers of active schemes.
@@ -555,6 +594,9 @@ impl Engine {
     /// The owner deposits into the hub over `scheme` from the owner book
     /// of its asset.
     pub async fn hub_deposit(&self, scheme: String, amount: u64) -> Result<HubStatus, EngineError> {
+        let named = scheme.clone();
+        self.fresh_book(move |core| core.hub_deposit_ready(&named))
+            .await?;
         self.call(move |core| core.hub_deposit_to(&scheme, amount))
             .await
     }
@@ -567,6 +609,7 @@ impl Engine {
         destination: String,
         drops: u64,
     ) -> Result<String, EngineError> {
+        self.fresh_book(|core| core.founding_book_ready()).await?;
         self.call(move |core| {
             core.pay_from_xrpl(&destination, drops)
                 .map(|id| id.as_str().to_owned())

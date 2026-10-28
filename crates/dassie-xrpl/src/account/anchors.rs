@@ -11,11 +11,28 @@
 //! settings), that ledger's validations, newer
 //! manifests of the validators that did not count if they fall short, and,
 //! for a ledger more than 256 past the kept anchor, at most two more state
-//! proofs of skip lists. The account starts one when it connects, and on
-//! each hint that a ledger closed while none is in flight and no history
-//! is being walked: so it anchors at the ledger's own pace, and the
-//! schemes hear of closed ledgers as before. What the anchor proves, the
-//! account takes as it is there ([`super::history`]).
+//! proofs of skip lists. What the anchor proves, the account takes as it is
+//! there ([`super::history`]).
+//!
+//! **When a round starts** (spec/designs/xrpl-validation.md#6-the-account-on-proofs):
+//! as the account connects, and then on every closed ledger's hint while
+//! the account is **hot**, and on demand otherwise, never while one is in
+//! flight or the history is walked. It is hot until it is synced, while a
+//! settlement through it is expected or about to be made
+//! ([`ExternalAsset::settling`](dassie_settlement::ExternalAsset::settling),
+//! and for a while after a payment asked from a stale anchor), and while
+//! anything waits on a proof: a transaction of ours in flight until it is
+//! proven applied or absent, a transaction being proven, its bytes asked
+//! again, a submission. Otherwise a round is **wanted**, and starts at once
+//! or on the next closed ledger: when a hint names a transaction of the
+//! account past the anchor, a closed ledger below it, or another reserve
+//! than its own; when a payment needs a fresher anchor than the newest
+//! ([`FRESH_ANCHOR_MS`]); when a pool or a balance is read; when the
+//! faucet answered; and on the heartbeat ([`HEARTBEAT_MS`]). So an idle
+//! account anchors a few times an hour, or once a minute while a token's
+//! peg guard reads its pool, while a settlement is credited in as many
+//! ledgers as when every ledger was anchored, whether or not the server
+//! tells of it.
 //!
 //! **What a server can do.** An answer that does not prove is a lie: it is
 //! counted by kind, and the account connects anew after a while
@@ -44,6 +61,36 @@ pub use crate::lists::{FETCH_TIMEOUT_MS, LIST_REFRESH_MS, LIST_RETRY_MS};
 // or kept too short a history, and how many validators a round asks for
 // newer manifests: as the standalone verifier.
 pub use crate::verifier::{MAX_MANIFEST_ASKS, STALL_MS};
+
+/// How long an account goes without anchoring while nothing waits on its
+/// ledger. A server that withholds the hint of a transaction, from the
+/// stream and from the history, hides a deposit nobody expected for at
+/// most this long; anything the account expects keeps it anchoring on
+/// every ledger, and a hint starts a round at once. A few minutes keeps an
+/// idle account's rounds, each a state proof, a ledger's validations and
+/// their signature checks, to a few an hour against one every few seconds.
+pub const HEARTBEAT_MS: u64 = 180_000;
+/// How long ago, by the node's clock, the account may have taken its
+/// anchor to sign from it, or to read a pool or a balance at it. A
+/// transaction's last ledger is the anchor's index plus a window of
+/// ledgers, so the anchor must be well within that window's time for the
+/// last ledger never to be past already; and a pool's reading counts for
+/// the peg guard only while its anchor is fresh. A few ledgers' time: an
+/// account that anchors on every ledger always has one this fresh. It
+/// counts from when the anchor was taken, the server's newest validated
+/// ledger with fresh validations then, not from its close time, so that a
+/// clock that runs ahead does not keep the account from signing.
+pub const FRESH_ANCHOR_MS: u64 = 20_000;
+/// How long a payment refused for a stale anchor, or the owner's ask of
+/// the faucet, keeps the account anchoring on every ledger: long enough
+/// for whoever asked to ask again, from the fresh anchor the round it
+/// started takes, or for what the faucet sends to arrive.
+pub const PAYING_MS: u64 = 60_000;
+/// The longest one telling that a settlement is near keeps the account
+/// anchoring on every ledger
+/// ([`ExternalAsset::settling`](dassie_settlement::ExternalAsset::settling)):
+/// one that is still near is told again.
+pub const MAX_SETTLING_MS: u64 = 600_000;
 
 // Why the account waits, as the owner reads it.
 pub(super) const NO_LIST: &str = "waiting for validator lists from enough of the publishers";
@@ -212,18 +259,114 @@ impl XrplAccount {
             self.fetch_lists_now();
             return;
         }
+        self.round_wants = self.wants;
         self.round = Some(Round::Proving(self.followed_keys()));
         self.send(Request::Anchor);
     }
 
-    /// A hint that a ledger closed: a round, where none is in flight and
-    /// the account does not wait after a refusal. So the account anchors at
-    /// the ledger's own pace, and the schemes hear of each ledger as they
-    /// did; a hint that names a ledger below the anchor, as a server behind
-    /// or a new chain gives, is no more than a hint to anchor
+    /// A hint that ledger `index` closed: a round, where none is in flight
+    /// and the account does not wait after a refusal, while a round is
+    /// wanted, or the account is hot and its anchor is another ledger. So a
+    /// hot account anchors at the ledger's own pace, and an idle one on
+    /// demand. A hint that names a ledger below the anchor, as a server
+    /// behind or a new chain gives, is a hint to anchor, hot or idle, and
+    /// no more: only the anchor tells a reset
     /// (spec/decisions/ledger-resets.md).
-    pub(super) fn anchor_on_hint(&mut self) {
+    pub(super) fn anchor_on_hint(&mut self, index: u32) {
+        let kept = self.anchor.map(|kept| kept.anchor.index);
+        let below = kept.is_some_and(|kept| index < kept);
+        let other = kept != Some(index);
+        if self.wants_anchor() || below || (self.hot() && other) {
+            self.anchor_now();
+        }
+    }
+
+    /// Asks for a round: one starts now if it can, else on the next closed
+    /// ledger, until a round that started since took an anchor.
+    pub(super) fn want_anchor(&mut self) {
+        self.wants = self.wants.saturating_add(1);
         self.anchor_now();
+    }
+
+    /// Asks for a round for a fresh anchor, unless one is wanted already:
+    /// asked again and again, as a payment or a read waits, it costs one
+    /// round.
+    pub(super) fn want_fresh(&mut self) {
+        if !self.wants_anchor() {
+            self.want_anchor();
+        }
+    }
+
+    /// Whether a round is wanted: asked for since the round that took the
+    /// newest anchor started.
+    pub(super) const fn wants_anchor(&self) -> bool {
+        self.served < self.wants
+    }
+
+    /// Whether the account anchors on every ledger: until it is synced,
+    /// while a settlement through it is expected or about to be made, and
+    /// while anything waits on a proof. A transaction of ours that could be
+    /// proven neither applied nor absent on this connection, which stays
+    /// pending for the owner, keeps it hot no longer.
+    pub(super) fn hot(&self) -> bool {
+        let proving = self.pending.values().any(|(request, _)| {
+            matches!(
+                request,
+                Request::Submit(_) | Request::TxProof(..) | Request::TxBlobs(..)
+            )
+        });
+        self.phase != Phase::Synced
+            || self.settling_until_ms > self.now_ms
+            || (self.in_flight.iter()).any(|t| !self.tried.contains(&t.hash))
+            || self.walk.is_some()
+            || !self.branches.is_empty()
+            || !self.hints.is_empty()
+            || !self.lookups.is_empty()
+            || proving
+    }
+
+    /// A settlement through the account is expected or about to be made
+    /// until `until_ms`, at most [`MAX_SETTLING_MS`] from now.
+    pub(super) fn settle_until(&mut self, until_ms: u64) {
+        let until_ms = until_ms.min(self.now_ms.saturating_add(MAX_SETTLING_MS));
+        self.settling_until_ms = self.settling_until_ms.max(until_ms);
+    }
+
+    /// When the heartbeat is due: [`HEARTBEAT_MS`] after the account last
+    /// anchored, while it is synced, idle and wants no round already.
+    pub(super) fn heartbeat_deadline(&self) -> Option<u64> {
+        let idle = self.phase == Phase::Synced
+            && self.round.is_none()
+            && self.stalled_until_ms == 0
+            && !self.wants_anchor();
+        idle.then_some(self.anchored_ms.saturating_add(HEARTBEAT_MS))
+    }
+
+    /// Asserts what holds of when rounds start.
+    pub(super) fn check_anchoring(&self) {
+        assert!(
+            self.served <= self.round_wants && self.round_wants <= self.wants,
+            "a round answers what was asked before it started"
+        );
+        assert!(self.anchored_ms <= self.now_ms, "anchored by now");
+        assert!(
+            (self.taken_ms).is_none_or(|taken| taken <= self.now_ms && self.anchor.is_some()),
+            "an anchor taken by now, and kept"
+        );
+        assert!(
+            self.settling_until_ms <= self.now_ms.saturating_add(MAX_SETTLING_MS),
+            "a settlement keeps the account hot for a bounded while"
+        );
+    }
+
+    /// The heartbeat, if it is due: a round.
+    pub(super) fn heartbeat(&mut self) {
+        if self
+            .heartbeat_deadline()
+            .is_some_and(|due| due <= self.now_ms)
+        {
+            self.want_anchor();
+        }
     }
 
     /// The round's state proof at the server's validated ledger.
@@ -518,6 +661,9 @@ impl XrplAccount {
         self.anchor = Some(KeptAnchor::of(anchor, recent));
         self.waiting = None;
         self.stalled_until_ms = 0;
+        self.served = self.round_wants;
+        self.anchored_ms = self.now_ms;
+        self.taken_ms = Some(self.now_ms);
     }
 
     /// The server's validated ledger is older than the anchor kept: never

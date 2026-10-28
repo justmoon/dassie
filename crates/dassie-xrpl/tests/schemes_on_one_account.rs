@@ -17,7 +17,7 @@ use dassie_settlement::{
     AssetEffect, Detach, Effect, ExternalAsset, LedgerInput, LedgerStatus, OwnerPaymentState,
     SettlementScheme,
 };
-use dassie_xrpl::account::{self, News, XrplAccount};
+use dassie_xrpl::account::{self, MAX_SETTLING_MS, News, XrplAccount};
 use dassie_xrpl::fake::{FIRST_LEDGER, FakeLedger, RESERVE_BASE};
 use dassie_xrpl::{AccountId, UNITS_PER_DROP, Wallet, XrplScheme};
 
@@ -189,7 +189,12 @@ impl Shared {
         self.input(LedgerInput::Connected);
     }
 
+    /// A ledger closes. A settlement through the account is near
+    /// throughout, so that it anchors on every ledger, as these tests of
+    /// what is booked need (spec/designs/xrpl-validation.md#6-the-account-on-proofs).
     fn close(&mut self) {
+        self.account.settling(self.now + MAX_SETTLING_MS);
+        self.tell();
         self.now += 4_000;
         let close_time = dassie_xrpl::unl::ledger_seconds(self.now);
         for (connection, message) in self.ledger.close_at(close_time) {

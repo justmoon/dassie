@@ -18,8 +18,8 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 use dassie_settlement::{AssetEffect, ExternalAsset, LedgerInput, LedgerStatus};
 use dassie_xrpl::account::{
-    Doubt, LIST_REFRESH_MS, LIST_RETRY_MS, MAX_UNSAVED_TRIES, STALL_MS, UNSAVED_RETRY_MS,
-    XrplAccount,
+    Doubt, LIST_REFRESH_MS, LIST_RETRY_MS, MAX_SETTLING_MS, MAX_UNSAVED_TRIES, STALL_MS,
+    UNSAVED_RETRY_MS, XrplAccount,
 };
 use dassie_xrpl::anchor::{Ancestry, KeptAnchor, ProvenLists, ancestry};
 use dassie_xrpl::fake::{FakeLedger, LIST_SITE, Lie, Unsaved, publisher_key};
@@ -326,8 +326,12 @@ impl Harness {
         }
     }
 
-    /// A ledger closes, at the account's clock, and the stream says so.
+    /// A ledger closes, at the account's clock, and the stream says so. A
+    /// settlement through the account is near throughout, so it anchors on
+    /// every ledger, as these tests of what an anchor proves need
+    /// (spec/designs/xrpl-validation.md#6-the-account-on-proofs).
     fn close(&mut self) {
+        self.account.settling(self.now + MAX_SETTLING_MS);
         self.now += 4_000;
         let close_time = ledger_seconds(self.now);
         for (connection, message) in self.ledger.close_at(close_time) {
