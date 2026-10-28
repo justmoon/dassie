@@ -35,7 +35,7 @@ pub use config::{Config, Rate};
 pub use hooks::{Agreed, Declined, PeeringHooks};
 pub use io::{
     Event, Failure, Inbound, InboundId, NameEvent, Output, PacketAnswer, Reply, Request, RequestId,
-    Response, SettlementAnswer, Stats,
+    Response, SettlementAnswer, Stats, not_acted_upon,
 };
 pub use node::{
     BanError, Bootstrap, MAX_METHODS, MAX_OWN_HUBS, MAX_SCHEMES, MAX_UPLINKS, NodeView, OwnInfo,
