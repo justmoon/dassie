@@ -1,4 +1,5 @@
 import type { JSX } from "@solidjs/web";
+import { Lockup } from "@dassie/ui/kopje";
 
 /** Every screen of the skeleton is one centered card with a title. */
 export function Card(props: {
@@ -9,7 +10,9 @@ export function Card(props: {
 }): JSX.Element {
   return (
     <main class="page">
-      <p class="brand">Dassie Wallet</p>
+      <p class="brand">
+        <Lockup suffix="Wallet" />
+      </p>
       <section class="card" data-testid={props.testid}>
         <h1>{props.title}</h1>
         {props.children}

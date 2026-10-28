@@ -1,0 +1,48 @@
+/*
+ * Ledgers, deposits and their QR codes. Assets, Hubs and Devices show
+ * deposit addresses and QR codes too.
+ */
+
+/* Ledgers */
+.ledger-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+/* A deposit address with its QR code; the code stays black on white,
+   which readers need, in either theme. */
+.deposit {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  align-items: center;
+}
+
+.deposit code {
+  word-break: break-all;
+}
+
+.qr {
+  border-radius: 4px;
+  flex: none;
+}
+
+a.button.icon {
+  padding: 4px 10px;
+}
+
+.choices {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.choice {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  padding: 12px 0;
+  border-top: 1px solid var(--line);
+}

@@ -1,80 +1,19 @@
 /*
  * dassie.land in Kopje, Dassie's visual identity (brand/index.html): the
  * shared components (buttons, cards, forms, the log viewer) from
- * @dassie/ui, dressed in Kopje's palette and type, and the site's own
- * layout. The pages run under a CSP that allows styles from their own
- * origin only, so every rule lives here, never in a style attribute.
+ * @dassie/ui, which draw in Kopje themselves, and the site's own layout.
+ * The pages run under a CSP that allows styles from their own origin
+ * only, so every rule lives here, never in a style attribute.
  * The theme follows the system: light, or dusk after sunset.
  */
 
 @import "@dassie/ui/ui.css";
 @import "./kopje.css";
 
-/* The shared components' tokens, in Kopje. */
-:root {
-  --bg: var(--sand);
-  --surface: var(--day);
-  --surface-2: var(--stone-3);
-  --text: var(--ink);
-  --muted: var(--ink-2);
-  --line: var(--stone-2);
-  --accent: var(--ember-text);
-  --accent-text: #FBF6EE;
-  --success: light-dark(#4F7A34, #9CC98C);
-  --success-bg: light-dark(#EEF2E2, #1F2A19);
-  --danger: light-dark(#B3261E, #F08A7E);
-  --danger-bg: light-dark(#F8E3DA, #34201B);
-  --warning-bg: light-dark(#FBEBD6, #33251A);
-  --warning-line: var(--sun);
-  --radius: 14px;
-  --font: var(--sans);
-}
-
+/* The site reads at a larger size than the wallet. */
 body {
   font-size: 17px;
   line-height: 1.6;
-  -webkit-font-smoothing: antialiased;
-}
-
-h1,
-h2,
-h3 {
-  font-family: var(--display);
-  font-variation-settings: "SOFT" 100, "WONK" 0;
-  font-weight: 560;
-  letter-spacing: -0.015em;
-}
-
-a {
-  text-underline-offset: 3px;
-}
-
-/* Buttons are pebbles: Ember for the one action, an ink outline for the rest. */
-button,
-a.button {
-  padding: 9px 19px;
-  font-size: 15px;
-  border: 1.5px solid var(--ink);
-  border-radius: 999px;
-}
-
-button.primary,
-a.button.primary {
-  color: #FBF6EE;
-  background: var(--ember);
-  border-color: var(--ember);
-}
-
-.card {
-  border: 0;
-  border-radius: 26px;
-}
-
-input,
-textarea,
-select {
-  background: var(--day);
-  border-color: var(--stone);
 }
 
 /* Commands are set in the terminal's ink, in both themes. */

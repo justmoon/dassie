@@ -1,32 +1,39 @@
 /*
- * The wallet's own rules: its frame, onboarding and pages. The theme and the
- * shared components' rules come from `@dassie/ui/ui.css`, imported first.
+ * The wallet's own rules, in Kopje: its frame here, and each area's pages
+ * in a file beside them. Kopje's fonts and palette and the shared
+ * components' rules come from `@dassie/ui/ui.css`, imported first.
  */
 
 @import "@dassie/ui/ui.css";
+@import "./onboard/onboard.css";
+@import "./pages/payments/payments.css";
+@import "./pages/grants/grants.css";
+@import "./pages/hubs/hubs.css";
+@import "./pages/ledgers/ledgers.css";
+@import "./pages/network/network.css";
+@import "./pages/settings/settings.css";
 
-/* Onboarding: one centered column with brand and card. */
+/* The screens before the wallet opens: one centered column, the lockup
+   above a card. */
 .page {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 16px;
+  gap: 20px;
   min-height: 100vh;
-  padding: 24px 16px;
+  padding: 32px 16px;
 }
 
 .brand {
   margin: 0;
-  font-weight: 700;
-  letter-spacing: -0.01em;
-  color: var(--muted);
+  color: var(--ink);
   text-decoration: none;
 }
 
 .page .card {
   max-width: 480px;
-  padding: 28px;
+  padding: 32px;
 }
 
 .subtitle {
@@ -38,7 +45,8 @@
   font-size: 0.875rem;
 }
 
-/* The wallet's frame. */
+/* The wallet's frame: the lockup and the pages on Sandstone, above the
+   rim of light, Sunrise on ink, that Kopje draws every divider with. */
 .skip {
   position: absolute;
   left: -9999px;
@@ -56,10 +64,9 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px 16px;
-  padding: 12px 24px;
-  background: var(--surface);
-  border-bottom: 1px solid var(--line);
+  gap: 8px 20px;
+  padding: 14px 24px 18px;
+  background: linear-gradient(var(--sun) 0 2px, var(--night) 2px 4px) bottom / 100% 4px no-repeat;
 }
 
 .nav-bar {
@@ -78,18 +85,22 @@
   flex: 1;
   flex-wrap: wrap;
   align-items: center;
-  gap: 4px 12px;
+  gap: 4px;
 }
 
 .nav-links a {
-  padding: 6px 10px;
+  padding: 6px 12px;
   color: var(--text);
   text-decoration: none;
-  border-radius: var(--radius);
+  border-radius: 999px;
+}
+
+.nav-links a:hover {
+  background: var(--stone-3);
 }
 
 .nav-links a[aria-current="page"] {
-  background: var(--surface-2);
+  background: var(--stone-2);
   font-weight: 600;
 }
 
@@ -102,7 +113,8 @@
 }
 
 .menu > button {
-  padding: 6px 10px;
+  padding: 6px 12px;
+  font-size: inherit;
   font-weight: 400;
   border-color: transparent;
 }
@@ -111,305 +123,48 @@
   position: absolute;
   z-index: 5;
   min-width: 160px;
-  margin: 4px 0 0;
+  margin: 6px 0 0;
   padding: 6px;
   list-style: none;
   background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: 18px;
+  box-shadow: 0 20px 40px -16px var(--shade);
 }
 
 .menu-list a {
   display: block;
 }
 
+.nav .status {
+  padding: 6px 12px;
+  color: var(--muted);
+  font-size: 15px;
+  text-decoration: none;
+  border-radius: 999px;
+}
+
+.nav .status:hover {
+  background: var(--stone-3);
+}
+
 .theme-toggle {
+  min-width: 36px;
   padding: 4px 10px;
   border-color: transparent;
 }
 
+/* Not live: a band of Sunrise's warmth under the frame. */
 .banner {
   margin: 0;
-  padding: 8px 24px;
+  padding: 10px 24px;
   background: var(--warning-bg);
-  border-bottom: 1px solid var(--warning-line);
-}
-
-.onboarding {
-  padding: 32px 16px;
-}
-
-.page input,
-.page textarea {
-  margin-bottom: 16px;
-}
-
-/*
- * The passphrase: 20 numbered words in two columns of ten, down the first
- * and then the second, as a metal plate lays them out, with the four
- * letters a plate keeps in bold. The numbers are drawn, not written, so the
- * list's text is the words alone.
- */
-.phrase {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  grid-template-rows: repeat(10, auto);
-  grid-auto-flow: column;
-  gap: 4px 24px;
-  margin: 0 0 16px;
-  padding: 16px;
-  font-family: var(--mono);
-  font-size: 1.125rem;
-  line-height: 1.6;
-  list-style: none;
-  counter-reset: word;
-  background: var(--warning-bg);
-  border: 2px solid var(--warning-line);
-  border-radius: var(--radius);
-}
-
-.phrase li {
-  counter-increment: word;
-  white-space: nowrap;
-}
-
-.phrase li::before {
-  display: inline-block;
-  min-width: 2.5ch;
-  margin-right: 1ch;
-  color: var(--muted);
-  text-align: right;
-  content: counter(word);
-}
-
-.phrase b {
-  font-weight: 700;
-}
-
-/* A word a correction changed, for the owner to compare with their copy. */
-.phrase li.changed {
-  margin: 0 -6px;
-  padding: 0 6px;
-  outline: 2px solid var(--warning-line);
-  border-radius: 4px;
-}
-
-/* Too narrow for two columns: one, in order. */
-@media (max-width: 420px) {
-  .phrase {
-    grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: none;
-    grid-auto-flow: row;
-  }
-}
-
-.phrase-date {
-  font-family: var(--mono);
-  color: var(--muted);
-}
-
-.page textarea.phrase-input {
-  margin: 8px 0 12px;
-  font-family: var(--mono);
-}
-
-/* What the owner typed, word by word, as the wallet reads it. */
-.typed .hint {
-  margin: 0 0 8px;
-}
-
-.phrase.typed-words {
-  font-size: 1rem;
-  background: var(--surface-2);
-  border: 1px solid var(--line);
-}
-
-.typed-words .word-toggle {
-  padding: 0 4px;
-  font: inherit;
-  font-weight: 400;
-  border-color: transparent;
-}
-
-.typed-words .word-toggle:hover {
-  background: var(--surface);
-}
-
-.typed-words .word-toggle[aria-pressed="true"],
-.typed-words .unknown {
-  color: var(--danger);
-  text-decoration: line-through;
-}
-
-.typed-words .unknown {
-  padding: 0 4px;
-  font-style: italic;
-  text-decoration: none;
-}
-
-/* A correction's note takes the focus only to be read out. */
-.correction-note:focus {
-  outline: none;
-}
-
-kbd {
-  padding: 0 4px;
-  font-family: var(--mono);
-  border: 1px solid var(--line);
-  border-radius: 4px;
-}
-
-.balances {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  margin: 0 0 8px;
-  padding: 0;
-  list-style: none;
-}
-
-.balances li {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 12px;
-}
-
-.pointer {
-  font-family: var(--mono);
-  font-size: 1.25rem;
-  overflow-wrap: anywhere;
-}
-
-/* Payments */
-.addresses,
-.activity {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.addresses li,
-.activity li {
-  padding-bottom: 12px;
-  border-bottom: 1px solid var(--line);
-}
-
-.addresses li:last-child,
-.activity li:last-child {
-  border-bottom: 0;
-}
-
-.address-head,
-.activity-head {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 8px;
-}
-
-.activity-head strong {
-  flex: 1;
-}
-
-.request-payment {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-/* Consent: what sending payments means, under the item that asks. */
-.consent-facts {
-  margin: 8px 0 12px;
-}
-
-/* Settlement hubs, in Kopje (packages/ui/ui.css `.kopje`). */
-.hub-head {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: space-between;
-  align-items: center;
-  gap: 8px;
-}
-
-.hub-head h2 {
-  margin: 0;
-}
-
-.card p.hub-id {
-  margin: 4px 0 16px;
-}
-
-.hub-balance {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  margin-bottom: 16px;
-}
-
-.card .hub-balance p {
-  margin: 0;
-}
-
-.hub-holds,
-.hub-moves,
-.hub-payout {
-  padding-top: 12px;
-  border-top: 1px solid var(--line);
-  margin-top: 16px;
-}
-
-/* Ledgers */
-.ledger-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-/* A deposit address with its QR code; the code stays black on white,
-   which readers need, in either theme. */
-.deposit {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 1rem;
-  align-items: center;
-}
-
-.deposit code {
-  word-break: break-all;
-}
-
-.qr {
-  border-radius: 4px;
-  flex: none;
-}
-
-a.button.icon {
-  padding: 4px 10px;
-}
-
-.choices {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.choice {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 16px;
-  padding: 12px 0;
-  border-top: 1px solid var(--line);
+  border-bottom: 2px solid var(--warning-line);
 }
 
 /* Phones: the navigation behind a button. */
 @media (max-width: 720px) {
   .nav {
-    padding: 8px 16px;
+    padding: 10px 16px 14px;
   }
 
   .nav-bar {
@@ -433,5 +188,6 @@ a.button.icon {
 
   .menu-list {
     position: static;
+    box-shadow: none;
   }
 }

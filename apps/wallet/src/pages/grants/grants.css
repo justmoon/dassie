@@ -1,0 +1,8 @@
+/*
+ * Connected apps and the consent screen.
+ */
+
+/* Consent: what sending payments means, under the item that asks. */
+.consent-facts {
+  margin: 8px 0 12px;
+}

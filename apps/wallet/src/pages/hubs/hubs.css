@@ -1,0 +1,38 @@
+/*
+ * Settlement hubs.
+ */
+
+.hub-head {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.hub-head h2 {
+  margin: 0;
+}
+
+.card p.hub-id {
+  margin: 4px 0 16px;
+}
+
+.hub-balance {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 16px;
+}
+
+.card .hub-balance p {
+  margin: 0;
+}
+
+.hub-holds,
+.hub-moves,
+.hub-payout {
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+  margin-top: 16px;
+}
