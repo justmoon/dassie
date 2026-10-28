@@ -185,8 +185,9 @@ pub struct HubStatus {
     /// Whether the issuer holds the escrow: frozen, or charging a transfer
     /// fee.
     pub escrow_held: bool,
-    /// Whether settling over the hub is under way
-    /// ([`Core::hub_settling`]).
+    /// Whether settling over the hub is under way ([`Core::hub_settling`]);
+    /// in [`Core::owner_hub_statuses`], also while a request of ours to
+    /// settle over it is on its way or due.
     pub settling: bool,
 }
 
@@ -1260,6 +1261,18 @@ impl Core {
             .into_iter()
             .filter_map(|scheme| self.hub_status_of(scheme))
             .collect()
+    }
+
+    /// [`hub_statuses`](Self::hub_statuses) as the owner reads them: each
+    /// also settling while a request of ours to settle over its hub is on
+    /// its way or due at the next check ([`HubStatus::settling`]), which
+    /// only a step can tell.
+    pub fn owner_hub_statuses(&mut self) -> Vec<HubStatus> {
+        let mut statuses = self.hub_statuses();
+        for status in &mut statuses {
+            status.settling = status.settling || self.requests_pending(status.scheme);
+        }
+        statuses
     }
 
     /// The node's account in its first hub and its funding, while the

@@ -515,7 +515,7 @@ impl Engine {
     /// The node's account in each settlement hub it is in and its
     /// funding, for each hub scheme that runs.
     pub async fn hub_statuses(&self) -> Result<Vec<HubStatus>, EngineError> {
-        self.call(|core| Ok(core.hub_statuses())).await
+        self.call(|core| Ok(core.owner_hub_statuses())).await
     }
 
     /// The owner deposits into the hub over `scheme` from the owner book

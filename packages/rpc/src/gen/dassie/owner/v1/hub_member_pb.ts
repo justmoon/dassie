@@ -314,7 +314,9 @@ export type HubStatus = Message<"dassie.owner.v1.HubStatus"> & {
    * withdrawal), a packet over the hub not yet settled by its promises
    * (ours in flight or waiting for the hub, or a peer's in flight or
    * fulfilled with no claim of its covering it yet), a settlement of ours
-   * over the hub not yet final, or a peer's request to settle over it that
+   * over the hub not yet final, a request of ours asking a peer to settle
+   * over it on its way and not yet answered, or due at the next check of
+   * what peers owe the node, or a peer's request to settle over it that
    * the node could not fund in full and funds once it can. False once none
    * is: until a packet, a peer or the owner acts, the node changes nothing
    * in its books of the hub or of the owner book by itself.

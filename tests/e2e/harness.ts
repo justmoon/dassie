@@ -172,6 +172,7 @@ export const PORT_OFFSETS = {
   "xrpl_deposit_test.ts": SCENARIO_PORT_OFFSET + 800,
   "mainnet_test.ts": SCENARIO_PORT_OFFSET + 900,
   "live_hub_test.ts": 3_000,
+  "two_hubs_test.ts": 5_000,
   "market_maker_targets_test.ts": 10_000,
   "dev_test.ts": 16_000,
   "peer_swaps_test.ts": 22_000,
