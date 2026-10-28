@@ -243,6 +243,40 @@ Environment=DASSIE_LOG=info,dassie::peer=debug</code></pre>
             <a href="/docs/services/hub-validator/">Validate a settlement hub</a>.
           </p>
         </dd>
+
+        <dt id="DASSIE_EVENT_LOG"><code>DASSIE_EVENT_LOG</code></dt>
+        <dd>
+          <p>
+            A file to which the node appends every packet it handles and
+            every event of its settlement hubs, one JSON object per line, for
+            an owner who chooses to record their own node's traffic: to debug
+            it, show it or study a network. It records the amounts,
+            addresses and peers of other people's payments through your
+            node, so it is off unless you set it, and no release, installer
+            or <code>dassie setup</code> turns it on. A relative path is taken
+            in the state directory, so <code>events.jsonl</code> works under
+            the installer's unit. The file is readable by the node's user
+            alone (<code>0600</code>). Once it would grow past
+            <a href="#DASSIE_EVENT_LOG_MAX_BYTES"><code>DASSIE_EVENT_LOG_MAX_BYTES</code></a>,
+            it is renamed to <code>&lt;file&gt;.1</code>, the older ones move up
+            to <code>&lt;file&gt;.4</code>, and the oldest is deleted, so the log
+            takes at most five times that. Writing never holds up a payment:
+            what the node cannot write in time it counts in a
+            <code>lost</code> line. A file the node cannot open stops it at
+            start. Default: unset, and nothing is recorded. The line format is
+            in the
+            <a href="https://github.com/justmoon/dassie/blob/main/spec/areas/node.md#the-line-contract">spec</a>.
+          </p>
+        </dd>
+
+        <dt id="DASSIE_EVENT_LOG_MAX_BYTES"><code>DASSIE_EVENT_LOG_MAX_BYTES</code></dt>
+        <dd>
+          <p>
+            The size, in bytes, at which the
+            <a href="#DASSIE_EVENT_LOG">event log</a> is rotated: from 1 MiB
+            (1048576) to 64 GiB. Default: 64 MiB (67108864).
+          </p>
+        </dd>
       </dl>
 
       <h2 id="updates">Installer and updater</h2>

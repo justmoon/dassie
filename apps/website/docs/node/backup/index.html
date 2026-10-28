@@ -110,6 +110,15 @@
         <a href="/docs/reference/files-and-ports/#data-directory">Files, ports and sockets</a>
         lists every file.
       </p>
+      <p>
+        If you turned on the
+        <a href="/docs/reference/environment/#DASSIE_EVENT_LOG">event log</a>
+        with a relative path, it lives in the same directory, and a backup
+        carries it too: up to five times
+        <code>DASSIE_EVENT_LOG_MAX_BYTES</code> of records of the payments
+        through your node. Leave it out with
+        <code>--exclude='dassie/events.jsonl*'</code> if you named it so.
+      </p>
 
       <h2 id="secrets-at-rest">The data holds the node key</h2>
       <aside class="warning">

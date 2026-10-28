@@ -20,7 +20,10 @@ use std::sync::mpsc::{Receiver, RecvTimeoutError, SyncSender, TrySendError};
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
-use tokio::sync::broadcast::{self, error::RecvError};
+use tokio::sync::broadcast::{
+    self,
+    error::{RecvError, TryRecvError},
+};
 use tokio_util::sync::CancellationToken;
 
 use crate::clock::Clock;
@@ -142,46 +145,79 @@ impl EventLog {
         let log = self.clone();
         tokio::spawn(async move {
             log.push(start_line(clock.now_ms(), &node, crate::VERSION));
-            tokio::select! {
-                () = generation.cancelled() => {}
-                () = log.recorder(&node, packets, hubs, clock.as_ref()) => {}
-            }
+            log.recorder(&node, (packets, hubs), clock.as_ref(), &generation)
+                .await;
         });
     }
 
+    /// Writes a line for each event until `generation` ends, then for
+    /// those already in the broadcasts, so an engine's last events are
+    /// written or counted too.
     async fn recorder(
         &self,
         node: &str,
-        mut packets: broadcast::Receiver<PacketEvent>,
-        mut hubs: broadcast::Receiver<HubStreamEvent>,
+        (mut packets, mut hubs): (
+            broadcast::Receiver<PacketEvent>,
+            broadcast::Receiver<HubStreamEvent>,
+        ),
         clock: &dyn Clock,
+        generation: &CancellationToken,
     ) {
         loop {
-            tokio::select! {
-                event = packets.recv() => match event {
-                    Ok(PacketEvent::Packet(traced)) => {
-                        let packet = crate::rpc::packet_record(&traced);
-                        self.push(packet_line(clock.now_ms(), node, &packet));
-                    }
-                    Ok(PacketEvent::Lagged(count)) | Err(RecvError::Lagged(count)) => {
-                        self.lose(count);
-                    }
-                    Err(RecvError::Closed) => return,
-                },
-                event = hubs.recv() => match event {
-                    Ok(HubStreamEvent::Event(event)) => {
-                        let event = crate::rpc::hub_event_record(&event);
-                        if let Some(line) = hub_line(clock.now_ms(), node, &event) {
-                            self.push(line);
-                        }
-                    }
-                    Ok(HubStreamEvent::Lagged(count)) | Err(RecvError::Lagged(count)) => {
-                        self.lose(count);
-                    }
-                    Err(RecvError::Closed) => return,
-                },
+            let open = tokio::select! {
+                () = generation.cancelled() => break,
+                event = packets.recv() => self.packet(node, clock, event),
+                event = hubs.recv() => self.hub(node, clock, event),
+            };
+            if !open {
+                return;
             }
         }
+        // At most a broadcast's worth of each.
+        while let Some(event) = waiting(packets.try_recv()) {
+            self.packet(node, clock, event);
+        }
+        while let Some(event) = waiting(hubs.try_recv()) {
+            self.hub(node, clock, event);
+        }
+    }
+
+    /// Writes or counts a packet event; whether the broadcast is open.
+    fn packet(&self, node: &str, clock: &dyn Clock, event: Result<PacketEvent, RecvError>) -> bool {
+        match event {
+            Ok(PacketEvent::Packet(traced)) => {
+                let packet = crate::rpc::packet_record(&traced);
+                self.push(packet_line(clock.now_ms(), node, &packet));
+            }
+            Ok(PacketEvent::Lagged(count)) | Err(RecvError::Lagged(count)) => self.lose(count),
+            Err(RecvError::Closed) => return false,
+        }
+        true
+    }
+
+    /// Writes or counts a hub event; whether the broadcast is open.
+    fn hub(&self, node: &str, clock: &dyn Clock, event: Result<HubStreamEvent, RecvError>) -> bool {
+        match event {
+            Ok(HubStreamEvent::Event(event)) => {
+                let event = crate::rpc::hub_event_record(&event);
+                if let Some(line) = hub_line(clock.now_ms(), node, &event) {
+                    self.push(line);
+                }
+            }
+            Ok(HubStreamEvent::Lagged(count)) | Err(RecvError::Lagged(count)) => self.lose(count),
+            Err(RecvError::Closed) => return false,
+        }
+        true
+    }
+}
+
+/// An event already in a broadcast, as `recv` would give it; none once it
+/// is empty or closed.
+fn waiting<T>(event: Result<T, TryRecvError>) -> Option<Result<T, RecvError>> {
+    match event {
+        Ok(event) => Some(Ok(event)),
+        Err(TryRecvError::Lagged(count)) => Some(Err(RecvError::Lagged(count))),
+        Err(TryRecvError::Empty | TryRecvError::Closed) => None,
     }
 }
 
@@ -301,13 +337,22 @@ impl Rotating {
     }
 }
 
-/// Opens `path` for appending, made readable by the node's user only.
+/// Opens `path` for appending, readable by the node's user only: made so,
+/// or, if it was there with a looser mode, tightened, as the database is.
 fn open_file(path: &Path) -> io::Result<File> {
     let mut options = OpenOptions::new();
     options.create(true).append(true);
     #[cfg(unix)]
     std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
-    options.open(path)
+    let file = options.open(path)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        if file.metadata()?.permissions().mode() & 0o077 != 0 {
+            file.set_permissions(std::fs::Permissions::from_mode(0o600))?;
+        }
+    }
+    Ok(file)
 }
 
 /// `<path>.<n>`.

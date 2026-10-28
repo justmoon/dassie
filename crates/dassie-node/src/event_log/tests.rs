@@ -315,3 +315,32 @@ fn the_file_is_rotated_at_its_cap_and_old_files_go() {
     let oldest = std::fs::read_to_string(numbered(&path, KEPT_FILES)).unwrap();
     assert!(!oldest.contains("\"old\""));
 }
+
+// What is still in the broadcasts when the engine stops is written or
+// counted, not lost silently.
+#[tokio::test]
+async fn an_engine_that_stops_leaves_nothing_uncounted() {
+    let (log, _receiver) = queue(8);
+    let packets = broadcast::Sender::new(4);
+    let hubs = broadcast::Sender::new(4);
+    let receivers = (packets.subscribe(), hubs.subscribe());
+    packets.send(PacketEvent::Lagged(2)).unwrap();
+    hubs.send(HubStreamEvent::Lagged(5)).unwrap();
+    let generation = CancellationToken::new();
+    generation.cancel();
+    log.recorder(NODE, receivers, &ManualClock::new(TS), &generation)
+        .await;
+    assert_eq!(log.shared.lost.load(Ordering::Relaxed), 7);
+}
+
+#[test]
+fn a_file_found_with_a_looser_mode_is_tightened() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("events.jsonl");
+    std::fs::write(&path, "").unwrap();
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+    Rotating::open(path.clone(), MIN_MAX_BYTES).unwrap();
+    let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+    assert_eq!(mode, 0o600);
+}
