@@ -4,10 +4,12 @@
 #   apps/dsusd-keeper/vm/provision.sh [--apply]
 #
 # Without --apply it prints the gcloud commands and runs nothing. With it,
-# it runs them, as an owner of the project, once; startup.sh and the units
-# it installs come from `main` at each boot and each run, so a change to
-# them needs no provisioning again (one to startup.sh itself needs
-# `gcloud compute instances add-metadata … --metadata-from-file`).
+# it runs them, as an owner of the project, once. The keeper comes from
+# `main` at each start, and the units startup.sh installs at each boot, so
+# a change to them needs no provisioning again: a change to the units
+# needs a reset (`gcloud compute instances reset dsusd-keeper`), and one to
+# startup.sh itself `gcloud compute instances add-metadata …
+# --metadata-from-file` and a reset.
 #
 # What it makes:
 # - a service account of the keeper's own, with no role in the project
@@ -17,7 +19,7 @@
 #   (GCP denies ingress by default), and the VM reaches out to the testnet,
 #   its faucet, the exchange and GitHub;
 # - an e2-micro VM in a region where one is in the free tier, whose startup
-#   script is startup.sh. It needs no SSH: each run's line goes to the
+#   script is startup.sh. It needs no SSH: the keeper's lines go to the
 #   serial console as well as the journal, so
 #   `gcloud compute instances get-serial-port-output dsusd-keeper` shows it.
 #

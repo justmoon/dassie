@@ -1,18 +1,18 @@
-# One run of the DSUSD keeper (spec/areas/dsusd-keeper.md#its-vm), which
-# dassie-dsusd-keeper.timer starts; startup.sh installs both. Each run
-# checks out the newest `main`, so a change there reaches the keeper at its
-# next run.
+# The DSUSD keeper (spec/areas/dsusd-keeper.md#its-vm), following the pool
+# for an hour, which dassie-dsusd-keeper.timer starts again whenever it
+# has ended; startup.sh installs both. Each start checks out the newest
+# `main`, so a change there reaches the keeper within the hour.
 #
 # It runs as root, as the simulation campaign's supervisor does: the VM
 # runs nothing else, and any process on it could ask the metadata server
 # for the account's token.
 [Unit]
-Description=Dassie DSUSD keeper, one run
+Description=Dassie DSUSD keeper, following the pool
 Wants=network-online.target
 After=network-online.target nix-daemon.service
 
 [Service]
-Type=oneshot
+Type=exec
 # systemd sets no home for a unit without User=, and Nix wants one for its
 # caches.
 Environment=HOME=/root
@@ -20,12 +20,23 @@ WorkingDirectory=/var/lib/dsusd-keeper/repo
 ExecStartPre=/usr/bin/git fetch --quiet origin main
 ExecStartPre=/usr/bin/git checkout --quiet --force --detach origin/main
 ExecStart=/bin/sh apps/dsusd-keeper/vm/run.sh
-# The keeper bounds its own run well within this; this bounds the fetch,
-# the install and the toolchain too. The first run after the flake's
-# nixpkgs changes fetches a new Node and pnpm, which took about nine minutes
-# on the e2-micro, so this leaves it room. A run that fails shows as a
-# failed unit, and the timer's next run starts all the same.
-TimeoutStartSec=30min
-# Each run's one line, on the serial console too, which needs no SSH.
+# The fetch and the checkout.
+TimeoutStartSec=5min
+# The keeper bounds its own life to an hour and a window; this bounds the
+# install and the toolchain too. The first start after the flake's
+# nixpkgs changes fetches a new Node and pnpm, which took about nine
+# minutes on the e2-micro, so this leaves it room. A keeper that fails
+# shows as a failed unit, and the timer starts it again all the same.
+RuntimeMaxSec=2h
+# After a start or a keeper that did not end in success, however it
+# failed (the fetch, the secrets, the toolchain, a seed refused, a crash,
+# the bound above), the unit waits five minutes before it is inactive, and
+# so before the timer starts it again: a start that fails at once is not
+# repeated every few seconds, and a new keeper's first window starts after
+# the last one's ended. A keeper that ended after its life is started again
+# at once. The stop's timeout covers the wait.
+ExecStopPost=/bin/sh -c '[ "$SERVICE_RESULT" = success ] || sleep 300'
+TimeoutStopSec=6min
+# The keeper's lines, on the serial console too, which needs no SSH.
 StandardOutput=journal+console
 StandardError=journal+console

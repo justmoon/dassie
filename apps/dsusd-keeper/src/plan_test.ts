@@ -407,7 +407,7 @@ test("a run mints at most its budget", () => {
   assertEquals(result.last.kind, "stuck");
   assertEquals(
     describe(result.last),
-    "stuck: the run's DSUSD to mint is spent",
+    "stuck: the window's DSUSD to mint is spent",
   );
 });
 

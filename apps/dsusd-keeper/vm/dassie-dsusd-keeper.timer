@@ -1,11 +1,14 @@
-# Runs the DSUSD keeper (dassie-dsusd-keeper.service) every few minutes,
-# counted from the end of the last run, so runs never overlap.
+# Starts the DSUSD keeper (dassie-dsusd-keeper.service) whenever it is not
+# running: at boot, and a few seconds after each of its processes ended,
+# after its hour or, once the service waited out its five minutes, a
+# failure, so that it follows the pool all the time from the newest `main`.
 [Unit]
-Description=Dassie DSUSD keeper, every few minutes
+Description=Dassie DSUSD keeper, started again whenever it ended
 
 [Timer]
 OnBootSec=2min
-OnUnitInactiveSec=5min
+OnUnitInactiveSec=10s
+AccuracySec=1s
 
 [Install]
 WantedBy=timers.target

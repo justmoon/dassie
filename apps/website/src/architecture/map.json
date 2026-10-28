@@ -282,13 +282,14 @@
       "x": 636,
       "y": 144,
       "w": 167,
-      "desc": "Keeps DSUSD, a testnet dollar token of Dassie's own, in place on the XRP Ledger testnet, and holds its XRP/DSUSD pool at an exchange's XRP/USD price. Owners get DSUSD only by paying XRP for it through that pool. It runs every few minutes on a small VM of its own.",
+      "desc": "Keeps DSUSD, a testnet dollar token of Dassie's own, in place on the XRP Ledger testnet, and holds its XRP/DSUSD pool at an exchange's XRP/USD price. Owners get DSUSD only by paying XRP for it through that pool. It follows the pool on a small VM of its own, and brings it back to the market within a few ledgers of each trade.",
       "does": [
         "Reads the exchange's XRP/USD ticker, and refuses one that is stale, crossed or out of bounds",
         "Makes the token's issuer, its own account, its trust line and the pool, again after a testnet reset, from the faucet",
         "Moves the pool's price to the target with DSUSD alone: mints and deposits it to raise XRP's price, withdraws it and gives it back to the issuer to lower it; it never buys XRP",
         "Deepens the pool with faucet XRP and DSUSD beside it, up to a configured depth",
-        "One line per run, and a VM set up by `provision.sh` that reads only the two seeds it needs"
+        "Runs at once after someone else's transaction touches the pool, and once a minute for the market's moves, with a budget per five minutes",
+        "A line for each run that did something, and a VM set up by `provision.sh` that reads only the two seeds it needs"
       ]
     },
     "market-maker": {

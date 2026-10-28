@@ -37,21 +37,42 @@ const FAUCET_POLL_MS = 1_000;
  * has one or two. */
 const LINES_MAX = 20;
 
+/** What a following keeper hears from its connection: each transaction
+ * stream message, and the connection lost. */
+export type Listeners = {
+  transaction: (message: unknown) => void;
+  lost: () => void;
+};
+
 export class Ledger {
   #client: Client;
+  /** The pool's account as the last read found it, and the account whose
+   * transactions the connection streams. */
+  #poolAccount: string | null = null;
+  #followed: string | null = null;
+  #closing = false;
 
   private constructor(client: Client) {
     this.#client = client;
   }
 
-  /** Connects to `server`, and checks that it serves the testnet. */
-  static async open(server: string): Promise<Ledger> {
+  /** Connects to `server`, and checks that it serves the testnet. With
+   * `listeners`, it tells them what it streams, and once that the
+   * connection is lost: xrpl.js connects again by itself, but without the
+   * subscription, so a following keeper opens a new one. */
+  static async open(server: string, listeners?: Listeners): Promise<Ledger> {
     const client = new Client(server, {
       connectionTimeout: CONNECT_TIMEOUT_MS,
       timeout: REQUEST_TIMEOUT_MS,
     });
     await client.connect();
     const ledger = new Ledger(client);
+    if (listeners !== undefined) {
+      client.on("transaction", (message) => listeners.transaction(message));
+      client.once("disconnected", () => {
+        if (!ledger.#closing) listeners.lost();
+      });
+    }
     try {
       const info = await client.request({ command: "server_info" });
       const network = (info.result.info as { network_id?: unknown })
@@ -67,7 +88,24 @@ export class Ledger {
   }
 
   async close(): Promise<void> {
+    this.#closing = true;
     await this.#client.disconnect();
+  }
+
+  /** The pool's account, as the last read found it. */
+  get poolAccount(): string | null {
+    return this.#poolAccount;
+  }
+
+  /** Has the server stream the validated transactions that touch
+   * `account`; one it streams already is not asked again. Whether it
+   * subscribed now. A testnet reset makes the pool anew, at another
+   * account, which a run then follows. */
+  async follow(account: string): Promise<boolean> {
+    if (this.#followed === account) return false;
+    await this.#client.request({ command: "subscribe", accounts: [account] });
+    this.#followed = account;
+    return true;
   }
 
   /** The state the plan works from, as of the newest validated ledger. */
@@ -90,6 +128,7 @@ export class Ledger {
     const { pool, account, lpCurrency } = expect(
       parsePool(amm, addresses.issuer),
     );
+    this.#poolAccount = account;
     const lpKeeper = expect(
       parseLpTokens(await this.#lines(addresses.keeper, account), lpCurrency),
     );
