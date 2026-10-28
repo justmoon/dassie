@@ -10,8 +10,11 @@
  * d1 short of DSUSD, d2 short of XRP. Each reads the other's snapshot, and
  * swaps with it by itself while the other's quotes, valued at its own
  * curve, clear its costs: d1 pays XRP and is paid back DSUSD, d2 the other
- * way. They swap until neither's quotes clear the other's costs, and both
- * end closer to their targets, an even split of their value.
+ * way. That is one trade seen from either end, so whichever node's swaps go
+ * through first may make all of it, and the other's then find the room
+ * between them taken and are refused. They swap until neither's quotes
+ * clear the other's costs, and both end closer to their targets, an even
+ * split of their value.
  */
 
 import { test } from "node:test";
@@ -184,9 +187,11 @@ test(
           );
           const open = now !== undefined &&
             Object.values(now).every((gain) => gain !== undefined);
-          if (!fresh || !open || one.fulfilled === 0n || two.fulfilled === 0n) {
-            return false;
-          }
+          // Each tried by itself, and swaps went through: from either end,
+          // as the other's may all be refused (above).
+          const swapped = one.sent > 0n && two.sent > 0n &&
+            one.fulfilled + two.fulfilled > 0n;
+          if (!fresh || !open || !swapped) return false;
           settled = now;
           return true;
         },
