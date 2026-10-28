@@ -310,8 +310,7 @@ impl Payer {
             .and_then(|sequence| self.packets.get(sequence))
             .is_some_and(|packet| {
                 packet.state == State::InFlight
-                    && release.value.hold == packet.commitment.hold
-                    && release.value.sequence == packet.commitment.sequence
+                    && release.value == Release::of(&packet.commitment)
                     && release.verifies(hub, key)
             })
     }
@@ -419,8 +418,12 @@ impl Payer {
                 Some(packet)
                     if waits
                         && packet.state == State::Rejected
-                        && packet.release.is_some()
-                        && packet.paid.is_none() =>
+                        && packet.paid.is_none()
+                        && packet.release.is_some_and(|release| {
+                            fulfilled
+                                .iter()
+                                .any(|item| release.value == Release::of(&item.commitment.value))
+                        }) =>
                 {
                     packet.disputed = Some(paid);
                 }

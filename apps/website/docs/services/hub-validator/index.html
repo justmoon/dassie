@@ -127,6 +127,19 @@
             unless you run a network of your own for testing.
           </p>
         </dd>
+        <dt id="hubVersion"><code>hubVersion</code></dt>
+        <dd>
+          <p>
+            The version of the hub protocol your node votes to move every
+            hub it validates to, while a hub runs an older one, such as
+            <code>2</code>. Once enough of a hub's validators vote for it,
+            the hub runs it once its notice for new rules has passed, a day on Dassie's hubs, and
+            <code>dassie status</code> shows when. Leave it out unless the
+            project asks validators to move: every validator and every node
+            in the hub must run a release that knows the version first, or
+            they stop following the hub.
+          </p>
+        </dd>
       </dl>
 
       <h2 id="turn-it-on">Turn it on</h2>

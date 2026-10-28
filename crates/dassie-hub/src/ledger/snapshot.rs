@@ -15,8 +15,8 @@ use dassie_oer::{Encode, Reader};
 
 use super::Ledger;
 use super::state::{
-    Account, Escrow, FeePool, Hold, PendingDeposit, PendingRules, PendingUpgrade, Phase, Reduction,
-    ValidatorState, Withdrawal,
+    Account, Escrow, FeePool, Hold, PendingClaim, PendingDeposit, PendingRules, PendingUpgrade,
+    Phase, Reduction, ValidatorState, Withdrawal,
 };
 use crate::codec::{HubDecodeError, read_digest, read_key};
 use crate::digest::Digest;
@@ -375,7 +375,11 @@ impl Ledger {
             hold.pending_due = reader.read_u64()?;
             for _ in 0..reader.read_u32()? {
                 let sequence = reader.read_u64()?;
-                insert_ascending(&mut hold.pending, sequence, reader.read_u64()?)?;
+                let pending = PendingClaim {
+                    amount: reader.read_u64()?,
+                    expiry: reader.read_u64()?,
+                };
+                insert_ascending(&mut hold.pending, sequence, pending)?;
             }
             if hold.pending.is_empty() {
                 return Err(HubDecodeError::Invalid("a hold without pending claims"));

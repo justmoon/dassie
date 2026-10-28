@@ -903,6 +903,7 @@ mod tests {
             Release {
                 hold: HoldNumber(1),
                 sequence: 2,
+                expiry: 5,
             },
             &hub,
             &key,

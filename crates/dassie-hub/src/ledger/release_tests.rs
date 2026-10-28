@@ -57,12 +57,33 @@ fn claim_until(
 }
 
 /// The dispute of commitment `sequence` on `hold`, with `signer`'s
-/// release of it.
+/// release of it, as [`claim`] made it.
 fn release(hub: &Hub, signer: &NodeKey, hold: HoldNumber, sequence: u64) -> MemberOperation {
+    let expiry = hub
+        .ledger
+        .hold(hold)
+        .unwrap()
+        .pending
+        .get(&sequence)
+        .map_or(0, |p| p.expiry);
+    release_of(hub, signer, (hold, sequence, expiry))
+}
+
+/// The dispute with `signer`'s release of commitment `sequence` on `hold`
+/// expiring at `expiry`.
+fn release_of(
+    hub: &Hub,
+    signer: &NodeKey,
+    (hold, sequence, expiry): (HoldNumber, u64, Millis),
+) -> MemberOperation {
     MemberOperation::Dispute {
         hold,
         releases: vec![Signed::sign(
-            Release { hold, sequence },
+            Release {
+                hold,
+                sequence,
+                expiry,
+            },
             hub.ledger.hub(),
             signer,
         )],
@@ -163,14 +184,35 @@ fn the_payers_dispute_with_the_payees_release_puts_the_claim_back() {
     );
 }
 
+// A release names its commitment's expiry: one of another commitment of
+// the same sequence, which the payer signed after the payee forgot the
+// first, puts nothing back, and the payee's claim is paid.
+#[test]
+fn a_release_of_another_commitment_of_the_sequence_puts_nothing_back() {
+    let mut hub = Hub::new();
+    let (alice, alice_key, bob, bob_key, hold) = hold_for_bob(&mut hub);
+    let op = claim(&hub, &alice_key, hold, 1, 100);
+    hub.run(bob, &bob_key, op);
+    let expiry = hub.ledger.hold(hold).unwrap().pending[&1].expiry;
+    let earlier = release_of(&hub, &bob_key, (hold, 1, expiry - 1));
+    assert_eq!(
+        hub.run(alice, &alice_key, earlier),
+        Outcome::Failed {
+            fee: OP_FEE,
+            reason: Failure::Missing
+        }
+    );
+    assert_eq!(hub.ledger.hold(hold).unwrap().pending.len(), 1);
+}
+
 #[test]
 fn a_dispute_after_the_payout_finds_nothing() {
     let mut hub = Hub::new();
     let (alice, alice_key, bob, bob_key, hold) = hold_for_bob(&mut hub);
     let op = claim(&hub, &alice_key, hold, 1, 100);
     hub.run(bob, &bob_key, op);
-    after_notice(&mut hub);
     let released = release(&hub, &bob_key, hold, 1);
+    after_notice(&mut hub);
     assert_eq!(
         hub.run(alice, &alice_key, released.clone()),
         Outcome::Failed {
@@ -419,6 +461,35 @@ fn a_move_to_a_version_this_code_does_not_run_stops_it_there() {
         votes: &[],
     };
     assert_eq!(hub.ledger.check_block(&block), Err(BlockError::Version));
+}
+
+// New rules name the version the hub runs, so none are voted while a move
+// waits, and no move while new rules wait.
+#[test]
+fn a_move_and_new_rules_never_wait_together() {
+    let mut hub = Hub::with(|rules| rules.terms.version = 1);
+    vote(&mut hub, 0..3, 2);
+    let rules = resigned(hub.ledger.rules().clone(), |r| r.terms.fees.operation = 20);
+    assert_eq!(
+        super::tests::reconfigure(&mut hub, &rules)[0],
+        Outcome::Failed {
+            fee: 0,
+            reason: Failure::NotYours
+        }
+    );
+    let mut hub = Hub::with(|rules| rules.terms.version = 1);
+    let ops = (0..3)
+        .map(|i| hub.validator_op(i, ValidatorOperation::Reconfigure(rules.clone())))
+        .collect();
+    hub.block(ops);
+    assert!(hub.ledger.pending_rules().is_some());
+    assert_eq!(
+        vote(&mut hub, 0..1, 2),
+        vec![Outcome::Failed {
+            fee: 0,
+            reason: Failure::Stale
+        }]
+    );
 }
 
 // A change of validators starts the votes afresh, as it does every vote.

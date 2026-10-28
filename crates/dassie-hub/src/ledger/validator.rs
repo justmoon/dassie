@@ -193,9 +193,12 @@ impl Ledger {
     /// different releases agree on the vote; once a quorum agrees, the hub
     /// runs it after the notice for new rules, and a validator whose code
     /// does not run it stops at that block (`BlockError::Version`). A
-    /// validator may change its vote, and one move waits at a time.
+    /// validator may change its vote, and one move waits at a time, never
+    /// beside new rules waiting: those name the version the hub runs before
+    /// the move.
     fn vote_upgrade(&mut self, index: ValidatorIndex, version: u16) -> Executed {
-        if version <= self.version || self.pending_upgrade.is_some() {
+        if version <= self.version || self.pending_upgrade.is_some() || self.pending_rules.is_some()
+        {
             return Err(Ok(Failure::Stale));
         }
         let quorum = self.validators.quorum();
@@ -229,8 +232,8 @@ impl Ledger {
 
     /// Votes for new rules. They must keep what keys and the escrow hang
     /// on (the nonce, the sponsor, the network and the escrow) and every
-    /// table at least as large, and name the version the hub runs. A
-    /// validator may change its vote.
+    /// table at least as large, and name the version the hub runs, which no
+    /// move waiting will change. A validator may change its vote.
     fn vote_rules(&mut self, index: ValidatorIndex, rules: &Rules) -> Executed {
         let current = &self.rules.terms;
         let same_hub = rules.terms.version == self.version
@@ -244,6 +247,7 @@ impl Ledger {
             && rules.terms.keeps_tables_of(current)
             && rules.check().is_ok()
             && self.pending_rules.is_none()
+            && self.pending_upgrade.is_none()
             && self.escrow.signer_list.is_none();
         if !acceptable {
             return Err(Ok(Failure::NotYours));

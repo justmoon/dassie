@@ -98,10 +98,20 @@ pub struct Hold {
     /// `through` is in `claimed`. It is in the state root as a leaf of its
     /// own, and only while it holds any, so that a hub of version 1 has the
     /// state root it had before version 2 (`Key::Pending`).
-    pub pending: BTreeMap<u64, Amount>,
+    pub pending: BTreeMap<u64, PendingClaim>,
     /// The first block timestamp, by the hub's clock, at which `pending` is
     /// paid; 0 while it is empty.
     pub pending_due: Millis,
+}
+
+/// What a claim took for one commitment, waiting to be paid.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PendingClaim {
+    /// What it took.
+    pub amount: Amount,
+    /// The claimed commitment's expiry, which a release must name to put
+    /// it back (spec/decisions/signed-rejects.md).
+    pub expiry: Millis,
 }
 
 /// A payment out of the escrow the hub decided on and the underlying
@@ -327,19 +337,20 @@ impl Encode for PendingDeposit {
 
 impl Hold {
     /// The bytes of its pending claims' leaf: when they are paid, then each
-    /// sequence with what it took, in order.
+    /// sequence with what it took and its commitment's expiry, in order.
     #[must_use]
     pub fn pending_bytes(&self) -> Vec<u8> {
-        let mut bytes = Vec::with_capacity(8 + 4 + self.pending.len() * 16);
+        let mut bytes = Vec::with_capacity(8 + 4 + self.pending.len() * 24);
         bytes.extend_from_slice(&self.pending_due.to_be_bytes());
         bytes.extend_from_slice(
             &u32::try_from(self.pending.len())
                 .unwrap_or(u32::MAX)
                 .to_be_bytes(),
         );
-        for (sequence, amount) in &self.pending {
+        for (sequence, pending) in &self.pending {
             bytes.extend_from_slice(&sequence.to_be_bytes());
-            bytes.extend_from_slice(&amount.to_be_bytes());
+            bytes.extend_from_slice(&pending.amount.to_be_bytes());
+            bytes.extend_from_slice(&pending.expiry.to_be_bytes());
         }
         bytes
     }
@@ -349,7 +360,7 @@ impl Hold {
     pub fn pending_amount(&self) -> Amount {
         self.pending
             .values()
-            .fold(0, |sum, amount| sum.saturating_add(*amount))
+            .fold(0, |sum, pending| sum.saturating_add(pending.amount))
     }
 }
 

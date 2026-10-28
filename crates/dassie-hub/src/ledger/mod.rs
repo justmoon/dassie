@@ -27,8 +27,8 @@ pub use issuer::{CLAWBACK_SHARE, MAX_CLAWBACKS};
 pub use merkle::{merkle_proof, merkle_root, result_leaf, results_root, verify_proof};
 pub use outcome::{Detail, Failure, Outcome, Refusal};
 pub use state::{
-    Account, Escrow, FeePool, Hold, Key, PendingDeposit, PendingRules, PendingUpgrade, Phase,
-    Reduction, ValidatorState, Withdrawal,
+    Account, Escrow, FeePool, Hold, Key, PendingClaim, PendingDeposit, PendingRules,
+    PendingUpgrade, Phase, Reduction, ValidatorState, Withdrawal,
 };
 
 use crate::digest::Digest;

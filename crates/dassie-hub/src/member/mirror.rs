@@ -40,9 +40,9 @@ pub struct HoldMirror {
     pub through: u64,
     /// Sequences above `through` taken with `claim`, and what each paid.
     pub claimed: BTreeMap<u64, Amount>,
-    /// What claims took that waits to pay the payee, by sequence, as read
-    /// in order.
-    pub pending: BTreeMap<u64, Amount>,
+    /// What claims took that waits to pay the payee, by sequence, with
+    /// the claimed commitment's expiry, as read in order.
+    pub pending: BTreeMap<u64, (Amount, Millis)>,
     /// What waits that the hub's holds told without its sequences, when
     /// the account read its state anew: paid out with the rest.
     pub pending_unlisted: Amount,
@@ -101,7 +101,7 @@ impl HoldMirror {
     pub fn waiting(&self) -> Amount {
         self.pending
             .values()
-            .fold(self.pending_unlisted, |sum, amount| {
+            .fold(self.pending_unlisted, |sum, (amount, _)| {
                 sum.saturating_add(*amount)
             })
     }
@@ -203,34 +203,47 @@ impl HoldMirror {
         if taken == 0 {
             return;
         }
+        let expiries: BTreeMap<u64, Millis> = fulfilled
+            .iter()
+            .map(|item| (item.commitment.value.sequence, item.commitment.value.expiry))
+            .collect();
         for (sequence, amount) in paid_in_order(fulfilled, taken) {
             if amount > 0 {
-                self.pending.insert(sequence, amount);
+                let expiry = expiries.get(&sequence).copied().unwrap_or(0);
+                self.pending.insert(sequence, (amount, expiry));
             }
         }
         self.pending_due = due;
         self.pending_at = clock;
     }
 
-    /// The payer's dispute of what claims took for `sequences`, which put
-    /// `returned` back in the hold: what waits for each above the last
-    /// redeemed W, and, for what it does not know the sequences of, from
-    /// what waits unlisted.
-    pub fn dispute(&mut self, sequences: &[u64], returned: Amount) {
+    /// The payer's dispute with `releases`, of a sequence and the
+    /// commitment's expiry each, which put `returned` back in the hold: what
+    /// waits for each that names its commitment, above the last redeemed W,
+    /// and, for what it does not know the sequences of, from what waits
+    /// unlisted.
+    pub fn dispute(&mut self, releases: &[(u64, Millis)], returned: Amount) {
         let mut left = returned;
-        for sequence in sequences {
-            if *sequence <= self.through {
+        for (sequence, expiry) in releases {
+            let named = self
+                .pending
+                .get(sequence)
+                .is_some_and(|(_, waits)| waits == expiry);
+            if *sequence <= self.through || !named {
                 continue;
             }
-            if let Some(amount) = self.pending.remove(sequence) {
+            if let Some((amount, _)) = self.pending.remove(sequence) {
                 left = left.saturating_sub(amount);
                 self.claimed.insert(*sequence, 0);
             }
         }
         if left > 0 {
             self.pending_unlisted = self.pending_unlisted.saturating_sub(left);
-            for sequence in sequences.iter().filter(|s| **s > self.through) {
-                self.claimed.insert(*sequence, 0);
+            let through = self.through;
+            for (sequence, _) in releases.iter().filter(|(s, _)| *s > through) {
+                if !self.pending.contains_key(sequence) {
+                    self.claimed.insert(*sequence, 0);
+                }
             }
         }
         self.amount = self.amount.saturating_add(returned);
@@ -337,7 +350,7 @@ mod tests {
         let mut hold = HoldMirror::opened(AccountNumber(1), AccountNumber(2), 1_000);
         hold.claim_waiting(&[fulfilled(3, 100), fulfilled(4, 50)], 150, (1_000, 61_000));
         assert_eq!((hold.amount, hold.waiting(), hold.taken()), (850, 150, 150));
-        hold.dispute(&[3], 100);
+        hold.dispute(&[(3, 0)], 100);
         assert_eq!((hold.amount, hold.waiting(), hold.taken()), (950, 50, 50));
         assert_eq!(hold.claimed.get(&3), Some(&0));
         hold.reduce(950, 2_000, 10);

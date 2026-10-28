@@ -24,9 +24,10 @@ use alloc::vec::Vec;
 
 use super::Ledger;
 use super::outcome::{Detail, Failure};
+use super::state::PendingClaim;
 use crate::operation::AccountNumber;
 use crate::promise::{Claim, Fulfilled, HoldNumber, Release, Signed};
-use crate::rules::Amount;
+use crate::rules::{Amount, Millis};
 
 impl Ledger {
     /// The hold `number` if `payee` may take from it, with its payer's key.
@@ -159,13 +160,19 @@ impl Ledger {
         let mut found = false;
         for release in releases {
             let sequence = release.value.sequence;
-            if sequence <= hold.through {
+            // A release of another commitment of the sequence, one that
+            // expired before the payer signed this one, puts nothing back.
+            let released = hold
+                .pending
+                .get(&sequence)
+                .is_some_and(|pending| pending.expiry == release.value.expiry);
+            if sequence <= hold.through || !released {
                 continue;
             }
-            if let Some(amount) = hold.pending.remove(&sequence) {
-                hold.amount = hold.amount.saturating_add(amount);
+            if let Some(pending) = hold.pending.remove(&sequence) {
+                hold.amount = hold.amount.saturating_add(pending.amount);
                 hold.claimed.insert(sequence, 0);
-                returned = returned.saturating_add(amount);
+                returned = returned.saturating_add(pending.amount);
                 found = true;
             }
         }
@@ -201,21 +208,30 @@ impl Ledger {
     /// hold covers them, and remembers each sequence with what it took:
     /// waiting in the hold if `waits`, paid at once if not.
     fn pay_claimed(&mut self, number: HoldNumber, fulfilled: &[Fulfilled], waits: bool) -> Amount {
-        let mut ordered: Vec<(u64, Amount)> = fulfilled
+        let mut ordered: Vec<(u64, Amount, Millis)> = fulfilled
             .iter()
-            .map(|item| (item.commitment.value.sequence, item.commitment.value.amount))
+            .map(|item| {
+                let commitment = &item.commitment.value;
+                (commitment.sequence, commitment.amount, commitment.expiry)
+            })
             .collect();
         ordered.sort_unstable();
         let Some(hold) = self.holds.get_mut(&number) else {
             return 0;
         };
         let mut paid: Amount = 0;
-        for (sequence, amount) in ordered {
+        for (sequence, amount, expiry) in ordered {
             let pay = amount.min(hold.amount);
             hold.amount = hold.amount.saturating_sub(pay);
             hold.claimed.insert(sequence, pay);
             if waits && pay > 0 {
-                hold.pending.insert(sequence, pay);
+                hold.pending.insert(
+                    sequence,
+                    PendingClaim {
+                        amount: pay,
+                        expiry,
+                    },
+                );
             }
             paid = paid.saturating_add(pay);
         }

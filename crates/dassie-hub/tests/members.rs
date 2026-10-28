@@ -2623,7 +2623,7 @@ fn a_claim_of_what_the_payee_released_is_disputed_and_never_paid() {
     let commitment = signed_commitment(&world.prepare((a, b), 1, P, 10_000).unwrap());
     let release = world.reject((a, b), 1);
     let release = Signed::<Release>::decode(&mut dassie_oer::Reader::new(&release)).unwrap();
-    assert_eq!(release.value, Release { hold, sequence: 1 });
+    assert_eq!(release.value, Release::of(&commitment.value));
     world.raw(b, claim_of(hold, commitment, 1));
     world.run(2_000);
     assert_eq!(
@@ -2763,4 +2763,68 @@ fn a_payee_takes_no_commitment_it_released() {
     forged[last] ^= 1;
     payee.release_refused(now, name_a, &forged, &mut release);
     assert!(release.is_empty());
+}
+
+/// A payee forgets a release once its commitment expired, and may then
+/// take another commitment its payer signs under the same sequence: its
+/// release names the first commitment's expiry, so the payer's dispute of
+/// the payee's claim of the second puts nothing back, and the payee is
+/// paid (spec/decisions/signed-rejects.md).
+#[test]
+fn an_old_release_never_takes_back_a_claim_of_a_new_commitment() {
+    let (mut world, a, b) = World::pair([Fault::Honest; 4], 2);
+    let hold = world.hold(a, b).unwrap();
+    let name_a = world.members[a].name;
+    world.prepare((a, b), 1, P, 2_000).unwrap();
+    let release = world.reject((a, b), 1);
+    let release = Signed::<Release>::decode(&mut dassie_oer::Reader::new(&release)).unwrap();
+    // Past the first commitment's expiry, the payee forgot its release.
+    world.run(5_000);
+    // The payer signs another commitment under sequence 1.
+    let now = world.now;
+    let promise = promised(2, P, now + 10_000);
+    let again = Signed::sign(
+        Commitment {
+            hold,
+            sequence: 1,
+            amount: P / 1_000,
+            condition: condition(2),
+            expiry: now + 10_000 - MARGIN,
+        },
+        world.validators.ledger.hub(),
+        &world.members[a].key,
+    );
+    world.members[b]
+        .scheme
+        .commitments()
+        .unwrap()
+        .check_commitment(now, name_a, 2, promise, &again.to_vec())
+        .unwrap();
+    world.members[b]
+        .scheme
+        .commitments()
+        .unwrap()
+        .on_fulfilled(now, name_a, 2, preimage(2));
+    let before = world.balance(b);
+    // The payee claims it, and the payer disputes with the old release.
+    world.run(2_000);
+    assert_eq!(world.validators.ledger.hold(hold).unwrap().pending.len(), 1);
+    world.raw(
+        a,
+        MemberOperation::Dispute {
+            hold,
+            releases: vec![release],
+        },
+    );
+    world.past_the_notice();
+    assert_eq!(
+        world.validators.ledger.hold(hold).unwrap().claimed[&1],
+        P / 1_000,
+        "the dispute put nothing back"
+    );
+    let fees = world.members[b].books.lost(LossCause::ClaimFee) / 1_000;
+    assert!(
+        world.balance(b) + fees >= before + P / 1_000,
+        "the payee was paid"
+    );
 }

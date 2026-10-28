@@ -197,9 +197,10 @@ fn write_hold(out: &mut Out, hold: &HoldMirror) {
         out.u64(*paid);
     }
     out.count(hold.pending.len());
-    for (sequence, amount) in &hold.pending {
+    for (sequence, (amount, expiry)) in &hold.pending {
         out.u64(*sequence);
         out.u64(*amount);
+        out.u64(*expiry);
     }
     out.u64(hold.pending_unlisted);
     out.u64(hold.pending_due);
@@ -229,10 +230,11 @@ fn read_hold(reader: &mut Reader<'_>, version: u8) -> Option<HoldMirror> {
             .insert(reader.read_u64().ok()?, reader.read_u64().ok()?);
     }
     if version >= 4 {
-        let count = read_count(reader, 16, usize::from(u16::MAX))?;
+        let count = read_count(reader, 24, usize::from(u16::MAX))?;
         for _ in 0..count {
-            hold.pending
-                .insert(reader.read_u64().ok()?, reader.read_u64().ok()?);
+            let sequence = reader.read_u64().ok()?;
+            let waits = (reader.read_u64().ok()?, reader.read_u64().ok()?);
+            hold.pending.insert(sequence, waits);
         }
         hold.pending_unlisted = reader.read_u64().ok()?;
         hold.pending_due = reader.read_u64().ok()?;

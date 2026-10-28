@@ -219,7 +219,7 @@ impl Ledger {
             assert!(
                 hold.pending
                     .iter()
-                    .all(|(s, p)| *s <= hold.through || hold.claimed.get(s) == Some(p)),
+                    .all(|(s, p)| *s <= hold.through || hold.claimed.get(s) == Some(&p.amount)),
                 "a pending claim that is not what its sequence took"
             );
             assert!(
@@ -227,7 +227,7 @@ impl Ledger {
                 "a due without pending claims, or pending claims without one"
             );
             assert!(
-                hold.pending.values().all(|amount| *amount > 0),
+                hold.pending.values().all(|pending| pending.amount > 0),
                 "a pending claim of nothing"
             );
         }

@@ -1805,11 +1805,11 @@ impl HubAccount {
                 if let (Some(mirror), Detail::Returned(returned)) =
                     (self.holds.get_mut(hold), detail)
                 {
-                    let sequences: Vec<u64> = releases
+                    let released: Vec<(u64, Millis)> = releases
                         .iter()
-                        .map(|release| release.value.sequence)
+                        .map(|release| (release.value.sequence, release.value.expiry))
                         .collect();
-                    mirror.dispute(&sequences, returned);
+                    mirror.dispute(&released, returned);
                 }
             }
             _ => {}

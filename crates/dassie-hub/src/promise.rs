@@ -55,15 +55,20 @@ pub struct Claim {
 }
 
 /// The payee's word, sent with its Reject of the Prepare that came with
-/// commitment `sequence` on `hold`, that it gives that commitment up: a
-/// claim of it is not paid if the payer shows this in time. Hubs take it
-/// from version 2 on (spec/decisions/signed-rejects.md).
+/// commitment `sequence` on `hold`, expiring at `expiry`, that it gives
+/// that commitment up: a claim of it is not paid if the payer shows this in
+/// time. It names the commitment's expiry, so that it never matches another
+/// commitment the payer signs under the same sequence once this one
+/// expired and the payee forgot it. Hubs take it from version 2 on
+/// (spec/decisions/signed-rejects.md).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Release {
     /// The hold the commitment draws on.
     pub hold: HoldNumber,
     /// The commitment's sequence.
     pub sequence: u64,
+    /// The commitment's expiry.
+    pub expiry: Millis,
 }
 
 /// A commitment or a claim with the payer's signature, or a release with
@@ -81,7 +86,7 @@ pub const COMMITMENT_LEN: usize = 8 * 4 + 32;
 /// The encoded size of a claim.
 pub const CLAIM_LEN: usize = 8 * 3;
 /// The encoded size of a release.
-pub const RELEASE_LEN: usize = 8 * 2;
+pub const RELEASE_LEN: usize = 8 * 3;
 /// The encoded size of a signed release, as a payee sends it with its
 /// Reject.
 pub const SIGNED_RELEASE_LEN: usize = RELEASE_LEN + SIGNATURE_LEN;
@@ -232,6 +237,7 @@ impl Encode for Release {
     fn encode_to(&self, writer: &mut Writer<'_>) {
         writer.write_u64(self.hold.0);
         writer.write_u64(self.sequence);
+        writer.write_u64(self.expiry);
     }
 }
 
@@ -241,7 +247,18 @@ impl Release {
         Ok(Self {
             hold: HoldNumber(reader.read_u64()?),
             sequence: reader.read_u64()?,
+            expiry: reader.read_u64()?,
         })
+    }
+
+    /// The release of `commitment`.
+    #[must_use]
+    pub const fn of(commitment: &Commitment) -> Self {
+        Self {
+            hold: commitment.hold,
+            sequence: commitment.sequence,
+            expiry: commitment.expiry,
+        }
     }
 }
 
@@ -347,6 +364,7 @@ mod tests {
             Release {
                 hold: HoldNumber(4),
                 sequence: 9,
+                expiry: 1_000,
             },
             &hub,
             &key,

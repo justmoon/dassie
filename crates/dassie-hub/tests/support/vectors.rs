@@ -658,7 +658,11 @@ fn releases_vector(rules: &Rules) -> Value {
     let waiting = state.state_root();
     let holds = Statement::holds(&state, to);
     let mut paid = state.clone();
-    let release = Signed::sign(Release { hold, sequence: 1 }, &hub, &payee);
+    let release = Signed::sign(
+        Release::of(&fulfilled(&hub, &payer, hold).commitment.value),
+        &hub,
+        &payee,
+    );
     let dispute = MemberOperation::Dispute {
         hold,
         releases: vec![release],

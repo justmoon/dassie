@@ -317,7 +317,11 @@ impl Payee {
             return None;
         }
         self.released.insert(sequence, expiry);
-        Some(Release { hold, sequence })
+        Some(Release {
+            hold,
+            sequence,
+            expiry,
+        })
     }
 
     /// Forgets the releases no claim can take any more: of commitments
