@@ -941,6 +941,7 @@ impl Core {
             Err(error) => {
                 self.report(SettlementEvent::PeerSettlementRefused {
                     from,
+                    scheme,
                     error: error.clone(),
                 });
                 Reply::refuse(400, "the settlement cannot be booked")

@@ -343,7 +343,7 @@ fn the_pretend_hubs_messages_are_the_hub_schemes() {
     core.begin_step(NOW + 1);
     let transfers = core.ledger.next_transfer_id();
     for amount in [0, AMOUNT, dassie_ledger::MAX_TOTAL + 1, u64::MAX] {
-        core.incoming_settlement(peer(), scheme_id(hub), amount, &[0; 16])
+        core.incoming_settlement(peer(), scheme_id(hub), amount, &[])
             .unwrap();
     }
     assert_eq!(core.ledger.next_transfer_id(), transfers, "booked");

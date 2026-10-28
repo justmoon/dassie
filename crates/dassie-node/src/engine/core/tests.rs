@@ -6065,6 +6065,89 @@ fn a_settlement_message_on_an_owner_book_is_applied_and_books_nothing() {
     core.check_invariants();
 }
 
+// spec/areas/settlement.md#settlement-hubs, #incoming-settlements: a
+// settlement message over a hub is a bare notice, with no data, and the
+// receiver takes it whatever it states, even what its books could never
+// take, as when they differ from the sender's: it books nothing, since the
+// hub says what arrived. So no notice is refused, to be sent again for
+// ever with the pair's channel stuck behind it; a copy is acknowledged
+// again. What a sender of an earlier build put in it is ignored too.
+#[test]
+fn a_notice_over_a_hub_is_taken_whatever_the_books_say() {
+    use super::{Event, SettlementEvent};
+    use dassie_peer::wire::Content;
+
+    let store = Arc::new(Store::open_in_memory().unwrap());
+    let (mut core, id) = stub_core_with_downlink_on(store, TRUSTING);
+    let downlink = Arc::new(NodeKey::from_bytes(&[11; 32]));
+    assert_eq!(downlink.node_id(), id);
+    let hub = dassie_hub::member::SCHEME_ID;
+    core.add_scheme(hub, hub_config(600, 300)).unwrap();
+    let journal = core.ledger.next_transfer_id();
+    let notices: [(u64, u64, &[u8]); 5] = [
+        (1, 0, &[]),
+        (2, 5_000, &[]),
+        (3, dassie_ledger::MAX_TOTAL + 1, &[]),
+        (4, u64::MAX, &[0; 16]),
+        // A copy of the last, which was acknowledged already.
+        (4, u64::MAX, &[0; 16]),
+    ];
+    for (step, (sequence, amount, data)) in (1..).zip(notices) {
+        let at = NOW + 2_000 + step * 1_000;
+        core.begin_step(at);
+        let body = Content::Settlement {
+            scheme: scheme_id(hub),
+            amount,
+            data,
+            sequence,
+        }
+        .to_vec();
+        core.peer_inbound(
+            dassie_peer::InboundId(at),
+            downlink.public_key(),
+            &body,
+            None,
+        );
+        let mut outputs = Vec::new();
+        core.finish_step(&mut outputs);
+        let reply = outputs
+            .iter()
+            .find_map(|output| match output {
+                Output::PeerReply { reply, .. } => Some(reply),
+                _ => None,
+            })
+            .unwrap();
+        assert_eq!(
+            reply.status,
+            200,
+            "{}",
+            String::from_utf8_lossy(&reply.body)
+        );
+        assert_eq!(core.peer.channel(&id).unwrap().settled_in, sequence);
+        assert!(!outputs.iter().any(|output| matches!(
+            output,
+            Output::Event(Event::Settlement(
+                SettlementEvent::PeerSettlementRefused { .. }
+            ))
+        )));
+        let reported: Vec<u64> = outputs
+            .iter()
+            .filter_map(|output| match output {
+                Output::Event(Event::Settlement(SettlementEvent::PeerSettled { from, amount }))
+                    if *from == id =>
+                {
+                    Some(*amount)
+                }
+                _ => None,
+            })
+            .collect();
+        let expected: &[u64] = if step == 5 { &[] } else { &[0] };
+        assert_eq!(reported, expected, "taken, stating {amount}");
+    }
+    assert_eq!(core.ledger.next_transfer_id(), journal, "nothing booked");
+    core.check_invariants();
+}
+
 // spec/areas/settlement.md#the-scheme-interface: the XRP Ledger scheme
 // removed while the owner's payment is on its way, and added again: the
 // hold stays meanwhile, and is posted once, with the actual fee, once the

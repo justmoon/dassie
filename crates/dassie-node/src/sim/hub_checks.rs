@@ -200,15 +200,18 @@ pub(super) fn check_books(sim: &Sim) -> Result<(), Outcome> {
 /// ([`check_validators_in`]), each member's books ([`check_books_in`]) and
 /// its owner's ([`check_owners_in`]), its escrow ([`check_escrow_in`]), and
 /// each member's account in step ([`check_in_step_in`]) with no move on its
-/// way ([`check_moved_in`]). A `liar`'s reading and moves are its own; the
-/// nodes `paid_in` by a peer paid no account reserve.
+/// way ([`check_moved_in`]); and, over them all, that every settlement
+/// message was taken ([`check_notices_taken`]). A `liar`'s reading and
+/// moves are its own; the nodes `paid_in` by a peer paid no account
+/// reserve.
 pub(super) fn check_each(
     sim: &Sim,
     places: &[usize],
     liar: Option<usize>,
     paid_in: &[usize],
 ) -> Vec<Result<(), Outcome>> {
-    let mut checks = Vec::new();
+    let mut checks =
+        vec![check_notices_taken(sim).map_err(|problem| Outcome::liveness("hub-notices", problem))];
     for &place in places {
         checks.extend([
             check_validators_in(sim, place)
@@ -389,6 +392,21 @@ pub(super) fn check_settled_with_honest(sim: &Sim, liar: Option<usize>) -> Resul
         }
     }
     Ok(())
+}
+
+/// No member refused a peer's settlement message. Over a hub it is a bare
+/// notice, with no data, taken whatever it states, since the hub says what
+/// arrived: one refused the peer would send again for ever, and the pair's
+/// channel, which carries one settlement at a time, would carry none again
+/// (spec/areas/settlement.md#incoming-settlements).
+pub(super) fn check_notices_taken(sim: &Sim) -> Result<(), String> {
+    match sim.settlements_refused.first() {
+        Some(first) => Err(format!(
+            "{} settlement messages refused, the first: {first}",
+            sim.settlements_refused.len()
+        )),
+        None => Ok(()),
+    }
 }
 
 /// The validators of the hub at `place` broke nothing: their invariants

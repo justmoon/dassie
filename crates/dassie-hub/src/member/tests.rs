@@ -810,8 +810,9 @@ fn a_hold_with_funds_keeps_the_channel() {
 }
 
 // spec/areas/hubs.md#in-the-node: a settlement message over a hub is a
-// bare notice, whatever amount it states: the node neither checks nor
-// books it, and the hub says what arrived.
+// bare notice, whatever amount it states or data it carries: the node
+// neither checks nor books it, and the hub says what arrived. Refused, it
+// would be sent again for ever.
 #[test]
 fn the_scheme_books_nothing_on_its_own() {
     let hub = Hub::new();
@@ -826,15 +827,13 @@ fn the_scheme_books_nothing_on_its_own() {
     );
     let peer = Name::new("peer").unwrap();
     for amount in [0, 5, u64::MAX] {
-        assert_eq!(
-            scheme.handle_settlement(peer, amount, &[0; 16], &[], &mut effects),
-            Ok(())
-        );
+        for data in [&[][..], &[0; 3], &[0; 16]] {
+            assert_eq!(
+                scheme.handle_settlement(peer, amount, data, &[], &mut effects),
+                Ok(())
+            );
+        }
     }
-    assert_eq!(
-        scheme.handle_settlement(peer, 5, &[0; 3], &[], &mut effects),
-        Err(SchemeError::InvalidData)
-    );
     assert!(effects.is_empty());
     assert_eq!(scheme.unit(), UNITS_PER_DROP);
     assert!(!scheme.has_synced(), "not before it knows its account");
@@ -1022,6 +1021,7 @@ fn a_settlement_spends_only_what_the_books_hold() {
         prepared.amount,
         units(5_000_000)
     );
+    assert!(prepared.message.is_empty(), "a bare notice carries no data");
     scheme.check_invariants();
 }
 

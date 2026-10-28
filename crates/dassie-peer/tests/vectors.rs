@@ -72,14 +72,28 @@ fn every_message_is_pinned() {
     assert_eq!(pinned, vectors::messages());
     assert_eq!(
         pinned.len(),
-        inputs::KINDS - vectors::RESERVED.len() + 1,
-        "one per kind, but the reserved tags, and a methodPacket without commitment"
+        inputs::KINDS - vectors::RESERVED.len() + 2,
+        "one per kind, but the reserved tags, a methodPacket without commitment and a \
+         settlement over a hub"
     );
     for bytes in pinned.values() {
         let content = Content::decode_exact(bytes).unwrap();
         assert_eq!(content.to_vec(), *bytes);
         assert_eq!(peek_kind(bytes), Some(content.kind()));
     }
+}
+
+// spec/areas/settlement.md#settlement-hubs: a settlement over a hub is a
+// bare notice, with no data.
+#[test]
+fn a_settlement_over_a_hub_carries_no_data() {
+    let pinned = table(&file()["messages"]);
+    let Content::Settlement { data, .. } =
+        Content::decode_exact(&pinned["settlementOverHub"]).unwrap()
+    else {
+        panic!("not a settlement");
+    };
+    assert!(data.is_empty());
 }
 
 #[test]

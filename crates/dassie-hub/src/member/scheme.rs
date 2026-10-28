@@ -331,8 +331,8 @@ fn operation_hash(operation: &SignedMemberOperation) -> Digest {
 impl HubScheme {
     /// Whether a `settlement` message on this scheme books what it states
     /// ([`SettlementScheme::books_messages`]): never. Its message is a
-    /// bare notice, whose data names the settlement and which only moves
-    /// the settlement channel on; the hub says what arrived, once. So the
+    /// bare notice, with no data, which only moves the settlement channel
+    /// on; the hub says what arrived, once. So the
     /// node posts a hub settlement as soon as the hub applied it, and only
     /// its notice waits behind other methods' messages to the peer
     /// (spec/areas/hubs.md#in-the-node). The node's tests take their
@@ -1323,10 +1323,11 @@ impl HubScheme {
         let id = Name::hex(&bytes, false);
         account.prepare(id, operation)?;
         self.settling.insert(id, Settling { peer, drops });
+        // A bare notice: the hub says what arrived.
         Ok(PreparedSettlement {
             id,
             amount: drops * UNITS_PER_DROP,
-            message: bytes.to_vec(),
+            message: Vec::new(),
         })
     }
 
@@ -1615,10 +1616,6 @@ impl SettlementScheme for HubScheme {
         }
     }
 
-    fn settlement_message(&self, settlement: Name) -> Vec<u8> {
-        super::state::hex_bytes(settlement.as_str()).unwrap_or_default()
-    }
-
     fn execute_settlement(
         &mut self,
         asset: Option<&mut dyn ExternalAsset>,
@@ -1671,20 +1668,20 @@ impl SettlementScheme for HubScheme {
         Self::BOOKS_MESSAGES
     }
 
-    /// The message books nothing: the hub says what arrived, once.
+    /// A bare notice, taken whatever it states or carries: it books
+    /// nothing, since the hub says what arrived, once. Refused, the peer
+    /// would send it again for ever, and the channel, which carries one
+    /// settlement at a time, would never carry another
+    /// (spec/areas/settlement.md#incoming-settlements).
     fn handle_settlement(
         &mut self,
         _peer: Name,
         _amount: u64,
-        data: &[u8],
+        _data: &[u8],
         _peer_state: &[u8],
         _effects: &mut Vec<Effect>,
     ) -> Result<(), SchemeError> {
-        if data.len() == 16 {
-            Ok(())
-        } else {
-            Err(SchemeError::InvalidData)
-        }
+        Ok(())
     }
 
     fn deposit(&mut self, _amount: u64, _effects: &mut Vec<Effect>) -> Result<(), SchemeError> {

@@ -135,24 +135,6 @@ pub(super) fn fingerprint(state: &[u8]) -> u64 {
     })
 }
 
-/// The bytes a lowercase hex string spells.
-#[must_use]
-pub(super) fn hex_bytes(text: &str) -> Option<Vec<u8>> {
-    let digit = |byte: u8| match byte {
-        b'0'..=b'9' => Some(byte - b'0'),
-        b'a'..=b'f' => Some(byte - b'a' + 10),
-        _ => None,
-    };
-    let (pairs, rest) = text.as_bytes().as_chunks::<2>();
-    if !rest.is_empty() {
-        return None;
-    }
-    pairs
-        .iter()
-        .map(|[high, low]| Some(digit(*high)? << 4 | digit(*low)?))
-        .collect()
-}
-
 // The account.
 
 /// The account's state.
@@ -633,15 +615,6 @@ fn read_unread_pays(scheme: &mut HubScheme, reader: &mut Reader<'_>) -> Option<(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn hex_reads_what_names_write() {
-        let bytes = [0x01, 0xab, 0xff];
-        let name = Name::hex(&bytes, false);
-        assert_eq!(hex_bytes(name.as_str()), Some(bytes.to_vec()));
-        assert_eq!(hex_bytes("abc"), None);
-        assert_eq!(hex_bytes("AB"), None);
-    }
 
     #[test]
     fn a_count_past_the_input_is_refused() {

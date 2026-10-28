@@ -860,6 +860,10 @@ impl Core {
             prepared.amount,
             "a scheme settles in whole units of its ledger"
         );
+        assert!(
+            self.books_messages(at.scheme) || prepared.message.is_empty(),
+            "a bare notice carries no data"
+        );
         spec.amount = prepared.amount;
         spec.reference = Reference::Settlement {
             scheme: at.scheme,
@@ -1040,6 +1044,10 @@ impl Core {
             .get(&scheme)
             .map(|active| active.scheme.settlement_message(id))
             .unwrap_or_default();
+        assert!(
+            self.books_messages(scheme) || message.is_empty(),
+            "a bare notice carries no data"
+        );
         Some(Settling {
             peer: NodeId::parse(peer.as_str()).ok()?,
             transfer: transfer.id,

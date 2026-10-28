@@ -505,8 +505,12 @@ fn settlement_outcome(severity: Severity, event: &SettlementEvent) {
         SettlementEvent::SettlementBooked { from, amount } => {
             emit!(severity, target: target::SETTLEMENT, %from, amount, "a peer's settlement is booked");
         }
-        SettlementEvent::PeerSettlementRefused { from, error } => {
-            emit!(severity, target: target::SETTLEMENT, %from, %error, "a settlement was refused");
+        SettlementEvent::PeerSettlementRefused {
+            from,
+            scheme,
+            error,
+        } => {
+            emit!(severity, target: target::SETTLEMENT, %from, %scheme, %error, "a settlement was refused");
         }
         SettlementEvent::PeerSettlementUnbooked {
             from,
