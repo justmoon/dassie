@@ -39,7 +39,9 @@ use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
 
 use super::keys::{self, AnyNodeKey, Keys, PinnedServer, Present};
-use super::{CONNECT_TIMEOUT, Handler, Link, MAX_STREAMS, On, Quic, StreamKind, no_room, stand_by};
+use super::{
+    CONNECT_TIMEOUT, Handler, MAX_STREAMS, On, Quic, StreamKind, adopt, exchange, no_room,
+};
 use crate::log::target;
 use crate::node::lock;
 use crate::outbound::Resolver;
@@ -746,17 +748,36 @@ impl Quic {
     }
 
     /// Answers on the connection to the chosen relay, and uses it for
-    /// requests to the relay too: at once, unless another is open, and
-    /// otherwise once that one closes ([`stand_by`]). Returns once the
-    /// connection closes.
+    /// requests to the relay too: at once, unless another to the relay is
+    /// open; otherwise once it is verified, a request on it answered, the
+    /// relay's own link state, as any second connection to a node must be,
+    /// and then by the rule both nodes judge alike, which keeps it, the
+    /// newer of two we opened (spec/decisions/verified-connections.md).
+    /// Returns once the connection closes.
     async fn hold_relay(self: &Arc<Self>, relay: NodeId, connection: &Connection) {
         self.answer_on(connection);
         if let Some(place) = self.place(relay) {
-            let link = Link {
-                connection: connection.clone(),
-                ours: true,
+            let link = self.link(connection.clone(), true);
+            let free = {
+                let mut held = place.lock().await;
+                let free = held.as_ref().is_none_or(|kept| !kept.is_open());
+                if free {
+                    *held = Some(link.clone());
+                }
+                free
             };
-            stand_by(&place, link).await;
+            if !free {
+                let body = dassie_oer::Encode::to_vec(
+                    &dassie_peer::wire::Content::LinkStateRequest(vec![relay]),
+                );
+                let answered = tokio::time::timeout(CONNECT_TIMEOUT, exchange(connection, &body))
+                    .await
+                    .is_ok_and(|result| result.is_ok());
+                if answered {
+                    let lower = self.keys.current().is_some_and(|(own, _)| own < relay);
+                    adopt(&place, link, (lower, self.drain)).await;
+                }
+            }
         }
         let _ = connection.closed().await;
     }

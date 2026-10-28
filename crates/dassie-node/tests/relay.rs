@@ -136,7 +136,8 @@ fn side_with(
     let (identity, receiver) = watch::channel(Some(key));
     let mut quic = Quic::new(socket, receiver, true).unwrap();
     if let Some(idle) = idle {
-        quic = quic.with_idle_timeout(idle).unwrap();
+        // A connection that lost its place drains as briefly as one idles.
+        quic = quic.with_idle_timeout(idle).unwrap().with_drain(idle);
     }
     let quic = Arc::new(quic);
     let address = quic.local_addr().unwrap();
@@ -413,8 +414,11 @@ async fn a_relay_carries_a_bounded_number_of_streams_to_one_node() {
 }
 
 /// Connections to the relay come and go beside the one the node keeps
-/// open, both ways and whichever node ID is lower: the relay reaches the
-/// node all along, over the kept one once the others are gone.
+/// open, both ways and whichever node ID is lower: whichever survives,
+/// the relay reaches the node once the others are gone, a newer connection
+/// the node opened, or one the lower ID opened, taking the place once
+/// verified, and the node keeping one to its relay again if it lost its own
+/// (spec/decisions/verified-connections.md).
 async fn a_relay_reaches_its_node_beside_other_connections(relay_is_lower: bool) {
     let shutdown = CancellationToken::new();
     let idle = Duration::from_secs(1);
@@ -451,23 +455,21 @@ async fn a_relay_reaches_its_node_beside_other_connections(relay_is_lower: bool)
     let (_, relay_twin) = make(relay_seed);
     send(&node_twin, &relay).await;
     send(&relay_twin, &node).await;
-    // Only the kept connection is left, on both sides: the others, the
-    // client's to the relay too, went idle.
+    // The twins' connections go idle, and whichever lost its place closed
+    // after the drain: no connection is kept in case another fails. The
+    // node keeps one to its relay all the same, dialling again if it lost
+    // its own, and the relay reaches it over it.
     until(|| {
         node_twin.quic.open_connections() == 0
             && relay_twin.quic.open_connections() == 0
+            && node.quic.relay_link() == RelayLink::Connected
             && node.quic.open_connections() == 1
-            && relay.quic.open_connections() == 1
     })
     .await;
-    // The relay holds it.
-    let reached = from
-        .quic
-        .open_relayed(relay.relay(), node.id, Purpose::Payments, &client())
-        .await;
-    let mut stream = reached.expect("the relay lost the node's kept connection");
+    let mut stream = reach(&from, &relay, node.id, Purpose::Payments).await;
     assert_eq!(echo(&mut stream, b"two").await, b"two");
-    // The node holds it too, and sends over it rather than dialling again.
+    drop(stream);
+    // The node sends to the relay over it rather than dialling again.
     send(&node, &relay).await;
     assert_eq!(node.quic.open_connections(), 1);
     shutdown.cancel();

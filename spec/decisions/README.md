@@ -96,6 +96,7 @@ Each file records one choice between real alternatives: the facts that forced it
 | [token-hubs](token-hubs.md) | A hub may hold an issued token; its issuer's freeze pauses it, a clawback ends it, and its fees are paid in XRP anyone may send (partly built) | designs/settlement-hubs, xrpl, settlement |
 | [unreachable-peers](unreachable-peers.md) | A node takes no Prepare from a peer it cannot reach | connector, peer-protocol, settlement |
 | [unusable-limits](unusable-limits.md) | A limit no payment can use is caught before approval | payments, wallet |
+| [verified-connections](verified-connections.md) | A connection is adopted once verified, and the one it replaces closes | peer-protocol, node, network |
 | [verified-ledgers](verified-ledgers.md) | The node books only what ledgers its own UNL validated prove (design, not built) | designs/xrpl-validation, xrpl, designs/settlement-hubs |
 | [visual-identity](visual-identity.md) | Dassie's visual identity is Kopje: solid rocks, nimble dassies, first light | website |
 | [website-hosting](website-hosting.md) | dassie.land is a bucket behind the mirror's load balancer | website, release |
@@ -152,3 +153,4 @@ Decisions were once numbered, and commits, pull requests and issues still cite t
 | D39 | [places-by-proved-key](places-by-proved-key.md) |
 | D40 | [default-relay](default-relay.md) |
 | D41 | [unreachable-peers](unreachable-peers.md) |
+| D42 | [verified-connections](verified-connections.md) |

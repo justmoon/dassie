@@ -1,0 +1,32 @@
+# A connection is adopted once verified, and the one it replaces closes
+
+**Areas:** [Peer protocol](../areas/peer-protocol.md#quic), [Node](../areas/node.md#a-chosen-relay), [Network](../areas/network.md#registration).
+
+## Facts
+
+- Two nodes use one QUIC connection between them, both ways ([Peer protocol](../areas/peer-protocol.md#quic)). A second one comes up whenever a node dials while the other holds one: both dial at once, one restarts or loses its path and dials again, a node keeps a connection to its chosen relay beside a peering, or a node checks that another answers at its URL, which only a dial of the URL shows ([promotion-to-core](promotion-to-core.md)).
+- A connection whose handshake completed has carried packets both ways once, not a request and its answer: a path can let the handshake through and still fail what follows.
+- Each node decides on its own which connection it sends on. If the two decide differently, one sends on a connection the other closes, and requests on it fail.
+
+## Decision
+
+**A new connection to a node is adopted only once it is verified, and then one of the two survives, the same on both sides; the other closes. No connection is kept in case another fails.**
+
+- **Verified** is a request answered over it: one we sent and the node answered, for a connection we dialled, or one the node sent and we answered, for one it opened. A dial that fails, or whose request goes unanswered, changes nothing: the connection held stays.
+- **The first connection** to a node, with none held, is adopted at once: there is nothing to replace, and nothing to keep.
+- **Which survives,** of the one held and one verified: the one the lower node ID opened; of two the same node opened, the newer. Both nodes know who opened each and which came later on their side, so both judge alike and keep the same one.
+- **The other closes** once the requests already on it are done, at most a peer request's time later (`DRAIN` in `crates/dassie-node/src/quic/mod.rs`): what the other node sent on it before it switched still finishes.
+- **A connection kept open for its own sake,** a node's to its chosen relay, follows the same rule: it is verified by a request of its own, the relay's link state, and, the newer of two the node opened, survives. If it loses its place anyway, it closes, and the node dials its relay again.
+
+## Accepted
+
+- **A connection that dies after it was adopted is not replaced by one kept aside.** The nodes dial again, as they would after any loss, and requests in flight on it fail. Keeping a second connection open in case was what allowed two nodes to send on different ones.
+- **A brief gap for a relay.** A node whose relay connection loses its place to a newer one it opened, and which then idles out, is out of its relay's reach until it dials again, within its relay's backoff.
+- **A failed request on a new connection whose handshake succeeded** can leave the other node having switched to it already, if it answered and its answer was lost: it falls back to dialling once the connection closes.
+
+## Rejected
+
+- *A connection that stands by* and takes over once the one used closes: two connections open where one does, and a node that sends on the one the other keeps aside.
+- *Adopting a connection at its handshake:* a handshake proves less than a request answered, and a node would switch to a path that then fails its requests.
+- *A marker that tells a check's connection apart,* so that the other node never adopts it (a protocol version of its own in the ALPN): a new name on the surface that versions the protocol, which nodes of the release before do not know, for a case the rule settles anyway.
+- *The newest verified always wins:* two nodes that dial at once each verify their own first and keep different ones.
