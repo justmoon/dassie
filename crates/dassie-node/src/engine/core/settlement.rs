@@ -1245,6 +1245,9 @@ impl Core {
             .scheme
             .handle_settlement(name, amount, data, &state, &mut effects)
             .map_err(|error| refused(&error.to_string()))?;
+        // A bare notice states nothing that counts: whatever its amount
+        // says, it is taken as 0, as it books nothing.
+        let amount = if books { amount } else { 0 };
         self.report(SettlementEvent::PeerSettled { from, amount });
         self.apply_effects(scheme, ledger, &effects)
     }

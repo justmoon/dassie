@@ -208,8 +208,15 @@ impl Follower {
 /// still apply, and cancelling one that applied would pay the peer twice,
 /// over a hub as well. Any other is cancelled: one signed and never
 /// executed, which was never submitted and is given up now, one the account
-/// gave up as never sent, and one it does not know, whose outcome was lost
-/// with its state and is in the balance the next sync matches.
+/// gave up as never sent, and one it does not know. That last may have
+/// applied: one the scheme finalized while the node held its posting back
+/// behind an earlier message to the peer, and the node restarted first, is
+/// one the account no longer keeps. Cancelled, its transfer is voided
+/// although its Payment left the account, and the books hold more than the
+/// account. No scheme here signs a settlement any more, so only the
+/// database of a build from while the XRPL schemes peered can hold one;
+/// no release wrote one, and the store refuses the databases releases
+/// wrote then (spec/areas/node.md#database), so nothing looks it up.
 pub(crate) fn reconcile_pending(
     mut account: Option<&mut XrplAccount>,
     scheme: Name,

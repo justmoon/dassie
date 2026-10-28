@@ -147,6 +147,9 @@ impl Follow {
             Err(Unrestored::Network(network)) => {
                 tracing::warn!(target: target::HUB, %hub, network, "the XRPL verifier's kept lists and anchor are of another network; fetching and anchoring anew");
             }
+            Err(Unrestored::Publishers) => {
+                tracing::warn!(target: target::HUB, %hub, "the XRPL verifier's kept lists and anchor are of other publishers than it trusts now; fetching and anchoring anew");
+            }
             Err(Unrestored::Unread) => {
                 tracing::warn!(target: target::HUB, %hub, "the XRPL verifier's kept lists and anchor do not read; fetching and anchoring anew");
             }

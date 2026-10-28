@@ -168,9 +168,9 @@ struct Current {
 /// node may not have booked yet. Until it has, its holding still counts
 /// what the rebalance spent, and a decision from it would spend that
 /// again: below the node's band. It counts as booked once the node's
-/// holding fell by at least what it can have cost, so that a move of the
-/// node's own between hub and book, which lowers what the books say while
-/// it is on its way, is not taken for it unless it is as large.
+/// holding fell by at least what it can have cost and what the node's own
+/// move between hub and book has on its way, which lowers what the books
+/// say while it is, by up to its amount ([`Unbooked::booked`]).
 #[derive(Clone, Copy, Debug)]
 struct Unbooked {
     /// The node whose account paid.
@@ -182,6 +182,19 @@ struct Unbooked {
     /// When the market maker stops waiting: the rebalance never applied,
     /// or the node booked it as something else.
     until_ms: u64,
+}
+
+impl Unbooked {
+    /// Whether the node booked the rebalance, its holding now `total`
+    /// with `moving` of its own move on its way. That move may read short
+    /// by all of its amount, or by none of it yet, and may have been
+    /// on its way before too: so the fall counts for the rebalance only
+    /// past all of it. A move that was on its way before, and has landed
+    /// or still is, only holds the next decision back, at most until the
+    /// wait is over; one taken for the rebalance would have it spend again.
+    const fn booked(&self, total: u64, moving: u64) -> bool {
+        self.total.saturating_sub(total) >= self.least.saturating_add(moving)
+    }
 }
 
 /// The nodes' XRPL accounts' keys, derived from their passphrases.
@@ -335,19 +348,8 @@ impl MarketMaker {
                 return;
             }
         };
-        if let Some(unbooked) = self.unbooked {
-            let fell = unbooked
-                .total
-                .saturating_sub(holdings.of(unbooked.from).total);
-            let booked = fell >= unbooked.least;
-            if !booked && now_ms < unbooked.until_ms {
-                tracing::info!(
-                    target: TARGET, from = unbooked.from.name(), ?holdings,
-                    "hold: the node has not booked the last rebalance yet"
-                );
-                return;
-            }
-            self.unbooked = None;
+        if self.awaits_booking(now_ms, &holdings).await {
+            return;
         }
         // A rebalance needs no target, so peers it cannot read only keep it
         // from trading: every target counts as not peered this tick.
@@ -387,6 +389,42 @@ impl MarketMaker {
                 }
             }
             Decision::Rebalance(rebalance) => self.rebalance(&rebalance, &holdings).await,
+        }
+    }
+
+    /// Whether the last rebalance still waits for its node to book it, at
+    /// `now_ms` with `holdings`: nothing is decided meanwhile. Once booked,
+    /// or once the wait is over, it waits no more.
+    async fn awaits_booking(&mut self, now_ms: u64, holdings: &Holdings) -> bool {
+        let Some(unbooked) = self.unbooked else {
+            return false;
+        };
+        // A move that cannot be read counts as one too large to pass by:
+        // the rebalance waits, at most until the wait is over.
+        let moving = match self.node(unbooked.from).moving().await {
+            Ok(moving) => moving,
+            Err(problem) => {
+                tracing::warn!(target: TARGET, %problem, "cannot read a node's move on its way");
+                u64::MAX
+            }
+        };
+        let booked = unbooked.booked(holdings.of(unbooked.from).total, moving);
+        if !booked && now_ms < unbooked.until_ms {
+            tracing::info!(
+                target: TARGET, from = unbooked.from.name(), ?holdings, moving,
+                "hold: the node has not booked the last rebalance yet"
+            );
+            return true;
+        }
+        self.unbooked = None;
+        false
+    }
+
+    /// The node of `side`.
+    const fn node(&mut self, side: Side) -> &mut Node {
+        match side {
+            Side::Xrp => &mut self.xrp,
+            Side::Token => &mut self.token,
         }
     }
 
@@ -564,6 +602,31 @@ mod tests {
 
     use super::*;
     use crate::market_maker::strategy::Holding;
+
+    // spec/areas/rate-feed.md#bands: a rebalance counts as booked once
+    // the paying node's holding fell by the least it can have cost, and by
+    // whatever the node's own move between hub and book has on its way
+    // besides, which lowers the holding by up to its amount: a withdrawal
+    // from the hub that the book has not seen arrive never passes for it.
+    #[test]
+    fn a_move_on_its_way_never_passes_for_a_rebalance() {
+        let unbooked = Unbooked {
+            from: Side::Xrp,
+            total: 1_000,
+            least: 100,
+            until_ms: 0,
+        };
+        // Nothing fell, nothing on its way: not yet.
+        assert!(!unbooked.booked(1_000, 0));
+        // The node's own withdrawal of 150 executed, not yet in the book:
+        // the holding reads 150 short, and the rebalance is not booked.
+        assert!(!unbooked.booked(850, 150));
+        // Booked, the move still on its way: its fall and the move's.
+        assert!(unbooked.booked(750, 150));
+        // The move landed: the rebalance's fall alone.
+        assert!(unbooked.booked(900, 0));
+        assert!(!unbooked.booked(901, 0));
+    }
 
     #[test]
     fn each_node_runs_its_asset_on_the_account_its_passphrase_opens() {

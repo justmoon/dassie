@@ -14,8 +14,10 @@
 //!   and what we fulfilled that no claim of the payer's covers, and its
 //!   `pay`s whose outcome it never read. Packets in flight at a restart are
 //!   gone with the node's own: one of ours counts as given up, one of the
-//!   peer's as never taken. Its version 1 had no unread `pay`s, and is read
-//!   as having none.
+//!   peer's as never taken. It keeps too whether the hub is shutting down,
+//!   as an operation that failed for it said, since a hub never runs again
+//!   after. Its version 1 had no unread `pay`s, and is read as having none;
+//!   its versions 1 and 2 had no shutdown, and are read as knowing of none.
 
 use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
@@ -37,8 +39,9 @@ use crate::promise::{Claim, Commitment, HoldNumber, Signed};
 /// The account's state's version: 2 keeps the issuer's hold, and when
 /// each hold's reduction was made.
 const VERSION: u8 = 2;
-/// The scheme's state's version: 2 keeps its unread `pay`s.
-const SCHEME_VERSION: u8 = 2;
+/// The scheme's state's version: 2 keeps its unread `pay`s, 3 whether the
+/// hub is shutting down.
+const SCHEME_VERSION: u8 = 3;
 
 /// Bytes being written.
 struct Out(Vec<u8>);
@@ -380,6 +383,7 @@ pub(super) fn scheme_state(scheme: &HubScheme) -> Vec<u8> {
         write_key_to(&mut out, &unread.key);
         out.u64(unread.height);
     }
+    out.bool(scheme.shut_down);
     out.0
 }
 
@@ -530,7 +534,7 @@ fn read_payee(reader: &mut Reader<'_>) -> Option<Payee> {
 pub(super) fn restore_scheme(scheme: &mut HubScheme, state: &[u8]) -> Option<()> {
     let mut reader = Reader::new(state);
     let version = reader.read_u8().ok()?;
-    if version != 1 && version != SCHEME_VERSION {
+    if !(1..=SCHEME_VERSION).contains(&version) {
         return None;
     }
     scheme.synced = reader.read_bool().ok()?;
@@ -587,6 +591,9 @@ pub(super) fn restore_scheme(scheme: &mut HubScheme, state: &[u8]) -> Option<()>
     scheme.booked_ahead = reader.read_u64().ok()?;
     if version >= 2 {
         read_unread_pays(scheme, &mut reader)?;
+    }
+    if version >= 3 {
+        scheme.shut_down = reader.read_bool().ok()?;
     }
     reader.finish().ok()?;
     Some(())
