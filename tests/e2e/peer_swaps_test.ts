@@ -53,13 +53,19 @@ const MINT = { d1: 437n, d2: 517n };
 const SPREAD_PPM = 5_000;
 /**
  * The most either gains, in parts per million, on a swap at the top of
- * the other's book once they stopped: below the spread they started
- * beyond, above a node's own costs over these hubs and the first drop of
- * a snapshot's grid both ways.
+ * the other's book once they stopped. A node swaps while what the other's
+ * snapshot promises, valued at its own curve, clears one plus its costs
+ * (spec/areas/connector.md#the-swap-service); the top of the book promises
+ * a little more than any step of the walk, the grid's first drop on each
+ * ladder, and a node's own bids, spread and all, value the two assets as
+ * its curve does, the spread folded into both. So once they stopped, the
+ * gain here is at most a node's costs over these hubs, a fee per largest
+ * packet, and those two drops: well below this, and this below the gain
+ * the skew starts them at.
  */
 const QUIET_PPM = 2_000n;
 /** How long they may take to swap until neither gains. */
-const RUN_MS = 300_000;
+const RUN_MS = 480_000;
 /** Clear of every other file's ports (`PORT_OFFSETS`, which ports_test.ts checks). */
 const PORT_OFFSET = PORT_OFFSETS["peer_swaps_test.ts"];
 
@@ -143,11 +149,15 @@ test(
       };
       const status = (node: ScenarioNode) => node.rpc.call("getSwapStatus", {});
       // They stopped once neither sent a swap since a moment when nothing
-      // was in flight, and each has since been pushed a snapshot of the
+      // was pending, and each has since been pushed a snapshot of the
       // other made after that moment: each decided again on the other's
-      // quotes as they are after every swap, and sent nothing. A node looks
-      // at a new snapshot in the step that takes it, which the owner's
-      // calls wait for.
+      // quotes as they are after every swap, and sent nothing. Pending is
+      // a swap in flight, a peer backed off from (T04, T05 and the like),
+      // or one waiting for its next snapshot after a refusal or a swap that
+      // came back short: each of those only defers the next decision, and
+      // under load a backoff grows to half a minute. A node looks at a new
+      // snapshot in the step that takes it, which the owner's calls wait
+      // for.
       let calm: { sent: [bigint, bigint]; at: number } | undefined;
       let last: unknown;
       await scenario.until(
@@ -162,7 +172,10 @@ test(
           const now = await gains();
           last = { now, d1: one, d2: two, calm };
           const sent: [bigint, bigint] = [one.sent, two.sent];
-          const idle = one.inFlight === 0n && two.inFlight === 0n;
+          const idle = [one, two].every((swaps) =>
+            swaps.inFlight === 0n && swaps.backingOff === 0n &&
+            swaps.waitingForSnapshot === 0n
+          );
           if (!idle || !calm || calm.sent.some((n, i) => n !== sent[i])) {
             calm = idle ? { sent, at } : undefined;
             return false;
@@ -184,9 +197,9 @@ test(
       for (const node of [d1, d2]) {
         assert((await status(node)).byItself, `${node.name} swaps by itself`);
       }
-      // Neither's quotes clear the other's costs: at the top of each book,
-      // valued at the other's own quotes, no swap gains more than a node's
-      // costs, well below the spread they started beyond.
+      // Neither's quotes clear the other's costs: at the top of the other's
+      // book, valued at the swapping node's own curve, no swap gains more
+      // than its costs, well below the spread they started beyond.
       const end = await gains();
       assert(end, "each holds the other's snapshot");
       for (const [way, gain] of Object.entries(end)) {

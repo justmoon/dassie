@@ -147,6 +147,12 @@ pub struct SwapStats {
     pub peers: u64,
     /// Swaps in flight, its own and the owner's.
     pub in_flight: u64,
+    /// Peers it backs off from now: it sends them nothing until the
+    /// backoff ends, and then looks at them again.
+    pub backing_off: u64,
+    /// Peers it sends nothing until their snapshot changes, since they
+    /// refused a swap or one came back below its minimum.
+    pub waiting_for_snapshot: u64,
     /// Swaps sent.
     pub sent: u64,
     /// Swaps the peer fulfilled.
@@ -412,6 +418,10 @@ impl Core {
             .filter(|peer| peer.pushed)
             .count() as u64;
         stats.in_flight = self.swapping.sent.len() as u64;
+        let now = self.now_ms();
+        let peers = self.swapping.peers.values();
+        stats.backing_off = peers.clone().filter(|peer| peer.until_ms > now).count() as u64;
+        stats.waiting_for_snapshot = peers.filter(|peer| peer.stopped.is_some()).count() as u64;
         stats.dropped = self.swaps.dropped();
         stats
     }

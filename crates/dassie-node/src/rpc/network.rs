@@ -253,6 +253,8 @@ fn swap_status(stats: SwapStats) -> proto::GetSwapStatusResponse {
         by_itself: stats.by_itself,
         peers: stats.peers,
         in_flight: stats.in_flight,
+        backing_off: stats.backing_off,
+        waiting_for_snapshot: stats.waiting_for_snapshot,
         sent: stats.sent,
         fulfilled: stats.fulfilled,
         rejected: stats.rejected,

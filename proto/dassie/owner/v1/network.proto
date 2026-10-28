@@ -322,6 +322,12 @@ message GetSwapStatusResponse {
   uint64 dropped = 12;
   // By ledger.
   repeated SwapsMoved moved = 13;
+  // Peers it backs off from now: it sends them nothing until the backoff
+  // ends, and then looks at them again.
+  uint64 backing_off = 14;
+  // Peers it sends nothing until their snapshot changes, since they
+  // refused a swap or one came back below its minimum.
+  uint64 waiting_for_snapshot = 15;
 }
 
 // Swaps with a peer for the owner, as the node's own swaps go: from one
