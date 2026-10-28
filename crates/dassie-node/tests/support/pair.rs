@@ -46,6 +46,17 @@ pub fn bootstrap(node: &IdentityKey, port: u16) -> String {
     format!("[{entry}]")
 }
 
+/// `DASSIE_BOOTSTRAP_NODES` naming each node of `nodes` at its port.
+pub fn bootstrap_all(nodes: &[(IdentityKey, u16)]) -> String {
+    let entries: Vec<String> = nodes
+        .iter()
+        .map(|(node, port)| {
+            dassie_node::front_door::key::relay_entry(node, &format!("https://localhost:{port}"))
+        })
+        .collect();
+    format!("[{}]", entries.join(","))
+}
+
 /// Sets a node up as a peer: owner, hostname, certificate, and the stub
 /// with unlimited trust, for a test whose subject is not settlement.
 pub async fn prepare(node: &TestNode, key: &IdentityKey) {

@@ -11,6 +11,7 @@
 )]
 
 pub mod btp_client;
+pub mod hubs;
 pub mod op;
 pub mod pair;
 pub mod rates;
