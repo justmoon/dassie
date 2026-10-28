@@ -1,6 +1,6 @@
-# Kopje's rocks are granite: gray blocks with hard edges, stacked, bigger than the dassies, and the brand page says why (not drawn yet)
+# Kopje's rocks are granite: gray blocks with hard edges, stacked, bigger than the dassies, and the brand page says why
 
-**Areas:** [Website](../areas/website.md). Not drawn yet ([roadmap](../roadmap.md#kopje-across-dassie)): on `main`, the scenes' rocks are Terracotta, as [visual-identity](visual-identity.md) has them.
+**Areas:** [Website](../areas/website.md).
 
 ## Facts
 
