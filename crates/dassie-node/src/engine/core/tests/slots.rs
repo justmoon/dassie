@@ -252,7 +252,7 @@ fn a_pair_on_two_methods_carries_packets_on_both_without_converting() {
 // method over the other hub, which has room.
 #[test]
 fn a_method_short_of_room_answers_t04_and_moves_no_packet() {
-    let mut sim = line(52, false);
+    let mut sim = line(53, false);
     let two = key(2).node_id();
     // Spent, as a node whose settlements on it keep failing: the hold has
     // no room left, and is never funded again.
@@ -587,7 +587,7 @@ fn held_if_run(
 fn a_scheme_removed_runs_until_its_dropped_methods_packets_are_claimed() {
     // A seed whose run has the payment fulfilled once the cut heals: in
     // others it expires first, which this test is not about.
-    let mut sim = line(52, false);
+    let mut sim = line(53, false);
     let (zero, one, two) = (key(0).node_id(), key(1).node_id(), key(2).node_id());
     sim.cut.insert((2, 1));
     pay(&mut sim, (0, USD), (2, USD), 1_000_000, 1_000_000);

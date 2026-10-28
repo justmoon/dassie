@@ -820,3 +820,68 @@ fn a_registration_whose_url_fails_ends() {
     settle(&mut network, failing + 2 * bucket);
     assert!(registered(&network, 2), "and stays registered");
 }
+
+// spec/areas/network.md#registration: a bootstrap node registers a node
+// only once its URL answers over HTTPS too, with a certificate a public
+// authority issued, as an uplink checks it: one whose URL answers over QUIC
+// alone is refused, at its first registration and again once a failing URL
+// ended it, and is registered once its HTTPS answers.
+#[test]
+fn a_registration_needs_its_url_to_answer_over_https() {
+    let mut network = Network::new(43, 2, 1, Config::DEV);
+    network.https_fails.insert(1);
+    settle(&mut network, 120_000);
+    let id = *network.node(1).own();
+    let registered = |network: &Network| {
+        network
+            .node(0)
+            .nodes()
+            .into_iter()
+            .find(|view| view.id == id)
+            .and_then(|view| view.registered_until_ms)
+            .is_some()
+    };
+    assert!(!registered(&network), "its HTTPS fails: refused");
+    assert!(!network.node(1).registration_status()[0].listed);
+    network.https_fails.clear();
+    let start = network.now;
+    while !registered(&network) {
+        settle(&mut network, 10_000);
+        assert!(
+            network.now < start + 2 * Config::DEV.max_backoff_ms,
+            "registered once its HTTPS answers"
+        );
+    }
+}
+
+// spec/areas/network.md#registration: a registration waits for the check
+// of its URL over HTTPS only so long: one that never comes back, as when
+// the bootstrap node's client has no place for it, is refused for now, and
+// the node is registered once the checks come back again.
+#[test]
+fn a_registration_whose_https_check_never_returns_is_refused_for_now() {
+    let mut network = Network::new(44, 2, 1, Config::DEV);
+    network.https_silent.insert(0);
+    settle(&mut network, 60_000);
+    let id = *network.node(1).own();
+    let registered = |network: &Network| {
+        network
+            .node(0)
+            .nodes()
+            .into_iter()
+            .find(|view| view.id == id)
+            .and_then(|view| view.registered_until_ms)
+            .is_some()
+    };
+    assert!(!registered(&network), "not checked, not registered");
+    network.node(0).check_invariants();
+    network.https_silent.clear();
+    let start = network.now;
+    while !registered(&network) {
+        settle(&mut network, 10_000);
+        assert!(
+            network.now < start + 2 * Config::DEV.max_backoff_ms,
+            "registered once checked"
+        );
+    }
+}

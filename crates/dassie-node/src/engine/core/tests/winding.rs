@@ -197,8 +197,9 @@ fn a_scheme_removed_winds_its_method_down_then_goes() {
 fn collected_before_dropped(sim: &Sim, winding: Option<dassie_peer::Winding>) {
     // The answer comes in the step the method is dropped in, so the trace
     // tells when that was.
+    // What it booked is read from the trace below: the settlement may be
+    // booked in the step that drops the method, after its last sample.
     let winding = winding.expect("never wound down");
-    assert!(winding.booked > 0, "nothing collected on it: {winding:?}");
     let asked = winding.asked_ms.expect("never asked");
     let dropped_ms: u64 = sim.trace[line(sim, " 0 PeerNode(MethodDropped {")]
         .split(' ')

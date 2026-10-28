@@ -348,6 +348,11 @@ pub struct PeerNode {
     pub(crate) answers: Vec<(u64, Answer)>,
     /// Probes in flight: the node and the host probed.
     pub(crate) probing: Vec<(NodeId, Endpoint)>,
+    /// Registrations whose URL answered the probe, waiting on its check
+    /// over HTTPS ([`Event::CheckHttps`]), each with the URL and until
+    /// when it waits: deferred requests, so bounded as those are
+    /// (spec/areas/network.md#registration).
+    pub(crate) registering: Vec<(Box<inbound::Probe>, String, u64)>,
     pub(crate) probes: Bucket,
     /// Our checks of candidates' URLs (spec/decisions/promotion-to-core.md),
     /// apart from the probes inbound requests wait on, so that they never
@@ -471,6 +476,7 @@ impl PeerNode {
             deferred: 0,
             answers: Vec::new(),
             probing: Vec::new(),
+            registering: Vec::new(),
             probes: Bucket::full(config.probe_rate, now_ms),
             url_checks: Bucket::full(promotion::url_check_rate(&config), now_ms),
             url_checking: Vec::new(),
@@ -987,6 +993,7 @@ impl PeerNode {
     pub fn handle_timeout(&mut self, now_ms: u64, hooks: &mut dyn crate::hooks::PeeringHooks) {
         self.advance(now_ms);
         self.expire_requests(hooks);
+        self.expire_registering();
         self.retry_answers();
         self.retry_settlements();
         // Before the review, which judges each peer as its kind.
@@ -1020,6 +1027,7 @@ impl PeerNode {
             self.peering.next_due(self.next_peer_check()),
             self.next_review(),
             self.next_maintenance(),
+            self.registering.iter().map(|(_, _, until)| *until).min(),
             self.answers.iter().map(|(at, _)| *at).min(),
             self.next_settlement_retry(),
             self.registrar.as_ref().and_then(Registrar::next_due),

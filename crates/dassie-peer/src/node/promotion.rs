@@ -219,6 +219,9 @@ impl PeerNode {
     /// `answered`. An answer for a URL it no longer has says nothing.
     pub fn https_checked(&mut self, now_ms: u64, peer: &NodeId, url: &str, answered: bool) {
         self.advance(now_ms);
+        if self.https_for_registration(peer, url, answered) {
+            return;
+        }
         let Some(entry) = self.table.get_mut(peer) else {
             return;
         };
