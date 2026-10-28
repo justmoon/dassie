@@ -453,10 +453,11 @@ impl Core {
     }
 
     /// Raises every peer's credit on `ledger`, a scheme's with unlimited
-    /// trust, to the unlimited credit: a peering stored from when the stub
-    /// without a config settled, and kept a finite credit, would otherwise
-    /// run short, as a new one never does
-    /// (spec/areas/settlement.md#the-stub-scheme).
+    /// trust, to the unlimited credit. The stub books one ledger with
+    /// commitments or without: a peer's accounts kept from an earlier
+    /// peering over the stub with commitments hold the credit its hold
+    /// gave, which a peering takes again, and would run short, as a new one
+    /// never does (spec/areas/settlement.md#the-stub-scheme).
     // Panics only on a broken invariant: a peer's trust account has its
     // `assets/interledger` beside it, which takes any credit up to the
     // unlimited one.
